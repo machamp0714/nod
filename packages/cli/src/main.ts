@@ -1,21 +1,33 @@
 #!/usr/bin/env bun
 import { Command, CommanderError } from "commander";
+import pkg from "../package.json";
+import { registerHumanCommands } from "./commands/human";
 import { registerIssueCommands } from "./commands/issue";
+import { registerProjectCommands } from "./commands/project";
+import { registerSkillsCommands } from "./commands/skills";
+import { registerWorkspaceCommands } from "./commands/workspace";
 import { printError } from "./output";
 
 export function buildProgram(): Command {
   const program = new Command("nod")
     .description("LLM が作業し、人が判断するための Issue 管理")
+    .version(pkg.version)
     .option("-w, --workspace <keyOrPath>", "Workspace のキーかパス（省略時は現在のディレクトリの git リポジトリ）")
     .option("--json", "JSON で出力する")
     .exitOverride()
     .showHelpAfterError();
   registerIssueCommands(program);
+  registerProjectCommands(program);
+  registerHumanCommands(program);
+  registerWorkspaceCommands(program);
+  registerSkillsCommands(program);
   return program;
 }
 
 export async function run(argv: string[]): Promise<number> {
-  const json = argv.includes("--json");
+  // -- の後ろは位置引数なので、--json の検出はその前だけを見る
+  const sep = argv.indexOf("--");
+  const json = (sep === -1 ? argv : argv.slice(0, sep)).includes("--json");
   try {
     await buildProgram().parseAsync(argv);
     return 0;

@@ -1,0 +1,105 @@
+import {
+  acceptTriage,
+  answerQuestion,
+  approveReview,
+  declineTriage,
+  duplicateTriage,
+  getInbox,
+  rejectReview,
+  snoozeTriage,
+} from "@nod/core";
+import type { Command } from "commander";
+import { act } from "../context";
+import { formatIssueLine, print } from "../output";
+
+export function registerHumanCommands(program: Command): void {
+  program
+    .command("inbox")
+    .description("全 Workspace の確認依頼とレビュー待ちを一覧する")
+    .action(
+      act((cli) => {
+        const inbox = getInbox(cli.db);
+        print(cli, inbox, () =>
+          [
+            `確認依頼（${inbox.questions.length}）`,
+            ...inbox.questions.map(
+              (q) =>
+                `  ${q.issueId}  ${q.issueTitle}\n    Q: ${q.question}（${q.askedBy}）${q.worktree ? `\n    実行場所: ${q.branch ?? "(detached)"}  ${q.worktree}` : ""}`,
+            ),
+            "",
+            `レビュー待ち（${inbox.reviews.length}）`,
+            ...inbox.reviews.map((i) => `  ${formatIssueLine(i)}${i.prUrl ? `  ${i.prUrl}` : ""}`),
+          ].join("\n"),
+        );
+      }),
+    );
+
+  program
+    .command("answer <id> <text>")
+    .description("Issue の未回答の確認依頼に回答する")
+    .action(
+      act((cli, _cmd, id: string, text: string) => {
+        const r = answerQuestion(cli.ctx, id, text);
+        print(cli, r, () => `回答しました（${r.answered.length} 件）: ${formatIssueLine(r.issue)}`);
+      }),
+    );
+
+  const triage = program.command("triage").description("Triage の Issue を判断する");
+  triage
+    .command("accept <id>")
+    .description("受け入れて Todo にする")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const issue = acceptTriage(cli.ctx, id);
+        print(cli, issue, () => `受け入れました: ${formatIssueLine(issue)}`);
+      }),
+    );
+  triage
+    .command("decline <id>")
+    .description("却下する（Canceled にする）")
+    .option("--reason <text>", "理由")
+    .action(
+      act((cli, _cmd, id: string, o: { reason?: string }) => {
+        const issue = declineTriage(cli.ctx, id, o.reason);
+        print(cli, issue, () => `却下しました: ${formatIssueLine(issue)}`);
+      }),
+    );
+  triage
+    .command("duplicate <id> <originalId>")
+    .description("既存の Issue の重複として Canceled にする")
+    .action(
+      act((cli, _cmd, id: string, originalId: string) => {
+        const issue = duplicateTriage(cli.ctx, id, originalId);
+        print(cli, issue, () => `${originalId} の重複にしました: ${formatIssueLine(issue)}`);
+      }),
+    );
+  triage
+    .command("snooze <id> <until>")
+    .description("指定した日時まで後回しにする（例: 2026-10-01、2026-10-01T09:00:00+09:00）")
+    .action(
+      act((cli, _cmd, id: string, until: string) => {
+        const issue = snoozeTriage(cli.ctx, id, until);
+        print(cli, issue, () => `${issue.snoozedUntil} まで後回しにしました: ${formatIssueLine(issue)}`);
+      }),
+    );
+
+  const review = program.command("review").description("In Review の Issue を判断する");
+  review
+    .command("approve <id>")
+    .description("承認して Done にする")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const issue = approveReview(cli.ctx, id);
+        print(cli, issue, () => `承認しました: ${formatIssueLine(issue)}`);
+      }),
+    );
+  review
+    .command("reject <id> <text>")
+    .description("差し戻しの理由を残して In Progress に戻す")
+    .action(
+      act((cli, _cmd, id: string, text: string) => {
+        const issue = rejectReview(cli.ctx, id, text);
+        print(cli, issue, () => `差し戻しました: ${formatIssueLine(issue)}`);
+      }),
+    );
+}

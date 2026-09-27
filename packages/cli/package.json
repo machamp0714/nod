@@ -1,5 +1,6 @@
 {
   "name": "@nod/cli",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": { "nod": "src/main.ts" },
