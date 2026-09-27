@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
-import { NodError } from "@nod/core";
+import { HUMAN_ACTOR, NodError, type OpCtx } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
+import { registerIssueOps } from "./routes/issue-ops";
 
 export interface AppOptions {
   db: Database;
@@ -20,6 +21,8 @@ export function createApp(opts: AppOptions): Hono {
   app.notFound((c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
 
   registerReadRoutes(app, opts.db);
+  const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
+  registerIssueOps(app, me);
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
   return app;
