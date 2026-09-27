@@ -136,8 +136,10 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           />
           <Button
             variant="primary"
-            disabled={busy || value === ""}
-            onClick={() => decision.mutate({ op: "snooze", issueId: issue.id, until: value })}
+            disabled={busy || value < tomorrow()}
+            onClick={() => {
+              if (value >= tomorrow()) decision.mutate({ op: "snooze", issueId: issue.id, until: value });
+            }}
           >
             後回しにする
           </Button>

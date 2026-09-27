@@ -79,6 +79,23 @@ test("Snooze の期限の前は出さず、期限を過ぎた Issue は再び出
   await expect(list(page).getByRole("link")).toContainText("期限を過ぎた Issue");
 });
 
+test("後回しの期限を手入力しても今日や過去の日付では送信できない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.triageIssue("ログのタイムゾーンを UTC に統一");
+  await page.goto("/triage");
+  await detail(page).getByRole("button", { name: "後回し", exact: true }).click();
+  await expect(detail(page).getByRole("button", { name: "後回しにする" })).toBeEnabled();
+  await detail(page).getByLabel("後回しの期限").fill("2000-01-01");
+  await expect(detail(page).getByRole("button", { name: "後回しにする" })).toBeDisabled();
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  await detail(page).getByLabel("後回しの期限").fill(today);
+  await expect(detail(page).getByRole("button", { name: "後回しにする" })).toBeDisabled();
+  expect((await api.show(i.id)).snoozedUntil).toBeNull();
+  await detail(page).getByLabel("後回しの期限").fill("2999-01-01");
+  await expect(detail(page).getByRole("button", { name: "後回しにする" })).toBeEnabled();
+});
+
 test("やめるで入力欄を閉じる", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   await api.triageIssue("検索結果のページングが 1 件ずれる");

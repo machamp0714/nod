@@ -26,7 +26,7 @@ test("LLM の確認依頼を Issue ごとに新しい順に並べ、実行場所
   await expect(page).toHaveURL(new RegExp(`selected=${a.id}`));
   await expect(asks(page)).toHaveCount(1);
   await expect(asks(page).getByText("複合インデックスにしてよいですか？")).toBeVisible();
-  await expect(detail(page).getByText("私が残した未決事項")).toHaveCount(0);
+  await expect(asks(page).getByText("私が残した未決事項")).toHaveCount(0);
 });
 
 test("Inbox で回答すると DB に記録され、一覧から消える", async ({ page, nod }) => {
