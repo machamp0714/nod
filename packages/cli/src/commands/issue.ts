@@ -1,4 +1,5 @@
 import {
+  type AskResult,
   askQuestion,
   attachDocument,
   commentIssue,
@@ -227,14 +228,15 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("ask <id> <question>")
-    .description("人に確認を依頼し、回答があるまでこの Issue を止める")
+    .description("確認を依頼する。作業中なら回答まで作業を止め、着手前なら Needs Clarification にする")
     .action(
       actAsync(async (cli, _cmd, id: string, question: string) => {
         const r = askQuestion(cli.ctx, id, question);
-        await notifyIfLlm(cli, { comment: `入力待ち: ${question}` });
-        print(cli, r, () =>
-          r.created ? "確認を依頼しました。回答があるまで、この Issue の作業を止めてください" : "同じ確認依頼がすでにあります",
-        );
+        // 入力待ちのカード表示は、LLM が作業を止めたときだけにする（私が未決事項を足しても変えない）
+        if (isLlm(cli.ctx) && r.issue.agentState === "awaiting_input") {
+          await notifyOrca({ comment: `入力待ち: ${question}` });
+        }
+        print(cli, r, () => askMessage(r, isLlm(cli.ctx)));
       }),
     );
 
@@ -287,4 +289,15 @@ export function registerIssueCommands(program: Command): void {
         print(cli, { removed: path }, () => `添付を外しました: ${path}`);
       }),
     );
+}
+
+function askMessage(r: AskResult, llm: boolean): string {
+  if (!r.created) return "同じ確認依頼がすでにあります";
+  if (r.issue.status === "needs_clarification") {
+    return `未決事項を足しました。すべて回答されるまで ${r.issue.id} は Needs Clarification です`;
+  }
+  if (llm && r.issue.agentState === "awaiting_input") {
+    return "確認を依頼しました。回答があるまで、この Issue の作業を止めてください";
+  }
+  return "確認依頼を足しました";
 }

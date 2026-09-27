@@ -1,3 +1,4 @@
+import { parsePositiveInt } from "../args";
 import {
   acceptTriage,
   answerQuestion,
@@ -15,7 +16,7 @@ import { formatIssueLine, print } from "../output";
 export function registerHumanCommands(program: Command): void {
   program
     .command("inbox")
-    .description("全 Workspace の確認依頼とレビュー待ちを一覧する")
+    .description("全 Workspace の LLM からの確認依頼とレビュー待ちを一覧する")
     .action(
       act((cli) => {
         const inbox = getInbox(cli.db);
@@ -36,10 +37,13 @@ export function registerHumanCommands(program: Command): void {
 
   program
     .command("answer <id> <text>")
-    .description("Issue の未回答の確認依頼に回答する")
+    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する")
+    .option("--question <questionId>", "回答する質問の id（nod issue show の未決事項の #番号）")
     .action(
-      act((cli, _cmd, id: string, text: string) => {
-        const r = answerQuestion(cli.ctx, id, text);
+      act((cli, _cmd, id: string, text: string, o: { question?: string }) => {
+        const r = answerQuestion(cli.ctx, id, text, {
+          questionId: o.question === undefined ? undefined : parsePositiveInt(o.question, "質問の id"),
+        });
         print(cli, r, () => `回答しました（${r.answered.length} 件）: ${formatIssueLine(r.issue)}`);
       }),
     );

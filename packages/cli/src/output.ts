@@ -77,8 +77,17 @@ export function formatIssueDetail(d: IssueDetail): string {
   if (d.documents.length) {
     lines.push("", "Documents:", ...d.documents.map((doc) => `  - ${doc.title}（${doc.kind}）${doc.path}`));
   }
-  if (d.openQuestions.length) {
-    lines.push("", "未回答の確認依頼:", ...d.openQuestions.map((q) => `  - ${q.question}（${q.askedBy}）`));
+  if (d.questions.length) {
+    const decided = d.questions.filter((q) => q.answer !== null).length;
+    lines.push(
+      "",
+      `未決事項（${decided} / ${d.questions.length}）:`,
+      ...d.questions.map((q) =>
+        q.answer === null
+          ? `  #${q.id} [ ] ${q.question}（${q.askedBy}）`
+          : `  #${q.id} [x] ${q.question}（${q.askedBy}）\n      → ${q.answeredBy}: ${q.answer}`,
+      ),
+    );
   }
   if (d.children.length) lines.push("", "Sub-issue:", ...d.children.map((c) => `  ${formatIssueLine(c)}`));
   const relations: [string, string[]][] = [

@@ -39,3 +39,10 @@ export function orNull(value: string | undefined): string | null | undefined {
   if (value === undefined) return undefined;
   return value === "" ? null : value;
 }
+
+export function parsePositiveInt(value: string, what: string): number {
+  if (!/^\d+$/.test(value) || Number(value) === 0) {
+    throw new NodError("INVALID_ARGS", `${what}は正の整数で指定してください（例: 3）`);
+  }
+  return Number(value);
+}

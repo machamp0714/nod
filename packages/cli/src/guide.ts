@@ -62,6 +62,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 
 - NOT_INITIALIZED：このリポジトリは nod に登録されていない。人に \`nod init\` を依頼する。
 - NOT_ACCEPTED：その Issue はまだ Triage にある。着手せず、別の Issue を取る。
+- NEEDS_CLARIFICATION：その Issue には、人が決めていない未決事項が残っている。着手せず、別の Issue を取る。
 - ASSIGNED_TO_OTHER：その Issue はほかの書き手が担当している。着手せず、別の Issue を取る。
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
