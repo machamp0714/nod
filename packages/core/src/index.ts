@@ -3,3 +3,8 @@ export * from "./db";
 export * from "./ctx";
 export * from "./types";
 export * from "./ops/workspaces";
+export * from "./issue-query";
+export * from "./events";
+export * from "./mutate";
+export * from "./ops/issues";
+export * from "./ops/projects";
