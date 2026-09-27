@@ -1,3 +1,4 @@
+import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
 
 test("/ は /inbox に移る", async ({ page }) => {
@@ -25,12 +26,18 @@ for (const link of LINKS) {
   });
 }
 
-test("Inbox、Reviews、Triage の件数を出す", async ({ page }) => {
-  await page.goto("/inbox");
+test("Inbox、Reviews、Triage の件数を API から出す", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await api.ask(a.id, "複合インデックスにしてよいですか？");
+  await api.ask(a.id, "既存のインデックスは消してよいですか？");
+  await api.inReview("決済 Webhook の署名検証を追加", "署名を検証した");
+  await api.triageIssue("検索結果のページングが 1 件ずれる");
+  await page.goto("/issues");
   const nav = page.getByRole("navigation", { name: "メイン" });
-  await expect(nav.getByRole("link", { name: /^Inbox/ })).toContainText("3");
+  await expect(nav.getByRole("link", { name: /^Inbox/ })).toContainText("2");
   await expect(nav.getByRole("link", { name: /^Reviews/ })).toContainText("1");
-  await expect(nav.getByRole("link", { name: /^Triage/ })).toContainText("2");
+  await expect(nav.getByRole("link", { name: /^Triage/ })).toContainText("1");
 });
 
 test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せない", async ({ page }) => {

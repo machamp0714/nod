@@ -103,3 +103,11 @@
   color: var(--ink3);
   font-size: 12.5px;
 }
+
+.error {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--fail-soft);
+  color: var(--fail);
+  font-size: 12.5px;
+}
