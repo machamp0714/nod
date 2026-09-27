@@ -26,6 +26,29 @@ export function createApp(opts: AppOptions): Hono {
   app.onError((err) => errorJson(err));
   app.notFound((c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
 
+  app.use("/api/*", async (c, next) => {
+    // Hono の HEAD→GET 変換で SSE の購読を作らない。API は明示したメソッドだけを受け付ける
+    if (c.req.method === "HEAD") {
+      throw new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`);
+    }
+    if (["POST", "PUT", "DELETE"].includes(c.req.method)) {
+      // ローカルの Vite 転送を許可し、外部サイトから me として操作されることを防ぐ
+      const origin = c.req.header("Origin");
+      let allowed = c.req.header("Sec-Fetch-Site") !== "cross-site";
+      if (origin !== undefined) {
+        try {
+          const url = new URL(origin);
+          allowed &&= ["http:", "https:"].includes(url.protocol)
+            && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+        } catch {
+          allowed = false;
+        }
+      }
+      if (!allowed) throw new NodError("FORBIDDEN_ORIGIN", "外部サイトからの書き込みは受け付けません");
+    }
+    await next();
+  });
+
   registerReadRoutes(app, opts.db);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);

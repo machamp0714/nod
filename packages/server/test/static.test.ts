@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openDb } from "@nod/core";
 import { createApp } from "../src/app";
@@ -18,6 +18,34 @@ function setupStatic(withIndex = true) {
 }
 
 describe("静的ファイルの配信", () => {
+  test("ファイル・ディレクトリ・index の symlink でも配信範囲の外を読まない", async () => {
+    const root = tempDir();
+    const dist = join(root, "dist");
+    const outside = join(root, "outside");
+    mkdirSync(dist);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.txt"), "SECRET");
+    writeFileSync(join(dist, "safe.txt"), "公開内容");
+    symlinkSync(join(outside, "secret.txt"), join(dist, "secret.txt"));
+    symlinkSync(outside, join(dist, "linked"));
+    symlinkSync(join(outside, "secret.txt"), join(dist, "index.html"));
+    symlinkSync(join(dist, "safe.txt"), join(dist, "safe-link.txt"));
+    const db = openDb(join(root, "nod.db"));
+    try {
+      const app = createApp({ db, staticDir: dist });
+      for (const path of ["/secret.txt", "/linked/secret.txt", "/index.html", "/issues/API-1"]) {
+        const res = await app.request(path);
+        expect(res.status).toBe(404);
+        expect(await res.text()).not.toContain("SECRET");
+      }
+      const safe = await app.request("/safe-link.txt");
+      expect(safe.status).toBe(200);
+      expect(await safe.text()).toBe("公開内容");
+    } finally {
+      db.close();
+    }
+  });
+
   test("ファイルがあれば返し、拡張子のないパスには index.html を返す", async () => {
     const app = setupStatic();
     const js = await app.request("/assets/app.js");

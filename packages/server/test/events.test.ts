@@ -51,6 +51,16 @@ describe("createChangeFeed", () => {
 });
 
 describe("GET /api/events", () => {
+  test("HEAD は404で、SSE の購読を作らない", async () => {
+    const { app, feed } = setupFeed();
+    for (let n = 0; n < 3; n++) {
+      const res = await app.request("/api/events", { method: "HEAD" });
+      await res.text();
+      expect(res.status).toBe(404);
+      expect(feed.listenerCount).toBe(0);
+    }
+  });
+
   test("接続すると ready を送り、外部の書き込みを change で知らせる", async () => {
     const { app, dbPath, ws, feed } = setupFeed();
     const res = await app.request("/api/events");

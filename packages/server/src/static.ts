@@ -1,13 +1,18 @@
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 import { NodError } from "@nod/core";
 import type { Hono } from "hono";
 
-function isFile(path: string): boolean {
+// symlink の実体も配信ディレクトリ内にある通常ファイルだけを返す
+function fileInside(root: string, path: string): string | null {
   try {
-    return statSync(path).isFile();
+    const actualRoot = realpathSync(root);
+    const actualPath = realpathSync(path);
+    const prefix = actualRoot.endsWith(sep) ? actualRoot : actualRoot + sep;
+    if (actualPath !== actualRoot && !actualPath.startsWith(prefix)) return null;
+    return statSync(actualPath).isFile() ? actualPath : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -29,12 +34,14 @@ export function registerStatic(app: Hono, dir: string): void {
       const target = resolve(root, `.${path}`);
       // %2f で区切りを隠した .. を含むパスが、root の外を指していないか確かめる
       const inside = target === root || target.startsWith(root + sep);
-      if (inside && isFile(target)) return new Response(Bun.file(target));
+      const file = inside ? fileInside(root, target) : null;
+      if (file) return new Response(Bun.file(file));
       if (extname(path) !== "") throw new NodError("NOT_FOUND", `${c.req.path} はありません`);
     }
-    if (!isFile(index)) {
+    const indexFile = fileInside(root, index);
+    if (!indexFile) {
       throw new NodError("NOT_FOUND", `${root} に index.html がありません。web をビルドしてください`);
     }
-    return new Response(Bun.file(index));
+    return new Response(Bun.file(indexFile));
   });
 }
