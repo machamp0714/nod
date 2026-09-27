@@ -15,3 +15,4 @@ export * from "./plan-markdown";
 export * from "./ops/plan";
 export * from "./ops/templates";
 export * from "./issue-filter";
+export * from "./ops/views";
