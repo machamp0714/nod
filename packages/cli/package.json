@@ -1,0 +1,10 @@
+{
+  "name": "@nod/cli",
+  "private": true,
+  "type": "module",
+  "bin": { "nod": "src/main.ts" },
+  "dependencies": {
+    "@nod/core": "workspace:*",
+    "commander": "^12.1.0"
+  }
+}
