@@ -4,7 +4,7 @@ import { Button, Icon, Pill, ProgressBar, Segmented, WorkspaceBadge } from "../c
 import { PROJECTS } from "../fixtures/project-summaries";
 import { workspaceName } from "../fixtures/workspaces";
 import { formatRelative } from "../lib/format";
-import { filterProjects } from "../lib/projects";
+import { filterProjects, type ProjectListItem } from "../lib/projects";
 import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
 import s from "./projects.module.css";
 
@@ -67,7 +67,7 @@ export function ProjectsPage() {
   );
 }
 
-function ProjectRow({ project }: { project: ProjectSummary }) {
+function ProjectRow({ project }: { project: ProjectListItem }) {
   return (
     <tr>
       <td>

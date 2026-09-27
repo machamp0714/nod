@@ -14,7 +14,7 @@ export function ViewPage() {
   const view = findView(Number(viewId));
   if (!view) return <NotFoundMessage title="View が見つかりません" />;
   // A ではダミーの絞り込みとして workspace だけを見る。E で GET /api/issues の条件に置き換える。
-  const rows = ISSUE_ROWS.filter((row) => !view.filter.workspace || row.issue.workspace === view.filter.workspace);
+  const rows = ISSUE_ROWS.filter((row) => !view.filter.workspace || view.filter.workspace.includes(row.issue.workspace));
   return (
     <IssueList
       crumb="Views"

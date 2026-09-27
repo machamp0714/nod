@@ -1,8 +1,9 @@
-import type { Project, ProjectSummary } from "../api/types";
+import type { Project } from "../api/types";
+import type { ProjectListItem } from "../lib/projects";
 import { ISSUES } from "./issues";
 import { PROJECT_RECORDS } from "./projects";
 
-function summarize(project: Project): ProjectSummary {
+function summarize(project: Project): ProjectListItem {
   const issues = ISSUES.filter((i) => i.project?.id === project.id);
   const count = (state: string) => issues.filter((i) => i.agentState === state).length;
   return {
@@ -14,8 +15,8 @@ function summarize(project: Project): ProjectSummary {
   };
 }
 
-export const PROJECTS: ProjectSummary[] = PROJECT_RECORDS.map(summarize);
+export const PROJECTS: ProjectListItem[] = PROJECT_RECORDS.map(summarize);
 
-export function findProject(id: number): ProjectSummary | undefined {
+export function findProject(id: number): ProjectListItem | undefined {
   return PROJECTS.find((p) => p.id === id);
 }

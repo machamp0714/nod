@@ -78,7 +78,7 @@ export function Sidebar() {
             activeOptions={{ includeSearch: false }}
           >
             <span className={s.swatchBox}>
-              <span className={s.swatch} style={{ background: view.color }} />
+              <span className={s.swatch} style={{ background: view.color ?? undefined }} />
             </span>
             <span className={s.label}>{view.name}</span>
           </Link>

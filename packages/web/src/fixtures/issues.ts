@@ -14,6 +14,7 @@ function issue(p: Partial<Issue> & Pick<Issue, "id" | "title" | "status">): Issu
     parentId: null,
     project: null,
     labels: [],
+    questionCount: { answered: 0, total: 0 },
     snoozedUntil: null,
     prUrl: null,
     branch: null,
