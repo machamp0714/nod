@@ -12,9 +12,14 @@ describe("parseIssueListSearch", () => {
     expect(parseIssueListSearch({ tab: "ready", layout: "board", q: "N+1" })).toEqual({ tab: "ready", layout: "board", q: "N+1" });
   });
 
-  test("知らない値や空の検索語は捨てる", () => {
-    expect(parseIssueListSearch({ tab: "foo", layout: "grid", q: "" })).toEqual({});
-    expect(parseIssueListSearch({ tab: 1, layout: null })).toEqual({});
+  test("不正なタブと表示方法は既定値で上書きする", () => {
+    expect(parseIssueListSearch({ tab: "foo", layout: "grid", q: "" })).toEqual({ tab: "all", layout: "list" });
+    expect(parseIssueListSearch({ tab: 1, layout: null })).toEqual({ tab: "all", layout: "list" });
+  });
+
+  test("指定のないキーは追加しない", () => {
+    expect(parseIssueListSearch({})).toEqual({});
+    expect(parseIssueListSearch({ tab: "ready" })).toEqual({ tab: "ready" });
   });
 
   test("数字だけの検索語（ルーターが数値にしたもの）は文字列に戻す", () => {
@@ -37,7 +42,9 @@ describe("parseSelectedSearch と parseProjectsSearch", () => {
 
   test("Projects のタブは active、completed、all だけを受け付け、active は URL に残さない", () => {
     expect(parseProjectsSearch({ tab: "completed" })).toEqual({ tab: "completed" });
-    expect(parseProjectsSearch({ tab: "zzz" })).toEqual({});
+    expect(parseProjectsSearch({ tab: "zzz" })).toEqual({ tab: "active" });
+    expect(parseProjectsSearch({ tab: 1 })).toEqual({ tab: "active" });
+    expect(parseProjectsSearch({})).toEqual({});
     expect(cleanProjectsSearch({ tab: "active" })).toEqual({});
     expect(cleanProjectsSearch({ tab: "all" })).toEqual({ tab: "all" });
   });

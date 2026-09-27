@@ -24,13 +24,11 @@ function pick<T extends string>(value: unknown, allowed: readonly T[]): T | unde
   return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
 }
 
-// URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
+// Router は元の search に検証結果を重ねるため、不正な値は省略せず既定値で上書きする。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
   const out: IssueListSearch = {};
-  const tab = pick(raw.tab, ISSUE_TABS);
-  if (tab) out.tab = tab;
-  const layout = pick(raw.layout, ISSUE_LAYOUTS);
-  if (layout) out.layout = layout;
+  if ("tab" in raw) out.tab = pick(raw.tab, ISSUE_TABS) ?? "all";
+  if ("layout" in raw) out.layout = pick(raw.layout, ISSUE_LAYOUTS) ?? "list";
   // TanStack Router は search params を JSON として読むため、数字だけの検索語は数値で届く。
   const q = typeof raw.q === "number" ? String(raw.q) : raw.q;
   if (typeof q === "string" && q !== "") out.q = q;
@@ -50,8 +48,7 @@ export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearc
 }
 
 export function parseProjectsSearch(raw: Record<string, unknown>): ProjectsSearch {
-  const tab = pick(raw.tab, PROJECT_TABS);
-  return tab ? { tab } : {};
+  return "tab" in raw ? { tab: pick(raw.tab, PROJECT_TABS) ?? "active" } : {};
 }
 
 export function cleanProjectsSearch(search: ProjectsSearch): ProjectsSearch {
