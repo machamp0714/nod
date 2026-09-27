@@ -8,6 +8,7 @@ import {
   failIssue,
   getIssue,
   importPlan,
+  isLlm,
   listIssues,
   NodError,
   nextIssue,
@@ -19,8 +20,14 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
-import { act, currentWorkspace } from "../context";
+import { act, actAsync, type Cli, currentWorkspace } from "../context";
+import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import { formatIssueDetail, formatIssueLine, formatPlan, print } from "../output";
+
+// Orca のカードは LLM 向けのコマンドで LLM が操作したときだけ更新する
+async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
+  if (isLlm(cli.ctx)) await notifyOrca(update);
+}
 
 export function registerIssueCommands(program: Command): void {
   const issue = program.command("issue").description("Issue を操作する");
@@ -161,8 +168,13 @@ export function registerIssueCommands(program: Command): void {
     .description("着手できる Issue を1件取り、着手する")
     .option("--project <project>", "Project の中から取る")
     .action(
-      act((cli, cmd, o: { project?: string }) => {
-        const picked = nextIssue(cli.ctx, { workspaceId: currentWorkspace(cli, cmd).id, projectRef: o.project });
+      actAsync(async (cli, cmd, o: { project?: string }) => {
+        const picked = nextIssue(cli.ctx, {
+          workspaceId: currentWorkspace(cli, cmd).id,
+          projectRef: o.project,
+          location: currentWorkLocation(),
+        });
+        if (picked) await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${picked.id} ${picked.title}` });
         print(cli, picked, () => (picked ? `着手しました: ${formatIssueLine(picked)}` : "着手できる Issue はありません"));
       }),
     );
@@ -171,8 +183,9 @@ export function registerIssueCommands(program: Command): void {
     .command("start <id>")
     .description("指定した Issue に着手する")
     .action(
-      act((cli, _cmd, id: string) => {
-        const started = startIssue(cli.ctx, id);
+      actAsync(async (cli, _cmd, id: string) => {
+        const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
+        await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
         print(cli, started, () => `着手しました: ${formatIssueLine(started)}`);
       }),
     );
@@ -216,8 +229,9 @@ export function registerIssueCommands(program: Command): void {
     .command("ask <id> <question>")
     .description("人に確認を依頼し、回答があるまでこの Issue を止める")
     .action(
-      act((cli, _cmd, id: string, question: string) => {
+      actAsync(async (cli, _cmd, id: string, question: string) => {
         const r = askQuestion(cli.ctx, id, question);
+        await notifyIfLlm(cli, { comment: `入力待ち: ${question}` });
         print(cli, r, () =>
           r.created ? "確認を依頼しました。回答があるまで、この Issue の作業を止めてください" : "同じ確認依頼がすでにあります",
         );
@@ -228,8 +242,9 @@ export function registerIssueCommands(program: Command): void {
     .command("fail <id> <reason>")
     .description("作業を続けられないことを報告する")
     .action(
-      act((cli, _cmd, id: string, reason: string) => {
+      actAsync(async (cli, _cmd, id: string, reason: string) => {
         const failed = failIssue(cli.ctx, id, reason);
+        await notifyIfLlm(cli, { comment: `エラー: ${reason}` });
         print(cli, failed, () => `失敗を報告しました: ${formatIssueLine(failed)}`);
       }),
     );
@@ -240,8 +255,9 @@ export function registerIssueCommands(program: Command): void {
     .requiredOption("--summary <text>", "やったことの要約")
     .option("--pr <url>", "PR の URL")
     .action(
-      act((cli, _cmd, id: string, o: { summary: string; pr?: string }) => {
+      actAsync(async (cli, _cmd, id: string, o: { summary: string; pr?: string }) => {
         const done = completeIssue(cli.ctx, id, { summary: o.summary, prUrl: o.pr });
+        await notifyIfLlm(cli, { status: "in-review", comment: `レビュー待ち: ${done.id} ${done.title}` });
         print(cli, done, () => `レビューに回しました: ${formatIssueLine(done)}`);
       }),
     );

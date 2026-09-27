@@ -70,3 +70,13 @@ export function act<A extends unknown[]>(fn: (cli: Cli, cmd: Command, ...args: A
     fn(openCli(cmd), cmd, ...(all.slice(0, -1) as A));
   };
 }
+
+// Orca への通知のように非同期の処理を含む action 用の act
+export function actAsync<A extends unknown[]>(
+  fn: (cli: Cli, cmd: Command, ...args: A) => Promise<void>,
+): (...all: unknown[]) => Promise<void> {
+  return async (...all: unknown[]) => {
+    const cmd = all[all.length - 1] as Command;
+    await fn(openCli(cmd), cmd, ...(all.slice(0, -1) as A));
+  };
+}
