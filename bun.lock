@@ -11,6 +11,7 @@
     },
     "packages/cli": {
       "name": "@nod/cli",
+      "version": "0.1.0",
       "bin": {
         "nod": "src/main.ts",
       },
@@ -22,11 +23,20 @@
     "packages/core": {
       "name": "@nod/core",
     },
+    "packages/server": {
+      "name": "@nod/server",
+      "dependencies": {
+        "@nod/core": "workspace:*",
+        "hono": "^4.13.0",
+      },
+    },
   },
   "packages": {
     "@nod/cli": ["@nod/cli@workspace:packages/cli"],
 
     "@nod/core": ["@nod/core@workspace:packages/core"],
+
+    "@nod/server": ["@nod/server@workspace:packages/server"],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
@@ -35,6 +45,8 @@
     "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "commander": ["commander@12.1.0", "", {}, "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="],
+
+    "hono": ["hono@4.13.9", "", {}, "sha512-7dMkQmZoC4E6F7AtaQSPhlWAdnBti+j7rreMZl8QB4jFiEhP9TWbGWUMi8WYzBCgmgulxuvLQupKqo+Co6Omyg=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
