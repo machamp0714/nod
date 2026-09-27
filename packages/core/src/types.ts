@@ -61,6 +61,30 @@ export interface Plan {
   tasks: PlanTask[];
 }
 
+export const PROJECT_STATUSES = ["planned", "started", "completed", "canceled"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSummary extends Project {
+  total: number;
+  done: number;
+  agents: { working: number; awaitingInput: number; error: number };
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  issues: Issue[];
+  documents: DocumentRef[];
+}
+
 export interface DocumentRef {
   id: number;
   path: string;
