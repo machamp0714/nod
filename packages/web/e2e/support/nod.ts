@@ -40,6 +40,11 @@ export async function resetData(dataset: string): Promise<void> {
   await post("/reset", { dataset });
 }
 
+// データ初期化後、SSE の検証を始める前にだけ使う。DB の内容は変えず、通知の基準を作り直す。
+export async function restartApiServer(): Promise<void> {
+  await post("/restart-server", {});
+}
+
 // actor を書き手にして core の関数を呼ぶクライアント。
 // 末尾の undefined の引数は送らない（JSON では null になり、省略とみなされないため）
 export function nodAs(actor: string): NodClient {

@@ -14,7 +14,7 @@ if (!dir) throw new Error("NOD_E2E_DIR がありません（playwright.config.ts
 const dbPath = join(dir, "nod.db");
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-const server = startServer({ port: API_PORT, dbPath });
+let server = startServer({ port: API_PORT, dbPath });
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -49,6 +49,13 @@ const control = Bun.serve({
   async fetch(req) {
     const path = new URL(req.url).pathname;
     try {
+      // SSE の検証だけが使う。初期化済みの DB で接続と通知の基準を作り直し、
+      // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
+      if (req.method === "POST" && path === "/restart-server") {
+        await server.stop();
+        server = startServer({ port: API_PORT, dbPath });
+        return Response.json({ ok: true });
+      }
       if (req.method === "POST" && path === "/reset") {
         const { dataset } = (await req.json()) as { dataset: string };
         await reset(dataset);

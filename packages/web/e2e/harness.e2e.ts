@@ -1,4 +1,5 @@
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { resetData, restartApiServer } from "./support/nod";
 
 test.describe("データセットを入れたとき", () => {
   test.use({ dataset: "harness" });
@@ -12,16 +13,34 @@ test.describe("データセットを入れたとき", () => {
     expect(issue).toMatchObject({ title: "土台の確認に使う Issue", status: "in_progress", assignee: "claude-code" });
   });
 
-  test("テストで足したデータは、次のテストの前に消える（1）", async ({ nod }) => {
-    await nod.me.createProject({ name: "一時の Project" });
-    expect((await nod.me.listProjects()).map((p) => p.name)).toEqual(["一時の Project"]);
-  });
+  test("データを入れ直すたびに追加データが消え、各 ID が同じ値から始まる", async ({ nod }) => {
+    // ほかのテストの実行順に依存させず、同じデータセットの復元を3回確かめる。
+    for (let round = 0; round < 3; round += 1) {
+      await resetData("harness");
+      expect((await nod.me.listWorkspaces()).map(({ id, key }) => ({ id, key }))).toEqual([{ id: 1, key: "API" }]);
+      expect((await nod.me.queryIssues({})).issues.map((issue) => issue.id)).toEqual(["API-1"]);
+      expect(await nod.me.listProjects()).toEqual([]);
+      expect(await nod.me.listViews()).toEqual([]);
+      const seeded = await nod.me.getIssue("API-1");
+      expect(seeded.questions).toEqual([]);
+      expect(seeded.documents).toEqual([]);
 
-  test("テストで足したデータは、次のテストの前に消える（2）", async ({ nod }) => {
-    expect(await nod.me.listProjects()).toEqual([]);
-    const [workspace] = await nod.me.listWorkspaces();
-    const created = await nod.me.createIssue({ workspaceId: workspace?.id ?? 0, title: "2つ目" });
-    expect(created.id).toBe("API-2");
+      const { workspace } = await nod.me.initWorkspace({ path: nod.repo(`extra-${round}`), key: "EXTRA", name: "追加" });
+      expect(workspace.id).toBe(2);
+      const project = await nod.me.createProject({ name: `追加の Project ${round}` });
+      expect(project.id).toBe(1);
+      const view = await nod.me.createView({ name: `追加の View ${round}`, filter: {} });
+      expect(view.id).toBe(1);
+      const issue = await nod.me.createIssue({ workspaceId: 1, title: `追加の Issue ${round}` });
+      expect(issue.id).toBe("API-2");
+      const question = await nod.me.askQuestion("API-1", `追加の質問 ${round}`);
+      expect(question.question.id).toBe(1);
+      const document = await nod.me.attachDocument(
+        { issueRef: "API-1" },
+        { path: nod.writeFile(`docs/reset-${round}.md`, "# 初期化の確認") },
+      );
+      expect(document.id).toBe(1);
+    }
   });
 });
 
@@ -37,11 +56,14 @@ test("書き手を選んで core の操作を呼べ、失敗は code 付きの�
 });
 
 test("別の接続での書き込みは、SSE の change として届く", async ({ page, nod }) => {
+  // 初期化後に server の DB 接続と data_version の基準を作り直す。
+  // 待ち時間や、初期化由来の change を受け取ったかどうかには依存しない。
+  await restartApiServer();
   await page.goto("/issues");
   // ページの中で購読を開き、ready を受けてから書く（ready の前に書いた変更は change として届かないため）
-  await page.evaluate(
+  const initialVersion = await page.evaluate(
     () =>
-      new Promise<void>((resolve) => {
+      new Promise<number>((resolve) => {
         const events = new EventSource("/api/events");
         const target = window as unknown as { nodChange: Promise<number> };
         target.nodChange = new Promise((done) =>
@@ -50,12 +72,14 @@ test("別の接続での書き込みは、SSE の change として届く", async
             done(JSON.parse((event as MessageEvent<string>).data).dataVersion as number);
           }),
         );
-        events.addEventListener("ready", () => resolve());
+        events.addEventListener("ready", (event) => {
+          resolve(JSON.parse((event as MessageEvent<string>).data).dataVersion as number);
+        });
       }),
   );
   await nod.me.initWorkspace({ path: nod.repo("nod"), key: "NOD", name: "nod" });
   const version = await page.evaluate(() => (window as unknown as { nodChange: Promise<number> }).nodChange);
-  expect(version).toEqual(expect.any(Number));
+  expect(version).toBeGreaterThan(initialVersion);
 });
 
 test("画面を開くと SSE に接続し、html に data-server-events=ready を出す", async ({ page }) => {
