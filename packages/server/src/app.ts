@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
 import { registerIssueOps } from "./routes/issue-ops";
+import { registerViewRoutes } from "./routes/views";
 
 export interface AppOptions {
   db: Database;
@@ -23,6 +24,7 @@ export function createApp(opts: AppOptions): Hono {
   registerReadRoutes(app, opts.db);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);
+  registerViewRoutes(app, opts.db);
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
   return app;
