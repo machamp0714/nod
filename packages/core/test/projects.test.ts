@@ -30,6 +30,8 @@ describe("Project", () => {
     createProject(me, { name: "検索" });
     expect(codeOf(() => createProject(me, { name: "検索" }))).toBe("PROJECT_EXISTS");
     expect(codeOf(() => createProject(me, { name: " " }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createProject(me, { name: "123" }))).toBe("INVALID_ARGS");
+    expect(createProject(me, { name: "v2" }).name).toBe("v2");
     expect(codeOf(() => getProject(db, "ない"))).toBe("NOT_FOUND");
   });
 

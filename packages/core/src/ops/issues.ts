@@ -180,6 +180,20 @@ function changeLabels(ctx: OpCtx, row: IssueRow, add: string[], remove: string[]
   recordEvent(ctx.db, row.id, ctx.actor, "labels_changed", { added, removed });
 }
 
+// ancestorId が issueId の祖先（親をたどって届く）なら true
+function isAncestor(db: Database, ancestorId: number, issueId: number): boolean {
+  const hit = db
+    .query(
+      `WITH RECURSIVE up(id) AS (
+         SELECT parent_id FROM issues WHERE id = ?
+         UNION SELECT i.parent_id FROM issues i JOIN up ON i.id = up.id
+       )
+       SELECT 1 FROM up WHERE id = ?`,
+    )
+    .get(issueId, ancestorId);
+  return hit !== null;
+}
+
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
   if (input.status === "done" && isLlm(ctx)) {
     throw new NodError(
@@ -198,6 +212,9 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     if (input.parentRef !== undefined) {
       const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
       if (parent?.id === row.id) throw new NodError("INVALID_ARGS", "Issue 自身を親にはできません");
+      if (parent && isAncestor(ctx.db, row.id, parent.id)) {
+        throw new NodError("INVALID_ARGS", `${input.parentRef} は ${ref} の子孫なので親にはできません（循環します）`);
+      }
       setColumn(ctx, row, "parent_id", parent?.id ?? null, {
         from: toIssue(row).parentId,
         to: parent ? formatIssueId(parent.ws_key, parent.number) : null,

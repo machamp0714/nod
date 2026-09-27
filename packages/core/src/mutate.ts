@@ -24,6 +24,7 @@ const EVENT_OF: Partial<Record<Column, string>> = {
   assignee: "assignee_changed",
   agent_state: "agent_state_changed",
   title: "title_changed",
+  description: "description_changed",
   project_id: "project_changed",
   parent_id: "parent_changed",
 };

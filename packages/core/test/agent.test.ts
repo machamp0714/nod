@@ -88,6 +88,53 @@ describe("startIssue", () => {
     updateIssue(me, canceled.id, { status: "canceled" });
     expect(codeOf(() => startIssue(llm, canceled.id))).toBe("ISSUE_CLOSED");
   });
+
+  test("他人の担当なら ASSIGNED_TO_OTHER、未回答の確認依頼があれば AWAITING_ANSWER、ブロック中なら BLOCKED", () => {
+    const { ws, me, llm } = setup();
+    const codex: typeof llm = { db: llm.db, actor: "codex" };
+    const others = createIssue(me, { workspaceId: ws.id, title: "others" });
+    startIssue(codex, others.id);
+    let err: unknown;
+    try {
+      startIssue(llm, others.id);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ code: "ASSIGNED_TO_OTHER" });
+    expect((err as Error).message).toContain("codex");
+    expect(getIssue(llm.db, others.id).assignee).toBe("codex");
+
+    const asked = createIssue(me, { workspaceId: ws.id, title: "asked" });
+    startIssue(llm, asked.id);
+    askQuestion(llm, asked.id, "どちらにするか");
+    expect(codeOf(() => startIssue(llm, asked.id))).toBe("AWAITING_ANSWER");
+
+    const blocker = createIssue(me, { workspaceId: ws.id, title: "blocker" });
+    const blocker2 = createIssue(me, { workspaceId: ws.id, title: "blocker2" });
+    const blocked = createIssue(me, { workspaceId: ws.id, title: "blocked" });
+    relateIssue(me, blocker.id, { blocks: blocked.id });
+    relateIssue(me, blocker2.id, { blocks: blocked.id });
+    updateIssue(me, blocker2.id, { status: "canceled" });
+    let blockedErr: unknown;
+    try {
+      startIssue(llm, blocked.id);
+    } catch (e) {
+      blockedErr = e;
+    }
+    expect(blockedErr).toMatchObject({ code: "BLOCKED" });
+    expect((blockedErr as Error).message).toContain(blocker.id);
+    expect((blockedErr as Error).message).not.toContain(blocker2.id);
+    expect(getIssue(llm.db, blocked.id).status).toBe("todo");
+    updateIssue(me, blocker.id, { status: "done" });
+    expect(startIssue(llm, blocked.id).status).toBe("in_progress");
+  });
+
+  test("自分が担当している Issue には再び着手できる（差し戻し後の再開）", () => {
+    const { ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    startIssue(llm, i.id);
+    expect(startIssue(llm, i.id)).toMatchObject({ status: "in_progress", assignee: "claude-code" });
+  });
 });
 
 describe("askQuestion", () => {

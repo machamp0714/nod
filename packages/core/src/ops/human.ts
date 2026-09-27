@@ -22,7 +22,7 @@ export function getInbox(db: Database): Inbox {
     .query(
       `SELECT q.*, i.title AS issue_title, i.number AS issue_number, i.branch AS branch, i.worktree AS worktree, w.key AS ws_key
        FROM questions q JOIN issues i ON i.id = q.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE q.answer IS NULL ORDER BY q.asked_at, q.id`,
+       WHERE q.answer IS NULL AND i.status NOT IN ('done', 'canceled') ORDER BY q.asked_at, q.id`,
     )
     .all() as (QuestionRow & {
     issue_title: string;
@@ -61,7 +61,13 @@ export function answerQuestion(ctx: OpCtx, ref: string, answer: string): { issue
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+// 年月日が実在するか（2026-02-30 などを拒む）
+function isRealDate(y: number, m: number, d: number): boolean {
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
 
 export function parseDateTime(value: string): string {
   const invalid = () =>
@@ -69,11 +75,11 @@ export function parseDateTime(value: string): string {
   const d = DATE_RE.exec(value);
   if (d) {
     const [y, m, day] = [Number(d[1]), Number(d[2]), Number(d[3])];
-    const date = new Date(y, m - 1, day);
-    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== day) throw invalid();
-    return date.toISOString();
+    if (!isRealDate(y, m, day)) throw invalid();
+    return new Date(y, m - 1, day).toISOString();
   }
-  if (!DATETIME_RE.test(value)) throw invalid();
+  const dt = DATETIME_RE.exec(value);
+  if (!dt || !isRealDate(Number(dt[1]), Number(dt[2]), Number(dt[3]))) throw invalid();
   const t = Date.parse(value);
   if (Number.isNaN(t)) throw invalid();
   return new Date(t).toISOString();

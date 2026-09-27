@@ -2,7 +2,7 @@ import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
-import { findIssueRow, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
+import { findIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
@@ -25,17 +25,24 @@ function beginWork(ctx: OpCtx, row: IssueRow, location: WorkLocation | null | un
   recordLocation(ctx, row, location);
 }
 
+// 着手できる条件（未回答の確認依頼がない、閉じていない Issue にブロックされていない）は next と start で共有する
+function openQuestionsOf(issueId: string): string {
+  return `FROM questions q WHERE q.issue_id = ${issueId} AND q.answer IS NULL`;
+}
+
+function openBlockersOf(issueId: string): string {
+  return `FROM relations r JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
+    WHERE r.to_id = ${issueId} AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')`;
+}
+
 const READY_SQL = `SELECT i.id FROM issues i
 WHERE i.workspace_id = ?
   AND i.status = 'todo'
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
   AND (i.assignee IS NULL OR i.assignee = ?)
   AND (? IS NULL OR i.project_id = ?)
-  AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL)
-  AND NOT EXISTS (
-    SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
-    WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
-  )
+  AND NOT EXISTS (SELECT 1 ${openQuestionsOf("i.id")})
+  AND NOT EXISTS (SELECT 1 ${openBlockersOf("i.id")})
 ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END, i.created_at, i.id`;
 
 export function nextIssue(
@@ -71,6 +78,19 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
     }
     if (row.status === "done" || row.status === "canceled") {
       throw new NodError("ISSUE_CLOSED", `${ref} はすでに ${row.status} です`);
+    }
+    if (row.assignee && row.assignee !== ctx.actor) {
+      throw new NodError("ASSIGNED_TO_OTHER", `${ref} は ${row.assignee} が担当しています。別の Issue を取ってください`);
+    }
+    if (ctx.db.query(`SELECT 1 ${openQuestionsOf("?")}`).get(row.id)) {
+      throw new NodError("AWAITING_ANSWER", `${ref} には未回答の確認依頼があります。回答を待ってください`);
+    }
+    const blockers = ctx.db
+      .query(`SELECT bw.key AS key, b.number AS number ${openBlockersOf("?")} ORDER BY bw.key, b.number`)
+      .all(row.id) as { key: string; number: number }[];
+    if (blockers.length > 0) {
+      const ids = blockers.map((b) => formatIssueId(b.key, b.number)).join(", ");
+      throw new NodError("BLOCKED", `${ref} は ${ids} にブロックされています。先にそちらが終わるのを待ってください`);
     }
     setColumn(ctx, row, "status", "in_progress");
     beginWork(ctx, row, opts.location);

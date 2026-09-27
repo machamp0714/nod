@@ -65,6 +65,9 @@ FROM projects p`;
 
 export function createProject(ctx: OpCtx, input: { name: string; description?: string }): Project {
   if (!input.name.trim()) throw new NodError("INVALID_ARGS", "Project の名前を指定してください");
+  if (/^\d+$/.test(input.name)) {
+    throw new NodError("INVALID_ARGS", `Project の名前に数字だけ（${input.name}）は使えません。数字は ID として解釈されるためです`);
+  }
   return tx(ctx.db, () => {
     if (ctx.db.query("SELECT 1 FROM projects WHERE name = ?").get(input.name)) {
       throw new NodError("PROJECT_EXISTS", `Project ${input.name} はすでにあります`);

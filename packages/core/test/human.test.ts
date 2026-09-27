@@ -11,7 +11,7 @@ import {
   rejectReview,
   snoozeTriage,
 } from "../src/ops/human";
-import { createIssue, getIssue } from "../src/ops/issues";
+import { createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
@@ -46,6 +46,20 @@ describe("getInbox と answerQuestion", () => {
     expect(getInbox(db).questions).toEqual([]);
     expect(eventsOf(db, a.id).at(-1)?.type).toBe("agent_state_changed");
     expect(codeOf(() => answerQuestion(me, a.id, "もう一度"))).toBe("NO_OPEN_QUESTION");
+  });
+
+  test("done や canceled になった Issue の未回答の確認依頼は Inbox に出さない", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    const c = createIssue(me, { workspaceId: ws.id, title: "c" });
+    for (const i of [a, b, c]) {
+      startIssue(llm, i.id);
+      askQuestion(llm, i.id, "どうするか");
+    }
+    updateIssue(me, a.id, { status: "done" });
+    updateIssue(me, b.id, { status: "canceled" });
+    expect(getInbox(db).questions.map((q) => q.issueId)).toEqual([c.id]);
   });
 });
 
@@ -91,6 +105,9 @@ describe("parseDateTime", () => {
     expect(parseDateTime("2026-10-01")).toBe(new Date(2026, 9, 1).toISOString());
     expect(parseDateTime("2026-10-01T09:00:00+09:00")).toBe("2026-10-01T00:00:00.000Z");
     expect(codeOf(() => parseDateTime("2026-02-30"))).toBe("INVALID_ARGS");
+    expect(codeOf(() => parseDateTime("2026-02-30T09:00:00+09:00"))).toBe("INVALID_ARGS");
+    expect(codeOf(() => parseDateTime("2026-13-01T09:00:00Z"))).toBe("INVALID_ARGS");
+    expect(parseDateTime("2028-02-29T09:00:00Z")).toBe("2028-02-29T09:00:00.000Z");
     expect(codeOf(() => parseDateTime("+3d"))).toBe("INVALID_ARGS");
   });
 });

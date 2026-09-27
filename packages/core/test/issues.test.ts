@@ -130,6 +130,30 @@ describe("updateIssue", () => {
     ]);
     expect(codeOf(() => updateIssue(me, i.id, { parentRef: i.id }))).toBe("INVALID_ARGS");
   });
+
+  test("子孫を親にすると循環するので INVALID_ARGS（子、孫）", () => {
+    const { ws, me } = setup();
+    const top = createIssue(me, { workspaceId: ws.id, title: "top" });
+    const child = createIssue(me, { workspaceId: ws.id, title: "child", parentRef: top.id });
+    const grandchild = createIssue(me, { workspaceId: ws.id, title: "grandchild", parentRef: child.id });
+    expect(codeOf(() => updateIssue(me, top.id, { parentRef: child.id }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => updateIssue(me, top.id, { parentRef: grandchild.id }))).toBe("INVALID_ARGS");
+    expect(getIssue(me.db, top.id).parentId).toBeNull();
+    const other = createIssue(me, { workspaceId: ws.id, title: "other" });
+    expect(updateIssue(me, top.id, { parentRef: other.id }).parentId).toBe(other.id);
+  });
+
+  test("説明の変更は description_changed に記録し、同じ値なら記録しない", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t", description: "古い" });
+    updateIssue(me, i.id, { description: "新しい" });
+    updateIssue(me, i.id, { description: "新しい" });
+    updateIssue(me, i.id, { description: null });
+    expect(eventsOf(db, i.id).slice(1).map((e) => [e.type, e.data])).toEqual([
+      ["description_changed", { from: "古い", to: "新しい" }],
+      ["description_changed", { from: "新しい", to: null }],
+    ]);
+  });
 });
 
 describe("commentIssue と Activity", () => {
