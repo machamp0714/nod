@@ -1,0 +1,10 @@
+{
+  "name": "@nod/server",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@nod/core": "workspace:*",
+    "hono": "^4.13.0"
+  }
+}
