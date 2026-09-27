@@ -40,15 +40,28 @@ export interface IssueRow {
   parent_number: number | null;
   project_name: string | null;
   labels: string | null;
+  question_total: number;
+  question_answered: number;
 }
 
 export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name,
-  (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels
+  (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
+  (SELECT count(*) FROM questions q WHERE q.issue_id = i.id) AS question_total,
+  (SELECT count(*) FROM questions q WHERE q.issue_id = i.id AND q.answer IS NOT NULL) AS question_answered
 FROM issues i
 JOIN workspaces w ON w.id = i.workspace_id
 LEFT JOIN issues pi ON pi.id = i.parent_id
 LEFT JOIN workspaces pw ON pw.id = pi.workspace_id
 LEFT JOIN projects pr ON pr.id = i.project_id`;
+
+// 着手できる Issue の条件のうち、担当者に関係しないもの（web の Ready）。? には現在時刻を渡す
+export const READY_WHERE = `(i.status = 'todo'
+  AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
+  AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL)
+  AND NOT EXISTS (
+    SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
+    WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+  ))`;
 
 const REF_RE = /^([A-Za-z0-9]{2,6})-(\d+)$/;
 
@@ -86,6 +99,7 @@ export function toIssue(r: IssueRow): Issue {
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
     labels: r.labels ? r.labels.split("\n").sort() : [],
+    questionCount: { answered: r.question_answered, total: r.question_total },
     snoozedUntil: r.snoozed_until,
     prUrl: r.pr_url,
     branch: r.branch,

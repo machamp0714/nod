@@ -14,3 +14,4 @@ export * from "./ops/human";
 export * from "./plan-markdown";
 export * from "./ops/plan";
 export * from "./ops/templates";
+export * from "./issue-filter";

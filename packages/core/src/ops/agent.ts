@@ -3,7 +3,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
-import { findIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
+import { READY_WHERE, findIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
@@ -26,7 +26,7 @@ function beginWork(ctx: OpCtx, row: IssueRow, location: WorkLocation | null | un
   recordLocation(ctx, row, location);
 }
 
-// 着手できる条件（未回答の確認依頼がない、閉じていない Issue にブロックされていない）は next と start で共有する
+// 指定した Issue への着手を妨げる未回答の確認依頼とブロッカーを調べる
 function openQuestionsOf(issueId: string): string {
   return `FROM questions q WHERE q.issue_id = ${issueId} AND q.answer IS NULL`;
 }
@@ -36,14 +36,11 @@ function openBlockersOf(issueId: string): string {
     WHERE r.to_id = ${issueId} AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')`;
 }
 
-const READY_SQL = `SELECT i.id FROM issues i
+const NEXT_SQL = `SELECT i.id FROM issues i
 WHERE i.workspace_id = ?
-  AND i.status = 'todo'
-  AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
+  AND ${READY_WHERE}
   AND (i.assignee IS NULL OR i.assignee = ?)
   AND (? IS NULL OR i.project_id = ?)
-  AND NOT EXISTS (SELECT 1 ${openQuestionsOf("i.id")})
-  AND NOT EXISTS (SELECT 1 ${openBlockersOf("i.id")})
 ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END, i.created_at, i.id`;
 
 export function nextIssue(
@@ -53,7 +50,7 @@ export function nextIssue(
   return tx(ctx.db, () => {
     const projectId = opts.projectRef ? resolveProject(ctx.db, opts.projectRef).id : null;
     const ts = now();
-    const candidates = ctx.db.query(READY_SQL).all(opts.workspaceId, ts, ctx.actor, projectId, projectId) as { id: number }[];
+    const candidates = ctx.db.query(NEXT_SQL).all(opts.workspaceId, ts, ctx.actor, projectId, projectId) as { id: number }[];
     for (const c of candidates) {
       // ほかの接続が先に取っていたら更新件数が0になるので、次の候補に進む
       const claimed = ctx.db

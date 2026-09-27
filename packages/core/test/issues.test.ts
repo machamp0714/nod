@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { commentIssue, createIssue, getIssue, listIssues, relateIssue, updateIssue } from "../src/ops/issues";
+import type { IssueQuery } from "../src/issue-filter";
+import { askQuestion, startIssue } from "../src/ops/agent";
+import { answerQuestion } from "../src/ops/human";
+import {
+  commentIssue,
+  createIssue,
+  getIssue,
+  listIssues,
+  queryIssues,
+  relateIssue,
+  updateIssue,
+} from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import { addProjectRow, codeOf, eventsOf, setup } from "./helpers";
 
@@ -194,5 +205,68 @@ describe("relateIssue", () => {
     expect(codeOf(() => relateIssue(me, a.id, { related: a.id }))).toBe("INVALID_ARGS");
     expect(codeOf(() => relateIssue(me, a.id, {}))).toBe("INVALID_ARGS");
     expect(codeOf(() => relateIssue(me, a.id, { blocks: b.id, related: b.id }))).toBe("INVALID_ARGS");
+  });
+});
+
+describe("queryIssues", () => {
+  test("複数の Workspace、ステータス、Project、ラベルで絞り込み、ステータスを省くと閉じた Issue も含める", () => {
+    const { db, ws, me } = setup();
+    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
+    const ops = initWorkspace(db, { path: "/tmp/repos/ops" }).workspace;
+    addProjectRow(db, "検索");
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", labels: ["bug"], projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: web.id, title: "b", labels: ["bug", "ui"] });
+    const c = createIssue(me, { workspaceId: ops.id, title: "c" });
+    updateIssue(me, a.id, { status: "done" });
+    const ids = (q: IssueQuery) => queryIssues(db, q).issues.map((i) => i.id);
+    expect(ids({})).toEqual([a.id, c.id, b.id]);
+    expect(ids({ workspace: ["API", "web"] })).toEqual([a.id, b.id]);
+    expect(ids({ status: ["todo"] })).toEqual([c.id, b.id]);
+    expect(ids({ project: "検索" })).toEqual([a.id]);
+    expect(ids({ label: ["bug", "ui"] })).toEqual([b.id]);
+    expect(ids({ workspace: ["NONE"] })).toEqual([]);
+  });
+
+  test("ready は担当者に関係なく着手できる Issue だけを返す", () => {
+    const { db, ws, me, llm } = setup();
+    const free = createIssue(me, { workspaceId: ws.id, title: "free" });
+    const others = createIssue(me, { workspaceId: ws.id, title: "others" });
+    updateIssue(me, others.id, { assignee: "codex" });
+    const blocker = createIssue(me, { workspaceId: ws.id, title: "blocker" });
+    updateIssue(me, blocker.id, { status: "backlog" });
+    const blocked = createIssue(me, { workspaceId: ws.id, title: "blocked" });
+    relateIssue(me, blocker.id, { blocks: blocked.id });
+    const snoozed = createIssue(me, { workspaceId: ws.id, title: "snoozed" });
+    db.query("UPDATE issues SET snoozed_until = '2999-01-01T00:00:00.000Z' WHERE number = ?").run(snoozed.number);
+    const unclear = createIssue(me, { workspaceId: ws.id, title: "unclear" });
+    askQuestion(me, unclear.id, "対象はどれか");
+    const working = createIssue(me, { workspaceId: ws.id, title: "working" });
+    startIssue(llm, working.id);
+    expect(queryIssues(db, { ready: true }).issues.map((i) => i.id)).toEqual([free.id, others.id]);
+  });
+
+  test("件数は Workspace、Project、ラベルの範囲で数え、ステータスと ready の絞り込みには左右されない", () => {
+    const { db, ws, me } = setup();
+    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
+    createIssue(me, { workspaceId: ws.id, title: "ready" });
+    const unclear = createIssue(me, { workspaceId: ws.id, title: "unclear" });
+    askQuestion(me, unclear.id, "対象はどれか");
+    createIssue(me, { workspaceId: web.id, title: "web" });
+    const counts = { ready: 1, needsClarification: 1 };
+    expect(queryIssues(db, { workspace: ["API"] }).counts).toEqual(counts);
+    expect(queryIssues(db, { workspace: ["API"], ready: true }).counts).toEqual(counts);
+    expect(queryIssues(db, { workspace: ["API"], status: ["done"] }).counts).toEqual(counts);
+    expect(queryIssues(db, {}).counts).toEqual({ ready: 2, needsClarification: 1 });
+  });
+
+  test("各 Issue に未決事項の決定数と総数を付ける", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    expect(i.questionCount).toEqual({ answered: 0, total: 0 });
+    const first = askQuestion(me, i.id, "一つ目").question;
+    askQuestion(me, i.id, "二つ目");
+    answerQuestion(me, i.id, "決めた", { questionId: first.id });
+    expect(queryIssues(db, {}).issues[0]?.questionCount).toEqual({ answered: 1, total: 2 });
+    expect(getIssue(db, i.id).questionCount).toEqual({ answered: 1, total: 2 });
   });
 });

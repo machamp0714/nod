@@ -42,6 +42,7 @@ export interface Issue {
   parentId: string | null;
   project: { id: number; name: string } | null;
   labels: string[];
+  questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
   snoozedUntil: string | null;
   prUrl: string | null;
   branch: string | null;

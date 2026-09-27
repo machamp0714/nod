@@ -1,3 +1,4 @@
+import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -6,6 +7,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
 import {
+  READY_WHERE,
   findIssueRow,
   formatIssueId,
   type IssueRow,
@@ -94,21 +96,25 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
 
 export interface ListIssuesFilter {
   workspaceId?: number;
-  statuses?: Status[];
+  workspaceKeys?: string[];
+  statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
   labels?: string[];
+  ready?: boolean;
 }
 
-export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
+// Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
+function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
   const where: string[] = [];
   const params: SQLQueryBindings[] = [];
   if (filter.workspaceId !== undefined) {
     where.push("i.workspace_id = ?");
     params.push(filter.workspaceId);
   }
-  const statuses = filter.statuses?.length ? filter.statuses : STATUSES.filter((s) => s !== "done" && s !== "canceled");
-  where.push(`i.status IN (${statuses.map(() => "?").join(", ")})`);
-  params.push(...statuses);
+  if (filter.workspaceKeys?.length) {
+    where.push(`w.key IN (${filter.workspaceKeys.map(() => "?").join(", ")})`);
+    params.push(...filter.workspaceKeys.map((k) => k.toUpperCase()));
+  }
   if (filter.projectRef) {
     where.push("i.project_id = ?");
     params.push(resolveProject(db, filter.projectRef).id);
@@ -117,7 +123,56 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
     params.push(label);
   }
+  return { where, params };
+}
+
+export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
+  const { where, params } = scopeWhere(db, filter);
+  const statuses = filter.statuses?.length ? filter.statuses : STATUSES.filter((s) => s !== "done" && s !== "canceled");
+  where.push(`i.status IN (${statuses.map(() => "?").join(", ")})`);
+  params.push(...statuses);
+  if (filter.ready) {
+    where.push(READY_WHERE);
+    params.push(now());
+  }
   return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params);
+}
+
+export interface IssueCounts {
+  ready: number;
+  needsClarification: number;
+}
+
+export interface IssueList {
+  issues: Issue[];
+  counts: IssueCounts;
+}
+
+// web の Issue 一覧（Issues、Views、Project 詳細）の読み出し。ステータスを省くとすべてのステータスを返す
+export function queryIssues(db: Database, query: IssueQuery): IssueList {
+  const q = validateIssueQuery(query);
+  const filter: ListIssuesFilter = {
+    workspaceKeys: q.workspace,
+    statuses: q.status ?? [...STATUSES],
+    projectRef: q.project,
+    labels: q.label,
+    ready: q.ready,
+  };
+  const scope = scopeWhere(db, filter);
+  const scopeSql = scope.where.map((w) => ` AND ${w}`).join("");
+  const count = (condition: string, conditionParams: SQLQueryBindings[]) =>
+    (
+      db
+        .query(`SELECT count(*) AS n FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE ${condition}${scopeSql}`)
+        .get(...conditionParams, ...scope.params) as { n: number }
+    ).n;
+  return {
+    issues: listIssues(db, filter),
+    counts: {
+      ready: count(READY_WHERE, [now()]),
+      needsClarification: count("i.status = 'needs_clarification'", []),
+    },
+  };
 }
 
 interface RelationRow {
