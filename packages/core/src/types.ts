@@ -108,6 +108,18 @@ export interface Relations {
   duplicates: string[];
 }
 
+export interface InboxQuestion extends Question {
+  issueTitle: string;
+  workspace: string;
+  branch: string | null;
+  worktree: string | null;
+}
+
+export interface Inbox {
+  questions: InboxQuestion[];
+  reviews: Issue[];
+}
+
 export interface IssueDetail extends Issue {
   plan: Plan;
   documents: DocumentRef[];
