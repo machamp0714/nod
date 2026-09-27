@@ -107,7 +107,12 @@ test("送信中は回答するを押せず、回答は1回だけ記録される"
 
 test.describe("別の端末で先に回答された質問", () => {
   // SSE を止めるための EventSource の失敗と、409 の応答をコンソールのエラーとして許す
-  test.use({ allowedConsoleErrors: [/status of 409/, /ERR_FAILED/, /api\/events/] });
+  test.use({
+    // 配列を fixture の値と設定の組として解釈させず、RegExp[] を渡す
+    allowedConsoleErrors: async ({}, use) => {
+      await use([/status of 409/, /ERR_FAILED/, /api\/events/]);
+    },
+  });
 
   test("web から回答しても先の回答を上書きせず、一覧を読み直して消す", async ({ page, nod }) => {
     // SSE を止め、別の端末での回答の後も画面に古い質問を残す
