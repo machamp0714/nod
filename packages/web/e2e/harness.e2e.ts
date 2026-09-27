@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test, waitForServerEvents } from "./fixtures";
 
 test.describe("データセットを入れたとき", () => {
   test.use({ dataset: "harness" });
@@ -56,4 +56,9 @@ test("別の接続での書き込みは、SSE の change として届く", async
   await nod.me.initWorkspace({ path: nod.repo("nod"), key: "NOD", name: "nod" });
   const version = await page.evaluate(() => (window as unknown as { nodChange: Promise<number> }).nodChange);
   expect(version).toEqual(expect.any(Number));
+});
+
+test("画面を開くと SSE に接続し、html に data-server-events=ready を出す", async ({ page }) => {
+  await page.goto("/issues");
+  await waitForServerEvents(page);
 });
