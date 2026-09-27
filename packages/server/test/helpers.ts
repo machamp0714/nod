@@ -37,3 +37,50 @@ export async function call(
   const text = await res.text();
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
+export interface SseEvent {
+  event: string;
+  data: string;
+}
+
+// SSE の応答を1イベントずつ読む。timeoutMs の間に次のイベントが来なければ null を返す。
+// 待ちきれなかった read() は捨てずに次の呼び出しで使う（捨てると、その後に届いたイベントを取りこぼす）
+export function sseReader(res: Response) {
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let pending: ReturnType<typeof reader.read> | null = null;
+  return {
+    async next(timeoutMs = 2000): Promise<SseEvent | null> {
+      const deadline = Date.now() + timeoutMs;
+      while (!buffer.includes("\n\n")) {
+        const left = deadline - Date.now();
+        if (left <= 0) return null;
+        pending ??= reader.read();
+        const r = await Promise.race([pending, Bun.sleep(left).then(() => "timeout" as const)]);
+        if (r === "timeout") return null;
+        pending = null;
+        if (r.done) return null;
+        buffer += decoder.decode(r.value, { stream: true });
+      }
+      const end = buffer.indexOf("\n\n");
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const field = (name: string) =>
+        block
+          .split("\n")
+          .find((line) => line.startsWith(`${name}: `))
+          ?.slice(name.length + 2) ?? "";
+      return { event: field("event"), data: field("data") };
+    },
+    cancel: () => reader.cancel(),
+  };
+}
+
+export async function waitFor(cond: () => boolean, timeoutMs = 1000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > deadline) return false;
+    await Bun.sleep(10);
+  }
+  return true;
+}

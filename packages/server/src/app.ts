@@ -5,9 +5,12 @@ import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
 import { registerIssueOps } from "./routes/issue-ops";
 import { registerViewRoutes } from "./routes/views";
+import { type ChangeFeed, createChangeFeed } from "./change-feed";
+import { registerEventRoutes } from "./routes/events";
 
 export interface AppOptions {
   db: Database;
+  feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
 }
 
 function errorJson(err: unknown): Response {
@@ -25,6 +28,7 @@ export function createApp(opts: AppOptions): Hono {
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);
   registerViewRoutes(app, opts.db);
+  registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
   return app;
