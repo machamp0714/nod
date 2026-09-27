@@ -9,5 +9,6 @@
     "types": ["bun"],
     "noEmit": true
   },
-  "include": ["packages/*/src", "packages/*/test"]
+  "include": ["packages/*/src", "packages/*/test"],
+  "exclude": ["packages/web"]
 }
