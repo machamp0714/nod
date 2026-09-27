@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { CommanderError } from "commander";
+import { translateCommanderError } from "../src/main";
 import { addWorktree, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 let db: string;
@@ -134,5 +136,74 @@ describe("ヘルプと終了コード", () => {
     expect(help.exitCode).toBe(0);
     expect(help.stdout).toContain("Usage:");
     expect((await llm(["--help"])).exitCode).toBe(0);
+  });
+});
+
+describe("commander の引数の誤りを日本語で返す", () => {
+  const cases: [string, string[], string][] = [
+    ["引数の不足", ["issue", "show"], "id"],
+    ["オプションの値の不足", ["issue", "list", "--status"], "--status"],
+    ["必須オプションの不足", ["issue", "done", "API-1"], "--summary"],
+    ["知らないオプション", ["issue", "list", "--nope"], "--nope"],
+    ["知らないコマンド", ["issue", "nope"], "nope"],
+  ];
+  for (const [label, args, name] of cases) {
+    test(`${label}: 標準エラーには nod の日本語のメッセージだけを出し、--json なら INVALID_ARGS`, async () => {
+      const text = await llm(args);
+      expect(text.exitCode).toBe(1);
+      expect(text.stderr).toContain("エラー（INVALID_ARGS）");
+      expect(text.stderr).toContain(name);
+      expect(text.stderr).not.toContain("error:");
+      expect(text.stderr).not.toContain("Usage:");
+      const json = await llm([...args, "--json"]);
+      expect(json.exitCode).toBe(1);
+      expect(json.json.error.code).toBe("INVALID_ARGS");
+      expect(json.json.error.message).toContain(name);
+      expect(json.json.error.message).not.toContain("error:");
+      expect(json.stderr).toBe("");
+    });
+  }
+
+  test("サブコマンドを省いたときは、ヘルプに続けて日本語のメッセージを出す", async () => {
+    const bare = await llm(["issue"]);
+    expect(bare.exitCode).toBe(1);
+    expect(bare.stderr).toContain("Usage:");
+    expect(bare.stderr).toContain("サブコマンドを指定してください");
+    const json = await llm(["issue", "--json"]);
+    expect(json.json.error.message).toBe("サブコマンドを指定してください");
+  });
+});
+
+describe("translateCommanderError", () => {
+  test("7 種類の誤りを、誤った名前を含む日本語にする", () => {
+    const cases: [string, string, string[]][] = [
+      ["commander.missingArgument", "error: missing required argument 'id'", ["id"]],
+      ["commander.optionMissingArgument", "error: option '--status <list>' argument missing", ["--status <list>"]],
+      ["commander.missingMandatoryOptionValue", "error: required option '--summary <text>' not specified", ["--summary <text>"]],
+      ["commander.unknownOption", "error: unknown option '--nope'\n(Did you mean --no?)", ["--nope"]],
+      ["commander.unknownCommand", "error: unknown command 'nope'", ["nope"]],
+      [
+        "commander.excessArguments",
+        "error: too many arguments for 'list'. Expected 0 arguments but got 2.",
+        ["list", "0", "2"],
+      ],
+      [
+        "commander.invalidArgument",
+        "error: option '-p, --priority <n>' argument 'x' is invalid. bad",
+        ["-p, --priority <n>", "x"],
+      ],
+      [
+        "commander.invalidArgument",
+        "error: command-argument value 'x' is invalid for argument 'status'. bad",
+        ["status", "x"],
+      ],
+    ];
+    for (const [code, message, names] of cases) {
+      const e = translateCommanderError(new CommanderError(1, code, message));
+      expect(e.code).toBe("INVALID_ARGS");
+      expect(e.message).not.toContain("error:");
+      expect(e.message).not.toContain("Did you mean");
+      for (const n of names) expect(e.message).toContain(n);
+    }
   });
 });

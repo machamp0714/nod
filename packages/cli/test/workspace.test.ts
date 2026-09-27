@@ -51,6 +51,9 @@ describe("nod init と workspace", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("nod issue next");
     expect((await runNod(["skills", "get", "nope", "--json"], { cwd, db })).json.error.code).toBe("UNKNOWN_SKILL");
+    for (const name of ["toString", "constructor", "__proto__"]) {
+      expect((await runNod(["skills", "get", name, "--json"], { cwd, db })).json.error.code).toBe("UNKNOWN_SKILL");
+    }
   });
 });
 

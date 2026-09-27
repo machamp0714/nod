@@ -26,6 +26,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
 8. 終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
+9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
 
 ## 引数の書き方
 
@@ -61,6 +62,9 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 
 - NOT_INITIALIZED：このリポジトリは nod に登録されていない。人に \`nod init\` を依頼する。
 - NOT_ACCEPTED：その Issue はまだ Triage にある。着手せず、別の Issue を取る。
+- ASSIGNED_TO_OTHER：その Issue はほかの書き手が担当している。着手せず、別の Issue を取る。
+- AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
+- BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
 - NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - INVALID_ARGS、INVALID_STEP：message の例に従って引数を直し、再実行する。
