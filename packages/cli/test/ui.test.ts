@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { type NodServer, startServer } from "@nod/server";
 import { openCommand } from "../src/browser";
 import { defaultWebDir, startUi, type UiStarted } from "../src/ui";
-import { tempDb, tempDir } from "./helpers";
+import { runNod, tempDb, tempDir } from "./helpers";
 
 // index.html を持つ、ビルド済みの web の代わりのディレクトリを作る
 function webDist(): string {
@@ -136,6 +136,116 @@ describe("startUi", () => {
       const code = await codeOf(startUi({ port, webDir: webDist(), dbPath: tempDb(), open: true }, opener.deps));
       expect([port, code]).toEqual([port, "PORT_IN_USE"]);
       expect(opener.urls).toEqual([]);
+    }
+  });
+});
+
+const MAIN = join(import.meta.dir, "../src/main.ts");
+const URL_RE = /http:\/\/127\.0\.0\.1:\d+\//;
+
+// 標準出力を、正規表現に合う文字列が出るまで（最長 timeoutMs）読む
+async function readUntil(stream: ReadableStream<Uint8Array>, re: RegExp, timeoutMs = 10000): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const deadline = Date.now() + timeoutMs;
+  let text = "";
+  while (!re.test(text)) {
+    const wait = Math.max(0, deadline - Date.now());
+    const chunk = await Promise.race([reader.read(), Bun.sleep(wait).then(() => null)]);
+    if (!chunk || chunk.done) break;
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  reader.releaseLock();
+  return text;
+}
+
+// BROWSER を実在しないパスにして、テストで本物のブラウザを開かないようにする
+function spawnUi(args: string[], extraEnv: Record<string, string> = {}) {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    NOD_DB: tempDb(),
+    NOD_ORCA: "0",
+    CLAUDECODE: undefined,
+    BROWSER: "/nonexistent/browser",
+    ...extraEnv,
+  };
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
+  return Bun.spawn(["bun", MAIN, "ui", ...args], { cwd: tempDir(), env, stdout: "pipe", stderr: "pipe" });
+}
+
+describe("nod ui", () => {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    test(`URL を出して待ち、SSE がつながっていても ${signal} で止まる`, async () => {
+      const proc = spawnUi(["--port", "0", "--no-open", "--web-dir", webDist()]);
+      try {
+        const out = await readUntil(proc.stdout, URL_RE);
+        expect(out).toContain("止めるには Ctrl+C を押してください");
+        const url = URL_RE.exec(out)?.[0] ?? "";
+        expect(url).not.toBe("");
+        expect(await (await fetch(`${url}issues/API-1`)).text()).toContain("id=root");
+        const events = await fetch(`${url}api/events`);
+        expect(events.headers.get("content-type")).toContain("text/event-stream");
+        proc.kill(signal);
+        expect(await proc.exited).toBe(0);
+        await events.body?.cancel().catch(() => {});
+        const closed = await fetch(`${url}api/workspaces`).then(
+          () => false,
+          () => true,
+        );
+        expect(closed).toBe(true);
+      } finally {
+        proc.kill("SIGKILL");
+      }
+    });
+  }
+
+  test("--json で URL と DB の場所を出す", async () => {
+    const webDir = webDist();
+    const proc = spawnUi(["--port", "0", "--no-open", "--web-dir", webDir, "--json"]);
+    try {
+      const out = await readUntil(proc.stdout, /\}\s*$/);
+      const info = JSON.parse(out);
+      expect(info).toMatchObject({ reused: false, opened: false, webDir });
+      expect(info.url).toMatch(URL_RE);
+      expect(info.dbPath).toEndWith("nod.db");
+      expect(info.server).toBeUndefined();
+    } finally {
+      proc.kill("SIGINT");
+      await proc.exited;
+    }
+  });
+
+  test("web がビルドされていなければ WEB_NOT_BUILT で終了コード 1", async () => {
+    const empty = tempDir("nod-web-");
+    const r = await runNod(["ui", "--port", "0", "--no-open", "--web-dir", empty, "--json"], { cwd: tempDir(), db: tempDb() });
+    expect(r.exitCode).toBe(1);
+    expect(r.json.error.code).toBe("WEB_NOT_BUILT");
+    const text = await runNod(["ui", "--port", "0", "--no-open", "--web-dir", empty], { cwd: tempDir(), db: tempDb() });
+    expect(text.exitCode).toBe(1);
+    expect(text.stderr).toContain("bun run web:build");
+  });
+
+  test("ポートの指定の誤りは INVALID_ARGS", async () => {
+    for (const port of ["abc", "-1", "65536", "80.5"]) {
+      const r = await runNod(["ui", "--port", port, "--no-open", "--web-dir", webDist(), "--json"], {
+        cwd: tempDir(),
+        db: tempDb(),
+      });
+      expect([port, r.exitCode, r.json?.error?.code]).toEqual([port, 1, "INVALID_ARGS"]);
+    }
+  });
+
+  test("ブラウザを開けなければ、標準エラーに URL を案内して動き続ける", async () => {
+    // spawnUi は BROWSER を実在しないパスにするため、--no-open を付けなければ開くのに失敗する
+    const proc = spawnUi(["--port", "0", "--web-dir", webDist()]);
+    try {
+      const err = await readUntil(proc.stderr, /開いてください/);
+      expect(err).toMatch(new RegExp(`ブラウザを開けませんでした。${URL_RE.source} を開いてください`));
+      const url = URL_RE.exec(err)?.[0] ?? "";
+      expect((await fetch(`${url}api/workspaces`)).status).toBe(200);
+    } finally {
+      proc.kill("SIGINT");
+      expect(await proc.exited).toBe(0);
     }
   });
 });

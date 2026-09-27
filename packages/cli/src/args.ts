@@ -46,3 +46,11 @@ export function parsePositiveInt(value: string, what: string): number {
   }
   return Number(value);
 }
+
+export function parsePort(value: string): number {
+  const port = Number(value);
+  if (!/^\d+$/.test(value) || port > 65535) {
+    throw new NodError("INVALID_ARGS", "ポートは 0〜65535 の整数で指定してください（0 なら空いているポートを使う）");
+  }
+  return port;
+}
