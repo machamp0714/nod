@@ -16,3 +16,13 @@ cd <リポジトリ> && nod init    # Workspace として登録する（キー�
 LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude/skills/nod` にシンボリックリンクを張る）。
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
+
+## server（開発時）
+
+```sh
+bun run server                # http://127.0.0.1:4700 で API を起動する
+NOD_PORT=4800 bun run server  # ポートを変える
+```
+
+DB は `nod` と同じく `NOD_DB` か `~/.local/share/nod/nod.db` を使う。
+web の開発サーバーは `/api` をこの server に転送する。

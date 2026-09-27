@@ -7,10 +7,12 @@ import { registerIssueOps } from "./routes/issue-ops";
 import { registerViewRoutes } from "./routes/views";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
 import { registerEventRoutes } from "./routes/events";
+import { registerStatic } from "./static";
 
 export interface AppOptions {
   db: Database;
   feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
+  staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
 }
 
 function errorJson(err: unknown): Response {
@@ -31,5 +33,6 @@ export function createApp(opts: AppOptions): Hono {
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
+  if (opts.staticDir) registerStatic(app, opts.staticDir);
   return app;
 }
