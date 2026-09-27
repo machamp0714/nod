@@ -1,0 +1,47 @@
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.description {
+  color: var(--ink2);
+  font-size: 13.5px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.heading {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--ink3);
+  font-size: 12px;
+}
