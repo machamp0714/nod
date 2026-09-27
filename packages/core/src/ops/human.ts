@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { enterClarification, leaveClarification, openQuestionCount } from "../clarification";
+import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
@@ -22,9 +23,9 @@ export function getInbox(db: Database): Inbox {
     .query(
       `SELECT q.*, i.title AS issue_title, i.number AS issue_number, i.branch AS branch, i.worktree AS worktree, w.key AS ws_key
        FROM questions q JOIN issues i ON i.id = q.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE q.answer IS NULL AND i.status NOT IN ('done', 'canceled') ORDER BY q.asked_at, q.id`,
+       WHERE q.answer IS NULL AND q.asked_by <> ? AND i.status NOT IN ('done', 'canceled') ORDER BY q.asked_at, q.id`,
     )
-    .all() as (QuestionRow & {
+    .all(HUMAN_ACTOR) as (QuestionRow & {
     issue_title: string;
     issue_number: number;
     branch: string | null;
@@ -42,20 +43,52 @@ export function getInbox(db: Database): Inbox {
   return { questions, reviews };
 }
 
-export function answerQuestion(ctx: OpCtx, ref: string, answer: string): { issue: Issue; answered: Question[] } {
+function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[] {
+  const open = ctx.db
+    .query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL AND asked_by <> ? ORDER BY id")
+    .all(row.id, HUMAN_ACTOR) as QuestionRow[];
+  if (open.length > 0) return open;
+  const mine = openQuestionCount(ctx.db, row.id);
+  throw new NodError(
+    "NO_OPEN_QUESTION",
+    mine > 0
+      ? `${ref} に LLM からの未回答の確認依頼はありません。未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`
+      : `${ref} に未回答の確認依頼はありません`,
+  );
+}
+
+function pickQuestion(ctx: OpCtx, row: IssueRow, ref: string, questionId: number): QuestionRow {
+  const q = ctx.db.query("SELECT * FROM questions WHERE id = ? AND issue_id = ?").get(questionId, row.id) as QuestionRow | null;
+  if (!q) throw new NodError("NOT_FOUND", `${ref} に質問 ${questionId} はありません`);
+  if (q.answer !== null) throw new NodError("NO_OPEN_QUESTION", `質問 ${questionId} はすでに回答済みです`);
+  return q;
+}
+
+// 既定では LLM からの未回答の質問にまとめて答え、questionId があればその質問だけに答える
+export function answerQuestion(
+  ctx: OpCtx,
+  ref: string,
+  answer: string,
+  opts: { questionId?: number } = {},
+): { issue: Issue; answered: Question[] } {
   requireText(answer, "回答");
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const issueId = toIssue(row).id;
-    const open = ctx.db.query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL ORDER BY id").all(row.id) as QuestionRow[];
-    if (open.length === 0) throw new NodError("NO_OPEN_QUESTION", `${ref} に未回答の確認依頼はありません`);
+    const targets =
+      opts.questionId === undefined ? openLlmQuestions(ctx, row, ref) : [pickQuestion(ctx, row, ref, opts.questionId)];
     const ts = now();
-    ctx.db
-      .query("UPDATE questions SET answer = ?, answered_by = ?, answered_at = ? WHERE issue_id = ? AND answer IS NULL")
-      .run(answer, ctx.actor, ts, row.id);
-    for (const q of open) recordEvent(ctx.db, row.id, ctx.actor, "question_answered", { question_id: q.id });
-    if (row.agent_state === "awaiting_input") setColumn(ctx, row, "agent_state", "working");
-    const answered = open.map((q) => toQuestion({ ...q, answer, answered_by: ctx.actor, answered_at: ts }, issueId));
+    const update = ctx.db.query("UPDATE questions SET answer = ?, answered_by = ?, answered_at = ? WHERE id = ?");
+    for (const q of targets) {
+      update.run(answer, ctx.actor, ts, q.id);
+      recordEvent(ctx.db, row.id, ctx.actor, "question_answered", { question_id: q.id });
+    }
+    // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す
+    if (row.agent_state === "awaiting_input" && openQuestionCount(ctx.db, row.id, { llmOnly: true }) === 0) {
+      setColumn(ctx, row, "agent_state", "working");
+    }
+    leaveClarification(ctx, row);
+    const answered = targets.map((q) => toQuestion({ ...q, answer, answered_by: ctx.actor, answered_at: ts }, issueId));
     return { issue: toIssue(issueRowById(ctx.db, row.id)), answered };
   });
 }
@@ -96,6 +129,7 @@ export function acceptTriage(ctx: OpCtx, ref: string): Issue {
     setColumn(ctx, row, "status", "todo");
     setColumn(ctx, row, "snoozed_until", null);
     recordEvent(ctx.db, row.id, ctx.actor, "triage_accepted", {});
+    enterClarification(ctx, row);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

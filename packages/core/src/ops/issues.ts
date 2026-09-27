@@ -1,3 +1,4 @@
+import { enterClarification } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
@@ -141,8 +142,8 @@ function loadRelations(db: Database, id: number): Relations {
 export function getIssue(db: Database, ref: string): IssueDetail {
   const row = findIssueRow(db, ref);
   const issue = toIssue(row);
-  const openQuestions = (
-    db.query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL ORDER BY id").all(row.id) as QuestionRow[]
+  const questions = (
+    db.query("SELECT * FROM questions WHERE issue_id = ? ORDER BY id").all(row.id) as QuestionRow[]
   ).map((q) => toQuestion(q, issue.id));
   return {
     ...issue,
@@ -150,7 +151,8 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     documents: loadDocuments(db, { issueId: row.id }),
     children: selectIssues(db, "WHERE i.parent_id = ? ORDER BY i.number", [row.id]),
     relations: loadRelations(db, row.id),
-    openQuestions,
+    questions,
+    openQuestions: questions.filter((q) => q.answer === null),
     activity: loadActivity(db, row.id),
   };
 }
@@ -235,6 +237,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
         setColumn(ctx, row, "close_reason", input.reason);
       }
       setColumn(ctx, row, "status", input.status, input.reason ? { reason: input.reason } : {});
+      enterClarification(ctx, row);
     }
     changeLabels(ctx, row, input.addLabels ?? [], input.removeLabels ?? []);
     return toIssue(issueRowById(ctx.db, row.id));

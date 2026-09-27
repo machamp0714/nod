@@ -158,6 +158,7 @@ export interface IssueDetail extends Issue {
   documents: DocumentRef[];
   children: Issue[];
   relations: Relations;
+  questions: Question[]; // 回答済みも含めたすべての確認依頼（未決事項）。id の順
   openQuestions: Question[];
   activity: ActivityItem[];
 }

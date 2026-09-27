@@ -1,4 +1,5 @@
-import { now, type OpCtx } from "../ctx";
+import { enterClarification } from "../clarification";
+import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
@@ -76,6 +77,12 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
     if (row.status === "triage") {
       throw new NodError("NOT_ACCEPTED", `${ref} はまだ Triage にあります。受け入れられるまで着手できません`);
     }
+    if (row.status === "needs_clarification") {
+      throw new NodError(
+        "NEEDS_CLARIFICATION",
+        `${ref} には未回答の確認依頼（未決事項）が残っています。すべて回答されるまで着手できません`,
+      );
+    }
     if (row.status === "done" || row.status === "canceled") {
       throw new NodError("ISSUE_CLOSED", `${ref} はすでに ${row.status} です`);
     }
@@ -98,23 +105,38 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
   });
 }
 
-export function askQuestion(ctx: OpCtx, ref: string, question: string): { question: Question; created: boolean } {
+export interface AskResult {
+  question: Question;
+  created: boolean;
+  issue: Issue;
+}
+
+export function askQuestion(ctx: OpCtx, ref: string, question: string): AskResult {
   requireText(question, "質問");
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const issueId = toIssue(row).id;
-    setColumn(ctx, row, "agent_state", "awaiting_input", { reason: question });
     const existing = ctx.db
       .query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL AND question = ?")
       .get(row.id, question) as QuestionRow | null;
-    if (existing) return { question: toQuestion(existing, issueId), created: false };
-    const { lastInsertRowid } = ctx.db
-      .query("INSERT INTO questions (issue_id, question, asked_by, asked_at) VALUES (?, ?, ?, ?)")
-      .run(row.id, question, ctx.actor, now());
-    const id = Number(lastInsertRowid);
-    recordEvent(ctx.db, row.id, ctx.actor, "question_asked", { question_id: id });
-    const inserted = ctx.db.query("SELECT * FROM questions WHERE id = ?").get(id) as QuestionRow;
-    return { question: toQuestion(inserted, issueId), created: true };
+    let asked: Question;
+    if (existing) {
+      asked = toQuestion(existing, issueId);
+    } else {
+      const { lastInsertRowid } = ctx.db
+        .query("INSERT INTO questions (issue_id, question, asked_by, asked_at) VALUES (?, ?, ?, ?)")
+        .run(row.id, question, ctx.actor, now());
+      const id = Number(lastInsertRowid);
+      recordEvent(ctx.db, row.id, ctx.actor, "question_asked", { question_id: id });
+      asked = toQuestion(ctx.db.query("SELECT * FROM questions WHERE id = ?").get(id) as QuestionRow, issueId);
+    }
+    // 作業中なら LLM の作業を止め、着手前なら決めることが残っている Issue として扱う
+    if (row.status === "in_progress") {
+      if (isLlm(ctx)) setColumn(ctx, row, "agent_state", "awaiting_input", { reason: question });
+    } else {
+      enterClarification(ctx, row);
+    }
+    return { question: asked, created: !existing, issue: toIssue(issueRowById(ctx.db, row.id)) };
   });
 }
 
