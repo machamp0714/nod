@@ -1,4 +1,4 @@
-import type { InboxQuestion, Plan, Workspace } from "../api/types";
+import type { ActivityItem, InboxQuestion, Plan, Workspace } from "../api/types";
 
 export function workspaceNameOf(workspaces: readonly Pick<Workspace, "key" | "name">[] | undefined, key: string): string {
   return workspaces?.find((w) => w.key === key)?.name ?? key;
@@ -39,4 +39,25 @@ export function groupInbox(questions: readonly InboxQuestion[]): InboxEntry[] {
 
 export function doingTaskTitle(plan: Plan): string | null {
   return plan.tasks.find((t) => t.status === "doing")?.title ?? null;
+}
+
+export interface ReviewReport {
+  actor: string;
+  at: string;
+  body: string;
+}
+
+// nod issue done は、報告をコメントで残してから in_review に変える（CLI 計画の completeIssue）。
+// そのため、最後に in_review に変わった時刻以前の、最も新しいコメントを報告とする。Activity は時刻順である
+export function reviewReport(activity: readonly ActivityItem[]): ReviewReport | null {
+  let reviewAt: string | null = null;
+  for (const item of activity) {
+    if (item.kind === "event" && item.type === "status_changed" && item.data.to === "in_review") reviewAt = item.at;
+  }
+  if (reviewAt === null) return null;
+  let report: ReviewReport | null = null;
+  for (const item of activity) {
+    if (item.kind === "comment" && item.at <= reviewAt) report = { actor: item.actor, at: item.at, body: item.body };
+  }
+  return report;
 }

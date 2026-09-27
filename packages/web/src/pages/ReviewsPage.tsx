@@ -1,20 +1,24 @@
 import { getRouteApi } from "@tanstack/react-router";
+import { useState } from "react";
+import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
+import { useIssueDetail } from "../api/hooks/shared";
 import type { Issue } from "../api/types";
+import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
-import { INBOX } from "../fixtures/inbox";
-import { questionsOf } from "../fixtures/issues";
-import { REVIEW_REPORTS } from "../fixtures/reviews";
-import { workspaceName } from "../fixtures/workspaces";
-import { countQuestions, formatRelative, prLabel } from "../lib/format";
+import { reviewReport } from "../lib/decision";
+import { formatRelative, prLabel } from "../lib/format";
+import { planProgress } from "../lib/plan";
 import d from "./decision.module.css";
 
 const route = getRouteApi("/reviews");
 
 export function ReviewsPage() {
   const { selected } = route.useSearch();
-  const items = INBOX.reviews;
+  const inbox = useInbox();
+  const workspaceName = useWorkspaceName();
+  const items = inbox.data?.reviews ?? [];
   const current = items.find((i) => i.id === selected) ?? items[0];
   return (
     <SplitLayout
@@ -22,7 +26,11 @@ export function ReviewsPage() {
       count={items.length}
       listLabel="レビュー待ちの一覧"
       list={
-        items.length === 0 ? (
+        inbox.isPending ? (
+          <QueueEmpty>読み込み中…</QueueEmpty>
+        ) : inbox.isError ? (
+          <ActionError error={inbox.error} />
+        ) : items.length === 0 ? (
           <QueueEmpty>レビュー待ちの Issue はありません</QueueEmpty>
         ) : (
           items.map((issue) => (
@@ -33,7 +41,7 @@ export function ReviewsPage() {
               title={issue.title}
               actor={issue.assignee ?? issue.createdBy}
               at={issue.updatedAt}
-              body={REVIEW_REPORTS[issue.id]?.body}
+              body={issue.prUrl ? prLabel(issue.prUrl) : undefined}
               workspaceKey={issue.workspace}
               workspaceName={workspaceName(issue.workspace)}
               selected={issue === current}
@@ -41,18 +49,29 @@ export function ReviewsPage() {
           ))
         )
       }
-      detail={current ? <ReviewDetail issue={current} /> : <p className={d.empty}>レビュー待ちの Issue はありません</p>}
+      detail={
+        current ? (
+          <ReviewDetail key={current.id} issue={current} workspaceName={workspaceName(current.workspace)} />
+        ) : (
+          <p className={d.empty}>{inbox.isPending ? "読み込み中…" : "レビュー待ちの Issue はありません"}</p>
+        )
+      }
     />
   );
 }
 
-function ReviewDetail({ issue }: { issue: Issue }) {
-  const report = REVIEW_REPORTS[issue.id];
-  const questions = countQuestions(questionsOf(issue.id));
+function ReviewDetail({ issue, workspaceName }: { issue: Issue; workspaceName: string }) {
+  const detail = useIssueDetail(issue.id);
+  const report = detail.data ? reviewReport(detail.data.activity) : null;
+  const plan = detail.data && detail.data.plan.tasks.length > 0 ? planProgress(detail.data.plan) : null;
+  const [reason, setReason] = useState("");
+  const approve = useDecision();
+  const reject = useDecision();
+  const busy = approve.isPending || reject.isPending;
   return (
     <div className={d.detail}>
       <div className={d.crumb}>
-        <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName(issue.workspace)} />
+        <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
         <span className={d.id}>{issue.id}</span>
         <StatusLabel status={issue.status} />
       </div>
@@ -64,7 +83,11 @@ function ReviewDetail({ issue }: { issue: Issue }) {
           <span className={d.cardHeadText}>{report ? `${report.actor} の完了報告` : "完了報告"}</span>
           {report && <span className={d.time}>{formatRelative(report.at)}</span>}
         </div>
-        <p className={d.body}>{report?.body ?? "報告はありません"}</p>
+        {detail.isError ? (
+          <ActionError error={detail.error} />
+        ) : (
+          <p className={d.body}>{detail.isPending ? "読み込み中…" : (report?.body ?? "報告はありません")}</p>
+        )}
       </section>
 
       {issue.prUrl ? (
@@ -86,27 +109,40 @@ function ReviewDetail({ issue }: { issue: Issue }) {
       )}
 
       <div className={d.summary}>
-        {report && (
+        {plan && (
           <span className={d.summaryItem}>
             <Icon name="list-checks" color="var(--ready)" />
-            計画 {report.plan.done}/{report.plan.total} 完了
+            計画 {plan.done}/{plan.total} 完了
           </span>
         )}
         <span className={d.summaryItem}>
           <Icon name="message-circle" />
-          確認依頼 {questions.total} 件（回答済み {questions.decided} 件）
+          確認依頼 {issue.questionCount.total} 件（回答済み {issue.questionCount.answered} 件）
         </span>
       </div>
 
-      <textarea className={d.feedback} aria-label="差し戻しの理由" placeholder="差し戻す場合は理由を書く…" />
+      <textarea
+        className={d.feedback}
+        aria-label="差し戻しの理由"
+        placeholder="差し戻す場合は理由を書く…"
+        value={reason}
+        disabled={busy}
+        onChange={(e) => setReason(e.target.value)}
+      />
       <div className={d.actions}>
-        <Button variant="primary" icon="check" disabled title="準備中">
+        <Button variant="primary" icon="check" disabled={busy} onClick={() => approve.mutate({ op: "approve", issueId: issue.id })}>
           承認して閉じる
         </Button>
-        <Button icon="undo-2" disabled title="準備中">
+        <Button
+          icon="undo-2"
+          disabled={busy || reason.trim() === ""}
+          title={reason.trim() === "" ? "差し戻しの理由を書いてください" : undefined}
+          onClick={() => reject.mutate({ op: "reject", issueId: issue.id, reason })}
+        >
           差し戻す
         </Button>
       </div>
+      <ActionError error={approve.error ?? reject.error} />
     </div>
   );
 }

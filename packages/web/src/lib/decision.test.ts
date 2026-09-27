@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { InboxQuestion, Plan } from "../api/types";
-import { doingTaskTitle, groupInbox, workspaceNameOf } from "./decision";
+import type { ActivityItem, InboxQuestion, Plan } from "../api/types";
+import { doingTaskTitle, groupInbox, reviewReport, workspaceNameOf } from "./decision";
 
 describe("workspaceNameOf", () => {
   test("キーから Workspace の名前を引き、見つからなければキーを返す", () => {
@@ -53,5 +53,42 @@ describe("doingTaskTitle", () => {
     });
     expect(doingTaskTitle(plan("done", "doing", "pending"))).toBe("Task 2");
     expect(doingTaskTitle(plan("done", "pending"))).toBeNull();
+  });
+});
+
+describe("reviewReport", () => {
+  const comment = (at: string, actor: string, body: string): ActivityItem => ({ kind: "comment", at, actor, body });
+  const toStatus = (at: string, from: string, to: string): ActivityItem => ({
+    kind: "event",
+    at,
+    actor: "claude-code",
+    type: "status_changed",
+    data: { from, to },
+  });
+
+  test("最後に in_review に変わった時刻以前の、最も新しいコメントを報告とする", () => {
+    const activity = [
+      comment("2026-09-28T00:01:00.000Z", "claude-code", "途中の経過"),
+      comment("2026-09-28T00:02:00.000Z", "claude-code", "署名を検証した"),
+      toStatus("2026-09-28T00:02:00.001Z", "in_progress", "in_review"),
+      comment("2026-09-28T00:03:00.000Z", "me", "見ておく"),
+    ];
+    expect(reviewReport(activity)).toEqual({ actor: "claude-code", at: "2026-09-28T00:02:00.000Z", body: "署名を検証した" });
+  });
+
+  test("差し戻しの後にやり直したら、新しい報告を取る", () => {
+    const activity = [
+      comment("2026-09-28T00:01:00.000Z", "claude-code", "1回目の報告"),
+      toStatus("2026-09-28T00:01:00.001Z", "in_progress", "in_review"),
+      comment("2026-09-28T00:02:00.000Z", "me", "テストが足りない"),
+      toStatus("2026-09-28T00:02:00.001Z", "in_review", "in_progress"),
+      comment("2026-09-28T00:03:00.000Z", "claude-code", "2回目の報告"),
+      toStatus("2026-09-28T00:03:00.001Z", "in_progress", "in_review"),
+    ];
+    expect(reviewReport(activity)?.body).toBe("2回目の報告");
+  });
+
+  test("in_review に変わった記録がなければ null", () => {
+    expect(reviewReport([comment("2026-09-28T00:01:00.000Z", "claude-code", "経過")])).toBeNull();
   });
 });
