@@ -195,6 +195,12 @@ function isAncestor(db: Database, ancestorId: number, issueId: number): boolean 
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
+  if (input.status === "needs_clarification") {
+    throw new NodError(
+      "INVALID_ARGS",
+      "needs_clarification は確認依頼に応じて自動で切り替わるため、手では変えられません。未決事項は nod issue ask で足してください",
+    );
+  }
   if (input.status === "done" && isLlm(ctx)) {
     throw new NodError(
       "FORBIDDEN_FOR_LLM",

@@ -6,7 +6,16 @@ export interface Workspace {
   createdAt: string;
 }
 
-export const STATUSES = ["triage", "backlog", "todo", "in_progress", "in_review", "done", "canceled"] as const;
+export const STATUSES = [
+  "triage",
+  "backlog",
+  "needs_clarification",
+  "todo",
+  "in_progress",
+  "in_review",
+  "done",
+  "canceled",
+] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const AGENT_STATES = ["working", "awaiting_input", "error", "done"] as const;

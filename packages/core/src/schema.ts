@@ -24,7 +24,7 @@ export const MIGRATIONS: string[][] = [
       number INTEGER NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
-      status TEXT NOT NULL CHECK (status IN ('triage', 'backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled')),
+      status TEXT NOT NULL CHECK (status IN ('triage', 'backlog', 'needs_clarification', 'todo', 'in_progress', 'in_review', 'done', 'canceled')),
       priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
       assignee TEXT,
       agent_state TEXT CHECK (agent_state IN ('working', 'awaiting_input', 'error', 'done')),
@@ -115,6 +115,13 @@ export const MIGRATIONS: string[][] = [
       color TEXT,
       filter TEXT NOT NULL DEFAULT '{}',
       position INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE TABLE templates (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )`,
     `CREATE INDEX issues_status ON issues (status)`,
     `CREATE INDEX events_issue ON events (issue_id, id)`,

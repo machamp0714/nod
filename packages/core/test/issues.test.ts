@@ -87,6 +87,12 @@ describe("listIssues", () => {
 });
 
 describe("updateIssue", () => {
+  test("手で needs_clarification にはできない", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    expect(codeOf(() => updateIssue(me, i.id, { status: "needs_clarification" }))).toBe("INVALID_ARGS");
+    expect(getIssue(db, i.id).status).toBe("todo");
+  });
   test("変わった項目だけを events に記録し、done で closed_at を入れる", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });

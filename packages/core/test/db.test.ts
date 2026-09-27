@@ -4,6 +4,18 @@ import { openDb, SCHEMA_VERSION, schemaVersion, tx } from "../src/db";
 import { codeOf, tempDbPath } from "./helpers";
 
 describe("openDb", () => {
+  test("issues の status は needs_clarification を受け付け、知らない値は拒む", () => {
+    const db = openDb(tempDbPath());
+    db.query("INSERT INTO workspaces (key, name, path, created_at) VALUES ('API', 'api', '/tmp/api', '')").run();
+    const insert = (n: number, status: string) =>
+      db
+        .query(
+          "INSERT INTO issues (workspace_id, number, title, status, created_by, created_at, updated_at) VALUES (1, ?, 't', ?, 'me', '', '')",
+        )
+        .run(n, status);
+    expect(() => insert(1, "needs_clarification")).not.toThrow();
+    expect(() => insert(2, "wip")).toThrow();
+  });
   test("pragma を設定し、スキーマを最新にする", () => {
     const db = openDb(tempDbPath());
     expect((db.query("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("wal");
@@ -25,6 +37,7 @@ describe("openDb", () => {
       "projects",
       "questions",
       "relations",
+      "templates",
       "views",
       "workspaces",
     ]);

@@ -12,6 +12,7 @@ import {
 export const STATUS_LABEL: Record<Status, string> = {
   triage: "Triage",
   backlog: "Backlog",
+  needs_clarification: "Needs Clarification",
   todo: "Todo",
   in_progress: "In Progress",
   in_review: "In Review",
