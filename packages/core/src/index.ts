@@ -8,5 +8,6 @@ export * from "./events";
 export * from "./mutate";
 export * from "./ops/issues";
 export * from "./ops/projects";
+export * from "./ops/documents";
 export * from "./ops/agent";
 export * from "./ops/human";
