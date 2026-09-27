@@ -1,3 +1,130 @@
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import type { ProjectSummary } from "../api/types";
+import { Button, Icon, Pill, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
+import { PROJECTS } from "../fixtures/project-summaries";
+import { workspaceName } from "../fixtures/workspaces";
+import { formatRelative } from "../lib/format";
+import { filterProjects } from "../lib/projects";
+import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
+import s from "./projects.module.css";
+
+const route = getRouteApi("/projects");
+
 export function ProjectsPage() {
-  return <h1>Projects</h1>;
+  const search = route.useSearch();
+  const navigate = useNavigate({ from: "/projects" });
+  const tab = search.tab ?? "active";
+  const projects = filterProjects(PROJECTS, tab);
+  return (
+    <div className={s.page}>
+      <header className={s.header}>
+        <h1 className={s.title}>Projects</h1>
+        <Segmented<ProjectTab>
+          label="Project の絞り込み"
+          value={tab}
+          onChange={(value) => navigate({ search: cleanProjectsSearch({ tab: value }), replace: true })}
+          items={[
+            { value: "active", label: "Active" },
+            { value: "completed", label: "Completed" },
+            { value: "all", label: "All" },
+          ]}
+        />
+        <span className={s.spacer} />
+        <Button icon="plus" disabled title="準備中">
+          New project
+        </Button>
+      </header>
+      <table className={s.table}>
+        <colgroup>
+          <col />
+          <col className={s.colWorkspace} />
+          <col className={s.colProgress} />
+          <col className={s.colAgents} />
+          <col className={s.colUpdated} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Workspace</th>
+            <th>Progress</th>
+            <th>LLM の状況</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.length === 0 ? (
+            <tr>
+              <td colSpan={5} className={s.muted}>
+                Project はありません
+              </td>
+            </tr>
+          ) : (
+            projects.map((project) => <ProjectRow key={project.id} project={project} />)
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProjectRow({ project }: { project: ProjectSummary }) {
+  return (
+    <tr>
+      <td>
+        <div className={s.name}>
+          <span className={s.iconBox}>
+            <Icon name="box" />
+          </span>
+          <span className={s.nameText}>
+            <Link to="/projects/$projectId" params={{ projectId: String(project.id) }} className={s.nameLink}>
+              {project.name}
+            </Link>
+            {project.description && <span className={s.desc}>{project.description}</span>}
+          </span>
+        </div>
+      </td>
+      <td>
+        <div className={s.workspaces}>
+          {project.workspaces.length === 0 ? (
+            <span className={s.muted}>—</span>
+          ) : (
+            project.workspaces.map((key) => <WorkspaceBadge key={key} workspaceKey={key} name={workspaceName(key)} />)
+          )}
+        </div>
+      </td>
+      <td>
+        <div className={s.progress}>
+          <ProgressBar value={project.done} max={project.total} />
+          <span>
+            {project.done}/{project.total}
+          </span>
+        </div>
+      </td>
+      <td>
+        <AgentSummary agents={project.agents} />
+      </td>
+      <td className={s.muted}>{formatRelative(project.updatedAt)}</td>
+    </tr>
+  );
+}
+
+function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
+  const pills = [
+    agents.awaitingInput > 0 && (
+      <Pill key="awaiting" tone="ask">
+        入力待ち {agents.awaitingInput}
+      </Pill>
+    ),
+    agents.working > 0 && (
+      <Pill key="working" tone="accent">
+        作業中 {agents.working}
+      </Pill>
+    ),
+    agents.error > 0 && (
+      <Pill key="error" tone="fail">
+        エラー {agents.error}
+      </Pill>
+    ),
+  ].filter(Boolean);
+  return <div className={s.agents}>{pills.length === 0 ? <span className={s.muted}>—</span> : pills}</div>;
 }
