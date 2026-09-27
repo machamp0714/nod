@@ -7,6 +7,7 @@ import {
   declineTriage,
   duplicateTriage,
   getInbox,
+  listTriage,
   parseDateTime,
   rejectReview,
   snoozeTriage,
@@ -137,5 +138,21 @@ describe("レビュー", () => {
     completeIssue(llm, a.id, { summary: "やった" });
     expect(codeOf(() => approveReview(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
     expect(getIssue(db, a.id).status).toBe("in_review");
+  });
+});
+
+describe("listTriage", () => {
+  test("全 Workspace の Triage を作成順に返し、Snooze の期限が来ていないものは除く", () => {
+    const { db, ws, me, llm } = setup();
+    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
+    const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(llm, { workspaceId: web.id, title: "b" });
+    const later = createIssue(llm, { workspaceId: ws.id, title: "later" });
+    const expired = createIssue(llm, { workspaceId: ws.id, title: "expired" });
+    const accepted = createIssue(llm, { workspaceId: ws.id, title: "accepted" });
+    snoozeTriage(me, later.id, "2099-01-01");
+    snoozeTriage(me, expired.id, "2000-01-01");
+    acceptTriage(me, accepted.id);
+    expect(listTriage(db).map((i) => i.id)).toEqual([a.id, b.id, expired.id]);
   });
 });

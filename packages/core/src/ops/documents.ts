@@ -6,7 +6,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
 import { findIssueRow, type IssueRow } from "../issue-query";
-import type { DocKind, DocumentRef } from "../types";
+import type { DocKind, DocumentContent, DocumentRef } from "../types";
 import { resolveProject } from "./projects";
 
 export function documentTitle(path: string, content: string): string {
@@ -94,4 +94,17 @@ export function detachDocument(ctx: OpCtx, target: DocTarget, path: string, cwd:
     if (!doc || changes === 0) throw new NodError("NOT_FOUND", `${abs} は添付されていません`);
     if (resolved.issue) recordEvent(ctx.db, resolved.issue.id, ctx.actor, "document_detached", { document_id: doc.id });
   });
+}
+
+// 登録済みの Document だけを id で読む。ファイルが消えたり読めなかったりしたら content を null にする
+export function readDocument(db: Database, id: number): DocumentContent {
+  const doc = db.query("SELECT id, path, title, kind FROM documents WHERE id = ?").get(id) as DocumentRef | null;
+  if (!doc) throw new NodError("NOT_FOUND", `Document ${id} はありません`);
+  let content: string | null;
+  try {
+    content = readFileSync(doc.path, "utf8");
+  } catch {
+    content = null;
+  }
+  return { ...doc, content };
 }

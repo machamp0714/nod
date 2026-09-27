@@ -43,6 +43,15 @@ export function getInbox(db: Database): Inbox {
   return { questions, reviews };
 }
 
+// web の Triage。Snooze の期限が来ていないものは除く
+export function listTriage(db: Database): Issue[] {
+  return selectIssues(
+    db,
+    "WHERE i.status = 'triage' AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?) ORDER BY i.created_at, i.id",
+    [now()],
+  );
+}
+
 function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[] {
   const open = ctx.db
     .query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL AND asked_by <> ? ORDER BY id")

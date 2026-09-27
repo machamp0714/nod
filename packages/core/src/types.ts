@@ -102,6 +102,10 @@ export interface DocumentRef {
   kind: DocKind;
 }
 
+export interface DocumentContent extends DocumentRef {
+  content: string | null; // ファイルが見つからない、または読めないときは null
+}
+
 export interface Question {
   id: number;
   issueId: string;

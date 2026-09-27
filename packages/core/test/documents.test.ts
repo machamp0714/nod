@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachDocument, detachDocument, documentTitle } from "../src/ops/documents";
+import { attachDocument, detachDocument, documentTitle, readDocument } from "../src/ops/documents";
 import { createIssue, getIssue } from "../src/ops/issues";
 import { createProject, getProject } from "../src/ops/projects";
 import { codeOf, eventsOf, setup } from "./helpers";
@@ -62,5 +62,20 @@ describe("attachDocument と detachDocument", () => {
     expect(codeOf(() => attachDocument(me, { issueRef: a.id }, { path: "/nope/x.md" }))).toBe("FILE_NOT_FOUND");
     const { path } = writeDoc("x.md", "# x\n");
     expect(codeOf(() => attachDocument(me, {}, { path }))).toBe("INVALID_ARGS");
+  });
+});
+
+describe("readDocument", () => {
+  test("登録済みの Document を id で読み、ファイルが消えたりディレクトリに変わったりしたら content を null にする", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const { path } = writeDoc("spec.md", "# 検索の設計\n\n本文\n");
+    const doc = attachDocument(me, { issueRef: i.id }, { path });
+    expect(readDocument(db, doc.id)).toEqual({ ...doc, content: "# 検索の設計\n\n本文\n" });
+    rmSync(path);
+    expect(readDocument(db, doc.id)).toMatchObject({ title: "検索の設計", content: null });
+    mkdirSync(path);
+    expect(readDocument(db, doc.id).content).toBeNull();
+    expect(codeOf(() => readDocument(db, 999))).toBe("NOT_FOUND");
   });
 });
