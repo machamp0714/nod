@@ -4,6 +4,7 @@ import pkg from "../package.json";
 import { registerHumanCommands } from "./commands/human";
 import { registerIssueCommands } from "./commands/issue";
 import { registerProjectCommands } from "./commands/project";
+import { registerTemplateCommands } from "./commands/template";
 import { registerSkillsCommands } from "./commands/skills";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { NodError } from "@nod/core";
@@ -22,6 +23,7 @@ export function buildProgram(): Command {
   registerProjectCommands(program);
   registerHumanCommands(program);
   registerWorkspaceCommands(program);
+  registerTemplateCommands(program);
   registerSkillsCommands(program);
   return program;
 }

@@ -13,3 +13,4 @@ export * from "./ops/agent";
 export * from "./ops/human";
 export * from "./plan-markdown";
 export * from "./ops/plan";
+export * from "./ops/templates";

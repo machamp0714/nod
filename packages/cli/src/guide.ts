@@ -41,11 +41,13 @@ nod issue ask API-12 -- "--force を外してよいか"
 作業中に別の不具合や追加の作業を見つけたら、自分で着手せずに起票する。
 
 \`\`\`sh
-nod issue create "<タイトル>" -d "<説明>" [--project <名前>] [--parent <id>] [-p 0-4] [-l <label>]
+nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--project <名前>] [--parent <id>] [-p 0-4] [-l <label>]
 \`\`\`
 
 LLM が起票した Issue は Triage に入り、人が受け入れるまで \`nod issue next\` に出ない。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
+説明の雛形（テンプレート）があるときは、\`nod template list\` で探し、\`--template <名前>\` で本文を説明の初期値にする。
+雛形の空欄は \`nod issue update <id> -d "<説明>"\` で埋める。
 
 ## そのほかのコマンド
 
@@ -54,6 +56,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 - \`nod issue comment <id> "<text>"\`
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
 - \`nod project list\`、\`nod project show <名前>\`
+- \`nod template list\`、\`nod template show <名前>\`
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
 失敗すると終了コードが1になり、\`--json\` のときは \`{"error": {"code", "message"}}\` を返す。

@@ -37,6 +37,7 @@ export function registerIssueCommands(program: Command): void {
     .command("create <title>")
     .description("Issue を起票する（LLM の起票は Triage に入る）")
     .option("-d, --description <text>", "説明")
+    .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("-p, --priority <0-4>", "優先度（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）")
@@ -47,12 +48,13 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { description?: string; project?: string; parent?: string; priority?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; parent?: string; priority?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
             title,
             description: o.description,
+            template: o.template,
             projectRef: o.project,
             parentRef: o.parent,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),

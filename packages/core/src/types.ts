@@ -162,3 +162,11 @@ export interface IssueDetail extends Issue {
   openQuestions: Question[];
   activity: ActivityItem[];
 }
+
+export interface Template {
+  id: number;
+  name: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}

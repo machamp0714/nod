@@ -1,3 +1,4 @@
+import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { isLlm, now, type OpCtx } from "../ctx";
@@ -36,6 +37,7 @@ export interface CreateIssueInput {
   workspaceId: number;
   title: string;
   description?: string;
+  template?: string; // テンプレートの名前。本文を説明の初期値にする（description と同時には使えない）
   projectRef?: string;
   parentRef?: string;
   priority?: number;
@@ -44,6 +46,12 @@ export interface CreateIssueInput {
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
   requireText(input.title, "タイトル");
+  if (input.template !== undefined && input.description !== undefined) {
+    throw new NodError(
+      "INVALID_ARGS",
+      "--template と -d は同時に指定できません。雛形の空欄は、起票した後に nod issue update -d で埋めてください",
+    );
+  }
   if (input.priority !== undefined) validatePriority(input.priority);
   return tx(ctx.db, () => {
     const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
@@ -53,6 +61,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
     const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
+    const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     const status: Status = isLlm(ctx) ? "triage" : "todo";
     const ts = now();
     ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
@@ -65,7 +74,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
         ws.id,
         ws.next_number,
         input.title,
-        input.description ?? null,
+        description,
         status,
         input.priority ?? 0,
         parent?.id ?? null,
