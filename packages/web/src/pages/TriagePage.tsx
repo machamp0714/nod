@@ -1,10 +1,12 @@
 import { getRouteApi } from "@tanstack/react-router";
+import { useState } from "react";
+import { useDecision, useTriage, useWorkspaceName } from "../api/hooks/decision";
 import type { Issue } from "../api/types";
+import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, StatusLabel, WorkspaceBadge } from "../components/ui";
-import { TRIAGE_ISSUES } from "../fixtures/inbox";
-import { workspaceName } from "../fixtures/workspaces";
+import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
 import d from "./decision.module.css";
 
@@ -12,7 +14,9 @@ const route = getRouteApi("/triage");
 
 export function TriagePage() {
   const { selected } = route.useSearch();
-  const items = TRIAGE_ISSUES;
+  const triage = useTriage();
+  const workspaceName = useWorkspaceName();
+  const items = triage.data ?? [];
   const current = items.find((i) => i.id === selected) ?? items[0];
   return (
     <SplitLayout
@@ -20,7 +24,11 @@ export function TriagePage() {
       count={items.length}
       listLabel="Triage の一覧"
       list={
-        items.length === 0 ? (
+        triage.isPending ? (
+          <QueueEmpty>読み込み中…</QueueEmpty>
+        ) : triage.isError ? (
+          <ActionError error={triage.error} />
+        ) : items.length === 0 ? (
           <QueueEmpty>Triage の Issue はありません</QueueEmpty>
         ) : (
           items.map((issue) => (
@@ -39,16 +47,33 @@ export function TriagePage() {
           ))
         )
       }
-      detail={current ? <TriageDetail issue={current} /> : <p className={d.empty}>Triage の Issue はありません</p>}
+      detail={
+        current ? (
+          <TriageDetail key={current.id} issue={current} workspaceName={workspaceName(current.workspace)} />
+        ) : (
+          <p className={d.empty}>{triage.isPending ? "読み込み中…" : "Triage の Issue はありません"}</p>
+        )
+      }
     />
   );
 }
 
-function TriageDetail({ issue }: { issue: Issue }) {
+type Mode = "duplicate" | "snooze" | "decline";
+
+function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: string }) {
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [value, setValue] = useState("");
+  const decision = useDecision();
+  const busy = decision.isPending;
+  const open = (next: Mode, initial = "") => {
+    setMode(next);
+    setValue(initial);
+    decision.reset();
+  };
   return (
     <div className={d.detail}>
       <div className={d.crumb}>
-        <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName(issue.workspace)} />
+        <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
         <span className={d.id}>{issue.id}</span>
         <StatusLabel status={issue.status} />
       </div>
@@ -61,20 +86,85 @@ function TriageDetail({ issue }: { issue: Issue }) {
       </div>
       <p className={d.body}>{issue.description ?? "説明はありません"}</p>
       <div className={d.actions}>
-        <Button variant="primary" icon="check" disabled title="準備中">
+        <Button variant="primary" icon="check" disabled={busy} onClick={() => decision.mutate({ op: "accept", issueId: issue.id })}>
           受け入れる
         </Button>
-        <Button icon="copy" disabled title="準備中">
+        <Button icon="copy" disabled={busy} onClick={() => open("duplicate")}>
           重複にする
         </Button>
-        <Button icon="alarm-clock" disabled title="準備中">
+        <Button icon="alarm-clock" disabled={busy} onClick={() => open("snooze", tomorrow())}>
           後回し
         </Button>
         <span className={d.spacer} />
-        <Button variant="danger" icon="x" disabled title="準備中">
+        <Button variant="danger" icon="x" disabled={busy} onClick={() => open("decline")}>
           却下
         </Button>
       </div>
+
+      {mode === "duplicate" && (
+        <div className={d.subform}>
+          <input
+            className={d.input}
+            aria-label="元の Issue の ID"
+            placeholder="例: API-12"
+            value={value}
+            disabled={busy}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <Button
+            variant="primary"
+            disabled={busy || value.trim() === ""}
+            onClick={() => decision.mutate({ op: "duplicate", issueId: issue.id, original: value })}
+          >
+            重複として閉じる
+          </Button>
+          <Button disabled={busy} onClick={() => setMode(null)}>
+            やめる
+          </Button>
+        </div>
+      )}
+      {mode === "snooze" && (
+        <div className={d.subform}>
+          <input
+            className={d.input}
+            type="date"
+            aria-label="後回しの期限"
+            min={tomorrow()}
+            value={value}
+            disabled={busy}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <Button
+            variant="primary"
+            disabled={busy || value === ""}
+            onClick={() => decision.mutate({ op: "snooze", issueId: issue.id, until: value })}
+          >
+            後回しにする
+          </Button>
+          <Button disabled={busy} onClick={() => setMode(null)}>
+            やめる
+          </Button>
+        </div>
+      )}
+      {mode === "decline" && (
+        <div className={d.subform}>
+          <input
+            className={d.input}
+            aria-label="却下の理由（任意）"
+            placeholder="理由（任意）"
+            value={value}
+            disabled={busy}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <Button variant="danger" disabled={busy} onClick={() => decision.mutate({ op: "decline", issueId: issue.id, reason: value })}>
+            却下する
+          </Button>
+          <Button disabled={busy} onClick={() => setMode(null)}>
+            やめる
+          </Button>
+        </div>
+      )}
+      <ActionError error={decision.error} />
     </div>
   );
 }

@@ -61,3 +61,10 @@ export function reviewReport(activity: readonly ActivityItem[]): ReviewReport | 
   }
   return report;
 }
+
+// 後回しの期限の既定と最小。日付だけの値は、core が地域の時刻の 0 時として解釈するため、今日を選ぶと期限がすでに過ぎている
+export function tomorrow(now: Date = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

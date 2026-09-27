@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ActivityItem, InboxQuestion, Plan } from "../api/types";
-import { doingTaskTitle, groupInbox, reviewReport, workspaceNameOf } from "./decision";
+import { doingTaskTitle, groupInbox, reviewReport, tomorrow, workspaceNameOf } from "./decision";
 
 describe("workspaceNameOf", () => {
   test("キーから Workspace の名前を引き、見つからなければキーを返す", () => {
@@ -90,5 +90,13 @@ describe("reviewReport", () => {
 
   test("in_review に変わった記録がなければ null", () => {
     expect(reviewReport([comment("2026-09-28T00:01:00.000Z", "claude-code", "経過")])).toBeNull();
+  });
+});
+
+describe("tomorrow", () => {
+  test("地域の時刻で翌日の YYYY-MM-DD を返し、月末と年末を越える", () => {
+    expect(tomorrow(new Date(2026, 8, 28, 23, 30))).toBe("2026-09-29");
+    expect(tomorrow(new Date(2026, 8, 30, 9, 0))).toBe("2026-10-01");
+    expect(tomorrow(new Date(2026, 11, 31, 0, 0))).toBe("2027-01-01");
   });
 });
