@@ -1,1 +1,5 @@
 .DS_Store
+
+# design / superpowers docs (local only)
+design/
+docs/superpowers/
