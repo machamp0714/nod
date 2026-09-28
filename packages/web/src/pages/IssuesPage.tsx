@@ -1,9 +1,14 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useFilterOptions, useIssueRows } from "../api/hooks/issues";
+import { useCreateView, useViews } from "../api/hooks/views";
 import { FilterBar } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { Button } from "../components/ui";
+import { ViewDialog } from "../components/views/ViewDialog";
 import { filterFromSearch, filterToSearch } from "../lib/issue-filter";
 import { cleanIssueListSearch, type IssueListSearch } from "../routes/search";
+
 const route = getRouteApi("/issues");
 
 export function IssuesPage() {
@@ -12,18 +17,43 @@ export function IssuesPage() {
   const filter = filterFromSearch(search);
   const rows = useIssueRows(filter);
   const options = useFilterOptions();
+  const views = useViews();
+  const createView = useCreateView();
+  const [saving, setSaving] = useState(false);
   const change = (patch: IssueListSearch) =>
     navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true });
   return (
-    <IssueList
-      crumb="All workspaces"
-      title="Issues"
-      filterBar={<FilterBar filter={filter} options={options} onChange={(next) => change(filterToSearch(next))} />}
-      rows={rows.rows}
-      loading={rows.loading}
-      error={rows.error}
-      search={search}
-      onSearchChange={change}
-    />
+    <>
+      <IssueList
+        crumb="All workspaces"
+        title="Issues"
+        rows={rows.rows}
+        loading={rows.loading}
+        error={rows.error}
+        search={search}
+        onSearchChange={change}
+        actions={
+          <Button variant="soft" icon="layers" onClick={() => setSaving(true)}>
+            View として保存
+          </Button>
+        }
+        filterBar={<FilterBar filter={filter} options={options} onChange={(next) => change(filterToSearch(next))} />}
+      />
+      {saving && (
+        <ViewDialog
+          title="View として保存"
+          submitLabel="保存"
+          initial={{ name: "", color: null }}
+          views={views.data ?? []}
+          selfId={null}
+          onSubmit={async (value) => {
+            const view = await createView.mutateAsync({ ...value, filter });
+            setSaving(false);
+            navigate({ to: "/views/$viewId", params: { viewId: String(view.id) } });
+          }}
+          onClose={() => setSaving(false)}
+        />
+      )}
+    </>
   );
 }

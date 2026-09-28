@@ -4,22 +4,25 @@ import s from "./ui.module.css";
 
 export function Button({
   variant = "secondary",
+  type = "button",
   icon,
   children,
   disabled,
   title,
   onClick,
 }: {
-  variant?: "primary" | "secondary" | "danger";
+  variant?: "primary" | "secondary" | "danger" | "soft";
+  type?: "button" | "submit";
   icon?: IconName;
   children: ReactNode;
   disabled?: boolean;
   title?: string;
   onClick?: () => void;
 }) {
-  const variantClass = variant === "primary" ? s.primary : variant === "danger" ? s.danger : "";
+  const variantClass =
+    variant === "primary" ? s.primary : variant === "danger" ? s.danger : variant === "soft" ? s.soft : "";
   return (
-    <button type="button" className={`${s.button} ${variantClass}`} disabled={disabled} title={title} onClick={onClick}>
+    <button type={type} className={`${s.button} ${variantClass}`} disabled={disabled} title={title} onClick={onClick}>
       {icon && <Icon name={icon} />}
       {children}
     </button>

@@ -1,5 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { useCreateView } from "../api/hooks/views";
 import { Icon, type IconName } from "../components/ui";
+import { ViewDialog } from "../components/views/ViewDialog";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
@@ -34,6 +37,9 @@ function SoonItem({ icon, label }: { icon: IconName; label: string }) {
 
 export function Sidebar() {
   const { counts, views } = useSidebarData();
+  const navigate = useNavigate();
+  const createView = useCreateView();
+  const [creating, setCreating] = useState(false);
   return (
     <nav aria-label="メイン" className={s.sidebar}>
       <div className={s.top}>
@@ -64,7 +70,7 @@ export function Sidebar() {
       <div className={s.group}>
         <div className={s.heading}>
           <span>Views</span>
-          <button type="button" className={s.headingButton} disabled title="View を保存（準備中）" aria-label="View を追加">
+          <button type="button" className={s.headingButton} title="View を作成" aria-label="View を追加" onClick={() => setCreating(true)}>
             <Icon name="plus" />
           </button>
         </div>
@@ -84,6 +90,21 @@ export function Sidebar() {
           </Link>
         ))}
       </div>
+      {creating && (
+        <ViewDialog
+          title="View を作成"
+          submitLabel="作成"
+          initial={{ name: "", color: null }}
+          views={views}
+          selfId={null}
+          onSubmit={async (value) => {
+            const view = await createView.mutateAsync({ ...value, filter: {} });
+            setCreating(false);
+            navigate({ to: "/views/$viewId", params: { viewId: String(view.id) } });
+          }}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </nav>
   );
 }
