@@ -356,3 +356,61 @@
   gap: 6px;
   min-width: 0;
 }
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.textarea,
+.input,
+.select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.input {
+  min-width: 0;
+  padding: 4px 8px;
+}
+
+.select {
+  padding: 3px 6px;
+}
+
+.textarea:focus,
+.input:focus,
+.select:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.error {
+  color: var(--fail);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  color: var(--ink2);
+  font-size: 12px;
+}
