@@ -48,6 +48,7 @@ export function FilterBar({
           Filter
         </summary>
         <div className={s.panel}>
+          <BlockedFilter value={filter.blocked} onChange={(blocked) => onChange({ ...filter, blocked })} />
           <CheckGroup
             label="Workspace"
             options={options.workspaces}
@@ -114,4 +115,14 @@ function CheckGroup({
       )}
     </fieldset>
   );
+}
+
+export function BlockedFilter({ value, onChange }: { value: boolean | undefined; onChange: (value: boolean | undefined) => void }) {
+  return <label className={s.field}>
+    <span className={s.groupName}>ブロック</span>
+    <select className={s.select} aria-label="ブロック" value={value === undefined ? "all" : String(value)}
+      onChange={(event) => onChange(event.target.value === "all" ? undefined : event.target.value === "true")}>
+      <option value="all">すべて</option><option value="true">ブロック中</option><option value="false">ブロックなし</option>
+    </select>
+  </label>;
 }

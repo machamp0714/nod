@@ -1,3 +1,4 @@
+import { BlockedBy } from "./BlockedBy";
 import { Link } from "@tanstack/react-router";
 import { formatQuestionCount, prLabel } from "../../lib/format";
 import { STATUS_META } from "../../lib/meta";
@@ -41,6 +42,7 @@ function BoardCard({ row }: { row: IssueListRow }) {
       <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={`${s.boardCardTitle} ${s.titleLink}`} title={issue.title}>
         {issue.title}
       </Link>
+      <BlockedBy ids={issue.blockedBy} />
       {(questions.total > 0 || issue.agentState) && (
         <div className={s.boardCardFooter}>
           {questions.total > 0 && (
