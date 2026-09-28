@@ -16,6 +16,7 @@ import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
+import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { STATUS_META } from "../lib/meta";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -77,7 +78,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             </Pill>
             {issue.agentState && <AgentStatePill state={issue.agentState} />}
           </div>
-          <h1 className={s.title}>{issue.title}</h1>
+          <TitleSection title={issue.title} onSave={(title) => update.mutateAsync({ title })} />
 
           <DescriptionSection description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
           <PlanSection key={issue.id} plan={issue.plan} />
@@ -126,7 +127,7 @@ function DocumentsSection({ documents }: { documents: DocumentRef[] }) {
 function SubIssuesSection({ issues }: { issues: Issue[] }) {
   return (
     <section className={s.section} aria-label="Sub-issue">
-      <h2 className={s.sectionTitle}>Sub-issue</h2>
+      <h2 className={s.sectionTitle}>Sub-issue {issues.filter((issue) => issue.status === "done").length}/{issues.length}</h2>
       {issues.length === 0 ? (
         <p className={s.muted}>Sub-issue はありません</p>
       ) : (

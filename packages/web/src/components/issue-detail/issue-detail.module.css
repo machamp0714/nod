@@ -74,6 +74,24 @@
   overflow-wrap: anywhere;
 }
 
+.titleButton {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.titleButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
 .section {
   display: flex;
   flex-direction: column;
