@@ -92,3 +92,20 @@ test.each(["done", "canceled", "backlog"] as const)("旧%sのawaiting_inputは�
   expect(getIssue(db, issue.id)).toMatchObject({ status: status === "backlog" ? "backlog" : status, agentState: "awaiting_input" });
   db.close();
 });
+
+test("報告IDは別Issueのcommentや文字列IDを採用せず、報告がない手動reviewはnull", () => {
+  const { db, ws, me, llm } = setup();
+  const other = createIssue(me, { workspaceId: ws.id, title: "別のIssue" });
+  const comment = commentIssue(me, other.id, "他人の報告");
+  const issue = createIssue(me, { workspaceId: ws.id, title: "手動review" });
+  updateIssue(me, issue.id, { status: "in_review" });
+  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
+  db.query("UPDATE events SET data=json_set(data,'$.report_comment_id',?) WHERE json_extract(data,'$.to')='in_review'").run(comment.id);
+  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
+  updateIssue(me, issue.id, { status: "in_progress" });
+  completeIssue(llm, issue.id, { summary: "正しい報告" });
+  expect(getInbox(db).reviews[0]?.reviewSummary).toBe("正しい報告");
+  db.query("UPDATE events SET data=json_set(data,'$.report_comment_id',CAST(json_extract(data,'$.report_comment_id') AS TEXT)) WHERE json_extract(data,'$.to')='in_review'").run();
+  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
+  db.close();
+});

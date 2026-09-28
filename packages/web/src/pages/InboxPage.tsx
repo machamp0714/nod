@@ -134,7 +134,7 @@ function QuestionCard({ question, answer, setAnswer }: { question: InboxQuestion
     <section className={d.askCard} aria-label="確認依頼">
       <div className={d.cardHead}>
         <AgentAvatar actor={question.askedBy} />
-        <span className={`${d.cardHeadText} ${d.askText}`}>{question.askedBy} が確認を求めています</span>
+        <span className={`${d.cardHeadText} ${d.askText}`}>{question.askedBy}{question.answer === null ? " が確認を求めています" : " からの確認依頼（回答済み）"}</span>
         <span className={d.askText}>{formatRelative(question.askedAt)}</span>
       </div>
       <p className={d.questionText}>{question.question}</p>

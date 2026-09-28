@@ -40,8 +40,8 @@ export function ReviewsPage() {
               to="/reviews"
               issueId={issue.id}
               title={issue.title}
-              actor={issue.assignee ?? issue.createdBy}
-              at={issue.updatedAt}
+              actor={issue.reviewReport?.actor ?? issue.assignee ?? issue.createdBy}
+              at={issue.reviewSubmittedAt ?? issue.updatedAt}
               body={issue.reviewSummary ?? "報告はありません"}
               workspaceKey={issue.workspace}
               workspaceName={workspaceName(issue.workspace)}
@@ -110,7 +110,6 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
       )}
 
       <div className={d.summary}>
-        <span className={d.summaryItem}>作業時間（待機・中断・差し戻しを含む） {formatReviewElapsed(issue.startedAt, issue.reviewSubmittedAt)}</span>
         {plan && (
           <span className={d.summaryItem}>
             <Icon name="list-checks" color="var(--ready)" />
@@ -121,6 +120,7 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
           <Icon name="message-circle" />
           確認依頼 {issue.questionCount.total} 件（回答済み {issue.questionCount.answered} 件）
         </span>
+        <span className={d.summaryItem}>作業時間（待機・中断・差し戻しを含む） {formatReviewElapsed(issue.startedAt, issue.reviewSubmittedAt)}</span>
       </div>
 
       <textarea

@@ -167,3 +167,38 @@ test.describe("保存・コピーの失敗", () => {
     await page.unroute(`**/api/issues/${i.id}/doc-add`);
   });
 });
+
+test.describe("Inboxの送信失敗と競合", () => {
+  test.use({ allowedConsoleErrors: [/status of (500|409)/] });
+  test("回答POSTと背景GETの失敗でもdraftを保持し、外部回答との競合を別質問へ送らない", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const i = await api.startedIssue("回答の競合");
+    const first = await nod.claude.askQuestion(i.id, "最初の回答先");
+    const second = await nod.claude.askQuestion(i.id, "残す回答先");
+    await restartApiServer();
+    await page.goto(`/inbox?selected=${i.id}`);
+    await waitForServerEvents(page);
+    const card = page.getByRole("region", { name: "確認依頼", exact: true }).filter({ hasText: "最初の回答先" });
+    await card.getByRole("textbox", { name: "回答" }).fill("保持する下書き");
+    await page.route(`**/api/issues/${i.id}/answer`, r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "回答失敗" } } }));
+    await page.route("**/api/inbox", r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "再取得失敗" } } }));
+    await card.getByRole("button", { name: "回答する", exact: true }).click();
+    await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("保持する下書き");
+    await expect(card.getByRole("button", { name: "回答する", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "回答する", exact: true })).toBeEnabled({ timeout: 15000 });
+    await expect(card.getByRole("alert")).toContainText("回答失敗");
+    await page.unroute("**/api/inbox");
+    await page.unroute(`**/api/issues/${i.id}/answer`);
+    // 同じAPI接続からの書込はSSEを発生させず、送信時の409を確実に検証できる。
+    const response = await page.request.post(`/api/issues/${i.id}/answer`, { data: { questionId: first.question.id, answer: "外部の回答" } });
+    expect(response.status()).toBe(200);
+    const conflict = page.waitForResponse(r => r.url().endsWith(`/issues/${i.id}/answer`) && r.status() === 409);
+    await card.getByRole("button", { name: "回答する", exact: true }).click();
+    const result = await conflict;
+    expect(result.request().postDataJSON().questionId).toBe(first.question.id);
+    await expect(card).toHaveCount(0);
+    const shown = await api.show(i.id);
+    expect(shown.questions.find(q => q.id === first.question.id)?.answer).toBe("外部の回答");
+    expect(shown.questions.find(q => q.id === second.question.id)?.answer).toBeNull();
+  });
+});
