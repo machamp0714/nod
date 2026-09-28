@@ -4,8 +4,10 @@ import { useIssueList } from "../api/hooks/issues";
 import { useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import type { ProjectSummary } from "../api/types";
-import { Button, Icon, PageError, Pill, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
+import type { ReactNode } from "react";
+import { Button, Icon, PageError, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
+import { type Tone, TONE_COLORS } from "../lib/meta";
 import { filterProjects, type ProjectListItem, withWorkspaces } from "../lib/projects";
 import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
 import s from "./projects.module.css";
@@ -127,27 +129,37 @@ function ProjectRow({ project, workspaceName }: { project: ProjectListItem; work
   );
 }
 
+function ProjectAgentPill({ tone, children }: { tone: Tone; children: ReactNode }) {
+  const color = TONE_COLORS[tone];
+  return (
+    <span className={s.agentPill} style={{ color: color.fg, background: color.bg }}>
+      <span className={s.agentDot} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
 function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
   const pills = [
     agents.awaitingInput > 0 && (
-      <Pill key="awaiting" tone="ask">
+      <ProjectAgentPill key="awaiting" tone="ask">
         入力待ち {agents.awaitingInput}
-      </Pill>
-    ),
-    agents.awaitingReview > 0 && (
-      <Pill key="review" tone="ready">
-        レビュー待ち {agents.awaitingReview}
-      </Pill>
-    ),
-    agents.working > 0 && (
-      <Pill key="working" tone="accent">
-        作業中 {agents.working}
-      </Pill>
+      </ProjectAgentPill>
     ),
     agents.error > 0 && (
-      <Pill key="error" tone="fail">
+      <ProjectAgentPill key="error" tone="fail">
         エラー {agents.error}
-      </Pill>
+      </ProjectAgentPill>
+    ),
+    agents.awaitingReview > 0 && (
+      <ProjectAgentPill key="review" tone="ready">
+        レビュー待ち {agents.awaitingReview}
+      </ProjectAgentPill>
+    ),
+    agents.working > 0 && (
+      <ProjectAgentPill key="working" tone="accent">
+        作業中 {agents.working}
+      </ProjectAgentPill>
     ),
   ].filter(Boolean);
   return <div className={s.agents}>{pills.length === 0 ? <span className={s.muted}>—</span> : pills}</div>;
