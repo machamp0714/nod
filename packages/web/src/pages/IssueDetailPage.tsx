@@ -1,6 +1,12 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { isNotFoundError } from "../api/errors";
-import { useAnswerQuestion, useAskQuestion, useUpdateIssue, useWorkspaceName } from "../api/hooks/issue-detail";
+import {
+  useAnswerQuestion,
+  useAskQuestion,
+  useProjectChoices,
+  useUpdateIssue,
+  useWorkspaceName,
+} from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { DocumentRef, Issue, IssueDetail } from "../api/types";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
@@ -32,6 +38,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const update = useUpdateIssue(issue.id);
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
+  const projects = useProjectChoices();
   const status = STATUS_META[issue.status];
   return (
     <div className={s.page}>
@@ -83,7 +90,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onAnswer={(questionId, text) => answer.mutateAsync({ answer: text, questionId })}
             onAsk={(question) => ask.mutateAsync({ question })}
           />
-          <PropertiesPanel issue={issue} workspaceName={wsName} />
+          <PropertiesPanel issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)} />
           <RelationsPanel relations={issue.relations} />
         </aside>
       </div>

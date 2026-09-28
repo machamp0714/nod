@@ -422,3 +422,24 @@
   padding: 8px 14px;
   border-top: 1px solid var(--line);
 }
+
+.labelRemove {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.labelForm {
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.panelError {
+  padding: 0 14px 10px;
+}

@@ -40,7 +40,12 @@ test("未決事項は決定数 / 総数と、回答済みの回答を出す", as
 test("プロパティと関連 Issue を出す", async ({ page }) => {
   await page.goto(`/issues/${ISSUE.main}`);
   const props = region(page, "プロパティ");
-  for (const text of ["In Progress", "High", "api-server", PROJECT_NAME, "perf", "claude-code", "入力待ち", "feat-search-n1"]) {
+  await expect(props.getByRole("combobox", { name: "Status" })).toHaveValue("in_progress");
+  await expect(props.getByRole("combobox", { name: "Priority" })).toHaveValue("2");
+  await expect(props.getByRole("combobox", { name: "Project" })).toHaveValue("1");
+  await expect(props.getByRole("combobox", { name: "Assignee" })).toHaveValue("claude-code");
+  await expect(props.getByRole("button", { name: "ラベル perf を外す" })).toBeVisible();
+  for (const text of ["api-server", "入力待ち", "feat-search-n1"]) {
     await expect(props).toContainText(text);
   }
   await expect(region(page, "関連 Issue").getByRole("link", { name: ISSUE.child })).toHaveAttribute("href", `/issues/${ISSUE.child}`);
