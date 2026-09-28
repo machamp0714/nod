@@ -1,6 +1,6 @@
-import { attachDocument, createProject, detachDocument, getProject, listProjects } from "@nod/core";
+import { attachDocument, createProject, detachDocument, getProject, listProjects, NodError, updateProject } from "@nod/core";
 import type { Command } from "commander";
-import { parseDocKind } from "../args";
+import { parseDocKind, parseProjectStatus } from "../args";
 import { act } from "../context";
 import { formatIssueLine, print } from "../output";
 
@@ -19,7 +19,7 @@ export function registerProjectCommands(program: Command): void {
             ? list
                 .map(
                   (p) =>
-                    `${p.id}  ${p.name}  ${p.done}/${p.total}  作業中 ${p.agents.working}、入力待ち ${p.agents.awaitingInput}、エラー ${p.agents.error}`,
+                    `${p.id}  ${p.name}  ${p.done}/${p.total}  作業中 ${p.agents.working}、入力待ち ${p.agents.awaitingInput}、レビュー待ち ${p.agents.awaitingReview}、エラー ${p.agents.error}`,
                 )
                 .join("\n")
             : "Project はありません",
@@ -54,6 +54,18 @@ export function registerProjectCommands(program: Command): void {
             ...(p.documents.length ? ["", "Documents:", ...p.documents.map((d) => `  - ${d.title}（${d.kind}）${d.path}`)] : []),
           ].join("\n"),
         );
+      }),
+    );
+
+  project
+    .command("update <project>")
+    .description("Project のステータスを変更する")
+    .option("--status <status>", "planned|started|completed|canceled")
+    .action(
+      act((cli, _cmd, ref: string, o: { status?: string }) => {
+        if (o.status === undefined) throw new NodError("INVALID_ARGS", "--status を指定してください");
+        const updated = updateProject(cli.ctx, ref, { status: parseProjectStatus(o.status) });
+        print(cli, updated, () => `更新しました: ${updated.id}  ${updated.name}（${updated.status}）`);
       }),
     );
 
