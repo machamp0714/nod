@@ -1,22 +1,25 @@
 import { getRouteApi } from "@tanstack/react-router";
-import type { DocKind } from "../api/types";
-import { Icon, Pill } from "../components/ui";
-import { DOCUMENT_BODIES, findDocument } from "../fixtures/documents";
+import { isNotFoundError } from "../api/errors";
+import { useDocument } from "../api/hooks/document";
+import { Markdown } from "../components/markdown/Markdown";
+import { ErrorMessage, Icon, LoadingMessage, Pill } from "../components/ui";
+import { KIND_LABELS, parseDocumentId, stripLeadingTitle } from "../lib/document";
 import s from "./document.module.css";
 import { NotFoundMessage } from "./NotFoundPage";
 
 const route = getRouteApi("/documents/$documentId");
 
-const KIND_LABELS: Record<DocKind, string> = { spec: "Spec", plan: "Plan", doc: "Doc" };
-
 // spec：web が表示のたびにファイルを読む。見つからないときはタイトルと「ファイルが見つかりません」を表示する。
-// A は本文を Markdown の記法のまま出す。G で GET /api/documents/:id と Markdown の描画に置き換える。
 export function DocumentPage() {
   const { documentId } = route.useParams();
-  const id = Number(documentId);
-  const doc = findDocument(id);
-  if (!doc) return <NotFoundMessage title="Document が見つかりません" />;
-  const body = DOCUMENT_BODIES[id] ?? null;
+  const id = parseDocumentId(documentId);
+  const query = useDocument(id);
+  if (id === null) return <NotFoundMessage title="Document が見つかりません" />;
+  if (query.isPending) return <LoadingMessage />;
+  if (query.isError) {
+    return isNotFoundError(query.error) ? <NotFoundMessage title="Document が見つかりません" /> : <ErrorMessage error={query.error} />;
+  }
+  const doc = query.data;
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -26,13 +29,15 @@ export function DocumentPage() {
         <h1 className={s.title}>{doc.title}</h1>
         <p className={s.path}>{doc.path}</p>
       </header>
-      {body === null ? (
+      {doc.content === null ? (
         <div className={s.missing} role="status">
           <Icon name="circle-alert" />
           ファイルが見つかりません
         </div>
       ) : (
-        <div className={s.body}>{body}</div>
+        <div className={s.body}>
+          <Markdown>{stripLeadingTitle(doc.content, doc.title)}</Markdown>
+        </div>
       )}
     </div>
   );

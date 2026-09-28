@@ -31,9 +31,6 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
-  font-size: 14px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .missing {
