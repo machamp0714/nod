@@ -15,18 +15,29 @@ export function openCommand(
 
 // 開けたら true。コマンドがない、失敗した、のどちらでも例外を投げずに false を返す。
 // xdg-open はブラウザを閉じるまで終わらないことがあるため、TIMEOUT_MS で終わらなければ開けたものとして待つのをやめる
-export async function openBrowser(url: string): Promise<boolean> {
+export async function openBrowser(url: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
   try {
     const proc = Bun.spawn(openCommand(url), { stdout: "ignore", stderr: "ignore" });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<null>((resolve) => {
       timer = setTimeout(() => resolve(null), TIMEOUT_MS);
     });
-    const code = await Promise.race([proc.exited, timeout]);
-    clearTimeout(timer);
+    let abort!: () => void;
+    const aborted = new Promise<null>((resolve) => {
+      abort = () => resolve(null);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+    let code: number | null;
+    try {
+      code = await Promise.race([proc.exited, timeout, aborted]);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
     if (code === null) {
       proc.unref();
-      return true;
+      return !signal?.aborted;
     }
     return code === 0;
   } catch {

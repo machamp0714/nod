@@ -249,3 +249,22 @@ describe("nod ui", () => {
     }
   });
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  test(`ブラウザの起動待ち中でも ${signal} で速やかに正常終了する`, async () => {
+    const browser = join(tempDir(), "browser");
+    writeFileSync(browser, '#!/bin/sh\necho "起動待ち" > "$NOD_BROWSER_MARKER"\nexec sleep 4\n', { mode: 0o755 });
+    const marker = join(tempDir(), "started");
+    const proc = spawnUi(["--port", "0", "--web-dir", webDist()], { BROWSER: browser, NOD_BROWSER_MARKER: marker });
+    try {
+      const deadline = Date.now() + 3000;
+      while (!(await Bun.file(marker).exists()) && Date.now() < deadline) await Bun.sleep(10);
+      expect(await Bun.file(marker).exists()).toBe(true);
+      proc.kill(signal);
+      expect(await Promise.race([proc.exited, Bun.sleep(1000).then(() => "timeout")])).toBe(0);
+    } finally {
+      proc.kill("SIGKILL");
+      await proc.exited;
+    }
+  });
+}
