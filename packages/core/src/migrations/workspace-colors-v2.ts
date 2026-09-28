@@ -5,7 +5,8 @@ import { firstUnusedColor, workspaceColorCandidatesV1 } from "../workspace-color
 export function migrateWorkspaceColorsV2(db: Database): void {
   db.exec(`ALTER TABLE workspaces ADD COLUMN color TEXT
     CHECK (color IS NULL OR (
-      length(color) = 7 AND substr(color, 1, 1) = '#'
+      length(color) = 7 AND length(CAST(color AS BLOB)) = 7
+      AND substr(color, 1, 1) = '#'
       AND substr(color, 2) NOT GLOB '*[^0-9A-F]*'
     ))`);
   const rows = db.query("SELECT id FROM workspaces ORDER BY created_at, id").all() as { id: number }[];
