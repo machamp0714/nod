@@ -1,6 +1,6 @@
 # Workspace 色の永続化（#9 / NOD-7）実装計画
 
-> 実装担当へ：PM の次の実装 dispatch 後、superpowers:executing-plans を使って順に実施する。今回の担当範囲は具体計画まで。旧パレット順変更案は廃止し、末尾の過去調査は証拠としてのみ残す。
+> 実装担当へ：PM の次の実装 dispatch 後、superpowers:executing-plans を使って順に実施する。Task 1・2の実装dispatch承認済み。旧パレット順変更案は廃止し、末尾の過去調査は証拠としてのみ残す。
 
 ## 実装dispatchの更新（2026-09-28 18:49）
 
@@ -25,10 +25,10 @@
 - `.codegraph/` はないため通常のソース調査を使用した。
 - スキーマ変更を含む DB 保存方式はユーザー承認済み。キー特例は入れない。
 - PM 回答：24件という新しい上限は不採用。初期パレット後に追加色を決定的に生成し、通常の登録可能性を維持する。色値の一意性と知覚上の識別性は区別する。
-- 今回はコードを実装しない。計画のローカル commit は可。push、PR、main merge は禁止。
-- `#21/NOD-19` と `docs/linear-usecases.md` は編集・commit・stash しない。共有 spec は A 所有で編集禁止。変更案は本計画に保存する。
+- 今回はTask 1・2を実装する。ローカル commit は可。push、PR、main merge は禁止。
+- `#21/NOD-19` と `docs/linear-usecases.md` は編集・commit・stash しない。共有 spec の #9 該当箇所は今回のみDへ編集権が移譲され、反映後はBへ引き渡した。他段落は変更しない。
 - 実 DB は読書き禁止。テストは一時 `NOD_DB`、`NOD_ORCA=0 NOD_ACTOR=codex`。me ケースだけ一時 DB で me を使う。
-- Bun から日本語引数を渡す場合は `Bun.spawnSync` の配列引数を使う。固定 E2E ポートは A 所有で使用禁止。停止できるのは自分の server のみ。
+- Bun から日本語引数を渡す場合は `Bun.spawnSync` の配列引数を使う。固定 E2E ポートはPMからDへの使用許可済み。完了時に解放を報告する。停止できるのは自分の server のみ。
 - リスク分類：標準。主なリスクは migration の rollback、並行登録、必須型追加、取得失敗時の誤色、画面横断回帰。
 
 ## 調査で確定した事実
@@ -106,7 +106,8 @@ const color = `#${value.toString(16).padStart(6, "0").toUpperCase()}`;
 ```sql
 ALTER TABLE workspaces ADD COLUMN color TEXT
 CHECK (color IS NULL OR (
-  length(color) = 7 AND substr(color, 1, 1) = '#'
+  length(color) = 7 AND length(CAST(color AS BLOB)) = 7
+  AND substr(color, 1, 1) = '#'
   AND substr(color, 2) NOT GLOB '*[^0-9A-F]*'
 ));
 ```
@@ -159,7 +160,7 @@ export interface Workspace {
 | B | web/src/api/types.ts、core/src/issue-query.ts、ops/issues.ts、ops/human.ts、server/routes/read.ts、routes/issue-ops.ts、cli/commands/issue.ts、guide.ts | D は編集しない。Workspace は既存 re-export で伝わる |
 | D 後続 | web/src/components/ui/badges.tsx、lib/color.ts、lib/color.test.ts、新規 lib/workspace-color.ts と同 test | 共通部品で反映、Page 無編集 |
 | D 後続 | web/e2e/workspace-colors.e2e.ts、e2e/datasets/workspace-colors.ts（新規） | 独立した色回帰 |
-| A | 共有 spec、E2E 固定ポート、一覧表示の残変更 | 本計画の spec 案と検証要件だけ渡す |
+| B / PM | 原本specはD反映後Bへ返却。固定E2EポートはD検証終了後PMへ返却 | Task 3の統合と全E2EをPMが調整 |
 
 純粋な型だけを先行 commit すると mapper が未実装になり型検査が壊れるため採用しない。先行 commit は小さな縦断変更として DB→core→API/CLI→fixture まで揃え、Web の色表示は後続 commit に分ける。これにより B は型と schema の安定した土台を取り込んでから自身の型追加を行える。既に B が型を編集中なら、該当領域だけ保全して local merge の解決内容を PM に報告する。B の変更を上書きしない。
 
@@ -173,7 +174,7 @@ export function workspaceColorOf(
   key: string,
 ): string | undefined {
   const color = workspaces?.find((workspace) => workspace.key === key)?.color;
-  return color && /^#[0-9A-F]{6}$/.test(color) ? color : undefined;
+  return color?.length === 7 && /^#[0-9A-F]{6}$/.test(color) ? color : undefined;
 }
 ```
 
@@ -229,7 +230,7 @@ expect(allocateWorkspaceColor(new Set())).toBe("#7C5CFF");
 - [ ] `workspace-colors-concurrency.test.ts` は一時同一DBへ2つの Bun 子プロセスを起動し、親の開始合図から API/WEB を登録する。両成功時に異なる色、ロック timeout 時に DB_BUSY と行数不変、解除後 retry 成功を検証する。migration 並行 open も同方式で確認する。プロセスの env は一時DBと NOD_ORCA=0 NOD_ACTOR=codex、引数は配列を使う。
 - [ ] server 新規テストで `GET /api/workspaces` の color が DB と一致し非nullであることを検証する。CLI 新規テストで init/list/remove の JSON が色を維持し、既存通常出力が壊れないことを確認する。
 - [ ] 一時DBを環境変数で指定して対象 test、`bun test`、`bun run typecheck` を実行する。失敗を直した後で必要ファイルのみ add し、`feat: Workspaceの色を割り当てて永続化する` と commit する。
-- [ ] HEAD、ファイル一覧、型契約、実行結果を PM へ送り、B への取り込み対象 commit として渡す。今回は計画のみなのでこの commit はまだ作らない。
+- [ ] HEAD、ファイル一覧、型契約、実行結果を PM へ送り、B への取り込み対象 commit として渡す。先行commitは29f67dc、独立レビューのNUL境界修正は163171b。
 
 ## Task 2：既存 WorkspaceBadge を保存色へ切り替える
 
@@ -273,9 +274,9 @@ for (const workspace of workspaces) {
 - [ ] 独立した一時v1 DBからの移行、再起動後の色不変、古いversion拒否も確認する。実DB検証はしない。
 - [ ] #9要件の差分、実行したテスト件数、HEAD、残課題を PM へ報告する。push/PR/main merge は行わない。
 
-## A へ渡す共有 spec の変更案
+## 共有 spec への反映内容（反映済み、Bへ所有権返却）
 
-以下は本worktreeで保管する提案であり、原本の編集は A が行う。
+以下の内容を原本のWorkspace/#9該当箇所へ反映し、PMへ所有権返却を通知した。
 
 - データモデル：workspaces に `color` を追加。大文字6桁HEX、現在登録中で一意・必須。DB CHECK、UNIQUE、NULL拒否triggerの実装を補足する。
 - Workspace登録：使用済み色を除いて初期パレット→決定的生成から割り当て、登録 transaction で保存。同一path再 init は再配色しない。削除後は空きを再利用する。
@@ -294,6 +295,15 @@ for (const workspace of workspaces) {
 - 見積もりの前提：新しい登録UIや色設定UIは作らない。Task 1に移行/並行/契約の検証を集め、Task 2に画面横断回帰を集める。ポート分離が利用できれば実装・検証3〜5時間、独立レビューと修正1〜2時間程度。環境調整時間は別枠。
 
 ---
+
+## 実装結果（2026-09-28）
+
+- Task 1は完了。先行契約29f67dcをBへ受け渡した。Workspace必須color、v2移行、原子登録、API/CLI/fixtureを同時に揃えた。
+- 独立DBレビューは重大指摘なし。NUL形式CHECKの軽微指摘は163171bで修正し、INSERT/UPDATEのRED→GREENと関連22件を確認した。
+- Task 2は各Pageを変更せず共通badgeへ保存色解決を集約した。遅延/欠損/障害時は透明、再取得失敗でもキャッシュ色を維持する。
+- 専用E2Eは画面横断・groupBy・通信異常・SSE・削除再利用・実際の行順変化・検索・再ロードの20件。
+- Task 3のA/B統合・全E2E・dist実配信は今回未実施。PM指示による後続の統合工程へ引き継ぐ。
+- 最新の検証結果とPR案は `reports/nod-workspace-colors/implementation.md` と `reports/nod-workspace-colors/pr-draft.md` に保存する。
 
 # 過去調査の証拠（当時の承認状態・次工程の記述は現行方針ではない）
 
