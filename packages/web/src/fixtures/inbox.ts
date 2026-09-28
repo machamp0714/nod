@@ -16,7 +16,7 @@ const inboxQuestions: InboxQuestion[] = QUESTIONS.filter((q) => q.answer === nul
 
 export const INBOX: Inbox = {
   questions: inboxQuestions,
-  reviews: ISSUES.filter((i) => i.status === "in_review"),
+  reviews: ISSUES.filter((i) => i.status === "in_review").map(i => ({ ...i, reviewSummary: null, reviewReport: null, reviewSubmittedAt: null })),
 };
 
 export const TRIAGE_ISSUES: Issue[] = ISSUES.filter((i) => i.status === "triage");

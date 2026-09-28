@@ -3,6 +3,7 @@ import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBan
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
+  useAttachDocument,
   useAnswerQuestion,
   useCommentIssue,
   useAskQuestion,
@@ -11,7 +12,9 @@ import {
   useWorkspaceName,
 } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
-import type { DocumentRef, Issue, IssueDetail } from "../api/types";
+import type { Issue, IssueDetail } from "../api/types";
+import { DocumentsSection } from "../components/issue-detail/DocumentsSection";
+import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
 import { DescriptionSection } from "../components/issue-detail/DescriptionSection";
 import s from "../components/issue-detail/issue-detail.module.css";
@@ -51,6 +54,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const answer = useAnswerQuestion(issue.id);
   const projects = useProjectChoices();
   const comment = useCommentIssue(issue.id);
+  const attach = useAttachDocument(issue.id);
   const status = STATUS_META[issue.status];
   return (
     <div className={s.page}>
@@ -77,6 +81,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <Icon name="chevron-right" size={12} />
           <span className={s.crumbId}>{issue.id}</span>
         </nav>
+        <IssueHeaderActions issueId={issue.id} />
       </header>
 
       <div className={s.body}>
@@ -92,7 +97,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <DescriptionSection description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
           <AwaitingInputBanner issue={issue} busy={questionsBusy} onAnswer={(questionId) => setAnswerRequest((previous) => ({ questionId, requestId: (previous?.requestId ?? 0) + 1 }))} />
           <PlanSection key={issue.id} plan={issue.plan} />
-          <DocumentsSection documents={issue.documents} />
+          <DocumentsSection documents={issue.documents} onAttach={input => attach.mutateAsync(input)} />
           <SubIssuesSection issues={issue.children} />
           <ActivitySection activity={issue.activity} onComment={(body) => comment.mutateAsync({ body })} />
         </article>
@@ -110,29 +115,6 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
         </aside>
       </div>
     </div>
-  );
-}
-
-function DocumentsSection({ documents }: { documents: DocumentRef[] }) {
-  return (
-    <section className={s.section} aria-label="Documents">
-      <h2 className={s.sectionTitle}>Documents</h2>
-      {documents.length === 0 ? (
-        <p className={s.muted}>Document はありません</p>
-      ) : (
-        <ul className={s.list}>
-          {documents.map((doc) => (
-            <li key={doc.id} className={s.listItem}>
-              <Icon name="file-text" />
-              <Link to="/documents/$documentId" params={{ documentId: String(doc.id) }} className={s.link}>
-                {doc.title}
-              </Link>
-              <span className={s.meta}>{doc.kind}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 

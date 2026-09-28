@@ -6,6 +6,7 @@ import s from "./split.module.css";
 
 export function QueueItem({
   to,
+  tab,
   issueId,
   title,
   actor,
@@ -16,6 +17,7 @@ export function QueueItem({
   selected,
 }: {
   to: "/inbox" | "/reviews" | "/triage";
+  tab?: "questions" | "all";
   issueId: string;
   title: string;
   actor: string;
@@ -26,7 +28,7 @@ export function QueueItem({
   selected: boolean;
 }) {
   return (
-    <Link to={to} search={{ selected: issueId }} className={s.item} data-selected={selected}>
+    <Link to={to} search={{ selected: issueId, ...(to === "/inbox" ? { tab } : {}) }} className={s.item} data-selected={selected}>
       <div className={s.itemHead}>
         <AgentAvatar actor={actor} />
         <span className={s.itemTitle}>{title}</span>

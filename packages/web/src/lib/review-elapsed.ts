@@ -2,7 +2,7 @@
 function timestamp(value: string | null): number | null {
   const parts = value && /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);
   if (!parts) return null;
-  const [year, month, day] = parts.slice(1, 4).map(Number);
+  const year = Number(parts[1]), month = Number(parts[2]), day = Number(parts[3]);
   const date = new Date(0);
   date.setUTCFullYear(year, month - 1, day);
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;

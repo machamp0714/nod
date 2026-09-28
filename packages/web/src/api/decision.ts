@@ -1,19 +1,19 @@
 import { apiFetch, type FetchLike } from "./client";
 import { issuePath } from "./query-keys";
-import type { Inbox, Issue } from "./types";
+import type { AcceptTriageInput, Inbox, Issue } from "./types";
 
 // 判断の画面（Inbox、Reviews、Triage）が使う API。形は C の計画の API の表に従う。
 export type DecisionAction =
   | { op: "answer"; issueId: string; questionId: number; answer: string }
   | { op: "approve"; issueId: string }
   | { op: "reject"; issueId: string; reason: string }
-  | { op: "accept"; issueId: string }
+  | { op: "accept"; issueId: string; input?: AcceptTriageInput }
   | { op: "decline"; issueId: string; reason?: string }
   | { op: "duplicate"; issueId: string; original: string }
   | { op: "snooze"; issueId: string; until: string };
 
-export function fetchInbox(fetchImpl?: FetchLike): Promise<Inbox> {
-  return apiFetch<Inbox>("/inbox", {}, fetchImpl);
+export function fetchInbox(fetchImpl?: FetchLike, opts: { includeAnswered?: boolean } = {}): Promise<Inbox> {
+  return apiFetch<Inbox>(opts.includeAnswered ? "/inbox?includeAnswered=true" : "/inbox", {}, fetchImpl);
 }
 
 export function fetchTriage(fetchImpl?: FetchLike): Promise<Issue[]> {
@@ -36,8 +36,9 @@ export function actionRequest(action: DecisionAction): { path: string; body: Rec
       return { path, body: { original: action.original.trim() } };
     case "snooze":
       return { path, body: { until: action.until.trim() } };
-    case "approve":
     case "accept":
+      return { path, body: { ...action.input } };
+    case "approve":
       return { path, body: {} };
   }
 }

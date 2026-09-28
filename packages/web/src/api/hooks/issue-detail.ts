@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath, queryKeys } from "../query-keys";
-import type { AskResult, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
+import type { DocKind, DocumentRef, AskResult, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
@@ -13,11 +13,15 @@ export function useWorkspaceName(key: string): string {
 
 // プロパティの Project の選択肢。完了と中止の Project に付いた Issue もあるため、閉じた Project も含める
 export function useProjectChoices(): { id: number; name: string }[] {
-  const { data } = useQuery({
+  const { data } = useProjectChoicesQuery();
+  return (data ?? []).map((p) => ({ id: p.id, name: p.name }));
+}
+
+export function useProjectChoicesQuery() {
+  return useQuery({
     queryKey: queryKeys.projectList({ includeClosed: true }),
     queryFn: () => apiFetch<ProjectSummary[]>("/projects?includeClosed=true"),
   });
-  return (data ?? []).map((p) => ({ id: p.id, name: p.name }));
 }
 
 // 操作の後の読み直しは useApiMutation が行う（成否によらずすべてのクエリを無効にし、読み直しを待って解決する）
@@ -30,3 +34,5 @@ export const useAskQuestion = (id: string) => useIssueOperation<{ question: stri
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
 export const useCommentIssue = (id: string) => useIssueOperation<{ body: string }, Comment>(id, "comment");
+
+export const useAttachDocument = (id: string) => useIssueOperation<{ path: string; title?: string; kind?: DocKind }, DocumentRef>(id, "doc-add");
