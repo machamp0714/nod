@@ -131,3 +131,16 @@ describe("ブロック元とFilter", () => {
     db.close();
   });
 });
+
+test("検索は既存のworkspace/project/label/status条件とANDになり件数はstatusに依存しない", async () => {
+  const {createProject}=await import("../src/ops/projects");
+  const {db,ws,me}=setup();
+  const project=createProject(me,{name:"対象Project"});
+  const issue=createIssue(me,{workspaceId:ws.id,title:"Users",labels:["検索"],projectRef:String(project.id)});
+  createIssue(me,{workspaceId:ws.id,title:"Users 対象外"});
+  const q={q:"users",project:String(project.id),label:["検索"],workspace:[ws.key]};
+  expect(queryIssues(db,q).issues.map(i=>i.id)).toEqual([issue.id]);
+  expect(queryIssues(db,{...q,status:["done"]})).toEqual({issues:[],counts:{ready:1,needsClarification:0}});
+  expect(queryIssues(db,{...q,label:["別"]}).counts.ready).toBe(0);
+  db.close();
+});

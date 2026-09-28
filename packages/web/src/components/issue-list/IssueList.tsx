@@ -41,7 +41,9 @@ export function IssueList({
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q }));
   const grouped = search.groupBy === "workspace";
-  const groups = groupRowsByWorkspace(layout === "board" ? visible.filter(r => BOARD_STATUSES.includes(r.issue.status)) : visible);
+  const groups = grouped
+    ? groupRowsByWorkspace(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible)
+    : [];
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
 
   return (
@@ -100,9 +102,13 @@ export function IssueList({
         </label>
         <label className={s.groupSelect}>
           グループ化
-          <select aria-label="グループ化" value={search.groupBy ?? "none"}
-            onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}>
-            <option value="none">なし</option><option value="workspace">Workspace</option>
+          <select
+            aria-label="グループ化"
+            value={search.groupBy ?? "none"}
+            onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
+          >
+            <option value="none">なし</option>
+            <option value="workspace">Workspace</option>
           </select>
         </label>
         <Segmented<IssueLayout>
@@ -126,11 +132,17 @@ export function IssueList({
           読み込み中…
         </p>
       ) : grouped ? (
-        groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> :
-        groups.map(group => <section key={group.key} className={s.workspaceGroup} aria-label={`Workspace ${group.key}`}>
-          <h2 className={s.groupHeading}><WorkspaceBadge workspaceKey={group.key} name={group.name} /> <span>{group.key} · {group.rows.length} 件</span></h2>
-          {layout === "list" ? <IssueTable rows={group.rows} /> : <IssueBoard rows={group.rows} />}
-        </section>)
+        groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
+          groups.map((group) => (
+            <section key={group.key} className={s.workspaceGroup} aria-label={`Workspace ${group.key}`}>
+              <h2 className={s.groupHeading}>
+                <WorkspaceBadge workspaceKey={group.key} name={group.name} />
+                <span>{group.key} · {group.rows.length} 件</span>
+              </h2>
+              {layout === "list" ? <IssueTable rows={group.rows} /> : <IssueBoard rows={group.rows} />}
+            </section>
+          ))
+        )
       ) : layout === "list" ? (
         <IssueTable rows={visible} />
       ) : (

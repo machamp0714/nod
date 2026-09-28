@@ -22,7 +22,8 @@ export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTa
     if (filter.tab === "ready" && !row.ready) return false;
     if (filter.tab === "needs_clarification" && row.issue.status !== "needs_clarification") return false;
     if (needle === "") return true;
-    return row.issue.title.toLowerCase().includes(needle) || row.issue.id.toLowerCase().includes(needle) || (row.issue.description ?? "").toLowerCase().includes(needle);
+    return [row.issue.id, row.issue.title, row.issue.description ?? ""]
+      .some((text) => text.toLowerCase().includes(needle));
   });
 }
 
@@ -48,7 +49,10 @@ export function groupRowsByWorkspace(rows: readonly IssueListRow[]): { key: stri
   for (const row of sortRows(rows)) {
     const key = row.issue.workspace;
     let group = groups.get(key);
-    if (!group) { group = { key, name: row.workspaceName, rows: [] }; groups.set(key, group); }
+    if (!group) {
+      group = { key, name: row.workspaceName, rows: [] };
+      groups.set(key, group);
+    }
     group.rows.push(row);
   }
   return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));

@@ -134,6 +134,7 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   return { where, params };
 }
 
+// SQLite の lower は非ASCIIで Web と異なるため、検索だけは同じ JavaScript の判定を使う。
 function matchesQuery(issue: Issue, query: string | undefined): boolean {
   const needle = query?.trim().toLowerCase() ?? "";
   return !needle || [issue.id, issue.title, issue.description ?? ""].some((text) => text.toLowerCase().includes(needle));
@@ -181,10 +182,10 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
       ? selectIssues(db, `WHERE ${condition}${scopeSql}`, [...conditionParams, ...scope.params])
           .filter((issue) => matchesQuery(issue, q.q)).length
       : (
-      db
-        .query(`SELECT count(*) AS n FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE ${condition}${scopeSql}`)
-        .get(...conditionParams, ...scope.params) as { n: number }
-    ).n;
+          db
+            .query(`SELECT count(*) AS n FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE ${condition}${scopeSql}`)
+            .get(...conditionParams, ...scope.params) as { n: number }
+        ).n;
   return {
     issues: listIssues(db, filter),
     counts: {
