@@ -40,3 +40,28 @@ test("Needs Clarification の Issue は、今の値として表示するが選�
   await expect(status).toHaveValue("needs_clarification");
   await expect(status.getByRole("option", { name: "Needs Clarification" })).toBeDisabled();
 });
+
+for (const width of [1280, 1440]) {
+  test(`幅 ${width}px で Labels の追加ボタンを1行で表示する`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 960 });
+    await page.goto(`/issues/${ISSUE.properties}`);
+    const props = region(page, "プロパティ");
+    const button = props.getByRole("button", { name: "追加", exact: true });
+    await expect(button).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    const layout = await button.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const lines = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
+      const form = element.parentElement!;
+      return {
+        lines: new Set(lines.map((rect) => Math.round(rect.top))).size,
+        overflow: form.scrollWidth - form.clientWidth,
+      };
+    });
+    expect(layout).toEqual({ lines: 1, overflow: 0 });
+    await props.getByRole("textbox", { name: "ラベルを追加" }).fill("表示確認");
+    await button.click();
+    await expect(props.getByRole("button", { name: "ラベル 表示確認 を外す" })).toBeVisible();
+  });
+}

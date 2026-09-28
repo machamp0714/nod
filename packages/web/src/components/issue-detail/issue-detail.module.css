@@ -440,6 +440,11 @@
   min-width: 0;
 }
 
+.labelForm > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .panelError {
   padding: 0 14px 10px;
 }
