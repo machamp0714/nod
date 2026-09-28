@@ -81,3 +81,17 @@ test("候補が尽きた場合は重複色へ戻さず明示エラーにする",
   expect(firstUnusedColor(new Set(["#123456"]), ["#123456", "#654321"])).toBe("#654321");
   expect(codeOf(() => firstUnusedColor(new Set(["#123456", "#654321"]), ["#123456", "#654321"]))).toBe("WORKSPACE_COLOR_EXHAUSTED");
 });
+
+test.each(["insert", "update"])("NULを含むHEX文字列を%sで拒否する", (operation) => {
+  const db = openDb(tempDbPath());
+  try {
+    const ws = initWorkspace(db, { path: "/repos/api", key: "API" }).workspace;
+    const invalid = "#123456\u0000BAD";
+    if (operation === "insert") {
+      expect(() => db.query("INSERT INTO workspaces (key,name,path,created_at,color) VALUES ('NO','no','/no','',?)").run(invalid)).toThrow();
+    } else {
+      expect(() => db.query("UPDATE workspaces SET color=? WHERE id=?").run(invalid, ws.id)).toThrow();
+    }
+    expect(listWorkspaces(db)).toEqual([ws]);
+  } finally { db.close(); }
+});
