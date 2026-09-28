@@ -243,10 +243,26 @@
 
 .columnHead {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 4px 6px;
+}
+
+.columnHeadRow {
+  display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 2px 4px 6px;
+}
+
+.columnDescription {
+  margin: 0;
+  color: var(--ink3);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
 .columnName {
