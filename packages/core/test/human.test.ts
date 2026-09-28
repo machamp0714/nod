@@ -156,3 +156,45 @@ describe("listTriage", () => {
     expect(listTriage(db).map((i) => i.id)).toEqual([a.id, b.id, expired.id]);
   });
 });
+
+for (const actor of ["codex", "claude-code", "other-agent"]) {
+  for (const op of ["accept", "decline", "duplicate"] as const) {
+    test(`${actor} の triage ${op} は書き込みなしで拒否する`, () => {
+      const { db, ws, me, llm } = setup();
+      const original = createIssue(me, { workspaceId: ws.id, title: "元の Issue" });
+      const issue = createIssue(llm, { workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
+      const before = getIssue(db, issue.id);
+      const originalBefore = getIssue(db, original.id);
+      const changes = db.query("SELECT total_changes() AS n").get();
+      const ctx = { ...llm, actor };
+      expect(codeOf(() => {
+        if (op === "accept") acceptTriage(ctx, issue.id);
+        else if (op === "decline") declineTriage(ctx, issue.id, "不要");
+        else duplicateTriage(ctx, issue.id, original.id);
+      })).toBe("FORBIDDEN_FOR_LLM");
+      expect(db.query("SELECT total_changes() AS n").get()).toEqual(changes);
+      expect(getIssue(db, issue.id)).toEqual(before);
+      expect(getIssue(db, original.id)).toEqual(originalBefore);
+    });
+  }
+}
+
+test("回答eventの書き手と再開する作業主体を分け、後の担当変更でも履歴を保つ", () => {
+  const { db, ws, me, llm } = setup();
+  const codex = { ...llm, actor: "codex" };
+  const issue = createIssue(me, { workspaceId: ws.id, title: "回答待ち" });
+  startIssue(codex, issue.id);
+  const first = askQuestion(codex, issue.id, "方針は？");
+  const second = askQuestion(codex, issue.id, "期限は？");
+  const count = () => eventsOf(db, issue.id).filter((e) => e.type === "agent_state_changed").length;
+  const before = count();
+  answerQuestion(me, issue.id, "進める", { questionId: first.question.id });
+  expect(count()).toBe(before);
+  answerQuestion(me, issue.id, "明日", { questionId: second.question.id });
+  expect(count()).toBe(before + 1);
+  const resumed = eventsOf(db, issue.id).at(-1);
+  expect(resumed).toMatchObject({ actor: "me", type: "agent_state_changed", data: { from: "awaiting_input", to: "working", agent: "codex", trigger: "answer" } });
+  updateIssue(me, issue.id, { assignee: "claude-code" });
+  expect(eventsOf(db, issue.id).filter((e) => e.type === "agent_state_changed").at(-1)).toEqual(resumed);
+  expect(eventsOf(db, issue.id).find((e) => e.type === "status_changed")?.data).toEqual({ from: "todo", to: "in_progress" });
+});

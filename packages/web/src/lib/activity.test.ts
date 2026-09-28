@@ -80,3 +80,13 @@ test("回答済み質問は回答日時の位置に表示し、元の Activity �
   expect(question.at).toBe(askedAt);
   expect(items[0]).toBe(question);
 });
+
+test("作業主体の記録を使い、旧eventのmeを作業者とみなさない", () => {
+  const line = (actor: string, data: Record<string, unknown>) => describeActivity({ kind: "event", at, actor, type: "agent_state_changed", data: { to: "working", ...data } }).text;
+  expect(line("me", { agent: "codex", trigger: "answer" })).toBe("me の回答で codex の作業状況が 作業中 になった");
+  expect(line("other-agent", { agent: "codex", trigger: "answer" })).toBe("other-agent の回答で codex の作業状況が 作業中 になった");
+  expect(line("me", { agent: "codex" })).toBe("me が codex の作業状況を 作業中 に変えた");
+  expect(line("me", {})).toBe("me が作業状況を 作業中 に変えた");
+  expect(line("me", { agent: null, trigger: "answer" })).toBe("me の回答で作業状況が 作業中 になった");
+  expect(line("codex", { agent: null })).toBe("codex が作業状況を 作業中 に変えた");
+});

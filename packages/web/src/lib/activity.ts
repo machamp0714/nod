@@ -70,8 +70,21 @@ export function describeActivity(item: ActivityItem): ActivityLine {
       const parts = [...strings(data.added).map((l) => `+${l}`), ...strings(data.removed).map((l) => `−${l}`)];
       return { icon: "tag", text: `${actor} がラベルを変えた（${parts.join(" ")}）` };
     }
-    case "agent_state_changed":
-      return { icon: "loader-circle", text: `${actor} の作業状況が ${agentStateLabel(data.to)} になった` };
+    case "agent_state_changed": {
+      const state = agentStateLabel(data.to);
+      const agent = typeof data.agent === "string" && data.agent !== "" ? data.agent : null;
+      let text: string;
+      if (data.trigger === "answer") {
+        text = agent ? `${actor} の回答で ${agent} の作業状況が ${state} になった` : `${actor} の回答で作業状況が ${state} になった`;
+      } else if (agent) {
+        text = agent === actor ? `${agent} の作業状況が ${state} になった` : `${actor} が ${agent} の作業状況を ${state} に変えた`;
+      } else if (!("agent" in data) && actor !== "me") {
+        text = `${actor} の作業状況が ${state} になった`;
+      } else {
+        text = `${actor} が作業状況を ${state} に変えた`;
+      }
+      return { icon: "loader-circle", text };
+    }
     case "plan_updated":
       return { icon: "list-checks", text: `${actor} が計画を更新した` };
     case "document_attached":

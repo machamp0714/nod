@@ -35,7 +35,7 @@ export function setColumn(
   row: IssueRow,
   column: Column,
   to: string | number | null,
-  extra: { from?: unknown; to?: unknown; reason?: string } = {},
+  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer" } = {},
 ): boolean {
   const from = row[column];
   if (from === to) return false;
@@ -57,6 +57,11 @@ export function setColumn(
       to: "to" in extra ? extra.to : to,
     };
     if (extra.reason) data.reason = extra.reason;
+    // 書き手と作業主体は別。過去の履歴を現在の担当者で解釈し直さないよう記録する。
+    if (type === "agent_state_changed") {
+      data.agent = row.assignee;
+      if (extra.trigger) data.trigger = extra.trigger;
+    }
     recordEvent(ctx.db, row.id, ctx.actor, type, data);
   }
   return true;
