@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -79,4 +79,18 @@ describe("startServer", () => {
     }
     expect(code).toBe("SCHEMA_TOO_NEW");
   });
+});
+
+test("ポート 80 の URL が既定ポートを省略しても正しい接続先を返す", async () => {
+  // ポート 80 を実際に占有せず、Bun が返す URL と port を再現する。
+  const serve = spyOn(Bun, "serve").mockReturnValue({
+    url: new URL("http://127.0.0.1:80/"), port: 80, stop: async () => {},
+  } as unknown as ReturnType<typeof Bun.serve>);
+  try {
+    const { server } = start({ port: 80 });
+    expect(server.port).toBe(80);
+    expect(server.url).toBe("http://127.0.0.1:80");
+  } finally {
+    serve.mockRestore();
+  }
 });

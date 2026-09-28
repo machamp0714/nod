@@ -49,7 +49,8 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
       console.error(e);
     }
   }, opts.pollIntervalMs ?? POLL_INTERVAL_MS);
-  const port = Number(server.url.port);
+  // TCP で起動しているため、Unix socket の場合の undefined にはならない。
+  const port = server.port!;
   return {
     url: `http://${HOSTNAME}:${port}`,
     port,
