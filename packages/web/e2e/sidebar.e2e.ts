@@ -45,10 +45,14 @@ test("準備中の項目はリンクにせず Soon と出し、準備中のボ�
   await expect(nav.getByRole("button", { name: "View を追加" })).toBeDisabled();
 });
 
-test("Issue 詳細を開いているときは Issues を選択中にする", async ({ page }) => {
-  await page.goto("/issues/API-12");
-  const nav = page.getByRole("navigation", { name: "メイン" });
-  await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("aria-current", "page");
+test.describe("Issue 詳細", () => {
+  test.use({ dataset: "issue-detail" });
+
+  test("Issue 詳細を開いているときは Issues を選択中にする", async ({ page }) => {
+    await page.goto("/issues/API-12");
+    const nav = page.getByRole("navigation", { name: "メイン" });
+    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("aria-current", "page");
+  });
 });
 
 test("存在しないパスではページが見つかりませんと出す", async ({ page }) => {

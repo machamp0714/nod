@@ -1,13 +1,15 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
-import type { DocumentRef, Issue } from "../api/types";
+import { isNotFoundError } from "../api/errors";
+import { useWorkspaceName } from "../api/hooks/issue-detail";
+import { useIssueDetail } from "../api/hooks/shared";
+import type { DocumentRef, Issue, IssueDetail } from "../api/types";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
+import { DescriptionSection } from "../components/issue-detail/DescriptionSection";
 import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
-import { AgentStatePill, Button, Icon, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
-import { issueDetail } from "../fixtures/issue-details";
-import { workspaceName } from "../fixtures/workspaces";
+import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { STATUS_META } from "../lib/meta";
 import { NotFoundMessage } from "./NotFoundPage";
 
@@ -16,10 +18,18 @@ const route = getRouteApi("/issues/$issueId");
 // spec の Issue 詳細：03 タスク詳細を土台にし、12 Issue 詳細の要素を足した1つの画面。
 export function IssueDetailPage() {
   const { issueId } = route.useParams();
-  const issue = issueDetail(issueId);
-  if (!issue) return <NotFoundMessage title="Issue が見つかりません" />;
+  const query = useIssueDetail(issueId);
+  if (query.isPending) return <LoadingMessage />;
+  if (query.isError) {
+    return isNotFoundError(query.error) ? <NotFoundMessage title="Issue が見つかりません" /> : <ErrorMessage error={query.error} />;
+  }
+  // 別の Issue に移ったら、編集中のフォームを捨てるよう作り直す
+  return <IssueDetailView key={issueId} issue={query.data} />;
+}
+
+function IssueDetailView({ issue }: { issue: IssueDetail }) {
+  const wsName = useWorkspaceName(issue.workspace);
   const status = STATUS_META[issue.status];
-  const wsName = workspaceName(issue.workspace);
   return (
     <div className={s.page}>
       <header className={s.topBar}>
@@ -49,7 +59,7 @@ export function IssueDetailPage() {
 
       <div className={s.body}>
         <article className={s.main}>
-          <div className={s.chips}>
+          <div className={s.chips} role="group" aria-label="状態">
             <Pill tone={status.tone} icon={status.icon}>
               {status.label}
             </Pill>
@@ -57,17 +67,7 @@ export function IssueDetailPage() {
           </div>
           <h1 className={s.title}>{issue.title}</h1>
 
-          <section className={s.section} aria-label="説明">
-            <header className={s.sectionHead}>
-              <h2 className={s.sectionTitle}>説明</h2>
-              <span className={s.spacer} />
-              <Button icon="square-pen" disabled title="準備中">
-                編集
-              </Button>
-            </header>
-            {issue.description ? <div className={s.description}>{issue.description}</div> : <p className={s.muted}>説明はありません</p>}
-          </section>
-
+          <DescriptionSection description={issue.description} />
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection documents={issue.documents} />
           <SubIssuesSection issues={issue.children} />

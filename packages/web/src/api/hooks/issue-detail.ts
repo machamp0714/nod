@@ -1,0 +1,32 @@
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "../client";
+import { issuePath, queryKeys } from "../query-keys";
+import type { AskResult, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
+import { useApiMutation, useWorkspaces } from "./shared";
+
+// Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
+
+export function useWorkspaceName(key: string): string {
+  const { data } = useWorkspaces();
+  return data?.find((w) => w.key === key)?.name ?? key;
+}
+
+// プロパティの Project の選択肢。完了と中止の Project に付いた Issue もあるため、閉じた Project も含める
+export function useProjectChoices(): { id: number; name: string }[] {
+  const { data } = useQuery({
+    queryKey: queryKeys.projectList({ includeClosed: true }),
+    queryFn: () => apiFetch<ProjectSummary[]>("/projects?includeClosed=true"),
+  });
+  return (data ?? []).map((p) => ({ id: p.id, name: p.name }));
+}
+
+// 操作の後の読み直しは useApiMutation が行う（成否によらずすべてのクエリを無効にし、読み直しを待って解決する）
+function useIssueOperation<TBody, TResult>(id: string, operation: string) {
+  return useApiMutation((body: TBody) => apiFetch<TResult>(issuePath(id, operation), { method: "POST", body }));
+}
+
+export const useUpdateIssue = (id: string) => useIssueOperation<UpdateIssueInput, Issue>(id, "update");
+export const useAskQuestion = (id: string) => useIssueOperation<{ question: string }, AskResult>(id, "ask");
+export const useAnswerQuestion = (id: string) =>
+  useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
+export const useCommentIssue = (id: string) => useIssueOperation<{ body: string }, Comment>(id, "comment");

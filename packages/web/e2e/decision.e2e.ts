@@ -26,12 +26,16 @@ test("selected が一覧にない ID なら先頭の項目を出す", async ({ p
   await expect(page.getByRole("heading", { level: 2, name: "検索 API の N+1 を解消" })).toBeVisible();
 });
 
-test("Inbox は直近の経過と Issue へのリンクを出す", async ({ page }) => {
-  await page.goto("/inbox");
-  const detail = page.getByRole("region", { name: "詳細", exact: true });
-  await expect(detail.getByText("N+1 の原因は検索結果ごとの workspace 取得だった", { exact: false })).toBeVisible();
-  await detail.getByRole("link", { name: "Issue を開く" }).click();
-  await expect(page).toHaveURL(/\/issues\/API-12$/);
+test.describe("Issue 詳細", () => {
+  test.use({ dataset: "issue-detail" });
+
+  test("Inbox は直近の経過と Issue へのリンクを出す", async ({ page }) => {
+    await page.goto("/inbox");
+    const detail = page.getByRole("region", { name: "詳細", exact: true });
+    await expect(detail.getByText("N+1 の原因は検索結果ごとの workspace 取得だった", { exact: false })).toBeVisible();
+    await detail.getByRole("link", { name: "Issue を開く" }).click();
+    await expect(page).toHaveURL(/\/issues\/API-12$/);
+  });
 });
 
 test("Reviews は完了報告と PR を出し、判断のボタンを置く", async ({ page }) => {

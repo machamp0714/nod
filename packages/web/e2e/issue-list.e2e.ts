@@ -64,10 +64,14 @@ test("Board は6つの列を出し、Triage と Canceled を出さない", async
   await expect(page.getByRole("region", { name: "In Progress", exact: true }).getByRole("link")).toHaveCount(3);
 });
 
-test("タイトルを押すと Issue 詳細に移る", async ({ page }) => {
-  await page.goto("/issues");
-  await page.getByRole("link", { name: "検索 API の N+1 を解消" }).click();
-  await expect(page).toHaveURL(/\/issues\/API-12$/);
+test.describe("Issue 詳細", () => {
+  test.use({ dataset: "issue-detail" });
+
+  test("タイトルを押すと Issue 詳細に移る", async ({ page }) => {
+    await page.goto("/issues");
+    await page.getByRole("link", { name: "検索 API の N+1 を解消" }).click();
+    await expect(page).toHaveURL(/\/issues\/API-12$/);
+  });
 });
 
 test("View は保存した条件に合う Issue だけを出す", async ({ page }) => {

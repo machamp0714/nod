@@ -1,5 +1,7 @@
 import { expect, test } from "./fixtures";
 
+test.use({ dataset: "issue-detail" });
+
 // 全画面の枠。後の Task で画面を作り替えても、この見出しは保つ。
 const SCREENS = [
   { path: "/inbox", heading: "Inbox" },
