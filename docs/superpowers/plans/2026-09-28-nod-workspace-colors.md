@@ -2,6 +2,13 @@
 
 > 実装担当へ：PM の次の実装 dispatch 後、superpowers:executing-plans を使って順に実施する。今回の担当範囲は具体計画まで。旧パレット順変更案は廃止し、末尾の過去調査は証拠としてのみ残す。
 
+## 実装dispatchの更新（2026-09-28 18:49）
+
+- PMが本計画を承認しTask 1・2を実装する。Task 3の統合・全E2EはPMの指示まで行わない。
+- 原本specのWorkspace/#9該当節はDへ直接編集権を移譲済み。他段落を保全し、完了時にBへ引き渡す。
+- Aによるポート設定変更の計画は撤回。既存fixture/専用testを使い、固定5199/4798/4797の利用はPMがAの独立レビュー終了を確認してから許可する。大きなE2E基盤を新設しない。
+- docs/superpowersはこれ以上force addしない。既にtrackedの本計画だけ通常addする。日本語PR案は未追跡のローカル報告として用意する。
+
 **目的：** 同時に登録されている Workspace に重複しない色値を割り当てて DB に保存し、既存の色表示へ一貫して反映する。
 
 **構成：** core が色の唯一の割り当て元となり、`workspaces.color` を永続化する。server は Workspace をそのまま JSON 化し、Web は既存 `useWorkspaces()` のキャッシュを `WorkspaceBadge` から参照する。各 Page の props と Issue の payload は増やさない。
@@ -140,7 +147,7 @@ export interface Workspace {
 }
 ```
 
-`initWorkspace` / `findWorkspace` / `listWorkspaces` / `removeWorkspace` の引数・戻り値の構造は既存のまま、その内側の Workspace に必須 color が増える。`GET /api/workspaces` と CLI JSON に同じ値を載せる。server の新規登録 endpoint は作らない。色枯渇は現在 CLI/core の問題で、HTTP map の追加は今回不要。
+`initWorkspace` / `findWorkspace` / `listWorkspaces` / `removeWorkspace` の引数・戻り値の構造は既存のまま、その内側の Workspace に必須 color が増える。`GET /api/workspaces` と CLI JSON に同じ値を載せる。server の新規登録 endpoint は作らない。色枯渇は現在 CLI/core の問題だが、既存serverテストが全coreエラーのHTTP対応を要求するため、`server/src/errors.ts` に `WORKSPACE_COLOR_EXHAUSTED: 409` を追加する。
 
 | 所有者 | ファイルと範囲 | 受け渡し |
 |---|---|---|
@@ -254,14 +261,14 @@ for (const workspace of workspaces) {
 
 - [ ] `/api/workspaces` を遅延させて pending の swatch が透明であること、解放後に保存値だけが現れることを検証する。失敗時は文字を残して error、未知キーは missing を確認する。キャッシュありの再取得失敗は既存色が残ることを検証する。
 - [ ] SSE ready 後に専用core操作でWorkspace追加・削除を行い、既存色が不変、追加色は未使用、削除後は最初の空きを再利用することを検証する。並べ替え・検索解除・groupBy切替・リロードでも色不変を確認する。
-- [ ] E2E は A のポート対応後に専用ポートを指定するか、専用設定から一時 DB の build済み `startUi({ port: 0, open: false })` に接続して実行する。既存固定5199/4798/4797は使わない。後者は既存 fixture を import せず独立セットアップを用意し、PM と所有権を共有する。
+- [ ] E2E は既存 fixture と専用 test を使う。固定5199/4798/4797はPMへ使用確認し、Aの独立レビューから解放された後に実行する。ポート待機中はunit/build/specを進める。
 - [ ] 関連unitとE2E成功後、`feat: Workspaceの保存色を既存バッジへ反映する` と commit する。
 
 ## Task 3：統合と配信物の回帰
 
 - [ ] B/A の最新変更を PM 指定の順序で local merge し、Workspace 型と各担当の型を両方維持する。
 - [ ] 一時DBで `bun test`、`bun run typecheck`、`bun run web:build`。変更していない lockfile を無用に更新しない。
-- [ ] A が用意したポート分離設定で全E2Eを実行する。専用serverだけを停止する。固定ポート利用は禁止のまま。
+- [ ] PMのTask 3実行指示後に、許可されたポートで全E2Eを実行する。専用serverだけを停止する。
 - [ ] 明示したこの worktree の dist と新規一時 DB で nod ui を port 0 起動し、API/WEB の各保存色と Issues/Projects の実色を比較する。CLI起動は Bun.spawnSync/配列引数を使い、長寿命serverは Bun.spawn でPIDを保持して自身だけ停止する。
 - [ ] 独立した一時v1 DBからの移行、再起動後の色不変、古いversion拒否も確認する。実DB検証はしない。
 - [ ] #9要件の差分、実行したテスト件数、HEAD、残課題を PM へ報告する。push/PR/main merge は行わない。

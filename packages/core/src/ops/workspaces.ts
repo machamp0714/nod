@@ -4,6 +4,7 @@ import { now } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Workspace } from "../types";
+import { allocateWorkspaceColor } from "../workspace-colors";
 
 export const KEY_RE = /^[A-Z0-9]{2,6}$/;
 
@@ -12,11 +13,12 @@ interface WorkspaceRow {
   key: string;
   name: string;
   path: string;
+  color: string;
   created_at: string;
 }
 
 function toWorkspace(r: WorkspaceRow): Workspace {
-  return { id: r.id, key: r.key, name: r.name, path: r.path, createdAt: r.created_at };
+  return { id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, createdAt: r.created_at };
 }
 
 export function deriveKey(repoName: string): string | null {
@@ -62,9 +64,11 @@ export function initWorkspace(
     if (byName) {
       throw new NodError("NAME_TAKEN", `名前 ${name} はすでに ${byName.path} が使っています。--name で別の名前を指定してください`);
     }
+    const used = db.query("SELECT color FROM workspaces").all() as { color: string }[];
+    const color = allocateWorkspaceColor(new Set(used.map((row) => row.color)));
     const { lastInsertRowid } = db
-      .query("INSERT INTO workspaces (key, name, path, created_at) VALUES (?, ?, ?, ?)")
-      .run(key, name, input.path, now());
+      .query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES (?, ?, ?, ?, ?)")
+      .run(key, name, input.path, now(), color);
     const row = db.query("SELECT * FROM workspaces WHERE id = ?").get(Number(lastInsertRowid)) as WorkspaceRow;
     return { workspace: toWorkspace(row), created: true };
   });
