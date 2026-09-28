@@ -19,6 +19,7 @@ export function ActivitySection({ activity, onComment }: { activity: ActivityIte
       {activity.length === 0 ? <p className={s.muted}>Activity はありません</p> : <ActivityLines items={activity} />}
       <div className={s.commentBox}>
         <textarea
+          disabled={action.busy}
           className={s.commentInput}
           aria-label="コメント"
           placeholder="コメントを書く…"

@@ -117,6 +117,7 @@ export function PropertiesPanel({
           ))}
           <span className={s.labelForm}>
             <input
+              disabled={action.busy}
               className={s.input}
               aria-label="ラベルを追加"
               placeholder="ラベルを追加"

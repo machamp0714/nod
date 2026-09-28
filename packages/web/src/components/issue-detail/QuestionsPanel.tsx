@@ -93,6 +93,7 @@ export function QuestionsPanel({
                 ) : answering === q.id ? (
                   <div className={s.form}>
                     <textarea
+                      disabled={action.busy}
                       className={s.textarea}
                       aria-label="回答"
                       rows={3}
@@ -110,10 +111,10 @@ export function QuestionsPanel({
                   </div>
                 ) : (
                   <div className={s.questionActions}>
-                    <Button icon="copy" onClick={() => void copy(q)}>
+                    <Button icon="copy" onClick={() => void copy(q)} disabled={action.busy}>
                       質問文をコピー
                     </Button>
-                    <Button icon="square-pen" onClick={() => startAnswer(q.id)}>
+                    <Button icon="square-pen" onClick={() => startAnswer(q.id)} disabled={action.busy}>
                       回答を記録
                     </Button>
                   </div>
@@ -141,6 +142,7 @@ export function QuestionsPanel({
         {adding ? (
           <div className={s.form}>
             <textarea
+              disabled={action.busy}
               className={s.textarea}
               aria-label="未決事項"
               rows={2}
@@ -158,6 +160,7 @@ export function QuestionsPanel({
           </div>
         ) : (
           <Button
+            disabled={action.busy}
             icon="plus"
             onClick={() => {
               resetMessages();

@@ -11,7 +11,13 @@ export interface ActivityLine {
 const HIDDEN_EVENT_TYPES = new Set(["question_asked", "question_answered"]);
 
 export function visibleActivity(items: readonly ActivityItem[]): ActivityItem[] {
-  return items.filter((item) => item.kind !== "event" || !HIDDEN_EVENT_TYPES.has(item.type));
+  // core の質問行の at は質問日時。回答の文を出す行は回答日時に並べ直す。
+  return items
+    .filter((item) => item.kind !== "event" || !HIDDEN_EVENT_TYPES.has(item.type))
+    .map((item) =>
+      item.kind === "question" && item.answer !== null && item.answeredAt !== null ? { ...item, at: item.answeredAt } : item,
+    )
+    .sort((a, b) => a.at.localeCompare(b.at));
 }
 
 function agentStateLabel(value: unknown): string {

@@ -62,3 +62,21 @@ describe("visibleActivity", () => {
     expect(visibleActivity(items).map((i) => i.kind)).toEqual(["question", "comment"]);
   });
 });
+
+test("回答済み質問は回答日時の位置に表示し、元の Activity を変更しない", () => {
+  const askedAt = "2026-09-27T09:00:00.000Z";
+  const answeredAt = "2026-09-28T09:00:00.000Z";
+  const question = {
+    kind: "question" as const, at: askedAt, actor: "codex", question: "方針は？",
+    answer: "進める", answeredBy: "me", answeredAt,
+  };
+  const comment = { kind: "comment" as const, at: "2026-09-27T12:00:00.000Z", actor: "me", body: "検討中" };
+  const open = { ...question, question: "別の質問", answer: null, answeredBy: null, answeredAt: null };
+  const items = [question, open, comment];
+  const visible = visibleActivity(items);
+  expect(visible.map((item) => item.at)).toEqual([askedAt, comment.at, answeredAt]);
+  expect(visible.map((item) => item.kind)).toEqual(["question", "comment", "question"]);
+  expect(describeActivity(visible[2]!).text).toBe("codex の確認依頼に me が回答した：方針は？");
+  expect(question.at).toBe(askedAt);
+  expect(items[0]).toBe(question);
+});

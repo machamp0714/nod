@@ -45,6 +45,7 @@ export function DescriptionSection({
       ) : (
         <div className={s.form}>
           <textarea
+            disabled={action.busy}
             className={s.textarea}
             aria-label="説明"
             rows={12}
