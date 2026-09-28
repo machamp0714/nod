@@ -148,3 +148,24 @@ test("View 一覧を読み終えるまでは、どちらの入口からも View 
     release();
   }
 });
+
+test.describe("View の削除失敗", () => {
+  test.use({ allowedConsoleErrors: [/Failed to load resource.*status of 500/] });
+  test("削除失敗を画面に表示し、未処理の Promise を残さず再試行できる", async ({ page }) => {
+    await page.goto("/views/1");
+    await page.route("**/api/views/1", async (route) => {
+      if (route.request().method() === "DELETE") {
+        await route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "削除に失敗しました" } } });
+      } else await route.continue();
+    });
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "削除", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("削除に失敗しました");
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(page.getByRole("button", { name: "削除", exact: true })).toBeEnabled();
+    await page.unroute("**/api/views/1");
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "削除", exact: true }).click();
+    await expect(page).toHaveURL(/\/issues$/);
+  });
+});

@@ -38,10 +38,9 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
   const remove = useDeleteView();
   const dirty = !sameFilter(draft, view.filter);
 
-  async function deleteView() {
+  function deleteView() {
     if (!window.confirm(`View「${view.name}」を削除しますか？`)) return;
-    await remove.mutateAsync(view.id);
-    navigate({ to: "/issues" });
+    remove.mutate(view.id, { onSuccess: () => { void navigate({ to: "/issues" }); } });
   }
 
   return (
@@ -56,7 +55,8 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true })}
         actions={
           <>
-            {(saveFilter.isError || remove.isError) && <Pill tone="fail">保存できませんでした</Pill>}
+            {saveFilter.isError && <Pill tone="fail">保存できませんでした</Pill>}
+            {remove.isError && <span role="alert"><Pill tone="fail">削除できませんでした：{errorMessage(remove.error)}</Pill></span>}
             {dirty && <Button onClick={() => setDraft(view.filter)}>元に戻す</Button>}
             {dirty && (
               <Button
