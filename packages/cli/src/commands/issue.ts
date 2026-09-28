@@ -40,6 +40,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
+    .option("--discovered-from <id>", "発見元の Issue")
     .option("-p, --priority <0-4>", "優先度（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
     .action(
@@ -48,7 +49,7 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { template?: string; description?: string; project?: string; parent?: string; priority?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; parent?: string; discoveredFrom?: string; priority?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
@@ -57,6 +58,7 @@ export function registerIssueCommands(program: Command): void {
             template: o.template,
             projectRef: o.project,
             parentRef: o.parent,
+            discoveredFromRef: o.discoveredFrom,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
             labels: o.label,
           });

@@ -207,3 +207,16 @@ describe("translateCommanderError", () => {
     }
   });
 });
+
+test("discovered-from は親と独立した正規化起票元を作り、不正参照では採番しない", async () => {
+  const parent = (await me(["issue", "create", "親", "--json"])).json;
+  const source = (await me(["issue", "create", "元の調査", "--json"])).json;
+  const bad = await llm(["issue", "create", "不正な起票元", "--discovered-from", "API-999999", "--json"]);
+  expect(bad.exitCode).toBe(1);
+  expect(bad.json.error.code).toBe("NOT_FOUND");
+  const created = (await llm(["issue", "create", "見つけた不具合", "--parent", parent.id, "--discovered-from", source.id.toLowerCase(), "--json"])).json;
+  expect(created.number).toBe(source.number + 1);
+  const shown = (await me(["issue", "show", created.id, "--json"])).json;
+  expect(shown.parentId).toBe(parent.id);
+  expect(shown.activity.find((a: any) => a.type === "created").data.discovered_from).toBe(source.id);
+});

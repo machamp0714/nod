@@ -157,9 +157,9 @@ export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; 
         `${ref} は ${row.status} です。着手中（in_progress）の Issue だけをレビューに回せます`,
       );
     }
-    addComment(ctx, row, opts.summary);
+    const report = addComment(ctx, row, opts.summary);
     if (opts.prUrl) setColumn(ctx, row, "pr_url", opts.prUrl);
-    setColumn(ctx, row, "status", "in_review");
+    setColumn(ctx, row, "status", "in_review", { report_comment_id: report.id });
     setColumn(ctx, row, "agent_state", "done");
     return toIssue(issueRowById(ctx.db, row.id));
   });

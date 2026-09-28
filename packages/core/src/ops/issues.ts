@@ -42,6 +42,7 @@ export interface CreateIssueInput {
   template?: string; // テンプレートの名前。本文を説明の初期値にする（description と同時には使えない）
   projectRef?: string;
   parentRef?: string;
+  discoveredFromRef?: string;
   priority?: number;
   labels?: string[];
 }
@@ -61,6 +62,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       next_number: number;
     } | null;
     if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
+    const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
@@ -89,7 +91,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     for (const label of new Set(input.labels ?? [])) {
       ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
     }
-    recordEvent(ctx.db, id, ctx.actor, "created", { status });
+    recordEvent(ctx.db, id, ctx.actor, "created", { status, ...(source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {}) });
     return toIssue(issueRowById(ctx.db, id));
   });
 }
