@@ -50,3 +50,33 @@ test("存在しない Project の条件は、API を呼ばずにメッセージ�
   await page.goto("/issues?project=999");
   await expect(page.getByRole("alert")).toHaveText("条件の Project（999）が見つかりません");
 });
+
+test("Filter で Workspace、Status、Project、Label を選ぶと絞り込み、条件を URL に残す", async ({ page }) => {
+  await page.goto("/issues");
+  await page.getByText("Filter", { exact: true }).click();
+  await page.getByRole("group", { name: "Workspace" }).getByRole("checkbox", { name: "nod", exact: true }).check();
+  await expect(tableRows(page)).toHaveCount(4);
+  await page.getByRole("group", { name: "Status" }).getByRole("checkbox", { name: "Todo", exact: true }).check();
+  await expect(tableRows(page)).toHaveCount(1);
+  await expect(tableRows(page)).toContainText("NOD-5");
+
+  await page.reload();
+  await expect(tableRows(page)).toHaveCount(1);
+  const chips = page.getByRole("group", { name: "絞り込み条件" });
+  await expect(chips).toContainText(/Workspace\s*is\s*nod/);
+  await chips.getByRole("button", { name: "Status の条件を外す" }).click();
+  await expect(tableRows(page)).toHaveCount(4);
+  await chips.getByRole("button", { name: "Workspace の条件を外す" }).click();
+  await expect(tableRows(page)).toHaveCount(13);
+  await expect(page).not.toHaveURL(/workspace=|status=/);
+
+  await page.getByText("Filter", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Project" }).selectOption({ label: "決済まわり" });
+  await expect(tableRows(page)).toHaveCount(2);
+  // TanStack Router は JSON として読める文字列を引用符つきで URL に書く（project=%222%22）ため、値で確かめる
+  expect(new URL(page.url()).searchParams.get("project")).toMatch(/^"?2"?$/);
+  await page.getByRole("combobox", { name: "Project" }).selectOption({ label: "すべて" });
+  await page.getByRole("group", { name: "Label" }).getByRole("checkbox", { name: "perf", exact: true }).check();
+  await expect(tableRows(page)).toHaveCount(1);
+  await expect(tableRows(page)).toContainText("API-12");
+});

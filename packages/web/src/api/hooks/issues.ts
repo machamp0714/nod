@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { IssueListRow } from "../../components/issue-list/types";
-import { issueQueryToParams } from "../../lib/issue-filter";
+import { issueQueryToParams, type FilterOptions } from "../../lib/issue-filter";
 import { buildRows } from "../../lib/issue-rows";
 import { apiFetch } from "../client";
 import { errorMessage } from "../errors";
@@ -41,4 +41,16 @@ export function useIssueRows(query: IssueQuery): IssueRowsState {
   if (failed?.error) return { rows: [], loading: false, error: errorMessage(failed.error) };
   if (!all.data || !ready.data || !workspaces.data) return { rows: [], loading: true, error: null };
   return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, error: null };
+}
+
+// 絞り込みのバーの選択肢。ラベルは、すべての Issue に付いているものを集める
+export function useFilterOptions(): FilterOptions {
+  const workspaces = useWorkspaces();
+  const projects = useProjects();
+  const all = useIssueList({});
+  return {
+    workspaces: (workspaces.data ?? []).map((w) => ({ value: w.key, label: w.name })),
+    projects: (projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+    labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
+  };
 }

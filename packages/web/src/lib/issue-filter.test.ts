@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { filterFromSearch, filterToSearch, issueQueryToParams, sameFilter } from "./issue-filter";
+import {
+  describeFilter,
+  filterFromSearch,
+  filterToSearch,
+  issueQueryToParams,
+  sameFilter,
+  toggleValue,
+  withoutKey,
+} from "./issue-filter";
 
 describe("filterFromSearch と filterToSearch", () => {
   test("search params から絞り込み条件のキーだけを取り出す", () => {
@@ -41,4 +49,37 @@ describe("sameFilter", () => {
 test("ルーターが残した未検証の search params を API に渡さない", () => {
   expect(filterFromSearch({ status: ["wip"], project: "abc" } as never)).toEqual({});
   expect(filterFromSearch({ workspace: ["blog"] })).toEqual({ workspace: ["BLOG"] });
+});
+
+describe("describeFilter", () => {
+  test("条件ごとに、名前と表示用の値を並べる", () => {
+    const labelOf = {
+      workspace: (key: string) => key.toLowerCase(),
+      project: (ref: string) => `P${ref}`,
+      status: (status: string) => status.toUpperCase(),
+    };
+    expect(
+      describeFilter({ workspace: ["API", "NOD"], status: ["todo"], project: "3", label: ["bug"], ready: true }, labelOf),
+    ).toEqual([
+      { key: "workspace", name: "Workspace", values: "api, nod" },
+      { key: "status", name: "Status", values: "TODO" },
+      { key: "project", name: "Project", values: "P3" },
+      { key: "label", name: "Label", values: "bug" },
+      { key: "ready", name: "Ready", values: "のみ" },
+    ]);
+    expect(describeFilter({}, labelOf)).toEqual([]);
+  });
+});
+
+describe("withoutKey と toggleValue", () => {
+  test("条件を1つ外す", () => {
+    expect(withoutKey({ workspace: ["API"], label: ["bug"] }, "label")).toEqual({ workspace: ["API"] });
+  });
+
+  test("値を足し引きし、空になったら undefined にする", () => {
+    expect(toggleValue(["API"], "NOD")).toEqual(["API", "NOD"]);
+    expect(toggleValue(["API", "NOD"], "API")).toEqual(["NOD"]);
+    expect(toggleValue(["API"], "API")).toBeUndefined();
+    expect(toggleValue(undefined, "API")).toEqual(["API"]);
+  });
 });
