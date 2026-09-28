@@ -139,7 +139,9 @@ function DocumentsSection({ documents }: { documents: DocumentRef[] }) {
 function SubIssuesSection({ issues }: { issues: Issue[] }) {
   return (
     <section className={s.section} aria-label="Sub-issue">
-      <h2 className={s.sectionTitle}>Sub-issue {issues.filter((issue) => issue.status === "done").length}/{issues.length}</h2>
+      <h2 className={`${s.sectionTitle} ${s.subIssuesHeading}`}>
+        Sub-issues <span className={s.subIssuesCount}>{issues.filter((issue) => issue.status === "done").length}/{issues.length}</span>
+      </h2>
       {issues.length === 0 ? (
         <p className={s.muted}>Sub-issue はありません</p>
       ) : (

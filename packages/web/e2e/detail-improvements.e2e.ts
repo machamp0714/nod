@@ -21,7 +21,7 @@ test("子の完了数は直接のdoneだけを数え、canceledと孫を含め�
   const api = await seedApiWorkspace(nod);
   const parent = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "親" });
   await page.goto(`/issues/${parent.id}`);
-  await expect(page.getByRole("heading", { name: "Sub-issue 0/0" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sub-issues 0/0" })).toBeVisible();
   const child = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "完了", parentRef: parent.id });
   await nod.me.updateIssue(child.id, { status: "done" });
   const canceled = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "中止", parentRef: parent.id });
@@ -29,7 +29,7 @@ test("子の完了数は直接のdoneだけを数え、canceledと孫を含め�
   await nod.me.createIssue({ workspaceId: api.workspace.id, title: "未完了", parentRef: parent.id });
   const grandchild = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "孫", parentRef: child.id });
   await nod.me.updateIssue(grandchild.id, { status: "done" });
-  await expect(page.getByRole("heading", { name: "Sub-issue 1/3" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sub-issues 1/3" })).toBeVisible();
 });
 
 test("タイトルを編集して保存すると履歴が残り、キャンセルと空白は保存しない", async ({ page, nod }) => {

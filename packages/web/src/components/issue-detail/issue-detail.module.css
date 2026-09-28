@@ -525,3 +525,6 @@
 
 .awaitingAnswer:disabled { opacity: .5; cursor: default; }
 .awaitingAnswer:focus-visible { outline: 2px solid var(--ask); outline-offset: 2px; }
+
+.subIssuesHeading { display: flex; align-items: center; gap: 8px; }
+.subIssuesCount { color: var(--ink3); font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
