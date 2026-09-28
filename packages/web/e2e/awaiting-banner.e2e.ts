@@ -1,5 +1,6 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { restartApiServer } from "./support/nod";
 
 test("回答待ちバナーから個別回答し、再操作と別フォームの下書きを保つ", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
@@ -70,6 +71,53 @@ test("原本の位置と色で長文とdetachedを表示し、外部回答で消
 
 test.describe("回答失敗と送信中", () => {
   test.use({ allowedConsoleErrors: async ({}, use) => { await use([/status of 500/, /status of 409/]); } });
+  test("別質問の保存失敗後、バナーでエラーを消し回答下書きを保つ", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const issue = await api.startedIssue("回答エラーの切替", nod.codex);
+    await api.ask(issue.id, "最古の質問A", nod.codex);
+    await api.ask(issue.id, "別の質問B", nod.codex);
+    await page.goto(`/issues/${issue.id}`);
+    await waitForServerEvents(page);
+    const banner = page.getByRole("region", { name: "回答待ち", exact: true });
+    const panel = page.getByRole("region", { name: "未決事項", exact: true });
+    const first = panel.getByRole("listitem").filter({ hasText: "最古の質問A" });
+    const second = panel.getByRole("listitem").filter({ hasText: "別の質問B" });
+    await second.getByRole("button", { name: "回答を記録" }).click();
+    await second.getByRole("textbox").fill("Bの回答下書き");
+    await page.route("**/api/issues/*/answer", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "Bの保存失敗" } }) }));
+    await second.getByRole("button", { name: "記録する" }).click();
+    await expect(panel.getByRole("alert")).toContainText("Bの保存失敗");
+    await expect(second.getByRole("textbox")).toHaveValue("Bの回答下書き");
+    await banner.getByRole("button", { name: "回答する" }).click();
+    await expect(first.getByRole("textbox")).toBeFocused();
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+    await second.getByRole("button", { name: "回答を記録" }).click();
+    await expect(second.getByRole("textbox")).toHaveValue("Bの回答下書き");
+  });
+
+  test("追加失敗後、バナーでエラーを消し追加下書きを保つ", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const issue = await api.startedIssue("追加エラーの切替", nod.codex);
+    await api.ask(issue.id, "最古の質問A", nod.codex);
+    await page.goto(`/issues/${issue.id}`);
+    await waitForServerEvents(page);
+    const banner = page.getByRole("region", { name: "回答待ち", exact: true });
+    const panel = page.getByRole("region", { name: "未決事項", exact: true });
+    const first = panel.getByRole("listitem").filter({ hasText: "最古の質問A" });
+    await panel.getByRole("button", { name: "未決事項を追加" }).click();
+    const draft = panel.getByRole("textbox", { name: "未決事項", exact: true });
+    await draft.fill("追加の下書き");
+    await page.route("**/api/issues/*/ask", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "追加の保存失敗" } }) }));
+    await panel.getByRole("button", { name: "追加する" }).click();
+    await expect(panel.getByRole("alert")).toContainText("追加の保存失敗");
+    await expect(draft).toHaveValue("追加の下書き");
+    await banner.getByRole("button", { name: "回答する" }).click();
+    await expect(first.getByRole("textbox")).toBeFocused();
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+    await panel.getByRole("button", { name: "未決事項を追加" }).click();
+    await expect(draft).toHaveValue("追加の下書き");
+  });
+
   test("失敗時の下書きと送信中の対象を保持する", async ({ page, nod }) => {
     const api = await seedApiWorkspace(nod);
     const issue = await api.startedIssue("再送", nod.codex);
@@ -100,6 +148,8 @@ test.describe("回答失敗と送信中", () => {
     const issue = await api.startedIssue("競合", nod.codex);
     await api.ask(issue.id, "競合する質問", nod.codex);
     await api.ask(issue.id, "残す質問", nod.codex);
+    // 初期化の未通知changeで、意図的に古く保つ回答フォームが更新されないよう基準を作り直す。
+    await restartApiServer();
     await page.goto(`/issues/${issue.id}`);
     await waitForServerEvents(page);
     const banner = page.getByRole("region", { name: "回答待ち", exact: true });
@@ -108,7 +158,11 @@ test.describe("回答失敗と送信中", () => {
     expect(response.ok()).toBe(true);
     await banner.getByRole("button").click();
     await page.getByRole("textbox", { name: "回答", exact: true }).fill("競合する回答");
+    const conflict = page.waitForResponse((res) => res.url().endsWith(`/api/issues/${issue.id}/answer`) && res.request().method() === "POST");
     await page.getByRole("button", { name: "記録する", exact: true }).click();
+    const conflictResponse = await conflict;
+    expect(conflictResponse.status()).toBe(409);
+    expect(conflictResponse.request().postDataJSON().questionId).toBe(detail.questions[0]!.id);
     await expect(page.getByRole("alert")).toContainText("記録できませんでした");
     await expect(banner).toContainText("残す質問");
     expect((await api.show(issue.id)).questions.find((q) => q.question === "残す質問")!.answer).toBeNull();

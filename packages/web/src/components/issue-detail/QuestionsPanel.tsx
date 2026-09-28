@@ -44,6 +44,7 @@ export function QuestionsPanel({
       return;
     }
     setNotice(null);
+    action.clearError();
     setAdding(false);
     setAnswering(question.id);
     setFocusRequest((n) => n + 1);
