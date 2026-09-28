@@ -167,3 +167,7 @@
   height: 9px;
   border-radius: 2px;
 }
+
+.headingButton:hover {
+  color: var(--ink);
+}

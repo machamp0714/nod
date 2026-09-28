@@ -1,10 +1,12 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { errorMessage } from "../api/errors";
+import { useIssueList } from "../api/hooks/issues";
+import { useProjects } from "../api/hooks/projects";
+import { useWorkspaces } from "../api/hooks/shared";
 import type { ProjectSummary } from "../api/types";
-import { Button, Icon, Pill, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
-import { PROJECTS } from "../fixtures/project-summaries";
-import { workspaceName } from "../fixtures/workspaces";
+import { Button, Icon, PageError, Pill, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
-import { filterProjects, type ProjectListItem } from "../lib/projects";
+import { filterProjects, type ProjectListItem, withWorkspaces } from "../lib/projects";
 import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
 import s from "./projects.module.css";
 
@@ -14,7 +16,14 @@ export function ProjectsPage() {
   const search = route.useSearch();
   const navigate = useNavigate({ from: "/projects" });
   const tab = search.tab ?? "active";
-  const projects = filterProjects(PROJECTS, tab);
+  const projects = useProjects();
+  const issues = useIssueList({});
+  const workspaces = useWorkspaces();
+  const error = projects.error ?? issues.error ?? workspaces.error;
+  const items =
+    projects.data && issues.data ? filterProjects(withWorkspaces(projects.data, issues.data.issues), tab) : undefined;
+  const names = new Map((workspaces.data ?? []).map((w) => [w.key, w.name]));
+  const workspaceName = (key: string) => names.get(key) ?? key;
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -34,40 +43,50 @@ export function ProjectsPage() {
           New project
         </Button>
       </header>
-      <table className={s.table}>
-        <colgroup>
-          <col />
-          <col className={s.colWorkspace} />
-          <col className={s.colProgress} />
-          <col className={s.colAgents} />
-          <col className={s.colUpdated} />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Workspace</th>
-            <th>Progress</th>
-            <th>LLM の状況</th>
-            <th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {projects.length === 0 ? (
+      {error ? (
+        <PageError message={errorMessage(error)} />
+      ) : (
+        <table className={s.table}>
+          <colgroup>
+            <col />
+            <col className={s.colWorkspace} />
+            <col className={s.colProgress} />
+            <col className={s.colAgents} />
+            <col className={s.colUpdated} />
+          </colgroup>
+          <thead>
             <tr>
-              <td colSpan={5} className={s.muted}>
-                Project はありません
-              </td>
+              <th>Name</th>
+              <th>Workspace</th>
+              <th>Progress</th>
+              <th>LLM の状況</th>
+              <th>Updated</th>
             </tr>
-          ) : (
-            projects.map((project) => <ProjectRow key={project.id} project={project} />)
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items === undefined ? (
+              <tr>
+                <td colSpan={5} className={s.muted}>
+                  読み込み中…
+                </td>
+              </tr>
+            ) : items.length === 0 ? (
+              <tr>
+                <td colSpan={5} className={s.muted}>
+                  Project はありません
+                </td>
+              </tr>
+            ) : (
+              items.map((project) => <ProjectRow key={project.id} project={project} workspaceName={workspaceName} />)
+            )}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
 
-function ProjectRow({ project }: { project: ProjectListItem }) {
+function ProjectRow({ project, workspaceName }: { project: ProjectListItem; workspaceName: (key: string) => string }) {
   return (
     <tr>
       <td>

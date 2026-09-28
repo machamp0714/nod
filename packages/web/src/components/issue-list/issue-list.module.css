@@ -8,8 +8,35 @@
 
 .header {
   display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.headerText {
+  display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.message {
+  padding: 20px 8px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.messageError {
+  color: var(--fail);
 }
 
 .crumb {

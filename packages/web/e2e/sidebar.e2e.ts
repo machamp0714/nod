@@ -1,6 +1,8 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
 
+test.use({ dataset: "issue-list" });
+
 test("/ は /inbox に移る", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/inbox$/);
@@ -40,7 +42,7 @@ test("Inbox、Reviews、Triage の件数を API から出す", async ({ page, no
   await expect(nav.getByRole("link", { name: /^Triage/ })).toContainText("1");
 });
 
-test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せない", async ({ page }) => {
+test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せず、View を追加は押せる", async ({ page }) => {
   await page.goto("/inbox");
   const nav = page.getByRole("navigation", { name: "メイン" });
   await expect(nav.getByText("My issues")).toBeVisible();
@@ -49,7 +51,7 @@ test("準備中の項目はリンクにせず Soon と出し、準備中のボ�
   await expect(nav.getByText("Soon")).toHaveCount(2);
   await expect(nav.getByRole("button", { name: "検索" })).toBeDisabled();
   await expect(nav.getByRole("button", { name: "New Issue" })).toBeDisabled();
-  await expect(nav.getByRole("button", { name: "View を追加" })).toBeDisabled();
+  await expect(nav.getByRole("button", { name: "View を追加" })).toBeEnabled();
 });
 
 test("Issue 詳細を開いているときは Issues を選択中にする", async ({ page }) => {

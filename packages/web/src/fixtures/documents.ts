@@ -13,8 +13,6 @@ export const DOCUMENT_BODIES: Record<number, string | null> = {
   3: null,
 };
 
-export const PROJECT_DOCUMENTS: Record<number, number[]> = { 1: [1], 3: [3] };
-
 export const ISSUE_DOCUMENTS: Record<string, number[]> = { "API-12": [1, 2] };
 
 export function findDocument(id: number): DocumentRef | undefined {

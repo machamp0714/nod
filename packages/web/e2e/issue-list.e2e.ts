@@ -1,5 +1,7 @@
 import { expect, test } from "./fixtures";
 
+test.use({ dataset: "issue-list" });
+
 const tableRows = (page: import("@playwright/test").Page) => page.getByRole("table").locator("tbody tr");
 
 test("Issues は spec の列でリストを出す", async ({ page }) => {

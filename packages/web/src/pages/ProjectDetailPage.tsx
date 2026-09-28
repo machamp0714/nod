@@ -1,10 +1,10 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { errorMessage } from "../api/errors";
+import { useIssueRows } from "../api/hooks/issues";
+import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, ProjectSummary } from "../api/types";
 import { IssueList } from "../components/issue-list/IssueList";
-import { Icon, ProgressBar } from "../components/ui";
-import { findDocument, PROJECT_DOCUMENTS } from "../fixtures/documents";
-import { ISSUE_ROWS } from "../fixtures/issue-rows";
-import { findProject } from "../fixtures/project-summaries";
+import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { cleanIssueListSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
@@ -15,18 +15,25 @@ export function ProjectDetailPage() {
   const { projectId } = route.useParams();
   const search = route.useSearch();
   const navigate = useNavigate({ from: "/projects/$projectId" });
-  const project = findProject(Number(projectId));
-  if (!project) return <NotFoundMessage title="Project が見つかりません" />;
-  const rows = ISSUE_ROWS.filter((row) => row.issue.project?.id === project.id);
-  const documents = (PROJECT_DOCUMENTS[project.id] ?? [])
-    .map((id) => findDocument(id))
-    .filter((doc): doc is DocumentRef => doc !== undefined);
+  const projects = useProjects();
+  const found = projects.data?.some((project) => String(project.id) === projectId) ?? false;
+  const detail = useProject(Number(projectId), found);
+  // 一覧にない ID なら、useIssueRows は API を呼ばない
+  const rows = useIssueRows({ project: projectId });
+
+  if (projects.error) return <PageError message={errorMessage(projects.error)} />;
+  if (!projects.data) return <PageLoading />;
+  if (!found) return <NotFoundMessage title="Project が見つかりません" />;
+  if (detail.error) return <PageError message={errorMessage(detail.error)} />;
+  if (!detail.data) return <PageLoading />;
   return (
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
-      title={project.name}
-      intro={<ProjectIntro project={project} documents={documents} />}
-      rows={rows}
+      title={detail.data.name}
+      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} />}
+      rows={rows.rows}
+      loading={rows.loading}
+      error={rows.error}
       search={search}
       onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true })}
     />

@@ -21,6 +21,7 @@ import {
   GitPullRequest,
   Inbox,
   Info,
+  Layers,
   List,
   ListChecks,
   ListFilter,
@@ -39,6 +40,7 @@ import {
   Star,
   Tag,
   Terminal,
+  Trash2,
   Undo2,
   X,
 } from "lucide-react";
@@ -66,6 +68,7 @@ const ICONS = {
   "git-pull-request": GitPullRequest,
   inbox: Inbox,
   info: Info,
+  layers: Layers,
   list: List,
   "list-checks": ListChecks,
   "list-filter": ListFilter,
@@ -83,6 +86,7 @@ const ICONS = {
   star: Star,
   tag: Tag,
   terminal: Terminal,
+  "trash-2": Trash2,
   "undo-2": Undo2,
   x: X,
 } satisfies Record<string, LucideIcon>;
