@@ -25,3 +25,28 @@ test("データセット issue-list は A のダミーデータと同じ Workspa
   const documents = (await (await request.get("/api/projects/1")).json()) as { documents: { id: number; title: string }[] };
   expect(documents.documents).toEqual([expect.objectContaining({ id: 1, title: "検索 API の高速化 設計" })]);
 });
+
+test("Issues は API から全 Workspace の Issue を読み、nod で起票した Issue も再読み込みなしで出す", async ({ page, nod }) => {
+  await page.goto("/issues");
+  await expect(tableRows(page)).toHaveCount(13);
+  await expect(page.getByRole("button", { name: "Ready 2" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /API-9/ })).toContainText("2 / 6");
+  // ready の前に書くと、ready による読み直しで出てしまい、change の経路を試せない
+  await waitForServerEvents(page);
+  await nod.claude.createIssue({ workspaceId: 1, title: "LLM が起票した Issue" });
+  await expect(page.getByRole("row", { name: /LLM が起票した Issue/ })).toBeVisible();
+  await expect(tableRows(page)).toHaveCount(14);
+});
+
+test("URL の絞り込み条件で API に問い合わせ、不正な値は捨てる", async ({ page }) => {
+  await page.goto(`/issues?workspace=${json(["blog"])}`);
+  await expect(tableRows(page)).toHaveCount(1);
+  await expect(tableRows(page)).toContainText("BLOG-2");
+  await page.goto(`/issues?status=${json(["wip"])}&project=abc`);
+  await expect(tableRows(page)).toHaveCount(13);
+});
+
+test("存在しない Project の条件は、API を呼ばずにメッセージを出す", async ({ page }) => {
+  await page.goto("/issues?project=999");
+  await expect(page.getByRole("alert")).toHaveText("条件の Project（999）が見つかりません");
+});

@@ -12,14 +12,29 @@ export interface IssueListProps {
   crumb?: ReactNode;
   title: string;
   intro?: ReactNode;
+  actions?: ReactNode; // 見出しの右に置くボタン（View として保存、View の変更など）
+  filterBar?: ReactNode; // 絞り込み条件のバー（Issues と Views だけに置く）
   rows: IssueListRow[];
+  loading?: boolean;
+  error?: string | null;
   search: IssueListSearch;
   onSearchChange: (patch: IssueListSearch) => void;
 }
 
 // spec の Issue 一覧：見出し、件数カード、タブ、検索、リストとカンバンの切り替え。
 // Project 詳細、Issues、Views で共通に使い、表示する Issue の範囲（rows）だけが違う。
-export function IssueList({ crumb, title, intro, rows, search, onSearchChange }: IssueListProps) {
+export function IssueList({
+  crumb,
+  title,
+  intro,
+  actions,
+  filterBar,
+  rows,
+  loading = false,
+  error = null,
+  search,
+  onSearchChange,
+}: IssueListProps) {
   const tab = search.tab ?? "all";
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
@@ -30,8 +45,11 @@ export function IssueList({ crumb, title, intro, rows, search, onSearchChange }:
   return (
     <div className={s.page}>
       <header className={s.header}>
-        {crumb && <div className={s.crumb}>{crumb}</div>}
-        <h1 className={s.title}>{title}</h1>
+        <div className={s.headerText}>
+          {crumb && <div className={s.crumb}>{crumb}</div>}
+          <h1 className={s.title}>{title}</h1>
+        </div>
+        {actions && <div className={s.actions}>{actions}</div>}
       </header>
       {intro}
 
@@ -88,8 +106,21 @@ export function IssueList({ crumb, title, intro, rows, search, onSearchChange }:
           ]}
         />
       </div>
+      {filterBar}
 
-      {layout === "list" ? <IssueTable rows={visible} /> : <IssueBoard rows={visible} />}
+      {error ? (
+        <p role="alert" className={`${s.message} ${s.messageError}`}>
+          {error}
+        </p>
+      ) : loading ? (
+        <p role="status" className={s.message}>
+          読み込み中…
+        </p>
+      ) : layout === "list" ? (
+        <IssueTable rows={visible} />
+      ) : (
+        <IssueBoard rows={visible} />
+      )}
     </div>
   );
 }

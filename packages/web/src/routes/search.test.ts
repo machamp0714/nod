@@ -49,3 +49,24 @@ describe("parseSelectedSearch と parseProjectsSearch", () => {
     expect(cleanProjectsSearch({ tab: "all" })).toEqual({ tab: "all" });
   });
 });
+
+describe("parseIssueListSearch の絞り込み条件", () => {
+  test("Workspace は大文字にし、ステータスは知っているものだけ、Project は数字の ID だけを残す", () => {
+    expect(
+      parseIssueListSearch({ workspace: ["api", "API", " nod "], status: ["todo", "wip"], project: 3, label: ["bug", "", "bug"] }),
+    ).toEqual({ workspace: ["API", "NOD"], status: ["todo"], project: "3", label: ["bug"] });
+  });
+
+  test("1つだけの値は文字列でも受け付け、不正な値は捨てる", () => {
+    expect(parseIssueListSearch({ workspace: "blog", status: "done", label: "perf" })).toEqual({
+      workspace: ["BLOG"],
+      status: ["done"],
+      label: ["perf"],
+    });
+    expect(parseIssueListSearch({ status: ["wip"], project: "abc", workspace: [null, {}], label: {} })).toEqual({});
+  });
+
+  test("空の条件は URL に残さない", () => {
+    expect(cleanIssueListSearch({ workspace: [], status: ["todo"], project: "", label: [] })).toEqual({ status: ["todo"] });
+  });
+});
