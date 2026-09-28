@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBanner";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
@@ -41,6 +43,8 @@ export function IssueDetailPage() {
 }
 
 function IssueDetailView({ issue }: { issue: IssueDetail }) {
+  const [answerRequest, setAnswerRequest] = useState<{ questionId: number; requestId: number }>();
+  const [questionsBusy, setQuestionsBusy] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
   const ask = useAskQuestion(issue.id);
@@ -86,6 +90,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <TitleSection title={issue.title} onSave={(title) => update.mutateAsync({ title })} />
 
           <DescriptionSection description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
+          <AwaitingInputBanner issue={issue} busy={questionsBusy} onAnswer={(questionId) => setAnswerRequest((previous) => ({ questionId, requestId: (previous?.requestId ?? 0) + 1 }))} />
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection documents={issue.documents} />
           <SubIssuesSection issues={issue.children} />
@@ -95,6 +100,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
         <aside className={s.rail}>
           <QuestionsPanel
             questions={issue.questions}
+            answerRequest={answerRequest}
+            onBusyChange={setQuestionsBusy}
             onAnswer={(questionId, text) => answer.mutateAsync({ answer: text, questionId })}
             onAsk={(question) => ask.mutateAsync({ question })}
           />
