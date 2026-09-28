@@ -1,0 +1,152 @@
+import { getRouteApi, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
+import { useIssueDetail } from "../api/hooks/shared";
+import type { InboxQuestion } from "../api/types";
+import { ActionError } from "../components/split/ActionError";
+import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
+import { SplitLayout } from "../components/split/SplitLayout";
+import { ActivityLines, AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { doingTaskTitle, groupInbox, type InboxEntry } from "../lib/decision";
+import { formatRelative } from "../lib/format";
+import { planProgress } from "../lib/plan";
+import d from "./decision.module.css";
+
+const route = getRouteApi("/inbox");
+
+export function InboxPage() {
+  const { selected } = route.useSearch();
+  const inbox = useInbox();
+  const workspaceName = useWorkspaceName();
+  const entries = groupInbox(inbox.data?.questions ?? []);
+  const current = entries.find((e) => e.issueId === selected) ?? entries[0];
+  return (
+    <SplitLayout
+      title="Inbox"
+      count={inbox.data?.questions.length ?? 0}
+      listLabel="確認依頼の一覧"
+      list={
+        inbox.isPending ? (
+          <QueueEmpty>読み込み中…</QueueEmpty>
+        ) : inbox.isError ? (
+          <ActionError error={inbox.error} />
+        ) : entries.length === 0 ? (
+          <QueueEmpty>確認依頼はありません</QueueEmpty>
+        ) : (
+          entries.map((entry) => {
+            const latest = entry.questions.at(-1);
+            return (
+              <QueueItem
+                key={entry.issueId}
+                to="/inbox"
+                issueId={entry.issueId}
+                title={entry.issueTitle}
+                actor={latest?.askedBy ?? ""}
+                at={entry.latestAt}
+                body={latest?.question}
+                workspaceKey={entry.workspace}
+                workspaceName={workspaceName(entry.workspace)}
+                selected={entry === current}
+              />
+            );
+          })
+        )
+      }
+      detail={
+        current ? (
+          <InboxDetail key={current.issueId} entry={current} workspaceName={workspaceName(current.workspace)} />
+        ) : (
+          <p className={d.empty}>{inbox.isPending ? "読み込み中…" : "確認依頼はありません"}</p>
+        )
+      }
+    />
+  );
+}
+
+function InboxDetail({ entry, workspaceName }: { entry: InboxEntry; workspaceName: string }) {
+  const detail = useIssueDetail(entry.issueId);
+  const issue = detail.data;
+  const recent = issue ? issue.activity.slice(-3).reverse() : [];
+  const progress = issue && issue.plan.tasks.length > 0 ? planProgress(issue.plan) : null;
+  const doing = issue ? doingTaskTitle(issue.plan) : null;
+  return (
+    <div className={d.detail}>
+      <div className={d.crumb}>
+        <WorkspaceBadge workspaceKey={entry.workspace} name={workspaceName} />
+        <span className={d.id}>{entry.issueId}</span>
+        {issue && <StatusLabel status={issue.status} />}
+      </div>
+      <h2 className={d.title}>{entry.issueTitle}</h2>
+      {entry.branch && (
+        <div className={d.context}>
+          <Icon name="terminal" size={13} />
+          <span title={entry.worktree ?? undefined}>
+            実行場所：{workspaceName} / {entry.branch}
+          </span>
+        </div>
+      )}
+      {progress && (
+        <p className={d.note}>
+          <Icon name="list-checks" />
+          計画 {progress.done}/{progress.total}
+          {doing && `（作業中の Task：${doing}）`}
+        </p>
+      )}
+
+      {entry.questions.map((question) => (
+        <QuestionCard key={question.id} question={question} />
+      ))}
+      <p className={d.note}>
+        <Icon name="info" />
+        回答は Issue に記録されます。LLM は次に nod を実行したときに回答を読みます。
+      </p>
+
+      <section className={d.section} aria-label="直近の経過">
+        <h3 className={d.sectionTitle}>直近の経過</h3>
+        {detail.isError ? <ActionError error={detail.error} /> : <ActivityLines items={recent} />}
+      </section>
+
+      <Link to="/issues/$issueId" params={{ issueId: entry.issueId }} className={d.link}>
+        Issue を開く
+        <Icon name="arrow-right" />
+      </Link>
+    </div>
+  );
+}
+
+// 質問ごとの回答欄。回答は questionId を付けて送り、この質問だけを回答済みにする
+function QuestionCard({ question }: { question: InboxQuestion }) {
+  const [answer, setAnswer] = useState("");
+  const decision = useDecision();
+  const text = answer.trim();
+  return (
+    <section className={d.askCard} aria-label="確認依頼">
+      <div className={d.cardHead}>
+        <AgentAvatar actor={question.askedBy} />
+        <span className={`${d.cardHeadText} ${d.askText}`}>{question.askedBy} が確認を求めています</span>
+        <span className={d.askText}>{formatRelative(question.askedAt)}</span>
+      </div>
+      <p className={d.questionText}>{question.question}</p>
+      <div className={d.answer}>
+        <textarea
+          className={d.textarea}
+          aria-label="回答"
+          placeholder="回答を入力…"
+          value={answer}
+          disabled={decision.isPending}
+          onChange={(e) => setAnswer(e.target.value)}
+        />
+        <div className={d.answerFooter}>
+          <Button
+            variant="primary"
+            disabled={text === "" || decision.isPending}
+            onClick={() => decision.mutate({ op: "answer", issueId: question.issueId, questionId: question.id, answer: text })}
+          >
+            回答する
+          </Button>
+        </div>
+      </div>
+      <ActionError error={decision.error} />
+    </section>
+  );
+}

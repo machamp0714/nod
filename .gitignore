@@ -5,3 +5,6 @@ design/
 docs/superpowers/
 .remember
 *.drawio
+
+node_modules/
+dist/

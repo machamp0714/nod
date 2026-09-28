@@ -1,0 +1,187 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inlineText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: #FFFFFF;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.bar {
+  flex: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #FFFFFF;
+}
+
+.danger {
+  color: var(--fail);
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--sunken);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activityLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.activityIcon {
+  flex: none;
+  padding-top: 2px;
+  color: var(--ink3);
+}
+
+.activityText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.activityTime {
+  flex: none;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.soft {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.pageState {
+  padding: 48px;
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.pageError {
+  color: var(--fail);
+}
+
+.loading {
+  padding: 32px 48px;
+  color: var(--ink3);
+  font-size: 13px;
+}
+
+.loadError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 32px 48px;
+  color: var(--fail);
+  font-size: 13px;
+}
+
+.loadErrorTitle {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+}

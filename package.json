@@ -1,0 +1,16 @@
+{
+  "name": "nod-workspace",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "web:build": "cd packages/web && bun run build",
+    "server": "bun run packages/server/src/main.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "build": "bun build packages/cli/src/main.ts --compile --outfile dist/nod"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}

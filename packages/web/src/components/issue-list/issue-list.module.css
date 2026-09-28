@@ -1,0 +1,305 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
+  padding: 24px 28px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.headerText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.message {
+  padding: 20px 8px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.messageError {
+  color: var(--fail);
+}
+
+.crumb {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cards {
+  display: flex;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.badge {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cardTop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cardCount {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.cardLabel {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cardDesc {
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink3);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  outline: none;
+}
+
+.table {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--ink3);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.colStatus {
+  width: 170px;
+}
+
+.colId {
+  width: 80px;
+}
+
+.colQuestions {
+  width: 88px;
+}
+
+.colWorkspace {
+  width: 140px;
+}
+
+.colPr {
+  width: 64px;
+}
+
+.id {
+  color: var(--ink2);
+  font-family: var(--font-mono);
+}
+
+.titleCell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.titleLink:hover {
+  color: var(--accent);
+}
+
+.prLink {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.muted {
+  color: var(--ink3);
+}
+
+.board {
+  display: flex;
+  flex: 1;
+  gap: 14px;
+  min-height: 0;
+}
+
+.column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  background: var(--sunken);
+}
+
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 6px;
+}
+
+.columnName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.columnCount {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.boardCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.boardCardTop {
+  display: flex;
+  gap: 6px;
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.boardCardTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.boardCardFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.empty {
+  padding: 20px 8px;
+  color: var(--ink3);
+  font-size: 12px;
+}

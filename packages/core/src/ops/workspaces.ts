@@ -1,0 +1,85 @@
+import type { Database } from "bun:sqlite";
+import { basename } from "node:path";
+import { now } from "../ctx";
+import { tx } from "../db";
+import { NodError } from "../errors";
+import type { Workspace } from "../types";
+
+export const KEY_RE = /^[A-Z0-9]{2,6}$/;
+
+interface WorkspaceRow {
+  id: number;
+  key: string;
+  name: string;
+  path: string;
+  created_at: string;
+}
+
+function toWorkspace(r: WorkspaceRow): Workspace {
+  return { id: r.id, key: r.key, name: r.name, path: r.path, createdAt: r.created_at };
+}
+
+export function deriveKey(repoName: string): string | null {
+  const key = repoName
+    .replace(/[^A-Za-z0-9]/g, "")
+    .slice(0, 3)
+    .toUpperCase();
+  return KEY_RE.test(key) ? key : null;
+}
+
+export function listWorkspaces(db: Database): Workspace[] {
+  return (db.query("SELECT * FROM workspaces ORDER BY key").all() as WorkspaceRow[]).map(toWorkspace);
+}
+
+export function findWorkspace(db: Database, keyOrPath: string): Workspace | null {
+  const row = db.query("SELECT * FROM workspaces WHERE key = ? OR path = ?").get(keyOrPath.toUpperCase(), keyOrPath) as
+    | WorkspaceRow
+    | null;
+  return row ? toWorkspace(row) : null;
+}
+
+export function initWorkspace(
+  db: Database,
+  input: { path: string; key?: string; name?: string },
+): { workspace: Workspace; created: boolean } {
+  return tx(db, () => {
+    const existing = db.query("SELECT * FROM workspaces WHERE path = ?").get(input.path) as WorkspaceRow | null;
+    if (existing) return { workspace: toWorkspace(existing), created: false };
+
+    const name = input.name ?? basename(input.path);
+    const key = input.key ? input.key.toUpperCase() : deriveKey(basename(input.path));
+    if (!key || !KEY_RE.test(key)) {
+      throw new NodError(
+        "INVALID_ARGS",
+        `Workspace のキーを決められません。--key で英大文字と数字の2〜6文字を指定してください（例: nod init --key API）`,
+      );
+    }
+    const byKey = db.query("SELECT * FROM workspaces WHERE key = ?").get(key) as WorkspaceRow | null;
+    if (byKey) {
+      throw new NodError("KEY_TAKEN", `キー ${key} はすでに ${byKey.name} が使っています。--key で別のキーを指定してください`);
+    }
+    const byName = db.query("SELECT * FROM workspaces WHERE name = ?").get(name) as WorkspaceRow | null;
+    if (byName) {
+      throw new NodError("NAME_TAKEN", `名前 ${name} はすでに ${byName.path} が使っています。--name で別の名前を指定してください`);
+    }
+    const { lastInsertRowid } = db
+      .query("INSERT INTO workspaces (key, name, path, created_at) VALUES (?, ?, ?, ?)")
+      .run(key, name, input.path, now());
+    const row = db.query("SELECT * FROM workspaces WHERE id = ?").get(Number(lastInsertRowid)) as WorkspaceRow;
+    return { workspace: toWorkspace(row), created: true };
+  });
+}
+
+export function countIssues(db: Database, workspaceId: number): number {
+  return (db.query("SELECT count(*) AS n FROM issues WHERE workspace_id = ?").get(workspaceId) as { n: number }).n;
+}
+
+export function removeWorkspace(db: Database, keyOrPath: string): { workspace: Workspace; deletedIssues: number } {
+  return tx(db, () => {
+    const workspace = findWorkspace(db, keyOrPath);
+    if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
+    const deletedIssues = countIssues(db, workspace.id);
+    db.query("DELETE FROM workspaces WHERE id = ?").run(workspace.id);
+    return { workspace, deletedIssues };
+  });
+}
