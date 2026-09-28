@@ -116,3 +116,67 @@ test("Inbox回答後のActivityは回答者と作業者を区別する", async (
   await expect(activity).toContainText("me の回答で codex の作業状況が 作業中 になった");
   await expect(activity).not.toContainText("me の作業状況が 作業中");
 });
+
+test.describe("詳細の再取得エラー", () => {
+  test.use({ allowedConsoleErrors: async ({}, use) => { await use([/status of 500/, /status of 404/]); } });
+
+  test("保存POSTと後続GETが失敗しても下書きを保ち、復旧後に同じ入力を再送できる", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const issue = await api.startedIssue("元のタイトル");
+    await page.goto(`/issues/${issue.id}`);
+    await waitForServerEvents(page);
+    await page.getByRole("heading", { level: 1 }).click();
+    const box = page.getByRole("textbox", { name: "タイトル", exact: true });
+    await box.fill("接続が復旧したら再送する");
+    const fail = { status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "接続障害" } }) };
+    await page.route(`**/api/issues/${issue.id}/update`, (route) => route.fulfill(fail));
+    let getFailures = 0;
+    await page.route(`**/api/issues/${issue.id}`, (route) => { getFailures += 1; return route.fulfill(fail); });
+    await page.getByRole("button", { name: "タイトルを保存" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "最新の Issue を取得できませんでした" })).toBeVisible({ timeout: 20000 });
+    expect(getFailures).toBeGreaterThanOrEqual(4);
+    await expect(box).toHaveValue("接続が復旧したら再送する");
+    await expect(page.getByRole("button", { name: "タイトルを保存" })).toBeEnabled();
+    expect((await api.show(issue.id)).title).toBe("元のタイトル");
+    await page.unroute(`**/api/issues/${issue.id}/update`);
+    await page.unroute(`**/api/issues/${issue.id}`);
+    await page.getByRole("button", { name: "タイトルを保存" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("接続が復旧したら再送する");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect((await api.show(issue.id)).title).toBe("接続が復旧したら再送する");
+  });
+
+  test("初回取得失敗では編集画面を出さない", async ({ page }) => {
+    await page.route("**/api/issues/API-1", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "接続障害" } }) }));
+    await page.goto("/issues/API-1");
+    await expect(page.getByRole("heading", { name: "読み込めませんでした" })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("button", { name: "タイトルを保存" })).toHaveCount(0);
+  });
+
+  test("取得済みでもNOT_FOUNDなら見つかりませんを表示する", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const issue = await api.startedIssue("削除される Issue");
+    await page.goto(`/issues/${issue.id}`);
+    await waitForServerEvents(page);
+    await page.getByRole("heading", { level: 1 }).click();
+    await page.getByRole("textbox", { name: "タイトル", exact: true }).fill("保存できない");
+    const fail = { status: 404, contentType: "application/json", body: JSON.stringify({ error: { code: "NOT_FOUND", message: "Issue が見つかりません" } }) };
+    await page.route(`**/api/issues/${issue.id}/update`, (route) => route.fulfill(fail));
+    await page.route(`**/api/issues/${issue.id}`, (route) => route.fulfill(fail));
+    await page.getByRole("button", { name: "タイトルを保存" }).click();
+    await expect(page.getByRole("heading", { name: "Issue が見つかりません" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "タイトル", exact: true })).toHaveCount(0);
+  });
+});
+
+test("手動でTodoへ戻した作業状況の解除をActivityで説明する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("状態を解除する", nod.codex);
+  await page.goto(`/issues/${issue.id}`);
+  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("todo");
+  const activity = page.getByRole("region", { name: "Activity", exact: true });
+  await expect(activity).toContainText("me が codex の作業状況を解除した");
+  await expect(activity).not.toContainText("null");
+  const event = (await api.show(issue.id)).activity.filter((a) => a.kind === "event" && a.type === "agent_state_changed").at(-1);
+  expect(event).toMatchObject({ actor: "me", data: { from: "working", to: null, agent: "codex" } });
+});

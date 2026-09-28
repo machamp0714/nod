@@ -73,6 +73,9 @@ export function describeActivity(item: ActivityItem): ActivityLine {
     case "agent_state_changed": {
       const state = agentStateLabel(data.to);
       const agent = typeof data.agent === "string" && data.agent !== "" ? data.agent : null;
+      if (data.to === null) {
+        return { icon: "loader-circle", text: agent ? `${actor} が ${agent} の作業状況を解除した` : `${actor} が作業状況を解除した` };
+      }
       let text: string;
       if (data.trigger === "answer") {
         text = agent ? `${actor} の回答で ${agent} の作業状況が ${state} になった` : `${actor} の回答で作業状況が ${state} になった`;

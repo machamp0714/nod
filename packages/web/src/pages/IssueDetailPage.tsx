@@ -1,5 +1,5 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { isNotFoundError } from "../api/errors";
+import { errorMessage, isNotFoundError } from "../api/errors";
 import {
   useAnswerQuestion,
   useCommentIssue,
@@ -27,12 +27,17 @@ const route = getRouteApi("/issues/$issueId");
 export function IssueDetailPage() {
   const { issueId } = route.useParams();
   const query = useIssueDetail(issueId);
-  if (query.isPending) return <LoadingMessage />;
-  if (query.isError) {
-    return isNotFoundError(query.error) ? <NotFoundMessage title="Issue が見つかりません" /> : <ErrorMessage error={query.error} />;
+  if (query.isError && isNotFoundError(query.error)) return <NotFoundMessage title="Issue が見つかりません" />;
+  if (query.data === undefined) {
+    return query.isError ? <ErrorMessage error={query.error} /> : <LoadingMessage />;
   }
-  // 別の Issue に移ったら、編集中のフォームを捨てるよう作り直す
-  return <IssueDetailView key={issueId} issue={query.data} />;
+  // 背景の取得失敗では同じ編集部品を保持し、別の Issue に移ったときだけ作り直す。
+  return (
+    <>
+      {query.isError && <p className={s.backgroundError} role="alert">最新の Issue を取得できませんでした：{errorMessage(query.error)}</p>}
+      <IssueDetailView key={issueId} issue={query.data} />
+    </>
+  );
 }
 
 function IssueDetailView({ issue }: { issue: IssueDetail }) {

@@ -92,6 +92,12 @@
   outline-offset: 4px;
 }
 
+.backgroundError {
+  margin: 16px 24px 0;
+  color: var(--fail);
+  font-size: 13px;
+}
+
 .section {
   display: flex;
   flex-direction: column;
