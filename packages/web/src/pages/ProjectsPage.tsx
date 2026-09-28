@@ -134,6 +134,11 @@ function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
         入力待ち {agents.awaitingInput}
       </Pill>
     ),
+    agents.awaitingReview > 0 && (
+      <Pill key="review" tone="ready">
+        レビュー待ち {agents.awaitingReview}
+      </Pill>
+    ),
     agents.working > 0 && (
       <Pill key="working" tone="accent">
         作業中 {agents.working}
