@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { BOARD_STATUSES, type Tone, TONE_COLORS } from "../../lib/meta";
-import type { IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
+import type { IssueGroupBy, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
 import { Icon, type IconName, Segmented, WorkspaceBadge } from "../ui";
 import { IssueBoard } from "./IssueBoard";
 import { countRows, filterRows, sortRows, groupRowsByWorkspace } from "./issue-list";
