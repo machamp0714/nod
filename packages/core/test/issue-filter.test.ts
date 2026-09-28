@@ -44,3 +44,9 @@ describe("issueQueryFromParams", () => {
     expect(codeOf(() => issueQueryFromParams(new URLSearchParams("sort=title")))).toBe("INVALID_ARGS");
   });
 });
+
+test.each(["__proto__", "constructor", "toString", "hasOwnProperty"])(
+  "プロトタイプ名 %s のクエリも INVALID_ARGS にする", (key) => {
+    expect(codeOf(() => issueQueryFromParams(new URLSearchParams([[key, "todo"]])))).toBe("INVALID_ARGS");
+  },
+);

@@ -61,7 +61,7 @@ export function validateIssueQuery(value: unknown): IssueQuery {
 }
 
 export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
-  const raw: Record<string, unknown> = {};
+  const raw: Record<string, unknown> = Object.create(null);
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     const last = values[values.length - 1] ?? "";
