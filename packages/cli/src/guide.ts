@@ -56,6 +56,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 - \`nod issue comment <id> "<text>"\`
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
 - \`nod project list\`、\`nod project show <名前>\`
+- \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod template list\`、\`nod template show <名前>\`
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
