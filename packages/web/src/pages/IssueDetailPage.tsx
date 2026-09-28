@@ -2,6 +2,7 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { isNotFoundError } from "../api/errors";
 import {
   useAnswerQuestion,
+  useCommentIssue,
   useAskQuestion,
   useProjectChoices,
   useUpdateIssue,
@@ -39,6 +40,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
   const projects = useProjectChoices();
+  const comment = useCommentIssue(issue.id);
   const status = STATUS_META[issue.status];
   return (
     <div className={s.page}>
@@ -81,7 +83,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection documents={issue.documents} />
           <SubIssuesSection issues={issue.children} />
-          <ActivitySection activity={issue.activity} />
+          <ActivitySection activity={issue.activity} onComment={(body) => comment.mutateAsync({ body })} />
         </article>
 
         <aside className={s.rail}>

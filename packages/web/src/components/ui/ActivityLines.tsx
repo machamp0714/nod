@@ -1,5 +1,5 @@
 import type { ActivityItem } from "../../api/types";
-import { describeActivity } from "../../lib/activity";
+import { describeActivity, visibleActivity } from "../../lib/activity";
 import { formatRelative } from "../../lib/format";
 import { Icon } from "./Icon";
 import s from "./ui.module.css";
@@ -7,7 +7,7 @@ import s from "./ui.module.css";
 export function ActivityLines({ items }: { items: ActivityItem[] }) {
   return (
     <ul className={s.activity}>
-      {items.map((item, index) => {
+      {visibleActivity(items).map((item, index) => {
         const line = describeActivity(item);
         return (
           <li key={`${item.at}-${index}`} className={s.activityLine}>
