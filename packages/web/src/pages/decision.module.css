@@ -66,6 +66,7 @@
 
 .context {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   color: var(--ask);
@@ -237,4 +238,9 @@
   border-radius: var(--radius-sm);
   background: var(--surface);
   font-size: 13px;
+}
+
+.worktree {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

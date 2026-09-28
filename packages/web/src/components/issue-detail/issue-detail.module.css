@@ -448,3 +448,14 @@
 .panelError {
   padding: 0 14px 10px;
 }
+
+.executionLocation {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.executionLocation > span {
+  display: block;
+  color: var(--ink3);
+  font-size: 11px;
+}
