@@ -23,6 +23,7 @@ export const ERROR_STATUS: Record<string, number> = {
   PROJECT_EXISTS: 409,
   KEY_TAKEN: 409,
   NAME_TAKEN: 409,
+  WORKSPACE_COLOR_EXHAUSTED: 409,
   DB_BUSY: 503,
   SCHEMA_TOO_NEW: 500,
 };

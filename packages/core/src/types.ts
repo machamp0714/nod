@@ -3,6 +3,7 @@ export interface Workspace {
   key: string;
   name: string;
   path: string;
+  color: string;
   createdAt: string;
 }
 

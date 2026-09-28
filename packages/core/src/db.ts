@@ -42,7 +42,10 @@ export function migrate(db: Database): void {
     db.transaction(() => {
       // ほかのプロセスが同時に適用し終えていたら、何もしない
       if (schemaVersion(db) !== v) return;
-      for (const sql of MIGRATIONS[v] ?? []) db.exec(sql);
+      for (const step of MIGRATIONS[v] ?? []) {
+        if (typeof step === "string") db.exec(step);
+        else step(db);
+      }
       db.exec(`PRAGMA user_version = ${v + 1}`);
     }).immediate();
   }
