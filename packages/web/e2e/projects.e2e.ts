@@ -72,7 +72,8 @@ test("Projects の All は完了した Project も出し、Workspace の列を I
 test("Projects の読み込み中を status として伝える", async ({ page }) => {
   let release!: () => void;
   const waiting = new Promise<void>((resolve) => { release = resolve; });
-  await page.route("**/api/projects", async (route) => {
+  // 一覧は ?includeClosed=true を付けて読むため、クエリを除いたパスで止める。
+  await page.route((url) => url.pathname === "/api/projects", async (route) => {
     await waiting;
     await route.continue();
   });
