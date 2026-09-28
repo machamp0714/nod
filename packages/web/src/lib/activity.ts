@@ -78,8 +78,6 @@ export function describeActivity(item: ActivityItem): ActivityLine {
         text = agent ? `${actor} の回答で ${agent} の作業状況が ${state} になった` : `${actor} の回答で作業状況が ${state} になった`;
       } else if (agent) {
         text = agent === actor ? `${agent} の作業状況が ${state} になった` : `${actor} が ${agent} の作業状況を ${state} に変えた`;
-      } else if (!("agent" in data) && actor !== "me") {
-        text = `${actor} の作業状況が ${state} になった`;
       } else {
         text = `${actor} が作業状況を ${state} に変えた`;
       }

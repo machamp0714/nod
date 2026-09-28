@@ -12,7 +12,7 @@ describe("describeActivity", () => {
     expect(
       describeActivity({ kind: "event", at, actor: "claude-code", type: "agent_state_changed", data: { from: "working", to: "awaiting_input" } })
         .text,
-    ).toBe("claude-code の作業状況が 入力待ち になった");
+    ).toBe("claude-code が作業状況を 入力待ち に変えた");
   });
 
   test("質問は未回答と回答済みで文を変える", () => {

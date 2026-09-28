@@ -198,3 +198,13 @@ test("回答eventの書き手と再開する作業主体を分け、後の担当
   expect(eventsOf(db, issue.id).filter((e) => e.type === "agent_state_changed").at(-1)).toEqual(resumed);
   expect(eventsOf(db, issue.id).find((e) => e.type === "status_changed")?.data).toEqual({ from: "todo", to: "in_progress" });
 });
+
+test("担当者不明の再開eventはagent=nullを記録する", () => {
+  const { db, ws, me, llm } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "担当未設定" });
+  startIssue(llm, issue.id);
+  askQuestion(llm, issue.id, "どうするか");
+  updateIssue(me, issue.id, { assignee: null });
+  answerQuestion(me, issue.id, "進める");
+  expect(eventsOf(db, issue.id).at(-1)).toMatchObject({ actor: "me", data: { agent: null, trigger: "answer" } });
+});

@@ -28,3 +28,12 @@ describe("main.ts", () => {
     expect(staged.stdout.toString()).toStartWith("100755");
   });
 });
+
+test("Triageの3操作は人に依頼し、権限エラーで回避しないと案内する", () => {
+  expect(GUIDE).toContain("nod triage accept");
+  expect(GUIDE).toContain("nod triage decline");
+  expect(GUIDE).toContain("nod triage duplicate");
+  expect(GUIDE).toContain("FORBIDDEN_FOR_LLM：");
+  expect(GUIDE).toContain("人に判断を依頼");
+  expect(GUIDE).toContain("nod project update");
+});
