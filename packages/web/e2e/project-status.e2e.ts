@@ -108,3 +108,35 @@ test("レビュー待ちだけのProjectと全指標ゼロを表示し、四指�
   const all = page.getByRole("row", { name: /検索 API の高速化/ });
   for (const text of ["レビュー待ち 1", "作業中 1", "入力待ち 1", "エラー 1"]) await expect(all).toContainText(text);
 });
+
+for (const layout of ["list", "board"]) {
+  test(`Project状態保存後も${layout}の検索・グループ化・blocked条件を保持する`, async ({ page, nod }) => {
+    await nod.me.updateIssue("API-13", { description: "統合確認用の検索語" });
+    await page.goto(`/projects/1?layout=${layout}`);
+    await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
+    await page.getByLabel("ブロック", { exact: true }).selectOption("true");
+    await page.getByRole("textbox", { name: "検索", exact: true }).fill("統合確認用");
+    const group = page.getByRole("region", { name: "Workspace API", exact: true });
+    await expect(group).toContainText("API-13");
+    const url = page.url();
+    const search = new URL(url).searchParams;
+    expect(search.get("groupBy")).toBe("workspace");
+    expect(search.get("blocked")).toBe("true");
+    expect(search.get("q")).toBe("統合確認用");
+    await statusControl(page).selectOption("completed");
+    await expect(statusControl(page)).toBeEnabled();
+    await expect(statusControl(page)).toHaveValue("completed");
+    expect((await nod.me.getProject("1")).status).toBe("completed");
+    await expect(page).toHaveURL(url);
+    await expect(group).toContainText("API-13");
+    await page.reload();
+    await expect(page).toHaveURL(url);
+    await expect(statusControl(page)).toHaveValue("completed");
+    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("workspace");
+    await expect(page.getByLabel("ブロック", { exact: true })).toHaveValue("true");
+    await expect(page.getByRole("textbox", { name: "検索", exact: true })).toHaveValue("統合確認用");
+    await expect(page.getByRole("tab", { name: layout === "board" ? "Board" : "List", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(group).toContainText("API-13");
+    await expect(group).not.toContainText("API-9");
+  });
+}
