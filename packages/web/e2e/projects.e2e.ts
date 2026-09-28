@@ -68,3 +68,21 @@ test("Projects の All は完了した Project も出し、Workspace の列を I
   await expect(webUi).toContainText("nod");
   await expect(page.getByRole("row", { name: /nod CLI/ })).toContainText("1/1");
 });
+
+test("Projects の読み込み中を status として伝える", async ({ page }) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/projects", async (route) => {
+    await waiting;
+    await route.continue();
+  });
+  try {
+    await page.goto("/projects");
+    await expect(page.getByRole("status")).toHaveText("読み込み中…");
+    release();
+    await expect(rows(page)).toHaveCount(4);
+    await expect(page.getByRole("status")).toHaveCount(0);
+  } finally {
+    release();
+  }
+});

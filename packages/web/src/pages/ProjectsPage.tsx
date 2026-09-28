@@ -67,7 +67,7 @@ export function ProjectsPage() {
             {items === undefined ? (
               <tr>
                 <td colSpan={5} className={s.muted}>
-                  読み込み中…
+                  <span role="status">読み込み中…</span>
                 </td>
               </tr>
             ) : items.length === 0 ? (
