@@ -5,6 +5,7 @@ import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, ProjectSummary } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { cleanIssueListSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -47,6 +48,7 @@ export function ProjectDetailPage() {
 function ProjectIntro({ project, documents }: { project: ProjectSummary; documents: DocumentRef[] }) {
   return (
     <section className={p.intro} aria-label="Project の概要">
+      <ProjectStatusControl key={project.id} project={project} />
       {project.description && <p className={p.description}>{project.description}</p>}
       <div className={p.progress}>
         <ProgressBar value={project.done} max={project.total} />

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { ProjectDetail, ProjectSummary } from "../types";
+import type { Project, ProjectDetail, ProjectSummary, UpdateProjectInput } from "../types";
+import { useApiMutation } from "./shared";
 
 // Projects のタブ（Active、Completed、All）を画面で切り替えるため、完了と中止の Project も読む
 export function useProjects() {
@@ -18,4 +19,10 @@ export function useProject(id: number, enabled: boolean) {
     queryFn: () => apiFetch<ProjectDetail>(`/projects/${id}`),
     enabled,
   });
+}
+
+export function useUpdateProject(id: number) {
+  return useApiMutation<UpdateProjectInput, Project>((body) =>
+    apiFetch<Project>(`/projects/${id}/update`, { method: "POST", body }),
+  );
 }
