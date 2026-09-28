@@ -57,3 +57,9 @@ describe("未決事項と Needs Clarification", () => {
     expect((await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout).toContain("NEEDS_CLARIFICATION");
   });
 });
+
+test("安全な整数を超える --question を INVALID_ARGS にする", async () => {
+  const created = (await me(["issue", "create", "質問 ID の検証"])).json;
+  const result = await me(["answer", created.id, "回答", "--question", "9007199254740993"]);
+  expect(result.json.error.code).toBe("INVALID_ARGS");
+});

@@ -81,6 +81,9 @@ export function answerQuestion(
   opts: { questionId?: number } = {},
 ): { issue: Issue; answered: Question[] } {
   requireText(answer, "回答");
+  if (opts.questionId !== undefined && (!Number.isSafeInteger(opts.questionId) || opts.questionId <= 0)) {
+    throw new NodError("INVALID_ARGS", "質問の id は安全な範囲の正の整数で指定してください（例: 3）");
+  }
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const issueId = toIssue(row).id;

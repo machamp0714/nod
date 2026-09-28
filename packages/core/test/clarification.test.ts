@@ -166,3 +166,12 @@ describe("getInbox", () => {
     expect(getInbox(db).questions.map((q) => q.question)).toEqual(["LLM の質問"]);
   });
 });
+
+test("安全な整数を超える質問 ID は INVALID_ARGS で、回答を変更しない", () => {
+  const { db, ws, me } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "質問 ID の検証" });
+  askQuestion(me, issue.id, "対象は");
+  const before = getIssue(db, issue.id);
+  expect(codeOf(() => answerQuestion(me, issue.id, "回答", { questionId: Number.MAX_SAFE_INTEGER + 1 }))).toBe("INVALID_ARGS");
+  expect(getIssue(db, issue.id)).toEqual(before);
+});
