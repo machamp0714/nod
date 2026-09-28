@@ -107,6 +107,13 @@ test("レビュー待ちだけのProjectと全指標ゼロを表示し、四指�
   await nod.codex.startIssue(working.id);
   const all = page.getByRole("row", { name: /検索 API の高速化/ });
   for (const text of ["レビュー待ち 1", "作業中 1", "入力待ち 1", "エラー 1"]) await expect(all).toContainText(text);
+  const pills = all.getByRole("cell").nth(3).locator(":scope > div > span");
+  await expect(pills).toHaveText(["入力待ち 1", "エラー 1", "レビュー待ち 1", "作業中 1"]);
+  await expect(pills.nth(2)).toHaveCSS("color", "rgb(22, 121, 75)");
+  await expect(pills.nth(2)).toHaveCSS("background-color", "rgb(226, 243, 234)");
+  await expect(pills.nth(2)).toHaveCSS("border-radius", "10px");
+  await expect(pills.nth(2).locator("span")).toHaveCSS("width", "6px");
+  await page.screenshot({ path: "../../.superpowers/sdd/2026-09-28-nod-detail-decisions-banner-plan/projects-browser.png", fullPage: true });
 });
 
 for (const layout of ["list", "board"]) {

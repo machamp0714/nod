@@ -14,6 +14,7 @@ test("回答待ちバナーから個別回答し、再操作と別フォーム�
   const second = panel.getByRole("listitem").filter({ hasText: "次の質問" });
   await expect(banner).toContainText("codex が回答を待っています");
   await expect(banner).toContainText("ほか 1 件");
+  await page.screenshot({ path: "../../.superpowers/sdd/2026-09-28-nod-detail-decisions-banner-plan/banner-normal.png", fullPage: true });
   await second.getByRole("button", { name: "回答を記録" }).click();
   await second.getByRole("textbox", { name: "回答", exact: true }).fill("次の下書き");
   await banner.getByRole("button", { name: "回答する" }).click();
