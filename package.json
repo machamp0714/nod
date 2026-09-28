@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
+    "web:build": "cd packages/web && bun run build",
     "server": "bun run packages/server/src/main.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",

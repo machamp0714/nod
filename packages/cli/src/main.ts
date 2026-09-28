@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { registerUiCommand } from "./commands/ui";
 import { Command, CommanderError } from "commander";
 import pkg from "../package.json";
 import { registerHumanCommands } from "./commands/human";
@@ -24,6 +25,7 @@ export function buildProgram(): Command {
   registerHumanCommands(program);
   registerWorkspaceCommands(program);
   registerTemplateCommands(program);
+  registerUiCommand(program);
   registerSkillsCommands(program);
   return program;
 }

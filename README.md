@@ -17,6 +17,18 @@ LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
+### Web UI
+
+```sh
+bun run web:build   # packages/web/dist に web をビルドする（web を変えたら再実行する）
+nod ui              # http://127.0.0.1:4700 で server を起動し、ブラウザで開く。Ctrl+C で止める
+nod ui --port 4800  # ポートを変える（0 なら空いているポート）
+nod ui --no-open    # ブラウザを開かない
+```
+
+`nod ui` がすでに起動していれば、新しく起動せずにそれを開く。
+単一の実行ファイル（`dist/nod`）は web を含まないため、`nod ui --web-dir <リポジトリ>/packages/web/dist` でビルド済みの web を渡す。
+
 ## server（開発時）
 
 ```sh

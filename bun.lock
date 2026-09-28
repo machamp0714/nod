@@ -17,6 +17,7 @@
       },
       "dependencies": {
         "@nod/core": "workspace:*",
+        "@nod/server": "workspace:*",
         "commander": "^12.1.0",
       },
     },
