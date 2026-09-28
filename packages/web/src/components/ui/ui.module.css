@@ -164,3 +164,24 @@
 .pageError {
   color: var(--fail);
 }
+
+.loading {
+  padding: 32px 48px;
+  color: var(--ink3);
+  font-size: 13px;
+}
+
+.loadError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 32px 48px;
+  color: var(--fail);
+  font-size: 13px;
+}
+
+.loadErrorTitle {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+}

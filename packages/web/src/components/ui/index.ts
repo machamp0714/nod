@@ -6,3 +6,4 @@ export { AgentStatePill, Pill, PriorityLabel, StatusIcon, StatusLabel } from "./
 export { ActivityLines } from "./ActivityLines";
 
 export { PageError, PageLoading } from "./PageState";
+export { ErrorMessage, LoadingMessage } from "./QueryState";
