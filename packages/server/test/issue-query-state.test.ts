@@ -18,3 +18,21 @@ test("APIの説明検索と手動status変更はcoreと同じ結果になる", a
   expect(r.json).toMatchObject({status:"todo",agentState:null});
   db.close();
 });
+
+test("APIでblockedのfalseと保存Viewを往復し検索とのANDを保つ", async () => {
+  const {relateIssue}=await import("@nod/core");
+  const {db,app,ws,me}=setup();
+  const blocker=createIssue(me,{workspaceId:ws.id,title:"ブロック元"});
+  const target=createIssue(me,{workspaceId:ws.id,title:"対象",description:"users"});
+  relateIssue(me,blocker.id,{blocks:target.id});
+  const only=await call(app,"GET","/api/issues?q=users&blocked=true");
+  expect(only.json.issues).toHaveLength(1);
+  expect(only.json.issues[0].blockedBy).toEqual([blocker.id]);
+  expect((await call(app,"GET","/api/issues?q=users&blocked=false")).json.issues).toEqual([]);
+  expect((await call(app,"GET","/api/issues?blocked=true&ready=true")).json.issues).toEqual([]);
+  expect((await call(app,"GET","/api/issues?blocked=invalid")).status).toBe(400);
+  const view=await call(app,"POST","/api/views",{name:"検索View",filter:{q:"users",blocked:false}});
+  expect(view.json.filter).toEqual({q:"users",blocked:false});
+  expect((await call(app,"GET","/api/views")).json[0].filter).toEqual({q:"users",blocked:false});
+  db.close();
+});
