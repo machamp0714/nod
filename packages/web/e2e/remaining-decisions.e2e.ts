@@ -129,6 +129,19 @@ test("Documents追加とCreated・コメントカード・コピー2項目を使
   await expect(page.getByRole("status")).toHaveText("ファイルが見つかりません");
 });
 
+test("不正なCreatedと添付日は記録なしと表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("不正な記録日");
+  const detail = await api.show(issue.id);
+  await page.route(`**/api/issues/${issue.id}`, async route => {
+    await route.fulfill({ json: { ...detail, createdAt: "2026-02-30T00:00:00Z",
+      documents: [{ id: 1, path: "/invalid-date.md", title: "日付の境界", kind: "doc", attachedBy: "codex", attachedAt: "2026-02-30T00:00:00Z" }] } });
+  });
+  await page.goto(`/issues/${issue.id}`);
+  await expect(page.getByRole("region", { name: "プロパティ", exact: true })).toContainText("記録なし");
+  await expect(page.getByRole("region", { name: "Documents", exact: true })).toContainText("添付日: 記録なし");
+});
+
 test.describe("保存・コピーの失敗", () => {
   test.use({ allowedConsoleErrors: [/status of 500/] });
   test("Triage失敗で属性draftを保持し再送できる", async ({ page, nod }) => {

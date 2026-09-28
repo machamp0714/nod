@@ -77,6 +77,14 @@ test("添付情報は現在linkの最新eventを使い、別Issue・重複・旧
   expect(getIssue(db, a.id).documents).toEqual([]);
   attachDocument(me, { issueRef: a.id }, { path });
   expect(getIssue(db, a.id).documents[0]!.attachedBy).toBe("me");
+  for (const value of ["2026-02-30T00:00:00Z", "2026-02-29T00:00:00Z", "2026-09-28", "2026-09-28T24:00:00Z", "bad"]) {
+    db.query("UPDATE events SET created_at=? WHERE type='document_attached'").run(value);
+    expect(getIssue(db, a.id).documents[0]!.attachedAt).toBeNull();
+  }
+  for (const value of ["2024-02-29T00:00:00Z", "2026-09-28T09:00:00+09:00", "2026-09-28T00:00:00.123Z"]) {
+    db.query("UPDATE events SET created_at=? WHERE type='document_attached'").run(value);
+    expect(getIssue(db, a.id).documents[0]!.attachedAt).toBe(value);
+  }
   db.query("DELETE FROM events WHERE type='document_attached'").run();
   expect(getIssue(db, a.id).documents[0]).toMatchObject({ attachedBy: null, attachedAt: null });
   db.close();

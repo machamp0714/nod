@@ -1,3 +1,4 @@
+import { recordedTimestamp } from "@nod/core/src/recorded-time";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { DocKind, IssueDocumentRef } from "../../api/types";
@@ -8,7 +9,8 @@ import s from "./issue-detail.module.css";
 export interface AttachDocumentInput { path: string; title?: string; kind?: DocKind }
 const KINDS: Record<DocKind, string> = { spec: "Spec", plan: "Plan", doc: "Doc" };
 export function attachmentDate(iso: string | null): string {
-  const at = iso ? new Date(iso) : null;
+  const value = recordedTimestamp(iso);
+  const at = value === null ? null : new Date(value);
   return at && Number.isFinite(at.getTime()) ? at.toLocaleDateString("ja-JP", { month: "long", day: "numeric" }) : "記録なし";
 }
 

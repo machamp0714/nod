@@ -1,3 +1,4 @@
+import { recordedTimestamp } from "./recorded-time";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { NodError } from "./errors";
 import type {
@@ -181,7 +182,7 @@ export function loadIssueDocuments(db: Database, issueId: number): IssueDocument
       { actor: string; created_at: string; type: string } | null;
     const attached = event?.type === "document_attached" ? event : null;
     return { ...doc, attachedBy: attached?.actor || null,
-      attachedAt: attached && Number.isFinite(Date.parse(attached.created_at)) ? attached.created_at : null };
+      attachedAt: attached && recordedTimestamp(attached.created_at) !== null ? attached.created_at : null };
   });
 }
 

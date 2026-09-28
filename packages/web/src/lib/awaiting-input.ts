@@ -5,4 +5,3 @@ export function awaitingQuestions(issue: Pick<IssueDetail, "agentState" | "quest
   return issue.questions.filter((q) => q.answer === null && q.askedBy !== "me")
     .sort((a, b) => a.askedAt.localeCompare(b.askedAt) || a.id - b.id);
 }
-
