@@ -303,3 +303,40 @@
   color: var(--ink3);
   font-size: 12px;
 }
+
+.groupSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+.groupSelect select {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+.workspaceGroup { min-width: 0; }
+.groupHeading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--ink2);
+}
+.workspaceGroup .board { overflow-x: auto; }
+.workspaceGroup .column { min-width: 170px; }
+.blockedBy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+.blockedBy a { color: var(--accent); }

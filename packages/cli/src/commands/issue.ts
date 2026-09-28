@@ -71,10 +71,12 @@ export function registerIssueCommands(program: Command): void {
     .option("-s, --status <statuses>", "ステータス（カンマ区切り）")
     .option("--project <project>", "Project の名前か ID")
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
+    .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
     .action(
-      act((cli, cmd, o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean }) => {
+      act((cli, cmd, o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string }) => {
         const issues = listIssues(cli.db, {
+          query: o.query,
           workspaceId: o.allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
           statuses: o.status ? parseStatuses(o.status) : undefined,
           projectRef: o.project,

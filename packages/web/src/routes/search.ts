@@ -2,6 +2,7 @@ import type { Status } from "../api/types";
 import { STATUS_ORDER } from "../lib/meta";
 
 export type IssueTab = "all" | "ready" | "needs_clarification";
+export type IssueGroupBy = "none" | "workspace";
 export type IssueLayout = "list" | "board";
 export type ProjectTab = "active" | "completed" | "all";
 
@@ -27,6 +28,8 @@ function pick<T extends string>(value: unknown, allowed: readonly T[]): T | unde
 // 絞り込み条件のキーは、GET /api/issues のクエリパラメータと View の filter（core の IssueQuery）と同じ名前にする。
 // project は Project の数字の ID（ルートと URL に Project の名前を入れないため）。
 export interface IssueListSearch {
+  groupBy?: IssueGroupBy;
+  blocked?: boolean;
   tab?: IssueTab;
   layout?: IssueLayout;
   q?: string;
@@ -50,6 +53,9 @@ function stringList(value: unknown): string[] | undefined {
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
   const out: IssueListSearch = {};
+  if ("groupBy" in raw) out.groupBy = raw.groupBy === "workspace" ? "workspace" : "none";
+  if ([true, "true", "1"].includes(raw.blocked as string | boolean)) out.blocked = true;
+  if ([false, "false", "0"].includes(raw.blocked as string | boolean)) out.blocked = false;
   if ("tab" in raw) out.tab = pick(raw.tab, ISSUE_TABS) ?? "all";
   if ("layout" in raw) out.layout = pick(raw.layout, ISSUE_LAYOUTS) ?? "list";
   const q = typeof raw.q === "number" ? String(raw.q) : raw.q;
@@ -67,6 +73,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
 
 export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   const out: IssueListSearch = {};
+  if (search.groupBy === "workspace") out.groupBy = search.groupBy;
+  if (search.blocked !== undefined) out.blocked = search.blocked;
   if (search.tab && search.tab !== "all") out.tab = search.tab;
   if (search.layout && search.layout !== "list") out.layout = search.layout;
   if (search.q) out.q = search.q;

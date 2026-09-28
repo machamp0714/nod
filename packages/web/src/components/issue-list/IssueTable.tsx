@@ -1,3 +1,4 @@
+import { BlockedBy } from "./BlockedBy";
 import { Link } from "@tanstack/react-router";
 import { prLabel } from "../../lib/format";
 import { QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
@@ -43,6 +44,7 @@ export function IssueTable({ rows }: { rows: IssueListRow[] }) {
                 <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
                   {issue.title}
                 </Link>
+                <BlockedBy ids={issue.blockedBy} />
               </td>
               <td>
                 <QuestionProgress count={questions} />
