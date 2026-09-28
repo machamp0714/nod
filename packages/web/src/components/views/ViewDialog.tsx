@@ -8,7 +8,7 @@ export interface ViewDialogProps {
   title: string;
   submitLabel: string;
   initial: { name: string; color: string | null };
-  views: readonly View[]; // 名前の重なりを確かめるための、今ある View の一覧
+  views: readonly View[] | undefined; // 名前の重なりを確かめるための、今ある View の一覧
   selfId: number | null; // 名前を変える View の id。作るときは null
   onSubmit: (value: { name: string; color: string }) => Promise<void>;
   onClose: () => void;
@@ -85,7 +85,7 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, onSubmi
         )}
         <div className={s.buttons}>
           <Button onClick={onClose}>キャンセル</Button>
-          <Button type="submit" variant="primary" disabled={saving}>
+          <Button type="submit" variant="primary" disabled={saving || views === undefined}>
             {submitLabel}
           </Button>
         </div>

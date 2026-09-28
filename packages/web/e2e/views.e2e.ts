@@ -127,3 +127,24 @@ test.describe("幅 1280px", () => {
     expect(overflow).toEqual({ page: 0, main: 0, sidebar: 0 });
   });
 });
+
+test("View 一覧を読み終えるまでは、どちらの入口からも View を作成できない", async ({ page }) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/views", async (route) => {
+    await waiting;
+    await route.continue();
+  });
+  try {
+    await page.goto("/issues");
+    const sidebarCreate = nav(page).getByRole("button", { name: "View を追加" });
+    const save = page.getByRole("button", { name: "View として保存" });
+    await expect(sidebarCreate).toBeDisabled();
+    await expect(save).toBeDisabled();
+    release();
+    await expect(sidebarCreate).toBeEnabled();
+    await expect(save).toBeEnabled();
+  } finally {
+    release();
+  }
+});

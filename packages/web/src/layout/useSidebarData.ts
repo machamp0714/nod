@@ -5,6 +5,7 @@ import { INBOX, TRIAGE_ISSUES } from "../fixtures/inbox";
 export interface SidebarData {
   counts: { inbox: number; reviews: number; triage: number };
   views: View[];
+  viewsReady: boolean;
 }
 
 // View は E が API に差し替えた。件数は D が API に差し替えるまでダミーデータのまま。
@@ -13,5 +14,6 @@ export function useSidebarData(): SidebarData {
   return {
     counts: { inbox: INBOX.questions.length, reviews: INBOX.reviews.length, triage: TRIAGE_ISSUES.length },
     views: views.data ?? [],
+    viewsReady: views.data !== undefined && !views.isError,
   };
 }

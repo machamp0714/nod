@@ -24,3 +24,7 @@ describe("VIEW_COLORS", () => {
     expect(new Set(VIEW_COLORS.map((c) => c.label)).size).toBe(VIEW_COLORS.length);
   });
 });
+
+test("View 一覧を確認できない間は名前を検査済みにしない", () => {
+  expect(viewNameError("仕事", undefined, null)).toBe("View の一覧を確認できるまでお待ちください");
+});

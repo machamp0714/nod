@@ -10,7 +10,8 @@ export const VIEW_COLORS = [
 ] as const;
 
 // server の VIEW_EXISTS（409）を画面から起こさないため、保存の前にダイアログで確かめる
-export function viewNameError(name: string, views: readonly Pick<View, "id" | "name">[], selfId: number | null): string | null {
+export function viewNameError(name: string, views: readonly Pick<View, "id" | "name">[] | undefined, selfId: number | null): string | null {
+  if (views === undefined) return "View の一覧を確認できるまでお待ちください";
   const trimmed = name.trim();
   if (trimmed === "") return "名前を入力してください";
   if (views.some((v) => v.name === trimmed && v.id !== selfId)) return `View「${trimmed}」はすでにあります`;

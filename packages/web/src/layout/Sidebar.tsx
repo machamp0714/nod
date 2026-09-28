@@ -36,7 +36,7 @@ function SoonItem({ icon, label }: { icon: IconName; label: string }) {
 }
 
 export function Sidebar() {
-  const { counts, views } = useSidebarData();
+  const { counts, views, viewsReady } = useSidebarData();
   const navigate = useNavigate();
   const createView = useCreateView();
   const [creating, setCreating] = useState(false);
@@ -70,7 +70,7 @@ export function Sidebar() {
       <div className={s.group}>
         <div className={s.heading}>
           <span>Views</span>
-          <button type="button" className={s.headingButton} title="View を作成" aria-label="View を追加" onClick={() => setCreating(true)}>
+          <button type="button" className={s.headingButton} title="View を作成" aria-label="View を追加" disabled={!viewsReady} onClick={() => setCreating(true)}>
             <Icon name="plus" />
           </button>
         </div>
@@ -95,7 +95,7 @@ export function Sidebar() {
           title="View を作成"
           submitLabel="作成"
           initial={{ name: "", color: null }}
-          views={views}
+          views={viewsReady ? views : undefined}
           selfId={null}
           onSubmit={async (value) => {
             const view = await createView.mutateAsync({ ...value, filter: {} });

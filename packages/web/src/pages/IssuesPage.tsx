@@ -33,7 +33,7 @@ export function IssuesPage() {
         search={search}
         onSearchChange={change}
         actions={
-          <Button variant="soft" icon="layers" onClick={() => setSaving(true)}>
+          <Button variant="soft" icon="layers" disabled={!views.data || views.isError} onClick={() => setSaving(true)}>
             View として保存
           </Button>
         }
@@ -44,7 +44,7 @@ export function IssuesPage() {
           title="View として保存"
           submitLabel="保存"
           initial={{ name: "", color: null }}
-          views={views.data ?? []}
+          views={views.isError ? undefined : views.data}
           selfId={null}
           onSubmit={async (value) => {
             const view = await createView.mutateAsync({ ...value, filter });
