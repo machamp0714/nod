@@ -1,5 +1,8 @@
 import {
   acceptTriage,
+  attachDocument,
+  DOC_KINDS,
+  type DocKind,
   answerQuestion,
   approveReview,
   askQuestion,
@@ -16,6 +19,7 @@ import {
   updateIssue,
 } from "@nod/core";
 import type { Hono } from "hono";
+import { isAbsolute } from "node:path";
 import {
   type Body,
   invalid,
@@ -71,7 +75,23 @@ const OPS: Record<string, Op> = {
     keys: ["answer", "questionId"],
     run: (me, ref, b) => answerQuestion(me, ref, reqString(b, "answer"), { questionId: optInt(b, "questionId") }),
   },
-  accept: { keys: [], run: (me, ref) => acceptTriage(me, ref) },
+  accept: {
+    keys: ["projectRef", "priority", "addLabels", "removeLabels"],
+    run: (me, ref, b) => acceptTriage(me, ref, {
+      projectRef: optNullableString(b, "projectRef"), priority: optInt(b, "priority"),
+      addLabels: optStringArray(b, "addLabels"), removeLabels: optStringArray(b, "removeLabels"),
+    }),
+  },
+  "doc-add": {
+    keys: ["path", "title", "kind"], created: true,
+    run: (me, ref, b) => {
+      const path = reqString(b, "path");
+      const kind = optString(b, "kind");
+      if (!isAbsolute(path) || !/\.(md|markdown)$/i.test(path)) throw invalid("Markdownファイルの絶対パスを指定してください");
+      if (kind !== undefined && !(DOC_KINDS as readonly string[]).includes(kind)) throw invalid("種類は spec / plan / doc を指定してください");
+      return attachDocument(me, { issueRef: ref }, { path, title: optString(b, "title")?.trim() || undefined, kind: kind as DocKind | undefined });
+    },
+  },
   decline: { keys: ["reason"], run: (me, ref, b) => declineTriage(me, ref, optString(b, "reason")) },
   duplicate: { keys: ["original"], run: (me, ref, b) => duplicateTriage(me, ref, reqString(b, "original")) },
   snooze: { keys: ["until"], run: (me, ref, b) => snoozeTriage(me, ref, reqString(b, "until")) },

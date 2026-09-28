@@ -159,14 +159,31 @@ export interface InboxQuestion extends Question {
   worktree: string | null;
 }
 
+export interface ReviewReport { actor: string; at: string; body: string }
+export interface ReviewIssue extends Issue {
+  reviewSummary: string | null;
+  reviewReport: ReviewReport | null;
+  reviewSubmittedAt: string | null;
+}
+export interface AcceptTriageInput {
+  projectRef?: string | null;
+  priority?: number;
+  addLabels?: string[];
+  removeLabels?: string[];
+}
+export interface IssueDocumentRef extends DocumentRef {
+  attachedBy: string | null;
+  attachedAt: string | null;
+}
+
 export interface Inbox {
   questions: InboxQuestion[];
-  reviews: Issue[];
+  reviews: ReviewIssue[];
 }
 
 export interface IssueDetail extends Issue {
   plan: Plan;
-  documents: DocumentRef[];
+  documents: IssueDocumentRef[];
   children: Issue[];
   relations: Relations;
   questions: Question[]; // 回答済みも含めたすべての確認依頼（未決事項）。id の順

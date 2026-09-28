@@ -10,7 +10,7 @@ test("完了の遷移は同じtxで作った報告comment IDを記録し、再�
   startIssue(llm, issue.id);
   completeIssue(llm, issue.id, { summary: "一回目" });
   const reports = () => eventsOf(db, issue.id).filter(e => e.type === "status_changed" && e.data.to === "in_review");
-  const first = reports()[0].data.report_comment_id;
+  const first = reports()[0]!.data.report_comment_id;
   expect(db.query("SELECT body FROM comments WHERE id = ?").get(first ?? -1)).toEqual({ body: "一回目" });
   rejectReview(me, issue.id, "修正して");
   completeIssue(llm, issue.id, { summary: "二回目" });
@@ -31,8 +31,8 @@ test("起票元と親は別に記録し、不正参照なら採番もeventも増
   expect(db.query("SELECT count(*) AS n FROM events").get()).toEqual(count);
   const child = createIssue(llm, { workspaceId: ws.id, title: "発見", parentRef: parent.id, discoveredFromRef: source.id.toLowerCase() });
   expect(getIssue(db, child.id).parentId).toBe(parent.id);
-  expect(eventsOf(db, child.id)[0].data).toEqual({ status: "triage", discovered_from: source.id });
-  expect(eventsOf(db, parent.id)[0].data).toEqual({ status: "todo" });
+  expect(eventsOf(db, child.id)[0]!.data).toEqual({ status: "triage", discovered_from: source.id });
+  expect(eventsOf(db, parent.id)[0]!.data).toEqual({ status: "todo" });
   expect(codeOf(() => createIssue(llm, { workspaceId: ws.id, title: "空", discoveredFromRef: " " }))).toBe("INVALID_ARGS");
   db.close();
 });

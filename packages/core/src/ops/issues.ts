@@ -13,7 +13,7 @@ import {
   type IssueRow,
   issueRowById,
   loadActivity,
-  loadDocuments,
+  loadIssueDocuments,
   loadPlan,
   type QuestionRow,
   selectIssues,
@@ -234,7 +234,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
   return {
     ...issue,
     plan: loadPlan(db, row.id, row.plan_source),
-    documents: loadDocuments(db, { issueId: row.id }),
+    documents: loadIssueDocuments(db, row.id),
     children: selectIssues(db, "WHERE i.parent_id = ? ORDER BY i.number", [row.id]),
     relations: loadRelations(db, row.id),
     questions,
