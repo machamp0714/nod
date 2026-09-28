@@ -1,5 +1,7 @@
 import { expect, test } from "./fixtures";
 
+test.use({ dataset: "issue-list" });
+
 test("/ は /inbox に移る", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/inbox$/);

@@ -1,5 +1,7 @@
 import { expect, test } from "./fixtures";
 
+test.use({ dataset: "issue-list" });
+
 const rows = (page: import("@playwright/test").Page) => page.getByRole("table").locator("tbody tr");
 
 test("Projects は Active の Project を列つきで出す", async ({ page }) => {
