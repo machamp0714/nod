@@ -7,6 +7,7 @@ import {
   useAnswerQuestion,
   useCommentIssue,
   useCopyIssue,
+  useResolveThread,
   useAskQuestion,
   useProjectChoices,
   useUpdateIssue,
@@ -55,6 +56,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const answer = useAnswerQuestion(issue.id);
   const projects = useProjectChoices();
   const comment = useCommentIssue(issue.id);
+  const resolveThread = useResolveThread(issue.id);
   const attach = useAttachDocument(issue.id);
   const copyIssue = useCopyIssue(issue.id);
   const navigate = useNavigate();
@@ -108,7 +110,12 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection documents={issue.documents} onAttach={input => attach.mutateAsync(input)} />
           <SubIssuesSection issues={issue.children} />
-          <ActivitySection activity={issue.activity} onComment={(body) => comment.mutateAsync({ body })} />
+          <ActivitySection
+            activity={issue.activity}
+            onComment={(body) => comment.mutateAsync({ body })}
+            onReply={(parentId, body) => comment.mutateAsync({ body, parentId })}
+            onResolve={(commentId, resolved) => resolveThread.mutateAsync({ commentId, resolved })}
+          />
         </article>
 
         <aside className={s.rail}>

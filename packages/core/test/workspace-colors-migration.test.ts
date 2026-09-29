@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { openDb, schemaVersion } from "../src/db";
+import { openDb, SCHEMA_VERSION, schemaVersion } from "../src/db";
 import { listWorkspaces } from "../src/ops/workspaces";
 import { MIGRATIONS } from "../src/schema";
 import { tempDbPath } from "./helpers";
@@ -36,7 +36,7 @@ test("v1を作成日時/id順で一度だけ移行し、子データ・連番・
   const workspaces = old.query("SELECT * FROM workspaces ORDER BY id").all();
   old.close();
   const db = openDb(path);
-  expect(schemaVersion(db)).toBe(2);
+  expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(listWorkspaces(db).map((w) => [w.key, w.color])).toEqual([
     ["API", "#C36B04"], ["BLOG", "#DB2777"], ["NOD", "#0D9768"], ["WEB", "#7C5CFF"],
   ]);
@@ -66,7 +66,7 @@ test("backfill途中の失敗はALTERと色と版をrollbackし、修復後に�
   raw.exec("DROP TRIGGER fail_backfill");
   raw.close();
   const fixed = openDb(path);
-  expect(schemaVersion(fixed)).toBe(2);
+  expect(schemaVersion(fixed)).toBe(SCHEMA_VERSION);
   expect(new Set(listWorkspaces(fixed).map((w) => w.color)).size).toBe(4);
   fixed.close();
 });

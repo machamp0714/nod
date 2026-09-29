@@ -34,6 +34,8 @@ export const useAskQuestion = (id: string) => useIssueOperation<{ question: stri
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
 export const useCopyIssue = (id: string) => useIssueOperation<{ title?: string }, Issue>(id, "copy");
-export const useCommentIssue = (id: string) => useIssueOperation<{ body: string }, Comment>(id, "comment");
+export const useCommentIssue = (id: string) => useIssueOperation<{ body: string; parentId?: number }, Comment>(id, "comment");
+export const useResolveThread = (id: string) =>
+  useIssueOperation<{ commentId: number; resolved: boolean }, Comment>(id, "resolve-thread");
 
 export const useAttachDocument = (id: string) => useIssueOperation<{ path: string; title?: string; kind?: DocKind }, DocumentRef>(id, "doc-add");

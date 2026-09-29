@@ -54,7 +54,11 @@ export function formatPlan(plan: Plan): string[] {
 
 function formatActivity(a: ActivityItem): string {
   const at = a.at.slice(0, 16).replace("T", " ");
-  if (a.kind === "comment") return `  ${at}  ${a.actor}: ${a.body}`;
+  if (a.kind === "comment") {
+    const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
+    const resolved = a.resolvedAt !== null ? `（解決済み: ${a.resolvedBy}）` : "";
+    return `  ${at}  #${a.id} ${a.actor}: ${a.body}${resolved}${replies}`;
+  }
   if (a.kind === "question") {
     const answer = a.answer !== null ? `\n    → ${a.answeredBy}: ${a.answer}` : "";
     return `  ${at}  ${a.actor} が確認を依頼: ${a.question}${answer}`;

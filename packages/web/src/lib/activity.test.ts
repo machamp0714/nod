@@ -30,7 +30,7 @@ describe("describeActivity", () => {
   });
 
   test("コメントは本文を、知らない種類は種類の名前を出す", () => {
-    expect(describeActivity({ kind: "comment", at, actor: "codex", body: "原因がわかった" })).toEqual({
+    expect(describeActivity({ kind: "comment", id: 1, at, actor: "codex", body: "原因がわかった", replies: [], resolvedAt: null, resolvedBy: null })).toEqual({
       icon: "message-square",
       text: "codex：原因がわかった",
     });
@@ -53,6 +53,11 @@ describe("describeActivity の event の種類", () => {
     expect(text("triage_accepted", {})).toBe("me が受け入れた");
     expect(text("review_rejected", { reason: "テストが足りない" })).toBe("me が差し戻した：テストが足りない");
   });
+
+  test("スレッドの解決と未解決への戻しを書き手つきの文にする", () => {
+    expect(text("comment_thread_resolved", { comment_id: 1 })).toBe("me がコメントのスレッドを解決済みにした");
+    expect(text("comment_thread_reopened", { comment_id: 1 })).toBe("me がコメントのスレッドを未解決に戻した");
+  });
 });
 
 describe("visibleActivity", () => {
@@ -61,7 +66,7 @@ describe("visibleActivity", () => {
       { kind: "event" as const, at, actor: "codex", type: "question_asked", data: { question_id: 1 } },
       { kind: "question" as const, at, actor: "codex", question: "消してよいですか？", answer: null, answeredBy: null, answeredAt: null },
       { kind: "event" as const, at, actor: "me", type: "question_answered", data: { question_id: 1 } },
-      { kind: "comment" as const, at, actor: "me", body: "了解" },
+      { kind: "comment" as const, id: 1, at, actor: "me", body: "了解", replies: [], resolvedAt: null, resolvedBy: null },
     ];
     expect(visibleActivity(items).map((i) => i.kind)).toEqual(["question", "comment"]);
   });
@@ -74,7 +79,7 @@ test("回答済み質問は回答日時の位置に表示し、元の Activity �
     kind: "question" as const, at: askedAt, actor: "codex", question: "方針は？",
     answer: "進める", answeredBy: "me", answeredAt,
   };
-  const comment = { kind: "comment" as const, at: "2026-09-27T12:00:00.000Z", actor: "me", body: "検討中" };
+  const comment = { kind: "comment" as const, id: 1, at: "2026-09-27T12:00:00.000Z", actor: "me", body: "検討中", replies: [], resolvedAt: null, resolvedBy: null };
   const open = { ...question, question: "別の質問", answer: null, answeredBy: null, answeredAt: null };
   const items = [question, open, comment];
   const visible = visibleActivity(items);

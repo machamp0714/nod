@@ -33,3 +33,40 @@ test("変更の種類ごとに書き手つきの文を出し、質問の event �
   await expect(main).not.toContainText("question_asked");
   await expect(main).not.toContainText("question_answered");
 });
+
+test("コメントに返信してスレッドにし、解決済みは折りたたみ、開いて未解決に戻せる", async ({ page, nod }) => {
+  const root = await nod.claude.commentIssue(ISSUE.comment, "N+1 の原因は workspace 取得だった");
+  await nod.claude.commentIssue(ISSUE.comment, "LLM の返信", { replyTo: root.id });
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  const thread = activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "N+1 の原因は" });
+  await expect(thread.getByRole("group", { name: "返信記録" }).filter({ hasText: "LLM の返信" })).toContainText("claude-code");
+
+  await thread.getByRole("button", { name: "返信", exact: true }).click();
+  const replyBox = thread.getByRole("textbox", { name: "返信" });
+  const send = thread.getByRole("button", { name: "返信する" });
+  await expect(send).toBeDisabled();
+  await replyBox.fill("IN 句で一括取得して");
+  await send.click();
+  await expect(thread.getByRole("group", { name: "返信記録" }).filter({ hasText: "IN 句で一括取得して" })).toContainText("me");
+  await expect(replyBox).toBeHidden();
+
+  await thread.getByRole("button", { name: "解決", exact: true }).click();
+  const collapsed = thread.getByRole("button", { name: /解決済み/ });
+  await expect(collapsed).toHaveAttribute("aria-expanded", "false");
+  await expect(collapsed).toContainText("claude-code: N+1 の原因は");
+  await expect(collapsed).toContainText("2件の返信");
+  await expect(thread.getByText("IN 句で一括取得して")).toBeHidden();
+  await expect(activity).toContainText("me がコメントのスレッドを解決済みにした");
+
+  await collapsed.click();
+  await expect(thread).toContainText("me が解決");
+  await expect(thread.getByText("IN 句で一括取得して")).toBeVisible();
+  await expect(thread.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+  await thread.getByRole("button", { name: "未解決に戻す" }).click();
+  await expect(thread.getByRole("button", { name: "解決", exact: true })).toBeVisible();
+  await expect(activity).toContainText("me がコメントのスレッドを未解決に戻した");
+  const detail = await nod.me.getIssue(ISSUE.comment);
+  const saved = detail.activity.find((a) => a.kind === "comment" && a.id === root.id);
+  expect(saved).toMatchObject({ resolvedAt: null, replies: [{ body: "LLM の返信" }, { body: "IN 句で一括取得して", actor: "me" }] });
+});

@@ -121,6 +121,37 @@ describe("nod issue", () => {
   });
 });
 
+describe("コメントのスレッド", () => {
+  test("--reply-to で返信し、show にコメント ID と字下げした返信を出す", async () => {
+    const created = (await me(["issue", "create", "--json", "スレッド"])).json;
+    const root = (await me(["issue", "comment", created.id, "原因は？", "--json"])).json;
+    expect(root.parentId).toBeNull();
+    const reply = await llm(["issue", "comment", created.id, "N+1 でした", "--reply-to", String(root.id), "--json"]);
+    expect(reply.exitCode).toBe(0);
+    expect(reply.json).toMatchObject({ parentId: root.id, author: "claude-code" });
+    const shown = await me(["issue", "show", created.id]);
+    expect(shown.stdout).toContain(`#${root.id} me: 原因は？`);
+    expect(shown.stdout).toContain(`↳ #${reply.json.id} claude-code: N+1 でした`);
+    const missing = await me(["issue", "comment", created.id, "x", "--reply-to", "99999", "--json"]);
+    expect([missing.exitCode, missing.json.error.code]).toEqual([1, "NOT_FOUND"]);
+    const bad = await me(["issue", "comment", created.id, "x", "--reply-to", "abc", "--json"]);
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
+  });
+
+  test("resolve で解決済みにし、--reopen で戻す。LLM は FORBIDDEN_FOR_LLM", async () => {
+    const created = (await me(["issue", "create", "--json", "解決"])).json;
+    const root = (await me(["issue", "comment", created.id, "決めたい", "--json"])).json;
+    const forbidden = await llm(["issue", "resolve", created.id, String(root.id), "--json"]);
+    expect([forbidden.exitCode, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
+    const resolved = await me(["issue", "resolve", created.id, String(root.id)]);
+    expect(resolved.exitCode).toBe(0);
+    expect(resolved.stdout).toContain(`#${root.id} を解決済みにしました`);
+    expect((await me(["issue", "show", created.id])).stdout).toContain(`#${root.id} me: 決めたい（解決済み: me）`);
+    const reopened = await me(["issue", "resolve", created.id, String(root.id), "--reopen", "--json"]);
+    expect(reopened.json).toMatchObject({ id: root.id, resolvedAt: null });
+  });
+});
+
 describe("ヘルプと終了コード", () => {
   test("サブコマンドを省くとヘルプを出して終了コード1、--json なら INVALID_ARGS", async () => {
     const bare = await llm(["issue"]);
