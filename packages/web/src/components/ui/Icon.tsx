@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlarmClock,
   Archive,
   ArchiveRestore,
@@ -72,6 +73,7 @@ import {
 } from "lucide-react";
 
 const ICONS = {
+  activity: Activity,
   "alarm-clock": AlarmClock,
   archive: Archive,
   "archive-restore": ArchiveRestore,

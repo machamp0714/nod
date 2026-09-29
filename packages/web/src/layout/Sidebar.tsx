@@ -7,7 +7,7 @@ import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
-type NavPath = "/inbox" | "/reviews" | "/triage" | "/issues" | "/projects" | "/documents" | "/analytics";
+type NavPath = "/inbox" | "/reviews" | "/triage" | "/issues" | "/projects" | "/documents" | "/analytics" | "/summary";
 
 const ACTIVE_PROPS = { className: s.active, "aria-current": "page" } as const;
 
@@ -66,6 +66,7 @@ export function Sidebar() {
         <NavItem to="/projects" icon="box" label="Projects" />
         <NavItem to="/documents" icon="file-text" label="Documents" />
         <NavItem to="/analytics" icon="chart-column" label="Analytics" />
+        <NavItem to="/summary" icon="activity" label="Summary" />
         <SoonItem icon="circle-user" label="My issues" />
         <SoonItem icon="star" label="Favorites" />
       </div>

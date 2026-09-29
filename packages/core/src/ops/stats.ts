@@ -144,7 +144,7 @@ export function statsFrame(q: StatsQuery): StatsFrame {
 }
 
 // Workspace と Project の絞り込みを SQL の条件にする。i は issues の別名
-export function issueScope(db: Database, q: StatsQuery): { where: string; params: (string | number)[] } {
+export function issueScope(db: Database, q: Pick<StatsQuery, "workspace" | "project">): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (q.workspace?.length) {
@@ -251,8 +251,11 @@ export interface LlmStats extends StatsRange {
   llms: LlmWorkload[];
 }
 
-// LLM が担当になった assignee_changed の to。人（me）と担当なしは除く
-const LLM_ASSIGNEE = `json_extract(e.data, '$.to') IS NOT NULL AND json_extract(e.data, '$.to') <> '${HUMAN_ACTOR}'`;
+// LLM が担当になった assignee_changed の to。人（me）と担当なしは除く。alias は events の別名
+export function llmAssignee(alias: string): string {
+  return `json_extract(${alias}.data, '$.to') IS NOT NULL AND json_extract(${alias}.data, '$.to') <> '${HUMAN_ACTOR}'`;
+}
+const LLM_ASSIGNEE = llmAssignee("e");
 
 // LLM ごとの作業量。LLM は done にできないため、完了は closed_at 以前で最後に LLM を担当にした記録へ帰属させる
 export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
