@@ -81,7 +81,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("copy <id>")
-    .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度だけを引き継ぎ、元の Issue は変えない）")
+    .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度・見積もりだけを引き継ぎ、元の Issue は変えない）")
     .option("--title <text>", "複製のタイトル（省くと元のタイトル）")
     .action(
       act((cli, _cmd, id: string, o: { title?: string }) => {

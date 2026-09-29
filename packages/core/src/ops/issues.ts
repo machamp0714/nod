@@ -156,8 +156,8 @@ function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   return toIssue(issueRowById(ctx.db, id));
 }
 
-// 既存の Issue から新しい Issue を作る。複製するのはタイトル・説明・Project・ラベル・優先度だけで、
-// 担当・進行状態・親子・関係・PR・実行場所・計画・Documents・質問・コメント・Activity は引き継がない。元の Issue は変えない
+// 既存の Issue から新しい Issue を作る。複製するのはタイトル・説明・Project・ラベル・優先度・見積もりだけで、
+// 期限・担当・進行状態・親子・関係・PR・実行場所・計画・Documents・質問・コメント・Activity は引き継がない。元の Issue は変えない
 export function copyIssue(ctx: OpCtx, ref: string, opts: { title?: string } = {}): Issue {
   if (opts.title !== undefined) requireText(opts.title, "タイトル");
   return tx(ctx.db, () => {
@@ -169,7 +169,7 @@ export function copyIssue(ctx: OpCtx, ref: string, opts: { title?: string } = {}
       title: opts.title ?? row.title,
       description: row.description,
       priority: row.priority,
-      estimate: null,
+      estimate: row.estimate,
       dueDate: null,
       parentId: null,
       projectId: row.project_id,

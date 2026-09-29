@@ -22,6 +22,8 @@ function richSource() {
     projectRef: "検索改善",
     parentRef: parent.id,
     priority: 2,
+    estimate: 5,
+    dueDate: "2026-10-01",
     labels: ["backend", "perf"],
   });
   updateIssue(me, source.id, { assignee: "claude-code" });
@@ -48,7 +50,7 @@ const counts = (env: ReturnType<typeof setup>) =>
     ]),
   );
 
-test("タイトル・説明・Project・ラベル・優先度だけを新しい ID の Issue に複製し、元の Issue を変えない", () => {
+test("タイトル・説明・Project・ラベル・優先度・見積もりだけを新しい ID の Issue に複製し、元の Issue を変えない", () => {
   const env = richSource();
   const { db, me, source } = env;
   const before = { row: rowOf(env, source.id), detail: getIssue(db, source.id), events: eventsOf(db, source.id) };
@@ -60,6 +62,8 @@ test("タイトル・説明・Project・ラベル・優先度だけを新しい 
     description: "## 背景\n遅い",
     project: { name: "検索改善" },
     priority: 2,
+    estimate: 5,
+    dueDate: null, // 期限は複製しない（元の期限が複製にも付くと期限超過を誤って増やすため）
     labels: ["backend", "perf"],
     status: "todo",
     assignee: null,
