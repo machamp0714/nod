@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import type { Issue, Relations, Status, UpdateIssueInput } from "../../api/types";
+import { attachmentDate } from "./DocumentsSection";
 import { prLabel } from "../../lib/format";
 import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
@@ -173,6 +174,7 @@ export function PropertiesPanel({
             <Empty />
           )}
         </Prop>
+        <Prop label="Created"><span title={issue.createdAt}>{attachmentDate(issue.createdAt)} · {issue.createdBy}</span></Prop>
       </dl>
       {action.error && (
         <p className={`${s.error} ${s.panelError}`} role="alert">

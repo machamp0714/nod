@@ -6,8 +6,8 @@ import { queryKeys } from "../query-keys";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // queryFn は引数を取らない形で包む。TanStack Query が渡す文脈を fetchImpl として受けないためである
-export function useInbox() {
-  return useQuery({ queryKey: queryKeys.inbox(), queryFn: () => fetchInbox() });
+export function useInbox(opts: { includeAnswered?: boolean } = {}) {
+  return useQuery({ queryKey: opts.includeAnswered ? queryKeys.inboxHistory() : queryKeys.inbox(), queryFn: () => fetchInbox(undefined, opts) });
 }
 
 export function useTriage() {

@@ -1,9 +1,11 @@
+import { recordedTimestamp } from "./recorded-time";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { NodError } from "./errors";
 import type {
   ActivityItem,
   AgentState,
   DocumentRef,
+  IssueDocumentRef,
   Issue,
   Plan,
   PlanStep,
@@ -169,6 +171,19 @@ export function loadDocuments(db: Database, target: { issueId: number } | { proj
       `SELECT d.id, d.path, d.title, d.kind FROM documents d JOIN document_links l ON l.document_id = d.id WHERE l.${column} = ? ORDER BY d.id`,
     )
     .all(id) as DocumentRef[];
+}
+
+// 現在のlinkだけを起点に、同じIssue/Documentの最新添付操作を読む。
+export function loadIssueDocuments(db: Database, issueId: number): IssueDocumentRef[] {
+  return loadDocuments(db, { issueId }).map(doc => {
+    const event = db.query(`SELECT actor, created_at, type FROM events
+      WHERE issue_id = ? AND type IN ('document_attached', 'document_detached')
+      AND json_extract(data, '$.document_id') = ? ORDER BY id DESC LIMIT 1`).get(issueId, doc.id) as
+      { actor: string; created_at: string; type: string } | null;
+    const attached = event?.type === "document_attached" ? event : null;
+    return { ...doc, attachedBy: attached?.actor || null,
+      attachedAt: attached && recordedTimestamp(attached.created_at) !== null ? attached.created_at : null };
+  });
 }
 
 export function loadActivity(db: Database, issueId: number): ActivityItem[] {

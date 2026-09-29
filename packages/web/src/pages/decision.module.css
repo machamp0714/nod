@@ -244,3 +244,10 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+.tabs { padding: 0 20px 14px; }
+.quickReplies { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 10px; margin-top: 10px; }
+.acceptFields { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+.acceptFields legend { color: var(--ink2); font-size: 12px; }
+.acceptFields label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink2); }
+.acceptFields select, .acceptFields input { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 100px; }

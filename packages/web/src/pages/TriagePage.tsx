@@ -1,6 +1,10 @@
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useDecision, useTriage, useWorkspaceName } from "../api/hooks/decision";
+import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
+import { useIssueDetail } from "../api/hooks/shared";
+import { parseLabels } from "../lib/issue-edit";
+import { priorityMeta } from "../lib/meta";
 import type { Issue } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
@@ -21,6 +25,7 @@ export function TriagePage() {
   return (
     <SplitLayout
       title="Triage"
+      description="LLM が起票し、受け入れ待ちの Issue"
       count={items.length}
       listLabel="Triage の一覧"
       list={
@@ -61,6 +66,14 @@ export function TriagePage() {
 type Mode = "duplicate" | "snooze" | "decline";
 
 function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: string }) {
+  const projects = useProjectChoicesQuery();
+  const detail = useIssueDetail(issue.id);
+  const created = detail.data?.activity.find(a => a.kind === "event" && a.type === "created");
+  const source = created?.kind === "event" && typeof created.data.discovered_from === "string" ? created.data.discovered_from : null;
+  const [projectRef, setProjectRef] = useState(issue.project ? String(issue.project.id) : "");
+  const [priority, setPriority] = useState(issue.priority);
+  const [labels, setLabels] = useState(issue.labels.join(", "));
+  const choices = projects.data ?? [];
   const [mode, setMode] = useState<Mode | null>(null);
   const [value, setValue] = useState("");
   const decision = useDecision();
@@ -84,9 +97,28 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           {issue.createdBy} が起票 · {formatRelative(issue.createdAt)}
         </span>
       </div>
+      {detail.isError ? <ActionError error={detail.error} /> : detail.isPending ? <p className={d.muted}>起票元を読み込み中…</p> :
+        <p className={d.muted}>{source ? <><Link to="/issues/$issueId" params={{ issueId: source }}>{source}</Link> の作業中に発見</> : "起票元は記録されていません"}</p>}
       <p className={d.body}>{issue.description ?? "説明はありません"}</p>
+      <fieldset className={d.acceptFields} disabled={busy}>
+        <legend>受け入れ時に設定:</legend>
+        <label>Project<select aria-label="受け入れ時のProject" value={projectRef} disabled={projects.isPending || projects.isError} onChange={e => setProjectRef(e.target.value)}>
+          <option value="">なし</option>
+          {issue.project && !choices.some(p => p.id === issue.project?.id) && <option value={String(issue.project.id)}>{issue.project.name}</option>}
+          {choices.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+        </select></label>
+        <label>Priority<select aria-label="受け入れ時のPriority" value={priority} onChange={e => setPriority(Number(e.target.value))}>
+          {[0, 1, 2, 3, 4].map(p => <option key={p} value={p}>{priorityMeta(p).label}</option>)}
+        </select></label>
+        <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
+        <ActionError error={projects.error} />
+      </fieldset>
       <div className={d.actions}>
-        <Button variant="primary" icon="check" disabled={busy} onClick={() => decision.mutate({ op: "accept", issueId: issue.id })}>
+        <Button variant="primary" icon="check" disabled={busy || projects.isPending || projects.isError} onClick={() => {
+          const selected = parseLabels(labels, []);
+          decision.mutate({ op: "accept", issueId: issue.id, input: { projectRef: projectRef || null, priority,
+            addLabels: selected.filter(l => !issue.labels.includes(l)), removeLabels: issue.labels.filter(l => !selected.includes(l)) } });
+        }}>
           受け入れる
         </Button>
         <Button icon="copy" disabled={busy} onClick={() => open("duplicate")}>

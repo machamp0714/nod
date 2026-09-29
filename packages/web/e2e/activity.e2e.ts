@@ -14,7 +14,7 @@ test("コメントを書くと Activity に書き手つきで出る。空白だ�
   await expect(submit).toBeDisabled();
   await box.fill("計測の結果を共有した");
   await submit.click();
-  await expect(activity).toContainText("me：計測の結果を共有した");
+  await expect(activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "計測の結果を共有した" })).toContainText("me");
   await expect(box).toHaveValue("");
 });
 
@@ -28,7 +28,7 @@ test("変更の種類ごとに書き手つきの文を出し、質問の event �
 
   await page.goto(`/issues/${ISSUE.main}`);
   const main = region(page, "Activity");
-  await expect(main).toContainText(`claude-code：${MAIN_COMMENT}`);
+  await expect(main.getByRole("article", { name: "コメント記録" }).filter({ hasText: MAIN_COMMENT })).toContainText("claude-code");
   await expect(main).toContainText("me が関連 Issue を足した：blocks API-13");
   await expect(main).not.toContainText("question_asked");
   await expect(main).not.toContainText("question_answered");

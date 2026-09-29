@@ -1,4 +1,4 @@
-import type { ActivityItem, InboxQuestion, Plan, Workspace } from "../api/types";
+import type { ActivityItem, InboxQuestion, Plan, ReviewReport, Workspace } from "../api/types";
 
 export function workspaceNameOf(workspaces: readonly Pick<Workspace, "key" | "name">[] | undefined, key: string): string {
   return workspaces?.find((w) => w.key === key)?.name ?? key;
@@ -41,11 +41,7 @@ export function doingTaskTitle(plan: Plan): string | null {
   return plan.tasks.find((t) => t.status === "doing")?.title ?? null;
 }
 
-export interface ReviewReport {
-  actor: string;
-  at: string;
-  body: string;
-}
+export type { ReviewReport } from "../api/types";
 
 // nod issue done は、報告をコメントで残してから in_review に変える（CLI 計画の completeIssue）。
 // そのため、最後に in_review に変わった時刻以前の、最も新しいコメントを報告とする。Activity は時刻順である

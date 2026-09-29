@@ -35,8 +35,8 @@ describe("attachDocument と detachDocument", () => {
     attachDocument(me, { issueRef: b.id }, { path: join(dir, "spec.md") });
     attachDocument(me, { projectRef: "検索" }, { path: join(dir, "spec.md") });
 
-    expect(getIssue(db, a.id).documents).toEqual([doc]);
-    expect(getIssue(db, b.id).documents).toEqual([doc]);
+    expect(getIssue(db, a.id).documents).toMatchObject([doc]);
+    expect(getIssue(db, b.id).documents).toMatchObject([doc]);
     expect(getProject(db, "検索").documents).toEqual([doc]);
     expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(1);
     expect(eventsOf(db, a.id).filter((e) => e.type === "document_attached")).toEqual([

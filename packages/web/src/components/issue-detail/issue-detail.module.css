@@ -528,3 +528,26 @@
 
 .subIssuesHeading { display: flex; align-items: center; gap: 8px; }
 .subIssuesCount { color: var(--ink3); font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
+
+.headerActions { position: relative; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; padding: 6px; border: 0; border-radius: 5px; background: transparent; color: var(--ink3); cursor: pointer; }
+.iconButton:hover { background: var(--sunken); color: var(--ink); }
+.headerMenu { position: absolute; top: 100%; right: 0; z-index: 10; min-width: 180px; display: flex; flex-direction: column; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 16px #0001; }
+.headerMenu button { border: 0; background: transparent; color: var(--ink); padding: 8px 10px; text-align: left; border-radius: 4px; cursor: pointer; }
+.headerMenu button:hover, .headerMenu button:focus-visible { background: var(--sunken); }
+.copyNotice { font-size: 11px; color: var(--ink2); }
+.documentsHeading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.documentsHeading h2 { margin: 0; }
+.documentsHeading button { margin-left: auto; }
+.documentCards { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.documentCard { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.documentCard a { overflow-wrap: anywhere; }
+.documentMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--ink3); }
+.documentForm { display: grid; gap: 10px; padding: 14px; margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.documentForm label { display: grid; gap: 6px; color: var(--ink2); font-size: 12px; }
+.activityCards { display: grid; gap: 12px; }
+.commentCard { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 6px; }
+.commentCard p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; margin: 0; }
+.commentHead { display: flex; align-items: center; gap: 8px; }
+.commentHead strong { font-size: 12.5px; font-weight: 600; }
+.commentHead time { color: var(--ink3); font-size: 11.5px; }

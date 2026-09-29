@@ -15,15 +15,16 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
-import type { Inbox, InboxQuestion, Issue, Question, Status } from "../types";
-import { addRelation, requireText } from "./issues";
+import { readReviewSummaries } from "../review-summary";
+import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
+import { addRelation, requireText, updateIssue } from "./issues";
 
-export function getInbox(db: Database): Inbox {
+export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {}): Inbox {
   const rows = db
     .query(
       `SELECT q.*, i.title AS issue_title, i.number AS issue_number, i.branch AS branch, i.worktree AS worktree, w.key AS ws_key
        FROM questions q JOIN issues i ON i.id = q.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE q.answer IS NULL AND q.asked_by <> ? AND i.status NOT IN ('done', 'canceled') ORDER BY q.asked_at, q.id`,
+       WHERE q.asked_by <> ? ${opts.includeAnswered ? "" : "AND q.answer IS NULL AND i.status NOT IN ('done', 'canceled')"} ORDER BY q.asked_at, q.id`,
     )
     .all(HUMAN_ACTOR) as (QuestionRow & {
     issue_title: string;
@@ -40,7 +41,8 @@ export function getInbox(db: Database): Inbox {
     worktree: r.worktree,
   }));
   const reviews = selectIssues(db, "WHERE i.status = 'in_review' ORDER BY i.updated_at, i.id", []);
-  return { questions, reviews };
+  const summaries = readReviewSummaries(db, reviews.map(i => i.id));
+  return { questions, reviews: reviews.map(i => ({ ...i, ...summaries.get(i.id)! })) };
 }
 
 // web の Triage。Snooze の期限が来ていないものは除く
@@ -96,7 +98,7 @@ export function answerQuestion(
       recordEvent(ctx.db, row.id, ctx.actor, "question_answered", { question_id: q.id });
     }
     // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す
-    if (row.agent_state === "awaiting_input" && openQuestionCount(ctx.db, row.id, { llmOnly: true }) === 0) {
+    if (row.status === "in_progress" && row.agent_state === "awaiting_input" && openQuestionCount(ctx.db, row.id, { llmOnly: true }) === 0) {
       setColumn(ctx, row, "agent_state", "working", { trigger: "answer" });
     }
     leaveClarification(ctx, row);
@@ -140,11 +142,13 @@ function requireHumanTriage(ctx: OpCtx): void {
   }
 }
 
-export function acceptTriage(ctx: OpCtx, ref: string): Issue {
+export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
   requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
+    updateIssue(ctx, ref, { projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels });
+    Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");
     setColumn(ctx, row, "snoozed_until", null);
     recordEvent(ctx.db, row.id, ctx.actor, "triage_accepted", {});

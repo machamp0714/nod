@@ -1,0 +1,217 @@
+import { expect, test, waitForServerEvents } from "./fixtures";
+import { seedApiWorkspace } from "./decision-data";
+import { restartApiServer } from "./support/nod";
+
+const evidence = "/Users/ooidetatsuya/orca/workspaces/nod/nod-detail-decisions/.superpowers/sdd/nod-remaining";
+
+test("Reviewsの一覧と詳細は同じ完了報告を示し4Task進捗と待機込み時間を出す", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.startedIssue("レビュー契約");
+  await nod.claude.setPlanTasks(i.id, ["調査", "実装", "試験", "報告"]);
+  for (const index of [1, 2, 3, 4]) await nod.claude.setStep(i.id, String(index), index === 3 ? "skipped" : "done");
+  await nod.claude.completeIssue(i.id, { summary: "レビュー用の本来の報告" });
+  await nod.me.commentIssue(i.id, "完了後の別コメント");
+  await page.goto("/reviews");
+  await expect(page.getByText("LLM が作業を終え、確認を待っている Issue")).toBeVisible();
+  await expect(page.getByRole("region", { name: "レビュー待ちの一覧" })).toContainText("レビュー用の本来の報告");
+  await expect(page.getByRole("region", { name: "完了報告" })).toContainText("レビュー用の本来の報告");
+  await expect(page.getByRole("region", { name: "完了報告" })).not.toContainText("完了後の別コメント");
+  await expect(page.getByText("計画 4/4 完了")).toBeVisible();
+  await expect(page.getByText("作業時間（待機・中断・差し戻しを含む） 1分未満")).toBeVisible();
+  await page.screenshot({ path: `${evidence}/reviews.png` });
+});
+
+test("Triage属性と起票元を表示し一回のacceptで保存する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const source = await api.startedIssue("起票の元");
+  const project = await nod.me.createProject({ name: "受け入れ先" });
+  const issue = await nod.codex.createIssue({ workspaceId: api.workspace.id, title: "発見した問題", discoveredFromRef: source.id, labels: ["old"] });
+  const writes: string[] = [];
+  page.on("request", r => { if (r.method() === "POST" && r.url().includes(`/issues/${issue.id}/`)) writes.push(r.url()); });
+  await page.goto("/triage");
+  await expect(page.getByText("LLM が起票し、受け入れ待ちの Issue")).toBeVisible();
+  await expect(page.getByRole("region", { name: "詳細", exact: true }).getByRole("link", { name: source.id })).toHaveAttribute("href", `/issues/${source.id}`);
+  await page.getByLabel("受け入れ時のProject").selectOption(String(project.id));
+  await page.getByLabel("受け入れ時のPriority").selectOption("2");
+  await page.getByLabel("受け入れ時のLabels").fill("bug, perf");
+  expect((await api.show(issue.id)).labels).toEqual(["old"]);
+  await page.screenshot({ path: `${evidence}/triage.png` });
+  await page.getByRole("button", { name: "受け入れる", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Triage の一覧" })).toContainText("Triage の Issue はありません");
+  expect(await api.show(issue.id)).toMatchObject({ status: "todo", priority: 2, project: { id: project.id }, labels: ["bug", "perf"] });
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatch(/\/accept$/);
+});
+
+test("Inbox履歴と定型入力はURLと下書きを保ちSSE後も個別に回答する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("質問の履歴");
+  const first = await nod.claude.askQuestion(issue.id, "最初の質問");
+  await nod.codex.askQuestion(issue.id, "次の質問");
+  await nod.me.askQuestion(issue.id, "meの未決は非表示");
+  const terminal = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "終了済みの履歴" });
+  await nod.codex.askQuestion(terminal.id, "終了前の質問");
+  await nod.me.answerQuestion(terminal.id, "記録済み");
+  await nod.me.updateIssue(terminal.id, { status: "done" });
+  await restartApiServer();
+  await page.goto(`/inbox?selected=${issue.id}`);
+  await waitForServerEvents(page);
+  const card = page.getByRole("region", { name: "確認依頼", exact: true }).filter({ hasText: "最初の質問" });
+  await card.getByRole("button", { name: "はい、進めて", exact: true }).click();
+  await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("はい、進めて");
+  expect((await api.show(issue.id)).questions.find(q => q.id === first.question.id)?.answer).toBeNull();
+  await page.getByRole("tab", { name: "すべて", exact: true }).click();
+  await expect(page).toHaveURL(/tab=all/);
+  await page.getByRole("region", { name: "確認依頼の一覧" }).getByRole("link", { name: /終了済みの履歴/ }).click();
+  await expect(page).toHaveURL(/tab=all/);
+  await expect(page.getByRole("region", { name: "詳細", exact: true })).toContainText("記録済み");
+  await expect(page.getByRole("textbox", { name: "回答", exact: true })).toHaveCount(0);
+  await page.getByRole("region", { name: "確認依頼の一覧" }).getByRole("link", { name: /質問の履歴/ }).click();
+  await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("はい、進めて");
+  await nod.me.commentIssue(issue.id, "SSEで取得し直す");
+  await expect(page.getByRole("region", { name: "直近の経過" })).toContainText("SSEで取得し直す");
+  await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("はい、進めて");
+  await expect(page.getByRole("region", { name: "確認依頼", exact: true }).filter({ hasText: "meの未決は非表示" })).toHaveCount(0);
+  await page.screenshot({ path: `${evidence}/inbox.png` });
+  await card.getByRole("button", { name: "回答する", exact: true }).click();
+  await expect(card.getByRole("textbox", { name: "回答" })).toHaveCount(0);
+  expect((await api.show(issue.id)).questions.find(q => q.id === first.question.id)?.answer).toBe("はい、進めて");
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "すべて", exact: true })).toHaveAttribute("aria-selected", "true");
+});
+
+test("終端の未回答へ履歴タブから回答してもIssueを再開しない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.startedIssue("終端への回答");
+  await nod.codex.askQuestion(i.id, "終端の未回答");
+  await nod.me.updateIssue(i.id, { status: "canceled" });
+  await page.goto(`/inbox?tab=all&selected=${i.id}`);
+  await page.getByRole("button", { name: "いいえ、既存を残す", exact: true }).click();
+  await page.getByRole("button", { name: "回答する", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "回答" })).toHaveCount(0);
+  expect(await api.show(i.id)).toMatchObject({ status: "canceled", agentState: null });
+});
+
+test("Documents追加とCreated・コメントカード・コピー2項目を使える", async ({ page, nod, context }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.startedIssue("詳細のカード");
+  await nod.codex.commentIssue(i.id, "複数行のコメント\n二行目 <b>テキスト</b>");
+  const path = nod.writeFile("docs/日本語.md", "# 添付する設計\n本文");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto(`/issues/${i.id}`);
+  const card = page.getByRole("article", { name: "コメント記録" });
+  await expect(card).toContainText("codex");
+  await expect(card).toContainText("二行目 <b>テキスト</b>");
+  await expect(page.getByRole("region", { name: "プロパティ", exact: true })).toContainText("Created");
+  await page.getByRole("button", { name: "Documentを追加" }).click();
+  await page.getByLabel("Markdown絶対パス").fill(path);
+  await page.getByLabel("Documentの種類").selectOption("spec");
+  await page.getByRole("region", { name: "Documents", exact: true }).getByRole("button", { name: "追加", exact: true }).click();
+  const docs = page.getByRole("region", { name: "Documents", exact: true });
+  await expect(docs.getByRole("link", { name: "添付する設計" })).toBeVisible();
+  await expect(docs).toContainText("Spec");
+  await expect(docs).toContainText("添付者: me");
+  await page.getByRole("button", { name: "リンクをコピー", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(`/issues/${i.id}`, page.url()).href);
+  await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
+  await expect(page.getByRole("menuitem")).toHaveCount(2);
+  await page.getByRole("menuitem", { name: "Issue IDをコピー" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(i.id);
+  await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`nod issue show ${i.id}`);
+  await page.screenshot({ path: `${evidence}/detail.png` });
+  const attached = (await api.show(i.id)).documents[0]!;
+  expect(attached.attachedBy).toBe("me");
+  nod.removeFile(path);
+  await docs.getByRole("link", { name: "添付する設計" }).click();
+  await expect(page.getByRole("status")).toHaveText("ファイルが見つかりません");
+});
+
+test("不正なCreatedと添付日は記録なしと表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("不正な記録日");
+  const detail = await api.show(issue.id);
+  await page.route(`**/api/issues/${issue.id}`, async route => {
+    await route.fulfill({ json: { ...detail, createdAt: "2026-02-30T00:00:00Z",
+      documents: [{ id: 1, path: "/invalid-date.md", title: "日付の境界", kind: "doc", attachedBy: "codex", attachedAt: "2026-02-30T00:00:00Z" }] } });
+  });
+  await page.goto(`/issues/${issue.id}`);
+  await expect(page.getByRole("region", { name: "プロパティ", exact: true })).toContainText("記録なし");
+  await expect(page.getByRole("region", { name: "Documents", exact: true })).toContainText("添付日: 記録なし");
+});
+
+test.describe("保存・コピーの失敗", () => {
+  test.use({ allowedConsoleErrors: [/status of 500/] });
+  test("Triage失敗で属性draftを保持し再送できる", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const i = await api.triageIssue("受け入れ失敗");
+    await page.goto("/triage");
+    await page.getByLabel("受け入れ時のPriority").selectOption("1");
+    await page.getByLabel("受け入れ時のLabels").fill("keep");
+    await page.route(`**/api/issues/${i.id}/accept`, r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "保存失敗" } } }));
+    await page.getByRole("button", { name: "受け入れる", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByLabel("受け入れ時のLabels")).toHaveValue("keep");
+    await expect(page.getByLabel("受け入れ時のPriority")).toHaveValue("1");
+    expect((await api.show(i.id)).status).toBe("triage");
+    await page.unroute(`**/api/issues/${i.id}/accept`);
+    await page.getByRole("button", { name: "受け入れる", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Triage の一覧" })).toContainText("Triage の Issue はありません");
+  });
+  test("Documents失敗で入力を保ちキャンセルは送信しない、Clipboard拒否を示す", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const i = await api.startedIssue("添付失敗");
+    const path = nod.writeFile("docs/retry.md", "# 再送の設計");
+    await page.goto(`/issues/${i.id}`);
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }));
+    await page.getByRole("button", { name: "リンクをコピー" }).click();
+    await expect(page.getByRole("alert")).toContainText("コピーできませんでした");
+    await page.getByRole("button", { name: "Documentを追加" }).click();
+    await page.getByLabel("Markdown絶対パス").fill(path);
+    await page.route(`**/api/issues/${i.id}/doc-add`, r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "添付失敗" } } }));
+    const docs = page.getByRole("region", { name: "Documents", exact: true });
+    await docs.getByRole("button", { name: "追加", exact: true }).click();
+    await expect(docs.getByRole("alert")).toContainText("添付できませんでした");
+    await expect(page.getByLabel("Markdown絶対パス")).toHaveValue(path);
+    await docs.getByRole("button", { name: "キャンセル", exact: true }).click();
+    expect((await api.show(i.id)).documents).toHaveLength(0);
+    await page.unroute(`**/api/issues/${i.id}/doc-add`);
+  });
+});
+
+test.describe("Inboxの送信失敗と競合", () => {
+  test.use({ allowedConsoleErrors: [/status of (500|409)/] });
+  test("回答POSTと背景GETの失敗でもdraftを保持し、外部回答との競合を別質問へ送らない", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const i = await api.startedIssue("回答の競合");
+    const first = await nod.claude.askQuestion(i.id, "最初の回答先");
+    const second = await nod.claude.askQuestion(i.id, "残す回答先");
+    await restartApiServer();
+    await page.goto(`/inbox?selected=${i.id}`);
+    await waitForServerEvents(page);
+    const card = page.getByRole("region", { name: "確認依頼", exact: true }).filter({ hasText: "最初の回答先" });
+    await card.getByRole("textbox", { name: "回答" }).fill("保持する下書き");
+    await page.route(`**/api/issues/${i.id}/answer`, r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "回答失敗" } } }));
+    await page.route("**/api/inbox", r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "再取得失敗" } } }));
+    await card.getByRole("button", { name: "回答する", exact: true }).click();
+    await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("保持する下書き");
+    await expect(card.getByRole("button", { name: "回答する", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "回答する", exact: true })).toBeEnabled({ timeout: 15000 });
+    await expect(card.getByRole("alert")).toContainText("回答失敗");
+    await page.unroute("**/api/inbox");
+    await page.unroute(`**/api/issues/${i.id}/answer`);
+    // 同じAPI接続からの書込はSSEを発生させず、送信時の409を確実に検証できる。
+    const response = await page.request.post(`/api/issues/${i.id}/answer`, { data: { questionId: first.question.id, answer: "外部の回答" } });
+    expect(response.status()).toBe(200);
+    const conflict = page.waitForResponse(r => r.url().endsWith(`/issues/${i.id}/answer`) && r.status() === 409);
+    await card.getByRole("button", { name: "回答する", exact: true }).click();
+    const result = await conflict;
+    expect(result.request().postDataJSON().questionId).toBe(first.question.id);
+    await expect(card).toHaveCount(0);
+    const shown = await api.show(i.id);
+    expect(shown.questions.find(q => q.id === first.question.id)?.answer).toBe("外部の回答");
+    expect(shown.questions.find(q => q.id === second.question.id)?.answer).toBeNull();
+  });
+});

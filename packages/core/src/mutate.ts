@@ -35,7 +35,7 @@ export function setColumn(
   row: IssueRow,
   column: Column,
   to: string | number | null,
-  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer" } = {},
+  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer"; report_comment_id?: number } = {},
 ): boolean {
   const from = row[column];
   if (from === to) return false;
@@ -57,6 +57,9 @@ export function setColumn(
       to: "to" in extra ? extra.to : to,
     };
     if (extra.reason) data.reason = extra.reason;
+    if (type === "status_changed" && to === "in_review" && extra.report_comment_id !== undefined) {
+      data.report_comment_id = extra.report_comment_id;
+    }
     // 書き手と作業主体は別。過去の履歴を現在の担当者で解釈し直さないよう記録する。
     if (type === "agent_state_changed") {
       data.agent = row.assignee;

@@ -2,12 +2,12 @@ import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { useIssueDetail } from "../api/hooks/shared";
-import type { Issue } from "../api/types";
+import type { ReviewIssue } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
-import { reviewReport } from "../lib/decision";
+import { formatReviewElapsed } from "../lib/review-elapsed";
 import { formatRelative, prLabel } from "../lib/format";
 import { planProgress } from "../lib/plan";
 import d from "./decision.module.css";
@@ -23,6 +23,7 @@ export function ReviewsPage() {
   return (
     <SplitLayout
       title="Reviews"
+      description="LLM が作業を終え、確認を待っている Issue"
       count={items.length}
       listLabel="レビュー待ちの一覧"
       list={
@@ -39,9 +40,9 @@ export function ReviewsPage() {
               to="/reviews"
               issueId={issue.id}
               title={issue.title}
-              actor={issue.assignee ?? issue.createdBy}
-              at={issue.updatedAt}
-              body={issue.prUrl ? prLabel(issue.prUrl) : undefined}
+              actor={issue.reviewReport?.actor ?? issue.assignee ?? issue.createdBy}
+              at={issue.reviewSubmittedAt ?? issue.updatedAt}
+              body={issue.reviewSummary ?? "報告はありません"}
               workspaceKey={issue.workspace}
               workspaceName={workspaceName(issue.workspace)}
               selected={issue === current}
@@ -60,9 +61,9 @@ export function ReviewsPage() {
   );
 }
 
-function ReviewDetail({ issue, workspaceName }: { issue: Issue; workspaceName: string }) {
+function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceName: string }) {
   const detail = useIssueDetail(issue.id);
-  const report = detail.data ? reviewReport(detail.data.activity) : null;
+  const report = issue.reviewReport;
   const plan = detail.data && detail.data.plan.tasks.length > 0 ? planProgress(detail.data.plan) : null;
   const [reason, setReason] = useState("");
   const approve = useDecision();
@@ -119,6 +120,7 @@ function ReviewDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           <Icon name="message-circle" />
           確認依頼 {issue.questionCount.total} 件（回答済み {issue.questionCount.answered} 件）
         </span>
+        <span className={d.summaryItem}>作業時間（待機・中断・差し戻しを含む） {formatReviewElapsed(issue.startedAt, issue.reviewSubmittedAt)}</span>
       </div>
 
       <textarea

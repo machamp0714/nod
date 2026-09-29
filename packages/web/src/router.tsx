@@ -12,6 +12,8 @@ import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
 import { parseIssueListSearch, parseProjectsSearch, parseSelectedSearch } from "./routes/search";
 
+import { parseInboxSearch } from "./routes/inbox-search";
+
 const rootRoute = createRootRoute({ component: AppLayout, notFoundComponent: NotFoundPage });
 
 const indexRoute = createRoute({
@@ -22,7 +24,7 @@ const indexRoute = createRoute({
   },
 });
 
-const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox", validateSearch: parseSelectedSearch, component: InboxPage });
+const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox", validateSearch: parseInboxSearch, component: InboxPage });
 const reviewsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reviews", validateSearch: parseSelectedSearch, component: ReviewsPage });
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
 const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });

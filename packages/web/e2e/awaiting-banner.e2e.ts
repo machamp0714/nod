@@ -154,10 +154,18 @@ test.describe("回答失敗と送信中", () => {
     await waitForServerEvents(page);
     const banner = page.getByRole("region", { name: "回答待ち", exact: true });
     const detail = await (await request.get(`/api/issues/${issue.id}`)).json();
-    const response = await request.post(`/api/issues/${issue.id}/answer`, { data: { questionId: detail.questions[0]!.id, answer: "別画面の回答" } });
-    expect(response.ok()).toBe(true);
+    await expect(banner).toContainText("競合する質問");
     await banner.getByRole("button").click();
-    await page.getByRole("textbox", { name: "回答", exact: true }).fill("競合する回答");
+    const first = page.getByRole("region", { name: "未決事項", exact: true }).getByRole("listitem").filter({ hasText: "競合する質問" });
+    await first.getByRole("textbox", { name: "回答", exact: true }).fill("競合する回答");
+    // 選択した質問への送信を捕捉してから外部回答を先に保存し、実serverの409を検証する。
+    // 待機中にSSEが届いても、送信済みのquestionIdを別質問へ置き換えない。
+    await page.route(`**/api/issues/${issue.id}/answer`, async route => {
+      expect(route.request().postDataJSON().questionId).toBe(detail.questions[0]!.id);
+      const response = await request.post(`/api/issues/${issue.id}/answer`, { data: { questionId: detail.questions[0]!.id, answer: "別画面の回答" } });
+      expect(response.ok()).toBe(true);
+      await route.continue();
+    });
     const conflict = page.waitForResponse((res) => res.url().endsWith(`/api/issues/${issue.id}/answer`) && res.request().method() === "POST");
     await page.getByRole("button", { name: "記録する", exact: true }).click();
     const conflictResponse = await conflict;
