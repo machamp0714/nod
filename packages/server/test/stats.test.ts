@@ -44,7 +44,7 @@ describe("GET /api/stats", () => {
 
   test("不正な指定は 400 INVALID_ARGS、ない Project は 404", async () => {
     const { app } = seed();
-    for (const q of ["by=month", "from=2026-13-01", "tz=Nowhere/City", "by=day&by=week", "limit=3"]) {
+    for (const q of ["by=month", "from=2026-13-01", "tz=Nowhere/City", "tz=%2B09%3A00", "by=day&by=week", "limit=3"]) {
       const r = await call(app, "GET", `/api/stats?${q}`);
       expect([q, r.status, r.json.error.code]).toEqual([q, 400, "INVALID_ARGS"]);
     }

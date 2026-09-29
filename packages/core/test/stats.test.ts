@@ -195,6 +195,47 @@ describe("completionStats（完了数・作業時間の推移）", () => {
     expect(bad({ workspace: ["NOPE"] })).toBe("NOT_FOUND");
   });
 
+  test("tz は IANA の名前だけを受け付け、+09:00 のようなオフセット表記は INVALID_ARGS", () => {
+    const { db } = setup();
+    for (const tz of ["+09:00", "-0500", "+09"]) expect(codeOf(() => completionStats(db, { tz }))).toBe("INVALID_ARGS");
+    expect(completionStats(db, { tz: "Etc/GMT-9", by: "day", from: "2026-09-01", to: "2026-09-01" }).tz).toBe("Etc/GMT-9");
+    expect(completionStats(db, { tz: "asia/tokyo", by: "day", from: "2026-09-01", to: "2026-09-01" }).tz).toBe("Asia/Tokyo");
+  });
+
+  test("期間の数は 400 まで。週は from を月曜へ広げたあとの数で判定する", () => {
+    const { db } = setup();
+    // 2025-01-01 から 400 日目は 2026-02-04
+    expect(completionStats(db, { ...UTC, by: "day", from: "2025-01-01", to: "2026-02-04" }).buckets).toHaveLength(400);
+    expect(codeOf(() => completionStats(db, { ...UTC, by: "day", from: "2025-01-01", to: "2026-02-05" }))).toBe("INVALID_ARGS");
+    // 2019-05-06（月）から 400 週目は 2026-12-28 の週
+    expect(completionStats(db, { ...UTC, by: "week", from: "2019-05-06", to: "2027-01-03" }).buckets).toHaveLength(400);
+    // from の日曜（5/19）から数えれば 400 週だが、5/13 の月曜へ広げると 401 週になる
+    expect(completionStats(db, { ...UTC, by: "week", from: "2019-05-19", to: "2027-01-10" }).buckets).toHaveLength(400);
+    expect(codeOf(() => completionStats(db, { ...UTC, by: "week", from: "2019-05-19", to: "2027-01-11" }))).toBe("INVALID_ARGS");
+    expect(completionStats(db, { ...UTC, by: "day", from: "2026-09-01", to: "2026-09-01" }).buckets).toHaveLength(1);
+  });
+
+  test("夏時間の切り替えをまたいでも暦日ごとに1期間で、切り替え日の夜はその日に数える", () => {
+    const { db, ws, me } = setup();
+    const ny = { tz: "America/New_York" };
+    const at = ["2026-03-09T03:30:00.000Z", "2026-11-02T04:30:00.000Z"]; // どちらも現地の切り替え日 23:30
+    for (const closed of at) {
+      const i = createIssue(me, { workspaceId: ws.id, title: closed });
+      updateIssue(me, i.id, { status: "done" });
+      stamp(db, i.id, { closed });
+    }
+    const spring = completionStats(db, { ...ny, by: "day", from: "2026-03-07", to: "2026-03-09" });
+    expect(spring.buckets.map((x) => [x.start, x.completed])).toEqual([["2026-03-07", 0], ["2026-03-08", 1], ["2026-03-09", 0]]);
+    const fall = completionStats(db, { ...ny, by: "day", from: "2026-10-31", to: "2026-11-02" });
+    expect(fall.buckets.map((x) => [x.start, x.completed])).toEqual([["2026-10-31", 0], ["2026-11-01", 1], ["2026-11-02", 0]]);
+    // 11/1（日）は 10/26 の週の最終日。週は7日のまま区切る
+    const week = completionStats(db, { ...ny, by: "week", from: "2026-10-26", to: "2026-11-08" });
+    expect(week.buckets.map((x) => [x.start, x.end, x.completed])).toEqual([
+      ["2026-10-26", "2026-11-01", 1],
+      ["2026-11-02", "2026-11-08", 0],
+    ]);
+  });
+
   test("読み取り専用で DB を変更しない", () => {
     const { db, ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
@@ -260,6 +301,22 @@ describe("llmStats（LLM ごとの作業量）", () => {
       ["codex", 1, 1],
       ["claude-code", 0, 1],
       ["gemini", 0, 1],
+    ]);
+  });
+
+  test("同じ時刻の担当変更は後に記録したものへ帰属し、完了と同時刻の担当変更も含める", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    startIssue(llm, a.id); // claude-code
+    updateIssue(me, a.id, { assignee: "codex" }); // 同じ時刻に codex へ
+    updateIssue(me, a.id, { status: "done" });
+    stampEvents(db, a.id, "assignee_changed", "2026-09-01T12:00:00.000Z");
+    stamp(db, a.id, { closed: "2026-09-01T12:00:00.000Z" });
+
+    const s = llmStats(db, Q);
+    expect(s.llms.map((l) => [l.name, l.totals.completed, l.totals.assigned])).toEqual([
+      ["codex", 1, 1],
+      ["claude-code", 0, 1],
     ]);
   });
 
