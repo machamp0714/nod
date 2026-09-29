@@ -221,7 +221,7 @@ export function IssueList({
               {layout === "board" ? <IssueBoard rows={group.rows} /> : group.subgroups && subGroupBy ? (
                 group.subgroups.map((subgroup) => (
                   <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
-                    <GroupHeading by={subGroupBy} group={subgroup} level={3} />
+                    <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
                     {table(subgroup.rows, true)}
                   </section>
                 ))
