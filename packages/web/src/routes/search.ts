@@ -32,6 +32,8 @@ function pick<T extends string>(value: unknown, allowed: readonly T[]): T | unde
 // 絞り込み条件のキーは、GET /api/issues のクエリパラメータと View の filter（core の IssueQuery）と同じ名前にする。
 // project は Project の数字の ID（ルートと URL に Project の名前を入れないため）。
 export interface IssueListSearch {
+  showCompleted?: boolean;
+  showChildren?: boolean;
   sort?: IssueSort;
   direction?: SortDirection;
   columns?: IssueColumn[];
@@ -60,6 +62,9 @@ function stringList(value: unknown): string[] | undefined {
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
   const out: IssueListSearch = {};
+  for (const key of ["showCompleted", "showChildren"] as const) {
+    if (key in raw) out[key] = raw[key] !== false && raw[key] !== "false";
+  }
   if ("sort" in raw) out.sort = pick(raw.sort, ["default", "priority", "createdAt", "updatedAt", "title"] as const) ?? "default";
   if ("direction" in raw) out.direction = pick(raw.direction, ["asc", "desc"] as const) ?? "asc";
   if ("columns" in raw) out.columns = [...ISSUE_COLUMNS];
@@ -86,6 +91,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
 
 export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   const out: IssueListSearch = {};
+  if (search.showCompleted === false) out.showCompleted = false;
+  if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
   if (search.columns && !ISSUE_COLUMNS.every((column) => search.columns!.includes(column))) out.columns = search.columns;
@@ -115,5 +122,5 @@ export function cleanProjectsSearch(search: ProjectsSearch): ProjectsSearch {
 
 // 表示設定の変更は履歴から戻せるようにする。検索入力は従来どおり履歴を置換する。
 export function replacesIssueListHistory(patch: IssueListSearch): boolean {
-  return !("sort" in patch || "direction" in patch || "columns" in patch);
+  return !("showCompleted" in patch || "showChildren" in patch || "sort" in patch || "direction" in patch || "columns" in patch);
 }

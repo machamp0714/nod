@@ -40,7 +40,7 @@ export function IssueList({
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
   const counts = countRows(rows);
-  const visible = sortRows(filterRows(rows, { tab, q }), search.sort, search.direction);
+  const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
   const columns = search.columns ?? [...ISSUE_COLUMNS];
   const grouped = search.groupBy === "workspace";
   const groups = grouped
@@ -140,6 +140,17 @@ export function IssueList({
               <option value="asc">昇順</option><option value="desc">降順</option>
             </select>
           </label>
+          <fieldset className={s.columnSettings}>
+            <legend>表示するIssue</legend>
+            <label>
+              <input type="checkbox" checked={search.showCompleted !== false} onChange={(event) => onSearchChange({ showCompleted: event.target.checked })} />
+              完了済みIssueを表示
+            </label>
+            <label>
+              <input type="checkbox" checked={search.showChildren !== false} onChange={(event) => onSearchChange({ showChildren: event.target.checked })} />
+              子Issueを表示
+            </label>
+          </fieldset>
           <fieldset className={s.columnSettings} disabled={layout === "board"}>
             <legend>リストの表示列（ID・Titleは常に表示）</legend>
             {ISSUE_COLUMNS.map((column) => (
