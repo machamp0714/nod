@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { completeIssue, startIssue } from "../src/ops/agent";
 import { listAutoTransitions, undoAutoTransition } from "../src/ops/auto-transitions";
 import { getAutomationSettings, setAutomationSettings } from "../src/ops/automation";
-import { findClosingRefs, GIT_SYNC_SCAN_MAX, syncGitCommits } from "../src/ops/git-sync";
+import { findClosingRefs, GIT_SYNC_SCAN_MAX, gitRunner, syncGitCommits } from "../src/ops/git-sync";
 import { rejectReview } from "../src/ops/human";
 import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -71,6 +71,13 @@ describe("コミットメッセージから Issue ID を読む", () => {
     expect(findClosingRefs("Closes API-12a", "API")).toEqual([]);
     expect(findClosingRefs("Closes XAPI-1", "API")).toEqual([]);
     expect(findClosingRefs("Refs API-1", "API")).toEqual([]);
+  });
+
+  test("コードブロック（``` で囲まれた行）の中の参照は拾わない", () => {
+    const msg = "直した\n\n```\nFixes API-1\n```\nCloses API-2\n```sh\ngit commit -m 'Resolves API-3'\n```";
+    expect(findClosingRefs(msg, "API").map((r) => r.id)).toEqual(["API-2"]);
+    // 閉じていないコードブロックは末尾まで
+    expect(findClosingRefs("Closes API-4\n```\nFixes API-5", "API").map((r) => r.id)).toEqual(["API-4"]);
   });
 
   test("同じ ID は1回だけ", () => {
@@ -190,5 +197,63 @@ describe("nod git sync", () => {
     // コミットのないリポジトリは 0 件
     expect((await syncGitCommits(s.me, s.ws.key, { dryRun: true })).scanned).toBe(0);
     expect(GIT_SYNC_SCAN_MAX).toBe(1000);
+  });
+
+  test("Revert コミット（件名が Revert \" で始まる・本文に This reverts commit）は読まない", async () => {
+    const s = fixture();
+    const [a, b, c] = [s.make("todo"), s.make("todo"), s.make("todo")];
+    s.commit(`Revert "Fixes ${a}"\n\nThis reverts commit 0123456789abcdef0123456789abcdef01234567.`);
+    s.commit(`元に戻す\n\nFixes ${b}\nThis reverts commit 0123456789abcdef0123456789abcdef01234567.`);
+    s.commit(`Reverting the fix is not needed\n\nFixes ${c}`);
+    const dry = await syncGitCommits(s.me, s.ws.key, { dryRun: true });
+    expect(dry.candidates.map((x) => x.id)).toEqual([c]);
+  });
+
+  test("人が差し戻した（in_review から動かした）Issue は、新しいコミットでも進めない（rebase・cherry-pick で SHA が変わっても同じ）", async () => {
+    const s = fixture();
+    const auto = s.make("todo");
+    s.commit(`Fixes ${auto}`);
+    await syncGitCommits(s.me, s.ws.key, {});
+    expect(statusOf(s.db, auto)).toBe("in_review");
+    updateIssue(s.me, auto, { status: "in_progress" }); // 人の差し戻し
+    const manual = s.make("todo");
+    updateIssue(s.me, manual, { status: "in_review" });
+    updateIssue(s.me, manual, { status: "todo" });
+    // 同じ内容のコミットを後から作る（rebase・cherry-pick で SHA が変わったのと同じ）
+    s.commit(`Fixes ${auto}, ${manual}`, new Date(Date.now() + 60_000).toISOString());
+    expect((await syncGitCommits(s.me, s.ws.key, {})).total).toBe(0);
+    expect(statusOf(s.db, auto)).toBe("in_progress");
+    expect(statusOf(s.db, manual)).toBe("todo");
+  });
+
+  test("backlog / todo から進めても started_at は空のまま（手動の遷移と同じ。作業時間は未計測）", async () => {
+    const s = fixture();
+    const a = s.make("backlog");
+    s.commit(`Fixes ${a}`);
+    await syncGitCommits(s.me, s.ws.key, {});
+    expect(getIssue(s.db, a)).toMatchObject({ status: "in_review", startedAt: null });
+  });
+
+  test("git log は署名の表示を切り、GIT_DIR などの環境変数に左右されない", async () => {
+    const s = fixture();
+    const a = s.make("todo");
+    s.commit(`Fixes ${a}`);
+    const calls: string[][] = [];
+    const spy: typeof gitRunner = (args, opts) => {
+      calls.push(args);
+      return gitRunner(args, opts);
+    };
+    const saved = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE };
+    process.env.GIT_DIR = join(s.repo, "no-such-dir");
+    process.env.GIT_WORK_TREE = "/";
+    try {
+      expect((await syncGitCommits(s.me, s.ws.key, { dryRun: true }, spy)).candidates.map((x) => x.id)).toEqual([a]);
+    } finally {
+      for (const [k, v] of [["GIT_DIR", saved.dir], ["GIT_WORK_TREE", saved.tree]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    expect(calls[0]?.slice(0, 2)).toEqual(["-c", "log.showSignature=false"]);
   });
 });

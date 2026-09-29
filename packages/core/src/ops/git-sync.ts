@@ -18,7 +18,11 @@ export const GIT_SYNC_TIMEOUT_MS = 15_000;
 export const COMMIT_REVIEW_FROM: Status[] = ["backlog", "todo", "in_progress"];
 
 export type GitRunner = GhRunner;
-export const gitRunner: GitRunner = createCommandRunner("git");
+// 呼び出し元の GIT_DIR・GIT_WORK_TREE などに引きずられず、-C のパスのリポジトリを読むよう GIT_ で始まる環境変数を除く
+export function gitEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith("GIT_")));
+}
+export const gitRunner: GitRunner = createCommandRunner("git", [], { env: gitEnv });
 
 const KEYWORD = String.raw`(close[sd]?|fix(?:e[sd])?|resolve[sd]?)`;
 const ID = String.raw`[A-Za-z0-9]{2,6}-\d+(?![\w-])`;
@@ -26,10 +30,29 @@ const ID = String.raw`[A-Za-z0-9]{2,6}-\d+(?![\w-])`;
 const CLOSING_RE = new RegExp(String.raw`(?<![\w-])${KEYWORD}:?\s+(${ID}(?:\s*(?:,|&|\band\b)\s*${ID})*)`, "gi");
 const ID_RE = new RegExp(ID, "gi");
 
+// ``` で囲まれた行（閉じていなければ末尾まで）を除く。コード例に書いた ID で遷移させない
+function stripCodeBlocks(message: string): string {
+  let inBlock = false;
+  const kept: string[] = [];
+  for (const line of message.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inBlock = !inBlock;
+      continue;
+    }
+    if (!inBlock) kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+// Revert コミットは作業の完了を表さないので読まない（git revert の既定の件名・本文）
+export function isRevertCommit(subject: string, body: string): boolean {
+  return subject.startsWith('Revert "') || body.includes("This reverts commit");
+}
+
 // メッセージから、その Workspace のキーの Issue ID を拾う（同じ ID は最初の1回だけ）
 export function findClosingRefs(message: string, workspaceKey: string): { id: string; keyword: string }[] {
   const found: { id: string; keyword: string }[] = [];
-  for (const m of message.matchAll(CLOSING_RE)) {
+  for (const m of stripCodeBlocks(message).matchAll(CLOSING_RE)) {
     for (const idMatch of (m[2] ?? "").matchAll(ID_RE)) {
       const [key, number] = idMatch[0].split("-");
       if (key?.toUpperCase() !== workspaceKey.toUpperCase()) continue;
@@ -52,7 +75,7 @@ const RECORD = "\x1e";
 
 async function readCommits(run: GitRunner, path: string, ref: string, sinceDays: number): Promise<Commit[]> {
   const result: GhRunResult = await run(
-    ["-C", path, "log", ref, `--since=${sinceDays}.days.ago`, `--max-count=${GIT_SYNC_SCAN_MAX}`, "--no-color", `--format=%H${FIELD}%cI${FIELD}%s${FIELD}%B${RECORD}`, "--"],
+    ["-c", "log.showSignature=false", "-C", path, "log", ref, `--since=${sinceDays}.days.ago`, `--max-count=${GIT_SYNC_SCAN_MAX}`, "--no-color", `--format=%H${FIELD}%cI${FIELD}%s${FIELD}%B${RECORD}`, "--"],
     { timeoutMs: GIT_SYNC_TIMEOUT_MS },
   );
   if (result.kind === "not_found") throw new NodError("GIT_FAILED", "git が見つかりません");
@@ -84,7 +107,8 @@ interface CandidateRow {
   status: Status;
 }
 
-// 実行時の再確認にも使う。対象の状態で、同じコミットの記録がなく、コミットのあとに in_review になっていない
+// 実行時の再確認にも使う。対象の状態で、同じコミットの記録がなく、コミットのあとに in_review になっていない。
+// 一度でも in_review から動いた（人の差し戻し・取消）Issue は、新しいコミット（rebase・cherry-pick で SHA が変わったものを含む）でも進めない
 function eligible(db: Database, workspace: Workspace, number: number, sha: string, committedAt: string): CandidateRow | null {
   return db
     .query(
@@ -93,7 +117,9 @@ function eligible(db: Database, workspace: Workspace, number: number, sha: strin
          AND i.status IN (${COMMIT_REVIEW_FROM.map(() => "?").join(", ")})
          AND NOT EXISTS (SELECT 1 FROM auto_transitions t WHERE t.issue_id = i.id AND t.source = 'commit' AND t.source_key = ?)
          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
-           AND json_extract(e.data, '$.to') = 'in_review' AND e.created_at >= ?)`,
+           AND json_extract(e.data, '$.to') = 'in_review' AND e.created_at >= ?)
+         AND NOT EXISTS (SELECT 1 FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
+           AND json_extract(e.data, '$.from') = 'in_review')`,
     )
     .get(workspace.id, number, ...COMMIT_REVIEW_FROM, sha, committedAt) as CandidateRow | null;
 }
@@ -137,6 +163,7 @@ export async function syncGitCommits(
   const commits = await readCommits(run, workspace.path, ref, sinceDays);
   const byIssue = new Map<string, GitSyncCandidate & { at: number }>();
   for (const c of commits) {
+    if (isRevertCommit(c.subject, c.body)) continue;
     for (const r of findClosingRefs(c.body || c.subject, workspace.key)) {
       if (byIssue.has(r.id)) continue; // 新しいコミットが先に来る
       const row = eligible(ctx.db, workspace, Number(r.id.split("-")[1]), c.sha, c.committedAt);

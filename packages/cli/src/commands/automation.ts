@@ -136,7 +136,8 @@ export function registerAutomationCommands(program: Command): void {
         "同じ回で自動クローズした Issue はアーカイブしない。もう一度実行しても同じ Issue は対象にならない。",
         "PR 連動の対象: in_progress で、保存済みの PR 状態（nod issue pr-status --refresh で取得）が open（draft 以外）かマージ済みのもの。",
         "  gh は呼ばない。in_review にするだけで done にはしない（マージ済みは完了候補として人の承認を待つ）。",
-        "  同じ PR で一度進めた Issue は、差し戻し・取消のあとも同じ PR では進めない。取消は nod automation undo <id>。",
+        "  同じ PR で一度進めた Issue と、PR を付けたあとに in_review から動かした Issue（差し戻し・取消）は、同じ PR では進めない。",
+        "  取消は nod automation undo <id>。",
       ].join("\n"),
     )
     .action(
@@ -151,6 +152,14 @@ export function registerAutomationCommands(program: Command): void {
   automation
     .command("undo <id>")
     .description("PR 連動・コミット連動（nod git sync）による自動遷移を取り消し、Issue を元の状態に戻す（人だけ。Issue がまだ in_review のときだけ）")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "取り消せるのは、その Issue の最新の自動遷移のあとに状態が一度も変わっていないときだけ（変わっていれば INVALID_STATE）。",
+        "戻すのは status だけ。自動遷移で外した作業状況（agent_state）は戻さないので、必要なら作業者が付け直す。",
+      ].join("\n"),
+    )
     .action(
       act((cli, _cmd, id: string) => {
         const t = undoAutoTransition(cli.ctx, id);

@@ -8,7 +8,7 @@ import type { AutoTransition, AutoTransitionSource, PrState, Status } from "../t
 
 // PR・コミットによる自動遷移（#66・#68）。進める先は in_review だけで、done にはしない（完了は人がレビューで決める）。
 // 同じ Issue・同じ PR URL（コミット SHA）では一度だけ遷移させる。差し戻しや取消のあとも、記録が残るので再び進めない。
-// PR 連動は、現在の PR を付けたあとに一度でも in_review になった Issue（nod issue done 済み・差し戻し後）も進めない
+// PR 連動は、現在の PR を付けたあとに一度でも in_review になった、または in_review から動いた Issue（nod issue done 済み・差し戻し後）も進めない
 export const PR_REVIEW_FROM: Status[] = ["in_progress"];
 
 interface TransitionRow {
@@ -122,7 +122,9 @@ const PR_REVIEW_SELECT = `SELECT i.id, i.number, i.title, i.status, w.key AS ws_
     AND p.data IS NOT NULL AND p.pr_url = i.pr_url
     AND NOT EXISTS (SELECT 1 FROM auto_transitions t WHERE t.issue_id = i.id AND t.source = 'pr' AND t.source_key = i.pr_url)
     AND NOT EXISTS (SELECT 1 FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
-      AND json_extract(e.data, '$.to') = 'in_review' AND (i.pr_linked_at IS NULL OR e.created_at >= i.pr_linked_at))`;
+      AND json_extract(e.data, '$.to') = 'in_review' AND (i.pr_linked_at IS NULL OR e.created_at >= i.pr_linked_at))
+    AND NOT EXISTS (SELECT 1 FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
+      AND json_extract(e.data, '$.from') = 'in_review' AND (i.pr_linked_at IS NULL OR e.created_at >= i.pr_linked_at))`;
 
 export interface PrReviewTarget extends PrReviewRow {
   state: PrState;
@@ -149,7 +151,8 @@ export function prReviewTargets(db: Database, workspaceId: number, issueRowId?: 
   return withState(rows);
 }
 
-// その Issue の最新の未取消の自動遷移を取り消す。Issue がまだ遷移先（in_review）のときだけ元の状態に戻す（me だけ）
+// その Issue の最新の未取消の自動遷移を取り消す。Issue がまだ遷移先（in_review）で、自動遷移のあとに状態が変わっていないときだけ
+// 元の状態に戻す（me だけ）。戻すのは status だけで、自動遷移で外した作業状況（agent_state）は戻さない
 export function undoAutoTransition(ctx: OpCtx, ref: string): AutoTransition {
   if (isLlm(ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動遷移を取り消せません。取消は me に依頼してください");
@@ -163,6 +166,12 @@ export function undoAutoTransition(ctx: OpCtx, ref: string): AutoTransition {
     if (!t) throw new NodError("NOT_FOUND", `${id} に取り消せる自動遷移はありません`);
     if (row.status !== t.to_status) {
       throw new NodError("NOT_IN_REVIEW", `${id} はすでに ${row.status} なので取り消せません（自動遷移の取消は ${t.to_status} のときだけ）`);
+    }
+    const changedAfter = ctx.db
+      .query("SELECT 1 FROM events WHERE issue_id = ? AND type = 'status_changed' AND created_at > ? LIMIT 1")
+      .get(row.id, t.created_at);
+    if (changedAfter) {
+      throw new NodError("INVALID_STATE", `${id} は自動遷移の後に状態が変わっています。取り消せません（状態は手動で変えてください）`);
     }
     const what = t.source === "pr" ? `PR ${t.source_key}` : `コミット ${t.source_key.slice(0, 12)}`;
     setColumn(ctx, row, "status", t.from_status, { reason: `自動遷移の取消（${what}）`, automation: "undo" });

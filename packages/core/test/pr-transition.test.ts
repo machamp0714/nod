@@ -124,6 +124,7 @@ describe("PR 状態の更新による in_review への遷移", () => {
     const again = await refreshPrStatus(s.me, ref, gh({ state: "MERGED", mergedAt: "2026-09-29T00:00:00Z" }));
     expect(again.autoTransition).toBeNull();
     expect(statusOf(s, ref)).toBe("in_progress");
+    await Bun.sleep(2); // 差し戻しと同じミリ秒に付け直すと、付けたあとの差し戻しとして扱う
     linkPr(s.me, ref, PR_URL_2);
     const next = await refreshPrStatus(s.me, ref, gh({ number: 129, url: PR_URL_2 }));
     expect(next.autoTransition).toMatchObject({ sourceKey: PR_URL_2 });
@@ -149,6 +150,7 @@ describe("PR 状態の更新による in_review への遷移", () => {
     expect((await refreshPrStatus(s.llm, issue.id, gh({}))).autoTransition).toBeNull();
     expect(statusOf(s, issue.id)).toBe("in_progress");
     // 別の PR を紐付け直せば、その PR では再び対象になる
+    await Bun.sleep(2); // 差し戻しと同じミリ秒に付け直すと、付けたあとの差し戻しとして扱う
     linkPr(s.llm, issue.id, PR_URL_2);
     expect((await refreshPrStatus(s.llm, issue.id, gh({ number: 129, url: PR_URL_2 }))).autoTransition).toMatchObject({ sourceKey: PR_URL_2 });
   });
@@ -214,6 +216,20 @@ describe("自動化の実行（保存済みの PR 状態で評価）", () => {
   });
 });
 
+describe("PR を付けたあとの差し戻し", () => {
+  test("PR を付けたあとに in_review から動かした Issue は、in_review になったのが付ける前でも進めない", async () => {
+    const s = fixture();
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "付ける前にレビュー待ち" });
+    startIssue(s.llm, issue.id);
+    completeIssue(s.llm, issue.id, { summary: "直した" }); // PR なしで in_review
+    linkPr(s.llm, issue.id, PR_URL); // in_review のまま PR を付ける
+    rejectReview(s.me, issue.id, "足りない"); // 付けたあとに差し戻し
+    expect((await refreshPrStatus(s.me, issue.id, gh({}))).autoTransition).toBeNull();
+    expect(statusOf(s, issue.id)).toBe("in_progress");
+    expect(runAutomation(s.me, s.ws.key, { dryRun: true }).rules.find((r) => r.kind === "pr_review")?.total).toBe(0);
+  });
+});
+
 describe("自動遷移の取消", () => {
   test("in_review のままなら元の状態に戻し、取消を記録する。取消後も同じ PR では再遷移しない", async () => {
     const s = fixture();
@@ -239,6 +255,25 @@ describe("自動遷移の取消", () => {
     updateIssue(s.me, ref, { status: "done" });
     expect(codeOf(() => undoAutoTransition(s.me, ref))).toBe("NOT_IN_REVIEW");
     expect(statusOf(s, ref)).toBe("done");
+  });
+
+  test("自動遷移のあとに状態が変わっていれば、in_review に戻っていても取り消さない", async () => {
+    const s = fixture();
+    const ref = s.make();
+    await refreshPrStatus(s.me, ref, gh({}));
+    await Bun.sleep(2);
+    updateIssue(s.me, ref, { status: "in_progress" });
+    updateIssue(s.me, ref, { status: "in_review" });
+    let err: unknown;
+    try {
+      undoAutoTransition(s.me, ref);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ code: "INVALID_STATE" });
+    expect((err as Error).message).toContain("自動遷移の後に状態が変わっています");
+    expect(statusOf(s, ref)).toBe("in_review");
+    expect(listAutoTransitions(s.db, ref)[0]?.revertedAt).toBeNull();
   });
 });
 

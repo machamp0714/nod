@@ -25,18 +25,22 @@ Workspace ごとに `nod automation set --pr-review on` で有効にする（既
 in_progress の Issue の PR が open（draft 以外）かマージ済みなら in_review に進める。マージ済みでも done にはせず、完了候補として人の承認を待つ。
 レビューの判定（reviewDecision）は条件にしない。draft・未マージで閉じた PR・取得の失敗では進めない。Triage・アーカイブ済み・in_progress 以外は対象外。
 PR は作業中に `nod issue link-pr <id> <url>` で紐付ける（ステータスは変えない）。
-同じ Issue・同じ PR URL では一度だけ進め（`auto_transitions` に記録）、現在の PR を付けたあとに一度でも in_review になった Issue（`nod issue done` 済み・差し戻し後）は進めない。
+同じ Issue・同じ PR URL では一度だけ進め（`auto_transitions` に記録）、現在の PR を付けたあとに一度でも in_review になった、または in_review から動いた Issue（`nod issue done` 済み・差し戻し後）は進めない。
 PR を付け直せば、新しい PR では再び対象になる。
-誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review なら元の状態に戻す（人だけ）。取消も event と記録に残り、同じ PR では再び進めない。
+誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review で、自動遷移のあとに状態が変わっていなければ元の状態に戻す（人だけ。変わっていれば `INVALID_STATE`）。
+戻すのは status だけで、自動遷移で外した作業状況（agent_state）は戻さない。取消も event と記録に残り、同じ PR では再び進めない。
 
 ### コミット連動（#68）
 
 Workspace ごとに `nod automation set --commit-review on` で有効にする（既定は無効。設定は人だけ）。
 `nod git sync [--dry-run] [--since <日数>] [--ref <rev>] [--limit <n>]` は、Workspace のパスで `git log <ref>`（既定 HEAD・直近30日・最大1000コミット。fetch はしない）を読み、
 コミットメッセージの close / closes / closed / fix / fixes / fixed / resolve / resolves / resolved（大文字小文字は問わない）に続くこの Workspace の Issue ID を拾う。
-`Fixes API-1, API-2 and API-3` のように複数書ける。backlog / todo / in_progress の Issue を in_review にし、done にはしない。Triage・needs_clarification・in_review・done・canceled・アーカイブ済みは対象外。
+`Fixes API-1, API-2 and API-3` のように複数書ける。```` ``` ```` で囲まれたコードブロックの中と、Revert コミット（件名が `Revert "` で始まる、または本文に `This reverts commit`）は読まない。backlog / todo / in_progress の Issue を in_review にし、done にはしない。Triage・needs_clarification・in_review・done・canceled・アーカイブ済みは対象外。
 `--dry-run` は誰でも（LLM も）使え、実行は人だけで、無効な Workspace では実行できない（`AUTOMATION_DISABLED`）。
-同じ Issue・同じコミットでは一度だけ進め、コミットのあとで一度でも in_review になった Issue（差し戻し後など）は進めない。取消は PR 連動と同じく `nod automation undo <id>`。
+同じ Issue・同じコミットでは一度だけ進め、コミットのあとで一度でも in_review になった Issue は進めない。
+一度でも in_review から動いた Issue（人の差し戻し・取消）は、新しいコミット（rebase・cherry-pick で SHA が変わったものを含む）でも進めず、再び in_review にするのは人か LLM の `nod issue done` だけ。
+backlog / todo から進めても started_at は付けない（手動の遷移と同じ。作業時間は未計測になる）。取消は PR 連動と同じく `nod automation undo <id>`。
+git は `-c log.showSignature=false` を付け、`GIT_DIR`・`GIT_WORK_TREE` など `GIT_` で始まる環境変数を除いて起動する。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
 ### 人だけが行える操作と、その限界

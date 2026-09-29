@@ -46,7 +46,12 @@ const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
 
 // コマンドを起動して結果を返す。prefix は gh の前に置く引数（テストで bun スクリプトを gh の代わりにするため）。
 // 時間切れになったら出力や終了を待たずに timeout を返し、SIGTERM → 猶予 → SIGKILL で止める
-export function createCommandRunner(command: string, prefix: string[] = [], opts: { killGraceMs?: number } = {}): GhRunner {
+// env を渡すと、その関数で process.env から起動時の環境を作る（git 用に GIT_DIR などを除くため）
+export function createCommandRunner(
+  command: string,
+  prefix: string[] = [],
+  opts: { killGraceMs?: number; env?: (base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv } = {},
+): GhRunner {
   const killGraceMs = opts.killGraceMs ?? GH_KILL_GRACE_MS;
   return async (args, { timeoutMs }) => {
     let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
@@ -56,7 +61,7 @@ export function createCommandRunner(command: string, prefix: string[] = [], opts
         stdout: "pipe",
         stderr: "pipe",
         // 対話の確認を出させない。認証は gh 自身に任せ、nod はトークンを読まない
-        env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+        env: { ...(opts.env ? opts.env(process.env) : process.env), GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
       });
     } catch (e) {
       const err = e as { code?: string; message?: string };
