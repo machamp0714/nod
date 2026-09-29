@@ -41,8 +41,19 @@ describe("PR 差分 API", () => {
     const res = await call(app, "POST", `/api/issues/${ref}/pr-diff/refresh`);
     expect(res.status).toBe(200);
     expect(res.json.diff).toMatchObject({ headSha: HEAD, baseSha: BASE, additions: 1, deletions: 1, fetchedBy: "me" });
-    expect(res.json.diff.files[0].patch).toBe("@@ -1 +1 @@\n-<script>alert(1)</script>\n+ok");
+    expect(res.json.diff.files[0]).not.toHaveProperty("patch");
     expect(getPrDiff(db, ref).diff?.fetchedBy).toBe("me");
+  });
+
+  test("GET files?path= はそのファイルの patch を文字列のまま返す。無いパス・差分は 404、path なしは 400", async () => {
+    const { app, ref } = withGh(okGh);
+    expect((await call(app, "GET", `/api/issues/${ref}/pr-diff/files?path=src%2Fa.ts`)).status).toBe(404);
+    await call(app, "POST", `/api/issues/${ref}/pr-diff/refresh`);
+    const res = await call(app, "GET", `/api/issues/${ref}/pr-diff/files?path=${encodeURIComponent("src/a.ts")}`);
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ path: "src/a.ts", patch: "@@ -1 +1 @@\n-<script>alert(1)</script>\n+ok" });
+    expect((await call(app, "GET", `/api/issues/${ref}/pr-diff/files?path=nope.ts`)).status).toBe(404);
+    expect((await call(app, "GET", `/api/issues/${ref}/pr-diff/files`)).status).toBe(400);
   });
 
   test("取得の失敗は 200 で fetchError を返す", async () => {

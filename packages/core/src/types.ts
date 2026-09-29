@@ -443,11 +443,14 @@ export interface PrDiffFile {
   omitted: "binary" | "too_large" | null; // patch を持たない理由
 }
 
+// 一覧に出すファイルの要約。patch は GET /api/issues/:id/pr-diff/files・nod issue pr-diff --file でファイルごとに読む
+export type PrDiffFileSummary = Omit<PrDiffFile, "patch">;
+
 export interface PrDiff {
   prUrl: string;
   headSha: string;
   baseSha: string;
-  files: PrDiffFile[];
+  files: PrDiffFileSummary[];
   additions: number;
   deletions: number;
   fetchedAt: string;

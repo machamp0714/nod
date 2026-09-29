@@ -21,6 +21,7 @@ import {
   createCommandRunner,
   refreshPrStatus,
   getPrDiff,
+  getPrDiffFile,
   refreshPrDiff,
   getWorkspaceRules,
   importPlan,
@@ -228,13 +229,7 @@ export function registerIssueCommands(program: Command): void {
           print(cli, view, () => formatPrDiff(view));
           return;
         }
-        const found = view.diff?.files.find((f) => f.path === file);
-        if (!found) {
-          throw new NodError(
-            "NOT_FOUND",
-            view.diff ? `差分に ${file} はありません` : `表示できる差分がありません。nod issue pr-diff ${view.issueId} で状態を確かめる`,
-          );
-        }
+        const found = getPrDiffFile(cli.db, id, file);
         print(cli, found, () => formatPrDiffFile(found));
       }),
     );

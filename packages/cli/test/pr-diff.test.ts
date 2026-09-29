@@ -16,6 +16,7 @@ const DIFF = [
   " import x;",
   "-const q = 1;",
   "+const q = '\x1b[31mred';",
+  "+const s = 'admin\u202e \u2066// user\u2069';",
   "diff --git a/img/logo.png b/img/logo.png",
   "Binary files a/img/logo.png and b/img/logo.png differ",
   "diff --git a/src/a.ts b/src/b.ts",
@@ -68,25 +69,31 @@ describe("nod issue pr-diff", () => {
     const gh = fakeGh(VIEW, DIFF);
     const r = await runNod(["issue", "pr-diff", id, "--refresh", "--json"], { cwd: repo, db, actor: "claude-code", env: { NOD_GH: gh.path } });
     expect(r.exitCode).toBe(0);
-    expect(r.json.diff).toMatchObject({ headSha: HEAD, additions: 1, deletions: 1, fetchedBy: "claude-code" });
+    expect(r.json.diff).toMatchObject({ headSha: HEAD, additions: 2, deletions: 1, fetchedBy: "claude-code" });
+    expect(r.json.diff.files[0]).not.toHaveProperty("patch");
     expect(readFileSync(gh.log, "utf8").trim().split("\n")).toEqual([
       `pr view ${PR_URL} --json headRefOid,baseRefOid,changedFiles`,
-      `api -H Accept: application/vnd.github.diff repos/example/api-server/compare/${BASE}...${HEAD}`,
+      `api --hostname github.com -H Accept: application/vnd.github.diff repos/example/api-server/compare/${BASE}...${HEAD}`,
     ]);
     const text = await runNod(["issue", "pr-diff", id], { cwd: repo, db });
-    expect(text.stdout).toContain("HEAD aaaaaaa · 変更ファイル 3 · +1 −1");
-    expect(text.stdout).toContain("  M src/search.ts  +1 −1");
+    expect(text.stdout).toContain("HEAD aaaaaaa · 変更ファイル 3 · +2 −1");
+    expect(text.stdout).toContain("  M src/search.ts  +2 −1");
     expect(text.stdout).toContain("  M img/logo.png  +0 −0  バイナリ");
     expect(text.stdout).toContain("  R src/a.ts → src/b.ts  +0 −0");
   });
 
-  test("--file でそのファイルの差分を出し、制御文字は置き換える", async () => {
+  test("--file でそのファイルの差分を出し、制御文字は置き換え、双方向の制御文字は符号を見せて注意を出す", async () => {
     const id = await issueWithPr();
     await runNod(["issue", "pr-diff", id, "--refresh"], { cwd: repo, db, env: { NOD_GH: fakeGh(VIEW, DIFF).path } });
     const r = await runNod(["issue", "pr-diff", id, "--file", "src/search.ts"], { cwd: repo, db });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("@@ -1,2 +1,2 @@\n import x;\n-const q = 1;\n+const q = '�[31mred';");
     expect(r.stdout).not.toContain("\x1b");
+    expect(r.stdout).toContain("+const s = 'admin⟪U+202E⟫ ⟪U+2066⟫// user⟪U+2069⟫';");
+    expect(r.stdout).toContain("注意: 双方向の制御文字を含みます");
+    expect(/[\u202a-\u202e\u2066-\u2069]/.test(r.stdout)).toBe(false);
+    const json = await runNod(["issue", "pr-diff", id, "--file", "src/search.ts", "--json"], { cwd: repo, db });
+    expect(json.json.patch).toContain("\u202e");
     const bin = await runNod(["issue", "pr-diff", id, "--file", "img/logo.png"], { cwd: repo, db });
     expect(bin.stdout).toContain("バイナリのため差分を表示しません");
     const missing = await runNod(["issue", "pr-diff", id, "--file", "nope.ts", "--json"], { cwd: repo, db });
@@ -106,5 +113,16 @@ describe("nod issue pr-diff", () => {
     expect(r.stdout).toContain("取得に失敗（GH_AUTH）: gh が未認証です。gh auth login を実行してください");
     expect(r.stdout).toContain("前回取得");
     expect(r.stdout).toContain("src/search.ts");
+  });
+
+  test("失敗の理由（gh の出力）の制御文字も置き換える", async () => {
+    const id = await issueWithPr();
+    const dir = tempDir("nod-fake-gh-");
+    const path = join(dir, "gh");
+    writeFileSync(path, "#!/bin/sh\nprintf 'boom \\033[2J\\342\\200\\256x' >&2\nexit 1\n");
+    chmodSync(path, 0o755);
+    const r = await runNod(["issue", "pr-diff", id, "--refresh"], { cwd: repo, db, env: { NOD_GH: path } });
+    expect(r.stdout).toContain("取得に失敗（UNKNOWN）: 取得に失敗しました: boom �[2J⟪U+202E⟫x");
+    expect(r.stdout).not.toContain("\x1b");
   });
 });

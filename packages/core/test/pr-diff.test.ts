@@ -3,6 +3,7 @@ import { completeIssue, startIssue } from "../src/ops/agent";
 import { createIssue } from "../src/ops/issues";
 import {
   getPrDiff,
+  getPrDiffFile,
   PR_DIFF_FILE_MAX_BYTES,
   PR_DIFF_FILE_MAX_LINES,
   PR_DIFF_MAX_BYTES,
@@ -18,6 +19,8 @@ const PR_URL = "https://github.com/example/api-server/pull/128";
 const HEAD = "a".repeat(40);
 const HEAD2 = "b".repeat(40);
 const BASE = "c".repeat(40);
+
+const COMPARE = ["api", "--hostname", "github.com", "-H", "Accept: application/vnd.github.diff", `repos/example/api-server/compare/${BASE}...${HEAD}`];
 
 const ok = (stdout: string): GhRunResult => ({ kind: "exited", exitCode: 0, stdout, stderr: "" });
 const fail = (stderr: string, exitCode = 1): GhRunResult => ({ kind: "exited", exitCode, stdout: "", stderr });
@@ -180,13 +183,33 @@ describe("refreshPrDiff", () => {
     const view = await refreshPrDiff(me, ref, gh);
     expect(gh.calls).toEqual([
       ["pr", "view", PR_URL, "--json", "headRefOid,baseRefOid,changedFiles"],
-      ["api", "-H", "Accept: application/vnd.github.diff", `repos/example/api-server/compare/${BASE}...${HEAD}`],
+      COMPARE,
     ]);
     expect(view.fetchError).toBeNull();
     expect(view.stale).toBeNull();
     expect(view.diff).toMatchObject({ prUrl: PR_URL, headSha: HEAD, baseSha: BASE, additions: 3, deletions: 1, fetchedBy: "me" });
     expect(view.diff!.files.map((f) => f.path)).toEqual(["src/search.ts", "docs/new.md"]);
     expect(getPrDiff(db, ref)).toEqual(view);
+  });
+
+  test("一覧は patch を持たない要約だけを返し、patch はファイルごとに getPrDiffFile で読む", async () => {
+    const { me, db, ref } = withPr();
+    const view = await refreshPrDiff(me, ref, stub(ok(viewJson())));
+    for (const f of view.diff!.files) expect("patch" in f).toBe(false);
+    expect(view.diff!.files[0]).toEqual({ path: "src/search.ts", oldPath: null, status: "modified", binary: false, additions: 2, deletions: 1, omitted: null });
+    const file = getPrDiffFile(db, ref, "src/search.ts");
+    expect(file.patch).toBe("@@ -1,3 +1,4 @@\n import { db } from './db';\n-const q = 1;\n+const q = 2;\n+const r = 3;\n export {};");
+    expect(() => getPrDiffFile(db, ref, "nope.ts")).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+  });
+
+  test("差分が無い・HEAD が変わった差分のファイルは NOT_FOUND", async () => {
+    const { me, db, ref } = withPr();
+    expect(() => getPrDiffFile(db, ref, "src/search.ts")).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+    await refreshPrDiff(me, ref, stub(ok(viewJson())));
+    await Bun.sleep(2);
+    const status = JSON.stringify({ number: 128, title: "t", url: PR_URL, state: "OPEN", isDraft: false, reviewDecision: null, mergedAt: null, statusCheckRollup: [], headRefOid: HEAD2 });
+    await refreshPrStatus(me, ref, async () => ok(status));
+    expect(() => getPrDiffFile(db, ref, "src/search.ts")).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
   });
 
   test("LLM も取得でき、アクティビティ・通知は増やさない", async () => {
@@ -242,6 +265,32 @@ describe("refreshPrDiff", () => {
     const fixed = await refreshPrDiff(me, ref, stub(ok(viewJson())));
     expect(fixed.fetchError).toBeNull();
     expect(fixed.diff).not.toBeNull();
+  });
+
+  test("空でない本文から1件も解析できなければ UNKNOWN（JSON・HTML が返ったとき）で、前回の差分は残す", async () => {
+    const { me, ref } = withPr();
+    await refreshPrDiff(me, ref, stub(ok(viewJson())));
+    for (const body of ['{"message":"Not Found"}', "<!DOCTYPE html><html><body>Sign in</body></html>"]) {
+      const view = await refreshPrDiff(me, ref, stub(ok(viewJson()), ok(body)));
+      expect(view.fetchError).toMatchObject({ code: "UNKNOWN", message: "取得に失敗しました: 差分を解析できませんでした" });
+      expect(view.diff?.headSha).toBe(HEAD);
+      expect(view.diff?.files).toHaveLength(2);
+    }
+  });
+
+  test("本文が空（変更のない PR）は0件の差分として保存する", async () => {
+    const { me, ref } = withPr();
+    for (const body of ["", "\n"]) {
+      const view = await refreshPrDiff(me, ref, stub(ok(viewJson({ changedFiles: 0 })), ok(body)));
+      expect(view.fetchError).toBeNull();
+      expect(view.diff?.files).toEqual([]);
+    }
+  });
+
+  test("gh pr view の失敗は大きすぎるという文言でも DIFF_TOO_LARGE にしない（compare の失敗だけ）", async () => {
+    const { me, ref } = withPr();
+    const view = await refreshPrDiff(me, ref, stub(fail("HTTP 406: response too large")));
+    expect(view.fetchError?.code).toBe("UNKNOWN");
   });
 
   test(`変更ファイルが ${PR_DIFF_MAX_FILES} 件を超えるなら compare を実行せず DIFF_TOO_LARGE`, async () => {
@@ -364,6 +413,35 @@ describe("HEAD が変わった差分", () => {
     await Bun.sleep(2);
     await refreshPrDiff(me, ref, stub(ok(viewJson({ headRefOid: HEAD2 }))));
     expect(getPrDiff(db, ref).stale).toBeNull();
+  });
+
+  test("前後は取得を始めた時刻で比べる。PR 状態より先に始めて後に終わった差分は古い", async () => {
+    const { me, db, ref } = withPr();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const diffGh: GhRunner = async (args) => {
+      if (args[0] === "pr") return ok(viewJson());
+      await gate;
+      return ok(DIFF);
+    };
+    const pending = refreshPrDiff(me, ref, diffGh);
+    await Bun.sleep(2);
+    await refreshPrStatus(me, ref, statusGh(HEAD2));
+    await Bun.sleep(2);
+    release();
+    await pending;
+    expect(getPrDiff(db, ref).stale).toMatchObject({ diffHeadSha: HEAD, currentHeadSha: HEAD2 });
+  });
+
+  test("差分の取り直しが失敗しても、古い差分は古いまま", async () => {
+    const { me, db, ref } = withPr();
+    await refreshPrDiff(me, ref, stub(ok(viewJson())));
+    await Bun.sleep(2);
+    await refreshPrStatus(me, ref, statusGh(HEAD2));
+    await Bun.sleep(2);
+    const failed = await refreshPrDiff(me, ref, stub({ kind: "timeout" }));
+    expect(failed.fetchError?.code).toBe("TIMEOUT");
+    expect(getPrDiff(db, ref).stale).toMatchObject({ diffHeadSha: HEAD, currentHeadSha: HEAD2 });
   });
 
   test("HEAD を持たない以前の PR 状態は判定に使わない", async () => {
