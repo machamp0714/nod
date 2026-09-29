@@ -109,7 +109,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
   });
 }
 
-interface NewIssueRow {
+export interface NewIssueRow {
   workspaceId: number;
   title: string;
   description: string | null;
@@ -119,11 +119,12 @@ interface NewIssueRow {
   parentId: number | null;
   projectId: number | null;
   labels: string[];
-  origin: Record<string, string>; // created の event に残す由来（発見元、複製元）
+  assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
+  origin: Record<string, string | number>; // created の event に残す由来（発見元、複製元、定期Issue）
 }
 
-// 起票と複製で共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
-function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
+// 起票・複製・定期Issueで共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
+export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
     id: number;
     next_number: number;
@@ -134,8 +135,8 @@ function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, assignee, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -148,6 +149,7 @@ function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.dueDate,
       input.parentId,
       input.projectId,
+      input.assignee ?? null,
       ctx.actor,
       ts,
       ts,

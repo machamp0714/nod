@@ -41,6 +41,8 @@ describe("openDb", () => {
       "pr_statuses",
       "projects",
       "questions",
+      "recurring_issue_occurrences",
+      "recurring_issues",
       "relations",
       "reminders",
       "subscriptions",
