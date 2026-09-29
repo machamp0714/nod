@@ -100,11 +100,11 @@ describe("Project の進捗報告", () => {
   });
 });
 
-test("版2の DB を移行しても既存データを保ち、報告は空で始まる", () => {
+test("進捗報告の前の版の DB を移行しても既存データを保ち、報告は空で始まる", () => {
   const path = tempDbPath();
   const old = new Database(path, { create: true });
   old.exec("PRAGMA foreign_keys=ON");
-  for (const [v, steps] of MIGRATIONS.slice(0, 2).entries()) {
+  for (const [v, steps] of MIGRATIONS.slice(0, SCHEMA_VERSION - 1).entries()) {
     for (const step of steps) {
       if (typeof step === "string") old.exec(step);
       else step(old);

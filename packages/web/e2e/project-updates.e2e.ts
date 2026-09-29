@@ -16,7 +16,7 @@ test("Web で書いた報告を書き手・日時つきで新しい順に表示�
   await expect(records(page).first()).toContainText("me");
   await expect(records(page).first().locator("p")).toHaveText("<b>太字にしない</b>\n二行目");
   await expect(records(page).first().locator("b")).toHaveCount(0);
-  await expect(records(page).first().locator("time")).toHaveText(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);
+  await expect(records(page).first().locator("time")).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   await input(page).fill("次の報告");
   await page.getByRole("button", { name: "報告する" }).click();
   await expect(records(page)).toHaveCount(2);
