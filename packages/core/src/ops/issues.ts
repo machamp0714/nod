@@ -43,6 +43,23 @@ export function validatePriority(p: number): void {
   }
 }
 
+export function validateEstimate(estimate: number): void {
+  if (!Number.isInteger(estimate) || estimate < 1 || estimate > 100) {
+    throw new NodError("INVALID_ARGS", "見積もりは 1〜100 の整数（ポイント）で指定してください");
+  }
+}
+
+// 期限は時刻を持たない暦日。タイムゾーンで日付がずれないよう、文字列のまま保存する
+export function validateDueDate(dueDate: string): void {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
+  const [y, mo, d] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+  const date = new Date(Date.UTC(2000, 0, 1));
+  date.setUTCFullYear(y, mo - 1, d);
+  if (!m || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
+    throw new NodError("INVALID_ARGS", `${dueDate} は期限として使えません（YYYY-MM-DD の日付で指定してください。例: 2026-10-01）`);
+  }
+}
+
 export interface CreateIssueInput {
   workspaceId: number;
   title: string;
@@ -52,6 +69,8 @@ export interface CreateIssueInput {
   parentRef?: string;
   discoveredFromRef?: string;
   priority?: number;
+  estimate?: number;
+  dueDate?: string;
   labels?: string[];
 }
 
@@ -64,6 +83,8 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     );
   }
   if (input.priority !== undefined) validatePriority(input.priority);
+  if (input.estimate !== undefined) validateEstimate(input.estimate);
+  if (input.dueDate !== undefined) validateDueDate(input.dueDate);
   return tx(ctx.db, () => {
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
@@ -74,6 +95,8 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       title: input.title,
       description,
       priority: input.priority ?? 0,
+      estimate: input.estimate ?? null,
+      dueDate: input.dueDate ?? null,
       parentId: parent?.id ?? null,
       projectId: project?.id ?? null,
       labels: input.labels ?? [],
@@ -87,6 +110,8 @@ interface NewIssueRow {
   title: string;
   description: string | null;
   priority: number;
+  estimate: number | null;
+  dueDate: string | null;
   parentId: number | null;
   projectId: number | null;
   labels: string[];
@@ -105,10 +130,24 @@ function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, parent_id, project_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(ws.id, ws.next_number, input.title, input.description, status, input.priority, input.parentId, input.projectId, ctx.actor, ts, ts);
+    .run(
+      ws.id,
+      ws.next_number,
+      input.title,
+      input.description,
+      status,
+      input.priority,
+      input.estimate,
+      input.dueDate,
+      input.parentId,
+      input.projectId,
+      ctx.actor,
+      ts,
+      ts,
+    );
   const id = Number(lastInsertRowid);
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
@@ -130,6 +169,8 @@ export function copyIssue(ctx: OpCtx, ref: string, opts: { title?: string } = {}
       title: opts.title ?? row.title,
       description: row.description,
       priority: row.priority,
+      estimate: null,
+      dueDate: null,
       parentId: null,
       projectId: row.project_id,
       labels,
@@ -299,6 +340,8 @@ export interface UpdateIssueInput {
   title?: string;
   description?: string | null;
   priority?: number;
+  estimate?: number | null; // null で解除
+  dueDate?: string | null; // null で解除
   status?: Status;
   assignee?: string | null;
   parentRef?: string | null;
@@ -349,11 +392,15 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   }
   if (input.title !== undefined) requireText(input.title, "タイトル");
   if (input.priority !== undefined) validatePriority(input.priority);
+  if (input.estimate != null) validateEstimate(input.estimate);
+  if (input.dueDate != null) validateDueDate(input.dueDate);
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) setColumn(ctx, row, "description", input.description);
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
+    if (input.estimate !== undefined) setColumn(ctx, row, "estimate", input.estimate);
+    if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);
     if (input.assignee !== undefined) setColumn(ctx, row, "assignee", input.assignee);
     if (input.parentRef !== undefined) {
       const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;

@@ -38,6 +38,8 @@ export interface Issue {
   description: string | null;
   status: Status;
   priority: number;
+  estimate: number | null; // 見積もり（ポイント 1〜100）。未設定は null
+  dueDate: string | null; // 期限（時刻なしの暦日 YYYY-MM-DD）。未設定は null
   assignee: string | null;
   agentState: AgentState | null;
   parentId: string | null;
