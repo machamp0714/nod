@@ -3,9 +3,9 @@ import type { Issue, Status } from "../../api/types";
 import { countRows, filterRows, groupForBoard, groupRowsByWorkspace, sortRows } from "./issue-list";
 import type { IssueListRow } from "./types";
 
-function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string } = {}): IssueListRow {
+function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; assignee?: string } = {}): IssueListRow {
   return {
-    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0 } as Issue,
+    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0, assignee: opts.assignee ?? null } as Issue,
     questions: { decided: 0, total: 0 },
     ready: opts.ready ?? false,
     workspaceName: "api-server",
@@ -47,7 +47,20 @@ describe("filterRows", () => {
   });
 
   test("件数を数える", () => {
-    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1 });
+    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1, delegated: 0 });
+  });
+
+  test("委任中タブは担当が LLM で done/canceled 以外の Issue だけを出し、件数を数える", () => {
+    const delegated = [
+      row("API-1", "in_progress", { assignee: "claude-code" }),
+      row("API-2", "in_review", { assignee: "codex" }),
+      row("API-3", "todo", { assignee: "me" }),
+      row("API-4", "todo"),
+      row("API-5", "done", { assignee: "codex" }),
+      row("API-6", "canceled", { assignee: "codex" }),
+    ];
+    expect(ids(filterRows(delegated, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
+    expect(countRows(delegated).delegated).toBe(2);
   });
 });
 

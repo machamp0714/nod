@@ -46,6 +46,15 @@ describe("GET /api/issues", () => {
     expect(other.json).toEqual({ issues: [], counts: { ready: 0, needsClarification: 0 } });
   });
 
+  test("delegated=true は担当が LLM で done/canceled 以外の Issue だけを返す", async () => {
+    const s = seed();
+    startIssue(s.llm, "API-1");
+    const r = await call(s.app, "GET", "/api/issues?delegated=true");
+    expect(r.status).toBe(200);
+    expect(r.json.issues.map((i: { id: string; assignee: string }) => [i.id, i.assignee])).toEqual([["API-1", "claude-code"]]);
+    expect((await call(s.app, "GET", "/api/issues?delegated=yes")).status).toBe(400);
+  });
+
   test("誤った条件は 400、ない Project は 404", async () => {
     const { app } = seed();
     expect((await call(app, "GET", "/api/issues?status=wip")).json.error.code).toBe("INVALID_ARGS");

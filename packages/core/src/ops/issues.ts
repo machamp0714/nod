@@ -3,7 +3,7 @@ import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent, threadRootId } from "../events";
@@ -147,6 +147,7 @@ export interface ListIssuesFilter {
   ready?: boolean;
   query?: string;
   blocked?: boolean;
+  delegated?: boolean;
 }
 
 // Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
@@ -184,6 +185,9 @@ function matchesQuery(issue: Issue, query: string | undefined): boolean {
   return !needle || [issue.id, issue.title, issue.description ?? ""].some((text) => text.toLowerCase().includes(needle));
 }
 
+// 委任中：担当が LLM（私以外）で、done と canceled 以外。agent_state は問わない。? には HUMAN_ACTOR を渡す
+const DELEGATED_WHERE = "(i.assignee IS NOT NULL AND i.assignee <> ? AND i.status NOT IN ('done', 'canceled'))";
+
 export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
   const { where, params } = scopeWhere(db, filter);
   const statuses = filter.statuses?.length ? filter.statuses : STATUSES.filter((s) => s !== "done" && s !== "canceled");
@@ -192,6 +196,10 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
   if (filter.ready) {
     where.push(READY_WHERE);
     params.push(now());
+  }
+  if (filter.delegated) {
+    where.push(DELEGATED_WHERE);
+    params.push(HUMAN_ACTOR);
   }
   return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params)
     .filter((issue) => matchesQuery(issue, filter.query));
@@ -218,6 +226,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     ready: q.ready,
     query: q.q,
     blocked: q.blocked,
+    delegated: q.delegated,
   };
   const scope = scopeWhere(db, filter);
   const scopeSql = scope.where.map((w) => ` AND ${w}`).join("");

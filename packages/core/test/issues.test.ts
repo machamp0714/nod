@@ -259,6 +259,33 @@ describe("queryIssues", () => {
     expect(queryIssues(db, {}).counts).toEqual({ ready: 2, needsClarification: 1 });
   });
 
+  test("delegated は担当が LLM で done/canceled 以外の Issue だけを返し、agent_state は問わない", () => {
+    const { db, ws, me, llm } = setup();
+    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
+    const working = createIssue(me, { workspaceId: ws.id, title: "working" });
+    startIssue(llm, working.id);
+    const assigned = createIssue(me, { workspaceId: web.id, title: "assigned" });
+    updateIssue(me, assigned.id, { assignee: "codex" });
+    const review = createIssue(me, { workspaceId: ws.id, title: "review" });
+    updateIssue(me, review.id, { assignee: "codex", status: "in_review" });
+    const mine = createIssue(me, { workspaceId: ws.id, title: "mine" });
+    updateIssue(me, mine.id, { assignee: "me" });
+    createIssue(me, { workspaceId: ws.id, title: "unassigned" });
+    const finished = createIssue(me, { workspaceId: ws.id, title: "finished" });
+    updateIssue(me, finished.id, { assignee: "codex", status: "done" });
+    const dropped = createIssue(me, { workspaceId: ws.id, title: "dropped" });
+    updateIssue(me, dropped.id, { assignee: "codex", status: "canceled" });
+    const ids = (q: IssueQuery) => queryIssues(db, q).issues.map((i) => i.id);
+    expect(ids({ delegated: true })).toEqual([working.id, review.id, assigned.id]);
+    expect(ids({ delegated: true, status: ["done", "in_review"] })).toEqual([review.id]);
+    expect(ids({ delegated: true, workspace: ["WEB"] })).toEqual([assigned.id]);
+    expect(listIssues(db, { delegated: true, statuses: ["done", "canceled", "todo", "in_progress", "in_review"] }).map((i) => i.id)).toEqual([
+      working.id,
+      review.id,
+      assigned.id,
+    ]);
+  });
+
   test("各 Issue に未決事項の決定数と総数を付ける", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });

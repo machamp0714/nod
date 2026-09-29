@@ -29,6 +29,7 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.project) params.set("project", query.project);
   for (const label of query.label ?? []) params.append("label", label);
   if (query.ready) params.set("ready", "true");
+  if (query.delegated) params.set("delegated", "true");
   if (query.q) params.set("q", query.q);
   if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
   const text = params.toString();
@@ -43,6 +44,7 @@ function normalize(query: IssueQuery) {
     project: query.project ?? "",
     label: sorted(query.label),
     ready: query.ready === true,
+    delegated: query.delegated === true,
     q: query.q ?? "",
     blocked: query.blocked,
   };
@@ -53,7 +55,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "label" | "ready" | "q" | "blocked";
+export type FilterKey = "workspace" | "status" | "project" | "label" | "ready" | "delegated" | "q" | "blocked";
 
 export interface FilterChip {
   key: FilterKey;
@@ -88,6 +90,8 @@ export function describeFilter(
   if (filter.label?.length) chips.push({ key: "label", name: "Label", values: filter.label.join(", ") });
   // ready は絞り込みのバーでは足せないが、API で作った View の filter に入りうるため、外せるように出す
   if (filter.ready) chips.push({ key: "ready", name: "Ready", values: "のみ" });
+  // 委任中も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す
+  if (filter.delegated) chips.push({ key: "delegated", name: "委任中", values: "のみ" });
   if (filter.q) chips.push({ key: "q", name: "検索", values: filter.q });
   if (filter.blocked !== undefined) chips.push({ key: "blocked", name: "ブロック", values: filter.blocked ? "ブロック中" : "ブロックなし" });
   return chips;

@@ -485,3 +485,33 @@
     box-shadow: -8px 0 24px rgb(0 0 0 / 0.08);
   }
 }
+
+/* design/nod.pen「Issues｜委任中タブ（#53）」 */
+.agentDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.agentDotMark { width: 6px; height: 6px; border-radius: 3px; flex: none; }
+.breakdown { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 4px; }
+.breakdown .agentDot { margin-left: 0; }
+.agentName { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+.emptyDelegated {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 240px;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 500;
+}

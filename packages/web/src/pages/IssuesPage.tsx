@@ -47,7 +47,9 @@ export function IssuesPage() {
           views={views.isError ? undefined : views.data}
           selfId={null}
           onSubmit={async (value) => {
-            const view = await createView.mutateAsync({ ...value, filter });
+            // 委任中タブで保存した View は、開いたときも委任中だけが出るように条件へ含める（Ready タブは含めない）
+            const saved = search.tab === "delegated" ? { ...filter, delegated: true } : filter;
+            const view = await createView.mutateAsync({ ...value, filter: saved });
             setSaving(false);
             navigate({ to: "/views/$viewId", params: { viewId: String(view.id) } });
           }}

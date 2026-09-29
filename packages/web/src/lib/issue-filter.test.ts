@@ -32,6 +32,8 @@ describe("issueQueryToParams", () => {
       issueQueryToParams({ workspace: ["API", "NOD"], status: ["todo"], project: "3", label: ["bug", "a b"], ready: true }),
     ).toBe("?workspace=API&workspace=NOD&status=todo&project=3&label=bug&label=a+b&ready=true");
     expect(issueQueryToParams({ ready: false })).toBe("");
+    expect(issueQueryToParams({ delegated: true })).toBe("?delegated=true");
+    expect(issueQueryToParams({ delegated: false })).toBe("");
     expect(issueQueryToParams({})).toBe("");
   });
 });
@@ -43,6 +45,7 @@ describe("sameFilter", () => {
     expect(sameFilter({ status: ["todo"] }, {})).toBe(false);
     expect(sameFilter({ project: "1" }, { project: "2" })).toBe(false);
     expect(sameFilter({ ready: true }, {})).toBe(false);
+    expect(sameFilter({ delegated: true }, {})).toBe(false);
   });
 });
 
@@ -68,6 +71,8 @@ describe("describeFilter", () => {
       { key: "ready", name: "Ready", values: "のみ" },
     ]);
     expect(describeFilter({}, labelOf)).toEqual([]);
+    // 委任中は API や CLI で作った View の filter に入りうるため、外せるようにチップを出す
+    expect(describeFilter({ delegated: true }, labelOf)).toEqual([{ key: "delegated", name: "委任中", values: "のみ" }]);
   });
 });
 

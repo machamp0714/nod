@@ -22,6 +22,7 @@ describe("parseIssueListSearch", () => {
   test("指定のないキーは追加しない", () => {
     expect(parseIssueListSearch({})).toEqual({});
     expect(parseIssueListSearch({ tab: "ready" })).toEqual({ tab: "ready" });
+    expect(parseIssueListSearch({ tab: "delegated" })).toEqual({ tab: "delegated" });
   });
 
   test("数字だけの検索語（ルーターが数値にしたもの）は文字列に戻す", () => {

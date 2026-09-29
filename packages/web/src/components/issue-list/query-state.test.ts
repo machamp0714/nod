@@ -11,7 +11,7 @@ const rows: IssueListRow[] = [
 ];
 test("説明検索は非ASCIIの大小文字を維持しカードの母集団は変えない", () => {
   for (const q of ["users", " 日本語 ", "école", "%_"]) expect(filterRows(rows, {tab:"all", q}).map(r => r.issue.id)).toEqual(["API-2"]);
-  expect(countRows(rows)).toEqual({all:2,ready:1,needsClarification:0});
+  expect(countRows(rows)).toEqual({all:2,ready:1,needsClarification:0,delegated:0});
 });
 test("Workspaceは名前でなくキーで分け入力を変更しない", () => {
   const reversed = [...rows].reverse();

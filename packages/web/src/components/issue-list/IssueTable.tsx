@@ -1,4 +1,5 @@
 import { ISSUE_COLUMNS, type IssueColumn } from "../../routes/search";
+import { AgentStateDot } from "./AgentStateDot";
 import { BlockedBy } from "./BlockedBy";
 import { Link } from "@tanstack/react-router";
 import { prLabel } from "../../lib/format";
@@ -12,12 +13,14 @@ export function IssueTable({
   hideHeader = false,
   previewId,
   onPreview,
+  showAgentState = false,
 }: {
   rows: IssueListRow[];
   columns?: IssueColumn[];
   hideHeader?: boolean; // サブグループの表は列見出しを画面に出さない（支援技術には残す）
   previewId?: string;
   onPreview?: (id: string) => void;
+  showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
 }) {
   return (
     <div className={s.tableScroll}>
@@ -70,6 +73,7 @@ export function IssueTable({
                 <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
                   {issue.title}
                 </Link>
+                {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
                 <BlockedBy ids={issue.blockedBy} />
                 {onPreview && (
                   <button type="button" className={s.previewButton} aria-label={`${issue.id} をプレビュー`} onClick={() => onPreview(issue.id)}>

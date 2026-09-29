@@ -1,4 +1,4 @@
-import type { Status } from "../../api/types";
+import type { Issue, Status } from "../../api/types";
 import { BOARD_STATUSES, priorityMeta, STATUS_META, STATUS_ORDER } from "../../lib/meta";
 import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueTab, IssueSort, SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";
@@ -25,6 +25,11 @@ export function sortRows(rows: readonly IssueListRow[], sort: IssueSort = "defau
   });
 }
 
+// 委任中：担当が LLM（me 以外）で、done と canceled 以外（core の delegated と同じ条件）。agent_state は問わない
+export function isDelegated(issue: Pick<Issue, "assignee" | "status">): boolean {
+  return issue.assignee != null && issue.assignee !== "me" && issue.status !== "done" && issue.status !== "canceled";
+}
+
 export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTab; q: string; showCompleted?: boolean; showChildren?: boolean }): IssueListRow[] {
   const needle = filter.q.trim().toLowerCase();
   return rows.filter((row) => {
@@ -32,17 +37,19 @@ export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTa
     if (filter.showChildren === false && row.issue.parentId != null) return false;
     if (filter.tab === "ready" && !row.ready) return false;
     if (filter.tab === "needs_clarification" && row.issue.status !== "needs_clarification") return false;
+    if (filter.tab === "delegated" && !isDelegated(row.issue)) return false;
     if (needle === "") return true;
     return [row.issue.id, row.issue.title, row.issue.description ?? ""]
       .some((text) => text.toLowerCase().includes(needle));
   });
 }
 
-export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number } {
+export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number; delegated: number } {
   return {
     all: rows.length,
     ready: rows.filter((r) => r.ready).length,
     needsClarification: rows.filter((r) => r.issue.status === "needs_clarification").length,
+    delegated: rows.filter((r) => isDelegated(r.issue)).length,
   };
 }
 
