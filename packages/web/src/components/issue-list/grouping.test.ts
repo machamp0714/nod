@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Issue, Status } from "../../api/types";
-import { cleanIssueListSearch, parseIssueListSearch } from "../../routes/search";
+import { cleanIssueListSearch, parseIssueListSearch, replacesIssueListHistory } from "../../routes/search";
 import { filterFromSearch } from "../../lib/issue-filter";
 import { effectiveGrouping, groupRows } from "./issue-list";
 import type { IssueListRow } from "./types";
@@ -86,5 +86,14 @@ describe("URL", () => {
 
   test("グループ化はViewの条件に入らない", () => {
     expect(filterFromSearch({ groupBy: "label", subGroupBy: "status", label: ["bug"] })).toEqual({ label: ["bug"] });
+  });
+});
+
+describe("プレビューのURL", () => {
+  test("previewはIssue IDだけをURL往復で保持し、Viewの条件と履歴には入れない", () => {
+    expect(cleanIssueListSearch(parseIssueListSearch({ preview: "api-12" }))).toEqual({ preview: "API-12" });
+    for (const preview of ["", "bad", "API-", 12, "../API-1"]) expect(cleanIssueListSearch(parseIssueListSearch({ preview }))).toEqual({});
+    expect(filterFromSearch({ preview: "API-12" })).toEqual({});
+    expect(replacesIssueListHistory({ preview: "API-12" })).toBe(true);
   });
 });

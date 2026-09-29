@@ -41,6 +41,7 @@ export interface IssueListSearch {
   columns?: IssueColumn[];
   groupBy?: IssueGroupBy;
   subGroupBy?: IssueGroupKey;
+  preview?: string; // 一覧の上で中身を確かめる Issue の ID
   blocked?: boolean;
   tab?: IssueTab;
   layout?: IssueLayout;
@@ -77,6 +78,7 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if ("groupBy" in raw) out.groupBy = pick(raw.groupBy, ISSUE_GROUP_KEYS) ?? "none";
   const subGroupBy = pick(raw.subGroupBy, ISSUE_GROUP_KEYS);
   if (subGroupBy) out.subGroupBy = subGroupBy;
+  if (typeof raw.preview === "string" && /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(raw.preview)) out.preview = raw.preview.toUpperCase();
   if ([true, "true", "1"].includes(raw.blocked as string | boolean)) out.blocked = true;
   if ([false, "false", "0"].includes(raw.blocked as string | boolean)) out.blocked = false;
   if ("tab" in raw) out.tab = pick(raw.tab, ISSUE_TABS) ?? "all";
@@ -106,6 +108,7 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
     // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ
     if (search.subGroupBy && search.subGroupBy !== search.groupBy) out.subGroupBy = search.subGroupBy;
   }
+  if (search.preview) out.preview = search.preview;
   if (search.blocked !== undefined) out.blocked = search.blocked;
   if (search.tab && search.tab !== "all") out.tab = search.tab;
   if (search.layout && search.layout !== "list") out.layout = search.layout;
