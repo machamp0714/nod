@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback, useMemo } from "react";
 import type { Status } from "../../api/types";
 import { BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
@@ -8,6 +8,7 @@ import { IssueBoard } from "./IssueBoard";
 import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
+import { PreviewPane } from "./PreviewPane";
 import type { IssueListRow } from "./types";
 
 export interface IssueListProps {
@@ -42,14 +43,24 @@ export function IssueList({
   const q = search.q ?? "";
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
-  const columns = search.columns ?? [...ISSUE_COLUMNS];
-  const { groupBy } = effectiveGrouping(search, layout);
+  const preview = search.preview;
+  // プレビュー中は一覧の幅が狭くなるため、Workspace 列を隠す（design/nod.pen「Issues｜プレビュー」）
+  const columns = (search.columns ?? [...ISSUE_COLUMNS]).filter((column) => !(preview && column === "workspace"));
+  const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
-    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy)
+    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy)
     : [];
+  const onPreview = useCallback((id: string) => onSearchChange({ preview: id }), [onSearchChange]);
+  const closePreview = useCallback(() => onSearchChange({ preview: undefined }), [onSearchChange]);
+  const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
+  const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
+  const table = (tableRows: IssueListRow[], hideHeader = false) => (
+    <IssueTable rows={tableRows} columns={columns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} />
+  );
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
 
   return (
+    <div className={s.split}>
     <div className={s.page}>
       <header className={s.header}>
         <div className={s.headerText}>
@@ -113,6 +124,20 @@ export function IssueList({
             <option value="none">なし</option>
             {GROUP_OPTIONS.map(([value, label]) => (
               <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className={s.groupSelect}>
+          サブグループ
+          <select
+            aria-label="サブグループ"
+            value={subGroupBy ?? "none"}
+            disabled={!groupBy || layout === "board"}
+            onChange={(event) => onSearchChange({ subGroupBy: event.target.value === "none" ? undefined : event.target.value as IssueGroupKey })}
+          >
+            <option value="none">なし</option>
+            {GROUP_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value} disabled={value === groupBy}>{label}</option>
             ))}
           </select>
         </label>
@@ -180,15 +205,32 @@ export function IssueList({
           groups.map((group) => (
             <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
               <GroupHeading by={groupBy} group={group} />
-              {layout === "list" ? <IssueTable rows={group.rows} columns={columns} /> : <IssueBoard rows={group.rows} />}
+              {layout === "board" ? <IssueBoard rows={group.rows} /> : group.subgroups && subGroupBy ? (
+                group.subgroups.map((subgroup) => (
+                  <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
+                    <GroupHeading by={subGroupBy} group={subgroup} level={3} />
+                    {table(subgroup.rows, true)}
+                  </section>
+                ))
+              ) : table(group.rows)}
             </section>
           ))
         )
       ) : layout === "list" ? (
-        <IssueTable rows={visible} columns={columns} />
+        table(visible)
       ) : (
         <IssueBoard rows={visible} />
       )}
+    </div>
+    {preview && (
+      <PreviewPane
+        key={preview}
+        issueId={preview}
+        titles={titles}
+        workspaceName={(key) => workspaceNames.get(key) ?? key}
+        onClose={closePreview}
+      />
+    )}
     </div>
   );
 }
@@ -196,7 +238,7 @@ export function IssueList({
 const GROUP_NAMES: Record<IssueGroupKey, string> = {
   workspace: "Workspace",
   status: "Status",
-  priority: "優先度",
+  priority: "Priority",
   project: "Project",
   assignee: "担当",
   label: "ラベル",
@@ -204,10 +246,12 @@ const GROUP_NAMES: Record<IssueGroupKey, string> = {
 const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
 
 // design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
-function GroupHeading({ by, group }: { by: IssueGroupKey; group: RowGroup }) {
+// サブグループの見出しは「Issues｜サブグループ」の行（1段下げ、白地、weight 500）
+function GroupHeading({ by, group, level = 2 }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3 }) {
   const empty = group.key === "";
+  const Heading = level === 2 ? "h2" : "h3";
   return (
-    <h2 className={s.groupHeading}>
+    <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
       {by === "workspace" ? (
         <WorkspaceBadge workspaceKey={group.key} name={group.workspaceName ?? group.key} />
       ) : (
@@ -221,7 +265,7 @@ function GroupHeading({ by, group }: { by: IssueGroupKey; group: RowGroup }) {
         </>
       )}
       <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
-    </h2>
+    </Heading>
   );
 }
 

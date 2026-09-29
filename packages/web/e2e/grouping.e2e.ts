@@ -10,7 +10,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     const grouping = page.getByLabel("グループ化", { exact: true });
     await grouping.selectOption("priority");
     await expect(page).toHaveURL(/groupBy=priority/);
-    const high = region(page, "優先度 High");
+    const high = region(page, "Priority High");
     await expect(high).toBeVisible();
     await expect(high.getByRole("heading")).toContainText("High");
     // 見出しの件数は表示中の行数と一致する
@@ -45,7 +45,7 @@ test("ラベルは複数のグループに重複して入り、検索で空に�
 
 test("BoardではStatusのグループ化を選べず、URLにあってもグループ化しない", async ({ page }) => {
   await page.goto("/issues?layout=board&groupBy=status");
-  await expect(page.getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
+  await expect(page.getByLabel("グループ化", { exact: true }).getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
   await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
   await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
   await page.getByRole("tab", { name: "List", exact: true }).click();
@@ -53,4 +53,28 @@ test("BoardではStatusのグループ化を選べず、URLにあってもグル
   await page.goto("/issues?layout=board&groupBy=assignee");
   await expect(region(page, "担当 claude-code")).toBeVisible();
   await expect(region(page, "担当 未割り当て")).toBeVisible();
+});
+
+test("サブグループはグループ内を分け、URLで復元し、Boardでは選べない", async ({ page }) => {
+  await page.goto("/issues");
+  const sub = page.getByLabel("サブグループ", { exact: true });
+  await expect(sub).toBeDisabled();
+  await page.getByLabel("グループ化", { exact: true }).selectOption("status");
+  await sub.selectOption("priority");
+  await expect(page).toHaveURL(/groupBy=status&subGroupBy=priority|subGroupBy=priority.*groupBy=status/);
+  const inProgress = region(page, "Status In Progress");
+  const subgroup = inProgress.getByRole("region", { name: "Priority High", exact: true });
+  await expect(subgroup.getByRole("heading", { level: 3 })).toContainText("High");
+  const rows = await subgroup.locator("tbody tr").count();
+  expect(rows).toBeGreaterThan(0);
+  await expect(subgroup.getByRole("heading").getByLabel(`${rows} 件`, { exact: true })).toBeVisible();
+  await expect(sub.getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
+  await page.reload();
+  await expect(sub).toHaveValue("priority");
+  await expect(inProgress.getByRole("region", { name: "Priority High", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Board", exact: true }).click();
+  await expect(sub).toBeDisabled();
+  await expect(page.getByRole("region", { name: /^Priority / })).toHaveCount(0);
+  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await expect(page).not.toHaveURL(/subGroupBy/);
 });
