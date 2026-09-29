@@ -1,10 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
 import { AgentAvatar, Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
+import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
 import { AgentStateDot } from "./AgentStateDot";
+import { BulkActionBar } from "./BulkActionBar";
 import { IssueBoard } from "./IssueBoard";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
@@ -86,8 +88,31 @@ export function IssueList({
   const table = (tableRows: IssueListRow[], hideHeader = false) => {
     const markCurrent = !currentShown && tableRows.some((r) => r.issue.id === preview);
     if (markCurrent) currentShown = true;
-    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} />;
+    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={rowSelection} />;
   };
+  // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
+  const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
+  const [toast, setToast] = useState<string | null>(null);
+  const selectable = layout === "list";
+  const order = useMemo(() => idsOf(groupBy ? groups.flatMap(rowsOf) : visible), [groupBy, groups, visible]);
+  const selectedIds = selectable ? pruneSelection(selection.ids, order) : NO_SELECTION;
+  useEffect(() => {
+    if (selectedIds !== selection.ids) setSelection((prev) => ({ ...prev, ids: selectedIds }));
+  }, [selectedIds, selection.ids]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const selectedIssues = useMemo(
+    () => [...new Map(rows.filter((r) => selectedIds.has(r.issue.id)).map((r) => [r.issue.id, r.issue])).values()],
+    [rows, selectedIds],
+  );
+  const knownLabels = useMemo(() => [...new Set(rows.flatMap((r) => r.issue.labels))], [rows]);
+  const onToggleRow = useCallback((id: string, shift: boolean) => setSelection((prev) => toggleSelection(prev, order, id, shift)), [order]);
+  const toggleMany = (ids: string[]) => setSelection((prev) => ({ ...prev, ids: toggleAll(prev.ids, ids) }));
+  const clearSelection = () => setSelection({ ids: NO_SELECTION, anchor: null });
+  const rowSelection = selectable ? { ids: selectedIds, onToggle: onToggleRow } : undefined;
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
   // 委任中タブは LLM ごとに見られるよう、グループ化を選んでいなければ担当でまとめる
   const selectTab = (next: IssueTab) =>
@@ -95,7 +120,16 @@ export function IssueList({
 
   return (
     <div className={s.split}>
-    <div className={s.page}>
+    <div
+      className={s.page}
+      onKeyDown={(event) => {
+        // Escape で一括編集の選択を解く。入力欄とメニューの Escape はそれぞれに任せる
+        if (event.key !== "Escape" || event.defaultPrevented || selectedIds.size === 0) return;
+        if ((event.target as HTMLElement).closest("input:not([type=checkbox]), textarea, select, dialog, [role=dialog]")) return;
+        event.preventDefault();
+        clearSelection();
+      }}
+    >
       <header className={s.header}>
         <div className={s.headerText}>
           {crumb && <div className={s.crumb}>{crumb}</div>}
@@ -228,7 +262,13 @@ export function IssueList({
           </fieldset>
         </div>
       </details>
-      {filterBar}
+      {selectable ? (
+        // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
+        <div className={s.selectAllRow}>
+          <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} />
+          {filterBar}
+        </div>
+      ) : filterBar}
 
       {error ? (
         <p role="alert" className={`${s.message} ${s.messageError}`}>
@@ -247,7 +287,12 @@ export function IssueList({
         groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
           groups.map((group) => (
             <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
-              <GroupHeading by={groupBy} group={group} delegated={delegated} />
+              <GroupHeading
+                by={groupBy}
+                group={group}
+                delegated={delegated}
+                select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
+              />
               {layout === "board" ? <IssueBoard rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
                 group.subgroups.map((subgroup) => (
                   <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
@@ -263,6 +308,23 @@ export function IssueList({
         table(visible)
       ) : (
         <IssueBoard rows={visible} nameOfStatus={nameOfStatus} />
+      )}
+      {selectedIssues.length > 0 && (
+        <BulkActionBar
+          selected={selectedIssues}
+          labels={knownLabels}
+          onClear={clearSelection}
+          onUpdated={(count) => {
+            clearSelection();
+            setToast(`${count}件を更新しました`);
+          }}
+        />
+      )}
+      {toast && (
+        <div role="status" className={s.bulkToast}>
+          <Icon name="circle-check" size={14} color="var(--ready)" />
+          {toast}
+        </div>
       )}
     </div>
     {preview && (
@@ -288,11 +350,41 @@ const GROUP_NAMES: Record<IssueGroupKey, string> = {
 };
 const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
 const AGENT_STATES = Object.keys(AGENT_STATE_META) as AgentState[];
+const NO_SELECTION: ReadonlySet<string> = new Set();
+
+// 表示順の ID（ラベルのグループで同じ Issue が何度も出ても1回だけ）
+function idsOf(rows: IssueListRow[]): string[] {
+  return [...new Set(rows.map((r) => r.issue.id))];
+}
+
+function rowsOf(group: RowGroup): IssueListRow[] {
+  return group.subgroups ? group.subgroups.flatMap((subgroup) => subgroup.rows) : group.rows;
+}
+
+// 表示中・グループの全選択のチェックボックス。一部だけ選んでいるときは不定の表示にする
+function SelectAllBox({ ids, label, selected, onChange }: { ids: string[]; label: string; selected: ReadonlySet<string>; onChange: (ids: string[]) => void }) {
+  const state = selectAllState(selected, ids);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = state === "some";
+  }, [state]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className={s.checkbox}
+      aria-label={label}
+      checked={state === "all"}
+      disabled={ids.length === 0}
+      onChange={() => onChange(ids)}
+    />
+  );
+}
 
 // design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
 // サブグループの見出しは「Issues｜サブグループ」の行（1段下げ、白地、weight 500）
 // 委任中タブの担当の見出しは「Issues｜委任中タブ（#53）」：アバター、LLM 名、件数、作業状況の内訳（0件は出さない）
-function GroupHeading({ by, group, level = 2, delegated = false }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; delegated?: boolean }) {
+function GroupHeading({ by, group, level = 2, delegated = false, select }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; delegated?: boolean; select?: ReactNode }) {
   const empty = group.key === "";
   const Heading = level === 2 ? "h2" : "h3";
   if (delegated && by === "assignee" && !empty) {
@@ -300,6 +392,7 @@ function GroupHeading({ by, group, level = 2, delegated = false }: { by: IssueGr
       .filter(([, n]) => n > 0);
     return (
       <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
+        {select}
         <AgentAvatar actor={group.key} />
         <span className={`${s.groupLabel} ${s.agentName}`}>{group.label}</span>
         <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
@@ -315,6 +408,7 @@ function GroupHeading({ by, group, level = 2, delegated = false }: { by: IssueGr
   }
   return (
     <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
+      {select}
       {by === "workspace" ? (
         <WorkspaceBadge workspaceKey={group.key} name={group.workspaceName ?? group.key} />
       ) : (

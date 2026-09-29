@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bulkFailures, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
+import { bulkFailures, labelMenu, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
 
 const order = ["A-1", "A-2", "A-3", "A-4", "A-5"];
 
@@ -54,4 +54,21 @@ test("bulkFailures は BULK_UPDATE_FAILED の details から失敗一覧を取�
   expect(bulkFailures({ code: "BULK_UPDATE_FAILED", details: { failures } })).toEqual(failures);
   expect(bulkFailures({ code: "BULK_UPDATE_FAILED", details: { failures: "x" } })).toEqual([]);
   expect(bulkFailures(new Error("x"))).toEqual([]);
+});
+
+describe("labelMenu", () => {
+  const selected = [{ labels: ["perf", "security"] }, { labels: ["perf"] }, { labels: ["security"] }];
+  test("追加は全件に付いているラベルを除き、削除は1件以上に付いているラベルと件数を出す", () => {
+    const menu = labelMenu(selected, ["bug", "docs", "perf", "security"], "");
+    expect(menu.add).toEqual(["bug", "docs", "perf", "security"]);
+    expect(labelMenu([{ labels: ["perf"] }, { labels: ["perf"] }], ["bug", "perf"], "").add).toEqual(["bug"]);
+    expect(menu.create).toBeNull();
+    expect(menu.remove).toEqual([{ label: "perf", count: 2 }, { label: "security", count: 2 }]);
+  });
+
+  test("検索語で絞り込み、どこにもないラベルは新規に追加できる", () => {
+    expect(labelMenu(selected, ["bug", "docs"], "do")).toEqual({ add: ["docs"], create: "do", remove: [] });
+    expect(labelMenu(selected, ["bug"], " bug ").create).toBeNull();
+    expect(labelMenu(selected, ["bug"], "perf")).toEqual({ add: ["perf"], create: null, remove: [{ label: "perf", count: 2 }] });
+  });
 });

@@ -30,6 +30,7 @@ export function IssueTable({
   markCurrent = true,
   onPreview,
   showAgentState = false,
+  selection,
 }: {
   rows: IssueListRow[];
   columns?: IssueColumn[];
@@ -38,12 +39,15 @@ export function IssueTable({
   markCurrent?: boolean; // 同じ Issue が複数のグループに出るとき、aria-current は最初の1行だけに付ける
   onPreview?: (id: string) => void;
   showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
+  // 一括編集の選択（design/nod.pen「Issues｜一括編集（#31）」）。List 表示のときだけ渡す
+  selection?: { ids: ReadonlySet<string>; onToggle: (id: string, shift: boolean) => void };
 }) {
   const today = localToday();
   return (
     <div className={s.tableScroll}>
       <table className={s.table}>
       <colgroup>
+        {selection && <col className={s.colSelect} />}
         {columns.includes("status") && <col className={s.colStatus} />}
         <col className={s.colId} />
         <col />
@@ -55,6 +59,7 @@ export function IssueTable({
       </colgroup>
       <thead className={hideHeader ? s.visuallyHidden : undefined}>
         <tr>
+          {selection && <th><span className={s.visuallyHidden}>選択</span></th>}
           {columns.includes("status") && <th>Status</th>}
           <th>ID</th>
           <th>Title</th>
@@ -68,7 +73,7 @@ export function IssueTable({
       <tbody>
         {rows.length === 0 ? (
           <tr>
-            <td colSpan={2 + columns.length} className={s.muted}>
+            <td colSpan={2 + columns.length + (selection ? 1 : 0)} className={s.muted}>
               該当する Issue はありません
             </td>
           </tr>
@@ -77,15 +82,34 @@ export function IssueTable({
             <tr
               key={issue.id}
               data-issue-row={issue.id}
-              className={issue.id === previewId ? s.previewing : undefined}
+              className={[issue.id === previewId && s.previewing, selection?.ids.has(issue.id) && s.selected].filter(Boolean).join(" ") || undefined}
               aria-current={markCurrent && issue.id === previewId ? "true" : undefined}
               onKeyDown={onPreview && ((event) => {
-                // 行の中のリンクやボタンにフォーカスがあるとき、Space でプレビューする
+                // 行の中のリンクやボタンにフォーカスがあるとき、Space でプレビューする（選択のチェックボックスは除く）
                 if (event.key !== " " || event.defaultPrevented) return;
+                if ((event.target as HTMLElement).matches("input[type=checkbox]")) return;
                 event.preventDefault();
                 onPreview(issue.id);
               })}
             >
+              {selection && (
+                <td className={s.selectCell}>
+                  <input
+                    type="checkbox"
+                    className={s.checkbox}
+                    aria-label={`${issue.id} を選択`}
+                    checked={selection.ids.has(issue.id)}
+                    onChange={() => {}}
+                    onClick={(event) => selection.onToggle(issue.id, event.shiftKey)}
+                    onKeyDown={(event) => {
+                      // キーボードでも Shift+Space で範囲を選べるようにする
+                      if (event.key !== " " || !event.shiftKey) return;
+                      event.preventDefault();
+                      selection.onToggle(issue.id, true);
+                    }}
+                  />
+                </td>
+              )}
               {columns.includes("status") && (
                 <td>
                   <StatusLabel status={issue.status} workspace={issue.workspace} />

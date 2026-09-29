@@ -57,3 +57,23 @@ export function bulkFailures(err: unknown): BulkFailure[] {
   if (e?.code !== "BULK_UPDATE_FAILED" || !Array.isArray(e.details?.failures)) return [];
   return e.details.failures as BulkFailure[];
 }
+
+export interface LabelMenu {
+  add: string[]; // 選択中のすべてには付いていないラベル
+  create: string | null; // 検索語がどのラベルとも一致しないとき、新しいラベルとして足せる
+  remove: { label: string; count: number }[]; // 選択中の1件以上に付いているラベルと、その件数
+}
+
+// design/nod.pen「Issues｜一括編集」(b) ラベルのメニュー
+export function labelMenu(selected: readonly { labels: readonly string[] }[], known: readonly string[], query: string): LabelMenu {
+  const q = query.trim();
+  const counts = new Map<string, number>();
+  for (const issue of selected) for (const label of new Set(issue.labels)) counts.set(label, (counts.get(label) ?? 0) + 1);
+  const all = [...new Set([...known, ...counts.keys()])].sort();
+  const matches = (label: string) => q === "" || label.toLowerCase().includes(q.toLowerCase());
+  return {
+    add: all.filter((label) => matches(label) && (counts.get(label) ?? 0) < selected.length),
+    create: q !== "" && !all.includes(q) ? q : null,
+    remove: all.filter((label) => matches(label) && counts.has(label)).map((label) => ({ label, count: counts.get(label) as number })),
+  };
+}
