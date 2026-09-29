@@ -172,6 +172,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.prUrl && prStatusLine) lines.push(prStatusLine);
   if (d.worktree) lines.push(`実行場所: ${d.branch ?? "(detached)"}  ${d.worktree}`);
   if (d.subscribed) lines.push("購読: 購読中");
+  if (d.reminder) lines.push(`リマインダー: ${d.reminder.remindAt}${d.reminder.note ? `  ${d.reminder.note}` : ""}`);
   if (d.description) lines.push("", d.description);
   if (d.plan.tasks.length) lines.push("", `計画${d.plan.source ? `（${d.plan.source}）` : ""}:`, ...formatPlan(d.plan));
   if (d.documents.length) {
@@ -246,6 +247,10 @@ export function describeNotification(n: Notification): string {
       if (d.to === "awaiting_input") return `${agent} が確認を求めた（入力待ち）${d.reason ? `: ${d.reason}` : ""}`;
       if (d.to === "error") return `${agent} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
       return `${agent} ${n.eventType}`;
+    }
+    case "reminder": {
+      const note = (n.data as { note?: unknown }).note;
+      return typeof note === "string" && note ? `リマインダー: ${note}` : "リマインダーの時刻です";
     }
     default:
       return `${n.actor} ${n.eventType}`;

@@ -6,6 +6,7 @@ import {
   type AskResult,
   attachDocument,
   bulkUpdateIssues,
+  clearReminder,
   commentIssue,
   completeIssue,
   copyIssue,
@@ -32,6 +33,7 @@ import {
   removeAttachment,
   resolveThread,
   setPlanTasks,
+  setReminder,
   setStep,
   startIssue,
   subscribeIssue,
@@ -361,6 +363,26 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string) => {
         const r = unsubscribeIssue(cli.ctx, id);
         print(cli, r, () => `${r.issueId} の購読を解除しました`);
+      }),
+    );
+
+  issue
+    .command("remind <id>")
+    .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く（me だけが使える）")
+    .option("--at <日時>", "通知する日時（例: 2026-10-01T09:00、2026-10-01T09:00:00+09:00。日付だけならその日の 0 時）")
+    .option("--note <メモ>", "通知に添えるメモ")
+    .option("--clear", "リマインダーを解除する")
+    .action(
+      act((cli, _cmd, id: string, o: { at?: string; note?: string; clear?: boolean }) => {
+        if (o.clear) {
+          if (o.at !== undefined || o.note !== undefined) throw new NodError("INVALID_ARGS", "--clear は --at・--note と同時に指定できません");
+          const r = clearReminder(cli.ctx, id);
+          print(cli, r, () => (r.cleared ? `${r.issueId} のリマインダーを解除しました` : `${r.issueId} にリマインダーはありません`));
+          return;
+        }
+        if (o.at === undefined) throw new NodError("INVALID_ARGS", "--at で日時を指定してください（解除は --clear）");
+        const r = setReminder(cli.ctx, id, { at: o.at, note: o.note });
+        print(cli, r, () => `${r.issueId} に ${r.remindAt} のリマインダーを設定しました${r.note ? `: ${r.note}` : ""}`);
       }),
     );
 

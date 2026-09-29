@@ -1,5 +1,6 @@
 import { listIssueAttachments } from "./attachments";
 import { isSubscribedRow } from "./notifications";
+import { loadReminder } from "./reminders";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
@@ -345,6 +346,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     openQuestions: questions.filter((q) => q.answer === null),
     activity: loadActivity(db, row.id),
     subscribed: isSubscribedRow(db, row.id),
+    reminder: loadReminder(db, row.id),
   };
 }
 

@@ -5,6 +5,7 @@ import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import type { Notification, SubscriptionState } from "../types";
 import { parseDateTime } from "./human";
+import { deliverDueReminders } from "./reminders";
 
 export { NOTIFY_EVENT_TYPES } from "../notify";
 
@@ -71,6 +72,7 @@ export const NOTIFICATION_READ_LIMIT = 200;
 // 既読も出すときは、未読はすべて、既読は最近既読にしたものから readLimit 件だけを出す。
 // 既読にした順で選ぶのは、開いて既読にした古い通知が一覧から消えないようにするため。
 // 上限の数え方もアーカイブ済みの Issue を除く。除かないと、出さない既読が上限を消費する
+// 読む前に、期限が来たリマインダー（#47）を通知に変える（読み取りでの書き込み）
 export function listNotifications(
   db: Database,
   opts: { includeRead?: boolean; snoozed?: boolean; recipient?: string; readLimit?: number } = {},
@@ -79,6 +81,7 @@ export function listNotifications(
   if (!Number.isSafeInteger(readLimit) || readLimit <= 0) {
     throw new NodError("INVALID_ARGS", "既読の通知の上限は正の整数で指定してください");
   }
+  deliverDueReminders(db);
   const ts = now();
   const recipient = opts.recipient ?? HUMAN_ACTOR;
   const visible = (t: string) => (opts.snoozed ? `${t}.snoozed_until > ?` : `(${t}.snoozed_until IS NULL OR ${t}.snoozed_until <= ?)`);

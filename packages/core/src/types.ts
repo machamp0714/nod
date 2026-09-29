@@ -262,9 +262,24 @@ export interface IssueDetail extends Issue {
   openQuestions: Question[];
   activity: ActivityItem[];
   subscribed: boolean; // me がこの Issue を購読しているか
+  reminder: IssueReminder | null; // me が設定した、まだ届いていないリマインダー（#47）
 }
 
-// Inbox の通知。kind は issue_change（購読中の Issue の変化）か agent（LLM に任せた Issue の完了・入力待ち・エラー。購読なしで me に届く）
+export interface IssueReminder {
+  remindAt: string; // UTC の ISO 8601
+  note: string | null;
+}
+
+// まだ届いていないリマインダー（#47）
+export interface Reminder extends IssueReminder {
+  issueId: string;
+  issueTitle: string;
+  workspace: string;
+  createdAt: string;
+}
+
+// Inbox の通知。kind は issue_change（購読中の Issue の変化）か agent（LLM に任せた Issue の完了・入力待ち・エラー。購読なしで me に届く）か
+// reminder（me が設定したリマインダーの期限。data.note にメモ）
 export interface Notification {
   id: number;
   kind: string;

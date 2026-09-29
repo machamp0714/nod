@@ -40,6 +40,7 @@ describe("openDb", () => {
       "projects",
       "questions",
       "relations",
+      "reminders",
       "subscriptions",
       "templates",
       "views",
