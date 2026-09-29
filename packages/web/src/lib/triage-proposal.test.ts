@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TriageProposal } from "../api/types";
-import { applyAcceptProposal, proposalAttributes, proposalBadge } from "./triage-proposal";
+import { parseLabels } from "./issue-edit";
+import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeading } from "./triage-proposal";
 
 function proposal(over: Partial<TriageProposal>): TriageProposal {
   return {
@@ -23,6 +24,11 @@ describe("applyAcceptProposal", () => {
     const p = proposal({ project: { id: 7, name: "検索" }, priority: 3, labels: ["bug", "search"], assignee: "codex" });
     expect(applyAcceptProposal(form, p)).toEqual({ projectRef: "7", priority: 3, labels: ["search", "bug"], assignee: "codex" });
   });
+  test("反映したラベルは入力欄に連結して分け直しても分割されない（空白・読点を含む名前は core が記録時に拒否する）", () => {
+    const p = proposal({ labels: ["good-first-issue", "検索改善", "v2.0", "a_b"] });
+    const next = applyAcceptProposal({ ...form, labels: [] }, p);
+    expect(parseLabels(next.labels.join(", "), [])).toEqual(p.labels);
+  });
   test("何も指定のない提案はフォームを変えない", () => {
     expect(applyAcceptProposal(form, proposal({}))).toEqual(form);
   });
@@ -35,5 +41,13 @@ describe("proposalAttributes", () => {
       ["Project", "検索"], ["Priority", "Medium"], ["Labels", "bug, perf"], ["Assignee", "codex"],
     ]);
     expect(proposalAttributes(proposal({ decision: "decline" }))).toEqual([]);
+  });
+});
+
+describe("proposalsHeading", () => {
+  test("LLM の提案だけなら「LLM の提案」、me の提案を含むなら「提案」", () => {
+    expect(proposalsHeading([proposal({}), proposal({ actor: "codex" })])).toBe("LLM の提案");
+    expect(proposalsHeading([proposal({}), proposal({ actor: "me" })])).toBe("提案");
+    expect(proposalsHeading([proposal({ actor: "me" })])).toBe("提案");
   });
 });

@@ -67,10 +67,14 @@ describe("proposeTriage", () => {
     expect(bad({ decision: "accept", priority: 5 })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", labels: [" "] })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", labels: ["x".repeat(51)] })).toBe("INVALID_ARGS");
+    // Web の「フォームに反映」はラベルを ", " で連結して空白と読点で分け直すので、それらを含む名前は拒否する
+    for (const label of ["a b", "a,b", "a、b", "a，b"]) expect(bad({ decision: "accept", labels: [label] })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", assignee: " " })).toBe("INVALID_ARGS");
+    expect(bad({ decision: "accept", assignee: "x".repeat(101) })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", projectRef: "ない" })).toBe("NOT_FOUND");
     expect(bad({ decision: "accept", reason: "x".repeat(2001) })).toBe("INVALID_ARGS");
     expect(listTriageProposals(me.db, issue.id)).toEqual([]);
+    expect(proposeTriage(llm, issue.id, { decision: "accept", assignee: "x".repeat(100) }).assignee).toHaveLength(100);
   });
 
   test("Triage にない Issue・アーカイブ済みの Issue には提案できない。Snooze 中は提案できる", () => {

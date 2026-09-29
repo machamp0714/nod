@@ -42,8 +42,8 @@ function requireHuman(ctx: OpCtx): void {
   }
 }
 
-// Web のラベル入力は空白と読点で区切るので、それらを含む名前は定義できない
-function normalizeName(raw: string): string {
+// Web のラベル入力は空白と読点で区切るので、それらを含む名前は定義できない。LLM の Triage 提案（#62）のラベルも同じ規則で検証する
+export function normalizeLabelName(raw: string): string {
   const name = raw.trim();
   if (!name) throw new NodError("INVALID_ARGS", "ラベルの名前を入力してください");
   if (/[\s,、，]/.test(name)) throw new NodError("INVALID_ARGS", "ラベルの名前に空白と読点（, 、 ，）は使えません");
@@ -113,7 +113,7 @@ export function listAllWorkspaceLabels(db: Database): WorkspaceLabel[] {
 
 export function addWorkspaceLabel(ctx: OpCtx, keyOrPath: string, input: WorkspaceLabelInput): WorkspaceLabel {
   requireHuman(ctx);
-  const name = normalizeName(input.name);
+  const name = normalizeLabelName(input.name);
   const color = normalizeColor(input.color);
   const description = normalizeDescription(input.description);
   return tx(ctx.db, () => {
@@ -133,7 +133,7 @@ export function addWorkspaceLabel(ctx: OpCtx, keyOrPath: string, input: Workspac
 // 新しい名前をすでに持つ Issue は1つにまとめる。Issue ごとの event は残さない
 export function updateWorkspaceLabel(ctx: OpCtx, keyOrPath: string, currentName: string, patch: WorkspaceLabelPatch): WorkspaceLabel {
   requireHuman(ctx);
-  const name = patch.name === undefined ? undefined : normalizeName(patch.name);
+  const name = patch.name === undefined ? undefined : normalizeLabelName(patch.name);
   const color = patch.color === undefined ? undefined : normalizeColor(patch.color);
   const description = patch.description === undefined ? undefined : normalizeDescription(patch.description);
   return tx(ctx.db, () => {

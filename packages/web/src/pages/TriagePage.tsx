@@ -12,7 +12,7 @@ import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
-import { applyAcceptProposal, proposalAttributes, proposalBadge } from "../lib/triage-proposal";
+import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeading } from "../lib/triage-proposal";
 import d from "./decision.module.css";
 
 const route = getRouteApi("/triage");
@@ -233,18 +233,19 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   );
 }
 
-// LLM の提案（#62）。更新の新しい順に並べ、「フォームに反映」は入力欄を埋めるだけで確定は人が行う
+// Triage の提案（#62）。LLM のほか me も記録できる。更新の新しい順に並べ、「フォームに反映」は入力欄を埋めるだけで確定は人が行う
 function Proposals({ proposals, disabled, onApply }: {
   proposals: TriageProposal[];
   disabled: boolean;
   onApply: (p: TriageProposal) => void;
 }) {
   if (proposals.length === 0) return null;
+  const heading = proposalsHeading(proposals);
   return (
-    <section className={d.proposals} aria-label="LLM の提案">
+    <section className={d.proposals} aria-label={heading}>
       <div className={d.proposalsHead}>
         <Icon name="sparkles" size={13} />
-        <span className={d.proposalsTitle}>LLM の提案</span>
+        <span className={d.proposalsTitle}>{heading}</span>
         <span className={d.proposalsCount}>{proposals.length}</span>
       </div>
       {proposals.map((p) => {

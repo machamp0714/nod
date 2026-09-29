@@ -234,6 +234,21 @@ test("重複・却下の提案を反映すると既存の入力欄が開き、�
   expect(await api.show(i.id)).toMatchObject({ status: "canceled", closeReason: "対応済み" });
 });
 
+test("me の提案を含むと見出しは「提案」になり、書き手ごとのカードで区別する。反映したラベルは分割されない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.triageIssue("見出しを確かめる Issue");
+  await nod.claude.proposeTriage(i.id, { decision: "accept", labels: ["good-first-issue", "検索改善"] });
+  await nod.me.proposeTriage(i.id, { decision: "decline", reason: "自分のメモ" });
+  await page.goto("/triage");
+  await expect(detail(page).getByRole("region", { name: "LLM の提案" })).toHaveCount(0);
+  const proposals = detail(page).getByRole("region", { name: "提案", exact: true });
+  await expect(proposals.getByRole("article")).toHaveCount(2);
+  await expect(proposals.getByRole("article", { name: "me の提案" })).toContainText("却下");
+  await proposals.getByRole("button", { name: "claude-code の提案をフォームに反映" }).click();
+  await expect(detail(page).getByRole("textbox", { name: "受け入れ時のLabels" })).toHaveValue("good-first-issue, 検索改善");
+  expect((await api.show(i.id)).status).toBe("triage");
+});
+
 test("提案がなければ LLM の提案ブロックを出さない", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   await api.triageIssue("提案のない Issue");

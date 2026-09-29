@@ -6,11 +6,12 @@ import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from
 import { TRIAGE_DECISIONS, type TriageProposal, type TriageProposalInput } from "../types";
 import { requireText, validatePriority } from "./issues";
 import { resolveProject } from "./projects";
-import { LABEL_NAME_MAX_LENGTH } from "./workspace-labels";
+import { normalizeLabelName } from "./workspace-labels";
 
 // LLM の Triage 提案（#62）。提案は triage_proposals だけに書き、Issue・ラベル・関係・event・通知は変えない。
 // 受け入れ・却下・重複の確定は人だけが accept / decline / duplicate で行う（FORBIDDEN_FOR_LLM は human.ts のまま）
 export const PROPOSAL_REASON_MAX_LENGTH = 2000;
+export const PROPOSAL_ASSIGNEE_MAX_LENGTH = 100;
 
 interface ProposalRow {
   issue_id: number;
@@ -55,8 +56,7 @@ function toProposal(r: ProposalRow): TriageProposal {
 function normalizeLabels(labels: string[]): string[] {
   const out: string[] = [];
   for (const raw of labels) {
-    const label = requireText(raw, "ラベル").trim();
-    if (label.length > LABEL_NAME_MAX_LENGTH) throw new NodError("INVALID_ARGS", `ラベルの名前は ${LABEL_NAME_MAX_LENGTH} 文字までです`);
+    const label = normalizeLabelName(requireText(raw, "ラベル"));
     if (!out.includes(label)) out.push(label);
   }
   return out;
@@ -90,6 +90,9 @@ export function proposeTriage(ctx: OpCtx, ref: string, input: TriageProposalInpu
   validateInput(input);
   const labels = normalizeLabels(input.labels ?? []);
   const assignee = input.assignee === undefined ? null : requireText(input.assignee, "担当").trim();
+  if (assignee !== null && assignee.length > PROPOSAL_ASSIGNEE_MAX_LENGTH) {
+    throw new NodError("INVALID_ARGS", `担当は ${PROPOSAL_ASSIGNEE_MAX_LENGTH} 文字までです`);
+  }
   const reason = input.reason?.trim() ? input.reason.trim() : null;
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
