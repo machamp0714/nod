@@ -4,7 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import { setColumn } from "../mutate";
-import { transitionViolation } from "../transition-rules";
+import { transitionBlockReason, transitionViolation } from "../transition-rules";
 import type { AutoTransition, AutoTransitionSource, PrState, Status } from "../types";
 
 // PR・コミットによる自動遷移（#66・#68）。進める先は in_review だけで、done にはしない（完了は人がレビューで決める）。
@@ -105,6 +105,14 @@ export function applyPrReview(ctx: OpCtx, issueRowId: number): AutoTransition | 
     automation: "pr_review",
     mergeCandidate: target.state === "MERGED",
   });
+}
+
+// PR 連動の条件を満たすのに遷移ルール（#73）で止まっているときの理由。止まっていなければ null
+export function prReviewRuleSkip(db: Database, issueRowId: number): string | null {
+  const target = prReviewTarget(db, issueRowId);
+  if (!target) return null;
+  const row = findIssueRow(db, formatIssueId(target.ws_key, target.number));
+  return transitionBlockReason(db, { id: row.workspace_id, key: row.ws_key }, row.status, "in_review");
 }
 
 interface PrReviewRow {

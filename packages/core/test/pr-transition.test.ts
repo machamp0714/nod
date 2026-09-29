@@ -313,6 +313,7 @@ describe("遷移ルール（#73）と PR 連動", () => {
     const ref = s.make();
     const view = await refreshPrStatus(s.me, ref, gh({}));
     expect(view.autoTransition).toBeNull();
+    expect(view.autoTransitionSkipped).toContain("遷移ルールでスキップ: In Progress → In Review");
     expect(statusOf(s, ref)).toBe("in_progress");
     const rule = runAutomation(s.me, s.ws.key, {}).rules.find((r) => r.kind === "pr_review")!;
     expect(rule.processed).toEqual([]);

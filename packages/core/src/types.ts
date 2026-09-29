@@ -438,6 +438,7 @@ export interface PrStatusView {
   status: PrStatus | null;
   fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
   autoTransition?: AutoTransition | null; // 更新（refresh）でステータスを進めたとき、その記録。表示だけのときは付けない
+  autoTransitionSkipped?: string; // PR 連動の条件を満たしたが、遷移ルール（#73）で進めなかったときの理由
 }
 
 // nod git sync（#68）の候補。同じ Issue を書いたコミットが複数あれば最新のもの

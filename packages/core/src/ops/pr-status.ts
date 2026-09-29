@@ -5,7 +5,7 @@ import { NodError } from "../errors";
 import { recordEvent } from "../events";
 import { findIssueRow, findWritableIssueRow, formatIssueId, issueRowById, toIssue } from "../issue-query";
 import { setColumn } from "../mutate";
-import { applyPrReview } from "./auto-transitions";
+import { applyPrReview, prReviewRuleSkip } from "./auto-transitions";
 import type {
   AutoTransition,
   Issue,
@@ -289,7 +289,8 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   const job = (async () => {
     try {
       const autoTransition = await fetchAndSave(ctx, row.id, prUrl, run);
-      return { ...getPrStatus(ctx.db, issueId), autoTransition };
+      const skipped = autoTransition ? null : prReviewRuleSkip(ctx.db, row.id);
+      return { ...getPrStatus(ctx.db, issueId), autoTransition, ...(skipped ? { autoTransitionSkipped: skipped } : {}) };
     } finally {
       byIssue.delete(key);
     }
