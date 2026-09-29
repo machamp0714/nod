@@ -171,3 +171,50 @@
 .headingButton:hover {
   color: var(--ink);
 }
+
+/* nod.pen Sidebar の Workspace 見出し（Swatch・名前・設定の歯車）。設定への導線だけを置く */
+.workspaceHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 6px 8px;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.workspaceSwatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.workspaceName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsLink {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--ink3);
+}
+
+.settingsLink:hover {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.settingsLink.active,
+.settingsLink.active:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

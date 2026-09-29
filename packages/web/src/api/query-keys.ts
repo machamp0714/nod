@@ -4,6 +4,7 @@ import type { IssueQuery } from "./types";
 // 1つ目の要素で資源を、2つ目で一覧（list）か詳細（detail）かを分ける。
 export const queryKeys = {
   workspaces: () => ["workspaces"] as const,
+  workspaceRules: (key: string) => ["workspaces", "rules", key] as const,
   issueList: (query: IssueQuery) => ["issues", "list", query] as const,
   issue: (id: string) => ["issues", "detail", id] as const,
   inbox: () => ["inbox"] as const,

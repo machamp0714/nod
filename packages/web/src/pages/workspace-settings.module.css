@@ -1,0 +1,215 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.crumbWorkspace {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.crumbSep {
+  display: inline-flex;
+  color: var(--ink3);
+}
+
+.crumbCurrent {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 720px;
+  max-width: 100%;
+  padding: 32px 64px;
+}
+
+.title {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionTitle {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.description {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: 272px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.editor:focus-within {
+  border-color: var(--accent);
+}
+
+.editorOver,
+.editorOver:focus-within {
+  border-color: var(--fail);
+}
+
+.textarea {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.textarea::placeholder {
+  color: var(--ink3);
+}
+
+.counter {
+  align-self: flex-end;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.counterOver {
+  color: var(--fail);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fail);
+  font-size: 12px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.meta {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 1px 2px #0000001a;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.toastIcon {
+  display: inline-flex;
+  color: var(--ready);
+}
+
+.dialog {
+  width: 400px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 1px 2px #0000001a;
+  color: var(--ink);
+}
+
+.dialog::backdrop {
+  background: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.dialogText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dialogTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dialogMessage {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.dialogButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* nod.pen の保存（disabled）は薄い灰色の塗り */
+.saveButton:disabled {
+  border-color: var(--sunken);
+  background: var(--sunken);
+  color: var(--ink3);
+  opacity: 1;
+}

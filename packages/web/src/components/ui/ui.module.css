@@ -88,6 +88,12 @@
   color: var(--fail);
 }
 
+.destructive {
+  border-color: var(--fail);
+  background: var(--fail);
+  color: #FFFFFF;
+}
+
 .segmented {
   display: inline-flex;
   gap: 2px;
