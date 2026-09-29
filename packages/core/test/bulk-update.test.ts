@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NodError } from "../src/errors";
 import { BULK_UPDATE_LIMIT, bulkUpdateIssues } from "../src/ops/bulk-update";
-import { createIssue, getIssue } from "../src/ops/issues";
+import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
 import { codeOf, eventsOf, setup } from "./helpers";
 
@@ -94,6 +94,19 @@ describe("bulkUpdateIssues", () => {
     // 状態以外は Triage の Issue でも変えられる
     bulkUpdateIssues(me, [triage.id], { priority: 3, addLabels: ["x"] });
     expect(getIssue(db, triage.id)).toMatchObject({ status: "triage", priority: 3, labels: ["x"] });
+  });
+
+  test("アーカイブ済みの Issue を含めると ISSUE_ARCHIVED で、1件も書かない", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const archived = createIssue(me, { workspaceId: ws.id, title: "b" });
+    archiveIssue(me, archived.id);
+    const e = errorOf(() => bulkUpdateIssues(me, [a.id, archived.id], { priority: 1 }));
+    expect(e.code).toBe("BULK_UPDATE_FAILED");
+    expect((e.details as { failures: { id: string; code: string }[] }).failures).toEqual([
+      { id: archived.id, code: "ISSUE_ARCHIVED", message: expect.any(String) },
+    ]);
+    expect(getIssue(db, a.id).priority).toBe(0);
   });
 
   test("上限を超える件数・0件・変更項目なしは INVALID_ARGS", () => {
