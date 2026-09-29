@@ -341,7 +341,8 @@ describe("HEAD が変わった差分", () => {
     await refreshPrStatus(me, ref, statusGh(HEAD2));
     const view = getPrDiff(db, ref);
     expect(view.diff).toBeNull();
-    expect(view.stale).toEqual({ diffHeadSha: HEAD, currentHeadSha: HEAD2 });
+    expect(view.stale).toMatchObject({ diffHeadSha: HEAD, currentHeadSha: HEAD2, files: 2, additions: 3, deletions: 1 });
+    expect(view.stale?.fetchedAt).toBeTruthy();
   });
 
   test("PR 状態より後に取った差分が新しい HEAD なら、差分のほうを正として表示する", async () => {

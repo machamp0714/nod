@@ -1,3 +1,6 @@
+import type { PrDiffFile, PrDiffFileStatus } from "../api/types";
+import type { Tone } from "./meta";
+
 // PR の差分（#55）の表示。差分はすべて文字列のまま扱い、React のテキストノードとしてだけ描画する（HTML にしない）
 
 export interface DiffRow {
@@ -40,3 +43,16 @@ export function githubFilesUrl(prUrl: string): string | null {
 }
 
 export const shortSha = (sha: string) => sha.slice(0, 7);
+
+// 変更ファイルの状態ピル。nod.pen「Issue詳細｜変更ファイル（#55）」に合わせる。バイナリは状態より優先する
+export function fileStatusPill(f: Pick<PrDiffFile, "status" | "binary">): { label: string; tone: Tone } {
+  if (f.binary) return { label: "バイナリ", tone: "gate" };
+  return FILE_PILLS[f.status];
+}
+
+const FILE_PILLS: Record<PrDiffFileStatus, { label: string; tone: Tone }> = {
+  added: { label: "追加", tone: "ready" },
+  modified: { label: "変更", tone: "gate" },
+  deleted: { label: "削除", tone: "fail" },
+  renamed: { label: "名前変更", tone: "accent" },
+};

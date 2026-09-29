@@ -28,6 +28,7 @@ import { AttachmentsSection } from "../components/issue-detail/AttachmentsSectio
 import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
 import { SubscribeToggle } from "../components/issue-detail/SubscribeToggle";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
+import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
 import { DescriptionSection } from "../components/issue-detail/DescriptionSection";
 import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
@@ -145,6 +146,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onApprove={() => approve.mutateAsync({})}
           />
           <SubIssuesSection issues={issue.children} />
+          {issue.prUrl && <PrDiffSection key={`diff-${issue.id}`} issueId={issue.id} prUrl={issue.prUrl} />}
           <ActivitySection
             readOnly={readOnly}
             workspace={issue.workspace}

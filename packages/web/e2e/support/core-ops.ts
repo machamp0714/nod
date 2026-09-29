@@ -54,6 +54,7 @@ export const DB_OPS = [
   "listWorkspaces",
   "getIssue",
   "getPrStatus",
+  "getPrDiff",
   "getAutomationSettings",
   "queryIssues",
   "getInbox",

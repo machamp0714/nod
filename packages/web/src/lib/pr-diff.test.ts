@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, githubFilesUrl, shortSha } from "./pr-diff";
+import { diffRows, fileStatusPill, githubFilesUrl, shortSha } from "./pr-diff";
 
 describe("差分の行", () => {
   test("ハンクヘッダーから旧・新の行番号を数え、追加・削除・文脈に分ける", () => {
@@ -47,5 +47,15 @@ describe("GitHub へのリンクと SHA", () => {
 
   test("SHA は7文字に縮める", () => {
     expect(shortSha("0123456789abcdef")).toBe("0123456");
+  });
+});
+
+describe("変更ファイルの状態ピル", () => {
+  test("状態ごとの表示名と色。バイナリは状態より優先する", () => {
+    expect(fileStatusPill({ status: "added", binary: false })).toEqual({ label: "追加", tone: "ready" });
+    expect(fileStatusPill({ status: "modified", binary: false })).toEqual({ label: "変更", tone: "gate" });
+    expect(fileStatusPill({ status: "deleted", binary: false })).toEqual({ label: "削除", tone: "fail" });
+    expect(fileStatusPill({ status: "renamed", binary: false })).toEqual({ label: "名前変更", tone: "accent" });
+    expect(fileStatusPill({ status: "added", binary: true })).toEqual({ label: "バイナリ", tone: "gate" });
   });
 });

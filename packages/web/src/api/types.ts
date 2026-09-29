@@ -62,6 +62,7 @@ export type {
   PrDiffFile,
   PrDiffFileStatus,
   PrDiffView,
+  PrDiffStale,
   PlanTask,
   Project,
   ProjectDetail,

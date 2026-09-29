@@ -218,9 +218,20 @@ function readView(db: Database, issueRowId: number, issueId: string, prUrl: stri
   if (!row || prUrl === null) return view;
   if (row.data && row.pr_url === prUrl && row.head_sha) {
     const fetchedAt = row.fetched_at ?? "";
+    const data = JSON.parse(row.data) as DiffData;
     const current = newerHead(db, issueRowId, prUrl, row.head_sha, fetchedAt);
-    if (current) view.stale = { diffHeadSha: row.head_sha, currentHeadSha: current };
-    else view.diff = { prUrl, ...(JSON.parse(row.data) as DiffData), fetchedAt, fetchedBy: row.fetched_by ?? "" };
+    if (current) {
+      view.stale = {
+        diffHeadSha: row.head_sha,
+        currentHeadSha: current,
+        files: data.files.length,
+        additions: data.additions,
+        deletions: data.deletions,
+        fetchedAt,
+      };
+    } else {
+      view.diff = { prUrl, ...data, fetchedAt, fetchedBy: row.fetched_by ?? "" };
+    }
   }
   if (row.error_code && row.error_url === prUrl) {
     view.fetchError = { code: row.error_code, message: row.error_message ?? "", at: row.error_at ?? "" };

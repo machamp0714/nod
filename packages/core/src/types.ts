@@ -463,13 +463,23 @@ export interface PrDiffError {
   at: string;
 }
 
+// HEAD が変わった古い差分の要約。ファイルと本文は返さない
+export interface PrDiffStale {
+  diffHeadSha: string;
+  currentHeadSha: string;
+  files: number;
+  additions: number;
+  deletions: number;
+  fetchedAt: string;
+}
+
 // Issue の現在の PR URL に対する最後の差分と最後の失敗。
-// PR 状態の取得で差分より新しい HEAD を知ったら、古い差分は返さず stale に両方の HEAD を入れる
+// PR 状態の取得で差分より新しい HEAD を知ったら、古い差分は返さず stale に両方の HEAD と要約を入れる
 export interface PrDiffView {
   issueId: string;
   prUrl: string | null;
   diff: PrDiff | null;
-  stale: { diffHeadSha: string; currentHeadSha: string } | null;
+  stale: PrDiffStale | null;
   fetchError: PrDiffError | null;
 }
 

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { ReviewIssue } from "../api/types";
+import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
@@ -92,18 +93,21 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
       </section>
 
       {issue.prUrl ? (
-        <div className={d.pr}>
-          <Icon name="git-pull-request" size={18} color="var(--ready)" />
-          <div className={d.prText}>
-            <span className={d.prTitle}>
-              {prLabel(issue.prUrl)} {issue.title}
-            </span>
-            {issue.branch && <span className={d.branch}>{issue.branch}</span>}
+        <div className={d.prGroup}>
+          <div className={d.pr}>
+            <Icon name="git-pull-request" size={18} color="var(--ready)" />
+            <div className={d.prText}>
+              <span className={d.prTitle}>
+                {prLabel(issue.prUrl)} {issue.title}
+              </span>
+              {issue.branch && <span className={d.branch}>{issue.branch}</span>}
+            </div>
+            <a href={issue.prUrl} target="_blank" rel="noreferrer" className={d.link}>
+              GitHub で開く
+              <Icon name="external-link" />
+            </a>
           </div>
-          <a href={issue.prUrl} target="_blank" rel="noreferrer" className={d.link}>
-            GitHub で開く
-            <Icon name="external-link" />
-          </a>
+          <PrDiffSection issueId={issue.id} prUrl={issue.prUrl} collapsible />
         </div>
       ) : (
         <p className={d.muted}>PR はありません</p>
