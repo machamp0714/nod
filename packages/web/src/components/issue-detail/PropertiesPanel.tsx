@@ -190,10 +190,10 @@ export function PropertiesPanel({
           </select>
         </Prop>
         <Prop label="Estimate">
-          <EstimateField key={String(issue.estimate)} estimate={issue.estimate} busy={action.busy} change={change} />
+          <EstimateField key={String(issue.estimate)} estimate={issue.estimate} busy={locked} change={change} />
         </Prop>
         <Prop label="Due date">
-          <DueDateField issue={issue} busy={action.busy} change={change} />
+          <DueDateField issue={issue} busy={locked} change={change} />
         </Prop>
         <Prop label="Workspace">
           <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
