@@ -3,7 +3,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
-import { OPEN_BLOCKER, READY_WHERE, findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
+import { OPEN_BLOCKER, READY_WHERE, findWritableIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
 import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
