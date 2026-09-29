@@ -43,6 +43,7 @@ describe("openDb", () => {
       "reminders",
       "subscriptions",
       "templates",
+      "triage_proposals",
       "views",
       "workspace_labels",
       "workspace_status_names",
