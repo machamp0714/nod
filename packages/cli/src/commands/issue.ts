@@ -98,13 +98,14 @@ export function registerIssueCommands(program: Command): void {
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
     .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
+    .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
     .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .action(
       act(
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean },
+          o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; completionCandidates?: boolean },
         ) => {
           // 委任中の一覧は人がどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || (o.delegated && !globalOpts(cmd).workspace);
@@ -115,6 +116,7 @@ export function registerIssueCommands(program: Command): void {
             projectRef: o.project,
             labels: o.label,
             delegated: o.delegated,
+            completionCandidate: o.completionCandidates,
           });
           if (o.delegated) {
             const sorted = sortByAssignee(issues);

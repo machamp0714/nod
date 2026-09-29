@@ -18,6 +18,7 @@ function issue(p: Partial<Issue> & Pick<Issue, "id" | "title" | "status">): Issu
     labels: [],
     blockedBy: [],
     questionCount: { answered: 0, total: 0 },
+    completionCandidate: false,
     snoozedUntil: null,
     prUrl: null,
     branch: null,

@@ -44,7 +44,8 @@ export function printError(err: unknown, json: boolean): void {
 
 export function formatIssueLine(i: Issue): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
-  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}  ${i.title}`;
+  const candidate = i.completionCandidate ? " [完了候補]" : "";
+  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}  ${i.title}${candidate}`;
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
@@ -99,12 +100,20 @@ function formatActivity(a: ActivityItem): string {
   return `  ${at}  ${a.actor} ${a.type} ${JSON.stringify(a.data)}`;
 }
 
+// 親の完了候補の案内。確定は人が既存の経路で行う（LLM はどちらも拒否される）
+function formatCompletionCandidate(d: IssueDetail): string {
+  const count = (status: string) => d.children.filter((c) => c.status === status).length;
+  const how = d.status === "in_review" ? `nod review approve ${d.id}` : `nod issue update ${d.id} --status done`;
+  return `完了候補: Sub-issue がすべて完了しています（完了 ${count("done")}・キャンセル ${count("canceled")}）。人が ${how} で完了にできます`;
+}
+
 export function formatIssueDetail(d: IssueDetail): string {
   const lines = [
     `${d.id}  ${d.title}`,
     `ステータス: ${STATUS_LABEL[d.status]}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
+  if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
   if (d.project) lines.push(`Project: ${d.project.name}`);

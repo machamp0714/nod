@@ -36,4 +36,6 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("FORBIDDEN_FOR_LLM：");
   expect(GUIDE).toContain("人に判断を依頼");
   expect(GUIDE).toContain("nod project update");
+  expect(GUIDE).toContain("--completion-candidates");
+  expect(GUIDE).toContain("完了候補の親を done にするのは人である");
 });

@@ -9,6 +9,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent, threadRootId } from "../events";
 import {
+  COMPLETION_CANDIDATE_SQL,
   READY_WHERE,
   type CommentRow,
   findIssueRow,
@@ -186,6 +187,7 @@ export interface ListIssuesFilter {
   query?: string;
   blocked?: boolean;
   delegated?: boolean;
+  completionCandidate?: boolean; // true で親の完了候補だけにする
 }
 
 // Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
@@ -239,6 +241,7 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
     where.push(DELEGATED_WHERE);
     params.push(HUMAN_ACTOR);
   }
+  if (filter.completionCandidate) where.push(COMPLETION_CANDIDATE_SQL);
   return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params)
     .filter((issue) => matchesQuery(issue, filter.query));
 }

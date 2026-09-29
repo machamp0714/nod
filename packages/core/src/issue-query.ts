@@ -47,7 +47,14 @@ export interface IssueRow {
   blocked_by: string | null;
   question_total: number;
   question_answered: number;
+  completion_candidate: number;
 }
+
+// 親の完了候補：直接の子がすべて done/canceled で、done が1件以上あり、親が done・canceled・triage 以外。
+// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する
+export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage')
+  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status = 'done')
+  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status NOT IN ('done', 'canceled')))`;
 
 export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
@@ -58,7 +65,8 @@ export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, 
     ORDER BY bw.key, b.number
   )) AS blocked_by,
   (SELECT count(*) FROM questions q WHERE q.issue_id = i.id) AS question_total,
-  (SELECT count(*) FROM questions q WHERE q.issue_id = i.id AND q.answer IS NOT NULL) AS question_answered
+  (SELECT count(*) FROM questions q WHERE q.issue_id = i.id AND q.answer IS NOT NULL) AS question_answered,
+  ${COMPLETION_CANDIDATE_SQL} AS completion_candidate
 FROM issues i
 JOIN workspaces w ON w.id = i.workspace_id
 LEFT JOIN issues pi ON pi.id = i.parent_id
@@ -114,6 +122,7 @@ export function toIssue(r: IssueRow): Issue {
     labels: r.labels ? r.labels.split("\n").sort() : [],
     blockedBy: r.blocked_by ? r.blocked_by.split("\n") : [],
     questionCount: { answered: r.question_answered, total: r.question_total },
+    completionCandidate: r.completion_candidate === 1,
     snoozedUntil: r.snoozed_until,
     prUrl: r.pr_url,
     branch: r.branch,
