@@ -25,7 +25,7 @@ import {
   updateIssue,
 } from "@nod/core";
 import type { Command } from "commander";
-import { collect, orNull, parseDocKind, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
+import { collect, orNull, parseDocKind, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import { formatIssueDetail, formatIssueLine, formatPlan, print } from "../output";
@@ -176,10 +176,13 @@ export function registerIssueCommands(program: Command): void {
   issue
     .command("comment <id> <text>")
     .description("コメントを書く")
+    .option("--reply-to <commentId>", "このコメントのスレッドに返信する（返信への返信はスレッドの親へ付く）")
     .action(
-      act((cli, _cmd, id: string, text: string) => {
-        const c = commentIssue(cli.ctx, id, text);
-        print(cli, c, () => "コメントしました");
+      act((cli, cmd, id: string, text: string) => {
+        const o = cmd.opts<{ replyTo?: string }>();
+        const replyTo = o.replyTo === undefined ? undefined : parsePositiveInt(o.replyTo, "返信先のコメントID");
+        const c = commentIssue(cli.ctx, id, text, { replyTo });
+        print(cli, c, () => (c.parentId === null ? `コメントしました（#${c.id}）` : `返信しました（#${c.id} → #${c.parentId}）`));
       }),
     );
 

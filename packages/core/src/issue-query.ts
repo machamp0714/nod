@@ -195,13 +195,19 @@ export function loadActivity(db: Database, issueId: number): ActivityItem[] {
       created_at: string;
     }[]
   ).map((e): ActivityItem => ({ kind: "event", at: e.created_at, actor: e.actor, type: e.type, data: JSON.parse(e.data) }));
-  const comments = (
-    db.query("SELECT author, body, created_at FROM comments WHERE issue_id = ? ORDER BY id").all(issueId) as {
-      author: string;
-      body: string;
-      created_at: string;
-    }[]
-  ).map((c): ActivityItem => ({ kind: "comment", at: c.created_at, actor: c.author, body: c.body }));
+  const rows = db
+    .query("SELECT id, parent_id, author, body, created_at FROM comments WHERE issue_id = ? ORDER BY id")
+    .all(issueId) as { id: number; parent_id: number | null; author: string; body: string; created_at: string }[];
+  // 返信はスレッドの親の replies に入れ、Activity の時系列には親だけを親の時刻で並べる
+  const threads = new Map<number, Extract<ActivityItem, { kind: "comment" }>>();
+  for (const c of rows) {
+    if (c.parent_id === null) {
+      threads.set(c.id, { kind: "comment", id: c.id, at: c.created_at, actor: c.author, body: c.body, replies: [] });
+    } else {
+      threads.get(c.parent_id)?.replies.push({ id: c.id, at: c.created_at, actor: c.author, body: c.body });
+    }
+  }
+  const comments: ActivityItem[] = [...threads.values()];
   const questions = (
     db.query("SELECT * FROM questions WHERE issue_id = ? ORDER BY id").all(issueId) as QuestionRow[]
   ).map(

@@ -121,6 +121,24 @@ describe("nod issue", () => {
   });
 });
 
+describe("コメントのスレッド", () => {
+  test("--reply-to で返信し、show にコメント ID と字下げした返信を出す", async () => {
+    const created = (await me(["issue", "create", "--json", "スレッド"])).json;
+    const root = (await me(["issue", "comment", created.id, "原因は？", "--json"])).json;
+    expect(root.parentId).toBeNull();
+    const reply = await llm(["issue", "comment", created.id, "N+1 でした", "--reply-to", String(root.id), "--json"]);
+    expect(reply.exitCode).toBe(0);
+    expect(reply.json).toMatchObject({ parentId: root.id, author: "claude-code" });
+    const shown = await me(["issue", "show", created.id]);
+    expect(shown.stdout).toContain(`#${root.id} me: 原因は？`);
+    expect(shown.stdout).toContain(`↳ #${reply.json.id} claude-code: N+1 でした`);
+    const missing = await me(["issue", "comment", created.id, "x", "--reply-to", "99999", "--json"]);
+    expect([missing.exitCode, missing.json.error.code]).toEqual([1, "NOT_FOUND"]);
+    const bad = await me(["issue", "comment", created.id, "x", "--reply-to", "abc", "--json"]);
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
+  });
+});
+
 describe("ヘルプと終了コード", () => {
   test("サブコマンドを省くとヘルプを出して終了コード1、--json なら INVALID_ARGS", async () => {
     const bare = await llm(["issue"]);

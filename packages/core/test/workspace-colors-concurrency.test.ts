@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { openDb, schemaVersion } from "../src/db";
+import { openDb, SCHEMA_VERSION, schemaVersion } from "../src/db";
 import { initWorkspace, listWorkspaces } from "../src/ops/workspaces";
 import { MIGRATIONS } from "../src/schema";
 import { tempDbPath } from "./helpers";
@@ -77,7 +77,7 @@ test("同時openで旧DBを一度だけ移行して既存色を保存する", as
   const results = await concurrent(path, [{ key: "API" }, { key: "WEB" }]);
   expect(results.every((result) => result.created)).toBe(true);
   const db = openDb(path);
-  expect(schemaVersion(db)).toBe(2);
+  expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   const rows = listWorkspaces(db);
   expect(rows.find((row) => row.key === "OLD")?.color).toBe("#7C5CFF");
   expect(new Set(rows.map((row) => row.color)).size).toBe(3);

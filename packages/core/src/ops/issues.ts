@@ -5,7 +5,7 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { addComment, recordEvent } from "../events";
+import { addComment, recordEvent, threadRootId } from "../events";
 import {
   READY_WHERE,
   findIssueRow,
@@ -374,9 +374,13 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   });
 }
 
-export function commentIssue(ctx: OpCtx, ref: string, body: string): Comment {
+export function commentIssue(ctx: OpCtx, ref: string, body: string, opts: { replyTo?: number } = {}): Comment {
   requireText(body, "本文");
-  return tx(ctx.db, () => addComment(ctx, findIssueRow(ctx.db, ref), body));
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    const parentId = opts.replyTo === undefined ? null : threadRootId(ctx, row, opts.replyTo);
+    return addComment(ctx, row, body, parentId);
+  });
 }
 
 export interface RelateInput {

@@ -74,7 +74,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 
 - \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces]\`
 - \`nod issue update <id> [--title] [-d] [-p] [--add-label] [--remove-label] [--parent] [--project]\`
-- \`nod issue comment <id> "<text>"\`
+- \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
 - \`nod project list\`、\`nod project show <名前>\`
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
