@@ -219,14 +219,16 @@ describe("自動クローズ（#71）", () => {
   test("1件の失敗は失敗一覧に残し、残りの Issue は処理を続ける", () => {
     const { db, make, enable, run } = fixture();
     enable(10, null);
-    const [first, broken, last] = [1, 2, 3].map((d) => make("todo", `2026-09-0${d}T00:00:00.000Z`));
-    const brokenId = findIssueRow(db, broken!).id;
+    const first = make("todo", "2026-09-01T00:00:00.000Z");
+    const broken = make("todo", "2026-09-02T00:00:00.000Z");
+    const last = make("todo", "2026-09-03T00:00:00.000Z");
+    const brokenId = findIssueRow(db, broken).id;
     db.exec(`CREATE TRIGGER fail_one BEFORE UPDATE OF status ON issues WHEN NEW.id = ${brokenId}
       BEGIN SELECT RAISE(ABORT, '書き込めません'); END`);
     const r = run().rules[0]!;
     expect(r.processed).toEqual([first, last]);
     expect(r.failed.map((f) => f.id)).toEqual([broken]);
-    expect(getIssue(db, broken!)).toMatchObject({ status: "todo", closeReason: null });
+    expect(getIssue(db, broken)).toMatchObject({ status: "todo", closeReason: null });
   });
 
   test("既定の上限は 50、上限は 1〜500 の整数", () => {
