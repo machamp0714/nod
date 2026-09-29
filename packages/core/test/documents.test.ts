@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachDocument, detachDocument, documentTitle, readDocument } from "../src/ops/documents";
@@ -54,6 +54,18 @@ describe("attachDocument と detachDocument", () => {
     expect(getIssue(db, a.id).documents).toEqual([]);
     expect(eventsOf(db, a.id).at(-1)?.type).toBe("document_detached");
     expect(codeOf(() => detachDocument(me, { issueRef: a.id }, path))).toBe("NOT_FOUND");
+  });
+
+  test("大文字小文字だけ違うパスの添付・解除は同じ Document として扱う（#101）", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const { dir, path } = writeDoc("Spec.md", "# 設計\n");
+    if (!existsSync(join(dir, "spec.md"))) return; // 大文字小文字を区別する FS では別ファイル
+    const doc = attachDocument(me, { issueRef: a.id }, { path });
+    expect(attachDocument(me, { issueRef: a.id }, { path: join(dir, "spec.md") }).id).toBe(doc.id);
+    expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(1);
+    detachDocument(me, { issueRef: a.id }, join(dir, "SPEC.md"));
+    expect(getIssue(db, a.id).documents).toEqual([]);
   });
 
   test("ファイルがなければ FILE_NOT_FOUND、対象の指定が1つでなければ INVALID_ARGS", () => {

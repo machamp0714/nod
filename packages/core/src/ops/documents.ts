@@ -49,17 +49,41 @@ export function resolveDocTarget(db: Database, target: DocTarget): ResolvedTarge
     : { projectId: resolveProject(db, target.projectRef as string).id };
 }
 
-// パスで Document を登録する。登録済みなら、指定したタイトルと種類だけを更新する
+function realPathOrNull(path: string): string | null {
+  try {
+    return realpathSync.native(path).normalize("NFC");
+  } catch {
+    return null;
+  }
+}
+
+// 同じ実体を指す登録済みの Document を探す。パスの完全一致のほか、大文字小文字や Unicode 正規化（NFC/NFD）
+// だけ違うパスは、実パスが同じときに限り同じものとみなす（大文字小文字を区別する FS では別ファイルのまま）
+function findDocumentByPath(db: Database, path: string): DocumentRef | null {
+  const exact = db.query("SELECT id, path, title, kind FROM documents WHERE path = ?").get(path) as DocumentRef | null;
+  if (exact) return exact;
+  const key = (p: string) => p.normalize("NFC").toLowerCase();
+  const candidates = (db.query("SELECT id, path, title, kind FROM documents").all() as DocumentRef[]).filter(
+    (doc) => key(doc.path) === key(path),
+  );
+  if (candidates.length === 0) return null;
+  const real = realPathOrNull(path);
+  return (
+    candidates.find((doc) => (real === null ? doc.path.normalize("NFC") === path.normalize("NFC") : realPathOrNull(doc.path) === real)) ??
+    null
+  );
+}
+
+// パスで Document を登録する。登録済みなら、指定したタイトルと種類だけを更新する。
+// 同じ実体を別の表記で指したときは、パスを今回の表記に合わせる
 function upsertDocument(
   ctx: OpCtx,
   input: { path: string; content: string; title?: string; kind?: DocKind },
 ): DocumentRef {
-  const existing = ctx.db.query("SELECT id, path, title, kind FROM documents WHERE path = ?").get(input.path) as
-    | DocumentRef
-    | null;
+  const existing = findDocumentByPath(ctx.db, input.path);
   if (existing) {
-    const doc = { ...existing, title: input.title ?? existing.title, kind: input.kind ?? existing.kind };
-    ctx.db.query("UPDATE documents SET title = ?, kind = ? WHERE id = ?").run(doc.title, doc.kind, doc.id);
+    const doc = { ...existing, path: input.path, title: input.title ?? existing.title, kind: input.kind ?? existing.kind };
+    ctx.db.query("UPDATE documents SET path = ?, title = ?, kind = ? WHERE id = ?").run(doc.path, doc.title, doc.kind, doc.id);
     return doc;
   }
   const title = input.title ?? documentTitle(input.path, input.content);
@@ -116,7 +140,7 @@ export function detachDocument(ctx: OpCtx, target: DocTarget, path: string, cwd:
   const abs = resolve(cwd, path);
   tx(ctx.db, () => {
     const resolved = resolveDocTarget(ctx.db, target);
-    const doc = ctx.db.query("SELECT id FROM documents WHERE path = ?").get(abs) as { id: number } | null;
+    const doc = findDocumentByPath(ctx.db, abs);
     if (!doc || !removeLink(ctx, doc.id, resolved)) throw new NodError("NOT_FOUND", `${abs} は添付されていません`);
   });
 }
