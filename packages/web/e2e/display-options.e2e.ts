@@ -69,14 +69,18 @@ test.describe("表示設定の取得失敗", () => {
   test("取得失敗と読み込み中も表示設定を保持する", async ({ page }) => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let hits = 0;
     await page.route(/\/api\/issues(?:\?|$)/, async (route) => {
       await gate;
-      await route.fulfill({ status: 500, json: { error: "表示設定の取得失敗テスト" } });
+      hits++;
+      await route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "表示設定の取得失敗テスト" } } });
     });
     await page.goto("/issues?sort=priority&columns=[]");
     await expect(page.getByRole("status")).toContainText("読み込み中");
     release();
-    await expect(page.getByRole("alert")).toBeVisible();
+    // 5xx は shouldRetry で3回再試行され、間隔が 1s・2s・4s と伸びるため、表示まで約7秒かかる
+    await expect(page.getByRole("alert")).toContainText("表示設定の取得失敗テスト", { timeout: 15_000 });
+    expect(hits).toBeGreaterThanOrEqual(4);
     await page.getByText("表示設定", { exact: true }).click();
     await expect(page.getByLabel("並び順", { exact: true })).toHaveValue("priority");
     await expect(page.getByRole("checkbox", { name: "Status", exact: true })).not.toBeChecked();
