@@ -149,7 +149,7 @@ export function registerHumanCommands(program: Command): void {
     .command("reminder")
     .description("リマインダー（nod issue remind）")
     .command("list")
-    .description("まだ届いていないリマインダーを期限の近い順に一覧する。期限が来たものは通知に変わる")
+    .description("まだ届いていないリマインダーを期限の近い順に一覧する（アーカイブ済みの Issue のものは除く）。期限が来たものは通知に変わる")
     .action(
       act((cli) => {
         const list = listReminders(cli.db);

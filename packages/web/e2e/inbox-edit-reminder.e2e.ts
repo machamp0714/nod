@@ -126,3 +126,34 @@ test("期限が来たリマインダーは、開いたままの Inbox に kind=r
   await expect(props(page).getByRole("button", { name: "Reminder を編集" })).toContainText("09:00");
   expect((await nod.me.listReminders()).map((r) => r.issueId)).toEqual([a.id]);
 });
+
+test("Inbox 以外の画面でも、期限が来たら開いている Issue 詳細のリマインダーが消え、通知が届く（#47）", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await nod.me.setReminder(a.id, { at: new Date(Date.now() + 4000).toISOString(), note: "来週の定例で確認" });
+
+  await page.goto(`/issues/${a.id}`);
+  const reminder = page.getByRole("region", { name: "プロパティ" }).getByRole("button", { name: "Reminder を編集" });
+  await expect(reminder).toContainText("来週の定例で確認");
+  await expect(reminder).toHaveText("—", { timeout: 15_000 });
+  expect((await nod.me.listNotifications()).map((n) => n.kind)).toEqual(["reminder"]);
+});
+
+test("アーカイブ済みの Issue ではリマインダーを設定・変更できず、解除だけできる（#47・#30）", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await nod.me.setReminder(a.id, { at: new Date(Date.now() + 86_400_000).toISOString(), note: "定例で確認" });
+  await nod.me.archiveIssue(a.id);
+
+  await page.goto(`/issues/${a.id}`);
+  const panel = page.getByRole("region", { name: "プロパティ" });
+  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toContainText("定例で確認");
+  const clear = panel.getByRole("button", { name: "解除" });
+  await expect(clear).toBeEnabled();
+  await expect(clear).toHaveCSS("opacity", "1");
+  await clear.click();
+  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toHaveText("—");
+  await expect(panel.getByRole("button", { name: "解除" })).toHaveCount(0);
+  expect((await nod.me.getIssue(a.id)).reminder).toBeNull();
+});

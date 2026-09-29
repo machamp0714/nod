@@ -137,8 +137,13 @@ export type RemindChange = (input: { at: string; note: string | null } | null) =
 const REMINDER_ERRORS = { invalid: "日付と時刻を入力してください", past: "過去の日時は指定できません" } as const;
 
 // nod.pen「リマインダー行｜状態」：未設定・設定済み（日時とメモの2段）・編集中（日付＋時刻＋メモ、設定・解除）・過去日時エラー。
-// Escape で取り消す
-function ReminderField({ reminder, busy, change }: { reminder: IssueReminder | null; busy: boolean; change: (input: Parameters<RemindChange>[0]) => Promise<boolean> }) {
+// Escape で取り消す。アーカイブ済み（archived）は設定・変更できず、設定済みなら解除だけできる（Pencil に状態がないため、既存の「解除」ボタンで補う）
+function ReminderField({ reminder, busy, archived, change }: {
+  reminder: IssueReminder | null;
+  busy: boolean;
+  archived: boolean;
+  change: (input: Parameters<RemindChange>[0]) => Promise<boolean>;
+}) {
   const [draft, setDraft] = useState<{ date: string; time: string; note: string } | null>(null);
   const [error, setError] = useState<keyof typeof REMINDER_ERRORS | null>(null);
   const close = () => { setDraft(null); setError(null); };
@@ -153,8 +158,8 @@ function ReminderField({ reminder, busy, change }: { reminder: IssueReminder | n
     if (await change(null)) close();
   }
   if (draft === null) {
-    return (
-      <button type="button" className={s.propButton} aria-label="Reminder を編集" disabled={busy}
+    const display = (
+      <button type="button" className={s.propButton} aria-label="Reminder を編集" disabled={busy || archived}
         onClick={() => setDraft({ ...reminderInputs(reminder?.remindAt ?? null), note: reminder?.note ?? "" })}>
         <Icon name="bell" color={reminder ? "var(--ink2)" : "var(--ink3)"} />
         {reminder ? (
@@ -164,6 +169,13 @@ function ReminderField({ reminder, busy, change }: { reminder: IssueReminder | n
           </span>
         ) : <Empty />}
       </button>
+    );
+    if (!archived || reminder === null) return display;
+    return (
+      <span className={s.reminderArchived}>
+        {display}
+        <Button icon="x" className={s.unlocked} onClick={() => void clear()} disabled={busy}>解除</Button>
+      </span>
     );
   }
   return (
@@ -371,7 +383,7 @@ export function PropertiesPanel({
           </div>
         )}
         <Prop label="Reminder">
-          <ReminderField key={`${reminder?.remindAt}:${reminder?.note}`} reminder={reminder} busy={locked} change={remind} />
+          <ReminderField key={`${reminder?.remindAt}:${reminder?.note}`} reminder={reminder} busy={action.busy} archived={readOnly} change={remind} />
         </Prop>
         {full && <Prop label="Created"><span title={issue.createdAt}>{attachmentDate(issue.createdAt)} · {issue.createdBy}</span></Prop>}
       </dl>

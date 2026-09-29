@@ -9,6 +9,7 @@ export const queryKeys = {
   workspaceLabels: (key: string) => ["workspaces", "labels", key] as const,
   statusNames: () => ["workspaces", "status-names"] as const,
   issueList: (query: IssueQuery) => ["issues", "list", query] as const,
+  issueDetails: () => ["issues", "detail"] as const,
   issue: (id: string) => ["issues", "detail", id] as const,
   prStatus: (id: string) => ["issues", "pr-status", id] as const,
   inbox: () => ["inbox"] as const,

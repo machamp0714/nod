@@ -718,6 +718,8 @@
 .archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
 .commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
 .propsLocked select, .propsLocked input, .propsLocked button { opacity: 0.45; }
+/* アーカイブ済みでも使える操作（リマインダーの解除）は淡くしない */
+.propsLocked button.unlocked { opacity: 1; }
 
 /* 作業ログ（nod.pen「Issue詳細｜作業ログ」） */
 .kindFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
@@ -923,4 +925,5 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .reminderDateTime > input:first-child { flex: 1 1 130px; min-width: 130px; }
 .reminderTime { flex: none; width: 112px; }
 .reminderButtons { display: flex; gap: 6px; }
+.reminderArchived { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .reminderEdit .fieldError { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }

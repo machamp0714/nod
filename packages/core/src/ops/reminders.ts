@@ -26,6 +26,8 @@ export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): R
   if (at <= now()) throw new NodError("INVALID_ARGS", `${input.at} は過去の日時です。これから先の日時を指定してください`);
   const note = input.note?.trim() || null;
   return tx(ctx.db, () => {
+    // 期限が来てまだ届けていないものを先に届ける。上書きで消すと、届くはずの通知が失われる
+    deliverDueReminders(ctx.db);
     // アーカイブ済みの Issue には設定できない（#30）。解除は後片付けとして許す
     const row = findWritableIssueRow(ctx.db, ref);
     const ts = now();
@@ -50,20 +52,22 @@ export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): R
 export function clearReminder(ctx: OpCtx, ref: string): { issueId: string; cleared: boolean } {
   requireHuman(ctx, "解除");
   return tx(ctx.db, () => {
+    // 期限が来ていた分は解除せず通知として届ける（設定と同じ理由）
+    deliverDueReminders(ctx.db);
     const row = findIssueRow(ctx.db, ref);
     const changes = ctx.db.query("DELETE FROM reminders WHERE issue_id = ? AND recipient = ?").run(row.id, ctx.actor).changes;
     return { issueId: formatIssueId(row.ws_key, row.number), cleared: changes > 0 };
   });
 }
 
-// まだ届いていないものだけ。期限の近い順
+// まだ届いていないものだけ。期限の近い順。アーカイブ済みの Issue のものは出さない（届いても復元するまで一覧に出ないため）
 export function listReminders(db: Database, recipient: string = HUMAN_ACTOR): Reminder[] {
-  deliverDueReminders(db);
+  deliverDueRemindersIfFree(db);
   const rows = db
     .query(
       `SELECT r.remind_at, r.note, r.created_at, i.title, i.number, w.key AS ws_key
        FROM reminders r JOIN issues i ON i.id = r.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE r.recipient = ? ORDER BY r.remind_at, r.issue_id`,
+       WHERE r.recipient = ? AND i.archived_at IS NULL ORDER BY r.remind_at, r.issue_id`,
     )
     .all(recipient) as { remind_at: string; note: string | null; created_at: string; title: string; number: number; ws_key: string }[];
   return rows.map((r) => ({
@@ -85,28 +89,34 @@ export function loadReminder(db: Database, issueId: number, recipient: string = 
 }
 
 // 期限が来たリマインダーを kind='reminder' の未読の通知に変える。読み取りの操作から呼ぶ副作用で、届けた件数を返す。
-// 行の削除と通知の挿入を1つのトランザクションで行い、削除できた行だけ通知にするので、同時に読んでも二重には作らない。
-// 通知の時刻は期限の時刻にし、届いたらその Issue の通知のスヌーズを解く（ほかの新着と同じ）
+// DELETE ... RETURNING の1文で「消せた行＝届ける行」を決めるので、ほかの接続やプロセスと同時に呼んでも二重には作らない。
+// 通知の挿入も同じトランザクションで行う。通知の時刻は期限の時刻にし、届いたらその Issue の通知のスヌーズを解く（ほかの新着と同じ）
 export function deliverDueReminders(db: Database): number {
   const ts = now();
   // 読み取りだけで済む大半の呼び出しでは書き込みのロックを取らない
   if (db.query("SELECT 1 FROM reminders WHERE remind_at <= ? LIMIT 1").get(ts) === null) return 0;
   return tx(db, () => {
     const due = db
-      .query("SELECT issue_id, recipient, remind_at, note FROM reminders WHERE remind_at <= ? ORDER BY remind_at")
+      .query("DELETE FROM reminders WHERE remind_at <= ? RETURNING issue_id, recipient, remind_at, note")
       .all(ts) as { issue_id: number; recipient: string; remind_at: string; note: string | null }[];
-    const remove = db.query("DELETE FROM reminders WHERE issue_id = ? AND recipient = ? AND remind_at = ?");
     const insert = db.query(
       `INSERT INTO notifications (recipient, issue_id, kind, event_type, actor, data, created_at)
        VALUES (?, ?, 'reminder', 'reminder', ?, ?, ?)`,
     );
-    let delivered = 0;
+    due.sort((a, b) => a.remind_at.localeCompare(b.remind_at) || a.issue_id - b.issue_id);
     for (const r of due) {
-      if (remove.run(r.issue_id, r.recipient, r.remind_at).changes === 0) continue;
       insert.run(r.recipient, r.issue_id, r.recipient, JSON.stringify({ note: r.note }), r.remind_at);
       releaseSnoozeOnArrival(db, r.issue_id, ts, [r.recipient]);
-      delivered++;
     }
-    return delivered;
+    return due.length;
   });
+}
+
+// 読み取りの操作（通知一覧・Issue 詳細・リマインダー一覧）から呼ぶ。ほかの処理が書き込み中で届けられなくても読み取りは続け、次に読んだときに届ける
+export function deliverDueRemindersIfFree(db: Database): void {
+  try {
+    deliverDueReminders(db);
+  } catch (e) {
+    if (!(e instanceof NodError) || e.code !== "DB_BUSY") throw e;
+  }
 }
