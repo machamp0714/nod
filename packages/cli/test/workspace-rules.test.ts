@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Database } from "bun:sqlite";
 import { formatWorkspaceRulesSection } from "@nod/core";
 import { GUIDE } from "../src/guide";
 import { makeRepo, runNod, tempDb, tempDir } from "./helpers";
@@ -102,9 +103,9 @@ describe("LLM 向け出力に作業規約を含める", () => {
     const show = (await runNod(["issue", "show", "API-2"], { cwd: repo, db })).stdout;
     const next = (await runNod(["issue", "next"], { cwd: repo, db, actor: "claude-code" })).stdout;
     expect(show).toContain(section);
-    expect(show.replace(section, "")).toBe(plainShow);
+    expect(show.replaceAll(section, "")).toBe(plainShow);
     expect(next).toContain(section);
-    expect(next.replace(section, "").replace("API-2", "API-1")).toBe(plainNext);
+    expect(next.replaceAll(section, "").replaceAll("API-2", "API-1")).toBe(plainNext);
   });
 
   test("DB がなければ skills get は DB を作らずに手引きだけを出す", async () => {
@@ -126,6 +127,34 @@ describe("LLM 向け出力に作業規約を含める", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toBe(`${GUIDE}\n`);
     expect(await Bun.file(db).text()).toBe("not a sqlite database");
+  });
+
+  test("migration が要る古い DB（規約の列がない）でも skills get は手引きを出し、DB を移行しない", async () => {
+    const { db, repo } = await setupRepo();
+    const raw = new Database(db);
+    for (const c of ["rules", "rules_updated_at", "rules_updated_by"]) raw.exec(`ALTER TABLE workspaces DROP COLUMN ${c}`);
+    raw.exec("PRAGMA user_version = 1");
+    raw.close();
+    const r = await runNod(["skills", "get", "nod"], { cwd: repo, db });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe(`${GUIDE}\n`);
+    const after = new Database(db, { readonly: true });
+    expect(after.query("PRAGMA user_version").get()).toEqual({ user_version: 1 });
+    after.close();
+  });
+
+  test("-w に未登録の Workspace を渡すと手引きは従来どおり出し、stderr に警告する", async () => {
+    const { db } = await setupRepo();
+    const r = await runNod(["skills", "get", "nod", "-w", "NOPE"], { cwd: tempDir(), db });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe(`${GUIDE}\n`);
+    expect(r.stderr).toContain("Workspace NOPE は登録されていません（規約なし）");
+    const json = await runNod(["skills", "get", "nod", "-w", "NOPE", "--json"], { cwd: tempDir(), db });
+    expect(json.json).toEqual({ name: "nod", guide: GUIDE });
+    expect(json.stderr).toContain("Workspace NOPE は登録されていません（規約なし）");
+    // 登録済みの -w や、-w なしでは警告しない
+    expect((await runNod(["skills", "get", "nod", "-w", "API"], { cwd: tempDir(), db })).stderr).toBe("");
+    expect((await runNod(["skills", "get", "nod"], { cwd: tempDir(), db })).stderr).toBe("");
   });
 
   test("-w はほかのコマンドと同じく、キーのほかリポジトリのパス（. など）でも解決する", async () => {
