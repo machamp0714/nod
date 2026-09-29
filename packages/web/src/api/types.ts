@@ -21,6 +21,7 @@ export type {
   AgentState,
   AskResult,
   Comment,
+  WorkLogKind,
   DocKind,
   DocumentContent,
   DocumentDetail,

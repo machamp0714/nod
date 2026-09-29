@@ -6,6 +6,7 @@ export const CTX_OPS = [
   "createIssue",
   "updateIssue",
   "commentIssue",
+  "logWork",
   "relateIssue",
   "startIssue",
   "askQuestion",

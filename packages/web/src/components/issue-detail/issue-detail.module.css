@@ -717,3 +717,25 @@
 .archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
 .commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
 .propsLocked select, .propsLocked input, .propsLocked button { opacity: 0.45; }
+
+/* 作業ログ（nod.pen「Issue詳細｜作業ログ」） */
+.kindFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.kindChip {
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent;
+  color: var(--ink2); font-size: 12px; cursor: pointer;
+}
+.kindChip:hover:not(.kindChipSelected) { background: var(--bg); }
+.kindChipSelected { border-color: transparent; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.kindBadge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.kindDot { width: 6px; height: 6px; border-radius: 3px; flex: none; }
+.threadBlocker { border-color: var(--ask); }
+.commentThread p.logMono { font-family: var(--font-mono); font-size: 12px; }
+.logClamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
+.logToggle {
+  display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 0; border: 0; background: transparent;
+  color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.kindEmpty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 120px;
+  border: 1px solid var(--line); border-radius: 8px; color: var(--ink2); font-size: 13px;
+}
