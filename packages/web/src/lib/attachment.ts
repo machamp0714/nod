@@ -41,3 +41,26 @@ export function attachmentMeta(a: IssueAttachment): string {
 export function attachmentDownloadPath(id: number): string {
   return `/api/attachments/${id}/download`;
 }
+
+// 画面に埋め込んで表示する添付の種類。server の inline 配信と同じく svg は含めない
+const MEDIA: Readonly<Record<string, "image" | "video">> = {
+  "image/png": "image", "image/jpeg": "image", "image/gif": "image", "image/webp": "image",
+  "video/mp4": "video", "video/webm": "video",
+};
+
+export function mediaKind(a: IssueAttachment): "image" | "video" | null {
+  return a.kind === "file" && a.mime && Object.hasOwn(MEDIA, a.mime) ? MEDIA[a.mime] : null;
+}
+
+export function mediaAttachments(list: IssueAttachment[]): IssueAttachment[] {
+  return list.filter(a => mediaKind(a) !== null);
+}
+
+// 画像・動画を埋め込むときの配信先（Content-Disposition: inline、Range 対応）
+export function attachmentViewPath(id: number): string {
+  return `/api/attachments/${id}/view`;
+}
+
+export function videoBadge(a: IssueAttachment): string {
+  return (a.fileName?.split(".").pop() ?? "").toUpperCase();
+}
