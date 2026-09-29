@@ -11,6 +11,7 @@ import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
 import { registerPrStatusRoutes } from "./routes/pr-status";
+import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { registerAutomationRoutes } from "./routes/automation";
 import { registerViewRoutes } from "./routes/views";
 import { registerNotificationRoutes } from "./routes/notifications";
@@ -71,6 +72,7 @@ export function createApp(opts: AppOptions): Hono {
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);
   registerPrStatusRoutes(app, me, opts.ghRunner);
+  registerPrDiffRoutes(app, me, opts.ghRunner);
   registerAutomationRoutes(app, me);
   registerViewRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);

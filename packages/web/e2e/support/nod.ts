@@ -50,6 +50,11 @@ export async function stubGh(result: Core.GhRunResult, opts: { gate?: boolean } 
   await post("/gh", { result, gate: opts.gate ?? false });
 }
 
+// サブコマンドごとに結果を返し分ける（PR の差分は gh pr view と gh api の2回呼ぶ）。無いサブコマンドは not_found
+export async function stubGhBy(results: Record<"pr" | "api", Core.GhRunResult>, opts: { gate?: boolean } = {}): Promise<void> {
+  await post("/gh", { result: { kind: "not_found" }, results, gate: opts.gate ?? false });
+}
+
 export async function releaseGh(): Promise<void> {
   await post("/gh/release", {});
 }

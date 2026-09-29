@@ -299,4 +299,22 @@ export const MIGRATIONS: MigrationStep[][] = [
       CHECK ((decision = 'duplicate') = (duplicate_of_id IS NOT NULL))
     )`,
   ],
+  // PR の差分（#55）。pr_statuses と同じく、明示的に更新したときだけ gh から取得して Issue ごとに最新1件を保存する。
+  // head_sha は取得した差分の HEAD で、PR 状態の取得で別の HEAD を知ったら古い差分として表示しない
+  [
+    `CREATE TABLE pr_diffs (
+      issue_id INTEGER PRIMARY KEY REFERENCES issues(id) ON DELETE CASCADE,
+      pr_url TEXT,
+      head_sha TEXT,
+      base_sha TEXT,
+      data TEXT,
+      fetched_at TEXT,
+      fetched_by TEXT,
+      error_url TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      error_at TEXT,
+      started_at TEXT NOT NULL
+    )`,
+  ],
 ];

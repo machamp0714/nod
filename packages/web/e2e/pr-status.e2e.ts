@@ -51,7 +51,7 @@ test("未取得なら gh を実行せず、更新すると状態・レビュー�
   await expect(ci).toHaveText("✓5 ✗1 ⋯2");
   await expect(group.getByText("取得: たった今")).toBeVisible();
   expect(await ghCalls()).toEqual([
-    ["pr", "view", PR_URL, "--json", "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt"],
+    ["pr", "view", PR_URL, "--json", "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid"],
   ]);
 
   await expect(group.getByRole("list", { name: "失敗したチェック" })).toHaveCount(0);

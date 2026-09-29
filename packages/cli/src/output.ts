@@ -24,6 +24,9 @@ import {
   type PrState,
   type PrStatus,
   type PrStatusView,
+  type PrDiffFile,
+  type PrDiffFileSummary,
+  type PrDiffView,
 } from "@nod/core";
 
 export const STATUS_LABEL: Record<Status, string> = DEFAULT_STATUS_LABELS;
@@ -360,4 +363,52 @@ export function formatPrStatus(v: PrStatusView): string {
     lines.push(`未取得。nod issue pr-status ${v.issueId} --refresh で gh から取得する`);
   }
   return lines.join("\n");
+}
+
+// PR の差分（#55）。パス・差分は GitHub から来た信頼できない文字列なので、端末の制御文字は置き換えて出す。
+// 双方向の制御文字（Trojan Source）は見た目の並びを変えるので、⟪U+202E⟫ のように符号を見せる
+const BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/;
+// eslint-disable-next-line no-control-regex
+const safe = (text: string, keep = "") =>
+  text
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => (keep.includes(c) ? c : "\ufffd"))
+    .replace(new RegExp(BIDI_RE.source, "g"), (c) => `⟪U+${c.codePointAt(0)!.toString(16).toUpperCase()}⟫`);
+const BIDI_WARNING = "注意: 双方向の制御文字を含みます（⟪U+…⟫ の箇所）。見た目と実際のコードの並びが異なる恐れがあります";
+const shortSha = (sha: string) => sha.slice(0, 7);
+const FILE_MARK: Record<PrDiffFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+
+function diffFileLine(f: PrDiffFileSummary): string {
+  const path = f.oldPath ? `${safe(f.oldPath)} → ${safe(f.path)}` : safe(f.path);
+  const note = f.omitted === "binary" ? "  バイナリ" : f.omitted === "too_large" ? "  大きいため省略" : "";
+  return `  ${FILE_MARK[f.status]} ${path}  +${f.additions} −${f.deletions}${note}`;
+}
+
+export function formatPrDiff(v: PrDiffView): string {
+  if (!v.prUrl) return `${v.issueId} に PR がありません`;
+  const lines = [`${v.issueId}  PR: ${safe(v.prUrl)}`];
+  if (v.fetchError) lines.push(`取得に失敗（${v.fetchError.code}）: ${safe(v.fetchError.message)}（${v.fetchError.at}）`);
+  if (v.stale) {
+    lines.push(
+      `PR が更新されています（HEAD ${shortSha(v.stale.diffHeadSha)} → ${shortSha(v.stale.currentHeadSha)}）。nod issue pr-diff ${v.issueId} --refresh で取り直す`,
+    );
+  }
+  if (v.diff) {
+    const d = v.diff;
+    lines.push(`HEAD ${shortSha(d.headSha)} · 変更ファイル ${d.files.length} · +${d.additions} −${d.deletions}`);
+    lines.push(...d.files.map(diffFileLine));
+    if (d.files.some((f) => BIDI_RE.test(f.path) || BIDI_RE.test(f.oldPath ?? ""))) lines.push(BIDI_WARNING);
+    lines.push(`${v.fetchError ? "前回取得" : "取得"}: ${d.fetchedAt}（${d.fetchedBy}）`);
+    if (d.files.length) lines.push(`ファイルの差分: nod issue pr-diff ${v.issueId} --file <パス>`);
+  } else if (!v.fetchError && !v.stale) {
+    lines.push(`未取得。nod issue pr-diff ${v.issueId} --refresh で gh から取得する`);
+  }
+  return lines.join("\n");
+}
+
+export function formatPrDiffFile(f: PrDiffFile): string {
+  const head = diffFileLine(f).trimStart();
+  if (f.omitted === "binary") return `${head}\nバイナリのため差分を表示しません`;
+  if (f.omitted === "too_large") return `${head}\n大きいため差分を保存していません。GitHub で確認してください`;
+  const bidi = [f.path, f.oldPath ?? "", f.patch ?? ""].some((t) => BIDI_RE.test(t));
+  return `${head}\n${bidi ? `${BIDI_WARNING}\n` : ""}${f.patch ? safe(f.patch, "\n\t") : "（内容の変更はありません）"}`;
 }

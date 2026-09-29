@@ -16,6 +16,7 @@ cd <リポジトリ> && nod init    # Workspace として登録する（キー�
 LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude/skills/nod` にシンボリックリンクを張る）。
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
 `nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
+`nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
 ### 人だけが行える操作と、その限界

@@ -124,7 +124,7 @@ describe("PR 状態の取得と保存", () => {
     const gh = stub(ok());
     const view = await refreshPrStatus(me, ref, gh);
     expect(gh.calls).toEqual([
-      ["pr", "view", PR_URL, "--json", "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt"],
+      ["pr", "view", PR_URL, "--json", "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid"],
     ]);
     expect(view.fetchError).toBeNull();
     expect(view.status).toMatchObject({ prUrl: PR_URL, number: 128, state: "OPEN", reviewDecision: "APPROVED", fetchedBy: "me" });

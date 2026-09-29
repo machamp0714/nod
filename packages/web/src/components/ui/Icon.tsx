@@ -35,6 +35,7 @@ import {
   FilePlus,
   FileSearch,
   FileText,
+  FileWarning,
   Gauge,
   GitMerge,
   GitPullRequest,
@@ -71,6 +72,7 @@ import {
   Tag,
   Terminal,
   Trash2,
+  TriangleAlert,
   Undo2,
   X,
 } from "lucide-react";
@@ -113,6 +115,7 @@ const ICONS = {
   "file-plus": FilePlus,
   "file-search": FileSearch,
   "file-text": FileText,
+  "file-warning": FileWarning,
   gauge: Gauge,
   "git-merge": GitMerge,
   "git-pull-request": GitPullRequest,
@@ -147,6 +150,7 @@ const ICONS = {
   tag: Tag,
   terminal: Terminal,
   "trash-2": Trash2,
+  "triangle-alert": TriangleAlert,
   "undo-2": Undo2,
   x: X,
 } satisfies Record<string, LucideIcon>;

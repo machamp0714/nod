@@ -21,13 +21,15 @@ const attachmentsDir = join(dir, "attachments");
 // PR 状態の取得で gh の代わりに使う。実際の gh・GitHub には触れず、/gh で決めた結果を返す。
 // 呼び出しの引数を記録し、/gh の gate が true なら /gh/release まで返さない（取得中の表示を確かめるため）
 let ghResult: core.GhRunResult = { kind: "not_found" };
+// サブコマンド（args[0]: "pr" は gh pr view、"api" は差分の compare）ごとの結果。無ければ ghResult を返す
+let ghResults: Record<string, core.GhRunResult> = {};
 let ghCalls: string[][] = [];
 let ghGate: Promise<void> | null = null;
 let releaseGh: () => void = () => {};
 const ghRunner: core.GhRunner = async (args) => {
   ghCalls.push(args);
   if (ghGate) await ghGate;
-  return ghResult;
+  return ghResults[args[0] ?? ""] ?? ghResult;
 };
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
@@ -79,14 +81,16 @@ const control = Bun.serve({
         const { dataset } = (await req.json()) as { dataset: string };
         await reset(dataset);
         ghResult = { kind: "not_found" };
+        ghResults = {};
         ghCalls = [];
         releaseGh();
         ghGate = null;
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/gh") {
-        const body = (await req.json()) as { result: core.GhRunResult; gate?: boolean };
+        const body = (await req.json()) as { result: core.GhRunResult; results?: Record<string, core.GhRunResult>; gate?: boolean };
         ghResult = body.result;
+        ghResults = body.results ?? {};
         ghCalls = [];
         releaseGh();
         ghGate = body.gate ? new Promise<void>((r) => (releaseGh = r)) : null;

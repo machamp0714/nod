@@ -11,6 +11,7 @@ function status(over: Partial<PrStatus> = {}): PrStatus {
     isDraft: false,
     reviewDecision: null,
     mergedAt: null,
+    headSha: null,
     checks: [],
     checkSummary: { success: 0, failure: 0, pending: 0, skipped: 0 },
     fetchedAt: "2026-09-30T00:00:00Z",

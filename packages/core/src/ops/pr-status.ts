@@ -25,8 +25,9 @@ export type GhRunner = (args: string[], opts: { timeoutMs: number }) => Promise<
 export const PR_STATUS_TIMEOUT_MS = 15_000;
 // 時間切れで SIGTERM を送ってから SIGKILL するまでの猶予
 export const GH_KILL_GRACE_MS = 2_000;
-const GH_FIELDS = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt";
-const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
+// headRefOid は #55 の差分が古いか（HEAD が変わったか）を判定するために取る
+const GH_FIELDS = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid";
+export const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
 const REVIEW_DECISIONS: readonly string[] = ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] satisfies PrReviewDecision[];
 
 const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
@@ -116,6 +117,7 @@ export function parseGhPrView(stdout: string): Omit<PrStatus, "prUrl" | "fetched
     reviewDecision: string | null;
     mergedAt: string | null;
     statusCheckRollup: RollupEntry[] | null;
+    headRefOid?: string;
   };
   if (typeof raw?.number !== "number" || !["OPEN", "CLOSED", "MERGED"].includes(raw.state)) {
     throw new Error("unexpected gh output");
@@ -135,12 +137,14 @@ export function parseGhPrView(stdout: string): Omit<PrStatus, "prUrl" | "fetched
     // 既知の値だけ残す。gh が将来別の値を返しても表示側で扱えない値は保存しない
     reviewDecision: REVIEW_DECISIONS.includes(raw.reviewDecision ?? "") ? (raw.reviewDecision as PrReviewDecision) : null,
     mergedAt: raw.mergedAt || null,
+    headSha: typeof raw.headRefOid === "string" && /^[0-9a-f]{40}$/.test(raw.headRefOid) ? raw.headRefOid : null,
     checks,
     checkSummary,
   };
 }
 
-function classify(result: Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>): { code: PrStatusErrorCode; message: string } {
+// gh の失敗を分類する（#55 の差分の取得も使う）
+export function classify(result: Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>): { code: PrStatusErrorCode; message: string } {
   if (result.kind === "not_found") return known("GH_NOT_INSTALLED");
   if (result.kind === "timeout") return known("TIMEOUT");
   if (result.kind === "spawn_failed") return { code: "UNKNOWN" as const, message: `gh を起動できませんでした: ${result.detail}` };
@@ -155,11 +159,11 @@ function classify(result: Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>)
   return unknown(stderr.trim().split("\n")[0]?.slice(0, 200) || `終了コード ${result.exitCode}`);
 }
 
-function known(code: Exclude<PrStatusErrorCode, "UNKNOWN">) {
+export function known(code: Exclude<PrStatusErrorCode, "UNKNOWN">) {
   return { code, message: ERROR_MESSAGES[code] };
 }
 
-function unknown(detail: string) {
+export function unknown(detail: string) {
   return { code: "UNKNOWN" as const, message: `取得に失敗しました: ${detail}` };
 }
 
@@ -179,7 +183,8 @@ function readView(db: Database, issueRowId: number, issueId: string, prUrl: stri
   const view: PrStatusView = { issueId, prUrl, status: null, fetchError: null };
   if (!row || prUrl === null) return view;
   if (row.data && row.pr_url === prUrl) {
-    view.status = { prUrl, ...JSON.parse(row.data), fetchedAt: row.fetched_at ?? "", fetchedBy: row.fetched_by ?? "" };
+    // headSha を持たない以前の結果（#55 より前）は null にそろえる
+    view.status = { prUrl, headSha: null, ...JSON.parse(row.data), fetchedAt: row.fetched_at ?? "", fetchedBy: row.fetched_by ?? "" };
   }
   if (row.error_code && row.error_url === prUrl) {
     view.fetchError = { code: row.error_code, message: row.error_message ?? "", at: row.error_at ?? "" };

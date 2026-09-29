@@ -30,5 +30,6 @@ export * from "./ops/triage-suggest";
 export * from "./ops/triage-proposals";
 export * from "./work-log";
 export * from "./ops/pr-status";
+export * from "./ops/pr-diff";
 export * from "./ops/automation";
 export * from "./ops/summary";

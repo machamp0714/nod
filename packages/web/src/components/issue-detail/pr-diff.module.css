@@ -1,0 +1,294 @@
+/* nod.pen「Issue詳細｜変更ファイル（#55）」「Reviews｜変更ファイル（#55）」「変更ファイル｜状態（#55）」 */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.boxed {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.toggle {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mono {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.sep {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.add {
+  color: var(--ready);
+}
+
+.del {
+  color: var(--fail);
+}
+
+.note {
+  margin: 0;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.refresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.refresh:disabled {
+  background: var(--sunken);
+  color: var(--ink3);
+  cursor: default;
+}
+
+.link {
+  flex: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--fail);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.error > svg,
+.stale > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--ask-soft);
+  color: var(--ask);
+  font-size: 12px;
+}
+
+.tooLarge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink2);
+}
+
+.tooLargeText {
+  flex: 1;
+  font-size: 12.5px;
+}
+
+.files {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  list-style: none;
+}
+
+.file + .file,
+.more {
+  border-top: 1px solid var(--line);
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--ink3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileRowOpen {
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.pill {
+  flex: none;
+  width: 60px;
+  padding: 2px 0;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.binary {
+  flex: none;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.omitted {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.diff {
+  padding-bottom: 6px;
+  overflow-x: auto;
+}
+
+.hunk,
+.line {
+  width: max-content;
+  min-width: 100%;
+}
+
+.hunk {
+  padding: 4px 12px;
+  background: var(--sunken);
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+}
+
+.lineAdd {
+  background: var(--ready-soft);
+}
+
+.lineDel {
+  background: var(--fail-soft);
+}
+
+.lineNo {
+  flex: none;
+  width: 40px;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+  user-select: none;
+}
+
+.code {
+  padding: 2px 0 2px 12px;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre;
+}
+
+.lineAdd .code {
+  color: var(--ready);
+}
+
+.lineDel .code {
+  color: var(--fail);
+}
+
+.more {
+  padding: 8px 12px;
+}
+
+.moreButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* 双方向の制御文字（Trojan Source）の符号。そのまま描画せず、目立つ印にする */
+.bidi {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--ask-soft);
+  color: var(--ask);
+  font-weight: 600;
+}
