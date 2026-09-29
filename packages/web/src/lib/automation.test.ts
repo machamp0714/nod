@@ -18,6 +18,7 @@ const saved = (close: number | null, archive: number | null, prReview = false): 
   closeAfterDays: close,
   archiveAfterDays: archive,
   prReview,
+  commitReview: false,
   updatedAt: null,
   updatedBy: null,
 });
@@ -40,11 +41,13 @@ describe("自動化の編集状態", () => {
       close: { enabled: false, days: "30" },
       archive: { enabled: false, days: "14" },
       prReview: false,
+      commitReview: false,
     });
     expect(automationDraft(saved(90, 7, true))).toEqual({
       close: { enabled: true, days: "90" },
       archive: { enabled: true, days: "7" },
       prReview: true,
+      commitReview: false,
     });
   });
 
@@ -57,15 +60,17 @@ describe("自動化の編集状態", () => {
   test("保存済みと同じなら保存できず、変わっていて正しければ保存できる", () => {
     const s = saved(30, null);
     expect(automationEditState(automationDraft(s), s).canSave).toBe(false);
-    const on = automationEditState({ close: { enabled: true, days: "30" }, archive: { enabled: true, days: "14" }, prReview: false }, s);
+    const on = automationEditState({ close: { enabled: true, days: "30" }, archive: { enabled: true, days: "14" }, prReview: false, commitReview: false }, s);
     expect(on).toMatchObject({ dirty: true, canSave: true, input: { closeAfterDays: 30, archiveAfterDays: 14 } });
-    const off = automationEditState({ close: { enabled: false, days: "30" }, archive: { enabled: false, days: "14" }, prReview: false }, s);
-    expect(off.input).toEqual({ closeAfterDays: null, archiveAfterDays: null, prReview: false });
-    const bad = automationEditState({ close: { enabled: true, days: "0" }, archive: { enabled: false, days: "14" }, prReview: false }, s);
+    const off = automationEditState({ close: { enabled: false, days: "30" }, archive: { enabled: false, days: "14" }, prReview: false, commitReview: false }, s);
+    expect(off.input).toEqual({ closeAfterDays: null, archiveAfterDays: null, prReview: false, commitReview: false });
+    const bad = automationEditState({ close: { enabled: true, days: "0" }, archive: { enabled: false, days: "14" }, prReview: false, commitReview: false }, s);
     expect(bad).toMatchObject({ closeInvalid: true, archiveInvalid: false, canSave: false });
     // PR 連動だけを切り替えても保存できる
     const pr = automationEditState({ ...automationDraft(s), prReview: true }, s);
     expect(pr).toMatchObject({ dirty: true, canSave: true, input: { closeAfterDays: 30, archiveAfterDays: null, prReview: true } });
+    const commit = automationEditState({ ...automationDraft(s), commitReview: true }, s);
+    expect(commit).toMatchObject({ dirty: true, canSave: true, input: { commitReview: true, prReview: false } });
   });
 });
 

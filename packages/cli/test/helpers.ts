@@ -19,7 +19,7 @@ export function tempDb(): string {
 }
 
 // 利用者の git の設定（署名、フック）に左右されないようにする
-function git(cwd: string, ...args: string[]): void {
+export function git(cwd: string, ...args: string[]): void {
   const p = Bun.spawnSync(
     [
       "git",

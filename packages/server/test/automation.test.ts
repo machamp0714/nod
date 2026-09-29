@@ -32,6 +32,8 @@ describe("自動化API", () => {
     expect((await call(s.app, "PUT", url, { prReview: true })).json).toMatchObject({ prReview: true, closeAfterDays: null });
     const bad = await call(s.app, "PUT", url, { prReview: "on" });
     expect(bad.status).toBe(400);
+    expect((await call(s.app, "PUT", url, { commitReview: 1 })).status).toBe(400);
+    expect((await call(s.app, "PUT", url, { commitReview: true })).json).toMatchObject({ prReview: true, commitReview: true });
     expect(getAutomationSettings(s.db, s.ws.key).prReview).toBe(true);
     const run = await call(s.app, "POST", `${url}/run`, { dryRun: true, targets: { pr_review: [] } });
     expect(run.status).toBe(200);

@@ -15,6 +15,7 @@ export interface AutomationDraft {
   close: RuleDraft;
   archive: RuleDraft;
   prReview: boolean; // PR 連動（#66）。日数はない
+  commitReview: boolean; // コミット連動（#68）。実行は CLI の nod git sync
 }
 
 export function automationDraft(saved: AutomationSettings): AutomationDraft {
@@ -23,6 +24,7 @@ export function automationDraft(saved: AutomationSettings): AutomationDraft {
     close: rule(saved.closeAfterDays, DEFAULT_CLOSE_DAYS),
     archive: rule(saved.archiveAfterDays, DEFAULT_ARCHIVE_DAYS),
     prReview: saved.prReview,
+    commitReview: saved.commitReview,
   };
 }
 
@@ -43,15 +45,23 @@ export interface AutomationEditState {
   archiveInvalid: boolean;
   dirty: boolean;
   canSave: boolean;
-  input: { closeAfterDays: number | null; archiveAfterDays: number | null; prReview: boolean };
+  input: { closeAfterDays: number | null; archiveAfterDays: number | null; prReview: boolean; commitReview: boolean };
 }
 
 export function automationEditState(draft: AutomationDraft, saved: AutomationSettings): AutomationEditState {
   const closeInvalid = ruleDaysInvalid(draft.close);
   const archiveInvalid = ruleDaysInvalid(draft.archive);
-  const input = { closeAfterDays: ruleValue(draft.close), archiveAfterDays: ruleValue(draft.archive), prReview: draft.prReview };
+  const input = {
+    closeAfterDays: ruleValue(draft.close),
+    archiveAfterDays: ruleValue(draft.archive),
+    prReview: draft.prReview,
+    commitReview: draft.commitReview,
+  };
   const dirty =
-    input.closeAfterDays !== saved.closeAfterDays || input.archiveAfterDays !== saved.archiveAfterDays || input.prReview !== saved.prReview;
+    input.closeAfterDays !== saved.closeAfterDays ||
+    input.archiveAfterDays !== saved.archiveAfterDays ||
+    input.prReview !== saved.prReview ||
+    input.commitReview !== saved.commitReview;
   return { closeInvalid, archiveInvalid, dirty, canSave: dirty && !closeInvalid && !archiveInvalid, input };
 }
 

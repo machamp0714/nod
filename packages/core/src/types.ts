@@ -430,6 +430,33 @@ export interface PrStatusView {
   autoTransition?: AutoTransition | null; // 更新（refresh）でステータスを進めたとき、その記録。表示だけのときは付けない
 }
 
+// nod git sync（#68）の候補。同じ Issue を書いたコミットが複数あれば最新のもの
+export interface GitSyncCandidate {
+  id: string;
+  title: string;
+  status: Status;
+  sha: string;
+  subject: string;
+  keyword: string; // メッセージに書かれたキーワード（Closes・fixes など）
+  committedAt: string;
+}
+
+export interface GitSyncResult {
+  workspaceKey: string;
+  ref: string;
+  sinceDays: number;
+  dryRun: boolean;
+  enabled: boolean; // Workspace でコミット連動が有効か（無効でも dry-run はできる）
+  scanned: number; // 読んだコミット数
+  truncated: boolean; // 読む上限に達した（それより古いコミットは読んでいない）
+  total: number;
+  candidates: GitSyncCandidate[];
+  processed: string[];
+  skipped: string[];
+  failed: { id: string; message: string }[];
+  remaining: number;
+}
+
 // PR・コミットによる自動のステータス遷移（#66・#68）の記録。同じ Issue・同じ PR/コミットでは一度だけ遷移させる
 export type AutoTransitionSource = "pr" | "commit";
 
@@ -520,6 +547,7 @@ export interface AutomationSettings {
   closeAfterDays: number | null;
   archiveAfterDays: number | null;
   prReview: boolean; // PR が open（draft 以外）かマージ済みになったら in_progress を in_review にする（#66）
+  commitReview: boolean; // nod git sync でコミットメッセージの Closes/Fixes <ID> を読み、Issue を in_review にする（#68）
   updatedAt: string | null;
   updatedBy: string | null;
 }

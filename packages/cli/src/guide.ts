@@ -71,7 +71,9 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 \`nod issue archive <id> [--reason <text>]\` と \`nod issue unarchive <id>\` は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。ステータスは変えない。
 アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
 Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。LLM は \`nod automation run --dry-run\` で対象を確かめ、人に伝えるだけにする。
-PR 連動による in_review への自動遷移の取消（\`nod automation undo <id>\`）も人だけが行える。
+PR 連動・コミット連動による in_review への自動遷移の取消（\`nod automation undo <id>\`）も人だけが行える。
+\`nod git sync\`（コミットメッセージの Closes/Fixes <ID> で Issue を in_review にする）の実行は人だけが行える。LLM は \`nod git sync --dry-run\` で対象を確かめ、人に伝えるだけにする。
+コミットメッセージに Issue ID を書くときは、作業が済んだコミットだけに \`Fixes <ID>\` を付け、途中のコミットには付けない。
 
 ## 引数の書き方
 

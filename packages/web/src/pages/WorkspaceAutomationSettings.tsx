@@ -22,7 +22,8 @@ import {
 import s from "./workspace-settings.module.css";
 import { DeleteDialog } from "./WorkspaceSettingsPage";
 
-// 自動化（#71 自動クローズ・#72 自動アーカイブ・#66 PR 連動）。常駐はせず、人がこの画面か CLI から1回ずつ実行する
+// 自動化（#71 自動クローズ・#72 自動アーカイブ・#66 PR 連動・#68 コミット連動）。常駐はせず、人がこの画面か CLI から1回ずつ実行する。
+// コミット連動はこの画面では有効・無効だけを切り替え、実行は CLI の nod git sync で行う
 // （nod.pen「Workspace設定｜自動化（#71/#72）」「自動化｜状態（#71/#72）」「Workspace設定｜PR・コミット連動」）
 export function AutomationSection({ workspace, onToast }: { workspace: Workspace; onToast: (message: string) => void }) {
   const titleId = useId();
@@ -143,6 +144,12 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
           enabled={draft.prReview}
           onChange={(prReview) => setDraft((d) => ({ ...d, prReview }))}
           text="PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする"
+        />
+        <SwitchRow
+          label="コミット連動"
+          enabled={draft.commitReview}
+          onChange={(commitReview) => setDraft((d) => ({ ...d, commitReview }))}
+          text="コミットの Closes/Fixes <ID> で Issue を in_review にする（nod git sync で実行）"
         />
         <p className={s.autoRulesNote}>
           <Icon name="info" size={13} />

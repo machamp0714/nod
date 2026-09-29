@@ -28,6 +28,15 @@ PR は作業中に `nod issue link-pr <id> <url>` で紐付ける（ステータ
 同じ Issue・同じ PR URL では一度だけ進め（`auto_transitions` に記録）、現在の PR を付けたあとに一度でも in_review になった Issue（`nod issue done` 済み・差し戻し後）は進めない。
 PR を付け直せば、新しい PR では再び対象になる。
 誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review なら元の状態に戻す（人だけ）。取消も event と記録に残り、同じ PR では再び進めない。
+
+### コミット連動（#68）
+
+Workspace ごとに `nod automation set --commit-review on` で有効にする（既定は無効。設定は人だけ）。
+`nod git sync [--dry-run] [--since <日数>] [--ref <rev>] [--limit <n>]` は、Workspace のパスで `git log <ref>`（既定 HEAD・直近30日・最大1000コミット。fetch はしない）を読み、
+コミットメッセージの close / closes / closed / fix / fixes / fixed / resolve / resolves / resolved（大文字小文字は問わない）に続くこの Workspace の Issue ID を拾う。
+`Fixes API-1, API-2 and API-3` のように複数書ける。backlog / todo / in_progress の Issue を in_review にし、done にはしない。Triage・needs_clarification・in_review・done・canceled・アーカイブ済みは対象外。
+`--dry-run` は誰でも（LLM も）使え、実行は人だけで、無効な Workspace では実行できない（`AUTOMATION_DISABLED`）。
+同じ Issue・同じコミットでは一度だけ進め、コミットのあとで一度でも in_review になった Issue（差し戻し後など）は進めない。取消は PR 連動と同じく `nod automation undo <id>`。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
 ### 人だけが行える操作と、その限界

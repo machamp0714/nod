@@ -43,6 +43,7 @@ interface SettingsRow {
   auto_close_days: number | null;
   auto_archive_days: number | null;
   pr_review_enabled: number;
+  commit_review_enabled: number;
   automation_updated_at: string | null;
   automation_updated_by: string | null;
 }
@@ -74,7 +75,8 @@ function validateDays(days: number | null | undefined, label: string): void {
 function readSettings(db: Database, workspace: Workspace): AutomationSettings {
   const row = db
     .query(
-      "SELECT auto_close_days, auto_archive_days, pr_review_enabled, automation_updated_at, automation_updated_by FROM workspaces WHERE id = ?",
+      `SELECT auto_close_days, auto_archive_days, pr_review_enabled, commit_review_enabled, automation_updated_at, automation_updated_by
+       FROM workspaces WHERE id = ?`,
     )
     .get(workspace.id) as SettingsRow;
   return {
@@ -82,6 +84,7 @@ function readSettings(db: Database, workspace: Workspace): AutomationSettings {
     closeAfterDays: row.auto_close_days,
     archiveAfterDays: row.auto_archive_days,
     prReview: row.pr_review_enabled === 1,
+    commitReview: row.commit_review_enabled === 1,
     updatedAt: row.automation_updated_at,
     updatedBy: row.automation_updated_by,
   };
@@ -91,11 +94,11 @@ export function getAutomationSettings(db: Database, keyOrPath: string): Automati
   return readSettings(db, requireWorkspace(db, keyOrPath));
 }
 
-// 渡した項目だけを変える。日数の null はそのルールを無効にする。prReview は PR 連動（#66）の有効・無効
+// 渡した項目だけを変える。日数の null はそのルールを無効にする。prReview は PR 連動（#66）、commitReview はコミット連動（#68）の有効・無効
 export function setAutomationSettings(
   ctx: OpCtx,
   keyOrPath: string,
-  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null; prReview?: boolean },
+  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null; prReview?: boolean; commitReview?: boolean },
 ): AutomationSettings {
   if (isLlm(ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動化の設定を変えられません。変更は me に依頼してください");
@@ -105,18 +108,22 @@ export function setAutomationSettings(
   if (input.prReview !== undefined && typeof input.prReview !== "boolean") {
     throw new NodError("INVALID_ARGS", "PR 連動は true か false で指定してください");
   }
+  if (input.commitReview !== undefined && typeof input.commitReview !== "boolean") {
+    throw new NodError("INVALID_ARGS", "コミット連動は true か false で指定してください");
+  }
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const current = readSettings(ctx.db, workspace);
     ctx.db
       .query(
-        `UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?, pr_review_enabled = ?,
+        `UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?, pr_review_enabled = ?, commit_review_enabled = ?,
           automation_updated_at = ?, automation_updated_by = ? WHERE id = ?`,
       )
       .run(
         input.closeAfterDays !== undefined ? input.closeAfterDays : current.closeAfterDays,
         input.archiveAfterDays !== undefined ? input.archiveAfterDays : current.archiveAfterDays,
         (input.prReview ?? current.prReview) ? 1 : 0,
+        (input.commitReview ?? current.commitReview) ? 1 : 0,
         now(),
         ctx.actor,
         workspace.id,

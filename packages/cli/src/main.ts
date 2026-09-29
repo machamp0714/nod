@@ -5,6 +5,7 @@ import pkg from "../package.json";
 import { registerAttachmentsCommands } from "./commands/attachments";
 import { registerAutomationCommands } from "./commands/automation";
 import { registerDocCommands } from "./commands/doc";
+import { registerGitCommands } from "./commands/git";
 import { registerHumanCommands } from "./commands/human";
 import { registerIssueCommands } from "./commands/issue";
 import { registerProjectCommands } from "./commands/project";
@@ -32,6 +33,7 @@ export function buildProgram(): Command {
   registerWorkspaceCommands(program);
   registerAutomationCommands(program);
   registerAttachmentsCommands(program);
+  registerGitCommands(program);
   registerTemplateCommands(program);
   registerStatsCommands(program);
   registerSummaryCommand(program);

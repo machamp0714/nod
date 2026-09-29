@@ -54,6 +54,7 @@ describe("自動化の設定", () => {
       closeAfterDays: null,
       archiveAfterDays: null,
       prReview: false,
+      commitReview: false,
       updatedAt: null,
       updatedBy: null,
     });

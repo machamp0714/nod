@@ -39,6 +39,7 @@ function describeSettings(s: AutomationSettings): string {
     `自動クローズ: ${s.closeAfterDays === null ? "無効" : `${s.closeAfterDays}日間更新のない未完了の Issue を canceled にする`}`,
     `自動アーカイブ: ${s.archiveAfterDays === null ? "無効" : `done / canceled から ${s.archiveAfterDays}日たった Issue をアーカイブする`}`,
     `PR 連動: ${s.prReview ? "PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする（done にはしない）" : "無効"}`,
+    `コミット連動: ${s.commitReview ? "nod git sync でコミットの Closes/Fixes <ID> を読み、Issue を in_review にする（done にはしない）" : "無効"}`,
   ].join("\n");
 }
 
@@ -100,12 +101,13 @@ export function registerAutomationCommands(program: Command): void {
     .option("--close-after-days <days|off>", "この日数だけ更新のない未完了の Issue を canceled にする（1〜3650、off で無効）", parseDays("--close-after-days"))
     .option("--archive-after-days <days|off>", "done / canceled からこの日数たった Issue をアーカイブする（1〜3650、off で無効）", parseDays("--archive-after-days"))
     .option("--pr-review <on|off>", "PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする（既定 off）", parseSwitch("--pr-review"))
+    .option("--commit-review <on|off>", "nod git sync でコミットの Closes/Fixes <ID> を読み、Issue を in_review にする（既定 off）", parseSwitch("--commit-review"))
     .action(
-      act((cli, cmd, o: { closeAfterDays?: number | "off"; archiveAfterDays?: number | "off"; prReview?: boolean }) => {
-        if (o.closeAfterDays === undefined && o.archiveAfterDays === undefined && o.prReview === undefined) {
+      act((cli, cmd, o: { closeAfterDays?: number | "off"; archiveAfterDays?: number | "off"; prReview?: boolean; commitReview?: boolean }) => {
+        if ([o.closeAfterDays, o.archiveAfterDays, o.prReview, o.commitReview].every((v) => v === undefined)) {
           throw new NodError(
             "INVALID_ARGS",
-            "--close-after-days・--archive-after-days・--pr-review のどれかを指定してください（例: nod automation set --close-after-days 90）",
+            "--close-after-days・--archive-after-days・--pr-review・--commit-review のどれかを指定してください（例: nod automation set --close-after-days 90）",
           );
         }
         const days = (v: number | "off" | undefined) => (v === "off" ? null : v);
@@ -113,6 +115,7 @@ export function registerAutomationCommands(program: Command): void {
           closeAfterDays: days(o.closeAfterDays),
           archiveAfterDays: days(o.archiveAfterDays),
           prReview: o.prReview,
+          commitReview: o.commitReview,
         });
         print(cli, r, () => `自動化の設定を保存しました\n${describeSettings(r)}`);
       }),
@@ -147,7 +150,7 @@ export function registerAutomationCommands(program: Command): void {
     );
   automation
     .command("undo <id>")
-    .description("PR・コミットによる自動遷移を取り消し、Issue を元の状態に戻す（人だけ。Issue がまだ in_review のときだけ）")
+    .description("PR 連動・コミット連動（nod git sync）による自動遷移を取り消し、Issue を元の状態に戻す（人だけ。Issue がまだ in_review のときだけ）")
     .action(
       act((cli, _cmd, id: string) => {
         const t = undoAutoTransition(cli.ctx, id);

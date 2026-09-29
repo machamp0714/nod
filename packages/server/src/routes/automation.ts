@@ -16,13 +16,16 @@ function optTargets(value: unknown): AutomationTargets | undefined {
 export function registerAutomationRoutes(app: Hono, me: OpCtx): void {
   app.get("/api/workspaces/:key/automation", (c) => c.json(getAutomationSettings(me.db, c.req.param("key"))));
   app.put("/api/workspaces/:key/automation", async (c) => {
-    const body = await readBody(c, ["closeAfterDays", "archiveAfterDays", "prReview"]);
-    if (body.prReview !== undefined && typeof body.prReview !== "boolean") throw invalid("prReview は true か false で指定してください");
+    const body = await readBody(c, ["closeAfterDays", "archiveAfterDays", "prReview", "commitReview"]);
+    for (const key of ["prReview", "commitReview"]) {
+      if (body[key] !== undefined && typeof body[key] !== "boolean") throw invalid(`${key} は true か false で指定してください`);
+    }
     return c.json(
       setAutomationSettings(me, c.req.param("key"), {
         closeAfterDays: optNullableInt(body, "closeAfterDays"),
         archiveAfterDays: optNullableInt(body, "archiveAfterDays"),
         prReview: body.prReview as boolean | undefined,
+        commitReview: body.commitReview as boolean | undefined,
       }),
     );
   });

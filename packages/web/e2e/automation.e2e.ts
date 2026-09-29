@@ -158,6 +158,22 @@ test("PR 連動を有効にして保存し、対象の PR と状態を確かめ�
   expect((await nod.me.getIssue(issue.id)).status).toBe("in_review");
 });
 
+test("コミット連動は有効・無効だけを切り替えて保存する（実行は CLI の nod git sync）", async ({ page, nod }) => {
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  const commit = auto.getByRole("switch", { name: "コミット連動" });
+  await expect(commit).toHaveAttribute("aria-checked", "false");
+  await expect(auto.getByText("コミットの Closes/Fixes <ID> で Issue を in_review にする（nod git sync で実行）")).toBeVisible();
+  await commit.click();
+  await expect(commit).toHaveAttribute("aria-checked", "true");
+  await auto.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  expect(await nod.me.getAutomationSettings("API")).toMatchObject({ commitReview: true, prReview: false, closeAfterDays: null });
+  await page.reload();
+  await expect(section(page).getByRole("switch", { name: "コミット連動" })).toHaveAttribute("aria-checked", "true");
+  if (process.env.NOD_E2E_SHOTS) await section(page).screenshot({ path: `${process.env.NOD_E2E_SHOTS}/automation-commit-review.png` });
+});
+
 test.describe("保存の失敗", () => {
   test.use({ allowedConsoleErrors: [/status of 500/] });
   test("失敗すると理由を示し、入力を保つ", async ({ page, nod }) => {

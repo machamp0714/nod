@@ -338,4 +338,6 @@ export const MIGRATIONS: MigrationStep[][] = [
       UNIQUE (issue_id, source, source_key)
     )`,
   ],
+  // コミット連動（#68 nod git sync）。既定は無効（0）。記録は auto_transitions（source = 'commit'、source_key はコミット SHA）
+  [`ALTER TABLE workspaces ADD COLUMN commit_review_enabled INTEGER NOT NULL DEFAULT 0`],
 ];
