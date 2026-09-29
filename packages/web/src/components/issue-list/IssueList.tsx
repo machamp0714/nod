@@ -45,7 +45,9 @@ export function IssueList({
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
   const preview = search.preview;
   // プレビュー中は一覧の幅が狭くなるため、Workspace 列を隠す（design/nod.pen「Issues｜プレビュー」）
-  const columns = (search.columns ?? [...ISSUE_COLUMNS]).filter((column) => !(preview && column === "workspace"));
+  // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
+  const columns = search.columns ?? [...ISSUE_COLUMNS];
+  const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
     ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy)
@@ -55,7 +57,7 @@ export function IssueList({
   const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
   const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
   const table = (tableRows: IssueListRow[], hideHeader = false) => (
-    <IssueTable rows={tableRows} columns={columns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} />
+    <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} />
   );
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
 

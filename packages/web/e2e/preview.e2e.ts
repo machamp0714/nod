@@ -22,11 +22,17 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(page.getByRole("region", { name: "Workspace API", exact: true })).toBeVisible();
     await page.reload();
     await expect(pane.getByRole("heading", { level: 2, name: "検索 API の N+1 を解消" })).toBeVisible();
+    // プレビューで隠した Workspace 列は表示設定を変えない
+    await page.getByText("表示設定", { exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Workspace", exact: true })).toBeChecked();
+    await page.getByRole("checkbox", { name: "PR", exact: true }).uncheck();
+    await page.getByText("表示設定", { exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(pane).toHaveCount(0);
     await expect(page).not.toHaveURL(/preview=/);
     await expect(page).toHaveURL(/groupBy=workspace/);
     await expect(page.getByRole("columnheader", { name: "Workspace", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "PR", exact: true })).toHaveCount(0);
   });
 }
 
