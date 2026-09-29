@@ -1,0 +1,32 @@
+import { expect, test } from "bun:test";
+import { openDb } from "@nod/core";
+import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
+
+test("suggestはJSONと人向け候補を返し、DBを変更せず、nextは着手する", async () => {
+  const db = tempDb();
+  const cwd = makeRepo();
+  registerRepo(db, cwd);
+  const opts = { cwd, db, actor: "codex" };
+  const empty = await runNod(["issue", "suggest", "--json"], opts);
+  expect(empty.exitCode).toBe(0);
+  expect(empty.json).toBeNull();
+  const created = await runNod(["issue", "create", "提案候補", "--json"], { cwd, db });
+  const connection = openDb(db);
+  const before = connection.serialize();
+  const suggested = await runNod(["issue", "suggest", "--json"], opts);
+  expect(suggested.exitCode).toBe(0);
+  expect(suggested.json).toMatchObject({ id: created.json.id, status: "todo", assignee: null, startedAt: null, worktree: null });
+  const human = await runNod(["issue", "suggest"], opts);
+  expect(human.stdout).toContain("候補:");
+  expect(human.stdout).toContain("着手・予約はしていません");
+  expect(connection.serialize()).toEqual(before);
+  connection.close();
+  const invalid = await runNod(["issue", "suggest", "--project", "不存在", "--json"], opts);
+  expect(invalid.exitCode).toBe(1);
+  expect(invalid.json.error.code).toBe("NOT_FOUND");
+  const help = await runNod(["issue", "suggest", "--help"], opts);
+  expect(help.stdout).toContain("着手・予約・通知はしない");
+  expect(help.stdout).toContain("--project");
+  const claimed = await runNod(["issue", "next", "--json"], opts);
+  expect(claimed.json).toMatchObject({ id: created.json.id, status: "in_progress", assignee: "codex" });
+});

@@ -13,6 +13,7 @@ import {
   listIssues,
   NodError,
   nextIssue,
+  suggestIssue,
   relateIssue,
   setPlanTasks,
   setStep,
@@ -167,6 +168,20 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string, o: { blocks?: string; related?: string; duplicateOf?: string }) => {
         const detail = relateIssue(cli.ctx, id, o);
         print(cli, detail, () => formatIssueDetail(detail));
+      }),
+    );
+
+  issue
+    .command("suggest")
+    .description("着手できる Issue を1件提案する（着手・予約・通知はしない）")
+    .option("--project <project>", "Project の中から提案する")
+    .action(
+      act((cli, cmd, o: { project?: string }) => {
+        const picked = suggestIssue(cli.ctx, {
+          workspaceId: currentWorkspace(cli, cmd).id,
+          projectRef: o.project,
+        });
+        print(cli, picked, () => (picked ? `候補: ${formatIssueLine(picked)}\n着手・予約はしていません。着手時は next または start で再確認します。` : "着手できる Issue はありません"));
       }),
     );
 

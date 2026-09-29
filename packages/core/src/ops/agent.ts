@@ -43,6 +43,17 @@ WHERE i.workspace_id = ?
   AND (? IS NULL OR i.project_id = ?)
 ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END, i.created_at, i.id`;
 
+export function suggestIssue(
+  ctx: OpCtx,
+  opts: { workspaceId: number; projectRef?: string },
+): Issue | null {
+  const projectId = opts.projectRef ? resolveProject(ctx.db, opts.projectRef).id : null;
+  const candidate = ctx.db.query(`${NEXT_SQL} LIMIT 1`).get(
+    opts.workspaceId, now(), ctx.actor, projectId, projectId,
+  ) as { id: number } | null;
+  return candidate ? toIssue(issueRowById(ctx.db, candidate.id)) : null;
+}
+
 export function nextIssue(
   ctx: OpCtx,
   opts: { workspaceId: number; projectRef?: string; location?: WorkLocation | null },
