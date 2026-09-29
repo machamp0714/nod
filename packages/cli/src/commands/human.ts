@@ -1,4 +1,4 @@
-import { parsePositiveInt } from "../args";
+import { collect, parsePositiveInt, parsePriority } from "../args";
 import {
   acceptTriage,
   answerQuestion,
@@ -7,11 +7,13 @@ import {
   deleteNotifications,
   duplicateTriage,
   getInbox,
+  listTriageProposals,
   listNotifications,
   NOTIFICATION_READ_LIMIT,
   listReminders,
   markNotificationsRead,
   NodError,
+  proposeTriage,
   rejectReview,
   restoreNotifications,
   snoozeNotifications,
@@ -21,7 +23,7 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
-import { formatIssueLine, formatNotification, formatTriageSuggestions, print, statusColumnWidth } from "../output";
+import { formatIssueLine, formatNotification, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -198,6 +200,49 @@ export function registerHumanCommands(program: Command): void {
       act((cli, _cmd, id: string) => {
         const s = suggestTriage(cli.ctx, id);
         print(cli, s, () => formatTriageSuggestions(s));
+      }),
+    );
+  triage
+    .command("propose <id>")
+    .description("受け入れ・却下・重複の推奨を記録する（Triage の状態は変えない。確定は人が accept / decline / duplicate で行う）")
+    .option("--accept", "受け入れを推奨する")
+    .option("--decline", "却下を推奨する")
+    .option("--duplicate-of <originalId>", "元の Issue の重複として閉じることを推奨する")
+    .option("-l, --label <label>", "受け入れ時に付けるラベル（繰り返し可。--accept のときだけ）", collect)
+    .option("--assignee <name>", "受け入れ時の担当（--accept のときだけ）")
+    .option("-p, --priority <0-4>", "受け入れ時の優先度（--accept のときだけ）")
+    .option("--project <project>", "受け入れ時の Project の名前か ID（--accept のときだけ）")
+    .option("--reason <text>", "判断の理由")
+    .action(
+      act(
+        (
+          cli,
+          _cmd,
+          id: string,
+          o: { accept?: boolean; decline?: boolean; duplicateOf?: string; label?: string[]; assignee?: string; priority?: string; project?: string; reason?: string },
+        ) => {
+          const picked = [o.accept && "accept", o.decline && "decline", o.duplicateOf !== undefined && "duplicate"].filter(Boolean);
+          if (picked.length !== 1) throw new NodError("INVALID_ARGS", "--accept・--decline・--duplicate-of <id> のどれか1つを指定してください");
+          const p = proposeTriage(cli.ctx, id, {
+            decision: picked[0] as "accept" | "decline" | "duplicate",
+            duplicateOf: o.duplicateOf,
+            labels: o.label,
+            assignee: o.assignee,
+            priority: o.priority === undefined ? undefined : parsePriority(o.priority),
+            projectRef: o.project,
+            reason: o.reason,
+          });
+          print(cli, p, () => `提案を記録しました（確定は人が行います）: ${formatTriageProposal(p)}`);
+        },
+      ),
+    );
+  triage
+    .command("proposals <id>")
+    .description("記録された提案を新しい順に出す（読み取りのみ）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const list = listTriageProposals(cli.ctx.db, id);
+        print(cli, list, () => formatTriageProposals(id, list));
       }),
     );
   triage

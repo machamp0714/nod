@@ -270,3 +270,26 @@
 .candidate { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .chip { padding: 4px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
 .reason { color: var(--ink3); font-size: 11px; }
+
+/* LLM の提案（#62）。nod.pen n7kBD の IDPzM。受け入れ設定と gap 12 でまとめる */
+.acceptGroup { display: flex; flex-direction: column; gap: 12px; }
+.proposals { display: flex; flex-direction: column; gap: 8px; }
+.proposalsHead { display: flex; align-items: center; gap: 6px; color: var(--ink3); font-size: 12px; }
+.proposalsTitle { font-weight: 500; }
+.proposalsCount { font-family: var(--font-mono); }
+.proposal { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.proposalBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.proposalHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.proposalActor { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.proposalTime { color: var(--ink3); font-size: 11.5px; }
+.proposalBadge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.badge_ready { background: var(--ready-soft); color: var(--ready); }
+.badge_gate { background: var(--gate-soft); color: var(--gate); }
+.badge_fail { background: var(--fail-soft); color: var(--fail); }
+.proposalAttrs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.proposalAttr { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink2); font-size: 11.5px; }
+.proposalAttr svg, .proposalAttrKey { color: var(--ink3); }
+.proposalAttrKey { font-size: 11px; }
+.proposalReason { margin: 0; color: var(--ink2); font-size: 12px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.proposalApply { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.proposalApply:disabled { opacity: 0.5; cursor: default; }

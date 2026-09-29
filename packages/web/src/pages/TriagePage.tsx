@@ -1,17 +1,18 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useDecision, useTriage, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
+import { useDecision, useTriage, useTriageProposals, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
 import { assigneeChoices, parseLabels } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
-import type { DuplicateSuggestion, Issue, SuggestionReason, TriageSuggestions } from "../api/types";
+import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, TriageSuggestions } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
+import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeading } from "../lib/triage-proposal";
 import d from "./decision.module.css";
 
 const route = getRouteApi("/triage");
@@ -81,9 +82,22 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   const busy = decision.isPending;
   // 判断を送ったあとは Issue が Triage から外れ、取り直すと NOT_IN_TRIAGE になるため止める
   const suggestions = useTriageSuggestions(issue.id, decision.isIdle);
+  const proposals = useTriageProposals(issue.id, decision.isIdle);
   const open = (next: Mode, initial = "") => {
     setMode(next);
     setValue(initial);
+    decision.reset();
+  };
+  // LLM の提案をフォームに入れる（#62）。確定は人が既存のボタンで行う
+  const applyProposal = (p: TriageProposal) => {
+    if (p.decision === "duplicate") return open("duplicate", p.duplicateOf ?? "");
+    if (p.decision === "decline") return open("decline", p.reason ?? "");
+    const next = applyAcceptProposal({ projectRef, priority, labels: parseLabels(labels, []), assignee }, p);
+    setProjectRef(next.projectRef);
+    setPriority(next.priority);
+    setLabels(next.labels.join(", "));
+    setAssignee(next.assignee);
+    setMode(null);
     decision.reset();
   };
   return (
@@ -103,25 +117,29 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
       {detail.isError ? <ActionError error={detail.error} /> : detail.isPending ? <p className={d.muted}>起票元を読み込み中…</p> :
         <p className={d.muted}>{source ? <><Link to="/issues/$issueId" params={{ issueId: source }}>{source}</Link> の作業中に発見</> : "起票元は記録されていません"}</p>}
       <p className={d.body}>{issue.description ?? "説明はありません"}</p>
-      <fieldset className={d.acceptFields} disabled={busy}>
-        <legend>受け入れ時に設定:</legend>
-        <label>Project<select aria-label="受け入れ時のProject" value={projectRef} disabled={projects.isPending || projects.isError} onChange={e => setProjectRef(e.target.value)}>
-          <option value="">なし</option>
-          {issue.project && !choices.some(p => p.id === issue.project?.id) && <option value={String(issue.project.id)}>{issue.project.name}</option>}
-          {choices.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-        </select></label>
-        <label>Priority<select aria-label="受け入れ時のPriority" value={priority} onChange={e => setPriority(Number(e.target.value))}>
-          {[0, 1, 2, 3, 4].map(p => <option key={p} value={p}>{priorityMeta(p).label}</option>)}
-        </select></label>
-        <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
-        <label>Assignee<select aria-label="受け入れ時のAssignee" value={assignee} onChange={e => setAssignee(e.target.value)}>
-          <option value="">担当者を選択</option>
-          {assigneeChoices(assignee || null).map(a => <option key={a} value={a}>{a}</option>)}
-        </select></label>
-        <ActionError error={projects.error} />
-        <Candidates suggestions={suggestions.data} labels={parseLabels(labels, [])} assignee={assignee}
-          onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} onAssignee={setAssignee} />
-      </fieldset>
+      <div className={d.acceptGroup}>
+        {proposals.isError ? <ActionError error={proposals.error} /> :
+          <Proposals proposals={proposals.data ?? []} disabled={busy} onApply={applyProposal} />}
+        <fieldset className={d.acceptFields} disabled={busy}>
+          <legend>受け入れ時に設定:</legend>
+          <label>Project<select aria-label="受け入れ時のProject" value={projectRef} disabled={projects.isPending || projects.isError} onChange={e => setProjectRef(e.target.value)}>
+            <option value="">なし</option>
+            {issue.project && !choices.some(p => p.id === issue.project?.id) && <option value={String(issue.project.id)}>{issue.project.name}</option>}
+            {choices.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+          </select></label>
+          <label>Priority<select aria-label="受け入れ時のPriority" value={priority} onChange={e => setPriority(Number(e.target.value))}>
+            {[0, 1, 2, 3, 4].map(p => <option key={p} value={p}>{priorityMeta(p).label}</option>)}
+          </select></label>
+          <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
+          <label>Assignee<select aria-label="受け入れ時のAssignee" value={assignee} onChange={e => setAssignee(e.target.value)}>
+            <option value="">担当者を選択</option>
+            {assigneeChoices(assignee || null).map(a => <option key={a} value={a}>{a}</option>)}
+          </select></label>
+          <ActionError error={projects.error} />
+          <Candidates suggestions={suggestions.data} labels={parseLabels(labels, [])} assignee={assignee}
+            onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} onAssignee={setAssignee} />
+        </fieldset>
+      </div>
       {suggestions.isError ? <ActionError error={suggestions.error} /> :
         <DuplicateHints duplicates={suggestions.data?.duplicates ?? []} disabled={busy} onDuplicate={id => open("duplicate", id)} />}
       <div className={d.actions}>
@@ -212,6 +230,52 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
       )}
       <ActionError error={decision.error} />
     </div>
+  );
+}
+
+// Triage の提案（#62）。LLM のほか me も記録できる。更新の新しい順に並べ、「フォームに反映」は入力欄を埋めるだけで確定は人が行う
+function Proposals({ proposals, disabled, onApply }: {
+  proposals: TriageProposal[];
+  disabled: boolean;
+  onApply: (p: TriageProposal) => void;
+}) {
+  if (proposals.length === 0) return null;
+  const heading = proposalsHeading(proposals);
+  return (
+    <section className={d.proposals} aria-label={heading}>
+      <div className={d.proposalsHead}>
+        <Icon name="sparkles" size={13} />
+        <span className={d.proposalsTitle}>{heading}</span>
+        <span className={d.proposalsCount}>{proposals.length}</span>
+      </div>
+      {proposals.map((p) => {
+        const badge = proposalBadge(p);
+        const attrs = proposalAttributes(p);
+        return (
+          <article key={p.actor} className={d.proposal} aria-label={`${p.actor} の提案`}>
+            <div className={d.proposalBody}>
+              <div className={d.proposalHead}>
+                <AgentAvatar actor={p.actor} />
+                <span className={d.proposalActor}>{p.actor}</span>
+                <span className={d.proposalTime}>{formatRelative(p.updatedAt)}</span>
+                <span className={`${d.proposalBadge} ${d[`badge_${badge.tone}`]}`}><Icon name={badge.icon} size={11} />{badge.text}</span>
+              </div>
+              {attrs.length > 0 && (
+                <div className={d.proposalAttrs}>
+                  {attrs.map((a) => (
+                    <span key={a.key} className={d.proposalAttr}><Icon name={a.icon} size={11} /><span className={d.proposalAttrKey}>{a.label}</span>{a.value}</span>
+                  ))}
+                </div>
+              )}
+              {p.reason && <p className={d.proposalReason} title={p.reason}>{p.reason}</p>}
+            </div>
+            <button type="button" className={d.proposalApply} disabled={disabled} aria-label={`${p.actor} の提案をフォームに反映`} onClick={() => onApply(p)}>
+              <Icon name="arrow-down-to-line" size={12} />フォームに反映
+            </button>
+          </article>
+        );
+      })}
+    </section>
   );
 }
 

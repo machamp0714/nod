@@ -348,6 +348,35 @@ export interface TriageSuggestions {
   assignees: AssigneeSuggestion[];
 }
 
+// LLM の Triage 提案（#62）。記録だけで Triage の状態は変えず、確定は人が行う
+export const TRIAGE_DECISIONS = ["accept", "decline", "duplicate"] as const;
+export type TriageDecision = (typeof TRIAGE_DECISIONS)[number];
+
+export interface TriageProposalInput {
+  decision: TriageDecision;
+  duplicateOf?: string; // decision が duplicate のときだけ
+  // 以下は decision が accept のときだけ
+  labels?: string[]; // 付与を推奨するラベル
+  assignee?: string;
+  priority?: number;
+  projectRef?: string;
+  reason?: string;
+}
+
+export interface TriageProposal {
+  issueId: string;
+  actor: string;
+  decision: TriageDecision;
+  duplicateOf: string | null;
+  labels: string[];
+  assignee: string | null;
+  priority: number | null;
+  project: { id: number; name: string } | null;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // PR 状態（#67）。gh pr view の結果を人・LLM の明示操作で取得して保存したもの
 export const PR_STATES = ["OPEN", "CLOSED", "MERGED"] as const;
 export type PrState = (typeof PR_STATES)[number];

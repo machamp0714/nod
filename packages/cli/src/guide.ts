@@ -92,6 +92,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 \`nod triage accept\`、\`nod triage decline\`、\`nod triage duplicate\` は人だけが実行できる。
 受け入れ・却下・重複の判断が必要なときは、人に判断を依頼する。
 \`nod triage suggest <id>\` は重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人だけが行い、LLM は候補を根拠に人へ伝えるだけにする。
+LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [--assignee <名前>] [-p 0-4] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめる。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
 Sub-issue がすべて完了した親は「完了候補」になる（\`nod issue list --completion-candidates\` で一覧できる）。
 完了候補の親を done にするのは人である。LLM は親を完了にせず、人に完了の確認を依頼する。
