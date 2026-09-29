@@ -47,7 +47,7 @@ function isWordChar(code: number): boolean {
 }
 
 // 正規化済みの文字列を走査し、トークンのキーと文字列上の位置を返す。
-// 英数字は2文字以上の語、日本語などは文字 bigram（1文字だけの並びは1文字）にする。平仮名だけの組（「する」「ので」など）と英語の機能語は除く
+// 英数字（_・拡張ラテン文字を含む）は2文字以上の語、日本語などは文字 bigram（1文字だけの並びは1文字。ただし平仮名1文字は除く）にする。英語の機能語は除く
 function scan(s: string, emit: (key: number, start: number, end: number) => void): void {
   let i = 0;
   const n = s.length;
@@ -74,7 +74,7 @@ function scan(s: string, emit: (key: number, start: number, end: number) => void
     while (i < n) {
       const cur = cjkIndex(s.charCodeAt(i));
       if (cur < 0) break;
-      if (!(isHiragana(prev) && isHiragana(cur))) emit(prev * CJK_SPAN + cur, i - 1, i + 1);
+      emit(prev * CJK_SPAN + cur, i - 1, i + 1);
       prev = cur;
       i++;
     }
@@ -190,7 +190,8 @@ function add(weights: Map<string, { weight: number; reasons: SuggestionReason[] 
 function containsLabel(text: string, label: string): boolean {
   const l = normalize(label);
   if (/^[\p{Script=Latin}\p{N}_\s-]+$/u.test(l)) {
-    const escaped = l.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+    // u フラグでは \- が構文エラーになるため、- はエスケープしない（文字クラスの外なのでそのままでよい）
+    const escaped = l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`(^|[^\\p{Script=Latin}\\p{N}_])${escaped}($|[^\\p{Script=Latin}\\p{N}_])`, "u").test(text);
   }
   return text.includes(l);
@@ -222,52 +223,37 @@ export function suggestTriage(ctx: OpCtx, ref: string): TriageSuggestions {
 
   return {
     issueId,
-    duplicates: duplicates(ctx, target, scored, rows),
+    duplicates: duplicates(target, scored, rows),
     labels: labels(ctx, target, scored),
     assignees: assignees(ctx, target, scored),
   };
 }
 
-function duplicates(ctx: OpCtx, target: IssueRow, scored: Scored[], rows: CandidateRow[]): DuplicateSuggestion[] {
+function duplicates(target: IssueRow, scored: Scored[], rows: CandidateRow[]): DuplicateSuggestion[] {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const best = new Map<number, { score: number; row: CandidateRow; tokens: Tokens; via: string | null }>();
   for (const s of scored) {
     if (s.score < DUPLICATE_THRESHOLD) break;
-    // 重複になっている Issue は候補にせず、元の Issue に寄せる
-    const originalId = s.row.duplicate_of ?? s.row.id;
-    if (originalId === target.id) continue;
-    if (best.has(originalId)) continue; // 降順なので先に入ったものが最大
-    const original = byId.get(originalId) ?? originalRow(ctx, originalId);
-    best.set(originalId, { score: s.score, row: original, tokens: s.tokens, via: s.row.duplicate_of === null ? null : s.ref });
+    if (s.row.duplicate_of === target.id) continue;
+    // 重複になっている Issue は候補にせず、同じ Workspace の元の Issue に寄せる（1段だけ）。
+    // 元の Issue が別 Workspace なら寄せずに、重複側の Issue をそのまま候補にする
+    const original = s.row.duplicate_of === null ? undefined : byId.get(s.row.duplicate_of);
+    const row = original ?? s.row;
+    if (best.has(row.id)) continue; // 降順なので先に入ったものが最大
+    best.set(row.id, { score: s.score, row, tokens: s.tokens, via: original ? s.ref : null });
   }
   return [...best.values()]
     .sort(byScore)
     .slice(0, DUPLICATE_LIMIT)
-    .map((b) => {
-      const { key, number } = issueKey(ctx, b.row.id);
-      return {
-        id: formatIssueId(key, number),
-        workspace: key,
-        title: b.row.title,
-        status: b.row.status,
-        score: Math.round(b.score * 100) / 100,
-        sharedTerms: sharedTerms(target, b.tokens),
-        via: b.via,
-      };
-    });
-}
-
-function issueKey(ctx: OpCtx, id: number): { key: string; number: number } {
-  return ctx.db.query("SELECT w.key, i.number FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE i.id = ?").get(id) as {
-    key: string;
-    number: number;
-  };
-}
-
-function originalRow(ctx: OpCtx, id: number): CandidateRow {
-  return ctx.db
-    .query("SELECT id, number, title, NULL AS body, status, assignee, created_at, NULL AS labels, NULL AS duplicate_of FROM issues WHERE id = ?")
-    .get(id) as CandidateRow;
+    .map((b) => ({
+      id: formatIssueId(target.ws_key, b.row.number),
+      workspace: target.ws_key,
+      title: b.row.title,
+      status: b.row.status,
+      score: Math.round(b.score * 100) / 100,
+      sharedTerms: sharedTerms(target, b.tokens),
+      via: b.via,
+    }));
 }
 
 // 根拠として見せる共通語。英数字は語のまま、日本語などは一致した bigram が続く範囲を1つの句にまとめる。
@@ -318,7 +304,9 @@ function labels(ctx: OpCtx, target: IssueRow, scored: Scored[]): LabelSuggestion
   // 既存のラベル名がタイトル・本文に出ていれば候補にする（タイトルを優先し、根拠は1つだけ）
   const title = normalize(target.title);
   const body = normalize((target.description ?? "").slice(0, BODY_LIMIT));
-  const known = ctx.db.query("SELECT DISTINCT label FROM issue_labels ORDER BY label").all() as { label: string }[];
+  const known = ctx.db
+    .query("SELECT DISTINCT l.label FROM issue_labels l JOIN issues i ON i.id = l.issue_id WHERE i.workspace_id = ? ORDER BY l.label")
+    .all(target.workspace_id) as { label: string }[];
   for (const { label } of known) {
     if (current.has(label)) continue;
     const field = containsLabel(title, label) ? "title" : containsLabel(body, label) ? "description" : null;

@@ -25,6 +25,10 @@ test("accept は assignee を受け取り、受け入れと同時に担当を設
   const i = createIssue(llm, { workspaceId: ws.id, title: "判断" });
   expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: 5 })).status).toBe(400);
   expect(getIssue(db, i.id)).toMatchObject({ status: "triage", assignee: null });
+  const empty = await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: " " });
+  expect(empty.status).toBe(400);
+  expect(empty.json.error.code).toBe("INVALID_ARGS");
+  expect(getIssue(db, i.id)).toMatchObject({ status: "triage", assignee: null });
   const r = await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: "codex" });
   expect(r.json).toMatchObject({ status: "todo", assignee: "codex" });
   db.close();

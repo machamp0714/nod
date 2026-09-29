@@ -6,14 +6,24 @@ import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 describe("tokenize", () => {
-  test("NFKC・小文字化し、英数字は2文字以上の語、日本語は平仮名だけの組を除いた文字bigramにする", () => {
+  test("NFKC・小文字化し、英数字は2文字以上の語、日本語は文字bigramにする", () => {
     const t = tokenize("ＡＰＩの Offset が a ずれる検索");
     expect(t.has("api")).toBe(true);
     expect(t.has("offset")).toBe(true);
     expect(t.has("a")).toBe(false);
     expect(t.has("検索")).toBe(true);
-    expect(t.has("ずれ")).toBe(false); // 平仮名だけの組は除く
+    expect(t.has("ずれ")).toBe(true);
     expect(t.has("る検")).toBe(true);
+  });
+
+  test("平仮名だけのタイトルでもトークンがゼロにならず、類似度を計算できる", () => {
+    expect([...tokenize("ひらがなだけ")].length).toBeGreaterThan(0);
+    expect(similarity({ title: "ひらがなだけ", body: null }, { title: "ひらがなだけ", body: null })).toBeCloseTo(1);
+  });
+
+  test("_ と拡張ラテン文字は語に含める", () => {
+    const t = tokenize("snake_case café");
+    expect([...t].sort()).toEqual(["café", "snake_case"]);
   });
 
   test("英語のよくある機能語を除く", () => {
@@ -54,7 +64,7 @@ describe("suggestTriage", () => {
     expect(d!.status).toBe("todo");
     expect(d!.score).toBeGreaterThanOrEqual(0.25);
     expect(d!.score).toBeLessThanOrEqual(1);
-    expect(d!.sharedTerms).toEqual(["検索結果のページングが", "offset"]);
+    expect(d!.sharedTerms).toEqual(["検索結果のページングが", "ずれる", "offset"]);
     expect(d!.sharedTerms.length).toBeLessThanOrEqual(5);
   });
 
@@ -91,6 +101,65 @@ describe("suggestTriage", () => {
     expect(s.duplicates.map((d) => d.id)).toEqual([original.id]);
     expect(s.duplicates[0]!.via).toBe(dup.id);
     expect(s.duplicates[0]!.score).toBeCloseTo(1);
+  });
+
+  test("重複の寄せ先が別Workspaceなら寄せずに、同一Workspaceの重複側Issueを候補にする", () => {
+    const { db, me, llm, create } = seed();
+    const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
+    const original = createIssue(me, { workspaceId: other.id, title: "通知の既読が戻らない" });
+    const dup = create(llm, "検索結果のページングがずれる");
+    duplicateTriage(me, dup.id, original.id);
+    const triage = create(llm, "検索結果のページングがずれる");
+    const s = suggestTriage(me, triage.id);
+    expect(s.duplicates.map((d) => d.id)).toEqual([dup.id]);
+    expect(s.duplicates[0]!.workspace).toBe("API");
+    expect(s.duplicates[0]!.via).toBeNull();
+  });
+
+  test("重複の寄せは1段だけで、寄せ先がさらに重複でも辿らない", () => {
+    const { me, llm, create } = seed();
+    const root = create(me, "ログの時刻を直す");
+    const middle = create(llm, "通知の既読が戻らない");
+    duplicateTriage(me, middle.id, root.id);
+    const dup = create(llm, "検索結果のページングがずれる");
+    duplicateTriage(me, dup.id, middle.id);
+    const triage = create(llm, "検索結果のページングがずれる");
+    expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([middle.id]);
+  });
+
+  test("タイトル・本文を編集すると次の提案に反映する（トークンのキャッシュを作り直す）", () => {
+    const { me, llm, create } = seed();
+    const a = create(me, "ログの時刻を直す");
+    const triage = create(llm, "検索結果のページングがずれる");
+    expect(suggestTriage(me, triage.id).duplicates).toEqual([]);
+    updateIssue(me, a.id, { title: "検索結果のページングがずれる" });
+    expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([a.id]);
+    updateIssue(me, a.id, { title: "x", description: "ログの時刻を直す" });
+    expect(suggestTriage(me, triage.id).duplicates).toEqual([]);
+    updateIssue(me, a.id, { description: "検索結果のページングがずれる" });
+    const byBody = suggestTriage(me, triage.id).duplicates;
+    expect(byBody.map((d) => [d.id, d.score])).toEqual([[a.id, 0.3]]); // 本文だけの一致は タイトル+本文 の 0.3 だけ
+  });
+
+  test("ハイフン・記号入りのラベルがあっても失敗せず、ハイフン入りは語の境界、記号入りは部分文字列で一致させる", () => {
+    const { me, llm, ws } = seed();
+    createIssue(me, { workspaceId: ws.id, title: "x", labels: ["good-first-issue", "c++", "a.b", "needs review"] });
+    const triage = createIssue(llm, { workspaceId: ws.id, title: "good-first-issue の c++ 対応", description: "needs review" });
+    expect(suggestTriage(me, triage.id).labels).toEqual([
+      { label: "c++", reasons: [{ kind: "text", field: "title" }] },
+      { label: "good-first-issue", reasons: [{ kind: "text", field: "title" }] },
+      { label: "needs review", reasons: [{ kind: "text", field: "description" }] },
+    ]);
+    const other = createIssue(llm, { workspaceId: ws.id, title: "good-first-issues と axb" });
+    expect(suggestTriage(me, other.id).labels).toEqual([]);
+  });
+
+  test("ラベル名の一致は同一Workspaceのラベルだけを使う", () => {
+    const { db, me, llm, ws } = seed();
+    const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
+    createIssue(me, { workspaceId: other.id, title: "x", labels: ["search"] });
+    const triage = createIssue(llm, { workspaceId: ws.id, title: "search が遅い" });
+    expect(suggestTriage(me, triage.id).labels).toEqual([]);
   });
 
   test("ラベル候補: 類似Issueの付与実績と本文中のラベル名を根拠にし、付与済みを除いて上位3件", () => {
@@ -167,5 +236,14 @@ describe("acceptTriage の assignee", () => {
     const accepted = acceptTriage(me, triage.id, { assignee: "codex" });
     expect(accepted.assignee).toBe("codex");
     expect(accepted.status).toBe("todo");
+  });
+
+  test("assignee の空文字・空白だけはINVALID_ARGSで何も変えず、前後の空白は除いて設定する", () => {
+    const { me, llm, create } = seed();
+    const triage = create(llm, "検索結果のページングがずれる");
+    expect(codeOf(() => acceptTriage(me, triage.id, { assignee: "" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => acceptTriage(me, triage.id, { assignee: "  " }))).toBe("INVALID_ARGS");
+    expect(eventsOf(me.db, triage.id).map((e) => e.type)).toEqual(["created"]);
+    expect(acceptTriage(me, triage.id, { assignee: " codex " }).assignee).toBe("codex");
   });
 });
