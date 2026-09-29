@@ -76,6 +76,18 @@ describe("nod issue と Orca", () => {
     expect(existsSync(log)).toBe(false);
   });
 
+  test("diagnose は LLM でも Orca に通知しない", async () => {
+    const db = tempDb(), repo = makeRepo();
+    registerRepo(db, repo);
+    const { bin, log } = fakeOrca('{"ok":true}');
+    const result = await runNod(["issue", "diagnose", "--stale-days", "7", "--json"], {
+      cwd: repo, db, actor: "claude-code", env: { ORCA_CLI_COMMAND: bin, NOD_ORCA: "1" },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.json.findings).toEqual([]);
+    expect(existsSync(log)).toBe(false);
+  });
+
   test("start、ask、done でカードを更新する", async () => {
     const db = tempDb();
     const repo = makeRepo();
