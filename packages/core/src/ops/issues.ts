@@ -24,6 +24,12 @@ import { setColumn } from "../mutate";
 import { type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveProject } from "./projects";
 
+export function getIssueBranchName(db: Database, ref: string): { issueId: string; suggestedBranch: string } {
+  const row = findIssueRow(db, ref);
+  const issueId = formatIssueId(row.ws_key, row.number);
+  return { issueId, suggestedBranch: `nod/${issueId.toLowerCase()}` };
+}
+
 export function requireText(value: string | undefined, what: string): string {
   if (!value || !value.trim()) throw new NodError("INVALID_ARGS", `${what}を指定してください`);
   return value;
