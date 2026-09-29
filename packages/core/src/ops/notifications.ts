@@ -4,6 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import type { Notification, SubscriptionState } from "../types";
+import { parseDateTime } from "./human";
 
 export { NOTIFY_EVENT_TYPES } from "../notify";
 
@@ -55,27 +56,32 @@ interface NotificationRow {
   data: string;
   created_at: string;
   read_at: string | null;
+  snoozed_until: string | null;
   issue_title: string;
   issue_number: number;
   ws_key: string;
   body: string | null;
 }
 
-// 新しい順。スヌーズ中（#43）と削除済み（#44）は出さない。既定では未読だけ
+// 新しい順。スヌーズ中（#43）と削除済み（#44）は出さない。既定では未読だけ。
+// snoozed ならスヌーズ中のものだけを既読も含めて出す
 export function listNotifications(
   db: Database,
-  opts: { includeRead?: boolean; recipient?: string } = {},
+  opts: { includeRead?: boolean; snoozed?: boolean; recipient?: string } = {},
 ): Notification[] {
+  const ts = now();
+  const where = opts.snoozed
+    ? "n.snoozed_until > ?"
+    : `(n.snoozed_until IS NULL OR n.snoozed_until <= ?) ${opts.includeRead ? "" : "AND n.read_at IS NULL"}`;
   const rows = db
     .query(
       `SELECT n.*, i.title AS issue_title, i.number AS issue_number, w.key AS ws_key, c.body AS body
        FROM notifications n JOIN issues i ON i.id = n.issue_id JOIN workspaces w ON w.id = i.workspace_id
        LEFT JOIN comments c ON c.id = n.comment_id
-       WHERE n.recipient = ? AND n.deleted_at IS NULL AND (n.snoozed_until IS NULL OR n.snoozed_until <= ?)
-       ${opts.includeRead ? "" : "AND n.read_at IS NULL"}
+       WHERE n.recipient = ? AND n.deleted_at IS NULL AND ${where}
        ORDER BY n.created_at DESC, n.id DESC`,
     )
-    .all(opts.recipient ?? HUMAN_ACTOR, now()) as NotificationRow[];
+    .all(opts.recipient ?? HUMAN_ACTOR, ts) as NotificationRow[];
   return rows.map((r) => ({
     id: r.id,
     kind: r.kind,
@@ -88,6 +94,8 @@ export function listNotifications(
     body: r.body,
     createdAt: r.created_at,
     readAt: r.read_at,
+    // 期限が過ぎたスヌーズは null にする
+    snoozedUntil: r.snoozed_until !== null && r.snoozed_until > ts ? r.snoozed_until : null,
   }));
 }
 
@@ -97,7 +105,7 @@ export interface MarkReadInput {
   all?: boolean;
 }
 
-// ids・issueRef・all のどれか1つで既読にする。既読のものはそのまま。updated は今回既読にした件数
+// ids・issueRef・all のどれか1つで既読にする。既読のものとスヌーズ中のものはそのまま。updated は今回既読にした件数
 export function markNotificationsRead(ctx: OpCtx, input: MarkReadInput): { updated: number } {
   requireHuman(ctx, "通知を既読に");
   const given = [input.ids !== undefined, input.issueRef !== undefined, input.all === true].filter(Boolean).length;
@@ -110,19 +118,122 @@ export function markNotificationsRead(ctx: OpCtx, input: MarkReadInput): { updat
   }
   return tx(ctx.db, () => {
     const ts = now();
-    const base = "UPDATE notifications SET read_at = ? WHERE recipient = ? AND read_at IS NULL AND deleted_at IS NULL";
+    const base = `UPDATE notifications SET read_at = ? WHERE recipient = ? AND read_at IS NULL AND deleted_at IS NULL
+      AND (snoozed_until IS NULL OR snoozed_until <= ?)`;
     if (input.ids !== undefined) {
       const exists = ctx.db.query("SELECT 1 FROM notifications WHERE id = ? AND recipient = ? AND deleted_at IS NULL");
       for (const id of input.ids) {
         if (exists.get(id, ctx.actor) === null) throw new NodError("NOT_FOUND", `通知 ${id} はありません`);
       }
       const stmt = ctx.db.query(`${base} AND id = ?`);
-      return { updated: input.ids.reduce((sum, id) => sum + stmt.run(ts, ctx.actor, id).changes, 0) };
+      return { updated: input.ids.reduce((sum, id) => sum + stmt.run(ts, ctx.actor, ts, id).changes, 0) };
     }
     if (input.issueRef !== undefined) {
       const row = findIssueRow(ctx.db, input.issueRef);
-      return { updated: ctx.db.query(`${base} AND issue_id = ?`).run(ts, ctx.actor, row.id).changes };
+      return { updated: ctx.db.query(`${base} AND issue_id = ?`).run(ts, ctx.actor, ts, row.id).changes };
     }
-    return { updated: ctx.db.query(base).run(ts, ctx.actor).changes };
+    return { updated: ctx.db.query(base).run(ts, ctx.actor, ts).changes };
+  });
+}
+
+// 通知を操作する対象。ids（nod notification list の #番号）か Issue のどちらか1つで指定する
+export interface NotificationTarget {
+  ids?: number[];
+  issueRef?: string;
+}
+
+function validateIds(ids: number[] | undefined, verb: string): void {
+  if (ids === undefined) return;
+  if (ids.length === 0) throw new NodError("INVALID_ARGS", `${verb}通知の id を指定してください`);
+  for (const id of ids) {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new NodError("INVALID_ARGS", "通知の id は正の整数で指定してください");
+  }
+}
+
+// 対象の通知の id。削除済みは含めない。1件もなければ NOT_FOUND
+function targetIds(ctx: OpCtx, target: NotificationTarget, verb: string): number[] {
+  if ((target.ids !== undefined) === (target.issueRef !== undefined)) {
+    throw new NodError("INVALID_ARGS", `${verb}通知は ids か Issue のどちらか1つで指定してください`);
+  }
+  validateIds(target.ids, verb);
+  if (target.ids !== undefined) {
+    const exists = ctx.db.query("SELECT 1 FROM notifications WHERE id = ? AND recipient = ? AND deleted_at IS NULL");
+    for (const id of target.ids) {
+      if (exists.get(id, ctx.actor) === null) throw new NodError("NOT_FOUND", `通知 ${id} はありません`);
+    }
+    return [...new Set(target.ids)];
+  }
+  const row = findIssueRow(ctx.db, target.issueRef!);
+  const ids = (
+    ctx.db
+      .query("SELECT id FROM notifications WHERE issue_id = ? AND recipient = ? AND deleted_at IS NULL")
+      .all(row.id, ctx.actor) as { id: number }[]
+  ).map((r) => r.id);
+  if (ids.length === 0) throw new NodError("NOT_FOUND", `${target.issueRef} の通知はありません`);
+  return ids;
+}
+
+function inList(ids: number[]): string {
+  return ids.map(() => "?").join(", ");
+}
+
+// until まで一覧から隠す（Triage の Issue の Snooze とは別）。期限が来たら、Issue ごとに最新の1件だけを未読として出し直す。
+// そのため、スヌーズした時点で最新以外の未読は既読にする。
+// 期限までに同じ Issue へ新しい通知が届いたら、そこで解く（releaseSnoozeOnArrival）
+export function snoozeNotifications(ctx: OpCtx, input: NotificationTarget & { until: string }): { updated: number; snoozedUntil: string } {
+  requireHuman(ctx, "通知をスヌーズ");
+  const until = parseDateTime(input.until);
+  const ts = now();
+  if (until <= ts) throw new NodError("INVALID_ARGS", `${input.until} は過去の日時です。これから先の日時を指定してください`);
+  return tx(ctx.db, () => {
+    const ids = targetIds(ctx, input, "スヌーズする");
+    const updated = ctx.db.query(`UPDATE notifications SET snoozed_until = ? WHERE id IN (${inList(ids)})`).run(until, ...ids).changes;
+    const latest = `SELECT MAX(id) FROM notifications WHERE id IN (${inList(ids)}) GROUP BY issue_id`;
+    ctx.db
+      .query(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND id IN (${inList(ids)}) AND id NOT IN (${latest})`)
+      .run(ts, ...ids, ...ids);
+    ctx.db.query(`UPDATE notifications SET read_at = NULL WHERE id IN (${latest})`).run(...ids);
+    return { updated, snoozedUntil: until };
+  });
+}
+
+// スヌーズを解いてすぐ一覧に戻す。スヌーズ中でないものはそのまま。updated は今回解いた件数
+export function unsnoozeNotifications(ctx: OpCtx, input: NotificationTarget): { updated: number } {
+  requireHuman(ctx, "通知のスヌーズを解除");
+  return tx(ctx.db, () => {
+    const ids = targetIds(ctx, input, "スヌーズを解除する");
+    return {
+      updated: ctx.db
+        .query(`UPDATE notifications SET snoozed_until = NULL WHERE snoozed_until > ? AND id IN (${inList(ids)})`)
+        .run(now(), ...ids).changes,
+    };
+  });
+}
+
+// 一覧から消す（行は残す）。同じ Issue に後から届いた通知は、新しい通知として出る。
+// ids は今回消した通知で、取り消し（restoreNotifications）に渡す
+export function deleteNotifications(ctx: OpCtx, input: NotificationTarget): { updated: number; ids: number[] } {
+  requireHuman(ctx, "通知を削除");
+  return tx(ctx.db, () => {
+    const ids = targetIds(ctx, input, "削除する");
+    const updated = ctx.db.query(`UPDATE notifications SET deleted_at = ? WHERE id IN (${inList(ids)})`).run(now(), ...ids).changes;
+    return { updated, ids };
+  });
+}
+
+// 削除を取り消す。削除していないものはそのまま。updated は今回戻した件数
+export function restoreNotifications(ctx: OpCtx, input: { ids: number[] }): { updated: number } {
+  requireHuman(ctx, "通知の削除を取り消し");
+  validateIds(input.ids ?? [], "削除を取り消す");
+  return tx(ctx.db, () => {
+    const exists = ctx.db.query("SELECT 1 FROM notifications WHERE id = ? AND recipient = ?");
+    for (const id of input.ids) {
+      if (exists.get(id, ctx.actor) === null) throw new NodError("NOT_FOUND", `通知 ${id} はありません`);
+    }
+    return {
+      updated: ctx.db
+        .query(`UPDATE notifications SET deleted_at = NULL WHERE deleted_at IS NOT NULL AND id IN (${inList(input.ids)})`)
+        .run(...input.ids).changes,
+    };
   });
 }

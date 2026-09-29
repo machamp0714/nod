@@ -41,10 +41,27 @@ export function notifySubscribers(
   if (!isNotifyEventType(type)) return;
   const eventId = "eventId" in source ? source.eventId : null;
   const commentId = "commentId" in source ? source.commentId : null;
+  const ts = now();
+  const inserted = db
+    .query(
+      `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, comment_id, actor, data, created_at)
+       SELECT subscriber, issue_id, 'issue_change', ?, ?, ?, ?, ?, ? FROM subscriptions WHERE issue_id = ? AND subscriber <> ?`,
+    )
+    .run(type, eventId, commentId, actor, JSON.stringify(data), ts, issueId, actor);
+  if (inserted.changes === 0) return;
+  const recipients = (
+    db.query("SELECT subscriber FROM subscriptions WHERE issue_id = ? AND subscriber <> ?").all(issueId, actor) as { subscriber: string }[]
+  ).map((r) => r.subscriber);
+  releaseSnoozeOnArrival(db, issueId, ts, recipients);
+}
+
+// スヌーズ中の Issue に新しい通知が届いたら、その宛先のスヌーズを解いて新着と一緒に出す（#43）。削除した通知は戻さない
+export function releaseSnoozeOnArrival(db: Database, issueId: number, ts: string, recipients: string[]): void {
+  if (recipients.length === 0) return;
   db.query(
-    `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, comment_id, actor, data, created_at)
-     SELECT subscriber, issue_id, 'issue_change', ?, ?, ?, ?, ?, ? FROM subscriptions WHERE issue_id = ? AND subscriber <> ?`,
-  ).run(type, eventId, commentId, actor, JSON.stringify(data), now(), issueId, actor);
+    `UPDATE notifications SET snoozed_until = NULL
+     WHERE issue_id = ? AND snoozed_until > ? AND deleted_at IS NULL AND recipient IN (${recipients.map(() => "?").join(", ")})`,
+  ).run(issueId, ts, ...recipients);
 }
 
 // LLM に任せた Issue で、me が気づくべき作業の区切り。着手・再開（working）や外れ（null）は通知しない
@@ -63,10 +80,15 @@ export function notifyDelegator(
   if (type !== "agent_state_changed" || actor === HUMAN_ACTOR) return;
   if (typeof data.to !== "string" || !AGENT_NOTIFY_STATES.includes(data.to)) return;
   if (typeof data.agent !== "string" || data.agent === HUMAN_ACTOR) return;
-  db.query(
-    `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, actor, data, created_at)
-     VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)`,
-  ).run(HUMAN_ACTOR, issueId, type, eventId, actor, JSON.stringify(data), now());
+  const ts = now();
+  const inserted = db
+    .query(
+      `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, actor, data, created_at)
+       VALUES (?, ?, 'agent', ?, ?, ?, ?, ?)`,
+    )
+    .run(HUMAN_ACTOR, issueId, type, eventId, actor, JSON.stringify(data), ts);
+  // 購読していなくても、me 宛てのスヌーズはここで解く
+  if (inserted.changes > 0) releaseSnoozeOnArrival(db, issueId, ts, [HUMAN_ACTOR]);
 }
 
 // LLM の完了・エラーの操作で同時に起きたコメントやステータスの変化は、LLM の通知を受け取った宛先では
@@ -78,10 +100,12 @@ export function collapseIntoAgentNotification(db: Database, issueId: number, sin
   ).run(sinceId, issueId);
 }
 
-// me が回答・承認・差し戻しで応じたら、その Issue の未読の LLM の通知は対応済みとして既読にする
+// me が回答・承認・差し戻しで応じたら、その Issue の未読の LLM の通知は対応済みとして既読にする。
+// スヌーズ中のものも既読にしてスヌーズを解く（対応済みなので、期限が来ても未読で戻さない）
 export function readAgentNotifications(db: Database, issueId: number, recipient: string): void {
   db.query(
-    "UPDATE notifications SET read_at = ? WHERE issue_id = ? AND recipient = ? AND kind = 'agent' AND read_at IS NULL AND deleted_at IS NULL",
+    `UPDATE notifications SET read_at = COALESCE(read_at, ?1), snoozed_until = NULL
+     WHERE issue_id = ?2 AND recipient = ?3 AND kind = 'agent' AND deleted_at IS NULL AND (read_at IS NULL OR snoozed_until IS NOT NULL)`,
   ).run(now(), issueId, recipient);
 }
 

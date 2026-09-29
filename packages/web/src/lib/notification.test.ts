@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Notification } from "../api/types";
-import { describeNotification, groupNotifications, groupSummary, unreadToMark } from "./notification";
+import { customSnoozeUntil, describeNotification, formatSnoozeUntil, groupNotifications, groupSummary, nextSnoozeExpiry, snoozePresets, unreadToMark } from "./notification";
 
 const n = (over: Partial<Notification>): Notification => ({
   id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "検索", workspace: "API", eventType: "comment_added",
-  actor: "codex", data: {}, body: null, createdAt: "2026-09-29T10:00:00.000Z", readAt: null, ...over,
+  actor: "codex", data: {}, body: null, createdAt: "2026-09-29T10:00:00.000Z", readAt: null, snoozedUntil: null, ...over,
 });
 
 describe("describeNotification", () => {
@@ -66,5 +66,57 @@ describe("unreadToMark", () => {
   test("既読にした後に同じ Issue へ新しい通知が届いたら、その id を返す", () => {
     expect(unreadToMark(group([n({ id: 3 })]), 3)).toBeNull();
     expect(unreadToMark(group([n({ id: 5, createdAt: "2026-09-29T11:00:00.000Z" }), n({ id: 3 })]), 3)).toBe(5);
+  });
+});
+
+// 端末のタイムゾーンで計算する。テストもローカル時刻で組み立てる
+describe("スヌーズのプリセットと期限の表示（#43）", () => {
+  const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min);
+
+  test("1時間後・明日 9:00・来週月曜 9:00 と、その具体的な時刻を返す", () => {
+    const now = at(2026, 9, 30, 14, 20); // 水曜
+    expect(snoozePresets(now).map((p) => [p.label, p.hint, p.until.getTime()])).toEqual([
+      ["1時間後", "15:20", at(2026, 9, 30, 15, 20).getTime()],
+      ["明日 9:00", "10月1日（木）", at(2026, 10, 1, 9).getTime()],
+      ["来週月曜 9:00", "10月5日（月）", at(2026, 10, 5, 9).getTime()],
+    ]);
+  });
+
+  test("月曜・日曜でも来週月曜は次の月曜", () => {
+    expect(snoozePresets(at(2026, 10, 5, 8))[2]!.until).toEqual(at(2026, 10, 12, 9));
+    expect(snoozePresets(at(2026, 10, 4, 22))[2]!.until).toEqual(at(2026, 10, 5, 9));
+  });
+
+  test("日時指定は日付と時刻の入力から作り、空や過去は null", () => {
+    const now = at(2026, 9, 30, 14, 20);
+    expect(customSnoozeUntil("2026-10-02", "14:00", now)).toEqual(at(2026, 10, 2, 14));
+    expect(customSnoozeUntil("2026-10-02", "", now)).toEqual(at(2026, 10, 2, 9));
+    expect(customSnoozeUntil("", "14:00", now)).toBeNull();
+    expect(customSnoozeUntil("2026-09-30", "14:00", now)).toBeNull();
+    expect(customSnoozeUntil("2026-02-31", "09:00", now)).toBeNull();
+  });
+
+  test("期限は今日・明日・それ以降で書き分ける", () => {
+    const now = at(2026, 9, 30, 14, 20);
+    expect(formatSnoozeUntil(at(2026, 9, 30, 15, 20).toISOString(), now)).toBe("今日 15:20 まで");
+    expect(formatSnoozeUntil(at(2026, 10, 1, 9).toISOString(), now)).toBe("明日 9:00 まで");
+    expect(formatSnoozeUntil(at(2026, 10, 2, 14).toISOString(), now)).toBe("10月2日 14:00 まで");
+  });
+});
+
+describe("nextSnoozeExpiry", () => {
+  const now = Date.parse("2026-09-29T10:00:00.000Z");
+  test("いちばん早い期限までの時間に余裕を足して返し、スヌーズ中がなければ null", () => {
+    expect(nextSnoozeExpiry([], now)).toBeNull();
+    expect(nextSnoozeExpiry([n({ snoozedUntil: null })], now)).toBeNull();
+    expect(nextSnoozeExpiry([
+      n({ id: 1, snoozedUntil: "2026-09-29T11:00:00.000Z" }),
+      n({ id: 2, snoozedUntil: "2026-09-29T10:00:30.000Z" }),
+    ], now)).toBe(31_000);
+  });
+
+  test("過ぎた期限でも余裕の分は待ち、遠い先の期限は setTimeout の上限で打ち切る", () => {
+    expect(nextSnoozeExpiry([n({ snoozedUntil: "2026-09-29T09:00:00.000Z" })], now)).toBe(1000);
+    expect(nextSnoozeExpiry([n({ snoozedUntil: "2999-01-01T00:00:00.000Z" })], now)).toBe(2 ** 31 - 1);
   });
 });

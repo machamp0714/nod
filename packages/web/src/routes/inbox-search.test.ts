@@ -10,3 +10,9 @@ test("allだけを履歴にしselectedと独立して正規化する", () => {
 test("notifications の通知タブを URL で保つ", () => {
   expect(parseInboxSearch({ selected: "API-1", tab: "notifications" })).toEqual({ selected: "API-1", tab: "notifications" });
 });
+
+test("通知タブのスヌーズ中の表示を URL で保つ（#43）", () => {
+  expect(parseInboxSearch({ tab: "notifications", view: "snoozed" })).toEqual({ tab: "notifications", view: "snoozed" });
+  expect(parseInboxSearch({ tab: "notifications", view: "x" })).toEqual({ tab: "notifications" });
+  expect(parseInboxSearch({ tab: "questions", view: "snoozed" })).toEqual({});
+});

@@ -87,3 +87,57 @@ export function unreadToMark(group: NotificationGroup, markedUpTo: number): numb
   const latest = group.notifications.reduce((max, x) => (x.readAt === null && x.id > max ? x.id : max), 0);
   return latest > markedUpTo ? latest : null;
 }
+
+// スヌーズの期限（#43）。端末のタイムゾーンで計算し、server へは ISO で送る
+export interface SnoozePreset {
+  label: string;
+  hint: string; // メニューの右に出す具体的な時刻
+  until: Date;
+}
+
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const hm = (d: Date) => `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+const md = (d: Date) => `${d.getMonth() + 1}月${d.getDate()}日`;
+const at9 = (base: Date, days: number) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, 9);
+
+export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
+  const hour = new Date(now.getTime() + 3_600_000);
+  const tomorrow = at9(now, 1);
+  const monday = at9(now, ((8 - now.getDay()) % 7) || 7);
+  return [
+    { label: "1時間後", hint: hm(hour).padStart(5, "0"), until: hour },
+    { label: "明日 9:00", hint: `${md(tomorrow)}（${WEEKDAYS[tomorrow.getDay()]}）`, until: tomorrow },
+    { label: "来週月曜 9:00", hint: `${md(monday)}（${WEEKDAYS[monday.getDay()]}）`, until: monday },
+  ];
+}
+
+// 日時指定。date は YYYY-MM-DD、time は HH:MM（空なら 9:00）。空・存在しない日付・過去は null
+export function customSnoozeUntil(date: string, time: string, now: Date = new Date()): Date | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!d) return null;
+  const t = /^(\d{2}):(\d{2})$/.exec(time || "09:00");
+  if (!t) return null;
+  const [y, m, day] = [Number(d[1]), Number(d[2]), Number(d[3])];
+  const until = new Date(y, m - 1, day, Number(t[1]), Number(t[2]));
+  if (until.getMonth() !== m - 1 || until.getDate() !== day) return null;
+  return until.getTime() > now.getTime() ? until : null;
+}
+
+// 「今日 15:20 まで」「明日 9:00 まで」「10月2日 14:00 まで」
+export function formatSnoozeUntil(iso: string, now: Date = new Date()): string {
+  const until = new Date(iso);
+  const days = Math.round((at9(until, 0).getTime() - at9(now, 0).getTime()) / 86_400_000);
+  const day = days === 0 ? "今日" : days === 1 ? "明日" : md(until);
+  return `${day} ${hm(until)} まで`;
+}
+
+// setTimeout が扱える最大の待ち時間。これを超えるとすぐ呼ばれてしまうので、ここで打ち切って待ち直す
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+// いちばん早く期限が来るスヌーズまでの待ち時間（ms）。server の時計とのずれを見込んで margin だけ遅らせ、
+// 期限を過ぎていても margin は待つ（server がまだスヌーズ中と返しても読み直しを繰り返し過ぎない）。スヌーズ中がなければ null
+export function nextSnoozeExpiry(list: readonly Notification[], now: number = Date.now(), margin = 1000): number | null {
+  const times = list.flatMap((x) => (x.snoozedUntil ? [Date.parse(x.snoozedUntil)] : [])).filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return null;
+  return Math.min(Math.max(Math.min(...times) - now, 0) + margin, MAX_TIMER_MS);
+}

@@ -173,3 +173,222 @@
 .gap {
   height: 8px;
 }
+
+/* Pencil『Inbox｜通知スヌーズ・削除』『Inbox｜スヌーズ中』『Inbox｜削除トースト』（#43/#44） */
+.filter {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--sunken);
+}
+
+.switchItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.switchItem[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.switchCount {
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: normal;
+}
+
+.snoozeUntil,
+.snoozeStatus {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ask);
+}
+
+.snoozeUntil {
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.snoozeStatus {
+  gap: 5px;
+  padding-left: 4px;
+  font-size: 12px;
+}
+
+.action[data-open="true"] {
+  background: var(--sunken);
+}
+
+.chevron {
+  color: var(--ink3);
+}
+
+.danger {
+  color: var(--fail);
+}
+
+.menuRoot {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px #0000001a;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.menuItem svg {
+  flex: none;
+  color: var(--ink2);
+}
+
+.menuItem:hover,
+.menuItem:focus-visible,
+.menuItem[data-active="true"] {
+  background: var(--sunken);
+}
+
+.menuLabel {
+  flex: 1;
+}
+
+.menuHint {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.menuSeparator {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--line);
+}
+
+.custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 10px 8px;
+}
+
+.customInputs {
+  display: flex;
+  gap: 6px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.timeInput {
+  flex: none;
+  width: 96px; /* Pencil は 76px。ブラウザの時刻入力は時計のアイコンを含むため広げる */
+}
+
+.customButtons {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.primary {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+}
+
+.toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px #0000001a;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.toast svg {
+  color: var(--ink2);
+}
+
+.toastError {
+  color: var(--fail);
+}
+
+.undo {
+  padding: 0 0 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
