@@ -44,3 +44,11 @@ export type {
   ViewInput,
   Workspace,
 } from "@nod/core";
+
+// Workspace の作業規約。未登録なら API は null を返す
+export interface WorkspaceRules {
+  workspaceKey: string;
+  body: string;
+  updatedAt: string;
+  updatedBy: string;
+}

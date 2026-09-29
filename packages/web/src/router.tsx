@@ -12,6 +12,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
 import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
+import { WorkspaceSettingsPage } from "./pages/WorkspaceSettingsPage";
 import {
   parseDocumentsSearch,
   parseIssueListSearch,
@@ -54,6 +55,12 @@ const newDocumentRoute = createRoute({
 });
 const documentRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents/$documentId", component: DocumentPage });
 
+const workspaceSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/workspaces/$workspaceKey/settings",
+  component: WorkspaceSettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   inboxRoute,
@@ -67,6 +74,7 @@ const routeTree = rootRoute.addChildren([
   documentsRoute,
   newDocumentRoute,
   documentRoute,
+  workspaceSettingsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

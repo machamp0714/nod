@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useCreateView } from "../api/hooks/views";
 import { Icon, type IconName } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
+import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
@@ -36,7 +37,7 @@ function SoonItem({ icon, label }: { icon: IconName; label: string }) {
 }
 
 export function Sidebar() {
-  const { counts, views, viewsReady } = useSidebarData();
+  const { counts, views, viewsReady, workspaces } = useSidebarData();
   const navigate = useNavigate();
   const createView = useCreateView();
   const [creating, setCreating] = useState(false);
@@ -67,6 +68,27 @@ export function Sidebar() {
         <SoonItem icon="circle-user" label="My issues" />
         <SoonItem icon="star" label="Favorites" />
       </div>
+
+      {workspaces.length > 0 && (
+        <div className={s.group}>
+          {workspaces.map((workspace) => (
+            <div key={workspace.key} className={s.workspaceHeading}>
+              <span className={s.workspaceSwatch} style={{ background: workspaceColorOf(workspaces, workspace.key) }} />
+              <span className={s.workspaceName}>{workspace.name}</span>
+              <Link
+                to="/workspaces/$workspaceKey/settings"
+                params={{ workspaceKey: workspace.key }}
+                className={s.settingsLink}
+                activeProps={ACTIVE_PROPS}
+                title="設定"
+                aria-label={`${workspace.name} の設定`}
+              >
+                <Icon name="settings" />
+              </Link>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className={s.group}>
         <div className={s.heading}>

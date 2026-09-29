@@ -1,6 +1,6 @@
-import { NodError } from "@nod/core";
+import { findWorkspace, formatWorkspaceRulesSection, getWorkspaceRules, NodError, openDb, type WorkspaceRules } from "@nod/core";
 import type { Command } from "commander";
-import { globalOpts } from "../context";
+import { globalOpts, repoRootOf } from "../context";
 import { GUIDE } from "../guide";
 import { print } from "../output";
 
@@ -16,6 +16,29 @@ export function registerSkillsCommands(program: Command): void {
       if (!guide) {
         throw new NodError("UNKNOWN_SKILL", `手引き ${name} はありません（あるもの: ${[...SKILLS.keys()].join(", ")}）`);
       }
-      print(globalOpts(cmd), { name, guide }, () => guide);
+      const rules = currentRules(globalOpts(cmd).workspace);
+      if (!rules) {
+        print(globalOpts(cmd), { name, guide }, () => guide);
+        return;
+      }
+      const withRules = `${guide}\n${formatWorkspaceRulesSection(rules)}`;
+      print(globalOpts(cmd), { name, guide: withRules, rules }, () => withRules);
     });
+}
+
+// -w か今いるリポジトリの Workspace に作業規約があれば返す。Workspace の外や DB を開けないときは手引きだけを出す
+function currentRules(workspaceOpt: string | undefined): WorkspaceRules | null {
+  const target = workspaceOpt ?? repoRootOf(process.cwd());
+  if (!target) return null;
+  try {
+    const db = openDb();
+    try {
+      const workspace = findWorkspace(db, target);
+      return workspace ? getWorkspaceRules(db, workspace.key) : null;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
 }

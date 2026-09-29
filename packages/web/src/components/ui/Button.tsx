@@ -9,20 +9,22 @@ export function Button({
   children,
   disabled,
   title,
+  className,
   onClick,
 }: {
-  variant?: "primary" | "secondary" | "danger" | "soft";
+  variant?: "primary" | "secondary" | "danger" | "destructive" | "soft";
   type?: "button" | "submit";
   icon?: IconName;
   children: ReactNode;
   disabled?: boolean;
   title?: string;
+  className?: string;
   onClick?: () => void;
 }) {
   const variantClass =
-    variant === "primary" ? s.primary : variant === "danger" ? s.danger : variant === "soft" ? s.soft : "";
+    variant === "primary" ? s.primary : variant === "danger" ? s.danger : variant === "destructive" ? s.destructive : variant === "soft" ? s.soft : "";
   return (
-    <button type={type} className={`${s.button} ${variantClass}`} disabled={disabled} title={title} onClick={onClick}>
+    <button type={type} className={`${s.button} ${variantClass} ${className ?? ""}`} disabled={disabled} title={title} onClick={onClick}>
       {icon && <Icon name={icon} />}
       {children}
     </button>

@@ -31,6 +31,7 @@ export const CTX_OPS = [
   "subscribeIssue",
   "unsubscribeIssue",
   "markNotificationsRead",
+  "setWorkspaceRules",
 ] as const;
 
 // 第1引数に Database を取る操作
@@ -52,6 +53,7 @@ export const DB_OPS = [
   "updateView",
   "deleteView",
   "listNotifications",
+  "getWorkspaceRules",
 ] as const;
 
 export type CtxOp = (typeof CTX_OPS)[number];

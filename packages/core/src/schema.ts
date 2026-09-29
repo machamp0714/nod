@@ -183,4 +183,10 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE issues ADD COLUMN due_date TEXT
       CHECK (due_date IS NULL OR (typeof(due_date) = 'text' AND length(due_date) = 10 AND date(due_date) = due_date))`,
   ],
+  // Workspace ごとの作業規約（LLM に守らせる Markdown）。未登録は rules = NULL
+  [
+    `ALTER TABLE workspaces ADD COLUMN rules TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN rules_updated_at TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN rules_updated_by TEXT`,
+  ],
 ];
