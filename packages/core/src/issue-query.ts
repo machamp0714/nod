@@ -52,10 +52,11 @@ export interface IssueRow {
 }
 
 // 親の完了候補：直接の子がすべて done/canceled で、done が1件以上あり、親が done・canceled・triage 以外。
-// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する
-export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage')
-  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status = 'done')
-  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status NOT IN ('done', 'canceled')))`;
+// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する。
+// アーカイブ済みの親は完了にできないので候補にせず、アーカイブ済みの子は Sub-issues と同じく数えない
+export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage') AND i.archived_at IS NULL
+  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL AND c.status = 'done')
+  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL AND c.status NOT IN ('done', 'canceled')))`;
 
 // ブロック元 b がまだブロックしている条件。完了・取り消し・アーカイブ済みのブロック元は数えない
 export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived_at IS NULL";

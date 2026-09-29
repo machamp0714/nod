@@ -272,3 +272,26 @@ test("アーカイブ済みの Issue の通知は Inbox の通知に出さず、
   unarchiveIssue(me, issue.id);
   expect(listNotifications(db).map((n) => n.issueId)).toEqual([issue.id]);
 });
+
+test("親の完了候補は、アーカイブ済みの親を候補にせず、アーカイブ済みの子を数えない", () => {
+  const { me, ws, db } = setup();
+  const parent = createIssue(me, { workspaceId: ws.id, title: "親" });
+  const done = createIssue(me, { workspaceId: ws.id, title: "済んだ子", parentRef: parent.id });
+  updateIssue(me, done.id, { status: "done" });
+  const left = createIssue(me, { workspaceId: ws.id, title: "残った子", parentRef: parent.id });
+  expect(getIssue(db, parent.id).completionCandidate).toBe(false);
+
+  // 未完了の子をアーカイブすると、残りの子がすべて完了なので候補になる
+  archiveIssue(me, left.id);
+  expect(getIssue(db, parent.id).completionCandidate).toBe(true);
+  expect(listIssues(db, { completionCandidate: true }).map((i) => i.id)).toEqual([parent.id]);
+
+  // アーカイブ済みの親は完了にできないので候補にしない
+  archiveIssue(me, parent.id);
+  expect(getIssue(db, parent.id).completionCandidate).toBe(false);
+  unarchiveIssue(me, parent.id);
+
+  // 完了した子もアーカイブすると、数える子が無いので候補にならない
+  archiveIssue(me, done.id);
+  expect(getIssue(db, parent.id).completionCandidate).toBe(false);
+});
