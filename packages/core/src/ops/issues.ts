@@ -415,6 +415,13 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   if (input.dueDate != null) validateDueDate(input.dueDate);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
+    // Triage を出すのは人の判断（受け入れ・却下・重複と人の状態変更）だけ。何かを書く前に拒む
+    if (isLlm(ctx) && input.status !== undefined && input.status !== "triage" && row.status === "triage") {
+      throw new NodError(
+        "FORBIDDEN_FOR_LLM",
+        `LLM は Triage にある ${ref} の状態を変えられません。受け入れ・却下は me に依頼するか、nod triage propose で提案してください`,
+      );
+    }
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) setColumn(ctx, row, "description", input.description);
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);

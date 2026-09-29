@@ -1,4 +1,4 @@
-import { type OpCtx } from "../ctx";
+import { isLlm, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { canonicalIssueRef, findIssueRow } from "../issue-query";
@@ -31,6 +31,9 @@ function checkTriage(ctx: OpCtx, ref: string, status: Status | undefined): void 
     throw new NodError("TRIAGE_DECISION_REQUIRED", "一括編集では状態を Triage に戻せません");
   }
   const row = findIssueRow(ctx.db, ref);
+  if (row.status === "triage" && isLlm(ctx)) {
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Triage にある Issue の状態を変えられません。受け入れ・却下は me に依頼してください");
+  }
   if (row.status === "triage") {
     // 失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
     throw new NodError("TRIAGE_DECISION_REQUIRED", "Triage にあります。受け入れ・却下は Triage 画面で判断してください");

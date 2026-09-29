@@ -121,6 +121,26 @@ describe("bulkUpdateIssues", () => {
     expect(getIssue(db, triage.id)).toMatchObject({ status: "triage", priority: 3, labels: ["x"] });
   });
 
+  test("LLM が Triage の Issue の状態を変えようとすると FORBIDDEN_FOR_LLM で失敗一覧に入り、1件も書かない", () => {
+    const { db, ws, me, llm } = setup();
+    const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
+    const triage = createIssue(llm, { workspaceId: ws.id, title: "triage" });
+    const snapshot = () => ({
+      issues: [getIssue(db, ok.id), getIssue(db, triage.id)],
+      events: db.query("SELECT * FROM events ORDER BY id").all(),
+      notifications: db.query("SELECT * FROM notifications ORDER BY id").all(),
+    });
+    const before = snapshot();
+    const e = errorOf(() => bulkUpdateIssues(llm, [ok.id, triage.id], { status: "in_progress", priority: 1 }));
+    expect(e.code).toBe("BULK_UPDATE_FAILED");
+    expect(e.details).toEqual({ failures: [{ id: triage.id, code: "FORBIDDEN_FOR_LLM", message: expect.any(String) }] });
+    expect((e.details as { failures: { message: string }[] }).failures[0]!.message).not.toContain(triage.id);
+    expect(snapshot()).toEqual(before);
+    // 状態以外なら LLM も Triage の Issue を一括で変えられる
+    bulkUpdateIssues(llm, [ok.id, triage.id], { priority: 2 });
+    expect(getIssue(db, triage.id)).toMatchObject({ status: "triage", priority: 2 });
+  });
+
   test("アーカイブ済みの Issue を含めると ISSUE_ARCHIVED で、1件も書かない", () => {
     const { db, ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });

@@ -123,6 +123,35 @@ describe("updateIssue", () => {
     expect(codeOf(() => updateIssue(llm, i.id, { status: "done" }))).toBe("FORBIDDEN_FOR_LLM");
   });
 
+  test("LLM は Triage の Issue の状態を変えられず、Issue・event・通知を何も書かない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const snapshot = () => ({
+      issue: getIssue(db, i.id),
+      events: db.query("SELECT * FROM events ORDER BY id").all(),
+      notifications: db.query("SELECT * FROM notifications ORDER BY id").all(),
+    });
+    const before = snapshot();
+    for (const status of ["todo", "backlog", "in_progress", "canceled"] as const) {
+      expect(codeOf(() => updateIssue(llm, i.id, { status, priority: 1, title: "書き換え" }))).toBe("FORBIDDEN_FOR_LLM");
+    }
+    expect(snapshot()).toEqual(before);
+  });
+
+  test("LLM も Triage の Issue の状態以外は変えられ、状態を triage のまま指定しても拒まない", () => {
+    const { db, ws, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    expect(updateIssue(llm, i.id, { priority: 1, status: "triage" })).toMatchObject({ status: "triage", priority: 1 });
+    expect(eventsOf(db, i.id).map((e) => e.type)).toEqual(["created", "priority_changed"]);
+  });
+
+  test("人は Triage の Issue の状態を変えられ、LLM は Triage を出た Issue の状態を変えられる", () => {
+    const { ws, me, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    expect(updateIssue(me, i.id, { status: "backlog" }).status).toBe("backlog");
+    expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+  });
+
   test("ラベルの追加と削除を1つの event にまとめる", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t", labels: ["bug"] });
