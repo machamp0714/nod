@@ -24,6 +24,19 @@ test("Reviewsは報告IDを優先し同一msの後続コメントと旧eventを�
   db.close();
 });
 
+test("報告IDのない旧記録の時刻復元は親コメントだけから選び、返信を報告にしない（#97）", () => {
+  const { db, ws, me, llm } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "報告" });
+  startIssue(llm, issue.id);
+  completeIssue(llm, issue.id, { summary: "本来の報告" });
+  const report = db.query("SELECT id FROM comments WHERE body = '本来の報告'").get() as { id: number };
+  commentIssue(me, issue.id, "報告への返信", { replyTo: report.id });
+  db.query("UPDATE comments SET created_at = '2026-09-28T00:00:00Z'").run();
+  db.query("UPDATE events SET created_at = '2026-09-28T00:00:00Z', data = json_remove(data, '$.report_comment_id') WHERE type='status_changed' AND json_extract(data, '$.to')='in_review'").run();
+  expect(getInbox(db).reviews[0]).toMatchObject({ reviewSummary: "本来の報告", reviewReport: { body: "本来の報告", actor: "claude-code" } });
+  db.close();
+});
+
 test("acceptは属性と状態を原子的に保存し、失敗・再実行・LLMに部分更新を残さない", () => {
   const { db, ws, me, llm } = setup();
   const projectId = addProjectRow(db, "検索");
