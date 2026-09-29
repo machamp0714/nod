@@ -28,6 +28,12 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
 
+## 着手前に候補だけ確認する
+
+\`nod issue suggest [--project <名前>] --json\` は、現在の Workspace と自分の担当条件に合う候補を1件返す。候補がなければ null を返す。
+\`next\` と同じ着手条件と優先度順で選ぶが、Issue・担当・作業場所・時刻・履歴を変更せず、Orca にも通知しない。
+提案は予約ではない。着手するときは \`nod issue next\` または \`nod issue start <id>\` を使う。その時点の条件を再確認するため、同じ候補に着手できるとは限らない。
+
 ## 引数の書き方
 
 \`-\` で始まる文字列を渡すときは、\`--\` の後ろに書く。
