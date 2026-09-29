@@ -2,7 +2,7 @@ import { attachDocument, createProject, detachDocument, getProject, listProjects
 import type { Command } from "commander";
 import { parseDocKind, parseProjectStatus } from "../args";
 import { act } from "../context";
-import { formatIssueLine, print } from "../output";
+import { formatIssueLines, print } from "../output";
 
 export function registerProjectCommands(program: Command): void {
   const project = program.command("project").description("Project を操作する");
@@ -50,7 +50,7 @@ export function registerProjectCommands(program: Command): void {
             ...(p.description ? ["", p.description] : []),
             "",
             "Issue:",
-            ...p.issues.map((i) => `  ${formatIssueLine(i)}`),
+            ...formatIssueLines(p.issues).map((line) => `  ${line}`),
             ...(p.documents.length ? ["", "Documents:", ...p.documents.map((d) => `  - ${d.title}（${d.kind}）${d.path}`)] : []),
           ].join("\n"),
         );

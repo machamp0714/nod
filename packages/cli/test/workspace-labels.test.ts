@@ -91,6 +91,27 @@ describe("nod workspace status-names", () => {
     expect(updated.stdout).toContain("Backlog");
   });
 
+  test("確認依頼で Needs Clarification になった旨も表示名で出す", async () => {
+    const { db, repo } = await setupRepo();
+    await runNod(["workspace", "status-names", "set", "needs_clarification", "確認待ち"], { cwd: repo, db });
+    await runNod(["issue", "create", "a"], { cwd: repo, db });
+    const asked = await runNod(["issue", "ask", "API-1", "対象はどれか"], { cwd: repo, db });
+    expect(asked.stdout).toContain("API-1 は 確認待ち (needs_clarification) です");
+  });
+
+  test("一覧は表示名の長さ・全角幅が違ってもタイトルの列をそろえる", async () => {
+    const { db, repo } = await setupRepo();
+    await runNod(["workspace", "status-names", "set", "todo", "すぐ着手できるもの"], { cwd: repo, db });
+    await runNod(["issue", "create", "first"], { cwd: repo, db });
+    await runNod(["issue", "create", "second"], { cwd: repo, db });
+    await runNod(["issue", "update", "API-2", "--status", "backlog"], { cwd: repo, db });
+    const lines = (await runNod(["issue", "list"], { cwd: repo, db })).stdout.trim().split("\n");
+    const width = (s: string) => [...s].reduce((n, c) => n + (/[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(c) ? 2 : 1), 0);
+    const starts = lines.map((l) => width(l.slice(0, l.search(/first|second/))));
+    expect(lines).toHaveLength(2);
+    expect(new Set(starts).size).toBe(1);
+  });
+
   test("未知のステータスは INVALID_ARGS、LLM は set・reset できず FORBIDDEN_FOR_LLM", async () => {
     const { db, repo } = await setupRepo();
     expect((await runNod(["workspace", "status-names", "set", "ready", "x", "--json"], { cwd: repo, db })).json.error.code).toBe("INVALID_ARGS");

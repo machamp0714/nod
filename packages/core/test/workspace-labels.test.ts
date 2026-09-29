@@ -169,4 +169,30 @@ describe("Workspace のラベル定義", () => {
     const tables = (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name);
     expect(tables).toContain("workspace_status_names");
   });
+
+  test("移行前に入っていた Workspace・Issue・ラベル・ステータスは移行後も残る", () => {
+    const path = tempDbPath();
+    const version = MIGRATIONS.findIndex((steps) =>
+      steps.some((s) => typeof s === "string" && s.includes("CREATE TABLE workspace_labels")),
+    );
+    const before = openDb(path);
+    const ws = initWorkspace(before, { path: "/tmp/repos/api-server" }).workspace;
+    const me = { db: before, actor: "me" };
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", labels: ["bug", "ui"] });
+    updateIssue(me, a.id, { status: "in_progress" });
+    before.close();
+    // この移行の直前の版へ戻す（この移行は末尾なので、足したテーブルを消せば直前の版と同じ形になる）
+    const raw = new Database(path);
+    raw.exec("DROP TABLE workspace_status_names");
+    raw.exec("DROP TABLE workspace_labels");
+    raw.exec(`PRAGMA user_version = ${version}`);
+    raw.close();
+
+    const db = openDb(path);
+    expect(labelsOf(db, a.id)).toEqual(["bug", "ui"]);
+    const row = db.query("SELECT title, status FROM issues WHERE id = ?").get(findIssueRow(db, a.id).id);
+    expect(row).toEqual({ title: "a", status: "in_progress" });
+    expect(listWorkspaceLabels(db, ws.key)).toEqual([]);
+    expect(db.query("SELECT COUNT(*) AS n FROM workspace_status_names").get()).toEqual({ n: 0 });
+  });
 });

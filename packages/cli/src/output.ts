@@ -50,11 +50,31 @@ export function printError(err: unknown, json: boolean): void {
   else console.error(`エラー（${body.code}）: ${body.message}`);
 }
 
-export function formatIssueLine(i: Issue): string {
+// 全角文字は端末で2桁を取るので、列をそろえるときは文字数でなく表示幅で数える
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const c of text) width += WIDE.test(c) ? 2 : 1;
+  return width;
+}
+
+// ステータス列の幅。表示名は Workspace ごとに長さが違うので、一覧では全行の最大に合わせる
+export function statusColumnWidth(issues: Issue[]): number {
+  return Math.max(11, ...issues.map((i) => displayWidth(statusText(i.status, i.id))));
+}
+
+export function formatIssueLine(i: Issue, statusWidth = statusColumnWidth([i])): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
   const candidate = i.completionCandidate ? " [完了候補]" : "";
   const archived = i.archivedAt ? " [archived]" : "";
-  return `${i.id}  ${statusText(i.status, i.id).padEnd(11)}${agent}${archived}  ${i.title}${candidate}`;
+  const status = statusText(i.status, i.id);
+  return `${i.id}  ${status}${" ".repeat(statusWidth - displayWidth(status))}${agent}${archived}  ${i.title}${candidate}`;
+}
+
+export function formatIssueLines(issues: Issue[]): string[] {
+  const width = statusColumnWidth(issues);
+  return issues.map((i) => formatIssueLine(i, width));
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
@@ -81,7 +101,7 @@ export function formatDelegations(issues: Issue[]): string {
         .filter(([, n]) => n > 0)
         .map(([label, n]) => `${label} ${n}`)
         .join("・");
-      return [`${agent}（${rows.length}件: ${breakdown}）`, ...rows.map((r) => `  ${formatIssueLine(r)}`)].join("\n");
+      return [`${agent}（${rows.length}件: ${breakdown}）`, ...formatIssueLines(rows).map((line) => `  ${line}`)].join("\n");
     })
     .join("\n\n");
 }
@@ -148,7 +168,7 @@ export function formatIssueDetail(d: IssueDetail): string {
       ),
     );
   }
-  if (d.children.length) lines.push("", "Sub-issue:", ...d.children.map((c) => `  ${formatIssueLine(c)}`));
+  if (d.children.length) lines.push("", "Sub-issue:", ...formatIssueLines(d.children).map((line) => `  ${line}`));
   const relations: [string, string[]][] = [
     ["ブロックしている", d.relations.blocks],
     ["ブロックされている", d.relations.blockedBy],

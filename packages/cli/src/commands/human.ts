@@ -19,7 +19,7 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
-import { formatIssueLine, formatNotification, formatTriageSuggestions, print } from "../output";
+import { formatIssueLine, formatNotification, formatTriageSuggestions, print, statusColumnWidth } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -42,7 +42,7 @@ export function registerHumanCommands(program: Command): void {
             ),
             "",
             `レビュー待ち（${inbox.reviews.length}）`,
-            ...inbox.reviews.map((i) => `  ${formatIssueLine(i)}${i.prUrl ? `  ${i.prUrl}` : ""}`),
+            ...(() => { const width = statusColumnWidth(inbox.reviews); return inbox.reviews.map((i) => `  ${formatIssueLine(i, width)}${i.prUrl ? `  ${i.prUrl}` : ""}`); })(),
             "",
             `通知（未読 ${inbox.notifications.length}）`,
             ...inbox.notifications.map(formatNotification),
