@@ -27,6 +27,7 @@ import {
   unarchiveIssue,
   updateIssue,
 } from "../src/ops/issues";
+import { suggestTriage } from "../src/ops/triage-suggest";
 import { importPlan, setPlanTasks, setStep } from "../src/ops/plan";
 import { getProject, listProjects } from "../src/ops/projects";
 import { diagnoseIssues } from "../src/ops/diagnose";
@@ -294,4 +295,13 @@ test("親の完了候補は、アーカイブ済みの親を候補にせず、�
   // 完了した子もアーカイブすると、数える子が無いので候補にならない
   archiveIssue(me, done.id);
   expect(getIssue(db, parent.id).completionCandidate).toBe(false);
+});
+
+test("Triage の重複候補にアーカイブ済みの Issue を出さない（重複元にできないため）", () => {
+  const { me, llm, ws } = setup();
+  const live = createIssue(me, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す" });
+  const gone = createIssue(me, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す（旧）" });
+  archiveIssue(me, gone.id);
+  const triage = createIssue(llm, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す" });
+  expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([live.id]);
 });
