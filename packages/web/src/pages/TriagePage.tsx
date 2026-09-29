@@ -273,7 +273,7 @@ function DuplicateHints({ duplicates, disabled, onDuplicate }: {
               <span className={d.hintLabel}>似た Issue:</span>
               <span className={d.hintId}>{c.id}</span>
               <span className={d.hintTitle}>「{c.title}」</span>
-              <span className={d.hintStatus}><StatusLabel status={c.status} /></span>
+              <span className={d.hintStatus}><StatusLabel status={c.status} workspace={c.workspace} /></span>
             </div>
             <div className={d.hintMeta}>
               一致 {Math.round(c.score * 100)}%{c.sharedTerms.length > 0 && ` · 共通語: ${c.sharedTerms.join(", ")}`}

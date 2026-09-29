@@ -234,7 +234,7 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
     ...(s.duplicates.length
       ? s.duplicates.map(
           (d) =>
-            `  ${d.id}  ${d.title}  [${STATUS_LABEL[d.status]}] 一致 ${Math.round(d.score * 100)}%` +
+            `  ${d.id}  ${d.title}  [${statusText(d.status, d.id)}] 一致 ${Math.round(d.score * 100)}%` +
             `${d.sharedTerms.length ? `  共通語: ${d.sharedTerms.join(", ")}` : ""}${d.via ? `  （${d.via} の重複元）` : ""}`,
         )
       : [none]),
