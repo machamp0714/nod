@@ -155,7 +155,7 @@ describe("コメントのスレッド", () => {
 });
 
 describe("スレッドの解決", () => {
-  test("resolve-thread で解決・未解決を切り替え、LLM の書き手や型の誤りは拒否する", async () => {
+  test("resolve-thread で解決・未解決を切り替え、型の誤りと存在しないコメントは拒否する（Web の書き手は常に me。LLM の拒否は core の comment-threads.test.ts で確かめる）", async () => {
     const { app, me, ws } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     const root = (await call(app, "POST", `/api/issues/${i.id}/comment`, { body: "親" })).json;

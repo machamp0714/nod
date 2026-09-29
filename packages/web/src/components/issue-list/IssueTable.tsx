@@ -40,7 +40,8 @@ export function IssueTable({
   onPreview?: (id: string) => void;
   showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
   // 一括編集の選択（design/nod.pen「Issues｜一括編集（#31）」）。List 表示のときだけ渡す
-  selection?: { ids: ReadonlySet<string>; onToggle: (id: string, shift: boolean) => void };
+  // offset はこの表の先頭行の、一覧全体での表示位置（Shift の範囲選択に使う）
+  selection?: { ids: ReadonlySet<string>; offset: number; onToggle: (at: number, shift: boolean) => void };
 }) {
   const today = localToday();
   // 行がないときは選択の列を出さない（空表示の行は表示中の列だけに広げる）
@@ -81,7 +82,7 @@ export function IssueTable({
             </td>
           </tr>
         ) : (
-          rows.map(({ issue, questions, workspaceName }) => (
+          rows.map(({ issue, questions, workspaceName }, index) => (
             <tr
               key={issue.id}
               data-issue-row={issue.id}
@@ -103,12 +104,12 @@ export function IssueTable({
                     aria-label={`${issue.id} を選択`}
                     checked={select.ids.has(issue.id)}
                     onChange={() => {}}
-                    onClick={(event) => select.onToggle(issue.id, event.shiftKey)}
+                    onClick={(event) => select.onToggle(select.offset + index, event.shiftKey)}
                     onKeyDown={(event) => {
                       // キーボードでも Shift+Space で範囲を選べるようにする
                       if (event.key !== " " || !event.shiftKey) return;
                       event.preventDefault();
-                      select.onToggle(issue.id, true);
+                      select.onToggle(select.offset + index, true);
                     }}
                   />
                 </td>

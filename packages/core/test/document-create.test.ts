@@ -137,6 +137,35 @@ describe("createDocument", () => {
     expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(1);
   });
 
+  // macOS 既定（APFS）のように大文字小文字・Unicode 正規化を区別しない FS でだけ意味がある
+  const probeRoot = docsDir();
+  writeFileSync(join(probeRoot, "Probe.md"), "");
+  writeFileSync(join(probeRoot, "\u304b\u3099.md"), "");
+  const caseInsensitive = existsSync(join(probeRoot, "probe.md"));
+  const normalizationInsensitive = existsSync(join(probeRoot, "\u304c.md"));
+
+  test.skipIf(!caseInsensitive)("大文字小文字だけ違うパスで作り直しても Document を重複登録しない（#101）", () => {
+    const { db, ws, me } = setup();
+    const root = docsDir();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const first = createDocument(me, { docsDir: root, path: "Case.md", title: "旧", issueRef: a.id });
+    rmSync(first.path);
+    const again = createDocument(me, { docsDir: root, path: "case.md", title: "新" });
+    expect(again).toMatchObject({ id: first.id, title: "新", path: join(root, "case.md") });
+    expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(1);
+    expect(getIssue(db, a.id).documents.map((d) => d.id)).toEqual([first.id]);
+  });
+
+  test.skipIf(!normalizationInsensitive)("NFC と NFD だけ違うパスでも Document を重複登録しない（#101）", () => {
+    const { db, me } = setup();
+    const root = docsDir();
+    const first = createDocument(me, { docsDir: root, path: "\u304b\u3099.md", title: "旧" });
+    rmSync(first.path);
+    const again = createDocument(me, { docsDir: root, path: "\u304c.md", title: "新" });
+    expect(again.id).toBe(first.id);
+    expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(1);
+  });
+
   test("タイトルの改行と不正な種類は INVALID_ARGS", () => {
     const { me } = setup();
     const root = docsDir();

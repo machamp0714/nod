@@ -140,3 +140,37 @@ test("キーボードで選び（Space・Shift+Space）、グループの全選�
   await expect(page.getByRole("checkbox", { name: /を選択$/ })).toHaveCount(0);
   await expect(bar(page)).toHaveCount(0);
 });
+
+test("ラベルのグループでは、2回目に出た行を起点にした Shift の範囲もその位置から選ぶ（#121）", async ({ page, nod }) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("api-server"), key: "API", name: "api-server" })).workspace;
+  const labels: Record<string, string[]> = { B1: ["perf", "security"], B2: ["perf"], B3: ["security"], B4: ["security"] };
+  const ids: Record<string, string> = {};
+  for (const [title, l] of Object.entries(labels)) ids[title] = (await nod.me.createIssue({ workspaceId: ws.id, title, labels: l })).id;
+  await page.goto("/issues?sort=title&groupBy=label");
+  const security = page.getByRole("region", { name: "ラベル security" });
+  await security.getByRole("checkbox", { name: `${ids.B1} を選択`, exact: true }).click();
+  await security.getByRole("checkbox", { name: `${ids.B3} を選択`, exact: true }).click({ modifiers: ["Shift"] });
+  await expect(bar(page)).toContainText("2 件選択");
+  await expect(box(page, ids.B2 as string)).not.toBeChecked();
+  await expect(box(page, ids.B4 as string)).not.toBeChecked();
+  // 同じ Issue はどのグループの行でも選択済みに見える
+  await expect(page.getByRole("region", { name: "ラベル perf" }).getByRole("checkbox", { name: `${ids.B1} を選択`, exact: true })).toBeChecked();
+});
+
+test("上限の100件を超えて選ぶと、送る前に知らせて項目を選べなくする（#121）", async ({ page, nod }) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("api-server"), key: "API", name: "api-server" })).workspace;
+  for (let n = 0; n < 101; n++) await nod.me.createIssue({ workspaceId: ws.id, title: `L${String(n).padStart(3, "0")}` });
+  await page.goto("/issues?sort=title");
+  await selectAll(page).click();
+  await expect(bar(page)).toContainText("101 件選択");
+  await expect(page.getByRole("alert")).toContainText("選択が一括編集の上限 100 件を超えています（101 件）。100 件以下にしてください");
+  for (const name of ["Status", "優先度", "担当", "Project", "ラベル", "見積もり", "期限"]) {
+    await expect(bar(page).getByRole("button", { name, exact: true })).toBeDisabled();
+  }
+  await expect(bar(page).getByRole("button", { name: "選択解除" })).toBeEnabled();
+  // 1件外せば上限内に戻り、操作できる
+  await page.getByRole("checkbox", { name: /を選択$/ }).first().click();
+  await expect(bar(page)).toContainText("100 件選択");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(bar(page).getByRole("button", { name: "Status", exact: true })).toBeEnabled();
+});

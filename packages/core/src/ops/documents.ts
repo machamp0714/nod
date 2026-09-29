@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { now, type OpCtx } from "../ctx";
@@ -49,17 +49,44 @@ export function resolveDocTarget(db: Database, target: DocTarget): ResolvedTarge
     : { projectId: resolveProject(db, target.projectRef as string).id };
 }
 
-// パスで Document を登録する。登録済みなら、指定したタイトルと種類だけを更新する
+// ファイルの実体（デバイスと inode）。ファイルがなければ null
+function fileIdOrNull(path: string): string | null {
+  try {
+    const st = statSync(path);
+    return `${st.dev}:${st.ino}`;
+  } catch {
+    return null;
+  }
+}
+
+// 同じ実体を指す登録済みの Document を探す。パスの完全一致のほか、大文字小文字や Unicode 正規化（NFC/NFD）
+// だけ違うパスは、同じファイル（inode）を指すときに限り同じものとみなす（それらを区別する FS では別ファイルのまま）
+function findDocumentByPath(db: Database, path: string): DocumentRef | null {
+  const exact = db.query("SELECT id, path, title, kind FROM documents WHERE path = ?").get(path) as DocumentRef | null;
+  if (exact) return exact;
+  const key = (p: string) => p.normalize("NFC").toLowerCase();
+  const candidates = (db.query("SELECT id, path, title, kind FROM documents").all() as DocumentRef[]).filter(
+    (doc) => key(doc.path) === key(path),
+  );
+  if (candidates.length === 0) return null;
+  const file = fileIdOrNull(path);
+  // ファイルが消えた後の解除では実体を比べられないため、正規化だけ違う表記を同じものとみなす
+  return (
+    candidates.find((doc) => (file === null ? doc.path.normalize("NFC") === path.normalize("NFC") : fileIdOrNull(doc.path) === file)) ??
+    null
+  );
+}
+
+// パスで Document を登録する。登録済みなら、指定したタイトルと種類だけを更新する。
+// 同じ実体を別の表記で指したときは、パスを今回の表記に合わせる
 function upsertDocument(
   ctx: OpCtx,
   input: { path: string; content: string; title?: string; kind?: DocKind },
 ): DocumentRef {
-  const existing = ctx.db.query("SELECT id, path, title, kind FROM documents WHERE path = ?").get(input.path) as
-    | DocumentRef
-    | null;
+  const existing = findDocumentByPath(ctx.db, input.path);
   if (existing) {
-    const doc = { ...existing, title: input.title ?? existing.title, kind: input.kind ?? existing.kind };
-    ctx.db.query("UPDATE documents SET title = ?, kind = ? WHERE id = ?").run(doc.title, doc.kind, doc.id);
+    const doc = { ...existing, path: input.path, title: input.title ?? existing.title, kind: input.kind ?? existing.kind };
+    ctx.db.query("UPDATE documents SET path = ?, title = ?, kind = ? WHERE id = ?").run(doc.path, doc.title, doc.kind, doc.id);
     return doc;
   }
   const title = input.title ?? documentTitle(input.path, input.content);
@@ -116,7 +143,7 @@ export function detachDocument(ctx: OpCtx, target: DocTarget, path: string, cwd:
   const abs = resolve(cwd, path);
   tx(ctx.db, () => {
     const resolved = resolveDocTarget(ctx.db, target);
-    const doc = ctx.db.query("SELECT id FROM documents WHERE path = ?").get(abs) as { id: number } | null;
+    const doc = findDocumentByPath(ctx.db, abs);
     if (!doc || !removeLink(ctx, doc.id, resolved)) throw new NodError("NOT_FOUND", `${abs} は添付されていません`);
   });
 }

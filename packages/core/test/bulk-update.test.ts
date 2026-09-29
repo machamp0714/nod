@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { NodError } from "../src/errors";
 import { BULK_UPDATE_LIMIT, bulkUpdateIssues } from "../src/ops/bulk-update";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
+import { subscribeIssue } from "../src/ops/notifications";
 import { createProject } from "../src/ops/projects";
 import { codeOf, eventsOf, setup } from "./helpers";
 
@@ -55,6 +56,30 @@ describe("bulkUpdateIssues", () => {
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     expect(bulkUpdateIssues(me, [a.id, a.id], { priority: 1 })).toHaveLength(1);
     expect(eventsOf(db, a.id).filter((e) => e.type === "priority_changed")).toHaveLength(1);
+  });
+
+  test("大文字小文字だけ違う ID も解決後の Issue で1件として扱い、上限も1件と数える（#121）", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    expect(bulkUpdateIssues(me, [a.id, a.id.toLowerCase(), ` ${a.id}`, a.id.replace("-", "-0")], { priority: 1 })).toHaveLength(1);
+    expect(eventsOf(db, a.id).filter((e) => e.type === "priority_changed")).toHaveLength(1);
+    const others = Array.from({ length: BULK_UPDATE_LIMIT - 1 }, (_, n) => createIssue(me, { workspaceId: ws.id, title: `x${n}` }).id);
+    expect(bulkUpdateIssues(me, [a.id, a.id.toLowerCase(), ...others], { priority: 2 })).toHaveLength(BULK_UPDATE_LIMIT);
+    // 見つからない ID も表記ゆれは1件として失敗一覧に出す
+    const e = errorOf(() => bulkUpdateIssues(me, ["API-999", "api-999"], { priority: 1 }));
+    expect(e.details).toEqual({ failures: [{ id: "API-999", code: "NOT_FOUND", message: expect.any(String) }] });
+  });
+
+  test("失敗したら購読者の通知も残さない（#121）", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    subscribeIssue(me, a.id);
+    const count = () => (db.query("SELECT count(*) AS n FROM notifications").get() as { n: number }).n;
+    expect(codeOf(() => bulkUpdateIssues(llm, [a.id, "API-999"], { status: "in_progress", priority: 1 }))).toBe("BULK_UPDATE_FAILED");
+    expect(count()).toBe(0);
+    // 成功すれば同じ変更で通知が届く（上の 0 件が変更の取り消しによるものであることの確認）
+    bulkUpdateIssues(llm, [a.id], { status: "in_progress", priority: 1 });
+    expect(count()).toBeGreaterThan(0);
   });
 
   test("1件でも失敗したら何も書かず、失敗した全 Issue の理由を BULK_UPDATE_FAILED で返す", () => {

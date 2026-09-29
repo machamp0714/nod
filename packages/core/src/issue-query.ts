@@ -95,6 +95,12 @@ export function formatIssueId(key: string, number: number): string {
   return `${key}-${number}`;
 }
 
+// ID の表記ゆれ（大文字小文字・前後の空白・番号の先頭の 0）を畳んだ形。ID の形でなければ null
+export function canonicalIssueRef(ref: string): string | null {
+  const m = REF_RE.exec(ref.trim());
+  return m ? `${(m[1] ?? "").toUpperCase()}-${Number(m[2])}` : null;
+}
+
 export function findIssueRow(db: Database, ref: string): IssueRow {
   const m = REF_RE.exec(ref.trim());
   if (!m) throw new NodError("INVALID_ARGS", `${ref} は Issue の ID ではありません（例: API-12）`);

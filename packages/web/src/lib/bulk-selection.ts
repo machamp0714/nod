@@ -3,7 +3,8 @@
 
 export interface Selection {
   ids: ReadonlySet<string>;
-  anchor: string | null; // Shift で範囲を選ぶときの起点（最後にクリックした行）
+  // Shift で範囲を選ぶときの起点（最後にクリックした行）。ラベルのグループでは同じ Issue が何度も出るため、表示位置も持つ
+  anchor: { id: string; at: number } | null;
 }
 
 export interface BulkFailure {
@@ -12,14 +13,20 @@ export interface BulkFailure {
   message: string;
 }
 
-// order は表示順の ID（重複なし）。Shift の範囲は起点の今の状態にそろえる
-export function toggleSelection(selection: Selection, order: readonly string[], id: string, shift: boolean): Selection {
+// 1回の一括編集で送れる件数。サーバーの BULK_UPDATE_LIMIT（core/src/ops/bulk-update.ts）と同じ値
+export const BULK_SELECT_LIMIT = 100;
+
+// positions は表示順の ID（ラベルのグループでは同じ ID が何度も出る）、at はクリックした行の位置。
+// Shift の範囲は起点の今の状態にそろえる。一覧の更新で起点の位置がずれていたら、その Issue の最初の位置を使う
+export function toggleSelection(selection: Selection, positions: readonly string[], at: number, shift: boolean): Selection {
+  const id = positions[at];
+  if (id === undefined) return selection;
   const next = new Set(selection.ids);
-  const from = selection.anchor === null ? -1 : order.indexOf(selection.anchor);
-  const to = order.indexOf(id);
-  if (shift && from !== -1 && to !== -1) {
-    const select = next.has(selection.anchor as string);
-    for (const rangeId of order.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+  const anchor = selection.anchor;
+  const from = anchor === null ? -1 : positions[anchor.at] === anchor.id ? anchor.at : positions.indexOf(anchor.id);
+  if (shift && anchor && from !== -1) {
+    const select = next.has(anchor.id);
+    for (const rangeId of positions.slice(Math.min(from, at), Math.max(from, at) + 1)) {
       if (select) next.add(rangeId);
       else next.delete(rangeId);
     }
@@ -28,7 +35,7 @@ export function toggleSelection(selection: Selection, order: readonly string[], 
   } else {
     next.add(id);
   }
-  return { ids: next, anchor: id };
+  return { ids: next, anchor: { id, at } };
 }
 
 export function selectAllState(ids: ReadonlySet<string>, order: readonly string[]): "none" | "some" | "all" {
