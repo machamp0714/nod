@@ -93,6 +93,7 @@ export function IssueList({
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
   const [toast, setToast] = useState<string | null>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const selectable = layout === "list";
   const order = useMemo(() => idsOf(groupBy ? groups.flatMap(rowsOf) : visible), [groupBy, groups, visible]);
   const selectedIds = selectable ? pruneSelection(selection.ids, order) : NO_SELECTION;
@@ -265,7 +266,7 @@ export function IssueList({
       {selectable ? (
         // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
         <div className={s.selectAllRow}>
-          <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} />
+          <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} inputRef={selectAllRef} />
           {filterBar}
         </div>
       ) : filterBar}
@@ -317,6 +318,8 @@ export function IssueList({
           onUpdated={(count) => {
             clearSelection();
             setToast(`${count}件を更新しました`);
+            // バーが消えてもキーボードの位置を失わないよう、全選択のチェックボックスへ戻す
+            selectAllRef.current?.focus();
           }}
         />
       )}
@@ -362,9 +365,10 @@ function rowsOf(group: RowGroup): IssueListRow[] {
 }
 
 // 表示中・グループの全選択のチェックボックス。一部だけ選んでいるときは不定の表示にする
-function SelectAllBox({ ids, label, selected, onChange }: { ids: string[]; label: string; selected: ReadonlySet<string>; onChange: (ids: string[]) => void }) {
+function SelectAllBox({ ids, label, selected, onChange, inputRef }: { ids: string[]; label: string; selected: ReadonlySet<string>; onChange: (ids: string[]) => void; inputRef?: { current: HTMLInputElement | null } }) {
   const state = selectAllState(selected, ids);
-  const ref = useRef<HTMLInputElement>(null);
+  const own = useRef<HTMLInputElement>(null);
+  const ref = inputRef ?? own;
   useEffect(() => {
     if (ref.current) ref.current.indeterminate = state === "some";
   }, [state]);

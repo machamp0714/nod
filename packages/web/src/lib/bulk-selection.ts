@@ -73,7 +73,8 @@ export function labelMenu(selected: readonly { labels: readonly string[] }[], kn
   const matches = (label: string) => q === "" || label.toLowerCase().includes(q.toLowerCase());
   return {
     add: all.filter((label) => matches(label) && (counts.get(label) ?? 0) < selected.length),
-    create: q !== "" && !all.includes(q) ? q : null,
+    // 空白や区切り文字を含む語は、既存のラベル入力（parseLabels）と同じく1つのラベルとして作らない
+    create: q !== "" && !/[\s,、，]/.test(q) && !all.includes(q) ? q : null,
     remove: all.filter((label) => matches(label) && counts.has(label)).map((label) => ({ label, count: counts.get(label) as number })),
   };
 }

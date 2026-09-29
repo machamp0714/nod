@@ -69,6 +69,8 @@ describe("labelMenu", () => {
   test("検索語で絞り込み、どこにもないラベルは新規に追加できる", () => {
     expect(labelMenu(selected, ["bug", "docs"], "do")).toEqual({ add: ["docs"], create: "do", remove: [] });
     expect(labelMenu(selected, ["bug"], " bug ").create).toBeNull();
+    expect(labelMenu(selected, [], "a b").create).toBeNull();
+    expect(labelMenu(selected, [], "a,b").create).toBeNull();
     expect(labelMenu(selected, ["bug"], "perf")).toEqual({ add: ["perf"], create: null, remove: [{ label: "perf", count: 2 }] });
   });
 });

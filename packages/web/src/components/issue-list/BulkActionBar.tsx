@@ -33,12 +33,21 @@ export function BulkActionBar({
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [failures, setFailures] = useState<BulkFailure[]>([]);
   const [error, setError] = useState("");
+  const [refocus, setRefocus] = useState<MenuKey | null>(null);
   const running = useRef(false);
+  const barRef = useRef<HTMLDivElement>(null);
   const selectionKey = selected.map((i) => i.id).join(",");
   useEffect(() => {
     setFailures([]);
     setError("");
   }, [selectionKey]);
+  // 失敗したらメニューを閉じ、開いていたボタンへフォーカスを戻す（適用中は無効なので、使えるようになってから）
+  const busy = update.isPending;
+  useEffect(() => {
+    if (!refocus || busy) return;
+    barRef.current?.querySelector<HTMLButtonElement>(`[data-menu="${refocus}"]`)?.focus();
+    setRefocus(null);
+  }, [refocus, busy]);
 
   async function apply(patch: BulkUpdateInput) {
     if (running.current) return;
@@ -53,14 +62,14 @@ export function BulkActionBar({
       const list = bulkFailures(e);
       if (list.length > 0) setFailures(list);
       else setError(`更新できませんでした：${errorMessage(e)}`);
+      setRefocus(open);
       setOpen(null);
     } finally {
       running.current = false;
     }
   }
 
-  const menu = (key: MenuKey) => ({ open: open === key, onToggle: () => setOpen(open === key ? null : key), onClose: () => setOpen(null) });
-  const busy = update.isPending;
+  const menu = (key: MenuKey) => ({ menuKey: key, open: open === key, onToggle: () => setOpen(open === key ? null : key), onClose: () => setOpen(null) });
   return (
     <div className={s.bulkDock}>
       {failures.length > 0 && (
@@ -87,7 +96,7 @@ export function BulkActionBar({
           </p>
         </div>
       )}
-      <div className={s.bulkBar} role="toolbar" aria-label="一括操作" aria-busy={busy}>
+      <div ref={barRef} className={s.bulkBar} role="toolbar" aria-label="一括操作" aria-busy={busy}>
         <span className={s.bulkCount}>
           <span className={s.bulkCountCheck} aria-hidden="true">
             <Icon name="check" size={10} />
@@ -146,6 +155,7 @@ export function BulkActionBar({
 }
 
 function Dropdown({
+  menuKey,
   icon,
   label,
   open,
@@ -154,6 +164,7 @@ function Dropdown({
   onClose,
   children,
 }: {
+  menuKey: MenuKey;
   icon: IconName;
   label: string;
   open: boolean;
@@ -178,7 +189,7 @@ function Dropdown({
   }, [open]);
   return (
     <div className={s.bulkDropdownWrap} ref={root}>
-      <button type="button" ref={trigger} className={s.bulkDropdown} aria-haspopup="true" aria-expanded={open} disabled={disabled} onClick={onToggle}>
+      <button type="button" ref={trigger} data-menu={menuKey} className={s.bulkDropdown} aria-haspopup="true" aria-expanded={open} disabled={disabled} onClick={onToggle}>
         <Icon name={icon} size={13} color="var(--ink2)" />
         {label}
         <Icon name="chevron-down" size={12} color="var(--ink3)" />

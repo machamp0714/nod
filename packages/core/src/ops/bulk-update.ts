@@ -1,7 +1,7 @@
 import { type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow, formatIssueId } from "../issue-query";
+import { findIssueRow } from "../issue-query";
 import type { Issue, Status } from "../types";
 import { type UpdateIssueInput, updateIssue, validateDueDate, validateEstimate, validatePriority } from "./issues";
 
@@ -32,10 +32,8 @@ function checkTriage(ctx: OpCtx, ref: string, status: Status | undefined): void 
   }
   const row = findIssueRow(ctx.db, ref);
   if (row.status === "triage") {
-    throw new NodError(
-      "TRIAGE_DECISION_REQUIRED",
-      `${formatIssueId(row.ws_key, row.number)} は Triage にあります。受け入れ・却下は Triage 画面で判断してください`,
-    );
+    // 失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
+    throw new NodError("TRIAGE_DECISION_REQUIRED", "Triage にあります。受け入れ・却下は Triage 画面で判断してください");
   }
 }
 

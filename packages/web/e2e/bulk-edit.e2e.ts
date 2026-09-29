@@ -37,6 +37,7 @@ test("チェックボックス・Shift 範囲・全選択で選び、状態・�
   await page.getByRole("menu", { name: "Status を変更" }).getByRole("menuitem", { name: "In Progress" }).click();
   await expect(page.getByRole("status").filter({ hasText: "3件を更新しました" })).toBeVisible();
   await expect(bar(page)).toHaveCount(0);
+  await expect(selectAll(page)).toBeFocused();
 
   const issues = (await (await page.request.get("/api/issues?status=in_progress")).json()).issues as { id: string }[];
   expect(issues.map((i) => i.id).sort()).toEqual([b1, b2, b3].sort());
@@ -89,6 +90,7 @@ test.describe("失敗したとき", () => {
     await expect(alert).toContainText(triage);
     await expect(alert).toContainText("Triage 画面で判断してください");
     await expect(bar(page)).toContainText("2 件選択");
+    await expect(bar(page).getByRole("button", { name: "Status" })).toBeFocused();
     const detail = await (await page.request.get(`/api/issues/${triage}`)).json();
     expect(detail.status).toBe("triage");
 
