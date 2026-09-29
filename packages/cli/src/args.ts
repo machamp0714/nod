@@ -1,4 +1,4 @@
-import { DOC_KINDS, type DocKind, NodError, STATUSES, type Status, STEP_STATUSES, type StepStatus } from "@nod/core";
+import { DOC_KINDS, type DocKind, NodError, PROJECT_STATUSES, type ProjectStatus, STATUSES, type Status, STEP_STATUSES, type StepStatus } from "@nod/core";
 
 export function collect(value: string, prev: string[] = []): string[] {
   return [...prev, value];
@@ -13,6 +13,10 @@ function oneOf<T extends string>(value: string, list: readonly T[], what: string
 
 export function parseStatus(value: string): Status {
   return oneOf(value, STATUSES, "ステータス");
+}
+
+export function parseProjectStatus(value: string): ProjectStatus {
+  return oneOf(value, PROJECT_STATUSES, "Project のステータス");
 }
 
 export function parseStatuses(value: string): Status[] {

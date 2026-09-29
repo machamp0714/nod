@@ -19,6 +19,7 @@ export const CTX_OPS = [
   "approveReview",
   "rejectReview",
   "createProject",
+  "updateProject",
   "attachDocument",
   "detachDocument",
   "importPlan",

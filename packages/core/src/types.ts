@@ -74,6 +74,10 @@ export interface Plan {
 export const PROJECT_STATUSES = ["planned", "started", "completed", "canceled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+export interface UpdateProjectInput {
+  status: ProjectStatus;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -87,7 +91,7 @@ export interface Project {
 export interface ProjectSummary extends Project {
   total: number;
   done: number;
-  agents: { working: number; awaitingInput: number; error: number };
+  agents: { working: number; awaitingInput: number; awaitingReview: number; error: number };
 }
 
 export interface ProjectDetail extends ProjectSummary {
