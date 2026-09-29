@@ -90,4 +90,14 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 - NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - INVALID_ARGS、INVALID_STEP：message の例に従って引数を直し、再実行する。
+
+## 停滞候補とブロッカーの確認
+
+\`nod issue diagnose --stale-days 7 [--project <名前/ID>] --json\` は現在のWorkspaceを診断する。日数は正の整数で必ず指定する。
+未完了の直接blocksと、in_progress / in_review / needs_clarificationで指定日数以上活動記録がない候補を返す。実際の作業停止を断定しない。
+最終活動はIssue作成・更新、event、コメント、質問作成・回答の有効日時の最大値。日時はUTCの経過時間で比較し、閾値一致を含む。未来日時は停滞としない。
+done / canceledは対象外。未来までsnoozeされたIssueは停滞判定から除くが、ブロッカー情報は残す。担当者による制限はない。
+ブロック元は別Workspace・ProjectでもIDを示し、完了・中止済みと推移的な関係は含めない。
+JSONはevaluatedAt、staleDays、findingsを返し、空結果はfindings: []となる。診断で状態・担当・eventを変更せず、claim・Orca通知を行わない。通常のCLI起動時のDB初期化・migrationは既存通り。
+この出力を根拠に人へ状況を伝え、LLMによるTriage判断やdoneへの変更は行わない。
 `;

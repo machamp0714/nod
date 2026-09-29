@@ -1,5 +1,7 @@
 import {
   type AskResult,
+  diagnoseIssues,
+  validateStaleDays,
   askQuestion,
   attachDocument,
   commentIssue,
@@ -181,6 +183,28 @@ export function registerIssueCommands(program: Command): void {
         print(cli, detail, () => formatIssueDetail(detail));
       }),
     );
+
+  issue
+    .command("diagnose")
+    .description("未完了の直接ブロッカーと活動記録がない候補を診断する（状態・担当・通知は変更しない）")
+    .requiredOption("--stale-days <days>", "停滞候補の経過日数（正の整数・必須）", (value: string) => {
+      if (!/^[0-9]+$/.test(value)) throw new NodError("INVALID_ARGS", "--stale-days は正の整数で指定してください");
+      const days = Number(value);
+      validateStaleDays(days);
+      return days;
+    })
+    .option("--project <project>", "Project の中を診断する")
+    .addHelpText("after", "\n停滞候補は in_progress / in_review / needs_clarification が対象です。実際の作業停止は断定しません。")
+    .action(act((cli, cmd, o: { staleDays: number; project?: string }) => {
+      const result = diagnoseIssues(cli.db, {
+        workspaceId: currentWorkspace(cli, cmd).id, projectRef: o.project, staleDays: o.staleDays,
+      });
+      print(cli, result, () => result.findings.length
+        ? result.findings.map(({ issue, reasons }) => `${formatIssueLine(issue)}\n  ${reasons.map(reason => reason.type === "blocked"
+          ? `未完了の直接ブロッカー: ${reason.blockedBy.join(", ")}`
+          : `${reason.inactiveDays}日間、活動記録がない候補（作業停止の断定ではありません）`).join(" / ")}`).join("\n")
+        : "ブロッカー・停滞候補はありません");
+    }));
 
   issue
     .command("suggest")
