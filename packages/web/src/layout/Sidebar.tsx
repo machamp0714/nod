@@ -6,7 +6,7 @@ import { ViewDialog } from "../components/views/ViewDialog";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
-type NavPath = "/inbox" | "/reviews" | "/triage" | "/issues" | "/projects";
+type NavPath = "/inbox" | "/reviews" | "/triage" | "/issues" | "/projects" | "/documents";
 
 const ACTIVE_PROPS = { className: s.active, "aria-current": "page" } as const;
 
@@ -63,6 +63,7 @@ export function Sidebar() {
         <div className={s.heading}>All workspaces</div>
         <NavItem to="/issues" icon="copy" label="Issues" />
         <NavItem to="/projects" icon="box" label="Projects" />
+        <NavItem to="/documents" icon="file-text" label="Documents" />
         <SoonItem icon="circle-user" label="My issues" />
         <SoonItem icon="star" label="Favorites" />
       </div>

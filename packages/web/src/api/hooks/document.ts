@@ -23,8 +23,7 @@ export interface CreateDocumentInput {
   title?: string;
   kind?: DocKind;
   body?: string;
-  issueRef?: string;
-  projectRef?: string;
+  issueRefs?: string[];
 }
 
 export const useCreateDocument = () =>
@@ -35,3 +34,7 @@ export const useLinkDocument = (id: number) =>
 
 export const useUnlinkDocument = (id: number) =>
   useApiMutation((body: { issueRef: string }) => apiFetch<DocumentDetail>(`/documents/${id}/unlink`, { method: "POST", body }));
+
+export function useDocumentsRoot() {
+  return useQuery({ queryKey: queryKeys.documentsRoot(), queryFn: () => apiFetch<{ docsDir: string }>("/documents/root"), staleTime: Infinity });
+}

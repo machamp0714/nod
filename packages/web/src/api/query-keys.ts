@@ -13,6 +13,7 @@ export const queryKeys = {
   project: (id: number) => ["projects", "detail", id] as const,
   views: () => ["views"] as const,
   documentList: () => ["documents", "list"] as const,
+  documentsRoot: () => ["documents", "root"] as const,
   document: (id: number) => ["documents", id] as const,
 };
 

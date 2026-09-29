@@ -1,6 +1,27 @@
 import type { DocKind } from "../api/types";
+import type { Tone } from "./meta";
 
 export const KIND_LABELS: Record<DocKind, string> = { spec: "Spec", plan: "Plan", doc: "Doc" };
+export const KIND_TONES: Record<DocKind, Tone> = { spec: "accent", plan: "ready", doc: "muted" };
+
+// 一覧や表示画面の日付（例: 9月27日）。読めない値は「記録なし」
+export function documentDate(iso: string): string {
+  const at = new Date(iso);
+  return Number.isFinite(at.getTime()) ? at.toLocaleDateString("ja-JP", { month: "long", day: "numeric" }) : "記録なし";
+}
+
+// Documents ディレクトリの下のファイルは、ルートからの相対パスで見せる
+export function displayPath(path: string, root: string | undefined): string {
+  if (!root) return path;
+  const base = root.endsWith("/") ? root : `${root}/`;
+  return path.startsWith(base) ? path.slice(base.length) : path;
+}
+
+// Issue ID の入力を正規化する（例: " api-8 " → "API-8"）。形が違えば null
+export function normalizeIssueRef(raw: string): string | null {
+  const value = raw.trim().toUpperCase();
+  return /^[A-Z0-9]{2,6}-\d+$/.test(value) ? value : null;
+}
 
 // 正の整数でない ID は、API を呼ばずに「見つかりません」を出す
 export function parseDocumentId(raw: string): number | null {

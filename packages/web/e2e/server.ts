@@ -2,6 +2,7 @@
 // 1. 本物の server（C の startServer）を一時ファイルの DB で API_PORT に起動する。
 // 2. テストのデータを入れる口を CONTROL_PORT に開く。書き込みは server とは別の接続で行うため、
 //    nod を別の端末で実行したときと同じく data_version が変わり、SSE の change が届く。
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import * as core from "@nod/core";
 import { startServer } from "@nod/server";
@@ -12,9 +13,11 @@ import { API_PORT, CONTROL_PORT } from "./support/ports";
 const dir = process.env.NOD_E2E_DIR;
 if (!dir) throw new Error("NOD_E2E_DIR がありません（playwright.config.ts が設定する）");
 const dbPath = join(dir, "nod.db");
+// web から作る Document も一時ディレクトリの下に置く（~/.local/share/nod/documents に書かない）
+const docsDir = join(dir, "documents");
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-let server = startServer({ port: API_PORT, dbPath });
+let server = startServer({ port: API_PORT, dbPath, docsDir });
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -24,6 +27,7 @@ type AnyFn = (...args: unknown[]) => unknown;
 async function reset(dataset: string): Promise<void> {
   if (!/^[a-z0-9-]+$/.test(dataset)) throw new core.NodError("INVALID_ARGS", `データセットの名前が不正です: ${dataset}`);
   wipe(db);
+  rmSync(docsDir, { recursive: true, force: true });
   if (dataset === "empty") return;
   const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
   mod.default(datasetContext(db, dir as string));
@@ -53,7 +57,7 @@ const control = Bun.serve({
       // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
       if (req.method === "POST" && path === "/restart-server") {
         await server.stop();
-        server = startServer({ port: API_PORT, dbPath });
+        server = startServer({ port: API_PORT, dbPath, docsDir });
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/reset") {
