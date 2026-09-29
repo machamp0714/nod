@@ -46,6 +46,11 @@ describe("購読と通知の API", () => {
     expect((await call(app, "POST", "/api/notifications/read", { ids: [999] })).status).toBe(404);
     expect((await call(app, "POST", "/api/notifications/read", { all: "yes" })).status).toBe(400);
     expect((await call(app, "GET", "/api/notifications?includeRead=x")).status).toBe(400);
+    // 既読の上限（#98）
+    expect((await call(app, "GET", "/api/notifications?includeRead=true&readLimit=1")).json).toHaveLength(1);
+    for (const bad of ["0", "-1", "1.5", "x"]) {
+      expect((await call(app, "GET", `/api/notifications?includeRead=true&readLimit=${bad}`)).status).toBe(400);
+    }
 
     const inbox = await call(app, "GET", "/api/inbox");
     expect(Object.keys(inbox.json).sort()).toEqual(["questions", "reviews"]);
