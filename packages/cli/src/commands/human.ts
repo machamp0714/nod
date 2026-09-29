@@ -7,6 +7,7 @@ import {
   deleteNotifications,
   duplicateTriage,
   getInbox,
+  getPrStatus,
   listTriageProposals,
   listNotifications,
   NOTIFICATION_READ_LIMIT,
@@ -24,7 +25,7 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
-import { formatIssueLine, formatNotification, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
+import { formatApprovalGithub, formatIssueLine, formatNotification, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -277,11 +278,12 @@ export function registerHumanCommands(program: Command): void {
   const review = program.command("review").description("In Review の Issue を判断する");
   review
     .command("approve <id>")
-    .description("承認して Done にする")
+    .description("承認して Done にする（nod の承認で、GitHub の PR の承認・マージではない）")
     .action(
       act((cli, _cmd, id: string) => {
         const issue = approveReview(cli.ctx, id);
-        print(cli, issue, () => `承認しました: ${formatIssueLine(issue)}`);
+        // GitHub 側の状態は保存済みの結果を添えるだけで、gh は実行しない（#56/#57）
+        print(cli, issue, () => [`承認しました: ${formatIssueLine(issue)}`, ...formatApprovalGithub(getPrStatus(cli.db, issue.id))].join("\n"));
       }),
     );
   review

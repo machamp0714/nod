@@ -40,6 +40,22 @@ describe("PR 状態 API", () => {
     expect(calls).toBe(0);
   });
 
+  test("承認（approve）は gh を実行せず、保存済みの PR 状態も変えない（#56/#57）", async () => {
+    let calls = 0;
+    const { app, db, ref } = withGh(async () => {
+      calls++;
+      return { kind: "exited", exitCode: 0, stdout: GH_OK, stderr: "" };
+    });
+    await call(app, "POST", `/api/issues/${ref}/pr-status/refresh`);
+    expect(calls).toBe(1);
+    const before = getPrStatus(db, ref);
+    const res = await call(app, "POST", `/api/issues/${ref}/approve`);
+    expect(res.status).toBe(200);
+    expect(res.json.status).toBe("done");
+    expect(calls).toBe(1);
+    expect(getPrStatus(db, ref)).toEqual(before);
+  });
+
   test("POST refresh で gh を実行し、書き手 me で保存する", async () => {
     const { app, db, ref } = withGh(async () => ({ kind: "exited", exitCode: 0, stdout: GH_OK, stderr: "" }));
     const res = await call(app, "POST", `/api/issues/${ref}/pr-status/refresh`);

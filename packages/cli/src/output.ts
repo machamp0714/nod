@@ -346,6 +346,31 @@ export function formatPrStatusLine(v: PrStatusView): string | null {
   return null;
 }
 
+// nod review approve に添える GitHub 側の状態（#56/#57）。保存済みの結果だけを読み、gh は実行しない。
+// 未マージ・変更要求は注意として出すが、承認は止めない
+export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません（GitHub には何も書き込まず、gh も実行していません）";
+
+export function approvalWarnings(s: PrStatus): string[] {
+  const warnings: string[] = [];
+  if (s.state !== "MERGED") warnings.push(`GitHub の PR はまだマージされていません（${prState(s)}）`);
+  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("GitHub で変更要求が出ています");
+  return warnings;
+}
+
+export function formatApprovalGithub(v: PrStatusView): string[] {
+  const lines: string[] = [];
+  if (v.prUrl) {
+    if (v.status) {
+      lines.push(`GitHub: #${v.status.number} ${prSummary(v.status)}（取得: ${v.status.fetchedAt}）`);
+      lines.push(...approvalWarnings(v.status).map((w) => `注意: ${w}`));
+    } else {
+      lines.push(`GitHub の状態は未取得（nod issue pr-status ${v.issueId} --refresh で取得）`);
+    }
+  }
+  lines.push(APPROVAL_NOTE);
+  return lines;
+}
+
 export function formatPrStatus(v: PrStatusView): string {
   if (!v.prUrl) return `${v.issueId} に PR がありません`;
   const lines = [`${v.issueId}  PR: ${v.prUrl}`];
