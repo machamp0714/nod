@@ -275,7 +275,7 @@ export function registerIssueCommands(program: Command): void {
             removeLabels: o.removeLabel,
             reason: o.reason,
           });
-          print(cli, updated, () => [`${updated.length} 件を更新しました`, ...updated.map(formatIssueLine)].join("\n"));
+          print(cli, updated, () => [`${updated.length} 件を更新しました`, ...formatIssueLines(updated)].join("\n"));
         },
       ),
     );
