@@ -9,6 +9,8 @@ import { recordedTimestamp } from "../recorded-time";
 import type {
   AutomationCandidate,
   AutomationKind,
+  AutomationRecurringResult,
+  AutomationRecurringTarget,
   AutomationRuleResult,
   AutomationRun,
   AutomationSettings,
@@ -18,6 +20,7 @@ import type {
 } from "../types";
 import { applyAutoTransition, prReviewReason, prReviewTargets } from "./auto-transitions";
 import { archiveIssue } from "./issues";
+import { countEnabledRecurringIssues, isRecurringDay, runRecurringIssuesOnly } from "./recurring";
 import { findWorkspace } from "./workspaces";
 
 // 常駐はしない。人が CLI・Web から明示的に1回ずつ実行する（dry-run は誰でも、実行と設定変更は me だけ）
@@ -312,6 +315,16 @@ function applyRule(
 
 function validateTargets(targets: AutomationTargets | undefined): void {
   if (targets === undefined) return;
+  const recurring: unknown = targets.recurring;
+  if (
+    recurring !== undefined &&
+    (!Array.isArray(recurring) || recurring.length > AUTOMATION_LIMIT_MAX || !recurring.every(isRecurringTarget))
+  ) {
+    throw new NodError(
+      "INVALID_ARGS",
+      `targets.recurring は ${AUTOMATION_LIMIT_MAX} 件以下の { recurringId: 定期Issueの id（正の整数）, occurrence: 確認時点の発生日（YYYY-MM-DD） } の配列で指定してください`,
+    );
+  }
   for (const kind of ["auto_close", "auto_archive", "pr_review"] as const) {
     const list: unknown = targets[kind];
     if (list === undefined) continue;
@@ -321,7 +334,38 @@ function validateTargets(targets: AutomationTargets | undefined): void {
   }
 }
 
-// 有効なルールを1回だけ評価・実行する。PR 連動を最初に行い（PR がレビュー待ちの Issue を自動クローズしない）、
+function isRecurringTarget(value: unknown): value is AutomationRecurringTarget {
+  if (value === null || typeof value !== "object") return false;
+  const { recurringId, occurrence } = value as Record<string, unknown>;
+  return typeof recurringId === "number" && Number.isSafeInteger(recurringId) && recurringId > 0 && isRecurringDay(occurrence);
+}
+
+export const RECURRING_CHANGED_REASON = "確認後に発生日が変わりました";
+export const RECURRING_GONE_REASON = "実行時には起票済み・停止中・削除済みでした";
+
+// 定期Issue（#32）の起票。targets を渡したら、その一覧（recurring）の定期Issueを確認時点の発生日のときだけ起票し、
+// 起票しなかったものを理由とともに notRun で返す
+function applyRecurring(
+  ctx: OpCtx,
+  workspace: Workspace,
+  dryRun: boolean,
+  current: number,
+  targets: AutomationRecurringTarget[] | undefined,
+): AutomationRecurringResult {
+  const enabled = countEnabledRecurringIssues(ctx.db, workspace.id);
+  if (targets !== undefined && targets.length === 0) return { enabled, items: [], notRun: [], failed: [] };
+  const only = targets === undefined ? undefined : new Map(targets.map((t) => [t.recurringId, t.occurrence]));
+  const run = runRecurringIssuesOnly(ctx, workspace.key, { dryRun, now: new Date(current), only });
+  const handled = new Set([...run.items, ...run.failed].map((i) => i.recurringId));
+  const changed = new Set(run.changed);
+  const notRun = [...(only?.keys() ?? [])]
+    .filter((id) => !handled.has(id))
+    .map((recurringId) => ({ recurringId, reason: changed.has(recurringId) ? RECURRING_CHANGED_REASON : RECURRING_GONE_REASON }));
+  return { enabled, items: run.items, notRun, failed: run.failed };
+}
+
+// 有効なルールを1回だけ評価・実行する。定期Issueの起票（#32）を最初に行い、その回で起票した Issue はほかのルールの対象にしない。
+// 次に PR 連動を行い（PR がレビュー待ちの Issue を自動クローズしない）、
 // 次に自動クローズを行い、その回で閉じた Issue はアーカイブしない。結果の rules は auto_close・auto_archive・pr_review の順。
 // targets を渡すと、各ルールはその Issue（確認時点の一覧）だけを扱い、limit は使わない。targets に一覧のないルールは何もしない
 export function runAutomation(
@@ -343,6 +387,10 @@ export function runAutomation(
   if (current === null) throw new NodError("INVALID_ARGS", "自動化の基準日時が正しくありません");
   const workspace = requireWorkspace(ctx.db, keyOrPath);
   const settings = readSettings(ctx.db, workspace);
+  // targets を渡したのに recurring の一覧がなければ、確認していない起票はしない
+  const recurring = applyRecurring(ctx, workspace, dryRun, current, opts.targets ? (opts.targets.recurring ?? []) : undefined);
+  const created = new Set(recurring.items.flatMap((i) => (i.issueId === null ? [] : [i.issueId])));
+  const notCreated = (found: Found[]) => found.filter((f) => !created.has(f.candidate.id));
   // targets を渡したのに pr_review の一覧がなければ、確認していない PR 連動は実行しない
   const prReview = applyRule(
     ctx,
@@ -352,7 +400,7 @@ export function runAutomation(
     dryRun,
     limit,
     opts.targets ? (opts.targets.pr_review ?? []) : undefined,
-    (_days, issueId) => prReviewCandidates(ctx.db, workspace, current, issueId),
+    (_days, issueId) => notCreated(prReviewCandidates(ctx.db, workspace, current, issueId)),
     (find, ref) => prReviewOne(ctx, find, ref),
   );
   const close = applyRule(
@@ -363,7 +411,7 @@ export function runAutomation(
     dryRun,
     limit,
     opts.targets?.auto_close,
-    (days, issueId) => closeCandidates(ctx.db, workspace, days, current, issueId),
+    (days, issueId) => notCreated(closeCandidates(ctx.db, workspace, days, current, issueId)),
     (find, ref, days) => closeOne(ctx, find, ref, days),
   );
   const archive = applyRule(
@@ -375,8 +423,8 @@ export function runAutomation(
     limit,
     opts.targets?.auto_archive,
     (days, issueId) =>
-      archiveCandidates(ctx.db, workspace, days, current, issueId).filter((f) => !close.processed.includes(f.candidate.id)),
+      notCreated(archiveCandidates(ctx.db, workspace, days, current, issueId)).filter((f) => !close.processed.includes(f.candidate.id)),
     (find, ref, days) => archiveOne(ctx, find, ref, days),
   );
-  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive, prReview] };
+  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive, prReview], recurring };
 }

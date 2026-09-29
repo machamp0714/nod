@@ -144,7 +144,7 @@ export function registerHumanCommands(program: Command): void {
     .action(
       act((cli, _cmd, ids: string[]) => {
         const r = restoreNotifications(cli.ctx, { ids: ids.map((id) => parsePositiveInt(id, "通知の id")) });
-        print(cli, r, () => `${r.updated} 件の削除を取り消しました`);
+        print(cli, r, () => `${r.updated} 件の削除を取り消しました${r.missing ? `（${r.missing} 件はもうないため読み飛ばしました）` : ""}`);
       }),
     );
 

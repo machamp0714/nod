@@ -111,12 +111,72 @@ test("実行は確認した一覧だけを送り、確認のあとで対象か�
   await dialog.getByRole("button", { name: "実行する" }).click();
   expect((await request).postDataJSON()).toEqual({
     dryRun: false,
-    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"], pr_review: [] },
+    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"], pr_review: [], recurring: [] },
   });
   await expect(page.getByRole("status")).toHaveText("クローズ 1件・アーカイブ 1件・スキップ 1件・失敗 0件");
   expect((await nod.me.getIssue("API-1")).status).toBe("canceled");
   expect((await nod.me.getIssue("API-2")).status).toBe("todo");
   expect((await nod.me.getIssue("API-4")).archivedAt).not.toBeNull();
+});
+
+// 定期Issue（#32）の起票も同じ確認・実行に含める（nod automation run と同じ）
+test("定期Issueだけでも確認・実行でき、起票の予定を先頭の節に示し、実行で起票する", async ({ page, nod }) => {
+  const r = await nod.me.addRecurringIssue("API", { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  await auto.getByRole("button", { name: "対象を確認" }).click();
+  const table = result(page).getByRole("table", { name: "起票する（定期Issue）· 1 件" });
+  await expect(table.getByRole("row")).toHaveText([/定期Issue\s*発生日\s*スキップ件数/, /日次チェック\s*\d{4}-\d{2}-\d{2}\s*\d+/]);
+  expect((await nod.me.listRecurringIssues("API"))[0]!.lastIssueId).toBeNull();
+
+  await auto.getByRole("button", { name: "今すぐ実行" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "起票 1件・クローズ 0件・アーカイブ 0件を実行しますか？" });
+  const request = page.waitForRequest((req) => req.url().endsWith("/automation/run") && req.postDataJSON()?.dryRun === false);
+  await dialog.getByRole("button", { name: "実行する" }).click();
+  expect((await request).postDataJSON().targets.recurring).toEqual([{ recurringId: r.id, occurrence: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }]);
+  await expect(page.getByRole("status")).toHaveText("起票 1件・クローズ 0件・アーカイブ 0件・失敗 0件");
+  const [recurring] = await nod.me.listRecurringIssues("API");
+  expect(recurring!.lastIssueId).not.toBeNull();
+  expect((await nod.me.getIssue(recurring!.lastIssueId!)).title).toBe("日次チェック");
+
+  // 同じ日の2回目は起票しない
+  await auto.getByRole("button", { name: "対象を確認" }).click();
+  await expect(result(page)).toHaveText("対象の Issue はありません");
+});
+
+// 確認時点の発生日のまま送り、実行時に発生日が変わっていたら（23:59 に確認して 00:01 に実行など）スキップの理由をトーストに示す
+test("確認後に定期Issueの発生日が変わったら、起票せずにスキップの理由をトーストに示す", async ({ page, nod }) => {
+  const r = await nod.me.addRecurringIssue("API", { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  await auto.getByRole("button", { name: "今すぐ実行" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "起票 1件・クローズ 0件・アーカイブ 0件を実行しますか？" });
+  // 実行は本物の server に確認時点と違う発生日を送り、日付をまたいだ状態を作る
+  await page.route("**/automation/run", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.dryRun !== false) return route.continue();
+    await route.continue({ postData: JSON.stringify({ ...body, targets: { ...body.targets, recurring: [{ recurringId: r.id, occurrence: "2000-01-01" }] } }) });
+  });
+  await dialog.getByRole("button", { name: "実行する" }).click();
+  await expect(page.getByRole("status")).toHaveText("起票 0件・クローズ 0件・アーカイブ 0件・スキップ 1件（確認後に発生日が変わりました 1件）・失敗 0件");
+  expect((await nod.me.listRecurringIssues("API"))[0]!.lastIssueId).toBeNull();
+});
+
+test("定期Issueを読み込むまでは『有効なルールがありません』を出さない", async ({ page, nod }) => {
+  await nod.me.addRecurringIssue("API", { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/workspaces/API/recurring*", async (route) => {
+    await released;
+    await route.continue();
+  });
+  await page.goto("/workspaces/API/settings");
+  const check = section(page).getByRole("button", { name: "対象を確認" });
+  await expect(check).toBeDisabled();
+  await expect(check).toHaveAttribute("title", "読み込み中…");
+  release();
+  await expect(check).toBeEnabled();
+  await expect(check).not.toHaveAttribute("title", /./);
 });
 
 // PR 連動（#66）。e2e の server は実際の gh の代わりに stubGh の結果を返す（GitHub には触れない）

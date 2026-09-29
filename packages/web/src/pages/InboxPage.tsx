@@ -43,16 +43,24 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
   const workspaceName = useWorkspaceName();
   const restore = useNotificationAction();
   const [deleted, setDeleted] = useState<number[] | null>(null);
-  const closeToast = useCallback(() => setDeleted(null), []);
+  // 取り消しで戻せなかった通知（削除のあとに提案の置き換え・取り下げで消えたもの、#134）の件数の案内
+  // ids はその案内を出した削除。トーストが別の削除に切り替わったら出さない
+  const [restoreNote, setRestoreNote] = useState<{ ids: number[]; text: string } | null>(null);
+  const closeToast = useCallback(() => { setDeleted(null); setRestoreNote(null); }, []);
   const current = groups.find((g) => g.issueId === selected) ?? groups[0];
   // 一覧から消えた Issue の選択は外す。残すと、後から届いた通知を開かないうちに既読にしてしまう
   const removed = (deletedIds?: number[]) => {
     void navigate({ search: { tab: "notifications", ...(view === "snoozed" ? { view } : {}) }, replace: true });
     // トーストを出している間に続けて削除したら、トーストは直近の削除の取り消しに切り替える
-    if (deletedIds) { restore.reset(); setDeleted(deletedIds); }
+    if (deletedIds) { restore.reset(); setRestoreNote(null); setDeleted(deletedIds); }
   };
   const undo = (ids: number[]) => {
-    restore.mutateAsync({ op: "restore", ids }).then(() => setDeleted((cur) => (cur === ids ? null : cur)), () => {});
+    restore.mutateAsync({ op: "restore", ids }).then((r) => {
+      const missing = "missing" in r ? (r.missing ?? 0) : 0;
+      // 戻せなかったものがあれば（1件も戻せなかったときも）トーストに残して件数を示す
+      if (missing > 0) setRestoreNote({ ids, text: `${missing}件はもう無いため戻せませんでした` });
+      else setDeleted((cur) => (cur === ids ? null : cur));
+    }, () => {});
   };
   return (
     <>
@@ -70,7 +78,7 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
           : <p className={d.empty}>{query.isPending ? "読み込み中…" : view === "snoozed" ? "スヌーズ中の通知はありません" : "通知はありません"}</p>}
       />
       {deleted && <DeleteToast key={deleted.join(",")} onClose={closeToast} pending={restore.isPending} error={restore.error}
-        onUndo={() => undo(deleted)} />}
+        note={restoreNote?.ids === deleted ? restoreNote.text : null} onUndo={() => undo(deleted)} />}
     </>
   );
 }

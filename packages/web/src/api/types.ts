@@ -82,6 +82,7 @@ export type {
   WorkspaceLabel,
   AutomationSettings,
   AutomationKind,
+  AutomationRecurringResult,
   AutoTransition,
   AutomationRuleResult,
   AutomationRun,

@@ -576,14 +576,29 @@ export interface AutomationRuleResult {
   remaining: number; // 条件に合うが今回扱わなかった件数（上限超過、または targets に含まれない分）
 }
 
-// 実行する Issue を確認時点の一覧に絞る（Web の確認ダイアログから）
-export type AutomationTargets = Partial<Record<AutomationKind, string[]>>;
+// 実行する Issue を確認時点の一覧に絞る（Web の確認ダイアログから）。recurring は定期Issue（#32）の id と確認時点の発生日
+export type AutomationTargets = Partial<Record<AutomationKind, string[]>> & { recurring?: AutomationRecurringTarget[] };
+
+export interface AutomationRecurringTarget {
+  recurringId: number;
+  occurrence: string; // 確認時点の発生日（YYYY-MM-DD）。実行時の発生日と違えば起票しない
+}
+
+// 自動化の実行に含めた定期Issueの起票（#32）
+export interface AutomationRecurringResult {
+  enabled: number; // 有効な定期Issueの数
+  items: RecurringRunItem[]; // 起票する（した）もの。dry-run では issueId が null
+  // targets にあって、実行時には起票しなかった定期Issue（確認後に発生日が変わった・起票済み・停止中・削除済み）と理由
+  notRun: { recurringId: number; reason: string }[];
+  failed: RecurringRun["failed"];
+}
 
 export interface AutomationRun {
   evaluatedAt: string;
   workspaceKey: string;
   dryRun: boolean;
   rules: AutomationRuleResult[];
+  recurring: AutomationRecurringResult;
 }
 
 // 定期Issue（#32）の周期。weekly は weekday（0 = 日曜 〜 6 = 土曜）、monthly は monthDay（1〜31。その日が無い月は月末）を使う

@@ -94,7 +94,7 @@ describe("購読と通知の API", () => {
     commentIssue(llm, "API-1", "a2");
     expect((await call(app, "GET", "/api/notifications")).json.map((n: { body: string }) => n.body)).toEqual(["a2"]);
 
-    expect((await call(app, "POST", "/api/notifications/restore", { ids: del.json.ids })).json).toEqual({ updated: 1 });
+    expect((await call(app, "POST", "/api/notifications/restore", { ids: del.json.ids })).json).toEqual({ updated: 1, missing: 0 });
     expect((await call(app, "GET", "/api/notifications")).json).toHaveLength(2);
 
     expect((await call(app, "POST", "/api/notifications/delete", {})).status).toBe(400);

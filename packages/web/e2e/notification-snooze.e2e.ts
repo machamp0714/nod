@@ -156,6 +156,26 @@ test("トーストを出している間に続けて削除すると、元に戻�
   await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消/ })).toHaveCount(0);
 });
 
+// 削除のあとに提案の置き換え・取り下げで消えた通知は戻せない（#134）。戻せなかった件数をトーストに示す
+for (const [updated, missing] of [[0, 2], [1, 1]] as const) {
+  test(`元に戻すときに消えた通知があれば、その件数を示す（戻した ${updated} 件・消えた ${missing} 件、#134）`, async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const a = await api.startedIssue("検索 API の N+1 を解消");
+    await nod.me.subscribeIssue(a.id);
+    await nod.claude.commentIssue(a.id, "a1");
+
+    await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
+    await detail(page).getByRole("button", { name: "削除" }).click();
+    const toast = page.getByRole("status").filter({ hasText: /通知を削除しました|戻せませんでした/ });
+    await expect(toast).toContainText("通知を削除しました");
+    await page.route("**/api/notifications/restore", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ updated, missing }) }));
+    await toast.getByRole("button", { name: "元に戻す" }).click();
+    await expect(toast).toHaveText(`${missing}件はもう無いため戻せませんでした`);
+    await expect(toast.getByRole("button", { name: "元に戻す" })).toHaveCount(0);
+    await expect(toast).toHaveCount(0, { timeout: 10_000 });
+  });
+}
+
 test.describe("取り消しの失敗", () => {
   test.use({ allowedConsoleErrors: [/Failed to load resource.*status of 500/] });
 

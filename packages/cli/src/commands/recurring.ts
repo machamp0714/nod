@@ -142,7 +142,7 @@ export function registerRecurringCommands(program: Command): void {
       "after",
       [
         "",
-        "常駐はしません。nod recurring run を実行したときに、発生日が来ている定期Issueを起票します。",
+        "常駐はしません。nod recurring run か nod automation run を実行したときに、発生日が来ている定期Issueを起票します。",
         "前回から何回分も空いていても起票するのは最新の1件だけで、飛ばした回数を表示します。同じ発生日の Issue は二度作りません。",
         "例: nod recurring add 週次レビュー --every weekly --weekday mon --start 2026-10-05 --tz Asia/Tokyo --template review",
       ].join("\n"),

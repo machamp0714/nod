@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useAutomationDryRun, useAutomationSettings, useRunAutomation, useSaveAutomationSettings } from "../api/hooks/automation";
-import type { AutomationRuleResult, AutomationRun, AutomationSettings, Workspace } from "../api/types";
+import { useRecurringIssues } from "../api/hooks/recurring";
+import type { AutomationRecurringResult, AutomationRuleResult, AutomationRun, AutomationSettings, Workspace } from "../api/types";
 import { Button, Icon } from "../components/ui";
 import { TONE_COLORS } from "../lib/meta";
 import { prStatePillOf, safeCheckUrl } from "../lib/pr-status";
@@ -12,7 +13,9 @@ import {
   confirmTitle,
   formatEvaluatedAt,
   formatSinceDate,
+  hasRunnableRule,
   prNumberLabel,
+  recurringHeading,
   type RuleDraft,
   ruleHeading,
   runCounts,
@@ -23,6 +26,7 @@ import s from "./workspace-settings.module.css";
 import { DeleteDialog } from "./WorkspaceSettingsPage";
 
 // 自動化（#71 自動クローズ・#72 自動アーカイブ・#66 PR 連動・#68 コミット連動）。常駐はせず、人がこの画面か CLI から1回ずつ実行する。
+// 確認・実行には定期Issue（#32）の起票も含める（nod automation run と同じ）。定期Issueの登録は定期Issueのセクションで行う。
 // コミット連動はこの画面では有効・無効だけを切り替え、実行は CLI の nod git sync で行う
 // （nod.pen「Workspace設定｜自動化（#71/#72）」「自動化｜状態（#71/#72）」「Workspace設定｜PR・コミット連動」）
 export function AutomationSection({ workspace, onToast }: { workspace: Workspace; onToast: (message: string) => void }) {
@@ -65,11 +69,20 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
   const save = useSaveAutomationSettings(workspace.key);
   const dryRun = useAutomationDryRun(workspace.key);
   const run = useRunAutomation(workspace.key);
+  const recurring = useRecurringIssues(workspace.key);
   const state = automationEditState(draft, saved);
   const busy = save.isPending || dryRun.isPending || run.isPending;
-  const noRule = saved.closeAfterDays === null && saved.archiveAfterDays === null && !saved.prReview;
+  const noRule = !hasRunnableRule(saved, recurring.data?.filter((r) => r.enabled).length ?? 0);
+  // 定期Issueを読み込むまでは、有効なルールが無いとは言えない（自動化ルールが有効なら読み込み中でも使える）
+  const loadingRecurring = noRule && recurring.isPending;
   // 確認・実行は保存済みの設定で行うため、未保存の変更があるときは使えない
-  const runBlocked = noRule ? "有効なルールがありません" : state.dirty ? "変更を保存してから確認・実行できます" : undefined;
+  const runBlocked = loadingRecurring
+    ? "読み込み中…"
+    : noRule
+      ? "有効なルールがありません"
+      : state.dirty
+        ? "変更を保存してから確認・実行できます"
+        : undefined;
 
   async function submit() {
     setError(null);
@@ -99,7 +112,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
     const r = await check();
     if (!r) return;
     const counts = runCounts(r);
-    if (counts.close + counts.archive + counts.prReview > 0) setConfirming(r);
+    if (counts.recurring + counts.close + counts.archive + counts.prReview > 0) setConfirming(r);
   }
 
   // 確認ダイアログで示した一覧だけを処理する（その後に対象から外れたものはスキップとして返る）
@@ -110,8 +123,11 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
       setConfirming(null);
       setResult(null);
       onToast(runToast(r));
-      const failed = r.rules.flatMap((rule) => rule.failed);
-      if (failed.length) setError(failed.map((f) => `${f.id}: ${f.message}`).join(" / "));
+      const failed = [
+        ...r.recurring.failed.map((f) => `定期Issue「${f.title}」: ${f.message}`),
+        ...r.rules.flatMap((rule) => rule.failed).map((f) => `${f.id}: ${f.message}`),
+      ];
+      if (failed.length) setError(failed.join(" / "));
     } catch (err) {
       setConfirming(null);
       setError(errorMessage(err));
@@ -257,7 +273,8 @@ function SwitchRow({ label, enabled, onChange, text }: { label: string; enabled:
 
 function DryRunResult({ run }: { run: AutomationRun }) {
   const rules = run.rules.filter((rule) => rule.enabled);
-  if (rules.every((rule) => rule.total === 0)) {
+  const recurring = run.recurring.enabled > 0 || run.recurring.items.length > 0;
+  if (rules.every((rule) => rule.total === 0) && run.recurring.items.length === 0) {
     return (
       <div className={s.dryRunEmpty} role="region" aria-label="対象の確認結果">
         対象の Issue はありません
@@ -272,6 +289,7 @@ function DryRunResult({ run }: { run: AutomationRun }) {
         <span className={s.autoSpacer} />
         <span className={s.dryRunTime}>{formatEvaluatedAt(run.evaluatedAt)}</span>
       </div>
+      {recurring && <RecurringResult result={run.recurring} />}
       {rules.map((rule) => (
         <RuleResult key={rule.kind} rule={rule} />
       ))}
@@ -308,6 +326,36 @@ function RuleResult({ rule }: { rule: AutomationRuleResult }) {
         </table>
       )}
       {rule.remaining > 0 && <p className={s.dryRunRemaining}>残り {rule.remaining} 件</p>}
+    </div>
+  );
+}
+
+// 定期Issue（#32）の起票の予定（定期Issue・発生日・スキップ件数）。表は定期Issueのセクションの確認結果と同じ列
+function RecurringResult({ result }: { result: AutomationRecurringResult }) {
+  const heading = recurringHeading(result.items.length);
+  return (
+    <div className={s.dryRunRule}>
+      <h3 className={s.dryRunHeading}>{heading}</h3>
+      {result.items.length > 0 && (
+        <table className={s.dryRunTable} aria-label={heading}>
+          <thead>
+            <tr>
+              <th>定期Issue</th>
+              <th className={s.colDate}>発生日</th>
+              <th className={s.colDays}>スキップ件数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.items.map((i) => (
+              <tr key={i.recurringId}>
+                <td className={s.colTitle}>{i.title}</td>
+                <td className={s.colDate}>{i.occurrence}</td>
+                <td className={s.colDays}>{i.skipped}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

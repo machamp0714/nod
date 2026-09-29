@@ -1,5 +1,6 @@
 import {
   AUTOMATION_LIMIT_MAX,
+  type AutomationRecurringResult,
   type AutomationRuleResult,
   type AutomationSettings,
   getAutomationSettings,
@@ -82,10 +83,26 @@ function describeRule(rule: AutomationRuleResult, dryRun: boolean): string {
   return lines.join("\n");
 }
 
+// 定期Issue（#32）の起票。有効な定期Issueが無ければ出さない
+function describeRecurring(r: AutomationRecurringResult, dryRun: boolean): string | null {
+  if (r.enabled === 0 && r.items.length === 0 && r.failed.length === 0 && r.notRun.length === 0) return null;
+  const lines = [`起票する（定期Issue）: ${r.items.length} 件`];
+  for (const i of r.items) {
+    const skipped = i.skipped ? `（前回から ${i.skipped} 回分は起票せずに飛ばします）` : "";
+    lines.push(`  ${i.issueId ?? "-"}  ${i.occurrence} 分  #${i.recurringId} ${i.title}${skipped}`);
+  }
+  if (!dryRun) {
+    lines.push(`  起票しました: ${r.items.length} 件${r.items.length ? `（${r.items.map((i) => i.issueId).join(", ")}）` : ""}`);
+    if (r.notRun.length) lines.push(`  スキップ（実行時に対象外）: ${r.notRun.map((n) => `#${n.recurringId}（${n.reason}）`).join(", ")}`);
+  }
+  for (const f of r.failed) lines.push(`  失敗: #${f.recurringId} ${f.title}（${f.occurrence} 分）: ${f.message}`);
+  return lines.join("\n");
+}
+
 export function registerAutomationCommands(program: Command): void {
   const automation = program
     .command("automation")
-    .description("Workspace ごとの自動化（長期間更新のない Issue の自動クローズ・完了 Issue の自動アーカイブ）を設定・実行する");
+    .description("Workspace ごとの自動化（定期Issueの起票・長期間更新のない Issue の自動クローズ・完了 Issue の自動アーカイブ）を設定・実行する");
   automation
     .command("show")
     .description("現在の Workspace の自動化の設定を表示する")
@@ -122,13 +139,15 @@ export function registerAutomationCommands(program: Command): void {
     );
   automation
     .command("run")
-    .description("有効な自動化ルールを今すぐ1回実行する（実行は人だけ。--dry-run は対象を表示するだけ）")
+    .description("定期Issueの起票と有効な自動化ルールを今すぐ1回実行する（実行は人だけ。--dry-run は対象を表示するだけ）")
     .option("--dry-run", "対象を表示するだけで変更しない")
     .option("--limit <n>", `ルールごとに扱う上限（既定 50、最大 ${AUTOMATION_LIMIT_MAX}）。古い順に扱う`, parseLimit)
     .addHelpText(
       "after",
       [
         "",
+        "定期Issueの起票（nod recurring で登録）を最初に行い、自動クローズ・自動アーカイブの順に続ける。",
+        "  発生日が来ている有効な定期Issueを起票する（nod recurring run と同じ）。同じ回に起票した Issue はほかのルールの対象にしない。",
         "自動クローズの対象: backlog / todo / in_progress / needs_clarification で、最後の活動（更新・event・コメント・質問）から指定日数たったもの。",
         "  triage・in_review・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
         "  （未完了の Issue をブロックしている、または未完了のブロッカーを待っている）は対象外。done にはしない。",
@@ -144,7 +163,8 @@ export function registerAutomationCommands(program: Command): void {
       act((cli, cmd, o: { dryRun?: boolean; limit?: number }) => {
         const r = runAutomation(cli.ctx, currentWorkspace(cli, cmd).key, { dryRun: o.dryRun, limit: o.limit });
         print(cli, r, () => {
-          const body = r.rules.map((rule) => describeRule(rule, r.dryRun)).join("\n");
+          const recurring = describeRecurring(r.recurring, r.dryRun);
+          const body = [...(recurring === null ? [] : [recurring]), ...r.rules.map((rule) => describeRule(rule, r.dryRun))].join("\n");
           return r.dryRun ? `${body}\n（dry-run のため変更していません。実行するには --dry-run を外してください）` : body;
         });
       }),

@@ -36,7 +36,7 @@ export function notificationRequest(action: NotificationAction): { path: string;
   return { path: "/notifications/read", body: { all: true } };
 }
 
-export function postNotification(action: NotificationAction, fetchImpl?: FetchLike): Promise<SubscriptionState | { updated: number; snoozedUntil?: string; ids?: number[] }> {
+export function postNotification(action: NotificationAction, fetchImpl?: FetchLike): Promise<SubscriptionState | { updated: number; snoozedUntil?: string; ids?: number[]; missing?: number }> {
   const { path, body } = notificationRequest(action);
   return apiFetch(path, { method: "POST", body }, fetchImpl);
 }
