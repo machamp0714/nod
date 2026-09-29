@@ -10,11 +10,20 @@ function priorityRank(priority: number): number {
 export function sortRows(rows: readonly IssueListRow[], sort: IssueSort = "default", direction: SortDirection = "asc"): IssueListRow[] {
   return [...rows].sort((a, b) => {
     let order: number;
+    if (sort === "estimate" || sort === "dueDate") {
+      // 未設定は方向にかかわらず末尾に置く
+      const x = a.issue[sort], y = b.issue[sort];
+      if ((x === null) !== (y === null)) return x === null ? 1 : -1;
+    }
     if (sort === "default") {
       order = STATUS_ORDER.indexOf(a.issue.status) - STATUS_ORDER.indexOf(b.issue.status) ||
         priorityRank(a.issue.priority) - priorityRank(b.issue.priority);
     } else if (sort === "priority") {
       order = priorityRank(a.issue.priority) - priorityRank(b.issue.priority);
+    } else if (sort === "estimate") {
+      order = (a.issue.estimate ?? 0) - (b.issue.estimate ?? 0);
+    } else if (sort === "dueDate") {
+      order = (a.issue.dueDate ?? "").localeCompare(b.issue.dueDate ?? "");
     } else if (sort === "title") {
       order = a.issue.title.localeCompare(b.issue.title, "ja", { numeric: true });
     } else {

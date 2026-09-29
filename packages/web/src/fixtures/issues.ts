@@ -9,6 +9,8 @@ function issue(p: Partial<Issue> & Pick<Issue, "id" | "title" | "status">): Issu
     number: Number(number),
     description: null,
     priority: 0,
+    estimate: null,
+    dueDate: null,
     assignee: null,
     agentState: null,
     parentId: null,

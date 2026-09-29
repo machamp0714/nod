@@ -3,9 +3,9 @@ import type { Issue, Status } from "../../api/types";
 import { countRows, filterRows, groupForBoard, groupRowsByWorkspace, sortRows } from "./issue-list";
 import type { IssueListRow } from "./types";
 
-function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; assignee?: string } = {}): IssueListRow {
+function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; assignee?: string; estimate?: number | null; dueDate?: string | null } = {}): IssueListRow {
   return {
-    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0, assignee: opts.assignee ?? null } as Issue,
+    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0, assignee: opts.assignee ?? null, estimate: opts.estimate ?? null, dueDate: opts.dueDate ?? null } as Issue,
     questions: { decided: 0, total: 0 },
     ready: opts.ready ?? false,
     workspaceName: "api-server",
@@ -95,5 +95,18 @@ describe("表示設定による並び順", () => {
     const grouped = groupRowsByWorkspace(sortRows(rows.map((r) => ({ ...r, issue: { ...r.issue, workspace: "API", status: "todo" as const } })), "title"));
     expect(ids(grouped[0]!.rows)).toEqual(["API-3", "API-2", "API-10"]);
     expect(ids(groupForBoard(grouped[0]!.rows).find((c) => c.status === "todo")!.rows)).toEqual(["API-3", "API-2", "API-10"]);
+  });
+});
+
+describe("見積もり・期限の並び順", () => {
+  test("見積もりは数値順、未設定は昇順・降順とも末尾", () => {
+    const rows = [row("API-1", "todo"), row("API-2", "todo", { estimate: 8 }), row("API-3", "todo", { estimate: 2 }), row("API-4", "todo")];
+    expect(ids(sortRows(rows, "estimate"))).toEqual(["API-3", "API-2", "API-1", "API-4"]);
+    expect(ids(sortRows(rows, "estimate", "desc"))).toEqual(["API-2", "API-3", "API-1", "API-4"]);
+  });
+  test("期限は日付順、未設定は昇順・降順とも末尾", () => {
+    const rows = [row("API-1", "todo"), row("API-2", "todo", { dueDate: "2026-12-01" }), row("API-3", "todo", { dueDate: "2026-10-01" })];
+    expect(ids(sortRows(rows, "dueDate"))).toEqual(["API-3", "API-2", "API-1"]);
+    expect(ids(sortRows(rows, "dueDate", "desc"))).toEqual(["API-2", "API-3", "API-1"]);
   });
 });
