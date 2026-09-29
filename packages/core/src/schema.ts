@@ -237,4 +237,13 @@ export const MIGRATIONS: MigrationStep[][] = [
       started_at TEXT NOT NULL
     )`,
   ],
+  // Workspace ごとの自動化（#71 自動クローズ・#72 自動アーカイブ）。日数が NULL ならそのルールは無効
+  [
+    `ALTER TABLE workspaces ADD COLUMN auto_close_days INTEGER`,
+    `ALTER TABLE workspaces ADD COLUMN auto_archive_days INTEGER`,
+    `ALTER TABLE workspaces ADD COLUMN automation_updated_at TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN automation_updated_by TEXT`,
+    // 最後の活動（停滞の診断・自動クローズ）で Issue ごとに質問を引くため
+    `CREATE INDEX questions_issue ON questions (issue_id)`,
+  ],
 ];

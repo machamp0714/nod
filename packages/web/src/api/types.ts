@@ -63,6 +63,10 @@ export type {
   ViewInput,
   Workspace,
   WorkspaceLabel,
+  AutomationSettings,
+  AutomationRuleResult,
+  AutomationRun,
+  AutomationTargets,
 } from "@nod/core";
 
 // Workspace の作業規約。未登録なら API は null を返す
@@ -72,3 +76,4 @@ export interface WorkspaceRules {
   updatedAt: string;
   updatedBy: string;
 }
+

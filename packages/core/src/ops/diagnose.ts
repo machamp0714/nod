@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { now } from "../ctx";
 import { NodError } from "../errors";
+import { latestActivity } from "../activity";
 import { recordedTimestamp } from "../recorded-time";
 import type { Issue } from "../types";
 import { listIssues } from "./issues";
@@ -37,20 +38,14 @@ export function diagnoseIssues(db: Database, opts: {
   if (current === null) throw new NodError("INVALID_ARGS", "診断の基準日時が正しくありません");
   return db.transaction(() => {
     const issues = listIssues(db, { workspaceId: opts.workspaceId, projectRef: opts.projectRef });
-    const activity = db.query(`WITH target AS (SELECT id FROM issues WHERE workspace_id = ? AND number = ?)
-      SELECT created_at AS at FROM events WHERE issue_id IN target
-      UNION ALL SELECT created_at FROM comments WHERE issue_id IN target
-      UNION ALL SELECT asked_at FROM questions WHERE issue_id IN target
-      UNION ALL SELECT answered_at FROM questions WHERE issue_id IN target`);
+    // 最後の活動は内部の id で引く（Issue ごとに引き直さないよう、番号から一度に対応づける）
+    const internalIds = new Map(
+      (db.query("SELECT id, number FROM issues WHERE workspace_id = ?").all(opts.workspaceId) as { id: number; number: number }[])
+        .map((row) => [row.number, row.id]),
+    );
     const findings: IssueDiagnosis[] = [];
     for (const issue of issues) {
-      const timestamps = [issue.createdAt, issue.updatedAt,
-        ...(activity.all(opts.workspaceId, issue.number) as { at: string | null }[]).map(row => row.at)];
-      let latest: number | null = null;
-      for (const timestamp of timestamps) {
-        const value = recordedTimestamp(timestamp);
-        if (value !== null && (latest === null || value > latest)) latest = value;
-      }
+      const latest = latestActivity(db, internalIds.get(issue.number)!, issue.createdAt, issue.updatedAt);
       const reasons: DiagnosisReason[] = [];
       if (issue.blockedBy.length) reasons.push({ type: "blocked", blockedBy: issue.blockedBy });
       const snoozedUntil = recordedTimestamp(issue.snoozedUntil);

@@ -7,13 +7,14 @@ import type { Workspace, WorkspaceRules } from "../api/types";
 import { Button, Icon, PageError, PageLoading } from "../components/ui";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "../lib/workspace-rules";
 import { NotFoundMessage } from "./NotFoundPage";
+import { AutomationSection } from "./WorkspaceAutomationSettings";
 import { LabelsSection, StatusNamesSection, TemplatesSection } from "./WorkspaceLabelSettings";
 import s from "./workspace-settings.module.css";
 
 const route = getRouteApi("/workspaces/$workspaceKey/settings");
 
-// Workspace の設定。作業規約、ラベル定義、ステータスの表示名、テンプレートの案内を置く
-// （nod.pen「Workspace設定｜作業規約（#27）」「Workspace設定｜ラベル・表示名（#26）」）
+// Workspace の設定。作業規約、ラベル定義、ステータスの表示名、テンプレートの案内、自動化を置く
+// （nod.pen「Workspace設定｜作業規約（#27）」「Workspace設定｜ラベル・表示名（#26）」「Workspace設定｜自動化（#71/#72）」）
 export function WorkspaceSettingsPage() {
   const { workspaceKey } = route.useParams();
   const workspaces = useWorkspaces();
@@ -55,6 +56,7 @@ export function WorkspaceSettingsPage() {
         <LabelsSection workspace={workspace} onSaved={setToast} />
         <StatusNamesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TemplatesSection />
+        <AutomationSection workspace={workspace} onToast={setToast} />
       </div>
       {toast && (
         <div role="status" className={s.toast}>
@@ -162,18 +164,23 @@ function RulesSection({ workspace, saved, onSaved }: { workspace: Workspace; sav
   );
 }
 
+// 確認ダイアログ。既定は削除の確認で、自動化の実行は confirmLabel と primary で使う
 export function DeleteDialog({
   title,
   message,
   busy,
   onConfirm,
   onClose,
+  confirmLabel = "削除する",
+  confirmVariant = "destructive",
 }: {
   title: string;
   message: string;
   busy: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  confirmLabel?: string;
+  confirmVariant?: "destructive" | "primary";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -205,8 +212,8 @@ export function DeleteDialog({
         </div>
         <div className={s.dialogButtons}>
           <Button onClick={onClose}>キャンセル</Button>
-          <Button variant="destructive" disabled={busy} onClick={onConfirm}>
-            削除する
+          <Button variant={confirmVariant} disabled={busy} onClick={onConfirm}>
+            {confirmLabel}
           </Button>
         </div>
       </div>

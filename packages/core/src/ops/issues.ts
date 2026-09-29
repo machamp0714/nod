@@ -507,7 +507,7 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
 
 // アーカイブは status と別の属性で、Issue を既定の一覧・ボード・Inbox・next から外す。人（LLM 以外）だけが行える。
 // 子・関係はそのまま残し、アーカイブ済みはブロック元として数えない。すでにアーカイブ済みなら何もしない（自動アーカイブからも呼ぶ）
-export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string } = {}): Issue {
+export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; automation?: string } = {}): Issue {
   if (isLlm(ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue をアーカイブできません。アーカイブは me に依頼してください");
   }
@@ -516,7 +516,9 @@ export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string } 
     if (row.archived_at === null) {
       const ts = now();
       ctx.db.query("UPDATE issues SET archived_at = ?, updated_at = ? WHERE id = ?").run(ts, ts, row.id);
-      recordEvent(ctx.db, row.id, ctx.actor, "archived", opts.reason?.trim() ? { reason: opts.reason } : {});
+      const data: Record<string, unknown> = opts.reason?.trim() ? { reason: opts.reason } : {};
+      if (opts.automation) data.automation = opts.automation;
+      recordEvent(ctx.db, row.id, ctx.actor, "archived", data);
     }
     return toIssue(issueRowById(ctx.db, row.id));
   });
