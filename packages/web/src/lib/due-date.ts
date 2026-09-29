@@ -1,4 +1,4 @@
-export { isOverdue, localToday } from "@nod/core/src/due-date";
+export { isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE } from "@nod/core/src/due-date";
 
 // 期限は時刻なしの暦日。Date に変換せず文字列から読み、タイムゾーンで日付をずらさない
 export function formatDueDate(dueDate: string | null, today: string): string | null {

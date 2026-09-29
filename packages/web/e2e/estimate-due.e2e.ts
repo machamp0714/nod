@@ -23,6 +23,7 @@ test.describe("Issue 詳細の見積もり・期限", () => {
     await expect(due).toHaveText("—");
     await due.click();
     await props.getByLabel("Due date", { exact: true }).fill("2020-01-02");
+    await props.getByLabel("Due date", { exact: true }).press("Enter");
     await expect(due).toContainText("2020年1月2日");
     await expect(due).toContainText("期限超過");
 
@@ -40,6 +41,50 @@ test.describe("Issue 詳細の見積もり・期限", () => {
     await expect(after.getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
     await page.reload();
     await expect(region(page, "プロパティ").getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
+  });
+
+  test.describe("期限をキーボードで入力する", () => {
+    // 日付欄の区切り（月/日/年）を固定する
+    test.use({ locale: "en-US" });
+
+    test("入力途中の日付では保存せず、Enter で確定する", async ({ page }) => {
+      await page.goto(`/issues/${ISSUE.properties}`);
+      const props = region(page, "プロパティ");
+      const due = props.getByRole("button", { name: "Due date を編集" });
+      await due.click();
+      const input = props.getByLabel("Due date", { exact: true });
+      // 年の1桁目を打った時点で値は 0002-10-15 になるが、ここで保存・終了してはいけない
+      await input.pressSequentially("10152026", { delay: 30 });
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("2026-10-15");
+      await input.press("Enter");
+      await expect(due).toContainText("10月15日");
+      await page.reload();
+      await expect(region(page, "プロパティ").getByRole("button", { name: "Due date を編集" })).toContainText("10月15日");
+    });
+
+    test("1900年より前の日付は保存せず、欄を開いたまま知らせる", async ({ page }) => {
+      await page.goto(`/issues/${ISSUE.properties}`);
+      const props = region(page, "プロパティ");
+      await props.getByRole("button", { name: "Due date を編集" }).click();
+      const input = props.getByLabel("Due date", { exact: true });
+      await input.pressSequentially("10150002", { delay: 30 });
+      await input.press("Enter");
+      await expect(props.getByRole("alert")).toHaveText("1900-01-01 以降の日付を入力してください");
+      await input.press("Escape");
+      await page.reload();
+      await expect(region(page, "プロパティ").getByRole("button", { name: "Due date を編集" })).toHaveText("—");
+    });
+
+    test("フォーカスを外すと確定する", async ({ page }) => {
+      await page.goto(`/issues/${ISSUE.properties}`);
+      const props = region(page, "プロパティ");
+      const due = props.getByRole("button", { name: "Due date を編集" });
+      await due.click();
+      await props.getByLabel("Due date", { exact: true }).pressSequentially("01022031", { delay: 30 });
+      await page.getByRole("heading", { level: 1 }).click();
+      await expect(due).toContainText("2031年1月2日");
+    });
   });
 
   test("Escape は入力を取り消して保存しない", async ({ page }) => {

@@ -68,10 +68,17 @@ describe("期限（dueDate）", () => {
     expect(updateIssue(llm, i.id, { dueDate: "2026-12-31" }).dueDate).toBe("2026-12-31");
   });
 
-  test("時刻付き・存在しない日付・形式違いは INVALID_ARGS", () => {
+  test("1900-01-01 以降を受け付ける", () => {
     const { ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "a" });
-    for (const bad of ["2026-02-29", "2026-13-01", "2026-10-1", "2026/10/01", "2026-10-01T09:00:00+09:00", "", " 2026-10-01", "明日"]) {
+    expect(updateIssue(me, i.id, { dueDate: "1900-01-01" }).dueDate).toBe("1900-01-01");
+    expect(updateIssue(me, i.id, { dueDate: "9999-12-31" }).dueDate).toBe("9999-12-31");
+  });
+
+  test("時刻付き・存在しない日付・形式違い・1900年より前は INVALID_ARGS", () => {
+    const { ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "a" });
+    for (const bad of ["2026-02-29", "2026-13-01", "2026-10-1", "2026/10/01", "2026-10-01T09:00:00+09:00", "", " 2026-10-01", "明日", "0002-10-15", "1899-12-31"]) {
       expect(codeOf(() => validateDueDate(bad))).toBe("INVALID_ARGS");
       expect(codeOf(() => updateIssue(me, i.id, { dueDate: bad }))).toBe("INVALID_ARGS");
     }

@@ -4,6 +4,7 @@ import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent, threadRootId } from "../events";
@@ -51,12 +52,8 @@ export function validateEstimate(estimate: number): void {
 
 // 期限は時刻を持たない暦日。タイムゾーンで日付がずれないよう、文字列のまま保存する
 export function validateDueDate(dueDate: string): void {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
-  const [y, mo, d] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
-  const date = new Date(Date.UTC(2000, 0, 1));
-  date.setUTCFullYear(y, mo - 1, d);
-  if (!m || date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
-    throw new NodError("INVALID_ARGS", `${dueDate} は期限として使えません（YYYY-MM-DD の日付で指定してください。例: 2026-10-01）`);
+  if (!isValidDueDateInput(dueDate)) {
+    throw new NodError("INVALID_ARGS", `${dueDate} は期限として使えません（${MIN_DUE_DATE} 以降の YYYY-MM-DD の日付で指定してください。例: 2026-10-01）`);
   }
 }
 

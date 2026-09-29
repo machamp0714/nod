@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import type { Issue, Relations, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
 import { prLabel } from "../../lib/format";
-import { formatDueDate, formatEstimate, isOverdue, localToday, parseEstimateInput } from "../../lib/due-date";
+import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
 import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
 import { priorityMeta } from "../../lib/meta";
@@ -74,16 +74,26 @@ function EstimateField({ estimate, busy, change }: { estimate: number | null; bu
   );
 }
 
+// 日付欄はキーボード入力の途中（年の1桁目など）でも値が変わるため、変更ごとには保存せず Enter・フォーカス外しで確定する
 function DueDateField({ issue, busy, change }: { issue: Issue; busy: boolean; change: Change }) {
-  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
   const label = formatDueDate(issue.dueDate, localToday());
   const overdue = isOverdue(issue, localToday());
+  const close = () => { setDraft(null); setInvalid(false); };
   async function set(dueDate: string | null) {
-    if (dueDate === issue.dueDate || (await change({ dueDate }))) setEditing(false);
+    if (dueDate === issue.dueDate || (await change({ dueDate }))) close();
   }
-  if (!editing) {
+  async function commit() {
+    if (draft === null) return;
+    // 空は入力が揃っていない状態。解除は「解除」で行う
+    if (draft === "") return close();
+    if (!isValidDueDateInput(draft)) return setInvalid(true);
+    await set(draft);
+  }
+  if (draft === null) {
     return (
-      <button type="button" className={s.propButton} aria-label="Due date を編集" disabled={busy} onClick={() => setEditing(true)}>
+      <button type="button" className={s.propButton} aria-label="Due date を編集" disabled={busy} onClick={() => setDraft(issue.dueDate ?? "")}>
         <Icon name="calendar" color={overdue ? "var(--fail)" : label ? "var(--ink2)" : "var(--ink3)"} />
         {label ? <span className={overdue ? s.overdue : undefined} title={issue.dueDate ?? undefined}>{label}</span> : <Empty />}
         {overdue && <Pill tone="fail">期限超過</Pill>}
@@ -93,21 +103,26 @@ function DueDateField({ issue, busy, change }: { issue: Issue; busy: boolean; ch
   return (
     <span
       className={s.propEdit}
-      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setEditing(false); }}
-      onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) void commit(); }}
+      onKeyDown={(e) => { if (e.key === "Escape") close(); }}
     >
       <input
         autoFocus
         type="date"
         className={s.input}
         aria-label="Due date"
-        value={issue.dueDate ?? ""}
+        aria-invalid={invalid || undefined}
+        min={MIN_DUE_DATE}
+        max="9999-12-31"
+        value={draft}
         disabled={busy}
-        onChange={(e) => { if (e.target.value) void set(e.target.value); }}
+        onChange={(e) => { setDraft(e.target.value); setInvalid(false); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void commit(); }}
       />
       <Button icon="x" onClick={() => void set(null)} disabled={busy || issue.dueDate === null}>
         解除
       </Button>
+      {invalid && <span className={s.fieldError} role="alert">{MIN_DUE_DATE} 以降の日付を入力してください</span>}
     </span>
   );
 }

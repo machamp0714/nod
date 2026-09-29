@@ -20,7 +20,7 @@ describe("update の見積もりと期限", () => {
   test("不正な値は 400 INVALID_ARGS で、何も変えない", async () => {
     const { app, me, ws } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t", estimate: 2 });
-    for (const body of [{ estimate: 0 }, { estimate: 101 }, { estimate: 1.5 }, { estimate: "3" }, { dueDate: "2026-02-30" }, { dueDate: 20261001 }, { dueDate: "2026-10-01T00:00:00Z" }, { title: "変更", estimate: 0 }]) {
+    for (const body of [{ estimate: 0 }, { estimate: 101 }, { estimate: 1.5 }, { estimate: "3" }, { dueDate: "2026-02-30" }, { dueDate: "0002-10-15" }, { dueDate: 20261001 }, { dueDate: "2026-10-01T00:00:00Z" }, { title: "変更", estimate: 0 }]) {
       const r = await call(app, "POST", `/api/issues/${i.id}/update`, body);
       expect(r.status).toBe(400);
       expect(r.json.error.code).toBe("INVALID_ARGS");
