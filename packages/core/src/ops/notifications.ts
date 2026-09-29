@@ -7,9 +7,9 @@ import type { Notification, SubscriptionState } from "../types";
 
 export { NOTIFY_EVENT_TYPES } from "../notify";
 
-function requireHuman(ctx: OpCtx): void {
+function requireHuman(ctx: OpCtx, what = "Issue の購読を操作"): void {
   if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue の購読を操作できません。購読は me が行います");
+    throw new NodError("FORBIDDEN_FOR_LLM", `LLM は${what}できません。me が行います`);
   }
 }
 
@@ -99,6 +99,7 @@ export interface MarkReadInput {
 
 // ids・issueRef・all のどれか1つで既読にする。既読のものはそのまま。updated は今回既読にした件数
 export function markNotificationsRead(ctx: OpCtx, input: MarkReadInput): { updated: number } {
+  requireHuman(ctx, "通知を既読に");
   const given = [input.ids !== undefined, input.issueRef !== undefined, input.all === true].filter(Boolean).length;
   if (given !== 1) throw new NodError("INVALID_ARGS", "既読にする通知は ids・Issue・すべて のどれか1つで指定してください");
   if (input.ids !== undefined) {

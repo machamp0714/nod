@@ -44,3 +44,13 @@ export function notifySubscribers(
      SELECT subscriber, issue_id, 'issue_change', ?, ?, ?, ?, ?, ? FROM subscriptions WHERE issue_id = ? AND subscriber <> ?`,
   ).run(type, eventId, commentId, actor, JSON.stringify(data), now(), issueId, actor);
 }
+
+export function lastNotificationId(db: Database): number {
+  return (db.query("SELECT COALESCE(MAX(id), 0) AS id FROM notifications").get() as { id: number }).id;
+}
+
+// 1つの判断の操作（承認・差し戻し・Triage の判断）は、その操作を表す1件（keepType）だけを通知に残す。
+// 同じ操作で起きたステータスの変化やコメントは、Issue の Activity に残るので通知から外す
+export function collapseNotifications(db: Database, issueId: number, sinceId: number, keepType: NotifyEventType): void {
+  db.query("DELETE FROM notifications WHERE id > ? AND issue_id = ? AND event_type <> ?").run(sinceId, issueId, keepType);
+}
