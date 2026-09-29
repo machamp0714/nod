@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { now, type OpCtx } from "../ctx";
+import { HUMAN_ACTOR, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { clearUnreadTriageProposal, notifyTriageProposal } from "../notify";
@@ -135,15 +135,15 @@ export function withdrawTriageProposal(ctx: OpCtx, ref: string): { issueId: stri
   });
 }
 
-// Triage 一覧のバッジ用（#125）。Triage 中の Issue ごとの提案者の数。提案の無い Issue は含めない
+// Triage 一覧のバッジ用（#125）。Triage 中の Issue ごとの LLM の提案者の数。me の提案は通知と同じく数えない（#132）。提案の無い Issue は含めない
 export function listTriageProposalCounts(db: Database): Record<string, number> {
   const rows = db
     .query(
       `SELECT w.key AS ws_key, i.number AS number, count(*) AS n FROM triage_proposals p
        JOIN issues i ON i.id = p.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE i.status = 'triage' AND i.archived_at IS NULL GROUP BY p.issue_id`,
+       WHERE i.status = 'triage' AND i.archived_at IS NULL AND p.actor <> ? GROUP BY p.issue_id`,
     )
-    .all() as { ws_key: string; number: number; n: number }[];
+    .all(HUMAN_ACTOR) as { ws_key: string; number: number; n: number }[];
   return Object.fromEntries(rows.map((r) => [formatIssueId(r.ws_key, r.number), r.n]));
 }
 

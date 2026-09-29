@@ -180,10 +180,8 @@ async function fetchDiff(prUrl: string, run: GhRunner): Promise<{ data: DiffData
     // 上限を超えたら読むのをやめて gh を止める。全部読んでから大きさを確かめると、巨大な差分をメモリに抱えてしまう
     { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: PR_DIFF_MAX_BYTES },
   );
+  // 上限を超えた差分は runner が too_large で返すので、ここに来る stdout は上限以内
   if (!succeeded(diff)) return { error: compareFailure(diff as GhFailure) };
-  if (Buffer.byteLength(diff.stdout) > PR_DIFF_MAX_BYTES) {
-    return { error: tooLarge(`上限 ${PR_DIFF_MAX_BYTES / 1024 / 1024} MB`) };
-  }
   const files = parseUnifiedDiff(diff.stdout);
   // 空でない本文から1件も取れないのは差分ではない（JSON・HTML など）。0件の差分として保存せず、前回の差分を残す
   if (files.length === 0 && diff.stdout.trim() !== "") return { error: unknown("差分を解析できませんでした") };

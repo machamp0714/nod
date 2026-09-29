@@ -36,12 +36,15 @@ describe("describeNotification", () => {
     expect(describeNotification(other)).toBe("claude-code がエラーで止まりました（エラー）：「落ちた」");
   });
 
-  test("リマインダーはメモを添え、メモ無しは時刻を知らせる。short でもメモは残す（#47）", () => {
+  test("LLM の Triage 提案は判断の種類を添え、重複は元の Issue を示す。short では元を省く（#125）", () => {
     const proposal = (data: Record<string, unknown>) => n({ kind: "triage_proposal", eventType: "triage_proposed", actor: "claude-code", data });
     expect(describeNotification(proposal({ decision: "accept", duplicateOf: null }))).toBe("claude-code が Triage を提案しました（受け入れ）");
     expect(describeNotification(proposal({ decision: "decline", duplicateOf: null }))).toBe("claude-code が Triage を提案しました（却下）");
     expect(describeNotification(proposal({ decision: "duplicate", duplicateOf: "API-3" }))).toBe("claude-code が Triage を提案しました（重複、元: API-3）");
     expect(describeNotification(proposal({ decision: "duplicate", duplicateOf: "API-3" }), { short: true })).toBe("claude-code が Triage を提案しました（重複）");
+  });
+
+  test("リマインダーはメモを添え、メモ無しは時刻を知らせる。short でもメモは残す（#47）", () => {
     const reminder = (note: string | null) => n({ kind: "reminder", eventType: "reminder", actor: "me", data: { note } });
     expect(describeNotification(reminder("来週の定例で確認"))).toBe("リマインダー：来週の定例で確認");
     expect(describeNotification(reminder("来週の定例で確認"), { short: true })).toBe("リマインダー：来週の定例で確認");
