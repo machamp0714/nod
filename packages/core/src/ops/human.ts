@@ -98,12 +98,13 @@ export function answerQuestion(
       update.run(answer, ctx.actor, ts, q.id);
       recordEvent(ctx.db, row.id, ctx.actor, "question_answered", { question_id: q.id });
     }
-    // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す
+    // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す。
+    // その LLM の通知は入力待ちが解けたときだけ対応済みとして既読にする（me 自身の質問への回答や、未回答が残る回答では既読にしない）
     if (row.status === "in_progress" && row.agent_state === "awaiting_input" && openQuestionCount(ctx.db, row.id, { llmOnly: true }) === 0) {
       setColumn(ctx, row, "agent_state", "working", { trigger: "answer" });
+      if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     }
     leaveClarification(ctx, row);
-    if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     const answered = targets.map((q) => toQuestion({ ...q, answer, answered_by: ctx.actor, answered_at: ts }, issueId));
     return { issue: toIssue(issueRowById(ctx.db, row.id)), answered };
   });

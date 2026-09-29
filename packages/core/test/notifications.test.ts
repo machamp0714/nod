@@ -386,4 +386,37 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
     // 既読にしただけで、履歴には残る
     expect(agentOf(db).filter((n) => n.issueId === a.id)).toHaveLength(3);
   });
+
+  test("別の LLM が操作しても、通知には作業の担当（data.agent）を残す", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    failIssue({ db, actor: "codex" }, a.id, "落ちた");
+    expect(agentOf(db).map((n) => [n.actor, n.data.agent, n.data.to])).toEqual([["codex", "claude-code", "error"]]);
+  });
+
+  test("回答で既読にするのは入力待ちが解けたときだけで、me 自身の質問への回答や未回答が残る回答では既読にしない", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    askQuestion(llm, a.id, "進めてよいか");
+    askQuestion(llm, a.id, "テストも足すか");
+    const unread = () => listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.data.to);
+    expect(unread()).toEqual(["awaiting_input"]);
+    const llmQs = (db.query("SELECT id FROM questions WHERE asked_by <> 'me' ORDER BY id").all() as { id: number }[]).map((q) => q.id);
+
+    // me 自身が作った未決事項への回答では既読にしない
+    askQuestion(me, a.id, "自分用のメモ");
+    const mine = (db.query("SELECT id FROM questions WHERE asked_by = 'me'").get() as { id: number }).id;
+    answerQuestion(me, a.id, "あとで", { questionId: mine });
+    expect(unread()).toEqual(["awaiting_input"]);
+
+    // LLM の質問が残っている間は入力待ちのままなので既読にしない
+    answerQuestion(me, a.id, "よい", { questionId: llmQs[0]! });
+    expect(unread()).toEqual(["awaiting_input"]);
+
+    // 最後の質問に答えて入力待ちが解けたら既読にする
+    answerQuestion(me, a.id, "足す", { questionId: llmQs[1]! });
+    expect(unread()).toEqual([]);
+  });
 });

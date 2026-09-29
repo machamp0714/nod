@@ -31,6 +31,9 @@ describe("describeNotification", () => {
     expect(describeNotification(agent("awaiting_input", "進めてよいか"), { short: true })).toBe("codex が確認を求めました（入力待ち）");
     expect(describeNotification(agent("error", "DB に接続できない"))).toBe("codex がエラーで止まりました（エラー）：「DB に接続できない」");
     expect(describeNotification(agent("error", "DB に接続できない"), { short: true })).toBe("codex がエラーで止まりました（エラー）");
+     // 操作したのが別の LLM でも、主語は担当（data.agent）
+    const other = n({ kind: "agent", eventType: "agent_state_changed", actor: "codex", data: { from: "working", to: "error", agent: "claude-code", reason: "落ちた" } });
+    expect(describeNotification(other)).toBe("claude-code がエラーで止まりました（エラー）：「落ちた」");
   });
 });
 

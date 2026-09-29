@@ -62,6 +62,8 @@ test("通知の要約は種別ごとに変化を表す", async () => {
   expect(say("agent_state_changed", { from: "working", to: "done", agent: "codex" })).toBe("codex が作業を完了（レビュー待ち）");
   expect(say("agent_state_changed", { from: "working", to: "awaiting_input", reason: "進めてよいか" })).toBe("codex が確認を求めた（入力待ち）: 進めてよいか");
   expect(say("agent_state_changed", { from: "working", to: "error", reason: "落ちた" })).toBe("codex がエラーで停止: 落ちた");
+  // 操作したのが別の LLM でも、主語は担当（data.agent）
+  expect(say("agent_state_changed", { from: "working", to: "error", reason: "落ちた", agent: "claude-code" })).toBe("claude-code がエラーで停止: 落ちた");
 });
 
 test("購読していなくても、LLM に任せた Issue の完了・入力待ちが inbox と通知一覧に届く（#54）", async () => {

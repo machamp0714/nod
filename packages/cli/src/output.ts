@@ -150,7 +150,7 @@ function shown(v: unknown, label?: (v: never) => string): string {
 
 // 通知の1行の要約。「誰が・何を・どう変えたか」
 export function describeNotification(n: Notification): string {
-  const d = n.data as { from?: unknown; to?: unknown; added?: string[]; removed?: string[]; reason?: string };
+  const d = n.data as { from?: unknown; to?: unknown; agent?: unknown; added?: string[]; removed?: string[]; reason?: string };
   const change = (what: string, label?: (v: never) => string) =>
     `${n.actor} が${what}を変更: ${shown(d.from, label)} → ${shown(d.to, label)}`;
   switch (n.eventType) {
@@ -178,11 +178,14 @@ export function describeNotification(n: Notification): string {
       return `${n.actor} が Triage を受け入れ`;
     case "triage_declined":
       return `${n.actor} が Triage を却下${d.reason ? `: ${d.reason}` : ""}`;
-    case "agent_state_changed":
-      if (d.to === "done") return `${n.actor} が作業を完了（レビュー待ち）`;
-      if (d.to === "awaiting_input") return `${n.actor} が確認を求めた（入力待ち）${d.reason ? `: ${d.reason}` : ""}`;
-      if (d.to === "error") return `${n.actor} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
-      return `${n.actor} ${n.eventType}`;
+    case "agent_state_changed": {
+      // 主語は操作した人ではなく、作業を任された担当（data.agent）
+      const agent = typeof d.agent === "string" ? d.agent : n.actor;
+      if (d.to === "done") return `${agent} が作業を完了（レビュー待ち）`;
+      if (d.to === "awaiting_input") return `${agent} が確認を求めた（入力待ち）${d.reason ? `: ${d.reason}` : ""}`;
+      if (d.to === "error") return `${agent} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
+      return `${agent} ${n.eventType}`;
+    }
     default:
       return `${n.actor} ${n.eventType}`;
   }
