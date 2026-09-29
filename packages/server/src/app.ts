@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
 import { registerIssueOps } from "./routes/issue-ops";
+import { registerDocumentOps } from "./routes/document-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerViewRoutes } from "./routes/views";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
@@ -14,6 +15,7 @@ export interface AppOptions {
   db: Database;
   feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
   staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
+  docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
 }
 
 function errorJson(err: unknown): Response {
@@ -54,6 +56,7 @@ export function createApp(opts: AppOptions): Hono {
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);
   registerProjectOps(app, me);
+  registerDocumentOps(app, me, opts.docsDir);
   registerViewRoutes(app, opts.db);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 

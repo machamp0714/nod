@@ -8,7 +8,8 @@ import {
   listTriage,
   listWorkspaces,
   queryIssues,
-  readDocument,
+  getDocument,
+  listDocuments,
 } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag } from "../input";
@@ -24,5 +25,7 @@ export function registerReadRoutes(app: Hono, db: Database): void {
     c.json(listProjects(db, { includeClosed: queryFlag(c.req.query("includeClosed"), "includeClosed") })),
   );
   app.get("/api/projects/:id", (c) => c.json(getProject(db, c.req.param("id"))));
-  app.get("/api/documents/:id", (c) => c.json(readDocument(db, paramInt(c.req.param("id"), "Document の id "))));
+  app.get("/api/documents", (c) => c.json(listDocuments(db)));
+  // DocumentContent に作成日とリンク先（issues、projects）を加えた形で返す
+  app.get("/api/documents/:id", (c) => c.json(getDocument(db, paramInt(c.req.param("id"), "Document の id "))));
 }

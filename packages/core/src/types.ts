@@ -112,6 +112,30 @@ export interface DocumentContent extends DocumentRef {
   content: string | null; // ファイルが見つからない、または読めないときは null
 }
 
+export interface DocumentIssueLink {
+  id: string;
+  title: string;
+  status: Status;
+}
+
+export interface DocumentProjectLink {
+  id: number;
+  name: string;
+}
+
+// Document 側から見たリンク先。DocumentContent に加算する
+export interface DocumentDetail extends DocumentContent {
+  createdAt: string;
+  issues: DocumentIssueLink[];
+  projects: DocumentProjectLink[];
+}
+
+export interface DocumentSummary extends DocumentRef {
+  createdAt: string;
+  issues: string[]; // リンク先の Issue ID
+  projects: DocumentProjectLink[];
+}
+
 export interface Question {
   id: number;
   issueId: string;

@@ -2,6 +2,7 @@
 import { registerUiCommand } from "./commands/ui";
 import { Command, CommanderError } from "commander";
 import pkg from "../package.json";
+import { registerDocCommands } from "./commands/doc";
 import { registerHumanCommands } from "./commands/human";
 import { registerIssueCommands } from "./commands/issue";
 import { registerProjectCommands } from "./commands/project";
@@ -22,6 +23,7 @@ export function buildProgram(): Command {
     .configureOutput({ outputError: () => {} });
   registerIssueCommands(program);
   registerProjectCommands(program);
+  registerDocCommands(program);
   registerHumanCommands(program);
   registerWorkspaceCommands(program);
   registerTemplateCommands(program);

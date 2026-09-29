@@ -18,6 +18,7 @@ import {
   type Status,
   snoozeTriage,
   type UpdateIssueInput,
+  unlinkDocumentById,
   updateIssue,
 } from "@nod/core";
 import type { Hono } from "hono";
@@ -92,6 +93,15 @@ const OPS: Record<string, Op> = {
       if (!isAbsolute(path) || !/\.(md|markdown)$/i.test(path)) throw invalid("Markdownファイルの絶対パスを指定してください");
       if (kind !== undefined && !(DOC_KINDS as readonly string[]).includes(kind)) throw invalid("種類は spec / plan / doc を指定してください");
       return attachDocument(me, { issueRef: ref }, { path, title: optString(b, "title")?.trim() || undefined, kind: kind as DocKind | undefined });
+    },
+  },
+  "doc-remove": {
+    keys: ["documentId"],
+    run: (me, ref, b) => {
+      const documentId = optInt(b, "documentId");
+      if (documentId === undefined || documentId < 1) throw invalid("documentId は正の整数で指定してください");
+      unlinkDocumentById(me, documentId, { issueRef: ref });
+      return { removed: documentId };
     },
   },
   decline: { keys: ["reason"], run: (me, ref, b) => declineTriage(me, ref, optString(b, "reason")) },
