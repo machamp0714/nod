@@ -13,4 +13,15 @@ if (mode === "ignore-term") {
   process.stdout.write("partial");
   await Bun.sleep(30_000);
 }
+// 出力を書き続ける gh。text のファイルに pid を書き、SIGTERM は無視する（上限で止められたかをテストが確かめる）。
+// 1文字3バイトの「あ」を書くので、文字数ではなくバイト数で数えているかも確かめられる
+if (mode === "flood") {
+  process.on("SIGTERM", () => {});
+  await Bun.write(text!, String(process.pid));
+  const chunk = "あ".repeat(1024);
+  for (;;) {
+    process.stdout.write(chunk);
+    await Bun.sleep(1);
+  }
+}
 export {};

@@ -4,7 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId } from "../issue-query";
 import type { PrDiff, PrDiffErrorCode, PrDiffFile, PrDiffFileStatus, PrDiffFileSummary, PrDiffView } from "../types";
-import { classify, GITHUB_PR_URL_RE, type GhRunner, type GhRunResult, ghRunner, known, PR_STATUS_TIMEOUT_MS, unknown } from "./pr-status";
+import { classify, GH_OUTPUT_MAX_BYTES, GITHUB_PR_URL_RE, type GhRunner, type GhRunResult, ghRunner, known, PR_STATUS_TIMEOUT_MS, unknown } from "./pr-status";
 
 // 取得範囲（#55）。ファイル数は GitHub の diff の上限と同じ。超えたら差分は保存せず GitHub で見てもらう
 export const PR_DIFF_MAX_FILES = 300;
@@ -143,6 +143,7 @@ type GhFailure = Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>;
 
 // compare の失敗だけ。GitHub が差分を大きすぎると断ったときは DIFF_TOO_LARGE にする
 function compareFailure(result: GhFailure): Failure {
+  if (result.kind === "too_large") return tooLarge(`上限 ${PR_DIFF_MAX_BYTES / 1024 / 1024} MB`);
   if (result.kind === "exited" && TOO_LARGE_RE.test(result.stderr)) return tooLarge(`上限: ファイル ${PR_DIFF_MAX_FILES} 件・${PR_DIFF_MAX_BYTES / 1024 / 1024} MB`);
   return classify(result);
 }
@@ -156,7 +157,7 @@ async function fetchDiff(prUrl: string, run: GhRunner): Promise<{ data: DiffData
   if (!GITHUB_PR_URL_RE.test(prUrl) || !repo || [repo[1], repo[2]].some((p) => p === "." || p === "..")) {
     return { error: known("INVALID_URL") };
   }
-  const view = await run(["pr", "view", prUrl, "--json", VIEW_FIELDS], { timeoutMs: PR_STATUS_TIMEOUT_MS });
+  const view = await run(["pr", "view", prUrl, "--json", VIEW_FIELDS], { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: GH_OUTPUT_MAX_BYTES });
   if (!succeeded(view)) return { error: classify(view as GhFailure) };
   let head: unknown;
   let base: unknown;
@@ -176,7 +177,8 @@ async function fetchDiff(prUrl: string, run: GhRunner): Promise<{ data: DiffData
   // GH_HOST などの環境に左右されないよう、ホストは PR URL と同じ github.com に固定する
   const diff = await run(
     ["api", "--hostname", "github.com", "-H", "Accept: application/vnd.github.diff", `repos/${repo[1]}/${repo[2]}/compare/${base}...${head}`],
-    { timeoutMs: PR_STATUS_TIMEOUT_MS },
+    // 上限を超えたら読むのをやめて gh を止める。全部読んでから大きさを確かめると、巨大な差分をメモリに抱えてしまう
+    { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: PR_DIFF_MAX_BYTES },
   );
   if (!succeeded(diff)) return { error: compareFailure(diff as GhFailure) };
   if (Buffer.byteLength(diff.stdout) > PR_DIFF_MAX_BYTES) {

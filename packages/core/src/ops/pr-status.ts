@@ -24,12 +24,18 @@ export type GhRunResult =
   | { kind: "exited"; exitCode: number; stdout: string; stderr: string }
   | { kind: "not_found" } // コマンドが見つからない
   | { kind: "spawn_failed"; detail: string } // 見つかったが起動できない（EACCES など）
-  | { kind: "timeout" }; // 時間切れで止めた
-export type GhRunner = (args: string[], opts: { timeoutMs: number }) => Promise<GhRunResult>;
+  | { kind: "timeout" } // 時間切れで止めた
+  | { kind: "too_large"; limitBytes: number }; // 標準出力が maxStdoutBytes を超えたので読むのをやめて止めた
+// maxStdoutBytes を渡すと、標準出力をそのバイト数までしか読まない
+export type GhRunner = (args: string[], opts: { timeoutMs: number; maxStdoutBytes?: number }) => Promise<GhRunResult>;
 
 export const PR_STATUS_TIMEOUT_MS = 15_000;
 // 時間切れで SIGTERM を送ってから SIGKILL するまでの猶予
 export const GH_KILL_GRACE_MS = 2_000;
+// gh pr view の出力の上限。#55 の差分全体の上限（PR_DIFF_MAX_BYTES）と同じ 5MB
+export const GH_OUTPUT_MAX_BYTES = 5 * 1024 * 1024;
+// 標準エラーは分類に先頭だけ使うので、これを超えた分は読み捨てる
+const STDERR_KEEP_BYTES = 64 * 1024;
 // headRefOid は #55 の差分が古いか（HEAD が変わったか）を判定するために取る
 const GH_FIELDS = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid";
 export const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
@@ -44,8 +50,34 @@ const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
   TIMEOUT: `${PR_STATUS_TIMEOUT_MS / 1000}秒以内に応答がありませんでした`,
 };
 
+class OutputTooLarge extends Error {}
+
+// ストリームをバイト列のまま読み、最後にまとめて UTF-8 にする（途中で区切ると多バイト文字が割れるため）。
+// limit を超えたら OutputTooLarge で読むのをやめる。keep を渡すとそのバイト数だけ残し、残りは読み捨てる
+async function readBytes(stream: ReadableStream<Uint8Array>, opts: { limit?: number; keep?: number }): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let kept = 0;
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (opts.limit !== undefined && total > opts.limit) throw new OutputTooLarge();
+      if (opts.keep !== undefined && kept >= opts.keep) continue;
+      const part = opts.keep !== undefined ? value.subarray(0, opts.keep - kept) : value;
+      chunks.push(part);
+      kept += part.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 // コマンドを起動して結果を返す。prefix は gh の前に置く引数（テストで bun スクリプトを gh の代わりにするため）。
-// 時間切れになったら出力や終了を待たずに timeout を返し、SIGTERM → 猶予 → SIGKILL で止める
+// 時間切れか標準出力の上限超えになったら、出力や終了を待たずに timeout / too_large を返し、SIGTERM → 猶予 → SIGKILL で止める
 // env を渡すと、その関数で process.env から起動時の環境を作る（git 用に GIT_DIR などを除くため）
 export function createCommandRunner(
   command: string,
@@ -53,7 +85,7 @@ export function createCommandRunner(
   opts: { killGraceMs?: number; env?: (base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv } = {},
 ): GhRunner {
   const killGraceMs = opts.killGraceMs ?? GH_KILL_GRACE_MS;
-  return async (args, { timeoutMs }) => {
+  return async (args, { timeoutMs, maxStdoutBytes }) => {
     let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
     try {
       proc = Bun.spawn([command, ...prefix, ...args], {
@@ -69,17 +101,23 @@ export function createCommandRunner(
       return { kind: "spawn_failed", detail: err.code ?? err.message ?? String(e) };
     }
     const collected: Promise<GhRunResult> = Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+      readBytes(proc.stdout, { limit: maxStdoutBytes }),
+      readBytes(proc.stderr, { keep: STDERR_KEEP_BYTES }),
       proc.exited,
-    ]).then(([stdout, stderr, exitCode]) => ({ kind: "exited", exitCode, stdout, stderr }));
+    ]).then(
+      ([stdout, stderr, exitCode]): GhRunResult => ({ kind: "exited", exitCode, stdout, stderr }),
+      (e): GhRunResult => {
+        if (e instanceof OutputTooLarge) return { kind: "too_large", limitBytes: maxStdoutBytes ?? 0 };
+        throw e;
+      },
+    );
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<GhRunResult>((resolve) => {
       timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
     });
     try {
       const result = await Promise.race([collected, timedOut]);
-      if (result.kind === "timeout") {
+      if (result.kind === "timeout" || result.kind === "too_large") {
         collected.catch(() => {}); // 止めたあとの読み取りの失敗は捨てる
         proc.kill("SIGTERM");
         const killer = setTimeout(() => proc.kill("SIGKILL"), killGraceMs);
@@ -158,6 +196,7 @@ export function classify(result: Exclude<GhRunResult, { kind: "exited"; exitCode
   if (result.kind === "not_found") return known("GH_NOT_INSTALLED");
   if (result.kind === "timeout") return known("TIMEOUT");
   if (result.kind === "spawn_failed") return { code: "UNKNOWN" as const, message: `gh を起動できませんでした: ${result.detail}` };
+  if (result.kind === "too_large") return unknown(`gh の出力が上限（${result.limitBytes / 1024 / 1024} MB）を超えました`);
   const stderr = result.stderr;
   if (result.exitCode === 4 || /gh auth login|not logged in|authentication required|bad credentials/i.test(stderr)) {
     return known("GH_AUTH");
@@ -265,7 +304,7 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
   if (!GITHUB_PR_URL_RE.test(prUrl)) {
     outcome = { error: known("INVALID_URL") };
   } else {
-    const result = await run(["pr", "view", prUrl, "--json", GH_FIELDS], { timeoutMs: PR_STATUS_TIMEOUT_MS });
+    const result = await run(["pr", "view", prUrl, "--json", GH_FIELDS], { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: GH_OUTPUT_MAX_BYTES });
     if (result.kind === "exited" && result.exitCode === 0) {
       try {
         outcome = { data: parseGhPrView(result.stdout) };
