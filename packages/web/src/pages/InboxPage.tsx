@@ -1,7 +1,7 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
-import { useNotifications } from "../api/hooks/notifications";
+import { useNotificationAction, useNotifications } from "../api/hooks/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { InboxQuestion } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
@@ -13,13 +13,13 @@ import { formatRelative } from "../lib/format";
 import { planProgress } from "../lib/plan";
 import { executionLocation } from "../lib/execution-location";
 import d from "./decision.module.css";
-import { NotificationDetail, NotificationList, useNotificationGroups } from "./InboxNotifications";
+import { DeleteToast, NotificationDetail, NotificationList, type NotificationView, SnoozeFilter, useNotificationGroups } from "./InboxNotifications";
 import type { InboxTab } from "../routes/inbox-search";
 
 const route = getRouteApi("/inbox");
 
 export function InboxPage() {
-  const { selected, tab = "questions" } = route.useSearch();
+  const { selected, tab = "questions", view } = route.useSearch();
   const navigate = route.useNavigate();
   const pending = useInbox();
   const unread = useNotifications();
@@ -33,25 +33,40 @@ export function InboxPage() {
       // 通知タブとの行き来では選択を持ち越さない。開いただけで既読になるため
       onChange={next => void navigate({ search: { selected: next === "notifications" || tab === "notifications" ? undefined : selected, tab: next } })} /></div>
   );
-  return tab === "notifications" ? <NotificationsTab selected={selected} tabs={tabs} /> : <QuestionsTab selected={selected} tab={tab} tabs={tabs} />;
+  return tab === "notifications" ? <NotificationsTab selected={selected} view={view === "snoozed" ? "snoozed" : "inbox"} tabs={tabs} /> : <QuestionsTab selected={selected} tab={tab} tabs={tabs} />;
 }
 
-function NotificationsTab({ selected, tabs }: { selected?: string; tabs: ReactNode }) {
-  const { history, groups } = useNotificationGroups();
+function NotificationsTab({ selected, view, tabs }: { selected?: string; view: NotificationView; tabs: ReactNode }) {
+  const navigate = route.useNavigate();
+  const { query, groups, snoozedCount } = useNotificationGroups(view);
   const workspaceName = useWorkspaceName();
+  const restore = useNotificationAction();
+  const [deleted, setDeleted] = useState<number[] | null>(null);
+  const closeToast = useCallback(() => setDeleted(null), []);
   const current = groups.find((g) => g.issueId === selected) ?? groups[0];
+  // 一覧から消えた Issue の選択は外す。残すと、後から届いた通知を開かないうちに既読にしてしまう
+  const removed = (deletedIds?: number[]) => {
+    void navigate({ search: { tab: "notifications", ...(view === "snoozed" ? { view } : {}) }, replace: true });
+    if (deletedIds) setDeleted(deletedIds);
+  };
   return (
-    <SplitLayout
-      title="Inbox"
-      count={groups.reduce((sum, g) => sum + g.unread, 0)}
-      headerExtra={tabs}
-      listLabel="通知の一覧"
-      list={history.isPending ? <QueueEmpty>読み込み中…</QueueEmpty> : history.isError ? <ActionError error={history.error} />
-        : <NotificationList groups={groups} current={current} workspaceName={workspaceName} />}
-      detail={current
-        ? <NotificationDetail key={current.issueId} group={current} workspaceName={workspaceName(current.workspace)} opened={current.issueId === selected} />
-        : <p className={d.empty}>{history.isPending ? "読み込み中…" : "通知はありません"}</p>}
-    />
+    <>
+      <SplitLayout
+        title="Inbox"
+        count={view === "snoozed" ? groups.length : groups.reduce((sum, g) => sum + g.unread, 0)}
+        headerExtra={<>{tabs}<SnoozeFilter view={view} snoozedCount={snoozedCount}
+          onChange={(next) => void navigate({ search: { tab: "notifications", ...(next === "snoozed" ? { view: next } : {}) } })} /></>}
+        listLabel="通知の一覧"
+        list={query.isPending ? <QueueEmpty>読み込み中…</QueueEmpty> : query.isError ? <ActionError error={query.error} />
+          : <NotificationList groups={groups} current={current} workspaceName={workspaceName} view={view} />}
+        detail={current
+          ? <NotificationDetail key={`${view}:${current.issueId}`} group={current} workspaceName={workspaceName(current.workspace)}
+              opened={current.issueId === selected} view={view} onRemoved={removed} />
+          : <p className={d.empty}>{query.isPending ? "読み込み中…" : view === "snoozed" ? "スヌーズ中の通知はありません" : "通知はありません"}</p>}
+      />
+      {deleted && <DeleteToast key={deleted.join(",")} onClose={closeToast}
+        onUndo={() => { restore.mutate({ op: "restore", ids: deleted }); setDeleted(null); }} />}
+    </>
   );
 }
 

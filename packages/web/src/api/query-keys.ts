@@ -13,6 +13,7 @@ export const queryKeys = {
   triageSuggestions: (id: string) => ["triage", "suggestions", id] as const,
   notifications: () => ["notifications"] as const,
   notificationHistory: () => ["notifications", "history"] as const,
+  snoozedNotifications: () => ["notifications", "snoozed"] as const,
   projectList: (opts: { includeClosed?: boolean }) => ["projects", "list", opts] as const,
   project: (id: number) => ["projects", "detail", id] as const,
   views: () => ["views"] as const,
