@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBanner";
+import { CompletionCandidateBanner } from "../components/issue-detail/CompletionCandidateBanner";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
+  useApproveReview,
   useAttachDocument,
   useRemoveDocument,
   useAnswerQuestion,
@@ -54,6 +56,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const [questionsBusy, setQuestionsBusy] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
+  const approve = useApproveReview(issue.id);
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
   const projects = useProjectChoices();
@@ -114,6 +117,12 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection issueId={issue.id} documents={issue.documents} onAttach={input => attach.mutateAsync(input)}
             onRemove={documentId => removeDocument.mutateAsync({ documentId })} />
+          <CompletionCandidateBanner
+            key={`completion-${issue.id}`}
+            issue={issue}
+            onComplete={() => update.mutateAsync({ status: "done" })}
+            onApprove={() => approve.mutateAsync({})}
+          />
           <SubIssuesSection issues={issue.children} />
           <ActivitySection
             activity={issue.activity}
@@ -140,10 +149,12 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
 }
 
 function SubIssuesSection({ issues }: { issues: Issue[] }) {
+  const done = issues.filter((issue) => issue.status === "done").length;
+  const canceled = issues.filter((issue) => issue.status === "canceled").length;
   return (
     <section className={s.section} aria-label="Sub-issue">
       <h2 className={`${s.sectionTitle} ${s.subIssuesHeading}`}>
-        Sub-issues <span className={s.subIssuesCount}>{issues.filter((issue) => issue.status === "done").length}/{issues.length}</span>
+        Sub-issues <span className={s.subIssuesCount}>{done}/{issues.length - canceled}{canceled > 0 && ` · キャンセル ${canceled}`}</span>
       </h2>
       {issues.length === 0 ? (
         <p className={s.muted}>Sub-issue はありません</p>

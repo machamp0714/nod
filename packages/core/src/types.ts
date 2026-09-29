@@ -47,6 +47,7 @@ export interface Issue {
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
+  completionCandidate: boolean; // 親の完了候補（直接の子がすべて完了）。確定は人が行う
   snoozedUntil: string | null;
   prUrl: string | null;
   branch: string | null;

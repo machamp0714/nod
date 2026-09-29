@@ -555,3 +555,18 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+/* 親の完了候補（Sub-issue がすべて完了）。確定は Issue 詳細から人が行う */
+.completionPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--ready-soft);
+  color: var(--ready);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
+}

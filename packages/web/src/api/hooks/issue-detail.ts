@@ -30,6 +30,7 @@ function useIssueOperation<TBody, TResult>(id: string, operation: string) {
 }
 
 export const useUpdateIssue = (id: string) => useIssueOperation<UpdateIssueInput, Issue>(id, "update");
+export const useApproveReview = (id: string) => useIssueOperation<Record<string, never>, Issue>(id, "approve");
 export const useAskQuestion = (id: string) => useIssueOperation<{ question: string }, AskResult>(id, "ask");
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
