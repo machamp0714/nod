@@ -1,12 +1,14 @@
-import type { ReactNode } from "react";
-import { BOARD_STATUSES, type Tone, TONE_COLORS } from "../../lib/meta";
+import { type ReactNode, useCallback, useMemo } from "react";
+import type { Status } from "../../api/types";
+import { BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
-import type { IssueGroupBy, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
-import { Icon, type IconName, Segmented, WorkspaceBadge } from "../ui";
+import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
+import { Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
 import { IssueBoard } from "./IssueBoard";
-import { countRows, filterRows, sortRows, groupRowsByWorkspace } from "./issue-list";
+import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
+import { PreviewPane } from "./PreviewPane";
 import type { IssueListRow } from "./types";
 
 export interface IssueListProps {
@@ -41,14 +43,26 @@ export function IssueList({
   const q = search.q ?? "";
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
+  const preview = search.preview;
+  // プレビュー中は一覧の幅が狭くなるため、Workspace 列を隠す（design/nod.pen「Issues｜プレビュー」）
+  // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
   const columns = search.columns ?? [...ISSUE_COLUMNS];
-  const grouped = search.groupBy === "workspace";
-  const groups = grouped
-    ? groupRowsByWorkspace(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible)
+  const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
+  const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
+  const groups = groupBy
+    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy)
     : [];
+  const onPreview = useCallback((id: string) => onSearchChange({ preview: id }), [onSearchChange]);
+  const closePreview = useCallback(() => onSearchChange({ preview: undefined }), [onSearchChange]);
+  const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
+  const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
+  const table = (tableRows: IssueListRow[], hideHeader = false) => (
+    <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} />
+  );
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
 
   return (
+    <div className={s.split}>
     <div className={s.page}>
       <header className={s.header}>
         <div className={s.headerText}>
@@ -106,11 +120,27 @@ export function IssueList({
           グループ化
           <select
             aria-label="グループ化"
-            value={search.groupBy ?? "none"}
+            value={groupBy ?? "none"}
             onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
           >
             <option value="none">なし</option>
-            <option value="workspace">Workspace</option>
+            {GROUP_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className={s.groupSelect}>
+          サブグループ
+          <select
+            aria-label="サブグループ"
+            value={subGroupBy ?? "none"}
+            disabled={!groupBy || layout === "board"}
+            onChange={(event) => onSearchChange({ subGroupBy: event.target.value === "none" ? undefined : event.target.value as IssueGroupKey })}
+          >
+            <option value="none">なし</option>
+            {GROUP_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value} disabled={value === groupBy}>{label}</option>
+            ))}
           </select>
         </label>
         <Segmented<IssueLayout>
@@ -172,24 +202,72 @@ export function IssueList({
         <p role="status" className={s.message}>
           読み込み中…
         </p>
-      ) : grouped ? (
+      ) : groupBy ? (
         groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
           groups.map((group) => (
-            <section key={group.key} className={s.workspaceGroup} aria-label={`Workspace ${group.key}`}>
-              <h2 className={s.groupHeading}>
-                <WorkspaceBadge workspaceKey={group.key} name={group.name} />
-                <span>{group.key} · {group.rows.length} 件</span>
-              </h2>
-              {layout === "list" ? <IssueTable rows={group.rows} columns={columns} /> : <IssueBoard rows={group.rows} />}
+            <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
+              <GroupHeading by={groupBy} group={group} />
+              {layout === "board" ? <IssueBoard rows={group.rows} /> : group.subgroups && subGroupBy ? (
+                group.subgroups.map((subgroup) => (
+                  <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
+                    <GroupHeading by={subGroupBy} group={subgroup} level={3} />
+                    {table(subgroup.rows, true)}
+                  </section>
+                ))
+              ) : table(group.rows)}
             </section>
           ))
         )
       ) : layout === "list" ? (
-        <IssueTable rows={visible} columns={columns} />
+        table(visible)
       ) : (
         <IssueBoard rows={visible} />
       )}
     </div>
+    {preview && (
+      <PreviewPane
+        key={preview}
+        issueId={preview}
+        titles={titles}
+        workspaceName={(key) => workspaceNames.get(key) ?? key}
+        onClose={closePreview}
+      />
+    )}
+    </div>
+  );
+}
+
+const GROUP_NAMES: Record<IssueGroupKey, string> = {
+  workspace: "Workspace",
+  status: "Status",
+  priority: "Priority",
+  project: "Project",
+  assignee: "担当",
+  label: "ラベル",
+};
+const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
+
+// design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
+// サブグループの見出しは「Issues｜サブグループ」の行（1段下げ、白地、weight 500）
+function GroupHeading({ by, group, level = 2 }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3 }) {
+  const empty = group.key === "";
+  const Heading = level === 2 ? "h2" : "h3";
+  return (
+    <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
+      {by === "workspace" ? (
+        <WorkspaceBadge workspaceKey={group.key} name={group.workspaceName ?? group.key} />
+      ) : (
+        <>
+          {by === "status" && <StatusIcon status={group.key as Status} />}
+          {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
+          {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
+          {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
+          {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
+          <span className={s.groupLabel}>{group.label}</span>
+        </>
+      )}
+      <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
+    </Heading>
   );
 }
 

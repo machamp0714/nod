@@ -1,6 +1,6 @@
 import type { Status } from "../../api/types";
-import { BOARD_STATUSES, STATUS_ORDER } from "../../lib/meta";
-import type { IssueTab, IssueSort, SortDirection } from "../../routes/search";
+import { BOARD_STATUSES, priorityMeta, STATUS_META, STATUS_ORDER } from "../../lib/meta";
+import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueTab, IssueSort, SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";
 
 function priorityRank(priority: number): number {
@@ -56,15 +56,67 @@ export function groupForBoard(rows: readonly IssueListRow[]): BoardColumn[] {
 }
 
 export function groupRowsByWorkspace(rows: readonly IssueListRow[]): { key: string; name: string; rows: IssueListRow[] }[] {
-  const groups = new Map<string, { key: string; name: string; rows: IssueListRow[] }>();
-  for (const row of rows) {
-    const key = row.issue.workspace;
-    let group = groups.get(key);
-    if (!group) {
-      group = { key, name: row.workspaceName, rows: [] };
-      groups.set(key, group);
-    }
-    group.rows.push(row);
+  return groupRows(rows, "workspace").map((group) => ({ key: group.key, name: group.workspaceName ?? group.key, rows: group.rows }));
+}
+
+export interface RowGroup {
+  key: string; // 値なしのグループは空文字
+  label: string;
+  rows: IssueListRow[];
+  workspaceName?: string; // Workspace のグループだけ
+  subgroups?: RowGroup[];
+}
+
+// 1行が属するグループ（キー、見出し、並び順）。ラベルは複数のグループに属する
+function groupEntries(row: IssueListRow, by: IssueGroupKey): { key: string; label: string; rank: number | string }[] {
+  const { issue } = row;
+  switch (by) {
+    case "workspace":
+      return [{ key: issue.workspace, label: issue.workspace, rank: issue.workspace }];
+    case "status":
+      return [{ key: issue.status, label: STATUS_META[issue.status].label, rank: STATUS_ORDER.indexOf(issue.status) }];
+    case "priority":
+      return [{ key: String(issue.priority), label: priorityMeta(issue.priority).label, rank: priorityRank(issue.priority) }];
+    case "project":
+      return [issue.project ? { key: String(issue.project.id), label: issue.project.name, rank: issue.project.name } : { key: "", label: "Projectなし", rank: "" }];
+    case "assignee":
+      return [issue.assignee ? { key: issue.assignee, label: issue.assignee, rank: issue.assignee } : { key: "", label: "未割り当て", rank: "" }];
+    case "label":
+      return issue.labels.length ? issue.labels.map((label) => ({ key: label, label, rank: label })) : [{ key: "", label: "ラベルなし", rank: "" }];
   }
-  return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+// 表示中の行をプロパティで分ける。行があるグループだけを返し、グループ内は入力の並び順を保つ。
+// 値なしのグループ（Projectなし、未割り当て、ラベルなし）は最後に置く。
+export function groupRows(rows: readonly IssueListRow[], by: IssueGroupKey, subBy?: IssueGroupKey): RowGroup[] {
+  const groups = new Map<string, RowGroup & { rank: number | string }>();
+  for (const row of rows) {
+    for (const entry of groupEntries(row, by)) {
+      let group = groups.get(entry.key);
+      if (!group) {
+        group = { key: entry.key, label: entry.label, rank: entry.rank, rows: [] };
+        if (by === "workspace") group.workspaceName = row.workspaceName;
+        groups.set(entry.key, group);
+      }
+      group.rows.push(row);
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => {
+      if ((a.key === "") !== (b.key === "")) return a.key === "" ? 1 : -1;
+      if (typeof a.rank === "number" && typeof b.rank === "number") return a.rank - b.rank;
+      return String(a.rank).localeCompare(String(b.rank), "ja", { numeric: true }) || a.key.localeCompare(b.key);
+    })
+    .map(({ rank: _rank, ...group }) => (subBy && subBy !== by ? { ...group, subgroups: groupRows(group.rows, subBy) } : group));
+}
+
+// 画面に適用するグループ化。Board は列が Status なので Status のグループ化を無効にし、サブグループはリストだけで使う
+export function effectiveGrouping(
+  search: { groupBy?: IssueGroupBy; subGroupBy?: IssueGroupKey },
+  layout: IssueLayout,
+): { groupBy?: IssueGroupKey; subGroupBy?: IssueGroupKey } {
+  const groupBy = search.groupBy;
+  if (!groupBy || groupBy === "none" || (layout === "board" && groupBy === "status")) return {};
+  if (layout === "board" || !search.subGroupBy || search.subGroupBy === groupBy) return { groupBy };
+  return { groupBy, subGroupBy: search.subGroupBy };
 }
