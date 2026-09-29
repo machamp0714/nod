@@ -39,6 +39,7 @@ export interface IssueRow {
   updated_at: string;
   started_at: string | null;
   closed_at: string | null;
+  archived_at: string | null;
   ws_key: string;
   parent_key: string | null;
   parent_number: number | null;
@@ -51,17 +52,21 @@ export interface IssueRow {
 }
 
 // 親の完了候補：直接の子がすべて done/canceled で、done が1件以上あり、親が done・canceled・triage 以外。
-// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する
-export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage')
-  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status = 'done')
-  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.status NOT IN ('done', 'canceled')))`;
+// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する。
+// アーカイブ済みの親は完了にできないので候補にせず、アーカイブ済みの子は Sub-issues と同じく数えない
+export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage') AND i.archived_at IS NULL
+  AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL AND c.status = 'done')
+  AND NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL AND c.status NOT IN ('done', 'canceled')))`;
+
+// ブロック元 b がまだブロックしている条件。完了・取り消し・アーカイブ済みのブロック元は数えない
+export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived_at IS NULL";
 
 export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
   (SELECT group_concat(blocker_id, char(10)) FROM (
     SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
     JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
-    WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+    WHERE r.to_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER}
     ORDER BY bw.key, b.number
   )) AS blocked_by,
   (SELECT count(*) FROM questions q WHERE q.issue_id = i.id) AS question_total,
@@ -75,11 +80,12 @@ LEFT JOIN projects pr ON pr.id = i.project_id`;
 
 // 着手できる Issue の条件のうち、担当者に関係しないもの（web の Ready）。? には現在時刻を渡す
 export const READY_WHERE = `(i.status = 'todo'
+  AND i.archived_at IS NULL
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
   AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL)
   AND NOT EXISTS (
     SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
-    WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+    WHERE r.to_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER}
   ))`;
 
 const REF_RE = /^([A-Za-z0-9]{2,6})-(\d+)$/;
@@ -95,6 +101,19 @@ export function findIssueRow(db: Database, ref: string): IssueRow {
     .query(`${ISSUE_SELECT} WHERE w.key = ? AND i.number = ?`)
     .get((m[1] ?? "").toUpperCase(), Number(m[2])) as IssueRow | null;
   if (!row) throw new NodError("NOT_FOUND", `Issue ${ref} はありません`);
+  return row;
+}
+
+// 書き込む操作のための findIssueRow。アーカイブ済みの Issue は復元するまで変えられない
+export function findWritableIssueRow(db: Database, ref: string): IssueRow {
+  return assertWritable(findIssueRow(db, ref));
+}
+
+export function assertWritable(row: IssueRow): IssueRow {
+  if (row.archived_at !== null) {
+    const id = formatIssueId(row.ws_key, row.number);
+    throw new NodError("ISSUE_ARCHIVED", `${id} はアーカイブ済みです。変更するには先に nod issue unarchive ${id} で復元してください`);
+  }
   return row;
 }
 
@@ -133,6 +152,7 @@ export function toIssue(r: IssueRow): Issue {
     updatedAt: r.updated_at,
     startedAt: r.started_at,
     closedAt: r.closed_at,
+    archivedAt: r.archived_at,
   };
 }
 

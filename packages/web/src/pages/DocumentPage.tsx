@@ -60,14 +60,17 @@ function LinkedIssues({ doc }: { doc: DocumentDetail }) {
               <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.issueTitle}>
                 {issue.title}
               </Link>
+              {issue.archived && <Pill tone="muted">アーカイブ済み</Pill>}
               <span className={s.issueStatus}>
                 <StatusLabel status={issue.status} />
               </span>
+              {/* アーカイブ済みの Issue とのリンクはサーバーが 409 で拒むため、先に止める */}
               <button
                 type="button"
                 className={s.iconButton}
                 aria-label={`${issue.id} のリンクを解除`}
-                disabled={busy}
+                title={issue.archived ? "アーカイブ済みの Issue からは解除できません" : undefined}
+                disabled={busy || issue.archived}
                 onClick={() => void remove(issue.id)}
               >
                 <Icon name="x" size={14} />

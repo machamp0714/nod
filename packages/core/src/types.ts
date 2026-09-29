@@ -58,6 +58,7 @@ export interface Issue {
   updatedAt: string;
   startedAt: string | null;
   closedAt: string | null;
+  archivedAt: string | null; // アーカイブした日時。NULL ならアーカイブされていない
 }
 
 export interface PlanStep {
@@ -119,6 +120,7 @@ export interface DocumentIssueLink {
   id: string;
   title: string;
   status: Status;
+  archived: boolean; // アーカイブ済みの Issue とのリンクは解除できない
 }
 
 export interface DocumentProjectLink {

@@ -159,6 +159,7 @@ interface CandidateRow {
   created_at: string;
   labels: string | null;
   duplicate_of: number | null;
+  archived_at: string | null;
 }
 
 interface Scored {
@@ -206,7 +207,7 @@ export function suggestTriage(ctx: OpCtx, ref: string): TriageSuggestions {
   const mine = tokensOf(target.title, target.description);
   const rows = ctx.db
     .query(
-      `SELECT i.id, i.number, i.title, substr(i.description, 1, ${BODY_LIMIT}) AS body, i.status, i.assignee, i.created_at,
+      `SELECT i.id, i.number, i.title, substr(i.description, 1, ${BODY_LIMIT}) AS body, i.status, i.assignee, i.created_at, i.archived_at,
          (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
          (SELECT min(r.to_id) FROM relations r WHERE r.from_id = i.id AND r.type = 'duplicate') AS duplicate_of
        FROM issues i WHERE i.workspace_id = ? AND i.id <> ?`,
@@ -239,6 +240,7 @@ function duplicates(target: IssueRow, scored: Scored[], rows: CandidateRow[]): D
     // 元の Issue が別 Workspace なら寄せずに、重複側の Issue をそのまま候補にする
     const original = s.row.duplicate_of === null ? undefined : byId.get(s.row.duplicate_of);
     const row = original ?? s.row;
+    if (row.archived_at !== null) continue; // アーカイブ済みは重複元にできない。ラベル・担当の根拠には使う
     if (best.has(row.id)) continue; // 降順なので先に入ったものが最大
     best.set(row.id, { score: s.score, row, tokens: s.tokens, via: original ? s.ref : null });
   }

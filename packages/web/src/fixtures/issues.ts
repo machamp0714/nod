@@ -29,6 +29,7 @@ function issue(p: Partial<Issue> & Pick<Issue, "id" | "title" | "status">): Issu
     updatedAt: ago(60),
     startedAt: null,
     closedAt: null,
+    archivedAt: null,
     ...p,
   };
 }

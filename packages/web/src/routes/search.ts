@@ -46,6 +46,7 @@ export interface IssueListSearch {
   subGroupBy?: IssueGroupKey;
   preview?: string; // 一覧の上で中身を確かめる Issue の ID
   blocked?: boolean;
+  archived?: boolean; // true ならアーカイブ済みだけ（省くとアーカイブ済みを除く）
   tab?: IssueTab;
   layout?: IssueLayout;
   q?: string;
@@ -84,6 +85,7 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof raw.preview === "string" && /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(raw.preview)) out.preview = raw.preview.toUpperCase();
   if ([true, "true", "1"].includes(raw.blocked as string | boolean)) out.blocked = true;
   if ([false, "false", "0"].includes(raw.blocked as string | boolean)) out.blocked = false;
+  if ([true, "true", "1"].includes(raw.archived as string | boolean)) out.archived = true;
   if ("tab" in raw) out.tab = pick(raw.tab, ISSUE_TABS) ?? "all";
   if ("layout" in raw) out.layout = pick(raw.layout, ISSUE_LAYOUTS) ?? "list";
   const q = typeof raw.q === "number" ? String(raw.q) : raw.q;
@@ -117,6 +119,7 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   }
   if (search.preview) out.preview = search.preview;
   if (search.blocked !== undefined) out.blocked = search.blocked;
+  if (search.archived) out.archived = true;
   if (search.tab && search.tab !== "all") out.tab = search.tab;
   if (search.layout && search.layout !== "list") out.layout = search.layout;
   if (search.q) out.q = search.q;

@@ -1,7 +1,7 @@
 import type { IssueQuery, Status } from "../api/types";
 import { parseIssueListSearch, type IssueListSearch } from "../routes/search";
 
-export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "label" | "blocked">;
+export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "label" | "blocked" | "archived">;
 
 // URL の search params から絞り込み条件を取り出す（Issues の画面）
 export function filterFromSearch(raw: IssueListSearch): IssueQuery {
@@ -13,12 +13,13 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
   if (search.project) query.project = search.project;
   if (search.label?.length) query.label = search.label;
   if (search.blocked !== undefined) query.blocked = search.blocked;
+  if (search.archived) query.archived = true;
   return query;
 }
 
 // 絞り込み条件を search params に写す。条件にないキーは undefined にし、cleanIssueListSearch で URL から消す
 export function filterToSearch(filter: IssueQuery): FilterSearch {
-  return { blocked: filter.blocked, workspace: filter.workspace, status: filter.status, project: filter.project, label: filter.label };
+  return { blocked: filter.blocked, archived: filter.archived || undefined, workspace: filter.workspace, status: filter.status, project: filter.project, label: filter.label };
 }
 
 // GET /api/issues のクエリ文字列（先頭の ? を含む。条件がなければ空文字）。配列は同じキーを繰り返す
@@ -32,6 +33,7 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.delegated) params.set("delegated", "true");
   if (query.q) params.set("q", query.q);
   if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
+  if (query.archived) params.set("archived", "true");
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -47,6 +49,7 @@ function normalize(query: IssueQuery) {
     delegated: query.delegated === true,
     q: query.q ?? "",
     blocked: query.blocked,
+    archived: query.archived === true,
   };
 }
 
@@ -55,7 +58,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "label" | "ready" | "delegated" | "q" | "blocked";
+export type FilterKey = "workspace" | "status" | "project" | "label" | "ready" | "delegated" | "q" | "blocked" | "archived";
 
 export interface FilterChip {
   key: FilterKey;
@@ -94,6 +97,7 @@ export function describeFilter(
   if (filter.delegated) chips.push({ key: "delegated", name: "委任中", values: "のみ" });
   if (filter.q) chips.push({ key: "q", name: "検索", values: filter.q });
   if (filter.blocked !== undefined) chips.push({ key: "blocked", name: "ブロック", values: filter.blocked ? "ブロック中" : "ブロックなし" });
+  if (filter.archived) chips.push({ key: "archived", name: "アーカイブ", values: "アーカイブ済みのみ" });
   return chips;
 }
 

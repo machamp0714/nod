@@ -8,9 +8,11 @@ import { useAsyncAction } from "./useAsyncAction";
 export function DescriptionSection({
   description,
   onSave,
+  readOnly = false,
 }: {
   description: string | null;
   onSave: (description: string | null) => Promise<unknown>;
+  readOnly?: boolean;
 }) {
   // draft が null のときは表示中、文字列のときは編集中
   const [draft, setDraft] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export function DescriptionSection({
       <header className={s.sectionHead}>
         <h2 className={s.sectionTitle}>説明</h2>
         <span className={s.spacer} />
-        {draft === null && (
+        {draft === null && !readOnly && (
           <Button icon="square-pen" onClick={() => setDraft(description ?? "")}>
             編集
           </Button>

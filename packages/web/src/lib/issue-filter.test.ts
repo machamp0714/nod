@@ -93,3 +93,17 @@ describe("withoutKey と toggleValue", () => {
 test("一覧の表示設定を保存Viewのfilterへ混入しない", () => {
   expect(filterFromSearch({ sort: "updatedAt", direction: "desc", columns: [], workspace: ["API"], blocked: false })).toEqual({ workspace: ["API"], blocked: false });
 });
+
+test("archived は true のときだけ URL・API・チップ・比較に出し、false や省略は既定（アーカイブ済みを除く）と同じ", () => {
+  expect(filterFromSearch({ archived: true, blocked: false })).toEqual({ archived: true, blocked: false });
+  expect(filterFromSearch({})).toEqual({});
+  expect(filterToSearch({ archived: true }).archived).toBe(true);
+  expect(filterToSearch({}).archived).toBeUndefined();
+  expect(issueQueryToParams({ archived: true, q: "x" })).toBe("?q=x&archived=true");
+  expect(issueQueryToParams({ archived: false })).toBe("");
+  expect(sameFilter({ archived: false }, {})).toBe(true);
+  expect(sameFilter({ archived: true }, {})).toBe(false);
+  const labelOf = { workspace: (k: string) => k, project: (p: string) => p, status: (s: string) => s };
+  expect(describeFilter({ archived: true }, labelOf)).toEqual([{ key: "archived", name: "アーカイブ", values: "アーカイブ済みのみ" }]);
+  expect(withoutKey({ archived: true, label: ["a"] }, "archived")).toEqual({ label: ["a"] });
+});

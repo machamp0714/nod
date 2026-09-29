@@ -46,8 +46,10 @@ function AddMenu({ disabled, onAttach, onCreate }: { disabled: boolean; onAttach
   </div>;
 }
 
-export function DocumentsSection({ issueId, documents, onAttach, onRemove }: {
+// readOnly（アーカイブ済み）のときは追加も添付の解除もできない
+export function DocumentsSection({ issueId, documents, onAttach, onRemove, readOnly = false }: {
   issueId: string;
+  readOnly?: boolean;
   documents: IssueDocumentRef[];
   onAttach: (input: AttachDocumentInput) => Promise<unknown>;
   onRemove: (documentId: number) => Promise<unknown>;
@@ -65,13 +67,13 @@ export function DocumentsSection({ issueId, documents, onAttach, onRemove }: {
   const remove = (doc: IssueDocumentRef) => void action.run(() => onRemove(doc.id), "添付を解除できませんでした");
   return <section className={s.section} aria-label="Documents">
     <div className={s.documentsHeading}><h2 className={s.sectionTitle}>Documents</h2><span className={s.meta}>{documents.length}</span>
-      <AddMenu disabled={action.busy} onAttach={() => setOpen(true)}
+      <AddMenu disabled={action.busy || readOnly} onAttach={() => setOpen(true)}
         onCreate={() => void navigate({ to: "/documents/new", search: { issue: issueId } })} /></div>
     {documents.length === 0 ? <p className={s.muted}>Document はありません</p> : <ul className={s.documentCards}>
       {documents.map(doc => <li key={doc.id} className={s.documentCard}>
         <div className={s.documentCardHead}>
           <Link to="/documents/$documentId" params={{ documentId: String(doc.id) }} className={s.link}><Icon name={doc.kind === "plan" ? "list-checks" : "file-text"} />{doc.title}</Link>
-          <button type="button" className={s.iconButton} aria-label={`${doc.title} の添付を解除`} disabled={action.busy} onClick={() => remove(doc)}><Icon name="x" size={13} /></button>
+          <button type="button" className={s.iconButton} aria-label={`${doc.title} の添付を解除`} disabled={action.busy || readOnly} onClick={() => remove(doc)}><Icon name="x" size={13} /></button>
         </div>
         <div className={s.documentMeta}><Pill tone={doc.kind === "plan" ? "ready" : doc.kind === "spec" ? "accent" : "muted"}>{KINDS[doc.kind]}</Pill>
           <span title={doc.attachedAt ?? undefined}>添付者: {doc.attachedBy ?? "記録なし"} · 添付日: {attachmentDate(doc.attachedAt)}</span>

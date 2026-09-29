@@ -3,6 +3,7 @@ import {
   diagnoseIssues,
   validateStaleDays,
   askQuestion,
+  archiveIssue,
   attachDocument,
   commentIssue,
   resolveThread,
@@ -26,6 +27,7 @@ import {
   setPlanTasks,
   setStep,
   startIssue,
+  unarchiveIssue,
   updateIssue,
   subscribeIssue,
   unsubscribeIssue,
@@ -95,6 +97,27 @@ export function registerIssueCommands(program: Command): void {
     );
 
   issue
+    .command("archive <id>")
+    .description("Issue をアーカイブする（ステータスは変えず、既定の一覧・ボード・Inbox・next から外す。人だけが行える）")
+    .option("--reason <text>", "アーカイブの理由（Activity に残る）")
+    .action(
+      act((cli, _cmd, id: string, o: { reason?: string }) => {
+        const archived = archiveIssue(cli.ctx, id, { reason: o.reason });
+        print(cli, archived, () => `${archived.id} をアーカイブしました（nod issue unarchive ${archived.id} で戻せます）`);
+      }),
+    );
+
+  issue
+    .command("unarchive <id>")
+    .description("アーカイブした Issue を元に戻す（ステータスはアーカイブ前のまま。人だけが行える）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const restored = unarchiveIssue(cli.ctx, id);
+        print(cli, restored, () => `${restored.id} を復元しました: ${formatIssueLine(restored)}`);
+      }),
+    );
+
+  issue
     .command("list")
     .description("Issue を一覧する（既定では done と canceled を除く）")
     .option("-s, --status <statuses>", "ステータス（カンマ区切り）")
@@ -103,13 +126,14 @@ export function registerIssueCommands(program: Command): void {
     .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
     .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
+    .option("--archived", "アーカイブ済みの Issue だけを出す（--status を省くとすべてのステータス）")
     .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .action(
       act(
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; completionCandidates?: boolean },
+          o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; completionCandidates?: boolean; archived?: boolean },
         ) => {
           // 委任中の一覧は人がどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || (o.delegated && !globalOpts(cmd).workspace);
@@ -121,6 +145,7 @@ export function registerIssueCommands(program: Command): void {
             labels: o.label,
             delegated: o.delegated,
             completionCandidate: o.completionCandidates,
+            archived: o.archived,
           });
           if (o.delegated) {
             const sorted = sortByAssignee(issues);

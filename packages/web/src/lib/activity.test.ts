@@ -111,3 +111,9 @@ test("作業状況のnullは解除として表示し、記録された主体と�
   expect(line("me", {})).toBe("me が作業状況を解除した");
   expect(line("codex", {})).toBe("codex が作業状況を解除した");
 });
+
+test("アーカイブと復元を書き手つきで出し、理由があれば添える", () => {
+  expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: {} })).toEqual({ icon: "archive", text: "me がアーカイブした" });
+  expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: { reason: "不要" } }).text).toBe("me がアーカイブした：不要");
+  expect(describeActivity({ kind: "event", at, actor: "me", type: "unarchived", data: {} })).toEqual({ icon: "archive-restore", text: "me がアーカイブから復元した" });
+});

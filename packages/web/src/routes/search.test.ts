@@ -107,3 +107,10 @@ describe("表示設定のURL", () => {
     expect(replacesIssueListHistory({ q: "入力" })).toBe(true);
   });
 });
+
+test("archived は真のときだけ残し、知らない値は捨てる", () => {
+  for (const value of [true, "true", "1"]) expect(parseIssueListSearch({ archived: value })).toEqual({ archived: true });
+  for (const value of [false, "false", "0", "yes"]) expect(parseIssueListSearch({ archived: value })).toEqual({});
+  expect(cleanIssueListSearch({ archived: true, tab: "all" })).toEqual({ archived: true });
+  expect(cleanIssueListSearch({ archived: false })).toEqual({});
+});

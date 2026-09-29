@@ -33,6 +33,8 @@ export const CTX_OPS = [
   "markNotificationsRead",
   "setWorkspaceRules",
   "snoozeNotifications",
+  "archiveIssue",
+  "unarchiveIssue",
 ] as const;
 
 // 第1引数に Database を取る操作

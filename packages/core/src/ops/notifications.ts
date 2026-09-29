@@ -26,7 +26,7 @@ export function isSubscribedRow(db: Database, issueId: number, subscriber: strin
   return db.query("SELECT 1 FROM subscriptions WHERE issue_id = ? AND subscriber = ?").get(issueId, subscriber) !== null;
 }
 
-// すでに購読中でもエラーにしない
+// すでに購読中でもエラーにしない。購読は Issue への書き込みではなく自分の通知設定なので、アーカイブ済みでも変えられる
 export function subscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   requireHuman(ctx);
   return tx(ctx.db, () => {
@@ -38,7 +38,7 @@ export function subscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   });
 }
 
-// 購読していなくてもエラーにしない。届いた通知は残す
+// 購読していなくてもエラーにしない。届いた通知は残す。アーカイブ済みでも解除できる（subscribeIssue と同じ理由）
 export function unsubscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   requireHuman(ctx);
   return tx(ctx.db, () => {
@@ -63,7 +63,7 @@ interface NotificationRow {
   body: string | null;
 }
 
-// 新しい順。スヌーズ中（#43）と削除済み（#44）は出さない。既定では未読だけ。
+// 新しい順。スヌーズ中（#43）と削除済み（#44）、アーカイブ済みの Issue（#30）の通知は出さない。既定では未読だけ。
 // snoozed ならスヌーズ中のものだけを既読も含めて出す
 export function listNotifications(
   db: Database,
@@ -78,7 +78,7 @@ export function listNotifications(
       `SELECT n.*, i.title AS issue_title, i.number AS issue_number, w.key AS ws_key, c.body AS body
        FROM notifications n JOIN issues i ON i.id = n.issue_id JOIN workspaces w ON w.id = i.workspace_id
        LEFT JOIN comments c ON c.id = n.comment_id
-       WHERE n.recipient = ? AND n.deleted_at IS NULL AND ${where}
+       WHERE n.recipient = ? AND n.deleted_at IS NULL AND i.archived_at IS NULL AND ${where}
        ORDER BY n.created_at DESC, n.id DESC`,
     )
     .all(opts.recipient ?? HUMAN_ACTOR, ts) as NotificationRow[];

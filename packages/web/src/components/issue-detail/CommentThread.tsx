@@ -19,7 +19,8 @@ function Time({ at }: { at: string }) {
 
 // nod.pen「Issue詳細｜コメントスレッド（#48/#49）」の Activity に合わせる。
 // 未解決はカード、解決済みは1行に折りたたみ、開くと「未解決に戻す」を出す。
-export function CommentThread({ thread, onReply, onResolve }: { thread: CommentThreadItem } & ThreadHandlers) {
+// readOnly（アーカイブ済み）のときは返信・解決済み化・未解決に戻すを無効にする
+export function CommentThread({ thread, onReply, onResolve, readOnly = false }: { thread: CommentThreadItem; readOnly?: boolean } & ThreadHandlers) {
   const resolved = thread.resolvedAt !== null;
   const [expanded, setExpanded] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -70,7 +71,7 @@ export function CommentThread({ thread, onReply, onResolve }: { thread: CommentT
           <span className={s.resolvedBy}>
             · {thread.resolvedBy} が解決 · <Time at={thread.resolvedAt!} />
           </span>
-          <button type="button" className={s.reopenButton} disabled={action.busy} onClick={() => void toggleResolved(false)}>
+          <button type="button" className={s.reopenButton} disabled={action.busy || readOnly} onClick={() => void toggleResolved(false)}>
             <Icon name="rotate-ccw" size={13} color="var(--ink3)" />
             未解決に戻す
           </button>
@@ -82,11 +83,11 @@ export function CommentThread({ thread, onReply, onResolve }: { thread: CommentT
         <Time at={thread.at} />
         {!resolved && (
           <span className={s.threadActions}>
-            <button type="button" className={s.threadAction} disabled={action.busy} onClick={() => setReplying(true)}>
+            <button type="button" className={s.threadAction} disabled={action.busy || readOnly} onClick={() => setReplying(true)}>
               <Icon name="reply" size={13} color="var(--ink3)" />
               返信
             </button>
-            <button type="button" className={s.threadAction} disabled={action.busy} onClick={() => void toggleResolved(true)}>
+            <button type="button" className={s.threadAction} disabled={action.busy || readOnly} onClick={() => void toggleResolved(true)}>
               <Icon name="check" size={13} color="var(--ink3)" />
               解決
             </button>

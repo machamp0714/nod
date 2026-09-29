@@ -194,4 +194,6 @@ export const MIGRATIONS: MigrationStep[][] = [
     `CREATE INDEX issues_closed ON issues (status, closed_at)`,
     `CREATE INDEX events_type_created ON events (type, created_at)`,
   ],
+  // アーカイブは status と別の属性。NULL ならアーカイブされていない
+  [`ALTER TABLE issues ADD COLUMN archived_at TEXT`],
 ];

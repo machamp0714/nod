@@ -10,9 +10,11 @@ import { NodError } from "../errors";
 import { addComment, recordEvent, threadRootId } from "../events";
 import {
   COMPLETION_CANDIDATE_SQL,
+  OPEN_BLOCKER,
   READY_WHERE,
   type CommentRow,
   findIssueRow,
+  findWritableIssueRow,
   formatIssueId,
   type IssueRow,
   issueRowById,
@@ -85,7 +87,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
   if (input.dueDate !== undefined) validateDueDate(input.dueDate);
   return tx(ctx.db, () => {
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
-    const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
+    const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     return insertIssue(ctx, {
@@ -188,11 +190,12 @@ export interface ListIssuesFilter {
   blocked?: boolean;
   delegated?: boolean;
   completionCandidate?: boolean; // true で親の完了候補だけにする
+  archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
 }
 
 // Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
 function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
-  const where: string[] = [];
+  const where: string[] = [filter.archived ? "i.archived_at IS NOT NULL" : "i.archived_at IS NULL"];
   const params: SQLQueryBindings[] = [];
   if (filter.workspaceId !== undefined) {
     where.push("i.workspace_id = ?");
@@ -213,7 +216,7 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   if (filter.blocked !== undefined) {
     where.push(`${filter.blocked ? "" : "NOT "}EXISTS (
       SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
-      WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+      WHERE r.to_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER}
     )`);
   }
   return { where, params };
@@ -230,7 +233,12 @@ const DELEGATED_WHERE = "(i.assignee IS NOT NULL AND i.assignee <> ? AND i.statu
 
 export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
   const { where, params } = scopeWhere(db, filter);
-  const statuses = filter.statuses?.length ? filter.statuses : STATUSES.filter((s) => s !== "done" && s !== "canceled");
+  // アーカイブ一覧は閉じた Issue が主なので、ステータスを省くとすべてのステータスを出す
+  const statuses = filter.statuses?.length
+    ? filter.statuses
+    : filter.archived
+      ? [...STATUSES]
+      : STATUSES.filter((s) => s !== "done" && s !== "canceled");
   where.push(`i.status IN (${statuses.map(() => "?").join(", ")})`);
   params.push(...statuses);
   if (filter.ready) {
@@ -268,6 +276,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     query: q.q,
     blocked: q.blocked,
     delegated: q.delegated,
+    archived: q.archived,
   };
   const scope = scopeWhere(db, filter);
   const scopeSql = scope.where.map((w) => ` AND ${w}`).join("");
@@ -327,7 +336,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     ...issue,
     plan: loadPlan(db, row.id, row.plan_source),
     documents: loadIssueDocuments(db, row.id),
-    children: selectIssues(db, "WHERE i.parent_id = ? ORDER BY i.number", [row.id]),
+    children: selectIssues(db, "WHERE i.parent_id = ? AND i.archived_at IS NULL ORDER BY i.number", [row.id]),
     relations: loadRelations(db, row.id),
     questions,
     openQuestions: questions.filter((q) => q.answer === null),
@@ -395,7 +404,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) setColumn(ctx, row, "description", input.description);
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
@@ -403,7 +412,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);
     if (input.assignee !== undefined) setColumn(ctx, row, "assignee", input.assignee);
     if (input.parentRef !== undefined) {
-      const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
+      const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
       if (parent?.id === row.id) throw new NodError("INVALID_ARGS", "Issue 自身を親にはできません");
       if (parent && isAncestor(ctx.db, row.id, parent.id)) {
         throw new NodError("INVALID_ARGS", `${input.parentRef} は ${ref} の子孫なので親にはできません（循環します）`);
@@ -436,7 +445,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
 export function commentIssue(ctx: OpCtx, ref: string, body: string, opts: { replyTo?: number } = {}): Comment {
   requireText(body, "本文");
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const parentId = opts.replyTo === undefined ? null : threadRootId(ctx, row, opts.replyTo);
     return addComment(ctx, row, body, parentId);
   });
@@ -448,7 +457,7 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM はコメントのスレッドを解決済み・未解決にできません。判断は me に依頼してください");
   }
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const rootId = threadRootId(ctx, row, commentId);
     const current = ctx.db.query("SELECT * FROM comments WHERE id = ?").get(rootId) as CommentRow;
     if ((current.resolved_at !== null) !== resolved) {
@@ -470,6 +479,38 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
       resolvedAt: c.resolved_at,
       resolvedBy: c.resolved_by,
     };
+  });
+}
+
+// アーカイブは status と別の属性で、Issue を既定の一覧・ボード・Inbox・next から外す。人（LLM 以外）だけが行える。
+// 子・関係はそのまま残し、アーカイブ済みはブロック元として数えない。すでにアーカイブ済みなら何もしない（自動アーカイブからも呼ぶ）
+export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string } = {}): Issue {
+  if (isLlm(ctx)) {
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue をアーカイブできません。アーカイブは me に依頼してください");
+  }
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    if (row.archived_at === null) {
+      const ts = now();
+      ctx.db.query("UPDATE issues SET archived_at = ?, updated_at = ? WHERE id = ?").run(ts, ts, row.id);
+      recordEvent(ctx.db, row.id, ctx.actor, "archived", opts.reason?.trim() ? { reason: opts.reason } : {});
+    }
+    return toIssue(issueRowById(ctx.db, row.id));
+  });
+}
+
+// アーカイブ済みの Issue を元に戻す。status はアーカイブ前のまま。アーカイブされていなければ何もしない
+export function unarchiveIssue(ctx: OpCtx, ref: string): Issue {
+  if (isLlm(ctx)) {
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue を復元できません。復元は me に依頼してください");
+  }
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    if (row.archived_at !== null) {
+      ctx.db.query("UPDATE issues SET archived_at = NULL, updated_at = ? WHERE id = ?").run(now(), row.id);
+      recordEvent(ctx.db, row.id, ctx.actor, "unarchived");
+    }
+    return toIssue(issueRowById(ctx.db, row.id));
   });
 }
 
@@ -498,6 +539,6 @@ export function relateIssue(ctx: OpCtx, ref: string, rel: RelateInput): IssueDet
   if (picked.length !== 1 || !only) {
     throw new NodError("INVALID_ARGS", "--blocks、--related、--duplicate-of のどれか1つを指定してください");
   }
-  tx(ctx.db, () => addRelation(ctx, findIssueRow(ctx.db, ref), findIssueRow(ctx.db, only[1]), only[0]));
+  tx(ctx.db, () => addRelation(ctx, findWritableIssueRow(ctx.db, ref), findWritableIssueRow(ctx.db, only[1]), only[0]));
   return getIssue(ctx.db, ref);
 }

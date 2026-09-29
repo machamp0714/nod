@@ -35,6 +35,8 @@ export const useAskQuestion = (id: string) => useIssueOperation<{ question: stri
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
 export const useCopyIssue = (id: string) => useIssueOperation<{ title?: string }, Issue>(id, "copy");
+export const useArchiveIssue = (id: string) => useIssueOperation<{ reason?: string }, Issue>(id, "archive");
+export const useUnarchiveIssue = (id: string) => useIssueOperation<Record<string, never>, Issue>(id, "unarchive");
 export const useCommentIssue = (id: string) => useIssueOperation<{ body: string; parentId?: number }, Comment>(id, "comment");
 export const useResolveThread = (id: string) =>
   useIssueOperation<{ commentId: number; resolved: boolean }, Comment>(id, "resolve-thread");
