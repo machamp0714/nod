@@ -15,7 +15,7 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
-import { collapseNotifications, lastNotificationId } from "../notify";
+import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
 import { readReviewSummaries } from "../review-summary";
 import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
 import { addRelation, requireText, updateIssue } from "./issues";
@@ -103,6 +103,7 @@ export function answerQuestion(
       setColumn(ctx, row, "agent_state", "working", { trigger: "answer" });
     }
     leaveClarification(ctx, row);
+    if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     const answered = targets.map((q) => toQuestion({ ...q, answer, answered_by: ctx.actor, answered_at: ts }, issueId));
     return { issue: toIssue(issueRowById(ctx.db, row.id)), answered };
   });
@@ -213,6 +214,7 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
     setColumn(ctx, row, "status", "done");
     recordEvent(ctx.db, row.id, ctx.actor, "review_approved", {});
     collapseNotifications(ctx.db, row.id, since, "review_approved");
+    readAgentNotifications(ctx.db, row.id, ctx.actor);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -228,6 +230,7 @@ export function rejectReview(ctx: OpCtx, ref: string, reason: string): Issue {
     setColumn(ctx, row, "agent_state", null);
     recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", { reason });
     collapseNotifications(ctx.db, row.id, since, "review_rejected");
+    if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

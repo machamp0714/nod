@@ -178,6 +178,11 @@ export function describeNotification(n: Notification): string {
       return `${n.actor} が Triage を受け入れ`;
     case "triage_declined":
       return `${n.actor} が Triage を却下${d.reason ? `: ${d.reason}` : ""}`;
+    case "agent_state_changed":
+      if (d.to === "done") return `${n.actor} が作業を完了（レビュー待ち）`;
+      if (d.to === "awaiting_input") return `${n.actor} が確認を求めた（入力待ち）${d.reason ? `: ${d.reason}` : ""}`;
+      if (d.to === "error") return `${n.actor} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
+      return `${n.actor} ${n.eventType}`;
     default:
       return `${n.actor} ${n.eventType}`;
   }

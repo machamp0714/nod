@@ -5,6 +5,7 @@ import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
 import { READY_WHERE, findIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
+import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
 import { resolveProject } from "./projects";
@@ -152,8 +153,10 @@ export function failIssue(ctx: OpCtx, ref: string, reason: string): Issue {
   requireText(reason, "理由");
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
+    const since = lastNotificationId(ctx.db);
     addComment(ctx, row, `エラー: ${reason}`);
     setColumn(ctx, row, "agent_state", "error", { reason });
+    collapseIntoAgentNotification(ctx.db, row.id, since);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -168,10 +171,12 @@ export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; 
         `${ref} は ${row.status} です。着手中（in_progress）の Issue だけをレビューに回せます`,
       );
     }
+    const since = lastNotificationId(ctx.db);
     const report = addComment(ctx, row, opts.summary);
     if (opts.prUrl) setColumn(ctx, row, "pr_url", opts.prUrl);
     setColumn(ctx, row, "status", "in_review", { report_comment_id: report.id });
     setColumn(ctx, row, "agent_state", "done");
+    collapseIntoAgentNotification(ctx.db, row.id, since);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

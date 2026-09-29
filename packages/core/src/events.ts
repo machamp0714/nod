@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { now, type OpCtx } from "./ctx";
 import { formatIssueId, type IssueRow } from "./issue-query";
 import { NodError } from "./errors";
-import { notifySubscribers } from "./notify";
+import { notifyDelegator, notifySubscribers } from "./notify";
 import type { Comment } from "./types";
 
 export function recordEvent(
@@ -16,6 +16,7 @@ export function recordEvent(
     .query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)")
     .run(issueId, actor, type, JSON.stringify(data), now());
   notifySubscribers(db, issueId, actor, type, { eventId: Number(lastInsertRowid) }, data);
+  notifyDelegator(db, issueId, actor, type, Number(lastInsertRowid), data);
 }
 
 export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: number | null = null): Comment {

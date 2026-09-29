@@ -37,6 +37,11 @@ export function describeNotification(n: Notification, opts: { short?: boolean } 
       return `${who} が Triage を受け入れました`;
     case "triage_declined":
       return `${who} が Triage を却下しました${quote(d.reason)}`;
+    case "agent_state_changed":
+      if (to === "done") return `${who} が作業を完了しました（レビュー待ち）`;
+      if (to === "awaiting_input") return `${who} が確認を求めました（入力待ち）${quote(d.reason)}`;
+      if (to === "error") return `${who} がエラーで止まりました（エラー）${quote(d.reason)}`;
+      return `${who} ${n.eventType}`;
     default:
       return `${who} ${n.eventType}`;
   }

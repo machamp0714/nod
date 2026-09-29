@@ -18,7 +18,7 @@ import { formatIssueLine, formatNotification, print } from "../output";
 export function registerHumanCommands(program: Command): void {
   program
     .command("inbox")
-    .description("全 Workspace の LLM からの確認依頼とレビュー待ち、購読中の Issue の未読の通知を一覧する")
+    .description("全 Workspace の LLM からの確認依頼とレビュー待ち、購読中の Issue と LLM に任せた Issue の未読の通知を一覧する")
     .action(
       act((cli) => {
         const inbox = { ...getInbox(cli.db), notifications: listNotifications(cli.db) };
@@ -53,7 +53,7 @@ export function registerHumanCommands(program: Command): void {
       }),
     );
 
-  const notification = program.command("notification").description("購読中の Issue の変化の通知を扱う");
+  const notification = program.command("notification").description("購読中の Issue の変化と、LLM に任せた Issue の完了・入力待ち・エラーの通知を扱う");
   notification
     .command("list")
     .description("通知を新しい順に一覧する（既定は未読だけ）")

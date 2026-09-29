@@ -23,6 +23,15 @@ describe("describeNotification", () => {
     expect(describeNotification(n({ eventType: "review_rejected", data: { reason: "再度" } }))).toBe("codex が差し戻しました：「再度」");
     expect(describeNotification(n({ eventType: "unknown_type" }))).toBe("codex unknown_type");
   });
+
+  test("LLM の完了・入力待ち・エラーは Pencil の行の形で表し、short では質問・理由を省く（#54）", () => {
+    const agent = (to: string, reason?: string) => n({ kind: "agent", eventType: "agent_state_changed", data: { from: "working", to, agent: "codex", ...(reason ? { reason } : {}) } });
+    expect(describeNotification(agent("done"))).toBe("codex が作業を完了しました（レビュー待ち）");
+    expect(describeNotification(agent("awaiting_input", "進めてよいか"))).toBe("codex が確認を求めました（入力待ち）：「進めてよいか」");
+    expect(describeNotification(agent("awaiting_input", "進めてよいか"), { short: true })).toBe("codex が確認を求めました（入力待ち）");
+    expect(describeNotification(agent("error", "DB に接続できない"))).toBe("codex がエラーで止まりました（エラー）：「DB に接続できない」");
+    expect(describeNotification(agent("error", "DB に接続できない"), { short: true })).toBe("codex がエラーで止まりました（エラー）");
+  });
 });
 
 describe("groupNotifications", () => {
