@@ -315,6 +315,8 @@ export interface TriageSuggestions {
   duplicates: DuplicateSuggestion[];
   labels: LabelSuggestion[];
   assignees: AssigneeSuggestion[];
+}
+
 // PR 状態（#67）。gh pr view の結果を人・LLM の明示操作で取得して保存したもの
 export const PR_STATES = ["OPEN", "CLOSED", "MERGED"] as const;
 export type PrState = (typeof PR_STATES)[number];
