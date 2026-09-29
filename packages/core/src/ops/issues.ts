@@ -63,42 +63,76 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
   }
   if (input.priority !== undefined) validatePriority(input.priority);
   return tx(ctx.db, () => {
-    const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
-      id: number;
-      next_number: number;
-    } | null;
-    if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
-    const status: Status = isLlm(ctx) ? "triage" : "todo";
-    const ts = now();
-    ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
-    const { lastInsertRowid } = ctx.db
-      .query(
-        `INSERT INTO issues (workspace_id, number, title, description, status, priority, parent_id, project_id, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        ws.id,
-        ws.next_number,
-        input.title,
-        description,
-        status,
-        input.priority ?? 0,
-        parent?.id ?? null,
-        project?.id ?? null,
-        ctx.actor,
-        ts,
-        ts,
-      );
-    const id = Number(lastInsertRowid);
-    for (const label of new Set(input.labels ?? [])) {
-      ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
-    }
-    recordEvent(ctx.db, id, ctx.actor, "created", { status, ...(source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {}) });
-    return toIssue(issueRowById(ctx.db, id));
+    return insertIssue(ctx, {
+      workspaceId: input.workspaceId,
+      title: input.title,
+      description,
+      priority: input.priority ?? 0,
+      parentId: parent?.id ?? null,
+      projectId: project?.id ?? null,
+      labels: input.labels ?? [],
+      origin: source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {},
+    });
+  });
+}
+
+interface NewIssueRow {
+  workspaceId: number;
+  title: string;
+  description: string | null;
+  priority: number;
+  parentId: number | null;
+  projectId: number | null;
+  labels: string[];
+  origin: Record<string, string>; // created の event に残す由来（発見元、複製元）
+}
+
+// 起票と複製で共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
+function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
+  const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
+    id: number;
+    next_number: number;
+  } | null;
+  if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
+  const status: Status = isLlm(ctx) ? "triage" : "todo";
+  const ts = now();
+  ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
+  const { lastInsertRowid } = ctx.db
+    .query(
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, parent_id, project_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(ws.id, ws.next_number, input.title, input.description, status, input.priority, input.parentId, input.projectId, ctx.actor, ts, ts);
+  const id = Number(lastInsertRowid);
+  for (const label of new Set(input.labels)) {
+    ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
+  }
+  recordEvent(ctx.db, id, ctx.actor, "created", { status, ...input.origin });
+  return toIssue(issueRowById(ctx.db, id));
+}
+
+// 既存の Issue から新しい Issue を作る。複製するのはタイトル・説明・Project・ラベル・優先度だけで、
+// 担当・進行状態・親子・関係・PR・実行場所・計画・Documents・質問・コメント・Activity は引き継がない。元の Issue は変えない
+export function copyIssue(ctx: OpCtx, ref: string, opts: { title?: string } = {}): Issue {
+  if (opts.title !== undefined) requireText(opts.title, "タイトル");
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    const labels = (ctx.db.query("SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label").all(row.id) as { label: string }[])
+      .map((l) => l.label);
+    return insertIssue(ctx, {
+      workspaceId: row.workspace_id,
+      title: opts.title ?? row.title,
+      description: row.description,
+      priority: row.priority,
+      parentId: null,
+      projectId: row.project_id,
+      labels,
+      origin: { copied_from: formatIssueId(row.ws_key, row.number) },
+    });
   });
 }
 

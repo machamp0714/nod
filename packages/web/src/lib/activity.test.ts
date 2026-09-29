@@ -6,6 +6,10 @@ const at = "2026-09-28T00:00:00.000Z";
 describe("describeActivity", () => {
   test("書き手つきの文にする", () => {
     expect(describeActivity({ kind: "event", at, actor: "me", type: "created", data: { status: "todo" } }).text).toBe("me が起票した");
+    expect(describeActivity({ kind: "event", at, actor: "me", type: "created", data: { status: "todo", copied_from: "API-1" } })).toEqual({
+      icon: "copy",
+      text: "me が API-1 から複製した",
+    });
     expect(
       describeActivity({ kind: "event", at, actor: "claude-code", type: "status_changed", data: { from: "todo", to: "in_progress" } }).text,
     ).toBe("claude-code がステータスを Todo から In Progress に変えた");

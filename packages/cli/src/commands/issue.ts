@@ -6,6 +6,7 @@ import {
   attachDocument,
   commentIssue,
   completeIssue,
+  copyIssue,
   createIssue,
   detachDocument,
   failIssue,
@@ -69,6 +70,17 @@ export function registerIssueCommands(program: Command): void {
           print(cli, created, () => `起票しました: ${formatIssueLine(created)}`);
         },
       ),
+    );
+
+  issue
+    .command("copy <id>")
+    .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度だけを引き継ぎ、元の Issue は変えない）")
+    .option("--title <text>", "複製のタイトル（省くと元のタイトル）")
+    .action(
+      act((cli, _cmd, id: string, o: { title?: string }) => {
+        const copied = copyIssue(cli.ctx, id, { title: o.title });
+        print(cli, copied, () => `${id.toUpperCase()} から複製しました: ${formatIssueLine(copied)}`);
+      }),
     );
 
   issue

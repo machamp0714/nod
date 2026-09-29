@@ -7,6 +7,7 @@ import {
   approveReview,
   askQuestion,
   commentIssue,
+  copyIssue,
   declineTriage,
   duplicateTriage,
   NodError,
@@ -98,6 +99,7 @@ const OPS: Record<string, Op> = {
   approve: { keys: [], run: (me, ref) => approveReview(me, ref) },
   reject: { keys: ["reason"], run: (me, ref, b) => rejectReview(me, ref, reqString(b, "reason")) },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
+  copy: { keys: ["title"], run: (me, ref, b) => copyIssue(me, ref, { title: optString(b, "title") }), created: true },
   comment: { keys: ["body"], run: (me, ref, b) => commentIssue(me, ref, reqString(b, "body")), created: true },
 };
 
