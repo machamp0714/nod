@@ -24,6 +24,8 @@ import {
 
 import { parseInboxSearch } from "./routes/inbox-search";
 import { parseAnalyticsSearch } from "./lib/analytics";
+import { parseSummarySearch } from "./lib/summary";
+import { SummaryPage } from "./pages/SummaryPage";
 
 const rootRoute = createRootRoute({ component: AppLayout, notFoundComponent: NotFoundPage });
 
@@ -56,6 +58,7 @@ const newDocumentRoute = createRoute({
   component: NewDocumentPage,
 });
 const analyticsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analytics", validateSearch: parseAnalyticsSearch, component: AnalyticsPage });
+const summaryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/summary", validateSearch: parseSummarySearch, component: SummaryPage });
 const documentRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents/$documentId", component: DocumentPage });
 
 const workspaceSettingsRoute = createRoute({
@@ -79,6 +82,7 @@ const routeTree = rootRoute.addChildren([
   documentRoute,
   workspaceSettingsRoute,
   analyticsRoute,
+  summaryRoute,
 ]);
 
 export const router = createRouter({ routeTree });
