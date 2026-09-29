@@ -1,4 +1,5 @@
 import type { Notification, Status } from "../api/types";
+import { formatEstimate } from "./due-date";
 import { priorityMeta, STATUS_META } from "./meta";
 
 // 通知1件の文。short は一覧の行で使い、コメント本文や理由を省く
@@ -12,6 +13,10 @@ export function describeNotification(n: Notification, opts: { short?: boolean } 
       return `${who} がステータスを ${STATUS_META[to as Status]?.label ?? String(to)} に変更しました`;
     case "priority_changed":
       return `${who} が優先度を ${priorityMeta(Number(to ?? 0)).label} に変更しました`;
+    case "estimate_changed":
+      return to === null ? `${who} が見積もりを外しました` : `${who} が見積もりを ${formatEstimate(Number(to))} に変更しました`;
+    case "due_date_changed":
+      return to === null ? `${who} が期限を外しました` : `${who} が期限を ${String(to)} に変更しました`;
     case "assignee_changed":
       return to === null ? `${who} が担当者を外しました` : `${who} が担当者を ${String(to)} に変更しました`;
     case "title_changed":
