@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { HUMAN_ACTOR } from "../ctx";
 import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
@@ -223,4 +224,95 @@ export function completionStats(db: Database, q: StatsQuery = {}): CompletionSta
       work: summarizeWork(acc.flatMap((b) => b.minutes)),
     },
   };
+}
+
+export interface LlmBucket {
+  start: string;
+  end: string;
+  assigned: number; // その LLM が担当になった回数（自分で取った・人が割り当てたの両方）
+  submitted: number; // その LLM がレビューに回した回数
+  completed: number; // その LLM に帰属する done の件数
+  work: WorkTime;
+}
+
+export interface LlmWorkload {
+  name: string;
+  buckets: LlmBucket[];
+  totals: Omit<LlmBucket, "start" | "end">;
+}
+
+export interface LlmStats extends StatsRange {
+  buckets: { start: string; end: string }[];
+  llms: LlmWorkload[];
+}
+
+// LLM が担当になった assignee_changed の to。人（me）と担当なしは除く
+const LLM_ASSIGNEE = `json_extract(e.data, '$.to') IS NOT NULL AND json_extract(e.data, '$.to') <> '${HUMAN_ACTOR}'`;
+
+// LLM ごとの作業量。LLM は done にできないため、完了は closed_at 以前で最後に LLM を担当にした記録へ帰属させる
+export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
+  const frame = statsFrame(q);
+  const scope = issueScope(db, q);
+  type Acc = { assigned: number; submitted: number; completed: number; minutes: (number | null)[] };
+  const perLlm = new Map<string, Acc[]>();
+  const accOf = (name: string) => {
+    let acc = perLlm.get(name);
+    if (!acc) perLlm.set(name, (acc = frame.buckets.map(() => ({ assigned: 0, submitted: 0, completed: 0, minutes: [] }))));
+    return acc;
+  };
+  const bucketAt = (at: string) => {
+    const t = recordedTimestamp(at);
+    return t === null ? -1 : frame.bucketOf(t);
+  };
+
+  const events = db.query(`SELECT e.type, e.actor, json_extract(e.data, '$.to') AS "to", e.created_at
+    FROM events e JOIN issues i ON i.id = e.issue_id
+    WHERE ((e.type = 'assignee_changed' AND ${LLM_ASSIGNEE})
+      OR (e.type = 'status_changed' AND e.actor <> ? AND json_extract(e.data, '$.to') = 'in_review'))
+      AND e.created_at >= ? AND e.created_at < ?${scope.where}`)
+    .all(HUMAN_ACTOR, frame.since, frame.until, ...scope.params) as
+    { type: string; actor: string; to: string; created_at: string }[];
+  for (const e of events) {
+    const n = bucketAt(e.created_at);
+    if (n < 0) continue;
+    if (e.type === "assignee_changed") accOf(e.to)[n]!.assigned++;
+    else accOf(e.actor)[n]!.submitted++;
+  }
+
+  const done = db.query(`SELECT i.started_at, i.closed_at, ${WORK_END_SQL} AS work_end,
+      (SELECT json_extract(e.data, '$.to') FROM events e WHERE e.issue_id = i.id AND e.type = 'assignee_changed'
+        AND ${LLM_ASSIGNEE} AND e.created_at <= i.closed_at ORDER BY e.id DESC LIMIT 1) AS llm
+    FROM issues i
+    WHERE i.status = 'done' AND i.closed_at >= ? AND i.closed_at < ?${scope.where}`)
+    .all(frame.since, frame.until, ...scope.params) as
+    { started_at: string | null; closed_at: string; work_end: string | null; llm: string | null }[];
+  for (const row of done) {
+    if (row.llm === null) continue;
+    const n = bucketAt(row.closed_at);
+    if (n < 0) continue;
+    const bucket = accOf(row.llm)[n]!;
+    bucket.completed++;
+    bucket.minutes.push(workMinutes(row.started_at, row.work_end));
+  }
+
+  const sum = (acc: Acc[], key: "assigned" | "submitted" | "completed") => acc.reduce((s, b) => s + b[key], 0);
+  const llms = [...perLlm].map(([name, acc]): LlmWorkload => ({
+    name,
+    buckets: frame.buckets.map((b, n) => ({
+      ...b,
+      assigned: acc[n]!.assigned,
+      submitted: acc[n]!.submitted,
+      completed: acc[n]!.completed,
+      work: summarizeWork(acc[n]!.minutes),
+    })),
+    totals: {
+      assigned: sum(acc, "assigned"),
+      submitted: sum(acc, "submitted"),
+      completed: sum(acc, "completed"),
+      work: summarizeWork(acc.flatMap((b) => b.minutes)),
+    },
+  }));
+  llms.sort((a, b) => b.totals.completed - a.totals.completed || b.totals.assigned - a.totals.assigned
+    || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { by: frame.by, from: frame.from, to: frame.to, tz: frame.tz, buckets: frame.buckets, llms };
 }

@@ -1,4 +1,4 @@
-import { type CompletionStats, completionStats, NodError, STATS_GRANULARITIES, type StatsGranularity, type StatsQuery, type WorkTime } from "@nod/core";
+import { type CompletionStats, completionStats, type LlmStats, llmStats, NodError, STATS_GRANULARITIES, type StatsGranularity, type StatsQuery, type WorkTime } from "@nod/core";
 import type { Command } from "commander";
 import { act, type Cli, currentWorkspace } from "../context";
 import { print } from "../output";
@@ -22,7 +22,9 @@ function withStatsOptions(cmd: Command): Command {
     .option("--all-workspaces", "すべての Workspace を集計する（既定は現在の Workspace）");
 }
 
-function statsQuery(cli: Cli, cmd: Command, o: StatsOptions): StatsQuery {
+// stats と stats llm は同じオプションを持つ。どちらに書かれた値も拾うため、親の値と合わせて読む
+function statsQuery(cli: Cli, cmd: Command): StatsQuery {
+  const o = cmd.optsWithGlobals() as StatsOptions;
   if (o.by !== undefined && !STATS_GRANULARITIES.includes(o.by as StatsGranularity)) {
     throw new NodError("INVALID_ARGS", `--by には ${STATS_GRANULARITIES.join(" か ")} を指定してください（${o.by}）`);
   }
@@ -60,12 +62,34 @@ function formatCompletion(s: CompletionStats): string {
   ].join("\n");
 }
 
+function formatLlm(s: LlmStats): string {
+  const head = `${s.from}〜${s.to}（${s.by === "day" ? "日" : "週"}ごと、${s.tz}）`;
+  if (!s.llms.length) return `${head}\nこの期間に LLM の作業はありません`;
+  return [
+    head,
+    ...s.llms.flatMap((l) => [
+      "",
+      `${l.name}  完了 ${l.totals.completed}  担当開始 ${l.totals.assigned}  レビュー提出 ${l.totals.submitted}  作業時間 ${formatWork(l.totals.work)}`,
+      ...l.buckets.map((b) => `  ${period(b.start, b.end)}  完了 ${b.completed}  担当開始 ${b.assigned}  レビュー提出 ${b.submitted}  作業時間 ${formatWork(b.work)}`),
+    ]),
+  ].join("\n");
+}
+
 export function registerStatsCommands(program: Command): void {
-  withStatsOptions(
+  const stats = withStatsOptions(
     program.command("stats").description("完了数と作業時間（着手からレビュー提出まで）の推移を集計する"),
+  );
+  withStatsOptions(
+    stats.command("llm").description("LLM ごとの作業量（完了・担当開始・レビュー提出・作業時間）の推移を集計する"),
   ).action(
-    act((cli, cmd, o: StatsOptions) => {
-      const stats = completionStats(cli.db, statsQuery(cli, cmd, o));
+    act((cli, cmd) => {
+      const result = llmStats(cli.db, statsQuery(cli, cmd));
+      print(cli, result, () => formatLlm(result));
+    }),
+  );
+  stats.action(
+    act((cli, cmd) => {
+      const stats = completionStats(cli.db, statsQuery(cli, cmd));
       print(cli, stats, () => formatCompletion(stats));
     }),
   );

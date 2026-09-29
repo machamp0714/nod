@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, createProject, findIssueRow, initWorkspace, updateIssue } from "@nod/core";
+import { createIssue, createProject, findIssueRow, initWorkspace, llmStats, startIssue, updateIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 function seed() {
@@ -50,5 +50,20 @@ describe("GET /api/stats", () => {
     }
     const missing = await call(app, "GET", "/api/stats?project=ない");
     expect([missing.status, missing.json.error.code]).toEqual([404, "NOT_FOUND"]);
+  });
+});
+
+describe("GET /api/stats/llm", () => {
+  test("LLM ごとの作業量を返し、同じ絞り込みと検証を使う", async () => {
+    const { app, db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    startIssue(llm, a.id);
+    db.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z'").run();
+    const r = await call(app, "GET", `/api/stats/llm?${RANGE}&workspace=${ws.key}`);
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual(llmStats(db, { by: "day", from: "2026-09-01", to: "2026-09-02", tz: "UTC", workspace: [ws.key] }));
+    expect(r.json.llms.map((l: { name: string; totals: { assigned: number } }) => [l.name, l.totals.assigned])).toEqual([["claude-code", 1]]);
+    const bad = await call(app, "GET", "/api/stats/llm?by=month");
+    expect([bad.status, bad.json.error.code]).toEqual([400, "INVALID_ARGS"]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { completionStats, createIssue, findIssueRow, findWorkspace, initWorkspace, openDb, updateIssue } from "@nod/core";
+import { completeIssue, completionStats, createIssue, llmStats, startIssue, findIssueRow, findWorkspace, initWorkspace, openDb, updateIssue } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 // 現在の Workspace に2件、別の Workspace に1件の done を 2026-09-01 に作る
@@ -60,5 +60,42 @@ describe("nod stats", () => {
     }
     const missing = await runNod(["stats", "--all-workspaces", "--project", "ない", "--json"], { cwd, db });
     expect(missing.json.error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("nod stats llm", () => {
+  test("LLM ごとの作業量を core と同じ数値で返し、文字では LLM ごとに期間の行を出す", async () => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const d = openDb(db);
+    const ws = findWorkspace(d, repo)!;
+    const me = { db: d, actor: "me" };
+    const llm = { db: d, actor: "codex" };
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    startIssue(llm, a.id);
+    completeIssue(llm, a.id, { summary: "済" });
+    updateIssue(me, a.id, { status: "done" });
+    const id = findIssueRow(d, a.id).id;
+    d.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z' WHERE issue_id = ?").run(id);
+    d.query("UPDATE issues SET started_at = '2026-09-01T00:00:00.000Z', closed_at = '2026-09-01T02:00:00.000Z' WHERE id = ?").run(id);
+    const q = { by: "day" as const, from: "2026-09-01", to: "2026-09-02", tz: "UTC", workspace: [ws.key] };
+
+    const json = await runNod(["stats", "llm", ...RANGE, "--json"], { cwd: repo, db });
+    expect(json.exitCode).toBe(0);
+    expect(json.json).toEqual(llmStats(d, q));
+    const text = await runNod(["stats", "llm", ...RANGE], { cwd: repo, db });
+    expect(text.stdout).toBe([
+      "2026-09-01〜2026-09-02（日ごと、UTC）",
+      "",
+      "codex  完了 1  担当開始 1  レビュー提出 1  作業時間 中央値 1分未満  合計 1分未満  記録なし 0",
+      "  2026-09-01  完了 1  担当開始 1  レビュー提出 1  作業時間 中央値 1分未満  合計 1分未満  記録なし 0",
+      "  2026-09-02  完了 0  担当開始 0  レビュー提出 0  作業時間 中央値 -  合計 -  記録なし 0",
+      "",
+    ].join("\n"));
+    const empty = await runNod(["stats", "llm", "--by", "day", "--from", "2026-08-01", "--to", "2026-08-02", "--tz", "UTC"], { cwd: repo, db });
+    expect(empty.stdout).toContain("この期間に LLM の作業はありません");
+    const bad = await runNod(["stats", "llm", "--by", "month", "--json"], { cwd: repo, db });
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
   });
 });
