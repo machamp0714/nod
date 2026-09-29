@@ -59,4 +59,29 @@ test("通知の要約は種別ごとに変化を表す", async () => {
   expect(say("labels_changed", { added: ["bug"], removed: ["ui"] })).toBe("codex がラベルを変更: +bug -ui");
   expect(say("review_rejected", { reason: "直して" })).toBe("codex が差し戻し: 直して");
   expect(say("triage_accepted")).toBe("codex が Triage を受け入れ");
+  expect(say("agent_state_changed", { from: "working", to: "done", agent: "codex" })).toBe("codex が作業を完了（レビュー待ち）");
+  expect(say("agent_state_changed", { from: "working", to: "awaiting_input", reason: "進めてよいか" })).toBe("codex が確認を求めた（入力待ち）: 進めてよいか");
+  expect(say("agent_state_changed", { from: "working", to: "error", reason: "落ちた" })).toBe("codex がエラーで停止: 落ちた");
+  // 操作したのが別の LLM でも、主語は担当（data.agent）
+  expect(say("agent_state_changed", { from: "working", to: "error", reason: "落ちた", agent: "claude-code" })).toBe("claude-code がエラーで停止: 落ちた");
+});
+
+test("購読していなくても、LLM に任せた Issue の完了・入力待ちが inbox と通知一覧に届く（#54）", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
+
+  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "start", "API-1"], "claude-code");
+  await nod(["issue", "ask", "API-1", "進めてよいか"], "claude-code");
+  const inbox = await nod(["inbox"]);
+  expect(inbox.stdout).toContain("通知（未読 1）");
+  expect(inbox.stdout).toContain("claude-code が確認を求めた（入力待ち）: 進めてよいか");
+
+  await nod(["answer", "API-1", "よい"]);
+  expect((await nod(["notification", "list", "--json"])).json).toEqual([]);
+  await nod(["issue", "done", "API-1", "--summary", "直した"], "claude-code");
+  const list = await nod(["notification", "list", "--json"]);
+  expect(list.json.map((n: { kind: string; data: { to: string } }) => [n.kind, n.data.to])).toEqual([["agent", "done"]]);
 });

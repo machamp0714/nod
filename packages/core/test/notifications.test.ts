@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
-import { acceptTriage, approveReview, getInbox, rejectReview } from "../src/ops/human";
+import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
+import { acceptTriage, answerQuestion, approveReview, getInbox, rejectReview } from "../src/ops/human";
 import { commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
   isSubscribed,
@@ -117,13 +117,15 @@ describe("購読中の Issue の変化の通知", () => {
     // 着手で起きる agent_state_changed は対象外。状態と担当の変化だけが届く
     expect(afterStart).toEqual(["assignee_changed", "status_changed"]);
     askQuestion(llm, a.id, "進めてよいか");
-    // 確認依頼は既存の Inbox の確認依頼で届くので、通知にしない
-    expect(listNotifications(db).map((n) => n.eventType).sort()).toEqual(afterStart);
+    // 確認依頼（question_asked）は既存の Inbox の確認依頼で届くので、購読の通知にしない。
+    // 入力待ちになったことは LLM の作業の通知（#54）で1件だけ届く
+    const afterAsk = [...afterStart, "agent_state_changed"].sort();
+    expect(listNotifications(db).map((n) => n.eventType).sort()).toEqual(afterAsk);
     expect(getInbox(db).questions).toHaveLength(1);
 
     unsubscribeIssue(me, a.id);
     commentIssue(llm, a.id, "解除後");
-    expect(listNotifications(db).map((n) => n.eventType).sort()).toEqual(afterStart);
+    expect(listNotifications(db).map((n) => n.eventType).sort()).toEqual(afterAsk);
   });
 
   test("1つのイベントから通知は1件だけで、再購読しても過去の変化は作り直さない", () => {
@@ -146,12 +148,14 @@ describe("購読中の Issue の変化の通知", () => {
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "直した" });
     const types = listNotifications(db).map((n) => n.eventType);
-    expect(types).toContain("comment_added");
-    expect(types.filter((t) => t === "status_changed")).toHaveLength(2);
+    // 完了報告のコメントとレビューへの移動は、LLM の完了の通知1件にまとまる（#54）
+    expect(types).not.toContain("comment_added");
+    expect(types.filter((t) => t === "status_changed")).toHaveLength(1);
+    expect(listNotifications(db)[0]).toEqual(expect.objectContaining({ kind: "agent", eventType: "agent_state_changed", data: expect.objectContaining({ to: "done" }) }));
     expect(getInbox(db).reviews.map((i) => i.id)).toEqual([a.id]);
     rejectReview(me, a.id, "やり直し");
-    // 自分の差し戻しは届かない
-    expect(listNotifications(db).map((n) => n.eventType)).toEqual(types);
+    // 自分の差し戻しは届かず、応じた LLM の完了の通知は既読になる
+    expect(listNotifications(db).map((n) => n.eventType)).toEqual(types.filter((t) => t !== "agent_state_changed"));
   });
 });
 
@@ -278,5 +282,141 @@ describe("コメントのスレッドへの返信（#48）", () => {
     commentIssue(llm, a.id, "返信", { replyTo: root.id });
     db.query("DELETE FROM comments WHERE id = ?").run(root.id);
     expect(listNotifications(db)).toEqual([]);
+  });
+});
+
+describe("LLM に任せた Issue の作業の通知（#54）", () => {
+  const agentOf = (db: ReturnType<typeof setup>["db"]) =>
+    listNotifications(db, { includeRead: true }).filter((n) => n.kind === "agent");
+
+  test("購読していなくても、完了・入力待ち・エラーが me に届く", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    // 着手（working）は通知しない
+    expect(listNotifications(db)).toEqual([]);
+
+    askQuestion(llm, a.id, "N+1 はどこまで直すか");
+    // 2問目は入力待ちのままなので、新しい通知は作らない
+    askQuestion(llm, a.id, "テストも足すか");
+    expect(listNotifications(db).map((n) => [n.kind, n.eventType, n.actor, n.data])).toEqual([
+      ["agent", "agent_state_changed", "claude-code", { from: "working", to: "awaiting_input", reason: "N+1 はどこまで直すか", agent: "claude-code" }],
+    ]);
+    answerQuestion(me, a.id, "全部");
+
+    failIssue(llm, a.id, "DB に接続できない");
+    completeIssue(llm, a.id, { summary: "直した" });
+    const list = agentOf(db);
+    expect(list.map((n) => n.data.to)).toEqual(["done", "error", "awaiting_input"]);
+    expect(list[1]?.data.reason).toBe("DB に接続できない");
+    expect(list.every((n) => n.issueId === a.id && n.issueTitle === "検索")).toBe(true);
+  });
+
+  test("担当が LLM でない Issue や、me 自身の操作では届かない", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(me, a.id);
+    failIssue(me, a.id, "自分で止めた");
+    completeIssue(me, a.id, { summary: "自分で直した" });
+    // 着手前の LLM の質問は確認依頼（needs_clarification）だけで、入力待ちの通知にしない
+    const b = createIssue(me, { workspaceId: ws.id, title: "画面" });
+    askQuestion(llm, b.id, "どの画面か");
+    expect(listNotifications(db, { includeRead: true })).toEqual([]);
+    expect(getInbox(db).questions).toHaveLength(1);
+  });
+
+  test("購読中でも、完了・エラーで同時に起きた変化は LLM の通知1件にまとめる", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    subscribeIssue(me, a.id);
+    startIssue(llm, a.id);
+    markNotificationsRead(me, { all: true });
+
+    failIssue(llm, a.id, "落ちた");
+    expect(listNotifications(db).map((n) => [n.kind, n.data.to])).toEqual([["agent", "error"]]);
+    markNotificationsRead(me, { all: true });
+
+    completeIssue(llm, a.id, { summary: "直した", prUrl: "https://example.com/pr/1" });
+    expect(listNotifications(db).map((n) => [n.kind, n.data.to])).toEqual([["agent", "done"]]);
+    // 1つのイベントから同じ宛先に2件は作らない
+    const dup = db.query("SELECT COUNT(*) AS n FROM notifications GROUP BY recipient, event_id HAVING n > 1").all();
+    expect(dup).toEqual([]);
+  });
+
+  test("me 以外の購読者の通知はまとめずに残す", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    const internal = (db.query("SELECT id FROM issues WHERE title = '検索'").get() as { id: number }).id;
+    db.query("INSERT INTO subscriptions (issue_id, subscriber, created_at) VALUES (?, 'other', ?)").run(internal, new Date().toISOString());
+    startIssue(llm, a.id);
+    const before = listNotifications(db, { recipient: "other" }).length;
+    completeIssue(llm, a.id, { summary: "直した" });
+    const other = listNotifications(db, { recipient: "other" });
+    expect(other.length - before).toBe(2);
+    expect(other.every((n) => n.kind === "issue_change")).toBe(true);
+    expect(agentOf(db).map((n) => n.data.to)).toEqual(["done"]);
+  });
+
+  test("me が回答・承認・差し戻しをすると、その Issue の未読の LLM の通知を既読にする", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "画面" });
+    subscribeIssue(me, a.id);
+    startIssue(llm, a.id);
+    startIssue(llm, b.id);
+    markNotificationsRead(me, { all: true });
+    askQuestion(llm, a.id, "進めてよいか");
+    askQuestion(llm, b.id, "こちらも");
+    commentIssue(llm, a.id, "補足");
+    answerQuestion(me, a.id, "よい");
+    // 回答した Issue の LLM の通知だけが既読になり、購読の通知と他の Issue は残る
+    expect(listNotifications(db).map((n) => [n.issueId, n.kind])).toEqual([
+      [a.id, "issue_change"],
+      [b.id, "agent"],
+    ]);
+
+    completeIssue(llm, a.id, { summary: "直した" });
+    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([a.id, b.id]);
+    rejectReview(me, a.id, "テスト不足");
+    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([b.id]);
+
+    completeIssue(llm, a.id, { summary: "再度直した" });
+    approveReview(me, a.id);
+    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([b.id]);
+    // 既読にしただけで、履歴には残る
+    expect(agentOf(db).filter((n) => n.issueId === a.id)).toHaveLength(3);
+  });
+
+  test("別の LLM が操作しても、通知には作業の担当（data.agent）を残す", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    failIssue({ db, actor: "codex" }, a.id, "落ちた");
+    expect(agentOf(db).map((n) => [n.actor, n.data.agent, n.data.to])).toEqual([["codex", "claude-code", "error"]]);
+  });
+
+  test("回答で既読にするのは入力待ちが解けたときだけで、me 自身の質問への回答や未回答が残る回答では既読にしない", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    askQuestion(llm, a.id, "進めてよいか");
+    askQuestion(llm, a.id, "テストも足すか");
+    const unread = () => listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.data.to);
+    expect(unread()).toEqual(["awaiting_input"]);
+    const llmQs = (db.query("SELECT id FROM questions WHERE asked_by <> 'me' ORDER BY id").all() as { id: number }[]).map((q) => q.id);
+
+    // me 自身が作った未決事項への回答では既読にしない
+    askQuestion(me, a.id, "自分用のメモ");
+    const mine = (db.query("SELECT id FROM questions WHERE asked_by = 'me'").get() as { id: number }).id;
+    answerQuestion(me, a.id, "あとで", { questionId: mine });
+    expect(unread()).toEqual(["awaiting_input"]);
+
+    // LLM の質問が残っている間は入力待ちのままなので既読にしない
+    answerQuestion(me, a.id, "よい", { questionId: llmQs[0]! });
+    expect(unread()).toEqual(["awaiting_input"]);
+
+    // 最後の質問に答えて入力待ちが解けたら既読にする
+    answerQuestion(me, a.id, "足す", { questionId: llmQs[1]! });
+    expect(unread()).toEqual([]);
   });
 });

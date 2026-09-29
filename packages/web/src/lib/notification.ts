@@ -4,7 +4,7 @@ import { priorityMeta, STATUS_META } from "./meta";
 
 // 通知1件の文。short は一覧の行で使い、コメント本文や理由を省く
 export function describeNotification(n: Notification, opts: { short?: boolean } = {}): string {
-  const d = n.data as { from?: unknown; to?: unknown; added?: string[]; removed?: string[]; reason?: string };
+  const d = n.data as { from?: unknown; to?: unknown; agent?: unknown; added?: string[]; removed?: string[]; reason?: string };
   const quote = (text: string | null | undefined) => (text && !opts.short ? `：「${text}」` : "");
   const to = d.to === null || d.to === undefined || d.to === "" ? null : d.to;
   const who = n.actor;
@@ -37,6 +37,14 @@ export function describeNotification(n: Notification, opts: { short?: boolean } 
       return `${who} が Triage を受け入れました`;
     case "triage_declined":
       return `${who} が Triage を却下しました${quote(d.reason)}`;
+    case "agent_state_changed": {
+      // 主語は操作した人ではなく、作業を任された担当（data.agent）
+      const agent = typeof d.agent === "string" ? d.agent : who;
+      if (to === "done") return `${agent} が作業を完了しました（レビュー待ち）`;
+      if (to === "awaiting_input") return `${agent} が確認を求めました（入力待ち）${quote(d.reason)}`;
+      if (to === "error") return `${agent} がエラーで止まりました（エラー）${quote(d.reason)}`;
+      return `${agent} ${n.eventType}`;
+    }
     default:
       return `${who} ${n.eventType}`;
   }

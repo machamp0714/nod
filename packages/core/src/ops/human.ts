@@ -15,7 +15,7 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
-import { collapseNotifications, lastNotificationId } from "../notify";
+import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
 import { readReviewSummaries } from "../review-summary";
 import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
 import { addRelation, requireText, updateIssue } from "./issues";
@@ -98,9 +98,11 @@ export function answerQuestion(
       update.run(answer, ctx.actor, ts, q.id);
       recordEvent(ctx.db, row.id, ctx.actor, "question_answered", { question_id: q.id });
     }
-    // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す
+    // LLM の質問がすべて回答されたら、止めていた作業を再開できる状態に戻す。
+    // その LLM の通知は入力待ちが解けたときだけ対応済みとして既読にする（me 自身の質問への回答や、未回答が残る回答では既読にしない）
     if (row.status === "in_progress" && row.agent_state === "awaiting_input" && openQuestionCount(ctx.db, row.id, { llmOnly: true }) === 0) {
       setColumn(ctx, row, "agent_state", "working", { trigger: "answer" });
+      if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     }
     leaveClarification(ctx, row);
     const answered = targets.map((q) => toQuestion({ ...q, answer, answered_by: ctx.actor, answered_at: ts }, issueId));
@@ -213,6 +215,7 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
     setColumn(ctx, row, "status", "done");
     recordEvent(ctx.db, row.id, ctx.actor, "review_approved", {});
     collapseNotifications(ctx.db, row.id, since, "review_approved");
+    readAgentNotifications(ctx.db, row.id, ctx.actor);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -228,6 +231,7 @@ export function rejectReview(ctx: OpCtx, ref: string, reason: string): Issue {
     setColumn(ctx, row, "agent_state", null);
     recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", { reason });
     collapseNotifications(ctx.db, row.id, since, "review_rejected");
+    if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

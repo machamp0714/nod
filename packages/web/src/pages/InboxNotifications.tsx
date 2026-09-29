@@ -19,7 +19,7 @@ export function useNotificationGroups() {
 }
 
 export function NotificationList({ groups, current, workspaceName }: { groups: NotificationGroup[]; current: NotificationGroup | undefined; workspaceName: (key: string) => string }) {
-  if (groups.length === 0) return <QueueEmpty>通知はありません。Issue を購読すると、変化がここに届きます</QueueEmpty>;
+  if (groups.length === 0) return <QueueEmpty>通知はありません。Issue を購読すると変化が、LLM に任せた Issue は完了・入力待ち・エラーがここに届きます</QueueEmpty>;
   return groups.map((group) => {
     const unread = group.unread > 0;
     return (

@@ -239,7 +239,7 @@ export interface IssueDetail extends Issue {
   subscribed: boolean; // me がこの Issue を購読しているか
 }
 
-// Inbox の通知。kind は今は issue_change（購読中の Issue の変化）だけ
+// Inbox の通知。kind は issue_change（購読中の Issue の変化）か agent（LLM に任せた Issue の完了・入力待ち・エラー。購読なしで me に届く）
 export interface Notification {
   id: number;
   kind: string;
