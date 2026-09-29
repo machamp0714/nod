@@ -95,7 +95,7 @@ export function registerHumanCommands(program: Command): void {
 
   notification
     .command("snooze [ids...]")
-    .description("通知を指定した日時までスヌーズする。期限が来ると未読として出し直す。id か --issue で指定する")
+    .description("通知を指定した日時までスヌーズする。期限が来ると Issue ごとに最新の1件を未読として出し直す。id か --issue で指定する")
     .requiredOption("--until <日時>", "期限（例: 2026-10-01、2026-10-01T09:00:00+09:00）")
     .option("--issue <id>", "この Issue の通知をまとめてスヌーズする")
     .action(
