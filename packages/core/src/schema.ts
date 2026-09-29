@@ -237,4 +237,11 @@ export const MIGRATIONS: MigrationStep[][] = [
       started_at TEXT NOT NULL
     )`,
   ],
+  // Workspace ごとの自動化（#71 自動クローズ・#72 自動アーカイブ）。日数が NULL ならそのルールは無効
+  [
+    `ALTER TABLE workspaces ADD COLUMN auto_close_days INTEGER`,
+    `ALTER TABLE workspaces ADD COLUMN auto_archive_days INTEGER`,
+    `ALTER TABLE workspaces ADD COLUMN automation_updated_at TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN automation_updated_by TEXT`,
+  ],
 ];

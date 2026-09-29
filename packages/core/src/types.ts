@@ -377,3 +377,40 @@ export interface WorkspaceLabel {
   createdAt: string;
   updatedAt: string;
 }
+
+// Workspace ごとの自動化ルール（#71 自動クローズ・#72 自動アーカイブ）。日数が null ならそのルールは無効
+export interface AutomationSettings {
+  workspaceKey: string;
+  closeAfterDays: number | null;
+  archiveAfterDays: number | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export type AutomationKind = "auto_close" | "auto_archive";
+
+export interface AutomationCandidate {
+  id: string;
+  title: string;
+  status: Status;
+  since: string; // 自動クローズは最後の活動、自動アーカイブは完了した日時
+  elapsedDays: number;
+}
+
+export interface AutomationRuleResult {
+  kind: AutomationKind;
+  days: number | null;
+  enabled: boolean;
+  total: number; // 条件に合う件数（上限を超えた分も含む）
+  candidates: AutomationCandidate[]; // 今回扱う分（上限まで、古い順）
+  processed: string[]; // 実行で変更した Issue。dry-run では空
+  failed: { id: string; message: string }[];
+  remaining: number; // 上限を超えて今回扱わなかった件数
+}
+
+export interface AutomationRun {
+  evaluatedAt: string;
+  workspaceKey: string;
+  dryRun: boolean;
+  rules: AutomationRuleResult[];
+}

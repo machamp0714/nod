@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { now } from "../ctx";
 import { NodError } from "../errors";
+import { latestActivity } from "../activity";
+import { findIssueRow } from "../issue-query";
 import { recordedTimestamp } from "../recorded-time";
 import type { Issue } from "../types";
 import { listIssues } from "./issues";
@@ -37,20 +39,10 @@ export function diagnoseIssues(db: Database, opts: {
   if (current === null) throw new NodError("INVALID_ARGS", "診断の基準日時が正しくありません");
   return db.transaction(() => {
     const issues = listIssues(db, { workspaceId: opts.workspaceId, projectRef: opts.projectRef });
-    const activity = db.query(`WITH target AS (SELECT id FROM issues WHERE workspace_id = ? AND number = ?)
-      SELECT created_at AS at FROM events WHERE issue_id IN target
-      UNION ALL SELECT created_at FROM comments WHERE issue_id IN target
-      UNION ALL SELECT asked_at FROM questions WHERE issue_id IN target
-      UNION ALL SELECT answered_at FROM questions WHERE issue_id IN target`);
     const findings: IssueDiagnosis[] = [];
     for (const issue of issues) {
-      const timestamps = [issue.createdAt, issue.updatedAt,
-        ...(activity.all(opts.workspaceId, issue.number) as { at: string | null }[]).map(row => row.at)];
-      let latest: number | null = null;
-      for (const timestamp of timestamps) {
-        const value = recordedTimestamp(timestamp);
-        if (value !== null && (latest === null || value > latest)) latest = value;
-      }
+      const row = findIssueRow(db, issue.id);
+      const latest = latestActivity(db, row.id, issue.createdAt, issue.updatedAt);
       const reasons: DiagnosisReason[] = [];
       if (issue.blockedBy.length) reasons.push({ type: "blocked", blockedBy: issue.blockedBy });
       const snoozedUntil = recordedTimestamp(issue.snoozedUntil);

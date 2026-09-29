@@ -39,7 +39,7 @@ export function setColumn(
   row: IssueRow,
   column: Column,
   to: string | number | null,
-  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer"; report_comment_id?: number } = {},
+  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer"; report_comment_id?: number; automation?: string } = {},
 ): boolean {
   const from = row[column];
   if (from === to) return false;
@@ -61,6 +61,8 @@ export function setColumn(
       to: "to" in extra ? extra.to : to,
     };
     if (extra.reason) data.reason = extra.reason;
+    // 人が実行した自動化ルールによる変更は、どのルールかを残す
+    if (extra.automation) data.automation = extra.automation;
     if (type === "status_changed" && to === "in_review" && extra.report_comment_id !== undefined) {
       data.report_comment_id = extra.report_comment_id;
     }

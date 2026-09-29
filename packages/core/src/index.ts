@@ -27,3 +27,4 @@ export * from "./ops/stats";
 export * from "./ops/triage-suggest";
 export * from "./work-log";
 export * from "./ops/pr-status";
+export * from "./ops/automation";
