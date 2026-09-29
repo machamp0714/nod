@@ -64,6 +64,10 @@ export function optInt(body: Body, key: string): number | undefined {
   return v;
 }
 
+export function optNullableInt(body: Body, key: string): number | null | undefined {
+  return body[key] === null ? null : optInt(body, key);
+}
+
 export function optStringArray(body: Body, key: string): string[] | undefined {
   const v = body[key];
   if (v === undefined) return undefined;
