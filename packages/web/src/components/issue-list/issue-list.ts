@@ -1,6 +1,6 @@
 import type { Issue, Status } from "../../api/types";
 import { BOARD_STATUSES, priorityMeta, STATUS_META, STATUS_ORDER } from "../../lib/meta";
-import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueTab, IssueSort, SortDirection } from "../../routes/search";
+import { defaultGroupBy, type IssueGroupBy, type IssueGroupKey, type IssueLayout, type IssueTab, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";
 
 function priorityRank(priority: number): number {
@@ -134,10 +134,10 @@ export function groupRows(
 
 // 画面に適用するグループ化。Board は列が Status なので Status のグループ化を無効にし、サブグループはリストだけで使う
 export function effectiveGrouping(
-  search: { groupBy?: IssueGroupBy; subGroupBy?: IssueGroupKey },
+  search: { groupBy?: IssueGroupBy; subGroupBy?: IssueGroupKey; tab?: IssueTab },
   layout: IssueLayout,
 ): { groupBy?: IssueGroupKey; subGroupBy?: IssueGroupKey } {
-  const groupBy = search.groupBy;
+  const groupBy = search.groupBy ?? defaultGroupBy(search.tab);
   if (!groupBy || groupBy === "none" || (layout === "board" && groupBy === "status")) return {};
   if (layout === "board" || !search.subGroupBy || search.subGroupBy === groupBy) return { groupBy };
   return { groupBy, subGroupBy: search.subGroupBy };

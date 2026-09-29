@@ -8,6 +8,7 @@ import {
   duplicateTriage,
   getInbox,
   listNotifications,
+  NOTIFICATION_READ_LIMIT,
   markNotificationsRead,
   NodError,
   rejectReview,
@@ -70,10 +71,18 @@ export function registerHumanCommands(program: Command): void {
     .description("通知を新しい順に一覧する（既定は未読だけ）")
     .option("--include-read", "既読の通知も含める")
     .option("--snoozed", "スヌーズ中の通知だけを一覧する（既読も含む）")
+    .option("--limit <n>", `既読の通知を最近既読にしたものから何件まで出すか（既定 ${NOTIFICATION_READ_LIMIT}。未読はすべて出す）`)
     .action(
-      act((cli, _cmd, o: { includeRead?: boolean; snoozed?: boolean }) => {
+      act((cli, _cmd, o: { includeRead?: boolean; snoozed?: boolean; limit?: string }) => {
         if (o.includeRead && o.snoozed) throw new NodError("INVALID_ARGS", "--include-read と --snoozed は同時に指定できません");
-        const list = listNotifications(cli.db, { includeRead: o.includeRead === true, snoozed: o.snoozed === true });
+        if (o.limit !== undefined && !o.includeRead && !o.snoozed) {
+          throw new NodError("INVALID_ARGS", "--limit は --include-read か --snoozed と一緒に指定してください");
+        }
+        const list = listNotifications(cli.db, {
+          includeRead: o.includeRead === true,
+          snoozed: o.snoozed === true,
+          readLimit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
+        });
         print(cli, list, () => (list.length ? list.map(formatNotification).join("\n") : "通知はありません"));
       }),
     );

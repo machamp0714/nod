@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
 import { acceptTriage, answerQuestion, approveReview, getInbox, rejectReview } from "../src/ops/human";
-import { commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
+import { archiveIssue, commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
   deleteNotifications,
   isSubscribed,
   listNotifications,
   markNotificationsRead,
+  NOTIFICATION_READ_LIMIT,
   NOTIFY_EVENT_TYPES,
   restoreNotifications,
   snoozeNotifications,
@@ -248,6 +249,77 @@ describe("通知の既読", () => {
     db.query("UPDATE notifications SET snoozed_until = ? WHERE id = ?").run("2999-01-01T00:00:00.000Z", first!.id);
     db.query("UPDATE notifications SET deleted_at = ? WHERE id = ?").run("2026-01-01T00:00:00.000Z", second!.id);
     expect(listNotifications(db, { includeRead: true })).toHaveLength(1);
+  });
+});
+
+describe("通知一覧の既読の上限（#98）", () => {
+  // Issue a にコメントを n 件（c1..cn、古い順）。既読の時刻は setRead で決める
+  function seeded(n: number) {
+    const s = setup();
+    const a = createIssue(s.me, { workspaceId: s.ws.id, title: "検索" });
+    subscribeIssue(s.me, a.id);
+    for (let i = 1; i <= n; i++) commentIssue(s.llm, a.id, `c${i}`);
+    const byBody = new Map(listNotifications(s.db).map((x) => [x.body!, x.id]));
+    const setRead = (body: string, at: string) =>
+      s.db.query("UPDATE notifications SET read_at = ? WHERE id = ?").run(at, byBody.get(body)!);
+    return { ...s, a, setRead };
+  }
+
+  test("既定の上限は 200 件", () => {
+    expect(NOTIFICATION_READ_LIMIT).toBe(200);
+  });
+
+  test("未読はすべて出し、既読は最近既読にしたものから readLimit 件だけを新しい順に出す", () => {
+    const { db, setRead } = seeded(5);
+    setRead("c1", "2026-01-01T00:00:03.000Z");
+    setRead("c2", "2026-01-01T00:00:01.000Z");
+    setRead("c3", "2026-01-01T00:00:02.000Z");
+    const bodies = (readLimit?: number) => listNotifications(db, { includeRead: true, readLimit }).map((x) => x.body);
+    expect(bodies(2)).toEqual(["c5", "c4", "c3", "c1"]);
+    expect(bodies(1)).toEqual(["c5", "c4", "c1"]);
+    expect(bodies()).toEqual(["c5", "c4", "c3", "c2", "c1"]);
+    // 既定（未読だけ）の一覧は上限の影響を受けない
+    expect(listNotifications(db, { readLimit: 1 }).map((x) => x.body)).toEqual(["c5", "c4"]);
+  });
+
+  test("古い通知を開いて既読にしても、最近既読にしたものとして一覧に残る", () => {
+    const { db, me, setRead } = seeded(4);
+    setRead("c2", "2026-01-01T00:00:01.000Z");
+    setRead("c3", "2026-01-01T00:00:02.000Z");
+    setRead("c4", "2026-01-01T00:00:03.000Z");
+    const c1 = listNotifications(db).find((x) => x.body === "c1")!;
+    markNotificationsRead(me, { ids: [c1.id] });
+    expect(listNotifications(db, { includeRead: true, readLimit: 3 }).map((x) => x.body)).toEqual(["c4", "c3", "c1"]);
+  });
+
+  test("スヌーズ中の一覧も既読は readLimit 件までで、Issue ごとの最新の未読は必ず出す", () => {
+    const { db, me, a } = seeded(4);
+    snoozeNotifications(me, { issueRef: a.id, until: "2999-01-01T09:00:00+09:00" });
+    const snoozed = listNotifications(db, { snoozed: true, readLimit: 1 });
+    expect(snoozed).toHaveLength(2);
+    expect(snoozed[0]).toMatchObject({ body: "c4", readAt: null });
+    expect(snoozed.every((x) => x.snoozedUntil !== null)).toBe(true);
+    expect(listNotifications(db, { snoozed: true }).map((x) => x.body)).toEqual(["c4", "c3", "c2", "c1"]);
+  });
+
+  test("アーカイブ済みの Issue の既読は上限を消費しない", () => {
+    const { db, me, ws, llm, setRead } = seeded(2);
+    const b = createIssue(me, { workspaceId: ws.id, title: "索引" });
+    subscribeIssue(me, b.id);
+    commentIssue(llm, b.id, "b1");
+    const b1 = listNotifications(db).find((x) => x.body === "b1")!;
+    setRead("c1", "2026-01-01T00:00:01.000Z");
+    db.query("UPDATE notifications SET read_at = ? WHERE id = ?").run("2026-01-01T00:00:09.000Z", b1.id);
+    archiveIssue(me, b.id);
+    // 最も最近既読にした b1 はアーカイブ済みなので、上限 1 件は c1 に使う
+    expect(listNotifications(db, { includeRead: true, readLimit: 1 }).map((x) => x.body)).toEqual(["c2", "c1"]);
+  });
+
+  test("readLimit は正の整数でなければ INVALID_ARGS", () => {
+    const { db } = seeded(1);
+    for (const readLimit of [0, -1, 1.5, Number.NaN]) {
+      expect(codeOf(() => listNotifications(db, { includeRead: true, readLimit }))).toBe("INVALID_ARGS");
+    }
   });
 });
 

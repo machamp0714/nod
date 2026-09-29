@@ -37,6 +37,10 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect((await nod(["notification", "list", "--include-read", "--json"])).json).toHaveLength(2);
   expect((await nod(["notification", "read", "--issue", "API-1", "--json"])).json).toEqual({ updated: 1 });
   expect((await nod(["notification", "read", "--all", "--json"])).json).toEqual({ updated: 0 });
+  // 既読の上限（#98）
+  expect((await nod(["notification", "list", "--include-read", "--limit", "1", "--json"])).json).toHaveLength(1);
+  expect((await nod(["notification", "list", "--include-read", "--limit", "0", "--json"])).json.error.code).toBe("INVALID_ARGS");
+  expect((await nod(["notification", "list", "--limit", "1", "--json"])).json.error.code).toBe("INVALID_ARGS");
 
   const none = await nod(["notification", "read", "--json"]);
   expect(none.exitCode).toBe(1);

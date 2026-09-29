@@ -29,6 +29,12 @@ describe("Workspace の作業規約", () => {
     expect(getWorkspaceRules(db, ws.key.toLowerCase())?.body).toBe("a");
   });
 
+  test("文字数はコードポイントで数える（絵文字などのサロゲートペアも1文字）", () => {
+    const { ws, me } = setup();
+    expect([...setWorkspaceRules(me, ws.key, "😀".repeat(10000))!.body]).toHaveLength(10000);
+    expect(() => setWorkspaceRules(me, ws.key, "😀".repeat(10001))).toThrow("10,000 文字までです（10,001 文字）");
+  });
+
   test("上限は 10,000 文字で、超えると INVALID_ARGS", () => {
     const { db, ws, me } = setup();
     expect(RULES_MAX_LENGTH).toBe(10000);

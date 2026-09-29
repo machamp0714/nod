@@ -10,7 +10,9 @@ test("委任中タブは LLM ごとに担当でまとめ、作業状況の内訳
   await page.goto("/issues?sort=title");
   await page.getByRole("tab", { name: "委任中 4", exact: true }).click();
   await expect(page).toHaveURL(/tab=delegated/);
-  await expect(page).toHaveURL(/groupBy=assignee/);
+  // 担当でのまとめは委任中タブの既定の表示で、URL には書かない（タブを離れると元に戻る）
+  await expect(page).not.toHaveURL(/groupBy=/);
+  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("assignee");
 
   const claude = region(page, "担当 claude-code");
   await expect(claude.locator("tbody tr")).toHaveCount(3);
@@ -28,12 +30,41 @@ test("委任中タブは LLM ごとに担当でまとめ、作業状況の内訳
   await expect(region(page, "担当 claude-code").locator("tbody tr")).toHaveCount(3);
   await expect(page).toHaveURL(/sort=title/);
 
-  // 利用者が選んだグループ化はタブを選び直しても上書きしない（「なし」は URL に残らないため、選び直すと担当でまとめる）
+  // 利用者が選んだグループ化はタブを選び直しても上書きしない
   await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
   await page.getByRole("tab", { name: /^All / }).click();
   await page.getByRole("tab", { name: "委任中 4", exact: true }).click();
   await expect(page).toHaveURL(/groupBy=workspace/);
   await expect(region(page, "担当 claude-code")).toHaveCount(0);
+});
+
+test("直リンクの委任中タブは担当でまとめ、タブを離れると元のフラットな一覧に戻る", async ({ page }) => {
+  await page.goto("/issues?tab=delegated");
+  await expect(region(page, "担当 claude-code").locator("tbody tr")).toHaveCount(3);
+  await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
+
+  await page.getByRole("tab", { name: /^All / }).click();
+  await expect(page).not.toHaveURL(/tab=|groupBy=/);
+  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "nod issue next の取り合いを防ぐ", exact: true })).toBeVisible();
+});
+
+test("委任中タブで「なし」を選ぶとフラットに出し、再読み込みしても保ち、タブを離れると URL から消す", async ({ page }) => {
+  await page.goto("/issues?tab=delegated");
+  await expect(region(page, "担当 claude-code")).toBeVisible();
+  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await expect(page).toHaveURL(/groupBy=none/);
+  await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
+  await expect(page.getByRole("row").filter({ hasText: "API-8" })).toHaveCount(1);
+
+  await page.reload();
+  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  await expect(page.getByRole("row").filter({ hasText: "API-8" })).toHaveCount(1);
+  await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /^All / }).click();
+  await expect(page).not.toHaveURL(/groupBy=/);
 });
 
 test("委任中タブで View として保存すると、その View は委任中だけを出す", async ({ page }) => {

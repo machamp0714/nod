@@ -43,10 +43,15 @@ function findByDir(db: Database, dir: string): Workspace | null {
   return root ? findWorkspace(db, root) : null;
 }
 
+// -w の値（キー、登録したパス、リポジトリの中のパス）から Workspace を探す。見つからなければ null
+export function findWorkspaceOpt(db: Database, w: string): Workspace | null {
+  return findWorkspace(db, w) ?? findByDir(db, resolve(w));
+}
+
 export function currentWorkspace(cli: Cli, cmd: Command): Workspace {
   const w = globalOpts(cmd).workspace;
   if (w) {
-    const found = findWorkspace(cli.db, w) ?? findByDir(cli.db, resolve(w));
+    const found = findWorkspaceOpt(cli.db, w);
     if (!found) {
       throw new NodError("NOT_INITIALIZED", `Workspace ${w} は登録されていません。nod workspace list で登録済みのものを確かめてください`);
     }

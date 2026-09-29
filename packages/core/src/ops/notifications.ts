@@ -63,16 +63,33 @@ interface NotificationRow {
   body: string | null;
 }
 
+// 既読を含む一覧（includeRead・snoozed）で出す既読の件数の既定。通知は消えずに増え続けるため、全履歴は返さない（#98）
+export const NOTIFICATION_READ_LIMIT = 200;
+
 // 新しい順。スヌーズ中（#43）と削除済み（#44）、アーカイブ済みの Issue（#30）の通知は出さない。既定では未読だけ。
-// snoozed ならスヌーズ中のものだけを既読も含めて出す
+// snoozed ならスヌーズ中のものだけを既読も含めて出す。
+// 既読も出すときは、未読はすべて、既読は最近既読にしたものから readLimit 件だけを出す。
+// 既読にした順で選ぶのは、開いて既読にした古い通知が一覧から消えないようにするため。
+// 上限の数え方もアーカイブ済みの Issue を除く。除かないと、出さない既読が上限を消費する
 export function listNotifications(
   db: Database,
-  opts: { includeRead?: boolean; snoozed?: boolean; recipient?: string } = {},
+  opts: { includeRead?: boolean; snoozed?: boolean; recipient?: string; readLimit?: number } = {},
 ): Notification[] {
+  const readLimit = opts.readLimit ?? NOTIFICATION_READ_LIMIT;
+  if (!Number.isSafeInteger(readLimit) || readLimit <= 0) {
+    throw new NodError("INVALID_ARGS", "既読の通知の上限は正の整数で指定してください");
+  }
   const ts = now();
-  const where = opts.snoozed
-    ? "n.snoozed_until > ?"
-    : `(n.snoozed_until IS NULL OR n.snoozed_until <= ?) ${opts.includeRead ? "" : "AND n.read_at IS NULL"}`;
+  const recipient = opts.recipient ?? HUMAN_ACTOR;
+  const visible = (t: string) => (opts.snoozed ? `${t}.snoozed_until > ?` : `(${t}.snoozed_until IS NULL OR ${t}.snoozed_until <= ?)`);
+  const withRead = opts.snoozed || opts.includeRead;
+  const where = withRead
+    ? `${visible("n")} AND (n.read_at IS NULL OR n.id IN (
+         SELECT m.id FROM notifications m JOIN issues mi ON mi.id = m.issue_id
+         WHERE m.recipient = ? AND m.deleted_at IS NULL AND mi.archived_at IS NULL AND m.read_at IS NOT NULL AND ${visible("m")}
+         ORDER BY m.read_at DESC, m.id DESC LIMIT ?))`
+    : `${visible("n")} AND n.read_at IS NULL`;
+  const params = withRead ? [recipient, ts, recipient, ts, readLimit] : [recipient, ts];
   const rows = db
     .query(
       `SELECT n.*, i.title AS issue_title, i.number AS issue_number, w.key AS ws_key, c.body AS body
@@ -81,7 +98,7 @@ export function listNotifications(
        WHERE n.recipient = ? AND n.deleted_at IS NULL AND i.archived_at IS NULL AND ${where}
        ORDER BY n.created_at DESC, n.id DESC`,
     )
-    .all(opts.recipient ?? HUMAN_ACTOR, ts) as NotificationRow[];
+    .all(...params) as NotificationRow[];
   return rows.map((r) => ({
     id: r.id,
     kind: r.kind,

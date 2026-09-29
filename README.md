@@ -17,6 +17,14 @@ LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
+### 人だけが行える操作と、その限界
+
+Triage の受け入れ・却下・重複、Workspace の作業規約の登録・変更・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
+LLM かどうかは書き手（`NOD_ACTOR`、なければ `CLAUDECODE=1` なら `claude-code`、どちらもなければ `me`）で判定する。
+これは LLM の誤操作を防ぐための取り決めで、権限の仕組みではない。
+`NOD_ACTOR=me` を付けて CLI を実行したり、ローカルの API（`nod ui` の server。書き手は常に `me`）を curl などで直接呼んだり（Origin のない同じマシンからの要求は受け付ける）、DB を直接書き換えたりすれば回避できる。
+LLM には、書き手を変えて回避せず人に依頼するよう手引き（`skills/nod`）で指示している。
+
 ### Web UI
 
 ```sh

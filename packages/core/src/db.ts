@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { NodError, toNodError } from "./errors";
@@ -19,6 +19,20 @@ export function openDb(path: string = defaultDbPath(), opts: { busyTimeoutMs?: n
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);
+  } catch (e) {
+    db.close();
+    throw toNodError(e);
+  }
+  return db;
+}
+
+// 読むだけのときに使う。DB がなければ作らず null を返し、migration もしない（古い DB では読みたい表や列がなく、クエリが失敗しうる）。
+// 書き込みを待たないよう busy_timeout は短くする
+export function openDbReadonly(path: string = defaultDbPath()): Database | null {
+  if (!existsSync(path)) return null;
+  const db = new Database(path, { readonly: true });
+  try {
+    db.exec("PRAGMA busy_timeout = 500");
   } catch (e) {
     db.close();
     throw toNodError(e);

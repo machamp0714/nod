@@ -27,6 +27,13 @@ function optTrue(body: Body, key: string): true | undefined {
   return true;
 }
 
+// 既読も出す一覧で返す既読の件数（#98）。省略すれば core の既定（NOTIFICATION_READ_LIMIT）
+function queryReadLimit(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(value)) throw invalid(`readLimit は正の整数で指定してください（受け取った値: ${value}）`);
+  return Number(value);
+}
+
 // Inbox の通知（購読中の Issue の変化）。受け手は me
 export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): void {
   app.get("/api/notifications", (c) =>
@@ -34,6 +41,7 @@ export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): 
       listNotifications(db, {
         includeRead: queryFlag(c.req.query("includeRead"), "includeRead"),
         snoozed: queryFlag(c.req.query("snoozed"), "snoozed"),
+        readLimit: queryReadLimit(c.req.query("readLimit")),
       }),
     ),
   );
