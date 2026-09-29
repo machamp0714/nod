@@ -3,6 +3,7 @@ import { HUMAN_ACTOR, NodError, type OpCtx } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
+import { registerStatsRoutes } from "./routes/stats";
 import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerProjectOps } from "./routes/project-ops";
@@ -55,6 +56,7 @@ export function createApp(opts: AppOptions): Hono {
   });
 
   registerReadRoutes(app, opts.db, opts.docsDir);
+  registerStatsRoutes(app, opts.db);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);
   registerProjectOps(app, me);
