@@ -139,4 +139,32 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // スレッドの解決済み化。スレッドの親の行にだけ値を持つ
   [`ALTER TABLE comments ADD COLUMN resolved_at TEXT`, `ALTER TABLE comments ADD COLUMN resolved_by TEXT`],
+  // 購読（#45）と通知（#42）。kind に CHECK を付けないのは、後から LLM の完了通知・リマインダーを足すため。
+  // snoozed_until（#43）と deleted_at（#44）は列だけ先に用意し、一覧はこれらを見て絞る
+  [
+    `CREATE TABLE subscriptions (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      subscriber TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (issue_id, subscriber)
+    )`,
+    `CREATE TABLE notifications (
+      id INTEGER PRIMARY KEY,
+      recipient TEXT NOT NULL,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
+      comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL,
+      data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      read_at TEXT,
+      snoozed_until TEXT,
+      deleted_at TEXT,
+      UNIQUE (recipient, event_id),
+      UNIQUE (recipient, comment_id)
+    )`,
+    `CREATE INDEX notifications_recipient ON notifications (recipient, read_at, created_at)`,
+  ],
 ];

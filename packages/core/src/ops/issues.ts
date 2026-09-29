@@ -1,3 +1,4 @@
+import { isSubscribedRow } from "./notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
@@ -281,6 +282,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     questions,
     openQuestions: questions.filter((q) => q.answer === null),
     activity: loadActivity(db, row.id),
+    subscribed: isSubscribedRow(db, row.id),
   };
 }
 
