@@ -1,6 +1,7 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
+import { useNotifications } from "../api/hooks/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { InboxQuestion } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
@@ -12,15 +13,51 @@ import { formatRelative } from "../lib/format";
 import { planProgress } from "../lib/plan";
 import { executionLocation } from "../lib/execution-location";
 import d from "./decision.module.css";
+import { NotificationDetail, NotificationList, useNotificationGroups } from "./InboxNotifications";
+import type { InboxTab } from "../routes/inbox-search";
 
 const route = getRouteApi("/inbox");
 
 export function InboxPage() {
   const { selected, tab = "questions" } = route.useSearch();
   const navigate = route.useNavigate();
+  const pending = useInbox();
+  const unread = useNotifications();
+  const tabs = (
+    <div className={d.tabs}><Segmented<InboxTab> label="Inboxの表示" value={tab}
+      items={[
+        { value: "questions", label: `確認依頼 ${pending.data?.questions.length ?? 0}` },
+        { value: "notifications", label: "通知", badge: unread.data?.length ?? 0 },
+        { value: "all", label: "すべて" },
+      ]}
+      // 通知タブとの行き来では選択を持ち越さない。開いただけで既読になるため
+      onChange={next => void navigate({ search: { selected: next === "notifications" || tab === "notifications" ? undefined : selected, tab: next } })} /></div>
+  );
+  return tab === "notifications" ? <NotificationsTab selected={selected} tabs={tabs} /> : <QuestionsTab selected={selected} tab={tab} tabs={tabs} />;
+}
+
+function NotificationsTab({ selected, tabs }: { selected?: string; tabs: ReactNode }) {
+  const { history, groups } = useNotificationGroups();
+  const workspaceName = useWorkspaceName();
+  const current = groups.find((g) => g.issueId === selected) ?? groups[0];
+  return (
+    <SplitLayout
+      title="Inbox"
+      count={groups.reduce((sum, g) => sum + g.unread, 0)}
+      headerExtra={tabs}
+      listLabel="通知の一覧"
+      list={history.isPending ? <QueueEmpty>読み込み中…</QueueEmpty> : history.isError ? <ActionError error={history.error} />
+        : <NotificationList groups={groups} current={current} workspaceName={workspaceName} />}
+      detail={current
+        ? <NotificationDetail key={current.issueId} group={current} workspaceName={workspaceName(current.workspace)} opened={current.issueId === selected} />
+        : <p className={d.empty}>{history.isPending ? "読み込み中…" : "通知はありません"}</p>}
+    />
+  );
+}
+
+function QuestionsTab({ selected, tab, tabs }: { selected?: string; tab: "questions" | "all"; tabs: ReactNode }) {
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const setDraft = (id: number, text: string) => setDrafts(previous => ({ ...previous, [id]: text }));
-  const pending = useInbox();
   const inbox = useInbox({ includeAnswered: tab === "all" });
   const workspaceName = useWorkspaceName();
   const entries = groupInbox(inbox.data?.questions ?? []);
@@ -29,9 +66,7 @@ export function InboxPage() {
     <SplitLayout
       title="Inbox"
       count={inbox.data?.questions.length ?? 0}
-      headerExtra={<div className={d.tabs}><Segmented label="Inboxの表示" value={tab}
-        items={[{ value: "questions", label: `確認依頼 ${pending.data?.questions.length ?? 0}` }, { value: "all", label: "すべて" }]}
-        onChange={next => void navigate({ search: { selected, tab: next } })} /></div>}
+      headerExtra={tabs}
       listLabel="確認依頼の一覧"
       list={
         inbox.isPending ? (

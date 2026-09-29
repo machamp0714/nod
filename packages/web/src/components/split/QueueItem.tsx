@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { formatRelative } from "../../lib/format";
+import type { InboxTab } from "../../routes/inbox-search";
 import { AgentAvatar, WorkspaceBadge } from "../ui";
 import s from "./split.module.css";
 
@@ -17,7 +18,7 @@ export function QueueItem({
   selected,
 }: {
   to: "/inbox" | "/reviews" | "/triage";
-  tab?: "questions" | "all";
+  tab?: InboxTab;
   issueId: string;
   title: string;
   actor: string;

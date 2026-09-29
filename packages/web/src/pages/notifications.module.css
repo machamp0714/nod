@@ -1,0 +1,175 @@
+/* Pencil『Inbox｜通知タブ（#42/#45）』の一覧行・詳細の値を写す */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.row:hover {
+  background: var(--bg);
+}
+
+.row[data-selected="true"] {
+  background: var(--sunken);
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: transparent;
+}
+
+.dot[data-unread="true"] {
+  background: var(--accent);
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.row[data-unread="true"] .rowTitle {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rowTime {
+  flex: none;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.rowSummary,
+.rowMeta {
+  display: flex;
+  align-items: center;
+  padding-left: 14px;
+  min-width: 0;
+}
+
+.rowSummary {
+  gap: 8px;
+}
+
+.rowMeta {
+  gap: 10px;
+}
+
+.rowSummaryText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.row[data-unread="true"] .rowSummaryText {
+  color: var(--ink2);
+}
+
+.rowId {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.action:disabled {
+  opacity: 0.5;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionTitle {
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.item[data-unread="true"] {
+  border-color: var(--line);
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.item[data-unread="true"] .itemText {
+  color: var(--ink);
+}
+
+.itemTime {
+  flex: none;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.gap {
+  height: 8px;
+}

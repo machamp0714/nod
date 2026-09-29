@@ -6,6 +6,7 @@ import { registerReadRoutes } from "./routes/read";
 import { registerIssueOps } from "./routes/issue-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerViewRoutes } from "./routes/views";
+import { registerNotificationRoutes } from "./routes/notifications";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
 import { registerEventRoutes } from "./routes/events";
 import { registerStatic } from "./static";
@@ -55,6 +56,7 @@ export function createApp(opts: AppOptions): Hono {
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerViewRoutes(app, opts.db);
+  registerNotificationRoutes(app, opts.db, me);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));

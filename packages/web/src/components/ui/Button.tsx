@@ -33,6 +33,7 @@ export interface SegmentedItem<T extends string> {
   value: T;
   label: string;
   icon?: IconName;
+  badge?: number; // 1 以上のときだけ、ラベルの後ろに数の丸を出す（Inbox の未読の通知）
 }
 
 export function Segmented<T extends string>({
@@ -61,6 +62,7 @@ export function Segmented<T extends string>({
           >
             {item.icon && <Icon name={item.icon} />}
             {item.label}
+            {item.badge !== undefined && item.badge > 0 && <span className={s.segmentBadge}>{item.badge}</span>}
           </button>
         );
       })}

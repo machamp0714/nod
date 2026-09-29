@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { now, type OpCtx } from "./ctx";
 import { formatIssueId, type IssueRow } from "./issue-query";
 import { NodError } from "./errors";
+import { notifySubscribers } from "./notify";
 import type { Comment } from "./types";
 
 export function recordEvent(
@@ -11,13 +12,10 @@ export function recordEvent(
   type: string,
   data: Record<string, unknown> = {},
 ): void {
-  db.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)").run(
-    issueId,
-    actor,
-    type,
-    JSON.stringify(data),
-    now(),
-  );
+  const { lastInsertRowid } = db
+    .query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(issueId, actor, type, JSON.stringify(data), now());
+  notifySubscribers(db, issueId, actor, type, { eventId: Number(lastInsertRowid) }, data);
 }
 
 export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: number | null = null): Comment {
@@ -26,6 +24,7 @@ export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: nu
     .query("INSERT INTO comments (issue_id, author, body, created_at, parent_id) VALUES (?, ?, ?, ?, ?)")
     .run(row.id, ctx.actor, body, ts, parentId);
   ctx.db.query("UPDATE issues SET updated_at = ? WHERE id = ?").run(ts, row.id);
+  notifySubscribers(ctx.db, row.id, ctx.actor, "comment_added", { commentId: Number(lastInsertRowid) });
   return {
     id: Number(lastInsertRowid),
     issueId: formatIssueId(row.ws_key, row.number),

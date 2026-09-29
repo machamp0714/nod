@@ -15,6 +15,7 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
+import { collapseNotifications, lastNotificationId } from "../notify";
 import { readReviewSummaries } from "../review-summary";
 import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
 import { addRelation, requireText, updateIssue } from "./issues";
@@ -147,11 +148,13 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
+    const since = lastNotificationId(ctx.db);
     updateIssue(ctx, ref, { projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels });
     Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");
     setColumn(ctx, row, "snoozed_until", null);
     recordEvent(ctx.db, row.id, ctx.actor, "triage_accepted", {});
+    collapseNotifications(ctx.db, row.id, since, "triage_accepted");
     enterClarification(ctx, row);
     return toIssue(issueRowById(ctx.db, row.id));
   });
@@ -162,9 +165,11 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
+    const since = lastNotificationId(ctx.db);
     setColumn(ctx, row, "close_reason", reason ?? null);
     setColumn(ctx, row, "status", "canceled");
     recordEvent(ctx.db, row.id, ctx.actor, "triage_declined", reason ? { reason } : {});
+    collapseNotifications(ctx.db, row.id, since, "triage_declined");
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -175,11 +180,13 @@ export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): I
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     const original = findIssueRow(ctx.db, originalRef);
+    const since = lastNotificationId(ctx.db);
     const reason = `${formatIssueId(original.ws_key, original.number)} の重複`;
     addRelation(ctx, row, original, "duplicate");
     setColumn(ctx, row, "close_reason", reason);
     setColumn(ctx, row, "status", "canceled");
     recordEvent(ctx.db, row.id, ctx.actor, "triage_declined", { reason });
+    collapseNotifications(ctx.db, row.id, since, "triage_declined");
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -202,8 +209,10 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
+    const since = lastNotificationId(ctx.db);
     setColumn(ctx, row, "status", "done");
     recordEvent(ctx.db, row.id, ctx.actor, "review_approved", {});
+    collapseNotifications(ctx.db, row.id, since, "review_approved");
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -213,10 +222,12 @@ export function rejectReview(ctx: OpCtx, ref: string, reason: string): Issue {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
+    const since = lastNotificationId(ctx.db);
     addComment(ctx, row, reason);
     setColumn(ctx, row, "status", "in_progress");
     setColumn(ctx, row, "agent_state", null);
     recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", { reason });
+    collapseNotifications(ctx.db, row.id, since, "review_rejected");
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

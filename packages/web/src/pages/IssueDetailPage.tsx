@@ -17,6 +17,7 @@ import { useIssueDetail } from "../api/hooks/shared";
 import type { Issue, IssueDetail } from "../api/types";
 import { DocumentsSection } from "../components/issue-detail/DocumentsSection";
 import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
+import { SubscribeToggle } from "../components/issue-detail/SubscribeToggle";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
 import { DescriptionSection } from "../components/issue-detail/DescriptionSection";
 import s from "../components/issue-detail/issue-detail.module.css";
@@ -86,6 +87,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <Icon name="chevron-right" size={12} />
           <span className={s.crumbId}>{issue.id}</span>
         </nav>
+        <SubscribeToggle issueId={issue.id} subscribed={issue.subscribed} />
         <IssueHeaderActions
           issueId={issue.id}
           onDuplicate={async () => {

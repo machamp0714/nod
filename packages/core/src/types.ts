@@ -210,6 +210,27 @@ export interface IssueDetail extends Issue {
   questions: Question[]; // 回答済みも含めたすべての確認依頼（未決事項）。id の順
   openQuestions: Question[];
   activity: ActivityItem[];
+  subscribed: boolean; // me がこの Issue を購読しているか
+}
+
+// Inbox の通知。kind は今は issue_change（購読中の Issue の変化）だけ
+export interface Notification {
+  id: number;
+  kind: string;
+  issueId: string;
+  issueTitle: string;
+  workspace: string;
+  eventType: string;
+  actor: string;
+  data: Record<string, unknown>;
+  body: string | null; // comment_added のときのコメント本文
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface SubscriptionState {
+  issueId: string;
+  subscribed: boolean;
 }
 
 export interface Template {
