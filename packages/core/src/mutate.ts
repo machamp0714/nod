@@ -2,6 +2,8 @@ import { now, type OpCtx } from "./ctx";
 import { recordEvent } from "./events";
 import type { IssueRow } from "./issue-query";
 import { readTriageProposalNotifications } from "./notify";
+import { assertTransitionAllowed } from "./transition-rules";
+import type { Status } from "./types";
 
 export type Column =
   | "status"
@@ -34,16 +36,26 @@ const EVENT_OF: Partial<Record<Column, string>> = {
   parent_id: "parent_changed",
 };
 
-// 列の値が変わるときだけ更新し、その列に対応する event を書く。row も同じ値に書き換える
+// 列の値が変わるときだけ更新し、その列に対応する event を書く。row も同じ値に書き換える。
+// status は Workspace の遷移ルール（#73）に従う。system は core が自動で切り替える遷移（確認依頼の出入り・自動遷移の取消）で、ルールの対象にしない
 export function setColumn(
   ctx: OpCtx,
   row: IssueRow,
   column: Column,
   to: string | number | null,
-  extra: { from?: unknown; to?: unknown; reason?: string; trigger?: "answer"; report_comment_id?: number; automation?: string } = {},
+  extra: {
+    from?: unknown;
+    to?: unknown;
+    reason?: string;
+    trigger?: "answer";
+    report_comment_id?: number;
+    automation?: string;
+    system?: boolean;
+  } = {},
 ): boolean {
   const from = row[column];
   if (from === to) return false;
+  if (column === "status" && !extra.system) assertTransitionAllowed(ctx.db, row, from as Status, to as Status);
   const ts = now();
   ctx.db.query(`UPDATE issues SET ${column} = ?, updated_at = ? WHERE id = ?`).run(to, ts, row.id);
   (row as unknown as Record<string, unknown>)[column] = to;

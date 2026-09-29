@@ -4,6 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import { setColumn } from "../mutate";
+import { transitionViolation } from "../transition-rules";
 import type { AutoTransition, AutoTransitionSource, PrState, Status } from "../types";
 
 // PR・コミットによる自動遷移（#66・#68）。進める先は in_review だけで、done にはしない（完了は人がレビューで決める）。
@@ -95,6 +96,8 @@ export function applyPrReview(ctx: OpCtx, issueRowId: number): AutoTransition | 
   const target = prReviewTarget(ctx.db, issueRowId);
   if (!target) return null;
   const row = findIssueRow(ctx.db, formatIssueId(target.ws_key, target.number));
+  // 遷移ルール（#73）で止まるなら進めない（PR 状態の保存は失敗させない）
+  if (transitionViolation(ctx.db, row.workspace_id, row.status, "in_review")) return null;
   return applyAutoTransition(ctx, row, {
     source: "pr",
     sourceKey: target.pr_url,
@@ -174,7 +177,7 @@ export function undoAutoTransition(ctx: OpCtx, ref: string): AutoTransition {
       throw new NodError("INVALID_STATE", `${id} は自動遷移の後に状態が変わっています。取り消せません（状態は手動で変えてください）`);
     }
     const what = t.source === "pr" ? `PR ${t.source_key}` : `コミット ${t.source_key.slice(0, 12)}`;
-    setColumn(ctx, row, "status", t.from_status, { reason: `自動遷移の取消（${what}）`, automation: "undo" });
+    setColumn(ctx, row, "status", t.from_status, { reason: `自動遷移の取消（${what}）`, automation: "undo", system: true });
     ctx.db.query("UPDATE auto_transitions SET reverted_at = ?, reverted_by = ? WHERE id = ?").run(now(), ctx.actor, t.id);
     return transitionById(ctx.db, t.id);
   });

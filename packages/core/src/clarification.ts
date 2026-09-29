@@ -17,7 +17,7 @@ export function openQuestionCount(db: Database, issueId: number, opts: { llmOnly
 export function enterClarification(ctx: OpCtx, row: IssueRow): void {
   if (row.status !== "backlog" && row.status !== "todo") return;
   if (openQuestionCount(ctx.db, row.id) === 0) return;
-  setColumn(ctx, row, "status", "needs_clarification");
+  setColumn(ctx, row, "status", "needs_clarification", { system: true });
 }
 
 // needs_clarification の Issue の確認依頼がすべて回答済みなら、needs_clarification に変えたときの from に戻す
@@ -31,5 +31,5 @@ export function leaveClarification(ctx: OpCtx, row: IssueRow): void {
        ORDER BY id DESC LIMIT 1`,
     )
     .get(row.id) as { status: string | null } | null;
-  setColumn(ctx, row, "status", last?.status === "backlog" ? "backlog" : "todo");
+  setColumn(ctx, row, "status", last?.status === "backlog" ? "backlog" : "todo", { system: true });
 }
