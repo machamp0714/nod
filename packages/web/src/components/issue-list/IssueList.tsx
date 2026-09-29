@@ -1,9 +1,10 @@
 import { type ReactNode, useCallback, useMemo } from "react";
-import type { Status } from "../../api/types";
-import { BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
+import type { AgentState, Status } from "../../api/types";
+import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
-import { Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
+import { AgentAvatar, Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
+import { AgentStateDot } from "./AgentStateDot";
 import { IssueBoard } from "./IssueBoard";
 import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
@@ -56,10 +57,14 @@ export function IssueList({
   const closePreview = useCallback(() => onSearchChange({ preview: undefined }), [onSearchChange]);
   const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
   const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
+  const delegated = tab === "delegated";
   const table = (tableRows: IssueListRow[], hideHeader = false) => (
-    <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} />
+    <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} showAgentState={delegated} />
   );
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
+  // 委任中タブは LLM ごとに見られるよう、グループ化を選んでいなければ担当でまとめる
+  const selectTab = (next: IssueTab) =>
+    onSearchChange(next === "delegated" && !search.groupBy ? { tab: next, groupBy: "assignee" } : { tab: next });
 
   return (
     <div className={s.split}>
@@ -98,11 +103,12 @@ export function IssueList({
         <Segmented<IssueTab>
           label="絞り込み"
           value={tab}
-          onChange={(value) => onSearchChange({ tab: value })}
+          onChange={selectTab}
           items={[
             { value: "all", label: `All ${counts.all}` },
             { value: "ready", label: `Ready ${counts.ready}` },
             { value: "needs_clarification", label: `Needs Clarification ${counts.needsClarification}` },
+            { value: "delegated", label: `委任中 ${counts.delegated}` },
           ]}
         />
         <div className={s.spacer} />
@@ -202,11 +208,16 @@ export function IssueList({
         <p role="status" className={s.message}>
           読み込み中…
         </p>
+      ) : delegated && counts.delegated === 0 ? (
+        <div className={s.emptyDelegated}>
+          <Icon name="bot" size={24} color="var(--ink3)" />
+          LLM に委任中の Issue はありません
+        </div>
       ) : groupBy ? (
         groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
           groups.map((group) => (
             <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
-              <GroupHeading by={groupBy} group={group} />
+              <GroupHeading by={groupBy} group={group} delegated={delegated} />
               {layout === "board" ? <IssueBoard rows={group.rows} /> : group.subgroups && subGroupBy ? (
                 group.subgroups.map((subgroup) => (
                   <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
@@ -246,12 +257,32 @@ const GROUP_NAMES: Record<IssueGroupKey, string> = {
   label: "ラベル",
 };
 const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
+const AGENT_STATES = Object.keys(AGENT_STATE_META) as AgentState[];
 
 // design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
 // サブグループの見出しは「Issues｜サブグループ」の行（1段下げ、白地、weight 500）
-function GroupHeading({ by, group, level = 2 }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3 }) {
+// 委任中タブの担当の見出しは「Issues｜委任中タブ（#53）」：アバター、LLM 名、件数、作業状況の内訳（0件は出さない）
+function GroupHeading({ by, group, level = 2, delegated = false }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; delegated?: boolean }) {
   const empty = group.key === "";
   const Heading = level === 2 ? "h2" : "h3";
+  if (delegated && by === "assignee" && !empty) {
+    const breakdown = AGENT_STATES.map((state) => [state, group.rows.filter((r) => r.issue.agentState === state).length] as const)
+      .filter(([, n]) => n > 0);
+    return (
+      <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
+        <AgentAvatar actor={group.key} />
+        <span className={`${s.groupLabel} ${s.agentName}`}>{group.label}</span>
+        <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
+        {breakdown.length > 0 && (
+          <span className={s.breakdown} aria-label="作業状況の内訳">
+            {breakdown.map(([state, n]) => (
+              <AgentStateDot key={state} state={state}>{`${AGENT_STATE_META[state].label} ${n}`}</AgentStateDot>
+            ))}
+          </span>
+        )}
+      </Heading>
+    );
+  }
   return (
     <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
       {by === "workspace" ? (
