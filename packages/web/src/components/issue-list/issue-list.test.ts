@@ -62,6 +62,17 @@ describe("filterRows", () => {
     expect(ids(filterRows(delegated, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
     expect(countRows(delegated).delegated).toBe(2);
   });
+
+  test("Triage と Backlog でも担当が LLM なら委任中に含める", () => {
+    const rows = [
+      row("API-1", "triage", { assignee: "claude-code" }),
+      row("API-2", "backlog", { assignee: "codex" }),
+      row("API-3", "triage"),
+      row("API-4", "backlog", { assignee: "me" }),
+    ];
+    expect(ids(filterRows(rows, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
+    expect(countRows(rows).delegated).toBe(2);
+  });
 });
 
 describe("groupForBoard", () => {

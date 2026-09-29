@@ -89,9 +89,8 @@ export function IssueList({
     return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} />;
   };
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
-  // 委任中タブは LLM ごとに見られるよう、グループ化を選んでいなければ担当でまとめる
-  const selectTab = (next: IssueTab) =>
-    onSearchChange(next === "delegated" && !search.groupBy ? { tab: next, groupBy: "assignee" } : { tab: next });
+  // 委任中タブの担当でのまとめは effectiveGrouping が表示時に決める（URL には書かない）
+  const selectTab = (next: IssueTab) => onSearchChange({ tab: next });
 
   return (
     <div className={s.split}>

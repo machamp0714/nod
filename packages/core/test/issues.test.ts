@@ -259,6 +259,19 @@ describe("queryIssues", () => {
     expect(queryIssues(db, {}).counts).toEqual({ ready: 2, needsClarification: 1 });
   });
 
+  test("delegated は Triage と Backlog の Issue も、担当が LLM なら含める", () => {
+    const { db, ws, me, llm } = setup();
+    const triaged = createIssue(llm, { workspaceId: ws.id, title: "triage" });
+    updateIssue(me, triaged.id, { assignee: "claude-code" });
+    const backlog = createIssue(me, { workspaceId: ws.id, title: "backlog" });
+    updateIssue(me, backlog.id, { assignee: "codex", status: "backlog" });
+    createIssue(llm, { workspaceId: ws.id, title: "triage unassigned" });
+    const mine = createIssue(me, { workspaceId: ws.id, title: "backlog mine" });
+    updateIssue(me, mine.id, { assignee: "me", status: "backlog" });
+    expect(getIssue(db, triaged.id).status).toBe("triage");
+    expect(queryIssues(db, { delegated: true }).issues.map((i) => i.id)).toEqual([triaged.id, backlog.id]);
+  });
+
   test("delegated は担当が LLM で done/canceled 以外の Issue だけを返し、agent_state は問わない", () => {
     const { db, ws, me, llm } = setup();
     const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;

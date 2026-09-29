@@ -101,6 +101,12 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   return out;
 }
 
+// タブの既定のグループ化。委任中タブは LLM ごとに見られるよう、グループ化が未指定なら担当でまとめる。
+// URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す
+export function defaultGroupBy(tab: IssueTab | undefined): IssueGroupKey | undefined {
+  return tab === "delegated" ? "assignee" : undefined;
+}
+
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
   return a.length === b.length && b.every((column) => a.includes(column));
 }
@@ -112,11 +118,12 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
   if (search.columns && !sameColumns(search.columns, DEFAULT_ISSUE_COLUMNS)) out.columns = search.columns;
-  if (search.groupBy && search.groupBy !== "none") {
-    out.groupBy = search.groupBy;
-    // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ
-    if (search.subGroupBy && search.subGroupBy !== search.groupBy) out.subGroupBy = search.subGroupBy;
-  }
+  const fallback = defaultGroupBy(search.tab);
+  if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
+  else if (search.groupBy === "none" && fallback) out.groupBy = "none";
+  const groupBy = search.groupBy ?? fallback;
+  // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ
+  if (groupBy && groupBy !== "none" && search.subGroupBy && search.subGroupBy !== groupBy) out.subGroupBy = search.subGroupBy;
   if (search.preview) out.preview = search.preview;
   if (search.blocked !== undefined) out.blocked = search.blocked;
   if (search.archived) out.archived = true;
