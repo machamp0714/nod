@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { now, type OpCtx } from "../ctx";
@@ -49,16 +49,18 @@ export function resolveDocTarget(db: Database, target: DocTarget): ResolvedTarge
     : { projectId: resolveProject(db, target.projectRef as string).id };
 }
 
-function realPathOrNull(path: string): string | null {
+// ファイルの実体（デバイスと inode）。ファイルがなければ null
+function fileIdOrNull(path: string): string | null {
   try {
-    return realpathSync.native(path).normalize("NFC");
+    const st = statSync(path);
+    return `${st.dev}:${st.ino}`;
   } catch {
     return null;
   }
 }
 
 // 同じ実体を指す登録済みの Document を探す。パスの完全一致のほか、大文字小文字や Unicode 正規化（NFC/NFD）
-// だけ違うパスは、実パスが同じときに限り同じものとみなす（大文字小文字を区別する FS では別ファイルのまま）
+// だけ違うパスは、同じファイル（inode）を指すときに限り同じものとみなす（それらを区別する FS では別ファイルのまま）
 function findDocumentByPath(db: Database, path: string): DocumentRef | null {
   const exact = db.query("SELECT id, path, title, kind FROM documents WHERE path = ?").get(path) as DocumentRef | null;
   if (exact) return exact;
@@ -67,9 +69,10 @@ function findDocumentByPath(db: Database, path: string): DocumentRef | null {
     (doc) => key(doc.path) === key(path),
   );
   if (candidates.length === 0) return null;
-  const real = realPathOrNull(path);
+  const file = fileIdOrNull(path);
+  // ファイルが消えた後の解除では実体を比べられないため、正規化だけ違う表記を同じものとみなす
   return (
-    candidates.find((doc) => (real === null ? doc.path.normalize("NFC") === path.normalize("NFC") : realPathOrNull(doc.path) === real)) ??
+    candidates.find((doc) => (file === null ? doc.path.normalize("NFC") === path.normalize("NFC") : fileIdOrNull(doc.path) === file)) ??
     null
   );
 }
