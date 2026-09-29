@@ -8,6 +8,7 @@ import { NodError } from "../errors";
 import { addComment, recordEvent, threadRootId } from "../events";
 import {
   READY_WHERE,
+  type CommentRow,
   findIssueRow,
   formatIssueId,
   type IssueRow,
@@ -380,6 +381,37 @@ export function commentIssue(ctx: OpCtx, ref: string, body: string, opts: { repl
     const row = findIssueRow(ctx.db, ref);
     const parentId = opts.replyTo === undefined ? null : threadRootId(ctx, row, opts.replyTo);
     return addComment(ctx, row, body, parentId);
+  });
+}
+
+// スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
+export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
+  if (isLlm(ctx)) {
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はコメントのスレッドを解決済み・未解決にできません。判断は me に依頼してください");
+  }
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    const rootId = threadRootId(ctx, row, commentId);
+    const current = ctx.db.query("SELECT * FROM comments WHERE id = ?").get(rootId) as CommentRow;
+    if ((current.resolved_at !== null) !== resolved) {
+      const ts = now();
+      ctx.db
+        .query("UPDATE comments SET resolved_at = ?, resolved_by = ? WHERE id = ?")
+        .run(resolved ? ts : null, resolved ? ctx.actor : null, rootId);
+      ctx.db.query("UPDATE issues SET updated_at = ? WHERE id = ?").run(ts, row.id);
+      recordEvent(ctx.db, row.id, ctx.actor, resolved ? "comment_thread_resolved" : "comment_thread_reopened", { comment_id: rootId });
+    }
+    const c = ctx.db.query("SELECT * FROM comments WHERE id = ?").get(rootId) as CommentRow;
+    return {
+      id: c.id,
+      issueId: formatIssueId(row.ws_key, row.number),
+      author: c.author,
+      body: c.body,
+      createdAt: c.created_at,
+      parentId: null,
+      resolvedAt: c.resolved_at,
+      resolvedBy: c.resolved_by,
+    };
   });
 }
 

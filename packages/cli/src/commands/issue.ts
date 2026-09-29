@@ -5,6 +5,7 @@ import {
   askQuestion,
   attachDocument,
   commentIssue,
+  resolveThread,
   completeIssue,
   copyIssue,
   createIssue,
@@ -183,6 +184,18 @@ export function registerIssueCommands(program: Command): void {
         const replyTo = o.replyTo === undefined ? undefined : parsePositiveInt(o.replyTo, "返信先のコメントID");
         const c = commentIssue(cli.ctx, id, text, { replyTo });
         print(cli, c, () => (c.parentId === null ? `コメントしました（#${c.id}）` : `返信しました（#${c.id} → #${c.parentId}）`));
+      }),
+    );
+
+  issue
+    .command("resolve <id> <commentId>")
+    .description("コメントのスレッドを解決済みにする（人だけが行える）")
+    .option("--reopen", "解決済みのスレッドを未解決に戻す")
+    .action(
+      act((cli, cmd, id: string, commentId: string) => {
+        const reopen = cmd.opts<{ reopen?: boolean }>().reopen === true;
+        const c = resolveThread(cli.ctx, id, parsePositiveInt(commentId, "コメントID"), !reopen);
+        print(cli, c, () => `スレッド #${c.id} を${reopen ? "未解決に戻しました" : "解決済みにしました"}`);
       }),
     );
 

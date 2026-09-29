@@ -13,6 +13,7 @@ import {
   NodError,
   type OpCtx,
   rejectReview,
+  resolveThread,
   STATUSES,
   type Status,
   snoozeTriage,
@@ -100,6 +101,15 @@ const OPS: Record<string, Op> = {
   reject: { keys: ["reason"], run: (me, ref, b) => rejectReview(me, ref, reqString(b, "reason")) },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
   copy: { keys: ["title"], run: (me, ref, b) => copyIssue(me, ref, { title: optString(b, "title") }), created: true },
+  "resolve-thread": {
+    keys: ["commentId", "resolved"],
+    run: (me, ref, b) => {
+      const commentId = optInt(b, "commentId");
+      if (commentId === undefined) throw invalid("commentId を指定してください");
+      if (typeof b.resolved !== "boolean") throw invalid("resolved は true か false で指定してください");
+      return resolveThread(me, ref, commentId, b.resolved);
+    },
+  },
   comment: {
     keys: ["body", "parentId"], created: true,
     run: (me, ref, b) => commentIssue(me, ref, reqString(b, "body"), { replyTo: optInt(b, "parentId") }),

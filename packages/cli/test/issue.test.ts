@@ -137,6 +137,19 @@ describe("コメントのスレッド", () => {
     const bad = await me(["issue", "comment", created.id, "x", "--reply-to", "abc", "--json"]);
     expect(bad.json.error.code).toBe("INVALID_ARGS");
   });
+
+  test("resolve で解決済みにし、--reopen で戻す。LLM は FORBIDDEN_FOR_LLM", async () => {
+    const created = (await me(["issue", "create", "--json", "解決"])).json;
+    const root = (await me(["issue", "comment", created.id, "決めたい", "--json"])).json;
+    const forbidden = await llm(["issue", "resolve", created.id, String(root.id), "--json"]);
+    expect([forbidden.exitCode, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
+    const resolved = await me(["issue", "resolve", created.id, String(root.id)]);
+    expect(resolved.exitCode).toBe(0);
+    expect(resolved.stdout).toContain(`#${root.id} を解決済みにしました`);
+    expect((await me(["issue", "show", created.id])).stdout).toContain(`#${root.id} me: 決めたい（解決済み: me）`);
+    const reopened = await me(["issue", "resolve", created.id, String(root.id), "--reopen", "--json"]);
+    expect(reopened.json).toMatchObject({ id: root.id, resolvedAt: null });
+  });
 });
 
 describe("ヘルプと終了コード", () => {

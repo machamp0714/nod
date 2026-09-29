@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
-import { commentIssue, createIssue, getIssue } from "../src/ops/issues";
+import { commentIssue, createIssue, getIssue, resolveThread } from "../src/ops/issues";
 import { MIGRATIONS } from "../src/schema";
-import { codeOf, setup, tempDbPath } from "./helpers";
+import { codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
 const commentsOf = (activity: ReturnType<typeof getIssue>["activity"]) => activity.filter((a) => a.kind === "comment");
 
@@ -48,6 +48,51 @@ describe("コメントのスレッド返信", () => {
   });
 });
 
+describe("スレッドの解決済み化", () => {
+  test("私が解決・未解決に切り替え、変化したときだけ event を記録する", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const root = commentIssue(me, i.id, "親");
+    expect(root).toMatchObject({ resolvedAt: null, resolvedBy: null });
+    const resolved = resolveThread(me, i.id, root.id, true);
+    expect(resolved).toMatchObject({ id: root.id, resolvedBy: "me" });
+    expect(resolved.resolvedAt).not.toBeNull();
+    expect(resolveThread(me, i.id, root.id, true).resolvedAt).toBe(resolved.resolvedAt);
+    const [thread] = commentsOf(getIssue(db, i.id).activity);
+    expect(thread).toMatchObject({ resolvedAt: resolved.resolvedAt, resolvedBy: "me" });
+    // 解決済みスレッドへの返信は許可し、解決状態は変えない
+    commentIssue(llm, i.id, "補足", { replyTo: root.id });
+    expect(commentsOf(getIssue(db, i.id).activity)[0]).toMatchObject({ resolvedBy: "me", replies: [{ body: "補足" }] });
+    expect(resolveThread(me, i.id, root.id, false)).toMatchObject({ resolvedAt: null, resolvedBy: null });
+    resolveThread(me, i.id, root.id, false);
+    const threadEvents = eventsOf(db, i.id).filter((e) => e.type.startsWith("comment_thread_"));
+    expect(threadEvents).toEqual([
+      { type: "comment_thread_resolved", actor: "me", data: { comment_id: root.id } },
+      { type: "comment_thread_reopened", actor: "me", data: { comment_id: root.id } },
+    ]);
+  });
+
+  test("返信の ID を渡すと、その返信が属するスレッドを切り替える", () => {
+    const { ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const root = commentIssue(me, i.id, "親");
+    const reply = commentIssue(me, i.id, "返信", { replyTo: root.id });
+    expect(resolveThread(me, i.id, reply.id, true)).toMatchObject({ id: root.id, resolvedBy: "me" });
+  });
+
+  test("LLM は切り替えられず、存在しない・他 Issue のコメントは拒否する", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    const root = commentIssue(me, a.id, "親");
+    expect(codeOf(() => resolveThread(llm, a.id, root.id, true))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => resolveThread(me, a.id, 9999, true))).toBe("NOT_FOUND");
+    expect(codeOf(() => resolveThread(me, b.id, root.id, true))).toBe("INVALID_ARGS");
+    expect(commentsOf(getIssue(db, a.id).activity)[0]).toMatchObject({ resolvedAt: null });
+    expect(eventsOf(db, a.id).filter((e) => e.type.startsWith("comment_thread_"))).toEqual([]);
+  });
+});
+
 test("スレッド導入前の DB のコメントは、移行後にスレッドの親として扱う", () => {
   const path = tempDbPath();
   const raw = new Database(path, { create: true });
@@ -60,7 +105,7 @@ test("スレッド導入前の DB のコメントは、移行後にスレッド�
   raw.close();
   const db = openDb(path);
   const [old] = commentsOf(getIssue(db, "API-1").activity);
-  expect(old).toMatchObject({ body: "旧コメント", replies: [] });
+  expect(old).toMatchObject({ body: "旧コメント", replies: [], resolvedAt: null, resolvedBy: null });
   const reply = commentIssue({ db, actor: "me" }, "API-1", "返信", { replyTo: old!.id });
   expect(reply.parentId).toBe(old!.id);
   db.close();

@@ -154,6 +154,27 @@ describe("コメントのスレッド", () => {
   });
 });
 
+describe("スレッドの解決", () => {
+  test("resolve-thread で解決・未解決を切り替え、LLM の書き手や型の誤りは拒否する", async () => {
+    const { app, me, ws } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const root = (await call(app, "POST", `/api/issues/${i.id}/comment`, { body: "親" })).json;
+    const r = await call(app, "POST", `/api/issues/${i.id}/resolve-thread`, { commentId: root.id, resolved: true });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ id: root.id, resolvedBy: "me" });
+    const thread = (await call(app, "GET", `/api/issues/${i.id}`)).json.activity.find((x: { kind: string }) => x.kind === "comment");
+    expect(thread.resolvedBy).toBe("me");
+    const reopened = await call(app, "POST", `/api/issues/${i.id}/resolve-thread`, { commentId: root.id, resolved: false });
+    expect(reopened.json).toMatchObject({ resolvedAt: null, resolvedBy: null });
+    for (const body of [{}, { commentId: root.id }, { commentId: "1", resolved: true }, { commentId: root.id, resolved: "yes" }]) {
+      const bad = await call(app, "POST", `/api/issues/${i.id}/resolve-thread`, body);
+      expect([body, bad.status, bad.json.error.code]).toEqual([body, 400, "INVALID_ARGS"]);
+    }
+    const missing = await call(app, "POST", `/api/issues/${i.id}/resolve-thread`, { commentId: 9999, resolved: true });
+    expect(missing.status).toBe(404);
+  });
+});
+
 describe("誤った入力", () => {
   test("本文の誤りは 400 の INVALID_ARGS で、Issue を変えない", async () => {
     const { app, me, ws } = setup();

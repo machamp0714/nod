@@ -137,4 +137,6 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE comments ADD COLUMN parent_id INTEGER REFERENCES comments(id) ON DELETE CASCADE`,
     `CREATE INDEX comments_issue ON comments (issue_id, id)`,
   ],
+  // スレッドの解決済み化。スレッドの親の行にだけ値を持つ
+  [`ALTER TABLE comments ADD COLUMN resolved_at TEXT`, `ALTER TABLE comments ADD COLUMN resolved_by TEXT`],
 ];

@@ -131,6 +131,9 @@ export interface Comment {
   createdAt: string;
   // スレッドの親なら null。返信は1階層で、親は常にスレッドの親
   parentId: number | null;
+  // スレッドの親が解決済みなら日時と解決した人。未解決と返信は null
+  resolvedAt: string | null;
+  resolvedBy: string | null;
 }
 
 export interface CommentReply {
@@ -142,7 +145,16 @@ export interface CommentReply {
 
 export type ActivityItem =
   | { kind: "event"; at: string; actor: string; type: string; data: Record<string, unknown> }
-  | { kind: "comment"; id: number; at: string; actor: string; body: string; replies: CommentReply[] }
+  | {
+      kind: "comment";
+      id: number;
+      at: string;
+      actor: string;
+      body: string;
+      replies: CommentReply[];
+      resolvedAt: string | null;
+      resolvedBy: string | null;
+    }
   | {
       kind: "question";
       at: string;

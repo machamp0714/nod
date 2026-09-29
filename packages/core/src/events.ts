@@ -33,6 +33,8 @@ export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: nu
     body,
     createdAt: ts,
     parentId,
+    resolvedAt: null,
+    resolvedBy: null,
   };
 }
 

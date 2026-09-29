@@ -104,6 +104,10 @@ export function describeActivity(item: ActivityItem): ActivityLine {
       return { icon: "circle-check", text: withReason(`${actor} が承認した`, data) };
     case "review_rejected":
       return { icon: "undo-2", text: withReason(`${actor} が差し戻した`, data) };
+    case "comment_thread_resolved":
+      return { icon: "circle-check", text: `${actor} がコメントのスレッドを解決済みにした` };
+    case "comment_thread_reopened":
+      return { icon: "undo-2", text: `${actor} がコメントのスレッドを未解決に戻した` };
     default:
       return { icon: "circle", text: `${actor}: ${item.type}` };
   }
