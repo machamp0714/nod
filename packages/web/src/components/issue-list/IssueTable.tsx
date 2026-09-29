@@ -1,15 +1,30 @@
-import { ISSUE_COLUMNS, type IssueColumn } from "../../routes/search";
+import { DEFAULT_ISSUE_COLUMNS, type IssueColumn } from "../../routes/search";
 import { AgentStateDot } from "./AgentStateDot";
 import { BlockedBy } from "./BlockedBy";
 import { Link } from "@tanstack/react-router";
+import { formatDueDate, formatEstimate, isOverdue, localToday } from "../../lib/due-date";
 import { prLabel } from "../../lib/format";
+import type { Issue } from "../../api/types";
 import { Icon, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
+// nod.pen「Issues｜見積もり・期限列」：期限超過は赤字と「期限超過」ピルで示す
+function DueDateCell({ issue, today }: { issue: Issue; today: string }) {
+  const label = formatDueDate(issue.dueDate, today);
+  const overdue = isOverdue(issue, today);
+  return (
+    <span className={s.due}>
+      <Icon name="calendar" size={12} color={overdue ? "var(--fail)" : "var(--ink3)"} />
+      {label ? <span className={overdue ? s.overdue : undefined} title={issue.dueDate ?? undefined}>{label}</span> : <span className={s.muted}>—</span>}
+      {overdue && <span className={s.overduePill}>期限超過</span>}
+    </span>
+  );
+}
+
 export function IssueTable({
   rows,
-  columns = [...ISSUE_COLUMNS],
+  columns = [...DEFAULT_ISSUE_COLUMNS],
   hideHeader = false,
   previewId,
   onPreview,
@@ -22,6 +37,7 @@ export function IssueTable({
   onPreview?: (id: string) => void;
   showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
 }) {
+  const today = localToday();
   return (
     <div className={s.tableScroll}>
       <table className={s.table}>
@@ -32,6 +48,8 @@ export function IssueTable({
         {columns.includes("questions") && <col className={s.colQuestions} />}
         {columns.includes("workspace") && <col className={s.colWorkspace} />}
         {columns.includes("pr") && <col className={s.colPr} />}
+        {columns.includes("estimate") && <col className={s.colEstimate} />}
+        {columns.includes("dueDate") && <col className={s.colDue} />}
       </colgroup>
       <thead className={hideHeader ? s.visuallyHidden : undefined}>
         <tr>
@@ -41,6 +59,8 @@ export function IssueTable({
           {columns.includes("questions") && <th>未決事項</th>}
           {columns.includes("workspace") && <th>Workspace</th>}
           {columns.includes("pr") && <th>PR</th>}
+          {columns.includes("estimate") && <th>見積もり</th>}
+          {columns.includes("dueDate") && <th>期限</th>}
         </tr>
       </thead>
       <tbody>
@@ -102,6 +122,14 @@ export function IssueTable({
                     <span className={s.muted}>—</span>
                 )}
               </td>
+              )}
+              {columns.includes("estimate") && (
+                <td>{formatEstimate(issue.estimate) ?? <span className={s.muted}>—</span>}</td>
+              )}
+              {columns.includes("dueDate") && (
+                <td>
+                  <DueDateCell issue={issue} today={today} />
+                </td>
               )}
             </tr>
           ))

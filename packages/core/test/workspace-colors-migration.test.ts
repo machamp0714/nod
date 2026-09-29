@@ -26,7 +26,15 @@ function legacyDb(path: string): Database {
 }
 
 function snapshot(db: Database) {
-  return Object.fromEntries(["issues", "issue_labels", "relations", "events"].map((table) => [table, db.query(`SELECT * FROM ${table}`).all()]));
+  return Object.fromEntries(["issues", "issue_labels", "relations", "events"].map((table) => [table, db.query(`SELECT * FROM ${table}`).all() as Record<string, unknown>[]]));
+}
+
+// 後の版で足された列（例: issues.estimate）を除き、移行前からある列だけを比べる
+function legacyColumns(current: ReturnType<typeof snapshot>, before: ReturnType<typeof snapshot>) {
+  return Object.fromEntries(Object.entries(current).map(([table, rows]) => {
+    const keys = Object.keys(before[table]![0] ?? {});
+    return [table, rows.map((row) => Object.fromEntries(keys.map((key) => [key, row[key]])))];
+  }));
 }
 
 test("v1を作成日時/id順で一度だけ移行し、子データ・連番・FKを保持する", () => {
@@ -41,7 +49,7 @@ test("v1を作成日時/id順で一度だけ移行し、子データ・連番・
     ["API", "#C36B04"], ["BLOG", "#DB2777"], ["NOD", "#0D9768"], ["WEB", "#7C5CFF"],
   ]);
   expect(db.query("SELECT id,key,name,path,next_number,created_at FROM workspaces ORDER BY id").all()).toEqual(workspaces);
-  expect(snapshot(db)).toEqual(children);
+  expect(legacyColumns(snapshot(db), children)).toEqual(children);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   const colors = listWorkspaces(db);
   db.close();

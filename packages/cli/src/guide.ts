@@ -45,8 +45,8 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 ## Issue を複製する
 
-\`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度だけで、元の Issue は変えない。
-担当・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
+\`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度・見積もりだけで、元の Issue は変えない。
+期限・担当・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
 
 ## 引数の書き方
 
@@ -61,7 +61,7 @@ nod issue ask API-12 -- "--force を外してよいか"
 作業中に別の不具合や追加の作業を見つけたら、自分で着手せずに起票する。
 
 \`\`\`sh
-nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--project <名前>] [--parent <id>] [--discovered-from <id>] [-p 0-4] [-l <label>]
+nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--project <名前>] [--parent <id>] [--discovered-from <id>] [-p 0-4] [--estimate 1-100] [--due YYYY-MM-DD] [-l <label>]
 \`\`\`
 
 別のIssueの作業中に発見した場合は \`--discovered-from <id>\` で起票元を明示する。親子関係の \`--parent\` とは別に記録され、未指定の起票元は推測されない。
@@ -76,7 +76,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 ## そのほかのコマンド
 
 - \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated]\`：\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す
-- \`nod issue update <id> [--title] [-d] [-p] [--add-label] [--remove-label] [--parent] [--project]\`
+- \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする。人だけが実行できる（LLM は FORBIDDEN_FOR_LLM）
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`

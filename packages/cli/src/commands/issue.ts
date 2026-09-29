@@ -28,7 +28,7 @@ import {
   unsubscribeIssue,
 } from "@nod/core";
 import type { Command } from "commander";
-import { collect, orNull, parseDocKind, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
+import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import { formatDelegations, formatIssueDetail, formatIssueLine, formatPlan, print, sortByAssignee } from "../output";
@@ -50,6 +50,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
     .option("-p, --priority <0-4>", "優先度（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）")
+    .option("--estimate <1-100>", "見積もり（ポイント）")
+    .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
     .action(
       act(
@@ -57,7 +59,7 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { template?: string; description?: string; project?: string; parent?: string; discoveredFrom?: string; priority?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; parent?: string; discoveredFrom?: string; priority?: string; estimate?: string; due?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
@@ -68,6 +70,8 @@ export function registerIssueCommands(program: Command): void {
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
+            estimate: o.estimate === undefined ? undefined : parseEstimate(o.estimate),
+            dueDate: o.due,
             labels: o.label,
           });
           print(cli, created, () => `起票しました: ${formatIssueLine(created)}`);
@@ -77,7 +81,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("copy <id>")
-    .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度だけを引き継ぎ、元の Issue は変えない）")
+    .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度・見積もりだけを引き継ぎ、元の Issue は変えない）")
     .option("--title <text>", "複製のタイトル（省くと元のタイトル）")
     .action(
       act((cli, _cmd, id: string, o: { title?: string }) => {
@@ -148,6 +152,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--title <text>", "タイトル")
     .option("-d, --description <text>", "説明")
     .option("-p, --priority <0-4>", "優先度")
+    .option("--estimate <1-100>", "見積もり（ポイント）")
+    .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス")
     .option("--assignee <name>", "担当")
     .option("--parent <id>", "親 Issue")
@@ -165,6 +171,8 @@ export function registerIssueCommands(program: Command): void {
             title?: string;
             description?: string;
             priority?: string;
+            estimate?: string;
+            due?: string;
             status?: string;
             assignee?: string;
             parent?: string;
@@ -178,6 +186,8 @@ export function registerIssueCommands(program: Command): void {
             title: o.title,
             description: orNull(o.description),
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
+            estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
+            dueDate: orNull(o.due),
             status: o.status === undefined ? undefined : parseStatus(o.status),
             assignee: orNull(o.assignee),
             parentRef: orNull(o.parent),

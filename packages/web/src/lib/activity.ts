@@ -28,6 +28,15 @@ function priorityLabel(value: unknown): string {
   return typeof value === "number" ? priorityMeta(value).label : String(value);
 }
 
+function estimateLabel(value: unknown): string {
+  return typeof value === "number" ? `${value} pt` : "なし";
+}
+
+// Activity は年をまたいでも読めるよう、期限を YYYY-MM-DD のまま出す
+function dueDateLabel(value: unknown): string {
+  return typeof value === "string" && value !== "" ? value : "なし";
+}
+
 function personLabel(value: unknown): string {
   return typeof value === "string" && value !== "" ? value : "なし";
 }
@@ -58,6 +67,10 @@ export function describeActivity(item: ActivityItem): ActivityLine {
       return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${statusLabel(data.from)} から ${statusLabel(data.to)} に変えた`, data) };
     case "priority_changed":
       return { icon: "signal-high", text: `${actor} が優先度を ${priorityLabel(data.from)} から ${priorityLabel(data.to)} に変えた` };
+    case "estimate_changed":
+      return { icon: "gauge", text: `${actor} が見積もりを ${estimateLabel(data.from)} から ${estimateLabel(data.to)} に変えた` };
+    case "due_date_changed":
+      return { icon: "calendar", text: `${actor} が期限を ${dueDateLabel(data.from)} から ${dueDateLabel(data.to)} に変えた` };
     case "assignee_changed":
       return { icon: "circle-user", text: `${actor} が担当者を ${personLabel(data.from)} から ${personLabel(data.to)} に変えた` };
     case "title_changed":

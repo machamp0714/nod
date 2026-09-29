@@ -6,10 +6,13 @@ export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
 export type IssueLayout = "list" | "board";
-export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "title";
+export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "title" | "estimate" | "dueDate";
+const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
-export const ISSUE_COLUMNS = ["status", "questions", "workspace", "pr"] as const;
+export const ISSUE_COLUMNS = ["status", "questions", "workspace", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
+// 見積もり・期限の列は後から足したため既定では出さない（既存の既定表示と URL を変えない）
+export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["status", "questions", "workspace", "pr"];
 export type ProjectTab = "active" | "completed" | "all";
 
 export interface SelectedSearch {
@@ -69,9 +72,9 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   for (const key of ["showCompleted", "showChildren"] as const) {
     if (key in raw) out[key] = raw[key] !== false && raw[key] !== "false";
   }
-  if ("sort" in raw) out.sort = pick(raw.sort, ["default", "priority", "createdAt", "updatedAt", "title"] as const) ?? "default";
+  if ("sort" in raw) out.sort = pick(raw.sort, ISSUE_SORTS) ?? "default";
   if ("direction" in raw) out.direction = pick(raw.direction, ["asc", "desc"] as const) ?? "asc";
-  if ("columns" in raw) out.columns = [...ISSUE_COLUMNS];
+  if ("columns" in raw) out.columns = [...DEFAULT_ISSUE_COLUMNS];
   if (Array.isArray(raw.columns) && raw.columns.every((value) => pick(value, ISSUE_COLUMNS))) {
     out.columns = ISSUE_COLUMNS.filter((column) => (raw.columns as unknown[]).includes(column));
   }
@@ -96,13 +99,17 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   return out;
 }
 
+function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
+  return a.length === b.length && b.every((column) => a.includes(column));
+}
+
 export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
-  if (search.columns && !ISSUE_COLUMNS.every((column) => search.columns!.includes(column))) out.columns = search.columns;
+  if (search.columns && !sameColumns(search.columns, DEFAULT_ISSUE_COLUMNS)) out.columns = search.columns;
   if (search.groupBy && search.groupBy !== "none") {
     out.groupBy = search.groupBy;
     // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ

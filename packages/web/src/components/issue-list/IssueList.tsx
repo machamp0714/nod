@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useMemo } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
-import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
+import { DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
 import { AgentAvatar, Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
 import { AgentStateDot } from "./AgentStateDot";
@@ -47,7 +47,7 @@ export function IssueList({
   const preview = search.preview;
   // プレビュー中は一覧の幅が狭くなるため、Workspace 列を隠す（design/nod.pen「Issues｜プレビュー」）
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
-  const columns = search.columns ?? [...ISSUE_COLUMNS];
+  const columns = search.columns ?? [...DEFAULT_ISSUE_COLUMNS];
   const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
@@ -169,6 +169,8 @@ export function IssueList({
               <option value="createdAt">作成日時</option>
               <option value="updatedAt">更新日時</option>
               <option value="title">タイトル</option>
+              <option value="estimate">見積もり</option>
+              <option value="dueDate">期限</option>
             </select>
           </label>
           <label className={s.groupSelect}>方向
@@ -192,7 +194,7 @@ export function IssueList({
             {ISSUE_COLUMNS.map((column) => (
               <label key={column}>
                 <input type="checkbox" checked={columns.includes(column)} onChange={(event) => onSearchChange({ columns: ISSUE_COLUMNS.filter((key) => key === column ? event.target.checked : columns.includes(key)) })} />
-                {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR" }[column]}
+                {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR", estimate: "見積もり", dueDate: "期限" }[column]}
               </label>
             ))}
           </fieldset>

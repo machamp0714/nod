@@ -198,6 +198,35 @@
   width: 64px;
 }
 
+.colEstimate {
+  width: 72px;
+}
+
+.colDue {
+  width: 160px;
+}
+
+.due {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.overdue {
+  color: var(--fail);
+  font-weight: 500;
+}
+
+.overduePill {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--fail-soft);
+  color: var(--fail);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .id {
   color: var(--ink2);
   font-family: var(--font-mono);

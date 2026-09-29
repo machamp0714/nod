@@ -176,4 +176,11 @@ export const MIGRATIONS: MigrationStep[][] = [
     `CREATE INDEX comments_parent ON comments (parent_id)`,
     `CREATE INDEX issues_parent ON issues (parent_id)`,
   ],
+  [
+    // 見積もり（ポイント 1〜100 の整数）と期限（時刻なしの暦日 YYYY-MM-DD）。既存の Issue は NULL（未設定）
+    `ALTER TABLE issues ADD COLUMN estimate INTEGER
+      CHECK (estimate IS NULL OR (typeof(estimate) = 'integer' AND estimate BETWEEN 1 AND 100))`,
+    `ALTER TABLE issues ADD COLUMN due_date TEXT
+      CHECK (due_date IS NULL OR (typeof(due_date) = 'text' AND length(due_date) = 10 AND date(due_date) = due_date))`,
+  ],
 ];

@@ -3,6 +3,8 @@ import {
   type AgentState,
   type Issue,
   type IssueDetail,
+  isOverdue,
+  localToday,
   NodError,
   type Plan,
   type Status,
@@ -103,6 +105,8 @@ export function formatIssueDetail(d: IssueDetail): string {
     `ステータス: ${STATUS_LABEL[d.status]}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
+  if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
+  if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);

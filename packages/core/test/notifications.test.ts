@@ -43,6 +43,8 @@ describe("購読中の Issue の変化の通知", () => {
       [
         "assignee_changed",
         "comment_added",
+        "due_date_changed",
+        "estimate_changed",
         "labels_changed",
         "priority_changed",
         "project_changed",
@@ -79,6 +81,20 @@ describe("購読中の Issue の変化の通知", () => {
     );
     const assignee = list.find((n) => n.eventType === "assignee_changed");
     expect(assignee?.data).toEqual({ from: null, to: "claude-code" });
+  });
+
+  test("見積もり・期限の変化も優先度と同じく通知になる", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    subscribeIssue(me, a.id);
+    updateIssue(llm, a.id, { estimate: 5, dueDate: "2026-10-15" });
+    updateIssue(me, a.id, { estimate: 8 });
+
+    const list = listNotifications(db);
+    expect(list.map((n) => [n.eventType, n.actor, n.data]).sort()).toEqual([
+      ["due_date_changed", "claude-code", { from: null, to: "2026-10-15" }],
+      ["estimate_changed", "claude-code", { from: null, to: 5 }],
+    ]);
   });
 
   test("自分自身の操作では自分に通知しない", () => {

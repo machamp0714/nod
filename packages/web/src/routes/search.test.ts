@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   cleanIssueListSearch,
-  ISSUE_COLUMNS,
+  type IssueListSearch,
+  DEFAULT_ISSUE_COLUMNS,
   replacesIssueListHistory,
   cleanProjectsSearch,
   parseIssueListSearch,
@@ -83,10 +84,23 @@ describe("表示設定のURL", () => {
   });
   test("不正値は安全な既定値で上書きし古いURLを維持する", () => {
     for (const columns of [null, "pr", {}, ["unknown"], ["pr", 1]]) {
-      expect(parseIssueListSearch({ sort: "bad", direction: "bad", columns })).toEqual({ sort: "default", direction: "asc", columns: [...ISSUE_COLUMNS] });
+      expect(parseIssueListSearch({ sort: "bad", direction: "bad", columns })).toEqual({ sort: "default", direction: "asc", columns: [...DEFAULT_ISSUE_COLUMNS] });
     }
     expect(cleanIssueListSearch(parseIssueListSearch({ sort: "bad", direction: "bad", columns: "bad" }))).toEqual({});
     expect(parseIssueListSearch({ q: "検索" })).toEqual({ q: "検索" });
+  });
+  test("見積もり・期限の列は既定で非表示、選ぶとURLに残る", () => {
+    expect(DEFAULT_ISSUE_COLUMNS).toEqual(["status", "questions", "workspace", "pr"]);
+    expect(cleanIssueListSearch({ columns: [...DEFAULT_ISSUE_COLUMNS] })).toEqual({});
+    const withDue: IssueListSearch = { columns: ["status", "questions", "workspace", "pr", "dueDate"] };
+    expect(cleanIssueListSearch(withDue)).toEqual(withDue);
+    expect(parseIssueListSearch({ columns: ["dueDate", "estimate", "status"] }).columns).toEqual(["status", "estimate", "dueDate"]);
+  });
+  test("並び順に見積もりと期限を選べる", () => {
+    for (const sort of ["estimate", "dueDate"] as const) {
+      expect(parseIssueListSearch({ sort }).sort).toBe(sort);
+      expect(cleanIssueListSearch({ sort })).toEqual({ sort });
+    }
   });
   test("表示変更だけは履歴を追加する", () => {
     for (const patch of [{ sort: "title" }, { direction: "desc" }, { columns: [] }] as const) expect(replacesIssueListHistory({ ...patch } as never)).toBe(false);

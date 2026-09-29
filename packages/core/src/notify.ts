@@ -8,6 +8,8 @@ export const NOTIFY_EVENT_TYPES = [
   "status_changed",
   "assignee_changed",
   "priority_changed",
+  "estimate_changed",
+  "due_date_changed",
   "title_changed",
   "project_changed",
   "labels_changed",

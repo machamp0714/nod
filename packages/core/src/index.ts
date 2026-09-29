@@ -18,3 +18,4 @@ export * from "./issue-filter";
 export * from "./ops/views";
 export * from "./ops/diagnose";
 export * from "./ops/notifications";
+export * from "./due-date";

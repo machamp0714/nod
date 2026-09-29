@@ -11,6 +11,10 @@ describe("describeNotification", () => {
   test("誰が何をどう変えたかを1文で返し、short では本文を省く", () => {
     expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } }))).toBe("codex がステータスを In Review に変更しました");
     expect(describeNotification(n({ eventType: "priority_changed", data: { from: 0, to: 2 } }))).toBe("codex が優先度を High に変更しました");
+    expect(describeNotification(n({ eventType: "estimate_changed", data: { from: null, to: 5 } }))).toBe("codex が見積もりを 5 pt に変更しました");
+    expect(describeNotification(n({ eventType: "estimate_changed", data: { from: 5, to: null } }))).toBe("codex が見積もりを外しました");
+    expect(describeNotification(n({ eventType: "due_date_changed", data: { from: null, to: "2026-10-15" } }))).toBe("codex が期限を 2026-10-15 に変更しました");
+    expect(describeNotification(n({ eventType: "due_date_changed", data: { from: "2026-10-15", to: null } }))).toBe("codex が期限を外しました");
     expect(describeNotification(n({ eventType: "assignee_changed", data: { from: null, to: "claude-code" } }))).toBe("codex が担当者を claude-code に変更しました");
     expect(describeNotification(n({ eventType: "assignee_changed", data: { from: "codex", to: null } }))).toBe("codex が担当者を外しました");
     expect(describeNotification(n({ eventType: "labels_changed", data: { added: ["bug"], removed: ["ui"] } }))).toBe("codex がラベルを変更しました（+bug -ui）");

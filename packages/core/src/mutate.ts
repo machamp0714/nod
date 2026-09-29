@@ -5,6 +5,8 @@ import type { IssueRow } from "./issue-query";
 export type Column =
   | "status"
   | "priority"
+  | "estimate"
+  | "due_date"
   | "assignee"
   | "agent_state"
   | "title"
@@ -21,6 +23,8 @@ export type Column =
 const EVENT_OF: Partial<Record<Column, string>> = {
   status: "status_changed",
   priority: "priority_changed",
+  estimate: "estimate_changed",
+  due_date: "due_date_changed",
   assignee: "assignee_changed",
   agent_state: "agent_state_changed",
   title: "title_changed",

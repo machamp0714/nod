@@ -22,6 +22,8 @@ export interface IssueRow {
   description: string | null;
   status: Status;
   priority: number;
+  estimate: number | null;
+  due_date: string | null;
   assignee: string | null;
   agent_state: AgentState | null;
   parent_id: number | null;
@@ -103,6 +105,8 @@ export function toIssue(r: IssueRow): Issue {
     description: r.description,
     status: r.status,
     priority: r.priority,
+    estimate: r.estimate,
+    dueDate: r.due_date,
     assignee: r.assignee,
     agentState: r.agent_state,
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
