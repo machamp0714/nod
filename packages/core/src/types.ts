@@ -585,3 +585,48 @@ export interface AutomationRun {
   dryRun: boolean;
   rules: AutomationRuleResult[];
 }
+
+// 定期Issue（#32）の周期。weekly は weekday（0 = 日曜 〜 6 = 土曜）、monthly は monthDay（1〜31。その日が無い月は月末）を使う
+export const RECURRENCE_CADENCES = ["daily", "weekly", "monthly"] as const;
+export type RecurrenceCadence = (typeof RECURRENCE_CADENCES)[number];
+
+export interface RecurringIssue {
+  id: number;
+  workspaceKey: string;
+  title: string;
+  description: string | null;
+  template: string | null; // テンプレートの名前。本文は起票するときに解決する
+  project: string | null;
+  labels: string[];
+  priority: number;
+  assignee: string | null;
+  cadence: RecurrenceCadence;
+  weekday: number | null;
+  monthDay: number | null;
+  startDate: string; // YYYY-MM-DD（timeZone の暦日）
+  timeZone: string; // IANA の名前
+  enabled: boolean;
+  lastOccurrence: string | null; // 最後に起票した発生日
+  lastIssueId: string | null;
+  nextOccurrence: string | null; // 次の実行で起票する発生日。未起票の過去の発生日があればその最新日、無ければ今日以降の次の発生日。停止中は null
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface RecurringRunItem {
+  recurringId: number;
+  title: string;
+  occurrence: string; // 起票する（した）発生日
+  skipped: number; // 前回から間が空いて、起票せずに飛ばした発生日の数
+  issueId: string | null; // dry-run では null
+}
+
+export interface RecurringRun {
+  workspaceKey: string;
+  dryRun: boolean;
+  evaluatedAt: string;
+  items: RecurringRunItem[];
+  failed: { recurringId: number; title: string; occurrence: string; message: string }[];
+}

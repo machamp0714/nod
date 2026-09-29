@@ -68,9 +68,12 @@ export function describeActivity(item: ActivityItem, nameOfStatus: (value: unkno
   const { actor, data } = item;
   switch (item.type) {
     case "created":
-      return typeof data.copied_from === "string"
-        ? { icon: "copy", text: `${actor} が ${data.copied_from} から複製した` }
-        : { icon: "plus", text: `${actor} が起票した` };
+      if (typeof data.copied_from === "string") return { icon: "copy", text: `${actor} が ${data.copied_from} から複製した` };
+      // 定期Issue（#32）の実行で起票したもの。定義を消しても ID と発生日は event に残る
+      if (typeof data.recurring_id === "number" && typeof data.occurrence === "string") {
+        return { icon: "calendar", text: `${actor} が定期Issue #${data.recurring_id}（${data.occurrence} 分）から起票した` };
+      }
+      return { icon: "plus", text: `${actor} が起票した` };
     case "archived":
       return { icon: "archive", text: withReason(`${actor} がアーカイブした`, data) };
     case "unarchived":

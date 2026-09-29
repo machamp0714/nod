@@ -11,6 +11,9 @@ describe("describeActivity", () => {
       text: "me が API-1 から複製した",
     });
     expect(
+      describeActivity({ kind: "event", at, actor: "me", type: "created", data: { status: "todo", recurring_id: 3, occurrence: "2026-09-30" } }),
+    ).toEqual({ icon: "calendar", text: "me が定期Issue #3（2026-09-30 分）から起票した" });
+    expect(
       describeActivity({ kind: "event", at, actor: "claude-code", type: "status_changed", data: { from: "todo", to: "in_progress" } }).text,
     ).toBe("claude-code がステータスを Todo から In Progress に変えた");
     expect(

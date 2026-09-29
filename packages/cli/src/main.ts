@@ -10,6 +10,7 @@ import { registerHumanCommands } from "./commands/human";
 import { registerIssueCommands } from "./commands/issue";
 import { registerProjectCommands } from "./commands/project";
 import { registerTemplateCommands } from "./commands/template";
+import { registerRecurringCommands } from "./commands/recurring";
 import { registerSkillsCommands } from "./commands/skills";
 import { registerStatsCommands } from "./commands/stats";
 import { registerSummaryCommand } from "./commands/summary";
@@ -35,6 +36,7 @@ export function buildProgram(): Command {
   registerAttachmentsCommands(program);
   registerGitCommands(program);
   registerTemplateCommands(program);
+  registerRecurringCommands(program);
   registerStatsCommands(program);
   registerSummaryCommand(program);
   registerUiCommand(program);

@@ -130,7 +130,7 @@ export function addWorkspaceLabel(ctx: OpCtx, keyOrPath: string, input: Workspac
 }
 
 // 改名は、その Workspace の Issue に付いたラベルも同じトランザクションで置き換える。
-// 新しい名前をすでに持つ Issue は1つにまとめる。Issue ごとの event は残さない
+// 新しい名前をすでに持つ Issue は1つにまとめる。Issue ごとの event は残さない。定期Issueのラベルも同じく置き換える
 export function updateWorkspaceLabel(ctx: OpCtx, keyOrPath: string, currentName: string, patch: WorkspaceLabelPatch): WorkspaceLabel {
   requireHuman(ctx);
   const name = patch.name === undefined ? undefined : normalizeLabelName(patch.name);
@@ -155,6 +155,16 @@ export function updateWorkspaceLabel(ctx: OpCtx, keyOrPath: string, currentName:
            AND issue_id IN (SELECT id FROM issues WHERE workspace_id = ?)`,
         )
         .run(current.name, workspace.id);
+      // 定期Issueのラベルも置き換える。起票する Issue に古い名前が付かないように
+      const recurring = ctx.db
+        .query("SELECT id, labels FROM recurring_issues WHERE workspace_id = ?")
+        .all(workspace.id) as { id: number; labels: string }[];
+      for (const r of recurring) {
+        const labels = JSON.parse(r.labels) as string[];
+        if (!labels.includes(current.name)) continue;
+        const renamed = [...new Set(labels.map((l) => (l === current.name ? nextName : l)))];
+        ctx.db.query("UPDATE recurring_issues SET labels = ? WHERE id = ?").run(JSON.stringify(renamed), r.id);
+      }
     }
     ctx.db
       .query("UPDATE workspace_labels SET name = ?, color = ?, description = ?, updated_at = ? WHERE workspace_id = ? AND name = ?")

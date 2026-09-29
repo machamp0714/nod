@@ -340,4 +340,37 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // コミット連動（#68 nod git sync）。既定は無効（0）。記録は auto_transitions（source = 'commit'、source_key はコミット SHA）
   [`ALTER TABLE workspaces ADD COLUMN commit_review_enabled INTEGER NOT NULL DEFAULT 0`],
+  // 定期Issue（#32）。常駐はせず、人が nod recurring run か web の「今すぐ実行」で1回ずつ起票する。
+  // 発生日（ルールのタイムゾーンの暦日）ごとに1件だけ作るよう、作成済みの発生日を occurrences に残す
+  [
+    `CREATE TABLE recurring_issues (
+      id INTEGER PRIMARY KEY,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT,
+      template TEXT,
+      project_id INTEGER REFERENCES projects(id),
+      labels TEXT NOT NULL DEFAULT '[]',
+      priority INTEGER NOT NULL DEFAULT 0,
+      assignee TEXT,
+      cadence TEXT NOT NULL CHECK (cadence IN ('daily', 'weekly', 'monthly')),
+      weekday INTEGER CHECK (weekday IS NULL OR weekday BETWEEN 0 AND 6),
+      month_day INTEGER CHECK (month_day IS NULL OR month_day BETWEEN 1 AND 31),
+      start_date TEXT NOT NULL,
+      time_zone TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX recurring_issues_workspace ON recurring_issues (workspace_id)`,
+    `CREATE TABLE recurring_issue_occurrences (
+      recurring_id INTEGER NOT NULL REFERENCES recurring_issues(id) ON DELETE CASCADE,
+      occurrence_date TEXT NOT NULL,
+      issue_id INTEGER REFERENCES issues(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (recurring_id, occurrence_date)
+    )`,
+  ],
 ];

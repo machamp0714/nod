@@ -10,6 +10,7 @@ import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
+import { registerRecurringRoutes } from "./routes/recurring";
 import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { registerAutomationRoutes } from "./routes/automation";
@@ -71,6 +72,7 @@ export function createApp(opts: AppOptions): Hono {
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);
+  registerRecurringRoutes(app, me);
   registerPrStatusRoutes(app, me, opts.ghRunner);
   registerPrDiffRoutes(app, me, opts.ghRunner);
   registerAutomationRoutes(app, me);

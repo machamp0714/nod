@@ -91,7 +91,7 @@ function mondayOf(at: number): number {
 // IANA の名前だけを受け付ける。Intl は +09:00 のようなオフセットも通すが、夏時間を表せないため断る
 const IANA_NAME = /^[A-Za-z][A-Za-z0-9_+\-/]*$/;
 
-function dateFormatter(tz: string | undefined): Intl.DateTimeFormat {
+export function dateFormatter(tz: string | undefined): Intl.DateTimeFormat {
   const rejected = invalid(`タイムゾーン ${tz} はありません。Asia/Tokyo のような IANA の名前で指定してください`);
   if (tz !== undefined && !IANA_NAME.test(tz)) throw rejected;
   try {

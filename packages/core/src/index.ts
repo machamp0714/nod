@@ -19,6 +19,7 @@ export * from "./ops/human";
 export * from "./plan-markdown";
 export * from "./ops/plan";
 export * from "./ops/templates";
+export * from "./ops/recurring";
 export * from "./issue-filter";
 export * from "./ops/views";
 export * from "./ops/diagnose";

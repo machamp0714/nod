@@ -125,6 +125,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod project list\`、\`nod project show <名前>\`
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod template list\`、\`nod template show <名前>\`
+- \`nod recurring list\`、\`nod recurring run --dry-run\`：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
 
