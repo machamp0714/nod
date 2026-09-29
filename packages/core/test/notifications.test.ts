@@ -3,10 +3,12 @@ import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/ag
 import { acceptTriage, answerQuestion, approveReview, getInbox, rejectReview } from "../src/ops/human";
 import { commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
+  deleteNotifications,
   isSubscribed,
   listNotifications,
   markNotificationsRead,
   NOTIFY_EVENT_TYPES,
+  restoreNotifications,
   snoozeNotifications,
   subscribeIssue,
   unsnoozeNotifications,
@@ -520,5 +522,71 @@ describe("通知のスヌーズ（#43）", () => {
     snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
     expect(db.query("SELECT COUNT(*) AS c FROM events").get()).toEqual(before);
     expect(db.query("SELECT snoozed_until FROM issues").all()).toEqual([{ snoozed_until: null }, { snoozed_until: null }]);
+  });
+});
+
+describe("通知の削除（#44）", () => {
+  function seeded() {
+    const s = setup();
+    const a = createIssue(s.me, { workspaceId: s.ws.id, title: "検索" });
+    const b = createIssue(s.me, { workspaceId: s.ws.id, title: "画面" });
+    subscribeIssue(s.me, a.id);
+    subscribeIssue(s.me, b.id);
+    commentIssue(s.llm, a.id, "a1");
+    commentIssue(s.llm, a.id, "a2");
+    commentIssue(s.llm, b.id, "b1");
+    return { ...s, a, b };
+  }
+
+  test("Issue 単位で削除すると、既読・スヌーズ中を含むどの一覧にも出ず、行は消さずに残す", () => {
+    const { db, me, a } = seeded();
+    markNotificationsRead(me, { issueRef: a.id });
+    const r = deleteNotifications(me, { issueRef: a.id });
+    expect(r.updated).toBe(2);
+    expect(r.ids).toHaveLength(2);
+    expect(listNotifications(db, { includeRead: true }).map((n) => n.body)).toEqual(["b1"]);
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+    expect(db.query("SELECT COUNT(*) AS c FROM notifications WHERE deleted_at IS NOT NULL").get()).toEqual({ c: 2 });
+  });
+
+  test("削除後に同じ Issue へ新着が届くと、新しい通知だけが出る", () => {
+    const { db, me, llm, a } = seeded();
+    deleteNotifications(me, { issueRef: a.id });
+    commentIssue(llm, a.id, "a3");
+    expect(listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id).map((n) => [n.body, n.readAt])).toEqual([["a3", null]]);
+  });
+
+  test("削除を取り消す（Undo）と元の状態で戻る", () => {
+    const { db, me, a } = seeded();
+    const before = listNotifications(db, { includeRead: true });
+    const { ids } = deleteNotifications(me, { issueRef: a.id });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: 2 });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: 0 });
+    expect(listNotifications(db, { includeRead: true })).toEqual(before);
+  });
+
+  test("id を指定して削除でき、削除済み・存在しない id は NOT_FOUND、指定の誤りは INVALID_ARGS", () => {
+    const { db, me, b } = seeded();
+    const b1 = listNotifications(db).find((n) => n.issueId === b.id)!;
+    expect(deleteNotifications(me, { ids: [b1.id] })).toEqual({ updated: 1, ids: [b1.id] });
+    expect(codeOf(() => deleteNotifications(me, { ids: [b1.id] }))).toBe("NOT_FOUND");
+    expect(codeOf(() => deleteNotifications(me, { issueRef: b.id }))).toBe("NOT_FOUND");
+    expect(codeOf(() => deleteNotifications(me, {}))).toBe("INVALID_ARGS");
+    expect(codeOf(() => restoreNotifications(me, { ids: [] }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => restoreNotifications(me, { ids: [9999] }))).toBe("NOT_FOUND");
+  });
+
+  test("LLM は削除も取り消しもできない", () => {
+    const { db, me, llm, a } = seeded();
+    expect(codeOf(() => deleteNotifications(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
+    const { ids } = deleteNotifications(me, { issueRef: a.id });
+    expect(codeOf(() => restoreNotifications(llm, { ids }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(listNotifications(db)).toHaveLength(1);
+  });
+
+  test("削除した通知は既読の操作の対象にならない", () => {
+    const { me, a } = seeded();
+    deleteNotifications(me, { issueRef: a.id });
+    expect(markNotificationsRead(me, { all: true }).updated).toBe(1);
   });
 });

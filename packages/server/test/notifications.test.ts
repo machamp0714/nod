@@ -75,4 +75,26 @@ describe("購読と通知の API", () => {
     expect((await call(app, "POST", "/api/notifications/unsnooze", {})).status).toBe(400);
     expect((await call(app, "GET", "/api/notifications?snoozed=x")).status).toBe(400);
   });
+
+  test("通知の削除と取り消し（#44）", async () => {
+    const { app, me, llm, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "検索" });
+    await call(app, "POST", "/api/issues/API-1/subscribe");
+    commentIssue(llm, "API-1", "a1");
+
+    const del = await call(app, "POST", "/api/notifications/delete", { issueRef: "API-1" });
+    expect(del.status).toBe(200);
+    expect(del.json.updated).toBe(1);
+    expect((await call(app, "GET", "/api/notifications?includeRead=true")).json).toEqual([]);
+    commentIssue(llm, "API-1", "a2");
+    expect((await call(app, "GET", "/api/notifications")).json.map((n: { body: string }) => n.body)).toEqual(["a2"]);
+
+    expect((await call(app, "POST", "/api/notifications/restore", { ids: del.json.ids })).json).toEqual({ updated: 1 });
+    expect((await call(app, "GET", "/api/notifications")).json).toHaveLength(2);
+
+    expect((await call(app, "POST", "/api/notifications/delete", {})).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/delete", { ids: [999] })).status).toBe(404);
+    expect((await call(app, "POST", "/api/notifications/restore", {})).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/restore", { issueRef: "API-1" })).status).toBe(400);
+  });
 });

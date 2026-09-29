@@ -33,4 +33,9 @@ describe("notificationRequest", () => {
     await fetchNotifications(fake, { snoozed: true });
     expect(paths.map((p) => p.replace(/^.*\/api/, ""))).toEqual(["/notifications", "/notifications?includeRead=true", "/notifications?snoozed=true"]);
   });
+
+  test("削除は Issue を、取り消しは削除の応答の ids を送る（#44）", () => {
+    expect(notificationRequest({ op: "delete", issueId: "API-1" })).toEqual({ path: "/notifications/delete", body: { issueRef: "API-1" } });
+    expect(notificationRequest({ op: "restore", ids: [3, 4] })).toEqual({ path: "/notifications/restore", body: { ids: [3, 4] } });
+  });
 });

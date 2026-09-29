@@ -79,6 +79,32 @@ test("通知をスヌーズ・解除でき、LLM は操作できない（#43）"
   expect((await nod(["notification", "list", "--json"])).json).toHaveLength(1);
 });
 
+test("通知を削除・取り消しでき、LLM は削除できない（#44）", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
+
+  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "subscribe", "API-1"]);
+  await nod(["issue", "comment", "API-1", "原因がわかった"], "claude-code");
+
+  const denied = await nod(["notification", "delete", "--issue", "API-1", "--json"], "claude-code");
+  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+
+  const del = await nod(["notification", "delete", "--issue", "API-1"]);
+  expect(del.exitCode).toBe(0);
+  const [, id] = /取り消すには nod notification restore (\d+)/.exec(del.stdout) ?? [];
+  expect(del.stdout).toContain("1 件を削除しました");
+  expect((await nod(["notification", "list", "--include-read", "--json"])).json).toEqual([]);
+
+  const restore = await nod(["notification", "restore", id!]);
+  expect(restore.stdout.trim()).toBe("1 件の削除を取り消しました");
+  expect((await nod(["notification", "list", "--json"])).json).toHaveLength(1);
+  const none = await nod(["notification", "restore", "--json"]);
+  expect(none.json.error.code).toBe("INVALID_ARGS");
+});
+
 test("通知の要約は種別ごとに変化を表す", async () => {
   const { describeNotification } = await import("../src/output");
   const base = { id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "t", workspace: "API", actor: "codex", body: null, createdAt: "", readAt: null, snoozedUntil: null };

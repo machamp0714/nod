@@ -4,12 +4,14 @@ import {
   answerQuestion,
   approveReview,
   declineTriage,
+  deleteNotifications,
   duplicateTriage,
   getInbox,
   listNotifications,
   markNotificationsRead,
   NodError,
   rejectReview,
+  restoreNotifications,
   snoozeNotifications,
   snoozeTriage,
   suggestTriage,
@@ -110,6 +112,26 @@ export function registerHumanCommands(program: Command): void {
       act((cli, _cmd, ids: string[], o: { issue?: string }) => {
         const r = unsnoozeNotifications(cli.ctx, notificationTarget(ids, o.issue));
         print(cli, r, () => `${r.updated} 件のスヌーズを解除しました`);
+      }),
+    );
+
+  notification
+    .command("delete [ids...]")
+    .description("通知を削除する（一覧から消す）。後から同じ Issue に届いた通知は新しく出る。id か --issue で指定する")
+    .option("--issue <id>", "この Issue の通知をまとめて削除する")
+    .action(
+      act((cli, _cmd, ids: string[], o: { issue?: string }) => {
+        const r = deleteNotifications(cli.ctx, notificationTarget(ids, o.issue));
+        print(cli, r, () => `${r.updated} 件を削除しました（取り消すには nod notification restore ${r.ids.join(" ")}）`);
+      }),
+    );
+  notification
+    .command("restore <ids...>")
+    .description("通知の削除を取り消す。id は nod notification delete が表示したもの")
+    .action(
+      act((cli, _cmd, ids: string[]) => {
+        const r = restoreNotifications(cli.ctx, { ids: ids.map((id) => parsePositiveInt(id, "通知の id")) });
+        print(cli, r, () => `${r.updated} 件の削除を取り消しました`);
       }),
     );
 

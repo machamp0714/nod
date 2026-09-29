@@ -1,5 +1,13 @@
 import type { Database } from "bun:sqlite";
-import { listNotifications, markNotificationsRead, type OpCtx, snoozeNotifications, unsnoozeNotifications } from "@nod/core";
+import {
+  deleteNotifications,
+  listNotifications,
+  markNotificationsRead,
+  type OpCtx,
+  restoreNotifications,
+  snoozeNotifications,
+  unsnoozeNotifications,
+} from "@nod/core";
 import type { Hono } from "hono";
 import { type Body, invalid, optString, queryFlag, readBody, reqString } from "../input";
 
@@ -41,5 +49,16 @@ export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): 
   app.post("/api/notifications/unsnooze", async (c) => {
     const body = await readBody(c, ["ids", "issueRef"]);
     return c.json(unsnoozeNotifications(me, { ids: optIds(body), issueRef: optString(body, "issueRef") }));
+  });
+  // 通知の削除（#44）と、その取り消し（ids は削除の応答の ids）
+  app.post("/api/notifications/delete", async (c) => {
+    const body = await readBody(c, ["ids", "issueRef"]);
+    return c.json(deleteNotifications(me, { ids: optIds(body), issueRef: optString(body, "issueRef") }));
+  });
+  app.post("/api/notifications/restore", async (c) => {
+    const body = await readBody(c, ["ids"]);
+    const ids = optIds(body);
+    if (ids === undefined) throw invalid("ids を指定してください");
+    return c.json(restoreNotifications(me, { ids }));
   });
 }

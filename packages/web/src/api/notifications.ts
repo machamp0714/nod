@@ -10,7 +10,9 @@ export type NotificationAction =
   | { op: "read"; issueId: string }
   | { op: "read"; all: true }
   | { op: "snooze"; issueId: string; until: string }
-  | { op: "unsnooze"; issueId: string };
+  | { op: "unsnooze"; issueId: string }
+  | { op: "delete"; issueId: string }
+  | { op: "restore"; ids: number[] };
 
 // snoozed はスヌーズ中のものだけ（#43）
 export function fetchNotifications(fetchImpl?: FetchLike, opts: { includeRead?: boolean; snoozed?: boolean } = {}): Promise<Notification[]> {
@@ -21,13 +23,15 @@ export function fetchNotifications(fetchImpl?: FetchLike, opts: { includeRead?: 
 export function notificationRequest(action: NotificationAction): { path: string; body: Record<string, unknown> } {
   if (action.op === "snooze") return { path: "/notifications/snooze", body: { issueRef: action.issueId, until: action.until } };
   if (action.op === "unsnooze") return { path: "/notifications/unsnooze", body: { issueRef: action.issueId } };
+  if (action.op === "delete") return { path: "/notifications/delete", body: { issueRef: action.issueId } };
+  if (action.op === "restore") return { path: "/notifications/restore", body: { ids: action.ids } };
   if (action.op !== "read") return { path: issuePath(action.issueId, action.op), body: {} };
   if ("ids" in action) return { path: "/notifications/read", body: { ids: action.ids } };
   if ("issueId" in action) return { path: "/notifications/read", body: { issueRef: action.issueId } };
   return { path: "/notifications/read", body: { all: true } };
 }
 
-export function postNotification(action: NotificationAction, fetchImpl?: FetchLike): Promise<SubscriptionState | { updated: number; snoozedUntil?: string }> {
+export function postNotification(action: NotificationAction, fetchImpl?: FetchLike): Promise<SubscriptionState | { updated: number; snoozedUntil?: string; ids?: number[] }> {
   const { path, body } = notificationRequest(action);
   return apiFetch(path, { method: "POST", body }, fetchImpl);
 }

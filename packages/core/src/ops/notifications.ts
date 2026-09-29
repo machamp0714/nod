@@ -207,3 +207,31 @@ export function unsnoozeNotifications(ctx: OpCtx, input: NotificationTarget): { 
     };
   });
 }
+
+// 一覧から消す（行は残す）。同じ Issue に後から届いた通知は、新しい通知として出る。
+// ids は今回消した通知で、取り消し（restoreNotifications）に渡す
+export function deleteNotifications(ctx: OpCtx, input: NotificationTarget): { updated: number; ids: number[] } {
+  requireHuman(ctx, "通知を削除");
+  return tx(ctx.db, () => {
+    const ids = targetIds(ctx, input, "削除する");
+    const updated = ctx.db.query(`UPDATE notifications SET deleted_at = ? WHERE id IN (${inList(ids)})`).run(now(), ...ids).changes;
+    return { updated, ids };
+  });
+}
+
+// 削除を取り消す。削除していないものはそのまま。updated は今回戻した件数
+export function restoreNotifications(ctx: OpCtx, input: { ids: number[] }): { updated: number } {
+  requireHuman(ctx, "通知の削除を取り消し");
+  validateIds(input.ids ?? [], "削除を取り消す");
+  return tx(ctx.db, () => {
+    const exists = ctx.db.query("SELECT 1 FROM notifications WHERE id = ? AND recipient = ?");
+    for (const id of input.ids) {
+      if (exists.get(id, ctx.actor) === null) throw new NodError("NOT_FOUND", `通知 ${id} はありません`);
+    }
+    return {
+      updated: ctx.db
+        .query(`UPDATE notifications SET deleted_at = NULL WHERE deleted_at IS NOT NULL AND id IN (${inList(input.ids)})`)
+        .run(...input.ids).changes,
+    };
+  });
+}
