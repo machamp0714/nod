@@ -4,6 +4,8 @@
 export type {
   AcceptTriageInput,
   TriageSuggestions,
+  TriageProposal,
+  TriageDecision,
   DuplicateSuggestion,
   LabelSuggestion,
   AssigneeSuggestion,

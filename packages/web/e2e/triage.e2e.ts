@@ -182,3 +182,62 @@ test("似た Issue も候補もなければ出さない", async ({ page, nod }) 
   await expect(detail(page).getByRole("list", { name: "似た Issue" })).toHaveCount(0);
   await expect(detail(page).getByRole("group", { name: "候補" })).toHaveCount(0);
 });
+
+// LLM の提案（#62）。提案は記録だけで、フォームに反映しても確定は人が既存のボタンで行う
+test("LLM の提案を新しい順に出し、受け入れの提案をフォームに反映して人が受け入れると確定する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const project = await nod.me.createProject({ name: "検索 API の高速化" });
+  const original = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "OpenAPI の説明文を整理" });
+  const i = await api.triageIssue("検索結果のページングがずれる");
+  await nod.codex.proposeTriage(i.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ原因の可能性" });
+  await nod.claude.proposeTriage(i.id, {
+    decision: "accept", labels: ["bug"], assignee: "codex", priority: 3, projectRef: String(project.id), reason: "再現を確認済み",
+  });
+  await page.goto("/triage");
+  const proposals = detail(page).getByRole("region", { name: "LLM の提案" });
+  await expect(proposals.getByRole("article")).toHaveCount(2);
+  await expect(proposals.getByRole("article").first()).toHaveAccessibleName("claude-code の提案");
+  const accept = proposals.getByRole("article", { name: "claude-code の提案" });
+  await expect(accept).toContainText("受け入れ");
+  await expect(accept).toContainText("検索 API の高速化");
+  await expect(accept).toContainText("Medium");
+  await expect(accept).toContainText("再現を確認済み");
+  await expect(proposals.getByRole("article", { name: "codex の提案" })).toContainText(`重複 ${original.id}`);
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+
+  await accept.getByRole("button", { name: "claude-code の提案をフォームに反映" }).click();
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のProject" })).toHaveValue(String(project.id));
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のPriority" })).toHaveValue("3");
+  await expect(detail(page).getByRole("textbox", { name: "受け入れ時のLabels" })).toHaveValue("bug");
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveValue("codex");
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+  await detail(page).getByRole("button", { name: "受け入れる" }).click();
+  await expect(empty(page)).toBeVisible();
+  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug"], assignee: "codex", priority: 3 });
+});
+
+test("重複・却下の提案を反映すると既存の入力欄が開き、確定するまで Triage のまま", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const original = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "元の Issue" });
+  const i = await api.triageIssue("重複かもしれない Issue");
+  await nod.codex.proposeTriage(i.id, { decision: "duplicate", duplicateOf: original.id });
+  await nod.claude.proposeTriage(i.id, { decision: "decline", reason: "対応済み" });
+  await page.goto("/triage");
+  const proposals = detail(page).getByRole("region", { name: "LLM の提案" });
+  await proposals.getByRole("button", { name: "codex の提案をフォームに反映" }).click();
+  await expect(detail(page).getByRole("textbox", { name: "元の Issue の ID" })).toHaveValue(original.id);
+  await proposals.getByRole("button", { name: "claude-code の提案をフォームに反映" }).click();
+  await expect(detail(page).getByRole("textbox", { name: "却下の理由（任意）" })).toHaveValue("対応済み");
+  expect((await api.show(i.id)).status).toBe("triage");
+  await detail(page).getByRole("button", { name: "却下する" }).click();
+  await expect(empty(page)).toBeVisible();
+  expect(await api.show(i.id)).toMatchObject({ status: "canceled", closeReason: "対応済み" });
+});
+
+test("提案がなければ LLM の提案ブロックを出さない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await api.triageIssue("提案のない Issue");
+  await page.goto("/triage");
+  await expect(detail(page).getByRole("button", { name: "受け入れる" })).toBeEnabled();
+  await expect(detail(page).getByRole("region", { name: "LLM の提案" })).toHaveCount(0);
+});
