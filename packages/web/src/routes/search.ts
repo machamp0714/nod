@@ -1,7 +1,7 @@
 import type { Status } from "../api/types";
 import { STATUS_ORDER } from "../lib/meta";
 
-export type IssueTab = "all" | "ready" | "needs_clarification";
+export type IssueTab = "all" | "ready" | "needs_clarification" | "delegated";
 export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "assignee", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
@@ -20,7 +20,7 @@ export interface ProjectsSearch {
   tab?: ProjectTab;
 }
 
-const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification"];
+const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification", "delegated"];
 const ISSUE_LAYOUTS: readonly IssueLayout[] = ["list", "board"];
 const PROJECT_TABS: readonly ProjectTab[] = ["active", "completed", "all"];
 
