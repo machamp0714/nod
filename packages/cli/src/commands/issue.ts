@@ -17,6 +17,9 @@ import {
   failIssue,
   formatTransitionRulesSection,
   formatWorkspaceRulesSection,
+  deleteIssue,
+  findDeletableIssueRow,
+  formatIssueId,
   getIssue,
   getIssueBranchName,
   getPrStatus,
@@ -150,6 +153,25 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string) => {
         const restored = unarchiveIssue(cli.ctx, id);
         print(cli, restored, () => `${restored.id} を復元しました: ${formatIssueLine(restored)}`);
+      }),
+    );
+
+  issue
+    .command("delete <id>")
+    .description("アーカイブ済みの Issue を完全に削除する（元に戻せない。Workspace の監査ログに残る。人だけが行える）")
+    .option("--yes", "確認なしで削除する")
+    .action(
+      act((cli, _cmd, id: string, o: { yes?: boolean }) => {
+        const row = findDeletableIssueRow(cli.ctx, id);
+        if (!o.yes) {
+          const issueId = formatIssueId(row.ws_key, row.number);
+          throw new NodError(
+            "CONFIRM_REQUIRED",
+            `${issueId}「${row.title}」を完全に削除すると、コメント・添付・履歴も消え、元に戻せません。よければ --yes を付けて再実行してください`,
+          );
+        }
+        const deleted = deleteIssue(cli.ctx, id);
+        print(cli, deleted, () => `${deleted.issueId}「${deleted.title}」を完全に削除しました（nod workspace audit で記録を確かめられます）`);
       }),
     );
 
