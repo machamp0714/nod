@@ -40,6 +40,11 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 タイトルに依存せず、IDの大小文字を変えても同じ名前になる。\`--json\` では \`issueId\` と \`suggestedBranch\` を返す。
 この名前は生成候補であり、記録済みの実行場所の \`branch\` とは別である。ブランチ作成・checkout・着手・DB更新・Orca通知は行わない。
 
+## Issue を複製する
+
+\`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度だけで、元の Issue は変えない。
+担当・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
+
 ## 引数の書き方
 
 \`-\` で始まる文字列を渡すときは、\`--\` の後ろに書く。

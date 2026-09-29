@@ -33,6 +33,7 @@ export const useUpdateIssue = (id: string) => useIssueOperation<UpdateIssueInput
 export const useAskQuestion = (id: string) => useIssueOperation<{ question: string }, AskResult>(id, "ask");
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
+export const useCopyIssue = (id: string) => useIssueOperation<{ title?: string }, Issue>(id, "copy");
 export const useCommentIssue = (id: string) => useIssueOperation<{ body: string }, Comment>(id, "comment");
 
 export const useAttachDocument = (id: string) => useIssueOperation<{ path: string; title?: string; kind?: DocKind }, DocumentRef>(id, "doc-add");
