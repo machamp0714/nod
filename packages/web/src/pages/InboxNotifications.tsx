@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { AlarmClockOff, CalendarClock, ChevronDown, Clock3, Trash2 } from "lucide-react";
+import { AlarmClock, AlarmClockOff, CalendarClock, ChevronDown, Clock3, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useNotificationAction, useNotifications } from "../api/hooks/notifications";
 import type { NotificationAction } from "../api/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
+import { useProjectChoices, useRemind, useUpdateIssue } from "../api/hooks/issue-detail";
+import { PropertiesPanel } from "../components/issue-detail/PropertiesPanel";
 import type { Notification } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty } from "../components/split/QueueItem";
@@ -68,7 +70,7 @@ export function NotificationList({ groups, current, workspaceName, view }: { gro
           <span className={n.rowTime}>{formatRelative(group.latest.createdAt)}</span>
         </div>
         <div className={n.rowSummary}>
-          <AgentAvatar actor={group.latest.actor} size={16} />
+          <NotificationAvatar item={group.latest} size={16} />
           <span className={n.rowSummaryText}>{groupSummary(group, statusNames.data)}</span>
         </div>
         <div className={n.rowMeta}>
@@ -93,6 +95,9 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
 }) {
   const detail = useIssueDetail(group.issueId);
   const action = useNotificationAction();
+  const update = useUpdateIssue(group.issueId);
+  const remind = useRemind(group.issueId);
+  const projects = useProjectChoices();
   const [seenUnread, setSeenUnread] = useState(() => new Set(group.notifications.filter((x) => x.readAt === null).map((x) => x.id)));
   const markedUpTo = useRef(0);
   const toMark = opened && view === "inbox" ? unreadToMark(group, markedUpTo.current) : null;
@@ -118,7 +123,8 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
     </button>
   );
   return (
-    <div className={d.detail}>
+    <div className={n.split}>
+    <div className={`${d.detail} ${n.main}`}>
       <div className={d.crumb}>
         <WorkspaceBadge workspaceKey={group.workspace} name={workspaceName} />
         <span className={d.id}>{group.issueId}</span>
@@ -139,6 +145,7 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
           </Link>
         </div>
       ) : (
+        <div className={n.actionRows}>
         <div className={n.actions}>
           <button type="button" className={n.action} disabled={group.unread === 0 || action.isPending}
             onClick={() => action.mutate({ op: "read", issueId: group.issueId })}>
@@ -153,6 +160,8 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
               <Icon name={subscribed ? "bell-off" : "bell"} size={13} />{subscribed ? "購読を解除" : "購読する"}
             </button>
           )}
+        </div>
+        <div className={n.actions}>
           <SnoozeMenu disabled={action.isPending} onSnooze={(until) => removeBy({ op: "snooze", issueId: group.issueId, until: until.toISOString() })} />
           {remove}
           <span className={d.spacer} />
@@ -160,6 +169,7 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
             Issue を開く
             <Icon name="arrow-right" />
           </Link>
+        </div>
         </div>
       )}
       <ActionError error={action.error} />
@@ -169,6 +179,24 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
         {read.length > 0 && <NotificationSection title="既読" items={read} unread={false} />}
       </section>
     </div>
+    {/* 通知から Issue のプロパティを直接変える（#46）。Issue 詳細と同じ部品・同じ API で、失敗は欄の下に出す */}
+    <aside className={n.propsRail}>
+      {detail.data && (
+        <PropertiesPanel variant="inbox" issue={detail.data} workspaceName={workspaceName} projects={projects}
+          onUpdate={(input) => update.mutateAsync(input)} reminder={detail.data.reminder ?? null} onRemind={remind} />
+      )}
+    </aside>
+    </div>
+  );
+}
+
+// リマインダー（#47）は人やLLMの操作ではないので、アバターの代わりに目覚まし時計を出す（nod.pen の Reminder Icon）
+function NotificationAvatar({ item, size }: { item: Notification; size: number }) {
+  if (item.kind !== "reminder") return <AgentAvatar actor={item.actor} size={size} />;
+  return (
+    <span className={n.reminderIcon} style={{ width: size, height: size }} aria-hidden="true">
+      <AlarmClock size={Math.round(size * 0.66)} />
+    </span>
   );
 }
 
@@ -181,7 +209,7 @@ function NotificationSection({ title, items, unread }: { title: string; items: N
         {items.map((item) => (
           <li key={item.id} className={n.item} data-unread={unread}>
             <span className={n.dot} data-unread={unread} aria-hidden="true" />
-            <AgentAvatar actor={item.actor} />
+            <NotificationAvatar item={item} size={18} />
             <span className={n.itemText}>{describeNotification(item, { statusNames: statusNames.data })}</span>
             <span className={n.itemTime}>{formatRelative(item.createdAt)}</span>
           </li>
