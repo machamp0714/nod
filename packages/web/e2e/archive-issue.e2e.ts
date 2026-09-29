@@ -17,6 +17,7 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   await expect(page.getByRole("textbox", { name: "コメント" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "返信" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "解決" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Documentを追加" })).toBeDisabled();
   await expect(page.getByText("me がアーカイブした")).toBeVisible();
   expect((await api.show(target.id)).archivedAt).not.toBeNull();
 
