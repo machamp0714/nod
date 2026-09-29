@@ -1,5 +1,6 @@
 import {
   type ActivityItem,
+  type AgentState,
   type Issue,
   type IssueDetail,
   NodError,
@@ -42,6 +43,35 @@ export function printError(err: unknown, json: boolean): void {
 export function formatIssueLine(i: Issue): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
   return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}  ${i.title}`;
+}
+
+// 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
+export function sortByAssignee(issues: Issue[]): Issue[] {
+  return [...issues].sort((a, b) => (a.assignee ?? "").localeCompare(b.assignee ?? ""));
+}
+
+const AGENT_STATE_LABEL: [AgentState | null, string][] = [
+  ["working", "作業中"],
+  ["awaiting_input", "入力待ち"],
+  ["error", "エラー"],
+  ["done", "完了"],
+  [null, "未着手"],
+];
+
+// LLM ごとの見出しに件数と作業状況の内訳を付け、その下に Issue を並べる
+export function formatDelegations(issues: Issue[]): string {
+  if (!issues.length) return "LLM に委任中の Issue はありません";
+  const groups = new Map<string, Issue[]>();
+  for (const i of issues) groups.set(i.assignee ?? "", [...(groups.get(i.assignee ?? "") ?? []), i]);
+  return [...groups]
+    .map(([agent, rows]) => {
+      const breakdown = AGENT_STATE_LABEL.map(([state, label]) => [label, rows.filter((r) => r.agentState === state).length] as const)
+        .filter(([, n]) => n > 0)
+        .map(([label, n]) => `${label} ${n}`)
+        .join("・");
+      return [`${agent}（${rows.length}件: ${breakdown}）`, ...rows.map((r) => `  ${formatIssueLine(r)}`)].join("\n");
+    })
+    .join("\n\n");
 }
 
 export function formatPlan(plan: Plan): string[] {

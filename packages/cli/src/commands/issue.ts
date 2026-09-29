@@ -29,9 +29,9 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
-import { act, actAsync, type Cli, currentWorkspace } from "../context";
+import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
-import { formatIssueDetail, formatIssueLine, formatPlan, print } from "../output";
+import { formatDelegations, formatIssueDetail, formatIssueLine, formatPlan, print, sortByAssignee } from "../output";
 
 // Orca のカードは LLM 向けのコマンドで LLM が操作したときだけ更新する
 async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
@@ -94,17 +94,32 @@ export function registerIssueCommands(program: Command): void {
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
     .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
+    .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .action(
-      act((cli, cmd, o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string }) => {
-        const issues = listIssues(cli.db, {
-          query: o.query,
-          workspaceId: o.allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
-          statuses: o.status ? parseStatuses(o.status) : undefined,
-          projectRef: o.project,
-          labels: o.label,
-        });
-        print(cli, issues, () => (issues.length ? issues.map(formatIssueLine).join("\n") : "Issue はありません"));
-      }),
+      act(
+        (
+          cli,
+          cmd,
+          o: { status?: string; project?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean },
+        ) => {
+          // 委任中の一覧は人がどこからでも見られるよう、-w がなければ Workspace で絞らない
+          const allWorkspaces = o.allWorkspaces || (o.delegated && !globalOpts(cmd).workspace);
+          const issues = listIssues(cli.db, {
+            query: o.query,
+            workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
+            statuses: o.status ? parseStatuses(o.status) : undefined,
+            projectRef: o.project,
+            labels: o.label,
+            delegated: o.delegated,
+          });
+          if (o.delegated) {
+            const sorted = sortByAssignee(issues);
+            print(cli, sorted, () => formatDelegations(sorted));
+            return;
+          }
+          print(cli, issues, () => (issues.length ? issues.map(formatIssueLine).join("\n") : "Issue はありません"));
+        },
+      ),
     );
 
   issue
