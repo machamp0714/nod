@@ -5,6 +5,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Workspace } from "../types";
 import { allocateWorkspaceColor } from "../workspace-colors";
+import { removeStoredFiles, workspaceAttachmentPaths } from "./attachments";
 
 export const KEY_RE = /^[A-Z0-9]{2,6}$/;
 
@@ -78,12 +79,21 @@ export function countIssues(db: Database, workspaceId: number): number {
   return (db.query("SELECT count(*) AS n FROM issues WHERE workspace_id = ?").get(workspaceId) as { n: number }).n;
 }
 
-export function removeWorkspace(db: Database, keyOrPath: string): { workspace: Workspace; deletedIssues: number } {
-  return tx(db, () => {
+// attachmentsDir は添付ファイルのコピーを置く場所。省くと defaultAttachmentsDir()
+export function removeWorkspace(
+  db: Database,
+  keyOrPath: string,
+  attachmentsDir?: string,
+): { workspace: Workspace; deletedIssues: number } {
+  const { files, ...result } = tx(db, () => {
     const workspace = findWorkspace(db, keyOrPath);
     if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
     const deletedIssues = countIssues(db, workspace.id);
+    // cascade で消える添付の実体は、行が消えた後（commit 後）に消す
+    const files = workspaceAttachmentPaths(db, workspace.id);
     db.query("DELETE FROM workspaces WHERE id = ?").run(workspace.id);
-    return { workspace, deletedIssues };
+    return { workspace, deletedIssues, files };
   });
+  removeStoredFiles(files, attachmentsDir);
+  return result;
 }

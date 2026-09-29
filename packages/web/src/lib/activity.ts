@@ -7,6 +7,13 @@ export interface ActivityLine {
   text: string;
 }
 
+// 添付したファイルの元の場所（監査用）。Issue 詳細の Activity にだけ出す
+export function attachmentSourcePath(item: ActivityItem): string | null {
+  if (item.kind !== "event" || item.type !== "attachment_added") return null;
+  const path = item.data.source_path;
+  return typeof path === "string" && path ? path : null;
+}
+
 // question_asked と question_answered は、同じ質問の行（kind: "question"）と重なるため出さない
 const HIDDEN_EVENT_TYPES = new Set(["question_asked", "question_answered"]);
 

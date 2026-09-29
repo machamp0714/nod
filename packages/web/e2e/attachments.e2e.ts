@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
@@ -16,6 +16,9 @@ test("Issue 詳細でリンクを追加・削除し、CLI で添付したファ�
   await expect(section.getByRole("heading", { name: "Attachments" })).toBeVisible();
   const file = section.getByRole("listitem").filter({ hasText: "error.log" });
   await expect(file).toContainText("5 B · claude-code ·");
+  // 元ファイルの実体パスは Issue 詳細の Activity にだけ出る（監査用）
+  await expect(page.getByText("claude-code がファイルを添付した：error.log")).toBeVisible();
+  await expect(page.getByText(`元: ${realpathSync(src)}`)).toBeVisible();
 
   // web からはリンクだけを足せる。不正な URL は送らずに入力欄の下へ出す
   await section.getByRole("button", { name: "リンクを追加" }).click();

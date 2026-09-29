@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GUIDE } from "../src/guide";
 import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
@@ -65,9 +65,42 @@ describe("nod issue attach", () => {
   });
 });
 
+describe("nod attachments gc と Workspace の削除", () => {
+  test("gc は参照されないディレクトリだけを消し、--dry-run では消さない。Workspace の削除で添付ファイルも消える", async () => {
+    const { repo, root, nod } = setupAttachments();
+    await nod(["issue", "create", "a"]);
+    writeFileSync(join(repo, "a.txt"), "x");
+    expect((await nod(["issue", "attach", "add", "API-1", "--file", "a.txt"])).exitCode).toBe(0);
+    const orphan = "00000000-0000-4000-8000-000000000000";
+    mkdirSync(join(root, orphan));
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(join(root, orphan), old, old);
+
+    const dry = await nod(["attachments", "gc", "--dry-run", "--json"]);
+    expect(dry.json).toMatchObject({ removed: [orphan], dryRun: true });
+    expect(existsSync(join(root, orphan))).toBe(true);
+    const run = await nod(["attachments", "gc"]);
+    expect(run.stdout).toContain("1 件を消しました");
+    expect(readdirSync(root)).toHaveLength(1);
+
+    expect((await nod(["workspace", "remove", "API", "--yes"])).exitCode).toBe(0);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test(". で始まるディレクトリの中のファイルは添付できない", async () => {
+    const { repo, root, nod } = setupAttachments();
+    await nod(["issue", "create", "a"]);
+    mkdirSync(join(repo, ".secrets"));
+    writeFileSync(join(repo, ".secrets", "token.txt"), "x");
+    expect((await nod(["issue", "attach", "add", "API-1", "--file", ".secrets/token.txt", "--json"])).json.error.code).toBe("INVALID_ARGS");
+    expect(existsSync(root) ? readdirSync(root) : []).toEqual([]);
+  });
+});
+
 test("手引きに添付の使い方と Document との使い分けを書く", () => {
   expect(GUIDE).toContain("nod issue attach add <id> --url");
   expect(GUIDE).toContain("nod issue attach add <id> --file");
   expect(GUIDE).toContain("nod issue attach remove");
   expect(GUIDE).toContain("NOD_ATTACHMENTS_DIR");
+  expect(GUIDE).toContain("登録済み Workspace か OS の一時ディレクトリの下");
 });

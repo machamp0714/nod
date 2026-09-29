@@ -55,7 +55,7 @@ export function ActivitySection({
             item.kind === "comment" ? (
               <CommentThread key={`comment-${item.id}`} thread={item} {...handlers} readOnly={readOnly} />
             ) : (
-              <ActivityLines key={`${item.at}-${index}`} items={[item]} workspace={workspace} />
+              <ActivityLines key={`${item.at}-${index}`} items={[item]} workspace={workspace} showSource />
             ),
           )}
         </div>

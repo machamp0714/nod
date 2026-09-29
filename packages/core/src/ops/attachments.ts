@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
@@ -55,14 +55,20 @@ export function normalizeAttachmentUrl(raw: string): string {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw invalid("URL は http:// か https:// のものだけ添付できます");
   if (!url.hostname) throw invalid(`${text} にはホスト名がありません`);
+  // user:password@ を DB と画面に残さない
+  if (url.username || url.password) throw invalid("URL にユーザー名・パスワードは含められません");
   if (url.href.length > ATTACHMENT_URL_MAX) throw invalid(`URL は ${ATTACHMENT_URL_MAX} 文字までです`);
   return url.href;
 }
+
+// 制御文字（改行など）と書式文字（U+202E などの双方向制御・ゼロ幅文字）。表示を偽装できるので名前に使わせない
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
 function normalizeTitle(title: string | undefined): string | null {
   const t = title?.trim();
   if (!t) return null;
   if (/[\r\n]/.test(t)) throw invalid("タイトルに改行は使えません");
+  if (CONTROL_OR_FORMAT.test(t)) throw invalid("タイトルに制御文字は使えません");
   if (t.length > ATTACHMENT_TITLE_MAX) throw invalid(`タイトルは ${ATTACHMENT_TITLE_MAX} 文字までです`);
   return t;
 }
@@ -117,7 +123,16 @@ export function listIssueAttachments(db: Database, issue: number | string): Issu
 function insertAttachment(
   ctx: OpCtx,
   issueId: number,
-  a: { kind: AttachmentKind; title: string | null; url?: string; filePath?: string; fileName?: string; size?: number; mime?: string },
+  a: {
+    kind: AttachmentKind;
+    title: string | null;
+    url?: string;
+    filePath?: string;
+    fileName?: string;
+    size?: number;
+    mime?: string;
+    sourcePath?: string;
+  },
 ): IssueAttachment {
   const { lastInsertRowid } = ctx.db
     .query(
@@ -127,7 +142,13 @@ function insertAttachment(
     .run(issueId, a.kind, a.title, a.url ?? null, a.filePath ?? null, a.fileName ?? null, a.size ?? null, a.mime ?? null, ctx.actor, now());
   const row = ctx.db.query("SELECT * FROM issue_attachments WHERE id = ?").get(Number(lastInsertRowid)) as AttachmentRow;
   const attachment = toAttachment(row);
-  recordEvent(ctx.db, issueId, ctx.actor, "attachment_added", { attachment_id: attachment.id, kind: a.kind, name: attachmentName(attachment) });
+  recordEvent(ctx.db, issueId, ctx.actor, "attachment_added", {
+    attachment_id: attachment.id,
+    kind: a.kind,
+    name: attachmentName(attachment),
+    // 監査用に、どこのファイルをコピーしたかを残す（表示は Issue 詳細の Activity だけ）
+    ...(a.sourcePath ? { source_path: a.sourcePath } : {}),
+  });
   return attachment;
 }
 
@@ -137,9 +158,10 @@ export function addLinkAttachment(ctx: OpCtx, ref: string, input: { url: string;
   return tx(ctx.db, () => insertAttachment(ctx, findWritableIssueRow(ctx.db, ref).id, { kind: "link", title, url }));
 }
 
-// 添付ファイルの名前。パスの区切りと制御文字を除き、拡張子で種類を決める
+// 添付ファイルの名前。制御文字・書式文字を含む名前は拒否し、拡張子で種類を決める
 function attachmentFileName(abs: string): { name: string; mime: string } {
-  const name = basename(abs).replace(/[\u0000-\u001f\u007f/\\]/g, "_");
+  const name = basename(abs);
+  if (CONTROL_OR_FORMAT.test(name) || name.includes("\\")) throw invalid("ファイル名に制御文字は使えません");
   const ext = extname(name).slice(1).toLowerCase();
   const mime = Object.hasOwn(ATTACHMENT_TYPES, ext) ? ATTACHMENT_TYPES[ext] : undefined;
   if (!ext || !mime || name.startsWith(".")) {
@@ -161,7 +183,8 @@ function readSourceFile(abs: string): Buffer {
   if (!st.isFile()) throw invalid(`${abs} は通常のファイルではありません`);
   let fd: number;
   try {
-    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+    // O_NONBLOCK: 確かめた後に FIFO へ差し替えられても、書き手を待って止まらない
+    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (e) {
     const code = (e as { code?: unknown }).code;
     if (code === "ELOOP") throw invalid(`${abs} はシンボリックリンクです。実体のファイルを指定してください`);
@@ -185,8 +208,53 @@ function isInside(root: string, path: string): boolean {
 }
 
 function rootReal(dir: string): string {
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   return realpathSync(dir);
+}
+
+function realOrNull(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+const OUTSIDE_MESSAGE = "Workspace 内のファイルだけ添付できます";
+
+// 添付してよい元ファイルかを確かめ、実体のパスを返す。認証情報（~/.ssh・~/.aws・.env など）を持ち出させないため、
+// 登録済み Workspace か OS の一時ディレクトリの下にあり、そこから先に symlink とドットで始まる名前を経由しないものに限る
+export function checkAttachmentSource(db: Database, abs: string, tmpRoot: string = tmpdir()): string {
+  // 実体のパスは親ディレクトリの realpath で求める（realpath は FIFO を開いて止まることがあるため、ファイル自体は lstat で確かめる）
+  let st: ReturnType<typeof lstatSync>;
+  try {
+    st = lstatSync(abs);
+  } catch {
+    throw new NodError("FILE_NOT_FOUND", `${abs} が見つかりません`);
+  }
+  if (st.isSymbolicLink()) throw invalid(`${abs} はシンボリックリンクです。実体のファイルを指定してください`);
+  if (!st.isFile()) throw invalid(`${abs} は通常のファイルではありません`);
+  const parent = realOrNull(dirname(abs));
+  if (!parent) throw new NodError("FILE_NOT_FOUND", `${abs} が見つかりません`);
+  const real = join(parent, basename(abs));
+  const roots = [
+    ...(db.query("SELECT path FROM workspaces").all() as { path: string }[]).map((w) => w.path),
+    tmpRoot,
+  ];
+  for (const raw of roots) {
+    const rootR = realOrNull(raw);
+    if (!rootR) continue;
+    const prefix = [resolve(raw), rootR].find((r) => isInside(r, abs));
+    if (!prefix) continue;
+    const tail = abs.slice(prefix.length + 1);
+    // 親ディレクトリも含めて、ルートより下に symlink があれば実体のパスが食い違う
+    if (real !== join(rootR, tail)) throw invalid(`${abs} はシンボリックリンクを経由しています。実体のパスを指定してください`);
+    if (tail.split(sep).some((part) => part.startsWith("."))) {
+      throw invalid(`${abs} は . で始まるファイルかディレクトリの中にあるため添付できません`);
+    }
+    return real;
+  }
+  throw invalid(OUTSIDE_MESSAGE);
 }
 
 export interface AddFileAttachmentInput {
@@ -194,6 +262,7 @@ export interface AddFileAttachmentInput {
   title?: string;
   cwd?: string;
   dir?: string; // 省くと defaultAttachmentsDir()
+  tmpRoot?: string; // 添付を許す一時ディレクトリ。省くと os.tmpdir()（テストで差し替える）
 }
 
 // ファイルを添付ディレクトリの下の <乱数>/<ファイル名> にコピーして登録する。同じ名前でも上書きしない。
@@ -203,6 +272,7 @@ export function addFileAttachment(ctx: OpCtx, ref: string, input: AddFileAttachm
   const title = normalizeTitle(input.title);
   const { name, mime } = attachmentFileName(abs);
   findWritableIssueRow(ctx.db, ref); // 対象がなければコピーする前に失敗させる
+  const sourcePath = checkAttachmentSource(ctx.db, abs, input.tmpRoot);
   const data = readSourceFile(abs);
   const root = rootReal(input.dir ?? defaultAttachmentsDir());
   const rel = `${randomUUID()}/${name}`;
@@ -211,10 +281,10 @@ export function addFileAttachment(ctx: OpCtx, ref: string, input: AddFileAttachm
   try {
     return tx(ctx.db, () => {
       const issueId = findWritableIssueRow(ctx.db, ref).id;
-      mkdirSync(dirname(dest));
+      mkdirSync(dirname(dest), { mode: 0o700 });
       created = true;
-      writeFileSync(dest, data, { flag: "wx" });
-      return insertAttachment(ctx, issueId, { kind: "file", title, filePath: rel, fileName: name, size: data.length, mime });
+      writeFileSync(dest, data, { flag: "wx", mode: 0o600 });
+      return insertAttachment(ctx, issueId, { kind: "file", title, filePath: rel, fileName: name, size: data.length, mime, sourcePath });
     });
   } catch (e) {
     if (created) rmSync(dirname(dest), { recursive: true, force: true });
@@ -255,15 +325,70 @@ export function removeAttachment(ctx: OpCtx, ref: string, id: number, dir: strin
     return row;
   });
   // 行を消した後にファイルを消す。消せなくても、どこからも参照されないファイルが残るだけにする
-  if (removed.file_path) {
-    const root = rootReal(dir);
-    const abs = storedPath(root, removed.file_path);
-    if (abs) {
-      const parent = dirname(abs);
-      rmSync(abs, { force: true });
-      if (parent !== root && isInside(root, parent)) rmSync(parent, { recursive: true, force: true });
-    }
+  if (removed.file_path) removeStoredFiles([removed.file_path], dir);
+}
+
+// commit 後に、消した行が指していたコピーを消す。許可ルートの外・symlink は触らない
+export function removeStoredFiles(filePaths: string[], dir: string = defaultAttachmentsDir()): void {
+  if (filePaths.length === 0) return;
+  const root = realOrNull(dir);
+  if (!root) return;
+  for (const filePath of filePaths) {
+    const abs = storedPath(root, filePath);
+    if (!abs) continue;
+    const parent = dirname(abs);
+    rmSync(abs, { force: true });
+    if (parent !== root && isInside(root, parent)) rmSync(parent, { recursive: true, force: true });
   }
+}
+
+// Workspace の削除などで行ごと消える添付の保存先。削除の tx の中で、消す前に集める
+export function workspaceAttachmentPaths(db: Database, workspaceId: number): string[] {
+  return (
+    db
+      .query(
+        `SELECT a.file_path FROM issue_attachments a JOIN issues i ON i.id = a.issue_id
+         WHERE i.workspace_id = ? AND a.file_path IS NOT NULL`,
+      )
+      .all(workspaceId) as { file_path: string }[]
+  ).map((r) => r.file_path);
+}
+
+const UUID_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// 追加の途中（ディレクトリを作ってから行を commit するまで）のものを消さないための猶予
+export const ATTACHMENT_GC_GRACE_MS = 60_000;
+
+export interface AttachmentGcResult {
+  dir: string;
+  removed: string[]; // 消した（dryRun なら消す）<uuid> ディレクトリ名
+  dryRun: boolean;
+}
+
+// DB のどの添付からも参照されない <uuid> ディレクトリを消す。それ以外の名前・symlink・作ってすぐのものは触らない
+export function gcAttachments(
+  db: Database,
+  opts: { dir?: string; dryRun?: boolean; now?: number } = {},
+): AttachmentGcResult {
+  const dir = opts.dir ?? defaultAttachmentsDir();
+  const dryRun = opts.dryRun ?? false;
+  const root = realOrNull(dir);
+  if (!root) return { dir, removed: [], dryRun };
+  const used = new Set(
+    (db.query("SELECT file_path FROM issue_attachments WHERE file_path IS NOT NULL").all() as { file_path: string }[]).map(
+      (r) => r.file_path.split("/")[0],
+    ),
+  );
+  const at = opts.now ?? Date.now();
+  const removed: string[] = [];
+  for (const name of readdirSync(root).sort()) {
+    if (!UUID_DIR.test(name) || used.has(name)) continue;
+    const abs = join(root, name);
+    const st = lstatSync(abs);
+    if (!st.isDirectory() || at - st.mtimeMs < ATTACHMENT_GC_GRACE_MS) continue;
+    if (!dryRun) rmSync(abs, { recursive: true, force: true });
+    removed.push(name);
+  }
+  return { dir, removed, dryRun };
 }
 
 export interface AttachmentFile {

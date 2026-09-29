@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,11 +8,13 @@ import {
   addLinkAttachment,
   attachmentFile,
   defaultAttachmentsDir,
+  gcAttachments,
   listIssueAttachments,
   normalizeAttachmentUrl,
   removeAttachment,
 } from "../src/ops/attachments";
 import { archiveIssue, copyIssue, createIssue, getIssue } from "../src/ops/issues";
+import { initWorkspace, removeWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 function tempDir(prefix: string): string {
@@ -60,6 +62,12 @@ describe("normalizeAttachmentUrl", () => {
     }
   });
 
+  test("user:password@ を含む URL は拒否する", () => {
+    for (const bad of ["https://u:p@example.com/", "https://u@example.com/", "https://:p@example.com/"]) {
+      expect(codeOf(() => normalizeAttachmentUrl(bad))).toBe("INVALID_ARGS");
+    }
+  });
+
   test("2048 文字を超える URL は拒否する", () => {
     const base = "https://example.com/";
     expect(normalizeAttachmentUrl(base + "a".repeat(2048 - base.length))).toHaveLength(2048);
@@ -87,6 +95,9 @@ describe("リンクの添付", () => {
     expect(codeOf(() => addLinkAttachment(me, issue.id, { url: "javascript:alert(1)" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => addLinkAttachment(me, issue.id, { url: "https://e.com", title: "a".repeat(201) }))).toBe("INVALID_ARGS");
     expect(codeOf(() => addLinkAttachment(me, issue.id, { url: "https://e.com", title: "a\nb" }))).toBe("INVALID_ARGS");
+    for (const title of ["evil\u202Etxt.exe", "a\u200Bb", "a\u0007b", "a\u2066b"]) {
+      expect(codeOf(() => addLinkAttachment(me, issue.id, { url: "https://e.com", title }))).toBe("INVALID_ARGS");
+    }
     expect(listIssueAttachments(db, issue.id)).toEqual([]);
   });
 
@@ -186,6 +197,128 @@ describe("ファイルの添付", () => {
     const a = addLinkAttachment(me, issue.id, { url: "https://e.com" });
     expect(codeOf(() => attachmentFile(db, a.id, dir))).toBe("NOT_FOUND");
     expect(codeOf(() => attachmentFile(db, 999, dir))).toBe("NOT_FOUND");
+  });
+});
+
+describe("元ファイルの場所の制限", () => {
+  // 一時ディレクトリを狭めて、Workspace でも一時ディレクトリでもない場所を作る
+  function restricted() {
+    const f = fixture();
+    const tmpRoot = tempDir("nod-attach-tmp-");
+    const wsPath = tempDir("nod-attach-ws-");
+    initWorkspace(f.db, { path: wsPath });
+    return { ...f, tmpRoot, wsPath };
+  }
+
+  test("登録済み Workspace と一時ディレクトリの下は添付でき、それ以外は拒否する", () => {
+    const { me, issue, src, dir, tmpRoot, wsPath } = restricted();
+    mkdirSync(join(wsPath, "logs"));
+    expect(addFileAttachment(me, issue.id, { path: write(join(wsPath, "logs"), "a.txt"), dir, tmpRoot }).fileName).toBe("a.txt");
+    expect(addFileAttachment(me, issue.id, { path: write(tmpRoot, "b.txt"), dir, tmpRoot }).fileName).toBe("b.txt");
+    const err = (() => {
+      try {
+        addFileAttachment(me, issue.id, { path: write(src, "c.txt"), dir, tmpRoot });
+      } catch (e) {
+        return e as { code: string; message: string };
+      }
+    })();
+    expect(err).toMatchObject({ code: "INVALID_ARGS", message: "Workspace 内のファイルだけ添付できます" });
+    expect(readdirSync(dir)).toHaveLength(2);
+  });
+
+  test("ドットで始まるディレクトリの中は拒否する（.ssh・.aws・.git など）", () => {
+    const { me, issue, dir, tmpRoot, wsPath } = restricted();
+    for (const d of [".ssh", ".aws", ".config/gh", ".git"]) {
+      mkdirSync(join(tmpRoot, d), { recursive: true });
+      expect(codeOf(() => addFileAttachment(me, issue.id, { path: write(join(tmpRoot, d), "k.txt"), dir, tmpRoot }))).toBe("INVALID_ARGS");
+    }
+    mkdirSync(join(wsPath, ".github"));
+    expect(codeOf(() => addFileAttachment(me, issue.id, { path: write(join(wsPath, ".github"), "ci.yml"), dir, tmpRoot }))).toBe(
+      "INVALID_ARGS",
+    );
+    expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+  });
+
+  test("親ディレクトリが symlink なら、指す先が許可された場所でも拒否する", () => {
+    const { me, issue, dir, tmpRoot, wsPath } = restricted();
+    mkdirSync(join(wsPath, "real"));
+    write(join(wsPath, "real"), "a.txt");
+    symlinkSync(join(wsPath, "real"), join(wsPath, "via"));
+    expect(codeOf(() => addFileAttachment(me, issue.id, { path: join(wsPath, "via", "a.txt"), dir, tmpRoot }))).toBe("INVALID_ARGS");
+    // 許可されない場所を指す symlink ディレクトリも同じく拒否する
+    const outside = tempDir("nod-attach-outside-");
+    write(outside, "secret.txt", "secret");
+    symlinkSync(outside, join(tmpRoot, "out"));
+    expect(codeOf(() => addFileAttachment(me, issue.id, { path: join(tmpRoot, "out", "secret.txt"), dir, tmpRoot }))).toBe("INVALID_ARGS");
+  });
+
+  test("FIFO は待たずに拒否する", () => {
+    const { me, issue, dir, tmpRoot } = restricted();
+    const fifo = join(tmpRoot, "pipe.txt");
+    Bun.spawnSync(["mkfifo", fifo]);
+    expect(codeOf(() => addFileAttachment(me, issue.id, { path: fifo, dir, tmpRoot }))).toBe("INVALID_ARGS");
+  });
+
+  test("ファイル名の制御文字・書式文字（U+202E など）は拒否する", () => {
+    const { me, issue, src, dir } = fixture();
+    for (const name of ["a\u202Etxt.log", "a\u200B.txt", "a\u0007.txt"]) {
+      expect(codeOf(() => addFileAttachment(me, issue.id, { path: write(src, name), dir }))).toBe("INVALID_ARGS");
+    }
+  });
+
+  test("保存先はディレクトリ 0700・ファイル 0600 で作り、Activity に元ファイルの実体パスを残す", () => {
+    const { db, me, issue, dir, tmpRoot } = restricted();
+    const path = write(tmpRoot, "a.txt");
+    const a = addFileAttachment(me, issue.id, { path, dir, tmpRoot });
+    const abs = attachmentFile(db, a.id, dir).abs;
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(statSync(join(abs, "..")).mode & 0o777).toBe(0o700);
+    expect(statSync(abs).mode & 0o777).toBe(0o600);
+    expect(eventsOf(db, issue.id).filter((e) => e.type === "attachment_added")).toEqual([
+      { type: "attachment_added", actor: "me", data: { attachment_id: a.id, kind: "file", name: "a.txt", source_path: realpathSync(path) } },
+    ]);
+  });
+});
+
+describe("Workspace の削除と gc", () => {
+  test("Workspace を消すと、その Issue の添付ファイルも消え、他の Workspace のものは残る", () => {
+    const { db, me, ws, issue, src, dir } = fixture();
+    const other = initWorkspace(db, { path: "/tmp/repos/other" }).workspace;
+    const keep = createIssue(me, { workspaceId: other.id, title: "残す" });
+    addFileAttachment(me, issue.id, { path: write(src, "a.txt"), dir });
+    const kept = addFileAttachment(me, keep.id, { path: write(src, "b.txt"), dir });
+    expect(readdirSync(dir)).toHaveLength(2);
+    removeWorkspace(db, ws.key, dir);
+    expect(readdirSync(dir)).toHaveLength(1);
+    expect(readFileSync(attachmentFile(db, kept.id, dir).abs, "utf8")).toBe("hello");
+  });
+
+  test("gc は DB に無い <uuid> ディレクトリだけを消し、--dry-run では消さない", () => {
+    const { db, me, issue, src, dir } = fixture();
+    const a = addFileAttachment(me, issue.id, { path: write(src, "a.txt"), dir });
+    const orphan = "00000000-0000-4000-8000-000000000000";
+    const fresh = "11111111-1111-4111-8111-111111111111";
+    mkdirSync(join(dir, orphan));
+    write(join(dir, orphan), "x.txt");
+    mkdirSync(join(dir, fresh));
+    mkdirSync(join(dir, "not-a-uuid"));
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(join(dir, orphan), old, old);
+    symlinkSync(src, join(dir, "22222222-2222-4222-8222-222222222222"));
+
+    expect(gcAttachments(db, { dir, dryRun: true })).toMatchObject({ removed: [orphan], dryRun: true });
+    expect(existsSync(join(dir, orphan))).toBe(true);
+    expect(gcAttachments(db, { dir })).toMatchObject({ removed: [orphan], dryRun: false });
+    expect(existsSync(join(dir, orphan))).toBe(false);
+    // 参照中・作ってすぐ・uuid でない名前・symlink は残す
+    expect(readdirSync(dir).sort()).toHaveLength(4);
+    expect(readFileSync(attachmentFile(db, a.id, dir).abs, "utf8")).toBe("hello");
+    expect(existsSync(join(src, "a.txt"))).toBe(true);
+  });
+
+  test("添付ディレクトリが無ければ何もしない", () => {
+    const { db, dir } = fixture();
+    expect(gcAttachments(db, { dir })).toEqual({ dir, removed: [], dryRun: false });
   });
 });
 

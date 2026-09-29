@@ -25,6 +25,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    Document と Issue のリンクは \`nod doc link|unlink <Document id> --issue <id>\` で付け外しし、\`nod doc show <Document id>\` でリンク先の Issue を確かめる。
    Markdown 以外の資料やリンクは添付にする。\`nod issue attach add <id> --url <URL> [--title <表示名>]\` でリンク（http/https のみ）を、\`nod issue attach add <id> --file <パス> [--title <表示名>]\` でファイルを添付する。
    ファイルは添付ディレクトリ（\`NOD_ATTACHMENTS_DIR\`）にコピーされ、10MB まで、拡張子は png/jpg/jpeg/gif/webp/pdf/txt/log/md/csv/json/yaml/yml/zip に限られる。symlink は添付できない。
+   添付できるのは登録済み Workspace か OS の一時ディレクトリの下のファイルだけで、途中に symlink や . で始まるディレクトリ（.ssh・.git など）を経由するものは添付できない。URL に user:password@ は含められない。
    本文を nod で読む Markdown や複数の Issue で共有する Markdown は Document、その Issue だけの読まない資料（ログ・画像・PDF など）は添付と使い分ける。
    \`nod issue attach list <id>\` で一覧し、\`nod issue attach remove <id> <添付 id>\` で削除する。アーカイブ中の Issue には追加も削除もできない。
 5. 節目ごとに \`nod issue log <id> "<内容>" [--kind <種類>]\` で作業ログを1件残す。人は Issue 詳細で種類ごとに絞り込んで読む。
