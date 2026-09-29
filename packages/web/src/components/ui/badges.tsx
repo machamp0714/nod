@@ -1,12 +1,22 @@
-import { agentColor, agentInitial, workspaceColor } from "../../lib/color";
+import { useWorkspaces } from "../../api/hooks/shared";
+import { agentColor, agentInitial } from "../../lib/color";
+import { workspaceColorOf } from "../../lib/workspace-color";
 import { formatQuestionCount, type QuestionCount } from "../../lib/format";
 import { type Tone, TONE_COLORS } from "../../lib/meta";
 import s from "./ui.module.css";
 
 export function WorkspaceBadge({ workspaceKey, name }: { workspaceKey: string; name?: string }) {
+  const workspaces = useWorkspaces();
+  const color = workspaceColorOf(workspaces.data, workspaceKey);
+  const state = color ? "ready" : workspaces.isPending ? "pending" : workspaces.isError ? "error" : "missing";
   return (
-    <span className={s.inline} title={workspaceKey}>
-      <span className={s.swatch} style={{ background: workspaceColor(workspaceKey) }} />
+    <span
+      className={s.inline}
+      title={state === "error" ? `${workspaceKey}（Workspace の色を取得できません）` : workspaceKey}
+      data-workspace-key={workspaceKey}
+      data-workspace-color-state={state}
+    >
+      <span className={s.swatch} style={{ background: color ?? "transparent" }} />
       <span className={s.inlineText}>{name ?? workspaceKey}</span>
     </span>
   );

@@ -6,7 +6,7 @@ import { codeOf, tempDbPath } from "./helpers";
 describe("openDb", () => {
   test("issues の status は needs_clarification を受け付け、知らない値は拒む", () => {
     const db = openDb(tempDbPath());
-    db.query("INSERT INTO workspaces (key, name, path, created_at) VALUES ('API', 'api', '/tmp/api', '')").run();
+    db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/api', '', '#7C5CFF')").run();
     const insert = (n: number, status: string) =>
       db
         .query(

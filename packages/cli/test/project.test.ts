@@ -53,7 +53,7 @@ describe("Project CLI", () => {
     const me = { db, actor: "me" };
     createProject(me, { name: "レビュー" });
     // WorkspaceはCLI登録を要求せず、テスト用DBだけに用意する。
-    db.query("INSERT INTO workspaces (key, name, path, created_at) VALUES ('API', 'api', '/tmp/review-api', '2000')").run();
+    db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/review-api', '2000', '#7C5CFF')").run();
     const issue = createIssue(me, { workspaceId: 1, title: "確認", projectRef: "レビュー" });
     updateIssue(me, issue.id, { status: "in_review" });
     db.close();

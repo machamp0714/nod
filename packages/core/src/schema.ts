@@ -1,5 +1,10 @@
-// MIGRATIONS[n] は、スキーマの版 n から n + 1 に上げる SQL の並び
-export const MIGRATIONS: string[][] = [
+import type { Database } from "bun:sqlite";
+import { migrateWorkspaceColorsV2 } from "./migrations/workspace-colors-v2";
+
+export type MigrationStep = string | ((db: Database) => void);
+
+// MIGRATIONS[n] は、スキーマの版 n から n + 1 に上げる SQL・移行関数の並び
+export const MIGRATIONS: MigrationStep[][] = [
   [
     `CREATE TABLE workspaces (
       id INTEGER PRIMARY KEY,
@@ -126,4 +131,5 @@ export const MIGRATIONS: string[][] = [
     `CREATE INDEX issues_status ON issues (status)`,
     `CREATE INDEX events_issue ON events (issue_id, id)`,
   ],
+  [migrateWorkspaceColorsV2],
 ];

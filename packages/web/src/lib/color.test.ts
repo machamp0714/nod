@@ -1,17 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentColor, agentInitial, workspaceColor } from "./color";
-
-describe("workspaceColor", () => {
-  test("キーの文字コードの和を4で割った余りで色を選ぶ", () => {
-    expect(workspaceColor("BLOG")).toBe("var(--ws-a)");
-    expect(workspaceColor("NOD")).toBe("var(--ws-b)");
-    expect(workspaceColor("API")).toBe("var(--ws-c)");
-  });
-
-  test("同じキーは常に同じ色", () => {
-    expect(workspaceColor("API")).toBe(workspaceColor("API"));
-  });
-});
+import { agentColor, agentInitial } from "./color";
 
 describe("書き手の表示", () => {
   test("claude-code と codex は nod.pen の色と頭文字を使う", () => {
