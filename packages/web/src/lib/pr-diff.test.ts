@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, fileStatusPill, githubFilesUrl, shortSha } from "./pr-diff";
+import { diffRows, fileStatusPill, githubFilesUrl, hasBidi, shortSha, splitBidi } from "./pr-diff";
 
 describe("差分の行", () => {
   test("ハンクヘッダーから旧・新の行番号を数え、追加・削除・文脈に分ける", () => {
@@ -57,5 +57,25 @@ describe("変更ファイルの状態ピル", () => {
     expect(fileStatusPill({ status: "deleted", binary: false })).toEqual({ label: "削除", tone: "fail" });
     expect(fileStatusPill({ status: "renamed", binary: false })).toEqual({ label: "名前変更", tone: "accent" });
     expect(fileStatusPill({ status: "added", binary: true })).toEqual({ label: "バイナリ", tone: "gate" });
+  });
+});
+
+describe("双方向の制御文字", () => {
+  test("U+202A–202E と U+2066–2069 を符号の表記に分け、ほかはそのまま残す", () => {
+    expect(splitBidi("admin‮ // user⁦x⁩")).toEqual([
+      { text: "admin", bidi: false },
+      { text: "⟪U+202E⟫", bidi: true },
+      { text: " // user", bidi: false },
+      { text: "⟪U+2066⟫", bidi: true },
+      { text: "x", bidi: false },
+      { text: "⟪U+2069⟫", bidi: true },
+    ]);
+    expect(splitBidi("‪")).toEqual([{ text: "⟪U+202A⟫", bidi: true }]);
+    expect(splitBidi("plain ‏")).toEqual([{ text: "plain ‏", bidi: false }]);
+    expect(splitBidi("")).toEqual([{ text: "", bidi: false }]);
+  });
+
+  test("hasBidi は何度呼んでも同じ結果", () => {
+    expect([hasBidi("a‮b"), hasBidi("a‮b"), hasBidi("ab"), hasBidi("⁩")]).toEqual([true, true, false, true]);
   });
 });

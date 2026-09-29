@@ -60,6 +60,12 @@ const DIFF = [
   "@@ -1 +1 @@",
   "-a",
   "+b",
+  "diff --git a/src/auth.ts b/src/auth.ts",
+  "--- a/src/auth.ts",
+  "+++ b/src/auth.ts",
+  "@@ -1 +1 @@",
+  "-const role = 'user';",
+  "+const role = 'user\u202e \u2066// admin\u2069';",
   "diff --git a/big.sql b/big.sql",
   "--- a/big.sql",
   "+++ b/big.sql",
@@ -78,6 +84,15 @@ async function issueWithPr(nod: Parameters<typeof seedApiWorkspace>[0]) {
 const section = (page: Page) => page.getByRole("region", { name: "変更ファイル" });
 const refreshButton = (page: Page) => section(page).getByRole("button", { name: "変更ファイルを更新" });
 const fileRow = (page: Page, name: string | RegExp) => section(page).getByRole("button", { name });
+// ファイルごとの patch の取得（GET /api/issues/:id/pr-diff/files?path=...）を数える
+function countFileRequests(page: Page): string[] {
+  const paths: string[] = [];
+  page.on("request", (r) => {
+    const url = new URL(r.url());
+    if (url.pathname.endsWith("/pr-diff/files")) paths.push(url.searchParams.get("path") ?? "");
+  });
+  return paths;
+}
 
 test("未取得なら gh を実行せず、更新すると HEAD に固定した差分を取得して、ファイルごとに開ける", async ({ page, nod }) => {
   const id = await issueWithPr(nod);
@@ -96,7 +111,7 @@ test("未取得なら gh を実行せず、更新すると HEAD に固定した�
   await expect(section(page).getByRole("link", { name: "GitHub で開く ↗" })).toHaveAttribute("href", `${PR_URL}/files`);
   expect(await ghCalls()).toEqual([
     ["pr", "view", PR_URL, "--json", "headRefOid,baseRefOid,changedFiles"],
-    ["api", "-H", "Accept: application/vnd.github.diff", `repos/example/api-server/compare/${BASE}...${HEAD}`],
+    ["api", "--hostname", "github.com", "-H", "Accept: application/vnd.github.diff", `repos/example/api-server/compare/${BASE}...${HEAD}`],
   ]);
 
   // 最初の5件だけを出し、残りは「他 N ファイルを表示」で出す
@@ -107,8 +122,8 @@ test("未取得なら gh を実行せず、更新すると HEAD に固定した�
   await expect(fileRow(page, /^名前変更 internal\/webhook\/handler\.go → internal\/webhook\/receiver\.go/)).toBeVisible();
   await expect(fileRow(page, /^削除 legacy\.go/)).toBeVisible();
   await expect(fileRow(page, /^バイナリ docs\/flow\.png バイナリ/)).toBeVisible();
-  await section(page).getByRole("button", { name: "他 2 ファイルを表示" }).click();
-  await expect(list.getByRole("listitem")).toHaveCount(7);
+  await section(page).getByRole("button", { name: "他 3 ファイルを表示" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(8);
 
   const verify = fileRow(page, /^変更 internal\/webhook\/verify\.go/);
   await expect(verify).toHaveAttribute("aria-expanded", "false");
@@ -135,7 +150,7 @@ test("差分・パスに含まれる HTML は文字として表示し、要素�
   await stubGhBy({ pr: ok(view()), api: ok(DIFF) });
   await page.goto(`/issues/${id}`);
   await refreshButton(page).click();
-  await section(page).getByRole("button", { name: "他 2 ファイルを表示" }).click();
+  await section(page).getByRole("button", { name: "他 3 ファイルを表示" }).click();
   await fileRow(page, /^追加 docs\/new\.md/).click();
   await expect(section(page).getByText("<script>window.__xss=1</script>")).toBeVisible();
   const xss = fileRow(page, `変更 ${XSS_PATH} +1 −1`);
@@ -143,6 +158,47 @@ test("差分・パスに含まれる HTML は文字として表示し、要素�
   await expect(xss).toContainText(XSS_PATH);
   await expect(section(page).locator("script, img")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+});
+
+test("一覧は patch を読まず、開いたファイルだけを読み、無関係な更新では読み直さない", async ({ page, nod }) => {
+  const id = await issueWithPr(nod);
+  await stubGhBy({ pr: ok(view()), api: ok(DIFF) });
+  const files = countFileRequests(page);
+  await page.goto(`/issues/${id}`);
+  await refreshButton(page).click();
+  await expect(fileRow(page, /^変更 internal\/webhook\/verify\.go/)).toBeVisible();
+  // 閉じたまま・バイナリを開いても patch は読まない
+  await fileRow(page, /^バイナリ docs\/flow\.png/).click();
+  await expect(section(page).getByText("バイナリのため表示しません")).toBeVisible();
+  expect(files).toEqual([]);
+
+  await fileRow(page, /^変更 internal\/webhook\/verify\.go/).click();
+  await expect(section(page).getByRole("table", { name: "internal/webhook/verify.go の差分" })).toBeVisible();
+  expect(files).toEqual(["internal/webhook/verify.go"]);
+
+  // 別の書き込み（PR 状態の更新。HEAD は同じ）ですべてのクエリが無効になっても、開いたファイルの patch は読み直さない
+  const summary = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith("/pr-diff") && r.request().method() === "GET");
+  await page.getByRole("button", { name: "PR の状態を更新" }).click();
+  await summary;
+  await expect(section(page).getByRole("table", { name: "internal/webhook/verify.go の差分" })).toBeVisible();
+  expect(files).toEqual(["internal/webhook/verify.go"]);
+
+  // 差分を取り直すと、開いているファイルは新しい取得の patch を読む
+  await refreshButton(page).click();
+  await expect.poll(() => files).toEqual(["internal/webhook/verify.go", "internal/webhook/verify.go"]);
+});
+
+test("双方向の制御文字は符号で見せ、注意を出す", async ({ page, nod }) => {
+  const id = await issueWithPr(nod);
+  await stubGhBy({ pr: ok(view()), api: ok(DIFF) });
+  await page.goto(`/issues/${id}`);
+  await refreshButton(page).click();
+  await section(page).getByRole("button", { name: "他 3 ファイルを表示" }).click();
+  await fileRow(page, /^変更 src\/auth\.ts/).click();
+  await expect(section(page).getByRole("note")).toContainText("双方向の制御文字を含みます");
+  const table = section(page).getByRole("table", { name: "src/auth.ts の差分" });
+  await expect(table.getByRole("row").nth(2)).toHaveText("1+const role = 'user⟪U+202E⟫ ⟪U+2066⟫// admin⟪U+2069⟫';");
+  expect(await table.textContent()).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
 });
 
 test("失敗は理由を出し、前回の差分は残す。前回がなければ理由だけを出す", async ({ page, nod }) => {

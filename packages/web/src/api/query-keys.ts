@@ -1,3 +1,4 @@
+import type { Query } from "@tanstack/react-query";
 import type { IssueQuery } from "./types";
 
 // TanStack Query のキー。D、E、G のフックはここからキーを取り、同じデータを別のキーで持たないようにする。
@@ -13,6 +14,8 @@ export const queryKeys = {
   issue: (id: string) => ["issues", "detail", id] as const,
   prStatus: (id: string) => ["issues", "pr-status", id] as const,
   prDiff: (id: string) => ["issues", "pr-diff", id] as const,
+  // 取得（headSha・fetchedAt）ごとに中身が変わらないので immutable にし、無関係な変更で取り直さない
+  prDiffFile: (id: string, headSha: string, fetchedAt: string, path: string) => ["issues", "pr-diff-file", id, headSha, fetchedAt, path] as const,
   inbox: () => ["inbox"] as const,
   inboxHistory: () => ["inbox", "history"] as const,
   triage: () => ["triage"] as const,
@@ -31,6 +34,9 @@ export const queryKeys = {
   stats: (kind: "completion" | "llm", query: string) => ["stats", kind, query] as const,
   summary: (query: string) => ["summary", query] as const,
 };
+
+// 変更のたびにすべてのクエリを無効にするときの絞り込み。meta.immutable のクエリ（キーが中身を決めるもの）は除く
+export const mutableQueries = { predicate: (q: Query) => q.meta?.immutable !== true };
 
 // Issue の API のパス。apiFetch に渡す（/api は apiFetch が前置する）
 export function issuePath(id: string, op?: string): string {

@@ -58,6 +58,7 @@ export type {
   PrStatusView,
   PrDiff,
   PrDiffError,
+  PrDiffFileSummary,
   PrDiffErrorCode,
   PrDiffFile,
   PrDiffFileStatus,

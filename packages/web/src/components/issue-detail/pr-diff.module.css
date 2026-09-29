@@ -283,3 +283,12 @@
   font-weight: 500;
   cursor: pointer;
 }
+
+/* 双方向の制御文字（Trojan Source）の符号。そのまま描画せず、目立つ印にする */
+.bidi {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--ask-soft);
+  color: var(--ask);
+  font-weight: 600;
+}

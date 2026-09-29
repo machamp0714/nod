@@ -1,4 +1,4 @@
-import type { PrDiffFile, PrDiffFileStatus } from "../api/types";
+import type { PrDiffFileStatus, PrDiffFileSummary } from "../api/types";
 import type { Tone } from "./meta";
 
 // PR の差分（#55）の表示。差分はすべて文字列のまま扱い、React のテキストノードとしてだけ描画する（HTML にしない）
@@ -42,10 +42,28 @@ export function githubFilesUrl(prUrl: string): string | null {
   return m ? `${m[1]}/files` : null;
 }
 
+// 双方向の制御文字（Trojan Source）。見た目の並びを変えるので、そのまま描画せず符号（⟪U+202E⟫）にして見せる
+const BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/g;
+
+export const hasBidi = (text: string) => text.search(BIDI_RE) >= 0;
+
+// 文字列を、そのままの部分と双方向の制御文字（符号の表記）に分ける
+export function splitBidi(text: string): { text: string; bidi: boolean }[] {
+  const parts: { text: string; bidi: boolean }[] = [];
+  let last = 0;
+  for (const m of text.matchAll(BIDI_RE)) {
+    if (m.index > last) parts.push({ text: text.slice(last, m.index), bidi: false });
+    parts.push({ text: `⟪U+${m[0].codePointAt(0)!.toString(16).toUpperCase()}⟫`, bidi: true });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length || parts.length === 0) parts.push({ text: text.slice(last), bidi: false });
+  return parts;
+}
+
 export const shortSha = (sha: string) => sha.slice(0, 7);
 
 // 変更ファイルの状態ピル。nod.pen「Issue詳細｜変更ファイル（#55）」に合わせる。バイナリは状態より優先する
-export function fileStatusPill(f: Pick<PrDiffFile, "status" | "binary">): { label: string; tone: Tone } {
+export function fileStatusPill(f: Pick<PrDiffFileSummary, "status" | "binary">): { label: string; tone: Tone } {
   if (f.binary) return { label: "バイナリ", tone: "gate" };
   return FILE_PILLS[f.status];
 }
