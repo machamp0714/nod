@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBanner";
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
   useAttachDocument,
   useAnswerQuestion,
   useCommentIssue,
+  useCopyIssue,
   useAskQuestion,
   useProjectChoices,
   useUpdateIssue,
@@ -55,6 +56,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const projects = useProjectChoices();
   const comment = useCommentIssue(issue.id);
   const attach = useAttachDocument(issue.id);
+  const copyIssue = useCopyIssue(issue.id);
+  const navigate = useNavigate();
   const status = STATUS_META[issue.status];
   return (
     <div className={s.page}>
@@ -81,7 +84,13 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <Icon name="chevron-right" size={12} />
           <span className={s.crumbId}>{issue.id}</span>
         </nav>
-        <IssueHeaderActions issueId={issue.id} />
+        <IssueHeaderActions
+          issueId={issue.id}
+          onDuplicate={async () => {
+            const copied = await copyIssue.mutateAsync({});
+            await navigate({ to: "/issues/$issueId", params: { issueId: copied.id } });
+          }}
+        />
       </header>
 
       <div className={s.body}>
