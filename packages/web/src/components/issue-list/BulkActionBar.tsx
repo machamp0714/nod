@@ -3,7 +3,7 @@ import { errorMessage } from "../../api/errors";
 import { useProjectChoices } from "../../api/hooks/issue-detail";
 import { type BulkUpdateInput, useBulkUpdateIssues } from "../../api/hooks/issues";
 import type { Issue, Status } from "../../api/types";
-import { type BulkFailure, bulkFailures, labelMenu } from "../../lib/bulk-selection";
+import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, labelMenu } from "../../lib/bulk-selection";
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Icon, type IconName } from "../ui";
@@ -45,6 +45,9 @@ export function BulkActionBar({
   }, [selectionKey]);
   // 失敗したらメニューを閉じ、開いていたボタンへフォーカスを戻す（適用中は無効なので、使えるようになってから）
   const busy = update.isPending;
+  // 上限を超えた選択はサーバーで拒否されるため、送る前に知らせて項目を選べなくする（選択解除は使える）
+  const overLimit = selected.length > BULK_SELECT_LIMIT;
+  const disabled = busy || overLimit;
   useEffect(() => {
     if (!refocus || busy) return;
     barRef.current?.querySelector<HTMLButtonElement>(`[data-menu="${refocus}"]`)?.focus();
@@ -52,7 +55,7 @@ export function BulkActionBar({
   }, [refocus, busy]);
 
   async function apply(patch: BulkUpdateInput) {
-    if (running.current) return;
+    if (running.current || overLimit) return;
     running.current = true;
     setFailures([]);
     setError("");
@@ -90,6 +93,14 @@ export function BulkActionBar({
           </ul>
         </div>
       )}
+      {overLimit && (
+        <div role="alert" className={s.bulkError}>
+          <p className={s.bulkErrorHead}>
+            <Icon name="circle-alert" size={14} color="var(--fail)" />
+            {`選択が一括編集の上限 ${BULK_SELECT_LIMIT} 件を超えています（${selected.length} 件）。${BULK_SELECT_LIMIT} 件以下にしてください`}
+          </p>
+        </div>
+      )}
       {error && (
         <div role="alert" className={s.bulkError}>
           <p className={s.bulkErrorHead}>
@@ -106,13 +117,13 @@ export function BulkActionBar({
           {selected.length} 件選択
         </span>
         <span className={s.bulkDivider} />
-        <Dropdown icon="circle-dot" label="Status" disabled={busy} {...menu("status")}>
+        <Dropdown icon="circle-dot" label="Status" disabled={disabled} {...menu("status")}>
           <Menu label="Status を変更" items={BULK_STATUSES.map((status: Status) => ({ key: status, label: nameOfStatus(status), run: () => apply({ status }) }))} />
         </Dropdown>
-        <Dropdown icon="signal-high" label="優先度" disabled={busy} {...menu("priority")}>
+        <Dropdown icon="signal-high" label="優先度" disabled={disabled} {...menu("priority")}>
           <Menu label="優先度を変更" items={PRIORITIES.map((priority) => ({ key: String(priority), label: priorityMeta(priority).label, run: () => apply({ priority }) }))} />
         </Dropdown>
-        <Dropdown icon="circle-user" label="担当" disabled={busy} {...menu("assignee")}>
+        <Dropdown icon="circle-user" label="担当" disabled={disabled} {...menu("assignee")}>
           <Menu
             label="担当を変更"
             items={[
@@ -121,7 +132,7 @@ export function BulkActionBar({
             ]}
           />
         </Dropdown>
-        <Dropdown icon="box" label="Project" disabled={busy} {...menu("project")}>
+        <Dropdown icon="box" label="Project" disabled={disabled} {...menu("project")}>
           <Menu
             label="Project を変更"
             items={[
@@ -130,10 +141,10 @@ export function BulkActionBar({
             ]}
           />
         </Dropdown>
-        <Dropdown icon="tag" label="ラベル" disabled={busy} {...menu("labels")}>
+        <Dropdown icon="tag" label="ラベル" disabled={disabled} {...menu("labels")}>
           <LabelMenu selected={selected} labels={labels} onAdd={(label) => apply({ addLabels: [label] })} onRemove={(label) => apply({ removeLabels: [label] })} />
         </Dropdown>
-        <Dropdown icon="gauge" label="見積もり" disabled={busy} {...menu("estimate")}>
+        <Dropdown icon="gauge" label="見積もり" disabled={disabled} {...menu("estimate")}>
           <ValueForm
             label="見積もり（ポイント）"
             type="number"
@@ -143,7 +154,7 @@ export function BulkActionBar({
             onClear={() => apply({ estimate: null })}
           />
         </Dropdown>
-        <Dropdown icon="calendar" label="期限" disabled={busy} {...menu("dueDate")}>
+        <Dropdown icon="calendar" label="期限" disabled={disabled} {...menu("dueDate")}>
           <ValueForm label="期限" type="date" onSet={(value) => apply({ dueDate: value })} onClear={() => apply({ dueDate: null })} />
         </Dropdown>
         <span className={s.bulkDivider} />

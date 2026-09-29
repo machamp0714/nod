@@ -3,28 +3,45 @@ import { bulkFailures, labelMenu, pruneSelection, selectAllState, toggleAll, tog
 
 const order = ["A-1", "A-2", "A-3", "A-4", "A-5"];
 
+const at = (id: string) => order.indexOf(id);
+
 describe("toggleSelection", () => {
   test("クリックで1件を切り替え、起点を更新する", () => {
-    const one = toggleSelection({ ids: new Set(), anchor: null }, order, "A-2", false);
+    const one = toggleSelection({ ids: new Set(), anchor: null }, order, at("A-2"), false);
     expect([...one.ids]).toEqual(["A-2"]);
-    expect(one.anchor).toBe("A-2");
-    const off = toggleSelection(one, order, "A-2", false);
+    expect(one.anchor).toEqual({ id: "A-2", at: 1 });
+    const off = toggleSelection(one, order, at("A-2"), false);
     expect([...off.ids]).toEqual([]);
   });
 
   test("Shift で起点からの表示順の範囲を、起点と同じ状態にそろえる", () => {
-    const start = toggleSelection({ ids: new Set(), anchor: null }, order, "A-4", false);
-    const range = toggleSelection(start, order, "A-2", true);
+    const start = toggleSelection({ ids: new Set(), anchor: null }, order, at("A-4"), false);
+    const range = toggleSelection(start, order, at("A-2"), true);
     expect([...range.ids].sort()).toEqual(["A-2", "A-3", "A-4"]);
     // 起点が外れているときの Shift は範囲を外す
-    const cleared = toggleSelection({ ids: new Set(order), anchor: "A-1" }, order, "A-1", false);
-    const unrange = toggleSelection(cleared, order, "A-3", true);
+    const cleared = toggleSelection({ ids: new Set(order), anchor: { id: "A-1", at: 0 } }, order, at("A-1"), false);
+    const unrange = toggleSelection(cleared, order, at("A-3"), true);
     expect([...unrange.ids].sort()).toEqual(["A-4", "A-5"]);
   });
 
   test("起点が表示にないときの Shift は1件の切り替えになる", () => {
-    const r = toggleSelection({ ids: new Set(), anchor: "Z-9" }, order, "A-3", true);
+    const r = toggleSelection({ ids: new Set(), anchor: { id: "Z-9", at: 9 } }, order, at("A-3"), true);
     expect([...r.ids]).toEqual(["A-3"]);
+  });
+
+  test("同じ Issue が何度も出る表示（ラベルのグループ）では、クリックした位置を起点・終点にする（#121）", () => {
+    // perf: A-1 A-2 / security: A-3 A-1 A-4
+    const positions = ["A-1", "A-2", "A-3", "A-1", "A-4"];
+    const start = toggleSelection({ ids: new Set(), anchor: null }, positions, 3, false); // security の A-1
+    const range = toggleSelection(start, positions, 4, true);
+    expect([...range.ids].sort()).toEqual(["A-1", "A-4"]);
+    const back = toggleSelection({ ids: new Set(), anchor: null }, positions, 2, false);
+    expect([...toggleSelection(back, positions, 3, true).ids].sort()).toEqual(["A-1", "A-3"]);
+  });
+
+  test("起点の位置が一覧の更新でずれたら、その Issue の最初の位置を起点にする", () => {
+    const r = toggleSelection({ ids: new Set(["A-2"]), anchor: { id: "A-2", at: 4 } }, order, at("A-3"), true);
+    expect([...r.ids].sort()).toEqual(["A-2", "A-3"]);
   });
 });
 

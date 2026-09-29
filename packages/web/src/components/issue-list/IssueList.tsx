@@ -85,17 +85,23 @@ export function IssueList({
   const delegated = tab === "delegated";
   // ラベルのグループでは同じ行が何度も出るため、描画順で最初の表だけに現在のプレビューを示させる
   let currentShown = false;
+  // 表は positions と同じ順に描くので、描いた行数を数えて各表の先頭行の表示位置にする
+  let offset = 0;
   const table = (tableRows: IssueListRow[], hideHeader = false) => {
     const markCurrent = !currentShown && tableRows.some((r) => r.issue.id === preview);
     if (markCurrent) currentShown = true;
-    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={rowSelection} />;
+    const selection = rowSelection && { ...rowSelection, offset };
+    offset += tableRows.length;
+    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={selection} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
   const [toast, setToast] = useState<string | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const selectable = layout === "list";
-  const order = useMemo(() => idsOf(groupBy ? groups.flatMap(rowsOf) : visible), [groupBy, groups, visible]);
+  // 表示順の ID。positions はラベルのグループで同じ Issue が何度も出る並びのまま、order は1回ずつ
+  const positions = useMemo(() => (groupBy ? groups.flatMap(rowsOf) : visible).map((r) => r.issue.id), [groupBy, groups, visible]);
+  const order = useMemo(() => [...new Set(positions)], [positions]);
   const selectedIds = selectable ? pruneSelection(selection.ids, order) : NO_SELECTION;
   useEffect(() => {
     if (selectedIds !== selection.ids) setSelection((prev) => ({ ...prev, ids: selectedIds }));
@@ -110,7 +116,7 @@ export function IssueList({
     [rows, selectedIds],
   );
   const knownLabels = useMemo(() => [...new Set(rows.flatMap((r) => r.issue.labels))], [rows]);
-  const onToggleRow = useCallback((id: string, shift: boolean) => setSelection((prev) => toggleSelection(prev, order, id, shift)), [order]);
+  const onToggleRow = useCallback((at: number, shift: boolean) => setSelection((prev) => toggleSelection(prev, positions, at, shift)), [positions]);
   const toggleMany = (ids: string[]) => setSelection((prev) => ({ ...prev, ids: toggleAll(prev.ids, ids) }));
   const clearSelection = () => setSelection({ ids: NO_SELECTION, anchor: null });
   const rowSelection = selectable ? { ids: selectedIds, onToggle: onToggleRow } : undefined;
