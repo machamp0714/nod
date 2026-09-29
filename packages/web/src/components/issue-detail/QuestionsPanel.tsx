@@ -13,12 +13,14 @@ export function QuestionsPanel({
   onAsk,
   answerRequest,
   onBusyChange,
+  readOnly = false,
 }: {
   answerRequest?: { questionId: number; requestId: number };
   onBusyChange?: (busy: boolean) => void;
   questions: Question[];
   onAnswer: (questionId: number, answer: string) => Promise<unknown>;
   onAsk: (question: string) => Promise<AskResult>;
+  readOnly?: boolean; // アーカイブ済み。回答の記録と未決事項の追加はできない
 }) {
   const count = countQuestions(questions);
   const [answering, setAnswering] = useState<number | null>(null);
@@ -157,7 +159,7 @@ export function QuestionsPanel({
                     <Button icon="copy" onClick={() => void copy(q)} disabled={action.busy}>
                       質問文をコピー
                     </Button>
-                    <Button icon="square-pen" onClick={() => startAnswer(q.id)} disabled={action.busy}>
+                    <Button icon="square-pen" onClick={() => startAnswer(q.id)} disabled={action.busy || readOnly}>
                       回答を記録
                     </Button>
                   </div>
@@ -203,7 +205,7 @@ export function QuestionsPanel({
           </div>
         ) : (
           <Button
-            disabled={action.busy}
+            disabled={action.busy || readOnly}
             icon="plus"
             onClick={() => {
               resetMessages();

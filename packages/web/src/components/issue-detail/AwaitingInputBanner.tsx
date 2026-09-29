@@ -4,8 +4,9 @@ import { executionLocation } from "../../lib/execution-location";
 import { Icon } from "../ui";
 import s from "./issue-detail.module.css";
 
-export function AwaitingInputBanner({ issue, onAnswer, busy }: {
+export function AwaitingInputBanner({ issue, onAnswer, busy, readOnly = false }: {
   issue: IssueDetail;
+  readOnly?: boolean;
   onAnswer: (questionId: number) => void;
   busy: boolean;
 }) {
@@ -20,7 +21,7 @@ export function AwaitingInputBanner({ issue, onAnswer, busy }: {
         {first.askedBy} が回答を待っています（{location ? <>{location.branchLabel}{location.worktree && <> · {location.worktree}</>}</> : "実行場所未記録"}）: {first.question}
         {questions.length > 1 && <span className={s.awaitingCount}>ほか {questions.length - 1} 件</span>}
       </div>
-      <button type="button" className={s.awaitingAnswer} disabled={busy} onClick={() => onAnswer(first.id)}>回答する</button>
+      <button type="button" className={s.awaitingAnswer} disabled={busy || readOnly} onClick={() => onAnswer(first.id)}>回答する</button>
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { countQuestions, formatQuestionCount, formatRelative, prLabel } from "./format";
+import { countQuestions, formatDateTime, formatQuestionCount, formatRelative, prLabel } from "./format";
 
 const NOW = new Date("2026-09-28T12:00:00.000Z");
 const before = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -33,4 +33,10 @@ describe("prLabel", () => {
     expect(prLabel("https://github.com/example/api-server/pull/128")).toBe("#128");
     expect(prLabel("https://example.com/merge/7")).toBe("PR");
   });
+});
+
+test("formatDateTime はローカル時刻の YYYY-MM-DD HH:mm にし、読めない値はそのまま返す", () => {
+  const d = new Date(2026, 8, 29, 23, 40, 12);
+  expect(formatDateTime(d.toISOString())).toBe("2026-09-29 23:40");
+  expect(formatDateTime("bad")).toBe("bad");
 });

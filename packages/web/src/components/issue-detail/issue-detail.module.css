@@ -709,3 +709,11 @@
 .completionButton:focus-visible { outline: 2px solid var(--ready); outline-offset: 2px; }
 .completionError { display: flex; align-items: center; gap: 6px; margin: 0; padding-left: 26px; color: var(--fail); font-size: 12px; overflow-wrap: anywhere; }
 .completionError > svg { flex-shrink: 0; }
+.archivedBanner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.archivedBanner > svg { flex: none; color: var(--ink2); }
+.archivedText { flex: 1 1 160px; min-width: 0; margin: 0; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.archivedRestore { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; cursor: pointer; }
+.archivedRestore:disabled { cursor: progress; }
+.archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
+.commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
+.propsLocked select, .propsLocked input, .propsLocked button { opacity: 0.45; }

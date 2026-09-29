@@ -115,7 +115,7 @@ test("Documents追加とCreated・コメントカード・コピー2項目を使
   await page.getByRole("button", { name: "リンクをコピー", exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(`/issues/${i.id}`, page.url()).href);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
-  await expect(page.getByRole("menuitem")).toHaveCount(3);
+  await expect(page.getByRole("menuitem")).toHaveCount(4);
   await page.getByRole("menuitem", { name: "Issue IDをコピー" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(i.id);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();

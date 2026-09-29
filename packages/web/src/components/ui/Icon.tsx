@@ -1,5 +1,7 @@
 import {
   AlarmClock,
+  Archive,
+  ArchiveRestore,
   ArrowRight,
   Bell,
   BellOff,
@@ -63,6 +65,8 @@ import {
 
 const ICONS = {
   "alarm-clock": AlarmClock,
+  archive: Archive,
+  "archive-restore": ArchiveRestore,
   "arrow-right": ArrowRight,
   bell: Bell,
   "bell-off": BellOff,

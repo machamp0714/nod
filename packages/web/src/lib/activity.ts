@@ -63,6 +63,10 @@ export function describeActivity(item: ActivityItem): ActivityLine {
       return typeof data.copied_from === "string"
         ? { icon: "copy", text: `${actor} が ${data.copied_from} から複製した` }
         : { icon: "plus", text: `${actor} が起票した` };
+    case "archived":
+      return { icon: "archive", text: withReason(`${actor} がアーカイブした`, data) };
+    case "unarchived":
+      return { icon: "archive-restore", text: `${actor} がアーカイブから復元した` };
     case "status_changed":
       return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${statusLabel(data.from)} から ${statusLabel(data.to)} に変えた`, data) };
     case "priority_changed":

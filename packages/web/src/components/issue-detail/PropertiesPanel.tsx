@@ -134,13 +134,16 @@ export function PropertiesPanel({
   workspaceName,
   projects,
   onUpdate,
+  readOnly = false,
 }: {
   issue: Issue;
   workspaceName: string;
   projects: { id: number; name: string }[];
   onUpdate: (input: UpdateIssueInput) => Promise<unknown>;
+  readOnly?: boolean; // アーカイブ済み。値は見せるが変えられない
 }) {
   const action = useAsyncAction();
+  const locked = action.busy || readOnly;
   const location = executionLocation(issue.branch, issue.worktree);
   const [labelText, setLabelText] = useState("");
   const change = (input: UpdateIssueInput) => action.run(() => onUpdate(input), "変更できませんでした");
@@ -153,7 +156,7 @@ export function PropertiesPanel({
   }
 
   return (
-    <section className={s.panel} aria-label="プロパティ">
+    <section className={`${s.panel} ${readOnly ? s.propsLocked : ""}`} aria-label="プロパティ">
       <dl className={s.props}>
         <Prop label="Status">
           <StatusIcon status={issue.status} />
@@ -161,7 +164,7 @@ export function PropertiesPanel({
             className={s.select}
             aria-label="Status"
             value={issue.status}
-            disabled={action.busy}
+            disabled={locked}
             onChange={(e) => void change({ status: e.target.value as Status })}
           >
             {statusChoices(issue.status).map((choice) => (
@@ -176,7 +179,7 @@ export function PropertiesPanel({
             className={s.select}
             aria-label="Priority"
             value={String(issue.priority)}
-            disabled={action.busy}
+            disabled={locked}
             onChange={(e) => void change({ priority: Number(e.target.value) })}
           >
             {PRIORITIES.map((p) => (
@@ -200,7 +203,7 @@ export function PropertiesPanel({
             className={s.select}
             aria-label="Project"
             value={issue.project ? String(issue.project.id) : ""}
-            disabled={action.busy}
+            disabled={locked}
             onChange={(e) => void change({ projectRef: e.target.value === "" ? null : e.target.value })}
           >
             <option value="">なし</option>
@@ -219,7 +222,7 @@ export function PropertiesPanel({
                 type="button"
                 className={s.labelRemove}
                 aria-label={`ラベル ${label} を外す`}
-                disabled={action.busy}
+                disabled={locked}
                 onClick={() => void change({ removeLabels: [label] })}
               >
                 <Icon name="x" size={12} />
@@ -228,7 +231,7 @@ export function PropertiesPanel({
           ))}
           <span className={s.labelForm}>
             <input
-              disabled={action.busy}
+              disabled={locked}
               className={s.input}
               aria-label="ラベルを追加"
               placeholder="ラベルを追加"
@@ -238,7 +241,7 @@ export function PropertiesPanel({
                 if (e.key === "Enter" && !e.nativeEvent.isComposing) void addLabels();
               }}
             />
-            <Button onClick={() => void addLabels()} disabled={action.busy || !hasText(labelText)}>
+            <Button onClick={() => void addLabels()} disabled={locked || !hasText(labelText)}>
               追加
             </Button>
           </span>
@@ -248,7 +251,7 @@ export function PropertiesPanel({
             className={s.select}
             aria-label="Assignee"
             value={issue.assignee ?? ""}
-            disabled={action.busy}
+            disabled={locked}
             onChange={(e) => void change({ assignee: e.target.value === "" ? null : e.target.value })}
           >
             <option value="">なし</option>

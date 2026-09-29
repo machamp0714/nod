@@ -3,7 +3,8 @@ import { Button } from "../ui";
 import s from "./issue-detail.module.css";
 import { useAsyncAction } from "./useAsyncAction";
 
-export function TitleSection({ title, onSave }: { title: string; onSave: (title: string) => Promise<unknown> }) {
+// readOnly（アーカイブ済み）のときはタイトルを編集できない
+export function TitleSection({ title, onSave, readOnly = false }: { title: string; onSave: (title: string) => Promise<unknown>; readOnly?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
   const composing = useRef(false);
   const saving = useRef(false);
@@ -25,6 +26,7 @@ export function TitleSection({ title, onSave }: { title: string; onSave: (title:
     }
   }
 
+  if (readOnly) return <h1 className={s.title}>{title}</h1>;
   if (draft === null) {
     return (
       <h1 className={s.title}>

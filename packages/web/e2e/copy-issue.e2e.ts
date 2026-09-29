@@ -11,7 +11,7 @@ test("Issueのメニューから複製すると新しいIssueへ移り、元のI
   await page.goto(`/issues/${source.id}`);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
   const menu = page.getByRole("menu", { name: "Issueの操作" });
-  await expect(menu.getByRole("menuitem")).toHaveText(["Issue IDをコピー", "コマンドをコピー", "Issueを複製"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["Issue IDをコピー", "コマンドをコピー", "Issueを複製", "アーカイブ"]);
   await menu.getByRole("menuitem", { name: "Issueを複製" }).click();
   await expect(page).toHaveURL(/\/issues\/API-2$/);
   await expect(page.getByRole("navigation", { name: "パンくず" })).toContainText("API-2");

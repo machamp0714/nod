@@ -85,8 +85,21 @@ export function FilterBar({
           />
         </div>
       </details>
+      <span className={s.spacer} />
+      <ArchivedFilter value={filter.archived === true} onChange={(archived) => onChange({ ...filter, archived: archived || undefined })} />
     </div>
   );
+}
+
+// Pencil「Issues｜アーカイブ絞り込み」。既定はアーカイブ済みを含めず、「アーカイブ済みのみ」でアーカイブ一覧にする
+export function ArchivedFilter({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
+  return <label className={`${s.inlineSelect} ${value ? s.inlineSelectActive : ""}`}>
+    <span className={s.inlineSelectName}>アーカイブ</span>
+    <select className={s.inlineSelectValue} aria-label="アーカイブ" value={value ? "only" : "exclude"}
+      onChange={(event) => onChange(event.target.value === "only")}>
+      <option value="exclude">含めない</option><option value="only">アーカイブ済みのみ</option>
+    </select>
+  </label>;
 }
 
 function CheckGroup({
