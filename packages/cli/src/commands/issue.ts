@@ -8,6 +8,7 @@ import {
   detachDocument,
   failIssue,
   getIssue,
+  getIssueBranchName,
   importPlan,
   isLlm,
   listIssues,
@@ -96,6 +97,16 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
         print(cli, detail, () => formatIssueDetail(detail));
+      }),
+    );
+
+  issue
+    .command("branch-name <id>")
+    .description("Issue 用のブランチ名を取得する（ブランチ作成・着手・記録変更はしない）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const name = getIssueBranchName(cli.db, id);
+        print(cli, name, () => name.suggestedBranch);
       }),
     );
 
