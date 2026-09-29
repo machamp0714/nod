@@ -6,6 +6,7 @@ import {
   answerQuestion,
   approveReview,
   archiveIssue,
+  bulkUpdateIssues,
   askQuestion,
   commentIssue,
   copyIssue,
@@ -140,8 +141,18 @@ const OPS: Record<string, Op> = {
   unsubscribe: { keys: [], run: (me, ref) => unsubscribeIssue(me, ref) },
 };
 
+const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
+
 // web からの Issue の操作。書き手は me
 export function registerIssueOps(app: Hono, me: OpCtx): void {
+  // 一覧で選んだ複数 Issue の一括編集。/api/issues/:id/:op とは段数が違うので衝突しない
+  app.post("/api/issues/bulk-update", async (c) => {
+    const body = await readBody(c, BULK_UPDATE_KEYS);
+    const ids = optStringArray(body, "ids");
+    if (ids === undefined) throw invalid("ids に Issue の ID の配列を指定してください");
+    const { title: _t, description: _d, parentRef: _p, ...input } = toUpdateInput(body);
+    return c.json(bulkUpdateIssues(me, ids, input));
+  });
   app.post("/api/issues/:id/:op", async (c) => {
     const name = c.req.param("op");
     // "constructor" などの Object のプロパティを操作として拾わないよう、自身のキーだけを見る

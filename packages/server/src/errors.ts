@@ -11,6 +11,8 @@ export const ERROR_STATUS: Record<string, number> = {
   FILE_NOT_FOUND: 404,
   FILE_EXISTS: 409,
   NOT_IN_TRIAGE: 409,
+  TRIAGE_DECISION_REQUIRED: 409,
+  BULK_UPDATE_FAILED: 409,
   NOT_IN_REVIEW: 409,
   NOT_IN_PROGRESS: 409,
   NOT_ACCEPTED: 409,
@@ -33,13 +35,13 @@ export const ERROR_STATUS: Record<string, number> = {
 
 // CLI の --json と同じ形
 export interface ErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string; details?: unknown };
 }
 
 export function toErrorResponse(err: unknown): { status: number; body: ErrorBody } {
   const e = toNodError(err);
   if (e instanceof NodError) {
-    return { status: ERROR_STATUS[e.code] ?? 500, body: { error: { code: e.code, message: e.message } } };
+    return { status: ERROR_STATUS[e.code] ?? 500, body: { error: { code: e.code, message: e.message, ...(e.details === undefined ? {} : { details: e.details }) } } };
   }
   console.error(e);
   const message = e instanceof Error ? e.message : String(e);
