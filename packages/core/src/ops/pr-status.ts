@@ -18,12 +18,16 @@ import type {
 export type GhRunResult =
   | { kind: "exited"; exitCode: number; stdout: string; stderr: string }
   | { kind: "not_found" } // コマンドが見つからない
+  | { kind: "spawn_failed"; detail: string } // 見つかったが起動できない（EACCES など）
   | { kind: "timeout" }; // 時間切れで止めた
 export type GhRunner = (args: string[], opts: { timeoutMs: number }) => Promise<GhRunResult>;
 
 export const PR_STATUS_TIMEOUT_MS = 15_000;
+// 時間切れで SIGTERM を送ってから SIGKILL するまでの猶予
+export const GH_KILL_GRACE_MS = 2_000;
 const GH_FIELDS = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt";
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/;
+const REVIEW_DECISIONS: readonly string[] = ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] satisfies PrReviewDecision[];
 
 const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
   INVALID_URL: "GitHub の PR URL ではありません",
@@ -34,8 +38,10 @@ const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
   TIMEOUT: `${PR_STATUS_TIMEOUT_MS / 1000}秒以内に応答がありませんでした`,
 };
 
-// コマンドを起動して結果を返す。prefix は gh の前に置く引数（テストで bun スクリプトを gh の代わりにするため）
-export function createCommandRunner(command: string, prefix: string[] = []): GhRunner {
+// コマンドを起動して結果を返す。prefix は gh の前に置く引数（テストで bun スクリプトを gh の代わりにするため）。
+// 時間切れになったら出力や終了を待たずに timeout を返し、SIGTERM → 猶予 → SIGKILL で止める
+export function createCommandRunner(command: string, prefix: string[] = [], opts: { killGraceMs?: number } = {}): GhRunner {
+  const killGraceMs = opts.killGraceMs ?? GH_KILL_GRACE_MS;
   return async (args, { timeoutMs }) => {
     let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
     try {
@@ -47,22 +53,28 @@ export function createCommandRunner(command: string, prefix: string[] = []): GhR
         env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
       });
     } catch (e) {
-      if ((e as { code?: string }).code === "ENOENT") return { kind: "not_found" };
-      throw e;
+      const err = e as { code?: string; message?: string };
+      if (err.code === "ENOENT") return { kind: "not_found" };
+      return { kind: "spawn_failed", detail: err.code ?? err.message ?? String(e) };
     }
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill();
-    }, timeoutMs);
+    const collected: Promise<GhRunResult> = Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]).then(([stdout, stderr, exitCode]) => ({ kind: "exited", exitCode, stdout, stderr }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<GhRunResult>((resolve) => {
+      timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+    });
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-      ]);
-      if (timedOut) return { kind: "timeout" };
-      return { kind: "exited", exitCode, stdout, stderr };
+      const result = await Promise.race([collected, timedOut]);
+      if (result.kind === "timeout") {
+        collected.catch(() => {}); // 止めたあとの読み取りの失敗は捨てる
+        proc.kill("SIGTERM");
+        const killer = setTimeout(() => proc.kill("SIGKILL"), killGraceMs);
+        void proc.exited.then(() => clearTimeout(killer));
+      }
+      return result;
     } finally {
       clearTimeout(timer);
     }
@@ -120,7 +132,8 @@ export function parseGhPrView(stdout: string): Omit<PrStatus, "prUrl" | "fetched
     title: raw.title,
     state: raw.state,
     isDraft: raw.isDraft === true,
-    reviewDecision: (raw.reviewDecision || null) as PrReviewDecision | null,
+    // 既知の値だけ残す。gh が将来別の値を返しても表示側で扱えない値は保存しない
+    reviewDecision: REVIEW_DECISIONS.includes(raw.reviewDecision ?? "") ? (raw.reviewDecision as PrReviewDecision) : null,
     mergedAt: raw.mergedAt || null,
     checks,
     checkSummary,
@@ -130,6 +143,7 @@ export function parseGhPrView(stdout: string): Omit<PrStatus, "prUrl" | "fetched
 function classify(result: Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>): { code: PrStatusErrorCode; message: string } {
   if (result.kind === "not_found") return known("GH_NOT_INSTALLED");
   if (result.kind === "timeout") return known("TIMEOUT");
+  if (result.kind === "spawn_failed") return { code: "UNKNOWN" as const, message: `gh を起動できませんでした: ${result.detail}` };
   const stderr = result.stderr;
   if (result.exitCode === 4 || /gh auth login|not logged in|authentication required|bad credentials/i.test(stderr)) {
     return known("GH_AUTH");
@@ -178,8 +192,9 @@ export function getPrStatus(db: Database, ref: string): PrStatusView {
   return readView(db, row.id, formatIssueId(row.ws_key, row.number), row.pr_url);
 }
 
-// 同じ DB 接続・同じ Issue の取得中の更新は1本にまとめ、gh を重ねて実行しない
-const inflight = new WeakMap<Database, Map<number, Promise<PrStatusView>>>();
+// 同じ DB 接続・同じ Issue・同じ PR URL の取得中の更新は1本にまとめ、gh を重ねて実行しない。
+// 取得中に PR URL が変わったら、新しい URL は別に取得する
+const inflight = new WeakMap<Database, Map<string, Promise<PrStatusView>>>();
 
 // gh pr view で PR の状態を取得して保存する（GitHub へは読み取りのみ）。
 // 取得の失敗は例外にせず fetchError として保存・返却し、前回の成功結果は残す。アクティビティ・通知には残さない
@@ -190,12 +205,18 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   if (!prUrl) return Promise.reject(new NodError("INVALID_ARGS", `Issue ${issueId} に PR がありません`));
   let byIssue = inflight.get(ctx.db);
   if (!byIssue) inflight.set(ctx.db, (byIssue = new Map()));
-  const pending = byIssue.get(row.id);
+  const key = `${row.id} ${prUrl}`;
+  const pending = byIssue.get(key);
   if (pending) return pending;
-  const job = fetchAndSave(ctx, row.id, prUrl, run)
-    .then(() => getPrStatus(ctx.db, issueId))
-    .finally(() => byIssue.delete(row.id));
-  byIssue.set(row.id, job);
+  const job = (async () => {
+    try {
+      await fetchAndSave(ctx, row.id, prUrl, run);
+      return getPrStatus(ctx.db, issueId);
+    } finally {
+      byIssue.delete(key);
+    }
+  })();
+  byIssue.set(key, job);
   return job;
 }
 
@@ -218,6 +239,9 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
   }
   const at = now();
   tx(ctx.db, () => {
+    // 取得中に Issue の PR URL が変わっていたら、古い URL の結果は書かない（新しい URL の結果を上書きしない）
+    const current = ctx.db.query("SELECT pr_url FROM issues WHERE id = ?").get(issueRowId) as { pr_url: string | null } | null;
+    if (current?.pr_url !== prUrl) return;
     // 保存済みより後に始めた取得のときだけ書く（別プロセスの新しい結果を古い結果で上書きしない）
     if ("data" in outcome) {
       ctx.db

@@ -195,7 +195,7 @@ export function registerIssueCommands(program: Command): void {
     .action(
       actAsync(async (cli, cmd, id: string) => {
         const { refresh } = cmd.opts<{ refresh?: boolean }>();
-        // NOD_GH は gh の代わりに起動するコマンド（テストで偽の gh を使うため）
+        // NOD_GH はテスト用の口: gh の代わりに起動するコマンド（CLI テストが偽の gh を使い、実 GitHub に触れないため）。通常は設定しない
         const view = refresh
           ? await refreshPrStatus(cli.ctx, id, createCommandRunner(process.env.NOD_GH || "gh"))
           : getPrStatus(cli.db, id);

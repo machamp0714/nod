@@ -56,6 +56,13 @@ describe("PR 状態 API", () => {
     expect(res.json).toMatchObject({ status: null, fetchError: { code: "GH_AUTH" } });
   });
 
+  test("gh を起動できない失敗（EACCES など）も 200 で fetchError を返す", async () => {
+    const { app, ref } = withGh(async () => ({ kind: "spawn_failed", detail: "EACCES" }));
+    const res = await call(app, "POST", `/api/issues/${ref}/pr-status/refresh`);
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ status: null, fetchError: { code: "UNKNOWN", message: "gh を起動できませんでした: EACCES" } });
+  });
+
   test("PR の無い Issue は 400、無い Issue は 404", async () => {
     const { app, ref } = withGh(async () => ({ kind: "not_found" }), null);
     expect((await call(app, "POST", `/api/issues/${ref}/pr-status/refresh`)).status).toBe(400);

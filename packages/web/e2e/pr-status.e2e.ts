@@ -122,6 +122,21 @@ for (const [label, result, message] of failures) {
   });
 }
 
+test("http(s) でないチェックの URL はリンクにせず、未知のレビュー状態でも表示できる", async ({ page, nod }) => {
+  const id = await issueWithPr(nod);
+  const rollup = [{ __typename: "CheckRun", name: "evil", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "javascript:alert(1)" }];
+  await stubGh({ kind: "exited", exitCode: 0, stdout: ghJson({ reviewDecision: "SOMETHING_NEW", statusCheckRollup: rollup }), stderr: "" });
+  await page.goto(`/issues/${id}`);
+  const group = prStatus(page);
+  await group.getByRole("button", { name: "PR の状態を更新" }).click();
+  await expect(group.getByText("Open", { exact: true })).toBeVisible();
+  await group.getByRole("button", { name: /^CI / }).click();
+  const failures = group.getByRole("list", { name: "失敗したチェック" });
+  await expect(failures.getByRole("listitem")).toHaveText(["evil"]);
+  await expect(failures.getByRole("link")).toHaveCount(0);
+  expect((await nod.me.getPrStatus(id)).status?.reviewDecision).toBeNull();
+});
+
 test("GitHub 以外の PR URL は gh を実行せずに理由を出す", async ({ page, nod }) => {
   const id = await issueWithPr(nod, "https://example.com/pr/1");
   await stubGh({ kind: "exited", exitCode: 0, stdout: ghJson(), stderr: "" });

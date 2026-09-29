@@ -102,6 +102,15 @@ describe("nod issue pr-status", () => {
     expect(r.json.fetchError.code).toBe("GH_NOT_INSTALLED");
   });
 
+  test("gh を起動できなければ（EACCES）終了コード 0 で UNKNOWN の失敗を表示する", async () => {
+    const id = await issueWithPr();
+    const gh = fakeGh("true");
+    chmodSync(gh.path, 0o644);
+    const r = await runNod(["issue", "pr-status", id, "--refresh"], { cwd: repo, db, env: { NOD_GH: gh.path } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("取得に失敗（UNKNOWN）: gh を起動できませんでした: EACCES");
+  });
+
   test("PR の無い Issue は INVALID_ARGS", async () => {
     const created = (await runNod(["issue", "create", "--json", "PR なし"], { cwd: repo, db })).json;
     const r = await runNod(["issue", "pr-status", created.id, "--refresh", "--json"], { cwd: repo, db });

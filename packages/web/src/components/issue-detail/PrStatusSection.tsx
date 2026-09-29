@@ -3,7 +3,7 @@ import { errorMessage } from "../../api/errors";
 import { usePrStatus, useRefreshPrStatus } from "../../api/hooks/pr-status";
 import { formatRelative } from "../../lib/format";
 import { TONE_COLORS } from "../../lib/meta";
-import { ciPill, type PillSpec, prStatePill, reviewPill } from "../../lib/pr-status";
+import { ciPill, type PillSpec, prStatePill, reviewPill, safeCheckUrl } from "../../lib/pr-status";
 import { Icon } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -67,18 +67,21 @@ export function PrStatusSection({ issueId }: { issueId: string }) {
           )}
           {expanded && failures.length > 0 && (
             <ul className={s.prFailures} aria-label="失敗したチェック">
-              {failures.map((c, i) => (
-                <li key={`${c.name}-${i}`} className={s.prFailure}>
-                  <Icon name="circle-x" size={11} />
-                  {c.url ? (
-                    <a href={c.url} target="_blank" rel="noreferrer">
-                      {c.name}
-                    </a>
-                  ) : (
-                    c.name
-                  )}
-                </li>
-              ))}
+              {failures.map((c, i) => {
+                const href = safeCheckUrl(c.url);
+                return (
+                  <li key={`${c.name}-${i}`} className={s.prFailure}>
+                    <Icon name="circle-x" size={11} />
+                    {href ? (
+                      <a href={href} target="_blank" rel="noreferrer">
+                        {c.name}
+                      </a>
+                    ) : (
+                      c.name
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

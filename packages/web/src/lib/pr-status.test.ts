@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PrStatus } from "../api/types";
-import { ciPill, prStatePill, reviewPill } from "./pr-status";
+import { ciPill, prStatePill, reviewPill, safeCheckUrl } from "./pr-status";
 
 function status(over: Partial<PrStatus> = {}): PrStatus {
   return {
@@ -48,5 +48,20 @@ describe("PR 状態の表示", () => {
     expect(ciPill(status())).toBeNull();
     const skipped = status({ checks: [{ name: "a", state: "skipped", url: null }], checkSummary: { success: 0, failure: 0, pending: 0, skipped: 2 } });
     expect(ciPill(skipped)).toMatchObject({ text: "スキップ 2", tone: "ready" });
+  });
+});
+
+describe("PR 状態の不正な値", () => {
+  test("未知の reviewDecision はピルを出さず落ちない", () => {
+    expect(reviewPill(status({ reviewDecision: "SOMETHING_NEW" as never }))).toBeNull();
+    expect(reviewPill(status({ reviewDecision: "APPROVED" }))?.label).toBe("承認済み");
+  });
+
+  test("チェックの URL は http(s) だけリンクにする", () => {
+    expect(safeCheckUrl("https://ci.example/1")).toBe("https://ci.example/1");
+    expect(safeCheckUrl("http://ci.example/1")).toBe("http://ci.example/1");
+    expect(safeCheckUrl("javascript:alert(1)")).toBeNull();
+    expect(safeCheckUrl("data:text/html,x")).toBeNull();
+    expect(safeCheckUrl(null)).toBeNull();
   });
 });

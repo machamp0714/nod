@@ -27,8 +27,14 @@ export function prStatePill(s: PrStatus): PillSpec {
 }
 
 // レビュー必須でない PR（gh が空を返す）はピルを出さない
+// 既知でない値（古いデータや将来の値）も落とさずピルを出さない
 export function reviewPill(s: PrStatus): PillSpec | null {
-  return s.reviewDecision ? REVIEW_PILLS[s.reviewDecision] : null;
+  return (s.reviewDecision && REVIEW_PILLS[s.reviewDecision]) || null;
+}
+
+// チェックの URL は http(s) のときだけリンクにする（javascript: などを href に入れない）
+export function safeCheckUrl(url: string | null): string | null {
+  return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
 export function ciPill(s: PrStatus): { text: string; tone: Tone; title: string } | null {

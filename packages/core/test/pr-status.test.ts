@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createIssue } from "../src/ops/issues";
 import { completeIssue, startIssue } from "../src/ops/agent";
@@ -8,6 +10,7 @@ import {
   type GhRunner,
   type GhRunResult,
   getPrStatus,
+  GH_KILL_GRACE_MS,
   parseGhPrView,
   PR_STATUS_TIMEOUT_MS,
   refreshPrStatus,
@@ -75,6 +78,12 @@ describe("parseGhPrView", () => {
     expect(p.checkSummary).toEqual({ success: 2, failure: 1, pending: 2, skipped: 1 });
     expect(p.checks[0]!.url).toBe("https://ci/1");
     expect(p.checks[3]!.url).toBeNull();
+  });
+
+  test("reviewDecision が既知の値でなければ null にする", () => {
+    expect(parseGhPrView(ghJson({ reviewDecision: "SOMETHING_NEW" })).reviewDecision).toBeNull();
+    expect(parseGhPrView(ghJson({ reviewDecision: 1 })).reviewDecision).toBeNull();
+    expect(parseGhPrView(ghJson({ reviewDecision: "CHANGES_REQUESTED" })).reviewDecision).toBe("CHANGES_REQUESTED");
   });
 
   test("レビュー不要（空文字）は null、チェックなしは空の集計にする", () => {
@@ -156,6 +165,7 @@ describe("PR 状態の取得と保存", () => {
     ["ネットワーク", fail('error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com'), "NETWORK", "GitHub に接続できません"],
     ["ネットワーク（dial）", fail("Post \"https://api.github.com/graphql\": dial tcp: lookup api.github.com: no such host"), "NETWORK", "GitHub に接続できません"],
     ["タイムアウト", { kind: "timeout" }, "TIMEOUT", "15秒以内に応答がありませんでした"],
+    ["起動できない（EACCES など）", { kind: "spawn_failed", detail: "EACCES" }, "UNKNOWN", "gh を起動できませんでした: EACCES"],
     ["その他", fail("something odd happened\nsecond line"), "UNKNOWN", "取得に失敗しました: something odd happened"],
     ["出力が JSON でない", ok("not json"), "UNKNOWN", "取得に失敗しました: gh の出力を解釈できませんでした"],
   ];
@@ -210,6 +220,41 @@ describe("PR 状態の取得と保存", () => {
     expect(calls).toBe(2);
   });
 
+  test("取得中に PR URL が変わったら、新しい URL は別に取得する", async () => {
+    const { db, me, ref } = withPr();
+    const NEW_URL = "https://github.com/example/api-server/pull/129";
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const urls: string[] = [];
+    const gh: GhRunner = async (args) => {
+      urls.push(args[2]!);
+      if (args[2] === PR_URL) await gate;
+      return ok(ghJson({ url: args[2] }));
+    };
+    const first = refreshPrStatus(me, ref, gh);
+    db.query("UPDATE issues SET pr_url = ? WHERE number = 1").run(NEW_URL);
+    const second = await refreshPrStatus(me, ref, gh);
+    expect(urls).toEqual([PR_URL, NEW_URL]);
+    expect(second.status?.prUrl).toBe(NEW_URL);
+    release();
+    await first;
+    // 古い URL の取得は新しい URL の結果として表示しない
+    expect(getPrStatus(db, ref)).toMatchObject({ prUrl: NEW_URL, status: { prUrl: NEW_URL } });
+  });
+
+  test("取得が例外で終わっても取得中の印を外し、次の更新で gh を実行する", async () => {
+    const { me, ref } = withPr();
+    let calls = 0;
+    const gh: GhRunner = async () => {
+      calls++;
+      if (calls === 1) throw new Error("boom");
+      return ok();
+    };
+    await expect(refreshPrStatus(me, ref, gh)).rejects.toThrow("boom");
+    expect((await refreshPrStatus(me, ref, gh)).status?.state).toBe("OPEN");
+    expect(calls).toBe(2);
+  });
+
   test("後から始めた取得の結果を、先に始めて遅れて終わった取得が上書きしない（別プロセス相当）", async () => {
     const { db, ref } = withPr();
     // 別プロセスを模して、別の接続（同じ DB ファイル）から実行する
@@ -258,7 +303,39 @@ describe("createCommandRunner（実 gh は使わない）", () => {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
-  test("既定のタイムアウトは 15 秒", () => {
+  test("SIGTERM を無視されても期限ですぐ timeout を返し、猶予のあと SIGKILL で止める", async () => {
+    const script = join(import.meta.dir, "fixtures", "fake-gh.ts");
+    const pidFile = join(mkdtempSync(join(tmpdir(), "nod-fake-gh-")), "pid");
+    const run = createCommandRunner(process.execPath, [script], { killGraceMs: 300 });
+    const started = Date.now();
+    expect(await run(["ignore-term", pidFile], { timeoutMs: 500 })).toEqual({ kind: "timeout" });
+    expect(Date.now() - started).toBeLessThan(1500);
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    const alive = () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    // SIGTERM は無視されるので猶予の間は生きている
+    expect(alive()).toBe(true);
+    const deadline = Date.now() + 3000;
+    while (alive() && Date.now() < deadline) await Bun.sleep(50);
+    expect(alive()).toBe(false);
+  });
+
+  test("見つかっても起動できなければ spawn_failed（EACCES）", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "nod-fake-gh-")), "gh");
+    writeFileSync(path, "#!/bin/sh\necho hi\n");
+    chmodSync(path, 0o644);
+    expect(existsSync(path)).toBe(true);
+    expect(await createCommandRunner(path)(["pr", "view"], { timeoutMs: 1000 })).toEqual({ kind: "spawn_failed", detail: "EACCES" });
+  });
+
+  test("既定のタイムアウトは 15 秒、SIGKILL までの猶予は 2 秒", () => {
+    expect(GH_KILL_GRACE_MS).toBe(2_000);
     expect(PR_STATUS_TIMEOUT_MS).toBe(15_000);
   });
 });
