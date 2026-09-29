@@ -99,4 +99,65 @@ describe("添付 API", () => {
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("FILE_NOT_FOUND");
   });
+
+  test("GET /api/attachments/:id/view は画像と動画を inline で配信し、それ以外は attachment のまま", async () => {
+    const { app, file } = setupAttachments();
+    const png = file("画面.png", "PNG");
+    const res = await app.request(`/api/attachments/${png.id}/view`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("PNG");
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("content-disposition")).toBe(`inline; filename="__.png"; filename*=UTF-8''%E7%94%BB%E9%9D%A2.png`);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+    const video = await app.request(`/api/attachments/${file("rec.webm", "WEBM").id}/view`);
+    expect(video.headers.get("content-type")).toBe("video/webm");
+    expect(video.headers.get("content-disposition")).toStartWith("inline;");
+    for (const name of ["a.pdf", "a.txt", "a.json", "a.zip"]) {
+      const r = await app.request(`/api/attachments/${file(name).id}/view`);
+      expect(r.status).toBe(200);
+      expect(r.headers.get("content-disposition")).toStartWith("attachment;");
+      expect(r.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(r.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    }
+  });
+
+  test("view は Range で一部だけを 206 で返し、満たせない範囲は 416", async () => {
+    const { app, file } = setupAttachments();
+    const f = file("rec.mp4", "0123456789");
+    const get = (range: string) => app.request(`/api/attachments/${f.id}/view`, { headers: { Range: range } });
+    let r = await get("bytes=2-5");
+    expect(r.status).toBe(206);
+    expect(await r.text()).toBe("2345");
+    expect(r.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(r.headers.get("content-length")).toBe("4");
+    r = await get("bytes=7-");
+    expect(r.status).toBe(206);
+    expect(await r.text()).toBe("789");
+    expect(r.headers.get("content-range")).toBe("bytes 7-9/10");
+    r = await get("bytes=-3");
+    expect(await r.text()).toBe("789");
+    r = await get("bytes=20-30");
+    expect(r.status).toBe(416);
+    expect(r.headers.get("content-range")).toBe("bytes */10");
+    // 読めない書き方と複数範囲は無視して全体を返す
+    for (const range of ["bytes=abc", "items=1-2", "bytes=0-1,4-5"]) {
+      const whole = await get(range);
+      expect(whole.status).toBe(200);
+      expect(await whole.text()).toBe("0123456789");
+    }
+  });
+
+  test("view もリンク・無い添付・ルート外は 404", async () => {
+    const { app, db, issue, file, attachmentsDir } = setupAttachments();
+    const link = await call(app, "POST", `/api/issues/${issue.id}/attachments`, { url: "https://e.com" });
+    expect((await app.request(`/api/attachments/${link.json.id}/view`)).status).toBe(404);
+    expect((await app.request("/api/attachments/999/view")).status).toBe(404);
+    const f = file("a.png");
+    db.query("UPDATE issue_attachments SET file_path = ? WHERE id = ?").run("../../etc/passwd", f.id);
+    expect((await app.request(`/api/attachments/${f.id}/view`)).status).toBe(404);
+    expect(attachmentsDir).toBeTruthy();
+  });
 });

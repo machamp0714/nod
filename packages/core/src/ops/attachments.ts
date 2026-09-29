@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { now, type OpCtx } from "../ctx";
@@ -11,6 +11,8 @@ import { findIssueRow, findWritableIssueRow } from "../issue-query";
 import type { AttachmentKind, IssueAttachment } from "../types";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+// 録画（mp4・webm）だけは画面の操作を数分撮ると 10MB を超えるので、上限を別に持つ
+export const ATTACHMENT_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 export const ATTACHMENT_URL_MAX = 2048;
 export const ATTACHMENT_TITLE_MAX = 200;
 
@@ -31,7 +33,24 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   yaml: "application/yaml",
   yml: "application/yaml",
   zip: "application/zip",
+  mp4: "video/mp4",
+  webm: "video/webm",
 };
+
+// 画面に埋め込んで（Content-Disposition: inline で）配信してよい MIME。svg は中でスクリプトが動くので載せない
+const INLINE_MIMES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "video/mp4", "video/webm"]);
+
+export function isInlineAttachmentMime(mime: string): boolean {
+  return INLINE_MIMES.has(mime);
+}
+
+export function attachmentMaxBytes(mime: string): number {
+  return mime.startsWith("video/") ? ATTACHMENT_VIDEO_MAX_BYTES : ATTACHMENT_MAX_BYTES;
+}
+
+function tooLarge(abs: string, max: number): NodError {
+  return invalid(`${abs} は大きすぎます（上限 ${max / 1024 / 1024}MB）`);
+}
 
 // 添付ファイルのコピーを置く場所。NOD_DB・NOD_DOCS_DIR と同じく環境変数で差し替えられる
 export function defaultAttachmentsDir(env: Record<string, string | undefined> = process.env): string {
@@ -172,7 +191,7 @@ function attachmentFileName(abs: string): { name: string; mime: string } {
 }
 
 // 元ファイルを symlink を辿らずに開いて読む。開いた後に差し替えられても、読むのは確かめた実体だけになる
-function readSourceFile(abs: string): Buffer {
+function readSourceFile(abs: string, max: number): Buffer {
   let st: ReturnType<typeof lstatSync>;
   try {
     st = lstatSync(abs);
@@ -194,9 +213,9 @@ function readSourceFile(abs: string): Buffer {
   try {
     const fst = fstatSync(fd);
     if (!fst.isFile()) throw invalid(`${abs} は通常のファイルではありません`);
-    if (fst.size > ATTACHMENT_MAX_BYTES) throw invalid(`${abs} は大きすぎます（上限 ${ATTACHMENT_MAX_BYTES / 1024 / 1024}MB）`);
+    if (fst.size > max) throw tooLarge(abs, max);
     const data = readFileSync(fd);
-    if (data.length > ATTACHMENT_MAX_BYTES) throw invalid(`${abs} は大きすぎます（上限 ${ATTACHMENT_MAX_BYTES / 1024 / 1024}MB）`);
+    if (data.length > max) throw tooLarge(abs, max);
     return data;
   } finally {
     closeSync(fd);
@@ -273,7 +292,7 @@ export function addFileAttachment(ctx: OpCtx, ref: string, input: AddFileAttachm
   const { name, mime } = attachmentFileName(abs);
   findWritableIssueRow(ctx.db, ref); // 対象がなければコピーする前に失敗させる
   const sourcePath = checkAttachmentSource(ctx.db, abs, input.tmpRoot);
-  const data = readSourceFile(abs);
+  const data = readSourceFile(abs, attachmentMaxBytes(mime));
   const root = rootReal(input.dir ?? defaultAttachmentsDir());
   const rel = `${randomUUID()}/${name}`;
   const dest = join(root, rel);
@@ -422,6 +441,53 @@ export function readAttachmentFile(db: Database, id: number, dir: string = defau
     if (!fstatSync(fd).isFile()) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
     const data = readFileSync(fd);
     return { ...file, size: data.length, data };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export interface ByteRange {
+  start: number;
+  end: number; // 末尾を含む（HTTP の Range と同じ）
+}
+
+// インライン表示の本文。動画のシークで範囲だけを求められるので、ファイル全体を読まずにその部分だけを読む。
+// pickRange はファイル全体のサイズから読む範囲を決める（null なら全体）。
+// end が末尾を越えたら丸め、start が末尾以降か end より後なら RANGE_NOT_SATISFIABLE（details.total に全体のサイズ）
+export function readAttachmentRange(
+  db: Database,
+  id: number,
+  dir: string = defaultAttachmentsDir(),
+  pickRange: (total: number) => ByteRange | null = () => null,
+): AttachmentFile & { data: Buffer; total: number; range: ByteRange | null } {
+  const file = attachmentFile(db, id, dir);
+  let fd: number;
+  try {
+    fd = openSync(file.abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
+    const total = st.size;
+    const range = pickRange(total);
+    if (!range) {
+      const data = readFileSync(fd);
+      return { ...file, size: data.length, data, total: data.length, range: null };
+    }
+    if (range.start >= total || range.start > range.end) {
+      throw new NodError("RANGE_NOT_SATISFIABLE", `添付 ${id} の範囲 ${range.start}-${range.end} は読めません（${total} バイト）`, { total });
+    }
+    const end = Math.min(range.end, total - 1);
+    const data = Buffer.alloc(end - range.start + 1);
+    let read = 0;
+    while (read < data.length) {
+      const n = readSync(fd, data, read, data.length - read, range.start + read);
+      if (n === 0) break;
+      read += n;
+    }
+    return { ...file, size: read, data: data.subarray(0, read), total, range: { start: range.start, end: range.start + read - 1 } };
   } finally {
     closeSync(fd);
   }
