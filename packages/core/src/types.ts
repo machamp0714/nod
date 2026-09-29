@@ -266,3 +266,10 @@ export interface Template {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface WorkspaceRules {
+  workspaceKey: string;
+  body: string;
+  updatedAt: string;
+  updatedBy: string;
+}

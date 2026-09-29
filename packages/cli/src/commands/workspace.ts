@@ -1,7 +1,18 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { countIssues, findWorkspace, initWorkspace, listWorkspaces, NodError, removeWorkspace } from "@nod/core";
+import {
+  clearWorkspaceRules,
+  countIssues,
+  findWorkspace,
+  getWorkspaceRules,
+  initWorkspace,
+  listWorkspaces,
+  NodError,
+  removeWorkspace,
+  setWorkspaceRules,
+} from "@nod/core";
 import type { Command } from "commander";
-import { act, repoRootOf } from "../context";
+import { act, currentWorkspace, repoRootOf } from "../context";
 import { print } from "../output";
 
 export function registerWorkspaceCommands(program: Command): void {
@@ -52,6 +63,50 @@ export function registerWorkspaceCommands(program: Command): void {
         }
         const r = removeWorkspace(cli.db, target.key);
         print(cli, r, () => `登録を解除しました: ${r.workspace.name}（Issue ${r.deletedIssues} 件を削除）`);
+      }),
+    );
+
+  const rules = ws.command("rules").description("LLM に守らせる作業規約（Markdown）を管理する。変更は人だけが行える");
+  rules
+    .command("show")
+    .description("現在の Workspace の作業規約を表示する")
+    .action(
+      act((cli, cmd) => {
+        const r = getWorkspaceRules(cli.db, currentWorkspace(cli, cmd).key);
+        print(cli, r, () => (r ? r.body : "作業規約は登録されていません"));
+      }),
+    );
+  rules
+    .command("set")
+    .description("作業規約を登録・更新する（10,000 文字まで。空にすると削除）")
+    .option("--text <markdown>", "規約の本文")
+    .option("--from <path>", "規約を書いた Markdown ファイル")
+    .action(
+      act((cli, cmd, o: { text?: string; from?: string }) => {
+        if ((o.text === undefined) === (o.from === undefined)) {
+          throw new NodError("INVALID_ARGS", "--text か --from のどちらか一方で本文を指定してください（例: nod workspace rules set --from rules.md）");
+        }
+        let body = o.text;
+        if (o.from !== undefined) {
+          try {
+            body = readFileSync(resolve(o.from), "utf8");
+          } catch {
+            throw new NodError("INVALID_ARGS", `${o.from} を読めません`);
+          }
+        }
+        const workspace = currentWorkspace(cli, cmd);
+        const r = setWorkspaceRules(cli.ctx, workspace.key, body ?? "");
+        print(cli, r, () => (r ? `${workspace.name} の作業規約を保存しました（${r.body.length} 文字）` : `${workspace.name} の作業規約を削除しました`));
+      }),
+    );
+  rules
+    .command("clear")
+    .description("作業規約を削除する")
+    .action(
+      act((cli, cmd) => {
+        const workspace = currentWorkspace(cli, cmd);
+        clearWorkspaceRules(cli.ctx, workspace.key);
+        print(cli, { workspaceKey: workspace.key, cleared: true }, () => `${workspace.name} の作業規約を削除しました`);
       }),
     );
 }

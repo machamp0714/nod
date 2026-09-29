@@ -11,9 +11,12 @@ import {
   createIssue,
   detachDocument,
   failIssue,
+  formatWorkspaceRulesSection,
   getIssue,
   getIssueBranchName,
+  getWorkspaceRules,
   importPlan,
+  type Issue,
   isLlm,
   listIssues,
   NodError,
@@ -26,6 +29,7 @@ import {
   updateIssue,
   subscribeIssue,
   unsubscribeIssue,
+  type WorkspaceRules,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
@@ -132,7 +136,8 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
-        print(cli, detail, () => formatIssueDetail(detail));
+        const rules = getWorkspaceRules(cli.db, detail.workspace);
+        print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail), rules));
       }),
     );
 
@@ -307,7 +312,10 @@ export function registerIssueCommands(program: Command): void {
           location: currentWorkLocation(),
         });
         if (picked) await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${picked.id} ${picked.title}` });
-        print(cli, picked, () => (picked ? `着手しました: ${formatIssueLine(picked)}` : "着手できる Issue はありません"));
+        const rules = picked ? getWorkspaceRules(cli.db, picked.workspace) : null;
+        print(cli, picked && withRules(picked, rules), () =>
+          picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}`, rules) : "着手できる Issue はありません",
+        );
       }),
     );
 
@@ -318,7 +326,8 @@ export function registerIssueCommands(program: Command): void {
       actAsync(async (cli, _cmd, id: string) => {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
-        print(cli, started, () => `着手しました: ${formatIssueLine(started)}`);
+        const rules = getWorkspaceRules(cli.db, started.workspace);
+        print(cli, withRules(started, rules), () => withRulesText(`着手しました: ${formatIssueLine(started)}`, rules));
       }),
     );
 
@@ -431,4 +440,14 @@ function askMessage(r: AskResult, llm: boolean): string {
     return "確認を依頼しました。回答があるまで、この Issue の作業を止めてください";
   }
   return "確認依頼を足しました";
+}
+
+// 作業規約は登録済みのときだけ添える。未登録なら出力は従来と同じ
+function withRules<T extends Issue>(issue: T, rules: WorkspaceRules | null): T | (T & { workspaceRules: Omit<WorkspaceRules, "workspaceKey"> }) {
+  if (!rules) return issue;
+  return { ...issue, workspaceRules: { body: rules.body, updatedAt: rules.updatedAt, updatedBy: rules.updatedBy } };
+}
+
+function withRulesText(text: string, rules: WorkspaceRules | null): string {
+  return rules ? `${text}\n\n${formatWorkspaceRulesSection(rules)}`.trimEnd() : text;
 }
