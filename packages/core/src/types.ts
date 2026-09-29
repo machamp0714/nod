@@ -58,6 +58,7 @@ export interface Issue {
   updatedAt: string;
   startedAt: string | null;
   closedAt: string | null;
+  archivedAt: string | null; // アーカイブした日時。NULL ならアーカイブされていない
 }
 
 export interface PlanStep {

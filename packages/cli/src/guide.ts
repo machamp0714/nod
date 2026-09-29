@@ -48,6 +48,11 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 \`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度・見積もりだけで、元の Issue は変えない。
 期限・担当・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
 
+## Issue のアーカイブ
+
+\`nod issue archive <id> [--reason <text>]\` と \`nod issue unarchive <id>\` は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。ステータスは変えない。
+アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
+
 ## 引数の書き方
 
 \`-\` で始まる文字列を渡すときは、\`--\` の後ろに書く。
@@ -99,6 +104,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - ASSIGNED_TO_OTHER：その Issue はほかの書き手が担当している。着手せず、別の Issue を取る。
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
+- ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。復元（\`nod issue unarchive\`）は人だけが行えるため、必要なら人に依頼し、別の Issue を取る。
 - NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - INVALID_ARGS、INVALID_STEP：message の例に従って引数を直し、再実行する。

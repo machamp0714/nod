@@ -6,6 +6,7 @@ import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
 import {
   findIssueRow,
+  findWritableIssueRow,
   formatIssueId,
   type IssueRow,
   issueRowById,
@@ -25,7 +26,7 @@ export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {})
     .query(
       `SELECT q.*, i.title AS issue_title, i.number AS issue_number, i.branch AS branch, i.worktree AS worktree, w.key AS ws_key
        FROM questions q JOIN issues i ON i.id = q.issue_id JOIN workspaces w ON w.id = i.workspace_id
-       WHERE q.asked_by <> ? ${opts.includeAnswered ? "" : "AND q.answer IS NULL AND i.status NOT IN ('done', 'canceled')"} ORDER BY q.asked_at, q.id`,
+       WHERE q.asked_by <> ? AND i.archived_at IS NULL ${opts.includeAnswered ? "" : "AND q.answer IS NULL AND i.status NOT IN ('done', 'canceled')"} ORDER BY q.asked_at, q.id`,
     )
     .all(HUMAN_ACTOR) as (QuestionRow & {
     issue_title: string;
@@ -41,7 +42,7 @@ export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {})
     branch: r.branch,
     worktree: r.worktree,
   }));
-  const reviews = selectIssues(db, "WHERE i.status = 'in_review' ORDER BY i.updated_at, i.id", []);
+  const reviews = selectIssues(db, "WHERE i.status = 'in_review' AND i.archived_at IS NULL ORDER BY i.updated_at, i.id", []);
   const summaries = readReviewSummaries(db, reviews.map(i => i.id));
   return { questions, reviews: reviews.map(i => ({ ...i, ...summaries.get(i.id)! })) };
 }
@@ -50,7 +51,7 @@ export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {})
 export function listTriage(db: Database): Issue[] {
   return selectIssues(
     db,
-    "WHERE i.status = 'triage' AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?) ORDER BY i.created_at, i.id",
+    "WHERE i.status = 'triage' AND i.archived_at IS NULL AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?) ORDER BY i.created_at, i.id",
     [now()],
   );
 }
@@ -88,7 +89,7 @@ export function answerQuestion(
     throw new NodError("INVALID_ARGS", "質問の id は安全な範囲の正の整数で指定してください（例: 3）");
   }
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const issueId = toIssue(row).id;
     const targets =
       opts.questionId === undefined ? openLlmQuestions(ctx, row, ref) : [pickQuestion(ctx, row, ref, opts.questionId)];
@@ -148,7 +149,7 @@ function requireHumanTriage(ctx: OpCtx): void {
 export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
   requireHumanTriage(ctx);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     // 担当は null で未割当、文字列なら前後の空白を除いて空でないこと
     const assignee = typeof input.assignee === "string" ? requireText(input.assignee, "担当").trim() : input.assignee;
@@ -169,7 +170,7 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
 export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
   requireHumanTriage(ctx);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     const since = lastNotificationId(ctx.db);
     setColumn(ctx, row, "close_reason", reason ?? null);
@@ -183,7 +184,7 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
 export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): Issue {
   requireHumanTriage(ctx);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     const original = findIssueRow(ctx.db, originalRef);
     const since = lastNotificationId(ctx.db);
@@ -200,7 +201,7 @@ export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): I
 export function snoozeTriage(ctx: OpCtx, ref: string, until: string): Issue {
   const iso = parseDateTime(until);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     setColumn(ctx, row, "snoozed_until", iso);
     recordEvent(ctx.db, row.id, ctx.actor, "snoozed", { until: iso });
@@ -213,7 +214,7 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM はレビューを承認できません。承認は me が行います");
   }
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
     const since = lastNotificationId(ctx.db);
     setColumn(ctx, row, "status", "done");
@@ -227,7 +228,7 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
 export function rejectReview(ctx: OpCtx, ref: string, reason: string): Issue {
   requireText(reason, "差し戻しの理由");
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
     const since = lastNotificationId(ctx.db);
     addComment(ctx, row, reason);

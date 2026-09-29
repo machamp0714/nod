@@ -2,7 +2,7 @@ import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
-import { findIssueRow, type IssueRow, loadPlan } from "../issue-query";
+import { findWritableIssueRow, type IssueRow, loadPlan } from "../issue-query";
 import { setColumn } from "../mutate";
 import { parsePlanMarkdown, rollup } from "../plan-markdown";
 import type { Plan, PlanStep, PlanTask, StepStatus } from "../types";
@@ -26,7 +26,7 @@ export function importPlan(ctx: OpCtx, ref: string, path: string, cwd?: string):
   const tasks = parsePlanMarkdown(content);
   if (tasks.length === 0) throw new NodError("NO_TASKS", `${abs} に「### Task N: ...」の見出しがありません`);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     replacePlan(ctx, row, tasks, abs);
     linkDocument(ctx, { issue: row }, { path: abs, content, kind: "plan" });
     return loadPlan(ctx.db, row.id, row.plan_source);
@@ -38,7 +38,7 @@ export function setPlanTasks(ctx: OpCtx, ref: string, titles: string[]): Plan {
     throw new NodError("INVALID_ARGS", "--step で Task のタイトルを1つ以上指定してください");
   }
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     replacePlan(ctx, row, titles.map((title) => ({ title, status: "pending", steps: [] })), null);
     return loadPlan(ctx.db, row.id, row.plan_source);
   });
@@ -48,7 +48,7 @@ export function setStep(ctx: OpCtx, ref: string, stepRef: string, status: StepSt
   const m = /^(\d+)(?:\.(\d+))?$/.exec(stepRef);
   if (!m) throw new NodError("INVALID_STEP", `${stepRef} は Task 番号（例: 2）か Task.Step 番号（例: 2.3）ではありません`);
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const task = ctx.db
       .query("SELECT id, status FROM plan_tasks WHERE issue_id = ? AND position = ?")
       .get(row.id, Number(m[1])) as { id: number; status: StepStatus } | null;

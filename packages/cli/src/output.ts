@@ -47,7 +47,8 @@ export function printError(err: unknown, json: boolean): void {
 export function formatIssueLine(i: Issue): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
   const candidate = i.completionCandidate ? " [完了候補]" : "";
-  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}  ${i.title}${candidate}`;
+  const archived = i.archivedAt ? " [archived]" : "";
+  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}${archived}  ${i.title}${candidate}`;
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
@@ -118,6 +119,7 @@ export function formatIssueDetail(d: IssueDetail): string {
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
+  if (d.archivedAt) lines.push(`アーカイブ済み: ${d.archivedAt.slice(0, 16).replace("T", " ")}（nod issue unarchive ${d.id} で復元）`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);

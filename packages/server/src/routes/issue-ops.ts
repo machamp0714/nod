@@ -5,6 +5,7 @@ import {
   type DocKind,
   answerQuestion,
   approveReview,
+  archiveIssue,
   askQuestion,
   commentIssue,
   copyIssue,
@@ -19,6 +20,7 @@ import {
   snoozeTriage,
   subscribeIssue,
   unsubscribeIssue,
+  unarchiveIssue,
   type UpdateIssueInput,
   unlinkDocumentById,
   updateIssue,
@@ -119,6 +121,8 @@ const OPS: Record<string, Op> = {
   reject: { keys: ["reason"], run: (me, ref, b) => rejectReview(me, ref, reqString(b, "reason")) },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
   copy: { keys: ["title"], run: (me, ref, b) => copyIssue(me, ref, { title: optString(b, "title") }), created: true },
+  archive: { keys: ["reason"], run: (me, ref, b) => archiveIssue(me, ref, { reason: optString(b, "reason") }) },
+  unarchive: { keys: [], run: (me, ref) => unarchiveIssue(me, ref) },
   "resolve-thread": {
     keys: ["commentId", "resolved"],
     run: (me, ref, b) => {

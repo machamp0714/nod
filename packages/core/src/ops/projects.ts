@@ -55,13 +55,13 @@ function toSummary(r: SummaryRow): ProjectSummary {
   };
 }
 
-const open = "i.project_id = p.id AND i.status NOT IN ('done', 'canceled')";
+const open = "i.project_id = p.id AND i.archived_at IS NULL AND i.status NOT IN ('done', 'canceled')";
 const SUMMARY_SELECT = `SELECT p.*,
-  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.status <> 'canceled') AS total,
-  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.status = 'done') AS done,
+  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status <> 'canceled') AS total,
+  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'done') AS done,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'working') AS working,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'awaiting_input') AS awaiting_input,
-  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.status = 'in_review') AS awaiting_review,
+  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'in_review') AS awaiting_review,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'error') AS error
 FROM projects p`;
 
@@ -106,7 +106,7 @@ export function getProject(db: Database, ref: string): ProjectDetail {
   const row = db.query(`${SUMMARY_SELECT} WHERE p.id = ?`).get(id) as SummaryRow;
   return {
     ...toSummary(row),
-    issues: selectIssues(db, "WHERE i.project_id = ? ORDER BY w.key, i.number", [id]),
+    issues: selectIssues(db, "WHERE i.project_id = ? AND i.archived_at IS NULL ORDER BY w.key, i.number", [id]),
     documents: loadDocuments(db, { projectId: id }),
   };
 }

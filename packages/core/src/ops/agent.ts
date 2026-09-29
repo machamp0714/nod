@@ -3,7 +3,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
-import { READY_WHERE, findIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
+import { OPEN_BLOCKER, READY_WHERE, findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
 import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
@@ -34,7 +34,7 @@ function openQuestionsOf(issueId: string): string {
 
 function openBlockersOf(issueId: string): string {
   return `FROM relations r JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
-    WHERE r.to_id = ${issueId} AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')`;
+    WHERE r.to_id = ${issueId} AND r.type = 'blocks' AND ${OPEN_BLOCKER}`;
 }
 
 const NEXT_SQL = `SELECT i.id FROM issues i
@@ -82,7 +82,7 @@ export function nextIssue(
 
 export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocation | null } = {}): Issue {
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     if (row.status === "triage") {
       throw new NodError("NOT_ACCEPTED", `${ref} はまだ Triage にあります。受け入れられるまで着手できません`);
     }
@@ -123,7 +123,7 @@ export interface AskResult {
 export function askQuestion(ctx: OpCtx, ref: string, question: string): AskResult {
   requireText(question, "質問");
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const issueId = toIssue(row).id;
     const existing = ctx.db
       .query("SELECT * FROM questions WHERE issue_id = ? AND answer IS NULL AND question = ?")
@@ -152,7 +152,7 @@ export function askQuestion(ctx: OpCtx, ref: string, question: string): AskResul
 export function failIssue(ctx: OpCtx, ref: string, reason: string): Issue {
   requireText(reason, "理由");
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     const since = lastNotificationId(ctx.db);
     addComment(ctx, row, `エラー: ${reason}`);
     setColumn(ctx, row, "agent_state", "error", { reason });
@@ -164,7 +164,7 @@ export function failIssue(ctx: OpCtx, ref: string, reason: string): Issue {
 export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; prUrl?: string }): Issue {
   requireText(opts.summary, "報告（--summary）");
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    const row = findWritableIssueRow(ctx.db, ref);
     if (row.status !== "in_progress") {
       throw new NodError(
         "NOT_IN_PROGRESS",

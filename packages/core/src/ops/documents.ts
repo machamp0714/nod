@@ -6,7 +6,7 @@ import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
-import { findIssueRow, type IssueRow } from "../issue-query";
+import { findWritableIssueRow, type IssueRow } from "../issue-query";
 import {
   DOC_KINDS,
   type DocKind,
@@ -45,7 +45,7 @@ export function resolveDocTarget(db: Database, target: DocTarget): ResolvedTarge
     throw new NodError("INVALID_ARGS", "添付先には Issue か Project のどちらか一方を指定してください");
   }
   return target.issueRef
-    ? { issue: findIssueRow(db, target.issueRef) }
+    ? { issue: findWritableIssueRow(db, target.issueRef) }
     : { projectId: resolveProject(db, target.projectRef as string).id };
 }
 
