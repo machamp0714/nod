@@ -10,6 +10,7 @@ import { registerProjectCommands } from "./commands/project";
 import { registerTemplateCommands } from "./commands/template";
 import { registerSkillsCommands } from "./commands/skills";
 import { registerStatsCommands } from "./commands/stats";
+import { registerSummaryCommand } from "./commands/summary";
 import { registerWorkspaceCommands } from "./commands/workspace";
 import { NodError } from "@nod/core";
 import { printError } from "./output";
@@ -31,6 +32,7 @@ export function buildProgram(): Command {
   registerAutomationCommands(program);
   registerTemplateCommands(program);
   registerStatsCommands(program);
+  registerSummaryCommand(program);
   registerUiCommand(program);
   registerSkillsCommands(program);
   return program;

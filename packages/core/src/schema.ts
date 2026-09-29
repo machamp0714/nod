@@ -246,4 +246,6 @@ export const MIGRATIONS: MigrationStep[][] = [
     // 最後の活動（停滞の診断・自動クローズ）で Issue ごとに質問を引くため
     `CREATE INDEX questions_issue ON questions (issue_id)`,
   ],
+  // 期間の要約（#63・#76）。種類つきの作業ログを種類と時刻で引く
+  [`CREATE INDEX comments_log_kind ON comments (log_kind, created_at) WHERE log_kind IS NOT NULL`],
 ];

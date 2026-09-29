@@ -144,7 +144,7 @@ export function statsFrame(q: StatsQuery): StatsFrame {
 }
 
 // Workspace と Project の絞り込みを SQL の条件にする。i は issues の別名
-export function issueScope(db: Database, q: StatsQuery): { where: string; params: (string | number)[] } {
+export function issueScope(db: Database, q: Pick<StatsQuery, "workspace" | "project">): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (q.workspace?.length) {
