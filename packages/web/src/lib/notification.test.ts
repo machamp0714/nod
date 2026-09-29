@@ -35,6 +35,13 @@ describe("describeNotification", () => {
     const other = n({ kind: "agent", eventType: "agent_state_changed", actor: "codex", data: { from: "working", to: "error", agent: "claude-code", reason: "落ちた" } });
     expect(describeNotification(other)).toBe("claude-code がエラーで止まりました（エラー）：「落ちた」");
   });
+
+  test("リマインダーはメモを添え、メモ無しは時刻を知らせる。short でもメモは残す（#47）", () => {
+    const reminder = (note: string | null) => n({ kind: "reminder", eventType: "reminder", actor: "me", data: { note } });
+    expect(describeNotification(reminder("来週の定例で確認"))).toBe("リマインダー：来週の定例で確認");
+    expect(describeNotification(reminder("来週の定例で確認"), { short: true })).toBe("リマインダー：来週の定例で確認");
+    expect(describeNotification(reminder(null))).toBe("リマインダーの時刻です");
+  });
 });
 
 describe("groupNotifications", () => {

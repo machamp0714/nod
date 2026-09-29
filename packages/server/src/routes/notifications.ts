@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import {
   deleteNotifications,
   listNotifications,
+  listReminders,
   markNotificationsRead,
   type OpCtx,
   restoreNotifications,
@@ -45,6 +46,8 @@ export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): 
       }),
     ),
   );
+  // まだ届いていないリマインダー（#47）。Web は次の期限に通知を読み直すために使う
+  app.get("/api/reminders", (c) => c.json(listReminders(db)));
   app.post("/api/notifications/read", async (c) => {
     const body = await readBody(c, ["ids", "issueRef", "all"]);
     return c.json(markNotificationsRead(me, { ids: optIds(body), issueRef: optString(body, "issueRef"), all: optTrue(body, "all") }));

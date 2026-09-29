@@ -23,6 +23,7 @@ export * from "./issue-filter";
 export * from "./ops/views";
 export * from "./ops/diagnose";
 export * from "./ops/notifications";
+export * from "./ops/reminders";
 export * from "./due-date";
 export * from "./ops/stats";
 export * from "./ops/triage-suggest";

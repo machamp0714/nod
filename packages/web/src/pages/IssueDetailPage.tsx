@@ -17,6 +17,7 @@ import {
   useAskQuestion,
   useProjectChoices,
   useUnarchiveIssue,
+  useRemind,
   useUpdateIssue,
   useWorkspaceName,
 } from "../api/hooks/issue-detail";
@@ -64,6 +65,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const [questionsBusy, setQuestionsBusy] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
+  const remind = useRemind(issue.id);
   const approve = useApproveReview(issue.id);
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
@@ -162,7 +164,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onAnswer={(questionId, text) => answer.mutateAsync({ answer: text, questionId })}
             onAsk={(question) => ask.mutateAsync({ question })}
           />
-          <PropertiesPanel readOnly={readOnly} issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)} />
+          <PropertiesPanel readOnly={readOnly} issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)}
+            reminder={issue.reminder ?? null} onRemind={remind} />
           <RelationsPanel relations={issue.relations} />
         </aside>
       </div>

@@ -718,6 +718,8 @@
 .archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
 .commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
 .propsLocked select, .propsLocked input, .propsLocked button { opacity: 0.45; }
+/* アーカイブ済みでも使える操作（リマインダーの解除）は淡くしない */
+.propsLocked button.unlocked { opacity: 1; }
 
 /* 作業ログ（nod.pen「Issue詳細｜作業ログ」） */
 .kindFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
@@ -907,3 +909,21 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .attachmentError { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--fail); font-size: 12px; overflow-wrap: anywhere; }
 .attachmentError svg { flex: none; }
 .attachmentButtons { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Inbox の通知詳細の右カラムに置くプロパティ（nod.pen『Inbox｜通知からの編集（#46）』Properties） */
+.inboxProps { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.inboxPropsTitle { margin: 0; color: var(--ink2); font-size: 12px; font-weight: 600; }
+.inboxProps .props { padding: 0; }
+.inboxProps .prop { padding-inline: 0; }
+.inboxProps .panelError { padding: 0; }
+
+/* リマインダー行（nod.pen『リマインダー行｜状態』） */
+.reminderStack { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.reminderNote { color: var(--ink2); font-size: 12px; overflow-wrap: anywhere; }
+.reminderEdit { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; margin: 0; }
+.reminderDateTime { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.reminderDateTime > input:first-child { flex: 1 1 130px; min-width: 130px; }
+.reminderTime { flex: none; width: 112px; }
+.reminderButtons { display: flex; gap: 6px; }
+.reminderArchived { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.reminderEdit .fieldError { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }

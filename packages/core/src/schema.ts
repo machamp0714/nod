@@ -268,4 +268,16 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX issue_attachments_issue ON issue_attachments (issue_id, id)`,
   ],
+  // Issue のリマインダー（#47）。1 Issue・1受け手に1件。期限が来たら通知一覧の取得時に kind='reminder' の通知へ変えて行を消す
+  [
+    `CREATE TABLE reminders (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      recipient TEXT NOT NULL,
+      remind_at TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (issue_id, recipient)
+    )`,
+    `CREATE INDEX reminders_due ON reminders (remind_at)`,
+  ],
 ];

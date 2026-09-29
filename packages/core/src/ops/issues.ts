@@ -1,5 +1,6 @@
 import { listIssueAttachments } from "./attachments";
 import { isSubscribedRow } from "./notifications";
+import { deliverDueRemindersIfFree, loadReminder } from "./reminders";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import { enterClarification } from "../clarification";
@@ -328,7 +329,9 @@ function loadRelations(db: Database, id: number): Relations {
   };
 }
 
+// 期限が来たリマインダーは通知に変えてから返す（残ったままだと、設定済みのように見えて届いていない状態になる）
 export function getIssue(db: Database, ref: string): IssueDetail {
+  deliverDueRemindersIfFree(db);
   const row = findIssueRow(db, ref);
   const issue = toIssue(row);
   const questions = (
@@ -345,6 +348,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     openQuestions: questions.filter((q) => q.answer === null),
     activity: loadActivity(db, row.id),
     subscribed: isSubscribedRow(db, row.id),
+    reminder: loadReminder(db, row.id),
   };
 }
 

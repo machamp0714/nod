@@ -42,6 +42,8 @@ export type {
   IssueList,
   IssueQuery,
   Notification,
+  Reminder,
+  IssueReminder,
   SubscriptionState,
   Plan,
   PlanStep,

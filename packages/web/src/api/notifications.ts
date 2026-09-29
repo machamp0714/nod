@@ -1,6 +1,6 @@
 import { apiFetch, type FetchLike } from "./client";
 import { issuePath } from "./query-keys";
-import type { Notification, SubscriptionState } from "./types";
+import type { Notification, Reminder, SubscriptionState } from "./types";
 
 // 購読（#45）と通知（#42）の API
 export type NotificationAction =
@@ -18,6 +18,11 @@ export type NotificationAction =
 export function fetchNotifications(fetchImpl?: FetchLike, opts: { includeRead?: boolean; snoozed?: boolean } = {}): Promise<Notification[]> {
   const query = opts.snoozed ? "?snoozed=true" : opts.includeRead ? "?includeRead=true" : "";
   return apiFetch<Notification[]>(`/notifications${query}`, {}, fetchImpl);
+}
+
+// まだ届いていないリマインダー（#47）
+export function fetchReminders(fetchImpl?: FetchLike): Promise<Reminder[]> {
+  return apiFetch<Reminder[]>("/reminders", {}, fetchImpl);
 }
 
 export function notificationRequest(action: NotificationAction): { path: string; body: Record<string, unknown> } {

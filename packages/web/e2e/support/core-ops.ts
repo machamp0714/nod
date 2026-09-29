@@ -42,6 +42,8 @@ export const CTX_OPS = [
   "setAutomationSettings",
   "addLinkAttachment",
   "addFileAttachment",
+  "setReminder",
+  "clearReminder",
 ] as const;
 
 // 第1引数に Database を取る操作
@@ -65,6 +67,7 @@ export const DB_OPS = [
   "updateView",
   "deleteView",
   "listNotifications",
+  "listReminders",
   "getWorkspaceRules",
   "listWorkspaceLabels",
   "getStatusNames",

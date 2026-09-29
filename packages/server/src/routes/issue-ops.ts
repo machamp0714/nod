@@ -14,10 +14,12 @@ import {
   duplicateTriage,
   NodError,
   type OpCtx,
+  clearReminder,
   rejectReview,
   resolveThread,
   STATUSES,
   type Status,
+  setReminder,
   snoozeTriage,
   subscribeIssue,
   unsubscribeIssue,
@@ -139,6 +141,9 @@ const OPS: Record<string, Op> = {
   },
   subscribe: { keys: [], run: (me, ref) => subscribeIssue(me, ref) },
   unsubscribe: { keys: [], run: (me, ref) => unsubscribeIssue(me, ref) },
+  // リマインダー（#47）。at は UTC の ISO 8601 か日付。note は任意
+  remind: { keys: ["at", "note"], run: (me, ref, b) => setReminder(me, ref, { at: reqString(b, "at"), note: optNullableString(b, "note") }) },
+  unremind: { keys: [], run: (me, ref) => clearReminder(me, ref) },
 };
 
 const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;

@@ -9,6 +9,7 @@ import {
   getInbox,
   listNotifications,
   NOTIFICATION_READ_LIMIT,
+  listReminders,
   markNotificationsRead,
   NodError,
   rejectReview,
@@ -65,7 +66,7 @@ export function registerHumanCommands(program: Command): void {
       }),
     );
 
-  const notification = program.command("notification").description("購読中の Issue の変化と、LLM に任せた Issue の完了・入力待ち・エラーの通知を扱う");
+  const notification = program.command("notification").description("購読中の Issue の変化、LLM に任せた Issue の完了・入力待ち・エラー、リマインダーの通知を扱う");
   notification
     .command("list")
     .description("通知を新しい順に一覧する（既定は未読だけ）")
@@ -141,6 +142,22 @@ export function registerHumanCommands(program: Command): void {
       act((cli, _cmd, ids: string[]) => {
         const r = restoreNotifications(cli.ctx, { ids: ids.map((id) => parsePositiveInt(id, "通知の id")) });
         print(cli, r, () => `${r.updated} 件の削除を取り消しました`);
+      }),
+    );
+
+  program
+    .command("reminder")
+    .description("リマインダー（nod issue remind）")
+    .command("list")
+    .description("まだ届いていないリマインダーを期限の近い順に一覧する（アーカイブ済みの Issue のものは除く）。期限が来たものは通知に変わる")
+    .action(
+      act((cli) => {
+        const list = listReminders(cli.db);
+        print(cli, list, () =>
+          list.length
+            ? list.map((r) => `  ${r.remindAt}  ${r.issueId}  ${r.issueTitle}${r.note ? `\n    ${r.note}` : ""}`).join("\n")
+            : "リマインダーはありません",
+        );
       }),
     );
 
