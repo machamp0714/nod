@@ -32,6 +32,9 @@ import {
   subscribeIssue,
   unsubscribeIssue,
   type WorkspaceRules,
+  logWork,
+  WORK_LOG_KIND_LABEL,
+  WORK_LOG_KINDS,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
@@ -386,11 +389,12 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("log <id> <text>")
-    .description("作業の経過を残す（節目ごとに1件）")
+    .description("作業ログを種類付きで残す（節目ごとに1件）")
+    .option("--kind <kind>", `種類（${WORK_LOG_KINDS.join("|")}）。省略すると progress（経過）`)
     .action(
-      act((cli, _cmd, id: string, text: string) => {
-        const c = commentIssue(cli.ctx, id, text);
-        print(cli, c, () => "経過を残しました");
+      act((cli, _cmd, id: string, text: string, o: { kind?: string }) => {
+        const c = logWork(cli.ctx, id, text, { kind: o.kind });
+        print(cli, c, () => `${c.logKind ? WORK_LOG_KIND_LABEL[c.logKind] : "経過"}を残しました`);
       }),
     );
 

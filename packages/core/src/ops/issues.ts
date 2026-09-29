@@ -29,6 +29,7 @@ import {
 import { setColumn } from "../mutate";
 import { type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveProject } from "./projects";
+import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
 export function getIssueBranchName(db: Database, ref: string): { issueId: string; suggestedBranch: string } {
   const row = findIssueRow(db, ref);
@@ -451,6 +452,27 @@ export function commentIssue(ctx: OpCtx, ref: string, body: string, opts: { repl
   });
 }
 
+// 作業ログを種類付きで残す（nod issue log）。種類の省略は経過。長文と既知の形の秘密値は保存せずに拒否する
+export function logWork(ctx: OpCtx, ref: string, body: string, opts: { kind?: string } = {}): Comment {
+  requireText(body, "本文");
+  const kind = opts.kind ?? DEFAULT_WORK_LOG_KIND;
+  if (!isWorkLogKind(kind)) {
+    throw new NodError("INVALID_ARGS", `作業ログの種類は ${WORK_LOG_KINDS.join("|")} のどれかで指定してください`);
+  }
+  const length = workLogLength(body);
+  if (length > WORK_LOG_MAX_LENGTH) {
+    throw new NodError(
+      "INVALID_ARGS",
+      `作業ログは ${WORK_LOG_MAX_LENGTH} 文字までです（${length} 文字）。長い出力は要点だけを残し、全文は nod doc create で Document にしてください`,
+    );
+  }
+  const secret = detectSecret(body);
+  if (secret) {
+    throw new NodError("SECRET_DETECTED", `作業ログに${secret}らしき値が含まれるため記録しませんでした。値を伏せて書き直してください`);
+  }
+  return tx(ctx.db, () => addComment(ctx, findWritableIssueRow(ctx.db, ref), body, null, kind));
+}
+
 // スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
 export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
   if (isLlm(ctx)) {
@@ -478,6 +500,7 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
       parentId: null,
       resolvedAt: c.resolved_at,
       resolvedBy: c.resolved_by,
+      logKind: c.log_kind,
     };
   });
 }

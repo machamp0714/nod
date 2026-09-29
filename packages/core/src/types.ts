@@ -1,3 +1,5 @@
+import type { WorkLogKind } from "./work-log";
+
 export interface Workspace {
   id: number;
   key: string;
@@ -163,6 +165,8 @@ export interface Comment {
   // スレッドの親が解決済みなら日時と解決した人。未解決と返信は null
   resolvedAt: string | null;
   resolvedBy: string | null;
+  // 作業ログの種類（nod issue log）。通常のコメント・返信・種類なしの既存ログは null
+  logKind: WorkLogKind | null;
 }
 
 export interface CommentReply {
@@ -183,6 +187,7 @@ export type ActivityItem =
       replies: CommentReply[];
       resolvedAt: string | null;
       resolvedBy: string | null;
+      logKind: WorkLogKind | null;
     }
   | {
       kind: "question";

@@ -1,3 +1,4 @@
+import type { WorkLogKind } from "./work-log";
 import { recordedTimestamp } from "./recorded-time";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { NodError } from "./errors";
@@ -228,6 +229,7 @@ export interface CommentRow {
   created_at: string;
   resolved_at: string | null;
   resolved_by: string | null;
+  log_kind: WorkLogKind | null;
 }
 
 export function loadActivity(db: Database, issueId: number): ActivityItem[] {
@@ -255,6 +257,7 @@ export function loadActivity(db: Database, issueId: number): ActivityItem[] {
         replies: [],
         resolvedAt: c.resolved_at,
         resolvedBy: c.resolved_by,
+        logKind: c.log_kind,
       });
     } else {
       threads.get(c.parent_id)?.replies.push({ id: c.id, at: c.created_at, actor: c.author, body: c.body });

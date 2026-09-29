@@ -175,18 +175,26 @@ describe("Workspace のラベル定義", () => {
     const version = MIGRATIONS.findIndex((steps) =>
       steps.some((s) => typeof s === "string" && s.includes("CREATE TABLE workspace_labels")),
     );
-    const before = openDb(path);
-    const ws = initWorkspace(before, { path: "/tmp/repos/api-server" }).workspace;
-    const me = { db: before, actor: "me" };
-    const a = createIssue(me, { workspaceId: ws.id, title: "a", labels: ["bug", "ui"] });
-    updateIssue(me, a.id, { status: "in_progress" });
-    before.close();
-    // この移行の直前の版へ戻す（この移行は末尾なので、足したテーブルを消せば直前の版と同じ形になる）
-    const raw = new Database(path);
-    raw.exec("DROP TABLE workspace_status_names");
-    raw.exec("DROP TABLE workspace_labels");
+    // この移行の直前の版までを適用した DB を作り、その版の形で行を入れる（後ろに版が追記されても壊れないよう、版は探して決める）
+    expect(version).toBeGreaterThan(0);
+    const raw = new Database(path, { create: true });
+    raw.exec("PRAGMA foreign_keys = ON");
+    for (const steps of MIGRATIONS.slice(0, version)) {
+      for (const step of steps) typeof step === "string" ? raw.exec(step) : step(raw);
+    }
     raw.exec(`PRAGMA user_version = ${version}`);
+    const at = "2026-09-01T00:00:00.000Z";
+    raw.exec(
+      `INSERT INTO workspaces (id, key, name, path, color, created_at) VALUES (1, 'API', 'api-server', '/tmp/repos/api-server', '#3B82F6', '${at}')`,
+    );
+    raw.exec(
+      `INSERT INTO issues (id, workspace_id, number, title, status, created_by, created_at, updated_at, started_at)
+       VALUES (1, 1, 1, 'a', 'in_progress', 'me', '${at}', '${at}', '${at}')`,
+    );
+    raw.exec(`INSERT INTO issue_labels (issue_id, label) VALUES (1, 'bug'), (1, 'ui')`);
     raw.close();
+    const ws = { key: "API" };
+    const a = { id: "API-1" };
 
     const db = openDb(path);
     expect(labelsOf(db, a.id)).toEqual(["bug", "ui"]);

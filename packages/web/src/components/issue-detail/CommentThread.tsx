@@ -1,7 +1,8 @@
-import { useState } from "react";
-import type { ActivityItem } from "../../api/types";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { ActivityItem, WorkLogKind } from "../../api/types";
 import { formatRelative } from "../../lib/format";
 import { hasText } from "../../lib/issue-edit";
+import { isMonoWorkLog, WORK_LOG_KIND_META, WORK_LOG_TONE_COLORS } from "../../lib/work-log";
 import { AgentAvatar, Icon } from "../ui";
 import s from "./issue-detail.module.css";
 import { useAsyncAction } from "./useAsyncAction";
@@ -15,6 +16,42 @@ export interface ThreadHandlers {
 
 function Time({ at }: { at: string }) {
   return <time dateTime={at} title={at}>{formatRelative(at)}</time>;
+}
+
+// nod.pen「Issue詳細｜作業ログ」の種類バッジ（点と種類名）
+function WorkLogBadge({ kind }: { kind: WorkLogKind }) {
+  const meta = WORK_LOG_KIND_META[kind];
+  const color = WORK_LOG_TONE_COLORS[meta.tone];
+  return (
+    <span className={s.kindBadge} style={{ background: color.bg, color: color.fg }} data-log-kind={kind}>
+      <span className={s.kindDot} style={{ background: color.dot }} />
+      {meta.label}
+    </span>
+  );
+}
+
+// 作業ログの本文は6行を超えたら折りたたみ、「続きを表示」で開く。行数は折り返しを含めて実際の表示で測る
+function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setOverflow(el.scrollHeight > el.clientHeight + 1);
+  }, [body, open]);
+  return (
+    <>
+      <p ref={ref} className={`${isMonoWorkLog(kind) ? s.logMono : ""} ${open ? "" : s.logClamp}`}>
+        {body}
+      </p>
+      {(overflow || open) && (
+        <button type="button" className={s.logToggle} aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "折りたたむ" : "続きを表示"}
+          <Icon name={open ? "chevron-up" : "chevron-down"} size={12} color="var(--accent)" />
+        </button>
+      )}
+    </>
+  );
 }
 
 // nod.pen「Issue詳細｜コメントスレッド（#48/#49）」の Activity に合わせる。
@@ -61,7 +98,10 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
   }
 
   return (
-    <article className={`${s.commentThread} ${resolved ? s.threadResolved : ""}`} aria-label="コメント記録">
+    <article
+      className={`${s.commentThread} ${resolved ? s.threadResolved : ""} ${thread.logKind === "blocker" && !resolved ? s.threadBlocker : ""}`}
+      aria-label={thread.logKind ? "作業ログ" : "コメント記録"}
+    >
       {resolved && (
         <div className={s.resolvedBar}>
           <button type="button" className={s.resolvedToggle} aria-expanded onClick={() => setExpanded(false)}>
@@ -80,6 +120,7 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
       <div className={s.commentHead}>
         <AgentAvatar actor={thread.actor} />
         <strong>{thread.actor}</strong>
+        {thread.logKind && <WorkLogBadge kind={thread.logKind} />}
         <Time at={thread.at} />
         {!resolved && (
           <span className={s.threadActions}>
@@ -94,7 +135,7 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
           </span>
         )}
       </div>
-      <p>{thread.body}</p>
+      {thread.logKind ? <WorkLogBody body={thread.body} kind={thread.logKind} /> : <p>{thread.body}</p>}
       {(thread.replies.length > 0 || replying) && (
         <div className={s.threadReplies}>
           {thread.replies.map((reply) => (
