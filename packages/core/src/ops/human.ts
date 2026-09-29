@@ -186,7 +186,7 @@ export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): I
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
-    const original = findIssueRow(ctx.db, originalRef);
+    const original = findWritableIssueRow(ctx.db, originalRef);
     const since = lastNotificationId(ctx.db);
     const reason = `${formatIssueId(original.ws_key, original.number)} の重複`;
     addRelation(ctx, row, original, "duplicate");

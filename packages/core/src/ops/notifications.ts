@@ -26,7 +26,7 @@ export function isSubscribedRow(db: Database, issueId: number, subscriber: strin
   return db.query("SELECT 1 FROM subscriptions WHERE issue_id = ? AND subscriber = ?").get(issueId, subscriber) !== null;
 }
 
-// すでに購読中でもエラーにしない
+// すでに購読中でもエラーにしない。購読は Issue への書き込みではなく自分の通知設定なので、アーカイブ済みでも変えられる
 export function subscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   requireHuman(ctx);
   return tx(ctx.db, () => {
@@ -38,7 +38,7 @@ export function subscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   });
 }
 
-// 購読していなくてもエラーにしない。届いた通知は残す
+// 購読していなくてもエラーにしない。届いた通知は残す。アーカイブ済みでも解除できる（subscribeIssue と同じ理由）
 export function unsubscribeIssue(ctx: OpCtx, ref: string): SubscriptionState {
   requireHuman(ctx);
   return tx(ctx.db, () => {
