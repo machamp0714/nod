@@ -43,11 +43,13 @@ export function IssueTable({
   selection?: { ids: ReadonlySet<string>; onToggle: (id: string, shift: boolean) => void };
 }) {
   const today = localToday();
+  // 行がないときは選択の列を出さない（空表示の行は表示中の列だけに広げる）
+  const select = rows.length > 0 ? selection : undefined;
   return (
     <div className={s.tableScroll}>
       <table className={s.table}>
       <colgroup>
-        {selection && <col className={s.colSelect} />}
+        {select && <col className={s.colSelect} />}
         {columns.includes("status") && <col className={s.colStatus} />}
         <col className={s.colId} />
         <col />
@@ -59,7 +61,8 @@ export function IssueTable({
       </colgroup>
       <thead className={hideHeader ? s.visuallyHidden : undefined}>
         <tr>
-          {selection && <th><span className={s.visuallyHidden}>選択</span></th>}
+          {/* 選択の列は項目ではないため列見出しにしない。各チェックボックスが「<ID> を選択」の名前を持つ */}
+          {select && <td className={s.selectHead} />}
           {columns.includes("status") && <th>Status</th>}
           <th>ID</th>
           <th>Title</th>
@@ -73,7 +76,7 @@ export function IssueTable({
       <tbody>
         {rows.length === 0 ? (
           <tr>
-            <td colSpan={2 + columns.length + (selection ? 1 : 0)} className={s.muted}>
+            <td colSpan={2 + columns.length} className={s.muted}>
               該当する Issue はありません
             </td>
           </tr>
@@ -82,7 +85,7 @@ export function IssueTable({
             <tr
               key={issue.id}
               data-issue-row={issue.id}
-              className={[issue.id === previewId && s.previewing, selection?.ids.has(issue.id) && s.selected].filter(Boolean).join(" ") || undefined}
+              className={[issue.id === previewId && s.previewing, select?.ids.has(issue.id) && s.selected].filter(Boolean).join(" ") || undefined}
               aria-current={markCurrent && issue.id === previewId ? "true" : undefined}
               onKeyDown={onPreview && ((event) => {
                 // 行の中のリンクやボタンにフォーカスがあるとき、Space でプレビューする（選択のチェックボックスは除く）
@@ -92,20 +95,20 @@ export function IssueTable({
                 onPreview(issue.id);
               })}
             >
-              {selection && (
+              {select && (
                 <td className={s.selectCell}>
                   <input
                     type="checkbox"
                     className={s.checkbox}
                     aria-label={`${issue.id} を選択`}
-                    checked={selection.ids.has(issue.id)}
+                    checked={select.ids.has(issue.id)}
                     onChange={() => {}}
-                    onClick={(event) => selection.onToggle(issue.id, event.shiftKey)}
+                    onClick={(event) => select.onToggle(issue.id, event.shiftKey)}
                     onKeyDown={(event) => {
                       // キーボードでも Shift+Space で範囲を選べるようにする
                       if (event.key !== " " || !event.shiftKey) return;
                       event.preventDefault();
-                      selection.onToggle(issue.id, true);
+                      select.onToggle(issue.id, true);
                     }}
                   />
                 </td>

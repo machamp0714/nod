@@ -17,7 +17,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     const rows = await high.locator("tbody tr").count();
     await expect(high.getByRole("heading").getByLabel(`${rows} 件`, { exact: true })).toBeVisible();
     // グループ内でもタイトル降順を保つ
-    const titles = await high.locator("tbody tr td:nth-child(3) > a").allTextContents();
+    const titles = await high.locator('tbody tr td > a[href^="/issues/"]').allTextContents();
     expect(titles).toEqual([...titles].sort((a, b) => b.localeCompare(a, "ja", { numeric: true })));
 
     await grouping.selectOption("project");

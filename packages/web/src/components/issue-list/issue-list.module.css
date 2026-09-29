@@ -573,6 +573,7 @@
 
 /* 一括編集（design/nod.pen「Issues｜一括編集（#31）」） */
 .colSelect { width: 36px; }
+.table td.selectHead { border-bottom: 1px solid var(--line); background: var(--sunken); }
 .checkbox {
   width: 14px;
   height: 14px;
