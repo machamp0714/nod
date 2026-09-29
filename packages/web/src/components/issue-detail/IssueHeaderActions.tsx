@@ -13,6 +13,7 @@ export function IssueHeaderActions({ issueId, onDuplicate }: { issueId: string; 
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLButtonElement>(null);
+  const running = useRef(false); // 同じティックの2回目のクリックは state の反映前に届くため、ref で止める
   const close = () => { setOpen(false); trigger.current?.focus(); };
   useEffect(() => {
     if (!open) return;
@@ -22,10 +23,12 @@ export function IssueHeaderActions({ issueId, onDuplicate }: { issueId: string; 
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
   async function duplicate() {
+    if (running.current) return;
+    running.current = true;
     setDuplicateError(""); setDuplicating(true);
     try { await onDuplicate(); setOpen(false); }
     catch (e) { setDuplicateError(`複製できませんでした：${errorMessage(e)}`); }
-    finally { setDuplicating(false); }
+    finally { running.current = false; setDuplicating(false); }
   }
   async function copy(text: string) {
     setNotice(""); setError("");
@@ -57,5 +60,7 @@ export function IssueHeaderActions({ issueId, onDuplicate }: { issueId: string; 
     </div>}
     {notice && <span role="status" className={s.copyNotice}>{notice}</span>}
     {error && <span role="alert" className={s.error}>{error}</span>}
+    {/* 複製中にメニューが閉じられても、失敗はメニューの外で知らせる */}
+    {duplicateError && !open && <span role="alert" className={s.error}>{duplicateError}</span>}
   </div>;
 }

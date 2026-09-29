@@ -40,4 +40,40 @@ test.describe("複製に失敗したとき", () => {
     const list = await (await page.request.get("/api/issues")).json() as { issues: { id: string }[] };
     expect(list.issues.map((i) => i.id)).toEqual([source.id]);
   });
+
+  test("複製中にメニューを閉じても失敗を知らせる", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const source = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "閉じてから失敗する複製" });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`**/api/issues/${source.id}/copy`, async (route) => {
+      await held;
+      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "INTERNAL", message: "書き込めません" } }) });
+    });
+    await page.goto(`/issues/${source.id}`);
+    await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
+    const menu = page.getByRole("menu", { name: "Issueの操作" });
+    await menu.getByRole("menuitem", { name: "Issueを複製" }).click();
+    // メニューの外を押して閉じる
+    await page.evaluate(() => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    await expect(menu).toHaveCount(0);
+    release();
+    await expect(page.getByRole("alert").filter({ hasText: "複製できませんでした：書き込めません" })).toBeVisible();
+  });
+});
+
+test("Issueを複製を続けて押しても1件だけ複製する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const source = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "二重に押す複製" });
+  const copies: string[] = [];
+  page.on("request", (request) => { if (request.url().endsWith("/copy")) copies.push(request.url()); });
+  await page.goto(`/issues/${source.id}`);
+  await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
+  // 同じティックで2回クリックし、state の反映前の再実行を再現する
+  await page.getByRole("menuitem", { name: "Issueを複製" }).evaluate((el: HTMLElement) => { el.click(); el.click(); });
+  await expect(page).toHaveURL(/\/issues\/API-2$/);
+  await page.waitForLoadState("networkidle");
+  expect(copies).toHaveLength(1);
+  const list = await (await page.request.get("/api/issues")).json() as { issues: { id: string }[] };
+  expect(list.issues.map((i) => i.id).sort()).toEqual([source.id, "API-2"].sort());
 });
