@@ -47,6 +47,9 @@ describe("describeActivity の event の種類", () => {
     expect(text("description_changed", { from: "a", to: "b" })).toBe("me が説明を変えた");
     expect(text("labels_changed", { added: ["api"], removed: ["perf"] })).toBe("me がラベルを変えた（+api −perf）");
     expect(text("relation_added", { type: "blocks", to: "API-13" })).toBe("me が関連 Issue を足した：blocks API-13");
+    expect(text("estimate_changed", { from: null, to: 3 })).toBe("me が見積もりを なし から 3 pt に変えた");
+    expect(text("estimate_changed", { from: 3, to: null })).toBe("me が見積もりを 3 pt から なし に変えた");
+    expect(text("due_date_changed", { from: null, to: "2026-10-01" })).toBe("me が期限を なし から 2026-10-01 に変えた");
   });
 
   test("判断の event は理由があれば続ける", () => {
