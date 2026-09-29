@@ -397,6 +397,7 @@ export interface PrStatus {
   isDraft: boolean;
   reviewDecision: PrReviewDecision | null; // null はレビュー必須でない（gh が空文字を返す）
   mergedAt: string | null;
+  headSha: string | null; // 取得時点の HEAD のコミット（#55 の差分が古いかの判定に使う）。#55 より前に保存した結果は null
   checks: PrCheck[];
   checkSummary: Record<PrCheckState, number>;
   fetchedAt: string;
@@ -426,6 +427,50 @@ export interface PrStatusView {
   prUrl: string | null;
   status: PrStatus | null;
   fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
+}
+
+// PR の差分（#55）。ファイルの状態は unified diff のヘッダーから決める
+export type PrDiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface PrDiffFile {
+  path: string; // 変更後のパス（削除は変更前のパス）
+  oldPath: string | null; // 名前変更のときだけ変更前のパス
+  status: PrDiffFileStatus;
+  binary: boolean;
+  additions: number;
+  deletions: number;
+  patch: string | null; // 最初の @@ からの unified diff。バイナリ・大きいファイルは null
+  omitted: "binary" | "too_large" | null; // patch を持たない理由
+}
+
+export interface PrDiff {
+  prUrl: string;
+  headSha: string;
+  baseSha: string;
+  files: PrDiffFile[];
+  additions: number;
+  deletions: number;
+  fetchedAt: string;
+  fetchedBy: string;
+}
+
+export const PR_DIFF_ERROR_CODES = [...PR_STATUS_ERROR_CODES, "DIFF_TOO_LARGE"] as const;
+export type PrDiffErrorCode = (typeof PR_DIFF_ERROR_CODES)[number];
+
+export interface PrDiffError {
+  code: PrDiffErrorCode;
+  message: string;
+  at: string;
+}
+
+// Issue の現在の PR URL に対する最後の差分と最後の失敗。
+// PR 状態の取得で差分より新しい HEAD を知ったら、古い差分は返さず stale に両方の HEAD を入れる
+export interface PrDiffView {
+  issueId: string;
+  prUrl: string | null;
+  diff: PrDiff | null;
+  stale: { diffHeadSha: string; currentHeadSha: string } | null;
+  fetchError: PrDiffError | null;
 }
 
 export interface WorkspaceLabel {

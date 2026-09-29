@@ -36,6 +36,7 @@ describe("openDb", () => {
       "notifications",
       "plan_steps",
       "plan_tasks",
+      "pr_diffs",
       "pr_statuses",
       "projects",
       "questions",

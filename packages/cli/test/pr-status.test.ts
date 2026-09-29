@@ -67,7 +67,7 @@ describe("nod issue pr-status", () => {
     expect(r.exitCode).toBe(0);
     expect(r.json.status).toMatchObject({ state: "MERGED", reviewDecision: "APPROVED", fetchedBy: "claude-code" });
     expect(readFileSync(gh.log, "utf8").trim()).toBe(
-      `pr view ${PR_URL} --json number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt`,
+      `pr view ${PR_URL} --json number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid`,
     );
     const text = await runNod(["issue", "pr-status", id], { cwd: repo, db });
     expect(text.stdout).toContain("状態: Merged");
