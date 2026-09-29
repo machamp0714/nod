@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
 import { createIssue, getIssue, listIssues, updateIssue, validateDueDate, validateEstimate } from "../src/ops/issues";
+import { isOverdue, localToday } from "../src/due-date";
 import { codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
 describe("見積もり（estimate）", () => {
@@ -111,5 +112,23 @@ describe("移行と DB の制約", () => {
     const cols = (reopened.query("PRAGMA table_info(issues)").all() as { name: string; notnull: number }[])
       .filter((c) => c.name === "estimate" || c.name === "due_date");
     expect(cols.map((c) => [c.name, c.notnull])).toEqual([["estimate", 0], ["due_date", 0]]);
+  });
+});
+
+describe("期限超過", () => {
+  test("done / canceled 以外で期限が今日より前なら超過、当日と未設定は超過にしない", () => {
+    const today = "2026-10-01";
+    expect(isOverdue({ dueDate: "2026-09-30", status: "todo" }, today)).toBe(true);
+    expect(isOverdue({ dueDate: "2026-09-30", status: "in_review" }, today)).toBe(true);
+    expect(isOverdue({ dueDate: "2026-10-01", status: "todo" }, today)).toBe(false);
+    expect(isOverdue({ dueDate: "2026-10-02", status: "todo" }, today)).toBe(false);
+    expect(isOverdue({ dueDate: null, status: "todo" }, today)).toBe(false);
+    expect(isOverdue({ dueDate: "2026-09-30", status: "done" }, today)).toBe(false);
+    expect(isOverdue({ dueDate: "2026-09-30", status: "canceled" }, today)).toBe(false);
+  });
+
+  test("今日はローカル日付で YYYY-MM-DD にする", () => {
+    expect(localToday(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
+    expect(localToday(new Date(2026, 11, 31, 0, 0))).toBe("2026-12-31");
   });
 });

@@ -38,6 +38,12 @@ export function parsePriority(value: string): number {
   return Number(value.replace(/^P/i, ""));
 }
 
+// 範囲（1〜100）は core が検証する
+export function parseEstimate(value: string): number {
+  if (!/^\d+$/.test(value)) throw new NodError("INVALID_ARGS", "見積もりは 1〜100 の整数（ポイント）で指定してください");
+  return Number(value);
+}
+
 // 空文字は「外す」（null）として扱う
 export function orNull(value: string | undefined): string | null | undefined {
   if (value === undefined) return undefined;
