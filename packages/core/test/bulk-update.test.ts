@@ -61,7 +61,7 @@ describe("bulkUpdateIssues", () => {
   test("大文字小文字だけ違う ID も解決後の Issue で1件として扱い、上限も1件と数える（#121）", () => {
     const { db, ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    expect(bulkUpdateIssues(me, [a.id, a.id.toLowerCase(), ` ${a.id}`], { priority: 1 })).toHaveLength(1);
+    expect(bulkUpdateIssues(me, [a.id, a.id.toLowerCase(), ` ${a.id}`, a.id.replace("-", "-0")], { priority: 1 })).toHaveLength(1);
     expect(eventsOf(db, a.id).filter((e) => e.type === "priority_changed")).toHaveLength(1);
     const others = Array.from({ length: BULK_UPDATE_LIMIT - 1 }, (_, n) => createIssue(me, { workspaceId: ws.id, title: `x${n}` }).id);
     expect(bulkUpdateIssues(me, [a.id, a.id.toLowerCase(), ...others], { priority: 2 })).toHaveLength(BULK_UPDATE_LIMIT);

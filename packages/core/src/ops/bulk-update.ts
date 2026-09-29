@@ -1,7 +1,7 @@
 import { type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow } from "../issue-query";
+import { canonicalIssueRef, findIssueRow } from "../issue-query";
 import type { Issue, Status } from "../types";
 import { type UpdateIssueInput, updateIssue, validateDueDate, validateEstimate, validatePriority } from "./issues";
 
@@ -37,19 +37,13 @@ function checkTriage(ctx: OpCtx, ref: string, status: Status | undefined): void 
   }
 }
 
-// 同じ Issue を指す ID（大文字小文字・前後の空白の違い）は、解決後の Issue で1件にまとめ、最初の表記を残す。
-// 見つからない ID は失敗一覧で理由を返すため残し、表記ゆれだけをまとめる
-function uniqueRefs(ctx: OpCtx, refs: string[]): string[] {
+// 同じ Issue を指す ID（大文字小文字・前後の空白・番号の先頭の 0 の違い）は1件にまとめ、最初の表記を残す。
+// findIssueRow と同じ規則で畳むため DB を引かず、上限の判定の前に大量の照会をしない
+function uniqueRefs(refs: string[]): string[] {
   const seen = new Map<string, string>();
   for (const raw of refs) {
     const ref = raw.trim();
-    let key: string;
-    try {
-      key = `#${findIssueRow(ctx.db, ref).id}`;
-    } catch (e) {
-      if (!(e instanceof NodError) || e.code === "DB_BUSY") throw e;
-      key = ref.toUpperCase();
-    }
+    const key = canonicalIssueRef(ref) ?? ref.toUpperCase();
     if (!seen.has(key)) seen.set(key, ref);
   }
   return [...seen.values()];
@@ -58,7 +52,7 @@ function uniqueRefs(ctx: OpCtx, refs: string[]): string[] {
 // 複数 Issue に同じ変更を加える。各 Issue に updateIssue の保護を1件ずつ通し、全件を1トランザクションで書く。
 // 1件でも失敗したら何も書かず、失敗した全 Issue の理由を BULK_UPDATE_FAILED の details.failures で返す。
 export function bulkUpdateIssues(ctx: OpCtx, refs: string[], input: BulkUpdateInput): Issue[] {
-  const ids = uniqueRefs(ctx, refs);
+  const ids = uniqueRefs(refs);
   if (ids.length === 0) throw new NodError("INVALID_ARGS", "一括編集する Issue を1件以上指定してください");
   if (ids.length > BULK_UPDATE_LIMIT) {
     throw new NodError("INVALID_ARGS", `一括編集は1回 ${BULK_UPDATE_LIMIT} 件までです（${ids.length} 件）`);
