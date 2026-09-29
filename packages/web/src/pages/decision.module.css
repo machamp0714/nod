@@ -251,3 +251,8 @@
 .acceptFields legend { color: var(--ink2); font-size: 12px; }
 .acceptFields label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink2); }
 .acceptFields select, .acceptFields input { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 100px; }
+
+.hints { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hint { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: var(--sunken); color: var(--ink2); font-size: 12.5px; }
+.hintText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hintLink { color: var(--accent); font-weight: 500; text-decoration: none; }

@@ -1,6 +1,6 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useDecision, useTriage, useWorkspaceName } from "../api/hooks/decision";
+import { useDecision, useTriage, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
 import { parseLabels } from "../lib/issue-edit";
@@ -9,7 +9,7 @@ import type { Issue } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
-import { AgentAvatar, Button, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
 import d from "./decision.module.css";
@@ -113,6 +113,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
         <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
         <ActionError error={projects.error} />
       </fieldset>
+      <DuplicateHints issueId={issue.id} enabled={decision.isIdle} />
       <div className={d.actions}>
         <Button variant="primary" icon="check" disabled={busy || projects.isPending || projects.isError} onClick={() => {
           const selected = parseLabels(labels, []);
@@ -200,5 +201,24 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
       )}
       <ActionError error={decision.error} />
     </div>
+  );
+}
+
+// 重複候補（#41）。似た Issue を一致率の高い順に並べ、比較のために Issue 詳細を開ける。重複にするかは人が判断する
+function DuplicateHints({ issueId, enabled }: { issueId: string; enabled: boolean }) {
+  const suggestions = useTriageSuggestions(issueId, enabled);
+  if (suggestions.isError) return <ActionError error={suggestions.error} />;
+  const duplicates = suggestions.data?.duplicates ?? [];
+  if (duplicates.length === 0) return null;
+  return (
+    <ul className={d.hints} aria-label="似た Issue">
+      {duplicates.map((c) => (
+        <li key={c.id} className={d.hint}>
+          <Icon name="copy" size={14} />
+          <span className={d.hintText}>似た Issue: {c.id}「{c.title}」</span>
+          <Link className={d.hintLink} to="/issues/$issueId" params={{ issueId: c.id }}>比較</Link>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -10,6 +10,7 @@ export const queryKeys = {
   inbox: () => ["inbox"] as const,
   inboxHistory: () => ["inbox", "history"] as const,
   triage: () => ["triage"] as const,
+  triageSuggestions: (id: string) => ["triage", "suggestions", id] as const,
   notifications: () => ["notifications"] as const,
   notificationHistory: () => ["notifications", "history"] as const,
   projectList: (opts: { includeClosed?: boolean }) => ["projects", "list", opts] as const,

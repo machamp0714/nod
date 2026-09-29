@@ -3,6 +3,11 @@
 // web のほかのファイルは、これまでどおりこのファイルから型を import する。足りない型は、この一覧に名前を足す。
 export type {
   AcceptTriageInput,
+  TriageSuggestions,
+  DuplicateSuggestion,
+  LabelSuggestion,
+  AssigneeSuggestion,
+  SuggestionReason,
   ReviewReport,
   ReviewIssue,
   IssueDocumentRef,

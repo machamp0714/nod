@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SidebarData } from "../../layout/useSidebarData";
 import { workspaceNameOf } from "../../lib/decision";
-import { type DecisionAction, fetchInbox, fetchTriage, postDecision } from "../decision";
+import { type DecisionAction, fetchInbox, fetchTriage, fetchTriageSuggestions, postDecision } from "../decision";
 import { queryKeys } from "../query-keys";
 import { useApiMutation, useWorkspaces } from "./shared";
 
@@ -12,6 +12,11 @@ export function useInbox(opts: { includeAnswered?: boolean } = {}) {
 
 export function useTriage() {
   return useQuery({ queryKey: queryKeys.triage(), queryFn: () => fetchTriage() });
+}
+
+// 判断を送ったあとは Issue が Triage から外れ、取り直すと NOT_IN_TRIAGE になるため、enabled で止める
+export function useTriageSuggestions(id: string, enabled = true) {
+  return useQuery({ queryKey: queryKeys.triageSuggestions(id), queryFn: () => fetchTriageSuggestions(id), enabled });
 }
 
 export function useWorkspaceName(): (key: string) => string {

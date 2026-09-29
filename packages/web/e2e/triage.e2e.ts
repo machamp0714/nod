@@ -120,3 +120,26 @@ test.describe("存在しない Issue を重複の元にする", () => {
     expect((await api.show(i.id)).status).toBe("triage");
   });
 });
+
+test("似た Issue を重複候補として出し、比較で Issue 詳細を開ける", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const original = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索結果のページングが 1 件ずれる" });
+  await nod.me.createIssue({ workspaceId: api.workspace.id, title: "ログのタイムゾーンを UTC に統一" });
+  await api.triageIssue("検索結果のページングがずれる");
+  await page.goto("/triage");
+  const hints = detail(page).getByRole("list", { name: "似た Issue" });
+  await expect(hints.getByRole("listitem")).toHaveCount(1);
+  await expect(hints.getByText(`似た Issue: ${original.id}「検索結果のページングが 1 件ずれる」`)).toBeVisible();
+  await hints.getByRole("link", { name: "比較" }).click();
+  await expect(page).toHaveURL(new RegExp(`/issues/${original.id}$`));
+});
+
+test("似た Issue がなければ重複候補を出さない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await nod.me.createIssue({ workspaceId: api.workspace.id, title: "ログのタイムゾーンを UTC に統一" });
+  await api.triageIssue("検索結果のページングがずれる");
+  await page.goto("/triage");
+  await expect(detail(page).getByRole("heading", { level: 2, name: "検索結果のページングがずれる" })).toBeVisible();
+  await expect(detail(page).getByRole("button", { name: "受け入れる" })).toBeEnabled();
+  await expect(detail(page).getByRole("list", { name: "似た Issue" })).toHaveCount(0);
+});
