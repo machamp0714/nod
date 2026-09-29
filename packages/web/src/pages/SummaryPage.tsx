@@ -77,13 +77,12 @@ function FilterBar({ search, onChange }: { search: SummarySearch; onChange: (nex
   const since = search.since ?? "24h";
   return (
     <div className={s.filters}>
-      <div role="tablist" aria-label="期間" className={s.segmented}>
+      <div role="group" aria-label="期間" className={s.segmented}>
         {SUMMARY_PERIODS.map((value) => (
           <button
             key={value}
             type="button"
-            role="tab"
-            aria-selected={value === since}
+            aria-pressed={value === since}
             className={`${s.segment} ${value === since ? s.segmentActive : ""}`}
             onClick={() => onChange({ ...search, since: value })}
           >

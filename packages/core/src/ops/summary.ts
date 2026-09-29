@@ -4,7 +4,7 @@ import { NodError } from "../errors";
 import { formatIssueId } from "../issue-query";
 import { recordedTimestamp } from "../recorded-time";
 import type { Status } from "../types";
-import { issueScope } from "./stats";
+import { issueScope, llmAssignee } from "./stats";
 
 // 期間の要約（#63・#76）。LLM の推論は使わず、events と作業ログから決定的に組み立てる。読み取り専用
 export const SUMMARY_KINDS = [
@@ -158,6 +158,7 @@ interface Row {
   assignee: string | null;
   archived_at: string | null;
   worker: string | null;
+  rejected_after: number | null;
 }
 
 const EVENT_TYPES = ["status_changed", "review_rejected", "question_asked", "question_answered", "agent_state_changed", "created", "archived"];
@@ -172,8 +173,8 @@ function classify(row: Row): { kind: SummaryKind; detail: string | null } | null
       if (data.to === "done") return { kind: "completed", detail: null };
       if (data.to === "canceled") return { kind: "canceled", detail: text(data.reason) };
       if (data.to === "in_review") return { kind: "submitted", detail: null };
-      // 差し戻しで in_progress に戻る遷移は差し戻しとして数え、着手に重ねない
-      if (data.to === "in_progress" && data.from !== "in_review") return { kind: "started", detail: null };
+      // 差し戻し（直後に review_rejected が続く in_review→in_progress）は差し戻しとして数え、着手に重ねない
+      if (data.to === "in_progress" && !(data.from === "in_review" && row.rejected_after)) return { kind: "started", detail: null };
       return null;
     case "review_rejected":
       return { kind: "rejected", detail: text(data.reason) };
@@ -191,28 +192,25 @@ function classify(row: Row): { kind: SummaryKind; detail: string | null } | null
   return null;
 }
 
-// 期間内の動きを種類ごとに数え、新しい順に limit 件まで並べる
-export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
-  const now = q.now ?? new Date();
-  const since = parseSince(q.since ?? SUMMARY_DEFAULT_SINCE, now);
-  const until = now.toISOString();
-  const limit = q.limit ?? SUMMARY_DEFAULT_LIMIT;
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > SUMMARY_MAX_LIMIT) {
-    throw invalid(`件数は 1〜${SUMMARY_MAX_LIMIT} の整数で指定してください（${limit}）`);
-  }
-  const includeArchived = q.includeArchived ?? false;
+// 要約で読む events と作業ログを1本の UNION ALL にする。EXPLAIN で索引を確かめられるよう SQL と引数を返す
+export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace" | "project">, since: string, until: string, includeArchived: boolean): { sql: string; params: (string | number)[] } {
   const scope = issueScope(db, q);
   // アーカイブ操作そのものは、アーカイブ済みを除くときも「アーカイブ」に出す
   const archivedEvents = includeArchived ? "" : " AND (i.archived_at IS NULL OR e.type = 'archived')";
   const archivedLogs = includeArchived ? "" : " AND i.archived_at IS NULL";
   const issueCols = "w.key AS ws_key, i.number, i.title, i.status, i.assignee, i.archived_at";
 
+  // 完了は llmStats と同じく、完了より前で最後に LLM を担当にした記録へ帰属させる（LLM がいなければ書き手）。
+  // 差し戻しは同じ Issue で次に続く status_changed / review_rejected が review_rejected かで見分ける。
   // 質問と回答の本文は questions にあるため、event の question_id から引く
-  const rows = db.query(`SELECT * FROM (
+  const sql = `SELECT * FROM (
       SELECT 'event' AS src, e.id AS sort_id, e.type, e.actor, e.created_at, ${issueCols},
-        CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.to') = 'done' THEN COALESCE(
+        CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.to') = 'done' THEN
           (SELECT json_extract(a.data, '$.to') FROM events a WHERE a.issue_id = e.issue_id AND a.type = 'assignee_changed'
-            AND json_extract(a.data, '$.to') IS NOT NULL AND a.id < e.id ORDER BY a.id DESC LIMIT 1), i.assignee) END AS worker,
+            AND ${llmAssignee("a")} AND a.id < e.id ORDER BY a.id DESC LIMIT 1) END AS worker,
+        CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.from') = 'in_review' AND json_extract(e.data, '$.to') = 'in_progress' THEN
+          (SELECT r.type = 'review_rejected' FROM events r WHERE r.issue_id = e.issue_id AND r.id > e.id
+            AND r.type IN ('status_changed', 'review_rejected') ORDER BY r.id LIMIT 1) END AS rejected_after,
         CASE e.type
           WHEN 'question_asked' THEN json_set(e.data, '$.question',
             (SELECT q.question FROM questions q WHERE q.id = json_extract(e.data, '$.question_id')))
@@ -223,11 +221,25 @@ export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
       FROM events e JOIN issues i ON i.id = e.issue_id JOIN workspaces w ON w.id = i.workspace_id
       WHERE e.type IN (${EVENT_TYPES.map(() => "?").join(",")}) AND e.created_at >= ? AND e.created_at <= ?${scope.where}${archivedEvents}
       UNION ALL
-      SELECT 'log', c.id, 'work_log', c.author, c.created_at, ${issueCols}, NULL, NULL, c.body
+      SELECT 'log', c.id, 'work_log', c.author, c.created_at, ${issueCols}, NULL, NULL, NULL, c.body
       FROM comments c JOIN issues i ON i.id = c.issue_id JOIN workspaces w ON w.id = i.workspace_id
       WHERE c.log_kind = 'blocker' AND c.created_at >= ? AND c.created_at <= ?${scope.where}${archivedLogs}
-    ) ORDER BY created_at DESC, sort_id DESC`)
-    .all(...EVENT_TYPES, since, until, ...scope.params, since, until, ...scope.params) as Row[];
+    ) ORDER BY created_at DESC, sort_id DESC`;
+  return { sql, params: [...EVENT_TYPES, since, until, ...scope.params, since, until, ...scope.params] };
+}
+
+// 期間内の動きを種類ごとに数え、新しい順に limit 件まで並べる
+export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
+  const now = q.now ?? new Date();
+  const since = parseSince(q.since ?? SUMMARY_DEFAULT_SINCE, now);
+  const until = now.toISOString();
+  const limit = q.limit ?? SUMMARY_DEFAULT_LIMIT;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > SUMMARY_MAX_LIMIT) {
+    throw invalid(`件数は 1〜${SUMMARY_MAX_LIMIT} の整数で指定してください（${limit}）`);
+  }
+  const includeArchived = q.includeArchived ?? false;
+  const stmt = summaryStatement(db, q, since, until, includeArchived);
+  const rows = db.query(stmt.sql).all(...stmt.params) as Row[];
 
   const sections = new Map<SummaryKind, SummarySection>(SUMMARY_KINDS.map((kind) => [
     kind,

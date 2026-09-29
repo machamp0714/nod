@@ -97,6 +97,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 \`nod summary [--since 24h|7d|<ISO日時>] [--project <名前>] [--all-workspaces] [--limit <n>] [--include-archived] --json\` は、期間内の動きを種類別に返す読み取り専用のコマンドである（既定は現在の Workspace の直近24時間、最長 90 日）。
 種類は 完了・レビュー提出・差し戻し・着手・ブロッカー（\`blocker\` の作業ログと \`nod issue fail\`）・質問・回答・新規起票・キャンセル・アーカイブで、各項目の \`actorKind\` が \`human\`（me）か \`llm\` かを示す。種類ごとに新しい順で \`--limit\` 件（既定20）まで並べ、残りは \`more\` に数える。アーカイブ済み Issue の動きは既定で除く。
+数えるのは期間内に起きた動き（event）の数である。完了は done への遷移ごとに数えるため、いま done の Issue を closed_at で数える Analytics とは、再オープンや同じ Issue の再完了があると一致しない。完了の \`actor\` は、完了より前で最後に担当だった LLM（いなければ確定した人）になる。
 これは材料であり、nod は文章の要約を作らない。自分の言葉でまとめを残すときは、関係する Issue へ \`nod issue comment\` で書くか、\`nod doc create\` で Document にする。
 
 ## そのほかのコマンド

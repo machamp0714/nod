@@ -5,7 +5,7 @@ import { answerQuestion, rejectReview, approveReview } from "../src/ops/human";
 import { archiveIssue, createIssue, logWork, updateIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
 import { initWorkspace } from "../src/ops/workspaces";
-import { recentSummary, parseSince } from "../src/ops/summary";
+import { recentSummary, parseSince, summaryStatement } from "../src/ops/summary";
 import { codeOf, setup } from "./helpers";
 
 const NOW = new Date("2026-09-30T12:00:00.000Z");
@@ -148,17 +148,77 @@ describe("recentSummary（期間の要約）", () => {
     expect(codeOf(() => recentSummary(db, { now: NOW, workspace: ["NOPE"] }))).toBe("NOT_FOUND");
   });
 
-  test("読み取り専用で、events の種類と時刻の索引を使う", () => {
+  test("完了は、担当を me に付け替えた後でも直前の LLM に帰属させる。LLM がいなければ書き手", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    startIssue(llm, a.id);
+    completeIssue(llm, a.id, { summary: "実装しました" });
+    updateIssue(me, a.id, { assignee: "me" });
+    approveReview(me, a.id);
+    updateIssue(me, b.id, { assignee: "me" });
+    updateIssue(me, b.id, { status: "in_progress" });
+    updateIssue(me, b.id, { status: "in_review" });
+    approveReview(me, b.id);
+    backdate(db, "2026-09-30T10:00:00.000Z");
+    const items = section(recentSummary(db, { now: NOW }), "completed").items;
+    expect(items.map((x) => [x.issueId, x.assignee, x.actor, x.actorKind, x.recordedBy])).toEqual([
+      [b.id, "me", "me", "human", "me"],
+      [a.id, "me", "claude-code", "llm", "me"],
+    ]);
+  });
+
+  test("手動の in_review→in_progress は着手に数え、差し戻しによる遷移だけを除く", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    startIssue(llm, a.id);
+    completeIssue(llm, a.id, { summary: "1回目" });
+    rejectReview(me, a.id, "足りない");
+    updateIssue(me, b.id, { status: "in_review" });
+    updateIssue(me, b.id, { status: "in_progress" });
+    backdate(db, "2026-09-30T10:00:00.000Z");
+    const s = recentSummary(db, { now: NOW });
+    expect(section(s, "started").items.map((x) => [x.issueId, x.from, x.to])).toEqual([
+      [b.id, "in_review", "in_progress"],
+      [a.id, "todo", "in_progress"],
+    ]);
+    expect(section(s, "rejected").items.map((x) => x.issueId)).toEqual([a.id]);
+  });
+
+  test("期間の両端ちょうどの動きを含め、1ms 外は含めない", () => {
+    const { db, ws, me } = setup();
+    for (const title of ["start", "end", "before", "after"]) createIssue(me, { workspaceId: ws.id, title });
+    const at = {
+      start: "2026-09-29T12:00:00.000Z",
+      end: NOW.toISOString(),
+      before: "2026-09-29T11:59:59.999Z",
+      after: "2026-09-30T12:00:00.001Z",
+    };
+    for (const [title, ts] of Object.entries(at)) {
+      db.query("UPDATE events SET created_at = ? WHERE issue_id = (SELECT id FROM issues WHERE title = ?)").run(ts, title);
+    }
+    const s = recentSummary(db, { now: NOW });
+    expect(s.since).toBe(at.start);
+    expect(s.until).toBe(at.end);
+    expect(section(s, "created").items.map((x) => x.title)).toEqual(["end", "start"]);
+  });
+
+  test("読み取り専用で、実際の要約クエリが events と作業ログの索引を使う", () => {
     const { db, ws, me } = setup();
     createIssue(me, { workspaceId: ws.id, title: "a" });
     const before = db.query("SELECT total_changes() AS n").get() as { n: number };
     recentSummary(db, { now: NOW });
     expect(db.query("SELECT total_changes() AS n").get()).toEqual(before);
-    const plan = db.query(`EXPLAIN QUERY PLAN SELECT id FROM events WHERE type IN ('created') AND created_at >= ? AND created_at <= ?`)
-      .all("a", "b") as { detail: string }[];
-    expect(plan.map((r) => r.detail).join(" ")).toContain("events_type_created");
-    const logPlan = db.query(`EXPLAIN QUERY PLAN SELECT id FROM comments WHERE log_kind = 'blocker' AND created_at >= ? AND created_at <= ?`)
-      .all("a", "b") as { detail: string }[];
-    expect(logPlan.map((r) => r.detail).join(" ")).toContain("comments_log_kind");
+    for (const includeArchived of [false, true]) {
+      const stmt = summaryStatement(db, { workspace: [ws.key] }, "2026-09-29T12:00:00.000Z", NOW.toISOString(), includeArchived);
+      const plan = (db.query(`EXPLAIN QUERY PLAN ${stmt.sql}`).all(...stmt.params) as { detail: string }[])
+        .map((r) => r.detail).join("\n");
+      expect(plan).toContain("events_type_created");
+      expect(plan).toContain("comments_log_kind");
+      expect(plan).toContain("SEARCH a USING INDEX events_issue");
+      expect(plan).toContain("SEARCH r USING INDEX events_issue");
+      expect(plan).not.toMatch(/^SCAN [a-z]+$/m); // 表の全走査がない（外側の副問合せの走査だけ）
+    }
   });
 });
