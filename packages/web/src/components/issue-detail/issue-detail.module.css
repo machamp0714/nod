@@ -593,3 +593,29 @@
 .resolvedBar { display: flex; align-items: center; gap: 8px; }
 .resolvedToggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .resolvedBy { color: var(--ink3); font-size: 11.5px; }
+
+.subscribeToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.subscribeToggle[data-subscribed="true"] {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.subscribeToggle:disabled {
+  opacity: 0.6;
+}
+.subscribeToggle ~ .headerActions { margin-left: 8px; }

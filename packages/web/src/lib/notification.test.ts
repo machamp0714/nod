@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Notification } from "../api/types";
-import { describeNotification, groupNotifications } from "./notification";
+import { describeNotification, groupNotifications, groupSummary } from "./notification";
 
 const n = (over: Partial<Notification>): Notification => ({
   id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "検索", workspace: "API", eventType: "comment_added",
@@ -8,14 +8,16 @@ const n = (over: Partial<Notification>): Notification => ({
 });
 
 describe("describeNotification", () => {
-  test("種別ごとに誰が何をどう変えたかを返す", () => {
-    expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } }))).toBe("ステータスを In Progress → In Review に変更");
-    expect(describeNotification(n({ eventType: "priority_changed", data: { from: 0, to: 2 } }))).toBe("優先度を No priority → High に変更");
-    expect(describeNotification(n({ eventType: "assignee_changed", data: { from: null, to: "codex" } }))).toBe("担当を なし → codex に変更");
-    expect(describeNotification(n({ eventType: "labels_changed", data: { added: ["bug"], removed: [] } }))).toBe("ラベルを変更（+bug）");
-    expect(describeNotification(n({ eventType: "comment_added", body: "直した" }))).toBe("コメント: 直した");
-    expect(describeNotification(n({ eventType: "review_rejected", data: { reason: "再度" } }))).toBe("差し戻し: 再度");
-    expect(describeNotification(n({ eventType: "unknown_type" }))).toBe("unknown_type");
+  test("誰が何をどう変えたかを1文で返し、short では本文を省く", () => {
+    expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } }))).toBe("codex がステータスを In Review に変更しました");
+    expect(describeNotification(n({ eventType: "priority_changed", data: { from: 0, to: 2 } }))).toBe("codex が優先度を High に変更しました");
+    expect(describeNotification(n({ eventType: "assignee_changed", data: { from: null, to: "claude-code" } }))).toBe("codex が担当者を claude-code に変更しました");
+    expect(describeNotification(n({ eventType: "assignee_changed", data: { from: "codex", to: null } }))).toBe("codex が担当者を外しました");
+    expect(describeNotification(n({ eventType: "labels_changed", data: { added: ["bug"], removed: ["ui"] } }))).toBe("codex がラベルを変更しました（+bug -ui）");
+    expect(describeNotification(n({ eventType: "comment_added", body: "直した" }))).toBe("codex がコメントしました：「直した」");
+    expect(describeNotification(n({ eventType: "comment_added", body: "直した" }), { short: true })).toBe("codex がコメントしました");
+    expect(describeNotification(n({ eventType: "review_rejected", data: { reason: "再度" } }))).toBe("codex が差し戻しました：「再度」");
+    expect(describeNotification(n({ eventType: "unknown_type" }))).toBe("codex unknown_type");
   });
 });
 
@@ -32,5 +34,7 @@ describe("groupNotifications", () => {
       ["API-1", 1, [2, 1]],
     ]);
     expect(groups[1]?.latest.id).toBe(2);
+    expect(groupSummary(groups[1]!)).toBe("codex がコメントしました ほか 1 件");
+    expect(groupSummary(groups[0]!)).toBe("codex がコメントしました");
   });
 });
