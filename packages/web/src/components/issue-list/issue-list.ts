@@ -1,19 +1,28 @@
 import type { Status } from "../../api/types";
 import { BOARD_STATUSES, STATUS_ORDER } from "../../lib/meta";
-import type { IssueTab } from "../../routes/search";
+import type { IssueTab, IssueSort, SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";
 
 function priorityRank(priority: number): number {
   return priority === 0 ? 5 : priority;
 }
 
-export function sortRows(rows: readonly IssueListRow[]): IssueListRow[] {
-  return [...rows].sort(
-    (a, b) =>
-      STATUS_ORDER.indexOf(a.issue.status) - STATUS_ORDER.indexOf(b.issue.status) ||
-      priorityRank(a.issue.priority) - priorityRank(b.issue.priority) ||
-      a.issue.id.localeCompare(b.issue.id, undefined, { numeric: true }),
-  );
+export function sortRows(rows: readonly IssueListRow[], sort: IssueSort = "default", direction: SortDirection = "asc"): IssueListRow[] {
+  return [...rows].sort((a, b) => {
+    let order: number;
+    if (sort === "default") {
+      order = STATUS_ORDER.indexOf(a.issue.status) - STATUS_ORDER.indexOf(b.issue.status) ||
+        priorityRank(a.issue.priority) - priorityRank(b.issue.priority);
+    } else if (sort === "priority") {
+      order = priorityRank(a.issue.priority) - priorityRank(b.issue.priority);
+    } else if (sort === "title") {
+      order = a.issue.title.localeCompare(b.issue.title, "ja", { numeric: true });
+    } else {
+      order = (Date.parse(a.issue[sort]) || 0) - (Date.parse(b.issue[sort]) || 0);
+    }
+    return order * (direction === "desc" ? -1 : 1) ||
+      a.issue.id.localeCompare(b.issue.id, "en", { numeric: true });
+  });
 }
 
 export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTab; q: string }): IssueListRow[] {
@@ -46,7 +55,7 @@ export function groupForBoard(rows: readonly IssueListRow[]): BoardColumn[] {
 
 export function groupRowsByWorkspace(rows: readonly IssueListRow[]): { key: string; name: string; rows: IssueListRow[] }[] {
   const groups = new Map<string, { key: string; name: string; rows: IssueListRow[] }>();
-  for (const row of sortRows(rows)) {
+  for (const row of rows) {
     const key = row.issue.workspace;
     let group = groups.get(key);
     if (!group) {

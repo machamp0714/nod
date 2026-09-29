@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { BOARD_STATUSES, type Tone, TONE_COLORS } from "../../lib/meta";
+import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueGroupBy, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
 import { Icon, type IconName, Segmented, WorkspaceBadge } from "../ui";
 import { IssueBoard } from "./IssueBoard";
@@ -39,7 +40,8 @@ export function IssueList({
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
   const counts = countRows(rows);
-  const visible = sortRows(filterRows(rows, { tab, q }));
+  const visible = sortRows(filterRows(rows, { tab, q }), search.sort, search.direction);
+  const columns = search.columns ?? [...ISSUE_COLUMNS];
   const grouped = search.groupBy === "workspace";
   const groups = grouped
     ? groupRowsByWorkspace(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible)
@@ -121,6 +123,34 @@ export function IssueList({
           ]}
         />
       </div>
+      <details className={s.displaySettings}>
+        <summary>表示設定</summary>
+        <div className={s.displayOptions}>
+          <label className={s.groupSelect}>並び順
+            <select aria-label="並び順" value={search.sort ?? "default"} onChange={(event) => onSearchChange({ sort: event.target.value as IssueSort })}>
+              <option value="default">既定（Status・優先度・ID）</option>
+              <option value="priority">優先度</option>
+              <option value="createdAt">作成日時</option>
+              <option value="updatedAt">更新日時</option>
+              <option value="title">タイトル</option>
+            </select>
+          </label>
+          <label className={s.groupSelect}>方向
+            <select aria-label="並び順の方向" value={search.direction ?? "asc"} onChange={(event) => onSearchChange({ direction: event.target.value as SortDirection })}>
+              <option value="asc">昇順</option><option value="desc">降順</option>
+            </select>
+          </label>
+          <fieldset className={s.columnSettings} disabled={layout === "board"}>
+            <legend>リストの表示列（ID・Titleは常に表示）</legend>
+            {ISSUE_COLUMNS.map((column) => (
+              <label key={column}>
+                <input type="checkbox" checked={columns.includes(column)} onChange={(event) => onSearchChange({ columns: ISSUE_COLUMNS.filter((key) => key === column ? event.target.checked : columns.includes(key)) })} />
+                {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR" }[column]}
+              </label>
+            ))}
+          </fieldset>
+        </div>
+      </details>
       {filterBar}
 
       {error ? (
@@ -139,12 +169,12 @@ export function IssueList({
                 <WorkspaceBadge workspaceKey={group.key} name={group.name} />
                 <span>{group.key} · {group.rows.length} 件</span>
               </h2>
-              {layout === "list" ? <IssueTable rows={group.rows} /> : <IssueBoard rows={group.rows} />}
+              {layout === "list" ? <IssueTable rows={group.rows} columns={columns} /> : <IssueBoard rows={group.rows} />}
             </section>
           ))
         )
       ) : layout === "list" ? (
-        <IssueTable rows={visible} />
+        <IssueTable rows={visible} columns={columns} />
       ) : (
         <IssueBoard rows={visible} />
       )}

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   cleanIssueListSearch,
+  ISSUE_COLUMNS,
+  replacesIssueListHistory,
   cleanProjectsSearch,
   parseIssueListSearch,
   parseProjectsSearch,
@@ -68,5 +70,25 @@ describe("parseIssueListSearch の絞り込み条件", () => {
 
   test("空の条件は URL に残さない", () => {
     expect(cleanIssueListSearch({ workspace: [], status: ["todo"], project: "", label: [] })).toEqual({ status: ["todo"] });
+  });
+});
+
+
+describe("表示設定のURL", () => {
+  test("並び順・方向・空の列選択を往復できる", () => {
+    const search = { sort: "updatedAt", direction: "desc", columns: [] } as const;
+    expect(parseIssueListSearch({ ...cleanIssueListSearch({ ...search, columns: [] }) })).toEqual({ ...search, columns: [] });
+    expect(parseIssueListSearch({ columns: ["pr", "status", "pr"] }).columns).toEqual(["status", "pr"]);
+  });
+  test("不正値は安全な既定値で上書きし古いURLを維持する", () => {
+    for (const columns of [null, "pr", {}, ["unknown"], ["pr", 1]]) {
+      expect(parseIssueListSearch({ sort: "bad", direction: "bad", columns })).toEqual({ sort: "default", direction: "asc", columns: [...ISSUE_COLUMNS] });
+    }
+    expect(cleanIssueListSearch(parseIssueListSearch({ sort: "bad", direction: "bad", columns: "bad" }))).toEqual({});
+    expect(parseIssueListSearch({ q: "検索" })).toEqual({ q: "検索" });
+  });
+  test("表示変更だけは履歴を追加する", () => {
+    for (const patch of [{ sort: "title" }, { direction: "desc" }, { columns: [] }] as const) expect(replacesIssueListHistory({ ...patch } as never)).toBe(false);
+    expect(replacesIssueListHistory({ q: "入力" })).toBe(true);
   });
 });

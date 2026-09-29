@@ -7,7 +7,7 @@ import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
-import { cleanIssueListSearch } from "../routes/search";
+import { replacesIssueListHistory, cleanIssueListSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
 
@@ -40,7 +40,7 @@ export function ProjectDetailPage() {
       loading={rows.loading}
       error={rows.error}
       search={search}
-      onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true })}
+      onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
     />
   );
 }
