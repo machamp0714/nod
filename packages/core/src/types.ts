@@ -608,7 +608,7 @@ export interface RecurringIssue {
   enabled: boolean;
   lastOccurrence: string | null; // 最後に起票した発生日
   lastIssueId: string | null;
-  nextOccurrence: string | null; // まだ起票していない次の発生日（今日以降）。停止中は null
+  nextOccurrence: string | null; // 次の実行で起票する発生日。未起票の過去の発生日があればその最新日、無ければ今日以降の次の発生日。停止中は null
   createdBy: string;
   createdAt: string;
   updatedBy: string;

@@ -45,17 +45,20 @@ describe("定期Issueの表示", () => {
     expect(formatNext(null)).toBe("—");
   });
 
-  test("実行後のトーストは件数とスキップ件数を出す", () => {
-    const run = (skips: number[]): RecurringRun => ({
+  test("実行後のトーストは件数とスキップ・失敗の件数を出す", () => {
+    const run = (skips: number[], failures = 0): RecurringRun => ({
       workspaceKey: "API",
       dryRun: false,
       evaluatedAt: "",
       items: skips.map((skipped, i) => ({ recurringId: i, title: "", occurrence: "", skipped, issueId: `API-${i}` })),
-      failed: [],
+      failed: Array.from({ length: failures }, (_, i) => ({ recurringId: 100 + i, title: "", occurrence: "", message: "" })),
     });
     expect(runToast(run([0, 3]))).toBe("2件を起票しました（スキップ 3件）");
     expect(runToast(run([0]))).toBe("1件を起票しました");
     expect(runToast(run([]))).toBe("起票する定期Issueはありませんでした");
+    expect(runToast(run([], 2))).toBe("起票できませんでした（失敗 2件）");
+    expect(runToast(run([0, 3], 1))).toBe("2件を起票しました（スキップ 3件・失敗 1件）");
+    expect(runToast(run([0], 1))).toBe("1件を起票しました（失敗 1件）");
   });
 
   test("テンプレート欠落は、失敗した定期Issueのテンプレート名を引く", () => {

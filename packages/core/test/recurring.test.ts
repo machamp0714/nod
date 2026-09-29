@@ -9,6 +9,7 @@ import {
   updateRecurringIssue,
 } from "../src/ops/recurring";
 import { removeTemplate, saveTemplate } from "../src/ops/templates";
+import { addWorkspaceLabel, removeWorkspaceLabel, updateWorkspaceLabel } from "../src/ops/workspace-labels";
 import { initWorkspace } from "../src/ops/workspaces";
 import { addProjectRow, codeOf, eventsOf, setup } from "./helpers";
 
@@ -53,7 +54,8 @@ describe("定期Issueの登録", () => {
       enabled: true,
       lastOccurrence: null,
       lastIssueId: null,
-      nextOccurrence: "2026-10-05",
+      // 9/28（月）はまだ起票していないので、次の実行で作るその日を次回として返す
+      nextOccurrence: "2026-09-28",
       createdBy: "me",
       updatedBy: "me",
     });
@@ -256,5 +258,95 @@ describe("定期Issueの実行", () => {
     addRecurringIssue(me, ws.key, daily());
     const other = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
     expect(runRecurringIssues(me, other.key, { now: WED }).items).toEqual([]);
+  });
+});
+
+describe("定期Issueの修正（#135 レビュー）", () => {
+  test("テンプレートが消えたルールも停止・編集できる。テンプレートを新しく指定・変更したときだけ存在を確かめる", () => {
+    const { ws, me } = setup();
+    saveTemplate(me.db, { name: "bug", body: "## 再現手順" });
+    const r = addRecurringIssue(me, ws.key, daily({ template: "bug" }));
+    removeTemplate(me.db, "bug");
+    expect(updateRecurringIssue(me, ws.key, r.id, { enabled: false })).toMatchObject({ enabled: false, template: "bug" });
+    expect(updateRecurringIssue(me, ws.key, r.id, { title: "改名", template: "bug" })).toMatchObject({ title: "改名", template: "bug" });
+    expect(codeOf(() => updateRecurringIssue(me, ws.key, r.id, { template: "none" }))).toBe("NOT_FOUND");
+    expect(updateRecurringIssue(me, ws.key, r.id, { description: "本文へ" })).toMatchObject({ template: null, description: "本文へ" });
+  });
+
+  test("実行中にルールが消えても、そのルールだけ failed に入れて他は続ける", () => {
+    const { db, ws, me } = setup();
+    const a = addRecurringIssue(me, ws.key, daily({ title: "A" }));
+    const b = addRecurringIssue(me, ws.key, daily({ title: "B" }));
+    const c = addRecurringIssue(me, ws.key, daily({ title: "C" }));
+    // A を起票した直後に B が別の操作で消された状況を作る
+    db.run(`CREATE TEMP TRIGGER drop_b AFTER INSERT ON recurring_issue_occurrences WHEN NEW.recurring_id = ${a.id}
+      BEGIN DELETE FROM recurring_issues WHERE id = ${b.id}; END`);
+    const run = runRecurringIssues(me, ws.key, { now: WED });
+    expect(run.items.map((i) => i.recurringId)).toEqual([a.id, c.id]);
+    expect(run.failed).toEqual([{ recurringId: b.id, title: "B", occurrence: "2026-09-30", message: expect.any(String) }]);
+    expect(listIssues(db, { workspaceId: ws.id })).toHaveLength(2);
+  });
+
+  test("次回は、まだ起票していない過去の発生日があればその最新日を返す（実行で作る日と一致する）", () => {
+    const { ws, me } = setup();
+    const r = addRecurringIssue(me, ws.key, daily({ startDate: "2026-09-01" }), { now: WED });
+    const dry = runRecurringIssues(me, ws.key, { dryRun: true, now: WED });
+    expect(r.nextOccurrence).toBe(dry.items[0]!.occurrence);
+    const w = addRecurringIssue(me, ws.key, daily({ cadence: "weekly", weekday: 1, startDate: "2026-09-01" }), { now: WED });
+    expect(w.nextOccurrence).toBe("2026-09-28");
+    runRecurringIssues(me, ws.key, { now: WED });
+    expect(getRecurringIssue(me.db, ws.key, w.id, { now: WED }).nextOccurrence).toBe("2026-10-05");
+  });
+
+  test("閏年の2月は 29 日、平年は 28 日に作る", () => {
+    const { ws, me } = setup();
+    addRecurringIssue(me, ws.key, daily({ title: "29", cadence: "monthly", monthDay: 29, startDate: "2028-02-01" }));
+    addRecurringIssue(me, ws.key, daily({ title: "31", cadence: "monthly", monthDay: 31, startDate: "2027-02-01" }));
+    const leap = runRecurringIssues(me, ws.key, { dryRun: true, now: new Date("2028-02-29T01:00:00Z") });
+    expect(leap.items.map((i) => [i.title, i.occurrence])).toEqual([["29", "2028-02-29"], ["31", "2028-02-29"]]);
+    const before = runRecurringIssues(me, ws.key, { dryRun: true, now: new Date("2028-02-28T01:00:00Z") });
+    expect(before.items.map((i) => [i.title, i.occurrence])).toEqual([["31", "2028-01-31"]]);
+    const common = runRecurringIssues(me, ws.key, { dryRun: true, now: new Date("2027-02-28T01:00:00Z") });
+    expect(common.items.map((i) => [i.title, i.occurrence])).toEqual([["31", "2027-02-28"]]);
+  });
+
+  test("開始日当日が発生日ならその日に作る", () => {
+    const { ws, me } = setup();
+    addRecurringIssue(me, ws.key, daily({ title: "週", cadence: "weekly", weekday: 3, startDate: "2026-09-30" }));
+    addRecurringIssue(me, ws.key, daily({ title: "月", cadence: "monthly", monthDay: 30, startDate: "2026-09-30" }));
+    addRecurringIssue(me, ws.key, daily({ title: "翌週", cadence: "weekly", weekday: 2, startDate: "2026-09-30" }));
+    const run = runRecurringIssues(me, ws.key, { dryRun: true, now: WED });
+    expect(run.items.map((i) => [i.title, i.occurrence, i.skipped])).toEqual([["週", "2026-09-30", 0], ["月", "2026-09-30", 0]]);
+    expect(listRecurringIssues(me.db, ws.key, { now: WED }).map((r) => r.nextOccurrence)).toEqual(["2026-09-30", "2026-09-30", "2026-10-06"]);
+  });
+
+  test("周期を変えると、前回の起票より後の新しい周期の発生日から作る", () => {
+    const { ws, me } = setup();
+    const r = addRecurringIssue(me, ws.key, daily());
+    runRecurringIssues(me, ws.key, { now: WED });
+    // 9/30 に起票済みの毎日を毎週金曜に変える
+    const u = updateRecurringIssue(me, ws.key, r.id, { cadence: "weekly", weekday: 5 }, { now: WED });
+    expect(u.nextOccurrence).toBe("2026-10-02");
+    expect(runRecurringIssues(me, ws.key, { now: new Date("2026-10-01T01:00:00Z") }).items).toEqual([]);
+    const fri = runRecurringIssues(me, ws.key, { now: new Date("2026-10-05T01:00:00Z") });
+    expect(fri.items[0]).toMatchObject({ occurrence: "2026-10-02", skipped: 0 });
+    // 毎月 1 日へ変えても、起票済みの 10/2 より前の 10/1 は作らない
+    updateRecurringIssue(me, ws.key, r.id, { cadence: "monthly", monthDay: 1 });
+    expect(runRecurringIssues(me, ws.key, { dryRun: true, now: new Date("2026-10-31T01:00:00Z") }).items).toEqual([]);
+    expect(getRecurringIssue(me.db, ws.key, r.id, { now: new Date("2026-10-31T01:00:00Z") }).nextOccurrence).toBe("2026-11-01");
+  });
+
+  test("ラベルを改名すると定期Issueのラベルも置き換え、削除では残す", () => {
+    const { ws, me } = setup();
+    addWorkspaceLabel(me, ws.key, { name: "ops", color: "#2563eb" });
+    addWorkspaceLabel(me, ws.key, { name: "gone", color: "#2563eb" });
+    const r = addRecurringIssue(me, ws.key, daily({ labels: ["ops", "run", "gone"] }));
+    const other = initWorkspace(me.db, { path: "/tmp/repos/web" }).workspace;
+    const o = addRecurringIssue(me, other.key, daily({ labels: ["ops"] }));
+    updateWorkspaceLabel(me, ws.key, "ops", { name: "run" });
+    expect(getRecurringIssue(me.db, ws.key, r.id).labels).toEqual(["run", "gone"]);
+    expect(getRecurringIssue(me.db, other.key, o.id).labels).toEqual(["ops"]);
+    removeWorkspaceLabel(me, ws.key, "gone");
+    expect(getRecurringIssue(me.db, ws.key, r.id).labels).toEqual(["run", "gone"]);
   });
 });

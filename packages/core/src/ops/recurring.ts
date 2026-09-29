@@ -133,10 +133,16 @@ function nextOccurrence(rule: Rule, from: number): number {
   return d;
 }
 
-function toRecurring(workspace: Workspace, row: RecurringRow, at: Date): RecurringIssue {
+// 次に起票する発生日。まだ起票していない過去の発生日があれば、実行で作るその最新日を返す
+function upcomingOccurrence(row: RecurringRow, at: Date): number {
+  const due = dueOccurrence(row, at);
+  if (due) return due.day;
   const rule: Rule = { cadence: row.cadence, weekday: row.weekday, monthDay: row.month_day };
   const lastDay = row.last_occurrence === null ? null : dayOf(row.last_occurrence);
-  const from = Math.max(dayOf(row.start_date)!, lastDay === null ? -Infinity : lastDay + 1, todayIn(row.time_zone, at));
+  return nextOccurrence(rule, Math.max(dayOf(row.start_date)!, lastDay === null ? -Infinity : lastDay + 1, todayIn(row.time_zone, at)));
+}
+
+function toRecurring(workspace: Workspace, row: RecurringRow, at: Date): RecurringIssue {
   return {
     id: row.id,
     workspaceKey: workspace.key,
@@ -155,7 +161,7 @@ function toRecurring(workspace: Workspace, row: RecurringRow, at: Date): Recurri
     enabled: row.enabled === 1,
     lastOccurrence: row.last_occurrence,
     lastIssueId: row.last_issue_number === null ? null : formatIssueId(workspace.key, row.last_issue_number),
-    nextOccurrence: row.enabled === 1 ? formatDay(nextOccurrence(rule, from)) : null,
+    nextOccurrence: row.enabled === 1 ? formatDay(upcomingOccurrence(row, at)) : null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedBy: row.updated_by,
@@ -199,8 +205,9 @@ interface Normalized {
   enabled: boolean;
 }
 
-// 保存する値をそろえて検証する。周期で使わない曜日・日は null にする
-function normalize(db: Database, input: Normalized & { projectRef?: string | null }): Normalized {
+// 保存する値をそろえて検証する。周期で使わない曜日・日は null にする。
+// テンプレートの存在は checkTemplate のときだけ確かめる（消えたテンプレートのままでも停止・編集できるように）
+function normalize(db: Database, input: Normalized, checkTemplate: boolean): Normalized {
   requireText(input.title, "タイトル");
   if (!RECURRENCE_CADENCES.includes(input.cadence)) {
     throw invalid(`周期は ${RECURRENCE_CADENCES.join(" / ")} のどれかで指定してください（${input.cadence}）`);
@@ -227,7 +234,7 @@ function normalize(db: Database, input: Normalized & { projectRef?: string | nul
   if (input.template !== null && input.description !== null) {
     throw invalid("本文とテンプレートは同時に指定できません");
   }
-  if (input.template !== null) getTemplate(db, input.template);
+  if (checkTemplate && input.template !== null) getTemplate(db, input.template);
   const labels = [...new Set(input.labels.map((l) => l.trim()))];
   if (labels.some((l) => !l)) throw invalid("空のラベルは指定できません");
   const assignee = input.assignee === null ? null : input.assignee.trim() || null;
@@ -253,7 +260,7 @@ export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: Recurrin
       startDate: input.startDate,
       timeZone: input.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       enabled: input.enabled ?? true,
-    });
+    }, true);
     const ts = now();
     const { lastInsertRowid } = ctx.db
       .query(
@@ -303,7 +310,7 @@ export function updateRecurringIssue(
       startDate: patch.startDate ?? row.start_date,
       timeZone: patch.timeZone ?? row.time_zone,
       enabled: patch.enabled ?? row.enabled === 1,
-    });
+    }, template !== null && template !== row.template);
     ctx.db
       .query(
         `UPDATE recurring_issues SET title = ?, description = ?, template = ?, project_id = ?, labels = ?, priority = ?, assignee = ?,
@@ -329,8 +336,6 @@ export function removeRecurringIssue(ctx: OpCtx, keyOrPath: string, id: number):
   });
 }
 
-type RunOutcome = { item: RecurringRunItem; failed?: never } | { failed: RecurringRun["failed"][number]; item?: never };
-
 // 起票すべき最新の発生日と、それより前に飛ばす発生日の数。無ければ null
 function dueOccurrence(row: RecurringRow, at: Date): { day: number; skipped: number } | null {
   const rule: Rule = { cadence: row.cadence, weekday: row.weekday, monthDay: row.month_day };
@@ -342,7 +347,7 @@ function dueOccurrence(row: RecurringRow, at: Date): { day: number; skipped: num
 
 // 有効な定期Issueのうち、発生日が来ているものを1件ずつ起票する。
 // 起票は通常の起票と同じ経路（人なら todo）で行い、created event に recurring_id と発生日を残す。
-// テンプレートが消えているなどで起票できないものは failed に入れて、他の定期Issueは続ける
+// テンプレートが消えている・途中でルールが消されたなどで起票できないものは failed に入れて、他の定期Issueは続ける
 export function runRecurringIssues(
   ctx: OpCtx,
   keyOrPath: string,
@@ -353,46 +358,49 @@ export function runRecurringIssues(
   const at = opts.now ?? new Date();
   const workspace = requireWorkspace(ctx.db, keyOrPath);
   const result: RecurringRun = { workspaceKey: workspace.key, dryRun, evaluatedAt: at.toISOString(), items: [], failed: [] };
-  for (const { id } of rows(ctx.db, workspace).filter((r) => r.enabled === 1)) {
-    const outcome = tx(ctx.db, (): RunOutcome | null => {
-      // 同時に実行されても同じ発生日を二重に作らないよう、transaction の中で読み直す
-      const row = requireRow(ctx.db, workspace, id);
-      const due = dueOccurrence(row, at);
-      if (!due) return null;
-      const base = { recurringId: row.id, title: row.title, occurrence: formatDay(due.day), skipped: due.skipped };
-      let description = row.description;
-      if (row.template !== null) {
-        try {
-          description = getTemplate(ctx.db, row.template).body;
-        } catch (e) {
-          if (!(e instanceof NodError)) throw e;
-          return { failed: { recurringId: row.id, title: row.title, occurrence: base.occurrence, message: e.message } };
-        }
-      }
-      if (dryRun) return { item: { ...base, issueId: null } };
-      const issue = insertIssue(ctx, {
-        workspaceId: workspace.id,
-        title: row.title,
-        description,
-        priority: row.priority,
-        estimate: null,
-        dueDate: null,
-        parentId: null,
-        projectId: row.project_id,
-        labels: JSON.parse(row.labels) as string[],
-        assignee: row.assignee,
-        origin: { recurring_id: row.id, occurrence: base.occurrence },
+  for (const listed of rows(ctx.db, workspace).filter((r) => r.enabled === 1)) {
+    let occurrence: string | null = null;
+    try {
+      const item = tx(ctx.db, (): RecurringRunItem | null => {
+        // 同時に実行されても同じ発生日を二重に作らないよう、transaction の中で読み直す
+        const row = requireRow(ctx.db, workspace, listed.id);
+        const due = dueOccurrence(row, at);
+        if (!due) return null;
+        occurrence = formatDay(due.day);
+        const base = { recurringId: row.id, title: row.title, occurrence, skipped: due.skipped };
+        const description = row.template === null ? row.description : getTemplate(ctx.db, row.template).body;
+        if (dryRun) return { ...base, issueId: null };
+        const issue = insertIssue(ctx, {
+          workspaceId: workspace.id,
+          title: row.title,
+          description,
+          priority: row.priority,
+          estimate: null,
+          dueDate: null,
+          parentId: null,
+          projectId: row.project_id,
+          labels: JSON.parse(row.labels) as string[],
+          assignee: row.assignee,
+          origin: { recurring_id: row.id, occurrence },
+        });
+        const { id: issueRowId } = ctx.db
+          .query("SELECT id FROM issues WHERE workspace_id = ? AND number = ?")
+          .get(workspace.id, issue.number) as { id: number };
+        ctx.db
+          .query("INSERT INTO recurring_issue_occurrences (recurring_id, occurrence_date, issue_id, created_at) VALUES (?, ?, ?, ?)")
+          .run(row.id, occurrence, issueRowId, now());
+        return { ...base, issueId: issue.id };
       });
-      const { id: issueRowId } = ctx.db
-        .query("SELECT id FROM issues WHERE workspace_id = ? AND number = ?")
-        .get(workspace.id, issue.number) as { id: number };
-      ctx.db
-        .query("INSERT INTO recurring_issue_occurrences (recurring_id, occurrence_date, issue_id, created_at) VALUES (?, ?, ?, ?)")
-        .run(row.id, base.occurrence, issueRowId, now());
-      return { item: { ...base, issueId: issue.id } };
-    });
-    if (outcome?.item) result.items.push(outcome.item);
-    if (outcome?.failed) result.failed.push(outcome.failed);
+      if (item) result.items.push(item);
+    } catch (e) {
+      if (!(e instanceof NodError)) throw e;
+      // 読み直す前に消された場合は、一覧で読んだ時点の発生日で報告する
+      const day = occurrence ?? (() => {
+        const due = dueOccurrence(listed, at);
+        return due ? formatDay(due.day) : null;
+      })();
+      if (day !== null) result.failed.push({ recurringId: listed.id, title: listed.title, occurrence: day, message: e.message });
+    }
   }
   return result;
 }

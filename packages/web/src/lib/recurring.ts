@@ -25,9 +25,11 @@ export function formatNext(date: string | null): string {
 }
 
 export function runToast(run: RecurringRun): string {
-  if (run.items.length === 0) return "起票する定期Issueはありませんでした";
+  const failed = run.failed.length;
+  if (run.items.length === 0) return failed ? `起票できませんでした（失敗 ${failed}件）` : "起票する定期Issueはありませんでした";
   const skipped = run.items.reduce((sum, i) => sum + i.skipped, 0);
-  return `${run.items.length}件を起票しました${skipped ? `（スキップ ${skipped}件）` : ""}`;
+  const notes = [skipped ? `スキップ ${skipped}件` : "", failed ? `失敗 ${failed}件` : ""].filter(Boolean);
+  return `${run.items.length}件を起票しました${notes.length ? `（${notes.join("・")}）` : ""}`;
 }
 
 // 起票できなかった定期Issue。テンプレート名は一覧から引く（消えたテンプレートの名前を見せるため）
