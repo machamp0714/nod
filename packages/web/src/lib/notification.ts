@@ -47,6 +47,10 @@ export function describeNotification(n: Notification, opts: { short?: boolean; s
       if (to === "error") return `${agent} がエラーで止まりました（エラー）${quote(d.reason)}`;
       return `${agent} ${n.eventType}`;
     }
+    case "reminder": {
+      const note = (n.data as { note?: unknown }).note;
+      return typeof note === "string" && note ? `リマインダー：${note}` : "リマインダーの時刻です";
+    }
     default:
       return `${who} ${n.eventType}`;
   }
@@ -139,7 +143,12 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 // いちばん早く期限が来るスヌーズまでの待ち時間（ms）。server の時計とのずれを見込んで margin だけ遅らせ、
 // 期限を過ぎていても margin は待つ（server がまだスヌーズ中と返しても読み直しを繰り返し過ぎない）。スヌーズ中がなければ null
 export function nextSnoozeExpiry(list: readonly Notification[], now: number = Date.now(), margin = 1000): number | null {
-  const times = list.flatMap((x) => (x.snoozedUntil ? [Date.parse(x.snoozedUntil)] : [])).filter((t) => !Number.isNaN(t));
+  return nextDelay(list.flatMap((x) => (x.snoozedUntil ? [x.snoozedUntil] : [])), now, margin);
+}
+
+// いちばん早い日時（ISO）までの待ち時間（ms）。考え方は nextSnoozeExpiry と同じ。リマインダーの期限（#47）にも使う
+export function nextDelay(isoTimes: readonly string[], now: number = Date.now(), margin = 1000): number | null {
+  const times = isoTimes.map((x) => Date.parse(x)).filter((t) => !Number.isNaN(t));
   if (times.length === 0) return null;
   return Math.min(Math.max(Math.min(...times) - now, 0) + margin, MAX_TIMER_MS);
 }

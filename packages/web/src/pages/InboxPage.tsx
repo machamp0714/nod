@@ -1,7 +1,7 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
-import { useNotificationAction, useNotifications, useSnoozeExpiry } from "../api/hooks/notifications";
+import { useNotificationAction, useNotifications, useReminderExpiry, useSnoozeExpiry } from "../api/hooks/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { InboxQuestion } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
@@ -24,6 +24,7 @@ export function InboxPage() {
   const pending = useInbox();
   const unread = useNotifications();
   useSnoozeExpiry();
+  useReminderExpiry();
   const tabs = (
     <div className={d.tabs}><Segmented<InboxTab> label="Inboxの表示" value={tab}
       items={[

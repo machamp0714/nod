@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { nextSnoozeExpiry } from "../../lib/notification";
-import { fetchNotifications, type NotificationAction, postNotification } from "../notifications";
+import { nextDelay, nextSnoozeExpiry } from "../../lib/notification";
+import { fetchNotifications, fetchReminders, type NotificationAction, postNotification } from "../notifications";
 import { queryKeys } from "../query-keys";
 import { useApiMutation } from "./shared";
 
@@ -27,4 +27,22 @@ export function useSnoozeExpiry() {
     const timer = setTimeout(() => void queryClient.invalidateQueries({ queryKey: queryKeys.notifications() }), delay);
     return () => clearTimeout(timer);
   }, [snoozed.data, snoozed.dataUpdatedAt, queryClient]);
+}
+
+// まだ届いていないリマインダー（#47）
+export function useReminders() {
+  return useQuery({ queryKey: queryKeys.reminders(), queryFn: () => fetchReminders() });
+}
+
+// リマインダーの期限が来たら通知を読み直す。server は通知の取得時に期限が来たものを通知に変える。
+// 通知のキー（["notifications"]）の下にリマインダーの一覧もあるので、一緒に読み直して次の期限を決め直す
+export function useReminderExpiry() {
+  const queryClient = useQueryClient();
+  const reminders = useReminders();
+  useEffect(() => {
+    const delay = nextDelay((reminders.data ?? []).map((r) => r.remindAt));
+    if (delay === null) return;
+    const timer = setTimeout(() => void queryClient.invalidateQueries({ queryKey: queryKeys.notifications() }), delay);
+    return () => clearTimeout(timer);
+  }, [reminders.data, reminders.dataUpdatedAt, queryClient]);
 }

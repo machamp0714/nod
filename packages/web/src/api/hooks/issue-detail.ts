@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath, queryKeys } from "../query-keys";
-import type { DocKind, DocumentRef, AskResult, IssueAttachment, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
+import type { DocKind, DocumentRef, AskResult, IssueAttachment, Comment, Issue, ProjectSummary, Question, Reminder, UpdateIssueInput } from "../types";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
@@ -51,3 +51,14 @@ export const useAddAttachmentLink = (id: string) =>
 export const useRemoveAttachment = (id: string) =>
   useApiMutation((attachmentId: number) =>
     apiFetch<{ removed: number }>(issuePath(id, `attachments/${attachmentId}`), { method: "DELETE" }));
+
+// リマインダー（#47）。at は ISO の日時
+export const useSetReminder = (id: string) => useIssueOperation<{ at: string; note?: string | null }, Reminder>(id, "remind");
+export const useClearReminder = (id: string) => useIssueOperation<Record<string, never>, { issueId: string; cleared: boolean }>(id, "unremind");
+
+// PropertiesPanel の onRemind。null で解除する
+export function useRemind(id: string): (input: { at: string; note: string | null } | null) => Promise<unknown> {
+  const set = useSetReminder(id);
+  const clear = useClearReminder(id);
+  return (input) => (input ? set.mutateAsync(input) : clear.mutateAsync({}));
+}
