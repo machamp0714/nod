@@ -5,6 +5,8 @@ import type { IssueQuery } from "./types";
 export const queryKeys = {
   workspaces: () => ["workspaces"] as const,
   workspaceRules: (key: string) => ["workspaces", "rules", key] as const,
+  workspaceLabels: (key: string) => ["workspaces", "labels", key] as const,
+  statusNames: () => ["workspaces", "status-names"] as const,
   issueList: (query: IssueQuery) => ["issues", "list", query] as const,
   issue: (id: string) => ["issues", "detail", id] as const,
   inbox: () => ["inbox"] as const,

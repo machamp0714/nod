@@ -74,7 +74,7 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
       <div className={d.crumb}>
         <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
         <span className={d.id}>{issue.id}</span>
-        <StatusLabel status={issue.status} />
+        <StatusLabel status={issue.status} workspace={issue.workspace} />
       </div>
       <h2 className={d.title}>{issue.title}</h2>
 

@@ -84,13 +84,13 @@ export interface RowGroup {
 }
 
 // 1行が属するグループ（キー、見出し、並び順）。ラベルは複数のグループに属する
-function groupEntries(row: IssueListRow, by: IssueGroupKey): { key: string; label: string; rank: number | string }[] {
+function groupEntries(row: IssueListRow, by: IssueGroupKey, nameOfStatus: (status: Status) => string): { key: string; label: string; rank: number | string }[] {
   const { issue } = row;
   switch (by) {
     case "workspace":
       return [{ key: issue.workspace, label: issue.workspace, rank: issue.workspace }];
     case "status":
-      return [{ key: issue.status, label: STATUS_META[issue.status].label, rank: STATUS_ORDER.indexOf(issue.status) }];
+      return [{ key: issue.status, label: nameOfStatus(issue.status), rank: STATUS_ORDER.indexOf(issue.status) }];
     case "priority":
       return [{ key: String(issue.priority), label: priorityMeta(issue.priority).label, rank: priorityRank(issue.priority) }];
     case "project":
@@ -104,10 +104,16 @@ function groupEntries(row: IssueListRow, by: IssueGroupKey): { key: string; labe
 
 // 表示中の行をプロパティで分ける。行があるグループだけを返し、グループ内は入力の並び順を保つ。
 // 値なしのグループ（Projectなし、未割り当て、ラベルなし）は最後に置く。
-export function groupRows(rows: readonly IssueListRow[], by: IssueGroupKey, subBy?: IssueGroupKey): RowGroup[] {
+// nameOfStatus は Status の見出しに Workspace の表示名を使うときに渡す
+export function groupRows(
+  rows: readonly IssueListRow[],
+  by: IssueGroupKey,
+  subBy?: IssueGroupKey,
+  nameOfStatus: (status: Status) => string = (status) => STATUS_META[status].label,
+): RowGroup[] {
   const groups = new Map<string, RowGroup & { rank: number | string }>();
   for (const row of rows) {
-    for (const entry of groupEntries(row, by)) {
+    for (const entry of groupEntries(row, by, nameOfStatus)) {
       let group = groups.get(entry.key);
       if (!group) {
         group = { key: entry.key, label: entry.label, rank: entry.rank, rows: [] };
@@ -123,7 +129,7 @@ export function groupRows(rows: readonly IssueListRow[], by: IssueGroupKey, subB
       if (typeof a.rank === "number" && typeof b.rank === "number") return a.rank - b.rank;
       return String(a.rank).localeCompare(String(b.rank), "ja", { numeric: true }) || a.key.localeCompare(b.key);
     })
-    .map(({ rank: _rank, ...group }) => (subBy && subBy !== by ? { ...group, subgroups: groupRows(group.rows, subBy) } : group));
+    .map(({ rank: _rank, ...group }) => (subBy && subBy !== by ? { ...group, subgroups: groupRows(group.rows, subBy, undefined, nameOfStatus) } : group));
 }
 
 // 画面に適用するグループ化。Board は列が Status なので Status のグループ化を無効にし、サブグループはリストだけで使う

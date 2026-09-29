@@ -44,8 +44,12 @@ export const STATUS_META: Record<Status, Meta> = {
   canceled: { label: "Canceled", icon: "circle-x", tone: "muted" },
 };
 
+export function isStatus(value: unknown): value is Status {
+  return (STATUS_ORDER as readonly unknown[]).includes(value);
+}
+
 export function statusLabel(value: unknown): string {
-  return (STATUS_ORDER as readonly unknown[]).includes(value) ? STATUS_META[value as Status].label : String(value);
+  return isStatus(value) ? STATUS_META[value].label : String(value);
 }
 
 const NO_PRIORITY: Meta = { label: "No priority", icon: "minus", tone: "muted" };

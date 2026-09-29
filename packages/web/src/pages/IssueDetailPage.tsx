@@ -33,6 +33,8 @@ import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { formatDateTime } from "../lib/format";
 import { STATUS_META } from "../lib/meta";
+import { useStatusNames } from "../api/hooks/workspace-labels";
+import { statusName } from "../lib/workspace-labels";
 import { NotFoundMessage } from "./NotFoundPage";
 
 const route = getRouteApi("/issues/$issueId");
@@ -73,6 +75,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const navigate = useNavigate();
   const removeDocument = useRemoveDocument(issue.id);
   const status = STATUS_META[issue.status];
+  const statusNames = useStatusNames();
   return (
     <div className={s.page}>
       <header className={s.topBar}>
@@ -115,7 +118,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           {issue.archivedAt !== null && <ArchivedBanner archivedAt={issue.archivedAt} onRestore={() => unarchive.mutateAsync({})} />}
           <div className={s.chips} role="group" aria-label="状態">
             <Pill tone={status.tone} icon={status.icon}>
-              {status.label}
+              {statusName(issue.status, statusNames.data, issue.workspace)}
             </Pill>
             {issue.agentState && <AgentStatePill state={issue.agentState} />}
           </div>
@@ -135,6 +138,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <SubIssuesSection issues={issue.children} />
           <ActivitySection
             readOnly={readOnly}
+            workspace={issue.workspace}
             activity={issue.activity}
             onComment={(body) => comment.mutateAsync({ body })}
             onReply={(parentId, body) => comment.mutateAsync({ body, parentId })}

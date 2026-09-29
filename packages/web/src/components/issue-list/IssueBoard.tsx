@@ -16,11 +16,18 @@ const COLUMN_DESCRIPTIONS: Partial<Record<IssueListRow["issue"]["status"], strin
   done: "完了した Issue",
 };
 
-export function IssueBoard({ rows }: { rows: IssueListRow[] }) {
+// nameOfStatus は列見出しに Workspace の表示名を使うときに渡す
+export function IssueBoard({
+  rows,
+  nameOfStatus = (status) => STATUS_META[status].label,
+}: {
+  rows: IssueListRow[];
+  nameOfStatus?: (status: IssueListRow["issue"]["status"]) => string;
+}) {
   return (
     <div className={s.board}>
       {groupForBoard(rows).map((column) => {
-        const label = STATUS_META[column.status].label;
+        const label = nameOfStatus(column.status);
         return (
           <section key={column.status} className={s.column} aria-label={label}>
             <header className={s.columnHead}>

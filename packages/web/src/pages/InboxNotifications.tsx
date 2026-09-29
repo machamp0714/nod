@@ -20,6 +20,7 @@ import {
   snoozePresets,
   unreadToMark,
 } from "../lib/notification";
+import { useStatusNames } from "../api/hooks/workspace-labels";
 import d from "./decision.module.css";
 import n from "./notifications.module.css";
 
@@ -51,6 +52,7 @@ export function SnoozeFilter({ view, snoozedCount, onChange }: { view: Notificat
 }
 
 export function NotificationList({ groups, current, workspaceName, view }: { groups: NotificationGroup[]; current: NotificationGroup | undefined; workspaceName: (key: string) => string; view: NotificationView }) {
+  const statusNames = useStatusNames();
   if (groups.length === 0) {
     return <QueueEmpty>{view === "snoozed" ? "スヌーズ中の通知はありません" : "通知はありません。Issue を購読すると変化が、LLM に任せた Issue は完了・入力待ち・エラーがここに届きます"}</QueueEmpty>;
   }
@@ -67,7 +69,7 @@ export function NotificationList({ groups, current, workspaceName, view }: { gro
         </div>
         <div className={n.rowSummary}>
           <AgentAvatar actor={group.latest.actor} size={16} />
-          <span className={n.rowSummaryText}>{groupSummary(group)}</span>
+          <span className={n.rowSummaryText}>{groupSummary(group, statusNames.data)}</span>
         </div>
         <div className={n.rowMeta}>
           {until && <span className={n.snoozeUntil}><Clock3 size={12} aria-hidden="true" />{formatSnoozeUntil(until)}</span>}
@@ -120,7 +122,7 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
       <div className={d.crumb}>
         <WorkspaceBadge workspaceKey={group.workspace} name={workspaceName} />
         <span className={d.id}>{group.issueId}</span>
-        {detail.data && <><span aria-hidden="true">·</span><StatusLabel status={detail.data.status} /></>}
+        {detail.data && <><span aria-hidden="true">·</span><StatusLabel status={detail.data.status} workspace={group.workspace} /></>}
       </div>
       <h2 className={d.title}>{group.issueTitle}</h2>
       {view === "snoozed" ? (
@@ -171,6 +173,7 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
 }
 
 function NotificationSection({ title, items, unread }: { title: string; items: Notification[]; unread: boolean }) {
+  const statusNames = useStatusNames();
   return (
     <>
       <h3 className={n.sectionTitle}>{title}</h3>
@@ -179,7 +182,7 @@ function NotificationSection({ title, items, unread }: { title: string; items: N
           <li key={item.id} className={n.item} data-unread={unread}>
             <span className={n.dot} data-unread={unread} aria-hidden="true" />
             <AgentAvatar actor={item.actor} />
-            <span className={n.itemText}>{describeNotification(item)}</span>
+            <span className={n.itemText}>{describeNotification(item, { statusNames: statusNames.data })}</span>
             <span className={n.itemTime}>{formatRelative(item.createdAt)}</span>
           </li>
         ))}

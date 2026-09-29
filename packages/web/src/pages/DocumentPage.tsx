@@ -5,6 +5,7 @@ import { useDocument, useDocumentsRoot, useLinkDocument, useUnlinkDocument } fro
 import type { DocumentDetail } from "../api/types";
 import { Markdown } from "../components/markdown/Markdown";
 import { Button, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, StatusLabel } from "../components/ui";
+import { workspaceOfIssueId } from "../lib/workspace-labels";
 import { displayPath, documentDate, KIND_LABELS, KIND_TONES, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "../lib/document";
 import s from "./document.module.css";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -62,7 +63,7 @@ function LinkedIssues({ doc }: { doc: DocumentDetail }) {
               </Link>
               {issue.archived && <Pill tone="muted">アーカイブ済み</Pill>}
               <span className={s.issueStatus}>
-                <StatusLabel status={issue.status} />
+                <StatusLabel status={issue.status} workspace={workspaceOfIssueId(issue.id)} />
               </span>
               {/* アーカイブ済みの Issue とのリンクはサーバーが 409 で拒むため、先に止める */}
               <button

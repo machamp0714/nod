@@ -50,7 +50,8 @@ function withReason(text: string, data: Record<string, unknown>): string {
 }
 
 // spec：書き手はすべての行に残るため、「me が受け入れた」「claude-code が確認を求めた」のように表示する。
-export function describeActivity(item: ActivityItem): ActivityLine {
+// nameOfStatus は Workspace の表示名を使うときに渡す。既定は spec の表示ラベル
+export function describeActivity(item: ActivityItem, nameOfStatus: (value: unknown) => string = statusLabel): ActivityLine {
   if (item.kind === "comment") return { icon: "message-square", text: `${item.actor}：${item.body}` };
   if (item.kind === "question") {
     return item.answer === null
@@ -68,7 +69,7 @@ export function describeActivity(item: ActivityItem): ActivityLine {
     case "unarchived":
       return { icon: "archive-restore", text: `${actor} がアーカイブから復元した` };
     case "status_changed":
-      return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${statusLabel(data.from)} から ${statusLabel(data.to)} に変えた`, data) };
+      return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${nameOfStatus(data.from)} から ${nameOfStatus(data.to)} に変えた`, data) };
     case "priority_changed":
       return { icon: "signal-high", text: `${actor} が優先度を ${priorityLabel(data.from)} から ${priorityLabel(data.to)} に変えた` };
     case "estimate_changed":

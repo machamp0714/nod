@@ -6,6 +6,8 @@ import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTa
 import { AgentAvatar, Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
 import { AgentStateDot } from "./AgentStateDot";
 import { IssueBoard } from "./IssueBoard";
+import { useStatusNames } from "../../api/hooks/workspace-labels";
+import { singleWorkspace, statusName } from "../../lib/workspace-labels";
 import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
@@ -23,6 +25,8 @@ export interface IssueListProps {
   error?: string | null;
   search: IssueListSearch;
   onSearchChange: (patch: IssueListSearch) => void;
+  // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
+  statusWorkspace?: string | null;
 }
 
 // spec の Issue 一覧：見出し、件数カード、タブ、検索、リストとカンバンの切り替え。
@@ -38,7 +42,11 @@ export function IssueList({
   error = null,
   search,
   onSearchChange,
+  statusWorkspace,
 }: IssueListProps) {
+  const statusNames = useStatusNames();
+  const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
+  const nameOfStatus = (status: Status) => statusName(status, statusNames.data, namesWorkspace);
   const tab = search.tab ?? "all";
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
@@ -51,7 +59,7 @@ export function IssueList({
   const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
-    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy)
+    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus)
     : [];
   // プレビューを閉じたら、開いた要素（なければその行のリンク）へフォーカスを戻す
   const opener = useRef<HTMLElement | null>(null);
@@ -108,7 +116,7 @@ export function IssueList({
           onClick={() => toggle("ready")}
         />
         <CountCard
-          label="Needs Clarification"
+          label={nameOfStatus("needs_clarification")}
           description="未決事項が残っている Issue"
           count={counts.needsClarification}
           tone="ask"
@@ -126,7 +134,7 @@ export function IssueList({
           items={[
             { value: "all", label: `All ${counts.all}` },
             { value: "ready", label: `Ready ${counts.ready}` },
-            { value: "needs_clarification", label: `Needs Clarification ${counts.needsClarification}` },
+            { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
             { value: "delegated", label: `委任中 ${counts.delegated}` },
           ]}
         />
@@ -240,7 +248,7 @@ export function IssueList({
           groups.map((group) => (
             <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
               <GroupHeading by={groupBy} group={group} delegated={delegated} />
-              {layout === "board" ? <IssueBoard rows={group.rows} /> : group.subgroups && subGroupBy ? (
+              {layout === "board" ? <IssueBoard rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
                 group.subgroups.map((subgroup) => (
                   <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
                     <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
@@ -254,7 +262,7 @@ export function IssueList({
       ) : layout === "list" ? (
         table(visible)
       ) : (
-        <IssueBoard rows={visible} />
+        <IssueBoard rows={visible} nameOfStatus={nameOfStatus} />
       )}
     </div>
     {preview && (

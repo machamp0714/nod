@@ -1,16 +1,18 @@
-import type { Notification, Status } from "../api/types";
+import type { Notification } from "../api/types";
 import { formatEstimate } from "./due-date";
-import { priorityMeta, STATUS_META } from "./meta";
+import { isStatus, priorityMeta } from "./meta";
+import { statusName, type StatusNamesByWorkspace } from "./workspace-labels";
 
 // 通知1件の文。short は一覧の行で使い、コメント本文や理由を省く
-export function describeNotification(n: Notification, opts: { short?: boolean } = {}): string {
+// statusNames を渡すと、ステータスを通知の Issue の Workspace の表示名で書く
+export function describeNotification(n: Notification, opts: { short?: boolean; statusNames?: StatusNamesByWorkspace } = {}): string {
   const d = n.data as { from?: unknown; to?: unknown; agent?: unknown; added?: string[]; removed?: string[]; reason?: string };
   const quote = (text: string | null | undefined) => (text && !opts.short ? `：「${text}」` : "");
   const to = d.to === null || d.to === undefined || d.to === "" ? null : d.to;
   const who = n.actor;
   switch (n.eventType) {
     case "status_changed":
-      return `${who} がステータスを ${STATUS_META[to as Status]?.label ?? String(to)} に変更しました`;
+      return `${who} がステータスを ${isStatus(to) ? statusName(to, opts.statusNames, n.workspace) : String(to)} に変更しました`;
     case "priority_changed":
       return `${who} が優先度を ${priorityMeta(Number(to ?? 0)).label} に変更しました`;
     case "estimate_changed":
@@ -76,9 +78,9 @@ export function groupNotifications(list: readonly Notification[]): NotificationG
 }
 
 // 一覧の行の要約。「claude-code がコメントしました ほか 2 件」
-export function groupSummary(group: NotificationGroup): string {
+export function groupSummary(group: NotificationGroup, statusNames?: StatusNamesByWorkspace): string {
   const rest = group.notifications.length - 1;
-  return `${describeNotification(group.latest, { short: true })}${rest > 0 ? ` ほか ${rest} 件` : ""}`;
+  return `${describeNotification(group.latest, { short: true, statusNames })}${rest > 0 ? ` ほか ${rest} 件` : ""}`;
 }
 
 // 開いている Issue の通知を既読にするかどうか。markedUpTo は、これまでに既読にした時点の最新の未読 id。
