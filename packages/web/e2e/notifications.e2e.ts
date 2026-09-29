@@ -62,3 +62,22 @@ test("購読した Issue がないときは通知タブに案内を出す", asyn
   await page.goto("/inbox?tab=notifications");
   await expect(list(page).getByText("通知はありません。Issue を購読すると、変化がここに届きます")).toBeVisible();
 });
+
+test("開いている Issue に新しい通知が届いたら、それも既読にして未読の欄に出す", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await nod.me.subscribeIssue(a.id);
+  const root = await nod.claude.commentIssue(a.id, "最初のコメント");
+
+  await page.goto("/inbox?tab=notifications");
+  await list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ }).click();
+  await expect(page).toHaveURL(new RegExp(`selected=${a.id}`));
+  await expect.poll(async () => (await nod.me.listNotifications({})).length).toBe(0);
+
+  // 開いたままの間に届いた通知も既読になり、画面では未読の欄に並ぶ
+  await nod.claude.commentIssue(a.id, "スレッドへの返信", { replyTo: root.id });
+  await expect(timeline(page).getByText("claude-code がコメントしました：「スレッドへの返信」")).toBeVisible();
+  await expect.poll(async () => (await nod.me.listNotifications({})).length).toBe(0);
+  await expect(timeline(page).getByRole("heading", { name: "未読 2" })).toBeVisible();
+  await expect(tabs(page).getByRole("tab", { name: /通知/ })).not.toContainText(/\d/);
+});

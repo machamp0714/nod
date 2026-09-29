@@ -67,3 +67,10 @@ export function groupSummary(group: NotificationGroup): string {
   const rest = group.notifications.length - 1;
   return `${describeNotification(group.latest, { short: true })}${rest > 0 ? ` ほか ${rest} 件` : ""}`;
 }
+
+// 開いている Issue の通知を既読にするかどうか。markedUpTo は、これまでに既読にした時点の最新の未読 id。
+// それより新しい未読が届いたら（開いたままの間に来た通知も）その id を返し、なければ null
+export function unreadToMark(group: NotificationGroup, markedUpTo: number): number | null {
+  const latest = group.notifications.reduce((max, x) => (x.readAt === null && x.id > max ? x.id : max), 0);
+  return latest > markedUpTo ? latest : null;
+}

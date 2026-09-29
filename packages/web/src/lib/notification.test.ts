@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Notification } from "../api/types";
-import { describeNotification, groupNotifications, groupSummary } from "./notification";
+import { describeNotification, groupNotifications, groupSummary, unreadToMark } from "./notification";
 
 const n = (over: Partial<Notification>): Notification => ({
   id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "検索", workspace: "API", eventType: "comment_added",
@@ -36,5 +36,19 @@ describe("groupNotifications", () => {
     expect(groups[1]?.latest.id).toBe(2);
     expect(groupSummary(groups[1]!)).toBe("codex がコメントしました ほか 1 件");
     expect(groupSummary(groups[0]!)).toBe("codex がコメントしました");
+  });
+});
+
+describe("unreadToMark", () => {
+  const group = (items: Notification[]) => groupNotifications(items)[0]!;
+
+  test("まだ既読にしていない未読のうち最新の id を返し、なければ null", () => {
+    expect(unreadToMark(group([n({ id: 3 }), n({ id: 2, readAt: "x" })]), 0)).toBe(3);
+    expect(unreadToMark(group([n({ id: 3, readAt: "x" })]), 0)).toBeNull();
+  });
+
+  test("既読にした後に同じ Issue へ新しい通知が届いたら、その id を返す", () => {
+    expect(unreadToMark(group([n({ id: 3 })]), 3)).toBeNull();
+    expect(unreadToMark(group([n({ id: 5, createdAt: "2026-09-29T11:00:00.000Z" }), n({ id: 3 })]), 3)).toBe(5);
   });
 });

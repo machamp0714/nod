@@ -7,7 +7,7 @@ import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty } from "../components/split/QueueItem";
 import { AgentAvatar, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
-import { describeNotification, groupNotifications, groupSummary, type NotificationGroup } from "../lib/notification";
+import { describeNotification, groupNotifications, groupSummary, type NotificationGroup, unreadToMark } from "../lib/notification";
 import d from "./decision.module.css";
 import n from "./notifications.module.css";
 
@@ -43,17 +43,21 @@ export function NotificationList({ groups, current, workspaceName }: { groups: N
   });
 }
 
-// 開いた（一覧で選んだ）Issue の通知は既読にする。開いた時点の未読は、この画面を離れるまで「未読」の欄に残す
+// 開いた（一覧で選んだ）Issue の通知は、開いている間に届いたものも既読にする。
+// 開いてから見た未読は、この画面を離れるまで「未読」の欄に残す
 export function NotificationDetail({ group, workspaceName, opened }: { group: NotificationGroup; workspaceName: string; opened: boolean }) {
   const detail = useIssueDetail(group.issueId);
   const action = useNotificationAction();
-  const [seenUnread] = useState(() => new Set(group.notifications.filter((x) => x.readAt === null).map((x) => x.id)));
-  const marked = useRef(false);
+  const [seenUnread, setSeenUnread] = useState(() => new Set(group.notifications.filter((x) => x.readAt === null).map((x) => x.id)));
+  const markedUpTo = useRef(0);
+  const toMark = opened ? unreadToMark(group, markedUpTo.current) : null;
   useEffect(() => {
-    if (!opened || marked.current || group.unread === 0) return;
-    marked.current = true;
+    if (toMark === null || toMark <= markedUpTo.current) return;
+    markedUpTo.current = toMark;
+    const ids = group.notifications.filter((x) => x.readAt === null).map((x) => x.id);
+    setSeenUnread((prev) => new Set([...prev, ...ids]));
     action.mutate({ op: "read", issueId: group.issueId });
-  }, [opened, group.issueId, group.unread, action.mutate]);
+  }, [toMark, group, action.mutate]);
   const unread = group.notifications.filter((x) => x.readAt === null || seenUnread.has(x.id));
   const read = group.notifications.filter((x) => !unread.includes(x));
   const subscribed = detail.data?.subscribed;
