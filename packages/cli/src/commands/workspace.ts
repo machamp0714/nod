@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  addWorkspaceLabel,
   clearWorkspaceRules,
+  DEFAULT_STATUS_LABELS,
+  getStatusNames,
+  listWorkspaceLabels,
+  removeWorkspaceLabel,
+  setStatusNames,
+  STATUSES,
+  updateWorkspaceLabel,
   countIssues,
   findWorkspace,
   getWorkspaceRules,
@@ -107,6 +115,105 @@ export function registerWorkspaceCommands(program: Command): void {
         const workspace = currentWorkspace(cli, cmd);
         const r = clearWorkspaceRules(cli.ctx, workspace.key);
         print(cli, r, () => `${workspace.name} の作業規約を削除しました`);
+      }),
+    );
+
+  registerLabelCommands(ws);
+  registerStatusNameCommands(ws);
+}
+
+function registerLabelCommands(ws: Command): void {
+  const labels = ws
+    .command("labels")
+    .description("Workspace のラベル定義（名前・色・説明）を管理する。変更は人だけが行える。未定義のラベルも Issue に付けられる");
+  labels
+    .command("list")
+    .description("現在の Workspace のラベル定義を一覧する")
+    .action(
+      act((cli, cmd) => {
+        const list = listWorkspaceLabels(cli.db, currentWorkspace(cli, cmd).key);
+        print(cli, list, () =>
+          list.length
+            ? list.map((l) => `${l.name}  ${l.color}  ${l.issueCount}件${l.description ? `  ${l.description}` : ""}`).join("\n")
+            : "ラベルの定義はありません",
+        );
+      }),
+    );
+  labels
+    .command("add <name>")
+    .description("ラベルを定義する")
+    .requiredOption("--color <hex>", "色（#RRGGBB）")
+    .option("-d, --description <text>", "説明（200 文字まで）")
+    .action(
+      act((cli, cmd, name: string, o: { color: string; description?: string }) => {
+        const r = addWorkspaceLabel(cli.ctx, currentWorkspace(cli, cmd).key, { name, color: o.color, description: o.description });
+        print(cli, r, () => `ラベル ${r.name}（${r.color}）を定義しました`);
+      }),
+    );
+  labels
+    .command("update <name>")
+    .description("ラベルの定義を変更する。改名すると、この Workspace の Issue に付いたラベルも置き換える")
+    .option("--name <newName>", "新しい名前")
+    .option("--color <hex>", "色（#RRGGBB）")
+    .option("-d, --description <text>", "説明（空文字で消す）")
+    .action(
+      act((cli, cmd, name: string, o: { name?: string; color?: string; description?: string }) => {
+        if (o.name === undefined && o.color === undefined && o.description === undefined) {
+          throw new NodError("INVALID_ARGS", "--name、--color、--description のいずれかを指定してください");
+        }
+        const r = updateWorkspaceLabel(cli.ctx, currentWorkspace(cli, cmd).key, name, o);
+        print(cli, r, () => `ラベル ${r.name}（${r.color}）を更新しました`);
+      }),
+    );
+  labels
+    .command("remove <name>")
+    .description("ラベルの定義を削除する。Issue に付いたラベルは未定義のラベルとして残る")
+    .action(
+      act((cli, cmd, name: string) => {
+        const r = removeWorkspaceLabel(cli.ctx, currentWorkspace(cli, cmd).key, name);
+        print(cli, r, () => `ラベル ${r.name} の定義を削除しました（Issue のラベルは残ります）`);
+      }),
+    );
+}
+
+function registerStatusNameCommands(ws: Command): void {
+  const names = ws
+    .command("status-names")
+    .description("ステータスの表示名を管理する。内部値と状態の意味は変わらない。変更は人だけが行える");
+  names
+    .command("show")
+    .description("現在の Workspace のステータスの表示名を表示する")
+    .action(
+      act((cli, cmd) => {
+        const r = getStatusNames(cli.db, currentWorkspace(cli, cmd).key);
+        print(cli, r, () =>
+          STATUSES.map((s) => `${s.padEnd(20)}${r.names[s] ?? `${DEFAULT_STATUS_LABELS[s]}（既定）`}`).join("\n"),
+        );
+      }),
+    );
+  names
+    .command("set <status> <name>")
+    .description("1つのステータスの表示名を設定する（status は triage、todo などの内部値）")
+    .action(
+      act((cli, cmd, status: string, name: string) => {
+        const workspace = currentWorkspace(cli, cmd);
+        const current = getStatusNames(cli.db, workspace.key).names;
+        const r = setStatusNames(cli.ctx, workspace.key, { ...current, [status]: name });
+        print(cli, r, () => `${status} の表示名を「${r.names[status as keyof typeof r.names] ?? name}」にしました`);
+      }),
+    );
+  names
+    .command("reset [status]")
+    .description("表示名を既定に戻す。status を省略するとすべて戻す")
+    .action(
+      act((cli, cmd, status: string | undefined) => {
+        const workspace = currentWorkspace(cli, cmd);
+        const current = getStatusNames(cli.db, workspace.key).names;
+        if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
+          throw new NodError("INVALID_ARGS", `不明なステータスです: ${status}（${STATUSES.join(", ")} のいずれか）`);
+        }
+        const r = setStatusNames(cli.ctx, workspace.key, status === undefined ? {} : { ...current, [status]: null });
+        print(cli, r, () => (status === undefined ? "すべての表示名を既定に戻しました" : `${status} の表示名を既定に戻しました`));
       }),
     );
 }

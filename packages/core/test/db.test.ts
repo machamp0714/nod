@@ -41,6 +41,8 @@ describe("openDb", () => {
       "subscriptions",
       "templates",
       "views",
+      "workspace_labels",
+      "workspace_status_names",
       "workspaces",
     ]);
   });

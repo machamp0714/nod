@@ -8,6 +8,7 @@ import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
+import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
 import { registerViewRoutes } from "./routes/views";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
@@ -62,6 +63,7 @@ export function createApp(opts: AppOptions): Hono {
   registerProjectOps(app, me);
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
+  registerWorkspaceLabelRoutes(app, me);
   registerViewRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));

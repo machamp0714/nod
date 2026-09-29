@@ -4,6 +4,8 @@ export * from "./ctx";
 export * from "./types";
 export * from "./ops/workspaces";
 export * from "./ops/workspace-rules";
+export * from "./ops/workspace-labels";
+export * from "./status-names";
 export * from "./issue-query";
 export * from "./events";
 export * from "./mutate";

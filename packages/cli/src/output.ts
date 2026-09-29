@@ -1,5 +1,7 @@
 import {
   type ActivityItem,
+  DEFAULT_STATUS_LABELS,
+  type StatusNames,
   type AgentState,
   type Issue,
   type IssueDetail,
@@ -15,16 +17,20 @@ import {
   type TriageSuggestions,
 } from "@nod/core";
 
-export const STATUS_LABEL: Record<Status, string> = {
-  triage: "Triage",
-  backlog: "Backlog",
-  needs_clarification: "Needs Clarification",
-  todo: "Todo",
-  in_progress: "In Progress",
-  in_review: "In Review",
-  done: "Done",
-  canceled: "Canceled",
-};
+export const STATUS_LABEL: Record<Status, string> = DEFAULT_STATUS_LABELS;
+
+// Workspace のキーごとの表示名。openCli が DB から読み込む
+let statusNamesByWorkspace: Record<string, StatusNames> = {};
+
+export function useStatusNames(names: Record<string, StatusNames>): void {
+  statusNamesByWorkspace = names;
+}
+
+// 表示名を変えたステータスは「表示名 (内部値)」で出し、LLM が --status に内部値を使えるようにする
+export function statusText(status: Status, issueId: string): string {
+  const custom = statusNamesByWorkspace[issueId.slice(0, issueId.lastIndexOf("-"))]?.[status];
+  return custom === undefined ? STATUS_LABEL[status] : `${custom} (${status})`;
+}
 
 export const PRIORITY_LABEL = ["なし", "Urgent", "High", "Medium", "Low"];
 
@@ -48,7 +54,7 @@ export function formatIssueLine(i: Issue): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
   const candidate = i.completionCandidate ? " [完了候補]" : "";
   const archived = i.archivedAt ? " [archived]" : "";
-  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}${archived}  ${i.title}${candidate}`;
+  return `${i.id}  ${statusText(i.status, i.id).padEnd(11)}${agent}${archived}  ${i.title}${candidate}`;
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
@@ -113,7 +119,7 @@ function formatCompletionCandidate(d: IssueDetail): string {
 export function formatIssueDetail(d: IssueDetail): string {
   const lines = [
     `${d.id}  ${d.title}`,
-    `ステータス: ${STATUS_LABEL[d.status]}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
+    `ステータス: ${statusText(d.status, d.id)}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
@@ -168,7 +174,7 @@ export function describeNotification(n: Notification): string {
     `${n.actor} が${what}を変更: ${shown(d.from, label)} → ${shown(d.to, label)}`;
   switch (n.eventType) {
     case "status_changed":
-      return change("ステータス", (v: Status) => STATUS_LABEL[v] ?? v);
+      return change("ステータス", (v: Status) => (STATUS_LABEL[v] ? statusText(v, n.issueId) : v));
     case "priority_changed":
       return change("優先度", (v: number) => PRIORITY_LABEL[v] ?? String(v));
     case "assignee_changed":
