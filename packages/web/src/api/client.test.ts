@@ -44,3 +44,19 @@ describe("apiFetch", () => {
     expect(await apiFetch("/views/1", { method: "DELETE" }, s.fetchImpl)).toBeNull();
   });
 });
+
+describe("ApiError の details", () => {
+  test("一括編集の失敗一覧を details として取り出す", async () => {
+    const failures = [{ id: "API-2", code: "TRIAGE_DECISION_REQUIRED", message: "Triage にあります" }];
+    const s = stub(409, JSON.stringify({ error: { code: "BULK_UPDATE_FAILED", message: "1 件を更新できなかった", details: { failures } } }));
+    const err = await apiFetch("/issues/bulk-update", { method: "POST", body: {} }, s.fetchImpl).catch((e: ApiError) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.details).toEqual({ failures });
+  });
+
+  test("details がなければ undefined", async () => {
+    const s = stub(404, JSON.stringify({ error: { code: "NOT_FOUND", message: "x" } }));
+    const err = await apiFetch("/issues/API-1", {}, s.fetchImpl).catch((e: ApiError) => e);
+    expect(err.details).toBeUndefined();
+  });
+});
