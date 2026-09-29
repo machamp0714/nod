@@ -13,6 +13,7 @@ import {
   listIssues,
   queryIssues,
   relateIssue,
+  resolveThread,
   unarchiveIssue,
   updateIssue,
 } from "../src/ops/issues";
@@ -159,6 +160,7 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
   startIssue(llm, issue.id);
   askQuestion(llm, issue.id, "質問");
+  const thread = commentIssue(me, issue.id, "スレッド");
   archiveIssue(me, issue.id);
   const doc = join(tempDbPath(), "..", "spec.md");
   writeFileSync(doc, "# 仕様\n");
@@ -166,6 +168,8 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
   const attempts: [string, () => unknown][] = [
     ["update", () => updateIssue(me, issue.id, { title: "変更" })],
     ["comment", () => commentIssue(me, issue.id, "コメント")],
+    ["reply", () => commentIssue(me, issue.id, "返信", { replyTo: thread.id })],
+    ["resolve thread", () => resolveThread(me, issue.id, thread.id, true)],
     ["relate", () => relateIssue(me, issue.id, { related: other.id })],
     ["relate to archived", () => relateIssue(me, other.id, { related: issue.id })],
     ["parent", () => updateIssue(me, other.id, { parentRef: issue.id })],

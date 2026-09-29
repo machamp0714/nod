@@ -5,6 +5,7 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   const api = await seedApiWorkspace(nod);
   const keep = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "残す Issue" });
   const target = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "アーカイブする Issue" });
+  await nod.me.commentIssue(target.id, "既存のスレッド");
 
   await page.goto(`/issues/${target.id}`);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
@@ -14,6 +15,8 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   await expect(page.getByRole("combobox", { name: "Status" })).toBeDisabled();
   await expect(page.getByText("アーカイブ済みのためコメントできません")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "コメント" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "返信" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "解決" })).toBeDisabled();
   await expect(page.getByText("me がアーカイブした")).toBeVisible();
   expect((await api.show(target.id)).archivedAt).not.toBeNull();
 
@@ -38,6 +41,7 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   await page.getByRole("region", { name: "アーカイブ済み" }).getByRole("button", { name: "復元" }).click();
   await expect(page.getByRole("region", { name: "アーカイブ済み" })).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "コメント" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "返信" })).toBeEnabled();
   await expect(page.getByText("me がアーカイブから復元した")).toBeVisible();
   expect((await api.show(target.id)).archivedAt).toBeNull();
 
