@@ -48,9 +48,10 @@ function todayIn(timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
+// ブラウザの一覧には UTC が含まれないことがあるため足す。保存済みの値が一覧に無くても選べるよう先頭に置く
 function timeZones(current: string): string[] {
   const all = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
-  return all.includes(current) ? all : [current, ...all];
+  return [...new Set([current, "UTC", ...all])];
 }
 
 function formatTime(iso: string): string {
@@ -163,7 +164,7 @@ export function RecurringSection({ workspace, onSaved }: { workspace: Workspace;
                 <td className={r.cell}>
                   {item.lastIssueId ? (
                     <Link to="/issues/$issueId" params={{ issueId: item.lastIssueId }} className={r.issueLink}>
-                      {item.lastIssueId.toLowerCase()}
+                      {item.lastIssueId}
                     </Link>
                   ) : (
                     "—"
@@ -385,7 +386,7 @@ function RecurringFormPanel({
             </select>
           ) : (
             <input
-              aria-label="本文"
+              aria-label="起票する Issue の説明"
               className={`${s.input} ${s.grow}`}
               placeholder="起票する Issue の説明（任意）"
               value={form.description}
@@ -504,7 +505,7 @@ function RecurringFormPanel({
             </div>
           )}
           {form.cadence === "monthly" && (
-            <select aria-label="日" className={`${s.input} ${r.monthDay}`} value={form.monthDay} onChange={(e) => set({ monthDay: Number(e.target.value) })}>
+            <select aria-label="毎月の日" className={`${s.input} ${r.monthDay}`} value={form.monthDay} onChange={(e) => set({ monthDay: Number(e.target.value) })}>
               {MONTH_DAY_CHOICES.map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
