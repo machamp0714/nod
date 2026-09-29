@@ -17,6 +17,8 @@ import {
   STATUSES,
   type Status,
   snoozeTriage,
+  subscribeIssue,
+  unsubscribeIssue,
   type UpdateIssueInput,
   updateIssue,
 } from "@nod/core";
@@ -114,6 +116,8 @@ const OPS: Record<string, Op> = {
     keys: ["body", "parentId"], created: true,
     run: (me, ref, b) => commentIssue(me, ref, reqString(b, "body"), { replyTo: optInt(b, "parentId") }),
   },
+  subscribe: { keys: [], run: (me, ref) => subscribeIssue(me, ref) },
+  unsubscribe: { keys: [], run: (me, ref) => unsubscribeIssue(me, ref) },
 };
 
 // web からの Issue の操作。書き手は me

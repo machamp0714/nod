@@ -1,0 +1,54 @@
+import { describe, expect, test } from "bun:test";
+import { commentIssue, createIssue, getInbox } from "@nod/core";
+import { call, setup } from "./helpers";
+
+describe("購読と通知の API", () => {
+  test("購読・解除は冪等で、Issue 詳細に購読状態が出る", async () => {
+    const { app, me, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "検索" });
+    expect((await call(app, "GET", "/api/issues/API-1")).json.subscribed).toBe(false);
+    for (let i = 0; i < 2; i++) {
+      const r = await call(app, "POST", "/api/issues/API-1/subscribe");
+      expect(r).toEqual({ status: 200, json: { issueId: "API-1", subscribed: true } });
+    }
+    expect((await call(app, "GET", "/api/issues/API-1")).json.subscribed).toBe(true);
+    const off = await call(app, "POST", "/api/issues/API-1/unsubscribe");
+    expect(off.json).toEqual({ issueId: "API-1", subscribed: false });
+    expect((await call(app, "POST", "/api/issues/API-9/subscribe")).status).toBe(404);
+    expect((await call(app, "POST", "/api/issues/API-1/subscribe", { x: 1 })).status).toBe(400);
+  });
+
+  test("通知の一覧・既読と、既存の /api/inbox の形は変わらない", async () => {
+    const { app, db, me, llm, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "検索" });
+    createIssue(me, { workspaceId: ws.id, title: "画面" });
+    await call(app, "POST", "/api/issues/API-1/subscribe");
+    await call(app, "POST", "/api/issues/API-2/subscribe");
+    commentIssue(llm, "API-1", "a1");
+    commentIssue(llm, "API-2", "b1");
+    // web（me）からのコメントは自分に通知しない
+    await call(app, "POST", "/api/issues/API-1/comment", { body: "自分のメモ" });
+
+    const list = await call(app, "GET", "/api/notifications");
+    expect(list.status).toBe(200);
+    expect(list.json.map((n: { body: string }) => n.body)).toEqual(["b1", "a1"]);
+    expect(list.json[0]).toMatchObject({ issueId: "API-2", eventType: "comment_added", actor: "claude-code", readAt: null });
+
+    const read = await call(app, "POST", "/api/notifications/read", { issueRef: "API-1" });
+    expect(read).toEqual({ status: 200, json: { updated: 1 } });
+    expect((await call(app, "GET", "/api/notifications")).json).toHaveLength(1);
+    expect((await call(app, "GET", "/api/notifications?includeRead=true")).json).toHaveLength(2);
+    expect((await call(app, "POST", "/api/notifications/read", { ids: [list.json[0].id] })).json).toEqual({ updated: 1 });
+    expect((await call(app, "POST", "/api/notifications/read", { all: true })).json).toEqual({ updated: 0 });
+
+    expect((await call(app, "POST", "/api/notifications/read", {})).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/read", { ids: ["1"] })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/read", { ids: [999] })).status).toBe(404);
+    expect((await call(app, "POST", "/api/notifications/read", { all: "yes" })).status).toBe(400);
+    expect((await call(app, "GET", "/api/notifications?includeRead=x")).status).toBe(400);
+
+    const inbox = await call(app, "GET", "/api/inbox");
+    expect(Object.keys(inbox.json).sort()).toEqual(["questions", "reviews"]);
+    expect(inbox.json).toEqual(JSON.parse(JSON.stringify(getInbox(db))));
+  });
+});

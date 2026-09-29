@@ -24,6 +24,8 @@ import {
   setStep,
   startIssue,
   updateIssue,
+  subscribeIssue,
+  unsubscribeIssue,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
@@ -196,6 +198,26 @@ export function registerIssueCommands(program: Command): void {
         const reopen = cmd.opts<{ reopen?: boolean }>().reopen === true;
         const c = resolveThread(cli.ctx, id, parsePositiveInt(commentId, "コメントID"), !reopen);
         print(cli, c, () => `スレッド #${c.id} を${reopen ? "未解決に戻しました" : "解決済みにしました"}`);
+      }),
+    );
+
+  issue
+    .command("subscribe <id>")
+    .description("Issue を購読し、変化を Inbox の通知で受け取る（me だけが使える）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const r = subscribeIssue(cli.ctx, id);
+        print(cli, r, () => `${r.issueId} を購読しました`);
+      }),
+    );
+
+  issue
+    .command("unsubscribe <id>")
+    .description("Issue の購読を解除する（届いた通知は残る）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const r = unsubscribeIssue(cli.ctx, id);
+        print(cli, r, () => `${r.issueId} の購読を解除しました`);
       }),
     );
 

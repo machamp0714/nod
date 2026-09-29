@@ -39,7 +39,7 @@ describe("購読の開始と解除", () => {
 
 describe("購読中の Issue の変化の通知", () => {
   test("対象の種別を明示している", () => {
-    expect([...NOTIFY_EVENT_TYPES].sort()).toEqual(
+    expect([...NOTIFY_EVENT_TYPES].sort() as string[]).toEqual(
       [
         "assignee_changed",
         "comment_added",

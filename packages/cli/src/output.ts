@@ -7,6 +7,7 @@ import {
   type Status,
   type StepStatus,
   toNodError,
+  type Notification,
 } from "@nod/core";
 
 export const STATUS_LABEL: Record<Status, string> = {
@@ -76,6 +77,7 @@ export function formatIssueDetail(d: IssueDetail): string {
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);
   if (d.worktree) lines.push(`実行場所: ${d.branch ?? "(detached)"}  ${d.worktree}`);
+  if (d.subscribed) lines.push("購読: 購読中");
   if (d.description) lines.push("", d.description);
   if (d.plan.tasks.length) lines.push("", `計画${d.plan.source ? `（${d.plan.source}）` : ""}:`, ...formatPlan(d.plan));
   if (d.documents.length) {
@@ -105,4 +107,48 @@ export function formatIssueDetail(d: IssueDetail): string {
   if (relationLines.length) lines.push("", "関係:", ...relationLines);
   if (d.activity.length) lines.push("", "Activity:", ...d.activity.map(formatActivity));
   return lines.join("\n");
+}
+
+function shown(v: unknown, label?: (v: never) => string): string {
+  if (v === null || v === undefined || v === "") return "なし";
+  return label ? label(v as never) : String(v);
+}
+
+// 通知の1行の要約。「誰が・何を・どう変えたか」
+export function describeNotification(n: Notification): string {
+  const d = n.data as { from?: unknown; to?: unknown; added?: string[]; removed?: string[]; reason?: string };
+  const change = (what: string, label?: (v: never) => string) =>
+    `${n.actor} が${what}を変更: ${shown(d.from, label)} → ${shown(d.to, label)}`;
+  switch (n.eventType) {
+    case "status_changed":
+      return change("ステータス", (v: Status) => STATUS_LABEL[v] ?? v);
+    case "priority_changed":
+      return change("優先度", (v: number) => PRIORITY_LABEL[v] ?? String(v));
+    case "assignee_changed":
+      return change("担当");
+    case "title_changed":
+      return change("タイトル");
+    case "project_changed":
+      return change("Project");
+    case "labels_changed": {
+      const parts = [...(d.added ?? []).map((l) => `+${l}`), ...(d.removed ?? []).map((l) => `-${l}`)];
+      return `${n.actor} がラベルを変更: ${parts.join(" ")}`;
+    }
+    case "comment_added":
+      return `${n.actor} がコメント: ${n.body ?? ""}`;
+    case "review_approved":
+      return `${n.actor} がレビューを承認`;
+    case "review_rejected":
+      return `${n.actor} が差し戻し${d.reason ? `: ${d.reason}` : ""}`;
+    case "triage_accepted":
+      return `${n.actor} が Triage を受け入れ`;
+    case "triage_declined":
+      return `${n.actor} が Triage を却下${d.reason ? `: ${d.reason}` : ""}`;
+    default:
+      return `${n.actor} ${n.eventType}`;
+  }
+}
+
+export function formatNotification(n: Notification): string {
+  return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}\n    ${describeNotification(n)}`;
 }
