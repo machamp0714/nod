@@ -103,7 +103,7 @@ describe("bulkUpdateIssues", () => {
     archiveIssue(me, archived.id);
     const e = errorOf(() => bulkUpdateIssues(me, [a.id, archived.id], { priority: 1 }));
     expect(e.code).toBe("BULK_UPDATE_FAILED");
-    expect((e.details as { failures: { id: string; code: string }[] }).failures).toEqual([
+    expect((e.details as { failures: unknown[] }).failures).toEqual([
       { id: archived.id, code: "ISSUE_ARCHIVED", message: expect.any(String) },
     ]);
     expect(getIssue(db, a.id).priority).toBe(0);
