@@ -66,6 +66,8 @@ describe("nod doc", () => {
     const r = await nod(["doc", "create", "x.md", "--json"]);
     expect(r.json.error.code).toBe("FILE_EXISTS");
     expect(readFileSync(join(docs, "x.md"), "utf8")).toBe("元\n");
+    const both = await nod(["doc", "create", "y.md", "--issue", "API-9", "--project", "p", "--json"]);
+    expect(both.json.error.code).toBe("INVALID_ARGS");
     const missing = await nod(["doc", "create", "y.md", "--issue", "API-9", "--json"]);
     expect(missing.json.error.code).toBe("NOT_FOUND");
     expect(existsSync(join(docs, "y.md"))).toBe(false);

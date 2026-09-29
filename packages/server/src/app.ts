@@ -52,7 +52,7 @@ export function createApp(opts: AppOptions): Hono {
     await next();
   });
 
-  registerReadRoutes(app, opts.db);
+  registerReadRoutes(app, opts.db, opts.docsDir);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerIssueOps(app, me);
   registerProjectOps(app, me);

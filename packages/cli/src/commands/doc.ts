@@ -9,7 +9,7 @@ import {
   unlinkDocumentById,
 } from "@nod/core";
 import type { Command } from "commander";
-import { parseDocKind } from "../args";
+import { collect, parseDocKind } from "../args";
 import { act } from "../context";
 import { print } from "../output";
 
@@ -36,17 +36,17 @@ export function registerDocCommands(program: Command): void {
     .option("--title <text>", "タイトル。ファイルの最初の # 見出しになる（省略時はファイル名）")
     .option("--kind <kind>", "種類（spec|plan|doc。既定は doc）")
     .option("--body <text>", "見出しの後に置く本文。- なら標準入力から読む")
-    .option("--issue <id>", "リンクする Issue")
+    .option("--issue <id>", "リンクする Issue（繰り返し可）", collect)
     .option("--project <project>", "リンクする Project")
     .action(
-      act((cli, _cmd, path: string, o: { title?: string; kind?: string; body?: string; issue?: string; project?: string }) => {
-        if (o.issue && o.project) throw new NodError("INVALID_ARGS", "--issue と --project はどちらか一方を指定してください");
+      act((cli, _cmd, path: string, o: { title?: string; kind?: string; body?: string; issue?: string[]; project?: string }) => {
         const created = createDocument(cli.ctx, {
           path,
           title: o.title,
           kind: o.kind === undefined ? undefined : parseDocKind(o.kind),
           body: o.body === "-" ? readFileSync(0, "utf8") : o.body,
-          ...targetOf(o),
+          issueRefs: o.issue,
+          projectRef: o.project,
         });
         print(cli, created, () => `作りました: ${created.id}  ${created.title}（${created.path}）`);
       }),

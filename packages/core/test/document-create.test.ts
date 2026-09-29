@@ -94,6 +94,19 @@ describe("createDocument", () => {
     expect((db.query("SELECT count(*) AS n FROM documents").get() as { n: number }).n).toBe(0);
   });
 
+  test("複数の Issue に同時にリンクでき、Project との同時指定は INVALID_ARGS", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    createProject(me, { name: "P" });
+    const root = docsDir();
+    const doc = createDocument(me, { docsDir: root, path: "m.md", issueRefs: [a.id, b.id.toLowerCase(), a.id] });
+    expect(getDocument(db, doc.id).issues.map((i) => i.id)).toEqual([a.id, b.id]);
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "n.md", issueRefs: [a.id], projectRef: "P" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "n.md", issueRefs: [a.id, "API-99"] }))).toBe("NOT_FOUND");
+    expect(existsSync(join(root, "n.md"))).toBe(false);
+  });
+
   test("リンク先の Issue がなければファイルを作らない", () => {
     const { me } = setup();
     const root = docsDir();

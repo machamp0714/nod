@@ -29,6 +29,17 @@ describe("Documents API", () => {
     expect(detail.json).toMatchObject({ id: r.json.id, content: "# メモ\n\n本文\n", issues: [{ id: i.id, title: "検索" }], projects: [] });
   });
 
+  test("GET /api/documents/root は作成先を返し、issueRefs で複数の Issue にリンクして作れる", async () => {
+    const { app, me, ws, docsDir } = setupDocs();
+    expect((await call(app, "GET", "/api/documents/root")).json).toEqual({ docsDir });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    const r = await call(app, "POST", "/api/documents", { path: "m.md", issueRefs: [a.id, b.id] });
+    expect(r.status).toBe(201);
+    expect((await call(app, "GET", `/api/documents/${r.json.id}`)).json.issues.map((i: { id: string }) => i.id)).toEqual([a.id, b.id]);
+    expect((await call(app, "POST", "/api/documents", { path: "n.md", issueRefs: "API-1" })).status).toBe(400);
+  });
+
   test("ルートの外・既存ファイル・不正な入力は 4xx でファイルを書かない", async () => {
     const { app, docsDir } = setupDocs();
     writeFileSync(join(docsDir, "x.md"), "元\n");

@@ -185,7 +185,15 @@ export interface CreateDocumentInput extends DocTarget {
   title?: string; // 省くとファイル名（拡張子なし）
   kind?: DocKind;
   body?: string; // 見出しの後に置く本文
+  issueRefs?: string[]; // issueRef に加えてリンクする Issue
   docsDir?: string; // 省くと defaultDocsDir()
+}
+
+// 作成と同時に付けるリンク先。Issue（複数可）か Project のどちらか一方
+function creationTargets(input: CreateDocumentInput): DocTarget[] {
+  const issues = [...new Set([...(input.issueRef ? [input.issueRef] : []), ...(input.issueRefs ?? [])].map((r) => r.trim().toUpperCase()))];
+  if (input.projectRef && issues.length) throw invalid("リンク先には Issue か Project のどちらか一方を指定してください");
+  return input.projectRef ? [{ projectRef: input.projectRef }] : issues.map((issueRef) => ({ issueRef }));
 }
 
 // Markdown ファイルを作って Document として登録する。本文の正本はファイルのまま。
@@ -194,9 +202,8 @@ export function createDocument(ctx: OpCtx, input: CreateDocumentInput): Document
   if (input.kind !== undefined && !(DOC_KINDS as readonly string[]).includes(input.kind)) {
     throw invalid("種類は spec / plan / doc を指定してください");
   }
-  const target: DocTarget = { issueRef: input.issueRef, projectRef: input.projectRef };
-  const linked = Boolean(input.issueRef || input.projectRef);
-  if (linked) resolveDocTarget(ctx.db, target); // 対象がなければファイルを作る前に失敗させる
+  const targets = creationTargets(input);
+  for (const t of targets) resolveDocTarget(ctx.db, t); // 対象がなければファイルを作る前に失敗させる
   const abs = prepareDocumentPath(input.docsDir ?? defaultDocsDir(), input.path);
   const title = input.title?.trim() || basename(abs, extname(abs));
   if (/[\r\n]/.test(title)) throw invalid("タイトルに改行は使えません");
@@ -205,11 +212,11 @@ export function createDocument(ctx: OpCtx, input: CreateDocumentInput): Document
   let created = false;
   try {
     return tx(ctx.db, () => {
-      const resolved = linked ? resolveDocTarget(ctx.db, target) : null;
+      const resolved = targets.map((t) => resolveDocTarget(ctx.db, t));
       writeFileSync(abs, content, { flag: "wx" });
       created = true;
       const doc = upsertDocument(ctx, { path: abs, content, title, kind: input.kind });
-      if (resolved) addLink(ctx, doc.id, resolved);
+      for (const r of resolved) addLink(ctx, doc.id, r);
       return doc;
     });
   } catch (e) {
