@@ -267,11 +267,11 @@ export function unlinkDocumentById(ctx: OpCtx, id: number, target: DocTarget): v
 function linkedIssues(db: Database, id: number): DocumentIssueLink[] {
   const rows = db
     .query(
-      `SELECT w.key, i.number, i.title, i.status FROM document_links l JOIN issues i ON i.id = l.issue_id
+      `SELECT w.key, i.number, i.title, i.status, i.archived_at FROM document_links l JOIN issues i ON i.id = l.issue_id
        JOIN workspaces w ON w.id = i.workspace_id WHERE l.document_id = ? ORDER BY w.key, i.number`,
     )
-    .all(id) as { key: string; number: number; title: string; status: DocumentIssueLink["status"] }[];
-  return rows.map((r) => ({ id: `${r.key}-${r.number}`, title: r.title, status: r.status }));
+    .all(id) as { key: string; number: number; title: string; status: DocumentIssueLink["status"]; archived_at: string | null }[];
+  return rows.map((r) => ({ id: `${r.key}-${r.number}`, title: r.title, status: r.status, archived: r.archived_at !== null }));
 }
 
 function linkedProjects(db: Database, id: number): DocumentProjectLink[] {

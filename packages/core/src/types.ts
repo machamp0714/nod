@@ -120,6 +120,7 @@ export interface DocumentIssueLink {
   id: string;
   title: string;
   status: Status;
+  archived: boolean; // アーカイブ済みの Issue とのリンクは解除できない
 }
 
 export interface DocumentProjectLink {
