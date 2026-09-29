@@ -4,6 +4,7 @@ import {
   cleanAnalyticsSearch,
   formatHours,
   labelEvery,
+  llmColors,
   niceTicks,
   parseAnalyticsSearch,
   statsQueryString,
@@ -69,4 +70,13 @@ describe("表示の書式と目盛り", () => {
     expect(labelEvery(30)).toBe(3);
     expect(labelEvery(90)).toBe(8);
   });
+});
+
+test("LLM の色は claude-code・codex を固定し、ほかは順に別の色にする", () => {
+  expect([...llmColors(["gemini", "claude-code", "codex", "aider"])]).toEqual([
+    ["gemini", "var(--ws-a)"],
+    ["claude-code", "var(--claude)"],
+    ["codex", "var(--codex)"],
+    ["aider", "var(--ws-b)"],
+  ]);
 });

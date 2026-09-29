@@ -44,9 +44,9 @@ test("完了数・作業時間・記録なしと週ごとのグラフを API の
   await expect(kpi(page, "作業時間 中央値")).toContainText("着手 → レビュー提出");
   // 着手を経ずに done にした2件は作業時間を求められない
   await expect(kpi(page, "記録なし件数")).toContainText("2");
-  await expect(page.getByRole("img", { name: "週ごとの完了数" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "週ごとの完了数", exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: "週ごとの作業時間 中央値" })).toBeVisible();
-  const bars = page.getByRole("img", { name: "週ごとの完了数" });
+  const bars = page.getByRole("img", { name: "週ごとの完了数", exact: true });
   await expect(bars.locator('[data-series="完了"]')).toHaveCount(1);
   await expect(bars.locator('[data-series="canceled"]')).toHaveCount(1);
   await expect(page.getByRole("tab", { name: "週" })).toHaveAttribute("aria-selected", "true");
@@ -58,7 +58,7 @@ test("日/週・範囲・Workspace・Project を切り替えると URL に残し
   await page.goto("/analytics");
   await page.getByRole("tab", { name: "日" }).click();
   await expect(page).toHaveURL(/by=day/);
-  await expect(page.getByRole("img", { name: "日ごとの完了数" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "日ごとの完了数", exact: true })).toBeVisible();
   await expect(page.getByLabel("範囲")).toHaveValue("30");
   await page.getByLabel("範囲").selectOption("7");
   await expect(page).toHaveURL(/range=7/);
@@ -87,4 +87,23 @@ test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) 
   await expect(page.getByLabel("範囲")).toHaveValue("12");
   await expect(page.getByLabel("Project")).toHaveValue("");
   await expect(kpi(page, "完了数")).toContainText("3");
+});
+
+test("LLM 別に完了数・作業時間・担当開始・レビュー提出の表と積み上げ棒を出す", async ({ page, nod }) => {
+  await seed(nod);
+  const api = (await nod.me.listWorkspaces()).find((w) => w.key === "API")!;
+  const other = await nod.me.createIssue({ workspaceId: api.id, title: "codex が担当して止まった作業" });
+  await nod.codex.startIssue(other.id);
+  await page.goto("/analytics");
+  const section = page.getByRole("region", { name: "LLM 別" });
+  await expect(section.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "レビュー提出"]);
+  await expect(section.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "0.0h", "0.0h", "1", "1"]);
+  await expect(section.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "—", "—", "1", "0"]);
+  await expect(section.getByText("記録なしの 0 件は時間の集計から除く")).toBeVisible();
+  const chart = section.getByRole("img", { name: "週ごとの完了数（LLM 別）" });
+  await expect(chart.locator('[data-series="claude-code"]')).toHaveCount(1);
+  await expect(chart.locator('[data-series="codex"]')).toHaveCount(0);
+
+  await page.getByLabel("Workspace").selectOption("WEB");
+  await expect(section.getByText("この期間に LLM の作業はありません")).toBeVisible();
 });

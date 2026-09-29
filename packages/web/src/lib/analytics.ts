@@ -94,3 +94,14 @@ export function niceTicks(max: number, minStep = 1): number[] {
 export function labelEvery(count: number, max = 12): number {
   return Math.max(1, Math.ceil(count / max));
 }
+
+// LLM の色。claude-code と codex はアバターと同じ色、ほかは Workspace の色を順に使って見分けられるようにする
+const OTHER_LLM_COLORS = ["var(--ws-a)", "var(--ws-b)", "var(--ws-c)", "var(--ws-d)", "var(--gate)"];
+
+export function llmColors(names: readonly string[]): Map<string, string> {
+  let next = 0;
+  return new Map(names.map((name) => [
+    name,
+    name === "claude-code" ? "var(--claude)" : name === "codex" ? "var(--codex)" : OTHER_LLM_COLORS[next++ % OTHER_LLM_COLORS.length]!,
+  ]));
+}

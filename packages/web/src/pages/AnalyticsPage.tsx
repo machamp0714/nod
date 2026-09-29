@@ -5,11 +5,12 @@ import { useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import { errorMessage } from "../api/errors";
 import type { CompletionStats } from "../api/types";
-import { GroupedBars, Legend, LineChart, type Slot } from "../components/analytics/charts";
+import { GroupedBars, Legend, LineChart } from "../components/analytics/charts";
+import { LlmSection } from "../components/analytics/LlmSection";
+import { Card, slotsOf } from "../components/analytics/parts";
 import { Icon, PageError, PageLoading } from "../components/ui";
 import {
   type AnalyticsSearch,
-  axisDate,
   cleanAnalyticsSearch,
   DEFAULT_RANGE,
   formatHours,
@@ -47,6 +48,7 @@ export function AnalyticsPage() {
         ) : (
           <CompletionSection stats={stats.data} rangeText={rangeLabel(by, range)} />
         )}
+        <LlmSection query={query} />
       </div>
     </div>
   );
@@ -109,10 +111,6 @@ function SelectChip({ label, value, onChange, children }: {
   );
 }
 
-export function slotsOf(buckets: { start: string; end: string }[], by: StatsBy): Slot[] {
-  return buckets.map((b) => ({ start: b.start, label: by === "day" ? axisDate(b.start) : `${axisDate(b.start)} 週` }));
-}
-
 function CompletionSection({ stats, rangeText }: { stats: CompletionStats; rangeText: string }) {
   if (stats.totals.completed === 0) {
     return (
@@ -168,19 +166,6 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub: string 
       <span className={s.kpiLabel}>{label}</span>
       <span className={s.kpiValue}>{value}</span>
       <span className={s.kpiSub}>{sub}</span>
-    </section>
-  );
-}
-
-export function Card({ title, legend, children }: { title: string; legend?: ReactNode; children: ReactNode }) {
-  return (
-    <section className={s.card} aria-label={title}>
-      <div className={s.cardHeader}>
-        <h2 className={s.cardTitle}>{title}</h2>
-        <span className={s.spacer} />
-        {legend}
-      </div>
-      {children}
     </section>
   );
 }
