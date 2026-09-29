@@ -111,12 +111,37 @@ test("実行は確認した一覧だけを送り、確認のあとで対象か�
   await dialog.getByRole("button", { name: "実行する" }).click();
   expect((await request).postDataJSON()).toEqual({
     dryRun: false,
-    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"], pr_review: [] },
+    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"], pr_review: [], recurring: [] },
   });
   await expect(page.getByRole("status")).toHaveText("クローズ 1件・アーカイブ 1件・スキップ 1件・失敗 0件");
   expect((await nod.me.getIssue("API-1")).status).toBe("canceled");
   expect((await nod.me.getIssue("API-2")).status).toBe("todo");
   expect((await nod.me.getIssue("API-4")).archivedAt).not.toBeNull();
+});
+
+// 定期Issue（#32）の起票も同じ確認・実行に含める（nod automation run と同じ）
+test("定期Issueだけでも確認・実行でき、起票の予定を先頭の節に示し、実行で起票する", async ({ page, nod }) => {
+  const r = await nod.me.addRecurringIssue("API", { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  await auto.getByRole("button", { name: "対象を確認" }).click();
+  const table = result(page).getByRole("table", { name: "起票する（定期Issue）· 1 件" });
+  await expect(table.getByRole("row")).toHaveText([/定期Issue\s*発生日\s*スキップ件数/, /日次チェック\s*\d{4}-\d{2}-\d{2}\s*\d+/]);
+  expect((await nod.me.listRecurringIssues("API"))[0]!.lastIssueId).toBeNull();
+
+  await auto.getByRole("button", { name: "今すぐ実行" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "起票 1件・クローズ 0件・アーカイブ 0件を実行しますか？" });
+  const request = page.waitForRequest((req) => req.url().endsWith("/automation/run") && req.postDataJSON()?.dryRun === false);
+  await dialog.getByRole("button", { name: "実行する" }).click();
+  expect((await request).postDataJSON().targets.recurring).toEqual([r.id]);
+  await expect(page.getByRole("status")).toHaveText("起票 1件・クローズ 0件・アーカイブ 0件・失敗 0件");
+  const [recurring] = await nod.me.listRecurringIssues("API");
+  expect(recurring!.lastIssueId).not.toBeNull();
+  expect((await nod.me.getIssue(recurring!.lastIssueId!)).title).toBe("日次チェック");
+
+  // 同じ日の2回目は起票しない
+  await auto.getByRole("button", { name: "対象を確認" }).click();
+  await expect(result(page)).toHaveText("対象の Issue はありません");
 });
 
 // PR 連動（#66）。e2e の server は実際の gh の代わりに stubGh の結果を返す（GitHub には触れない）

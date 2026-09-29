@@ -9,6 +9,7 @@ import {
 } from "../src/ops/automation";
 import { askQuestion } from "../src/ops/agent";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
+import { addRecurringIssue, listRecurringIssues, runRecurringIssues, updateRecurringIssue } from "../src/ops/recurring";
 import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
@@ -404,5 +405,100 @@ describe("自動アーカイブ（#72）", () => {
     expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets: { auto_close: many } }))).toBe("INVALID_ARGS");
     const bad = { auto_close: [1] } as unknown as { auto_close: string[] };
     expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets: bad }))).toBe("INVALID_ARGS");
+  });
+});
+
+describe("定期Issueの起票（#32）", () => {
+  // at（2026-09-29 00:00Z）の UTC の暦日は 2026-09-29
+  const daily = (title = "日次チェック", startDate = "2026-09-29") => ({ title, cadence: "daily" as const, startDate, timeZone: "UTC" });
+  const recurringIssues = (db: ReturnType<typeof setup>["db"]) =>
+    db.query("SELECT title FROM issues WHERE title LIKE '日次%' OR title LIKE '週次%'").all();
+
+  test("dry-run は起票する予定を返し、DB を変えない。自動化のルールが無効でも評価する。LLM も確かめられる", () => {
+    const { db, me, llm, ws } = fixture();
+    const r1 = addRecurringIssue(me, ws.key, daily());
+    const r2 = addRecurringIssue(me, ws.key, daily("週次レビュー", "2026-10-01"));
+    addRecurringIssue(me, ws.key, { ...daily("日次（停止中）"), enabled: false });
+    for (const ctx of [me, llm]) {
+      const r = runAutomation(ctx, ws.key, { dryRun: true, evaluatedAt: at });
+      expect(r.recurring).toEqual({
+        enabled: 2,
+        items: [{ recurringId: r1.id, title: "日次チェック", occurrence: "2026-09-29", skipped: 0, issueId: null }],
+        notRun: [],
+        failed: [],
+      });
+    }
+    expect(r2.enabled).toBe(true);
+    expect(recurringIssues(db)).toEqual([]);
+    expect(listRecurringIssues(db, ws.key)[0]!.lastOccurrence).toBeNull();
+  });
+
+  test("実行すると起票し、同じ回に起票した Issue は自動クローズ・自動アーカイブの対象にしない", () => {
+    const { db, me, ws, make, enable } = fixture();
+    enable(1, null);
+    const stale = make("todo");
+    addRecurringIssue(me, ws.key, daily());
+    // 起票の時刻（created_at）を基準日時の1日前にして、除外がなければ自動クローズの対象になる状態にする
+    setSystemTime(new Date("2026-09-28T00:00:00.000Z"));
+    let r: ReturnType<typeof runAutomation>;
+    try {
+      r = runAutomation(me, ws.key, { evaluatedAt: at });
+    } finally {
+      setSystemTime();
+    }
+    const created = r.recurring.items[0]!.issueId!;
+    expect(r.recurring.items).toHaveLength(1);
+    expect(r.rules[0]!.processed).toEqual([stale]);
+    expect(getIssue(db, created).status).toBe("todo");
+    // 別の回として同じ基準日時で確かめると、起票した Issue は自動クローズの対象になっている
+    const again = runAutomation(me, ws.key, { dryRun: true, evaluatedAt: at });
+    expect(ids(again.rules[0]!)).toEqual([created]);
+    expect(again.recurring.items).toEqual([]);
+  });
+
+  test("LLM は起票を含めて実行できない", () => {
+    const { db, llm, me, ws } = fixture();
+    addRecurringIssue(me, ws.key, daily());
+    expect(codeOf(() => runAutomation(llm, ws.key, { evaluatedAt: at }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(recurringIssues(db)).toEqual([]);
+  });
+
+  test("targets の recurring（確認時点の一覧）だけを起票し、確認のあとで起票済み・停止したものは notRun で返す", () => {
+    const { db, me, ws } = fixture();
+    const a = addRecurringIssue(me, ws.key, daily("日次A"));
+    const b = addRecurringIssue(me, ws.key, daily("日次B"));
+    const c = addRecurringIssue(me, ws.key, daily("日次C"));
+    const d = addRecurringIssue(me, ws.key, daily("日次D"));
+    // 確認のあとで b は nod recurring run で起票され、c は停止された
+    runRecurringIssues(me, ws.key, { now: new Date(at) });
+    db.query("DELETE FROM recurring_issue_occurrences WHERE recurring_id IN (?, ?, ?)").run(a.id, c.id, d.id);
+    updateRecurringIssue(me, ws.key, c.id, { enabled: false });
+    const before = recurringIssues(db).length;
+    const r = runAutomation(me, ws.key, { evaluatedAt: at, targets: { recurring: [a.id, b.id, c.id] } });
+    expect(r.recurring.items.map((i) => i.recurringId)).toEqual([a.id]);
+    expect(r.recurring.notRun).toEqual([b.id, c.id]);
+    expect(recurringIssues(db)).toHaveLength(before + 1);
+    // d は一覧に無いので起票しない。recurring の一覧が無い targets では何も起票しない
+    expect(runAutomation(me, ws.key, { evaluatedAt: at, targets: {} }).recurring.items).toEqual([]);
+    expect(recurringIssues(db)).toHaveLength(before + 1);
+  });
+
+  test("起票できない定期Issueは failed に入れ、ほかのルールは続ける", () => {
+    const { db, me, ws, make, enable } = fixture();
+    enable(10, null);
+    const stale = make("todo");
+    const r1 = addRecurringIssue(me, ws.key, daily());
+    db.query("UPDATE recurring_issues SET template = 'missing' WHERE id = ?").run(r1.id);
+    const r = runAutomation(me, ws.key, { evaluatedAt: at });
+    expect(r.recurring.failed).toMatchObject([{ recurringId: r1.id, occurrence: "2026-09-29" }]);
+    expect(r.rules[0]!.processed).toEqual([stale]);
+  });
+
+  test("targets.recurring は 500 件以下の正の整数の配列", () => {
+    const { me, ws } = fixture();
+    for (const bad of [[0], [1.5], ["1"], Array.from({ length: 501 }, (_, i) => i + 1)]) {
+      const targets = { recurring: bad } as unknown as { recurring: number[] };
+      expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets }))).toBe("INVALID_ARGS");
+    }
   });
 });

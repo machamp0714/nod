@@ -70,7 +70,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 \`nod issue archive <id> [--reason <text>]\` と \`nod issue unarchive <id>\` は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。ステータスは変えない。
 アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
-Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。LLM は \`nod automation run --dry-run\` で対象を確かめ、人に伝えるだけにする。
+Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。\`nod automation run\` は定期Issueの起票も同じ回に行う。LLM は \`nod automation run --dry-run\` で対象（起票する定期Issueを含む）を確かめ、人に伝えるだけにする。
 PR 連動・コミット連動による in_review への自動遷移の取消（\`nod automation undo <id>\`）も人だけが行える。
 \`nod git sync\`（コミットメッセージの Closes/Fixes <ID> で Issue を in_review にする）の実行は人だけが行える。LLM は \`nod git sync --dry-run\` で対象を確かめ、人に伝えるだけにする。
 コミットメッセージに Issue ID を書くときは、作業が済んだコミットだけに \`Fixes <ID>\` を付け、途中のコミットには付けない。
@@ -125,7 +125,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod project list\`、\`nod project show <名前>\`
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod template list\`、\`nod template show <名前>\`
-- \`nod recurring list\`、\`nod recurring run --dry-run\`：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
+- \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
 

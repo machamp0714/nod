@@ -345,20 +345,27 @@ function dueOccurrence(row: RecurringRow, at: Date): { day: number; skipped: num
   return due.length ? { day: due[due.length - 1]!, skipped: due.length - 1 } : null;
 }
 
+// 有効な定期Issueの数（自動化の画面で、確認・実行できるルールがあるかを示す）
+export function countEnabledRecurringIssues(db: Database, workspaceId: number): number {
+  return (db.query("SELECT COUNT(*) AS n FROM recurring_issues WHERE workspace_id = ? AND enabled = 1").get(workspaceId) as { n: number }).n;
+}
+
 // 有効な定期Issueのうち、発生日が来ているものを1件ずつ起票する。
 // 起票は通常の起票と同じ経路（人なら todo）で行い、created event に recurring_id と発生日を残す。
 // テンプレートが消えている・途中でルールが消されたなどで起票できないものは failed に入れて、他の定期Issueは続ける
 export function runRecurringIssues(
   ctx: OpCtx,
   keyOrPath: string,
-  opts: { dryRun?: boolean; now?: Date } = {},
+  opts: { dryRun?: boolean; now?: Date; only?: number[] } = {},
 ): RecurringRun {
   const dryRun = opts.dryRun ?? false;
   if (!dryRun) requireHuman(ctx, "実行");
   const at = opts.now ?? new Date();
   const workspace = requireWorkspace(ctx.db, keyOrPath);
   const result: RecurringRun = { workspaceKey: workspace.key, dryRun, evaluatedAt: at.toISOString(), items: [], failed: [] };
-  for (const listed of rows(ctx.db, workspace).filter((r) => r.enabled === 1)) {
+  // only（自動化の確認時点の一覧、#32）を渡すと、その定期Issueだけを扱う
+  const listedRows = rows(ctx.db, workspace).filter((r) => r.enabled === 1 && (opts.only === undefined || opts.only.includes(r.id)));
+  for (const listed of listedRows) {
     let occurrence: string | null = null;
     try {
       const item = tx(ctx.db, (): RecurringRunItem | null => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, findIssueRow, getAutomationSettings, getIssue, setAutomationSettings } from "@nod/core";
+import { addRecurringIssue, createIssue, findIssueRow, getAutomationSettings, getIssue, setAutomationSettings } from "@nod/core";
 import { call, setup } from "./helpers";
 
 const old = "2020-01-01T00:00:00.000Z";
@@ -101,6 +101,21 @@ describe("自動化API", () => {
     expect(getIssue(s.db, notListed).status).toBe("todo");
   });
 
+  test("定期Issue（#32）も同じ実行で評価し、targets.recurring の一覧だけを起票する", async () => {
+    const s = setup();
+    const today = new Date().toISOString().slice(0, 10);
+    const r = addRecurringIssue(s.me, s.ws.key, { title: "日次チェック", cadence: "daily", startDate: today, timeZone: "UTC" });
+    const url = `/api/workspaces/${s.ws.key}/automation/run`;
+    const dry = await call(s.app, "POST", url, {});
+    expect(dry.json.recurring).toMatchObject({ enabled: 1, items: [{ recurringId: r.id, occurrence: today, issueId: null }], notRun: [], failed: [] });
+    // recurring の一覧の無い targets では起票しない
+    expect((await call(s.app, "POST", url, { dryRun: false, targets: {} })).json.recurring.items).toEqual([]);
+    const res = await call(s.app, "POST", url, { dryRun: false, targets: { recurring: [r.id] } });
+    expect(res.status).toBe(200);
+    const issueId = res.json.recurring.items[0].issueId;
+    expect(getIssue(s.db, issueId).title).toBe("日次チェック");
+  });
+
   test("不正な dryRun・limit・targets を拒む", async () => {
     const s = setup();
     const url = `/api/workspaces/${s.ws.key}/automation/run`;
@@ -114,6 +129,8 @@ describe("自動化API", () => {
       { targets: { auto_close: "API-1" } },
       { targets: { auto_close: [1] } },
       { targets: { other: [] } },
+      { targets: { recurring: ["1"] } },
+      { targets: { recurring: [0] } },
     ]) {
       const res = await call(s.app, "POST", url, body);
       expect(res.status).toBe(400);

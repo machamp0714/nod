@@ -74,6 +74,22 @@ test("run --dry-run は対象を表示するだけ、run で canceled・アー�
   expect(again.json.rules.map((r: { total: number }) => r.total)).toEqual([0, 0, 0]);
 });
 
+test("run は定期Issue（#32）の起票を同じ回に行い、--dry-run では予定だけを出す。定期Issueが無ければ節を出さない", async () => {
+  const { opts } = fixture();
+  expect((await runNod(["automation", "run", "--dry-run"], opts)).stdout).not.toContain("起票する（定期Issue）");
+  const today = new Date().toISOString().slice(0, 10);
+  const added = await runNod(["recurring", "add", "日次チェック", "--every", "daily", "--start", today, "--tz", "UTC", "--json"], opts);
+  expect(added.exitCode).toBe(0);
+  const dry = await runNod(["automation", "run", "--dry-run"], { ...opts, actor: "codex" });
+  expect(dry.stdout).toContain(`起票する（定期Issue）: 1 件\n  -  ${today} 分  #${added.json.id} 日次チェック`);
+  const run = await runNod(["automation", "run", "--json"], opts);
+  expect(run.json.recurring).toMatchObject({ enabled: 1, items: [{ recurringId: added.json.id, occurrence: today }], notRun: [], failed: [] });
+  const issueId = run.json.recurring.items[0].issueId;
+  expect((await runNod(["issue", "show", issueId, "--json"], opts)).json.title).toBe("日次チェック");
+  const again = await runNod(["automation", "run"], opts);
+  expect(again.stdout).toContain("起票する（定期Issue）: 0 件\n  起票しました: 0 件");
+});
+
 test("run は --limit の不正を拒む", async () => {
   const { opts } = fixture();
   for (const limit of ["0", "501", "x"]) {
