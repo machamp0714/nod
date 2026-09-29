@@ -2,12 +2,16 @@ import { useState } from "react";
 import type { ActivityItem } from "../../api/types";
 import { hasText } from "../../lib/issue-edit";
 import { visibleActivity } from "../../lib/activity";
-import { formatRelative } from "../../lib/format";
-import { ActivityLines, AgentAvatar, Button } from "../ui";
+import { ActivityLines, Button } from "../ui";
+import { CommentThread, type ThreadHandlers } from "./CommentThread";
 import s from "./issue-detail.module.css";
 import { useAsyncAction } from "./useAsyncAction";
 
-export function ActivitySection({ activity, onComment }: { activity: ActivityItem[]; onComment: (body: string) => Promise<unknown> }) {
+export function ActivitySection({
+  activity,
+  onComment,
+  ...handlers
+}: { activity: ActivityItem[]; onComment: (body: string) => Promise<unknown> } & ThreadHandlers) {
   const [body, setBody] = useState("");
   const action = useAsyncAction();
 
@@ -19,10 +23,7 @@ export function ActivitySection({ activity, onComment }: { activity: ActivityIte
     <section className={s.section} aria-label="Activity">
       <h2 className={s.sectionTitle}>Activity</h2>
       {activity.length === 0 ? <p className={s.muted}>Activity はありません</p> : <div className={s.activityCards}>{visibleActivity(activity).map((item, index) => item.kind === "comment" ?
-        <article key={`${item.at}-${index}`} className={s.commentCard} aria-label="コメント記録">
-          <div className={s.commentHead}><AgentAvatar actor={item.actor} /><strong>{item.actor}</strong><time dateTime={item.at} title={item.at}>{formatRelative(item.at)}</time></div>
-          <p>{item.body}</p>
-        </article> : <ActivityLines key={`${item.at}-${index}`} items={[item]} />)}</div>}
+        <CommentThread key={`comment-${item.id}`} thread={item} {...handlers} /> : <ActivityLines key={`${item.at}-${index}`} items={[item]} />)}</div>}
       <div className={s.commentBox}>
         <textarea
           disabled={action.busy}
