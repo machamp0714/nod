@@ -15,6 +15,8 @@ test("コメントを書くと Activity に書き手つきで出る。空白だ�
   await box.fill("計測の結果を共有した");
   await submit.click();
   await expect(activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "計測の結果を共有した" })).toContainText("me");
+  // 返信のないカードには最終返信の時刻を出さない
+  await expect(activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "計測の結果を共有した" })).not.toContainText("最終返信");
   await expect(box).toHaveValue("");
 });
 
@@ -56,17 +58,27 @@ test("コメントに返信してスレッドにし、解決済みは折りた�
   await expect(collapsed).toHaveAttribute("aria-expanded", "false");
   await expect(collapsed).toContainText("claude-code: N+1 の原因は");
   await expect(collapsed).toContainText("2件の返信");
+  // 古いスレッドへの新しい返信に気づけるよう、最後の返信の時刻を出す（design/nod.pen「Issue詳細｜最終返信時刻（#97）」）
+  await expect(collapsed).toContainText(/· 最終返信 \S+/);
   await expect(thread.getByText("IN 句で一括取得して")).toBeHidden();
   await expect(activity).toContainText("me がコメントのスレッドを解決済みにした");
 
   await collapsed.click();
   await expect(thread).toContainText("me が解決");
   await expect(thread.getByText("IN 句で一括取得して")).toBeVisible();
-  await expect(thread.getByRole("button", { name: "返信", exact: true })).toHaveCount(0);
+  // 解決済みのスレッドにも、開けば返信できる。解決ボタンは出さない（#97）
+  await expect(thread.getByRole("button", { name: "解決", exact: true })).toHaveCount(0);
+  await thread.getByRole("button", { name: "返信", exact: true }).click();
+  await thread.getByRole("textbox", { name: "返信" }).fill("解決後の補足");
+  await thread.getByRole("button", { name: "返信する" }).click();
+  await expect(thread.getByRole("group", { name: "返信記録" }).filter({ hasText: "解決後の補足" })).toContainText("me");
+  await expect(thread).toContainText("me が解決");
   await thread.getByRole("button", { name: "未解決に戻す" }).click();
   await expect(thread.getByRole("button", { name: "解決", exact: true })).toBeVisible();
+  // 返信のある未解決カードは見出しに最終返信の時刻を出す
+  await expect(thread.getByText(/最終返信/)).toBeVisible();
   await expect(activity).toContainText("me がコメントのスレッドを未解決に戻した");
   const detail = await nod.me.getIssue(ISSUE.comment);
   const saved = detail.activity.find((a) => a.kind === "comment" && a.id === root.id);
-  expect(saved).toMatchObject({ resolvedAt: null, replies: [{ body: "LLM の返信" }, { body: "IN 句で一括取得して", actor: "me" }] });
+  expect(saved).toMatchObject({ resolvedAt: null, replies: [{ body: "LLM の返信" }, { body: "IN 句で一括取得して", actor: "me" }, { body: "解決後の補足", actor: "me" }] });
 });

@@ -55,7 +55,7 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
 }
 
 // nod.pen「Issue詳細｜コメントスレッド（#48/#49）」の Activity に合わせる。
-// 未解決はカード、解決済みは1行に折りたたみ、開くと「未解決に戻す」を出す。
+// 未解決はカード、解決済みは1行に折りたたみ、開くと「未解決に戻す」と「返信」を出す。
 // readOnly（アーカイブ済み）のときは返信・解決済み化・未解決に戻すを無効にする
 export function CommentThread({ thread, onReply, onResolve, readOnly = false }: { thread: CommentThreadItem; readOnly?: boolean } & ThreadHandlers) {
   const resolved = thread.resolvedAt !== null;
@@ -80,6 +80,13 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
 
   const error = action.error && <p className={s.error} role="alert">{action.error}</p>;
   const replyCount = thread.replies.length > 0 && <span className={s.threadMeta}>{thread.replies.length}件の返信</span>;
+  // 古いスレッドへの新しい返信に気づけるよう、返信があれば最後の返信の時刻を出す（design/nod.pen「Issue詳細｜最終返信時刻（#97）」）
+  const lastReply = thread.replies.at(-1);
+  const lastReplyAt = lastReply && (
+    <span className={s.threadMeta}>
+      · 最終返信 <Time at={lastReply.at} />
+    </span>
+  );
 
   if (resolved && !expanded) {
     return (
@@ -89,7 +96,7 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
           <span className={s.resolvedLabel}>解決済み</span>
           <span className={s.threadMeta}>·</span>
           <span className={s.threadExcerpt}>{thread.actor}: {thread.body}</span>
-          {replyCount && <><span className={s.threadMeta}>·</span>{replyCount}</>}
+          {replyCount && <><span className={s.threadMeta}>·</span>{replyCount}{lastReplyAt}</>}
           <Icon name="chevron-down" color="var(--ink3)" />
         </button>
         {error}
@@ -122,18 +129,20 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
         <strong>{thread.actor}</strong>
         {thread.logKind && <WorkLogBadge kind={thread.logKind} />}
         <Time at={thread.at} />
-        {!resolved && (
-          <span className={s.threadActions}>
-            <button type="button" className={s.threadAction} disabled={action.busy || readOnly} onClick={() => setReplying(true)}>
-              <Icon name="reply" size={13} color="var(--ink3)" />
-              返信
-            </button>
+        {!resolved && lastReplyAt}
+        {/* 解決済みも開けば返信できる（API・CLI と同じ）。解決は未解決のときだけ */}
+        <span className={s.threadActions}>
+          <button type="button" className={s.threadAction} disabled={action.busy || readOnly} onClick={() => setReplying(true)}>
+            <Icon name="reply" size={13} color="var(--ink3)" />
+            返信
+          </button>
+          {!resolved && (
             <button type="button" className={s.threadAction} disabled={action.busy || readOnly} onClick={() => void toggleResolved(true)}>
               <Icon name="check" size={13} color="var(--ink3)" />
               解決
             </button>
-          </span>
-        )}
+          )}
+        </span>
       </div>
       {thread.logKind ? <WorkLogBody body={thread.body} kind={thread.logKind} /> : <p>{thread.body}</p>}
       {(thread.replies.length > 0 || replying) && (
