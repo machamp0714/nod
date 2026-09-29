@@ -118,3 +118,65 @@ test("スヌーズ中の通知も削除できる（#43/#44）", async ({ page, n
   await expect(list(page).getByText("スヌーズ中の通知はありません")).toBeVisible();
   expect(await nod.me.listNotifications({ snoozed: true })).toEqual([]);
 });
+
+test("スヌーズの期限が来ると、読み込み直さなくても一覧に未読1件で戻る（#43）", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await nod.me.subscribeIssue(a.id);
+  await nod.claude.commentIssue(a.id, "a1");
+  await nod.claude.commentIssue(a.id, "a2");
+  await nod.me.snoozeNotifications({ issueRef: a.id, until: new Date(Date.now() + 3000).toISOString() });
+
+  await page.goto("/inbox?tab=notifications");
+  await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消/ })).toHaveCount(0);
+  await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ })).toBeVisible({ timeout: 10_000 });
+  await expect(filter(page).getByRole("tab", { name: /スヌーズ中/ })).toContainText("0");
+});
+
+test("トーストを出している間に続けて削除すると、元に戻すのは直近の削除（#44）", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  const b = await api.startedIssue("決済 Webhook の再送処理");
+  await nod.me.subscribeIssue(a.id);
+  await nod.me.subscribeIssue(b.id);
+  await nod.claude.commentIssue(a.id, "a1");
+  await nod.claude.commentIssue(b.id, "b1");
+
+  await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
+  await detail(page).getByRole("button", { name: "削除" }).click();
+  const toast = page.getByRole("status").filter({ hasText: "通知を削除しました" });
+  await expect(toast).toBeVisible();
+  await list(page).getByRole("link", { name: /決済 Webhook の再送処理/ }).click();
+  await detail(page).getByRole("button", { name: "削除" }).click();
+  await expect(list(page).getByRole("link")).toHaveCount(0);
+
+  await toast.getByRole("button", { name: "元に戻す" }).click();
+  await expect(toast).toHaveCount(0);
+  await expect(list(page).getByRole("link", { name: /決済 Webhook の再送処理/ })).toBeVisible();
+  await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消/ })).toHaveCount(0);
+});
+
+test.describe("取り消しの失敗", () => {
+  test.use({ allowedConsoleErrors: [/Failed to load resource.*status of 500/] });
+
+  test("元に戻すのに失敗したら、トーストの中に理由を出す（#44）", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const a = await api.startedIssue("検索 API の N+1 を解消");
+    await nod.me.subscribeIssue(a.id);
+    await nod.claude.commentIssue(a.id, "a1");
+
+    await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
+    await detail(page).getByRole("button", { name: "削除" }).click();
+    const toast = page.getByRole("status").filter({ has: page.getByRole("button", { name: "元に戻す" }) });
+    await expect(toast).toContainText("通知を削除しました");
+    await page.route("**/api/notifications/restore", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "取り消しの保存失敗" } }) }));
+    await toast.getByRole("button", { name: "元に戻す" }).click();
+    await expect(toast.getByRole("alert")).toContainText("元に戻せませんでした（取り消しの保存失敗）");
+    await expect(list(page).getByRole("link")).toHaveCount(0);
+
+    await page.unroute("**/api/notifications/restore");
+    await toast.getByRole("button", { name: "元に戻す" }).click();
+    await expect(toast).toHaveCount(0);
+    await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消/ })).toBeVisible();
+  });
+});

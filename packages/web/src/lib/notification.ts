@@ -130,3 +130,14 @@ export function formatSnoozeUntil(iso: string, now: Date = new Date()): string {
   const day = days === 0 ? "今日" : days === 1 ? "明日" : md(until);
   return `${day} ${hm(until)} まで`;
 }
+
+// setTimeout が扱える最大の待ち時間。これを超えるとすぐ呼ばれてしまうので、ここで打ち切って待ち直す
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+// いちばん早く期限が来るスヌーズまでの待ち時間（ms）。server の時計とのずれを見込んで margin だけ遅らせ、
+// 期限を過ぎていても margin は待つ（server がまだスヌーズ中と返しても読み直しを繰り返し過ぎない）。スヌーズ中がなければ null
+export function nextSnoozeExpiry(list: readonly Notification[], now: number = Date.now(), margin = 1000): number | null {
+  const times = list.flatMap((x) => (x.snoozedUntil ? [Date.parse(x.snoozedUntil)] : [])).filter((t) => !Number.isNaN(t));
+  if (times.length === 0) return null;
+  return Math.min(Math.max(Math.min(...times) - now, 0) + margin, MAX_TIMER_MS);
+}

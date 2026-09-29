@@ -1,7 +1,7 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
-import { useNotificationAction, useNotifications } from "../api/hooks/notifications";
+import { useNotificationAction, useNotifications, useSnoozeExpiry } from "../api/hooks/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { InboxQuestion } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
@@ -23,6 +23,7 @@ export function InboxPage() {
   const navigate = route.useNavigate();
   const pending = useInbox();
   const unread = useNotifications();
+  useSnoozeExpiry();
   const tabs = (
     <div className={d.tabs}><Segmented<InboxTab> label="Inboxの表示" value={tab}
       items={[
@@ -47,7 +48,11 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
   // 一覧から消えた Issue の選択は外す。残すと、後から届いた通知を開かないうちに既読にしてしまう
   const removed = (deletedIds?: number[]) => {
     void navigate({ search: { tab: "notifications", ...(view === "snoozed" ? { view } : {}) }, replace: true });
-    if (deletedIds) setDeleted(deletedIds);
+    // トーストを出している間に続けて削除したら、トーストは直近の削除の取り消しに切り替える
+    if (deletedIds) { restore.reset(); setDeleted(deletedIds); }
+  };
+  const undo = (ids: number[]) => {
+    restore.mutateAsync({ op: "restore", ids }).then(() => setDeleted((cur) => (cur === ids ? null : cur)), () => {});
   };
   return (
     <>
@@ -64,8 +69,8 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
               opened={current.issueId === selected} view={view} onRemoved={removed} />
           : <p className={d.empty}>{query.isPending ? "読み込み中…" : view === "snoozed" ? "スヌーズ中の通知はありません" : "通知はありません"}</p>}
       />
-      {deleted && <DeleteToast key={deleted.join(",")} onClose={closeToast}
-        onUndo={() => { restore.mutate({ op: "restore", ids: deleted }); setDeleted(null); }} />}
+      {deleted && <DeleteToast key={deleted.join(",")} onClose={closeToast} pending={restore.isPending} error={restore.error}
+        onUndo={() => undo(deleted)} />}
     </>
   );
 }

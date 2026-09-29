@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { AlarmClockOff, CalendarClock, ChevronDown, Clock3, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { errorMessage } from "../api/errors";
 import { useNotificationAction, useNotifications } from "../api/hooks/notifications";
 import type { NotificationAction } from "../api/notifications";
 import { useIssueDetail } from "../api/hooks/shared";
@@ -248,17 +249,18 @@ function SnoozeMenu({ disabled, onSnooze }: { disabled: boolean; onSnooze: (unti
   );
 }
 
-// 削除直後のトースト（Pencil『Inbox｜削除トースト』）。しばらくすると消える
-export function DeleteToast({ onUndo, onClose }: { onUndo: () => void; onClose: () => void }) {
+// 削除直後のトースト（Pencil『Inbox｜削除トースト』）。約5秒で消える。取り消しに失敗したらトースト内に理由を出し、そこから5秒待つ
+export function DeleteToast({ onUndo, onClose, pending, error }: { onUndo: () => void; onClose: () => void; pending: boolean; error: unknown }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 6000);
+    if (pending) return;
+    const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, pending, error]);
   return (
     <div role="status" className={n.toast}>
       <Trash2 size={14} aria-hidden="true" />
-      <span>通知を削除しました</span>
-      <button type="button" className={n.undo} onClick={onUndo}>元に戻す</button>
+      {error ? <span role="alert" className={n.toastError}>元に戻せませんでした（{errorMessage(error)}）</span> : <span>通知を削除しました</span>}
+      <button type="button" className={n.undo} disabled={pending} onClick={onUndo}>元に戻す</button>
     </div>
   );
 }

@@ -380,6 +380,10 @@
   color: var(--ink2);
 }
 
+.toastError {
+  color: var(--fail);
+}
+
 .undo {
   padding: 0 0 0 6px;
   border: 0;

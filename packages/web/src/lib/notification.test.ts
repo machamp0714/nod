@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Notification } from "../api/types";
-import { customSnoozeUntil, describeNotification, formatSnoozeUntil, groupNotifications, groupSummary, snoozePresets, unreadToMark } from "./notification";
+import { customSnoozeUntil, describeNotification, formatSnoozeUntil, groupNotifications, groupSummary, nextSnoozeExpiry, snoozePresets, unreadToMark } from "./notification";
 
 const n = (over: Partial<Notification>): Notification => ({
   id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "検索", workspace: "API", eventType: "comment_added",
@@ -101,5 +101,22 @@ describe("スヌーズのプリセットと期限の表示（#43）", () => {
     expect(formatSnoozeUntil(at(2026, 9, 30, 15, 20).toISOString(), now)).toBe("今日 15:20 まで");
     expect(formatSnoozeUntil(at(2026, 10, 1, 9).toISOString(), now)).toBe("明日 9:00 まで");
     expect(formatSnoozeUntil(at(2026, 10, 2, 14).toISOString(), now)).toBe("10月2日 14:00 まで");
+  });
+});
+
+describe("nextSnoozeExpiry", () => {
+  const now = Date.parse("2026-09-29T10:00:00.000Z");
+  test("いちばん早い期限までの時間に余裕を足して返し、スヌーズ中がなければ null", () => {
+    expect(nextSnoozeExpiry([], now)).toBeNull();
+    expect(nextSnoozeExpiry([n({ snoozedUntil: null })], now)).toBeNull();
+    expect(nextSnoozeExpiry([
+      n({ id: 1, snoozedUntil: "2026-09-29T11:00:00.000Z" }),
+      n({ id: 2, snoozedUntil: "2026-09-29T10:00:30.000Z" }),
+    ], now)).toBe(31_000);
+  });
+
+  test("過ぎた期限でも余裕の分は待ち、遠い先の期限は setTimeout の上限で打ち切る", () => {
+    expect(nextSnoozeExpiry([n({ snoozedUntil: "2026-09-29T09:00:00.000Z" })], now)).toBe(1000);
+    expect(nextSnoozeExpiry([n({ snoozedUntil: "2999-01-01T00:00:00.000Z" })], now)).toBe(2 ** 31 - 1);
   });
 });
