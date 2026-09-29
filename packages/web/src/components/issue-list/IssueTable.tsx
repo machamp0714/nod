@@ -96,6 +96,12 @@ export function IssueTable({
                 <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
                   {issue.title}
                 </Link>
+                {issue.completionCandidate && (
+                  <span className={s.completionPill}>
+                    <Icon name="circle-check" size={11} />
+                    完了候補
+                  </span>
+                )}
                 {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
                 <BlockedBy ids={issue.blockedBy} />
                 {onPreview && (
