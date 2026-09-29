@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addRecurringIssue, getIssue, listRecurringIssues } from "@nod/core";
+import { addRecurringIssue, getIssue, listRecurringIssues, saveTemplate } from "@nod/core";
 import { call, setup } from "./helpers";
 
 const RULE = { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" };
@@ -42,5 +42,11 @@ describe("定期Issue API", () => {
     expect((await call(app, "GET", `${url}/99`)).status).toBe(404);
     expect((await call(app, "POST", `${url}/run`, { dryRun: "x" })).status).toBe(400);
     expect((await call(app, "GET", "/api/workspaces/NOPE/recurring")).status).toBe(404);
+  });
+
+  test("テンプレートの一覧を返す", async () => {
+    const { app, db } = setup();
+    saveTemplate(db, { name: "review", body: "## 振り返り" });
+    expect((await call(app, "GET", "/api/templates")).json).toMatchObject([{ name: "review", body: "## 振り返り" }]);
   });
 });

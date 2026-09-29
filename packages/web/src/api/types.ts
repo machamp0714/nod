@@ -86,6 +86,11 @@ export type {
   AutomationRuleResult,
   AutomationRun,
   AutomationTargets,
+  RecurrenceCadence,
+  RecurringIssue,
+  RecurringRun,
+  RecurringRunItem,
+  Template,
 } from "@nod/core";
 
 // Workspace の作業規約。未登録なら API は null を返す
@@ -96,3 +101,18 @@ export interface WorkspaceRules {
   updatedBy: string;
 }
 
+// 定期Issueの登録・変更で API に送る本文（project は Project の名前）
+export interface RecurringIssueInput {
+  title: string;
+  description: string | null;
+  template: string | null;
+  project: string | null;
+  labels: string[];
+  priority: number;
+  assignee: string | null;
+  cadence: import("@nod/core").RecurrenceCadence;
+  weekday: number | null;
+  monthDay: number | null;
+  startDate: string;
+  timeZone: string;
+}

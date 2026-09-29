@@ -2,6 +2,7 @@ import {
   addRecurringIssue,
   getRecurringIssue,
   listRecurringIssues,
+  listTemplates,
   type OpCtx,
   type RecurrenceCadence,
   type RecurringIssuePatch,
@@ -68,6 +69,8 @@ function patchOf(body: Body): RecurringIssuePatch {
 // 定期Issueの登録・変更・実行は web（書き手 me）から行う。LLM は CLI の list / run --dry-run で読むだけ
 export function registerRecurringRoutes(app: Hono, me: OpCtx): void {
   const id = (value: string) => paramInt(value, "定期Issueの ID ");
+  // 定期Issueの本文に選ぶテンプレート（全 Workspace 共通）。管理は CLI の nod template で行う
+  app.get("/api/templates", (c) => c.json(listTemplates(me.db)));
   app.get("/api/workspaces/:key/recurring", (c) => c.json(listRecurringIssues(me.db, c.req.param("key"))));
   app.post("/api/workspaces/:key/recurring", async (c) => {
     const body = await readBody(c, KEYS);

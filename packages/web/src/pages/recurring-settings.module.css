@@ -1,0 +1,423 @@
+/* 定期Issue（#32）。nod.pen「Workspace設定｜定期Issue（#32）」 */
+.table {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  table-layout: fixed;
+}
+
+.table th {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: normal;
+  text-align: left;
+}
+
+.table td {
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 14px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 14px;
+}
+
+.colTitle {
+  width: auto;
+}
+
+.colCadence {
+  width: 84px;
+}
+
+.colNext {
+  width: 80px;
+}
+
+.colLast {
+  width: 72px;
+}
+
+.colEnabled {
+  width: 38px;
+}
+
+.colActions {
+  width: 110px;
+}
+
+.cellTitle {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell {
+  color: var(--ink2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cellActions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cellActions > * + * {
+  margin-left: 6px;
+}
+
+.issueLink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.issueLink:hover {
+  text-decoration: underline;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  width: 30px;
+  height: 18px;
+  padding: 2px;
+  border: none;
+  border-radius: 9px;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.switchOn {
+  justify-content: flex-end;
+  background: var(--accent);
+}
+
+.knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #FFFFFF;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.emptyMessage {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.formTitle {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldLabel {
+  flex: none;
+  width: 72px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.control {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.segment {
+  padding: 3px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segmentOn {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.days {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.day {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dayOn {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.monthDay {
+  width: 96px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.chipRemove {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.labelInput {
+  width: 120px;
+}
+
+.addLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.addLabel:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.narrow {
+  width: 160px;
+}
+
+.date {
+  width: 140px;
+}
+
+.tzLabel {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.tz {
+  width: 170px;
+}
+
+.formFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--ink2);
+}
+
+.previewHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.previewTitle {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.previewTime {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.previewTable th {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: normal;
+  text-align: left;
+}
+
+.previewTable td {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.previewTable td.previewName {
+  color: var(--ink);
+}
+
+.colOccurrence {
+  width: 100px;
+}
+
+.colSkipped {
+  width: 84px;
+}
+
+.previewNote {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--fail-soft);
+}
+
+.failureHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fail);
+  font-size: 12.5px;
+}
+
+.failureDetail {
+  color: var(--ink2);
+  font-size: 12px;
+}
