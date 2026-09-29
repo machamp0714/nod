@@ -339,11 +339,18 @@
 .groupHeading {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 0;
-  font-size: 13px;
-  color: var(--ink2);
+  gap: 8px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
 }
+.groupLabel { min-width: 0; overflow-wrap: anywhere; }
+.groupCount { font-size: 12px; font-weight: 400; color: var(--ink3); }
 .workspaceGroup .board { overflow-x: auto; }
 .workspaceGroup .column { min-width: 170px; }
 .blockedBy {

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { BOARD_STATUSES, type Tone, TONE_COLORS } from "../../lib/meta";
+import type { Status } from "../../api/types";
+import { BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
-import type { IssueGroupBy, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
-import { Icon, type IconName, Segmented, WorkspaceBadge } from "../ui";
+import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
+import { Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
 import { IssueBoard } from "./IssueBoard";
-import { countRows, filterRows, sortRows, groupRowsByWorkspace } from "./issue-list";
+import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
 import type { IssueListRow } from "./types";
@@ -42,9 +43,9 @@ export function IssueList({
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
   const columns = search.columns ?? [...ISSUE_COLUMNS];
-  const grouped = search.groupBy === "workspace";
-  const groups = grouped
-    ? groupRowsByWorkspace(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible)
+  const { groupBy } = effectiveGrouping(search, layout);
+  const groups = groupBy
+    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy)
     : [];
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
 
@@ -106,11 +107,13 @@ export function IssueList({
           グループ化
           <select
             aria-label="グループ化"
-            value={search.groupBy ?? "none"}
+            value={groupBy ?? "none"}
             onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
           >
             <option value="none">なし</option>
-            <option value="workspace">Workspace</option>
+            {GROUP_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
+            ))}
           </select>
         </label>
         <Segmented<IssueLayout>
@@ -172,14 +175,11 @@ export function IssueList({
         <p role="status" className={s.message}>
           読み込み中…
         </p>
-      ) : grouped ? (
+      ) : groupBy ? (
         groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
           groups.map((group) => (
-            <section key={group.key} className={s.workspaceGroup} aria-label={`Workspace ${group.key}`}>
-              <h2 className={s.groupHeading}>
-                <WorkspaceBadge workspaceKey={group.key} name={group.name} />
-                <span>{group.key} · {group.rows.length} 件</span>
-              </h2>
+            <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
+              <GroupHeading by={groupBy} group={group} />
               {layout === "list" ? <IssueTable rows={group.rows} columns={columns} /> : <IssueBoard rows={group.rows} />}
             </section>
           ))
@@ -190,6 +190,38 @@ export function IssueList({
         <IssueBoard rows={visible} />
       )}
     </div>
+  );
+}
+
+const GROUP_NAMES: Record<IssueGroupKey, string> = {
+  workspace: "Workspace",
+  status: "Status",
+  priority: "優先度",
+  project: "Project",
+  assignee: "担当",
+  label: "ラベル",
+};
+const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
+
+// design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
+function GroupHeading({ by, group }: { by: IssueGroupKey; group: RowGroup }) {
+  const empty = group.key === "";
+  return (
+    <h2 className={s.groupHeading}>
+      {by === "workspace" ? (
+        <WorkspaceBadge workspaceKey={group.key} name={group.workspaceName ?? group.key} />
+      ) : (
+        <>
+          {by === "status" && <StatusIcon status={group.key as Status} />}
+          {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
+          {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
+          {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
+          {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
+          <span className={s.groupLabel}>{group.label}</span>
+        </>
+      )}
+      <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
+    </h2>
   );
 }
 
