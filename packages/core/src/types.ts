@@ -237,9 +237,25 @@ export interface Inbox {
   reviews: ReviewIssue[];
 }
 
+export type AttachmentKind = "link" | "file";
+
+// Issue の添付。リンクは url、ファイルは fileName・size・mime を持つ（もう片方は null）
+export interface IssueAttachment {
+  id: number;
+  kind: AttachmentKind;
+  title: string | null; // 省くと null。表示はリンクならホスト名、ファイルならファイル名
+  url: string | null;
+  fileName: string | null;
+  size: number | null; // バイト数
+  mime: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface IssueDetail extends Issue {
   plan: Plan;
   documents: IssueDocumentRef[];
+  attachments: IssueAttachment[];
   children: Issue[];
   relations: Relations;
   questions: Question[]; // 回答済みも含めたすべての確認依頼（未決事項）。id の順
