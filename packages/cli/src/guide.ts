@@ -63,6 +63,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 \`nod issue archive <id> [--reason <text>]\` と \`nod issue unarchive <id>\` は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。ステータスは変えない。
 アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
+Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。LLM は \`nod automation run --dry-run\` で対象を確かめ、人に伝えるだけにする。
 
 ## 引数の書き方
 
