@@ -212,7 +212,7 @@ export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
       SELECT 'event' AS src, e.id AS sort_id, e.type, e.actor, e.created_at, ${issueCols},
         CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.to') = 'done' THEN COALESCE(
           (SELECT json_extract(a.data, '$.to') FROM events a WHERE a.issue_id = e.issue_id AND a.type = 'assignee_changed'
-            AND a.id < e.id ORDER BY a.id DESC LIMIT 1), i.assignee) END AS worker,
+            AND json_extract(a.data, '$.to') IS NOT NULL AND a.id < e.id ORDER BY a.id DESC LIMIT 1), i.assignee) END AS worker,
         CASE e.type
           WHEN 'question_asked' THEN json_set(e.data, '$.question',
             (SELECT q.question FROM questions q WHERE q.id = json_extract(e.data, '$.question_id')))
