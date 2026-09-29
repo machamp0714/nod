@@ -61,3 +61,56 @@ test.describe("プレビューの取得失敗", () => {
     await expect(page.getByRole("link", { name: "検索 API の N+1 を解消", exact: true })).toBeVisible();
   });
 });
+
+test("プレビューボタンは支援技術から見つけられ、閉じると元の行へフォーカスを戻す", async ({ page }) => {
+  await page.goto("/issues");
+  const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: "検索 API の N+1 を解消", exact: true }) });
+  const button = row.getByRole("button", { name: "API-12 をプレビュー", exact: true });
+  // 行に触れる前から支援技術には見え、画面では隠れている
+  await expect(button).toHaveCount(1);
+  expect((await button.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
+  await row.hover();
+  await button.click();
+  const pane = page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true });
+  await expect(pane).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(pane).toHaveCount(0);
+  await expect(button).toBeFocused();
+
+  // 閉じるボタンで閉じても、Space で開いた行のリンクへ戻す
+  const link = page.getByRole("link", { name: "決済 Webhook の再送処理", exact: true });
+  await link.focus();
+  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
+  await expect(link).toBeFocused();
+
+  // URL から開いたプレビューは、閉じるとその行のリンクへ戻す
+  await page.goto("/issues?preview=API-12");
+  await expect(pane).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(row.getByRole("link", { name: "検索 API の N+1 を解消", exact: true })).toBeFocused();
+});
+
+test("Viewの保存ダイアログでのEscapeはダイアログだけを閉じる", async ({ page }) => {
+  await page.goto("/issues?preview=API-12");
+  const pane = page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true });
+  await expect(pane).toBeVisible();
+  await page.getByText("Filter", { exact: true }).click();
+  await page.getByRole("group", { name: "Workspace" }).getByRole("checkbox", { name: "nod", exact: true }).check();
+  await page.getByRole("button", { name: "View として保存" }).click();
+  const dialog = page.getByRole("dialog", { name: "View として保存" });
+  await dialog.getByRole("button", { name: "キャンセル" }).focus();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(pane).toBeVisible();
+});
+
+test("ラベルで重複して出る行は、最初の1行だけを現在のプレビューとして示す", async ({ page, nod }) => {
+  await nod.me.updateIssue("API-12", { addLabels: ["bug"] });
+  await page.goto("/issues?groupBy=label&preview=API-12");
+  await expect(page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true })).toBeVisible();
+  const rows = page.getByRole("row").filter({ has: page.getByRole("link", { name: "検索 API の N+1 を解消", exact: true }) });
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator("tr[aria-current=true]")).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute("aria-current", "true");
+});

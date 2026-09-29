@@ -204,6 +204,7 @@
 }
 
 .titleCell {
+  position: relative; /* 視覚的に隠したプレビューボタンをセルの中に留め、ページに横スクロールを出さない */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -405,8 +406,9 @@
   min-height: 100%;
 }
 .split > .page { flex: 1; min-width: 0; }
+/* 行に触れるまでは画面から隠すが、支援技術の仮想カーソルでは見つけられるように残す */
 .previewButton {
-  display: none;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-top: 4px;
@@ -419,8 +421,17 @@
   font-weight: 500;
   cursor: pointer;
 }
-.table tbody tr:hover .previewButton,
-.table tbody tr:focus-within .previewButton { display: inline-flex; }
+.table tbody tr:not(:hover, :focus-within) .previewButton {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .table tbody tr.previewing td { background: var(--sunken); }
 .preview {
   position: sticky;
