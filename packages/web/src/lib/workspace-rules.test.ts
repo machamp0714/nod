@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "./workspace-rules";
 
 describe("作業規約の編集状態", () => {
+  test("文字数は core と同じくコードポイントで数える", () => {
+    expect(rulesEditState("😀".repeat(10000), null)).toMatchObject({ length: 10000, over: false });
+    expect(rulesEditState("😀".repeat(10001), null)).toMatchObject({ length: 10001, over: true });
+  });
+
   test("上限は 10,000 文字で、前後の空白を除いた長さで数える", () => {
     expect(RULES_MAX_LENGTH).toBe(10000);
     expect(rulesEditState("  abc \n", null).length).toBe(3);

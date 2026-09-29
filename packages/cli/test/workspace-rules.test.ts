@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { formatWorkspaceRulesSection } from "@nod/core";
 import { GUIDE } from "../src/guide";
 import { makeRepo, runNod, tempDb, tempDir } from "./helpers";
 
@@ -88,6 +89,53 @@ describe("LLM 向け出力に作業規約を含める", () => {
     expect(start.stdout.trimEnd().split("\n")).toHaveLength(1);
   });
 
+  test("未登録なら issue show・next のテキストは規約を登録したときから規約の節を除いたものと一致する", async () => {
+    const { db, repo } = await setupRepo();
+    // 同じタイトルの Issue を2件作り、next は規約の登録前に API-1、登録後に API-2 を取る
+    await runNod(["issue", "create", "t"], { cwd: repo, db });
+    await runNod(["issue", "create", "t"], { cwd: repo, db });
+    const plainShow = (await runNod(["issue", "show", "API-2"], { cwd: repo, db })).stdout;
+    const plainNext = (await runNod(["issue", "next"], { cwd: repo, db, actor: "claude-code" })).stdout;
+    await runNod(["workspace", "rules", "set", "--text", "- PR は draft で作る"], { cwd: repo, db });
+    const rules = (await runNod(["workspace", "rules", "show", "--json"], { cwd: repo, db })).json;
+    const section = `\n\n${formatWorkspaceRulesSection(rules)}`.trimEnd();
+    const show = (await runNod(["issue", "show", "API-2"], { cwd: repo, db })).stdout;
+    const next = (await runNod(["issue", "next"], { cwd: repo, db, actor: "claude-code" })).stdout;
+    expect(show).toContain(section);
+    expect(show.replace(section, "")).toBe(plainShow);
+    expect(next).toContain(section);
+    expect(next.replace(section, "").replace("API-2", "API-1")).toBe(plainNext);
+  });
+
+  test("DB がなければ skills get は DB を作らずに手引きだけを出す", async () => {
+    const db = tempDb();
+    const repo = makeRepo("api-server");
+    const r = await runNod(["skills", "get", "nod"], { cwd: repo, db });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe(`${GUIDE}\n`);
+    expect(existsSync(db)).toBe(false);
+    expect(existsSync(dirname(db))).toBe(true);
+  });
+
+  test("DB が壊れていても skills get は手引きだけを出し、DB を書き換えない", async () => {
+    const db = join(tempDir("nod-db-"), "nod.db");
+    mkdirSync(dirname(db), { recursive: true });
+    writeFileSync(db, "not a sqlite database");
+    const repo = makeRepo("api-server");
+    const r = await runNod(["skills", "get", "nod"], { cwd: repo, db });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe(`${GUIDE}\n`);
+    expect(await Bun.file(db).text()).toBe("not a sqlite database");
+  });
+
+  test("-w はほかのコマンドと同じく、キーのほかリポジトリのパス（. など）でも解決する", async () => {
+    const { db, repo } = await setupRepo();
+    await runNod(["workspace", "rules", "set", "--text", "- PR は draft で作る"], { cwd: repo, db });
+    expect((await runNod(["skills", "get", "nod", "-w", "."], { cwd: repo, db })).stdout).toContain(HEADING);
+    expect((await runNod(["skills", "get", "nod", "-w", repo], { cwd: tempDir(), db })).stdout).toContain(HEADING);
+    expect((await runNod(["skills", "get", "nod", "-w", "api"], { cwd: tempDir(), db })).stdout).toContain(HEADING);
+  });
+
   test("Workspace の外で skills get しても従来どおり", async () => {
     const db = tempDb();
     expect((await runNod(["skills", "get", "nod"], { cwd: tempDir(), db })).stdout).toBe(`${GUIDE}\n`);
@@ -101,6 +149,8 @@ describe("LLM 向け出力に作業規約を含める", () => {
     expect(text).toContain(HEADING);
     expect(text.indexOf(HEADING)).toBeGreaterThan(text.indexOf("## 停滞候補"));
     expect(text).toContain("- PR は draft で作る");
+    // 末尾に余分な空行を出さない
+    expect(text).toEndWith("- PR は draft で作る\n");
     const json = (await runNod(["skills", "get", "nod", "--json"], { cwd: repo, db })).json;
     expect(json.guide).toContain(HEADING);
     expect(json.rules).toMatchObject({ workspaceKey: "API", body: "- PR は draft で作る" });

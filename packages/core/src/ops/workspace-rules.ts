@@ -5,6 +5,7 @@ import { NodError } from "../errors";
 import type { Workspace, WorkspaceRules } from "../types";
 import { findWorkspace } from "./workspaces";
 
+// 上限の「文字」はコードポイントで数える（絵文字などのサロゲートペアも1文字）。web の rulesEditState も同じ数え方
 export const RULES_MAX_LENGTH = 10000;
 
 interface RulesRow {
@@ -41,10 +42,11 @@ export function getWorkspaceRules(db: Database, keyOrPath: string): WorkspaceRul
 export function setWorkspaceRules(ctx: OpCtx, keyOrPath: string, body: string): WorkspaceRules | null {
   requireHuman(ctx);
   const trimmed = body.trim();
-  if (trimmed.length > RULES_MAX_LENGTH) {
+  const length = [...trimmed].length;
+  if (length > RULES_MAX_LENGTH) {
     throw new NodError(
       "INVALID_ARGS",
-      `作業規約は ${RULES_MAX_LENGTH.toLocaleString("en-US")} 文字までです（${trimmed.length.toLocaleString("en-US")} 文字）`,
+      `作業規約は ${RULES_MAX_LENGTH.toLocaleString("en-US")} 文字までです（${length.toLocaleString("en-US")} 文字）`,
     );
   }
   return tx(ctx.db, () => {

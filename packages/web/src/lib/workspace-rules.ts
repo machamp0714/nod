@@ -1,4 +1,4 @@
-// core の RULES_MAX_LENGTH と同じ上限。保存時は前後の空白を除くため、数えるのも除いた長さ
+// core の RULES_MAX_LENGTH と同じ上限。保存時は前後の空白を除くため、数えるのも除いた長さ。core と同じくコードポイントで数える
 export const RULES_MAX_LENGTH = 10000;
 
 export interface RulesEditState {
@@ -9,8 +9,9 @@ export interface RulesEditState {
 
 export function rulesEditState(draft: string, saved: string | null): RulesEditState {
   const trimmed = draft.trim();
-  const over = trimmed.length > RULES_MAX_LENGTH;
-  return { length: trimmed.length, over, canSave: !over && trimmed !== (saved ?? "") };
+  const length = [...trimmed].length;
+  const over = length > RULES_MAX_LENGTH;
+  return { length, over, canSave: !over && trimmed !== (saved ?? "") };
 }
 
 export function formatRulesCount(length: number): string {
