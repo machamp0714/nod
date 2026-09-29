@@ -14,6 +14,7 @@ const LINKS = [
   { name: /^Triage/, url: /\/triage$/, heading: "Triage" },
   { name: "Issues", url: /\/issues$/, heading: "Issues" },
   { name: "Projects", url: /\/projects$/, heading: "Projects" },
+  { name: "Documents", url: /\/documents$/, heading: "Documents" },
   { name: "仕事", url: /\/views\/1$/, heading: "仕事" },
 ];
 

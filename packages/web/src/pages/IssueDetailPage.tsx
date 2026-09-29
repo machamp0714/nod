@@ -4,6 +4,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
   useAttachDocument,
+  useRemoveDocument,
   useAnswerQuestion,
   useCommentIssue,
   useCopyIssue,
@@ -61,6 +62,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const attach = useAttachDocument(issue.id);
   const copyIssue = useCopyIssue(issue.id);
   const navigate = useNavigate();
+  const removeDocument = useRemoveDocument(issue.id);
   const status = STATUS_META[issue.status];
   return (
     <div className={s.page}>
@@ -110,7 +112,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <DescriptionSection description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
           <AwaitingInputBanner issue={issue} busy={questionsBusy} onAnswer={(questionId) => setAnswerRequest((previous) => ({ questionId, requestId: (previous?.requestId ?? 0) + 1 }))} />
           <PlanSection key={issue.id} plan={issue.plan} />
-          <DocumentsSection documents={issue.documents} onAttach={input => attach.mutateAsync(input)} />
+          <DocumentsSection issueId={issue.id} documents={issue.documents} onAttach={input => attach.mutateAsync(input)}
+            onRemove={documentId => removeDocument.mutateAsync({ documentId })} />
           <SubIssuesSection issues={issue.children} />
           <ActivitySection
             activity={issue.activity}

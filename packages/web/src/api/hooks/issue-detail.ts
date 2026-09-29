@@ -39,3 +39,4 @@ export const useResolveThread = (id: string) =>
   useIssueOperation<{ commentId: number; resolved: boolean }, Comment>(id, "resolve-thread");
 
 export const useAttachDocument = (id: string) => useIssueOperation<{ path: string; title?: string; kind?: DocKind }, DocumentRef>(id, "doc-add");
+export const useRemoveDocument = (id: string) => useIssueOperation<{ documentId: number }, { removed: number }>(id, "doc-remove");

@@ -20,6 +20,9 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    計画書がなく手順が3つ以上あるときは \`nod issue plan <id> --step "調査" --step "実装" --step "テスト"\` で計画を示す。
    進めるたびに \`nod issue step <id> <N> doing|done|skipped\`（Step は \`<N.M>\`）で更新する。
 4. 設計書を書いたときは \`nod issue doc add <id> <パス> --kind spec\` で添付する。
+   設計メモなどを新しく書くときは \`nod doc create <相対パス.md> --title "<タイトル>" [--kind spec|plan|doc] [--body "<本文>" | --body -] --issue <id>\` で作る。
+   作成先は Documents ディレクトリ（\`NOD_DOCS_DIR\`）の下に限られ、既存ファイルは上書きしない。本文の正本は作られた Markdown ファイルである。
+   Document と Issue のリンクは \`nod doc link|unlink <Document id> --issue <id>\` で付け外しし、\`nod doc show <Document id>\` でリンク先の Issue を確かめる。
 5. 節目ごとに \`nod issue log <id> "<何をしたか>"\` で経過を1件残す。細かい思考は残さない。
 6. 判断に迷ったら推測で進めず、\`nod issue ask <id> "<質問>"\` で人に確認し、その Issue の作業を止める。
    回答は \`nod issue show <id>\` の Activity に出る。

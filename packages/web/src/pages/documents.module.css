@@ -1,0 +1,396 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.count {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.filterWrap {
+  position: relative;
+}
+
+.filterButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.filterButton:hover {
+  background: var(--sunken);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 6px 16px #0001;
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover,
+.menu button:focus-visible,
+.menu button[aria-checked="true"] {
+  background: var(--sunken);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.table th {
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.table td {
+  height: 48px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 20px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 20px;
+}
+
+.colKind {
+  width: 80px;
+}
+
+.colIssues {
+  width: 256px;
+}
+
+.colCreated {
+  width: 108px;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.iconBox {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  color: var(--ink2);
+}
+
+.nameLink {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameLink:hover {
+  color: var(--accent);
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+a.chip:hover {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.date {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.empty {
+  padding: 20px;
+  color: var(--ink3);
+  font-size: 13px;
+}
+
+/* 新規ドキュメント */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  min-width: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink3);
+}
+
+.crumbLink {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.crumbLink:hover {
+  color: var(--accent);
+}
+
+.crumbCurrent {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.crumbPath {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  max-width: 720px;
+  padding: 32px 64px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hint {
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.control:focus-within {
+  border-color: var(--accent);
+}
+
+.control[data-invalid="true"] {
+  border-color: var(--fail);
+}
+
+.prefix {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bare {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.select {
+  width: 200px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.textarea {
+  min-height: 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.textarea:focus,
+.select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.chipInput {
+  flex-wrap: wrap;
+  padding: 6px 8px;
+}
+
+.chipInput .bare {
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.chipRemove {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  color: var(--ink);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fail);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}

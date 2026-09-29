@@ -10,6 +10,7 @@ export interface StartServerOptions {
   dbPath?: string; // 既定は defaultDbPath()
   staticDir?: string; // ビルド済みの web のディレクトリ
   pollIntervalMs?: number; // data_version を確かめる間隔
+  docsDir?: string; // 新しい Document を作る場所。既定は defaultDocsDir()（NOD_DOCS_DIR）
 }
 
 export interface NodServer {
@@ -30,7 +31,7 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const db = openDb(dbPath);
   const feed = createChangeFeed(db);
-  const app = createApp({ db, feed, staticDir: opts.staticDir });
+  const app = createApp({ db, feed, staticDir: opts.staticDir, docsDir: opts.docsDir });
   let server: ReturnType<typeof Bun.serve>;
   try {
     // idleTimeout の既定（10秒）では、書き込みのない SSE の接続が切られるため無効にする

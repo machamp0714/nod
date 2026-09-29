@@ -104,6 +104,7 @@ test("Documents追加とCreated・コメントカード・コピー2項目を使
   await expect(card).toContainText("二行目 <b>テキスト</b>");
   await expect(page.getByRole("region", { name: "プロパティ", exact: true })).toContainText("Created");
   await page.getByRole("button", { name: "Documentを追加" }).click();
+  await page.getByRole("menuitem", { name: "既存を添付" }).click();
   await page.getByLabel("Markdown絶対パス").fill(path);
   await page.getByLabel("Documentの種類").selectOption("spec");
   await page.getByRole("region", { name: "Documents", exact: true }).getByRole("button", { name: "追加", exact: true }).click();
@@ -169,6 +170,7 @@ test.describe("保存・コピーの失敗", () => {
     await page.getByRole("button", { name: "リンクをコピー" }).click();
     await expect(page.getByRole("alert")).toContainText("コピーできませんでした");
     await page.getByRole("button", { name: "Documentを追加" }).click();
+    await page.getByRole("menuitem", { name: "既存を添付" }).click();
     await page.getByLabel("Markdown絶対パス").fill(path);
     await page.route(`**/api/issues/${i.id}/doc-add`, r => r.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "添付失敗" } } }));
     const docs = page.getByRole("region", { name: "Documents", exact: true });

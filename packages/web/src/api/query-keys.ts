@@ -14,6 +14,8 @@ export const queryKeys = {
   projectList: (opts: { includeClosed?: boolean }) => ["projects", "list", opts] as const,
   project: (id: number) => ["projects", "detail", id] as const,
   views: () => ["views"] as const,
+  documentList: () => ["documents", "list"] as const,
+  documentsRoot: () => ["documents", "root"] as const,
   document: (id: number) => ["documents", id] as const,
 };
 

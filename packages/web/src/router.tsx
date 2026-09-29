@@ -1,16 +1,24 @@
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
 import { DocumentPage } from "./pages/DocumentPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
 import { InboxPage } from "./pages/InboxPage";
 import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
+import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
 import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
-import { parseIssueListSearch, parseProjectsSearch, parseSelectedSearch } from "./routes/search";
+import {
+  parseDocumentsSearch,
+  parseIssueListSearch,
+  parseNewDocumentSearch,
+  parseProjectsSearch,
+  parseSelectedSearch,
+} from "./routes/search";
 
 import { parseInboxSearch } from "./routes/inbox-search";
 
@@ -37,6 +45,13 @@ const projectDetailRoute = createRoute({
   validateSearch: parseIssueListSearch,
   component: ProjectDetailPage,
 });
+const documentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents", validateSearch: parseDocumentsSearch, component: DocumentsPage });
+const newDocumentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/documents/new",
+  validateSearch: parseNewDocumentSearch,
+  component: NewDocumentPage,
+});
 const documentRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents/$documentId", component: DocumentPage });
 
 const routeTree = rootRoute.addChildren([
@@ -49,6 +64,8 @@ const routeTree = rootRoute.addChildren([
   viewRoute,
   projectsRoute,
   projectDetailRoute,
+  documentsRoute,
+  newDocumentRoute,
   documentRoute,
 ]);
 

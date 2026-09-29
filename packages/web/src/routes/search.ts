@@ -1,4 +1,4 @@
-import type { Status } from "../api/types";
+import type { DocKind, Status } from "../api/types";
 import { STATUS_ORDER } from "../lib/meta";
 
 export type IssueTab = "all" | "ready" | "needs_clarification";
@@ -135,4 +135,26 @@ export function cleanProjectsSearch(search: ProjectsSearch): ProjectsSearch {
 // 表示設定の変更は履歴から戻せるようにする。検索入力は従来どおり履歴を置換する。
 export function replacesIssueListHistory(patch: IssueListSearch): boolean {
   return !("showCompleted" in patch || "showChildren" in patch || "sort" in patch || "direction" in patch || "columns" in patch);
+}
+
+export interface DocumentsSearch {
+  kind?: DocKind;
+}
+
+const DOC_KIND_VALUES: readonly DocKind[] = ["spec", "plan", "doc"];
+
+// Documents 一覧の種類の絞り込み。知らない値は捨てて全件にする
+export function parseDocumentsSearch(search: Record<string, unknown>): DocumentsSearch {
+  const kind = pick(search.kind, DOC_KIND_VALUES);
+  return kind ? { kind } : {};
+}
+
+export interface NewDocumentSearch {
+  issue?: string;
+}
+
+// Issue 詳細の「新規作成」から来たときのリンク先
+export function parseNewDocumentSearch(search: Record<string, unknown>): NewDocumentSearch {
+  const issue = typeof search.issue === "string" ? search.issue.trim() : "";
+  return issue ? { issue } : {};
 }
