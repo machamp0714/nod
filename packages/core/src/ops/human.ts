@@ -16,7 +16,7 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
-import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
+import { collapseNotifications, lastNotificationId, readAgentNotifications, readTriageProposalNotifications } from "../notify";
 import { readReviewSummaries } from "../review-summary";
 import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
 import { addRelation, requireText, updateIssue } from "./issues";
@@ -162,6 +162,7 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
     setColumn(ctx, row, "snoozed_until", null);
     recordEvent(ctx.db, row.id, ctx.actor, "triage_accepted", {});
     collapseNotifications(ctx.db, row.id, since, "triage_accepted");
+    readTriageProposalNotifications(ctx.db, row.id);
     enterClarification(ctx, row);
     return toIssue(issueRowById(ctx.db, row.id));
   });
@@ -177,6 +178,7 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
     setColumn(ctx, row, "status", "canceled");
     recordEvent(ctx.db, row.id, ctx.actor, "triage_declined", reason ? { reason } : {});
     collapseNotifications(ctx.db, row.id, since, "triage_declined");
+    readTriageProposalNotifications(ctx.db, row.id);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }
@@ -194,6 +196,7 @@ export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): I
     setColumn(ctx, row, "status", "canceled");
     recordEvent(ctx.db, row.id, ctx.actor, "triage_declined", { reason });
     collapseNotifications(ctx.db, row.id, since, "triage_declined");
+    readTriageProposalNotifications(ctx.db, row.id);
     return toIssue(issueRowById(ctx.db, row.id));
   });
 }

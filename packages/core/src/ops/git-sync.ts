@@ -81,6 +81,8 @@ async function readCommits(run: GitRunner, path: string, ref: string, sinceDays:
   if (result.kind === "not_found") throw new NodError("GIT_FAILED", "git が見つかりません");
   if (result.kind === "timeout") throw new NodError("GIT_FAILED", `git log が ${GIT_SYNC_TIMEOUT_MS / 1000}秒以内に終わりませんでした`);
   if (result.kind === "spawn_failed") throw new NodError("GIT_FAILED", `git を起動できませんでした: ${result.detail}`);
+  // 上限を渡していないので起きないが、型の上では残る
+  if (result.kind === "too_large") throw new NodError("GIT_FAILED", "git log の出力が大きすぎます");
   if (result.exitCode !== 0) {
     // コミットがまだないリポジトリの HEAD は 0 件として扱う（git の版で文言が違うので、コミットの有無を直接確かめる）
     if (ref === "HEAD") {

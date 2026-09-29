@@ -253,6 +253,11 @@ export function describeNotification(n: Notification): string {
       if (d.to === "error") return `${agent} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
       return `${agent} ${n.eventType}`;
     }
+    case "triage_proposed": {
+      const p = n.data as { decision?: unknown; duplicateOf?: unknown };
+      const what = p.decision === "accept" ? "受け入れ" : p.decision === "decline" ? "却下" : p.decision === "duplicate" ? `重複（元: ${String(p.duplicateOf)}）` : String(p.decision);
+      return `${n.actor} が Triage を提案: ${what}（確定は人が行います）`;
+    }
     case "reminder": {
       const note = (n.data as { note?: unknown }).note;
       return typeof note === "string" && note ? `リマインダー: ${note}` : "リマインダーの時刻です";

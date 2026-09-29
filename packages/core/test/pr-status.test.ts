@@ -6,7 +6,9 @@ import { createIssue } from "../src/ops/issues";
 import { completeIssue, startIssue } from "../src/ops/agent";
 import { copyIssue } from "../src/ops/issues";
 import {
+  classify,
   createCommandRunner,
+  GH_OUTPUT_MAX_BYTES,
   type GhRunner,
   type GhRunResult,
   getPrStatus,
@@ -333,6 +335,52 @@ describe("createCommandRunner（実 gh は使わない）", () => {
     writeFileSync(path, "#!/bin/sh\necho hi\n");
     chmodSync(path, 0o644);
     expect(await createCommandRunner(path)(["pr", "view"], { timeoutMs: 1000 })).toEqual({ kind: "spawn_failed", detail: "EACCES" });
+  });
+
+  test("標準出力が上限以下なら全部返す（上限はバイト数）", async () => {
+    const script = join(import.meta.dir, "fixtures", "fake-gh.ts");
+    const run = createCommandRunner(process.execPath, [script]);
+    const text = "あ".repeat(100); // 300 バイト
+    expect(await run(["echo", text], { timeoutMs: 5000, maxStdoutBytes: 300 })).toEqual({ kind: "exited", exitCode: 3, stdout: text, stderr: "err" });
+    expect(await run(["echo", text], { timeoutMs: 5000, maxStdoutBytes: 299 })).toEqual({ kind: "too_large", limitBytes: 299 });
+  });
+
+  test("標準出力が上限を超えたら終了を待たずに too_large を返し、SIGTERM を無視されても SIGKILL で止める", async () => {
+    const script = join(import.meta.dir, "fixtures", "fake-gh.ts");
+    const pidFile = join(mkdtempSync(join(tmpdir(), "nod-fake-gh-")), "pid");
+    const run = createCommandRunner(process.execPath, [script], { killGraceMs: 300 });
+    const started = Date.now();
+    // 1024 文字（3072 バイト）ずつ書くので、文字数で数えると 4000 を超えるまでに2回以上書く必要がある
+    expect(await run(["flood", pidFile], { timeoutMs: 10_000, maxStdoutBytes: 4000 })).toEqual({ kind: "too_large", limitBytes: 4000 });
+    expect(Date.now() - started).toBeLessThan(5000);
+    for (let i = 0; i < 60 && !existsSync(pidFile); i++) await Bun.sleep(50);
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    const alive = () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const deadline = Date.now() + 3000;
+    while (alive() && Date.now() < deadline) await Bun.sleep(50);
+    expect(alive()).toBe(false);
+  });
+
+  test("上限を超えた出力は classify で UNKNOWN（大きすぎる旨）にする", () => {
+    expect(classify({ kind: "too_large", limitBytes: GH_OUTPUT_MAX_BYTES })).toEqual({ code: "UNKNOWN", message: "取得に失敗しました: gh の出力が上限（5 MB）を超えました" });
+  });
+
+  test("PR 状態の取得は gh の出力を上限つきで読む", async () => {
+    const { me, ref } = withPr();
+    const opts: unknown[] = [];
+    const view = await refreshPrStatus(me, ref, async (_args, o) => {
+      opts.push(o);
+      return { kind: "too_large", limitBytes: o.maxStdoutBytes ?? 0 };
+    });
+    expect(opts).toEqual([{ timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: GH_OUTPUT_MAX_BYTES }]);
+    expect(view.fetchError?.code).toBe("UNKNOWN");
   });
 
   test("既定のタイムアウトは 15 秒、SIGKILL までの猶予は 2 秒", () => {

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SidebarData } from "../../layout/useSidebarData";
 import { workspaceNameOf } from "../../lib/decision";
-import { type DecisionAction, fetchInbox, fetchTriage, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
+import { type DecisionAction, fetchInbox, fetchTriage, fetchTriageProposalCounts, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
 import { queryKeys } from "../query-keys";
 import { useApiMutation, useWorkspaces } from "./shared";
 
@@ -22,6 +22,11 @@ export function useTriageSuggestions(id: string, enabled = true) {
 // LLM の提案（#62）。人の確定後も残るが、Triage から外れた Issue は画面に出ないので候補と同じく判断後は止める
 export function useTriageProposals(id: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.triageProposals(id), queryFn: () => fetchTriageProposals(id), enabled });
+}
+
+// Triage 一覧のバッジ（#125）
+export function useTriageProposalCounts() {
+  return useQuery({ queryKey: queryKeys.triageProposalCounts(), queryFn: () => fetchTriageProposalCounts() });
 }
 
 export function useWorkspaceName(): (key: string) => string {

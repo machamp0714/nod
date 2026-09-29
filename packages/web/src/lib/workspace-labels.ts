@@ -1,4 +1,4 @@
-import type { Status } from "../api/types";
+import type { Status, WorkspaceLabel } from "../api/types";
 import { STATUS_META, STATUS_ORDER } from "./meta";
 
 // ステータスから表示名への対応（既定名から変えたものだけ）。Workspace のキーごとに持つ
@@ -27,6 +27,14 @@ export const LABEL_COLORS: readonly { value: string; name: string }[] = [
 // 選択肢にない色（CLI で付けたもの）も選択中の値として出せるよう、先頭に足す
 export function labelColorChoices(current: string): { value: string; name: string }[] {
   return LABEL_COLORS.some((c) => c.value === current) ? [...LABEL_COLORS] : [{ value: current, name: current }, ...LABEL_COLORS];
+}
+
+// Issue のラベルの表示色（#117）。Issue の Workspace で定義した色を返し、未定義なら null（既定の灰色で描く）。
+// ラベル名は Workspace ごとに別なので、Workspace と名前の組で引く
+export function labelColor(labels: readonly WorkspaceLabel[] | undefined, workspace: string | null | undefined, name: string): string | null {
+  if (!workspace || !labels) return null;
+  const key = workspace.toUpperCase();
+  return labels.find((l) => l.workspaceKey.toUpperCase() === key && l.name === name)?.color ?? null;
 }
 
 // Issue の Workspace で設定された表示名。Workspace が分からないときや未設定なら既定名

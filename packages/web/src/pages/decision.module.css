@@ -274,7 +274,7 @@
 .candidates { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; flex-basis: 100%; }
 .candidatesLabel { padding-top: 5px; color: var(--ink3); font-size: 12px; }
 .candidate { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.chip { padding: 4px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
 .reason { color: var(--ink3); font-size: 11px; }
 
 /* LLM の提案（#62）。nod.pen n7kBD の IDPzM。受け入れ設定と gap 12 でまとめる */
@@ -296,6 +296,7 @@
 .proposalAttr { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink2); font-size: 11.5px; }
 .proposalAttr svg, .proposalAttrKey { color: var(--ink3); }
 .proposalAttrKey { font-size: 11px; }
+.proposalLabel { display: inline-flex; align-items: center; gap: 4px; }
 .proposalReason { margin: 0; color: var(--ink2); font-size: 12px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .proposalApply { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .proposalApply:disabled { opacity: 0.5; cursor: default; }

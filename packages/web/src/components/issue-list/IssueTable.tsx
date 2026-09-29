@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { formatDueDate, formatEstimate, isOverdue, localToday } from "../../lib/due-date";
 import { prLabel } from "../../lib/format";
 import type { Issue } from "../../api/types";
-import { Icon, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
+import { Icon, LabelChip, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
@@ -124,6 +124,9 @@ export function IssueTable({
                 <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
                   {issue.title}
                 </Link>
+                {issue.labels.map((label) => (
+                  <LabelChip key={label} workspace={issue.workspace} name={label} className={s.rowLabel} />
+                ))}
                 {issue.completionCandidate && (
                   <span className={s.completionPill}>
                     <Icon name="circle-check" size={11} />

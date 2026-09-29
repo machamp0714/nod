@@ -11,7 +11,7 @@ import {
   parseUnifiedDiff,
   refreshPrDiff,
 } from "../src/ops/pr-diff";
-import { type GhRunner, type GhRunResult, refreshPrStatus } from "../src/ops/pr-status";
+import { GH_OUTPUT_MAX_BYTES, type GhRunner, type GhRunResult, PR_STATUS_TIMEOUT_MS, refreshPrStatus } from "../src/ops/pr-status";
 import type { PrDiffErrorCode } from "../src/types";
 import { setup } from "./helpers";
 
@@ -319,6 +319,22 @@ describe("refreshPrDiff", () => {
     expect(over.length).toBeLessThan(PR_DIFF_MAX_BYTES);
     const view = await refreshPrDiff(me, ref, stub(ok(viewJson()), ok(over)));
     expect(view.fetchError?.code).toBe("DIFF_TOO_LARGE");
+    expect(view.diff).toBeNull();
+  });
+
+  test(`差分は ${PR_DIFF_MAX_BYTES} バイトを上限に読み、超えたら読み込みを止めて DIFF_TOO_LARGE`, async () => {
+    const { me, ref } = withPr();
+    const opts: unknown[] = [];
+    const run: GhRunner = async (args, o) => {
+      opts.push(o);
+      return args[0] === "pr" ? ok(viewJson()) : { kind: "too_large", limitBytes: o.maxStdoutBytes ?? 0 };
+    };
+    const view = await refreshPrDiff(me, ref, run);
+    expect(opts).toEqual([
+      { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: GH_OUTPUT_MAX_BYTES },
+      { timeoutMs: PR_STATUS_TIMEOUT_MS, maxStdoutBytes: PR_DIFF_MAX_BYTES },
+    ]);
+    expect(view.fetchError).toMatchObject({ code: "DIFF_TOO_LARGE", message: "差分が大きすぎます（上限 5 MB）。GitHub で確認してください" });
     expect(view.diff).toBeNull();
   });
 

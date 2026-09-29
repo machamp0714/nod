@@ -11,7 +11,7 @@ import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { priorityMeta } from "../../lib/meta";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
-import { AgentStatePill, Button, Icon, Pill, StatusIcon, WorkspaceBadge } from "../ui";
+import { AgentStatePill, Button, Icon, LabelChip, Pill, StatusIcon, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
 import { useAsyncAction } from "./useAsyncAction";
 
@@ -301,8 +301,7 @@ export function PropertiesPanel({
         </Prop>
         <Prop label="Labels">
           {issue.labels.map((label) => (
-            <Pill key={label} tone="muted" icon="tag">
-              {label}
+            <LabelChip key={label} workspace={issue.workspace} name={label} className={s.propLabel}>
               <button
                 type="button"
                 className={s.labelRemove}
@@ -312,7 +311,7 @@ export function PropertiesPanel({
               >
                 <Icon name="x" size={12} />
               </button>
-            </Pill>
+            </LabelChip>
           ))}
           <span className={s.labelForm}>
             <input

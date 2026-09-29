@@ -4,7 +4,7 @@ import { useIssueDetail } from "../../api/hooks/shared";
 import { errorMessage, isNotFoundError } from "../../api/errors";
 import { priorityMeta, TONE_COLORS } from "../../lib/meta";
 import { Markdown } from "../markdown/Markdown";
-import { AgentAvatar, Icon, ProgressBar, StatusLabel, WorkspaceBadge } from "../ui";
+import { AgentAvatar, Icon, LabelChip, ProgressBar, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 
 // design/nod.pen「Issues｜プレビュー」の分割ペイン。一覧から離れずに Issue の中身を読むだけで、編集はしない
@@ -78,7 +78,7 @@ export function PreviewPane({
             <div>
               <dt>ラベル</dt>
               <dd>
-                {issue.labels.length ? issue.labels.map((label) => <span key={label} className={s.previewLabel}>{label}</span>) : <span className={s.muted}>なし</span>}
+                {issue.labels.length ? issue.labels.map((label) => <LabelChip key={label} workspace={issue.workspace} name={label} />) : <span className={s.muted}>なし</span>}
               </dd>
             </div>
           </dl>

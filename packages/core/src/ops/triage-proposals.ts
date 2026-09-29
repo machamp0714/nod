@@ -2,13 +2,15 @@ import type { Database } from "bun:sqlite";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
+import { clearUnreadTriageProposal, notifyTriageProposal } from "../notify";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import { TRIAGE_DECISIONS, type TriageProposal, type TriageProposalInput } from "../types";
 import { requireText, validatePriority } from "./issues";
 import { resolveProject } from "./projects";
 import { normalizeLabelName } from "./workspace-labels";
 
-// LLM の Triage 提案（#62）。提案は triage_proposals だけに書き、Issue・ラベル・関係・event・通知は変えない。
+// LLM の Triage 提案（#62）。提案は triage_proposals だけに書き、Issue・ラベル・関係・event は変えない。
+// LLM の提案と取り下げは me 宛ての提案通知（#125）だけを作る・消す
 // 受け入れ・却下・重複の確定は人だけが accept / decline / duplicate で行う（FORBIDDEN_FOR_LLM は human.ts のまま）
 export const PROPOSAL_REASON_MAX_LENGTH = 2000;
 export const PROPOSAL_ASSIGNEE_MAX_LENGTH = 100;
@@ -114,8 +116,35 @@ export function proposeTriage(ctx: OpCtx, ref: string, input: TriageProposalInpu
            reason = excluded.reason, updated_at = excluded.updated_at`,
       )
       .run(row.id, ctx.actor, input.decision, duplicateOfId, JSON.stringify(labels), assignee, input.priority ?? null, project?.id ?? null, reason, ts, ts);
-    return toProposal(ctx.db.query(`${SELECT} WHERE p.issue_id = ? AND p.actor = ?`).get(row.id, ctx.actor) as ProposalRow);
+    const proposal = toProposal(ctx.db.query(`${SELECT} WHERE p.issue_id = ? AND p.actor = ?`).get(row.id, ctx.actor) as ProposalRow);
+    notifyTriageProposal(ctx.db, row.id, ctx.actor, { decision: proposal.decision, duplicateOf: proposal.duplicateOf });
+    return proposal;
   });
+}
+
+// 自分の提案を取り下げる（#125）。他の書き手の提案は消せない。提案と同じく Triage 中の Issue だけが対象
+export function withdrawTriageProposal(ctx: OpCtx, ref: string): { issueId: string; actor: string; withdrawn: true } {
+  return tx(ctx.db, () => {
+    const row = findWritableIssueRow(ctx.db, ref);
+    requireTriage(row, ref);
+    const issueId = formatIssueId(row.ws_key, row.number);
+    const removed = ctx.db.query("DELETE FROM triage_proposals WHERE issue_id = ? AND actor = ?").run(row.id, ctx.actor).changes;
+    if (removed === 0) throw new NodError("NOT_FOUND", `${issueId} に ${ctx.actor} の提案はありません`);
+    clearUnreadTriageProposal(ctx.db, row.id, ctx.actor);
+    return { issueId, actor: ctx.actor, withdrawn: true as const };
+  });
+}
+
+// Triage 一覧のバッジ用（#125）。Triage 中の Issue ごとの提案者の数。提案の無い Issue は含めない
+export function listTriageProposalCounts(db: Database): Record<string, number> {
+  const rows = db
+    .query(
+      `SELECT w.key AS ws_key, i.number AS number, count(*) AS n FROM triage_proposals p
+       JOIN issues i ON i.id = p.issue_id JOIN workspaces w ON w.id = i.workspace_id
+       WHERE i.status = 'triage' AND i.archived_at IS NULL GROUP BY p.issue_id`,
+    )
+    .all() as { ws_key: string; number: number; n: number }[];
+  return Object.fromEntries(rows.map((r) => [formatIssueId(r.ws_key, r.number), r.n]));
 }
 
 // 読み取りのみ。更新の新しい順。人の確定後も残っている提案を返す

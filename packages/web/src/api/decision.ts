@@ -26,6 +26,11 @@ export function fetchTriageSuggestions(id: string, fetchImpl?: FetchLike): Promi
 }
 
 // LLM の提案（#62、読み取りのみ）。記録は CLI の nod triage propose だけで行う
+// Triage 中の Issue ごとの LLM の提案者の数（#125）。提案の無い Issue はキーを持たない
+export function fetchTriageProposalCounts(fetchImpl?: FetchLike): Promise<Record<string, number>> {
+  return apiFetch<Record<string, number>>("/triage/proposal-counts", {}, fetchImpl);
+}
+
 export function fetchTriageProposals(id: string, fetchImpl?: FetchLike): Promise<TriageProposal[]> {
   return apiFetch<TriageProposal[]>(`/triage/${encodeURIComponent(id)}/proposals`, {}, fetchImpl);
 }

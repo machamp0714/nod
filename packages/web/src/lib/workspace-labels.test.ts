@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LABEL_COLORS, labelColorChoices, singleWorkspace, statusName, statusNamesEditState, workspaceOfIssueId } from "./workspace-labels";
+import { LABEL_COLORS, labelColor, labelColorChoices, singleWorkspace, statusName, statusNamesEditState, workspaceOfIssueId } from "./workspace-labels";
 
 describe("ステータスの表示名", () => {
   test("Issue の Workspace の表示名を使い、未設定や Workspace 不明なら既定名", () => {
@@ -61,5 +61,24 @@ describe("表示名の適用", () => {
     expect(line.text).toBe("me がステータスを Backlog から 着手可 に変えた");
     expect(statusChoices("todo", (s) => statusName(s, names, "API")).find((c) => c.value === "todo")?.label).toBe("着手可");
     expect(statusChoices("todo").find((c) => c.value === "todo")?.label).toBe("Todo");
+  });
+});
+
+describe("ラベルの表示色（#117）", () => {
+  const label = (workspaceKey: string, name: string, color: string) =>
+    ({ workspaceKey, name, color, description: "", createdAt: "", updatedAt: "", issueCount: 0 }) as never;
+  const labels = [label("API", "bug", "#B91C1C"), label("NOD", "bug", "#2563EB"), label("API", "perf", "#0D9768")];
+
+  test("Issue の Workspace で定義した色を返す。同名でも別の Workspace の定義は使わない", () => {
+    expect(labelColor(labels, "API", "bug")).toBe("#B91C1C");
+    expect(labelColor(labels, "nod", "bug")).toBe("#2563EB");
+    expect(labelColor(labels, "NOD", "perf")).toBeNull();
+  });
+
+  test("未定義のラベル・Workspace 不明・定義を読めていないときは null（既定の灰色）", () => {
+    expect(labelColor(labels, "API", "security")).toBeNull();
+    expect(labelColor(labels, "API", "Bug")).toBeNull();
+    expect(labelColor(labels, null, "bug")).toBeNull();
+    expect(labelColor(undefined, "API", "bug")).toBeNull();
   });
 });

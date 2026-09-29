@@ -93,6 +93,20 @@
   font-size: 11.5px;
 }
 
+/* Triage の LLM の提案の有無（#125）。nod.pen FieAj の LLM Proposal Pill */
+.proposalPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .itemId {
   font-family: var(--font-mono);
   font-size: 11px;

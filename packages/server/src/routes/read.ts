@@ -8,6 +8,7 @@ import {
   listTriage,
   listWorkspaces,
   suggestTriage,
+  listTriageProposalCounts,
   listTriageProposals,
   HUMAN_ACTOR,
   queryIssues,
@@ -28,6 +29,8 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): v
   // 重複・ラベル・担当の候補（#41）。読み取りだけで、採用は既存の accept / duplicate で人が行う
   app.get("/api/triage/:id/suggestions", (c) => c.json(suggestTriage({ db, actor: HUMAN_ACTOR }, c.req.param("id"))));
   // LLM の提案（#62）。記録は CLI の nod triage propose だけで行い、web は読むだけ。確定は既存の accept / decline / duplicate で人が行う
+  // Triage 一覧のバッジ（#125）。Triage 中の Issue ごとの提案者の数
+  app.get("/api/triage/proposal-counts", (c) => c.json(listTriageProposalCounts(db)));
   app.get("/api/triage/:id/proposals", (c) => c.json(listTriageProposals(db, c.req.param("id"))));
   app.get("/api/projects", (c) =>
     c.json(listProjects(db, { includeClosed: queryFlag(c.req.query("includeClosed"), "includeClosed") })),

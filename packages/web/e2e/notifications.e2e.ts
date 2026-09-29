@@ -107,3 +107,17 @@ test("購読していなくても、LLM に任せた Issue の入力待ち・エ
   await page.reload();
   await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ })).toContainText("claude-code が作業を完了しました（レビュー待ち）");
 });
+
+// #125: LLM が Triage を提案したら、購読していなくても me の通知タブに届く。人が確定すると既読になる
+test("LLM の Triage 提案は通知タブに届き、人が受け入れると既読になる", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const i = await api.triageIssue("検索結果のページングがずれる");
+  await nod.claude.proposeTriage(i.id, { decision: "accept", reason: "再現できた" });
+  await page.goto("/inbox?tab=notifications");
+  const row = list(page).getByRole("link", { name: /検索結果のページングがずれる（未読 1）/ });
+  await expect(row).toContainText("claude-code が Triage を提案しました（受け入れ）");
+  await nod.me.acceptTriage(i.id);
+  await page.reload();
+  await expect(list(page).getByRole("link", { name: /検索結果のページングがずれる/ })).toHaveCount(0);
+  expect((await nod.me.listNotifications({ includeRead: true })).filter((n) => n.kind === "triage_proposal")).toMatchObject([{ readAt: expect.any(String) }]);
+});
