@@ -238,7 +238,9 @@ export function RecurringSection({ workspace, onSaved }: { workspace: Workspace;
             <Icon name="circle-alert" size={14} />
             {f.template ? `テンプレート『${f.template}』が見つかりません` : f.message}
           </p>
-          <p className={r.failureDetail}>この定期Issue の起票をスキップしました。テンプレートを登録するか、本文に切り替えてください。</p>
+          <p className={r.failureDetail}>
+            この定期Issue の起票をスキップしました。{f.template ? "テンプレートを登録するか、本文に切り替えてください。" : ""}
+          </p>
         </div>
       ))}
       {preview && <PreviewPanel run={preview} />}
