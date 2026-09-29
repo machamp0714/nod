@@ -56,18 +56,21 @@ test("壊れたURLは既定値へ戻り狭い幅でも表示設定を操作で�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("取得失敗と読み込み中も表示設定を保持する", async ({ page }) => {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route(/\/api\/issues(?:\?|$)/, async (route) => {
-    await gate;
-    await route.fulfill({ status: 500, json: { error: "表示設定の取得失敗テスト" } });
+test.describe("表示設定の取得失敗", () => {
+  test.use({ allowedConsoleErrors: [/Failed to load resource.*status of 500/] });
+  test("取得失敗と読み込み中も表示設定を保持する", async ({ page }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(/\/api\/issues(?:\?|$)/, async (route) => {
+      await gate;
+      await route.fulfill({ status: 500, json: { error: "表示設定の取得失敗テスト" } });
+    });
+    await page.goto("/issues?sort=priority&columns=[]");
+    await expect(page.getByRole("status")).toContainText("読み込み中");
+    release();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.getByText("表示設定", { exact: true }).click();
+    await expect(page.getByLabel("並び順", { exact: true })).toHaveValue("priority");
+    await expect(page.getByRole("checkbox", { name: "Status", exact: true })).not.toBeChecked();
   });
-  await page.goto("/issues?sort=priority&columns=[]");
-  await expect(page.getByRole("status")).toContainText("読み込み中");
-  release();
-  await expect(page.getByRole("alert")).toBeVisible();
-  await page.getByText("表示設定", { exact: true }).click();
-  await expect(page.getByLabel("並び順", { exact: true })).toHaveValue("priority");
-  await expect(page.getByRole("checkbox", { name: "Status", exact: true })).not.toBeChecked();
 });
