@@ -10,10 +10,11 @@ import {
   markNotificationsRead,
   rejectReview,
   snoozeTriage,
+  suggestTriage,
 } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
-import { formatIssueLine, formatNotification, print } from "../output";
+import { formatIssueLine, formatNotification, formatTriageSuggestions, print } from "../output";
 
 export function registerHumanCommands(program: Command): void {
   program
@@ -84,9 +85,10 @@ export function registerHumanCommands(program: Command): void {
   triage
     .command("accept <id>")
     .description("受け入れて Todo にする")
+    .option("--assignee <name>", "受け入れと同時に担当を設定する")
     .action(
-      act((cli, _cmd, id: string) => {
-        const issue = acceptTriage(cli.ctx, id);
+      act((cli, _cmd, id: string, o: { assignee?: string }) => {
+        const issue = acceptTriage(cli.ctx, id, { assignee: o.assignee });
         print(cli, issue, () => `受け入れました: ${formatIssueLine(issue)}`);
       }),
     );
@@ -107,6 +109,15 @@ export function registerHumanCommands(program: Command): void {
       act((cli, _cmd, id: string, originalId: string) => {
         const issue = duplicateTriage(cli.ctx, id, originalId);
         print(cli, issue, () => `${originalId} の重複にしました: ${formatIssueLine(issue)}`);
+      }),
+    );
+  triage
+    .command("suggest <id>")
+    .description("重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ。採用は人が accept / duplicate で行う）")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const s = suggestTriage(cli.ctx, id);
+        print(cli, s, () => formatTriageSuggestions(s));
       }),
     );
   triage

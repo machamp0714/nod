@@ -69,6 +69,7 @@ nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--proje
 LLM が起票した Issue は Triage に入り、人が受け入れるまで \`nod issue next\` に出ない。
 \`nod triage accept\`、\`nod triage decline\`、\`nod triage duplicate\` は人だけが実行できる。
 受け入れ・却下・重複の判断が必要なときは、人に判断を依頼する。
+\`nod triage suggest <id>\` は重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人だけが行い、LLM は候補を根拠に人へ伝えるだけにする。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
 Sub-issue がすべて完了した親は「完了候補」になる（\`nod issue list --completion-candidates\` で一覧できる）。
 完了候補の親を done にするのは人である。LLM は親を完了にせず、人に完了の確認を依頼する。

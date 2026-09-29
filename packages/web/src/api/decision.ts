@@ -1,6 +1,6 @@
 import { apiFetch, type FetchLike } from "./client";
 import { issuePath } from "./query-keys";
-import type { AcceptTriageInput, Inbox, Issue } from "./types";
+import type { AcceptTriageInput, Inbox, Issue, TriageSuggestions } from "./types";
 
 // 判断の画面（Inbox、Reviews、Triage）が使う API。形は C の計画の API の表に従う。
 export type DecisionAction =
@@ -18,6 +18,11 @@ export function fetchInbox(fetchImpl?: FetchLike, opts: { includeAnswered?: bool
 
 export function fetchTriage(fetchImpl?: FetchLike): Promise<Issue[]> {
   return apiFetch<Issue[]>("/triage", {}, fetchImpl);
+}
+
+// 重複・ラベル・担当の候補（読み取りのみ）
+export function fetchTriageSuggestions(id: string, fetchImpl?: FetchLike): Promise<TriageSuggestions> {
+  return apiFetch<TriageSuggestions>(`/triage/${encodeURIComponent(id)}/suggestions`, {}, fetchImpl);
 }
 
 // 本文を持たない操作（approve、accept）も {} を送る。server は空か {} を受け付ける

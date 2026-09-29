@@ -120,3 +120,65 @@ test.describe("存在しない Issue を重複の元にする", () => {
     expect((await api.show(i.id)).status).toBe("triage");
   });
 });
+
+test("似た Issue を一致率・共通語・状態つきで出し、比較で Issue 詳細を開ける", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const original = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索結果のページングが 1 件ずれる" });
+  await nod.me.createIssue({ workspaceId: api.workspace.id, title: "ログのタイムゾーンを UTC に統一" });
+  await api.triageIssue("検索結果のページングがずれる");
+  await page.goto("/triage");
+  const hints = detail(page).getByRole("list", { name: "似た Issue" });
+  await expect(hints.getByRole("listitem")).toHaveCount(1);
+  const row = hints.getByRole("listitem").first();
+  await expect(row).toContainText(`似た Issue:${original.id}「検索結果のページングが 1 件ずれる」Todo`);
+  await expect(row).toContainText(/一致 \d+% · 共通語: 検索結果のページングが/);
+  await row.getByRole("link", { name: `${original.id} と比較` }).click();
+  await expect(page).toHaveURL(new RegExp(`/issues/${original.id}$`));
+});
+
+test("重複にするは元の Issue の ID を入れた入力欄を開くだけで、確定すると重複として閉じる", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const original = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索結果のページングが 1 件ずれる" });
+  const dup = await api.triageIssue("検索結果のページングがずれる");
+  await page.goto("/triage");
+  await detail(page).getByRole("button", { name: `${original.id} の重複にする` }).click();
+  await expect(detail(page).getByRole("textbox", { name: "元の Issue の ID" })).toHaveValue(original.id);
+  expect((await api.show(dup.id)).status).toBe("triage");
+  await detail(page).getByRole("button", { name: "重複として閉じる" }).click();
+  await expect(empty(page)).toBeVisible();
+  expect((await api.show(dup.id)).relations.duplicateOf).toEqual([original.id]);
+});
+
+test("ラベル・担当の候補を根拠つきで出し、クリックでフォームに入れて受け入れると確定する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const similar = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索結果のページングが 1 件ずれる", labels: ["search"] });
+  await nod.me.updateIssue(similar.id, { assignee: "codex" });
+  const i = await api.triageIssue("検索結果のページングがずれる bug");
+  await nod.me.createIssue({ workspaceId: api.workspace.id, title: "無関係", labels: ["bug"] });
+  await page.goto("/triage");
+  const candidates = detail(page).getByRole("group", { name: "候補" });
+  await expect(candidates).toContainText(`類似Issue 1件に付与（${similar.id}）`);
+  await expect(candidates).toContainText("タイトルに“bug”を含む");
+  await expect(candidates).toContainText(`類似Issue 1件の担当（${similar.id}）`);
+  await candidates.getByRole("button", { name: "ラベル search を追加" }).click();
+  await candidates.getByRole("button", { name: "ラベル bug を追加" }).click();
+  await candidates.getByRole("button", { name: "担当を codex にする" }).click();
+  await expect(detail(page).getByRole("textbox", { name: "受け入れ時のLabels" })).toHaveValue("search, bug");
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveValue("codex");
+  await expect(candidates).toHaveCount(0);
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+  await detail(page).getByRole("button", { name: "受け入れる" }).click();
+  await expect(empty(page)).toBeVisible();
+  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug", "search"], assignee: "codex" });
+});
+
+test("似た Issue も候補もなければ出さない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await nod.me.createIssue({ workspaceId: api.workspace.id, title: "ログのタイムゾーンを UTC に統一" });
+  await api.triageIssue("検索結果のページングがずれる");
+  await page.goto("/triage");
+  await expect(detail(page).getByRole("heading", { level: 2, name: "検索結果のページングがずれる" })).toBeVisible();
+  await expect(detail(page).getByRole("button", { name: "受け入れる" })).toBeEnabled();
+  await expect(detail(page).getByRole("list", { name: "似た Issue" })).toHaveCount(0);
+  await expect(detail(page).getByRole("group", { name: "候補" })).toHaveCount(0);
+});

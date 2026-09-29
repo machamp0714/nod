@@ -150,8 +150,12 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
+    // 担当は null で未割当、文字列なら前後の空白を除いて空でないこと
+    const assignee = typeof input.assignee === "string" ? requireText(input.assignee, "担当").trim() : input.assignee;
     const since = lastNotificationId(ctx.db);
-    updateIssue(ctx, ref, { projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels });
+    updateIssue(ctx, ref, {
+      projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels, assignee,
+    });
     Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");
     setColumn(ctx, row, "snoozed_until", null);

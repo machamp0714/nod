@@ -218,6 +218,7 @@ export interface AcceptTriageInput {
   priority?: number;
   addLabels?: string[];
   removeLabels?: string[];
+  assignee?: string | null;
 }
 export interface IssueDocumentRef extends DocumentRef {
   attachedBy: string | null;
@@ -273,4 +274,37 @@ export interface WorkspaceRules {
   body: string;
   updatedAt: string;
   updatedBy: string;
+}
+
+// Triage の提案（#41）。決定的な規則で計算し、採用は人が既存の操作で行う
+export type SuggestionReason =
+  | { kind: "similar"; issues: string[] } // 類似 Issue の付与・担当の実績
+  | { kind: "text"; field: "title" | "description" } // タイトル・本文にラベル名を含む
+  | { kind: "source"; issue: string }; // 起票元 Issue の担当
+
+export interface DuplicateSuggestion {
+  id: string;
+  workspace: string;
+  title: string;
+  status: Status;
+  score: number; // 0〜1 の一致率
+  sharedTerms: string[]; // 一致の根拠になった共通語（最大5件）
+  via: string | null; // 重複になっている類似 Issue から元の Issue に寄せたとき、その類似 Issue の ID
+}
+
+export interface LabelSuggestion {
+  label: string;
+  reasons: SuggestionReason[];
+}
+
+export interface AssigneeSuggestion {
+  assignee: string;
+  reasons: SuggestionReason[];
+}
+
+export interface TriageSuggestions {
+  issueId: string;
+  duplicates: DuplicateSuggestion[];
+  labels: LabelSuggestion[];
+  assignees: AssigneeSuggestion[];
 }
