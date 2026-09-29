@@ -115,3 +115,22 @@ test.describe("保存の失敗", () => {
     expect((await nod.me.getAutomationSettings("API")).closeAfterDays).toBeNull();
   });
 });
+
+test.describe("実行の失敗", () => {
+  test.use({ allowedConsoleErrors: [/status of 500/] });
+  test("実行が失敗すると理由を示し、Issue は変わらない", async ({ page, nod }) => {
+    await nod.me.setAutomationSettings("API", { closeAfterDays: 30, archiveAfterDays: null });
+    await page.route("**/api/workspaces/API/automation/run", (route) =>
+      route.request().postDataJSON()?.dryRun === false
+        ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "UNEXPECTED", message: "実行に失敗しました" } }) })
+        : route.fallback(),
+    );
+    await page.goto("/workspaces/API/settings");
+    const auto = section(page);
+    await auto.getByRole("button", { name: "今すぐ実行" }).click();
+    await page.getByRole("alertdialog", { name: "クローズ 2件・アーカイブ 0件を実行しますか？" }).getByRole("button", { name: "実行する" }).click();
+    await expect(auto.getByRole("alert")).toHaveText("実行に失敗しました");
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    expect((await nod.me.getIssue("API-1")).status).toBe("todo");
+  });
+});
