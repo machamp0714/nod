@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import { acceptTriage, approveReview, getInbox, rejectReview } from "../src/ops/human";
-import { commentIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
+import { commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
   isSubscribed,
   listNotifications,
@@ -224,5 +224,43 @@ describe("通知の既読", () => {
     db.query("UPDATE notifications SET snoozed_until = ? WHERE id = ?").run("2999-01-01T00:00:00.000Z", first!.id);
     db.query("UPDATE notifications SET deleted_at = ? WHERE id = ?").run("2026-01-01T00:00:00.000Z", second!.id);
     expect(listNotifications(db, { includeRead: true })).toHaveLength(1);
+  });
+});
+
+describe("コメントのスレッドへの返信（#48）", () => {
+  test("返信も返信への返信も、それぞれ新規コメントの通知になり、本文は返信の本文", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    subscribeIssue(me, a.id);
+    const root = commentIssue(llm, a.id, "親");
+    const reply = commentIssue(llm, a.id, "返信", { replyTo: root.id });
+    commentIssue(llm, a.id, "返信への返信", { replyTo: reply.id });
+    const got = listNotifications(db);
+    expect(got.map((n) => [n.eventType, n.body])).toEqual([
+      ["comment_added", "返信への返信"],
+      ["comment_added", "返信"],
+      ["comment_added", "親"],
+    ]);
+  });
+
+  test("自分の返信は通知せず、スレッドの解決・再開は通知しない", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    subscribeIssue(me, a.id);
+    const root = commentIssue(llm, a.id, "親");
+    commentIssue(me, a.id, "自分の返信", { replyTo: root.id });
+    resolveThread(me, a.id, root.id, true);
+    resolveThread(me, a.id, root.id, false);
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["親"]);
+  });
+
+  test("スレッドの親を消すと、返信の通知も一緒に消える", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    subscribeIssue(me, a.id);
+    const root = commentIssue(llm, a.id, "親");
+    commentIssue(llm, a.id, "返信", { replyTo: root.id });
+    db.query("DELETE FROM comments WHERE id = ?").run(root.id);
+    expect(listNotifications(db)).toEqual([]);
   });
 });
