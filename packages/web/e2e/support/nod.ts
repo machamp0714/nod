@@ -45,6 +45,21 @@ export async function restartApiServer(): Promise<void> {
   await post("/restart-server", {});
 }
 
+// PR 状態の取得で e2e の server が gh の代わりに返す結果を決める。gate なら releaseGh まで返さない
+export async function stubGh(result: Core.GhRunResult, opts: { gate?: boolean } = {}): Promise<void> {
+  await post("/gh", { result, gate: opts.gate ?? false });
+}
+
+export async function releaseGh(): Promise<void> {
+  await post("/gh/release", {});
+}
+
+// 偽の gh が受け取った引数（stubGh・resetData で空に戻る）
+export async function ghCalls(): Promise<string[][]> {
+  const res = await fetch(`${CONTROL_URL}/gh/calls`);
+  return ((await res.json()) as { calls: string[][] }).calls;
+}
+
 // actor を書き手にして core の関数を呼ぶクライアント。
 // 末尾の undefined の引数は送らない（JSON では null になり、省略とみなされないため）
 export function nodAs(actor: string): NodClient {

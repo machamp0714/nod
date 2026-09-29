@@ -220,4 +220,21 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE comments ADD COLUMN log_kind TEXT
       CHECK (log_kind IS NULL OR log_kind IN ('progress', 'plan', 'rationale', 'command', 'test', 'blocker'))`,
   ],
+  // PR 状態（#67）。人・LLM が明示的に更新したときだけ gh から取得して保存する。
+  // 最後の成功結果（data は JSON）と最後の失敗を別に持ち、失敗しても前回の結果を残す。
+  // started_at は保存済みの取得を始めた時刻で、遅れて終わった古い取得が新しい結果を上書きしないために比べる
+  [
+    `CREATE TABLE pr_statuses (
+      issue_id INTEGER PRIMARY KEY REFERENCES issues(id) ON DELETE CASCADE,
+      pr_url TEXT,
+      data TEXT,
+      fetched_at TEXT,
+      fetched_by TEXT,
+      error_url TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      error_at TEXT,
+      started_at TEXT NOT NULL
+    )`,
+  ],
 ];

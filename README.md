@@ -15,6 +15,7 @@ cd <リポジトリ> && nod init    # Workspace として登録する（キー�
 
 LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude/skills/nod` にシンボリックリンクを張る）。
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
+`nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
 ### 人だけが行える操作と、その限界

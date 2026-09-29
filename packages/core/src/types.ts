@@ -317,6 +317,57 @@ export interface TriageSuggestions {
   assignees: AssigneeSuggestion[];
 }
 
+// PR 状態（#67）。gh pr view の結果を人・LLM の明示操作で取得して保存したもの
+export const PR_STATES = ["OPEN", "CLOSED", "MERGED"] as const;
+export type PrState = (typeof PR_STATES)[number];
+export type PrReviewDecision = "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED";
+export type PrCheckState = "success" | "failure" | "pending" | "skipped";
+
+export interface PrCheck {
+  name: string;
+  state: PrCheckState;
+  url: string | null;
+}
+
+export interface PrStatus {
+  prUrl: string; // 取得した PR の URL
+  number: number;
+  title: string;
+  state: PrState;
+  isDraft: boolean;
+  reviewDecision: PrReviewDecision | null; // null はレビュー必須でない（gh が空文字を返す）
+  mergedAt: string | null;
+  checks: PrCheck[];
+  checkSummary: Record<PrCheckState, number>;
+  fetchedAt: string;
+  fetchedBy: string;
+}
+
+export const PR_STATUS_ERROR_CODES = [
+  "INVALID_URL",
+  "GH_NOT_INSTALLED",
+  "GH_AUTH",
+  "PR_NOT_FOUND",
+  "NETWORK",
+  "TIMEOUT",
+  "UNKNOWN",
+] as const;
+export type PrStatusErrorCode = (typeof PR_STATUS_ERROR_CODES)[number];
+
+export interface PrStatusError {
+  code: PrStatusErrorCode;
+  message: string;
+  at: string;
+}
+
+// Issue の現在の PR URL に対する最後の成功結果と最後の失敗。PR URL が変わった古い結果は含めない
+export interface PrStatusView {
+  issueId: string;
+  prUrl: string | null;
+  status: PrStatus | null;
+  fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
+}
+
 export interface WorkspaceLabel {
   workspaceKey: string;
   name: string;

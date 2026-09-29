@@ -16,6 +16,10 @@ import {
   type SuggestionReason,
   type TriageSuggestions,
   WORK_LOG_KIND_LABEL,
+  type PrReviewDecision,
+  type PrState,
+  type PrStatus,
+  type PrStatusView,
 } from "@nod/core";
 
 export const STATUS_LABEL: Record<Status, string> = DEFAULT_STATUS_LABELS;
@@ -138,7 +142,7 @@ function formatCompletionCandidate(d: IssueDetail): string {
   return `完了候補: Sub-issue がすべて完了しています（完了 ${count("done")}・キャンセル ${count("canceled")}）。人が ${how} で完了にできます`;
 }
 
-export function formatIssueDetail(d: IssueDetail): string {
+export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = null): string {
   const lines = [
     `${d.id}  ${d.title}`,
     `ステータス: ${statusText(d.status, d.id)}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
@@ -151,6 +155,7 @@ export function formatIssueDetail(d: IssueDetail): string {
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);
+  if (d.prUrl && prStatusLine) lines.push(prStatusLine);
   if (d.worktree) lines.push(`実行場所: ${d.branch ?? "(detached)"}  ${d.worktree}`);
   if (d.subscribed) lines.push("購読: 購読中");
   if (d.description) lines.push("", d.description);
@@ -265,4 +270,54 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
     "担当候補",
     ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
   ].join("\n");
+}
+
+const PR_STATE_LABEL: Record<PrState, string> = { OPEN: "Open", CLOSED: "Closed", MERGED: "Merged" };
+const REVIEW_LABEL: Record<PrReviewDecision, string> = {
+  APPROVED: "承認済み",
+  CHANGES_REQUESTED: "変更要求",
+  REVIEW_REQUIRED: "レビュー待ち",
+};
+
+const prState = (s: PrStatus) => `${PR_STATE_LABEL[s.state]}${s.isDraft && s.state === "OPEN" ? "（Draft）" : ""}`;
+const prReview = (s: PrStatus) => (s.reviewDecision ? REVIEW_LABEL[s.reviewDecision] : "—");
+function prChecks(s: PrStatus): string {
+  const c = s.checkSummary;
+  return s.checks.length ? `成功 ${c.success} / 失敗 ${c.failure} / 実行中 ${c.pending} / スキップ ${c.skipped}` : "なし";
+}
+
+function prSummary(s: PrStatus): string {
+  return `${prState(s)} · レビュー: ${prReview(s)} · CI: ${prChecks(s)}`;
+}
+
+// nod issue show に添える1行。未取得・PR なしは何も出さない（取得方法は pr-status が案内する）
+export function formatPrStatusLine(v: PrStatusView): string | null {
+  if (!v.prUrl) return null;
+  if (v.status) return `PR 状態: ${prSummary(v.status)}（取得: ${v.status.fetchedAt}）`;
+  if (v.fetchError) return `PR 状態: 取得に失敗（${v.fetchError.code}）`;
+  return null;
+}
+
+export function formatPrStatus(v: PrStatusView): string {
+  if (!v.prUrl) return `${v.issueId} に PR がありません`;
+  const lines = [`${v.issueId}  PR: ${v.prUrl}`];
+  if (v.fetchError) {
+    lines.push(`取得に失敗（${v.fetchError.code}）: ${v.fetchError.message}（${v.fetchError.at}）`);
+  }
+  if (v.status) {
+    const s = v.status;
+    const label = v.fetchError ? "前回取得" : "取得";
+    lines.push(
+      `#${s.number} ${s.title}`,
+      `状態: ${prState(s)}${s.mergedAt ? `（マージ: ${s.mergedAt}）` : ""}`,
+      `レビュー: ${prReview(s)}`,
+      `CI: ${prChecks(s)}`,
+    );
+    const failed = s.checks.filter((c) => c.state === "failure").map((c) => c.name);
+    if (failed.length) lines.push(`  失敗: ${failed.join(", ")}`);
+    lines.push(`${label}: ${s.fetchedAt}（${s.fetchedBy}）`);
+  } else if (!v.fetchError) {
+    lines.push(`未取得。nod issue pr-status ${v.issueId} --refresh で gh から取得する`);
+  }
+  return lines.join("\n");
 }

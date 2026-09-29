@@ -16,8 +16,20 @@ const dbPath = join(dir, "nod.db");
 // web から作る Document も一時ディレクトリの下に置く（~/.local/share/nod/documents に書かない）
 const docsDir = join(dir, "documents");
 
+// PR 状態の取得で gh の代わりに使う。実際の gh・GitHub には触れず、/gh で決めた結果を返す。
+// 呼び出しの引数を記録し、/gh の gate が true なら /gh/release まで返さない（取得中の表示を確かめるため）
+let ghResult: core.GhRunResult = { kind: "not_found" };
+let ghCalls: string[][] = [];
+let ghGate: Promise<void> | null = null;
+let releaseGh: () => void = () => {};
+const ghRunner: core.GhRunner = async (args) => {
+  ghCalls.push(args);
+  if (ghGate) await ghGate;
+  return ghResult;
+};
+
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-let server = startServer({ port: API_PORT, dbPath, docsDir });
+let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner });
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -57,14 +69,32 @@ const control = Bun.serve({
       // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
       if (req.method === "POST" && path === "/restart-server") {
         await server.stop();
-        server = startServer({ port: API_PORT, dbPath, docsDir });
+        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner });
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/reset") {
         const { dataset } = (await req.json()) as { dataset: string };
         await reset(dataset);
+        ghResult = { kind: "not_found" };
+        ghCalls = [];
+        releaseGh();
+        ghGate = null;
         return Response.json({ ok: true });
       }
+      if (req.method === "POST" && path === "/gh") {
+        const body = (await req.json()) as { result: core.GhRunResult; gate?: boolean };
+        ghResult = body.result;
+        ghCalls = [];
+        releaseGh();
+        ghGate = body.gate ? new Promise<void>((r) => (releaseGh = r)) : null;
+        return Response.json({ ok: true });
+      }
+      if (req.method === "POST" && path === "/gh/release") {
+        releaseGh();
+        ghGate = null;
+        return Response.json({ ok: true });
+      }
+      if (req.method === "GET" && path === "/gh/calls") return Response.json({ calls: ghCalls });
       if (req.method === "POST" && path === "/call") {
         const { actor, op, args } = (await req.json()) as { actor: string; op: string; args: unknown[] };
         return Response.json({ result: call(actor, op, args) ?? null });
