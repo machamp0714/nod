@@ -2,13 +2,14 @@ import type { Database } from "bun:sqlite";
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow, formatIssueId } from "../issue-query";
+import { findIssueRow, findWritableIssueRow, formatIssueId } from "../issue-query";
 import { releaseSnoozeOnArrival } from "../notify";
 import type { IssueReminder, Reminder } from "../types";
 import { parseDateTime } from "./human";
 
 // Issue のリマインダー（#47）。常駐ジョブは持たず、通知一覧を読むとき（listNotifications）に期限が来たものを通知に変える。
-// 1 Issue・1受け手に1件で、設定し直すと上書きする。設定・解除は人だけが行う
+// 1 Issue・1受け手に1件で、設定し直すと上書きする。設定・解除は人だけが行う。
+// アーカイブ済みの Issue に届いた通知は、ほかの通知と同じく復元するまで一覧に出ない
 
 function requireHuman(ctx: OpCtx, what: string): void {
   if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", `LLM はリマインダーを${what}できません。me が行います`);
@@ -25,7 +26,8 @@ export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): R
   if (at <= now()) throw new NodError("INVALID_ARGS", `${input.at} は過去の日時です。これから先の日時を指定してください`);
   const note = input.note?.trim() || null;
   return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
+    // アーカイブ済みの Issue には設定できない（#30）。解除は後片付けとして許す
+    const row = findWritableIssueRow(ctx.db, ref);
     const ts = now();
     ctx.db
       .query(

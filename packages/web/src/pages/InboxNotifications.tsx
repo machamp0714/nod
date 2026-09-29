@@ -182,7 +182,7 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
     {/* 通知から Issue のプロパティを直接変える（#46）。Issue 詳細と同じ部品・同じ API で、失敗は欄の下に出す */}
     <aside className={n.propsRail}>
       {detail.data && (
-        <PropertiesPanel variant="inbox" issue={detail.data} workspaceName={workspaceName} projects={projects}
+        <PropertiesPanel variant="inbox" readOnly={detail.data.archivedAt !== null} issue={detail.data} workspaceName={workspaceName} projects={projects}
           onUpdate={(input) => update.mutateAsync(input)} reminder={detail.data.reminder ?? null} onRemind={remind} />
       )}
     </aside>

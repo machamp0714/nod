@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
-import { commentIssue, createIssue, getIssue } from "../src/ops/issues";
+import { archiveIssue, commentIssue, createIssue, getIssue } from "../src/ops/issues";
 import { listNotifications, markNotificationsRead, snoozeNotifications, subscribeIssue } from "../src/ops/notifications";
 import { clearReminder, deliverDueReminders, listReminders, setReminder } from "../src/ops/reminders";
 import { codeOf, setup, tempDbPath } from "./helpers";
@@ -52,6 +52,16 @@ describe("リマインダーの設定・変更・解除", () => {
     expect(codeOf(() => clearReminder(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => setReminder(me, "API-999", { at: FUTURE }))).toBe("NOT_FOUND");
   });
+});
+
+test("アーカイブ済みの Issue には設定できず、解除はできる（#30）", () => {
+  const { db, ws, me } = setup();
+  const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+  setReminder(me, a.id, { at: FUTURE });
+  archiveIssue(me, a.id);
+  expect(codeOf(() => setReminder(me, a.id, { at: FUTURE }))).toBe("ISSUE_ARCHIVED");
+  expect(clearReminder(me, a.id)).toEqual({ issueId: a.id, cleared: true });
+  expect(listReminders(db)).toEqual([]);
 });
 
 describe("期限が来たリマインダーの通知", () => {
