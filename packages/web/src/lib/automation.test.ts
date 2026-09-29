@@ -33,6 +33,7 @@ const rule = (kind: "auto_close" | "auto_archive" | "pr_review", candidates: num
   candidates: Array.from({ length: candidates }, (_, i) => ({ id: `API-${i}`, title: "t", status: "todo" as const, since: "", elapsedDays: 1 })),
   processed: Array.from({ length: processed }, (_, i) => `API-${i}`),
   skipped: Array.from({ length: skipped }, (_, i) => `API-${i}`),
+  skippedReasons: [],
   failed: Array.from({ length: failed }, (_, i) => ({ id: `API-${i}`, message: "x" })),
   remaining: 0,
 });

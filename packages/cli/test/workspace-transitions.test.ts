@@ -77,7 +77,7 @@ describe("LLM 向けの出力に遷移ルールを添える（#73）", () => {
     await runNod(["issue", "create", "a"], { cwd: repo, db });
     const plain = await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(plain.json).not.toHaveProperty("transitionRules");
-    expect((await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout).not.toContain("ステータス遷移ルール");
+    expect((await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout).not.toContain("## この Workspace のステータス遷移ルール");
 
     await runNod(["workspace", "transitions", "set", "--preset", "review_before_done", "--forbid", "backlog:todo"], { cwd: repo, db });
     const show = await runNod(["issue", "show", "API-1"], { cwd: repo, db, actor: "claude-code" });
@@ -87,7 +87,7 @@ describe("LLM 向けの出力に遷移ルールを添える（#73）", () => {
     const json = await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(json.json.transitionRules).toEqual({ forbidden: [{ from: "backlog", to: "todo" }], presets: ["review_before_done"] });
     const skills = await runNod(["skills", "get", "nod", "--json"], { cwd: repo, db });
-    expect(skills.json.guide).toContain("ステータス遷移ルール");
+    expect(skills.json.guide).toContain("## この Workspace のステータス遷移ルール（API）");
     expect(skills.json.transitionRules.presets).toEqual(["review_before_done"]);
   });
 });
