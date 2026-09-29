@@ -1,0 +1,30 @@
+import { expect, test } from "bun:test";
+import { openDb } from "@nod/core";
+import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
+
+test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDBを変えない。accept --assignee は人だけが使える", async () => {
+  const db = tempDb();
+  const cwd = makeRepo();
+  registerRepo(db, cwd);
+  const original = await runNod(["issue", "create", "検索結果のページングがずれる", "--label", "search", "--json"], { cwd, db });
+  const triage = await runNod(["issue", "create", "検索結果のページングがずれる bug", "--json"], { cwd, db, actor: "codex" });
+  const connection = openDb(db);
+  const before = connection.serialize();
+  const json = await runNod(["triage", "suggest", triage.json.id, "--json"], { cwd, db, actor: "codex" });
+  expect(json.exitCode).toBe(0);
+  expect(json.json.duplicates[0]).toMatchObject({ id: original.json.id, via: null });
+  expect(json.json.labels.map((l: { label: string }) => l.label)).toEqual(["search"]);
+  const human = await runNod(["triage", "suggest", triage.json.id], { cwd, db });
+  expect(human.stdout).toContain("重複候補");
+  expect(human.stdout).toContain(original.json.id);
+  expect(human.stdout).toContain("類似 Issue 1 件に付与");
+  expect(human.stdout).toContain("採用は人が行います");
+  expect(connection.serialize()).toEqual(before);
+  connection.close();
+  const forbidden = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db, actor: "codex" });
+  expect(forbidden.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  const accepted = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db });
+  expect(accepted.json).toMatchObject({ status: "todo", assignee: "codex" });
+  const notTriage = await runNod(["triage", "suggest", triage.json.id, "--json"], { cwd, db });
+  expect(notTriage.json.error.code).toBe("NOT_IN_TRIAGE");
+});

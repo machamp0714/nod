@@ -7,6 +7,8 @@ import {
   listProjects,
   listTriage,
   listWorkspaces,
+  suggestTriage,
+  HUMAN_ACTOR,
   queryIssues,
   defaultDocsDir,
   getDocument,
@@ -22,6 +24,8 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): v
   app.get("/api/issues/:id", (c) => c.json(getIssue(db, c.req.param("id"))));
   app.get("/api/inbox", (c) => c.json(getInbox(db, { includeAnswered: queryFlag(c.req.query("includeAnswered"), "includeAnswered") })));
   app.get("/api/triage", (c) => c.json(listTriage(db)));
+  // 重複・ラベル・担当の候補（#41）。読み取りだけで、採用は既存の accept / duplicate で人が行う
+  app.get("/api/triage/:id/suggestions", (c) => c.json(suggestTriage({ db, actor: HUMAN_ACTOR }, c.req.param("id"))));
   app.get("/api/projects", (c) =>
     c.json(listProjects(db, { includeClosed: queryFlag(c.req.query("includeClosed"), "includeClosed") })),
   );

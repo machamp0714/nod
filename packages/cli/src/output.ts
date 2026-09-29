@@ -11,6 +11,8 @@ import {
   type StepStatus,
   toNodError,
   type Notification,
+  type SuggestionReason,
+  type TriageSuggestions,
 } from "@nod/core";
 
 export const STATUS_LABEL: Record<Status, string> = {
@@ -202,4 +204,34 @@ export function describeNotification(n: Notification): string {
 
 export function formatNotification(n: Notification): string {
   return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}\n    ${describeNotification(n)}`;
+}
+
+function describeReason(r: SuggestionReason, what: "付与" | "担当"): string {
+  switch (r.kind) {
+    case "similar":
+      return `類似 Issue ${r.issues.length} 件に${what}（${r.issues.join(", ")}）`;
+    case "text":
+      return r.field === "title" ? "タイトルにラベル名を含む" : "本文にラベル名を含む";
+    case "source":
+      return `起票元 ${r.issue} の担当`;
+  }
+}
+
+export function formatTriageSuggestions(s: TriageSuggestions): string {
+  const none = "  なし";
+  return [
+    `${s.issueId} の提案（採用は人が行います: nod triage duplicate / nod triage accept）`,
+    "重複候補",
+    ...(s.duplicates.length
+      ? s.duplicates.map(
+          (d) =>
+            `  ${d.id}  ${d.title}  [${STATUS_LABEL[d.status]}] 一致 ${Math.round(d.score * 100)}%` +
+            `${d.sharedTerms.length ? `  共通語: ${d.sharedTerms.join(", ")}` : ""}${d.via ? `  （${d.via} の重複元）` : ""}`,
+        )
+      : [none]),
+    "ラベル候補",
+    ...(s.labels.length ? s.labels.map((l) => `  ${l.label}  ${l.reasons.map((r) => describeReason(r, "付与")).join(" / ")}`) : [none]),
+    "担当候補",
+    ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
+  ].join("\n");
 }

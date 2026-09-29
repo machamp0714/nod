@@ -151,7 +151,9 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
     const row = findIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
     const since = lastNotificationId(ctx.db);
-    updateIssue(ctx, ref, { projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels });
+    updateIssue(ctx, ref, {
+      projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels, assignee: input.assignee,
+    });
     Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");
     setColumn(ctx, row, "snoozed_until", null);
