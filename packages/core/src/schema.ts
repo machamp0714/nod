@@ -167,4 +167,13 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX notifications_recipient ON notifications (recipient, read_at, created_at)`,
   ],
+  // Workspace・Issue を消すとき、ON DELETE CASCADE / SET NULL が参照元を全件走査しないよう、参照列に索引を付ける。
+  // 通知の3列に加え、コメントの返信先（parent_id）と子 Issue の親（parent_id）も対象にする
+  [
+    `CREATE INDEX notifications_issue ON notifications (issue_id)`,
+    `CREATE INDEX notifications_event ON notifications (event_id)`,
+    `CREATE INDEX notifications_comment ON notifications (comment_id)`,
+    `CREATE INDEX comments_parent ON comments (parent_id)`,
+    `CREATE INDEX issues_parent ON issues (parent_id)`,
+  ],
 ];
