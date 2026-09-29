@@ -49,7 +49,7 @@ const MEDIA: Readonly<Record<string, "image" | "video">> = {
 };
 
 export function mediaKind(a: IssueAttachment): "image" | "video" | null {
-  return a.kind === "file" && a.mime && Object.hasOwn(MEDIA, a.mime) ? MEDIA[a.mime] : null;
+  return a.kind === "file" && a.mime && Object.hasOwn(MEDIA, a.mime) ? MEDIA[a.mime] ?? null : null;
 }
 
 export function mediaAttachments(list: IssueAttachment[]): IssueAttachment[] {
