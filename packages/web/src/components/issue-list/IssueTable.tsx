@@ -88,7 +88,7 @@ export function IssueTable({
             >
               {columns.includes("status") && (
                 <td>
-                  <StatusLabel status={issue.status} />
+                  <StatusLabel status={issue.status} workspace={issue.workspace} />
                 </td>
               )}
               <td className={s.id}>{issue.id}</td>

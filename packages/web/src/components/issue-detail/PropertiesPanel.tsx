@@ -6,6 +6,8 @@ import { prLabel } from "../../lib/format";
 import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
 import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
+import { statusName } from "../../lib/workspace-labels";
+import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { priorityMeta } from "../../lib/meta";
 import { AgentStatePill, Button, Icon, Pill, StatusIcon, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
@@ -146,6 +148,7 @@ export function PropertiesPanel({
   const locked = action.busy || readOnly;
   const location = executionLocation(issue.branch, issue.worktree);
   const [labelText, setLabelText] = useState("");
+  const statusNames = useStatusNames();
   const change = (input: UpdateIssueInput) => action.run(() => onUpdate(input), "変更できませんでした");
   // 選択肢の一覧を読み込む前や、一覧にない Project でも、今の値を表示できるようにする
   const projectOptions = issue.project && !projects.some((p) => p.id === issue.project?.id) ? [...projects, issue.project] : projects;
@@ -167,7 +170,7 @@ export function PropertiesPanel({
             disabled={locked}
             onChange={(e) => void change({ status: e.target.value as Status })}
           >
-            {statusChoices(issue.status).map((choice) => (
+            {statusChoices(issue.status, (status) => statusName(status, statusNames.data, issue.workspace)).map((choice) => (
               <option key={choice.value} value={choice.value} disabled={choice.disabled}>
                 {choice.label}
               </option>

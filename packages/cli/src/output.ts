@@ -1,5 +1,7 @@
 import {
   type ActivityItem,
+  DEFAULT_STATUS_LABELS,
+  type StatusNames,
   type AgentState,
   type Issue,
   type IssueDetail,
@@ -15,16 +17,20 @@ import {
   type TriageSuggestions,
 } from "@nod/core";
 
-export const STATUS_LABEL: Record<Status, string> = {
-  triage: "Triage",
-  backlog: "Backlog",
-  needs_clarification: "Needs Clarification",
-  todo: "Todo",
-  in_progress: "In Progress",
-  in_review: "In Review",
-  done: "Done",
-  canceled: "Canceled",
-};
+export const STATUS_LABEL: Record<Status, string> = DEFAULT_STATUS_LABELS;
+
+// Workspace のキーごとの表示名。openCli が DB から読み込む
+let statusNamesByWorkspace: Record<string, StatusNames> = {};
+
+export function useStatusNames(names: Record<string, StatusNames>): void {
+  statusNamesByWorkspace = names;
+}
+
+// 表示名を変えたステータスは「表示名 (内部値)」で出し、LLM が --status に内部値を使えるようにする
+export function statusText(status: Status, issueId: string): string {
+  const custom = statusNamesByWorkspace[issueId.slice(0, issueId.lastIndexOf("-"))]?.[status];
+  return custom === undefined ? STATUS_LABEL[status] : `${custom} (${status})`;
+}
 
 export const PRIORITY_LABEL = ["なし", "Urgent", "High", "Medium", "Low"];
 
@@ -44,11 +50,31 @@ export function printError(err: unknown, json: boolean): void {
   else console.error(`エラー（${body.code}）: ${body.message}`);
 }
 
-export function formatIssueLine(i: Issue): string {
+// 全角文字は端末で2桁を取るので、列をそろえるときは文字数でなく表示幅で数える
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const c of text) width += WIDE.test(c) ? 2 : 1;
+  return width;
+}
+
+// ステータス列の幅。表示名は Workspace ごとに長さが違うので、一覧では全行の最大に合わせる
+export function statusColumnWidth(issues: Issue[]): number {
+  return Math.max(11, ...issues.map((i) => displayWidth(statusText(i.status, i.id))));
+}
+
+export function formatIssueLine(i: Issue, statusWidth = statusColumnWidth([i])): string {
   const agent = i.agentState ? ` [${i.agentState}]` : "";
   const candidate = i.completionCandidate ? " [完了候補]" : "";
   const archived = i.archivedAt ? " [archived]" : "";
-  return `${i.id}  ${STATUS_LABEL[i.status].padEnd(11)}${agent}${archived}  ${i.title}${candidate}`;
+  const status = statusText(i.status, i.id);
+  return `${i.id}  ${status}${" ".repeat(statusWidth - displayWidth(status))}${agent}${archived}  ${i.title}${candidate}`;
+}
+
+export function formatIssueLines(issues: Issue[]): string[] {
+  const width = statusColumnWidth(issues);
+  return issues.map((i) => formatIssueLine(i, width));
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
@@ -75,7 +101,7 @@ export function formatDelegations(issues: Issue[]): string {
         .filter(([, n]) => n > 0)
         .map(([label, n]) => `${label} ${n}`)
         .join("・");
-      return [`${agent}（${rows.length}件: ${breakdown}）`, ...rows.map((r) => `  ${formatIssueLine(r)}`)].join("\n");
+      return [`${agent}（${rows.length}件: ${breakdown}）`, ...formatIssueLines(rows).map((line) => `  ${line}`)].join("\n");
     })
     .join("\n\n");
 }
@@ -113,7 +139,7 @@ function formatCompletionCandidate(d: IssueDetail): string {
 export function formatIssueDetail(d: IssueDetail): string {
   const lines = [
     `${d.id}  ${d.title}`,
-    `ステータス: ${STATUS_LABEL[d.status]}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
+    `ステータス: ${statusText(d.status, d.id)}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
@@ -142,7 +168,7 @@ export function formatIssueDetail(d: IssueDetail): string {
       ),
     );
   }
-  if (d.children.length) lines.push("", "Sub-issue:", ...d.children.map((c) => `  ${formatIssueLine(c)}`));
+  if (d.children.length) lines.push("", "Sub-issue:", ...formatIssueLines(d.children).map((line) => `  ${line}`));
   const relations: [string, string[]][] = [
     ["ブロックしている", d.relations.blocks],
     ["ブロックされている", d.relations.blockedBy],
@@ -168,7 +194,7 @@ export function describeNotification(n: Notification): string {
     `${n.actor} が${what}を変更: ${shown(d.from, label)} → ${shown(d.to, label)}`;
   switch (n.eventType) {
     case "status_changed":
-      return change("ステータス", (v: Status) => STATUS_LABEL[v] ?? v);
+      return change("ステータス", (v: Status) => (STATUS_LABEL[v] ? statusText(v, n.issueId) : v));
     case "priority_changed":
       return change("優先度", (v: number) => PRIORITY_LABEL[v] ?? String(v));
     case "assignee_changed":
@@ -228,7 +254,7 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
     ...(s.duplicates.length
       ? s.duplicates.map(
           (d) =>
-            `  ${d.id}  ${d.title}  [${STATUS_LABEL[d.status]}] 一致 ${Math.round(d.score * 100)}%` +
+            `  ${d.id}  ${d.title}  [${statusText(d.status, d.id)}] 一致 ${Math.round(d.score * 100)}%` +
             `${d.sharedTerms.length ? `  共通語: ${d.sharedTerms.join(", ")}` : ""}${d.via ? `  （${d.via} の重複元）` : ""}`,
         )
       : [none]),

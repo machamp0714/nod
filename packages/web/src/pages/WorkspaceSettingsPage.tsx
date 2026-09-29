@@ -7,11 +7,13 @@ import type { Workspace, WorkspaceRules } from "../api/types";
 import { Button, Icon, PageError, PageLoading } from "../components/ui";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "../lib/workspace-rules";
 import { NotFoundMessage } from "./NotFoundPage";
+import { LabelsSection, StatusNamesSection, TemplatesSection } from "./WorkspaceLabelSettings";
 import s from "./workspace-settings.module.css";
 
 const route = getRouteApi("/workspaces/$workspaceKey/settings");
 
-// Workspace の設定。いまは LLM に守らせる作業規約だけを置く（nod.pen「Workspace設定｜作業規約（#27）」）
+// Workspace の設定。作業規約、ラベル定義、ステータスの表示名、テンプレートの案内を置く
+// （nod.pen「Workspace設定｜作業規約（#27）」「Workspace設定｜ラベル・表示名（#26）」）
 export function WorkspaceSettingsPage() {
   const { workspaceKey } = route.useParams();
   const workspaces = useWorkspaces();
@@ -50,6 +52,9 @@ export function WorkspaceSettingsPage() {
           saved={rules.data}
           onSaved={() => setToast("保存しました")}
         />
+        <LabelsSection workspace={workspace} onSaved={setToast} />
+        <StatusNamesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
+        <TemplatesSection />
       </div>
       {toast && (
         <div role="status" className={s.toast}>
@@ -144,12 +149,32 @@ function RulesSection({ workspace, saved, onSaved }: { workspace: Workspace; sav
           </Button>
         </div>
       </div>
-      {confirming && <DeleteDialog busy={remove.isPending} onConfirm={() => void confirmDelete()} onClose={() => setConfirming(false)} />}
+      {confirming && (
+        <DeleteDialog
+          title="作業規約を削除しますか？"
+          message="LLM の出力から消えます"
+          busy={remove.isPending}
+          onConfirm={() => void confirmDelete()}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </section>
   );
 }
 
-function DeleteDialog({ busy, onConfirm, onClose }: { busy: boolean; onConfirm: () => void; onClose: () => void }) {
+export function DeleteDialog({
+  title,
+  message,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  message: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const messageId = useId();
@@ -172,10 +197,10 @@ function DeleteDialog({ busy, onConfirm, onClose }: { busy: boolean; onConfirm: 
       <div className={s.dialogBody}>
         <div className={s.dialogText}>
           <h2 id={titleId} className={s.dialogTitle}>
-            作業規約を削除しますか？
+            {title}
           </h2>
           <p id={messageId} className={s.dialogMessage}>
-            LLM の出力から消えます
+            {message}
           </p>
         </div>
         <div className={s.dialogButtons}>

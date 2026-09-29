@@ -91,6 +91,8 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod project list\`、\`nod project show <名前>\`
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod template list\`、\`nod template show <名前>\`
+- \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
+- \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
 失敗すると終了コードが1になり、\`--json\` のときは \`{"error": {"code", "message"}}\` を返す。

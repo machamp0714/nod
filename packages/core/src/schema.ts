@@ -196,4 +196,23 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // アーカイブは status と別の属性。NULL ならアーカイブされていない
   [`ALTER TABLE issues ADD COLUMN archived_at TEXT`],
+  // Workspace ごとのラベル定義（色・説明）と、ステータスの表示名。Issue のラベル自体は issue_labels の自由入力のまま
+  [
+    `CREATE TABLE workspace_labels (
+      id INTEGER PRIMARY KEY,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, name)
+    )`,
+    `CREATE TABLE workspace_status_names (
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('triage','backlog','needs_clarification','todo','in_progress','in_review','done','canceled')),
+      name TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, status)
+    )`,
+  ],
 ];

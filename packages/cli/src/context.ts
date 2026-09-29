@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { findWorkspace, NodError, type OpCtx, openDb, type Workspace } from "@nod/core";
+import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, type Workspace } from "@nod/core";
 import type { Command } from "commander";
 import { detectActor } from "./actor";
+import { useStatusNames } from "./output";
 
 export interface Cli {
   db: Database;
@@ -18,6 +19,7 @@ export function globalOpts(cmd: Command): { json: boolean; workspace?: string } 
 
 export function openCli(cmd: Command): Cli {
   const db = openDb();
+  useStatusNames(listAllStatusNames(db));
   return { db, ctx: { db, actor: detectActor() }, json: globalOpts(cmd).json };
 }
 

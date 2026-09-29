@@ -1,10 +1,11 @@
 import type { IssueQuery, Status } from "../../api/types";
 import { describeFilter, type FilterOption, type FilterOptions, toggleValue, withoutKey } from "../../lib/issue-filter";
-import { STATUS_META, STATUS_ORDER } from "../../lib/meta";
+import { useStatusNames } from "../../api/hooks/workspace-labels";
+import { STATUS_ORDER } from "../../lib/meta";
+import { singleWorkspace, statusName } from "../../lib/workspace-labels";
 import { Icon } from "../ui";
 import s from "./filter-bar.module.css";
 
-const STATUS_OPTIONS: FilterOption[] = STATUS_ORDER.map((status) => ({ value: status, label: STATUS_META[status].label }));
 
 function nameOf(options: readonly FilterOption[], value: string): string {
   return options.find((o) => o.value === value)?.label ?? value;
@@ -20,10 +21,14 @@ export function FilterBar({
   options: FilterOptions;
   onChange: (next: IssueQuery) => void;
 }) {
+  // Workspace を1つに絞ったときだけ、Status の選択肢とチップにその Workspace の表示名を使う
+  const statusNames = useStatusNames();
+  const nameOfStatus = (status: Status) => statusName(status, statusNames.data, singleWorkspace(filter.workspace));
+  const statusOptions: FilterOption[] = STATUS_ORDER.map((status) => ({ value: status, label: nameOfStatus(status) }));
   const chips = describeFilter(filter, {
     workspace: (key) => nameOf(options.workspaces, key),
     project: (ref) => nameOf(options.projects, ref),
-    status: (status) => STATUS_META[status].label,
+    status: nameOfStatus,
   });
   return (
     <div className={s.bar} role="group" aria-label="絞り込み条件">
@@ -57,7 +62,7 @@ export function FilterBar({
           />
           <CheckGroup
             label="Status"
-            options={STATUS_OPTIONS}
+            options={statusOptions}
             selected={filter.status}
             onToggle={(value) => onChange({ ...filter, status: toggleValue(filter.status, value as Status) })}
           />

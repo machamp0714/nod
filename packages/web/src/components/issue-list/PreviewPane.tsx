@@ -59,7 +59,7 @@ export function PreviewPane({
             <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName(issue.workspace)} />
             <span className={s.previewId}>{issue.id}</span>
             <span className={s.previewDot}>·</span>
-            <StatusLabel status={issue.status} />
+            <StatusLabel status={issue.status} workspace={issue.workspace} />
           </div>
           <h2 className={s.previewTitle}>{issue.title}</h2>
           <dl className={s.previewProps}>

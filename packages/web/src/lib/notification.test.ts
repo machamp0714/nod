@@ -120,3 +120,12 @@ describe("nextSnoozeExpiry", () => {
     expect(nextSnoozeExpiry([n({ snoozedUntil: "2999-01-01T00:00:00.000Z" })], now)).toBe(2 ** 31 - 1);
   });
 });
+
+describe("ステータスの表示名", () => {
+  test("通知の Issue の Workspace で設定した表示名で書く", () => {
+    const item = n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } });
+    expect(describeNotification(item, { statusNames: { API: { in_review: "確認待ち" } } })).toBe("codex がステータスを 確認待ち に変更しました");
+    expect(describeNotification(item, { statusNames: { NOD: { in_review: "確認待ち" } } })).toBe("codex がステータスを In Review に変更しました");
+  });
+});
+

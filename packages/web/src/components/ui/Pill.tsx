@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import type { AgentState, Status } from "../../api/types";
+import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { AGENT_STATE_META, priorityMeta, STATUS_META, type Tone, TONE_COLORS } from "../../lib/meta";
+import { statusName } from "../../lib/workspace-labels";
 import { Icon, type IconName } from "./Icon";
 import s from "./ui.module.css";
 
@@ -19,11 +21,13 @@ export function StatusIcon({ status, size = 14 }: { status: Status; size?: numbe
   return <Icon name={meta.icon} size={size} color={TONE_COLORS[meta.tone].fg} />;
 }
 
-export function StatusLabel({ status }: { status: Status }) {
+// workspace を渡すと、その Workspace で設定した表示名を出す
+export function StatusLabel({ status, workspace }: { status: Status; workspace?: string }) {
+  const names = useStatusNames();
   return (
     <span className={s.inline}>
       <StatusIcon status={status} />
-      <span className={s.inlineText}>{STATUS_META[status].label}</span>
+      <span className={s.inlineText}>{statusName(status, names.data, workspace)}</span>
     </span>
   );
 }

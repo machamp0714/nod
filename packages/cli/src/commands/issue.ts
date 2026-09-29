@@ -37,7 +37,7 @@ import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
-import { formatDelegations, formatIssueDetail, formatIssueLine, formatPlan, print, sortByAssignee } from "../output";
+import { formatDelegations, formatIssueDetail, formatIssueLine, formatIssueLines, formatPlan, print, sortByAssignee, statusColumnWidth, statusText } from "../output";
 
 // Orca のカードは LLM 向けのコマンドで LLM が操作したときだけ更新する
 async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
@@ -152,7 +152,7 @@ export function registerIssueCommands(program: Command): void {
             print(cli, sorted, () => formatDelegations(sorted));
             return;
           }
-          print(cli, issues, () => (issues.length ? issues.map(formatIssueLine).join("\n") : "Issue はありません"));
+          print(cli, issues, () => (issues.length ? formatIssueLines(issues).join("\n") : "Issue はありません"));
         },
       ),
     );
@@ -306,8 +306,9 @@ export function registerIssueCommands(program: Command): void {
       const result = diagnoseIssues(cli.db, {
         workspaceId: currentWorkspace(cli, cmd).id, projectRef: o.project, staleDays: o.staleDays,
       });
+      const width = statusColumnWidth(result.findings.map((f) => f.issue));
       print(cli, result, () => result.findings.length
-        ? result.findings.map(({ issue, reasons }) => `${formatIssueLine(issue)}\n  ${reasons.map(reason => reason.type === "blocked"
+        ? result.findings.map(({ issue, reasons }) => `${formatIssueLine(issue, width)}\n  ${reasons.map(reason => reason.type === "blocked"
           ? `未完了の直接ブロッカー: ${reason.blockedBy.join(", ")}`
           : `${reason.inactiveDays}日間、活動記録がない候補（作業停止の断定ではありません）`).join(" / ")}`).join("\n")
         : "ブロッカー・停滞候補はありません");
@@ -461,7 +462,7 @@ export function registerIssueCommands(program: Command): void {
 function askMessage(r: AskResult, llm: boolean): string {
   if (!r.created) return "同じ確認依頼がすでにあります";
   if (r.issue.status === "needs_clarification") {
-    return `未決事項を足しました。すべて回答されるまで ${r.issue.id} は Needs Clarification です`;
+    return `未決事項を足しました。すべて回答されるまで ${r.issue.id} は ${statusText(r.issue.status, r.issue.id)} です`;
   }
   if (llm && r.issue.agentState === "awaiting_input") {
     return "確認を依頼しました。回答があるまで、この Issue の作業を止めてください";

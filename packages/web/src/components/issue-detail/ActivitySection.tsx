@@ -9,11 +9,12 @@ import { useAsyncAction } from "./useAsyncAction";
 
 // readOnly（アーカイブ済み）のときはコメント欄の代わりに理由を出し、返信・解決済み化もできない（Pencil「Issue詳細｜アーカイブ済み」）
 export function ActivitySection({
+  workspace,
   activity,
   onComment,
   readOnly = false,
   ...handlers
-}: { activity: ActivityItem[]; onComment: (body: string) => Promise<unknown>; readOnly?: boolean } & ThreadHandlers) {
+}: { workspace?: string; activity: ActivityItem[]; onComment: (body: string) => Promise<unknown>; readOnly?: boolean } & ThreadHandlers) {
   const [body, setBody] = useState("");
   const action = useAsyncAction();
 
@@ -25,7 +26,7 @@ export function ActivitySection({
     <section className={s.section} aria-label="Activity">
       <h2 className={s.sectionTitle}>Activity</h2>
       {activity.length === 0 ? <p className={s.muted}>Activity はありません</p> : <div className={s.activityCards}>{visibleActivity(activity).map((item, index) => item.kind === "comment" ?
-        <CommentThread key={`comment-${item.id}`} thread={item} {...handlers} readOnly={readOnly} /> : <ActivityLines key={`${item.at}-${index}`} items={[item]} />)}</div>}
+        <CommentThread key={`comment-${item.id}`} thread={item} {...handlers} readOnly={readOnly} /> : <ActivityLines key={`${item.at}-${index}`} items={[item]} workspace={workspace} />)}</div>}
       {readOnly ? <p className={`${s.commentBox} ${s.commentBoxLocked}`}>アーカイブ済みのためコメントできません</p> : <div className={s.commentBox}>
         <textarea
           disabled={action.busy}

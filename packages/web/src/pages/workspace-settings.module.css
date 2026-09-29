@@ -213,3 +213,239 @@
   color: var(--ink3);
   opacity: 1;
 }
+
+/* ラベル・ステータスの表示名・テンプレート（nod.pen「Workspace設定｜ラベル・表示名（#26）」） */
+.errorIndent {
+  padding-left: 44px;
+}
+
+.labelList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.labelEmpty {
+  padding: 24px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.labelRows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.labelRowEditing {
+  padding: 8px 14px;
+  background: var(--bg);
+}
+
+.labelEditForm {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.labelName {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.labelDescription {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.labelUsage {
+  flex: none;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.rowButtons {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.smallButton {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.smallButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.smallDanger {
+  color: var(--fail);
+}
+
+.smallPrimary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.labelAdd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.labelInputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input {
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.input::placeholder {
+  color: var(--ink3);
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.inputInvalid,
+.inputInvalid:focus {
+  border-color: var(--fail);
+}
+
+.nameInput {
+  width: 110px;
+}
+
+.editNameInput {
+  width: 88px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.colorSelect {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink3);
+}
+
+.colorSelect:focus-within {
+  border-color: var(--accent);
+}
+
+/* 見た目は丸と矢印にし、操作は重ねた透明の select で受ける */
+.colorNative {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.statusRows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.statusKey {
+  flex: none;
+  width: 180px;
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.footerEnd {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.templateInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--sunken);
+}
+
+.templateText {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.templateCommands {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

@@ -139,7 +139,7 @@ function InboxDetail({ entry, workspaceName, drafts, setDraft }: { entry: InboxE
       <div className={d.crumb}>
         <WorkspaceBadge workspaceKey={entry.workspace} name={workspaceName} />
         <span className={d.id}>{entry.issueId}</span>
-        {issue && <StatusLabel status={issue.status} />}
+        {issue && <StatusLabel status={issue.status} workspace={issue.workspace} />}
       </div>
       <h2 className={d.title}>{entry.issueTitle}</h2>
       {location && (
@@ -169,7 +169,7 @@ function InboxDetail({ entry, workspaceName, drafts, setDraft }: { entry: InboxE
 
       <section className={d.section} aria-label="直近の経過">
         <h3 className={d.sectionTitle}>直近の経過</h3>
-        {detail.isError ? <ActionError error={detail.error} /> : <ActivityLines items={recent} />}
+        {detail.isError ? <ActionError error={detail.error} /> : <ActivityLines items={recent} workspace={issue?.workspace} />}
       </section>
 
       <Link to="/issues/$issueId" params={{ issueId: entry.issueId }} className={d.link}>

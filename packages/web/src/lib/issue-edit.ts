@@ -9,10 +9,10 @@ export interface Choice<T extends string> {
 
 // needs_clarification は core が確認依頼に応じて切り替え、手では変えられない（spec）。
 // 今の値が needs_clarification のときだけ、select が値を表示できるよう選べない項目として残す。
-export function statusChoices(current: Status): Choice<Status>[] {
+export function statusChoices(current: Status, nameOf: (status: Status) => string = statusLabel): Choice<Status>[] {
   return STATUS_ORDER.filter((status) => status !== "needs_clarification" || status === current).map((status) => ({
     value: status,
-    label: statusLabel(status),
+    label: nameOf(status),
     disabled: status === "needs_clarification",
   }));
 }

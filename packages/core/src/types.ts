@@ -311,3 +311,13 @@ export interface TriageSuggestions {
   labels: LabelSuggestion[];
   assignees: AssigneeSuggestion[];
 }
+
+export interface WorkspaceLabel {
+  workspaceKey: string;
+  name: string;
+  color: string;
+  description: string;
+  issueCount: number;
+  createdAt: string;
+  updatedAt: string;
+}

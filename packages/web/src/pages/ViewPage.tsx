@@ -1,4 +1,5 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
+import { singleWorkspace } from "../lib/workspace-labels";
 import { useState } from "react";
 import { useFilterOptions, useIssueRows } from "../api/hooks/issues";
 import { useDeleteView, useUpdateView, useViews } from "../api/hooks/views";
@@ -58,6 +59,7 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         loading={rows.loading}
         error={rows.error}
         search={search}
+        statusWorkspace={singleWorkspace(draft.workspace)}
         onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
         actions={
           <>
