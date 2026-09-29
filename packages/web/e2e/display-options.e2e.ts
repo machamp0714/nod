@@ -48,12 +48,20 @@ test("壊れたURLは既定値へ戻り狭い幅でも表示設定を操作で�
   await page.goto('/issues?sort=bad&direction=bad&columns=%22bad%22');
   await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR"]);
   await page.getByText("表示設定", { exact: true }).click();
-  await expect(page.getByLabel("並び順", { exact: true })).toHaveValue("default");
-  await page.getByLabel("並び順", { exact: true }).focus();
+  const sort = page.getByLabel("並び順", { exact: true });
+  await expect(sort).toHaveValue("default");
+  await sort.focus();
+  await expect(sort).toBeFocused();
+  // macOS の ArrowDown はまずメニューを開くため、開く操作と選択移動を分ける。
+  await page.keyboard.press("Space");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
-  await expect(page.getByLabel("並び順", { exact: true })).toHaveValue("priority");
+  await expect(sort).toHaveValue("priority");
+  await expect(page).toHaveURL(/[?&]sort=priority(?:&|$)/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.reload();
+  await page.getByText("表示設定", { exact: true }).click();
+  await expect(sort).toHaveValue("priority");
 });
 
 test.describe("表示設定の取得失敗", () => {
