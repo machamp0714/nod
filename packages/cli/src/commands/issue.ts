@@ -183,7 +183,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("show <id>")
-    .description("Issue の詳細（計画、Documents、Activity を含む）を表示する")
+    .description("Issue の詳細（計画、Documents、添付、Activity を含む）を表示する")
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
