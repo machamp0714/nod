@@ -18,6 +18,7 @@ export const queryKeys = {
   documentList: () => ["documents", "list"] as const,
   documentsRoot: () => ["documents", "root"] as const,
   document: (id: number) => ["documents", id] as const,
+  stats: (kind: "completion" | "llm", query: string) => ["stats", kind, query] as const,
 };
 
 // Issue の API のパス。apiFetch に渡す（/api は apiFetch が前置する）

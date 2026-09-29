@@ -1,0 +1,177 @@
+/* nod.pen の DPVzJ（Analytics）に合わせる */
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.segment {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--sunken);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.selectLabel {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.select select {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.select select:focus-visible {
+  outline: none;
+}
+
+.select:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 32px;
+}
+
+.kpis,
+.row {
+  display: flex;
+  gap: 16px;
+}
+
+.kpis > *,
+.row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.kpiLabel {
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.kpiValue {
+  color: var(--ink);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.kpiSub {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardTitle {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 280px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.emptyText {
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 500;
+}

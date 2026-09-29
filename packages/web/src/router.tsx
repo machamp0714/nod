@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DocumentPage } from "./pages/DocumentPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { InboxPage } from "./pages/InboxPage";
@@ -22,6 +23,7 @@ import {
 } from "./routes/search";
 
 import { parseInboxSearch } from "./routes/inbox-search";
+import { parseAnalyticsSearch } from "./lib/analytics";
 
 const rootRoute = createRootRoute({ component: AppLayout, notFoundComponent: NotFoundPage });
 
@@ -53,6 +55,7 @@ const newDocumentRoute = createRoute({
   validateSearch: parseNewDocumentSearch,
   component: NewDocumentPage,
 });
+const analyticsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analytics", validateSearch: parseAnalyticsSearch, component: AnalyticsPage });
 const documentRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents/$documentId", component: DocumentPage });
 
 const workspaceSettingsRoute = createRoute({
@@ -75,6 +78,7 @@ const routeTree = rootRoute.addChildren([
   newDocumentRoute,
   documentRoute,
   workspaceSettingsRoute,
+  analyticsRoute,
 ]);
 
 export const router = createRouter({ routeTree });
