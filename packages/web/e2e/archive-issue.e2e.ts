@@ -13,6 +13,8 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   const banner = page.getByRole("region", { name: "アーカイブ済み" });
   await expect(banner).toContainText(/このIssueはアーカイブ済みです（\d{4}-\d{2}-\d{2} \d{2}:\d{2}）/);
   await expect(page.getByRole("combobox", { name: "Status" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Estimate を編集" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Due date を編集" })).toBeDisabled();
   await expect(page.getByText("アーカイブ済みのためコメントできません")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "コメント" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "返信" })).toBeDisabled();
@@ -79,4 +81,23 @@ test.describe("アーカイブに失敗したとき", () => {
     await expect(page.getByRole("region", { name: "アーカイブ済み" })).toHaveCount(0);
     expect((await api.show(issue.id)).archivedAt).toBeNull();
   });
+});
+
+test("Document の関連 Issue では、アーカイブ済みの Issue に印を付け、リンクを解除できない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const live = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "生きている Issue" });
+  const gone = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "アーカイブした Issue" });
+  const path = nod.writeFile("docs/archived-links.md", "# リンク先の確認");
+  const doc = await nod.me.attachDocument({ issueRef: live.id }, { path });
+  await nod.me.attachDocument({ issueRef: gone.id }, { path });
+  await nod.me.archiveIssue(gone.id);
+
+  await page.goto(`/documents/${doc.id}`);
+  const links = page.getByRole("region", { name: "関連 Issue" });
+  const goneRow = links.getByRole("listitem").filter({ hasText: gone.title });
+  await expect(goneRow.getByText("アーカイブ済み")).toBeVisible();
+  await expect(links.getByRole("button", { name: `${gone.id} のリンクを解除` })).toBeDisabled();
+  const liveRow = links.getByRole("listitem").filter({ hasText: live.title });
+  await expect(liveRow.getByText("アーカイブ済み")).toHaveCount(0);
+  await expect(links.getByRole("button", { name: `${live.id} のリンクを解除` })).toBeEnabled();
 });

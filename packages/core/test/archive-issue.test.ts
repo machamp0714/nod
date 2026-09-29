@@ -1,9 +1,19 @@
 import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { askQuestion, completeIssue, nextIssue, startIssue, suggestIssue } from "../src/ops/agent";
-import { attachDocument } from "../src/ops/documents";
-import { acceptTriage, answerQuestion, getInbox, listTriage } from "../src/ops/human";
+import { askQuestion, completeIssue, failIssue, nextIssue, startIssue, suggestIssue } from "../src/ops/agent";
+import { attachDocument, detachDocument, getDocument, unlinkDocumentById } from "../src/ops/documents";
+import {
+  acceptTriage,
+  answerQuestion,
+  approveReview,
+  declineTriage,
+  duplicateTriage,
+  getInbox,
+  listTriage,
+  rejectReview,
+  snoozeTriage,
+} from "../src/ops/human";
 import {
   archiveIssue,
   commentIssue,
@@ -17,10 +27,10 @@ import {
   unarchiveIssue,
   updateIssue,
 } from "../src/ops/issues";
-import { setPlanTasks } from "../src/ops/plan";
+import { importPlan, setPlanTasks, setStep } from "../src/ops/plan";
 import { getProject, listProjects } from "../src/ops/projects";
 import { diagnoseIssues } from "../src/ops/diagnose";
-import { listNotifications, subscribeIssue } from "../src/ops/notifications";
+import { isSubscribed, listNotifications, subscribeIssue, unsubscribeIssue } from "../src/ops/notifications";
 import { validateIssueQuery } from "../src/issue-filter";
 import { addProjectRow, codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
@@ -58,7 +68,7 @@ test("LLM はアーカイブも復元もできない", () => {
   expect(getIssue(me.db, issue.id).archivedAt).not.toBeNull();
 });
 
-test("人以外の非 LLM の書き手（自動アーカイブ）も呼べるよう、判定は isLlm に従う", () => {
+test("自動アーカイブ（#72）は me として呼び、理由を event に残せる", () => {
   const { me, ws, db } = setup();
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
   // #72 の自動アーカイブは me として同じ関数を呼ぶ
@@ -162,9 +172,16 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
   startIssue(llm, issue.id);
   askQuestion(llm, issue.id, "質問");
   const thread = commentIssue(me, issue.id, "スレッド");
-  archiveIssue(me, issue.id);
-  const doc = join(tempDbPath(), "..", "spec.md");
+  setPlanTasks(llm, issue.id, ["a"]);
+  const dir = join(tempDbPath(), "..");
+  const doc = join(dir, "spec.md");
   writeFileSync(doc, "# 仕様\n");
+  const linked = join(dir, "linked.md");
+  writeFileSync(linked, "# 添付済み\n");
+  const plan = join(dir, "plan.md");
+  writeFileSync(plan, "### Task 1: 作る\n");
+  const attached = attachDocument(me, { issueRef: issue.id }, { path: linked });
+  archiveIssue(me, issue.id);
 
   const attempts: [string, () => unknown][] = [
     ["update", () => updateIssue(me, issue.id, { title: "変更" })],
@@ -179,14 +196,62 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
     ["ask", () => askQuestion(llm, issue.id, "追加")],
     ["done", () => completeIssue(llm, issue.id, { summary: "済" })],
     ["plan", () => setPlanTasks(llm, issue.id, ["a"])],
+    ["import plan", () => importPlan(llm, issue.id, plan)],
+    ["step", () => setStep(llm, issue.id, "1", "done")],
     ["attach", () => attachDocument(me, { issueRef: issue.id }, { path: doc })],
+    ["detach", () => detachDocument(me, { issueRef: issue.id }, linked)],
+    ["unlink", () => unlinkDocumentById(me, attached.id, { issueRef: issue.id })],
+    ["start", () => startIssue(llm, issue.id)],
+    ["fail", () => failIssue(llm, issue.id, "失敗")],
+    ["approve", () => approveReview(me, issue.id)],
+    ["reject", () => rejectReview(me, issue.id, "差し戻し")],
+    ["estimate", () => updateIssue(me, issue.id, { estimate: 3 })],
+    ["due date", () => updateIssue(me, issue.id, { dueDate: "2026-10-01" })],
   ];
   for (const [name, run] of attempts) expect([name, codeOf(run)]).toEqual([name, "ISSUE_ARCHIVED"]);
   expect(codeOf(() => startIssue(llm, other.id))).toBeUndefined();
 
   const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
   archiveIssue(me, triage.id);
-  expect(codeOf(() => acceptTriage(me, triage.id))).toBe("ISSUE_ARCHIVED");
+  const triageAttempts: [string, () => unknown][] = [
+    ["accept", () => acceptTriage(me, triage.id)],
+    ["decline", () => declineTriage(me, triage.id, "不要")],
+    ["snooze", () => snoozeTriage(me, triage.id, "2100-01-01")],
+    ["duplicate", () => duplicateTriage(me, triage.id, other.id)],
+  ];
+  for (const [name, run] of triageAttempts) expect([name, codeOf(run)]).toEqual([name, "ISSUE_ARCHIVED"]);
+});
+
+test("アーカイブ済みの Issue を Triage の重複元にはできない", () => {
+  const { me, llm, ws, db } = setup();
+  const original = createIssue(me, { workspaceId: ws.id, title: "元" });
+  archiveIssue(me, original.id);
+  const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
+  expect(codeOf(() => duplicateTriage(me, triage.id, original.id))).toBe("ISSUE_ARCHIVED");
+  expect(getIssue(db, triage.id).status).toBe("triage");
+  expect(getIssue(db, original.id).relations.duplicates).toEqual([]);
+});
+
+test("購読・購読解除は自分の通知設定なので、アーカイブ済みでもできる", () => {
+  const { me, ws, db } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
+  archiveIssue(me, issue.id);
+  subscribeIssue(me, issue.id);
+  expect(isSubscribed(db, issue.id)).toBe(true);
+  unsubscribeIssue(me, issue.id);
+  expect(isSubscribed(db, issue.id)).toBe(false);
+});
+
+test("Document の関連 Issue に、アーカイブ済みかどうかを含める", () => {
+  const { me, ws, db } = setup();
+  const live = createIssue(me, { workspaceId: ws.id, title: "生きている" });
+  const gone = createIssue(me, { workspaceId: ws.id, title: "アーカイブ" });
+  const path = join(tempDbPath(), "..", "doc.md");
+  writeFileSync(path, "# d\n");
+  const doc = attachDocument(me, { issueRef: live.id }, { path });
+  attachDocument(me, { issueRef: gone.id }, { path });
+  archiveIssue(me, gone.id);
+  expect(getDocument(db, doc.id).issues.map((i) => [i.id, i.archived])).toEqual([[live.id, false], [gone.id, true]]);
 });
 
 test("アーカイブ済みの Issue を複製すると、複製はアーカイブされていない", () => {
