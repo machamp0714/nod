@@ -20,6 +20,7 @@ import {
 import { setPlanTasks } from "../src/ops/plan";
 import { getProject, listProjects } from "../src/ops/projects";
 import { diagnoseIssues } from "../src/ops/diagnose";
+import { listNotifications, subscribeIssue } from "../src/ops/notifications";
 import { validateIssueQuery } from "../src/issue-filter";
 import { addProjectRow, codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
@@ -193,4 +194,16 @@ test("アーカイブ済みの Issue を複製すると、複製はアーカイ�
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
   archiveIssue(me, issue.id);
   expect(copyIssue(me, issue.id).archivedAt).toBeNull();
+});
+
+test("アーカイブ済みの Issue の通知は Inbox の通知に出さず、復元すると戻る", () => {
+  const { me, llm, ws, db } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "購読中" });
+  subscribeIssue(me, issue.id);
+  commentIssue(llm, issue.id, "進捗");
+  expect(listNotifications(db).map((n) => n.issueId)).toEqual([issue.id]);
+  archiveIssue(me, issue.id);
+  expect(listNotifications(db, { includeRead: true })).toEqual([]);
+  unarchiveIssue(me, issue.id);
+  expect(listNotifications(db).map((n) => n.issueId)).toEqual([issue.id]);
 });
