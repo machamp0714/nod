@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { Project, ProjectDetail, ProjectSummary, UpdateProjectInput } from "../types";
+import type { Project, ProjectDetail, ProjectSummary, ProjectUpdate, UpdateProjectInput } from "../types";
 import { useApiMutation } from "./shared";
 
 // Projects のタブ（Active、Completed、All）を画面で切り替えるため、完了と中止の Project も読む
@@ -24,5 +24,11 @@ export function useProject(id: number, enabled: boolean) {
 export function useUpdateProject(id: number) {
   return useApiMutation<UpdateProjectInput, Project>((body) =>
     apiFetch<Project>(`/projects/${id}/update`, { method: "POST", body }),
+  );
+}
+
+export function useAddProjectUpdate(id: number) {
+  return useApiMutation<{ body: string }, ProjectUpdate>((body) =>
+    apiFetch<ProjectUpdate>(`/projects/${id}/reports`, { method: "POST", body }),
   );
 }

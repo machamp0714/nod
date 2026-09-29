@@ -3,7 +3,7 @@ import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { loadDocuments, selectIssues } from "../issue-query";
-import { PROJECT_STATUSES, type Project, type ProjectDetail, type ProjectStatus, type ProjectSummary, type UpdateProjectInput } from "../types";
+import { PROJECT_STATUSES, type Project, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
 
 export function resolveProject(db: Database, ref: string): { id: number; name: string } {
   const row = (
@@ -108,5 +108,45 @@ export function getProject(db: Database, ref: string): ProjectDetail {
     ...toSummary(row),
     issues: selectIssues(db, "WHERE i.project_id = ? AND i.archived_at IS NULL ORDER BY w.key, i.number", [id]),
     documents: loadDocuments(db, { projectId: id }),
+    updates: selectProjectUpdates(db, id),
   };
+}
+
+export const PROJECT_UPDATE_MAX_LENGTH = 10000;
+
+interface ProjectUpdateRow {
+  id: number;
+  project_id: number;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+function toProjectUpdate(r: ProjectUpdateRow): ProjectUpdate {
+  return { id: r.id, projectId: r.project_id, author: r.author, body: r.body, createdAt: r.created_at };
+}
+
+function selectProjectUpdates(db: Database, projectId: number): ProjectUpdate[] {
+  return (
+    db.query("SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC, id DESC").all(projectId) as ProjectUpdateRow[]
+  ).map(toProjectUpdate);
+}
+
+// 進捗報告を追記する。Project の状態・updated_at と所属 Issue には触れない
+export function addProjectUpdate(ctx: OpCtx, ref: string, body: string): ProjectUpdate {
+  if (typeof body !== "string" || !body.trim()) throw new NodError("INVALID_ARGS", "進捗報告の本文を指定してください");
+  if (body.length > PROJECT_UPDATE_MAX_LENGTH) {
+    throw new NodError("INVALID_ARGS", `進捗報告の本文は ${PROJECT_UPDATE_MAX_LENGTH} 文字以内にしてください（${body.length} 文字）`);
+  }
+  return tx(ctx.db, () => {
+    const { id } = resolveProject(ctx.db, ref);
+    const { lastInsertRowid } = ctx.db
+      .query("INSERT INTO project_updates (project_id, author, body, created_at) VALUES (?, ?, ?, ?)")
+      .run(id, ctx.actor, body, now());
+    return toProjectUpdate(ctx.db.query("SELECT * FROM project_updates WHERE id = ?").get(Number(lastInsertRowid)) as ProjectUpdateRow);
+  });
+}
+
+export function listProjectUpdates(db: Database, ref: string): ProjectUpdate[] {
+  return selectProjectUpdates(db, resolveProject(db, ref).id);
 }

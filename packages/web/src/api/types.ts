@@ -69,6 +69,7 @@ export type {
   ProjectDetail,
   ProjectStatus,
   ProjectSummary,
+  ProjectUpdate,
   UpdateProjectInput,
   Question,
   RelationType,
