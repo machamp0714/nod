@@ -156,9 +156,19 @@ function exists(path: string): boolean {
   }
 }
 
+// 並行作成で先に作られていた（EEXIST）場合も成功とみなす。実体の検証は呼び出し側の realpath で行う
+export function mkdirAllowingExisting(dir: string): void {
+  try {
+    mkdirSync(dir);
+  } catch (e) {
+    if ((e as { code?: unknown }).code !== "EEXIST") throw e;
+  }
+}
+
 // 許可ルートからの相対パスを検証し、ルートの下の絶対パスを返す。
 // symlink を辿った実体がルートの外に出るパスは拒否し、足りない親ディレクトリはルートの下にだけ作る
 export function prepareDocumentPath(root: string, path: string): string {
+  if (path.includes("\0")) throw invalid("作成先に NUL 文字は使えません");
   const rel = path.trim();
   if (!rel || isAbsolute(rel)) throw invalid("作成先は Documents ディレクトリからの相対パスで指定してください");
   const segments = rel.split(/[\\/]+/).filter((s) => s !== "" && s !== ".");
@@ -175,7 +185,7 @@ export function prepareDocumentPath(root: string, path: string): string {
   }
   const outside = () => invalid("作成先が Documents ディレクトリの外を指しています");
   if (!isInside(rootReal, realpathSync(dir))) throw outside();
-  for (const d of missing) mkdirSync(d);
+  for (const d of missing) mkdirAllowingExisting(d);
   if (!isInside(rootReal, realpathSync(dirname(abs)))) throw outside();
   return abs;
 }
@@ -202,11 +212,13 @@ export function createDocument(ctx: OpCtx, input: CreateDocumentInput): Document
   if (input.kind !== undefined && !(DOC_KINDS as readonly string[]).includes(input.kind)) {
     throw invalid("種類は spec / plan / doc を指定してください");
   }
+  // 入力の検証はすべて親ディレクトリを作る前に済ませ、失敗時に空ディレクトリを残さない
+  const fileName = input.path.trim().split(/[\\/]+/).at(-1) ?? "";
+  const title = input.title?.trim() || basename(fileName, extname(fileName));
+  if (/[\r\n]/.test(title)) throw invalid("タイトルに改行は使えません");
   const targets = creationTargets(input);
   for (const t of targets) resolveDocTarget(ctx.db, t); // 対象がなければファイルを作る前に失敗させる
   const abs = prepareDocumentPath(input.docsDir ?? defaultDocsDir(), input.path);
-  const title = input.title?.trim() || basename(abs, extname(abs));
-  if (/[\r\n]/.test(title)) throw invalid("タイトルに改行は使えません");
   const body = input.body?.trim() ? `\n${input.body.endsWith("\n") ? input.body : `${input.body}\n`}` : "";
   const content = `# ${title}\n${body}`;
   let created = false;

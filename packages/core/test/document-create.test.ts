@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDocument,
   defaultDocsDir,
   getDocument,
+  mkdirAllowingExisting,
   linkDocumentById,
   listDocuments,
   unlinkDocumentById,
@@ -142,6 +143,31 @@ describe("createDocument", () => {
     expect(codeOf(() => createDocument(me, { docsDir: root, path: "x.md", title: "a\nb" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createDocument(me, { docsDir: root, path: "x.md", kind: "memo" as never }))).toBe("INVALID_ARGS");
     expect(existsSync(join(root, "x.md"))).toBe(false);
+  });
+
+  test("パスに NUL を含むと INVALID_ARGS で、ディレクトリも作らない", () => {
+    const { me } = setup();
+    const root = docsDir();
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "a\0b.md" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "d\0/x.md" }))).toBe("INVALID_ARGS");
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("タイトル・種類の検証に失敗したら親ディレクトリを作らない", () => {
+    const { me } = setup();
+    const root = docsDir();
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "new/sub/x.md", title: "a\nb" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createDocument(me, { docsDir: root, path: "new/sub/x.md", kind: "memo" as never }))).toBe("INVALID_ARGS");
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("親ディレクトリが並行して作られていても（EEXIST）失敗しない", () => {
+    const root = docsDir();
+    const d = join(root, "d");
+    mkdirAllowingExisting(d);
+    mkdirAllowingExisting(d);
+    expect(existsSync(d)).toBe(true);
+    expect(() => mkdirAllowingExisting(join(root, "none", "x"))).toThrow();
   });
 
   test("ルートがなければ作る", () => {

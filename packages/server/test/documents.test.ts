@@ -46,6 +46,7 @@ describe("Documents API", () => {
     const cases: [unknown, number, string][] = [
       [{ path: "../x.md" }, 400, "INVALID_ARGS"],
       [{ path: "/tmp/x.md" }, 400, "INVALID_ARGS"],
+      [{ path: "a\u0000b.md" }, 400, "INVALID_ARGS"],
       [{ path: "x.md" }, 409, "FILE_EXISTS"],
       [{ path: "y.md", kind: "memo" }, 400, "INVALID_ARGS"],
       [{ path: "y.md", issueRef: "API-9" }, 404, "NOT_FOUND"],
