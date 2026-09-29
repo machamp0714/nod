@@ -19,6 +19,7 @@ import {
   getIssueBranchName,
   getPrStatus,
   createCommandRunner,
+  linkPr,
   refreshPrStatus,
   getPrDiff,
   getPrDiffFile,
@@ -231,6 +232,20 @@ export function registerIssueCommands(program: Command): void {
         }
         const found = getPrDiffFile(cli.db, id, file);
         print(cli, found, () => formatPrDiffFile(found));
+      }),
+    );
+
+  issue
+    .command("link-pr <id> <url>")
+    .description("作業中の Issue に PR（draft を含む）を紐付ける。ステータスは変えない（draft PR を作った時点で使う）")
+    .addHelpText(
+      "after",
+      "\nWorkspace で PR 連動（nod automation set --pr-review on）が有効なら、紐付けたあとの nod issue pr-status --refresh で\nPR が open（draft 以外）かマージ済みのとき in_progress を in_review に進める（done にはしない）。",
+    )
+    .action(
+      act((cli, _cmd, id: string, url: string) => {
+        const r = linkPr(cli.ctx, id, url);
+        print(cli, r, () => `${r.id} に PR ${r.prUrl} を紐付けました（ステータス: ${r.status}）`);
       }),
     );
 

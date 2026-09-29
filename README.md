@@ -17,6 +17,17 @@ LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude
 DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
 `nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
 `nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
+
+### PR 連動（#66）
+
+Workspace ごとに `nod automation set --pr-review on` で有効にする（既定は無効。設定は人だけ）。
+有効なら、`nod issue pr-status --refresh`・Web の PR 状態の更新・`nod automation run`（保存済みの PR 状態で評価し、gh は呼ばない）で、
+in_progress の Issue の PR が open（draft 以外）かマージ済みなら in_review に進める。マージ済みでも done にはせず、完了候補として人の承認を待つ。
+レビューの判定（reviewDecision）は条件にしない。draft・未マージで閉じた PR・取得の失敗では進めない。Triage・アーカイブ済み・in_progress 以外は対象外。
+PR は作業中に `nod issue link-pr <id> <url>` で紐付ける（ステータスは変えない）。
+同じ Issue・同じ PR URL では一度だけ進め（`auto_transitions` に記録）、現在の PR を付けたあとに一度でも in_review になった Issue（`nod issue done` 済み・差し戻し後）は進めない。
+PR を付け直せば、新しい PR では再び対象になる。
+誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review なら元の状態に戻す（人だけ）。取消も event と記録に残り、同じ PR では再び進めない。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
 ### 人だけが行える操作と、その限界

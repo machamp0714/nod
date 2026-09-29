@@ -427,6 +427,24 @@ export interface PrStatusView {
   prUrl: string | null;
   status: PrStatus | null;
   fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
+  autoTransition?: AutoTransition | null; // 更新（refresh）でステータスを進めたとき、その記録。表示だけのときは付けない
+}
+
+// PR・コミットによる自動のステータス遷移（#66・#68）の記録。同じ Issue・同じ PR/コミットでは一度だけ遷移させる
+export type AutoTransitionSource = "pr" | "commit";
+
+export interface AutoTransition {
+  id: number;
+  issueId: string;
+  source: AutoTransitionSource;
+  sourceKey: string; // PR URL またはコミット SHA
+  from: Status;
+  to: Status;
+  mergeCandidate: boolean; // PR がマージ済み（done にはせず、完了候補として人の承認を待つ）
+  actor: string;
+  createdAt: string;
+  revertedAt: string | null;
+  revertedBy: string | null;
 }
 
 // PR の差分（#55）。ファイルの状態は unified diff のヘッダーから決める
@@ -501,18 +519,21 @@ export interface AutomationSettings {
   workspaceKey: string;
   closeAfterDays: number | null;
   archiveAfterDays: number | null;
+  prReview: boolean; // PR が open（draft 以外）かマージ済みになったら in_progress を in_review にする（#66）
   updatedAt: string | null;
   updatedBy: string | null;
 }
 
-export type AutomationKind = "auto_close" | "auto_archive";
+export type AutomationKind = "auto_close" | "auto_archive" | "pr_review";
 
 export interface AutomationCandidate {
   id: string;
   title: string;
   status: Status;
-  since: string; // 自動クローズは最後の活動、自動アーカイブは完了した日時
+  since: string; // 自動クローズは最後の活動、自動アーカイブは完了した日時、PR 連動は PR 状態を取得した日時
   elapsedDays: number;
+  prUrl?: string; // PR 連動のときだけ
+  prState?: PrState;
 }
 
 export interface AutomationRuleResult {

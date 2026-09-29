@@ -10,6 +10,7 @@ import {
   askQuestion,
   commentIssue,
   copyIssue,
+  linkPr,
   declineTriage,
   duplicateTriage,
   NodError,
@@ -126,6 +127,8 @@ const OPS: Record<string, Op> = {
   copy: { keys: ["title"], run: (me, ref, b) => copyIssue(me, ref, { title: optString(b, "title") }), created: true },
   archive: { keys: ["reason"], run: (me, ref, b) => archiveIssue(me, ref, { reason: optString(b, "reason") }) },
   unarchive: { keys: [], run: (me, ref) => unarchiveIssue(me, ref) },
+  // 作業中の Issue に PR を紐付ける（ステータスは変えない。#66 の PR 連動の前提）
+  "link-pr": { keys: ["url"], run: (me, ref, b) => linkPr(me, ref, reqString(b, "url")) },
   "resolve-thread": {
     keys: ["commentId", "resolved"],
     run: (me, ref, b) => {

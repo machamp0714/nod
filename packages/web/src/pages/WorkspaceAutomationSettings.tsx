@@ -3,6 +3,8 @@ import { errorMessage } from "../api/errors";
 import { useAutomationDryRun, useAutomationSettings, useRunAutomation, useSaveAutomationSettings } from "../api/hooks/automation";
 import type { AutomationRuleResult, AutomationRun, AutomationSettings, Workspace } from "../api/types";
 import { Button, Icon } from "../components/ui";
+import { TONE_COLORS } from "../lib/meta";
+import { prStatePillOf, safeCheckUrl } from "../lib/pr-status";
 import {
   type AutomationDraft,
   automationDraft,
@@ -10,6 +12,7 @@ import {
   confirmTitle,
   formatEvaluatedAt,
   formatSinceDate,
+  prNumberLabel,
   type RuleDraft,
   ruleHeading,
   runCounts,
@@ -19,8 +22,8 @@ import {
 import s from "./workspace-settings.module.css";
 import { DeleteDialog } from "./WorkspaceSettingsPage";
 
-// 自動化（#71 自動クローズ・#72 自動アーカイブ）。常駐はせず、人がこの画面か CLI から1回ずつ実行する
-// （nod.pen「Workspace設定｜自動化（#71/#72）」「自動化｜状態（#71/#72）」）
+// 自動化（#71 自動クローズ・#72 自動アーカイブ・#66 PR 連動）。常駐はせず、人がこの画面か CLI から1回ずつ実行する
+// （nod.pen「Workspace設定｜自動化（#71/#72）」「自動化｜状態（#71/#72）」「Workspace設定｜PR・コミット連動」）
 export function AutomationSection({ workspace, onToast }: { workspace: Workspace; onToast: (message: string) => void }) {
   const titleId = useId();
   const settings = useAutomationSettings(workspace.key);
@@ -63,7 +66,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
   const run = useRunAutomation(workspace.key);
   const state = automationEditState(draft, saved);
   const busy = save.isPending || dryRun.isPending || run.isPending;
-  const noRule = saved.closeAfterDays === null && saved.archiveAfterDays === null;
+  const noRule = saved.closeAfterDays === null && saved.archiveAfterDays === null && !saved.prReview;
   // 確認・実行は保存済みの設定で行うため、未保存の変更があるときは使えない
   const runBlocked = noRule ? "有効なルールがありません" : state.dirty ? "変更を保存してから確認・実行できます" : undefined;
 
@@ -95,7 +98,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
     const r = await check();
     if (!r) return;
     const counts = runCounts(r);
-    if (counts.close + counts.archive > 0) setConfirming(r);
+    if (counts.close + counts.archive + counts.prReview > 0) setConfirming(r);
   }
 
   // 確認ダイアログで示した一覧だけを処理する（その後に対象から外れたものはスキップとして返る）
@@ -114,7 +117,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
     }
   }
 
-  const setRule = (name: keyof AutomationDraft) => (rule: RuleDraft) => setDraft((d) => ({ ...d, [name]: rule }));
+  const setRule = (name: "close" | "archive") => (rule: RuleDraft) => setDraft((d) => ({ ...d, [name]: rule }));
 
   return (
     <>
@@ -135,6 +138,16 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
           prefix="done / canceled から"
           suffix="日経過した Issue をアーカイブする"
         />
+        <SwitchRow
+          label="PR 連動"
+          enabled={draft.prReview}
+          onChange={(prReview) => setDraft((d) => ({ ...d, prReview }))}
+          text="PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする"
+        />
+        <p className={s.autoRulesNote}>
+          <Icon name="info" size={13} />
+          done にはしません。取消は nod automation undo
+        </p>
       </div>
       {error && <ErrorLine message={error} />}
       <div className={s.autoFooter}>
@@ -214,6 +227,27 @@ function RuleRow({
   );
 }
 
+// 日数のないルール（PR 連動）。スイッチと説明だけ
+function SwitchRow({ label, enabled, onChange, text }: { label: string; enabled: boolean; onChange: (enabled: boolean) => void; text: string }) {
+  return (
+    <div className={s.autoRule}>
+      <div className={s.autoRow}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={label}
+          className={`${s.switch} ${enabled ? s.switchOn : ""}`}
+          onClick={() => onChange(!enabled)}
+        >
+          <span className={s.switchKnob} />
+        </button>
+        <span className={enabled ? s.autoText : `${s.autoText} ${s.autoTextOff}`}>{text}</span>
+      </div>
+    </div>
+  );
+}
+
 function DryRunResult({ run }: { run: AutomationRun }) {
   const rules = run.rules.filter((rule) => rule.enabled);
   if (rules.every((rule) => rule.total === 0)) {
@@ -240,6 +274,7 @@ function DryRunResult({ run }: { run: AutomationRun }) {
 
 function RuleResult({ rule }: { rule: AutomationRuleResult }) {
   const heading = ruleHeading(rule.kind, rule.total);
+  if (rule.kind === "pr_review") return <PrReviewResult rule={rule} heading={heading} />;
   return (
     <div className={s.dryRunRule}>
       <h3 className={s.dryRunHeading}>{heading}</h3>
@@ -262,6 +297,58 @@ function RuleResult({ rule }: { rule: AutomationRuleResult }) {
                 <td className={s.colDays}>{c.elapsedDays} 日</td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      )}
+      {rule.remaining > 0 && <p className={s.dryRunRemaining}>残り {rule.remaining} 件</p>}
+    </div>
+  );
+}
+
+// PR 連動の対象（ID・タイトル・PR・PR の状態）。保存済みの PR 状態で評価した一覧
+function PrReviewResult({ rule, heading }: { rule: AutomationRuleResult; heading: string }) {
+  return (
+    <div className={s.dryRunRule}>
+      <h3 className={s.dryRunHeading}>{heading}</h3>
+      {rule.candidates.length > 0 && (
+        <table className={s.dryRunTable} aria-label={heading}>
+          <thead>
+            <tr>
+              <th className={s.colId}>ID</th>
+              <th>タイトル</th>
+              <th className={s.colPr}>PR</th>
+              <th className={s.colPrState}>PR の状態</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rule.candidates.map((c) => {
+              const url = safeCheckUrl(c.prUrl ?? null);
+              const pill = c.prState ? prStatePillOf(c.prState) : null;
+              const color = pill ? TONE_COLORS[pill.tone] : null;
+              return (
+                <tr key={c.id}>
+                  <td className={s.colId}>{c.id}</td>
+                  <td className={s.colTitle}>{c.title}</td>
+                  <td className={s.colPr}>
+                    {url ? (
+                      <a className={s.prLink} href={url} target="_blank" rel="noreferrer">
+                        {prNumberLabel(c.prUrl)}
+                      </a>
+                    ) : (
+                      prNumberLabel(c.prUrl)
+                    )}
+                  </td>
+                  <td className={s.colPrState}>
+                    {pill && color && (
+                      <span className={s.prPill} style={{ color: color.fg, background: color.bg }}>
+                        <Icon name={pill.icon} size={11} />
+                        {pill.label}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

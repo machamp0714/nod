@@ -43,7 +43,9 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 6. 判断に迷ったら推測で進めず、\`nod issue ask <id> "<質問>"\` で人に確認し、その Issue の作業を止める。
    回答は \`nod issue show <id>\` の Activity に出る。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
-8. 終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
+8. 作業中に PR（draft を含む）を作ったら、その時点で \`nod issue link-pr <id> <PR の URL>\` で Issue に紐付ける（ステータスは変わらない）。
+   Workspace で PR 連動が有効なら、PR が open（draft 以外）かマージ済みになったあとの \`nod issue pr-status <id> --refresh\` で in_review に進む（done にはならない）。
+   終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
 
@@ -69,6 +71,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 \`nod issue archive <id> [--reason <text>]\` と \`nod issue unarchive <id>\` は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。ステータスは変えない。
 アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
 Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。LLM は \`nod automation run --dry-run\` で対象を確かめ、人に伝えるだけにする。
+PR 連動による in_review への自動遷移の取消（\`nod automation undo <id>\`）も人だけが行える。
 
 ## 引数の書き方
 
@@ -114,6 +117,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする。人だけが実行できる（LLM は FORBIDDEN_FOR_LLM）
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
+- \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
 - \`nod issue pr-diff <id> [--refresh] [--file <パス>]\`：PR の変更ファイル（パス・状態・+/-行数）を表示し、\`--file\` でそのファイルの unified diff を出す。\`--refresh\` で gh から PR の HEAD に固定した差分を取得して保存する（GitHub へは読み取りのみ。LLM も実行できる。gh の呼び出しごとに15秒で時間切れ）。上限はファイル 300 件・全体 5 MB（超えると DIFF_TOO_LARGE）、1ファイル 200 KB か 5,000 行を超えるものとバイナリは本文を保存しない。PR 状態の取得で別の HEAD を知ると古い差分は出さず \`stale\` に両方の HEAD が入る。\`--json\` の一覧は patch を含まないので、本文は \`--file\` で読む。双方向の制御文字は ⟪U+202E⟫ のように符号で表示する
 - \`nod project list\`、\`nod project show <名前>\`

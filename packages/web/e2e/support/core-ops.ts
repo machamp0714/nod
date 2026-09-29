@@ -45,6 +45,7 @@ export const CTX_OPS = [
   "setReminder",
   "clearReminder",
   "proposeTriage",
+  "linkPr",
 ] as const;
 
 // 第1引数に Database を取る操作

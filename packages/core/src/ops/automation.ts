@@ -16,6 +16,7 @@ import type {
   Status,
   Workspace,
 } from "../types";
+import { applyAutoTransition, prReviewReason, prReviewTargets } from "./auto-transitions";
 import { archiveIssue } from "./issues";
 import { findWorkspace } from "./workspaces";
 
@@ -41,6 +42,7 @@ const NO_BLOCK_RELATION = `NOT EXISTS (SELECT 1 FROM relations r JOIN issues b O
 interface SettingsRow {
   auto_close_days: number | null;
   auto_archive_days: number | null;
+  pr_review_enabled: number;
   automation_updated_at: string | null;
   automation_updated_by: string | null;
 }
@@ -71,12 +73,15 @@ function validateDays(days: number | null | undefined, label: string): void {
 
 function readSettings(db: Database, workspace: Workspace): AutomationSettings {
   const row = db
-    .query("SELECT auto_close_days, auto_archive_days, automation_updated_at, automation_updated_by FROM workspaces WHERE id = ?")
+    .query(
+      "SELECT auto_close_days, auto_archive_days, pr_review_enabled, automation_updated_at, automation_updated_by FROM workspaces WHERE id = ?",
+    )
     .get(workspace.id) as SettingsRow;
   return {
     workspaceKey: workspace.key,
     closeAfterDays: row.auto_close_days,
     archiveAfterDays: row.auto_archive_days,
+    prReview: row.pr_review_enabled === 1,
     updatedAt: row.automation_updated_at,
     updatedBy: row.automation_updated_by,
   };
@@ -86,27 +91,32 @@ export function getAutomationSettings(db: Database, keyOrPath: string): Automati
   return readSettings(db, requireWorkspace(db, keyOrPath));
 }
 
-// 渡した項目だけを変える。null はそのルールを無効にする
+// 渡した項目だけを変える。日数の null はそのルールを無効にする。prReview は PR 連動（#66）の有効・無効
 export function setAutomationSettings(
   ctx: OpCtx,
   keyOrPath: string,
-  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null },
+  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null; prReview?: boolean },
 ): AutomationSettings {
   if (isLlm(ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動化の設定を変えられません。変更は me に依頼してください");
   }
   validateDays(input.closeAfterDays, "自動クローズの日数");
   validateDays(input.archiveAfterDays, "自動アーカイブの日数");
+  if (input.prReview !== undefined && typeof input.prReview !== "boolean") {
+    throw new NodError("INVALID_ARGS", "PR 連動は true か false で指定してください");
+  }
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const current = readSettings(ctx.db, workspace);
     ctx.db
       .query(
-        "UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?, automation_updated_at = ?, automation_updated_by = ? WHERE id = ?",
+        `UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?, pr_review_enabled = ?,
+          automation_updated_at = ?, automation_updated_by = ? WHERE id = ?`,
       )
       .run(
         input.closeAfterDays !== undefined ? input.closeAfterDays : current.closeAfterDays,
         input.archiveAfterDays !== undefined ? input.archiveAfterDays : current.archiveAfterDays,
+        (input.prReview ?? current.prReview) ? 1 : 0,
         now(),
         ctx.actor,
         workspace.id,
@@ -133,7 +143,12 @@ function sorted(found: Found[]): Found[] {
   return found.sort((a, b) => a.at - b.at || a.number - b.number);
 }
 
-function candidateOf(workspace: Workspace, row: CandidateRow, at: number, current: number): Found {
+function candidateOf(
+  workspace: Workspace,
+  row: Pick<CandidateRow, "number" | "title" | "status">,
+  at: number,
+  current: number,
+): Found {
   return {
     candidate: {
       id: formatIssueId(workspace.key, row.number),
@@ -189,6 +204,34 @@ function archiveCandidates(db: Database, workspace: Workspace, days: number, cur
 
 type Finder = (days: number, issueId?: number) => Found[];
 
+// PR 連動（#66）。保存済みの PR 状態（Issue の現在の PR URL のもの）で評価し、gh は呼ばない
+function prReviewCandidates(db: Database, workspace: Workspace, current: number, issueId?: number): Found[] {
+  return prReviewTargets(db, workspace.id, issueId).flatMap((t) => {
+    const at = recordedTimestamp(t.fetched_at);
+    if (at === null) return [];
+    const found = candidateOf(workspace, t, at, current);
+    found.candidate.prUrl = t.pr_url;
+    found.candidate.prState = t.state;
+    return [found];
+  });
+}
+
+function prReviewOne(ctx: OpCtx, find: Finder, ref: string): boolean {
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    const found = find(0, row.id)[0];
+    if (!found?.candidate.prUrl || !found.candidate.prState) return false;
+    applyAutoTransition(ctx, row, {
+      source: "pr",
+      sourceKey: found.candidate.prUrl,
+      reason: prReviewReason(found.candidate.prState),
+      automation: "pr_review",
+      mergeCandidate: found.candidate.prState === "MERGED",
+    });
+    return true;
+  });
+}
+
 // 自動クローズ1件。候補を探してから処理するまでにほかの操作で変わりうるので、書き込む transaction の中で
 // 同じ条件（状態・担当・子・ブロック関係・スヌーズ・経過日数）を確かめ直し、外れていれば何もしない（スキップ）
 function closeOne(ctx: OpCtx, find: Finder, ref: string, days: number): boolean {
@@ -215,6 +258,7 @@ function applyRule(
   ctx: OpCtx,
   kind: AutomationKind,
   days: number | null,
+  enabled: boolean,
   dryRun: boolean,
   limit: number,
   targets: string[] | undefined,
@@ -224,7 +268,7 @@ function applyRule(
   const result: AutomationRuleResult = {
     kind,
     days,
-    enabled: days !== null,
+    enabled,
     total: 0,
     candidates: [],
     processed: [],
@@ -232,11 +276,11 @@ function applyRule(
     failed: [],
     remaining: 0,
   };
-  if (days === null) {
+  if (!enabled) {
     result.skipped = targets ? [...targets] : [];
     return result;
   }
-  const found = find(days);
+  const found = find(days ?? 0);
   result.total = found.length;
   // targets（確認時点の一覧）があれば、そのうちいまも条件に合うものだけを扱い、外れたものはスキップにする
   const listed = targets ? found.filter((f) => targets.includes(f.candidate.id)) : found.slice(0, limit);
@@ -250,7 +294,7 @@ function applyRule(
   // 1件ごとに確定し、途中で失敗しても残りを続ける
   for (const candidate of result.candidates) {
     try {
-      if (act(find, candidate.id, days)) result.processed.push(candidate.id);
+      if (act(find, candidate.id, days ?? 0)) result.processed.push(candidate.id);
       else result.skipped.push(candidate.id);
     } catch (e) {
       result.failed.push({ id: candidate.id, message: e instanceof Error ? e.message : String(e) });
@@ -261,7 +305,7 @@ function applyRule(
 
 function validateTargets(targets: AutomationTargets | undefined): void {
   if (targets === undefined) return;
-  for (const kind of ["auto_close", "auto_archive"] as const) {
+  for (const kind of ["auto_close", "auto_archive", "pr_review"] as const) {
     const list: unknown = targets[kind];
     if (list === undefined) continue;
     if (!Array.isArray(list) || list.length > AUTOMATION_LIMIT_MAX || !list.every((id) => typeof id === "string")) {
@@ -270,8 +314,9 @@ function validateTargets(targets: AutomationTargets | undefined): void {
   }
 }
 
-// 有効なルールを1回だけ評価・実行する。自動クローズを先に行い、その回で閉じた Issue はアーカイブしない。
-// targets を渡すと、各ルールはその Issue（確認時点の一覧）だけを扱い、limit は使わない
+// 有効なルールを1回だけ評価・実行する。PR 連動を最初に行い（PR がレビュー待ちの Issue を自動クローズしない）、
+// 次に自動クローズを行い、その回で閉じた Issue はアーカイブしない。結果の rules は auto_close・auto_archive・pr_review の順。
+// targets を渡すと、各ルールはその Issue（確認時点の一覧）だけを扱い、limit は使わない。targets に一覧のないルールは何もしない
 export function runAutomation(
   ctx: OpCtx,
   keyOrPath: string,
@@ -291,10 +336,23 @@ export function runAutomation(
   if (current === null) throw new NodError("INVALID_ARGS", "自動化の基準日時が正しくありません");
   const workspace = requireWorkspace(ctx.db, keyOrPath);
   const settings = readSettings(ctx.db, workspace);
+  // targets を渡したのに pr_review の一覧がなければ、確認していない PR 連動は実行しない
+  const prReview = applyRule(
+    ctx,
+    "pr_review",
+    null,
+    settings.prReview,
+    dryRun,
+    limit,
+    opts.targets ? (opts.targets.pr_review ?? []) : undefined,
+    (_days, issueId) => prReviewCandidates(ctx.db, workspace, current, issueId),
+    (find, ref) => prReviewOne(ctx, find, ref),
+  );
   const close = applyRule(
     ctx,
     "auto_close",
     settings.closeAfterDays,
+    settings.closeAfterDays !== null,
     dryRun,
     limit,
     opts.targets?.auto_close,
@@ -305,6 +363,7 @@ export function runAutomation(
     ctx,
     "auto_archive",
     settings.archiveAfterDays,
+    settings.archiveAfterDays !== null,
     dryRun,
     limit,
     opts.targets?.auto_archive,
@@ -312,5 +371,5 @@ export function runAutomation(
       archiveCandidates(ctx.db, workspace, days, current, issueId).filter((f) => !close.processed.includes(f.candidate.id)),
     (find, ref, days) => archiveOne(ctx, find, ref, days),
   );
-  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive] };
+  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive, prReview] };
 }

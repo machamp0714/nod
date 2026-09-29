@@ -490,6 +490,19 @@
   font-size: 12px;
 }
 
+/* ルール一覧の下の共通の注記（PR・コミット連動は done にしない・取消の方法） */
+.autoRulesNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--bg);
+  color: var(--ink3);
+  font-size: 12px;
+}
+
 .switch {
   display: inline-flex;
   flex: none;
@@ -668,4 +681,36 @@
 .dryRunRemaining {
   color: var(--ink3);
   font-size: 12px;
+}
+
+.colPr {
+  width: 56px;
+}
+
+.dryRunTable td.colPr {
+  font-family: var(--font-mono);
+}
+
+.prLink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.prLink:hover {
+  text-decoration: underline;
+}
+
+.colPrState {
+  width: 76px;
+}
+
+.prPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
 }

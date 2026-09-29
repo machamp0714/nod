@@ -129,7 +129,9 @@ describe("PR 状態の取得と保存", () => {
     expect(view.fetchError).toBeNull();
     expect(view.status).toMatchObject({ prUrl: PR_URL, number: 128, state: "OPEN", reviewDecision: "APPROVED", fetchedBy: "me" });
     expect(view.status!.fetchedAt).toBeString();
-    expect(getPrStatus(db, ref)).toEqual(view);
+    // 表示（getPrStatus）には自動遷移の結果を付けない
+    expect(getPrStatus(db, ref)).toEqual({ ...view, autoTransition: undefined });
+    expect(view.autoTransition).toBeNull();
   });
 
   test("LLM も更新でき、書き手が記録される。アクティビティには残さない", async () => {

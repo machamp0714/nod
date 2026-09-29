@@ -362,6 +362,12 @@ export function formatPrStatus(v: PrStatusView): string {
   } else if (!v.fetchError) {
     lines.push(`未取得。nod issue pr-status ${v.issueId} --refresh で gh から取得する`);
   }
+  if (v.autoTransition) {
+    const t = v.autoTransition;
+    lines.push(
+      `PR 連動: ${t.from} → ${t.to} にしました${t.mergeCandidate ? "（マージ済み: 完了候補。done にするかは人が判断）" : ""}。誤りなら nod automation undo ${t.issueId}`,
+    );
+  }
   return lines.join("\n");
 }
 
