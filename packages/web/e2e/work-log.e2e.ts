@@ -65,3 +65,19 @@ test("6行を超える作業ログは折りたたみ、続きを表示で開い�
   const short = activity.getByRole("article", { name: "作業ログ" }).filter({ hasText: "短い経過" });
   await expect(short.getByRole("button", { name: /続きを表示|折りたたむ/ })).toHaveCount(0);
 });
+
+test("絞り込みを入れた Activity でも、ステータスの変更はその Workspace の表示名で出す", async ({ page, nod }) => {
+  await nod.me.setStatusNames("API", { in_review: "レビュー待ち", in_progress: "作業中" });
+  await nod.me.updateIssue(ISSUE.comment, { status: "in_review" });
+  await nod.me.updateIssue(ISSUE.comment, { status: "in_progress" });
+  await nod.claude.logWork(ISSUE.comment, "再開した");
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  const chips = activity.getByRole("group", { name: "作業ログの種類" });
+
+  await expect(activity).toContainText("me がステータスを レビュー待ち から 作業中 に変えた");
+  await chips.getByRole("button", { name: "作業ログ" }).click();
+  await expect(activity).not.toContainText("ステータスを");
+  await chips.getByRole("button", { name: "すべて" }).click();
+  await expect(activity).toContainText("me がステータスを レビュー待ち から 作業中 に変えた");
+});
