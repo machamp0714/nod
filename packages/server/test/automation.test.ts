@@ -110,7 +110,10 @@ describe("自動化API", () => {
     expect(dry.json.recurring).toMatchObject({ enabled: 1, items: [{ recurringId: r.id, occurrence: today, issueId: null }], notRun: [], failed: [] });
     // recurring の一覧の無い targets では起票しない
     expect((await call(s.app, "POST", url, { dryRun: false, targets: {} })).json.recurring.items).toEqual([]);
-    const res = await call(s.app, "POST", url, { dryRun: false, targets: { recurring: [r.id] } });
+    // 確認時点の発生日と違えば起票せず、理由を返す
+    const stale = await call(s.app, "POST", url, { dryRun: false, targets: { recurring: [{ recurringId: r.id, occurrence: "2000-01-01" }] } });
+    expect(stale.json.recurring).toMatchObject({ items: [], notRun: [{ recurringId: r.id, reason: "確認後に発生日が変わりました" }] });
+    const res = await call(s.app, "POST", url, { dryRun: false, targets: { recurring: [{ recurringId: r.id, occurrence: today }] } });
     expect(res.status).toBe(200);
     const issueId = res.json.recurring.items[0].issueId;
     expect(getIssue(s.db, issueId).title).toBe("日次チェック");
@@ -131,6 +134,8 @@ describe("自動化API", () => {
       { targets: { other: [] } },
       { targets: { recurring: ["1"] } },
       { targets: { recurring: [0] } },
+      { targets: { recurring: [{ recurringId: 1 }] } },
+      { targets: { recurring: [{ recurringId: 1, occurrence: "2026-13-01" }] } },
     ]) {
       const res = await call(s.app, "POST", url, body);
       expect(res.status).toBe(400);

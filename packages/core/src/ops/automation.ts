@@ -10,6 +10,7 @@ import type {
   AutomationCandidate,
   AutomationKind,
   AutomationRecurringResult,
+  AutomationRecurringTarget,
   AutomationRuleResult,
   AutomationRun,
   AutomationSettings,
@@ -19,7 +20,7 @@ import type {
 } from "../types";
 import { applyAutoTransition, prReviewReason, prReviewTargets } from "./auto-transitions";
 import { archiveIssue } from "./issues";
-import { countEnabledRecurringIssues, runRecurringIssues } from "./recurring";
+import { countEnabledRecurringIssues, isRecurringDay, runRecurringIssuesOnly } from "./recurring";
 import { findWorkspace } from "./workspaces";
 
 // 常駐はしない。人が CLI・Web から明示的に1回ずつ実行する（dry-run は誰でも、実行と設定変更は me だけ）
@@ -317,9 +318,12 @@ function validateTargets(targets: AutomationTargets | undefined): void {
   const recurring: unknown = targets.recurring;
   if (
     recurring !== undefined &&
-    (!Array.isArray(recurring) || recurring.length > AUTOMATION_LIMIT_MAX || !recurring.every((id) => Number.isSafeInteger(id) && id > 0))
+    (!Array.isArray(recurring) || recurring.length > AUTOMATION_LIMIT_MAX || !recurring.every(isRecurringTarget))
   ) {
-    throw new NodError("INVALID_ARGS", `targets.recurring は ${AUTOMATION_LIMIT_MAX} 件以下の定期Issueの id（正の整数）の配列で指定してください`);
+    throw new NodError(
+      "INVALID_ARGS",
+      `targets.recurring は ${AUTOMATION_LIMIT_MAX} 件以下の { recurringId: 定期Issueの id（正の整数）, occurrence: 確認時点の発生日（YYYY-MM-DD） } の配列で指定してください`,
+    );
   }
   for (const kind of ["auto_close", "auto_archive", "pr_review"] as const) {
     const list: unknown = targets[kind];
@@ -330,19 +334,34 @@ function validateTargets(targets: AutomationTargets | undefined): void {
   }
 }
 
-// 定期Issue（#32）の起票。targets を渡したら、その一覧（recurring）の定期Issueだけを起票し、起票しなかったものを notRun で返す
+function isRecurringTarget(value: unknown): value is AutomationRecurringTarget {
+  if (value === null || typeof value !== "object") return false;
+  const { recurringId, occurrence } = value as Record<string, unknown>;
+  return typeof recurringId === "number" && Number.isSafeInteger(recurringId) && recurringId > 0 && isRecurringDay(occurrence);
+}
+
+export const RECURRING_CHANGED_REASON = "確認後に発生日が変わりました";
+export const RECURRING_GONE_REASON = "実行時には起票済み・停止中・削除済みでした";
+
+// 定期Issue（#32）の起票。targets を渡したら、その一覧（recurring）の定期Issueを確認時点の発生日のときだけ起票し、
+// 起票しなかったものを理由とともに notRun で返す
 function applyRecurring(
   ctx: OpCtx,
   workspace: Workspace,
   dryRun: boolean,
   current: number,
-  targets: number[] | undefined,
+  targets: AutomationRecurringTarget[] | undefined,
 ): AutomationRecurringResult {
   const enabled = countEnabledRecurringIssues(ctx.db, workspace.id);
   if (targets !== undefined && targets.length === 0) return { enabled, items: [], notRun: [], failed: [] };
-  const run = runRecurringIssues(ctx, workspace.key, { dryRun, now: new Date(current), only: targets });
+  const only = targets === undefined ? undefined : new Map(targets.map((t) => [t.recurringId, t.occurrence]));
+  const run = runRecurringIssuesOnly(ctx, workspace.key, { dryRun, now: new Date(current), only });
   const handled = new Set([...run.items, ...run.failed].map((i) => i.recurringId));
-  return { enabled, items: run.items, notRun: (targets ?? []).filter((id) => !handled.has(id)), failed: run.failed };
+  const changed = new Set(run.changed);
+  const notRun = [...(only?.keys() ?? [])]
+    .filter((id) => !handled.has(id))
+    .map((recurringId) => ({ recurringId, reason: changed.has(recurringId) ? RECURRING_CHANGED_REASON : RECURRING_GONE_REASON }));
+  return { enabled, items: run.items, notRun, failed: run.failed };
 }
 
 // 有効なルールを1回だけ評価・実行する。定期Issueの起票（#32）を最初に行い、その回で起票した Issue はほかのルールの対象にしない。

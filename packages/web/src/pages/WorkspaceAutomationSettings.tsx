@@ -73,8 +73,16 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
   const state = automationEditState(draft, saved);
   const busy = save.isPending || dryRun.isPending || run.isPending;
   const noRule = !hasRunnableRule(saved, recurring.data?.filter((r) => r.enabled).length ?? 0);
+  // 定期Issueを読み込むまでは、有効なルールが無いとは言えない（自動化ルールが有効なら読み込み中でも使える）
+  const loadingRecurring = noRule && recurring.isPending;
   // 確認・実行は保存済みの設定で行うため、未保存の変更があるときは使えない
-  const runBlocked = noRule ? "有効なルールがありません" : state.dirty ? "変更を保存してから確認・実行できます" : undefined;
+  const runBlocked = loadingRecurring
+    ? "読み込み中…"
+    : noRule
+      ? "有効なルールがありません"
+      : state.dirty
+        ? "変更を保存してから確認・実行できます"
+        : undefined;
 
   async function submit() {
     setError(null);

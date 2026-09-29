@@ -474,9 +474,13 @@ describe("定期Issueの起票（#32）", () => {
     db.query("DELETE FROM recurring_issue_occurrences WHERE recurring_id IN (?, ?, ?)").run(a.id, c.id, d.id);
     updateRecurringIssue(me, ws.key, c.id, { enabled: false });
     const before = recurringIssues(db).length;
-    const r = runAutomation(me, ws.key, { evaluatedAt: at, targets: { recurring: [a.id, b.id, c.id] } });
+    const confirmed = [a, b, c].map((x) => ({ recurringId: x.id, occurrence: "2026-09-29" }));
+    const r = runAutomation(me, ws.key, { evaluatedAt: at, targets: { recurring: confirmed } });
     expect(r.recurring.items.map((i) => i.recurringId)).toEqual([a.id]);
-    expect(r.recurring.notRun).toEqual([b.id, c.id]);
+    expect(r.recurring.notRun).toEqual([
+      { recurringId: b.id, reason: "実行時には起票済み・停止中・削除済みでした" },
+      { recurringId: c.id, reason: "実行時には起票済み・停止中・削除済みでした" },
+    ]);
     expect(recurringIssues(db)).toHaveLength(before + 1);
     // d は一覧に無いので起票しない。recurring の一覧が無い targets では何も起票しない
     expect(runAutomation(me, ws.key, { evaluatedAt: at, targets: {} }).recurring.items).toEqual([]);
@@ -494,10 +498,51 @@ describe("定期Issueの起票（#32）", () => {
     expect(r.rules[0]!.processed).toEqual([stale]);
   });
 
-  test("targets.recurring は 500 件以下の正の整数の配列", () => {
+  test("確認時（23:59）の発生日と実行時（翌 00:01）の発生日が違えば起票せず、notRun で理由を返す", () => {
+    const { db, me, ws } = fixture();
+    const r1 = addRecurringIssue(me, ws.key, daily());
+    const checked = runAutomation(me, ws.key, { dryRun: true, evaluatedAt: "2026-09-29T23:59:00.000Z" });
+    const confirmed = checked.recurring.items.map((i) => ({ recurringId: i.recurringId, occurrence: i.occurrence }));
+    expect(confirmed).toEqual([{ recurringId: r1.id, occurrence: "2026-09-29" }]);
+    const r = runAutomation(me, ws.key, { evaluatedAt: "2026-09-30T00:01:00.000Z", targets: { recurring: confirmed } });
+    expect(r.recurring.items).toEqual([]);
+    expect(r.recurring.notRun).toEqual([{ recurringId: r1.id, reason: "確認後に発生日が変わりました" }]);
+    expect(r.recurring.failed).toEqual([]);
+    expect(recurringIssues(db)).toEqual([]);
+    expect(listRecurringIssues(db, ws.key)[0]!.lastOccurrence).toBeNull();
+    // 発生日が同じうちに実行すれば起票する
+    const same = runAutomation(me, ws.key, { evaluatedAt: "2026-09-29T23:59:30.000Z", targets: { recurring: confirmed } });
+    expect(same.recurring.items.map((i) => i.occurrence)).toEqual(["2026-09-29"]);
+    expect(same.recurring.notRun).toEqual([]);
+  });
+
+  test("発生日が変わった定期Issueは、テンプレートが消えていても失敗ではなく notRun にする", () => {
+    const { db, me, ws } = fixture();
+    const r1 = addRecurringIssue(me, ws.key, daily());
+    db.query("UPDATE recurring_issues SET template = 'missing' WHERE id = ?").run(r1.id);
+    const r = runAutomation(me, ws.key, {
+      evaluatedAt: "2026-09-30T00:01:00.000Z",
+      targets: { recurring: [{ recurringId: r1.id, occurrence: "2026-09-29" }] },
+    });
+    expect(r.recurring.failed).toEqual([]);
+    expect(r.recurring.notRun).toEqual([{ recurringId: r1.id, reason: "確認後に発生日が変わりました" }]);
+  });
+
+  test("targets.recurring は 500 件以下の { recurringId: 正の整数, occurrence: YYYY-MM-DD } の配列", () => {
     const { me, ws } = fixture();
-    for (const bad of [[0], [1.5], ["1"], Array.from({ length: 501 }, (_, i) => i + 1)]) {
-      const targets = { recurring: bad } as unknown as { recurring: number[] };
+    const item = (recurringId: unknown, occurrence: unknown = "2026-09-29") => ({ recurringId, occurrence });
+    for (const bad of [
+      [0],
+      [item(0)],
+      [item(1.5)],
+      [item("1")],
+      [item(1, "2026-9-29")],
+      [item(1, "2026-02-30")],
+      [item(1, null)],
+      [null],
+      Array.from({ length: 501 }, (_, i) => item(i + 1)),
+    ]) {
+      const targets = { recurring: bad } as unknown as { recurring: { recurringId: number; occurrence: string }[] };
       expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets }))).toBe("INVALID_ARGS");
     }
   });

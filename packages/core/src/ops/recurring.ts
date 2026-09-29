@@ -353,26 +353,47 @@ export function countEnabledRecurringIssues(db: Database, workspaceId: number): 
 // 有効な定期Issueのうち、発生日が来ているものを1件ずつ起票する。
 // 起票は通常の起票と同じ経路（人なら todo）で行い、created event に recurring_id と発生日を残す。
 // テンプレートが消えている・途中でルールが消されたなどで起票できないものは failed に入れて、他の定期Issueは続ける
-export function runRecurringIssues(
+export function runRecurringIssues(ctx: OpCtx, keyOrPath: string, opts: { dryRun?: boolean; now?: Date } = {}): RecurringRun {
+  const { changed: _changed, ...result } = runRecurringIssuesOnly(ctx, keyOrPath, opts);
+  return result;
+}
+
+// YYYY-MM-DD の実在する日付か（自動化の targets の発生日を確かめる）
+export function isRecurringDay(value: unknown): value is string {
+  return typeof value === "string" && dayOf(value) !== null;
+}
+
+// only（自動化の確認時点の一覧、#32。定期Issueの id → 確認時点の発生日）を渡すと、その定期Issueだけを扱い、
+// 実行時の発生日が確認時点と違うもの（例: 23:59 に確認して 00:01 に実行）は起票せずに changed で返す
+export function runRecurringIssuesOnly(
   ctx: OpCtx,
   keyOrPath: string,
-  opts: { dryRun?: boolean; now?: Date; only?: number[] } = {},
-): RecurringRun {
+  opts: { dryRun?: boolean; now?: Date; only?: Map<number, string> } = {},
+): RecurringRun & { changed: number[] } {
   const dryRun = opts.dryRun ?? false;
   if (!dryRun) requireHuman(ctx, "実行");
   const at = opts.now ?? new Date();
   const workspace = requireWorkspace(ctx.db, keyOrPath);
-  const result: RecurringRun = { workspaceKey: workspace.key, dryRun, evaluatedAt: at.toISOString(), items: [], failed: [] };
-  // only（自動化の確認時点の一覧、#32）を渡すと、その定期Issueだけを扱う
-  const listedRows = rows(ctx.db, workspace).filter((r) => r.enabled === 1 && (opts.only === undefined || opts.only.includes(r.id)));
+  const result: RecurringRun & { changed: number[] } = {
+    workspaceKey: workspace.key,
+    dryRun,
+    evaluatedAt: at.toISOString(),
+    items: [],
+    failed: [],
+    changed: [],
+  };
+  const only = opts.only;
+  const listedRows = rows(ctx.db, workspace).filter((r) => r.enabled === 1 && (only === undefined || only.has(r.id)));
   for (const listed of listedRows) {
     let occurrence: string | null = null;
     try {
-      const item = tx(ctx.db, (): RecurringRunItem | null => {
+      const item = tx(ctx.db, (): RecurringRunItem | "changed" | null => {
         // 同時に実行されても同じ発生日を二重に作らないよう、transaction の中で読み直す
         const row = requireRow(ctx.db, workspace, listed.id);
         const due = dueOccurrence(row, at);
         if (!due) return null;
+        // テンプレートを読む前に比べる（発生日が変わったものは起票しないので、起票の失敗にもしない）
+        if (only !== undefined && only.get(row.id) !== formatDay(due.day)) return "changed";
         occurrence = formatDay(due.day);
         const base = { recurringId: row.id, title: row.title, occurrence, skipped: due.skipped };
         const description = row.template === null ? row.description : getTemplate(ctx.db, row.template).body;
@@ -398,7 +419,8 @@ export function runRecurringIssues(
           .run(row.id, occurrence, issueRowId, now());
         return { ...base, issueId: issue.id };
       });
-      if (item) result.items.push(item);
+      if (item === "changed") result.changed.push(listed.id);
+      else if (item) result.items.push(item);
     } catch (e) {
       if (!(e instanceof NodError)) throw e;
       // 読み直す前に消された場合は、一覧で読んだ時点の発生日で報告する

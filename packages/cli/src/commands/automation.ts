@@ -93,7 +93,7 @@ function describeRecurring(r: AutomationRecurringResult, dryRun: boolean): strin
   }
   if (!dryRun) {
     lines.push(`  起票しました: ${r.items.length} 件${r.items.length ? `（${r.items.map((i) => i.issueId).join(", ")}）` : ""}`);
-    if (r.notRun.length) lines.push(`  スキップ（実行時に対象外）: ${r.notRun.map((id) => `#${id}`).join(", ")}`);
+    if (r.notRun.length) lines.push(`  スキップ（実行時に対象外）: ${r.notRun.map((n) => `#${n.recurringId}（${n.reason}）`).join(", ")}`);
   }
   for (const f of r.failed) lines.push(`  失敗: #${f.recurringId} ${f.title}（${f.occurrence} 分）: ${f.message}`);
   return lines.join("\n");

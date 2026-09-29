@@ -112,9 +112,19 @@ describe("自動化の表示", () => {
     expect(confirmTitle(run(rule("auto_close", 1, 0), rule("auto_archive", 0, 0), off, recurring))).toBe(
       "起票 2件・クローズ 1件・アーカイブ 0件を実行しますか？",
     );
-    const done = { enabled: 2, items: [item(1)], notRun: [2], failed: [{ recurringId: 3, title: "t", occurrence: "2026-09-30", message: "x" }] };
+    const gone = { recurringId: 2, reason: "実行時には起票済み・停止中・削除済みでした" };
+    const done = { enabled: 2, items: [item(1)], notRun: [gone], failed: [{ recurringId: 3, title: "t", occurrence: "2026-09-30", message: "x" }] };
     expect(runToast(run(rule("auto_close", 1, 1), rule("auto_archive", 0, 0), off, done))).toBe(
       "起票 1件・クローズ 1件・アーカイブ 0件・スキップ 1件・失敗 1件",
+    );
+  });
+
+  test("確認後に発生日が変わった定期Issueは、トーストのスキップに理由と件数を添える", () => {
+    const changed = (recurringId: number) => ({ recurringId, reason: "確認後に発生日が変わりました" });
+    const gone = { recurringId: 9, reason: "実行時には起票済み・停止中・削除済みでした" };
+    const done = { enabled: 3, items: [], notRun: [changed(1), changed(2), gone], failed: [] };
+    expect(runToast(run(rule("auto_close", 0, 0), rule("auto_archive", 0, 0), off, done))).toBe(
+      "起票 0件・クローズ 0件・アーカイブ 0件・スキップ 3件（確認後に発生日が変わりました 2件）・失敗 0件",
     );
     expect(recurringHeading(2)).toBe("起票する（定期Issue）· 2 件");
   });
@@ -134,7 +144,10 @@ describe("自動化の表示", () => {
       recurring: [],
     });
     const recurring = { enabled: 2, items: [item(4), item(7)], notRun: [], failed: [] };
-    expect(runTargets(run(rule("auto_close", 0, 0), rule("auto_archive", 0, 0), off, recurring)).recurring).toEqual([4, 7]);
+    expect(runTargets(run(rule("auto_close", 0, 0), rule("auto_archive", 0, 0), off, recurring)).recurring).toEqual([
+      { recurringId: 4, occurrence: "2026-09-30" },
+      { recurringId: 7, occurrence: "2026-09-30" },
+    ]);
   });
 
   test("ルールの見出しと日時の書式", () => {

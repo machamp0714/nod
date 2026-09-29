@@ -281,17 +281,18 @@ function SnoozeMenu({ disabled, onSnooze }: { disabled: boolean; onSnooze: (unti
 }
 
 // 削除直後のトースト（Pencil『Inbox｜削除トースト』）。約5秒で消える。取り消しに失敗したらトースト内に理由を出し、そこから5秒待つ
-export function DeleteToast({ onUndo, onClose, pending, error }: { onUndo: () => void; onClose: () => void; pending: boolean; error: unknown }) {
+// note は取り消しのあとの案内（戻せなかった件数）。取り消しは済んでいるので「元に戻す」は出さない
+export function DeleteToast({ onUndo, onClose, pending, error, note }: { onUndo: () => void; onClose: () => void; pending: boolean; error: unknown; note?: string | null }) {
   useEffect(() => {
     if (pending) return;
     const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
-  }, [onClose, pending, error]);
+  }, [onClose, pending, error, note]);
   return (
     <div role="status" className={n.toast}>
       <Trash2 size={14} aria-hidden="true" />
-      {error ? <span role="alert" className={n.toastError}>元に戻せませんでした（{errorMessage(error)}）</span> : <span>通知を削除しました</span>}
-      <button type="button" className={n.undo} disabled={pending} onClick={onUndo}>元に戻す</button>
+      {error ? <span role="alert" className={n.toastError}>元に戻せませんでした（{errorMessage(error)}）</span> : <span>{note ?? "通知を削除しました"}</span>}
+      {!note && <button type="button" className={n.undo} disabled={pending} onClick={onUndo}>元に戻す</button>}
     </div>
   );
 }
