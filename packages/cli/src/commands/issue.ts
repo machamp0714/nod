@@ -29,6 +29,7 @@ import {
   startIssue,
   unarchiveIssue,
   updateIssue,
+  bulkUpdateIssues,
   subscribeIssue,
   unsubscribeIssue,
   type WorkspaceRules,
@@ -232,6 +233,52 @@ export function registerIssueCommands(program: Command): void {
             reason: o.reason,
           });
           print(cli, updated, () => `更新しました: ${formatIssueLine(updated)}`);
+        },
+      ),
+    );
+
+  issue
+    .command("bulk-update <ids...>")
+    .description("複数の Issue に同じ変更をまとめて加える（空文字を渡すと外す。1件でも失敗したら何も変えない）")
+    .option("-p, --priority <0-4>", "優先度")
+    .option("--estimate <1-100>", "見積もり（ポイント）")
+    .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
+    .option("-s, --status <status>", "ステータス（Triage の Issue は変えられない）")
+    .option("--assignee <name>", "担当")
+    .option("--project <project>", "Project の名前か ID")
+    .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
+    .option("--remove-label <label>", "ラベルを外す（繰り返し可）", collect)
+    .option("--reason <text>", "done か canceled にするときの理由")
+    .action(
+      act(
+        (
+          cli,
+          _cmd,
+          ids: string[],
+          o: {
+            priority?: string;
+            estimate?: string;
+            due?: string;
+            status?: string;
+            assignee?: string;
+            project?: string;
+            addLabel?: string[];
+            removeLabel?: string[];
+            reason?: string;
+          },
+        ) => {
+          const updated = bulkUpdateIssues(cli.ctx, ids, {
+            priority: o.priority === undefined ? undefined : parsePriority(o.priority),
+            estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
+            dueDate: orNull(o.due),
+            status: o.status === undefined ? undefined : parseStatus(o.status),
+            assignee: orNull(o.assignee),
+            projectRef: orNull(o.project),
+            addLabels: o.addLabel,
+            removeLabels: o.removeLabel,
+            reason: o.reason,
+          });
+          print(cli, updated, () => [`${updated.length} 件を更新しました`, ...formatIssueLines(updated)].join("\n"));
         },
       ),
     );

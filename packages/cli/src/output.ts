@@ -45,7 +45,7 @@ export function printError(err: unknown, json: boolean): void {
   const e = toNodError(err);
   const body =
     e instanceof NodError
-      ? { code: e.code, message: e.message }
+      ? { code: e.code, message: e.message, ...(e.details === undefined ? {} : { details: e.details }) }
       : { code: "UNEXPECTED", message: e instanceof Error ? e.message : String(e) };
   if (json) console.log(JSON.stringify({ error: body }, null, 2));
   else console.error(`エラー（${body.code}）: ${body.message}`);

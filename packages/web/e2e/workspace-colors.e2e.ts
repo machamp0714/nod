@@ -135,9 +135,9 @@ test("SSE・削除再利用・検索・並び順・リロードで既存色が�
   await expectSavedColors(page, ["API"]);
   await page.getByRole("textbox", { name: "検索", exact: true }).fill("");
   await expectSavedColors(page);
-  const orderBefore = await page.locator("tbody tr td:nth-child(2)").allTextContents();
+  const orderBefore = await page.locator("tbody tr[data-issue-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-issue-row")));
   await nod.me.updateIssue("WEB-1", { priority: 1 });
-  await expect.poll(() => page.locator("tbody tr td:nth-child(2)").allTextContents()).not.toEqual(orderBefore);
+  await expect.poll(() => page.locator("tbody tr[data-issue-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-issue-row")))).not.toEqual(orderBefore);
   await expectSavedColors(page);
   await page.reload();
   await expectSavedColors(page);

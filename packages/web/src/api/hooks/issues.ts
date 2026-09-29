@@ -5,9 +5,9 @@ import { buildRows } from "../../lib/issue-rows";
 import { apiFetch } from "../client";
 import { errorMessage } from "../errors";
 import { queryKeys } from "../query-keys";
-import type { IssueList, IssueQuery } from "../types";
+import type { Issue, IssueList, IssueQuery, UpdateIssueInput } from "../types";
 import { useProjects } from "./projects";
-import { useWorkspaces } from "./shared";
+import { useApiMutation, useWorkspaces } from "./shared";
 
 export function useIssueList(query: IssueQuery, enabled = true) {
   const params = issueQueryToParams(query);
@@ -53,4 +53,14 @@ export function useFilterOptions(): FilterOptions {
     projects: (projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
   };
+}
+
+// 一覧で選んだ複数 Issue の一括編集。1件でも失敗したら何も変わらず、ApiError の details に失敗一覧が入る
+export type BulkUpdateInput = Pick<
+  UpdateIssueInput,
+  "status" | "priority" | "assignee" | "projectRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels"
+>;
+
+export function useBulkUpdateIssues() {
+  return useApiMutation((body: BulkUpdateInput & { ids: string[] }) => apiFetch<Issue[]>("/issues/bulk-update", { method: "POST", body }));
 }

@@ -2,6 +2,7 @@ export class NodError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly details?: unknown, // 一括操作の失敗一覧など、code と message で表せない補足
   ) {
     super(message);
     this.name = "NodError";

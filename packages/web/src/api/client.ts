@@ -8,12 +8,14 @@ export interface ApiRequest {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly details?: unknown; // 一括編集の失敗一覧など、code と message の補足
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -31,10 +33,10 @@ export async function apiFetch<T>(
   const res = await fetchImpl(`/api${path}`, init);
   const body = parseJson(await res.text());
   if (!res.ok) {
-    const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+    const error = (body as { error?: { code?: unknown; message?: unknown; details?: unknown } } | null)?.error;
     const code = typeof error?.code === "string" ? error.code : "HTTP_ERROR";
     const message = typeof error?.message === "string" ? error.message : `HTTP ${res.status}`;
-    throw new ApiError(res.status, code, message);
+    throw new ApiError(res.status, code, message, error?.details);
   }
   return body as T;
 }
