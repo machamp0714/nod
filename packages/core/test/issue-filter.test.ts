@@ -45,6 +45,17 @@ describe("issueQueryFromParams", () => {
   });
 });
 
+describe("delegated", () => {
+  test("true だけを残し、false は省き、真偽以外は INVALID_ARGS", () => {
+    expect(validateIssueQuery({ delegated: true })).toEqual({ delegated: true });
+    expect(validateIssueQuery({ delegated: false })).toEqual({});
+    expect(codeOf(() => validateIssueQuery({ delegated: "yes" }))).toBe("INVALID_ARGS");
+    expect(issueQueryFromParams(new URLSearchParams("delegated=1"))).toEqual({ delegated: true });
+    expect(issueQueryFromParams(new URLSearchParams("delegated=false"))).toEqual({});
+    expect(codeOf(() => issueQueryFromParams(new URLSearchParams("delegated=yes")))).toBe("INVALID_ARGS");
+  });
+});
+
 test.each(["__proto__", "constructor", "toString", "hasOwnProperty"])(
   "プロトタイプ名 %s のクエリも INVALID_ARGS にする", (key) => {
     expect(codeOf(() => issueQueryFromParams(new URLSearchParams([[key, "todo"]])))).toBe("INVALID_ARGS");

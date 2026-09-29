@@ -10,9 +10,10 @@ export interface IssueQuery {
   project?: string; // Project の名前か ID
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
+  delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "label", "ready", "q", "blocked"];
+const QUERY_KEYS = ["workspace", "status", "project", "label", "ready", "q", "blocked", "delegated"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -67,6 +68,10 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     if (typeof raw.ready !== "boolean") throw invalid("ready は true か false で指定してください");
     if (raw.ready) q.ready = true;
   }
+  if (raw.delegated !== undefined) {
+    if (typeof raw.delegated !== "boolean") throw invalid("delegated は true か false で指定してください");
+    if (raw.delegated) q.delegated = true;
+  }
   return q;
 }
 
@@ -77,7 +82,7 @@ export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
     const last = values[values.length - 1] ?? "";
     if (key === "project" || key === "q") {
       raw[key] = last;
-    } else if (key === "ready" || key === "blocked") {
+    } else if (key === "ready" || key === "blocked" || key === "delegated") {
       if (!["true", "1", "false", "0"].includes(last)) {
         throw invalid(`${key} は true か false で指定してください（受け取った値: ${last}）`);
       }
