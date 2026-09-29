@@ -9,7 +9,7 @@ import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, Tria
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
-import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { AgentAvatar, Button, Icon, LabelDot, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
 import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeading } from "../lib/triage-proposal";
@@ -119,7 +119,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
       <p className={d.body}>{issue.description ?? "説明はありません"}</p>
       <div className={d.acceptGroup}>
         {proposals.isError ? <ActionError error={proposals.error} /> :
-          <Proposals proposals={proposals.data ?? []} disabled={busy} onApply={applyProposal} />}
+          <Proposals proposals={proposals.data ?? []} workspace={issue.workspace} disabled={busy} onApply={applyProposal} />}
         <fieldset className={d.acceptFields} disabled={busy}>
           <legend>受け入れ時に設定:</legend>
           <label>Project<select aria-label="受け入れ時のProject" value={projectRef} disabled={projects.isPending || projects.isError} onChange={e => setProjectRef(e.target.value)}>
@@ -136,7 +136,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
             {assigneeChoices(assignee || null).map(a => <option key={a} value={a}>{a}</option>)}
           </select></label>
           <ActionError error={projects.error} />
-          <Candidates suggestions={suggestions.data} labels={parseLabels(labels, [])} assignee={assignee}
+          <Candidates suggestions={suggestions.data} workspace={issue.workspace} labels={parseLabels(labels, [])} assignee={assignee}
             onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} onAssignee={setAssignee} />
         </fieldset>
       </div>
@@ -234,8 +234,9 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
 }
 
 // Triage の提案（#62）。LLM のほか me も記録できる。更新の新しい順に並べ、「フォームに反映」は入力欄を埋めるだけで確定は人が行う
-function Proposals({ proposals, disabled, onApply }: {
+function Proposals({ proposals, workspace, disabled, onApply }: {
   proposals: TriageProposal[];
+  workspace: string;
   disabled: boolean;
   onApply: (p: TriageProposal) => void;
 }) {
@@ -263,7 +264,12 @@ function Proposals({ proposals, disabled, onApply }: {
               {attrs.length > 0 && (
                 <div className={d.proposalAttrs}>
                   {attrs.map((a) => (
-                    <span key={a.key} className={d.proposalAttr}><Icon name={a.icon} size={11} /><span className={d.proposalAttrKey}>{a.label}</span>{a.value}</span>
+                    <span key={a.key} className={d.proposalAttr}>
+                      <Icon name={a.icon} size={11} /><span className={d.proposalAttrKey}>{a.label}</span>
+                      {a.key === "labels"
+                        ? p.labels.map((l) => <span key={l} className={d.proposalLabel} data-label={l}><LabelDot workspace={workspace} name={l} />{l}</span>)
+                        : a.value}
+                    </span>
                   ))}
                 </div>
               )}
@@ -291,8 +297,9 @@ function reasonText(r: SuggestionReason, label?: string): string {
 }
 
 // ラベル・担当の候補（#41）。クリックで受け入れフォームに入れるだけで、確定は「受け入れる」で人が行う
-function Candidates({ suggestions, labels, assignee, onLabel, onAssignee }: {
+function Candidates({ suggestions, workspace, labels, assignee, onLabel, onAssignee }: {
   suggestions: TriageSuggestions | undefined;
+  workspace: string;
   labels: string[];
   assignee: string;
   onLabel: (label: string) => void;
@@ -306,7 +313,7 @@ function Candidates({ suggestions, labels, assignee, onLabel, onAssignee }: {
       <span className={d.candidatesLabel}>候補:</span>
       {labelItems.map(l => (
         <div key={`label:${l.label}`} className={d.candidate}>
-          <button type="button" className={d.chip} aria-label={`ラベル ${l.label} を追加`} onClick={() => onLabel(l.label)}>+ {l.label}</button>
+          <button type="button" className={d.chip} aria-label={`ラベル ${l.label} を追加`} onClick={() => onLabel(l.label)}>+ <LabelDot workspace={workspace} name={l.label} />{l.label}</button>
           <span className={d.reason}>{l.reasons.map(r => reasonText(r, l.label)).join(" / ")}</span>
         </div>
       ))}

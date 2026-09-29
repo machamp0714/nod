@@ -13,6 +13,11 @@ export function useWorkspaceLabels(key: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.workspaceLabels(key), queryFn: () => apiFetch<WorkspaceLabel[]>(labelsPath(key)), enabled });
 }
 
+// 全 Workspace のラベル定義。Issue 側のラベル表示が定義色を引く（#117）
+export function useAllWorkspaceLabels() {
+  return useQuery({ queryKey: queryKeys.allLabels(), queryFn: () => apiFetch<WorkspaceLabel[]>("/labels") });
+}
+
 export function useAddWorkspaceLabel(key: string) {
   return useApiMutation((input: { name: string; color: string; description: string }) =>
     apiFetch<WorkspaceLabel>(labelsPath(key), { method: "POST", body: input }),

@@ -141,3 +141,42 @@ test.describe("保存の失敗", () => {
     expect(await nod.me.listWorkspaceLabels("API")).toEqual([]);
   });
 });
+
+// #117: Issue 側のラベル表示は Dot だけをラベル定義の色にし、未定義のラベルは既定の灰色（--ink3）
+test("定義したラベルの色を一覧・プレビュー・Issue 詳細の Dot に出し、未定義のラベルは灰色のまま", async ({ page, nod }) => {
+  await nod.me.addWorkspaceLabel("API", { name: "perf", color: "#B91C1C", description: "" });
+  // 同じ名前でも別の Workspace の定義は使わない
+  await nod.me.addWorkspaceLabel("NOD", { name: "security", color: "#2563EB", description: "" });
+  await nod.me.updateIssue("API-12", { addLabels: ["security"] });
+  const dot = (scope: import("@playwright/test").Locator, name: string) => scope.locator(`[data-label="${name}"] > [data-label-color]`);
+
+  await page.goto("/issues");
+  const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: "検索 API の N+1 を解消", exact: true }) });
+  await expect(dot(row, "perf")).toHaveAttribute("data-label-color", "#B91C1C");
+  await expect(dot(row, "perf")).toHaveCSS("background-color", "rgb(185, 28, 28)");
+  await expect(dot(row, "security")).toHaveAttribute("data-label-color", "default");
+  const ink3 = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ink3)";
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  await expect(dot(row, "security")).toHaveCSS("background-color", ink3);
+
+  await row.hover();
+  await row.getByRole("button", { name: "API-12 をプレビュー", exact: true }).click();
+  const pane = page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true });
+  await expect(dot(pane, "perf")).toHaveCSS("background-color", "rgb(185, 28, 28)");
+  await expect(dot(pane, "security")).toHaveAttribute("data-label-color", "default");
+
+  await page.goto("/issues/API-12");
+  await expect(dot(page.locator("body"), "perf")).toHaveCSS("background-color", "rgb(185, 28, 28)");
+  await expect(page.getByRole("button", { name: "ラベル perf を外す" })).toBeVisible();
+
+  // 定義の色を変えると表示も変わる
+  await nod.me.updateWorkspaceLabel("API", "perf", { color: "#0D9768" });
+  await page.reload();
+  await expect(dot(page.locator("body"), "perf")).toHaveCSS("background-color", "rgb(13, 151, 104)");
+});

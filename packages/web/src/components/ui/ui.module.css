@@ -9,6 +9,35 @@
   white-space: nowrap;
 }
 
+/* Issue のラベル（#117）。枠線だけのチップで、Dot の色がラベル定義の色 */
+.labelChip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink2);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.labelText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.labelDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink3);
+}
+
 .inline {
   display: inline-flex;
   align-items: center;

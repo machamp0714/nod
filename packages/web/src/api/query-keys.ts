@@ -8,6 +8,7 @@ export const queryKeys = {
   workspaceRules: (key: string) => ["workspaces", "rules", key] as const,
   automation: (key: string) => ["workspaces", "automation", key] as const,
   workspaceLabels: (key: string) => ["workspaces", "labels", key] as const,
+  allLabels: () => ["workspaces", "all-labels"] as const,
   statusNames: () => ["workspaces", "status-names"] as const,
   issueList: (query: IssueQuery) => ["issues", "list", query] as const,
   issueDetails: () => ["issues", "detail"] as const,

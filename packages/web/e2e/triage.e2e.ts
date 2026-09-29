@@ -256,3 +256,15 @@ test("提案がなければ LLM の提案ブロックを出さない", async ({ 
   await expect(detail(page).getByRole("button", { name: "受け入れる" })).toBeEnabled();
   await expect(detail(page).getByRole("region", { name: "LLM の提案" })).toHaveCount(0);
 });
+
+// #117: 提案カードと候補のラベルも Dot を定義色にする
+test("LLM の提案のラベルは定義色の Dot で出し、未定義のラベルは灰色", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await nod.me.addWorkspaceLabel("API", { name: "bug", color: "#B91C1C", description: "" });
+  const i = await api.triageIssue("ラベルの色を確かめる Issue");
+  await nod.claude.proposeTriage(i.id, { decision: "accept", labels: ["bug", "perf"] });
+  await page.goto("/triage");
+  const card = detail(page).getByRole("article", { name: "claude-code の提案" });
+  await expect(card.locator('[data-label="bug"] > [data-label-color]')).toHaveCSS("background-color", "rgb(185, 28, 28)");
+  await expect(card.locator('[data-label="perf"] > [data-label-color]')).toHaveAttribute("data-label-color", "default");
+});
