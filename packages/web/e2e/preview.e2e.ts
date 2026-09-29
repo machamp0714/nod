@@ -85,9 +85,12 @@ test("プレビューボタンは支援技術から見つけられ、閉じる�
   await expect(link).toBeFocused();
 
   // URL から開いたプレビューは、閉じるとその行のリンクへ戻す
+  // プレビューは一覧より先に出ることがある。行が描画される前に閉じると戻す先がないため、行を待ってから閉じる
   await page.goto("/issues?preview=API-12");
   await expect(pane).toBeVisible();
+  await expect(row.getByRole("link", { name: "検索 API の N+1 を解消", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(pane).toHaveCount(0);
   await expect(row.getByRole("link", { name: "検索 API の N+1 を解消", exact: true })).toBeFocused();
 });
 
