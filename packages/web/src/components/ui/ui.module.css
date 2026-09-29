@@ -157,6 +157,13 @@
   overflow-wrap: anywhere;
 }
 
+.activitySource {
+  display: block;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .activityTime {
   flex: none;
   color: var(--ink3);

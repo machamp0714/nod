@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath, queryKeys } from "../query-keys";
-import type { DocKind, DocumentRef, AskResult, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
+import type { DocKind, DocumentRef, AskResult, IssueAttachment, Comment, Issue, ProjectSummary, Question, UpdateIssueInput } from "../types";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
@@ -43,3 +43,11 @@ export const useResolveThread = (id: string) =>
 
 export const useAttachDocument = (id: string) => useIssueOperation<{ path: string; title?: string; kind?: DocKind }, DocumentRef>(id, "doc-add");
 export const useRemoveDocument = (id: string) => useIssueOperation<{ documentId: number }, { removed: number }>(id, "doc-remove");
+
+// 添付。web から足せるのはリンクだけ（ファイルは CLI の nod issue attach add --file）
+export const useAddAttachmentLink = (id: string) =>
+  useApiMutation((body: { url: string; title?: string }) =>
+    apiFetch<IssueAttachment>(issuePath(id, "attachments"), { method: "POST", body }));
+export const useRemoveAttachment = (id: string) =>
+  useApiMutation((attachmentId: number) =>
+    apiFetch<{ removed: number }>(issuePath(id, `attachments/${attachmentId}`), { method: "DELETE" }));

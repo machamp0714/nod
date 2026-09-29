@@ -37,6 +37,7 @@ export type {
   InboxQuestion,
   Issue,
   IssueCounts,
+  IssueAttachment,
   IssueDetail,
   IssueList,
   IssueQuery,

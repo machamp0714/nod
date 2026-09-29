@@ -6,6 +6,7 @@ import { registerReadRoutes } from "./routes/read";
 import { registerStatsRoutes } from "./routes/stats";
 import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
+import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
@@ -23,6 +24,7 @@ export interface AppOptions {
   staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
   docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
   ghRunner?: GhRunner; // PR 状態の取得で gh を実行する部分。省くと本物の gh。テストと e2e はスタブを渡す
+  attachmentsDir?: string; // 添付ファイルのコピーを置く場所。省くと core の defaultAttachmentsDir()（NOD_ATTACHMENTS_DIR）
 }
 
 function errorJson(err: unknown): Response {
@@ -62,6 +64,7 @@ export function createApp(opts: AppOptions): Hono {
   registerReadRoutes(app, opts.db, opts.docsDir);
   registerStatsRoutes(app, opts.db);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
+  registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerDocumentOps(app, me, opts.docsDir);

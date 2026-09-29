@@ -7,6 +7,8 @@ import {
   useApproveReview,
   useAttachDocument,
   useRemoveDocument,
+  useAddAttachmentLink,
+  useRemoveAttachment,
   useAnswerQuestion,
   useArchiveIssue,
   useCommentIssue,
@@ -21,6 +23,7 @@ import {
 import { useIssueDetail } from "../api/hooks/shared";
 import type { Issue, IssueDetail } from "../api/types";
 import { DocumentsSection } from "../components/issue-detail/DocumentsSection";
+import { AttachmentsSection } from "../components/issue-detail/AttachmentsSection";
 import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
 import { SubscribeToggle } from "../components/issue-detail/SubscribeToggle";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
@@ -74,6 +77,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const readOnly = issue.archivedAt !== null;
   const navigate = useNavigate();
   const removeDocument = useRemoveDocument(issue.id);
+  const addAttachmentLink = useAddAttachmentLink(issue.id);
+  const removeAttachment = useRemoveAttachment(issue.id);
   const status = STATUS_META[issue.status];
   const statusNames = useStatusNames();
   return (
@@ -129,6 +134,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection readOnly={readOnly} issueId={issue.id} documents={issue.documents} onAttach={input => attach.mutateAsync(input)}
             onRemove={documentId => removeDocument.mutateAsync({ documentId })} />
+          <AttachmentsSection readOnly={readOnly} attachments={issue.attachments} onAddLink={input => addAttachmentLink.mutateAsync(input)}
+            onRemove={attachmentId => removeAttachment.mutateAsync(attachmentId)} />
           <CompletionCandidateBanner
             key={`completion-${issue.id}`}
             issue={issue}

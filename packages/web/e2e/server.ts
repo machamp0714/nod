@@ -15,6 +15,8 @@ if (!dir) throw new Error("NOD_E2E_DIR がありません（playwright.config.ts
 const dbPath = join(dir, "nod.db");
 // web から作る Document も一時ディレクトリの下に置く（~/.local/share/nod/documents に書かない）
 const docsDir = join(dir, "documents");
+// 添付ファイルのコピーも一時ディレクトリの下に置く（~/.local/share/nod/attachments に書かない）
+const attachmentsDir = join(dir, "attachments");
 
 // PR 状態の取得で gh の代わりに使う。実際の gh・GitHub には触れず、/gh で決めた結果を返す。
 // 呼び出しの引数を記録し、/gh の gate が true なら /gh/release まで返さない（取得中の表示を確かめるため）
@@ -29,7 +31,7 @@ const ghRunner: core.GhRunner = async (args) => {
 };
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner });
+let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir });
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -40,6 +42,7 @@ async function reset(dataset: string): Promise<void> {
   if (!/^[a-z0-9-]+$/.test(dataset)) throw new core.NodError("INVALID_ARGS", `データセットの名前が不正です: ${dataset}`);
   wipe(db);
   rmSync(docsDir, { recursive: true, force: true });
+  rmSync(attachmentsDir, { recursive: true, force: true });
   if (dataset === "empty") return;
   const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
   mod.default(datasetContext(db, dir as string));
@@ -69,7 +72,7 @@ const control = Bun.serve({
       // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
       if (req.method === "POST" && path === "/restart-server") {
         await server.stop();
-        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner });
+        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir });
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/reset") {

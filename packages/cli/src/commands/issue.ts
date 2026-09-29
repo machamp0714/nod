@@ -1,4 +1,6 @@
 import {
+  addFileAttachment,
+  addLinkAttachment,
   archiveIssue,
   askQuestion,
   type AskResult,
@@ -21,11 +23,13 @@ import {
   importPlan,
   isLlm,
   type Issue,
+  listIssueAttachments,
   listIssues,
   logWork,
   nextIssue,
   NodError,
   relateIssue,
+  removeAttachment,
   resolveThread,
   setPlanTasks,
   setStep,
@@ -45,6 +49,7 @@ import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePr
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
+  formatAttachment,
   formatDelegations,
   formatIssueDetail,
   formatIssueLine,
@@ -178,7 +183,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("show <id>")
-    .description("Issue の詳細（計画、Documents、Activity を含む）を表示する")
+    .description("Issue の詳細（計画、Documents、添付、Activity を含む）を表示する")
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
@@ -537,6 +542,47 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string, path: string) => {
         detachDocument(cli.ctx, { issueRef: id }, path);
         print(cli, { removed: path }, () => `添付を外しました: ${path}`);
+      }),
+    );
+
+  const attach = issue
+    .command("attach")
+    .description("Issue にリンクやファイルを添付する（Markdown を nod で読むなら issue doc を使う）");
+  attach
+    .command("add <id>")
+    .description("http/https のリンクか、ファイル（添付ディレクトリ NOD_ATTACHMENTS_DIR にコピーする）を添付する")
+    .option("--url <url>", "添付するリンク（http:// か https://）")
+    .option("--file <path>", "添付するファイル（10MB まで。拡張子は png/jpg/gif/webp/pdf/txt/log/md/csv/json/yaml/zip）")
+    .option("--title <text>", "表示名（省略時はホスト名かファイル名）")
+    .action(
+      act((cli, _cmd, id: string, o: { url?: string; file?: string; title?: string }) => {
+        if ((o.url === undefined) === (o.file === undefined)) {
+          throw new NodError("INVALID_ARGS", "--url と --file のどちらか一方を指定してください");
+        }
+        const added =
+          o.url !== undefined
+            ? addLinkAttachment(cli.ctx, id, { url: o.url, title: o.title })
+            : addFileAttachment(cli.ctx, id, { path: o.file as string, title: o.title });
+        print(cli, added, () => `添付しました: ${formatAttachment(added)}`);
+      }),
+    );
+  attach
+    .command("list <id>")
+    .description("添付を一覧する")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const list = listIssueAttachments(cli.db, id);
+        print(cli, list, () => (list.length ? list.map(formatAttachment).join("\n") : "添付はありません"));
+      }),
+    );
+  attach
+    .command("remove <id> <attachmentId>")
+    .description("添付を削除する（ファイルはコピーも消す）")
+    .action(
+      act((cli, _cmd, id: string, attachmentId: string) => {
+        const removed = parsePositiveInt(attachmentId, "添付の id ");
+        removeAttachment(cli.ctx, id, removed);
+        print(cli, { removed }, () => `添付を削除しました: ${removed}`);
       }),
     );
 }

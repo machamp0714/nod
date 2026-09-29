@@ -2,6 +2,7 @@
 import { registerUiCommand } from "./commands/ui";
 import { Command, CommanderError } from "commander";
 import pkg from "../package.json";
+import { registerAttachmentsCommands } from "./commands/attachments";
 import { registerAutomationCommands } from "./commands/automation";
 import { registerDocCommands } from "./commands/doc";
 import { registerHumanCommands } from "./commands/human";
@@ -30,6 +31,7 @@ export function buildProgram(): Command {
   registerHumanCommands(program);
   registerWorkspaceCommands(program);
   registerAutomationCommands(program);
+  registerAttachmentsCommands(program);
   registerTemplateCommands(program);
   registerStatsCommands(program);
   registerSummaryCommand(program);

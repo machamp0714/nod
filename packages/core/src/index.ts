@@ -13,6 +13,7 @@ export * from "./ops/issues";
 export * from "./ops/bulk-update";
 export * from "./ops/projects";
 export * from "./ops/documents";
+export * from "./ops/attachments";
 export * from "./ops/agent";
 export * from "./ops/human";
 export * from "./plan-markdown";

@@ -248,4 +248,24 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // 期間の要約（#63・#76）。種類つきの作業ログを種類と時刻で引く
   [`CREATE INDEX comments_log_kind ON comments (log_kind, created_at) WHERE log_kind IS NOT NULL`],
+  // Issue の添付（#28）。リンクは URL、ファイルは添付ディレクトリ（NOD_ATTACHMENTS_DIR）の下にコピーした実体への相対パスを持つ。
+  // Markdown を nod で読む・複数の Issue で共有するものは従来どおり documents に置く
+  [
+    `CREATE TABLE issue_attachments (
+      id INTEGER PRIMARY KEY,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('link','file')),
+      title TEXT,
+      url TEXT,
+      file_path TEXT,
+      file_name TEXT,
+      size INTEGER,
+      mime TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      CHECK ((kind = 'link' AND url IS NOT NULL AND file_path IS NULL)
+        OR (kind = 'file' AND url IS NULL AND file_path IS NOT NULL AND file_name IS NOT NULL AND size IS NOT NULL AND mime IS NOT NULL))
+    )`,
+    `CREATE INDEX issue_attachments_issue ON issue_attachments (issue_id, id)`,
+  ],
 ];

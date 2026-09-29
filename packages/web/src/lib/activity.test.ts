@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { describeActivity, visibleActivity } from "./activity";
+import { attachmentSourcePath, describeActivity, visibleActivity } from "./activity";
 
 const at = "2026-09-28T00:00:00.000Z";
 
@@ -116,4 +116,12 @@ test("アーカイブと復元を書き手つきで出し、理由があれば�
   expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: {} })).toEqual({ icon: "archive", text: "me がアーカイブした" });
   expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: { reason: "不要" } }).text).toBe("me がアーカイブした：不要");
   expect(describeActivity({ kind: "event", at, actor: "me", type: "unarchived", data: {} })).toEqual({ icon: "archive-restore", text: "me がアーカイブから復元した" });
+});
+
+test("添付の元ファイルの場所は file の attachment_added だけから取り出し、本文には混ぜない", () => {
+  const added = { kind: "event" as const, at, actor: "me", type: "attachment_added", data: { kind: "file", name: "a.log", source_path: "/repo/a.log" } };
+  expect(attachmentSourcePath(added)).toBe("/repo/a.log");
+  expect(describeActivity(added).text).toBe("me がファイルを添付した：a.log");
+  expect(attachmentSourcePath({ ...added, data: { kind: "link", name: "e.com" } })).toBeNull();
+  expect(attachmentSourcePath({ ...added, type: "attachment_removed" })).toBeNull();
 });

@@ -1,3 +1,4 @@
+import { listIssueAttachments } from "./attachments";
 import { isSubscribedRow } from "./notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
@@ -337,6 +338,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     ...issue,
     plan: loadPlan(db, row.id, row.plan_source),
     documents: loadIssueDocuments(db, row.id),
+    attachments: listIssueAttachments(db, row.id),
     children: selectIssues(db, "WHERE i.parent_id = ? AND i.archived_at IS NULL ORDER BY i.number", [row.id]),
     relations: loadRelations(db, row.id),
     questions,

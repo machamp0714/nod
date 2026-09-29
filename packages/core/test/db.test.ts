@@ -30,6 +30,7 @@ describe("openDb", () => {
       "document_links",
       "documents",
       "events",
+      "issue_attachments",
       "issue_labels",
       "issues",
       "notifications",
