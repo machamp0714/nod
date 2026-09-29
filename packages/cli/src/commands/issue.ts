@@ -20,6 +20,8 @@ import {
   getPrStatus,
   createCommandRunner,
   refreshPrStatus,
+  getPrDiff,
+  refreshPrDiff,
   getWorkspaceRules,
   importPlan,
   isLlm,
@@ -58,6 +60,8 @@ import {
   formatIssueLines,
   formatPlan,
   formatPrStatus,
+  formatPrDiff,
+  formatPrDiffFile,
   formatPrStatusLine,
   print,
   sortByAssignee,
@@ -207,6 +211,31 @@ export function registerIssueCommands(program: Command): void {
           ? await refreshPrStatus(cli.ctx, id, createCommandRunner(process.env.NOD_GH || "gh"))
           : getPrStatus(cli.db, id);
         print(cli, view, () => formatPrStatus(view));
+      }),
+    );
+
+  issue
+    .command("pr-diff <id>")
+    .description("PR の変更ファイルと差分を表示する。--refresh で gh から取得して保存する（GitHub へは読み取りのみ）")
+    .option("--refresh", "gh で PR の HEAD に固定した差分を取得する")
+    .option("--file <path>", "このファイル（変更後のパス）の差分だけを表示する")
+    .action(
+      actAsync(async (cli, cmd, id: string) => {
+        const { refresh, file } = cmd.opts<{ refresh?: boolean; file?: string }>();
+        // NOD_GH はテスト用の口（pr-status と同じ）
+        const view = refresh ? await refreshPrDiff(cli.ctx, id, createCommandRunner(process.env.NOD_GH || "gh")) : getPrDiff(cli.db, id);
+        if (file === undefined) {
+          print(cli, view, () => formatPrDiff(view));
+          return;
+        }
+        const found = view.diff?.files.find((f) => f.path === file);
+        if (!found) {
+          throw new NodError(
+            "NOT_FOUND",
+            view.diff ? `差分に ${file} はありません` : `表示できる差分がありません。nod issue pr-diff ${view.issueId} で状態を確かめる`,
+          );
+        }
+        print(cli, found, () => formatPrDiffFile(found));
       }),
     );
 

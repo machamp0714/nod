@@ -12,6 +12,7 @@ export const queryKeys = {
   issueDetails: () => ["issues", "detail"] as const,
   issue: (id: string) => ["issues", "detail", id] as const,
   prStatus: (id: string) => ["issues", "pr-status", id] as const,
+  prDiff: (id: string) => ["issues", "pr-diff", id] as const,
   inbox: () => ["inbox"] as const,
   inboxHistory: () => ["inbox", "history"] as const,
   triage: () => ["triage"] as const,
