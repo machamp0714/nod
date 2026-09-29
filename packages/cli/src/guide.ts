@@ -23,7 +23,18 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    設計メモなどを新しく書くときは \`nod doc create <相対パス.md> --title "<タイトル>" [--kind spec|plan|doc] [--body "<本文>" | --body -] --issue <id>\` で作る。
    作成先は Documents ディレクトリ（\`NOD_DOCS_DIR\`）の下に限られ、既存ファイルは上書きしない。本文の正本は作られた Markdown ファイルである。
    Document と Issue のリンクは \`nod doc link|unlink <Document id> --issue <id>\` で付け外しし、\`nod doc show <Document id>\` でリンク先の Issue を確かめる。
-5. 節目ごとに \`nod issue log <id> "<何をしたか>"\` で経過を1件残す。細かい思考は残さない。
+5. 節目ごとに \`nod issue log <id> "<内容>" [--kind <種類>]\` で作業ログを1件残す。人は Issue 詳細で種類ごとに絞り込んで読む。
+   残すのは、作業の要約・判断の根拠・実行した結果である。内部の思考（推論の途中経過）は残さない。
+   種類は次のどれかで、省略すると \`progress\` になる。
+   - \`progress\`（経過）：何をしたか、どこまで進んだか
+   - \`plan\`（方針）：これからどう進めるか、方針を変えたこと
+   - \`rationale\`（判断根拠）：選んだ案と、選んだ理由・退けた案
+   - \`command\`（実行コマンド・結果）：実行したコマンドと、結果の要点
+   - \`test\`（テスト結果）：実行したテストと、成否・件数
+   - \`blocker\`（ブロッカー）：進められない原因と、必要なもの
+   1件は 4000 文字までである。長い出力は貼らずに要点だけを残し、全文が必要なら \`nod doc create\` で Document にする。
+   秘密値（トークン、パスワード、.env の値、秘密鍵、資格情報）は書かない。コマンドの出力に含まれるときは伏せてから残す。
+   既知の形の秘密値を含むと SECRET_DETECTED で拒否され、何も記録されない。
 6. 判断に迷ったら推測で進めず、\`nod issue ask <id> "<質問>"\` で人に確認し、その Issue の作業を止める。
    回答は \`nod issue show <id>\` の Activity に出る。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
@@ -109,6 +120,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。復元（\`nod issue unarchive\`）は人だけが行えるため、必要なら人に依頼し、別の Issue を取る。
 - NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
+- SECRET_DETECTED：作業ログに秘密値らしき値が含まれていた。値を伏せて書き直し、再実行する。
 - INVALID_ARGS、INVALID_STEP：message の例に従って引数を直し、再実行する。
 
 ## 停滞候補とブロッカーの確認

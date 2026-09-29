@@ -23,7 +23,7 @@ const ACTIVITY: Record<string, ActivityItem[]> = {
     { kind: "event", at: ago(60 * 24 * 3), actor: "me", type: "created", data: { status: "todo" } },
     { kind: "event", at: ago(48), actor: "claude-code", type: "status_changed", data: { from: "todo", to: "in_progress" } },
     { kind: "event", at: ago(46), actor: "claude-code", type: "plan_updated", data: { source: "2026-09-27-search-n1.md", tasks: 4 } },
-    { kind: "comment", id: 1, at: ago(21), actor: "claude-code", body: "N+1 の原因は検索結果ごとの workspace 取得だった。", replies: [], resolvedAt: null, resolvedBy: null },
+    { kind: "comment", id: 1, at: ago(21), actor: "claude-code", body: "N+1 の原因は検索結果ごとの workspace 取得だった。", replies: [], resolvedAt: null, resolvedBy: null, logKind: null },
     { kind: "event", at: ago(12), actor: "claude-code", type: "agent_state_changed", data: { from: "working", to: "awaiting_input" } },
   ]),
   "API-8": timeline("API-8", [

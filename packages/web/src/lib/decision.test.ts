@@ -57,7 +57,7 @@ describe("doingTaskTitle", () => {
 });
 
 describe("reviewReport", () => {
-  const comment = (at: string, actor: string, body: string): ActivityItem => ({ kind: "comment", id: 1, at, actor, body, replies: [], resolvedAt: null, resolvedBy: null });
+  const comment = (at: string, actor: string, body: string): ActivityItem => ({ kind: "comment", id: 1, at, actor, body, replies: [], resolvedAt: null, resolvedBy: null, logKind: null });
   const toStatus = (at: string, from: string, to: string): ActivityItem => ({
     kind: "event",
     at,

@@ -33,6 +33,7 @@ describe("エラーの対応表", () => {
       status: 400,
       body: { error: { code: "INVALID_ARGS", message: "x" } },
     });
+    expect(toErrorResponse(new NodError("SECRET_DETECTED", "x")).status).toBe(400);
     expect(toErrorResponse(new NodError("NOT_FOUND", "x")).status).toBe(404);
     expect(toErrorResponse(new NodError("NOT_IN_TRIAGE", "x")).status).toBe(409);
     expect(toErrorResponse(new NodError("VIEW_EXISTS", "x")).status).toBe(409);

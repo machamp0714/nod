@@ -4,6 +4,7 @@ import { formatIssueId, type IssueRow } from "./issue-query";
 import { NodError } from "./errors";
 import { notifyDelegator, notifySubscribers } from "./notify";
 import type { Comment } from "./types";
+import type { WorkLogKind } from "./work-log";
 
 export function recordEvent(
   db: Database,
@@ -19,11 +20,17 @@ export function recordEvent(
   notifyDelegator(db, issueId, actor, type, Number(lastInsertRowid), data);
 }
 
-export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: number | null = null): Comment {
+export function addComment(
+  ctx: OpCtx,
+  row: IssueRow,
+  body: string,
+  parentId: number | null = null,
+  logKind: WorkLogKind | null = null,
+): Comment {
   const ts = now();
   const { lastInsertRowid } = ctx.db
-    .query("INSERT INTO comments (issue_id, author, body, created_at, parent_id) VALUES (?, ?, ?, ?, ?)")
-    .run(row.id, ctx.actor, body, ts, parentId);
+    .query("INSERT INTO comments (issue_id, author, body, created_at, parent_id, log_kind) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(row.id, ctx.actor, body, ts, parentId, logKind);
   ctx.db.query("UPDATE issues SET updated_at = ? WHERE id = ?").run(ts, row.id);
   notifySubscribers(ctx.db, row.id, ctx.actor, "comment_added", { commentId: Number(lastInsertRowid) });
   return {
@@ -35,6 +42,7 @@ export function addComment(ctx: OpCtx, row: IssueRow, body: string, parentId: nu
     parentId,
     resolvedAt: null,
     resolvedBy: null,
+    logKind,
   };
 }
 

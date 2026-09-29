@@ -24,3 +24,4 @@ export * from "./ops/notifications";
 export * from "./due-date";
 export * from "./ops/stats";
 export * from "./ops/triage-suggest";
+export * from "./work-log";

@@ -15,6 +15,7 @@ import {
   type Notification,
   type SuggestionReason,
   type TriageSuggestions,
+  WORK_LOG_KIND_LABEL,
 } from "@nod/core";
 
 export const STATUS_LABEL: Record<Status, string> = DEFAULT_STATUS_LABELS;
@@ -120,7 +121,8 @@ function formatActivity(a: ActivityItem): string {
   if (a.kind === "comment") {
     const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
     const resolved = a.resolvedAt !== null ? `（解決済み: ${a.resolvedBy}）` : "";
-    return `  ${at}  #${a.id} ${a.actor}: ${a.body}${resolved}${replies}`;
+    const kind = a.logKind ? ` [${WORK_LOG_KIND_LABEL[a.logKind]}]` : "";
+    return `  ${at}  #${a.id} ${a.actor}${kind}: ${a.body}${resolved}${replies}`;
   }
   if (a.kind === "question") {
     const answer = a.answer !== null ? `\n    → ${a.answeredBy}: ${a.answer}` : "";

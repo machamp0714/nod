@@ -215,4 +215,9 @@ export const MIGRATIONS: MigrationStep[][] = [
       PRIMARY KEY (workspace_id, status)
     )`,
   ],
+  // 作業ログ（nod issue log）の種類。通常のコメントと既存のログは NULL（種類なし）
+  [
+    `ALTER TABLE comments ADD COLUMN log_kind TEXT
+      CHECK (log_kind IS NULL OR log_kind IN ('progress', 'plan', 'rationale', 'command', 'test', 'blocker'))`,
+  ],
 ];
