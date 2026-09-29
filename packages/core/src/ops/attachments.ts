@@ -283,3 +283,21 @@ export function attachmentFile(db: Database, id: number, dir: string = defaultAt
   if (!abs) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
   return { abs, fileName: row.file_name, mime: row.mime, size: lstatSync(abs).size };
 }
+
+// ダウンロードの本文。確かめた後に symlink へ差し替えられても辿らないよう、O_NOFOLLOW で開いて読む
+export function readAttachmentFile(db: Database, id: number, dir: string = defaultAttachmentsDir()): AttachmentFile & { data: Buffer } {
+  const file = attachmentFile(db, id, dir);
+  let fd: number;
+  try {
+    fd = openSync(file.abs, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
+  }
+  try {
+    if (!fstatSync(fd).isFile()) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
+    const data = readFileSync(fd);
+    return { ...file, size: data.length, data };
+  } finally {
+    closeSync(fd);
+  }
+}
