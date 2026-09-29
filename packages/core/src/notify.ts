@@ -81,7 +81,7 @@ export function collapseIntoAgentNotification(db: Database, issueId: number, sin
 // me が回答・承認・差し戻しで応じたら、その Issue の未読の LLM の通知は対応済みとして既読にする
 export function readAgentNotifications(db: Database, issueId: number, recipient: string): void {
   db.query(
-    "UPDATE notifications SET read_at = ? WHERE issue_id = ? AND recipient = ? AND kind = 'agent' AND read_at IS NULL",
+    "UPDATE notifications SET read_at = ? WHERE issue_id = ? AND recipient = ? AND kind = 'agent' AND read_at IS NULL AND deleted_at IS NULL",
   ).run(now(), issueId, recipient);
 }
 
