@@ -96,9 +96,10 @@ test("LLM 別に完了数・作業時間・担当開始・レビュー提出の�
   await nod.codex.startIssue(other.id);
   await page.goto("/analytics");
   const section = page.getByRole("region", { name: "LLM 別" });
-  await expect(section.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "レビュー提出"]);
-  await expect(section.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "0.0h", "0.0h", "1", "1"]);
-  await expect(section.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "—", "—", "1", "0"]);
+  const totals = section.getByRole("table", { name: "LLM ごとの合計" });
+  await expect(totals.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "レビュー提出"]);
+  await expect(totals.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "0.0h", "0.0h", "1", "1"]);
+  await expect(totals.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "—", "—", "1", "0"]);
   await expect(section.getByText("記録なしの 0 件は時間の集計から除く")).toBeVisible();
   const chart = section.getByRole("img", { name: "週ごとの完了数（LLM 別）" });
   await expect(chart.locator('[data-series="claude-code"]')).toHaveCount(1);
@@ -106,4 +107,63 @@ test("LLM 別に完了数・作業時間・担当開始・レビュー提出の�
 
   await page.getByLabel("Workspace").selectOption("WEB");
   await expect(section.getByText("この期間に LLM の作業はありません")).toBeVisible();
+});
+
+test("各グラフは期間ごとの値の表と結びつき、表から同じ値を読める", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/analytics?by=day&range=7");
+  const today = new Date();
+  const label = `${today.getMonth() + 1}/${today.getDate()}`;
+
+  const bars = page.getByRole("img", { name: "日ごとの完了数", exact: true });
+  const barsTable = page.getByRole("table", { name: "日ごとの完了数", exact: true });
+  await expect(bars).toHaveAttribute("aria-describedby", (await barsTable.getAttribute("id"))!);
+  await expect(barsTable.getByRole("columnheader")).toHaveText(["日", "完了", "canceled"]);
+  await expect(barsTable.getByRole("row")).toHaveCount(8);
+  const todayRow = barsTable.getByRole("row").last();
+  await expect(todayRow.getByRole("rowheader")).toHaveText(label);
+  await expect(todayRow.getByRole("cell")).toHaveText(["3", "1"]);
+
+  const lineTable = page.getByRole("table", { name: "日ごとの作業時間 中央値" });
+  await expect(lineTable.getByRole("columnheader")).toHaveText(["日", "中央値", "件数", "合計", "記録なし"]);
+  await expect(lineTable.getByRole("row").last().getByRole("cell")).toHaveText(["0.0h", "1", "0.0h", "2"]);
+
+  const llmTable = page.getByRole("region", { name: "LLM 別" }).getByRole("table", { name: "日ごとの完了数（LLM 別）" });
+  await expect(llmTable.getByRole("columnheader")).toHaveText(["日", "claude-code"]);
+  await expect(llmTable.getByRole("row").last().getByRole("cell")).toHaveText(["1"]);
+  const llmChart = page.getByRole("img", { name: "日ごとの完了数（LLM 別）" });
+  await expect(llmChart).toHaveAttribute("aria-describedby", (await llmTable.getAttribute("id"))!);
+});
+
+test("作業時間の折れ線はキーボードでフォーカスすると値の吹き出しを出し、←→ で値のある点を移る", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/analytics?by=day&range=7");
+  const line = page.getByRole("img", { name: "日ごとの作業時間 中央値" });
+  await line.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("中央値 0.0h");
+  await expect(tooltip).toContainText("件数 1・合計 0.0h");
+  const describedBy = (await line.getAttribute("aria-describedby"))!.split(" ");
+  expect(describedBy).toContain(await tooltip.getAttribute("id"));
+  // 値のある点は今日だけなので、左右に動いても同じ点にとどまる
+  await line.press("ArrowLeft");
+  await expect(tooltip).toContainText("中央値 0.0h");
+  await line.press("Home");
+  await expect(tooltip).toBeVisible();
+  await line.blur();
+  await expect(tooltip).toHaveCount(0);
+});
+
+test("canceled だけの期間は空の状態にせず、canceled の系列を出す", async ({ page, nod }) => {
+  const web = (await nod.me.initWorkspace({ path: nod.repo("web-app"), key: "WEB", name: "web-app" })).workspace;
+  const dropped = await nod.me.createIssue({ workspaceId: web.id, title: "やめた作業" });
+  await nod.me.updateIssue(dropped.id, { status: "canceled" });
+  await page.goto("/analytics");
+  await expect(kpi(page, "完了数")).toContainText("0");
+  await expect(kpi(page, "完了数")).toContainText("canceled 1 件は除く");
+  await expect(kpi(page, "作業時間 中央値")).toContainText("—");
+  const bars = page.getByRole("img", { name: "週ごとの完了数", exact: true });
+  await expect(bars.locator('[data-series="canceled"]')).toHaveCount(1);
+  await expect(bars.locator('[data-series="完了"]')).toHaveCount(0);
+  await expect(page.getByText("この期間に完了した Issue はありません")).toHaveCount(0);
 });

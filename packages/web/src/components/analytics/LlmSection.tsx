@@ -33,10 +33,11 @@ function LlmBody({ stats }: { stats: LlmStats }) {
   const colors = llmColors(stats.llms.map((l) => l.name));
   const unit = stats.by === "day" ? "日" : "週";
   const unrecorded = stats.llms.reduce((sum, l) => sum + l.totals.work.unrecorded, 0);
+  const slots = slotsOf(stats.buckets, stats.by);
   return (
     <div className={s.row}>
       <div className={`${s.card} ${s.llmTable}`}>
-        <table>
+        <table aria-label="LLM ごとの合計">
           <thead>
             <tr>
               <th>LLM</th>
@@ -77,10 +78,14 @@ function LlmBody({ stats }: { stats: LlmStats }) {
       >
         <StackedBars
           label={`${unit}ごとの完了数（LLM 別）`}
-          slots={slotsOf(stats.buckets, stats.by)}
+          slots={slots}
           series={stats.buckets.map((_, n) =>
             stats.llms.map((l) => ({ key: l.name, value: l.buckets[n]!.completed, color: colors.get(l.name)! })),
           )}
+          table={{
+            head: [unit, ...stats.llms.map((l) => l.name)],
+            rows: slots.map((slot, n) => [slot.label, ...stats.llms.map((l) => String(l.buckets[n]!.completed))]),
+          }}
         />
       </Card>
     </div>

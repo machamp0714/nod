@@ -112,7 +112,8 @@ function SelectChip({ label, value, onChange, children }: {
 }
 
 function CompletionSection({ stats, rangeText }: { stats: CompletionStats; rangeText: string }) {
-  if (stats.totals.completed === 0) {
+  // canceled だけの期間も系列を見せ、どちらも無いときだけ空の状態にする
+  if (stats.totals.completed === 0 && stats.totals.canceled === 0) {
     return (
       <div className={s.empty}>
         <Icon name="chart-column" size={24} color="var(--ink3)" />
@@ -138,6 +139,10 @@ function CompletionSection({ stats, rangeText }: { stats: CompletionStats; range
               { key: "完了", value: b.completed, color: "var(--accent)" },
               { key: "canceled", value: b.canceled, color: "var(--line)" },
             ])}
+            table={{
+              head: [unit, "完了", "canceled"],
+              rows: stats.buckets.map((b, n) => [slots[n]!.label, String(b.completed), String(b.canceled)]),
+            }}
           />
         </Card>
         <Card title={`${unit}ごとの作業時間 中央値`} legend={<Legend items={[{ key: "中央値", color: "var(--accent)", line: true }]} />}>
@@ -153,6 +158,16 @@ function CompletionSection({ stats, rangeText }: { stats: CompletionStats; range
                 `件数 ${b.work.measured}・合計 ${formatHours(b.work.totalMinutes)}`,
               ],
             }))}
+            table={{
+              head: [unit, "中央値", "件数", "合計", "記録なし"],
+              rows: stats.buckets.map((b, n) => [
+                slots[n]!.label,
+                formatHours(b.work.medianMinutes),
+                String(b.work.measured),
+                b.work.measured ? formatHours(b.work.totalMinutes) : "—",
+                String(b.work.unrecorded),
+              ]),
+            }}
           />
         </Card>
       </div>

@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import { axisDate, labelEvery, niceTicks } from "../../lib/analytics";
 import s from "./charts.module.css";
 
@@ -20,6 +20,30 @@ export interface Slot {
   label: string; // 読み上げと hover に出す説明
 }
 
+// グラフと同じ値を期間ごとの行で持つ表。画面には出さず、読み上げと値の確認に使う
+export interface ChartTable {
+  head: string[]; // 先頭は期間の列
+  rows: string[][];
+}
+
+function DataTable({ id, label, table }: { id: string; label: string; table: ChartTable }) {
+  return (
+    <table id={id} className={s.visuallyHidden}>
+      <caption>{label}</caption>
+      <thead>
+        <tr>{table.head.map((h, n) => <th key={n} scope="col">{h}</th>)}</tr>
+      </thead>
+      <tbody>
+        {table.rows.map((row, r) => (
+          <tr key={r}>
+            {row.map((cell, n) => (n === 0 ? <th key={n} scope="row">{cell}</th> : <td key={n}>{cell}</td>))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // 親の幅に合わせて描く。SVG を伸縮させると文字が歪むため、幅を測って座標を計算する
 function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null);
@@ -36,8 +60,13 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   return [ref, width];
 }
 
-function Frame({ label, width, ticks, format, slots, children }: {
+function Frame({ label, describedBy, width, ticks, format, slots, children, ...focus }: {
   label: string;
+  describedBy: string;
+  tabIndex?: number;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onKeyDown?: (event: KeyboardEvent<SVGSVGElement>) => void;
   width: number;
   ticks: number[];
   format: (value: number) => string;
@@ -48,7 +77,7 @@ function Frame({ label, width, ticks, format, slots, children }: {
   const every = labelEvery(slots.length);
   const top = ticks.at(-1) ?? 1;
   return (
-    <svg className={s.svg} width={width} height={HEIGHT} role="img" aria-label={label}>
+    <svg className={s.svg} width={width} height={HEIGHT} role="img" aria-label={label} aria-describedby={describedBy} {...focus}>
       {ticks.map((t) => {
         const y = AXIS_Y - (t / top) * PLOT_H;
         return (
@@ -75,15 +104,16 @@ function scale(value: number, top: number): number {
 }
 
 // 期間ごとに系列を横に並べた縦棒（例: 完了と canceled）
-export function GroupedBars({ label, slots, series }: { label: string; slots: Slot[]; series: Segment[][] }) {
+export function GroupedBars({ label, slots, series, table }: { label: string; slots: Slot[]; series: Segment[][]; table: ChartTable }) {
   const [ref, width] = useWidth();
+  const tableId = useId();
   const ticks = niceTicks(Math.max(0, ...series.flat().map((x) => x.value)));
   const top = ticks.at(-1)!;
   const slotW = (width - LEFT) / Math.max(1, slots.length);
   const barW = Math.max(2, Math.min(12, slotW * 0.3));
   return (
     <div ref={ref} className={s.plot}>
-      <Frame label={label} width={width} ticks={ticks} format={String} slots={slots}>
+      <Frame label={label} describedBy={tableId} width={width} ticks={ticks} format={String} slots={slots}>
         {slots.map((slot, n) => {
           const bars = series[n] ?? [];
           const x0 = LEFT + slotW * (n + 0.5) - (bars.length * barW + (bars.length - 1) * 2) / 2;
@@ -98,20 +128,22 @@ export function GroupedBars({ label, slots, series }: { label: string; slots: Sl
           );
         })}
       </Frame>
+      <DataTable id={tableId} label={label} table={table} />
     </div>
   );
 }
 
 // 期間ごとに系列を積み上げた縦棒。最初の系列を下に置き、一番上の段だけ角を丸める
-export function StackedBars({ label, slots, series }: { label: string; slots: Slot[]; series: Segment[][] }) {
+export function StackedBars({ label, slots, series, table }: { label: string; slots: Slot[]; series: Segment[][]; table: ChartTable }) {
   const [ref, width] = useWidth();
+  const tableId = useId();
   const ticks = niceTicks(Math.max(0, ...series.map((stack) => stack.reduce((sum, x) => sum + x.value, 0))));
   const top = ticks.at(-1)!;
   const slotW = (width - LEFT) / Math.max(1, slots.length);
   const barW = Math.max(3, Math.min(18, slotW * 0.45));
   return (
     <div ref={ref} className={s.plot}>
-      <Frame label={label} width={width} ticks={ticks} format={String} slots={slots}>
+      <Frame label={label} describedBy={tableId} width={width} ticks={ticks} format={String} slots={slots}>
         {slots.map((slot, n) => {
           const stack = (series[n] ?? []).filter((x) => x.value > 0);
           const x = LEFT + slotW * (n + 0.5) - barW / 2;
@@ -130,6 +162,7 @@ export function StackedBars({ label, slots, series }: { label: string; slots: Sl
           );
         })}
       </Frame>
+      <DataTable id={tableId} label={label} table={table} />
     </div>
   );
 }
@@ -139,16 +172,20 @@ export interface LinePoint {
   tooltip: [string, string]; // hover で出す見出しと詳細
 }
 
-// 期間ごとの値の折れ線。点に乗ると縦の案内線と値の吹き出しを出す
-export function LineChart({ label, slots, points, format, minStep }: {
+// 期間ごとの値の折れ線。点に乗ると縦の案内線と値の吹き出しを出す。
+// キーボードではグラフにフォーカスして ←→（Home・End）で値のある点を移る
+export function LineChart({ label, slots, points, format, minStep, table }: {
   label: string;
   slots: Slot[];
   points: LinePoint[];
   format: (value: number) => string;
   minStep: number;
+  table: ChartTable;
 }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState<number | null>(null);
+  const tableId = useId();
+  const tooltipId = useId();
   const ticks = niceTicks(Math.max(0, ...points.map((p) => p.value ?? 0)), minStep);
   const top = ticks.at(-1)!;
   const slotW = (width - LEFT) / Math.max(1, slots.length);
@@ -158,9 +195,34 @@ export function LineChart({ label, slots, points, format, minStep }: {
     if (p) d += `${n > 0 && xy[n - 1] ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
   });
   const active = hover === null ? null : xy[hover];
+  const valued = xy.flatMap((p, n) => (p ? [n] : []));
+  const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+    if (valued.length === 0) return;
+    const at = hover === null ? -1 : valued.indexOf(hover);
+    const next = {
+      ArrowLeft: valued[Math.max(0, at - 1)],
+      ArrowRight: valued[Math.min(valued.length - 1, at + 1)],
+      Home: valued[0],
+      End: valued.at(-1),
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    setHover(next);
+  };
   return (
     <div ref={ref} className={s.plot} onMouseLeave={() => setHover(null)}>
-      <Frame label={label} width={width} ticks={ticks} format={format} slots={slots}>
+      <Frame
+        label={label}
+        describedBy={active ? `${tableId} ${tooltipId}` : tableId}
+        width={width}
+        ticks={ticks}
+        format={format}
+        slots={slots}
+        tabIndex={0}
+        onFocus={() => setHover(valued.at(-1) ?? null)}
+        onBlur={() => setHover(null)}
+        onKeyDown={onKeyDown}
+      >
         {active && <rect x={active.x} y={TOP} width={1} height={PLOT_H} fill="var(--line)" />}
         <path d={d} fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         {xy.map((p, n) =>
@@ -186,6 +248,7 @@ export function LineChart({ label, slots, points, format, minStep }: {
       </Frame>
       {active && hover !== null && (
         <div
+          id={tooltipId}
           className={s.tooltip}
           role="tooltip"
           style={{ left: Math.min(active.x + 8, width - 150), top: Math.max(0, active.y - 58) }}
@@ -194,6 +257,7 @@ export function LineChart({ label, slots, points, format, minStep }: {
           <span className={s.tooltipDetail}>{points[hover]!.tooltip[1]}</span>
         </div>
       )}
+      <DataTable id={tableId} label={label} table={table} />
     </div>
   );
 }
