@@ -709,12 +709,12 @@ describe("通知の削除（#44）", () => {
     const { db, me, a } = seeded();
     const before = listNotifications(db, { includeRead: true });
     const { ids } = deleteNotifications(me, { issueRef: a.id });
-    expect(restoreNotifications(me, { ids })).toEqual({ updated: 2 });
-    expect(restoreNotifications(me, { ids })).toEqual({ updated: 0 });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: 2, missing: 0 });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: 0, missing: 0 });
     expect(listNotifications(db, { includeRead: true })).toEqual(before);
   });
 
-  test("id を指定して削除でき、削除済み・存在しない id は NOT_FOUND、指定の誤りは INVALID_ARGS", () => {
+  test("id を指定して削除でき、削除済み・存在しない id の削除は NOT_FOUND、指定の誤りは INVALID_ARGS", () => {
     const { db, me, b } = seeded();
     const b1 = listNotifications(db).find((n) => n.issueId === b.id)!;
     expect(deleteNotifications(me, { ids: [b1.id] })).toEqual({ updated: 1, ids: [b1.id] });
@@ -722,7 +722,15 @@ describe("通知の削除（#44）", () => {
     expect(codeOf(() => deleteNotifications(me, { issueRef: b.id }))).toBe("NOT_FOUND");
     expect(codeOf(() => deleteNotifications(me, {}))).toBe("INVALID_ARGS");
     expect(codeOf(() => restoreNotifications(me, { ids: [] }))).toBe("INVALID_ARGS");
-    expect(codeOf(() => restoreNotifications(me, { ids: [9999] }))).toBe("NOT_FOUND");
+  });
+
+  test("取り消しは存在しない id を読み飛ばし、残りを戻して読み飛ばした件数を返す（#134）", () => {
+    const { db, me, a } = seeded();
+    const { ids } = deleteNotifications(me, { issueRef: a.id });
+    db.query("DELETE FROM notifications WHERE id = ?").run(ids[0]!);
+    expect(restoreNotifications(me, { ids: [...ids, 9999] })).toEqual({ updated: ids.length - 1, missing: 2 });
+    expect(listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id)).toHaveLength(ids.length - 1);
+    expect(restoreNotifications(me, { ids: [9999] })).toEqual({ updated: 0, missing: 1 });
   });
 
   test("LLM は削除も取り消しもできない", () => {

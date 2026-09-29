@@ -105,6 +105,8 @@ test("通知を削除・取り消しでき、LLM は削除できない（#44）"
   const restore = await nod(["notification", "restore", id!]);
   expect(restore.stdout.trim()).toBe("1 件の削除を取り消しました");
   expect((await nod(["notification", "list", "--json"])).json).toHaveLength(1);
+  const missing = await nod(["notification", "restore", id!, "9999"]);
+  expect(missing.stdout.trim()).toBe("0 件の削除を取り消しました（1 件はもうないため読み飛ばしました）");
   const none = await nod(["notification", "restore", "--json"]);
   expect(none.json.error.code).toBe("INVALID_ARGS");
 });

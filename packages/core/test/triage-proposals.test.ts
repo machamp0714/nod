@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OpCtx } from "../src/ctx";
 import { acceptTriage, declineTriage, duplicateTriage, snoozeTriage } from "../src/ops/human";
-import { archiveIssue, createIssue, unarchiveIssue, updateIssue } from "../src/ops/issues";
+import { archiveIssue, commentIssue, createIssue, unarchiveIssue, updateIssue } from "../src/ops/issues";
 import { deleteNotifications, listNotifications, markNotificationsRead, restoreNotifications, snoozeNotifications } from "../src/ops/notifications";
 import { listTriageProposalCounts, listTriageProposals, proposeTriage, withdrawTriageProposal } from "../src/ops/triage-proposals";
 import { addProjectRow, codeOf, setup } from "./helpers";
@@ -221,9 +221,30 @@ describe("Triage 提案の通知（#125）", () => {
     proposeTriage(llm, issue.id, { decision: "accept" });
     const [second] = proposalNotifications(db);
     deleteNotifications(me, { ids: [second!.id] });
-    expect(codeOf(() => restoreNotifications(me, { ids: [first!.id] }))).toBe("NOT_FOUND");
+    expect(restoreNotifications(me, { ids: [first!.id] })).toEqual({ updated: 0, missing: 1 });
     restoreNotifications(me, { ids: [second!.id] });
     expect(proposalNotifications(db).map((x) => [x.id, x.data.decision, x.readAt])).toEqual([[second!.id, "accept", null]]);
+  });
+
+  test("LLM が updateIssue で Triage を出したときも、その Issue の未読の提案通知を既読にする（#134）", () => {
+    const { db, llm, create } = seed();
+    const issue = create(llm, "判断待ち");
+    proposeTriage(llm, issue.id, { decision: "accept" });
+    updateIssue(llm, issue.id, { status: "backlog" });
+    expect(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null])).toEqual([[issue.id, true]]);
+  });
+
+  test("同じ Issue の削除をまとめて取り消すと、置き換えで消えた通知だけを読み飛ばして残りを戻す（#134）", () => {
+    const { db, me, llm, create } = seed();
+    const issue = create(llm, "判断待ち");
+    proposeTriage(llm, issue.id, { decision: "decline" });
+    commentIssue(llm, issue.id, "補足");
+    const { ids } = deleteNotifications(me, { issueRef: issue.id });
+    proposeTriage(llm, issue.id, { decision: "accept" });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: ids.length - 1, missing: 1 });
+    const kinds = listNotifications(db, { includeRead: true }).filter((n) => n.issueId === issue.id).map((n) => n.kind);
+    expect(kinds.filter((k) => k === "triage_proposal")).toHaveLength(1);
+    expect(kinds.length).toBe(ids.length);
   });
 });
 
@@ -237,6 +258,17 @@ describe("withdrawTriageProposal（#125）", () => {
     expect(withdrawTriageProposal(llm, issue.id)).toEqual({ issueId: issue.id, actor: "claude-code", withdrawn: true });
     expect(listTriageProposals(db, issue.id).map((p) => p.actor)).toEqual(["codex"]);
     expect(proposalNotifications(db).map((n) => n.actor)).toEqual(["codex"]);
+  });
+
+  test("削除済みの未読の提案通知も取り下げで消え、削除を取り消しても読み飛ばす（#134）", () => {
+    const { db, me, llm, create } = seed();
+    const issue = create(llm, "判断待ち");
+    proposeTriage(llm, issue.id, { decision: "decline" });
+    const { ids } = deleteNotifications(me, { issueRef: issue.id });
+    withdrawTriageProposal(llm, issue.id);
+    expect(db.query("SELECT COUNT(*) AS n FROM notifications WHERE kind = 'triage_proposal'").get()).toEqual({ n: 0 });
+    expect(restoreNotifications(me, { ids })).toEqual({ updated: 0, missing: 1 });
+    expect(proposalNotifications(db)).toEqual([]);
   });
 
   test("既読の提案通知は履歴として残す", () => {

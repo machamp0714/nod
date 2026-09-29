@@ -241,19 +241,21 @@ export function deleteNotifications(ctx: OpCtx, input: NotificationTarget): { up
   });
 }
 
-// 削除を取り消す。削除していないものはそのまま。updated は今回戻した件数
-export function restoreNotifications(ctx: OpCtx, input: { ids: number[] }): { updated: number } {
+// 削除を取り消す。削除していないものはそのまま。updated は今回戻した件数。
+// 削除のあとに（提案の置き換え・取り下げで）消えた通知は読み飛ばし、その件数を missing で返す（#134）
+export function restoreNotifications(ctx: OpCtx, input: { ids: number[] }): { updated: number; missing: number } {
   requireHuman(ctx, "通知の削除を取り消し");
   validateIds(input.ids ?? [], "削除を取り消す");
   return tx(ctx.db, () => {
     const exists = ctx.db.query("SELECT 1 FROM notifications WHERE id = ? AND recipient = ?");
-    for (const id of input.ids) {
-      if (exists.get(id, ctx.actor) === null) throw new NodError("NOT_FOUND", `通知 ${id} はありません`);
-    }
+    const ids = [...new Set(input.ids)].filter((id) => exists.get(id, ctx.actor) !== null);
+    const missing = new Set(input.ids).size - ids.length;
+    if (ids.length === 0) return { updated: 0, missing };
     return {
       updated: ctx.db
-        .query(`UPDATE notifications SET deleted_at = NULL WHERE deleted_at IS NOT NULL AND id IN (${inList(input.ids)})`)
-        .run(...input.ids).changes,
+        .query(`UPDATE notifications SET deleted_at = NULL WHERE deleted_at IS NOT NULL AND id IN (${inList(ids)})`)
+        .run(...ids).changes,
+      missing,
     };
   });
 }
