@@ -20,6 +20,8 @@ export type {
   IssueDetail,
   IssueList,
   IssueQuery,
+  Notification,
+  SubscriptionState,
   Plan,
   PlanStep,
   PlanTask,
