@@ -40,6 +40,8 @@ export const CTX_OPS = [
   "updateWorkspaceLabel",
   "setStatusNames",
   "setAutomationSettings",
+  "addLinkAttachment",
+  "addFileAttachment",
 ] as const;
 
 // 第1引数に Database を取る操作

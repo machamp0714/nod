@@ -112,6 +112,10 @@ export function describeActivity(item: ActivityItem, nameOfStatus: (value: unkno
       return { icon: "file-text", text: `${actor} が Document を添付した` };
     case "document_detached":
       return { icon: "file-text", text: `${actor} が Document を外した` };
+    case "attachment_added":
+      return { icon: data.kind === "file" ? "paperclip" : "link", text: `${actor} が${data.kind === "file" ? "ファイル" : "リンク"}を添付した：${String(data.name ?? "")}` };
+    case "attachment_removed":
+      return { icon: data.kind === "file" ? "paperclip" : "link", text: `${actor} が添付を削除した：${String(data.name ?? "")}` };
     case "relation_added":
       return { icon: "arrow-right", text: `${actor} が関連 Issue を足した：${String(data.type)} ${String(data.to)}` };
     case "triage_accepted":
