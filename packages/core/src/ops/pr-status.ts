@@ -2,8 +2,13 @@ import type { Database } from "bun:sqlite";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow, formatIssueId } from "../issue-query";
+import { recordEvent } from "../events";
+import { findIssueRow, findWritableIssueRow, formatIssueId, issueRowById, toIssue } from "../issue-query";
+import { setColumn } from "../mutate";
+import { applyPrReview } from "./auto-transitions";
 import type {
+  AutoTransition,
+  Issue,
   PrCheck,
   PrCheckState,
   PrReviewDecision,
@@ -41,7 +46,12 @@ const ERROR_MESSAGES: Record<Exclude<PrStatusErrorCode, "UNKNOWN">, string> = {
 
 // コマンドを起動して結果を返す。prefix は gh の前に置く引数（テストで bun スクリプトを gh の代わりにするため）。
 // 時間切れになったら出力や終了を待たずに timeout を返し、SIGTERM → 猶予 → SIGKILL で止める
-export function createCommandRunner(command: string, prefix: string[] = [], opts: { killGraceMs?: number } = {}): GhRunner {
+// env を渡すと、その関数で process.env から起動時の環境を作る（git 用に GIT_DIR などを除くため）
+export function createCommandRunner(
+  command: string,
+  prefix: string[] = [],
+  opts: { killGraceMs?: number; env?: (base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv } = {},
+): GhRunner {
   const killGraceMs = opts.killGraceMs ?? GH_KILL_GRACE_MS;
   return async (args, { timeoutMs }) => {
     let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
@@ -51,7 +61,7 @@ export function createCommandRunner(command: string, prefix: string[] = [], opts
         stdout: "pipe",
         stderr: "pipe",
         // 対話の確認を出させない。認証は gh 自身に任せ、nod はトークンを読まない
-        env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+        env: { ...(opts.env ? opts.env(process.env) : process.env), GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
       });
     } catch (e) {
       const err = e as { code?: string; message?: string };
@@ -192,6 +202,29 @@ function readView(db: Database, issueRowId: number, issueId: string, prUrl: stri
   return view;
 }
 
+// 現在の PR を付けた日時。PR 連動（#66）は、これ以降に一度でも in_review になった Issue を進めない
+export function markPrLinked(ctx: OpCtx, issueRowId: number): void {
+  ctx.db.query("UPDATE issues SET pr_linked_at = ? WHERE id = ?").run(now(), issueRowId);
+}
+
+// 作業中に PR（draft を含む）を Issue に紐付ける（nod issue link-pr）。ステータスは変えない。LLM も使える。
+// PR 連動が有効な Workspace では、紐付けたあとの更新で PR が open（draft 以外）かマージ済みなら in_review に進む
+export function linkPr(ctx: OpCtx, ref: string, url: string): Issue {
+  const prUrl = url.trim();
+  if (!GITHUB_PR_URL_RE.test(prUrl)) {
+    throw new NodError("INVALID_ARGS", `${url} は GitHub の PR URL ではありません（例: https://github.com/owner/repo/pull/12）`);
+  }
+  return tx(ctx.db, () => {
+    const row = findWritableIssueRow(ctx.db, ref);
+    const from = row.pr_url;
+    if (setColumn(ctx, row, "pr_url", prUrl)) {
+      markPrLinked(ctx, row.id);
+      recordEvent(ctx.db, row.id, ctx.actor, "pr_linked", { from, to: prUrl });
+    }
+    return toIssue(issueRowById(ctx.db, row.id));
+  });
+}
+
 export function getPrStatus(db: Database, ref: string): PrStatusView {
   const row = findIssueRow(db, ref);
   return readView(db, row.id, formatIssueId(row.ws_key, row.number), row.pr_url);
@@ -202,7 +235,8 @@ export function getPrStatus(db: Database, ref: string): PrStatusView {
 const inflight = new WeakMap<Database, Map<string, Promise<PrStatusView>>>();
 
 // gh pr view で PR の状態を取得して保存する（GitHub へは読み取りのみ）。
-// 取得の失敗は例外にせず fetchError として保存・返却し、前回の成功結果は残す。アクティビティ・通知には残さない
+// 取得の失敗は例外にせず fetchError として保存・返却し、前回の成功結果は残す。アクティビティ・通知には残さない。
+// Workspace で PR 連動（#66）が有効なら、保存と同じ transaction で in_progress の Issue を in_review に進め、その記録を autoTransition で返す
 export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunner): Promise<PrStatusView> {
   const row = findIssueRow(ctx.db, ref);
   const issueId = formatIssueId(row.ws_key, row.number);
@@ -215,8 +249,8 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   if (pending) return pending;
   const job = (async () => {
     try {
-      await fetchAndSave(ctx, row.id, prUrl, run);
-      return getPrStatus(ctx.db, issueId);
+      const autoTransition = await fetchAndSave(ctx, row.id, prUrl, run);
+      return { ...getPrStatus(ctx.db, issueId), autoTransition };
     } finally {
       byIssue.delete(key);
     }
@@ -225,7 +259,7 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   return job;
 }
 
-async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: GhRunner): Promise<void> {
+async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: GhRunner): Promise<AutoTransition | null> {
   const startedAt = now();
   let outcome: { data: Omit<PrStatus, "prUrl" | "fetchedAt" | "fetchedBy"> } | { error: { code: PrStatusErrorCode; message: string } };
   if (!GITHUB_PR_URL_RE.test(prUrl)) {
@@ -243,13 +277,13 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
     }
   }
   const at = now();
-  tx(ctx.db, () => {
+  return tx(ctx.db, () => {
     // 取得中に Issue の PR URL が変わっていたら、古い URL の結果は書かない（新しい URL の結果を上書きしない）
     const current = ctx.db.query("SELECT pr_url FROM issues WHERE id = ?").get(issueRowId) as { pr_url: string | null } | null;
-    if (current?.pr_url !== prUrl) return;
+    if (current?.pr_url !== prUrl) return null;
     // 保存済みより後に始めた取得のときだけ書く（別プロセスの新しい結果を古い結果で上書きしない）
     if ("data" in outcome) {
-      ctx.db
+      const { changes } = ctx.db
         .query(
           `INSERT INTO pr_statuses (issue_id, pr_url, data, fetched_at, fetched_by, started_at) VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT (issue_id) DO UPDATE SET pr_url = excluded.pr_url, data = excluded.data,
@@ -258,6 +292,8 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
            WHERE excluded.started_at >= pr_statuses.started_at`,
         )
         .run(issueRowId, prUrl, JSON.stringify(outcome.data), at, ctx.actor, startedAt);
+      // 新しい結果を保存できたときだけ評価する（古い取得の結果では進めない）
+      return changes > 0 ? applyPrReview(ctx, issueRowId) : null;
     } else {
       ctx.db
         .query(
@@ -267,6 +303,7 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
            WHERE excluded.started_at >= pr_statuses.started_at`,
         )
         .run(issueRowId, prUrl, outcome.error.code, outcome.error.message, at, startedAt);
+      return null;
     }
   });
 }

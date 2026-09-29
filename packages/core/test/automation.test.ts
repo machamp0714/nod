@@ -53,6 +53,8 @@ describe("自動化の設定", () => {
       workspaceKey: ws.key,
       closeAfterDays: null,
       archiveAfterDays: null,
+      prReview: false,
+      commitReview: false,
       updatedAt: null,
       updatedBy: null,
     });
@@ -106,6 +108,7 @@ describe("自動クローズ（#71）", () => {
     expect(r.rules.map((x) => [x.kind, x.enabled, x.total])).toEqual([
       ["auto_close", false, 0],
       ["auto_archive", false, 0],
+      ["pr_review", false, 0],
     ]);
     run();
     expect(getIssue(db, target).status).toBe("todo");

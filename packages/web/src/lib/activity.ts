@@ -75,6 +75,8 @@ export function describeActivity(item: ActivityItem, nameOfStatus: (value: unkno
       return { icon: "archive", text: withReason(`${actor} がアーカイブした`, data) };
     case "unarchived":
       return { icon: "archive-restore", text: `${actor} がアーカイブから復元した` };
+    case "pr_linked":
+      return { icon: "git-pull-request", text: `${actor} が PR を紐付けた：${String(data.to ?? "")}` };
     case "status_changed":
       return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${nameOfStatus(data.from)} から ${nameOfStatus(data.to)} に変えた`, data) };
     case "priority_changed":

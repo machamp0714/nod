@@ -22,6 +22,11 @@ const REVIEW_PILLS: Record<PrReviewDecision, PillSpec> = {
   REVIEW_REQUIRED: { label: "レビュー待ち", icon: "eye", tone: "gate" },
 };
 
+// 状態だけで決めるピル（draft を区別しない一覧用。自動化の PR 連動の対象一覧など）
+export function prStatePillOf(state: PrState): PillSpec {
+  return STATE_PILLS[state];
+}
+
 export function prStatePill(s: PrStatus): PillSpec {
   return s.state === "OPEN" && s.isDraft ? DRAFT_PILL : STATE_PILLS[s.state];
 }

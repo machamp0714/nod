@@ -317,4 +317,27 @@ export const MIGRATIONS: MigrationStep[][] = [
       started_at TEXT NOT NULL
     )`,
   ],
+  // PR・コミットによる自動のステータス遷移（#66 PR 連動）。既定は無効（0）。
+  // auto_transitions は同じ Issue・同じ PR URL（コミット SHA）で二度遷移させないための記録で、取消後も残す。
+  // pr_linked_at は現在の PR を付けた日時。それ以降に一度でも in_review になった Issue は PR 連動の対象にしない（既存行は NULL）
+  [
+    `ALTER TABLE workspaces ADD COLUMN pr_review_enabled INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE issues ADD COLUMN pr_linked_at TEXT`,
+    `CREATE TABLE auto_transitions (
+      id INTEGER PRIMARY KEY,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      source TEXT NOT NULL CHECK (source IN ('pr', 'commit')),
+      source_key TEXT NOT NULL,
+      from_status TEXT NOT NULL,
+      to_status TEXT NOT NULL,
+      merge_candidate INTEGER NOT NULL DEFAULT 0,
+      actor TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      reverted_at TEXT,
+      reverted_by TEXT,
+      UNIQUE (issue_id, source, source_key)
+    )`,
+  ],
+  // コミット連動（#68 nod git sync）。既定は無効（0）。記録は auto_transitions（source = 'commit'、source_key はコミット SHA）
+  [`ALTER TABLE workspaces ADD COLUMN commit_review_enabled INTEGER NOT NULL DEFAULT 0`],
 ];

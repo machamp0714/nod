@@ -26,6 +26,7 @@ describe("openDb", () => {
       (r) => r.name,
     );
     expect(tables).toEqual([
+      "auto_transitions",
       "comments",
       "document_links",
       "documents",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { completeIssue, createIssue, type GhRunner, getPrStatus, startIssue } from "@nod/core";
+import { completeIssue, createIssue, type GhRunner, getIssue, getPrStatus, setAutomationSettings, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
@@ -47,6 +47,33 @@ describe("PR 状態 API", () => {
     expect(res.json.status).toMatchObject({ state: "OPEN", isDraft: true, reviewDecision: "REVIEW_REQUIRED", fetchedBy: "me" });
     expect(res.json.status.checkSummary).toEqual({ success: 1, failure: 0, pending: 0, skipped: 0 });
     expect(getPrStatus(db, ref).status?.fetchedBy).toBe("me");
+  });
+
+  test("PR 連動が有効なら、更新で in_progress の Issue を in_review にし autoTransition を返す（#66）", async () => {
+    const s = setup();
+    const gh: GhRunner = async () => ({ kind: "exited", exitCode: 0, stdout: GH_OK.replace('"isDraft":true', '"isDraft":false'), stderr: "" });
+    const app = createApp({ db: s.db, ghRunner: gh });
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "作業中" });
+    startIssue(s.llm, issue.id);
+    s.db.query("UPDATE issues SET pr_url = ?").run(PR_URL);
+    setAutomationSettings(s.me, s.ws.key, { prReview: true });
+    const res = await call(app, "POST", `/api/issues/${issue.id}/pr-status/refresh`);
+    expect(res.status).toBe(200);
+    expect(res.json.autoTransition).toMatchObject({ source: "pr", sourceKey: PR_URL, from: "in_progress", to: "in_review", actor: "me" });
+    expect(getIssue(s.db, issue.id).status).toBe("in_review");
+  });
+
+  test("POST /link-pr で作業中の Issue に PR を紐付け、ステータスは変えない。不正な URL は 400", async () => {
+    const s = setup();
+    const app = createApp({ db: s.db });
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "作業中" });
+    startIssue(s.llm, issue.id);
+    const res = await call(app, "POST", `/api/issues/${issue.id}/link-pr`, { url: PR_URL });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ id: issue.id, status: "in_progress", prUrl: PR_URL });
+    const bad = await call(app, "POST", `/api/issues/${issue.id}/link-pr`, { url: "https://example.com/pull/1" });
+    expect(bad.status).toBe(400);
+    expect((await call(app, "POST", `/api/issues/${issue.id}/link-pr`, {})).status).toBe(400);
   });
 
   test("取得の失敗は 200 で fetchError を返す", async () => {

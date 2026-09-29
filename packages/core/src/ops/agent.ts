@@ -8,6 +8,7 @@ import { setColumn } from "../mutate";
 import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
+import { markPrLinked } from "./pr-status";
 import { resolveProject } from "./projects";
 
 export interface WorkLocation {
@@ -173,7 +174,7 @@ export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; 
     }
     const since = lastNotificationId(ctx.db);
     const report = addComment(ctx, row, opts.summary);
-    if (opts.prUrl) setColumn(ctx, row, "pr_url", opts.prUrl);
+    if (opts.prUrl && setColumn(ctx, row, "pr_url", opts.prUrl)) markPrLinked(ctx, row.id);
     setColumn(ctx, row, "status", "in_review", { report_comment_id: report.id });
     setColumn(ctx, row, "agent_state", "done");
     collapseIntoAgentNotification(ctx.db, row.id, since);

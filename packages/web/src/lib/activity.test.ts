@@ -116,6 +116,10 @@ test("アーカイブと復元を書き手つきで出し、理由があれば�
   expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: {} })).toEqual({ icon: "archive", text: "me がアーカイブした" });
   expect(describeActivity({ kind: "event", at, actor: "me", type: "archived", data: { reason: "不要" } }).text).toBe("me がアーカイブした：不要");
   expect(describeActivity({ kind: "event", at, actor: "me", type: "unarchived", data: {} })).toEqual({ icon: "archive-restore", text: "me がアーカイブから復元した" });
+  expect(describeActivity({ kind: "event", at, actor: "codex", type: "pr_linked", data: { from: null, to: "https://github.com/a/b/pull/1" } })).toEqual({
+    icon: "git-pull-request",
+    text: "codex が PR を紐付けた：https://github.com/a/b/pull/1",
+  });
 });
 
 test("添付の元ファイルの場所は file の attachment_added だけから取り出し、本文には混ぜない", () => {

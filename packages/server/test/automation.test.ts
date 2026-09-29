@@ -25,6 +25,21 @@ describe("自動化API", () => {
     expect(getAutomationSettings(s.db, s.ws.key)).toMatchObject({ closeAfterDays: 30, archiveAfterDays: null });
   });
 
+  test("PUT で PR 連動（prReview）を切り替え、真偽値以外は拒む", async () => {
+    const s = setup();
+    const url = `/api/workspaces/${s.ws.key}/automation`;
+    expect((await call(s.app, "GET", url)).json.prReview).toBe(false);
+    expect((await call(s.app, "PUT", url, { prReview: true })).json).toMatchObject({ prReview: true, closeAfterDays: null });
+    const bad = await call(s.app, "PUT", url, { prReview: "on" });
+    expect(bad.status).toBe(400);
+    expect((await call(s.app, "PUT", url, { commitReview: 1 })).status).toBe(400);
+    expect((await call(s.app, "PUT", url, { commitReview: true })).json).toMatchObject({ prReview: true, commitReview: true });
+    expect(getAutomationSettings(s.db, s.ws.key).prReview).toBe(true);
+    const run = await call(s.app, "POST", `${url}/run`, { dryRun: true, targets: { pr_review: [] } });
+    expect(run.status).toBe(200);
+    expect(run.json.rules.map((r: { kind: string }) => r.kind)).toEqual(["auto_close", "auto_archive", "pr_review"]);
+  });
+
   test("不正な日数・未知のキー・未登録の Workspace を拒み、設定を保つ", async () => {
     const s = setup();
     setAutomationSettings(s.me, s.ws.key, { closeAfterDays: 30 });
@@ -48,14 +63,14 @@ describe("自動化API", () => {
     const dry = await call(s.app, "POST", url, { dryRun: true });
     expect(dry.status).toBe(200);
     expect(dry.json.dryRun).toBe(true);
-    expect(dry.json.rules.map((r: { candidates: { id: string }[] }) => r.candidates.map((c) => c.id))).toEqual([[open], [done]]);
+    expect(dry.json.rules.map((r: { candidates: { id: string }[] }) => r.candidates.map((c) => c.id))).toEqual([[open], [done], []]);
     expect(getIssue(s.db, open).status).toBe("todo");
     const run = await call(s.app, "POST", url, { dryRun: false });
-    expect(run.json.rules.map((r: { processed: string[] }) => r.processed)).toEqual([[open], [done]]);
+    expect(run.json.rules.map((r: { processed: string[] }) => r.processed)).toEqual([[open], [done], []]);
     expect(getIssue(s.db, open).status).toBe("canceled");
     expect(getIssue(s.db, done).archivedAt).toBeString();
     const again = await call(s.app, "POST", url, { dryRun: false });
-    expect(again.json.rules.map((r: { total: number }) => r.total)).toEqual([0, 0]);
+    expect(again.json.rules.map((r: { total: number }) => r.total)).toEqual([0, 0, 0]);
   });
 
   test("dryRun を省くと dry-run として扱い、何も変えない（実行は dryRun: false を明示）", async () => {

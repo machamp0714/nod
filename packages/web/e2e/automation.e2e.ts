@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { stubGh } from "./support/nod";
 
 test.use({ dataset: "automation" });
 
@@ -110,12 +111,67 @@ test("実行は確認した一覧だけを送り、確認のあとで対象か�
   await dialog.getByRole("button", { name: "実行する" }).click();
   expect((await request).postDataJSON()).toEqual({
     dryRun: false,
-    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"] },
+    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"], pr_review: [] },
   });
   await expect(page.getByRole("status")).toHaveText("クローズ 1件・アーカイブ 1件・スキップ 1件・失敗 0件");
   expect((await nod.me.getIssue("API-1")).status).toBe("canceled");
   expect((await nod.me.getIssue("API-2")).status).toBe("todo");
   expect((await nod.me.getIssue("API-4")).archivedAt).not.toBeNull();
+});
+
+// PR 連動（#66）。e2e の server は実際の gh の代わりに stubGh の結果を返す（GitHub には触れない）
+const PR_URL = "https://github.com/example/api-server/pull/214";
+const ghOpen = JSON.stringify({ number: 214, title: "検索 API の N+1 を解消", url: PR_URL, state: "OPEN", isDraft: false, reviewDecision: null, mergedAt: null, statusCheckRollup: [] });
+
+test("PR 連動を有効にして保存し、対象の PR と状態を確かめてから実行すると in_review にする", async ({ page, nod }) => {
+  const api = (await nod.me.listWorkspaces()).find((w) => w.key === "API")!;
+  const issue = await nod.me.createIssue({ workspaceId: api.id, title: "検索 API の N+1 を解消" }); // API-6
+  await nod.claude.startIssue(issue.id);
+  await nod.claude.linkPr(issue.id, PR_URL);
+  await stubGh({ kind: "exited", exitCode: 0, stdout: ghOpen, stderr: "" });
+  // 無効のうちに PR 状態を取得しておく（このときは進めない）
+  expect((await page.request.post(`/api/issues/${issue.id}/pr-status/refresh`)).ok()).toBe(true);
+  expect((await nod.me.getIssue(issue.id)).status).toBe("in_progress");
+
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  const pr = auto.getByRole("switch", { name: "PR 連動" });
+  await expect(pr).toHaveAttribute("aria-checked", "false");
+  await expect(auto.getByText("PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする")).toBeVisible();
+  await expect(auto.getByText("done にはしません。取消は nod automation undo")).toBeVisible();
+  await pr.click();
+  await auto.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  expect(await nod.me.getAutomationSettings("API")).toMatchObject({ prReview: true, closeAfterDays: null, archiveAfterDays: null });
+
+  await auto.getByRole("button", { name: "対象を確認" }).click();
+  const table = result(page).getByRole("table", { name: "in_review にする（PR）· 1 件" });
+  await expect(table.getByRole("row")).toHaveText([/ID\s*タイトル\s*PR\s*PR の状態/, /API-6\s*検索 API の N\+1 を解消\s*#214\s*Open/]);
+  await expect(table.getByRole("link", { name: "#214" })).toHaveAttribute("href", PR_URL);
+  if (process.env.NOD_E2E_SHOTS) await auto.screenshot({ path: `${process.env.NOD_E2E_SHOTS}/automation-pr-review.png` });
+  expect((await nod.me.getIssue(issue.id)).status).toBe("in_progress");
+
+  await auto.getByRole("button", { name: "今すぐ実行" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "クローズ 0件・アーカイブ 0件・in_review 1件を実行しますか？" });
+  await dialog.getByRole("button", { name: "実行する" }).click();
+  await expect(page.getByRole("status")).toHaveText("クローズ 0件・アーカイブ 0件・in_review 1件・失敗 0件");
+  expect((await nod.me.getIssue(issue.id)).status).toBe("in_review");
+});
+
+test("コミット連動は有効・無効だけを切り替えて保存する（実行は CLI の nod git sync）", async ({ page, nod }) => {
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  const commit = auto.getByRole("switch", { name: "コミット連動" });
+  await expect(commit).toHaveAttribute("aria-checked", "false");
+  await expect(auto.getByText("コミットの Closes/Fixes <ID> で Issue を in_review にする（nod git sync で実行）")).toBeVisible();
+  await commit.click();
+  await expect(commit).toHaveAttribute("aria-checked", "true");
+  await auto.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  expect(await nod.me.getAutomationSettings("API")).toMatchObject({ commitReview: true, prReview: false, closeAfterDays: null });
+  await page.reload();
+  await expect(section(page).getByRole("switch", { name: "コミット連動" })).toHaveAttribute("aria-checked", "true");
+  if (process.env.NOD_E2E_SHOTS) await section(page).screenshot({ path: `${process.env.NOD_E2E_SHOTS}/automation-commit-review.png` });
 });
 
 test.describe("保存の失敗", () => {
