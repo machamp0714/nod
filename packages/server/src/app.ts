@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { HUMAN_ACTOR, NodError, type OpCtx } from "@nod/core";
+import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -9,6 +9,7 @@ import { registerDocumentOps } from "./routes/document-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
+import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerViewRoutes } from "./routes/views";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
@@ -20,6 +21,7 @@ export interface AppOptions {
   feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
   staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
   docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
+  ghRunner?: GhRunner; // PR 状態の取得で gh を実行する部分。省くと本物の gh。テストと e2e はスタブを渡す
 }
 
 function errorJson(err: unknown): Response {
@@ -64,6 +66,7 @@ export function createApp(opts: AppOptions): Hono {
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);
+  registerPrStatusRoutes(app, me, opts.ghRunner);
   registerViewRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));

@@ -15,6 +15,9 @@ import {
   formatWorkspaceRulesSection,
   getIssue,
   getIssueBranchName,
+  getPrStatus,
+  createCommandRunner,
+  refreshPrStatus,
   getWorkspaceRules,
   importPlan,
   type Issue,
@@ -41,7 +44,19 @@ import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
-import { formatDelegations, formatIssueDetail, formatIssueLine, formatIssueLines, formatPlan, print, sortByAssignee, statusColumnWidth, statusText } from "../output";
+import {
+  formatDelegations,
+  formatIssueDetail,
+  formatIssueLine,
+  formatIssueLines,
+  formatPlan,
+  formatPrStatus,
+  formatPrStatusLine,
+  print,
+  sortByAssignee,
+  statusColumnWidth,
+  statusText,
+} from "../output";
 
 // Orca のカードは LLM 向けのコマンドで LLM が操作したときだけ更新する
 async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
@@ -168,7 +183,23 @@ export function registerIssueCommands(program: Command): void {
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
         const rules = getWorkspaceRules(cli.db, detail.workspace);
-        print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail), rules));
+        const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
+        print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));
+      }),
+    );
+
+  issue
+    .command("pr-status <id>")
+    .description("PR の状態（レビュー・CI・マージ）を表示する。--refresh で gh から取得して保存する（GitHub へは読み取りのみ）")
+    .option("--refresh", "gh pr view を実行して最新の状態を取得する")
+    .action(
+      actAsync(async (cli, cmd, id: string) => {
+        const { refresh } = cmd.opts<{ refresh?: boolean }>();
+        // NOD_GH は gh の代わりに起動するコマンド（テストで偽の gh を使うため）
+        const view = refresh
+          ? await refreshPrStatus(cli.ctx, id, createCommandRunner(process.env.NOD_GH || "gh"))
+          : getPrStatus(cli.db, id);
+        print(cli, view, () => formatPrStatus(view));
       }),
     );
 
