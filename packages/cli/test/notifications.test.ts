@@ -49,9 +49,39 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect((await nod(["issue", "show", "API-1"])).stdout).not.toContain("購読: 購読中");
 });
 
+test("通知をスヌーズ・解除でき、LLM は操作できない（#43）", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
+
+  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "subscribe", "API-1"]);
+  await nod(["issue", "comment", "API-1", "原因がわかった"], "claude-code");
+
+  const denied = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01", "--json"], "claude-code");
+  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+
+  const snooze = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01T09:00:00+09:00"]);
+  expect(snooze.exitCode).toBe(0);
+  expect(snooze.stdout.trim()).toBe("1 件を 2999-01-01T00:00:00.000Z までスヌーズしました");
+  expect((await nod(["notification", "list", "--include-read", "--json"])).json).toEqual([]);
+  const snoozed = await nod(["notification", "list", "--snoozed"]);
+  expect(snoozed.stdout).toContain("スヌーズ中（2999-01-01T00:00:00.000Z まで）");
+
+  const past = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2000-01-01", "--json"]);
+  expect(past.json.error.code).toBe("INVALID_ARGS");
+  const conflict = await nod(["notification", "list", "--snoozed", "--include-read", "--json"]);
+  expect(conflict.json.error.code).toBe("INVALID_ARGS");
+
+  const un = await nod(["notification", "unsnooze", "--issue", "API-1"]);
+  expect(un.stdout.trim()).toBe("1 件のスヌーズを解除しました");
+  expect((await nod(["notification", "list", "--json"])).json).toHaveLength(1);
+});
+
 test("通知の要約は種別ごとに変化を表す", async () => {
   const { describeNotification } = await import("../src/output");
-  const base = { id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "t", workspace: "API", actor: "codex", body: null, createdAt: "", readAt: null };
+  const base = { id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "t", workspace: "API", actor: "codex", body: null, createdAt: "", readAt: null, snoozedUntil: null };
   const say = (eventType: string, data: Record<string, unknown> = {}, body: string | null = null) =>
     describeNotification({ ...base, eventType, data, body });
   expect(say("status_changed", { from: "in_progress", to: "in_review" })).toBe("codex がステータスを変更: In Progress → In Review");

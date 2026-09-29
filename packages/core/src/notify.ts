@@ -41,10 +41,19 @@ export function notifySubscribers(
   if (!isNotifyEventType(type)) return;
   const eventId = "eventId" in source ? source.eventId : null;
   const commentId = "commentId" in source ? source.commentId : null;
+  const ts = now();
+  const inserted = db
+    .query(
+      `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, comment_id, actor, data, created_at)
+       SELECT subscriber, issue_id, 'issue_change', ?, ?, ?, ?, ?, ? FROM subscriptions WHERE issue_id = ? AND subscriber <> ?`,
+    )
+    .run(type, eventId, commentId, actor, JSON.stringify(data), ts, issueId, actor);
+  if (inserted.changes === 0) return;
+  // スヌーズ中の Issue に新しい通知が届いたら、スヌーズを解いて新着と一緒に出す（#43）
   db.query(
-    `INSERT OR IGNORE INTO notifications (recipient, issue_id, kind, event_type, event_id, comment_id, actor, data, created_at)
-     SELECT subscriber, issue_id, 'issue_change', ?, ?, ?, ?, ?, ? FROM subscriptions WHERE issue_id = ? AND subscriber <> ?`,
-  ).run(type, eventId, commentId, actor, JSON.stringify(data), now(), issueId, actor);
+    `UPDATE notifications SET snoozed_until = NULL
+     WHERE issue_id = ? AND snoozed_until > ? AND recipient IN (SELECT subscriber FROM subscriptions WHERE issue_id = ? AND subscriber <> ?)`,
+  ).run(issueId, ts, issueId, actor);
 }
 
 // LLM に任せた Issue で、me が気づくべき作業の区切り。着手・再開（working）や外れ（null）は通知しない

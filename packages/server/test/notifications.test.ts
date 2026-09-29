@@ -51,4 +51,28 @@ describe("購読と通知の API", () => {
     expect(Object.keys(inbox.json).sort()).toEqual(["questions", "reviews"]);
     expect(inbox.json).toEqual(JSON.parse(JSON.stringify(getInbox(db))));
   });
+
+  test("通知のスヌーズと解除（#43）", async () => {
+    const { app, me, llm, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "検索" });
+    await call(app, "POST", "/api/issues/API-1/subscribe");
+    commentIssue(llm, "API-1", "a1");
+
+    const until = "2999-01-01T00:00:00.000Z";
+    const r = await call(app, "POST", "/api/notifications/snooze", { issueRef: "API-1", until });
+    expect(r).toEqual({ status: 200, json: { updated: 1, snoozedUntil: until } });
+    expect((await call(app, "GET", "/api/notifications?includeRead=true")).json).toEqual([]);
+    const snoozed = await call(app, "GET", "/api/notifications?snoozed=true");
+    expect(snoozed.json).toHaveLength(1);
+    expect(snoozed.json[0]).toMatchObject({ issueId: "API-1", snoozedUntil: until });
+
+    expect((await call(app, "POST", "/api/notifications/unsnooze", { ids: [snoozed.json[0].id] })).json).toEqual({ updated: 1 });
+    expect((await call(app, "GET", "/api/notifications")).json[0]).toMatchObject({ snoozedUntil: null });
+
+    expect((await call(app, "POST", "/api/notifications/snooze", { issueRef: "API-1" })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/snooze", { issueRef: "API-1", until: "2000-01-01" })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/snooze", { ids: [999], until })).status).toBe(404);
+    expect((await call(app, "POST", "/api/notifications/unsnooze", {})).status).toBe(400);
+    expect((await call(app, "GET", "/api/notifications?snoozed=x")).status).toBe(400);
+  });
 });

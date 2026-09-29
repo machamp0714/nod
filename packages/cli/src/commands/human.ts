@@ -8,13 +8,21 @@ import {
   getInbox,
   listNotifications,
   markNotificationsRead,
+  NodError,
   rejectReview,
+  snoozeNotifications,
   snoozeTriage,
   suggestTriage,
+  unsnoozeNotifications,
 } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
 import { formatIssueLine, formatNotification, formatTriageSuggestions, print } from "../output";
+
+// 通知を操作する対象。id（nod notification list の #番号）か --issue
+function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
+  return { ids: ids.length ? ids.map((id) => parsePositiveInt(id, "通知の id")) : undefined, issueRef: issue };
+}
 
 export function registerHumanCommands(program: Command): void {
   program
@@ -59,9 +67,11 @@ export function registerHumanCommands(program: Command): void {
     .command("list")
     .description("通知を新しい順に一覧する（既定は未読だけ）")
     .option("--include-read", "既読の通知も含める")
+    .option("--snoozed", "スヌーズ中の通知だけを一覧する（既読も含む）")
     .action(
-      act((cli, _cmd, o: { includeRead?: boolean }) => {
-        const list = listNotifications(cli.db, { includeRead: o.includeRead === true });
+      act((cli, _cmd, o: { includeRead?: boolean; snoozed?: boolean }) => {
+        if (o.includeRead && o.snoozed) throw new NodError("INVALID_ARGS", "--include-read と --snoozed は同時に指定できません");
+        const list = listNotifications(cli.db, { includeRead: o.includeRead === true, snoozed: o.snoozed === true });
         print(cli, list, () => (list.length ? list.map(formatNotification).join("\n") : "通知はありません"));
       }),
     );
@@ -78,6 +88,28 @@ export function registerHumanCommands(program: Command): void {
           all: o.all,
         });
         print(cli, r, () => `${r.updated} 件を既読にしました`);
+      }),
+    );
+
+  notification
+    .command("snooze [ids...]")
+    .description("通知を指定した日時までスヌーズする。期限が来ると未読として出し直す。id か --issue で指定する")
+    .requiredOption("--until <日時>", "期限（例: 2026-10-01、2026-10-01T09:00:00+09:00）")
+    .option("--issue <id>", "この Issue の通知をまとめてスヌーズする")
+    .action(
+      act((cli, _cmd, ids: string[], o: { until: string; issue?: string }) => {
+        const r = snoozeNotifications(cli.ctx, { ...notificationTarget(ids, o.issue), until: o.until });
+        print(cli, r, () => `${r.updated} 件を ${r.snoozedUntil} までスヌーズしました`);
+      }),
+    );
+  notification
+    .command("unsnooze [ids...]")
+    .description("通知のスヌーズを解除して、すぐ一覧に戻す。id か --issue で指定する")
+    .option("--issue <id>", "この Issue の通知のスヌーズをまとめて解除する")
+    .action(
+      act((cli, _cmd, ids: string[], o: { issue?: string }) => {
+        const r = unsnoozeNotifications(cli.ctx, notificationTarget(ids, o.issue));
+        print(cli, r, () => `${r.updated} 件のスヌーズを解除しました`);
       }),
     );
 

@@ -254,6 +254,7 @@ export interface Notification {
   body: string | null; // comment_added のときのコメント本文
   createdAt: string;
   readAt: string | null;
+  snoozedUntil: string | null; // スヌーズ中なら期限（#43）
 }
 
 export interface SubscriptionState {

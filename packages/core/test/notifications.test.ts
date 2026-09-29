@@ -7,7 +7,9 @@ import {
   listNotifications,
   markNotificationsRead,
   NOTIFY_EVENT_TYPES,
+  snoozeNotifications,
   subscribeIssue,
+  unsnoozeNotifications,
   unsubscribeIssue,
 } from "../src/ops/notifications";
 import { codeOf, setup } from "./helpers";
@@ -418,5 +420,105 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
     // 最後の質問に答えて入力待ちが解けたら既読にする
     answerQuestion(me, a.id, "足す", { questionId: llmQs[1]! });
     expect(unread()).toEqual([]);
+  });
+});
+
+describe("通知のスヌーズ（#43）", () => {
+  const FUTURE = "2999-01-01T09:00:00+09:00";
+  function seeded() {
+    const s = setup();
+    const a = createIssue(s.me, { workspaceId: s.ws.id, title: "検索" });
+    const b = createIssue(s.me, { workspaceId: s.ws.id, title: "画面" });
+    subscribeIssue(s.me, a.id);
+    subscribeIssue(s.me, b.id);
+    commentIssue(s.llm, a.id, "a1");
+    commentIssue(s.llm, a.id, "a2");
+    commentIssue(s.llm, b.id, "b1");
+    return { ...s, a, b };
+  }
+  function expire(db: import("bun:sqlite").Database) {
+    db.query("UPDATE notifications SET snoozed_until = ? WHERE snoozed_until IS NOT NULL").run("2000-01-01T00:00:00.000Z");
+  }
+
+  test("Issue 単位でスヌーズすると、既読を含む一覧から消え、snoozed の一覧に期限付きで出る", () => {
+    const { db, me, a } = seeded();
+    const r = snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    expect(r).toEqual({ updated: 2, snoozedUntil: "2999-01-01T00:00:00.000Z" });
+    expect(listNotifications(db, { includeRead: true }).map((n) => n.body)).toEqual(["b1"]);
+    const snoozed = listNotifications(db, { snoozed: true });
+    expect(snoozed.map((n) => n.body)).toEqual(["a2", "a1"]);
+    expect(snoozed.every((n) => n.snoozedUntil === "2999-01-01T00:00:00.000Z")).toBe(true);
+    expect(listNotifications(db)[0]!.snoozedUntil).toBeNull();
+  });
+
+  test("期限が来ると、最新の1件だけ未読に戻って再表示される", () => {
+    const { db, me, a } = seeded();
+    markNotificationsRead(me, { issueRef: a.id });
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1"]);
+    expire(db);
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1", "a2"]);
+    const all = listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id);
+    expect(all.map((n) => [n.body, n.readAt === null, n.snoozedUntil])).toEqual([
+      ["a2", true, null],
+      ["a1", false, null],
+    ]);
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+  });
+
+  test("id を指定してスヌーズでき、スヌーズ中は既読（すべて・Issue 単位）の対象外", () => {
+    const { db, me, b } = seeded();
+    const b1 = listNotifications(db).find((n) => n.body === "b1")!;
+    expect(snoozeNotifications(me, { ids: [b1.id], until: FUTURE }).updated).toBe(1);
+    expect(markNotificationsRead(me, { all: true }).updated).toBe(2);
+    expect(markNotificationsRead(me, { issueRef: b.id }).updated).toBe(0);
+    expire(db);
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1"]);
+  });
+
+  test("スヌーズ中に同じ Issue へ新着が届くと、スヌーズを解いて新着と一緒に出す", () => {
+    const { db, me, llm, a } = seeded();
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    commentIssue(llm, a.id, "a3");
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+    expect(listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id).map((n) => n.body)).toEqual(["a3", "a2", "a1"]);
+  });
+
+  test("別の Issue の新着や自分の操作ではスヌーズは解けない", () => {
+    const { db, me, llm, a, b } = seeded();
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    commentIssue(llm, b.id, "b2");
+    commentIssue(me, a.id, "自分のコメント");
+    expect(listNotifications(db, { snoozed: true })).toHaveLength(2);
+  });
+
+  test("スヌーズを解除すると、すぐ一覧に戻る。スヌーズ中でないものは数えない", () => {
+    const { db, me, a } = seeded();
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    expect(unsnoozeNotifications(me, { issueRef: a.id })).toEqual({ updated: 2 });
+    expect(unsnoozeNotifications(me, { issueRef: a.id })).toEqual({ updated: 0 });
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1", "a2", "a1"]);
+  });
+
+  test("LLM は操作できず、過去の日時・不正な日時・通知のない Issue・指定の誤りはエラー", () => {
+    const { db, ws, me, llm, a } = seeded();
+    const other = createIssue(me, { workspaceId: ws.id, title: "通知なし" });
+    expect(codeOf(() => snoozeNotifications(llm, { issueRef: a.id, until: FUTURE }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => unsnoozeNotifications(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "2000-01-01" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "あした" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => snoozeNotifications(me, { until: FUTURE }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => snoozeNotifications(me, { ids: [1], issueRef: a.id, until: FUTURE }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => snoozeNotifications(me, { ids: [9999], until: FUTURE }))).toBe("NOT_FOUND");
+    expect(codeOf(() => snoozeNotifications(me, { issueRef: other.id, until: FUTURE }))).toBe("NOT_FOUND");
+    expect(listNotifications(db)).toHaveLength(3);
+  });
+
+  test("スヌーズは Issue の Activity にも Triage の Snooze にも影響しない", () => {
+    const { db, me, a } = seeded();
+    const before = db.query("SELECT COUNT(*) AS c FROM events").get() as { c: number };
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    expect(db.query("SELECT COUNT(*) AS c FROM events").get()).toEqual(before);
+    expect(db.query("SELECT snoozed_until FROM issues").all()).toEqual([{ snoozed_until: null }, { snoozed_until: null }]);
   });
 });

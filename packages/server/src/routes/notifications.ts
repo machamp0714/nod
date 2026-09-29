@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
-import { listNotifications, markNotificationsRead, type OpCtx } from "@nod/core";
+import { listNotifications, markNotificationsRead, type OpCtx, snoozeNotifications, unsnoozeNotifications } from "@nod/core";
 import type { Hono } from "hono";
-import { type Body, invalid, optString, queryFlag, readBody } from "../input";
+import { type Body, invalid, optString, queryFlag, readBody, reqString } from "../input";
 
 function optIds(body: Body): number[] | undefined {
   const v = body.ids;
@@ -22,10 +22,24 @@ function optTrue(body: Body, key: string): true | undefined {
 // Inbox の通知（購読中の Issue の変化）。受け手は me
 export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): void {
   app.get("/api/notifications", (c) =>
-    c.json(listNotifications(db, { includeRead: queryFlag(c.req.query("includeRead"), "includeRead") })),
+    c.json(
+      listNotifications(db, {
+        includeRead: queryFlag(c.req.query("includeRead"), "includeRead"),
+        snoozed: queryFlag(c.req.query("snoozed"), "snoozed"),
+      }),
+    ),
   );
   app.post("/api/notifications/read", async (c) => {
     const body = await readBody(c, ["ids", "issueRef", "all"]);
     return c.json(markNotificationsRead(me, { ids: optIds(body), issueRef: optString(body, "issueRef"), all: optTrue(body, "all") }));
+  });
+  // 通知のスヌーズ（#43）。Triage の Issue の Snooze（/api/issues/:id/snooze）とは別
+  app.post("/api/notifications/snooze", async (c) => {
+    const body = await readBody(c, ["ids", "issueRef", "until"]);
+    return c.json(snoozeNotifications(me, { ids: optIds(body), issueRef: optString(body, "issueRef"), until: reqString(body, "until") }));
+  });
+  app.post("/api/notifications/unsnooze", async (c) => {
+    const body = await readBody(c, ["ids", "issueRef"]);
+    return c.json(unsnoozeNotifications(me, { ids: optIds(body), issueRef: optString(body, "issueRef") }));
   });
 }

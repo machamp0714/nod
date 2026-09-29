@@ -203,7 +203,8 @@ export function describeNotification(n: Notification): string {
 }
 
 export function formatNotification(n: Notification): string {
-  return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}\n    ${describeNotification(n)}`;
+  const snoozed = n.snoozedUntil ? `  スヌーズ中（${n.snoozedUntil} まで）` : "";
+  return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}${snoozed}\n    ${describeNotification(n)}`;
 }
 
 function describeReason(r: SuggestionReason, what: "付与" | "担当"): string {

@@ -4,7 +4,7 @@ import { describeNotification, groupNotifications, groupSummary, unreadToMark } 
 
 const n = (over: Partial<Notification>): Notification => ({
   id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "検索", workspace: "API", eventType: "comment_added",
-  actor: "codex", data: {}, body: null, createdAt: "2026-09-29T10:00:00.000Z", readAt: null, ...over,
+  actor: "codex", data: {}, body: null, createdAt: "2026-09-29T10:00:00.000Z", readAt: null, snoozedUntil: null, ...over,
 });
 
 describe("describeNotification", () => {
