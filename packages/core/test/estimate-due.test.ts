@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb } from "../src/db";
+import { MIGRATIONS } from "../src/schema";
 import { createIssue, getIssue, listIssues, updateIssue, validateDueDate, validateEstimate } from "../src/ops/issues";
 import { isOverdue, localToday } from "../src/due-date";
 import { codeOf, eventsOf, setup, tempDbPath } from "./helpers";
@@ -106,14 +107,20 @@ describe("移行と DB の制約", () => {
 
   test("旧版（見積もり・期限なし）の DB を開くと列が足され、既存データを保つ", () => {
     const path = tempDbPath();
-    const first = openDb(path);
-    const version = (first.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-    first.close();
-    // 1つ前の版に戻した DB を作り直す：列を落として版を下げる
-    const raw = new Database(path);
-    raw.exec("ALTER TABLE issues DROP COLUMN estimate");
-    raw.exec("ALTER TABLE issues DROP COLUMN due_date");
-    raw.exec(`PRAGMA user_version = ${version - 1}`);
+    // 見積もり・期限を足す版の直前までを適用した DB を作る（後ろに版が追記されても壊れないよう、版は探して決める）
+    const version = MIGRATIONS.findIndex((steps) =>
+      steps.some((step) => typeof step === "string" && step.includes("ADD COLUMN estimate")),
+    );
+    expect(version).toBeGreaterThan(0);
+    const raw = new Database(path, { create: true });
+    raw.exec("PRAGMA foreign_keys = ON");
+    for (const steps of MIGRATIONS.slice(0, version)) {
+      for (const step of steps) {
+        if (typeof step === "string") raw.exec(step);
+        else step(raw);
+      }
+    }
+    raw.exec(`PRAGMA user_version = ${version}`);
     raw.close();
     const reopened = openDb(path);
     const cols = (reopened.query("PRAGMA table_info(issues)").all() as { name: string; notnull: number }[])
