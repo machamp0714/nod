@@ -9,7 +9,7 @@ import { Button, PageError, PageLoading, Pill } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { errorMessage } from "../api/errors";
 import { sameFilter } from "../lib/issue-filter";
-import { cleanIssueListSearch } from "../routes/search";
+import { replacesIssueListHistory, cleanIssueListSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 
 const route = getRouteApi("/views/$viewId");
@@ -58,7 +58,7 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         loading={rows.loading}
         error={rows.error}
         search={search}
-        onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true })}
+        onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
         actions={
           <>
             {saveFilter.isError && <Pill tone="fail">保存できませんでした</Pill>}

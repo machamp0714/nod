@@ -4,6 +4,10 @@ import { STATUS_ORDER } from "../lib/meta";
 export type IssueTab = "all" | "ready" | "needs_clarification";
 export type IssueGroupBy = "none" | "workspace";
 export type IssueLayout = "list" | "board";
+export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "title";
+export type SortDirection = "asc" | "desc";
+export const ISSUE_COLUMNS = ["status", "questions", "workspace", "pr"] as const;
+export type IssueColumn = typeof ISSUE_COLUMNS[number];
 export type ProjectTab = "active" | "completed" | "all";
 
 export interface SelectedSearch {
@@ -28,6 +32,9 @@ function pick<T extends string>(value: unknown, allowed: readonly T[]): T | unde
 // 絞り込み条件のキーは、GET /api/issues のクエリパラメータと View の filter（core の IssueQuery）と同じ名前にする。
 // project は Project の数字の ID（ルートと URL に Project の名前を入れないため）。
 export interface IssueListSearch {
+  sort?: IssueSort;
+  direction?: SortDirection;
+  columns?: IssueColumn[];
   groupBy?: IssueGroupBy;
   blocked?: boolean;
   tab?: IssueTab;
@@ -53,6 +60,12 @@ function stringList(value: unknown): string[] | undefined {
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
   const out: IssueListSearch = {};
+  if ("sort" in raw) out.sort = pick(raw.sort, ["default", "priority", "createdAt", "updatedAt", "title"] as const) ?? "default";
+  if ("direction" in raw) out.direction = pick(raw.direction, ["asc", "desc"] as const) ?? "asc";
+  if ("columns" in raw) out.columns = [...ISSUE_COLUMNS];
+  if (Array.isArray(raw.columns) && raw.columns.every((value) => pick(value, ISSUE_COLUMNS))) {
+    out.columns = ISSUE_COLUMNS.filter((column) => (raw.columns as unknown[]).includes(column));
+  }
   if ("groupBy" in raw) out.groupBy = raw.groupBy === "workspace" ? "workspace" : "none";
   if ([true, "true", "1"].includes(raw.blocked as string | boolean)) out.blocked = true;
   if ([false, "false", "0"].includes(raw.blocked as string | boolean)) out.blocked = false;
@@ -73,6 +86,9 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
 
 export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   const out: IssueListSearch = {};
+  if (search.sort && search.sort !== "default") out.sort = search.sort;
+  if (search.direction === "desc") out.direction = search.direction;
+  if (search.columns && !ISSUE_COLUMNS.every((column) => search.columns!.includes(column))) out.columns = search.columns;
   if (search.groupBy === "workspace") out.groupBy = search.groupBy;
   if (search.blocked !== undefined) out.blocked = search.blocked;
   if (search.tab && search.tab !== "all") out.tab = search.tab;
@@ -95,4 +111,9 @@ export function parseProjectsSearch(raw: Record<string, unknown>): ProjectsSearc
 
 export function cleanProjectsSearch(search: ProjectsSearch): ProjectsSearch {
   return search.tab && search.tab !== "active" ? { tab: search.tab } : {};
+}
+
+// 表示設定の変更は履歴から戻せるようにする。検索入力は従来どおり履歴を置換する。
+export function replacesIssueListHistory(patch: IssueListSearch): boolean {
+  return !("sort" in patch || "direction" in patch || "columns" in patch);
 }

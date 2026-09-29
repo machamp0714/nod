@@ -83,3 +83,8 @@ describe("withoutKey と toggleValue", () => {
     expect(toggleValue(undefined, "API")).toEqual(["API"]);
   });
 });
+
+
+test("一覧の表示設定を保存Viewのfilterへ混入しない", () => {
+  expect(filterFromSearch({ sort: "updatedAt", direction: "desc", columns: [], workspace: ["API"], blocked: false })).toEqual({ workspace: ["API"], blocked: false });
+});

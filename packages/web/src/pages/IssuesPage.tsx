@@ -7,7 +7,7 @@ import { IssueList } from "../components/issue-list/IssueList";
 import { Button } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { filterFromSearch, filterToSearch } from "../lib/issue-filter";
-import { cleanIssueListSearch, type IssueListSearch } from "../routes/search";
+import { replacesIssueListHistory, cleanIssueListSearch, type IssueListSearch } from "../routes/search";
 
 const route = getRouteApi("/issues");
 
@@ -21,7 +21,7 @@ export function IssuesPage() {
   const createView = useCreateView();
   const [saving, setSaving] = useState(false);
   const change = (patch: IssueListSearch) =>
-    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: true });
+    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
   return (
     <>
       <IssueList
