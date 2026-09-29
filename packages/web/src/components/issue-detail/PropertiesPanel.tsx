@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import type { Issue, Relations, Status, UpdateIssueInput } from "../../api/types";
 import { prLabel } from "../../lib/format";
+import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
 import { priorityMeta } from "../../lib/meta";
 import { AgentStatePill, Button, Icon, Pill, StatusIcon, WorkspaceBadge } from "../ui";
@@ -37,6 +38,7 @@ export function PropertiesPanel({
   onUpdate: (input: UpdateIssueInput) => Promise<unknown>;
 }) {
   const action = useAsyncAction();
+  const location = executionLocation(issue.branch, issue.worktree);
   const [labelText, setLabelText] = useState("");
   const change = (input: UpdateIssueInput) => action.run(() => onUpdate(input), "変更できませんでした");
   // 選択肢の一覧を読み込む前や、一覧にない Project でも、今の値を表示できるようにする
@@ -150,10 +152,13 @@ export function PropertiesPanel({
         </Prop>
         <Prop label="作業状況">{issue.agentState ? <AgentStatePill state={issue.agentState} /> : <Empty />}</Prop>
         <Prop label="実行場所">
-          {issue.branch ? (
+          {location ? (
             <span className={s.inline} title={issue.worktree ?? undefined}>
               <Icon name="terminal" />
-              {issue.branch}
+              <span className={s.executionLocation}>
+                {location.branchLabel}
+                {location.worktree && <span>{location.worktree}</span>}
+              </span>
             </span>
           ) : (
             <Empty />

@@ -1,7 +1,7 @@
 import type { IssueQuery, Status } from "../api/types";
 import { parseIssueListSearch, type IssueListSearch } from "../routes/search";
 
-export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "label">;
+export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "label" | "blocked">;
 
 // URL の search params から絞り込み条件を取り出す（Issues の画面）
 export function filterFromSearch(raw: IssueListSearch): IssueQuery {
@@ -12,12 +12,13 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
   if (search.status?.length) query.status = search.status;
   if (search.project) query.project = search.project;
   if (search.label?.length) query.label = search.label;
+  if (search.blocked !== undefined) query.blocked = search.blocked;
   return query;
 }
 
 // 絞り込み条件を search params に写す。条件にないキーは undefined にし、cleanIssueListSearch で URL から消す
 export function filterToSearch(filter: IssueQuery): FilterSearch {
-  return { workspace: filter.workspace, status: filter.status, project: filter.project, label: filter.label };
+  return { blocked: filter.blocked, workspace: filter.workspace, status: filter.status, project: filter.project, label: filter.label };
 }
 
 // GET /api/issues のクエリ文字列（先頭の ? を含む。条件がなければ空文字）。配列は同じキーを繰り返す
@@ -28,6 +29,8 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.project) params.set("project", query.project);
   for (const label of query.label ?? []) params.append("label", label);
   if (query.ready) params.set("ready", "true");
+  if (query.q) params.set("q", query.q);
+  if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -40,6 +43,8 @@ function normalize(query: IssueQuery) {
     project: query.project ?? "",
     label: sorted(query.label),
     ready: query.ready === true,
+    q: query.q ?? "",
+    blocked: query.blocked,
   };
 }
 
@@ -48,7 +53,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "label" | "ready";
+export type FilterKey = "workspace" | "status" | "project" | "label" | "ready" | "q" | "blocked";
 
 export interface FilterChip {
   key: FilterKey;
@@ -83,6 +88,8 @@ export function describeFilter(
   if (filter.label?.length) chips.push({ key: "label", name: "Label", values: filter.label.join(", ") });
   // ready は絞り込みのバーでは足せないが、API で作った View の filter に入りうるため、外せるように出す
   if (filter.ready) chips.push({ key: "ready", name: "Ready", values: "のみ" });
+  if (filter.q) chips.push({ key: "q", name: "検索", values: filter.q });
+  if (filter.blocked !== undefined) chips.push({ key: "blocked", name: "ブロック", values: filter.blocked ? "ブロック中" : "ブロックなし" });
   return chips;
 }
 

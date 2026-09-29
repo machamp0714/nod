@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AskResult, Question } from "../../api/types";
 import { countQuestions, formatQuestionCount, formatRelative } from "../../lib/format";
 import { hasText } from "../../lib/issue-edit";
@@ -11,18 +11,56 @@ export function QuestionsPanel({
   questions,
   onAnswer,
   onAsk,
+  answerRequest,
+  onBusyChange,
 }: {
+  answerRequest?: { questionId: number; requestId: number };
+  onBusyChange?: (busy: boolean) => void;
   questions: Question[];
   onAnswer: (questionId: number, answer: string) => Promise<unknown>;
   onAsk: (question: string) => Promise<AskResult>;
 }) {
   const count = countQuestions(questions);
   const [answering, setAnswering] = useState<number | null>(null);
-  const [answer, setAnswer] = useState("");
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const answer = answering === null ? "" : drafts[answering] ?? "";
+  const answerRef = useRef<HTMLTextAreaElement>(null);
+  const handledRequest = useRef<number | undefined>(undefined);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [adding, setAdding] = useState(false);
   const [newQuestion, setNewQuestion] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const action = useAsyncAction();
+
+  useEffect(() => { onBusyChange?.(action.busy); }, [action.busy, onBusyChange]);
+
+  useEffect(() => {
+    if (!answerRequest || handledRequest.current === answerRequest.requestId) return;
+    handledRequest.current = answerRequest.requestId;
+    if (action.busy) return;
+    const question = questions.find((q) => q.id === answerRequest.questionId);
+    if (!question || question.answer !== null) {
+      setNotice("この質問はすでに回答済みです");
+      return;
+    }
+    setNotice(null);
+    action.clearError();
+    setAdding(false);
+    setAnswering(question.id);
+    setFocusRequest((n) => n + 1);
+  }, [answerRequest, questions, action.busy]);
+
+  useEffect(() => {
+    if (answering !== null && !questions.some((q) => q.id === answering && q.answer === null)) {
+      setAnswering(null);
+    }
+  }, [questions, answering]);
+
+  useEffect(() => {
+    if (answering === null) return;
+    answerRef.current?.scrollIntoView({ block: "center" });
+    answerRef.current?.focus({ preventScroll: true });
+  }, [answering, focusRequest]);
 
   function resetMessages() {
     setNotice(null);
@@ -33,13 +71,17 @@ export function QuestionsPanel({
     resetMessages();
     setAdding(false);
     setAnswering(questionId);
-    setAnswer("");
+    setFocusRequest((n) => n + 1);
   }
 
   // 失敗（別の場所で先に回答された 409 など）は、パネルの下にメッセージを出す。
   // ページが読み直した質問は回答済みになるため、フォームは質問の側で閉じる。
   async function record(questionId: number) {
-    if (await action.run(() => onAnswer(questionId, answer.trim()), "記録できませんでした")) setAnswering(null);
+    if (action.busy) return;
+    if (await action.run(() => onAnswer(questionId, answer.trim()), "記録できませんでした")) {
+      setAnswering(null);
+      setDrafts((previous) => { const next = { ...previous }; delete next[questionId]; return next; });
+    }
   }
 
   async function copy(question: Question) {
@@ -93,12 +135,13 @@ export function QuestionsPanel({
                 ) : answering === q.id ? (
                   <div className={s.form}>
                     <textarea
+                      ref={answerRef}
                       disabled={action.busy}
                       className={s.textarea}
                       aria-label="回答"
                       rows={3}
                       value={answer}
-                      onChange={(e) => setAnswer(e.target.value)}
+                      onChange={(e) => setDrafts((previous) => ({ ...previous, [q.id]: e.target.value }))}
                     />
                     <div className={s.formActions}>
                       <Button onClick={() => setAnswering(null)} disabled={action.busy}>

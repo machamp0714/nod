@@ -38,9 +38,15 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
   const remove = useDeleteView();
   const dirty = !sameFilter(draft, view.filter);
 
-  function deleteView() {
+  async function deleteView() {
     if (!window.confirm(`View「${view.name}」を削除しますか？`)) return;
-    remove.mutate(view.id, { onSuccess: () => { void navigate({ to: "/issues" }); } });
+    try {
+      // 再取得でこの View がアンマウントされても、削除後の遷移を完了する。
+      await remove.mutateAsync(view.id);
+      await navigate({ to: "/issues" });
+    } catch {
+      // mutation のエラー表示から再試行できる。イベント処理の Promise は拒否しない。
+    }
   }
 
   return (

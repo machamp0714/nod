@@ -12,7 +12,7 @@ describe("describeActivity", () => {
     expect(
       describeActivity({ kind: "event", at, actor: "claude-code", type: "agent_state_changed", data: { from: "working", to: "awaiting_input" } })
         .text,
-    ).toBe("claude-code の作業状況が 入力待ち になった");
+    ).toBe("claude-code が作業状況を 入力待ち に変えた");
   });
 
   test("質問は未回答と回答済みで文を変える", () => {
@@ -79,4 +79,23 @@ test("回答済み質問は回答日時の位置に表示し、元の Activity �
   expect(describeActivity(visible[2]!).text).toBe("codex の確認依頼に me が回答した：方針は？");
   expect(question.at).toBe(askedAt);
   expect(items[0]).toBe(question);
+});
+
+test("作業主体の記録を使い、旧eventのmeを作業者とみなさない", () => {
+  const line = (actor: string, data: Record<string, unknown>) => describeActivity({ kind: "event", at, actor, type: "agent_state_changed", data: { to: "working", ...data } }).text;
+  expect(line("me", { agent: "codex", trigger: "answer" })).toBe("me の回答で codex の作業状況が 作業中 になった");
+  expect(line("other-agent", { agent: "codex", trigger: "answer" })).toBe("other-agent の回答で codex の作業状況が 作業中 になった");
+  expect(line("me", { agent: "codex" })).toBe("me が codex の作業状況を 作業中 に変えた");
+  expect(line("me", {})).toBe("me が作業状況を 作業中 に変えた");
+  expect(line("me", { agent: null, trigger: "answer" })).toBe("me の回答で作業状況が 作業中 になった");
+  expect(line("codex", { agent: null })).toBe("codex が作業状況を 作業中 に変えた");
+});
+
+test("作業状況のnullは解除として表示し、記録された主体と旧履歴を区別する", () => {
+  const line = (actor: string, data: Record<string, unknown>) => describeActivity({ kind: "event", at, actor, type: "agent_state_changed", data: { from: "working", to: null, ...data } }).text;
+  expect(line("me", { agent: "codex" })).toBe("me が codex の作業状況を解除した");
+  expect(line("codex", { agent: "codex" })).toBe("codex が codex の作業状況を解除した");
+  expect(line("me", { agent: null })).toBe("me が作業状況を解除した");
+  expect(line("me", {})).toBe("me が作業状況を解除した");
+  expect(line("codex", {})).toBe("codex が作業状況を解除した");
 });

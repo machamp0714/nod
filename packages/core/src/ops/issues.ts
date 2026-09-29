@@ -101,6 +101,8 @@ export interface ListIssuesFilter {
   projectRef?: string;
   labels?: string[];
   ready?: boolean;
+  query?: string;
+  blocked?: boolean;
 }
 
 // Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
@@ -123,7 +125,19 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
     params.push(label);
   }
+  if (filter.blocked !== undefined) {
+    where.push(`${filter.blocked ? "" : "NOT "}EXISTS (
+      SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
+      WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+    )`);
+  }
   return { where, params };
+}
+
+// SQLite の lower は非ASCIIで Web と異なるため、検索だけは同じ JavaScript の判定を使う。
+function matchesQuery(issue: Issue, query: string | undefined): boolean {
+  const needle = query?.trim().toLowerCase() ?? "";
+  return !needle || [issue.id, issue.title, issue.description ?? ""].some((text) => text.toLowerCase().includes(needle));
 }
 
 export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
@@ -135,7 +149,8 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
     where.push(READY_WHERE);
     params.push(now());
   }
-  return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params);
+  return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params)
+    .filter((issue) => matchesQuery(issue, filter.query));
 }
 
 export interface IssueCounts {
@@ -157,15 +172,20 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     projectRef: q.project,
     labels: q.label,
     ready: q.ready,
+    query: q.q,
+    blocked: q.blocked,
   };
   const scope = scopeWhere(db, filter);
   const scopeSql = scope.where.map((w) => ` AND ${w}`).join("");
   const count = (condition: string, conditionParams: SQLQueryBindings[]) =>
-    (
-      db
-        .query(`SELECT count(*) AS n FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE ${condition}${scopeSql}`)
-        .get(...conditionParams, ...scope.params) as { n: number }
-    ).n;
+    q.q
+      ? selectIssues(db, `WHERE ${condition}${scopeSql}`, [...conditionParams, ...scope.params])
+          .filter((issue) => matchesQuery(issue, q.q)).length
+      : (
+          db
+            .query(`SELECT count(*) AS n FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE ${condition}${scopeSql}`)
+            .get(...conditionParams, ...scope.params) as { n: number }
+        ).n;
   return {
     issues: listIssues(db, filter),
     counts: {
@@ -300,8 +320,12 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {
         setColumn(ctx, row, "close_reason", input.reason);
       }
-      setColumn(ctx, row, "status", input.status, input.reason ? { reason: input.reason } : {});
+      const changed = setColumn(ctx, row, "status", input.status, input.reason ? { reason: input.reason } : {});
       enterClarification(ctx, row);
+      // 手動移動は着手を意味しない。レビュー済みの作業完了だけは保持する。
+      if (changed && !(row.agent_state === "done" && (row.status === "in_review" || row.status === "done"))) {
+        setColumn(ctx, row, "agent_state", null);
+      }
     }
     changeLabels(ctx, row, input.addLabels ?? [], input.removeLabels ?? []);
     return toIssue(issueRowById(ctx.db, row.id));

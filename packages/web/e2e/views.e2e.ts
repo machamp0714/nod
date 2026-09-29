@@ -169,3 +169,34 @@ test.describe("View の削除失敗", () => {
     await expect(page).toHaveURL(/\/issues$/);
   });
 });
+
+test("削除後の再取得でView画面が先に消えてもIssuesへ遷移する", async ({ page }) => {
+  await page.goto("/views/1");
+  await expect(page.getByRole("heading", { level: 1, name: "仕事" })).toBeVisible();
+  let deleted = false;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/views/1", async (route) => {
+    if (route.request().method() === "DELETE") {
+      const response = await route.fetch();
+      deleted = true;
+      await route.fulfill({ response });
+    } else await route.continue();
+  });
+  // 一覧は先に更新し、同時に無効化される別queryを保留してonSettledの解決を遅らせる。
+  await page.route("**/api/workspaces", async (route) => {
+    if (deleted) await waiting;
+    await route.continue();
+  });
+  try {
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "削除", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "View が見つかりません" })).toBeVisible();
+    release();
+    await expect(page).toHaveURL(/\/issues$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Issues", exact: true })).toBeVisible();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});

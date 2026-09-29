@@ -40,12 +40,19 @@ export interface IssueRow {
   parent_number: number | null;
   project_name: string | null;
   labels: string | null;
+  blocked_by: string | null;
   question_total: number;
   question_answered: number;
 }
 
 export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
+  (SELECT group_concat(blocker_id, char(10)) FROM (
+    SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
+    JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
+    WHERE r.to_id = i.id AND r.type = 'blocks' AND b.status NOT IN ('done', 'canceled')
+    ORDER BY bw.key, b.number
+  )) AS blocked_by,
   (SELECT count(*) FROM questions q WHERE q.issue_id = i.id) AS question_total,
   (SELECT count(*) FROM questions q WHERE q.issue_id = i.id AND q.answer IS NOT NULL) AS question_answered
 FROM issues i
@@ -99,6 +106,7 @@ export function toIssue(r: IssueRow): Issue {
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
     labels: r.labels ? r.labels.split("\n").sort() : [],
+    blockedBy: r.blocked_by ? r.blocked_by.split("\n") : [],
     questionCount: { answered: r.question_answered, total: r.question_total },
     snoozedUntil: r.snoozed_until,
     prUrl: r.pr_url,

@@ -1,5 +1,7 @@
+import { useState } from "react";
+import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBanner";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { isNotFoundError } from "../api/errors";
+import { errorMessage, isNotFoundError } from "../api/errors";
 import {
   useAnswerQuestion,
   useCommentIssue,
@@ -16,6 +18,7 @@ import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
+import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { STATUS_META } from "../lib/meta";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -26,15 +29,22 @@ const route = getRouteApi("/issues/$issueId");
 export function IssueDetailPage() {
   const { issueId } = route.useParams();
   const query = useIssueDetail(issueId);
-  if (query.isPending) return <LoadingMessage />;
-  if (query.isError) {
-    return isNotFoundError(query.error) ? <NotFoundMessage title="Issue が見つかりません" /> : <ErrorMessage error={query.error} />;
+  if (query.isError && isNotFoundError(query.error)) return <NotFoundMessage title="Issue が見つかりません" />;
+  if (query.data === undefined) {
+    return query.isError ? <ErrorMessage error={query.error} /> : <LoadingMessage />;
   }
-  // 別の Issue に移ったら、編集中のフォームを捨てるよう作り直す
-  return <IssueDetailView key={issueId} issue={query.data} />;
+  // 背景の取得失敗では同じ編集部品を保持し、別の Issue に移ったときだけ作り直す。
+  return (
+    <>
+      {query.isError && <p className={s.backgroundError} role="alert">最新の Issue を取得できませんでした：{errorMessage(query.error)}</p>}
+      <IssueDetailView key={issueId} issue={query.data} />
+    </>
+  );
 }
 
 function IssueDetailView({ issue }: { issue: IssueDetail }) {
+  const [answerRequest, setAnswerRequest] = useState<{ questionId: number; requestId: number }>();
+  const [questionsBusy, setQuestionsBusy] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
   const ask = useAskQuestion(issue.id);
@@ -77,9 +87,10 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             </Pill>
             {issue.agentState && <AgentStatePill state={issue.agentState} />}
           </div>
-          <h1 className={s.title}>{issue.title}</h1>
+          <TitleSection title={issue.title} onSave={(title) => update.mutateAsync({ title })} />
 
           <DescriptionSection description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
+          <AwaitingInputBanner issue={issue} busy={questionsBusy} onAnswer={(questionId) => setAnswerRequest((previous) => ({ questionId, requestId: (previous?.requestId ?? 0) + 1 }))} />
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection documents={issue.documents} />
           <SubIssuesSection issues={issue.children} />
@@ -89,6 +100,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
         <aside className={s.rail}>
           <QuestionsPanel
             questions={issue.questions}
+            answerRequest={answerRequest}
+            onBusyChange={setQuestionsBusy}
             onAnswer={(questionId, text) => answer.mutateAsync({ answer: text, questionId })}
             onAsk={(question) => ask.mutateAsync({ question })}
           />
@@ -126,7 +139,9 @@ function DocumentsSection({ documents }: { documents: DocumentRef[] }) {
 function SubIssuesSection({ issues }: { issues: Issue[] }) {
   return (
     <section className={s.section} aria-label="Sub-issue">
-      <h2 className={s.sectionTitle}>Sub-issue</h2>
+      <h2 className={`${s.sectionTitle} ${s.subIssuesHeading}`}>
+        Sub-issues <span className={s.subIssuesCount}>{issues.filter((issue) => issue.status === "done").length}/{issues.length}</span>
+      </h2>
       {issues.length === 0 ? (
         <p className={s.muted}>Sub-issue はありません</p>
       ) : (

@@ -3,6 +3,8 @@ import { STATUSES, type Status } from "./types";
 
 // GET /api/issues のクエリパラメータと View の filter に共通する絞り込み条件。キーの名前はクエリパラメータの名前と同じ
 export interface IssueQuery {
+  blocked?: boolean; // false はブロックされていない Issue
+  q?: string; // ID・タイトル・説明の文字列検索
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   status?: Status[]; // どれかに合うもの。省くとすべてのステータス
   project?: string; // Project の名前か ID
@@ -10,7 +12,7 @@ export interface IssueQuery {
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "label", "ready"];
+const QUERY_KEYS = ["workspace", "status", "project", "label", "ready", "q", "blocked"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -37,6 +39,10 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     throw invalid(`絞り込み条件に ${unknownKeys.join(", ")} は使えません（使えるもの: ${QUERY_KEYS.join(", ")}）`);
   }
   const q: IssueQuery = {};
+  if (raw.q !== undefined) {
+    if (typeof raw.q !== "string") throw invalid("q は文字列で指定してください");
+    if (raw.q.trim()) q.q = raw.q.trim();
+  }
   const workspace = stringList(raw.workspace, "workspace", true);
   if (workspace) q.workspace = [...new Set(workspace.map((k) => k.toUpperCase()))];
   const status = stringList(raw.status, "status", true);
@@ -53,6 +59,10 @@ export function validateIssueQuery(value: unknown): IssueQuery {
   }
   const label = stringList(raw.label, "label", false);
   if (label) q.label = label;
+  if (raw.blocked !== undefined) {
+    if (typeof raw.blocked !== "boolean") throw invalid("blocked は true か false で指定してください");
+    q.blocked = raw.blocked;
+  }
   if (raw.ready !== undefined) {
     if (typeof raw.ready !== "boolean") throw invalid("ready は true か false で指定してください");
     if (raw.ready) q.ready = true;
@@ -65,13 +75,13 @@ export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     const last = values[values.length - 1] ?? "";
-    if (key === "project") {
-      raw.project = last;
-    } else if (key === "ready") {
+    if (key === "project" || key === "q") {
+      raw[key] = last;
+    } else if (key === "ready" || key === "blocked") {
       if (!["true", "1", "false", "0"].includes(last)) {
-        throw invalid(`ready は true か false で指定してください（受け取った値: ${last}）`);
+        throw invalid(`${key} は true か false で指定してください（受け取った値: ${last}）`);
       }
-      raw.ready = last === "true" || last === "1";
+      raw[key] = last === "true" || last === "1";
     } else {
       raw[key] = values;
     }

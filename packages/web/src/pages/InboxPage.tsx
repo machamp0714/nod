@@ -10,6 +10,7 @@ import { ActivityLines, AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge }
 import { doingTaskTitle, groupInbox, type InboxEntry } from "../lib/decision";
 import { formatRelative } from "../lib/format";
 import { planProgress } from "../lib/plan";
+import { executionLocation } from "../lib/execution-location";
 import d from "./decision.module.css";
 
 const route = getRouteApi("/inbox");
@@ -64,6 +65,7 @@ export function InboxPage() {
 }
 
 function InboxDetail({ entry, workspaceName }: { entry: InboxEntry; workspaceName: string }) {
+  const location = executionLocation(entry.branch, entry.worktree);
   const detail = useIssueDetail(entry.issueId);
   const issue = detail.data;
   const recent = issue ? issue.activity.slice(-3).reverse() : [];
@@ -77,12 +79,13 @@ function InboxDetail({ entry, workspaceName }: { entry: InboxEntry; workspaceNam
         {issue && <StatusLabel status={issue.status} />}
       </div>
       <h2 className={d.title}>{entry.issueTitle}</h2>
-      {entry.branch && (
+      {location && (
         <div className={d.context}>
           <Icon name="terminal" size={13} />
           <span title={entry.worktree ?? undefined}>
-            実行場所：{workspaceName} / {entry.branch}
+            実行場所：{workspaceName} / {location.branchLabel}
           </span>
+          {location.worktree && <span className={d.worktree}>{location.worktree}</span>}
         </div>
       )}
       {progress && (

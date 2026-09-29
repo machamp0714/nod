@@ -3,6 +3,7 @@ import { errorMessage } from "../api/errors";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, ProjectSummary } from "../api/types";
+import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
@@ -20,7 +21,7 @@ export function ProjectDetailPage() {
   const found = projects.data?.some((project) => String(project.id) === projectId) ?? false;
   const detail = useProject(Number(projectId), found);
   // 一覧にない ID なら、useIssueRows は API を呼ばない
-  const rows = useIssueRows({ project: projectId });
+  const rows = useIssueRows({ project: projectId, blocked: search.blocked });
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
   if (!projects.data) return <PageLoading />;
@@ -32,6 +33,9 @@ export function ProjectDetailPage() {
       crumb={<Link to="/projects">Projects</Link>}
       title={detail.data.name}
       intro={<ProjectIntro project={detail.data} documents={detail.data.documents} />}
+      filterBar={<div role="group" aria-label="絞り込み条件">
+        <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, blocked }), replace: true })} />
+      </div>}
       rows={rows.rows}
       loading={rows.loading}
       error={rows.error}
