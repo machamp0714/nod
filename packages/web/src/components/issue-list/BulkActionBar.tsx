@@ -5,7 +5,7 @@ import { type BulkUpdateInput, useBulkUpdateIssues } from "../../api/hooks/issue
 import type { Issue, Status } from "../../api/types";
 import { type BulkFailure, bulkFailures, labelMenu } from "../../lib/bulk-selection";
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
-import { priorityMeta, STATUS_ORDER, statusLabel } from "../../lib/meta";
+import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Icon, type IconName } from "../ui";
 import s from "./issue-list.module.css";
 
@@ -20,11 +20,13 @@ type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "esti
 export function BulkActionBar({
   selected,
   labels,
+  nameOfStatus,
   onClear,
   onUpdated,
 }: {
   selected: Issue[];
   labels: readonly string[]; // 一覧に出ているラベル（追加の候補）
+  nameOfStatus: (status: Status) => string; // 一覧と同じステータスの表示名
   onClear: () => void;
   onUpdated: (count: number) => void;
 }) {
@@ -105,7 +107,7 @@ export function BulkActionBar({
         </span>
         <span className={s.bulkDivider} />
         <Dropdown icon="circle-dot" label="Status" disabled={busy} {...menu("status")}>
-          <Menu label="Status を変更" items={BULK_STATUSES.map((status: Status) => ({ key: status, label: statusLabel(status), run: () => apply({ status }) }))} />
+          <Menu label="Status を変更" items={BULK_STATUSES.map((status: Status) => ({ key: status, label: nameOfStatus(status), run: () => apply({ status }) }))} />
         </Dropdown>
         <Dropdown icon="signal-high" label="優先度" disabled={busy} {...menu("priority")}>
           <Menu label="優先度を変更" items={PRIORITIES.map((priority) => ({ key: String(priority), label: priorityMeta(priority).label, run: () => apply({ priority }) }))} />

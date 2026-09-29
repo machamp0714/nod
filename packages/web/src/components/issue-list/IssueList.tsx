@@ -314,6 +314,7 @@ export function IssueList({
         <BulkActionBar
           selected={selectedIssues}
           labels={knownLabels}
+          nameOfStatus={nameOfStatus}
           onClear={clearSelection}
           onUpdated={(count) => {
             clearSelection();
