@@ -5,6 +5,12 @@ import {
   clearWorkspaceRules,
   DEFAULT_STATUS_LABELS,
   getStatusNames,
+  getTransitionRules,
+  resetTransitionRules,
+  setTransitionRules,
+  TRANSITION_PRESET_LABELS,
+  TRANSITION_PRESETS,
+  type WorkspaceTransitionRules,
   listWorkspaceLabels,
   removeWorkspaceLabel,
   setStatusNames,
@@ -20,6 +26,7 @@ import {
   setWorkspaceRules,
 } from "@nod/core";
 import type { Command } from "commander";
+import { collect } from "../args";
 import { act, currentWorkspace, repoRootOf } from "../context";
 import { print } from "../output";
 
@@ -120,6 +127,7 @@ export function registerWorkspaceCommands(program: Command): void {
 
   registerLabelCommands(ws);
   registerStatusNameCommands(ws);
+  registerTransitionCommands(ws);
 }
 
 function registerLabelCommands(ws: Command): void {
@@ -214,6 +222,61 @@ function registerStatusNameCommands(ws: Command): void {
         }
         const r = setStatusNames(cli.ctx, workspace.key, status === undefined ? {} : { ...current, [status]: null });
         print(cli, r, () => (status === undefined ? "すべての表示名を既定に戻しました" : `${status} の表示名を既定に戻しました`));
+      }),
+    );
+}
+
+function formatTransitionRules(r: WorkspaceTransitionRules): string {
+  if (r.forbidden.length === 0 && r.presets.length === 0) return "遷移ルールはありません（すべての遷移を許可）";
+  return [
+    ...r.presets.map((p) => `プリセット ${p}: ${TRANSITION_PRESET_LABELS[p]}`),
+    ...r.forbidden.map((p) => `禁止 ${p.from} → ${p.to}`),
+  ].join("\n");
+}
+
+// from:to の形の指定を読む
+function parsePair(value: string): { from: string; to: string } {
+  const m = /^([a-z_]+):([a-z_]+)$/.exec(value.trim());
+  if (!m) throw new NodError("INVALID_ARGS", `--forbid は from:to の形で指定してください（例: --forbid backlog:done）: ${value}`);
+  return { from: m[1]!, to: m[2]! };
+}
+
+function registerTransitionCommands(ws: Command): void {
+  const transitions = ws
+    .command("transitions")
+    .description("ステータスの遷移ルール（許可しない遷移）を管理する。LLM・自動化も従う。変更は人だけが行える");
+  transitions
+    .command("show")
+    .description("現在の Workspace の遷移ルールを表示する")
+    .action(
+      act((cli, cmd) => {
+        const r = getTransitionRules(cli.db, currentWorkspace(cli, cmd).key);
+        print(cli, r, () => formatTransitionRules(r));
+      }),
+    );
+  transitions
+    .command("set")
+    .description("遷移ルールを全体で置き換える（指定しなかったルールは消える）")
+    .option("--forbid <from:to>", "許可しない遷移（繰り返し可。例: --forbid backlog:done）", collect)
+    .option("--preset <name>", `プリセット（繰り返し可。${TRANSITION_PRESETS.join(", ")}）`, collect)
+    .action(
+      act((cli, cmd, o: { forbid?: string[]; preset?: string[] }) => {
+        if (!o.forbid?.length && !o.preset?.length) {
+          throw new NodError("INVALID_ARGS", "--forbid か --preset を1つ以上指定してください（すべて解除するには nod workspace transitions reset）");
+        }
+        const workspace = currentWorkspace(cli, cmd);
+        const r = setTransitionRules(cli.ctx, workspace.key, { forbidden: (o.forbid ?? []).map(parsePair), presets: o.preset ?? [] });
+        print(cli, r, () => `${workspace.name} の遷移ルールを保存しました\n${formatTransitionRules(r)}`);
+      }),
+    );
+  transitions
+    .command("reset")
+    .description("遷移ルールをすべて解除する（すべての遷移を許可）")
+    .action(
+      act((cli, cmd) => {
+        const workspace = currentWorkspace(cli, cmd);
+        const r = resetTransitionRules(cli.ctx, workspace.key);
+        print(cli, r, () => `${workspace.name} の遷移ルールをすべて解除しました`);
       }),
     );
 }
