@@ -1,6 +1,7 @@
 import { now, type OpCtx } from "./ctx";
 import { recordEvent } from "./events";
 import type { IssueRow } from "./issue-query";
+import { readTriageProposalNotifications } from "./notify";
 
 export type Column =
   | "status"
@@ -53,6 +54,8 @@ export function setColumn(
     ctx.db.query("UPDATE issues SET closed_at = ?, started_at = ? WHERE id = ?").run(closedAt, startedAt, row.id);
     row.closed_at = closedAt;
     row.started_at = startedAt;
+    // 確定に限らず、どの経路で Triage を出ても提案の通知は対応済みにする（#132）
+    if (from === "triage") readTriageProposalNotifications(ctx.db, row.id);
   }
   const type = EVENT_OF[column];
   if (type) {

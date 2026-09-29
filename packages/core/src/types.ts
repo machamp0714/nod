@@ -279,7 +279,7 @@ export interface Reminder extends IssueReminder {
 }
 
 // Inbox の通知。kind は issue_change（購読中の Issue の変化）か agent（LLM に任せた Issue の完了・入力待ち・エラー。購読なしで me に届く）か
-// reminder（me が設定したリマインダーの期限。data.note にメモ）
+// reminder（me が設定したリマインダーの期限。data.note にメモ）か triage_proposal（LLM の Triage 提案。data.decision・data.duplicateOf、#125）
 export interface Notification {
   id: number;
   kind: string;

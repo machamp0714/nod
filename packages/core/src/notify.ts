@@ -125,19 +125,21 @@ export function notifyTriageProposal(db: Database, issueId: number, actor: strin
   releaseSnoozeOnArrival(db, issueId, ts, [HUMAN_ACTOR]);
 }
 
-// 取り下げ・再提案で、その提案者の未読の提案通知を消す。既読のものは履歴として残す
+// 取り下げ・再提案で、その提案者の未読の提案通知を消す。既読のものは履歴として残す。
+// 削除済みの未読も消す。残すと削除の取り消しで同じ Issue・提案者の未読が2件になる（#132）
 export function clearUnreadTriageProposal(db: Database, issueId: number, actor: string, keepId = 0): void {
   db.query(
     `DELETE FROM notifications WHERE issue_id = ? AND recipient = ? AND actor = ? AND kind = 'triage_proposal'
-       AND read_at IS NULL AND deleted_at IS NULL AND id <> ?`,
+       AND read_at IS NULL AND id <> ?`,
   ).run(issueId, HUMAN_ACTOR, actor, keepId);
 }
 
-// 人が Triage を確定したら、その Issue の未読の提案通知は対応済みとして既読にする（スヌーズ中も既読にして解く）
+// Issue が Triage を出たら（確定・状態の変更・アーカイブ、#132）、その Issue の未読の提案通知は対応済みとして既読にする
+// （スヌーズ中も既読にして解く）。削除済みも既読にして、削除を取り消しても未読で戻らないようにする
 export function readTriageProposalNotifications(db: Database, issueId: number): void {
   db.query(
     `UPDATE notifications SET read_at = COALESCE(read_at, ?1), snoozed_until = NULL
-     WHERE issue_id = ?2 AND kind = 'triage_proposal' AND deleted_at IS NULL AND (read_at IS NULL OR snoozed_until IS NOT NULL)`,
+     WHERE issue_id = ?2 AND kind = 'triage_proposal' AND (read_at IS NULL OR snoozed_until IS NOT NULL)`,
   ).run(now(), issueId);
 }
 

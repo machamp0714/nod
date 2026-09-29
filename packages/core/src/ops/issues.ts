@@ -29,6 +29,7 @@ import {
   toQuestion,
 } from "../issue-query";
 import { setColumn } from "../mutate";
+import { readTriageProposalNotifications } from "../notify";
 import { type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
@@ -525,6 +526,8 @@ export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; a
       const data: Record<string, unknown> = opts.reason?.trim() ? { reason: opts.reason } : {};
       if (opts.automation) data.automation = opts.automation;
       recordEvent(ctx.db, row.id, ctx.actor, "archived", data);
+      // アーカイブした Triage の Issue は Triage 一覧から外れるので、提案の通知も対応済みにする（#132）
+      if (row.status === "triage") readTriageProposalNotifications(ctx.db, row.id);
     }
     return toIssue(issueRowById(ctx.db, row.id));
   });

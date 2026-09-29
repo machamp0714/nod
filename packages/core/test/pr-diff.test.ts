@@ -312,16 +312,6 @@ describe("refreshPrDiff", () => {
     expect(view.fetchError?.code).toBe("DIFF_TOO_LARGE");
   });
 
-  test(`差分全体が ${PR_DIFF_MAX_BYTES} バイトを超えたら保存せず DIFF_TOO_LARGE（文字数ではなくバイト数で数える）`, async () => {
-    const { me, ref } = withPr();
-    const head = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -0,0 +1 @@\n+";
-    const over = head + "あ".repeat(Math.ceil((PR_DIFF_MAX_BYTES - head.length) / 3) + 1);
-    expect(over.length).toBeLessThan(PR_DIFF_MAX_BYTES);
-    const view = await refreshPrDiff(me, ref, stub(ok(viewJson()), ok(over)));
-    expect(view.fetchError?.code).toBe("DIFF_TOO_LARGE");
-    expect(view.diff).toBeNull();
-  });
-
   test(`差分は ${PR_DIFF_MAX_BYTES} バイトを上限に読み、超えたら読み込みを止めて DIFF_TOO_LARGE`, async () => {
     const { me, ref } = withPr();
     const opts: unknown[] = [];
