@@ -14,6 +14,7 @@ import {
   markNotificationsRead,
   NodError,
   proposeTriage,
+  withdrawTriageProposal,
   rejectReview,
   restoreNotifications,
   snoozeNotifications,
@@ -213,14 +214,32 @@ export function registerHumanCommands(program: Command): void {
     .option("-p, --priority <0-4>", "受け入れ時の優先度（--accept のときだけ）")
     .option("--project <project>", "受け入れ時の Project の名前か ID（--accept のときだけ）")
     .option("--reason <text>", "判断の理由")
+    .option("--withdraw", "自分の提案を取り下げる（他の書き手の提案は消せない。ほかのオプションとは併用できない）")
     .action(
       act(
         (
           cli,
           _cmd,
           id: string,
-          o: { accept?: boolean; decline?: boolean; duplicateOf?: string; label?: string[]; assignee?: string; priority?: string; project?: string; reason?: string },
+          o: {
+            accept?: boolean;
+            decline?: boolean;
+            duplicateOf?: string;
+            label?: string[];
+            assignee?: string;
+            priority?: string;
+            project?: string;
+            reason?: string;
+            withdraw?: boolean;
+          },
         ) => {
+          if (o.withdraw) {
+            const { withdraw: _, ...rest } = o;
+            if (Object.values(rest).some((v) => v !== undefined)) throw new NodError("INVALID_ARGS", "--withdraw はほかのオプションと併用できません");
+            const r = withdrawTriageProposal(cli.ctx, id);
+            print(cli, r, () => `${r.issueId} の ${r.actor} の提案を取り下げました`);
+            return;
+          }
           const picked = [o.accept && "accept", o.decline && "decline", o.duplicateOf !== undefined && "duplicate"].filter(Boolean);
           if (picked.length !== 1) throw new NodError("INVALID_ARGS", "--accept・--decline・--duplicate-of <id> のどれか1つを指定してください");
           const p = proposeTriage(cli.ctx, id, {

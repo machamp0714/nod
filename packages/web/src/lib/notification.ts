@@ -47,6 +47,13 @@ export function describeNotification(n: Notification, opts: { short?: boolean; s
       if (to === "error") return `${agent} がエラーで止まりました（エラー）${quote(d.reason)}`;
       return `${agent} ${n.eventType}`;
     }
+    case "triage_proposed": {
+      // LLM の Triage 提案（#125）。確定は人が Triage 画面で行う
+      const p = n.data as { decision?: unknown; duplicateOf?: unknown };
+      const what =
+        p.decision === "accept" ? "受け入れ" : p.decision === "decline" ? "却下" : p.decision === "duplicate" ? `重複${opts.short ? "" : `、元: ${String(p.duplicateOf)}`}` : String(p.decision);
+      return `${who} が Triage を提案しました（${what}）`;
+    }
     case "reminder": {
       const note = (n.data as { note?: unknown }).note;
       return typeof note === "string" && note ? `リマインダー：${note}` : "リマインダーの時刻です";

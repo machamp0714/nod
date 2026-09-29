@@ -109,6 +109,38 @@ export function readAgentNotifications(db: Database, issueId: number, recipient:
   ).run(now(), issueId, recipient);
 }
 
+// LLM の Triage 提案（#125）を me に届ける。提案は event を持たないので、1つの Issue・提案者ごとに未読を1件に保つ。
+// 再提案は未読の通知を消して新しく作り直す（新着として一覧の先頭に出す）。既読なら履歴として残し、新しく1件作る
+export function notifyTriageProposal(db: Database, issueId: number, actor: string, data: Record<string, unknown>): void {
+  if (actor === HUMAN_ACTOR) return;
+  const ts = now();
+  // 先に作ってから古い未読を消す。先に消すと id が再利用され、画面が同じ通知と取り違える
+  const id = db
+    .query(
+      `INSERT INTO notifications (recipient, issue_id, kind, event_type, actor, data, created_at)
+       VALUES (?, ?, 'triage_proposal', 'triage_proposed', ?, ?, ?)`,
+    )
+    .run(HUMAN_ACTOR, issueId, actor, JSON.stringify(data), ts).lastInsertRowid;
+  clearUnreadTriageProposal(db, issueId, actor, Number(id));
+  releaseSnoozeOnArrival(db, issueId, ts, [HUMAN_ACTOR]);
+}
+
+// 取り下げ・再提案で、その提案者の未読の提案通知を消す。既読のものは履歴として残す
+export function clearUnreadTriageProposal(db: Database, issueId: number, actor: string, keepId = 0): void {
+  db.query(
+    `DELETE FROM notifications WHERE issue_id = ? AND recipient = ? AND actor = ? AND kind = 'triage_proposal'
+       AND read_at IS NULL AND deleted_at IS NULL AND id <> ?`,
+  ).run(issueId, HUMAN_ACTOR, actor, keepId);
+}
+
+// 人が Triage を確定したら、その Issue の未読の提案通知は対応済みとして既読にする（スヌーズ中も既読にして解く）
+export function readTriageProposalNotifications(db: Database, issueId: number): void {
+  db.query(
+    `UPDATE notifications SET read_at = COALESCE(read_at, ?1), snoozed_until = NULL
+     WHERE issue_id = ?2 AND kind = 'triage_proposal' AND deleted_at IS NULL AND (read_at IS NULL OR snoozed_until IS NOT NULL)`,
+  ).run(now(), issueId);
+}
+
 export function lastNotificationId(db: Database): number {
   return (db.query("SELECT COALESCE(MAX(id), 0) AS id FROM notifications").get() as { id: number }).id;
 }
