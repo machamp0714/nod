@@ -739,3 +739,142 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 120px;
   border: 1px solid var(--line); border-radius: 8px; color: var(--ink2); font-size: 13px;
 }
+
+/* PR 行と PR 状態（#67）。nod.pen の「Issue詳細｜PR状態」に合わせ、状態は値の列の下に置く */
+.prGroup {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 14px;
+}
+
+.prGroup > dd {
+  margin: 0;
+}
+
+.prStatusCell {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.prStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.prResult {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prResultStale {
+  opacity: 0.45;
+}
+
+.prPills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.prPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.prCiPill {
+  font-family: var(--font-mono);
+}
+
+button.prCiPill {
+  cursor: pointer;
+}
+
+.prFailures {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 6px 8px;
+  list-style: none;
+  border-radius: var(--radius);
+  background: var(--fail-soft);
+}
+
+.prFailure {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--fail);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.prFailure a {
+  color: inherit;
+}
+
+.prError {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  color: var(--fail);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.prError > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.prFetchRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prFetched {
+  flex: 1;
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.prRefresh {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.prRefresh:disabled {
+  background: var(--sunken);
+  color: var(--ink3);
+  cursor: default;
+}

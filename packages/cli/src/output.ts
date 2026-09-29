@@ -270,6 +270,8 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
     "担当候補",
     ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
   ].join("\n");
+}
+
 const PR_STATE_LABEL: Record<PrState, string> = { OPEN: "Open", CLOSED: "Closed", MERGED: "Merged" };
 const REVIEW_LABEL: Record<PrReviewDecision, string> = {
   APPROVED: "承認済み",

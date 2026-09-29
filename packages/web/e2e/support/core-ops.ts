@@ -47,6 +47,7 @@ export const DB_OPS = [
   "removeWorkspace",
   "listWorkspaces",
   "getIssue",
+  "getPrStatus",
   "queryIssues",
   "getInbox",
   "listTriage",

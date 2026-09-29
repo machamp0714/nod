@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import type { Issue, Relations, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
+import { PrStatusSection } from "./PrStatusSection";
 import { prLabel } from "../../lib/format";
 import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
 import { executionLocation } from "../../lib/execution-location";
@@ -279,15 +280,23 @@ export function PropertiesPanel({
             <Empty />
           )}
         </Prop>
-        <Prop label="PR">
-          {issue.prUrl ? (
-            <a href={issue.prUrl} target="_blank" rel="noreferrer" className={s.link}>
-              {prLabel(issue.prUrl)}
-            </a>
-          ) : (
-            <Empty />
+        <div className={s.prGroup}>
+          <dt className={s.propKey}>PR</dt>
+          <dd className={s.propValue}>
+            {issue.prUrl ? (
+              <a href={issue.prUrl} target="_blank" rel="noreferrer" className={s.link}>
+                {prLabel(issue.prUrl)}
+              </a>
+            ) : (
+              <Empty />
+            )}
+          </dd>
+          {issue.prUrl && (
+            <dd className={s.prStatusCell}>
+              <PrStatusSection issueId={issue.id} />
+            </dd>
           )}
-        </Prop>
+        </div>
         <Prop label="Created"><span title={issue.createdAt}>{attachmentDate(issue.createdAt)} · {issue.createdBy}</span></Prop>
       </dl>
       {action.error && (
