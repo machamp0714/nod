@@ -51,7 +51,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--discovered-from <id>", "発見元の Issue")
     .option("-p, --priority <0-4>", "優先度（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）")
     .option("--estimate <1-100>", "見積もり（ポイント）")
-    .option("--due <YYYY-MM-DD>", "期限（日付）")
+    .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
     .action(
       act(
@@ -153,7 +153,7 @@ export function registerIssueCommands(program: Command): void {
     .option("-d, --description <text>", "説明")
     .option("-p, --priority <0-4>", "優先度")
     .option("--estimate <1-100>", "見積もり（ポイント）")
-    .option("--due <YYYY-MM-DD>", "期限（日付）")
+    .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス")
     .option("--assignee <name>", "担当")
     .option("--parent <id>", "親 Issue")

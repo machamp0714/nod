@@ -76,7 +76,7 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 ## そのほかのコマンド
 
 - \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated]\`：\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す
-- \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付。空文字で外す
+- \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする。人だけが実行できる（LLM は FORBIDDEN_FOR_LLM）
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
