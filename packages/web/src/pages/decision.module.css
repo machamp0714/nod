@@ -252,7 +252,21 @@
 .acceptFields label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink2); }
 .acceptFields select, .acceptFields input { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 100px; }
 
-.hints { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.hint { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: var(--sunken); color: var(--ink2); font-size: 12.5px; }
-.hintText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hintLink { color: var(--accent); font-weight: 500; text-decoration: none; }
+.hints { display: flex; flex-direction: column; margin: 0; padding: 4px 14px; list-style: none; border-radius: 8px; background: var(--sunken); }
+.hint { display: flex; align-items: center; gap: 10px; padding: 8px 0; color: var(--ink2); }
+.hint + .hint { border-top: 1px solid var(--line); }
+.hintBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hintLine { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
+.hintLabel { color: var(--ink3); white-space: nowrap; }
+.hintId { color: var(--ink2); font-family: var(--font-mono); white-space: nowrap; }
+.hintTitle { color: var(--ink); font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hintStatus { display: inline-flex; flex-shrink: 0; padding: 1px 7px; border: 1px solid var(--line); border-radius: 10px; font-size: 11px; }
+.hintMeta { color: var(--ink3); font-size: 11.5px; }
+.hintButton { flex-shrink: 0; padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; }
+.hintButton:disabled { opacity: 0.5; cursor: default; }
+.hintCompare { color: var(--accent); }
+.candidates { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; flex-basis: 100%; }
+.candidatesLabel { padding-top: 5px; color: var(--ink3); font-size: 12px; }
+.candidate { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.chip { padding: 4px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.reason { color: var(--ink3); font-size: 11px; }
