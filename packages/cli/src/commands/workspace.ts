@@ -105,8 +105,8 @@ export function registerWorkspaceCommands(program: Command): void {
     .action(
       act((cli, cmd) => {
         const workspace = currentWorkspace(cli, cmd);
-        clearWorkspaceRules(cli.ctx, workspace.key);
-        print(cli, { workspaceKey: workspace.key, cleared: true }, () => `${workspace.name} の作業規約を削除しました`);
+        const r = clearWorkspaceRules(cli.ctx, workspace.key);
+        print(cli, r, () => `${workspace.name} の作業規約を削除しました`);
       }),
     );
 }

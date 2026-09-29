@@ -60,8 +60,9 @@ export function setWorkspaceRules(ctx: OpCtx, keyOrPath: string, body: string): 
   });
 }
 
-export function clearWorkspaceRules(ctx: OpCtx, keyOrPath: string): void {
+export function clearWorkspaceRules(ctx: OpCtx, keyOrPath: string): { workspaceKey: string; cleared: true } {
   setWorkspaceRules(ctx, keyOrPath, "");
+  return { workspaceKey: requireWorkspace(ctx.db, keyOrPath).key, cleared: true };
 }
 
 // LLM 向けの出力に添える作業規約の節。未登録なら空文字

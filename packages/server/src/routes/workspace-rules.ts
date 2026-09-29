@@ -9,9 +9,5 @@ export function registerWorkspaceRuleRoutes(app: Hono, me: OpCtx): void {
     const body = await readBody(c, ["body"]);
     return c.json(setWorkspaceRules(me, c.req.param("key"), reqString(body, "body")));
   });
-  app.delete("/api/workspaces/:key/rules", (c) => {
-    const key = c.req.param("key");
-    clearWorkspaceRules(me, key);
-    return c.json({ workspaceKey: key.toUpperCase(), cleared: true });
-  });
+  app.delete("/api/workspaces/:key/rules", (c) => c.json(clearWorkspaceRules(me, c.req.param("key"))));
 }
