@@ -4,7 +4,9 @@ import {
   type StatusNames,
   type AgentState,
   type Issue,
+  type IssueAttachment,
   type IssueDetail,
+  attachmentName,
   isOverdue,
   localToday,
   NodError,
@@ -142,6 +144,18 @@ function formatCompletionCandidate(d: IssueDetail): string {
   return `完了候補: Sub-issue がすべて完了しています（完了 ${count("done")}・キャンセル ${count("canceled")}）。人が ${how} で完了にできます`;
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// 添付1件の行。<id>  <表示名>  <URL か サイズ>  <添付者>
+export function formatAttachment(a: IssueAttachment): string {
+  const where = a.kind === "link" ? a.url : formatBytes(a.size ?? 0);
+  return `${a.id}  ${attachmentName(a)}  ${where}  ${a.createdBy}`;
+}
+
 export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = null): string {
   const lines = [
     `${d.id}  ${d.title}`,
@@ -163,6 +177,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.documents.length) {
     lines.push("", "Documents:", ...d.documents.map((doc) => `  - ${doc.title}（${doc.kind}）${doc.path}`));
   }
+  if (d.attachments.length) lines.push("", "添付:", ...d.attachments.map((a) => `  - ${formatAttachment(a)}`));
   if (d.questions.length) {
     const decided = d.questions.filter((q) => q.answer !== null).length;
     lines.push(
