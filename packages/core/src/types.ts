@@ -404,9 +404,13 @@ export interface AutomationRuleResult {
   total: number; // 条件に合う件数（上限を超えた分も含む）
   candidates: AutomationCandidate[]; // 今回扱う分（上限まで、古い順）
   processed: string[]; // 実行で変更した Issue。dry-run では空
+  skipped: string[]; // 実行時の再確認で条件から外れていて変えなかった Issue（targets にあって、いまは対象外のものを含む）
   failed: { id: string; message: string }[];
-  remaining: number; // 上限を超えて今回扱わなかった件数
+  remaining: number; // 条件に合うが今回扱わなかった件数（上限超過、または targets に含まれない分）
 }
+
+// 実行する Issue を確認時点の一覧に絞る（Web の確認ダイアログから）
+export type AutomationTargets = Partial<Record<AutomationKind, string[]>>;
 
 export interface AutomationRun {
   evaluatedAt: string;

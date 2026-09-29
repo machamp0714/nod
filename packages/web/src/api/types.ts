@@ -66,6 +66,7 @@ export type {
   AutomationSettings,
   AutomationRuleResult,
   AutomationRun,
+  AutomationTargets,
 } from "@nod/core";
 
 // Workspace の作業規約。未登録なら API は null を返す

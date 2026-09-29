@@ -50,18 +50,56 @@ describe("自動化API", () => {
     expect(dry.json.dryRun).toBe(true);
     expect(dry.json.rules.map((r: { candidates: { id: string }[] }) => r.candidates.map((c) => c.id))).toEqual([[open], [done]]);
     expect(getIssue(s.db, open).status).toBe("todo");
-    const run = await call(s.app, "POST", url, {});
+    const run = await call(s.app, "POST", url, { dryRun: false });
     expect(run.json.rules.map((r: { processed: string[] }) => r.processed)).toEqual([[open], [done]]);
     expect(getIssue(s.db, open).status).toBe("canceled");
     expect(getIssue(s.db, done).archivedAt).toBeString();
-    const again = await call(s.app, "POST", url, {});
+    const again = await call(s.app, "POST", url, { dryRun: false });
     expect(again.json.rules.map((r: { total: number }) => r.total)).toEqual([0, 0]);
   });
 
-  test("不正な dryRun・limit を拒む", async () => {
+  test("dryRun を省くと dry-run として扱い、何も変えない（実行は dryRun: false を明示）", async () => {
+    const s = setup();
+    setAutomationSettings(s.me, s.ws.key, { closeAfterDays: 30 });
+    const open = staleIssue(s);
+    const url = `/api/workspaces/${s.ws.key}/automation/run`;
+    for (const body of [{}, undefined]) {
+      const res = await call(s.app, "POST", url, body);
+      expect(res.status).toBe(200);
+      expect(res.json.dryRun).toBe(true);
+      expect(res.json.rules[0].processed).toEqual([]);
+    }
+    expect(getIssue(s.db, open).status).toBe("todo");
+  });
+
+  test("targets を渡すとその Issue だけを処理し、対象外になったものはスキップとして返す", async () => {
+    const s = setup();
+    setAutomationSettings(s.me, s.ws.key, { closeAfterDays: 30 });
+    const listed = staleIssue(s);
+    const moved = staleIssue(s);
+    const notListed = staleIssue(s);
+    s.db.query("UPDATE issues SET status='in_review' WHERE id=?").run(findIssueRow(s.db, moved).id);
+    const url = `/api/workspaces/${s.ws.key}/automation/run`;
+    const res = await call(s.app, "POST", url, { dryRun: false, targets: { auto_close: [listed, moved] } });
+    expect(res.status).toBe(200);
+    expect(res.json.rules[0]).toMatchObject({ processed: [listed], skipped: [moved], failed: [] });
+    expect(getIssue(s.db, notListed).status).toBe("todo");
+  });
+
+  test("不正な dryRun・limit・targets を拒む", async () => {
     const s = setup();
     const url = `/api/workspaces/${s.ws.key}/automation/run`;
-    for (const body of [{ dryRun: "yes" }, { limit: 0 }, { limit: 501 }, { limit: "5" }, { evaluatedAt: "2020-01-01T00:00:00Z" }]) {
+    for (const body of [
+      { dryRun: "yes" },
+      { limit: 0 },
+      { limit: 501 },
+      { limit: "5" },
+      { evaluatedAt: "2020-01-01T00:00:00Z" },
+      { targets: ["API-1"] },
+      { targets: { auto_close: "API-1" } },
+      { targets: { auto_close: [1] } },
+      { targets: { other: [] } },
+    ]) {
       const res = await call(s.app, "POST", url, body);
       expect(res.status).toBe(400);
       expect(res.json.error.code).toBe("INVALID_ARGS");
@@ -74,7 +112,7 @@ describe("自動化API", () => {
     const open = staleIssue(s);
     for (const [method, path, body] of [
       ["PUT", "automation", { closeAfterDays: 5 }],
-      ["POST", "automation/run", {}],
+      ["POST", "automation/run", { dryRun: false }],
     ] as const) {
       const res = await s.app.request(`/api/workspaces/${s.ws.key}/${path}`, {
         method,

@@ -18,7 +18,7 @@ test("未設定から自動クローズ・自動アーカイブを有効にし�
   await expect(auto.getByRole("button", { name: "対象を確認" })).toBeDisabled();
   await expect(auto.getByRole("button", { name: "今すぐ実行" })).toBeDisabled();
   await expect(auto.getByRole("button", { name: "保存" })).toBeDisabled();
-  await expect(auto.getByText("対象外: triage・in_review・LLM に委任中の Issue、未完了の子を持つ親 Issue")).toBeVisible();
+  await expect(auto.getByText("対象外: triage・in_review・LLM に委任中の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue")).toBeVisible();
 
   await close.click();
   await expect(close).toHaveAttribute("aria-checked", "true");
@@ -73,7 +73,7 @@ test("今すぐ実行は件数を確かめてから実行し、完了をトー�
   const auto = section(page);
   await auto.getByRole("button", { name: "今すぐ実行" }).click();
   const dialog = page.getByRole("alertdialog", { name: "クローズ 2件・アーカイブ 1件を実行しますか？" });
-  await expect(dialog).toContainText("対象は実行時点の条件で決まります。アーカイブした Issue は復元できます。");
+  await expect(dialog).toContainText("確認した一覧のうち、実行時にも条件に合う Issue だけを処理します。アーカイブした Issue は復元できます。");
   await dialog.getByRole("button", { name: "キャンセル" }).click();
   await expect(dialog).toHaveCount(0);
   expect((await nod.me.getIssue("API-1")).status).toBe("todo");
@@ -95,6 +95,27 @@ test("今すぐ実行は件数を確かめてから実行し、完了をトー�
   await auto.getByRole("button", { name: "今すぐ実行" }).click();
   await expect(result(page)).toHaveText("対象の Issue はありません");
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});
+
+test("実行は確認した一覧だけを送り、確認のあとで対象から外れた Issue はスキップとして示す", async ({ page, nod }) => {
+  await nod.me.setAutomationSettings("API", { closeAfterDays: 30, archiveAfterDays: 14 });
+  await page.goto("/workspaces/API/settings");
+  const auto = section(page);
+  await auto.getByRole("button", { name: "今すぐ実行" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "クローズ 2件・アーカイブ 1件を実行しますか？" });
+  await expect(dialog).toBeVisible();
+  // 確認ダイアログを開いたあとで API-2 に手が入る（更新されたので自動クローズの条件から外れる）
+  await nod.me.updateIssue("API-2", { status: "todo" });
+  const request = page.waitForRequest((req) => req.url().endsWith("/automation/run") && req.postDataJSON()?.dryRun === false);
+  await dialog.getByRole("button", { name: "実行する" }).click();
+  expect((await request).postDataJSON()).toEqual({
+    dryRun: false,
+    targets: { auto_close: ["API-1", "API-2"], auto_archive: ["API-4"] },
+  });
+  await expect(page.getByRole("status")).toHaveText("クローズ 1件・アーカイブ 1件・スキップ 1件・失敗 0件");
+  expect((await nod.me.getIssue("API-1")).status).toBe("canceled");
+  expect((await nod.me.getIssue("API-2")).status).toBe("todo");
+  expect((await nod.me.getIssue("API-4")).archivedAt).not.toBeNull();
 });
 
 test.describe("保存の失敗", () => {

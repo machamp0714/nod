@@ -1,4 +1,4 @@
-import type { AutomationRun, AutomationSettings } from "../api/types";
+import type { AutomationRun, AutomationSettings, AutomationTargets } from "../api/types";
 
 // core の AUTOMATION_DAYS_MAX と同じ上限
 export const AUTOMATION_DAYS_MAX = 3650;
@@ -60,10 +60,18 @@ export function confirmTitle(run: AutomationRun): string {
   return `クローズ ${close}件・アーカイブ ${archive}件を実行しますか？`;
 }
 
+// 確認ダイアログで示した一覧。実行はこの範囲だけを処理する
+export function runTargets(run: AutomationRun): AutomationTargets {
+  const ids = (kind: string) => run.rules.find((r) => r.kind === kind)?.candidates.map((c) => c.id) ?? [];
+  return { auto_close: ids("auto_close"), auto_archive: ids("auto_archive") };
+}
+
+// スキップ（確認のあとで対象から外れたもの）はあるときだけ示す
 export function runToast(run: AutomationRun): string {
   const processed = (kind: string) => run.rules.find((r) => r.kind === kind)?.processed.length ?? 0;
+  const skipped = run.rules.reduce((n, r) => n + r.skipped.length, 0);
   const failed = run.rules.reduce((n, r) => n + r.failed.length, 0);
-  return `クローズ ${processed("auto_close")}件・アーカイブ ${processed("auto_archive")}件・失敗 ${failed}件`;
+  return `クローズ ${processed("auto_close")}件・アーカイブ ${processed("auto_archive")}件${skipped ? `・スキップ ${skipped}件` : ""}・失敗 ${failed}件`;
 }
 
 export function ruleHeading(kind: "auto_close" | "auto_archive", total: number): string {

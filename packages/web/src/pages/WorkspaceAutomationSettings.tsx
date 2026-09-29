@@ -13,6 +13,7 @@ import {
   type RuleDraft,
   ruleHeading,
   runCounts,
+  runTargets,
   runToast,
 } from "../lib/automation";
 import s from "./workspace-settings.module.css";
@@ -97,10 +98,11 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
     if (counts.close + counts.archive > 0) setConfirming(r);
   }
 
-  async function execute() {
+  // 確認ダイアログで示した一覧だけを処理する（その後に対象から外れたものはスキップとして返る）
+  async function execute(confirmed: AutomationRun) {
     setError(null);
     try {
-      const r = await run.mutateAsync(undefined);
+      const r = await run.mutateAsync(runTargets(confirmed));
       setConfirming(null);
       setResult(null);
       onToast(runToast(r));
@@ -123,7 +125,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
           invalid={state.closeInvalid}
           onChange={setRule("close")}
           suffix="日間更新のない未完了 Issue を canceled にする"
-          note="対象外: triage・in_review・LLM に委任中の Issue、未完了の子を持つ親 Issue"
+          note="対象外: triage・in_review・LLM に委任中の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue"
         />
         <RuleRow
           label="自動アーカイブ"
@@ -151,11 +153,11 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
       {confirming && (
         <DeleteDialog
           title={confirmTitle(confirming)}
-          message="対象は実行時点の条件で決まります。アーカイブした Issue は復元できます。"
+          message="確認した一覧のうち、実行時にも条件に合う Issue だけを処理します。アーカイブした Issue は復元できます。"
           confirmLabel="実行する"
           confirmVariant="primary"
           busy={run.isPending}
-          onConfirm={() => void execute()}
+          onConfirm={() => void execute(confirming)}
           onClose={() => setConfirming(null)}
         />
       )}

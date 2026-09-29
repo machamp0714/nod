@@ -243,5 +243,7 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE workspaces ADD COLUMN auto_archive_days INTEGER`,
     `ALTER TABLE workspaces ADD COLUMN automation_updated_at TEXT`,
     `ALTER TABLE workspaces ADD COLUMN automation_updated_by TEXT`,
+    // 最後の活動（停滞の診断・自動クローズ）で Issue ごとに質問を引くため
+    `CREATE INDEX questions_issue ON questions (issue_id)`,
   ],
 ];

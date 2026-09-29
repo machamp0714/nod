@@ -3,7 +3,7 @@ import { latestActivity } from "../activity";
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
+import { findIssueRow, formatIssueId, OPEN_BLOCKER } from "../issue-query";
 import { setColumn } from "../mutate";
 import { recordedTimestamp } from "../recorded-time";
 import type {
@@ -12,6 +12,7 @@ import type {
   AutomationRuleResult,
   AutomationRun,
   AutomationSettings,
+  AutomationTargets,
   Status,
   Workspace,
 } from "../types";
@@ -29,6 +30,13 @@ const CLOSE_STATUSES: Status[] = ["backlog", "todo", "in_progress", "needs_clari
 // 未完了で未アーカイブの子を持つ親は、どちらのルールでも対象外
 const NO_OPEN_CHILD = `NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL
   AND c.status NOT IN ('done', 'canceled'))`;
+// 自動クローズでは、未完了の Issue をブロックしている Issue と、未完了のブロッカーを待つ Issue も除く。
+// canceled にするとブロックが黙って解け、前提が終わっていない作業に LLM が着手してしまうため。
+// 未完了は done・canceled 以外かつ未アーカイブ（ブロック元の数え方と同じ）
+const NO_BLOCK_RELATION = `NOT EXISTS (SELECT 1 FROM relations r JOIN issues b ON b.id = r.to_id
+    WHERE r.from_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER})
+  AND NOT EXISTS (SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
+    WHERE r.to_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER})`;
 
 interface SettingsRow {
   auto_close_days: number | null;
@@ -139,15 +147,19 @@ function candidateOf(workspace: Workspace, row: CandidateRow, at: number, curren
   };
 }
 
-// 最後の活動から days 日以上たった未完了の Issue。委任中（担当が me 以外）とスヌーズ中は除く
-function closeCandidates(db: Database, workspace: Workspace, days: number, current: number): Found[] {
+const CANDIDATE_SELECT = "SELECT i.id, i.number, i.title, i.status, i.created_at, i.updated_at, i.closed_at, i.snoozed_until FROM issues i";
+
+// 最後の活動から days 日以上たった未完了の Issue。委任中（担当が me 以外）・スヌーズ中・ブロック関係のあるものは除く。
+// issueId を渡すとその1件だけを確かめる（実行時の再確認）
+function closeCandidates(db: Database, workspace: Workspace, days: number, current: number, issueId?: number): Found[] {
   const rows = db
-    .query(`SELECT i.id, i.number, i.title, i.status, i.created_at, i.updated_at, i.closed_at, i.snoozed_until FROM issues i
-      WHERE i.workspace_id = ? AND i.archived_at IS NULL
+    .query(`${CANDIDATE_SELECT}
+      WHERE i.workspace_id = ? AND i.archived_at IS NULL ${issueId === undefined ? "" : "AND i.id = ?"}
         AND i.status IN (${CLOSE_STATUSES.map(() => "?").join(", ")})
         AND (i.assignee IS NULL OR i.assignee = ?)
-        AND ${NO_OPEN_CHILD}`)
-    .all(workspace.id, ...CLOSE_STATUSES, HUMAN_ACTOR) as CandidateRow[];
+        AND ${NO_OPEN_CHILD}
+        AND ${NO_BLOCK_RELATION}`)
+    .all(workspace.id, ...(issueId === undefined ? [] : [issueId]), ...CLOSE_STATUSES, HUMAN_ACTOR) as CandidateRow[];
   const found: Found[] = [];
   for (const row of rows) {
     const snoozedUntil = recordedTimestamp(row.snoozed_until);
@@ -160,11 +172,12 @@ function closeCandidates(db: Database, workspace: Workspace, days: number, curre
 }
 
 // 完了（done・canceled）から days 日以上たった、未アーカイブの Issue
-function archiveCandidates(db: Database, workspace: Workspace, days: number, current: number): Found[] {
+function archiveCandidates(db: Database, workspace: Workspace, days: number, current: number, issueId?: number): Found[] {
   const rows = db
-    .query(`SELECT i.id, i.number, i.title, i.status, i.created_at, i.updated_at, i.closed_at, i.snoozed_until FROM issues i
-      WHERE i.workspace_id = ? AND i.archived_at IS NULL AND i.status IN ('done', 'canceled') AND ${NO_OPEN_CHILD}`)
-    .all(workspace.id) as CandidateRow[];
+    .query(`${CANDIDATE_SELECT}
+      WHERE i.workspace_id = ? AND i.archived_at IS NULL ${issueId === undefined ? "" : "AND i.id = ?"}
+        AND i.status IN ('done', 'canceled') AND ${NO_OPEN_CHILD}`)
+    .all(workspace.id, ...(issueId === undefined ? [] : [issueId])) as CandidateRow[];
   const found: Found[] = [];
   for (const row of rows) {
     const closedAt = recordedTimestamp(row.closed_at);
@@ -174,11 +187,14 @@ function archiveCandidates(db: Database, workspace: Workspace, days: number, cur
   return sorted(found);
 }
 
-// 自動クローズ1件。実行時にも対象の状態を確かめ、すでに外れていれば何もしない
-function closeOne(ctx: OpCtx, ref: string, days: number): boolean {
+type Finder = (days: number, issueId?: number) => Found[];
+
+// 自動クローズ1件。候補を探してから処理するまでにほかの操作で変わりうるので、書き込む transaction の中で
+// 同じ条件（状態・担当・子・ブロック関係・スヌーズ・経過日数）を確かめ直し、外れていれば何もしない（スキップ）
+function closeOne(ctx: OpCtx, find: Finder, ref: string, days: number): boolean {
   return tx(ctx.db, () => {
-    const row: IssueRow = findWritableIssueRow(ctx.db, ref);
-    if (!CLOSE_STATUSES.includes(row.status)) return false;
+    const row = findIssueRow(ctx.db, ref);
+    if (find(days, row.id).length === 0) return false;
     const reason = closeReasonOf(days);
     setColumn(ctx, row, "close_reason", reason);
     setColumn(ctx, row, "status", "canceled", { reason, automation: "auto_close" });
@@ -187,9 +203,12 @@ function closeOne(ctx: OpCtx, ref: string, days: number): boolean {
   });
 }
 
-function archiveOne(ctx: OpCtx, ref: string, days: number): boolean {
-  const issue = archiveIssue(ctx, ref, { reason: archiveReasonOf(days), automation: "auto_archive" });
-  return issue.archivedAt !== null;
+function archiveOne(ctx: OpCtx, find: Finder, ref: string, days: number): boolean {
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    if (find(days, row.id).length === 0) return false;
+    return archiveIssue(ctx, ref, { reason: archiveReasonOf(days), automation: "auto_archive" }).archivedAt !== null;
+  });
 }
 
 function applyRule(
@@ -198,8 +217,9 @@ function applyRule(
   days: number | null,
   dryRun: boolean,
   limit: number,
-  find: (days: number) => Found[],
-  act: (ref: string, days: number) => boolean,
+  targets: string[] | undefined,
+  find: Finder,
+  act: (find: Finder, ref: string, days: number) => boolean,
 ): AutomationRuleResult {
   const result: AutomationRuleResult = {
     kind,
@@ -208,19 +228,30 @@ function applyRule(
     total: 0,
     candidates: [],
     processed: [],
+    skipped: [],
     failed: [],
     remaining: 0,
   };
-  if (days === null) return result;
+  if (days === null) {
+    result.skipped = targets ? [...targets] : [];
+    return result;
+  }
   const found = find(days);
   result.total = found.length;
-  result.candidates = found.slice(0, limit).map((f) => f.candidate);
+  // targets（確認時点の一覧）があれば、そのうちいまも条件に合うものだけを扱い、外れたものはスキップにする
+  const listed = targets ? found.filter((f) => targets.includes(f.candidate.id)) : found.slice(0, limit);
+  result.candidates = listed.map((f) => f.candidate);
   result.remaining = found.length - result.candidates.length;
+  if (targets) {
+    const current = new Set(result.candidates.map((c) => c.id));
+    result.skipped = targets.filter((id) => !current.has(id));
+  }
   if (dryRun) return result;
   // 1件ごとに確定し、途中で失敗しても残りを続ける
   for (const candidate of result.candidates) {
     try {
-      if (act(candidate.id, days)) result.processed.push(candidate.id);
+      if (act(find, candidate.id, days)) result.processed.push(candidate.id);
+      else result.skipped.push(candidate.id);
     } catch (e) {
       result.failed.push({ id: candidate.id, message: e instanceof Error ? e.message : String(e) });
     }
@@ -228,11 +259,23 @@ function applyRule(
   return result;
 }
 
-// 有効なルールを1回だけ評価・実行する。自動クローズを先に行い、その回で閉じた Issue はアーカイブしない
+function validateTargets(targets: AutomationTargets | undefined): void {
+  if (targets === undefined) return;
+  for (const kind of ["auto_close", "auto_archive"] as const) {
+    const list: unknown = targets[kind];
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || list.length > AUTOMATION_LIMIT_MAX || !list.every((id) => typeof id === "string")) {
+      throw new NodError("INVALID_ARGS", `targets.${kind} は ${AUTOMATION_LIMIT_MAX} 件以下の Issue ID の配列で指定してください`);
+    }
+  }
+}
+
+// 有効なルールを1回だけ評価・実行する。自動クローズを先に行い、その回で閉じた Issue はアーカイブしない。
+// targets を渡すと、各ルールはその Issue（確認時点の一覧）だけを扱い、limit は使わない
 export function runAutomation(
   ctx: OpCtx,
   keyOrPath: string,
-  opts: { dryRun?: boolean; limit?: number; evaluatedAt?: string } = {},
+  opts: { dryRun?: boolean; limit?: number; evaluatedAt?: string; targets?: AutomationTargets } = {},
 ): AutomationRun {
   const dryRun = opts.dryRun ?? false;
   if (!dryRun && isLlm(ctx)) {
@@ -242,6 +285,7 @@ export function runAutomation(
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > AUTOMATION_LIMIT_MAX) {
     throw new NodError("INVALID_ARGS", `--limit は 1〜${AUTOMATION_LIMIT_MAX} の整数で指定してください`);
   }
+  validateTargets(opts.targets);
   const evaluatedAt = opts.evaluatedAt ?? now();
   const current = recordedTimestamp(evaluatedAt);
   if (current === null) throw new NodError("INVALID_ARGS", "自動化の基準日時が正しくありません");
@@ -253,8 +297,9 @@ export function runAutomation(
     settings.closeAfterDays,
     dryRun,
     limit,
-    (days) => closeCandidates(ctx.db, workspace, days, current),
-    (ref, days) => closeOne(ctx, ref, days),
+    opts.targets?.auto_close,
+    (days, issueId) => closeCandidates(ctx.db, workspace, days, current, issueId),
+    (find, ref, days) => closeOne(ctx, find, ref, days),
   );
   const archive = applyRule(
     ctx,
@@ -262,8 +307,10 @@ export function runAutomation(
     settings.archiveAfterDays,
     dryRun,
     limit,
-    (days) => archiveCandidates(ctx.db, workspace, days, current).filter((f) => !close.processed.includes(f.candidate.id)),
-    (ref, days) => archiveOne(ctx, ref, days),
+    opts.targets?.auto_archive,
+    (days, issueId) =>
+      archiveCandidates(ctx.db, workspace, days, current, issueId).filter((f) => !close.processed.includes(f.candidate.id)),
+    (find, ref, days) => archiveOne(ctx, find, ref, days),
   );
   return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive] };
 }

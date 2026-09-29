@@ -2,7 +2,6 @@ import type { Database } from "bun:sqlite";
 import { now } from "../ctx";
 import { NodError } from "../errors";
 import { latestActivity } from "../activity";
-import { findIssueRow } from "../issue-query";
 import { recordedTimestamp } from "../recorded-time";
 import type { Issue } from "../types";
 import { listIssues } from "./issues";
@@ -39,10 +38,14 @@ export function diagnoseIssues(db: Database, opts: {
   if (current === null) throw new NodError("INVALID_ARGS", "診断の基準日時が正しくありません");
   return db.transaction(() => {
     const issues = listIssues(db, { workspaceId: opts.workspaceId, projectRef: opts.projectRef });
+    // 最後の活動は内部の id で引く（Issue ごとに引き直さないよう、番号から一度に対応づける）
+    const internalIds = new Map(
+      (db.query("SELECT id, number FROM issues WHERE workspace_id = ?").all(opts.workspaceId) as { id: number; number: number }[])
+        .map((row) => [row.number, row.id]),
+    );
     const findings: IssueDiagnosis[] = [];
     for (const issue of issues) {
-      const row = findIssueRow(db, issue.id);
-      const latest = latestActivity(db, row.id, issue.createdAt, issue.updatedAt);
+      const latest = latestActivity(db, internalIds.get(issue.number)!, issue.createdAt, issue.updatedAt);
       const reasons: DiagnosisReason[] = [];
       if (issue.blockedBy.length) reasons.push({ type: "blocked", blockedBy: issue.blockedBy });
       const snoozedUntil = recordedTimestamp(issue.snoozedUntil);

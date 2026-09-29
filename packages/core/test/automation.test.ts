@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { findIssueRow } from "../src/issue-query";
 import {
   AUTOMATION_DAYS_MAX,
@@ -36,7 +36,12 @@ function fixture() {
     setAutomationSettings(s.me, s.ws.key, { closeAfterDays: close, archiveAfterDays: archive });
   const dry = (limit?: number) => runAutomation(s.me, s.ws.key, { dryRun: true, evaluatedAt: at, limit });
   const run = (limit?: number) => runAutomation(s.me, s.ws.key, { evaluatedAt: at, limit });
-  return { ...s, make, enable, dry, run };
+  // 関係は直接書く（relateIssue は更新日時と event を新しくするため）
+  const block = (from: string, to: string, type = "blocks") =>
+    s.db
+      .query("INSERT INTO relations(from_id,to_id,type,created_at) VALUES (?, ?, ?, ?)")
+      .run(findIssueRow(s.db, from).id, findIssueRow(s.db, to).id, type, old);
+  return { ...s, make, enable, dry, run, block };
 }
 
 const ids = (r: { candidates: { id: string }[] }) => r.candidates.map((c) => c.id);
@@ -77,6 +82,13 @@ describe("自動化の設定", () => {
     const { db, ws, llm } = setup();
     expect(codeOf(() => setAutomationSettings(llm, ws.key, { closeAfterDays: 30 }))).toBe("FORBIDDEN_FOR_LLM");
     expect(getAutomationSettings(db, ws.key).closeAfterDays).toBeNull();
+  });
+
+  test("質問を Issue ごとに引く索引がある", () => {
+    const { db } = setup();
+    expect(db.query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'questions_issue'").get()).toEqual({
+      name: "questions_issue",
+    });
   });
 
   test("未登録の Workspace は NOT_FOUND", () => {
@@ -127,6 +139,53 @@ describe("自動クローズ（#71）", () => {
     make("todo", old, { workspaceId: other.id });
     expect(openChild).toBeString();
     expect(ids(dry().rules[0]!)).toEqual([mine, snoozeEnded, parent]);
+  });
+
+  test("未完了の Issue をブロックしている Issue と、未完了のブロッカー待ちの Issue を除く", () => {
+    const { me, make, enable, dry, block } = fixture();
+    enable(10, null);
+    const blocker = make("todo");
+    const waiting = make("backlog");
+    block(blocker, waiting); // どちらも除く
+    const blocksDone = make("todo");
+    block(blocksDone, make("done")); // 完了済みをブロックしているだけなら対象
+    const blockedByCanceled = make("todo");
+    block(make("canceled"), blockedByCanceled); // ブロッカーが完了済みなら対象
+    const blocksArchived = make("todo");
+    const archived = make("todo");
+    archiveIssue(me, archived);
+    block(blocksArchived, archived); // アーカイブ済みは未完了として数えない
+    const related = make("todo");
+    block(related, make("in_review"), "related"); // blocks 以外の関係は問わない
+    expect(ids(dry().rules[0]!).sort()).toEqual([blocksDone, blockedByCanceled, blocksArchived, related].sort());
+    expect(ids(dry().rules[0]!)).not.toContain(blocker);
+    expect(ids(dry().rules[0]!)).not.toContain(waiting);
+  });
+
+  test("実行時にも担当・子・ブロック関係・状態を確かめ、外れたものはスキップする", () => {
+    const { db, make, enable, run } = fixture();
+    enable(10, null);
+    const first = make("todo", "2026-09-01T00:00:00.000Z");
+    const delegated = make("todo", "2026-09-02T00:00:00.000Z");
+    const gotChild = make("todo", "2026-09-03T00:00:00.000Z");
+    const gotBlocker = make("todo", "2026-09-04T00:00:00.000Z");
+    const reviewed = make("todo", "2026-09-05T00:00:00.000Z");
+    const openChild = make("todo", "2026-09-28T00:00:00.000Z");
+    const openBlocker = make("todo", "2026-09-28T00:00:00.000Z");
+    const id = (ref: string) => findIssueRow(db, ref).id;
+    // 候補を探したあと、1件目を処理した時点でほかの Issue が変わる（ほかの操作との競合）
+    db.exec(`CREATE TRIGGER race AFTER UPDATE OF close_reason ON issues WHEN NEW.id = ${id(first)} BEGIN
+      UPDATE issues SET assignee = 'claude-code' WHERE id = ${id(delegated)};
+      UPDATE issues SET parent_id = ${id(gotChild)} WHERE id = ${id(openChild)};
+      INSERT INTO relations(from_id, to_id, type, created_at) VALUES (${id(openBlocker)}, ${id(gotBlocker)}, 'blocks', '${old}');
+      UPDATE issues SET status = 'in_review' WHERE id = ${id(reviewed)};
+    END`);
+    const r = run().rules[0]!;
+    expect(r).toMatchObject({ total: 5, processed: [first], skipped: [delegated, gotChild, gotBlocker, reviewed], failed: [] });
+    expect(getIssue(db, delegated).status).toBe("todo");
+    expect(getIssue(db, gotChild).status).toBe("todo");
+    expect(getIssue(db, gotBlocker).status).toBe("todo");
+    expect(getIssue(db, reviewed).status).toBe("in_review");
   });
 
   test("コメント・質問・event・更新日時のいずれかが新しければ対象外", () => {
@@ -296,12 +355,51 @@ describe("自動アーカイブ（#72）", () => {
   });
 
   test("同じ実行で自動クローズした Issue はアーカイブしない", () => {
-    const { db, make, enable, run } = fixture();
+    const { db, make, enable, run, dry } = fixture();
     enable(10, 10);
     const ref = make("todo");
-    const r = run();
-    expect(r.rules[0]!.processed).toEqual([ref]);
-    expect(r.rules[1]!.processed).toEqual([]);
-    expect(getIssue(db, ref).archivedAt).toBeNull();
+    // クローズの時刻（closed_at）を at の10日前に固定し、除外がなければアーカイブの対象になる状態にする
+    setSystemTime(new Date(old));
+    try {
+      const r = run();
+      expect(r.rules[0]!.processed).toEqual([ref]);
+      expect(r.rules[1]).toMatchObject({ total: 0, processed: [], skipped: [] });
+    } finally {
+      setSystemTime();
+    }
+    expect(getIssue(db, ref)).toMatchObject({ status: "canceled", archivedAt: null });
+    // 別の回として同じ基準日時で確かめると、アーカイブの対象になっている
+    expect(ids(dry().rules[1]!)).toEqual([ref]);
+  });
+
+  test("確認時点の一覧（targets）だけを処理し、条件から外れたものはスキップとして返す", () => {
+    const { db, me, ws, make, enable } = fixture();
+    enable(10, 10);
+    const closeA = make("todo", "2026-09-01T00:00:00.000Z");
+    const closeB = make("todo", "2026-09-02T00:00:00.000Z");
+    const notListed = make("todo", "2026-09-03T00:00:00.000Z");
+    const archiveA = make("done");
+    const reopened = make("done", "2026-09-01T00:00:00.000Z");
+    // 確認のあとで closeB は委任され、reopened は再開された
+    db.query("UPDATE issues SET assignee='claude-code' WHERE id=?").run(findIssueRow(db, closeB).id);
+    db.query("UPDATE issues SET status='todo', closed_at=NULL WHERE id=?").run(findIssueRow(db, reopened).id);
+    const r = runAutomation(me, ws.key, {
+      evaluatedAt: at,
+      targets: { auto_close: [closeA, closeB], auto_archive: [reopened, archiveA] },
+    });
+    expect(r.rules[0]).toMatchObject({ processed: [closeA], skipped: [closeB], failed: [] });
+    expect(r.rules[1]).toMatchObject({ processed: [archiveA], skipped: [reopened], failed: [] });
+    expect(getIssue(db, notListed).status).toBe("todo");
+    expect(getIssue(db, closeB).status).toBe("todo");
+    expect(getIssue(db, reopened).archivedAt).toBeNull();
+  });
+
+  test("targets は 500 件以下の Issue ID の配列", () => {
+    const { me, ws, enable } = fixture();
+    enable(10, 10);
+    const many = Array.from({ length: 501 }, (_, i) => `API-${i + 1}`);
+    expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets: { auto_close: many } }))).toBe("INVALID_ARGS");
+    const bad = { auto_close: [1] } as unknown as { auto_close: string[] };
+    expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets: bad }))).toBe("INVALID_ARGS");
   });
 });

@@ -1,6 +1,16 @@
-import { getAutomationSettings, type OpCtx, runAutomation, setAutomationSettings } from "@nod/core";
+import { type AutomationTargets, getAutomationSettings, type OpCtx, runAutomation, setAutomationSettings } from "@nod/core";
 import type { Hono } from "hono";
 import { invalid, optInt, optNullableInt, readBody } from "../input";
+
+function optTargets(value: unknown): AutomationTargets | undefined {
+  if (value === undefined) return undefined;
+  const message = "targets は { auto_close?: string[], auto_archive?: string[] } で指定してください";
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw invalid(message);
+  const targets = value as Record<string, unknown>;
+  if (Object.keys(targets).some((key) => key !== "auto_close" && key !== "auto_archive")) throw invalid(message);
+  // 配列の中身と件数は core で確かめる
+  return targets as AutomationTargets;
+}
 
 // 自動化（#71・#72）は web（実行者 me）から設定・確認・1回実行する。常駐の実行はしない
 export function registerAutomationRoutes(app: Hono, me: OpCtx): void {
@@ -14,9 +24,17 @@ export function registerAutomationRoutes(app: Hono, me: OpCtx): void {
       }),
     );
   });
+  // dryRun を省いたら dry-run（安全側）。実行するには dryRun: false を明示する。
+  // targets（{ auto_close?: string[]; auto_archive?: string[] }）は確認時点の一覧で、そのうちいまも条件に合うものだけを処理する
   app.post("/api/workspaces/:key/automation/run", async (c) => {
-    const body = await readBody(c, ["dryRun", "limit"]);
+    const body = await readBody(c, ["dryRun", "limit", "targets"]);
     if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") throw invalid("dryRun は true か false で指定してください");
-    return c.json(runAutomation(me, c.req.param("key"), { dryRun: body.dryRun === true, limit: optInt(body, "limit") }));
+    return c.json(
+      runAutomation(me, c.req.param("key"), {
+        dryRun: body.dryRun !== false,
+        limit: optInt(body, "limit"),
+        targets: optTargets(body.targets),
+      }),
+    );
   });
 }

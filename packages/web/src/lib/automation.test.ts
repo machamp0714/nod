@@ -8,6 +8,7 @@ import {
   formatSinceDate,
   ruleDaysInvalid,
   ruleHeading,
+  runTargets,
   runToast,
 } from "./automation";
 
@@ -19,13 +20,14 @@ const saved = (close: number | null, archive: number | null): AutomationSettings
   updatedBy: null,
 });
 
-const rule = (kind: "auto_close" | "auto_archive", candidates: number, processed: number, failed = 0) => ({
+const rule = (kind: "auto_close" | "auto_archive", candidates: number, processed: number, failed = 0, skipped = 0) => ({
   kind,
   days: 10,
   enabled: true,
   total: candidates,
   candidates: Array.from({ length: candidates }, (_, i) => ({ id: `API-${i}`, title: "t", status: "todo" as const, since: "", elapsedDays: 1 })),
   processed: Array.from({ length: processed }, (_, i) => `API-${i}`),
+  skipped: Array.from({ length: skipped }, (_, i) => `API-${i}`),
   failed: Array.from({ length: failed }, (_, i) => ({ id: `API-${i}`, message: "x" })),
   remaining: 0,
 });
@@ -65,6 +67,16 @@ describe("自動化の表示", () => {
   test("確認ダイアログは今回扱う件数、トーストは処理・失敗の件数", () => {
     expect(confirmTitle(run(rule("auto_close", 5, 0), rule("auto_archive", 3, 0)))).toBe("クローズ 5件・アーカイブ 3件を実行しますか？");
     expect(runToast(run(rule("auto_close", 5, 4, 1), rule("auto_archive", 3, 3)))).toBe("クローズ 4件・アーカイブ 3件・失敗 1件");
+    expect(runToast(run(rule("auto_close", 5, 3, 0, 2), rule("auto_archive", 3, 2, 0, 1)))).toBe(
+      "クローズ 3件・アーカイブ 2件・スキップ 3件・失敗 0件",
+    );
+  });
+
+  test("実行は確認ダイアログで示した一覧だけを送る", () => {
+    expect(runTargets(run(rule("auto_close", 2, 0), rule("auto_archive", 1, 0)))).toEqual({
+      auto_close: ["API-0", "API-1"],
+      auto_archive: ["API-0"],
+    });
   });
 
   test("ルールの見出しと日時の書式", () => {

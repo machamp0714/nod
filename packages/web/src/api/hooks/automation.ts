@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { AutomationRun, AutomationSettings } from "../types";
+import type { AutomationRun, AutomationSettings, AutomationTargets } from "../types";
 import { useApiMutation } from "./shared";
 
 function automationPath(key: string, op?: string): string {
@@ -25,6 +25,9 @@ export function useAutomationDryRun(key: string) {
   });
 }
 
+// 確認時点の一覧（targets）だけを処理する。その後に条件から外れたものはスキップとして返る
 export function useRunAutomation(key: string) {
-  return useApiMutation(() => apiFetch<AutomationRun>(automationPath(key, "run"), { method: "POST", body: { dryRun: false } }));
+  return useApiMutation((targets: AutomationTargets) =>
+    apiFetch<AutomationRun>(automationPath(key, "run"), { method: "POST", body: { dryRun: false, targets } }),
+  );
 }

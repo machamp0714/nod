@@ -48,6 +48,7 @@ function describeRule(rule: AutomationRuleResult, dryRun: boolean): string {
   if (!dryRun) {
     const verb = rule.kind === "auto_close" ? "canceled にしました" : "アーカイブしました";
     lines.push(`  ${verb}: ${rule.processed.length} 件${rule.processed.length ? `（${rule.processed.join(", ")}）` : ""}`);
+    if (rule.skipped.length) lines.push(`  スキップ（実行時に対象外）: ${rule.skipped.join(", ")}`);
     for (const f of rule.failed) lines.push(`  失敗: ${f.id} ${f.message}`);
   }
   return lines.join("\n");
@@ -94,7 +95,8 @@ export function registerAutomationCommands(program: Command): void {
       [
         "",
         "自動クローズの対象: backlog / todo / in_progress / needs_clarification で、最後の活動（更新・event・コメント・質問）から指定日数たったもの。",
-        "  triage・in_review・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親は対象外。done にはしない。",
+        "  triage・in_review・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
+        "  （未完了の Issue をブロックしている、または未完了のブロッカーを待っている）は対象外。done にはしない。",
         "自動アーカイブの対象: done / canceled になってから指定日数たったもの。未完了の子を持つ親は対象外。",
         "同じ回で自動クローズした Issue はアーカイブしない。もう一度実行しても同じ Issue は対象にならない。",
       ].join("\n"),
