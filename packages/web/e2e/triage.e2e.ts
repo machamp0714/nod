@@ -257,6 +257,27 @@ test("提案がなければ LLM の提案ブロックを出さない", async ({ 
   await expect(detail(page).getByRole("region", { name: "LLM の提案" })).toHaveCount(0);
 });
 
+// #125: 一覧の各 Issue に LLM の提案の数をバッジで出す。提案が無ければ出さず、取り下げると減る
+test("Triage 一覧に LLM の提案の数をバッジで出し、取り下げると減る", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.triageIssue("2人が提案した Issue");
+  await api.triageIssue("提案のない Issue");
+  await nod.claude.proposeTriage(a.id, { decision: "accept" });
+  await nod.codex.proposeTriage(a.id, { decision: "decline" });
+  await page.goto("/triage");
+  const item = (title: string) => list(page).getByRole("link").filter({ hasText: title });
+  await expect(item("2人が提案した Issue")).toContainText("LLM提案 2");
+  await expect(item("提案のない Issue")).toBeVisible();
+  await expect(item("提案のない Issue")).not.toContainText("LLM提案");
+  await nod.codex.withdrawTriageProposal(a.id);
+  await page.reload();
+  await expect(item("2人が提案した Issue")).toContainText("LLM提案 1");
+  await nod.claude.withdrawTriageProposal(a.id);
+  await page.reload();
+  await expect(item("2人が提案した Issue")).toBeVisible();
+  await expect(item("2人が提案した Issue")).not.toContainText("LLM提案");
+});
+
 // #117: 提案カードと候補のラベルも Dot を定義色にする
 test("LLM の提案のラベルは定義色の Dot で出し、未定義のラベルは灰色", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);

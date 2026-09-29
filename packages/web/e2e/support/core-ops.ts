@@ -45,6 +45,7 @@ export const CTX_OPS = [
   "setReminder",
   "clearReminder",
   "proposeTriage",
+  "withdrawTriageProposal",
   "linkPr",
 ] as const;
 

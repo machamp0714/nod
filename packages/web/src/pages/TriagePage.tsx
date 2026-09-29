@@ -1,6 +1,6 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useDecision, useTriage, useTriageProposals, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
+import { useDecision, useTriage, useTriageProposalCounts, useTriageProposals, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
 import { assigneeChoices, parseLabels } from "../lib/issue-edit";
@@ -20,6 +20,7 @@ const route = getRouteApi("/triage");
 export function TriagePage() {
   const { selected } = route.useSearch();
   const triage = useTriage();
+  const proposalCounts = useTriageProposalCounts();
   const workspaceName = useWorkspaceName();
   const items = triage.data ?? [];
   const current = items.find((i) => i.id === selected) ?? items[0];
@@ -49,6 +50,7 @@ export function TriagePage() {
               workspaceKey={issue.workspace}
               workspaceName={workspaceName(issue.workspace)}
               selected={issue === current}
+              proposalCount={proposalCounts.data?.[issue.id] ?? 0}
             />
           ))
         )

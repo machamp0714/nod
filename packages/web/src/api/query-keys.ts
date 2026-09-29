@@ -22,6 +22,7 @@ export const queryKeys = {
   triage: () => ["triage"] as const,
   triageSuggestions: (id: string) => ["triage", "suggestions", id] as const,
   triageProposals: (id: string) => ["triage", "proposals", id] as const,
+  triageProposalCounts: () => ["triage", "proposal-counts"] as const,
   notifications: () => ["notifications"] as const,
   notificationHistory: () => ["notifications", "history"] as const,
   snoozedNotifications: () => ["notifications", "snoozed"] as const,
