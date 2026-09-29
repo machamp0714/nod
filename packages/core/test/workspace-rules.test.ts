@@ -12,7 +12,7 @@ describe("Workspace の作業規約", () => {
     const { db, ws, me } = setup();
     const saved = setWorkspaceRules(me, ws.key, "\n- コミットは日本語で書く\n\n");
     expect(saved).toMatchObject({ workspaceKey: ws.key, body: "- コミットは日本語で書く", updatedBy: "me" });
-    expect(saved.updatedAt).toBeString();
+    expect(saved!.updatedAt).toBeString();
     expect(getWorkspaceRules(db, ws.key)).toEqual(saved);
   });
 
@@ -32,7 +32,7 @@ describe("Workspace の作業規約", () => {
   test("上限は 10,000 文字で、超えると INVALID_ARGS", () => {
     const { db, ws, me } = setup();
     expect(RULES_MAX_LENGTH).toBe(10000);
-    expect(setWorkspaceRules(me, ws.key, "あ".repeat(10000)).body.length).toBe(10000);
+    expect(setWorkspaceRules(me, ws.key, "あ".repeat(10000))!.body.length).toBe(10000);
     expect(codeOf(() => setWorkspaceRules(me, ws.key, "あ".repeat(10001)))).toBe("INVALID_ARGS");
     expect(getWorkspaceRules(db, ws.key)?.body.length).toBe(10000);
   });
