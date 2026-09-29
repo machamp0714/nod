@@ -27,6 +27,7 @@ export * from "./ops/reminders";
 export * from "./due-date";
 export * from "./ops/stats";
 export * from "./ops/triage-suggest";
+export * from "./ops/triage-proposals";
 export * from "./work-log";
 export * from "./ops/pr-status";
 export * from "./ops/automation";

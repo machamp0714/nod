@@ -280,4 +280,23 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX reminders_due ON reminders (remind_at)`,
   ],
+  // LLM の Triage 提案（#62）。提案は Triage の状態・event・通知を変えず、確定は人が accept / decline / duplicate で行う。
+  // 1つの Issue に書き手ごとに1件で、同じ書き手の再提案は上書きする。人の確定後も行は残す
+  [
+    `CREATE TABLE triage_proposals (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK (decision IN ('accept', 'decline', 'duplicate')),
+      duplicate_of_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+      labels TEXT NOT NULL DEFAULT '[]',
+      assignee TEXT,
+      priority INTEGER CHECK (priority IS NULL OR priority BETWEEN 0 AND 4),
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (issue_id, actor),
+      CHECK ((decision = 'duplicate') = (duplicate_of_id IS NOT NULL))
+    )`,
+  ],
 ];

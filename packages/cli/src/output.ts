@@ -16,6 +16,8 @@ import {
   toNodError,
   type Notification,
   type SuggestionReason,
+  type TriageDecision,
+  type TriageProposal,
   type TriageSuggestions,
   WORK_LOG_KIND_LABEL,
   type PrReviewDecision,
@@ -290,6 +292,24 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
     "担当候補",
     ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
   ].join("\n");
+}
+
+const DECISION_LABEL: Record<TriageDecision, string> = { accept: "受け入れ", decline: "却下", duplicate: "重複" };
+
+export function formatTriageProposal(p: TriageProposal): string {
+  const attrs = [
+    p.duplicateOf && `元: ${p.duplicateOf}`,
+    p.project && `Project: ${p.project.name}`,
+    p.priority !== null && `Priority: ${p.priority}`,
+    p.labels.length > 0 && `Labels: ${p.labels.join(", ")}`,
+    p.assignee && `Assignee: ${p.assignee}`,
+  ].filter(Boolean);
+  return [`${p.issueId}  ${p.actor}  ${DECISION_LABEL[p.decision]}${attrs.length ? `  ${attrs.join("  ")}` : ""}  ${p.updatedAt}`, ...(p.reason ? [`  理由: ${p.reason}`] : [])].join("\n");
+}
+
+export function formatTriageProposals(ref: string, list: TriageProposal[]): string {
+  if (list.length === 0) return `${ref} の提案はありません`;
+  return [`${ref} の提案（確定は人が行います: nod triage accept / decline / duplicate）`, ...list.map(formatTriageProposal)].join("\n");
 }
 
 const PR_STATE_LABEL: Record<PrState, string> = { OPEN: "Open", CLOSED: "Closed", MERGED: "Merged" };
