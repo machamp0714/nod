@@ -46,10 +46,17 @@ test("ラベルは複数のグループに重複して入り、検索で空に�
 test("BoardではStatusのグループ化を選べず、URLにあってもグループ化しない", async ({ page }) => {
   await page.goto("/issues?layout=board&groupBy=status");
   await expect(page.getByLabel("グループ化", { exact: true }).getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  // Board の列は Status なので、URL の groupBy=status はそのまま「Status」と示し、「なし」を選べば URL から消せる
+  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("status");
   await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
   await page.getByRole("tab", { name: "List", exact: true }).click();
   await expect(region(page, "Status In Progress")).toBeVisible();
+  await page.goto("/issues?layout=board&groupBy=status");
+  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await expect(page).not.toHaveURL(/groupBy=/);
+  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
   await page.goto("/issues?layout=board&groupBy=assignee");
   await expect(region(page, "担当 claude-code")).toBeVisible();
   await expect(region(page, "担当 未割り当て")).toBeVisible();

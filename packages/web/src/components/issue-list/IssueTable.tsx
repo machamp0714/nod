@@ -27,6 +27,7 @@ export function IssueTable({
   columns = [...DEFAULT_ISSUE_COLUMNS],
   hideHeader = false,
   previewId,
+  markCurrent = true,
   onPreview,
   showAgentState = false,
 }: {
@@ -34,6 +35,7 @@ export function IssueTable({
   columns?: IssueColumn[];
   hideHeader?: boolean; // サブグループの表は列見出しを画面に出さない（支援技術には残す）
   previewId?: string;
+  markCurrent?: boolean; // 同じ Issue が複数のグループに出るとき、aria-current は最初の1行だけに付ける
   onPreview?: (id: string) => void;
   showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
 }) {
@@ -74,8 +76,9 @@ export function IssueTable({
           rows.map(({ issue, questions, workspaceName }) => (
             <tr
               key={issue.id}
+              data-issue-row={issue.id}
               className={issue.id === previewId ? s.previewing : undefined}
-              aria-current={issue.id === previewId ? "true" : undefined}
+              aria-current={markCurrent && issue.id === previewId ? "true" : undefined}
               onKeyDown={onPreview && ((event) => {
                 // 行の中のリンクやボタンにフォーカスがあるとき、Space でプレビューする
                 if (event.key !== " " || event.defaultPrevented) return;

@@ -26,7 +26,7 @@ export function PreviewPane({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [role=dialog]")) return;
+      if (target?.closest("input, textarea, select, dialog, [role=dialog]")) return;
       onClose();
     };
     document.addEventListener("keydown", onKeyDown);

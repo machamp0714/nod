@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
@@ -53,14 +53,33 @@ export function IssueList({
   const groups = groupBy
     ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy)
     : [];
-  const onPreview = useCallback((id: string) => onSearchChange({ preview: id }), [onSearchChange]);
+  // プレビューを閉じたら、開いた要素（なければその行のリンク）へフォーカスを戻す
+  const opener = useRef<HTMLElement | null>(null);
+  const shown = useRef(preview);
+  useEffect(() => {
+    const closed = shown.current;
+    shown.current = preview;
+    if (!closed || preview) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const row = document.querySelector(`[data-issue-row="${CSS.escape(closed)}"]`);
+    const back = opener.current?.isConnected && opener.current.closest(`[data-issue-row="${CSS.escape(closed)}"]`) ? opener.current : row?.querySelector<HTMLElement>("a");
+    back?.focus();
+  }, [preview]);
+  const onPreview = useCallback((id: string) => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    onSearchChange({ preview: id });
+  }, [onSearchChange]);
   const closePreview = useCallback(() => onSearchChange({ preview: undefined }), [onSearchChange]);
   const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
   const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
   const delegated = tab === "delegated";
-  const table = (tableRows: IssueListRow[], hideHeader = false) => (
-    <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} onPreview={onPreview} showAgentState={delegated} />
-  );
+  // ラベルのグループでは同じ行が何度も出るため、描画順で最初の表だけに現在のプレビューを示させる
+  let currentShown = false;
+  const table = (tableRows: IssueListRow[], hideHeader = false) => {
+    const markCurrent = !currentShown && tableRows.some((r) => r.issue.id === preview);
+    if (markCurrent) currentShown = true;
+    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} />;
+  };
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
   // 委任中タブは LLM ごとに見られるよう、グループ化を選んでいなければ担当でまとめる
   const selectTab = (next: IssueTab) =>
@@ -126,7 +145,8 @@ export function IssueList({
           グループ化
           <select
             aria-label="グループ化"
-            value={groupBy ?? "none"}
+            // Board で URL に groupBy=status があるときは「Status」と示し、「なし」を選んで URL から消せるようにする
+            value={layout === "board" && search.groupBy === "status" ? "status" : groupBy ?? "none"}
             onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
           >
             <option value="none">なし</option>
