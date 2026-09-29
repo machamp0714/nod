@@ -499,7 +499,84 @@ describe("通知のスヌーズ（#43）", () => {
     snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
     expect(unsnoozeNotifications(me, { issueRef: a.id })).toEqual({ updated: 2 });
     expect(unsnoozeNotifications(me, { issueRef: a.id })).toEqual({ updated: 0 });
-    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1", "a2", "a1"]);
+    // スヌーズした時点で最新以外は既読にしているので、未読で戻るのは最新の1件
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1", "a2"]);
+  });
+
+  test("未読が複数ある Issue をスヌーズしても、期限が来たら未読は最新の1件だけで出る", () => {
+    const { db, me, a } = seeded();
+    expect(listNotifications(db).filter((n) => n.issueId === a.id)).toHaveLength(2);
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    expire(db);
+    expect(listNotifications(db).map((n) => n.body)).toEqual(["b1", "a2"]);
+    expect(listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id).map((n) => [n.body, n.readAt === null])).toEqual([
+      ["a2", true],
+      ["a1", false],
+    ]);
+  });
+
+  test("削除した通知は、同じ Issue への新着でスヌーズが解けても一覧に戻らない", () => {
+    const { db, me, llm, a } = seeded();
+    const [a2, a1] = listNotifications(db).filter((n) => n.issueId === a.id);
+    snoozeNotifications(me, { issueRef: a.id, until: FUTURE });
+    deleteNotifications(me, { ids: [a1!.id] });
+    commentIssue(llm, a.id, "a3");
+    expect(listNotifications(db, { includeRead: true }).filter((n) => n.issueId === a.id).map((n) => n.body)).toEqual(["a3", "a2"]);
+    const row = db.query("SELECT snoozed_until FROM notifications WHERE id = ?").get(a1!.id) as { snoozed_until: string | null };
+    expect(row.snoozed_until).not.toBeNull();
+    expect(a2!.body).toBe("a2");
+  });
+
+  test("LLM の作業の通知もスヌーズでき、購読していなくても次の作業の通知でスヌーズが解ける", () => {
+    const { db, ws, me, llm } = setup();
+    const c = createIssue(me, { workspaceId: ws.id, title: "任せた" });
+    startIssue(llm, c.id);
+    failIssue(llm, c.id, "落ちた");
+    expect(isSubscribed(db, c.id)).toBe(false);
+    snoozeNotifications(me, { issueRef: c.id, until: FUTURE });
+    expect(listNotifications(db)).toEqual([]);
+    startIssue(llm, c.id);
+    askQuestion(llm, c.id, "進めてよいか");
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+    expect(listNotifications(db, { includeRead: true }).map((n) => n.data.to)).toEqual(["awaiting_input", "error"]);
+  });
+
+  test("スヌーズ中の LLM の通知は、回答・承認・差し戻しで対応済みとして既読になり、期限が来ても戻らない", () => {
+    const { db, ws, me, llm } = setup();
+    const c = createIssue(me, { workspaceId: ws.id, title: "任せた" });
+    startIssue(llm, c.id);
+    askQuestion(llm, c.id, "進めてよいか");
+    snoozeNotifications(me, { issueRef: c.id, until: FUTURE });
+    answerQuestion(me, c.id, "よい");
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+    expect(listNotifications(db)).toEqual([]);
+    expect(listNotifications(db, { includeRead: true }).map((n) => [n.data.to, n.readAt !== null, n.snoozedUntil])).toEqual([
+      ["awaiting_input", true, null],
+    ]);
+
+    completeIssue(llm, c.id, { summary: "直した" });
+    snoozeNotifications(me, { issueRef: c.id, until: FUTURE });
+    rejectReview(me, c.id, "やり直し");
+    expire(db);
+    expect(listNotifications(db)).toEqual([]);
+    expect(listNotifications(db, { snoozed: true })).toEqual([]);
+  });
+
+  test("購読中の Issue で LLM の通知と一緒にスヌーズしても、回答で対応したら期限が来ても未読で戻らない", () => {
+    const { db, ws, me, llm } = setup();
+    const c = createIssue(me, { workspaceId: ws.id, title: "任せた" });
+    subscribeIssue(me, c.id);
+    commentIssue(llm, c.id, "調べます");
+    startIssue(llm, c.id);
+    askQuestion(llm, c.id, "進めてよいか");
+    snoozeNotifications(me, { issueRef: c.id, until: FUTURE });
+    answerQuestion(me, c.id, "よい");
+    // 解くのは LLM の通知だけ。購読の通知は既読のままスヌーズの期限まで残る
+    const still = listNotifications(db, { snoozed: true });
+    expect(still.length).toBeGreaterThan(0);
+    expect(still.every((n) => n.kind === "issue_change" && n.readAt !== null)).toBe(true);
+    expire(db);
+    expect(listNotifications(db)).toEqual([]);
   });
 
   test("LLM は操作できず、過去の日時・不正な日時・通知のない Issue・指定の誤りはエラー", () => {

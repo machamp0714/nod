@@ -177,20 +177,22 @@ function inList(ids: number[]): string {
   return ids.map(() => "?").join(", ");
 }
 
-// until まで一覧から隠す（Triage の Issue の Snooze とは別）。期限が来たら、Issue ごとに最新の1件を未読として出し直す。
-// 期限までに同じ Issue へ新しい通知が届いたら、そこで解く（notifySubscribers）
+// until まで一覧から隠す（Triage の Issue の Snooze とは別）。期限が来たら、Issue ごとに最新の1件だけを未読として出し直す。
+// そのため、スヌーズした時点で最新以外の未読は既読にする。
+// 期限までに同じ Issue へ新しい通知が届いたら、そこで解く（releaseSnoozeOnArrival）
 export function snoozeNotifications(ctx: OpCtx, input: NotificationTarget & { until: string }): { updated: number; snoozedUntil: string } {
   requireHuman(ctx, "通知をスヌーズ");
   const until = parseDateTime(input.until);
-  if (until <= now()) throw new NodError("INVALID_ARGS", `${input.until} は過去の日時です。これから先の日時を指定してください`);
+  const ts = now();
+  if (until <= ts) throw new NodError("INVALID_ARGS", `${input.until} は過去の日時です。これから先の日時を指定してください`);
   return tx(ctx.db, () => {
     const ids = targetIds(ctx, input, "スヌーズする");
     const updated = ctx.db.query(`UPDATE notifications SET snoozed_until = ? WHERE id IN (${inList(ids)})`).run(until, ...ids).changes;
+    const latest = `SELECT MAX(id) FROM notifications WHERE id IN (${inList(ids)}) GROUP BY issue_id`;
     ctx.db
-      .query(
-        `UPDATE notifications SET read_at = NULL WHERE id IN (SELECT MAX(id) FROM notifications WHERE id IN (${inList(ids)}) GROUP BY issue_id)`,
-      )
-      .run(...ids);
+      .query(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND id IN (${inList(ids)}) AND id NOT IN (${latest})`)
+      .run(ts, ...ids, ...ids);
+    ctx.db.query(`UPDATE notifications SET read_at = NULL WHERE id IN (${latest})`).run(...ids);
     return { updated, snoozedUntil: until };
   });
 }
