@@ -189,4 +189,9 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE workspaces ADD COLUMN rules_updated_at TEXT`,
     `ALTER TABLE workspaces ADD COLUMN rules_updated_by TEXT`,
   ],
+  // 分析の集計。完了した Issue を期間で引き、event を種類と時刻で引く
+  [
+    `CREATE INDEX issues_closed ON issues (status, closed_at)`,
+    `CREATE INDEX events_type_created ON events (type, created_at)`,
+  ],
 ];
