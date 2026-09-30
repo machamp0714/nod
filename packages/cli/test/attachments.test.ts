@@ -87,6 +87,17 @@ describe("nod attachments gc と Workspace の削除", () => {
     expect(readdirSync(root)).toEqual([]);
   });
 
+  test("LLM は録画（mp4・webm）を Workspace の中から添付できる", async () => {
+    const { repo, nod } = setupAttachments();
+    await nod(["issue", "create", "録画の対象"]);
+    writeFileSync(join(repo, "demo.mp4"), "MP4");
+    writeFileSync(join(repo, "demo.webm"), "WEBM");
+    const mp4 = await nod(["issue", "attach", "add", "API-1", "--file", "demo.mp4", "--json"], "claude-code");
+    expect(mp4.json).toMatchObject({ kind: "file", fileName: "demo.mp4", mime: "video/mp4" });
+    const webm = await nod(["issue", "attach", "add", "API-1", "--file", "demo.webm", "--json"], "claude-code");
+    expect(webm.json).toMatchObject({ kind: "file", fileName: "demo.webm", mime: "video/webm" });
+  });
+
   test(". で始まるディレクトリの中のファイルは添付できない", async () => {
     const { repo, root, nod } = setupAttachments();
     await nod(["issue", "create", "a"]);
@@ -103,4 +114,5 @@ test("手引きに添付の使い方と Document との使い分けを書く", (
   expect(GUIDE).toContain("nod issue attach remove");
   expect(GUIDE).toContain("NOD_ATTACHMENTS_DIR");
   expect(GUIDE).toContain("登録済み Workspace か OS の一時ディレクトリの下");
+  expect(GUIDE).toContain("mp4/webm は 100MB まで");
 });

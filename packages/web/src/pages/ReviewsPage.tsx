@@ -4,6 +4,7 @@ import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { ReviewIssue } from "../api/types";
 import { ApprovalNotice, GithubStatusRow } from "../components/issue-detail/GithubApproval";
+import { ReviewMediaSection } from "../components/issue-detail/AttachmentMedia";
 import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
 import { usePrStatus } from "../api/hooks/pr-status";
 import { ActionError } from "../components/split/ActionError";
@@ -112,10 +113,14 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
             </a>
           </div>
           <GithubStatusRow issueId={issue.id} />
+          <ReviewMediaSection attachments={detail.data?.attachments ?? []} />
           <PrDiffSection issueId={issue.id} prUrl={issue.prUrl} collapsible />
         </div>
       ) : (
-        <p className={d.muted}>PR はありません</p>
+        <>
+          <p className={d.muted}>PR はありません</p>
+          <ReviewMediaSection attachments={detail.data?.attachments ?? []} />
+        </>
       )}
 
       <div className={d.summary}>

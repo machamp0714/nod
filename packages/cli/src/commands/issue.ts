@@ -639,7 +639,7 @@ export function registerIssueCommands(program: Command): void {
     .command("add <id>")
     .description("http/https のリンクか、ファイル（添付ディレクトリ NOD_ATTACHMENTS_DIR にコピーする）を添付する")
     .option("--url <url>", "添付するリンク（http:// か https://）")
-    .option("--file <path>", "添付するファイル（10MB まで。拡張子は png/jpg/gif/webp/pdf/txt/log/md/csv/json/yaml/zip）")
+    .option("--file <path>", "添付するファイル（10MB まで、録画の mp4/webm は 100MB まで。拡張子は png/jpg/gif/webp/mp4/webm/pdf/txt/log/md/csv/json/yaml/zip）")
     .option("--title <text>", "表示名（省略時はホスト名かファイル名）")
     .action(
       act((cli, _cmd, id: string, o: { url?: string; file?: string; title?: string }) => {

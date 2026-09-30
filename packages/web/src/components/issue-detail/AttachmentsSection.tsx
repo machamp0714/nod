@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { IssueAttachment } from "../../api/types";
 import { attachmentDownloadPath, attachmentMeta, attachmentTitle, safeLinkHref } from "../../lib/attachment";
 import { Button, Icon } from "../ui";
+import { AttachmentMediaBlock } from "./AttachmentMedia";
 import { useAsyncAction } from "./useAsyncAction";
 import s from "./issue-detail.module.css";
 
@@ -50,6 +51,7 @@ export function AttachmentsSection({ attachments, onAddLink, onRemove, readOnly 
     <div className={s.attachmentsHeading}><h2 className={s.sectionTitle}>Attachments</h2><span className={s.attachmentCount}>{attachments.length}</span>
       <button type="button" className={s.attachmentAdd} aria-label="リンクを追加" aria-expanded={open} disabled={action.busy || readOnly}
         onClick={() => (open ? reset() : setOpen(true))}><Icon name="plus" size={14} /></button></div>
+    <AttachmentMediaBlock attachments={attachments} />
     <div className={s.attachmentBox}>
       {attachments.length === 0 && !open && <p className={s.attachmentEmpty}>添付はありません</p>}
       {attachments.length > 0 && <ul className={s.attachmentList}>

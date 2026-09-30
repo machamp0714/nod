@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_RANGE_MAX_BYTES,
+  ATTACHMENT_VIDEO_MAX_BYTES,
+  isInlineAttachmentMime,
+  openAttachmentStream,
+  readAttachmentRange,
   addFileAttachment,
   addLinkAttachment,
   attachmentFile,
@@ -142,6 +147,68 @@ describe("ファイルの添付", () => {
     for (const name of ["a.html", "a.htm", "a.svg", "a.js", "a.exe", "noext", ".env"]) {
       expect(codeOf(() => addFileAttachment(me, issue.id, { path: write(src, name), dir }))).toBe("INVALID_ARGS");
     }
+  });
+
+  test("録画は mp4 と webm を受け付け、動画だけ上限を別に持つ", () => {
+    const { me, issue, src, dir } = fixture();
+    expect(addFileAttachment(me, issue.id, { path: write(src, "rec.MP4"), dir }).mime).toBe("video/mp4");
+    expect(addFileAttachment(me, issue.id, { path: write(src, "rec.webm"), dir }).mime).toBe("video/webm");
+    expect(ATTACHMENT_VIDEO_MAX_BYTES).toBeGreaterThan(ATTACHMENT_MAX_BYTES);
+    expect(addFileAttachment(me, issue.id, { path: write(src, "ok.mp4", Buffer.alloc(ATTACHMENT_MAX_BYTES + 1)), dir }).size).toBe(
+      ATTACHMENT_MAX_BYTES + 1,
+    );
+    expect(codeOf(() => addFileAttachment(me, issue.id, { path: write(src, "big.png", Buffer.alloc(ATTACHMENT_MAX_BYTES + 1)), dir }))).toBe(
+      "INVALID_ARGS",
+    );
+    expect(
+      codeOf(() => addFileAttachment(me, issue.id, { path: write(src, "big.webm", Buffer.alloc(ATTACHMENT_VIDEO_MAX_BYTES + 1)), dir })),
+    ).toBe("INVALID_ARGS");
+  });
+
+  test("インライン表示してよいのは画像と動画の MIME だけ", () => {
+    for (const mime of ["image/png", "image/jpeg", "image/gif", "image/webp", "video/mp4", "video/webm"]) {
+      expect(isInlineAttachmentMime(mime)).toBe(true);
+    }
+    for (const mime of ["image/svg+xml", "application/pdf", "text/plain; charset=utf-8", "text/html", "application/zip", ""]) {
+      expect(isInlineAttachmentMime(mime)).toBe(false);
+    }
+  });
+
+  test("範囲を指定して読むと、その部分だけと全体のサイズを返す", async () => {
+    const { db, me, issue, src, dir } = fixture();
+    const a = addFileAttachment(me, issue.id, { path: write(src, "rec.mp4", "0123456789"), dir });
+    const whole = readAttachmentRange(db, a.id, dir);
+    expect(whole.data).toBeUndefined();
+    expect(await new Response(whole.stream).text()).toBe("0123456789");
+    expect(whole.total).toBe(10);
+    expect(whole.range).toBeNull();
+    const part = readAttachmentRange(db, a.id, dir, () => ({ start: 2, end: 5 }));
+    expect(part.data?.toString()).toBe("2345");
+    expect(part).toMatchObject({ total: 10, range: { start: 2, end: 5 }, mime: "video/mp4" });
+    // 末尾を越える end は丸め、始まりが末尾以降なら RANGE_NOT_SATISFIABLE
+    expect(readAttachmentRange(db, a.id, dir, (total) => ({ start: total - 2, end: 99 })).data?.toString()).toBe("89");
+    expect(codeOf(() => readAttachmentRange(db, a.id, dir, () => ({ start: 10, end: 12 })))).toBe("RANGE_NOT_SATISFIABLE");
+    expect(codeOf(() => readAttachmentRange(db, a.id, dir, () => ({ start: 5, end: 2 })))).toBe("RANGE_NOT_SATISFIABLE");
+  });
+
+  test("範囲は上限までに切り詰め、末尾までを求められても全体を読まない", () => {
+    const { db, me, issue, src, dir } = fixture();
+    const a = addFileAttachment(me, issue.id, { path: write(src, "rec.mp4", "0123456789"), dir });
+    const head = readAttachmentRange(db, a.id, dir, () => ({ start: 0, end: Number.MAX_SAFE_INTEGER }), 4);
+    expect(head.data?.toString()).toBe("0123");
+    expect(head).toMatchObject({ total: 10, size: 4, range: { start: 0, end: 3 } });
+    expect(readAttachmentRange(db, a.id, dir, () => ({ start: 8, end: Number.MAX_SAFE_INTEGER }), 4).range).toEqual({ start: 8, end: 9 });
+    expect(ATTACHMENT_RANGE_MAX_BYTES).toBe(2 * 1024 * 1024);
+  });
+
+  test("ダウンロードはストリームで全体を返す（チャンクを跨ぐ大きさでも欠けない）", async () => {
+    const { db, me, issue, src, dir } = fixture();
+    const body = Buffer.alloc(200 * 1024, "ab");
+    const a = addFileAttachment(me, issue.id, { path: write(src, "big.log", body), dir });
+    const f = openAttachmentStream(db, a.id, dir);
+    expect(f).toMatchObject({ total: body.length, size: body.length, mime: "text/plain; charset=utf-8" });
+    expect(Buffer.from(await new Response(f.stream).arrayBuffer()).equals(body)).toBe(true);
+    expect(codeOf(() => openAttachmentStream(db, 999, dir))).toBe("NOT_FOUND");
   });
 
   test("上限を超えるファイルは拒否し、上限ちょうどは受け付ける", () => {
