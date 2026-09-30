@@ -3,7 +3,9 @@ import { useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { ReviewIssue } from "../api/types";
+import { ApprovalNotice, GithubStatusRow } from "../components/issue-detail/GithubApproval";
 import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
+import { usePrStatus } from "../api/hooks/pr-status";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
@@ -70,6 +72,8 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
   const approve = useDecision();
   const reject = useDecision();
   const busy = approve.isPending || reject.isPending;
+  // 承認ボタン付近の注意は保存済みの PR 状態から出す（承認で gh は実行しない）
+  const prStatus = usePrStatus(issue.id, issue.prUrl !== null);
   return (
     <div className={d.detail}>
       <div className={d.crumb}>
@@ -107,6 +111,7 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
               <Icon name="external-link" />
             </a>
           </div>
+          <GithubStatusRow issueId={issue.id} />
           <PrDiffSection issueId={issue.id} prUrl={issue.prUrl} collapsible />
         </div>
       ) : (
@@ -135,18 +140,21 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
         disabled={busy}
         onChange={(e) => setReason(e.target.value)}
       />
-      <div className={d.actions}>
-        <Button variant="primary" icon="check" disabled={busy} onClick={() => approve.mutate({ op: "approve", issueId: issue.id })}>
-          承認して閉じる
-        </Button>
-        <Button
-          icon="undo-2"
-          disabled={busy || reason.trim() === ""}
-          title={reason.trim() === "" ? "差し戻しの理由を書いてください" : undefined}
-          onClick={() => reject.mutate({ op: "reject", issueId: issue.id, reason })}
-        >
-          差し戻す
-        </Button>
+      <div className={d.approvalArea}>
+        <ApprovalNotice status={issue.prUrl ? (prStatus.data?.status ?? null) : null} />
+        <div className={d.actions}>
+          <Button variant="primary" icon="check" disabled={busy} onClick={() => approve.mutate({ op: "approve", issueId: issue.id })}>
+            承認して閉じる
+          </Button>
+          <Button
+            icon="undo-2"
+            disabled={busy || reason.trim() === ""}
+            title={reason.trim() === "" ? "差し戻しの理由を書いてください" : undefined}
+            onClick={() => reject.mutate({ op: "reject", issueId: issue.id, reason })}
+          >
+            差し戻す
+          </Button>
+        </div>
       </div>
       <ActionError error={approve.error ?? reject.error} />
     </div>

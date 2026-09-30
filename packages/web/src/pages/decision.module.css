@@ -195,6 +195,12 @@
   font-size: 13px;
 }
 
+.approvalArea {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .actions {
   display: flex;
   align-items: center;
