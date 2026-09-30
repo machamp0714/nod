@@ -328,6 +328,49 @@ describe("queryIssues", () => {
     ]);
   });
 
+  test("assignee はどれかの担当に合う Issue を返し、none は未割り当てを指す", () => {
+    const { db, ws, me, llm } = setup();
+    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
+    const mine = createIssue(me, { workspaceId: ws.id, title: "mine" });
+    updateIssue(me, mine.id, { assignee: "me" });
+    const working = createIssue(me, { workspaceId: ws.id, title: "working" });
+    startIssue(llm, working.id);
+    const codex = createIssue(me, { workspaceId: web.id, title: "codex" });
+    updateIssue(me, codex.id, { assignee: "codex" });
+    const free = createIssue(me, { workspaceId: ws.id, title: "free" });
+    const closed = createIssue(me, { workspaceId: ws.id, title: "closed" });
+    updateIssue(me, closed.id, { assignee: "me", status: "done" });
+    const ids = (q: IssueQuery) => queryIssues(db, q).issues.map((i) => i.id);
+    expect(ids({ assignee: ["me"] })).toEqual([mine.id, closed.id]);
+    expect(ids({ assignee: ["claude-code", "codex"] })).toEqual([working.id, codex.id]);
+    expect(ids({ assignee: ["none"] })).toEqual([free.id]);
+    expect(ids({ assignee: ["none", "me"] })).toEqual([mine.id, free.id, closed.id]);
+    expect(ids({ assignee: ["me"], status: ["todo"] })).toEqual([mine.id]);
+    expect(ids({ assignee: ["codex"], workspace: ["API"] })).toEqual([]);
+    // 担当はマスタのない自由な文字列なので、だれも持たない名前は 0 件（エラーにしない）。大文字小文字は区別する
+    expect(ids({ assignee: ["nobody"] })).toEqual([]);
+    expect(ids({ assignee: ["ME"] })).toEqual([]);
+    // 委任中（担当が LLM）とは独立の条件で、私の担当と重ねると 0 件
+    expect(ids({ assignee: ["me"], delegated: true })).toEqual([]);
+    expect(ids({ assignee: ["codex", "me"], delegated: true })).toEqual([codex.id]);
+    // listIssues（CLI）は既定で done と canceled を除く
+    expect(listIssues(db, { assignees: ["me"] }).map((i) => i.id)).toEqual([mine.id]);
+  });
+
+  test("Ready と Needs Clarification の件数は assignee の範囲で数える", () => {
+    const { db, ws, me } = setup();
+    const mine = createIssue(me, { workspaceId: ws.id, title: "ready mine" });
+    updateIssue(me, mine.id, { assignee: "me" });
+    createIssue(me, { workspaceId: ws.id, title: "ready free" });
+    const unclear = createIssue(me, { workspaceId: ws.id, title: "unclear" });
+    updateIssue(me, unclear.id, { assignee: "codex" });
+    askQuestion(me, unclear.id, "対象はどれか");
+    expect(queryIssues(db, {}).counts).toEqual({ ready: 2, needsClarification: 1 });
+    expect(queryIssues(db, { assignee: ["me"] }).counts).toEqual({ ready: 1, needsClarification: 0 });
+    expect(queryIssues(db, { assignee: ["codex"], status: ["done"] }).counts).toEqual({ ready: 0, needsClarification: 1 });
+    expect(queryIssues(db, { assignee: ["none"], q: "ready" }).counts).toEqual({ ready: 1, needsClarification: 0 });
+  });
+
   test("各 Issue に未決事項の決定数と総数を付ける", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });

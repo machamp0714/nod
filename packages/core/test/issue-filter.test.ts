@@ -17,7 +17,7 @@ describe("validateIssueQuery", () => {
   });
 
   test("知らないキー、知らないステータス、型の誤りは INVALID_ARGS", () => {
-    expect(codeOf(() => validateIssueQuery({ assignee: "me" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => validateIssueQuery({ owner: "me" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => validateIssueQuery({ status: ["wip"] }))).toBe("INVALID_ARGS");
     expect(codeOf(() => validateIssueQuery({ ready: "yes" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => validateIssueQuery({ label: [1] }))).toBe("INVALID_ARGS");
@@ -53,6 +53,28 @@ describe("delegated", () => {
     expect(issueQueryFromParams(new URLSearchParams("delegated=1"))).toEqual({ delegated: true });
     expect(issueQueryFromParams(new URLSearchParams("delegated=false"))).toEqual({});
     expect(codeOf(() => issueQueryFromParams(new URLSearchParams("delegated=yes")))).toBe("INVALID_ARGS");
+  });
+});
+
+describe("assignee", () => {
+  test("文字列か配列を受け付け、前後の空白・空・重複を除き、none は未割り当てを指す", () => {
+    expect(validateIssueQuery({ assignee: "me" })).toEqual({ assignee: ["me"] });
+    expect(validateIssueQuery({ assignee: [" codex ", "me", "codex", ""] })).toEqual({ assignee: ["codex", "me"] });
+    expect(validateIssueQuery({ assignee: ["NONE", " none "] })).toEqual({ assignee: ["none"] });
+    expect(validateIssueQuery({ assignee: [] })).toEqual({});
+    expect(validateIssueQuery({ assignee: "  " })).toEqual({});
+  });
+
+  test("担当の名前は大文字小文字を変えず、文字列以外は INVALID_ARGS", () => {
+    expect(validateIssueQuery({ assignee: ["Claude-Code"] })).toEqual({ assignee: ["Claude-Code"] });
+    expect(codeOf(() => validateIssueQuery({ assignee: [1] }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => validateIssueQuery({ assignee: true }))).toBe("INVALID_ARGS");
+  });
+
+  test("クエリパラメータは繰り返しとカンマ区切りを受け付ける", () => {
+    expect(issueQueryFromParams(new URLSearchParams("assignee=me&assignee=claude-code"))).toEqual({ assignee: ["me", "claude-code"] });
+    expect(issueQueryFromParams(new URLSearchParams("assignee=me,none"))).toEqual({ assignee: ["me", "none"] });
+    expect(issueQueryFromParams(new URLSearchParams("assignee="))).toEqual({});
   });
 });
 

@@ -220,6 +220,7 @@ export interface ListIssuesFilter {
   query?: string;
   blocked?: boolean;
   delegated?: boolean;
+  assignees?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て
   completionCandidate?: boolean; // true で親の完了候補だけにする
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
 }
@@ -232,7 +233,7 @@ function scopeWorkspaceIds(db: Database, filter: ListIssuesFilter): number[] | u
   return (db.query(`SELECT id FROM workspaces WHERE key IN (${keys.map(() => "?").join(", ")})`).all(...keys) as { id: number }[]).map((r) => r.id);
 }
 
-// Workspace、Project、Cycle、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
+// Workspace、Project、Cycle、ラベル、担当の条件。Ready と Needs Clarification の件数もこの範囲で数える
 function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
   const where: string[] = [filter.archived ? "i.archived_at IS NOT NULL" : "i.archived_at IS NULL"];
   const params: SQLQueryBindings[] = [];
@@ -270,6 +271,15 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
     params.push(label);
+  }
+  if (filter.assignees?.length) {
+    const names = filter.assignees.filter((name) => !isNoneRef(name));
+    const conditions = [
+      ...(names.length ? [`i.assignee IN (${names.map(() => "?").join(", ")})`] : []),
+      ...(names.length < filter.assignees.length ? ["i.assignee IS NULL"] : []),
+    ];
+    where.push(`(${conditions.join(" OR ")})`);
+    params.push(...names);
   }
   if (filter.blocked !== undefined) {
     where.push(`${filter.blocked ? "" : "NOT "}EXISTS (
@@ -336,6 +346,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     query: q.q,
     blocked: q.blocked,
     delegated: q.delegated,
+    assignees: q.assignee,
     archived: q.archived,
   };
   const scope = scopeWhere(db, filter);

@@ -9,6 +9,7 @@ import {
   createProject,
   snoozeTriage,
   startIssue,
+  updateIssue,
 } from "@nod/core";
 import { call, setup, tempDir } from "./helpers";
 
@@ -53,6 +54,23 @@ describe("GET /api/issues", () => {
     expect(r.status).toBe(200);
     expect(r.json.issues.map((i: { id: string; assignee: string }) => [i.id, i.assignee])).toEqual([["API-1", "claude-code"]]);
     expect((await call(s.app, "GET", "/api/issues?delegated=yes")).status).toBe(400);
+  });
+
+  test("assignee は担当で絞り込み、none は未割り当て、件数もその範囲で数える", async () => {
+    const s = seed();
+    startIssue(s.llm, "API-1");
+    const d = createIssue(s.me, { workspaceId: s.ws.id, title: "d" });
+    updateIssue(s.me, d.id, { assignee: "me" });
+    const ids = async (query: string) => (await call(s.app, "GET", `/api/issues?${query}`)).json.issues.map((i: { id: string }) => i.id);
+    expect(await ids("assignee=me")).toEqual(["API-4"]);
+    expect(await ids("assignee=me&assignee=claude-code")).toEqual(["API-1", "API-4"]);
+    expect(await ids("assignee=me,claude-code")).toEqual(["API-1", "API-4"]);
+    expect(await ids("assignee=none")).toEqual(["API-2", "API-3"]);
+    expect(await ids("assignee=nobody")).toEqual([]);
+    expect(await ids("assignee=me&delegated=true")).toEqual([]);
+    const mine = await call(s.app, "GET", "/api/issues?assignee=me");
+    expect(mine.status).toBe(200);
+    expect(mine.json.counts).toEqual({ ready: 1, needsClarification: 0 });
   });
 
   test("誤った条件は 400、ない Project は 404", async () => {

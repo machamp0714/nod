@@ -14,10 +14,11 @@ export interface IssueQuery {
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
   delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ
+  assignee?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て。大文字小文字は区別する
   archived?: boolean; // true ならアーカイブ済みの Issue だけ。省くとアーカイブ済みを除く
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "archived"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "assignee", "archived"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -89,6 +90,8 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     if (typeof raw.delegated !== "boolean") throw invalid("delegated は true か false で指定してください");
     if (raw.delegated) q.delegated = true;
   }
+  const assignee = stringList(raw.assignee, "assignee", true);
+  if (assignee) q.assignee = [...new Set(assignee.map((name) => (isNoneRef(name) ? NONE_REF : name)))];
   if (raw.archived !== undefined) {
     if (typeof raw.archived !== "boolean") throw invalid("archived は true か false で指定してください");
     if (raw.archived) q.archived = true;
