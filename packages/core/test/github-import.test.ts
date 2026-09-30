@@ -185,6 +185,8 @@ describe("importGithubIssues", () => {
     expect(closedAt).not.toBeNull(); // nod の日時は取り込んだ時刻（GitHub の日時は本文と created の由来に残す）
     expect(closedAt).not.toBe("2026-02-01T00:00:00Z");
 
+    // 取り込んだ人自身には通知しない（大量に取り込んでも Inbox を埋めない）
+    expect((db.query("SELECT count(*) AS n FROM notifications").get() as { n: number }).n).toBe(0);
     const rows = db.query("SELECT source, source_key, imported_by FROM issue_imports ORDER BY id").all();
     expect(rows).toEqual([
       { source: "github", source_key: "example/api-server#5", imported_by: "me" },

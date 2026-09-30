@@ -28,7 +28,7 @@ function describeImport(r: GithubImportResult): string {
   const lines = [
     `GitHub ${r.repo}（${r.state}）から ${r.workspaceKey} へ${r.project ? `・Project「${r.project}」へ` : ""}: ${r.items.length} 件を読みました（新規 ${fresh} 件・取り込み済み ${r.items.length - fresh} 件）`,
   ];
-  if (r.truncated) lines.push(`  --limit に達したため、それより古い Issue は読んでいません`);
+  if (r.truncated) lines.push(`  --limit に達したため、それより古い Issue は読んでいません（--limit を増やすか --label で絞ると読めます）`);
   for (const i of r.items) {
     const where = i.existing ? `取り込み済み（${i.existing}）` : `→ ${i.status}`;
     const labels = i.labels.length ? `  [${i.labels.join(", ")}]` : "";
@@ -67,6 +67,7 @@ export function registerImportCommands(program: Command): void {
         "  担当は写さず、GitHub の作成者・作成日時・close 日時・担当は本文の末尾に残す。nod の日時は取り込んだ時刻になる。",
         "取り込んだ Issue は対応表に残し、再実行では作り直さず、nod 側の変更も上書きしない。",
         "1件ずつ確定し、失敗した Issue は取り込まずに一覧で示す（再実行でその分だけ取り込める）。",
+        "--limit は取り込み済みの Issue も数える（gh は新しい順に返す）。古い Issue まで届かないときは --limit を増やすか --label で絞る。",
       ].join("\n"),
     )
     .action(
