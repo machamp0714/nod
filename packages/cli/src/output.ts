@@ -10,6 +10,7 @@ import {
   isOverdue,
   localToday,
   NodError,
+  type OpenQuestions,
   type Plan,
   type Status,
   type StepStatus,
@@ -74,7 +75,7 @@ function displayWidth(text: string): number {
 }
 
 // ステータス列の幅。表示名は Workspace ごとに長さが違うので、一覧では全行の最大に合わせる
-export function statusColumnWidth(issues: Issue[]): number {
+export function statusColumnWidth(issues: Pick<Issue, "status" | "id">[]): number {
   return Math.max(11, ...issues.map((i) => displayWidth(statusText(i.status, i.id))));
 }
 
@@ -89,6 +90,41 @@ export function formatIssueLine(i: Issue, statusWidth = statusColumnWidth([i])):
 export function formatIssueLines(issues: Issue[]): string[] {
   const width = statusColumnWidth(issues);
   return issues.map((i) => formatIssueLine(i, width));
+}
+
+// 未決事項の決定数 / 総数のタグ。未決事項のない Issue には付けない
+function questionCountTag(count: Issue["questionCount"]): string {
+  return count.total > 0 ? `  [未決 ${count.answered}/${count.total}]` : "";
+}
+
+// nod issue list の行。1行表示に未決事項の件数を足す（#173）
+export function formatIssueListLines(issues: Issue[]): string[] {
+  return formatIssueLines(issues).map((line, n) => `${line}${questionCountTag(issues[n]!.questionCount)}`);
+}
+
+// 未回答の未決事項の一覧（#173）。Issue ごとにまとめ、質問は nod answer --question に渡す #番号つきで出す
+export function formatOpenQuestions(r: OpenQuestions): string {
+  if (r.total === 0) return "未回答の未決事項はありません";
+  const groups = new Map<string, OpenQuestions["questions"]>();
+  for (const q of r.questions) groups.set(q.issueId, [...(groups.get(q.issueId) ?? []), q]);
+  const width = statusColumnWidth(r.questions.map((q) => ({ status: q.status, id: q.issueId })));
+  const lines = [`未回答の未決事項 ${r.total} 件（${r.issueCount} Issue）`];
+  for (const [issueId, questions] of groups) {
+    const head = questions[0]!;
+    const status = statusText(head.status, issueId);
+    lines.push(`${issueId}  ${status}${" ".repeat(width - displayWidth(status))}  ${head.issueTitle}${questionCountTag(head.questionCount)}`);
+    for (const q of questions) lines.push(`  #${q.id} ${q.question.replaceAll("\n", "\n     ")}（${q.askedBy}・${localDate(q.askedAt)}）`);
+  }
+  if (r.more > 0) lines.push(`ほか ${r.more} Issue`);
+  lines.push("", "回答: nod answer <Issue の ID> <回答> --question <#番号>");
+  return lines.join("\n");
+}
+
+// 記録時刻をこのマシンのローカルの暦日（YYYY-MM-DD）にする
+function localDate(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 // 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ

@@ -71,6 +71,7 @@ import {
   formatIssueDetail,
   formatIssueLine,
   formatIssueLines,
+  formatIssueListLines,
   formatInstructions,
   formatPlan,
   formatPrStatus,
@@ -227,7 +228,7 @@ export function registerIssueCommands(program: Command): void {
             print(cli, sorted, () => formatDelegations(sorted));
             return;
           }
-          print(cli, issues, () => (issues.length ? formatIssueLines(issues).join("\n") : "Issue はありません"));
+          print(cli, issues, () => (issues.length ? formatIssueListLines(issues).join("\n") : "Issue はありません"));
         },
       ),
     );

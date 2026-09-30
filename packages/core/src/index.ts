@@ -22,6 +22,7 @@ export * from "./ops/attachments";
 export * from "./ops/issue-deletions";
 export * from "./ops/agent";
 export * from "./ops/human";
+export * from "./ops/open-questions";
 export * from "./plan-markdown";
 export * from "./ops/plan";
 export * from "./ops/templates";

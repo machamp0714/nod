@@ -1,4 +1,4 @@
-import { collect, parsePositiveInt, parsePriority } from "../args";
+import { collect, parsePositiveInt, parsePriority, parseStatuses } from "../args";
 import {
   acceptTriage,
   answerQuestion,
@@ -8,6 +8,7 @@ import {
   duplicateTriage,
   getInbox,
   getPrStatus,
+  listOpenQuestions,
   listTriageProposals,
   listNotifications,
   NOTIFICATION_READ_LIMIT,
@@ -15,6 +16,7 @@ import {
   markNotificationsRead,
   markNotificationsUnread,
   NodError,
+  parseOpenQuestionAsker,
   proposeTriage,
   withdrawTriageProposal,
   rejectReview,
@@ -25,8 +27,8 @@ import {
   unsnoozeNotifications,
 } from "@nod/core";
 import type { Command } from "commander";
-import { act } from "../context";
-import { formatApprovalGithub, formatIssueLine, formatNotification, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
+import { act, currentWorkspace, globalOpts } from "../context";
+import { formatApprovalGithub, formatIssueLine, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -55,6 +57,28 @@ export function registerHumanCommands(program: Command): void {
             ...inbox.notifications.map(formatNotification),
           ].join("\n"),
         );
+      }),
+    );
+
+  program
+    .command("questions")
+    .description("未回答の未決事項（確認依頼）を、人が付けたものも含めて Issue 横断で一覧する（既定ですべての Workspace、-w で絞る）。回答は nod answer --question で行う。読み取り専用")
+    .option("--asked-by <me|llm>", "質問者で絞る（me は人が付けたもの、llm は LLM からのもの。既定は両方）")
+    .option("--project <project>", "Project の名前か ID")
+    .option("-s, --status <statuses>", "Issue のステータス（カンマ区切り。done と canceled は指定できない）")
+    .option("--query <text>", "質問文・Issue のタイトル・ID で検索")
+    .option("--limit <n>", "出す Issue の数（既定はすべて。超えた分は「ほか N Issue」）")
+    .action(
+      act((cli, cmd, o: { askedBy?: string; project?: string; status?: string; query?: string; limit?: string }) => {
+        const result = listOpenQuestions(cli.db, {
+          askedBy: o.askedBy === undefined ? undefined : parseOpenQuestionAsker(o.askedBy),
+          workspace: globalOpts(cmd).workspace ? [currentWorkspace(cli, cmd).key] : undefined,
+          project: o.project,
+          status: o.status ? parseStatuses(o.status) : undefined,
+          q: o.query,
+          limit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
+        });
+        print(cli, result, () => formatOpenQuestions(result));
       }),
     );
 

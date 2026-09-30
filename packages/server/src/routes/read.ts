@@ -16,6 +16,8 @@ import {
   defaultDocsDir,
   getDocument,
   listDocuments,
+  listOpenQuestions,
+  openQuestionsQueryFromParams,
 } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag } from "../input";
@@ -26,6 +28,8 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): v
   app.get("/api/issues", (c) => c.json(queryIssues(db, issueQueryFromParams(new URL(c.req.url).searchParams))));
   app.get("/api/issues/:id", (c) => c.json(getIssue(db, c.req.param("id"))));
   app.get("/api/inbox", (c) => c.json(getInbox(db, { includeAnswered: queryFlag(c.req.query("includeAnswered"), "includeAnswered") })));
+  // 未回答の未決事項の Issue 横断の一覧（#173）。人が付けたものも含む。Inbox の質問（LLM からのものだけ）とは別に返す
+  app.get("/api/open-questions", (c) => c.json(listOpenQuestions(db, openQuestionsQueryFromParams(new URL(c.req.url).searchParams))));
   app.get("/api/triage", (c) => c.json(listTriage(db)));
   // 重複・ラベル・担当の候補（#41）。読み取りだけで、採用は既存の accept / duplicate で人が行う
   app.get("/api/triage/:id/suggestions", (c) => c.json(suggestTriage({ db, actor: HUMAN_ACTOR }, c.req.param("id"))));
