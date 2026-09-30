@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { useAddProjectUpdate } from "../../api/hooks/projects";
-import type { ProjectHealth, ProjectUpdate } from "../../api/types";
+import type { ProjectUpdate } from "../../api/types";
 import { hasText } from "../../lib/issue-edit";
 import { formatDateTime, formatRelative } from "../../lib/format";
 import { useAsyncAction } from "../issue-detail/useAsyncAction";
 import { AgentAvatar, Button, Icon } from "../ui";
-import { HealthPill, HealthSelect } from "./HealthPill";
+import { type HealthChoice, HealthClearedPill, HealthPill, HealthSelect } from "./HealthPill";
 import s from "./project-updates.module.css";
 
 // Project の進捗報告。本文はプレーンテキストとして表示し、保存に失敗したら下書き（本文と健全性）を残す。
-// 健全性は任意で、添えた値が Project の現在の健全性になる
+// 健全性は任意で、添えた値が Project の現在の健全性になる（「未設定に戻す」は未設定に戻す）。
+// 健全性のない報告には Pill を出さない（未設定に戻したように読めないように。#154）
 export function ProjectUpdatesSection({ projectId, updates }: { projectId: number; updates: ProjectUpdate[] }) {
   const add = useAddProjectUpdate(projectId);
   const [body, setBody] = useState("");
-  const [health, setHealth] = useState<ProjectHealth | null>(null);
+  const [health, setHealth] = useState<HealthChoice>(null);
   const action = useAsyncAction();
 
   async function submit() {
@@ -71,7 +72,7 @@ export function ProjectUpdatesSection({ projectId, updates }: { projectId: numbe
                   <time dateTime={u.createdAt} title={formatRelative(u.createdAt)}>
                     {formatDateTime(u.createdAt)}
                   </time>
-                  <HealthPill health={u.health} />
+                  {u.health ? <HealthPill health={u.health} /> : u.healthCleared && <HealthClearedPill />}
                 </div>
                 <p>{u.body}</p>
               </article>
