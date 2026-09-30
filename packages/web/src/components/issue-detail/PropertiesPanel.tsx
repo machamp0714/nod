@@ -217,36 +217,44 @@ function ReminderField({ reminder, busy, archived, change }: {
 }
 
 // Labels の末尾の追加ボタン（24 の円形）。押すと入力欄が直下に開き、Enter か「追加」で足す。続けて足せるよう、足したあとも開いたままにする。
-// Escape と外側のクリックで閉じる。locked（アーカイブ済み）は開けない
+// Escape、外側のクリック、フォーカスが外へ出たとき（Tab）に閉じる。locked（アーカイブ済み）は開けない
 function LabelAdder({ labels, locked, busy, change }: { labels: readonly string[]; locked: boolean; busy: boolean; change: Change }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const refocus = useRef(false);
   useEffect(() => {
     if (!open) return;
+    input.current?.focus();
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
-  // 開いたときと、保存が終わって入力欄がまた使えるようになったときに、入力欄へフォーカスを置く
+  // ここからの保存が終わって入力欄がまた使えるようになったら、入力欄へフォーカスを戻す。ほかの項目の保存では動かさない
   useEffect(() => {
-    if (open && !busy) input.current?.focus();
-  }, [open, busy]);
+    if (busy || !refocus.current) return;
+    refocus.current = false;
+    input.current?.focus();
+  }, [busy]);
   async function add() {
     const next = parseLabels(text, labels);
-    if (next.length === 0 || (await change({ addLabels: next }))) setText("");
+    if (next.length === 0) return setText("");
+    refocus.current = true;
+    if (await change({ addLabels: next })) setText("");
   }
   return (
-    <span className={s.propMenuRoot} ref={root}>
+    // 保存中は入力欄が disabled になってフォーカスを失う（relatedTarget がない）ため、行き先が枠の外にあるときだけ閉じる
+    <span className={s.propMenuRoot} ref={root}
+      onBlur={(e) => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
       <button type="button" ref={trigger} className={s.labelAdd} aria-label="ラベルを追加" title="ラベルを追加" aria-haspopup="dialog" aria-expanded={open}
         disabled={locked} onClick={() => setOpen(!open)}>
         <Icon name="plus" />
       </button>
       {open && (
         <div className={`${s.propPopover} ${s.labelForm}`} role="dialog" aria-label="ラベルを追加"
-          onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); trigger.current?.focus(); } }}>
+          onKeyDown={(e) => { if (e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); setOpen(false); trigger.current?.focus(); } }}>
           <input
             ref={input}
             disabled={busy}

@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
-import { chooseProperty, property } from "./helpers";
+import { chooseProperty, property, propertyMenu } from "./helpers";
 
 const list = (page: Page) => page.getByRole("region", { name: "通知の一覧" });
 const detail = (page: Page) => page.getByRole("region", { name: "詳細", exact: true });
@@ -14,6 +14,39 @@ const dayAfter = (n: number) => {
   d.setDate(d.getDate() + n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+
+// 右カラムは幅 280 で、値の列（約 144）はメニュー（208）より狭い。メニューは値の列の右端に揃えて開く
+test("通知の詳細のメニューは右カラムの内側に開き、横にはみ出さない（1440×960）", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  await nod.me.subscribeIssue(a.id);
+  await nod.claude.commentIssue(a.id, "原因がわかりました");
+  await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
+  await page.evaluate(() => document.fonts.ready);
+
+  const measured: Record<string, unknown> = {};
+  for (const name of ["Status", "Project", "Assignee"]) {
+    await property(props(page), name).click();
+    const layout = await propertyMenu(props(page), name).evaluate((menu) => {
+      const popover = menu.parentElement!.getBoundingClientRect();
+      const value = menu.closest("dd")!.getBoundingClientRect();
+      const rail = menu.closest("aside")!.getBoundingClientRect();
+      const main = document.querySelector("main")!;
+      return {
+        width: popover.width,
+        rightGap: Math.abs(popover.right - value.right),
+        insideRail: popover.left >= rail.left && popover.right <= rail.right,
+        mainOverflow: main.scrollWidth - main.clientWidth,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(layout, name).toEqual({ width: 208, rightGap: 0, insideRail: true, mainOverflow: 0, pageOverflow: 0 });
+    measured[name] = layout;
+    await page.keyboard.press("Escape");
+    await expect(propertyMenu(props(page), name)).toHaveCount(0);
+  }
+  console.log("Inbox の通知の詳細のメニュー", JSON.stringify(measured));
+});
 
 test.describe("通知からの編集（#46）", () => {
   // 失敗時の表示を確かめるため 409 を返す

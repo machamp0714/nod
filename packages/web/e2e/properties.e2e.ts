@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { chooseProperty, property, propertyMenu, region } from "./helpers";
 import { ISSUE, PROJECT_NAME } from "./issue-detail-data";
@@ -126,6 +127,128 @@ test("メニューは検索で絞り込め、上下キーで選べ、Escape で�
   await expect(propertyMenu(props, "Priority")).toBeVisible();
   await page.getByRole("heading", { level: 1 }).click();
   await expect(propertyMenu(props, "Priority")).toHaveCount(0);
+});
+
+// ネイティブの select と同じく、開いてすぐの Enter では値を変えない（先頭の Triage や「なし」を選ばない）
+test("メニューを開いてすぐ Enter を押しても値は変わらず、保存もしない", async ({ page }) => {
+  const updates: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && /\/api\/issues\/[^/]+\/update$/.test(request.url())) updates.push(request.url());
+  });
+  await page.goto(`/issues/${ISSUE.main}`);
+  const props = region(page, "プロパティ");
+  const before = [["Status", "in_progress"], ["Priority", "2"], ["Project", "1"], ["Assignee", "claude-code"]] as const;
+  for (const [name, value] of before) {
+    const pill = property(props, name);
+    await expect(pill).toHaveAttribute("data-value", value);
+    await pill.focus();
+    await page.keyboard.press("Enter");
+    await expect(props.getByRole("textbox", { name: `${name} を検索` })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    // 何も選ばないので、メニューは開いたまま
+    await expect(propertyMenu(props, name)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(pill).toBeFocused();
+    await expect(pill).toHaveAttribute("data-value", value);
+  }
+  await page.reload();
+  for (const [name, value] of before) await expect(property(region(page, "プロパティ"), name)).toHaveAttribute("data-value", value);
+  expect(updates).toEqual([]);
+});
+
+test("ピルは今の値を説明として伝え、開いたメニューと aria-controls で結ばれる", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.properties}`);
+  const props = region(page, "プロパティ");
+  const status = property(props, "Status");
+  await expect(status).toHaveAccessibleName("Status");
+  await expect(status).toHaveAccessibleDescription("Backlog");
+  await expect(property(props, "Project")).toHaveAccessibleDescription("なし");
+  // 選べないときの案内文も、値のあとに続けて伝える
+  await expect(property(props, "Milestone")).toHaveAccessibleDescription("なし Project を設定すると選べます");
+
+  await expect(status).not.toHaveAttribute("aria-controls", /.+/);
+  await status.click();
+  const id = await status.getAttribute("aria-controls");
+  expect(id).toBeTruthy();
+  await expect(page.locator(`[id="${id}"]`).getByRole("menu", { name: "Status を変更" })).toBeVisible();
+  await propertyMenu(props, "Status").getByRole("menuitemradio", { name: "Todo", exact: true }).click();
+  await expect(status).toHaveAccessibleDescription("Todo");
+});
+
+test("IME の変換中のキーは、メニューとラベルの入力欄の操作にならない", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.properties}`);
+  const props = region(page, "プロパティ");
+  // 変換中の keydown（isComposing）を送る
+  const composing = (target: Locator, key: string) =>
+    target.evaluate((element, k) => { element.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, isComposing: true })); }, key);
+
+  const status = property(props, "Status");
+  await status.click();
+  const search = props.getByRole("textbox", { name: "Status を検索" });
+  await search.fill("to");
+  await expect(propertyMenu(props, "Status").getByRole("menuitemradio")).toHaveText(["Todo"]);
+  for (const key of ["Escape", "ArrowDown", "ArrowUp", "Tab", "Enter"]) await composing(search, key);
+  await expect(propertyMenu(props, "Status")).toBeVisible();
+  await expect(search).toBeFocused();
+  await expect(status).toHaveAttribute("data-value", "backlog");
+  // 変換が終わったあとの Escape では閉じる
+  await page.keyboard.press("Escape");
+  await expect(propertyMenu(props, "Status")).toHaveCount(0);
+
+  await props.getByRole("button", { name: "ラベルを追加", exact: true }).click();
+  const label = props.getByRole("textbox", { name: "ラベルを追加" });
+  await label.fill("へんかん");
+  await composing(label, "Escape");
+  await composing(label, "Enter");
+  await expect(props.getByRole("dialog", { name: "ラベルを追加" })).toBeVisible();
+  await expect(label).toHaveValue("へんかん");
+  await expect(props.getByRole("button", { name: "ラベル へんかん を外す" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(props.getByRole("dialog", { name: "ラベルを追加" })).toHaveCount(0);
+});
+
+test("Tab で抜けるとメニューとラベルの入力欄は閉じ、ほかの項目の保存のあとにフォーカスを奪わない", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.properties}`);
+  const props = region(page, "プロパティ");
+  const status = property(props, "Status");
+  await status.click();
+  await expect(props.getByRole("textbox", { name: "Status を検索" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(propertyMenu(props, "Status")).toHaveCount(0);
+  await expect(status).toHaveAttribute("aria-expanded", "false");
+
+  const add = props.getByRole("button", { name: "ラベルを追加", exact: true });
+  const dialog = props.getByRole("dialog", { name: "ラベルを追加" });
+  const label = props.getByRole("textbox", { name: "ラベルを追加" });
+  await add.focus();
+  await page.keyboard.press("Enter");
+  await expect(label).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toHaveAttribute("aria-expanded", "false");
+
+  // 続けてほかの項目を保存すると、フォーカスはそのピルへ戻る（ラベルの入力欄は開かない）
+  const assignee = property(props, "Assignee");
+  await assignee.focus();
+  await page.keyboard.press("Enter");
+  await props.getByRole("textbox", { name: "Assignee を検索" }).fill("codex");
+  await page.keyboard.press("Enter");
+  await expect(assignee).toHaveAttribute("data-value", "codex");
+  await expect(assignee).toBeFocused();
+  await expect(dialog).toHaveCount(0);
+
+  // ラベルを足したあとは、続けて足せるよう入力欄へ戻る
+  await add.click();
+  await label.fill("api");
+  await page.keyboard.press("Enter");
+  await expect(props.getByRole("button", { name: "ラベル api を外す" })).toBeVisible();
+  await expect(label).toHaveValue("");
+  await expect(label).toBeFocused();
+  // Shift+Tab で追加ボタンへ戻っても（枠の内側）閉じない
+  await page.keyboard.press("Shift+Tab");
+  await expect(add).toBeFocused();
+  await expect(dialog).toBeVisible();
 });
 
 // nod.pen「コントロールの型」（PR46C）と「Property Menu」（J0qDy）の値。1440×960 で測る
