@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { Workspace } from "../src/api/types";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { searchBox } from "./support/issue-list";
 
 test.use({ dataset: "workspace-colors" });
 
@@ -130,10 +131,10 @@ test("SSE・削除再利用・検索・並び順・リロードで既存色が�
   await expectSavedColors(page, ["API", "WEB", "NOD", "BLOG", "NEXT"]);
   const after = await nod.codex.listWorkspaces();
   for (const workspace of before) expect(after.find((row) => row.key === workspace.key)?.color).toBe(workspace.color);
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("API");
+  await (await searchBox(page)).fill("API");
   await expect(page.locator('tbody [data-workspace-key="WEB"]')).toHaveCount(0);
   await expectSavedColors(page, ["API"]);
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("");
+  await (await searchBox(page)).fill("");
   await expectSavedColors(page);
   const orderBefore = await page.locator("tbody tr[data-issue-row]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-issue-row")));
   await nod.me.updateIssue("WEB-1", { priority: 1 });

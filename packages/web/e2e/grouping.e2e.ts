@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { chooseDisplay, displaySelect, searchBox, setLayout } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -7,8 +8,7 @@ const region = (page: import("@playwright/test").Page, name: string) => page.get
 for (const path of ["/issues", "/views/1", "/projects/1"]) {
   test(`${path}: プロパティでグループ化し、件数・値なしグループ・URL復元・並び順と共存する`, async ({ page }) => {
     await page.goto(`${path}?sort=title&direction=desc`);
-    const grouping = page.getByLabel("グループ化", { exact: true });
-    await grouping.selectOption("priority");
+    await chooseDisplay(page, "グループ化", "Priority");
     await expect(page).toHaveURL(/groupBy=priority/);
     const high = region(page, "Priority High");
     await expect(high).toBeVisible();
@@ -20,10 +20,10 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     const titles = await high.locator('tbody tr td > a[href^="/issues/"]').allTextContents();
     expect(titles).toEqual([...titles].sort((a, b) => b.localeCompare(a, "ja", { numeric: true })));
 
-    await grouping.selectOption("project");
+    await chooseDisplay(page, "グループ化", "Project");
     if (path === "/issues" || path === "/views/1") await expect(region(page, "Project Projectなし")).toBeVisible();
     await page.reload();
-    await expect(grouping).toHaveValue("project");
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "project");
     await expect(page).toHaveURL(/sort=title/);
     if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toHaveCount(0);
   });
@@ -36,26 +36,29 @@ test("ラベルは複数のグループに重複して入り、検索で空に�
   await expect(link("bug")).toBeVisible();
   await expect(link("perf")).toBeVisible();
   await expect(region(page, "ラベル ラベルなし")).toBeVisible();
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("N+1");
+  await (await searchBox(page)).fill("N+1");
   await expect(region(page, "ラベル ラベルなし")).toHaveCount(0);
   await expect(link("bug")).toBeVisible();
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("存在しないIssue");
+  await (await searchBox(page)).fill("存在しないIssue");
   await expect(page.getByText("該当する Issue はありません", { exact: true })).toHaveCount(1);
 });
 
 test("BoardではStatusのグループ化を選べず、URLにあってもグループ化しない", async ({ page }) => {
   await page.goto("/issues?layout=board&groupBy=status");
-  await expect(page.getByLabel("グループ化", { exact: true }).getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
   // Board の列は Status なので、URL の groupBy=status はそのまま「Status」と示し、「なし」を選べば URL から消せる
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("status");
+  const grouping = await displaySelect(page, "グループ化");
+  await expect(grouping).toHaveAttribute("data-value", "status");
+  await grouping.click();
+  await expect(page.getByRole("menu", { name: "グループ化", exact: true }).getByRole("menuitemradio", { name: "Status", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await setLayout(page, "List");
   await expect(region(page, "Status In Progress")).toBeVisible();
   await page.goto("/issues?layout=board&groupBy=status");
-  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await chooseDisplay(page, "グループ化", "なし");
   await expect(page).not.toHaveURL(/groupBy=/);
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
+  await setLayout(page, "List");
   await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
   await page.goto("/issues?layout=board&groupBy=assignee");
   await expect(region(page, "担当 claude-code")).toBeVisible();
@@ -64,10 +67,10 @@ test("BoardではStatusのグループ化を選べず、URLにあってもグル
 
 test("サブグループはグループ内を分け、URLで復元し、Boardでは選べない", async ({ page }) => {
   await page.goto("/issues");
-  const sub = page.getByLabel("サブグループ", { exact: true });
+  const sub = await displaySelect(page, "サブグループ");
   await expect(sub).toBeDisabled();
-  await page.getByLabel("グループ化", { exact: true }).selectOption("status");
-  await sub.selectOption("priority");
+  await chooseDisplay(page, "グループ化", "Status");
+  await chooseDisplay(page, "サブグループ", "Priority");
   await expect(page).toHaveURL(/groupBy=status&subGroupBy=priority|subGroupBy=priority.*groupBy=status/);
   const inProgress = region(page, "Status In Progress");
   const subgroup = inProgress.getByRole("region", { name: "Priority High", exact: true });
@@ -75,13 +78,15 @@ test("サブグループはグループ内を分け、URLで復元し、Boardで
   const rows = await subgroup.locator("tbody tr").count();
   expect(rows).toBeGreaterThan(0);
   await expect(subgroup.getByRole("heading").getByLabel(`${rows} 件`, { exact: true })).toBeVisible();
-  await expect(sub.getByRole("option", { name: "Status", exact: true })).toHaveAttribute("disabled", "");
+  await sub.click();
+  await expect(page.getByRole("menu", { name: "サブグループ", exact: true }).getByRole("menuitemradio", { name: "Status", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
   await page.reload();
-  await expect(sub).toHaveValue("priority");
+  await expect(await displaySelect(page, "サブグループ")).toHaveAttribute("data-value", "priority");
   await expect(inProgress.getByRole("region", { name: "Priority High", exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Board", exact: true }).click();
-  await expect(sub).toBeDisabled();
+  await setLayout(page, "Board");
+  await expect(await displaySelect(page, "サブグループ")).toBeDisabled();
   await expect(page.getByRole("region", { name: /^Priority / })).toHaveCount(0);
-  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await chooseDisplay(page, "グループ化", "なし");
   await expect(page).not.toHaveURL(/subGroupBy/);
 });

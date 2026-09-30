@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import type { NodData } from "./support/nod";
+import { chooseDisplay, closeDisplay, displaySelect, displaySwitch, openDisplay } from "./support/issue-list";
 
 // issue-list に私の担当を足す：API-4・NOD-5（Todo）を me に、API-9（Needs Clarification）を一覧にない担当 gemini に割り当てる。
 // 委任中は claude-code の API-12・API-7・BLOG-2、codex の API-8、gemini の API-9。NOD-3 は claude-code の担当だが done
@@ -27,9 +28,13 @@ test.describe("My issues", () => {
     await expect(nav.getByRole("link", { name: "My issues" })).toHaveAttribute("aria-current", "page");
     await expect(nav.getByRole("link", { name: "My issues" })).toHaveText("My issues");
 
-    await expect(page.getByRole("tab")).toHaveText(["担当 2", "委任中 5", "List", "Board"]);
+    await expect(page.getByRole("tab")).toHaveText(["担当 2", "委任中 5"]);
     await expect(page.getByRole("tab", { name: "担当 2", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("status");
+    // List と Board の切り替えとグループ化は Display のポップオーバーにある
+    const popover = await openDisplay(page);
+    await expect(popover.getByRole("tablist", { name: "表示" }).getByRole("tab")).toHaveText(["List", "Board"]);
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "status");
+    await closeDisplay(page);
     await expect(region(page, "Status Todo").locator("tbody tr")).toHaveCount(2);
     await expect(tableRows(page)).toHaveCount(2);
     await expect(tableRows(page)).toContainText(["NOD-5", "API-4"]);
@@ -47,7 +52,8 @@ test.describe("My issues", () => {
     await page.getByRole("tab", { name: "委任中 5", exact: true }).click();
     await expect(page).toHaveURL(/tab=delegated/);
     await expect(page).not.toHaveURL(/groupBy=/);
-    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("assignee");
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "assignee");
+    await closeDisplay(page);
     await expect(region(page, "担当 claude-code").locator("tbody tr")).toHaveCount(3);
     await expect(region(page, "担当 claude-code").getByRole("heading").getByLabel("作業状況の内訳")).toHaveText("入力待ち 2完了 1");
     await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
@@ -96,15 +102,14 @@ test.describe("My issues", () => {
     await nod.me.updateIssue("NOD-5", { status: "done" });
     await page.goto("/my-issues");
     await expect(region(page, "Status Done").locator("tbody tr")).toHaveCount(1);
-    await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+    await chooseDisplay(page, "グループ化", "なし");
     await expect(page).toHaveURL(/groupBy=none/);
     await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
     await expect(tableRows(page)).toHaveCount(2);
     await page.reload();
-    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
 
-    await page.getByText("表示設定", { exact: true }).click();
-    await page.getByRole("checkbox", { name: "完了済みIssueを表示" }).uncheck();
+    await (await displaySwitch(page, "完了済み Issue を表示")).click();
     await expect(tableRows(page)).toHaveCount(1);
     await expect(tableRows(page)).toContainText("API-4");
   });
@@ -132,7 +137,7 @@ test.describe("Issues の担当フィルタ", () => {
     await expect(tableRows(page)).toHaveCount(2);
     await expect(chips(page)).toContainText(/担当\s*is\s*me/);
     expect(new URL(page.url()).searchParams.get("assignee")).toBe(JSON.stringify(["me"]));
-    // 件数カードとタブの件数も担当の範囲で数える
+    // タブの件数も担当の範囲で数える
     await expect(page.getByRole("tab", { name: "All 2", exact: true })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
 

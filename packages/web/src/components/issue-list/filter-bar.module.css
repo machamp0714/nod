@@ -106,9 +106,10 @@
 }
 
 .select {
-  padding: 4px 6px;
+  height: var(--control-height);
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
@@ -119,10 +120,10 @@
   font-size: 12px;
 }
 .spacer { flex: 1; }
-.inlineSelect { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
+.inlineSelect { display: inline-flex; align-items: center; gap: 6px; height: var(--control-height); padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); font-size: 12px; }
 .inlineSelectActive { border-color: var(--accent); }
 .inlineSelectName { color: var(--ink3); }
-.inlineSelectValue { border: 0; padding: 0; background: transparent; color: var(--ink); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.inlineSelectValue { border: 0; padding: 0; background: transparent; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; }
 
 /* Pencil「Issues｜Milestoneフィルタ」のメニュー（L76FT） */
 .milestones { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; border: 0; }

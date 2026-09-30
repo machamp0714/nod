@@ -4,7 +4,7 @@ import { useIssueDetail } from "../../api/hooks/shared";
 import { errorMessage, isNotFoundError } from "../../api/errors";
 import { priorityMeta, TONE_COLORS } from "../../lib/meta";
 import { Markdown } from "../markdown/Markdown";
-import { AgentAvatar, Icon, LabelChip, ProgressBar, StatusLabel, WorkspaceBadge } from "../ui";
+import { AgentAvatar, Icon, IconButton, LabelChip, ProgressBar, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 
 // design/nod.pen「Issues｜プレビュー」の分割ペイン。一覧から離れずに Issue の中身を読むだけで、編集はしない
@@ -43,9 +43,7 @@ export function PreviewPane({
       <div className={s.previewHead}>
         <Icon name="eye" size={13} color="var(--ink3)" />
         <span className={s.previewHeadText}>プレビュー · 読み取り専用</span>
-        <button type="button" className={s.previewClose} aria-label="プレビューを閉じる" onClick={onClose}>
-          <Icon name="x" size={15} />
-        </button>
+        <IconButton icon="x" label="プレビューを閉じる" onClick={onClose} />
       </div>
       {detail.isPending ? (
         <p role="status" className={s.message}>読み込み中…</p>

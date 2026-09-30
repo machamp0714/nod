@@ -1,6 +1,7 @@
 import { expect, test } from "./fixtures";
 import { region } from "./helpers";
 import { ISSUE } from "./issue-detail-data";
+import { chooseDisplay, displaySelect, searchBox, setColumn, setDirection } from "./support/issue-list";
 
 test.describe("Issue 詳細の見積もり・期限", () => {
   test.use({ dataset: "issue-detail" });
@@ -108,13 +109,12 @@ test.describe("Issue 一覧の見積もり・期限列", () => {
     await nod.me.updateIssue("API-9", { title: "CCC 期限確認" });
     await page.goto("/issues");
     await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR"]);
-    await page.getByRole("textbox", { name: "検索", exact: true }).fill("期限確認");
-    await page.getByText("表示設定", { exact: true }).click();
-    await page.getByRole("checkbox", { name: "見積もり", exact: true }).check();
-    await page.getByRole("checkbox", { name: "期限", exact: true }).check();
+    await (await searchBox(page)).fill("期限確認");
+    await setColumn(page, "見積もり", true);
+    await setColumn(page, "期限", true);
     await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR", "見積もり", "期限"]);
-    await page.getByLabel("並び順", { exact: true }).selectOption("dueDate");
-    await page.getByLabel("並び順の方向", { exact: true }).selectOption("desc");
+    await chooseDisplay(page, "並び順", "期限");
+    await setDirection(page, "desc");
     const rows = page.getByRole("table").locator("tbody tr");
     await expect(rows.getByRole("link")).toHaveText(["BBB 期限確認", "AAA 期限確認", "CCC 期限確認"]);
     await expect(rows.nth(0)).toContainText("2 pt");
@@ -125,7 +125,7 @@ test.describe("Issue 一覧の見積もり・期限列", () => {
     await expect(rows.nth(1)).toContainText("期限超過");
     await page.reload();
     await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR", "見積もり", "期限"]);
-    await page.getByLabel("並び順", { exact: true }).waitFor({ state: "attached" });
+    await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "dueDate");
     await expect(page).toHaveURL(/sort=dueDate/);
   });
 });

@@ -51,8 +51,8 @@ test("Project 詳細は API からその Project の Issue、件数、Documents 
   for (const id of ["API-12", "API-13", "API-9", "API-4"]) {
     await expect(page.getByRole("cell", { name: id, exact: true })).toBeVisible();
   }
-  await expect(page.getByRole("button", { name: "Ready 1" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Needs Clarification 1" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Ready 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Needs Clarification 1", exact: true })).toBeVisible();
   await expect(page.getByText("0/4 完了")).toBeVisible();
   await expect(page.getByRole("link", { name: "検索 API の高速化 設計" })).toHaveAttribute("href", "/documents/1");
   await expect(page.getByText("Filter", { exact: true })).toHaveCount(0);
