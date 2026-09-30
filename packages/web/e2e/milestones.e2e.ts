@@ -126,6 +126,47 @@ test("Issues を Milestone で絞り込み、URL と View に保存して復元�
   await expect(page).not.toHaveURL(/milestone=/);
 });
 
+test("Issues の Filter で Project を選ぶと Milestone の選択肢をその Project に絞り、選び直すと食い違う Milestone を外す", async ({ page, nod }) => {
+  const m = await nod.me.createMilestone("1", { name: "v1.0" });
+  const other = await nod.me.createProject({ name: "決済" });
+  const release = await nod.me.createMilestone("決済", { name: "リリース" });
+  await page.goto(`/issues?milestone=${release.id}`);
+  await page.getByText("Filter", { exact: true }).click();
+  const group = page.getByRole("group", { name: "Milestone" });
+  await expect(group.getByRole("radio")).toHaveCount(3); // v1.0・リリース・Milestone なし
+
+  await page.getByRole("combobox", { name: "Project" }).selectOption("1");
+  await expect(page).not.toHaveURL(/milestone=/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(group.getByRole("radio")).toHaveCount(2); // v1.0・Milestone なし
+  await expect(group).toContainText("v1.0");
+  await expect(group).not.toContainText("リリース");
+
+  // 同じ Project の Milestone と Milestone なしは、Project を選び直すまで残す
+  await group.getByText("v1.0", { exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`milestone=(%22)?${m.id}(%22)?(&|$)`));
+  await group.getByText("Milestone なし", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Project" }).selectOption(String(other.id));
+  await expect(page).toHaveURL(/milestone=none/);
+});
+
+test("URL や保存済みの View で Project と Milestone が食い違うと、API を呼ばずにメッセージを出す", async ({ page, nod }) => {
+  await nod.me.createProject({ name: "決済" });
+  const release = await nod.me.createMilestone("決済", { name: "リリース" });
+  const view = await nod.me.createView({ name: "食い違い", filter: { project: "1", milestone: String(release.id) } });
+  const called: string[] = [];
+  page.on("request", (req) => {
+    if (/\/api\/issues\?.*milestone=/.test(req.url())) called.push(req.url());
+  });
+  const message = "条件の Milestone（リリース）は条件の Project のものではありません";
+
+  await page.goto(`/issues?project=1&milestone=${release.id}`);
+  await expect(page.getByRole("alert")).toHaveText(message);
+  await page.goto(`/views/${view.id}`);
+  await expect(page.getByRole("alert")).toHaveText(message);
+  expect(called).toEqual([]);
+});
+
 test("LLM が CLI で作った Milestone と紐付けが SSE で開いた Project 詳細に反映する", async ({ page, nod }) => {
   await page.goto("/projects/1");
   await waitForServerEvents(page);

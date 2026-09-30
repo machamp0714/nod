@@ -3,11 +3,13 @@ import {
   describeFilter,
   type FilterOption,
   type FilterOptions,
+  milestoneOptionsFor,
   type MilestoneFilterOption,
   NO_CYCLE,
   NO_MILESTONE,
   toggleValue,
   withoutKey,
+  withProject,
 } from "../../lib/issue-filter";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { STATUS_ORDER } from "../../lib/meta";
@@ -18,6 +20,11 @@ import s from "./filter-bar.module.css";
 
 function nameOf(options: readonly FilterOption[], value: string): string {
   return options.find((o) => o.value === value)?.label ?? value;
+}
+
+// 条件の Project は ID か名前（API や CLI で作った View）。数字の ID にそろえる
+function projectIdOf(projects: readonly FilterOption[], ref: string | undefined): string | undefined {
+  return ref === undefined ? undefined : (projects.find((o) => o.value === ref || o.label === ref)?.value ?? ref);
 }
 
 // nod.pen の 11 Issues の Filters の行。今の条件をチップで並べ、「Filter」のパネルで足し引きする
@@ -83,7 +90,7 @@ export function FilterBar({
               className={s.select}
               aria-label="Project"
               value={filter.project ?? ""}
-              onChange={(event) => onChange({ ...filter, project: event.target.value || undefined })}
+              onChange={(event) => onChange(withProject(filter, event.target.value || undefined, options.milestoneRefs))}
             >
               <option value="">すべて</option>
               {options.projects.map((o) => (
@@ -94,7 +101,7 @@ export function FilterBar({
             </select>
           </label>
           <MilestoneGroup
-            options={options.milestones}
+            options={milestoneOptionsFor(options.milestones, projectIdOf(options.projects, filter.project))}
             selected={filter.milestone}
             onChange={(milestone) => onChange({ ...filter, milestone })}
           />

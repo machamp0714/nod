@@ -24,6 +24,7 @@ import {
   type StatsBy,
   statsQueryString,
   withProject,
+  withWorkspace,
 } from "../lib/analytics";
 import { NO_CYCLE } from "../lib/issue-filter";
 import s from "./analytics.module.css";
@@ -94,7 +95,7 @@ function FilterBar({ search, by, range, onChange }: {
   const milestones = useMilestones();
   const cycles = useCycles();
   const groups = milestoneGroups(milestones.data ?? [], projects.data ?? [], search.project);
-  const cycleList = cycleOptions(cycles.data ?? []);
+  const cycleList = cycleOptions(cycles.data ?? [], search.workspace);
   // 一覧にない ID（消されたもの・別の Project のもの）も今の条件として選択肢に出し、「すべて」を選び直して外せるようにする
   const strayMilestone = search.milestone && !groups.some((g) => g.options.some((o) => o.value === search.milestone)) ? search.milestone : undefined;
   const strayCycle = search.cycle && search.cycle !== NO_CYCLE && !cycleList.some((o) => o.value === search.cycle) ? search.cycle : undefined;
@@ -117,7 +118,7 @@ function FilterBar({ search, by, range, onChange }: {
       <SelectChip label="範囲" value={String(range)} onChange={(v) => onChange({ ...search, range: Number(v) })}>
         {RANGE_PRESETS[by].map((n) => <option key={n} value={n}>{rangeLabel(by, n)}</option>)}
       </SelectChip>
-      <SelectChip label="Workspace" value={search.workspace ?? ""} onChange={(v) => onChange({ ...search, workspace: v || undefined })}>
+      <SelectChip label="Workspace" value={search.workspace ?? ""} onChange={(v) => onChange(withWorkspace(search, v || undefined, cycles.data))}>
         <option value="">すべて</option>
         {(workspaces.data ?? []).map((w) => <option key={w.key} value={w.key}>{w.name}</option>)}
       </SelectChip>

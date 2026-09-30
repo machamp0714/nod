@@ -14,6 +14,7 @@ import {
   statsQueryString,
   statsRange,
   withProject,
+  withWorkspace,
 } from "./analytics";
 
 describe("parseAnalyticsSearch / cleanAnalyticsSearch", () => {
@@ -121,6 +122,27 @@ describe("Cycle の選択肢", () => {
     expect(cycleProblem({ cycle: "1" }, cycles)).toBeNull();
     expect(cycleProblem({ cycle: "none" }, cycles)).toBeNull();
     expect(cycleProblem({ cycle: "9" }, cycles)).toBe("条件の Cycle（9）が見つかりません");
+  });
+
+  test("Workspace を選んでいれば、選択肢はその Workspace の Cycle だけにし、名前にキーを添えない", () => {
+    expect(cycleOptions(cycles, "API")).toEqual([
+      { value: "1", label: "Sprint 12" },
+      { value: "3", label: "Sprint 13" },
+    ]);
+  });
+
+  test("URL の Workspace と食い違う Cycle は API を呼ばずに知らせる", () => {
+    expect(cycleProblem({ workspace: "NOD", cycle: "1" }, cycles)).toBe("条件の Cycle（Sprint 12）は条件の Workspace のものではありません");
+    expect(cycleProblem({ workspace: "API", cycle: "1" }, cycles)).toBeNull();
+    expect(cycleProblem({ workspace: "NOD", cycle: "none" }, cycles)).toBeNull();
+  });
+
+  test("Workspace を変えると、その Workspace にない Cycle の選択を外す。none と読み込み中は残す", () => {
+    expect(withWorkspace({ by: "day", cycle: "1" }, "API", cycles)).toEqual({ by: "day", workspace: "API", cycle: "1" });
+    expect(withWorkspace({ workspace: "API", cycle: "1" }, "NOD", cycles)).toEqual({ workspace: "NOD", cycle: undefined });
+    expect(withWorkspace({ workspace: "API", cycle: "1" }, undefined, cycles)).toEqual({ workspace: undefined, cycle: "1" });
+    expect(withWorkspace({ cycle: "none" }, "NOD", cycles)).toEqual({ workspace: "NOD", cycle: "none" });
+    expect(withWorkspace({ cycle: "1" }, "NOD", undefined)).toEqual({ workspace: "NOD", cycle: "1" });
   });
 });
 

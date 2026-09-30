@@ -150,6 +150,33 @@ test("Cycle で絞り込むと URL に残し、同じ名前の Cycle は Workspa
   await expect(kpi(page, "完了数")).toContainText("3");
 });
 
+test("Workspace を選ぶと Cycle の選択肢をその Workspace に絞り、選び直すと食い違う Cycle を外す。URL の食い違いは API を呼ばずに知らせる", async ({ page, nod }) => {
+  const { apiId, webId } = await seed(nod);
+  const period = { startDate: "2026-10-01", endDate: "2026-10-14" };
+  const apiSprint = await nod.me.createCycle({ workspaceId: apiId, name: "Sprint 12", ...period });
+  const webSprint = await nod.me.createCycle({ workspaceId: webId, name: "Sprint 12", ...period });
+  const called: string[] = [];
+  page.on("request", (req) => {
+    if (/\/api\/stats\?.*cycle=/.test(req.url())) called.push(req.url());
+  });
+  await page.goto(`/analytics?workspace=API&cycle=${webSprint.id}`);
+  await expect(page.getByText("条件の Cycle（Sprint 12）は条件の Workspace のものではありません").first()).toBeVisible();
+  expect(called).toEqual([]);
+
+  const cycle = page.getByLabel("Cycle");
+  await expect(cycle.locator("option")).toHaveText(["すべて", "Cycle なし", "Sprint 12", `Cycle ${webSprint.id}`]);
+  await cycle.selectOption(String(apiSprint.id));
+  await expect(page.getByText("この期間に完了した Issue はありません")).toBeVisible(); // Sprint 12 · API には完了した Issue がない
+  // Workspace を選び直すと、その Workspace にない Cycle は外す。Cycle なしは残す
+  await page.getByLabel("Workspace").selectOption("WEB");
+  await expect(page).not.toHaveURL(/cycle=/);
+  await expect(cycle.locator("option")).toHaveText(["すべて", "Cycle なし", "Sprint 12"]);
+  await cycle.selectOption("none");
+  await page.getByLabel("Workspace").selectOption("API");
+  await expect(page).toHaveURL(/cycle=none/);
+  await expect(kpi(page, "完了数")).toBeVisible();
+});
+
 test("消えた Cycle の ID が URL に残っていると、見つからないことを知らせる", async ({ page, nod }) => {
   await seed(nod);
   await page.goto("/analytics?cycle=999");
