@@ -52,6 +52,8 @@ export type {
   IssueList,
   IssueQuery,
   Notification,
+  OpenQuestion,
+  OpenQuestions,
   Reminder,
   IssueReminder,
   SubscriptionState,

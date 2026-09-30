@@ -22,6 +22,7 @@ export const queryKeys = {
   prDiffFile: (id: string, headSha: string, fetchedAt: string, path: string) => ["issues", "pr-diff-file", id, headSha, fetchedAt, path] as const,
   inbox: () => ["inbox"] as const,
   inboxHistory: () => ["inbox", "history"] as const,
+  openQuestions: () => ["open-questions"] as const,
   triage: () => ["triage"] as const,
   triageSuggestions: (id: string) => ["triage", "suggestions", id] as const,
   triageProposals: (id: string) => ["triage", "proposals", id] as const,
