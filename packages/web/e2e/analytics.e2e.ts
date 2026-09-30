@@ -16,7 +16,7 @@ async function seed(nod: NodData) {
   await nod.me.updateIssue(dropped.id, { status: "canceled" });
   const other = await nod.me.createIssue({ workspaceId: web.id, title: "画面の文言" });
   await nod.me.updateIssue(other.id, { status: "done" });
-  return { project };
+  return { project, reviewed };
 }
 
 const kpi = (page: import("@playwright/test").Page, name: string) => page.getByRole("region", { name, exact: true });
@@ -78,6 +78,38 @@ test("日/週・範囲・Workspace・Project を切り替えると URL に残し
   await expect(page.getByLabel("Project")).toHaveValue(String(project.id));
   await page.getByLabel("Workspace").selectOption("WEB");
   await expect(page.getByText("この期間に完了した Issue はありません")).toBeVisible();
+});
+
+test("Milestone で絞り込むと URL に残し、Project を変えるとその Project にない Milestone の選択を外す", async ({ page, nod }) => {
+  const { project, reviewed } = await seed(nod);
+  await nod.me.createProject({ name: "決済" });
+  const alpha = await nod.me.createMilestone("検索", { name: "α" });
+  await nod.me.createMilestone("決済", { name: "リリース" });
+  await nod.me.updateIssue(reviewed.id, { milestoneRef: "α" });
+  await page.goto("/analytics");
+  const milestone = page.getByLabel("Milestone");
+  // Project を選ぶ前は、同じ名前を見分けられるよう Project ごとに分けて並べる
+  await expect(milestone.locator("optgroup")).toHaveCount(2);
+  await milestone.selectOption(String(alpha.id));
+  await expect(page).toHaveURL(new RegExp(`milestone=${alpha.id}`));
+  await expect(kpi(page, "完了数")).toContainText("1");
+
+  await page.reload();
+  await expect(milestone).toHaveValue(String(alpha.id));
+  await expect(kpi(page, "完了数")).toContainText("1");
+  await page.getByLabel("Project").selectOption(String(project.id));
+  await expect(milestone).toHaveValue(String(alpha.id));
+  await expect(milestone.locator("option")).toHaveText(["すべて", "α"]);
+  await page.getByLabel("Project").selectOption({ label: "決済" });
+  await expect(milestone).toHaveValue("");
+  await expect(page).not.toHaveURL(/milestone=/);
+  await expect(page.getByText("この期間に完了した Issue はありません")).toBeVisible();
+});
+
+test("消えた Milestone の ID が URL に残っていると、見つからないことを知らせる", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/analytics?milestone=999");
+  await expect(page.getByText("条件の Milestone（999）が見つかりません").first()).toBeVisible();
 });
 
 test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) => {

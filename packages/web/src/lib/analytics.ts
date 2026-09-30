@@ -7,6 +7,7 @@ export interface AnalyticsSearch {
   range?: number; // 直近いくつの期間を出すか（プリセットのどれか）
   workspace?: string; // Workspace のキー
   project?: string; // Project の数字の ID
+  milestone?: string; // Milestone の数字の ID
 }
 
 export const RANGE_PRESETS: Record<StatsBy, readonly number[]> = { day: [7, 14, 30, 90], week: [4, 12, 26, 52] };
@@ -18,12 +19,16 @@ export function parseAnalyticsSearch(raw: Record<string, unknown>): AnalyticsSea
   const by = raw.by === "day" || raw.by === "week" ? raw.by : undefined;
   const range = Number(raw.range);
   const workspace = typeof raw.workspace === "string" && raw.workspace.trim() ? raw.workspace.trim().toUpperCase() : undefined;
-  const project = typeof raw.project === "number" ? String(raw.project) : raw.project;
+  const idOf = (value: unknown) => {
+    const text = typeof value === "number" ? String(value) : value;
+    return typeof text === "string" && /^[1-9]\d*$/.test(text) ? text : undefined;
+  };
   const out: AnalyticsSearch = {
     by,
     range: RANGE_PRESETS[by ?? "week"].includes(range) ? range : undefined,
     workspace,
-    project: typeof project === "string" && /^[1-9]\d*$/.test(project) ? project : undefined,
+    project: idOf(raw.project),
+    milestone: idOf(raw.milestone),
   };
   for (const key of Object.keys(out) as (keyof AnalyticsSearch)[]) {
     if (out[key] === undefined && !(key in raw)) delete out[key];
@@ -39,6 +44,7 @@ export function cleanAnalyticsSearch(search: AnalyticsSearch): AnalyticsSearch {
   if (search.range !== undefined && search.range !== DEFAULT_RANGE[by] && RANGE_PRESETS[by].includes(search.range)) out.range = search.range;
   if (search.workspace) out.workspace = search.workspace;
   if (search.project) out.project = search.project;
+  if (search.milestone) out.milestone = search.milestone;
   return out;
 }
 
@@ -66,7 +72,35 @@ export function statsQueryString(search: AnalyticsSearch, today: Date, tz: strin
   const params = new URLSearchParams({ by, from, to, tz });
   if (search.workspace) params.set("workspace", search.workspace);
   if (search.project) params.set("project", search.project);
+  if (search.milestone) params.set("milestone", search.milestone);
   return params.toString();
+}
+
+type MilestoneRef = { id: number; projectId: number; name: string };
+
+export interface MilestoneGroup {
+  label: string | null; // Project の名前。Project を選んでいるときは見出しをつけない
+  options: { value: string; label: string }[];
+}
+
+// Milestone の名前は Project の中でしか一意でないため、Project を選んでいないときは Project ごとに分けて並べる。
+// 並びは受け取った順（GET /api/milestones は Project の名前順、その中は目標日の早い順）
+export function milestoneGroups(milestones: MilestoneRef[], projects: { id: number; name: string }[], project: string | undefined): MilestoneGroup[] {
+  const option = (m: MilestoneRef) => ({ value: String(m.id), label: m.name });
+  if (project) return [{ label: null, options: milestones.filter((m) => String(m.projectId) === project).map(option) }];
+  const groups = new Map<number, MilestoneGroup>();
+  for (const m of milestones) {
+    let group = groups.get(m.projectId);
+    if (!group) groups.set(m.projectId, (group = { label: projects.find((p) => p.id === m.projectId)?.name ?? String(m.projectId), options: [] }));
+    group.options.push(option(m));
+  }
+  return [...groups.values()];
+}
+
+// Project を選び直す。選んでいた Milestone が新しい Project のものでなければ外す（API は組み合わせを断るため）
+export function withProject(search: AnalyticsSearch, project: string | undefined, milestones: MilestoneRef[]): AnalyticsSearch {
+  const keep = !search.milestone || !project || milestones.some((m) => String(m.id) === search.milestone && String(m.projectId) === project);
+  return { ...search, project, milestone: keep ? search.milestone : undefined };
 }
 
 // 作業時間は時間の小数1桁で出す（例: 3.2h）
