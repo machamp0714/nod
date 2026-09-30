@@ -430,4 +430,8 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX issue_deletions_workspace ON issue_deletions (workspace_id, id)`,
   ],
+  // Project の健全性（#79）。進捗報告に添える。現在の健全性は健全性つきの最新の報告の値で、projects には持たない
+  [
+    `ALTER TABLE project_updates ADD COLUMN health TEXT CHECK (health IS NULL OR health IN ('on_track', 'at_risk', 'off_track'))`,
+  ],
 ];

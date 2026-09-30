@@ -116,3 +116,40 @@ describe("Project の進捗報告 CLI", () => {
     expect(cli(db, cwd, ["project", "show", "保持", "--json"]).json).toEqual(before);
   });
 });
+
+describe("Project の健全性 CLI", () => {
+  test("--health で報告に健全性を添え、一覧・詳細・報告一覧で現在値と履歴を確かめられる", () => {
+    const db = tempDb();
+    const cwd = tempDir();
+    cli(db, cwd, ["project", "create", "検索"]);
+    cli(db, cwd, ["project", "create", "認証"]);
+    expect(cli(db, cwd, ["project", "list"]).stdout).toContain("健全性 未設定");
+    const risky = cli(db, cwd, ["project", "report", "add", "検索", "遅れそう", "--health", "at_risk", "--json"]);
+    expect(risky.code).toBe(0);
+    expect(risky.json).toMatchObject({ author: "codex", health: "at_risk" });
+    cli(db, cwd, ["project", "report", "add", "--health", "on_track", "検索", "--", "- 取り戻した"], "me");
+    cli(db, cwd, ["project", "report", "add", "検索", "メモ"]);
+
+    const list = cli(db, cwd, ["project", "list", "--json"]).json;
+    expect(Object.fromEntries(list.map((p: { name: string; health: string | null }) => [p.name, p.health]))).toEqual({ 検索: "on_track", 認証: null });
+    expect(cli(db, cwd, ["project", "list"]).stdout).toContain("健全性 on_track");
+    expect(cli(db, cwd, ["project", "show", "検索", "--json"]).json.health).toBe("on_track");
+    expect(cli(db, cwd, ["project", "show", "検索"]).stdout.split("\n")[0]).toContain("健全性 on_track");
+    const history = cli(db, cwd, ["project", "report", "list", "検索", "--json"]).json;
+    expect(history.map((u: { health: string | null }) => u.health)).toEqual([null, "on_track", "at_risk"]);
+    const text = cli(db, cwd, ["project", "report", "list", "検索"]).stdout;
+    expect(text).toContain("me（on_track）:");
+    expect(text).toContain("codex（at_risk）:");
+    expect(text).toMatch(/codex:\n    メモ/);
+  });
+
+  test("不正な --health は INVALID_ARGS で、報告を保存しない", () => {
+    const db = tempDb();
+    const cwd = tempDir();
+    cli(db, cwd, ["project", "create", "保持"]);
+    const result = cli(db, cwd, ["project", "report", "add", "保持", "本文", "--health", "good", "--json"]);
+    expect(result.code).toBe(1);
+    expect(result.json.error.code).toBe("INVALID_ARGS");
+    expect(cli(db, cwd, ["project", "report", "list", "保持", "--json"]).json).toEqual([]);
+  });
+});

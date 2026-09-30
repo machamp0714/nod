@@ -1,6 +1,6 @@
-import { addProjectUpdate, type OpCtx, type ProjectStatus, updateProject } from "@nod/core";
+import { addProjectUpdate, type OpCtx, type ProjectHealth, type ProjectStatus, updateProject } from "@nod/core";
 import type { Hono } from "hono";
-import { readBody, reqString } from "../input";
+import { optNullableString, readBody, reqString } from "../input";
 
 export function registerProjectOps(app: Hono, me: OpCtx): void {
   app.post("/api/projects/:id/update", async (c) => {
@@ -10,9 +10,10 @@ export function registerProjectOps(app: Hono, me: OpCtx): void {
     return c.json(updateProject(me, c.req.param("id"), { status }));
   });
 
-  // 進捗報告の追記。書き手は me 固定で、Issue・Project の状態は変えない
+  // 進捗報告の追記。書き手は me 固定で、Issue・Project の状態は変えない。health は任意（null・省略は健全性なし）
   app.post("/api/projects/:id/reports", async (c) => {
-    const body = await readBody(c, ["body"]);
-    return c.json(addProjectUpdate(me, c.req.param("id"), reqString(body, "body")), 201);
+    const body = await readBody(c, ["body", "health"]);
+    const health = (optNullableString(body, "health") ?? null) as ProjectHealth | null;
+    return c.json(addProjectUpdate(me, c.req.param("id"), reqString(body, "body"), health), 201);
   });
 }

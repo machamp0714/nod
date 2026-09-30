@@ -96,7 +96,12 @@ export interface Project {
   updatedAt: string;
 }
 
+// Project の健全性。進捗報告に添えて人・LLM が設定する
+export const PROJECT_HEALTHS = ["on_track", "at_risk", "off_track"] as const;
+export type ProjectHealth = (typeof PROJECT_HEALTHS)[number];
+
 export interface ProjectSummary extends Project {
+  health: ProjectHealth | null; // 健全性つきの最新の進捗報告の値。なければ null
   total: number;
   done: number;
   agents: { working: number; awaitingInput: number; awaitingReview: number; error: number };
@@ -108,6 +113,7 @@ export interface ProjectUpdate {
   projectId: number;
   author: string;
   body: string;
+  health: ProjectHealth | null;
   createdAt: string;
 }
 
