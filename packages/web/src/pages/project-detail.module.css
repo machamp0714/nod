@@ -17,6 +17,11 @@
   font-size: 12px;
 }
 
+.health {
+  display: inline-flex;
+  margin-right: 4px;
+}
+
 .heading {
   margin-bottom: 6px;
   font-size: 13px;

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { Button, Icon, PageError, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
 import { type Tone, TONE_COLORS } from "../lib/meta";
+import { HealthPill } from "../components/projects/HealthPill";
 import { filterProjects, type ProjectListItem, withWorkspaces } from "../lib/projects";
 import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
 import s from "./projects.module.css";
@@ -53,6 +54,7 @@ export function ProjectsPage() {
             <col />
             <col className={s.colWorkspace} />
             <col className={s.colProgress} />
+            <col className={s.colHealth} />
             <col className={s.colAgents} />
             <col className={s.colUpdated} />
           </colgroup>
@@ -61,6 +63,7 @@ export function ProjectsPage() {
               <th>Name</th>
               <th>Workspace</th>
               <th>Progress</th>
+              <th>健全性</th>
               <th>LLM の状況</th>
               <th>Updated</th>
             </tr>
@@ -68,13 +71,13 @@ export function ProjectsPage() {
           <tbody>
             {items === undefined ? (
               <tr>
-                <td colSpan={5} className={s.muted}>
+                <td colSpan={6} className={s.muted}>
                   <span role="status">読み込み中…</span>
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className={s.muted}>
+                <td colSpan={6} className={s.muted}>
                   Project はありません
                 </td>
               </tr>
@@ -120,6 +123,9 @@ function ProjectRow({ project, workspaceName }: { project: ProjectListItem; work
             {project.done}/{project.total}
           </span>
         </div>
+      </td>
+      <td>
+        <HealthPill health={project.health} />
       </td>
       <td>
         <AgentSummary agents={project.agents} />

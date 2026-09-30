@@ -100,14 +100,14 @@ test("レビュー待ちだけのProjectと全指標ゼロを表示し、四指�
   const review = page.getByRole("row", { name: /レビューのみ/ });
   await expect(review).toContainText("レビュー待ち 1");
   await expect(review).not.toContainText("作業中");
-  await expect(page.getByRole("row", { name: /活動なし/ }).getByRole("cell").nth(3)).toHaveText("—");
+  await expect(page.getByRole("row", { name: /活動なし/ }).getByRole("cell").nth(4)).toHaveText("—");
   await nod.me.updateIssue("API-7", { projectRef: "1" });
   await nod.codex.failIssue("API-7", "追加調査");
   const working = await nod.me.createIssue({ workspaceId: 1, title: "並行作業", projectRef: "1" });
   await nod.codex.startIssue(working.id);
   const all = page.getByRole("row", { name: /検索 API の高速化/ });
   for (const text of ["レビュー待ち 1", "作業中 1", "入力待ち 1", "エラー 1"]) await expect(all).toContainText(text);
-  const pills = all.getByRole("cell").nth(3).locator(":scope > div > span");
+  const pills = all.getByRole("cell").nth(4).locator(":scope > div > span");
   await expect(pills).toHaveText(["入力待ち 1", "エラー 1", "レビュー待ち 1", "作業中 1"]);
   await expect(pills.nth(2)).toHaveCSS("color", "rgb(22, 121, 75)");
   await expect(pills.nth(2)).toHaveCSS("background-color", "rgb(226, 243, 234)");

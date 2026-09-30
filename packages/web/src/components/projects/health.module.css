@@ -1,0 +1,99 @@
+/* Pencil「健全性 Pill」（yo7H6 の K4o0xr）。角丸4・色枠・アイコン・11px/600。LLM の状況の Pill の書式は使わない */
+.pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.onTrack {
+  color: var(--ready);
+}
+
+.atRisk {
+  color: var(--ask);
+}
+
+.offTrack {
+  color: var(--fail);
+}
+
+.unset {
+  border-color: var(--line);
+  color: var(--ink3);
+}
+
+/* 進捗報告の Composer の健全性 select（djnRu） */
+.selectRoot {
+  position: relative;
+}
+
+.select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.select:disabled {
+  background: var(--sunken);
+  cursor: default;
+}
+
+.selectLabel {
+  font-size: 12px;
+}
+
+.unspecified {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+/* 健全性 select を開いたとき（nSTRL） */
+.menu {
+  position: absolute;
+  z-index: 10;
+  bottom: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 180px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 8%);
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.option:hover,
+.optionActive {
+  background: var(--sunken);
+}

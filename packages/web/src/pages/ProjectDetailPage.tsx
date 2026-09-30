@@ -5,6 +5,7 @@ import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, ProjectSummary, ProjectUpdate } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { HealthPill } from "../components/projects/HealthPill";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
@@ -52,6 +53,9 @@ function ProjectIntro({ project, documents, updates }: { project: ProjectSummary
       <ProjectStatusControl key={project.id} project={project} />
       {project.description && <p className={p.description}>{project.description}</p>}
       <div className={p.progress}>
+        <span className={p.health} aria-label="現在の健全性">
+          <HealthPill health={project.health} />
+        </span>
         <ProgressBar value={project.done} max={project.total} />
         <span>
           {project.done}/{project.total} 完了
