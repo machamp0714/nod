@@ -65,6 +65,23 @@ describe("Milestone の作成・編集・削除", () => {
     expect(codeOf(() => deleteMilestone(me, m.id))).toBe("NOT_FOUND");
   });
 
+  test("LLM は Milestone を作成・編集できるが、削除はできない（FORBIDDEN_FOR_LLM）", () => {
+    const { db, llm } = withProjects();
+    const m = createMilestone(llm, "検索", { name: "α" });
+    expect(updateMilestone(llm, m.id, { name: "α2" }).name).toBe("α2");
+    expect(codeOf(() => deleteMilestone(llm, m.id))).toBe("FORBIDDEN_FOR_LLM");
+    expect(listMilestones(db, "検索").map((x) => x.id)).toEqual([m.id]);
+  });
+
+  test("名前の前後の空白は取り除いて保存し、重複判定もそれで行う", () => {
+    const { me } = withProjects();
+    const m = createMilestone(me, "検索", { name: "  α  " });
+    expect(m.name).toBe("α");
+    expect(codeOf(() => createMilestone(me, "検索", { name: "α " }))).toBe("MILESTONE_EXISTS");
+    expect(codeOf(() => createMilestone(me, "検索", { name: " 12 " }))).toBe("INVALID_ARGS");
+    expect(updateMilestone(me, m.id, { name: " β " }).name).toBe("β");
+  });
+
   test("Project を消すと Milestone も消える", () => {
     const { db, me } = withProjects();
     const p = getProject(db, "検索");

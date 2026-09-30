@@ -133,6 +133,7 @@ test("LLM が CLI で作った Milestone と紐付けが SSE で開いた Projec
   await expect(row(page, "LLM の目標")).toContainText("0/0");
   await nod.codex.updateIssue("API-13", { milestoneRef: String(m.id) });
   await expect(row(page, "LLM の目標")).toContainText("0/1");
-  await nod.codex.deleteMilestone(m.id);
+  // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）なので me が消す
+  await nod.me.deleteMilestone(m.id);
   await expect(section(page).getByText("Milestone はありません")).toBeVisible();
 });

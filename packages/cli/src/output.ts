@@ -172,6 +172,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
   if (d.archivedAt) lines.push(`アーカイブ済み: ${d.archivedAt.slice(0, 16).replace("T", " ")}（nod issue unarchive ${d.id} で復元）`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
+  if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);
   if (d.prUrl && prStatusLine) lines.push(prStatusLine);

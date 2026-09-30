@@ -59,6 +59,11 @@ describe("Milestone API", () => {
     expect((await call(app, "GET", "/api/issues?milestone=x")).status).toBe(400);
     expect((await call(app, "POST", `/api/issues/${issue.id}/update`, { milestoneRef: null })).json.milestone).toBeNull();
     expect(getIssue(db, issue.id).milestone).toBeNull();
+    // 空文字も CLI の --milestone "" と同じく外す
+    await call(app, "POST", `/api/issues/${issue.id}/update`, { milestoneRef: String(m.id) });
+    const cleared = await call(app, "POST", `/api/issues/${issue.id}/update`, { milestoneRef: "" });
+    expect([cleared.status, cleared.json.milestone]).toEqual([200, null]);
+    expect(getIssue(db, issue.id).milestone).toBeNull();
   });
 
   test("GET /api/milestones はすべての Project の Milestone を Project の名前順に返す", async () => {

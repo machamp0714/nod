@@ -181,7 +181,13 @@ describe("Milestone CLI", () => {
     const updated = cli(path, cwd, ["project", "milestone", "update", "検索", "β公開", "--name", "β", "--target", "", "-d", "", "--json"]);
     expect(updated.json).toMatchObject({ name: "β", targetDate: null, description: null });
     expect(cli(path, cwd, ["issue", "update", a.id, "--milestone", "", "--json"]).json.milestone).toBeNull();
-    expect(cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"]).json).toEqual({ id: created.json.id });
+    cli(path, cwd, ["issue", "update", a.id, "--milestone", "β"]);
+    expect(cli(path, cwd, ["issue", "show", a.id]).stdout).toContain("Milestone: β");
+    // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）
+    const forbidden = cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"]);
+    expect([forbidden.code, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
+    expect(cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"], "me").json).toEqual({ id: created.json.id });
+    expect(cli(path, cwd, ["issue", "show", a.id]).stdout).not.toContain("Milestone:");
     expect(cli(path, cwd, ["project", "milestone", "list", "検索", "--json"]).json.map((m: { name: string }) => m.name)).toEqual(["α"]);
   });
 
@@ -201,7 +207,6 @@ describe("Milestone CLI", () => {
       [["project", "milestone", "add", "検索", "α"], "MILESTONE_EXISTS"],
       [["project", "milestone", "add", "検索", "β", "--target", "2026/11/30"], "INVALID_ARGS"],
       [["project", "milestone", "update", "検索", "ない", "--name", "x"], "NOT_FOUND"],
-      [["project", "milestone", "remove", "検索", String(foreign.id)], "NOT_FOUND"],
       [["issue", "update", a.id, "--milestone", String(foreign.id)], "INVALID_ARGS"],
       [["issue", "update", a.id, "--milestone", "別"], "NOT_FOUND"],
     ] as const) {
@@ -209,6 +214,8 @@ describe("Milestone CLI", () => {
       expect(result.code).toBe(1);
       expect(result.json.error.code).toBe(code);
     }
+    const notHere = cli(path, cwd, ["project", "milestone", "remove", "検索", String(foreign.id), "--json"], "me");
+    expect([notHere.code, notHere.json.error.code]).toEqual([1, "NOT_FOUND"]);
     expect(cli(path, cwd, ["project", "milestone", "list", "認証", "--json"]).json).toHaveLength(1);
   });
 });

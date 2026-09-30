@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { now, type OpCtx } from "../ctx";
+import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Milestone } from "../types";
@@ -78,8 +78,10 @@ export function resolveMilestone(db: Database, ref: string | number, projectId?:
   return row;
 }
 
-function validateName(name: unknown): string {
-  if (typeof name !== "string" || !name.trim()) throw new NodError("INVALID_ARGS", "Milestone の名前を指定してください");
+// 前後の空白は取り除いた名前を返す
+function validateName(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.trim()) throw new NodError("INVALID_ARGS", "Milestone の名前を指定してください");
+  const name = raw.trim();
   if (/^\d+$/.test(name)) {
     throw new NodError("INVALID_ARGS", `Milestone の名前に数字だけ（${name}）は使えません。数字は ID として解釈されるためです`);
   }
@@ -134,7 +136,7 @@ export interface UpdateMilestoneInput {
 
 // ref は Milestone の ID。projectId を渡すと、その Project の中の名前でも指定できる
 export function updateMilestone(ctx: OpCtx, ref: string | number, input: UpdateMilestoneInput, projectId?: number): Milestone {
-  if (input.name !== undefined) validateName(input.name);
+  const name = input.name === undefined ? undefined : validateName(input.name);
   if (input.targetDate != null) validateDueDate(input.targetDate);
   if (input.description != null) validateDescription(input.description);
   return tx(ctx.db, () => {
@@ -142,10 +144,10 @@ export function updateMilestone(ctx: OpCtx, ref: string | number, input: UpdateM
     if (projectId !== undefined && row.project_id !== projectId) throw new NodError("NOT_FOUND", `Milestone ${ref} はこの Project にありません`);
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
-    if (input.name !== undefined && input.name !== row.name) {
-      ensureUniqueName(ctx.db, row.project_id, input.name, row.id);
+    if (name !== undefined && name !== row.name) {
+      ensureUniqueName(ctx.db, row.project_id, name, row.id);
       sets.push("name = ?");
-      params.push(input.name);
+      params.push(name);
     }
     if (input.targetDate !== undefined) {
       sets.push("target_date = ?");
@@ -162,8 +164,10 @@ export function updateMilestone(ctx: OpCtx, ref: string | number, input: UpdateM
   });
 }
 
-// 消すと紐付いた Issue は Milestone から外れるだけで、Issue の状態や event は変えない
+// 消すと紐付いた Issue は Milestone から外れるだけで、Issue の状態や event は変えない。
+// 紐付けがまとめて外れて戻せないため、削除は人だけ（作成・編集・紐付けは LLM もできる）
 export function deleteMilestone(ctx: OpCtx, ref: string | number, projectId?: number): { id: number } {
+  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Milestone を削除できません。削除は me に依頼してください");
   return tx(ctx.db, () => {
     const row = resolveMilestone(ctx.db, ref, projectId);
     if (projectId !== undefined && row.project_id !== projectId) throw new NodError("NOT_FOUND", `Milestone ${ref} はこの Project にありません`);

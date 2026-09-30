@@ -154,7 +154,7 @@ export function registerProjectCommands(program: Command): void {
     );
   milestone
     .command("remove <project> <milestone>")
-    .description("Milestone を消す（紐付いた Issue は Milestone から外れるだけで残る）")
+    .description("Milestone を消す（紐付いた Issue は Milestone から外れるだけで残る。人だけが行える）")
     .action(
       act((cli, _cmd, ref: string, target: string) => {
         const removed = deleteMilestone(cli.ctx, target, resolveProject(cli.db, ref).id);

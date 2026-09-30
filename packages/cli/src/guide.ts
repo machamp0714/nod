@@ -142,7 +142,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod project list\`、\`nod project show <名前>\`
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod project report add <名前かID> [--health on_track|at_risk|off_track] -- "<本文>"\`：Project に進捗報告を書く（10000 文字以内。本文は \`-\` で始まってもよいよう \`--\` の後ろに置く。Issue や Project の状態は変えない）。\`--health\` を添えると、その値が Project の現在の健全性になる（添えない報告は現在の健全性を変えない）。\`nod project report list <名前かID>\` で新しい順に読む
-- \`nod project milestone add <Project> <名前> [--target YYYY-MM-DD] [-d <説明>]\`：Project に中間目標（Milestone）を作る。\`update <Project> <Milestone> [--name] [--target] [-d]\`（空文字で外す）、\`remove\`、\`list\`（完了数/総数つき）も使える
+- \`nod project milestone add <Project> <名前> [--target YYYY-MM-DD] [-d <説明>]\`：Project に中間目標（Milestone）を作る。\`update <Project> <Milestone> [--name] [--target] [-d]\`（空文字で外す）、\`list\`（完了数/総数つき）も使える。\`remove\`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）
 - \`nod issue update <id> --milestone <名前かID>\`：Issue を同じ Project の Milestone に紐付ける（空文字で外す。Project を変えると外れる）
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
