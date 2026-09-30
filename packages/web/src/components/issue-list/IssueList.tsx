@@ -12,7 +12,7 @@ import { useCycles } from "../../api/hooks/cycles";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { cycleLabel } from "../../lib/cycles";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
-import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
+import { countRows, effectiveGrouping, filterRows, groupRows, type ListTab, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
 import { PreviewPane } from "./PreviewPane";
@@ -31,6 +31,8 @@ export interface IssueListProps {
   onSearchChange: (patch: IssueListSearch) => void;
   // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
   statusWorkspace?: string | null;
+  // My issues：タブを「担当｜委任中」にし、件数カードを出さない。担当タブは Status でまとめるのが既定
+  mine?: boolean;
 }
 
 // spec の Issue 一覧：見出し、件数カード、タブ、検索、リストとカンバンの切り替え。
@@ -47,6 +49,7 @@ export function IssueList({
   search,
   onSearchChange,
   statusWorkspace,
+  mine = false,
 }: IssueListProps) {
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
@@ -57,7 +60,7 @@ export function IssueList({
     const cycle = cycles.data?.find((c) => c.id === id);
     return cycle && { label: cycleLabel(cycle, cycles.data ?? []), rank: `${cycle.startDate} ${cycle.workspace}`, current: cycle.state === "current" };
   };
-  const tab = search.tab ?? "all";
+  const tab: ListTab = mine ? (search.tab === "delegated" ? "delegated" : "mine") : (search.tab ?? "all");
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
   const counts = countRows(rows);
@@ -67,7 +70,7 @@ export function IssueList({
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
   const columns = search.columns ?? [...DEFAULT_ISSUE_COLUMNS];
   const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
-  const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
+  const { groupBy, subGroupBy } = effectiveGrouping(search, layout, mine);
   const groups = groupBy
     ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus, cycleInfo)
     : [];
@@ -130,7 +133,7 @@ export function IssueList({
   const rowSelection = selectable ? { ids: selectedIds, onToggle: onToggleRow } : undefined;
   const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
   // 委任中タブの担当でのまとめは effectiveGrouping が表示時に決める（URL には書かない）
-  const selectTab = (next: IssueTab) => onSearchChange({ tab: next });
+  const selectTab = (next: ListTab) => onSearchChange({ tab: next === "mine" ? "all" : next });
 
   return (
     <div className={s.split}>
@@ -153,7 +156,7 @@ export function IssueList({
       </header>
       {intro}
 
-      <div className={s.cards}>
+      {!mine && <div className={s.cards}>
         <CountCard
           label="Ready"
           description="着手できる状態の Issue"
@@ -172,14 +175,17 @@ export function IssueList({
           pressed={tab === "needs_clarification"}
           onClick={() => toggle("needs_clarification")}
         />
-      </div>
+      </div>}
 
       <div className={s.toolbar}>
-        <Segmented<IssueTab>
+        <Segmented<ListTab>
           label="絞り込み"
           value={tab}
           onChange={selectTab}
-          items={[
+          items={mine ? [
+            { value: "mine", label: `担当 ${counts.mine}` },
+            { value: "delegated", label: `委任中 ${counts.delegated}` },
+          ] : [
             { value: "all", label: `All ${counts.all}` },
             { value: "ready", label: `Ready ${counts.ready}` },
             { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
@@ -296,6 +302,12 @@ export function IssueList({
         <div className={s.emptyDelegated}>
           <Icon name="bot" size={24} color="var(--ink3)" />
           LLM に委任中の Issue はありません
+        </div>
+      ) : tab === "mine" && counts.mine === 0 ? (
+        // Pencil「My issues｜担当 空状態（#162）」
+        <div className={s.emptyDelegated}>
+          <Icon name="circle-user" size={24} color="var(--ink3)" />
+          担当している Issue はありません
         </div>
       ) : groupBy ? (
         groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (

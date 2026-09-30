@@ -6,6 +6,7 @@ import { DocumentsPage } from "./pages/DocumentsPage";
 import { InboxPage } from "./pages/InboxPage";
 import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
+import { MyIssuesPage } from "./pages/MyIssuesPage";
 import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { CycleDetailPage } from "./pages/CycleDetailPage";
@@ -45,6 +46,7 @@ const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox"
 const reviewsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reviews", validateSearch: parseSelectedSearch, component: ReviewsPage });
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
 const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });
+const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", validateSearch: parseIssueListSearch, component: MyIssuesPage });
 const issueDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues/$issueId", component: IssueDetailPage });
 const viewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/views/$viewId", validateSearch: parseIssueListSearch, component: ViewPage });
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/projects", validateSearch: parseProjectsSearch, component: ProjectsPage });
@@ -86,6 +88,7 @@ const routeTree = rootRoute.addChildren([
   reviewsRoute,
   triageRoute,
   issuesRoute,
+  myIssuesRoute,
   issueDetailRoute,
   viewRoute,
   projectsRoute,

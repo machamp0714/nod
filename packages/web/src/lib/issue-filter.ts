@@ -1,7 +1,8 @@
 import type { IssueQuery, Status } from "../api/types";
-import { parseIssueListSearch, type IssueListSearch } from "../routes/search";
+import { NO_ASSIGNEE, parseIssueListSearch, type IssueListSearch } from "../routes/search";
+import { KNOWN_ASSIGNEES } from "./issue-edit";
 
-export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "blocked" | "archived">;
+export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "assignee" | "blocked" | "archived">;
 
 // URL の search params から絞り込み条件を取り出す（Issues の画面）
 export function filterFromSearch(raw: IssueListSearch): IssueQuery {
@@ -14,6 +15,7 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
   if (search.milestone) query.milestone = search.milestone;
   if (search.cycle) query.cycle = search.cycle;
   if (search.label?.length) query.label = search.label;
+  if (search.assignee?.length) query.assignee = search.assignee;
   if (search.blocked !== undefined) query.blocked = search.blocked;
   if (search.archived) query.archived = true;
   return query;
@@ -21,7 +23,7 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
 
 // 絞り込み条件を search params に写す。条件にないキーは undefined にし、cleanIssueListSearch で URL から消す
 export function filterToSearch(filter: IssueQuery): FilterSearch {
-  return { blocked: filter.blocked, archived: filter.archived || undefined, workspace: filter.workspace, status: filter.status, project: filter.project, milestone: filter.milestone, cycle: filter.cycle, label: filter.label };
+  return { blocked: filter.blocked, archived: filter.archived || undefined, workspace: filter.workspace, status: filter.status, project: filter.project, milestone: filter.milestone, cycle: filter.cycle, label: filter.label, assignee: filter.assignee };
 }
 
 // GET /api/issues のクエリ文字列（先頭の ? を含む。条件がなければ空文字）。配列は同じキーを繰り返す
@@ -33,6 +35,7 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.milestone) params.set("milestone", query.milestone);
   if (query.cycle) params.set("cycle", query.cycle);
   for (const label of query.label ?? []) params.append("label", label);
+  for (const assignee of query.assignee ?? []) params.append("assignee", assignee);
   if (query.ready) params.set("ready", "true");
   if (query.delegated) params.set("delegated", "true");
   if (query.q) params.set("q", query.q);
@@ -51,6 +54,7 @@ function normalize(query: IssueQuery) {
     milestone: query.milestone ?? "",
     cycle: query.cycle ?? "",
     label: sorted(query.label),
+    assignee: sorted(query.assignee),
     ready: query.ready === true,
     delegated: query.delegated === true,
     q: query.q ?? "",
@@ -64,7 +68,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "ready" | "delegated" | "q" | "blocked" | "archived";
+export type FilterKey = "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "assignee" | "ready" | "delegated" | "q" | "blocked" | "archived";
 
 export interface FilterChip {
   key: FilterKey;
@@ -87,6 +91,16 @@ export const NO_MILESTONE = "none";
 
 // Cycle のない Issue だけにする条件の値（GET /api/issues の cycle=none。Milestone の none と同じ）
 export const NO_CYCLE = "none";
+
+export { NO_ASSIGNEE };
+
+// 担当の絞り込みの選択肢（未割り当てを除く）。me・claude-code・codex を先頭に、Issue に現れるほかの担当を名前順で足す。
+// 今の条件にあって Issue に現れない担当も、外せるように出す
+export function assigneeFilterOptions(assignees: readonly (string | null)[], selected: readonly string[] = []): string[] {
+  const known: readonly string[] = KNOWN_ASSIGNEES;
+  const others = [...assignees, ...selected].filter((name): name is string => !!name && name !== NO_ASSIGNEE && !known.includes(name));
+  return [...known, ...[...new Set(others)].sort()];
+}
 
 type MilestoneRef = { id: number; projectId: number; name: string };
 
@@ -129,6 +143,7 @@ export interface FilterOptions {
   milestoneRefs: readonly MilestoneRef[] | undefined; // Project を変えたときに食い違う Milestone を外す判断に使う。読み込み中は undefined
   cycles: FilterOption[]; // value は Cycle の数字の ID
   labels: string[];
+  assignees: string[]; // Issue に現れる担当の名前（未割り当てを除く）
 }
 
 // nod.pen の 11 Issues の Filters の行（「Workspace is api-server, nod」）に出すチップ
@@ -154,6 +169,9 @@ export function describeFilter(
     chips.push({ key: "milestone", name: "Milestone", values });
   }
   if (filter.label?.length) chips.push({ key: "label", name: "Label", values: filter.label.join(", ") });
+  if (filter.assignee?.length) {
+    chips.push({ key: "assignee", name: "担当", values: filter.assignee.map((name) => (name === NO_ASSIGNEE ? "未割り当て" : name)).join(", ") });
+  }
   // ready は絞り込みのバーでは足せないが、API で作った View の filter に入りうるため、外せるように出す
   if (filter.ready) chips.push({ key: "ready", name: "Ready", values: "のみ" });
   // 委任中も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す

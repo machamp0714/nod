@@ -47,7 +47,7 @@ describe("filterRows", () => {
   });
 
   test("件数を数える", () => {
-    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1, delegated: 0 });
+    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1, delegated: 0, mine: 0 });
   });
 
   test("委任中タブは担当が LLM で done/canceled 以外の Issue だけを出し、件数を数える", () => {
@@ -61,6 +61,20 @@ describe("filterRows", () => {
     ];
     expect(ids(filterRows(delegated, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
     expect(countRows(delegated).delegated).toBe(2);
+  });
+
+  test("My issues の担当タブは担当が me の Issue だけを出し、完了済みは表示設定に従う", () => {
+    const rows = [
+      row("API-1", "in_progress", { assignee: "me" }),
+      row("API-2", "todo", { assignee: "claude-code" }),
+      row("API-3", "todo"),
+      row("API-4", "done", { assignee: "me" }),
+      row("API-5", "todo", { assignee: "ME" }),
+    ];
+    expect(ids(filterRows(rows, { tab: "mine", q: "" }))).toEqual(["API-1", "API-4"]);
+    expect(ids(filterRows(rows, { tab: "mine", q: "", showCompleted: false }))).toEqual(["API-1"]);
+    expect(ids(filterRows(rows, { tab: "mine", q: "api-4" }))).toEqual(["API-4"]);
+    expect(countRows(rows)).toMatchObject({ mine: 2, delegated: 2 });
   });
 
   test("Triage と Backlog でも担当が LLM なら委任中に含める", () => {
