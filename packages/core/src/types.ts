@@ -46,6 +46,7 @@ export interface Issue {
   agentState: AgentState | null;
   parentId: string | null;
   project: { id: number; name: string } | null;
+  milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
@@ -96,7 +97,12 @@ export interface Project {
   updatedAt: string;
 }
 
+// Project の健全性。進捗報告に添えて人・LLM が設定する
+export const PROJECT_HEALTHS = ["on_track", "at_risk", "off_track"] as const;
+export type ProjectHealth = (typeof PROJECT_HEALTHS)[number];
+
 export interface ProjectSummary extends Project {
+  health: ProjectHealth | null; // 健全性つきの最新の進捗報告の値。なければ null
   total: number;
   done: number;
   agents: { working: number; awaitingInput: number; awaitingReview: number; error: number };
@@ -108,10 +114,26 @@ export interface ProjectUpdate {
   projectId: number;
   author: string;
   body: string;
+  health: ProjectHealth | null;
   createdAt: string;
 }
 
+// Project の中間目標。total・done は Project の進捗と同じ定義（canceled とアーカイブ済みを除く総数、done の数）
+export interface Milestone {
+  id: number;
+  projectId: number;
+  name: string;
+  targetDate: string | null; // 時刻なしの暦日 YYYY-MM-DD
+  description: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  total: number;
+  done: number;
+}
+
 export interface ProjectDetail extends ProjectSummary {
+  milestones: Milestone[]; // 目標日の早い順（未設定は最後、同じなら id 順）
   issues: Issue[];
   documents: DocumentRef[];
   updates: ProjectUpdate[]; // 新しい順（同じ時刻は id の大きい順）

@@ -32,6 +32,7 @@ export const queryKeys = {
   reminders: () => ["notifications", "reminders"] as const,
   projectList: (opts: { includeClosed?: boolean }) => ["projects", "list", opts] as const,
   project: (id: number) => ["projects", "detail", id] as const,
+  milestones: () => ["projects", "milestones"] as const,
   views: () => ["views"] as const,
   documentList: () => ["documents", "list"] as const,
   documentsRoot: () => ["documents", "root"] as const,

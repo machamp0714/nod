@@ -96,6 +96,8 @@ export function describeActivity(item: ActivityItem, nameOfStatus: (value: unkno
       return { icon: "square-pen", text: `${actor} が説明を変えた` };
     case "project_changed":
       return { icon: "box", text: `${actor} が Project を変えた` };
+    case "milestone_changed":
+      return { icon: "flag", text: `${actor} が Milestone を ${typeof data.from === "string" ? data.from : "なし"} から ${typeof data.to === "string" ? data.to : "なし"} に変えた` };
     case "parent_changed":
       return { icon: "arrow-right", text: `${actor} が親 Issue を変えた` };
     case "labels_changed": {

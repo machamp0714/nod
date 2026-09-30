@@ -6,7 +6,7 @@ const rows = (page: import("@playwright/test").Page) => page.getByRole("table").
 
 test("Projects は Active の Project を列つきで出す", async ({ page }) => {
   await page.goto("/projects");
-  await expect(page.getByRole("table").getByRole("columnheader")).toHaveText(["Name", "Workspace", "Progress", "LLM の状況", "Updated"]);
+  await expect(page.getByRole("table").getByRole("columnheader")).toHaveText(["Name", "Workspace", "Progress", "健全性", "LLM の状況", "Updated"]);
   await expect(rows(page)).toHaveCount(4);
   const search = page.getByRole("row", { name: /検索 API の高速化/ });
   await expect(search).toContainText("0/3");

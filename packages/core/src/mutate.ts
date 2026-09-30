@@ -15,6 +15,7 @@ export type Column =
   | "title"
   | "description"
   | "project_id"
+  | "milestone_id"
   | "parent_id"
   | "snoozed_until"
   | "pr_url"
@@ -33,6 +34,7 @@ const EVENT_OF: Partial<Record<Column, string>> = {
   title: "title_changed",
   description: "description_changed",
   project_id: "project_changed",
+  milestone_id: "milestone_changed",
   parent_id: "parent_changed",
 };
 

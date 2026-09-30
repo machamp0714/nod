@@ -83,6 +83,30 @@ describe("Project 進捗報告API", () => {
     expect(getProject(db, p.name).updates).toEqual([]);
   });
 
+  test("健全性を添えて書くと報告と詳細・一覧の現在の健全性に反映し、null・省略は健全性なし", async () => {
+    const { app, me } = setup();
+    const p = createProject(me, { name: "健全性" });
+    const risky = await call(app, "POST", `/api/projects/${p.id}/reports`, { body: "遅れ", health: "at_risk" });
+    expect(risky.status).toBe(201);
+    expect(risky.json.health).toBe("at_risk");
+    const plain = await call(app, "POST", `/api/projects/${p.id}/reports`, { body: "メモ", health: null });
+    expect(plain.json.health).toBeNull();
+    expect((await call(app, "POST", `/api/projects/${p.id}/reports`, { body: "省略" })).json.health).toBeNull();
+    expect((await call(app, "GET", `/api/projects/${p.id}`)).json.health).toBe("at_risk");
+    expect((await call(app, "GET", "/api/projects")).json.find((x: { id: number }) => x.id === p.id).health).toBe("at_risk");
+  });
+
+  test("不正な健全性を INVALID_ARGS で拒み、何も保存しない", async () => {
+    const { app, db, me } = setup();
+    const p = createProject(me, { name: "不正健全性" });
+    for (const body of [{ body: "x", health: "good" }, { body: "x", health: 1 }, { body: "", health: "on_track" }]) {
+      const res = await call(app, "POST", `/api/projects/${p.id}/reports`, body);
+      expect(res.status).toBe(400);
+      expect(res.json.error.code).toBe("INVALID_ARGS");
+    }
+    expect(getProject(db, p.name).updates).toEqual([]);
+  });
+
   test("外部Originの投稿を拒む", async () => {
     const { app, db, me } = setup();
     const p = createProject(me, { name: "保護" });

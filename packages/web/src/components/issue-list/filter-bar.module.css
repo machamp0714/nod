@@ -123,3 +123,12 @@
 .inlineSelectActive { border-color: var(--accent); }
 .inlineSelectName { color: var(--ink3); }
 .inlineSelectValue { border: 0; padding: 0; background: transparent; color: var(--ink); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+
+/* Pencil「Issues｜Milestoneフィルタ」のメニュー（L76FT） */
+.milestones { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; border: 0; }
+.milestoneOption { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; color: var(--ink3); cursor: pointer; }
+.milestoneOption:hover, .milestoneSelected { background: var(--sunken); }
+.milestoneOption:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+.milestoneName { color: var(--ink); font-size: 12.5px; }
+.milestoneProject { flex: 1; min-width: 0; overflow: hidden; color: var(--ink3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.visuallyHidden { position: absolute; inset: 0; margin: 0; opacity: 0; pointer-events: none; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

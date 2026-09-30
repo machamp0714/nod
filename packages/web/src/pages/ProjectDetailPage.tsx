@@ -2,9 +2,11 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage } from "../api/errors";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
-import type { DocumentRef, ProjectSummary, ProjectUpdate } from "../api/types";
+import type { DocumentRef, Milestone, ProjectSummary, ProjectUpdate } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { HealthPill } from "../components/projects/HealthPill";
+import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
@@ -33,7 +35,7 @@ export function ProjectDetailPage() {
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} updates={detail.data.updates} />}
+      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} />}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, blocked }), replace: true })} />
       </div>}
@@ -46,12 +48,25 @@ export function ProjectDetailPage() {
   );
 }
 
-function ProjectIntro({ project, documents, updates }: { project: ProjectSummary; documents: DocumentRef[]; updates: ProjectUpdate[] }) {
+function ProjectIntro({
+  project,
+  documents,
+  milestones,
+  updates,
+}: {
+  project: ProjectSummary;
+  documents: DocumentRef[];
+  milestones: Milestone[];
+  updates: ProjectUpdate[];
+}) {
   return (
     <section className={p.intro} aria-label="Project の概要">
       <ProjectStatusControl key={project.id} project={project} />
       {project.description && <p className={p.description}>{project.description}</p>}
       <div className={p.progress}>
+        <span className={p.health} aria-label="現在の健全性">
+          <HealthPill health={project.health} />
+        </span>
         <ProgressBar value={project.done} max={project.total} />
         <span>
           {project.done}/{project.total} 完了
@@ -74,6 +89,7 @@ function ProjectIntro({ project, documents, updates }: { project: ProjectSummary
           </ul>
         )}
       </div>
+      <MilestonesSection key={`milestones-${project.id}`} projectId={project.id} milestones={milestones} />
       <ProjectUpdatesSection key={`updates-${project.id}`} projectId={project.id} updates={updates} />
     </section>
   );

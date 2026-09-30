@@ -297,6 +297,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--assignee <name>", "担当")
     .option("--parent <id>", "親 Issue")
     .option("--project <project>", "Project の名前か ID")
+    .option("--milestone <milestone>", "Milestone の名前か ID（Issue の Project のもの。Project を変えると外れる）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
     .option("--remove-label <label>", "ラベルを外す（繰り返し可）", collect)
     .option("--reason <text>", "done か canceled にするときの理由")
@@ -307,6 +308,7 @@ export function registerIssueCommands(program: Command): void {
           _cmd,
           id: string,
           o: {
+            milestone?: string;
             title?: string;
             description?: string;
             priority?: string;
@@ -331,6 +333,7 @@ export function registerIssueCommands(program: Command): void {
             assignee: orNull(o.assignee),
             parentRef: orNull(o.parent),
             projectRef: orNull(o.project),
+            milestoneRef: orNull(o.milestone),
             addLabels: o.addLabel,
             removeLabels: o.removeLabel,
             reason: o.reason,

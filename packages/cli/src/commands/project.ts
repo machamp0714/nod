@@ -1,5 +1,11 @@
 import {
   addProjectUpdate,
+  createMilestone,
+  deleteMilestone,
+  listMilestones,
+  type Milestone,
+  resolveProject,
+  updateMilestone,
   attachDocument,
   createProject,
   detachDocument,
@@ -11,13 +17,18 @@ import {
   updateProject,
 } from "@nod/core";
 import type { Command } from "commander";
-import { parseDocKind, parseProjectStatus } from "../args";
+import { orNull, parseDocKind, parseProjectHealth, parseProjectStatus } from "../args";
 import { act } from "../context";
 import { formatIssueLines, print } from "../output";
 
 function formatProjectUpdate(u: ProjectUpdate): string {
   const at = u.createdAt.slice(0, 16).replace("T", " ");
-  return [`  ${at}  ${u.author}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
+  return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
+}
+
+function formatMilestone(m: Milestone): string {
+  const head = `  ${m.id}  ${m.name}  ${m.done}/${m.total}  目標日 ${m.targetDate ?? "未設定"}`;
+  return m.description ? `${head}\n${m.description.split("\n").map((line) => `    ${line}`).join("\n")}` : head;
 }
 
 export function registerProjectCommands(program: Command): void {
@@ -35,7 +46,7 @@ export function registerProjectCommands(program: Command): void {
             ? list
                 .map(
                   (p) =>
-                    `${p.id}  ${p.name}  ${p.done}/${p.total}  作業中 ${p.agents.working}、入力待ち ${p.agents.awaitingInput}、レビュー待ち ${p.agents.awaitingReview}、エラー ${p.agents.error}`,
+                    `${p.id}  ${p.name}  ${p.done}/${p.total}  健全性 ${p.health ?? "未設定"}  作業中 ${p.agents.working}、入力待ち ${p.agents.awaitingInput}、レビュー待ち ${p.agents.awaitingReview}、エラー ${p.agents.error}`,
                 )
                 .join("\n")
             : "Project はありません",
@@ -62,11 +73,12 @@ export function registerProjectCommands(program: Command): void {
         const p = getProject(cli.db, ref);
         print(cli, p, () =>
           [
-            `${p.id}  ${p.name}（${p.status}）  ${p.done}/${p.total}`,
+            `${p.id}  ${p.name}（${p.status}）  ${p.done}/${p.total}  健全性 ${p.health ?? "未設定"}`,
             ...(p.description ? ["", p.description] : []),
             "",
             "Issue:",
             ...formatIssueLines(p.issues).map((line) => `  ${line}`),
+            ...(p.milestones.length ? ["", "Milestones:", ...p.milestones.map(formatMilestone)] : []),
             ...(p.documents.length ? ["", "Documents:", ...p.documents.map((d) => `  - ${d.title}（${d.kind}）${d.path}`)] : []),
             ...(p.updates[0]
               ? ["", `最新の進捗報告（全 ${p.updates.length} 件は nod project report list）:`, formatProjectUpdate(p.updates[0])]
@@ -92,9 +104,11 @@ export function registerProjectCommands(program: Command): void {
   report
     .command("add <project> <body>")
     .description("進捗報告を書く（書き手と日時を記録する。Issue や Project の状態は変えない）")
+    .option("--health <health>", "健全性を添える（on_track|at_risk|off_track）。添えた値が Project の現在の健全性になる")
     .action(
-      act((cli, _cmd, ref: string, body: string) => {
-        const added = addProjectUpdate(cli.ctx, ref, body);
+      act((cli, _cmd, ref: string, body: string, o: { health?: string }) => {
+        const health = o.health === undefined ? null : parseProjectHealth(o.health);
+        const added = addProjectUpdate(cli.ctx, ref, body, health);
         print(cli, added, () => `進捗報告を書きました: ${added.id}`);
       }),
     );
@@ -105,6 +119,55 @@ export function registerProjectCommands(program: Command): void {
       act((cli, _cmd, ref: string) => {
         const list = listProjectUpdates(cli.db, ref);
         print(cli, list, () => (list.length ? list.map(formatProjectUpdate).join("\n\n") : "進捗報告はありません"));
+      }),
+    );
+
+  const milestone = project.command("milestone").description("Project の中間目標（Milestone）を扱う");
+  milestone
+    .command("add <project> <name>")
+    .description("Milestone を作る")
+    .option("--target <YYYY-MM-DD>", "目標日")
+    .option("-d, --description <text>", "説明")
+    .action(
+      act((cli, _cmd, ref: string, name: string, o: { target?: string; description?: string }) => {
+        const created = createMilestone(cli.ctx, ref, { name, targetDate: orNull(o.target), description: orNull(o.description) });
+        print(cli, created, () => `Milestone を作りました: ${created.id}  ${created.name}`);
+      }),
+    );
+  milestone
+    .command("update <project> <milestone>")
+    .description("Milestone の名前・目標日・説明を変える（空文字を渡すと外す）")
+    .option("--name <name>", "名前")
+    .option("--target <YYYY-MM-DD>", "目標日")
+    .option("-d, --description <text>", "説明")
+    .action(
+      act((cli, _cmd, ref: string, target: string, o: { name?: string; target?: string; description?: string }) => {
+        const projectId = resolveProject(cli.db, ref).id;
+        const updated = updateMilestone(
+          cli.ctx,
+          target,
+          { name: o.name, targetDate: orNull(o.target), description: orNull(o.description) },
+          projectId,
+        );
+        print(cli, updated, () => `Milestone を更新しました: ${updated.id}  ${updated.name}`);
+      }),
+    );
+  milestone
+    .command("remove <project> <milestone>")
+    .description("Milestone を消す（紐付いた Issue は Milestone から外れるだけで残る。人だけが行える）")
+    .action(
+      act((cli, _cmd, ref: string, target: string) => {
+        const removed = deleteMilestone(cli.ctx, target, resolveProject(cli.db, ref).id);
+        print(cli, removed, () => `Milestone を消しました: ${removed.id}`);
+      }),
+    );
+  milestone
+    .command("list <project>")
+    .description("Milestone を目標日の早い順に進捗（完了数/総数）つきで表示する")
+    .action(
+      act((cli, _cmd, ref: string) => {
+        const list = listMilestones(cli.db, ref);
+        print(cli, list, () => (list.length ? list.map(formatMilestone).join("\n") : "Milestone はありません"));
       }),
     );
 

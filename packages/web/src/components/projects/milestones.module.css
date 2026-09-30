@@ -1,0 +1,239 @@
+/* Pencil「Project詳細｜健全性・Milestone」の Milestones（jz3TP）と状態（yo7H6） */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.count {
+  flex: 1;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.add {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.add:hover {
+  background: var(--sunken);
+  color: var(--ink2);
+}
+
+.empty {
+  padding: 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.row + .row,
+.editing + .row,
+.row + .editing {
+  border-top: 1px solid var(--line);
+}
+
+.editing {
+  padding: 8px;
+}
+
+.name {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  width: 120px;
+  min-width: 0;
+  color: var(--ink2);
+}
+
+.nameText {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date {
+  flex-shrink: 0;
+  width: 72px;
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.progress {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar {
+  display: flex;
+  width: 100px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--sunken);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.ratio {
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.description {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buttons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.button {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.danger {
+  color: var(--fail);
+}
+
+/* 追加・編集フォーム（jhLDq）。ラベル 64px の右に入力を置く */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  flex-shrink: 0;
+  width: 64px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.input.date {
+  flex: 0 0 140px;
+  width: 140px;
+}
+
+.input:disabled {
+  background: var(--sunken);
+  color: var(--ink3);
+}
+
+.inputError {
+  border-color: var(--fail);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 72px;
+  color: var(--fail);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.error svg {
+  flex-shrink: 0;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.footer .saving:disabled {
+  border-color: transparent;
+  background: var(--sunken);
+  color: var(--ink3);
+  opacity: 1;
+}

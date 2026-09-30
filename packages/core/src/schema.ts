@@ -430,4 +430,25 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX issue_deletions_workspace ON issue_deletions (workspace_id, id)`,
   ],
+  // Project の健全性（#79）。進捗報告に添える。現在の健全性は健全性つきの最新の報告の値で、projects には持たない
+  [
+    `ALTER TABLE project_updates ADD COLUMN health TEXT CHECK (health IS NULL OR health IN ('on_track', 'at_risk', 'off_track'))`,
+  ],
+  // Project の中間目標（#80）。Issue は同じ Project の Milestone に最大1つ属する。
+  // Milestone を消すと Issue は外れるだけで、Project を消すと Milestone も消える
+  [
+    `CREATE TABLE milestones (
+      id INTEGER PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      target_date TEXT,
+      description TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_id, name)
+    )`,
+    `ALTER TABLE issues ADD COLUMN milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`,
+    `CREATE INDEX issues_milestone ON issues (milestone_id)`,
+  ],
 ];

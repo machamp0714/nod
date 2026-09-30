@@ -59,6 +59,7 @@ const UPDATE_KEYS = [
   "assignee",
   "parentRef",
   "projectRef",
+  "milestoneRef",
   "addLabels",
   "removeLabels",
   "reason",
@@ -79,6 +80,7 @@ function toUpdateInput(b: Body): UpdateIssueInput {
     assignee: optNullableString(b, "assignee"),
     parentRef: optNullableString(b, "parentRef"),
     projectRef: optNullableString(b, "projectRef"),
+    milestoneRef: b.milestoneRef === "" ? null : optNullableString(b, "milestoneRef"), // 空文字も CLI の --milestone "" と同じく外す
     addLabels: optStringArray(b, "addLabels"),
     removeLabels: optStringArray(b, "removeLabels"),
     reason: optString(b, "reason"),
