@@ -128,3 +128,20 @@ test("テンプレートが見つからない定期Issueは、確認でエラー
   await expect(preview).toContainText("起票する · 1件");
   await expect(preview).toContainText("日次チェック");
 });
+
+test("担当の候補に LLM（claude-code・codex）が出て、LLM を担当にした定期Issueを保存できる（#64）", async ({ page, nod }) => {
+  await page.goto("/workspaces/API/settings");
+  const sec = section(page);
+  await sec.getByRole("button", { name: "定期Issue を追加" }).click();
+  const form = sec.getByRole("form", { name: "定期Issue を追加" });
+  const assignee = form.getByLabel("担当");
+  const listId = await assignee.getAttribute("list");
+  const options = await page.locator(`datalist[id="${listId}"] option`).evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value));
+  expect(options).toEqual(["me", "claude-code", "codex"]);
+  await form.getByLabel("タイトル").fill("依存更新チェック");
+  await assignee.fill("claude-code");
+  await form.getByLabel("開始日").fill("2026-01-01");
+  await form.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("追加しました");
+  expect(await nod.me.listRecurringIssues("API")).toMatchObject([{ title: "依存更新チェック", assignee: "claude-code" }]);
+});

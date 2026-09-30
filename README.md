@@ -43,6 +43,31 @@ backlog / todo から進めても started_at は付けない（手動の遷移�
 git は `-c log.showSignature=false` を付け、`GIT_DIR`・`GIT_WORK_TREE` など `GIT_` で始まる環境変数を除いて起動する。
 単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
 
+### LLM に定型作業を定期実行させる（#64）
+
+nod は常駐せず、LLM のセッションも起動しない。定型作業は、担当に LLM を指定した定期Issueとして起票し、LLM が `nod issue next` で拾う。
+
+1. 作業の手順をテンプレートにする（任意）。テンプレートは全 Workspace で共通で、既定では何も登録されていない。例を `docs/templates/` に置いている。
+
+   ```sh
+   nod template add 依存更新チェック --from docs/templates/dependency-update-check.md
+   nod template add 週次レポート --from docs/templates/weekly-report.md
+   ```
+
+2. 定期Issueを登録する（人だけ）。担当に LLM の書き手名（`claude-code`、`codex` など）を指定する。Web では Workspace 設定の「定期Issue」で、担当の候補から選ぶか書き手名を入力する。
+
+   ```sh
+   nod recurring add 依存更新チェック --template 依存更新チェック --every monthly --day 1 --start 2026-10-01 --assignee claude-code
+   nod recurring add 週次レポート --template 週次レポート --every weekly --weekday 月 --start 2026-10-05 --assignee claude-code
+   ```
+
+3. 人が `nod recurring run`（`nod automation run` にも含まれる。Web は「今すぐ実行」）を実行すると、発生日が来たものが起票される。
+   人の起票なので Triage を通らず todo で入り、担当の LLM だけが `nod issue next` で拾える（ほかの LLM には出ない）。
+4. LLM は説明の手順に従って作業し、`nod issue done` でレビューに回す。done にするのは人である。LLM への手引きは `nod skills get nod` の「定期Issueで起票された定型作業の扱い」にある。
+
+確認は、`nod recurring show <id>`（前回の起票と次回の発生日）、`nod issue list --delegated`（LLM に委任中の Issue）、`nod issue show <id>`（Activity の created に `recurring_id` と発生日が残る）で行う。
+テンプレートが消えているなど起票できなかった定期Issueは、実行結果の `failed` に理由付きで出て、ほかの定期Issueは起票される。
+
 ### 人だけが行える操作と、その限界
 
 Triage の受け入れ・却下・重複、Workspace の作業規約の登録・変更・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。

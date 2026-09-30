@@ -56,6 +56,18 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 \`next\` と同じ着手条件と優先度順で選ぶが、Issue・担当・作業場所・時刻・履歴を変更せず、Orca にも通知しない。
 提案は予約ではない。着手するときは \`nod issue next\` または \`nod issue start <id>\` を使う。その時点の条件を再確認するため、同じ候補に着手できるとは限らない。
 
+## 定期Issueで起票された定型作業の扱い
+
+人は定型作業（依存更新チェック、週次レポートなど）を、担当に LLM の名前（claude-code、codex など）を指定した定期Issueとして登録する。
+起票するのは人の実行（\`nod recurring run\`、\`nod automation run\`、Web の「今すぐ実行」）だけで、nod が自動で起票することはない。
+人の起票なので Triage を通らず todo で入り、担当の LLM の \`nod issue next\` に出る。ほかの LLM や担当なしの作業より先に取るわけではなく、優先度順に並ぶ。
+\`nod issue show <id>\` の Activity の created に \`recurring_id\`（定期Issueの id）と \`occurrence\`（発生日）があれば、定期Issueで起票された Issue である。
+進め方は通常の Issue と同じで、説明（テンプレートの手順と空欄）に従って作業し、空欄は \`nod issue update <id> -d "<説明>"\` で埋め、\`nod issue done <id> --summary "<要約>"\` でレビューに回す。done にするのは人である。
+前回の発生日の Issue が残っていても、今回の Issue はそれとは別の作業として扱い、まとめて閉じない。前回分が不要そうなら人に伝える。
+手順に書かれていない作業（依存のメジャー更新など）が見つかったら、自分で着手せずに \`--discovered-from <id>\` を付けて起票する。
+周期・担当・テンプレートなど定期Issueの定義は変えられない（FORBIDDEN_FOR_LLM）。変えたほうがよいと思ったら \`nod recurring list\` で定義を確かめ、人に依頼する。
+テンプレートの手順が古いときも、テンプレートは書き換えず、人に伝える。
+
 ## Issue 用のブランチ名を取得する
 
 \`nod issue branch-name <id>\` はコピーできるブランチ名だけを返す。例：API-12 は \`nod/api-12\`。
