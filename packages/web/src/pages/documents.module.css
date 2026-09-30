@@ -15,25 +15,6 @@
   position: relative;
 }
 
-.filterButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  color: var(--ink2);
-  font-size: 12px;
-  cursor: pointer;
-  height: var(--control-height);
-  font-weight: 500;
-}
-
-.filterButton:hover {
-  background: var(--sunken);
-}
-
 /* メニューの位置だけを決める。枠と項目は components/ui の Menu */
 .menu {
   position: absolute;

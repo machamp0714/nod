@@ -67,12 +67,12 @@ export function MilestonesSection({ projectId, milestones }: { projectId: number
                   </span>
                   <span className={s.description}>{m.description}</span>
                   <span className={s.buttons}>
-                    <button type="button" className={s.button} aria-label={`${m.name} を編集`} onClick={() => setEditing(m.id)}>
+                    <Button size="sm" aria-label={`${m.name} を編集`} onClick={() => setEditing(m.id)}>
                       編集
-                    </button>
-                    <button type="button" className={`${s.button} ${s.danger}`} aria-label={`${m.name} を削除`} onClick={() => setDeleting(m)}>
+                    </Button>
+                    <Button size="sm" variant="danger" aria-label={`${m.name} を削除`} onClick={() => setDeleting(m)}>
                       削除
-                    </button>
+                    </Button>
                   </span>
                 </li>
               ),

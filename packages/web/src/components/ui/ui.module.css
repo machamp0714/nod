@@ -258,8 +258,9 @@
   font-weight: 500;
 }
 
+/* 操作のボタンが並んでも、画面名の先頭は読める幅を残す */
 .pageTitle {
-  min-width: 0;
+  min-width: 4em;
   overflow: hidden;
   color: var(--ink);
   font-size: 13px;

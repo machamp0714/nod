@@ -61,10 +61,17 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         search={search}
         statusWorkspace={singleWorkspace(draft.workspace)}
         onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
+        // 失敗の表示は Header（高さ 44 で折り返さない）の外に出す
+        intro={
+          (saveFilter.isError || remove.isError) && (
+            <div>
+              {saveFilter.isError && <Pill tone="fail">保存できませんでした</Pill>}
+              {remove.isError && <span role="alert"><Pill tone="fail">削除できませんでした：{errorMessage(remove.error)}</Pill></span>}
+            </div>
+          )
+        }
         actions={
           <>
-            {saveFilter.isError && <Pill tone="fail">保存できませんでした</Pill>}
-            {remove.isError && <span role="alert"><Pill tone="fail">削除できませんでした：{errorMessage(remove.error)}</Pill></span>}
             {dirty && <Button onClick={() => setDraft(view.filter)}>元に戻す</Button>}
             {dirty && (
               <Button

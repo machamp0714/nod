@@ -28,17 +28,15 @@ function KindFilter({ kind, onChange }: { kind?: DocKind; onChange: (kind?: DocK
   };
   return (
     <div className={s.filterWrap} ref={root}>
-      <button
-        type="button"
-        className={s.filterButton}
+      <Button
+        icon="list-filter"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
       >
-        <Icon name="list-filter" />
         {kind ? `種類: ${KIND_LABELS[kind]}` : "Filter"}
-      </button>
+      </Button>
       {open && (
         <Menu label="種類で絞り込む" className={s.menu} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
           <MenuItem checked={!kind} onClick={() => choose(undefined)}>

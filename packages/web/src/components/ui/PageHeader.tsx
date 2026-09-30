@@ -10,9 +10,13 @@ export function PageHeader({ as: Tag = "header", label, className, children }: {
   );
 }
 
-// Header の中の画面名。ページの <h1> にする
+// Header の中の画面名。ページの <h1> にする。1行で切るため、省略された名前は title で読めるようにする
 export function PageTitle({ children }: { children: ReactNode }) {
-  return <h1 className={s.pageTitle}>{children}</h1>;
+  return (
+    <h1 className={s.pageTitle} title={typeof children === "string" ? children : undefined}>
+      {children}
+    </h1>
+  );
 }
 
 // Header の下のタブとアイコンボタンの行（高さ 43）。左右を分けるときは間に <Spacer /> を置く
