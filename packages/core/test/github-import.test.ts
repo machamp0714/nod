@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { OpCtx } from "../src/ctx";
 import { openDb } from "../src/db";
 import { GITHUB_IMPORT_LIMIT_MAX, importGithubIssues } from "../src/ops/github-import";
-import { getIssue } from "../src/ops/issues";
+import { getIssue, updateIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
+import { completionStats } from "../src/ops/stats";
+import { recentSummary } from "../src/ops/summary";
 import type { GhRunner, GhRunResult } from "../src/ops/pr-status";
 import { initWorkspace } from "../src/ops/workspaces";
 import { eventsOf, tempDbPath } from "./helpers";
@@ -176,7 +178,7 @@ describe("importGithubIssues", () => {
 
     const done = getIssue(db, "API-1");
     expect(done.status).toBe("done");
-    expect(done.closeReason).toBe("GitHub で close（COMPLETED）");
+    expect(done.closeReason).toBeNull(); // 理由は canceled のときだけ付ける
     expect(done.description).toContain("2026-02-01T00:00:00Z に close");
     const canceled = getIssue(db, "API-2");
     expect(canceled.status).toBe("canceled");
@@ -193,6 +195,84 @@ describe("importGithubIssues", () => {
       { source: "github", source_key: "example/api-server#7", imported_by: "me" },
       { source: "github", source_key: "example/api-server#12", imported_by: "me" },
     ]);
+  });
+
+  test("close の理由が NOT_PLANNED・DUPLICATE なら canceled、COMPLETED・null・空なら done", async () => {
+    const { me } = fixture();
+    const issues: GhIssue[] = [
+      { number: 1, title: "完了", state: "CLOSED", stateReason: "COMPLETED" },
+      { number: 2, title: "理由なし", state: "CLOSED", stateReason: null },
+      { number: 3, title: "理由が空", state: "CLOSED", stateReason: "" },
+      { number: 4, title: "やらない", state: "CLOSED", stateReason: "NOT_PLANNED" },
+      { number: 5, title: "重複", state: "CLOSED", stateReason: "DUPLICATE" },
+    ];
+    // listJson は stateReason の null を COMPLETED に埋めるので、null はそのまま返す
+    const list = JSON.parse(listJson(issues)) as { number: number; stateReason: string | null }[];
+    list[1]!.stateReason = null;
+    const r = await importGithubIssues(me, "API", "example/api-server", { dryRun: true, state: "all" }, fakeGh(issues, { list: exited(JSON.stringify(list)) }));
+    expect(r.items.map((i) => [i.number, i.stateReason, i.status])).toEqual([
+      [1, "COMPLETED", "done"],
+      [2, null, "done"],
+      [3, null, "done"],
+      [4, "NOT_PLANNED", "canceled"],
+      [5, "DUPLICATE", "canceled"],
+    ]);
+  });
+
+  test("閉じた Issue は状態の遷移を経ずに最初から done・canceled で作り、close_reason は canceled だけに付ける", async () => {
+    const { db, me } = fixture();
+    await importGithubIssues(me, "API", "example/api-server", { state: "all" }, fakeGh(SAMPLE));
+    for (const [ref, status] of [["API-1", "done"], ["API-2", "canceled"]] as const) {
+      const events = eventsOf(db, ref);
+      expect(events.filter((e) => e.type === "status_changed")).toEqual([]);
+      expect(events.find((e) => e.type === "created")?.data).toMatchObject({ status });
+      expect(getIssue(db, ref).status).toBe(status);
+    }
+    const rows = db.query("SELECT number, closed_at, close_reason FROM issues ORDER BY number").all() as
+      { number: number; closed_at: string | null; close_reason: string | null }[];
+    expect(rows.map((r) => [r.number, r.closed_at !== null, r.close_reason])).toEqual([
+      [1, true, null],
+      [2, true, "GitHub で close（NOT_PLANNED）"],
+      [3, false, null],
+    ]);
+  });
+
+  test("取り込んだ時点で閉じていた Issue は完了数（stats）と要約の完了・キャンセルに数えない。取り込み後に閉じ直したものは数える", async () => {
+    const { db, me } = fixture();
+    await importGithubIssues(me, "API", "example/api-server", { state: "all" }, fakeGh(SAMPLE));
+    const today = new Date().toISOString().slice(0, 10);
+    const range = { tz: "UTC", by: "day" as const, from: today, to: today };
+    expect(completionStats(db, range).totals).toMatchObject({ completed: 0, canceled: 0 });
+    const summary = recentSummary(db);
+    const count = (kind: string) => summary.sections.find((s) => s.kind === kind)!.total;
+    expect([count("completed"), count("canceled"), count("created")]).toEqual([0, 0, 3]);
+
+    // 取り込んだ open の Issue を nod で完了し、取り込み済みの done を開き直して閉じ直すと、どちらも数える
+    updateIssue(me, "API-3", { status: "done" });
+    updateIssue(me, "API-1", { status: "todo" });
+    updateIssue(me, "API-1", { status: "done" });
+    expect(completionStats(db, range).totals).toMatchObject({ completed: 2, canceled: 0 });
+    const after = recentSummary(db);
+    expect(after.sections.find((s) => s.kind === "completed")!.total).toBe(2);
+  });
+
+  test("nod で永久削除した取り込み済みの Issue は、再取り込みで作り直さず削除済みとしてスキップする", async () => {
+    const { db, me } = fixture();
+    await importGithubIssues(me, "API", "example/api-server", {}, fakeGh(SAMPLE.slice(0, 1)));
+    db.query("DELETE FROM issues WHERE number = 1").run();
+    expect(db.query("SELECT source_key, issue_id FROM issue_imports").all()).toEqual([
+      { source_key: "example/api-server#12", issue_id: null },
+    ]);
+    const dry = await importGithubIssues(me, "API", "example/api-server", { dryRun: true }, fakeGh(SAMPLE.slice(0, 1)));
+    expect(dry.items.map((i) => [i.sourceKey, i.existing, i.deleted])).toEqual([["example/api-server#12", null, true]]);
+    const gh = fakeGh(SAMPLE.slice(0, 1));
+    const r = await importGithubIssues(me, "API", "example/api-server", {}, gh);
+    expect(r.imported).toEqual([]);
+    expect(r.skipped).toEqual([]);
+    expect(r.deleted).toEqual([{ sourceKey: "example/api-server#12" }]);
+    expect(r.failed).toEqual([]);
+    expect(gh.calls.filter((c) => c[1] === "view")).toEqual([]);
+    expect((db.query("SELECT count(*) AS n FROM issues").get() as { n: number }).n).toBe(0);
   });
 
   test("再実行では取り込み済みを重複作成せず、上書きもしない。大文字小文字違いの指定でも同じ Issue とみなす", async () => {

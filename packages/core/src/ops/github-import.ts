@@ -4,7 +4,6 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment } from "../events";
 import { findIssueRow, formatIssueId } from "../issue-query";
-import { setColumn } from "../mutate";
 import type { Status } from "../types";
 import { AUTOMATION_LIMIT_DEFAULT, AUTOMATION_LIMIT_MAX } from "./automation";
 import { insertIssue } from "./issues";
@@ -54,6 +53,7 @@ export interface GithubImportItem {
   createdAt: string;
   closedAt: string | null;
   existing: string | null; // 取り込み済みなら nod の Issue ID
+  deleted: boolean; // 取り込んだ後に nod で永久削除した（再取り込みしない）
 }
 
 export interface GithubImportResult {
@@ -66,6 +66,7 @@ export interface GithubImportResult {
   items: GithubImportItem[];
   imported: { sourceKey: string; id: string }[];
   skipped: { sourceKey: string; id: string }[]; // 取り込み済み
+  deleted: { sourceKey: string }[]; // 取り込んだ後に永久削除したので取り込まない
   failed: { sourceKey: string; message: string }[];
 }
 
@@ -146,20 +147,25 @@ function sourceKeyOf(issue: GhListIssue, repo: string): string {
   return `${ownerRepo.toLowerCase()}#${issue.number}`;
 }
 
-// open は指定のステータス、closed は完了（COMPLETED）なら done、それ以外（NOT_PLANNED・DUPLICATE など）は canceled
+// やらないと決めて close した理由。これだけを canceled にし、COMPLETED・理由なし（古い Issue など）は done にする
+const CANCELED_STATE_REASONS = ["NOT_PLANNED", "DUPLICATE"];
+
+// open は指定のステータス、closed は NOT_PLANNED・DUPLICATE なら canceled、それ以外は done
 function statusOf(issue: GhListIssue, openStatus: GithubImportOpenStatus): Status {
   if (issue.state !== "CLOSED") return openStatus;
-  return issue.stateReason === "COMPLETED" ? "done" : "canceled";
+  return CANCELED_STATE_REASONS.includes(issue.stateReason ?? "") ? "canceled" : "done";
 }
 
-function existingIssue(db: Database, workspaceId: number, sourceKey: string): string | null {
+// 対応表の行。取り込み済みなら nod の Issue ID、永久削除済みなら id が null
+function existingIssue(db: Database, workspaceId: number, sourceKey: string): { id: string | null } | null {
   const row = db
     .query(
-      `SELECT w.key, i.number FROM issue_imports m JOIN issues i ON i.id = m.issue_id JOIN workspaces w ON w.id = i.workspace_id
+      `SELECT w.key, i.number FROM issue_imports m LEFT JOIN issues i ON i.id = m.issue_id LEFT JOIN workspaces w ON w.id = i.workspace_id
        WHERE m.workspace_id = ? AND m.source = 'github' AND m.source_key = ?`,
     )
-    .get(workspaceId, sourceKey) as { key: string; number: number } | null;
-  return row ? formatIssueId(row.key, row.number) : null;
+    .get(workspaceId, sourceKey) as { key: string | null; number: number | null } | null;
+  if (!row) return null;
+  return { id: row.key !== null && row.number !== null ? formatIssueId(row.key, row.number) : null };
 }
 
 // 本文の末尾に、取り込み元と nod に写さない情報（作成者・日時・GitHub の担当）を残す
@@ -175,6 +181,7 @@ function descriptionOf(item: GithubImportItem, body: string): string {
 
 function toItem(db: Database, workspaceId: number, repo: string, issue: GhListIssue, openStatus: GithubImportOpenStatus): GithubImportItem {
   const sourceKey = sourceKeyOf(issue, repo);
+  const existing = existingIssue(db, workspaceId, sourceKey);
   return {
     number: issue.number,
     sourceKey,
@@ -188,7 +195,8 @@ function toItem(db: Database, workspaceId: number, repo: string, issue: GhListIs
     author: issue.author?.login ?? "ghost",
     createdAt: issue.createdAt,
     closedAt: issue.closedAt || null,
-    existing: existingIssue(db, workspaceId, sourceKey),
+    existing: existing?.id ?? null,
+    deleted: existing !== null && existing.id === null,
   };
 }
 
@@ -200,12 +208,11 @@ function writeOne(
   item: GithubImportItem,
   body: string,
   comments: GhComment[],
-): { id: string; created: boolean } {
+): { created: true; id: string } | { created: false; id: string | null } {
   return tx(ctx.db, () => {
     // 読んでから書くまでに別の実行が取り込んだかもしれないので、書く transaction の中で確かめ直す
     const existing = existingIssue(ctx.db, workspaceId, item.sourceKey);
-    if (existing) return { id: existing, created: false };
-    const closed = item.status === "done" || item.status === "canceled";
+    if (existing) return { id: existing.id, created: false };
     const origin: Record<string, string> = { imported_from: item.url, github_created_at: item.createdAt };
     if (item.closedAt) origin.github_closed_at = item.closedAt;
     const issue = insertIssue(ctx, {
@@ -218,16 +225,13 @@ function writeOne(
       parentId: null,
       projectId,
       labels: item.labels,
-      status: closed ? "todo" : item.status,
+      // 閉じた Issue は状態の遷移を経ず、最初から done・canceled で作る（closed_at は取り込んだ時刻）。
+      // created の event の status が done・canceled なので、完了数（stats）と要約の完了・キャンセルには数えない
+      status: item.status,
+      closeReason: item.status === "canceled" ? `GitHub で close（${item.stateReason}）` : null,
       origin,
     });
     const row = findIssueRow(ctx.db, issue.id);
-    if (closed) {
-      // done・canceled は通常の状態変更と同じ経路で閉じ、closed_at と close_reason を付ける
-      const reason = `GitHub で close（${item.stateReason ?? "理由なし"}）`;
-      setColumn(ctx, row, "close_reason", reason);
-      setColumn(ctx, row, "status", item.status, { reason });
-    }
     for (const c of comments) {
       addComment(ctx, row, `@${c.author?.login ?? "ghost"} が GitHub でコメント（${c.createdAt}）\n\n${c.body}`);
     }
@@ -275,6 +279,7 @@ export async function importGithubIssues(
     items: sorted.map((i) => toItem(ctx.db, workspace.id, repo, i, openStatus)),
     imported: [],
     skipped: [],
+    deleted: [],
     failed: [],
   };
   if (dryRun) return result;
@@ -282,6 +287,10 @@ export async function importGithubIssues(
   for (const item of result.items) {
     if (item.existing) {
       result.skipped.push({ sourceKey: item.sourceKey, id: item.existing });
+      continue;
+    }
+    if (item.deleted) {
+      result.deleted.push({ sourceKey: item.sourceKey });
       continue;
     }
     try {
@@ -293,7 +302,9 @@ export async function importGithubIssues(
       );
       const comments = [...(view.comments ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const written = writeOne(ctx, workspace.id, project?.id ?? null, item, bodies.get(item.number) ?? "", comments);
-      (written.created ? result.imported : result.skipped).push({ sourceKey: item.sourceKey, id: written.id });
+      if (written.created) result.imported.push({ sourceKey: item.sourceKey, id: written.id });
+      else if (written.id) result.skipped.push({ sourceKey: item.sourceKey, id: written.id });
+      else result.deleted.push({ sourceKey: item.sourceKey });
     } catch (e) {
       result.failed.push({ sourceKey: item.sourceKey, message: e instanceof Error ? e.message : String(e) });
     }

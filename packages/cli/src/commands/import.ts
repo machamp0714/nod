@@ -24,13 +24,14 @@ function collect(value: string, previous: string[] = []): string[] {
 }
 
 function describeImport(r: GithubImportResult): string {
-  const fresh = r.items.filter((i) => !i.existing).length;
+  const fresh = r.items.filter((i) => !i.existing && !i.deleted).length;
+  const deleted = r.items.filter((i) => i.deleted).length;
   const lines = [
-    `GitHub ${r.repo}（${r.state}）から ${r.workspaceKey} へ${r.project ? `・Project「${r.project}」へ` : ""}: ${r.items.length} 件を読みました（新規 ${fresh} 件・取り込み済み ${r.items.length - fresh} 件）`,
+    `GitHub ${r.repo}（${r.state}）から ${r.workspaceKey} へ${r.project ? `・Project「${r.project}」へ` : ""}: ${r.items.length} 件を読みました（新規 ${fresh} 件・取り込み済み ${r.items.length - fresh - deleted} 件${deleted ? `・削除済み ${deleted} 件` : ""}）`,
   ];
   if (r.truncated) lines.push(`  --limit に達したため、それより古い Issue は読んでいません（--limit を増やすか --label で絞ると読めます）`);
   for (const i of r.items) {
-    const where = i.existing ? `取り込み済み（${i.existing}）` : `→ ${i.status}`;
+    const where = i.existing ? `取り込み済み（${i.existing}）` : i.deleted ? "削除済み（取り込まない）" : `→ ${i.status}`;
     const labels = i.labels.length ? `  [${i.labels.join(", ")}]` : "";
     lines.push(`  #${i.number}  ${i.state}${i.stateReason && i.state === "CLOSED" ? `/${i.stateReason}` : ""}  ${where}  ${i.title}${labels}`);
   }
@@ -39,6 +40,7 @@ function describeImport(r: GithubImportResult): string {
   } else {
     lines.push(`  取り込みました: ${r.imported.length} 件${r.imported.length ? `（${r.imported.map((i) => i.id).join(", ")}）` : ""}`);
     if (r.skipped.length) lines.push(`  スキップ（取り込み済み・上書きしない）: ${r.skipped.map((s) => s.id).join(", ")}`);
+    if (r.deleted.length) lines.push(`  スキップ（nod で削除済み・作り直さない）: ${r.deleted.map((d) => d.sourceKey).join(", ")}`);
     for (const f of r.failed) lines.push(`  失敗: ${f.sourceKey} ${f.message}`);
     if (r.failed.length) lines.push("  失敗した Issue は取り込まれていません。再実行すると、取り込み済みを飛ばしてそれだけを取り込みます");
   }
@@ -63,9 +65,10 @@ export function registerImportCommands(program: Command): void {
         "",
         "gh issue list / gh issue view で読むだけで、GitHub へは書き込まない（PR は含まない）。",
         "対応: タイトル・本文・ラベル（名前のまま）・コメント（書き手は取り込んだ人、本文の先頭に「@login が GitHub でコメント（日時）」）。",
-        "  状態は open → --open-status（既定 triage）、close（COMPLETED）→ done、close（NOT_PLANNED など）→ canceled。",
+        "  状態は open → --open-status（既定 triage）、close（NOT_PLANNED・DUPLICATE）→ canceled、それ以外の close → done。",
+        "  close 済みの Issue は最初から done・canceled で作り、完了数（nod stats）と要約の完了・キャンセルには数えない。",
         "  担当は写さず、GitHub の作成者・作成日時・close 日時・担当は本文の末尾に残す。nod の日時は取り込んだ時刻になる。",
-        "取り込んだ Issue は対応表に残し、再実行では作り直さず、nod 側の変更も上書きしない。",
+        "取り込んだ Issue は対応表に残し、再実行では作り直さず、nod 側の変更も上書きしない。nod で削除した Issue も作り直さない。",
         "1件ずつ確定し、失敗した Issue は取り込まずに一覧で示す（再実行でその分だけ取り込める）。",
         "--limit は取り込み済みの Issue も数える（gh は新しい順に返す）。古い Issue まで届かないときは --limit を増やすか --label で絞る。",
       ].join("\n"),
