@@ -22,7 +22,7 @@ import {
 import s from "./workspace-settings.module.css";
 import { DeleteDialog } from "./WorkspaceSettingsPage";
 
-function SectionHeader({ id, title, description }: { id: string; title: string; description?: string }) {
+export function SectionHeader({ id, title, description }: { id: string; title: string; description?: string }) {
   return (
     <div className={s.sectionHeader}>
       <h2 id={id} className={s.sectionTitle}>
@@ -33,7 +33,7 @@ function SectionHeader({ id, title, description }: { id: string; title: string; 
   );
 }
 
-function ErrorLine({ message, indent }: { message: string; indent?: boolean }) {
+export function ErrorLine({ message, indent }: { message: string; indent?: boolean }) {
   return (
     <p role="alert" className={`${s.error} ${indent ? s.errorIndent : ""}`}>
       <Icon name="circle-alert" size={13} />
@@ -348,22 +348,6 @@ function StatusNamesForm({
         >
           保存
         </button>
-      </div>
-    </section>
-  );
-}
-
-const TEMPLATE_COMMANDS = ["nod template add <name> --from <path>", "nod template list", "nod template show <name>", "nod template remove <name>"];
-
-// テンプレートは全 Workspace 共通で CLI だけで管理する。ここでは管理方法を案内する
-export function TemplatesSection() {
-  const titleId = useId();
-  return (
-    <section className={s.section} aria-labelledby={titleId}>
-      <SectionHeader id={titleId} title="テンプレート" />
-      <div className={s.templateInfo}>
-        <p className={s.templateText}>テンプレートはすべての Workspace で共通です。この画面では編集できません。CLI で管理します。</p>
-        <pre className={s.templateCommands}>{TEMPLATE_COMMANDS.join("\n")}</pre>
       </div>
     </section>
   );

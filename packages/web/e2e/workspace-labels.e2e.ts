@@ -110,15 +110,12 @@ test("ステータスの表示名を保存すると、その Workspace の Issue
   expect((await nod.me.getStatusNames("API")).names).toEqual({});
 });
 
-test("CLI など別の場所での変更を表示し、テンプレートは CLI での管理を案内する", async ({ page, nod }) => {
+test("CLI など別の場所での変更を表示する", async ({ page, nod }) => {
   await nod.me.addWorkspaceLabel("NOD", { name: "docs", color: "#0D9768", description: "ドキュメントのみの変更" });
   await nod.me.setStatusNames("NOD", { in_review: "レビュー待ち" });
   await page.goto("/workspaces/NOD/settings");
   await expect(labelsSection(page).getByRole("listitem").filter({ hasText: "docs" })).toContainText("ドキュメントのみの変更");
   await expect(statusSection(page).getByRole("textbox", { name: "in_review の表示名" })).toHaveValue("レビュー待ち");
-  const templates = page.getByRole("region", { name: "テンプレート" });
-  await expect(templates).toContainText("テンプレートはすべての Workspace で共通です。この画面では編集できません。CLI で管理します。");
-  await expect(templates).toContainText("nod template add <name> --from <path>");
   // API の設定には NOD の定義を出さない
   await page.goto("/workspaces/API/settings");
   await expect(labelsSection(page).getByText("ラベルの定義はありません")).toBeVisible();

@@ -49,6 +49,7 @@ nod は常駐せず、LLM のセッションも起動しない。定型作業は
 
 1. 作業の手順をテンプレートにする（任意・人だけ）。テンプレートは全 Workspace で共通で、既定では何も登録されていない。例を `docs/templates/` に置いている。
    LLM はテンプレートを読めるが、登録・置き換え・削除（`nod template add` / `remove`）は `FORBIDDEN_FOR_LLM` になる。
+   Web の Workspace 設定の「テンプレート」からも、追加・本文の編集・削除ができる（名前は変えられない）。
 
    ```sh
    nod template add 依存更新チェック --from docs/templates/dependency-update-check.md
