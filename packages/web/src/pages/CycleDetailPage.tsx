@@ -83,8 +83,9 @@ function CycleOverview({ cycle, siblings }: { cycle: CycleDetail; siblings: Cycl
               ))}
             </select>
           </label>
+          {/* Pencil は「次の Cycle へ移す」だが、移動先には終了した Cycle も選べるため「別の Cycle」とする */}
           <Button variant="primary" icon="arrow-right-to-line" disabled={to === undefined} onClick={() => setConfirming(true)}>
-            未完了 {cycle.open} 件を次の Cycle へ移す
+            未完了 {cycle.open} 件を別の Cycle へ移す
           </Button>
         </>
       )}

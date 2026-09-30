@@ -2,7 +2,7 @@ import { useCycles } from "./cycles";
 import { cycleLabel } from "../../lib/cycles";
 import { useQuery } from "@tanstack/react-query";
 import type { IssueListRow } from "../../components/issue-list/types";
-import { issueQueryToParams, type FilterOptions } from "../../lib/issue-filter";
+import { issueQueryToParams, NO_CYCLE, type FilterOptions } from "../../lib/issue-filter";
 import { buildRows } from "../../lib/issue-rows";
 import { apiFetch } from "../client";
 import { errorMessage } from "../errors";
@@ -32,6 +32,7 @@ export interface IssueRowsState {
 export function useIssueRows(query: IssueQuery, enabled = true): IssueRowsState {
   const projects = useProjects();
   const milestones = useMilestones();
+  const cycles = useCycles();
   const ref = query.project;
   const unknownProject =
     ref !== undefined && projects.data !== undefined && !projects.data.some((p) => String(p.id) === ref || p.name === ref);
@@ -39,19 +40,29 @@ export function useIssueRows(query: IssueQuery, enabled = true): IssueRowsState 
   const milestoneRef = query.milestone !== undefined && query.milestone !== "none" ? query.milestone : undefined;
   const unknownMilestone =
     milestoneRef !== undefined && milestones.data !== undefined && !milestones.data.some((m) => String(m.id) === milestoneRef);
+  // 消えた Cycle の ID（URL や保存済みの View に残ったもの）も同じく API を呼ばない
+  const cycleRef = query.cycle !== undefined && query.cycle !== NO_CYCLE ? query.cycle : undefined;
+  const unknownCycle = cycleRef !== undefined && cycles.data !== undefined && !cycles.data.some((c) => String(c.id) === cycleRef);
   const canFetch =
     enabled &&
     (ref === undefined || (projects.data !== undefined && !unknownProject)) &&
-    (milestoneRef === undefined || (milestones.data !== undefined && !unknownMilestone));
+    (milestoneRef === undefined || (milestones.data !== undefined && !unknownMilestone)) &&
+    (cycleRef === undefined || (cycles.data !== undefined && !unknownCycle));
   const all = useIssueList(query, canFetch);
   const ready = useIssueList({ ...query, ready: true }, canFetch);
   const workspaces = useWorkspaces();
 
   if (unknownProject) return { rows: [], loading: false, error: `条件の Project（${ref}）が見つかりません` };
   if (unknownMilestone) return { rows: [], loading: false, error: `条件の Milestone（${milestoneRef}）が見つかりません` };
-  const failed = [all, ready, workspaces, ...(ref === undefined ? [] : [projects]), ...(milestoneRef === undefined ? [] : [milestones])].find(
-    (q) => q.error,
-  );
+  if (unknownCycle) return { rows: [], loading: false, error: `条件の Cycle（${cycleRef}）が見つかりません` };
+  const failed = [
+    all,
+    ready,
+    workspaces,
+    ...(ref === undefined ? [] : [projects]),
+    ...(milestoneRef === undefined ? [] : [milestones]),
+    ...(cycleRef === undefined ? [] : [cycles]),
+  ].find((q) => q.error);
   if (failed?.error) return { rows: [], loading: false, error: errorMessage(failed.error) };
   if (!all.data || !ready.data || !workspaces.data) return { rows: [], loading: true, error: null };
   return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, error: null };

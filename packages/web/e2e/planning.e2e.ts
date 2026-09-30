@@ -104,12 +104,12 @@ test.describe("Cycle", () => {
     await expect(page.getByText("Completed", { exact: true })).toBeVisible();
     await expect(page.getByText("未完了 2", { exact: true })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "移動先" })).toHaveValue(String(current.id));
-    await page.getByRole("button", { name: "未完了 2 件を次の Cycle へ移す" }).click();
+    await page.getByRole("button", { name: "未完了 2 件を別の Cycle へ移す" }).click();
     const confirm = page.getByRole("dialog", { name: "未完了 2 件を Sprint 12 へ移しますか？" });
     await expect(confirm).toContainText(open.map((i) => i.id).join("・"));
     await confirm.getByRole("button", { name: "移す" }).click();
     await expect(confirm).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /件を次の Cycle へ移す/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /件を別の Cycle へ移す/ })).toHaveCount(0);
     for (const issue of open) expect((await nod.me.getIssue(issue.id)).cycle?.name).toBe("Sprint 12");
     expect((await nod.me.getIssue(done.id)).cycle?.name).toBe("Sprint 11");
 
@@ -119,6 +119,11 @@ test.describe("Cycle", () => {
     await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe(`"${current.id}"`);
     await expect(page.getByRole("link", { name: open[0]!.title })).toBeVisible();
     await expect(page.getByRole("link", { name: done.title })).toHaveCount(0);
+    await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "Cycle なし" });
+    await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe("none");
+    await expect(page.getByRole("link", { name: open[0]!.title })).toHaveCount(0);
+    const loose = issues.find((i) => i.status === "todo" && ![...open, done].some((o) => o.id === i.id))!;
+    await expect(page.getByRole("link", { name: loose.title })).toBeVisible();
     await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "すべて" });
     await expect(page).not.toHaveURL(/cycle=/);
 
@@ -128,6 +133,19 @@ test.describe("Cycle", () => {
     await expect(headings.filter({ hasText: /Sprint|Cycleなし/ })).toHaveText([/Sprint 11（Completed）/, /Sprint 12（Current）/, /Cycleなし/]);
     await page.reload();
     await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("cycle");
+  });
+
+  test("消えた Cycle の ID が URL や保存済みの View に残ると、API を呼ばずにメッセージを出す", async ({ page, nod }) => {
+    const [api] = await nod.me.listWorkspaces().then((list) => list.filter((w) => w.key === "API"));
+    const gone = await nod.me.createCycle({ workspaceId: api!.id, name: "消す", startDate: localDate(-1), endDate: localDate(1) });
+    const view = await nod.me.createView({ name: "消えた Cycle", filter: { cycle: String(gone.id) } });
+    await nod.me.deleteCycle(api!.id, String(gone.id));
+    const message = `条件の Cycle（${gone.id}）が見つかりません`;
+
+    await page.goto(`/issues?cycle=${gone.id}`);
+    await expect(page.getByRole("alert")).toHaveText(message);
+    await page.goto(`/views/${view.id}`);
+    await expect(page.getByRole("alert")).toHaveText(message);
   });
 
   test("Issue 詳細で同じ Workspace の Cycle に入れ、外せる", async ({ page, nod }) => {
