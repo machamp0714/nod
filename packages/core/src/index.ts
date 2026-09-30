@@ -8,6 +8,7 @@ export * from "./ops/workspace-labels";
 export * from "./status-names";
 export * from "./transition-rules";
 export * from "./issue-query";
+export * from "./none-ref";
 export * from "./events";
 export * from "./mutate";
 export * from "./ops/issues";

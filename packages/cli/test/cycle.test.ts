@@ -43,6 +43,15 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["issue", "update", created.id, "--cycle", "", "--json"]).json.cycle).toBeNull();
     expect(cli(db, cwd, ["summary", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["stats", "--cycle", "S2", "--json"]).code).toBe(0);
+    expect(cli(db, cwd, ["stats", "--cycle", "none", "--json"]).code).toBe(0);
+    expect(cli(db, cwd, ["stats", "--milestone", "none", "--cycle", "none", "--json"]).code).toBe(0);
+    // 要約も none で Cycle のない Issue だけにする（Issue 一覧と同じ。大文字小文字は問わない）
+    const summaryTitles = (cycle: string) => [
+      ...new Set(cli(db, cwd, ["summary", "--cycle", cycle, "--json"]).json.sections.flatMap((sec: { items: { title: string }[] }) => sec.items.map((i) => i.title))),
+    ];
+    expect(summaryTitles("none")).toEqual(["Cycle の外", "作業"]);
+    expect(summaryTitles("None")).toEqual(["Cycle の外", "作業"]);
+    expect(summaryTitles("S2")).toEqual([]);
     expect(cli(db, cwd, ["cycle", "update", "S2", "--name", "次", "--json"]).json.name).toBe("次");
     // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）
     const forbidden = cli(db, cwd, ["cycle", "delete", "次", "--json"]);

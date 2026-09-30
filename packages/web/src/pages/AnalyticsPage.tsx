@@ -1,6 +1,7 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCompletionStats } from "../api/hooks/analytics";
+import { useCycles } from "../api/hooks/cycles";
 import { useMilestones, useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import { errorMessage } from "../api/errors";
@@ -12,15 +13,20 @@ import { Icon, PageError, PageLoading } from "../components/ui";
 import {
   type AnalyticsSearch,
   cleanAnalyticsSearch,
+  cycleOptions,
+  cycleProblem,
   DEFAULT_RANGE,
   formatHours,
   milestoneGroups,
+  milestoneProblem,
   RANGE_PRESETS,
   rangeLabel,
   type StatsBy,
   statsQueryString,
   withProject,
+  withWorkspace,
 } from "../lib/analytics";
+import { NO_CYCLE } from "../lib/issue-filter";
 import s from "./analytics.module.css";
 
 const route = getRouteApi("/analytics");
@@ -33,18 +39,22 @@ export function AnalyticsPage() {
   const by = search.by ?? "week";
   const range = search.range ?? DEFAULT_RANGE[by];
   const query = statsQueryString(search, new Date(), BROWSER_TZ);
-  // 消えた Milestone の ID が URL に残っていたら、Issue 一覧と同じく API を呼ばずに知らせる
+  // 消えた Milestone・Cycle の ID や、Project と食い違う Milestone が URL に残っていたら、Issue 一覧と同じく API を呼ばずに知らせる
   const milestones = useMilestones();
-  const unknownMilestone =
-    search.milestone !== undefined && milestones.data !== undefined && !milestones.data.some((m) => String(m.id) === search.milestone);
-  const ready = search.milestone === undefined || (milestones.data !== undefined && !unknownMilestone);
+  const cycles = useCycles();
+  const problem = milestoneProblem(search, milestones.data) ?? cycleProblem(search, cycles.data);
+  const needsCycles = search.cycle !== undefined && search.cycle !== NO_CYCLE;
+  const ready =
+    problem === null && (search.milestone === undefined || milestones.data !== undefined) && (!needsCycles || cycles.data !== undefined);
   const stats = useCompletionStats(query, ready);
   const update = (next: AnalyticsSearch) => navigate({ search: cleanAnalyticsSearch(next), replace: true });
-  const blocked = unknownMilestone
-    ? `条件の Milestone（${search.milestone}）が見つかりません`
-    : search.milestone !== undefined && milestones.error
+  const blocked =
+    problem ??
+    (search.milestone !== undefined && milestones.error
       ? errorMessage(milestones.error)
-      : null;
+      : needsCycles && cycles.error
+        ? errorMessage(cycles.error)
+        : null);
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -83,7 +93,12 @@ function FilterBar({ search, by, range, onChange }: {
   const workspaces = useWorkspaces();
   const projects = useProjects();
   const milestones = useMilestones();
+  const cycles = useCycles();
   const groups = milestoneGroups(milestones.data ?? [], projects.data ?? [], search.project);
+  const cycleList = cycleOptions(cycles.data ?? [], search.workspace);
+  // 一覧にない ID（消されたもの・別の Project のもの）も今の条件として選択肢に出し、「すべて」を選び直して外せるようにする
+  const strayMilestone = search.milestone && !groups.some((g) => g.options.some((o) => o.value === search.milestone)) ? search.milestone : undefined;
+  const strayCycle = search.cycle && search.cycle !== NO_CYCLE && !cycleList.some((o) => o.value === search.cycle) ? search.cycle : undefined;
   return (
     <div className={s.filters}>
       <div role="tablist" aria-label="期間の単位" className={s.segmented}>
@@ -103,14 +118,14 @@ function FilterBar({ search, by, range, onChange }: {
       <SelectChip label="範囲" value={String(range)} onChange={(v) => onChange({ ...search, range: Number(v) })}>
         {RANGE_PRESETS[by].map((n) => <option key={n} value={n}>{rangeLabel(by, n)}</option>)}
       </SelectChip>
-      <SelectChip label="Workspace" value={search.workspace ?? ""} onChange={(v) => onChange({ ...search, workspace: v || undefined })}>
+      <SelectChip label="Workspace" value={search.workspace ?? ""} onChange={(v) => onChange(withWorkspace(search, v || undefined, cycles.data))}>
         <option value="">すべて</option>
         {(workspaces.data ?? []).map((w) => <option key={w.key} value={w.key}>{w.name}</option>)}
       </SelectChip>
       <SelectChip
         label="Project"
         value={search.project ?? ""}
-        onChange={(v) => onChange(withProject(search, v || undefined, milestones.data ?? []))}
+        onChange={(v) => onChange(withProject(search, v || undefined, milestones.data))}
       >
         <option value="">すべて</option>
         {(projects.data ?? []).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -127,6 +142,15 @@ function FilterBar({ search, by, range, onChange }: {
             </optgroup>
           ),
         )}
+        {strayMilestone && <option value={strayMilestone}>Milestone {strayMilestone}</option>}
+      </SelectChip>
+      {/* nod.pen の Cycle Select（DSQa3）とメニュー（C8VwtJ）。「すべて」「Cycle なし」、区切り、Cycle の名前の順 */}
+      <SelectChip label="Cycle" value={search.cycle ?? ""} onChange={(v) => onChange({ ...search, cycle: v || undefined })}>
+        <option value="">すべて</option>
+        <option value={NO_CYCLE}>Cycle なし</option>
+        <hr />
+        {cycleList.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {strayCycle && <option value={strayCycle}>Cycle {strayCycle}</option>}
       </SelectChip>
     </div>
   );

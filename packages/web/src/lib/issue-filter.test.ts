@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import type { IssueQuery } from "../api/types";
 import {
   describeFilter,
   filterFromSearch,
   filterToSearch,
   issueQueryToParams,
+  milestoneOptionsFor,
+  milestoneProjectProblem,
   sameFilter,
   toggleValue,
   withoutKey,
+  withProject,
 } from "./issue-filter";
 
 describe("filterFromSearch と filterToSearch", () => {
@@ -68,6 +72,40 @@ describe("Milestone の条件", () => {
     expect(describeFilter({ milestone: "3" }, labelOf)).toEqual([{ key: "milestone", name: "Milestone", values: "M3" }]);
     expect(describeFilter({ milestone: "none" }, labelOf)).toEqual([{ key: "milestone", name: "Milestone", values: "Milestone なし" }]);
     expect(withoutKey({ milestone: "3", project: "1" }, "milestone")).toEqual({ project: "1" });
+  });
+});
+
+describe("Project と Milestone の食い違い", () => {
+  const milestones = [
+    { id: 10, projectId: 2, name: "α" },
+    { id: 11, projectId: 1, name: "α" },
+    { id: 12, projectId: 1, name: "β" },
+  ];
+  const projects = [{ id: 1, name: "検索" }, { id: 2, name: "決済" }];
+
+  test("Project を変えると、その Project にない Milestone の条件を外す。none と読み込み中は残す", () => {
+    const change = (filter: IssueQuery, project: string | undefined, list: typeof milestones | undefined) => withProject(filter, project, list);
+    expect(change({ status: ["todo"], milestone: "11" }, "1", milestones)).toEqual({ status: ["todo"], project: "1", milestone: "11" });
+    expect(change({ project: "1", milestone: "11" }, "2", milestones)).toEqual({ project: "2", milestone: undefined });
+    expect(change({ project: "1", milestone: "11" }, undefined, milestones)).toEqual({ project: undefined, milestone: "11" });
+    expect(change({ project: "1", milestone: "none" }, "2", milestones)).toEqual({ project: "2", milestone: "none" });
+    expect(change({ milestone: "11" }, "2", undefined)).toEqual({ project: "2", milestone: "11" });
+  });
+
+  test("保存済みの View や URL で Project と Milestone が食い違うとき、API を呼ばずに出すメッセージ。Project は ID でも名前でもよい", () => {
+    expect(milestoneProjectProblem({ project: "2", milestone: "11" }, projects, milestones)).toBe("条件の Milestone（α）は条件の Project のものではありません");
+    expect(milestoneProjectProblem({ project: "決済", milestone: "11" }, projects, milestones)).toBe("条件の Milestone（α）は条件の Project のものではありません");
+    expect(milestoneProjectProblem({ project: "検索", milestone: "11" }, projects, milestones)).toBeNull();
+    expect(milestoneProjectProblem({ project: "2", milestone: "none" }, projects, milestones)).toBeNull();
+    expect(milestoneProjectProblem({ milestone: "11" }, projects, milestones)).toBeNull();
+    expect(milestoneProjectProblem({ project: "2", milestone: "11" }, undefined, milestones)).toBeNull(); // 読み込み中
+    expect(milestoneProjectProblem({ project: "2", milestone: "11" }, projects, undefined)).toBeNull();
+  });
+
+  test("Milestone の選択肢は、Project を選んでいればその Project の分だけにする", () => {
+    const options = milestones.map((m) => ({ value: String(m.id), label: m.name, project: "", projectId: String(m.projectId) }));
+    expect(milestoneOptionsFor(options, "1").map((o) => o.value)).toEqual(["11", "12"]);
+    expect(milestoneOptionsFor(options, undefined).map((o) => o.value)).toEqual(["10", "11", "12"]);
   });
 });
 

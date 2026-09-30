@@ -33,6 +33,8 @@ describe("Milestone の作成・編集・削除", () => {
     createMilestone(me, "検索", { name: "α" });
     expect(codeOf(() => createMilestone(me, "検索", { name: " " }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createMilestone(me, "検索", { name: "12" }))).toBe("INVALID_ARGS");
+    // none は絞り込みで Milestone のない Issue を指す値として予約する（Cycle と同じ）
+    expect(() => createMilestone(me, "検索", { name: " None " })).toThrow("none は使えません");
     expect(codeOf(() => createMilestone(me, "検索", { name: "α" }))).toBe("MILESTONE_EXISTS");
     expect(codeOf(() => createMilestone(me, "検索", { name: "β", targetDate: "2026/10/01" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createMilestone(me, "検索", { name: "β", description: "あ".repeat(MILESTONE_DESCRIPTION_MAX_LENGTH + 1) }))).toBe("INVALID_ARGS");
@@ -45,6 +47,7 @@ describe("Milestone の作成・編集・削除", () => {
   test("名前・目標日・説明を変え、null で目標日と説明を外せる", () => {
     const { me } = withProjects();
     const m = createMilestone(me, "検索", { name: "α", targetDate: "2026-10-15", description: "説明" });
+    expect(codeOf(() => updateMilestone(me, m.id, { name: "none" }))).toBe("INVALID_ARGS");
     const renamed = updateMilestone(me, m.id, { name: "α2", targetDate: null, description: null });
     expect(renamed).toMatchObject({ id: m.id, name: "α2", targetDate: null, description: null });
     const dated = updateMilestone(me, String(m.id), { targetDate: "2026-12-01" });
@@ -179,6 +182,8 @@ describe("Issue と Milestone の紐付け", () => {
     expect(queryIssues(db, { milestone: "none", project: "検索" }).issues.map((i) => i.title)).toEqual(["b"]);
     expect(queryIssues(db, { milestone: "none" }).issues.map((i) => i.id)).not.toContain(inM.id);
     expect(queryIssues(db, { milestone: "none" }).issues.map((i) => i.id)).toContain(loose.id);
+    // 大文字小文字・前後の空白は問わない（CLI・stats と同じ）
+    expect(queryIssues(db, { milestone: " None ", project: "検索" }).issues.map((i) => i.title)).toEqual(["b"]);
     for (const bad of ["abc", "0", "-1", ""]) expect(codeOf(() => queryIssues(db, { milestone: bad }))).toBe("INVALID_ARGS");
     expect(codeOf(() => queryIssues(db, { milestone: "999" }))).toBe("NOT_FOUND");
   });
@@ -198,6 +203,9 @@ describe("Milestone の入口（#154）", () => {
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", milestoneRef: "α" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: String(foreign.id) }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: "ない" }))).toBe("NOT_FOUND");
+    // 起票で空文字を渡しても黙って無視せず、理由を返す（更新の空文字は「外す」だが、起票には外すものがない）
+    expect(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: " " })).toThrow("Milestone を指定してください");
+    expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: "" }))).toBe("INVALID_ARGS");
     expect(listIssues(db, { statuses: ["triage", "todo"] })).toHaveLength(before);
   });
 
@@ -209,8 +217,12 @@ describe("Milestone の入口（#154）", () => {
     expect(listIssues(db, { milestone: String(m.id) }).map((i) => i.id)).toEqual([inM.id]);
     expect(listIssues(db, { projectRef: "検索", milestone: "α" }).map((i) => i.id)).toEqual([inM.id]);
     expect(listIssues(db, { projectRef: "検索", milestone: "none" }).map((i) => i.id)).toEqual([loose.id]);
+    expect(listIssues(db, { projectRef: "検索", milestone: "NONE" }).map((i) => i.id)).toEqual([loose.id]);
     expect(codeOf(() => listIssues(db, { milestone: "α" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => listIssues(db, { projectRef: "認証", milestone: "α" }))).toBe("NOT_FOUND");
+    // 別の Project の Milestone の ID を組み合わせたら、分析（stats）と同じく断る
+    expect(() => listIssues(db, { projectRef: "認証", milestone: String(m.id) })).toThrow("指定した Project のものではありません");
+    expect(codeOf(() => listIssues(db, { projectRef: "認証", milestone: String(m.id) }))).toBe("INVALID_ARGS");
   });
 
   test("一括編集で Milestone を付け替え・外せ、Project の違う Issue が混ざると何も変えない", () => {

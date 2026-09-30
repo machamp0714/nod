@@ -1,5 +1,7 @@
 // Analytics 画面の純粋な計算。条件は URL の search に持ち、API の /api/stats と /api/stats/llm に渡す
 
+import { NO_CYCLE, withProject as withIssueProject } from "./issue-filter";
+
 export type StatsBy = "day" | "week";
 
 export interface AnalyticsSearch {
@@ -8,6 +10,7 @@ export interface AnalyticsSearch {
   workspace?: string; // Workspace のキー
   project?: string; // Project の数字の ID
   milestone?: string; // Milestone の数字の ID
+  cycle?: string; // Cycle の数字の ID か none（Cycle のない Issue）
 }
 
 export const RANGE_PRESETS: Record<StatsBy, readonly number[]> = { day: [7, 14, 30, 90], week: [4, 12, 26, 52] };
@@ -29,6 +32,7 @@ export function parseAnalyticsSearch(raw: Record<string, unknown>): AnalyticsSea
     workspace,
     project: idOf(raw.project),
     milestone: idOf(raw.milestone),
+    cycle: typeof raw.cycle === "string" && raw.cycle.toLowerCase() === NO_CYCLE ? NO_CYCLE : idOf(raw.cycle),
   };
   for (const key of Object.keys(out) as (keyof AnalyticsSearch)[]) {
     if (out[key] === undefined && !(key in raw)) delete out[key];
@@ -45,6 +49,7 @@ export function cleanAnalyticsSearch(search: AnalyticsSearch): AnalyticsSearch {
   if (search.workspace) out.workspace = search.workspace;
   if (search.project) out.project = search.project;
   if (search.milestone) out.milestone = search.milestone;
+  if (search.cycle) out.cycle = search.cycle;
   return out;
 }
 
@@ -73,6 +78,7 @@ export function statsQueryString(search: AnalyticsSearch, today: Date, tz: strin
   if (search.workspace) params.set("workspace", search.workspace);
   if (search.project) params.set("project", search.project);
   if (search.milestone) params.set("milestone", search.milestone);
+  if (search.cycle) params.set("cycle", search.cycle);
   return params.toString();
 }
 
@@ -97,10 +103,47 @@ export function milestoneGroups(milestones: MilestoneRef[], projects: { id: numb
   return [...groups.values()];
 }
 
-// Project を選び直す。選んでいた Milestone が新しい Project のものでなければ外す（API は組み合わせを断るため）
-export function withProject(search: AnalyticsSearch, project: string | undefined, milestones: MilestoneRef[]): AnalyticsSearch {
-  const keep = !search.milestone || !project || milestones.some((m) => String(m.id) === search.milestone && String(m.projectId) === project);
-  return { ...search, project, milestone: keep ? search.milestone : undefined };
+// Project を選び直す。食い違う Milestone の外し方は Issue 一覧と同じ（読み込み中は外さず、食い違えば milestoneProblem が知らせる）
+export function withProject(search: AnalyticsSearch, project: string | undefined, milestones: readonly MilestoneRef[] | undefined): AnalyticsSearch {
+  return withIssueProject(search, project, milestones);
+}
+
+// URL の Milestone が消えている、または URL の Project のものでないとき、API を呼ばずに出すメッセージ。一覧の読み込み中は null
+export function milestoneProblem(search: AnalyticsSearch, milestones: MilestoneRef[] | undefined): string | null {
+  if (!search.milestone || !milestones) return null;
+  const found = milestones.find((m) => String(m.id) === search.milestone);
+  if (!found) return `条件の Milestone（${search.milestone}）が見つかりません`;
+  if (search.project && String(found.projectId) !== search.project) return `条件の Milestone（${found.name}）は条件の Project のものではありません`;
+  return null;
+}
+
+type CycleRef = { id: number; name: string; workspace: string };
+
+// nod.pen の Cycle Select のメニュー（C8VwtJ）。名前だけを出し、同じ名前の Cycle がほかの Workspace にあるときだけ「名前 · Workspaceキー」にする。
+// Workspace を選んでいればその Workspace の Cycle だけにする。並びは受け取った順（GET /api/cycles は Workspace のキー、開始日の順）
+export function cycleOptions(all: readonly CycleRef[], workspace?: string): { value: string; label: string }[] {
+  const cycles = workspace ? all.filter((c) => c.workspace === workspace) : all;
+  return cycles.map((c) => ({
+    value: String(c.id),
+    label: cycles.some((o) => o.id !== c.id && o.name === c.name && o.workspace !== c.workspace) ? `${c.name} · ${c.workspace}` : c.name,
+  }));
+}
+
+// Workspace を選び直す。選んでいた Cycle が新しい Workspace のものでなければ外す（withProject と同じ）。
+// Cycle の一覧を読み込む前は判断できないため外さない。none（Cycle なし）はどの Workspace とも組み合わせられるため残す
+export function withWorkspace(search: AnalyticsSearch, workspace: string | undefined, cycles: readonly CycleRef[] | undefined): AnalyticsSearch {
+  const { cycle } = search;
+  const keep = !cycle || cycle === NO_CYCLE || !workspace || !cycles || cycles.some((c) => String(c.id) === cycle && c.workspace === workspace);
+  return { ...search, workspace, cycle: keep ? cycle : undefined };
+}
+
+// URL の Cycle が消えている、または URL の Workspace のものでないとき、API を呼ばずに出すメッセージ。none（Cycle なし）と一覧の読み込み中は null
+export function cycleProblem(search: AnalyticsSearch, cycles: readonly CycleRef[] | undefined): string | null {
+  if (!search.cycle || search.cycle === NO_CYCLE || !cycles) return null;
+  const found = cycles.find((c) => String(c.id) === search.cycle);
+  if (!found) return `条件の Cycle（${search.cycle}）が見つかりません`;
+  if (search.workspace && found.workspace !== search.workspace) return `条件の Cycle（${found.name}）は条件の Workspace のものではありません`;
+  return null;
 }
 
 // 作業時間は時間の小数1桁で出す（例: 3.2h）

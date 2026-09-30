@@ -79,6 +79,7 @@ export interface FilterOption {
 
 export interface MilestoneFilterOption extends FilterOption {
   project: string; // Milestone の Project の名前（同じ名前の Milestone を見分ける）
+  projectId: string; // Milestone の Project の数字の ID（Project を選んだときに選択肢を絞る）
 }
 
 // Milestone のない Issue だけにする条件の値（GET /api/issues の milestone=none）
@@ -87,10 +88,45 @@ export const NO_MILESTONE = "none";
 // Cycle のない Issue だけにする条件の値（GET /api/issues の cycle=none。Milestone の none と同じ）
 export const NO_CYCLE = "none";
 
+type MilestoneRef = { id: number; projectId: number; name: string };
+
+// Project を選び直す（Issue 一覧と Analytics で共通）。選んでいた Milestone が新しい Project のものでなければ外す（API は組み合わせを断るため）。
+// Milestone の一覧を読み込む前は判断できないため外さない。none（Milestone なし）はどの Project とも組み合わせられるため残す
+export function withProject<T extends { project?: string; milestone?: string }>(
+  filter: T,
+  project: string | undefined,
+  milestones: readonly MilestoneRef[] | undefined,
+): T {
+  const { milestone } = filter;
+  const keep =
+    !milestone || milestone === NO_MILESTONE || !project || !milestones || milestones.some((m) => String(m.id) === milestone && String(m.projectId) === project);
+  return { ...filter, project, milestone: keep ? milestone : undefined };
+}
+
+// 条件の Milestone が条件の Project のものでないとき、API を呼ばずに出すメッセージ（保存済みの View を開くたびにエラーにしない）。
+// Project は ID か名前（API や CLI で作った View）。一覧の読み込み中や、どちらかが見つからないとき（別に知らせる）は null
+export function milestoneProjectProblem(
+  query: IssueQuery,
+  projects: readonly { id: number; name: string }[] | undefined,
+  milestones: readonly MilestoneRef[] | undefined,
+): string | null {
+  if (!query.project || !query.milestone || query.milestone === NO_MILESTONE || !projects || !milestones) return null;
+  const project = projects.find((p) => String(p.id) === query.project || p.name === query.project);
+  const milestone = milestones.find((m) => String(m.id) === query.milestone);
+  if (!project || !milestone || milestone.projectId === project.id) return null;
+  return `条件の Milestone（${milestone.name}）は条件の Project のものではありません`;
+}
+
+// Milestone の選択肢。Project（数字の ID）を選んでいればその Project の分だけにする
+export function milestoneOptionsFor<T extends { projectId: string }>(options: readonly T[], project: string | undefined): T[] {
+  return project ? options.filter((o) => o.projectId === project) : [...options];
+}
+
 export interface FilterOptions {
   workspaces: FilterOption[]; // value は Workspace のキー
   projects: FilterOption[]; // value は Project の数字の ID
   milestones: MilestoneFilterOption[]; // value は Milestone の数字の ID
+  milestoneRefs: readonly MilestoneRef[] | undefined; // Project を変えたときに食い違う Milestone を外す判断に使う。読み込み中は undefined
   cycles: FilterOption[]; // value は Cycle の数字の ID
   labels: string[];
 }

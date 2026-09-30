@@ -87,7 +87,8 @@ function EditInitiativeDialog({ initiative, onClose }: { initiative: InitiativeD
         }
         setNameError(null);
         update.mutate(
-          { name: trimmed, description: description.trim() || null },
+          // 説明は字下げ・末尾の改行も本文なので trim せずに送る。空白だけなら説明なしにする
+          { name: trimmed, description: description.trim() ? description : null },
           {
             onSuccess: onClose,
             onError: (err) => {

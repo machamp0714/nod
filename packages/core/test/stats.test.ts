@@ -203,6 +203,14 @@ describe("completionStats（完了数・作業時間の推移）", () => {
     expect(codeOf(() => completionStats(db, { ...q, project: "検索", milestone: "γ" }))).toBe("NOT_FOUND");
     expect(statsQueryFromParams(new URLSearchParams("milestone=3")).milestone).toBe("3");
     expect(codeOf(() => statsQueryFromParams(new URLSearchParams("milestone=3&milestone=4")))).toBe("INVALID_ARGS");
+    // none は Issue 一覧と同じく Milestone のない Issue を指す（大文字小文字・前後の空白は問わない）。空文字は理由を返す
+    const loose = createIssue(me, { workspaceId: ws.id, title: "d", projectRef: "検索" });
+    updateIssue(me, loose.id, { status: "done" });
+    stamp(db, loose.id, { closed: "2026-09-01T00:00:00.000Z" });
+    expect(completionStats(db, { ...q, milestone: "none" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, project: "検索", milestone: " None " }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, project: "決済", milestone: "none" }).totals.completed).toBe(0);
+    expect(() => completionStats(db, { ...q, milestone: "" })).toThrow("Milestone を指定してください");
   });
 
   test("既定の範囲は 日=直近30日、週=直近12週（今日を含む）", () => {
@@ -391,6 +399,7 @@ describe("llmStats（LLM ごとの作業量）", () => {
     expect(llmStats(db, Q).llms[0]?.totals).toMatchObject({ assigned: 2, completed: 2 });
     expect(llmStats(db, { ...Q, milestone: String(alpha.id) }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
     expect(llmStats(db, { ...Q, project: "検索", milestone: "α" }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
+    expect(llmStats(db, { ...Q, milestone: "none" }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
   });
 
   test("不正な指定は completionStats と同じく INVALID_ARGS・NOT_FOUND", () => {

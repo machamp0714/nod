@@ -4,6 +4,7 @@ import { tx } from "../db";
 import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
 import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
+import { isNoneRef, NONE_REF } from "../none-ref";
 import type { Cycle, CycleDetail, CycleState, CycleSummary, Issue } from "../types";
 import { updateIssue } from "./issues";
 import { dateFormatter } from "./stats";
@@ -17,8 +18,6 @@ export interface CycleClock {
 
 // ref に使えない名前。current は現在の Cycle を指す
 export const CURRENT_CYCLE_REF = "current";
-// Issue 一覧の絞り込みで Cycle のない Issue だけにする値（Milestone の milestone=none と同じ）。名前には使えない
-export const NO_CYCLE_REF = "none";
 
 export function cycleToday(clock: CycleClock = {}): string {
   return clock.today ?? dateFormatter(clock.tz).format(clock.now ?? new Date());
@@ -118,8 +117,8 @@ function validateName(name: unknown): string {
   if (name.trim().toLowerCase() === CURRENT_CYCLE_REF) {
     throw new NodError("INVALID_ARGS", `Cycle の名前に ${CURRENT_CYCLE_REF} は使えません。現在の Cycle を指す名前として予約しています`);
   }
-  if (name.trim().toLowerCase() === NO_CYCLE_REF) {
-    throw new NodError("INVALID_ARGS", `Cycle の名前に ${NO_CYCLE_REF} は使えません。絞り込みで Cycle のない Issue を指す値として予約しています`);
+  if (isNoneRef(name)) {
+    throw new NodError("INVALID_ARGS", `Cycle の名前に ${NONE_REF} は使えません。絞り込みで Cycle のない Issue を指す値として予約しています`);
   }
   return name.trim();
 }
