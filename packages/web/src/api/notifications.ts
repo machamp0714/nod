@@ -9,6 +9,7 @@ export type NotificationAction =
   | { op: "read"; ids: number[] }
   | { op: "read"; issueId: string }
   | { op: "read"; all: true }
+  | { op: "unread"; issueId: string }
   | { op: "snooze"; issueId: string; until: string }
   | { op: "unsnooze"; issueId: string }
   | { op: "delete"; issueId: string }
@@ -26,6 +27,8 @@ export function fetchReminders(fetchImpl?: FetchLike): Promise<Reminder[]> {
 }
 
 export function notificationRequest(action: NotificationAction): { path: string; body: Record<string, unknown> } {
+  // Issue の最新の1件を未読に戻す（#161）
+  if (action.op === "unread") return { path: "/notifications/unread", body: { issueRef: action.issueId } };
   if (action.op === "snooze") return { path: "/notifications/snooze", body: { issueRef: action.issueId, until: action.until } };
   if (action.op === "unsnooze") return { path: "/notifications/unsnooze", body: { issueRef: action.issueId } };
   if (action.op === "delete") return { path: "/notifications/delete", body: { issueRef: action.issueId } };
