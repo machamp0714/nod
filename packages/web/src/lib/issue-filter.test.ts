@@ -31,6 +31,7 @@ describe("issueQueryToParams", () => {
     expect(
       issueQueryToParams({ workspace: ["API", "NOD"], status: ["todo"], project: "3", label: ["bug", "a b"], ready: true }),
     ).toBe("?workspace=API&workspace=NOD&status=todo&project=3&label=bug&label=a+b&ready=true");
+    expect(issueQueryToParams({ cycle: "7" })).toBe("?cycle=7");
     expect(issueQueryToParams({ ready: false })).toBe("");
     expect(issueQueryToParams({ delegated: true })).toBe("?delegated=true");
     expect(issueQueryToParams({ delegated: false })).toBe("");

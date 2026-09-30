@@ -8,6 +8,10 @@ import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
 import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { CycleDetailPage } from "./pages/CycleDetailPage";
+import { CyclesPage } from "./pages/CyclesPage";
+import { InitiativeDetailPage } from "./pages/InitiativeDetailPage";
+import { InitiativesPage } from "./pages/InitiativesPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
@@ -50,6 +54,15 @@ const projectDetailRoute = createRoute({
   validateSearch: parseIssueListSearch,
   component: ProjectDetailPage,
 });
+const initiativesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives", validateSearch: parseProjectsSearch, component: InitiativesPage });
+const initiativeDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives/$initiativeId", component: InitiativeDetailPage });
+const cyclesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/cycles", component: CyclesPage });
+const cycleDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/cycles/$cycleId",
+  validateSearch: parseIssueListSearch,
+  component: CycleDetailPage,
+});
 const documentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents", validateSearch: parseDocumentsSearch, component: DocumentsPage });
 const newDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -77,6 +90,10 @@ const routeTree = rootRoute.addChildren([
   viewRoute,
   projectsRoute,
   projectDetailRoute,
+  initiativesRoute,
+  initiativeDetailRoute,
+  cyclesRoute,
+  cycleDetailRoute,
   documentsRoute,
   newDocumentRoute,
   documentRoute,

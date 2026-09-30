@@ -8,7 +8,9 @@ import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelect
 import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
 import { IssueBoard } from "./IssueBoard";
+import { useCycles } from "../../api/hooks/cycles";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
+import { cycleLabel } from "../../lib/cycles";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
 import { countRows, effectiveGrouping, filterRows, groupRows, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
@@ -49,6 +51,12 @@ export function IssueList({
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
   const nameOfStatus = (status: Status) => statusName(status, statusNames.data, namesWorkspace);
+  // Cycle のグループは「名前（状態）」を見出しにし、開始日の順に並べる
+  const cycles = useCycles();
+  const cycleInfo = (id: number) => {
+    const cycle = cycles.data?.find((c) => c.id === id);
+    return cycle && { label: cycleLabel(cycle, cycles.data ?? []), rank: `${cycle.startDate} ${cycle.workspace}`, current: cycle.state === "current" };
+  };
   const tab = search.tab ?? "all";
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
@@ -61,7 +69,7 @@ export function IssueList({
   const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
-    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus)
+    ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus, cycleInfo)
     : [];
   // プレビューを閉じたら、開いた要素（なければその行のリンク）へフォーカスを戻す
   const opener = useRef<HTMLElement | null>(null);
@@ -354,6 +362,7 @@ const GROUP_NAMES: Record<IssueGroupKey, string> = {
   status: "Status",
   priority: "Priority",
   project: "Project",
+  cycle: "Cycle",
   assignee: "担当",
   label: "ラベル",
 };
@@ -426,6 +435,7 @@ function GroupHeading({ by, group, level = 2, delegated = false, select }: { by:
           {by === "status" && <StatusIcon status={group.key as Status} />}
           {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
           {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
+          {by === "cycle" && <Icon name={empty ? "circle-dashed" : "calendar-range"} size={14} color={group.current ? "var(--accent)" : "var(--ink3)"} />}
           {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
           {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
           <span className={s.groupLabel}>{group.label}</span>

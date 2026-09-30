@@ -1,3 +1,5 @@
+import { useCycles } from "./cycles";
+import { cycleLabel } from "../../lib/cycles";
 import { useQuery } from "@tanstack/react-query";
 import type { IssueListRow } from "../../components/issue-list/types";
 import { issueQueryToParams, type FilterOptions } from "../../lib/issue-filter";
@@ -26,7 +28,8 @@ export interface IssueRowsState {
 
 // Issue 一覧（Issues、Views、Project 詳細）の行。範囲の Issue と、同じ範囲の Ready の Issue を読む。
 // 条件の Project が一覧にないときは、core が NOT_FOUND を返すため、API を呼ばずにメッセージを返す。
-export function useIssueRows(query: IssueQuery): IssueRowsState {
+// enabled が false の間は API を呼ばない（Cycle 詳細で、一覧にない ID の 404 を出さないため）
+export function useIssueRows(query: IssueQuery, enabled = true): IssueRowsState {
   const projects = useProjects();
   const milestones = useMilestones();
   const ref = query.project;
@@ -36,11 +39,12 @@ export function useIssueRows(query: IssueQuery): IssueRowsState {
   const milestoneRef = query.milestone !== undefined && query.milestone !== "none" ? query.milestone : undefined;
   const unknownMilestone =
     milestoneRef !== undefined && milestones.data !== undefined && !milestones.data.some((m) => String(m.id) === milestoneRef);
-  const enabled =
+  const canFetch =
+    enabled &&
     (ref === undefined || (projects.data !== undefined && !unknownProject)) &&
     (milestoneRef === undefined || (milestones.data !== undefined && !unknownMilestone));
-  const all = useIssueList(query, enabled);
-  const ready = useIssueList({ ...query, ready: true }, enabled);
+  const all = useIssueList(query, canFetch);
+  const ready = useIssueList({ ...query, ready: true }, canFetch);
   const workspaces = useWorkspaces();
 
   if (unknownProject) return { rows: [], loading: false, error: `条件の Project（${ref}）が見つかりません` };
@@ -58,12 +62,14 @@ export function useFilterOptions(): FilterOptions {
   const workspaces = useWorkspaces();
   const projects = useProjects();
   const milestones = useMilestones();
+  const cycles = useCycles();
   const all = useIssueList({});
   const projectName = new Map((projects.data ?? []).map((p) => [p.id, p.name]));
   return {
     workspaces: (workspaces.data ?? []).map((w) => ({ value: w.key, label: w.name })),
     projects: (projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
     milestones: (milestones.data ?? []).map((m) => ({ value: String(m.id), label: m.name, project: projectName.get(m.projectId) ?? "" })),
+    cycles: (cycles.data ?? []).map((c) => ({ value: String(c.id), label: cycleLabel(c, cycles.data ?? []) })),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
   };
 }

@@ -16,6 +16,7 @@ function issue(p: Partial<Issue> & Pick<Issue, "id" | "title" | "status">): Issu
     parentId: null,
     project: null,
     milestone: null,
+    cycle: null,
     labels: [],
     blockedBy: [],
     questionCount: { answered: 0, total: 0 },
