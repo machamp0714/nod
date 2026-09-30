@@ -1,20 +1,20 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
+import { usePrStatus } from "../api/hooks/pr-status";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { AgentInstruction, ReviewIssue } from "../api/types";
-import { ApprovalNotice, GithubStatusRow } from "../components/issue-detail/GithubApproval";
 import { ReviewMediaSection } from "../components/issue-detail/AttachmentMedia";
+import { ApprovalNotice, GithubStatusRow } from "../components/issue-detail/GithubApproval";
 import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
 import { SendInstructionDialog } from "../components/issue-detail/SendInstructionDialog";
-import { usePrStatus } from "../api/hooks/pr-status";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, StatusLabel, WorkspaceBadge } from "../components/ui";
-import { formatReviewElapsed } from "../lib/review-elapsed";
 import { formatRelative, prLabel } from "../lib/format";
 import { planProgress } from "../lib/plan";
+import { formatReviewElapsed } from "../lib/review-elapsed";
 import d from "./decision.module.css";
 
 const route = getRouteApi("/reviews");

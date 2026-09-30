@@ -62,11 +62,14 @@ export function ciPill(s: PrStatus): { text: string; tone: Tone; title: string }
 export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません。GitHub には何も書き込みません";
 export const PR_STATUS_UNFETCHED = "GitHub の状態は未取得（更新で取得）";
 
-// 承認ボタン付近に出す注意。未マージ・変更要求を知らせるが、承認は止めない
+// 承認ボタン付近に出す注意。未マージ・変更要求を知らせるが、承認は止めない。
+// 保存済みの結果は古いことがある（親の完了候補バナーには取得時刻も出ない）ので「取得時点で」と添える
 export function approvalWarnings(s: PrStatus | null): string[] {
   if (!s) return [];
   const warnings: string[] = [];
-  if (s.state !== "MERGED") warnings.push(`GitHub の PR はまだマージされていません（${prStatePill(s).label}）`);
-  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("GitHub で変更要求が出ています");
+  const state = prStatePill(s).label;
+  if (s.state === "CLOSED") warnings.push(`取得時点で GitHub の PR はマージされずに閉じられています（${state}）`);
+  else if (s.state !== "MERGED") warnings.push(`取得時点で GitHub の PR はまだマージされていません（${state}）`);
+  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("取得時点で GitHub に変更要求が出ています");
   return warnings;
 }
