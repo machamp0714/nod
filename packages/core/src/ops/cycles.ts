@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { now, type OpCtx } from "../ctx";
+import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
 import { NodError } from "../errors";
@@ -203,8 +203,10 @@ export function updateCycle(ctx: OpCtx, workspaceId: number, ref: string, input:
   });
 }
 
-// Cycle を消す。所属 Issue は Cycle なしに戻る（ON DELETE SET NULL）。Issue の event は残さない
+// Cycle を消す。所属 Issue は Cycle なしに戻る（ON DELETE SET NULL）。Issue の event は残さない。
+// 所属がまとめて外れて戻せないため、削除は人だけ（作成・編集・未完了の移動は LLM もできる。Milestone と同じ）
 export function deleteCycle(ctx: OpCtx, workspaceId: number, ref: string, clock: CycleClock = {}): { id: number; name: string; issues: number } {
+  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Cycle を削除できません。削除は me に依頼してください");
   return tx(ctx.db, () => {
     const cycle = resolveCycle(ctx.db, workspaceId, ref, clock);
     const { n } = ctx.db.query("SELECT count(*) AS n FROM issues WHERE cycle_id = ?").get(cycle.id) as { n: number };

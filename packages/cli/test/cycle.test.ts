@@ -19,7 +19,7 @@ function repo(): string {
 }
 
 describe("Cycle CLI", () => {
-  test("LLM も Cycle を作り、Issue を入れ、未完了を次の Cycle へ移せる", () => {
+  test("LLM も Cycle を作り、Issue を入れ、未完了を次の Cycle へ移せるが、削除は人だけ", () => {
     const db = tempDb();
     const cwd = repo();
     expect(cli(db, cwd, ["init", "--key", "CYC"], "me").code).toBe(0);
@@ -42,7 +42,10 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["summary", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["stats", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["cycle", "update", "S2", "--name", "次", "--json"]).json.name).toBe("次");
-    expect(cli(db, cwd, ["cycle", "delete", "次", "--json"]).json).toMatchObject({ name: "次" });
+    // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）
+    const forbidden = cli(db, cwd, ["cycle", "delete", "次", "--json"]);
+    expect([forbidden.code, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
+    expect(cli(db, cwd, ["cycle", "delete", "次", "--json"], "me").json).toMatchObject({ name: "次" });
   });
 
   test("重なり・不正値・不存在はエラーになる", () => {

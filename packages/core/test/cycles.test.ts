@@ -162,6 +162,17 @@ describe("Cycle", () => {
     expect(codeOf(() => deleteCycle(me, ws.id, "Sprint 2", clock))).toBe("NOT_FOUND");
   });
 
+  test("LLM は Cycle を作成・編集・未完了の移動ができるが、削除はできない（FORBIDDEN_FOR_LLM）", () => {
+    const { db, ws, llm } = setup();
+    const { current } = sprints(llm, ws.id);
+    expect(updateCycle(llm, ws.id, "Sprint 3", { name: "Sprint 3b" }, clock).name).toBe("Sprint 3b");
+    const issue = createIssue(llm, { workspaceId: ws.id, title: "作業", cycleRef: "Sprint 1" });
+    expect(moveOpenIssues(llm, ws.id, "Sprint 1", "Sprint 2", clock).moved).toEqual([issue.id]);
+    expect(codeOf(() => deleteCycle(llm, ws.id, "Sprint 2", clock))).toBe("FORBIDDEN_FOR_LLM");
+    expect(getIssue(db, issue.id).cycle?.id).toBe(current.id);
+    expect(listCycles(db, ws.id, clock)).toHaveLength(3);
+  });
+
   test("Issue 一覧を Cycle の ID で絞り込め、名前は Workspace を1つに絞ったときだけ使える", () => {
     const { db, ws, me } = setup();
     const { current } = sprints(me, ws.id);
