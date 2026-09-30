@@ -152,7 +152,6 @@ function firstLine(text: string): string {
 }
 
 // 端末の入力として解釈される文字（\r・ESC などの制御文字）。定型文から除き、改行や端末の操作として働かないようにする
-// biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字を取り除くための正規表現
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]+/g;
 
 // 端末に送る定型文。全文は nod に残るので、エスケープや長文の問題を避けるため短くし、制御文字を除く
