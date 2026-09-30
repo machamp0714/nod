@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, ArchiveRestore, CircleAlert, CopyPlus, Ellipsis, Hash, Link as LinkIcon, Terminal } from "lucide-react";
+import { Archive, ArchiveRestore, CircleAlert, CopyPlus, Ellipsis, Hash, Link as LinkIcon, Terminal, Trash2 } from "lucide-react";
 import { errorMessage } from "../../api/errors";
+import { DeleteIssueDialog } from "./DeleteIssueDialog";
 import s from "./issue-detail.module.css";
 
 // onDuplicate は複製して新しい Issue へ移る。onArchive はアーカイブ済みなら復元、そうでなければアーカイブする。
-// 失敗したらメニューを開いたまま理由を出す（Pencil「Issue詳細｜複製メニュー」「Issue詳細｜アーカイブメニュー」）
-export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive }: {
+// 失敗したらメニューを開いたまま理由を出す（Pencil「Issue詳細｜複製メニュー」「Issue詳細｜アーカイブメニュー」）。
+// アーカイブ済みなら「完全に削除」を出し、確認ダイアログで Issue ID を入力してから onDelete を呼ぶ（Pencil「アーカイブ済み｜完全に削除」）
+export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive, onDelete }: {
   issueId: string;
   archived: boolean;
   onDuplicate: () => Promise<unknown>;
   onArchive: () => Promise<unknown>;
+  onDelete: () => Promise<unknown>;
 }) {
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [menuError, setMenuError] = useState("");
@@ -28,6 +32,12 @@ export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive }
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
+  // モーダルのダイアログが閉じてから（外の要素が操作できるようになってから）メニューのボタンへ戻す
+  const wasDeleting = useRef(false);
+  useEffect(() => {
+    if (wasDeleting.current && !deleting) trigger.current?.focus();
+    wasDeleting.current = deleting;
+  }, [deleting]);
   async function run(operation: () => Promise<unknown>, failure: string) {
     if (running.current) return;
     running.current = true;
@@ -63,6 +73,10 @@ export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive }
       {archived
         ? <button role="menuitem" aria-disabled={busy} onClick={() => void run(onArchive, "復元できませんでした")}><ArchiveRestore size={14} aria-hidden="true" />復元</button>
         : <button role="menuitem" aria-disabled={busy} onClick={() => void run(onArchive, "アーカイブできませんでした")}><Archive size={14} aria-hidden="true" />アーカイブ</button>}
+      {archived && <>
+        <hr className={s.menuSeparator} />
+        <button role="menuitem" className={s.menuDanger} aria-disabled={busy} onClick={() => { if (!busy) { setOpen(false); setDeleting(true); } }}><Trash2 size={14} aria-hidden="true" />完全に削除</button>
+      </>}
       {menuError && <>
         <hr className={s.menuSeparator} />
         <p role="alert" className={s.menuError}><CircleAlert size={14} aria-hidden="true" />{menuError}</p>
@@ -72,5 +86,6 @@ export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive }
     {error && <span role="alert" className={s.error}>{error}</span>}
     {/* 実行中にメニューが閉じられても、失敗はメニューの外で知らせる */}
     {menuError && !open && <span role="alert" className={s.error}>{menuError}</span>}
+    {deleting && <DeleteIssueDialog issueId={issueId} onConfirm={onDelete} onClose={() => setDeleting(false)} />}
   </div>;
 }
