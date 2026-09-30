@@ -415,4 +415,19 @@ export const MIGRATIONS: MigrationStep[][] = [
       UNIQUE (workspace_id, source, source_key)
     )`,
   ],
+  // Issue の永久削除（#30）の監査ログ。Issue の行は消えるので、ID・タイトルは削除時の値を写して残す。
+  // Workspace 単位の記録なので、Workspace を削除すると一緒に消える
+  [
+    `CREATE TABLE issue_deletions (
+      id INTEGER PRIMARY KEY,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      issue_id TEXT NOT NULL,
+      number INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      archived_at TEXT NOT NULL,
+      deleted_by TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX issue_deletions_workspace ON issue_deletions (workspace_id, id)`,
+  ],
 ];

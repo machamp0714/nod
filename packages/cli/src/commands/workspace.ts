@@ -20,6 +20,7 @@ import {
   findWorkspace,
   getWorkspaceRules,
   initWorkspace,
+  listIssueDeletions,
   listWorkspaces,
   NodError,
   removeWorkspace,
@@ -78,6 +79,19 @@ export function registerWorkspaceCommands(program: Command): void {
         }
         const r = removeWorkspace(cli.db, target.key);
         print(cli, r, () => `登録を解除しました: ${r.workspace.name}（Issue ${r.deletedIssues} 件を削除）`);
+      }),
+    );
+
+  ws.command("audit")
+    .description("現在の Workspace で完全に削除した Issue の記録（ID・タイトル・削除者・日時）を新しい順に表示する")
+    .action(
+      act((cli, cmd) => {
+        const list = listIssueDeletions(cli.db, currentWorkspace(cli, cmd).key);
+        print(cli, list, () =>
+          list.length
+            ? list.map((d) => `${d.deletedAt}  ${d.issueId}  ${d.title}  （削除: ${d.deletedBy}）`).join("\n")
+            : "削除した Issue の記録はありません",
+        );
       }),
     );
 

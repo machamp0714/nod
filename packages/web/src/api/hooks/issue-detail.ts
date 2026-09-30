@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import { issuePath, queryKeys } from "../query-keys";
-import type { DocKind, DocumentRef, AskResult, IssueAttachment, Comment, Issue, ProjectSummary, Question, Reminder, UpdateIssueInput } from "../types";
+import { issuePath, mutableQueries, queryKeys } from "../query-keys";
+import type { DocKind, DocumentRef, AskResult, IssueAttachment, IssueDeletion, Comment, Issue, ProjectSummary, Question, Reminder, UpdateIssueInput } from "../types";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
@@ -37,6 +37,18 @@ export const useAnswerQuestion = (id: string) =>
 export const useCopyIssue = (id: string) => useIssueOperation<{ title?: string }, Issue>(id, "copy");
 export const useArchiveIssue = (id: string) => useIssueOperation<{ reason?: string }, Issue>(id, "archive");
 export const useUnarchiveIssue = (id: string) => useIssueOperation<Record<string, never>, Issue>(id, "unarchive");
+
+// アーカイブ済みの Issue の完全な削除（#30）。消した Issue の詳細を開いたまま読み直すと 404 になるため、
+// 成功時の読み直しは呼び出し側が画面を移ってから refresh() で行う。失敗時はすぐ読み直す
+export function useDeleteIssue(id: string) {
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries(mutableQueries);
+  const mutation = useMutation<IssueDeletion, Error, void>({
+    mutationFn: () => apiFetch<IssueDeletion>(issuePath(id, "delete"), { method: "POST", body: {} }),
+    onError: () => refresh(),
+  });
+  return { ...mutation, refresh };
+}
 export const useCommentIssue = (id: string) => useIssueOperation<{ body: string; parentId?: number }, Comment>(id, "comment");
 export const useResolveThread = (id: string) =>
   useIssueOperation<{ commentId: number; resolved: boolean }, Comment>(id, "resolve-thread");

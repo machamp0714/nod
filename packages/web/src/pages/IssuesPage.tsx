@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useFilterOptions, useIssueRows } from "../api/hooks/issues";
 import { useCreateView, useViews } from "../api/hooks/views";
 import { FilterBar } from "../components/issue-list/FilterBar";
+import { DeletedIssueToast } from "../components/issue-detail/DeletedIssueToast";
 import { IssueList } from "../components/issue-list/IssueList";
 import { Button } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
@@ -39,6 +40,7 @@ export function IssuesPage() {
         }
         filterBar={<FilterBar filter={filter} options={options} onChange={(next) => change(filterToSearch(next))} />}
       />
+      <DeletedIssueToast />
       {saving && (
         <ViewDialog
           title="View として保存"

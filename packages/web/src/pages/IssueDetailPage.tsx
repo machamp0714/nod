@@ -13,6 +13,7 @@ import {
   useArchiveIssue,
   useCommentIssue,
   useCopyIssue,
+  useDeleteIssue,
   useResolveThread,
   useAskQuestion,
   useProjectChoices,
@@ -23,6 +24,7 @@ import {
 } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
 import type { Issue, IssueDetail } from "../api/types";
+import { type DeletedIssueState } from "../components/issue-detail/DeletedIssueToast";
 import { DocumentsSection } from "../components/issue-detail/DocumentsSection";
 import { AttachmentsSection } from "../components/issue-detail/AttachmentsSection";
 import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
@@ -77,6 +79,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const copyIssue = useCopyIssue(issue.id);
   const archive = useArchiveIssue(issue.id);
   const unarchive = useUnarchiveIssue(issue.id);
+  const deleteIssue = useDeleteIssue(issue.id);
   const readOnly = issue.archivedAt !== null;
   const navigate = useNavigate();
   const removeDocument = useRemoveDocument(issue.id);
@@ -117,6 +120,12 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           onDuplicate={async () => {
             const copied = await copyIssue.mutateAsync({});
             await navigate({ to: "/issues/$issueId", params: { issueId: copied.id } });
+          }}
+          onDelete={async () => {
+            // 消した Issue の詳細を読み直さないよう、アーカイブ済みの一覧へ移ってから読み直す
+            const deleted = await deleteIssue.mutateAsync();
+            await navigate({ to: "/issues", search: { archived: true }, state: (prev) => ({ ...prev, deletedIssue: deleted.issueId } as typeof prev & DeletedIssueState) });
+            void deleteIssue.refresh();
           }}
         />
       </header>

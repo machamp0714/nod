@@ -59,7 +59,7 @@ test("アーカイブ済みIssueのメニューは「復元」になり、選ぶ
   await page.goto(`/issues/${issue.id}`);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
   const menu = page.getByRole("menu", { name: "Issueの操作" });
-  await expect(menu.getByRole("menuitem")).toHaveText(["Issue IDをコピー", "コマンドをコピー", "Issueを複製", "復元"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["Issue IDをコピー", "コマンドをコピー", "Issueを複製", "復元", "完全に削除"]);
   await menu.getByRole("menuitem", { name: "復元" }).click();
   await expect(page.getByRole("region", { name: "アーカイブ済み" })).toHaveCount(0);
   expect((await api.show(issue.id)).archivedAt).toBeNull();

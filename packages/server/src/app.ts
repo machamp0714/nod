@@ -7,6 +7,7 @@ import { registerStatsRoutes } from "./routes/stats";
 import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerAttachmentRoutes } from "./routes/attachments";
+import { registerIssueDeletionRoutes } from "./routes/issue-deletions";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
@@ -68,6 +69,7 @@ export function createApp(opts: AppOptions): Hono {
   registerStatsRoutes(app, opts.db);
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
+  registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerDocumentOps(app, me, opts.docsDir);

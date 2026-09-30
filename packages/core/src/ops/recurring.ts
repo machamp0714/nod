@@ -67,7 +67,8 @@ interface RecurringRow {
 
 const SELECT = `SELECT r.*, p.name AS project_name,
     (SELECT max(o.occurrence_date) FROM recurring_issue_occurrences o WHERE o.recurring_id = r.id) AS last_occurrence,
-    (SELECT i.number FROM recurring_issue_occurrences o JOIN issues i ON i.id = o.issue_id
+    -- 最新回の行から番号を取る（LEFT JOIN）。最新回の Issue を永久削除した（#30）ときは、前の回の番号にずらさず NULL にする
+    (SELECT i.number FROM recurring_issue_occurrences o LEFT JOIN issues i ON i.id = o.issue_id
       WHERE o.recurring_id = r.id ORDER BY o.occurrence_date DESC LIMIT 1) AS last_issue_number
   FROM recurring_issues r LEFT JOIN projects p ON p.id = r.project_id`;
 

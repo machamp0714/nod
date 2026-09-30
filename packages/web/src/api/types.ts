@@ -40,6 +40,7 @@ export type {
   Issue,
   IssueCounts,
   IssueAttachment,
+  IssueDeletion,
   IssueDetail,
   IssueList,
   IssueQuery,
