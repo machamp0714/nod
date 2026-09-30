@@ -49,3 +49,47 @@ describe("Orca で開く API（#52）", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("追加指示 API（#51）", () => {
+  const LIST = ok({ terminals: [{ handle: "term_a", title: "claude", worktreePath: WT, connected: true, writable: true, agentIdentity: "claude" }] });
+
+  test("記録・一覧・宛先の候補・送信を書き手 me で行い、送信済みは 409 で送り直さない", async () => {
+    const sends: string[][] = [];
+    const { app, ref } = withOrca(async (args) => {
+      if (args[1] === "list") return LIST;
+      sends.push(args);
+      return ok({ accepted: true });
+    });
+    const created = await call(app, "POST", `/api/issues/${ref}/instructions`, { body: "テストも追加して" });
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({ kind: "instruction", createdBy: "me", sendState: "unsent" });
+    expect((await call(app, "GET", `/api/issues/${ref}/instructions`)).json).toHaveLength(1);
+    const targets = await call(app, "GET", `/api/issues/${ref}/agent-targets`);
+    expect(targets.json).toMatchObject({ worktree: WT, failure: null, terminals: [{ handle: "term_a", agentIdentity: "claude" }] });
+    expect(sends).toEqual([]);
+
+    const sent = await call(app, "POST", `/api/issues/${ref}/instructions/${created.json.id}/send`, { terminal: "term_a" });
+    expect(sent.status).toBe(200);
+    expect(sent.json).toMatchObject({ sendState: "sent", sentBy: "me", sentTerminal: "term_a" });
+    const again = await call(app, "POST", `/api/issues/${ref}/instructions/${created.json.id}/send`, { terminal: "term_a" });
+    expect(again.status).toBe(409);
+    expect(again.json.error.code).toBe("INSTRUCTION_ALREADY_SENT");
+    expect(sends).toHaveLength(1);
+    expect((await call(app, "GET", `/api/issues/${ref}`)).json.pendingInstructions).toHaveLength(1);
+  });
+
+  test("不正な入力は 400、結果不明の送り直しは confirmResend が要る", async () => {
+    const { app, ref } = withOrca(async (args) => (args[1] === "list" ? LIST : { kind: "timeout" }));
+    expect((await call(app, "POST", `/api/issues/${ref}/instructions`, { body: " " })).status).toBe(400);
+    expect((await call(app, "POST", `/api/issues/${ref}/instructions`, { text: "x" })).status).toBe(400);
+    const created = (await call(app, "POST", `/api/issues/${ref}/instructions`, { body: "x" })).json;
+    expect((await call(app, "POST", `/api/issues/${ref}/instructions/abc/send`, { terminal: "term_a" })).status).toBe(400);
+    expect((await call(app, "POST", `/api/issues/${ref}/instructions/${created.id}/send`, {})).status).toBe(400);
+    expect((await call(app, "POST", `/api/issues/${ref}/instructions/${created.id}/send`, { terminal: "term_a" })).json.sendState).toBe("unconfirmed");
+    const blocked = await call(app, "POST", `/api/issues/${ref}/instructions/${created.id}/send`, { terminal: "term_a" });
+    expect(blocked.status).toBe(409);
+    expect(blocked.json.error.code).toBe("SEND_UNCONFIRMED");
+    const resent = await call(app, "POST", `/api/issues/${ref}/instructions/${created.id}/send`, { terminal: "term_a", confirmResend: true });
+    expect(resent.json.sendState).toBe("unconfirmed");
+  });
+});

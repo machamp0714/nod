@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { ActivityItem, WorkLogKind } from "../../api/types";
+import type { ActivityItem, AgentInstruction, WorkLogKind } from "../../api/types";
 import { formatRelative } from "../../lib/format";
 import { hasText } from "../../lib/issue-edit";
 import { isMonoWorkLog, WORK_LOG_KIND_META, WORK_LOG_TONE_COLORS } from "../../lib/work-log";
 import { AgentAvatar, Icon } from "../ui";
 import s from "./issue-detail.module.css";
+import { type InstructionTarget, SendInstructionDialog } from "./SendInstructionDialog";
 import { useAsyncAction } from "./useAsyncAction";
 
 export type CommentThreadItem = Extract<ActivityItem, { kind: "comment" }>;
@@ -54,10 +55,63 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
   );
 }
 
+const INSTRUCTION_LABEL: Record<AgentInstruction["kind"], string> = {
+  instruction: "追加指示",
+  review_fix: "対応依頼（指摘対応）",
+  rebase: "対応依頼（rebase）",
+};
+
+function clock(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
+
+// 追加指示・対応依頼の送信状態（#51、Pencil『Issue詳細｜LLMに追加指示』GdvBc・bSQYp）。未送信・失敗・結果不明は送り直せる
+function InstructionStatus({ instruction, target, readOnly }: { instruction: AgentInstruction; target?: InstructionTarget; readOnly: boolean }) {
+  const [open, setOpen] = useState(false);
+  const state = instruction.sendState;
+  const chip =
+    state === "sent" ? { cls: s.sendChipSent, icon: "check" as const, text: `送信済み ${instruction.sentAt ? clock(instruction.sentAt) : ""} → ${instruction.sentAgent ?? instruction.sentTerminal ?? ""}` }
+    : state === "failed" ? { cls: s.sendChipFailed, icon: "circle-alert" as const, text: `送信失敗: ${instruction.sendError?.message ?? "理由は分かりません"}` }
+    : state === "unconfirmed" ? { cls: s.sendChipUnknown, icon: "circle-alert" as const, text: `送信結果不明: ${instruction.sendError?.message ?? "届いたか分かりません"}` }
+    : state === "sending" ? { cls: s.sendChipPending, icon: "send" as const, text: "送信中" }
+    : { cls: s.sendChipPending, icon: "send" as const, text: "未送信（LLM は start/show で読みます）" };
+  const canSend = target !== undefined && !readOnly && (state === "unsent" || state === "failed" || state === "unconfirmed");
+  return (
+    <div className={s.instructionStatus}>
+      <span className={`${s.sendChip} ${chip.cls}`} data-send-state={state}>
+        <Icon name={chip.icon} size={11} />
+        {chip.text}
+      </span>
+      {instruction.acknowledgedAt && <span className={s.threadMeta}>{instruction.acknowledgedBy} が確認済み</span>}
+      {canSend && (
+        <button type="button" className={s.resendButton} onClick={() => setOpen(true)}>
+          送信…
+        </button>
+      )}
+      {open && target && (
+        <SendInstructionDialog
+          issueId={target.issueId}
+          agent={target.agent}
+          target={{ kind: "existing", instruction }}
+          onClose={() => setOpen(false)}
+          onDone={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 // nod.pen「Issue詳細｜コメントスレッド（#48/#49）」の Activity に合わせる。
 // 未解決はカード、解決済みは1行に折りたたみ、開くと「未解決に戻す」と「返信」を出す。
 // readOnly（アーカイブ済み）のときは返信・解決済み化・未解決に戻すを無効にする
-export function CommentThread({ thread, onReply, onResolve, readOnly = false }: { thread: CommentThreadItem; readOnly?: boolean } & ThreadHandlers) {
+export function CommentThread({
+  thread,
+  onReply,
+  onResolve,
+  readOnly = false,
+  instructionTarget,
+}: { thread: CommentThreadItem; readOnly?: boolean; instructionTarget?: InstructionTarget } & ThreadHandlers) {
   const resolved = thread.resolvedAt !== null;
   const [expanded, setExpanded] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -107,7 +161,7 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
   return (
     <article
       className={`${s.commentThread} ${resolved ? s.threadResolved : ""} ${thread.logKind === "blocker" && !resolved ? s.threadBlocker : ""}`}
-      aria-label={thread.logKind ? "作業ログ" : "コメント記録"}
+      aria-label={thread.logKind ? "作業ログ" : thread.instruction ? "追加指示" : "コメント記録"}
     >
       {resolved && (
         <div className={s.resolvedBar}>
@@ -128,6 +182,12 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
         <AgentAvatar actor={thread.actor} />
         <strong>{thread.actor}</strong>
         {thread.logKind && <WorkLogBadge kind={thread.logKind} />}
+        {thread.instruction && (
+          <span className={s.instructionBadge} data-instruction-kind={thread.instruction.kind}>
+            <Icon name="send" size={10} />
+            {INSTRUCTION_LABEL[thread.instruction.kind]}
+          </span>
+        )}
         <Time at={thread.at} />
         {!resolved && lastReplyAt}
         {/* 解決済みも開けば返信できる（API・CLI と同じ）。解決は未解決のときだけ */}
@@ -144,7 +204,8 @@ export function CommentThread({ thread, onReply, onResolve, readOnly = false }: 
           )}
         </span>
       </div>
-      {thread.logKind ? <WorkLogBody body={thread.body} kind={thread.logKind} /> : <p>{thread.body}</p>}
+      {thread.logKind ? <WorkLogBody body={thread.body} kind={thread.logKind} /> : <p className={thread.instruction ? s.instructionBody : undefined}>{thread.body}</p>}
+      {thread.instruction && <InstructionStatus instruction={thread.instruction} target={instructionTarget} readOnly={readOnly} />}
       {(thread.replies.length > 0 || replying) && (
         <div className={s.threadReplies}>
           {thread.replies.map((reply) => (

@@ -49,6 +49,16 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
    人の \`nod review approve\`（nod の承認）は Issue を done にするだけで、GitHub の承認・マージではない。nod は GitHub の PR に承認・マージを書き込まず、\`gh pr review\` も \`gh pr merge\` も実行しない。PR の承認・マージは GitHub 側で別に行う。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
+   \`nod issue start\` は、まだ受け取っていない追加指示を \`pendingInstructions\`（テキストでは「追加指示」）で返す。先に読んで対応する。
+
+## 追加指示を受け取る
+
+人は作業中の Issue に「追加指示」を残すことがある。追加指示は Issue のコメントとして残り、\`nod issue show <id>\` の Activity に [追加指示] と出る。
+人が確認画面で送ると、Orca の端末に \`nod: <id> に追加指示があります（#<番号>）。nod issue show <id> で読んでください\` という短い通知が届く。
+端末に届くのは通知だけで、指示の本文は nod にある。通知を受けたら \`nod issue show <id>\` で全文を読み、作業に反映する。
+稼働中のセッションが無いときは送られない。次に \`nod issue start <id>\` したときに \`pendingInstructions\` で受け取る（LLM が受け取ると確認済みになる）。
+\`nod issue show <id>\` の「未確認の追加指示」にも出る。\`nod issue instructions <id>\` で、これまでの指示と送信・確認の状態を一覧できる。
+追加指示の記録（\`nod issue instruct\`）と端末への送信は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。LLM は読むだけにする。
 
 ## 着手前に候補だけ確認する
 

@@ -1,7 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath } from "../query-keys";
-import type { OrcaOpenResult } from "../types";
+import type { AgentInstruction, AgentTargets, OrcaOpenResult } from "../types";
+import { useApiMutation } from "./shared";
 
 // 記録済みの worktree を Orca で前面に出す（#52）。DB を変えないので読み直しはしない。
 // 開けなかった理由は HTTP の失敗ではなく結果の failure で返る
@@ -9,4 +10,32 @@ export function useOpenInOrca(id: string) {
   return useMutation<OrcaOpenResult, Error, void>({
     mutationFn: () => apiFetch<OrcaOpenResult>(issuePath(id, "orca-open"), { method: "POST" }),
   });
+}
+
+// 追加指示の送信先の候補（#51）。確認画面を開くたびに orca で調べ直し、古い一覧を使い回さない
+export function useAgentTargets(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["agent-targets", id],
+    queryFn: () => apiFetch<AgentTargets>(issuePath(id, "agent-targets")),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+export function useRecordInstruction(id: string) {
+  return useApiMutation((body: string) =>
+    apiFetch<AgentInstruction>(issuePath(id, "instructions"), { method: "POST", body: { body } }),
+  );
+}
+
+// 送信は確認画面の「送信」からだけ呼ぶ（自動送信はしない）
+export function useSendInstruction(id: string) {
+  return useApiMutation((input: { instructionId: number; terminal: string; confirmResend?: boolean }) =>
+    apiFetch<AgentInstruction>(issuePath(id, `instructions/${input.instructionId}/send`), {
+      method: "POST",
+      body: { terminal: input.terminal, ...(input.confirmResend ? { confirmResend: true } : {}) },
+    }),
+  );
 }

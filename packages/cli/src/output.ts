@@ -20,6 +20,8 @@ import {
   type TriageProposal,
   type TriageSuggestions,
   WORK_LOG_KIND_LABEL,
+  INSTRUCTION_KIND_LABEL,
+  type AgentInstruction,
   type PrReviewDecision,
   type PrState,
   type PrStatus,
@@ -132,7 +134,11 @@ function formatActivity(a: ActivityItem): string {
   if (a.kind === "comment") {
     const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
     const resolved = a.resolvedAt !== null ? `（解決済み: ${a.resolvedBy}）` : "";
-    const kind = a.logKind ? ` [${WORK_LOG_KIND_LABEL[a.logKind]}]` : "";
+    const kind = a.logKind
+      ? ` [${WORK_LOG_KIND_LABEL[a.logKind]}]`
+      : a.instruction
+        ? ` [${INSTRUCTION_KIND_LABEL[a.instruction.kind]}${a.instruction.acknowledgedAt ? "" : "・未確認"}]`
+        : "";
     return `  ${at}  #${a.id} ${a.actor}${kind}: ${a.body}${resolved}${replies}`;
   }
   if (a.kind === "question") {
@@ -140,6 +146,24 @@ function formatActivity(a: ActivityItem): string {
     return `  ${at}  ${a.actor} が確認を依頼: ${a.question}${answer}`;
   }
   return `  ${at}  ${a.actor} ${a.type} ${JSON.stringify(a.data)}`;
+}
+
+const SEND_STATE_LABEL: Record<AgentInstruction["sendState"], string> = {
+  unsent: "未送信",
+  sending: "送信中",
+  sent: "送信済み",
+  unconfirmed: "送信結果不明",
+  failed: "送信失敗",
+};
+
+// 追加指示・対応依頼（#51・#58）の一覧。本文は複数行でもそのまま字下げして出す
+export function formatInstructions(list: AgentInstruction[]): string[] {
+  return list.map((i) => {
+    const at = i.createdAt.slice(0, 16).replace("T", " ");
+    const state = i.sendState === "sent" && i.sentAgent ? `送信済み → ${i.sentAgent}` : SEND_STATE_LABEL[i.sendState];
+    const ack = i.acknowledgedAt ? `・${i.acknowledgedBy} が確認済み` : "";
+    return `  #${i.id} ${at} ${i.createdBy} [${INSTRUCTION_KIND_LABEL[i.kind]}・${state}${ack}]\n    ${i.body.replaceAll("\n", "\n    ")}`;
+  });
 }
 
 // 親の完了候補の案内。確定は人が既存の経路で行う（LLM はどちらも拒否される）
@@ -207,6 +231,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   ];
   const relationLines = relations.filter(([, ids]) => ids.length).map(([label, ids]) => `  ${label}: ${ids.join(", ")}`);
   if (relationLines.length) lines.push("", "関係:", ...relationLines);
+  if (d.pendingInstructions.length) lines.push("", "未確認の追加指示:", ...formatInstructions(d.pendingInstructions));
   if (d.activity.length) lines.push("", "Activity:", ...d.activity.map(formatActivity));
   return lines.join("\n");
 }

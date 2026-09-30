@@ -39,6 +39,7 @@ import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
 import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { formatDateTime } from "../lib/format";
+import { executionLocation } from "../lib/execution-location";
 import { STATUS_META } from "../lib/meta";
 import { useStatusNames } from "../api/hooks/workspace-labels";
 import { statusName } from "../lib/workspace-labels";
@@ -163,6 +164,11 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onComment={(body) => comment.mutateAsync({ body })}
             onReply={(parentId, body) => comment.mutateAsync({ body, parentId })}
             onResolve={(commentId, resolved) => resolveThread.mutateAsync({ commentId, resolved })}
+            instructionTarget={{
+              issueId: issue.id,
+              agent: issue.assignee && issue.assignee !== "me" ? issue.assignee : "LLM",
+              location: executionLocation(issue.branch, issue.worktree)?.branchLabel ?? null,
+            }}
           />
         </article>
 

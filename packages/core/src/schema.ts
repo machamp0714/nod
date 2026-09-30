@@ -451,4 +451,30 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE issues ADD COLUMN milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL`,
     `CREATE INDEX issues_milestone ON issues (milestone_id)`,
   ],
+  // LLM への追加指示（#51）と差し戻しの対応依頼（#58）。本文は comments に通常のコメント（log_kind NULL）として残し、
+  // 種類と Orca の端末への送信状態をこの表に持つ。送信は人の明示操作でだけ行い、同じ指示を二重に送らないよう send_state で管理する。
+  // send_request_id は orca terminal send の受付 ID で、結果が分からないときの再試行（--retry-request）にだけ使う。
+  // acknowledged_at は LLM が nod issue start で受け取った日時（未確認の指示を pendingInstructions で渡す）
+  [
+    `CREATE TABLE agent_instructions (
+      id INTEGER PRIMARY KEY,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      comment_id INTEGER NOT NULL UNIQUE REFERENCES comments(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('instruction', 'review_fix', 'rebase')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      send_state TEXT NOT NULL DEFAULT 'unsent' CHECK (send_state IN ('unsent', 'sending', 'sent', 'unconfirmed', 'failed')),
+      send_attempted_at TEXT,
+      sent_at TEXT,
+      sent_by TEXT,
+      sent_terminal TEXT,
+      sent_agent TEXT,
+      send_request_id TEXT,
+      send_error_code TEXT,
+      send_error_message TEXT,
+      acknowledged_at TEXT,
+      acknowledged_by TEXT
+    )`,
+    `CREATE INDEX agent_instructions_issue ON agent_instructions (issue_id, id)`,
+  ],
 ];
