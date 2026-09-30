@@ -343,8 +343,13 @@ export function removeAttachment(ctx: OpCtx, ref: string, id: number, dir: strin
     });
     return row;
   });
-  // 行を消した後にファイルを消す。消せなくても、どこからも参照されないファイルが残るだけにする
-  if (removed.file_path) removeStoredFiles([removed.file_path], dir);
+  // 行を消した後にファイルを消す。削除は commit 済みなので、消せなくても成功として返す。残った実体は gcAttachments が片付ける
+  if (!removed.file_path) return;
+  try {
+    removeStoredFiles([removed.file_path], dir);
+  } catch {
+    // 権限などで消せなかった実体は gcAttachments に任せる
+  }
 }
 
 // commit 後に、消した行が指していたコピーを消す。許可ルートの外・symlink は触らない
