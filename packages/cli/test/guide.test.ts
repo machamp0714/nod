@@ -42,3 +42,10 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("--completion-candidates");
   expect(GUIDE).toContain("完了候補の親を done にするのは人である");
 });
+
+test("LLM は nod issue update --status や bulk-update でも Triage の Issue を Triage から出せないと案内する", () => {
+  const line = GUIDE.split("\n").find((l) => l.includes("nod issue update --status") && l.includes("Triage から出す"));
+  expect(line).toBeDefined();
+  expect(line).toContain("nod issue bulk-update");
+  expect(line).toContain("FORBIDDEN_FOR_LLM");
+});

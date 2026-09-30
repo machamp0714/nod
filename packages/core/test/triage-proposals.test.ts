@@ -226,11 +226,13 @@ describe("Triage 提案の通知（#125）", () => {
     expect(proposalNotifications(db).map((x) => [x.id, x.data.decision, x.readAt])).toEqual([[second!.id, "accept", null]]);
   });
 
-  test("LLM が updateIssue で Triage を出したときも、その Issue の未読の提案通知を既読にする（#134）", () => {
-    const { db, llm, create } = seed();
+  test("LLM は updateIssue で Triage を出せず提案通知は未読のまま、人が状態を変えて Triage を出すと既読にする（#134）", () => {
+    const { db, me, llm, create } = seed();
     const issue = create(llm, "判断待ち");
     proposeTriage(llm, issue.id, { decision: "accept" });
-    updateIssue(llm, issue.id, { status: "backlog" });
+    expect(codeOf(() => updateIssue(llm, issue.id, { status: "backlog" }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null])).toEqual([[issue.id, false]]);
+    updateIssue(me, issue.id, { status: "backlog" });
     expect(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null])).toEqual([[issue.id, true]]);
   });
 
