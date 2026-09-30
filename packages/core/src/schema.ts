@@ -373,4 +373,15 @@ export const MIGRATIONS: MigrationStep[][] = [
       PRIMARY KEY (recurring_id, occurrence_date)
     )`,
   ],
+  // Project の進捗報告（#83）。追記のみで、Project を消すと一緒に消える。Project・Issue の状態には連動しない
+  [
+    `CREATE TABLE project_updates (
+      id INTEGER PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      author TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX project_updates_project ON project_updates (project_id, created_at, id)`,
+  ],
 ];

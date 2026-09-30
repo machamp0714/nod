@@ -2,10 +2,11 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage } from "../api/errors";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
-import type { DocumentRef, ProjectSummary } from "../api/types";
+import type { DocumentRef, ProjectSummary, ProjectUpdate } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
+import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { replacesIssueListHistory, cleanIssueListSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -32,7 +33,7 @@ export function ProjectDetailPage() {
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} />}
+      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} updates={detail.data.updates} />}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, blocked }), replace: true })} />
       </div>}
@@ -45,7 +46,7 @@ export function ProjectDetailPage() {
   );
 }
 
-function ProjectIntro({ project, documents }: { project: ProjectSummary; documents: DocumentRef[] }) {
+function ProjectIntro({ project, documents, updates }: { project: ProjectSummary; documents: DocumentRef[]; updates: ProjectUpdate[] }) {
   return (
     <section className={p.intro} aria-label="Project の概要">
       <ProjectStatusControl key={project.id} project={project} />
@@ -73,6 +74,7 @@ function ProjectIntro({ project, documents }: { project: ProjectSummary; documen
           </ul>
         )}
       </div>
+      <ProjectUpdatesSection key={`updates-${project.id}`} projectId={project.id} updates={updates} />
     </section>
   );
 }

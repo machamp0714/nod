@@ -102,9 +102,19 @@ export interface ProjectSummary extends Project {
   agents: { working: number; awaitingInput: number; awaitingReview: number; error: number };
 }
 
+// Project の進捗報告。追記のみで、Issue・Project の状態には連動しない
+export interface ProjectUpdate {
+  id: number;
+  projectId: number;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface ProjectDetail extends ProjectSummary {
   issues: Issue[];
   documents: DocumentRef[];
+  updates: ProjectUpdate[]; // 新しい順（同じ時刻は id の大きい順）
 }
 
 export interface DocumentRef {

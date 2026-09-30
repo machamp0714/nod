@@ -39,6 +39,7 @@ describe("openDb", () => {
       "plan_tasks",
       "pr_diffs",
       "pr_statuses",
+      "project_updates",
       "projects",
       "questions",
       "recurring_issue_occurrences",

@@ -1,8 +1,24 @@
-import { attachDocument, createProject, detachDocument, getProject, listProjects, NodError, updateProject } from "@nod/core";
+import {
+  addProjectUpdate,
+  attachDocument,
+  createProject,
+  detachDocument,
+  getProject,
+  listProjects,
+  listProjectUpdates,
+  NodError,
+  type ProjectUpdate,
+  updateProject,
+} from "@nod/core";
 import type { Command } from "commander";
 import { parseDocKind, parseProjectStatus } from "../args";
 import { act } from "../context";
 import { formatIssueLines, print } from "../output";
+
+function formatProjectUpdate(u: ProjectUpdate): string {
+  const at = u.createdAt.slice(0, 16).replace("T", " ");
+  return [`  ${at}  ${u.author}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
+}
 
 export function registerProjectCommands(program: Command): void {
   const project = program.command("project").description("Project を操作する");
@@ -40,7 +56,7 @@ export function registerProjectCommands(program: Command): void {
 
   project
     .command("show <project>")
-    .description("Project の Issue と Documents を表示する")
+    .description("Project の Issue、Documents、最新の進捗報告を表示する")
     .action(
       act((cli, _cmd, ref: string) => {
         const p = getProject(cli.db, ref);
@@ -52,6 +68,9 @@ export function registerProjectCommands(program: Command): void {
             "Issue:",
             ...formatIssueLines(p.issues).map((line) => `  ${line}`),
             ...(p.documents.length ? ["", "Documents:", ...p.documents.map((d) => `  - ${d.title}（${d.kind}）${d.path}`)] : []),
+            ...(p.updates[0]
+              ? ["", `最新の進捗報告（全 ${p.updates.length} 件は nod project report list）:`, formatProjectUpdate(p.updates[0])]
+              : []),
           ].join("\n"),
         );
       }),
@@ -66,6 +85,26 @@ export function registerProjectCommands(program: Command): void {
         if (o.status === undefined) throw new NodError("INVALID_ARGS", "--status を指定してください");
         const updated = updateProject(cli.ctx, ref, { status: parseProjectStatus(o.status) });
         print(cli, updated, () => `更新しました: ${updated.id}  ${updated.name}（${updated.status}）`);
+      }),
+    );
+
+  const report = project.command("report").description("Project の進捗報告を書く・読む");
+  report
+    .command("add <project> <body>")
+    .description("進捗報告を書く（書き手と日時を記録する。Issue や Project の状態は変えない）")
+    .action(
+      act((cli, _cmd, ref: string, body: string) => {
+        const added = addProjectUpdate(cli.ctx, ref, body);
+        print(cli, added, () => `進捗報告を書きました: ${added.id}`);
+      }),
+    );
+  report
+    .command("list <project>")
+    .description("進捗報告を新しい順に表示する")
+    .action(
+      act((cli, _cmd, ref: string) => {
+        const list = listProjectUpdates(cli.db, ref);
+        print(cli, list, () => (list.length ? list.map(formatProjectUpdate).join("\n\n") : "進捗報告はありません"));
       }),
     );
 
