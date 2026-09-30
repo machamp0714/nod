@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
+import { measureSplitList } from "./layout-measure";
 
 const tabs = (page: Page) => page.getByRole("tablist", { name: "Inboxの表示" });
 const list = (page: Page) => page.getByRole("region", { name: "通知の一覧" });
@@ -120,4 +121,51 @@ test("LLM の Triage 提案は通知タブに届き、人が受け入れると�
   await page.reload();
   await expect(list(page).getByRole("link", { name: /検索結果のページングがずれる/ })).toHaveCount(0);
   expect((await nod.me.listNotifications({ includeRead: true })).filter((n) => n.kind === "triage_proposal")).toMatchObject([{ readAt: expect.any(String) }]);
+});
+
+// #185：nod.pen の Inbox｜通知タブ（OzV0j）と Inbox｜スヌーズ中（H4XMf5）
+test("通知の一覧も行は左右と上下に 8 の余白と角丸 8 で、題名は未読 500、既読 400。スヌーズ中の切り替えは Header と行の間に残る", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const a = await api.startedIssue("検索 API の N+1 を解消");
+  const b = await api.startedIssue("決済 Webhook の再送処理");
+  const c = await api.startedIssue("料金ページの比較表を更新");
+  for (const issue of [a, b, c]) {
+    await nod.me.subscribeIssue(issue.id);
+    await nod.claude.commentIssue(issue.id, "検索結果は最大 50 件です");
+  }
+  await nod.me.markNotificationsRead({ issueRef: a.id });
+  await nod.me.snoozeNotifications({ issueRef: c.id, until: new Date(Date.now() + 86_400_000).toISOString() });
+
+  await page.goto("/inbox?tab=notifications");
+  await expect(list(page).getByRole("link")).toHaveCount(2);
+  await expect(list(page).getByRole("link", { name: /決済 Webhook の再送処理（未読 1）/ })).toBeVisible();
+  await expect(detail(page).getByRole("heading", { level: 2 })).toBeVisible();
+  const m = await measureSplitList(page, "通知の一覧");
+  console.log(`[split] /inbox?tab=notifications ${JSON.stringify(m)}`);
+  expect(m.listWidth).toBe(400);
+  expect(m.headerHeight).toBe(44);
+  expect(m.headerOverflow).toBe(0);
+  expect(m.title).toBe("13px / 500");
+  // 題名、件数、タブ（確認依頼、通知と未読の数、すべて）が重ならずに並ぶ
+  expect(m.headerParts).toBe(3);
+  expect(m.headerGap).toBeGreaterThanOrEqual(8);
+  expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
+  expect(m.headerRight).toBe(12);
+  expect(m.tabHeights).toEqual([28]);
+  expect(m.row).toEqual({ left: 8, right: 8, top: 8, bottom: 8, radius: "8px", padding: "12px", borderTop: "0px" });
+  expect(m.selectedBackground).toBe("rgb(238, 240, 243)"); // --sunken
+  expect(m.titleWeights).toEqual(["500"]);
+  expect(m.readTitleWeights).toEqual(["400"]);
+  // 切り替えの行は Header のすぐ下
+  const header = await list(page).locator("header").boundingBox();
+  const filter = await page.getByRole("tablist", { name: "通知の表示" }).locator("..").boundingBox();
+  expect(filter?.y).toBe((header?.y ?? 0) + 44);
+
+  await page.getByRole("tablist", { name: "通知の表示" }).getByRole("tab", { name: /スヌーズ中/ }).click();
+  await expect(list(page).getByRole("link")).toHaveCount(1);
+  await expect(list(page).getByRole("link")).toContainText("料金ページの比較表を更新");
+  const snoozed = await measureSplitList(page, "通知の一覧");
+  console.log(`[split] /inbox?tab=notifications&view=snoozed ${JSON.stringify(snoozed)}`);
+  // 行の数と既読の行がないこと以外は、通知の一覧と同じ値になる
+  expect(snoozed).toEqual({ ...m, rows: 1, readTitleWeights: [] });
 });

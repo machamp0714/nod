@@ -257,8 +257,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Header の下の行。高さと余白は View Bar と同じ（タブを Header の右へ移すのは #185） */
-.tabs { display: flex; flex: none; align-items: center; min-height: var(--view-bar-height); padding: 0 12px 0 8px; }
 .quickReplies { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 10px; margin-top: 10px; }
 .acceptFields { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
 .acceptFields legend { color: var(--ink2); font-size: 12px; }

@@ -1,79 +1,9 @@
-/* nod.pen の DPVzJ（Analytics）に合わせる */
+/* nod.pen の DPVzJ と bCDnZ（Analytics）に合わせる。期間の単位のタブは共通の Segmented */
 .page {
   display: flex;
   flex-direction: column;
   min-height: 100%;
   background: var(--surface);
-}
-
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.segmented {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.segment {
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink2);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  height: var(--control-height);
-  font-weight: 500;
-}
-
-.segmentActive {
-  background: var(--sunken);
-  color: var(--ink);
-}
-
-.select {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  cursor: pointer;
-  height: var(--control-height);
-}
-
-.selectLabel {
-  color: var(--ink3);
-  font-size: 12px;
-}
-
-.select select {
-  appearance: none;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.select select:focus-visible {
-  outline: none;
-}
-
-.select:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .content {

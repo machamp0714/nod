@@ -107,7 +107,7 @@ for (const route of ROUTES) {
     // スクロールは Main のカードの内側で行い、ページ全体は縦にも横にも動かない
     expect(m.overflow.page).toBe(0);
     expect(m.overflow.pageY).toBe(0);
-    // このデータセットでは、Issue 詳細と Analytics と Summary の既知のはみ出し（#180、#184）は出ない
+    // Main に横スクロールを出さない。Issue 詳細は #180、Analytics と Summary は #184 で直した（長い名前での検証は analytics と summary の spec にある）
     expect(m.overflow.main).toBe(0);
   });
 }

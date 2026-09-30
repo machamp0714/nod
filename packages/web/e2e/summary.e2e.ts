@@ -1,5 +1,6 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
+import { measureFilterBar } from "./layout-measure";
 import type { NodData } from "./support/nod";
 
 // API で claude-code が着手・ブロッカー記録・質問・レビュー提出し、人が回答・差し戻す。完了1件・アーカイブ1件、WEB に起票1件
@@ -109,4 +110,52 @@ test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) 
   await expect(page.getByLabel("Project")).toHaveValue("");
   await expect(page.getByRole("switch", { name: "アーカイブを含む" })).toHaveAttribute("aria-checked", "false");
   await expect(card(page, "完了")).toContainText("1");
+});
+
+// #184：フィルタは Header の下の行（nod.pen の sNVQa の View Bar）に置く
+const LONG_PROJECT = "検索 API の高速化と決済まわりの改修をまとめて進める、名前の長い Project";
+
+test("フィルタは Header の下の高さ 43 の行に置き、select は高さ 28 の円形で、Main に横スクロールを出さない", async ({ page, nod }) => {
+  await seed(nod);
+  await nod.me.createProject({ name: LONG_PROJECT });
+  await page.goto("/summary");
+  await expect(page.getByLabel("Project").locator("option")).toHaveCount(3);
+  await expect(card(page, "完了")).toContainText("1");
+  const m = await measureFilterBar(page);
+  console.log(`[filter] /summary ${JSON.stringify(m)}`);
+  expect(m.headerHeight).toBe(44);
+  expect(m.headerControls).toBe(0);
+  expect(m.barTop).toBe(0);
+  expect(m.barHeight).toBe(43);
+  expect(m.controls).toBe(6); // 24h、7d、30d、Workspace、Project、アーカイブを含む
+  expect(m.rows).toBe(1);
+  expect(m.centerDiff).toBeLessThanOrEqual(2.5);
+  expect(m.selectHeights).toEqual([28]);
+  expect(m.selectRadius).toEqual(["9999px"]);
+  expect(m.rightGap).toBeGreaterThanOrEqual(12);
+  expect(m.mainOverflow).toBe(0);
+  expect(m.pageOverflow).toBe(0);
+});
+
+test.describe("幅 900px", () => {
+  test.use({ viewport: { width: 900, height: 960 } });
+
+  test("幅が足りないと、フィルタは折り返し、Main に横スクロールを出さない", async ({ page, nod }) => {
+    await seed(nod);
+    const project = await nod.me.createProject({ name: LONG_PROJECT });
+    await page.goto(`/summary?project=${project.id}`);
+    await expect(page.getByLabel("Project")).toHaveValue(String(project.id));
+    await expect(page.getByText("この期間の動きはありません")).toBeVisible();
+    const m = await measureFilterBar(page);
+    console.log(`[filter] /summary 幅 900 ${JSON.stringify(m)}`);
+    expect(m.headerHeight).toBe(44);
+    expect(m.barTop).toBe(0);
+    expect(m.rows).toBe(2);
+    expect(m.barHeight).toBeGreaterThan(43);
+    expect(m.centerDiff).toBeLessThanOrEqual(2.5);
+    expect(m.selectHeights).toEqual([28]);
+    expect(m.rightGap).toBeGreaterThanOrEqual(12);
+    expect(m.mainOverflow).toBe(0);
+    expect(m.pageOverflow).toBe(0);
+  });
 });
