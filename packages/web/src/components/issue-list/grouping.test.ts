@@ -48,6 +48,8 @@ describe("groupRows", () => {
     expect(cleanIssueListSearch(parsed)).toEqual({ groupBy: "cycle", cycle: "3" });
     expect(filterFromSearch(parsed)).toEqual({ cycle: "3" });
     expect(parseIssueListSearch({ cycle: "Sprint" })).toEqual({});
+    expect(parseIssueListSearch({ cycle: "none" })).toEqual({ cycle: "none" });
+    expect(filterFromSearch({ cycle: "none" })).toEqual({ cycle: "none" });
   });
 
   test("担当は名前順で、未割り当てを最後にする", () => {

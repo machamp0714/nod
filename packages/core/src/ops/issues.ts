@@ -33,7 +33,7 @@ import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
-import { resolveCycle, resolveCycleInScope } from "./cycles";
+import { NO_CYCLE_REF, resolveCycle, resolveCycleInScope } from "./cycles";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -205,7 +205,7 @@ export interface ListIssuesFilter {
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
   milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）
-  cycleRef?: string; // Cycle の ID。名前・current は Workspace を1つに絞ったときだけ
+  cycleRef?: string; // Cycle の ID か "none"（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ
   labels?: string[];
   ready?: boolean;
   query?: string;
@@ -244,7 +244,8 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("i.milestone_id = ?");
     params.push(resolveMilestone(db, filter.milestone).id);
   }
-  if (filter.cycleRef) {
+  if (filter.cycleRef?.toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
+  else if (filter.cycleRef) {
     where.push("i.cycle_id = ?");
     params.push(resolveCycleInScope(db, filter.cycleRef, scopeWorkspaceIds(db, filter)));
   }

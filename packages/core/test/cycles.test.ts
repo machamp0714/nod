@@ -183,6 +183,17 @@ describe("Cycle", () => {
     expect(codeOf(() => queryIssues(db, { cycle: "Sprint 2" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => queryIssues(db, { cycle: "999" }))).toBe("NOT_FOUND");
   });
+
+  test("Issue 一覧を cycle=none で Cycle のない Issue だけに絞り込める。none は Cycle の名前に使えない", () => {
+    const { db, ws, me } = setup();
+    sprints(me, ws.id);
+    createIssue(me, { workspaceId: ws.id, title: "入り", cycleRef: "Sprint 2" });
+    createIssue(me, { workspaceId: ws.id, title: "外" });
+    expect(queryIssues(db, { cycle: "none" }).issues.map((i) => i.title)).toEqual(["外"]);
+    expect(queryIssues(db, { cycle: "none", workspace: [ws.key] }).issues.map((i) => i.title)).toEqual(["外"]);
+    expect(codeOf(() => createCycle(me, { workspaceId: ws.id, name: " None ", startDate: "2027-01-01", endDate: "2027-01-02" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => updateCycle(me, ws.id, "Sprint 3", { name: "none" }, clock))).toBe("INVALID_ARGS");
+  });
 });
 
 describe("分析・要約の Cycle 絞り込み", () => {

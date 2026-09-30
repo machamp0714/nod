@@ -9,7 +9,7 @@ export interface IssueQuery {
   status?: Status[]; // どれかに合うもの。省くとすべてのステータス
   project?: string; // Project の名前か ID
   milestone?: string; // Milestone の数字の ID か、Milestone のない Issue だけにする "none"
-  cycle?: string; // Cycle の ID。名前・current は Workspace を1つに絞ったときだけ
+  cycle?: string; // Cycle の ID か、Cycle のない Issue だけにする "none"。名前・current は Workspace を1つに絞ったときだけ
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
   delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ

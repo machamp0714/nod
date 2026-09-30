@@ -21,6 +21,8 @@ describe("Cycle API", () => {
     const updated = await call(app, "POST", `/api/issues/${issue.id}/update`, { cycleRef: String(past.json.id) });
     expect(updated.json.cycle).toEqual({ id: past.json.id, name: "過去" });
     expect((await call(app, "GET", `/api/issues?cycle=${past.json.id}`)).json.issues.map((i: { id: string }) => i.id)).toEqual([issue.id]);
+    const loose = createIssue(me, { workspaceId: ws.id, title: "Cycle の外" });
+    expect((await call(app, "GET", "/api/issues?cycle=none")).json.issues.map((i: { id: string }) => i.id)).toEqual([loose.id]);
     expect((await call(app, "GET", `/api/cycles/${past.json.id}`)).json).toMatchObject({ total: 1, open: 1, issues: [{ id: issue.id }] });
 
     const moved = await call(app, "POST", `/api/cycles/${past.json.id}/move-open`, { to: String(future.id) });

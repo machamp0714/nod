@@ -84,6 +84,9 @@ export interface MilestoneFilterOption extends FilterOption {
 // Milestone のない Issue だけにする条件の値（GET /api/issues の milestone=none）
 export const NO_MILESTONE = "none";
 
+// Cycle のない Issue だけにする条件の値（GET /api/issues の cycle=none。Milestone の none と同じ）
+export const NO_CYCLE = "none";
+
 export interface FilterOptions {
   workspaces: FilterOption[]; // value は Workspace のキー
   projects: FilterOption[]; // value は Project の数字の ID

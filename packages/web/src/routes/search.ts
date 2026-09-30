@@ -54,7 +54,7 @@ export interface IssueListSearch {
   status?: Status[];
   project?: string;
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
-  cycle?: string; // Cycle の数字の ID
+  cycle?: string; // Cycle の数字の ID か "none"（Cycle のない Issue）
   label?: string[];
 }
 
@@ -101,7 +101,7 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   const milestone = typeof raw.milestone === "number" ? String(raw.milestone) : raw.milestone;
   if (typeof milestone === "string" && /^([1-9]\d*|none)$/.test(milestone)) out.milestone = milestone;
   const cycle = typeof raw.cycle === "number" ? String(raw.cycle) : raw.cycle;
-  if (typeof cycle === "string" && /^\d+$/.test(cycle)) out.cycle = cycle;
+  if (typeof cycle === "string" && /^(\d+|none)$/.test(cycle)) out.cycle = cycle;
   const label = stringList(raw.label);
   if (label) out.label = label;
   return out;

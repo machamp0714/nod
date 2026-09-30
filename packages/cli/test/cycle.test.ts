@@ -33,6 +33,8 @@ describe("Cycle CLI", () => {
     expect(created.cycle.name).toBe("S1");
     expect(cli(db, cwd, ["issue", "show", created.id]).stdout).toContain("Cycle: S1");
     expect(cli(db, cwd, ["issue", "list", "--cycle", "S1", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([created.id]);
+    const outside = cli(db, cwd, ["issue", "create", "Cycle の外", "--json"], "me").json;
+    expect(cli(db, cwd, ["issue", "list", "--cycle", "none", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([outside.id]);
     expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  持ち越し候補 1");
     expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).toContain("nod cycle move-open");
 
@@ -56,6 +58,7 @@ describe("Cycle CLI", () => {
     for (const [args, code] of [
       [["cycle", "create", "S2", "--start", "2000-01-14", "--end", "2000-01-20"], "CYCLE_OVERLAP"],
       [["cycle", "create", "current", "--start", "2001-01-01", "--end", "2001-01-02"], "INVALID_ARGS"],
+      [["cycle", "create", "none", "--start", "2001-01-01", "--end", "2001-01-02"], "INVALID_ARGS"],
       [["cycle", "update", "S1"], "INVALID_ARGS"],
       [["cycle", "show", "ない"], "NOT_FOUND"],
       [["cycle", "list", "--tz", "+09:00"], "INVALID_ARGS"],
