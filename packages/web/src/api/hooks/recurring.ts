@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { RecurringIssue, RecurringIssueInput, RecurringRun, Template } from "../types";
+import type { RecurringIssue, RecurringIssueInput, RecurringRun } from "../types";
 import { useApiMutation } from "./shared";
 
 function recurringPath(key: string, rest = ""): string {
@@ -28,9 +28,4 @@ export function useRemoveRecurringIssue(key: string) {
 
 export function useRunRecurringIssues(key: string) {
   return useApiMutation((dryRun: boolean) => apiFetch<RecurringRun>(recurringPath(key, "/run"), { method: "POST", body: { dryRun } }));
-}
-
-// テンプレートは全 Workspace 共通。定期Issueの本文に選ぶ
-export function useTemplates() {
-  return useQuery({ queryKey: queryKeys.templates(), queryFn: () => apiFetch<Template[]>("/templates") });
 }

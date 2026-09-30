@@ -7,9 +7,9 @@ import {
   useRecurringIssues,
   useRemoveRecurringIssue,
   useRunRecurringIssues,
-  useTemplates,
   useUpdateRecurringIssue,
 } from "../api/hooks/recurring";
+import { useTemplates } from "../api/hooks/templates";
 import type { RecurringIssue, RecurringRun, Workspace } from "../api/types";
 import { Icon } from "../components/ui";
 import { KNOWN_ASSIGNEES } from "../lib/issue-edit";
