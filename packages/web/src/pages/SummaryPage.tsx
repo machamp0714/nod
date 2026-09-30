@@ -6,7 +6,7 @@ import { useWorkspaces } from "../api/hooks/shared";
 import { useStatusNames } from "../api/hooks/workspace-labels";
 import { errorMessage } from "../api/errors";
 import type { SummaryItem } from "../api/types";
-import { Icon, PageError, PageLoading } from "../components/ui";
+import { Icon, PageError, PageHeader, PageLoading, PageTitle, Spacer } from "../components/ui";
 import { agentColor, agentInitial } from "../lib/color";
 import {
   actorLabel,
@@ -44,11 +44,11 @@ export function SummaryPage() {
   };
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>最近の動き</h1>
-        <span className={s.spacer} />
+      <PageHeader>
+        <PageTitle>最近の動き</PageTitle>
+        <Spacer />
         <FilterBar search={search} onChange={update} />
-      </header>
+      </PageHeader>
       <div className={s.content}>
         {summary.error ? (
           <PageError message={errorMessage(summary.error)} />

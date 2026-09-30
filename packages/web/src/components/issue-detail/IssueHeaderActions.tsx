@@ -52,8 +52,8 @@ export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive, 
     catch { setError("コピーできませんでした"); }
   }
   return <div className={s.headerActions} ref={root}>
-    <button type="button" className={s.iconButton} aria-label="リンクをコピー" onClick={() => void copy(new URL(`/issues/${encodeURIComponent(issueId)}`, window.location.origin).href)}><LinkIcon size={16} aria-hidden="true" /></button>
-    <button type="button" ref={trigger} className={s.iconButton} aria-label="Issueのメニュー" aria-haspopup="menu" aria-expanded={open} onClick={() => { setMenuError(""); setOpen(!open); }}><Ellipsis size={18} aria-hidden="true" /></button>
+    <button type="button" className={s.iconButton} aria-label="リンクをコピー" onClick={() => void copy(new URL(`/issues/${encodeURIComponent(issueId)}`, window.location.origin).href)}><LinkIcon size={14} aria-hidden="true" /></button>
+    <button type="button" ref={trigger} className={s.iconButton} aria-label="Issueのメニュー" aria-haspopup="menu" aria-expanded={open} onClick={() => { setMenuError(""); setOpen(!open); }}><Ellipsis size={14} aria-hidden="true" /></button>
     {open && <div role="menu" aria-label="Issueの操作" className={s.headerMenu} onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); close(); }
       if (event.key === "Tab") setOpen(false);

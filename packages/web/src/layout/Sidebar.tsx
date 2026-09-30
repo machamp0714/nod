@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useCreateView } from "../api/hooks/views";
-import { Icon, type IconName } from "../components/ui";
+import { Icon, IconButton, type IconName } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
@@ -15,7 +15,7 @@ function NavItem({ to, icon, label, count, askTone }: { to: NavPath; icon: IconN
   return (
     <Link to={to} className={s.item} activeProps={ACTIVE_PROPS} activeOptions={{ includeSearch: false }}>
       <span className={s.itemIcon}>
-        <Icon name={icon} size={16} />
+        <Icon name={icon} />
       </span>
       <span className={s.label}>{label}</span>
       {count !== undefined && <span className={`${s.count} ${askTone && count > 0 ? s.countAsk : ""}`}>{count}</span>}
@@ -28,7 +28,7 @@ function SoonItem({ icon, label }: { icon: IconName; label: string }) {
   return (
     <div className={`${s.item} ${s.soon}`} aria-disabled="true" title="準備中">
       <span className={s.itemIcon}>
-        <Icon name={icon} size={16} />
+        <Icon name={icon} />
       </span>
       <span className={s.label}>{label}</span>
       <span className={s.count}>Soon</span>
@@ -46,12 +46,8 @@ export function Sidebar() {
       <div className={s.top}>
         <span className={s.logo}>n</span>
         <span className={s.name}>nod</span>
-        <button type="button" className={s.iconButton} disabled title="検索（準備中）" aria-label="検索">
-          <Icon name="search" size={15} />
-        </button>
-        <button type="button" className={`${s.iconButton} ${s.bordered}`} disabled title="New Issue（準備中）" aria-label="New Issue">
-          <Icon name="square-pen" size={15} />
-        </button>
+        <IconButton icon="search" label="検索" title="検索（準備中）" disabled />
+        <IconButton icon="square-pen" label="New Issue" title="New Issue（準備中）" bordered disabled />
       </div>
 
       <div className={s.group}>

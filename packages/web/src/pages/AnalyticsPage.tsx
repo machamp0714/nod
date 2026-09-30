@@ -9,7 +9,7 @@ import type { CompletionStats } from "../api/types";
 import { GroupedBars, Legend, LineChart } from "../components/analytics/charts";
 import { LlmSection } from "../components/analytics/LlmSection";
 import { Card, slotsOf } from "../components/analytics/parts";
-import { Icon, PageError, PageLoading } from "../components/ui";
+import { Icon, PageError, PageHeader, PageLoading, PageTitle, Spacer } from "../components/ui";
 import {
   type AnalyticsSearch,
   cleanAnalyticsSearch,
@@ -57,11 +57,11 @@ export function AnalyticsPage() {
         : null);
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>Analytics</h1>
-        <span className={s.spacer} />
+      <PageHeader>
+        <PageTitle>Analytics</PageTitle>
+        <Spacer />
         <FilterBar search={search} by={by} range={range} onChange={update} />
-      </header>
+      </PageHeader>
       <div className={s.content}>
         {blocked ? (
           <PageError message={blocked} />

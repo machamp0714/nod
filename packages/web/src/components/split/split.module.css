@@ -13,23 +13,11 @@
   overflow-y: auto;
 }
 
-.listHeader {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 18px 20px 14px;
-}
-
-.listTitle {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .listCount {
   color: var(--ink3);
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: 400;
 }
 
 .detail {
@@ -126,4 +114,4 @@
   font-size: 12.5px;
 }
 
-.description { margin: -4px 20px 14px; color: var(--ink3); font-size: 12px; line-height: 1.6; }
+.description { margin: 10px 18px; color: var(--ink3); font-size: 12px; line-height: 1.6; }

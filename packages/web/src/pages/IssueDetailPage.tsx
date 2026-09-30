@@ -37,7 +37,7 @@ import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
 import { TitleSection } from "../components/issue-detail/TitleSection";
-import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
+import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
 import { formatDateTime } from "../lib/format";
 import { executionLocation } from "../lib/execution-location";
 import { STATUS_META } from "../lib/meta";
@@ -90,7 +90,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const statusNames = useStatusNames();
   return (
     <div className={s.page}>
-      <header className={s.topBar}>
+      <PageHeader>
         <nav aria-label="パンくず" className={s.crumbs}>
           <WorkspaceBadge workspaceKey={issue.workspace} name={wsName} />
           {issue.project && (
@@ -129,7 +129,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             void deleteIssue.refresh();
           }}
         />
-      </header>
+      </PageHeader>
 
       <div className={s.body}>
         <article className={s.main}>

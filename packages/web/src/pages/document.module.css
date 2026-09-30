@@ -5,21 +5,9 @@
   background: var(--surface);
 }
 
-.topBar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  min-width: 0;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink3);
-}
-
 .crumbLink {
   flex: none;
   color: var(--ink2);
-  font-size: 12.5px;
 }
 
 .crumbLink:hover {
@@ -31,7 +19,8 @@
   overflow: hidden;
   color: var(--ink3);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -146,7 +135,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink3);
   cursor: pointer;

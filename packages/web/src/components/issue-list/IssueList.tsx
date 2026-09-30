@@ -3,7 +3,7 @@ import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
 import { DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
-import { AgentAvatar, Icon, type IconName, Segmented, StatusIcon, WorkspaceBadge } from "../ui";
+import { AgentAvatar, Icon, type IconName, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
 import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
@@ -147,214 +147,221 @@ export function IssueList({
         clearSelection();
       }}
     >
-      <header className={s.header}>
-        <div className={s.headerText}>
-          {crumb && <div className={s.crumb}>{crumb}</div>}
-          <h1 className={s.title}>{title}</h1>
-        </div>
+      <PageHeader>
+        {crumb && (
+          <>
+            <span className={s.crumb}>{crumb}</span>
+            <Icon name="chevron-right" size={12} color="var(--ink3)" />
+          </>
+        )}
+        <PageTitle>{title}</PageTitle>
+        <Spacer />
         {actions && <div className={s.actions}>{actions}</div>}
-      </header>
-      {intro}
+      </PageHeader>
+      {/* Header より下の中身。構成は #182 で nod.pen の 11 Issues に合わせる */}
+      <div className={s.body}>
+        {intro}
 
-      {!mine && <div className={s.cards}>
-        <CountCard
-          label="Ready"
-          description="着手できる状態の Issue"
-          count={counts.ready}
-          tone="ready"
-          icon="circle-play"
-          pressed={tab === "ready"}
-          onClick={() => toggle("ready")}
-        />
-        <CountCard
-          label={nameOfStatus("needs_clarification")}
-          description="未決事項が残っている Issue"
-          count={counts.needsClarification}
-          tone="ask"
-          icon="message-circle-warning"
-          pressed={tab === "needs_clarification"}
-          onClick={() => toggle("needs_clarification")}
-        />
-      </div>}
-
-      <div className={s.toolbar}>
-        <Segmented<ListTab>
-          label="絞り込み"
-          value={tab}
-          onChange={selectTab}
-          items={mine ? [
-            { value: "mine", label: `担当 ${counts.mine}` },
-            { value: "delegated", label: `委任中 ${counts.delegated}` },
-          ] : [
-            { value: "all", label: `All ${counts.all}` },
-            { value: "ready", label: `Ready ${counts.ready}` },
-            { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
-            { value: "delegated", label: `委任中 ${counts.delegated}` },
-          ]}
-        />
-        <div className={s.spacer} />
-        <label className={s.search}>
-          <Icon name="search" />
-          <input
-            className={s.searchInput}
-            aria-label="検索"
-            placeholder="ID・タイトル・説明で検索"
-            value={q}
-            onChange={(event) => onSearchChange({ q: event.target.value })}
+        {!mine && <div className={s.cards}>
+          <CountCard
+            label="Ready"
+            description="着手できる状態の Issue"
+            count={counts.ready}
+            tone="ready"
+            icon="circle-play"
+            pressed={tab === "ready"}
+            onClick={() => toggle("ready")}
           />
-        </label>
-        <label className={s.groupSelect}>
-          グループ化
-          <select
-            aria-label="グループ化"
-            // Board で URL に groupBy=status があるときは「Status」と示し、「なし」を選んで URL から消せるようにする
-            value={layout === "board" && search.groupBy === "status" ? "status" : groupBy ?? "none"}
-            onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
-          >
-            <option value="none">なし</option>
-            {GROUP_OPTIONS.map(([value, label]) => (
-              <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <label className={s.groupSelect}>
-          サブグループ
-          <select
-            aria-label="サブグループ"
-            value={subGroupBy ?? "none"}
-            disabled={!groupBy || layout === "board"}
-            onChange={(event) => onSearchChange({ subGroupBy: event.target.value === "none" ? undefined : event.target.value as IssueGroupKey })}
-          >
-            <option value="none">なし</option>
-            {GROUP_OPTIONS.map(([value, label]) => (
-              <option key={value} value={value} disabled={value === groupBy}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <Segmented<IssueLayout>
-          label="表示"
-          value={layout}
-          onChange={(value) => onSearchChange({ layout: value })}
-          items={[
-            { value: "list", label: "List", icon: "list" },
-            { value: "board", label: "Board", icon: "columns-3" },
-          ]}
-        />
-      </div>
-      <details className={s.displaySettings}>
-        <summary>表示設定</summary>
-        <div className={s.displayOptions}>
-          <label className={s.groupSelect}>並び順
-            <select aria-label="並び順" value={search.sort ?? "default"} onChange={(event) => onSearchChange({ sort: event.target.value as IssueSort })}>
-              <option value="default">既定（Status・優先度・ID）</option>
-              <option value="priority">優先度</option>
-              <option value="createdAt">作成日時</option>
-              <option value="updatedAt">更新日時</option>
-              <option value="title">タイトル</option>
-              <option value="estimate">見積もり</option>
-              <option value="dueDate">期限</option>
-            </select>
-          </label>
-          <label className={s.groupSelect}>方向
-            <select aria-label="並び順の方向" value={search.direction ?? "asc"} onChange={(event) => onSearchChange({ direction: event.target.value as SortDirection })}>
-              <option value="asc">昇順</option><option value="desc">降順</option>
-            </select>
-          </label>
-          <fieldset className={s.columnSettings}>
-            <legend>表示するIssue</legend>
-            <label>
-              <input type="checkbox" checked={search.showCompleted !== false} onChange={(event) => onSearchChange({ showCompleted: event.target.checked })} />
-              完了済みIssueを表示
-            </label>
-            <label>
-              <input type="checkbox" checked={search.showChildren !== false} onChange={(event) => onSearchChange({ showChildren: event.target.checked })} />
-              子Issueを表示
-            </label>
-          </fieldset>
-          <fieldset className={s.columnSettings} disabled={layout === "board"}>
-            <legend>リストの表示列（ID・Titleは常に表示）</legend>
-            {ISSUE_COLUMNS.map((column) => (
-              <label key={column}>
-                <input type="checkbox" checked={columns.includes(column)} onChange={(event) => onSearchChange({ columns: ISSUE_COLUMNS.filter((key) => key === column ? event.target.checked : columns.includes(key)) })} />
-                {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR", estimate: "見積もり", dueDate: "期限" }[column]}
-              </label>
-            ))}
-          </fieldset>
-        </div>
-      </details>
-      {selectable ? (
-        // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
-        <div className={s.selectAllRow}>
-          <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} inputRef={selectAllRef} />
-          {filterBar}
-        </div>
-      ) : filterBar}
+          <CountCard
+            label={nameOfStatus("needs_clarification")}
+            description="未決事項が残っている Issue"
+            count={counts.needsClarification}
+            tone="ask"
+            icon="message-circle-warning"
+            pressed={tab === "needs_clarification"}
+            onClick={() => toggle("needs_clarification")}
+          />
+        </div>}
 
-      {error ? (
-        <p role="alert" className={`${s.message} ${s.messageError}`}>
-          {error}
-        </p>
-      ) : loading ? (
-        <p role="status" className={s.message}>
-          読み込み中…
-        </p>
-      ) : delegated && counts.delegated === 0 ? (
-        <div className={s.emptyDelegated}>
-          <Icon name="bot" size={24} color="var(--ink3)" />
-          LLM に委任中の Issue はありません
+        <div className={s.toolbar}>
+          <Segmented<ListTab>
+            label="絞り込み"
+            value={tab}
+            onChange={selectTab}
+            items={mine ? [
+              { value: "mine", label: `担当 ${counts.mine}` },
+              { value: "delegated", label: `委任中 ${counts.delegated}` },
+            ] : [
+              { value: "all", label: `All ${counts.all}` },
+              { value: "ready", label: `Ready ${counts.ready}` },
+              { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
+              { value: "delegated", label: `委任中 ${counts.delegated}` },
+            ]}
+          />
+          <div className={s.spacer} />
+          <label className={s.search}>
+            <Icon name="search" />
+            <input
+              className={s.searchInput}
+              aria-label="検索"
+              placeholder="ID・タイトル・説明で検索"
+              value={q}
+              onChange={(event) => onSearchChange({ q: event.target.value })}
+            />
+          </label>
+          <label className={s.groupSelect}>
+            グループ化
+            <select
+              aria-label="グループ化"
+              // Board で URL に groupBy=status があるときは「Status」と示し、「なし」を選んで URL から消せるようにする
+              value={layout === "board" && search.groupBy === "status" ? "status" : groupBy ?? "none"}
+              onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
+            >
+              <option value="none">なし</option>
+              {GROUP_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className={s.groupSelect}>
+            サブグループ
+            <select
+              aria-label="サブグループ"
+              value={subGroupBy ?? "none"}
+              disabled={!groupBy || layout === "board"}
+              onChange={(event) => onSearchChange({ subGroupBy: event.target.value === "none" ? undefined : event.target.value as IssueGroupKey })}
+            >
+              <option value="none">なし</option>
+              {GROUP_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value} disabled={value === groupBy}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <Segmented<IssueLayout>
+            label="表示"
+            value={layout}
+            onChange={(value) => onSearchChange({ layout: value })}
+            items={[
+              { value: "list", label: "List", icon: "list" },
+              { value: "board", label: "Board", icon: "columns-3" },
+            ]}
+          />
         </div>
-      ) : tab === "mine" && counts.mine === 0 ? (
-        // Pencil「My issues｜担当 空状態（#162）」
-        <div className={s.emptyDelegated}>
-          <Icon name="circle-user" size={24} color="var(--ink3)" />
-          担当している Issue はありません
-        </div>
-      ) : groupBy ? (
-        groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
-          groups.map((group) => (
-            <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
-              <GroupHeading
-                by={groupBy}
-                group={group}
-                delegated={delegated}
-                select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
-              />
-              {layout === "board" ? <IssueBoard rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
-                group.subgroups.map((subgroup) => (
-                  <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
-                    <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
-                    {table(subgroup.rows, true)}
-                  </section>
-                ))
-              ) : table(group.rows)}
-            </section>
-          ))
-        )
-      ) : layout === "list" ? (
-        table(visible)
-      ) : (
-        <IssueBoard rows={visible} nameOfStatus={nameOfStatus} />
-      )}
-      {selectedIssues.length > 0 && (
-        <BulkActionBar
-          selected={selectedIssues}
-          labels={knownLabels}
-          nameOfStatus={nameOfStatus}
-          onClear={clearSelection}
-          onUpdated={(count) => {
-            clearSelection();
-            setToast(`${count}件を更新しました`);
-            // バーが消えてもキーボードの位置を失わないよう、全選択のチェックボックスへ戻す
-            selectAllRef.current?.focus();
-          }}
-        />
-      )}
-      {toast && (
-        <div role="status" className={s.bulkToast}>
-          <Icon name="circle-check" size={14} color="var(--ready)" />
-          {toast}
-        </div>
-      )}
+        <details className={s.displaySettings}>
+          <summary>表示設定</summary>
+          <div className={s.displayOptions}>
+            <label className={s.groupSelect}>並び順
+              <select aria-label="並び順" value={search.sort ?? "default"} onChange={(event) => onSearchChange({ sort: event.target.value as IssueSort })}>
+                <option value="default">既定（Status・優先度・ID）</option>
+                <option value="priority">優先度</option>
+                <option value="createdAt">作成日時</option>
+                <option value="updatedAt">更新日時</option>
+                <option value="title">タイトル</option>
+                <option value="estimate">見積もり</option>
+                <option value="dueDate">期限</option>
+              </select>
+            </label>
+            <label className={s.groupSelect}>方向
+              <select aria-label="並び順の方向" value={search.direction ?? "asc"} onChange={(event) => onSearchChange({ direction: event.target.value as SortDirection })}>
+                <option value="asc">昇順</option><option value="desc">降順</option>
+              </select>
+            </label>
+            <fieldset className={s.columnSettings}>
+              <legend>表示するIssue</legend>
+              <label>
+                <input type="checkbox" checked={search.showCompleted !== false} onChange={(event) => onSearchChange({ showCompleted: event.target.checked })} />
+                完了済みIssueを表示
+              </label>
+              <label>
+                <input type="checkbox" checked={search.showChildren !== false} onChange={(event) => onSearchChange({ showChildren: event.target.checked })} />
+                子Issueを表示
+              </label>
+            </fieldset>
+            <fieldset className={s.columnSettings} disabled={layout === "board"}>
+              <legend>リストの表示列（ID・Titleは常に表示）</legend>
+              {ISSUE_COLUMNS.map((column) => (
+                <label key={column}>
+                  <input type="checkbox" checked={columns.includes(column)} onChange={(event) => onSearchChange({ columns: ISSUE_COLUMNS.filter((key) => key === column ? event.target.checked : columns.includes(key)) })} />
+                  {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR", estimate: "見積もり", dueDate: "期限" }[column]}
+                </label>
+              ))}
+            </fieldset>
+          </div>
+        </details>
+        {selectable ? (
+          // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
+          <div className={s.selectAllRow}>
+            <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} inputRef={selectAllRef} />
+            {filterBar}
+          </div>
+        ) : filterBar}
+
+        {error ? (
+          <p role="alert" className={`${s.message} ${s.messageError}`}>
+            {error}
+          </p>
+        ) : loading ? (
+          <p role="status" className={s.message}>
+            読み込み中…
+          </p>
+        ) : delegated && counts.delegated === 0 ? (
+          <div className={s.emptyDelegated}>
+            <Icon name="bot" size={24} color="var(--ink3)" />
+            LLM に委任中の Issue はありません
+          </div>
+        ) : tab === "mine" && counts.mine === 0 ? (
+          // Pencil「My issues｜担当 空状態（#162）」
+          <div className={s.emptyDelegated}>
+            <Icon name="circle-user" size={24} color="var(--ink3)" />
+            担当している Issue はありません
+          </div>
+        ) : groupBy ? (
+          groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
+            groups.map((group) => (
+              <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
+                <GroupHeading
+                  by={groupBy}
+                  group={group}
+                  delegated={delegated}
+                  select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
+                />
+                {layout === "board" ? <IssueBoard rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
+                  group.subgroups.map((subgroup) => (
+                    <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
+                      <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
+                      {table(subgroup.rows, true)}
+                    </section>
+                  ))
+                ) : table(group.rows)}
+              </section>
+            ))
+          )
+        ) : layout === "list" ? (
+          table(visible)
+        ) : (
+          <IssueBoard rows={visible} nameOfStatus={nameOfStatus} />
+        )}
+        {selectedIssues.length > 0 && (
+          <BulkActionBar
+            selected={selectedIssues}
+            labels={knownLabels}
+            nameOfStatus={nameOfStatus}
+            onClear={clearSelection}
+            onUpdated={(count) => {
+              clearSelection();
+              setToast(`${count}件を更新しました`);
+              // バーが消えてもキーボードの位置を失わないよう、全選択のチェックボックスへ戻す
+              selectAllRef.current?.focus();
+            }}
+          />
+        )}
+        {toast && (
+          <div role="status" className={s.bulkToast}>
+            <Icon name="circle-check" size={14} color="var(--ready)" />
+            {toast}
+          </div>
+        )}
+      </div>
     </div>
     {preview && (
       <PreviewPane

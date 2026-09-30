@@ -5,7 +5,7 @@ import { useCreateInitiative, useInitiatives } from "../api/hooks/initiatives";
 import type { InitiativeSummary } from "../api/types";
 import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
-import { Button, Icon, PageError, ProgressBar, Segmented } from "../components/ui";
+import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Segmented, Spacer, ViewBar } from "../components/ui";
 import { INITIATIVE_STATUS_META } from "../lib/initiatives";
 import { filterProjects } from "../lib/projects";
 import { cleanProjectsSearch, type ProjectTab } from "../routes/search";
@@ -23,8 +23,14 @@ export function InitiativesPage() {
   const items = initiatives.data ? filterProjects(initiatives.data, tab) : undefined;
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>Initiatives</h1>
+      <PageHeader>
+        <PageTitle>Initiatives</PageTitle>
+        <Spacer />
+        <Button icon="plus" onClick={() => setCreating(true)}>
+          New initiative
+        </Button>
+      </PageHeader>
+      <ViewBar>
         <Segmented<ProjectTab>
           label="Initiative の絞り込み"
           value={tab}
@@ -35,11 +41,7 @@ export function InitiativesPage() {
             { value: "all", label: "All" },
           ]}
         />
-        <span className={s.spacer} />
-        <Button icon="plus" onClick={() => setCreating(true)}>
-          New initiative
-        </Button>
-      </header>
+      </ViewBar>
       {initiatives.error ? (
         <PageError message={errorMessage(initiatives.error)} />
       ) : (

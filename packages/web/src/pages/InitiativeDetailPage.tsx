@@ -9,7 +9,7 @@ import { useWorkspaces } from "../api/hooks/shared";
 import type { InitiativeDetail, InitiativeStatus } from "../api/types";
 import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
-import { Button, Icon, PageError, PageLoading, ProgressBar, WorkspaceBadge } from "../components/ui";
+import { Button, Icon, PageError, PageHeader, PageLoading, ProgressBar, WorkspaceBadge } from "../components/ui";
 import { INITIATIVE_STATUS_META, INITIATIVE_STATUSES } from "../lib/initiatives";
 import { withWorkspaces } from "../lib/projects";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -36,13 +36,13 @@ function InitiativeDetail({ initiative }: { initiative: InitiativeDetail }) {
   const [editing, setEditing] = useState(false);
   return (
     <div className={s.page}>
-      <header className={s.header}>
+      <PageHeader>
         <Link to="/initiatives" className={s.crumb}>
           Initiatives
         </Link>
         <Icon name="chevron-right" size={12} color="var(--ink3)" />
         <span className={s.headerTitle}>{initiative.name}</span>
-      </header>
+      </PageHeader>
       <div className={s.content}>
         <section className={s.overview} aria-label="Initiative の概要">
           {/* Pencil b8IOOd の見出し行（ps5GZ）。右端の「編集」で名前・説明を直す（#154） */}

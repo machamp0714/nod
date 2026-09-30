@@ -5,18 +5,8 @@
   background: var(--surface);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
-}
-
 .crumbWorkspace {
   color: var(--ink2);
-  font-size: 12.5px;
 }
 
 .crumbSep {
@@ -26,8 +16,6 @@
 
 .crumbCurrent {
   color: var(--ink);
-  font-size: 14px;
-  font-weight: 500;
 }
 
 .content {
@@ -299,14 +287,15 @@
 }
 
 .smallButton {
-  padding: 3px 9px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  height: var(--control-height-sm);
 }
 
 .smallButton:disabled {
@@ -480,7 +469,7 @@
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   background: none;
   color: var(--ink3);
   cursor: pointer;

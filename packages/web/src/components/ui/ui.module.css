@@ -88,23 +88,64 @@
   border-radius: 2px;
 }
 
+/* nod.pen のボタン：高さ 28（左右 12）または 24（左右 10）の円形、文字 12 / 500 */
 .button {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-height);
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.buttonSm {
+  height: var(--control-height-sm);
+  padding: 0 10px;
 }
 
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* nod.pen のアイコンボタン：28×28 の円形、アイコン 14 */
+.iconButton {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton[aria-expanded="true"] {
+  background: var(--sunken);
+}
+
+.iconButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.iconButtonBordered {
+  border: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .primary {
@@ -123,24 +164,26 @@
   color: #FFFFFF;
 }
 
+/* nod.pen のタブ：高さ 28 の円形、左右 10、文字 12 / 500、間隔 4、枠線 1。選択中は $sunken */
 .segmented {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--sunken);
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .segment {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border: 0;
-  border-radius: 5px;
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -155,9 +198,88 @@
 }
 
 .segmentActive {
-  background: var(--surface);
+  background: var(--sunken);
   color: var(--ink);
-  font-weight: 600;
+}
+
+/* nod.pen のメニュー（Property Menu、J0qDy）：角丸 12、項目の高さ 32、項目の角丸 8 */
+.menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 1px 2px #0000001a;
+}
+
+.menuItem {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menuItem svg {
+  flex: none;
+  color: var(--ink2);
+}
+
+.menuItem:hover,
+.menuItem:focus-visible,
+.menuItem[aria-checked="true"] {
+  background: var(--sunken);
+}
+
+/* nod.pen の各画面の Header：高さ 44、左 18 と右 12、文字 13 / 500、下線 1 */
+.pageHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: var(--header-height);
+  min-width: 0;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pageTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* nod.pen の View Bar：Header の下の高さ 43 の行。タブを左、アイコンボタンを右に置く */
+.viewBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--view-bar-height);
+  padding: 0 12px 0 8px;
+}
+
+.spacer {
+  flex: 1;
 }
 
 .activity {

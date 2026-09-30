@@ -4,7 +4,7 @@ import { errorMessage, isNotFoundError } from "../api/errors";
 import { useWorkspaces } from "../api/hooks/shared";
 import { useDeleteWorkspaceRules, useSaveWorkspaceRules, useWorkspaceRules } from "../api/hooks/workspace-rules";
 import type { Workspace, WorkspaceRules } from "../api/types";
-import { Button, Icon, PageError, PageLoading } from "../components/ui";
+import { Button, Icon, PageError, PageHeader, PageLoading } from "../components/ui";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "../lib/workspace-rules";
 import { NotFoundMessage } from "./NotFoundPage";
 import { AutomationSection } from "./WorkspaceAutomationSettings";
@@ -40,13 +40,13 @@ export function WorkspaceSettingsPage() {
   if (rules.data === undefined) return <PageLoading />;
   return (
     <div className={s.page}>
-      <header className={s.header}>
+      <PageHeader>
         <span className={s.crumbWorkspace}>{workspace.name}</span>
         <span className={s.crumbSep}>
           <Icon name="chevron-right" size={12} />
         </span>
         <span className={s.crumbCurrent}>設定</span>
-      </header>
+      </PageHeader>
       <div className={s.content}>
         <h1 className={s.title}>{workspace.name} の設定</h1>
         {/* 保存済みの本文が変わったら（別の場所での更新を含む）下書きを作り直す */}

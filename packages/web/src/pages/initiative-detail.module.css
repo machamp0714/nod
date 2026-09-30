@@ -5,18 +5,9 @@
   background: var(--surface);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
-}
-
 .crumb {
+  flex: none;
   color: var(--ink2);
-  font-size: 12.5px;
 }
 
 .crumb:hover {
@@ -24,8 +15,11 @@
 }
 
 .headerTitle {
-  font-size: 14px;
-  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content {
@@ -224,7 +218,7 @@
   width: 22px;
   height: 22px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink3);
   cursor: pointer;

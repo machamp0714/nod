@@ -157,14 +157,15 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  height: var(--control-height);
 }
 
 .button:disabled {
@@ -229,21 +230,21 @@
 
 .segmented {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
+  gap: 4px;
 }
 
 .segment {
-  padding: 3px 10px;
-  border: none;
-  border-radius: var(--radius);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   font-size: 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height);
+  font-weight: 500;
 }
 
 .segmentOn {
@@ -257,14 +258,15 @@
 }
 
 .day {
-  width: 26px;
-  height: 26px;
+  width: var(--control-height);
+  height: var(--control-height);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   font-size: 12px;
   cursor: pointer;
+  padding: 0;
 }
 
 .dayOn {
@@ -309,7 +311,7 @@
   width: 22px;
   height: 22px;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   cursor: pointer;

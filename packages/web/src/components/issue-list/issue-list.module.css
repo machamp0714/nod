@@ -1,30 +1,22 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
   min-height: 100%;
-  padding: 24px 28px;
 }
 
-.header {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.headerText {
+/* Header より下の中身 */
+.body {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 20px;
   min-width: 0;
+  padding: 24px 28px;
 }
 
 .actions {
   display: flex;
   flex: none;
-  flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   gap: 8px;
 }
@@ -39,16 +31,14 @@
   color: var(--fail);
 }
 
+/* Header のパンくず（文字は Header の 13 / 500 を継ぐ） */
 .crumb {
-  color: var(--ink3);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+  flex: none;
+  color: var(--ink2);
 }
 
-.title {
-  font-size: 22px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
+.crumb a:hover {
+  color: var(--accent);
 }
 
 .cards {
@@ -129,11 +119,12 @@
   align-items: center;
   gap: 8px;
   width: 220px;
-  padding: 6px 10px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink3);
+  height: var(--control-height);
 }
 
 .searchInput {
@@ -369,8 +360,9 @@
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 6px;
+  border-radius: var(--radius-md);
+  padding: 0 6px;
+  height: var(--control-height);
 }
 .workspaceGroup { min-width: 0; }
 .groupHeading {
@@ -448,14 +440,15 @@
   align-items: center;
   gap: 4px;
   margin-top: 4px;
-  padding: 3px 8px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  height: var(--control-height-sm);
 }
 .table tbody tr:not(:hover, :focus-within) .previewButton {
   position: absolute;
@@ -477,7 +470,8 @@
   flex-direction: column;
   gap: 18px;
   width: 440px;
-  height: 100vh;
+  /* Main のカードの内側の高さ */
+  height: var(--main-height);
   overflow-y: auto;
   padding: 16px 24px;
   border-left: 1px solid var(--line);
@@ -492,7 +486,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   cursor: pointer;
@@ -620,13 +614,15 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 9px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
   cursor: pointer;
+  height: var(--control-height-sm);
+  font-weight: 500;
 }
 .bulkDropdown:disabled { cursor: progress; opacity: 0.6; }
 .bulkDropdown[aria-expanded="true"] { background: var(--sunken); }
@@ -634,14 +630,15 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 8px;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  height: var(--control-height-sm);
 }
 .bulkClear:hover, .bulkDropdown:hover { background: var(--sunken); }
 .bulkPopover {
@@ -652,26 +649,27 @@
   width: 240px;
   max-height: 360px;
   overflow-y: auto;
-  padding: 4px;
+  padding: 6px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: 0 1px 2px #0000001a;
 }
-.bulkMenu { display: flex; flex-direction: column; gap: 2px; }
-.bulkMenu [role="menu"] { display: flex; flex-direction: column; gap: 2px; }
+.bulkMenu { display: flex; flex-direction: column; gap: 0; }
+.bulkMenu [role="menu"] { display: flex; flex-direction: column; gap: 0; }
 .bulkMenu button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 0 8px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
+  min-height: 32px;
 }
 .bulkMenu button:hover, .bulkMenu button:focus-visible { background: var(--sunken); }
 .bulkSearch { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
@@ -689,14 +687,15 @@
 .bulkForm input { padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); font-size: 12.5px; }
 .bulkFormActions { display: flex; justify-content: flex-end; gap: 6px; }
 .bulkApply {
-  padding: 4px 10px;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: #fff;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  height: var(--control-height-sm);
 }
 .bulkApply:disabled { opacity: 0.5; cursor: default; }
 .bulkError { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--fail-soft); }

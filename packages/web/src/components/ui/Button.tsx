@@ -4,6 +4,7 @@ import s from "./ui.module.css";
 
 export function Button({
   variant = "secondary",
+  size = "md",
   type = "button",
   icon,
   children,
@@ -13,6 +14,7 @@ export function Button({
   onClick,
 }: {
   variant?: "primary" | "secondary" | "danger" | "destructive" | "soft";
+  size?: "md" | "sm"; // 高さ 28（左右 12）と 24（左右 10）
   type?: "button" | "submit";
   icon?: IconName;
   children: ReactNode;
@@ -24,9 +26,46 @@ export function Button({
   const variantClass =
     variant === "primary" ? s.primary : variant === "danger" ? s.danger : variant === "destructive" ? s.destructive : variant === "soft" ? s.soft : "";
   return (
-    <button type={type} className={`${s.button} ${variantClass} ${className ?? ""}`} disabled={disabled} title={title} onClick={onClick}>
+    <button type={type} className={`${s.button} ${size === "sm" ? s.buttonSm : ""} ${variantClass} ${className ?? ""}`} disabled={disabled} title={title} onClick={onClick}>
       {icon && <Icon name={icon} />}
       {children}
+    </button>
+  );
+}
+
+// 28×28 の円形のアイコンボタン。文字がないため、label を aria-label と title にする
+export function IconButton({
+  icon,
+  label,
+  bordered,
+  disabled,
+  title,
+  className,
+  onClick,
+  ...aria
+}: {
+  icon: IconName;
+  label: string;
+  bordered?: boolean;
+  disabled?: boolean;
+  title?: string;
+  className?: string;
+  onClick?: () => void;
+  "aria-haspopup"?: "menu" | "dialog" | "listbox";
+  "aria-expanded"?: boolean;
+  "aria-pressed"?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${s.iconButton} ${bordered ? s.iconButtonBordered : ""} ${className ?? ""}`}
+      aria-label={label}
+      title={title ?? label}
+      disabled={disabled}
+      onClick={onClick}
+      {...aria}
+    >
+      <Icon name={icon} />
     </button>
   );
 }

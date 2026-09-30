@@ -6,7 +6,7 @@ import { useWorkspaces } from "../api/hooks/shared";
 import type { CycleSummary } from "../api/types";
 import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
-import { Button, Icon, PageError, ProgressBar, WorkspaceBadge } from "../components/ui";
+import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Spacer, WorkspaceBadge } from "../components/ui";
 import { CYCLE_STATE_LABEL, formatCyclePeriod } from "../lib/cycles";
 import s from "./projects.module.css";
 
@@ -27,11 +27,11 @@ export function CyclesPage() {
   );
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>Cycles</h1>
-        <span className={s.spacer} />
+      <PageHeader>
+        <PageTitle>Cycles</PageTitle>
+        <Spacer />
         {newButton}
-      </header>
+      </PageHeader>
       {error ? (
         <PageError message={errorMessage(error)} />
       ) : !cycles.data || !workspaces.data ? (

@@ -8,12 +8,13 @@
 }
 
 .control select {
-  padding: 6px 10px;
+  padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+  height: var(--control-height);
 }
 
 .control select:focus-visible {
