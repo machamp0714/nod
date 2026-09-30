@@ -48,8 +48,9 @@ export function TemplatesSection({ onSaved }: { onSaved: (message: string) => vo
               <ul className={s.labelRows} aria-label="テンプレートの一覧">
                 {templates.data.map((template) =>
                   editing === template.name ? (
+                    // 保存済みの本文が変わったら（別の場所での更新を含む）下書きを作り直す。作業規約・定期Issue と同じ
                     <TemplateEditRow
-                      key={template.name}
+                      key={`${template.name}:${template.updatedAt}`}
                       template={template}
                       onDone={() => {
                         setEditing(null);

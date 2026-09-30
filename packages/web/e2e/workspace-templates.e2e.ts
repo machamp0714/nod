@@ -87,6 +87,19 @@ test("CLI など別の場所での登録・置き換え・削除を表示し、�
   expect((await nod.me.listTemplates()).map((t) => t.name)).toEqual(["bug"]);
 });
 
+test("編集中のテンプレート自身が別の場所で置き換わったら、古い本文で上書きし戻さない", async ({ page, nod }) => {
+  await nod.me.saveTemplate({ name: "bug", body: "v1" });
+  await page.goto("/workspaces/API/settings");
+  const section = templatesSection(page);
+  await section.getByRole("button", { name: "bug を編集" }).click();
+  const body = section.getByRole("textbox", { name: "bug の本文" });
+  await expect(body).toHaveValue("v1");
+  await nod.me.saveTemplate({ name: "bug", body: "v2" });
+  await expect(body).toHaveValue("v2");
+  await expect(section.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  expect((await nod.me.listTemplates())[0]!.body).toBe("v2");
+});
+
 test.describe("保存の失敗", () => {
   test.use({ allowedConsoleErrors: [/status of (404|500)/] });
 
