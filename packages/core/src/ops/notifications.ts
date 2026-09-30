@@ -197,6 +197,23 @@ function inList(ids: number[]): string {
   return ids.map(() => "?").join(", ");
 }
 
+// 既読を未読に戻す（#161）。ids なら指定したもの、Issue なら一覧に出ている中で最新の1件だけを戻す
+// （スヌーズの期限が来たときと同じ規則。古い履歴まで未読にして件数を膨らませない）。
+// すでに未読のものとスヌーズ中のものはそのまま。updated は今回未読に戻した件数
+export function markNotificationsUnread(ctx: OpCtx, input: NotificationTarget): { updated: number } {
+  requireHuman(ctx, "通知を未読に");
+  return tx(ctx.db, () => {
+    const ids = targetIds(ctx, input, "未読に戻す");
+    const ts = now();
+    const shown = `deleted_at IS NULL AND (snoozed_until IS NULL OR snoozed_until <= ?) AND id IN (${inList(ids)})`;
+    const target = input.ids !== undefined ? "" : ` AND id = (SELECT MAX(id) FROM notifications WHERE ${shown})`;
+    const params = input.ids !== undefined ? [ts, ...ids] : [ts, ...ids, ts, ...ids];
+    return {
+      updated: ctx.db.query(`UPDATE notifications SET read_at = NULL WHERE read_at IS NOT NULL AND ${shown}${target}`).run(...params).changes,
+    };
+  });
+}
+
 // until まで一覧から隠す（Triage の Issue の Snooze とは別）。期限が来たら、Issue ごとに最新の1件だけを未読として出し直す。
 // そのため、スヌーズした時点で最新以外の未読は既読にする。
 // 期限までに同じ Issue へ新しい通知が届いたら、そこで解く（releaseSnoozeOnArrival）

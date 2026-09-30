@@ -7,6 +7,7 @@ import {
   isSubscribed,
   listNotifications,
   markNotificationsRead,
+  markNotificationsUnread,
   NOTIFICATION_READ_LIMIT,
   NOTIFY_EVENT_TYPES,
   restoreNotifications,
@@ -745,5 +746,101 @@ describe("通知の削除（#44）", () => {
     const { me, a } = seeded();
     deleteNotifications(me, { issueRef: a.id });
     expect(markNotificationsRead(me, { all: true }).updated).toBe(1);
+  });
+});
+
+describe("通知を未読に戻す（#161）", () => {
+  const FUTURE = "2999-01-01T09:00:00+09:00";
+  function seeded() {
+    const s = setup();
+    const a = createIssue(s.me, { workspaceId: s.ws.id, title: "検索" });
+    const b = createIssue(s.me, { workspaceId: s.ws.id, title: "画面" });
+    subscribeIssue(s.me, a.id);
+    subscribeIssue(s.me, b.id);
+    commentIssue(s.llm, a.id, "a1");
+    commentIssue(s.llm, a.id, "a2");
+    commentIssue(s.llm, b.id, "b1");
+    markNotificationsRead(s.me, { all: true });
+    return { ...s, a, b };
+  }
+  const bodies = (db: import("bun:sqlite").Database) => listNotifications(db).map((n) => n.body);
+
+  test("id を指定すると、指定した既読だけが未読に戻り、既定の一覧にまた出る", () => {
+    const { db, me } = seeded();
+    const a1 = listNotifications(db, { includeRead: true }).find((n) => n.body === "a1")!;
+    expect(markNotificationsUnread(me, { ids: [a1.id] })).toEqual({ updated: 1 });
+    expect(listNotifications(db)).toMatchObject([{ id: a1.id, body: "a1", readAt: null }]);
+    // すでに未読のものは数えず、エラーにもしない。同じ id を重ねて渡しても1件
+    expect(markNotificationsUnread(me, { ids: [a1.id, a1.id] })).toEqual({ updated: 0 });
+    // 未読に戻したものは、また既読にできる
+    expect(markNotificationsRead(me, { ids: [a1.id] }).updated).toBe(1);
+  });
+
+  test("Issue 単位では、その Issue の最新の1件だけを未読に戻す", () => {
+    const { db, me, a } = seeded();
+    expect(markNotificationsUnread(me, { issueRef: a.id })).toEqual({ updated: 1 });
+    expect(bodies(db)).toEqual(["a2"]);
+    expect(markNotificationsUnread(me, { issueRef: a.id })).toEqual({ updated: 0 });
+    expect(listNotifications(db, { includeRead: true })).toHaveLength(3);
+  });
+
+  test("スヌーズ中と削除済みの通知は未読に戻さない", () => {
+    const { db, me, a, b } = seeded();
+    const all = listNotifications(db, { includeRead: true });
+    const a2 = all.find((n) => n.body === "a2")!;
+    const b1 = all.find((n) => n.body === "b1")!;
+    // スヌーズは最新の1件を未読にして隠す。ここでは既読のまま隠れた状態を作る
+    snoozeNotifications(me, { ids: [b1.id], until: FUTURE });
+    db.query("UPDATE notifications SET read_at = ? WHERE id = ?").run("2026-01-01T00:00:00.000Z", b1.id);
+    expect(markNotificationsUnread(me, { ids: [b1.id] })).toEqual({ updated: 0 });
+    expect(markNotificationsUnread(me, { issueRef: b.id })).toEqual({ updated: 0 });
+    expect(listNotifications(db, { snoozed: true })[0]?.readAt).not.toBeNull();
+
+    // 削除した最新は飛ばし、残っている中の最新を戻す。削除済みの id は NOT_FOUND
+    deleteNotifications(me, { ids: [a2.id] });
+    expect(codeOf(() => markNotificationsUnread(me, { ids: [a2.id] }))).toBe("NOT_FOUND");
+    expect(markNotificationsUnread(me, { issueRef: a.id })).toEqual({ updated: 1 });
+    expect(bodies(db)).toEqual(["a1"]);
+  });
+
+  test("LLM は通知を未読に戻せない", () => {
+    const { db, llm, a } = seeded();
+    expect(codeOf(() => markNotificationsUnread(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(listNotifications(db)).toEqual([]);
+  });
+
+  test("指定がない・両方の指定・空や不正な id は INVALID_ARGS、存在しない id・Issue・通知のない Issue は NOT_FOUND で、何も変えない", () => {
+    const { db, me, ws, a } = seeded();
+    const c = createIssue(me, { workspaceId: ws.id, title: "通知なし" });
+    const a1 = listNotifications(db, { includeRead: true }).find((n) => n.body === "a1")!;
+    expect(codeOf(() => markNotificationsUnread(me, {}))).toBe("INVALID_ARGS");
+    expect(codeOf(() => markNotificationsUnread(me, { ids: [a1.id], issueRef: a.id }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => markNotificationsUnread(me, { ids: [] }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => markNotificationsUnread(me, { ids: [0] }))).toBe("INVALID_ARGS");
+    // 一部が存在しないときは、存在するものも戻さない
+    expect(codeOf(() => markNotificationsUnread(me, { ids: [a1.id, 9999] }))).toBe("NOT_FOUND");
+    expect(codeOf(() => markNotificationsUnread(me, { issueRef: "API-999" }))).toBe("NOT_FOUND");
+    expect(codeOf(() => markNotificationsUnread(me, { issueRef: c.id }))).toBe("NOT_FOUND");
+    expect(listNotifications(db)).toEqual([]);
+  });
+
+  test("未読に戻しても Issue の Activity には残さず、スヌーズもできる", () => {
+    const { db, me, a } = seeded();
+    const before = getIssue(db, a.id).activity.length;
+    markNotificationsUnread(me, { issueRef: a.id });
+    expect(getIssue(db, a.id).activity).toHaveLength(before);
+    expect(snoozeNotifications(me, { issueRef: a.id, until: FUTURE }).updated).toBe(2);
+    expect(listNotifications(db)).toEqual([]);
+  });
+
+  test("回答で既読になった LLM の通知も未読に戻せる", () => {
+    const { db, me, llm, ws } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, i.id);
+    askQuestion(llm, i.id, "進めてよいか");
+    answerQuestion(me, i.id, "はい");
+    expect(listNotifications(db)).toEqual([]);
+    expect(markNotificationsUnread(me, { issueRef: i.id })).toEqual({ updated: 1 });
+    expect(listNotifications(db)).toMatchObject([{ kind: "agent", readAt: null }]);
   });
 });

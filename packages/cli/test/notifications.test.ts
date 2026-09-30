@@ -53,6 +53,45 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect((await nod(["issue", "show", "API-1"])).stdout).not.toContain("購読: 購読中");
 });
 
+test("既読の通知を未読に戻せ、LLM は戻せない（#161）", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
+
+  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "subscribe", "API-1"]);
+  await nod(["issue", "comment", "API-1", "原因がわかった"], "claude-code");
+  await nod(["issue", "comment", "API-1", "直した"], "claude-code");
+  await nod(["notification", "read", "--all"]);
+  const all = (await nod(["notification", "list", "--include-read", "--json"])).json as { id: number; body: string }[];
+  const first = all.find((n) => n.body === "原因がわかった")!;
+
+  const denied = await nod(["notification", "unread", "--issue", "API-1", "--json"], "claude-code");
+  expect(denied.exitCode).toBe(1);
+  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  expect((await nod(["notification", "list", "--json"])).json).toEqual([]);
+
+  // --issue は最新の1件だけ、id は指定したものを戻す
+  const byIssue = await nod(["notification", "unread", "--issue", "API-1"]);
+  expect(byIssue.exitCode).toBe(0);
+  expect(byIssue.stdout.trim()).toBe("1 件を未読に戻しました");
+  expect((await nod(["notification", "list", "--json"])).json.map((n: { body: string }) => n.body)).toEqual(["直した"]);
+  expect((await nod(["notification", "list"])).stdout).toContain(" *  API-1");
+  expect((await nod(["inbox"])).stdout).toContain("通知（未読 1）");
+  expect((await nod(["notification", "unread", String(first.id), "--json"])).json).toEqual({ updated: 1 });
+  expect((await nod(["notification", "unread", String(first.id), "--json"])).json).toEqual({ updated: 0 });
+  expect((await nod(["notification", "list", "--json"])).json).toHaveLength(2);
+
+  for (const args of [[], [String(first.id), "--issue", "API-1"], ["abc"]]) {
+    const r = await nod(["notification", "unread", ...args, "--json"]);
+    expect(r.exitCode).toBe(1);
+    expect(r.json.error.code).toBe("INVALID_ARGS");
+  }
+  expect((await nod(["notification", "unread", "9999", "--json"])).json.error.code).toBe("NOT_FOUND");
+  expect((await nod(["notification", "unread", "--issue", "API-9", "--json"])).json.error.code).toBe("NOT_FOUND");
+});
+
 test("通知をスヌーズ・解除でき、LLM は操作できない（#43）", async () => {
   const db = tempDb();
   const repo = makeRepo();

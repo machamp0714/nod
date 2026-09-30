@@ -4,6 +4,7 @@ import {
   listNotifications,
   listReminders,
   markNotificationsRead,
+  markNotificationsUnread,
   type OpCtx,
   restoreNotifications,
   snoozeNotifications,
@@ -51,6 +52,11 @@ export function registerNotificationRoutes(app: Hono, db: Database, me: OpCtx): 
   app.post("/api/notifications/read", async (c) => {
     const body = await readBody(c, ["ids", "issueRef", "all"]);
     return c.json(markNotificationsRead(me, { ids: optIds(body), issueRef: optString(body, "issueRef"), all: optTrue(body, "all") }));
+  });
+  // 既読を未読に戻す（#161）。Issue で指定したら最新の1件だけを戻す
+  app.post("/api/notifications/unread", async (c) => {
+    const body = await readBody(c, ["ids", "issueRef"]);
+    return c.json(markNotificationsUnread(me, { ids: optIds(body), issueRef: optString(body, "issueRef") }));
   });
   // 通知のスヌーズ（#43）。Triage の Issue の Snooze（/api/issues/:id/snooze）とは別
   app.post("/api/notifications/snooze", async (c) => {

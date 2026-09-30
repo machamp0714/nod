@@ -13,6 +13,7 @@ import {
   NOTIFICATION_READ_LIMIT,
   listReminders,
   markNotificationsRead,
+  markNotificationsUnread,
   NodError,
   proposeTriage,
   withdrawTriageProposal,
@@ -104,6 +105,16 @@ export function registerHumanCommands(program: Command): void {
           all: o.all,
         });
         print(cli, r, () => `${r.updated} 件を既読にしました`);
+      }),
+    );
+  notification
+    .command("unread [ids...]")
+    .description("既読の通知を未読に戻す。id（nod notification list --include-read の #番号）か --issue で指定する")
+    .option("--issue <id>", "この Issue の最新の通知1件を未読に戻す")
+    .action(
+      act((cli, _cmd, ids: string[], o: { issue?: string }) => {
+        const r = markNotificationsUnread(cli.ctx, notificationTarget(ids, o.issue));
+        print(cli, r, () => `${r.updated} 件を未読に戻しました`);
       }),
     );
 
