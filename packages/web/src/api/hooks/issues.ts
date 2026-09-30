@@ -72,7 +72,7 @@ export function useIssueRows(query: IssueQuery, enabled = true): IssueRowsState 
   return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, error: null };
 }
 
-// 絞り込みのバーの選択肢。ラベルは、すべての Issue に付いているものを集める
+// 絞り込みのバーの選択肢。ラベルと担当は、すべての Issue に付いているものを集める
 export function useFilterOptions(): FilterOptions {
   const workspaces = useWorkspaces();
   const projects = useProjects();
@@ -92,6 +92,7 @@ export function useFilterOptions(): FilterOptions {
     milestoneRefs: milestones.data,
     cycles: (cycles.data ?? []).map((c) => ({ value: String(c.id), label: cycleLabel(c, cycles.data ?? []) })),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
+    assignees: [...new Set((all.data?.issues ?? []).flatMap((i) => (i.assignee ? [i.assignee] : [])))].sort(),
   };
 }
 

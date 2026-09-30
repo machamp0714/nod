@@ -27,6 +27,13 @@ export function parseStatuses(value: string): Status[] {
   return value.split(",").map((s) => parseStatus(s.trim()));
 }
 
+// 担当での絞り込み（繰り返しとカンマ区切り）。none は未割り当て
+export function parseAssignees(values: string[]): string[] {
+  const names = [...new Set(values.flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean))];
+  if (!names.length) throw new NodError("INVALID_ARGS", "--assignee には担当の名前か none（未割り当て）を指定してください");
+  return names;
+}
+
 export function parseStepStatus(value: string): StepStatus {
   return oneOf(value, STEP_STATUSES, "状態");
 }

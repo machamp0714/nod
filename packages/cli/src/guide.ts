@@ -146,7 +146,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 ## そのほかのコマンド
 
-- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated]\`：\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す
+- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated] [--assignee <名前>] [--mine]\`：\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
 - \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）

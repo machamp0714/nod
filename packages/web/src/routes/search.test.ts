@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   cleanIssueListSearch,
+  cleanMyIssuesSearch,
+  defaultGroupBy,
   type IssueListSearch,
   DEFAULT_ISSUE_COLUMNS,
   replacesIssueListHistory,
@@ -113,4 +115,37 @@ test("archived は真のときだけ残し、知らない値は捨てる", () =>
   for (const value of [false, "false", "0", "yes"]) expect(parseIssueListSearch({ archived: value })).toEqual({});
   expect(cleanIssueListSearch({ archived: true, tab: "all" })).toEqual({ archived: true });
   expect(cleanIssueListSearch({ archived: false })).toEqual({});
+});
+
+describe("担当の絞り込みと My issues（#162）", () => {
+  test("assignee は文字列か配列を受け付け、空と重複を除き、none は小文字にそろえる", () => {
+    expect(parseIssueListSearch({ assignee: "me" })).toEqual({ assignee: ["me"] });
+    expect(parseIssueListSearch({ assignee: ["claude-code", " me ", "", "me", "NONE"] })).toEqual({ assignee: ["claude-code", "me", "none"] });
+    expect(parseIssueListSearch({ assignee: [null, {}] })).toEqual({});
+    expect(cleanIssueListSearch({ assignee: ["me"], tab: "all" })).toEqual({ assignee: ["me"] });
+    expect(cleanIssueListSearch({ assignee: [] })).toEqual({});
+  });
+
+  test("assignee のない既存の URL はそのまま復元する", () => {
+    const search = { tab: "delegated", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", cycle: "none", blocked: false } as const;
+    expect(cleanIssueListSearch(parseIssueListSearch({ ...search }))).toEqual({ ...search, workspace: ["API"], status: ["todo"] });
+  });
+
+  test("My issues の URL は委任中タブだけを残し、担当の条件は持たない", () => {
+    expect(cleanMyIssuesSearch({ tab: "all" })).toEqual({});
+    expect(cleanMyIssuesSearch({ tab: "ready" })).toEqual({});
+    expect(cleanMyIssuesSearch({ tab: "delegated", workspace: ["API"] })).toEqual({ tab: "delegated", workspace: ["API"] });
+    expect(cleanMyIssuesSearch({ assignee: ["codex"], label: ["bug"] })).toEqual({ label: ["bug"] });
+  });
+
+  test("My issues の担当タブは Status でまとめるのが既定で、明示した「なし」は URL に残す", () => {
+    expect(defaultGroupBy(undefined, true)).toBe("status");
+    expect(defaultGroupBy("delegated", true)).toBe("assignee");
+    expect(defaultGroupBy(undefined)).toBeUndefined();
+    expect(cleanMyIssuesSearch({ groupBy: "none" })).toEqual({ groupBy: "none" });
+    expect(cleanMyIssuesSearch({ groupBy: "none", tab: "delegated" })).toEqual({ groupBy: "none", tab: "delegated" });
+    expect(cleanMyIssuesSearch({ subGroupBy: "priority" })).toEqual({ subGroupBy: "priority" });
+    expect(cleanMyIssuesSearch({ subGroupBy: "status" })).toEqual({});
+    expect(cleanIssueListSearch({ groupBy: "none" })).toEqual({});
+  });
 });

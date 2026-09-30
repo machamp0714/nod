@@ -13,6 +13,7 @@ const LINKS = [
   { name: /^Reviews/, url: /\/reviews$/, heading: "Reviews" },
   { name: /^Triage/, url: /\/triage$/, heading: "Triage" },
   { name: "Issues", url: /\/issues$/, heading: "Issues" },
+  { name: "My issues", url: /\/my-issues$/, heading: "My issues" },
   { name: "Projects", url: /\/projects$/, heading: "Projects" },
   { name: "Documents", url: /\/documents$/, heading: "Documents" },
   { name: "仕事", url: /\/views\/1$/, heading: "仕事" },
@@ -22,10 +23,10 @@ for (const link of LINKS) {
   test(`Sidebar の ${link.heading} を押すとその画面に移り、項目が選択中になる`, async ({ page }) => {
     await page.goto(link.heading === "Inbox" ? "/issues" : "/inbox");
     const nav = page.getByRole("navigation", { name: "メイン" });
-    await nav.getByRole("link", { name: link.name }).click();
+    await nav.getByRole("link", { name: link.name, exact: true }).click();
     await expect(page).toHaveURL(link.url);
     await expect(page.getByRole("heading", { level: 1, name: link.heading })).toBeVisible();
-    await expect(nav.getByRole("link", { name: link.name })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: link.name, exact: true })).toHaveAttribute("aria-current", "page");
   });
 }
 
@@ -51,10 +52,9 @@ test.describe("件数", () => {
 test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せず、View を追加は押せる", async ({ page }) => {
   await page.goto("/inbox");
   const nav = page.getByRole("navigation", { name: "メイン" });
-  await expect(nav.getByText("My issues")).toBeVisible();
   await expect(nav.getByText("Favorites")).toBeVisible();
-  await expect(nav.getByRole("link", { name: /My issues|Favorites/ })).toHaveCount(0);
-  await expect(nav.getByText("Soon")).toHaveCount(2);
+  await expect(nav.getByRole("link", { name: "Favorites" })).toHaveCount(0);
+  await expect(nav.getByText("Soon")).toHaveCount(1);
   await expect(nav.getByRole("button", { name: "検索" })).toBeDisabled();
   await expect(nav.getByRole("button", { name: "New Issue" })).toBeDisabled();
   await expect(nav.getByRole("button", { name: "View を追加" })).toBeEnabled();
@@ -66,7 +66,8 @@ test.describe("Issue 詳細", () => {
   test("Issue 詳細を開いているときは Issues を選択中にする", async ({ page }) => {
     await page.goto("/issues/API-12");
     const nav = page.getByRole("navigation", { name: "メイン" });
-    await expect(nav.getByRole("link", { name: "Issues" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "Issues", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "My issues" })).not.toHaveAttribute("aria-current", "page");
   });
 });
 

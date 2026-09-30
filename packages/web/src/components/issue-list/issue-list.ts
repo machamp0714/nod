@@ -39,7 +39,15 @@ export function isDelegated(issue: Pick<Issue, "assignee" | "status">): boolean 
   return issue.assignee != null && issue.assignee !== "me" && issue.status !== "done" && issue.status !== "canceled";
 }
 
-export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTab; q: string; showCompleted?: boolean; showChildren?: boolean }): IssueListRow[] {
+// My issues の担当タブ：担当が私（me）の Issue。ステータスは問わず、完了済みは表示設定に従う
+export function isMine(issue: Pick<Issue, "assignee">): boolean {
+  return issue.assignee === "me";
+}
+
+// 一覧のタブ。mine は My issues だけにあり、URL には書かない（My issues の既定のタブ）
+export type ListTab = IssueTab | "mine";
+
+export function filterRows(rows: readonly IssueListRow[], filter: { tab: ListTab; q: string; showCompleted?: boolean; showChildren?: boolean }): IssueListRow[] {
   const needle = filter.q.trim().toLowerCase();
   return rows.filter((row) => {
     if (filter.showCompleted === false && row.issue.status === "done") return false;
@@ -47,18 +55,20 @@ export function filterRows(rows: readonly IssueListRow[], filter: { tab: IssueTa
     if (filter.tab === "ready" && !row.ready) return false;
     if (filter.tab === "needs_clarification" && row.issue.status !== "needs_clarification") return false;
     if (filter.tab === "delegated" && !isDelegated(row.issue)) return false;
+    if (filter.tab === "mine" && !isMine(row.issue)) return false;
     if (needle === "") return true;
     return [row.issue.id, row.issue.title, row.issue.description ?? ""]
       .some((text) => text.toLowerCase().includes(needle));
   });
 }
 
-export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number; delegated: number } {
+export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number; delegated: number; mine: number } {
   return {
     all: rows.length,
     ready: rows.filter((r) => r.ready).length,
     needsClarification: rows.filter((r) => r.issue.status === "needs_clarification").length,
     delegated: rows.filter((r) => isDelegated(r.issue)).length,
+    mine: rows.filter((r) => isMine(r.issue)).length,
   };
 }
 
@@ -152,8 +162,9 @@ export function groupRows(
 export function effectiveGrouping(
   search: { groupBy?: IssueGroupBy; subGroupBy?: IssueGroupKey; tab?: IssueTab },
   layout: IssueLayout,
+  mine = false,
 ): { groupBy?: IssueGroupKey; subGroupBy?: IssueGroupKey } {
-  const groupBy = search.groupBy ?? defaultGroupBy(search.tab);
+  const groupBy = search.groupBy ?? defaultGroupBy(search.tab, mine);
   if (!groupBy || groupBy === "none" || (layout === "board" && groupBy === "status")) return {};
   if (layout === "board" || !search.subGroupBy || search.subGroupBy === groupBy) return { groupBy };
   return { groupBy, subGroupBy: search.subGroupBy };

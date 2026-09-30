@@ -56,7 +56,11 @@ export interface IssueListSearch {
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
   cycle?: string; // Cycle の数字の ID か "none"（Cycle のない Issue）
   label?: string[];
+  assignee?: string[]; // 担当の名前。"none" は未割り当て
 }
+
+// 担当の絞り込みで未割り当てを指す値（GET /api/issues の assignee=none）
+export const NO_ASSIGNEE = "none";
 
 // TanStack Router は search params を JSON として読むため、配列は配列で、数字だけの値は数値で届く
 function stringList(value: unknown): string[] | undefined {
@@ -104,27 +108,33 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof cycle === "string" && /^(\d+|none)$/.test(cycle)) out.cycle = cycle;
   const label = stringList(raw.label);
   if (label) out.label = label;
+  const assignee = stringList(raw.assignee)?.map((name) => (name.toLowerCase() === NO_ASSIGNEE ? NO_ASSIGNEE : name));
+  if (assignee) out.assignee = [...new Set(assignee)];
   return out;
 }
 
 // タブの既定のグループ化。委任中タブは LLM ごとに見られるよう、グループ化が未指定なら担当でまとめる。
-// URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す
-export function defaultGroupBy(tab: IssueTab | undefined): IssueGroupKey | undefined {
-  return tab === "delegated" ? "assignee" : undefined;
+// URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す。
+// My issues（mine）の担当タブは Status でまとめる（Pencil「My issues｜担当タブ（#162）」）
+export function defaultGroupBy(tab: IssueTab | undefined, mine = false): IssueGroupKey | undefined {
+  if (tab === "delegated") return "assignee";
+  return mine ? "status" : undefined;
 }
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
   return a.length === b.length && b.every((column) => a.includes(column));
 }
 
-export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
+// mine は My issues の URL。タブは担当（既定）と委任中だけで、担当の条件は me に固定するため URL に持たない
+export function cleanIssueListSearch(search: IssueListSearch, mine = false): IssueListSearch {
+  if (mine) search = { ...search, tab: search.tab === "delegated" ? "delegated" : undefined, assignee: undefined };
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
   if (search.columns && !sameColumns(search.columns, DEFAULT_ISSUE_COLUMNS)) out.columns = search.columns;
-  const fallback = defaultGroupBy(search.tab);
+  const fallback = defaultGroupBy(search.tab, mine);
   if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
   else if (search.groupBy === "none" && fallback) out.groupBy = "none";
   const groupBy = search.groupBy ?? fallback;
@@ -142,7 +152,12 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   if (search.milestone) out.milestone = search.milestone;
   if (search.cycle) out.cycle = search.cycle;
   if (search.label?.length) out.label = search.label;
+  if (search.assignee?.length) out.assignee = search.assignee;
   return out;
+}
+
+export function cleanMyIssuesSearch(search: IssueListSearch): IssueListSearch {
+  return cleanIssueListSearch(search, true);
 }
 
 export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearch {

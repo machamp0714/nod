@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { IssueQuery } from "../api/types";
 import {
+  assigneeFilterOptions,
   describeFilter,
   filterFromSearch,
   filterToSearch,
@@ -22,6 +23,7 @@ describe("filterFromSearch と filterToSearch", () => {
 
   test("条件にないキーは undefined にして、URL から消せるようにする", () => {
     expect(filterToSearch({ label: ["bug"] })).toEqual({
+      assignee: undefined,
       workspace: undefined,
       status: undefined,
       project: undefined,
@@ -161,4 +163,30 @@ test("archived は true のときだけ URL・API・チップ・比較に出し�
   const labelOf = { workspace: (k: string) => k, project: (p: string) => p, status: (s: string) => s };
   expect(describeFilter({ archived: true }, labelOf)).toEqual([{ key: "archived", name: "アーカイブ", values: "アーカイブ済みのみ" }]);
   expect(withoutKey({ archived: true, label: ["a"] }, "archived")).toEqual({ label: ["a"] });
+});
+
+describe("担当の条件（#162）", () => {
+  const labelOf = { workspace: (k: string) => k, project: (p: string) => p, status: (s: string) => s };
+
+  test("search params・API のクエリ・比較・チップに担当を通し、none は未割り当てと出す", () => {
+    expect(filterFromSearch({ assignee: ["me", "none"], tab: "ready" })).toEqual({ assignee: ["me", "none"] });
+    expect(filterToSearch({ assignee: ["me"] }).assignee).toEqual(["me"]);
+    expect(filterToSearch({}).assignee).toBeUndefined();
+    expect(issueQueryToParams({ assignee: ["me", "claude-code"], status: ["todo"] })).toBe("?status=todo&assignee=me&assignee=claude-code");
+    expect(sameFilter({ assignee: ["me", "codex"] }, { assignee: ["codex", "me"] })).toBe(true);
+    expect(sameFilter({ assignee: ["me"] }, {})).toBe(false);
+    expect(sameFilter({ assignee: [] }, {})).toBe(true);
+    expect(describeFilter({ assignee: ["me", "claude-code"] }, labelOf)).toEqual([{ key: "assignee", name: "担当", values: "me, claude-code" }]);
+    expect(describeFilter({ assignee: ["none"] }, labelOf)).toEqual([{ key: "assignee", name: "担当", values: "未割り当て" }]);
+    expect(withoutKey({ assignee: ["me"], label: ["a"] }, "assignee")).toEqual({ label: ["a"] });
+  });
+
+  test("選択肢は me・claude-code・codex を先頭に、Issue に現れるほかの担当を名前順で足す", () => {
+    expect(assigneeFilterOptions([])).toEqual(["me", "claude-code", "codex"]);
+    expect(assigneeFilterOptions(["codex", null, "gemini", "aider", "gemini", "me"])).toEqual(["me", "claude-code", "codex", "aider", "gemini"]);
+  });
+
+  test("条件にあって選択肢にない担当（消えた担当など）も、外せるよう選択肢に出す", () => {
+    expect(assigneeFilterOptions(["codex"], ["old-bot", "none", "me"])).toEqual(["me", "claude-code", "codex", "old-bot"]);
+  });
 });

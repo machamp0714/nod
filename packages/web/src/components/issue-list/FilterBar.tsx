@@ -1,10 +1,12 @@
 import type { IssueQuery, Status } from "../../api/types";
 import {
+  assigneeFilterOptions,
   describeFilter,
   type FilterOption,
   type FilterOptions,
   milestoneOptionsFor,
   type MilestoneFilterOption,
+  NO_ASSIGNEE,
   NO_CYCLE,
   NO_MILESTONE,
   toggleValue,
@@ -12,9 +14,10 @@ import {
   withProject,
 } from "../../lib/issue-filter";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
+import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { STATUS_ORDER } from "../../lib/meta";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
-import { Icon } from "../ui";
+import { AgentAvatar, Icon } from "../ui";
 import s from "./filter-bar.module.css";
 
 
@@ -27,15 +30,18 @@ function projectIdOf(projects: readonly FilterOption[], ref: string | undefined)
   return ref === undefined ? undefined : (projects.find((o) => o.value === ref || o.label === ref)?.value ?? ref);
 }
 
-// nod.pen の 11 Issues の Filters の行。今の条件をチップで並べ、「Filter」のパネルで足し引きする
+// nod.pen の 11 Issues の Filters の行。今の条件をチップで並べ、「Filter」のパネルで足し引きする。
+// fixedAssignee は My issues の固定の担当（Pencil「My issues（#162）」の外せないチップ）。担当の条件はパネルに出さない
 export function FilterBar({
   filter,
   options,
   onChange,
+  fixedAssignee,
 }: {
   filter: IssueQuery;
   options: FilterOptions;
   onChange: (next: IssueQuery) => void;
+  fixedAssignee?: string;
 }) {
   // Workspace を1つに絞ったときだけ、Status の選択肢とチップにその Workspace の表示名を使う
   const statusNames = useStatusNames();
@@ -49,6 +55,14 @@ export function FilterBar({
   });
   return (
     <div className={s.bar} role="group" aria-label="絞り込み条件">
+      {fixedAssignee && (
+        <span className={s.chip} title="この画面では外せません">
+          <Icon name="lock" size={11} color="var(--ink3)" />
+          <span className={s.chipName}>担当</span>
+          <span className={s.chipName}>is</span>
+          <span className={s.chipValue}>{fixedAssignee}</span>
+        </span>
+      )}
       {chips.map((chip) => (
         <span key={chip.key} className={s.chip}>
           <span className={s.chipName}>{chip.name}</span>
@@ -84,6 +98,13 @@ export function FilterBar({
             selected={filter.status}
             onToggle={(value) => onChange({ ...filter, status: toggleValue(filter.status, value as Status) })}
           />
+          {!fixedAssignee && (
+            <AssigneeGroup
+              names={assigneeFilterOptions(options.assignees, filter.assignee)}
+              selected={filter.assignee}
+              onToggle={(value) => onChange({ ...filter, assignee: toggleValue(filter.assignee, value) })}
+            />
+          )}
           <label className={s.field}>
             <span className={s.groupName}>Project</span>
             <select
@@ -173,6 +194,34 @@ function MilestoneGroup({
           <span className={s.milestoneName}>{o.label}</span>
           {o.project && <span className={s.milestoneProject}>{o.project}</span>}
           {selected === o.value && <Icon name="check" size={13} />}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+// Pencil「Issues｜担当フィルタ（#162）」のパネル（IVV06）。複数選べ、どれかに合う Issue を出す。
+// me・claude-code・codex はアバター、Issue に現れるほかの担当は users、未割り当ては circle-dashed で示す
+function AssigneeGroup({ names, selected, onToggle }: { names: readonly string[]; selected: readonly string[] | undefined; onToggle: (value: string) => void }) {
+  const known: readonly string[] = KNOWN_ASSIGNEES;
+  const items = [...names.map((name) => ({ value: name, label: name })), { value: NO_ASSIGNEE, label: "未割り当て" }];
+  return (
+    <fieldset className={s.assignees}>
+      <legend className={s.assigneesName}>担当</legend>
+      {items.map((o) => (
+        <label key={o.value} className={s.assigneeOption}>
+          <input type="checkbox" className={s.assigneeCheck} checked={selected?.includes(o.value) ?? false} onChange={() => onToggle(o.value)} />
+          {/* アバターの頭文字をチェックボックスの名前に混ぜない */}
+          <span className={s.assigneeIcon} aria-hidden="true">
+            {o.value === NO_ASSIGNEE ? (
+              <Icon name="circle-dashed" size={14} color="var(--ink3)" />
+            ) : known.includes(o.value) ? (
+              <AgentAvatar actor={o.value} size={16} />
+            ) : (
+              <Icon name="users" size={14} color="var(--ink3)" />
+            )}
+          </span>
+          <span className={s.assigneeLabel}>{o.label}</span>
         </label>
       ))}
     </fieldset>
