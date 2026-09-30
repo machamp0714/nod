@@ -44,17 +44,31 @@ function describeSettings(s: AutomationSettings): string {
   ].join("\n");
 }
 
+// 遷移ルール（#73）で止まる候補の印
+export function ruleNote(reason: string | undefined): string {
+  return reason ? `\n      ↳ ${reason}` : "";
+}
+
+// 実行時にスキップした Issue。遷移ルールで止めたものは理由を1件ずつ出す
+export function skippedLines(skipped: string[], reasons: { id: string; message: string }[]): string[] {
+  const plain = skipped.filter((id) => !reasons.some((r) => r.id === id));
+  return [
+    ...(plain.length ? [`  スキップ（実行時に対象外）: ${plain.join(", ")}`] : []),
+    ...reasons.map((r) => `  スキップ: ${r.id} ${r.message}`),
+  ];
+}
+
 function describePrReview(rule: AutomationRuleResult, dryRun: boolean): string {
   if (!rule.enabled) return "PR 連動: 無効";
   const lines = [`PR 連動（PR が open かマージ済み → in_review）: 対象 ${rule.total} 件`];
   for (const c of rule.candidates) {
     const state = c.prState === "MERGED" ? "マージ済み（完了候補）" : "open";
-    lines.push(`  ${c.id}  ${c.status}  PR ${state}  ${c.prUrl}  ${c.title}`);
+    lines.push(`  ${c.id}  ${c.status}  PR ${state}  ${c.prUrl}  ${c.title}${ruleNote(c.ruleSkipReason)}`);
   }
   if (rule.remaining) lines.push(`  ほか ${rule.remaining} 件は上限を超えたため${dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
   if (!dryRun) {
     lines.push(`  in_review にしました: ${rule.processed.length} 件${rule.processed.length ? `（${rule.processed.join(", ")}）` : ""}`);
-    if (rule.skipped.length) lines.push(`  スキップ（実行時に対象外）: ${rule.skipped.join(", ")}`);
+    lines.push(...skippedLines(rule.skipped, rule.skippedReasons));
     for (const f of rule.failed) lines.push(`  失敗: ${f.id} ${f.message}`);
   }
   return lines.join("\n");
@@ -71,13 +85,13 @@ function describeRule(rule: AutomationRuleResult, dryRun: boolean): string {
   const since = rule.kind === "auto_close" ? "最終活動" : "完了";
   const lines = [heading];
   for (const c of rule.candidates) {
-    lines.push(`  ${c.id}  ${c.status}  ${since} ${c.since.slice(0, 10)}（${c.elapsedDays}日前）  ${c.title}`);
+    lines.push(`  ${c.id}  ${c.status}  ${since} ${c.since.slice(0, 10)}（${c.elapsedDays}日前）  ${c.title}${ruleNote(c.ruleSkipReason)}`);
   }
   if (rule.remaining) lines.push(`  ほか ${rule.remaining} 件は上限を超えたため${dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
   if (!dryRun) {
     const verb = rule.kind === "auto_close" ? "canceled にしました" : "アーカイブしました";
     lines.push(`  ${verb}: ${rule.processed.length} 件${rule.processed.length ? `（${rule.processed.join(", ")}）` : ""}`);
-    if (rule.skipped.length) lines.push(`  スキップ（実行時に対象外）: ${rule.skipped.join(", ")}`);
+    lines.push(...skippedLines(rule.skipped, rule.skippedReasons));
     for (const f of rule.failed) lines.push(`  失敗: ${f.id} ${f.message}`);
   }
   return lines.join("\n");

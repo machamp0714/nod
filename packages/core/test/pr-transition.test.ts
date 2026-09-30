@@ -5,6 +5,7 @@ import { listAutoTransitions, undoAutoTransition } from "../src/ops/auto-transit
 import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { type GhRunner, type GhRunResult, linkPr, refreshPrStatus } from "../src/ops/pr-status";
 import { rejectReview } from "../src/ops/human";
+import { setTransitionRules } from "../src/transition-rules";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 const PR_URL = "https://github.com/example/api-server/pull/128";
@@ -302,5 +303,17 @@ describe("PR の紐付け（nod issue link-pr）", () => {
     const done = s.make("done", null);
     archiveIssue(s.me, done);
     expect(codeOf(() => linkPr(s.me, done, PR_URL))).toBe("ISSUE_ARCHIVED");
+  });
+});
+
+describe("遷移ルール（#73）と PR 連動", () => {
+  test("in_progress → in_review は禁止できないので、ルールがあっても PR 連動は止まらない", async () => {
+    const s = fixture();
+    expect(codeOf(() => setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "in_progress", to: "in_review" }] }))).toBe("INVALID_ARGS");
+    setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "todo", to: "in_review" }], presets: ["review_before_done"] });
+    const ref = s.make();
+    const view = await refreshPrStatus(s.me, ref, gh({}));
+    expect(view.autoTransitionSkipped ?? null).toBeNull();
+    expect(statusOf(s, ref)).toBe("in_review");
   });
 });

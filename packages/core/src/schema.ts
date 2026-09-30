@@ -384,4 +384,20 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX project_updates_project ON project_updates (project_id, created_at, id)`,
   ],
+  // ステータスの遷移ルール（#73）。8状態は固定のまま、Workspace ごとに許可しない遷移を人が設定する。行が無ければ制限なし。
+  // 禁止する from→to の組と、名前で保存するプリセット（展開しないので違反時にどのルールかを示せる）。needs_clarification は core が切り替えるため対象外
+  [
+    `CREATE TABLE workspace_transition_rules (
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      from_status TEXT NOT NULL CHECK (from_status IN ('triage','backlog','todo','in_progress','in_review','done','canceled')),
+      to_status TEXT NOT NULL CHECK (to_status IN ('triage','backlog','todo','in_progress','in_review','done','canceled')),
+      PRIMARY KEY (workspace_id, from_status, to_status),
+      CHECK (from_status <> to_status)
+    )`,
+    `CREATE TABLE workspace_transition_presets (
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      preset TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, preset)
+    )`,
+  ],
 ];

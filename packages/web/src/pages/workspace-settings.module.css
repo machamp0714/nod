@@ -420,6 +420,90 @@
   font-size: 12.5px;
 }
 
+/* ステータス遷移（#73、nod.pen「Workspace設定｜ステータス遷移」） */
+.transitionPreset {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.transitionCheckbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.transitionSubLabel {
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.transitionEmpty {
+  padding: 18px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.transitionRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.transitionSelect {
+  flex: none;
+  width: 150px;
+}
+
+.transitionArrow {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink3);
+}
+
+.transitionRemove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.transitionRemove:hover {
+  background: var(--sunken);
+}
+
+.transitionAdd {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 .footerEnd {
   display: flex;
   justify-content: flex-end;
@@ -713,4 +797,19 @@
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* 遷移ルール（#73）で実行時にスキップする見込みの候補の小ピル（nod.pen「ステータス遷移｜状態」の dry-run 表） */
+.ruleSkipPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--gate-soft);
+  color: var(--gate);
+  font-size: 10.5px;
+  font-weight: 500;
+  vertical-align: middle;
 }

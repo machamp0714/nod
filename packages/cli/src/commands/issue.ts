@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import {
   addFileAttachment,
   addLinkAttachment,
@@ -14,6 +15,7 @@ import {
   detachDocument,
   diagnoseIssues,
   failIssue,
+  formatTransitionRulesSection,
   formatWorkspaceRulesSection,
   getIssue,
   getIssueBranchName,
@@ -24,6 +26,7 @@ import {
   getPrDiff,
   getPrDiffFile,
   refreshPrDiff,
+  getTransitionRules,
   getWorkspaceRules,
   importPlan,
   isLlm,
@@ -49,6 +52,7 @@ import {
   WORK_LOG_KIND_LABEL,
   WORK_LOG_KINDS,
   type WorkspaceRules,
+  type WorkspaceTransitionRules,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
@@ -195,7 +199,7 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
-        const rules = getWorkspaceRules(cli.db, detail.workspace);
+        const rules = workspaceGuidance(cli.db, detail.workspace);
         const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
         print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));
       }),
@@ -487,7 +491,7 @@ export function registerIssueCommands(program: Command): void {
           location: currentWorkLocation(),
         });
         if (picked) await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${picked.id} ${picked.title}` });
-        const rules = picked ? getWorkspaceRules(cli.db, picked.workspace) : null;
+        const rules = picked ? workspaceGuidance(cli.db, picked.workspace) : null;
         print(cli, picked && withRules(picked, rules), () =>
           picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}`, rules) : "着手できる Issue はありません",
         );
@@ -501,7 +505,7 @@ export function registerIssueCommands(program: Command): void {
       actAsync(async (cli, _cmd, id: string) => {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
-        const rules = getWorkspaceRules(cli.db, started.workspace);
+        const rules = workspaceGuidance(cli.db, started.workspace);
         print(cli, withRules(started, rules), () => withRulesText(`着手しました: ${formatIssueLine(started)}`, rules));
       }),
     );
@@ -659,12 +663,33 @@ function askMessage(r: AskResult, llm: boolean): string {
   return "確認依頼を足しました";
 }
 
-// 作業規約は登録済みのときだけ添える。未登録なら出力は従来と同じ
-function withRules<T extends Issue>(issue: T, rules: WorkspaceRules | null): T | (T & { workspaceRules: Omit<WorkspaceRules, "workspaceKey"> }) {
-  if (!rules) return issue;
-  return { ...issue, workspaceRules: { body: rules.body, updatedAt: rules.updatedAt, updatedBy: rules.updatedBy } };
+// LLM に守らせる作業規約と、ステータスの遷移ルール（#73）
+interface WorkspaceGuidance {
+  rules: WorkspaceRules | null;
+  transitions: WorkspaceTransitionRules;
 }
 
-function withRulesText(text: string, rules: WorkspaceRules | null): string {
-  return rules ? `${text}\n\n${formatWorkspaceRulesSection(rules)}`.trimEnd() : text;
+function workspaceGuidance(db: Database, workspaceKey: string): WorkspaceGuidance {
+  return { rules: getWorkspaceRules(db, workspaceKey), transitions: getTransitionRules(db, workspaceKey) };
+}
+
+const hasTransitionRules = (t: WorkspaceTransitionRules) => t.forbidden.length > 0 || t.presets.length > 0;
+
+// 作業規約・遷移ルールは設定済みのときだけ添える。未設定なら出力は従来と同じ
+function withRules<T extends Issue>(
+  issue: T,
+  g: WorkspaceGuidance | null,
+): T & { workspaceRules?: Omit<WorkspaceRules, "workspaceKey">; transitionRules?: Omit<WorkspaceTransitionRules, "workspaceKey"> } {
+  if (!g) return issue;
+  return {
+    ...issue,
+    ...(g.rules ? { workspaceRules: { body: g.rules.body, updatedAt: g.rules.updatedAt, updatedBy: g.rules.updatedBy } } : {}),
+    ...(hasTransitionRules(g.transitions) ? { transitionRules: { forbidden: g.transitions.forbidden, presets: g.transitions.presets } } : {}),
+  };
+}
+
+function withRulesText(text: string, g: WorkspaceGuidance | null): string {
+  if (!g) return text;
+  const sections = [g.rules ? formatWorkspaceRulesSection(g.rules) : "", formatTransitionRulesSection(g.transitions)].filter(Boolean);
+  return sections.length ? `${text}\n\n${sections.join("\n")}`.trimEnd() : text;
 }

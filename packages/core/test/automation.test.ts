@@ -11,6 +11,7 @@ import { askQuestion } from "../src/ops/agent";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { addRecurringIssue, listRecurringIssues, runRecurringIssues, updateRecurringIssue } from "../src/ops/recurring";
 import { initWorkspace } from "../src/ops/workspaces";
+import { setTransitionRules } from "../src/transition-rules";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 const at = "2026-09-29T00:00:00.000Z";
@@ -545,5 +546,24 @@ describe("定期Issueの起票（#32）", () => {
       const targets = { recurring: bad } as unknown as { recurring: { recurringId: number; occurrence: string }[] };
       expect(codeOf(() => runAutomation(me, ws.key, { evaluatedAt: at, targets }))).toBe("INVALID_ARGS");
     }
+  });
+});
+
+describe("遷移ルール（#73）と自動クローズ", () => {
+  test("ルールで止まる Issue は dry-run で理由を示し、実行ではスキップとして理由つきで報告して変えない", () => {
+    const { db, me, ws, make, enable, dry, run } = fixture();
+    enable(10, null);
+    const blocked = make("backlog");
+    const ok = make("todo");
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "canceled" }] });
+    const d = dry().rules[0]!;
+    expect(d.candidates.find((c) => c.id === blocked)!.ruleSkipReason).toContain("Backlog → Canceled は許可されていません");
+    expect(d.candidates.find((c) => c.id === ok)!.ruleSkipReason).toBeUndefined();
+    const r = run().rules[0]!;
+    expect(r.processed).toEqual([ok]);
+    expect(r.skipped).toEqual([blocked]);
+    expect(r.skippedReasons).toEqual([{ id: blocked, message: expect.stringContaining("遷移ルールでスキップ") }]);
+    expect(r.failed).toEqual([]);
+    expect(getIssue(db, blocked).status).toBe("backlog");
   });
 });

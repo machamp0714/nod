@@ -109,7 +109,9 @@ export function runToast(run: AutomationRun): string {
   const head = recurringEnabled(run) ? `起票 ${run.recurring.items.length}件・` : "";
   const pr = prReviewEnabled(run) ? `・in_review ${processed("pr_review")}件` : "";
   const changed = run.recurring.notRun.filter((n) => n.reason === RECURRING_CHANGED_REASON).length;
-  const skip = skipped ? `・スキップ ${skipped}件${changed ? `（${RECURRING_CHANGED_REASON} ${changed}件）` : ""}` : "";
+  const byRule = run.rules.reduce((n, r) => n + r.skippedReasons.length, 0);
+  const notes = [changed ? `${RECURRING_CHANGED_REASON} ${changed}件` : "", byRule ? `遷移ルール ${byRule}件` : ""].filter(Boolean);
+  const skip = skipped ? `・スキップ ${skipped}件${notes.length ? `（${notes.join("・")}）` : ""}` : "";
   return `${head}クローズ ${processed("auto_close")}件・アーカイブ ${processed("auto_archive")}件${pr}${skip}・失敗 ${failed}件`;
 }
 

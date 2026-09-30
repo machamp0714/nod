@@ -3,9 +3,10 @@ import { latestActivity } from "../activity";
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow, formatIssueId, OPEN_BLOCKER } from "../issue-query";
+import { findIssueRow, formatIssueId, type IssueRow, OPEN_BLOCKER } from "../issue-query";
 import { setColumn } from "../mutate";
 import { recordedTimestamp } from "../recorded-time";
+import { transitionBlockReason } from "../transition-rules";
 import type {
   AutomationCandidate,
   AutomationKind,
@@ -213,6 +214,8 @@ function archiveCandidates(db: Database, workspace: Workspace, days: number, cur
 }
 
 type Finder = (days: number, issueId?: number) => Found[];
+// 実行1件の結果。true は変更した、false は条件から外れていた、文字列は遷移ルール（#73）で止めた理由
+type ActResult = boolean | string;
 
 // PR 連動（#66）。保存済みの PR 状態（Issue の現在の PR URL のもの）で評価し、gh は呼ばない
 function prReviewCandidates(db: Database, workspace: Workspace, current: number, issueId?: number): Found[] {
@@ -226,11 +229,18 @@ function prReviewCandidates(db: Database, workspace: Workspace, current: number,
   });
 }
 
-function prReviewOne(ctx: OpCtx, find: Finder, ref: string): boolean {
+// 遷移ルール（#73）で止まる遷移なら、その理由（スキップとして報告する）
+function ruleSkip(ctx: OpCtx, row: IssueRow, to: Status): string | null {
+  return transitionBlockReason(ctx.db, { id: row.workspace_id, key: row.ws_key }, row.status, to);
+}
+
+function prReviewOne(ctx: OpCtx, find: Finder, ref: string): ActResult {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const found = find(0, row.id)[0];
     if (!found?.candidate.prUrl || !found.candidate.prState) return false;
+    const skip = ruleSkip(ctx, row, "in_review");
+    if (skip) return skip;
     applyAutoTransition(ctx, row, {
       source: "pr",
       sourceKey: found.candidate.prUrl,
@@ -244,10 +254,12 @@ function prReviewOne(ctx: OpCtx, find: Finder, ref: string): boolean {
 
 // 自動クローズ1件。候補を探してから処理するまでにほかの操作で変わりうるので、書き込む transaction の中で
 // 同じ条件（状態・担当・子・ブロック関係・スヌーズ・経過日数）を確かめ直し、外れていれば何もしない（スキップ）
-function closeOne(ctx: OpCtx, find: Finder, ref: string, days: number): boolean {
+function closeOne(ctx: OpCtx, find: Finder, ref: string, days: number): ActResult {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (find(days, row.id).length === 0) return false;
+    const skip = ruleSkip(ctx, row, "canceled");
+    if (skip) return skip;
     const reason = closeReasonOf(days);
     setColumn(ctx, row, "close_reason", reason);
     setColumn(ctx, row, "status", "canceled", { reason, automation: "auto_close" });
@@ -266,6 +278,7 @@ function archiveOne(ctx: OpCtx, find: Finder, ref: string, days: number): boolea
 
 function applyRule(
   ctx: OpCtx,
+  workspace: Workspace,
   kind: AutomationKind,
   days: number | null,
   enabled: boolean,
@@ -273,7 +286,9 @@ function applyRule(
   limit: number,
   targets: string[] | undefined,
   find: Finder,
-  act: (find: Finder, ref: string, days: number) => boolean,
+  act: (find: Finder, ref: string, days: number) => ActResult,
+  // 遷移先（自動アーカイブは状態を変えないので null）。dry-run でも遷移ルールで止まる候補に理由を付ける
+  to: Status | null,
 ): AutomationRuleResult {
   const result: AutomationRuleResult = {
     kind,
@@ -283,6 +298,7 @@ function applyRule(
     candidates: [],
     processed: [],
     skipped: [],
+    skippedReasons: [],
     failed: [],
     remaining: 0,
   };
@@ -294,7 +310,10 @@ function applyRule(
   result.total = found.length;
   // targets（確認時点の一覧）があれば、そのうちいまも条件に合うものだけを扱い、外れたものはスキップにする
   const listed = targets ? found.filter((f) => targets.includes(f.candidate.id)) : found.slice(0, limit);
-  result.candidates = listed.map((f) => f.candidate);
+  result.candidates = listed.map((f) => {
+    const reason = to === null ? null : transitionBlockReason(ctx.db, workspace, f.candidate.status, to);
+    return reason ? { ...f.candidate, ruleSkipReason: reason } : f.candidate;
+  });
   result.remaining = found.length - result.candidates.length;
   if (targets) {
     const current = new Set(result.candidates.map((c) => c.id));
@@ -304,8 +323,10 @@ function applyRule(
   // 1件ごとに確定し、途中で失敗しても残りを続ける
   for (const candidate of result.candidates) {
     try {
-      if (act(find, candidate.id, days ?? 0)) result.processed.push(candidate.id);
+      const done = act(find, candidate.id, days ?? 0);
+      if (done === true) result.processed.push(candidate.id);
       else result.skipped.push(candidate.id);
+      if (typeof done === "string") result.skippedReasons.push({ id: candidate.id, message: done });
     } catch (e) {
       result.failed.push({ id: candidate.id, message: e instanceof Error ? e.message : String(e) });
     }
@@ -394,6 +415,7 @@ export function runAutomation(
   // targets を渡したのに pr_review の一覧がなければ、確認していない PR 連動は実行しない
   const prReview = applyRule(
     ctx,
+    workspace,
     "pr_review",
     null,
     settings.prReview,
@@ -402,9 +424,11 @@ export function runAutomation(
     opts.targets ? (opts.targets.pr_review ?? []) : undefined,
     (_days, issueId) => notCreated(prReviewCandidates(ctx.db, workspace, current, issueId)),
     (find, ref) => prReviewOne(ctx, find, ref),
+    "in_review",
   );
   const close = applyRule(
     ctx,
+    workspace,
     "auto_close",
     settings.closeAfterDays,
     settings.closeAfterDays !== null,
@@ -413,9 +437,11 @@ export function runAutomation(
     opts.targets?.auto_close,
     (days, issueId) => notCreated(closeCandidates(ctx.db, workspace, days, current, issueId)),
     (find, ref, days) => closeOne(ctx, find, ref, days),
+    "canceled",
   );
   const archive = applyRule(
     ctx,
+    workspace,
     "auto_archive",
     settings.archiveAfterDays,
     settings.archiveAfterDays !== null,
@@ -425,6 +451,7 @@ export function runAutomation(
     (days, issueId) =>
       notCreated(archiveCandidates(ctx.db, workspace, days, current, issueId)).filter((f) => !close.processed.includes(f.candidate.id)),
     (find, ref, days) => archiveOne(ctx, find, ref, days),
+    null,
   );
   return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive, prReview], recurring };
 }

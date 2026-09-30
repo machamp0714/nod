@@ -438,6 +438,7 @@ export interface PrStatusView {
   status: PrStatus | null;
   fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
   autoTransition?: AutoTransition | null; // 更新（refresh）でステータスを進めたとき、その記録。表示だけのときは付けない
+  autoTransitionSkipped?: string; // PR 連動の条件を満たしたが、遷移ルール（#73）で進めなかったときの理由
 }
 
 // nod git sync（#68）の候補。同じ Issue を書いたコミットが複数あれば最新のもの
@@ -449,6 +450,7 @@ export interface GitSyncCandidate {
   subject: string;
   keyword: string; // メッセージに書かれたキーワード（Closes・fixes など）
   committedAt: string;
+  ruleSkipReason?: string; // 遷移ルール（#73）で実行時にスキップする見込みのとき、その理由
 }
 
 export interface GitSyncResult {
@@ -463,6 +465,7 @@ export interface GitSyncResult {
   candidates: GitSyncCandidate[];
   processed: string[];
   skipped: string[];
+  skippedReasons: { id: string; message: string }[]; // skipped のうち理由のあるもの（遷移ルール #73 で止めたもの）
   failed: { id: string; message: string }[];
   remaining: number;
 }
@@ -572,6 +575,7 @@ export interface AutomationCandidate {
   elapsedDays: number;
   prUrl?: string; // PR 連動のときだけ
   prState?: PrState;
+  ruleSkipReason?: string; // 遷移ルール（#73）で実行時にスキップする見込みのとき、その理由
 }
 
 export interface AutomationRuleResult {
@@ -582,6 +586,7 @@ export interface AutomationRuleResult {
   candidates: AutomationCandidate[]; // 今回扱う分（上限まで、古い順）
   processed: string[]; // 実行で変更した Issue。dry-run では空
   skipped: string[]; // 実行時の再確認で条件から外れていて変えなかった Issue（targets にあって、いまは対象外のものを含む）
+  skippedReasons: { id: string; message: string }[]; // skipped のうち理由のあるもの（遷移ルール #73 で止めたもの）
   failed: { id: string; message: string }[];
   remaining: number; // 条件に合うが今回扱わなかった件数（上限超過、または targets に含まれない分）
 }

@@ -11,6 +11,7 @@ import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/iss
 import { initWorkspace } from "../src/ops/workspaces";
 import type { OpCtx } from "../src/ctx";
 import { openDb } from "../src/db";
+import { setTransitionRules } from "../src/transition-rules";
 import { codeOf, eventsOf, tempDbPath } from "./helpers";
 
 // 一時リポジトリを作り、git を直接使う（実リポジトリ・ネットワークには触れない）
@@ -255,5 +256,22 @@ describe("nod git sync", () => {
       }
     }
     expect(calls[0]?.slice(0, 2)).toEqual(["-c", "log.showSignature=false"]);
+  });
+});
+
+describe("遷移ルール（#73）とコミット連動", () => {
+  test("ルールで止まる Issue は dry-run で理由を示し、実行ではスキップとして理由つきで報告する", async () => {
+    const s = fixture();
+    const a = s.make("backlog", "文書");
+    const b = s.make("todo", "画面");
+    s.commit(`まとめて\n\nCloses ${a}, ${b}`);
+    setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "backlog", to: "in_review" }] });
+    const dry = await syncGitCommits(s.me, s.ws.key, { dryRun: true });
+    expect(dry.candidates.find((c) => c.id === a)!.ruleSkipReason).toContain("Backlog → In Review");
+    const run = await syncGitCommits(s.me, s.ws.key, {});
+    expect(run.processed).toEqual([b]);
+    expect(run.skipped).toEqual([a]);
+    expect(run.skippedReasons).toEqual([{ id: a, message: expect.stringContaining("遷移ルールでスキップ") }]);
+    expect(statusOf(s.db, a)).toBe("backlog");
   });
 });

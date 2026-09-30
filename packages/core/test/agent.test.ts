@@ -3,6 +3,7 @@ import { openDb } from "../src/db";
 import { askQuestion, completeIssue, failIssue, nextIssue, startIssue } from "../src/ops/agent";
 import { createIssue, getIssue, relateIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
+import { setTransitionRules } from "../src/transition-rules";
 import { addProjectRow, codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
 describe("nextIssue", () => {
@@ -53,6 +54,14 @@ describe("nextIssue", () => {
     expect(nextIssue(llm, { workspaceId: ws.id })).toBeNull();
     updateIssue(me, blocker.id, { status: "canceled" });
     expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(blocked.id);
+  });
+
+  test("遷移ルールで todo → in_progress が禁止されていれば取らずに TRANSITION_NOT_ALLOWED", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "in_progress" }] });
+    expect(codeOf(() => nextIssue(llm, { workspaceId: ws.id }))).toBe("TRANSITION_NOT_ALLOWED");
+    expect(getIssue(db, i.id).status).toBe("todo");
   });
 
   test("Project で絞り込める", () => {

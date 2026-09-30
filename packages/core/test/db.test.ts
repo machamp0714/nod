@@ -52,6 +52,8 @@ describe("openDb", () => {
       "views",
       "workspace_labels",
       "workspace_status_names",
+      "workspace_transition_presets",
+      "workspace_transition_rules",
       "workspaces",
     ]);
   });

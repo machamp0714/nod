@@ -131,6 +131,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
+- \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
 失敗すると終了コードが1になり、\`--json\` のときは \`{"error": {"code", "message"}}\` を返す。
@@ -146,6 +147,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
 - ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。復元（\`nod issue unarchive\`）は人だけが行えるため、必要なら人に依頼し、別の Issue を取る。
 - NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
+- TRANSITION_NOT_ALLOWED：その状態変更は Workspace の遷移ルールで許可されていない（message にどのルールかが出る）。別の経路で回避せず、ルールに沿った状態を経由するか、人に判断を依頼する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - SECRET_DETECTED：作業ログに秘密値らしき値が含まれていた。値を伏せて書き直し、再実行する。
 - INVALID_ARGS、INVALID_STEP：message の例に従って引数を直し、再実行する。

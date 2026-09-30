@@ -398,6 +398,7 @@ export function formatPrStatus(v: PrStatusView): string {
       `PR 連動: ${t.from} → ${t.to} にしました${t.mergeCandidate ? "（マージ済み: 完了候補。done にするかは人が判断）" : ""}。誤りなら nod automation undo ${t.issueId}`,
     );
   }
+  if (v.autoTransitionSkipped) lines.push(`PR 連動: ${v.autoTransitionSkipped}`);
   return lines.join("\n");
 }
 

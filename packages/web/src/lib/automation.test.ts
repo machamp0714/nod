@@ -33,6 +33,7 @@ const rule = (kind: "auto_close" | "auto_archive" | "pr_review", candidates: num
   candidates: Array.from({ length: candidates }, (_, i) => ({ id: `API-${i}`, title: "t", status: "todo" as const, since: "", elapsedDays: 1 })),
   processed: Array.from({ length: processed }, (_, i) => `API-${i}`),
   skipped: Array.from({ length: skipped }, (_, i) => `API-${i}`),
+  skippedReasons: [],
   failed: Array.from({ length: failed }, (_, i) => ({ id: `API-${i}`, message: "x" })),
   remaining: 0,
 });
@@ -105,6 +106,11 @@ describe("自動化の表示", () => {
       "クローズ 0件・アーカイブ 0件・in_review 2件を実行しますか？",
     );
     expect(runToast(run(rule("auto_close", 0, 0), rule("auto_archive", 0, 0), pr))).toBe("クローズ 0件・アーカイブ 0件・in_review 1件・失敗 0件");
+  });
+
+  test("遷移ルール（#73）で止めたスキップはトーストに件数を添える", () => {
+    const close = { ...rule("auto_close", 3, 1, 0, 2), skippedReasons: [{ id: "API-1", message: "遷移ルールでスキップ: x" }] };
+    expect(runToast(run(close, rule("auto_archive", 0, 0)))).toBe("クローズ 1件・アーカイブ 0件・スキップ 2件（遷移ルール 1件）・失敗 0件");
   });
 
   test("定期Issue（#32）が有効なら、確認ダイアログとトーストに起票の件数を先頭に足す", () => {

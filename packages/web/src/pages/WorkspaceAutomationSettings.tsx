@@ -297,6 +297,17 @@ function DryRunResult({ run }: { run: AutomationRun }) {
   );
 }
 
+// 遷移ルール（#73）で実行時にスキップする見込みの候補に添える小ピル。どのルールかはツールチップで示す
+function RuleSkipNote({ reason }: { reason: string | undefined }) {
+  if (!reason) return null;
+  return (
+    <span className={s.ruleSkipPill} title={reason}>
+      <Icon name="ban" size={10} />
+      遷移ルールでスキップ予定
+    </span>
+  );
+}
+
 function RuleResult({ rule }: { rule: AutomationRuleResult }) {
   const heading = ruleHeading(rule.kind, rule.total);
   if (rule.kind === "pr_review") return <PrReviewResult rule={rule} heading={heading} />;
@@ -317,7 +328,10 @@ function RuleResult({ rule }: { rule: AutomationRuleResult }) {
             {rule.candidates.map((c) => (
               <tr key={c.id}>
                 <td className={s.colId}>{c.id}</td>
-                <td className={s.colTitle}>{c.title}</td>
+                <td className={s.colTitle}>
+                  {c.title}
+                  <RuleSkipNote reason={c.ruleSkipReason} />
+                </td>
                 <td className={s.colDate}>{formatSinceDate(c.since)}</td>
                 <td className={s.colDays}>{c.elapsedDays} 日</td>
               </tr>
@@ -383,7 +397,10 @@ function PrReviewResult({ rule, heading }: { rule: AutomationRuleResult; heading
               return (
                 <tr key={c.id}>
                   <td className={s.colId}>{c.id}</td>
-                  <td className={s.colTitle}>{c.title}</td>
+                  <td className={s.colTitle}>
+                    {c.title}
+                    <RuleSkipNote reason={c.ruleSkipReason} />
+                  </td>
                   <td className={s.colPr}>
                     {url ? (
                       <a className={s.prLink} href={url} target="_blank" rel="noreferrer">

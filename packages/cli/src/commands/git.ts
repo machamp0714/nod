@@ -10,6 +10,7 @@ import {
 import type { Command } from "commander";
 import { actAsync, currentWorkspace } from "../context";
 import { print } from "../output";
+import { ruleNote, skippedLines } from "./automation";
 
 function parseCount(option: string, max: number) {
   return (value: string): number => {
@@ -24,14 +25,14 @@ function describeSync(r: GitSyncResult): string {
   ];
   if (!r.enabled) lines.push("  コミット連動は無効です（有効にするのは人: nod automation set --commit-review on）");
   for (const c of r.candidates) {
-    lines.push(`  ${c.id}  ${c.status}  ${c.sha.slice(0, 12)} ${c.keyword} 「${c.subject}」  ${c.title}`);
+    lines.push(`  ${c.id}  ${c.status}  ${c.sha.slice(0, 12)} ${c.keyword} 「${c.subject}」  ${c.title}${ruleNote(c.ruleSkipReason)}`);
   }
   if (r.remaining) lines.push(`  ほか ${r.remaining} 件は上限を超えたため${r.dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
   if (r.dryRun) {
     lines.push("（dry-run のため変更していません。実行するには --dry-run を外してください）");
   } else {
     lines.push(`  in_review にしました: ${r.processed.length} 件${r.processed.length ? `（${r.processed.join(", ")}）` : ""}`);
-    if (r.skipped.length) lines.push(`  スキップ（実行時に対象外）: ${r.skipped.join(", ")}`);
+    lines.push(...skippedLines(r.skipped, r.skippedReasons));
     for (const f of r.failed) lines.push(`  失敗: ${f.id} ${f.message}`);
     if (r.processed.length) lines.push("  誤りなら nod automation undo <id> で元に戻せます（done にはしていません）");
   }

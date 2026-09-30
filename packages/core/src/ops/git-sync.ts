@@ -3,6 +3,7 @@ import { isLlm, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId } from "../issue-query";
+import { transitionBlockReason } from "../transition-rules";
 import type { GitSyncCandidate, GitSyncResult, Status, Workspace } from "../types";
 import { applyAutoTransition } from "./auto-transitions";
 import { AUTOMATION_DAYS_MAX, AUTOMATION_LIMIT_DEFAULT, AUTOMATION_LIMIT_MAX, getAutomationSettings } from "./automation";
@@ -183,7 +184,10 @@ export async function syncGitCommits(
     }
   }
   const found = [...byIssue.values()].sort((a, b) => a.at - b.at || Number(a.id.split("-")[1]) - Number(b.id.split("-")[1]));
-  const candidates = found.slice(0, limit).map(({ at: _at, ...c }) => c);
+  const candidates = found.slice(0, limit).map(({ at: _at, ...c }) => {
+    const reason = transitionBlockReason(ctx.db, workspace, c.status, "in_review");
+    return reason ? { ...c, ruleSkipReason: reason } : c;
+  });
   const result: GitSyncResult = {
     workspaceKey: workspace.key,
     ref,
@@ -196,6 +200,7 @@ export async function syncGitCommits(
     candidates,
     processed: [],
     skipped: [],
+    skippedReasons: [],
     failed: [],
     remaining: found.length - candidates.length,
   };
@@ -206,6 +211,8 @@ export async function syncGitCommits(
       const done = tx(ctx.db, () => {
         const row = findIssueRow(ctx.db, c.id);
         if (!eligible(ctx.db, workspace, row.number, c.sha, c.committedAt)) return false;
+        const skip = transitionBlockReason(ctx.db, workspace, row.status, "in_review");
+        if (skip) return skip;
         applyAutoTransition(ctx, row, {
           source: "commit",
           sourceKey: c.sha,
@@ -214,7 +221,8 @@ export async function syncGitCommits(
         });
         return true;
       });
-      (done ? result.processed : result.skipped).push(c.id);
+      (done === true ? result.processed : result.skipped).push(c.id);
+      if (typeof done === "string") result.skippedReasons.push({ id: c.id, message: done });
     } catch (e) {
       result.failed.push({ id: c.id, message: e instanceof Error ? e.message : String(e) });
     }
