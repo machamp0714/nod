@@ -307,18 +307,13 @@ describe("PR の紐付け（nod issue link-pr）", () => {
 });
 
 describe("遷移ルール（#73）と PR 連動", () => {
-  test("in_progress → in_review を禁止していれば PR 状態の更新では進めず、自動化の実行ではスキップとして理由を返す", async () => {
+  test("in_progress → in_review は禁止できないので、ルールがあっても PR 連動は止まらない", async () => {
     const s = fixture();
-    setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "in_progress", to: "in_review" }] });
+    expect(codeOf(() => setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "in_progress", to: "in_review" }] }))).toBe("INVALID_ARGS");
+    setTransitionRules(s.me, s.ws.key, { forbidden: [{ from: "todo", to: "in_review" }], presets: ["review_before_done"] });
     const ref = s.make();
     const view = await refreshPrStatus(s.me, ref, gh({}));
-    expect(view.autoTransition).toBeNull();
-    expect(view.autoTransitionSkipped).toContain("遷移ルールでスキップ: In Progress → In Review");
-    expect(statusOf(s, ref)).toBe("in_progress");
-    const rule = runAutomation(s.me, s.ws.key, {}).rules.find((r) => r.kind === "pr_review")!;
-    expect(rule.processed).toEqual([]);
-    expect(rule.skippedReasons).toEqual([{ id: ref, message: expect.stringContaining("In Progress → In Review") }]);
-    expect(statusOf(s, ref)).toBe("in_progress");
-    expect(listAutoTransitions(s.db, ref)).toEqual([]);
+    expect(view.autoTransitionSkipped ?? null).toBeNull();
+    expect(statusOf(s, ref)).toBe("in_review");
   });
 });
