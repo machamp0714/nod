@@ -35,8 +35,15 @@ function requireHuman(ctx: OpCtx): void {
   }
 }
 
-// 同じ名前があれば本文を置き換える
-export function saveTemplate(ctx: OpCtx, input: { name: string; body: string }): { template: Template; created: boolean } {
+// upsert は CLI の nod template add（同じ名前があれば置き換える）。
+// Web は誤って上書き・復活させないよう、追加を create（同じ名前があれば拒む）、本文の編集を replace（なければ拒む）で呼ぶ（#160）
+export type TemplateSaveMode = "upsert" | "create" | "replace";
+
+export function saveTemplate(
+  ctx: OpCtx,
+  input: { name: string; body: string },
+  mode: TemplateSaveMode = "upsert",
+): { template: Template; created: boolean } {
   requireHuman(ctx);
   const { db } = ctx;
   if (!input.name.trim()) throw new NodError("INVALID_ARGS", "テンプレートの名前を指定してください");
@@ -44,6 +51,10 @@ export function saveTemplate(ctx: OpCtx, input: { name: string; body: string }):
   return tx(db, () => {
     const ts = now();
     const existing = db.query("SELECT id FROM templates WHERE name = ?").get(input.name) as { id: number } | null;
+    if (existing && mode === "create") {
+      throw new NodError("TEMPLATE_EXISTS", `テンプレート ${input.name} はすでにあります。本文を変えるには編集してください`);
+    }
+    if (!existing && mode === "replace") getTemplate(db, input.name);
     if (existing) {
       db.query("UPDATE templates SET body = ?, updated_at = ? WHERE id = ?").run(input.body, ts, existing.id);
     } else {

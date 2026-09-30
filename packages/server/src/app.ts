@@ -15,6 +15,7 @@ import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
 import { registerWorkspaceTransitionRoutes } from "./routes/workspace-transitions";
 import { registerRecurringRoutes } from "./routes/recurring";
+import { registerTemplateRoutes } from "./routes/templates";
 import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { type OrcaRunnerOption, registerOrcaRoutes } from "./routes/orca";
@@ -84,6 +85,7 @@ export function createApp(opts: AppOptions): Hono {
   registerWorkspaceLabelRoutes(app, me);
   registerWorkspaceTransitionRoutes(app, me);
   registerRecurringRoutes(app, me);
+  registerTemplateRoutes(app, me);
   registerPrStatusRoutes(app, me, opts.ghRunner);
   registerPrDiffRoutes(app, me, opts.ghRunner);
   registerAutomationRoutes(app, me);

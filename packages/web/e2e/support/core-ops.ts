@@ -94,6 +94,7 @@ export const DB_OPS = [
   "getStatusNames",
   "getTransitionRules",
   "listRecurringIssues",
+  "listTemplates",
 ] as const;
 
 export type CtxOp = (typeof CTX_OPS)[number];

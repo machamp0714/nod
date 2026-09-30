@@ -511,27 +511,94 @@
   padding-top: 4px;
 }
 
-.templateInfo {
+/* テンプレート（nod.pen「Workspace設定｜テンプレート Web 管理（#160）」） */
+.templateEmpty {
+  padding: 20px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.templateIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink3);
+}
+
+.templateRowEditing {
+  background: var(--bg);
+}
+
+.templateForm {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.templateHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.templateBadge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: var(--ink3);
+  font-size: 11px;
+}
+
+.templateAdd {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border-radius: var(--radius-md);
-  background: var(--sunken);
+  gap: 8px;
+  padding: 10px 14px;
 }
 
-.templateText {
-  color: var(--ink2);
-  font-size: 12.5px;
+.templateNameInput {
+  width: 240px;
+  max-width: 100%;
 }
 
-.templateCommands {
-  margin: 0;
+.templateBody {
+  height: 88px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  resize: vertical;
+  background: var(--surface);
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
-  white-space: pre-wrap;
+}
+
+.templateBody::placeholder {
+  color: var(--ink3);
+}
+
+.templateBody:focus {
+  border-color: var(--accent);
+}
+
+.templateBodyEdit {
+  height: 190px;
+}
+
+.templateButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.templateDialog {
+  width: 440px;
 }
 
 /* 自動化（nod.pen「Workspace設定｜自動化（#71/#72）」） */

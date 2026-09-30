@@ -24,11 +24,23 @@ describe("テンプレート", () => {
     expect(codeOf(() => removeTemplate(me, "bug"))).toBe("NOT_FOUND");
   });
 
+  test("mode が create なら同じ名前を TEMPLATE_EXISTS で拒み、replace ならないものを NOT_FOUND で拒んで、どちらも書き込まない（#160）", () => {
+    const { db, me } = setup();
+    expect(saveTemplate(me, { name: "bug", body: "v1" }, "create").created).toBe(true);
+    expect(codeOf(() => saveTemplate(me, { name: "bug", body: "v2" }, "create"))).toBe("TEMPLATE_EXISTS");
+    expect(getTemplate(db, "bug").body).toBe("v1");
+    expect(saveTemplate(me, { name: "bug", body: "v3" }, "replace")).toMatchObject({ created: false, template: { body: "v3" } });
+    expect(codeOf(() => saveTemplate(me, { name: "none", body: "x" }, "replace"))).toBe("NOT_FOUND");
+    expect(listTemplates(db).map((t) => t.name)).toEqual(["bug"]);
+  });
+
   test("LLM は登録・置き換え・削除できず FORBIDDEN_FOR_LLM で何も変えない。一覧と本文は読める", () => {
     const { db, me, llm } = setup();
     saveTemplate(me, { name: "bug", body: "## 再現手順\n" });
     expect(codeOf(() => saveTemplate(llm, { name: "new", body: "x" }))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => saveTemplate(llm, { name: "bug", body: "x" }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => saveTemplate(llm, { name: "new", body: "x" }, "create"))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => saveTemplate(llm, { name: "bug", body: "x" }, "replace"))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => removeTemplate(llm, "bug"))).toBe("FORBIDDEN_FOR_LLM");
     expect(listTemplates(db).map((t) => t.name)).toEqual(["bug"]);
     expect(getTemplate(db, "bug").body).toBe("## 再現手順\n");
