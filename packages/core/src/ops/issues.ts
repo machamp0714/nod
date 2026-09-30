@@ -120,6 +120,7 @@ export interface NewIssueRow {
   projectId: number | null;
   labels: string[];
   assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
+  status?: Status; // 初期ステータス。省略時は LLM が Triage、人が todo（取り込みでは取り込み元の状態から決める）
   origin: Record<string, string | number>; // created の event に残す由来（発見元、複製元、定期Issue）
 }
 
@@ -130,7 +131,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
     next_number: number;
   } | null;
   if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
-  const status: Status = isLlm(ctx) ? "triage" : "todo";
+  const status: Status = input.status ?? (isLlm(ctx) ? "triage" : "todo");
   const ts = now();
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db

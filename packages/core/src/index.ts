@@ -37,3 +37,4 @@ export * from "./ops/automation";
 export * from "./ops/summary";
 export * from "./ops/auto-transitions";
 export * from "./ops/git-sync";
+export * from "./ops/github-import";

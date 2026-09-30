@@ -34,6 +34,10 @@ export const ERROR_STATUS: Record<string, number> = {
   WORKSPACE_COLOR_EXHAUSTED: 409,
   AUTOMATION_DISABLED: 409,
   GIT_FAILED: 502,
+  // GitHub Issues の取り込み（#77）で gh が使えない・失敗した
+  GH_NOT_INSTALLED: 502,
+  GH_AUTH: 502,
+  GH_FAILED: 502,
   DB_BUSY: 503,
   SCHEMA_TOO_NEW: 500,
 };
