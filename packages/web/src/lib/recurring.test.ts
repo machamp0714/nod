@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RecurringIssue, RecurringRun } from "../api/types";
-import { cadenceLabel, formatNext, formFromRecurring, inputFromForm, newRecurringForm, recurringFormError, runToast, templateMissing, WEEKDAY_ORDER } from "./recurring";
+import { cadenceLabel, formatNext, lastCreated, formFromRecurring, inputFromForm, newRecurringForm, recurringFormError, runToast, templateMissing, WEEKDAY_ORDER } from "./recurring";
 
 const base: RecurringIssue = {
   id: 1,
@@ -43,6 +43,16 @@ describe("定期Issueの表示", () => {
   test("次回は MM/DD、無ければダッシュ", () => {
     expect(formatNext("2026-10-05")).toBe("10/05");
     expect(formatNext(null)).toBe("—");
+  });
+
+  test("前回作成は Issue、最新回の Issue を永久削除したら起票日と削除済み、未実行ならなし（#145）", () => {
+    expect(lastCreated({ ...base, lastOccurrence: "2026-10-05", lastIssueId: "API-7" })).toEqual({ kind: "issue", issueId: "API-7" });
+    expect(lastCreated({ ...base, lastOccurrence: "2026-10-05", lastIssueId: null })).toEqual({
+      kind: "deleted",
+      date: "10/05",
+      title: "2026-10-05 に起票した Issue は削除されました",
+    });
+    expect(lastCreated(base)).toEqual({ kind: "none" });
   });
 
   test("実行後のトーストは件数とスキップ・失敗の件数を出す", () => {

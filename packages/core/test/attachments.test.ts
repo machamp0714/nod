@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_RANGE_MAX_BYTES,
@@ -404,6 +404,24 @@ describe("添付の削除", () => {
       { type: "attachment_removed", actor: "claude-code", data: { attachment_id: f.id, kind: "file", name: "a.txt" } },
       { type: "attachment_removed", actor: "me", data: { attachment_id: l.id, kind: "link", name: "e" } },
     ]);
+  });
+
+  test("実体を消せなくても削除は成功し、残った実体は gcAttachments が片付ける", () => {
+    const { db, me, issue, src, dir } = fixture();
+    const f = addFileAttachment(me, issue.id, { path: write(src, "a.txt"), dir });
+    const abs = attachmentFile(db, f.id, dir).abs;
+    // 実体の入ったディレクトリを書き込み不可にして、実体の削除を失敗させる
+    chmodSync(dirname(abs), 0o500);
+    try {
+      removeAttachment(me, issue.id, f.id, dir);
+      expect(listIssueAttachments(db, issue.id)).toEqual([]);
+      expect(eventsOf(db, issue.id).filter((e) => e.type === "attachment_removed")).toHaveLength(1);
+      expect(existsSync(abs)).toBe(true);
+    } finally {
+      chmodSync(dirname(abs), 0o700);
+    }
+    expect(gcAttachments(db, { dir, now: Date.now() + 120_000 }).removed).toEqual([basename(dirname(abs))]);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   test("別の Issue の添付や無い添付は NOT_FOUND", () => {

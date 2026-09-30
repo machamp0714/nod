@@ -24,6 +24,17 @@ export function formatNext(date: string | null): string {
   return date ? `${date.slice(5, 7)}/${date.slice(8, 10)}` : "—";
 }
 
+export type LastCreated = { kind: "issue"; issueId: string } | { kind: "deleted"; date: string; title: string } | { kind: "none" };
+
+// 前回作成の列（#145）。最新回の Issue を永久削除すると lastIssueId は null になるので、起票日（lastOccurrence）で未実行と見分ける
+export function lastCreated(r: Pick<RecurringIssue, "lastOccurrence" | "lastIssueId">): LastCreated {
+  if (r.lastIssueId) return { kind: "issue", issueId: r.lastIssueId };
+  if (r.lastOccurrence) {
+    return { kind: "deleted", date: formatNext(r.lastOccurrence), title: `${r.lastOccurrence} に起票した Issue は削除されました` };
+  }
+  return { kind: "none" };
+}
+
 export function runToast(run: RecurringRun): string {
   const failed = run.failed.length;
   if (run.items.length === 0) return failed ? `起票できませんでした（失敗 ${failed}件）` : "起票する定期Issueはありませんでした";

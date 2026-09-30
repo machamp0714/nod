@@ -87,6 +87,15 @@
   margin-left: 6px;
 }
 
+.lastDeleted {
+  display: flex;
+  flex-direction: column;
+}
+
+.lastNone {
+  color: var(--ink3);
+}
+
 .issueLink {
   color: var(--accent);
   text-decoration: none;

@@ -40,6 +40,7 @@ export const CTX_OPS = [
   "snoozeNotifications",
   "archiveIssue",
   "unarchiveIssue",
+  "deleteIssue",
   "addWorkspaceLabel",
   "updateWorkspaceLabel",
   "setStatusNames",

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { OpCtx } from "../src/ctx";
 import { acceptTriage, declineTriage, duplicateTriage, snoozeTriage } from "../src/ops/human";
+import { deleteIssue } from "../src/ops/issue-deletions";
 import { archiveIssue, commentIssue, createIssue, unarchiveIssue, updateIssue } from "../src/ops/issues";
 import { deleteNotifications, listNotifications, markNotificationsRead, restoreNotifications, snoozeNotifications } from "../src/ops/notifications";
 import { listTriageProposalCounts, listTriageProposals, proposeTriage, withdrawTriageProposal } from "../src/ops/triage-proposals";
@@ -109,6 +110,25 @@ describe("proposeTriage", () => {
     expect(codeOf(() => declineTriage(llm, issue.id))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => duplicateTriage(llm, issue.id, original.id))).toBe("FORBIDDEN_FOR_LLM");
     expect(snapshot()).toEqual(before);
+  });
+
+  test("重複先の Issue を永久削除しても提案は残り、重複先だけが外れる（#145）", () => {
+    const { db, me, llm, create } = seed();
+    const codex: OpCtx = { db, actor: "codex" };
+    addProjectRow(db, "検索改善");
+    const original = create(me, "元の Issue");
+    const issue = create(llm, "判断待ち");
+    proposeTriage(llm, issue.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ内容" });
+    proposeTriage(codex, issue.id, { decision: "accept", labels: ["bug"], assignee: "alice", priority: 1, projectRef: "検索改善", reason: "直すべき" });
+    archiveIssue(me, original.id);
+    deleteIssue(me, original.id);
+    const byActor = listTriageProposals(db, issue.id).sort((a, b) => a.actor.localeCompare(b.actor));
+    expect(byActor).toMatchObject([
+      { actor: "claude-code", decision: "duplicate", duplicateOf: null, reason: "同じ内容" },
+      { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug"], assignee: "alice", priority: 1, project: { name: "検索改善" }, reason: "直すべき" },
+    ]);
+    // 書き込み時は、これまでどおり duplicate に重複先を必須にする
+    expect(codeOf(() => proposeTriage(llm, issue.id, { decision: "duplicate" } as any))).toBe("INVALID_ARGS");
   });
 });
 
