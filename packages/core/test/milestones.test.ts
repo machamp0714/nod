@@ -235,7 +235,7 @@ describe("Milestone の入口（#154）", () => {
     expect(getIssue(db, b.id).milestone).toMatchObject({ name: "α" });
     // Project と Milestone を同時に変えると、新しい Project の Milestone を付けられる
     const m2 = createMilestone(me, "認証", { name: "β" });
-    expect(bulkUpdateIssues(me, [a.id], { projectRef: "認証", milestoneRef: "β" })[0].milestone).toEqual({ id: m2.id, name: "β" });
+    expect(bulkUpdateIssues(me, [a.id], { projectRef: "認証", milestoneRef: "β" })[0]?.milestone).toEqual({ id: m2.id, name: "β" });
   });
 });
 
