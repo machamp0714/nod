@@ -142,8 +142,8 @@ describe("添付 API", () => {
     r = await get("bytes=20-30");
     expect(r.status).toBe(416);
     expect(r.headers.get("content-range")).toBe("bytes */10");
-    // 読めない書き方と複数範囲は無視して全体を返す
-    for (const range of ["bytes=abc", "items=1-2", "bytes=0-1,4-5"]) {
+    // 読めない書き方・逆順・複数範囲は無視して全体を返す
+    for (const range of ["bytes=abc", "items=1-2", "bytes=0-1,4-5", "bytes=5-2"]) {
       const whole = await get(range);
       expect(whole.status).toBe(200);
       expect(await whole.text()).toBe("0123456789");

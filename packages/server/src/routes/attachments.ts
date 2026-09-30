@@ -16,7 +16,7 @@ const SAFE_HEADERS = {
   "Cache-Control": "no-store",
 };
 
-// Range ヘッダーのうち、1 つの範囲だけを読む（bytes=a-b・bytes=a-・bytes=-n）。読めない書き方と複数範囲は null（全体を返す）
+// Range ヘッダーのうち、1 つの範囲だけを読む（bytes=a-b・bytes=a-・bytes=-n）。読めない書き方・逆順・複数範囲は null（全体を返す）
 export function parseRange(header: string | undefined, total: number): ByteRange | null {
   const m = header?.trim().match(/^bytes=(\d*)-(\d*)$/);
   if (!m || (m[1] === "" && m[2] === "")) return null;
@@ -24,7 +24,10 @@ export function parseRange(header: string | undefined, total: number): ByteRange
     const n = Number(m[2]);
     return n === 0 ? { start: total, end: total } : { start: Math.max(0, total - n), end: total - 1 };
   }
-  return { start: Number(m[1]), end: m[2] === "" ? Number.MAX_SAFE_INTEGER : Number(m[2]) };
+  const start = Number(m[1]);
+  const end = m[2] === "" ? Number.MAX_SAFE_INTEGER : Number(m[2]);
+  // bytes=5-2 のような逆順は RFC 9110 では無効な書き方なので、416 にせず全体を返す
+  return start > end ? null : { start, end };
 }
 
 // Issue の添付。web から足せるのはリンクだけで、ファイルは CLI で添付する（web はダウンロードと削除）
