@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   axisDate,
   cleanAnalyticsSearch,
+  cycleOptions,
+  cycleProblem,
   formatHours,
   labelEvery,
   llmColors,
   milestoneGroups,
+  milestoneProblem,
   niceTicks,
   parseAnalyticsSearch,
   statsQueryString,
@@ -22,6 +25,13 @@ describe("parseAnalyticsSearch / cleanAnalyticsSearch", () => {
     expect(Object.keys(invalid)).toEqual(["by", "range", "workspace", "project", "milestone"]); // 元の search の不正な値を上書きする
     expect(parseAnalyticsSearch({ range: 7 })).toEqual({ range: undefined }); // 7 は日のプリセットで、既定の週にはない
     expect(Object.keys(parseAnalyticsSearch({}))).toEqual([]);
+  });
+
+  test("Cycle は ID か none（Cycle なし）を残す", () => {
+    expect(parseAnalyticsSearch({ cycle: 4 })).toEqual({ cycle: "4" });
+    expect(parseAnalyticsSearch({ cycle: "None" })).toEqual({ cycle: "none" });
+    expect(parseAnalyticsSearch({ cycle: "Sprint 1" })).toEqual({ cycle: undefined });
+    expect(cleanAnalyticsSearch({ cycle: "none" })).toEqual({ cycle: "none" });
   });
 
   test("既定値（週・直近12週）は URL に残さない", () => {
@@ -47,6 +57,9 @@ describe("statsRange / statsQueryString", () => {
     expect(statsQueryString({}, today, "UTC")).toBe("by=week&from=2026-07-13&to=2026-09-29&tz=UTC");
     expect(statsQueryString({ project: "2", milestone: "5" }, today, "UTC")).toBe(
       "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&project=2&milestone=5",
+    );
+    expect(statsQueryString({ workspace: "API", cycle: "none" }, today, "UTC")).toBe(
+      "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&workspace=API&cycle=none",
     );
   });
 });
@@ -74,6 +87,40 @@ describe("Milestone の選択肢", () => {
     expect(withProject({ project: "1", milestone: "11" }, "2", milestones)).toEqual({ project: "2", milestone: undefined });
     expect(withProject({ project: "1", milestone: "11" }, undefined, milestones)).toEqual({ project: undefined, milestone: "11" });
     expect(withProject({ milestone: "99" }, "1", milestones)).toEqual({ project: "1", milestone: undefined });
+    // 一覧を読み込む前は判断できないため外さない（食い違えば milestoneProblem が知らせる）
+    expect(withProject({ milestone: "11" }, "2", undefined)).toEqual({ project: "2", milestone: "11" });
+  });
+
+  test("消えた Milestone や、URL の Project と食い違う Milestone は API を呼ばずに知らせる", () => {
+    expect(milestoneProblem({ milestone: "11" }, undefined)).toBeNull(); // 読み込み中
+    expect(milestoneProblem({ milestone: "11" }, milestones)).toBeNull();
+    expect(milestoneProblem({ project: "1", milestone: "11" }, milestones)).toBeNull();
+    expect(milestoneProblem({ milestone: "99" }, milestones)).toBe("条件の Milestone（99）が見つかりません");
+    expect(milestoneProblem({ project: "2", milestone: "11" }, milestones)).toBe("条件の Milestone（α）は条件の Project のものではありません");
+  });
+});
+
+describe("Cycle の選択肢", () => {
+  const cycles = [
+    { id: 1, name: "Sprint 12", workspace: "API" },
+    { id: 2, name: "Sprint 12", workspace: "NOD" },
+    { id: 3, name: "Sprint 13", workspace: "API" },
+    { id: 4, name: "Design Week", workspace: "WEB" },
+  ];
+  test("名前をそのまま出し、同じ名前の Cycle がほかの Workspace にあるときだけ Workspace のキーを添える", () => {
+    expect(cycleOptions(cycles)).toEqual([
+      { value: "1", label: "Sprint 12 · API" },
+      { value: "2", label: "Sprint 12 · NOD" },
+      { value: "3", label: "Sprint 13" },
+      { value: "4", label: "Design Week" },
+    ]);
+  });
+
+  test("消えた Cycle の ID は API を呼ばずに知らせる。none は Cycle なし", () => {
+    expect(cycleProblem({ cycle: "9" }, undefined)).toBeNull();
+    expect(cycleProblem({ cycle: "1" }, cycles)).toBeNull();
+    expect(cycleProblem({ cycle: "none" }, cycles)).toBeNull();
+    expect(cycleProblem({ cycle: "9" }, cycles)).toBe("条件の Cycle（9）が見つかりません");
   });
 });
 

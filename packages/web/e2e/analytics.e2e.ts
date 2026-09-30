@@ -16,7 +16,7 @@ async function seed(nod: NodData) {
   await nod.me.updateIssue(dropped.id, { status: "canceled" });
   const other = await nod.me.createIssue({ workspaceId: web.id, title: "画面の文言" });
   await nod.me.updateIssue(other.id, { status: "done" });
-  return { project, reviewed };
+  return { project, reviewed, apiId: api.workspace.id, webId: web.id };
 }
 
 const kpi = (page: import("@playwright/test").Page, name: string) => page.getByRole("region", { name, exact: true });
@@ -110,6 +110,51 @@ test("消えた Milestone の ID が URL に残っていると、見つからな
   await seed(nod);
   await page.goto("/analytics?milestone=999");
   await expect(page.getByText("条件の Milestone（999）が見つかりません").first()).toBeVisible();
+});
+
+test("URL の Project と食い違う Milestone は、API を呼ばずに知らせる", async ({ page, nod }) => {
+  const { project } = await seed(nod);
+  await nod.me.createProject({ name: "決済" });
+  const release = await nod.me.createMilestone("決済", { name: "リリース" });
+  await page.goto(`/analytics?project=${project.id}&milestone=${release.id}`);
+  await expect(page.getByText("条件の Milestone（リリース）は条件の Project のものではありません").first()).toBeVisible();
+  // 今の条件を選択肢に残し、「すべて」を選び直して外せる
+  await expect(page.getByLabel("Milestone")).toHaveValue(String(release.id));
+  await page.getByLabel("Milestone").selectOption("");
+  await expect(page).not.toHaveURL(/milestone=/);
+  await expect(kpi(page, "完了数")).toContainText("1");
+});
+
+test("Cycle で絞り込むと URL に残し、同じ名前の Cycle は Workspace のキーで見分け、Cycle なしでも絞れる", async ({ page, nod }) => {
+  const { reviewed, apiId, webId } = await seed(nod);
+  const period = { startDate: "2026-10-01", endDate: "2026-10-14" };
+  const apiSprint = await nod.me.createCycle({ workspaceId: apiId, name: "Sprint 12", ...period });
+  await nod.me.createCycle({ workspaceId: webId, name: "Sprint 12", ...period });
+  await nod.me.createCycle({ workspaceId: webId, name: "Design Week", startDate: "2026-10-15", endDate: "2026-10-21" });
+  await nod.me.updateIssue(reviewed.id, { cycleRef: String(apiSprint.id) });
+  await page.goto("/analytics");
+  const cycle = page.getByLabel("Cycle");
+  await expect(cycle.locator("option")).toHaveText(["すべて", "Cycle なし", "Sprint 12 · API", "Sprint 12 · WEB", "Design Week"]);
+  await cycle.selectOption({ label: "Sprint 12 · API" });
+  await expect(page).toHaveURL(/cycle=/);
+  await expect(kpi(page, "完了数")).toContainText("1");
+
+  await page.reload();
+  await expect(cycle).toHaveValue(String(apiSprint.id));
+  await expect(kpi(page, "完了数")).toContainText("1");
+  await cycle.selectOption({ label: "Cycle なし" });
+  await expect(page).toHaveURL(/cycle=none/);
+  await expect(kpi(page, "完了数")).toContainText("2");
+  await cycle.selectOption("");
+  await expect(page).not.toHaveURL(/cycle=/);
+  await expect(kpi(page, "完了数")).toContainText("3");
+});
+
+test("消えた Cycle の ID が URL に残っていると、見つからないことを知らせる", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/analytics?cycle=999");
+  await expect(page.getByText("条件の Cycle（999）が見つかりません").first()).toBeVisible();
+  await expect(page.getByLabel("Cycle")).toHaveValue("999");
 });
 
 test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) => {
