@@ -1,4 +1,5 @@
 import { NodError } from "./errors";
+import { isNoneRef, NONE_REF } from "./none-ref";
 import { STATUSES, type Status } from "./types";
 
 // GET /api/issues のクエリパラメータと View の filter に共通する絞り込み条件。キーの名前はクエリパラメータの名前と同じ
@@ -63,16 +64,16 @@ export function validateIssueQuery(value: unknown): IssueQuery {
   }
   if (raw.milestone !== undefined) {
     const value = typeof raw.milestone === "number" ? String(raw.milestone) : raw.milestone;
-    if (typeof value !== "string" || !/^([1-9]\d*|none)$/.test(value)) {
+    if (typeof value === "string" && isNoneRef(value)) q.milestone = NONE_REF;
+    else if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
       throw invalid("milestone には Milestone の ID（正の整数）か none を指定してください");
-    }
-    q.milestone = value;
+    } else q.milestone = value;
   }
   if (raw.cycle !== undefined) {
     if (typeof raw.cycle !== "string" || !raw.cycle.trim()) {
       throw invalid("cycle には Cycle の ID を文字列で指定してください");
     }
-    q.cycle = raw.cycle.trim();
+    q.cycle = isNoneRef(raw.cycle) ? NONE_REF : raw.cycle.trim();
   }
   const label = stringList(raw.label, "label", false);
   if (label) q.label = label;

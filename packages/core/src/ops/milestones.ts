@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
+import { isNoneRef, NONE_REF } from "../none-ref";
 import type { Milestone } from "../types";
 import { validateDueDate } from "./issues";
 import { resolveProject } from "./projects";
@@ -84,6 +85,9 @@ function validateName(raw: unknown): string {
   const name = raw.trim();
   if (/^\d+$/.test(name)) {
     throw new NodError("INVALID_ARGS", `Milestone の名前に数字だけ（${name}）は使えません。数字は ID として解釈されるためです`);
+  }
+  if (isNoneRef(name)) {
+    throw new NodError("INVALID_ARGS", `Milestone の名前に ${NONE_REF} は使えません。絞り込みで Milestone のない Issue を指す値として予約しています`);
   }
   if (name.length > MILESTONE_NAME_MAX_LENGTH) {
     throw new NodError("INVALID_ARGS", `Milestone の名前は ${MILESTONE_NAME_MAX_LENGTH} 文字以内にしてください（${name.length} 文字）`);

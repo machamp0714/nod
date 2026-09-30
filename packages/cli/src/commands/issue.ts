@@ -211,7 +211,7 @@ export function registerIssueCommands(program: Command): void {
             workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
             statuses: o.status ? parseStatuses(o.status) : undefined,
             projectRef: o.project,
-            milestone: o.milestone?.toLowerCase() === "none" ? "none" : o.milestone,
+            milestone: o.milestone,
             cycleRef: o.cycle,
             labels: o.label,
             delegated: o.delegated,

@@ -4,6 +4,9 @@ import { openDb, SCHEMA_VERSION, schemaVersion } from "../src/db";
 import { bulkUpdateIssues } from "../src/ops/bulk-update";
 import { createCycle, cycleToday, deleteCycle, getCycle, listCycles, moveOpenIssues, resolveCycle, updateCycle } from "../src/ops/cycles";
 import { archiveIssue, copyIssue, createIssue, getIssue, queryIssues, updateIssue } from "../src/ops/issues";
+import { startIssue } from "../src/ops/agent";
+import { createMilestone } from "../src/ops/milestones";
+import { createProject } from "../src/ops/projects";
 import { initWorkspace } from "../src/ops/workspaces";
 import { completionStats, llmStats, statsQueryFromParams } from "../src/ops/stats";
 import { recentSummary, summaryQueryFromParams } from "../src/ops/summary";
@@ -198,10 +201,14 @@ describe("Cycle", () => {
 
 describe("分析・要約の Cycle 絞り込み", () => {
   test("完了数と要約を Cycle の Issue だけに絞る。名前・current は Workspace を1つに絞ったときだけ", () => {
-    const { db, ws, me } = setup();
+    const { db, ws, me, llm } = setup();
     const { current } = sprints(me, ws.id);
-    const inCycle = createIssue(me, { workspaceId: ws.id, title: "入り", cycleRef: "Sprint 2" });
-    const outside = createIssue(me, { workspaceId: ws.id, title: "外" });
+    createProject(me, { name: "検索" });
+    createMilestone(me, "検索", { name: "α" });
+    const inCycle = createIssue(me, { workspaceId: ws.id, title: "入り", cycleRef: "Sprint 2", projectRef: "検索", milestoneRef: "α" });
+    const outside = createIssue(me, { workspaceId: ws.id, title: "外", projectRef: "検索" });
+    // LLM の担当で完了させ、stats llm の Cycle 絞り込みも実際に数を比べて確かめる
+    for (const i of [inCycle, outside]) startIssue(llm, i.id);
     updateIssue(me, inCycle.id, { status: "done" });
     updateIssue(me, outside.id, { status: "done" });
     const base = { by: "week" as const, from: "2026-01-01", to: "2027-06-30", tz: "UTC" };
@@ -213,7 +220,16 @@ describe("分析・要約の Cycle 絞り込み", () => {
     // none は Issue 一覧と同じく Cycle のない Issue を指す（Web の Analytics の「Cycle なし」）
     expect(completionStats(db, { ...base, cycle: "none" }).totals.completed).toBe(1);
     expect(completionStats(db, { ...base, cycle: " None ", workspace: [ws.key] }).totals.completed).toBe(1);
-    expect(llmStats(db, { ...base, cycle: "none" }).llms.every((l) => l.totals.completed === 0)).toBe(true);
+    const llmTotals = (q: Partial<Parameters<typeof llmStats>[1]>) => llmStats(db, { ...base, ...q }).llms.map((l) => [l.name, l.totals.assigned, l.totals.completed]);
+    expect(llmTotals({})).toEqual([["claude-code", 2, 2]]);
+    expect(llmTotals({ cycle: String(current.id) })).toEqual([["claude-code", 1, 1]]);
+    expect(llmTotals({ cycle: "none" })).toEqual([["claude-code", 1, 1]]);
+    // cycle=none と Project・Milestone の併用
+    expect(completionStats(db, { ...base, cycle: "none", project: "検索" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...base, cycle: "none", project: "検索", milestone: "α" }).totals.completed).toBe(0);
+    expect(completionStats(db, { ...base, cycle: "none", project: "検索", milestone: "none" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...base, cycle: String(current.id), project: "検索", milestone: "α" }).totals.completed).toBe(1);
+    expect(llmTotals({ cycle: "none", milestone: "none" })).toEqual([["claude-code", 1, 1]]);
     expect(() => completionStats(db, { ...base, cycle: " " })).toThrow("Cycle を指定してください");
 
     const titles = (q: Parameters<typeof recentSummary>[1]) =>
@@ -222,6 +238,8 @@ describe("分析・要約の Cycle 絞り込み", () => {
     expect(titles({ cycle: String(current.id) })).toEqual(["入り"]);
     expect(titles({ cycle: "Sprint 2", workspace: [ws.key] })).toEqual(["入り"]);
     expect(titles({ cycle: "none" })).toEqual(["外"]);
+    expect(titles({ cycle: " NONE ", project: "検索" })).toEqual(["外"]);
+    expect(titles({ cycle: "none", project: "検索", workspace: [ws.key] })).toEqual(["外"]);
     expect(summaryQueryFromParams(new URLSearchParams("cycle=Sprint%202&workspace=API")).cycle).toBe("Sprint 2");
   });
 });

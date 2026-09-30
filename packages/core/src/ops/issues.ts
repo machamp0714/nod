@@ -33,7 +33,8 @@ import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
-import { NO_CYCLE_REF, resolveCycle, resolveCycleInScope } from "./cycles";
+import { resolveCycle, resolveCycleInScope } from "./cycles";
+import { isNoneRef } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -248,7 +249,7 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("i.project_id = ?");
     params.push(projectId);
   }
-  if (filter.milestone === "none") where.push("i.milestone_id IS NULL");
+  if (isNoneRef(filter.milestone)) where.push("i.milestone_id IS NULL");
   else if (filter.milestone !== undefined) {
     // 名前は Project の中でだけ一意なので、名前で絞るときは Project の指定が要る
     if (!/^\d+$/.test(filter.milestone) && projectId === undefined) {
@@ -261,7 +262,7 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("i.milestone_id = ?");
     params.push(milestone.id);
   }
-  if (filter.cycleRef?.toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
+  if (isNoneRef(filter.cycleRef)) where.push("i.cycle_id IS NULL");
   else if (filter.cycleRef) {
     where.push("i.cycle_id = ?");
     params.push(resolveCycleInScope(db, filter.cycleRef, scopeWorkspaceIds(db, filter)));

@@ -64,14 +64,25 @@ describe("Cycle API", () => {
     expect(getIssue(db, issue.id).cycle).toBeNull();
   });
 
-  test("分析と要約の API で cycle を受け付ける", async () => {
-    const { app, ws } = setup();
+  test("分析と要約の API で cycle を受け付け、none（Cycle のない Issue）は Issue 一覧と同じく扱う", async () => {
+    const { app, ws, me } = setup();
     const past = (await call(app, "POST", `/api/workspaces/${ws.key}/cycles`, PAST)).json;
+    createIssue(me, { workspaceId: ws.id, title: "入り", cycleRef: String(past.id) });
+    createIssue(me, { workspaceId: ws.id, title: "外" });
+    const titles = async (query: string) => {
+      const res = await call(app, "GET", `/api/summary?${query}`);
+      expect(res.status).toBe(200);
+      return [...new Set(res.json.sections.flatMap((sec: { items: { title: string }[] }) => sec.items.map((i) => i.title)))];
+    };
+    expect(await titles(`cycle=${past.id}`)).toEqual(["入り"]);
+    expect(await titles("cycle=none")).toEqual(["外"]);
+    expect(await titles("cycle=%20None%20")).toEqual(["外"]);
     expect((await call(app, "GET", `/api/stats?cycle=${past.id}`)).status).toBe(200);
-    expect((await call(app, "GET", `/api/summary?cycle=${past.id}`)).status).toBe(200);
     expect((await call(app, "GET", "/api/stats?cycle=none")).status).toBe(200);
     expect((await call(app, "GET", "/api/stats/llm?cycle=none")).status).toBe(200);
-    const milestoneNone = await call(app, "GET", "/api/stats?milestone=none");
-    expect([milestoneNone.status, milestoneNone.json.error.code]).toEqual([400, "INVALID_ARGS"]);
+    // milestone=none も Issue 一覧と同じく Milestone のない Issue を指す
+    expect((await call(app, "GET", "/api/stats?milestone=none")).status).toBe(200);
+    expect((await call(app, "GET", "/api/stats/llm?milestone=NONE&cycle=none")).status).toBe(200);
+    expect((await call(app, "GET", "/api/issues?milestone=None&cycle=NONE")).json.issues.map((i: { title: string }) => i.title)).toEqual(["外"]);
   });
 });

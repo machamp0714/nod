@@ -3,7 +3,8 @@ import { HUMAN_ACTOR } from "../ctx";
 import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
-import { NO_CYCLE_REF, resolveCycleInScope } from "./cycles";
+import { isNoneRef } from "../none-ref";
+import { resolveCycleInScope } from "./cycles";
 import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 
@@ -17,7 +18,7 @@ export interface StatsQuery {
   tz?: string; // IANA のタイムゾーン名。省略時は実行環境のローカル
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
-  milestone?: string; // Milestone の ID。名前は project を指定したときだけ（その Project の中で引く）
+  milestone?: string; // Milestone の ID か none（Milestone のない Issue）。名前は project を指定したときだけ（その Project の中で引く）
   cycle?: string; // Cycle の ID か none（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ（current は tz の今日で決める）
   now?: Date; // テスト用。既定の範囲の基準
 }
@@ -173,22 +174,22 @@ export function issueScope(
   }
   if (q.milestone !== undefined) {
     if (!q.milestone.trim()) throw invalid("Milestone を指定してください");
-    if (q.milestone.trim().toLowerCase() === "none") {
-      throw invalid("分析の Milestone に none は使えません。Milestone のない Issue に絞れるのは Issue 一覧だけです。Milestone の ID か名前を指定してください");
+    if (isNoneRef(q.milestone)) where.push("i.milestone_id IS NULL");
+    else {
+      if (projectId === undefined && !/^\d+$/.test(q.milestone)) {
+        throw invalid(`Milestone を名前（${q.milestone}）で指すときは Project も指定してください。名前は Project の中でだけ一意です`);
+      }
+      const milestone = resolveMilestone(db, q.milestone, projectId);
+      if (projectId !== undefined && milestone.project_id !== projectId) {
+        throw invalid(`Milestone ${q.milestone}（${milestone.name}）は指定した Project のものではありません`);
+      }
+      where.push("i.milestone_id = ?");
+      params.push(milestone.id);
     }
-    if (projectId === undefined && !/^\d+$/.test(q.milestone)) {
-      throw invalid(`Milestone を名前（${q.milestone}）で指すときは Project も指定してください。名前は Project の中でだけ一意です`);
-    }
-    const milestone = resolveMilestone(db, q.milestone, projectId);
-    if (projectId !== undefined && milestone.project_id !== projectId) {
-      throw invalid(`Milestone ${q.milestone}（${milestone.name}）は指定した Project のものではありません`);
-    }
-    where.push("i.milestone_id = ?");
-    params.push(milestone.id);
   }
   if (q.cycle !== undefined) {
     if (!q.cycle.trim()) throw invalid("Cycle を指定してください");
-    if (q.cycle.trim().toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
+    if (isNoneRef(q.cycle)) where.push("i.cycle_id IS NULL");
     else {
       where.push("i.cycle_id = ?");
       params.push(resolveCycleInScope(db, q.cycle, workspaceIds, { tz: q.tz, now: q.now }));
