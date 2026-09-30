@@ -187,6 +187,40 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
       expect(updateIssue(llm, i.id, { status: "canceled" }).status).toBe("canceled");
     });
 
+    // 人が needs_clarification から出したあとも、人が決める前に LLM が着手の状態にできないようにする
+    for (const from of ["todo", "backlog"] as const) {
+      for (const to of ["in_progress", "in_review"] as const) {
+        test(`人が ${from} に出したあとも、${to} にしようとすると FORBIDDEN_FOR_LLM で、何も書かない`, () => {
+          const { db, ws, me, llm } = setup();
+          const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+          askQuestion(me, i.id, "対象はどれか");
+          updateIssue(me, i.id, { status: from });
+          const before = { issue: getIssue(db, i.id), events: eventsOf(db, i.id) };
+          expect(codeOf(() => updateIssue(llm, i.id, { status: to, priority: 1 }))).toBe("FORBIDDEN_FOR_LLM");
+          expect({ issue: getIssue(db, i.id), events: eventsOf(db, i.id) }).toEqual(before);
+          // 人は未回答を残したまま進められる
+          expect(updateIssue(me, i.id, { status: to }).status).toBe(to);
+        });
+      }
+    }
+
+    test("人が todo に出したあとの todo と backlog の間の移動は、着手にならないので LLM にもできる", () => {
+      const { ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(me, i.id, "対象はどれか");
+      updateIssue(me, i.id, { status: "todo" });
+      expect(updateIssue(llm, i.id, { status: "backlog" }).status).toBe("backlog");
+      expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+    });
+
+    test("作業中に me が足した未決事項は、LLM の in_review への変更を止めない", () => {
+      const { ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      startIssue(llm, i.id);
+      askQuestion(me, i.id, "ついでに直すか");
+      expect(updateIssue(llm, i.id, { status: "in_review" }).status).toBe("in_review");
+    });
+
     test("一括編集でも失敗一覧に FORBIDDEN_FOR_LLM が入り、1件も書かない", () => {
       const { db, ws, me, llm } = setup();
       const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });

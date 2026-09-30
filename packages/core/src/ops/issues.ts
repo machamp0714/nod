@@ -505,17 +505,23 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
   setColumn(ctx, row, "milestone_id", target?.id ?? null, { from, to: target?.name ?? null });
 }
 
-// 私が足した未決事項が未回答の間、LLM は Issue を needs_clarification から出せない（#170）。人が決める前に着手させないため。
+// 私が足した未決事項が未回答の間、LLM は着手前の Issue を先へ進められない（#170）。人が決める前に着手させないため。
+// needs_clarification からは todo・backlog にも出せない。人が todo・backlog に出したあとも in_progress・in_review にはできない。
 // canceled は止めない。一括編集の失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
-const HELD_FOR_HUMAN: Status[] = ["todo", "backlog", "in_progress", "in_review"];
+const STARTED: Status[] = ["in_progress", "in_review"];
+const NOT_STARTED: Status[] = ["todo", "backlog"];
 
-function assertLlmMayLeaveClarification(ctx: OpCtx, row: IssueRow, to: Status): void {
-  if (row.status !== "needs_clarification" || !HELD_FOR_HUMAN.includes(to)) return;
+function assertLlmLeavesHumanQuestions(ctx: OpCtx, row: IssueRow, to: Status): void {
+  const held =
+    row.status === "needs_clarification"
+      ? STARTED.includes(to) || NOT_STARTED.includes(to)
+      : NOT_STARTED.includes(row.status) && STARTED.includes(to);
+  if (!held) return;
   const open = openQuestionCount(ctx.db, row.id, { humanOnly: true });
   if (open === 0) return;
   throw new NodError(
     "FORBIDDEN_FOR_LLM",
-    `me の未決事項が ${open} 件未回答のため、LLM は needs_clarification の Issue の状態を変えられません。回答を me に依頼してください`,
+    `me の未決事項が ${open} 件未回答のため、LLM は ${row.status} の Issue を ${to} にできません。回答を me に依頼してください`,
   );
 }
 
@@ -546,7 +552,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
         `LLM は Triage にある ${ref} の状態を変えられません。受け入れ・却下は me に依頼するか、nod triage propose で提案してください`,
       );
     }
-    if (isLlm(ctx) && input.status !== undefined) assertLlmMayLeaveClarification(ctx, row, input.status);
+    if (isLlm(ctx) && input.status !== undefined) assertLlmLeavesHumanQuestions(ctx, row, input.status);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) setColumn(ctx, row, "description", input.description);
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
