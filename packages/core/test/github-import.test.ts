@@ -8,6 +8,7 @@ import { completionStats } from "../src/ops/stats";
 import { recentSummary } from "../src/ops/summary";
 import type { GhRunner, GhRunResult } from "../src/ops/pr-status";
 import { initWorkspace } from "../src/ops/workspaces";
+import { setTransitionRules } from "../src/transition-rules";
 import { eventsOf, tempDbPath } from "./helpers";
 
 // 実際の gh・GitHub には触れず、gh issue list / view の出力を返すスタブで取り込む
@@ -235,6 +236,14 @@ describe("importGithubIssues", () => {
       [2, true, "GitHub で close（NOT_PLANNED）"],
       [3, false, null],
     ]);
+  });
+
+  test("遷移ルール（#73）で todo から done・canceled を禁じていても、閉じた Issue は遷移を経ないので取り込める", async () => {
+    const { db, me } = fixture();
+    setTransitionRules(me, "API", { forbidden: [{ from: "todo", to: "done" }, { from: "todo", to: "canceled" }], presets: [] });
+    const r = await importGithubIssues(me, "API", "example/api-server", { state: "all" }, fakeGh(SAMPLE));
+    expect(r.failed).toEqual([]);
+    expect(["API-1", "API-2", "API-3"].map((ref) => getIssue(db, ref).status)).toEqual(["done", "canceled", "triage"]);
   });
 
   test("取り込んだ時点で閉じていた Issue は完了数（stats）と要約の完了・キャンセルに数えない。取り込み後に閉じ直したものは数える", async () => {
