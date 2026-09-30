@@ -12,15 +12,18 @@ export function useOpenInOrca(id: string) {
   });
 }
 
-// 追加指示の送信先の候補（#51）。確認画面を開くたびに orca で調べ直し、古い一覧を使い回さない
+// 追加指示の送信先の候補（#51）。確認画面を開くたびに orca で1回だけ調べ、古い一覧を使い回さない
 export function useAgentTargets(id: string, enabled: boolean) {
   return useQuery({
     queryKey: ["agent-targets", id],
     queryFn: () => apiFetch<AgentTargets>(issuePath(id, "agent-targets")),
     enabled,
-    staleTime: 0,
+    // 開いている間は、ほかの書き込みによる無効化やフォーカスで orca を呼び直さない（閉じると捨て、次に開くときに調べ直す）
+    meta: { immutable: true },
+    staleTime: Infinity,
     gcTime: 0,
     retry: false,
+    refetchOnWindowFocus: false,
   });
 }
 

@@ -50,7 +50,7 @@ test("記録のみは送らず、未送信として残す", async ({ page, nod }
   const issue = await api.startedIssue("検索");
   await stubOrca({ "terminal list": ok({ terminals: [term(api.repo, "term_a")] }), "terminal send": ok({ accepted: true }) });
   const activity = await openInstruction(page, issue.id);
-  await page.getByRole("dialog").getByRole("button", { name: "記録のみ" }).click();
+  await page.getByRole("dialog", { name: "claude-code に追加指示を送信しますか？" }).getByRole("button", { name: "記録のみ" }).click();
   await expect(activity.getByRole("article", { name: "追加指示" }).getByText("未送信（LLM は start/show で読みます）")).toBeVisible();
   expect(await sends()).toEqual([]);
 });
@@ -67,7 +67,7 @@ test("端末が無ければ記録のみを示し、キャンセルでは何も�
   await expect(activity.getByRole("article", { name: "追加指示" })).toHaveCount(0);
   await expect(activity.getByRole("textbox", { name: "追加指示" })).toHaveValue(BODY);
   await activity.getByRole("button", { name: "送信…" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "記録のみ" }).click();
+  await page.getByRole("dialog", { name: "追加指示を記録しますか？" }).getByRole("button", { name: "記録のみ" }).click();
   await expect(activity.getByRole("article", { name: "追加指示" })).toHaveCount(1);
   expect((await api.show(issue.id)).pendingInstructions).toHaveLength(1);
 });
@@ -92,7 +92,7 @@ test("送信に失敗したら理由を出し、Activity の「送信…」か�
   const issue = await api.startedIssue("検索");
   await stubOrca({ "terminal list": ok({ terminals: [term(api.repo, "term_a")] }) }); // terminal send は orca が無い扱い
   const activity = await openInstruction(page, issue.id);
-  await page.getByRole("dialog").getByRole("button", { name: "送信", exact: true }).click();
+  await page.getByRole("dialog", { name: "claude-code に追加指示を送信しますか？" }).getByRole("button", { name: "送信", exact: true }).click();
   const card = activity.getByRole("article", { name: "追加指示" });
   await expect(card.getByText(/^送信失敗: orca が見つかりません/)).toBeVisible();
 

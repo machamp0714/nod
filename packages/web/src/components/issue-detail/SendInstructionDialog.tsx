@@ -135,7 +135,13 @@ export function SendInstructionDialog({
           {error && <p className={s.error} role="alert">{error}</p>}
         </div>
         <div className={s.sendDialogButtons}>
-          {none ? (
+          {loading ? (
+            // 宛先を調べている間は、押す位置で意味が変わらないよう、キャンセルと無効な送信だけを出す
+            <>
+              <Button onClick={onClose}>キャンセル</Button>
+              <Button variant="primary" disabled>送信</Button>
+            </>
+          ) : none ? (
             <>
               <Button onClick={onClose} disabled={busy}>{existing ? "閉じる" : "キャンセル"}</Button>
               {!existing && <Button variant="primary" disabled={busy} onClick={() => void run(false)}>記録のみ</Button>}
@@ -147,7 +153,7 @@ export function SendInstructionDialog({
               ) : (
                 <Button disabled={busy} onClick={() => void run(false)}>記録のみ</Button>
               )}
-              <Button variant="primary" disabled={busy || loading || !selected} onClick={() => void run(true)}>送信</Button>
+              <Button variant="primary" disabled={busy || !selected} onClick={() => void run(true)}>送信</Button>
             </>
           )}
         </div>
