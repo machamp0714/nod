@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_RANGE_MAX_BYTES,
@@ -420,7 +420,7 @@ describe("添付の削除", () => {
     } finally {
       chmodSync(dirname(abs), 0o700);
     }
-    expect(gcAttachments(db, { dir, now: Date.now() + 120_000 }).removed).toEqual([dirname(abs).split("/").pop()]);
+    expect(gcAttachments(db, { dir, now: Date.now() + 120_000 }).removed).toEqual([basename(dirname(abs))]);
     expect(readdirSync(dir)).toEqual([]);
   });
 
