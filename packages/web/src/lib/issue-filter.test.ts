@@ -54,6 +54,21 @@ test("ルーターが残した未検証の search params を API に渡さない
   expect(filterFromSearch({ workspace: ["blog"] })).toEqual({ workspace: ["BLOG"] });
 });
 
+describe("Milestone の条件", () => {
+  test("search params・API のクエリ・比較・チップに Milestone の ID と none を通す", () => {
+    expect(filterFromSearch({ milestone: "3" })).toEqual({ milestone: "3" });
+    expect(filterFromSearch({ milestone: "none" })).toEqual({ milestone: "none" });
+    expect(filterFromSearch({ milestone: "abc" } as never)).toEqual({});
+    expect(filterToSearch({ milestone: "3" }).milestone).toBe("3");
+    expect(issueQueryToParams({ project: "1", milestone: "none" })).toBe("?project=1&milestone=none");
+    expect(sameFilter({ milestone: "1" }, { milestone: "2" })).toBe(false);
+    const labelOf = { workspace: (k: string) => k, project: (r: string) => r, status: (s: string) => s, milestone: (r: string) => `M${r}` };
+    expect(describeFilter({ milestone: "3" }, labelOf)).toEqual([{ key: "milestone", name: "Milestone", values: "M3" }]);
+    expect(describeFilter({ milestone: "none" }, labelOf)).toEqual([{ key: "milestone", name: "Milestone", values: "Milestone なし" }]);
+    expect(withoutKey({ milestone: "3", project: "1" }, "milestone")).toEqual({ project: "1" });
+  });
+});
+
 describe("describeFilter", () => {
   test("条件ごとに、名前と表示用の値を並べる", () => {
     const labelOf = {

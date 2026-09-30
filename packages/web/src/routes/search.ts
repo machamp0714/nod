@@ -53,6 +53,7 @@ export interface IssueListSearch {
   workspace?: string[];
   status?: Status[];
   project?: string;
+  milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
   label?: string[];
 }
 
@@ -96,6 +97,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (status?.length) out.status = status;
   const project = typeof raw.project === "number" ? String(raw.project) : raw.project;
   if (typeof project === "string" && /^\d+$/.test(project)) out.project = project;
+  const milestone = typeof raw.milestone === "number" ? String(raw.milestone) : raw.milestone;
+  if (typeof milestone === "string" && /^([1-9]\d*|none)$/.test(milestone)) out.milestone = milestone;
   const label = stringList(raw.label);
   if (label) out.label = label;
   return out;
@@ -133,6 +136,7 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   if (search.workspace?.length) out.workspace = search.workspace;
   if (search.status?.length) out.status = search.status;
   if (search.project) out.project = search.project;
+  if (search.milestone) out.milestone = search.milestone;
   if (search.label?.length) out.label = search.label;
   return out;
 }

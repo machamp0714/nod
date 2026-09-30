@@ -100,7 +100,7 @@ function validateDescription(description: string): void {
 
 function ensureUniqueName(db: Database, projectId: number, name: string, exceptId?: number): void {
   const hit = db.query("SELECT id FROM milestones WHERE project_id = ? AND name = ?").get(projectId, name) as { id: number } | null;
-  if (hit && hit.id !== exceptId) throw new NodError("MILESTONE_EXISTS", `Milestone ${name} はこの Project にすでにあります`);
+  if (hit && hit.id !== exceptId) throw new NodError("MILESTONE_EXISTS", `同じ名前の Milestone「${name}」があります`);
 }
 
 export interface CreateMilestoneInput {

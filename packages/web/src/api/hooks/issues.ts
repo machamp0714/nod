@@ -6,7 +6,7 @@ import { apiFetch } from "../client";
 import { errorMessage } from "../errors";
 import { queryKeys } from "../query-keys";
 import type { Issue, IssueList, IssueQuery, UpdateIssueInput } from "../types";
-import { useProjects } from "./projects";
+import { useMilestones, useProjects } from "./projects";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 export function useIssueList(query: IssueQuery, enabled = true) {
@@ -28,16 +28,26 @@ export interface IssueRowsState {
 // 条件の Project が一覧にないときは、core が NOT_FOUND を返すため、API を呼ばずにメッセージを返す。
 export function useIssueRows(query: IssueQuery): IssueRowsState {
   const projects = useProjects();
+  const milestones = useMilestones();
   const ref = query.project;
   const unknownProject =
     ref !== undefined && projects.data !== undefined && !projects.data.some((p) => String(p.id) === ref || p.name === ref);
-  const enabled = ref === undefined || (projects.data !== undefined && !unknownProject);
+  // 消えた Milestone の ID も core が NOT_FOUND を返すため、同じく API を呼ばない
+  const milestoneRef = query.milestone !== undefined && query.milestone !== "none" ? query.milestone : undefined;
+  const unknownMilestone =
+    milestoneRef !== undefined && milestones.data !== undefined && !milestones.data.some((m) => String(m.id) === milestoneRef);
+  const enabled =
+    (ref === undefined || (projects.data !== undefined && !unknownProject)) &&
+    (milestoneRef === undefined || (milestones.data !== undefined && !unknownMilestone));
   const all = useIssueList(query, enabled);
   const ready = useIssueList({ ...query, ready: true }, enabled);
   const workspaces = useWorkspaces();
 
   if (unknownProject) return { rows: [], loading: false, error: `条件の Project（${ref}）が見つかりません` };
-  const failed = [all, ready, workspaces, ...(ref === undefined ? [] : [projects])].find((q) => q.error);
+  if (unknownMilestone) return { rows: [], loading: false, error: `条件の Milestone（${milestoneRef}）が見つかりません` };
+  const failed = [all, ready, workspaces, ...(ref === undefined ? [] : [projects]), ...(milestoneRef === undefined ? [] : [milestones])].find(
+    (q) => q.error,
+  );
   if (failed?.error) return { rows: [], loading: false, error: errorMessage(failed.error) };
   if (!all.data || !ready.data || !workspaces.data) return { rows: [], loading: true, error: null };
   return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, error: null };
@@ -47,10 +57,13 @@ export function useIssueRows(query: IssueQuery): IssueRowsState {
 export function useFilterOptions(): FilterOptions {
   const workspaces = useWorkspaces();
   const projects = useProjects();
+  const milestones = useMilestones();
   const all = useIssueList({});
+  const projectName = new Map((projects.data ?? []).map((p) => [p.id, p.name]));
   return {
     workspaces: (workspaces.data ?? []).map((w) => ({ value: w.key, label: w.name })),
     projects: (projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+    milestones: (milestones.data ?? []).map((m) => ({ value: String(m.id), label: m.name, project: projectName.get(m.projectId) ?? "" })),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
   };
 }

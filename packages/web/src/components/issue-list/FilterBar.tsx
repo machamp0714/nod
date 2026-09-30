@@ -1,5 +1,13 @@
 import type { IssueQuery, Status } from "../../api/types";
-import { describeFilter, type FilterOption, type FilterOptions, toggleValue, withoutKey } from "../../lib/issue-filter";
+import {
+  describeFilter,
+  type FilterOption,
+  type FilterOptions,
+  type MilestoneFilterOption,
+  NO_MILESTONE,
+  toggleValue,
+  withoutKey,
+} from "../../lib/issue-filter";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { STATUS_ORDER } from "../../lib/meta";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
@@ -28,6 +36,7 @@ export function FilterBar({
   const chips = describeFilter(filter, {
     workspace: (key) => nameOf(options.workspaces, key),
     project: (ref) => nameOf(options.projects, ref),
+    milestone: (ref) => nameOf(options.milestones, ref),
     status: nameOfStatus,
   });
   return (
@@ -82,6 +91,11 @@ export function FilterBar({
               ))}
             </select>
           </label>
+          <MilestoneGroup
+            options={options.milestones}
+            selected={filter.milestone}
+            onChange={(milestone) => onChange({ ...filter, milestone })}
+          />
           <CheckGroup
             label="Label"
             options={options.labels.map((label) => ({ value: label, label }))}
@@ -105,6 +119,39 @@ export function ArchivedFilter({ value, onChange }: { value: boolean; onChange: 
       <option value="exclude">含めない</option><option value="only">アーカイブ済みのみ</option>
     </select>
   </label>;
+}
+
+// Pencil「Issues｜Milestoneフィルタ」のメニュー（L76FT）。1つだけ選び、同じ名前は Project の名前で見分ける
+function MilestoneGroup({
+  options,
+  selected,
+  onChange,
+}: {
+  options: readonly MilestoneFilterOption[];
+  selected: string | undefined;
+  onChange: (value: string) => void;
+}) {
+  const items = [...options.map((o) => ({ ...o, icon: "flag" as const })), { value: NO_MILESTONE, label: "Milestone なし", project: "", icon: "circle-dashed" as const }];
+  return (
+    <fieldset className={s.milestones}>
+      <legend className={s.groupName}>Milestone</legend>
+      {items.map((o) => (
+        <label key={o.value} className={`${s.milestoneOption} ${selected === o.value ? s.milestoneSelected : ""}`}>
+          <input
+            type="radio"
+            name="milestone"
+            className={s.visuallyHidden}
+            checked={selected === o.value}
+            onChange={() => onChange(o.value)}
+          />
+          <Icon name={o.icon} size={13} />
+          <span className={s.milestoneName}>{o.label}</span>
+          {o.project && <span className={s.milestoneProject}>{o.project}</span>}
+          {selected === o.value && <Icon name="check" size={13} />}
+        </label>
+      ))}
+    </fieldset>
+  );
 }
 
 function CheckGroup({

@@ -9,6 +9,7 @@ import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
 import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
+import { useMilestones } from "../../api/hooks/projects";
 import { priorityMeta } from "../../lib/meta";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentStatePill, Button, Icon, LabelChip, Pill, StatusIcon, WorkspaceBadge } from "../ui";
@@ -231,6 +232,11 @@ export function PropertiesPanel({
     action.run(() => onRemind(input), input ? "リマインダーを設定できませんでした" : "リマインダーを解除できませんでした");
   // 選択肢の一覧を読み込む前や、一覧にない Project でも、今の値を表示できるようにする
   const projectOptions = issue.project && !projects.some((p) => p.id === issue.project?.id) ? [...projects, issue.project] : projects;
+  // Milestone は Issue の Project のものだけ選べる。読み込み前でも今の値を表示する
+  const milestones = useMilestones();
+  const projectMilestones = (milestones.data ?? []).filter((m) => m.projectId === issue.project?.id);
+  const milestoneOptions =
+    issue.milestone && !projectMilestones.some((m) => m.id === issue.milestone?.id) ? [...projectMilestones, issue.milestone] : projectMilestones;
 
   async function addLabels() {
     const labels = parseLabels(labelText, issue.labels);
@@ -298,6 +304,29 @@ export function PropertiesPanel({
               </option>
             ))}
           </select>
+        </Prop>
+        <Prop label="Milestone">
+          <Icon name="flag" size={14} color="var(--ink3)" />
+          <select
+            className={s.select}
+            aria-label="Milestone"
+            value={issue.milestone ? String(issue.milestone.id) : ""}
+            disabled={locked || !issue.project}
+            aria-describedby={issue.project ? undefined : `milestone-hint-${issue.id}`}
+            onChange={(e) => void change({ milestoneRef: e.target.value === "" ? null : e.target.value })}
+          >
+            <option value="">{issue.project ? "なし" : "—"}</option>
+            {milestoneOptions.map((m) => (
+              <option key={m.id} value={String(m.id)}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          {!issue.project && (
+            <span id={`milestone-hint-${issue.id}`} className={s.propHint}>
+              Project を設定すると選べます
+            </span>
+          )}
         </Prop>
         <Prop label="Labels">
           {issue.labels.map((label) => (
