@@ -4,22 +4,30 @@ import { attachmentDownloadPath, attachmentMeta, attachmentTitle, attachmentView
 import { Icon } from "../ui";
 import s from "./attachment-media.module.css";
 
-// nod.pen「Issue詳細｜添付メディア（#55）」のサムネイル。画像はその画像を、動画は再生アイコンと拡張子を出す
-function Thumb({ attachment, onOpen }: { attachment: IssueAttachment; onOpen: () => void }) {
+// nod.pen「Issue詳細｜添付メディア（#55）」のサムネイル。画像はその画像を、動画は再生アイコンと拡張子を出す。
+// 画像を読み込めなければ、拡大表示の読み込み失敗と同じ image-off アイコンに置き換える
+function Thumb({ attachment, onOpen, buttonRef }: { attachment: IssueAttachment; onOpen: () => void; buttonRef: (el: HTMLButtonElement | null) => void }) {
   const title = attachmentTitle(attachment);
   const video = mediaKind(attachment) === "video";
+  const [broken, setBroken] = useState(false);
   return <li>
-    <button type="button" className={video ? `${s.thumb} ${s.thumbVideo}` : s.thumb} aria-label={`${title} を拡大表示`} title={title} onClick={onOpen}>
+    <button ref={buttonRef} type="button" className={video ? `${s.thumb} ${s.thumbVideo}` : s.thumb} aria-label={`${title} を拡大表示`} title={title} onClick={onOpen}>
       {video
         ? <><Icon name="play" size={20} color="#fff" /><span className={s.badge}>{videoBadge(attachment)}</span></>
-        : <img className={s.thumbImage} src={attachmentViewPath(attachment.id)} alt="" loading="lazy" />}
+        : broken
+          ? <span className={s.thumbFailed}><Icon name="image-off" size={20} color="var(--ink3)" /></span>
+          : <img className={s.thumbImage} src={attachmentViewPath(attachment.id)} alt="" loading="lazy" onError={() => setBroken(true)} />}
     </button>
   </li>;
 }
 
-export function MediaGrid({ items, onOpen }: { items: IssueAttachment[]; onOpen: (index: number) => void }) {
+export function MediaGrid({ items, onOpen, buttonRefs }: {
+  items: IssueAttachment[];
+  onOpen: (index: number) => void;
+  buttonRefs?: { current: (HTMLButtonElement | null)[] };
+}) {
   return <ul className={s.grid} aria-label="添付メディア">
-    {items.map((a, i) => <Thumb key={a.id} attachment={a} onOpen={() => onOpen(i)} />)}
+    {items.map((a, i) => <Thumb key={a.id} attachment={a} onOpen={() => onOpen(i)} buttonRef={el => { if (buttonRefs) buttonRefs.current[i] = el; }} />)}
   </ul>;
 }
 
@@ -83,13 +91,26 @@ export function MediaLightbox({ items, index, onIndex, onClose }: {
   </dialog>;
 }
 
-// サムネイルの並びと拡大表示。どのサムネイルを開いているかだけを持つ
+// サムネイルの並びと拡大表示。どのサムネイルを開いているかを持ち、閉じたら開いたサムネイルへフォーカスを戻す
 export function MediaGallery({ items }: { items: IssueAttachment[] }) {
   const [open, setOpen] = useState<number | null>(null);
+  const opener = useRef<number | null>(null);
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const index = open != null && open < items.length ? open : null;
+  function openAt(i: number) {
+    opener.current = i;
+    setOpen(i);
+  }
+  function close() {
+    setOpen(null);
+    const from = opener.current;
+    opener.current = null;
+    // dialog が外れてから戻す（外れる前に focus すると dialog の中へ戻される）
+    if (from != null) requestAnimationFrame(() => buttons.current[from]?.focus());
+  }
   return <>
-    <MediaGrid items={items} onOpen={setOpen} />
-    {index != null && <MediaLightbox items={items} index={index} onIndex={setOpen} onClose={() => setOpen(null)} />}
+    <MediaGrid items={items} onOpen={openAt} buttonRefs={buttons} />
+    {index != null && <MediaLightbox items={items} index={index} onIndex={setOpen} onClose={close} />}
   </>;
 }
 

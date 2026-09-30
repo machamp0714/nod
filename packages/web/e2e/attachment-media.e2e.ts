@@ -62,12 +62,29 @@ test("Issue 詳細で画像と録画をサムネイルで並べ、拡大表示�
   await page.keyboard.press("ArrowLeft");
   await expect(page.getByText("3 / 3")).toBeVisible();
 
-  // Esc と × で閉じる
+  // Esc と × で閉じ、前後に移っていても開いたサムネイルへフォーカスを戻す
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(grid.getByRole("button", { name: "before.png を拡大表示" })).toBeFocused();
   await grid.getByRole("button", { name: "修正後 を拡大表示" }).click();
   await page.getByRole("button", { name: "閉じる" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(grid.getByRole("button", { name: "修正後 を拡大表示" })).toBeFocused();
+});
+
+test("サムネイルの画像を読み込めなければ image-off アイコンに置き換える", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "壊れた画像" });
+  const dir = attachmentsDir(nod.dir);
+  await nod.claude.addFileAttachment(issue.id, { path: writeBinary(nod.dir, "broken.png", "not a png"), dir });
+  await nod.claude.addFileAttachment(issue.id, { path: writeBinary(nod.dir, "ok.png", PNG), dir });
+
+  await page.goto(`/issues/${issue.id}`);
+  const grid = page.getByRole("region", { name: "Attachments" }).getByRole("list", { name: "添付メディア" });
+  const broken = grid.getByRole("button", { name: "broken.png を拡大表示" });
+  await expect(broken.locator("img")).toHaveCount(0);
+  await expect(broken.locator("svg.lucide-image-off")).toBeVisible();
+  await expect(grid.getByRole("button", { name: "ok.png を拡大表示" }).locator("img")).toHaveCount(1);
 });
 
 test("画像は inline、それ以外は attachment で配信する", async ({ page, nod }) => {
