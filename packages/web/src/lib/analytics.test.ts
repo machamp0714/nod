@@ -5,18 +5,21 @@ import {
   formatHours,
   labelEvery,
   llmColors,
+  milestoneGroups,
   niceTicks,
   parseAnalyticsSearch,
   statsQueryString,
   statsRange,
+  withProject,
 } from "./analytics";
 
 describe("parseAnalyticsSearch / cleanAnalyticsSearch", () => {
   test("正しい値は残し、知らない値は捨てる", () => {
     expect(parseAnalyticsSearch({ by: "day", range: 90, workspace: "api", project: 3 })).toEqual({ by: "day", range: 90, workspace: "API", project: "3" });
-    const invalid = parseAnalyticsSearch({ by: "month", range: 90, workspace: " ", project: "検索" });
-    expect(invalid).toEqual({ by: undefined, range: undefined, workspace: undefined, project: undefined });
-    expect(Object.keys(invalid)).toEqual(["by", "range", "workspace", "project"]); // 元の search の不正な値を上書きする
+    expect(parseAnalyticsSearch({ project: "3", milestone: 5 })).toEqual({ project: "3", milestone: "5" });
+    const invalid = parseAnalyticsSearch({ by: "month", range: 90, workspace: " ", project: "検索", milestone: "α" });
+    expect(invalid).toEqual({ by: undefined, range: undefined, workspace: undefined, project: undefined, milestone: undefined });
+    expect(Object.keys(invalid)).toEqual(["by", "range", "workspace", "project", "milestone"]); // 元の search の不正な値を上書きする
     expect(parseAnalyticsSearch({ range: 7 })).toEqual({ range: undefined }); // 7 は日のプリセットで、既定の週にはない
     expect(Object.keys(parseAnalyticsSearch({}))).toEqual([]);
   });
@@ -25,6 +28,7 @@ describe("parseAnalyticsSearch / cleanAnalyticsSearch", () => {
     expect(cleanAnalyticsSearch({ by: "week", range: 12 })).toEqual({});
     expect(cleanAnalyticsSearch({ by: "day", range: 30, project: "2" })).toEqual({ by: "day", project: "2" });
     expect(cleanAnalyticsSearch({ by: "day", range: 12 })).toEqual({ by: "day" });
+    expect(cleanAnalyticsSearch({ milestone: "5", project: undefined })).toEqual({ milestone: "5" });
   });
 });
 
@@ -41,6 +45,35 @@ describe("statsRange / statsQueryString", () => {
       "by=day&from=2026-09-23&to=2026-09-29&tz=Asia%2FTokyo&workspace=API&project=2",
     );
     expect(statsQueryString({}, today, "UTC")).toBe("by=week&from=2026-07-13&to=2026-09-29&tz=UTC");
+    expect(statsQueryString({ project: "2", milestone: "5" }, today, "UTC")).toBe(
+      "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&project=2&milestone=5",
+    );
+  });
+});
+
+describe("Milestone の選択肢", () => {
+  const projects = [{ id: 1, name: "検索" }, { id: 2, name: "決済" }];
+  const milestones = [
+    { id: 10, projectId: 2, name: "α" },
+    { id: 11, projectId: 1, name: "α" },
+    { id: 12, projectId: 1, name: "β" },
+  ];
+  test("Project を選んでいればその Project の Milestone だけ、なければ Project ごとに見出しをつけて並べる", () => {
+    expect(milestoneGroups(milestones, projects, "1")).toEqual([
+      { label: null, options: [{ value: "11", label: "α" }, { value: "12", label: "β" }] },
+    ]);
+    expect(milestoneGroups(milestones, projects, undefined)).toEqual([
+      { label: "決済", options: [{ value: "10", label: "α" }] },
+      { label: "検索", options: [{ value: "11", label: "α" }, { value: "12", label: "β" }] },
+    ]);
+    expect(milestoneGroups([], projects, undefined)).toEqual([]);
+  });
+
+  test("Project を変えると、その Project にない Milestone の選択を外す", () => {
+    expect(withProject({ by: "day", milestone: "11" }, "1", milestones)).toEqual({ by: "day", project: "1", milestone: "11" });
+    expect(withProject({ project: "1", milestone: "11" }, "2", milestones)).toEqual({ project: "2", milestone: undefined });
+    expect(withProject({ project: "1", milestone: "11" }, undefined, milestones)).toEqual({ project: undefined, milestone: "11" });
+    expect(withProject({ milestone: "99" }, "1", milestones)).toEqual({ project: "1", milestone: undefined });
   });
 });
 

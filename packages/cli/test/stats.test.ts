@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { completeIssue, completionStats, createIssue, llmStats, startIssue, findIssueRow, findWorkspace, initWorkspace, openDb, updateIssue } from "@nod/core";
+import { completeIssue, completionStats, createIssue, createMilestone, createProject, llmStats, startIssue, findIssueRow, findWorkspace, initWorkspace, openDb, updateIssue } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 // 現在の Workspace に2件、別の Workspace に1件の done を 2026-09-01 に作る
@@ -60,6 +60,32 @@ describe("nod stats", () => {
     }
     const missing = await runNod(["stats", "--all-workspaces", "--project", "ない", "--json"], { cwd, db });
     expect(missing.json.error.code).toBe("NOT_FOUND");
+  });
+
+  test("--milestone で絞り込め、名前は --project と組み合わせて指す", async () => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const d = openDb(db);
+    const me = { db: d, actor: "me" };
+    const ws = findWorkspace(d, repo)!;
+    createProject(me, { name: "検索" });
+    const alpha = createMilestone(me, "検索", { name: "α" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    updateIssue(me, a.id, { milestoneRef: "α" });
+    for (const i of [a, b]) {
+      updateIssue(me, i.id, { status: "done" });
+      d.query("UPDATE issues SET closed_at = ? WHERE id = ?").run("2026-09-01T01:00:00.000Z", findIssueRow(d, i.id).id);
+    }
+    d.close();
+    const total = async (args: string[]) => (await runNod(["stats", ...RANGE, ...args, "--json"], { cwd: repo, db })).json;
+    expect((await total([])).totals.completed).toBe(2);
+    expect((await total(["--milestone", String(alpha.id)])).totals.completed).toBe(1);
+    expect((await total(["--project", "検索", "--milestone", "α"])).totals.completed).toBe(1);
+    expect((await total(["--milestone", "α"])).error.code).toBe("INVALID_ARGS");
+    const llm = await runNod(["stats", "llm", ...RANGE, "--milestone", String(alpha.id), "--json"], { cwd: repo, db });
+    expect(llm.exitCode).toBe(0);
   });
 });
 

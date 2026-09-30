@@ -4,6 +4,7 @@ import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
 import { resolveCycleInScope } from "./cycles";
+import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 
 export const STATS_GRANULARITIES = ["day", "week"] as const;
@@ -16,6 +17,7 @@ export interface StatsQuery {
   tz?: string; // IANA のタイムゾーン名。省略時は実行環境のローカル
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
+  milestone?: string; // Milestone の ID。名前は project を指定したときだけ（その Project の中で引く）
   cycle?: string; // Cycle の ID。名前・current は Workspace を1つに絞ったときだけ（current は tz の今日で決める）
   now?: Date; // テスト用。既定の範囲の基準
 }
@@ -48,14 +50,14 @@ export interface CompletionStats extends StatsRange {
   totals: Omit<CompletionBucket, "start" | "end">;
 }
 
-const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project", "cycle"];
+const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project", "milestone", "cycle"];
 
 // API のクエリパラメータを StatsQuery にする。workspace だけは複数指定できる
 export function statsQueryFromParams(params: URLSearchParams): StatsQuery {
   const unknownKeys = [...new Set(params.keys())].filter((k) => !QUERY_KEYS.includes(k));
   if (unknownKeys.length) throw invalid(`${unknownKeys.join(", ")} は受け付けません（使えるもの: ${QUERY_KEYS.join(", ")}）`);
   const q: StatsQuery = {};
-  for (const key of ["by", "from", "to", "tz", "project", "cycle"] as const) {
+  for (const key of ["by", "from", "to", "tz", "project", "milestone", "cycle"] as const) {
     const values = params.getAll(key);
     if (values.length > 1) throw invalid(`${key} は1つだけ指定してください`);
     if (values[0] !== undefined) (q as Record<string, string>)[key] = values[0];
@@ -145,10 +147,10 @@ export function statsFrame(q: StatsQuery): StatsFrame {
   };
 }
 
-// Workspace・Project・Cycle の絞り込みを SQL の条件にする。i は issues の別名
+// Workspace・Project・Milestone・Cycle の絞り込みを SQL の条件にする。i は issues の別名
 export function issueScope(
   db: Database,
-  q: Pick<StatsQuery, "workspace" | "project" | "cycle" | "tz" | "now">,
+  q: Pick<StatsQuery, "workspace" | "project" | "milestone" | "cycle" | "tz" | "now">,
 ): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
@@ -163,9 +165,22 @@ export function issueScope(
     where.push(`i.workspace_id IN (${ids.map(() => "?").join(",")})`);
     params.push(...ids);
   }
+  let projectId: number | undefined;
   if (q.project !== undefined) {
+    projectId = resolveProject(db, q.project).id;
     where.push("i.project_id = ?");
-    params.push(resolveProject(db, q.project).id);
+    params.push(projectId);
+  }
+  if (q.milestone !== undefined) {
+    if (projectId === undefined && !/^\d+$/.test(q.milestone)) {
+      throw invalid(`Milestone を名前（${q.milestone}）で指すときは Project も指定してください。名前は Project の中でだけ一意です`);
+    }
+    const milestone = resolveMilestone(db, q.milestone, projectId);
+    if (projectId !== undefined && milestone.project_id !== projectId) {
+      throw invalid(`Milestone ${q.milestone}（${milestone.name}）は指定した Project のものではありません`);
+    }
+    where.push("i.milestone_id = ?");
+    params.push(milestone.id);
   }
   if (q.cycle !== undefined) {
     where.push("i.cycle_id = ?");

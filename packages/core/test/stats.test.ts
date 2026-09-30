@@ -2,8 +2,9 @@ import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { completeIssue, startIssue } from "../src/ops/agent";
 import { createIssue, updateIssue } from "../src/ops/issues";
+import { createMilestone } from "../src/ops/milestones";
 import { createProject, listProjects } from "../src/ops/projects";
-import { completionStats, llmStats } from "../src/ops/stats";
+import { completionStats, llmStats, statsQueryFromParams } from "../src/ops/stats";
 import { initWorkspace } from "../src/ops/workspaces";
 import { findIssueRow } from "../src/issue-query";
 import { codeOf, setup } from "./helpers";
@@ -169,6 +170,39 @@ describe("completionStats（完了数・作業時間の推移）", () => {
     expect(completionStats(db, { ...q, workspace: [ws.key.toLowerCase(), other.key] }).totals.completed).toBe(3);
     expect(completionStats(db, { ...q, project: "検索" }).totals.completed).toBe(1);
     expect(completionStats(db, { ...q, project: String(p.id), workspace: [other.key] }).totals.completed).toBe(0);
+  });
+
+  test("Milestone で絞り込める。ID か、Project を指定したときはその中の名前で指す", () => {
+    const { db, ws, me } = setup();
+    const p = createProject(me, { name: "検索" });
+    const q2 = createProject(me, { name: "決済" });
+    const alpha = createMilestone(me, "検索", { name: "α" });
+    createMilestone(me, "検索", { name: "β" });
+    const other = createMilestone(me, "決済", { name: "α" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    const c = createIssue(me, { workspaceId: ws.id, title: "c", projectRef: "決済" });
+    updateIssue(me, a.id, { milestoneRef: "α" });
+    updateIssue(me, b.id, { milestoneRef: "β" });
+    updateIssue(me, c.id, { milestoneRef: "α" });
+    for (const i of [a, b, c]) {
+      updateIssue(me, i.id, { status: "done" });
+      stamp(db, i.id, { closed: "2026-09-01T00:00:00.000Z" });
+    }
+    const q = { ...UTC, by: "day" as const, from: "2026-09-01", to: "2026-09-01" };
+    expect(completionStats(db, { ...q, milestone: String(alpha.id) }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, milestone: String(other.id) }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, project: "検索", milestone: "α" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, project: String(p.id), milestone: String(alpha.id) }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, project: "決済", milestone: "α" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...q, milestone: String(alpha.id), workspace: [ws.key] }).totals.completed).toBe(1);
+    // 名前は Project の中でしか一意でない。別の Project の Milestone の ID を組み合わせたら断る
+    expect(codeOf(() => completionStats(db, { ...q, milestone: "α" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => completionStats(db, { ...q, project: String(q2.id), milestone: String(alpha.id) }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => completionStats(db, { ...q, milestone: "999" }))).toBe("NOT_FOUND");
+    expect(codeOf(() => completionStats(db, { ...q, project: "検索", milestone: "γ" }))).toBe("NOT_FOUND");
+    expect(statsQueryFromParams(new URLSearchParams("milestone=3")).milestone).toBe("3");
+    expect(codeOf(() => statsQueryFromParams(new URLSearchParams("milestone=3&milestone=4")))).toBe("INVALID_ARGS");
   });
 
   test("既定の範囲は 日=直近30日、週=直近12週（今日を含む）", () => {
@@ -339,6 +373,24 @@ describe("llmStats（LLM ごとの作業量）", () => {
     expect(total({ workspace: [ws.key] })).toMatchObject({ assigned: 2, completed: 1 });
     expect(total({ project: "検索" })).toMatchObject({ assigned: 1, completed: 1 });
     expect(llmStats(db, { ...Q, from: "2026-09-02" }).llms).toEqual([]);
+  });
+
+  test("Milestone で絞り込める", () => {
+    const { db, ws, me, llm } = setup();
+    createProject(me, { name: "検索" });
+    const alpha = createMilestone(me, "検索", { name: "α" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    updateIssue(me, a.id, { milestoneRef: "α" });
+    for (const i of [a, b]) {
+      startIssue(llm, i.id);
+      updateIssue(me, i.id, { status: "done" });
+      stamp(db, i.id, { closed: "2026-09-01T12:00:00.000Z" });
+    }
+    db.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z'").run();
+    expect(llmStats(db, Q).llms[0]?.totals).toMatchObject({ assigned: 2, completed: 2 });
+    expect(llmStats(db, { ...Q, milestone: String(alpha.id) }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
+    expect(llmStats(db, { ...Q, project: "検索", milestone: "α" }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
   });
 
   test("不正な指定は completionStats と同じく INVALID_ARGS・NOT_FOUND", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, createProject, findIssueRow, initWorkspace, llmStats, startIssue, updateIssue } from "@nod/core";
+import { createIssue, createMilestone, createProject, findIssueRow, initWorkspace, llmStats, startIssue, updateIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 function seed() {
@@ -16,7 +16,7 @@ function seed() {
     s.db.query("UPDATE issues SET started_at = ?, closed_at = ? WHERE id = ?")
       .run("2026-09-01T00:00:00.000Z", "2026-09-01T01:00:00.000Z", findIssueRow(s.db, i.id).id);
   }
-  return { ...s, other };
+  return { ...s, other, issues };
 }
 
 const RANGE = "by=day&from=2026-09-01&to=2026-09-02&tz=UTC";
@@ -40,6 +40,23 @@ describe("GET /api/stats", () => {
     expect(await total(`workspace=${ws.key}&workspace=${other.key}`)).toBe(3);
     expect(await total(`workspace=${ws.key},${other.key}`)).toBe(3);
     expect(await total("project=%E6%A4%9C%E7%B4%A2")).toBe(1);
+  });
+
+  test("milestone で絞り込め、ない Milestone は 404、名前だけ・別 Project の Milestone は 400", async () => {
+    const { app, me, issues } = seed();
+    const alpha = createMilestone(me, "検索", { name: "α" });
+    createProject(me, { name: "決済" });
+    updateIssue(me, issues[0]!.id, { milestoneRef: "α" });
+    const get = (q: string) => call(app, "GET", `/api/stats?${RANGE}&${q}`);
+    expect((await get(`milestone=${alpha.id}`)).json.totals.completed).toBe(1);
+    expect((await get(`project=%E6%A4%9C%E7%B4%A2&milestone=%CE%B1`)).json.totals.completed).toBe(1);
+    expect((await call(app, "GET", `/api/stats/llm?${RANGE}&milestone=${alpha.id}`)).status).toBe(200);
+    for (const q of ["milestone=%CE%B1", `project=%E6%B1%BA%E6%B8%88&milestone=${alpha.id}`, "milestone=1&milestone=2"]) {
+      const r = await get(q);
+      expect([q, r.status, r.json.error.code]).toEqual([q, 400, "INVALID_ARGS"]);
+    }
+    const missing = await get("milestone=999");
+    expect([missing.status, missing.json.error.code]).toEqual([404, "NOT_FOUND"]);
   });
 
   test("不正な指定は 400 INVALID_ARGS、ない Project は 404", async () => {
