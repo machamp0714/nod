@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bulkFailures, labelMenu, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
+import { bulkFailures, cycleMenu, labelMenu, milestoneMenu, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
 
 const order = ["A-1", "A-2", "A-3", "A-4", "A-5"];
 
@@ -89,5 +89,32 @@ describe("labelMenu", () => {
     expect(labelMenu(selected, [], "a b").create).toBeNull();
     expect(labelMenu(selected, [], "a,b").create).toBeNull();
     expect(labelMenu(selected, ["bug"], "perf")).toEqual({ add: ["perf"], create: null, remove: [{ label: "perf", count: 2 }] });
+  });
+});
+
+describe("cycleMenu・milestoneMenu（#154）", () => {
+  const cycle = (id: number, workspace: string, state: "current" | "upcoming" | "completed", startDate: string) => ({ id, workspace, name: `S${id}`, state, startDate });
+  const cycles = [cycle(1, "API", "completed", "2026-09-01"), cycle(3, "API", "upcoming", "2026-10-15"), cycle(2, "API", "upcoming", "2026-10-01"), cycle(4, "API", "current", "2026-09-20"), cycle(5, "WEB", "current", "2026-09-20")];
+
+  test("選択の Workspace が1つなら、その Workspace の終了していない Cycle を現在→開始日の順に出す", () => {
+    const menu = cycleMenu([{ workspace: "API" }, { workspace: "API" }], cycles);
+    expect(menu).toEqual({ cycles: [cycles[3]!, cycles[2]!, cycles[1]!] });
+  });
+
+  test("Workspace が混ざると理由つきで無効にする", () => {
+    expect(cycleMenu([{ workspace: "API" }, { workspace: "WEB" }], cycles)).toEqual({ disabled: "選択に複数の Workspace が混在しているため、Cycle は一括変更できません" });
+  });
+
+  const ms = (id: number, projectId: number) => ({ id, projectId, name: `M${id}` });
+  const milestones = [ms(1, 10), ms(2, 20), ms(3, 10)];
+  const p = (id: number) => ({ project: { id, name: `P${id}` } });
+
+  test("選択の Project が1つなら、その Project の名前と Milestone を出す", () => {
+    expect(milestoneMenu([p(10), p(10)], milestones)).toEqual({ project: { id: 10, name: "P10" }, milestones: [milestones[0]!, milestones[2]!] });
+  });
+
+  test("Project が混ざる・Project のない Issue があると理由つきで無効にする", () => {
+    expect(milestoneMenu([p(10), p(20)], milestones)).toEqual({ disabled: "選択に複数の Project が混在しているため、Milestone は一括変更できません" });
+    expect(milestoneMenu([p(10), { project: null }], milestones)).toEqual({ disabled: "Project のない Issue が含まれるため、Milestone は一括変更できません" });
   });
 });

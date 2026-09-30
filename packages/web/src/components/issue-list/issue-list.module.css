@@ -679,6 +679,8 @@
 .bulkSeparator { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line); }
 .bulkSection { margin: 0; padding: 6px 10px 2px; color: var(--ink3); font-size: 11.5px; font-weight: 500; }
 .bulkEmpty { margin: 0; padding: 6px 10px; color: var(--ink3); font-size: 12px; }
+.bulkMenuHead { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 10px 2px; color: var(--ink3); font-size: 11.5px; font-weight: 600; }
+.bulkMenu button.bulkNone { color: var(--ink2); }
 .bulkLabelDot { flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--ink3); }
 .bulkLabelName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulkLabelCount { flex: none; color: var(--ink3); font-size: 11px; }
