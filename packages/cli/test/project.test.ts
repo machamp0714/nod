@@ -153,3 +153,62 @@ describe("Project の健全性 CLI", () => {
     expect(cli(db, cwd, ["project", "report", "list", "保持", "--json"]).json).toEqual([]);
   });
 });
+
+describe("Milestone CLI", () => {
+  test("作成・一覧・編集・削除し、Issue を名前で紐付けて進捗を確かめられる", () => {
+    const path = tempDb();
+    const db = openDb(path);
+    const me = { db, actor: "me" };
+    createProject(me, { name: "検索" });
+    db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/ms-api', '2000', '#7C5CFF')").run();
+    const a = createIssue(me, { workspaceId: 1, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: 1, title: "b", projectRef: "検索" });
+    db.close();
+    const cwd = tempDir();
+
+    const created = cli(path, cwd, ["project", "milestone", "add", "検索", "β公開", "--target", "2026-11-30", "-d", "社内向け", "--json"]);
+    expect(created.code).toBe(0);
+    expect(created.json).toMatchObject({ name: "β公開", targetDate: "2026-11-30", description: "社内向け", createdBy: "codex" });
+    expect(cli(path, cwd, ["project", "milestone", "add", "検索", "α"]).stdout).toContain("Milestone を作りました");
+    expect(cli(path, cwd, ["issue", "update", a.id, "--milestone", "β公開", "--json"]).json.milestone).toMatchObject({ name: "β公開" });
+    cli(path, cwd, ["issue", "update", b.id, "--milestone", String(created.json.id), "-s", "done"], "me");
+
+    const list = cli(path, cwd, ["project", "milestone", "list", "検索", "--json"]).json;
+    expect(list.map((m: { name: string; done: number; total: number }) => [m.name, m.done, m.total])).toEqual([["β公開", 1, 2], ["α", 0, 0]]);
+    expect(cli(path, cwd, ["project", "milestone", "list", "検索"]).stdout).toContain("β公開  1/2  目標日 2026-11-30");
+    expect(cli(path, cwd, ["project", "show", "検索"]).stdout).toContain("Milestones:");
+
+    const updated = cli(path, cwd, ["project", "milestone", "update", "検索", "β公開", "--name", "β", "--target", "", "-d", "", "--json"]);
+    expect(updated.json).toMatchObject({ name: "β", targetDate: null, description: null });
+    expect(cli(path, cwd, ["issue", "update", a.id, "--milestone", "", "--json"]).json.milestone).toBeNull();
+    expect(cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"]).json).toEqual({ id: created.json.id });
+    expect(cli(path, cwd, ["project", "milestone", "list", "検索", "--json"]).json.map((m: { name: string }) => m.name)).toEqual(["α"]);
+  });
+
+  test("重複・不正な目標日・別 Project の Milestone・存在しないものはエラー", () => {
+    const path = tempDb();
+    const db = openDb(path);
+    const me = { db, actor: "me" };
+    createProject(me, { name: "検索" });
+    createProject(me, { name: "認証" });
+    db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/ms-api2', '2000', '#7C5CFF')").run();
+    const a = createIssue(me, { workspaceId: 1, title: "a", projectRef: "検索" });
+    db.close();
+    const cwd = tempDir();
+    cli(path, cwd, ["project", "milestone", "add", "検索", "α"]);
+    const foreign = cli(path, cwd, ["project", "milestone", "add", "認証", "別", "--json"]).json;
+    for (const [args, code] of [
+      [["project", "milestone", "add", "検索", "α"], "MILESTONE_EXISTS"],
+      [["project", "milestone", "add", "検索", "β", "--target", "2026/11/30"], "INVALID_ARGS"],
+      [["project", "milestone", "update", "検索", "ない", "--name", "x"], "NOT_FOUND"],
+      [["project", "milestone", "remove", "検索", String(foreign.id)], "NOT_FOUND"],
+      [["issue", "update", a.id, "--milestone", String(foreign.id)], "INVALID_ARGS"],
+      [["issue", "update", a.id, "--milestone", "別"], "NOT_FOUND"],
+    ] as const) {
+      const result = cli(path, cwd, [...args, "--json"]);
+      expect(result.code).toBe(1);
+      expect(result.json.error.code).toBe(code);
+    }
+    expect(cli(path, cwd, ["project", "milestone", "list", "認証", "--json"]).json).toHaveLength(1);
+  });
+});

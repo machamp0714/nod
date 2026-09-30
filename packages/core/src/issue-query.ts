@@ -29,6 +29,7 @@ export interface IssueRow {
   agent_state: AgentState | null;
   parent_id: number | null;
   project_id: number | null;
+  milestone_id: number | null;
   snoozed_until: string | null;
   pr_url: string | null;
   branch: string | null;
@@ -45,6 +46,7 @@ export interface IssueRow {
   parent_key: string | null;
   parent_number: number | null;
   project_name: string | null;
+  milestone_name: string | null;
   labels: string | null;
   blocked_by: string | null;
   question_total: number;
@@ -62,7 +64,7 @@ export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', '
 // ブロック元 b がまだブロックしている条件。完了・取り消し・アーカイブ済みのブロック元は数えない
 export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived_at IS NULL";
 
-export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name,
+export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
   (SELECT group_concat(blocker_id, char(10)) FROM (
     SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
@@ -77,7 +79,8 @@ FROM issues i
 JOIN workspaces w ON w.id = i.workspace_id
 LEFT JOIN issues pi ON pi.id = i.parent_id
 LEFT JOIN workspaces pw ON pw.id = pi.workspace_id
-LEFT JOIN projects pr ON pr.id = i.project_id`;
+LEFT JOIN projects pr ON pr.id = i.project_id
+LEFT JOIN milestones ms ON ms.id = i.milestone_id`;
 
 // 着手できる Issue の条件のうち、担当者に関係しないもの（web の Ready）。? には現在時刻を渡す
 export const READY_WHERE = `(i.status = 'todo'
@@ -145,6 +148,7 @@ export function toIssue(r: IssueRow): Issue {
     agentState: r.agent_state,
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
+    milestone: r.milestone_id !== null && r.milestone_name !== null ? { id: r.milestone_id, name: r.milestone_name } : null,
     labels: r.labels ? r.labels.split("\n").sort() : [],
     blockedBy: r.blocked_by ? r.blocked_by.split("\n") : [],
     questionCount: { answered: r.question_answered, total: r.question_total },

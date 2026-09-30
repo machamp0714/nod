@@ -36,6 +36,7 @@ describe("openDb", () => {
       "issue_imports",
       "issue_labels",
       "issues",
+      "milestones",
       "notifications",
       "plan_steps",
       "plan_tasks",

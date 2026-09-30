@@ -4,6 +4,7 @@ import {
   getIssue,
   getProject,
   issueQueryFromParams,
+  listAllMilestones,
   listProjects,
   listTriage,
   listWorkspaces,
@@ -36,6 +37,8 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): v
     c.json(listProjects(db, { includeClosed: queryFlag(c.req.query("includeClosed"), "includeClosed") })),
   );
   app.get("/api/projects/:id", (c) => c.json(getProject(db, c.req.param("id"))));
+  // すべての Project の Milestone（Issue 一覧の Milestone 絞り込みの選択肢）
+  app.get("/api/milestones", (c) => c.json(listAllMilestones(db)));
   app.get("/api/documents", (c) => c.json(listDocuments(db)));
   // 新規作成フォームで相対パスの前に見せる作成先。/:id より先に登録する
   app.get("/api/documents/root", (c) => c.json({ docsDir: docsDir ?? defaultDocsDir() }));

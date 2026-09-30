@@ -1,6 +1,6 @@
-import { addProjectUpdate, type OpCtx, type ProjectHealth, type ProjectStatus, updateProject } from "@nod/core";
+import { addProjectUpdate, createMilestone, deleteMilestone, type OpCtx, type ProjectHealth, type ProjectStatus, updateMilestone, updateProject } from "@nod/core";
 import type { Hono } from "hono";
-import { optNullableString, readBody, reqString } from "../input";
+import { optNullableString, optString, paramInt, readBody, reqString } from "../input";
 
 export function registerProjectOps(app: Hono, me: OpCtx): void {
   app.post("/api/projects/:id/update", async (c) => {
@@ -16,4 +16,28 @@ export function registerProjectOps(app: Hono, me: OpCtx): void {
     const health = (optNullableString(body, "health") ?? null) as ProjectHealth | null;
     return c.json(addProjectUpdate(me, c.req.param("id"), reqString(body, "body"), health), 201);
   });
+
+  // Milestone（中間目標）。targetDate は YYYY-MM-DD、null で外す
+  app.post("/api/projects/:id/milestones", async (c) => {
+    const body = await readBody(c, ["name", "targetDate", "description"]);
+    const created = createMilestone(me, c.req.param("id"), {
+      name: reqString(body, "name"),
+      targetDate: optNullableString(body, "targetDate"),
+      description: optNullableString(body, "description"),
+    });
+    return c.json(created, 201);
+  });
+
+  app.post("/api/milestones/:id/update", async (c) => {
+    const body = await readBody(c, ["name", "targetDate", "description"]);
+    return c.json(
+      updateMilestone(me, paramInt(c.req.param("id"), "Milestone の ID "), {
+        name: optString(body, "name"),
+        targetDate: optNullableString(body, "targetDate"),
+        description: optNullableString(body, "description"),
+      }),
+    );
+  });
+
+  app.delete("/api/milestones/:id", (c) => c.json(deleteMilestone(me, paramInt(c.req.param("id"), "Milestone の ID "))));
 }

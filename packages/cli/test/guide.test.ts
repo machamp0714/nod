@@ -43,6 +43,8 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("完了候補の親を done にするのは人である");
   expect(GUIDE).toContain("nod project report add");
   expect(GUIDE).toContain("--health on_track|at_risk|off_track");
+  expect(GUIDE).toContain("nod project milestone add");
+  expect(GUIDE).toContain("--milestone <名前かID>");
 });
 
 test("LLM は nod issue update --status や bulk-update でも Triage の Issue を Triage から出せないと案内する", () => {

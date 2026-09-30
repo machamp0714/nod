@@ -3,6 +3,7 @@ import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { loadDocuments, selectIssues } from "../issue-query";
+import { selectMilestones } from "./milestones";
 import { PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
 
 export function resolveProject(db: Database, ref: string): { id: number; name: string } {
@@ -109,6 +110,7 @@ export function getProject(db: Database, ref: string): ProjectDetail {
   const row = db.query(`${SUMMARY_SELECT} WHERE p.id = ?`).get(id) as SummaryRow;
   return {
     ...toSummary(row),
+    milestones: selectMilestones(db, id),
     issues: selectIssues(db, "WHERE i.project_id = ? AND i.archived_at IS NULL ORDER BY w.key, i.number", [id]),
     documents: loadDocuments(db, { projectId: id }),
     updates: selectProjectUpdates(db, id),

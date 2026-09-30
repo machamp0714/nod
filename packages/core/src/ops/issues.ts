@@ -31,6 +31,7 @@ import {
 import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
+import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -196,6 +197,7 @@ export interface ListIssuesFilter {
   workspaceKeys?: string[];
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
+  milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）
   labels?: string[];
   ready?: boolean;
   query?: string;
@@ -220,6 +222,11 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   if (filter.projectRef) {
     where.push("i.project_id = ?");
     params.push(resolveProject(db, filter.projectRef).id);
+  }
+  if (filter.milestone === "none") where.push("i.milestone_id IS NULL");
+  else if (filter.milestone !== undefined) {
+    where.push("i.milestone_id = ?");
+    params.push(resolveMilestone(db, filter.milestone).id);
   }
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
@@ -283,6 +290,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     workspaceKeys: q.workspace,
     statuses: q.status ?? [...STATUSES],
     projectRef: q.project,
+    milestone: q.milestone,
     labels: q.label,
     ready: q.ready,
     query: q.q,
@@ -371,6 +379,7 @@ export interface UpdateIssueInput {
   assignee?: string | null;
   parentRef?: string | null;
   projectRef?: string | null;
+  milestoneRef?: string | null; // Milestone の ID か、Issue の Project の中の名前。null で外す
   addLabels?: string[];
   removeLabels?: string[];
   reason?: string;
@@ -400,6 +409,30 @@ function isAncestor(db: Database, ancestorId: number, issueId: number): boolean 
     )
     .get(issueId, ancestorId);
   return hit !== null;
+}
+
+// Milestone は Issue と同じ Project のものだけ付けられる。ref を省くと、Project が変わって合わなくなった Milestone を外すだけ
+function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined): void {
+  let target: { id: number; name: string } | null;
+  if (ref === undefined) {
+    if (row.milestone_id === null) return;
+    const current = resolveMilestone(ctx.db, row.milestone_id);
+    if (current.project_id === row.project_id) return;
+    target = null;
+  } else if (ref === null) {
+    target = null;
+  } else {
+    if (row.project_id === null) {
+      throw new NodError("INVALID_ARGS", "Project のない Issue には Milestone を付けられません。先に Project を設定してください");
+    }
+    const milestone = resolveMilestone(ctx.db, ref, row.project_id);
+    if (milestone.project_id !== row.project_id) {
+      throw new NodError("INVALID_ARGS", `Milestone ${ref} は Issue の Project のものではありません（別の Project の Milestone は付けられません）`);
+    }
+    target = milestone;
+  }
+  const from = row.milestone_id === null ? null : resolveMilestone(ctx.db, row.milestone_id).name;
+  setColumn(ctx, row, "milestone_id", target?.id ?? null, { from, to: target?.name ?? null });
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
@@ -449,6 +482,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
       setColumn(ctx, row, "project_id", project?.id ?? null, { from: row.project_name, to: project?.name ?? null });
     }
+    if (input.milestoneRef !== undefined || row.milestone_id !== null) setMilestone(ctx, row, input.milestoneRef);
     if (input.status !== undefined) {
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {
         setColumn(ctx, row, "close_reason", input.reason);
