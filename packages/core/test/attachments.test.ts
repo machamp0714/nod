@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_RANGE_MAX_BYTES,
   ATTACHMENT_VIDEO_MAX_BYTES,
   isInlineAttachmentMime,
+  openAttachmentStream,
   readAttachmentRange,
   addFileAttachment,
   addLinkAttachment,
@@ -172,20 +174,41 @@ describe("ファイルの添付", () => {
     }
   });
 
-  test("範囲を指定して読むと、その部分だけと全体のサイズを返す", () => {
+  test("範囲を指定して読むと、その部分だけと全体のサイズを返す", async () => {
     const { db, me, issue, src, dir } = fixture();
     const a = addFileAttachment(me, issue.id, { path: write(src, "rec.mp4", "0123456789"), dir });
     const whole = readAttachmentRange(db, a.id, dir);
-    expect(whole.data.toString()).toBe("0123456789");
+    expect(whole.data).toBeUndefined();
+    expect(await new Response(whole.stream).text()).toBe("0123456789");
     expect(whole.total).toBe(10);
     expect(whole.range).toBeNull();
     const part = readAttachmentRange(db, a.id, dir, () => ({ start: 2, end: 5 }));
-    expect(part.data.toString()).toBe("2345");
+    expect(part.data?.toString()).toBe("2345");
     expect(part).toMatchObject({ total: 10, range: { start: 2, end: 5 }, mime: "video/mp4" });
     // 末尾を越える end は丸め、始まりが末尾以降なら RANGE_NOT_SATISFIABLE
-    expect(readAttachmentRange(db, a.id, dir, (total) => ({ start: total - 2, end: 99 })).data.toString()).toBe("89");
+    expect(readAttachmentRange(db, a.id, dir, (total) => ({ start: total - 2, end: 99 })).data?.toString()).toBe("89");
     expect(codeOf(() => readAttachmentRange(db, a.id, dir, () => ({ start: 10, end: 12 })))).toBe("RANGE_NOT_SATISFIABLE");
     expect(codeOf(() => readAttachmentRange(db, a.id, dir, () => ({ start: 5, end: 2 })))).toBe("RANGE_NOT_SATISFIABLE");
+  });
+
+  test("範囲は上限までに切り詰め、末尾までを求められても全体を読まない", () => {
+    const { db, me, issue, src, dir } = fixture();
+    const a = addFileAttachment(me, issue.id, { path: write(src, "rec.mp4", "0123456789"), dir });
+    const head = readAttachmentRange(db, a.id, dir, () => ({ start: 0, end: Number.MAX_SAFE_INTEGER }), 4);
+    expect(head.data?.toString()).toBe("0123");
+    expect(head).toMatchObject({ total: 10, size: 4, range: { start: 0, end: 3 } });
+    expect(readAttachmentRange(db, a.id, dir, () => ({ start: 8, end: Number.MAX_SAFE_INTEGER }), 4).range).toEqual({ start: 8, end: 9 });
+    expect(ATTACHMENT_RANGE_MAX_BYTES).toBe(2 * 1024 * 1024);
+  });
+
+  test("ダウンロードはストリームで全体を返す（チャンクを跨ぐ大きさでも欠けない）", async () => {
+    const { db, me, issue, src, dir } = fixture();
+    const body = Buffer.alloc(200 * 1024, "ab");
+    const a = addFileAttachment(me, issue.id, { path: write(src, "big.log", body), dir });
+    const f = openAttachmentStream(db, a.id, dir);
+    expect(f).toMatchObject({ total: body.length, size: body.length, mime: "text/plain; charset=utf-8" });
+    expect(Buffer.from(await new Response(f.stream).arrayBuffer()).equals(body)).toBe(true);
+    expect(codeOf(() => openAttachmentStream(db, 999, dir))).toBe("NOT_FOUND");
   });
 
   test("上限を超えるファイルは拒否し、上限ちょうどは受け付ける", () => {

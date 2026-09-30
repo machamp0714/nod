@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { addFileAttachment, archiveIssue, attachmentFile, createIssue, getIssue, HUMAN_ACTOR, initWorkspace, openDb } from "@nod/core";
+import {
+  addFileAttachment,
+  archiveIssue,
+  ATTACHMENT_RANGE_MAX_BYTES,
+  attachmentFile,
+  createIssue,
+  getIssue,
+  HUMAN_ACTOR,
+  initWorkspace,
+  openDb,
+} from "@nod/core";
 import { createApp } from "../src/app";
 import { call, tempDir } from "./helpers";
 
@@ -12,7 +22,7 @@ function setupAttachments() {
   const attachmentsDir = join(tempDir("nod-attachments-"), "root");
   const issue = createIssue(me, { workspaceId: ws.id, title: "添付" });
   const src = tempDir("nod-attach-src-");
-  const file = (name: string, content = "hello") => {
+  const file = (name: string, content: string | Buffer = "hello") => {
     const path = join(src, name);
     writeFileSync(path, content);
     return addFileAttachment(me, issue.id, { path, dir: attachmentsDir });
@@ -86,6 +96,19 @@ describe("添付 API", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+  });
+
+  test("download は大きなファイルも欠けずにストリームで返し、HEAD は 404", async () => {
+    const { app, file } = setupAttachments();
+    const body = Buffer.alloc(ATTACHMENT_RANGE_MAX_BYTES + 1000, "xy");
+    const f = file("rec.log", body);
+    const res = await app.request(`/api/attachments/${f.id}/download`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-length")).toBe(String(body.length));
+    expect(Buffer.from(await res.arrayBuffer()).equals(body)).toBe(true);
+    // HEAD は API 全体で受け付けない（ファイルを開かずに 404）
+    expect((await app.request(`/api/attachments/${f.id}/download`, { method: "HEAD" })).status).toBe(404);
   });
 
   test("リンク・無い添付・消えたファイルのダウンロードは 404", async () => {
@@ -112,6 +135,7 @@ describe("添付 API", () => {
     expect(res.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("accept-ranges")).toBe("bytes");
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     const video = await app.request(`/api/attachments/${file("rec.webm", "WEBM").id}/view`);
     expect(video.headers.get("content-type")).toBe("video/webm");
     expect(video.headers.get("content-disposition")).toStartWith("inline;");
@@ -147,6 +171,53 @@ describe("添付 API", () => {
       const whole = await get(range);
       expect(whole.status).toBe(200);
       expect(await whole.text()).toBe("0123456789");
+    }
+  });
+
+  test("view は bytes=0- や bytes=N- でも上限までに切り詰めて 206 を返す", async () => {
+    const { app, file } = setupAttachments();
+    const total = ATTACHMENT_RANGE_MAX_BYTES + 1000;
+    const body = Buffer.alloc(total);
+    for (let i = 0; i < total; i++) body[i] = i % 251;
+    const f = file("rec.mp4", body);
+    const get = (range: string) => app.request(`/api/attachments/${f.id}/view`, { headers: { Range: range } });
+    let r = await get("bytes=0-");
+    expect(r.status).toBe(206);
+    expect(r.headers.get("content-range")).toBe(`bytes 0-${ATTACHMENT_RANGE_MAX_BYTES - 1}/${total}`);
+    expect(r.headers.get("content-length")).toBe(String(ATTACHMENT_RANGE_MAX_BYTES));
+    expect(Buffer.from(await r.arrayBuffer()).equals(body.subarray(0, ATTACHMENT_RANGE_MAX_BYTES))).toBe(true);
+    r = await get(`bytes=500-${total - 1}`);
+    expect(r.status).toBe(206);
+    expect(r.headers.get("content-range")).toBe(`bytes 500-${500 + ATTACHMENT_RANGE_MAX_BYTES - 1}/${total}`);
+    r = await get(`bytes=${ATTACHMENT_RANGE_MAX_BYTES}-`);
+    expect(r.headers.get("content-range")).toBe(`bytes ${ATTACHMENT_RANGE_MAX_BYTES}-${total - 1}/${total}`);
+    expect(Buffer.from(await r.arrayBuffer()).equals(body.subarray(ATTACHMENT_RANGE_MAX_BYTES))).toBe(true);
+    // Range が無ければ 200 で全体をストリームで返す
+    r = await app.request(`/api/attachments/${f.id}/view`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-length")).toBe(String(total));
+    expect(Buffer.from(await r.arrayBuffer()).equals(body)).toBe(true);
+  });
+
+  test("view の HEAD は Range があってもファイルを読まずに 404", async () => {
+    const { app, file } = setupAttachments();
+    const f = file("rec.webm", "0123456789");
+    for (const init of [{ method: "HEAD" }, { method: "HEAD", headers: { Range: "bytes=0-" } }]) {
+      const head = await app.request(`/api/attachments/${f.id}/view`, init);
+      expect(head.status).toBe(404);
+      expect(head.headers.get("content-range")).toBeNull();
+    }
+  });
+
+  test("view は SVG を inline にせず attachment で配信する", async () => {
+    const { app, db, file } = setupAttachments();
+    const f = file("a.png", "<svg onload=alert(1)/>");
+    db.query("UPDATE issue_attachments SET mime = ?, file_name = ? WHERE id = ?").run("image/svg+xml", "a.svg", f.id);
+    for (const init of [{}, { headers: { Range: "bytes=0-" } }]) {
+      const r = await app.request(`/api/attachments/${f.id}/view`, init);
+      expect(r.headers.get("content-disposition")).toStartWith("attachment;");
+      expect(r.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+      expect(r.headers.get("x-content-type-options")).toBe("nosniff");
     }
   });
 

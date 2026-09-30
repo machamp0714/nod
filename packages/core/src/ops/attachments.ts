@@ -428,59 +428,105 @@ export function attachmentFile(db: Database, id: number, dir: string = defaultAt
   return { abs, fileName: row.file_name, mime: row.mime, size: lstatSync(abs).size };
 }
 
-// ダウンロードの本文。確かめた後に symlink へ差し替えられても辿らないよう、O_NOFOLLOW で開いて読む
-export function readAttachmentFile(db: Database, id: number, dir: string = defaultAttachmentsDir()): AttachmentFile & { data: Buffer } {
-  const file = attachmentFile(db, id, dir);
-  let fd: number;
-  try {
-    fd = openSync(file.abs, constants.O_RDONLY | constants.O_NOFOLLOW);
-  } catch {
-    throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
-  }
-  try {
-    if (!fstatSync(fd).isFile()) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
-    const data = readFileSync(fd);
-    return { ...file, size: data.length, data };
-  } finally {
-    closeSync(fd);
-  }
-}
+// 1 回の Range 応答で返す上限。bytes=0- のように末尾まで求められても、これを越えては読まない（続きはブラウザが求め直す）
+export const ATTACHMENT_RANGE_MAX_BYTES = 2 * 1024 * 1024;
+const STREAM_CHUNK_BYTES = 64 * 1024;
 
 export interface ByteRange {
   start: number;
   end: number; // 末尾を含む（HTTP の Range と同じ）
 }
 
-// インライン表示の本文。動画のシークで範囲だけを求められるので、ファイル全体を読まずにその部分だけを読む。
-// pickRange はファイル全体のサイズから読む範囲を決める（null なら全体）。
-// end が末尾を越えたら丸め、start が末尾以降か end より後なら RANGE_NOT_SATISFIABLE（details.total に全体のサイズ）
-export function readAttachmentRange(
-  db: Database,
-  id: number,
-  dir: string = defaultAttachmentsDir(),
-  pickRange: (total: number) => ByteRange | null = () => null,
-): AttachmentFile & { data: Buffer; total: number; range: ByteRange | null } {
-  const file = attachmentFile(db, id, dir);
+export type AttachmentBody = AttachmentFile & { total: number } & (
+    | { range: ByteRange; data: Buffer; stream?: undefined }
+    | { range: null; stream: ReadableStream<Uint8Array>; data?: undefined }
+  );
+
+// 確かめた後に symlink へ差し替えられても辿らないよう、O_NOFOLLOW で開く
+function openAttachmentFd(file: AttachmentFile, id: number): { fd: number; total: number } {
   let fd: number;
   try {
     fd = openSync(file.abs, constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch {
     throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
   }
+  const st = fstatSync(fd);
+  if (!st.isFile()) {
+    closeSync(fd);
+    throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
+  }
+  return { fd, total: st.size };
+}
+
+// 開いたファイルを少しずつ読むストリーム。読み終えるか中断されたら閉じる
+function fdStream(fd: number, total: number): ReadableStream<Uint8Array> {
+  let pos = 0;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    closeSync(fd);
+  };
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        try {
+          const buf = Buffer.allocUnsafe(Math.min(STREAM_CHUNK_BYTES, total - pos));
+          const n = buf.length === 0 ? 0 : readSync(fd, buf, 0, buf.length, pos);
+          if (n > 0) controller.enqueue(buf.subarray(0, n));
+          pos += n;
+          if (n === 0 || pos >= total) {
+            close();
+            controller.close();
+          }
+        } catch (e) {
+          close();
+          controller.error(e);
+        }
+      },
+      cancel: close,
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+// ダウンロードの本文。全体をメモリに載せず、ストリームで返す
+export function openAttachmentStream(
+  db: Database,
+  id: number,
+  dir: string = defaultAttachmentsDir(),
+): AttachmentFile & { total: number; stream: ReadableStream<Uint8Array> } {
+  const file = attachmentFile(db, id, dir);
+  const { fd, total } = openAttachmentFd(file, id);
+  return { ...file, size: total, total, stream: fdStream(fd, total) };
+}
+
+// インライン表示の本文。pickRange はファイル全体のサイズから読む範囲を決める（null なら全体をストリームで返す）。
+// 範囲は maxBytes までに切り詰めて、その部分だけを読む。end が末尾を越えたら丸め、
+// start が末尾以降か end より後なら RANGE_NOT_SATISFIABLE（details.total に全体のサイズ）
+export function readAttachmentRange(
+  db: Database,
+  id: number,
+  dir: string = defaultAttachmentsDir(),
+  pickRange: (total: number) => ByteRange | null = () => null,
+  maxBytes: number = ATTACHMENT_RANGE_MAX_BYTES,
+): AttachmentBody {
+  const file = attachmentFile(db, id, dir);
+  const { fd, total } = openAttachmentFd(file, id);
+  let range: ByteRange | null;
   try {
-    const st = fstatSync(fd);
-    if (!st.isFile()) throw new NodError("FILE_NOT_FOUND", `添付 ${id} のファイルが見つかりません`);
-    const total = st.size;
-    const range = pickRange(total);
-    if (!range) {
-      const data = readFileSync(fd);
-      return { ...file, size: data.length, data, total: data.length, range: null };
-    }
-    if (range.start >= total || range.start > range.end) {
+    range = pickRange(total);
+    if (range && (range.start >= total || range.start > range.end)) {
       throw new NodError("RANGE_NOT_SATISFIABLE", `添付 ${id} の範囲 ${range.start}-${range.end} は読めません（${total} バイト）`, { total });
     }
-    const end = Math.min(range.end, total - 1);
-    const data = Buffer.alloc(end - range.start + 1);
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
+  if (!range) return { ...file, size: total, total, range: null, stream: fdStream(fd, total) };
+  try {
+    const end = Math.min(range.end, total - 1, range.start + maxBytes - 1);
+    const data = Buffer.allocUnsafe(end - range.start + 1);
     let read = 0;
     while (read < data.length) {
       const n = readSync(fd, data, read, data.length - read, range.start + read);
