@@ -544,4 +544,8 @@ export const MIGRATIONS: MigrationStep[][] = [
     `DROP TABLE triage_proposals`,
     `ALTER TABLE triage_proposals_new RENAME TO triage_proposals`,
   ],
+  // 健全性を未設定に戻す進捗報告（#154）。既存の health の CHECK は変えず、戻した報告を印で持つ（戻した報告は health を持たない）
+  [
+    `ALTER TABLE project_updates ADD COLUMN health_cleared INTEGER NOT NULL DEFAULT 0 CHECK (health_cleared IN (0, 1) AND (health_cleared = 0 OR health IS NULL))`,
+  ],
 ];

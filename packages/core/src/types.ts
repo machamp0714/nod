@@ -101,6 +101,8 @@ export interface Project {
 // Project の健全性。進捗報告に添えて人・LLM が設定する
 export const PROJECT_HEALTHS = ["on_track", "at_risk", "off_track"] as const;
 export type ProjectHealth = (typeof PROJECT_HEALTHS)[number];
+// 進捗報告で健全性を未設定に戻すときの値（#154）
+export const PROJECT_HEALTH_CLEAR = "none";
 
 export interface ProjectSummary extends Project {
   health: ProjectHealth | null; // 健全性つきの最新の進捗報告の値。なければ null
@@ -116,6 +118,7 @@ export interface ProjectUpdate {
   author: string;
   body: string;
   health: ProjectHealth | null;
+  healthCleared: boolean; // true ならこの報告で健全性を未設定に戻した（health は null）
   createdAt: string;
 }
 

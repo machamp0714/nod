@@ -43,6 +43,7 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("完了候補の親を done にするのは人である");
   expect(GUIDE).toContain("nod project report add");
   expect(GUIDE).toContain("--health on_track|at_risk|off_track");
+  expect(GUIDE).toContain("`--health none` で未設定に戻す");
   expect(GUIDE).toContain("nod project milestone add");
   expect(GUIDE).toContain("--milestone <名前かID>");
   expect(GUIDE).toContain("nod issue list --milestone <ID|none>");

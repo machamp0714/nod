@@ -143,6 +143,17 @@ describe("Project の健全性 CLI", () => {
     expect(text).toMatch(/codex:\n    メモ/);
   });
 
+  test("--health none で健全性を未設定に戻し、報告一覧に戻したことを出す（#154）", () => {
+    const db = tempDb();
+    const cwd = tempDir();
+    cli(db, cwd, ["project", "create", "検索"]);
+    cli(db, cwd, ["project", "report", "add", "検索", "遅れそう", "--health", "at_risk"]);
+    const cleared = cli(db, cwd, ["project", "report", "add", "検索", "保留", "--health", "none", "--json"], "me");
+    expect(cleared.json).toMatchObject({ health: null, healthCleared: true });
+    expect(cli(db, cwd, ["project", "show", "検索", "--json"]).json.health).toBeNull();
+    expect(cli(db, cwd, ["project", "report", "list", "検索"]).stdout).toContain("me（健全性を未設定に戻した）:");
+  });
+
   test("不正な --health は INVALID_ARGS で、報告を保存しない", () => {
     const db = tempDb();
     const cwd = tempDir();

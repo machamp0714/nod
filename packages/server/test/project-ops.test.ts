@@ -96,6 +96,16 @@ describe("Project 進捗報告API", () => {
     expect((await call(app, "GET", "/api/projects")).json.find((x: { id: number }) => x.id === p.id).health).toBe("at_risk");
   });
 
+  test("health: none で健全性を未設定に戻す（#154）", async () => {
+    const { app, me } = setup();
+    const p = createProject(me, { name: "解除" });
+    await call(app, "POST", `/api/projects/${p.id}/reports`, { body: "遅れ", health: "at_risk" });
+    const cleared = await call(app, "POST", `/api/projects/${p.id}/reports`, { body: "保留", health: "none" });
+    expect(cleared.status).toBe(201);
+    expect(cleared.json).toMatchObject({ health: null, healthCleared: true });
+    expect((await call(app, "GET", `/api/projects/${p.id}`)).json.health).toBeNull();
+  });
+
   test("不正な健全性を INVALID_ARGS で拒み、何も保存しない", async () => {
     const { app, db, me } = setup();
     const p = createProject(me, { name: "不正健全性" });

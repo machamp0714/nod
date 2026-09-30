@@ -4,7 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { loadDocuments, selectIssues } from "../issue-query";
 import { selectMilestones } from "./milestones";
-import { PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
+import { PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
 
 export function resolveProject(db: Database, ref: string): { id: number; name: string } {
   const row = (
@@ -60,7 +60,7 @@ function toSummary(r: SummaryRow): ProjectSummary {
 
 const open = "i.project_id = p.id AND i.archived_at IS NULL AND i.status NOT IN ('done', 'canceled')";
 const SUMMARY_SELECT = `SELECT p.*,
-  (SELECT u.health FROM project_updates u WHERE u.project_id = p.id AND u.health IS NOT NULL ORDER BY u.created_at DESC, u.id DESC LIMIT 1) AS health,
+  (SELECT u.health FROM project_updates u WHERE u.project_id = p.id AND (u.health IS NOT NULL OR u.health_cleared = 1) ORDER BY u.created_at DESC, u.id DESC LIMIT 1) AS health,
   (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status <> 'canceled') AS total,
   (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'done') AS done,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'working') AS working,
@@ -136,11 +136,20 @@ interface ProjectUpdateRow {
   author: string;
   body: string;
   health: ProjectHealth | null;
+  health_cleared: number;
   created_at: string;
 }
 
 function toProjectUpdate(r: ProjectUpdateRow): ProjectUpdate {
-  return { id: r.id, projectId: r.project_id, author: r.author, body: r.body, health: r.health, createdAt: r.created_at };
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    author: r.author,
+    body: r.body,
+    health: r.health,
+    healthCleared: r.health_cleared === 1,
+    createdAt: r.created_at,
+  };
 }
 
 function selectProjectUpdates(db: Database, projectId: number): ProjectUpdate[] {
@@ -149,20 +158,29 @@ function selectProjectUpdates(db: Database, projectId: number): ProjectUpdate[] 
   ).map(toProjectUpdate);
 }
 
-// 進捗報告を追記する。健全性は任意で、添えたときだけ現在の健全性が変わる。Project の状態・updated_at と所属 Issue には触れない
-export function addProjectUpdate(ctx: OpCtx, ref: string, body: string, health: ProjectHealth | null = null): ProjectUpdate {
+// 進捗報告を追記する。健全性は任意で、添えたときだけ現在の健全性が変わる（"none" は未設定に戻す）。Project の状態・updated_at と所属 Issue には触れない
+export function addProjectUpdate(
+  ctx: OpCtx,
+  ref: string,
+  body: string,
+  health: ProjectHealth | typeof PROJECT_HEALTH_CLEAR | null = null,
+): ProjectUpdate {
   if (typeof body !== "string" || !body.trim()) throw new NodError("INVALID_ARGS", "進捗報告の本文を指定してください");
   if (body.length > PROJECT_UPDATE_MAX_LENGTH) {
     throw new NodError("INVALID_ARGS", `進捗報告の本文は ${PROJECT_UPDATE_MAX_LENGTH} 文字以内にしてください（${body.length} 文字）`);
   }
-  if (health !== null && !(PROJECT_HEALTHS as readonly unknown[]).includes(health)) {
-    throw new NodError("INVALID_ARGS", `Project の健全性は ${PROJECT_HEALTHS.join(", ")} で指定してください`);
+  if (health !== null && health !== PROJECT_HEALTH_CLEAR && !(PROJECT_HEALTHS as readonly unknown[]).includes(health)) {
+    throw new NodError(
+      "INVALID_ARGS",
+      `Project の健全性は ${PROJECT_HEALTHS.join(", ")} か、未設定に戻す ${PROJECT_HEALTH_CLEAR} で指定してください`,
+    );
   }
+  const cleared = health === PROJECT_HEALTH_CLEAR;
   return tx(ctx.db, () => {
     const { id } = resolveProject(ctx.db, ref);
     const { lastInsertRowid } = ctx.db
-      .query("INSERT INTO project_updates (project_id, author, body, health, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, ctx.actor, body, health, now());
+      .query("INSERT INTO project_updates (project_id, author, body, health, health_cleared, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, ctx.actor, body, cleared ? null : health, cleared ? 1 : 0, now());
     return toProjectUpdate(ctx.db.query("SELECT * FROM project_updates WHERE id = ?").get(Number(lastInsertRowid)) as ProjectUpdateRow);
   });
 }
