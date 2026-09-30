@@ -52,6 +52,28 @@ test("Needs Clarification の Issue は、今の値として表示するが選�
   await expect(propertyMenu(props, "Status").getByRole("menuitemradio", { name: "Needs Clarification" })).toBeDisabled();
 });
 
+// #170：未回答の確認依頼が残っていても、手で移した状態のままにする（Needs Clarification に戻さない）
+test("Needs Clarification の Issue を手で Todo に移すと、未決事項を残したまま Todo になる", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.clarify}`);
+  const props = region(page, "プロパティ");
+  await expect(props.getByRole("combobox", { name: "Status" })).toHaveValue("needs_clarification");
+
+  await props.getByRole("combobox", { name: "Status" }).selectOption("todo");
+  await expect(page.getByRole("group", { name: "状態" })).toContainText("Todo");
+  await expect(page.getByRole("group", { name: "状態" })).not.toContainText("Needs Clarification");
+  await expect(props.getByRole("alert")).toHaveCount(0);
+  await expect(region(page, "未決事項")).toContainText("0 / 2 決定");
+
+  await page.reload();
+  const status = region(page, "プロパティ").getByRole("combobox", { name: "Status" });
+  await expect(status).toHaveValue("todo");
+  await expect(status.getByRole("option", { name: "Needs Clarification" })).toHaveCount(0);
+  // Activity には手動の移動が1件だけ残り、Needs Clarification へ戻す記録は増えない（1件は未決事項を足したときのもの）
+  const activity = region(page, "Activity");
+  await expect(activity.getByText("ステータスを Needs Clarification から Todo に変えた")).toHaveCount(1);
+  await expect(activity.getByText("ステータスを Todo から Needs Clarification に変えた")).toHaveCount(1);
+});
+
 for (const width of [1280, 1440]) {
   test(`幅 ${width}px で Labels の追加ボタンを1行で表示する`, async ({ page }) => {
     await page.setViewportSize({ width, height: 960 });

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { NodError } from "../src/errors";
 import { askQuestion, nextIssue, startIssue } from "../src/ops/agent";
+import { bulkUpdateIssues } from "../src/ops/bulk-update";
 import { acceptTriage, answerQuestion, getInbox } from "../src/ops/human";
 import { createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { codeOf, eventsOf, setup } from "./helpers";
@@ -62,15 +64,6 @@ describe("Needs Clarification への自動の切り替え", () => {
     ]);
   });
 
-  test("needs_clarification の間に手で backlog に移すと、決めたときに backlog に戻る", () => {
-    const { ws, me } = setup();
-    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    const asked = askQuestion(me, i.id, "対象はどれか");
-    expect(updateIssue(me, i.id, { status: "in_progress" }).status).toBe("in_progress");
-    expect(updateIssue(me, i.id, { status: "backlog" }).status).toBe("needs_clarification");
-    expect(answerQuestion(me, i.id, "一覧", { questionId: asked.question.id }).issue.status).toBe("backlog");
-  });
-
   test("in_progress の Issue では、LLM の確認依頼は作業状況を awaiting_input にし、私の確認依頼は何も変えない", () => {
     const { ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
@@ -99,6 +92,118 @@ describe("Needs Clarification への自動の切り替え", () => {
     expect(again).toMatchObject({ created: false, issue: { status: "needs_clarification" } });
     expect(eventsOf(db, i.id).filter((e) => e.type === "question_asked")).toHaveLength(1);
     expect(statusChanges(db, i.id)).toHaveLength(1);
+  });
+});
+
+describe("未決事項が残る Issue の手動の状態変更（#170）", () => {
+  for (const to of ["todo", "backlog"] as const) {
+    test(`人が needs_clarification から ${to} に移すと、そのまま ${to} になり、event は1件だけ残る`, () => {
+      const { db, ws, me } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(me, i.id, "対象はどれか");
+      const before = statusChanges(db, i.id).length;
+      expect(updateIssue(me, i.id, { status: to }).status).toBe(to);
+      expect(statusChanges(db, i.id).slice(before)).toEqual([{ from: "needs_clarification", to }]);
+      expect(getIssue(db, i.id)).toMatchObject({ status: to, openQuestions: [{ question: "対象はどれか" }] });
+    });
+  }
+
+  test("人が in_progress から todo・backlog に戻しても、needs_clarification に切り替えない", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    updateIssue(me, i.id, { status: "in_progress" });
+    askQuestion(me, i.id, "対象はどれか");
+    expect(updateIssue(me, i.id, { status: "backlog" }).status).toBe("backlog");
+    expect(updateIssue(me, i.id, { status: "todo" }).status).toBe("todo");
+    expect(statusChanges(db, i.id)).toEqual([
+      { from: "todo", to: "in_progress" },
+      { from: "in_progress", to: "backlog" },
+      { from: "backlog", to: "todo" },
+    ]);
+  });
+
+  test("手で todo に出した Issue は、未回答が残る間は着手できず、すべて回答しても状態は変わらない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const asked = askQuestion(llm, i.id, "どちらの方式にするか");
+    updateIssue(me, i.id, { status: "todo" });
+    expect(nextIssue(llm, { workspaceId: ws.id })).toBeNull();
+    expect(codeOf(() => startIssue(llm, i.id))).toBe("AWAITING_ANSWER");
+    const before = statusChanges(db, i.id).length;
+    expect(answerQuestion(me, i.id, "A 方式", { questionId: asked.question.id }).issue.status).toBe("todo");
+    expect(statusChanges(db, i.id)).toHaveLength(before);
+    expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(i.id);
+  });
+
+  test("手で backlog に出した Issue に新しい確認依頼が付くと needs_clarification になり、回答すると backlog に戻る", () => {
+    const { ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const first = askQuestion(me, i.id, "対象はどれか");
+    updateIssue(me, i.id, { status: "backlog" });
+    const second = askQuestion(me, i.id, "期限はいつか");
+    expect(second.issue.status).toBe("needs_clarification");
+    answerQuestion(me, i.id, "一覧", { questionId: first.question.id });
+    expect(answerQuestion(me, i.id, "来週", { questionId: second.question.id }).issue.status).toBe("backlog");
+  });
+
+  describe("LLM は、me の未決事項が未回答の間は needs_clarification から出せない", () => {
+    for (const to of ["todo", "backlog", "in_progress", "in_review"] as const) {
+      test(`${to} にしようとすると FORBIDDEN_FOR_LLM で、何も書かない`, () => {
+        const { db, ws, me, llm } = setup();
+        const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+        askQuestion(me, i.id, "対象はどれか");
+        const before = { issue: getIssue(db, i.id), events: eventsOf(db, i.id) };
+        expect(codeOf(() => updateIssue(llm, i.id, { status: to, priority: 1 }))).toBe("FORBIDDEN_FOR_LLM");
+        expect({ issue: getIssue(db, i.id), events: eventsOf(db, i.id) }).toEqual(before);
+      });
+    }
+
+    test("me と LLM の質問が混ざっていても、me の未回答が残る間は出せない", () => {
+      const { db, ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      const mine = askQuestion(me, i.id, "対象はどれか");
+      askQuestion(llm, i.id, "どちらの方式にするか");
+      expect(codeOf(() => updateIssue(llm, i.id, { status: "todo" }))).toBe("FORBIDDEN_FOR_LLM");
+      // me の未決事項が決まれば、LLM の質問だけが残るので人と同じ扱いになる
+      answerQuestion(me, i.id, "一覧", { questionId: mine.question.id });
+      expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+      expect(getIssue(db, i.id).openQuestions.map((q) => q.question)).toEqual(["どちらの方式にするか"]);
+    });
+
+    test("LLM の質問だけが残るなら、人と同じく todo に出せる（event は1件）", () => {
+      const { db, ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(llm, i.id, "どちらの方式にするか");
+      const before = statusChanges(db, i.id).length;
+      expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+      expect(statusChanges(db, i.id).slice(before)).toEqual([{ from: "needs_clarification", to: "todo" }]);
+    });
+
+    test("canceled にはでき、状態以外の項目は変えられる", () => {
+      const { ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(me, i.id, "対象はどれか");
+      expect(updateIssue(llm, i.id, { priority: 2 })).toMatchObject({ status: "needs_clarification", priority: 2 });
+      expect(updateIssue(llm, i.id, { status: "canceled" }).status).toBe("canceled");
+    });
+
+    test("一括編集でも失敗一覧に FORBIDDEN_FOR_LLM が入り、1件も書かない", () => {
+      const { db, ws, me, llm } = setup();
+      const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
+      const held = createIssue(me, { workspaceId: ws.id, title: "held" });
+      askQuestion(me, held.id, "対象はどれか");
+      const before = db.query("SELECT * FROM events ORDER BY id").all();
+      let error: NodError | undefined;
+      try {
+        bulkUpdateIssues(llm, [ok.id, held.id], { status: "in_progress", priority: 1 });
+      } catch (e) {
+        error = e as NodError;
+      }
+      expect(error?.code).toBe("BULK_UPDATE_FAILED");
+      expect(error?.details).toEqual({ failures: [{ id: held.id, code: "FORBIDDEN_FOR_LLM", message: expect.any(String) }] });
+      expect(db.query("SELECT * FROM events ORDER BY id").all()).toEqual(before);
+      expect(getIssue(db, held.id).status).toBe("needs_clarification");
+    });
   });
 });
 

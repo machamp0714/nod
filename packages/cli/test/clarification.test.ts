@@ -79,6 +79,38 @@ describe("未決事項と Needs Clarification", () => {
     );
   });
 
+  test("人が needs_clarification から todo に移すと、そのまま todo になる（#170）", async () => {
+    const created = (await me(["issue", "create", "t"])).json;
+    await me(["issue", "ask", created.id, "対象はどれか"]);
+    const updated = await me(["issue", "update", created.id, "--status", "todo"]);
+    expect(updated.exitCode).toBe(0);
+    expect(updated.json.status).toBe("todo");
+    const shown = (await me(["issue", "show", created.id])).json;
+    expect(shown).toMatchObject({ status: "todo", openQuestions: [{ question: "対象はどれか" }] });
+    const changes = shown.activity.filter((a: { type?: string }) => a.type === "status_changed").map((a: { data: unknown }) => a.data);
+    expect(changes).toEqual([
+      { from: "todo", to: "needs_clarification" },
+      { from: "needs_clarification", to: "todo" },
+    ]);
+  });
+
+  test("LLM は me の未決事項が未回答の間、update でも bulk-update でも needs_clarification から出せない（#170）", async () => {
+    const created = (await me(["issue", "create", "t"])).json;
+    await me(["issue", "ask", created.id, "対象はどれか"]);
+    for (const status of ["todo", "backlog", "in_progress", "in_review"]) {
+      const r = await llm(["issue", "update", created.id, "--status", status]);
+      expect(r.exitCode).toBe(1);
+      expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    }
+    const bulk = await llm(["issue", "bulk-update", created.id, "--status", "in_progress"]);
+    expect(bulk.exitCode).toBe(1);
+    expect(bulk.json.error).toMatchObject({
+      code: "BULK_UPDATE_FAILED",
+      details: { failures: [{ id: created.id, code: "FORBIDDEN_FOR_LLM" }] },
+    });
+    expect((await me(["issue", "show", created.id])).json.status).toBe("needs_clarification");
+  });
+
   test("手引きに NEEDS_CLARIFICATION への対処がある", async () => {
     expect((await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout).toContain("NEEDS_CLARIFICATION");
   });
