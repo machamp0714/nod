@@ -198,6 +198,9 @@ describe("Milestone の入口（#154）", () => {
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", milestoneRef: "α" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: String(foreign.id) }))).toBe("INVALID_ARGS");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: "ない" }))).toBe("NOT_FOUND");
+    // 起票で空文字を渡しても黙って無視せず、理由を返す（更新の空文字は「外す」だが、起票には外すものがない）
+    expect(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: " " })).toThrow("Milestone を指定してください");
+    expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: "" }))).toBe("INVALID_ARGS");
     expect(listIssues(db, { statuses: ["triage", "todo"] })).toHaveLength(before);
   });
 
@@ -211,6 +214,9 @@ describe("Milestone の入口（#154）", () => {
     expect(listIssues(db, { projectRef: "検索", milestone: "none" }).map((i) => i.id)).toEqual([loose.id]);
     expect(codeOf(() => listIssues(db, { milestone: "α" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => listIssues(db, { projectRef: "認証", milestone: "α" }))).toBe("NOT_FOUND");
+    // 別の Project の Milestone の ID を組み合わせたら、分析（stats）と同じく断る
+    expect(() => listIssues(db, { projectRef: "認証", milestone: String(m.id) })).toThrow("指定した Project のものではありません");
+    expect(codeOf(() => listIssues(db, { projectRef: "認証", milestone: String(m.id) }))).toBe("INVALID_ARGS");
   });
 
   test("一括編集で Milestone を付け替え・外せ、Project の違う Issue が混ざると何も変えない", () => {

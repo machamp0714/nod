@@ -36,8 +36,10 @@ export function BulkActionBar({
 }) {
   const update = useBulkUpdateIssues();
   const projects = useProjectChoices();
-  const cycles = cycleMenu(selected, useCycles().data ?? []);
-  const milestones = milestoneMenu(selected, useMilestones().data ?? []);
+  const cycleList = useCycles();
+  const milestoneList = useMilestones();
+  const cycles = cycleMenu(selected, cycleList.data ?? []);
+  const milestones = milestoneMenu(selected, milestoneList.data ?? []);
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [failures, setFailures] = useState<BulkFailure[]>([]);
   const [error, setError] = useState("");
@@ -175,7 +177,7 @@ export function BulkActionBar({
                 badge: <span className={d.badge} data-state={c.state}>{CYCLE_STATE_LABEL[c.state]}</span>,
                 run: () => apply({ cycleRef: String(c.id) }),
               }))}
-              empty="この Workspace に終了していない Cycle はありません"
+              empty={listNotice(cycleList, "この Workspace に終了していない Cycle はありません")}
               none={{ label: "Cycle なし", run: () => apply({ cycleRef: null }) }}
             />
           )}
@@ -186,7 +188,7 @@ export function BulkActionBar({
               label="Milestone を変更"
               head={milestones.project.name}
               items={milestones.milestones.map((m) => ({ key: String(m.id), icon: "flag", label: m.name, run: () => apply({ milestoneRef: String(m.id) }) }))}
-              empty="この Project に Milestone はありません"
+              empty={listNotice(milestoneList, "この Project に Milestone はありません")}
               none={{ label: "Milestone なし", run: () => apply({ milestoneRef: null }) }}
             />
           )}
@@ -284,6 +286,12 @@ function Menu({ label, items }: { label: string; items: { key: string; label: st
 }
 
 // Cycle・Milestone のメニュー（Pencil eKr6I・z7qFd）。見出し（Project 名）→ 選択肢 → 区切り →「〜なし」
+// 選択肢が空のときの文言。一覧の読み込み中や取得の失敗を「ありません」と取り違えないよう、それぞれの文言にする
+function listNotice(list: { isPending: boolean; error: unknown }, empty: string): { text: string; alert?: boolean } {
+  if (list.error) return { text: errorMessage(list.error), alert: true };
+  return { text: list.isPending ? "読み込み中…" : empty };
+}
+
 function ChoiceMenu({
   label,
   head,
@@ -294,7 +302,7 @@ function ChoiceMenu({
   label: string;
   head?: string;
   items: { key: string; icon: IconName; label: string; badge?: ReactNode; run: () => void }[];
-  empty: string;
+  empty: { text: string; alert?: boolean };
   none: { label: string; run: () => void };
 }) {
   return (
@@ -312,7 +320,7 @@ function ChoiceMenu({
           {item.badge}
         </button>
       ))}
-      {items.length === 0 && <p className={s.bulkEmpty}>{empty}</p>}
+      {items.length === 0 && <p className={s.bulkEmpty} role={empty.alert ? "alert" : undefined}>{empty.text}</p>}
       <hr className={s.bulkSeparator} />
       <button type="button" role="menuitem" className={s.bulkNone} data-autofocus={items.length === 0 ? "" : undefined} onClick={none.run}>
         <Icon name="circle-dashed" size={12} color="var(--ink3)" />

@@ -238,3 +238,28 @@ test("Cycle・Milestone をまとめて入れ・外し、Workspace・Project が
   await expect(bar(page).getByTitle("選択に複数の Workspace が混在しているため、Cycle は一括変更できません")).toBeVisible();
   await expect(bar(page).getByRole("button", { name: "Status" })).toBeEnabled();
 });
+
+test.describe("Cycle・Milestone の一覧を読めないとき", () => {
+  test.use({ allowedConsoleErrors: [/status of 400/] });
+
+  test("読み込み中・取得失敗を「ありません」と取り違えず、それぞれの文言を出す（#154）", async ({ page, nod }) => {
+    const { ids } = await seed(nod);
+    const [b1] = ids as [string];
+    await nod.me.updateIssue(b1, { projectRef: "決済まわり" });
+    await page.route("**/api/cycles?*", (route) =>
+      route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "INVALID_ARGS", message: "Cycle の一覧の取得に失敗" } }) }),
+    );
+    await page.route("**/api/milestones*", () => {}); // 応答を返さず、読み込み中のままにする
+    await page.goto("/issues?sort=title");
+    await box(page, b1).click();
+    await bar(page).getByRole("button", { name: "Cycle" }).click();
+    const cycleMenu = page.getByRole("menu", { name: "Cycle を変更" });
+    await expect(cycleMenu.getByRole("alert")).toHaveText("Cycle の一覧の取得に失敗");
+    await expect(cycleMenu).not.toContainText("終了していない Cycle はありません");
+    await page.keyboard.press("Escape");
+    await bar(page).getByRole("button", { name: "Milestone" }).click();
+    const milestoneMenu = page.getByRole("menu", { name: "Milestone を変更" });
+    await expect(milestoneMenu).toContainText("読み込み中…");
+    await expect(milestoneMenu).not.toContainText("Milestone はありません");
+  });
+});

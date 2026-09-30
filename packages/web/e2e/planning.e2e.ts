@@ -102,6 +102,19 @@ test.describe("Initiative の編集（#154）", () => {
     await expect(dialog).toBeHidden();
     expect((await nod.me.getInitiative(String(target.id))).name).toBe("検索基盤の刷新 v2");
   });
+
+  test("名前だけ直したとき、説明の字下げ・末尾の改行を消さない（#154）", async ({ page, nod }) => {
+    const description = "  字下げした一行目\n- 箇条書き\n";
+    const target = await nod.me.createInitiative({ name: "検索基盤の刷新", description });
+    await page.goto(`/initiatives/${target.id}`);
+    await page.getByRole("button", { name: "編集" }).click();
+    const dialog = page.getByRole("dialog", { name: "Initiative を編集" });
+    await dialog.getByLabel("名前").fill("検索基盤の刷新 v2");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog).toBeHidden();
+    const saved = await nod.me.getInitiative(String(target.id));
+    expect([saved.name, saved.description]).toEqual(["検索基盤の刷新 v2", description]);
+  });
 });
 
 test.describe("Cycle", () => {

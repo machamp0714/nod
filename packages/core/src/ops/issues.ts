@@ -94,6 +94,9 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate !== undefined) validateEstimate(input.estimate);
   if (input.dueDate !== undefined) validateDueDate(input.dueDate);
+  if (input.milestoneRef !== undefined && !input.milestoneRef.trim()) {
+    throw new NodError("INVALID_ARGS", "Milestone を指定してください。付けないときは --milestone を省きます（空文字で外せるのは更新だけです）");
+  }
   return tx(ctx.db, () => {
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
@@ -251,8 +254,12 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     if (!/^\d+$/.test(filter.milestone) && projectId === undefined) {
       throw new NodError("INVALID_ARGS", `Milestone を名前（${filter.milestone}）で絞るときは Project も指定してください（ID なら不要）`);
     }
+    const milestone = resolveMilestone(db, filter.milestone, projectId);
+    if (projectId !== undefined && milestone.project_id !== projectId) {
+      throw new NodError("INVALID_ARGS", `Milestone ${filter.milestone}（${milestone.name}）は指定した Project のものではありません`);
+    }
     where.push("i.milestone_id = ?");
-    params.push(resolveMilestone(db, filter.milestone, projectId).id);
+    params.push(milestone.id);
   }
   if (filter.cycleRef?.toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
   else if (filter.cycleRef) {
