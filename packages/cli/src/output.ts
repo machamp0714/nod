@@ -374,13 +374,14 @@ export function formatPrStatusLine(v: PrStatusView): string | null {
 }
 
 // nod review approve に添える GitHub 側の状態（#56/#57）。保存済みの結果だけを読み、gh は実行しない。
-// 未マージ・変更要求は注意として出すが、承認は止めない
-export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません（GitHub には何も書き込まず、gh も実行していません）";
+// 未マージ・変更要求は注意として出すが、承認は止めない。保存済みの結果は古いことがあるので「取得時点で」と添える
+export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません。GitHub には何も書き込みません";
 
 export function approvalWarnings(s: PrStatus): string[] {
   const warnings: string[] = [];
-  if (s.state !== "MERGED") warnings.push(`GitHub の PR はまだマージされていません（${prState(s)}）`);
-  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("GitHub で変更要求が出ています");
+  if (s.state === "CLOSED") warnings.push(`取得時点で GitHub の PR はマージされずに閉じられています（${prState(s)}）`);
+  else if (s.state !== "MERGED") warnings.push(`取得時点で GitHub の PR はまだマージされていません（${prState(s)}）`);
+  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("取得時点で GitHub に変更要求が出ています");
   return warnings;
 }
 

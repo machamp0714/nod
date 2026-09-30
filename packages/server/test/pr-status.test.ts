@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { completeIssue, createIssue, type GhRunner, getIssue, getPrStatus, setAutomationSettings, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
-import { call, setup } from "./helpers";
+import { call, setup, tempDir } from "./helpers";
 
 const PR_URL = "https://github.com/example/api-server/pull/128";
 const GH_OK = JSON.stringify({
@@ -27,7 +29,46 @@ function withGh(gh: GhRunner, prUrl: string | null = PR_URL) {
   return { ...s, app, ref: issue.id };
 }
 
+// 引数を記録する偽の gh を PATH の先頭に置く。既定の ghRunner（PATH 上の「gh」）が起動しても log に残り、実 GitHub には触れない
+const ORIGINAL_PATH = process.env.PATH;
+afterEach(() => {
+  process.env.PATH = ORIGINAL_PATH;
+});
+function fakeGhOnPath(): { log: string } {
+  const dir = tempDir("nod-fake-gh-");
+  const log = join(dir, "args.log");
+  writeFileSync(join(dir, "gh"), `#!/bin/sh\necho "$@" >> "${log}"\necho '${GH_OK}'\n`);
+  chmodSync(join(dir, "gh"), 0o755);
+  process.env.PATH = `${dir}${delimiter}${ORIGINAL_PATH ?? ""}`;
+  return { log };
+}
+
 describe("PR 状態 API", () => {
+  test("偽 gh は PATH の先頭にあり、既定の ghRunner での更新は記録される（下のテストの前提）", async () => {
+    const gh = fakeGhOnPath();
+    const s = setup();
+    const app = createApp({ db: s.db });
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
+    startIssue(s.llm, issue.id);
+    completeIssue(s.llm, issue.id, { summary: "直した", prUrl: PR_URL });
+    const res = await call(app, "POST", `/api/issues/${issue.id}/pr-status/refresh`);
+    expect(res.json.status).toMatchObject({ state: "OPEN" });
+    expect(readFileSync(gh.log, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("既定の ghRunner のまま承認しても、PATH 上の gh は起動しない（#56/#57）", async () => {
+    const gh = fakeGhOnPath();
+    const s = setup();
+    const app = createApp({ db: s.db });
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
+    startIssue(s.llm, issue.id);
+    completeIssue(s.llm, issue.id, { summary: "直した", prUrl: PR_URL });
+    const res = await call(app, "POST", `/api/issues/${issue.id}/approve`);
+    expect(res.status).toBe(200);
+    expect(res.json.status).toBe("done");
+    expect(existsSync(gh.log)).toBe(false);
+  });
+
   test("GET は保存済みの状態を返し、gh は実行しない", async () => {
     let calls = 0;
     const { app, ref } = withGh(async () => {
