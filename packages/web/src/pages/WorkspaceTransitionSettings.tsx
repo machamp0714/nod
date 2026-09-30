@@ -3,7 +3,7 @@ import { errorMessage } from "../api/errors";
 import { useStatusNames } from "../api/hooks/workspace-labels";
 import { useSaveTransitionRules, useTransitionRules } from "../api/hooks/workspace-transitions";
 import type { Status, Workspace, WorkspaceTransitionRules } from "../api/types";
-import { Icon } from "../components/ui";
+import { Button, Icon } from "../components/ui";
 import { STATUS_META } from "../lib/meta";
 import {
   nextPair,
@@ -15,7 +15,7 @@ import {
 import type { StatusNames } from "../lib/workspace-labels";
 import s from "./workspace-settings.module.css";
 
-// ステータスの遷移ルール（#73）。許可しない遷移の組とプリセットを全体で置き換えて保存する。LLM・自動化も従う
+// ステータスの遷移ルール（#73、nod.pen「Workspace設定｜ステータス遷移」）。許可しない遷移の組とプリセットを全体で置き換えて保存する。LLM・自動化も従う
 export function TransitionRulesSection({ workspace, onSaved }: { workspace: Workspace; onSaved: () => void }) {
   const titleId = useId();
   const rules = useTransitionRules(workspace.key);
@@ -69,6 +69,7 @@ function TransitionRulesForm({
   names: StatusNames;
   onSaved: () => void;
 }) {
+  const listId = useId();
   const [draft, setDraft] = useState<TransitionRulesDraft>(() => transitionRulesDraft(saved));
   const [error, setError] = useState<string | null>(null);
   const save = useSaveTransitionRules(workspace.key);
@@ -95,20 +96,24 @@ function TransitionRulesForm({
       <label className={s.transitionPreset}>
         <input
           type="checkbox"
+          className={s.transitionCheckbox}
           checked={draft.reviewBeforeDone}
           onChange={(event) => setDraft({ ...draft, reviewBeforeDone: event.target.checked })}
         />
         {label("done")} の前に {label("in_review")} を必須にする
       </label>
-      <div className={s.labelList} role="group" aria-label="許可しない遷移">
+      <span id={listId} className={s.transitionSubLabel}>
+        許可しない遷移
+      </span>
+      <div className={s.labelList} role="group" aria-labelledby={listId}>
         {draft.forbidden.length === 0 ? (
-          <div className={s.labelEmpty}>制限はありません。すべての遷移を許可しています。</div>
+          <div className={s.transitionEmpty}>制限はありません。すべての遷移を許可しています。</div>
         ) : (
           <ul className={s.labelRows}>
             {draft.forbidden.map((row, i) => {
               const invalid = state.invalidRows.includes(i);
               return (
-                <li key={i} className={s.labelRow}>
+                <li key={i} className={s.transitionRow}>
                   <StatusSelect
                     label={`${i + 1} 行目の遷移元`}
                     value={row.from}
@@ -117,7 +122,7 @@ function TransitionRulesForm({
                     onChange={(from) => setRow(i, { from })}
                   />
                   <span className={s.transitionArrow} aria-hidden="true">
-                    <Icon name="arrow-right" size={13} />
+                    <Icon name="arrow-right" size={14} />
                   </span>
                   <StatusSelect
                     label={`${i + 1} 行目の遷移先`}
@@ -129,28 +134,25 @@ function TransitionRulesForm({
                   <span className={s.grow} />
                   <button
                     type="button"
-                    className={`${s.smallButton} ${s.smallDanger}`}
+                    className={s.transitionRemove}
                     aria-label={`${label(row.from)} → ${label(row.to)} を削除`}
                     onClick={() => setDraft({ ...draft, forbidden: draft.forbidden.filter((_, j) => j !== i) })}
                   >
-                    削除
+                    <Icon name="x" size={14} />
                   </button>
                 </li>
               );
             })}
           </ul>
         )}
-        <div className={s.labelAdd}>
-          <div>
-            <button
-              type="button"
-              className={s.smallButton}
-              onClick={() => setDraft({ ...draft, forbidden: [...draft.forbidden, nextPair(draft.forbidden)] })}
-            >
-              + 遷移を追加
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          className={s.transitionAdd}
+          onClick={() => setDraft({ ...draft, forbidden: [...draft.forbidden, nextPair(draft.forbidden)] })}
+        >
+          <Icon name="plus" size={13} />
+          遷移を追加
+        </button>
       </div>
       {state.error && (
         <p role="alert" className={s.error}>
@@ -165,23 +167,15 @@ function TransitionRulesForm({
         </p>
       )}
       <div className={s.footerEnd}>
-        <button
-          type="button"
-          className={s.smallButton}
-          disabled={state.empty || save.isPending}
-          onClick={() => setDraft({ forbidden: [], reviewBeforeDone: false })}
-        >
-          すべて解除
-        </button>
-        <button
-          type="button"
-          className={`${s.smallButton} ${s.smallPrimary}`}
-          aria-label="遷移ルールを保存"
+        <Button
+          variant="primary"
+          className={s.saveButton}
+          icon={save.isPending ? "loader-circle" : undefined}
           disabled={!state.canSave || save.isPending}
           onClick={() => void submit()}
         >
-          保存
-        </button>
+          {save.isPending ? "保存中…" : "保存"}
+        </Button>
       </div>
     </section>
   );

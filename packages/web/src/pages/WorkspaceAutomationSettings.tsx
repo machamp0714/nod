@@ -297,10 +297,15 @@ function DryRunResult({ run }: { run: AutomationRun }) {
   );
 }
 
-// 遷移ルール（#73）で実行時にスキップする見込みの候補に添える理由
+// 遷移ルール（#73）で実行時にスキップする見込みの候補に添える小ピル。どのルールかはツールチップで示す
 function RuleSkipNote({ reason }: { reason: string | undefined }) {
   if (!reason) return null;
-  return <span className={s.ruleSkip}>{reason}</span>;
+  return (
+    <span className={s.ruleSkipPill} title={reason}>
+      <Icon name="ban" size={10} />
+      遷移ルールでスキップ予定
+    </span>
+  );
 }
 
 function RuleResult({ rule }: { rule: AutomationRuleResult }) {

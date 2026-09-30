@@ -12,11 +12,10 @@ test.describe("設定画面", () => {
     const rules = section(page);
     await expect(rules.getByText("許可しない遷移を設定します。LLM・自動化も従います。LLM は編集できません。")).toBeVisible();
     await expect(rules.getByText("制限はありません。すべての遷移を許可しています。")).toBeVisible();
-    await expect(rules.getByRole("button", { name: "遷移ルールを保存" })).toBeDisabled();
-    await expect(rules.getByRole("button", { name: "すべて解除" })).toBeDisabled();
+    await expect(rules.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 
     await rules.getByRole("checkbox", { name: "Done の前に In Review を必須にする" }).check();
-    await rules.getByRole("button", { name: "+ 遷移を追加" }).click();
+    await rules.getByRole("button", { name: "遷移を追加" }).click();
     const from = rules.getByRole("combobox", { name: "1 行目の遷移元" });
     const to = rules.getByRole("combobox", { name: "1 行目の遷移先" });
     await expect(from.getByRole("option", { name: "Needs Clarification" })).toHaveCount(0);
@@ -24,14 +23,14 @@ test.describe("設定画面", () => {
     // レビュー承認の経路は塞げない
     await from.selectOption("in_review");
     await to.selectOption("done");
-    await expect(rules.getByRole("alert")).toHaveText("In Review → Done は禁止できません（レビューの承認に必要）");
+    await expect(rules.getByRole("alert")).toHaveText("In Review → Done は禁止できません（レビュー承認に必要）");
     await expect(from).toHaveAttribute("aria-invalid", "true");
-    await expect(rules.getByRole("button", { name: "遷移ルールを保存" })).toBeDisabled();
+    await expect(rules.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 
     await from.selectOption("backlog");
     await to.selectOption("in_progress");
     await expect(rules.getByRole("alert")).toHaveCount(0);
-    await rules.getByRole("button", { name: "遷移ルールを保存" }).click();
+    await rules.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("保存しました");
     expect(await nod.me.getTransitionRules("API")).toEqual({
       workspaceKey: "API",
@@ -44,10 +43,11 @@ test.describe("設定画面", () => {
     const after = section(page);
     await expect(after.getByRole("checkbox", { name: "Done の前に In Review を必須にする" })).toBeChecked();
     await expect(after.getByRole("combobox", { name: "1 行目の遷移元" })).toHaveValue("backlog");
+    await expect(after.getByRole("group", { name: "許可しない遷移" })).toBeVisible();
     await after.getByRole("button", { name: "Backlog → In Progress を削除" }).click();
-    await after.getByRole("button", { name: "すべて解除" }).click();
+    await after.getByRole("checkbox", { name: "Done の前に In Review を必須にする" }).uncheck();
     await expect(after.getByText("制限はありません。すべての遷移を許可しています。")).toBeVisible();
-    await after.getByRole("button", { name: "遷移ルールを保存" }).click();
+    await after.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("保存しました");
     expect(await nod.me.getTransitionRules("API")).toMatchObject({ forbidden: [], presets: [] });
   });
@@ -79,9 +79,8 @@ test.describe("自動化", () => {
     const auto = page.getByRole("region", { name: "自動化" });
     await auto.getByRole("button", { name: "対象を確認" }).click();
     const table = page.getByRole("region", { name: "対象の確認結果" }).getByRole("table", { name: "canceled にする · 2 件" });
-    await expect(table.getByRole("row").filter({ hasText: "API-2" })).toContainText(
-      "遷移ルールでスキップ: Backlog → Canceled は許可されていません（ルール: 許可しない遷移）",
-    );
+    const pill = table.getByRole("row").filter({ hasText: "API-2" }).getByText("遷移ルールでスキップ予定");
+    await expect(pill).toHaveAttribute("title", "遷移ルールでスキップ: Backlog → Canceled は許可されていません（ルール: 許可しない遷移）");
     await expect(table.getByRole("row").filter({ hasText: "API-1" })).not.toContainText("遷移ルール");
 
     await auto.getByRole("button", { name: "今すぐ実行" }).click();

@@ -34,7 +34,7 @@ describe("遷移ルールの編集状態（#73）", () => {
     expect(dup.error).toContain("重なっています");
     const guarded = transitionRulesEditState(draftOf({ forbidden: [{ from: "in_review", to: "done" }] }), saved);
     expect(guarded).toMatchObject({ canSave: false, invalidRows: [0] });
-    expect(guarded.error).toBe("In Review → Done は禁止できません（レビューの承認に必要）");
+    expect(guarded.error).toBe("In Review → Done は禁止できません（レビュー承認に必要）");
   });
 
   test("エラーのステータス名は Workspace の表示名を使う", () => {
