@@ -118,11 +118,11 @@ function FilterBar({ search, by, range, onChange }: {
       {/* nod.pen の Milestone Select（ekST2）。Project を選んでいなければ Project ごとの optgroup に分ける（Hf7qD） */}
       <SelectChip label="Milestone" value={search.milestone ?? ""} onChange={(v) => onChange({ ...search, milestone: v || undefined })}>
         <option value="">すべて</option>
-        {groups.map((g) =>
+        {groups.map((g, n) =>
           g.label === null ? (
             g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)
           ) : (
-            <optgroup key={g.label} label={g.label}>
+            <optgroup key={n} label={g.label}>
               {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </optgroup>
           ),
