@@ -33,6 +33,11 @@ export const queryKeys = {
   projectList: (opts: { includeClosed?: boolean }) => ["projects", "list", opts] as const,
   project: (id: number) => ["projects", "detail", id] as const,
   milestones: () => ["projects", "milestones"] as const,
+  initiativeList: () => ["initiatives", "list"] as const,
+  initiative: (id: number) => ["initiatives", "detail", id] as const,
+  // 状態（現在・予定・終了）はブラウザのタイムゾーンの今日で決まるので、tz をキーに含める
+  cycleList: (tz: string) => ["cycles", "list", tz] as const,
+  cycle: (id: number, tz: string) => ["cycles", "detail", id, tz] as const,
   views: () => ["views"] as const,
   documentList: () => ["documents", "list"] as const,
   documentsRoot: () => ["documents", "root"] as const,

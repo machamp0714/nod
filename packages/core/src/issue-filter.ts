@@ -9,13 +9,14 @@ export interface IssueQuery {
   status?: Status[]; // どれかに合うもの。省くとすべてのステータス
   project?: string; // Project の名前か ID
   milestone?: string; // Milestone の数字の ID か、Milestone のない Issue だけにする "none"
+  cycle?: string; // Cycle の ID か、Cycle のない Issue だけにする "none"。名前・current は Workspace を1つに絞ったときだけ
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
   delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ
   archived?: boolean; // true ならアーカイブ済みの Issue だけ。省くとアーカイブ済みを除く
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "label", "ready", "q", "blocked", "delegated", "archived"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "archived"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -67,6 +68,12 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     }
     q.milestone = value;
   }
+  if (raw.cycle !== undefined) {
+    if (typeof raw.cycle !== "string" || !raw.cycle.trim()) {
+      throw invalid("cycle には Cycle の ID を文字列で指定してください");
+    }
+    q.cycle = raw.cycle.trim();
+  }
   const label = stringList(raw.label, "label", false);
   if (label) q.label = label;
   if (raw.blocked !== undefined) {
@@ -93,7 +100,7 @@ export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     const last = values[values.length - 1] ?? "";
-    if (key === "project" || key === "milestone" || key === "q") {
+    if (key === "project" || key === "milestone" || key === "cycle" || key === "q") {
       raw[key] = last;
     } else if (key === "ready" || key === "blocked" || key === "delegated" || key === "archived") {
       if (!["true", "1", "false", "0"].includes(last)) {

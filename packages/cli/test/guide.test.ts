@@ -46,6 +46,7 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("nod project milestone add");
   expect(GUIDE).toContain("--milestone <名前かID>");
   expect(GUIDE).toContain("`remove`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
+  expect(GUIDE).toContain("`delete`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
 });
 
 test("LLM は nod issue update --status や bulk-update でも Triage の Issue を Triage から出せないと案内する", () => {

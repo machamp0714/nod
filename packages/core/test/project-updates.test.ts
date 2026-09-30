@@ -101,10 +101,13 @@ describe("Project の進捗報告", () => {
 });
 
 test("進捗報告の前の版の DB を移行しても既存データを保ち、報告は空で始まる", () => {
+  // 後から末尾に足される移行があっても、進捗報告の直前の版から始める
+  const before = MIGRATIONS.findIndex((steps) => steps.some((s) => typeof s === "string" && s.includes("CREATE TABLE project_updates")));
+  expect(before).toBeGreaterThan(0);
   const path = tempDbPath();
   const old = new Database(path, { create: true });
   old.exec("PRAGMA foreign_keys=ON");
-  for (const [v, steps] of MIGRATIONS.slice(0, SCHEMA_VERSION - 1).entries()) {
+  for (const [v, steps] of MIGRATIONS.slice(0, before).entries()) {
     for (const step of steps) {
       if (typeof step === "string") old.exec(step);
       else step(old);

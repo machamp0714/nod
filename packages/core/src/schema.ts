@@ -477,4 +477,46 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX agent_instructions_issue ON agent_instructions (issue_id, id)`,
   ],
+  // 上位目標 Initiative（#81）。Project と同じく Workspace 横断で、Project とは多対多。
+  // 状態は Project と同じ4値で、Project・Issue の状態には連動しない。進捗は配下 Project の Issue から数える
+  [
+    `CREATE TABLE initiatives (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      target_date TEXT CHECK (target_date IS NULL OR (typeof(target_date) = 'text' AND length(target_date) = 10 AND date(target_date) = target_date)),
+      status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'started', 'completed', 'canceled')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE initiative_projects (
+      initiative_id INTEGER NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (initiative_id, project_id)
+    )`,
+    `CREATE INDEX initiative_projects_project ON initiative_projects (project_id)`,
+  ],
+  // 期間 Cycle（#82）。Workspace ごとで、同じ Workspace の Cycle は期間が重ならない（作成・更新時に検査する）。
+  // 期間は時刻なしの暦日で両端を含み、状態（upcoming/current/completed）は保存せず今日の暦日から求める。
+  // Issue は Cycle を1つだけ持ち、Cycle を消すと Cycle なしに戻る。終了時の未完了 Issue は自動では移さない
+  [
+    `CREATE TABLE cycles (
+      id INTEGER PRIMARY KEY,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      start_date TEXT NOT NULL CHECK (typeof(start_date) = 'text' AND length(start_date) = 10 AND date(start_date) = start_date),
+      end_date TEXT NOT NULL CHECK (typeof(end_date) = 'text' AND length(end_date) = 10 AND date(end_date) = end_date),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (workspace_id, name),
+      CHECK (start_date <= end_date)
+    )`,
+    `CREATE INDEX cycles_workspace ON cycles (workspace_id, start_date)`,
+    `ALTER TABLE issues ADD COLUMN cycle_id INTEGER REFERENCES cycles(id) ON DELETE SET NULL`,
+    `CREATE INDEX issues_cycle ON issues (cycle_id)`,
+  ],
 ];

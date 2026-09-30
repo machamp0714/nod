@@ -2,7 +2,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage } from "../api/errors";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
-import type { DocumentRef, Milestone, ProjectSummary, ProjectUpdate } from "../api/types";
+import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary, ProjectUpdate } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { HealthPill } from "../components/projects/HealthPill";
@@ -35,7 +35,7 @@ export function ProjectDetailPage() {
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} />}
+      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} initiatives={detail.data.initiatives} />}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, blocked }), replace: true })} />
       </div>}
@@ -53,15 +53,31 @@ function ProjectIntro({
   documents,
   milestones,
   updates,
+  initiatives,
 }: {
   project: ProjectSummary;
   documents: DocumentRef[];
   milestones: Milestone[];
   updates: ProjectUpdate[];
+  initiatives: ProjectDetail["initiatives"];
 }) {
   return (
     <section className={p.intro} aria-label="Project の概要">
-      <ProjectStatusControl key={project.id} project={project} />
+      <div className={p.meta}>
+        <ProjectStatusControl key={project.id} project={project} />
+        {initiatives.map((initiative) => (
+          <Link
+            key={initiative.id}
+            to="/initiatives/$initiativeId"
+            params={{ initiativeId: String(initiative.id) }}
+            className={p.initiativeChip}
+          >
+            <Icon name="target" size={12} color="var(--ink3)" />
+            <span className={p.chipKey}>Initiative</span>
+            <span className={p.chipValue}>{initiative.name}</span>
+          </Link>
+        ))}
+      </div>
       {project.description && <p className={p.description}>{project.description}</p>}
       <div className={p.progress}>
         <span className={p.health} aria-label="現在の健全性">

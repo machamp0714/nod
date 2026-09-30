@@ -1,7 +1,7 @@
 import type { IssueQuery, Status } from "../api/types";
 import { parseIssueListSearch, type IssueListSearch } from "../routes/search";
 
-export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "milestone" | "label" | "blocked" | "archived">;
+export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "blocked" | "archived">;
 
 // URL の search params から絞り込み条件を取り出す（Issues の画面）
 export function filterFromSearch(raw: IssueListSearch): IssueQuery {
@@ -12,6 +12,7 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
   if (search.status?.length) query.status = search.status;
   if (search.project) query.project = search.project;
   if (search.milestone) query.milestone = search.milestone;
+  if (search.cycle) query.cycle = search.cycle;
   if (search.label?.length) query.label = search.label;
   if (search.blocked !== undefined) query.blocked = search.blocked;
   if (search.archived) query.archived = true;
@@ -20,7 +21,7 @@ export function filterFromSearch(raw: IssueListSearch): IssueQuery {
 
 // 絞り込み条件を search params に写す。条件にないキーは undefined にし、cleanIssueListSearch で URL から消す
 export function filterToSearch(filter: IssueQuery): FilterSearch {
-  return { blocked: filter.blocked, archived: filter.archived || undefined, workspace: filter.workspace, status: filter.status, project: filter.project, milestone: filter.milestone, label: filter.label };
+  return { blocked: filter.blocked, archived: filter.archived || undefined, workspace: filter.workspace, status: filter.status, project: filter.project, milestone: filter.milestone, cycle: filter.cycle, label: filter.label };
 }
 
 // GET /api/issues のクエリ文字列（先頭の ? を含む。条件がなければ空文字）。配列は同じキーを繰り返す
@@ -30,6 +31,7 @@ export function issueQueryToParams(query: IssueQuery): string {
   for (const status of query.status ?? []) params.append("status", status);
   if (query.project) params.set("project", query.project);
   if (query.milestone) params.set("milestone", query.milestone);
+  if (query.cycle) params.set("cycle", query.cycle);
   for (const label of query.label ?? []) params.append("label", label);
   if (query.ready) params.set("ready", "true");
   if (query.delegated) params.set("delegated", "true");
@@ -47,6 +49,7 @@ function normalize(query: IssueQuery) {
     status: sorted(query.status),
     project: query.project ?? "",
     milestone: query.milestone ?? "",
+    cycle: query.cycle ?? "",
     label: sorted(query.label),
     ready: query.ready === true,
     delegated: query.delegated === true,
@@ -61,7 +64,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "milestone" | "label" | "ready" | "delegated" | "q" | "blocked" | "archived";
+export type FilterKey = "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "ready" | "delegated" | "q" | "blocked" | "archived";
 
 export interface FilterChip {
   key: FilterKey;
@@ -81,10 +84,14 @@ export interface MilestoneFilterOption extends FilterOption {
 // Milestone のない Issue だけにする条件の値（GET /api/issues の milestone=none）
 export const NO_MILESTONE = "none";
 
+// Cycle のない Issue だけにする条件の値（GET /api/issues の cycle=none。Milestone の none と同じ）
+export const NO_CYCLE = "none";
+
 export interface FilterOptions {
   workspaces: FilterOption[]; // value は Workspace のキー
   projects: FilterOption[]; // value は Project の数字の ID
   milestones: MilestoneFilterOption[]; // value は Milestone の数字の ID
+  cycles: FilterOption[]; // value は Cycle の数字の ID
   labels: string[];
 }
 

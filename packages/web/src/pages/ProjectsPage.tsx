@@ -145,7 +145,7 @@ function ProjectAgentPill({ tone, children }: { tone: Tone; children: ReactNode 
   );
 }
 
-function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
+export function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
   const pills = [
     agents.awaitingInput > 0 && (
       <ProjectAgentPill key="awaiting" tone="ask">

@@ -1,0 +1,230 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--surface);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.crumb {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.crumb:hover {
+  color: var(--accent);
+}
+
+.headerTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+  max-width: 868px;
+  margin: 0 auto;
+  padding: 32px 64px;
+}
+
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.control {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.progressText {
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.description {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.projectsHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.count,
+.muted {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.addProject {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.addProject select {
+  border: 0;
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+.name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nameLink {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameLink:hover {
+  color: var(--accent);
+}
+
+.desc {
+  overflow: hidden;
+  color: var(--ink3);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100px;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 150px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.agents {
+  width: 150px;
+}
+
+.remove {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink3);
+  cursor: pointer;
+}
+
+.remove:hover {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.empty {
+  padding: 14px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.error {
+  color: var(--fail);
+  font-size: 12px;
+}

@@ -74,6 +74,7 @@ export function registerProjectCommands(program: Command): void {
         print(cli, p, () =>
           [
             `${p.id}  ${p.name}（${p.status}）  ${p.done}/${p.total}  健全性 ${p.health ?? "未設定"}`,
+            ...(p.initiatives.length ? [`Initiative: ${p.initiatives.map((i) => i.name).join("、")}`] : []),
             ...(p.description ? ["", p.description] : []),
             "",
             "Issue:",

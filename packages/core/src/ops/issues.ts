@@ -33,6 +33,7 @@ import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
+import { NO_CYCLE_REF, resolveCycle, resolveCycleInScope } from "./cycles";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -72,6 +73,7 @@ export interface CreateIssueInput {
   description?: string;
   template?: string; // テンプレートの名前。本文を説明の初期値にする（description と同時には使えない）
   projectRef?: string;
+  cycleRef?: string; // Cycle の ID・名前・current（起票先の Workspace のもの）
   parentRef?: string;
   discoveredFromRef?: string;
   priority?: number;
@@ -95,6 +97,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
+    const cycle = input.cycleRef ? resolveCycle(ctx.db, input.workspaceId, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     return insertIssue(ctx, {
       workspaceId: input.workspaceId,
@@ -105,6 +108,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       dueDate: input.dueDate ?? null,
       parentId: parent?.id ?? null,
       projectId: project?.id ?? null,
+      cycleId: cycle?.id ?? null,
       labels: input.labels ?? [],
       origin: source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {},
     });
@@ -120,6 +124,7 @@ export interface NewIssueRow {
   dueDate: string | null;
   parentId: number | null;
   projectId: number | null;
+  cycleId?: number | null;
   labels: string[];
   assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
   status?: Status; // 初期ステータス。省略時は LLM が Triage、人が todo（取り込みでは取り込み元の状態から決める）
@@ -141,8 +146,8 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, cycle_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -155,6 +160,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.dueDate,
       input.parentId,
       input.projectId,
+      input.cycleId ?? null,
       input.assignee ?? null,
       closed ? (input.closeReason ?? null) : null,
       closed ? ts : null,
@@ -199,6 +205,7 @@ export interface ListIssuesFilter {
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
   milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）
+  cycleRef?: string; // Cycle の ID か "none"（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ
   labels?: string[];
   ready?: boolean;
   query?: string;
@@ -208,7 +215,15 @@ export interface ListIssuesFilter {
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
 }
 
-// Workspace、Project、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
+// 絞り込みの Workspace（1つに決まるときの Cycle の名前の解決に使う）。絞っていなければ undefined
+function scopeWorkspaceIds(db: Database, filter: ListIssuesFilter): number[] | undefined {
+  if (filter.workspaceId !== undefined) return [filter.workspaceId];
+  if (!filter.workspaceKeys?.length) return undefined;
+  const keys = [...new Set(filter.workspaceKeys.map((k) => k.toUpperCase()))];
+  return (db.query(`SELECT id FROM workspaces WHERE key IN (${keys.map(() => "?").join(", ")})`).all(...keys) as { id: number }[]).map((r) => r.id);
+}
+
+// Workspace、Project、Cycle、ラベルの条件。Ready と Needs Clarification の件数もこの範囲で数える
 function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
   const where: string[] = [filter.archived ? "i.archived_at IS NOT NULL" : "i.archived_at IS NULL"];
   const params: SQLQueryBindings[] = [];
@@ -228,6 +243,11 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   else if (filter.milestone !== undefined) {
     where.push("i.milestone_id = ?");
     params.push(resolveMilestone(db, filter.milestone).id);
+  }
+  if (filter.cycleRef?.toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
+  else if (filter.cycleRef) {
+    where.push("i.cycle_id = ?");
+    params.push(resolveCycleInScope(db, filter.cycleRef, scopeWorkspaceIds(db, filter)));
   }
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
@@ -292,6 +312,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     statuses: q.status ?? [...STATUSES],
     projectRef: q.project,
     milestone: q.milestone,
+    cycleRef: q.cycle,
     labels: q.label,
     ready: q.ready,
     query: q.q,
@@ -393,6 +414,7 @@ export interface UpdateIssueInput {
   parentRef?: string | null;
   projectRef?: string | null;
   milestoneRef?: string | null; // Milestone の ID か、Issue の Project の中の名前。null で外す
+  cycleRef?: string | null; // Cycle の ID・名前・current（Issue と同じ Workspace のもの）。null で外す
   addLabels?: string[];
   removeLabels?: string[];
   reason?: string;
@@ -496,6 +518,10 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       setColumn(ctx, row, "project_id", project?.id ?? null, { from: row.project_name, to: project?.name ?? null });
     }
     if (input.milestoneRef !== undefined || row.milestone_id !== null) setMilestone(ctx, row, input.milestoneRef);
+    if (input.cycleRef !== undefined) {
+      const cycle = input.cycleRef ? resolveCycle(ctx.db, row.workspace_id, input.cycleRef) : null;
+      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, { from: row.cycle_name, to: cycle?.name ?? null });
+    }
     if (input.status !== undefined) {
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {
         setColumn(ctx, row, "close_reason", input.reason);

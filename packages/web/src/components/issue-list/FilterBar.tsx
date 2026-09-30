@@ -4,6 +4,7 @@ import {
   type FilterOption,
   type FilterOptions,
   type MilestoneFilterOption,
+  NO_CYCLE,
   NO_MILESTONE,
   toggleValue,
   withoutKey,
@@ -56,6 +57,7 @@ export function FilterBar({
           </button>
         </span>
       ))}
+      <CycleFilter value={filter.cycle} options={options.cycles} onChange={(cycle) => onChange({ ...filter, cycle })} />
       <details className={s.menu}>
         <summary className={s.add}>
           <Icon name="plus" size={12} />
@@ -108,6 +110,22 @@ export function FilterBar({
       <ArchivedFilter value={filter.archived === true} onChange={(archived) => onChange({ ...filter, archived: archived || undefined })} />
     </div>
   );
+}
+
+// Pencil「Issues｜Cycle フィルタ・グループ（#82）」の Cycle Select。チップの並びに常に置き、「すべて」で条件を外す
+export function CycleFilter({ value, options, onChange }: { value: string | undefined; options: readonly FilterOption[]; onChange: (value: string | undefined) => void }) {
+  // 一覧にない ID（消された Cycle など）でも、今の条件を選択肢に出して外せるようにする
+  const list = value && value !== NO_CYCLE && !options.some((o) => o.value === value) ? [...options, { value, label: `Cycle ${value}` }] : options;
+  return <label className={`${s.inlineSelect} ${value ? s.inlineSelectActive : ""}`}>
+    <Icon name="calendar-range" size={12} color="var(--ink3)" />
+    <span className={s.inlineSelectName}>Cycle</span>
+    <select className={s.inlineSelectValue} aria-label="Cycle" value={value ?? ""}
+      onChange={(event) => onChange(event.target.value || undefined)}>
+      <option value="">すべて</option>
+      {list.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      <option value={NO_CYCLE}>Cycle なし</option>
+    </select>
+  </label>;
 }
 
 // Pencil「Issues｜アーカイブ絞り込み」。既定はアーカイブ済みを含めず、「アーカイブ済みのみ」でアーカイブ一覧にする

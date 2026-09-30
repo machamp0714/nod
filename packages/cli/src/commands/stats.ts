@@ -9,6 +9,7 @@ interface StatsOptions {
   to?: string;
   tz?: string;
   project?: string;
+  cycle?: string;
   allWorkspaces?: boolean;
 }
 
@@ -19,6 +20,7 @@ function withStatsOptions(cmd: Command): Command {
     .option("--to <date>", "終了日 YYYY-MM-DD（この日を含む、既定は今日）")
     .option("--tz <zone>", "期間の境界に使うタイムゾーン（IANA の名前、既定はこのマシンのローカル）")
     .option("--project <project>", "Project の名前か ID")
+    .option("--cycle <cycle>", "Cycle の ID・名前・current（名前と current は Workspace を1つに絞ったとき）")
     .option("--all-workspaces", "すべての Workspace を集計する（既定は現在の Workspace）");
 }
 
@@ -34,6 +36,7 @@ function statsQuery(cli: Cli, cmd: Command): StatsQuery {
     to: o.to,
     tz: o.tz,
     project: o.project,
+    cycle: o.cycle,
     workspace: o.allWorkspaces ? undefined : [currentWorkspace(cli, cmd).key],
   };
 }

@@ -1,3 +1,4 @@
+import { useCycles } from "../../api/hooks/cycles";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import type { Issue, IssueReminder, Relations, Status, UpdateIssueInput } from "../../api/types";
@@ -238,6 +239,10 @@ export function PropertiesPanel({
   const projectMilestones = (milestones.data ?? []).filter((m) => m.projectId === issue.project?.id);
   const milestoneOptions =
     issue.milestone && !projectMilestones.some((m) => m.id === issue.milestone?.id) ? [...projectMilestones, issue.milestone] : projectMilestones;
+  // Cycle は同じ Workspace のものだけを選べる（Pencil「Issue詳細｜Cycle」は名前だけを出す）。一覧を読み込む前でも今の値を表示する
+  const cycles = useCycles();
+  const cycleOptions = (cycles.data ?? []).filter((c) => c.workspace === issue.workspace).map((c) => ({ id: c.id, label: c.name }));
+  if (issue.cycle && !cycleOptions.some((c) => c.id === issue.cycle?.id)) cycleOptions.push({ id: issue.cycle.id, label: issue.cycle.name });
 
   async function addLabels() {
     const labels = parseLabels(labelText, issue.labels);
@@ -328,6 +333,22 @@ export function PropertiesPanel({
               Project を設定すると選べます
             </span>
           )}
+        </Prop>
+        <Prop label="Cycle">
+          <select
+            className={s.select}
+            aria-label="Cycle"
+            value={issue.cycle ? String(issue.cycle.id) : ""}
+            disabled={locked}
+            onChange={(e) => void change({ cycleRef: e.target.value === "" ? null : e.target.value })}
+          >
+            <option value="">なし</option>
+            {cycleOptions.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </Prop>
         <Prop label="Labels">
           {issue.labels.map((label) => (

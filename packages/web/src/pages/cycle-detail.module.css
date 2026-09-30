@@ -1,0 +1,34 @@
+.overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  color: var(--ink3);
+}
+
+.count {
+  color: var(--ink2);
+}
+
+.open {
+  color: var(--ask);
+  font-weight: 500;
+}
+
+.spacer {
+  flex: 1;
+}

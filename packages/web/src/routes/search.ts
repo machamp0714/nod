@@ -2,7 +2,7 @@ import type { DocKind, Status } from "../api/types";
 import { STATUS_ORDER } from "../lib/meta";
 
 export type IssueTab = "all" | "ready" | "needs_clarification" | "delegated";
-export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "assignee", "label"] as const;
+export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "assignee", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
 export type IssueLayout = "list" | "board";
@@ -54,6 +54,7 @@ export interface IssueListSearch {
   status?: Status[];
   project?: string;
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
+  cycle?: string; // Cycle の数字の ID か "none"（Cycle のない Issue）
   label?: string[];
 }
 
@@ -99,6 +100,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof project === "string" && /^\d+$/.test(project)) out.project = project;
   const milestone = typeof raw.milestone === "number" ? String(raw.milestone) : raw.milestone;
   if (typeof milestone === "string" && /^([1-9]\d*|none)$/.test(milestone)) out.milestone = milestone;
+  const cycle = typeof raw.cycle === "number" ? String(raw.cycle) : raw.cycle;
+  if (typeof cycle === "string" && /^(\d+|none)$/.test(cycle)) out.cycle = cycle;
   const label = stringList(raw.label);
   if (label) out.label = label;
   return out;
@@ -137,6 +140,7 @@ export function cleanIssueListSearch(search: IssueListSearch): IssueListSearch {
   if (search.status?.length) out.status = search.status;
   if (search.project) out.project = search.project;
   if (search.milestone) out.milestone = search.milestone;
+  if (search.cycle) out.cycle = search.cycle;
   if (search.label?.length) out.label = search.label;
   return out;
 }

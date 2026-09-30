@@ -33,6 +33,25 @@ describe("groupRows", () => {
     expect(shape(groupRows(rows, "project"))).toEqual([["1", "決済", ["A-3"]], ["2", "検索", ["A-2"]], ["", "Projectなし", ["A-1"]]]);
   });
 
+  test("Cycleは開始日順で「名前（状態）」を見出しにし、Cycleなしを最後にする。現在の Cycle に印を付ける", () => {
+    const rows = [row("A-1"), row("A-2", { cycle: { id: 2, name: "S2" } }), row("A-3", { cycle: { id: 1, name: "S1" } }), row("A-4", { cycle: { id: 9, name: "消えた" } })];
+    const info = (id: number) =>
+      ({ 1: { label: "S1（Completed）", rank: "2026-09-01" }, 2: { label: "S2（Current）", rank: "2026-09-15", current: true } })[id as 1 | 2];
+    const groups = groupRows(rows, "cycle", undefined, undefined, info);
+    expect(shape(groups)).toEqual([["1", "S1（Completed）", ["A-3"]], ["2", "S2（Current）", ["A-2"]], ["9", "消えた", ["A-4"]], ["", "Cycleなし", ["A-1"]]]);
+    expect(groups.map((g) => g.current ?? false)).toEqual([false, true, false, false]);
+  });
+
+  test("groupBy=cycle と cycle の絞り込みを URL から読み書きできる", () => {
+    const parsed = parseIssueListSearch({ groupBy: "cycle", cycle: 3 });
+    expect(parsed).toEqual({ groupBy: "cycle", cycle: "3" });
+    expect(cleanIssueListSearch(parsed)).toEqual({ groupBy: "cycle", cycle: "3" });
+    expect(filterFromSearch(parsed)).toEqual({ cycle: "3" });
+    expect(parseIssueListSearch({ cycle: "Sprint" })).toEqual({});
+    expect(parseIssueListSearch({ cycle: "none" })).toEqual({ cycle: "none" });
+    expect(filterFromSearch({ cycle: "none" })).toEqual({ cycle: "none" });
+  });
+
   test("担当は名前順で、未割り当てを最後にする", () => {
     const rows = [row("A-1"), row("A-2", { assignee: "codex" }), row("A-3", { assignee: "claude" })];
     expect(shape(groupRows(rows, "assignee"))).toEqual([["claude", "claude", ["A-3"]], ["codex", "codex", ["A-2"]], ["", "未割り当て", ["A-1"]]]);

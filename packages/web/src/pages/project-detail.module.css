@@ -50,3 +50,31 @@
   color: var(--ink3);
   font-size: 12px;
 }
+
+/* Pencil「Initiative詳細｜0件・所属チップ」の所属 Initiative チップ。状態の select と同じ行に並べる */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.initiativeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.chipKey {
+  color: var(--ink3);
+  font-size: 11px;
+}
+
+.chipValue {
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+}
