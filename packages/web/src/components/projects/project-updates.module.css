@@ -1,6 +1,12 @@
 .section {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -9,48 +15,76 @@
   font-weight: 600;
 }
 
-.box {
+.count {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.composer {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  gap: 8px;
 }
 
 .input {
-  min-height: 64px;
-  padding: 10px 14px;
-  border: 0;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background: transparent;
+  min-height: 88px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
   font-size: 13px;
   outline: none;
   resize: vertical;
 }
 
+.input:disabled {
+  background: var(--sunken);
+  color: var(--ink3);
+}
+
+.inputError {
+  border-color: var(--fail);
+}
+
 .actions {
   display: flex;
-  align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--line);
+}
+
+/* 保存中はボタンを沈んだ色にし、ラベルを「保存中…」に替える */
+.actions .saving:disabled {
+  background: var(--sunken);
+  border-color: transparent;
+  color: var(--ink3);
+  opacity: 1;
 }
 
 .error {
-  padding: 0 14px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--fail);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.muted {
+.error svg {
+  flex-shrink: 0;
+}
+
+.empty {
+  padding: 20px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   color: var(--ink3);
-  font-size: 12px;
+  font-size: 12.5px;
+  text-align: center;
 }
 
 .list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;

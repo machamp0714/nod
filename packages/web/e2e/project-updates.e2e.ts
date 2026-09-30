@@ -7,7 +7,10 @@ const records = (page: import("@playwright/test").Page) => page.getByRole("artic
 test("Web で書いた報告を書き手・日時つきで新しい順に表示し、本文はプレーンテキストのまま出す", async ({ page, nod }) => {
   const before = await nod.me.getProject("1");
   await page.goto("/projects/1?q=API");
+  const section = page.getByRole("region", { name: "進捗報告" });
   await expect(page.getByText("進捗報告はありません")).toBeVisible();
+  await expect(section.getByRole("heading", { name: "進捗報告" })).toBeVisible();
+  await expect(section.getByText("0", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "報告する" })).toBeDisabled();
   await input(page).fill("<b>太字にしない</b>\n二行目");
   await page.getByRole("button", { name: "報告する" }).click();
@@ -21,6 +24,7 @@ test("Web で書いた報告を書き手・日時つきで新しい順に表示�
   await page.getByRole("button", { name: "報告する" }).click();
   await expect(records(page)).toHaveCount(2);
   await expect(records(page).first()).toContainText("次の報告");
+  await expect(section.getByText("2", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/q=API/);
 
   const after = await nod.me.getProject("1");
@@ -46,10 +50,11 @@ test.describe("保存状態", () => {
       await input(page).fill("下書き");
       await page.getByRole("button", { name: "報告する" }).click();
       await expect(input(page)).toBeDisabled();
-      await expect(page.getByRole("button", { name: "報告する" })).toBeDisabled();
-      await expect(page.getByRole("status").filter({ hasText: "保存中" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "報告する" })).toHaveCount(0);
       release();
-      await expect(page.getByRole("alert")).toContainText("保存に失敗しました");
+      await expect(page.getByRole("alert")).toHaveText("保存できませんでした：保存に失敗しました");
+      await expect(input(page)).toHaveAttribute("aria-invalid", "true");
       await expect(input(page)).toHaveValue("下書き");
       await expect(records(page)).toHaveCount(0);
       await page.unroute("**/api/projects/1/reports");
