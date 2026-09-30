@@ -63,11 +63,13 @@ export interface IssueListSearch {
 export const NO_ASSIGNEE = "none";
 
 // TanStack Router は search params を JSON として読むため、配列は配列で、数字だけの値は数値で届く
-function stringList(value: unknown): string[] | undefined {
+// splitComma は値をカンマでも分ける（assignee で使う。label は core と同じく分けない）
+function stringList(value: unknown, splitComma = false): string[] | undefined {
   const list: unknown[] = Array.isArray(value) ? value : [value];
   const items = list
     .map((v) => (typeof v === "number" ? String(v) : v))
     .filter((v): v is string => typeof v === "string")
+    .flatMap((v) => (splitComma ? v.split(",") : [v]))
     .map((v) => v.trim())
     .filter((v) => v !== "");
   return items.length ? [...new Set(items)] : undefined;
@@ -108,7 +110,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof cycle === "string" && /^(\d+|none)$/.test(cycle)) out.cycle = cycle;
   const label = stringList(raw.label);
   if (label) out.label = label;
-  const assignee = stringList(raw.assignee)?.map((name) => (name.toLowerCase() === NO_ASSIGNEE ? NO_ASSIGNEE : name));
+  // API は assignee をカンマでも分けるため、手で書いた assignee=me,codex もチップとパネルが API の結果と合うように分ける
+  const assignee = stringList(raw.assignee, true)?.map((name) => (name.toLowerCase() === NO_ASSIGNEE ? NO_ASSIGNEE : name));
   if (assignee) out.assignee = [...new Set(assignee)];
   return out;
 }

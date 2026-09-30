@@ -101,6 +101,21 @@ describe("定期Issueの登録", () => {
     expect(codeOf(() => addRecurringIssue(me, "NOPE", daily()))).toBe("NOT_FOUND");
   });
 
+  test("担当の名前に none は使えない。none が保存済みの定義も停止・編集でき、実行ではその定義だけ失敗する", () => {
+    const { db, ws, me } = setup();
+    for (const name of ["none", " NONE "]) expect(codeOf(() => addRecurringIssue(me, ws.key, daily({ assignee: name })))).toBe("INVALID_ARGS");
+    const r = addRecurringIssue(me, ws.key, daily({ title: "旧", assignee: "codex" }));
+    const ok = addRecurringIssue(me, ws.key, daily({ title: "他" }));
+    expect(codeOf(() => updateRecurringIssue(me, ws.key, r.id, { assignee: "None" }))).toBe("INVALID_ARGS");
+    db.query("UPDATE recurring_issues SET assignee = 'none' WHERE id = ?").run(r.id);
+    expect(updateRecurringIssue(me, ws.key, r.id, { title: "改名" })).toMatchObject({ title: "改名", assignee: "none" });
+    const run = runRecurringIssues(me, ws.key, { now: WED });
+    expect(run.items.map((i) => i.recurringId)).toEqual([ok.id]);
+    expect(run.failed).toEqual([{ recurringId: r.id, title: "改名", occurrence: "2026-09-30", message: expect.stringContaining("none") }]);
+    expect(updateRecurringIssue(me, ws.key, r.id, { assignee: null }).assignee).toBeNull();
+    expect(runRecurringIssues(me, ws.key, { now: WED }).items.map((i) => i.recurringId)).toEqual([r.id]);
+  });
+
   test("変更は渡した項目だけを変え、周期を変えると使わない指定を消す", () => {
     const { db, ws, me } = setup();
     const r = addRecurringIssue(me, ws.key, { ...daily(), cadence: "weekly", weekday: 3, labels: ["a"] });

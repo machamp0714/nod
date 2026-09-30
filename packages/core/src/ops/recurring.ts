@@ -3,6 +3,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { formatIssueId } from "../issue-query";
+import { validateAssignee } from "../none-ref";
 import {
   RECURRENCE_CADENCES,
   type RecurrenceCadence,
@@ -244,6 +245,7 @@ function normalize(db: Database, input: Normalized, checkTemplate: boolean): Nor
 
 export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: RecurringIssueInput, opts: { now?: Date } = {}): RecurringIssue {
   requireHuman(ctx, "登録");
+  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
@@ -286,6 +288,8 @@ export function updateRecurringIssue(
   opts: { now?: Date } = {},
 ): RecurringIssue {
   requireHuman(ctx, "変更");
+  // 担当は渡されたときだけ確かめる（none が保存済みの定義も停止・編集できるように）
+  validateAssignee(patch.assignee);
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const row = requireRow(ctx.db, workspace, id);

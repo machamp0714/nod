@@ -34,7 +34,7 @@ import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
 import { resolveCycle, resolveCycleInScope } from "./cycles";
-import { isNoneRef } from "../none-ref";
+import { isNoneRef, validateAssignee } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -147,6 +147,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
     next_number: number;
   } | null;
   if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
+  validateAssignee(input.assignee);
   const status: Status = input.status ?? (isLlm(ctx) ? "triage" : "todo");
   // 最初から閉じた状態で作る（取り込み）ときは、状態の遷移を経ずに closed_at を作成時刻にする
   const closed = status === "done" || status === "canceled";
@@ -521,6 +522,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
+  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     // Triage を出すのは人の判断（受け入れ・却下・重複と人の状態変更）だけ。何かを書く前に拒む

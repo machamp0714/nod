@@ -4,6 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { clearUnreadTriageProposal, notifyTriageProposal } from "../notify";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
+import { validateAssignee } from "../none-ref";
 import { TRIAGE_DECISIONS, type TriageProposal, type TriageProposalInput } from "../types";
 import { requireText, validatePriority } from "./issues";
 import { resolveProject } from "./projects";
@@ -92,6 +93,7 @@ export function proposeTriage(ctx: OpCtx, ref: string, input: TriageProposalInpu
   validateInput(input);
   const labels = normalizeLabels(input.labels ?? []);
   const assignee = input.assignee === undefined ? null : requireText(input.assignee, "担当").trim();
+  validateAssignee(assignee);
   if (assignee !== null && assignee.length > PROPOSAL_ASSIGNEE_MAX_LENGTH) {
     throw new NodError("INVALID_ARGS", `担当は ${PROPOSAL_ASSIGNEE_MAX_LENGTH} 文字までです`);
   }

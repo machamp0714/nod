@@ -200,6 +200,26 @@ describe("updateIssue", () => {
       ["description_changed", { from: "新しい", to: null }],
     ]);
   });
+
+  test("担当の名前に none は使えない（絞り込みで未割り当てを指す値。大文字小文字・前後の空白は問わない）", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    for (const name of ["none", "NONE", " None "]) {
+      expect(codeOf(() => updateIssue(me, i.id, { assignee: name, priority: 1 }))).toBe("INVALID_ARGS");
+    }
+    expect(getIssue(db, i.id)).toMatchObject({ assignee: null, priority: 0 });
+    expect(updateIssue(me, i.id, { assignee: "none-bot" }).assignee).toBe("none-bot");
+    expect(updateIssue(me, i.id, { assignee: null }).assignee).toBeNull();
+  });
+
+  test("none が担当として保存済みの Issue も、ほかの項目は変えられ、担当は外すか別の名前にできる", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    db.query("UPDATE issues SET assignee = 'none' WHERE workspace_id = ? AND number = ?").run(ws.id, i.number);
+    expect(updateIssue(me, i.id, { priority: 2 })).toMatchObject({ assignee: "none", priority: 2 });
+    expect(updateIssue(me, i.id, { assignee: null }).assignee).toBeNull();
+    expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "assignee_changed", data: { from: "none", to: null } });
+  });
 });
 
 describe("commentIssue と Activity", () => {

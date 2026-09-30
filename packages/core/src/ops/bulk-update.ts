@@ -2,6 +2,7 @@ import { isLlm, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { canonicalIssueRef, findIssueRow } from "../issue-query";
+import { validateAssignee } from "../none-ref";
 import type { Issue, Status } from "../types";
 import { type UpdateIssueInput, updateIssue, validateDueDate, validateEstimate, validatePriority } from "./issues";
 
@@ -68,6 +69,7 @@ export function bulkUpdateIssues(ctx: OpCtx, refs: string[], input: BulkUpdateIn
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
+  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const updated: Issue[] = [];
     const failures: BulkUpdateFailure[] = [];

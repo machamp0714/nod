@@ -8,7 +8,8 @@ import { cleanMyIssuesSearch, replacesIssueListHistory, type IssueListSearch } f
 const route = getRouteApi("/my-issues");
 
 // Pencil「My issues（#162）」：全 Workspace の Issue を「担当（担当が me）｜委任中（担当が LLM で未完了）」のタブで出す。
-// 担当の条件は固定で、URL の assignee は使わない。ほかの条件（Workspace・Status・Project など）は Issues と同じく絞り込める
+// 担当の条件は固定で、URL の assignee は使わない。ほかの条件（Workspace・Status・Project など）は Issues と同じく絞り込める。
+// 固定チップはタブの条件に合わせ、担当タブは「担当 is me」、委任中タブは「担当 is LLM」（行の担当は LLM のため）
 export function MyIssuesPage() {
   const search = route.useSearch();
   const navigate = useNavigate({ from: "/my-issues" });
@@ -27,7 +28,7 @@ export function MyIssuesPage() {
       error={rows.error}
       search={search}
       onSearchChange={change}
-      filterBar={<FilterBar filter={filter} options={options} fixedAssignee="me" onChange={(next) => change(filterToSearch(next))} />}
+      filterBar={<FilterBar filter={filter} options={options} fixedAssignee={search.tab === "delegated" ? "LLM" : "me"} onChange={(next) => change(filterToSearch(next))} />}
     />
   );
 }
