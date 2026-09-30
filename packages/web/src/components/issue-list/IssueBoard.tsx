@@ -31,9 +31,12 @@ export function IssueBoard({
 }) {
   const columns = groupForBoard(rows);
   const hidden = columns.filter((column) => column.rows.length === 0);
+  const empty = hidden.length === columns.length;
   const [showHidden, setShowHidden] = useState(true);
   return (
     <div className={s.board}>
+      {/* 全列が 0 件のときは、List と同じ空の表示を出す（右の Hidden columns は残す） */}
+      {empty && <p className={s.boardEmpty}>該当する Issue はありません</p>}
       {columns.filter((column) => column.rows.length > 0).map((column) => {
         const label = nameOfStatus(column.status);
         return (

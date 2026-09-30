@@ -278,7 +278,8 @@ function Menu({ label, items }: { label: string; items: { key: string; label: st
     <div role="menu" aria-label={label} className={s.bulkMenu} onKeyDown={moveFocus}>
       {items.map((item) => (
         <MenuItem key={item.key} onClick={item.run}>
-          {item.label}
+          {/* 長い名前（Project 名など）は省略記号で切り、全文は title で読めるようにする */}
+          <span className={s.bulkLabelName} title={item.label}>{item.label}</span>
         </MenuItem>
       ))}
     </div>

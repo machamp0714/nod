@@ -78,7 +78,8 @@ test("手動でTodoへ戻すと作業中の表示が消え、検索してもタ�
   await expect(todo).not.toContainText("作業中");
   await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
   await (await searchBox(page)).fill("存在しない");
-  await expect(page.getByText("該当する Issue はありません", { exact: true })).toHaveCount(0);
+  // 全列が 0 件の Board は、空の表示と Hidden columns の6行を出す
+  await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(6);
   await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
 });
@@ -131,8 +132,9 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     if (path === "/views/1") await nod.me.updateView(1, { filter: {} });
     await page.goto(`${path}?layout=board`);
     expect(await expectSixStatuses(page)).toBeGreaterThan(0);
-    // 検索で全列が 0 件になると、6つとも Hidden columns にまとまる（空の列と説明文は出さない）
+    // 検索で全列が 0 件になると、空の表示が出て、6つとも Hidden columns にまとまる（空の列と説明文は出さない）
     await (await searchBox(page)).fill("存在しない説明確認用");
+    await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveText(columnDescriptions.map(([name]) => `${name}0`));
     expect(await expectSixStatuses(page)).toBe(0);
     for (const [, description] of columnDescriptions) await expect(page.getByText(description, { exact: true })).toHaveCount(0);
@@ -160,7 +162,7 @@ for (const width of [1280, 1440]) {
       await closeDisplay(page);
       for (const [name, description] of columnDescriptions) {
         const columns = page.getByRole("region", { name, exact: true });
-        await expect(columns.first().getByText(description, { exact: true })).toBeAttached();
+        await expect(columns.first().getByText(description, { exact: true })).toBeVisible();
         for (const column of await columns.all()) {
           const geometry = await column.evaluate((element) => {
             const header = element.querySelector("header")!;

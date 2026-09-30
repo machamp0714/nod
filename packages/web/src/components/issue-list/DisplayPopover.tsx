@@ -75,6 +75,15 @@ export function DisplayPopover({
         // Tab でポップオーバーの外へ出たら閉じる
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
       }}
+      // Display のボタンにフォーカスがあるときも Escape で閉じられるよう、ボタンとポップオーバーの両方で受ける
+      onKeyDown={(event) => {
+        if (!open || event.key !== "Escape" || event.nativeEvent.isComposing) return;
+        // 一覧の Escape（選択解除）やプレビューの Escape に渡さず、ポップオーバーだけを閉じる
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        trigger.current?.focus();
+      }}
     >
       <IconButton
         ref={trigger}
@@ -92,14 +101,6 @@ export function DisplayPopover({
           role="dialog"
           aria-label="表示設定"
           className={s.displayPopover}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            // 一覧の Escape（選択解除）やプレビューの Escape に渡さず、ポップオーバーだけを閉じる
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(false);
-            trigger.current?.focus();
-          }}
         >
           <div className={s.displaySection}>
             <div role="tablist" aria-label="表示" className={s.layoutTabs}>
@@ -202,7 +203,8 @@ interface SelectOption<T extends string> {
 }
 
 // 値を1つ選ぶコンボボックス（幅 100、高さ 24、角丸 8）。押すと直下に共通の Menu が開く。
-// 上下キー、Home、End で項目を移り、Enter と Space で選び、Escape で閉じてボタンへ戻る。今の値は data-value に出す
+// 上下キー、Home、End で項目を移り、Enter と Space で選び、Escape で閉じてボタンへ戻る。今の値は data-value に出す。
+// 名前は label（aria-label）で、今の値は aria-describedby で支援技術に伝える
 function DisplaySelect<T extends string>({ label, value, options, disabled = false, onChange }: {
   label: string;
   value: T;
@@ -211,6 +213,7 @@ function DisplaySelect<T extends string>({ label, value, options, disabled = fal
   onChange: (value: T) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const valueId = useId();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const current = options.find((option) => option.value === value);
@@ -222,8 +225,10 @@ function DisplaySelect<T extends string>({ label, value, options, disabled = fal
   }
   useEffect(() => {
     if (!open) return;
-    const enabled = items();
-    (enabled.find((item) => item.getAttribute("aria-checked") === "true") ?? enabled[0])?.focus();
+    // 選択中の項目へフォーカスを移す。選択中の項目が無効なとき（Board の「Status」）はボタンに残し、
+    // 続けて Enter を押しても別の値（先頭の「なし」）が選ばれないようにする
+    const checked = root.current?.querySelector<HTMLButtonElement>('[role=menuitemradio][aria-checked="true"]');
+    if (!checked?.disabled) (checked ?? items()[0])?.focus();
     const outside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -231,9 +236,24 @@ function DisplaySelect<T extends string>({ label, value, options, disabled = fal
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
 
+  // 上下キー、Home、End で項目を移る。ボタンにフォーカスが残っているときは、下と Home で先頭、上と End で末尾へ入る
+  function move(key: string) {
+    const enabled = items();
+    const at = enabled.indexOf(document.activeElement as HTMLButtonElement);
+    const down = key === "ArrowDown";
+    const next = key === "Home" ? 0 : key === "End" ? enabled.length - 1
+      : at === -1 ? (down ? 0 : enabled.length - 1) : (at + (down ? 1 : -1) + enabled.length) % enabled.length;
+    enabled[next]?.focus();
+  }
+
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     // IME の変換を確定する Enter や Escape では動かさない
     if (event.nativeEvent.isComposing) return;
+    // Enter や Space を押したままにしたときのキーリピートでは選ばない（開いた直後に意図しない値が選ばれるのを防ぐ）
+    if (event.repeat && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Escape") {
       // ポップオーバーは閉じず、メニューだけを閉じる
       event.preventDefault();
@@ -248,12 +268,7 @@ function DisplaySelect<T extends string>({ label, value, options, disabled = fal
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const enabled = items();
-    const at = enabled.indexOf(document.activeElement as HTMLButtonElement);
-    const down = event.key === "ArrowDown";
-    const next = event.key === "Home" ? 0 : event.key === "End" ? enabled.length - 1
-      : at === -1 ? (down ? 0 : enabled.length - 1) : (at + (down ? 1 : -1) + enabled.length) % enabled.length;
-    enabled[next]?.focus();
+    move(event.key);
   }
 
   return (
@@ -265,16 +280,32 @@ function DisplaySelect<T extends string>({ label, value, options, disabled = fal
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-describedby={valueId}
         data-value={value}
         disabled={disabled}
         onClick={() => setOpen(!open)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || open || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+          if (event.nativeEvent.isComposing) return;
+          // Enter や Space を押したままにしても、開閉を繰り返さない
+          if (event.repeat && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            return;
+          }
+          if (open && event.key === "Escape") {
+            // ボタンにフォーカスが残っているときも、Escape はメニューだけを閉じる
+            event.preventDefault();
+            event.stopPropagation();
+            close(true);
+            return;
+          }
+          if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+          if (!open && (event.key === "Home" || event.key === "End")) return;
           event.preventDefault();
-          setOpen(true);
+          if (open) move(event.key);
+          else setOpen(true);
         }}
       >
-        <span className={s.displaySelectValue}>{current?.short ?? current?.label ?? value}</span>
+        <span id={valueId} className={s.displaySelectValue}>{current?.short ?? current?.label ?? value}</span>
         <Icon name="chevron-down" size={12} color="var(--ink3)" />
       </button>
       {open && (

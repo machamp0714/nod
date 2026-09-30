@@ -148,15 +148,32 @@ export function IssueList({
   // Filter のボタンは、Filters の行にある条件のパネル（FilterBar の <details>）を開く。パネルがない画面では出さない
   const filters = useRef<HTMLDivElement>(null);
   const [hasFilterPanel, setHasFilterPanel] = useState(false);
-  useEffect(() => setHasFilterPanel(!!filters.current?.querySelector("details")));
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  useEffect(() => {
+    const panel = filters.current?.querySelector("details");
+    setHasFilterPanel(!!panel);
+    setFilterPanelOpen(!!panel?.open);
+  });
+  // パネルは「Filter」の見出しからも開閉できるので、toggle を聞いてボタンの aria-expanded を合わせる（toggle は伝播しないため capture で受ける）
+  useEffect(() => {
+    const row = filters.current;
+    if (!row) return;
+    const onToggle = (event: Event) => {
+      if (event.target instanceof HTMLDetailsElement) setFilterPanelOpen(event.target.open);
+    };
+    row.addEventListener("toggle", onToggle, true);
+    return () => row.removeEventListener("toggle", onToggle, true);
+  }, [hasFilterPanel]);
   const toggleFilterPanel = () => {
     const panel = filters.current?.querySelector("details");
     if (!panel) return;
     panel.open = !panel.open;
-    panel.querySelector("summary")?.focus();
+    // 開いたときだけパネルの見出しへフォーカスを移す。閉じたときはボタンに残す
+    if (panel.open) panel.querySelector("summary")?.focus();
   };
-  // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする
-  const fill = layout === "board" && !groupBy;
+  // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする。
+  // 概要（intro）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
+  const fill = layout === "board" && !groupBy && !intro;
 
   return (
     <div className={fill ? `${s.split} ${s.splitFill}` : s.split}>
@@ -223,7 +240,7 @@ export function IssueList({
         ) : (
           <IconButton ref={searchButton} icon="search" label="検索を開く" bordered onClick={() => setSearching(true)} />
         )}
-        {hasFilterPanel && <IconButton icon="list-filter" label="絞り込み条件を開く" bordered onClick={toggleFilterPanel} />}
+        {hasFilterPanel && <IconButton icon="list-filter" label="絞り込み条件を開く" bordered aria-expanded={filterPanelOpen} onClick={toggleFilterPanel} />}
         <DisplayPopover search={search} layout={layout} groupBy={groupBy} subGroupBy={subGroupBy} columns={columns} onSearchChange={onSearchChange} />
       </ViewBar>
       {(selectable || filterBar) && (

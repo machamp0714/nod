@@ -251,10 +251,20 @@ test("検索のアイコンボタンは入力欄を開き、空のまま Escape 
 
   const filter = page.getByRole("button", { name: "絞り込み条件を開く", exact: true });
   await expect(page.getByRole("group", { name: "Status", exact: true })).toBeHidden();
+  await expect(filter).toHaveAttribute("aria-expanded", "false");
   await filter.click();
   await expect(page.getByRole("group", { name: "Status", exact: true })).toBeVisible();
+  await expect(filter).toHaveAttribute("aria-expanded", "true");
   await filter.click();
   await expect(page.getByRole("group", { name: "Status", exact: true })).toBeHidden();
+  // 閉じたときはフォーカスをボタンに残す
+  await expect(filter).toHaveAttribute("aria-expanded", "false");
+  await expect(filter).toBeFocused();
+  // Filters の行の「Filter」から開閉しても、ボタンの状態が合う
+  await page.getByText("Filter", { exact: true }).click();
+  await expect(filter).toHaveAttribute("aria-expanded", "true");
+  await page.getByText("Filter", { exact: true }).click();
+  await expect(filter).toHaveAttribute("aria-expanded", "false");
   // 条件のパネルを渡さない画面（Project 詳細）には Filter のボタンを出さない
   await page.goto("/projects/1");
   await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(3);
@@ -372,6 +382,259 @@ test("Issue が 0 件の列は Hidden columns（幅 338、行の高さ 38、間�
   // トグルは、隣の列見出しの題名の行と中心が揃う
   expect(m.toggleCenter).toBeLessThanOrEqual(2.5);
   expect(await rowMisalignment(page, 'section[aria-label="Hidden columns"] li', ":scope > *")).toBeLessThanOrEqual(2.5);
+  expect(await overflow(page)).toEqual({ page: 0, pageY: 0, main: 0 });
+});
+
+// API の Workspace に Issue を n 件足す（すべて同じ Status の列に入る）
+async function addIssues(nod: NodData, n: number, extra: { projectRef?: string; cycleRef?: string } = {}): Promise<string[]> {
+  const [api] = (await nod.me.listWorkspaces()).filter((w) => w.key === "API");
+  const ids: string[] = [];
+  for (let i = 1; i <= n; i++) {
+    const issue = await nod.me.createIssue({ workspaceId: api!.id, title: `縦に積む Issue ${String(i).padStart(2, "0")}` });
+    if (extra.projectRef || extra.cycleRef) await nod.me.updateIssue(issue.id, extra);
+    ids.push(issue.id);
+  }
+  return ids;
+}
+
+// Board と、カードがいちばん多い列の寸法
+const boardHeights = (page: Page) =>
+  page.evaluate(() => {
+    const main = document.querySelector("main") as HTMLElement;
+    const box = (el: Element) => el.getBoundingClientRect();
+    const columns = [...main.querySelectorAll("section[aria-label]")].filter((section) => section.querySelector(":scope > header")) as HTMLElement[];
+    const tall = columns.reduce((a, b) => (b.querySelectorAll("article").length > a.querySelectorAll("article").length ? b : a));
+    const short = columns.reduce((a, b) => (b.querySelectorAll("article").length < a.querySelectorAll("article").length ? b : a));
+    const board = tall.parentElement as HTMLElement;
+    const cards = [...tall.querySelectorAll("article")];
+    const last = cards[cards.length - 1] as HTMLElement;
+    // Main の中で縦にスクロールできる入れ物（Main 自身を含む）
+    const scrollers = [main, ...main.querySelectorAll("*")].filter((el) => {
+      const overflowY = getComputedStyle(el).overflowY;
+      return (overflowY === "auto" || overflowY === "scroll") && el.scrollHeight > el.clientHeight;
+    });
+    return {
+      cards: cards.length,
+      board: Math.round(box(board).height),
+      boardScrollY: board.scrollHeight - board.clientHeight,
+      column: Math.round(box(tall).height),
+      shortColumn: Math.round(box(short).height),
+      // 列の箱の下端から最後のカードの下端まで（列の下の余白 8）。負ならカードが列の外に出ている
+      belowLastCard: Math.round(box(tall).bottom - box(last).bottom),
+      outside: cards.filter((card) => box(card).bottom > box(tall).bottom).length,
+      mainScrollY: main.scrollHeight - main.clientHeight,
+      scrollers: scrollers.map((el) => (el === main ? "main" : el === board ? "board" : el.tagName.toLowerCase())),
+      overflowX: { page: document.documentElement.scrollWidth - window.innerWidth, pageY: document.documentElement.scrollHeight - window.innerHeight, main: main.scrollWidth - main.clientWidth },
+    };
+  });
+
+test("グループのない Board で1列に 15 枚を超えるカードがあっても、カードは列の背景の中に収まり、Board の中で縦にスクロールする", async ({ page, nod }) => {
+  await addIssues(nod, 15);
+  await page.goto("/issues?layout=board");
+  await expect(page.locator("main article")).toHaveCount(25);
+  const m = await boardHeights(page);
+  console.log(`[issues-layout] tall column ${JSON.stringify(m)}`);
+  expect(m.cards).toBeGreaterThanOrEqual(15);
+  // 列の箱はカードの分まで伸び、最後のカードの下に列の余白 8 が残る
+  expect(m.outside).toBe(0);
+  expect(m.belowLastCard).toBe(8);
+  expect(m.column).toBeGreaterThan(m.board);
+  // カードの少ない列は Board の高さいっぱいのまま
+  expect(m.shortColumn).toBe(m.board);
+  // 縦のスクロールは Board の中だけで、Main とページは動かない
+  expect(m.boardScrollY).toBeGreaterThan(0);
+  expect(m.scrollers).toEqual(["board"]);
+  expect(m.mainScrollY).toBe(0);
+  expect(m.overflowX).toEqual({ page: 0, pageY: 0, main: 0 });
+  // 最後のカードまで Board の中のスクロールで届き、列の背景の上にある
+  const last = page.locator("main article").filter({ hasText: "縦に積む Issue 15" });
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeInViewport({ ratio: 1 });
+});
+
+test("Project 詳細と Cycle 詳細の Board は内容の高さまで伸び、縦のスクロールは Main だけで二重にならない", async ({ page, nod }) => {
+  const cycle = await cycleDetailPath(nod);
+  await addIssues(nod, 15, { projectRef: "1", cycleRef: cycle.split("/").pop() });
+  for (const path of ["/projects/1", cycle]) {
+    await page.goto(`${path}?layout=board`);
+    await expect(page.locator("main article").filter({ hasText: "縦に積む Issue 15" })).toBeVisible();
+    const m = await boardHeights(page);
+    console.log(`[issues-layout] ${path.replace(/\d+$/, "<id>")} board ${JSON.stringify(m)}`);
+    expect(m.cards).toBeGreaterThanOrEqual(15);
+    // Board は小さいスクロール枠にならず、列の高さまで伸びる
+    expect(m.boardScrollY).toBe(0);
+    expect(m.board).toBe(m.column);
+    // カードの少ない列も同じ高さまで伸びる
+    expect(m.shortColumn).toBe(m.column);
+    expect(m.outside).toBe(0);
+    expect(m.belowLastCard).toBe(8);
+    // 縦にスクロールする入れ物は Main だけ
+    expect(m.scrollers).toEqual(["main"]);
+    expect(m.mainScrollY).toBeGreaterThan(0);
+    expect(m.overflowX).toEqual({ page: 0, pageY: 0, main: 0 });
+  }
+});
+
+test("視覚的に隠した列見出しは、ブラウザのアクセシビリティツリーで表の columnheader として残る", async ({ page }) => {
+  await page.goto("/issues");
+  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
+  // Playwright の getByRole は DOM から役割を計算するので、Chromium のアクセシビリティツリーそのものを読む
+  const cdp = await page.context().newCDPSession(page);
+  interface AXNode { nodeId: string; parentId?: string; ignored: boolean; role?: { value: string }; name?: { value: string }; childIds?: string[] }
+  const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as { nodes: AXNode[] };
+  const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+  const role = (node: AXNode | undefined) => node?.role?.value;
+  const ancestor = (node: AXNode, wanted: string) => {
+    for (let at = byId.get(node.parentId ?? ""); at; at = byId.get(at.parentId ?? "")) if (role(at) === wanted) return at;
+    return undefined;
+  };
+  const table = nodes.find((node) => role(node) === "table" && !node.ignored);
+  expect(table).toBeDefined();
+  const inTable = (node: AXNode) => ancestor(node, "table") === table;
+  const headers = nodes.filter((node) => role(node) === "columnheader" && !node.ignored && inTable(node));
+  const rows = nodes.filter((node) => role(node) === "row" && !node.ignored && inTable(node));
+  const headerRow = byId.get(headers[0]?.parentId ?? "");
+  const m = {
+    headers: headers.map((node) => node.name?.value),
+    headerParents: [...new Set(headers.map((node) => role(byId.get(node.parentId ?? ""))))],
+    headerRowParent: role(byId.get(headerRow?.parentId ?? "")),
+    rows: rows.length,
+    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 7）
+    headerRowCells: headerRow?.childIds?.map((id) => role(byId.get(id))),
+    bodyRowCells: [...new Set(rows.filter((row) => row !== headerRow).map((row) => row.childIds?.length))],
+  };
+  console.log(`[issues-layout] accessibility tree ${JSON.stringify(m)}`);
+  expect(m).toEqual({
+    headers: ["Status", "ID", "Title", "未決事項", "Workspace", "PR"],
+    headerParents: ["row"],
+    headerRowParent: "rowgroup",
+    rows: 14,
+    headerRowCells: ["cell", "columnheader", "columnheader", "columnheader", "columnheader", "columnheader", "columnheader"],
+    bodyRowCells: [7],
+  });
+  // 画面では列見出しを隠したまま
+  expect((await page.locator("main thead").boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("table")).toMatchAriaSnapshot(`
+    - table:
+      - rowgroup:
+        - row "Status ID Title 未決事項 Workspace PR":
+          - cell
+          - columnheader "Status"
+          - columnheader "ID"
+          - columnheader "Title"
+          - columnheader "未決事項"
+          - columnheader "Workspace"
+          - columnheader "PR"
+      - rowgroup
+  `);
+});
+
+test("コンボボックスは今の値を説明として伝え、Enter の押しっぱなしや、選択中の項目が無効なときの Enter で値を変えない", async ({ page }) => {
+  await page.goto("/issues");
+  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
+  const grouping = await displaySelect(page, "グループ化");
+  // 名前は「グループ化」のまま、今の値は説明（aria-describedby）で読まれる
+  await expect(grouping).toHaveAccessibleName("グループ化");
+  await expect(grouping).toHaveAccessibleDescription("なし");
+  const direction = page.getByRole("button", { name: "並び順の方向", exact: true });
+  await expect(direction).toHaveAccessibleDescription("昇順");
+  const menu = page.getByRole("menu", { name: "グループ化", exact: true });
+  // Enter を押したまま（キーリピート）でも、開いた直後の項目を選ばず、開閉も繰り返さない
+  await grouping.focus();
+  await page.keyboard.down("Enter");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitemradio", { name: "なし", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitemradio", { name: "Workspace", exact: true })).toBeFocused();
+  for (let i = 0; i < 3; i++) await page.keyboard.down("Enter"); // 押したままの Enter は repeat になる
+  await expect(menu).toBeVisible();
+  await expect(page).not.toHaveURL(/groupBy=/);
+  await page.keyboard.up("Enter");
+  // 離してから押し直した Enter で選ぶ。押したままにしても、閉じたコンボボックスは開き直さない
+  await page.keyboard.down("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(page).toHaveURL(/groupBy=workspace/);
+  await expect(grouping).toBeFocused();
+  for (let i = 0; i < 3; i++) await page.keyboard.down("Enter");
+  await page.keyboard.up("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(grouping).toHaveAccessibleDescription("Workspace");
+  await expect(page).toHaveURL(/groupBy=workspace/);
+
+  // Board で URL に groupBy=status があるとき、選択中の「Status」は無効。開いてもフォーカスはコンボボックスに残り、続けて Enter を押しても「なし」は選ばれない
+  await page.goto("/issues?layout=board&groupBy=status");
+  await expect(page.locator("main article")).toHaveCount(10);
+  const onBoard = await displaySelect(page, "グループ化");
+  await expect(onBoard).toHaveAccessibleDescription("Status");
+  await onBoard.focus();
+  await page.keyboard.press("Enter");
+  await expect(menu.getByRole("menuitemradio", { name: "Status", exact: true })).toBeDisabled();
+  await expect(onBoard).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(page).toHaveURL(/groupBy=status/);
+  await expect(onBoard).toHaveAttribute("data-value", "status");
+  // 上下キーでメニューへ入れば選べる。ボタンにフォーカスがあるときの Escape はメニューだけを閉じる
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "表示設定", exact: true })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitemradio", { name: "なし", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).not.toHaveURL(/groupBy=/);
+});
+
+test("Display のボタンにフォーカスがあるときの Escape はポップオーバーだけを閉じ、一括編集の選択とプレビューを残す", async ({ page }) => {
+  await page.goto("/issues?preview=API-12");
+  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
+  const pane = page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true });
+  await expect(pane).toBeVisible();
+  await page.getByRole("checkbox", { name: "API-8 を選択", exact: true }).check();
+  const bar = page.getByRole("toolbar", { name: "一括操作" });
+  await expect(bar).toContainText("1 件選択");
+  const popover = await openDisplay(page);
+  const trigger = page.getByRole("button", { name: "表示設定", exact: true });
+  // ポップオーバーの先頭（List のタブ）から Shift+Tab で Display のボタンへ戻る
+  await expect(popover.getByRole("tab", { name: "List", exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(trigger).toBeFocused();
+  await expect(popover).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(bar).toContainText("1 件選択");
+  await expect(pane).toBeVisible();
+});
+
+test("一括編集のメニューで、長い Project 名は枠からはみ出さず、省略記号で切れて title で読める", async ({ page, nod }) => {
+  const name = "とても長い名前の Project：検索と決済と通知にかかわる作業を四半期の終わりまでにまとめて片づける";
+  await nod.me.createProject({ name });
+  await page.goto("/issues");
+  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
+  await page.getByRole("checkbox", { name: "API-8 を選択", exact: true }).check();
+  await page.getByRole("toolbar", { name: "一括操作" }).getByRole("button", { name: "Project" }).click();
+  const menu = page.getByRole("menu", { name: "Project を変更" });
+  const item = menu.getByRole("menuitem", { name });
+  await expect(item).toBeVisible();
+  await expect(item.locator("span")).toHaveAttribute("title", name);
+  const m = await item.evaluate((el) => {
+    const box = (node: Element) => node.getBoundingClientRect();
+    const popover = el.closest('[role="menu"]')?.parentElement as HTMLElement;
+    const text = el.querySelector("span") as HTMLElement;
+    return {
+      popover: box(popover).width,
+      popoverOverflow: popover.scrollWidth - popover.clientWidth,
+      item: `${Math.round(box(el).width)}x${box(el).height}`,
+      itemInside: box(el).right <= box(popover).right,
+      textClipped: text.scrollWidth > text.clientWidth,
+      textOverflow: getComputedStyle(text).textOverflow,
+    };
+  });
+  console.log(`[issues-layout] bulk menu long name ${JSON.stringify(m)}`);
+  expect(m).toEqual({ popover: 240, popoverOverflow: 0, item: "226x32", itemInside: true, textClipped: true, textOverflow: "ellipsis" });
   expect(await overflow(page)).toEqual({ page: 0, pageY: 0, main: 0 });
 });
 

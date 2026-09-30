@@ -231,7 +231,6 @@
 /* nod.pen のボード（Cjq7Z）：列は幅 340 固定、間隔 8。あふれた分は Board の中で横にスクロールし、Main には出さない */
 .board {
   display: flex;
-  align-items: flex-start;
   gap: 8px;
   min-width: 0;
   overflow-x: auto;
@@ -462,9 +461,23 @@
 
 .bodyFill > .board {
   flex: 1;
-  align-items: stretch;
   min-height: 0;
   overflow: auto;
+}
+
+/* カードが Board の高さに収まらない列は、カードの分まで箱を伸ばす（列の背景の外にカードを出さない） */
+.bodyFill > .board > .column {
+  min-height: max-content;
+}
+
+/* Board に出す Issue が 0 件のとき */
+.boardEmpty {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 20px 8px;
+  color: var(--ink3);
+  font-size: 12px;
 }
 
 /* nod.pen の Display Popover（EMZdB）：幅 302、角丸 12。区画は上下 8 と左右 16、行の高さ 32、ラベル 12 / 500 */
