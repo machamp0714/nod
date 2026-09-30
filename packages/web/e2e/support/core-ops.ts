@@ -50,6 +50,8 @@ export const CTX_OPS = [
   "withdrawTriageProposal",
   "linkPr",
   "addRecurringIssue",
+  "saveTemplate",
+  "removeTemplate",
 ] as const;
 
 // 第1引数に Database を取る操作
@@ -80,8 +82,6 @@ export const DB_OPS = [
   "getStatusNames",
   "getTransitionRules",
   "listRecurringIssues",
-  "saveTemplate",
-  "removeTemplate",
 ] as const;
 
 export type CtxOp = (typeof CTX_OPS)[number];

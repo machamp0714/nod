@@ -12,7 +12,7 @@ export function registerTemplateCommands(program: Command): void {
     .requiredOption("--from <path>", "本文にする Markdown ファイル")
     .action(
       act((cli, _cmd, name: string, o: { from: string }) => {
-        const r = saveTemplate(cli.db, { name, body: readDocumentFile(o.from).content });
+        const r = saveTemplate(cli.ctx, { name, body: readDocumentFile(o.from).content });
         print(cli, r, () => `${r.created ? "登録しました" : "本文を置き換えました"}: ${r.template.name}`);
       }),
     );
@@ -44,7 +44,7 @@ export function registerTemplateCommands(program: Command): void {
     .description("テンプレートを消す")
     .action(
       act((cli, _cmd, name: string) => {
-        const t = removeTemplate(cli.db, name);
+        const t = removeTemplate(cli.ctx, name);
         print(cli, { removed: t.name }, () => `消しました: ${t.name}`);
       }),
     );

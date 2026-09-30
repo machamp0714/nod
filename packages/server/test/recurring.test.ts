@@ -46,7 +46,7 @@ describe("定期Issue API", () => {
 
   test("テンプレートの一覧を返す", async () => {
     const { app, db } = setup();
-    saveTemplate(db, { name: "review", body: "## 振り返り" });
+    saveTemplate({ db, actor: "me" }, { name: "review", body: "## 振り返り" });
     expect((await call(app, "GET", "/api/templates")).json).toMatchObject([{ name: "review", body: "## 振り返り" }]);
   });
 });
