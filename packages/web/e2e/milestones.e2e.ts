@@ -125,3 +125,14 @@ test("Issues を Milestone で絞り込み、URL と View に保存して復元�
   await page.getByRole("button", { name: "Milestone の条件を外す" }).click();
   await expect(page).not.toHaveURL(/milestone=/);
 });
+
+test("LLM が CLI で作った Milestone と紐付けが SSE で開いた Project 詳細に反映する", async ({ page, nod }) => {
+  await page.goto("/projects/1");
+  await waitForServerEvents(page);
+  const m = await nod.codex.createMilestone("1", { name: "LLM の目標", targetDate: "2026-12-01" });
+  await expect(row(page, "LLM の目標")).toContainText("0/0");
+  await nod.codex.updateIssue("API-13", { milestoneRef: String(m.id) });
+  await expect(row(page, "LLM の目標")).toContainText("0/1");
+  await nod.codex.deleteMilestone(m.id);
+  await expect(section(page).getByText("Milestone はありません")).toBeVisible();
+});
