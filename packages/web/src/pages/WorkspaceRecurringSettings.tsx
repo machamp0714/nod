@@ -18,6 +18,7 @@ import {
   CADENCE_CHOICES,
   cadenceLabel,
   formatNext,
+  lastCreated,
   formFromRecurring,
   inputFromForm,
   MONTH_DAY_CHOICES,
@@ -162,15 +163,7 @@ export function RecurringSection({ workspace, onSaved }: { workspace: Workspace;
                 <td className={r.cell} title={item.nextOccurrence ?? undefined}>
                   {formatNext(item.nextOccurrence)}
                 </td>
-                <td className={r.cell}>
-                  {item.lastIssueId ? (
-                    <Link to="/issues/$issueId" params={{ issueId: item.lastIssueId }} className={r.issueLink}>
-                      {item.lastIssueId}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
+                <LastCreatedCell item={item} />
                 <td className={r.cell}>
                   <button
                     type="button"
@@ -549,4 +542,29 @@ function RecurringFormPanel({
       </div>
     </form>
   );
+}
+
+// 前回作成の列（#145）。最新回の Issue を永久削除したら起票日と（削除済み）を2行で出し、未実行はダッシュ
+function LastCreatedCell({ item }: { item: RecurringIssue }) {
+  const last = lastCreated(item);
+  if (last.kind === "issue") {
+    return (
+      <td className={r.cell}>
+        <Link to="/issues/$issueId" params={{ issueId: last.issueId }} className={r.issueLink}>
+          {last.issueId}
+        </Link>
+      </td>
+    );
+  }
+  if (last.kind === "deleted") {
+    return (
+      <td className={r.cell} title={last.title}>
+        <span className={r.lastDeleted}>
+          <span>{last.date}</span>
+          <span>（削除済み）</span>
+        </span>
+      </td>
+    );
+  }
+  return <td className={`${r.cell} ${r.lastNone}`}>—</td>;
 }

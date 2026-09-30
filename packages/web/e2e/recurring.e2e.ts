@@ -115,6 +115,28 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
   expect((await nod.me.getIssue(issueId)).title).toBe("週次レビュー");
 });
 
+test("最新回の Issue を永久削除すると、前回作成は起票日と（削除済み）を出し、未実行のダッシュと見分けられる（#145）", async ({ page, nod }) => {
+  await nod.me.addRecurringIssue("API", { title: "リリース前チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
+  await nod.me.addRecurringIssue("API", { title: "月初の振り返り", cadence: "monthly", monthDay: 1, startDate: "2099-01-01", timeZone: "UTC" });
+  await page.goto("/workspaces/API/settings");
+  const sec = section(page);
+  await sec.getByRole("button", { name: "今すぐ実行" }).click();
+  await expect(page.getByRole("status")).toHaveText(/^1件を起票しました/);
+  const ran = (await nod.me.listRecurringIssues("API")).find((x) => x.title === "リリース前チェック")!;
+  const released = sec.getByRole("row").filter({ hasText: "リリース前チェック" });
+  await expect(released.getByRole("link", { name: ran.lastIssueId! })).toBeVisible();
+
+  await nod.me.archiveIssue(ran.lastIssueId!);
+  await nod.me.deleteIssue(ran.lastIssueId!);
+  await page.reload();
+  const date = `${ran.lastOccurrence!.slice(5, 7)}/${ran.lastOccurrence!.slice(8, 10)}`;
+  const deletedCell = released.getByRole("cell").nth(3);
+  await expect(deletedCell).toHaveText(`${date}（削除済み）`);
+  await expect(deletedCell).toHaveAttribute("title", `${ran.lastOccurrence} に起票した Issue は削除されました`);
+  await expect(deletedCell.getByRole("link")).toHaveCount(0);
+  await expect(sec.getByRole("row").filter({ hasText: "月初の振り返り" }).getByRole("cell").nth(3)).toHaveText("—");
+});
+
 test("テンプレートが見つからない定期Issueは、確認でエラーを示して他は続ける", async ({ page, nod }) => {
   await nod.me.saveTemplate({ name: "review", body: "## 振り返り" });
   await nod.me.addRecurringIssue("API", { title: "週次レビュー", template: "review", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });
