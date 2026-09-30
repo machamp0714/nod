@@ -76,6 +76,8 @@ test("一覧の Header は高さ 44 で題名の右に説明文と件数を置�
   await expect(description).toBeVisible();
   await expect(description).toHaveAttribute("title", "LLM が作業を終え、確認を待っている Issue");
   await expect(description).toHaveCSS("font-size", "12px");
+  // 幅 400 で説明文は省略されず、全文が出る
+  expect(await description.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   const m = await measureSplitList(page, "レビュー待ちの一覧");
   console.log(`[split] /reviews ${JSON.stringify(m)}`);
   expect(m.listWidth).toBe(400);

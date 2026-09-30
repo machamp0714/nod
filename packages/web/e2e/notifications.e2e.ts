@@ -166,6 +166,6 @@ test("通知の一覧も行は左右と上下に 8 の余白と角丸 8 で、�
   await expect(list(page).getByRole("link")).toContainText("料金ページの比較表を更新");
   const snoozed = await measureSplitList(page, "通知の一覧");
   console.log(`[split] /inbox?tab=notifications&view=snoozed ${JSON.stringify(snoozed)}`);
-  expect(snoozed.headerHeight).toBe(44);
-  expect(snoozed.row).toEqual(m.row);
+  // 行の数と既読の行がないこと以外は、通知の一覧と同じ値になる
+  expect(snoozed).toEqual({ ...m, rows: 1, readTitleWeights: [] });
 });

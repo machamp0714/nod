@@ -283,6 +283,70 @@
   flex: 1;
 }
 
+/* Analytics と Summary のフィルタ（FilterRow と SelectChip） */
+/* nod.pen の Filter Bar：View Bar（高さ 43）の中に間隔 8 で並べる。
+   幅が足りなければ折り返し、行が増えた分だけ View Bar が伸びる（上下 7 は、2行になったときの View Bar の端との間隔） */
+.filterRow {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.selectChip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  cursor: pointer;
+  height: var(--control-height);
+}
+
+.selectChipLabel {
+  flex: none;
+  color: var(--ink3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 幅は今の値に合わせる（field-sizing）。長い名前は 240 で切る。
+   field-sizing がないブラウザでは最も長い選択肢の幅になるが、240 で止まり、行は折り返す */
+.selectChip select {
+  appearance: none;
+  field-sizing: content;
+  min-width: 0;
+  max-width: 240px;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.selectChip select:focus-visible {
+  outline: none;
+}
+
+.selectChip:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .activity {
   display: flex;
   flex-direction: column;

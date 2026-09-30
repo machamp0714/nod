@@ -172,8 +172,12 @@ test("一覧の Header は高さ 44 で右にタブを置き、行は左右と�
   expect(m.selectedBackground).toBe("rgb(238, 240, 243)"); // --sunken
   expect(m.titleWeights).toEqual(["500"]);
 
-  // キーボードでも行を選べる（行はリンクのまま）
-  await list(page).getByRole("link").nth(1).focus();
+  // キーボードでも行を選べる（行はリンクのまま）。Header の最後のタブから Tab キーで行に届き、Enter で選ぶ
+  await page.getByRole("tablist", { name: "Inboxの表示" }).getByRole("tab", { name: "すべて" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(list(page).getByRole("link").first()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(list(page).getByRole("link").nth(1)).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(new RegExp(`selected=${issues[1]!.id}`));
   await expect(list(page).getByRole("link").nth(1)).toHaveAttribute("data-selected", "true");

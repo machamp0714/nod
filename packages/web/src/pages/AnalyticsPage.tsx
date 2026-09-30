@@ -1,5 +1,4 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import { useCompletionStats } from "../api/hooks/analytics";
 import { useCycles } from "../api/hooks/cycles";
 import { useMilestones, useProjects } from "../api/hooks/projects";
@@ -9,7 +8,7 @@ import type { CompletionStats } from "../api/types";
 import { GroupedBars, Legend, LineChart } from "../components/analytics/charts";
 import { LlmSection } from "../components/analytics/LlmSection";
 import { Card, slotsOf } from "../components/analytics/parts";
-import { Icon, PageError, PageHeader, PageLoading, PageTitle, Segmented, ViewBar } from "../components/ui";
+import { FilterRow, Icon, PageError, PageHeader, PageLoading, PageTitle, Segmented, SelectChip, ViewBar } from "../components/ui";
 import {
   type AnalyticsSearch,
   cleanAnalyticsSearch,
@@ -101,7 +100,7 @@ function FilterBar({ search, by, range, onChange }: {
   const strayMilestone = search.milestone && !groups.some((g) => g.options.some((o) => o.value === search.milestone)) ? search.milestone : undefined;
   const strayCycle = search.cycle && search.cycle !== NO_CYCLE && !cycleList.some((o) => o.value === search.cycle) ? search.cycle : undefined;
   return (
-    <div className={s.filters}>
+    <FilterRow>
       <Segmented<StatsBy>
         label="期間の単位"
         value={by}
@@ -145,26 +144,7 @@ function FilterBar({ search, by, range, onChange }: {
         {cycleList.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         {strayCycle && <option value={strayCycle}>Cycle {strayCycle}</option>}
       </SelectChip>
-    </div>
-  );
-}
-
-// ラベルつきの選択。見た目は nod.pen の Select（枠・ラベル・値・下向き矢印）で、操作はネイティブの select に任せる。
-// 幅は今の値で決まる（analytics.module.css の .select）
-function SelectChip({ label, value, onChange, children }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label className={s.select}>
-      <span className={s.selectLabel}>{label}</span>
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
-      </select>
-      <Icon name="chevron-down" size={12} color="var(--ink3)" />
-    </label>
+    </FilterRow>
   );
 }
 

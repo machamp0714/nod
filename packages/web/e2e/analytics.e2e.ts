@@ -315,6 +315,12 @@ test("長い名前の Project・Milestone・Cycle を選ぶと、フィルタは
   await expect(page.getByLabel("Milestone")).toHaveValue(String(milestone.id));
   await expect(page.getByLabel("Cycle")).toHaveValue(String(cycle.id));
   await expect(page.getByText("この期間に完了した Issue はありません")).toBeVisible();
+  // 240 で切れた名前の全文は、select の枠の title で読める
+  await expect(page.getByLabel("Project").locator("..")).toHaveAttribute("title", LONG_PROJECT);
+  await expect(page.getByLabel("Milestone").locator("..")).toHaveAttribute("title", LONG_MILESTONE);
+  await expect(page.getByLabel("Cycle").locator("..")).toHaveAttribute("title", LONG_CYCLE);
+  await expect(page.getByLabel("Workspace").locator("..")).toHaveAttribute("title", "すべて");
+  expect(await page.getByLabel("Project").evaluate((el) => el.getBoundingClientRect().width)).toBe(240);
   const m = await measureFilterBar(page);
   console.log(`[filter] /analytics 長い名前 ${JSON.stringify(m)}`);
   expect(m.headerHeight).toBe(44);
@@ -327,4 +333,30 @@ test("長い名前の Project・Milestone・Cycle を選ぶと、フィルタは
   expect(m.rightGap).toBeGreaterThanOrEqual(12);
   expect(m.mainOverflow).toBe(0);
   expect(m.pageOverflow).toBe(0);
+});
+
+// field-sizing のないブラウザ（Firefox、Safari）の代わりの検証。select は最も長い選択肢の幅になるが、240 で止まり、行は折り返す
+test("field-sizing が効かなくても、/analytics と /summary の Main に横スクロールを出さない", async ({ page, nod }) => {
+  const { apiId } = await seed(nod);
+  await nod.me.createProject({ name: LONG_PROJECT });
+  await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
+  await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  for (const path of ["/analytics", "/summary"]) {
+    await page.goto(path);
+    const project = page.getByLabel("Project");
+    await expect(project.locator("option")).toHaveCount(3);
+    if (path === "/analytics") await expect(page.getByLabel("Cycle").locator("option")).toHaveCount(3);
+    await page.addStyleTag({ content: "select { field-sizing: fixed !important; }" });
+    await expect(project).toHaveCSS("field-sizing", "fixed");
+    // 未選択でも、最も長い選択肢の幅（上限 240）になる
+    expect(await project.evaluate((el) => el.getBoundingClientRect().width)).toBe(240);
+    const m = await measureFilterBar(page);
+    console.log(`[filter] ${path} field-sizing: fixed ${JSON.stringify(m)}`);
+    expect(m.headerHeight).toBe(44);
+    expect(m.centerDiff).toBeLessThanOrEqual(2.5);
+    expect(m.selectHeights).toEqual([28]);
+    expect(m.rightGap).toBeGreaterThanOrEqual(12);
+    expect(m.mainOverflow).toBe(0);
+    expect(m.pageOverflow).toBe(0);
+  }
 });

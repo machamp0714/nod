@@ -1,12 +1,12 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { useSummary } from "../api/hooks/analytics";
 import { useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import { useStatusNames } from "../api/hooks/workspace-labels";
 import { errorMessage } from "../api/errors";
 import type { SummaryItem } from "../api/types";
-import { Icon, PageError, PageHeader, PageLoading, PageTitle, ViewBar } from "../components/ui";
+import { FilterRow, Icon, PageError, PageHeader, PageLoading, PageTitle, SelectChip, ViewBar } from "../components/ui";
 import { agentColor, agentInitial } from "../lib/color";
 import {
   actorLabel,
@@ -77,7 +77,7 @@ function FilterBar({ search, onChange }: { search: SummarySearch; onChange: (nex
   const projects = useProjects();
   const since = search.since ?? "24h";
   return (
-    <div className={s.filters}>
+    <FilterRow>
       <div role="group" aria-label="期間" className={s.segmented}>
         {SUMMARY_PERIODS.map((value) => (
           <button
@@ -111,25 +111,7 @@ function FilterBar({ search, onChange }: { search: SummarySearch; onChange: (nex
         </span>
         アーカイブを含む
       </button>
-    </div>
-  );
-}
-
-// ラベルつきの選択。Analytics と同じ見た目で、操作はネイティブの select に任せる
-function SelectChip({ label, value, onChange, children }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label className={s.select}>
-      <span className={s.selectLabel}>{label}</span>
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
-      </select>
-      <Icon name="chevron-down" size={12} color="var(--ink3)" />
-    </label>
+    </FilterRow>
   );
 }
 
