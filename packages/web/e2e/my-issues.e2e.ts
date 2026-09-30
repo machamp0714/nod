@@ -53,14 +53,21 @@ test.describe("My issues", () => {
     await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
     await expect(region(page, "担当 gemini").locator("tbody tr")).toHaveCount(1);
     await expect(tableRows(page)).toHaveCount(5);
+    // 委任中タブの固定チップは「担当 is LLM」（行の担当は LLM。「担当 is me」は出さない）で、外せない（#166）
+    await expect(chips(page)).toContainText(/担当\s*is\s*LLM/);
+    await expect(chips(page)).not.toContainText(/is\s*me/);
+    await expect(chips(page).getByRole("button", { name: "担当 の条件を外す" })).toHaveCount(0);
 
     await page.reload();
     await expect(page.getByRole("tab", { name: "委任中 5", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
+    await expect(chips(page)).toContainText(/担当\s*is\s*LLM/);
 
     await page.getByRole("tab", { name: "担当 2", exact: true }).click();
     await expect(page).not.toHaveURL(/tab=/);
     await expect(tableRows(page)).toHaveCount(2);
+    await expect(chips(page)).toContainText(/担当\s*is\s*me/);
+    await expect(chips(page)).not.toContainText(/is\s*LLM/);
   });
 
   test("ほかの条件で絞り込め、URL に残る。担当の条件と Issues のタブは URL にあっても使わない", async ({ page, nod }) => {
