@@ -5,7 +5,7 @@ import { bulkUpdateIssues } from "../src/ops/bulk-update";
 import { createCycle, cycleToday, deleteCycle, getCycle, listCycles, moveOpenIssues, resolveCycle, updateCycle } from "../src/ops/cycles";
 import { archiveIssue, copyIssue, createIssue, getIssue, queryIssues, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
-import { completionStats, statsQueryFromParams } from "../src/ops/stats";
+import { completionStats, llmStats, statsQueryFromParams } from "../src/ops/stats";
 import { recentSummary, summaryQueryFromParams } from "../src/ops/summary";
 import { MIGRATIONS } from "../src/schema";
 import { codeOf, eventsOf, setup, tempDbPath } from "./helpers";
@@ -210,12 +210,18 @@ describe("分析・要約の Cycle 絞り込み", () => {
     expect(completionStats(db, { ...base, cycle: "current", workspace: [ws.key], now: new Date("2026-10-06T00:00:00Z") }).totals.completed).toBe(1);
     expect(codeOf(() => completionStats(db, { ...base, cycle: "Sprint 2" }))).toBe("INVALID_ARGS");
     expect(statsQueryFromParams(new URLSearchParams("cycle=3")).cycle).toBe("3");
+    // none は Issue 一覧と同じく Cycle のない Issue を指す（Web の Analytics の「Cycle なし」）
+    expect(completionStats(db, { ...base, cycle: "none" }).totals.completed).toBe(1);
+    expect(completionStats(db, { ...base, cycle: " None ", workspace: [ws.key] }).totals.completed).toBe(1);
+    expect(llmStats(db, { ...base, cycle: "none" }).llms.every((l) => l.totals.completed === 0)).toBe(true);
+    expect(() => completionStats(db, { ...base, cycle: " " })).toThrow("Cycle を指定してください");
 
     const titles = (q: Parameters<typeof recentSummary>[1]) =>
       [...new Set(recentSummary(db, { since: "7d", ...q }).sections.flatMap((sec) => sec.items.map((i) => i.title)))].sort();
     expect(titles({})).toEqual(["入り", "外"]);
     expect(titles({ cycle: String(current.id) })).toEqual(["入り"]);
     expect(titles({ cycle: "Sprint 2", workspace: [ws.key] })).toEqual(["入り"]);
+    expect(titles({ cycle: "none" })).toEqual(["外"]);
     expect(summaryQueryFromParams(new URLSearchParams("cycle=Sprint%202&workspace=API")).cycle).toBe("Sprint 2");
   });
 });

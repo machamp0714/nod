@@ -43,6 +43,7 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["issue", "update", created.id, "--cycle", "", "--json"]).json.cycle).toBeNull();
     expect(cli(db, cwd, ["summary", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["stats", "--cycle", "S2", "--json"]).code).toBe(0);
+    expect(cli(db, cwd, ["stats", "--cycle", "none", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["cycle", "update", "S2", "--name", "次", "--json"]).json.name).toBe("次");
     // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）
     const forbidden = cli(db, cwd, ["cycle", "delete", "次", "--json"]);

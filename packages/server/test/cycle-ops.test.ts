@@ -69,5 +69,9 @@ describe("Cycle API", () => {
     const past = (await call(app, "POST", `/api/workspaces/${ws.key}/cycles`, PAST)).json;
     expect((await call(app, "GET", `/api/stats?cycle=${past.id}`)).status).toBe(200);
     expect((await call(app, "GET", `/api/summary?cycle=${past.id}`)).status).toBe(200);
+    expect((await call(app, "GET", "/api/stats?cycle=none")).status).toBe(200);
+    expect((await call(app, "GET", "/api/stats/llm?cycle=none")).status).toBe(200);
+    const milestoneNone = await call(app, "GET", "/api/stats?milestone=none");
+    expect([milestoneNone.status, milestoneNone.json.error.code]).toEqual([400, "INVALID_ARGS"]);
   });
 });

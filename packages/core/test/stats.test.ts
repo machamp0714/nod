@@ -203,6 +203,11 @@ describe("completionStats（完了数・作業時間の推移）", () => {
     expect(codeOf(() => completionStats(db, { ...q, project: "検索", milestone: "γ" }))).toBe("NOT_FOUND");
     expect(statsQueryFromParams(new URLSearchParams("milestone=3")).milestone).toBe("3");
     expect(codeOf(() => statsQueryFromParams(new URLSearchParams("milestone=3&milestone=4")))).toBe("INVALID_ARGS");
+    // Issue 一覧と違い、分析では Milestone のない Issue（none）に絞れない。空文字も黙って NOT_FOUND にせず理由を返す
+    expect(() => completionStats(db, { ...q, milestone: "none" })).toThrow("none は使えません");
+    expect(() => completionStats(db, { ...q, project: "検索", milestone: " None " })).toThrow("none は使えません");
+    expect(() => completionStats(db, { ...q, milestone: "" })).toThrow("Milestone を指定してください");
+    expect(codeOf(() => completionStats(db, { ...q, milestone: "none" }))).toBe("INVALID_ARGS");
   });
 
   test("既定の範囲は 日=直近30日、週=直近12週（今日を含む）", () => {

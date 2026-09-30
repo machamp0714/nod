@@ -22,7 +22,7 @@ function withStatsOptions(cmd: Command): Command {
     .option("--tz <zone>", "期間の境界に使うタイムゾーン（IANA の名前、既定はこのマシンのローカル）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の ID か名前（名前は --project の Project の中で引く）")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current（名前と current は Workspace を1つに絞ったとき）")
+    .option("--cycle <cycle>", "Cycle の ID・名前・current、none は Cycle のない Issue（名前と current は Workspace を1つに絞ったとき）")
     .option("--all-workspaces", "すべての Workspace を集計する（既定は現在の Workspace）");
 }
 
