@@ -15,6 +15,7 @@ export * from "./ops/bulk-update";
 export * from "./ops/projects";
 export * from "./ops/milestones";
 export * from "./ops/initiatives";
+export * from "./ops/cycles";
 export * from "./ops/documents";
 export * from "./ops/attachments";
 export * from "./ops/issue-deletions";

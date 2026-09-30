@@ -60,6 +60,7 @@ const UPDATE_KEYS = [
   "parentRef",
   "projectRef",
   "milestoneRef",
+  "cycleRef",
   "addLabels",
   "removeLabels",
   "reason",
@@ -81,6 +82,7 @@ function toUpdateInput(b: Body): UpdateIssueInput {
     parentRef: optNullableString(b, "parentRef"),
     projectRef: optNullableString(b, "projectRef"),
     milestoneRef: b.milestoneRef === "" ? null : optNullableString(b, "milestoneRef"), // 空文字も CLI の --milestone "" と同じく外す
+    cycleRef: optNullableString(b, "cycleRef"),
     addLabels: optStringArray(b, "addLabels"),
     removeLabels: optStringArray(b, "removeLabels"),
     reason: optString(b, "reason"),
@@ -161,7 +163,7 @@ const OPS: Record<string, Op> = {
   unremind: { keys: [], run: (me, ref) => clearReminder(me, ref) },
 };
 
-const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
+const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
 
 // web からの Issue の操作。書き手は me
 export function registerIssueOps(app: Hono, me: OpCtx): void {

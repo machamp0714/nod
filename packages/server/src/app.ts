@@ -8,6 +8,7 @@ import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerIssueDeletionRoutes } from "./routes/issue-deletions";
+import { registerCycleRoutes } from "./routes/cycle-ops";
 import { registerInitiativeRoutes } from "./routes/initiative-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
@@ -77,6 +78,7 @@ export function createApp(opts: AppOptions): Hono {
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);
+  registerCycleRoutes(app, me);
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);

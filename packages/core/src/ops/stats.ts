@@ -3,6 +3,7 @@ import { HUMAN_ACTOR } from "../ctx";
 import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
+import { resolveCycleInScope } from "./cycles";
 import { resolveProject } from "./projects";
 
 export const STATS_GRANULARITIES = ["day", "week"] as const;
@@ -15,6 +16,7 @@ export interface StatsQuery {
   tz?: string; // IANA のタイムゾーン名。省略時は実行環境のローカル
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
+  cycle?: string; // Cycle の ID。名前・current は Workspace を1つに絞ったときだけ（current は tz の今日で決める）
   now?: Date; // テスト用。既定の範囲の基準
 }
 
@@ -46,14 +48,14 @@ export interface CompletionStats extends StatsRange {
   totals: Omit<CompletionBucket, "start" | "end">;
 }
 
-const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project"];
+const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project", "cycle"];
 
 // API のクエリパラメータを StatsQuery にする。workspace だけは複数指定できる
 export function statsQueryFromParams(params: URLSearchParams): StatsQuery {
   const unknownKeys = [...new Set(params.keys())].filter((k) => !QUERY_KEYS.includes(k));
   if (unknownKeys.length) throw invalid(`${unknownKeys.join(", ")} は受け付けません（使えるもの: ${QUERY_KEYS.join(", ")}）`);
   const q: StatsQuery = {};
-  for (const key of ["by", "from", "to", "tz", "project"] as const) {
+  for (const key of ["by", "from", "to", "tz", "project", "cycle"] as const) {
     const values = params.getAll(key);
     if (values.length > 1) throw invalid(`${key} は1つだけ指定してください`);
     if (values[0] !== undefined) (q as Record<string, string>)[key] = values[0];
@@ -143,22 +145,31 @@ export function statsFrame(q: StatsQuery): StatsFrame {
   };
 }
 
-// Workspace と Project の絞り込みを SQL の条件にする。i は issues の別名
-export function issueScope(db: Database, q: Pick<StatsQuery, "workspace" | "project">): { where: string; params: (string | number)[] } {
+// Workspace・Project・Cycle の絞り込みを SQL の条件にする。i は issues の別名
+export function issueScope(
+  db: Database,
+  q: Pick<StatsQuery, "workspace" | "project" | "cycle" | "tz" | "now">,
+): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
+  let workspaceIds: number[] | undefined;
   if (q.workspace?.length) {
     const ids = q.workspace.map((key) => {
       const found = findWorkspace(db, key);
       if (!found) throw new NodError("NOT_FOUND", `Workspace ${key} はありません`);
       return found.id;
     });
+    workspaceIds = [...new Set(ids)];
     where.push(`i.workspace_id IN (${ids.map(() => "?").join(",")})`);
     params.push(...ids);
   }
   if (q.project !== undefined) {
     where.push("i.project_id = ?");
     params.push(resolveProject(db, q.project).id);
+  }
+  if (q.cycle !== undefined) {
+    where.push("i.cycle_id = ?");
+    params.push(resolveCycleInScope(db, q.cycle, workspaceIds, { tz: q.tz, now: q.now }));
   }
   return { where: where.map((w) => ` AND ${w}`).join(""), params };
 }

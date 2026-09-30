@@ -6,6 +6,7 @@ import { print, statusText } from "../output";
 interface SummaryOptions {
   since?: string;
   project?: string;
+  cycle?: string;
   limit?: string;
   includeArchived?: boolean;
   allWorkspaces?: boolean;
@@ -57,6 +58,7 @@ export function registerSummaryCommand(program: Command): void {
     .description("期間内の動き（完了・着手・レビュー提出・差し戻し・質問/回答・ブロッカー・新規起票・アーカイブ）を種類別にまとめる。読み取り専用")
     .option("--since <期間>", `24h・7d・2w のような直近の長さか ISO 日時（既定は ${SUMMARY_DEFAULT_SINCE}、最長 90 日）`)
     .option("--project <project>", "Project の名前か ID")
+    .option("--cycle <cycle>", "Cycle の ID・名前・current（名前と current は Workspace を1つに絞ったとき）")
     .option("--limit <n>", `種類ごとに並べる件数（既定は ${SUMMARY_DEFAULT_LIMIT}、最大 200）。超えた分は「他N件」`)
     .option("--include-archived", "アーカイブ済み Issue の動きも含める")
     .option("--all-workspaces", "すべての Workspace をまとめる（既定は現在の Workspace）")
@@ -66,6 +68,7 @@ export function registerSummaryCommand(program: Command): void {
         const result = recentSummary(cli.db, {
           since: o.since,
           project: o.project,
+          cycle: o.cycle,
           limit: o.limit === undefined ? undefined : parseLimit(o.limit),
           includeArchived: o.includeArchived,
           workspace: o.allWorkspaces ? undefined : [currentWorkspace(cli, cmd).key],
