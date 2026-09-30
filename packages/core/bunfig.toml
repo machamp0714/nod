@@ -1,0 +1,4 @@
+[test]
+timeout = 30000
+# パッケージ直下で bun test しても TMPDIR を隔離する（#147）。ルートの bunfig.toml と揃える
+preload = ["../../test/tmpdir-preload.ts"]

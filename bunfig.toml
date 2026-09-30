@@ -1,2 +1,4 @@
 [test]
 timeout = 30000
+# TMPDIR を実行ごとに隔離し、一時ディレクトリを残さない（#147）
+preload = ["./test/tmpdir-preload.ts"]
