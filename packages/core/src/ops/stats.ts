@@ -188,6 +188,12 @@ export function summarizeWork(minutes: (number | null)[]): WorkTime {
   };
 }
 
+// 取り込んだ時点で閉じていた Issue（#77）。created の event が取り込み由来で status が done・canceled で、その後に状態の遷移がない。
+// nod で完了・キャンセルしたものではないので完了数に数えない。取り込み後に開き直して閉じたものは数える。i は issues の別名
+export const CLOSED_ON_IMPORT_SQL = `(EXISTS (SELECT 1 FROM events c WHERE c.issue_id = i.id AND c.type = 'created'
+    AND json_extract(c.data, '$.imported_from') IS NOT NULL AND json_extract(c.data, '$.status') IN ('done', 'canceled'))
+  AND NOT EXISTS (SELECT 1 FROM events s WHERE s.issue_id = i.id AND s.type = 'status_changed'))`;
+
 // 期間ごとの完了数と作業時間。完了は status = 'done' の closed_at で数え、Project の Done 数と定義を揃える
 export function completionStats(db: Database, q: StatsQuery = {}): CompletionStats {
   const frame = statsFrame(q);
@@ -195,7 +201,7 @@ export function completionStats(db: Database, q: StatsQuery = {}): CompletionSta
   const rows = db.query(`SELECT i.status, i.started_at, i.closed_at,
       CASE WHEN i.status = 'done' THEN ${WORK_END_SQL} END AS work_end
     FROM issues i
-    WHERE i.status IN ('done', 'canceled') AND i.closed_at >= ? AND i.closed_at < ?${scope.where}`)
+    WHERE i.status IN ('done', 'canceled') AND i.closed_at >= ? AND i.closed_at < ? AND NOT ${CLOSED_ON_IMPORT_SQL}${scope.where}`)
     .all(frame.since, frame.until, ...scope.params) as
     { status: "done" | "canceled"; started_at: string | null; closed_at: string; work_end: string | null }[];
 

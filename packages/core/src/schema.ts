@@ -400,4 +400,19 @@ export const MIGRATIONS: MigrationStep[][] = [
       PRIMARY KEY (workspace_id, preset)
     )`,
   ],
+  // 他ツールからの Issue 取り込み（#77 nod import github）。取り込み元の Issue と nod の Issue の対応表。
+  // 同じ Workspace に同じ取り込み元の Issue を二度作らないために使う。source_key は 'owner/repo#123'（owner/repo は小文字）。
+  // Issue を永久削除しても行は残し（issue_id が NULL）、再取り込みで削除した Issue を復活させない
+  [
+    `CREATE TABLE issue_imports (
+      id INTEGER PRIMARY KEY,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source TEXT NOT NULL CHECK (source IN ('github')),
+      source_key TEXT NOT NULL,
+      issue_id INTEGER REFERENCES issues(id) ON DELETE SET NULL,
+      imported_by TEXT NOT NULL,
+      imported_at TEXT NOT NULL,
+      UNIQUE (workspace_id, source, source_key)
+    )`,
+  ],
 ];

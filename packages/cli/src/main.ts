@@ -7,6 +7,7 @@ import { registerAutomationCommands } from "./commands/automation";
 import { registerDocCommands } from "./commands/doc";
 import { registerGitCommands } from "./commands/git";
 import { registerHumanCommands } from "./commands/human";
+import { registerImportCommands } from "./commands/import";
 import { registerIssueCommands } from "./commands/issue";
 import { registerProjectCommands } from "./commands/project";
 import { registerTemplateCommands } from "./commands/template";
@@ -35,6 +36,7 @@ export function buildProgram(): Command {
   registerAutomationCommands(program);
   registerAttachmentsCommands(program);
   registerGitCommands(program);
+  registerImportCommands(program);
   registerTemplateCommands(program);
   registerRecurringCommands(program);
   registerStatsCommands(program);
