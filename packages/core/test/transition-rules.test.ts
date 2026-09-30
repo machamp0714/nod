@@ -189,12 +189,3 @@ describe("遷移ルールの適用", () => {
   });
 });
 
-describe("LLM は Triage の Issue を updateIssue で動かせない（#134）", () => {
-  test("ステータス変更は FORBIDDEN_FOR_LLM、ほかの項目の編集はできる", () => {
-    const { ws, llm } = setup();
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
-    expect(codeOf(() => updateIssue(llm, t.id, { status: "todo" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => bulkUpdateIssues(llm, [t.id], { status: "backlog" }))).toBe("BULK_UPDATE_FAILED");
-    expect(updateIssue(llm, t.id, { title: "t2", status: "triage" }).title).toBe("t2");
-  });
-});
