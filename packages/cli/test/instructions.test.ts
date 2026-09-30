@@ -57,3 +57,22 @@ test("guide に追加指示の受け取り方と、記録・送信は人だけ�
   expect(GUIDE).toContain("nod issue instructions <id>");
   expect(GUIDE).toContain("LLM は FORBIDDEN_FOR_LLM");
 });
+
+test("nod review reject --delegate は対応依頼を記録し、LLM は start で受け取る（#58）", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo);
+  const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+  await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
+  await runNod(["issue", "done", created.id, "--summary", "直した"], { cwd: repo, db, actor: "claude-code" });
+  const bad = await runNod(["review", "reject", created.id, "x", "--delegate", "other", "--json"], { cwd: repo, db });
+  expect(bad.json.error.code).toBe("INVALID_ARGS");
+  const rejected = await runNod(["review", "reject", created.id, "main に追従して", "--delegate", "rebase"], { cwd: repo, db });
+  expect(rejected.exitCode).toBe(0);
+  expect(rejected.stdout).toContain("対応依頼を記録しました");
+  const started = await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
+  expect(started.stdout).toContain("[対応依頼（rebase）・未送信]");
+  expect(started.stdout).toContain("理由: main に追従して");
+  const { GUIDE } = await import("../src/guide");
+  expect(GUIDE).toContain("rebase：ベースブランチの最新に rebase");
+});

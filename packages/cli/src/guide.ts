@@ -50,6 +50,11 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    人の \`nod review approve\`（nod の承認）は Issue を done にするだけで、GitHub の承認・マージではない。nod は GitHub の PR に承認・マージを書き込まず、\`gh pr review\` も \`gh pr merge\` も実行しない。PR の承認・マージは GitHub 側で別に行う。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
    \`nod issue start\` は、まだ受け取っていない追加指示を \`pendingInstructions\`（テキストでは「追加指示」）で返す。先に読んで対応する。
+   人は差し戻しで「対応依頼」を付けることがある。種類は \`review_fix\`（指摘対応）と \`rebase\` で、本文に理由と手順が書かれている。
+   - 指摘対応：理由に書かれた指摘に対応し、テストを実行してから \`nod issue done <id> --summary "<対応の要約>"\` で再提出する。
+   - rebase：ベースブランチの最新に rebase して競合を解消し、テストを再実行して push してから \`nod issue done <id> --summary "<対応の要約>"\` で再提出する。
+   稼働中のセッションには、人が確認画面で送ると端末に \`nod: <id> が差し戻されました。…\` という通知が届く。セッションが無いときは、次に \`nod issue start <id>\` したときに受け取る。
+   差し戻された Issue は in_progress のため \`nod issue next\` には出ない。自分が担当していた Issue は \`nod issue list --status in_progress\` で確かめ、\`nod issue start <id>\` で拾う。
 
 ## 追加指示を受け取る
 

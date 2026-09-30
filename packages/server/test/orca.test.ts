@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, type GhRunResult, type OrcaRunner, startIssue } from "@nod/core";
+import { completeIssue, createIssue, getIssue, type GhRunResult, type OrcaRunner, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
@@ -91,5 +91,32 @@ describe("追加指示 API（#51）", () => {
     expect(blocked.json.error.code).toBe("SEND_UNCONFIRMED");
     const resent = await call(app, "POST", `/api/issues/${ref}/instructions/${created.id}/send`, { terminal: "term_a", confirmResend: true });
     expect(resent.json.sendState).toBe("unconfirmed");
+  });
+});
+
+describe("差し戻しの対応依頼 API（#58）", () => {
+  test("reject に delegate を付けると対応依頼を記録して返し、送信 API で送れる", async () => {
+    const sends: string[][] = [];
+    const { app, llm, ref } = withOrca(async (args) => {
+      if (args[1] === "list") return ok({ terminals: [{ handle: "term_a", title: "claude", worktreePath: WT, connected: true, writable: true, agentIdentity: "claude" }] });
+      sends.push(args);
+      return ok({ accepted: true });
+    });
+    completeIssue(llm, ref, { summary: "直した" });
+    const res = await call(app, "POST", `/api/issues/${ref}/reject`, { reason: "テストが足りない", delegate: "review_fix" });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ status: "in_progress", instruction: { kind: "review_fix", sendState: "unsent" } });
+    expect(sends).toEqual([]); // 差し戻しだけでは送らない
+    const sent = await call(app, "POST", `/api/issues/${ref}/instructions/${res.json.instruction.id}/send`, { terminal: "term_a" });
+    expect(sent.json.sendState).toBe("sent");
+    expect(sends[0]?.[5]).toContain(`nod: ${ref} が差し戻されました。対応依頼（指摘対応）: テストが足りない`);
+  });
+
+  test("delegate の不正な値は 400 で、差し戻さない", async () => {
+    const { app, llm, db, ref } = withOrca(null);
+    completeIssue(llm, ref, { summary: "直した" });
+    const res = await call(app, "POST", `/api/issues/${ref}/reject`, { reason: "x", delegate: "instruction" });
+    expect(res.status).toBe(400);
+    expect(getIssue(db, ref).status).toBe("in_review");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { startIssue } from "../src/ops/agent";
+import { completeIssue, startIssue } from "../src/ops/agent";
+import { rejectReview } from "../src/ops/human";
 import {
   getAgentTargets,
   instructionMessage,
@@ -11,7 +12,7 @@ import {
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import type { OrcaRunner } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
-import { codeOf, setup } from "./helpers";
+import { codeOf, eventsOf, setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
 const ok = (result: unknown): GhRunResult => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
@@ -232,5 +233,62 @@ describe("追加指示の送信", () => {
     const { me, ref } = working();
     const recorded = recordInstruction(me, ref, "秘密の長い指示\n2行目");
     expect(instructionMessage(recorded)).not.toContain("秘密の長い指示");
+  });
+});
+
+describe("差し戻しの対応依頼（#58）", () => {
+  function inReview() {
+    const s = working();
+    completeIssue(s.llm, s.ref, { summary: "直した" });
+    return s;
+  }
+
+  test("delegate を付けると、理由を構造化した対応依頼として記録し、理由だけのコメントは残さない", () => {
+    const { me, db, ref } = inReview();
+    const rejected = rejectReview(me, ref, "署名ヘッダが無いリクエストのテストが無い", { delegate: "review_fix" });
+    expect(rejected.status).toBe("in_progress");
+    expect(rejected.instruction).toMatchObject({ kind: "review_fix", createdBy: "me", sendState: "unsent" });
+    expect(rejected.instruction?.body).toBe(
+      [
+        "差し戻しの対応依頼（指摘対応）",
+        "理由: 署名ヘッダが無いリクエストのテストが無い",
+        "手順:",
+        `1. nod issue start ${ref} で再開する`,
+        "2. 理由に書かれた指摘に対応する",
+        `3. テストを実行し、nod issue done ${ref} --summary "<対応の要約>" で再提出する`,
+      ].join("\n"),
+    );
+    const detail = getIssue(db, ref);
+    const comments = detail.activity.filter((a) => a.kind === "comment");
+    expect(comments.filter((c) => c.kind === "comment" && c.body === "署名ヘッダが無いリクエストのテストが無い")).toEqual([]);
+    expect(comments.filter((c) => c.kind === "comment" && c.instruction?.kind === "review_fix")).toHaveLength(1);
+    expect(detail.pendingInstructions.map((i) => i.kind)).toEqual(["review_fix"]);
+    expect(eventsOf(db, ref).at(-1)).toMatchObject({ type: "review_rejected", data: { reason: "署名ヘッダが無いリクエストのテストが無い", delegate: "review_fix" } });
+  });
+
+  test("rebase の手順と端末への定型文", () => {
+    const { me, ref } = inReview();
+    const { instruction } = rejectReview(me, ref, "main が進んだので追従して\n詳細は PR に", { delegate: "rebase" });
+    expect(instruction?.body).toContain("2. ベースブランチの最新に rebase し、競合を解消する");
+    expect(instructionMessage(instruction!)).toBe(
+      `nod: ${ref} が差し戻されました。対応依頼（rebase）: main が進んだので追従して。nod issue start ${ref} で再開し、nod issue show ${ref} で指示を読んでください`,
+    );
+  });
+
+  test("delegate なしは従来どおり理由のコメントだけ。LLM の対応依頼と不正な値は拒否する", () => {
+    const { me, llm, db, ref } = inReview();
+    expect(codeOf(() => rejectReview(llm, ref, "x", { delegate: "rebase" }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => rejectReview(me, ref, "x", { delegate: "instruction" as never }))).toBe("INVALID_ARGS");
+    expect(getIssue(db, ref).status).toBe("in_review");
+    const plain = rejectReview(me, ref, "理由だけ");
+    expect("instruction" in plain).toBe(false);
+    expect(listInstructions(db, ref)).toEqual([]);
+    expect(eventsOf(db, ref).at(-1)?.data).toEqual({ reason: "理由だけ" });
+  });
+
+  test("LLM は start で対応依頼を受け取る（next では拾わない）", () => {
+    const { me, llm, ref } = inReview();
+    rejectReview(me, ref, "テスト不足", { delegate: "review_fix" });
+    expect(takePendingInstructions(llm, ref).map((i) => i.kind)).toEqual(["review_fix"]);
   });
 });

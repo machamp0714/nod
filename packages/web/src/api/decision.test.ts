@@ -17,6 +17,7 @@ describe("actionRequest", () => {
 
   test("差し戻し、重複、後回しは server のキーで送る", () => {
     expect(actionRequest({ op: "reject", issueId: "API-1", reason: "テストが足りない" }).body).toEqual({ reason: "テストが足りない" });
+    expect(actionRequest({ op: "reject", issueId: "API-1", reason: " x ", delegate: "rebase" }).body).toEqual({ reason: "x", delegate: "rebase" });
     expect(actionRequest({ op: "duplicate", issueId: "API-1", original: " api-2 " }).body).toEqual({ original: "api-2" });
     expect(actionRequest({ op: "snooze", issueId: "API-1", until: "2026-10-01" }).body).toEqual({ until: "2026-10-01" });
   });
