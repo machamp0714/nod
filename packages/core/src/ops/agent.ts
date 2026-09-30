@@ -5,6 +5,7 @@ import { NodError } from "../errors";
 import { addComment, recordEvent } from "../events";
 import { OPEN_BLOCKER, READY_WHERE, findWritableIssueRow, formatIssueId, type IssueRow, issueRowById, type QuestionRow, toIssue, toQuestion } from "../issue-query";
 import { setColumn } from "../mutate";
+import { assertTransitionAllowed } from "../transition-rules";
 import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
@@ -64,6 +65,11 @@ export function nextIssue(
     const projectId = opts.projectRef ? resolveProject(ctx.db, opts.projectRef).id : null;
     const ts = now();
     const candidates = ctx.db.query(NEXT_SQL).all(opts.workspaceId, ts, ctx.actor, projectId, projectId) as { id: number }[];
+    if (candidates.length > 0) {
+      // 取る操作は todo → in_progress の遷移なので、遷移ルール（#73）で禁止されていれば取らずに理由を返す
+      const ws = ctx.db.query("SELECT key FROM workspaces WHERE id = ?").get(opts.workspaceId) as { key: string };
+      assertTransitionAllowed(ctx.db, { workspace_id: opts.workspaceId, ws_key: ws.key }, "todo", "in_progress");
+    }
     for (const c of candidates) {
       // ほかの接続が先に取っていたら更新件数が0になるので、次の候補に進む
       const claimed = ctx.db
