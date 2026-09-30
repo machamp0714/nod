@@ -188,10 +188,10 @@ export function summarizeWork(minutes: (number | null)[]): WorkTime {
   };
 }
 
-// 取り込んだ時点で閉じていた Issue（#77）。created の event の status が done・canceled で、その後に状態の遷移がない。
+// 取り込んだ時点で閉じていた Issue（#77）。created の event が取り込み由来で status が done・canceled で、その後に状態の遷移がない。
 // nod で完了・キャンセルしたものではないので完了数に数えない。取り込み後に開き直して閉じたものは数える。i は issues の別名
 export const CLOSED_ON_IMPORT_SQL = `(EXISTS (SELECT 1 FROM events c WHERE c.issue_id = i.id AND c.type = 'created'
-    AND json_extract(c.data, '$.status') IN ('done', 'canceled'))
+    AND json_extract(c.data, '$.imported_from') IS NOT NULL AND json_extract(c.data, '$.status') IN ('done', 'canceled'))
   AND NOT EXISTS (SELECT 1 FROM events s WHERE s.issue_id = i.id AND s.type = 'status_changed'))`;
 
 // 期間ごとの完了数と作業時間。完了は status = 'done' の closed_at で数え、Project の Done 数と定義を揃える
