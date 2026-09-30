@@ -9,9 +9,11 @@ export const RULE_STATUSES: Status[] = STATUS_ORDER.filter((s) => s !== "needs_c
 
 export const REVIEW_BEFORE_DONE: TransitionPreset = "review_before_done";
 
-// 塞ぐとレビュー承認・Triage の判断ができなくなる遷移
+// 塞ぐとレビュー依頼・承認・差し戻し・Triage の判断ができなくなる遷移
 const PROTECTED_PAIRS: { from: Status; to: Status; why: string }[] = [
   { from: "in_review", to: "done", why: "レビュー承認に必要" },
+  { from: "in_progress", to: "in_review", why: "レビュー依頼（nod issue done）に必要" },
+  { from: "in_review", to: "in_progress", why: "レビューの差し戻しに必要" },
   { from: "triage", to: "todo", why: "Triage の受け入れに必要" },
   { from: "triage", to: "canceled", why: "Triage の却下・重複に必要" },
 ];

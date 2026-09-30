@@ -74,8 +74,10 @@ describe("ステータスの遷移ルールの設定", () => {
       { forbidden: [{ from: "todo", to: "needs_clarification" }] },
       { forbidden: [{ from: "todo", to: "todo" }] },
       { presets: ["nope"] },
-      // レビュー承認の経路は塞げない
+      // レビュー依頼・承認・差し戻しの経路は塞げない
       { forbidden: [{ from: "in_review", to: "done" }] },
+      { forbidden: [{ from: "in_progress", to: "in_review" }] },
+      { forbidden: [{ from: "in_review", to: "in_progress" }] },
       // Triage の判断（受け入れ・却下）の経路は塞げない
       { forbidden: [{ from: "triage", to: "todo" }] },
       { forbidden: [{ from: "triage", to: "canceled" }] },
@@ -140,26 +142,25 @@ describe("遷移ルールの適用", () => {
     expect(updateIssue(me, b.id, {}).status).toBe("in_review");
   });
 
-  test("LLM の着手・完了報告もルールに従う", () => {
+  test("LLM の着手もルールに従い、完了報告（レビュー依頼）は塞がれない", () => {
     const { ws, me, llm } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "in_progress" }] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "in_progress" }], presets: ["review_before_done"] });
     expect(codeOf(() => startIssue(llm, issue.id))).toBe("TRANSITION_NOT_ALLOWED");
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "in_progress", to: "in_review" }] });
+    setTransitionRules(me, ws.key, { presets: ["review_before_done"] });
     startIssue(llm, issue.id);
-    expect(codeOf(() => completeIssue(llm, issue.id, { summary: "終わりました" }))).toBe("TRANSITION_NOT_ALLOWED");
-    expect(updateIssue(me, issue.id, {}).status).toBe("in_progress");
+    expect(completeIssue(llm, issue.id, { summary: "終わりました" }).status).toBe("in_review");
   });
 
-  test("Triage の判断とレビューの差し戻しもルールに従う", () => {
+  test("Triage の判断とレビューの差し戻しはルールがあっても塞がれない", () => {
     const { ws, me, llm } = setup();
     const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "in_review", to: "in_progress" }] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: ["review_before_done"] });
     expect(acceptTriage(me, t.id).status).toBe("todo");
     const t2 = createIssue(llm, { workspaceId: ws.id, title: "t2" });
     expect(declineTriage(me, t2.id).status).toBe("canceled");
     updateIssue(me, t.id, { status: "in_review" });
-    expect(codeOf(() => rejectReview(me, t.id, "直して"))).toBe("TRANSITION_NOT_ALLOWED");
+    expect(rejectReview(me, t.id, "直して").status).toBe("in_progress");
   });
 
   test("確認依頼による needs_clarification の出入りはルールの対象にしない", () => {
