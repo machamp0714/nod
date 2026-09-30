@@ -117,3 +117,22 @@ test("コメントのモードでは今までどおりコメントになる", as
   await expect(activity.getByRole("article", { name: "追加指示" })).toHaveCount(0);
   expect(await orcaCalls()).toEqual([]);
 });
+
+test("送信結果不明の送り直しは、前に送った端末を既定にする", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("検索");
+  const terminals = ok({ terminals: [term(api.repo, "term_a"), term(api.repo, "term_b", "codex", "codex")] });
+  await stubOrca({ "terminal list": terminals, "terminal send": { kind: "timeout" } });
+  const activity = await openInstruction(page, issue.id);
+  const choose = page.getByRole("dialog", { name: "送信先を選んでください" });
+  await choose.getByRole("radio", { name: /codex · codex/ }).check();
+  await choose.getByRole("button", { name: "送信", exact: true }).click();
+  const card = activity.getByRole("article", { name: "追加指示" });
+  await expect(card.getByText(/^送信結果不明/)).toBeVisible();
+
+  await stubOrca({ "terminal list": terminals, "terminal send": ok({ accepted: true }) });
+  await card.getByRole("button", { name: "送信…" }).click();
+  const retry = page.getByRole("dialog", { name: "送信先を選んでください" });
+  await expect(retry.getByRole("radio", { name: /codex · codex/ })).toBeChecked();
+  await expect(retry.getByRole("radio", { name: /claude · claude/ })).not.toBeChecked();
+});

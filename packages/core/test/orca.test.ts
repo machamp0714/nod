@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
-import { cdCommand, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner } from "../src/ops/orca";
+import { cdCommand, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
 import { setup } from "./helpers";
 
@@ -122,6 +122,27 @@ describe("openInOrca（#52）", () => {
     const { run, calls } = stubOrca({});
     expect(await openInOrca(none.db, none.ref, run)).toMatchObject({ opened: false, worktree: null, copyCommand: null, failure: { code: "NO_WORKTREE" } });
     expect(calls).toHaveLength(0);
+  });
+
+  test("worktree のパスはシンボリックリンクと末尾のスラッシュの違いを無視して比べる", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "nod-orca-path-")));
+    const real = join(root, "real");
+    mkdirSync(real);
+    const link = join(root, "link");
+    symlinkSync(real, link);
+    expect(samePath(real, link)).toBe(true);
+    expect(samePath(`${real}/`, real)).toBe(true);
+    expect(samePath("/no/such/dir/", "/no/such/dir")).toBe(true);
+    expect(samePath(`${real}/nested`, real)).toBe(false);
+
+    const { db, ref } = issueWithWorktree(link);
+    const { run, calls } = stubOrca({
+      "terminal list": ok({ terminals: [terminal({ worktreePath: `${real}/` })] }),
+      "terminal switch": ok({ terminal: { handle: "term_a" } }),
+    });
+    const res = await openInOrca(db, ref, run);
+    expect(res.failure).toBeNull();
+    expect(calls.map((c) => c[1])).toEqual(["list", "switch"]);
   });
 
   test("cd コマンドは単一引用符を含むパスもそのまま貼れる形にする", () => {

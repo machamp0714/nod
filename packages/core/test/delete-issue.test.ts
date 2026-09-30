@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, realpathSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { addFileAttachment, attachmentFile } from "../src/ops/attachments";
+import { recordInstruction } from "../src/ops/instructions";
 import { deleteIssue, listIssueDeletions } from "../src/ops/issue-deletions";
 import { archiveIssue, commentIssue, createIssue, getIssue, relateIssue } from "../src/ops/issues";
 import { subscribeIssue } from "../src/ops/notifications";
@@ -54,6 +55,7 @@ describe("deleteIssue", () => {
     commentIssue(me, parent.id, "メモ");
     subscribeIssue(me, parent.id);
     commentIssue(llm, parent.id, "調べました");
+    recordInstruction(me, parent.id, "テストも追加して");
     const row = db.query("SELECT id FROM issues WHERE number = ?").get(Number(parent.id.split("-")[1])) as { id: number };
     db.query(
       `INSERT INTO recurring_issues (workspace_id, title, cadence, start_date, time_zone, created_by, created_at, updated_by, updated_at)
@@ -62,7 +64,7 @@ describe("deleteIssue", () => {
     db.query("INSERT INTO recurring_issue_occurrences (recurring_id, occurrence_date, issue_id, created_at) VALUES (1, '2026-09-01', ?, '')").run(row.id);
     archiveIssue(me, parent.id);
     // 消えることを確かめる前に、消える対象の行が実際にあることを確かめる
-    for (const table of ["comments", "events", "notifications", "subscriptions"]) {
+    for (const table of ["comments", "events", "notifications", "subscriptions", "agent_instructions"]) {
       expect(count(db, table, "issue_id = ?", row.id)).toBeGreaterThan(0);
     }
     expect(count(db, "relations", "from_id = ? OR to_id = ?", row.id, row.id)).toBeGreaterThan(0);
@@ -75,7 +77,7 @@ describe("deleteIssue", () => {
     expect(codeOf(() => getIssue(db, parent.id))).toBe("NOT_FOUND");
     expect(getIssue(db, child.id).parentId ?? null).toBeNull();
     for (const table of ["relations"]) expect(count(db, table, "from_id = ? OR to_id = ?", row.id, row.id)).toBe(0);
-    for (const table of ["comments", "events", "notifications", "subscriptions"]) {
+    for (const table of ["comments", "events", "notifications", "subscriptions", "agent_instructions"]) {
       expect(count(db, table, "issue_id = ?", row.id)).toBe(0);
     }
     expect(count(db, "recurring_issue_occurrences", "occurrence_date = '2026-09-01' AND issue_id IS NULL")).toBe(1);

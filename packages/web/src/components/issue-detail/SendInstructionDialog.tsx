@@ -46,10 +46,12 @@ export function SendInstructionDialog({
   }, []);
 
   const terminals = targets.data?.terminals ?? [];
-  const selected = terminals.find((t) => t.handle === chosen) ?? terminals[0];
   const existing = target.kind === "existing" ? target.instruction : null;
   const body = existing ? existing.body : target.kind === "new" ? target.body : "";
   const unconfirmed = existing?.sendState === "unconfirmed";
+  // 結果不明の再試行は、前に送った端末を既定にする（受付 ID のある再試行は同じ端末にだけ送れる）
+  const fallback = (unconfirmed && terminals.find((t) => t.handle === existing?.sentTerminal)) || terminals[0];
+  const selected = terminals.find((t) => t.handle === chosen) ?? fallback;
 
   async function run(withSend: boolean) {
     if (running.current) return;

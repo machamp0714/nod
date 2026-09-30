@@ -23,8 +23,9 @@ export const INSTRUCTION_KIND_LABEL: Record<AgentInstructionKind, string> = {
   rebase: "対応依頼（rebase）",
 };
 
-// 送信中のまま残った記録（送信中に server が止まったなど）は、この時間を過ぎたら結果不明として扱う
-const SENDING_STALE_MS = ORCA_TIMEOUT_MS * 2;
+// 送信中のまま残った記録（送信中に server が止まったなど）は、この時間を過ぎたら結果不明として扱う。
+// 送信中の操作が終わる前に結果不明にして送り直せないよう、orca の時間切れより十分長くする
+export const SENDING_STALE_MS = 60_000;
 const SEND_OUTPUT_MAX_BYTES = 1024 * 1024;
 const SUMMARY_MAX = 100;
 
@@ -150,14 +151,21 @@ function firstLine(text: string): string {
   return chars.length <= SUMMARY_MAX ? line : `${chars.slice(0, SUMMARY_MAX - 1).join("")}…`;
 }
 
-// 端末に送る定型文。全文は nod に残るので、エスケープや長文の問題を避けるため短くする
+// 端末の入力として解釈される文字（\r・ESC などの制御文字）。定型文から除き、改行や端末の操作として働かないようにする
+// biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字を取り除くための正規表現
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]+/g;
+
+// 端末に送る定型文。全文は nod に残るので、エスケープや長文の問題を避けるため短くし、制御文字を除く
 export function instructionMessage(instruction: AgentInstruction): string {
   const id = instruction.issueId;
   if (instruction.kind === "instruction") {
-    return `nod: ${id} に追加指示があります（#${instruction.id}）。nod issue show ${id} で読んでください`;
+    return `nod: ${id} に追加指示があります（#${instruction.id}）。nod issue show ${id} で読んでください`.replace(CONTROL_CHARS, " ");
   }
   const reason = firstLine(instruction.body.replace(/^.*\n理由: /s, ""));
-  return `nod: ${id} が差し戻されました。${INSTRUCTION_KIND_LABEL[instruction.kind]}: ${reason}。nod issue start ${id} で再開し、nod issue show ${id} で指示を読んでください`;
+  return `nod: ${id} が差し戻されました。${INSTRUCTION_KIND_LABEL[instruction.kind]}: ${reason}。nod issue start ${id} で再開し、nod issue show ${id} で指示を読んでください`.replace(
+    CONTROL_CHARS,
+    " ",
+  );
 }
 
 // 受付の結果から accepted と受付 ID を探す（orca の版によって置き場所が違うため、浅い階層だけを探す）
@@ -219,16 +227,18 @@ export async function sendInstruction(
   }
 
   // 同じ指示を同時に送らないよう、読んだときの状態のままなら送信中にする
+  const attemptedAt = now();
   const claimed = ctx.db
     .query("UPDATE agent_instructions SET send_state = 'sending', send_attempted_at = ? WHERE id = ? AND send_state = ? AND (send_attempted_at IS ? OR send_attempted_at = ?)")
-    .run(now(), instructionId, current.send_state, current.send_attempted_at, current.send_attempted_at);
+    .run(attemptedAt, instructionId, current.send_state, current.send_attempted_at, current.send_attempted_at);
   if (claimed.changes === 0) throw new NodError("INSTRUCTION_SENDING", `追加指示 #${instructionId} はほかの操作が送信しています`);
 
+  // 自分が送信中にした記録のときだけ結果を書く。結果不明とみなされたあとに別の操作が送り直していたら、その記録を上書きしない
   const finish = (state: AgentInstructionSendState, fields: { failure?: OrcaFailure | null; requestId?: string | null; agent?: string | null }) => {
-    ctx.db
+    const updated = ctx.db
       .query(
         `UPDATE agent_instructions SET send_state = ?, sent_terminal = ?, sent_agent = COALESCE(?, sent_agent), send_request_id = ?,
-          send_error_code = ?, send_error_message = ?, sent_at = ?, sent_by = ? WHERE id = ?`,
+          send_error_code = ?, send_error_message = ?, sent_at = ?, sent_by = ? WHERE id = ? AND send_state = 'sending' AND send_attempted_at = ?`,
       )
       .run(
         state,
@@ -240,8 +250,9 @@ export async function sendInstruction(
         state === "sent" ? now() : null,
         state === "sent" ? ctx.actor : null,
         instructionId,
+        attemptedAt,
       );
-    ctx.db.query("UPDATE issues SET updated_at = ? WHERE id = ?").run(now(), issue.id);
+    if (updated.changes > 0) ctx.db.query("UPDATE issues SET updated_at = ? WHERE id = ?").run(now(), issue.id);
     return toInstruction(instructionRow(ctx.db, instructionId) as InstructionRow);
   };
 
@@ -259,9 +270,11 @@ export async function sendInstruction(
     const requestId = (result.kind === "exited" ? requestIdOf(result.stdout) : null) ?? retryId;
     const envelope = readOrcaEnvelope(result);
     if (!envelope.ok) {
-      // 時間切れや、受付 ID のある失敗は、届いたか分からないとして記録する
-      const unknown = envelope.failure.code === "TIMEOUT" || (requestId !== null && envelope.failure.code === "ORCA_ERROR");
-      return finish(unknown ? "unconfirmed" : "failed", { failure: envelope.failure, requestId, agent: target.agentIdentity });
+      // 届いていないと分かるのは、orca が起動しなかったとき（not_found・spawn_failed）と端末が無いときだけ。
+      // それ以外（時間切れ・出力過大・非0終了・未知のエラーコード）は、届いたか分からないとして記録する
+      const notSent =
+        result.kind === "not_found" || result.kind === "spawn_failed" || envelope.failure.code === "TERMINAL_NOT_FOUND";
+      return finish(notSent ? "failed" : "unconfirmed", { failure: envelope.failure, requestId, agent: target.agentIdentity });
     }
     if (findField(envelope.result, ["accepted"]) === false) {
       return finish("failed", { failure: orcaFailure("ORCA_ERROR", "端末が入力を受け付けませんでした"), requestId: null, agent: target.agentIdentity });
@@ -273,16 +286,34 @@ export async function sendInstruction(
   }
 }
 
+// 渡した追加指示だけを確認済みにする（読んだあとに記録された指示は未確認のまま残す）
+function acknowledge(ctx: OpCtx, issueRowId: number, instructions: AgentInstruction[]): void {
+  const ts = now();
+  const query = ctx.db.query(
+    "UPDATE agent_instructions SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ? AND issue_id = ? AND acknowledged_at IS NULL",
+  );
+  for (const i of instructions) query.run(ts, ctx.actor, i.id, issueRowId);
+}
+
 // LLM が nod issue start で受け取る、未確認の追加指示・対応依頼。LLM が受け取ったら確認済みにする（人の start では確認済みにしない）
 export function takePendingInstructions(ctx: OpCtx, ref: string): AgentInstruction[] {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const pending = pendingInstructionsOfIssue(ctx.db, row.id);
-    if (!isLlm(ctx) || pending.length === 0) return pending;
-    const ts = now();
-    ctx.db
-      .query("UPDATE agent_instructions SET acknowledged_at = ?, acknowledged_by = ? WHERE issue_id = ? AND acknowledged_at IS NULL")
-      .run(ts, ctx.actor, row.id);
+    if (isLlm(ctx) && pending.length > 0) acknowledge(ctx, row.id, pending);
     return pending;
+  });
+}
+
+// 担当の LLM が nod issue show で読んだ未確認の追加指示を確認済みにする（作業中に読んだ指示を次の start で渡し直さないため）。
+// 人や担当でない LLM の show では変えない。確認済みにした数を返す
+export function acknowledgeShownInstructions(ctx: OpCtx, ref: string, shown: AgentInstruction[]): number {
+  if (!isLlm(ctx) || shown.length === 0) return 0;
+  return tx(ctx.db, () => {
+    const row = findIssueRow(ctx.db, ref);
+    if (row.assignee !== ctx.actor) return 0;
+    const before = pendingInstructionsOfIssue(ctx.db, row.id).length;
+    acknowledge(ctx, row.id, shown);
+    return before - pendingInstructionsOfIssue(ctx.db, row.id).length;
   });
 }

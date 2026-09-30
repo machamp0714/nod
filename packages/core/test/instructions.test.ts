@@ -6,6 +6,8 @@ import {
   instructionMessage,
   listInstructions,
   recordInstruction,
+  acknowledgeShownInstructions,
+  SENDING_STALE_MS,
   sendInstruction,
   takePendingInstructions,
 } from "../src/ops/instructions";
@@ -80,6 +82,20 @@ describe("LLM の受け取り", () => {
     expect(takePendingInstructions(llm, ref)).toEqual([]);
     expect(getIssue(db, ref).pendingInstructions).toEqual([]);
     expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: "claude-code" });
+  });
+
+  test("担当の LLM が show で読んだ指示だけを確認済みにし、次の start では渡さない。人・担当でない LLM では変えない", () => {
+    const { me, llm, db, ref } = working();
+    const first = recordInstruction(me, ref, "テストも追加して");
+    const shown = getIssue(db, ref).pendingInstructions;
+    expect(acknowledgeShownInstructions(me, ref, shown)).toBe(0);
+    expect(acknowledgeShownInstructions({ db, actor: "codex" }, ref, shown)).toBe(0);
+    expect(getIssue(db, ref).pendingInstructions.map((i) => i.id)).toEqual([first.id]);
+    // 読んだあとに記録された指示は未確認のまま残る
+    const later = recordInstruction(me, ref, "README も直して");
+    expect(acknowledgeShownInstructions(llm, ref, shown)).toBe(1);
+    expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: "claude-code" });
+    expect(takePendingInstructions(llm, ref).map((i) => i.id)).toEqual([later.id]);
   });
 });
 
@@ -206,6 +222,40 @@ describe("追加指示の送信", () => {
     expect(code).toBe("INVALID_ARGS");
   });
 
+  test("受付 ID のない非0終了・未知のエラーコード・出力過大は結果不明、orca が起動しない・端末が無いは失敗", async () => {
+    const cases: [GhRunResult, string, string][] = [
+      [{ kind: "exited", exitCode: 1, stdout: "", stderr: "boom" }, "unconfirmed", "ORCA_ERROR"],
+      [{ kind: "exited", exitCode: 1, stdout: JSON.stringify({ ok: false, error: { code: "something_new", message: "?" } }), stderr: "" }, "unconfirmed", "ORCA_ERROR"],
+      [{ kind: "too_large", limitBytes: 1024 }, "unconfirmed", "ORCA_ERROR"],
+      [{ kind: "timeout" }, "unconfirmed", "TIMEOUT"],
+      [{ kind: "not_found" }, "failed", "ORCA_NOT_INSTALLED"],
+      [{ kind: "spawn_failed", detail: "EACCES" }, "failed", "ORCA_ERROR"],
+      [{ kind: "exited", exitCode: 1, stdout: JSON.stringify({ ok: false, error: { code: "terminal_not_found" } }), stderr: "" }, "failed", "TERMINAL_NOT_FOUND"],
+      [{ kind: "exited", exitCode: 1, stdout: JSON.stringify({ ok: false, error: { code: "terminal_handle_stale" } }), stderr: "" }, "failed", "TERMINAL_NOT_FOUND"],
+    ];
+    for (const [result, state, code] of cases) {
+      const { me, ref } = working();
+      const recorded = recordInstruction(me, ref, "x");
+      const { run } = stubOrca({ "terminal list": LIST_ONE, "terminal send": result });
+      const res = await sendInstruction(me, ref, recorded.id, { terminal: "term_a" }, run);
+      expect({ kind: result.kind, state: res.sendState as string, code: res.sendError?.code as string | undefined }).toEqual({ kind: result.kind, state, code });
+    }
+  });
+
+  test("送信中に結果不明とみなされ送り直されたら、先の送信の結果で上書きしない", async () => {
+    const { me, db, ref } = working();
+    const recorded = recordInstruction(me, ref, "x");
+    const run: OrcaRunner = async (args) => {
+      if (args[1] === "list") return LIST_ONE;
+      // 送信中に、別の操作が送信中にし直した（send_attempted_at が変わった）
+      db.query("UPDATE agent_instructions SET send_state = 'sending', send_attempted_at = ? WHERE id = ?").run("2099-01-01T00:00:00.000Z", recorded.id);
+      return { kind: "exited", exitCode: 1, stdout: "", stderr: "late failure" };
+    };
+    await sendInstruction(me, ref, recorded.id, { terminal: "term_a" }, run);
+    const row = db.query("SELECT send_state, send_attempted_at, send_error_code FROM agent_instructions WHERE id = ?").get(recorded.id);
+    expect(row).toEqual({ send_state: "sending", send_attempted_at: "2099-01-01T00:00:00.000Z", send_error_code: null });
+  });
+
   test("accepted: false は failed", async () => {
     const { me, ref } = working();
     const recorded = recordInstruction(me, ref, "x");
@@ -229,10 +279,31 @@ describe("追加指示の送信", () => {
     expect(listInstructions(db, ref)[0]).toMatchObject({ sendState: "unconfirmed", sendError: { code: "TIMEOUT" } });
   });
 
+  test("結果不明とみなすのは送信を始めてから60秒を過ぎたとき", () => {
+    expect(SENDING_STALE_MS).toBe(60_000);
+    const { me, db, ref } = working();
+    const recorded = recordInstruction(me, ref, "x");
+    const at = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const set = db.query("UPDATE agent_instructions SET send_state = 'sending', send_attempted_at = ? WHERE id = ?");
+    set.run(at(55_000), recorded.id);
+    expect(listInstructions(db, ref)[0]?.sendState).toBe("sending");
+    set.run(at(61_000), recorded.id);
+    expect(listInstructions(db, ref)[0]?.sendState).toBe("unconfirmed");
+  });
+
   test("定型文は1行で、本文そのものは送らない", () => {
     const { me, ref } = working();
     const recorded = recordInstruction(me, ref, "秘密の長い指示\n2行目");
     expect(instructionMessage(recorded)).not.toContain("秘密の長い指示");
+  });
+
+  test("定型文から \\r と制御文字を除く", () => {
+    const { me, db, llm, ref } = working();
+    completeIssue(llm, ref, { summary: "直した" });
+    rejectReview(me, ref, "テスト\r\x1b[2Jが\x07落ちる\x7f", { delegate: "review_fix" });
+    const message = instructionMessage(listInstructions(db, ref).at(-1) as ReturnType<typeof listInstructions>[number]);
+    expect(message).toContain("テスト [2Jが 落ちる ");
+    expect(message).not.toMatch(/[\u0000-\u001f\u007f]/);
   });
 });
 

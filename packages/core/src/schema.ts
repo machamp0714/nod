@@ -454,7 +454,7 @@ export const MIGRATIONS: MigrationStep[][] = [
   // LLM への追加指示（#51）と差し戻しの対応依頼（#58）。本文は comments に通常のコメント（log_kind NULL）として残し、
   // 種類と Orca の端末への送信状態をこの表に持つ。送信は人の明示操作でだけ行い、同じ指示を二重に送らないよう send_state で管理する。
   // send_request_id は orca terminal send の受付 ID で、結果が分からないときの再試行（--retry-request）にだけ使う。
-  // acknowledged_at は LLM が nod issue start で受け取った日時（未確認の指示を pendingInstructions で渡す）
+  // acknowledged_at は LLM が nod issue start で受け取った、または担当の LLM が nod issue show で読んだ日時（未確認の指示を pendingInstructions で渡す）
   [
     `CREATE TABLE agent_instructions (
       id INTEGER PRIMARY KEY,

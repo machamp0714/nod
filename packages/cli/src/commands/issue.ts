@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  acknowledgeShownInstructions,
   addFileAttachment,
   addLinkAttachment,
   archiveIssue,
@@ -225,6 +226,8 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
+        // 担当の LLM が読んだ未確認の追加指示は確認済みにする（表示は読んだ時点の「未確認」のまま）
+        acknowledgeShownInstructions(cli.ctx, detail.id, detail.pendingInstructions);
         const rules = workspaceGuidance(cli.db, detail.workspace);
         const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
         print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { findIssueRow, formatIssueId } from "../issue-query";
 import type { OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal } from "../types";
 import { createCommandRunner, type GhRunner, type GhRunResult } from "./pr-status";
@@ -117,8 +117,23 @@ export async function listOrcaTerminals(
     .map((t) => toTerminal(t as RawTerminal))
     .filter((t): t is OrcaTerminal => t !== null)
     // 別の worktree（入れ子の worktree など）の端末は宛先にしない
-    .filter((t) => t.worktreePath === null || t.worktreePath === worktree);
+    .filter((t) => t.worktreePath === null || samePath(t.worktreePath, worktree));
   return { terminals };
+}
+
+// シンボリックリンク（macOS の /tmp → /private/tmp など）と末尾のスラッシュの違いを無視して比べる
+function normalizePath(path: string): string {
+  let resolved = path;
+  try {
+    resolved = realpathSync(path);
+  } catch {
+    // この機械に無いパスはそのまま比べる
+  }
+  return resolved.length > 1 ? resolved.replace(/\/+$/, "") || "/" : resolved;
+}
+
+export function samePath(a: string, b: string): boolean {
+  return a === b || normalizePath(a) === normalizePath(b);
 }
 
 // 稼働中の LLM の端末（エージェントが動いていて、書き込める端末）

@@ -3,7 +3,7 @@ import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 // 追加指示（#51）の CLI。orca は使わない（記録と一覧だけで、送信は web の確認画面から行う）
 describe("nod issue instruct / instructions", () => {
-  test("人が記録し、LLM は start で受け取って確認済みになり、show で読める", async () => {
+  test("人が記録し、LLM は start で受け取って確認済みになる。人の show では確認済みにしない", async () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
@@ -14,7 +14,7 @@ describe("nod issue instruct / instructions", () => {
     expect(recorded.exitCode).toBe(0);
     expect(recorded.json).toMatchObject({ kind: "instruction", body: "テストも追加して", createdBy: "me", sendState: "unsent" });
 
-    const shown = await runNod(["issue", "show", created.id], { cwd: repo, db, actor: "claude-code" });
+    const shown = await runNod(["issue", "show", created.id], { cwd: repo, db });
     expect(shown.stdout).toContain("未確認の追加指示:");
     expect(shown.stdout).toContain("[追加指示・未送信]");
     expect(shown.stdout).toContain("[追加指示・未確認]: テストも追加して");
@@ -25,6 +25,27 @@ describe("nod issue instruct / instructions", () => {
     expect(again.json.pendingInstructions).toEqual([]);
 
     const list = await runNod(["issue", "instructions", created.id], { cwd: repo, db, actor: "claude-code" });
+    expect(list.stdout).toContain("claude-code が確認済み");
+  });
+
+  test("担当の LLM が作業中に show で読んだ指示は確認済みになり、次の start で渡し直さない。担当でない LLM の show では変えない", async () => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
+    await runNod(["issue", "instruct", created.id, "テストも追加して"], { cwd: repo, db });
+
+    const other = await runNod(["issue", "show", created.id, "--json"], { cwd: repo, db, actor: "codex" });
+    expect(other.json.pendingInstructions).toHaveLength(1);
+    const shown = await runNod(["issue", "show", created.id], { cwd: repo, db, actor: "claude-code" });
+    // 読んだときの表示は「未確認」のまま
+    expect(shown.stdout).toContain("未確認の追加指示:");
+    expect(shown.stdout).toContain("テストも追加して");
+
+    const restarted = await runNod(["issue", "start", created.id, "--json"], { cwd: repo, db, actor: "claude-code" });
+    expect(restarted.json.pendingInstructions).toEqual([]);
+    const list = await runNod(["issue", "instructions", created.id], { cwd: repo, db });
     expect(list.stdout).toContain("claude-code が確認済み");
   });
 
@@ -56,6 +77,7 @@ test("guide に追加指示の受け取り方と、記録・送信は人だけ�
   expect(GUIDE).toContain("pendingInstructions");
   expect(GUIDE).toContain("nod issue instructions <id>");
   expect(GUIDE).toContain("LLM は FORBIDDEN_FOR_LLM");
+  expect(GUIDE).toContain("担当の LLM が \`nod issue show\` で読むと確認済みになり");
 });
 
 test("nod review reject --delegate は対応依頼を記録し、LLM は start で受け取る（#58）", async () => {
