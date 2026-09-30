@@ -13,7 +13,8 @@ import {
 } from "../types";
 import { resolveProject, selectProjectSummaries } from "./projects";
 
-export function resolveInitiative(db: Database, ref: string): { id: number; name: string } {
+export function resolveInitiative(db: Database, raw: string): { id: number; name: string } {
+  const ref = raw.trim();
   const row = (
     /^\d+$/.test(ref)
       ? db.query("SELECT id, name FROM initiatives WHERE id = ?").get(Number(ref))
@@ -65,8 +66,10 @@ const SUMMARY_SELECT = `SELECT n.*,
   (SELECT count(*) FROM issues i WHERE ${inInitiative} AND i.status = 'done') AS done
 FROM initiatives n`;
 
-function validateName(name: unknown): string {
-  if (typeof name !== "string" || !name.trim()) throw new NodError("INVALID_ARGS", "Initiative の名前を指定してください");
+// 前後の空白は取り除いた名前を返す（Cycle・Milestone と同じ）
+function validateName(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.trim()) throw new NodError("INVALID_ARGS", "Initiative の名前を指定してください");
+  const name = raw.trim();
   if (/^\d+$/.test(name)) {
     throw new NodError("INVALID_ARGS", `Initiative の名前に数字だけ（${name}）は使えません。数字は ID として解釈されるためです`);
   }
@@ -102,7 +105,7 @@ export function updateInitiative(ctx: OpCtx, ref: string, input: UpdateInitiativ
   if (Object.values(input).every((v) => v === undefined)) {
     throw new NodError("INVALID_ARGS", "変更する項目（名前・説明・目標日・状態）を1つ以上指定してください");
   }
-  if (input.name !== undefined) validateName(input.name);
+  const name = input.name === undefined ? undefined : validateName(input.name);
   if (input.status !== undefined && !(INITIATIVE_STATUSES as readonly unknown[]).includes(input.status)) {
     throw new NodError("INVALID_ARGS", `Initiative のステータスは ${INITIATIVE_STATUSES.join(", ")} で指定してください`);
   }
@@ -112,7 +115,7 @@ export function updateInitiative(ctx: OpCtx, ref: string, input: UpdateInitiativ
     const row = ctx.db.query("SELECT * FROM initiatives WHERE id = ?").get(id) as InitiativeRow;
     const next: InitiativeRow = {
       ...row,
-      name: input.name ?? row.name,
+      name: name ?? row.name,
       description: input.description !== undefined ? input.description : row.description,
       target_date: input.targetDate !== undefined ? input.targetDate : row.target_date,
       status: input.status ?? row.status,

@@ -31,6 +31,16 @@ describe("Initiative", () => {
     expect(db.query("SELECT count(*) AS n FROM initiatives").get()).toEqual({ n: 1 });
   });
 
+  test("名前の前後の空白は取り除いて保存し、重複判定もそれで行う", () => {
+    const { me } = setup();
+    const i = createInitiative(me, { name: "  検索  " });
+    expect(i.name).toBe("検索");
+    expect(codeOf(() => createInitiative(me, { name: "検索 " }))).toBe("INITIATIVE_EXISTS");
+    expect(codeOf(() => createInitiative(me, { name: " 12 " }))).toBe("INVALID_ARGS");
+    expect(updateInitiative(me, "検索", { name: " 刷新 " }).name).toBe("刷新");
+    expect(getInitiative(me.db, " 刷新 ").name).toBe("刷新");
+  });
+
   test("名前・説明・目標日・状態を変えられ、null で説明と目標日を外せる", () => {
     const { me, llm } = setup();
     createInitiative(me, { name: "検索", description: "説明", targetDate: "2026-12-31" });
