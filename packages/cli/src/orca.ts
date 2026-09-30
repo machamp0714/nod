@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import type { WorkLocation } from "@nod/core";
+import { orcaCommand, type WorkLocation } from "@nod/core";
 
 export interface OrcaUpdate {
   status?: "in-progress" | "in-review";
@@ -12,13 +11,6 @@ const TIMEOUT_MS = 3000;
 function truncate(text: string): string {
   const chars = [...text];
   return chars.length <= MAX_COMMENT ? text : `${chars.slice(0, MAX_COMMENT - 1).join("")}…`;
-}
-
-// ORCA_CLI_COMMAND が実在するファイルなら空白を含んでもそのまま使い、そうでなければ空白で区切る
-function orcaCommand(value: string | undefined): string[] {
-  if (!value) return ["orca"];
-  if (existsSync(value)) return [value];
-  return value.split(" ").filter(Boolean);
 }
 
 // Orca のワークツリーのカードを更新する。失敗はすべて false で返し、nod の処理を止めない

@@ -682,3 +682,38 @@ export interface RecurringRun {
   items: RecurringRunItem[];
   failed: { recurringId: number; title: string; occurrence: string; message: string }[];
 }
+
+// Orca との連携（#52 Orca で開く、#51 追加指示の送信）が失敗した理由
+export type OrcaFailureCode =
+  | "DISABLED" // NOD_ORCA=0
+  | "NO_WORKTREE" // Issue に実行場所の worktree が記録されていない
+  | "ORCA_NOT_INSTALLED"
+  | "WORKTREE_NOT_IN_ORCA" // orca が selector_not_found を返した
+  | "NO_TERMINAL" // worktree に端末がない
+  | "TERMINAL_NOT_FOUND" // 選んだ端末が消えた・別の worktree の端末
+  | "TIMEOUT"
+  | "ORCA_ERROR";
+
+export interface OrcaFailure {
+  code: OrcaFailureCode;
+  message: string;
+}
+
+// orca terminal list の1件
+export interface OrcaTerminal {
+  handle: string;
+  title: string;
+  agentIdentity: string | null; // claude・codex など。LLM が動いていない端末は null
+  worktreePath: string | null;
+  live: boolean; // 接続中・書き込み可・orphaned でない
+}
+
+// 「Orca で開く」の結果。開けなかったときは、手で開くためのパスと cd コマンドを返す
+export interface OrcaOpenResult {
+  issueId: string;
+  opened: boolean;
+  worktree: string | null;
+  copyCommand: string | null;
+  terminal: OrcaTerminal | null;
+  failure: OrcaFailure | null;
+}

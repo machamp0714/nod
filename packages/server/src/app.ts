@@ -15,6 +15,7 @@ import { registerWorkspaceTransitionRoutes } from "./routes/workspace-transition
 import { registerRecurringRoutes } from "./routes/recurring";
 import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerPrDiffRoutes } from "./routes/pr-diff";
+import { type OrcaRunnerOption, registerOrcaRoutes } from "./routes/orca";
 import { registerAutomationRoutes } from "./routes/automation";
 import { registerViewRoutes } from "./routes/views";
 import { registerNotificationRoutes } from "./routes/notifications";
@@ -29,6 +30,7 @@ export interface AppOptions {
   docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
   ghRunner?: GhRunner; // PR 状態の取得で gh を実行する部分。省くと本物の gh。テストと e2e はスタブを渡す
   attachmentsDir?: string; // 添付ファイルのコピーを置く場所。省くと core の defaultAttachmentsDir()（NOD_ATTACHMENTS_DIR）
+  orcaRunner?: OrcaRunnerOption; // Orca 連携で orca を実行する部分。省くと本物の orca（NOD_ORCA=0 なら使わない）。null で無効。テストと e2e はスタブを渡す
 }
 
 function errorJson(err: unknown): Response {
@@ -70,6 +72,7 @@ export function createApp(opts: AppOptions): Hono {
   const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
+  registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerDocumentOps(app, me, opts.docsDir);
