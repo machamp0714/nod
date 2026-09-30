@@ -10,11 +10,12 @@ import { NotFoundMessage } from "./NotFoundPage";
 import { AutomationSection } from "./WorkspaceAutomationSettings";
 import { LabelsSection, StatusNamesSection, TemplatesSection } from "./WorkspaceLabelSettings";
 import { RecurringSection } from "./WorkspaceRecurringSettings";
+import { TransitionRulesSection } from "./WorkspaceTransitionSettings";
 import s from "./workspace-settings.module.css";
 
 const route = getRouteApi("/workspaces/$workspaceKey/settings");
 
-// Workspace の設定。作業規約、ラベル定義、ステータスの表示名、テンプレートの案内、自動化、定期Issueを置く
+// Workspace の設定。作業規約、ラベル定義、ステータスの表示名、ステータス遷移（#73）、テンプレートの案内、自動化、定期Issueを置く
 // （nod.pen「Workspace設定｜作業規約（#27）」「Workspace設定｜ラベル・表示名（#26）」「Workspace設定｜自動化（#71/#72）」「Workspace設定｜定期Issue（#32）」）
 export function WorkspaceSettingsPage() {
   const { workspaceKey } = route.useParams();
@@ -56,6 +57,7 @@ export function WorkspaceSettingsPage() {
         />
         <LabelsSection workspace={workspace} onSaved={setToast} />
         <StatusNamesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
+        <TransitionRulesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TemplatesSection />
         <AutomationSection workspace={workspace} onToast={setToast} />
         <RecurringSection workspace={workspace} onSaved={setToast} />

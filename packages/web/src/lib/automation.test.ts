@@ -108,6 +108,11 @@ describe("自動化の表示", () => {
     expect(runToast(run(rule("auto_close", 0, 0), rule("auto_archive", 0, 0), pr))).toBe("クローズ 0件・アーカイブ 0件・in_review 1件・失敗 0件");
   });
 
+  test("遷移ルール（#73）で止めたスキップはトーストに件数を添える", () => {
+    const close = { ...rule("auto_close", 3, 1, 0, 2), skippedReasons: [{ id: "API-1", message: "遷移ルールでスキップ: x" }] };
+    expect(runToast(run(close, rule("auto_archive", 0, 0)))).toBe("クローズ 1件・アーカイブ 0件・スキップ 2件（遷移ルール 1件）・失敗 0件");
+  });
+
   test("定期Issue（#32）が有効なら、確認ダイアログとトーストに起票の件数を先頭に足す", () => {
     const recurring = { enabled: 2, items: [item(1), item(2)], notRun: [], failed: [] };
     expect(confirmTitle(run(rule("auto_close", 1, 0), rule("auto_archive", 0, 0), off, recurring))).toBe(

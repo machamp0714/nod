@@ -12,6 +12,7 @@ export const queryKeys = {
   recurringIssues: (key: string) => ["workspaces", "recurring", key] as const,
   templates: () => ["templates"] as const,
   statusNames: () => ["workspaces", "status-names"] as const,
+  transitionRules: (key: string) => ["workspaces", "transitions", key] as const,
   issueList: (query: IssueQuery) => ["issues", "list", query] as const,
   issueDetails: () => ["issues", "detail"] as const,
   issue: (id: string) => ["issues", "detail", id] as const,
