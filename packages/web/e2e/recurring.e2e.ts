@@ -127,7 +127,8 @@ test("最新回の Issue を永久削除すると、前回作成は起票日と�
   await expect(released.getByRole("link", { name: ran.lastIssueId! })).toBeVisible();
 
   await nod.me.archiveIssue(ran.lastIssueId!);
-  await nod.me.deleteIssue(ran.lastIssueId!);
+  // 添付は無いが、実の添付ディレクトリ（既定）に触れないよう存在しないディレクトリを渡す
+  await nod.me.deleteIssue(ran.lastIssueId!, "/nonexistent/nod-e2e-attachments");
   await page.reload();
   const date = `${ran.lastOccurrence!.slice(5, 7)}/${ran.lastOccurrence!.slice(8, 10)}`;
   const deletedCell = released.getByRole("cell").nth(3);
