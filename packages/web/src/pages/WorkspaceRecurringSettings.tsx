@@ -12,6 +12,7 @@ import {
 } from "../api/hooks/recurring";
 import type { RecurringIssue, RecurringRun, Workspace } from "../api/types";
 import { Icon } from "../components/ui";
+import { KNOWN_ASSIGNEES } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import {
   CADENCE_CHOICES,
@@ -467,7 +468,9 @@ function RecurringFormPanel({
           onChange={(e) => set({ assignee: e.target.value })}
         />
         <datalist id={`${ids.assignee}-list`}>
-          <option value="me" />
+          {KNOWN_ASSIGNEES.map((a) => (
+            <option key={a} value={a} />
+          ))}
         </datalist>
       </div>
       <div className={r.field}>

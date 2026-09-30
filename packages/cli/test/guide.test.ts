@@ -58,3 +58,15 @@ test("nod の承認は GitHub の承認・マージではなく、nod は GitHub
   expect(GUIDE).toContain("gh pr review");
   expect(GUIDE).toContain("gh pr merge");
 });
+
+test("定期Issueで起票された定型作業の扱いを案内する（#64）", () => {
+  const section = GUIDE.split("## 定期Issueで起票された定型作業の扱い")[1]?.split("\n## ")[0];
+  expect(section).toBeDefined();
+  expect(section).toContain("担当に LLM の名前");
+  expect(section).toContain("Triage を通らず todo");
+  expect(section).toContain("nod issue next");
+  expect(section).toContain("recurring_id");
+  expect(section).toContain("nod issue done <id>");
+  expect(section).toContain("FORBIDDEN_FOR_LLM");
+  expect(section).toContain("--discovered-from <id>");
+});

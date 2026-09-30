@@ -7,7 +7,7 @@ import {
   runAutomation,
   setAutomationSettings,
 } from "../src/ops/automation";
-import { askQuestion } from "../src/ops/agent";
+import { askQuestion, nextIssue } from "../src/ops/agent";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { addRecurringIssue, listRecurringIssues, runRecurringIssues, updateRecurringIssue } from "../src/ops/recurring";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -454,6 +454,14 @@ describe("定期Issueの起票（#32）", () => {
     const again = runAutomation(me, ws.key, { dryRun: true, evaluatedAt: at });
     expect(ids(again.rules[0]!)).toEqual([created]);
     expect(again.recurring.items).toEqual([]);
+  });
+
+  test("担当に LLM を指定した定期Issueは、自動化の実行でも todo で起票され、その LLM の next で拾われる（#64）", () => {
+    const { db, llm, me, ws } = fixture();
+    addRecurringIssue(me, ws.key, { ...daily(), assignee: llm.actor });
+    const created = runAutomation(me, ws.key, { evaluatedAt: at }).recurring.items[0]!.issueId!;
+    expect(getIssue(db, created)).toMatchObject({ status: "todo", assignee: llm.actor });
+    expect(nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: created, status: "in_progress" });
   });
 
   test("LLM は起票を含めて実行できない", () => {

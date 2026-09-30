@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { nextIssue, suggestIssue } from "../src/ops/agent";
 import { getIssue, listIssues } from "../src/ops/issues";
 import {
   addRecurringIssue,
@@ -348,5 +349,23 @@ describe("定期Issueの修正（#135 レビュー）", () => {
     expect(getRecurringIssue(me.db, other.key, o.id).labels).toEqual(["ops"]);
     removeWorkspaceLabel(me, ws.key, "gone");
     expect(getRecurringIssue(me.db, ws.key, r.id).labels).toEqual(["run", "gone"]);
+  });
+});
+
+describe("LLM に定型作業を定期実行させる（#64）", () => {
+  test("担当に LLM を指定した定期Issueは、人の実行で todo として起票され、その LLM の next で拾われる", () => {
+    const { db, ws, me, llm } = setup();
+    const codex = { db, actor: "codex" };
+    saveTemplate(db, { name: "依存更新チェック", body: "## 手順\n- [ ] bun outdated" });
+    const r = addRecurringIssue(me, ws.key, daily({ title: "依存更新チェック", template: "依存更新チェック", assignee: "claude-code" }));
+    const created = runRecurringIssues(me, ws.key, { now: WED }).items[0]!.issueId!;
+    // LLM が担当でも、起票したのは人なので Triage を通らない
+    expect(eventsOf(db, created)[0]).toMatchObject({ type: "created", actor: "me", data: { status: "todo", recurring_id: r.id } });
+    expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(created);
+    // 担当でない LLM には出ない
+    expect(suggestIssue(codex, { workspaceId: ws.id })).toBeNull();
+    expect(nextIssue(codex, { workspaceId: ws.id })).toBeNull();
+    const taken = nextIssue(llm, { workspaceId: ws.id });
+    expect(taken).toMatchObject({ id: created, status: "in_progress", assignee: "claude-code", description: "## 手順\n- [ ] bun outdated" });
   });
 });

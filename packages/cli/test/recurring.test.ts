@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 let db: string;
@@ -63,5 +65,33 @@ describe("nod recurring", () => {
     expect(out).toContain("起票する予定: 1 件");
     expect(out).toContain("回分は起票せずに飛ばします");
     expect(out).toContain("dry-run のため起票していません");
+  });
+});
+
+describe("LLM に定型作業を定期実行させる（#64）", () => {
+  test("README の定型作業テンプレートを登録し、担当に LLM を指定した定期Issueを人が実行すると、その LLM の next で拾われる", async () => {
+    const ownDb = tempDb();
+    const ownRepo = makeRepo();
+    registerRepo(ownDb, ownRepo);
+    const as = (actor: string | undefined, args: string[]) => runNod([...args, "--json"], { cwd: ownRepo, db: ownDb, actor });
+    const templates = join(import.meta.dir, "../../../docs/templates");
+    for (const [name, file] of [["依存更新チェック", "dependency-update-check.md"], ["週次レポート", "weekly-report.md"]] as const) {
+      expect((await as(undefined, ["template", "add", name, "--from", join(templates, file)])).exitCode).toBe(0);
+    }
+    const add = await as(undefined, ["recurring", "add", "依存更新チェック", "--template", "依存更新チェック", "--every", "daily", "--start", "2026-01-01", "--tz", "UTC", "--assignee", "claude-code"]);
+    expect(add.exitCode).toBe(0);
+    // 担当の LLM も、実行前は起票されていないので拾えない
+    expect((await as("claude-code", ["issue", "next"])).json).toBeNull();
+
+    const run = await as(undefined, ["recurring", "run"]);
+    const issueId = run.json.items[0].issueId as string;
+    expect((await as("codex", ["issue", "next"])).json).toBeNull();
+    const next = await as("claude-code", ["issue", "next"]);
+    expect(next.json).toMatchObject({
+      id: issueId,
+      status: "in_progress",
+      assignee: "claude-code",
+      description: readFileSync(join(templates, "dependency-update-check.md"), "utf8"),
+    });
   });
 });
