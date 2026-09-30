@@ -200,15 +200,14 @@ function ReviewDetail({
             disabled={busy || reason.trim() === ""}
             title={reason.trim() === "" ? "差し戻しの理由を書いてください" : undefined}
             onClick={() =>
-              reject.mutate(
-                { op: "reject", issueId: issue.id, reason, ...(delegate ? { delegate: delegation } : {}) },
-                {
-                  onSuccess: (result) => {
-                    const instruction = (result as { instruction?: AgentInstruction } | null)?.instruction;
-                    if (instruction) onDelegated({ issueId: issue.id, agent: report?.actor ?? issue.assignee ?? "LLM", instruction });
-                  },
-                },
-              )
+              // 差し戻した Issue は一覧の読み直しでこの詳細ごと消えるため、mutate の onSuccess ではなく結果の Promise で親に渡す
+              void reject
+                .mutateAsync({ op: "reject", issueId: issue.id, reason, ...(delegate ? { delegate: delegation } : {}) })
+                .then((result) => {
+                  const instruction = (result as { instruction?: AgentInstruction } | null)?.instruction;
+                  if (instruction) onDelegated({ issueId: issue.id, agent: report?.actor ?? issue.assignee ?? "LLM", instruction });
+                })
+                .catch(() => {}) // 失敗は reject.error で ActionError に出る
             }
           >
             差し戻す
