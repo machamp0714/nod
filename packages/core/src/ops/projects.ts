@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
@@ -100,6 +100,11 @@ export function updateProject(ctx: OpCtx, ref: string, input: UpdateProjectInput
   });
 }
 
+// Project の一覧・詳細と同じ集計で、条件に合う Project を返す。p は projects の別名
+export function selectProjectSummaries(db: Database, where: string, params: SQLQueryBindings[]): ProjectSummary[] {
+  return (db.query(`${SUMMARY_SELECT} ${where}`).all(...params) as SummaryRow[]).map(toSummary);
+}
+
 export function listProjects(db: Database, opts: { includeClosed?: boolean } = {}): ProjectSummary[] {
   const where = opts.includeClosed ? "" : "WHERE p.status NOT IN ('completed', 'canceled')";
   return (db.query(`${SUMMARY_SELECT} ${where} ORDER BY p.name`).all() as SummaryRow[]).map(toSummary);
@@ -114,6 +119,12 @@ export function getProject(db: Database, ref: string): ProjectDetail {
     issues: selectIssues(db, "WHERE i.project_id = ? AND i.archived_at IS NULL ORDER BY w.key, i.number", [id]),
     documents: loadDocuments(db, { projectId: id }),
     updates: selectProjectUpdates(db, id),
+    initiatives: db
+      .query(
+        `SELECT n.id, n.name FROM initiative_projects ip JOIN initiatives n ON n.id = ip.initiative_id
+         WHERE ip.project_id = ? ORDER BY n.name`,
+      )
+      .all(id) as { id: number; name: string }[],
   };
 }
 

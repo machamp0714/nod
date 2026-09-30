@@ -137,6 +137,40 @@ export interface ProjectDetail extends ProjectSummary {
   issues: Issue[];
   documents: DocumentRef[];
   updates: ProjectUpdate[]; // 新しい順（同じ時刻は id の大きい順）
+  initiatives: { id: number; name: string }[]; // 所属する Initiative（名前順）
+}
+
+// 上位目標（#81）。状態は Project と同じ4値で、Project・Issue の状態には連動しない
+export const INITIATIVE_STATUSES = PROJECT_STATUSES;
+export type InitiativeStatus = ProjectStatus;
+
+export interface Initiative {
+  id: number;
+  name: string;
+  description: string | null;
+  targetDate: string | null; // 目標日（時刻なしの暦日 YYYY-MM-DD）。未設定は null
+  status: InitiativeStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 進捗は配下 Project の Issue を Project と同じ定義（total は canceled・アーカイブ以外、done は done）で合算する
+export interface InitiativeSummary extends Initiative {
+  projectCount: number;
+  total: number;
+  done: number;
+}
+
+export interface InitiativeDetail extends InitiativeSummary {
+  projects: ProjectSummary[]; // 名前順
+}
+
+export interface UpdateInitiativeInput {
+  name?: string;
+  description?: string | null; // null で解除
+  targetDate?: string | null; // null で解除
+  status?: InitiativeStatus;
 }
 
 export interface DocumentRef {

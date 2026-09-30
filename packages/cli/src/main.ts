@@ -9,6 +9,7 @@ import { registerGitCommands } from "./commands/git";
 import { registerHumanCommands } from "./commands/human";
 import { registerImportCommands } from "./commands/import";
 import { registerIssueCommands } from "./commands/issue";
+import { registerInitiativeCommands } from "./commands/initiative";
 import { registerProjectCommands } from "./commands/project";
 import { registerTemplateCommands } from "./commands/template";
 import { registerRecurringCommands } from "./commands/recurring";
@@ -30,6 +31,7 @@ export function buildProgram(): Command {
     .configureOutput({ outputError: () => {} });
   registerIssueCommands(program);
   registerProjectCommands(program);
+  registerInitiativeCommands(program);
   registerDocCommands(program);
   registerHumanCommands(program);
   registerWorkspaceCommands(program);

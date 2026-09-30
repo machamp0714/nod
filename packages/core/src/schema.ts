@@ -477,4 +477,26 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
     `CREATE INDEX agent_instructions_issue ON agent_instructions (issue_id, id)`,
   ],
+  // 上位目標 Initiative（#81）。Project と同じく Workspace 横断で、Project とは多対多。
+  // 状態は Project と同じ4値で、Project・Issue の状態には連動しない。進捗は配下 Project の Issue から数える
+  [
+    `CREATE TABLE initiatives (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      target_date TEXT CHECK (target_date IS NULL OR (typeof(target_date) = 'text' AND length(target_date) = 10 AND date(target_date) = target_date)),
+      status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'started', 'completed', 'canceled')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE initiative_projects (
+      initiative_id INTEGER NOT NULL REFERENCES initiatives(id) ON DELETE CASCADE,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (initiative_id, project_id)
+    )`,
+    `CREATE INDEX initiative_projects_project ON initiative_projects (project_id)`,
+  ],
 ];

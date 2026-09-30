@@ -8,6 +8,7 @@ import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerIssueDeletionRoutes } from "./routes/issue-deletions";
+import { registerInitiativeRoutes } from "./routes/initiative-ops";
 import { registerProjectOps } from "./routes/project-ops";
 import { registerWorkspaceRuleRoutes } from "./routes/workspace-rules";
 import { registerWorkspaceLabelRoutes } from "./routes/workspace-labels";
@@ -75,6 +76,7 @@ export function createApp(opts: AppOptions): Hono {
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
+  registerInitiativeRoutes(app, opts.db, me);
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);
