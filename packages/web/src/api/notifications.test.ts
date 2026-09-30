@@ -14,6 +14,10 @@ describe("notificationRequest", () => {
     expect(notificationRequest({ op: "read", all: true }).body).toEqual({ all: true });
   });
 
+  test("未読に戻すのは Issue を送る（#161）", () => {
+    expect(notificationRequest({ op: "unread", issueId: "API-1" })).toEqual({ path: "/notifications/unread", body: { issueRef: "API-1" } });
+  });
+
   test("スヌーズは ids か Issue と期限を、解除は ids か Issue を送る（#43）", () => {
     expect(notificationRequest({ op: "snooze", issueId: "API-1", until: "2026-10-01T00:00:00.000Z" })).toEqual({
       path: "/notifications/snooze",

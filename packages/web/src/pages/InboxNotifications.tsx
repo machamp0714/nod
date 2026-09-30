@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AlarmClock, AlarmClockOff, CalendarClock, ChevronDown, Clock3, Trash2 } from "lucide-react";
+import { AlarmClock, AlarmClockOff, CalendarClock, ChevronDown, Clock3, Mail, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useNotificationAction, useNotifications } from "../api/hooks/notifications";
@@ -85,7 +85,7 @@ export function NotificationList({ groups, current, workspaceName, view }: { gro
 
 // 開いた（一覧で選んだ）Issue の通知は、開いている間に届いたものも既読にする（スヌーズ中の表示では既読にしない）。
 // 開いてから見た未読は、この画面を離れるまで「未読」の欄に残す。
-// onRemoved はスヌーズ・解除・削除でこの一覧から消えたときに呼ぶ（削除なら取り消しに使う id を渡す）
+// onRemoved はスヌーズ・解除・削除でこの一覧から消えたときと、未読に戻したとき（#161）に呼び、選択を外す（削除なら取り消しに使う id を渡す）
 export function NotificationDetail({ group, workspaceName, opened, view, onRemoved }: {
   group: NotificationGroup;
   workspaceName: string;
@@ -108,6 +108,10 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
     setSeenUnread((prev) => new Set([...prev, ...ids]));
     action.mutate({ op: "read", issueId: group.issueId });
   }, [toMark, group, action.mutate]);
+  // 選択が外れたら数え直す。未読に戻した Issue を開き直したときに、また既読にするため
+  useEffect(() => {
+    if (!opened) markedUpTo.current = 0;
+  }, [opened]);
   const unread = group.notifications.filter((x) => x.readAt === null || seenUnread.has(x.id));
   const read = group.notifications.filter((x) => !unread.includes(x));
   const subscribed = detail.data?.subscribed;
@@ -115,6 +119,12 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
   // 成功すると一覧が読み直され、この詳細は消える。mutate の onSuccess は消えた後には呼ばれないため、Promise で受ける
   const removeBy = (next: NotificationAction) => {
     action.mutateAsync(next).then((r) => onRemoved("ids" in r ? r.ids : undefined), () => {});
+  };
+  // 未読に戻すと選択を外す。開いたままだと、開いた Issue の通知は既読にする処理ですぐ既読に戻る。
+  // 選択が外れる前に読み直しが届いても既読に戻さないよう、いまある通知は既読にした扱いにしておく
+  const markUnread = () => {
+    markedUpTo.current = Math.max(markedUpTo.current, ...group.notifications.map((x) => x.id));
+    removeBy({ op: "unread", issueId: group.issueId });
   };
   const remove = (
     <button type="button" className={`${n.action} ${n.danger}`} disabled={action.isPending}
@@ -146,10 +156,14 @@ export function NotificationDetail({ group, workspaceName, opened, view, onRemov
         </div>
       ) : (
         <div className={n.actionRows}>
-        <div className={n.actions}>
+        <div className={`${n.actions} ${n.wrapActions}`}>
           <button type="button" className={n.action} disabled={group.unread === 0 || action.isPending}
             onClick={() => action.mutate({ op: "read", issueId: group.issueId })}>
             <Icon name="check" size={13} />既読にする
+          </button>
+          {/* Pencil『Inbox｜未読に戻す』。戻すのは最新の1件なので、それが未読なら押せない */}
+          <button type="button" className={`${n.action} ${n.unread}`} disabled={group.latest.readAt === null || action.isPending} onClick={markUnread}>
+            <Mail size={13} aria-hidden="true" />未読に戻す
           </button>
           <button type="button" className={n.action} disabled={action.isPending} onClick={() => action.mutate({ op: "read", all: true })}>
             <Icon name="check-check" size={13} />すべて既読

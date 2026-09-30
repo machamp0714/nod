@@ -36,6 +36,7 @@ export const CTX_OPS = [
   "subscribeIssue",
   "unsubscribeIssue",
   "markNotificationsRead",
+  "markNotificationsUnread",
   "setWorkspaceRules",
   "snoozeNotifications",
   "archiveIssue",

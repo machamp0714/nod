@@ -118,6 +118,22 @@
   opacity: 0.5;
 }
 
+/* 既読・未読・購読の行はボタンが4つ並ぶ（#161）。幅が足りないときはラベルを折らず、ボタンごと次の行へ送る */
+.wrapActions {
+  flex-wrap: wrap;
+}
+
+.wrapActions .action {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* 未読に戻す（#161）。戻すものがないときは地を沈める（Pencil『Inbox｜未読に戻す』の disabled） */
+.unread:disabled {
+  background: var(--sunken);
+  opacity: 0.45;
+}
+
 .timeline {
   display: flex;
   flex-direction: column;

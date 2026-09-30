@@ -57,6 +57,37 @@ describe("購読と通知の API", () => {
     expect(inbox.json).toEqual(JSON.parse(JSON.stringify(getInbox(db))));
   });
 
+  test("既読の通知を未読に戻す（#161）", async () => {
+    const { app, me, llm, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "検索" });
+    createIssue(me, { workspaceId: ws.id, title: "通知なし" });
+    await call(app, "POST", "/api/issues/API-1/subscribe");
+    commentIssue(llm, "API-1", "a1");
+    commentIssue(llm, "API-1", "a2");
+    await call(app, "POST", "/api/notifications/read", { all: true });
+    const all = (await call(app, "GET", "/api/notifications?includeRead=true")).json as { id: number; body: string }[];
+    const a1 = all.find((n) => n.body === "a1")!;
+
+    // Issue で指定すると最新の1件だけ、id で指定するとその通知が未読に戻る
+    expect(await call(app, "POST", "/api/notifications/unread", { issueRef: "API-1" })).toEqual({ status: 200, json: { updated: 1 } });
+    expect((await call(app, "GET", "/api/notifications")).json.map((n: { body: string }) => n.body)).toEqual(["a2"]);
+    expect((await call(app, "POST", "/api/notifications/unread", { issueRef: "API-1" })).json).toEqual({ updated: 0 });
+    expect((await call(app, "POST", "/api/notifications/unread", { ids: [a1.id] })).json).toEqual({ updated: 1 });
+    expect((await call(app, "GET", "/api/notifications")).json).toHaveLength(2);
+
+    const bad = await call(app, "POST", "/api/notifications/unread", {});
+    expect(bad.status).toBe(400);
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
+    expect((await call(app, "POST", "/api/notifications/unread", { ids: [a1.id], issueRef: "API-1" })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/unread", { ids: ["1"] })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/unread", { all: true })).status).toBe(400);
+    expect((await call(app, "POST", "/api/notifications/unread", { ids: [999] })).status).toBe(404);
+    expect((await call(app, "POST", "/api/notifications/unread", { issueRef: "API-2" })).status).toBe(404);
+    expect((await call(app, "POST", "/api/notifications/unread", { issueRef: "API-9" })).status).toBe(404);
+    // 失敗した呼び出しは何も変えない
+    expect((await call(app, "GET", "/api/notifications")).json).toHaveLength(2);
+  });
+
   test("通知のスヌーズと解除（#43）", async () => {
     const { app, me, llm, ws } = setup();
     createIssue(me, { workspaceId: ws.id, title: "検索" });
