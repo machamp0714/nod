@@ -4,7 +4,7 @@ import { errorMessage, isNotFoundError } from "../api/errors";
 import { useDocument, useDocumentsRoot, useLinkDocument, useUnlinkDocument } from "../api/hooks/document";
 import type { DocumentDetail } from "../api/types";
 import { Markdown } from "../components/markdown/Markdown";
-import { Button, ErrorMessage, Icon, LoadingMessage, Pill, StatusIcon, StatusLabel } from "../components/ui";
+import { Button, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, StatusLabel } from "../components/ui";
 import { workspaceOfIssueId } from "../lib/workspace-labels";
 import { displayPath, documentDate, KIND_LABELS, KIND_TONES, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "../lib/document";
 import s from "./document.module.css";
@@ -142,15 +142,15 @@ export function DocumentPage() {
   const doc = query.data;
   return (
     <div className={s.page}>
-      <nav aria-label="パンくず" className={s.topBar}>
+      <PageHeader as="nav" label="パンくず">
         <Link to="/documents" className={s.crumbLink}>
           Documents
         </Link>
-        <Icon name="chevron-right" size={12} />
+        <Icon name="chevron-right" size={12} color="var(--ink3)" />
         <span className={s.path} title={doc.path}>
           {displayPath(doc.path, root.data?.docsDir)}
         </span>
-      </nav>
+      </PageHeader>
       <div className={s.content}>
         <header className={s.header}>
           <h1 className={s.title}>{doc.title}</h1>

@@ -6,24 +6,6 @@
   background: var(--surface);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 52px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
-}
-
-.title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.spacer {
-  flex: 1;
-}
-
 .filters {
   display: flex;
   align-items: center;
@@ -32,27 +14,27 @@
 
 .segmented {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  gap: 4px;
 }
 
 .segment {
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height);
+  font-weight: 500;
 }
 
 .segmentActive {
   background: var(--sunken);
   color: var(--ink);
-  font-weight: 500;
 }
 
 .select {
@@ -60,11 +42,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   cursor: pointer;
+  height: var(--control-height);
 }
 
 .selectLabel {
@@ -79,8 +62,9 @@
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   cursor: pointer;
+  font-weight: 500;
 }
 
 .select select:focus-visible {

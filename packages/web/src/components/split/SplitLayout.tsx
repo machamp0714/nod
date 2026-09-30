@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PageHeader, PageTitle, Spacer } from "../ui";
 import s from "./split.module.css";
 
 // Inbox、Reviews、Triage の2列（一覧と詳細）。一覧の見出しをページの <h1> にする。
@@ -22,10 +23,11 @@ export function SplitLayout({
   return (
     <div className={s.split}>
       <section className={s.list} aria-label={listLabel}>
-        <header className={s.listHeader}>
-          <h1 className={s.listTitle}>{title}</h1>
+        <PageHeader>
+          <PageTitle>{title}</PageTitle>
+          <Spacer />
           <span className={s.listCount}>{count}</span>
-        </header>
+        </PageHeader>
         {description && <p className={s.description}>{description}</p>}
         {headerExtra}
         {list}

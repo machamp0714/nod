@@ -257,7 +257,8 @@
   overflow-wrap: anywhere;
 }
 
-.tabs { padding: 0 20px 14px; }
+/* Header の下の行。高さと余白は View Bar と同じ（タブを Header の右へ移すのは #185） */
+.tabs { display: flex; flex: none; align-items: center; min-height: var(--view-bar-height); padding: 0 12px 0 8px; }
 .quickReplies { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 10px; margin-top: 10px; }
 .acceptFields { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
 .acceptFields legend { color: var(--ink2); font-size: 12px; }
@@ -274,13 +275,13 @@
 .hintTitle { color: var(--ink); font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hintStatus { display: inline-flex; flex-shrink: 0; padding: 1px 7px; border: 1px solid var(--line); border-radius: 10px; font-size: 11px; }
 .hintMeta { color: var(--ink3); font-size: 11.5px; }
-.hintButton { flex-shrink: 0; padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; }
+.hintButton { flex-shrink: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; text-decoration: none; cursor: pointer; display: inline-flex; align-items: center; height: var(--control-height-sm); }
 .hintButton:disabled { opacity: 0.5; cursor: default; }
 .hintCompare { color: var(--accent); }
 .candidates { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; flex-basis: 100%; }
 .candidatesLabel { padding-top: 5px; color: var(--ink3); font-size: 12px; }
 .candidate { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 0; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height-sm); }
 .reason { color: var(--ink3); font-size: 11px; }
 
 /* LLM の提案（#62）。nod.pen n7kBD の IDPzM。受け入れ設定と gap 12 でまとめる */
@@ -304,7 +305,7 @@
 .proposalAttrKey { font-size: 11px; }
 .proposalLabel { display: inline-flex; align-items: center; gap: 4px; }
 .proposalReason { margin: 0; color: var(--ink2); font-size: 12px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.proposalApply { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.proposalApply { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; height: var(--control-height-sm); }
 .proposalApply:disabled { opacity: 0.5; cursor: default; }
 
 /* 差し戻しの理由と「LLM に対応を依頼」（#58、Pencil『Reviews｜LLMに対応を依頼（#58）』r5DmDj の gTTGK・M5xAFM） */

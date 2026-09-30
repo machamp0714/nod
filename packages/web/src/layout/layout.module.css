@@ -1,29 +1,40 @@
+/* nod.pen の各画面：外側は $bg、Main は上と右と下に 8 の余白を空けたカード */
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
+  padding: var(--shell-gap) var(--shell-gap) var(--shell-gap) 0;
+  background: var(--bg);
 }
 
+/* スクロールはカードの内側で行う */
 .main {
   min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
   overflow: auto;
 }
 
+/* nod.pen の Sidebar（mgInh） */
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 20px 12px;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
+  gap: 16px;
+  min-height: 0;
+  padding: 0 12px 12px;
+  background: var(--bg);
   overflow-y: auto;
 }
 
 .top {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 4px;
-  padding-left: 8px;
+  height: 36px;
+  padding: 8px 0 0 8px;
 }
 
 .logo {
@@ -46,28 +57,9 @@
   font-weight: 600;
 }
 
-.iconButton {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--ink2);
-}
-
-.iconButton:disabled {
-  cursor: not-allowed;
-}
-
-.bordered {
-  border: 1px solid var(--line);
-  background: var(--surface);
-}
-
 .group {
   display: flex;
+  flex: none;
   flex-direction: column;
   gap: 1px;
 }
@@ -76,7 +68,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px 6px;
+  height: 28px;
+  padding: 0 8px 0 9px;
   color: var(--ink3);
   font-size: 12px;
   font-weight: 500;
@@ -98,15 +91,18 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: var(--radius);
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px 0 8px;
+  border-radius: var(--radius-md);
   color: var(--ink);
   font-size: 13px;
+  font-weight: 500;
 }
 
+/* Sidebar の背景が $bg のため、hover は $sunken にする */
 .item:hover {
-  background: var(--bg);
+  background: var(--sunken);
 }
 
 .itemIcon {
@@ -157,9 +153,10 @@
 
 .swatchBox {
   display: grid;
+  flex: none;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .swatch {
@@ -177,7 +174,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 4px 6px 8px;
+  height: 28px;
+  padding: 0 4px 0 9px;
   color: var(--ink2);
   font-size: 12px;
   font-weight: 500;
@@ -204,7 +202,7 @@
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   color: var(--ink3);
 }
 

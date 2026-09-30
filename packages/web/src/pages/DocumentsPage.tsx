@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useDocuments, useDocumentsRoot } from "../api/hooks/document";
 import type { DocKind } from "../api/types";
-import { Button, Icon, PageError, Pill } from "../components/ui";
+import { Button, Icon, Menu, MenuItem, PageError, PageHeader, PageTitle, Pill, Spacer } from "../components/ui";
 import { displayPath, documentDate, KIND_LABELS, KIND_TONES } from "../lib/document";
 import s from "./documents.module.css";
 
@@ -28,28 +28,26 @@ function KindFilter({ kind, onChange }: { kind?: DocKind; onChange: (kind?: DocK
   };
   return (
     <div className={s.filterWrap} ref={root}>
-      <button
-        type="button"
-        className={s.filterButton}
+      <Button
+        icon="list-filter"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
       >
-        <Icon name="list-filter" size={13} />
         {kind ? `種類: ${KIND_LABELS[kind]}` : "Filter"}
-      </button>
+      </Button>
       {open && (
-        <div role="menu" aria-label="種類で絞り込む" className={s.menu} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
-          <button type="button" role="menuitemradio" aria-checked={!kind} onClick={() => choose(undefined)}>
+        <Menu label="種類で絞り込む" className={s.menu} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+          <MenuItem checked={!kind} onClick={() => choose(undefined)}>
             すべて
-          </button>
+          </MenuItem>
           {KINDS.map((k) => (
-            <button key={k} type="button" role="menuitemradio" aria-checked={kind === k} onClick={() => choose(k)}>
+            <MenuItem key={k} checked={kind === k} onClick={() => choose(k)}>
               {KIND_LABELS[k]}
-            </button>
+            </MenuItem>
           ))}
-        </div>
+        </Menu>
       )}
     </div>
   );
@@ -63,15 +61,15 @@ export function DocumentsPage() {
   const items = documents.data?.filter((d) => !search.kind || d.kind === search.kind);
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>Documents</h1>
+      <PageHeader>
+        <PageTitle>Documents</PageTitle>
         {items && <span className={s.count}>{items.length}</span>}
-        <span className={s.spacer} />
+        <Spacer />
         <KindFilter kind={search.kind} onChange={(kind) => navigate({ search: kind ? { kind } : {}, replace: true })} />
         <Button variant="primary" icon="plus" onClick={() => navigate({ to: "/documents/new" })}>
           新規ドキュメント
         </Button>
-      </header>
+      </PageHeader>
       {documents.error ? (
         <PageError message={errorMessage(documents.error)} />
       ) : (

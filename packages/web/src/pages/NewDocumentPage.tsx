@@ -4,7 +4,7 @@ import { ApiError } from "../api/client";
 import { errorMessage } from "../api/errors";
 import { useCreateDocument, useDocumentsRoot } from "../api/hooks/document";
 import type { DocKind } from "../api/types";
-import { Button, Icon } from "../components/ui";
+import { Button, Icon, PageHeader, PageTitle } from "../components/ui";
 import { KIND_LABELS, normalizeIssueRef } from "../lib/document";
 import s from "./documents.module.css";
 
@@ -90,13 +90,13 @@ export function NewDocumentPage() {
   const docsDir = root.data?.docsDir;
   return (
     <div className={s.page}>
-      <nav aria-label="パンくず" className={s.crumbs}>
+      <PageHeader as="nav" label="パンくず">
         <Link to="/documents" className={s.crumbLink}>
           Documents
         </Link>
-        <Icon name="chevron-right" size={12} />
-        <h1 className={s.crumbCurrent}>新規ドキュメント</h1>
-      </nav>
+        <Icon name="chevron-right" size={12} color="var(--ink3)" />
+        <PageTitle>新規ドキュメント</PageTitle>
+      </PageHeader>
       <form
         className={s.form}
         aria-label="新規ドキュメント"

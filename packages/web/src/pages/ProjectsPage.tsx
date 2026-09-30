@@ -5,7 +5,7 @@ import { useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import type { ProjectSummary } from "../api/types";
 import type { ReactNode } from "react";
-import { Button, Icon, PageError, ProgressBar, Segmented, WorkspaceBadge } from "../components/ui";
+import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Segmented, Spacer, ViewBar, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
 import { type Tone, TONE_COLORS } from "../lib/meta";
 import { HealthPill } from "../components/projects/HealthPill";
@@ -29,8 +29,14 @@ export function ProjectsPage() {
   const workspaceName = (key: string) => names.get(key) ?? key;
   return (
     <div className={s.page}>
-      <header className={s.header}>
-        <h1 className={s.title}>Projects</h1>
+      <PageHeader>
+        <PageTitle>Projects</PageTitle>
+        <Spacer />
+        <Button icon="plus" disabled title="準備中">
+          New project
+        </Button>
+      </PageHeader>
+      <ViewBar>
         <Segmented<ProjectTab>
           label="Project の絞り込み"
           value={tab}
@@ -41,11 +47,7 @@ export function ProjectsPage() {
             { value: "all", label: "All" },
           ]}
         />
-        <span className={s.spacer} />
-        <Button icon="plus" disabled title="準備中">
-          New project
-        </Button>
-      </header>
+      </ViewBar>
       {error ? (
         <PageError message={errorMessage(error)} />
       ) : (

@@ -5,24 +5,6 @@
   background: var(--surface);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 52px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line);
-}
-
-.title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.spacer {
-  flex: 1;
-}
-
 .table {
   width: 100%;
   border-collapse: collapse;

@@ -5,21 +5,12 @@
   background: var(--surface);
 }
 
-.topBar {
-  display: flex;
-  align-items: center;
-  height: 52px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--line);
-}
-
 .crumbs {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   color: var(--ink2);
-  font-size: 12.5px;
 }
 
 .crumbLink {
@@ -37,6 +28,7 @@
 .crumbId {
   color: var(--ink3);
   font-family: var(--font-mono);
+  font-weight: 400;
 }
 
 .body {
@@ -524,14 +516,15 @@
 .awaitingAnswer {
   flex-shrink: 0;
   border: 1px solid #F1D9A8;
-  border-radius: 6px;
-  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  padding: 0 12px;
   background: var(--surface);
   color: var(--ask);
   font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  height: var(--control-height);
 }
 
 .awaitingAnswer:disabled { opacity: .5; cursor: default; }
@@ -541,10 +534,10 @@
 .subIssuesCount { color: var(--ink3); font-family: var(--font-mono); font-size: 12px; font-weight: 400; }
 
 .headerActions { position: relative; display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.iconButton { display: inline-flex; align-items: center; justify-content: center; padding: 6px; border: 0; border-radius: 5px; background: transparent; color: var(--ink3); cursor: pointer; }
+.iconButton { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--ink2); cursor: pointer; width: var(--control-height); height: var(--control-height); flex: none; }
 .iconButton:hover { background: var(--sunken); color: var(--ink); }
-.headerMenu { position: absolute; top: 100%; right: 0; z-index: 10; width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px #0000001a; }
-.headerMenu button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 7px 10px; font-size: 12.5px; text-align: left; border-radius: 6px; cursor: pointer; }
+.headerMenu { position: absolute; top: 100%; right: 0; z-index: 10; width: 220px; display: flex; flex-direction: column; gap: 0; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: 0 1px 2px #0000001a; }
+.headerMenu button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 0 8px; font-size: 13px; text-align: left; border-radius: var(--radius-md); cursor: pointer; height: 32px; }
 .headerMenu button svg { flex: none; color: var(--ink2); }
 .headerMenu button[aria-disabled="true"] { cursor: progress; }
 .menuSeparator { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line); }
@@ -557,9 +550,9 @@
 .documentCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; list-style: none; padding: 0; margin: 0; }
 .documentCardHead { display: flex; align-items: flex-start; gap: 8px; }
 .documentCardHead a { flex: 1; min-width: 0; }
-.documentCardHead button { flex: none; padding: 4px; }
+.documentCardHead button { flex: none; padding: 0; }
 .addMenuWrap { position: relative; margin-left: auto; }
-.menuItem { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.menuItem { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .documentCard { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
 .documentCard a { overflow-wrap: anywhere; }
 .documentMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--ink3); }
@@ -576,8 +569,18 @@
 .threadResolved { background: var(--bg); }
 .threadActions { margin-left: auto; display: flex; gap: 2px; }
 .threadAction, .reopenButton {
-  display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  height: var(--control-height-sm);
 }
 .threadAction:hover:not(:disabled) { background: var(--bg); }
 .reopenButton { margin-left: auto; border: 1px solid var(--line); background: var(--surface); }
@@ -593,8 +596,16 @@
 }
 .replyInput { flex: 1; min-width: 0; border: 0; outline: none; resize: none; background: transparent; font-size: 12.5px; line-height: 1.6; }
 .replySubmit {
-  padding: 5px 12px; border: 0; border-radius: 6px; background: var(--accent); color: #FFFFFF;
-  font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #FFFFFF;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  height: var(--control-height);
+  font-weight: 500;
 }
 .replySubmit:disabled { opacity: 0.5; cursor: default; }
 .threadCollapsed {
@@ -616,13 +627,14 @@
   align-items: center;
   gap: 6px;
   margin-left: auto;
-  padding: 4px 10px;
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   font-size: 12px;
   font-weight: 500;
+  height: var(--control-height);
 }
 
 .subscribeToggle[data-subscribed="true"] {
@@ -708,14 +720,15 @@
 .completionButton {
   flex-shrink: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  padding: 0 12px;
   background: var(--surface);
   color: var(--ready);
   font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  height: var(--control-height);
 }
 .completionButton:disabled { opacity: .5; cursor: default; }
 .completionButton:focus-visible { outline: 2px solid var(--ready); outline-offset: 2px; }
@@ -724,7 +737,7 @@
 .archivedBanner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
 .archivedBanner > svg { flex: none; color: var(--ink2); }
 .archivedText { flex: 1 1 160px; min-width: 0; margin: 0; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
-.archivedRestore { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; cursor: pointer; }
+.archivedRestore { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); font-size: 12px; cursor: pointer; height: var(--control-height); font-weight: 500; }
 .archivedRestore:disabled { cursor: progress; }
 .archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
 .commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
@@ -881,7 +894,7 @@ button.prCiPill {
   height: 22px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink2);
   cursor: pointer;
@@ -896,7 +909,7 @@ button.prCiPill {
 /* nod.pen「Issue詳細｜添付」（#28） */
 .attachmentsHeading { display: flex; align-items: center; gap: 8px; }
 .attachmentCount { flex: 1; color: var(--ink3); font-family: var(--font-mono); font-size: 12px; }
-.attachmentAdd, .attachmentRemove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ink3); cursor: pointer; }
+.attachmentAdd, .attachmentRemove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--ink3); cursor: pointer; }
 .attachmentAdd { color: var(--ink2); }
 .attachmentAdd[aria-expanded="true"], .attachmentAdd:hover:not(:disabled), .attachmentRemove:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
 .attachmentAdd:disabled, .attachmentRemove:disabled { opacity: 0.45; cursor: default; }
@@ -971,8 +984,8 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .deleteConfirmInput:focus { outline: none; border-color: var(--accent); }
 .deleteDialogError { margin: 0; color: var(--fail); font-size: 12px; overflow-wrap: anywhere; }
 .deleteDialogButtons { display: flex; justify-content: flex-end; gap: 8px; }
-.deleteCancel { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: 12.5px; font-weight: 500; cursor: pointer; }
-.deleteConfirm { padding: 6px 14px; border: 0; border-radius: 6px; background: var(--fail); color: #FFFFFF; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.deleteCancel { padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height); }
+.deleteConfirm { padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--fail); color: #FFFFFF; font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height); }
 .deleteConfirm:disabled { background: var(--sunken); color: var(--ink3); cursor: not-allowed; }
 .deleteCancel:disabled { cursor: progress; }
 .deletedToast { position: fixed; bottom: 24px; left: 50%; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 2px #0000001a; color: var(--ink); font-size: 12.5px; transform: translateX(-50%); }
@@ -980,12 +993,12 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 /* 実行場所の下の「Orca で開く」と失敗時のポップオーバー（#52、Pencil『Issue詳細｜Orcaで開く（#52）』gz11W の IV5vb・『Orcaで開く｜失敗時』OkbJ4 の h09GjE） */
 .locationValue { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; width: 100%; }
 .orcaOpen { position: relative; display: flex; align-items: center; gap: 8px; align-self: stretch; }
-.orcaOpenButton { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; }
+.orcaOpenButton { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height-sm); }
 .orcaOpenButton:hover:not(:disabled) { background: var(--sunken); }
 .orcaOpenButton:disabled { cursor: progress; opacity: 0.6; }
 .orcaOpenButton svg { color: var(--ink2); }
-.orcaPopover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; width: min(300px, calc(var(--rail-width) - 40px)); display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px #0000001a; }
-.orcaPopover button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 7px 10px; font-size: 12.5px; text-align: left; border-radius: 6px; cursor: pointer; }
+.orcaPopover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; width: min(300px, calc(var(--rail-width) - 40px)); display: flex; flex-direction: column; gap: 0; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: 0 1px 2px #0000001a; }
+.orcaPopover button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 0 8px; font-size: 13px; text-align: left; border-radius: var(--radius-md); cursor: pointer; min-height: 32px; }
 .orcaPopover button svg { flex: none; color: var(--ink2); }
 .orcaPopover button:hover, .orcaPopover button:focus-visible { background: var(--sunken); }
 
@@ -1030,7 +1043,7 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .sendChipFailed { background: var(--fail-soft); color: var(--fail); }
 .sendChipPending { background: var(--sunken); color: var(--ink2); }
 .sendChipUnknown { background: var(--ask-soft); color: var(--ask); }
-.resendButton { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; }
+.resendButton { display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height-sm); }
 .resendButton:disabled { cursor: default; opacity: 0.6; }
 .modeSwitchRow { padding: 10px 14px 0; }
 .instructionBody { white-space: pre-wrap; }
