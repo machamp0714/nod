@@ -68,7 +68,12 @@ export function deleteIssue(ctx: OpCtx, ref: string, attachmentsDir: string = de
     ctx.db.query("DELETE FROM issues WHERE id = ?").run(row.id);
     return { deletion: toDeletion(inserted), files };
   });
-  removeStoredFiles(files, attachmentsDir);
+  // 削除は commit 済みなので、実体を消せなくても削除は成功として返す。残った実体は gcAttachments が片付ける
+  try {
+    removeStoredFiles(files, attachmentsDir);
+  } catch {
+    // 権限などで消せなかった実体は gcAttachments に任せる
+  }
   return deletion;
 }
 

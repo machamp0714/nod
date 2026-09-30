@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { OpCtx } from "../src/ctx";
 import { openDb } from "../src/db";
 import { GITHUB_IMPORT_LIMIT_MAX, importGithubIssues } from "../src/ops/github-import";
-import { getIssue, updateIssue } from "../src/ops/issues";
+import { deleteIssue } from "../src/ops/issue-deletions";
+import { archiveIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
 import { completionStats } from "../src/ops/stats";
 import { recentSummary } from "../src/ops/summary";
@@ -280,6 +281,22 @@ describe("importGithubIssues", () => {
     expect(r.skipped).toEqual([]);
     expect(r.deleted).toEqual([{ sourceKey: "example/api-server#12" }]);
     expect(r.failed).toEqual([]);
+    expect(gh.calls.filter((c) => c[1] === "view")).toEqual([]);
+    expect((db.query("SELECT count(*) AS n FROM issues").get() as { n: number }).n).toBe(0);
+  });
+
+  test("deleteIssue（#30）で消した取り込み済みの Issue は対応表の行が issue_id NULL で残り、再取り込みでスキップされる", async () => {
+    const { db, me, ws } = fixture();
+    await importGithubIssues(me, "API", "example/api-server", {}, fakeGh(SAMPLE.slice(0, 1)));
+    archiveIssue(me, "API-1");
+    deleteIssue(me, "API-1");
+    expect(db.query("SELECT workspace_id, source_key, issue_id FROM issue_imports").all()).toEqual([
+      { workspace_id: ws.id, source_key: "example/api-server#12", issue_id: null },
+    ]);
+    const gh = fakeGh(SAMPLE.slice(0, 1));
+    const r = await importGithubIssues(me, "API", "example/api-server", {}, gh);
+    expect(r.imported).toEqual([]);
+    expect(r.deleted).toEqual([{ sourceKey: "example/api-server#12" }]);
     expect(gh.calls.filter((c) => c[1] === "view")).toEqual([]);
     expect((db.query("SELECT count(*) AS n FROM issues").get() as { n: number }).n).toBe(0);
   });

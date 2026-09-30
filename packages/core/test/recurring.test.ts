@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { nextIssue, suggestIssue } from "../src/ops/agent";
-import { getIssue, listIssues } from "../src/ops/issues";
+import { deleteIssue } from "../src/ops/issue-deletions";
+import { archiveIssue, getIssue, listIssues } from "../src/ops/issues";
 import {
   addRecurringIssue,
   getRecurringIssue,
@@ -167,6 +168,20 @@ describe("定期Issueの実行", () => {
       lastIssueId: item.issueId,
       nextOccurrence: "2026-10-01",
     });
+  });
+
+  test("前回の Issue を永久削除すると、前回の日付はそのままで番号は出さない（前の回の番号にずれない）", () => {
+    const { db, ws, me } = setup();
+    const r = addRecurringIssue(me, ws.key, daily());
+    const first = runRecurringIssues(me, ws.key, { now: WED }).items[0]!;
+    const THU = new Date("2026-10-01T01:00:00Z");
+    const second = runRecurringIssues(me, ws.key, { now: THU }).items[0]!;
+    expect(getRecurringIssue(db, ws.key, r.id, { now: THU })).toMatchObject({ lastOccurrence: "2026-10-01", lastIssueId: second.issueId });
+    archiveIssue(me, second.issueId!);
+    deleteIssue(me, second.issueId!);
+    expect(getRecurringIssue(db, ws.key, r.id, { now: THU })).toMatchObject({ lastOccurrence: "2026-10-01", lastIssueId: null });
+    expect(listRecurringIssues(db, ws.key, { now: THU })[0]).toMatchObject({ lastOccurrence: "2026-10-01", lastIssueId: null });
+    expect(first.issueId).not.toBe(second.issueId);
   });
 
   test("同じ発生日では二度作らない", () => {

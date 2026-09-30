@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { addFileAttachment, attachmentFile } from "../src/ops/attachments";
 import { deleteIssue, listIssueDeletions } from "../src/ops/issue-deletions";
 import { archiveIssue, commentIssue, createIssue, getIssue, relateIssue } from "../src/ops/issues";
+import { subscribeIssue } from "../src/ops/notifications";
 import { initWorkspace, removeWorkspace } from "../src/ops/workspaces";
 import { codeOf, setup } from "./helpers";
 
@@ -45,12 +46,14 @@ describe("deleteIssue", () => {
   });
 
   test("消すと監査ログに ID・タイトル・削除者・日時が残り、関連する行は消え、子と定期Issueの記録は残る", () => {
-    const { me, ws, db } = setup();
+    const { me, llm, ws, db } = setup();
     const parent = createIssue(me, { workspaceId: ws.id, title: "消す親" });
     const child = createIssue(me, { workspaceId: ws.id, title: "子", parentRef: parent.id });
     const other = createIssue(me, { workspaceId: ws.id, title: "関係先" });
     relateIssue(me, parent.id, { blocks: other.id });
     commentIssue(me, parent.id, "メモ");
+    subscribeIssue(me, parent.id);
+    commentIssue(llm, parent.id, "調べました");
     const row = db.query("SELECT id FROM issues WHERE number = ?").get(Number(parent.id.split("-")[1])) as { id: number };
     db.query(
       `INSERT INTO recurring_issues (workspace_id, title, cadence, start_date, time_zone, created_by, created_at, updated_by, updated_at)
@@ -58,6 +61,11 @@ describe("deleteIssue", () => {
     ).run(ws.id);
     db.query("INSERT INTO recurring_issue_occurrences (recurring_id, occurrence_date, issue_id, created_at) VALUES (1, '2026-09-01', ?, '')").run(row.id);
     archiveIssue(me, parent.id);
+    // 消えることを確かめる前に、消える対象の行が実際にあることを確かめる
+    for (const table of ["comments", "events", "notifications", "subscriptions"]) {
+      expect(count(db, table, "issue_id = ?", row.id)).toBeGreaterThan(0);
+    }
+    expect(count(db, "relations", "from_id = ? OR to_id = ?", row.id, row.id)).toBeGreaterThan(0);
 
     const deletion = deleteIssue(me, parent.id);
     expect(deletion).toMatchObject({ issueId: parent.id, title: "消す親", deletedBy: "me" });
@@ -89,6 +97,29 @@ describe("deleteIssue", () => {
     deleteIssue(me, issue.id, dir);
     expect(existsSync(stored)).toBe(false);
     expect(count(db, "issue_attachments", "1 = 1")).toBe(0);
+  });
+
+  test("添付の実体を消せなくても削除は成功を返し、実体は残る（gcAttachments に任せる）", () => {
+    const { me, ws, db } = setup();
+    const issue = createIssue(me, { workspaceId: ws.id, title: "添付あり" });
+    const src = tempDir("nod-del-src-");
+    const dir = join(tempDir("nod-del-root-"), "attachments");
+    const path = join(src, "log.txt");
+    writeFileSync(path, "hello");
+    const a = addFileAttachment(me, issue.id, { path, dir });
+    const stored = attachmentFile(db, a.id, dir).abs;
+    archiveIssue(me, issue.id);
+    // 実体の入ったディレクトリを書き込み不可にして、実体の削除を失敗させる
+    chmodSync(dirname(stored), 0o500);
+    try {
+      const deletion = deleteIssue(me, issue.id, dir);
+      expect(deletion.issueId).toBe(issue.id);
+      expect(codeOf(() => getIssue(db, issue.id))).toBe("NOT_FOUND");
+      expect(count(db, "issue_attachments", "1 = 1")).toBe(0);
+      expect(existsSync(stored)).toBe(true);
+    } finally {
+      chmodSync(dirname(stored), 0o700);
+    }
   });
 
   test("監査ログは Workspace ごとに新しい順で、Workspace を消すと一緒に消える", () => {
