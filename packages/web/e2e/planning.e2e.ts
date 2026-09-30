@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { chooseProperty, property, propertyMenu } from "./helpers";
 
 test.use({ dataset: "issue-list" });
 
@@ -211,12 +212,12 @@ test.describe("Cycle", () => {
     await nod.me.createCycle({ workspaceId: nodWs!.id, name: "他の Workspace", startDate: localDate(-1), endDate: localDate(1) });
     const issue = (await nod.me.queryIssues({ workspace: ["API"] })).issues.find((i) => i.status === "todo")!;
     await page.goto(`/issues/${issue.id}`);
-    const select = page.getByRole("combobox", { name: "Cycle" });
-    await expect(select.getByRole("option")).toHaveText(["なし", "Sprint 12"]);
-    await select.selectOption({ label: "Sprint 12" });
+    await property(page, "Cycle").click();
+    await expect(propertyMenu(page, "Cycle").getByRole("menuitemradio")).toHaveText(["なし", "Sprint 12"]);
+    await propertyMenu(page, "Cycle").getByRole("menuitemradio", { name: "Sprint 12", exact: true }).click();
     await expect.poll(async () => (await nod.me.getIssue(issue.id)).cycle?.name).toBe("Sprint 12");
     await expect(page.getByText("me が Cycle を Sprint 12 に変えた")).toBeVisible();
-    await select.selectOption({ label: "なし" });
+    await chooseProperty(page, "Cycle", "なし");
     await expect.poll(async () => (await nod.me.getIssue(issue.id)).cycle).toBeNull();
   });
 });

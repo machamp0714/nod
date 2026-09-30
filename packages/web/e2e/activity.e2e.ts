@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { region } from "./helpers";
 import { ISSUE, MAIN_COMMENT } from "./issue-detail-data";
@@ -81,4 +82,47 @@ test("コメントに返信してスレッドにし、解決済みは折りた�
   const detail = await nod.me.getIssue(ISSUE.comment);
   const saved = detail.activity.find((a) => a.kind === "comment" && a.id === root.id);
   expect(saved).toMatchObject({ resolvedAt: null, replies: [{ body: "LLM の返信" }, { body: "IN 句で一括取得して", actor: "me" }, { body: "解決後の補足", actor: "me" }] });
+});
+
+// #181：アイコン、本文の1行目、時刻の中心を揃える。Inbox の「直近の経過」も同じ部品を使う
+const measureLines = (lines: Locator) => lines.evaluateAll((items) => items.map((item) => {
+  const center = (rect: DOMRect) => rect.top + rect.height / 2;
+  const [icon, text, time] = [...item.children] as [HTMLElement, HTMLElement, HTMLElement];
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  const first = range.getClientRects()[0]!;
+  const centers = [center(icon.querySelector("svg")!.getBoundingClientRect()), center(first), center(time.getBoundingClientRect())];
+  return { wrapped: text.getBoundingClientRect().height > first.height * 1.5, spread: Math.max(...centers) - Math.min(...centers) };
+}));
+
+test("Activity の行はアイコン、本文の1行目、時刻の中心が揃う", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.main}`);
+  const lines = region(page, "Activity").locator("ul > li");
+  await expect(lines.first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  const wide = await measureLines(lines);
+  expect(wide.length).toBeGreaterThan(0);
+  for (const line of wide) expect(line.spread).toBeLessThanOrEqual(2.5);
+
+  // 本文が折り返す幅でも、アイコンと時刻は1行目に揃う
+  await region(page, "Activity").locator("ul").first().evaluate((list) => {
+    for (const item of list.ownerDocument.querySelectorAll<HTMLElement>('section[aria-label="Activity"] ul')) item.style.width = "120px";
+  });
+  const narrow = await measureLines(lines);
+  expect(narrow.some((line) => line.wrapped)).toBe(true);
+  for (const line of narrow) expect(line.spread).toBeLessThanOrEqual(2.5);
+  console.log("Activity の行の中心の差", JSON.stringify({ wide: wide.map((line) => line.spread), narrow: narrow.map((line) => line.spread) }));
+});
+
+test("Inbox の直近の経過も、アイコン、本文の1行目、時刻の中心が揃う", async ({ page }) => {
+  await page.goto("/inbox");
+  const lines = region(page, "直近の経過").locator("ul > li");
+  await expect(lines.first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  const measured = await measureLines(lines);
+  // 1440×960 では、確認依頼の行が2行に折り返す
+  expect(measured.some((line) => line.wrapped)).toBe(true);
+  expect(measured.some((line) => !line.wrapped)).toBe(true);
+  for (const line of measured) expect(line.spread).toBeLessThanOrEqual(2.5);
+  console.log("Inbox の直近の経過の中心の差", JSON.stringify(measured));
 });

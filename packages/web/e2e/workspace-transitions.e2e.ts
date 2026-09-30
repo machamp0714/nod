@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { region } from "./helpers";
+import { chooseProperty, property, region } from "./helpers";
 
 // ステータスの遷移ルール（#73）
 const section = (page: import("@playwright/test").Page) => page.getByRole("region", { name: "ステータス遷移" });
@@ -60,11 +60,11 @@ test.describe("Issue 詳細", () => {
     await nod.me.setTransitionRules("API", { forbidden: [{ from: "backlog", to: "todo" }] });
     await page.goto("/issues/API-4");
     const props = region(page, "プロパティ");
-    const status = props.getByRole("combobox", { name: "Status" });
-    await expect(status).toHaveValue("backlog");
-    await status.selectOption("todo");
+    const status = property(props, "Status");
+    await expect(status).toHaveAttribute("data-value", "backlog");
+    await chooseProperty(props, "Status", "Todo");
     await expect(props.getByRole("alert")).toHaveText("変更できませんでした：Backlog → Todo は許可されていません（ルール: 許可しない遷移）");
-    await expect(status).toHaveValue("backlog");
+    await expect(status).toHaveAttribute("data-value", "backlog");
     expect((await nod.me.getIssue("API-4")).status).toBe("backlog");
   });
 });

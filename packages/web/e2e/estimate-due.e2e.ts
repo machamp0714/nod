@@ -9,7 +9,7 @@ test.describe("Issue 詳細の見積もり・期限", () => {
     await page.goto(`/issues/${ISSUE.properties}`);
     const props = region(page, "プロパティ");
     const estimate = props.getByRole("button", { name: "Estimate を編集" });
-    await expect(estimate).toHaveText("—");
+    await expect(estimate).toHaveText("なし");
 
     await estimate.click();
     await props.getByRole("textbox", { name: "Estimate" }).fill("0");
@@ -20,7 +20,7 @@ test.describe("Issue 詳細の見積もり・期限", () => {
     await expect(estimate).toHaveText("3 pt");
 
     const due = props.getByRole("button", { name: "Due date を編集" });
-    await expect(due).toHaveText("—");
+    await expect(due).toHaveText("なし");
     await due.click();
     await props.getByLabel("Due date", { exact: true }).fill("2020-01-02");
     await props.getByLabel("Due date", { exact: true }).press("Enter");
@@ -34,13 +34,13 @@ test.describe("Issue 詳細の見積もり・期限", () => {
 
     await after.getByRole("button", { name: "Due date を編集" }).click();
     await after.getByRole("button", { name: "解除", exact: true }).click();
-    await expect(after.getByRole("button", { name: "Due date を編集" })).toHaveText("—");
+    await expect(after.getByRole("button", { name: "Due date を編集" })).toHaveText("なし");
     await after.getByRole("button", { name: "Estimate を編集" }).click();
     await after.getByRole("textbox", { name: "Estimate" }).fill("");
     await after.getByRole("textbox", { name: "Estimate" }).press("Enter");
-    await expect(after.getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
+    await expect(after.getByRole("button", { name: "Estimate を編集" })).toHaveText("なし");
     await page.reload();
-    await expect(region(page, "プロパティ").getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
+    await expect(region(page, "プロパティ").getByRole("button", { name: "Estimate を編集" })).toHaveText("なし");
   });
 
   test.describe("期限をキーボードで入力する", () => {
@@ -73,7 +73,7 @@ test.describe("Issue 詳細の見積もり・期限", () => {
       await expect(props.getByRole("alert")).toHaveText("1900-01-01 以降の日付を入力してください");
       await input.press("Escape");
       await page.reload();
-      await expect(region(page, "プロパティ").getByRole("button", { name: "Due date を編集" })).toHaveText("—");
+      await expect(region(page, "プロパティ").getByRole("button", { name: "Due date を編集" })).toHaveText("なし");
     });
 
     test("フォーカスを外すと確定する", async ({ page }) => {
@@ -93,9 +93,9 @@ test.describe("Issue 詳細の見積もり・期限", () => {
     await props.getByRole("button", { name: "Estimate を編集" }).click();
     await props.getByRole("textbox", { name: "Estimate" }).fill("5");
     await props.getByRole("textbox", { name: "Estimate" }).press("Escape");
-    await expect(props.getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
+    await expect(props.getByRole("button", { name: "Estimate を編集" })).toHaveText("なし");
     await page.reload();
-    await expect(region(page, "プロパティ").getByRole("button", { name: "Estimate を編集" })).toHaveText("—");
+    await expect(region(page, "プロパティ").getByRole("button", { name: "Estimate を編集" })).toHaveText("なし");
   });
 });
 

@@ -12,7 +12,7 @@ test("Issueのメニューからアーカイブすると読み取り専用にな
   await page.getByRole("menu", { name: "Issueの操作" }).getByRole("menuitem", { name: "アーカイブ" }).click();
   const banner = page.getByRole("region", { name: "アーカイブ済み" });
   await expect(banner).toContainText(/このIssueはアーカイブ済みです（\d{4}-\d{2}-\d{2} \d{2}:\d{2}）/);
-  await expect(page.getByRole("combobox", { name: "Status" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Status", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Estimate を編集" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Due date を編集" })).toBeDisabled();
   await expect(page.getByText("アーカイブ済みのためコメントできません")).toBeVisible();

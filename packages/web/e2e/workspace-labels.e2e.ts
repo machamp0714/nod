@@ -83,7 +83,7 @@ test("ステータスの表示名を保存すると、その Workspace の Issue
 
   // Issue 詳細：ヘッダーと Status の選択肢は表示名、保存される値は内部値
   await page.goto("/issues/API-12");
-  await expect(page.getByRole("combobox", { name: "Status" }).locator("option:checked")).toHaveText("作業中");
+  await expect(page.getByRole("button", { name: "Status", exact: true })).toHaveText("作業中");
   expect((await nod.me.getIssue("API-12")).status).toBe("in_progress");
 
   const both = encodeURIComponent(JSON.stringify(["API", "NOD"]));

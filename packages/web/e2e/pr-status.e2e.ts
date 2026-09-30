@@ -146,7 +146,7 @@ test("GitHub 以外の PR URL は gh を実行せずに理由を出す", async (
   expect(await ghCalls()).toEqual([]);
 });
 
-test("PR の無い Issue は — だけを出し、更新ボタンを出さない", async ({ page, nod }) => {
+test("PR の無い Issue は「なし」だけを出し、更新ボタンを出さない", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const issue = await api.startedIssue("PR なし");
   await page.goto(`/issues/${issue.id}`);
