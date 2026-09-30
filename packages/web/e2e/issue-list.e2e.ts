@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { closeDisplay, hiddenColumn, openDisplay, searchBox, setLayout } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -13,15 +14,18 @@ test("Issues は spec の列でリストを出す", async ({ page }) => {
   await expect(table.getByRole("row", { name: /API-7/ }).getByRole("link", { name: "#128" })).toBeVisible();
 });
 
-test("件数カードを押すと Ready で絞り込み、もう一度押すと戻す", async ({ page }) => {
+test("件数はタブに出し、Ready のタブで絞り込み、All のタブで戻す（件数カードは出さない）", async ({ page }) => {
   await page.goto("/issues");
-  const card = page.getByRole("button", { name: "Ready 2" });
-  await card.click();
+  const tabs = page.getByRole("tablist", { name: "絞り込み" });
+  await expect(tabs.getByRole("tab")).toHaveText(["All 13", "Ready 2", "Needs Clarification 1", "委任中 4"]);
+  // 件数カード（タブと同じ件数を示すボタン）は置かない
+  await expect(page.getByRole("button", { name: /^Ready/ })).toHaveCount(0);
+  const ready = tabs.getByRole("tab", { name: "Ready 2", exact: true });
+  await ready.click();
   await expect(page).toHaveURL(/tab=ready/);
-  await expect(card).toHaveAttribute("aria-pressed", "true");
+  await expect(ready).toHaveAttribute("aria-selected", "true");
   await expect(tableRows(page)).toHaveCount(2);
-  await expect(page.getByRole("tablist", { name: "絞り込み" }).getByRole("tab", { name: /^Ready/ })).toHaveAttribute("aria-selected", "true");
-  await card.click();
+  await tabs.getByRole("tab", { name: "All 13", exact: true }).click();
   await expect(page).not.toHaveURL(/tab=/);
   await expect(tableRows(page)).toHaveCount(13);
 });
@@ -37,13 +41,13 @@ test("Needs Clarification のタブは未決事項の残る Issue だけを出�
 test("不正な tab と layout は All と List に戻す", async ({ page }) => {
   await page.goto("/issues?tab=foo&layout=grid");
   await expect(page.getByRole("tablist", { name: "絞り込み" }).getByRole("tab", { name: /^All/ })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tablist", { name: "表示" }).getByRole("tab", { name: "List" })).toHaveAttribute("aria-selected", "true");
+  await expect((await openDisplay(page)).getByRole("tablist", { name: "表示" }).getByRole("tab", { name: "List" })).toHaveAttribute("aria-selected", "true");
   await expect(tableRows(page)).toHaveCount(13);
 });
 
 test("検索語でタイトルと ID を絞り込む", async ({ page }) => {
   await page.goto("/issues");
-  const search = page.getByRole("textbox", { name: "検索" });
+  const search = await searchBox(page);
   await search.fill("N+1");
   await expect(tableRows(page)).toHaveCount(1);
   await expect(tableRows(page)).toContainText("API-12");
@@ -54,16 +58,33 @@ test("検索語でタイトルと ID を絞り込む", async ({ page }) => {
   await expect(page.getByText("該当する Issue はありません")).toBeVisible();
 });
 
-test("Board は6つの列を出し、Triage と Canceled を出さない", async ({ page }) => {
+test("Board は6つの Status を列か Hidden columns に出し、Triage と Canceled を出さない", async ({ page, nod }) => {
   await page.goto("/issues");
-  await page.getByRole("tablist", { name: "表示" }).getByRole("tab", { name: "Board" }).click();
+  await setLayout(page, "Board");
+  await closeDisplay(page);
   await expect(page).toHaveURL(/layout=board/);
   for (const name of ["Needs Clarification", "Backlog", "Todo", "In Progress", "In Review", "Done"]) {
     await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
   }
+  await expect(page.getByRole("region", { name: "Hidden columns", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Triage", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Canceled", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "In Progress", exact: true }).getByRole("link")).toHaveCount(3);
+
+  // Issue が 0 件になった列は、右端の Hidden columns に件数 0 の行としてまとまる。Triage と Canceled はここにも出ない
+  await expect(page.getByRole("region", { name: "Needs Clarification", exact: true }).getByRole("article")).toHaveCount(1);
+  await nod.me.updateIssue("API-9", { status: "canceled" });
+  await expect(page.getByRole("region", { name: "Needs Clarification", exact: true })).toHaveCount(0);
+  const hidden = page.getByRole("region", { name: "Hidden columns", exact: true });
+  await expect(hidden.getByRole("listitem")).toHaveText(["Needs Clarification0"]);
+  await expect(hiddenColumn(page, "Needs Clarification")).toBeVisible();
+  // トグルで行をたたみ、もう一度押すと開く
+  const toggle = hidden.getByRole("button", { name: "Hidden columns", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(hidden.getByRole("listitem")).toHaveCount(0);
+  await toggle.click();
+  await expect(hidden.getByRole("listitem")).toHaveCount(1);
 });
 
 test.describe("Issue 詳細", () => {
@@ -88,12 +109,13 @@ test("存在しない View は見つかりませんと出す", async ({ page }) 
   await expect(page.getByRole("heading", { level: 1, name: "View が見つかりません" })).toBeVisible();
 });
 
-test("Project 詳細は説明と Documents を出し、空の列にまだありませんと出す", async ({ page }) => {
+test("Project 詳細は説明と Documents を出し、空の列を Hidden columns にまとめる", async ({ page }) => {
   await page.goto("/projects/3?layout=board");
   await expect(page.getByRole("heading", { level: 1, name: "nod Web UI" })).toBeVisible();
   await expect(page.getByText("判断のための画面")).toBeVisible();
   await expect(page.getByRole("link", { name: "nod 設計" })).toHaveAttribute("href", "/documents/3");
-  await expect(page.getByRole("region", { name: "Done", exact: true })).toContainText("まだありません");
+  await expect(page.getByRole("region", { name: "Done", exact: true })).toHaveCount(0);
+  await expect(hiddenColumn(page, "Done")).toContainText("0");
 });
 
 test("存在しない Project は見つかりませんと出す", async ({ page }) => {

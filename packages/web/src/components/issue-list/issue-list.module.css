@@ -4,14 +4,39 @@
   min-height: 100%;
 }
 
-/* Header より下の中身 */
+/* Project 詳細の概要や View の失敗の表示（Header と View Bar のあいだ） */
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  padding: 16px 20px 8px;
+}
+
+/* nod.pen の Filters の行：高さ 46、左右 20、下線 1。左端に表示中の全選択を置く。
+   チップ（26）もネイティブの select（28）も 46 の中央に置く。折り返したときは上下 8 を空ける */
+.filters {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filters > :not(.checkbox) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* nod.pen の Body：余白 8 の中に、グループ見出しと行をすき間なく積む */
 .body {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 20px;
   min-width: 0;
-  padding: 24px 28px;
+  padding: 8px;
 }
 
 .actions {
@@ -41,79 +66,6 @@
   color: var(--accent);
 }
 
-.cards {
-  display: flex;
-  gap: 12px;
-}
-
-.card {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-}
-
-.card[aria-pressed="true"] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-
-.badge {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-}
-
-.cardText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.cardTop {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.cardCount {
-  font-family: var(--font-mono);
-  font-size: 20px;
-  font-weight: 500;
-}
-
-.cardLabel {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.cardDesc {
-  color: var(--ink2);
-  font-size: 11.5px;
-}
-
-.toolbar {
-  flex-wrap: wrap;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.spacer {
-  flex: 1;
-}
-
 .search {
   display: flex;
   align-items: center;
@@ -137,36 +89,37 @@
   outline: none;
 }
 
+/* nod.pen の行：高さ 44、角丸 8、区切り線なし、セルの間隔 10 */
 .table {
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
   border-collapse: separate;
   border-spacing: 0;
-  background: var(--surface);
   table-layout: fixed;
-  overflow: hidden;
-}
-
-.table th {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--sunken);
-  color: var(--ink3);
-  font-size: 11px;
-  font-weight: 500;
-  text-align: left;
 }
 
 .table td {
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--line);
+  height: 44px;
+  padding: 0 5px;
+  overflow: hidden;
+  color: var(--ink2);
   font-size: 12px;
+  text-overflow: ellipsis;
   vertical-align: middle;
+  white-space: nowrap;
 }
 
-.table tbody tr:last-child td {
-  border-bottom: 0;
+.table td:first-child {
+  padding-left: 12px;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.table td:last-child {
+  padding-right: 12px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--bg);
 }
 
 .colStatus {
@@ -218,24 +171,42 @@
   font-weight: 500;
 }
 
-.id {
-  color: var(--ink2);
+.table td.id {
+  color: var(--ink3);
   font-family: var(--font-mono);
+  font-size: 13px;
 }
 
-.titleCell {
+.table td.titleCell {
   position: relative; /* 視覚的に隠したプレビューボタンをセルの中に留め、ページに横スクロールを出さない */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--ink);
   font-size: 13px;
   font-weight: 500;
 }
 
-/* 一覧の行のラベル（#117）。タイトルの右に並べる */
-.rowLabel {
-  margin-left: 8px;
-  vertical-align: 1px;
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titleRow > * {
+  flex: none;
+}
+
+.titleRow > .titleLink {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 一覧の行のラベル（#117）。nod.pen の行と同じく、題名の列の右端に寄せる */
+.rowLabels {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
   font-weight: 400;
 }
 
@@ -248,71 +219,84 @@
   font-family: var(--font-mono);
 }
 
-.muted {
+.muted,
+.table td.muted {
   color: var(--ink3);
 }
 
+.spacer {
+  flex: 1;
+}
+
+/* nod.pen のボード（Cjq7Z）：列は幅 340 固定、間隔 8。あふれた分は Board の中で横にスクロールし、Main には出さない */
 .board {
   display: flex;
-  flex: 1;
-  gap: 14px;
-  min-height: 0;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .column {
   display: flex;
-  flex: 1;
+  flex: none;
   flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px;
-  border-radius: var(--radius-lg);
-  background: var(--sunken);
+  gap: 8px;
+  width: 340px;
+  padding: 0 8px 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
 }
 
+/* 列見出し：題名の行 46 と説明文の行 18（1行で切る）で、全列同じ高さ */
 .columnHead {
   display: flex;
+  flex: none;
   flex-direction: column;
-  gap: 2px;
   min-width: 0;
-  padding: 2px 4px 6px;
+  padding: 0 0 4px 6px;
 }
 
 .columnHeadRow {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 46px;
   min-width: 0;
 }
 
 .columnDescription {
+  height: 18px;
   margin: 0;
+  overflow: hidden;
   color: var(--ink3);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
-  line-height: 17px;
-  overflow-wrap: anywhere;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .columnName {
   min-width: 0;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .columnCount {
   color: var(--ink3);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
 }
 
+/* カード：余白 12、角丸 8。ID 12、題名 13 / 500（行の高さ 16）、担当 18 を右上、チップは高さ 24 の円形 */
 .boardCard {
   display: flex;
+  flex: none;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -321,17 +305,60 @@
 
 .boardCardTop {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  color: var(--ink2);
+  min-width: 0;
+}
+
+.boardCardMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  color: var(--ink3);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
+}
+
+.boardSwatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.boardCardId {
+  white-space: nowrap;
+}
+
+.unassigned {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.boardCardTitleRow {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.boardCardStatus {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 16px;
 }
 
 .boardCardTitle {
   display: -webkit-box;
+  min-width: 0;
   overflow: hidden;
   font-size: 13px;
   font-weight: 500;
+  line-height: 16px;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -340,48 +367,385 @@
 .boardCardFooter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
-.empty {
+.boardChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Issue が 0 件の列をまとめる Hidden columns（PR46C）：幅 338、行の高さ 38、行の間隔 10 */
+.hiddenColumns {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 338px;
+  padding-top: 11px; /* トグル（24）を列見出しの題名の行（46）の中央に置く */
+}
+
+.hiddenToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--control-height-sm);
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hiddenToggle:hover {
+  background: var(--sunken);
+}
+
+.hiddenRows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 0 0;
+  list-style: none;
+}
+
+.hiddenRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.hiddenName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hiddenCount {
+  color: var(--ink3);
+}
+
+/* グループのない Board：Main の残りの高さいっぱいに列を伸ばし、縦も横も Board の中でスクロールする */
+.splitFill {
+  height: 100%;
+}
+
+.splitFill > .page {
+  height: 100%;
+}
+
+.bodyFill {
+  min-height: 320px;
+}
+
+.bodyFill > .board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* カードが Board の高さに収まらない列は、カードの分まで箱を伸ばす（列の背景の外にカードを出さない） */
+.bodyFill > .board > .column {
+  min-height: max-content;
+}
+
+/* Board に出す Issue が 0 件のとき */
+.boardEmpty {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   padding: 20px 8px;
   color: var(--ink3);
   font-size: 12px;
 }
 
-.groupSelect {
+/* nod.pen の Display Popover（EMZdB）：幅 302、角丸 12。区画は上下 8 と左右 16、行の高さ 32、ラベル 12 / 500 */
+.displayRoot {
+  position: relative;
+  flex: none;
+}
+
+.displayPopover {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  width: 302px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.displaySection {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 15px; /* 枠線 1 と合わせて、内側の左右は 16 */
+  border: 0;
+}
+
+.displaySection + .displaySection {
+  border-top: 1px solid var(--line);
+}
+
+.displaySection:first-child {
+  gap: 4px;
+  padding-top: 12px;
+}
+
+.displayRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  height: 32px;
+}
+
+.displayLabel {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
   color: var(--ink2);
   font-size: 12px;
+  font-weight: 500;
 }
-.groupSelect select {
-  color: var(--ink);
+
+/* List と Board の切り替え：高さ 32 の枠に、高さ 28 のタブが2つ並ぶ */
+.layoutTabs {
+  display: flex;
+  gap: 2px;
+  height: 32px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+}
+
+.layoutTab {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--control-height);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.layoutTab[aria-selected="true"] {
+  border-color: var(--line);
   background: var(--surface);
+  color: var(--ink);
+}
+
+/* コンボボックス：幅 100、高さ 24、角丸 8 */
+.displaySelectRoot {
+  position: relative;
+  flex: none;
+}
+
+.displaySelect {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100px;
+  height: var(--control-height-sm);
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 0 6px;
-  height: var(--control-height);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
+
+.displaySelect:hover:not(:disabled),
+.displaySelect[aria-expanded="true"] {
+  background: var(--sunken);
+}
+
+.displaySelect:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.displaySelectValue {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displaySelectMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 16;
+}
+
+.displaySelectMenu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.displaySelectOption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 並び順の方向：24 の円形 */
+.directionButton {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.directionButton:hover {
+  background: var(--sunken);
+}
+
+/* スイッチ：22×14、つまみ 10 */
+.switch {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  cursor: pointer;
+}
+
+.switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  content: "";
+  transition: left 0.1s;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.switch[aria-checked="true"]::after {
+  left: 10px;
+}
+
+.displayColumns {
+  gap: 5px;
+  padding-bottom: 14px;
+}
+
+.displayColumns .displayLabel {
+  float: left; /* legend を区画の枠線の上ではなく、内側の1行目に置く */
+  width: 100%;
+  height: 28px;
+  line-height: 28px;
+}
+
+.displayColumns:disabled {
+  opacity: 0.5;
+}
+
+/* 表示列のチップ：高さ 24 の円形のトグル */
+.columnChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.columnChip {
+  height: var(--control-height-sm);
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink3);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.columnChip[aria-pressed="true"] {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.columnChip:disabled {
+  cursor: not-allowed;
+}
+
 .workspaceGroup { min-width: 0; }
+/* グループ見出し：高さ 36、Body の左右 8 の内側、角丸 8、文字 13 / 500 */
 .groupHeading {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  height: 36px;
   margin: 0;
-  padding: 0 20px;
+  padding: 0 8px 0 12px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
   background: var(--bg);
-  border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--ink);
+  white-space: nowrap;
 }
-.groupLabel { min-width: 0; overflow-wrap: anywhere; }
-.groupCount { font-size: 12px; font-weight: 400; color: var(--ink3); }
-.workspaceGroup .board { overflow-x: auto; }
-.workspaceGroup .column { min-width: 170px; }
+.groupHeading > *, .subgroupHeading > * { flex: none; }
+.groupLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.groupHeading > .groupLabel, .subgroupHeading > .groupLabel { flex: 0 1 auto; }
+.groupCount { font-size: 13px; font-weight: 400; color: var(--ink3); }
+.subgroupHeading .groupCount { font-size: 12px; }
+/* グループの中の Board は上に 8 空ける */
+.workspaceGroup .board { padding: 8px 0; }
 .blockedBy {
   display: flex;
   flex-wrap: wrap;
@@ -393,14 +757,11 @@
   font-size: 11.5px;
 }
 .blockedBy a { color: var(--accent); }
+/* 一覧の行では題名の横に1行で並べる（行の高さ 44 を保つ） */
+.titleRow .blockedBy { flex-wrap: nowrap; margin-top: 0; font-weight: 400; white-space: nowrap; }
 
-.displaySettings { color: var(--ink2); font-size: 12px; }
-.displaySettings summary { cursor: pointer; width: fit-content; }
-.displayOptions { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 12px; align-items: center; }
-.columnSettings { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; min-width: 0; }
-.columnSettings label { display: flex; align-items: center; gap: 4px; }
-.columnSettings:disabled { opacity: 0.5; }
-.tableScroll { overflow-x: auto; min-width: 0; }
+/* position は、視覚的に隠した列見出し（position: absolute）を表の中に留め、ページに縦スクロールを出さないため */
+.tableScroll { position: relative; overflow-x: auto; min-width: 0; }
 .tableScroll .table { min-width: 640px; }
 
 /* サブグループ（design/nod.pen「Issues｜サブグループ」） */
@@ -409,14 +770,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  height: 32px;
   margin: 0;
-  padding: 0 20px 0 40px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
   background: var(--surface);
-  border-bottom: 1px solid var(--line);
   font-size: 12.5px;
   font-weight: 500;
   color: var(--ink);
+  white-space: nowrap;
 }
 .visuallyHidden {
   position: absolute;
@@ -435,20 +798,8 @@
 }
 .split > .page { flex: 1; min-width: 0; }
 /* 行に触れるまでは画面から隠すが、支援技術の仮想カーソルでは見つけられるように残す */
-.previewButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
+.table .previewButton {
   color: var(--ink2);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  height: var(--control-height-sm);
 }
 .table tbody tr:not(:hover, :focus-within) .previewButton {
   position: absolute;
@@ -479,19 +830,6 @@
 }
 .previewHead { display: flex; align-items: center; gap: 6px; }
 .previewHeadText { flex: 1; color: var(--ink3); font-size: 11.5px; }
-.previewClose {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink2);
-  cursor: pointer;
-}
-.previewClose:hover { background: var(--sunken); }
 .previewCrumb { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--ink2); }
 .previewId { font-family: var(--font-mono); font-size: 12px; color: var(--ink3); }
 .previewDot { color: var(--ink3); font-size: 13px; }
@@ -531,7 +869,6 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 8px;
   padding: 2px 7px;
   border-radius: 10px;
   font-size: 11px;
@@ -541,8 +878,7 @@
   vertical-align: middle;
 }
 .agentDotMark { width: 6px; height: 6px; border-radius: 3px; flex: none; }
-.breakdown { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 4px; }
-.breakdown .agentDot { margin-left: 0; }
+.breakdown { display: inline-flex; align-items: center; gap: 6px; padding-left: 4px; }
 .agentName { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
 .emptyDelegated {
   display: flex;
@@ -561,7 +897,6 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 8px;
   padding: 2px 7px;
   border-radius: 10px;
   background: var(--ready-soft);
@@ -573,7 +908,6 @@
 
 /* 一括編集（design/nod.pen「Issues｜一括編集（#31）」） */
 .colSelect { width: 36px; }
-.table td.selectHead { border-bottom: 1px solid var(--line); background: var(--sunken); }
 .checkbox {
   width: 14px;
   height: 14px;
@@ -583,12 +917,11 @@
   vertical-align: middle;
 }
 .table tbody tr.selected td { background: var(--accent-soft); }
-.selectAllRow { display: flex; align-items: center; gap: 10px; min-height: 26px; }
-.selectAllRow > :not(.checkbox) { flex: 1; min-width: 0; }
 .bulkDock {
   position: sticky;
-  bottom: 20px;
+  bottom: 12px;
   z-index: 5;
+  margin-top: 12px;
   align-self: center;
   display: flex;
   flex-direction: column;
@@ -610,21 +943,8 @@
 .bulkCountCheck { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: var(--radius-sm); background: var(--accent); color: #fff; }
 .bulkDivider { width: 1px; height: 20px; background: var(--line); }
 .bulkDropdownWrap { position: relative; }
-.bulkDropdown {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 12px;
-  cursor: pointer;
-  height: var(--control-height-sm);
-  font-weight: 500;
-}
-.bulkDropdown:disabled { cursor: progress; opacity: 0.6; }
+/* 枠と大きさは共通の Button（sm）。適用中のカーソルと、開いているときの地だけをここで決める */
+.bulkBar .bulkDropdown:disabled { cursor: progress; }
 .bulkDropdown[aria-expanded="true"] { background: var(--sunken); }
 .bulkClear {
   display: inline-flex;
@@ -640,7 +960,7 @@
   cursor: pointer;
   height: var(--control-height-sm);
 }
-.bulkClear:hover, .bulkDropdown:hover { background: var(--sunken); }
+.bulkClear:hover, .bulkBar .bulkDropdown:hover:not(:disabled) { background: var(--sunken); }
 .bulkPopover {
   position: absolute;
   bottom: calc(100% + 6px);
@@ -657,28 +977,14 @@
 }
 .bulkMenu { display: flex; flex-direction: column; gap: 0; }
 .bulkMenu [role="menu"] { display: flex; flex-direction: column; gap: 0; }
-.bulkMenu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--ink);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  min-height: 32px;
-}
-.bulkMenu button:hover, .bulkMenu button:focus-visible { background: var(--sunken); }
+/* 項目は共通の MenuItem（高さ 32、角丸 8、文字 13） */
 .bulkSearch { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
 .bulkSearch input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink); font-size: 12px; }
 .bulkSeparator { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line); }
 .bulkSection { margin: 0; padding: 6px 10px 2px; color: var(--ink3); font-size: 11.5px; font-weight: 500; }
 .bulkEmpty { margin: 0; padding: 6px 10px; color: var(--ink3); font-size: 12px; }
 .bulkMenuHead { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 10px 2px; color: var(--ink3); font-size: 11.5px; font-weight: 600; }
-.bulkMenu button.bulkNone { color: var(--ink2); }
+.bulkMenu .bulkNone { color: var(--ink2); }
 .bulkLabelDot { flex: none; width: 6px; height: 6px; border-radius: 3px; background: var(--ink3); }
 .bulkLabelName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulkLabelCount { flex: none; color: var(--ink3); font-size: 11px; }
@@ -686,18 +992,6 @@
 .bulkForm label { display: grid; gap: 6px; color: var(--ink2); font-size: 12px; }
 .bulkForm input { padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); font-size: 12.5px; }
 .bulkFormActions { display: flex; justify-content: flex-end; gap: 6px; }
-.bulkApply {
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  height: var(--control-height-sm);
-}
-.bulkApply:disabled { opacity: 0.5; cursor: default; }
 .bulkError { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--fail-soft); }
 .bulkErrorHead { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--fail); font-size: 12.5px; font-weight: 600; }
 .bulkFailures { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0 0 0 22px; list-style: none; font-size: 12px; color: var(--ink2); }

@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { chooseDisplay, closeDisplay, displaySelect } from "./support/issue-list";
 
 // issue-list の委任中：claude-code に API-12・BLOG-2（入力待ち）と API-7（In Review・完了）、codex に API-8（入力待ち）。
 // NOD-3 は claude-code の担当だが done なので出さない
@@ -12,7 +13,8 @@ test("委任中タブは LLM ごとに担当でまとめ、作業状況の内訳
   await expect(page).toHaveURL(/tab=delegated/);
   // 担当でのまとめは委任中タブの既定の表示で、URL には書かない（タブを離れると元に戻る）
   await expect(page).not.toHaveURL(/groupBy=/);
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("assignee");
+  await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "assignee");
+  await closeDisplay(page);
 
   const claude = region(page, "担当 claude-code");
   await expect(claude.locator("tbody tr")).toHaveCount(3);
@@ -31,7 +33,8 @@ test("委任中タブは LLM ごとに担当でまとめ、作業状況の内訳
   await expect(page).toHaveURL(/sort=title/);
 
   // 利用者が選んだグループ化はタブを選び直しても上書きしない
-  await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
+  await chooseDisplay(page, "グループ化", "Workspace");
+  await closeDisplay(page);
   await page.getByRole("tab", { name: /^All / }).click();
   await page.getByRole("tab", { name: "委任中 4", exact: true }).click();
   await expect(page).toHaveURL(/groupBy=workspace/);
@@ -45,7 +48,7 @@ test("直リンクの委任中タブは担当でまとめ、タブを離れる�
 
   await page.getByRole("tab", { name: /^All / }).click();
   await expect(page).not.toHaveURL(/tab=|groupBy=/);
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
   await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "nod issue next の取り合いを防ぐ", exact: true })).toBeVisible();
 });
@@ -53,13 +56,14 @@ test("直リンクの委任中タブは担当でまとめ、タブを離れる�
 test("委任中タブで「なし」を選ぶとフラットに出し、再読み込みしても保ち、タブを離れると URL から消す", async ({ page }) => {
   await page.goto("/issues?tab=delegated");
   await expect(region(page, "担当 claude-code")).toBeVisible();
-  await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+  await chooseDisplay(page, "グループ化", "なし");
   await expect(page).toHaveURL(/groupBy=none/);
   await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
   await expect(page.getByRole("row").filter({ hasText: "API-8" })).toHaveCount(1);
 
   await page.reload();
-  await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("none");
+  await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
+  await closeDisplay(page);
   await expect(page.getByRole("row").filter({ hasText: "API-8" })).toHaveCount(1);
   await expect(page.getByRole("region", { name: /^担当 / })).toHaveCount(0);
 

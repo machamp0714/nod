@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { setLayout } from "./support/issue-list";
 
 // design/nod.pen「Issues｜一括編集（#31）」。選択は URL に残さず、1件でも失敗したら何も変えない
 
@@ -144,7 +145,7 @@ test("キーボードで選び（Space・Shift+Space）、グループの全選�
   await expect(page.getByRole("menu", { name: "担当を変更" })).toHaveCount(0);
   await expect(bar(page)).toContainText("3 件選択");
 
-  await page.getByRole("tab", { name: "Board" }).click();
+  await setLayout(page, "Board");
   await expect(page.getByRole("checkbox", { name: /を選択$/ })).toHaveCount(0);
   await expect(bar(page)).toHaveCount(0);
 });

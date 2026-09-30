@@ -1,12 +1,13 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentState, Status } from "../../api/types";
-import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, type Tone, TONE_COLORS } from "../../lib/meta";
-import { DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS, type IssueSort, type SortDirection } from "../../routes/search";
-import type { IssueGroupBy, IssueGroupKey, IssueLayout, IssueListSearch, IssueTab } from "../../routes/search";
-import { AgentAvatar, Icon, type IconName, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, WorkspaceBadge } from "../ui";
+import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
+import { DEFAULT_ISSUE_COLUMNS } from "../../routes/search";
+import type { IssueGroupKey, IssueListSearch } from "../../routes/search";
+import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
 import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
+import { DisplayPopover, GROUP_NAMES } from "./DisplayPopover";
 import { IssueBoard } from "./IssueBoard";
 import { useCycles } from "../../api/hooks/cycles";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
@@ -22,8 +23,8 @@ export interface IssueListProps {
   crumb?: ReactNode;
   title: string;
   intro?: ReactNode;
-  actions?: ReactNode; // 見出しの右に置くボタン（View として保存、View の変更など）
-  filterBar?: ReactNode; // 絞り込み条件のバー（Issues と Views だけに置く）
+  actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
+  filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
   rows: IssueListRow[];
   loading?: boolean;
   error?: string | null;
@@ -31,12 +32,13 @@ export interface IssueListProps {
   onSearchChange: (patch: IssueListSearch) => void;
   // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
   statusWorkspace?: string | null;
-  // My issues：タブを「担当｜委任中」にし、件数カードを出さない。担当タブは Status でまとめるのが既定
+  // My issues：タブを「担当｜委任中」にする。担当タブは Status でまとめるのが既定
   mine?: boolean;
 }
 
-// spec の Issue 一覧：見出し、件数カード、タブ、検索、リストとカンバンの切り替え。
-// Project 詳細、Issues、Views で共通に使い、表示する Issue の範囲（rows）だけが違う。
+// design/nod.pen「11 Issues」（O7KCp3）：Header、View Bar（タブと、検索、Filter、Display のアイコンボタン）、Filters の行、一覧。
+// 件数はタブに出す。グループ化、並び順、表示列、List と Board の切り替えは Display のポップオーバーにまとめる。
+// Project 詳細、Cycle 詳細、Issues、My issues、Views で共通に使い、表示する Issue の範囲（rows）だけが違う。
 export function IssueList({
   crumb,
   title,
@@ -98,12 +100,12 @@ export function IssueList({
   let currentShown = false;
   // 表は positions と同じ順に描くので、描いた行数を数えて各表の先頭行の表示位置にする
   let offset = 0;
-  const table = (tableRows: IssueListRow[], hideHeader = false) => {
+  const table = (tableRows: IssueListRow[]) => {
     const markCurrent = !currentShown && tableRows.some((r) => r.issue.id === preview);
     if (markCurrent) currentShown = true;
     const selection = rowSelection && { ...rowSelection, offset };
     offset += tableRows.length;
-    return <IssueTable rows={tableRows} columns={tableColumns} hideHeader={hideHeader} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={selection} />;
+    return <IssueTable rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={selection} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
@@ -131,12 +133,50 @@ export function IssueList({
   const toggleMany = (ids: string[]) => setSelection((prev) => ({ ...prev, ids: toggleAll(prev.ids, ids) }));
   const clearSelection = () => setSelection({ ids: NO_SELECTION, anchor: null });
   const rowSelection = selectable ? { ids: selectedIds, onToggle: onToggleRow } : undefined;
-  const toggle = (next: IssueTab) => onSearchChange({ tab: tab === next ? "all" : next });
   // 委任中タブの担当でのまとめは effectiveGrouping が表示時に決める（URL には書かない）
   const selectTab = (next: ListTab) => onSearchChange({ tab: next === "mine" ? "all" : next });
+  // 検索欄は View Bar のアイコンボタンから開く。検索語があるあいだは開いたままにする
+  const [searching, setSearching] = useState(false);
+  const searchOpen = searching || q !== "";
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const refocusSearch = useRef(false);
+  useEffect(() => {
+    if (searchOpen || !refocusSearch.current) return;
+    refocusSearch.current = false;
+    searchButton.current?.focus();
+  }, [searchOpen]);
+  // Filter のボタンは、Filters の行にある条件のパネル（FilterBar の <details>）を開く。パネルがない画面では出さない
+  const filters = useRef<HTMLDivElement>(null);
+  const [hasFilterPanel, setHasFilterPanel] = useState(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  useEffect(() => {
+    const panel = filters.current?.querySelector("details");
+    setHasFilterPanel(!!panel);
+    setFilterPanelOpen(!!panel?.open);
+  });
+  // パネルは「Filter」の見出しからも開閉できるので、toggle を聞いてボタンの aria-expanded を合わせる（toggle は伝播しないため capture で受ける）
+  useEffect(() => {
+    const row = filters.current;
+    if (!row) return;
+    const onToggle = (event: Event) => {
+      if (event.target instanceof HTMLDetailsElement) setFilterPanelOpen(event.target.open);
+    };
+    row.addEventListener("toggle", onToggle, true);
+    return () => row.removeEventListener("toggle", onToggle, true);
+  }, [hasFilterPanel]);
+  const toggleFilterPanel = () => {
+    const panel = filters.current?.querySelector("details");
+    if (!panel) return;
+    panel.open = !panel.open;
+    // 開いたときだけパネルの見出しへフォーカスを移す。閉じたときはボタンに残す
+    if (panel.open) panel.querySelector("summary")?.focus();
+  };
+  // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする。
+  // 概要（intro）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
+  const fill = layout === "board" && !groupBy && !intro;
 
   return (
-    <div className={s.split}>
+    <div className={fill ? `${s.split} ${s.splitFill}` : s.split}>
     <div
       className={s.page}
       onKeyDown={(event) => {
@@ -158,47 +198,24 @@ export function IssueList({
         <Spacer />
         {actions && <div className={s.actions}>{actions}</div>}
       </PageHeader>
-      {/* Header より下の中身。構成は #182 で nod.pen の 11 Issues に合わせる */}
-      <div className={s.body}>
-        {intro}
-
-        {!mine && <div className={s.cards}>
-          <CountCard
-            label="Ready"
-            description="着手できる状態の Issue"
-            count={counts.ready}
-            tone="ready"
-            icon="circle-play"
-            pressed={tab === "ready"}
-            onClick={() => toggle("ready")}
-          />
-          <CountCard
-            label={nameOfStatus("needs_clarification")}
-            description="未決事項が残っている Issue"
-            count={counts.needsClarification}
-            tone="ask"
-            icon="message-circle-warning"
-            pressed={tab === "needs_clarification"}
-            onClick={() => toggle("needs_clarification")}
-          />
-        </div>}
-
-        <div className={s.toolbar}>
-          <Segmented<ListTab>
-            label="絞り込み"
-            value={tab}
-            onChange={selectTab}
-            items={mine ? [
-              { value: "mine", label: `担当 ${counts.mine}` },
-              { value: "delegated", label: `委任中 ${counts.delegated}` },
-            ] : [
-              { value: "all", label: `All ${counts.all}` },
-              { value: "ready", label: `Ready ${counts.ready}` },
-              { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
-              { value: "delegated", label: `委任中 ${counts.delegated}` },
-            ]}
-          />
-          <div className={s.spacer} />
+      {intro && <div className={s.intro}>{intro}</div>}
+      <ViewBar>
+        <Segmented<ListTab>
+          label="絞り込み"
+          value={tab}
+          onChange={selectTab}
+          items={mine ? [
+            { value: "mine", label: `担当 ${counts.mine}` },
+            { value: "delegated", label: `委任中 ${counts.delegated}` },
+          ] : [
+            { value: "all", label: `All ${counts.all}` },
+            { value: "ready", label: `Ready ${counts.ready}` },
+            { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
+            { value: "delegated", label: `委任中 ${counts.delegated}` },
+          ]}
+        />
+        <Spacer />
+        {searchOpen ? (
           <label className={s.search}>
             <Icon name="search" />
             <input
@@ -206,96 +223,34 @@ export function IssueList({
               aria-label="検索"
               placeholder="ID・タイトル・説明で検索"
               value={q}
+              // ボタンから開いたときだけフォーカスを移す（検索語つきの URL を開いたときは動かさない）
+              autoFocus={searching}
               onChange={(event) => onSearchChange({ q: event.target.value })}
+              // 検索語を消しているあいだは閉じず、空のままフォーカスが外れたら閉じる
+              onFocus={() => setSearching(true)}
+              onBlur={() => setSearching(false)}
+              onKeyDown={(event) => {
+                // 空の検索欄の Escape は、欄を閉じてボタンへ戻る
+                if (event.key !== "Escape" || q !== "" || event.nativeEvent.isComposing) return;
+                refocusSearch.current = true;
+                setSearching(false);
+              }}
             />
           </label>
-          <label className={s.groupSelect}>
-            グループ化
-            <select
-              aria-label="グループ化"
-              // Board で URL に groupBy=status があるときは「Status」と示し、「なし」を選んで URL から消せるようにする
-              value={layout === "board" && search.groupBy === "status" ? "status" : groupBy ?? "none"}
-              onChange={(event) => onSearchChange({ groupBy: event.target.value as IssueGroupBy })}
-            >
-              <option value="none">なし</option>
-              {GROUP_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value} disabled={layout === "board" && value === "status"}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label className={s.groupSelect}>
-            サブグループ
-            <select
-              aria-label="サブグループ"
-              value={subGroupBy ?? "none"}
-              disabled={!groupBy || layout === "board"}
-              onChange={(event) => onSearchChange({ subGroupBy: event.target.value === "none" ? undefined : event.target.value as IssueGroupKey })}
-            >
-              <option value="none">なし</option>
-              {GROUP_OPTIONS.map(([value, label]) => (
-                <option key={value} value={value} disabled={value === groupBy}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <Segmented<IssueLayout>
-            label="表示"
-            value={layout}
-            onChange={(value) => onSearchChange({ layout: value })}
-            items={[
-              { value: "list", label: "List", icon: "list" },
-              { value: "board", label: "Board", icon: "columns-3" },
-            ]}
-          />
+        ) : (
+          <IconButton ref={searchButton} icon="search" label="検索を開く" bordered onClick={() => setSearching(true)} />
+        )}
+        {hasFilterPanel && <IconButton icon="list-filter" label="絞り込み条件を開く" bordered aria-expanded={filterPanelOpen} onClick={toggleFilterPanel} />}
+        <DisplayPopover search={search} layout={layout} groupBy={groupBy} subGroupBy={subGroupBy} columns={columns} onSearchChange={onSearchChange} />
+      </ViewBar>
+      {(selectable || filterBar) && (
+        // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
+        <div className={s.filters} ref={filters}>
+          {selectable && <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} inputRef={selectAllRef} />}
+          {filterBar}
         </div>
-        <details className={s.displaySettings}>
-          <summary>表示設定</summary>
-          <div className={s.displayOptions}>
-            <label className={s.groupSelect}>並び順
-              <select aria-label="並び順" value={search.sort ?? "default"} onChange={(event) => onSearchChange({ sort: event.target.value as IssueSort })}>
-                <option value="default">既定（Status・優先度・ID）</option>
-                <option value="priority">優先度</option>
-                <option value="createdAt">作成日時</option>
-                <option value="updatedAt">更新日時</option>
-                <option value="title">タイトル</option>
-                <option value="estimate">見積もり</option>
-                <option value="dueDate">期限</option>
-              </select>
-            </label>
-            <label className={s.groupSelect}>方向
-              <select aria-label="並び順の方向" value={search.direction ?? "asc"} onChange={(event) => onSearchChange({ direction: event.target.value as SortDirection })}>
-                <option value="asc">昇順</option><option value="desc">降順</option>
-              </select>
-            </label>
-            <fieldset className={s.columnSettings}>
-              <legend>表示するIssue</legend>
-              <label>
-                <input type="checkbox" checked={search.showCompleted !== false} onChange={(event) => onSearchChange({ showCompleted: event.target.checked })} />
-                完了済みIssueを表示
-              </label>
-              <label>
-                <input type="checkbox" checked={search.showChildren !== false} onChange={(event) => onSearchChange({ showChildren: event.target.checked })} />
-                子Issueを表示
-              </label>
-            </fieldset>
-            <fieldset className={s.columnSettings} disabled={layout === "board"}>
-              <legend>リストの表示列（ID・Titleは常に表示）</legend>
-              {ISSUE_COLUMNS.map((column) => (
-                <label key={column}>
-                  <input type="checkbox" checked={columns.includes(column)} onChange={(event) => onSearchChange({ columns: ISSUE_COLUMNS.filter((key) => key === column ? event.target.checked : columns.includes(key)) })} />
-                  {{ status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR", estimate: "見積もり", dueDate: "期限" }[column]}
-                </label>
-              ))}
-            </fieldset>
-          </div>
-        </details>
-        {selectable ? (
-          // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く
-          <div className={s.selectAllRow}>
-            <SelectAllBox ids={order} label="表示中の Issue をすべて選択" selected={selectedIds} onChange={toggleMany} inputRef={selectAllRef} />
-            {filterBar}
-          </div>
-        ) : filterBar}
-
+      )}
+      <div className={fill ? `${s.body} ${s.bodyFill}` : s.body}>
         {error ? (
           <p role="alert" className={`${s.message} ${s.messageError}`}>
             {error}
@@ -329,7 +284,7 @@ export function IssueList({
                   group.subgroups.map((subgroup) => (
                     <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
                       <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
-                      {table(subgroup.rows, true)}
+                      {table(subgroup.rows)}
                     </section>
                   ))
                 ) : table(group.rows)}
@@ -376,16 +331,6 @@ export function IssueList({
   );
 }
 
-const GROUP_NAMES: Record<IssueGroupKey, string> = {
-  workspace: "Workspace",
-  status: "Status",
-  priority: "Priority",
-  project: "Project",
-  cycle: "Cycle",
-  assignee: "担当",
-  label: "ラベル",
-};
-const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
 const AGENT_STATES = Object.keys(AGENT_STATE_META) as AgentState[];
 const NO_SELECTION: ReadonlySet<string> = new Set();
 
@@ -419,8 +364,8 @@ function SelectAllBox({ ids, label, selected, onChange, inputRef }: { ids: strin
   );
 }
 
-// design/nod.pen「11 Issues」のグループ行：アイコン、名前、件数
-// サブグループの見出しは「Issues｜サブグループ」の行（1段下げ、白地、weight 500）
+// design/nod.pen「11 Issues」のグループ行（高さ 36、角丸 8）：アイコン、名前、件数
+// サブグループの見出しは「Issues｜サブグループ」の行（高さ 32、白地）
 // 委任中タブの担当の見出しは「Issues｜委任中タブ（#53）」：アバター、LLM 名、件数、作業状況の内訳（0件は出さない）
 function GroupHeading({ by, group, level = 2, delegated = false, select }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; delegated?: boolean; select?: ReactNode }) {
   const empty = group.key === "";
@@ -462,41 +407,5 @@ function GroupHeading({ by, group, level = 2, delegated = false, select }: { by:
       )}
       <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
     </Heading>
-  );
-}
-
-function CountCard({
-  label,
-  description,
-  count,
-  tone,
-  icon,
-  pressed,
-  onClick,
-}: {
-  label: string;
-  description: string;
-  count: number;
-  tone: Tone;
-  icon: IconName;
-  pressed: boolean;
-  onClick: () => void;
-}) {
-  const color = TONE_COLORS[tone];
-  return (
-    <button type="button" className={s.card} aria-pressed={pressed} aria-label={`${label} ${count}`} onClick={onClick}>
-      <span className={s.badge} style={{ background: color.bg, color: color.fg }}>
-        <Icon name={icon} size={16} />
-      </span>
-      <span className={s.cardText}>
-        <span className={s.cardTop}>
-          <span className={s.cardCount} style={{ color: color.fg }}>
-            {count}
-          </span>
-          <span className={s.cardLabel}>{label}</span>
-        </span>
-        <span className={s.cardDesc}>{description}</span>
-      </span>
-    </button>
   );
 }

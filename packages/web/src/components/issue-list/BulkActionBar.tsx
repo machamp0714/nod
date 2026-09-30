@@ -9,7 +9,7 @@ import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, cycleMenu, labelMenu
 import { CYCLE_STATE_LABEL } from "../../lib/cycles";
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
-import { Icon, type IconName } from "../ui";
+import { Button, Icon, type IconName, MenuItem } from "../ui";
 import d from "../planning/planning.module.css";
 import s from "./issue-list.module.css";
 
@@ -231,7 +231,7 @@ function Dropdown({
   // 開いたときだけ最初の項目へフォーカスを移す（SSE の読み直しで描き直されても動かさない）
   useEffect(() => {
     if (!open) return;
-    root.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    root.current?.querySelector<HTMLElement>("[data-autofocus], [role=menuitem]")?.focus();
     const outside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) close.current();
     };
@@ -240,11 +240,11 @@ function Dropdown({
   }, [open]);
   return (
     <div className={s.bulkDropdownWrap} ref={root} title={title}>
-      <button type="button" ref={trigger} data-menu={menuKey} className={s.bulkDropdown} aria-haspopup="true" aria-expanded={open} disabled={disabled} onClick={onToggle}>
+      <Button size="sm" ref={trigger} data-menu={menuKey} className={s.bulkDropdown} aria-haspopup="true" aria-expanded={open} disabled={disabled} onClick={onToggle}>
         <Icon name={icon} size={13} color="var(--ink2)" />
         {label}
         <Icon name="chevron-down" size={12} color="var(--ink3)" />
-      </button>
+      </Button>
       {open && (
         <div
           className={s.bulkPopover}
@@ -276,10 +276,11 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
 function Menu({ label, items }: { label: string; items: { key: string; label: string; run: () => void }[] }) {
   return (
     <div role="menu" aria-label={label} className={s.bulkMenu} onKeyDown={moveFocus}>
-      {items.map((item, index) => (
-        <button key={item.key} type="button" role="menuitem" data-autofocus={index === 0 ? "" : undefined} onClick={item.run}>
-          {item.label}
-        </button>
+      {items.map((item) => (
+        <MenuItem key={item.key} onClick={item.run}>
+          {/* 長い名前（Project 名など）は省略記号で切り、全文は title で読めるようにする */}
+          <span className={s.bulkLabelName} title={item.label}>{item.label}</span>
+        </MenuItem>
       ))}
     </div>
   );
@@ -313,19 +314,19 @@ function ChoiceMenu({
           {head}
         </p>
       )}
-      {items.map((item, index) => (
-        <button key={item.key} type="button" role="menuitem" data-autofocus={index === 0 ? "" : undefined} onClick={item.run}>
+      {items.map((item) => (
+        <MenuItem key={item.key} onClick={item.run}>
           <Icon name={item.icon} size={12} color="var(--ink3)" />
           <span className={s.bulkLabelName}>{item.label}</span>
           {item.badge}
-        </button>
+        </MenuItem>
       ))}
       {items.length === 0 && <p className={s.bulkEmpty} role={empty.alert ? "alert" : undefined}>{empty.text}</p>}
       <hr className={s.bulkSeparator} />
-      <button type="button" role="menuitem" className={s.bulkNone} data-autofocus={items.length === 0 ? "" : undefined} onClick={none.run}>
+      <MenuItem className={s.bulkNone} onClick={none.run}>
         <Icon name="circle-dashed" size={12} color="var(--ink3)" />
         <span className={s.bulkLabelName}>{none.label}</span>
-      </button>
+      </MenuItem>
     </div>
   );
 }
@@ -353,17 +354,17 @@ function LabelMenu({
       <div role="menu" aria-label="ラベルを追加" onKeyDown={moveFocus}>
         <p className={s.bulkSection}>追加</p>
         {menu.add.map((label) => (
-          <button key={label} type="button" role="menuitem" onClick={() => onAdd(label)}>
+          <MenuItem key={label} onClick={() => onAdd(label)}>
             <Icon name="plus" size={12} color="var(--ink3)" />
             <span className={s.bulkLabelDot} />
             <span className={s.bulkLabelName}>{label}</span>
-          </button>
+          </MenuItem>
         ))}
         {menu.create && (
-          <button type="button" role="menuitem" onClick={() => onAdd(menu.create as string)}>
+          <MenuItem onClick={() => onAdd(menu.create as string)}>
             <Icon name="plus" size={12} color="var(--ink3)" />
             <span className={s.bulkLabelName}>「{menu.create}」を新しく追加</span>
-          </button>
+          </MenuItem>
         )}
         {menu.add.length === 0 && !menu.create && <p className={s.bulkEmpty}>追加できるラベルはありません</p>}
       </div>
@@ -373,12 +374,12 @@ function LabelMenu({
           <div role="menu" aria-label="ラベルを削除" onKeyDown={moveFocus}>
             <p className={s.bulkSection}>削除（選択中の Issue に付いているラベル）</p>
             {menu.remove.map(({ label, count }) => (
-              <button key={label} type="button" role="menuitem" onClick={() => onRemove(label)}>
+              <MenuItem key={label} onClick={() => onRemove(label)}>
                 <Icon name="minus" size={12} color="var(--ink3)" />
                 <span className={s.bulkLabelDot} />
                 <span className={s.bulkLabelName}>{label}</span>
                 <span className={s.bulkLabelCount}>{`${selected.length}件中 ${count}`}</span>
-              </button>
+              </MenuItem>
             ))}
           </div>
         </>
@@ -421,9 +422,9 @@ function ValueForm({
         <button type="button" className={s.bulkClear} onClick={onClear}>
           解除
         </button>
-        <button type="submit" className={s.bulkApply} disabled={value === ""}>
+        <Button type="submit" size="sm" variant="primary" disabled={value === ""}>
           適用
-        </button>
+        </Button>
       </div>
     </form>
   );

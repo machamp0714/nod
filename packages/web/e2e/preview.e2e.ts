@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { columnChip, searchBox, setColumn } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -23,10 +24,12 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await page.reload();
     await expect(pane.getByRole("heading", { level: 2, name: "検索 API の N+1 を解消" })).toBeVisible();
     // プレビューで隠した Workspace 列は表示設定を変えない
-    await page.getByText("表示設定", { exact: true }).click();
-    await expect(page.getByRole("checkbox", { name: "Workspace", exact: true })).toBeChecked();
-    await page.getByRole("checkbox", { name: "PR", exact: true }).uncheck();
-    await page.getByText("表示設定", { exact: true }).click();
+    await expect(await columnChip(page, "Workspace")).toHaveAttribute("aria-pressed", "true");
+    await setColumn(page, "PR", false);
+    // ポップオーバーの Escape はポップオーバーだけを閉じ、プレビューは次の Escape で閉じる
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "表示設定" })).toHaveCount(0);
+    await expect(pane).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(pane).toHaveCount(0);
     await expect(page).not.toHaveURL(/preview=/);
@@ -45,8 +48,9 @@ test("行のリンクにフォーカスしてSpaceでプレビューし、閉じ
   await expect(pane).toContainText("codex");
   await expect(page).toHaveURL(/\/issues\?preview=API-8$/);
   // 検索欄での Escape はプレビューを閉じない
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("決済");
-  await page.getByRole("textbox", { name: "検索", exact: true }).press("Escape");
+  const search = await searchBox(page);
+  await search.fill("決済");
+  await search.press("Escape");
   await expect(pane).toBeVisible();
   await pane.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
   await expect(pane).toHaveCount(0);

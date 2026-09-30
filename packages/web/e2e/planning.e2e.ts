@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 import { chooseProperty, property, propertyMenu } from "./helpers";
+import { chooseDisplay, displaySelect } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -184,12 +185,12 @@ test.describe("Cycle", () => {
     await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "すべて" });
     await expect(page).not.toHaveURL(/cycle=/);
 
-    await page.getByLabel("グループ化", { exact: true }).selectOption({ label: "Cycle" });
+    await chooseDisplay(page, "グループ化", "Cycle");
     await expect(page).toHaveURL(/groupBy=cycle/);
     const headings = page.getByRole("heading", { level: 2 });
     await expect(headings.filter({ hasText: /Sprint|Cycleなし/ })).toHaveText([/Sprint 11（Completed）/, /Sprint 12（Current）/, /Cycleなし/]);
     await page.reload();
-    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("cycle");
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "cycle");
   });
 
   test("消えた Cycle の ID が URL や保存済みの View に残ると、API を呼ばずにメッセージを出す", async ({ page, nod }) => {

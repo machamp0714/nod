@@ -1,4 +1,6 @@
 import { expect, test, waitForServerEvents } from "./fixtures";
+import type { Locator, Page } from "@playwright/test";
+import { chooseDisplay, closeDisplay, displaySelect, hiddenColumn, searchBox, setLayout } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -9,20 +11,20 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
       await nod.me.updateIssue("NOD-5", { projectRef: "1" });
       if (path.startsWith("/views")) await nod.me.updateView(1, { filter: {} });
       await page.goto(`${path}?layout=${layout}`);
-      await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
+      await chooseDisplay(page, "グループ化", "Workspace");
       await expect(page.getByRole("region", { name: "Workspace API", exact: true })).toBeVisible();
       await expect(page.getByRole("region", { name: "Workspace NOD", exact: true })).toBeVisible();
       await page.reload();
-      await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("workspace");
+      await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "workspace");
       for (const q of ["users", "日本語", "école", "%_"]) {
-        await page.getByRole("textbox", { name: "検索", exact: true }).fill(q);
+        await (await searchBox(page)).fill(q);
         await expect(page.getByRole("region", { name: "Workspace API", exact: true }).getByRole("link", { name: "検索 API の N+1 を解消", exact: true })).toBeVisible();
         await expect(page.getByRole("region", { name: "Workspace NOD", exact: true })).toHaveCount(0);
       }
-      await page.getByRole("textbox", { name: "検索", exact: true }).fill("存在しない文字列");
+      await (await searchBox(page)).fill("存在しない文字列");
       await expect(page.getByText("該当する Issue はありません", { exact: true })).toHaveCount(1);
-      await page.getByRole("textbox", { name: "検索", exact: true }).fill("");
-      await page.getByLabel("グループ化", { exact: true }).selectOption("none");
+      await (await searchBox(page)).fill("");
+      await chooseDisplay(page, "グループ化", "なし");
       await expect(page.getByRole("region", { name: "Workspace API", exact: true })).toHaveCount(0);
     });
   }
@@ -37,16 +39,20 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(page.getByRole("table")).toContainText("API-13");
     await expect(page.getByRole("table").getByRole("link", { name: "API-12", exact: true })).toHaveAttribute("href", "/issues/API-12");
     if (path !== "/projects/1") await page.getByText("Filter", { exact: true }).click();
-    await page.getByRole("tablist", { name: "表示" }).getByRole("tab", { name: "Board" }).click();
+    await setLayout(page, "Board");
+    await closeDisplay(page);
     await expect(page.getByRole("region", { name: "Todo", exact: true }).getByRole("link", { name: "API-12", exact: true })).toBeVisible();
     await waitForServerEvents(page);
     await nod.me.updateIssue("API-12", { status: "done" });
-    await expect(page.getByRole("region", { name: "Todo", exact: true })).not.toContainText("API-13");
+    // ブロック中は API-13 だけなので、外れると Todo の列は 0 件になり Hidden columns へ移る
+    await expect(page.getByRole("region", { name: "Todo", exact: true })).toHaveCount(0);
+    await expect(hiddenColumn(page, "Todo")).toHaveText("Todo0");
     await nod.me.updateIssue("API-12", { status: "in_progress" });
     await expect(page.getByRole("region", { name: "Todo", exact: true })).toContainText("API-13");
     if (path !== "/projects/1") await page.getByText("Filter", { exact: true }).click();
     await page.getByLabel("ブロック", { exact: true }).selectOption("false");
-    await expect(page.getByRole("region", { name: "Todo", exact: true })).not.toContainText("API-13");
+    await expect(page.getByRole("article").filter({ hasText: "API-13" })).toHaveCount(0);
+    await expect(page.getByRole("article").filter({ hasText: "API-12" })).toHaveCount(1);
     if (path !== "/views/1") {
       await page.reload();
       if (path === "/issues") await page.getByText("Filter", { exact: true }).click();
@@ -61,7 +67,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
   });
 }
 
-test("手動でTodoへ戻すと作業中の表示が消え、検索しても件数カードは変わらない", async ({ page, nod }) => {
+test("手動でTodoへ戻すと作業中の表示が消え、検索してもタブの件数は変わらない", async ({ page, nod }) => {
   await nod.codex.startIssue("API-4");
   await page.goto("/issues?layout=board");
   await waitForServerEvents(page);
@@ -70,9 +76,12 @@ test("手動でTodoへ戻すと作業中の表示が消え、検索しても件�
   const todo=page.getByRole("region", { name: "Todo", exact: true });
   await expect(todo).toContainText("API-4");
   await expect(todo).not.toContainText("作業中");
-  await expect(page.getByRole("button", { name: "Ready 2", exact: true })).toBeVisible();
-  await page.getByRole("textbox", { name: "検索", exact: true }).fill("存在しない");
-  await expect(page.getByRole("button", { name: "Ready 2", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
+  await (await searchBox(page)).fill("存在しない");
+  // 全列が 0 件の Board は、空の表示と Hidden columns の6行を出す
+  await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(6);
+  await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
 });
 
 test("Projectの固定条件はURLで解除できず、カンバンはTriageだけのWorkspaceを出さない", async ({ page, nod }) => {
@@ -86,7 +95,7 @@ test("Projectの固定条件はURLで解除できず、カンバンはTriageだ�
   await nod.me.updateIssue(canceled.id, { status: "canceled", reason: "表示対象外の検証" });
   await page.goto("/issues?groupBy=workspace");
   await expect(page.getByRole("region",{name:"Workspace TRI",exact:true})).toBeVisible();
-  await page.getByRole("tablist", { name: "表示" }).getByRole("tab", { name: "Board" }).click();
+  await setLayout(page, "Board");
   await expect(page.getByRole("region",{name:"Workspace TRI",exact:true})).toHaveCount(0);
 });
 
@@ -99,41 +108,58 @@ const columnDescriptions = [
   ["Done", "完了した Issue"],
 ] as const;
 
+// 6つの Status は、Issue があれば説明つきの列に、0 件なら Hidden columns の行（件数 0）に、必ずどちらかで出る
+async function expectSixStatuses(scope: Page | Locator) {
+  let columns = 0;
+  for (const [name, description] of columnDescriptions) {
+    const column = scope.getByRole("region", { name, exact: true });
+    const hidden = hiddenColumn(scope, name);
+    await expect(column.or(hidden)).toBeVisible();
+    if ((await column.count()) > 0) {
+      columns++;
+      await expect(column.getByText(description, { exact: true })).toBeVisible();
+      expect(await column.getByRole("article").count()).toBeGreaterThan(0);
+    } else {
+      await expect(hidden).toHaveText(`${name}0`);
+    }
+  }
+  return columns;
+}
+
 for (const path of ["/issues", "/views/1", "/projects/1"]) {
-  test(`${path}: 6列の説明は空列・検索・Workspaceでも残り、Listには出ない`, async ({ page, nod }) => {
+  test(`${path}: 6つのStatusは説明つきの列かHidden columnsに出て、検索・Workspaceでも保ち、Listには出ない`, async ({ page, nod }) => {
     await nod.me.updateIssue("NOD-5", { projectRef: "1" });
     if (path === "/views/1") await nod.me.updateView(1, { filter: {} });
     await page.goto(`${path}?layout=board`);
-    for (const [name, description] of columnDescriptions) {
-      await expect(page.getByRole("region", { name, exact: true }).getByText(description, { exact: true })).toBeVisible();
-    }
-    await page.getByRole("textbox", { name: "検索", exact: true }).fill("存在しない説明確認用");
-    for (const [name, description] of columnDescriptions) {
-      const column = page.getByRole("region", { name, exact: true });
-      await expect(column.getByText(description, { exact: true })).toBeVisible();
-      await expect(column.getByText("まだありません", { exact: true })).toBeVisible();
-    }
-    await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
+    expect(await expectSixStatuses(page)).toBeGreaterThan(0);
+    // 検索で全列が 0 件になると、空の表示が出て、6つとも Hidden columns にまとまる（空の列と説明文は出さない）
+    await (await searchBox(page)).fill("存在しない説明確認用");
     await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
-    await expect(page.getByText(columnDescriptions[0][1], { exact: true })).toHaveCount(0);
-    await page.getByRole("textbox", { name: "検索", exact: true }).fill("");
+    await expect(page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveText(columnDescriptions.map(([name]) => `${name}0`));
+    expect(await expectSixStatuses(page)).toBe(0);
+    for (const [, description] of columnDescriptions) await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+    await chooseDisplay(page, "グループ化", "Workspace");
+    await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Hidden columns", exact: true })).toHaveCount(0);
+    await (await searchBox(page)).fill("");
     for (const workspace of ["API", "NOD"]) {
       const group = page.getByRole("region", { name: `Workspace ${workspace}`, exact: true });
-      for (const [name, description] of columnDescriptions) {
-        await expect(group.getByRole("region", { name, exact: true }).getByText(description, { exact: true })).toBeVisible();
-      }
+      await expect(group).toBeVisible();
+      expect(await expectSixStatuses(group)).toBeGreaterThan(0);
     }
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await setLayout(page, "List");
     for (const [, description] of columnDescriptions) await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Hidden columns", exact: true })).toHaveCount(0);
   });
 }
 
 for (const width of [1280, 1440]) {
-  test(`${width}px: 列説明・見出し・カードが重ならず折り返す`, async ({ page }, testInfo) => {
+  test(`${width}px: 列は幅 340、列見出しは全列同じ高さで、説明は1行に収まり、カードと重ならない`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 960 });
     await page.goto("/issues?layout=board");
-    for (const grouping of ["none", "workspace"]) {
-      await page.getByLabel("グループ化", { exact: true }).selectOption(grouping);
+    for (const grouping of ["なし", "Workspace"]) {
+      await chooseDisplay(page, "グループ化", grouping);
+      await closeDisplay(page);
       for (const [name, description] of columnDescriptions) {
         const columns = page.getByRole("region", { name, exact: true });
         await expect(columns.first().getByText(description, { exact: true })).toBeVisible();
@@ -153,9 +179,11 @@ for (const width of [1280, 1440]) {
               hintFits: box(hint).left >= box(element).left && box(hint).right <= box(element).right,
               noTextOverflow: hint.scrollWidth <= hint.clientWidth,
               fontSize: style.fontSize, lineHeight: style.lineHeight, color: style.color,
+              columnWidth: box(element).width, headHeight: box(header).height, hintHeight: box(hint).height,
             };
           });
-          expect(geometry).toEqual({ hintBelowHeading: true, countAfterHeading: true, contentBelowHint: true, hintFits: true, noTextOverflow: true, fontSize: "11px", lineHeight: "17px", color: "rgb(138, 145, 158)" });
+          // design/nod.pen「Issues｜ボード」：列の幅 340、見出しは題名の行 46 と説明文の行 18 と下の 4 で 68
+          expect(geometry).toEqual({ hintBelowHeading: true, countAfterHeading: true, contentBelowHint: true, hintFits: true, noTextOverflow: true, fontSize: "12px", lineHeight: "18px", color: "rgb(138, 145, 158)", columnWidth: 340, headHeight: 68, hintHeight: 18 });
         }
       }
       await page.screenshot({ path: testInfo.outputPath(`board-${width}-${grouping}.png`), fullPage: true });
@@ -167,7 +195,9 @@ test("Ready・blockedのWorkspace表示でも列説明と絞り込みが両立�
   await page.goto("/issues?layout=board&groupBy=workspace&blocked=true");
   const group = page.getByRole("region", { name: "Workspace API", exact: true });
   await expect(group).toContainText("API-13");
-  for (const [name, description] of columnDescriptions) await expect(group.getByRole("region", { name, exact: true }).getByText(description, { exact: true })).toBeVisible();
+  // ブロック中は API-13（Todo）だけなので、Todo が説明つきの列で、残りの5つは Hidden columns にまとまる
+  expect(await expectSixStatuses(group)).toBe(1);
+  await expect(group.getByRole("region", { name: "Todo", exact: true }).getByText("着手の対象・ブロック状況を確認", { exact: true })).toBeVisible();
   await page.goto("/issues?layout=board&groupBy=workspace&tab=ready");
   await expect(page.getByRole("link", { name: "OpenAPI の説明文を更新する", exact: true })).toBeVisible();
   await expect(page.getByRole("main")).not.toContainText("API-13");

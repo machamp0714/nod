@@ -1,4 +1,5 @@
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { chooseDisplay, closeDisplay, displaySelect, searchBox } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 const statusControl = (page: import("@playwright/test").Page) => page.getByRole("combobox", { name: "Project のステータス" });
@@ -120,9 +121,10 @@ for (const layout of ["list", "board"]) {
   test(`Project状態保存後も${layout}の検索・グループ化・blocked条件を保持する`, async ({ page, nod }) => {
     await nod.me.updateIssue("API-13", { description: "統合確認用の検索語" });
     await page.goto(`/projects/1?layout=${layout}`);
-    await page.getByLabel("グループ化", { exact: true }).selectOption("workspace");
+    await chooseDisplay(page, "グループ化", "Workspace");
+    await closeDisplay(page);
     await page.getByLabel("ブロック", { exact: true }).selectOption("true");
-    await page.getByRole("textbox", { name: "検索", exact: true }).fill("統合確認用");
+    await (await searchBox(page)).fill("統合確認用");
     const group = page.getByRole("region", { name: "Workspace API", exact: true });
     await expect(group).toContainText("API-13");
     const url = page.url();
@@ -139,9 +141,9 @@ for (const layout of ["list", "board"]) {
     await page.reload();
     await expect(page).toHaveURL(url);
     await expect(statusControl(page)).toHaveValue("completed");
-    await expect(page.getByLabel("グループ化", { exact: true })).toHaveValue("workspace");
     await expect(page.getByLabel("ブロック", { exact: true })).toHaveValue("true");
     await expect(page.getByRole("textbox", { name: "検索", exact: true })).toHaveValue("統合確認用");
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "workspace");
     await expect(page.getByRole("tab", { name: layout === "board" ? "Board" : "List", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(group).toContainText("API-13");
     await expect(group).not.toContainText("API-9");

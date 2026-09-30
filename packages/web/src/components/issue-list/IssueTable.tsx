@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { formatDueDate, formatEstimate, isOverdue, localToday } from "../../lib/due-date";
 import { prLabel } from "../../lib/format";
 import type { Issue } from "../../api/types";
-import { Icon, LabelChip, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
+import { Button, Icon, LabelChip, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
@@ -25,7 +25,6 @@ function DueDateCell({ issue, today }: { issue: Issue; today: string }) {
 export function IssueTable({
   rows,
   columns = [...DEFAULT_ISSUE_COLUMNS],
-  hideHeader = false,
   previewId,
   markCurrent = true,
   onPreview,
@@ -34,7 +33,6 @@ export function IssueTable({
 }: {
   rows: IssueListRow[];
   columns?: IssueColumn[];
-  hideHeader?: boolean; // サブグループの表は列見出しを画面に出さない（支援技術には残す）
   previewId?: string;
   markCurrent?: boolean; // 同じ Issue が複数のグループに出るとき、aria-current は最初の1行だけに付ける
   onPreview?: (id: string) => void;
@@ -60,10 +58,11 @@ export function IssueTable({
         {columns.includes("estimate") && <col className={s.colEstimate} />}
         {columns.includes("dueDate") && <col className={s.colDue} />}
       </colgroup>
-      <thead className={hideHeader ? s.visuallyHidden : undefined}>
+      {/* design/nod.pen「11 Issues」に列見出しの行はない。画面に出さず、支援技術には残す */}
+      <thead className={s.visuallyHidden}>
         <tr>
           {/* 選択の列は項目ではないため列見出しにしない。各チェックボックスが「<ID> を選択」の名前を持つ */}
-          {select && <td className={s.selectHead} />}
+          {select && <td />}
           {columns.includes("status") && <th>Status</th>}
           <th>ID</th>
           <th>Title</th>
@@ -97,7 +96,7 @@ export function IssueTable({
               })}
             >
               {select && (
-                <td className={s.selectCell}>
+                <td>
                   <input
                     type="checkbox"
                     className={s.checkbox}
@@ -121,26 +120,32 @@ export function IssueTable({
               )}
               <td className={s.id}>{issue.id}</td>
               <td className={s.titleCell}>
-                <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
-                  {issue.title}
-                </Link>
-                {issue.labels.map((label) => (
-                  <LabelChip key={label} workspace={issue.workspace} name={label} className={s.rowLabel} />
-                ))}
-                {issue.completionCandidate && (
-                  <span className={s.completionPill}>
-                    <Icon name="circle-check" size={11} />
-                    完了候補
-                  </span>
-                )}
-                {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
-                <BlockedBy ids={issue.blockedBy} />
-                {onPreview && (
-                  <button type="button" className={s.previewButton} aria-label={`${issue.id} をプレビュー`} onClick={() => onPreview(issue.id)}>
-                    <Icon name="eye" size={13} />
-                    プレビュー
-                  </button>
-                )}
+                {/* 行の高さ 44 を保つため、題名の横に1行で並べる。幅が足りないときは題名を省略記号で切る */}
+                <div className={s.titleRow}>
+                  <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
+                    {issue.title}
+                  </Link>
+                  {issue.completionCandidate && (
+                    <span className={s.completionPill}>
+                      <Icon name="circle-check" size={11} />
+                      完了候補
+                    </span>
+                  )}
+                  {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
+                  <BlockedBy ids={issue.blockedBy} />
+                  {onPreview && (
+                    <Button size="sm" icon="eye" className={s.previewButton} aria-label={`${issue.id} をプレビュー`} onClick={() => onPreview(issue.id)}>
+                      プレビュー
+                    </Button>
+                  )}
+                  {issue.labels.length > 0 && (
+                    <span className={s.rowLabels}>
+                      {issue.labels.map((label) => (
+                        <LabelChip key={label} workspace={issue.workspace} name={label} />
+                      ))}
+                    </span>
+                  )}
+                </div>
               </td>
               {columns.includes("questions") && (
                 <td>
