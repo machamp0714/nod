@@ -9,7 +9,7 @@ import type { CompletionStats } from "../api/types";
 import { GroupedBars, Legend, LineChart } from "../components/analytics/charts";
 import { LlmSection } from "../components/analytics/LlmSection";
 import { Card, slotsOf } from "../components/analytics/parts";
-import { Icon, PageError, PageHeader, PageLoading, PageTitle, Spacer } from "../components/ui";
+import { Icon, PageError, PageHeader, PageLoading, PageTitle, Segmented, ViewBar } from "../components/ui";
 import {
   type AnalyticsSearch,
   cleanAnalyticsSearch,
@@ -59,9 +59,10 @@ export function AnalyticsPage() {
     <div className={s.page}>
       <PageHeader>
         <PageTitle>Analytics</PageTitle>
-        <Spacer />
-        <FilterBar search={search} by={by} range={range} onChange={update} />
       </PageHeader>
+      <ViewBar>
+        <FilterBar search={search} by={by} range={range} onChange={update} />
+      </ViewBar>
       <div className={s.content}>
         {blocked ? (
           <PageError message={blocked} />
@@ -101,20 +102,12 @@ function FilterBar({ search, by, range, onChange }: {
   const strayCycle = search.cycle && search.cycle !== NO_CYCLE && !cycleList.some((o) => o.value === search.cycle) ? search.cycle : undefined;
   return (
     <div className={s.filters}>
-      <div role="tablist" aria-label="期間の単位" className={s.segmented}>
-        {(["day", "week"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={value === by}
-            className={`${s.segment} ${value === by ? s.segmentActive : ""}`}
-            onClick={() => onChange({ ...search, by: value, range: undefined })}
-          >
-            {UNIT[value]}
-          </button>
-        ))}
-      </div>
+      <Segmented<StatsBy>
+        label="期間の単位"
+        value={by}
+        items={(["day", "week"] as const).map((value) => ({ value, label: UNIT[value] }))}
+        onChange={(value) => onChange({ ...search, by: value, range: undefined })}
+      />
       <SelectChip label="範囲" value={String(range)} onChange={(v) => onChange({ ...search, range: Number(v) })}>
         {RANGE_PRESETS[by].map((n) => <option key={n} value={n}>{rangeLabel(by, n)}</option>)}
       </SelectChip>
@@ -156,7 +149,8 @@ function FilterBar({ search, by, range, onChange }: {
   );
 }
 
-// ラベルつきの選択。見た目は nod.pen の Select（枠・ラベル・値・下向き矢印）で、操作はネイティブの select に任せる
+// ラベルつきの選択。見た目は nod.pen の Select（枠・ラベル・値・下向き矢印）で、操作はネイティブの select に任せる。
+// 幅は今の値で決まる（analytics.module.css の .select）
 function SelectChip({ label, value, onChange, children }: {
   label: string;
   value: string;

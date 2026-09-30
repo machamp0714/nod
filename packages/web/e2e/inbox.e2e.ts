@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { measureSplitList } from "./layout-measure";
 
 const list = (page: Page) => page.getByRole("region", { name: "確認依頼の一覧" });
 const detail = (page: Page) => page.getByRole("region", { name: "詳細", exact: true });
@@ -140,4 +141,40 @@ test("Issue を開くで Issue 詳細に移る", async ({ page, nod }) => {
   await page.goto("/inbox");
   await detail(page).getByRole("link", { name: "Issue を開く" }).click();
   await expect(page).toHaveURL(new RegExp(`/issues/${a.id}$`));
+});
+
+// #185：nod.pen の 10 Inbox（pbgvS）。一覧の幅 400 は変えない
+test("一覧の Header は高さ 44 で右にタブを置き、行は左右と上下に 8 の余白、角丸 8、余白 12 で、区切り線がない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issues = [];
+  for (const title of ["検索 API の N+1 を解消", "決済 Webhook の再送処理", "ブログの OGP 画像を自動生成"]) {
+    const issue = await api.startedIssue(title);
+    await api.ask(issue.id, "インデックスを (workspace_id, created_at) の複合にしてよいですか？既存の単体インデックスは削除します。");
+    issues.push(issue);
+  }
+  await page.goto("/inbox");
+  await expect(list(page).getByRole("link")).toHaveCount(3);
+  await expect(detail(page).getByRole("heading", { level: 2 })).toBeVisible();
+  const m = await measureSplitList(page, "確認依頼の一覧");
+  console.log(`[split] /inbox ${JSON.stringify(m)}`);
+  expect(m.listWidth).toBe(400);
+  expect(m.headerHeight).toBe(44);
+  expect(m.headerOverflow).toBe(0);
+  expect(m.title).toBe("13px / 500");
+  // 題名、件数、タブが重ならずに並び、中心が揃う
+  expect(m.headerParts).toBe(3);
+  expect(m.headerGap).toBeGreaterThanOrEqual(8);
+  expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
+  expect(m.headerRight).toBe(12);
+  expect(m.tabHeights).toEqual([28]);
+  expect(m.tabRadius).toEqual(["9999px"]);
+  expect(m.row).toEqual({ left: 8, right: 8, top: 8, bottom: 8, radius: "8px", padding: "12px", borderTop: "0px" });
+  expect(m.selectedBackground).toBe("rgb(238, 240, 243)"); // --sunken
+  expect(m.titleWeights).toEqual(["500"]);
+
+  // キーボードでも行を選べる（行はリンクのまま）
+  await list(page).getByRole("link").nth(1).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`selected=${issues[1]!.id}`));
+  await expect(list(page).getByRole("link").nth(1)).toHaveAttribute("data-selected", "true");
 });

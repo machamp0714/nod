@@ -14,6 +14,7 @@
 }
 
 .listCount {
+  flex: none;
   color: var(--ink3);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -25,12 +26,38 @@
   overflow-y: auto;
 }
 
+/* Header の題名の右の説明文。幅が足りなければ、題名より先に縮めて省略記号で切る（全文は title で読める） */
+.description {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink3);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Header の右のタブ。縮めて折り返させない */
+.headerTabs {
+  display: flex;
+  flex: none;
+}
+
+/* nod.pen の Items：行の入れ物。上下左右に 8 の余白を取る */
+.items {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+/* nod.pen の Item：角丸 8、余白 12、区切り線なし */
 .item {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--line);
+  padding: 12px;
+  border-radius: var(--radius-md);
 }
 
 .item:hover {
@@ -55,7 +82,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .itemTime {
@@ -101,7 +128,7 @@
 }
 
 .empty {
-  padding: 20px;
+  padding: 12px;
   color: var(--ink3);
   font-size: 12.5px;
 }
@@ -113,5 +140,3 @@
   color: var(--fail);
   font-size: 12.5px;
 }
-
-.description { margin: 10px 18px; color: var(--ink3); font-size: 12px; line-height: 1.6; }

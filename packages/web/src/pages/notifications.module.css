@@ -1,10 +1,10 @@
-/* Pencil『Inbox｜通知タブ（#42/#45）』の一覧行・詳細の値を写す */
+/* Pencil『Inbox｜通知タブ（#42/#45）』の一覧行・詳細の値を写す。行の枠は確認依頼の行（split.module.css の .item）と同じ */
 .row {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px 20px;
-  border-top: 1px solid var(--line);
+  padding: 12px;
+  border-radius: var(--radius-md);
 }
 
 .row:hover {
@@ -46,7 +46,7 @@
 
 .row[data-unread="true"] .rowTitle {
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rowTime {

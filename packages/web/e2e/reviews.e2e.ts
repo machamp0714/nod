@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
+import { measureSplitList } from "./layout-measure";
 
 const list = (page: Page) => page.getByRole("region", { name: "レビュー待ちの一覧" });
 const detail = (page: Page) => page.getByRole("region", { name: "詳細", exact: true });
@@ -61,4 +62,32 @@ test("PR がない Issue は PR はありませんと出す", async ({ page, nod
   await api.inReview("OpenAPI の説明文を更新する", "説明文を直した");
   await page.goto("/reviews");
   await expect(detail(page).getByText("PR はありません")).toBeVisible();
+});
+
+// #185：nod.pen の 14 Reviews（TCAVE）
+test("一覧の Header は高さ 44 で題名の右に説明文と件数を置き、行は左右と上下に 8 の余白、角丸 8 で、区切り線がない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await api.inReview("決済 Webhook の署名検証を追加", "HMAC-SHA256 で署名を検証し、失敗時は 401 を返すようにしました。テストを 6 件追加しています。");
+  await api.inReview("nod issue list に --json を追加", "全コマンドで --json を受け付けるようにした");
+  await page.goto("/reviews");
+  await expect(list(page).getByRole("link")).toHaveCount(2);
+  await expect(detail(page).getByRole("region", { name: "完了報告" })).toBeVisible();
+  const description = list(page).getByText("LLM が作業を終え、確認を待っている Issue");
+  await expect(description).toBeVisible();
+  await expect(description).toHaveAttribute("title", "LLM が作業を終え、確認を待っている Issue");
+  await expect(description).toHaveCSS("font-size", "12px");
+  const m = await measureSplitList(page, "レビュー待ちの一覧");
+  console.log(`[split] /reviews ${JSON.stringify(m)}`);
+  expect(m.listWidth).toBe(400);
+  expect(m.headerHeight).toBe(44);
+  expect(m.headerOverflow).toBe(0);
+  expect(m.title).toBe("13px / 500");
+  // 題名、説明文、件数が重ならずに並び、中心が揃う
+  expect(m.headerParts).toBe(3);
+  expect(m.headerGap).toBeGreaterThanOrEqual(8);
+  expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
+  expect(m.headerRight).toBe(12);
+  expect(m.row).toEqual({ left: 8, right: 8, top: 8, bottom: 8, radius: "8px", padding: "12px", borderTop: "0px" });
+  expect(m.selectedBackground).toBe("rgb(238, 240, 243)"); // --sunken
+  expect(m.titleWeights).toEqual(["500"]);
 });

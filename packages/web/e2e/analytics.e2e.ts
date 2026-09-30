@@ -1,5 +1,6 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
+import { measureFilterBar } from "./layout-measure";
 import type { NodData } from "./support/nod";
 
 // API に完了2件（うち1件は claude-code がレビューに回したもの）と canceled 1件、WEB に完了1件を今日の日付で作る
@@ -270,4 +271,60 @@ test("canceled だけの期間は空の状態にせず、canceled の系列を�
   await expect(bars.locator('[data-series="canceled"]')).toHaveCount(1);
   await expect(bars.locator('[data-series="完了"]')).toHaveCount(0);
   await expect(page.getByText("この期間に完了した Issue はありません")).toHaveCount(0);
+});
+
+// #184：フィルタは Header の下の行（nod.pen の DPVzJ、bCDnZ の View Bar）に置く
+const LONG_PROJECT = "検索 API の高速化と決済まわりの改修をまとめて進める、名前の長い Project";
+const LONG_MILESTONE = "第3四半期の終わりまでに出す、名前の長い Milestone（検索と決済）";
+const LONG_CYCLE = "10月前半の、名前の長い Cycle（検索と決済の改修）";
+
+test("フィルタは Header の下の高さ 43 の行に置き、select は高さ 28 の円形で、Main に横スクロールを出さない", async ({ page, nod }) => {
+  const { apiId } = await seed(nod);
+  await nod.me.createProject({ name: LONG_PROJECT });
+  await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
+  await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  await page.goto("/analytics");
+  // 選択肢が出てから測る（select の幅は選択肢で変わりうる）
+  await expect(page.getByLabel("Project").locator("option")).toHaveCount(3);
+  await expect(page.getByLabel("Milestone").locator("option")).toHaveCount(2);
+  await expect(page.getByLabel("Cycle").locator("option")).toHaveCount(3);
+  await expect(page.getByRole("img", { name: "週ごとの完了数", exact: true })).toBeVisible();
+  const m = await measureFilterBar(page);
+  console.log(`[filter] /analytics ${JSON.stringify(m)}`);
+  expect(m.headerHeight).toBe(44);
+  expect(m.headerControls).toBe(0);
+  expect(m.barTop).toBe(0);
+  expect(m.barHeight).toBe(43);
+  expect(m.controls).toBe(7); // 日、週、範囲、Workspace、Project、Milestone、Cycle
+  expect(m.rows).toBe(1);
+  expect(m.centerDiff).toBeLessThanOrEqual(2.5);
+  expect(m.selectHeights).toEqual([28]);
+  expect(m.selectRadius).toEqual(["9999px"]);
+  expect(m.rightGap).toBeGreaterThanOrEqual(12);
+  expect(m.mainOverflow).toBe(0);
+  expect(m.pageOverflow).toBe(0);
+});
+
+test("長い名前の Project・Milestone・Cycle を選ぶと、フィルタは折り返し、Main に横スクロールを出さない", async ({ page, nod }) => {
+  const { apiId } = await seed(nod);
+  const project = await nod.me.createProject({ name: LONG_PROJECT });
+  const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
+  const cycle = await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  await page.goto(`/analytics?project=${project.id}&milestone=${milestone.id}&cycle=${cycle.id}`);
+  await expect(page.getByLabel("Project")).toHaveValue(String(project.id));
+  await expect(page.getByLabel("Milestone")).toHaveValue(String(milestone.id));
+  await expect(page.getByLabel("Cycle")).toHaveValue(String(cycle.id));
+  await expect(page.getByText("この期間に完了した Issue はありません")).toBeVisible();
+  const m = await measureFilterBar(page);
+  console.log(`[filter] /analytics 長い名前 ${JSON.stringify(m)}`);
+  expect(m.headerHeight).toBe(44);
+  expect(m.barTop).toBe(0);
+  // 1行に収まらないので2行になり、行が伸びる
+  expect(m.rows).toBe(2);
+  expect(m.barHeight).toBeGreaterThan(43);
+  expect(m.centerDiff).toBeLessThanOrEqual(2.5);
+  expect(m.selectHeights).toEqual([28]);
+  expect(m.rightGap).toBeGreaterThanOrEqual(12);
+  expect(m.mainOverflow).toBe(0);
+  expect(m.pageOverflow).toBe(0);
 });

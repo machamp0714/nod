@@ -24,15 +24,16 @@ export function InboxPage() {
   const pending = useInbox();
   const unread = useNotifications();
   useSnoozeExpiry();
+  // 一覧の Header の右に置くタブ
   const tabs = (
-    <div className={d.tabs}><Segmented<InboxTab> label="Inboxの表示" value={tab}
+    <Segmented<InboxTab> label="Inboxの表示" value={tab}
       items={[
         { value: "questions", label: `確認依頼 ${pending.data?.questions.length ?? 0}` },
         { value: "notifications", label: "通知", badge: unread.data?.length ?? 0 },
         { value: "all", label: "すべて" },
       ]}
       // 通知タブとの行き来では選択を持ち越さない。開いただけで既読になるため
-      onChange={next => void navigate({ search: { selected: next === "notifications" || tab === "notifications" ? undefined : selected, tab: next } })} /></div>
+      onChange={next => void navigate({ search: { selected: next === "notifications" || tab === "notifications" ? undefined : selected, tab: next } })} />
   );
   return tab === "notifications" ? <NotificationsTab selected={selected} view={view === "snoozed" ? "snoozed" : "inbox"} tabs={tabs} /> : <QuestionsTab selected={selected} tab={tab} tabs={tabs} />;
 }
@@ -67,8 +68,9 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
       <SplitLayout
         title="Inbox"
         count={view === "snoozed" ? groups.length : groups.reduce((sum, g) => sum + g.unread, 0)}
-        headerExtra={<>{tabs}<SnoozeFilter view={view} snoozedCount={snoozedCount}
-          onChange={(next) => void navigate({ search: { tab: "notifications", ...(next === "snoozed" ? { view: next } : {}) } })} /></>}
+        headerTabs={tabs}
+        headerExtra={<SnoozeFilter view={view} snoozedCount={snoozedCount}
+          onChange={(next) => void navigate({ search: { tab: "notifications", ...(next === "snoozed" ? { view: next } : {}) } })} />}
         listLabel="通知の一覧"
         list={query.isPending ? <QueueEmpty>読み込み中…</QueueEmpty> : query.isError ? <ActionError error={query.error} />
           : <NotificationList groups={groups} current={current} workspaceName={workspaceName} view={view} />}
@@ -94,7 +96,7 @@ function QuestionsTab({ selected, tab, tabs }: { selected?: string; tab: "questi
     <SplitLayout
       title="Inbox"
       count={inbox.data?.questions.length ?? 0}
-      headerExtra={tabs}
+      headerTabs={tabs}
       listLabel="確認依頼の一覧"
       list={
         inbox.isPending ? (
