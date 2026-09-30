@@ -82,6 +82,7 @@ describe("PR 状態 API", () => {
   });
 
   test("承認（approve）は gh を実行せず、保存済みの PR 状態も変えない（#56/#57）", async () => {
+    const gh = fakeGhOnPath();
     let calls = 0;
     const { app, db, ref } = withGh(async () => {
       calls++;
@@ -95,6 +96,7 @@ describe("PR 状態 API", () => {
     expect(res.json.status).toBe("done");
     expect(calls).toBe(1);
     expect(getPrStatus(db, ref)).toEqual(before);
+    expect(existsSync(gh.log)).toBe(false);
   });
 
   test("POST refresh で gh を実行し、書き手 me で保存する", async () => {

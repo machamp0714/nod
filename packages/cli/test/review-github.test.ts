@@ -106,14 +106,18 @@ describe("nod review approve と GitHub PR", () => {
 
   test("PR の無い Issue は注記だけを出す", async () => {
     const id = await inReview(null);
-    const r = await runNod(["review", "approve", id], { cwd: repo, db });
+    const gh = fakeGh(`echo '${ghJson("OPEN", null)}'`);
+    const r = await runNod(["review", "approve", id], { cwd: repo, db, env: { PATH: gh.env.PATH } });
     expect(r.stdout).toContain(NOTE);
     expect(r.stdout).not.toContain("GitHub の状態");
+    expect(() => readFileSync(gh.log)).toThrow();
   });
 
   test("--json は Issue の形のまま", async () => {
     const id = await inReview();
-    const r = await runNod(["review", "approve", id, "--json"], { cwd: repo, db });
+    const gh = fakeGh(`echo '${ghJson("OPEN", null)}'`);
+    const r = await runNod(["review", "approve", id, "--json"], { cwd: repo, db, env: { PATH: gh.env.PATH } });
+    expect(() => readFileSync(gh.log)).toThrow();
     expect(r.json).toMatchObject({ id, status: "done" });
     expect(r.json.github).toBeUndefined();
   });
