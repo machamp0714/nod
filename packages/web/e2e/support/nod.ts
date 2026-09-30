@@ -59,6 +59,17 @@ export async function releaseGh(): Promise<void> {
   await post("/gh/release", {});
 }
 
+// Orca 連携で e2e の server が orca の代わりに返す結果を、サブコマンド（"terminal list" など）ごとに決める
+export async function stubOrca(results: Record<string, unknown>): Promise<void> {
+  await post("/orca", { results });
+}
+
+// 偽の orca が受け取った引数（stubOrca・resetData で空に戻る）
+export async function orcaCalls(): Promise<string[][]> {
+  const res = await fetch(`${CONTROL_URL}/orca/calls`);
+  return ((await res.json()) as { calls: string[][] }).calls;
+}
+
 // 偽の gh が受け取った引数（stubGh・resetData で空に戻る）
 export async function ghCalls(): Promise<string[][]> {
   const res = await fetch(`${CONTROL_URL}/gh/calls`);

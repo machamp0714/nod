@@ -975,3 +975,14 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .deleteCancel:disabled { cursor: progress; }
 .deletedToast { position: fixed; bottom: 24px; left: 50%; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 2px #0000001a; color: var(--ink); font-size: 12.5px; transform: translateX(-50%); }
 .deletedToast svg { flex: none; color: var(--ink2); }
+/* 実行場所の下の「Orca で開く」と失敗時のポップオーバー（#52、Pencil『Issue詳細｜Orcaで開く』IV5vb・h09GjE） */
+.locationValue { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.orcaOpen { position: relative; display: flex; align-items: center; gap: 8px; }
+.orcaOpenButton { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; }
+.orcaOpenButton:hover:not(:disabled) { background: var(--sunken); }
+.orcaOpenButton:disabled { cursor: progress; opacity: 0.6; }
+.orcaOpenButton svg { color: var(--ink2); }
+.orcaPopover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; width: 300px; display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px #0000001a; }
+.orcaPopover button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 7px 10px; font-size: 12.5px; text-align: left; border-radius: 6px; cursor: pointer; }
+.orcaPopover button svg { flex: none; color: var(--ink2); }
+.orcaPopover button:hover, .orcaPopover button:focus-visible { background: var(--sunken); }
