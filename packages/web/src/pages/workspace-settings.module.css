@@ -547,7 +547,7 @@
 .templateBadge {
   flex: none;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--sunken);
   color: var(--ink3);
   font-size: 11px;
