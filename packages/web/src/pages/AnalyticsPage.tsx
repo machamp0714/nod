@@ -1,7 +1,7 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCompletionStats } from "../api/hooks/analytics";
-import { useProjects } from "../api/hooks/projects";
+import { useMilestones, useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import { errorMessage } from "../api/errors";
 import type { CompletionStats } from "../api/types";
@@ -14,10 +14,12 @@ import {
   cleanAnalyticsSearch,
   DEFAULT_RANGE,
   formatHours,
+  milestoneGroups,
   RANGE_PRESETS,
   rangeLabel,
   type StatsBy,
   statsQueryString,
+  withProject,
 } from "../lib/analytics";
 import s from "./analytics.module.css";
 
@@ -31,8 +33,18 @@ export function AnalyticsPage() {
   const by = search.by ?? "week";
   const range = search.range ?? DEFAULT_RANGE[by];
   const query = statsQueryString(search, new Date(), BROWSER_TZ);
-  const stats = useCompletionStats(query);
+  // 消えた Milestone の ID が URL に残っていたら、Issue 一覧と同じく API を呼ばずに知らせる
+  const milestones = useMilestones();
+  const unknownMilestone =
+    search.milestone !== undefined && milestones.data !== undefined && !milestones.data.some((m) => String(m.id) === search.milestone);
+  const ready = search.milestone === undefined || (milestones.data !== undefined && !unknownMilestone);
+  const stats = useCompletionStats(query, ready);
   const update = (next: AnalyticsSearch) => navigate({ search: cleanAnalyticsSearch(next), replace: true });
+  const blocked = unknownMilestone
+    ? `条件の Milestone（${search.milestone}）が見つかりません`
+    : search.milestone !== undefined && milestones.error
+      ? errorMessage(milestones.error)
+      : null;
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -41,14 +53,22 @@ export function AnalyticsPage() {
         <FilterBar search={search} by={by} range={range} onChange={update} />
       </header>
       <div className={s.content}>
-        {stats.error ? (
-          <PageError message={errorMessage(stats.error)} />
-        ) : !stats.data ? (
+        {blocked ? (
+          <PageError message={blocked} />
+        ) : !ready ? (
           <PageLoading />
         ) : (
-          <CompletionSection stats={stats.data} rangeText={rangeLabel(by, range)} />
+          <>
+            {stats.error ? (
+              <PageError message={errorMessage(stats.error)} />
+            ) : !stats.data ? (
+              <PageLoading />
+            ) : (
+              <CompletionSection stats={stats.data} rangeText={rangeLabel(by, range)} />
+            )}
+            <LlmSection query={query} />
+          </>
         )}
-        <LlmSection query={query} />
       </div>
     </div>
   );
@@ -62,6 +82,8 @@ function FilterBar({ search, by, range, onChange }: {
 }) {
   const workspaces = useWorkspaces();
   const projects = useProjects();
+  const milestones = useMilestones();
+  const groups = milestoneGroups(milestones.data ?? [], projects.data ?? [], search.project);
   return (
     <div className={s.filters}>
       <div role="tablist" aria-label="期間の単位" className={s.segmented}>
@@ -85,9 +107,26 @@ function FilterBar({ search, by, range, onChange }: {
         <option value="">すべて</option>
         {(workspaces.data ?? []).map((w) => <option key={w.key} value={w.key}>{w.name}</option>)}
       </SelectChip>
-      <SelectChip label="Project" value={search.project ?? ""} onChange={(v) => onChange({ ...search, project: v || undefined })}>
+      <SelectChip
+        label="Project"
+        value={search.project ?? ""}
+        onChange={(v) => onChange(withProject(search, v || undefined, milestones.data ?? []))}
+      >
         <option value="">すべて</option>
         {(projects.data ?? []).map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+      </SelectChip>
+      {/* nod.pen の Milestone Select（ekST2）。Project を選んでいなければ Project ごとの optgroup に分ける（Hf7qD） */}
+      <SelectChip label="Milestone" value={search.milestone ?? ""} onChange={(v) => onChange({ ...search, milestone: v || undefined })}>
+        <option value="">すべて</option>
+        {groups.map((g) =>
+          g.label === null ? (
+            g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)
+          ) : (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </optgroup>
+          ),
+        )}
       </SelectChip>
     </div>
   );
