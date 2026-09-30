@@ -14,26 +14,12 @@
   background: var(--surface);
 }
 
-.header {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.title {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 500;
-}
-
 .count {
+  padding-right: 6px;
   color: var(--ink3);
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: 400;
 }
 
 .filters {
@@ -57,9 +43,9 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  height: 28px;
+  height: var(--control-height);
   border: 1px solid var(--line);
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
 }
 
@@ -69,7 +55,7 @@
   height: 100%;
   padding: 0 28px 0 10px;
   border: 0;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink);
   font: inherit;
@@ -102,10 +88,10 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  height: 28px;
+  height: var(--control-height);
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
 }
 
@@ -130,13 +116,13 @@
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
 }
 
 .segment {
   padding: 3px 12px;
   border: 0;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink2);
   font: inherit;
@@ -407,33 +393,8 @@
   border-top: 1px solid var(--line);
 }
 
-.pillButton {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 9999px;
-  background: var(--surface);
+.copy {
   color: var(--ink2);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.pillPrimary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #FFFFFF;
-}
-
-.pillButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .notice {

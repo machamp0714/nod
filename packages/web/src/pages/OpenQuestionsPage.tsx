@@ -4,7 +4,7 @@ import { useDecision, useOpenQuestions, useWorkspaceName } from "../api/hooks/de
 import { useIssueDetail } from "../api/hooks/shared";
 import type { OpenQuestion, Question } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
-import { AgentAvatar, Icon, ProgressBar, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { AgentAvatar, Button, Icon, PageHeader, PageTitle, ProgressBar, Spacer, StatusLabel, WorkspaceBadge } from "../components/ui";
 import { formatRelative } from "../lib/format";
 import {
   filterOpenQuestionEntries,
@@ -65,10 +65,11 @@ export function OpenQuestionsPage() {
   return (
     <div className={s.split}>
       <section className={s.list} aria-label="未決事項の一覧">
-        <header className={s.header}>
-          <h1 className={s.title}>Open questions</h1>
+        <PageHeader>
+          <PageTitle>Open questions</PageTitle>
+          <Spacer />
           <span className={s.count} data-testid="open-question-count">{count}</span>
-        </header>
+        </PageHeader>
         <div className={s.filters}>
           <div className={s.row}>
             <FilterSelect label="Workspace" value={search.workspace ?? ""} onChange={(value) => update({ workspace: value || undefined })}>
@@ -297,15 +298,14 @@ function QuestionCard({ question, answer, setAnswer }: { question: OpenQuestion;
         onKeyDown={onKeyDown}
       />
       <div className={s.cardFooter}>
-        <button type="button" className={s.pillButton} onClick={() => void copy()}>
-          <Icon name="copy" size={13} />
+        <Button icon="copy" className={s.copy} onClick={() => void copy()}>
           質問文をコピー
-        </button>
+        </Button>
         <span className={s.notice} role="status">{notice}</span>
         <span className={s.shortcut}>⌘ Enter</span>
-        <button type="button" className={`${s.pillButton} ${s.pillPrimary}`} disabled={!canSubmit} onClick={submit}>
+        <Button variant="primary" disabled={!canSubmit} onClick={submit}>
           回答を記録
-        </button>
+        </Button>
       </div>
       {decision.error && <div className={s.cardError}><ActionError error={decision.error} /></div>}
     </section>
