@@ -458,7 +458,7 @@ function openAttachmentFd(file: AttachmentFile, id: number): { fd: number; total
   return { fd, total: st.size };
 }
 
-// 開いたファイルを少しずつ読むストリーム。読み終えるか中断されたら閉じる
+// 開いたファイルを少しずつ読むストリーム。読み終えるか中断されたら閉じる。チャンクは共有プールでない Buffer に読む
 function fdStream(fd: number, total: number): ReadableStream<Uint8Array> {
   let pos = 0;
   let closed = false;
@@ -471,7 +471,7 @@ function fdStream(fd: number, total: number): ReadableStream<Uint8Array> {
     {
       pull(controller) {
         try {
-          const buf = Buffer.allocUnsafe(Math.min(STREAM_CHUNK_BYTES, total - pos));
+          const buf = Buffer.allocUnsafeSlow(Math.min(STREAM_CHUNK_BYTES, total - pos));
           const n = buf.length === 0 ? 0 : readSync(fd, buf, 0, buf.length, pos);
           if (n > 0) controller.enqueue(buf.subarray(0, n));
           pos += n;
@@ -526,7 +526,7 @@ export function readAttachmentRange(
   if (!range) return { ...file, size: total, total, range: null, stream: fdStream(fd, total) };
   try {
     const end = Math.min(range.end, total - 1, range.start + maxBytes - 1);
-    const data = Buffer.allocUnsafe(end - range.start + 1);
+    const data = Buffer.allocUnsafeSlow(end - range.start + 1);
     let read = 0;
     while (read < data.length) {
       const n = readSync(fd, data, read, data.length - read, range.start + read);

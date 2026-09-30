@@ -84,7 +84,7 @@ export function registerAttachmentRoutes(app: Hono, me: OpCtx, attachmentsDir?: 
     };
     if (!f.range) return new Response(f.stream, { headers });
     headers["Content-Range"] = `bytes ${f.range.start}-${f.range.end}/${f.total}`;
-    // Buffer をコピーせず、同じメモリを指す Uint8Array として渡す
-    return new Response(new Uint8Array(f.data.buffer, f.data.byteOffset, f.data.byteLength), { status: 206, headers });
+    // Buffer をコピーせず、同じメモリを指す Uint8Array として渡す（core は共有プールでない Buffer を返す）
+    return new Response(new Uint8Array(f.data.buffer as ArrayBuffer, f.data.byteOffset, f.data.byteLength), { status: 206, headers });
   });
 }
