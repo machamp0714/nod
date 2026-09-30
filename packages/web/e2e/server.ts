@@ -32,8 +32,17 @@ const ghRunner: core.GhRunner = async (args) => {
   return ghResults[args[0] ?? ""] ?? ghResult;
 };
 
+// Orca 連携（#52・#51・#58）で orca の代わりに使う。実際の orca・Orca には触れず、/orca で決めた結果を
+// サブコマンド（"terminal list" など）ごとに返す。無いサブコマンドは not_found（orca が無い）
+let orcaResults: Record<string, core.GhRunResult> = {};
+let orcaCalls: string[][] = [];
+const orcaRunner: core.OrcaRunner = async (args) => {
+  orcaCalls.push(args);
+  return orcaResults[`${args[0]} ${args[1]}`] ?? { kind: "not_found" };
+};
+
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir });
+let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner });
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -74,7 +83,7 @@ const control = Bun.serve({
       // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
       if (req.method === "POST" && path === "/restart-server") {
         await server.stop();
-        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir });
+        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner });
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/reset") {
@@ -85,8 +94,16 @@ const control = Bun.serve({
         ghCalls = [];
         releaseGh();
         ghGate = null;
+        orcaResults = {};
+        orcaCalls = [];
         return Response.json({ ok: true });
       }
+      if (req.method === "POST" && path === "/orca") {
+        orcaResults = ((await req.json()) as { results: Record<string, core.GhRunResult> }).results;
+        orcaCalls = [];
+        return Response.json({ ok: true });
+      }
+      if (req.method === "GET" && path === "/orca/calls") return Response.json({ calls: orcaCalls });
       if (req.method === "POST" && path === "/gh") {
         const body = (await req.json()) as { result: core.GhRunResult; results?: Record<string, core.GhRunResult>; gate?: boolean };
         ghResult = body.result;

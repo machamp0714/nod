@@ -40,3 +40,5 @@ export * from "./ops/summary";
 export * from "./ops/auto-transitions";
 export * from "./ops/git-sync";
 export * from "./ops/github-import";
+export * from "./ops/orca";
+export * from "./ops/instructions";

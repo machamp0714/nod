@@ -289,10 +289,19 @@ export function registerHumanCommands(program: Command): void {
   review
     .command("reject <id> <text>")
     .description("差し戻しの理由を残して In Progress に戻す")
+    .option("--delegate <kind>", "LLM に対応を依頼する（review_fix: 指摘対応、rebase）。理由を対応依頼として記録し、LLM は start / show で読む")
     .action(
-      act((cli, _cmd, id: string, text: string) => {
-        const issue = rejectReview(cli.ctx, id, text);
-        print(cli, issue, () => `差し戻しました: ${formatIssueLine(issue)}`);
+      act((cli, cmd, id: string, text: string) => {
+        const { delegate } = cmd.opts<{ delegate?: string }>();
+        if (delegate !== undefined && delegate !== "review_fix" && delegate !== "rebase") {
+          throw new NodError("INVALID_ARGS", "--delegate は review_fix（指摘対応）か rebase で指定してください");
+        }
+        const issue = rejectReview(cli.ctx, id, text, { delegate });
+        print(cli, issue, () =>
+          issue.instruction
+            ? `差し戻しました: ${formatIssueLine(issue)}\n対応依頼を記録しました（#${issue.instruction.id}）。Orca の端末へ送るときは web の Issue 詳細から送信します`
+            : `差し戻しました: ${formatIssueLine(issue)}`,
+        );
       }),
     );
 }

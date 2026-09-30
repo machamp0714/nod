@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  acknowledgeShownInstructions,
   addFileAttachment,
   addLinkAttachment,
   archiveIssue,
@@ -34,11 +35,13 @@ import {
   importPlan,
   isLlm,
   type Issue,
+  listInstructions,
   listIssueAttachments,
   listIssues,
   logWork,
   nextIssue,
   NodError,
+  recordInstruction,
   relateIssue,
   removeAttachment,
   resolveThread,
@@ -48,6 +51,7 @@ import {
   startIssue,
   subscribeIssue,
   suggestIssue,
+  takePendingInstructions,
   unarchiveIssue,
   unsubscribeIssue,
   updateIssue,
@@ -67,6 +71,7 @@ import {
   formatIssueDetail,
   formatIssueLine,
   formatIssueLines,
+  formatInstructions,
   formatPlan,
   formatPrStatus,
   formatPrDiff,
@@ -221,6 +226,8 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
+        // 担当の LLM が読んだ未確認の追加指示は確認済みにする（表示は読んだ時点の「未確認」のまま）
+        acknowledgeShownInstructions(cli.ctx, detail.id, detail.pendingInstructions);
         const rules = workspaceGuidance(cli.db, detail.workspace);
         const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
         print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));
@@ -403,6 +410,26 @@ export function registerIssueCommands(program: Command): void {
     );
 
   issue
+    .command("instruct <id> <text>")
+    .description("LLM への追加指示を記録する（人だけが行える。送信はしない。Orca の端末への送信は web の確認画面から行う）")
+    .action(
+      act((cli, _cmd, id: string, text: string) => {
+        const recorded = recordInstruction(cli.ctx, id, text);
+        print(cli, recorded, () => `追加指示を記録しました（#${recorded.id}）。LLM は nod issue start / show で読みます`);
+      }),
+    );
+
+  issue
+    .command("instructions <id>")
+    .description("追加指示・差し戻しの対応依頼と、その送信・確認の状態を一覧する")
+    .action(
+      act((cli, _cmd, id: string) => {
+        const list = listInstructions(cli.db, id);
+        print(cli, list, () => (list.length ? formatInstructions(list).join("\n") : "追加指示はありません"));
+      }),
+    );
+
+  issue
     .command("resolve <id> <commentId>")
     .description("コメントのスレッドを解決済みにする（人だけが行える）")
     .option("--reopen", "解決済みのスレッドを未解決に戻す")
@@ -531,7 +558,12 @@ export function registerIssueCommands(program: Command): void {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
         const rules = workspaceGuidance(cli.db, started.workspace);
-        print(cli, withRules(started, rules), () => withRulesText(`着手しました: ${formatIssueLine(started)}`, rules));
+        // 差し戻しの対応依頼・追加指示（#51・#58）。LLM が受け取ると確認済みになる
+        const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
+        const text = pendingInstructions.length
+          ? [`着手しました: ${formatIssueLine(started)}`, "", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)].join("\n")
+          : `着手しました: ${formatIssueLine(started)}`;
+        print(cli, { ...withRules(started, rules), pendingInstructions }, () => withRulesText(text, rules));
       }),
     );
 

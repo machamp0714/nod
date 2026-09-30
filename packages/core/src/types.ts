@@ -220,6 +220,7 @@ export type ActivityItem =
       resolvedAt: string | null;
       resolvedBy: string | null;
       logKind: WorkLogKind | null;
+      instruction?: AgentInstruction; // LLM への追加指示・対応依頼のコメント（#51・#58）。それ以外のコメントには無い
     }
   | {
       kind: "question";
@@ -295,6 +296,7 @@ export interface IssueDetail extends Issue {
   activity: ActivityItem[];
   subscribed: boolean; // me がこの Issue を購読しているか
   reminder: IssueReminder | null; // me が設定した、まだ届いていないリマインダー（#47）
+  pendingInstructions: AgentInstruction[]; // LLM がまだ受け取っていない追加指示・対応依頼（#51・#58）。id の順
 }
 
 export interface IssueReminder {
@@ -681,4 +683,72 @@ export interface RecurringRun {
   evaluatedAt: string;
   items: RecurringRunItem[];
   failed: { recurringId: number; title: string; occurrence: string; message: string }[];
+}
+
+// Orca との連携（#52 Orca で開く、#51 追加指示の送信）が失敗した理由
+export type OrcaFailureCode =
+  | "DISABLED" // NOD_ORCA=0
+  | "NO_WORKTREE" // Issue に実行場所の worktree が記録されていない
+  | "ORCA_NOT_INSTALLED"
+  | "WORKTREE_NOT_IN_ORCA" // orca が selector_not_found を返した
+  | "NO_TERMINAL" // worktree に端末がない
+  | "TERMINAL_NOT_FOUND" // 選んだ端末が消えた・別の worktree の端末
+  | "TIMEOUT"
+  | "ORCA_ERROR";
+
+export interface OrcaFailure {
+  code: OrcaFailureCode;
+  message: string;
+}
+
+// orca terminal list の1件
+export interface OrcaTerminal {
+  handle: string;
+  title: string;
+  agentIdentity: string | null; // claude・codex など。LLM が動いていない端末は null
+  worktreePath: string | null;
+  live: boolean; // 接続中・書き込み可・orphaned でない
+}
+
+// 「Orca で開く」の結果。開けなかったときは、手で開くためのパスと cd コマンドを返す
+export interface OrcaOpenResult {
+  issueId: string;
+  opened: boolean;
+  worktree: string | null;
+  copyCommand: string | null;
+  terminal: OrcaTerminal | null;
+  failure: OrcaFailure | null;
+}
+
+// LLM への追加指示（#51）と差し戻しの対応依頼（#58）の種類
+export const AGENT_INSTRUCTION_KINDS = ["instruction", "review_fix", "rebase"] as const;
+export type AgentInstructionKind = (typeof AGENT_INSTRUCTION_KINDS)[number];
+// 送信状態。unconfirmed は orca が時間切れなどで、端末に届いたか分からない状態
+export type AgentInstructionSendState = "unsent" | "sending" | "sent" | "unconfirmed" | "failed";
+
+export interface AgentInstruction {
+  id: number;
+  issueId: string;
+  commentId: number; // 本文は Activity のコメントとしても残る
+  kind: AgentInstructionKind;
+  body: string;
+  createdBy: string;
+  createdAt: string;
+  sendState: AgentInstructionSendState;
+  sentAt: string | null;
+  sentBy: string | null;
+  sentTerminal: string | null; // 送った（送ろうとした）Orca の端末の handle
+  sentAgent: string | null; // 送った端末の agentIdentity（claude など）
+  sendError: OrcaFailure | null; // failed・unconfirmed の理由
+  acknowledgedAt: string | null; // LLM が nod issue start で受け取った日時
+  acknowledgedBy: string | null;
+}
+
+// 追加指示の送信先の候補（#51）。terminals はその worktree で稼働中の LLM の端末だけ。
+// failure があれば一覧できなかった理由で、そのときは記録だけ行い、LLM は nod issue start / show で読む
+export interface AgentTargets {
+  issueId: string;
+  worktree: string | null;
+  terminals: OrcaTerminal[];
+  failure: OrcaFailure | null;
 }

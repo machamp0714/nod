@@ -2,10 +2,11 @@ import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { useIssueDetail } from "../api/hooks/shared";
-import type { ReviewIssue } from "../api/types";
+import type { AgentInstruction, ReviewIssue } from "../api/types";
 import { ApprovalNotice, GithubStatusRow } from "../components/issue-detail/GithubApproval";
 import { ReviewMediaSection } from "../components/issue-detail/AttachmentMedia";
 import { PrDiffSection } from "../components/issue-detail/PrDiffSection";
+import { SendInstructionDialog } from "../components/issue-detail/SendInstructionDialog";
 import { usePrStatus } from "../api/hooks/pr-status";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
@@ -24,7 +25,10 @@ export function ReviewsPage() {
   const workspaceName = useWorkspaceName();
   const items = inbox.data?.reviews ?? [];
   const current = items.find((i) => i.id === selected) ?? items[0];
+  // 差し戻し後の対応依頼の送信確認（#58）。差し戻した Issue は一覧から消えるため、画面側で持つ
+  const [delegated, setDelegated] = useState<{ issueId: string; agent: string; instruction: AgentInstruction } | null>(null);
   return (
+    <>
     <SplitLayout
       title="Reviews"
       description="LLM が作業を終え、確認を待っている Issue"
@@ -56,20 +60,43 @@ export function ReviewsPage() {
       }
       detail={
         current ? (
-          <ReviewDetail key={current.id} issue={current} workspaceName={workspaceName(current.workspace)} />
+          <ReviewDetail key={current.id} issue={current} workspaceName={workspaceName(current.workspace)} onDelegated={setDelegated} />
         ) : (
           <p className={d.empty}>{inbox.isPending ? "読み込み中…" : "レビュー待ちの Issue はありません"}</p>
         )
       }
     />
+    {delegated && (
+      <SendInstructionDialog
+        issueId={delegated.issueId}
+        agent={delegated.agent}
+        target={{ kind: "existing", instruction: delegated.instruction }}
+        title={`${delegated.agent} に対応依頼を送信しますか？`}
+        onClose={() => setDelegated(null)}
+        onDone={() => setDelegated(null)}
+      />
+    )}
+    </>
   );
 }
 
-function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceName: string }) {
+type Delegation = "review_fix" | "rebase";
+
+function ReviewDetail({
+  issue,
+  workspaceName,
+  onDelegated,
+}: {
+  issue: ReviewIssue;
+  workspaceName: string;
+  onDelegated: (sent: { issueId: string; agent: string; instruction: AgentInstruction }) => void;
+}) {
   const detail = useIssueDetail(issue.id);
   const report = issue.reviewReport;
   const plan = detail.data && detail.data.plan.tasks.length > 0 ? planProgress(detail.data.plan) : null;
   const [reason, setReason] = useState("");
+  const [delegate, setDelegate] = useState(false);
+  const [delegation, setDelegation] = useState<Delegation>("review_fix");
   const approve = useDecision();
   const reject = useDecision();
   const busy = approve.isPending || reject.isPending;
@@ -137,14 +164,31 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
         <span className={d.summaryItem}>作業時間（待機・中断・差し戻しを含む） {formatReviewElapsed(issue.startedAt, issue.reviewSubmittedAt)}</span>
       </div>
 
-      <textarea
-        className={d.feedback}
-        aria-label="差し戻しの理由"
-        placeholder="差し戻す場合は理由を書く…"
-        value={reason}
-        disabled={busy}
-        onChange={(e) => setReason(e.target.value)}
-      />
+      <div className={d.feedbackGroup}>
+        <textarea
+          className={d.feedback}
+          aria-label="差し戻しの理由"
+          placeholder="差し戻す場合は理由を書く…"
+          value={reason}
+          disabled={busy}
+          onChange={(e) => setReason(e.target.value)}
+        />
+        {/* 差し戻しの理由を LLM への対応依頼として記録する（#58、Pencil『Reviews｜LLMに対応を依頼（#58）』r5DmDj の M5xAFM） */}
+        <div className={d.askLlm}>
+          <label className={d.askLlmCheck}>
+            <input type="checkbox" checked={delegate} disabled={busy} onChange={(e) => setDelegate(e.target.checked)} />
+            LLM に対応を依頼
+          </label>
+          <div className={d.askLlmRadios} role="radiogroup" aria-label="依頼する対応">
+            {([["review_fix", "指摘対応"], ["rebase", "rebase"]] as const).map(([key, label]) => (
+              <label key={key} className={d.askLlmRadio}>
+                <input type="radio" name={`delegation-${issue.id}`} checked={delegation === key} disabled={busy || !delegate} onChange={() => setDelegation(key)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className={d.approvalArea}>
         <ApprovalNotice status={issue.prUrl ? (prStatus.data?.status ?? null) : null} />
         <div className={d.actions}>
@@ -155,7 +199,16 @@ function ReviewDetail({ issue, workspaceName }: { issue: ReviewIssue; workspaceN
             icon="undo-2"
             disabled={busy || reason.trim() === ""}
             title={reason.trim() === "" ? "差し戻しの理由を書いてください" : undefined}
-            onClick={() => reject.mutate({ op: "reject", issueId: issue.id, reason })}
+            onClick={() =>
+              // 差し戻した Issue は一覧の読み直しでこの詳細ごと消えるため、mutate の onSuccess ではなく結果の Promise で親に渡す
+              void reject
+                .mutateAsync({ op: "reject", issueId: issue.id, reason, ...(delegate ? { delegate: delegation } : {}) })
+                .then((result) => {
+                  const instruction = (result as { instruction?: AgentInstruction } | null)?.instruction;
+                  if (instruction) onDelegated({ issueId: issue.id, agent: report?.actor ?? issue.assignee ?? "LLM", instruction });
+                })
+                .catch(() => {}) // 失敗は reject.error で ActionError に出る
+            }
           >
             差し戻す
           </Button>

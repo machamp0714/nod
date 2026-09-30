@@ -18,7 +18,8 @@ import {
 import { setColumn } from "../mutate";
 import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
 import { readReviewSummaries } from "../review-summary";
-import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
+import type { AcceptTriageInput, AgentInstruction, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
+import { addInstruction } from "./instructions";
 import { addRelation, requireText, updateIssue } from "./issues";
 
 export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {}): Inbox {
@@ -225,18 +226,53 @@ export function approveReview(ctx: OpCtx, ref: string): Issue {
   });
 }
 
-export function rejectReview(ctx: OpCtx, ref: string, reason: string): Issue {
+// 差し戻しで LLM に頼む対応（#58）。指摘対応か、ベースブランチへの rebase か
+export type ReviewDelegation = "review_fix" | "rebase";
+
+// 差し戻しの対応依頼の本文。理由と手順を決まった形で書き、LLM が nod issue start / show で読む
+export function delegationInstruction(issueId: string, delegate: ReviewDelegation, reason: string): string {
+  const steps =
+    delegate === "review_fix"
+      ? ["理由に書かれた指摘に対応する", `テストを実行し、nod issue done ${issueId} --summary "<対応の要約>" で再提出する`]
+      : ["ベースブランチの最新に rebase し、競合を解消する", `テストを再実行して push し、nod issue done ${issueId} --summary "<対応の要約>" で再提出する`];
+  return [
+    `差し戻しの対応依頼（${delegate === "review_fix" ? "指摘対応" : "rebase"}）`,
+    `理由: ${reason.trim()}`,
+    "手順:",
+    `1. nod issue start ${issueId} で再開する`,
+    ...steps.map((step, i) => `${i + 2}. ${step}`),
+  ].join("\n");
+}
+
+// delegate を渡すと、理由を構造化した対応依頼（追加指示）として記録する（人だけ）。送信は #51 と同じく確認画面から人が行う
+export function rejectReview(
+  ctx: OpCtx,
+  ref: string,
+  reason: string,
+  opts: { delegate?: ReviewDelegation } = {},
+): Issue & { instruction?: AgentInstruction } {
   requireText(reason, "差し戻しの理由");
+  if (opts.delegate !== undefined && opts.delegate !== "review_fix" && opts.delegate !== "rebase") {
+    throw new NodError("INVALID_ARGS", "対応依頼は review_fix（指摘対応）か rebase で指定してください");
+  }
+  if (opts.delegate && isLlm(ctx)) {
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は差し戻しの対応依頼を記録できません。対応依頼は me が行います");
+  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
     const since = lastNotificationId(ctx.db);
-    addComment(ctx, row, reason);
+    // 対応依頼は理由を含むので、理由だけのコメントは別に残さない
+    const instruction = opts.delegate
+      ? addInstruction(ctx, row, delegationInstruction(formatIssueId(row.ws_key, row.number), opts.delegate, reason), opts.delegate)
+      : undefined;
+    if (!instruction) addComment(ctx, row, reason);
     setColumn(ctx, row, "status", "in_progress");
     setColumn(ctx, row, "agent_state", null);
-    recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", { reason });
+    recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", opts.delegate ? { reason, delegate: opts.delegate } : { reason });
     collapseNotifications(ctx.db, row.id, since, "review_rejected");
     if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
-    return toIssue(issueRowById(ctx.db, row.id));
+    const issue = toIssue(issueRowById(ctx.db, row.id));
+    return instruction ? { ...issue, instruction } : issue;
   });
 }

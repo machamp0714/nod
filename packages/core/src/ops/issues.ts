@@ -1,4 +1,5 @@
 import { listIssueAttachments } from "./attachments";
+import { instructionsOfIssue } from "./instructions";
 import { isSubscribedRow } from "./notifications";
 import { deliverDueRemindersIfFree, loadReminder } from "./reminders";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
@@ -30,7 +31,7 @@ import {
 } from "../issue-query";
 import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
-import { type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
+import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
@@ -354,6 +355,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
   const questions = (
     db.query("SELECT * FROM questions WHERE issue_id = ? ORDER BY id").all(row.id) as QuestionRow[]
   ).map((q) => toQuestion(q, issue.id));
+  const instructions = instructionsOfIssue(db, row.id);
   return {
     ...issue,
     plan: loadPlan(db, row.id, row.plan_source),
@@ -363,10 +365,21 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     relations: loadRelations(db, row.id),
     questions,
     openQuestions: questions.filter((q) => q.answer === null),
-    activity: loadActivity(db, row.id),
+    activity: attachInstructions(loadActivity(db, row.id), instructions),
     subscribed: isSubscribedRow(db, row.id),
     reminder: loadReminder(db, row.id),
+    pendingInstructions: instructions.filter((i) => i.acknowledgedAt === null),
   };
+}
+
+// 追加指示・対応依頼（#51・#58）のコメントに、種類と送信状態を付ける
+function attachInstructions(activity: ActivityItem[], instructions: AgentInstruction[]): ActivityItem[] {
+  if (instructions.length === 0) return activity;
+  const byComment = new Map(instructions.map((i) => [i.commentId, i]));
+  return activity.map((item) => {
+    const instruction = item.kind === "comment" ? byComment.get(item.id) : undefined;
+    return instruction && item.kind === "comment" ? { ...item, instruction } : item;
+  });
 }
 
 export interface UpdateIssueInput {

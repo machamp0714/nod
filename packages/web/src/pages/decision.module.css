@@ -306,3 +306,52 @@
 .proposalReason { margin: 0; color: var(--ink2); font-size: 12px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .proposalApply { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .proposalApply:disabled { opacity: 0.5; cursor: default; }
+
+/* 差し戻しの理由と「LLM に対応を依頼」（#58、Pencil『Reviews｜LLMに対応を依頼（#58）』r5DmDj の gTTGK・M5xAFM） */
+.feedbackGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.feedbackGroup .feedback {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.askLlm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  font-size: 12.5px;
+}
+
+.askLlmCheck,
+.askLlmRadio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.askLlmCheck {
+  gap: 8px;
+}
+
+.askLlmCheck input,
+.askLlmRadio input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.askLlmRadios {
+  display: inline-flex;
+  gap: 14px;
+}
+
+.askLlmRadio:has(input:disabled) {
+  color: var(--ink3);
+  cursor: default;
+}

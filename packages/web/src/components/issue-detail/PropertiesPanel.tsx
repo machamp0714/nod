@@ -14,6 +14,7 @@ import { priorityMeta } from "../../lib/meta";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentStatePill, Button, Icon, LabelChip, Pill, StatusIcon, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
+import { OpenInOrcaButton } from "./OpenInOrcaButton";
 import { useAsyncAction } from "./useAsyncAction";
 
 function Prop({ label, children }: { label: string; children: ReactNode }) {
@@ -379,12 +380,15 @@ export function PropertiesPanel({
         {full && (
           <Prop label="実行場所">
             {location ? (
-              <span className={s.inline} title={issue.worktree ?? undefined}>
-                <Icon name="terminal" />
-                <span className={s.executionLocation}>
-                  {location.branchLabel}
-                  {location.worktree && <span>{location.worktree}</span>}
+              <span className={s.locationValue}>
+                <span className={s.inline} title={issue.worktree ?? undefined}>
+                  <Icon name="terminal" />
+                  <span className={s.executionLocation}>
+                    {location.branchLabel}
+                    {location.worktree && <span>{location.worktree}</span>}
+                  </span>
                 </span>
+                {issue.worktree && <OpenInOrcaButton issueId={issue.id} />}
               </span>
             ) : (
               <Empty />

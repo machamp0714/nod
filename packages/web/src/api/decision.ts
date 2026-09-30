@@ -6,7 +6,8 @@ import type { AcceptTriageInput, Inbox, Issue, TriageProposal, TriageSuggestions
 export type DecisionAction =
   | { op: "answer"; issueId: string; questionId: number; answer: string }
   | { op: "approve"; issueId: string }
-  | { op: "reject"; issueId: string; reason: string }
+  // delegate を付けると、理由を LLM への対応依頼として記録する（#58）
+  | { op: "reject"; issueId: string; reason: string; delegate?: "review_fix" | "rebase" }
   | { op: "accept"; issueId: string; input?: AcceptTriageInput }
   | { op: "decline"; issueId: string; reason?: string }
   | { op: "duplicate"; issueId: string; original: string }
@@ -42,7 +43,7 @@ export function actionRequest(action: DecisionAction): { path: string; body: Rec
     case "answer":
       return { path, body: { answer: action.answer.trim(), questionId: action.questionId } };
     case "reject":
-      return { path, body: { reason: action.reason.trim() } };
+      return { path, body: action.delegate ? { reason: action.reason.trim(), delegate: action.delegate } : { reason: action.reason.trim() } };
     case "decline": {
       const reason = action.reason?.trim();
       return { path, body: reason ? { reason } : {} };
