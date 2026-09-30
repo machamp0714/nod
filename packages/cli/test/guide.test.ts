@@ -45,6 +45,7 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("--health on_track|at_risk|off_track");
   expect(GUIDE).toContain("nod project milestone add");
   expect(GUIDE).toContain("--milestone <名前かID>");
+  expect(GUIDE).toContain("nod issue list --milestone <ID|none>");
   expect(GUIDE).toContain("`remove`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
   expect(GUIDE).toContain("`delete`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
 });

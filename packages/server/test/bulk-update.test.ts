@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, getIssue } from "@nod/core";
+import { createIssue, createMilestone, createProject, getIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 describe("POST /api/issues/bulk-update", () => {
@@ -15,6 +15,25 @@ describe("POST /api/issues/bulk-update", () => {
     expect(getIssue(db, b.id)).toMatchObject({ status: "in_progress", priority: 2, estimate: 5, dueDate: "2026-10-01", labels: ["x"] });
     const actors = db.query("SELECT DISTINCT actor FROM events WHERE type = 'status_changed'").all() as { actor: string }[];
     expect(actors).toEqual([{ actor: "me" }]);
+  });
+
+  test("Milestone を名前か ID で付け、null・空文字で外せる（#154）", async () => {
+    const { app, db, me, ws } = setup();
+    createProject(me, { name: "検索" });
+    const m = createMilestone(me, "検索", { name: "α" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    const r = await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id, b.id], milestoneRef: "α" });
+    expect(r.status).toBe(200);
+    expect(getIssue(db, b.id).milestone).toEqual({ id: m.id, name: "α" });
+    await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id], milestoneRef: null });
+    await call(app, "POST", "/api/issues/bulk-update", { ids: [b.id], milestoneRef: "" });
+    expect([getIssue(db, a.id).milestone, getIssue(db, b.id).milestone]).toEqual([null, null]);
+    const loose = createIssue(me, { workspaceId: ws.id, title: "c" });
+    const failed = await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id, loose.id], milestoneRef: String(m.id) });
+    expect(failed.status).toBe(409);
+    expect(failed.json.error.details.failures).toMatchObject([{ id: loose.id, code: "INVALID_ARGS" }]);
+    expect(getIssue(db, a.id).milestone).toBeNull();
   });
 
   test("一部が失敗したら 409 BULK_UPDATE_FAILED で失敗一覧を返し、何も書かない", async () => {

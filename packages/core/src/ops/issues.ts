@@ -73,6 +73,7 @@ export interface CreateIssueInput {
   description?: string;
   template?: string; // テンプレートの名前。本文を説明の初期値にする（description と同時には使えない）
   projectRef?: string;
+  milestoneRef?: string; // Milestone の ID か、projectRef の Project の中の名前（Project の指定が要る）
   cycleRef?: string; // Cycle の ID・名前・current（起票先の Workspace のもの）
   parentRef?: string;
   discoveredFromRef?: string;
@@ -97,6 +98,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const source = input.discoveredFromRef === undefined ? null : findIssueRow(ctx.db, requireText(input.discoveredFromRef, "起票元"));
     const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
+    const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
     const cycle = input.cycleRef ? resolveCycle(ctx.db, input.workspaceId, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     return insertIssue(ctx, {
@@ -108,6 +110,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       dueDate: input.dueDate ?? null,
       parentId: parent?.id ?? null,
       projectId: project?.id ?? null,
+      milestoneId: milestone?.id ?? null,
       cycleId: cycle?.id ?? null,
       labels: input.labels ?? [],
       origin: source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {},
@@ -124,6 +127,7 @@ export interface NewIssueRow {
   dueDate: string | null;
   parentId: number | null;
   projectId: number | null;
+  milestoneId?: number | null;
   cycleId?: number | null;
   labels: string[];
   assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
@@ -146,8 +150,8 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, cycle_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, cycle_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -160,6 +164,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.dueDate,
       input.parentId,
       input.projectId,
+      input.milestoneId ?? null,
       input.cycleId ?? null,
       input.assignee ?? null,
       closed ? (input.closeReason ?? null) : null,
@@ -204,7 +209,7 @@ export interface ListIssuesFilter {
   workspaceKeys?: string[];
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
-  milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）
+  milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）。名前は projectRef を指定したときだけ
   cycleRef?: string; // Cycle の ID か "none"（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ
   labels?: string[];
   ready?: boolean;
@@ -235,14 +240,19 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push(`w.key IN (${filter.workspaceKeys.map(() => "?").join(", ")})`);
     params.push(...filter.workspaceKeys.map((k) => k.toUpperCase()));
   }
-  if (filter.projectRef) {
+  const projectId = filter.projectRef ? resolveProject(db, filter.projectRef).id : undefined;
+  if (projectId !== undefined) {
     where.push("i.project_id = ?");
-    params.push(resolveProject(db, filter.projectRef).id);
+    params.push(projectId);
   }
   if (filter.milestone === "none") where.push("i.milestone_id IS NULL");
   else if (filter.milestone !== undefined) {
+    // 名前は Project の中でだけ一意なので、名前で絞るときは Project の指定が要る
+    if (!/^\d+$/.test(filter.milestone) && projectId === undefined) {
+      throw new NodError("INVALID_ARGS", `Milestone を名前（${filter.milestone}）で絞るときは Project も指定してください（ID なら不要）`);
+    }
     where.push("i.milestone_id = ?");
-    params.push(resolveMilestone(db, filter.milestone).id);
+    params.push(resolveMilestone(db, filter.milestone, projectId).id);
   }
   if (filter.cycleRef?.toLowerCase() === NO_CYCLE_REF) where.push("i.cycle_id IS NULL");
   else if (filter.cycleRef) {
@@ -446,6 +456,18 @@ function isAncestor(db: Database, ancestorId: number, issueId: number): boolean 
   return hit !== null;
 }
 
+// Issue の Project（projectId）の Milestone を ID か名前で引く。Project がない・別の Project のものは INVALID_ARGS
+function projectMilestone(db: Database, projectId: number | null, ref: string): { id: number; name: string } {
+  if (projectId === null) {
+    throw new NodError("INVALID_ARGS", "Project のない Issue には Milestone を付けられません。先に Project を設定してください");
+  }
+  const milestone = resolveMilestone(db, ref, projectId);
+  if (milestone.project_id !== projectId) {
+    throw new NodError("INVALID_ARGS", `Milestone ${ref} は Issue の Project のものではありません（別の Project の Milestone は付けられません）`);
+  }
+  return milestone;
+}
+
 // Milestone は Issue と同じ Project のものだけ付けられる。ref を省くと、Project が変わって合わなくなった Milestone を外すだけ
 function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined): void {
   let target: { id: number; name: string } | null;
@@ -457,14 +479,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
   } else if (ref === null) {
     target = null;
   } else {
-    if (row.project_id === null) {
-      throw new NodError("INVALID_ARGS", "Project のない Issue には Milestone を付けられません。先に Project を設定してください");
-    }
-    const milestone = resolveMilestone(ctx.db, ref, row.project_id);
-    if (milestone.project_id !== row.project_id) {
-      throw new NodError("INVALID_ARGS", `Milestone ${ref} は Issue の Project のものではありません（別の Project の Milestone は付けられません）`);
-    }
-    target = milestone;
+    target = projectMilestone(ctx.db, row.project_id, ref);
   }
   const from = row.milestone_id === null ? null : resolveMilestone(ctx.db, row.milestone_id).name;
   setColumn(ctx, row, "milestone_id", target?.id ?? null, { from, to: target?.name ?? null });

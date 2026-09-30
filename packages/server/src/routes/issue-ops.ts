@@ -163,7 +163,7 @@ const OPS: Record<string, Op> = {
   unremind: { keys: [], run: (me, ref) => clearReminder(me, ref) },
 };
 
-const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
+const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "milestoneRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
 
 // web からの Issue の操作。書き手は me
 export function registerIssueOps(app: Hono, me: OpCtx): void {
