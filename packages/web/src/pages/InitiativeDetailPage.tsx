@@ -1,12 +1,15 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
+import { ApiError } from "../api/client";
 import { errorMessage } from "../api/errors";
 import { useAddInitiativeProject, useInitiative, useInitiatives, useRemoveInitiativeProject, useUpdateInitiative } from "../api/hooks/initiatives";
 import { useIssueList } from "../api/hooks/issues";
 import { useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import type { InitiativeDetail, InitiativeStatus } from "../api/types";
-import { Icon, PageError, PageLoading, ProgressBar, WorkspaceBadge } from "../components/ui";
+import { FormDialog } from "../components/planning/FormDialog";
+import d from "../components/planning/planning.module.css";
+import { Button, Icon, PageError, PageLoading, ProgressBar, WorkspaceBadge } from "../components/ui";
 import { INITIATIVE_STATUS_META, INITIATIVE_STATUSES } from "../lib/initiatives";
 import { withWorkspaces } from "../lib/projects";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -26,7 +29,11 @@ export function InitiativeDetailPage() {
   if (!found) return <NotFoundMessage title="Initiative が見つかりません" />;
   if (detail.error) return <PageError message={errorMessage(detail.error)} />;
   if (!detail.data) return <PageLoading />;
-  const initiative = detail.data;
+  return <InitiativeDetail initiative={detail.data} />;
+}
+
+function InitiativeDetail({ initiative }: { initiative: InitiativeDetail }) {
+  const [editing, setEditing] = useState(false);
   return (
     <div className={s.page}>
       <header className={s.header}>
@@ -38,13 +45,80 @@ export function InitiativeDetailPage() {
       </header>
       <div className={s.content}>
         <section className={s.overview} aria-label="Initiative の概要">
-          <h1 className={s.title}>{initiative.name}</h1>
+          {/* Pencil b8IOOd の見出し行（ps5GZ）。右端の「編集」で名前・説明を直す（#154） */}
+          <div className={s.titleRow}>
+            <h1 className={s.title}>{initiative.name}</h1>
+            <Button icon="pencil" onClick={() => setEditing(true)}>
+              編集
+            </Button>
+          </div>
           <Overview key={initiative.id} initiative={initiative} />
           {initiative.description && <p className={s.description}>{initiative.description}</p>}
         </section>
         <InitiativeProjects initiative={initiative} />
       </div>
+      {editing && <EditInitiativeDialog initiative={initiative} onClose={() => setEditing(false)} />}
     </div>
+  );
+}
+
+// Pencil「Initiative を編集」（YLl9f）。名前・説明だけを直す（状態・目標日は概要の Meta で変える）。
+// 名前の空・重複は名前の欄の下に出し、それ以外の失敗はダイアログの下に出す
+function EditInitiativeDialog({ initiative, onClose }: { initiative: InitiativeDetail; onClose: () => void }) {
+  const update = useUpdateInitiative(initiative.id);
+  const [name, setName] = useState(initiative.name);
+  const [description, setDescription] = useState(initiative.description ?? "");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const nameErrorId = useId();
+  return (
+    <FormDialog
+      title="Initiative を編集"
+      submitLabel="保存"
+      busy={update.isPending}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => {
+        const trimmed = name.trim();
+        setError(null);
+        if (!trimmed) {
+          setNameError("名前を入力してください");
+          return;
+        }
+        setNameError(null);
+        update.mutate(
+          { name: trimmed, description: description.trim() || null },
+          {
+            onSuccess: onClose,
+            onError: (err) => {
+              if (err instanceof ApiError && err.code === "INITIATIVE_EXISTS") setNameError(`同じ名前の Initiative「${trimmed}」があります`);
+              else setError(errorMessage(err));
+            },
+          },
+        );
+      }}
+    >
+      <label className={d.field}>
+        名前
+        <input
+          className={`${d.input} ${nameError ? s.inputError : ""}`}
+          value={name}
+          aria-invalid={nameError ? true : undefined}
+          aria-describedby={nameError ? nameErrorId : undefined}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </label>
+      {nameError && (
+        <p id={nameErrorId} className={d.error}>
+          <Icon name="circle-alert" size={13} />
+          {nameError}
+        </p>
+      )}
+      <label className={d.field}>
+        説明
+        <textarea className={`${d.input} ${s.textarea}`} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} />
+      </label>
+    </FormDialog>
   );
 }
 

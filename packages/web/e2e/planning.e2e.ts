@@ -61,6 +61,49 @@ test("Initiative を作り、Project を紐付け・外し、状態と目標日�
   await expect(row.getByRole("cell").last()).toHaveText("1");
 });
 
+test.describe("Initiative の編集（#154）", () => {
+  test.use({ allowedConsoleErrors: [/status of 409/] });
+
+  test("詳細の「編集」で名前と説明を直し、空・重複の名前は欄の下に理由を出して保存しない", async ({ page, nod }) => {
+    await nod.me.createInitiative({ name: "決済の信頼性向上" });
+    const target = await nod.me.createInitiative({ name: "検索基盤の刷新", description: "旧い説明" });
+    await page.goto(`/initiatives/${target.id}`);
+    await page.getByRole("button", { name: "編集" }).click();
+    const dialog = page.getByRole("dialog", { name: "Initiative を編集" });
+    await expect(dialog.getByLabel("名前")).toHaveValue("検索基盤の刷新");
+    await expect(dialog.getByLabel("説明")).toHaveValue("旧い説明");
+
+    await dialog.getByLabel("名前").fill(" ");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog.getByText("名前を入力してください")).toBeVisible();
+    await dialog.getByLabel("名前").fill("決済の信頼性向上");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog.getByText("同じ名前の Initiative「決済の信頼性向上」があります")).toBeVisible();
+    await expect(dialog.getByLabel("名前")).toHaveAttribute("aria-invalid", "true");
+    expect((await nod.me.getInitiative(String(target.id))).name).toBe("検索基盤の刷新");
+
+    await dialog.getByLabel("名前").fill("  検索基盤の刷新 v2 ");
+    await dialog.getByLabel("説明").fill("検索の速度と精度を上げる\nUI もまとめて追う");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { level: 1, name: "検索基盤の刷新 v2" })).toBeVisible();
+    const saved = await nod.me.getInitiative(String(target.id));
+    expect([saved.name, saved.description]).toEqual(["検索基盤の刷新 v2", "検索の速度と精度を上げる\nUI もまとめて追う"]);
+
+    // 説明を空にすると外れる。キャンセルでは何も変えない
+    await page.getByRole("button", { name: "編集" }).click();
+    await dialog.getByLabel("説明").fill("");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(dialog).toBeHidden();
+    expect((await nod.me.getInitiative(String(target.id))).description).toBeNull();
+    await page.getByRole("button", { name: "編集" }).click();
+    await dialog.getByLabel("名前").fill("捨てる");
+    await dialog.getByRole("button", { name: "キャンセル" }).click();
+    await expect(dialog).toBeHidden();
+    expect((await nod.me.getInitiative(String(target.id))).name).toBe("検索基盤の刷新 v2");
+  });
+});
+
 test.describe("Cycle", () => {
   test.use({ allowedConsoleErrors: [/status of 409/] });
 
