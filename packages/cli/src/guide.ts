@@ -47,6 +47,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    Workspace で PR 連動が有効なら、PR が open（draft 以外）かマージ済みになったあとの \`nod issue pr-status <id> --refresh\` で in_review に進む（done にはならない）。
    終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
+   人の \`nod review approve\`（nod の承認）は Issue を done にするだけで、GitHub の承認・マージではない。nod は GitHub の PR に承認・マージを書き込まず、\`gh pr review\` も \`gh pr merge\` も実行しない。PR の承認・マージは GitHub 側で別に行う。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
 
 ## 着手前に候補だけ確認する

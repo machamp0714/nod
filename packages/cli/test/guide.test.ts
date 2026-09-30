@@ -50,3 +50,11 @@ test("LLM は nod issue update --status や bulk-update でも Triage の Issue 
   expect(line).toContain("nod issue bulk-update");
   expect(line).toContain("FORBIDDEN_FOR_LLM");
 });
+
+test("nod の承認は GitHub の承認・マージではなく、nod は GitHub へ書き込まないと案内する（#56/#57）", () => {
+  const line = GUIDE.split("\n").find((l) => l.includes("GitHub の承認・マージではない"));
+  expect(line).toBeDefined();
+  expect(line).toContain("nod review approve");
+  expect(GUIDE).toContain("gh pr review");
+  expect(GUIDE).toContain("gh pr merge");
+});

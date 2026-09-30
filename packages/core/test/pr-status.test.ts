@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createIssue } from "../src/ops/issues";
 import { completeIssue, startIssue } from "../src/ops/agent";
+import { approveReview } from "../src/ops/human";
 import { copyIssue } from "../src/ops/issues";
 import {
   classify,
@@ -386,5 +387,27 @@ describe("createCommandRunner（実 gh は使わない）", () => {
   test("既定のタイムアウトは 15 秒、SIGKILL までの猶予は 2 秒", () => {
     expect(GH_KILL_GRACE_MS).toBe(2_000);
     expect(PR_STATUS_TIMEOUT_MS).toBe(15_000);
+  });
+});
+
+describe("nod の承認と GitHub PR（#56/#57）", () => {
+  test("approveReview は外部コマンド（gh）を起動せず、保存済みの PR 状態も変えない", async () => {
+    const s = setup();
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
+    startIssue(s.llm, issue.id);
+    completeIssue(s.llm, issue.id, { summary: "直した", prUrl: PR_URL });
+    await refreshPrStatus(s.me, issue.id, async () => ({ kind: "exited", exitCode: 0, stdout: ghJson({ reviewDecision: "CHANGES_REQUESTED" }), stderr: "" }));
+    const before = getPrStatus(s.db, issue.id);
+    const spawn = spyOn(Bun, "spawn");
+    const spawnSync = spyOn(Bun, "spawnSync");
+    try {
+      expect(approveReview(s.me, issue.id).status).toBe("done");
+      expect(spawn).not.toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalled();
+    } finally {
+      spawn.mockRestore();
+      spawnSync.mockRestore();
+    }
+    expect(getPrStatus(s.db, issue.id)).toEqual(before);
   });
 });

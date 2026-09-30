@@ -7,7 +7,7 @@ import { ciPill, type PillSpec, prStatePill, reviewPill, safeCheckUrl } from "..
 import { Icon } from "../ui";
 import s from "./issue-detail.module.css";
 
-function PrPill({ spec }: { spec: PillSpec }) {
+export function PrPill({ spec }: { spec: PillSpec }) {
   const color = TONE_COLORS[spec.tone];
   return (
     <span className={s.prPill} style={{ color: color.fg, background: color.bg }}>

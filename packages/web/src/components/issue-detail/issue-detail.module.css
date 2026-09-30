@@ -931,3 +931,18 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .reminderButtons { display: flex; gap: 6px; }
 .reminderArchived { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .reminderEdit .fieldError { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+
+/* nod.pen「Reviews｜GitHub状態と承認注記」「Issue詳細｜親の完了候補 GitHub注記」（#56/#57） */
+.ghStatus { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; }
+.ghStatusRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; color: var(--ink2); }
+.ghStatusRow > svg { flex: none; }
+.ghStatusLabel { color: var(--ink2); font-size: 12px; font-weight: 500; }
+.ghStatusUnfetched { color: var(--ink3); font-size: 12px; }
+.ghStatusRow .prFetched { flex: none; }
+.ghStatusSpacer { flex: 1; }
+.approvalNote { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink3); font-size: 12px; overflow-wrap: anywhere; }
+.approvalNote > svg { flex: none; }
+.ghCaution { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 8px 10px; list-style: none; border-radius: 6px; background: var(--ask-soft); color: var(--ask); font-size: 12px; }
+.ghCaution li { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.ghCaution li > svg { flex: none; }
+.approvalCompact { font-size: 11.5px; }
