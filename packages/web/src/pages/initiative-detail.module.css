@@ -44,9 +44,28 @@
   gap: 12px;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .title {
+  flex: 1;
+  min-width: 0;
   font-size: 22px;
   font-weight: 600;
+}
+
+/* 編集ダイアログ（YLl9f）の名前の欄の重複エラー（$fail の枠）と、説明の複数行 */
+.inputError {
+  border-color: var(--fail);
+}
+
+.textarea {
+  resize: vertical;
+  line-height: 1.6;
+  font-family: inherit;
 }
 
 .meta {

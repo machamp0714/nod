@@ -23,7 +23,7 @@ import { formatIssueLines, print } from "../output";
 
 function formatProjectUpdate(u: ProjectUpdate): string {
   const at = u.createdAt.slice(0, 16).replace("T", " ");
-  return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
+  return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : u.healthCleared ? "（健全性を未設定に戻した）" : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
 }
 
 function formatMilestone(m: Milestone): string {
@@ -105,7 +105,7 @@ export function registerProjectCommands(program: Command): void {
   report
     .command("add <project> <body>")
     .description("進捗報告を書く（書き手と日時を記録する。Issue や Project の状態は変えない）")
-    .option("--health <health>", "健全性を添える（on_track|at_risk|off_track）。添えた値が Project の現在の健全性になる")
+    .option("--health <health>", "健全性を添える（on_track|at_risk|off_track、none で未設定に戻す）。添えた値が Project の現在の健全性になる")
     .action(
       act((cli, _cmd, ref: string, body: string, o: { health?: string }) => {
         const health = o.health === undefined ? null : parseProjectHealth(o.health);

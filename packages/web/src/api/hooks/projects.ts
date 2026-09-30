@@ -28,7 +28,7 @@ export function useUpdateProject(id: number) {
 }
 
 export function useAddProjectUpdate(id: number) {
-  return useApiMutation<{ body: string; health: ProjectHealth | null }, ProjectUpdate>((body) =>
+  return useApiMutation<{ body: string; health: ProjectHealth | "none" | null }, ProjectUpdate>((body) =>
     apiFetch<ProjectUpdate>(`/projects/${id}/reports`, { method: "POST", body }),
   );
 }

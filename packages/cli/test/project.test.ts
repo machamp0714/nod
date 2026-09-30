@@ -143,6 +143,17 @@ describe("Project の健全性 CLI", () => {
     expect(text).toMatch(/codex:\n    メモ/);
   });
 
+  test("--health none で健全性を未設定に戻し、報告一覧に戻したことを出す（#154）", () => {
+    const db = tempDb();
+    const cwd = tempDir();
+    cli(db, cwd, ["project", "create", "検索"]);
+    cli(db, cwd, ["project", "report", "add", "検索", "遅れそう", "--health", "at_risk"]);
+    const cleared = cli(db, cwd, ["project", "report", "add", "検索", "保留", "--health", "none", "--json"], "me");
+    expect(cleared.json).toMatchObject({ health: null, healthCleared: true });
+    expect(cli(db, cwd, ["project", "show", "検索", "--json"]).json.health).toBeNull();
+    expect(cli(db, cwd, ["project", "report", "list", "検索"]).stdout).toContain("me（健全性を未設定に戻した）:");
+  });
+
   test("不正な --health は INVALID_ARGS で、報告を保存しない", () => {
     const db = tempDb();
     const cwd = tempDir();
@@ -217,5 +228,36 @@ describe("Milestone CLI", () => {
     const notHere = cli(path, cwd, ["project", "milestone", "remove", "検索", String(foreign.id), "--json"], "me");
     expect([notHere.code, notHere.json.error.code]).toEqual([1, "NOT_FOUND"]);
     expect(cli(path, cwd, ["project", "milestone", "list", "認証", "--json"]).json).toHaveLength(1);
+  });
+
+  test("起票・一覧・一括編集で --milestone を使える（#154）", () => {
+    const path = tempDb();
+    const db = openDb(path);
+    const me = { db, actor: "me" };
+    createProject(me, { name: "検索" });
+    createProject(me, { name: "認証" });
+    db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/ms-api3', '2000', '#7C5CFF')").run();
+    db.close();
+    const cwd = tempDir();
+    const m = cli(path, cwd, ["project", "milestone", "add", "検索", "α", "--json"]).json;
+    const w = ["-w", "API"];
+    const a = cli(path, cwd, [...w, "issue", "create", "a", "--project", "検索", "--milestone", "α", "--json"]).json;
+    expect(a).toMatchObject({ status: "triage", milestone: { id: m.id, name: "α" } });
+    const b = cli(path, cwd, [...w, "issue", "create", "b", "--project", "検索", "--json"], "me").json;
+    const noProject = cli(path, cwd, [...w, "issue", "create", "c", "--milestone", "α", "--json"]);
+    expect([noProject.code, noProject.json.error.code]).toEqual([1, "INVALID_ARGS"]);
+
+    const list = (args: string[]) => cli(path, cwd, [...w, "issue", "list", "-s", "triage,todo", ...args, "--json"]).json.map((i: { id: string }) => i.id);
+    expect(list(["--milestone", String(m.id)])).toEqual([a.id]);
+    expect(list(["--project", "検索", "--milestone", "α"])).toEqual([a.id]);
+    expect(list(["--project", "検索", "--milestone", "none"])).toEqual([b.id]);
+    const byName = cli(path, cwd, [...w, "issue", "list", "--milestone", "α", "--json"]);
+    expect([byName.code, byName.json.error.code]).toEqual([1, "INVALID_ARGS"]);
+    expect(cli(path, cwd, [...w, "issue", "list", "-s", "triage", "--milestone", "α", "--project", "検索"]).stdout).toContain("a");
+
+    const bulk = cli(path, cwd, ["issue", "bulk-update", a.id, b.id, "--milestone", "α", "--json"], "me");
+    expect(bulk.json.map((i: { milestone: { name: string } | null }) => i.milestone?.name)).toEqual(["α", "α"]);
+    const cleared = cli(path, cwd, ["issue", "bulk-update", a.id, b.id, "--milestone", "", "--json"], "me");
+    expect(cleared.json.map((i: { milestone: unknown }) => i.milestone)).toEqual([null, null]);
   });
 });

@@ -1,19 +1,23 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/errors";
+import { useCycles } from "../../api/hooks/cycles";
 import { useProjectChoices } from "../../api/hooks/issue-detail";
+import { useMilestones } from "../../api/hooks/projects";
 import { type BulkUpdateInput, useBulkUpdateIssues } from "../../api/hooks/issues";
 import type { Issue, Status } from "../../api/types";
-import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, labelMenu } from "../../lib/bulk-selection";
+import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, cycleMenu, labelMenu, milestoneMenu } from "../../lib/bulk-selection";
+import { CYCLE_STATE_LABEL } from "../../lib/cycles";
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Icon, type IconName } from "../ui";
+import d from "../planning/planning.module.css";
 import s from "./issue-list.module.css";
 
 // 一括編集で選べる状態。needs_clarification は手で変えられず、Triage は Triage 画面で判断するため出さない
 const BULK_STATUSES = STATUS_ORDER.filter((status) => status !== "needs_clarification" && status !== "triage");
 const PRIORITIES = [1, 2, 3, 4, 0];
 
-type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "estimate" | "dueDate";
+type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "estimate" | "dueDate" | "cycle" | "milestone";
 
 // design/nod.pen「Issues｜一括編集（#31）」の一括操作バー。項目を選ぶとすぐに選択中の全 Issue へ適用する。
 // 1件でも失敗したら何も変わらないため、失敗した Issue と理由をバーの上に出し、選択はそのまま残す
@@ -32,6 +36,8 @@ export function BulkActionBar({
 }) {
   const update = useBulkUpdateIssues();
   const projects = useProjectChoices();
+  const cycles = cycleMenu(selected, useCycles().data ?? []);
+  const milestones = milestoneMenu(selected, useMilestones().data ?? []);
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [failures, setFailures] = useState<BulkFailure[]>([]);
   const [error, setError] = useState("");
@@ -157,6 +163,34 @@ export function BulkActionBar({
         <Dropdown icon="calendar" label="期限" disabled={disabled} {...menu("dueDate")}>
           <ValueForm label="期限" type="date" onSet={(value) => apply({ dueDate: value })} onClear={() => apply({ dueDate: null })} />
         </Dropdown>
+        {/* Pencil Q2vFJ（#154）。Workspace・Project が混ざる選択では無効にし、理由を title で出す */}
+        <Dropdown icon="calendar-range" label="Cycle" disabled={disabled || !!cycles.disabled} title={cycles.disabled} {...menu("cycle")}>
+          {cycles.disabled === undefined && (
+            <ChoiceMenu
+              label="Cycle を変更"
+              items={cycles.cycles.map((c) => ({
+                key: String(c.id),
+                icon: "calendar-range",
+                label: c.name,
+                badge: <span className={d.badge} data-state={c.state}>{CYCLE_STATE_LABEL[c.state]}</span>,
+                run: () => apply({ cycleRef: String(c.id) }),
+              }))}
+              empty="この Workspace に終了していない Cycle はありません"
+              none={{ label: "Cycle なし", run: () => apply({ cycleRef: null }) }}
+            />
+          )}
+        </Dropdown>
+        <Dropdown icon="flag" label="Milestone" disabled={disabled || !!milestones.disabled} title={milestones.disabled} {...menu("milestone")}>
+          {milestones.disabled === undefined && (
+            <ChoiceMenu
+              label="Milestone を変更"
+              head={milestones.project.name}
+              items={milestones.milestones.map((m) => ({ key: String(m.id), icon: "flag", label: m.name, run: () => apply({ milestoneRef: String(m.id) }) }))}
+              empty="この Project に Milestone はありません"
+              none={{ label: "Milestone なし", run: () => apply({ milestoneRef: null }) }}
+            />
+          )}
+        </Dropdown>
         <span className={s.bulkDivider} />
         <button type="button" className={s.bulkClear} onClick={onClear}>
           <Icon name="x" size={13} />
@@ -173,6 +207,7 @@ function Dropdown({
   label,
   open,
   disabled,
+  title,
   onToggle,
   onClose,
   children,
@@ -182,6 +217,7 @@ function Dropdown({
   label: string;
   open: boolean;
   disabled: boolean;
+  title?: string; // 無効の理由（無効なボタンにも出るよう外側に付ける）
   onToggle: () => void;
   onClose: () => void;
   children: ReactNode;
@@ -201,7 +237,7 @@ function Dropdown({
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
   return (
-    <div className={s.bulkDropdownWrap} ref={root}>
+    <div className={s.bulkDropdownWrap} ref={root} title={title}>
       <button type="button" ref={trigger} data-menu={menuKey} className={s.bulkDropdown} aria-haspopup="true" aria-expanded={open} disabled={disabled} onClick={onToggle}>
         <Icon name={icon} size={13} color="var(--ink2)" />
         {label}
@@ -243,6 +279,45 @@ function Menu({ label, items }: { label: string; items: { key: string; label: st
           {item.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Cycle・Milestone のメニュー（Pencil eKr6I・z7qFd）。見出し（Project 名）→ 選択肢 → 区切り →「〜なし」
+function ChoiceMenu({
+  label,
+  head,
+  items,
+  empty,
+  none,
+}: {
+  label: string;
+  head?: string;
+  items: { key: string; icon: IconName; label: string; badge?: ReactNode; run: () => void }[];
+  empty: string;
+  none: { label: string; run: () => void };
+}) {
+  return (
+    <div role="menu" aria-label={label} className={s.bulkMenu} onKeyDown={moveFocus}>
+      {head && (
+        <p className={s.bulkMenuHead}>
+          <Icon name="box" size={11} color="var(--ink3)" />
+          {head}
+        </p>
+      )}
+      {items.map((item, index) => (
+        <button key={item.key} type="button" role="menuitem" data-autofocus={index === 0 ? "" : undefined} onClick={item.run}>
+          <Icon name={item.icon} size={12} color="var(--ink3)" />
+          <span className={s.bulkLabelName}>{item.label}</span>
+          {item.badge}
+        </button>
+      ))}
+      {items.length === 0 && <p className={s.bulkEmpty}>{empty}</p>}
+      <hr className={s.bulkSeparator} />
+      <button type="button" role="menuitem" className={s.bulkNone} data-autofocus={items.length === 0 ? "" : undefined} onClick={none.run}>
+        <Icon name="circle-dashed" size={12} color="var(--ink3)" />
+        <span className={s.bulkLabelName}>{none.label}</span>
+      </button>
     </div>
   );
 }

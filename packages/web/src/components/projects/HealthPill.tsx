@@ -13,6 +13,9 @@ const UNSET = { label: "未設定", icon: "circle-dashed" as IconName, className
 
 export const HEALTH_OPTIONS: ProjectHealth[] = ["on_track", "at_risk", "off_track"];
 
+// 進捗報告に添える健全性。null は未指定（現在の健全性を変えない）、"none" は未設定に戻す（#154）
+export type HealthChoice = ProjectHealth | "none" | null;
+
 export function healthLabel(health: ProjectHealth | null): string {
   return (health && HEALTH[health]?.label) || "未設定";
 }
@@ -27,14 +30,37 @@ export function HealthPill({ health }: { health: ProjectHealth | null }) {
   );
 }
 
-// 進捗報告に添える健全性の選択（djnRu と nSTRL のメニュー）。null は「未指定」で、現在の健全性を変えない
+// 健全性を未設定に戻した進捗報告の Pill（Pencil CK5tm の NmSd9）。現在の健全性の「未設定」と同じ灰色の書式
+export function HealthClearedPill() {
+  return (
+    <span className={`${s.pill} ${s.unset}`} data-health="cleared">
+      <Icon name="circle-dashed" size={11} />
+      未設定に戻しました
+    </span>
+  );
+}
+
+function ChoiceLabel({ value }: { value: HealthChoice }) {
+  if (value === "none") {
+    return (
+      <span className={s.clear}>
+        <Icon name="rotate-ccw" size={12} />
+        未設定に戻す
+      </span>
+    );
+  }
+  return value ? <HealthPill health={value} /> : <span className={s.unspecified}>未指定</span>;
+}
+
+// 進捗報告に添える健全性の選択（djnRu と nSTRL・CK5tm の qiALp のメニュー）。null は「未指定」で現在の健全性を変えない。
+// 区切りの後の「未設定に戻す」（"none"）は、現在の健全性を未設定に戻す
 export function HealthSelect({
   value,
   onChange,
   disabled,
 }: {
-  value: ProjectHealth | null;
-  onChange: (value: ProjectHealth | null) => void;
+  value: HealthChoice;
+  onChange: (value: HealthChoice) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -48,7 +74,7 @@ export function HealthSelect({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
-  const choose = (next: ProjectHealth | null) => {
+  const choose = (next: HealthChoice) => {
     onChange(next);
     setOpen(false);
   };
@@ -57,7 +83,7 @@ export function HealthSelect({
       <button
         type="button"
         className={s.select}
-        aria-label={`健全性: ${value ? healthLabel(value) : "未指定"}`}
+        aria-label={`健全性: ${value === "none" ? "未設定に戻す" : value ? healthLabel(value) : "未指定"}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -68,15 +94,15 @@ export function HealthSelect({
         }}
       >
         <span className={s.selectLabel}>健全性</span>
-        {value ? <HealthPill health={value} /> : <span className={s.unspecified}>未指定</span>}
+        <ChoiceLabel value={value} />
         <Icon name="chevron-down" size={12} />
       </button>
       {open && (
         <ul id={listId} role="listbox" aria-label="健全性" className={s.menu} onKeyDown={(event) => event.key === "Escape" && setOpen(false)}>
-          {[null, ...HEALTH_OPTIONS].map((option) => (
-            <li key={option ?? "none"} role="option" aria-selected={option === value}>
+          {([null, ...HEALTH_OPTIONS, "none"] as HealthChoice[]).map((option) => (
+            <li key={option ?? "unspecified"} role="option" aria-selected={option === value} className={option === "none" ? s.clearOption : undefined}>
               <button type="button" className={`${s.option} ${option === value ? s.optionActive : ""}`} onClick={() => choose(option)}>
-                {option ? <HealthPill health={option} /> : <span className={s.unspecified}>未指定</span>}
+                <ChoiceLabel value={option} />
               </button>
             </li>
           ))}

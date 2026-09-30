@@ -97,3 +97,18 @@
 .optionActive {
   background: var(--sunken);
 }
+
+/* 区切りの後の「未設定に戻す」（CK5tm の qiALp: 区切り線 $line、rotate-ccw・12.5px の $ink2） */
+.clearOption {
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink2);
+  font-size: 12.5px;
+}

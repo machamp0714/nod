@@ -97,6 +97,7 @@ export function registerIssueCommands(program: Command): void {
     .option("-d, --description <text>", "説明")
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
+    .option("--milestone <milestone>", "Milestone の名前か ID（--project の Project のもの）")
     .option("--cycle <cycle>", "Cycle の ID・名前・current（現在の Cycle）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
@@ -110,7 +111,7 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { template?: string; description?: string; project?: string; cycle?: string; parent?: string; discoveredFrom?: string; priority?: string; estimate?: string; due?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; milestone?: string; cycle?: string; parent?: string; discoveredFrom?: string; priority?: string; estimate?: string; due?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
@@ -118,6 +119,7 @@ export function registerIssueCommands(program: Command): void {
             description: o.description,
             template: o.template,
             projectRef: o.project,
+            milestoneRef: o.milestone,
             cycleRef: o.cycle,
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
@@ -187,6 +189,7 @@ export function registerIssueCommands(program: Command): void {
     .description("Issue を一覧する（既定では done と canceled を除く）")
     .option("-s, --status <statuses>", "ステータス（カンマ区切り）")
     .option("--project <project>", "Project の名前か ID")
+    .option("--milestone <milestone>", "Milestone の ID か none（Milestone なし）。名前は --project を指定したとき")
     .option("--cycle <cycle>", "Cycle の ID か none（Cycle なし）。名前・current は Workspace を1つに絞ったとき")
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
     .option("--query <text>", "ID・タイトル・説明で検索")
@@ -199,7 +202,7 @@ export function registerIssueCommands(program: Command): void {
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; completionCandidates?: boolean; archived?: boolean },
+          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; completionCandidates?: boolean; archived?: boolean },
         ) => {
           // 委任中の一覧は人がどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || (o.delegated && !globalOpts(cmd).workspace);
@@ -208,6 +211,7 @@ export function registerIssueCommands(program: Command): void {
             workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
             statuses: o.status ? parseStatuses(o.status) : undefined,
             projectRef: o.project,
+            milestone: o.milestone?.toLowerCase() === "none" ? "none" : o.milestone,
             cycleRef: o.cycle,
             labels: o.label,
             delegated: o.delegated,
@@ -366,6 +370,7 @@ export function registerIssueCommands(program: Command): void {
     .option("-s, --status <status>", "ステータス（Triage の Issue は変えられない）")
     .option("--assignee <name>", "担当")
     .option("--project <project>", "Project の名前か ID")
+    .option("--milestone <milestone>", "Milestone の名前か ID（各 Issue の Project のもの。空文字で外す）")
     .option("--cycle <cycle>", "Cycle の ID・名前・current（空文字で外す）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
     .option("--remove-label <label>", "ラベルを外す（繰り返し可）", collect)
@@ -383,6 +388,7 @@ export function registerIssueCommands(program: Command): void {
             status?: string;
             assignee?: string;
             project?: string;
+            milestone?: string;
             cycle?: string;
             addLabel?: string[];
             removeLabel?: string[];
@@ -396,6 +402,7 @@ export function registerIssueCommands(program: Command): void {
             status: o.status === undefined ? undefined : parseStatus(o.status),
             assignee: orNull(o.assignee),
             projectRef: orNull(o.project),
+            milestoneRef: orNull(o.milestone),
             cycleRef: orNull(o.cycle),
             addLabels: o.addLabel,
             removeLabels: o.removeLabel,

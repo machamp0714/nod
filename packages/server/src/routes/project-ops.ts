@@ -1,4 +1,4 @@
-import { addProjectUpdate, createMilestone, deleteMilestone, type OpCtx, type ProjectHealth, type ProjectStatus, updateMilestone, updateProject } from "@nod/core";
+import { addProjectUpdate, createMilestone, deleteMilestone, type OpCtx, type PROJECT_HEALTH_CLEAR, type ProjectHealth, type ProjectStatus, updateMilestone, updateProject } from "@nod/core";
 import type { Hono } from "hono";
 import { optNullableString, optString, paramInt, readBody, reqString } from "../input";
 
@@ -10,10 +10,10 @@ export function registerProjectOps(app: Hono, me: OpCtx): void {
     return c.json(updateProject(me, c.req.param("id"), { status }));
   });
 
-  // 進捗報告の追記。書き手は me 固定で、Issue・Project の状態は変えない。health は任意（null・省略は健全性なし）
+  // 進捗報告の追記。書き手は me 固定で、Issue・Project の状態は変えない。health は任意（null・省略は健全性なし、"none" は未設定に戻す）
   app.post("/api/projects/:id/reports", async (c) => {
     const body = await readBody(c, ["body", "health"]);
-    const health = (optNullableString(body, "health") ?? null) as ProjectHealth | null;
+    const health = (optNullableString(body, "health") ?? null) as ProjectHealth | typeof PROJECT_HEALTH_CLEAR | null;
     return c.json(addProjectUpdate(me, c.req.param("id"), reqString(body, "body"), health), 201);
   });
 

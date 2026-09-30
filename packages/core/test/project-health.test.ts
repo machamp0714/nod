@@ -33,6 +33,27 @@ describe("Project の健全性", () => {
     expect(listProjects(db).find((p) => p.name === "検索")?.health).toBe("off_track");
   });
 
+  test("none を添えた報告は健全性を未設定に戻し、その報告は healthCleared になる（#154）", () => {
+    const { db, me, llm } = setup();
+    createProject(me, { name: "検索" });
+    addProjectUpdate(me, "検索", "危ない", "off_track");
+    const cleared = addProjectUpdate(llm, "検索", "判断を保留", "none");
+    expect(cleared).toMatchObject({ health: null, healthCleared: true });
+    expect(getProject(db, "検索").health).toBeNull();
+    expect(listProjects(db).find((p) => p.name === "検索")?.health).toBeNull();
+    // 健全性なしの報告は解除ではなく、戻したあとも未設定のまま
+    expect(addProjectUpdate(me, "検索", "メモ")).toMatchObject({ health: null, healthCleared: false });
+    expect(getProject(db, "検索").health).toBeNull();
+    addProjectUpdate(me, "検索", "持ち直した", "on_track");
+    expect(getProject(db, "検索").health).toBe("on_track");
+    expect(listProjectUpdates(db, "検索").map((u) => [u.health, u.healthCleared])).toEqual([
+      ["on_track", false],
+      [null, false],
+      [null, true],
+      ["off_track", false],
+    ]);
+  });
+
   test("同じ時刻の報告は id の大きい方の健全性を現在値にする", () => {
     const { db, me } = setup();
     createProject(me, { name: "検索" });
@@ -72,6 +93,12 @@ describe("Project の健全性", () => {
         .query("INSERT INTO project_updates (project_id, author, body, health, created_at) VALUES (?, 'me', 'x', 'good', '2026-01-01')")
         .run(p.id),
     ).toThrow();
+    // 解除した報告に健全性の値は持たせない
+    expect(() =>
+      db
+        .query("INSERT INTO project_updates (project_id, author, body, health, health_cleared, created_at) VALUES (?, 'me', 'x', 'on_track', 1, '2026-01-01')")
+        .run(p.id),
+    ).toThrow();
   });
 });
 
@@ -96,6 +123,6 @@ test("健全性の前の版の DB を移行しても既存の報告を保ち、�
   expect(schemaVersion(db)).toBe(MIGRATIONS.length);
   const p = getProject(db, "既存");
   expect(p.health).toBeNull();
-  expect(p.updates.map((u) => [u.body, u.health])).toEqual([["古い報告", null]]);
+  expect(p.updates.map((u) => [u.body, u.health, u.healthCleared])).toEqual([["古い報告", null, false]]);
   db.close();
 });

@@ -29,7 +29,8 @@ test("進捗報告に健全性を添えると、報告ごとの健全性と Proj
   await input(page).fill("メモだけ");
   await page.getByRole("button", { name: "報告する" }).click();
   await expect(records(page)).toHaveCount(2);
-  await expect(records(page).first().locator("[data-health]")).toHaveText("未設定");
+  // 健全性のない報告には Pill を出さない（未設定に戻したように読めないように。#154）
+  await expect(records(page).first().locator("[data-health]")).toHaveCount(0);
   await expect(current(page)).toHaveText("At risk");
   await expect(page).toHaveURL(/q=API/);
 
@@ -42,6 +43,26 @@ test("進捗報告に健全性を添えると、報告ごとの健全性と Proj
   await expect(page.getByRole("columnheader", { name: "健全性" })).toBeVisible();
   await expect(row(project.name).locator("[data-health]")).toHaveText("At risk");
   await expect(row((await nod.me.getProject("2")).name).locator("[data-health]")).toHaveText("未設定");
+});
+
+test("「未設定に戻す」を添えた報告で現在の健全性を未設定に戻し、報告に「未設定に戻しました」を出す（#154）", async ({ page, nod }) => {
+  await nod.codex.addProjectUpdate("1", "遅延が確定", "off_track");
+  await page.goto("/projects/1");
+  await expect(current(page)).toHaveText("Off track");
+  await page.getByRole("button", { name: /^健全性: / }).click();
+  const menu = page.getByRole("listbox", { name: "健全性" });
+  await expect(menu.getByRole("option")).toHaveText(["未指定", "On track", "At risk", "Off track", "未設定に戻す"]);
+  await menu.getByRole("option").filter({ hasText: "未設定に戻す" }).getByRole("button").click();
+  await expect(page.getByRole("button", { name: "健全性: 未設定に戻す" })).toBeVisible();
+  await input(page).fill("判断を保留");
+  await page.getByRole("button", { name: "報告する" }).click();
+  await expect(records(page)).toHaveCount(2);
+  await expect(records(page).first().locator("[data-health]")).toHaveText("未設定に戻しました");
+  await expect(current(page)).toHaveText("未設定");
+  await expect(page.getByRole("button", { name: "健全性: 未指定" })).toBeVisible();
+  const project = await nod.me.getProject("1");
+  expect(project.health).toBeNull();
+  expect(project.updates.map((u) => [u.body, u.health, u.healthCleared])).toEqual([["判断を保留", null, true], ["遅延が確定", "off_track", false]]);
 });
 
 test("LLM が健全性つきで書いた報告が SSE で開いた詳細に反映し、書きかけの下書きと選択を保つ", async ({ page, nod }) => {

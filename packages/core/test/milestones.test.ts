@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { openDb, schemaVersion } from "../src/db";
 import { bulkUpdateIssues } from "../src/ops/bulk-update";
-import { archiveIssue, createIssue, getIssue, queryIssues, updateIssue } from "../src/ops/issues";
+import { archiveIssue, createIssue, getIssue, listIssues, queryIssues, updateIssue } from "../src/ops/issues";
 import { createMilestone, deleteMilestone, listMilestones, MILESTONE_DESCRIPTION_MAX_LENGTH, updateMilestone } from "../src/ops/milestones";
 import { createProject, getProject } from "../src/ops/projects";
 import { MIGRATIONS } from "../src/schema";
@@ -181,6 +181,61 @@ describe("Issue と Milestone の紐付け", () => {
     expect(queryIssues(db, { milestone: "none" }).issues.map((i) => i.id)).toContain(loose.id);
     for (const bad of ["abc", "0", "-1", ""]) expect(codeOf(() => queryIssues(db, { milestone: bad }))).toBe("INVALID_ARGS");
     expect(codeOf(() => queryIssues(db, { milestone: "999" }))).toBe("NOT_FOUND");
+  });
+});
+
+describe("Milestone の入口（#154）", () => {
+  test("起票時に Project の Milestone を名前か ID で付けられ、Project なし・別 Project・存在しないものは拒んで起票しない", () => {
+    const { db, ws, me, llm } = withProjects();
+    const m = createMilestone(me, "検索", { name: "α" });
+    const foreign = createMilestone(me, "認証", { name: "別" });
+    expect(createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索", milestoneRef: "α" }).milestone).toEqual({ id: m.id, name: "α" });
+    expect(createIssue(llm, { workspaceId: ws.id, title: "b", projectRef: "検索", milestoneRef: String(m.id) })).toMatchObject({
+      status: "triage",
+      milestone: { id: m.id },
+    });
+    const before = listIssues(db, { statuses: ["triage", "todo"] }).length;
+    expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", milestoneRef: "α" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: String(foreign.id) }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", projectRef: "検索", milestoneRef: "ない" }))).toBe("NOT_FOUND");
+    expect(listIssues(db, { statuses: ["triage", "todo"] })).toHaveLength(before);
+  });
+
+  test("一覧は Milestone の ID・none、Project を指定したときは名前でも絞れる", () => {
+    const { db, ws, me } = withProjects();
+    const m = createMilestone(me, "検索", { name: "α" });
+    const inM = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索", milestoneRef: "α" });
+    const loose = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    expect(listIssues(db, { milestone: String(m.id) }).map((i) => i.id)).toEqual([inM.id]);
+    expect(listIssues(db, { projectRef: "検索", milestone: "α" }).map((i) => i.id)).toEqual([inM.id]);
+    expect(listIssues(db, { projectRef: "検索", milestone: "none" }).map((i) => i.id)).toEqual([loose.id]);
+    expect(codeOf(() => listIssues(db, { milestone: "α" }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => listIssues(db, { projectRef: "認証", milestone: "α" }))).toBe("NOT_FOUND");
+  });
+
+  test("一括編集で Milestone を付け替え・外せ、Project の違う Issue が混ざると何も変えない", () => {
+    const { db, ws, me } = withProjects();
+    createMilestone(me, "検索", { name: "α" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    const other = createIssue(me, { workspaceId: ws.id, title: "c", projectRef: "認証" });
+    expect(bulkUpdateIssues(me, [a.id, b.id], { milestoneRef: "α" }).map((i) => i.milestone?.name)).toEqual(["α", "α"]);
+    expect(eventsOf(db, a.id).filter((e) => e.type === "milestone_changed").at(-1)?.data).toEqual({ from: null, to: "α" });
+    expect(codeOf(() => bulkUpdateIssues(me, [a.id, other.id], { milestoneRef: null, priority: 1 }))).toBe(undefined);
+    expect(getIssue(db, a.id).milestone).toBeNull();
+    const failed = (() => {
+      try {
+        bulkUpdateIssues(me, [b.id, other.id], { milestoneRef: "α" });
+      } catch (e) {
+        return e as { code: string; details: { failures: { id: string }[] } };
+      }
+    })();
+    expect(failed?.code).toBe("BULK_UPDATE_FAILED");
+    expect(failed?.details.failures.map((f) => f.id)).toEqual([other.id]);
+    expect(getIssue(db, b.id).milestone).toMatchObject({ name: "α" });
+    // Project と Milestone を同時に変えると、新しい Project の Milestone を付けられる
+    const m2 = createMilestone(me, "認証", { name: "β" });
+    expect(bulkUpdateIssues(me, [a.id], { projectRef: "認証", milestoneRef: "β" })[0]?.milestone).toEqual({ id: m2.id, name: "β" });
   });
 });
 

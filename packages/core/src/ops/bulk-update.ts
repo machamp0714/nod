@@ -10,7 +10,7 @@ export const BULK_UPDATE_LIMIT = 100;
 
 export type BulkUpdateInput = Pick<
   UpdateIssueInput,
-  "status" | "priority" | "assignee" | "projectRef" | "cycleRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels" | "reason"
+  "status" | "priority" | "assignee" | "projectRef" | "milestoneRef" | "cycleRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels" | "reason"
 >;
 
 export interface BulkUpdateFailure {
