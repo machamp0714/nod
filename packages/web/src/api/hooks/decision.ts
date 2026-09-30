@@ -1,13 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SidebarData } from "../../layout/useSidebarData";
 import { workspaceNameOf } from "../../lib/decision";
-import { type DecisionAction, fetchInbox, fetchTriage, fetchTriageProposalCounts, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
+import { type DecisionAction, fetchInbox, fetchOpenQuestions, fetchTriage, fetchTriageProposalCounts, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
 import { queryKeys } from "../query-keys";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // queryFn は引数を取らない形で包む。TanStack Query が渡す文脈を fetchImpl として受けないためである
 export function useInbox(opts: { includeAnswered?: boolean } = {}) {
   return useQuery({ queryKey: opts.includeAnswered ? queryKeys.inboxHistory() : queryKeys.inbox(), queryFn: () => fetchInbox(undefined, opts) });
+}
+
+// Open questions（#173）。人が付けた未回答の未決事項。Inbox（LLM からの質問）とは別のクエリで持つ
+export function useOpenQuestions() {
+  return useQuery({ queryKey: queryKeys.openQuestions(), queryFn: () => fetchOpenQuestions() });
 }
 
 export function useTriage() {
