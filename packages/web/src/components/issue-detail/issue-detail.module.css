@@ -949,6 +949,8 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .ghStatusSpacer { flex: 1; }
 .approvalNote { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink3); font-size: 12px; overflow-wrap: anywhere; }
 .approvalNote > svg { flex: none; }
+/* 注意のライブ領域（role=status）。箱を作らず、空でも親の gap を増やさない */
+.ghCautionLive { display: contents; }
 .ghCaution { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 8px 10px; list-style: none; border-radius: 6px; background: var(--ask-soft); color: var(--ask); font-size: 12px; }
 .ghCaution li { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .ghCaution li > svg { flex: none; }

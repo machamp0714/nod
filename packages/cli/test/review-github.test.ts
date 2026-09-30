@@ -7,7 +7,7 @@ import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 // 引数を記録し、決めた出力を返す偽の gh（GitHub には触れない）。
 // env は偽 gh のディレクトリを PATH の先頭に置き NOD_GH にも渡すので、NOD_GH 経由でも既定の「gh」（PATH 上）経由でも起動は log に残る
-function fakeGh(body: string): { path: string; log: string; env: Record<string, string> } {
+function fakeGh(body: string): { path: string; log: string; env: { NOD_GH: string; PATH: string } } {
   const dir = tempDir("nod-fake-gh-");
   const path = join(dir, "gh");
   const log = join(dir, "args.log");

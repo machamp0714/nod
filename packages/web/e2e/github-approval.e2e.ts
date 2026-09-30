@@ -46,7 +46,9 @@ test("Reviews: 未取得を示し、更新で GitHub の状態を並べ、未マ
   await expect(group.getByLabel(/^CI /)).toHaveText("✓1");
   await expect(group.getByText("取得: たった今")).toBeVisible();
   const caution = detail(page).getByRole("list", { name: "GitHub 側の注意" });
-  await expect(caution.getByRole("listitem")).toHaveText(["GitHub の PR はまだマージされていません（Open）", "GitHub で変更要求が出ています"]);
+  await expect(caution.getByRole("listitem")).toHaveText(["取得時点で GitHub の PR はまだマージされていません（Open）", "取得時点で GitHub に変更要求が出ています"]);
+  // 注意は role=status のライブ領域の中に出す（#143）
+  await expect(detail(page).getByRole("status").getByRole("list", { name: "GitHub 側の注意" })).toHaveCount(1);
   expect(await ghCalls()).toHaveLength(1);
 
   // 注意と注記は承認ボタンの上、差し戻しの理由の下にある（nod.pen の Approval Area）
@@ -90,7 +92,8 @@ test("Issue 詳細: In Review の親の完了候補バナーに注記と GitHub 
   await expect(banner.getByRole("list", { name: "GitHub 側の注意" })).toHaveCount(0);
 
   await page.getByRole("group", { name: "PR 状態" }).getByRole("button", { name: "PR の状態を更新" }).click();
-  await expect(banner.getByRole("list", { name: "GitHub 側の注意" }).getByRole("listitem")).toHaveText(["GitHub の PR はまだマージされていません（Open）"]);
+  await expect(banner.getByRole("list", { name: "GitHub 側の注意" }).getByRole("listitem")).toHaveText(["取得時点で GitHub の PR はまだマージされていません（Open）"]);
+  await expect(banner.getByRole("status").getByRole("list", { name: "GitHub 側の注意" })).toHaveCount(1);
   expect(await ghCalls()).toHaveLength(1);
 
   await banner.getByRole("button", { name: "承認して完了" }).click();
