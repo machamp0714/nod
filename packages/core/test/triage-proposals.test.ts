@@ -73,6 +73,8 @@ describe("proposeTriage", () => {
     for (const label of ["a b", "a,b", "a、b", "a，b"]) expect(bad({ decision: "accept", labels: [label] })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", assignee: " " })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", assignee: "x".repeat(101) })).toBe("INVALID_ARGS");
+    // none は絞り込みで未割り当てを指す値なので、担当の名前にできない
+    for (const name of ["none", " None "]) expect(bad({ decision: "accept", assignee: name })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", projectRef: "ない" })).toBe("NOT_FOUND");
     expect(bad({ decision: "accept", reason: "x".repeat(2001) })).toBe("INVALID_ARGS");
     expect(listTriageProposals(me.db, issue.id)).toEqual([]);

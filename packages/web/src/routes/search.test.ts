@@ -126,6 +126,13 @@ describe("担当の絞り込みと My issues（#162）", () => {
     expect(cleanIssueListSearch({ assignee: [] })).toEqual({});
   });
 
+  test("assignee はカンマ区切りも分ける（API・CLI と同じ。label は分けない）（#166）", () => {
+    expect(parseIssueListSearch({ assignee: "me,codex" })).toEqual({ assignee: ["me", "codex"] });
+    expect(parseIssueListSearch({ assignee: ["me, claude-code", "codex,me", " , ", "NONE,x"] })).toEqual({ assignee: ["me", "claude-code", "codex", "none", "x"] });
+    expect(parseIssueListSearch({ assignee: "," })).toEqual({});
+    expect(parseIssueListSearch({ label: "a,b" })).toEqual({ label: ["a,b"] });
+  });
+
   test("assignee のない既存の URL はそのまま復元する", () => {
     const search = { tab: "delegated", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", cycle: "none", blocked: false } as const;
     expect(cleanIssueListSearch(parseIssueListSearch({ ...search }))).toEqual({ ...search, workspace: ["API"], status: ["todo"] });

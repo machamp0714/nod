@@ -141,6 +141,22 @@ test.describe("Issues の担当フィルタ", () => {
     await expect(page).not.toHaveURL(/assignee=/);
   });
 
+  test("手で書いたカンマ区切りの assignee も、API と同じく分けてチップとパネルに出す（#166）", async ({ page, nod }) => {
+    await assign(nod);
+    await page.goto("/issues?assignee=me,claude-code");
+    await expect(tableRows(page)).toHaveCount(6);
+    await expect(chips(page)).toContainText(/担当\s*is\s*me, claude-code/);
+    await page.getByText("Filter", { exact: true }).click();
+    const group = page.getByRole("group", { name: "担当", exact: true });
+    await expect(group.getByRole("checkbox", { name: "me", exact: true })).toBeChecked();
+    await expect(group.getByRole("checkbox", { name: "claude-code", exact: true })).toBeChecked();
+    // カンマ入りの名前の選択肢は足さない
+    await expect(group.getByRole("checkbox")).toHaveCount(5);
+    await group.getByRole("checkbox", { name: "me", exact: true }).uncheck();
+    await expect(tableRows(page)).toHaveCount(4);
+    expect(new URL(page.url()).searchParams.get("assignee")).toBe(JSON.stringify(["claude-code"]));
+  });
+
   test("未割り当てと一覧にない担当でも絞り込め、ほかの条件と組み合わせられる", async ({ page, nod }) => {
     await assign(nod);
     await page.goto(`/issues?assignee=${encodeURIComponent(JSON.stringify(["none"]))}`);

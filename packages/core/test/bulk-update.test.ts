@@ -171,4 +171,13 @@ describe("bulkUpdateIssues", () => {
     expect(codeOf(() => bulkUpdateIssues(me, [a.id], { priority: 9 }))).toBe("INVALID_ARGS");
     expect(codeOf(() => bulkUpdateIssues(me, [a.id], { status: "needs_clarification" }))).toBe("INVALID_ARGS");
   });
+
+  test("担当の名前 none は失敗一覧にせず INVALID_ARGS をそのまま返し、何も変えない", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    expect(codeOf(() => bulkUpdateIssues(me, [a.id, b.id], { assignee: " None ", priority: 1 }))).toBe("INVALID_ARGS");
+    expect(getIssue(db, a.id)).toMatchObject({ assignee: null, priority: 0 });
+    expect(bulkUpdateIssues(me, [a.id, b.id], { assignee: null, priority: 1 }).map((i) => i.assignee)).toEqual([null, null]);
+  });
 });

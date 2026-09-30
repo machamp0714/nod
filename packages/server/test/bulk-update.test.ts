@@ -36,6 +36,27 @@ describe("POST /api/issues/bulk-update", () => {
     expect(getIssue(db, a.id).milestone).toBeNull();
   });
 
+  test("担当の名前 none は 400 INVALID_ARGS で、更新（update）・一括更新・受け入れのどれも何も書かない（#166）", async () => {
+    const { app, db, me, llm, ws } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const calls: [string, Record<string, unknown>][] = [
+      ["/api/issues/bulk-update", { ids: [a.id], assignee: "none", priority: 1 }],
+      [`/api/issues/${a.id}/update`, { assignee: " None ", priority: 1 }],
+      [`/api/issues/${t.id}/accept`, { assignee: "NONE", priority: 1 }],
+    ];
+    for (const [path, body] of calls) {
+      const r = await call(app, "POST", path, body);
+      expect(r.status).toBe(400);
+      expect(r.json.error.code).toBe("INVALID_ARGS");
+      expect(r.json.error.message).toContain("none");
+    }
+    expect(getIssue(db, a.id)).toMatchObject({ assignee: null, priority: 0 });
+    expect(getIssue(db, t.id)).toMatchObject({ status: "triage", assignee: null, priority: 0 });
+    // 絞り込みの assignee=none（未割り当て）は変わらず使える
+    expect((await call(app, "GET", "/api/issues?assignee=none")).json.issues.map((i: { id: string }) => i.id)).toEqual([a.id, t.id]);
+  });
+
   test("一部が失敗したら 409 BULK_UPDATE_FAILED で失敗一覧を返し、何も書かない", async () => {
     const { app, db, me, llm, ws } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });

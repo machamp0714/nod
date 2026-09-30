@@ -74,3 +74,21 @@ describe("nod issue list --mine", () => {
     expect(idsOf(await me(["issue", "list", "--mine", "--assignee", "codex", "--json"]))).toEqual(["API-2", "API-3", "WEB-1"]);
   });
 });
+
+describe("担当の名前 none の予約（#166）", () => {
+  test("issue update・bulk-update の --assignee none は INVALID_ARGS で何も変えず、絞り込みの none は未割り当てのまま", async () => {
+    const { me } = await seed();
+    for (const args of [
+      ["issue", "update", "API-4", "--assignee", "none", "-p", "1"],
+      ["issue", "update", "API-4", "--assignee", " None "],
+      ["issue", "bulk-update", "API-4", "API-2", "--assignee", "NONE"],
+    ]) {
+      const r = await me([...args, "--json"]);
+      expect(r.exitCode).not.toBe(0);
+      expect(r.json.error.code).toBe("INVALID_ARGS");
+    }
+    expect((await me(["issue", "show", "API-4", "--json"])).json).toMatchObject({ assignee: null, priority: 0 });
+    expect((await me(["issue", "show", "API-2", "--json"])).json).toMatchObject({ assignee: "codex" });
+    expect(idsOf(await me(["issue", "list", "--assignee", "none", "--json"]))).toEqual(["API-4"]);
+  });
+});
