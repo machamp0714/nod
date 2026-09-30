@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
+import { chooseProperty, property } from "./helpers";
 
 const list = (page: Page) => page.getByRole("region", { name: "通知の一覧" });
 const detail = (page: Page) => page.getByRole("region", { name: "詳細", exact: true });
@@ -28,20 +29,21 @@ test.describe("通知からの編集（#46）", () => {
     await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
     await expect(props(page).getByRole("heading", { name: "プロパティ" })).toBeVisible();
     // Inbox では変えられる行とリマインダーだけを出す
-    for (const label of ["Status", "Priority", "Project", "Assignee"]) await expect(props(page).getByRole("combobox", { name: label })).toBeVisible();
+    for (const label of ["Status", "Priority", "Project", "Assignee"]) await expect(property(props(page), label)).toBeVisible();
     for (const label of ["Estimate を編集", "Due date を編集", "Reminder を編集"]) await expect(props(page).getByRole("button", { name: label })).toBeVisible();
     await expect(props(page).getByText("作業状況")).toHaveCount(0);
     await expect(props(page).getByText("Workspace")).toHaveCount(0);
 
-    await props(page).getByRole("combobox", { name: "Priority" }).selectOption({ label: "High" });
+    await chooseProperty(props(page), "Priority", "High");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).priority).toBe(2);
-    await props(page).getByRole("combobox", { name: "Status" }).selectOption("in_review");
+    await chooseProperty(props(page), "Status", "In Review");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).status).toBe("in_review");
     await expect(detail(page).getByText("In Review").first()).toBeVisible();
-    await props(page).getByRole("combobox", { name: "Project" }).selectOption({ label: "検索の高速化" });
+    await chooseProperty(props(page), "Project", "検索の高速化");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).project?.name).toBe("検索の高速化");
+    await props(page).getByRole("button", { name: "ラベルを追加", exact: true }).click();
     await props(page).getByRole("textbox", { name: "ラベルを追加" }).fill("perf");
-    await props(page).getByRole("button", { name: "追加" }).click();
+    await props(page).getByRole("button", { name: "追加", exact: true }).click();
     await expect.poll(async () => (await nod.me.getIssue(a.id)).labels).toEqual(["perf"]);
     await props(page).getByRole("button", { name: "Estimate を編集" }).click();
     await props(page).getByRole("textbox", { name: "Estimate" }).fill("3");
@@ -51,20 +53,20 @@ test.describe("通知からの編集（#46）", () => {
     await props(page).getByLabel("Due date", { exact: true }).fill(dayAfter(3));
     await props(page).getByLabel("Due date", { exact: true }).press("Enter");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).dueDate).toBe(dayAfter(3));
-    await props(page).getByRole("combobox", { name: "Assignee" }).selectOption("");
+    await chooseProperty(props(page), "Assignee", "なし");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).assignee).toBeNull();
 
     // ほかの場所（CLI の LLM）での変更は後から読み直して表示する（Issue 詳細と同じく後勝ち）
     await nod.claude.updateIssue(a.id, { priority: 1 });
-    await expect(props(page).getByRole("combobox", { name: "Priority" })).toHaveValue("1");
+    await expect(property(props(page), "Priority")).toHaveAttribute("data-value", "1");
 
     // 失敗は Issue 詳細と同じくパネルの下に出し、値は server の最新に戻す
     await page.route(`**/api/issues/${a.id}/update`, (route) =>
       route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "ISSUE_CLOSED", message: "閉じた Issue です" } }) }),
     );
-    await props(page).getByRole("combobox", { name: "Priority" }).selectOption({ label: "Low" });
+    await chooseProperty(props(page), "Priority", "Low");
     await expect(props(page).getByRole("alert")).toHaveText("変更できませんでした：閉じた Issue です");
-    await expect(props(page).getByRole("combobox", { name: "Priority" })).toHaveValue("1");
+    await expect(property(props(page), "Priority")).toHaveAttribute("data-value", "1");
     // 自分の操作は自分に通知しない
     await expect(timeline(page).getByText(/me が/)).toHaveCount(0);
   });
@@ -97,7 +99,7 @@ test("Issue 詳細でリマインダーを設定・変更・解除でき、過�
   await panel.getByRole("button", { name: "Reminder を編集" }).click();
   await expect(panel.getByLabel("リマインダーのメモ")).toHaveValue("定例で確認");
   await panel.getByRole("button", { name: "解除" }).click();
-  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toHaveText("—");
+  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toHaveText("なし");
   expect(await nod.me.listReminders()).toEqual([]);
 });
 
@@ -135,7 +137,7 @@ test("Inbox 以外の画面でも、期限が来たら開いている Issue 詳�
   await page.goto(`/issues/${a.id}`);
   const reminder = page.getByRole("region", { name: "プロパティ" }).getByRole("button", { name: "Reminder を編集" });
   await expect(reminder).toContainText("来週の定例で確認");
-  await expect(reminder).toHaveText("—", { timeout: 15_000 });
+  await expect(reminder).toHaveText("なし", { timeout: 15_000 });
   expect((await nod.me.listNotifications()).map((n) => n.kind)).toEqual(["reminder"]);
 });
 
@@ -153,7 +155,7 @@ test("アーカイブ済みの Issue ではリマインダーを設定・変更�
   await expect(clear).toBeEnabled();
   await expect(clear).toHaveCSS("opacity", "1");
   await clear.click();
-  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toHaveText("—");
+  await expect(panel.getByRole("button", { name: "Reminder を編集" })).toHaveText("なし");
   await expect(panel.getByRole("button", { name: "解除" })).toHaveCount(0);
   expect((await nod.me.getIssue(a.id)).reminder).toBeNull();
 });

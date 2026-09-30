@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { chooseProperty, property, propertyMenu } from "./helpers";
 
 test.use({ dataset: "issue-list" });
 
@@ -71,19 +72,22 @@ test("Issue 詳細で同じ Project の Milestone だけを選べ、Project を�
 
   await page.goto(`/issues/${loose.id}`);
   const props = page.getByRole("region", { name: "プロパティ" });
-  await expect(props.getByRole("combobox", { name: "Milestone" })).toBeDisabled();
+  await expect(property(props, "Milestone")).toBeDisabled();
   await expect(props.getByText("Project を設定すると選べます")).toBeVisible();
 
   await page.goto("/issues/API-13");
   await waitForServerEvents(page);
-  const select = page.getByRole("region", { name: "プロパティ" }).getByRole("combobox", { name: "Milestone" });
-  await expect(select.locator("option")).toHaveText(["なし", "v1.0"]);
-  await select.selectOption({ label: "v1.0" });
-  await expect(select).toHaveValue(/\d+/);
+  const panel = page.getByRole("region", { name: "プロパティ" });
+  const select = property(panel, "Milestone");
+  await select.click();
+  await expect(propertyMenu(panel, "Milestone").getByRole("menuitemradio")).toHaveText(["なし", "v1.0"]);
+  await propertyMenu(panel, "Milestone").getByRole("menuitemradio", { name: "v1.0", exact: true }).click();
+  await expect(select).toHaveAttribute("data-value", /\d+/);
+  await expect(select).toHaveText("v1.0");
   expect((await nod.me.getIssue("API-13")).milestone?.name).toBe("v1.0");
   await expect(page.getByText("me が Milestone を なし から v1.0 に変えた")).toBeVisible();
 
-  await page.getByRole("region", { name: "プロパティ" }).getByRole("combobox", { name: "Project" }).selectOption("");
+  await chooseProperty(panel, "Project", "なし");
   await expect(select).toBeDisabled();
   expect((await nod.me.getIssue("API-13")).milestone).toBeNull();
 });

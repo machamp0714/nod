@@ -1,6 +1,6 @@
 import { useCycles } from "../../api/hooks/cycles";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Issue, IssueReminder, Relations, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
 import { PrStatusSection } from "./PrStatusSection";
@@ -11,11 +11,12 @@ import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/
 import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useMilestones } from "../../api/hooks/projects";
-import { priorityMeta } from "../../lib/meta";
+import { priorityMeta, STATUS_META, TONE_COLORS } from "../../lib/meta";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
-import { AgentStatePill, Button, Icon, LabelChip, Pill, StatusIcon, WorkspaceBadge } from "../ui";
+import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
 import { OpenInOrcaButton } from "./OpenInOrcaButton";
+import { PropertyMenu, type PropertyOption } from "./PropertyMenu";
 import { useAsyncAction } from "./useAsyncAction";
 
 function Prop({ label, children }: { label: string; children: ReactNode }) {
@@ -27,11 +28,25 @@ function Prop({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// 空の値は薄い文字の「なし」（nod.pen「見積もり・期限｜行の状態」QP1Q5）
 function Empty() {
-  return <span className={s.muted}>—</span>;
+  return <span className={s.propPlaceholder}>なし</span>;
 }
 
-const PRIORITIES = [0, 1, 2, 3, 4];
+// ピルとメニューの項目の先頭に置くアイコン（14）。色は親から受け、読み上げには出さない
+function PropIcon({ name, color }: { name: IconName; color: string }) {
+  return <span className={s.propIcon} style={{ color }} aria-hidden="true"><Icon name={name} /></span>;
+}
+
+// 変える操作がない値。ピルと同じ余白で並べる
+function Static({ children }: { children: ReactNode }) {
+  return <span className={s.propStatic}>{children}</span>;
+}
+
+const PRIORITY_OPTIONS: PropertyOption[] = [0, 1, 2, 3, 4].map((priority) => {
+  const meta = priorityMeta(priority);
+  return { value: String(priority), label: meta.label, icon: <PropIcon name={meta.icon} color={TONE_COLORS[meta.tone].fg} /> };
+});
 
 type Change = (input: UpdateIssueInput) => Promise<unknown>;
 
@@ -50,8 +65,8 @@ function EstimateField({ estimate, busy, change }: { estimate: number | null; bu
     const label = formatEstimate(estimate);
     return (
       <button type="button" className={s.propButton} aria-label="Estimate を編集" disabled={busy} onClick={() => setDraft(estimate === null ? "" : String(estimate))}>
-        <Icon name="gauge" color={label ? "var(--ink2)" : "var(--ink3)"} />
-        {label ?? <Empty />}
+        <PropIcon name="gauge" color={label ? "var(--ink2)" : "var(--ink3)"} />
+        {label ? <span className={s.propText}>{label}</span> : <Empty />}
       </button>
     );
   }
@@ -101,8 +116,8 @@ function DueDateField({ issue, busy, change }: { issue: Issue; busy: boolean; ch
   if (draft === null) {
     return (
       <button type="button" className={s.propButton} aria-label="Due date を編集" disabled={busy} onClick={() => setDraft(issue.dueDate ?? "")}>
-        <Icon name="calendar" color={overdue ? "var(--fail)" : label ? "var(--ink2)" : "var(--ink3)"} />
-        {label ? <span className={overdue ? s.overdue : undefined} title={issue.dueDate ?? undefined}>{label}</span> : <Empty />}
+        <PropIcon name="calendar" color={overdue ? "var(--fail)" : label ? "var(--ink2)" : "var(--ink3)"} />
+        {label ? <span className={overdue ? `${s.propText} ${s.overdue}` : s.propText} title={issue.dueDate ?? undefined}>{label}</span> : <Empty />}
         {overdue && <Pill tone="fail">期限超過</Pill>}
       </button>
     );
@@ -116,7 +131,7 @@ function DueDateField({ issue, busy, change }: { issue: Issue; busy: boolean; ch
       <input
         autoFocus
         type="date"
-        className={s.input}
+        className={`${s.input} ${s.pillInput}`}
         aria-label="Due date"
         aria-invalid={invalid || undefined}
         min={MIN_DUE_DATE}
@@ -126,7 +141,7 @@ function DueDateField({ issue, busy, change }: { issue: Issue; busy: boolean; ch
         onChange={(e) => { setDraft(e.target.value); setInvalid(false); }}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void commit(); }}
       />
-      <Button icon="x" onClick={() => void set(null)} disabled={busy || issue.dueDate === null}>
+      <Button size="sm" icon="x" onClick={() => void set(null)} disabled={busy || issue.dueDate === null}>
         解除
       </Button>
       {invalid && <span className={s.fieldError} role="alert">{MIN_DUE_DATE} 以降の日付を入力してください</span>}
@@ -162,12 +177,12 @@ function ReminderField({ reminder, busy, archived, change }: {
   }
   if (draft === null) {
     const display = (
-      <button type="button" className={s.propButton} aria-label="Reminder を編集" disabled={busy || archived}
+      <button type="button" className={reminder?.note ? `${s.propButton} ${s.propButtonStack}` : s.propButton} aria-label="Reminder を編集" disabled={busy || archived}
         onClick={() => setDraft({ ...reminderInputs(reminder?.remindAt ?? null), note: reminder?.note ?? "" })}>
-        <Icon name="bell" color={reminder ? "var(--ink2)" : "var(--ink3)"} />
+        <PropIcon name="bell" color={reminder ? "var(--ink2)" : "var(--ink3)"} />
         {reminder ? (
           <span className={s.reminderStack}>
-            <span title={reminder.remindAt}>{formatReminderAt(reminder.remindAt)}</span>
+            <span className={s.propText} title={reminder.remindAt}>{formatReminderAt(reminder.remindAt)}</span>
             {reminder.note && <span className={s.reminderNote}>{reminder.note}</span>}
           </span>
         ) : <Empty />}
@@ -177,7 +192,7 @@ function ReminderField({ reminder, busy, archived, change }: {
     return (
       <span className={s.reminderArchived}>
         {display}
-        <Button icon="x" className={s.unlocked} onClick={() => void clear()} disabled={busy}>解除</Button>
+        <Button size="sm" icon="x" className={s.unlocked} onClick={() => void clear()} disabled={busy}>解除</Button>
       </span>
     );
   }
@@ -198,6 +213,58 @@ function ReminderField({ reminder, busy, archived, change }: {
         <Button icon="x" onClick={() => void clear()} disabled={busy || reminder === null}>解除</Button>
       </span>
     </form>
+  );
+}
+
+// Labels の末尾の追加ボタン（24 の円形）。押すと入力欄が直下に開き、Enter か「追加」で足す。続けて足せるよう、足したあとも開いたままにする。
+// Escape と外側のクリックで閉じる。locked（アーカイブ済み）は開けない
+function LabelAdder({ labels, locked, busy, change }: { labels: readonly string[]; locked: boolean; busy: boolean; change: Change }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const root = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  // 開いたときと、保存が終わって入力欄がまた使えるようになったときに、入力欄へフォーカスを置く
+  useEffect(() => {
+    if (open && !busy) input.current?.focus();
+  }, [open, busy]);
+  async function add() {
+    const next = parseLabels(text, labels);
+    if (next.length === 0 || (await change({ addLabels: next }))) setText("");
+  }
+  return (
+    <span className={s.propMenuRoot} ref={root}>
+      <button type="button" ref={trigger} className={s.labelAdd} aria-label="ラベルを追加" title="ラベルを追加" aria-haspopup="dialog" aria-expanded={open}
+        disabled={locked} onClick={() => setOpen(!open)}>
+        <Icon name="plus" />
+      </button>
+      {open && (
+        <div className={`${s.propPopover} ${s.labelForm}`} role="dialog" aria-label="ラベルを追加"
+          onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setOpen(false); trigger.current?.focus(); } }}>
+          <input
+            ref={input}
+            disabled={busy}
+            className={s.propSearch}
+            aria-label="ラベルを追加"
+            placeholder="ラベルを追加…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) void add();
+            }}
+          />
+          <Button size="sm" onClick={() => void add()} disabled={busy || !hasText(text)}>
+            追加
+          </Button>
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -227,7 +294,6 @@ export function PropertiesPanel({
   const locked = action.busy || readOnly;
   const full = variant === "rail";
   const location = executionLocation(issue.branch, issue.worktree);
-  const [labelText, setLabelText] = useState("");
   const statusNames = useStatusNames();
   const change = (input: UpdateIssueInput) => action.run(() => onUpdate(input), "変更できませんでした");
   const remind = (input: Parameters<RemindChange>[0]) =>
@@ -243,46 +309,29 @@ export function PropertiesPanel({
   const cycles = useCycles();
   const cycleOptions = (cycles.data ?? []).filter((c) => c.workspace === issue.workspace).map((c) => ({ id: c.id, label: c.name }));
   if (issue.cycle && !cycleOptions.some((c) => c.id === issue.cycle?.id)) cycleOptions.push({ id: issue.cycle.id, label: issue.cycle.name });
-
-  async function addLabels() {
-    const labels = parseLabels(labelText, issue.labels);
-    if (labels.length === 0 || (await change({ addLabels: labels }))) setLabelText("");
-  }
+  // メニューの項目。未設定は値 "" の「なし」
+  const none = (icon: IconName): PropertyOption => ({ value: "", label: "なし", icon: <PropIcon name={icon} color="var(--ink3)" /> });
+  const statusOptions: PropertyOption[] = statusChoices(issue.status, (status) => statusName(status, statusNames.data, issue.workspace)).map((choice) => ({
+    ...choice,
+    icon: <PropIcon name={STATUS_META[choice.value].icon} color={TONE_COLORS[STATUS_META[choice.value].tone].fg} />,
+  }));
+  const projectMenu: PropertyOption[] = [none("box"), ...projectOptions.map((p) => ({ value: String(p.id), label: p.name, icon: <PropIcon name="box" color="var(--ink3)" /> }))];
+  const milestoneMenu: PropertyOption[] = [none("flag"), ...milestoneOptions.map((m) => ({ value: String(m.id), label: m.name, icon: <PropIcon name="flag" color="var(--ink2)" /> }))];
+  const cycleMenu: PropertyOption[] = [none("calendar-range"), ...cycleOptions.map((c) => ({ value: String(c.id), label: c.label, icon: <PropIcon name="calendar-range" color="var(--ink2)" /> }))];
+  const assigneeMenu: PropertyOption[] = [
+    none("circle-user"),
+    ...assigneeChoices(issue.assignee).map((assignee) => ({ value: assignee, label: assignee, icon: <span className={s.propIcon} aria-hidden="true"><AgentAvatar actor={assignee} /></span> })),
+  ];
 
   return (
     <section className={`${full ? s.panel : s.inboxProps} ${readOnly ? s.propsLocked : ""}`} aria-label="プロパティ">
       {!full && <h3 className={s.inboxPropsTitle}>プロパティ</h3>}
       <dl className={s.props}>
         <Prop label="Status">
-          <StatusIcon status={issue.status} />
-          <select
-            className={s.select}
-            aria-label="Status"
-            value={issue.status}
-            disabled={locked}
-            onChange={(e) => void change({ status: e.target.value as Status })}
-          >
-            {statusChoices(issue.status, (status) => statusName(status, statusNames.data, issue.workspace)).map((choice) => (
-              <option key={choice.value} value={choice.value} disabled={choice.disabled}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Status" value={issue.status} options={statusOptions} disabled={locked} onChange={(value) => void change({ status: value as Status })} />
         </Prop>
         <Prop label="Priority">
-          <select
-            className={s.select}
-            aria-label="Priority"
-            value={String(issue.priority)}
-            disabled={locked}
-            onChange={(e) => void change({ priority: Number(e.target.value) })}
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p} value={String(p)}>
-                {priorityMeta(p).label}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Priority" value={String(issue.priority)} options={PRIORITY_OPTIONS} disabled={locked} onChange={(value) => void change({ priority: Number(value) })} />
         </Prop>
         <Prop label="Estimate">
           <EstimateField key={String(issue.estimate)} estimate={issue.estimate} busy={locked} change={change} />
@@ -292,42 +341,17 @@ export function PropertiesPanel({
         </Prop>
         {full && (
           <Prop label="Workspace">
-            <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
+            <Static><WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} /></Static>
           </Prop>
         )}
         <Prop label="Project">
-          <select
-            className={s.select}
-            aria-label="Project"
-            value={issue.project ? String(issue.project.id) : ""}
-            disabled={locked}
-            onChange={(e) => void change({ projectRef: e.target.value === "" ? null : e.target.value })}
-          >
-            <option value="">なし</option>
-            {projectOptions.map((p) => (
-              <option key={p.id} value={String(p.id)}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Project" value={issue.project ? String(issue.project.id) : ""} options={projectMenu} disabled={locked}
+            onChange={(value) => void change({ projectRef: value === "" ? null : value })} />
         </Prop>
         <Prop label="Milestone">
-          <Icon name="flag" size={14} color="var(--ink3)" />
-          <select
-            className={s.select}
-            aria-label="Milestone"
-            value={issue.milestone ? String(issue.milestone.id) : ""}
-            disabled={locked || !issue.project}
-            aria-describedby={issue.project ? undefined : `milestone-hint-${issue.id}`}
-            onChange={(e) => void change({ milestoneRef: e.target.value === "" ? null : e.target.value })}
-          >
-            <option value="">{issue.project ? "なし" : "—"}</option>
-            {milestoneOptions.map((m) => (
-              <option key={m.id} value={String(m.id)}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Milestone" value={issue.milestone ? String(issue.milestone.id) : ""} options={milestoneMenu} disabled={locked || !issue.project}
+            describedBy={issue.project ? undefined : `milestone-hint-${issue.id}`}
+            onChange={(value) => void change({ milestoneRef: value === "" ? null : value })} />
           {!issue.project && (
             <span id={`milestone-hint-${issue.id}`} className={s.propHint}>
               Project を設定すると選べます
@@ -335,75 +359,38 @@ export function PropertiesPanel({
           )}
         </Prop>
         <Prop label="Cycle">
-          <select
-            className={s.select}
-            aria-label="Cycle"
-            value={issue.cycle ? String(issue.cycle.id) : ""}
-            disabled={locked}
-            onChange={(e) => void change({ cycleRef: e.target.value === "" ? null : e.target.value })}
-          >
-            <option value="">なし</option>
-            {cycleOptions.map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Cycle" value={issue.cycle ? String(issue.cycle.id) : ""} options={cycleMenu} disabled={locked}
+            onChange={(value) => void change({ cycleRef: value === "" ? null : value })} />
         </Prop>
         <Prop label="Labels">
-          {issue.labels.map((label) => (
-            <LabelChip key={label} workspace={issue.workspace} name={label} className={s.propLabel}>
-              <button
-                type="button"
-                className={s.labelRemove}
-                aria-label={`ラベル ${label} を外す`}
-                disabled={locked}
-                onClick={() => void change({ removeLabels: [label] })}
-              >
-                <Icon name="x" size={12} />
-              </button>
-            </LabelChip>
-          ))}
-          <span className={s.labelForm}>
-            <input
-              disabled={locked}
-              className={s.input}
-              aria-label="ラベルを追加"
-              placeholder="ラベルを追加"
-              value={labelText}
-              onChange={(e) => setLabelText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) void addLabels();
-              }}
-            />
-            <Button onClick={() => void addLabels()} disabled={locked || !hasText(labelText)}>
-              追加
-            </Button>
+          <span className={s.propLabels}>
+            {issue.labels.map((label) => (
+              <LabelChip key={label} workspace={issue.workspace} name={label} className={s.propLabel}>
+                <button
+                  type="button"
+                  className={s.labelRemove}
+                  aria-label={`ラベル ${label} を外す`}
+                  disabled={locked}
+                  onClick={() => void change({ removeLabels: [label] })}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </LabelChip>
+            ))}
+            <LabelAdder labels={issue.labels} locked={readOnly} busy={action.busy} change={change} />
           </span>
         </Prop>
         <Prop label="Assignee">
-          <select
-            className={s.select}
-            aria-label="Assignee"
-            value={issue.assignee ?? ""}
-            disabled={locked}
-            onChange={(e) => void change({ assignee: e.target.value === "" ? null : e.target.value })}
-          >
-            <option value="">なし</option>
-            {assigneeChoices(issue.assignee).map((assignee) => (
-              <option key={assignee} value={assignee}>
-                {assignee}
-              </option>
-            ))}
-          </select>
+          <PropertyMenu label="Assignee" value={issue.assignee ?? ""} options={assigneeMenu} disabled={locked}
+            onChange={(value) => void change({ assignee: value === "" ? null : value })} />
         </Prop>
-        {full && <Prop label="作業状況">{issue.agentState ? <AgentStatePill state={issue.agentState} /> : <Empty />}</Prop>}
+        {full && <Prop label="作業状況"><Static>{issue.agentState ? <AgentStatePill state={issue.agentState} /> : <Empty />}</Static></Prop>}
         {full && (
           <Prop label="実行場所">
             {location ? (
               <span className={s.locationValue}>
-                <span className={s.inline} title={issue.worktree ?? undefined}>
-                  <Icon name="terminal" />
+                <span className={`${s.propStatic} ${s.propButtonStack}`} title={issue.worktree ?? undefined}>
+                  <PropIcon name="terminal" color="var(--ink2)" />
                   <span className={s.executionLocation}>
                     {location.branchLabel}
                     {location.worktree && <span>{location.worktree}</span>}
@@ -412,7 +399,7 @@ export function PropertiesPanel({
                 {issue.worktree && <OpenInOrcaButton issueId={issue.id} />}
               </span>
             ) : (
-              <Empty />
+              <Static><Empty /></Static>
             )}
           </Prop>
         )}
@@ -420,13 +407,15 @@ export function PropertiesPanel({
           <div className={s.prGroup}>
             <dt className={s.propKey}>PR</dt>
             <dd className={s.propValue}>
-              {issue.prUrl ? (
-                <a href={issue.prUrl} target="_blank" rel="noreferrer" className={s.link}>
-                  {prLabel(issue.prUrl)}
-                </a>
-              ) : (
-                <Empty />
-              )}
+              <Static>
+                {issue.prUrl ? (
+                  <a href={issue.prUrl} target="_blank" rel="noreferrer" className={`${s.link} ${s.propText}`}>
+                    {prLabel(issue.prUrl)}
+                  </a>
+                ) : (
+                  <Empty />
+                )}
+              </Static>
             </dd>
             {issue.prUrl && (
               <dd className={s.prStatusCell}>
@@ -438,7 +427,7 @@ export function PropertiesPanel({
         <Prop label="Reminder">
           <ReminderField key={`${reminder?.remindAt}:${reminder?.note}`} reminder={reminder} busy={action.busy} archived={readOnly} change={remind} />
         </Prop>
-        {full && <Prop label="Created"><span title={issue.createdAt}>{attachmentDate(issue.createdAt)} · {issue.createdBy}</span></Prop>}
+        {full && <Prop label="Created"><Static><span className={`${s.propText} ${s.propQuiet}`} title={issue.createdAt}>{attachmentDate(issue.createdAt)} · {issue.createdBy}</span></Static></Prop>}
       </dl>
       {action.error && (
         <p className={`${s.error} ${s.panelError}`} role="alert">
@@ -468,11 +457,13 @@ export function RelationsPanel({ relations }: { relations: Relations }) {
         <dl className={s.props}>
           {entries.map(([key, label]) => (
             <Prop key={key} label={label}>
-              {relations[key].map((id) => (
-                <Link key={id} to="/issues/$issueId" params={{ issueId: id }} className={s.link}>
-                  {id}
-                </Link>
-              ))}
+              <span className={s.propLinks}>
+                {relations[key].map((id) => (
+                  <Link key={id} to="/issues/$issueId" params={{ issueId: id }} className={s.link}>
+                    {id}
+                  </Link>
+                ))}
+              </span>
             </Prop>
           ))}
         </dl>

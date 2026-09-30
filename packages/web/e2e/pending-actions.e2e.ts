@@ -7,7 +7,7 @@ test.use({ dataset: "issue-detail" });
 for (const scenario of [
   { name: "説明", issue: ISSUE.description, panel: "説明", open: "編集", input: "説明", submit: "保存", operation: "update" },
   { name: "コメント", issue: ISSUE.comment, panel: "Activity", open: null, input: "コメント", submit: "コメントする", operation: "comment" },
-  { name: "ラベル", issue: ISSUE.properties, panel: "プロパティ", open: null, input: "ラベルを追加", submit: "追加", operation: "update" },
+  { name: "ラベル", issue: ISSUE.properties, panel: "プロパティ", open: "ラベルを追加", input: "ラベルを追加", submit: "追加", operation: "update" },
   { name: "未決事項", issue: ISSUE.addQuestion, panel: "未決事項", open: "未決事項を追加", input: "未決事項", submit: "追加する", operation: "ask" },
   { name: "回答", issue: ISSUE.clarify, panel: "未決事項", open: "回答を記録", input: "回答", submit: "記録する", operation: "answer" },
 ]) {

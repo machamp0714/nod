@@ -1,5 +1,6 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { chooseProperty } from "./helpers";
 
 test("detached の実行場所は詳細とInboxでパスも読める", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
@@ -173,7 +174,7 @@ test("手動でTodoへ戻した作業状況の解除をActivityで説明する",
   const api = await seedApiWorkspace(nod);
   const issue = await api.startedIssue("状態を解除する", nod.codex);
   await page.goto(`/issues/${issue.id}`);
-  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("todo");
+  await chooseProperty(page, "Status", "Todo");
   const activity = page.getByRole("region", { name: "Activity", exact: true });
   await expect(activity).toContainText("me が codex の作業状況を解除した");
   await expect(activity).not.toContainText("null");

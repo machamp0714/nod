@@ -82,3 +82,32 @@ test("コメントに返信してスレッドにし、解決済みは折りた�
   const saved = detail.activity.find((a) => a.kind === "comment" && a.id === root.id);
   expect(saved).toMatchObject({ resolvedAt: null, replies: [{ body: "LLM の返信" }, { body: "IN 句で一括取得して", actor: "me" }, { body: "解決後の補足", actor: "me" }] });
 });
+
+// #181：アイコン、本文の1行目、時刻の中心を揃える。Inbox の Activity も同じ部品を使う
+test("Activity の行はアイコン、本文の1行目、時刻の中心が揃う", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.main}`);
+  const lines = region(page, "Activity").locator("ul > li");
+  await expect(lines.first()).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  const measure = () => lines.evaluateAll((items) => items.map((item) => {
+    const center = (rect: DOMRect) => rect.top + rect.height / 2;
+    const [icon, text, time] = [...item.children] as [HTMLElement, HTMLElement, HTMLElement];
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    const first = range.getClientRects()[0]!;
+    const centers = [center(icon.querySelector("svg")!.getBoundingClientRect()), center(first), center(time.getBoundingClientRect())];
+    return { wrapped: text.getBoundingClientRect().height > first.height * 1.5, spread: Math.max(...centers) - Math.min(...centers) };
+  }));
+  const wide = await measure();
+  expect(wide.length).toBeGreaterThan(0);
+  for (const line of wide) expect(line.spread).toBeLessThanOrEqual(2.5);
+
+  // 本文が折り返す幅でも、アイコンと時刻は1行目に揃う
+  await region(page, "Activity").locator("ul").first().evaluate((list) => {
+    for (const item of list.ownerDocument.querySelectorAll<HTMLElement>('section[aria-label="Activity"] ul')) item.style.width = "120px";
+  });
+  const narrow = await measure();
+  expect(narrow.some((line) => line.wrapped)).toBe(true);
+  for (const line of narrow) expect(line.spread).toBeLessThanOrEqual(2.5);
+  console.log("Activity の行の中心の差", JSON.stringify({ wide: wide.map((line) => line.spread), narrow: narrow.map((line) => line.spread) }));
+});
