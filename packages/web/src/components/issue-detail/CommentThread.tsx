@@ -66,7 +66,7 @@ function clock(at: string): string {
   return Number.isNaN(d.getTime()) ? at : d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }
 
-// 追加指示・対応依頼の送信状態（#51、Pencil『Issue詳細｜LLMに追加指示』GdvBc・bSQYp）。未送信・失敗・結果不明は送り直せる
+// 追加指示・対応依頼の送信状態（#51、Pencil『Issue詳細｜LLMに追加指示（#51）』TsJz1 の GdvBc・bSQYp）。未送信・失敗・結果不明は送り直せる
 function InstructionStatus({ instruction, target, readOnly }: { instruction: AgentInstruction; target?: InstructionTarget; readOnly: boolean }) {
   const [open, setOpen] = useState(false);
   const state = instruction.sendState;

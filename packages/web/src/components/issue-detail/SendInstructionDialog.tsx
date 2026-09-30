@@ -15,7 +15,7 @@ export interface InstructionTarget {
 // 何を送るか。new はまだ記録していない本文（記録してから送る）、existing は記録済みの指示（再送・差し戻しの対応依頼）
 export type SendTarget = { kind: "new"; body: string } | { kind: "existing"; instruction: AgentInstruction };
 
-// 追加指示の送信確認（#51・#58、Pencil『送信確認』yHueZ）。開くたびに orca で宛先を調べ直し、
+// 追加指示の送信確認（#51・#58、Pencil『追加指示｜送信確認（#51/#58）』yHueZ）。開くたびに orca で宛先を調べ直し、
 // 宛先が1件なら内容の確認、複数なら選択、0件なら記録のみを示す。送信はこの画面の「送信」からだけ行う
 export function SendInstructionDialog({
   issueId,

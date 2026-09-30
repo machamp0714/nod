@@ -173,7 +173,7 @@ function ReviewDetail({
           disabled={busy}
           onChange={(e) => setReason(e.target.value)}
         />
-        {/* 差し戻しの理由を LLM への対応依頼として記録する（#58、Pencil『Reviews｜LLMに対応を依頼』M5xAFM） */}
+        {/* 差し戻しの理由を LLM への対応依頼として記録する（#58、Pencil『Reviews｜LLMに対応を依頼（#58）』r5DmDj の M5xAFM） */}
         <div className={d.askLlm}>
           <label className={d.askLlmCheck}>
             <input type="checkbox" checked={delegate} disabled={busy} onChange={(e) => setDelegate(e.target.checked)} />

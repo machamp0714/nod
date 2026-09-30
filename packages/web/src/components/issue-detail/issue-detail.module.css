@@ -975,7 +975,7 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .deleteCancel:disabled { cursor: progress; }
 .deletedToast { position: fixed; bottom: 24px; left: 50%; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 2px #0000001a; color: var(--ink); font-size: 12.5px; transform: translateX(-50%); }
 .deletedToast svg { flex: none; color: var(--ink2); }
-/* 実行場所の下の「Orca で開く」と失敗時のポップオーバー（#52、Pencil『Issue詳細｜Orcaで開く』IV5vb・h09GjE） */
+/* 実行場所の下の「Orca で開く」と失敗時のポップオーバー（#52、Pencil『Issue詳細｜Orcaで開く（#52）』gz11W の IV5vb・『Orcaで開く｜失敗時』OkbJ4 の h09GjE） */
 .locationValue { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; width: 100%; }
 .orcaOpen { position: relative; display: flex; align-items: center; gap: 8px; align-self: stretch; }
 .orcaOpenButton { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; }
@@ -1020,7 +1020,7 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .modeSwitch button[aria-checked="true"] { background: var(--surface); color: var(--ink); font-weight: 600; }
 .instructionHint { margin-right: auto; color: var(--ink3); font-size: 11.5px; overflow-wrap: anywhere; }
 
-/* 追加指示コメントのバッジと送信状態（#51、Pencil GdvBc・bSQYp） */
+/* 追加指示コメントのバッジと送信状態（#51、Pencil TsJz1 の GdvBc・bSQYp） */
 .instructionBadge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 500; }
 .instructionStatus { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sendChip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; overflow-wrap: anywhere; }
