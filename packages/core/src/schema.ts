@@ -519,4 +519,29 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE issues ADD COLUMN cycle_id INTEGER REFERENCES cycles(id) ON DELETE SET NULL`,
     `CREATE INDEX issues_cycle ON issues (cycle_id)`,
   ],
+  // Triage 提案の重複先（#145）。重複先の Issue を永久削除しても提案（ラベル・優先度・Project・理由）を消さず、重複先だけを外す。
+  // SQLite は外部キーの動作を変えられないので表を作り直す。重複先の外れた duplicate の提案（duplicate_of_id が NULL）を許すよう CHECK も緩める
+  // （提案の書き込み時は、これまでどおり duplicate に重複先を必須にする）。
+  // triage_proposals を参照する表・索引・トリガーは無いので、foreign_keys = ON のまま（migration の tx の中では変えられない）作り直せる
+  [
+    `CREATE TABLE triage_proposals_new (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK (decision IN ('accept', 'decline', 'duplicate')),
+      duplicate_of_id INTEGER REFERENCES issues(id) ON DELETE SET NULL,
+      labels TEXT NOT NULL DEFAULT '[]',
+      assignee TEXT,
+      priority INTEGER CHECK (priority IS NULL OR priority BETWEEN 0 AND 4),
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (issue_id, actor),
+      CHECK (decision = 'duplicate' OR duplicate_of_id IS NULL)
+    )`,
+    `INSERT INTO triage_proposals_new (issue_id, actor, decision, duplicate_of_id, labels, assignee, priority, project_id, reason, created_at, updated_at)
+     SELECT issue_id, actor, decision, duplicate_of_id, labels, assignee, priority, project_id, reason, created_at, updated_at FROM triage_proposals`,
+    `DROP TABLE triage_proposals`,
+    `ALTER TABLE triage_proposals_new RENAME TO triage_proposals`,
+  ],
 ];
