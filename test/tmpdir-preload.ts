@@ -17,7 +17,7 @@ function alive(pid: number): boolean {
   }
 }
 
-// base 直下の nod-testrun-<pid>-* のうち、pid のプロセスが居ないものを消す。消した名前を返す。
+// base 直下の nod-testrun-<pid>-* のうち、pid のプロセスが居ないものを消す。消せた名前を返す。
 export function sweepStale(base: string): string[] {
   const removed: string[] = [];
   let names: string[];
@@ -29,8 +29,11 @@ export function sweepStale(base: string): string[] {
   for (const name of names) {
     const m = name.startsWith(RUN_PREFIX) ? /^(\d+)-/.exec(name.slice(RUN_PREFIX.length)) : null;
     if (!m || Number(m[1]) === process.pid || alive(Number(m[1]))) continue;
-    rmSync(join(base, name), { recursive: true, force: true });
-    removed.push(name);
+    // 消せない残骸（権限・同時に回収した別の実行との競合）があってもテストの起動は止めず、次回に回す
+    try {
+      rmSync(join(base, name), { recursive: true, force: true });
+      removed.push(name);
+    } catch {}
   }
   return removed;
 }
