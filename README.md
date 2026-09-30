@@ -47,7 +47,8 @@ git は `-c log.showSignature=false` を付け、`GIT_DIR`・`GIT_WORK_TREE` な
 
 nod は常駐せず、LLM のセッションも起動しない。定型作業は、担当に LLM を指定した定期Issueとして起票し、LLM が `nod issue next` で拾う。
 
-1. 作業の手順をテンプレートにする（任意）。テンプレートは全 Workspace で共通で、既定では何も登録されていない。例を `docs/templates/` に置いている。
+1. 作業の手順をテンプレートにする（任意・人だけ）。テンプレートは全 Workspace で共通で、既定では何も登録されていない。例を `docs/templates/` に置いている。
+   LLM はテンプレートを読めるが、登録・置き換え・削除（`nod template add` / `remove`）は `FORBIDDEN_FOR_LLM` になる。
 
    ```sh
    nod template add 依存更新チェック --from docs/templates/dependency-update-check.md
@@ -61,8 +62,9 @@ nod は常駐せず、LLM のセッションも起動しない。定型作業は
    nod recurring add 週次レポート --template 週次レポート --every weekly --weekday 月 --start 2026-10-05 --assignee claude-code
    ```
 
-3. 人が `nod recurring run`（`nod automation run` にも含まれる。Web は「今すぐ実行」）を実行すると、発生日が来たものが起票される。
+3. 人が `nod recurring run`（`nod automation run` にも含まれる。Web は Workspace 設定の「定期Issue」または「自動化」の「今すぐ実行」）を実行すると、発生日が来たものが起票される。
    人の起票なので Triage を通らず todo で入り、担当の LLM だけが `nod issue next` で拾える（ほかの LLM には出ない）。
+   ただし遷移ルール（#73）で todo → in_progress を禁止している Workspace では、`nod issue next` は `TRANSITION_NOT_ALLOWED` になり着手できない。
 4. LLM は説明の手順に従って作業し、`nod issue done` でレビューに回す。done にするのは人である。LLM への手引きは `nod skills get nod` の「定期Issueで起票された定型作業の扱い」にある。
 
 確認は、`nod recurring show <id>`（前回の起票と次回の発生日）、`nod issue list --delegated`（LLM に委任中の Issue）、`nod issue show <id>`（Activity の created に `recurring_id` と発生日が残る）で行う。
@@ -70,7 +72,7 @@ nod は常駐せず、LLM のセッションも起動しない。定型作業は
 
 ### 人だけが行える操作と、その限界
 
-Triage の受け入れ・却下・重複、Workspace の作業規約の登録・変更・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
+Triage の受け入れ・却下・重複、Workspace の作業規約の登録・変更・削除、テンプレートの登録・置き換え・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
 LLM かどうかは書き手（`NOD_ACTOR`、なければ `CLAUDECODE=1` なら `claude-code`、どちらもなければ `me`）で判定する。
 これは LLM の誤操作を防ぐための取り決めで、権限の仕組みではない。
 `NOD_ACTOR=me` を付けて CLI を実行したり、ローカルの API（`nod ui` の server。書き手は常に `me`）を curl などで直接呼んだり（Origin のない同じマシンからの要求は受け付ける）、DB を直接書き換えたりすれば回避できる。

@@ -81,7 +81,7 @@ describe("定期Issueの登録", () => {
 
   test("入力を検証する", () => {
     const { ws, me } = setup();
-    saveTemplate(me.db, { name: "bug", body: "## 再現手順" });
+    saveTemplate(me, { name: "bug", body: "## 再現手順" });
     const bad = (input: Record<string, unknown>) => codeOf(() => addRecurringIssue(me, ws.key, daily(input) as never));
     expect(bad({ title: " " })).toBe("INVALID_ARGS");
     expect(bad({ cadence: "yearly" })).toBe("INVALID_ARGS");
@@ -115,7 +115,7 @@ describe("定期Issueの登録", () => {
 
   test("本文とテンプレートは入れ替えられる", () => {
     const { ws, me } = setup();
-    saveTemplate(me.db, { name: "bug", body: "## 再現手順" });
+    saveTemplate(me, { name: "bug", body: "## 再現手順" });
     const r = addRecurringIssue(me, ws.key, daily({ description: "x" }));
     expect(updateRecurringIssue(me, ws.key, r.id, { template: "bug" })).toMatchObject({ template: "bug", description: null });
     expect(updateRecurringIssue(me, ws.key, r.id, { description: "y" })).toMatchObject({ template: null, description: "y" });
@@ -252,14 +252,14 @@ describe("定期Issueの実行", () => {
 
   test("テンプレートは実行時に解決し、無ければそのルールだけ失敗して他は続ける", () => {
     const { db, ws, me } = setup();
-    saveTemplate(me.db, { name: "bug", body: "## 旧" });
+    saveTemplate(me, { name: "bug", body: "## 旧" });
     const a = addRecurringIssue(me, ws.key, daily({ title: "A", template: "bug" }));
     const b = addRecurringIssue(me, ws.key, daily({ title: "B" }));
-    saveTemplate(me.db, { name: "bug", body: "## 新" });
+    saveTemplate(me, { name: "bug", body: "## 新" });
     const ok = runRecurringIssues(me, ws.key, { now: WED });
     expect(getIssue(db, ok.items.find((i) => i.recurringId === a.id)!.issueId!).description).toBe("## 新");
 
-    removeTemplate(me.db, "bug");
+    removeTemplate(me, "bug");
     const next = runRecurringIssues(me, ws.key, { now: new Date("2026-10-01T01:00:00Z") });
     expect(next.items.map((i) => i.recurringId)).toEqual([b.id]);
     expect(next.failed).toEqual([{ recurringId: a.id, title: "A", occurrence: "2026-10-01", message: expect.stringContaining("bug") }]);
@@ -280,9 +280,9 @@ describe("定期Issueの実行", () => {
 describe("定期Issueの修正（#135 レビュー）", () => {
   test("テンプレートが消えたルールも停止・編集できる。テンプレートを新しく指定・変更したときだけ存在を確かめる", () => {
     const { ws, me } = setup();
-    saveTemplate(me.db, { name: "bug", body: "## 再現手順" });
+    saveTemplate(me, { name: "bug", body: "## 再現手順" });
     const r = addRecurringIssue(me, ws.key, daily({ template: "bug" }));
-    removeTemplate(me.db, "bug");
+    removeTemplate(me, "bug");
     expect(updateRecurringIssue(me, ws.key, r.id, { enabled: false })).toMatchObject({ enabled: false, template: "bug" });
     expect(updateRecurringIssue(me, ws.key, r.id, { title: "改名", template: "bug" })).toMatchObject({ title: "改名", template: "bug" });
     expect(codeOf(() => updateRecurringIssue(me, ws.key, r.id, { template: "none" }))).toBe("NOT_FOUND");
@@ -371,7 +371,7 @@ describe("LLM に定型作業を定期実行させる（#64）", () => {
   test("担当に LLM を指定した定期Issueは、人の実行で todo として起票され、その LLM の next で拾われる", () => {
     const { db, ws, me, llm } = setup();
     const codex = { db, actor: "codex" };
-    saveTemplate(db, { name: "依存更新チェック", body: "## 手順\n- [ ] bun outdated" });
+    saveTemplate(me, { name: "依存更新チェック", body: "## 手順\n- [ ] bun outdated" });
     const r = addRecurringIssue(me, ws.key, daily({ title: "依存更新チェック", template: "依存更新チェック", assignee: "claude-code" }));
     const created = runRecurringIssues(me, ws.key, { now: WED }).items[0]!.issueId!;
     // LLM が担当でも、起票したのは人なので Triage を通らない

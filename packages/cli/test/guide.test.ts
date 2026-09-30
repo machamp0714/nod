@@ -69,4 +69,6 @@ test("定期Issueで起票された定型作業の扱いを案内する（#64）
   expect(section).toContain("nod issue done <id>");
   expect(section).toContain("FORBIDDEN_FOR_LLM");
   expect(section).toContain("--discovered-from <id>");
+  expect(section).toContain("TRANSITION_NOT_ALLOWED");
+  expect(section).toContain("nod template show");
 });
