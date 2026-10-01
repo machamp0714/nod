@@ -1,4 +1,4 @@
-import { getTemplate, listTemplates, readDocumentFile, removeTemplate, saveTemplate } from "@nod/core";
+import { getTemplate, listTemplates, localDate, readDocumentFile, removeTemplate, saveTemplate } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
 import { print } from "../output";
@@ -24,7 +24,7 @@ export function registerTemplateCommands(program: Command): void {
       act((cli) => {
         const list = listTemplates(cli.db);
         print(cli, list, () =>
-          list.length ? list.map((t) => `${t.name}  （更新 ${t.updatedAt.slice(0, 10)}）`).join("\n") : "テンプレートはありません",
+          list.length ? list.map((t) => `${t.name}  （更新 ${localDate(t.updatedAt)}）`).join("\n") : "テンプレートはありません",
         );
       }),
     );

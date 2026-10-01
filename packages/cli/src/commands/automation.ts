@@ -5,6 +5,7 @@ import {
   type AutomationSettings,
   getAutomationSettings,
   NodError,
+  localDate,
   runAutomation,
   setAutomationSettings,
   undoAutoTransition,
@@ -85,7 +86,7 @@ function describeRule(rule: AutomationRuleResult, dryRun: boolean): string {
   const since = rule.kind === "auto_close" ? "最終活動" : "完了";
   const lines = [heading];
   for (const c of rule.candidates) {
-    lines.push(`  ${c.id}  ${c.status}  ${since} ${c.since.slice(0, 10)}（${c.elapsedDays}日前）  ${c.title}${ruleNote(c.ruleSkipReason)}`);
+    lines.push(`  ${c.id}  ${c.status}  ${since} ${localDate(c.since)}（${c.elapsedDays}日前）  ${c.title}${ruleNote(c.ruleSkipReason)}`);
   }
   if (rule.remaining) lines.push(`  ほか ${rule.remaining} 件は上限を超えたため${dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
   if (!dryRun) {

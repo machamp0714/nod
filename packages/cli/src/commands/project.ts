@@ -12,6 +12,7 @@ import {
   getProject,
   listProjects,
   listProjectUpdates,
+  localMinute,
   NodError,
   type ProjectUpdate,
   updateProject,
@@ -22,7 +23,7 @@ import { act } from "../context";
 import { formatIssueLines, print } from "../output";
 
 function formatProjectUpdate(u: ProjectUpdate): string {
-  const at = u.createdAt.slice(0, 16).replace("T", " ");
+  const at = localMinute(u.createdAt);
   return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : u.healthCleared ? "（健全性を未設定に戻した）" : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
 }
 

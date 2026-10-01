@@ -9,6 +9,8 @@ import {
   type IssueDetail,
   attachmentName,
   isOverdue,
+  localDate,
+  localMinute,
   localToday,
   NodError,
   type OpenQuestions,
@@ -118,13 +120,6 @@ export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
   return lines.join("\n");
 }
 
-// 記録時刻をこのマシンのローカルの暦日（YYYY-MM-DD）にする
-function localDate(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 const PRIORITY_NAMES = ["-", "Urgent", "High", "Medium", "Low"];
 const PRIORITY_WIDTH = 6;
 const PROJECT_MAX_WIDTH = 20;
@@ -199,8 +194,15 @@ export function formatPlan(plan: Plan): string[] {
   return lines;
 }
 
+// question_asked と question_answered は、同じ質問の行（kind: "question"）と重なるため出さない（#168）
+const HIDDEN_EVENT_TYPES = new Set(["question_asked", "question_answered"]);
+
+function visibleActivity(items: ActivityItem[]): ActivityItem[] {
+  return items.filter((a) => a.kind !== "event" || !HIDDEN_EVENT_TYPES.has(a.type));
+}
+
 function formatActivity(a: ActivityItem): string {
-  const at = a.at.slice(0, 16).replace("T", " ");
+  const at = localMinute(a.at);
   if (a.kind === "comment") {
     const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
     const resolved = a.resolvedAt !== null ? `（解決済み: ${a.resolvedBy}）` : "";
@@ -229,7 +231,7 @@ const SEND_STATE_LABEL: Record<AgentInstruction["sendState"], string> = {
 // 追加指示・対応依頼（#51・#58）の一覧。本文は複数行でもそのまま字下げして出す
 export function formatInstructions(list: AgentInstruction[]): string[] {
   return list.map((i) => {
-    const at = i.createdAt.slice(0, 16).replace("T", " ");
+    const at = localMinute(i.createdAt);
     const state = i.sendState === "sent" && i.sentAgent ? `送信済み → ${i.sentAgent}` : SEND_STATE_LABEL[i.sendState];
     const ack = i.acknowledgedAt ? `・${i.acknowledgedBy} が確認済み` : "";
     return `  #${i.id} ${at} ${i.createdBy} [${INSTRUCTION_KIND_LABEL[i.kind]}・${state}${ack}]\n    ${i.body.replaceAll("\n", "\n    ")}`;
@@ -264,7 +266,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
-  if (d.archivedAt) lines.push(`アーカイブ済み: ${d.archivedAt.slice(0, 16).replace("T", " ")}（nod issue unarchive ${d.id} で復元）`);
+  if (d.archivedAt) lines.push(`アーカイブ済み: ${localMinute(d.archivedAt)}（nod issue unarchive ${d.id} で復元）`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
   if (d.cycle) lines.push(`Cycle: ${d.cycle.name}`);
@@ -303,7 +305,8 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   const relationLines = relations.filter(([, ids]) => ids.length).map(([label, ids]) => `  ${label}: ${ids.join(", ")}`);
   if (relationLines.length) lines.push("", "関係:", ...relationLines);
   if (d.pendingInstructions.length) lines.push("", "未確認の追加指示:", ...formatInstructions(d.pendingInstructions));
-  if (d.activity.length) lines.push("", "Activity:", ...d.activity.map(formatActivity));
+  const activity = visibleActivity(d.activity);
+  if (activity.length) lines.push("", "Activity:", ...activity.map(formatActivity));
   return lines.join("\n");
 }
 

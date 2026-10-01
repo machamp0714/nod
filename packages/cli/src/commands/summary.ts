@@ -1,4 +1,4 @@
-import { parseLimit, recentSummary, type Summary, SUMMARY_DEFAULT_LIMIT, SUMMARY_DEFAULT_SINCE, type SummaryItem } from "@nod/core";
+import { localMinute, parseLimit, recentSummary, type Summary, SUMMARY_DEFAULT_LIMIT, SUMMARY_DEFAULT_SINCE, type SummaryItem } from "@nod/core";
 import type { Command } from "commander";
 import { act, currentWorkspace } from "../context";
 import { print, statusText } from "../output";
@@ -10,13 +10,6 @@ interface SummaryOptions {
   limit?: string;
   includeArchived?: boolean;
   allWorkspaces?: boolean;
-}
-
-// 記録時刻をこのマシンのローカル時刻で YYYY-MM-DD HH:mm にする
-export function localMinute(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function oneLine(text: string, max = 80): string {
