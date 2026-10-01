@@ -82,7 +82,7 @@ export function PreviewPane({
           </dl>
           <section className={s.previewSection} aria-label="説明">
             <h3 className={s.previewSectionTitle}>説明</h3>
-            {issue.description ? <Markdown>{issue.description}</Markdown> : <p className={s.muted}>説明はありません</p>}
+            {issue.description ? <Markdown breaks>{issue.description}</Markdown> : <p className={s.muted}>説明はありません</p>}
           </section>
           <dl className={s.previewProps}>
             <div>

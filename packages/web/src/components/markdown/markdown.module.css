@@ -34,6 +34,19 @@
   list-style: disc;
 }
 
+/* タスクリスト（- [ ]）はチェックボックスが行頭の記号になるので、箇条書きの記号を重ねない。
+   チェックボックスは箇条書きの記号と同じ字下げの中に置く */
+.markdown li:global(.task-list-item) {
+  list-style: none;
+}
+
+/* 項目の間に空行があると、チェックボックスは li の中の p に入る */
+.markdown li:global(.task-list-item) > input[type="checkbox"],
+.markdown li:global(.task-list-item) > p:first-child > input[type="checkbox"] {
+  margin: 0 6px 0 -19px;
+  vertical-align: -1px;
+}
+
 .markdown ol {
   padding-left: 22px;
   list-style: decimal;

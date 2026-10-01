@@ -46,3 +46,45 @@ test("説明を編集して保存すると残り、生の HTML は描画せず�
   await expect(region(page, "説明")).toContainText("説明はありません");
   expect(dialogs).toBe(0);
 });
+
+// #176：移行した Issue の「GitHub: …」「GH labels: …」のように改行だけで区切った行が1段落につながらないこと、
+// タスクリストに箇条書きの「•」が重ならないこと
+test("説明は改行だけの行を行のまま出し、チェックリストに箇条書きの記号を重ねない", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.description}`);
+  const description = region(page, "説明");
+  await description.getByRole("button", { name: "編集" }).click();
+  await description.getByRole("textbox", { name: "説明" }).fill("GitHub: https://example.com/1\nGH labels: bug\n\n- [ ] 再現する\n- [x] 直す\n\n空行で区切ったタスク\n\n- [ ] 空行あり1\n\n- [ ] 空行あり2\n  - [ ] 入れ子\n\nふつうの箇条書き\n\n- ふつうの箇条書き");
+  await description.getByRole("button", { name: "保存" }).click();
+
+  const paragraph = description.locator("p").filter({ hasText: "GH labels: bug" });
+  await expect(paragraph.locator("br")).toHaveCount(1);
+  const [first, second] = await paragraph.evaluate((p) => {
+    const range = document.createRange();
+    const tops: number[] = [];
+    for (const node of p.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE || !node.textContent?.trim()) continue;
+      range.selectNodeContents(node);
+      tops.push(range.getBoundingClientRect().top);
+    }
+    return [tops[0], tops.at(-1)];
+  });
+  expect(second).toBeGreaterThan(first!);
+
+  const tasks = description.locator("li.task-list-item");
+  // 詰めたリスト2件、空行で区切ったリスト2件（チェックボックスは段落の中に入る）、入れ子1件
+  await expect(tasks).toHaveCount(5);
+  await expect(tasks.locator('input[type="checkbox"]')).toHaveCount(5);
+  for (const task of await tasks.all()) await expect(task).toHaveCSS("list-style-type", "none");
+  const bullet = description.getByRole("listitem").filter({ hasText: "ふつうの箇条書き" });
+  await expect(bullet).toHaveCSS("list-style-type", "disc");
+  // チェックボックスは、ふつうの箇条書きの記号と同じ字下げの範囲に収まる
+  const taskBox = await tasks.first().locator("input").boundingBox();
+  const bulletBox = await bullet.boundingBox();
+  expect(taskBox!.x).toBeLessThan(bulletBox!.x);
+  expect(taskBox!.x).toBeGreaterThanOrEqual(bulletBox!.x - 22);
+  // 空行で区切ったリストのチェックボックスも同じ位置、入れ子はそれより右
+  const looseBox = await tasks.filter({ hasText: "空行あり1" }).locator("input").boundingBox();
+  expect(Math.abs(looseBox!.x - taskBox!.x)).toBeLessThanOrEqual(1);
+  const nestedBox = await tasks.filter({ hasText: "入れ子" }).last().locator("input").boundingBox();
+  expect(nestedBox!.x).toBeGreaterThan(looseBox!.x);
+});
