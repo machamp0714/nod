@@ -69,7 +69,7 @@ test("PR がない Issue は PR はありませんと出す", async ({ page, nod
 test("説明は閉じた状態で出し、開くと Markdown で読める。Issue を選び直すと閉じた状態に戻る", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const first = await api.inReview("決済 Webhook の署名検証を追加", "署名を検証した");
-  await nod.me.updateIssue(first.id, { description: "署名なしの Webhook を弾く。\n\n## 受け入れ条件\n\n- 署名が不正なら 401 を返す\n- 5 分より古いリクエストは拒否する" });
+  await nod.me.updateIssue(first.id, { description: "署名なしの Webhook を弾く。\nGitHub: #12\n\n## 受け入れ条件\n\n- 署名が不正なら 401 を返す\n- 5 分より古いリクエストは拒否する" });
   await api.inReview("説明のない Issue", "終えた");
 
   await page.goto(`/reviews?selected=${first.id}`);
@@ -81,6 +81,8 @@ test("説明は閉じた状態で出し、開くと Markdown で読める。Issu
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(section.getByText("署名なしの Webhook を弾く。")).toBeVisible();
   await expect(section.getByRole("heading", { name: "受け入れ条件" })).toBeVisible();
+  // 改行だけで区切った行は Issue 詳細と同じく行のまま出す（#176）
+  await expect(section.locator("p", { hasText: "署名なしの Webhook を弾く。" }).locator("br")).toHaveCount(1);
   await expect(section.getByRole("listitem")).toHaveText(["署名が不正なら 401 を返す", "5 分より古いリクエストは拒否する"]);
   // 完了報告の次、PR や差し戻し欄の前に置く
   const order = await detail(page).locator("> div > *").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") ?? el.tagName));

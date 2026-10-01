@@ -236,7 +236,7 @@ function DescriptionToggle({ description }: { description: string | null }) {
         説明
       </button>
       <div id={bodyId} className={d.descriptionBody} hidden={!open}>
-        {open && (description ? <Markdown>{description}</Markdown> : <p className={d.descriptionEmpty}>説明はありません</p>)}
+        {open && (description ? <Markdown breaks>{description}</Markdown> : <p className={d.descriptionEmpty}>説明はありません</p>)}
       </div>
     </section>
   );
