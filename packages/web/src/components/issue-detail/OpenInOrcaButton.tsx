@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/errors";
 import { useOpenInOrca } from "../../api/hooks/orca";
 import { Icon, IconButton } from "../ui";
@@ -9,7 +9,8 @@ import s from "./issue-detail.module.css";
 // 開けなかったときは理由と、手で開くためのパス・cd コマンドのコピーをポップオーバーで出す
 const NOTICE_MS = 2500;
 
-export function OpenInOrcaButton({ issueId }: { issueId: string }) {
+// buttonRef は、「Orca で作業を始める」の成功後に親がフォーカスを移すために使う（#210）
+export function OpenInOrcaButton({ issueId, buttonRef }: { issueId: string; buttonRef?: Ref<HTMLButtonElement> }) {
   const open = useOpenInOrca(issueId);
   const [failure, setFailure] = useState<{ message: string; worktree: string | null; command: string | null } | null>(null);
   const [notice, setNotice] = useState("");
@@ -47,7 +48,7 @@ export function OpenInOrcaButton({ issueId }: { issueId: string }) {
 
   return (
     <div className={s.orcaOpen} ref={root}>
-      <IconButton icon="external-link" label="Orca で開く" className={s.orcaOpenButton} disabled={open.isPending} aria-haspopup="dialog" aria-expanded={failure !== null} onClick={() => void run()} />
+      <IconButton ref={buttonRef} icon="external-link" label="Orca で開く" className={s.orcaOpenButton} disabled={open.isPending} aria-haspopup="dialog" aria-expanded={failure !== null} onClick={() => void run()} />
       {failure && (
         <div className={s.orcaPopover} role="dialog" aria-label="Orca で開けませんでした" onKeyDown={(e) => { if (e.key === "Escape") setFailure(null); }}>
           <p role="alert" className={s.menuError}><Icon name="circle-alert" size={14} />Orca で開けませんでした：{failure.message}</p>

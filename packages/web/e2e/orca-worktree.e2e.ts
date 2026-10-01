@@ -25,9 +25,14 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   const submit = popover.getByRole("button", { name: "作成して起動" });
   await expect(feature).toHaveValue("orca-worktree");
   await expect(feature).toBeFocused();
-  await expect(popover.getByText(`${created.id}+orca-worktree`)).toBeVisible();
+  // 入力欄の説明は名前のプレビュー。トリガーはポップオーバーを aria-controls で指す
+  await expect(feature).toHaveAccessibleDescription(`作成される名前 ${created.id}+orca-worktree`);
+  expect(await start.getAttribute("aria-controls")).toBe(await popover.getAttribute("id"));
   await feature.fill("");
   await expect(submit).toBeDisabled();
+  // 空欄の間は名前のプレビューを出さない
+  await expect(popover.getByText("作成される名前")).toHaveCount(0);
+  await expect(popover.getByText(`${created.id}+`)).toHaveCount(0);
   await feature.fill("Search N+1_検索");
   await expect(feature).toHaveValue("searchn1");
   await feature.fill("search-n1");
@@ -58,12 +63,16 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(feature).toBeDisabled();
   await expect(popover.getByRole("button", { name: "キャンセル" })).toBeDisabled();
   await expect(popover.getByRole("alert")).toHaveCount(0);
+  // 作成中はトリガーを押しても閉じない（結果と入力を失わない）
+  await start.click();
+  await expect(popover).toBeVisible();
+  await expect(feature).toHaveValue("search-n1");
   release();
 
   // 成功したら閉じ、行が「ブランチ · worktree」と「Orca で開く」に変わる。orca は決まった引数で1回だけ呼ばれる
   await expect(popover).toHaveCount(0);
   await expect(row.locator("dd")).toContainText(`machamp0714/API-1-search-n1 · ${worktree}`);
-  await expect(row.getByRole("button", { name: "Orca で開く" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Orca で開く" })).toBeFocused();
   await expect(start).toHaveCount(0);
   expect(await orcaCalls()).toEqual([
     ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `${created.id}+search-n1`, "--no-parent", "--agent", "claude",
