@@ -5,6 +5,7 @@ export type {
   AcceptTriageInput,
   OrcaFailure,
   OrcaFailureCode,
+  OrcaAgent,
   OrcaOpenResult,
   OrcaWorktreeResult,
   OrcaTerminal,

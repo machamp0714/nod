@@ -202,6 +202,12 @@
   color: var(--ink);
 }
 
+/* RadioPills：radio 自体は見せず、ピルで選択とフォーカスを示す */
+.radioPill { position: relative; }
+.radioPillInput { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: inherit; }
+.radioPill:has(.radioPillInput:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.radioPill:has(.radioPillInput:disabled) { cursor: not-allowed; opacity: 0.6; }
+
 /* nod.pen のメニュー（Property Menu、J0qDy）：角丸 12、項目の高さ 32、項目の角丸 8 */
 .menu {
   display: flex;

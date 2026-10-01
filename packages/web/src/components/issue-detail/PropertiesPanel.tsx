@@ -421,7 +421,7 @@ export function PropertiesPanel({
               </span>
             ) : (
               // 実行場所が未記録（worktree もブランチも無い）のときだけ、値の位置に「Orca で作業を始める」を出す（#210、nod.pen「PHJ9L」）
-              <StartInOrcaButton issueId={issue.id} title={issue.title} disabled={readOnly}
+              <StartInOrcaButton issueId={issue.id} workspaceKey={issue.workspace} title={issue.title} disabled={readOnly}
                 onCreated={() => { focusOpenInOrca.current = true; moveFocusToOpenInOrca(); }} />
             )}
           </Prop>

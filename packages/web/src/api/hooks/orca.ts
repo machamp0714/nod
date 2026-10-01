@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath } from "../query-keys";
-import type { AgentInstruction, AgentTargets, OrcaOpenResult, OrcaWorktreeResult } from "../types";
+import type { AgentInstruction, AgentTargets, OrcaAgent, OrcaOpenResult, OrcaWorktreeResult, Workspace } from "../types";
 import { useApiMutation } from "./shared";
 
 // 記録済みの worktree を Orca で前面に出す（#52）。DB を変えないので読み直しはしない。
@@ -15,8 +15,15 @@ export function useOpenInOrca(id: string) {
 // Orca に worktree を作ってエージェントを起動する（#210）。成功すると Issue に実行場所が記録されるため、終わったら読み直す。
 // 作れなかった理由は HTTP の失敗ではなく結果の failure で返る
 export function useCreateOrcaWorktree(id: string) {
-  return useApiMutation((feature: string) =>
-    apiFetch<OrcaWorktreeResult>(issuePath(id, "orca-worktree"), { method: "POST", body: { feature } }),
+  return useApiMutation((input: { feature: string; agent: OrcaAgent }) =>
+    apiFetch<OrcaWorktreeResult>(issuePath(id, "orca-worktree"), { method: "POST", body: input }),
+  );
+}
+
+// 「Orca で作業を始める」の既定のエージェントを Workspace に保存する（#210）
+export function useSaveDefaultAgent(key: string) {
+  return useApiMutation((agent: OrcaAgent) =>
+    apiFetch<Workspace>(`/workspaces/${encodeURIComponent(key)}/default-agent`, { method: "PUT", body: { agent } }),
   );
 }
 

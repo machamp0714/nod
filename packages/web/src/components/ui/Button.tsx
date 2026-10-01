@@ -48,6 +48,35 @@ export function IconButton({
   );
 }
 
+// 2〜3 個から1つを選ぶラジオ。見た目は Segmented と同じピルで、選択は native の radio に任せる（矢印キーで動く）
+export function RadioPills<T extends string>({
+  label,
+  name,
+  items,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  items: readonly { value: T; label: string }[];
+  value: T;
+  disabled?: boolean;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className={s.segmented}>
+      {items.map((item) => (
+        <label key={item.value} className={`${s.segment} ${s.radioPill} ${item.value === value ? s.segmentActive : ""}`}>
+          <input type="radio" className={s.radioPillInput} name={name} value={item.value} checked={item.value === value} disabled={disabled}
+            onChange={() => onChange(item.value)} />
+          {item.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export interface SegmentedItem<T extends string> {
   value: T;
   label: string;
