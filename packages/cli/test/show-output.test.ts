@@ -47,8 +47,8 @@ describe("issue show の Activity（#168）", () => {
     expect(answered).toContain(`  ${shifted(askedAt, 0)}  me が確認を依頼: 公開ルートはどれか\n    → me（${shifted(answeredAt, 0)}）: /docs にする`);
     expect(answered).not.toContain("question_answered");
     expect(answered).not.toContain("question_id");
-    // ほかの event は従来どおり出る
-    expect(answered).toContain("me created");
+    // ほかの event は文で出る（#198）
+    expect(answered).toContain("me が起票した（状態: Todo）");
   });
 
   test("質問の行は依頼した時刻の位置のまま、回答の行に回答した時刻をローカル時刻で付ける", async () => {
@@ -108,15 +108,15 @@ describe("CLI の時刻はローカル時刻（#171）", () => {
     const comment = detail.activity.find((a: { kind: string }) => a.kind === "comment");
 
     const utc = await show(id, "UTC");
-    expect(utc).toContain(`  ${shifted(created.at, 0)}  me created`);
+    expect(utc).toContain(`  ${shifted(created.at, 0)}  me が起票した`);
     expect(utc).toContain(`  ${shifted(comment.at, 0)}  #${comment.id} me: メモ`);
     expect(utc).toContain(`アーカイブ済み: ${shifted(detail.archivedAt, 0)}（`);
 
     const tokyo = await show(id, "Asia/Tokyo");
-    expect(tokyo).toContain(`  ${shifted(created.at, TOKYO)}  me created`);
+    expect(tokyo).toContain(`  ${shifted(created.at, TOKYO)}  me が起票した`);
     expect(tokyo).toContain(`  ${shifted(comment.at, TOKYO)}  #${comment.id} me: メモ`);
     expect(tokyo).toContain(`アーカイブ済み: ${shifted(detail.archivedAt, TOKYO)}（`);
-    expect(tokyo).not.toContain(`  ${shifted(created.at, 0)}  me created`);
+    expect(tokyo).not.toContain(`  ${shifted(created.at, 0)}  me が起票した`);
   });
 
   test("issue show と summary の時刻が同じになる", async () => {
@@ -128,7 +128,7 @@ describe("CLI の時刻はローカル時刻（#171）", () => {
       (a: { kind: string; type?: string; data?: { to?: string } }) => a.kind === "event" && a.type === "status_changed" && a.data?.to === "in_progress",
     );
     const at = shifted(started.at, TOKYO);
-    expect((await runNod(["issue", "show", id], { cwd: repo, db, env })).stdout).toContain(`  ${at}  claude-code status_changed`);
+    expect((await runNod(["issue", "show", id], { cwd: repo, db, env })).stdout).toContain(`  ${at}  claude-code がステータスを Todo から In Progress に変えた`);
     expect((await runNod(["summary"], { cwd: repo, db, env })).stdout).toContain(`  ${at}  ${id}`);
   });
 

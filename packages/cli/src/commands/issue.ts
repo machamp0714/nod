@@ -248,10 +248,13 @@ export function registerIssueCommands(program: Command): void {
             archived: o.archived,
           });
           // listIssues は ID の順で返すので、既定（id の昇順）のときは並べ直さない
-          const issues = sort === "id" && !o.desc ? listed : sortIssues(listed, sort, o.desc ? "desc" : "asc");
+          const sorted = sort === "id" && !o.desc ? listed : sortIssues(listed, sort, o.desc ? "desc" : "asc");
+          // 検索語が ID と完全一致する Issue は、並び順に関係なく先頭に置く（TS-6 の検索で TS-60 より後ろに埋もれないように。#176）
+          const exactId = o.query?.trim().toLowerCase() ?? "";
+          const issues = exactId ? [...sorted.filter((i) => i.id.toLowerCase() === exactId), ...sorted.filter((i) => i.id.toLowerCase() !== exactId)] : sorted;
           if (o.delegated) {
-            const sorted = sortByAssignee(issues);
-            print(cli, sorted, () => formatDelegations(sorted));
+            const byAssignee = sortByAssignee(issues);
+            print(cli, byAssignee, () => formatDelegations(byAssignee));
             return;
           }
           print(cli, issues, () => (issues.length ? formatIssueListLines(issues).join("\n") : "Issue はありません"));

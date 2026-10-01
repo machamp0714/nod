@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, startIssue } from "../src/ops/agent";
 import { createIssue, updateIssue } from "../src/ops/issues";
-import { createProject, getProject, listProjects } from "../src/ops/projects";
+import { createProject, getProject, listProjects, resolveProject } from "../src/ops/projects";
+import type { NodError } from "../src/errors";
 import { PROJECT_STATUSES } from "../src/types";
 import { updateProject } from "../src/ops/projects";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -112,5 +113,27 @@ describe("Project の更新とレビュー待ち", () => {
     expect(getProject(db, p.name)).toMatchObject(summary);
     const zero = createProject(me, { name: "ゼロ" });
     expect(getProject(db, zero.name).agents).toEqual({ working: 0, awaitingInput: 0, awaitingReview: 0, error: 0 });
+  });
+});
+
+describe("resolveProject の候補（#176）", () => {
+  test("見つからないときは、大文字小文字を問わず名前に含む Project を5件まで候補にする", () => {
+    const { db, me } = setup();
+    for (const name of ["API 改修", "api-v2", "Api 3", "api 4", "api 5", "api 6", "Web"]) createProject(me, { name });
+    let error: NodError | undefined;
+    try {
+      resolveProject(db, "API");
+    } catch (e) {
+      error = e as NodError;
+    }
+    expect(error?.code).toBe("NOT_FOUND");
+    const candidates = (error?.details as { candidates: { id: number; name: string }[] }).candidates;
+    expect(candidates).toHaveLength(5);
+    expect(candidates.every((c) => c.name.toLowerCase().includes("api"))).toBe(true);
+    expect(error?.message).toContain("近い名前: ");
+    expect(error?.message).toContain("名前の全体か ID で指定してください");
+    // 完全一致はそのまま解決し、候補のない指定は一覧を案内する
+    expect(resolveProject(db, "Web").name).toBe("Web");
+    expect(() => resolveProject(db, "zzz")).toThrow("Project zzz はありません。nod project list で名前と ID を確かめてください");
   });
 });

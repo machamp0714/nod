@@ -179,9 +179,11 @@ test("購読していなくても、LLM に任せた Issue の完了・入力待
   await nod(["issue", "create", "検索", "--json"]);
   await nod(["issue", "start", "API-1"], "claude-code");
   await nod(["issue", "ask", "API-1", "進めてよいか"], "claude-code");
+  // inbox は同じ質問を確認依頼に出すので、入力待ちの通知は通知一覧にだけ出す（#176）
   const inbox = await nod(["inbox"]);
-  expect(inbox.stdout).toContain("通知（未読 1）");
-  expect(inbox.stdout).toContain("claude-code が確認を求めた（入力待ち）: 進めてよいか");
+  expect(inbox.stdout).toContain("Q: 進めてよいか（claude-code）");
+  expect(inbox.stdout).toContain("通知（未読 0）\n  （確認依頼に出ている入力待ちの通知 1 件は省略）");
+  expect((await nod(["notification", "list"])).stdout).toContain("claude-code が確認を求めた（入力待ち）: 進めてよいか");
 
   await nod(["answer", "API-1", "よい"]);
   expect((await nod(["notification", "list", "--json"])).json).toEqual([]);

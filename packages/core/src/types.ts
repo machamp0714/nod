@@ -306,6 +306,12 @@ export interface Relations {
   duplicates: string[];
 }
 
+// 関係の相手の状態。数えないブロック元（完了・キャンセル・アーカイブ済み）を表示で見分けるために返す（#176）
+export interface RelationState {
+  status: Status;
+  archived: boolean;
+}
+
 export interface InboxQuestion extends Question {
   issueTitle: string;
   workspace: string;
@@ -365,6 +371,7 @@ export interface IssueDetail extends Issue {
   attachments: IssueAttachment[];
   children: Issue[];
   relations: Relations;
+  relationStates: Record<string, RelationState>; // relations に出る Issue の ID ごとの状態
   questions: Question[]; // 回答済みも含めたすべての確認依頼（未決事項）。id の順
   openQuestions: Question[];
   activity: ActivityItem[];

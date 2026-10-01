@@ -1,3 +1,4 @@
+import { describeEvent } from "@nod/core/src/activity-text";
 import type { ActivityItem, AgentState } from "../api/types";
 import type { IconName } from "../components/ui/Icon";
 import { AGENT_STATE_META, priorityMeta, statusLabel } from "./meta";
@@ -35,28 +36,48 @@ function priorityLabel(value: unknown): string {
   return typeof value === "number" ? priorityMeta(value).label : String(value);
 }
 
-function estimateLabel(value: unknown): string {
-  return typeof value === "number" ? `${value} pt` : "なし";
-}
+type ActivityEvent = Extract<ActivityItem, { kind: "event" }>;
 
-// Activity は年をまたいでも読めるよう、期限を YYYY-MM-DD のまま出す
-function dueDateLabel(value: unknown): string {
-  return typeof value === "string" && value !== "" ? value : "なし";
-}
+const EVENT_ICON: Record<string, IconName> = {
+  archived: "archive",
+  unarchived: "archive-restore",
+  pr_linked: "git-pull-request",
+  status_changed: "circle-dot",
+  priority_changed: "signal-high",
+  estimate_changed: "gauge",
+  due_date_changed: "calendar",
+  assignee_changed: "circle-user",
+  title_changed: "square-pen",
+  description_changed: "square-pen",
+  project_changed: "box",
+  milestone_changed: "flag",
+  cycle_changed: "calendar-range",
+  parent_changed: "arrow-right",
+  labels_changed: "tag",
+  agent_state_changed: "loader-circle",
+  plan_updated: "list-checks",
+  document_attached: "file-text",
+  document_detached: "file-text",
+  relation_added: "arrow-right",
+  triage_accepted: "check",
+  triage_declined: "circle-x",
+  review_approved: "circle-check",
+  review_rejected: "undo-2",
+  comment_thread_resolved: "circle-check",
+  comment_thread_reopened: "undo-2",
+};
 
-function personLabel(value: unknown): string {
-  return typeof value === "string" && value !== "" ? value : "なし";
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
-}
-
-function withReason(text: string, data: Record<string, unknown>): string {
-  return typeof data.reason === "string" && data.reason !== "" ? `${text}：${data.reason}` : text;
+function eventIcon({ type, data }: ActivityEvent): IconName {
+  if (type === "created") {
+    if (typeof data.copied_from === "string") return "copy";
+    return typeof data.recurring_id === "number" && typeof data.occurrence === "string" ? "calendar" : "plus";
+  }
+  if (type === "attachment_added" || type === "attachment_removed") return data.kind === "file" ? "paperclip" : "link";
+  return EVENT_ICON[type] ?? "circle";
 }
 
 // spec：書き手はすべての行に残るため、「me が受け入れた」「claude-code が確認を求めた」のように表示する。
+// event の文は CLI と同じ core の describeEvent で作り、Web は補足（detail）を出さない。
 // nameOfStatus は Workspace の表示名を使うときに渡す。既定は spec の表示ラベル
 export function describeActivity(item: ActivityItem, nameOfStatus: (value: unknown) => string = statusLabel): ActivityLine {
   if (item.kind === "comment") return { icon: "message-square", text: `${item.actor}：${item.body}` };
@@ -65,88 +86,6 @@ export function describeActivity(item: ActivityItem, nameOfStatus: (value: unkno
       ? { icon: "message-circle", text: `${item.actor} が確認を求めた：${item.question}` }
       : { icon: "message-circle", text: `${item.actor} の確認依頼に ${item.answeredBy ?? "me"} が回答した：${item.question}` };
   }
-  const { actor, data } = item;
-  switch (item.type) {
-    case "created":
-      if (typeof data.copied_from === "string") return { icon: "copy", text: `${actor} が ${data.copied_from} から複製した` };
-      // 定期Issue（#32）の実行で起票したもの。定義を消しても ID と発生日は event に残る
-      if (typeof data.recurring_id === "number" && typeof data.occurrence === "string") {
-        return { icon: "calendar", text: `${actor} が定期Issue #${data.recurring_id}（${data.occurrence} 分）から起票した` };
-      }
-      return { icon: "plus", text: `${actor} が起票した` };
-    case "archived":
-      return { icon: "archive", text: withReason(`${actor} がアーカイブした`, data) };
-    case "unarchived":
-      return { icon: "archive-restore", text: `${actor} がアーカイブから復元した` };
-    case "pr_linked":
-      return { icon: "git-pull-request", text: `${actor} が PR を紐付けた：${String(data.to ?? "")}` };
-    case "status_changed":
-      return { icon: "circle-dot", text: withReason(`${actor} がステータスを ${nameOfStatus(data.from)} から ${nameOfStatus(data.to)} に変えた`, data) };
-    case "priority_changed":
-      return { icon: "signal-high", text: `${actor} が優先度を ${priorityLabel(data.from)} から ${priorityLabel(data.to)} に変えた` };
-    case "estimate_changed":
-      return { icon: "gauge", text: `${actor} が見積もりを ${estimateLabel(data.from)} から ${estimateLabel(data.to)} に変えた` };
-    case "due_date_changed":
-      return { icon: "calendar", text: `${actor} が期限を ${dueDateLabel(data.from)} から ${dueDateLabel(data.to)} に変えた` };
-    case "assignee_changed":
-      return { icon: "circle-user", text: `${actor} が担当者を ${personLabel(data.from)} から ${personLabel(data.to)} に変えた` };
-    case "title_changed":
-      return { icon: "square-pen", text: `${actor} がタイトルを変えた` };
-    case "description_changed":
-      return { icon: "square-pen", text: `${actor} が説明を変えた` };
-    case "project_changed":
-      return { icon: "box", text: `${actor} が Project を変えた` };
-    case "milestone_changed":
-      return { icon: "flag", text: `${actor} が Milestone を ${typeof data.from === "string" ? data.from : "なし"} から ${typeof data.to === "string" ? data.to : "なし"} に変えた` };
-    case "cycle_changed":
-      return { icon: "calendar-range", text: data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた` };
-    case "parent_changed":
-      return { icon: "arrow-right", text: `${actor} が親 Issue を変えた` };
-    case "labels_changed": {
-      const parts = [...strings(data.added).map((l) => `+${l}`), ...strings(data.removed).map((l) => `−${l}`)];
-      return { icon: "tag", text: `${actor} がラベルを変えた（${parts.join(" ")}）` };
-    }
-    case "agent_state_changed": {
-      const state = agentStateLabel(data.to);
-      const agent = typeof data.agent === "string" && data.agent !== "" ? data.agent : null;
-      if (data.to === null) {
-        return { icon: "loader-circle", text: agent ? `${actor} が ${agent} の作業状況を解除した` : `${actor} が作業状況を解除した` };
-      }
-      let text: string;
-      if (data.trigger === "answer") {
-        text = agent ? `${actor} の回答で ${agent} の作業状況が ${state} になった` : `${actor} の回答で作業状況が ${state} になった`;
-      } else if (agent) {
-        text = agent === actor ? `${agent} の作業状況が ${state} になった` : `${actor} が ${agent} の作業状況を ${state} に変えた`;
-      } else {
-        text = `${actor} が作業状況を ${state} に変えた`;
-      }
-      return { icon: "loader-circle", text };
-    }
-    case "plan_updated":
-      return { icon: "list-checks", text: `${actor} が計画を更新した` };
-    case "document_attached":
-      return { icon: "file-text", text: `${actor} が Document を添付した` };
-    case "document_detached":
-      return { icon: "file-text", text: `${actor} が Document を外した` };
-    case "attachment_added":
-      return { icon: data.kind === "file" ? "paperclip" : "link", text: `${actor} が${data.kind === "file" ? "ファイル" : "リンク"}を添付した：${String(data.name ?? "")}` };
-    case "attachment_removed":
-      return { icon: data.kind === "file" ? "paperclip" : "link", text: `${actor} が添付を削除した：${String(data.name ?? "")}` };
-    case "relation_added":
-      return { icon: "arrow-right", text: `${actor} が関連 Issue を足した：${String(data.type)} ${String(data.to)}` };
-    case "triage_accepted":
-      return { icon: "check", text: withReason(`${actor} が受け入れた`, data) };
-    case "triage_declined":
-      return { icon: "circle-x", text: withReason(`${actor} が却下した`, data) };
-    case "review_approved":
-      return { icon: "circle-check", text: withReason(`${actor} が承認した`, data) };
-    case "review_rejected":
-      return { icon: "undo-2", text: withReason(`${actor} が差し戻した`, data) };
-    case "comment_thread_resolved":
-      return { icon: "circle-check", text: `${actor} がコメントのスレッドを解決済みにした` };
-    case "comment_thread_reopened":
-      return { icon: "undo-2", text: `${actor} がコメントのスレッドを未解決に戻した` };
-    default:
-      return { icon: "circle", text: `${actor}: ${item.type}` };
-  }
+  const line = describeEvent(item, { status: nameOfStatus, priority: priorityLabel, agentState: agentStateLabel });
+  return { icon: eventIcon(item), text: line?.text ?? `${item.actor}: ${item.type}` };
 }

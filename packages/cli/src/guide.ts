@@ -80,7 +80,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 起票するのは人の実行（\`nod recurring run\`、\`nod automation run\`、Web の「今すぐ実行」）だけで、nod が自動で起票することはない。
 人の起票なので Triage を通らず todo で入り、担当の LLM の \`nod issue next\` に出る。ほかの LLM や担当なしの作業より先に取るわけではなく、優先度順に並ぶ。
 遷移ルールで todo → in_progress が禁止されている Workspace では、\`nod issue next\` は TRANSITION_NOT_ALLOWED になる。ルールは変えられないので人に伝える。
-\`nod issue show <id>\` の Activity の created に \`recurring_id\`（定期Issueの id）と \`occurrence\`（発生日）があれば、定期Issueで起票された Issue である。
+\`nod issue show <id>\` の Activity の最初の行が「定期Issue #<定期Issueの id>（<発生日> 分）から起票した」なら、定期Issueで起票された Issue である（\`--json\` では created の event の \`recurring_id\` と \`occurrence\`）。
 進め方は通常の Issue と同じで、説明（テンプレートの手順と空欄）に従って作業し、空欄は \`nod issue update <id> -d "<説明>"\` で埋め、\`nod issue done <id> --summary "<要約>"\` でレビューに回す。done にするのは人である。
 前回の発生日の Issue が残っていても、今回の Issue はそれとは別の作業として扱い、まとめて閉じない。前回分が不要そうなら人に伝える。
 手順に書かれていない作業（依存のメジャー更新など）が見つかったら、自分で着手せずに \`--discovered-from <id>\` を付けて起票する。
@@ -150,7 +150,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 ## そのほかのコマンド
 
-- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--ready] [--delegated] [--assignee <名前>] [--mine] [--priority <優先度>] [--sort <キー>] [--desc]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--ready\` は着手できる Issue（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）だけを出し、ほかの絞り込みとは AND で効く（\`--status backlog\` などと併せると0件）。\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
+- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--ready] [--delegated] [--assignee <名前>] [--mine] [--priority <優先度>] [--sort <キー>] [--desc] [--query <語>]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。状態の後ろの \`[working]\`・\`[awaiting_input]\`・\`[error]\`・\`[done]\` は LLM の作業状況で、Issue の状態ではない（in_review・done・canceled の Issue には \`[done]\` を出さない）。\`--query\` は ID・タイトル・説明の部分一致で絞り、ID が検索語と完全一致する Issue を並び順に関係なく先頭に置く。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--ready\` は着手できる Issue（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）だけを出し、ほかの絞り込みとは AND で効く（\`--status backlog\` などと併せると0件）。\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
 - \`nod questions [--asked-by me|llm] [--project <名前>] [-s <status>] [--query <text>] [--limit <n>]\`：未回答の未決事項（確認依頼）を、人が付けたものも含めて Issue 横断で一覧する読み取り専用のコマンド（既定ですべての Workspace、\`-w\` で絞る）。質問の \`#番号\` は \`nod answer <id> <text> --question <番号>\` に渡す id。人が付けた未決事項は人が決めるもので、LLM は回答しない。\`nod issue list\` の行末の \`[未決 1/3]\` はその Issue の決定数 / 総数
 - \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：優先度（\`-p\`。create・bulk-update・triage propose・recurring の \`--priority\` も同じ）は 0〜4、P0〜P4、urgent・high・medium・low・none のどれか（0 と none は優先度なし）。見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
@@ -175,6 +175,9 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
 - \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
+
+- \`nod issue show <id>\` の Activity は「誰が何をしたか」の文で出る。event に残る補足は文の後ろの（）に付く：起票は（状態: <起票時の状態>、起票元: <ID>、取り込み元: <URL>）、自動化による変更は（自動化: auto_close|auto_archive|pr_review|commit_review|undo）、差し戻しの対応依頼は（対応依頼: review_fix|rebase）、レビュー提出は（報告: #<コメントID>）。起票元は本体にも「起票元: <ID>」と出る。「関係」の相手がアーカイブ済みなら（アーカイブ済み）、ブロック元が完了・キャンセル済みなら（完了）（キャンセル）と付き、これらは着手を妨げない。event の data をそのまま読むときは \`--json\` の \`activity\` を使う
+- \`--project\` は名前の全体か ID で指定する。名前の一部では解決せず、近い名前の候補（名前と ID）がエラーに出る
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
 テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm。日付だけの箇所は YYYY-MM-DD）で出し、表示された日時はそのまま \`--at\`・\`--until\` に渡せる。\`--json\` の日時は UTC の ISO のまま返す。

@@ -31,7 +31,7 @@ import {
 } from "../issue-query";
 import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
-import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationType, type Relations, type Status, STATUSES } from "../types";
+import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationState, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
 import { resolveCycle, resolveCycleInScope } from "./cycles";
 import { isNoneRef, validateAssignee } from "../none-ref";
@@ -380,27 +380,34 @@ interface RelationRow {
   type: RelationType;
   key: string;
   number: number;
+  status: Status;
+  archived_at: string | null;
 }
 
-function loadRelations(db: Database, id: number): Relations {
+function loadRelations(db: Database, id: number): { relations: Relations; relationStates: Record<string, RelationState> } {
   const outgoing = db
     .query(
-      "SELECT r.type AS type, w.key AS key, i.number AS number FROM relations r JOIN issues i ON i.id = r.to_id JOIN workspaces w ON w.id = i.workspace_id WHERE r.from_id = ? ORDER BY r.created_at",
+      "SELECT r.type AS type, w.key AS key, i.number AS number, i.status AS status, i.archived_at AS archived_at FROM relations r JOIN issues i ON i.id = r.to_id JOIN workspaces w ON w.id = i.workspace_id WHERE r.from_id = ? ORDER BY r.created_at",
     )
     .all(id) as RelationRow[];
   const incoming = db
     .query(
-      "SELECT r.type AS type, w.key AS key, i.number AS number FROM relations r JOIN issues i ON i.id = r.from_id JOIN workspaces w ON w.id = i.workspace_id WHERE r.to_id = ? ORDER BY r.created_at",
+      "SELECT r.type AS type, w.key AS key, i.number AS number, i.status AS status, i.archived_at AS archived_at FROM relations r JOIN issues i ON i.id = r.from_id JOIN workspaces w ON w.id = i.workspace_id WHERE r.to_id = ? ORDER BY r.created_at",
     )
     .all(id) as RelationRow[];
   const ids = (rows: RelationRow[], type: RelationType) =>
     rows.filter((r) => r.type === type).map((r) => formatIssueId(r.key, r.number));
+  const relationStates: Record<string, RelationState> = {};
+  for (const r of [...outgoing, ...incoming]) relationStates[formatIssueId(r.key, r.number)] = { status: r.status, archived: r.archived_at !== null };
   return {
-    blocks: ids(outgoing, "blocks"),
-    blockedBy: ids(incoming, "blocks"),
-    related: [...ids(outgoing, "related"), ...ids(incoming, "related")],
-    duplicateOf: ids(outgoing, "duplicate"),
-    duplicates: ids(incoming, "duplicate"),
+    relations: {
+      blocks: ids(outgoing, "blocks"),
+      blockedBy: ids(incoming, "blocks"),
+      related: [...ids(outgoing, "related"), ...ids(incoming, "related")],
+      duplicateOf: ids(outgoing, "duplicate"),
+      duplicates: ids(incoming, "duplicate"),
+    },
+    relationStates,
   };
 }
 
@@ -419,7 +426,7 @@ export function getIssue(db: Database, ref: string): IssueDetail {
     documents: loadIssueDocuments(db, row.id),
     attachments: listIssueAttachments(db, row.id),
     children: selectIssues(db, "WHERE i.parent_id = ? AND i.archived_at IS NULL ORDER BY i.number", [row.id]),
-    relations: loadRelations(db, row.id),
+    ...loadRelations(db, row.id),
     questions,
     openQuestions: questions.filter((q) => q.answer === null),
     activity: attachInstructions(loadActivity(db, row.id), instructions),
