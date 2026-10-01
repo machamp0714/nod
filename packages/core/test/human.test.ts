@@ -111,6 +111,16 @@ describe("parseDateTime", () => {
     expect(parseDateTime("2028-02-29T09:00:00Z")).toBe("2028-02-29T09:00:00.000Z");
     expect(codeOf(() => parseDateTime("+3d"))).toBe("INVALID_ARGS");
   });
+
+  test("空白区切り（CLI が表示する YYYY-MM-DD HH:mm）も受け付け、オフセットが無ければローカル時刻として解釈する", () => {
+    expect(parseDateTime("2026-10-01 09:00")).toBe(new Date(2026, 9, 1, 9, 0).toISOString());
+    expect(parseDateTime("2026-10-01 09:00")).toBe(parseDateTime("2026-10-01T09:00"));
+    expect(parseDateTime("2026-10-01 09:00:30")).toBe(new Date(2026, 9, 1, 9, 0, 30).toISOString());
+    expect(parseDateTime("2026-10-01 09:00:00+09:00")).toBe("2026-10-01T00:00:00.000Z");
+    expect(codeOf(() => parseDateTime("2026-02-30 09:00"))).toBe("INVALID_ARGS");
+    expect(codeOf(() => parseDateTime("2026-10-01  09:00"))).toBe("INVALID_ARGS");
+    expect(codeOf(() => parseDateTime("2026-10-01 25:00"))).toBe("INVALID_ARGS");
+  });
 });
 
 describe("レビュー", () => {

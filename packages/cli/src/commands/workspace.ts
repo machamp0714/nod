@@ -6,6 +6,7 @@ import {
   DEFAULT_STATUS_LABELS,
   getStatusNames,
   getTransitionRules,
+  localMinute,
   resetTransitionRules,
   setTransitionRules,
   TRANSITION_PRESET_LABELS,
@@ -89,7 +90,7 @@ export function registerWorkspaceCommands(program: Command): void {
         const list = listIssueDeletions(cli.db, currentWorkspace(cli, cmd).key);
         print(cli, list, () =>
           list.length
-            ? list.map((d) => `${d.deletedAt}  ${d.issueId}  ${d.title}  （削除: ${d.deletedBy}）`).join("\n")
+            ? list.map((d) => `${localMinute(d.deletedAt)}  ${d.issueId}  ${d.title}  （削除: ${d.deletedBy}）`).join("\n")
             : "削除した Issue の記録はありません",
         );
       }),

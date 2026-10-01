@@ -9,6 +9,8 @@ import {
   type IssueDetail,
   attachmentName,
   isOverdue,
+  localDate,
+  localMinute,
   localToday,
   NodError,
   type OpenQuestions,
@@ -118,13 +120,6 @@ export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
   return lines.join("\n");
 }
 
-// 記録時刻をこのマシンのローカルの暦日（YYYY-MM-DD）にする
-function localDate(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 const PRIORITY_NAMES = ["-", "Urgent", "High", "Medium", "Low"];
 const PRIORITY_WIDTH = 6;
 const PROJECT_MAX_WIDTH = 20;
@@ -199,8 +194,15 @@ export function formatPlan(plan: Plan): string[] {
   return lines;
 }
 
+// question_asked と question_answered は、同じ質問の行（kind: "question"）と重なるため出さない（#168）
+const HIDDEN_EVENT_TYPES = new Set(["question_asked", "question_answered"]);
+
+function visibleActivity(items: ActivityItem[]): ActivityItem[] {
+  return items.filter((a) => a.kind !== "event" || !HIDDEN_EVENT_TYPES.has(a.type));
+}
+
 function formatActivity(a: ActivityItem): string {
-  const at = a.at.slice(0, 16).replace("T", " ");
+  const at = localMinute(a.at);
   if (a.kind === "comment") {
     const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
     const resolved = a.resolvedAt !== null ? `（解決済み: ${a.resolvedBy}）` : "";
@@ -212,7 +214,9 @@ function formatActivity(a: ActivityItem): string {
     return `  ${at}  #${a.id} ${a.actor}${kind}: ${a.body}${resolved}${replies}`;
   }
   if (a.kind === "question") {
-    const answer = a.answer !== null ? `\n    → ${a.answeredBy}: ${a.answer}` : "";
+    // 質問の行は依頼した時刻の位置のまま、回答の行に回答した時刻を付ける
+    const answeredAt = a.answeredAt !== null ? `（${localMinute(a.answeredAt)}）` : "";
+    const answer = a.answer !== null ? `\n    → ${a.answeredBy}${answeredAt}: ${a.answer}` : "";
     return `  ${at}  ${a.actor} が確認を依頼: ${a.question}${answer}`;
   }
   return `  ${at}  ${a.actor} ${a.type} ${JSON.stringify(a.data)}`;
@@ -229,7 +233,7 @@ const SEND_STATE_LABEL: Record<AgentInstruction["sendState"], string> = {
 // 追加指示・対応依頼（#51・#58）の一覧。本文は複数行でもそのまま字下げして出す
 export function formatInstructions(list: AgentInstruction[]): string[] {
   return list.map((i) => {
-    const at = i.createdAt.slice(0, 16).replace("T", " ");
+    const at = localMinute(i.createdAt);
     const state = i.sendState === "sent" && i.sentAgent ? `送信済み → ${i.sentAgent}` : SEND_STATE_LABEL[i.sendState];
     const ack = i.acknowledgedAt ? `・${i.acknowledgedBy} が確認済み` : "";
     return `  #${i.id} ${at} ${i.createdBy} [${INSTRUCTION_KIND_LABEL[i.kind]}・${state}${ack}]\n    ${i.body.replaceAll("\n", "\n    ")}`;
@@ -264,7 +268,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
-  if (d.archivedAt) lines.push(`アーカイブ済み: ${d.archivedAt.slice(0, 16).replace("T", " ")}（nod issue unarchive ${d.id} で復元）`);
+  if (d.archivedAt) lines.push(`アーカイブ済み: ${localMinute(d.archivedAt)}（nod issue unarchive ${d.id} で復元）`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
   if (d.cycle) lines.push(`Cycle: ${d.cycle.name}`);
@@ -273,7 +277,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (d.prUrl && prStatusLine) lines.push(prStatusLine);
   if (d.worktree) lines.push(`実行場所: ${d.branch ?? "(detached)"}  ${d.worktree}`);
   if (d.subscribed) lines.push("購読: 購読中");
-  if (d.reminder) lines.push(`リマインダー: ${d.reminder.remindAt}${d.reminder.note ? `  ${d.reminder.note}` : ""}`);
+  if (d.reminder) lines.push(`リマインダー: ${localMinute(d.reminder.remindAt)}${d.reminder.note ? `  ${d.reminder.note}` : ""}`);
   if (d.description) lines.push("", d.description);
   if (d.plan.tasks.length) lines.push("", `計画${d.plan.source ? `（${d.plan.source}）` : ""}:`, ...formatPlan(d.plan));
   if (d.documents.length) {
@@ -303,7 +307,8 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   const relationLines = relations.filter(([, ids]) => ids.length).map(([label, ids]) => `  ${label}: ${ids.join(", ")}`);
   if (relationLines.length) lines.push("", "関係:", ...relationLines);
   if (d.pendingInstructions.length) lines.push("", "未確認の追加指示:", ...formatInstructions(d.pendingInstructions));
-  if (d.activity.length) lines.push("", "Activity:", ...d.activity.map(formatActivity));
+  const activity = visibleActivity(d.activity);
+  if (activity.length) lines.push("", "Activity:", ...activity.map(formatActivity));
   return lines.join("\n");
 }
 
@@ -365,7 +370,7 @@ export function describeNotification(n: Notification): string {
 }
 
 export function formatNotification(n: Notification): string {
-  const snoozed = n.snoozedUntil ? `  スヌーズ中（${n.snoozedUntil} まで）` : "";
+  const snoozed = n.snoozedUntil ? `  スヌーズ中（${localMinute(n.snoozedUntil)} まで）` : "";
   return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}${snoozed}\n    ${describeNotification(n)}`;
 }
 
@@ -409,7 +414,7 @@ export function formatTriageProposal(p: TriageProposal): string {
     p.labels.length > 0 && `Labels: ${p.labels.join(", ")}`,
     p.assignee && `Assignee: ${p.assignee}`,
   ].filter(Boolean);
-  return [`${p.issueId}  ${p.actor}  ${DECISION_LABEL[p.decision]}${attrs.length ? `  ${attrs.join("  ")}` : ""}  ${p.updatedAt}`, ...(p.reason ? [`  理由: ${p.reason}`] : [])].join("\n");
+  return [`${p.issueId}  ${p.actor}  ${DECISION_LABEL[p.decision]}${attrs.length ? `  ${attrs.join("  ")}` : ""}  ${localMinute(p.updatedAt)}`, ...(p.reason ? [`  理由: ${p.reason}`] : [])].join("\n");
 }
 
 export function formatTriageProposals(ref: string, list: TriageProposal[]): string {
@@ -438,7 +443,7 @@ function prSummary(s: PrStatus): string {
 // nod issue show に添える1行。未取得・PR なしは何も出さない（取得方法は pr-status が案内する）
 export function formatPrStatusLine(v: PrStatusView): string | null {
   if (!v.prUrl) return null;
-  if (v.status) return `PR 状態: ${prSummary(v.status)}（取得: ${v.status.fetchedAt}）`;
+  if (v.status) return `PR 状態: ${prSummary(v.status)}（取得: ${localMinute(v.status.fetchedAt)}）`;
   if (v.fetchError) return `PR 状態: 取得に失敗（${v.fetchError.code}）`;
   return null;
 }
@@ -459,7 +464,7 @@ export function formatApprovalGithub(v: PrStatusView): string[] {
   const lines: string[] = [];
   if (v.prUrl) {
     if (v.status) {
-      lines.push(`GitHub: #${v.status.number} ${prSummary(v.status)}（取得: ${v.status.fetchedAt}）`);
+      lines.push(`GitHub: #${v.status.number} ${prSummary(v.status)}（取得: ${localMinute(v.status.fetchedAt)}）`);
       lines.push(...approvalWarnings(v.status).map((w) => `注意: ${w}`));
     } else {
       lines.push(`GitHub の状態は未取得（nod issue pr-status ${v.issueId} --refresh で取得）`);
@@ -473,20 +478,20 @@ export function formatPrStatus(v: PrStatusView): string {
   if (!v.prUrl) return `${v.issueId} に PR がありません`;
   const lines = [`${v.issueId}  PR: ${v.prUrl}`];
   if (v.fetchError) {
-    lines.push(`取得に失敗（${v.fetchError.code}）: ${v.fetchError.message}（${v.fetchError.at}）`);
+    lines.push(`取得に失敗（${v.fetchError.code}）: ${v.fetchError.message}（${localMinute(v.fetchError.at)}）`);
   }
   if (v.status) {
     const s = v.status;
     const label = v.fetchError ? "前回取得" : "取得";
     lines.push(
       `#${s.number} ${s.title}`,
-      `状態: ${prState(s)}${s.mergedAt ? `（マージ: ${s.mergedAt}）` : ""}`,
+      `状態: ${prState(s)}${s.mergedAt ? `（マージ: ${localMinute(s.mergedAt)}）` : ""}`,
       `レビュー: ${prReview(s)}`,
       `CI: ${prChecks(s)}`,
     );
     const failed = s.checks.filter((c) => c.state === "failure").map((c) => c.name);
     if (failed.length) lines.push(`  失敗: ${failed.join(", ")}`);
-    lines.push(`${label}: ${s.fetchedAt}（${s.fetchedBy}）`);
+    lines.push(`${label}: ${localMinute(s.fetchedAt)}（${s.fetchedBy}）`);
   } else if (!v.fetchError) {
     lines.push(`未取得。nod issue pr-status ${v.issueId} --refresh で gh から取得する`);
   }
@@ -521,7 +526,7 @@ function diffFileLine(f: PrDiffFileSummary): string {
 export function formatPrDiff(v: PrDiffView): string {
   if (!v.prUrl) return `${v.issueId} に PR がありません`;
   const lines = [`${v.issueId}  PR: ${safe(v.prUrl)}`];
-  if (v.fetchError) lines.push(`取得に失敗（${v.fetchError.code}）: ${safe(v.fetchError.message)}（${v.fetchError.at}）`);
+  if (v.fetchError) lines.push(`取得に失敗（${v.fetchError.code}）: ${safe(v.fetchError.message)}（${localMinute(v.fetchError.at)}）`);
   if (v.stale) {
     lines.push(
       `PR が更新されています（HEAD ${shortSha(v.stale.diffHeadSha)} → ${shortSha(v.stale.currentHeadSha)}）。nod issue pr-diff ${v.issueId} --refresh で取り直す`,
@@ -532,7 +537,7 @@ export function formatPrDiff(v: PrDiffView): string {
     lines.push(`HEAD ${shortSha(d.headSha)} · 変更ファイル ${d.files.length} · +${d.additions} −${d.deletions}`);
     lines.push(...d.files.map(diffFileLine));
     if (d.files.some((f) => BIDI_RE.test(f.path) || BIDI_RE.test(f.oldPath ?? ""))) lines.push(BIDI_WARNING);
-    lines.push(`${v.fetchError ? "前回取得" : "取得"}: ${d.fetchedAt}（${d.fetchedBy}）`);
+    lines.push(`${v.fetchError ? "前回取得" : "取得"}: ${localMinute(d.fetchedAt)}（${d.fetchedBy}）`);
     if (d.files.length) lines.push(`ファイルの差分: nod issue pr-diff ${v.issueId} --file <パス>`);
   } else if (!v.fetchError && !v.stale) {
     lines.push(`未取得。nod issue pr-diff ${v.issueId} --refresh で gh から取得する`);

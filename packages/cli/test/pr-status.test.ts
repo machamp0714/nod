@@ -69,7 +69,13 @@ describe("nod issue pr-status", () => {
     expect(readFileSync(gh.log, "utf8").trim()).toBe(
       `pr view ${PR_URL} --json number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergedAt,headRefOid`,
     );
-    const text = await runNod(["issue", "pr-status", id], { cwd: repo, db });
+    // テキストの日時はローカル時刻（#171）。--json は UTC の ISO のまま
+    expect(r.json.status.mergedAt).toBe("2026-09-29T01:00:00Z");
+    const tokyo = { TZ: "Asia/Tokyo" };
+    const text = await runNod(["issue", "pr-status", id], { cwd: repo, db, env: tokyo });
+    expect(text.stdout).toContain("状態: Merged（マージ: 2026-09-29 10:00）");
+    expect(text.stdout).toMatch(/\n取得: \d{4}-\d{2}-\d{2} \d{2}:\d{2}（claude-code）/);
+    expect((await runNod(["issue", "show", id], { cwd: repo, db, env: tokyo })).stdout).toMatch(/（取得: \d{4}-\d{2}-\d{2} \d{2}:\d{2}）/);
     expect(text.stdout).toContain("状態: Merged");
     expect(text.stdout).toContain("レビュー: 承認済み");
     expect(text.stdout).toContain("CI: 成功 1 / 失敗 1 / 実行中 0 / スキップ 0");

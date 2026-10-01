@@ -123,7 +123,8 @@ export function answerQuestion(
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
+// 日付と時刻の区切りは T か空白1つ（CLI が表示する YYYY-MM-DD HH:mm をそのまま貼れるようにする）
+const DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
 
 // 年月日が実在するか（2026-02-30 などを拒む）
 function isRealDate(y: number, m: number, d: number): boolean {
@@ -133,7 +134,7 @@ function isRealDate(y: number, m: number, d: number): boolean {
 
 export function parseDateTime(value: string): string {
   const invalid = () =>
-    new NodError("INVALID_ARGS", `${value} は日時として解釈できません（例: 2026-10-01、2026-10-01T09:00:00+09:00）`);
+    new NodError("INVALID_ARGS", `${value} は日時として解釈できません（例: 2026-10-01、2026-10-01 09:00、2026-10-01T09:00:00+09:00）`);
   const d = DATE_RE.exec(value);
   if (d) {
     const [y, m, day] = [Number(d[1]), Number(d[2]), Number(d[3])];
@@ -142,7 +143,8 @@ export function parseDateTime(value: string): string {
   }
   const dt = DATETIME_RE.exec(value);
   if (!dt || !isRealDate(Number(dt[1]), Number(dt[2]), Number(dt[3]))) throw invalid();
-  const t = Date.parse(value);
+  // 空白区切りの解釈は処理系に依存するため T にそろえる。オフセットの無い入力はローカル時刻になる
+  const t = Date.parse(value.replace(" ", "T"));
   if (Number.isNaN(t)) throw invalid();
   return new Date(t).toISOString();
 }

@@ -26,6 +26,7 @@ import {
   getPrStatus,
   createCommandRunner,
   linkPr,
+  localMinute,
   refreshPrStatus,
   getPrDiff,
   getPrDiffFile,
@@ -515,7 +516,7 @@ export function registerIssueCommands(program: Command): void {
   issue
     .command("remind <id>")
     .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く（me だけが使える）")
-    .option("--at <日時>", "通知する日時（例: 2026-10-01T09:00、2026-10-01T09:00:00+09:00。日付だけならその日の 0 時）")
+    .option("--at <日時>", "通知する日時（例: 2026-10-01 09:00、2026-10-01T09:00:00+09:00。日付だけならその日の 0 時）")
     .option("--note <メモ>", "通知に添えるメモ")
     .option("--clear", "リマインダーを解除する")
     .action(
@@ -528,7 +529,7 @@ export function registerIssueCommands(program: Command): void {
         }
         if (o.at === undefined) throw new NodError("INVALID_ARGS", "--at で日時を指定してください（解除は --clear）");
         const r = setReminder(cli.ctx, id, { at: o.at, note: o.note });
-        print(cli, r, () => `${r.issueId} に ${r.remindAt} のリマインダーを設定しました${r.note ? `: ${r.note}` : ""}`);
+        print(cli, r, () => `${r.issueId} に ${localMinute(r.remindAt)} のリマインダーを設定しました${r.note ? `: ${r.note}` : ""}`);
       }),
     );
 

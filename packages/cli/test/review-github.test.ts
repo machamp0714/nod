@@ -76,6 +76,7 @@ describe("nod review approve と GitHub PR", () => {
     const r = await runNod(["review", "approve", id], { cwd: repo, db, env: gh.env });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("GitHub: #128 Open · レビュー: 変更要求");
+    expect(r.stdout).toMatch(/（取得: \d{4}-\d{2}-\d{2} \d{2}:\d{2}）/);
     expect(r.stdout).toContain("注意: 取得時点で GitHub の PR はまだマージされていません（Open）");
     expect(r.stdout).toContain("注意: 取得時点で GitHub に変更要求が出ています");
     expect(r.stdout).toContain(NOTE);

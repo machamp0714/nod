@@ -105,12 +105,15 @@ test("通知をスヌーズ・解除でき、LLM は操作できない（#43）"
   const denied = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01", "--json"], "claude-code");
   expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
 
-  const snooze = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01T09:00:00+09:00"]);
+  // テキストの日時はローカル時刻（#171）
+  const tokyo = (args: string[]) => runNod(args, { cwd: repo, db, actor: "me", env: { TZ: "Asia/Tokyo" } });
+  const snooze = await tokyo(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01T09:00:00+09:00"]);
   expect(snooze.exitCode).toBe(0);
-  expect(snooze.stdout.trim()).toBe("1 件を 2999-01-01T00:00:00.000Z までスヌーズしました");
+  expect(snooze.stdout.trim()).toBe("1 件を 2999-01-01 09:00 までスヌーズしました");
   expect((await nod(["notification", "list", "--include-read", "--json"])).json).toEqual([]);
-  const snoozed = await nod(["notification", "list", "--snoozed"]);
-  expect(snoozed.stdout).toContain("スヌーズ中（2999-01-01T00:00:00.000Z まで）");
+  const snoozed = await tokyo(["notification", "list", "--snoozed"]);
+  expect(snoozed.stdout).toContain("スヌーズ中（2999-01-01 09:00 まで）");
+  expect((await nod(["notification", "list", "--snoozed", "--json"])).json[0].snoozedUntil).toBe("2999-01-01T00:00:00.000Z");
 
   const past = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2000-01-01", "--json"]);
   expect(past.json.error.code).toBe("INVALID_ARGS");
