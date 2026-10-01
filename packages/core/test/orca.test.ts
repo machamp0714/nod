@@ -210,6 +210,16 @@ describe("createOrcaWorktree（#210）", () => {
     expect(getIssue(db, ref)).toMatchObject({ worktree: WT, branch: "feat-search" });
   });
 
+  test("ブランチだけが記録済みの Issue でも orca を呼ばず、失敗として返す（ブランチ名を上書きしない）", async () => {
+    const { db, me, ref } = unstarted();
+    db.query("UPDATE issues SET branch = 'feat-branch-only' WHERE number = 1").run();
+    const { run, calls } = stubOrca({ "worktree create": created });
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    expect(res).toMatchObject({ created: false, worktree: null, branch: "feat-branch-only", failure: { code: "WORKTREE_ALREADY_RECORDED" } });
+    expect(calls).toHaveLength(0);
+    expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: "feat-branch-only" });
+  });
+
   test("NOD_ORCA=0・orca が無い・時間切れ・orca の失敗・読めない結果は理由を返し、Issue を変えない", async () => {
     const cases: [OrcaRunner | null, string, string][] = [
       [null, "DISABLED", "NOD_ORCA=0"],

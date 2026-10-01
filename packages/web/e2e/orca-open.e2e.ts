@@ -73,6 +73,8 @@ test("ブランチだけが記録された Issue は、実行場所の行にブ�
   await expect(row.locator("dd")).toHaveText("feat-branch-only");
   await expect(row.locator('[title="feat-branch-only"]')).toHaveCount(1);
   await expect(row.getByRole("button", { name: "Orca で開く" })).toHaveCount(0);
+  // ブランチだけでも実行場所は記録済みの扱いで、「Orca で作業を始める」も出さない（#210）
+  await expect(row.getByRole("button", { name: "Orca で作業を始める" })).toHaveCount(0);
   expect((await row.boundingBox())?.height).toBe(28);
 });
 

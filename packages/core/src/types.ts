@@ -770,7 +770,7 @@ export interface RecurringRun {
 export type OrcaFailureCode =
   | "DISABLED" // NOD_ORCA=0
   | "NO_WORKTREE" // Issue に実行場所の worktree が記録されていない
-  | "WORKTREE_ALREADY_RECORDED" // Issue に実行場所の worktree が記録済み（#210 二重作成の防止）
+  | "WORKTREE_ALREADY_RECORDED" // Issue に実行場所の worktree かブランチが記録済み（#210 二重作成の防止）
   | "WORKTREE_NOT_RECORDED" // worktree は作られたが、orca を待つ間に Issue がアーカイブされて記録できなかった（#210）
   | "ORCA_NOT_INSTALLED"
   | "WORKTREE_NOT_IN_ORCA" // orca が selector_not_found を返した

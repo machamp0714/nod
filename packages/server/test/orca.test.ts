@@ -101,6 +101,17 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(getIssue(db, ref).worktree).toBe(WT);
   });
 
+  test("ブランチだけが記録済みでも orca を呼ばず、200 で failure を返す", async () => {
+    const { orca, calls } = recording();
+    const { app, db, ref } = withOrca(orca, null);
+    db.query("UPDATE issues SET branch = 'feat-branch-only' WHERE number = 1").run();
+    const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ created: false, branch: "feat-branch-only", failure: { code: "WORKTREE_ALREADY_RECORDED" } });
+    expect(calls).toHaveLength(0);
+    expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: "feat-branch-only" });
+  });
+
   test("NOD_ORCA=0・orca が無い・時間切れ・orca の失敗は 200 で理由を返し、Issue を変えない", async () => {
     const cases: [OrcaRunner | null, string][] = [
       [null, "DISABLED"],

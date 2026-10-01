@@ -33,7 +33,7 @@ export function defaultOrcaRunner(env: Record<string, string | undefined> = proc
 const FAILURE_MESSAGES: Record<Exclude<OrcaFailureCode, "TIMEOUT">, string> = {
   DISABLED: "Orca との連携が無効です（NOD_ORCA=0）",
   NO_WORKTREE: "この Issue には実行場所（worktree）が記録されていません",
-  WORKTREE_ALREADY_RECORDED: "この Issue には実行場所（worktree）が記録済みです",
+  WORKTREE_ALREADY_RECORDED: "この Issue には実行場所（worktree かブランチ）が記録済みです",
   WORKTREE_NOT_RECORDED: "worktree は作られましたが、Issue に記録できませんでした",
   ORCA_NOT_INSTALLED: "orca が見つかりません。Orca を起動し、orca CLI を使えるようにしてください",
   WORKTREE_NOT_IN_ORCA: "この worktree は Orca に登録されていません",
@@ -194,7 +194,7 @@ const FEATURE_RE = /^[a-z0-9-]+$/;
 
 // Issue の worktree を Orca に作り、エージェントを起動して着手を指示する（#210）。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
-// 実行場所が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
+// 実行場所（worktree かブランチ）が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
 export async function createOrcaWorktree(
   ctx: OpCtx,
   ref: string,
@@ -208,7 +208,8 @@ export async function createOrcaWorktree(
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
   }
   const fail = (failure: OrcaFailure): OrcaWorktreeResult => ({ issueId, created: false, worktree: row.worktree, branch: row.branch, failure });
-  if (row.worktree) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
+  // ブランチだけが記録済みの Issue（古いデータ）でも作らない。作ると記録済みのブランチ名を上書きしてしまう
+  if (row.worktree || row.branch) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
   if (!run) return fail(orcaFailure("DISABLED"));
   const workspace = ctx.db.query("SELECT path FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string };
   const res = readOrcaEnvelope(
