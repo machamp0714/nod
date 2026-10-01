@@ -18,6 +18,7 @@ import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pi
 import s from "./issue-detail.module.css";
 import { OpenInOrcaButton } from "./OpenInOrcaButton";
 import { PropertyMenu, type PropertyOption } from "./PropertyMenu";
+import { StartInOrcaButton } from "./StartInOrcaButton";
 import { useAsyncAction } from "./useAsyncAction";
 
 function Prop({ label, children }: { label: string; children: ReactNode }) {
@@ -303,6 +304,16 @@ export function PropertiesPanel({
   const locked = action.busy || readOnly;
   const full = variant === "rail";
   const location = executionLocation(issue.branch, issue.worktree);
+  // 「Orca で作業を始める」が成功したら、押したボタンが消えるため、代わりに出る「Orca で開く」へフォーカスを移す（#210）。
+  // 読み直しの描画が成功の通知より後になることもあるため、通知のときと worktree が変わったときの両方で試す
+  const openInOrca = useRef<HTMLButtonElement>(null);
+  const focusOpenInOrca = useRef(false);
+  const moveFocusToOpenInOrca = () => {
+    if (!focusOpenInOrca.current || !openInOrca.current) return;
+    focusOpenInOrca.current = false;
+    openInOrca.current.focus();
+  };
+  useEffect(moveFocusToOpenInOrca, [issue.worktree]);
   const statusNames = useStatusNames();
   const change = (input: UpdateIssueInput) => action.run(() => onUpdate(input), "変更できませんでした");
   const remind = (input: Parameters<RemindChange>[0]) =>
@@ -406,10 +417,12 @@ export function PropertiesPanel({
                     {location.worktree && <span className={s.locationPath}> · {location.worktree}</span>}
                   </span>
                 </span>
-                {issue.worktree && <OpenInOrcaButton issueId={issue.id} />}
+                {issue.worktree && <OpenInOrcaButton issueId={issue.id} buttonRef={openInOrca} />}
               </span>
             ) : (
-              <Static><Empty /></Static>
+              // 実行場所が未記録（worktree もブランチも無い）のときだけ、値の位置に「Orca で作業を始める」を出す（#210、nod.pen「PHJ9L」）
+              <StartInOrcaButton issueId={issue.id} workspaceKey={issue.workspace} title={issue.title} disabled={readOnly}
+                onCreated={() => { focusOpenInOrca.current = true; moveFocusToOpenInOrca(); }} />
             )}
           </Prop>
         )}
