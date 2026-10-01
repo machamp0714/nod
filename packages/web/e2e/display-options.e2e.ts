@@ -20,7 +20,8 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(popover.getByRole("button", { name: "並び順の方向", exact: true })).toHaveAttribute("data-value", "desc");
     await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title"]);
     await expect(page.getByRole("table").getByRole("link").first()).toBeVisible();
-    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toHaveCount(0);
+    // View は表示設定も保存するため、表示設定を変えると「変更を保存」が出る（#175）
+    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toBeVisible();
     await (await searchBox(page)).fill("存在しない表示設定確認");
     await expect(page.getByRole("cell", { name: "該当する Issue はありません" })).toHaveAttribute("colspan", "2");
     await (await columnChip(page, "Status")).focus();

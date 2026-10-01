@@ -3,14 +3,15 @@ import { createView, deleteView, getView, listViews, updateView, type ViewInput 
 import type { Hono } from "hono";
 import { type Body, optInt, optNullableString, optString, paramInt, readBody, reqString } from "../input";
 
-const VIEW_KEYS = ["name", "color", "filter", "position"] as const;
+const VIEW_KEYS = ["name", "color", "filter", "display", "position"] as const;
 
-// filter の中身は core の validateIssueQuery が確かめる
+// filter と display の中身は core の validateIssueQuery・validateViewDisplay が確かめる
 function toViewInput(b: Body): ViewInput {
   return {
     name: optString(b, "name"),
     color: optNullableString(b, "color"),
     filter: b.filter,
+    display: b.display,
     position: optInt(b, "position"),
   };
 }

@@ -1,31 +1,11 @@
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { ISSUE_COLUMNS, type IssueColumn, type IssueGroupBy, type IssueGroupKey, type IssueLayout, type IssueListSearch, type IssueSort } from "../../routes/search";
+import { COLUMN_NAMES, GROUP_NAMES, SORT_OPTIONS } from "../../lib/display-names";
 import { Icon, IconButton, type IconName, Menu, MenuItem } from "../ui";
 import s from "./issue-list.module.css";
 
-export const GROUP_NAMES: Record<IssueGroupKey, string> = {
-  workspace: "Workspace",
-  status: "Status",
-  priority: "Priority",
-  project: "Project",
-  cycle: "Cycle",
-  assignee: "担当",
-  label: "ラベル",
-};
+export { GROUP_NAMES };
 const GROUP_OPTIONS = Object.entries(GROUP_NAMES) as [IssueGroupKey, string][];
-
-// short はコンボボックス（幅 100）に出す短い名前
-const SORT_OPTIONS: { value: IssueSort; label: string; short?: string }[] = [
-  { value: "default", label: "既定（Status・優先度・ID）", short: "既定" },
-  { value: "priority", label: "優先度" },
-  { value: "createdAt", label: "作成日時" },
-  { value: "updatedAt", label: "更新日時" },
-  { value: "title", label: "タイトル" },
-  { value: "estimate", label: "見積もり" },
-  { value: "dueDate", label: "期限" },
-];
-
-const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", project: "Project", assignee: "担当", pr: "PR", estimate: "見積もり", dueDate: "期限" };
 
 const LAYOUTS: { value: IssueLayout; label: string; icon: IconName }[] = [
   { value: "list", label: "List", icon: "list" },

@@ -97,3 +97,93 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* View として保存（design/nod.pen「View として保存｜ダイアログ」SbQUj） */
+.dialogWide {
+  width: 440px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  font-size: 12px;
+}
+
+.summaryHeading {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summaryRows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.summaryRow {
+  display: flex;
+  gap: 10px;
+}
+
+.summaryKey {
+  flex: none;
+  width: 56px;
+  color: var(--ink3);
+  line-height: 1.5;
+}
+
+.summaryValue {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.summaryEmpty {
+  color: var(--ink2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  line-height: 1.2;
+}
+
+.chipName {
+  flex: none;
+  color: var(--ink3);
+}
+
+.chipValue {
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin: 0;
+  color: var(--ink3);
+  font-size: 12px;
+  line-height: 1.5;
+}

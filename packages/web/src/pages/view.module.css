@@ -1,0 +1,47 @@
+/* View の画面の Header（design/nod.pen「View 画面｜変更あり」ArbIb） */
+.titleSwatchBox {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+.titleSwatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* Header が狭く、画面名が最小の幅まで縮んでも収まらないときは「変更あり」を出さない。
+   幅 0 の ::before を1行目に置き、収まらない「変更あり」を2行目へ折り返して、高さ 20 の外として隠す（途中で切れた表示にしない）。
+   変更があることは「元に戻す」「変更を保存」でも分かる */
+.dirtyBox {
+  display: flex;
+  flex: 0 0.001 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  height: 20px;
+  overflow: hidden;
+}
+
+.dirtyBox::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 20px;
+}
+
+.dirty {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  color: var(--ink2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}

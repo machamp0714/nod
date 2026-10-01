@@ -2,12 +2,14 @@ import type { Database } from "bun:sqlite";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
+import { type ViewDisplay, validateViewDisplay } from "../view-display";
 
 export interface View {
   id: number;
   name: string;
   color: string | null;
   filter: IssueQuery;
+  display: ViewDisplay; // 一覧の表示設定（タブ・グループ化・並び順・列など）。空なら画面の既定
   position: number;
 }
 
@@ -15,6 +17,7 @@ export interface ViewInput {
   name?: string;
   color?: string | null;
   filter?: unknown; // IssueQuery の形。書き込む前に validateIssueQuery で確かめる
+  display?: unknown; // ViewDisplay の形。書き込む前に validateViewDisplay で確かめる
   position?: number;
 }
 
@@ -23,11 +26,12 @@ interface ViewRow {
   name: string;
   color: string | null;
   filter: string;
+  display: string;
   position: number;
 }
 
 function toView(r: ViewRow): View {
-  return { id: r.id, name: r.name, color: r.color, filter: JSON.parse(r.filter) as IssueQuery, position: r.position };
+  return { id: r.id, name: r.name, color: r.color, filter: JSON.parse(r.filter) as IssueQuery, display: JSON.parse(r.display) as ViewDisplay, position: r.position };
 }
 
 function checkName(db: Database, name: string, selfId: number | null): void {
@@ -54,14 +58,15 @@ export function getView(db: Database, id: number): View {
 
 export function createView(db: Database, input: ViewInput & { name: string }): View {
   const filter = validateIssueQuery(input.filter ?? {});
+  const display = validateViewDisplay(input.display ?? {});
   checkPosition(input.position);
   return tx(db, () => {
     checkName(db, input.name, null);
     const position =
       input.position ?? (db.query("SELECT COALESCE(MAX(position), 0) + 1 AS p FROM views").get() as { p: number }).p;
     const { lastInsertRowid } = db
-      .query("INSERT INTO views (name, color, filter, position) VALUES (?, ?, ?, ?)")
-      .run(input.name, input.color ?? null, JSON.stringify(filter), position);
+      .query("INSERT INTO views (name, color, filter, display, position) VALUES (?, ?, ?, ?, ?)")
+      .run(input.name, input.color ?? null, JSON.stringify(filter), JSON.stringify(display), position);
     return getView(db, Number(lastInsertRowid));
   });
 }
@@ -69,14 +74,16 @@ export function createView(db: Database, input: ViewInput & { name: string }): V
 // 渡した項目だけを変える
 export function updateView(db: Database, id: number, input: ViewInput): View {
   const filter = input.filter === undefined ? undefined : validateIssueQuery(input.filter);
+  const display = input.display === undefined ? undefined : validateViewDisplay(input.display);
   checkPosition(input.position);
   return tx(db, () => {
     const view = getView(db, id);
     if (input.name !== undefined) checkName(db, input.name, id);
-    db.query("UPDATE views SET name = ?, color = ?, filter = ?, position = ? WHERE id = ?").run(
+    db.query("UPDATE views SET name = ?, color = ?, filter = ?, display = ?, position = ? WHERE id = ?").run(
       input.name ?? view.name,
       input.color === undefined ? view.color : input.color,
       JSON.stringify(filter ?? view.filter),
+      JSON.stringify(display ?? view.display),
       input.position ?? view.position,
       id,
     );

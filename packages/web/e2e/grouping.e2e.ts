@@ -25,7 +25,8 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await page.reload();
     await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "project");
     await expect(page).toHaveURL(/sort=title/);
-    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toHaveCount(0);
+    // View は表示設定も保存するため、表示設定を変えると「変更を保存」が出る（#175）
+    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toBeVisible();
   });
 }
 
