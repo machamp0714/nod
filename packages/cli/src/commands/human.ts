@@ -12,6 +12,7 @@ import {
   listOpenQuestions,
   listTriageProposals,
   listNotifications,
+  localMinute,
   NOTIFICATION_READ_LIMIT,
   listReminders,
   markNotificationsRead,
@@ -151,7 +152,7 @@ export function registerHumanCommands(program: Command): void {
     .action(
       act((cli, _cmd, ids: string[], o: { until: string; issue?: string }) => {
         const r = snoozeNotifications(cli.ctx, { ...notificationTarget(ids, o.issue), until: o.until });
-        print(cli, r, () => `${r.updated} 件を ${r.snoozedUntil} までスヌーズしました`);
+        print(cli, r, () => `${r.updated} 件を ${localMinute(r.snoozedUntil)} までスヌーズしました`);
       }),
     );
   notification
@@ -195,7 +196,7 @@ export function registerHumanCommands(program: Command): void {
         const list = listReminders(cli.db);
         print(cli, list, () =>
           list.length
-            ? list.map((r) => `  ${r.remindAt}  ${r.issueId}  ${r.issueTitle}${r.note ? `\n    ${r.note}` : ""}`).join("\n")
+            ? list.map((r) => `  ${localMinute(r.remindAt)}  ${r.issueId}  ${r.issueTitle}${r.note ? `\n    ${r.note}` : ""}`).join("\n")
             : "リマインダーはありません",
         );
       }),
@@ -307,7 +308,7 @@ export function registerHumanCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string, until: string) => {
         const issue = snoozeTriage(cli.ctx, id, until);
-        print(cli, issue, () => `${issue.snoozedUntil} まで後回しにしました: ${formatIssueLine(issue)}`);
+        print(cli, issue, () => `${issue.snoozedUntil ? localMinute(issue.snoozedUntil) : ""} まで後回しにしました: ${formatIssueLine(issue)}`);
       }),
     );
 

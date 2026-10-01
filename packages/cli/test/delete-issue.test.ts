@@ -40,7 +40,7 @@ test("nod issue delete はアーカイブ済みだけを --yes で消し、nod w
   expect(audit.json).toHaveLength(1);
   expect(audit.json[0]).toMatchObject({ issueId: issue.id, title: "消す", deletedBy: "me" });
   const text = await nod(["workspace", "audit"]);
-  expect(text.stdout).toContain(`${issue.id}  消す  （削除: me）`);
+  expect(text.stdout).toMatch(new RegExp(`^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}  ${issue.id}  消す  （削除: me）`));
 });
 
 test("LLM は --yes を付けても削除できない", async () => {

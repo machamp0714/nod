@@ -93,4 +93,12 @@ describe("CLI の時刻はローカル時刻（#171）", () => {
     expect((await runNod(["issue", "show", id], { cwd: repo, db, env })).stdout).toContain(`  ${at}  claude-code status_changed`);
     expect((await runNod(["summary"], { cwd: repo, db, env })).stdout).toContain(`  ${at}  ${id}`);
   });
+
+  test("Triage の後回しの日時もローカル時刻で出す", async () => {
+    const id = (await llm(["issue", "create", "あとで見る"])).json.id;
+    const args = ["triage", "snooze", id, "2999-01-01T09:00:00+09:00"];
+    expect((await runNod(args, { cwd: repo, db, env: { TZ: "Asia/Tokyo" } })).stdout).toContain("2999-01-01 09:00 まで後回しにしました: ");
+    expect((await runNod(args, { cwd: repo, db, env: { TZ: "UTC" } })).stdout).toContain("2999-01-01 00:00 まで後回しにしました: ");
+    expect((await me(["issue", "show", id])).json.snoozedUntil).toBe("2999-01-01T00:00:00.000Z");
+  });
 });

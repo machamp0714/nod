@@ -20,8 +20,14 @@ test("リマインダーを CLI で設定・一覧・解除でき、期限が来
 
   const set = await nod(["issue", "remind", "API-1", "--at", "2999-01-01T09:00:00Z", "--note", "レビューを見る"]);
   expect(set.exitCode).toBe(0);
-  expect(set.stdout.trim()).toBe("API-1 に 2999-01-01T09:00:00.000Z のリマインダーを設定しました: レビューを見る");
-  expect((await nod(["issue", "show", "API-1"])).stdout).toContain("リマインダー: 2999-01-01T09:00:00.000Z  レビューを見る");
+  // テキストの日時はローカル時刻（#171）。set の出力は実行時の TZ によるので、TZ を固定して確かめる
+  expect(set.stdout).toContain("のリマインダーを設定しました: レビューを見る");
+  expect(set.stdout).not.toContain("T09:00:00.000Z");
+  const tokyo = (args: string[]) => runNod(args, { cwd: repo, db, actor: "me", env: { TZ: "Asia/Tokyo" } });
+  expect((await tokyo(["issue", "show", "API-1"])).stdout).toContain("リマインダー: 2999-01-01 18:00  レビューを見る");
+  expect((await tokyo(["reminder", "list"])).stdout).toContain("  2999-01-01 18:00  API-1  検索\n    レビューを見る");
+  const utc = await runNod(["issue", "remind", "API-1", "--at", "2999-01-01T09:00:00Z", "--note", "レビューを見る"], { cwd: repo, db, actor: "me", env: { TZ: "UTC" } });
+  expect(utc.stdout.trim()).toBe("API-1 に 2999-01-01 09:00 のリマインダーを設定しました: レビューを見る");
   const list = await nod(["reminder", "list", "--json"]);
   expect(list.json).toHaveLength(1);
   expect(list.json[0]).toMatchObject({ issueId: "API-1", note: "レビューを見る" });

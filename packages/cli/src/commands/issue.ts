@@ -26,6 +26,7 @@ import {
   getPrStatus,
   createCommandRunner,
   linkPr,
+  localMinute,
   refreshPrStatus,
   getPrDiff,
   getPrDiffFile,
@@ -528,7 +529,7 @@ export function registerIssueCommands(program: Command): void {
         }
         if (o.at === undefined) throw new NodError("INVALID_ARGS", "--at で日時を指定してください（解除は --clear）");
         const r = setReminder(cli.ctx, id, { at: o.at, note: o.note });
-        print(cli, r, () => `${r.issueId} に ${r.remindAt} のリマインダーを設定しました${r.note ? `: ${r.note}` : ""}`);
+        print(cli, r, () => `${r.issueId} に ${localMinute(r.remindAt)} のリマインダーを設定しました${r.note ? `: ${r.note}` : ""}`);
       }),
     );
 

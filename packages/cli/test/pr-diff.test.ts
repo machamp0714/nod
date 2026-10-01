@@ -77,6 +77,7 @@ describe("nod issue pr-diff", () => {
     ]);
     const text = await runNod(["issue", "pr-diff", id], { cwd: repo, db });
     expect(text.stdout).toContain("HEAD aaaaaaa · 変更ファイル 3 · +2 −1");
+    expect(text.stdout).toMatch(/\n取得: \d{4}-\d{2}-\d{2} \d{2}:\d{2}（claude-code）/);
     expect(text.stdout).toContain("  M src/search.ts  +2 −1");
     expect(text.stdout).toContain("  M img/logo.png  +0 −0  バイナリ");
     expect(text.stdout).toContain("  R src/a.ts → src/b.ts  +0 −0");

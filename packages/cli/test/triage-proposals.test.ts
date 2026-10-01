@@ -30,6 +30,7 @@ test("LLM は triage propose で提案だけを記録でき、Triage の状態�
 
   const text = await runNod(["triage", "proposals", issue.json.id], { cwd, db, actor: "codex" });
   expect(text.stdout).toContain("確定は人が行います");
+  expect(text.stdout).toMatch(/Assignee: codex  \d{4}-\d{2}-\d{2} \d{2}:\d{2}\n/);
   expect(text.stdout).toContain("理由: 再現できた");
   expect(text.stdout).toContain(`元: ${original.json.id}`);
 
