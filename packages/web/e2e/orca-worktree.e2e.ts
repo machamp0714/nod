@@ -32,7 +32,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   const agents = popover.getByRole("radiogroup", { name: "エージェント" });
   await expect(agents.getByRole("radio")).toHaveCount(2);
   await expect(agents.getByRole("radio", { name: "Claude Code" })).toBeChecked();
-  await expect(popover.getByText("worktree を作り、Claude Code を起動してこの Issue への着手を指示します。")).toBeVisible();
+  await expect(popover.getByText("worktree を作り、Claude Code のセッションを起動します。")).toBeVisible();
   await feature.fill("");
   await expect(submit).toBeDisabled();
   // 空欄の間は名前のプレビューを出さない
@@ -59,7 +59,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
 
   // 失敗のあとでエージェントを選び直せる
   await agents.getByRole("radio", { name: "Codex" }).check();
-  await expect(popover.getByText("worktree を作り、Codex を起動してこの Issue への着手を指示します。")).toBeVisible();
+  await expect(popover.getByText("worktree を作り、Codex のセッションを起動します。")).toBeVisible();
 
   // 作成中は入力とボタンを無効にし、ラベルを「作成中…」にする
   await stubOrca({ "worktree create": ok({ worktree: { path: worktree, branch: "refs/heads/machamp0714/API-1-search-n1" }, agentTerminalHandle: "term_new" }) });
@@ -85,8 +85,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(row.getByRole("button", { name: "Orca で開く" })).toBeFocused();
   await expect(start).toHaveCount(0);
   expect(await orcaCalls()).toEqual([
-    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `${created.id}+search-n1`, "--no-parent", "--agent", "codex",
-      "--prompt", `nod の Issue ${created.id} に着手してください`, "--activate", "--json"],
+    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `${created.id}+search-n1`, "--no-parent", "--agent", "codex", "--activate", "--json"],
   ]);
   const issue = await api.show(created.id);
   expect({ worktree: issue.worktree, branch: issue.branch, status: issue.status, assignee: issue.assignee }).toEqual({
@@ -111,7 +110,7 @@ test("Workspace の設定で既定のエージェントを Codex にすると、
   await region(page, "プロパティ").getByRole("button", { name: "Orca で作業を始める" }).click();
   const popover = page.getByRole("dialog", { name: "Orca で作業を始める" });
   await expect(popover.getByRole("radio", { name: "Codex" })).toBeChecked();
-  await expect(popover.getByText("worktree を作り、Codex を起動してこの Issue への着手を指示します。")).toBeVisible();
+  await expect(popover.getByText("worktree を作り、Codex のセッションを起動します。")).toBeVisible();
   // 作成時に選び直せる。選び直しても Workspace の既定は変わらない
   await popover.getByRole("radio", { name: "Claude Code" }).check();
   await popover.getByRole("button", { name: "作成して起動" }).click();

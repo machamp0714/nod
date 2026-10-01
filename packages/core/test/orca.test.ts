@@ -168,8 +168,7 @@ describe("createOrcaWorktree（#210）", () => {
     const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "API-1+search-n1", "--no-parent", "--agent", "claude",
-        "--prompt", "nod の Issue API-1 に着手してください", "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "API-1+search-n1", "--no-parent", "--agent", "claude", "--activate", "--json"],
     ]);
     const after = getIssue(db, ref);
     expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee, agentState: before.agentState });
