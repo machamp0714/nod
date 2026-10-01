@@ -28,6 +28,7 @@ export * from "./ops/plan";
 export * from "./ops/templates";
 export * from "./ops/recurring";
 export * from "./issue-filter";
+export * from "./view-display";
 export * from "./issue-sort";
 export * from "./ops/views";
 export * from "./ops/diagnose";

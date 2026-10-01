@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { chooseDisplay, displaySelect, searchBox } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
 
@@ -199,4 +200,96 @@ test("削除後の再取得でView画面が先に消えてもIssuesへ遷移す�
     release();
     await page.unrouteAll({ behavior: "wait" });
   }
+});
+
+test.describe("View の表示設定（#175）", () => {
+  const region = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
+  const lastView = async (page: Page) => ((await (await page.request.get("/api/views")).json()) as { id: number; filter: unknown; display: unknown }[]).at(-1)!;
+
+  test("タブ・グループ・並び順も View として保存し、開き直すと同じ表示になる", async ({ page }) => {
+    await page.goto("/issues?tab=ready&groupBy=workspace&sort=priority&workspace=API");
+    await page.getByRole("button", { name: "View として保存" }).click();
+    const dialog = page.getByRole("dialog", { name: "View として保存" });
+    const summary = dialog.getByRole("region", { name: "保存する内容" });
+    await expect(summary).toContainText("Workspaceapi-server");
+    await expect(summary).toContainText("タブ Ready ／ グループ Workspace ／ 並び 優先度（昇順）");
+    await expect(dialog.getByText("保存しません")).toHaveCount(0);
+    await dialog.getByRole("textbox", { name: "名前" }).fill("API の Ready");
+    await dialog.getByRole("button", { name: "保存" }).click();
+
+    await expect(page).toHaveURL(/\/views\/3$/);
+    expect(await lastView(page)).toMatchObject({ filter: { workspace: ["API"] }, display: { tab: "ready", groupBy: "workspace", sort: "priority" } });
+    await expect(page.getByRole("tab", { name: /^Ready / })).toHaveAttribute("aria-selected", "true");
+    await expect(region(page, "Workspace API")).toBeVisible();
+    await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "priority");
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+
+    // Sidebar から開き直しても、再読み込みしても同じ表示
+    await nav(page).getByRole("link", { name: "仕事", exact: true }).click();
+    await nav(page).getByRole("link", { name: "API の Ready" }).click();
+    await expect(page).toHaveURL(/\/views\/3$/);
+    await expect(page.getByRole("tab", { name: /^Ready / })).toHaveAttribute("aria-selected", "true");
+    await page.reload();
+    await expect(region(page, "Workspace API")).toBeVisible();
+  });
+
+  test("条件も表示設定もなければ「条件なし」「既定の表示」と出し、検索欄の入力とプレビューは保存しないと明示する", async ({ page }) => {
+    await page.goto("/issues");
+    await page.getByRole("button", { name: "View として保存" }).click();
+    const dialog = page.getByRole("dialog", { name: "View として保存" });
+    await expect(dialog.getByRole("region", { name: "保存する内容" })).toContainText("条件なし（すべての Issue）");
+    await expect(dialog.getByRole("region", { name: "保存する内容" })).toContainText("既定の表示");
+    await expect(dialog.getByText("保存しません")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "キャンセル" }).click();
+
+    await page.goto("/issues?q=API&layout=board");
+    await page.getByRole("button", { name: "View として保存" }).click();
+    await expect(dialog.getByRole("region", { name: "保存する内容" })).toContainText("表示 ボード");
+    await expect(dialog.getByText("検索欄の入力「API」は保存しません")).toBeVisible();
+    await dialog.getByRole("textbox", { name: "名前" }).fill("ボード");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(page).toHaveURL(/\/views\/3$/);
+    expect(await lastView(page)).toMatchObject({ filter: {}, display: { layout: "board" } });
+  });
+
+  test("View を開いたまま表示設定を変えると「変更あり」になり、保存すると URL から消えて次も同じ表示で開く", async ({ page }) => {
+    await page.goto("/views/1");
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await chooseDisplay(page, "グループ化", "Workspace");
+    await expect(page).toHaveURL(/groupBy=workspace/);
+    await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "変更を保存" }).click();
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(region(page, "Workspace API")).toBeVisible();
+    const saved = ((await (await page.request.get("/api/views/1")).json()) as { display: unknown }).display;
+    expect(saved).toEqual({ groupBy: "workspace" });
+
+    // 保存した表示設定を既定に戻す操作も「変更あり」になり、URL に明示して復元できる
+    await chooseDisplay(page, "グループ化", "なし");
+    await expect(page).toHaveURL(/groupBy=none/);
+    await expect(region(page, "Workspace API")).toHaveCount(0);
+    await page.reload();
+    await expect(region(page, "Workspace API")).toHaveCount(0);
+    await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "元に戻す" }).click();
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(region(page, "Workspace API")).toBeVisible();
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+  });
+
+  test("URL に明示した表示設定は View の表示設定より優先し、検索とプレビューは変更ありに数えない", async ({ page }) => {
+    const created = await page.request.post("/api/views", { data: { name: "ボード", display: { layout: "board", tab: "ready" } } });
+    const { id } = (await created.json()) as { id: number };
+    await page.goto(`/views/${id}`);
+    await expect(page.getByRole("tab", { name: /^Ready / })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("table")).toHaveCount(0);
+    await (await searchBox(page)).fill("API");
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await page.goto(`/views/${id}?layout=list&tab=all`);
+    await expect(page.getByRole("tab", { name: /^All / })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("table")).toBeVisible();
+    await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
+  });
 });

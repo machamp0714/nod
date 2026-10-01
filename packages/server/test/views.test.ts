@@ -74,4 +74,25 @@ describe("View の API", () => {
     expect((await call(app, "PUT", "/api/views/999", { name: "c" })).status).toBe(404);
     expect((await call(app, "DELETE", "/api/views/999")).status).toBe(404);
   });
+
+  test("表示設定（display）を保存し、PUT は渡したときだけ置き換え、不正な値は 400 で断る（#175）", async () => {
+    const { app } = setup();
+    const created = await call(app, "POST", "/api/views", {
+      name: "docs",
+      filter: { label: ["scope: docs"] },
+      display: { tab: "ready", groupBy: "project", sort: "priority", direction: "asc" },
+    });
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({ filter: { label: ["scope: docs"] }, display: { tab: "ready", groupBy: "project", sort: "priority" } });
+    const id = created.json.id as number;
+    expect((await call(app, "POST", "/api/views", { name: "plain" })).json.display).toEqual({});
+    expect((await call(app, "PUT", `/api/views/${id}`, { name: "docs2" })).json.display).toEqual({ tab: "ready", groupBy: "project", sort: "priority" });
+    const replaced = await call(app, "PUT", `/api/views/${id}`, { display: { layout: "board" } });
+    expect(replaced.json).toMatchObject({ name: "docs2", filter: { label: ["scope: docs"] }, display: { layout: "board" } });
+    const bad = await call(app, "PUT", `/api/views/${id}`, { display: { tab: "delegated" } });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
+    expect((await call(app, "POST", "/api/views", { name: "x", display: { preview: "API-1" } })).status).toBe(400);
+    expect((await call(app, "GET", `/api/views/${id}`)).json.display).toEqual({ layout: "board" });
+  });
 });

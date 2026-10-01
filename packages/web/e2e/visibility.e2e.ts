@@ -29,7 +29,8 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(showChildren).toHaveAttribute("aria-checked", "false");
     await expect(completed).toHaveCount(0);
     await expect(child).toHaveCount(0);
-    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toHaveCount(0);
+    // View は表示設定も保存するため、表示設定を変えると「変更を保存」が出る（#175）
+    if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toBeVisible();
     await chooseDisplay(page, "グループ化", "Workspace");
     await expect(completed).toHaveCount(0);
     await expect(child).toHaveCount(0);

@@ -22,6 +22,8 @@ import type { IssueListRow } from "./types";
 export interface IssueListProps {
   crumb?: ReactNode;
   title: string;
+  titleIcon?: ReactNode; // タイトルの左に置く印（View の色）
+  titleNote?: ReactNode; // タイトルの右に置く注記（View の「変更あり」）
   intro?: ReactNode;
   actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
   filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
@@ -47,6 +49,8 @@ const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["priority", "workspace",
 export function IssueList({
   crumb,
   title,
+  titleIcon,
+  titleNote,
   intro,
   actions,
   filterBar,
@@ -200,7 +204,9 @@ export function IssueList({
             <Icon name="chevron-right" size={12} color="var(--ink3)" />
           </>
         )}
+        {titleIcon}
         <PageTitle>{title}</PageTitle>
+        {titleNote}
         <Spacer />
         {actions && <div className={s.actions}>{actions}</div>}
       </PageHeader>

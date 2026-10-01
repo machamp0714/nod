@@ -10,7 +10,9 @@ import { Button, PageError, PageLoading, Pill } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { errorMessage } from "../api/errors";
 import { sameFilter } from "../lib/issue-filter";
-import { replacesIssueListHistory, cleanIssueListSearch } from "../routes/search";
+import { cleanViewSearch, displayFromSearch, sameDisplay, viewSearch, withoutDisplay } from "../lib/view-display";
+import s from "../components/views/view-dialog.module.css";
+import { replacesIssueListHistory } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 
 const route = getRouteApi("/views/$viewId");
@@ -23,12 +25,13 @@ export function ViewPage() {
   // GET /api/views/:id の 404 をコンソールに出さないため、一覧から探す
   const view = views.data.find((v) => String(v.id) === viewId);
   if (!view) return <NotFoundMessage title="View が見つかりません" />;
-  // 別の View に移ったときと、保存した条件が変わったときに、保存していない条件を捨てて開き直す
-  return <ViewIssues key={`${view.id}:${JSON.stringify(view.filter)}`} view={view} views={views.data} />;
+  // 別の View に移ったときと、保存した条件・表示設定が変わったときに、保存していない条件を捨てて開き直す
+  return <ViewIssues key={`${view.id}:${JSON.stringify(view.filter)}:${JSON.stringify(view.display)}`} view={view} views={views.data} />;
 }
 
 function ViewIssues({ view, views }: { view: View; views: View[] }) {
-  const search = route.useSearch();
+  // URL に明示した表示設定は URL を優先し、ないものは View に保存した表示設定で表示する（#175）
+  const search = viewSearch(view.display, route.useSearch());
   const navigate = useNavigate({ from: "/views/$viewId" });
   const [draft, setDraft] = useState<IssueQuery>(view.filter);
   const [renaming, setRenaming] = useState(false);
@@ -37,7 +40,26 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
   const saveFilter = useUpdateView();
   const rename = useUpdateView();
   const remove = useDeleteView();
-  const dirty = !sameFilter(draft, view.filter);
+  // 委任中タブは表示設定ではなく絞り込み条件（delegated）として保存する（Issues の「View として保存」と同じ）
+  const nextFilter = search.tab === "delegated" ? { ...draft, delegated: true } : draft;
+  const nextDisplay = displayFromSearch(search);
+  const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, view.display);
+
+  // 表示設定のクエリを URL から外すと、View に保存した表示設定に戻る。絞り込みの下書きも一緒に戻す
+  async function revert() {
+    setDraft(view.filter);
+    await navigate({ search: (prev) => withoutDisplay(prev), replace: true });
+  }
+
+  async function save() {
+    try {
+      await saveFilter.mutateAsync({ id: view.id, input: { filter: nextFilter, display: nextDisplay } });
+      // 保存した表示設定は View が持つため、URL からは外す
+      await navigate({ search: (prev) => withoutDisplay(prev), replace: true });
+    } catch {
+      // 失敗は saveFilter.isError で表示する。イベント処理の Promise は拒否しない。
+    }
+  }
 
   async function deleteView() {
     if (!window.confirm(`View「${view.name}」を削除しますか？`)) return;
@@ -55,12 +77,18 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
       <IssueList
         crumb="Views"
         title={view.name}
+        titleIcon={
+          <span className={s.titleSwatchBox} aria-hidden="true">
+            <span className={s.titleSwatch} style={{ background: view.color ?? undefined }} />
+          </span>
+        }
+        titleNote={dirty && <span className={s.dirtyBox}><span className={s.dirty}>変更あり</span></span>}
         rows={rows.rows}
         loading={rows.loading}
         error={rows.error}
         search={search}
         statusWorkspace={singleWorkspace(draft.workspace)}
-        onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
+        onSearchChange={(patch) => navigate({ search: (prev) => cleanViewSearch({ ...viewSearch(view.display, prev), ...patch }, view.display), replace: replacesIssueListHistory(patch) })}
         // 失敗の表示は Header（高さ 44 で折り返さない）の外に出す
         intro={
           (saveFilter.isError || remove.isError) && (
@@ -72,13 +100,13 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         }
         actions={
           <>
-            {dirty && <Button onClick={() => setDraft(view.filter)}>元に戻す</Button>}
+            {dirty && <Button onClick={() => void revert()}>元に戻す</Button>}
             {dirty && (
               <Button
                 variant="primary"
                 icon="layers"
                 disabled={saveFilter.isPending}
-                onClick={() => saveFilter.mutate({ id: view.id, input: { filter: draft } })}
+                onClick={() => void save()}
               >
                 変更を保存
               </Button>

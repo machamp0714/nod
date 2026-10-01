@@ -548,4 +548,8 @@ export const MIGRATIONS: MigrationStep[][] = [
   [
     `ALTER TABLE project_updates ADD COLUMN health_cleared INTEGER NOT NULL DEFAULT 0 CHECK (health_cleared IN (0, 1) AND (health_cleared = 0 OR health IS NULL))`,
   ],
+  // View に一覧の表示設定（タブ・グループ化・並び順・列など）を保存する（#175）。既存の View は空（画面の既定の表示）
+  [
+    `ALTER TABLE views ADD COLUMN display TEXT NOT NULL DEFAULT '{}'`,
+  ],
 ];

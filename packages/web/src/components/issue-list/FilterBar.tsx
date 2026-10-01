@@ -2,6 +2,7 @@ import type { IssueQuery, Status } from "../../api/types";
 import {
   assigneeFilterOptions,
   describeFilter,
+  type FilterChip,
   type FilterOption,
   type FilterOptions,
   milestoneOptionsFor,
@@ -30,6 +31,17 @@ function projectIdOf(projects: readonly FilterOption[], ref: string | undefined)
   return ref === undefined ? undefined : (projects.find((o) => o.value === ref || o.label === ref)?.value ?? ref);
 }
 
+// 絞り込み条件のチップ（名前と値）。Filters の行と、View の保存ダイアログの「保存する内容」で同じ表記にする
+export function useFilterChips(filter: IssueQuery, options: FilterOptions): FilterChip[] {
+  const statusNames = useStatusNames();
+  return describeFilter(filter, {
+    workspace: (key) => nameOf(options.workspaces, key),
+    project: (ref) => nameOf(options.projects, ref),
+    milestone: (ref) => nameOf(options.milestones, ref),
+    status: (status) => statusName(status, statusNames.data, singleWorkspace(filter.workspace)),
+  });
+}
+
 // nod.pen の 11 Issues の Filters の行。今の条件をチップで並べ、「Filter」のパネルで足し引きする。
 // fixedAssignee は My issues の固定の担当（Pencil「My issues（#162）」の外せないチップ。担当タブは me、委任中タブは LLM）。担当の条件はパネルに出さない
 export function FilterBar({
@@ -47,12 +59,7 @@ export function FilterBar({
   const statusNames = useStatusNames();
   const nameOfStatus = (status: Status) => statusName(status, statusNames.data, singleWorkspace(filter.workspace));
   const statusOptions: FilterOption[] = STATUS_ORDER.map((status) => ({ value: status, label: nameOfStatus(status) }));
-  const chips = describeFilter(filter, {
-    workspace: (key) => nameOf(options.workspaces, key),
-    project: (ref) => nameOf(options.projects, ref),
-    milestone: (ref) => nameOf(options.milestones, ref),
-    status: nameOfStatus,
-  });
+  const chips = useFilterChips(filter, options);
   return (
     <div className={s.bar} role="group" aria-label="絞り込み条件">
       {fixedAssignee && (

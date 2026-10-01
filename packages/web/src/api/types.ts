@@ -100,6 +100,7 @@ export type {
   StepStatus,
   UpdateIssueInput,
   View,
+  ViewDisplay,
   ViewInput,
   Workspace,
   WorkspaceLabel,

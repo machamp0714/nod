@@ -1,8 +1,17 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { View } from "../../api/types";
+import type { FilterChip } from "../../lib/issue-filter";
+import type { DisplayItem } from "../../lib/view-display";
 import { VIEW_COLORS, viewNameError } from "../../lib/views";
 import { Button } from "../ui";
 import s from "./view-dialog.module.css";
+
+// 保存ダイアログの「保存する内容」。絞り込み条件のチップ、表示設定（既定と違うもの）、保存しないものの注記
+export interface ViewSaveSummary {
+  chips: readonly FilterChip[];
+  display: readonly DisplayItem[];
+  note: string | null;
+}
 
 export interface ViewDialogProps {
   title: string;
@@ -10,12 +19,14 @@ export interface ViewDialogProps {
   initial: { name: string; color: string | null };
   views: readonly View[] | undefined; // 名前の重なりを確かめるための、今ある View の一覧
   selfId: number | null; // 名前を変える View の id。作るときは null
+  summary?: ViewSaveSummary; // 今の画面を View として保存するときだけ渡す
   onSubmit: (value: { name: string; color: string }) => Promise<void>;
   onClose: () => void;
 }
 
-// View の作成と名前の変更に使う。開いている間だけ描画し、閉じるときは親が描画をやめる
-export function ViewDialog({ title, submitLabel, initial, views, selfId, onSubmit, onClose }: ViewDialogProps) {
+// View の作成と名前の変更に使う。開いている間だけ描画し、閉じるときは親が描画をやめる。
+// summary があるときは design/nod.pen「View として保存｜ダイアログ」（D6fZTr、幅 440）。保存する内容と、保存しないものの注記を出す（#175）
+export function ViewDialog({ title, submitLabel, initial, views, selfId, summary, onSubmit, onClose }: ViewDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [name, setName] = useState(initial.name);
@@ -47,7 +58,7 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, onSubmi
   return (
     <dialog
       ref={ref}
-      className={s.dialog}
+      className={summary ? `${s.dialog} ${s.dialogWide}` : s.dialog}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
@@ -78,6 +89,41 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, onSubmi
             </label>
           ))}
         </fieldset>
+        {summary && (
+          <section className={s.summary} aria-label="保存する内容">
+            <h3 className={s.summaryHeading}>保存する内容</h3>
+            <dl className={s.summaryRows}>
+              <div className={s.summaryRow}>
+                <dt className={s.summaryKey}>絞り込み</dt>
+                <dd className={s.summaryValue}>
+                  {summary.chips.length ? (
+                    <span className={s.chips}>
+                      {summary.chips.map((chip) => (
+                        <span key={chip.key} className={s.chip}>
+                          <span className={s.chipName}>{chip.name}</span>
+                          <span className={s.chipValue}>{chip.values}</span>
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className={s.summaryEmpty}>条件なし（すべての Issue）</span>
+                  )}
+                </dd>
+              </div>
+              <div className={s.summaryRow}>
+                <dt className={s.summaryKey}>表示</dt>
+                <dd className={s.summaryValue}>
+                  {summary.display.length ? (
+                    summary.display.map((item) => `${item.name} ${item.value}`).join(" ／ ")
+                  ) : (
+                    <span className={s.summaryEmpty}>既定の表示</span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        )}
+        {summary?.note && <p className={s.note}>{summary.note}</p>}
         {error && (
           <p role="alert" className={s.error}>
             {error}

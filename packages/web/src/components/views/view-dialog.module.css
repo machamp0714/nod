@@ -97,3 +97,141 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* View として保存（design/nod.pen「View として保存｜ダイアログ」SbQUj） */
+.dialogWide {
+  width: 440px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  font-size: 12px;
+}
+
+.summaryHeading {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summaryRows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.summaryRow {
+  display: flex;
+  gap: 10px;
+}
+
+.summaryKey {
+  flex: none;
+  width: 56px;
+  color: var(--ink3);
+  line-height: 1.5;
+}
+
+.summaryValue {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.summaryEmpty {
+  color: var(--ink2);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  line-height: 1.2;
+}
+
+.chipName {
+  flex: none;
+  color: var(--ink3);
+}
+
+.chipValue {
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin: 0;
+  color: var(--ink3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* View の画面の Header（design/nod.pen「View 画面｜変更あり」ArbIb） */
+.titleSwatchBox {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+.titleSwatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* Header が狭く、画面名が最小の幅まで縮んでも収まらないときは「変更あり」を出さない。
+   幅 0 の ::before を1行目に置き、収まらない「変更あり」を2行目へ折り返して、高さ 20 の外として隠す（途中で切れた表示にしない）。
+   変更があることは「元に戻す」「変更を保存」でも分かる */
+.dirtyBox {
+  display: flex;
+  flex: 0 0.001 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  height: 20px;
+  overflow: hidden;
+}
+
+.dirtyBox::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 20px;
+}
+
+.dirty {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  color: var(--ink2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
