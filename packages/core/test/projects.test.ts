@@ -136,4 +136,19 @@ describe("resolveProject の候補（#176）", () => {
     expect(resolveProject(db, "Web").name).toBe("Web");
     expect(() => resolveProject(db, "zzz")).toThrow("Project zzz はありません。nod project list で名前と ID を確かめてください");
   });
+
+  test("候補は 完全一致 → 前方一致 → 部分一致 の順に並べてから5件に切る", () => {
+    const { db, me } = setup();
+    // 名前順では完全一致（web）が6件目以降になる
+    for (const name of ["a web", "b web", "c web", "d web", "e web", "web", "Web 2", "f web"]) createProject(me, { name });
+    let error: NodError | undefined;
+    try {
+      resolveProject(db, "WEB");
+    } catch (e) {
+      error = e as NodError;
+    }
+    const candidates = (error?.details as { candidates: { id: number; name: string }[] }).candidates;
+    expect(candidates.map((c) => c.name)).toEqual(["web", "Web 2", "a web", "b web", "c web"]);
+    expect(error?.message).toContain("近い名前: web（ID 6）、Web 2（ID 7）、a web（ID 1）");
+  });
 });

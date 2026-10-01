@@ -86,7 +86,7 @@ describe("nod inbox の Triage の件数と triage list・review list（#177）"
     const { me, llm } = await seed();
     const r = await me(["review", "list"]);
     expect(r.exitCode).toBe(0);
-    expect(r.stdout.trimEnd().split("\n")).toEqual(["API-3  In Review   [done]  mine"]);
+    expect(r.stdout.trimEnd().split("\n")).toEqual(["API-3  In Review    mine"]);
     const asLlm = await llm(["review", "list", "--json"]);
     expect(asLlm.json.map((i: { id: string }) => i.id)).toEqual(["API-3"]);
     expect(asLlm.json).toEqual((await me(["inbox", "--json"])).json.reviews);

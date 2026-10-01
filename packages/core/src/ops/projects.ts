@@ -19,13 +19,16 @@ export function resolveProject(db: Database, ref: string): { id: number; name: s
 const PROJECT_CANDIDATE_LIMIT = 5;
 
 // 名前の一部しか合わない指定は解決しない（意図しない Project に書き込まないため）。
-// 代わりに、大文字小文字を問わず名前に含むものを候補として案内する（#176）
+// 代わりに、大文字小文字を問わず名前に含むものを候補として案内する（#176）。
+// 候補は 完全一致 → 前方一致 → 部分一致 の順に並べてから切る（大文字小文字だけが違う名前を、上限で落とさないため）
 function projectNotFound(db: Database, ref: string): NodError {
   const needle = ref.trim().toLowerCase();
+  const rank = (name: string): number => (name === needle ? 0 : name.startsWith(needle) ? 1 : 2);
   // SQLite の lower は非ASCIIを畳まないので、Issue の検索と同じく JavaScript で比べる
   const candidates = needle
     ? (db.query("SELECT id, name FROM projects ORDER BY name, id").all() as { id: number; name: string }[])
         .filter((p) => p.name.toLowerCase().includes(needle))
+        .sort((a, b) => rank(a.name.toLowerCase()) - rank(b.name.toLowerCase()))
         .slice(0, PROJECT_CANDIDATE_LIMIT)
     : [];
   const hint = candidates.length

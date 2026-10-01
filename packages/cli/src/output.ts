@@ -260,13 +260,13 @@ function discoveredFrom(d: IssueDetail): string | null {
   return typeof source === "string" && source ? source : null;
 }
 
-// 関係の相手に、アーカイブ済みの印を添える。ブロック元は、数えない理由（完了・キャンセル）も添える（#176）
+// 関係の相手に、アーカイブ済みの印を添える。ブロック元は、数えない理由（done・canceled）も添える（#176）。
+// 理由は相手の Workspace の表示名で出し、show のほかの箇所の表記とそろえる
 function relationRef(d: IssueDetail, id: string, blocker: boolean): string {
   const state = d.relationStates[id];
   if (!state) return id;
   if (state.archived) return `${id}（アーカイブ済み）`;
-  if (blocker && state.status === "done") return `${id}（完了）`;
-  if (blocker && state.status === "canceled") return `${id}（キャンセル）`;
+  if (blocker && (state.status === "done" || state.status === "canceled")) return `${id}（${statusText(state.status, id)}）`;
   return id;
 }
 

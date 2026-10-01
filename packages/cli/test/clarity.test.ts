@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 let db: string;
@@ -39,7 +40,7 @@ describe("Project の指定（#176 項目1）", () => {
 });
 
 describe("関係の相手の印（#176 項目2）", () => {
-  test("アーカイブ済みの相手に（アーカイブ済み）、数えないブロック元に（完了）（キャンセル）を添える", async () => {
+  test("アーカイブ済みの相手に（アーカイブ済み）、数えないブロック元にその状態（Done・Canceled）を添える", async () => {
     const target = await create("ブロックされる");
     const archived = await create("アーカイブするブロック元");
     const done = await create("完了するブロック元");
@@ -53,7 +54,7 @@ describe("関係の相手の印（#176 項目2）", () => {
     await me(["issue", "update", done, "--status", "done"]);
     await me(["issue", "update", canceled, "--status", "canceled"]);
     const out = await text(["issue", "show", target]);
-    expect(out).toContain(`  ブロックされている: ${archived}（アーカイブ済み）, ${done}（完了）, ${canceled}（キャンセル）, ${open}`);
+    expect(out).toContain(`  ブロックされている: ${archived}（アーカイブ済み）, ${done}（Done）, ${canceled}（Canceled）, ${open}`);
     expect(out).toContain(`  関連: ${related}（アーカイブ済み）`);
     // ブロック元以外の行では、完了の印は付けない
     expect(await text(["issue", "show", done])).toContain(`  ブロックしている: ${target}\n`);
@@ -62,6 +63,25 @@ describe("関係の相手の印（#176 項目2）", () => {
     expect(json.relations.blockedBy).toEqual([archived, done, canceled, open]);
     expect(json.relationStates[archived]).toEqual({ status: "todo", archived: true });
     expect(json.relationStates[done]).toEqual({ status: "done", archived: false });
+  });
+
+  test("表示名を変えた Workspace では、ブロック元の状態を show のほかの箇所と同じ表記で出す", async () => {
+    const db2 = tempDb();
+    const repo2 = makeRepo();
+    registerRepo(db2, repo2, "RN");
+    const run = (args: string[]) => runNod(args, { cwd: repo2, db: db2 });
+    for (const title of ["ブロックされる", "完了するブロック元", "キャンセルするブロック元", "アーカイブするブロック元"]) await run(["issue", "create", title]);
+    for (const b of ["RN-2", "RN-3", "RN-4"]) await run(["issue", "relate", b, "--blocks", "RN-1"]);
+    await run(["issue", "update", "RN-2", "--status", "done"]);
+    await run(["issue", "update", "RN-3", "--status", "canceled"]);
+    await run(["issue", "update", "RN-4", "--status", "done"]);
+    await run(["issue", "archive", "RN-4"]);
+    await run(["workspace", "status-names", "set", "done", "完了"]);
+    await run(["workspace", "status-names", "set", "canceled", "中止"]);
+    const out = (await run(["issue", "show", "RN-1"])).stdout;
+    // アーカイブ済みは固定の文言のまま
+    expect(out).toContain("  ブロックされている: RN-2（完了 (done)）, RN-3（中止 (canceled)）, RN-4（アーカイブ済み）");
+    expect((await run(["issue", "show", "RN-2"])).stdout).toContain("ステータス: 完了 (done)\n");
   });
 });
 
@@ -95,10 +115,13 @@ describe("Inbox の重複（#176 項目4）", () => {
     expect(out.match(/A と B のどちらにするか/g)).toHaveLength(1);
     expect(out).toContain("Q: A と B のどちらにするか（claude-code）");
     expect(out).toContain("（確認依頼に出ている入力待ちの通知 1 件は省略）");
+    // 省略の行は通知の末尾に置き、空行をはさんで Triage の件数が続く（#177）
+    expect(out).toMatch(/（確認依頼に出ている入力待ちの通知 1 件は省略）\n\nTriage（\d+）/);
     // 通知そのものは残る
     expect(await text(["notification", "list"])).toContain("claude-code が確認を求めた（入力待ち）: A と B のどちらにするか");
     const json = (await me(["inbox"])).json;
     expect(json.notifications.some((n: { issueId: string; data: { to?: string } }) => n.issueId === id && n.data.to === "awaiting_input")).toBe(true);
+    expect(typeof json.triageCount).toBe("number");
     // 見出しの件数は、省いた後の件数
     const count = Number(out.match(/通知（未読 (\d+)）/)![1]);
     expect(count).toBe(json.notifications.length - 1);
@@ -107,9 +130,14 @@ describe("Inbox の重複（#176 項目4）", () => {
 
 describe("ID の検索（#176 項目5）", () => {
   test("検索語と ID が完全一致する Issue を、並び順に関係なく先頭に置く", async () => {
-    const other = openIds(await me(["issue", "list", "--status", "triage,todo,backlog,in_progress,in_review,done,canceled"]));
+    // ほかのテストの起票数に左右されないよう、この検索だけの DB を使う
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo, "TS");
+    const me = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db });
+    const text = async (args: string[]) => (await runNod(args, { cwd: repo, db })).stdout;
     // TS-6 と TS-60 台がそろうまで起票する
-    for (let n = other.length; n < 61; n++) await create(`埋める ${n}`);
+    for (let n = 1; n <= 61; n++) await me(["issue", "create", `埋める ${n}`]);
     await me(["issue", "update", "TS-2", "-d", "TS-6 を参照"]);
     await me(["issue", "update", "TS-60", "-p", "1"]);
     const all = ["--status", "triage,todo,backlog,in_progress,in_review,done,canceled", "--query", "ts-6"];
@@ -123,10 +151,6 @@ describe("ID の検索（#176 項目5）", () => {
     expect(desc.split("\n")[0]).toMatch(/^TS-6 /);
   });
 });
-
-function openIds(r: { json: { id: string }[] }): string[] {
-  return r.json.map((i) => i.id);
-}
 
 describe("Activity の文（#198・#176 項目6）", () => {
   test("event を文で出し、起票元を本体と Activity の両方に出す", async () => {
@@ -157,6 +181,19 @@ describe("Activity の文（#198・#176 項目6）", () => {
     // --json は生の event のまま
     const created = (await me(["issue", "show", id])).json.activity[0];
     expect(created).toMatchObject({ kind: "event", type: "created", data: { status: "triage", discovered_from: source } });
+  });
+
+  test("知らない種類の event は、種類の名前と data の JSON のまま出す", async () => {
+    const id = await create("知らない event");
+    const d = openDb(db);
+    d.run("INSERT INTO events (issue_id, actor, type, data, created_at) SELECT id, 'me', 'future_event', ?, ? FROM issues ORDER BY id DESC LIMIT 1", [
+      JSON.stringify({ note: "x", n: 1 }),
+      new Date().toISOString(),
+    ]);
+    d.close();
+    expect(await text(["issue", "show", id])).toContain('me future_event {"note":"x","n":1}\n');
+    const activity = (await me(["issue", "show", id])).json.activity as { type?: string; data?: unknown }[];
+    expect(activity.find((a) => a.type === "future_event")?.data).toEqual({ note: "x", n: 1 });
   });
 
   test("入力待ちの行は質問文を繰り返さず、スヌーズは期限をローカル時刻で出す", async () => {
