@@ -4,7 +4,7 @@ import { call, setup } from "./helpers";
 
 test("GET /api/issues/:id は、関係の相手の状態を relationStates で返す（#203）", async () => {
   const { app, me, ws } = setup();
-  const make = (title: string) => createIssue(me, { workspaceId: ws.id, title, status: "todo" });
+  const make = (title: string) => createIssue(me, { workspaceId: ws.id, title });
   const target = make("ブロックされる");
   const archived = make("アーカイブするブロック元");
   const done = make("完了するブロック元");
