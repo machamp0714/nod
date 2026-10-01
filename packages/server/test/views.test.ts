@@ -34,6 +34,24 @@ describe("View の API", () => {
     expect(r.json.issues.map((i: { id: string }) => i.id)).toEqual(["API-1"]);
   });
 
+  test("priority は GET /api/issues と View の filter の両方で絞り、名前と none も受け付ける（#174）", async () => {
+    const { app, db, me, ws } = setup();
+    createIssue(me, { workspaceId: ws.id, title: "urgent", priority: 1 });
+    createIssue(me, { workspaceId: ws.id, title: "なし" });
+    createIssue(me, { workspaceId: ws.id, title: "low", priority: 4 });
+    const idsOf = (r: { json: { issues: { id: string }[] } }) => r.json.issues.map((i) => i.id);
+    expect(idsOf(await call(app, "GET", "/api/issues?priority=1,4"))).toEqual(["API-1", "API-3"]);
+    expect(idsOf(await call(app, "GET", "/api/issues?priority=urgent&priority=none"))).toEqual(["API-1", "API-2"]);
+    expect(idsOf(await call(app, "GET", "/api/issues?priority=0"))).toEqual(["API-2"]);
+    const bad = await call(app, "GET", "/api/issues?priority=5");
+    expect(bad.status).toBe(400);
+    expect(bad.json.error.code).toBe("INVALID_ARGS");
+    const view = (await call(app, "POST", "/api/views", { name: "急ぎ", filter: { priority: ["high", 1, "urgent"] } })).json;
+    expect(view.filter).toEqual({ priority: [1, 2] });
+    expect(queryIssues(db, view.filter).issues.map((i) => i.id)).toEqual(["API-1"]);
+    expect((await call(app, "POST", "/api/views", { name: "b", filter: { priority: [9] } })).status).toBe(400);
+  });
+
   test("名前の重複は 409、不正な filter や本文は 400、数字でない id は 400", async () => {
     const { app } = setup();
     const a = (await call(app, "POST", "/api/views", { name: "a" })).json;

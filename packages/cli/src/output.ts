@@ -98,11 +98,6 @@ function questionCountTag(count: Issue["questionCount"]): string {
   return count.total > 0 ? `  [未決 ${count.answered}/${count.total}]` : "";
 }
 
-// nod issue list の行。1行表示に未決事項の件数を足す（#173）
-export function formatIssueListLines(issues: Issue[]): string[] {
-  return formatIssueLines(issues).map((line, n) => `${line}${questionCountTag(issues[n]!.questionCount)}`);
-}
-
 // 未回答の未決事項の一覧（#173）。Issue ごとにまとめ、質問は nod answer --question に渡す #番号つきで出す
 // llm は実行者が LLM のとき。me が付けた未決事項は LLM が回答できないので、回答のしかたの代わりにそのことを案内する
 export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
@@ -130,7 +125,42 @@ function localDate(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（Workspace、番号）を保つ
+const PRIORITY_NAMES = ["-", "Urgent", "High", "Medium", "Low"];
+const PRIORITY_WIDTH = 6;
+const PROJECT_MAX_WIDTH = 20;
+
+function padEnd(text: string, width: number): string {
+  return `${text}${" ".repeat(Math.max(0, width - displayWidth(text)))}`;
+}
+
+// 表示幅が max を超える文字列を、末尾を … にして max に収める
+function truncate(text: string, max: number): string {
+  if (displayWidth(text) <= max) return text;
+  let out = "";
+  for (const c of text) {
+    if (displayWidth(out + c) > max - 1) break;
+    out += c;
+  }
+  return `${out}…`;
+}
+
+// nod issue list の行（#174）。1行表示のステータスとタイトルの間に、優先度と Project の列を足す。
+// 優先度なしと Project なしは - にし、Project は一覧の中の最大幅（20 桁まで。超える名前は … で切る）にそろえる。
+// 行末には未決事項の決定数 / 総数を付ける（#173）
+export function formatIssueListLines(issues: Issue[]): string[] {
+  const statusWidth = statusColumnWidth(issues);
+  const projects = issues.map((i) => (i.project ? truncate(i.project.name, PROJECT_MAX_WIDTH) : "-"));
+  const projectWidth = Math.max(1, ...projects.map(displayWidth));
+  return issues.map((i, n) => {
+    const agent = i.agentState ? ` [${i.agentState}]` : "";
+    const candidate = i.completionCandidate ? " [完了候補]" : "";
+    const archived = i.archivedAt ? " [archived]" : "";
+    const priority = padEnd(PRIORITY_NAMES[i.priority] ?? "-", PRIORITY_WIDTH);
+    return `${i.id}  ${padEnd(statusText(i.status, i.id), statusWidth)}${agent}${archived}  ${priority}  ${padEnd(projects[n] ?? "-", projectWidth)}  ${i.title}${candidate}${questionCountTag(i.questionCount)}`;
+  });
+}
+
+// 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（--sort の順。既定は Workspace、番号）を保つ
 export function sortByAssignee(issues: Issue[]): Issue[] {
   return [...issues].sort((a, b) => (a.assignee ?? "").localeCompare(b.assignee ?? ""));
 }
@@ -154,7 +184,7 @@ export function formatDelegations(issues: Issue[]): string {
         .filter(([, n]) => n > 0)
         .map(([label, n]) => `${label} ${n}`)
         .join("・");
-      return [`${agent}（${rows.length}件: ${breakdown}）`, ...formatIssueLines(rows).map((line) => `  ${line}`)].join("\n");
+      return [`${agent}（${rows.length}件: ${breakdown}）`, ...formatIssueListLines(rows).map((line) => `  ${line}`)].join("\n");
     })
     .join("\n\n");
 }

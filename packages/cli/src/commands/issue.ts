@@ -37,10 +37,14 @@ import {
   type Issue,
   listInstructions,
   listIssueAttachments,
+  ISSUE_SORT_KEYS,
   listIssues,
   logWork,
   nextIssue,
   NodError,
+  parseIssueSortKey,
+  parsePriorityRefs,
+  sortIssues,
   recordInstruction,
   relateIssue,
   removeAttachment,
@@ -206,17 +210,26 @@ export function registerIssueCommands(program: Command): void {
     .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
     .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
+    .option("--priority <priorities>", "優先度で絞る（0〜4 か urgent・high・medium・low・none。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
+    .option("--sort <key>", `並び順（${ISSUE_SORT_KEYS.join("|")}。既定は id。default は 状態 → 優先度 → ID）`)
+    .option("--desc", "降順にする（同順位は ID の昇順。見積もり・期限の未設定は末尾のまま）")
     .action(
       act(
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean },
+          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
           // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || ((o.delegated || o.mine) && !globalOpts(cmd).workspace);
           const assignees = [...(o.assignee ? parseAssignees(o.assignee) : []), ...(o.mine ? [cli.ctx.actor] : [])];
-          const issues = listIssues(cli.db, {
+          const priorities = o.priority ? parsePriorityRefs(o.priority) : undefined;
+          if (o.priority && !priorities) {
+            throw new NodError("INVALID_ARGS", "--priority には 0〜4 か urgent・high・medium・low・none を指定してください");
+          }
+          const sort = o.sort === undefined ? "id" : parseIssueSortKey(o.sort);
+          const listed = listIssues(cli.db, {
+            priorities,
             query: o.query,
             workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
             statuses: o.status ? parseStatuses(o.status) : undefined,
@@ -229,6 +242,8 @@ export function registerIssueCommands(program: Command): void {
             completionCandidate: o.completionCandidates,
             archived: o.archived,
           });
+          // listIssues は ID の順で返すので、既定（id の昇順）のときは並べ直さない
+          const issues = sort === "id" && !o.desc ? listed : sortIssues(listed, sort, o.desc ? "desc" : "asc");
           if (o.delegated) {
             const sorted = sortByAssignee(issues);
             print(cli, sorted, () => formatDelegations(sorted));

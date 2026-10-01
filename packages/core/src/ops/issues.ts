@@ -222,6 +222,7 @@ export interface ListIssuesFilter {
   blocked?: boolean;
   delegated?: boolean;
   assignees?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て
+  priorities?: number[]; // 優先度（0 = なし）。どれかに合うもの
   completionCandidate?: boolean; // true で親の完了候補だけにする
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
 }
@@ -234,7 +235,7 @@ function scopeWorkspaceIds(db: Database, filter: ListIssuesFilter): number[] | u
   return (db.query(`SELECT id FROM workspaces WHERE key IN (${keys.map(() => "?").join(", ")})`).all(...keys) as { id: number }[]).map((r) => r.id);
 }
 
-// Workspace、Project、Cycle、ラベル、担当の条件。Ready と Needs Clarification の件数もこの範囲で数える
+// Workspace、Project、Cycle、ラベル、担当、優先度の条件。Ready と Needs Clarification の件数もこの範囲で数える
 function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
   const where: string[] = [filter.archived ? "i.archived_at IS NOT NULL" : "i.archived_at IS NULL"];
   const params: SQLQueryBindings[] = [];
@@ -281,6 +282,10 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     ];
     where.push(`(${conditions.join(" OR ")})`);
     params.push(...names);
+  }
+  if (filter.priorities?.length) {
+    where.push(`i.priority IN (${filter.priorities.map(() => "?").join(", ")})`);
+    params.push(...filter.priorities);
   }
   if (filter.blocked !== undefined) {
     where.push(`${filter.blocked ? "" : "NOT "}EXISTS (
@@ -348,6 +353,7 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     blocked: q.blocked,
     delegated: q.delegated,
     assignees: q.assignee,
+    priorities: q.priority,
     archived: q.archived,
   };
   const scope = scopeWhere(db, filter);
