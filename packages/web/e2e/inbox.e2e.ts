@@ -144,7 +144,7 @@ test("Issue を開くで Issue 詳細に移る", async ({ page, nod }) => {
 });
 
 // #185：nod.pen の 10 Inbox（pbgvS）。一覧の幅 400 は変えない
-test("一覧の Header は高さ 44 で右にタブを置き、行は左右と上下に 8 の余白、角丸 8、余白 12 で、区切り線がない", async ({ page, nod }) => {
+test("一覧の Header は高さ 44 で題名の右にタブだけを置き（件数は置かない）、行は左右と上下に 8 の余白、角丸 8、余白 12 で、区切り線がない", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const issues = [];
   for (const title of ["検索 API の N+1 を解消", "決済 Webhook の再送処理", "ブログの OGP 画像を自動生成"]) {
@@ -161,8 +161,11 @@ test("一覧の Header は高さ 44 で右にタブを置き、行は左右と�
   expect(m.headerHeight).toBe(44);
   expect(m.headerOverflow).toBe(0);
   expect(m.title).toBe("13px / 500");
-  // 題名、件数、タブが重ならずに並び、中心が揃う
-  expect(m.headerParts).toBe(3);
+  // 題名とタブだけが重ならずに並び、中心が揃う。件数は置かない
+  expect(m.headerTexts).toEqual(["Inbox", "tabs"]);
+  // 件数はタブにだけ残す
+  await expect(page.getByRole("tablist", { name: "Inboxの表示" }).getByRole("tab", { name: "確認依頼 3" })).toBeVisible();
+  expect(m.headerParts).toBe(2);
   expect(m.headerGap).toBeGreaterThanOrEqual(8);
   expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
   expect(m.headerRight).toBe(12);

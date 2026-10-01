@@ -13,14 +13,6 @@
   overflow-y: auto;
 }
 
-.listCount {
-  flex: none;
-  color: var(--ink3);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-}
-
 .detail {
   min-width: 0;
   overflow-y: auto;

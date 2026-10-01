@@ -67,7 +67,6 @@ function NotificationsTab({ selected, view, tabs }: { selected?: string; view: N
     <>
       <SplitLayout
         title="Inbox"
-        count={view === "snoozed" ? groups.length : groups.reduce((sum, g) => sum + g.unread, 0)}
         headerTabs={tabs}
         headerExtra={<SnoozeFilter view={view} snoozedCount={snoozedCount}
           onChange={(next) => void navigate({ search: { tab: "notifications", ...(next === "snoozed" ? { view: next } : {}) } })} />}
@@ -95,7 +94,6 @@ function QuestionsTab({ selected, tab, tabs }: { selected?: string; tab: "questi
   return (
     <SplitLayout
       title="Inbox"
-      count={inbox.data?.questions.length ?? 0}
       headerTabs={tabs}
       listLabel="確認依頼の一覧"
       list={

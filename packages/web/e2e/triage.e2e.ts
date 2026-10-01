@@ -292,7 +292,7 @@ test("LLM の提案のラベルは定義色の Dot で出し、未定義のラ�
 });
 
 // #185：nod.pen の 13 Triage（UNHD3）
-test("一覧の Header は高さ 44 で題名の右に説明文と件数を置き、行は左右と上下に 8 の余白、角丸 8 で、区切り線がない", async ({ page, nod }) => {
+test("一覧の Header は高さ 44 で題名の右に説明文を置き（件数は置かない）、行は左右と上下に 8 の余白、角丸 8 で、区切り線がない", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   await api.triageIssue("検索結果のページングが 1 件ずれる", "api-1f3 の作業中に発見。offset 計算が 1 始まりになっている。");
   await api.triageIssue("workspace list の並び順を固定する", "登録順と名前順が混在している。");
@@ -310,10 +310,11 @@ test("一覧の Header は高さ 44 で題名の右に説明文と件数を置�
   expect(m.headerHeight).toBe(44);
   expect(m.headerOverflow).toBe(0);
   expect(m.title).toBe("13px / 500");
-  expect(m.headerParts).toBe(3);
+  // 題名と説明文だけが重ならずに並び、中心が揃う。右端に件数を置かない
+  expect(m.headerTexts).toEqual(["Triage", "LLM が起票し、受け入れ待ちの Issue"]);
+  expect(m.headerParts).toBe(2);
   expect(m.headerGap).toBeGreaterThanOrEqual(8);
   expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
-  expect(m.headerRight).toBe(12);
   expect(m.row).toEqual({ left: 8, right: 8, top: 8, bottom: 8, radius: "8px", padding: "12px", borderTop: "0px" });
   expect(m.selectedBackground).toBe("rgb(238, 240, 243)"); // --sunken
   expect(m.titleWeights).toEqual(["500"]);

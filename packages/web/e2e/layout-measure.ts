@@ -49,7 +49,8 @@ export async function measureSplitList(page: Page, label: string) {
     const title = header.querySelector("h1") as HTMLElement;
     const l = list.getBoundingClientRect();
     const h = header.getBoundingClientRect();
-    const parts = [...header.children].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 1);
+    const visible = [...header.children].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 1; });
+    const parts = visible.map((el) => el.getBoundingClientRect());
     const centers = parts.map((r) => r.y + r.height / 2);
     const rows = [...list.querySelectorAll<HTMLElement>("a")];
     const first = rows[0];
@@ -65,8 +66,9 @@ export async function measureSplitList(page: Page, label: string) {
       headerHeight: h.height,
       headerOverflow: header.scrollWidth - header.clientWidth,
       title: `${getComputedStyle(title).fontSize} / ${getComputedStyle(title).fontWeight}`,
-      // Header の中の要素（題名、説明文、件数、タブ）は重ならず、中心が揃う
+      // Header の中の要素（題名、説明文、タブ）は重ならず、中心が揃う。件数は置かない（#194）
       headerParts: parts.length,
+      headerTexts: visible.map((el) => el.getAttribute("role") === "tablist" || el.querySelector('[role="tab"]') ? "tabs" : el.textContent),
       headerGap: Math.min(...parts.slice(1).map((r, n) => Math.round(r.x - parts[n]!.right))),
       headerCenterDiff: Math.max(...centers) - Math.min(...centers),
       headerRight: Math.round(h.right - parts.at(-1)!.right),
