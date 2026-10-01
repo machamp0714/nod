@@ -7,6 +7,8 @@ import s from "./issue-detail.module.css";
 // プロパティの実行場所の行の右端の「Orca で開く」（#52）。行の高さ 28 に収めるため、28 の円形のアイコンボタンにする（#194）。
 // 記録済みの worktree を Orca で前面に出すだけで、セッションは起動・再開しない。
 // 開けなかったときは理由と、手で開くためのパス・cd コマンドのコピーをポップオーバーで出す
+const NOTICE_MS = 2500;
+
 export function OpenInOrcaButton({ issueId }: { issueId: string }) {
   const open = useOpenInOrca(issueId);
   const [failure, setFailure] = useState<{ message: string; worktree: string | null; command: string | null } | null>(null);
@@ -18,6 +20,12 @@ export function OpenInOrcaButton({ issueId }: { issueId: string }) {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [failure]);
+  // コピーの結果は行の下に重ねて出すため、読める間だけ出して消す
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   async function run() {
     setFailure(null); setNotice("");
@@ -39,7 +47,7 @@ export function OpenInOrcaButton({ issueId }: { issueId: string }) {
 
   return (
     <div className={s.orcaOpen} ref={root}>
-      <IconButton icon="external-link" label="Orca で開く" disabled={open.isPending} aria-haspopup="dialog" aria-expanded={failure !== null} onClick={() => void run()} />
+      <IconButton icon="external-link" label="Orca で開く" className={s.orcaOpenButton} disabled={open.isPending} aria-haspopup="dialog" aria-expanded={failure !== null} onClick={() => void run()} />
       {failure && (
         <div className={s.orcaPopover} role="dialog" aria-label="Orca で開けませんでした" onKeyDown={(e) => { if (e.key === "Escape") setFailure(null); }}>
           <p role="alert" className={s.menuError}><Icon name="circle-alert" size={14} />Orca で開けませんでした：{failure.message}</p>

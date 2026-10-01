@@ -321,7 +321,7 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
   });
   expect(clip).toEqual({ clipped: true, overflow: "ellipsis" });
 
-  // 実行場所は「ブランチ · worktree」を1行に出し、長い worktree は値の列の幅で切って「…」にする。全文は title。
+  // 実行場所は「ブランチ · worktree」を1行に出し、長い worktree は値の列の幅で切って「…」にする。ブランチと worktree の全文は title。
   // 「Orca で開く」は同じ行の中の 28 の円形ボタン
   const location = await props.locator("dl > div").filter({ has: page.locator("dt", { hasText: "実行場所" }) }).evaluate((row) => {
     const pill = row.querySelector('[class*="_propStatic_"]') as HTMLElement;
@@ -339,8 +339,8 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
       buttonCenterDiff: Math.abs(center(button.getBoundingClientRect()) - center(pill.getBoundingClientRect())),
     };
   });
-  expect(location.title).toMatch(/feat-search-n1$/);
-  expect(location).toMatchObject({ height: 28, text: `feat-search-n1 · ${location.title}`, clipped: true, overflow: "ellipsis",
+  expect(location.title).toMatch(/^feat-search-n1 · \/.+\/feat-search-n1$/);
+  expect(location).toMatchObject({ height: 28, text: location.title, clipped: true, overflow: "ellipsis",
     button: [28, 28, "9999px"], buttonInside: true });
   expect(location.buttonCenterDiff).toBeLessThanOrEqual(2.5);
 
