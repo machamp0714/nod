@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
-import { cdCommand, createOrcaWorktree, defaultOrcaRunner, openInOrca, orcaAgent, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
+import { cdCommand, createOrcaWorktree, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
+import { findWorkspace, listWorkspaces, setWorkspaceDefaultAgent } from "../src/ops/workspaces";
 import { setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
@@ -164,7 +165,7 @@ describe("createOrcaWorktree（#210）", () => {
     const { db, me, ref } = unstarted();
     const before = getIssue(db, ref);
     const { run, calls } = stubOrca({ "worktree create": created });
-    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
       ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "API-1+search-n1", "--no-parent", "--agent", "claude",
@@ -174,37 +175,62 @@ describe("createOrcaWorktree（#210）", () => {
     expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee, agentState: before.agentState });
   });
 
-  test("エージェントは引数で変えられ、時間切れは 60 秒で打ち切る", async () => {
-    const { me, ref } = unstarted();
+  test("エージェントは作成時の指定、無ければ Workspace の既定、既定は claude。時間切れは 60 秒で打ち切る", async () => {
     const seen: { args: string[]; timeoutMs: number }[] = [];
     const run: OrcaRunner = async (args, opts) => {
       seen.push({ args, timeoutMs: opts.timeoutMs });
       return created;
     };
-    await createOrcaWorktree(me, ref, { feature: "x" }, run, "codex");
-    expect(seen[0]?.args.slice(7, 9)).toEqual(["--agent", "codex"]);
+    const agentOf = (i: number) => seen[i]?.args.slice(7, 9);
+    const a = unstarted();
+    await createOrcaWorktree(a.me, a.ref, { feature: "x" }, run);
+    expect(agentOf(0)).toEqual(["--agent", "claude"]);
     expect(seen[0]?.timeoutMs).toBe(60_000);
+    const b = unstarted();
+    setWorkspaceDefaultAgent(b.me, b.ws.key, "codex");
+    await createOrcaWorktree(b.me, b.ref, { feature: "x" }, run);
+    expect(agentOf(1)).toEqual(["--agent", "codex"]);
+    const c = unstarted();
+    setWorkspaceDefaultAgent(c.me, c.ws.key, "codex");
+    await createOrcaWorktree(c.me, c.ref, { feature: "x", agent: "claude" }, run);
+    expect(agentOf(2)).toEqual(["--agent", "claude"]);
   });
 
-  test("NOD_ORCA_AGENT が無ければ claude", () => {
-    expect(orcaAgent({})).toBe("claude");
-    expect(orcaAgent({ NOD_ORCA_AGENT: "" })).toBe("claude");
-    expect(orcaAgent({ NOD_ORCA_AGENT: "codex" })).toBe("codex");
+  test("agent が claude・codex 以外なら INVALID_ARGS で、orca を呼ばない", async () => {
+    const { me, ref } = unstarted();
+    const { run, calls } = stubOrca({ "worktree create": created });
+    for (const agent of ["", "gemini", "Claude", "claude --dangerously"]) {
+      const code = await createOrcaWorktree(me, ref, { feature: "x", agent }, run).then(() => undefined, (e) => (e as { code?: string }).code);
+      expect([agent, code]).toEqual([agent, "INVALID_ARGS"]);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  test("Workspace の既定エージェントは claude で始まり、人だけが claude・codex に変えられる", () => {
+    const { db, me, llm, ws } = setup();
+    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("claude");
+    expect(setWorkspaceDefaultAgent(me, ws.key, "codex")).toMatchObject({ key: ws.key, defaultAgent: "codex" });
+    expect(listWorkspaces(db)[0]?.defaultAgent).toBe("codex");
+    const codeOf = (fn: () => unknown) => { try { fn(); } catch (e) { return (e as { code?: string }).code; } return undefined; };
+    expect(codeOf(() => setWorkspaceDefaultAgent(me, ws.key, "gemini"))).toBe("INVALID_ARGS");
+    expect(codeOf(() => setWorkspaceDefaultAgent(llm, ws.key, "claude"))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => setWorkspaceDefaultAgent(me, "NOPE", "claude"))).toBe("NOT_FOUND");
+    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("codex");
   });
 
   test("ブランチが refs/heads/ で始まらなければそのまま、無ければ null を記録する", async () => {
     const a = unstarted();
-    await createOrcaWorktree(a.me, a.ref, { feature: "x" }, stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT, branch: "feat-x" } }) }).run, "claude");
+    await createOrcaWorktree(a.me, a.ref, { feature: "x" }, stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT, branch: "feat-x" } }) }).run);
     expect(getIssue(a.db, a.ref)).toMatchObject({ worktree: NEW_WT, branch: "feat-x" });
     const b = unstarted();
-    await createOrcaWorktree(b.me, b.ref, { feature: "x" }, stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT } }) }).run, "claude");
+    await createOrcaWorktree(b.me, b.ref, { feature: "x" }, stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT } }) }).run);
     expect(getIssue(b.db, b.ref)).toMatchObject({ worktree: NEW_WT, branch: null });
   });
 
   test("実行場所が記録済みなら orca を呼ばず、失敗として返す", async () => {
     const { db, me, ref } = issueWithWorktree();
     const { run, calls } = stubOrca({ "worktree create": created });
-    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toMatchObject({ created: false, worktree: WT, branch: "feat-search", failure: { code: "WORKTREE_ALREADY_RECORDED" } });
     expect(calls).toHaveLength(0);
     expect(getIssue(db, ref)).toMatchObject({ worktree: WT, branch: "feat-search" });
@@ -214,7 +240,7 @@ describe("createOrcaWorktree（#210）", () => {
     const { db, me, ref } = unstarted();
     db.query("UPDATE issues SET branch = 'feat-branch-only' WHERE number = 1").run();
     const { run, calls } = stubOrca({ "worktree create": created });
-    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toMatchObject({ created: false, worktree: null, branch: "feat-branch-only", failure: { code: "WORKTREE_ALREADY_RECORDED" } });
     expect(calls).toHaveLength(0);
     expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: "feat-branch-only" });
@@ -232,7 +258,7 @@ describe("createOrcaWorktree（#210）", () => {
     for (const [run, code, text] of cases) {
       const { db, me, ref } = unstarted();
       const before = getIssue(db, ref);
-      const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+      const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
       expect(res).toMatchObject({ issueId: "API-1", created: false, worktree: null, branch: null, failure: { code } });
       expect(res.failure?.message).toContain(text);
       expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, assignee: before.assignee, agentState: before.agentState });
@@ -245,7 +271,7 @@ describe("createOrcaWorktree（#210）", () => {
       archiveIssue(me, ref);
       return created;
     };
-    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toMatchObject({ issueId: "API-1", created: false, worktree: null, branch: null, failure: { code: "WORKTREE_NOT_RECORDED" } });
     expect(res.failure?.message).toContain(NEW_WT);
     expect(res.failure?.message).toContain("アーカイブ済み");
@@ -256,7 +282,7 @@ describe("createOrcaWorktree（#210）", () => {
     const { me, ref } = unstarted();
     const { run, calls } = stubOrca({ "worktree create": created });
     for (const feature of ["", "Search", "a b", "a_b", "a+b", "検索", "a/b", "--x\n"]) {
-      const code = await createOrcaWorktree(me, ref, { feature }, run, "claude").then(() => undefined, (e) => (e as { code?: string }).code);
+      const code = await createOrcaWorktree(me, ref, { feature }, run).then(() => undefined, (e) => (e as { code?: string }).code);
       expect([feature, code]).toEqual([feature, "INVALID_ARGS"]);
     }
     expect(calls).toHaveLength(0);
@@ -265,9 +291,9 @@ describe("createOrcaWorktree（#210）", () => {
   test("アーカイブ済みと存在しない Issue は例外で、orca を呼ばない", async () => {
     const { me, ref } = unstarted();
     const { run, calls } = stubOrca({ "worktree create": created });
-    expect(await createOrcaWorktree(me, "API-999", { feature: "x" }, run, "claude").then(() => undefined, (e) => e.code)).toBe("NOT_FOUND");
+    expect(await createOrcaWorktree(me, "API-999", { feature: "x" }, run).then(() => undefined, (e) => e.code)).toBe("NOT_FOUND");
     archiveIssue(me, ref);
-    expect(await createOrcaWorktree(me, ref, { feature: "x" }, run, "claude").then(() => undefined, (e) => e.code)).toBe("ISSUE_ARCHIVED");
+    expect(await createOrcaWorktree(me, ref, { feature: "x" }, run).then(() => undefined, (e) => e.code)).toBe("ISSUE_ARCHIVED");
     expect(calls).toHaveLength(0);
   });
 });

@@ -5,7 +5,8 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId } from "../issue-query";
 import { setColumn } from "../mutate";
-import type { OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
+import type { OrcaAgent, OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
+import { parseOrcaAgent } from "./workspaces";
 import { createCommandRunner, type GhRunner, type GhRunResult } from "./pr-status";
 
 // orca の実行結果は gh と同じ形で受け取る。テストと e2e は実際の orca を起動しないスタブを渡す
@@ -185,33 +186,30 @@ export async function openInOrca(db: Database, ref: string, run: OrcaRunner | nu
   return { issueId, opened: true, worktree, copyCommand: cdCommand(worktree), terminal, failure: null };
 }
 
-// orca worktree create で起動するエージェント。NOD_ORCA_AGENT が無ければ claude。呼ぶたびに環境変数を読む
-export function orcaAgent(env: Record<string, string | undefined> = process.env): string {
-  return env.NOD_ORCA_AGENT || "claude";
-}
-
 const FEATURE_RE = /^[a-z0-9-]+$/;
 
 // Issue の worktree を Orca に作り、エージェントを起動して着手を指示する（#210）。
+// エージェントは input.agent（作成時の選択）、無ければ Workspace の既定。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
 // 実行場所（worktree かブランチ）が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
 export async function createOrcaWorktree(
   ctx: OpCtx,
   ref: string,
-  input: { feature: string },
+  input: { feature: string; agent?: string },
   run: OrcaRunner | null,
-  agent: string,
 ): Promise<OrcaWorktreeResult> {
   const row = findWritableIssueRow(ctx.db, ref);
   const issueId = formatIssueId(row.ws_key, row.number);
   if (!FEATURE_RE.test(input.feature)) {
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
   }
+  const chosen = input.agent === undefined ? null : parseOrcaAgent(input.agent);
   const fail = (failure: OrcaFailure): OrcaWorktreeResult => ({ issueId, created: false, worktree: row.worktree, branch: row.branch, failure });
   // ブランチだけが記録済みの Issue（古いデータ）でも作らない。作ると記録済みのブランチ名を上書きしてしまう
   if (row.worktree || row.branch) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
   if (!run) return fail(orcaFailure("DISABLED"));
-  const workspace = ctx.db.query("SELECT path FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string };
+  const workspace = ctx.db.query("SELECT path, default_agent FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string; default_agent: OrcaAgent };
+  const agent = chosen ?? workspace.default_agent;
   const res = readOrcaEnvelope(
     await run(
       ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${input.feature}`, "--no-parent", "--agent", agent,

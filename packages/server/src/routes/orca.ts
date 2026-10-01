@@ -5,13 +5,13 @@ import {
   listInstructions,
   type OpCtx,
   openInOrca,
-  orcaAgent,
   type OrcaRunner,
   recordInstruction,
   sendInstruction,
+  setWorkspaceDefaultAgent,
 } from "@nod/core";
 import type { Hono } from "hono";
-import { invalid, paramInt, readBody, reqString } from "../input";
+import { invalid, optString, paramInt, readBody, reqString } from "../input";
 
 // orca を使う部分。undefined なら毎回 NOD_ORCA・ORCA_CLI_COMMAND を読んで本物の orca を使い、null なら使わない
 export type OrcaRunnerOption = OrcaRunner | null | undefined;
@@ -27,9 +27,14 @@ export function resolveOrcaRunner(orca: OrcaRunnerOption): OrcaRunner | null {
 export function registerOrcaRoutes(app: Hono, me: OpCtx, orca: OrcaRunnerOption): void {
   app.post("/api/issues/:id/orca-open", async (c) => c.json(await openInOrca(me.db, c.req.param("id"), resolveOrcaRunner(orca))));
   app.post("/api/issues/:id/orca-worktree", async (c) => {
-    const body = await readBody(c, ["feature"]);
-    const input = { feature: reqString(body, "feature") };
-    return c.json(await createOrcaWorktree(me, c.req.param("id"), input, resolveOrcaRunner(orca), orcaAgent()));
+    const body = await readBody(c, ["feature", "agent"]);
+    const input = { feature: reqString(body, "feature"), agent: optString(body, "agent") };
+    return c.json(await createOrcaWorktree(me, c.req.param("id"), input, resolveOrcaRunner(orca)));
+  });
+  // 「Orca で作業を始める」の既定のエージェント（claude・codex）。web（書き手 me）から変える
+  app.put("/api/workspaces/:key/default-agent", async (c) => {
+    const body = await readBody(c, ["agent"]);
+    return c.json(setWorkspaceDefaultAgent(me, c.req.param("key"), reqString(body, "agent")));
   });
   app.get("/api/issues/:id/agent-targets", async (c) => c.json(await getAgentTargets(me.db, c.req.param("id"), resolveOrcaRunner(orca))));
   app.get("/api/issues/:id/instructions", (c) => c.json(listInstructions(me.db, c.req.param("id"))));

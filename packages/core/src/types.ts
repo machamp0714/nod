@@ -1,11 +1,17 @@
 import type { WorkLogKind } from "./work-log";
 
+// 「Orca で作業を始める」（#210）で起動できるエージェント。値は orca worktree create の --agent にそのまま渡す
+export const ORCA_AGENTS = ["claude", "codex"] as const;
+export type OrcaAgent = (typeof ORCA_AGENTS)[number];
+export const ORCA_AGENT_LABELS: Record<OrcaAgent, string> = { claude: "Claude Code", codex: "Codex" };
+
 export interface Workspace {
   id: number;
   key: string;
   name: string;
   path: string;
   color: string;
+  defaultAgent: OrcaAgent; // 「Orca で作業を始める」の既定のエージェント
   createdAt: string;
 }
 

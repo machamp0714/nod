@@ -174,6 +174,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
+- \`nod workspace agent show\`：Web の「Orca で作業を始める」で起動する既定のエージェント（claude か codex）を見る。変更（\`set\`）は人だけが行える
 - \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
 - \`nod issue show <id>\` の Activity は「誰が何をしたか」の文で出る。event に残る補足は文の後ろの（）に付く：起票は（状態: <起票時の状態>、起票元: <ID>、取り込み元: <URL>）、自動化による変更は（自動化: auto_close|auto_archive|pr_review|commit_review|undo）、差し戻しの対応依頼は（対応依頼: review_fix|rebase）、レビュー提出は（報告: #<コメントID>）。起票元は本体にも「起票元: <ID>」と出る。「関係」の相手がアーカイブ済みなら（アーカイブ済み）、ブロック元が done・canceled なら（Done）（Canceled）のようにその状態が付き（表示名を変えた Workspace では「表示名 (内部値)」）、これらは着手を妨げない。event の data をそのまま読むときは \`--json\` の \`activity\` を使う
 - \`--project\` は名前の全体か ID で指定する。名前の一部では解決せず、近い名前の候補（名前と ID）がエラーに出る
