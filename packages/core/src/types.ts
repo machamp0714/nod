@@ -770,6 +770,7 @@ export interface RecurringRun {
 export type OrcaFailureCode =
   | "DISABLED" // NOD_ORCA=0
   | "NO_WORKTREE" // Issue に実行場所の worktree が記録されていない
+  | "WORKTREE_ALREADY_RECORDED" // Issue に実行場所の worktree が記録済み（#210 二重作成の防止）
   | "ORCA_NOT_INSTALLED"
   | "WORKTREE_NOT_IN_ORCA" // orca が selector_not_found を返した
   | "NO_TERMINAL" // worktree に端末がない
@@ -798,6 +799,15 @@ export interface OrcaOpenResult {
   worktree: string | null;
   copyCommand: string | null;
   terminal: OrcaTerminal | null;
+  failure: OrcaFailure | null;
+}
+
+// 「Orca で作業を始める」（#210）の結果。作れなかったときは created が false で、worktree・branch は Issue に記録済みの値のまま
+export interface OrcaWorktreeResult {
+  issueId: string;
+  created: boolean;
+  worktree: string | null;
+  branch: string | null;
   failure: OrcaFailure | null;
 }
 

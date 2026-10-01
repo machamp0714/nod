@@ -50,6 +50,85 @@ describe("Orca で開く API（#52）", () => {
   });
 });
 
+describe("Orca で作業を始める API（#210）", () => {
+  const NEW_WT = "/tmp/orca/workspaces/api/API-1-search-n1";
+  const created = ok({ worktree: { path: NEW_WT, branch: "refs/heads/machamp0714/API-1-search-n1" }, agentTerminalHandle: "term_new" });
+
+  function recording(result: GhRunResult = created) {
+    const calls: string[][] = [];
+    const orca: OrcaRunner = async (args) => {
+      calls.push(args);
+      return result;
+    };
+    return { orca, calls };
+  }
+
+  test("POST orca-worktree は orca worktree create を1回呼び、worktree とブランチを記録する", async () => {
+    const { orca, calls } = recording();
+    const { app, db, ref } = withOrca(orca, null);
+    const before = getIssue(db, ref);
+    const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ issueId: ref, created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
+    expect(calls).toEqual([
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "API-1+search-n1", "--no-parent", "--agent", "claude",
+        "--prompt", "nod の Issue API-1 に着手してください", "--activate", "--json"],
+    ]);
+    expect(getIssue(db, ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
+  });
+
+  test("NOD_ORCA_AGENT で起動するエージェントを変える", async () => {
+    const { orca, calls } = recording();
+    const { app, ref } = withOrca(orca, null);
+    const saved = process.env.NOD_ORCA_AGENT;
+    process.env.NOD_ORCA_AGENT = "codex";
+    try {
+      await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "x" });
+    } finally {
+      if (saved === undefined) delete process.env.NOD_ORCA_AGENT;
+      else process.env.NOD_ORCA_AGENT = saved;
+    }
+    expect(calls[0]?.slice(7, 9)).toEqual(["--agent", "codex"]);
+  });
+
+  test("実行場所が記録済みなら orca を呼ばず、200 で failure を返す", async () => {
+    const { orca, calls } = recording();
+    const { app, db, ref } = withOrca(orca);
+    const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ created: false, worktree: WT, failure: { code: "WORKTREE_ALREADY_RECORDED" } });
+    expect(calls).toHaveLength(0);
+    expect(getIssue(db, ref).worktree).toBe(WT);
+  });
+
+  test("NOD_ORCA=0・orca が無い・時間切れ・orca の失敗は 200 で理由を返し、Issue を変えない", async () => {
+    const cases: [OrcaRunner | null, string][] = [
+      [null, "DISABLED"],
+      [recording({ kind: "not_found" }).orca, "ORCA_NOT_INSTALLED"],
+      [recording({ kind: "timeout" }).orca, "TIMEOUT"],
+      [recording({ kind: "exited", exitCode: 1, stdout: "", stderr: "boom\n" }).orca, "ORCA_ERROR"],
+    ];
+    for (const [orca, code] of cases) {
+      const { app, db, ref } = withOrca(orca, null);
+      const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({ created: false, worktree: null, branch: null, failure: { code } });
+      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null });
+    }
+  });
+
+  test("feature が使えない文字を含む・空・無い・文字列でない要求は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {
+    const { orca, calls } = recording();
+    const { app, ref } = withOrca(orca, null);
+    for (const body of [{ feature: "Bad_Name" }, { feature: "a b" }, { feature: "" }, {}, { feature: 1 }, { feature: "x", agent: "codex" }]) {
+      const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, body);
+      expect([body, res.status, res.json.error?.code]).toEqual([body, 400, "INVALID_ARGS"]);
+    }
+    expect((await call(app, "POST", "/api/issues/API-999/orca-worktree", { feature: "x" })).status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("追加指示 API（#51）", () => {
   const LIST = ok({ terminals: [{ handle: "term_a", title: "claude", worktreePath: WT, connected: true, writable: true, agentIdentity: "claude" }] });
 

@@ -1,13 +1,19 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, realpathSync } from "node:fs";
-import { findIssueRow, formatIssueId } from "../issue-query";
-import type { OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal } from "../types";
+import type { OpCtx } from "../ctx";
+import { tx } from "../db";
+import { NodError } from "../errors";
+import { findIssueRow, findWritableIssueRow, formatIssueId } from "../issue-query";
+import { setColumn } from "../mutate";
+import type { OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
 import { createCommandRunner, type GhRunner, type GhRunResult } from "./pr-status";
 
 // orca の実行結果は gh と同じ形で受け取る。テストと e2e は実際の orca を起動しないスタブを渡す
 export type OrcaRunner = GhRunner;
 
 export const ORCA_TIMEOUT_MS = 15_000;
+// worktree の作成とエージェントの起動は時間がかかるため、専用に長く待つ（#210）
+export const ORCA_CREATE_TIMEOUT_MS = 60_000;
 const ORCA_OUTPUT_MAX_BYTES = 1024 * 1024;
 
 // ORCA_CLI_COMMAND が実在するファイルなら空白を含んでもそのまま使い、そうでなければ空白で区切る
@@ -27,6 +33,7 @@ export function defaultOrcaRunner(env: Record<string, string | undefined> = proc
 const FAILURE_MESSAGES: Record<OrcaFailureCode, string> = {
   DISABLED: "Orca との連携が無効です（NOD_ORCA=0）",
   NO_WORKTREE: "この Issue には実行場所（worktree）が記録されていません",
+  WORKTREE_ALREADY_RECORDED: "この Issue には実行場所（worktree）が記録済みです",
   ORCA_NOT_INSTALLED: "orca が見つかりません。Orca を起動し、orca CLI を使えるようにしてください",
   WORKTREE_NOT_IN_ORCA: "この worktree は Orca に登録されていません",
   NO_TERMINAL: "この worktree に Orca の端末がありません",
@@ -50,10 +57,13 @@ export function cdCommand(worktree: string): string {
 
 type Envelope = { ok: true; result: unknown } | { ok: false; failure: OrcaFailure };
 
-// orca の --json 出力（{ ok, result } か { ok: false, error: { code, message } }）を読む
-export function readOrcaEnvelope(r: GhRunResult): Envelope {
+// orca の --json 出力（{ ok, result } か { ok: false, error: { code, message } }）を読む。
+// timeoutMs は時間切れの文言に出す待ち時間（省くと ORCA_TIMEOUT_MS）
+export function readOrcaEnvelope(r: GhRunResult, timeoutMs: number = ORCA_TIMEOUT_MS): Envelope {
   if (r.kind === "not_found") return { ok: false, failure: orcaFailure("ORCA_NOT_INSTALLED") };
-  if (r.kind === "timeout") return { ok: false, failure: orcaFailure("TIMEOUT") };
+  if (r.kind === "timeout") {
+    return { ok: false, failure: { code: "TIMEOUT", message: `${timeoutMs / 1000}秒以内に orca が応答しませんでした` } };
+  }
   if (r.kind === "spawn_failed") return { ok: false, failure: orcaFailure("ORCA_ERROR", r.detail) };
   if (r.kind === "too_large") return { ok: false, failure: orcaFailure("ORCA_ERROR", "出力が大きすぎます") };
   let parsed: { ok?: unknown; result?: unknown; error?: { code?: unknown; message?: unknown } } | null = null;
@@ -173,4 +183,52 @@ export async function openInOrca(db: Database, ref: string, run: OrcaRunner | nu
   );
   if (!switched.ok) return fail(switched.failure);
   return { issueId, opened: true, worktree, copyCommand: cdCommand(worktree), terminal, failure: null };
+}
+
+// orca worktree create で起動するエージェント。NOD_ORCA_AGENT が無ければ claude。呼ぶたびに環境変数を読む
+export function orcaAgent(env: Record<string, string | undefined> = process.env): string {
+  return env.NOD_ORCA_AGENT || "claude";
+}
+
+const FEATURE_RE = /^[a-z0-9-]+$/;
+
+// Issue の worktree を Orca に作り、エージェントを起動して着手を指示する（#210）。
+// 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
+// 実行場所が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
+export async function createOrcaWorktree(
+  ctx: OpCtx,
+  ref: string,
+  input: { feature: string },
+  run: OrcaRunner | null,
+  agent: string,
+): Promise<OrcaWorktreeResult> {
+  const row = findWritableIssueRow(ctx.db, ref);
+  const issueId = formatIssueId(row.ws_key, row.number);
+  if (!FEATURE_RE.test(input.feature)) {
+    throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
+  }
+  const fail = (failure: OrcaFailure): OrcaWorktreeResult => ({ issueId, created: false, worktree: row.worktree, branch: row.branch, failure });
+  if (row.worktree) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
+  if (!run) return fail(orcaFailure("DISABLED"));
+  const workspace = ctx.db.query("SELECT path FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string };
+  const res = readOrcaEnvelope(
+    await run(
+      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${input.feature}`, "--no-parent", "--agent", agent,
+        "--prompt", `nod の Issue ${issueId} に着手してください`, "--activate", "--json"],
+      { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
+    ),
+    ORCA_CREATE_TIMEOUT_MS,
+  );
+  if (!res.ok) return fail(res.failure);
+  const raw = (res.result as { worktree?: { path?: unknown; branch?: unknown } } | null)?.worktree;
+  if (typeof raw?.path !== "string" || !raw.path) return fail(orcaFailure("ORCA_ERROR", "結果から worktree のパスを読めません"));
+  const worktree = raw.path;
+  const branch = typeof raw.branch === "string" && raw.branch ? raw.branch.replace(/^refs\/heads\//, "") : null;
+  tx(ctx.db, () => {
+    // orca を待つ間に変わっているかもしれないため、読み直してから記録する
+    const current = findWritableIssueRow(ctx.db, ref);
+    setColumn(ctx, current, "branch", branch);
+    setColumn(ctx, current, "worktree", worktree);
+  });
+  return { issueId, created: true, worktree, branch, failure: null };
 }
