@@ -64,6 +64,48 @@ test("検索語でタイトルと ID を絞り込む", async ({ page }) => {
   await expect(page.getByText("該当する Issue はありません")).toBeVisible();
 });
 
+test("検索欄に IME で日本語を入力できる（変換中に URL の更新で入力が崩れない）", async ({ page }) => {
+  await page.goto("/issues");
+  const search = await searchBox(page);
+  const cdp = await page.context().newCDPSession(page);
+  // ローマ字入力の途中経過を1文字ずつ送り、最後に確定する
+  for (const text of ["k", "き", "きゃ", "きゃr", "きゃり"]) {
+    await cdp.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  await cdp.send("Input.insertText", { text: "キャリ" });
+  await expect(search).toHaveValue("キャリ");
+  await expect(page).toHaveURL(/q=%E3%82%AD%E3%83%A3%E3%83%AA/);
+});
+
+test("検索欄にフォーカスがあるまま URL の検索語が戻る・進むで変わると、欄も URL の検索語に合わせる", async ({ page }) => {
+  await page.goto("/issues");
+  const search = await searchBox(page);
+  await search.pressSequentially("abc");
+  await expect(page).toHaveURL(/q=abc/);
+  await page.evaluate(() => {
+    history.pushState(history.state, "", "/issues?q=N%2B1");
+    dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  });
+  await expect(tableRows(page)).toHaveCount(1);
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("N+1");
+});
+
+test("検索欄を空にして Escape で閉じたあと、戻る・進むで検索語のある URL に移ると欄にその検索語を出す", async ({ page }) => {
+  await page.goto("/issues");
+  const search = await searchBox(page);
+  await search.pressSequentially("a");
+  await search.press("Backspace");
+  await search.press("Escape");
+  await expect(page.getByRole("button", { name: "検索を開く", exact: true })).toBeFocused();
+  await page.evaluate(() => {
+    history.pushState(history.state, "", "/issues?q=N%2B1");
+    dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  });
+  await expect(tableRows(page)).toHaveCount(1);
+  await expect(page.getByRole("textbox", { name: "検索", exact: true })).toHaveValue("N+1");
+});
+
 test("Board は6つの Status を列か Hidden columns に出し、Triage と Canceled を出さない", async ({ page, nod }) => {
   await page.goto("/issues");
   await setLayout(page, "Board");

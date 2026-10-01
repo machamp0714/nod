@@ -5,6 +5,7 @@ import { useIssueDetail } from "../api/hooks/shared";
 import type { OpenQuestion, Question } from "../api/types";
 import { ActionError } from "../components/split/ActionError";
 import { AgentAvatar, Button, Icon, PageHeader, PageTitle, ProgressBar, Spacer, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { useDraftText } from "../lib/draft-text";
 import { formatRelative } from "../lib/format";
 import {
   filterOpenQuestionEntries,
@@ -63,6 +64,7 @@ export function OpenQuestionsPage() {
   });
 
   const update = (patch: Partial<OpenQuestionsSearch>) => void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+  const searchText = useDraftText(search.q ?? "", (next) => update({ q: next || undefined }));
   const filtered = search.workspace !== undefined || search.project !== undefined || search.q !== undefined;
   const count = entries.reduce((sum, entry) => sum + entry.questions.length, 0);
 
@@ -99,8 +101,7 @@ export function OpenQuestionsPage() {
                 type="search"
                 aria-label="未決事項を絞り込む"
                 placeholder="質問文・タイトル・ID で絞り込み"
-                value={search.q ?? ""}
-                onChange={(event) => update({ q: event.target.value || undefined })}
+                {...searchText}
               />
             </label>
             <div role="tablist" aria-label="グループ化" className={s.segmented}>

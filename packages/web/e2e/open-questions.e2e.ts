@@ -113,6 +113,20 @@ test("回答を記録すると件数が進み、すべて決めると Issue が�
   expect(shown.status).toBe("todo");
 });
 
+test("検索欄に IME で日本語を入力できる（変換中に URL の更新で入力が崩れない）", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/open-questions");
+  const search = list(page).getByRole("searchbox", { name: "未決事項を絞り込む" });
+  await search.focus();
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ["h", "ほ", "ほk", "ほか", "ほかn", "ほかん"]) {
+    await cdp.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  await cdp.send("Input.insertText", { text: "保管" });
+  await expect(search).toHaveValue("保管");
+  await expect(items(page)).toHaveCount(1);
+});
+
 test("Workspace・Project・検索で絞り込み、グループ化を外せる。URL から復元する", async ({ page, nod }) => {
   const s = await seed(nod);
   await page.goto("/open-questions");

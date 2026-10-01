@@ -12,6 +12,7 @@ import { IssueBoard } from "./IssueBoard";
 import { useCycles } from "../../api/hooks/cycles";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { cycleLabel } from "../../lib/cycles";
+import { useDraftText } from "../../lib/draft-text";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
 import { countRows, effectiveGrouping, filterRows, groupRows, type ListTab, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
@@ -148,6 +149,7 @@ export function IssueList({
   const selectTab = (next: ListTab) => onSearchChange({ tab: next === "mine" ? "all" : next });
   // 検索欄は View Bar のアイコンボタンから開く。検索語があるあいだは開いたままにする
   const [searching, setSearching] = useState(false);
+  const searchText = useDraftText(q, (next) => onSearchChange({ q: next }));
   const searchOpen = searching || q !== "";
   const searchButton = useRef<HTMLButtonElement>(null);
   const refocusSearch = useRef(false);
@@ -235,16 +237,19 @@ export function IssueList({
               className={s.searchInput}
               aria-label="検索"
               placeholder="ID・タイトル・説明で検索"
-              value={q}
+              value={searchText.value}
               // ボタンから開いたときだけフォーカスを移す（検索語つきの URL を開いたときは動かさない）
               autoFocus={searching}
-              onChange={(event) => onSearchChange({ q: event.target.value })}
+              onChange={searchText.onChange}
               // 検索語を消しているあいだは閉じず、空のままフォーカスが外れたら閉じる
               onFocus={() => setSearching(true)}
-              onBlur={() => setSearching(false)}
+              onBlur={() => {
+                searchText.onBlur();
+                setSearching(false);
+              }}
               onKeyDown={(event) => {
                 // 空の検索欄の Escape は、欄を閉じてボタンへ戻る
-                if (event.key !== "Escape" || q !== "" || event.nativeEvent.isComposing) return;
+                if (event.key !== "Escape" || searchText.value !== "" || event.nativeEvent.isComposing) return;
                 refocusSearch.current = true;
                 setSearching(false);
               }}
