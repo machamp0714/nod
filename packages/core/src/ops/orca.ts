@@ -3,7 +3,7 @@ import { existsSync, realpathSync } from "node:fs";
 import type { OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { findIssueRow, findWritableIssueRow, formatIssueId } from "../issue-query";
+import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import { setColumn } from "../mutate";
 import type { OrcaAgent, OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
 import { parseOrcaAgent } from "./workspaces";
@@ -35,6 +35,7 @@ const FAILURE_MESSAGES: Record<Exclude<OrcaFailureCode, "TIMEOUT">, string> = {
   DISABLED: "Orca との連携が無効です（NOD_ORCA=0）",
   NO_WORKTREE: "この Issue には実行場所（worktree）が記録されていません",
   WORKTREE_ALREADY_RECORDED: "この Issue には実行場所（worktree かブランチ）が記録済みです",
+  WORKTREE_CREATING: "この Issue の worktree は作成中です。終わるまで待ってください",
   WORKTREE_NOT_RECORDED: "worktree は作られましたが、Issue に記録できませんでした",
   ORCA_NOT_INSTALLED: "orca が見つかりません。Orca を起動し、orca CLI を使えるようにしてください",
   WORKTREE_NOT_IN_ORCA: "この worktree は Orca に登録されていません",
@@ -188,6 +189,10 @@ export async function openInOrca(db: Database, ref: string, run: OrcaRunner | nu
 
 const FEATURE_RE = /^[a-z0-9-]+$/;
 
+// worktree を作成中の Issue（DB ごとの Issue の内部 ID）。記録済みの確認は orca を呼ぶ前に行うため、
+// orca を待つ間（最長 60 秒）に来た同じ Issue への要求をここで止める。server は1プロセスなので、プロセス内の印で足りる
+const creating = new WeakMap<Database, Set<number>>();
+
 // Issue の worktree を Orca に作り、エージェントを起動して着手を指示する（#210）。
 // エージェントは input.agent（作成時の選択）、無ければ Workspace の既定。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
@@ -208,11 +213,32 @@ export async function createOrcaWorktree(
   // ブランチだけが記録済みの Issue（古いデータ）でも作らない。作ると記録済みのブランチ名を上書きしてしまう
   if (row.worktree || row.branch) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
   if (!run) return fail(orcaFailure("DISABLED"));
+  const inFlight = creating.get(ctx.db) ?? new Set<number>();
+  creating.set(ctx.db, inFlight);
+  if (inFlight.has(row.id)) return fail(orcaFailure("WORKTREE_CREATING"));
+  inFlight.add(row.id);
+  try {
+    return await createAndRecord(ctx, ref, row, issueId, input.feature, chosen, run, fail);
+  } finally {
+    inFlight.delete(row.id);
+  }
+}
+
+async function createAndRecord(
+  ctx: OpCtx,
+  ref: string,
+  row: IssueRow,
+  issueId: string,
+  feature: string,
+  chosen: OrcaAgent | null,
+  run: OrcaRunner,
+  fail: (failure: OrcaFailure) => OrcaWorktreeResult,
+): Promise<OrcaWorktreeResult> {
   const workspace = ctx.db.query("SELECT path, default_agent FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string; default_agent: OrcaAgent };
   const agent = chosen ?? workspace.default_agent;
   const res = readOrcaEnvelope(
     await run(
-      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${input.feature}`, "--no-parent", "--agent", agent,
+      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${feature}`, "--no-parent", "--agent", agent,
         "--prompt", `nod の Issue ${issueId} に着手してください`, "--activate", "--json"],
       { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
     ),

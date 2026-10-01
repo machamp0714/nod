@@ -140,6 +140,23 @@ describe("Orca で作業を始める API（#210）", () => {
     }
   });
 
+  test("同じ Issue への同時の要求は、orca を1回だけ呼び、もう一方は 200 で failure を返す", async () => {
+    const calls: string[][] = [];
+    let release: (r: GhRunResult) => void = () => {};
+    const { app, db, ref } = withOrca((args) => {
+      calls.push(args);
+      return new Promise((resolve) => { release = resolve; });
+    }, null);
+    const first = call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "a" });
+    const second = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "b" });
+    expect(second.status).toBe(200);
+    expect(second.json).toMatchObject({ created: false, failure: { code: "WORKTREE_CREATING" } });
+    release(created);
+    expect((await first).json).toMatchObject({ created: true, worktree: NEW_WT });
+    expect(calls).toHaveLength(1);
+    expect(getIssue(db, ref).worktree).toBe(NEW_WT);
+  });
+
   test("orca を待つ間にアーカイブされたら、200 で作られた worktree のパスを含む failure を返す", async () => {
     const s = withOrca(async () => {
       archiveIssue(s.me, s.ref);

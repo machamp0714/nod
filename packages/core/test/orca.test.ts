@@ -278,6 +278,33 @@ describe("createOrcaWorktree（#210）", () => {
     expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null });
   });
 
+  test("作成中の Issue への別の要求は orca を呼ばずに失敗で返し、終わったら（失敗でも）また作れる", async () => {
+    const { me, ws, ref } = unstarted();
+    const other = createIssue(me, { workspaceId: ws.id, title: "別" });
+    const calls: string[][] = [];
+    const releases: ((r: GhRunResult) => void)[] = [];
+    const run: OrcaRunner = (args) => {
+      calls.push(args);
+      return new Promise((resolve) => releases.push(resolve));
+    };
+    const first = createOrcaWorktree(me, ref, { feature: "a" }, run);
+    const second = await createOrcaWorktree(me, ref, { feature: "b" }, run);
+    expect(second).toMatchObject({ created: false, worktree: null, failure: { code: "WORKTREE_CREATING" } });
+    expect(calls).toHaveLength(1);
+    // 別の Issue は待たせない
+    const third = createOrcaWorktree(me, other.id, { feature: "c" }, run);
+    expect(calls).toHaveLength(2);
+    releases[0]?.({ kind: "timeout" });
+    expect((await first).failure?.code).toBe("TIMEOUT");
+    releases[1]?.(created);
+    expect((await third).created).toBe(true);
+    // 失敗で終わったあとは、同じ Issue をまた作れる
+    const retry = createOrcaWorktree(me, ref, { feature: "a" }, run);
+    expect(calls).toHaveLength(3);
+    releases[2]?.(created);
+    expect((await retry).created).toBe(true);
+  });
+
   test("feature に英小文字・数字・- 以外があるか空なら INVALID_ARGS で、orca を呼ばない", async () => {
     const { me, ref } = unstarted();
     const { run, calls } = stubOrca({ "worktree create": created });
