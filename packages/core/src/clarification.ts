@@ -3,13 +3,12 @@ import { HUMAN_ACTOR, type OpCtx } from "./ctx";
 import type { IssueRow } from "./issue-query";
 import { setColumn } from "./mutate";
 
-// 未回答の確認依頼の件数。llmOnly なら書き手が LLM のものだけを数える
-export function openQuestionCount(db: Database, issueId: number, opts: { llmOnly?: boolean } = {}): number {
-  const row = opts.llmOnly
-    ? db
-        .query("SELECT count(*) AS n FROM questions WHERE issue_id = ? AND answer IS NULL AND asked_by <> ?")
-        .get(issueId, HUMAN_ACTOR)
-    : db.query("SELECT count(*) AS n FROM questions WHERE issue_id = ? AND answer IS NULL").get(issueId);
+// 未回答の確認依頼の件数。askedBy が "llm" なら書き手が LLM のものだけ、"human" なら私が足した未決事項だけを数える
+export function openQuestionCount(db: Database, issueId: number, opts: { askedBy?: "llm" | "human" } = {}): number {
+  const by = opts.askedBy === "llm" ? " AND asked_by <> ?" : opts.askedBy === "human" ? " AND asked_by = ?" : "";
+  const row = db
+    .query(`SELECT count(*) AS n FROM questions WHERE issue_id = ? AND answer IS NULL${by}`)
+    .get(issueId, ...(by ? [HUMAN_ACTOR] : []));
   return (row as { n: number }).n;
 }
 

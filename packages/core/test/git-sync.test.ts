@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { completeIssue, startIssue } from "../src/ops/agent";
+import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import { listAutoTransitions, undoAutoTransition } from "../src/ops/auto-transitions";
 import { getAutomationSettings, setAutomationSettings } from "../src/ops/automation";
 import { findClosingRefs, GIT_SYNC_SCAN_MAX, gitRunner, syncGitCommits } from "../src/ops/git-sync";
-import { rejectReview } from "../src/ops/human";
+import { answerQuestion, rejectReview } from "../src/ops/human";
 import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import type { OpCtx } from "../src/ctx";
@@ -130,6 +130,38 @@ describe("nod git sync", () => {
     const run = await syncGitCommits(s.me, s.ws.key, {});
     expect(run.total).toBe(0);
     for (const [st, id] of ids) expect(statusOf(s.db, id)).toBe(st);
+  });
+
+  test("対象外: 未回答の確認依頼が残る backlog・todo（書き手を問わない）。すべて回答されると対象になる（#170）", async () => {
+    const s = fixture();
+    const todo = s.make("todo");
+    const backlog = s.make("backlog");
+    const byMe = askQuestion(s.me, todo, "対象はどれか").question.id;
+    const byLlm = askQuestion(s.llm, backlog, "どちらの方式にするか").question.id;
+    // 人が Needs Clarification から手で出した状態
+    updateIssue(s.me, todo, { status: "todo" });
+    updateIssue(s.me, backlog, { status: "backlog" });
+    s.commit(`Closes ${todo}, ${backlog}`);
+    expect((await syncGitCommits(s.llm, s.ws.key, { dryRun: true })).total).toBe(0);
+    const held = await syncGitCommits(s.me, s.ws.key, {});
+    expect(held).toMatchObject({ total: 0, processed: [], skipped: [] });
+    expect(statusOf(s.db, todo)).toBe("todo");
+    expect(statusOf(s.db, backlog)).toBe("backlog");
+
+    answerQuestion(s.me, todo, "一覧", { questionId: byMe });
+    answerQuestion(s.me, backlog, "A 方式", { questionId: byLlm });
+    expect((await syncGitCommits(s.me, s.ws.key, {})).processed).toEqual([todo, backlog]);
+    expect(statusOf(s.db, todo)).toBe("in_review");
+    expect(statusOf(s.db, backlog)).toBe("in_review");
+  });
+
+  test("in_progress は、未回答の確認依頼が残っていても in_review に進める（従来どおり）", async () => {
+    const s = fixture();
+    const id = s.make("in_progress");
+    askQuestion(s.me, id, "対象はどれか");
+    s.commit(`Closes ${id}`);
+    expect((await syncGitCommits(s.me, s.ws.key, {})).processed).toEqual([id]);
+    expect(statusOf(s.db, id)).toBe("in_review");
   });
 
   test("LLM は実行できない（dry-run はできる）。無効なら実行できない", async () => {

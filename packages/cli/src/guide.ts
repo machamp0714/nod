@@ -130,6 +130,8 @@ LLM が起票した Issue は Triage に入り、人が受け入れるまで \`n
 \`nod triage accept\`、\`nod triage decline\`、\`nod triage duplicate\` は人だけが実行できる。
 受け入れ・却下・重複の判断が必要なときは、人に判断を依頼する。
 Triage にある Issue の状態を \`nod issue update --status\` や \`nod issue bulk-update -s\` で変えて Triage から出すことも LLM にはできない（FORBIDDEN_FOR_LLM）。状態以外の項目は変えられる。
+人が足した未決事項が未回答の間は、その Issue を \`nod issue update --status\` や \`nod issue bulk-update -s\` で着手の状態にすることは LLM にはできない（FORBIDDEN_FOR_LLM）。needs_clarification からは canceled にしか出せず（todo・backlog・triage も不可）、着手していない状態（todo・backlog・canceled・done）からも in_progress・in_review にはできない（canceled を経由しても同じ）。\`nod answer\` で自分で決めて外すこともできない。回答を人に依頼し、別の Issue を取る。
+人が \`nod issue update -s todo\` などで needs_clarification から出した Issue は、未回答が残る間は着手できない（成功表示の次の行に「未回答の確認依頼が N 件残っています」と出る）。同じ文面の \`nod issue ask\` の再実行は質問を増やさず、状態も変えない。
 \`nod triage suggest <id>\` は重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人だけが行い、LLM は候補を根拠に人へ伝えるだけにする。
 LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [--assignee <名前>] [-p 0-4] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。

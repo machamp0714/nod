@@ -61,6 +61,55 @@ describe("ask と answer", () => {
   });
 });
 
+describe("未決事項が残る Issue の手動の状態変更（#170）", () => {
+  const statusChanges = (db: Database) =>
+    (db.query("SELECT data FROM events WHERE type = 'status_changed' ORDER BY id").all() as { data: string }[]).map((e) => JSON.parse(e.data));
+
+  test("update で needs_clarification から todo に移すと、todo のまま返り、event は1件だけ残る", async () => {
+    const { app, db, me, ws } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    askQuestion(me, i.id, "対象の画面はどれか");
+    const r = await call(app, "POST", `/api/issues/${i.id}/update`, { status: "todo" });
+    expect(r.status).toBe(200);
+    expect(r.json.status).toBe("todo");
+    expect(statusChanges(db)).toEqual([
+      { from: "todo", to: "needs_clarification" },
+      { from: "needs_clarification", to: "todo" },
+    ]);
+    const detail = (await call(app, "GET", `/api/issues/${i.id}`)).json;
+    expect(detail).toMatchObject({ status: "todo", openQuestions: [{ question: "対象の画面はどれか" }] });
+  });
+
+  test("todo に出したあと、同じ文面の ask の再実行では needs_clarification に戻さない", async () => {
+    const { app, db, me, ws } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    askQuestion(me, i.id, "対象の画面はどれか");
+    await call(app, "POST", `/api/issues/${i.id}/update`, { status: "todo" });
+    const before = statusChanges(db);
+    const again = await call(app, "POST", `/api/issues/${i.id}/ask`, { question: "対象の画面はどれか" });
+    expect(again.status).toBe(200);
+    expect(again.json).toMatchObject({ created: false, issue: { status: "todo" } });
+    expect(statusChanges(db)).toEqual(before);
+    const added = await call(app, "POST", `/api/issues/${i.id}/ask`, { question: "期限はいつか" });
+    expect(added.json).toMatchObject({ created: true, issue: { status: "needs_clarification" } });
+  });
+
+  test("bulk-update でも needs_clarification に戻さない", async () => {
+    const { app, db, me, ws } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    askQuestion(me, a.id, "対象の画面はどれか");
+    const r = await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id, b.id], status: "backlog" });
+    expect(r.status).toBe(200);
+    expect(r.json.map((i: { status: string }) => i.status)).toEqual(["backlog", "backlog"]);
+    expect(statusChanges(db)).toEqual([
+      { from: "todo", to: "needs_clarification" },
+      { from: "needs_clarification", to: "backlog" },
+      { from: "todo", to: "backlog" },
+    ]);
+  });
+});
+
 describe("Triage とレビュー", () => {
   test("accept、decline、duplicate、snooze は書き手 me で記録する", async () => {
     const { app, db, llm, ws } = setup();

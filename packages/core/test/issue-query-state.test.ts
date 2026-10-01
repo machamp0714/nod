@@ -24,7 +24,8 @@ describe("手動遷移の作業状況", () => {
         const before = getIssue(db, id);
         const result = updateIssue(me, id, { status });
         expect(result.agentState).toBeNull();
-        expect(result.status).toBe(state === "awaiting_input" && ["todo", "backlog"].includes(status) ? "needs_clarification" : status);
+        // 未回答の確認依頼が残っていても、手動の移動では needs_clarification にしない（#170）
+        expect(result.status).toBe(status);
         expect([result.assignee, result.branch, result.worktree, result.startedAt]).toEqual([before.assignee, before.branch, before.worktree, before.startedAt]);
         expect(eventsOf(db, id).filter(e => e.type === "agent_state_changed").at(-1)?.data).toMatchObject({ from: state, to: null });
         db.close();
@@ -57,7 +58,7 @@ describe("手動遷移の作業状況", () => {
   test("Todo移動後の未決事項への回答でworkingへ戻さない", () => {
     const { db, me, llm, id } = started();
     askQuestion(llm, id, "確認");
-    expect(updateIssue(me, id, { status: "todo" }).status).toBe("needs_clarification");
+    expect(updateIssue(me, id, { status: "todo" }).status).toBe("todo");
     expect(answerQuestion(me, id, "回答").issue).toMatchObject({ status: "todo", agentState: null });
     db.close();
   });

@@ -37,6 +37,10 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("nod triage proposals <id>");
   expect(GUIDE).toContain("nod triage propose <id> --withdraw");
   expect(GUIDE).toContain("FORBIDDEN_FOR_LLM：");
+  expect(GUIDE).toContain("人が足した未決事項が未回答の間");
+  expect(GUIDE).toContain("needs_clarification からは canceled にしか出せず（todo・backlog・triage も不可）");
+  expect(GUIDE).toContain("canceled を経由しても同じ");
+  expect(GUIDE).toContain("同じ文面の `nod issue ask` の再実行は質問を増やさず、状態も変えない");
   expect(GUIDE).toContain("人に判断を依頼");
   expect(GUIDE).toContain("nod project update");
   expect(GUIDE).toContain("--completion-candidates");

@@ -15,7 +15,8 @@ import { findWorkspace } from "./workspaces";
 export const GIT_SYNC_SINCE_DAYS_DEFAULT = 30;
 export const GIT_SYNC_SCAN_MAX = 1000; // 1回に読むコミットの上限
 export const GIT_SYNC_TIMEOUT_MS = 15_000;
-// コミットで作業が済んだことを表すので、着手前（backlog・todo）も進める。Triage・確認待ち・レビュー待ち以降は対象外
+// コミットで作業が済んだことを表すので、着手前（backlog・todo）も進める。Triage・確認待ち・レビュー待ち以降は対象外。
+// 未回答の確認依頼（書き手を問わない）が残る backlog・todo も対象外（人が確認待ちから手で出しても、決まるまで着手の状態にしない。#170）
 export const COMMIT_REVIEW_FROM: Status[] = ["backlog", "todo", "in_progress"];
 
 export type GitRunner = GhRunner;
@@ -110,7 +111,7 @@ interface CandidateRow {
   status: Status;
 }
 
-// 実行時の再確認にも使う。対象の状態で、同じコミットの記録がなく、コミットのあとに in_review になっていない。
+// 実行時の再確認にも使う。対象の状態で、backlog・todo なら未回答の確認依頼がなく、同じコミットの記録がなく、コミットのあとに in_review になっていない。
 // 一度でも in_review から動いた（人の差し戻し・取消）Issue は、新しいコミット（rebase・cherry-pick で SHA が変わったものを含む）でも進めない
 function eligible(db: Database, workspace: Workspace, number: number, sha: string, committedAt: string): CandidateRow | null {
   return db
@@ -118,6 +119,7 @@ function eligible(db: Database, workspace: Workspace, number: number, sha: strin
       `SELECT i.id, i.number, i.title, i.status FROM issues i
        WHERE i.workspace_id = ? AND i.number = ? AND i.archived_at IS NULL
          AND i.status IN (${COMMIT_REVIEW_FROM.map(() => "?").join(", ")})
+         AND NOT (i.status IN ('backlog', 'todo') AND EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL))
          AND NOT EXISTS (SELECT 1 FROM auto_transitions t WHERE t.issue_id = i.id AND t.source = 'commit' AND t.source_key = ?)
          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
            AND json_extract(e.data, '$.to') = 'in_review' AND e.created_at >= ?)

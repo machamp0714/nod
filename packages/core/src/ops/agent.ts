@@ -149,7 +149,8 @@ export function askQuestion(ctx: OpCtx, ref: string, question: string): AskResul
     // 作業中なら LLM の作業を止め、着手前なら決めることが残っている Issue として扱う
     if (row.status === "in_progress") {
       if (isLlm(ctx)) setColumn(ctx, row, "agent_state", "awaiting_input", { reason: question });
-    } else {
+    } else if (!existing) {
+      // 同じ文面の再実行では質問が増えないので、人が needs_clarification から出した Issue を戻さない（#170）
       enterClarification(ctx, row);
     }
     return { question: asked, created: !existing, issue: toIssue(issueRowById(ctx.db, row.id)) };
