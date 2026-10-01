@@ -40,7 +40,7 @@ export function DescriptionSection({
       </header>
       {draft === null ? (
         description ? (
-          <Markdown>{description}</Markdown>
+          <Markdown breaks>{description}</Markdown>
         ) : (
           <p className={s.muted}>説明はありません</p>
         )

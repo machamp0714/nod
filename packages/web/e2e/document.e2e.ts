@@ -12,6 +12,10 @@ test("Document はタイトル、パス、Markdown の本文を出す", async ({
   await expect(page.getByRole("heading", { level: 3, name: "方針" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "複合インデックスを足す" })).toBeVisible();
   await expect(page.getByText("/search の p95 を 200ms 以下にする。")).toBeVisible();
+  // Document は Markdown ファイルそのものなので、折り返しの改行は1段落につなぐ（説明と違い <br> にしない。#176）
+  const wrapped = page.locator("p").filter({ hasText: "計測は本番相当のデータで行う。" });
+  await expect(wrapped).toContainText("/search の p95 を 200ms 以下にする。");
+  await expect(wrapped.locator("br")).toHaveCount(0);
 });
 
 // 完了条件：ファイルがなければタイトルと「ファイルが見つかりません」

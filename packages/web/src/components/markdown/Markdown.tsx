@@ -1,4 +1,5 @@
 import ReactMarkdown, { type Components } from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import s from "./markdown.module.css";
 
@@ -13,11 +14,16 @@ const components: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
 };
 
+const GFM = [remarkGfm];
+const GFM_WITH_BREAKS = [remarkGfm, remarkBreaks];
+
 // 生の HTML は描画しない（rehype-raw を使わない）。LLM が書いた説明をそのまま表示するためである。
-export function Markdown({ children }: { children: string }) {
+// breaks を付けると、改行1つを改行のまま出す（Issue の説明。行を改行だけで区切って書かれるため。#176）。
+// 付けないと Markdown の規則どおり1段落につなぐ（Document。折り返して書かれた Markdown ファイルのため）
+export function Markdown({ children, breaks = false }: { children: string; breaks?: boolean }) {
   return (
     <div className={s.markdown}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={breaks ? GFM_WITH_BREAKS : GFM} components={components}>
         {children}
       </ReactMarkdown>
     </div>
