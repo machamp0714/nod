@@ -1,5 +1,5 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useDecision, useInbox, useWorkspaceName } from "../api/hooks/decision";
 import { usePrStatus } from "../api/hooks/pr-status";
 import { useIssueDetail } from "../api/hooks/shared";
@@ -228,13 +228,16 @@ function ReviewDetail({
 // 説明（受け入れ条件を含む）。承認・差し戻しの欄を遠ざけないよう、閉じた状態で出す（#177、nod.pen『14 Reviews｜説明と Issue を開く』OUlIa、閉は PnC7g、説明なしは S2jVA）
 function DescriptionToggle({ description }: { description: string | null }) {
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
   return (
     <section className={d.section} aria-label="説明">
-      <button type="button" className={d.descriptionHead} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className={d.descriptionHead} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
         <Icon name={open ? "chevron-down" : "chevron-right"} size={14} color="var(--ink3)" />
         説明
       </button>
-      {open && <div className={d.descriptionBody}>{description ? <Markdown>{description}</Markdown> : <p className={d.descriptionEmpty}>説明はありません</p>}</div>}
+      <div id={bodyId} className={d.descriptionBody} hidden={!open}>
+        {open && (description ? <Markdown>{description}</Markdown> : <p className={d.descriptionEmpty}>説明はありません</p>)}
+      </div>
     </section>
   );
 }

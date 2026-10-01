@@ -70,7 +70,7 @@ test("説明は閉じた状態で出し、開くと Markdown で読める。Issu
   const api = await seedApiWorkspace(nod);
   const first = await api.inReview("決済 Webhook の署名検証を追加", "署名を検証した");
   await nod.me.updateIssue(first.id, { description: "署名なしの Webhook を弾く。\n\n## 受け入れ条件\n\n- 署名が不正なら 401 を返す\n- 5 分より古いリクエストは拒否する" });
-  const second = await api.inReview("説明のない Issue", "終えた");
+  await api.inReview("説明のない Issue", "終えた");
 
   await page.goto(`/reviews?selected=${first.id}`);
   const section = detail(page).getByRole("region", { name: "説明" });
@@ -103,7 +103,7 @@ test("説明は閉じた状態で出し、開くと Markdown で読める。Issu
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await expect(section.getByText("説明はありません")).toBeVisible();
-  expect(second.id).not.toBe(first.id);
+  await expect(toggle).toHaveAttribute("aria-controls", /.+/);
 });
 
 test("Issue を開くで Issue 詳細に移る", async ({ page, nod }) => {
