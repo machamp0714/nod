@@ -6,6 +6,7 @@ export type {
   OrcaFailure,
   OrcaFailureCode,
   OrcaOpenResult,
+  OrcaWorktreeResult,
   OrcaTerminal,
   AgentInstruction,
   AgentInstructionKind,

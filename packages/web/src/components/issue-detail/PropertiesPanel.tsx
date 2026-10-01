@@ -18,6 +18,7 @@ import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pi
 import s from "./issue-detail.module.css";
 import { OpenInOrcaButton } from "./OpenInOrcaButton";
 import { PropertyMenu, type PropertyOption } from "./PropertyMenu";
+import { StartInOrcaButton } from "./StartInOrcaButton";
 import { useAsyncAction } from "./useAsyncAction";
 
 function Prop({ label, children }: { label: string; children: ReactNode }) {
@@ -409,7 +410,8 @@ export function PropertiesPanel({
                 {issue.worktree && <OpenInOrcaButton issueId={issue.id} />}
               </span>
             ) : (
-              <Static><Empty /></Static>
+              // 実行場所が未記録のときだけ、値の位置に「Orca で作業を始める」を出す（#210、nod.pen「PHJ9L」）
+              <StartInOrcaButton issueId={issue.id} title={issue.title} disabled={readOnly} />
             )}
           </Prop>
         )}

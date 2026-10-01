@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath } from "../query-keys";
-import type { AgentInstruction, AgentTargets, OrcaOpenResult } from "../types";
+import type { AgentInstruction, AgentTargets, OrcaOpenResult, OrcaWorktreeResult } from "../types";
 import { useApiMutation } from "./shared";
 
 // 記録済みの worktree を Orca で前面に出す（#52）。DB を変えないので読み直しはしない。
@@ -10,6 +10,14 @@ export function useOpenInOrca(id: string) {
   return useMutation<OrcaOpenResult, Error, void>({
     mutationFn: () => apiFetch<OrcaOpenResult>(issuePath(id, "orca-open"), { method: "POST" }),
   });
+}
+
+// Orca に worktree を作ってエージェントを起動する（#210）。成功すると Issue に実行場所が記録されるため、終わったら読み直す。
+// 作れなかった理由は HTTP の失敗ではなく結果の failure で返る
+export function useCreateOrcaWorktree(id: string) {
+  return useApiMutation((feature: string) =>
+    apiFetch<OrcaWorktreeResult>(issuePath(id, "orca-worktree"), { method: "POST", body: { feature } }),
+  );
 }
 
 // 追加指示の送信先の候補（#51）。確認画面を開くたびに orca で1回だけ調べ、古い一覧を使い回さない

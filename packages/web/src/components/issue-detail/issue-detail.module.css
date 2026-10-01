@@ -1237,6 +1237,23 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .orcaPopover button svg { flex: none; color: var(--ink2); }
 .orcaPopover button:hover, .orcaPopover button:focus-visible { background: var(--sunken); }
 
+/* 「Orca で作業を始める」（#210、nod.pen の PHJ9L・Y7Eyr）。ボタンは値の位置の高さ 24 のピル。
+   ポップオーバーは行の直下に重ねる。値の列は幅 300 より狭いため、右端を値の列に合わせて左へ開く */
+.orcaStartButton { color: var(--ink2); }
+.orcaStartButton svg { width: 13px; height: 13px; }
+.orcaStartPopover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; width: min(300px, calc(var(--rail-width) - 40px)); display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: 0 1px 2px #0000001a; }
+.orcaStartError { display: flex; gap: 8px; margin: 0; color: var(--fail); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.orcaStartError svg { flex: none; margin-top: 2px; }
+.orcaStartField { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.orcaStartLabel { color: var(--ink2); font-size: 12px; font-weight: 600; }
+.orcaStartInput { min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font-family: var(--font-mono); font-size: 12px; outline: none; }
+.orcaStartInput:focus { border-color: var(--accent); }
+.orcaStartInput:disabled { color: var(--ink3); }
+.orcaStartPreview { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink3); font-size: 11.5px; white-space: nowrap; }
+.orcaStartName { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink2); font-family: var(--font-mono); }
+.orcaStartNote { margin: 0; color: var(--ink3); font-size: 11.5px; line-height: 1.5; }
+.orcaStartActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+
 /* 追加指示の送信確認（#51・#58、Pencil『送信確認』VbZ0j・brSoL・i3yxur） */
 .sendDialog { width: 480px; max-width: calc(100vw - 32px); padding: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: 0 1px 2px #0000001a; color: var(--ink); }
 .sendDialog::backdrop { background: color-mix(in srgb, var(--ink) 30%, transparent); }
