@@ -776,10 +776,36 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 8px;
+  gap: 0 12px;
   min-width: 0;
   min-height: var(--control-height);
   padding: 0 10px 0 6px;
+}
+
+/* 関連 Issue の相手と状態の印（nod.pen「12 Issue 詳細｜関係の状態」nYzNS）：ID と印の間 4、印は角丸 10・余白 1/7・10.5px */
+.relation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-height);
+}
+
+.relationClosed {
+  color: var(--ink3);
+}
+
+.relationClosed:hover {
+  text-decoration: underline;
+}
+
+.relationMark {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--sunken);
+  color: var(--ink2);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* ピルと、その直下に開くメニューの組。箱を作らず、位置は .propValue を基準にする */

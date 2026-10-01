@@ -96,6 +96,7 @@ export type {
   Question,
   RelationType,
   Relations,
+  RelationState,
   Status,
   StepStatus,
   UpdateIssueInput,
