@@ -21,6 +21,33 @@ test("コメントを書くと Activity に書き手つきで出る。空白だ�
   await expect(box).toHaveValue("");
 });
 
+test("コメントの本文は Markdown で描き、改行1つは改行のまま出す", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  await activity.getByRole("textbox", { name: "コメント" }).fill("### 見出しの行\n**太字** と `code`\n2行目\n\n- 箇条書き\n- [記事](https://example.com)");
+  await activity.getByRole("button", { name: "コメントする" }).click();
+  const thread = activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "見出しの行" });
+  await expect(thread.getByRole("heading", { name: "見出しの行" })).toBeVisible();
+  await expect(thread.locator("strong", { hasText: "太字" })).toBeVisible();
+  await expect(thread.locator("code", { hasText: "code" })).toBeVisible();
+  await expect(thread.locator("br")).toHaveCount(1);
+  await expect(thread.getByRole("listitem")).toHaveCount(2);
+  await expect(thread.getByRole("link", { name: "記事" })).toHaveAttribute("href", "https://example.com");
+  await expect(thread).not.toContainText("**");
+});
+
+test("返信も Markdown で描き、長い1行のコードブロックでもカードは Activity 欄からはみ出さない", async ({ page, nod }) => {
+  const root = await nod.claude.commentIssue(ISSUE.comment, `ログを貼る\n\n\`\`\`\n${"x".repeat(400)}\n\`\`\``);
+  await nod.claude.commentIssue(ISSUE.comment, "**返信の太字**", { replyTo: root.id });
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  const thread = activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "ログを貼る" });
+  await expect(thread.getByRole("group", { name: "返信記録" }).locator("strong", { hasText: "返信の太字" })).toBeVisible();
+  const card = await thread.boundingBox();
+  const area = await activity.boundingBox();
+  expect(card!.x + card!.width).toBeLessThanOrEqual(area!.x + area!.width + 1);
+});
+
 test("変更の種類ごとに書き手つきの文を出し、質問の event は重ねない", async ({ page }) => {
   await page.goto(`/issues/${ISSUE.comment}`);
   const activity = region(page, "Activity");

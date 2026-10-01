@@ -619,7 +619,12 @@
 
 /* コメントのスレッド（nod.pen「Issue詳細｜コメントスレッド（#48/#49）」） */
 .commentThread { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; background: var(--surface); }
-.commentThread p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; margin: 0; }
+.commentThread > p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; margin: 0; }
+/* コメント・返信の本文は Markdown で描く。文字の大きさはスレッドの他の本文に合わせる */
+/* min-width: 0 がないと、折り返さないコードブロックや表の幅がカードと Activity 欄を押し広げる */
+.commentBody { min-width: 0; }
+.commentBody > div { font-size: 13px; line-height: 1.6; }
+.threadReply .commentBody > div { font-size: 12.5px; }
 .threadResolved { background: var(--bg); }
 .threadActions { margin-left: auto; display: flex; gap: 2px; }
 .threadAction, .reopenButton {
@@ -640,7 +645,6 @@
 .reopenButton { margin-left: auto; border: 1px solid var(--line); background: var(--surface); }
 .threadReplies { display: grid; gap: 12px; padding: 12px 0 0 26px; border-top: 1px solid var(--line); }
 .threadReply { display: grid; gap: 4px; }
-.threadReply p { font-size: 12.5px; }
 .replyHead { display: flex; align-items: center; gap: 6px; }
 .replyHead strong { font-size: 12px; font-weight: 600; }
 .replyHead time { color: var(--ink3); font-size: 11px; }
