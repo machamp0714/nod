@@ -4,7 +4,7 @@ import {
   cleanMyIssuesSearch,
   defaultGroupBy,
   type IssueListSearch,
-  DEFAULT_ISSUE_COLUMNS,
+  DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS,
   replacesIssueListHistory,
   cleanProjectsSearch,
   parseIssueListSearch,
@@ -92,11 +92,20 @@ describe("表示設定のURL", () => {
     expect(parseIssueListSearch({ q: "検索" })).toEqual({ q: "検索" });
   });
   test("見積もり・期限の列は既定で非表示、選ぶとURLに残る", () => {
-    expect(DEFAULT_ISSUE_COLUMNS).toEqual(["status", "questions", "workspace", "pr"]);
+    expect(DEFAULT_ISSUE_COLUMNS).toEqual(["priority", "status", "questions", "workspace", "project", "assignee", "pr"]);
     expect(cleanIssueListSearch({ columns: [...DEFAULT_ISSUE_COLUMNS] })).toEqual({});
-    const withDue: IssueListSearch = { columns: ["status", "questions", "workspace", "pr", "dueDate"] };
+    const withDue: IssueListSearch = { columns: [...DEFAULT_ISSUE_COLUMNS, "dueDate"] };
     expect(cleanIssueListSearch(withDue)).toEqual(withDue);
     expect(parseIssueListSearch({ columns: ["dueDate", "estimate", "status"] }).columns).toEqual(["status", "estimate", "dueDate"]);
+  });
+  test("優先度・Project・担当の列は既定で表示し、列を明示した既存の URL には足さない（#174）", () => {
+    expect(ISSUE_COLUMNS).toEqual(["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"]);
+    // #174 より前の既定（status・questions・workspace・pr）を明示した URL は、その4列のまま復元する
+    const before: IssueListSearch = { columns: ["status", "questions", "workspace", "pr"] };
+    expect(parseIssueListSearch({ ...before }).columns).toEqual(before.columns);
+    expect(cleanIssueListSearch(before)).toEqual(before);
+    expect(parseIssueListSearch({ columns: ["assignee", "pr", "priority", "project"] }).columns).toEqual(["priority", "project", "assignee", "pr"]);
+    expect(parseIssueListSearch({}).columns).toBeUndefined();
   });
   test("並び順に見積もりと期限を選べる", () => {
     for (const sort of ["estimate", "dueDate"] as const) {

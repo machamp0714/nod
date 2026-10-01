@@ -25,7 +25,7 @@ const SORT_OPTIONS: { value: IssueSort; label: string; short?: string }[] = [
   { value: "dueDate", label: "期限" },
 ];
 
-const COLUMN_NAMES: Record<IssueColumn, string> = { status: "Status", questions: "未決事項", workspace: "Workspace", pr: "PR", estimate: "見積もり", dueDate: "期限" };
+const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", project: "Project", assignee: "担当", pr: "PR", estimate: "見積もり", dueDate: "期限" };
 
 const LAYOUTS: { value: IssueLayout; label: string; icon: IconName }[] = [
   { value: "list", label: "List", icon: "list" },

@@ -44,6 +44,14 @@ describe("issueQueryToParams", () => {
     expect(issueQueryToParams({ delegated: false })).toBe("");
     expect(issueQueryToParams({})).toBe("");
   });
+
+  test("View の filter の priority を API に渡し、比較でも区別する（#174。Issues の URL には持たない）", () => {
+    expect(issueQueryToParams({ priority: [1, 0] })).toBe("?priority=1&priority=0");
+    expect(issueQueryToParams({ priority: [] })).toBe("");
+    expect(sameFilter({ priority: [2, 1] }, { priority: [1, 2] })).toBe(true);
+    expect(sameFilter({ priority: [1] }, {})).toBe(false);
+    expect(withoutKey({ priority: [1], status: ["todo"] }, "status")).toEqual({ priority: [1] });
+  });
 });
 
 describe("sameFilter", () => {

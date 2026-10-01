@@ -8,7 +8,7 @@ const tableRows = (page: import("@playwright/test").Page) => page.getByRole("tab
 test("Issues は spec の列でリストを出す", async ({ page }) => {
   await page.goto("/issues");
   const table = page.getByRole("table");
-  await expect(table.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR"]);
+  await expect(table.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"]);
   await expect(tableRows(page)).toHaveCount(13);
   await expect(table.getByRole("row", { name: /API-9/ })).toContainText("2 / 6");
   await expect(table.getByRole("row", { name: /API-7/ }).getByRole("link", { name: "#128" })).toBeVisible();

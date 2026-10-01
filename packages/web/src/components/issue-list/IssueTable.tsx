@@ -5,7 +5,8 @@ import { Link } from "@tanstack/react-router";
 import { formatDueDate, formatEstimate, isOverdue, localToday } from "../../lib/due-date";
 import { prLabel } from "../../lib/format";
 import type { Issue } from "../../api/types";
-import { Button, Icon, LabelChip, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
+import { priorityMeta, TONE_COLORS } from "../../lib/meta";
+import { AgentAvatar, Button, Icon, LabelChip, QuestionProgress, StatusLabel, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
@@ -18,6 +19,19 @@ function DueDateCell({ issue, today }: { issue: Issue; today: string }) {
       <Icon name="calendar" size={12} color={overdue ? "var(--fail)" : "var(--ink3)"} />
       {label ? <span className={overdue ? s.overdue : undefined} title={issue.dueDate ?? undefined}>{label}</span> : <span className={s.muted}>—</span>}
       {overdue && <span className={s.overduePill}>期限超過</span>}
+    </span>
+  );
+}
+
+// nod.pen「11 Issues」（O7KCp3）の行頭の優先度アイコン（14）。Urgent は $fail、High〜Low は $ink2、優先度なしは薄く出す。
+// 名前は支援技術とツールチップに出す
+function PriorityCell({ priority }: { priority: number }) {
+  const meta = priorityMeta(priority);
+  const color = priority === 0 ? "var(--ink3)" : meta.tone === "muted" ? "var(--ink2)" : TONE_COLORS[meta.tone].fg;
+  return (
+    <span className={s.priorityCell} title={meta.label}>
+      <Icon name={meta.icon} size={14} color={color} />
+      <span className={s.visuallyHidden}>{meta.label}</span>
     </span>
   );
 }
@@ -49,11 +63,14 @@ export function IssueTable({
       <table className={s.table}>
       <colgroup>
         {select && <col className={s.colSelect} />}
+        {columns.includes("priority") && <col className={s.colPriority} />}
         {columns.includes("status") && <col className={s.colStatus} />}
         <col className={s.colId} />
         <col />
         {columns.includes("questions") && <col className={s.colQuestions} />}
+        {columns.includes("project") && <col className={s.colProject} />}
         {columns.includes("workspace") && <col className={s.colWorkspace} />}
+        {columns.includes("assignee") && <col className={s.colAssignee} />}
         {columns.includes("pr") && <col className={s.colPr} />}
         {columns.includes("estimate") && <col className={s.colEstimate} />}
         {columns.includes("dueDate") && <col className={s.colDue} />}
@@ -63,11 +80,14 @@ export function IssueTable({
         <tr>
           {/* 選択の列は項目ではないため列見出しにしない。各チェックボックスが「<ID> を選択」の名前を持つ */}
           {select && <td />}
+          {columns.includes("priority") && <th>優先度</th>}
           {columns.includes("status") && <th>Status</th>}
           <th>ID</th>
           <th>Title</th>
           {columns.includes("questions") && <th>未決事項</th>}
+          {columns.includes("project") && <th>Project</th>}
           {columns.includes("workspace") && <th>Workspace</th>}
+          {columns.includes("assignee") && <th>担当</th>}
           {columns.includes("pr") && <th>PR</th>}
           {columns.includes("estimate") && <th>見積もり</th>}
           {columns.includes("dueDate") && <th>期限</th>}
@@ -113,6 +133,11 @@ export function IssueTable({
                   />
                 </td>
               )}
+              {columns.includes("priority") && (
+                <td>
+                  <PriorityCell priority={issue.priority} />
+                </td>
+              )}
               {columns.includes("status") && (
                 <td>
                   <StatusLabel status={issue.status} workspace={issue.workspace} />
@@ -152,9 +177,27 @@ export function IssueTable({
                   <QuestionProgress count={questions} />
                 </td>
               )}
+              {columns.includes("project") && (
+                <td>
+                  {issue.project && (
+                    <span className={s.projectCell} title={issue.project.name}>
+                      <Icon name="box" size={12} color="var(--ink3)" />
+                      <span className={s.projectName}>{issue.project.name}</span>
+                    </span>
+                  )}
+                </td>
+              )}
               {columns.includes("workspace") && (
                 <td>
                   <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
+                </td>
+              )}
+              {columns.includes("assignee") && (
+                <td>
+                  <span className={s.assigneeCell}>
+                    {issue.assignee ? <AgentAvatar actor={issue.assignee} /> : <span className={s.unassigned} title="未割り当て" />}
+                    <span className={s.visuallyHidden}>{issue.assignee ?? "未割り当て"}</span>
+                  </span>
                 </td>
               )}
               {columns.includes("pr") && (

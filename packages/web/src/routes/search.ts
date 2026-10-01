@@ -9,10 +9,12 @@ export type IssueLayout = "list" | "board";
 export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "title" | "estimate" | "dueDate";
 const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
-export const ISSUE_COLUMNS = ["status", "questions", "workspace", "pr", "estimate", "dueDate"] as const;
+// 表示設定のチップの順（design/nod.pen「Display Popover｜表示列に優先度・担当」o64gix）
+export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
-// 見積もり・期限の列は後から足したため既定では出さない（既存の既定表示と URL を変えない）
-export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["status", "questions", "workspace", "pr"];
+// 見積もり・期限の列は後から足したため既定では出さない。優先度・Project・担当は既定で出す（#174）。
+// 列を明示した既存の URL（columns=...）はそのまま復元し、新しい列を足さない
+export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "questions", "workspace", "project", "assignee", "pr"];
 export type ProjectTab = "active" | "completed" | "all";
 
 export interface SelectedSearch {

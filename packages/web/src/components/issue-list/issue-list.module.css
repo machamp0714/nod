@@ -122,6 +122,48 @@
   background: var(--bg);
 }
 
+/* nod.pen「11 Issues」（O7KCp3）の行：行頭に優先度のアイコン 14、題名の後ろに Project（箱のアイコン 12 と名前、幅 132）と担当（18 の丸）。#174 */
+.colPriority {
+  width: 32px;
+}
+
+.colProject {
+  width: 148px;
+}
+
+.colAssignee {
+  width: 40px;
+}
+
+.priorityCell,
+.assigneeCell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.projectCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.projectCell > svg {
+  flex: none;
+}
+
+.projectName {
+  overflow: hidden;
+  color: var(--ink2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .colStatus {
   width: 170px;
 }

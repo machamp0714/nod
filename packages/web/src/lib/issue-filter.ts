@@ -41,6 +41,8 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.q) params.set("q", query.q);
   if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
   if (query.archived) params.set("archived", "true");
+  // priority は View の filter（CLI・API で保存したもの）だけが持つ。Issues の URL と絞り込みの UI にはない（#174）
+  for (const priority of query.priority ?? []) params.append("priority", String(priority));
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -60,6 +62,7 @@ function normalize(query: IssueQuery) {
     q: query.q ?? "",
     blocked: query.blocked,
     archived: query.archived === true,
+    priority: [...(query.priority ?? [])].sort(),
   };
 }
 
