@@ -121,3 +121,11 @@ test("ラベルで重複して出る行は、最初の1行だけを現在のプ�
   await expect(page.locator("tr[aria-current=true]")).toHaveCount(1);
   await expect(rows.first()).toHaveAttribute("aria-current", "true");
 });
+
+// #176：プレビューの説明も Issue 詳細と同じく、改行だけで区切った行を行のまま出す
+test("プレビューの説明は改行だけの行を行のまま出す", async ({ page, nod }) => {
+  await nod.me.updateIssue("API-12", { description: "GitHub: https://example.com/12\nGH labels: perf" });
+  await page.goto("/issues?preview=API-12");
+  const pane = page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true });
+  await expect(pane.locator("p").filter({ hasText: "GH labels: perf" }).locator("br")).toHaveCount(1);
+});

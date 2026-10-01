@@ -53,7 +53,7 @@ test("説明は改行だけの行を行のまま出し、チェックリスト�
   await page.goto(`/issues/${ISSUE.description}`);
   const description = region(page, "説明");
   await description.getByRole("button", { name: "編集" }).click();
-  await description.getByRole("textbox", { name: "説明" }).fill("GitHub: https://example.com/1\nGH labels: bug\n\n- [ ] 再現する\n- [x] 直す\n\n- ふつうの箇条書き");
+  await description.getByRole("textbox", { name: "説明" }).fill("GitHub: https://example.com/1\nGH labels: bug\n\n- [ ] 再現する\n- [x] 直す\n\n空行で区切ったタスク\n\n- [ ] 空行あり1\n\n- [ ] 空行あり2\n  - [ ] 入れ子\n\nふつうの箇条書き\n\n- ふつうの箇条書き");
   await description.getByRole("button", { name: "保存" }).click();
 
   const paragraph = description.locator("p").filter({ hasText: "GH labels: bug" });
@@ -71,8 +71,9 @@ test("説明は改行だけの行を行のまま出し、チェックリスト�
   expect(second).toBeGreaterThan(first!);
 
   const tasks = description.locator("li.task-list-item");
-  await expect(tasks).toHaveCount(2);
-  await expect(tasks.locator('input[type="checkbox"]')).toHaveCount(2);
+  // 詰めたリスト2件、空行で区切ったリスト2件（チェックボックスは段落の中に入る）、入れ子1件
+  await expect(tasks).toHaveCount(5);
+  await expect(tasks.locator('input[type="checkbox"]')).toHaveCount(5);
   for (const task of await tasks.all()) await expect(task).toHaveCSS("list-style-type", "none");
   const bullet = description.getByRole("listitem").filter({ hasText: "ふつうの箇条書き" });
   await expect(bullet).toHaveCSS("list-style-type", "disc");
@@ -81,4 +82,9 @@ test("説明は改行だけの行を行のまま出し、チェックリスト�
   const bulletBox = await bullet.boundingBox();
   expect(taskBox!.x).toBeLessThan(bulletBox!.x);
   expect(taskBox!.x).toBeGreaterThanOrEqual(bulletBox!.x - 22);
+  // 空行で区切ったリストのチェックボックスも同じ位置、入れ子はそれより右
+  const looseBox = await tasks.filter({ hasText: "空行あり1" }).locator("input").boundingBox();
+  expect(Math.abs(looseBox!.x - taskBox!.x)).toBeLessThanOrEqual(1);
+  const nestedBox = await tasks.filter({ hasText: "入れ子" }).last().locator("input").boundingBox();
+  expect(nestedBox!.x).toBeGreaterThan(looseBox!.x);
 });
