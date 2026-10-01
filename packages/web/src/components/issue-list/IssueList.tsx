@@ -40,8 +40,9 @@ export interface IssueListProps {
   sameValueColumn?: IssueColumn;
 }
 
-// プレビュー中に表から外す列。プレビューしている Issue の分はプレビューの中に出る（design/nod.pen「Issues｜プレビュー」）
-const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["priority", "workspace", "project", "assignee"];
+// プレビュー中に表から外す列。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
+// 表示設定で足した列（未決事項・PR・見積もり・期限）も、題名の幅を保つため外す（#196）
+const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["workspace", "project", "questions", "pr", "estimate", "dueDate"];
 
 // design/nod.pen「11 Issues」（O7KCp3）：Header、View Bar（タブと、検索、Filter、Display のアイコンボタン）、Filters の行、一覧。
 // 件数はタブに出す。グループ化、並び順、表示列、List と Board の切り替えは Display のポップオーバーにまとめる。
@@ -78,7 +79,7 @@ export function IssueList({
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
   const preview = search.preview;
-  // プレビュー中は一覧の幅が狭くなるため、Workspace・優先度・Project・担当の列を隠して題名の幅を保つ（#174）
+  // プレビュー中は一覧の幅が狭くなるため、PREVIEW_HIDDEN_COLUMNS（Project・Workspace とチップで足した列）を隠して題名の幅を保つ（#174・#196）
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
   const columns = search.columns ?? defaultIssueColumns(mine ? mineSameValueColumn(search.tab) : sameValueColumn);
   const tableColumns = preview ? columns.filter((column) => !PREVIEW_HIDDEN_COLUMNS.includes(column)) : columns;

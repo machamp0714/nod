@@ -8,25 +8,26 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await page.goto(path);
     await chooseDisplay(page, "並び順", "タイトル");
     await setDirection(page, "desc");
-    for (const name of ["優先度", "Status", "未決事項", "Workspace", "Project", "担当", "PR"]) await setColumn(page, name, false);
-    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title"]);
+    // ID・タイトル・更新日時は列のキーを持たず、常に出す（#196）
+    for (const name of ["優先度", "Status", "Workspace", "Project", "担当"]) await setColumn(page, name, false);
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "更新日時"]);
     await page.goBack();
-    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "PR"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "担当", "更新日時"]);
     await page.goForward();
-    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "更新日時"]);
     await page.reload();
     const popover = await openDisplay(page);
     await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "title");
     await expect(popover.getByRole("button", { name: "並び順の方向", exact: true })).toHaveAttribute("data-value", "desc");
-    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "更新日時"]);
     await expect(page.getByRole("table").getByRole("link").first()).toBeVisible();
     // View は表示設定も保存するため、表示設定を変えると「変更を保存」が出る（#175）
     if (path === "/views/1") await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toBeVisible();
     await (await searchBox(page)).fill("存在しない表示設定確認");
-    await expect(page.getByRole("cell", { name: "該当する Issue はありません" })).toHaveAttribute("colspan", "2");
+    await expect(page.getByRole("cell", { name: "該当する Issue はありません" })).toHaveAttribute("colspan", "3");
     await (await columnChip(page, "Status")).focus();
     await page.keyboard.press("Space");
-    await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "更新日時"]);
   });
 
   test(`${path}: WorkspaceとBoard列内の並び順を保持する`, async ({ page, nod }) => {
@@ -48,7 +49,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
 test("壊れたURLは既定値へ戻り狭い幅でも表示設定を操作できる", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 });
   await page.goto('/issues?sort=bad&direction=bad&columns=%22bad%22');
-  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"]);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"]);
   const sort = await displaySelect(page, "並び順");
   await expect(sort).toHaveAttribute("data-value", "default");
   // キーボードだけで選ぶ：下キーで開くと選択中の「既定」にフォーカスがあり、下キーで「優先度」へ移って Enter で決める

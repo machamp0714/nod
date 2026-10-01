@@ -122,20 +122,35 @@
   background: var(--bg);
 }
 
-/* nod.pen「11 Issues」（O7KCp3）の行：行頭に優先度のアイコン 14、題名の後ろに Project（箱のアイコン 12 と名前、幅 132）と担当（18 の丸）。#174 */
+/* nod.pen「11 Issues」（O7KCp3）の行（#196）：優先度 14、ID 72、Status 14、題名、Project 132、Workspace 96、担当 18、更新日時 56。
+   列の幅は 中身 + セルの間隔 10。行の左右の余白 12 は先頭と末尾のセルが持つ（先頭 +7、末尾 +7） */
+.table col { width: calc(var(--col) + var(--lead, 0px)); }
+.table col:not([class]) { width: auto; }
+.colLead { --lead: 7px; }
+
 .colPriority {
-  width: 32px;
+  --col: 24px;
 }
 
 .colProject {
-  width: 148px;
+  --col: 142px;
 }
 
 .colAssignee {
-  width: 40px;
+  --col: 28px;
+}
+
+.colUpdated {
+  --col: 73px;
+}
+
+.table td.updated {
+  color: var(--ink3);
+  font-size: 11.5px;
 }
 
 .priorityCell,
+.statusCell,
 .assigneeCell {
   position: relative;
   display: inline-flex;
@@ -169,31 +184,31 @@
 }
 
 .colStatus {
-  width: 170px;
+  --col: 24px;
 }
 
 .colId {
-  width: 80px;
+  --col: 82px;
 }
 
 .colQuestions {
-  width: 88px;
+  --col: 66px;
 }
 
 .colWorkspace {
-  width: 140px;
+  --col: 106px;
 }
 
 .colPr {
-  width: 64px;
+  --col: 66px;
 }
 
 .colEstimate {
-  width: 72px;
+  --col: 54px;
 }
 
 .colDue {
-  width: 160px;
+  --col: 142px;
 }
 
 .due {
@@ -952,8 +967,23 @@
   vertical-align: middle;
 }
 
+/* 未回答の未決事項がある行の未決ピル（design/nod.pen「11 Issues｜行：未決ピル」a21Zf）。作業状況の pill と同じ寸法で、点は付けない */
+.openPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--ask-soft);
+  color: var(--ask);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  vertical-align: middle;
+}
+
 /* 一括編集（design/nod.pen「Issues｜一括編集（#31）」） */
-.colSelect { width: 36px; }
+/* チェック 14 の次に優先度のアイコンが来る（選択セル 幅 38 = チェック 14 + 間隔 10 + アイコン 14） */
+.colSelect { --col: 24px; }
 .checkbox {
   width: 14px;
   height: 14px;

@@ -94,8 +94,8 @@ describe("表示設定のURL", () => {
     expect(cleanIssueListSearch(parseIssueListSearch({ sort: "bad", direction: "bad", columns: "bad" }))).toEqual({});
     expect(parseIssueListSearch({ q: "検索" })).toEqual({ q: "検索" });
   });
-  test("見積もり・期限の列は既定で非表示、選ぶとURLに残る", () => {
-    expect(DEFAULT_ISSUE_COLUMNS).toEqual(["priority", "status", "questions", "workspace", "project", "assignee", "pr"]);
+  test("未決事項・PR・見積もり・期限の列は既定で非表示、選ぶとURLに残る（#196）", () => {
+    expect(DEFAULT_ISSUE_COLUMNS).toEqual(["priority", "status", "workspace", "project", "assignee"]);
     expect(cleanIssueListSearch({ columns: [...DEFAULT_ISSUE_COLUMNS] })).toEqual({});
     const withDue: IssueListSearch = { columns: [...DEFAULT_ISSUE_COLUMNS, "dueDate"] };
     expect(cleanIssueListSearch(withDue)).toEqual(withDue);
@@ -109,6 +109,11 @@ describe("表示設定のURL", () => {
     expect(cleanIssueListSearch(before)).toEqual(before);
     expect(parseIssueListSearch({ columns: ["assignee", "pr", "priority", "project"] }).columns).toEqual(["priority", "project", "assignee", "pr"]);
     expect(parseIssueListSearch({}).columns).toBeUndefined();
+  });
+  test("#196 より前の既定（未決事項・PR を含む7列）を明示した URL は、その列のまま復元して URL に残す", () => {
+    const before: IssueListSearch = { columns: ["priority", "status", "questions", "workspace", "project", "assignee", "pr"] };
+    expect(parseIssueListSearch({ ...before }).columns).toEqual(before.columns);
+    expect(cleanIssueListSearch(before)).toEqual(before);
   });
   test("並び順に見積もりと期限を選べる", () => {
     for (const sort of ["estimate", "dueDate"] as const) {
@@ -172,7 +177,7 @@ describe("担当の絞り込みと My issues（#162）", () => {
 describe("画面ごとの既定の列（#174）", () => {
   test("Project 詳細は Project、My issues の担当タブは担当を既定から外す。委任中タブは外さない", () => {
     expect(defaultIssueColumns()).toEqual([...DEFAULT_ISSUE_COLUMNS]);
-    expect(defaultIssueColumns("project")).toEqual(["priority", "status", "questions", "workspace", "assignee", "pr"]);
+    expect(defaultIssueColumns("project")).toEqual(["priority", "status", "workspace", "assignee"]);
     expect(mineSameValueColumn(undefined)).toBe("assignee");
     expect(mineSameValueColumn("delegated")).toBeUndefined();
   });

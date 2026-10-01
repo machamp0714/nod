@@ -118,7 +118,7 @@ export function describeDisplay(d: ViewDisplay): DisplayItem[] {
     const option = SORT_OPTIONS.find((o) => o.value === (d.sort ?? "default"));
     items.push({ name: "並び", value: `${option?.short ?? option?.label ?? ""}（${d.direction === "desc" ? "降順" : "昇順"}）` });
   }
-  if (d.columns) items.push({ name: "列", value: d.columns.length ? d.columns.map((c) => COLUMN_NAMES[c]).join(", ") : "ID とタイトルのみ" });
+  if (d.columns) items.push({ name: "列", value: d.columns.length ? d.columns.map((c) => COLUMN_NAMES[c]).join(", ") : "ID・タイトル・更新日時のみ" });
   if (d.showCompleted === false) items.push({ name: "完了済み Issue", value: "非表示" });
   if (d.showChildren === false) items.push({ name: "子 Issue", value: "非表示" });
   return items;

@@ -25,7 +25,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(pane.getByRole("heading", { level: 2, name: "検索 API の N+1 を解消" })).toBeVisible();
     // プレビューで隠した Workspace 列は表示設定を変えない
     await expect(await columnChip(page, "Workspace")).toHaveAttribute("aria-pressed", "true");
-    await setColumn(page, "PR", false);
+    await setColumn(page, "担当", false);
     // ポップオーバーの Escape はポップオーバーだけを閉じ、プレビューは次の Escape で閉じる
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "表示設定" })).toHaveCount(0);
@@ -35,7 +35,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(page).not.toHaveURL(/preview=/);
     await expect(page).toHaveURL(/groupBy=workspace/);
     await expect(page.getByRole("columnheader", { name: "Workspace", exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "PR", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(0);
   });
 }
 
