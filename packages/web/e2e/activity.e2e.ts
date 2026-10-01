@@ -36,6 +36,18 @@ test("コメントの本文は Markdown で描き、改行1つは改行のまま
   await expect(thread).not.toContainText("**");
 });
 
+test("返信も Markdown で描き、長い1行のコードブロックでもカードは Activity 欄からはみ出さない", async ({ page, nod }) => {
+  const root = await nod.claude.commentIssue(ISSUE.comment, `ログを貼る\n\n\`\`\`\n${"x".repeat(400)}\n\`\`\``);
+  await nod.claude.commentIssue(ISSUE.comment, "**返信の太字**", { replyTo: root.id });
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  const thread = activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "ログを貼る" });
+  await expect(thread.getByRole("group", { name: "返信記録" }).locator("strong", { hasText: "返信の太字" })).toBeVisible();
+  const card = await thread.boundingBox();
+  const area = await activity.boundingBox();
+  expect(card!.x + card!.width).toBeLessThanOrEqual(area!.x + area!.width + 1);
+});
+
 test("変更の種類ごとに書き手つきの文を出し、質問の event は重ねない", async ({ page }) => {
   await page.goto(`/issues/${ISSUE.comment}`);
   const activity = region(page, "Activity");
