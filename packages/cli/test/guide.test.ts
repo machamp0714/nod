@@ -10,12 +10,13 @@ describe("手引き", () => {
     }
   });
 
-  test("差し戻されたら in_progress のまま、理由を読んで nod issue start で再開すると書く", () => {
+  test("差し戻されたら in_progress のまま、nod issue start で再開して理由を読むと書く", () => {
     const line = GUIDE.split("\n").find((l) => l.includes("差し戻"));
     expect(line).toBeDefined();
     expect(line).toContain("in_progress");
     expect(line).toContain("nod issue show <id>");
     expect(line).toContain("nod issue start <id>");
+    expect(line).toContain("rejection");
   });
 });
 

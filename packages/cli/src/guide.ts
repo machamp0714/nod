@@ -49,7 +49,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
    人の \`nod review approve\`（nod の承認）は Issue を done にするだけで、GitHub の承認・マージではない。nod は GitHub の PR に承認・マージを書き込まず、\`gh pr review\` も \`gh pr merge\` も実行しない。PR の承認・マージは GitHub 側で別に行う。
-9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue show <id>\` で差し戻しの理由を読み、\`nod issue start <id>\` で再開する。
+9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue start <id>\` で再開すると、出力に差し戻しの理由（\`--json\` では \`rejection\`）が出るので、先に読んで対応する（\`nod issue show <id>\` の Activity でも読める）。理由は \`nod issue done\` で再提出するまで、start のたびに出る。
    \`nod issue start\` は、まだ受け取っていない追加指示を \`pendingInstructions\`（テキストでは「追加指示」）で返す。先に読んで対応する。
    担当の LLM が \`nod issue show\` の「未確認の追加指示」で読んだ指示は確認済みになり、\`nod issue start\` では渡し直されない。
    人は差し戻しで「対応依頼」を付けることがある。種類は \`review_fix\`（指摘対応）と \`rebase\` で、本文に理由と手順が書かれている。
@@ -122,7 +122,7 @@ nod issue ask API-12 -- "--force を外してよいか"
 作業中に別の不具合や追加の作業を見つけたら、自分で着手せずに起票する。
 
 \`\`\`sh
-nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--project <名前>] [--parent <id>] [--discovered-from <id>] [-p 0-4] [--estimate 1-100] [--due YYYY-MM-DD] [-l <label>]
+nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--project <名前>] [--parent <id>] [--discovered-from <id>] [-p <優先度>] [--estimate 1-100] [--due YYYY-MM-DD] [-l <label>]
 \`\`\`
 
 別のIssueの作業中に発見した場合は \`--discovered-from <id>\` で起票元を明示する。親子関係の \`--parent\` とは別に記録され、未指定の起票元は推測されない。
@@ -134,7 +134,7 @@ Triage にある Issue の状態を \`nod issue update --status\` や \`nod issu
 人が足した未決事項が未回答の間は、その Issue を \`nod issue update --status\` や \`nod issue bulk-update -s\` で着手の状態にすることは LLM にはできない（FORBIDDEN_FOR_LLM）。needs_clarification からは canceled にしか出せず（todo・backlog・triage も不可）、着手していない状態（todo・backlog・canceled・done）からも in_progress・in_review にはできない（canceled を経由しても同じ）。\`nod answer\` で自分で決めて外すこともできない。回答を人に依頼し、別の Issue を取る。
 人が \`nod issue update -s todo\` などで needs_clarification から出した Issue は、未回答が残る間は着手できない（成功表示の次の行に「未回答の確認依頼が N 件残っています」と出る）。同じ文面の \`nod issue ask\` の再実行は質問を増やさず、状態も変えない。
 \`nod triage suggest <id>\` は重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人だけが行い、LLM は候補を根拠に人へ伝えるだけにする。
-LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [--assignee <名前>] [-p 0-4] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
+LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [--assignee <名前>] [-p <優先度>] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
 Sub-issue がすべて完了した親は「完了候補」になる（\`nod issue list --completion-candidates\` で一覧できる）。
 完了候補の親を done にするのは人である。LLM は親を完了にせず、人に完了の確認を依頼する。
@@ -152,7 +152,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 - \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--ready] [--delegated] [--assignee <名前>] [--mine] [--priority <優先度>] [--sort <キー>] [--desc]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--ready\` は着手できる Issue（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）だけを出し、ほかの絞り込みとは AND で効く（\`--status backlog\` などと併せると0件）。\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
 - \`nod questions [--asked-by me|llm] [--project <名前>] [-s <status>] [--query <text>] [--limit <n>]\`：未回答の未決事項（確認依頼）を、人が付けたものも含めて Issue 横断で一覧する読み取り専用のコマンド（既定ですべての Workspace、\`-w\` で絞る）。質問の \`#番号\` は \`nod answer <id> <text> --question <番号>\` に渡す id。人が付けた未決事項は人が決めるもので、LLM は回答しない。\`nod issue list\` の行末の \`[未決 1/3]\` はその Issue の決定数 / 総数
-- \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
+- \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：優先度（\`-p\`。create・bulk-update・triage propose・recurring の \`--priority\` も同じ）は 0〜4、P0〜P4、urgent・high・medium・low・none のどれか（0 と none は優先度なし）。見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする。人だけが実行できる（LLM は FORBIDDEN_FOR_LLM）
@@ -160,7 +160,8 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
 - \`nod issue pr-diff <id> [--refresh] [--file <パス>]\`：PR の変更ファイル（パス・状態・+/-行数）を表示し、\`--file\` でそのファイルの unified diff を出す。\`--refresh\` で gh から PR の HEAD に固定した差分を取得して保存する（GitHub へは読み取りのみ。LLM も実行できる。gh の呼び出しごとに15秒で時間切れ）。上限はファイル 300 件・全体 5 MB（超えると DIFF_TOO_LARGE）、1ファイル 200 KB か 5,000 行を超えるものとバイナリは本文を保存しない。PR 状態の取得で別の HEAD を知ると古い差分は出さず \`stale\` に両方の HEAD が入る。\`--json\` の一覧は patch を含まないので、本文は \`--file\` で読む。双方向の制御文字は ⟪U+202E⟫ のように符号で表示する
-- \`nod project list\`、\`nod project show <名前>\`
+- \`nod project list\`、\`nod project show <名前>\`：list の行末は LLM の状況で、正の件数だけを 入力待ち・エラー・レビュー待ち・作業中 の順に出す（すべて0なら \`—\`）
+- \`nod triage list\`、\`nod review list\`：全 Workspace の Triage の Issue（スヌーズ中を除く）とレビュー待ちの Issue を一覧する読み取り専用のコマンド（LLM も実行できる。受け入れ・却下・承認・差し戻しの判断は人が行う）。\`nod inbox\` は末尾に Triage の件数を出す
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod project report add <名前かID> [--health on_track|at_risk|off_track] -- "<本文>"\`：Project に進捗報告を書く（10000 文字以内。本文は \`-\` で始まってもよいよう \`--\` の後ろに置く。Issue や Project の状態は変えない）。\`--health\` を添えると、その値が Project の現在の健全性になる（添えない報告は現在の健全性を変えない。\`--health none\` で未設定に戻す）。\`nod project report list <名前かID>\` で新しい順に読む
 - \`nod project milestone add <Project> <名前> [--target YYYY-MM-DD] [-d <説明>]\`：Project に中間目標（Milestone）を作る。\`update <Project> <Milestone> [--name] [--target] [-d]\`（空文字で外す）、\`list\`（完了数/総数つき）も使える。\`remove\`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）

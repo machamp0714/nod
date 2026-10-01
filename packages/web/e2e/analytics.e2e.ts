@@ -335,6 +335,30 @@ test("長い名前の Project・Milestone・Cycle を選ぶと、フィルタは
   expect(m.pageOverflow).toBe(0);
 });
 
+// #177：幅が狭くても、select のラベル（範囲 など）は1文字ずつ縦に折り返さない
+test("幅が狭くても、フィルタのラベルは1行のままで、枠の中で折り返さない", async ({ page, nod }) => {
+  const { apiId } = await seed(nod);
+  const project = await nod.me.createProject({ name: LONG_PROJECT });
+  const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
+  const cycle = await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  for (const width of [1280, 720, 480]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/analytics?project=${project.id}&milestone=${milestone.id}&cycle=${cycle.id}`);
+    await expect(page.getByLabel("Cycle")).toHaveValue(String(cycle.id));
+    const labels = await page.getByLabel("範囲").locator("..").locator("..").locator("label > span").evaluateAll((spans) =>
+      spans.map((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return { text: el.textContent, lines: new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size, whiteSpace: getComputedStyle(el).whiteSpace };
+      }),
+    );
+    console.log(`[filter] /analytics 幅 ${width} ${JSON.stringify(labels)}`);
+    expect(labels.map((l) => l.text)).toEqual(["範囲", "Workspace", "Project", "Milestone", "Cycle"]);
+    expect(labels.map((l) => l.lines)).toEqual([1, 1, 1, 1, 1]);
+    expect(new Set(labels.map((l) => l.whiteSpace))).toEqual(new Set(["nowrap"]));
+  }
+});
+
 // field-sizing のないブラウザ（Firefox、Safari）の代わりの検証。select は最も長い選択肢の幅になるが、240 で止まり、行は折り返す
 test("field-sizing が効かなくても、/analytics と /summary の Main に横スクロールを出さない", async ({ page, nod }) => {
   const { apiId } = await seed(nod);
