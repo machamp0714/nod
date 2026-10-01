@@ -183,7 +183,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           />
           <PropertiesPanel readOnly={readOnly} issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)}
             reminder={issue.reminder ?? null} onRemind={remind} />
-          <RelationsPanel relations={issue.relations} />
+          <RelationsPanel relations={issue.relations} relationStates={issue.relationStates} />
         </aside>
       </div>
     </div>

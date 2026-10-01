@@ -1,7 +1,7 @@
 import { useCycles } from "../../api/hooks/cycles";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { Issue, IssueReminder, Relations, Status, UpdateIssueInput } from "../../api/types";
+import type { Issue, IssueReminder, Relations, RelationState, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
 import { PrStatusSection } from "./PrStatusSection";
 import { prLabel } from "../../lib/format";
@@ -12,6 +12,7 @@ import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useMilestones } from "../../api/hooks/projects";
 import { priorityMeta, STATUS_META, TONE_COLORS } from "../../lib/meta";
+import { relationMark } from "../../lib/relation-state";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
@@ -455,7 +456,8 @@ const RELATION_LABELS: [keyof Relations, string][] = [
   ["duplicates", "Duplicates"],
 ];
 
-export function RelationsPanel({ relations }: { relations: Relations }) {
+// design/nod.pen「12 Issue 詳細｜関係の状態」。相手の状態の印（アーカイブ済み・完了・キャンセル）を ID の後ろに添え、ID を淡色にする（#203）
+export function RelationsPanel({ relations, relationStates }: { relations: Relations; relationStates: Record<string, RelationState> }) {
   const entries = RELATION_LABELS.filter(([key]) => relations[key].length > 0);
   return (
     <section className={s.panel} aria-label="関連 Issue">
@@ -467,11 +469,17 @@ export function RelationsPanel({ relations }: { relations: Relations }) {
           {entries.map(([key, label]) => (
             <Prop key={key} label={label}>
               <span className={s.propLinks}>
-                {relations[key].map((id) => (
-                  <Link key={id} to="/issues/$issueId" params={{ issueId: id }} className={s.link}>
-                    {id}
-                  </Link>
-                ))}
+                {relations[key].map((id) => {
+                  const mark = relationMark(key, relationStates[id]);
+                  return (
+                    <span key={id} className={s.relation}>
+                      <Link to="/issues/$issueId" params={{ issueId: id }} className={mark ? s.relationClosed : s.link}>
+                        {id}
+                      </Link>
+                      {mark && <span className={s.relationMark}>{mark}</span>}
+                    </span>
+                  );
+                })}
               </span>
             </Prop>
           ))}
