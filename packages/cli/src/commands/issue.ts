@@ -208,6 +208,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
     .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
     .option("--archived", "アーカイブ済みの Issue だけを出す（--status を省くとすべてのステータス）")
+    .option("--ready", "着手できる Issue だけを出す（todo で、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）")
     .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
     .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
@@ -219,7 +220,7 @@ export function registerIssueCommands(program: Command): void {
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
+          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
           // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || ((o.delegated || o.mine) && !globalOpts(cmd).workspace);
@@ -238,6 +239,7 @@ export function registerIssueCommands(program: Command): void {
             milestone: o.milestone,
             cycleRef: o.cycle,
             labels: o.label,
+            ready: o.ready,
             delegated: o.delegated,
             assignees: assignees.length ? assignees : undefined,
             completionCandidate: o.completionCandidates,
