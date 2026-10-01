@@ -71,6 +71,8 @@ describe("sortIssues", () => {
     const before = ids(issues);
     expect(ids(sortIssues(issues, "title"))).toEqual(["API-5", "API-4", "API-3", "API-2", "API-1"]);
     expect(ids(sortIssues(issues, "created", "desc"))).toHaveLength(5);
+    // seed の更新と同じミリ秒になると順が揺れるので、ほかの Issue の更新日時を過去に寄せる
+    db.query("UPDATE issues SET updated_at = '2000-01-01T00:00:00.000Z'").run();
     updateIssue(me, "API-3", { title: "c2" });
     expect(ids(sortIssues(listIssues(db), "updated", "desc"))[0]).toBe("API-3");
     expect(ids(issues)).toEqual(before);
