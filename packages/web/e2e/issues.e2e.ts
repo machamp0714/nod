@@ -27,7 +27,8 @@ test("データセット issue-list は A のダミーデータと同じ Workspa
 });
 
 test("Issues は API から全 Workspace の Issue を読み、nod で起票した Issue も再読み込みなしで出す", async ({ page, nod }) => {
-  await page.goto("/issues");
+  // 未決事項の列は既定で出さないため、列を明示した URL で開く（#196）
+  await page.goto(`/issues?columns=${json(["status", "questions", "workspace"])}`);
   await expect(tableRows(page)).toHaveCount(13);
   await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
   await expect(page.getByRole("row", { name: /API-9/ })).toContainText("2 / 6");

@@ -114,12 +114,16 @@ describe("sameDisplay・withoutDisplay", () => {
   });
 
   test("API で保存した既定と同じ列（順だけ違うものも）は、変更として扱わない", () => {
-    const display = { groupBy: "project", columns: ["pr", "assignee", "project", "workspace", "questions", "status", "priority"] } as const;
+    const display = { groupBy: "project", columns: ["assignee", "project", "workspace", "status", "priority"] } as const;
     expect(savedDisplay({ ...display, columns: [...display.columns] })).toEqual({ groupBy: "project" });
     expect(sameDisplay(displayFromSearch(viewSearch({ ...display, columns: [...display.columns] }, {})), savedDisplay({ ...display, columns: [...display.columns] }))).toBe(true);
     // 既定と違う列と、列以外の表示設定はそのまま
     expect(savedDisplay({ tab: "ready", columns: ["status"], showChildren: false })).toEqual({ tab: "ready", columns: ["status"], showChildren: false });
     expect(savedDisplay({ columns: [] })).toEqual({ columns: [] });
+    // #196 より前の既定（未決事項・PR を含む7列）を明示して保存した View は、その列のまま出す
+    const before = { columns: ["priority", "status", "questions", "workspace", "project", "assignee", "pr"] } satisfies ViewDisplay;
+    expect(savedDisplay(before)).toEqual(before);
+    expect(viewSearch(before, {}).columns).toEqual(before.columns);
   });
 
   test("表示設定のキーだけを URL から外す", () => {

@@ -57,7 +57,7 @@ test("一覧は Header 44 の下に View Bar 43 を置き、件数カードと�
     const header = main.querySelector("header") as HTMLElement;
     const row = main.querySelector("tbody tr[data-issue-row]") as HTMLElement;
     const css = (el: Element) => getComputedStyle(el);
-    const id = row.querySelector("td:nth-child(4)") as HTMLElement;
+    const id = row.querySelector("td:nth-child(3)") as HTMLElement;
     const title = row.querySelector('a[href^="/issues/"]') as HTMLElement;
     const firstCell = row.querySelector("td") as HTMLElement;
     const lastCell = row.querySelector("td:last-child") as HTMLElement;
@@ -220,9 +220,9 @@ test("Display のポップオーバーは幅 302 で、コンボボックス、�
   await expect(completed).toHaveAttribute("aria-checked", "false");
   await expect(page).toHaveURL(/showCompleted=false/);
   const pr = await columnChip(page, "PR");
-  await expect(pr).toHaveAttribute("aria-pressed", "true");
-  await pr.click();
   await expect(pr).toHaveAttribute("aria-pressed", "false");
+  await pr.click();
+  await expect(pr).toHaveAttribute("aria-pressed", "true");
   await expect(page).toHaveURL(/columns=/);
   await page.getByRole("heading", { level: 1, name: "Issues" }).click();
   await expect(popover).toHaveCount(0);
@@ -499,35 +499,34 @@ test("視覚的に隠した列見出しは、ブラウザのアクセシビリ�
     headerParents: [...new Set(headers.map((node) => role(byId.get(node.parentId ?? ""))))],
     headerRowParent: role(byId.get(headerRow?.parentId ?? "")),
     rows: rows.length,
-    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 10）
+    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 9）
     headerRowCells: headerRow?.childIds?.map((id) => role(byId.get(id))),
     bodyRowCells: [...new Set(rows.filter((row) => row !== headerRow).map((row) => row.childIds?.length))],
   };
   console.log(`[issues-layout] accessibility tree ${JSON.stringify(m)}`);
   expect(m).toEqual({
-    headers: ["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"],
+    headers: ["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"],
     headerParents: ["row"],
     headerRowParent: "rowgroup",
     rows: 14,
-    headerRowCells: ["cell", ...Array.from({ length: 9 }, () => "columnheader")],
-    bodyRowCells: [10],
+    headerRowCells: ["cell", ...Array.from({ length: 8 }, () => "columnheader")],
+    bodyRowCells: [9],
   });
   // 画面では列見出しを隠したまま
   expect((await page.locator("main thead").boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
   await expect(page.getByRole("table")).toMatchAriaSnapshot(`
     - table:
       - rowgroup:
-        - row "優先度 Status ID Title 未決事項 Project Workspace 担当 PR":
+        - row "優先度 ID Status Title Project Workspace 担当 更新日時":
           - cell
           - columnheader "優先度"
-          - columnheader "Status"
           - columnheader "ID"
+          - columnheader "Status"
           - columnheader "Title"
-          - columnheader "未決事項"
           - columnheader "Project"
           - columnheader "Workspace"
           - columnheader "担当"
-          - columnheader "PR"
+          - columnheader "更新日時"
       - rowgroup
   `);
 });

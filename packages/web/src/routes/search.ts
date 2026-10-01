@@ -9,12 +9,13 @@ export type IssueLayout = "list" | "board";
 export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "title" | "estimate" | "dueDate";
 const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
-// 表示設定のチップの順（design/nod.pen「Display Popover｜表示列に優先度・担当」o64gix）
+// 表示設定のチップの順（design/nod.pen「Display Popover｜表示列（行見本に合わせる）」U6jFNg）
 export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
-// 見積もり・期限の列は後から足したため既定では出さない。優先度・Project・担当は既定で出す（#174）。
-// 列を明示した既存の URL（columns=...）はそのまま復元し、新しい列を足さない
-export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "questions", "workspace", "project", "assignee", "pr"];
+// 既定の列は design/nod.pen「11 Issues」（O7KCp3）の行に合わせる（#196）。未決事項・PR・見積もり・期限は表示設定のチップで出す。
+// 列を明示した既存の URL（columns=...）と View（display.columns）はそのまま復元する。
+// ID・タイトル・ラベル・更新日時は列のキーを持たず、常に出す
+export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project", "assignee"];
 
 // 画面の既定の列。全行が同じ値になる列（Project 詳細の Project、My issues の担当タブの担当）は既定から外す。
 // 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
