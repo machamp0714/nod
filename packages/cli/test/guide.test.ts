@@ -85,5 +85,5 @@ test("定期Issueで起票された定型作業の扱いを案内する（#64）
 });
 
 test("テキスト出力の日時はローカル時刻、--json は UTC の ISO と案内する（#171）", () => {
-  expect(GUIDE).toContain("テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm）で出し、`--json` の日時は UTC の ISO のまま返す。");
+  expect(GUIDE).toContain("テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm。日付だけの箇所は YYYY-MM-DD）で出し、表示された日時はそのまま `--at`・`--until` に渡せる。`--json` の日時は UTC の ISO のまま返す。");
 });

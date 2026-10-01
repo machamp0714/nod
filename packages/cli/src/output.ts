@@ -214,7 +214,9 @@ function formatActivity(a: ActivityItem): string {
     return `  ${at}  #${a.id} ${a.actor}${kind}: ${a.body}${resolved}${replies}`;
   }
   if (a.kind === "question") {
-    const answer = a.answer !== null ? `\n    → ${a.answeredBy}: ${a.answer}` : "";
+    // 質問の行は依頼した時刻の位置のまま、回答の行に回答した時刻を付ける
+    const answeredAt = a.answeredAt !== null ? `（${localMinute(a.answeredAt)}）` : "";
+    const answer = a.answer !== null ? `\n    → ${a.answeredBy}${answeredAt}: ${a.answer}` : "";
     return `  ${at}  ${a.actor} が確認を依頼: ${a.question}${answer}`;
   }
   return `  ${at}  ${a.actor} ${a.type} ${JSON.stringify(a.data)}`;

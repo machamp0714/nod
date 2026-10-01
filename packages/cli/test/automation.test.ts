@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
-const old = "2020-01-01T00:00:00Z";
+// 正午にして、どの TZ で流しても暦日が 2020-01-01 になるようにする
+const old = "2020-01-01T12:00:00Z";
 
 function fixture() {
   const db = tempDb(), cwd = makeRepo();

@@ -147,7 +147,7 @@ export function registerHumanCommands(program: Command): void {
   notification
     .command("snooze [ids...]")
     .description("通知を指定した日時までスヌーズする。期限が来ると Issue ごとに最新の1件を未読として出し直す。id か --issue で指定する")
-    .requiredOption("--until <日時>", "期限（例: 2026-10-01、2026-10-01T09:00:00+09:00）")
+    .requiredOption("--until <日時>", "期限（例: 2026-10-01、2026-10-01 09:00、2026-10-01T09:00:00+09:00）")
     .option("--issue <id>", "この Issue の通知をまとめてスヌーズする")
     .action(
       act((cli, _cmd, ids: string[], o: { until: string; issue?: string }) => {
@@ -304,7 +304,7 @@ export function registerHumanCommands(program: Command): void {
     );
   triage
     .command("snooze <id> <until>")
-    .description("指定した日時まで後回しにする（例: 2026-10-01、2026-10-01T09:00:00+09:00）")
+    .description("指定した日時まで後回しにする（例: 2026-10-01、2026-10-01 09:00、2026-10-01T09:00:00+09:00）")
     .action(
       act((cli, _cmd, id: string, until: string) => {
         const issue = snoozeTriage(cli.ctx, id, until);

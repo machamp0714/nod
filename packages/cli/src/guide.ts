@@ -175,7 +175,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
-テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm）で出し、\`--json\` の日時は UTC の ISO のまま返す。
+テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm。日付だけの箇所は YYYY-MM-DD）で出し、表示された日時はそのまま \`--at\`・\`--until\` に渡せる。\`--json\` の日時は UTC の ISO のまま返す。
 失敗すると終了コードが1になり、\`--json\` のときは \`{"error": {"code", "message"}}\` を返す。
 
 ## エラーへの対処
