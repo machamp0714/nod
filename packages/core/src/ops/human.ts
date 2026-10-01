@@ -18,7 +18,7 @@ import {
 import { setColumn } from "../mutate";
 import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
 import { readReviewSummaries } from "../review-summary";
-import type { AcceptTriageInput, AgentInstruction, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
+import type { AcceptTriageInput, AgentInstruction, Inbox, InboxQuestion, Issue, Question, ReviewRejection, Status } from "../types";
 import { addInstruction } from "./instructions";
 import { addRelation, requireText, updateIssue } from "./issues";
 
@@ -287,4 +287,25 @@ export function rejectReview(
     const issue = toIssue(issueRowById(ctx.db, row.id));
     return instruction ? { ...issue, instruction } : issue;
   });
+}
+
+// 直近の差し戻しのうち、そのあとにレビューへ出し直していないもの（#177）。nod issue start が理由を出すのに使う。
+// 出し直し（in_review への遷移）のあとは、手で in_progress に戻しても null を返す
+export function getPendingRejection(db: Database, ref: string): ReviewRejection | null {
+  const row = findIssueRow(db, ref);
+  const event = db
+    .query(
+      `SELECT actor, data, created_at FROM events WHERE issue_id = ? AND type = 'review_rejected'
+       AND id > COALESCE((SELECT MAX(id) FROM events WHERE issue_id = ? AND type = 'status_changed' AND json_extract(data, '$.to') = 'in_review'), 0)
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(row.id, row.id) as { actor: string; data: string; created_at: string } | null;
+  if (!event) return null;
+  const data = JSON.parse(event.data) as { reason?: unknown; delegate?: unknown };
+  return {
+    reason: typeof data.reason === "string" ? data.reason : "",
+    actor: event.actor,
+    at: event.created_at,
+    delegate: data.delegate === "review_fix" || data.delegate === "rebase" ? data.delegate : null,
+  };
 }

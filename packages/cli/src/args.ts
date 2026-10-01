@@ -1,4 +1,4 @@
-import { DOC_KINDS, type DocKind, NodError, PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type ProjectHealth, type ProjectStatus, STATUSES, type Status, STEP_STATUSES, type StepStatus } from "@nod/core";
+import { DOC_KINDS, type DocKind, NodError, parsePriorityRef, PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type ProjectHealth, type ProjectStatus, STATUSES, type Status, STEP_STATUSES, type StepStatus } from "@nod/core";
 
 export function collect(value: string, prev: string[] = []): string[] {
   return [...prev, value];
@@ -42,11 +42,11 @@ export function parseDocKind(value: string): DocKind {
   return oneOf(value, DOC_KINDS, "種類");
 }
 
+export const PRIORITY_HELP = "優先度（0〜4、P0〜P4、urgent・high・medium・low・none のどれか。0 と none は優先度なし）";
+
+// 優先度の1つ分。一覧の絞り込み（--priority）と同じく 0〜4、P0〜P4、名前を受け付ける（#177）
 export function parsePriority(value: string): number {
-  if (!/^P?[0-4]$/i.test(value)) {
-    throw new NodError("INVALID_ARGS", "優先度は 0〜4 で指定してください（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）");
-  }
-  return Number(value.replace(/^P/i, ""));
+  return parsePriorityRef(value);
 }
 
 // 範囲（1〜100）は core が検証する

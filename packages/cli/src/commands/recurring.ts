@@ -13,7 +13,7 @@ import {
   updateRecurringIssue,
 } from "@nod/core";
 import type { Command } from "commander";
-import { collect, orNull, parsePositiveInt, parsePriority } from "../args";
+import { collect, orNull, parsePositiveInt, parsePriority, PRIORITY_HELP } from "../args";
 import { act, currentWorkspace } from "../context";
 import { print } from "../output";
 
@@ -111,7 +111,7 @@ function withRuleOptions(cmd: Command, update: boolean): Command {
     .option("--template <name>", `説明にするテンプレート（起票のたびに最新の本文を使う）${clear}`)
     .option("--project <name>", `Project${clear}`)
     .option("-l, --label <label>", update ? "ラベル（繰り返し可。指定したもので置き換える）" : "ラベル（繰り返し可）", collect)
-    .option("--priority <n>", "優先度 0〜4", parsePriority)
+    .option("--priority <priority>", PRIORITY_HELP, parsePriority)
     .option("--assignee <name>", `担当${clear}`);
 }
 

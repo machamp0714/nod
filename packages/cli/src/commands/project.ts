@@ -14,6 +14,7 @@ import {
   listProjectUpdates,
   localMinute,
   NodError,
+  type ProjectSummary,
   type ProjectUpdate,
   updateProject,
 } from "@nod/core";
@@ -25,6 +26,17 @@ import { formatIssueLines, print } from "../output";
 function formatProjectUpdate(u: ProjectUpdate): string {
   const at = localMinute(u.createdAt);
   return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : u.healthCleared ? "（健全性を未設定に戻した）" : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
+}
+
+// LLM の状況。Web の Projects と同じく、正の件数だけを 入力待ち・エラー・レビュー待ち・作業中 の順に出し、すべて0なら —（#177）
+function formatAgentSummary(agents: ProjectSummary["agents"]): string {
+  const parts = [
+    ["入力待ち", agents.awaitingInput],
+    ["エラー", agents.error],
+    ["レビュー待ち", agents.awaitingReview],
+    ["作業中", agents.working],
+  ] as const;
+  return parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join("、") || "—";
 }
 
 function formatMilestone(m: Milestone): string {
@@ -47,7 +59,7 @@ export function registerProjectCommands(program: Command): void {
             ? list
                 .map(
                   (p) =>
-                    `${p.id}  ${p.name}  ${p.done}/${p.total}  健全性 ${p.health ?? "未設定"}  作業中 ${p.agents.working}、入力待ち ${p.agents.awaitingInput}、レビュー待ち ${p.agents.awaitingReview}、エラー ${p.agents.error}`,
+                    `${p.id}  ${p.name}  ${p.done}/${p.total}  健全性 ${p.health ?? "未設定"}  ${formatAgentSummary(p.agents)}`,
                 )
                 .join("\n")
             : "Project はありません",

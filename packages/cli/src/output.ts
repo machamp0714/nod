@@ -26,6 +26,7 @@ import {
   WORK_LOG_KIND_LABEL,
   INSTRUCTION_KIND_LABEL,
   type AgentInstruction,
+  type ReviewRejection,
   type PrReviewDecision,
   type PrState,
   type PrStatus,
@@ -239,6 +240,11 @@ export function formatInstructions(list: AgentInstruction[]): string[] {
     const ack = i.acknowledgedAt ? `・${i.acknowledgedBy} が確認済み` : "";
     return `  #${i.id} ${at} ${i.createdBy} [${INSTRUCTION_KIND_LABEL[i.kind]}・${state}${ack}]\n    ${i.body.replaceAll("\n", "\n    ")}`;
   });
+}
+
+// nod issue start に出す差し戻しの理由（#177）
+export function formatRejection(r: ReviewRejection): string[] {
+  return [`差し戻しの理由（${r.actor}、${localMinute(r.at)}）:`, ...r.reason.split("\n").map((line) => `  ${line}`)];
 }
 
 // 親の完了候補の案内。確定は人が既存の経路で行う（LLM はどちらも拒否される）

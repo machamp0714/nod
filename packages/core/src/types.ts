@@ -336,6 +336,14 @@ export interface Inbox {
   reviews: ReviewIssue[];
 }
 
+// まだ再提出していない、直近の差し戻し（#177）。delegate は対応依頼つきの差し戻しの種類
+export interface ReviewRejection {
+  reason: string;
+  actor: string;
+  at: string;
+  delegate: "review_fix" | "rebase" | null;
+}
+
 export type AttachmentKind = "link" | "file";
 
 // Issue の添付。リンクは url、ファイルは fileName・size・mime を持つ（もう片方は null）

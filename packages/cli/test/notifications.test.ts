@@ -27,7 +27,7 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect(inbox.stdout).toContain("claude-code が優先度を変更: なし → High");
   expect(inbox.stdout).not.toContain("自分のメモ");
   const inboxJson = await nod(["inbox", "--json"]);
-  expect(Object.keys(inboxJson.json).sort()).toEqual(["notifications", "questions", "reviews"]);
+  expect(Object.keys(inboxJson.json).sort()).toEqual(["notifications", "questions", "reviews", "triageCount"]);
 
   const list = await nod(["notification", "list", "--json"]);
   expect(list.json.map((n: { eventType: string }) => n.eventType)).toEqual(["comment_added", "priority_changed"]);

@@ -57,6 +57,7 @@ import {
   subscribeIssue,
   suggestIssue,
   takePendingInstructions,
+  getPendingRejection,
   unarchiveIssue,
   unsubscribeIssue,
   updateIssue,
@@ -67,7 +68,7 @@ import {
   type WorkspaceTransitionRules,
 } from "@nod/core";
 import type { Command } from "commander";
-import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, parseStatus, parseStatuses, parseStepStatus } from "../args";
+import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
@@ -78,6 +79,7 @@ import {
   formatIssueLines,
   formatIssueListLines,
   formatInstructions,
+  formatRejection,
   formatPlan,
   formatPrStatus,
   formatPrDiff,
@@ -113,7 +115,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--cycle <cycle>", "Cycle の ID・名前・current（現在の Cycle）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
-    .option("-p, --priority <0-4>", "優先度（0 = なし、1 = Urgent、2 = High、3 = Medium、4 = Low）")
+    .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
@@ -334,7 +336,7 @@ export function registerIssueCommands(program: Command): void {
     .description("Issue のプロパティを変える（空文字を渡すと外す）")
     .option("--title <text>", "タイトル")
     .option("-d, --description <text>", "説明")
-    .option("-p, --priority <0-4>", "優先度")
+    .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス")
@@ -397,7 +399,7 @@ export function registerIssueCommands(program: Command): void {
   issue
     .command("bulk-update <ids...>")
     .description("複数の Issue に同じ変更をまとめて加える（空文字を渡すと外す。1件でも失敗したら何も変えない）")
-    .option("-p, --priority <0-4>", "優先度")
+    .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス（Triage の Issue は変えられない）")
@@ -614,10 +616,15 @@ export function registerIssueCommands(program: Command): void {
         const rules = workspaceGuidance(cli.db, started.workspace);
         // 差し戻しの対応依頼・追加指示（#51・#58）。LLM が受け取ると確認済みになる
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
-        const text = pendingInstructions.length
-          ? [`着手しました: ${formatIssueLine(started)}`, "", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)].join("\n")
-          : `着手しました: ${formatIssueLine(started)}`;
-        print(cli, { ...withRules(started, rules), pendingInstructions }, () => withRulesText(text, rules));
+        // 再提出するまで、差し戻しの理由を start のたびに出す（#177）。対応依頼を渡す回は、その本文に理由があるので重ねない
+        const rejection = getPendingRejection(cli.db, started.id);
+        const delegated = rejection?.delegate && pendingInstructions.some((i) => i.kind === rejection.delegate);
+        const text = [
+          `着手しました: ${formatIssueLine(started)}`,
+          ...(rejection && !delegated ? ["", ...formatRejection(rejection)] : []),
+          ...(pendingInstructions.length ? ["", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)] : []),
+        ].join("\n");
+        print(cli, { ...withRules(started, rules), pendingInstructions, rejection }, () => withRulesText(text, rules));
       }),
     );
 

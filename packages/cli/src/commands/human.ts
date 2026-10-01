@@ -10,6 +10,7 @@ import {
   getPrStatus,
   HUMAN_ACTOR,
   listOpenQuestions,
+  listTriage,
   listTriageProposals,
   listNotifications,
   localMinute,
@@ -30,7 +31,7 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
-import { formatApprovalGithub, formatIssueLine, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
+import { formatApprovalGithub, formatIssueLine, formatIssueLines, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -40,10 +41,11 @@ function notificationTarget(ids: string[], issue: string | undefined): { ids?: n
 export function registerHumanCommands(program: Command): void {
   program
     .command("inbox")
-    .description("全 Workspace の LLM からの確認依頼とレビュー待ち、購読中の Issue と LLM に任せた Issue の未読の通知を一覧する")
+    .description("全 Workspace の LLM からの確認依頼とレビュー待ち、購読中の Issue と LLM に任せた Issue の未読の通知を一覧し、Triage の件数を出す")
     .action(
       act((cli) => {
-        const inbox = { ...getInbox(cli.db), notifications: listNotifications(cli.db) };
+        // Triage は件数だけを出す（Web の Sidebar と同じく、スヌーズ中を除く。#177）
+        const inbox = { ...getInbox(cli.db), notifications: listNotifications(cli.db), triageCount: listTriage(cli.db).length };
         print(cli, inbox, () =>
           [
             `確認依頼（${inbox.questions.length}）`,
@@ -57,6 +59,8 @@ export function registerHumanCommands(program: Command): void {
             "",
             `通知（未読 ${inbox.notifications.length}）`,
             ...inbox.notifications.map(formatNotification),
+            "",
+            `Triage（${inbox.triageCount}）${inbox.triageCount > 0 ? "  nod triage list で一覧" : ""}`,
           ].join("\n"),
         );
       }),
@@ -204,6 +208,15 @@ export function registerHumanCommands(program: Command): void {
 
   const triage = program.command("triage").description("Triage の Issue を判断する");
   triage
+    .command("list")
+    .description("全 Workspace の Triage の Issue を一覧する（スヌーズ中を除く。読み取りのみ）")
+    .action(
+      act((cli) => {
+        const list = listTriage(cli.db);
+        print(cli, list, () => (list.length ? formatIssueLines(list).join("\n") : "Triage の Issue はありません"));
+      }),
+    );
+  triage
     .command("accept <id>")
     .description("受け入れて Todo にする")
     .option("--assignee <name>", "受け入れと同時に担当を設定する")
@@ -249,7 +262,7 @@ export function registerHumanCommands(program: Command): void {
     .option("--duplicate-of <originalId>", "元の Issue の重複として閉じることを推奨する")
     .option("-l, --label <label>", "受け入れ時に付けるラベル（繰り返し可。--accept のときだけ）", collect)
     .option("--assignee <name>", "受け入れ時の担当（--accept のときだけ）")
-    .option("-p, --priority <0-4>", "受け入れ時の優先度（--accept のときだけ）")
+    .option("-p, --priority <priority>", "受け入れ時の優先度（--accept のときだけ。0〜4、P0〜P4、urgent・high・medium・low・none のどれか）")
     .option("--project <project>", "受け入れ時の Project の名前か ID（--accept のときだけ）")
     .option("--reason <text>", "判断の理由")
     .option("--withdraw", "自分の提案を取り下げる（他の書き手の提案は消せない。ほかのオプションとは併用できない）")
@@ -313,6 +326,18 @@ export function registerHumanCommands(program: Command): void {
     );
 
   const review = program.command("review").description("In Review の Issue を判断する");
+  review
+    .command("list")
+    .description("全 Workspace のレビュー待ち（In Review）の Issue を一覧する（読み取りのみ）")
+    .action(
+      act((cli) => {
+        const { reviews } = getInbox(cli.db);
+        const width = statusColumnWidth(reviews);
+        print(cli, reviews, () =>
+          reviews.length ? reviews.map((i) => `${formatIssueLine(i, width)}${i.prUrl ? `  ${i.prUrl}` : ""}`).join("\n") : "レビュー待ちの Issue はありません",
+        );
+      }),
+    );
   review
     .command("approve <id>")
     .description("承認して Done にする（nod の承認で、GitHub の PR の承認・マージではない）")

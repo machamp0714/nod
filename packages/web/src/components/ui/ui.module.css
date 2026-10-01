@@ -311,8 +311,10 @@
   height: var(--control-height);
 }
 
+/* ラベルは縮めず、折り返さない（幅が足りないときは行ごと折り返す。#177） */
 .selectChipLabel {
   flex: none;
+  white-space: nowrap;
   color: var(--ink3);
   font-size: 12px;
   font-weight: 500;
