@@ -7,7 +7,7 @@ const DEFAULT_HEADERS = ["優先度", "ID", "Status", "Title", "Project", "Works
 
 // #196：一覧の行を design/nod.pen「11 Issues」（O7KCp3）の行に合わせる。
 // 優先度（アイコン 14）、ID（幅 72）、Status（アイコン 14 だけ）、題名、Project（幅 132）、Workspace（幅 96）、担当（18 の丸）、更新日時（幅 56）。
-// 表示設定のチップは「Display Popover｜表示列に優先度・担当」（o64gix）の順（#174）
+// 表示設定のチップは「Display Popover｜表示列（行見本に合わせる）」（U6jFNg）の順（#174・#196）
 test("行は 優先度・ID・Status のアイコン・題名・Project・Workspace・担当・更新日時 の順で、Pencil の位置と幅に並ぶ", async ({ page, nod }) => {
   await nod.me.updateIssue("API-4", { priority: 1, assignee: "codex", projectRef: "1" });
   await nod.me.updateIssue("API-7", { priority: 0, assignee: null, projectRef: null });
@@ -149,6 +149,8 @@ test("未決事項・PR・見積もり・期限は既定で出さず、チップ
   for (const name of ["未決事項", "PR", "見積もり", "期限"]) await setColumn(page, name, true);
   await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "見積もり", "期限", "担当", "更新日時"]);
   await expect(page.locator('tr[data-issue-row="API-9"] td').nth(7)).toHaveText("2 / 6");
+  // 未決事項を列で出しているときは、題名の横の未決ピルを重ねて出さない（w4l2KK）
+  await expect(page.locator('tr[data-issue-row="API-9"]').getByText(/^未決 /)).toHaveCount(0);
   await expect(page.locator('tr[data-issue-row="API-7"] td').nth(8).getByRole("link", { name: "#128" })).toBeVisible();
   await expect(page).toHaveURL(/columns=/);
   await page.reload();

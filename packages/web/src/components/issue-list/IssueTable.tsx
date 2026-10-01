@@ -172,9 +172,10 @@ export function IssueTable({
                   <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={s.titleLink} title={issue.title}>
                     {issue.title}
                   </Link>
-                  {/* 並びは 題名、作業状況、未決、完了候補（design/nod.pen「11 Issues｜行：未決ピル」a21Zf） */}
+                  {/* 並びは 題名、作業状況、未決、完了候補（design/nod.pen「11 Issues｜行：未決ピル」a21Zf）。
+                      未決事項の列を出しているときは列で示し、ピルは出さない（「11 Issues｜行：未決事項・PR の列を出したとき」w4l2KK） */}
                   {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
-                  {formatOpenQuestions(questions) && <span className={s.openPill}>{formatOpenQuestions(questions)}</span>}
+                  {!columns.includes("questions") && formatOpenQuestions(questions) && <span className={s.openPill}>{formatOpenQuestions(questions)}</span>}
                   {issue.completionCandidate && (
                     <span className={s.completionPill}>
                       <Icon name="circle-check" size={11} />
