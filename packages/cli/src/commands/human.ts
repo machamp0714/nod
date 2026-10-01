@@ -60,7 +60,7 @@ export function registerHumanCommands(program: Command): void {
 
   program
     .command("answer <id> <text>")
-    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する")
+    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する（me が付けた未決事項に回答できるのは me だけ）")
     .option("--question <questionId>", "回答する質問の id（nod issue show の未決事項の #番号）")
     .action(
       act((cli, _cmd, id: string, text: string, o: { question?: string }) => {

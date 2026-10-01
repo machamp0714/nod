@@ -156,6 +156,90 @@ describe("answerQuestion の対象", () => {
   });
 });
 
+describe("人が付けた未決事項への LLM の回答（#172）", () => {
+  const messageOf = (fn: () => unknown): string => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as Error).message;
+    }
+    return "";
+  };
+
+  test("LLM は me が付けた未決事項に --question で回答できず、何も書き込まない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const q = askQuestion(me, i.id, "対象はどれか").question;
+    const before = getIssue(db, i.id);
+    const events = eventsOf(db, i.id);
+    expect(codeOf(() => answerQuestion(llm, i.id, "一覧", { questionId: q.id }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(messageOf(() => answerQuestion(llm, i.id, "一覧", { questionId: q.id }))).toBe(
+      `LLM は me が付けた未決事項（質問 ${q.id}）に回答できません。回答は me に依頼してください`,
+    );
+    expect(getIssue(db, i.id)).toEqual(before);
+    expect(eventsOf(db, i.id)).toEqual(events);
+    expect(before.status).toBe("needs_clarification");
+    expect(nextIssue(llm, { workspaceId: ws.id })).toBeNull();
+    // 人は従来どおり回答でき、Todo に戻る
+    expect(answerQuestion(me, i.id, "一覧", { questionId: q.id }).issue.status).toBe("todo");
+  });
+
+  test("me の未決事項は、回答済みでも LLM には FORBIDDEN_FOR_LLM を返し、回答を書き換えない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const q = askQuestion(me, i.id, "対象はどれか").question;
+    answerQuestion(me, i.id, "一覧", { questionId: q.id });
+    expect(codeOf(() => answerQuestion(llm, i.id, "詳細", { questionId: q.id }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(getIssue(db, i.id).questions).toEqual([expect.objectContaining({ answer: "一覧", answeredBy: "me" })]);
+  });
+
+  test("存在しない質問は LLM にも NOT_FOUND を返す", () => {
+    const { ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    const qb = askQuestion(me, b.id, "b の質問").question;
+    expect(codeOf(() => answerQuestion(llm, a.id, "x", { questionId: qb.id }))).toBe("NOT_FOUND");
+  });
+
+  test("LLM が付けた質問には、LLM が --question でもまとめてでも従来どおり回答できる", () => {
+    const { db, ws, me, llm } = setup();
+    const other = { db, actor: "codex" };
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    startIssue(llm, i.id);
+    const q1 = askQuestion(llm, i.id, "一つ目").question;
+    askQuestion(llm, i.id, "二つ目");
+    expect(answerQuestion(other, i.id, "よい", { questionId: q1.id }).answered).toEqual([
+      expect.objectContaining({ id: q1.id, answeredBy: "codex" }),
+    ]);
+    expect(answerQuestion(llm, i.id, "よい").issue.agentState).toBe("working");
+  });
+
+  test("LLM のまとめての回答は me の未決事項を閉じず、me の未決事項だけなら --question へ誘導しない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    askQuestion(me, i.id, "私の未決事項");
+    askQuestion(llm, i.id, "LLM の質問");
+    expect(answerQuestion(llm, i.id, "よい").answered.map((q) => q.question)).toEqual(["LLM の質問"]);
+    expect(getIssue(db, i.id)).toMatchObject({ status: "needs_clarification", openQuestions: [{ question: "私の未決事項" }] });
+    expect(codeOf(() => answerQuestion(llm, i.id, "よい"))).toBe("NO_OPEN_QUESTION");
+    const message = messageOf(() => answerQuestion(llm, i.id, "よい"));
+    expect(message).toContain("未決事項（1 件）は me が決めます");
+    expect(message).not.toContain("--question");
+  });
+
+  test("すでに LLM が回答した me の未決事項は、そのまま残る", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const q = askQuestion(me, i.id, "対象はどれか").question;
+    // ガードを入れる前に LLM が回答した行を再現する
+    db.query("UPDATE questions SET answer = ?, answered_by = ?, answered_at = ? WHERE id = ?").run("一覧", "claude-code", "2026-09-30T00:00:00.000Z", q.id);
+    expect(getIssue(db, i.id).questions).toEqual([expect.objectContaining({ answer: "一覧", answeredBy: "claude-code" })]);
+    expect(codeOf(() => answerQuestion(llm, i.id, "詳細", { questionId: q.id }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(codeOf(() => answerQuestion(me, i.id, "詳細", { questionId: q.id }))).toBe("NO_OPEN_QUESTION");
+    expect(getIssue(db, i.id).questions).toEqual([expect.objectContaining({ answer: "一覧", answeredBy: "claude-code" })]);
+  });
+});
+
 describe("getInbox", () => {
   test("私が足した未決事項は Inbox に出さない", () => {
     const { db, ws, me, llm } = setup();

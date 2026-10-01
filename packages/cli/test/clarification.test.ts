@@ -46,6 +46,32 @@ describe("未決事項と Needs Clarification", () => {
     expect(text).toContain("→ me: ステータスを先に");
   });
 
+  test("LLM は me が付けた未決事項に回答できず、Needs Clarification のまま next に出ない（#172）", async () => {
+    const created = (await me(["issue", "create", "絞り込みを足す"])).json;
+    const mine = (await me(["issue", "ask", created.id, "対象の列は"])).json.question;
+    const denied = await llm(["answer", created.id, "全部", "--question", String(mine.id)]);
+    expect(denied.exitCode).toBe(1);
+    expect(denied.json.error).toEqual({
+      code: "FORBIDDEN_FOR_LLM",
+      message: `LLM は me が付けた未決事項（質問 ${mine.id}）に回答できません。回答は me に依頼してください`,
+    });
+    const bulk = await llm(["answer", created.id, "全部"]);
+    expect(bulk.json.error.code).toBe("NO_OPEN_QUESTION");
+    expect(bulk.json.error.message).not.toContain("--question");
+    const detail = (await me(["issue", "show", created.id])).json;
+    expect(detail.status).toBe("needs_clarification");
+    expect(detail.openQuestions).toEqual([expect.objectContaining({ id: mine.id, answer: null, answeredBy: null })]);
+    expect((await llm(["issue", "suggest"])).json?.id).not.toBe(created.id);
+    expect((await llm(["issue", "start", created.id])).json.error.code).toBe("NEEDS_CLARIFICATION");
+    const r = (await me(["answer", created.id, "全部", "--question", String(mine.id)])).json;
+    expect(r.issue.status).toBe("todo");
+  });
+
+  test("手引きに、人が付けた未決事項へ LLM が回答できないことがある", async () => {
+    const guide = (await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout;
+    expect(guide).toContain("人が付けた未決事項（`nod issue show` で書き手が me の質問）には LLM は回答できない（FORBIDDEN_FOR_LLM）");
+  });
+
   test("手で needs_clarification に変えようとすると INVALID_ARGS", async () => {
     const created = (await me(["issue", "create", "t"])).json;
     expect((await me(["issue", "update", created.id, "--status", "needs_clarification"])).json.error.code).toBe(

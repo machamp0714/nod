@@ -42,6 +42,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    既知の形の秘密値を含むと SECRET_DETECTED で拒否され、何も記録されない。
 6. 判断に迷ったら推測で進めず、\`nod issue ask <id> "<質問>"\` で人に確認し、その Issue の作業を止める。
    回答は \`nod issue show <id>\` の Activity に出る。
+   人が付けた未決事項（\`nod issue show\` で書き手が me の質問）には LLM は回答できない（FORBIDDEN_FOR_LLM）。自分で決めて埋めず、人に回答を依頼する。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
 8. 作業中に PR（draft を含む）を作ったら、その時点で \`nod issue link-pr <id> <PR の URL>\` で Issue に紐付ける（ステータスは変わらない）。
    Workspace で PR 連動が有効なら、PR が open（draft 以外）かマージ済みになったあとの \`nod issue pr-status <id> --refresh\` で in_review に進む（done にはならない）。
