@@ -143,6 +143,10 @@
   vertical-align: middle;
 }
 
+.avatarWrap {
+  display: inline-flex;
+}
+
 .projectCell {
   display: inline-flex;
   align-items: center;

@@ -33,7 +33,7 @@ export function parsePriorityRef(value: string): number {
   const byName = PRIORITY_NAMES[text];
   if (Object.hasOwn(PRIORITY_NAMES, text) && byName !== undefined) return byName;
   if (/^p?[0-4]$/.test(text)) return Number(text.replace("p", ""));
-  throw invalid(`優先度「${value}」は使えません（0〜4 か urgent, high, medium, low, none。0 と none は優先度なし）`);
+  throw invalid(`優先度「${value}」は使えません（0〜4、P0〜P4、urgent, high, medium, low, none のどれか。0 と none は優先度なし）`);
 }
 
 // 絞り込みの優先度の並び。カンマ区切りを分け、重複を除いて小さい順にそろえる。空なら undefined
@@ -48,7 +48,7 @@ function priorityList(value: unknown): number[] | undefined {
   return parsePriorityRefs(
     list.map((v) => {
       if (typeof v === "number" && Number.isInteger(v)) return String(v);
-      if (typeof v !== "string") throw invalid("priority は 0〜4 の整数か優先度の名前（その配列も可）で指定してください");
+      if (typeof v !== "string") throw invalid("priority は 0〜4 の整数、P0〜P4、優先度の名前（その配列も可）で指定してください");
       return v;
     }),
   );

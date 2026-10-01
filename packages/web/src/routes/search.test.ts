@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   cleanIssueListSearch,
   cleanMyIssuesSearch,
+  cleanProjectIssuesSearch,
   defaultGroupBy,
+  defaultIssueColumns,
+  mineSameValueColumn,
   type IssueListSearch,
   DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS,
   replacesIssueListHistory,
@@ -163,5 +166,27 @@ describe("担当の絞り込みと My issues（#162）", () => {
     expect(cleanMyIssuesSearch({ subGroupBy: "priority" })).toEqual({ subGroupBy: "priority" });
     expect(cleanMyIssuesSearch({ subGroupBy: "status" })).toEqual({});
     expect(cleanIssueListSearch({ groupBy: "none" })).toEqual({});
+  });
+});
+
+describe("画面ごとの既定の列（#174）", () => {
+  test("Project 詳細は Project、My issues の担当タブは担当を既定から外す。委任中タブは外さない", () => {
+    expect(defaultIssueColumns()).toEqual([...DEFAULT_ISSUE_COLUMNS]);
+    expect(defaultIssueColumns("project")).toEqual(["priority", "status", "questions", "workspace", "assignee", "pr"]);
+    expect(mineSameValueColumn(undefined)).toBe("assignee");
+    expect(mineSameValueColumn("delegated")).toBeUndefined();
+  });
+
+  test("外した列を出したら URL に明示して残し、その画面の既定と同じ列は URL から消す", () => {
+    const all = [...DEFAULT_ISSUE_COLUMNS];
+    expect(cleanProjectIssuesSearch({ columns: all })).toEqual({ columns: all });
+    expect(cleanProjectIssuesSearch({ columns: defaultIssueColumns("project") })).toEqual({});
+    expect(cleanMyIssuesSearch({ columns: all })).toEqual({ columns: all });
+    expect(cleanMyIssuesSearch({ columns: defaultIssueColumns("assignee") })).toEqual({});
+    expect(cleanMyIssuesSearch({ tab: "delegated", columns: all })).toEqual({ tab: "delegated" });
+    expect(cleanMyIssuesSearch({ tab: "delegated", columns: defaultIssueColumns("assignee") })).toEqual({ tab: "delegated", columns: defaultIssueColumns("assignee") });
+    // Issues・View・Cycle 詳細は変えない
+    expect(cleanIssueListSearch({ columns: all })).toEqual({});
+    expect(cleanIssueListSearch({ columns: defaultIssueColumns("project") })).toEqual({ columns: defaultIssueColumns("project") });
   });
 });

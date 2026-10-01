@@ -195,7 +195,8 @@ export function IssueTable({
               {columns.includes("assignee") && (
                 <td>
                   <span className={s.assigneeCell}>
-                    {issue.assignee ? <AgentAvatar actor={issue.assignee} /> : <span className={s.unassigned} title="未割り当て" />}
+                    {/* アバターの頭文字を担当の名前に混ぜない。支援技術には名前だけを出す */}
+                    {issue.assignee ? <span className={s.avatarWrap} aria-hidden="true"><AgentAvatar actor={issue.assignee} /></span> : <span className={s.unassigned} title="未割り当て" />}
                     <span className={s.visuallyHidden}>{issue.assignee ?? "未割り当て"}</span>
                   </span>
                 </td>

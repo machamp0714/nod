@@ -1,6 +1,7 @@
 import type { IssueQuery, Status } from "../api/types";
 import { NO_ASSIGNEE, parseIssueListSearch, type IssueListSearch } from "../routes/search";
 import { KNOWN_ASSIGNEES } from "./issue-edit";
+import { priorityMeta } from "./meta";
 
 export type FilterSearch = Pick<IssueListSearch, "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "assignee" | "blocked" | "archived">;
 
@@ -41,7 +42,7 @@ export function issueQueryToParams(query: IssueQuery): string {
   if (query.q) params.set("q", query.q);
   if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
   if (query.archived) params.set("archived", "true");
-  // priority は View の filter（CLI・API で保存したもの）だけが持つ。Issues の URL と絞り込みの UI にはない（#174）
+  // priority は View の filter（CLI・API で保存したもの）だけが持つ。Issues の URL にはなく、絞り込みのバーでは外すことだけできる（#174）
   for (const priority of query.priority ?? []) params.append("priority", String(priority));
   const text = params.toString();
   return text ? `?${text}` : "";
@@ -71,7 +72,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "assignee" | "ready" | "delegated" | "q" | "blocked" | "archived";
+export type FilterKey = "workspace" | "status" | "project" | "milestone" | "cycle" | "label" | "assignee" | "ready" | "delegated" | "q" | "blocked" | "archived" | "priority";
 
 export interface FilterChip {
   key: FilterKey;
@@ -179,6 +180,8 @@ export function describeFilter(
   if (filter.ready) chips.push({ key: "ready", name: "Ready", values: "のみ" });
   // 委任中も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す
   if (filter.delegated) chips.push({ key: "delegated", name: "委任中", values: "のみ" });
+  // 優先度も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す（#174。絞り込みのバーでは足せない）
+  if (filter.priority?.length) chips.push({ key: "priority", name: "優先度", values: filter.priority.map((p) => priorityMeta(p).label).join(", ") });
   if (filter.q) chips.push({ key: "q", name: "検索", values: filter.q });
   if (filter.blocked !== undefined) chips.push({ key: "blocked", name: "ブロック", values: filter.blocked ? "ブロック中" : "ブロックなし" });
   if (filter.archived) chips.push({ key: "archived", name: "アーカイブ", values: "アーカイブ済みのみ" });

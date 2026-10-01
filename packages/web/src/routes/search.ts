@@ -15,6 +15,17 @@ export type IssueColumn = typeof ISSUE_COLUMNS[number];
 // 見積もり・期限の列は後から足したため既定では出さない。優先度・Project・担当は既定で出す（#174）。
 // 列を明示した既存の URL（columns=...）はそのまま復元し、新しい列を足さない
 export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "questions", "workspace", "project", "assignee", "pr"];
+
+// 画面の既定の列。全行が同じ値になる列（Project 詳細の Project、My issues の担当タブの担当）は既定から外す。
+// 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
+export function defaultIssueColumns(sameValueColumn?: IssueColumn): IssueColumn[] {
+  return DEFAULT_ISSUE_COLUMNS.filter((column) => column !== sameValueColumn);
+}
+
+// My issues で全行が同じ値になる列。担当タブは担当（全行が me）。委任中タブは LLM ごとに違うため外さない
+export function mineSameValueColumn(tab: IssueTab | undefined): IssueColumn | undefined {
+  return tab === "delegated" ? undefined : "assignee";
+}
 export type ProjectTab = "active" | "completed" | "all";
 
 export interface SelectedSearch {
@@ -130,15 +141,19 @@ function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): bool
   return a.length === b.length && b.every((column) => a.includes(column));
 }
 
-// mine は My issues の URL。タブは担当（既定）と委任中だけで、担当の条件は me に固定するため URL に持たない
-export function cleanIssueListSearch(search: IssueListSearch, mine = false): IssueListSearch {
-  if (mine) search = { ...search, tab: search.tab === "delegated" ? "delegated" : undefined, assignee: undefined };
+// mine は My issues の URL。タブは担当（既定）と委任中だけで、担当の条件は me に固定するため URL に持たない。
+// sameValueColumn はその画面で既定から外す列（defaultIssueColumns）。列がその画面の既定と同じなら URL に書かない
+export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn): IssueListSearch {
+  if (mine) {
+    search = { ...search, tab: search.tab === "delegated" ? "delegated" : undefined, assignee: undefined };
+    sameValueColumn = mineSameValueColumn(search.tab);
+  }
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
-  if (search.columns && !sameColumns(search.columns, DEFAULT_ISSUE_COLUMNS)) out.columns = search.columns;
+  if (search.columns && !sameColumns(search.columns, defaultIssueColumns(sameValueColumn))) out.columns = search.columns;
   const fallback = defaultGroupBy(search.tab, mine);
   if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
   else if (search.groupBy === "none" && fallback) out.groupBy = "none";
@@ -163,6 +178,11 @@ export function cleanIssueListSearch(search: IssueListSearch, mine = false): Iss
 
 export function cleanMyIssuesSearch(search: IssueListSearch): IssueListSearch {
   return cleanIssueListSearch(search, true);
+}
+
+// Project 詳細の URL。全行が同じ Project になるため、Project の列を既定から外す
+export function cleanProjectIssuesSearch(search: IssueListSearch): IssueListSearch {
+  return cleanIssueListSearch(search, false, "project");
 }
 
 export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearch {

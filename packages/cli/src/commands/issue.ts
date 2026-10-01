@@ -210,7 +210,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
     .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
     .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
-    .option("--priority <priorities>", "優先度で絞る（0〜4 か urgent・high・medium・low・none。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
+    .option("--priority <priorities>", "優先度で絞る（0〜4、P0〜P4、urgent・high・medium・low・none のどれか。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
     .option("--sort <key>", `並び順（${ISSUE_SORT_KEYS.join("|")}。既定は id。default は 状態 → 優先度 → ID）`)
     .option("--desc", "降順にする（同順位は ID の昇順。見積もり・期限の未設定は末尾のまま）")
     .action(
@@ -225,7 +225,7 @@ export function registerIssueCommands(program: Command): void {
           const assignees = [...(o.assignee ? parseAssignees(o.assignee) : []), ...(o.mine ? [cli.ctx.actor] : [])];
           const priorities = o.priority ? parsePriorityRefs(o.priority) : undefined;
           if (o.priority && !priorities) {
-            throw new NodError("INVALID_ARGS", "--priority には 0〜4 か urgent・high・medium・low・none を指定してください");
+            throw new NodError("INVALID_ARGS", "--priority には 0〜4、P0〜P4、urgent・high・medium・low・none のどれかを指定してください");
           }
           const sort = o.sort === undefined ? "id" : parseIssueSortKey(o.sort);
           const listed = listIssues(cli.db, {
