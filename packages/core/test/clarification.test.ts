@@ -146,8 +146,24 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
     expect(answerQuestion(me, i.id, "来週", { questionId: second.question.id }).issue.status).toBe("backlog");
   });
 
+  for (const to of ["todo", "backlog"] as const) {
+    test(`人が ${to} に出したあと、同じ文面の ask を再実行しても ${to} のままで、新しい質問なら needs_clarification になる`, () => {
+      const { db, ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(llm, i.id, "どちらの方式にするか");
+      updateIssue(me, i.id, { status: to });
+      const before = eventsOf(db, i.id);
+      const again = askQuestion(llm, i.id, "どちらの方式にするか");
+      expect(again).toMatchObject({ created: false, issue: { status: to } });
+      expect(eventsOf(db, i.id)).toEqual(before);
+      const added = askQuestion(llm, i.id, "期限はいつか");
+      expect(added).toMatchObject({ created: true, issue: { status: "needs_clarification" } });
+      expect(statusChanges(db, i.id).at(-1)).toEqual({ from: to, to: "needs_clarification" });
+    });
+  }
+
   describe("LLM は、me の未決事項が未回答の間は needs_clarification から出せない", () => {
-    for (const to of ["todo", "backlog", "in_progress", "in_review"] as const) {
+    for (const to of ["todo", "backlog", "triage", "in_progress", "in_review"] as const) {
       test(`${to} にしようとすると FORBIDDEN_FOR_LLM で、何も書かない`, () => {
         const { db, ws, me, llm } = setup();
         const i = createIssue(me, { workspaceId: ws.id, title: "t" });
@@ -213,12 +229,56 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
       expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
     });
 
-    test("作業中に me が足した未決事項は、LLM の in_review への変更を止めない", () => {
+    // canceled は通すので、canceled を経由して着手の状態にする2手の迂回を塞ぐ
+    for (const to of ["in_progress", "in_review"] as const) {
+      test(`canceled にしたあと ${to} にしようとすると FORBIDDEN_FOR_LLM で、何も書かない`, () => {
+        const { db, ws, me, llm } = setup();
+        const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+        askQuestion(me, i.id, "対象はどれか");
+        expect(updateIssue(llm, i.id, { status: "canceled" }).status).toBe("canceled");
+        const before = { issue: getIssue(db, i.id), events: eventsOf(db, i.id) };
+        expect(codeOf(() => updateIssue(llm, i.id, { status: to, priority: 1 }))).toBe("FORBIDDEN_FOR_LLM");
+        expect(codeOf(() => bulkUpdateIssues(llm, [i.id], { status: to }))).toBe("BULK_UPDATE_FAILED");
+        expect({ issue: getIssue(db, i.id), events: eventsOf(db, i.id) }).toEqual(before);
+        // 着手前の状態には戻せるが、そこからも着手の状態にはできない
+        expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+        expect(codeOf(() => updateIssue(llm, i.id, { status: to }))).toBe("FORBIDDEN_FOR_LLM");
+        expect(codeOf(() => startIssue(llm, i.id))).toBe("AWAITING_ANSWER");
+        // 人は未回答を残したまま進められる
+        expect(updateIssue(me, i.id, { status: to }).status).toBe(to);
+      });
+    }
+
+    test("人が done にした Issue も、me の未回答が残る間は LLM が in_progress に戻せない", () => {
+      const { ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      askQuestion(me, i.id, "対象はどれか");
+      updateIssue(me, i.id, { status: "done" });
+      expect(codeOf(() => updateIssue(llm, i.id, { status: "in_progress" }))).toBe("FORBIDDEN_FOR_LLM");
+    });
+
+    test("作業中に me が足した未決事項は、in_review と in_progress の間の移動を止めない", () => {
       const { ws, me, llm } = setup();
       const i = createIssue(me, { workspaceId: ws.id, title: "t" });
       startIssue(llm, i.id);
       askQuestion(me, i.id, "ついでに直すか");
       expect(updateIssue(llm, i.id, { status: "in_review" }).status).toBe("in_review");
+      expect(updateIssue(llm, i.id, { status: "in_progress" }).status).toBe("in_progress");
+    });
+
+    test("LLM は answer で me の未決事項を閉じてガードを外すことはできない（#172）", () => {
+      const { db, ws, me, llm } = setup();
+      const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+      const mine = askQuestion(me, i.id, "対象はどれか").question;
+      updateIssue(me, i.id, { status: "todo" });
+      expect(codeOf(() => answerQuestion(llm, i.id, "一覧", { questionId: mine.id }))).toBe("FORBIDDEN_FOR_LLM");
+      expect(codeOf(() => answerQuestion(llm, i.id, "一覧"))).toBe("NO_OPEN_QUESTION");
+      expect(getIssue(db, i.id).openQuestions.map((q) => q.id)).toEqual([mine.id]);
+      expect(codeOf(() => updateIssue(llm, i.id, { status: "in_progress" }))).toBe("FORBIDDEN_FOR_LLM");
+      expect(codeOf(() => startIssue(llm, i.id))).toBe("AWAITING_ANSWER");
+      // me が決めれば進められる
+      answerQuestion(me, i.id, "一覧", { questionId: mine.id });
+      expect(updateIssue(llm, i.id, { status: "in_progress" }).status).toBe("in_progress");
     });
 
     test("一括編集でも失敗一覧に FORBIDDEN_FOR_LLM が入り、1件も書かない", () => {

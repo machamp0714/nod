@@ -56,18 +56,19 @@ test("Needs Clarification の Issue は、今の値として表示するが選�
 test("Needs Clarification の Issue を手で Todo に移すと、未決事項を残したまま Todo になる", async ({ page }) => {
   await page.goto(`/issues/${ISSUE.clarify}`);
   const props = region(page, "プロパティ");
-  await expect(props.getByRole("combobox", { name: "Status" })).toHaveValue("needs_clarification");
+  await expect(property(props, "Status")).toHaveAttribute("data-value", "needs_clarification");
 
-  await props.getByRole("combobox", { name: "Status" }).selectOption("todo");
+  await chooseProperty(props, "Status", "Todo");
   await expect(page.getByRole("group", { name: "状態" })).toContainText("Todo");
   await expect(page.getByRole("group", { name: "状態" })).not.toContainText("Needs Clarification");
   await expect(props.getByRole("alert")).toHaveCount(0);
   await expect(region(page, "未決事項")).toContainText("0 / 2 決定");
 
   await page.reload();
-  const status = region(page, "プロパティ").getByRole("combobox", { name: "Status" });
-  await expect(status).toHaveValue("todo");
-  await expect(status.getByRole("option", { name: "Needs Clarification" })).toHaveCount(0);
+  const after = region(page, "プロパティ");
+  await expect(property(after, "Status")).toHaveAttribute("data-value", "todo");
+  await property(after, "Status").click();
+  await expect(propertyMenu(after, "Status").getByRole("menuitemradio", { name: "Needs Clarification" })).toHaveCount(0);
   // Activity には手動の移動が1件だけ残り、Needs Clarification へ戻す記録は増えない（1件は未決事項を足したときのもの）
   const activity = region(page, "Activity");
   await expect(activity.getByText("ステータスを Needs Clarification から Todo に変えた")).toHaveCount(1);

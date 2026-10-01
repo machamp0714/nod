@@ -88,6 +88,12 @@ async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
   if (isLlm(cli.ctx)) await notifyOrca(update);
 }
 
+// 手で todo・backlog にした Issue に残る未回答の確認依頼の件数。残る間は着手できないので、成功表示に添える（#170）
+function heldQuestionCount(i: Issue): number {
+  if (i.status !== "todo" && i.status !== "backlog") return 0;
+  return i.questionCount.total - i.questionCount.answered;
+}
+
 export function registerIssueCommands(program: Command): void {
   const issue = program.command("issue").description("Issue を操作する");
 
@@ -360,7 +366,11 @@ export function registerIssueCommands(program: Command): void {
             removeLabels: o.removeLabel,
             reason: o.reason,
           });
-          print(cli, updated, () => `更新しました: ${formatIssueLine(updated)}`);
+          print(cli, updated, () => {
+            const open = heldQuestionCount(updated);
+            const note = open > 0 ? `\n未回答の確認依頼が ${open} 件残っています（すべて回答されるまで着手できません）` : "";
+            return `更新しました: ${formatIssueLine(updated)}${note}`;
+          });
         },
       ),
     );
@@ -412,7 +422,11 @@ export function registerIssueCommands(program: Command): void {
             removeLabels: o.removeLabel,
             reason: o.reason,
           });
-          print(cli, updated, () => [`${updated.length} 件を更新しました`, ...formatIssueLines(updated)].join("\n"));
+          print(cli, updated, () => {
+            const held = updated.filter((i) => heldQuestionCount(i) > 0).length;
+            const note = held > 0 ? [`うち ${held} 件に未回答の確認依頼が残っています`] : [];
+            return [`${updated.length} 件を更新しました`, ...formatIssueLines(updated), ...note].join("\n");
+          });
         },
       ),
     );

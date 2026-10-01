@@ -80,6 +80,20 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
     expect(detail).toMatchObject({ status: "todo", openQuestions: [{ question: "対象の画面はどれか" }] });
   });
 
+  test("todo に出したあと、同じ文面の ask の再実行では needs_clarification に戻さない", async () => {
+    const { app, db, me, ws } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    askQuestion(me, i.id, "対象の画面はどれか");
+    await call(app, "POST", `/api/issues/${i.id}/update`, { status: "todo" });
+    const before = statusChanges(db);
+    const again = await call(app, "POST", `/api/issues/${i.id}/ask`, { question: "対象の画面はどれか" });
+    expect(again.status).toBe(200);
+    expect(again.json).toMatchObject({ created: false, issue: { status: "todo" } });
+    expect(statusChanges(db)).toEqual(before);
+    const added = await call(app, "POST", `/api/issues/${i.id}/ask`, { question: "期限はいつか" });
+    expect(added.json).toMatchObject({ created: true, issue: { status: "needs_clarification" } });
+  });
+
   test("bulk-update でも needs_clarification に戻さない", async () => {
     const { app, db, me, ws } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });

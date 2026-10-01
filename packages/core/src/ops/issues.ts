@@ -505,17 +505,15 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
   setColumn(ctx, row, "milestone_id", target?.id ?? null, { from, to: target?.name ?? null });
 }
 
-// 私が足した未決事項が未回答の間、LLM は着手前の Issue を先へ進められない（#170）。人が決める前に着手させないため。
-// needs_clarification からは todo・backlog にも出せない。人が todo・backlog に出したあとも in_progress・in_review にはできない。
-// canceled は止めない。一括編集の失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
+// 私が足した未決事項が未回答の間、LLM はその Issue を着手の状態にできない（#170）。人が決める前に着手させないため。
+// needs_clarification からは canceled にしか出せない。それ以外の着手していない状態（canceled・done を含む）からは
+// in_progress・in_review にできない。canceled への移動、todo と backlog の間の移動、着手後の in_progress と in_review の間の移動は止めない。
+// 一括編集の失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
 const STARTED: Status[] = ["in_progress", "in_review"];
-const NOT_STARTED: Status[] = ["todo", "backlog"];
 
 function assertLlmLeavesHumanQuestions(ctx: OpCtx, row: IssueRow, to: Status): void {
   const held =
-    row.status === "needs_clarification"
-      ? STARTED.includes(to) || NOT_STARTED.includes(to)
-      : NOT_STARTED.includes(row.status) && STARTED.includes(to);
+    row.status === "needs_clarification" ? to !== "canceled" : STARTED.includes(to) && !STARTED.includes(row.status);
   if (!held) return;
   const open = openQuestionCount(ctx.db, row.id, { humanOnly: true });
   if (open === 0) return;
