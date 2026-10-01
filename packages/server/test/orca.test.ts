@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { completeIssue, createIssue, getIssue, type GhRunResult, type OrcaRunner, startIssue } from "@nod/core";
+import { archiveIssue, completeIssue, createIssue, getIssue, type GhRunResult, type OrcaRunner, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
@@ -110,11 +110,23 @@ describe("Orca で作業を始める API（#210）", () => {
     ];
     for (const [orca, code] of cases) {
       const { app, db, ref } = withOrca(orca, null);
+      const before = getIssue(db, ref);
       const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({ created: false, worktree: null, branch: null, failure: { code } });
-      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null });
+      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, assignee: before.assignee });
     }
+  });
+
+  test("orca を待つ間にアーカイブされたら、200 で作られた worktree のパスを含む failure を返す", async () => {
+    const s = withOrca(async () => {
+      archiveIssue(s.me, s.ref);
+      return created;
+    }, null);
+    const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, { feature: "search-n1" });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ created: false, failure: { code: "WORKTREE_NOT_RECORDED" } });
+    expect(res.json.failure.message).toContain(NEW_WT);
   });
 
   test("feature が使えない文字を含む・空・無い・文字列でない要求は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {

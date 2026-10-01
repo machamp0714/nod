@@ -30,20 +30,22 @@ export function defaultOrcaRunner(env: Record<string, string | undefined> = proc
   return createCommandRunner(command ?? "orca", prefix);
 }
 
-const FAILURE_MESSAGES: Record<OrcaFailureCode, string> = {
+const FAILURE_MESSAGES: Record<Exclude<OrcaFailureCode, "TIMEOUT">, string> = {
   DISABLED: "Orca との連携が無効です（NOD_ORCA=0）",
   NO_WORKTREE: "この Issue には実行場所（worktree）が記録されていません",
   WORKTREE_ALREADY_RECORDED: "この Issue には実行場所（worktree）が記録済みです",
+  WORKTREE_NOT_RECORDED: "worktree は作られましたが、Issue に記録できませんでした",
   ORCA_NOT_INSTALLED: "orca が見つかりません。Orca を起動し、orca CLI を使えるようにしてください",
   WORKTREE_NOT_IN_ORCA: "この worktree は Orca に登録されていません",
   NO_TERMINAL: "この worktree に Orca の端末がありません",
   TERMINAL_NOT_FOUND: "指定した端末はこの worktree にありません。宛先を選び直してください",
-  TIMEOUT: `${ORCA_TIMEOUT_MS / 1000}秒以内に orca が応答しませんでした`,
   ORCA_ERROR: "orca の実行に失敗しました",
 };
 
-export function orcaFailure(code: OrcaFailureCode, detail?: string): OrcaFailure {
-  return { code, message: detail ? `${FAILURE_MESSAGES[code]}: ${detail}` : FAILURE_MESSAGES[code] };
+// timeoutMs は TIMEOUT の文言に出す待ち時間（省くと ORCA_TIMEOUT_MS）
+export function orcaFailure(code: OrcaFailureCode, detail?: string, timeoutMs: number = ORCA_TIMEOUT_MS): OrcaFailure {
+  const base = code === "TIMEOUT" ? `${timeoutMs / 1000}秒以内に orca が応答しませんでした` : FAILURE_MESSAGES[code];
+  return { code, message: detail ? `${base}: ${detail}` : base };
 }
 
 // シェルに貼って使えるよう、単一引用符で囲む
@@ -61,9 +63,7 @@ type Envelope = { ok: true; result: unknown } | { ok: false; failure: OrcaFailur
 // timeoutMs は時間切れの文言に出す待ち時間（省くと ORCA_TIMEOUT_MS）
 export function readOrcaEnvelope(r: GhRunResult, timeoutMs: number = ORCA_TIMEOUT_MS): Envelope {
   if (r.kind === "not_found") return { ok: false, failure: orcaFailure("ORCA_NOT_INSTALLED") };
-  if (r.kind === "timeout") {
-    return { ok: false, failure: { code: "TIMEOUT", message: `${timeoutMs / 1000}秒以内に orca が応答しませんでした` } };
-  }
+  if (r.kind === "timeout") return { ok: false, failure: orcaFailure("TIMEOUT", undefined, timeoutMs) };
   if (r.kind === "spawn_failed") return { ok: false, failure: orcaFailure("ORCA_ERROR", r.detail) };
   if (r.kind === "too_large") return { ok: false, failure: orcaFailure("ORCA_ERROR", "出力が大きすぎます") };
   let parsed: { ok?: unknown; result?: unknown; error?: { code?: unknown; message?: unknown } } | null = null;
@@ -224,11 +224,15 @@ export async function createOrcaWorktree(
   if (typeof raw?.path !== "string" || !raw.path) return fail(orcaFailure("ORCA_ERROR", "結果から worktree のパスを読めません"));
   const worktree = raw.path;
   const branch = typeof raw.branch === "string" && raw.branch ? raw.branch.replace(/^refs\/heads\//, "") : null;
-  tx(ctx.db, () => {
+  return tx(ctx.db, () => {
     // orca を待つ間に変わっているかもしれないため、読み直してから記録する
-    const current = findWritableIssueRow(ctx.db, ref);
+    const current = findIssueRow(ctx.db, ref);
+    // 待つ間にアーカイブされたら記録できない。作られた worktree を手で片付けられるよう、パスを理由に含めて返す
+    if (current.archived_at !== null) {
+      return fail(orcaFailure("WORKTREE_NOT_RECORDED", `${issueId} はアーカイブ済みです（作られた worktree: ${worktree}）`));
+    }
     setColumn(ctx, current, "branch", branch);
     setColumn(ctx, current, "worktree", worktree);
+    return { issueId, created: true, worktree, branch, failure: null };
   });
-  return { issueId, created: true, worktree, branch, failure: null };
 }

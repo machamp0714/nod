@@ -221,11 +221,25 @@ describe("createOrcaWorktree（#210）", () => {
     ];
     for (const [run, code, text] of cases) {
       const { db, me, ref } = unstarted();
+      const before = getIssue(db, ref);
       const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
       expect(res).toMatchObject({ issueId: "API-1", created: false, worktree: null, branch: null, failure: { code } });
       expect(res.failure?.message).toContain(text);
-      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null });
+      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, assignee: before.assignee, agentState: before.agentState });
     }
+  });
+
+  test("orca を待つ間に Issue がアーカイブされたら、例外にせず、作られた worktree のパスを含む失敗を返す", async () => {
+    const { db, me, ref } = unstarted();
+    const run: OrcaRunner = async () => {
+      archiveIssue(me, ref);
+      return created;
+    };
+    const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run, "claude");
+    expect(res).toMatchObject({ issueId: "API-1", created: false, worktree: null, branch: null, failure: { code: "WORKTREE_NOT_RECORDED" } });
+    expect(res.failure?.message).toContain(NEW_WT);
+    expect(res.failure?.message).toContain("アーカイブ済み");
+    expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null });
   });
 
   test("feature に英小文字・数字・- 以外があるか空なら INVALID_ARGS で、orca を呼ばない", async () => {
