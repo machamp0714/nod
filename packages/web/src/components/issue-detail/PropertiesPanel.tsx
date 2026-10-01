@@ -396,12 +396,13 @@ export function PropertiesPanel({
         {full && (
           <Prop label="実行場所">
             {location ? (
+              // nod.pen「Olqdi」の実行場所：高さ 28 の1行。worktree は値の列の幅で切り、全文は title で読む
               <span className={s.locationValue}>
-                <span className={`${s.propStatic} ${s.propButtonStack}`} title={issue.worktree ?? undefined}>
+                <span className={`${s.propStatic} ${s.locationText}`} title={issue.worktree ?? undefined}>
                   <PropIcon name="terminal" color="var(--ink2)" />
-                  <span className={s.executionLocation}>
+                  <span className={s.propText}>
                     {location.branchLabel}
-                    {location.worktree && <span>{location.worktree}</span>}
+                    {location.worktree && <span className={s.locationPath}> · {location.worktree}</span>}
                   </span>
                 </span>
                 {issue.worktree && <OpenInOrcaButton issueId={issue.id} />}

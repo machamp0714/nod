@@ -6,7 +6,7 @@ import { orcaCalls, stubOrca } from "./support/nod";
 // Orca で開く（#52）。e2e の server は実際の orca の代わりに stubOrca の結果を返す（Orca には触れない）
 const ok = (result: unknown) => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
 
-test("実行場所の下の「Orca で開く」で、worktree の LLM の端末を前面に出す", async ({ page, nod }) => {
+test("実行場所の行の「Orca で開く」で、worktree の LLM の端末を前面に出す", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const issue = await api.startedIssue("検索 API の N+1 を解消");
   await stubOrca({
@@ -33,6 +33,13 @@ test("開けないときは理由を出し、パスと cd コマンドをコピ�
   const popover = page.getByRole("dialog", { name: "Orca で開けませんでした" });
   await expect(popover.getByRole("alert")).toContainText("Orca で開けませんでした：orca が見つかりません");
   await expect(popover.getByRole("alert")).toContainText(api.repo);
+  // ボタンは行の右端にあるため、ポップオーバーは左へ開く。Main にも画面にもはみ出さない
+  const fit = await popover.evaluate((el) => {
+    const main = document.querySelector("main")!;
+    const r = el.getBoundingClientRect();
+    return { mainOverflow: main.scrollWidth - main.clientWidth, left: r.left >= main.getBoundingClientRect().left, right: r.right <= main.getBoundingClientRect().right };
+  });
+  expect(fit).toEqual({ mainOverflow: 0, left: true, right: true });
   await popover.getByRole("button", { name: "パスをコピー" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(api.repo);
   await expect(popover).toHaveCount(0);

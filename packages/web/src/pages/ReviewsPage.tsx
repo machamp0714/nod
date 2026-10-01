@@ -32,7 +32,6 @@ export function ReviewsPage() {
     <SplitLayout
       title="Reviews"
       description="LLM が作業を終え、確認を待っている Issue"
-      count={items.length}
       listLabel="レビュー待ちの一覧"
       list={
         inbox.isPending ? (

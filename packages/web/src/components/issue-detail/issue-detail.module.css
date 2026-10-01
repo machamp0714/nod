@@ -541,17 +541,6 @@
   padding-left: 16px;
 }
 
-.executionLocation {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.executionLocation > span {
-  display: block;
-  color: var(--ink3);
-  font-size: 11px;
-}
-
 .awaitingBanner {
   display: flex;
   align-items: center;
@@ -1209,12 +1198,12 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .deletedToast { position: fixed; bottom: 24px; left: 50%; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 2px #0000001a; color: var(--ink); font-size: 12.5px; transform: translateX(-50%); }
 .deletedToast svg { flex: none; color: var(--ink2); }
 /* 実行場所の下の「Orca で開く」と失敗時のポップオーバー（#52、Pencil『Issue詳細｜Orcaで開く（#52）』gz11W の IV5vb・『Orcaで開く｜失敗時』OkbJ4 の h09GjE） */
-.locationValue { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; width: 100%; }
-.orcaOpen { position: relative; display: flex; align-items: center; gap: 8px; align-self: stretch; padding: 0 0 4px 6px; }
-.orcaOpenButton { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink2); font-size: 12px; font-weight: 500; cursor: pointer; height: var(--control-height-sm); }
-.orcaOpenButton:hover:not(:disabled) { background: var(--sunken); }
-.orcaOpenButton:disabled { cursor: progress; opacity: 0.6; }
-.orcaOpenButton svg { color: var(--ink2); }
+.locationValue { display: flex; align-items: center; gap: 2px; min-width: 0; width: 100%; height: var(--control-height); }
+.locationText { flex: 0 1 auto; }
+.locationPath { color: var(--ink3); font-weight: 400; }
+/* 「Orca で開く」は行の中の 28 の円形ボタン（nod.pen の Olqdi に置き場所がないため）。失敗時のポップオーバーとコピーの結果は行の下に重ねる */
+.orcaOpen { position: relative; flex: none; display: flex; align-items: center; }
+.copyNoticeFloat { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); white-space: nowrap; }
 .orcaPopover { position: absolute; top: calc(100% + 4px); right: 0; z-index: 10; width: min(300px, calc(var(--rail-width) - 40px)); display: flex; flex-direction: column; gap: 0; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: 0 1px 2px #0000001a; }
 .orcaPopover button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--ink); padding: 0 8px; font-size: 13px; text-align: left; border-radius: var(--radius-md); cursor: pointer; min-height: 32px; }
 .orcaPopover button svg { flex: none; color: var(--ink2); }

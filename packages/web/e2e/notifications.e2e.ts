@@ -146,8 +146,9 @@ test("通知の一覧も行は左右と上下に 8 の余白と角丸 8 で、�
   expect(m.headerHeight).toBe(44);
   expect(m.headerOverflow).toBe(0);
   expect(m.title).toBe("13px / 500");
-  // 題名、件数、タブ（確認依頼、通知と未読の数、すべて）が重ならずに並ぶ
-  expect(m.headerParts).toBe(3);
+  // 題名とタブ（確認依頼、通知と未読の数、すべて）だけが重ならずに並ぶ。件数は置かない
+  expect(m.headerTexts).toEqual(["Inbox", "tabs"]);
+  expect(m.headerParts).toBe(2);
   expect(m.headerGap).toBeGreaterThanOrEqual(8);
   expect(m.headerCenterDiff).toBeLessThanOrEqual(2.5);
   expect(m.headerRight).toBe(12);

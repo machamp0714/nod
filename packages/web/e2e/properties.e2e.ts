@@ -306,10 +306,10 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
     };
   });
   const layout = await measure();
-  // 値が1行の行はすべて高さ 28。Labels（折り返す）、実行場所（worktree と「Orca で開く」の段）、PR（状態の段）は複数行になる
-  const multiline = new Set(["Labels", "実行場所", "PR"]);
+  // 値が1行の行はすべて高さ 28。Labels（折り返す）と PR（状態の段）は複数行になる。実行場所も1行（#194）
+  const multiline = new Set(["Labels", "PR"]);
   const single = layout.rows.filter((row) => !multiline.has(row.label ?? ""));
-  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "Cycle", "Assignee", "作業状況", "Reminder", "Created"]);
+  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "Cycle", "Assignee", "作業状況", "実行場所", "Reminder", "Created"]);
   for (const row of single) expect(row, row.label ?? "").toMatchObject({ height: 28, pillHeight: 28, overflow: 0 });
   for (const row of layout.rows) expect(row.spread, `${row.label} の中心の差`).toBeLessThanOrEqual(2.5);
   expect(layout).toMatchObject({ gaps: [4], keyWidth: 88, pill: ["6px", "10px", "9999px", "13px", "500"], icon: 14, mainOverflow: 0, pageOverflow: 0 });
@@ -320,6 +320,29 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
     return { clipped: text.scrollWidth > text.clientWidth, overflow: getComputedStyle(text).textOverflow };
   });
   expect(clip).toEqual({ clipped: true, overflow: "ellipsis" });
+
+  // 実行場所は「ブランチ · worktree」を1行に出し、長い worktree は値の列の幅で切って「…」にする。全文は title。
+  // 「Orca で開く」は同じ行の中の 28 の円形ボタン
+  const location = await props.locator("dl > div").filter({ has: page.locator("dt", { hasText: "実行場所" }) }).evaluate((row) => {
+    const pill = row.querySelector('[class*="_propStatic_"]') as HTMLElement;
+    const text = pill.querySelector('[class*="_propText_"]') as HTMLElement;
+    const button = row.querySelector('button[aria-label="Orca で開く"]') as HTMLElement;
+    const center = (r: DOMRect) => r.top + r.height / 2;
+    return {
+      height: row.getBoundingClientRect().height,
+      text: text.textContent,
+      title: pill.title,
+      clipped: text.scrollWidth > text.clientWidth,
+      overflow: getComputedStyle(text).textOverflow,
+      button: [button.getBoundingClientRect().width, button.getBoundingClientRect().height, getComputedStyle(button).borderTopLeftRadius],
+      buttonInside: button.getBoundingClientRect().right <= row.getBoundingClientRect().right,
+      buttonCenterDiff: Math.abs(center(button.getBoundingClientRect()) - center(pill.getBoundingClientRect())),
+    };
+  });
+  expect(location.title).toMatch(/feat-search-n1$/);
+  expect(location).toMatchObject({ height: 28, text: `feat-search-n1 · ${location.title}`, clipped: true, overflow: "ellipsis",
+    button: [28, 28, "9999px"], buttonInside: true });
+  expect(location.buttonCenterDiff).toBeLessThanOrEqual(2.5);
 
   // メニューは幅 208、角丸 12、検索欄 36、項目 32。開いても横にはみ出さない
   await property(props, "Project").click();
@@ -337,5 +360,5 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
     };
   });
   expect(menu).toEqual({ width: 208, radius: "12px", search: 36, item: 32, itemRadius: "8px", mainOverflow: 0 });
-  console.log("プロパティ欄の実測", JSON.stringify({ ...layout, menu }));
+  console.log("プロパティ欄の実測", JSON.stringify({ ...layout, location, menu }));
 });

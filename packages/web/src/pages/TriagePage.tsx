@@ -28,7 +28,6 @@ export function TriagePage() {
     <SplitLayout
       title="Triage"
       description="LLM が起票し、受け入れ待ちの Issue"
-      count={items.length}
       listLabel="Triage の一覧"
       list={
         triage.isPending ? (
