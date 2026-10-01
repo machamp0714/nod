@@ -1,5 +1,6 @@
 import {
   type ActivityItem,
+  describeEvent,
   DEFAULT_STATUS_LABELS,
   HUMAN_ACTOR,
   type StatusNames,
@@ -16,6 +17,7 @@ import {
   type OpenQuestions,
   type Plan,
   type Status,
+  STATUSES,
   type StepStatus,
   toNodError,
   type Notification,
@@ -83,8 +85,20 @@ export function statusColumnWidth(issues: Pick<Issue, "status" | "id">[]): numbe
   return Math.max(11, ...issues.map((i) => displayWidth(statusText(i.status, i.id))));
 }
 
+// 作業状況のタグ。レビュー待ち・完了・キャンセルの Issue では、作業状況 done を出さない（Issue の完了と紛らわしいため。#176）
+const CLOSED_FOR_AGENT: Status[] = ["in_review", "done", "canceled"];
+
+function shownAgentState(i: Pick<Issue, "status" | "agentState">): AgentState | null {
+  return i.agentState === "done" && CLOSED_FOR_AGENT.includes(i.status) ? null : i.agentState;
+}
+
+function agentTag(i: Pick<Issue, "status" | "agentState">): string {
+  const state = shownAgentState(i);
+  return state ? ` [${state}]` : "";
+}
+
 export function formatIssueLine(i: Issue, statusWidth = statusColumnWidth([i])): string {
-  const agent = i.agentState ? ` [${i.agentState}]` : "";
+  const agent = agentTag(i);
   const candidate = i.completionCandidate ? " [完了候補]" : "";
   const archived = i.archivedAt ? " [archived]" : "";
   const status = statusText(i.status, i.id);
@@ -146,7 +160,7 @@ function truncate(text: string, max: number): string {
 // 行末には未決事項の決定数 / 総数を付ける（#173）
 export function formatIssueListLines(issues: Issue[]): string[] {
   const statusWidth = statusColumnWidth(issues);
-  const states = issues.map((i) => `${padEnd(statusText(i.status, i.id), statusWidth)}${i.agentState ? ` [${i.agentState}]` : ""}${i.archivedAt ? " [archived]" : ""}`);
+  const states = issues.map((i) => `${padEnd(statusText(i.status, i.id), statusWidth)}${agentTag(i)}${i.archivedAt ? " [archived]" : ""}`);
   const stateWidth = Math.max(0, ...states.map(displayWidth));
   const projects = issues.map((i) => (i.project ? truncate(i.project.name, PROJECT_MAX_WIDTH) : "-"));
   const projectWidth = Math.max(1, ...projects.map(displayWidth));
@@ -203,7 +217,22 @@ function visibleActivity(items: ActivityItem[]): ActivityItem[] {
   return items.filter((a) => a.kind !== "event" || !HIDDEN_EVENT_TYPES.has(a.type));
 }
 
-function formatActivity(a: ActivityItem): string {
+const isStatus = (v: unknown): v is Status => (STATUSES as readonly unknown[]).includes(v);
+
+// event の文（Web と同じ core の文）の後ろに、data に残る補足（起票元、自動化のルールなど）を（）で添える（#198）。
+// 知らない種類は data を落とさないよう、種類の名前と JSON のまま出す
+function describeEventLine(a: Extract<ActivityItem, { kind: "event" }>, issueId: string): string {
+  if (a.type === "snoozed" && typeof a.data.until === "string") return `${a.actor} がスヌーズした（${localMinute(a.data.until)} まで）`;
+  const line = describeEvent(a, {
+    status: (v) => (isStatus(v) ? statusText(v, issueId) : String(v)),
+    priority: (v) => (typeof v === "number" ? (PRIORITY_LABEL[v] ?? String(v)) : String(v)),
+    agentState: (v) => AGENT_STATE_LABEL.find(([state]) => state === v)?.[1] ?? String(v),
+  });
+  if (!line) return `${a.actor} ${a.type} ${JSON.stringify(a.data)}`;
+  return line.detail.length ? `${line.text}（${line.detail.join("、")}）` : line.text;
+}
+
+function formatActivity(a: ActivityItem, issueId: string): string {
   const at = localMinute(a.at);
   if (a.kind === "comment") {
     const replies = a.replies.map((r) => `\n    ↳ #${r.id} ${r.actor}: ${r.body}`).join("");
@@ -221,7 +250,24 @@ function formatActivity(a: ActivityItem): string {
     const answer = a.answer !== null ? `\n    → ${a.answeredBy}${answeredAt}: ${a.answer}` : "";
     return `  ${at}  ${a.actor} が確認を依頼: ${a.question}${answer}`;
   }
-  return `  ${at}  ${a.actor} ${a.type} ${JSON.stringify(a.data)}`;
+  return `  ${at}  ${describeEventLine(a, issueId)}`;
+}
+
+// 起票元（--discovered-from）。created の event に残る（#176）
+function discoveredFrom(d: IssueDetail): string | null {
+  const created = d.activity.find((a) => a.kind === "event" && a.type === "created");
+  const source = created?.kind === "event" ? created.data.discovered_from : undefined;
+  return typeof source === "string" && source ? source : null;
+}
+
+// 関係の相手に、アーカイブ済みの印を添える。ブロック元は、数えない理由（done・canceled）も添える（#176）。
+// 理由は相手の Workspace の表示名で出し、show のほかの箇所の表記とそろえる
+function relationRef(d: IssueDetail, id: string, blocker: boolean): string {
+  const state = d.relationStates[id];
+  if (!state) return id;
+  if (state.archived) return `${id}（アーカイブ済み）`;
+  if (blocker && (state.status === "done" || state.status === "canceled")) return `${id}（${statusText(state.status, id)}）`;
+  return id;
 }
 
 const SEND_STATE_LABEL: Record<AgentInstruction["sendState"], string> = {
@@ -269,13 +315,15 @@ export function formatAttachment(a: IssueAttachment): string {
 export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = null): string {
   const lines = [
     `${d.id}  ${d.title}`,
-    `ステータス: ${statusText(d.status, d.id)}${d.agentState ? `（作業状況: ${d.agentState}）` : ""}`,
+    `ステータス: ${statusText(d.status, d.id)}${shownAgentState(d) ? `（作業状況: ${shownAgentState(d)}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
   if (d.archivedAt) lines.push(`アーカイブ済み: ${localMinute(d.archivedAt)}（nod issue unarchive ${d.id} で復元）`);
+  const source = discoveredFrom(d);
+  if (source) lines.push(`起票元: ${source}`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
   if (d.cycle) lines.push(`Cycle: ${d.cycle.name}`);
@@ -311,11 +359,11 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
     ["重複元", d.relations.duplicateOf],
     ["重複", d.relations.duplicates],
   ];
-  const relationLines = relations.filter(([, ids]) => ids.length).map(([label, ids]) => `  ${label}: ${ids.join(", ")}`);
+  const relationLines = relations.filter(([, ids]) => ids.length).map(([label, ids]) => `  ${label}: ${ids.map((id) => relationRef(d, id, label === "ブロックされている")).join(", ")}`);
   if (relationLines.length) lines.push("", "関係:", ...relationLines);
   if (d.pendingInstructions.length) lines.push("", "未確認の追加指示:", ...formatInstructions(d.pendingInstructions));
   const activity = visibleActivity(d.activity);
-  if (activity.length) lines.push("", "Activity:", ...activity.map(formatActivity));
+  if (activity.length) lines.push("", "Activity:", ...activity.map((a) => formatActivity(a, d.id)));
   return lines.join("\n");
 }
 

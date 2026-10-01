@@ -46,6 +46,11 @@ export function registerHumanCommands(program: Command): void {
       act((cli) => {
         // Triage は件数だけを出す（Web の Sidebar と同じく、スヌーズ中を除く。#177）
         const inbox = { ...getInbox(cli.db), notifications: listNotifications(cli.db), triageCount: listTriage(cli.db).length };
+        // 確認依頼に出ている Issue の「入力待ち」の通知は、同じ質問が2か所に並ぶのでテキスト表示では省く（#176）。
+        // 通知そのものは残り、nod notification list と --json には出る
+        const asked = new Set(inbox.questions.map((q) => q.issueId));
+        const shown = inbox.notifications.filter((n) => !(n.kind === "agent" && n.data.to === "awaiting_input" && asked.has(n.issueId)));
+        const omitted = inbox.notifications.length - shown.length;
         print(cli, inbox, () =>
           [
             `確認依頼（${inbox.questions.length}）`,
@@ -57,8 +62,9 @@ export function registerHumanCommands(program: Command): void {
             `レビュー待ち（${inbox.reviews.length}）`,
             ...(() => { const width = statusColumnWidth(inbox.reviews); return inbox.reviews.map((i) => `  ${formatIssueLine(i, width)}${i.prUrl ? `  ${i.prUrl}` : ""}`); })(),
             "",
-            `通知（未読 ${inbox.notifications.length}）`,
-            ...inbox.notifications.map(formatNotification),
+            `通知（未読 ${shown.length}）`,
+            ...shown.map(formatNotification),
+            ...(omitted > 0 ? [`  （確認依頼に出ている入力待ちの通知 ${omitted} 件は省略）`] : []),
             "",
             `Triage（${inbox.triageCount}）${inbox.triageCount > 0 ? "  nod triage list で一覧" : ""}`,
           ].join("\n"),
