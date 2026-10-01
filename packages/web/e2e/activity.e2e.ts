@@ -21,6 +21,21 @@ test("コメントを書くと Activity に書き手つきで出る。空白だ�
   await expect(box).toHaveValue("");
 });
 
+test("コメントの本文は Markdown で描き、改行1つは改行のまま出す", async ({ page }) => {
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const activity = region(page, "Activity");
+  await activity.getByRole("textbox", { name: "コメント" }).fill("### 見出しの行\n**太字** と `code`\n2行目\n\n- 箇条書き\n- [記事](https://example.com)");
+  await activity.getByRole("button", { name: "コメントする" }).click();
+  const thread = activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "見出しの行" });
+  await expect(thread.getByRole("heading", { name: "見出しの行" })).toBeVisible();
+  await expect(thread.locator("strong", { hasText: "太字" })).toBeVisible();
+  await expect(thread.locator("code", { hasText: "code" })).toBeVisible();
+  await expect(thread.locator("br")).toHaveCount(1);
+  await expect(thread.getByRole("listitem")).toHaveCount(2);
+  await expect(thread.getByRole("link", { name: "記事" })).toHaveAttribute("href", "https://example.com");
+  await expect(thread).not.toContainText("**");
+});
+
 test("変更の種類ごとに書き手つきの文を出し、質問の event は重ねない", async ({ page }) => {
   await page.goto(`/issues/${ISSUE.comment}`);
   const activity = region(page, "Activity");

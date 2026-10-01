@@ -3,6 +3,7 @@ import type { ActivityItem, AgentInstruction, WorkLogKind } from "../../api/type
 import { formatRelative } from "../../lib/format";
 import { hasText } from "../../lib/issue-edit";
 import { isMonoWorkLog, WORK_LOG_KIND_META, WORK_LOG_TONE_COLORS } from "../../lib/work-log";
+import { Markdown } from "../markdown/Markdown";
 import { AgentAvatar, Icon } from "../ui";
 import s from "./issue-detail.module.css";
 import { type InstructionTarget, SendInstructionDialog } from "./SendInstructionDialog";
@@ -52,6 +53,15 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
         </button>
       )}
     </>
+  );
+}
+
+// コメントと返信の本文。LLM は行を改行だけで区切って書くため、説明と同じく改行1つを改行のまま出す
+function CommentBody({ body }: { body: string }) {
+  return (
+    <div className={s.commentBody}>
+      <Markdown breaks>{body}</Markdown>
+    </div>
   );
 }
 
@@ -204,7 +214,13 @@ export function CommentThread({
           )}
         </span>
       </div>
-      {thread.logKind ? <WorkLogBody body={thread.body} kind={thread.logKind} /> : <p className={thread.instruction ? s.instructionBody : undefined}>{thread.body}</p>}
+      {thread.logKind ? (
+        <WorkLogBody body={thread.body} kind={thread.logKind} />
+      ) : thread.instruction ? (
+        <p className={s.instructionBody}>{thread.body}</p>
+      ) : (
+        <CommentBody body={thread.body} />
+      )}
       {thread.instruction && <InstructionStatus instruction={thread.instruction} target={instructionTarget} readOnly={readOnly} />}
       {(thread.replies.length > 0 || replying) && (
         <div className={s.threadReplies}>
@@ -215,7 +231,7 @@ export function CommentThread({
                 <strong>{reply.actor}</strong>
                 <Time at={reply.at} />
               </div>
-              <p>{reply.body}</p>
+              <CommentBody body={reply.body} />
             </div>
           ))}
           {replying && (
