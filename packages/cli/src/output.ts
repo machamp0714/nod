@@ -141,7 +141,7 @@ function truncate(text: string, max: number): string {
 
 // nod issue list の行（#174）。1行表示のステータスとタイトルの間に、優先度と Project の列を足す。
 // 優先度なしと Project なしは - にし、Project は一覧の中の最大幅（20 桁まで。超える名前は … で切る）にそろえる。
-// [working] や [archived] のタグは状態のすぐ後ろに置いたまま、状態とタグをひとまとまりとして全行の最大幅にそろえる。
+// ID も全行の最大幅にそろえる。[working] や [archived] のタグは状態のすぐ後ろに置いたまま、状態とタグをひとまとまりとして全行の最大幅にそろえる。
 // 行末には未決事項の決定数 / 総数を付ける（#173）
 export function formatIssueListLines(issues: Issue[]): string[] {
   const statusWidth = statusColumnWidth(issues);
@@ -149,10 +149,11 @@ export function formatIssueListLines(issues: Issue[]): string[] {
   const stateWidth = Math.max(0, ...states.map(displayWidth));
   const projects = issues.map((i) => (i.project ? truncate(i.project.name, PROJECT_MAX_WIDTH) : "-"));
   const projectWidth = Math.max(1, ...projects.map(displayWidth));
+  const idWidth = Math.max(0, ...issues.map((i) => displayWidth(i.id)));
   return issues.map((i, n) => {
     const candidate = i.completionCandidate ? " [完了候補]" : "";
     const priority = padEnd(PRIORITY_NAMES[i.priority] ?? "-", PRIORITY_WIDTH);
-    return `${i.id}  ${padEnd(states[n] ?? "", stateWidth)}  ${priority}  ${padEnd(projects[n] ?? "-", projectWidth)}  ${i.title}${candidate}${questionCountTag(i.questionCount)}`;
+    return `${padEnd(i.id, idWidth)}  ${padEnd(states[n] ?? "", stateWidth)}  ${priority}  ${padEnd(projects[n] ?? "-", projectWidth)}  ${i.title}${candidate}${questionCountTag(i.questionCount)}`;
   });
 }
 
