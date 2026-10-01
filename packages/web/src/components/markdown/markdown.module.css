@@ -47,6 +47,10 @@
   vertical-align: -1px;
 }
 
+.markdown input[type="checkbox"]:enabled {
+  cursor: pointer;
+}
+
 .markdown ol {
   padding-left: 22px;
   list-style: decimal;
