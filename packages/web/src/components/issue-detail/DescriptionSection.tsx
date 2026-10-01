@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { descriptionInput } from "../../lib/issue-edit";
+import { toggleTaskAt } from "../../lib/task-list";
 import { Markdown } from "../markdown/Markdown";
 import { Button } from "../ui";
 import s from "./issue-detail.module.css";
@@ -22,6 +23,20 @@ export function DescriptionSection({
     if (await action.run(() => onSave(descriptionInput(text)), "保存できませんでした")) setDraft(null);
   }
 
+  // 表示中にタスクリストのチェックボックスを押したら、その項目の [ ] / [x] を書き換えて保存する。
+  // 保存と読み直しが終わるまでは書き換えた説明を表示し、押したチェックがすぐ反映されるようにする
+  const [toggled, setToggled] = useState<string | null>(null);
+  const shown = toggled ?? description;
+
+  async function toggleTask(offset: number, checked: boolean) {
+    if (shown === null) return;
+    const next = toggleTaskAt(shown, offset, checked);
+    if (next === null) return;
+    setToggled(next);
+    await action.run(() => onSave(next), "保存できませんでした");
+    setToggled(null);
+  }
+
   function cancel() {
     setDraft(null);
     action.clearError();
@@ -33,14 +48,30 @@ export function DescriptionSection({
         <h2 className={s.sectionTitle}>説明</h2>
         <span className={s.spacer} />
         {draft === null && !readOnly && (
-          <Button icon="square-pen" onClick={() => setDraft(description ?? "")}>
+          <Button
+            icon="square-pen"
+            disabled={action.busy}
+            onClick={() => {
+              action.clearError();
+              setDraft(description ?? "");
+            }}
+          >
             編集
           </Button>
         )}
       </header>
       {draft === null ? (
-        description ? (
-          <Markdown breaks>{description}</Markdown>
+        shown ? (
+          <>
+            <Markdown breaks onToggleTask={readOnly ? undefined : (offset, checked) => void toggleTask(offset, checked)} taskDisabled={action.busy}>
+              {shown}
+            </Markdown>
+            {action.error && (
+              <p className={s.error} role="alert">
+                {action.error}
+              </p>
+            )}
+          </>
         ) : (
           <p className={s.muted}>説明はありません</p>
         )
