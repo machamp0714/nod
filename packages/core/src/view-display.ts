@@ -17,7 +17,7 @@ export interface ViewDisplay {
   subGroupBy?: ViewGroupKey; // groupBy があり、別のプロパティのときだけ
   sort?: (typeof VIEW_SORTS)[number]; // 省くと既定（Status→優先度→ID）
   direction?: "desc"; // 省くと昇順
-  columns?: (typeof VIEW_COLUMNS)[number][]; // 省くと画面の既定の列。空の配列は ID とタイトルだけ
+  columns?: (typeof VIEW_COLUMNS)[number][]; // 省くと画面の既定の列。空の配列は ID・タイトル・更新日時だけ
   showCompleted?: false; // 省くと完了済みを表示
   showChildren?: false; // 省くと子 Issue を表示
 }

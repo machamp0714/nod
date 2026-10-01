@@ -147,7 +147,7 @@ describe("保存ダイアログに出す内容", () => {
     expect(describeDisplay({ tab: "needs_clarification", sort: "title", columns: [] })).toEqual([
       { name: "タブ", value: "Needs Clarification" },
       { name: "並び", value: "タイトル（昇順）" },
-      { name: "列", value: "ID とタイトルのみ" },
+      { name: "列", value: "ID・タイトル・更新日時のみ" },
     ]);
     expect(describeDisplay({ direction: "desc" })).toEqual([{ name: "並び", value: "既定（降順）" }]);
   });
