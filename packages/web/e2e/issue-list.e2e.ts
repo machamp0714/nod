@@ -64,6 +64,19 @@ test("検索語でタイトルと ID を絞り込む", async ({ page }) => {
   await expect(page.getByText("該当する Issue はありません")).toBeVisible();
 });
 
+test("検索欄に IME で日本語を入力できる（変換中に URL の更新で入力が崩れない）", async ({ page }) => {
+  await page.goto("/issues");
+  const search = await searchBox(page);
+  const cdp = await page.context().newCDPSession(page);
+  // ローマ字入力の途中経過を1文字ずつ送り、最後に確定する
+  for (const text of ["k", "き", "きゃ", "きゃr", "きゃり"]) {
+    await cdp.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+  }
+  await cdp.send("Input.insertText", { text: "キャリ" });
+  await expect(search).toHaveValue("キャリ");
+  await expect(page).toHaveURL(/q=%E3%82%AD%E3%83%A3%E3%83%AA/);
+});
+
 test("Board は6つの Status を列か Hidden columns に出し、Triage と Canceled を出さない", async ({ page, nod }) => {
   await page.goto("/issues");
   await setLayout(page, "Board");
