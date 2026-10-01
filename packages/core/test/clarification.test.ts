@@ -162,6 +162,44 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
     });
   }
 
+  test("LLM が in_progress から todo に戻しても、me の未回答が残っていて needs_clarification に切り替えない", () => {
+    const { db, ws, me, llm } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    updateIssue(me, i.id, { status: "in_progress" });
+    askQuestion(me, i.id, "対象はどれか");
+    expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
+    expect(statusChanges(db, i.id)).toEqual([
+      { from: "todo", to: "in_progress" },
+      { from: "in_progress", to: "todo" },
+    ]);
+    expect(getIssue(db, i.id)).toMatchObject({ status: "todo", openQuestions: [{ question: "対象はどれか" }] });
+  });
+
+  test("回答済みの質問と同じ文面で ask すると、新しい質問になり needs_clarification に入る", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    const first = askQuestion(me, i.id, "対象はどれか");
+    expect(answerQuestion(me, i.id, "一覧", { questionId: first.question.id }).issue.status).toBe("todo");
+    const again = askQuestion(me, i.id, "対象はどれか");
+    expect(again).toMatchObject({ created: true, issue: { status: "needs_clarification" } });
+    expect(again.question.id).not.toBe(first.question.id);
+    expect(eventsOf(db, i.id).filter((e) => e.type === "question_asked")).toHaveLength(2);
+    expect(statusChanges(db, i.id).at(-1)).toEqual({ from: "todo", to: "needs_clarification" });
+  });
+
+  test("backlog から needs_clarification に入って手で todo に出たあと、再び入ると戻り先は todo", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
+    updateIssue(me, i.id, { status: "backlog" });
+    const first = askQuestion(me, i.id, "対象はどれか");
+    expect(statusChanges(db, i.id).at(-1)).toEqual({ from: "backlog", to: "needs_clarification" });
+    updateIssue(me, i.id, { status: "todo" });
+    const second = askQuestion(me, i.id, "期限はいつか");
+    expect(statusChanges(db, i.id).at(-1)).toEqual({ from: "todo", to: "needs_clarification" });
+    answerQuestion(me, i.id, "一覧", { questionId: first.question.id });
+    expect(answerQuestion(me, i.id, "来週", { questionId: second.question.id }).issue.status).toBe("todo");
+  });
+
   describe("LLM は、me の未決事項が未回答の間は needs_clarification から出せない", () => {
     for (const to of ["todo", "backlog", "triage", "in_progress", "in_review"] as const) {
       test(`${to} にしようとすると FORBIDDEN_FOR_LLM で、何も書かない`, () => {

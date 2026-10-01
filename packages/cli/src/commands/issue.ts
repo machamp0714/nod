@@ -88,7 +88,7 @@ async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
   if (isLlm(cli.ctx)) await notifyOrca(update);
 }
 
-// 手で todo・backlog にした Issue に残る未回答の確認依頼の件数。残る間は着手できないので、成功表示に添える（#170）
+// 更新後の状態が todo・backlog の Issue に残る未回答の確認依頼の件数（状態を変えたかは問わない）。残る間は着手できないので、成功表示に添える（#170）
 function heldQuestionCount(i: Issue): number {
   if (i.status !== "todo" && i.status !== "backlog") return 0;
   return i.questionCount.total - i.questionCount.answered;

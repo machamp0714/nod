@@ -515,7 +515,7 @@ function assertLlmLeavesHumanQuestions(ctx: OpCtx, row: IssueRow, to: Status): v
   const held =
     row.status === "needs_clarification" ? to !== "canceled" : STARTED.includes(to) && !STARTED.includes(row.status);
   if (!held) return;
-  const open = openQuestionCount(ctx.db, row.id, { humanOnly: true });
+  const open = openQuestionCount(ctx.db, row.id, { askedBy: "human" });
   if (open === 0) return;
   throw new NodError(
     "FORBIDDEN_FOR_LLM",
