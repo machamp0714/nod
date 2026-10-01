@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ViewDisplay } from "../api/types";
 import { DEFAULT_ISSUE_COLUMNS, defaultGroupBy, type IssueListSearch, parseIssueListSearch } from "../routes/search";
-import { cleanViewSearch, describeDisplay, displayFromSearch, sameDisplay, unsavedNote, viewSearch, withoutDisplay } from "./view-display";
+import { cleanViewSearch, describeDisplay, displayFromSearch, displaySummary, sameDisplay, savedDisplay, unsavedNote, viewSearch, withoutDisplay } from "./view-display";
 
 describe("displayFromSearch", () => {
   test("既定と違う表示設定だけを取り出し、絞り込み・検索・プレビューは含めない", () => {
@@ -113,6 +113,15 @@ describe("sameDisplay・withoutDisplay", () => {
     expect(sameDisplay({ columns: [] }, {})).toBe(false);
   });
 
+  test("API で保存した既定と同じ列（順だけ違うものも）は、変更として扱わない", () => {
+    const display = { groupBy: "project", columns: ["pr", "assignee", "project", "workspace", "questions", "status", "priority"] } as const;
+    expect(savedDisplay({ ...display, columns: [...display.columns] })).toEqual({ groupBy: "project" });
+    expect(sameDisplay(displayFromSearch(viewSearch({ ...display, columns: [...display.columns] }, {})), savedDisplay({ ...display, columns: [...display.columns] }))).toBe(true);
+    // 既定と違う列と、列以外の表示設定はそのまま
+    expect(savedDisplay({ tab: "ready", columns: ["status"], showChildren: false })).toEqual({ tab: "ready", columns: ["status"], showChildren: false });
+    expect(savedDisplay({ columns: [] })).toEqual({ columns: [] });
+  });
+
   test("表示設定のキーだけを URL から外す", () => {
     expect(withoutDisplay({ tab: "ready", groupBy: "none", subGroupBy: "status", sort: "title", direction: "desc", layout: "board", columns: [], showCompleted: false, showChildren: false, q: "x", preview: "API-1" })).toEqual({ q: "x", preview: "API-1" });
   });
@@ -137,6 +146,12 @@ describe("保存ダイアログに出す内容", () => {
       { name: "列", value: "ID とタイトルのみ" },
     ]);
     expect(describeDisplay({ direction: "desc" })).toEqual([{ name: "並び", value: "既定（降順）" }]);
+  });
+
+  test("表示の要約は「 ／ 」で区切り、全角の閉じ括弧の直後は前の空白を置かない", () => {
+    expect(displaySummary(describeDisplay({ tab: "ready", groupBy: "project", sort: "priority", layout: "board" }))).toBe("タブ Ready ／ 表示 ボード ／ グループ Project ／ 並び 優先度（昇順）");
+    expect(displaySummary(describeDisplay({ sort: "priority", showChildren: false }))).toBe("並び 優先度（昇順）／ 子 Issue 非表示");
+    expect(displaySummary([])).toBe("");
   });
 
   test("保存しないもの（検索欄の入力とプレビュー）があるときだけ注記を返す", () => {

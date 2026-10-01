@@ -10,10 +10,10 @@ import { Button, PageError, PageLoading, Pill } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { errorMessage } from "../api/errors";
 import { sameFilter } from "../lib/issue-filter";
-import { cleanViewSearch, displayFromSearch, sameDisplay, viewSearch, withoutDisplay } from "../lib/view-display";
-import s from "../components/views/view-dialog.module.css";
+import { cleanViewSearch, displayFromSearch, sameDisplay, savedDisplay, viewSearch, withoutDisplay } from "../lib/view-display";
 import { replacesIssueListHistory } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
+import s from "./view.module.css";
 
 const route = getRouteApi("/views/$viewId");
 
@@ -43,7 +43,7 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
   // 委任中タブは表示設定ではなく絞り込み条件（delegated）として保存する（Issues の「View として保存」と同じ）
   const nextFilter = search.tab === "delegated" ? { ...draft, delegated: true } : draft;
   const nextDisplay = displayFromSearch(search);
-  const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, view.display);
+  const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, savedDisplay(view.display));
 
   // 表示設定のクエリを URL から外すと、View に保存した表示設定に戻る。絞り込みの下書きも一緒に戻す
   async function revert() {

@@ -89,6 +89,12 @@ function normalize(d: ViewDisplay) {
   return [d.tab, d.layout, d.groupBy, d.subGroupBy, d.sort, d.direction, d.columns && ISSUE_COLUMNS.filter((c) => d.columns?.includes(c)), d.showCompleted, d.showChildren].map((v) => v ?? null);
 }
 
+// View に保存した表示設定を、画面が保存するときと同じ形にそろえる。
+// API は既定と同じ列（順だけ違うものも）も受け付けるため、そのまま比べると開くたびに「変更あり」になる
+export function savedDisplay(display: ViewDisplay): ViewDisplay {
+  return displayFromSearch(viewSearch(display, {}));
+}
+
 // キーの順を問わずに2つの表示設定を比べる（View の保存していない変更の判定）
 export function sameDisplay(a: ViewDisplay, b: ViewDisplay): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
@@ -116,6 +122,11 @@ export function describeDisplay(d: ViewDisplay): DisplayItem[] {
   if (d.showCompleted === false) items.push({ name: "完了済み Issue", value: "非表示" });
   if (d.showChildren === false) items.push({ name: "子 Issue", value: "非表示" });
   return items;
+}
+
+// 「表示」の要約の1行。項目を「 ／ 」で区切り、全角の閉じ括弧の直後だけ前の空白を置かない（design/nod.pen PdYmE）
+export function displaySummary(items: readonly DisplayItem[]): string {
+  return items.map((item) => `${item.name} ${item.value}`).join(" ／ ").replaceAll("） ／", "）／");
 }
 
 // 保存ダイアログの注記。View に保存しないもの（検索欄の入力・プレビュー）が今の画面にあるときだけ返す

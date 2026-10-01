@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { View } from "../../api/types";
 import type { FilterChip } from "../../lib/issue-filter";
-import type { DisplayItem } from "../../lib/view-display";
+import { type DisplayItem, displaySummary } from "../../lib/view-display";
 import { VIEW_COLORS, viewNameError } from "../../lib/views";
 import { Button } from "../ui";
 import s from "./view-dialog.module.css";
@@ -29,6 +29,8 @@ export interface ViewDialogProps {
 export function ViewDialog({ title, submitLabel, initial, views, selfId, summary, onSubmit, onClose }: ViewDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const summaryId = useId();
+  const noteId = useId();
   const [name, setName] = useState(initial.name);
   const [color, setColor] = useState<string>(initial.color ?? VIEW_COLORS[0].value);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,7 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, summary
       ref={ref}
       className={summary ? `${s.dialog} ${s.dialogWide}` : s.dialog}
       aria-labelledby={titleId}
+      aria-describedby={summary?.note ? noteId : undefined}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -90,8 +93,8 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, summary
           ))}
         </fieldset>
         {summary && (
-          <section className={s.summary} aria-label="保存する内容">
-            <h3 className={s.summaryHeading}>保存する内容</h3>
+          <section className={s.summary} aria-labelledby={summaryId}>
+            <h3 id={summaryId} className={s.summaryHeading}>保存する内容</h3>
             <dl className={s.summaryRows}>
               <div className={s.summaryRow}>
                 <dt className={s.summaryKey}>絞り込み</dt>
@@ -114,7 +117,7 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, summary
                 <dt className={s.summaryKey}>表示</dt>
                 <dd className={s.summaryValue}>
                   {summary.display.length ? (
-                    summary.display.map((item) => `${item.name} ${item.value}`).join(" ／ ")
+                    displaySummary(summary.display)
                   ) : (
                     <span className={s.summaryEmpty}>既定の表示</span>
                   )}
@@ -123,7 +126,7 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, summary
             </dl>
           </section>
         )}
-        {summary?.note && <p className={s.note}>{summary.note}</p>}
+        {summary?.note && <p id={noteId} className={s.note}>{summary.note}</p>}
         {error && (
           <p role="alert" className={s.error}>
             {error}

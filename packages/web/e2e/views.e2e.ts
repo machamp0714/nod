@@ -7,6 +7,18 @@ test.use({ dataset: "issue-list" });
 const tableRows = (page: Page) => page.getByRole("table").locator("tbody tr");
 const nav = (page: Page) => page.getByRole("navigation", { name: "メイン" });
 
+// 「変更あり」のピルが見えているか。収まらないときは、高さ 20 の箱の2行目へ折り返して隠す（箱の overflow で切る）ため、
+// Playwright の可視判定ではなく、ピルが箱の中にあるかを位置で確かめる
+async function dirtyPillShown(page: Page): Promise<boolean> {
+  const pill = page.getByText("変更あり", { exact: true });
+  await expect(pill).toHaveCount(1);
+  return pill.evaluate((el) => {
+    const box = el.parentElement!.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.top < box.bottom && rect.right <= box.right + 0.5;
+  });
+}
+
 async function openFilter(page: Page) {
   await page.getByText("Filter", { exact: true }).click();
 }
@@ -126,6 +138,23 @@ test.describe("幅 1280px", () => {
       };
     });
     expect(overflow).toEqual({ page: 0, main: 0, sidebar: 0 });
+  });
+
+  test("Header に収まらないときは「変更あり」のピルを隠し、「元に戻す」「変更を保存」は出す", async ({ page }) => {
+    const name = "とても長い名前の View：仕事用のリポジトリのうち、検索と決済と通知にかかわる Issue だけを集めたもの";
+    const created = await page.request.post("/api/views", { data: { name, filter: { workspace: ["API"] } } });
+    const { id } = (await created.json()) as { id: number };
+    await page.goto(`/views/${id}?sort=priority`);
+    await expect(page.getByRole("button", { name: "元に戻す" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "変更を保存" })).toBeVisible();
+    expect(await dirtyPillShown(page)).toBe(false);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBe(0);
+
+    // 短い名前の View は同じ幅でもピルを出す
+    await page.goto("/views/1?sort=priority");
+    await expect(page.getByRole("button", { name: "変更を保存" })).toBeVisible();
+    expect(await dirtyPillShown(page)).toBe(true);
   });
 });
 
@@ -291,5 +320,60 @@ test.describe("View の表示設定（#175）", () => {
     await expect(page.getByRole("tab", { name: /^All / })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("table")).toBeVisible();
     await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
+  });
+
+  test("API で既定と同じ列（順だけ違うものも）を保存した View は、開いても「変更あり」にならない", async ({ page }) => {
+    const columns = ["pr", "assignee", "project", "workspace", "questions", "status", "priority"];
+    const created = await page.request.post("/api/views", { data: { name: "既定の列", display: { columns, groupBy: "workspace" } } });
+    const { id } = (await created.json()) as { id: number };
+    expect(((await (await page.request.get(`/api/views/${id}`)).json()) as { display: { columns?: string[] } }).display.columns).toHaveLength(7);
+    await page.goto(`/views/${id}`);
+    await expect(region(page, "Workspace API")).toBeVisible();
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "変更を保存" })).toHaveCount(0);
+  });
+
+  test("View の画面で委任中タブのまま保存すると、filter の delegated と担当のグループ化で保存し、URL から tab が消える", async ({ page }) => {
+    await page.goto("/views/1");
+    await page.getByRole("tab", { name: /^委任中 / }).click();
+    await expect(page).toHaveURL(/tab=delegated/);
+    await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
+    await expect(region(page, "担当 claude-code")).toBeVisible();
+    const delegatedRows = await tableRows(page).count();
+    expect(delegatedRows).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "変更を保存" }).click();
+    await expect(page.getByRole("button", { name: "変更を保存" })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/views\/1$/);
+    const saved = (await (await page.request.get("/api/views/1")).json()) as { filter: Record<string, unknown>; display: unknown };
+    expect(saved.filter).toMatchObject({ delegated: true });
+    expect(saved.display).toEqual({ groupBy: "assignee" });
+    // 保存後は All タブで、委任中だけを担当でまとめて出す（表示される Issue は同じ）
+    await expect(page.getByRole("tab", { name: /^All / })).toHaveAttribute("aria-selected", "true");
+    await expect(tableRows(page)).toHaveCount(delegatedRows);
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(tableRows(page)).toHaveCount(delegatedRows);
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+  });
+
+  test("表示設定を保存したあと、ブラウザの戻る・進むでも保存した表示で開き「変更あり」にならない", async ({ page }) => {
+    await page.goto("/views/1");
+    await chooseDisplay(page, "並び順", "優先度");
+    await expect(page).toHaveURL(/sort=priority/);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "変更を保存" }).click();
+    await expect(page.getByRole("button", { name: "変更を保存" })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/views\/1$/);
+
+    // 並び順の変更は履歴に積むため、戻った先は保存前の /views/1（表示設定のクエリなし）。保存した並び順で開く
+    await page.goBack();
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "priority");
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/views\/1$/);
+    await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "priority");
+    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
   });
 });
