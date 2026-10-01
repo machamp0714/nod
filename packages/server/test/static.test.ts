@@ -52,7 +52,7 @@ describe("静的ファイルの配信", () => {
     expect(js.status).toBe(200);
     expect(js.headers.get("content-type")).toContain("javascript");
     expect(await js.text()).toBe("console.log(1)");
-    for (const path of ["/", "/issues/API-1", "/views/3", "/inbox?selected=API-2"]) {
+    for (const path of ["/", "/issues/API-1", "/views/3", "/inbox?selected=API-2", "/open-questions?selected=API-2"]) {
       const res = await app.request(path);
       expect([path, res.status, res.headers.get("content-type")?.includes("text/html")]).toEqual([path, 200, true]);
       expect(await res.text()).toContain("id=root");

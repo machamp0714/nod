@@ -12,6 +12,7 @@ const LINKS = [
   { name: /^Inbox/, url: /\/inbox$/, heading: "Inbox" },
   { name: /^Reviews/, url: /\/reviews$/, heading: "Reviews" },
   { name: /^Triage/, url: /\/triage$/, heading: "Triage" },
+  { name: /^Open questions/, url: /\/open-questions$/, heading: "Open questions" },
   { name: "Issues", url: /\/issues$/, heading: "Issues" },
   { name: "My issues", url: /\/my-issues$/, heading: "My issues" },
   { name: "Projects", url: /\/projects$/, heading: "Projects" },

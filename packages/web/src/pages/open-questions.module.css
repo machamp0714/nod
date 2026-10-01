@@ -1,0 +1,441 @@
+/* Open questions（#173）。nod.pen T5k0Dn（Project ごと）・S6fqq4（グループ化なし）・m2aCdE（空状態）・SbKB6（絞り込み0件） */
+/* 2列の枠・詳細・一覧の項目（Item）は共通の split.module.css を使う。
+   一覧の列だけは、Header と絞り込みを固定して行だけをスクロールさせるため、ここで持つ（SplitLayout は列全体がスクロールする） */
+.list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.count {
+  padding-right: 6px;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.filters {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--control-height);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+
+.select select {
+  min-width: 0;
+  max-width: 180px;
+  height: 100%;
+  padding: 0 28px 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+}
+
+.select svg {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+/* フォーカスの表示は共通の SelectChip と同じ */
+.select:focus-within,
+.search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.select select:focus-visible,
+.search input:focus-visible {
+  outline: none;
+}
+
+.search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.search input::placeholder {
+  color: var(--ink3);
+}
+
+.segmented {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.segment {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment[aria-selected="true"] {
+  background: var(--sunken);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.items {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.groupCount {
+  color: var(--ink3);
+  font-weight: 400;
+}
+
+.itemQuestion {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+
+.itemId {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.openPill {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--ask-soft);
+  color: var(--ask);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.loading {
+  padding: 20px;
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.emptyState {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.detailBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 788px;
+  padding: 28px 48px;
+}
+
+.crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.crumbId {
+  color: var(--ink3);
+  font-family: var(--font-mono);
+}
+
+.dot {
+  color: var(--ink3);
+}
+
+.crumbProject {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.issueTitle {
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.headingTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.cardQuestion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--ask-soft);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardHeadText {
+  flex: 1;
+  color: var(--ask);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.cardTime {
+  color: var(--ask);
+  font-size: 12px;
+}
+
+.questionText {
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.textarea {
+  min-height: 72px;
+  padding: 16px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  resize: none;
+}
+
+.textarea::placeholder {
+  color: var(--ink3);
+}
+
+.textarea:disabled {
+  color: var(--ink3);
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.copy {
+  color: var(--ink2);
+}
+
+.notice {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.shortcut {
+  flex: none;
+  color: var(--ink3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.cardError {
+  padding: 0 12px 12px;
+}
+
+.decided {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.decidedToggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.decidedItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.decidedHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.decidedQuestion {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.decidedAnswer {
+  color: var(--ink2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--ink3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.openIssue {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 500;
+}

@@ -4,6 +4,7 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DocumentPage } from "./pages/DocumentPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { InboxPage } from "./pages/InboxPage";
+import { OpenQuestionsPage } from "./pages/OpenQuestionsPage";
 import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
 import { MyIssuesPage } from "./pages/MyIssuesPage";
@@ -28,6 +29,7 @@ import {
 } from "./routes/search";
 
 import { parseInboxSearch } from "./routes/inbox-search";
+import { parseOpenQuestionsSearch } from "./routes/open-questions-search";
 import { parseAnalyticsSearch } from "./lib/analytics";
 import { parseSummarySearch } from "./lib/summary";
 import { SummaryPage } from "./pages/SummaryPage";
@@ -45,6 +47,7 @@ const indexRoute = createRoute({
 const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox", validateSearch: parseInboxSearch, component: InboxPage });
 const reviewsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reviews", validateSearch: parseSelectedSearch, component: ReviewsPage });
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
+const openQuestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/open-questions", validateSearch: parseOpenQuestionsSearch, component: OpenQuestionsPage });
 const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });
 const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", validateSearch: parseIssueListSearch, component: MyIssuesPage });
 const issueDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues/$issueId", component: IssueDetailPage });
@@ -87,6 +90,7 @@ const routeTree = rootRoute.addChildren([
   inboxRoute,
   reviewsRoute,
   triageRoute,
+  openQuestionsRoute,
   issuesRoute,
   myIssuesRoute,
   issueDetailRoute,

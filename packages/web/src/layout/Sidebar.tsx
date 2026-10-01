@@ -7,7 +7,7 @@ import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
-type NavPath = "/inbox" | "/reviews" | "/triage" | "/issues" | "/my-issues" | "/initiatives" | "/projects" | "/cycles" | "/documents" | "/analytics" | "/summary";
+type NavPath = "/inbox" | "/reviews" | "/triage" | "/open-questions" | "/issues" | "/my-issues" | "/initiatives" | "/projects" | "/cycles" | "/documents" | "/analytics" | "/summary";
 
 const ACTIVE_PROPS = { className: s.active, "aria-current": "page" } as const;
 
@@ -54,6 +54,8 @@ export function Sidebar() {
         <NavItem to="/inbox" icon="inbox" label="Inbox" count={counts.inbox} askTone />
         <NavItem to="/reviews" icon="git-pull-request" label="Reviews" count={counts.reviews} />
         <NavItem to="/triage" icon="list-filter" label="Triage" count={counts.triage} />
+        {/* 人が付けた未回答の未決事項（#173）。件数は通常色で、0 件のときは出さない（nod.pen tj2L4） */}
+        <NavItem to="/open-questions" icon="message-circle-warning" label="Open questions" count={counts.openQuestions || undefined} />
       </div>
 
       <div className={s.group}>

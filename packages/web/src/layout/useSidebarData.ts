@@ -4,7 +4,7 @@ import { useViews } from "../api/hooks/views";
 import type { View, Workspace } from "../api/types";
 
 export interface SidebarData {
-  counts: { inbox: number; reviews: number; triage: number };
+  counts: { inbox: number; reviews: number; triage: number; openQuestions: number };
   views: View[];
   viewsReady: boolean;
   workspaces: Workspace[];

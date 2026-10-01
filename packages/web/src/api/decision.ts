@@ -1,6 +1,6 @@
 import { apiFetch, type FetchLike } from "./client";
 import { issuePath } from "./query-keys";
-import type { AcceptTriageInput, Inbox, Issue, TriageProposal, TriageSuggestions } from "./types";
+import type { AcceptTriageInput, Inbox, Issue, OpenQuestions, TriageProposal, TriageSuggestions } from "./types";
 
 // 判断の画面（Inbox、Reviews、Triage）が使う API。形は C の計画の API の表に従う。
 export type DecisionAction =
@@ -15,6 +15,11 @@ export type DecisionAction =
 
 export function fetchInbox(fetchImpl?: FetchLike, opts: { includeAnswered?: boolean } = {}): Promise<Inbox> {
   return apiFetch<Inbox>(opts.includeAnswered ? "/inbox?includeAnswered=true" : "/inbox", {}, fetchImpl);
+}
+
+// Open questions（#173）。人が付けた未回答の未決事項だけを取る（LLM からの質問は Inbox が出す）。絞り込みは画面の側で行う
+export function fetchOpenQuestions(fetchImpl?: FetchLike): Promise<OpenQuestions> {
+  return apiFetch<OpenQuestions>("/open-questions?askedBy=me", {}, fetchImpl);
 }
 
 export function fetchTriage(fetchImpl?: FetchLike): Promise<Issue[]> {

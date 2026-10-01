@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { FetchLike } from "./client";
-import { actionRequest, fetchInbox, postDecision } from "./decision";
+import { actionRequest, fetchInbox, fetchOpenQuestions, postDecision } from "./decision";
 
 describe("actionRequest", () => {
   test("回答は質問の id と、前後の空白を除いた回答を送る", () => {
@@ -38,9 +38,11 @@ describe("postDecision と fetchInbox", () => {
     };
     await postDecision({ op: "approve", issueId: "API-1" }, fetchImpl);
     await fetchInbox(fetchImpl);
+    await fetchOpenQuestions(fetchImpl);
     expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
       ["POST", "/api/issues/API-1/approve"],
       ["GET", "/api/inbox"],
+      ["GET", "/api/open-questions?askedBy=me"],
     ]);
     expect(calls[0]?.init?.body).toBe("{}");
   });

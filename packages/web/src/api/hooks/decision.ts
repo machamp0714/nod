@@ -1,13 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import type { SidebarData } from "../../layout/useSidebarData";
 import { workspaceNameOf } from "../../lib/decision";
-import { type DecisionAction, fetchInbox, fetchTriage, fetchTriageProposalCounts, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
+import { type DecisionAction, fetchInbox, fetchOpenQuestions, fetchTriage, fetchTriageProposalCounts, fetchTriageProposals, fetchTriageSuggestions, postDecision } from "../decision";
 import { queryKeys } from "../query-keys";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // queryFn は引数を取らない形で包む。TanStack Query が渡す文脈を fetchImpl として受けないためである
 export function useInbox(opts: { includeAnswered?: boolean } = {}) {
   return useQuery({ queryKey: opts.includeAnswered ? queryKeys.inboxHistory() : queryKeys.inbox(), queryFn: () => fetchInbox(undefined, opts) });
+}
+
+// Open questions（#173）。人が付けた未回答の未決事項。Inbox（LLM からの質問）とは別のクエリで持つ
+export function useOpenQuestions() {
+  return useQuery({ queryKey: queryKeys.openQuestions(), queryFn: () => fetchOpenQuestions() });
 }
 
 export function useTriage() {
@@ -37,10 +42,13 @@ export function useWorkspaceName(): (key: string) => string {
 export function useDecisionCounts(): SidebarData["counts"] {
   const inbox = useInbox();
   const triage = useTriage();
+  const openQuestions = useOpenQuestions();
   return {
     inbox: inbox.data?.questions.length ?? 0,
     reviews: inbox.data?.reviews.length ?? 0,
     triage: triage.data?.length ?? 0,
+    // 人が付けた未回答の未決事項（#173）。Inbox の件数（LLM からの質問）とは別に数える
+    openQuestions: openQuestions.data?.total ?? 0,
   };
 }
 
