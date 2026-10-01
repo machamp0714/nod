@@ -193,7 +193,7 @@ const FEATURE_RE = /^[a-z0-9-]+$/;
 // orca を待つ間（最長 60 秒）に来た同じ Issue への要求をここで止める。server は1プロセスなので、プロセス内の印で足りる
 const creating = new WeakMap<Database, Set<number>>();
 
-// Issue の worktree を Orca に作り、エージェントを起動して着手を指示する（#210）。
+// Issue の worktree を Orca に作り、エージェントのセッションを起動する（#210）。着手の指示（--prompt）は送らず、何をさせるかは人が決める。
 // エージェントは input.agent（作成時の選択）、無ければ Workspace の既定。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
 // 実行場所（worktree かブランチ）が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
@@ -238,8 +238,7 @@ async function createAndRecord(
   const agent = chosen ?? workspace.default_agent;
   const res = readOrcaEnvelope(
     await run(
-      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${feature}`, "--no-parent", "--agent", agent,
-        "--prompt", `nod の Issue ${issueId} に着手してください`, "--activate", "--json"],
+      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${feature}`, "--no-parent", "--agent", agent, "--activate", "--json"],
       { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
     ),
     ORCA_CREATE_TIMEOUT_MS,

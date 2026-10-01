@@ -84,7 +84,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
             <span className={s.orcaStartLabel}>エージェント</span>
             <RadioPills label="エージェント" name={`orca-agent-${issueId}`} items={ORCA_AGENT_OPTIONS} value={agent} disabled={busy} onChange={setAgent} />
           </div>
-          <p className={s.orcaStartNote}>worktree を作り、{orcaAgentLabel(agent)} を起動してこの Issue への着手を指示します。</p>
+          <p className={s.orcaStartNote}>worktree を作り、{orcaAgentLabel(agent)} のセッションを起動します。</p>
           <div className={s.orcaStartActions}>
             <Button size="sm" disabled={busy} onClick={close}>キャンセル</Button>
             <Button type="submit" variant="primary" disabled={busy || feature === ""}>{busy ? "作成中…" : "作成して起動"}</Button>
