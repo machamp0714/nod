@@ -16,12 +16,42 @@ export interface IssueQuery {
   delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ
   assignee?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て。大文字小文字は区別する
   archived?: boolean; // true ならアーカイブ済みの Issue だけ。省くとアーカイブ済みを除く
+  priority?: number[]; // 優先度（0 = なし、1 = Urgent 〜 4 = Low）。どれかに合うもの
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "assignee", "archived"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "assignee", "archived", "priority"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
+}
+
+const PRIORITY_NAMES: Record<string, number> = { none: 0, urgent: 1, high: 2, medium: 3, low: 4 };
+
+// 絞り込みの優先度の1つ分。0〜4、P0〜P4、名前（urgent・high・medium・low・none）を受け付ける。大文字小文字は問わない
+export function parsePriorityRef(value: string): number {
+  const text = value.trim().toLowerCase();
+  const byName = PRIORITY_NAMES[text];
+  if (Object.hasOwn(PRIORITY_NAMES, text) && byName !== undefined) return byName;
+  if (/^p?[0-4]$/.test(text)) return Number(text.replace("p", ""));
+  throw invalid(`優先度「${value}」は使えません（0〜4、P0〜P4、urgent, high, medium, low, none のどれか。0 と none は優先度なし）`);
+}
+
+// 絞り込みの優先度の並び。カンマ区切りを分け、重複を除いて小さい順にそろえる。空なら undefined
+export function parsePriorityRefs(values: readonly string[]): number[] | undefined {
+  const list = values.flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean).map(parsePriorityRef);
+  return list.length ? [...new Set(list)].sort((a, b) => a - b) : undefined;
+}
+
+function priorityList(value: unknown): number[] | undefined {
+  if (value === undefined) return undefined;
+  const list: unknown[] = Array.isArray(value) ? value : [value];
+  return parsePriorityRefs(
+    list.map((v) => {
+      if (typeof v === "number" && Number.isInteger(v)) return String(v);
+      if (typeof v !== "string") throw invalid("priority は 0〜4 の整数、P0〜P4、優先度の名前（その配列も可）で指定してください");
+      return v;
+    }),
+  );
 }
 
 function stringList(value: unknown, key: string, splitComma: boolean): string[] | undefined {
@@ -96,6 +126,8 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     if (typeof raw.archived !== "boolean") throw invalid("archived は true か false で指定してください");
     if (raw.archived) q.archived = true;
   }
+  const priority = priorityList(raw.priority);
+  if (priority) q.priority = priority;
   return q;
 }
 

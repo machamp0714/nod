@@ -108,11 +108,11 @@ test.describe("Issue 一覧の見積もり・期限列", () => {
     await nod.me.updateIssue("API-8", { title: "BBB 期限確認", estimate: 2, dueDate: "2999-10-01" });
     await nod.me.updateIssue("API-9", { title: "CCC 期限確認" });
     await page.goto("/issues");
-    await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"]);
     await (await searchBox(page)).fill("期限確認");
     await setColumn(page, "見積もり", true);
     await setColumn(page, "期限", true);
-    await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR", "見積もり", "期限"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR", "見積もり", "期限"]);
     await chooseDisplay(page, "並び順", "期限");
     await setDirection(page, "desc");
     const rows = page.getByRole("table").locator("tbody tr");
@@ -124,7 +124,7 @@ test.describe("Issue 一覧の見積もり・期限列", () => {
     await expect(rows.nth(1)).toContainText("2020年1月2日");
     await expect(rows.nth(1)).toContainText("期限超過");
     await page.reload();
-    await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR", "見積もり", "期限"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR", "見積もり", "期限"]);
     await expect(await displaySelect(page, "並び順")).toHaveAttribute("data-value", "dueDate");
     await expect(page).toHaveURL(/sort=dueDate/);
   });

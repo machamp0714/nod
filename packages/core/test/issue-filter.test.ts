@@ -78,6 +78,31 @@ describe("assignee", () => {
   });
 });
 
+describe("priority", () => {
+  test("数値・P 付き・名前を受け付け、重複を除いて小さい順にそろえる。none は優先度なし（0）", () => {
+    expect(validateIssueQuery({ priority: [2, 1] })).toEqual({ priority: [1, 2] });
+    expect(validateIssueQuery({ priority: "urgent, High" })).toEqual({ priority: [1, 2] });
+    expect(validateIssueQuery({ priority: ["P3", "p4", "3"] })).toEqual({ priority: [3, 4] });
+    expect(validateIssueQuery({ priority: ["none", "0", " NONE "] })).toEqual({ priority: [0] });
+    expect(validateIssueQuery({ priority: 4 })).toEqual({ priority: [4] });
+    expect(validateIssueQuery({ priority: [] })).toEqual({});
+    expect(validateIssueQuery({ priority: " " })).toEqual({});
+  });
+
+  test("範囲外・知らない名前・型の誤りは INVALID_ARGS", () => {
+    for (const priority of ["5", "-1", "p5", "critical", 5, 1.5, true, [true], {}, "1.0"]) {
+      expect(codeOf(() => validateIssueQuery({ priority }))).toBe("INVALID_ARGS");
+    }
+  });
+
+  test("クエリパラメータは繰り返しとカンマ区切りを受け付ける", () => {
+    expect(issueQueryFromParams(new URLSearchParams("priority=1&priority=2"))).toEqual({ priority: [1, 2] });
+    expect(issueQueryFromParams(new URLSearchParams("priority=high,none"))).toEqual({ priority: [0, 2] });
+    expect(issueQueryFromParams(new URLSearchParams("priority="))).toEqual({});
+    expect(codeOf(() => issueQueryFromParams(new URLSearchParams("priority=9")))).toBe("INVALID_ARGS");
+  });
+});
+
 test.each(["__proto__", "constructor", "toString", "hasOwnProperty"])(
   "プロトタイプ名 %s のクエリも INVALID_ARGS にする", (key) => {
     expect(codeOf(() => issueQueryFromParams(new URLSearchParams([[key, "todo"]])))).toBe("INVALID_ARGS");

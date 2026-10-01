@@ -149,7 +149,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 ## そのほかのコマンド
 
-- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated] [--assignee <名前>] [--mine]\`：\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
+- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--delegated] [--assignee <名前>] [--mine] [--priority <優先度>] [--sort <キー>] [--desc]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
 - \`nod questions [--asked-by me|llm] [--project <名前>] [-s <status>] [--query <text>] [--limit <n>]\`：未回答の未決事項（確認依頼）を、人が付けたものも含めて Issue 横断で一覧する読み取り専用のコマンド（既定ですべての Workspace、\`-w\` で絞る）。質問の \`#番号\` は \`nod answer <id> <text> --question <番号>\` に渡す id。人が付けた未決事項は人が決めるもので、LLM は回答しない。\`nod issue list\` の行末の \`[未決 1/3]\` はその Issue の決定数 / 総数
 - \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
 - \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない

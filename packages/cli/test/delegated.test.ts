@@ -41,7 +41,7 @@ describe("nod issue list --delegated", () => {
     expect(r.exitCode).toBe(0);
     const lines = r.stdout.trimEnd().split("\n");
     expect(lines[0]).toBe("claude-code（1件: 作業中 1）");
-    expect(lines[1]).toMatch(/^ {2}API-1 {2}In Progress.*\[working\] {2}着手済み$/);
+    expect(lines[1]).toMatch(/^ {2}API-1 {2}In Progress.*\[working\] {2}- .* {2}着手済み$/);
     expect(lines[2]).toBe("");
     expect(lines[3]).toBe("codex（2件: 未着手 2）");
     expect(lines[4]).toMatch(/^ {2}API-2 {2}Todo.* {2}割り当てだけ$/);

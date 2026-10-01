@@ -8,7 +8,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await page.goto(path);
     await chooseDisplay(page, "並び順", "タイトル");
     await setDirection(page, "desc");
-    for (const name of ["Status", "未決事項", "Workspace", "PR"]) await setColumn(page, name, false);
+    for (const name of ["優先度", "Status", "未決事項", "Workspace", "Project", "担当", "PR"]) await setColumn(page, name, false);
     await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title"]);
     await page.goBack();
     await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "PR"]);
@@ -47,7 +47,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
 test("壊れたURLは既定値へ戻り狭い幅でも表示設定を操作できる", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 });
   await page.goto('/issues?sort=bad&direction=bad&columns=%22bad%22');
-  await expect(page.getByRole("columnheader")).toHaveText(["Status", "ID", "Title", "未決事項", "Workspace", "PR"]);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"]);
   const sort = await displaySelect(page, "並び順");
   await expect(sort).toHaveAttribute("data-value", "default");
   // キーボードだけで選ぶ：下キーで開くと選択中の「既定」にフォーカスがあり、下キーで「優先度」へ移って Enter で決める

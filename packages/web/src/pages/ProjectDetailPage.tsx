@@ -10,7 +10,7 @@ import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
-import { replacesIssueListHistory, cleanIssueListSearch } from "../routes/search";
+import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
 
@@ -37,13 +37,14 @@ export function ProjectDetailPage() {
       title={detail.data.name}
       intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} initiatives={detail.data.initiatives} />}
       filterBar={<div role="group" aria-label="絞り込み条件">
-        <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, blocked }), replace: true })} />
+        <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
       </div>}
       rows={rows.rows}
       loading={rows.loading}
       error={rows.error}
       search={search}
-      onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
+      sameValueColumn="project"
+      onSearchChange={(patch) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
     />
   );
 }

@@ -57,7 +57,7 @@ test("一覧は Header 44 の下に View Bar 43 を置き、件数カードと�
     const header = main.querySelector("header") as HTMLElement;
     const row = main.querySelector("tbody tr[data-issue-row]") as HTMLElement;
     const css = (el: Element) => getComputedStyle(el);
-    const id = row.querySelector("td:nth-child(3)") as HTMLElement;
+    const id = row.querySelector("td:nth-child(4)") as HTMLElement;
     const title = row.querySelector('a[href^="/issues/"]') as HTMLElement;
     const firstCell = row.querySelector("td") as HTMLElement;
     const lastCell = row.querySelector("td:last-child") as HTMLElement;
@@ -499,31 +499,34 @@ test("視覚的に隠した列見出しは、ブラウザのアクセシビリ�
     headerParents: [...new Set(headers.map((node) => role(byId.get(node.parentId ?? ""))))],
     headerRowParent: role(byId.get(headerRow?.parentId ?? "")),
     rows: rows.length,
-    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 7）
+    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 10）
     headerRowCells: headerRow?.childIds?.map((id) => role(byId.get(id))),
     bodyRowCells: [...new Set(rows.filter((row) => row !== headerRow).map((row) => row.childIds?.length))],
   };
   console.log(`[issues-layout] accessibility tree ${JSON.stringify(m)}`);
   expect(m).toEqual({
-    headers: ["Status", "ID", "Title", "未決事項", "Workspace", "PR"],
+    headers: ["優先度", "Status", "ID", "Title", "未決事項", "Project", "Workspace", "担当", "PR"],
     headerParents: ["row"],
     headerRowParent: "rowgroup",
     rows: 14,
-    headerRowCells: ["cell", "columnheader", "columnheader", "columnheader", "columnheader", "columnheader", "columnheader"],
-    bodyRowCells: [7],
+    headerRowCells: ["cell", ...Array.from({ length: 9 }, () => "columnheader")],
+    bodyRowCells: [10],
   });
   // 画面では列見出しを隠したまま
   expect((await page.locator("main thead").boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
   await expect(page.getByRole("table")).toMatchAriaSnapshot(`
     - table:
       - rowgroup:
-        - row "Status ID Title 未決事項 Workspace PR":
+        - row "優先度 Status ID Title 未決事項 Project Workspace 担当 PR":
           - cell
+          - columnheader "優先度"
           - columnheader "Status"
           - columnheader "ID"
           - columnheader "Title"
           - columnheader "未決事項"
+          - columnheader "Project"
           - columnheader "Workspace"
+          - columnheader "担当"
           - columnheader "PR"
       - rowgroup
   `);

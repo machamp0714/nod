@@ -44,6 +44,14 @@ describe("issueQueryToParams", () => {
     expect(issueQueryToParams({ delegated: false })).toBe("");
     expect(issueQueryToParams({})).toBe("");
   });
+
+  test("View の filter の priority を API に渡し、比較でも区別する（#174。Issues の URL には持たない）", () => {
+    expect(issueQueryToParams({ priority: [1, 0] })).toBe("?priority=1&priority=0");
+    expect(issueQueryToParams({ priority: [] })).toBe("");
+    expect(sameFilter({ priority: [2, 1] }, { priority: [1, 2] })).toBe(true);
+    expect(sameFilter({ priority: [1] }, {})).toBe(false);
+    expect(withoutKey({ priority: [1], status: ["todo"] }, "status")).toEqual({ priority: [1] });
+  });
 });
 
 describe("sameFilter", () => {
@@ -130,12 +138,18 @@ describe("describeFilter", () => {
     expect(describeFilter({}, labelOf)).toEqual([]);
     // 委任中は API や CLI で作った View の filter に入りうるため、外せるようにチップを出す
     expect(describeFilter({ delegated: true }, labelOf)).toEqual([{ key: "delegated", name: "委任中", values: "のみ" }]);
+    // 優先度も API や CLI で作った View の filter に入りうるため、名前で出す（0 は No priority）
+    expect(describeFilter({ priority: [1, 2] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "Urgent, High" }]);
+    expect(describeFilter({ priority: [0] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "No priority" }]);
+    expect(describeFilter({ priority: [] }, labelOf)).toEqual([]);
   });
 });
 
 describe("withoutKey と toggleValue", () => {
   test("条件を1つ外す", () => {
     expect(withoutKey({ workspace: ["API"], label: ["bug"] }, "label")).toEqual({ workspace: ["API"] });
+    expect(withoutKey({ workspace: ["API"], priority: [1, 2] }, "priority")).toEqual({ workspace: ["API"] });
+    expect(sameFilter(withoutKey({ priority: [1] }, "priority"), {})).toBe(true);
   });
 
   test("値を足し引きし、空になったら undefined にする", () => {

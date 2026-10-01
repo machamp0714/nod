@@ -1,8 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
-import { DEFAULT_ISSUE_COLUMNS } from "../../routes/search";
-import type { IssueGroupKey, IssueListSearch } from "../../routes/search";
+import { defaultIssueColumns, mineSameValueColumn } from "../../routes/search";
+import type { IssueColumn, IssueGroupKey, IssueListSearch } from "../../routes/search";
 import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
 import { AgentStateDot } from "./AgentStateDot";
@@ -34,7 +34,12 @@ export interface IssueListProps {
   statusWorkspace?: string | null;
   // My issues：タブを「担当｜委任中」にする。担当タブは Status でまとめるのが既定
   mine?: boolean;
+  // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す。My issues は担当タブの担当を自分で外す
+  sameValueColumn?: IssueColumn;
 }
+
+// プレビュー中に表から外す列。プレビューしている Issue の分はプレビューの中に出る（design/nod.pen「Issues｜プレビュー」）
+const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["priority", "workspace", "project", "assignee"];
 
 // design/nod.pen「11 Issues」（O7KCp3）：Header、View Bar（タブと、検索、Filter、Display のアイコンボタン）、Filters の行、一覧。
 // 件数はタブに出す。グループ化、並び順、表示列、List と Board の切り替えは Display のポップオーバーにまとめる。
@@ -52,6 +57,7 @@ export function IssueList({
   onSearchChange,
   statusWorkspace,
   mine = false,
+  sameValueColumn,
 }: IssueListProps) {
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
@@ -68,10 +74,10 @@ export function IssueList({
   const counts = countRows(rows);
   const visible = sortRows(filterRows(rows, { tab, q, showCompleted: search.showCompleted, showChildren: search.showChildren }), search.sort, search.direction);
   const preview = search.preview;
-  // プレビュー中は一覧の幅が狭くなるため、Workspace 列を隠す（design/nod.pen「Issues｜プレビュー」）
+  // プレビュー中は一覧の幅が狭くなるため、Workspace・優先度・Project・担当の列を隠して題名の幅を保つ（#174）
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
-  const columns = search.columns ?? [...DEFAULT_ISSUE_COLUMNS];
-  const tableColumns = preview ? columns.filter((column) => column !== "workspace") : columns;
+  const columns = search.columns ?? defaultIssueColumns(mine ? mineSameValueColumn(search.tab) : sameValueColumn);
+  const tableColumns = preview ? columns.filter((column) => !PREVIEW_HIDDEN_COLUMNS.includes(column)) : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout, mine);
   const groups = groupBy
     ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus, cycleInfo)
