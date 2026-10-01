@@ -100,7 +100,7 @@ describe("listOpenQuestions", () => {
     expect(ids({ project: String(project.id) })).toEqual([a.id]);
     expect(ids({ status: ["in_progress"] })).toEqual([c.id]);
     expect(ids({ status: ["needs_clarification"] }).sort()).toEqual([a.id, b.id].sort());
-    // 検索は質問文・Issue のタイトル・ID のどれかに合うもの（大文字小文字を区別しない）
+    // 検索は Issue のタイトル・ID・いずれかの質問文に合う Issue（大文字小文字を区別しない）
     expect(ids({ q: "q3" })).toEqual([a.id]);
     expect(ids({ q: "配色" })).toEqual([b.id]);
     expect(ids({ q: b.id.toLowerCase() })).toEqual([b.id]);
@@ -125,6 +125,39 @@ describe("listOpenQuestions", () => {
     stamp(urgentOld.id, "uo2", "2026-09-10T00:00:00.000Z");
 
     expect(listOpenQuestions(db).questions.map((q) => q.question)).toEqual(["uo1", "uo2", "un1", "l1", "n1"]);
+  });
+
+  test("検索は Issue 単位で、質問文の1つに合えばその Issue の未回答の質問をすべて返す", () => {
+    const { db, ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "設問を決める" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "画面の配色" });
+    const answered = askQuestion(me, a.id, "確認メールを送るか").question;
+    answerQuestion(me, a.id, "送る", { questionId: answered.id });
+    askQuestion(me, a.id, "Q3 は必須にするか");
+    askQuestion(me, a.id, "回答期限はいつか");
+    askQuestion(me, b.id, "ボタンの色");
+
+    const r = listOpenQuestions(db, { q: "期限" });
+    expect(r).toMatchObject({ total: 2, issueCount: 1 });
+    expect(r.questions.map((q) => q.question)).toEqual(["Q3 は必須にするか", "回答期限はいつか"]);
+    expect(listOpenQuestions(db, { q: "設問" }).questions.map((q) => q.question)).toEqual(["Q3 は必須にするか", "回答期限はいつか"]);
+    // 回答済みの質問文は検索の対象にしない
+    expect(listOpenQuestions(db, { q: "確認メール" }).total).toBe(0);
+  });
+
+  test("最古の未回答の質問は、質問者で絞った後の質問の中で選ぶ", () => {
+    const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "A" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "B" });
+    startIssue(llm, a.id);
+    askedAt(db, askQuestion(llm, a.id, "a-llm").question.id, "2026-09-01T00:00:00.000Z");
+    askedAt(db, askQuestion(me, a.id, "a-me").question.id, "2026-09-20T00:00:00.000Z");
+    askedAt(db, askQuestion(me, b.id, "b-me").question.id, "2026-09-10T00:00:00.000Z");
+    askedAt(db, askQuestion(llm, b.id, "b-llm").question.id, "2026-09-25T00:00:00.000Z");
+
+    expect(listOpenQuestions(db).questions.map((q) => q.question)).toEqual(["a-llm", "a-me", "b-me", "b-llm"]);
+    expect(listOpenQuestions(db, { askedBy: "me" }).questions.map((q) => q.question)).toEqual(["b-me", "a-me"]);
+    expect(listOpenQuestions(db, { askedBy: "llm" }).questions.map((q) => q.question)).toEqual(["a-llm", "b-llm"]);
   });
 
   test("limit は Issue の数で切り、件数は切る前のものを返す", () => {

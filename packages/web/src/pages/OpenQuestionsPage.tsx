@@ -16,6 +16,7 @@ import {
   openQuestionSections,
 } from "../lib/open-questions";
 import type { OpenQuestionsSearch } from "../routes/open-questions-search";
+import split from "../components/split/split.module.css";
 import s from "./open-questions.module.css";
 
 const route = getRouteApi("/open-questions");
@@ -53,7 +54,10 @@ export function OpenQuestionsPage() {
   useEffect(() => {
     const previous = shown.current.current;
     shown.current = { order, current: currentId };
-    if (currentId !== undefined && previous !== undefined && previous !== currentId && search.selected !== currentId) {
+    if (currentId === undefined || search.selected === currentId) return;
+    // URL の selected が一覧に無い（初回表示で古い URL を開いた、回答で消えた）ときは、選び直した Issue を URL にも書く。
+    // selected のない URL は、選んでいた Issue が消えたときだけ書き換える
+    if (search.selected !== undefined || (previous !== undefined && previous !== currentId)) {
       void navigate({ search: (prev) => ({ ...prev, selected: currentId }), replace: true });
     }
   });
@@ -63,7 +67,7 @@ export function OpenQuestionsPage() {
   const count = entries.reduce((sum, entry) => sum + entry.questions.length, 0);
 
   return (
-    <div className={s.split}>
+    <div className={split.split}>
       <section className={s.list} aria-label="未決事項の一覧">
         <PageHeader>
           <PageTitle>Open questions</PageTitle>
@@ -143,7 +147,7 @@ export function OpenQuestionsPage() {
           </div>
         )}
       </section>
-      <section className={s.detail} aria-label="詳細">
+      <section className={split.detail} aria-label="詳細">
         {current && <EntryDetail key={current.issueId} entry={current} drafts={drafts} setDraft={setDraft} />}
       </section>
     </div>
@@ -155,10 +159,16 @@ function withCurrent(values: string[], current: string | undefined): string[] {
   return current === undefined || values.includes(current) ? values : [...values, current];
 }
 
+// 長い名前は幅で切れるので、選択中の選択肢の全文を title で読めるようにする（SelectChip と同じ）
 function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
+  const chip = useRef<HTMLLabelElement>(null);
+  const select = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (chip.current) chip.current.title = select.current?.selectedOptions[0]?.text ?? "";
+  });
   return (
-    <label className={s.select}>
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+    <label ref={chip} className={s.select}>
+      <select ref={select} aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
         {children}
       </select>
       <Icon name="chevron-down" size={12} color="var(--ink3)" />
@@ -169,10 +179,10 @@ function FilterSelect({ label, value, onChange, children }: { label: string; val
 function EntryItem({ entry, search, selected }: { entry: OpenQuestionEntry; search: OpenQuestionsSearch; selected: boolean }) {
   const oldest = entry.questions.find((q) => q.askedAt === entry.oldestAt) ?? entry.questions[0];
   return (
-    <Link to="/open-questions" search={{ ...search, selected: entry.issueId }} className={s.item} data-selected={selected}>
-      <div className={s.itemHead}>
-        <span className={s.itemTitle}>{entry.issueTitle}</span>
-        <span className={s.itemTime}>{formatRelative(entry.oldestAt)}</span>
+    <Link to="/open-questions" search={{ ...search, selected: entry.issueId }} className={split.item} data-selected={selected}>
+      <div className={split.itemHead}>
+        <span className={split.itemTitle} title={entry.issueTitle}>{entry.issueTitle}</span>
+        <span className={split.itemTime}>{formatRelative(entry.oldestAt)}</span>
       </div>
       {oldest && <p className={s.itemQuestion}>{oldest.question}</p>}
       <div className={s.itemMeta}>
@@ -231,7 +241,9 @@ function EntryDetail({ entry, drafts, setDraft }: { entry: OpenQuestionEntry; dr
 
       <p className={s.note}>
         <Icon name="info" size={14} />
-        回答は Issue に記録されます。すべて決まると Issue は元のステータス（Todo / Backlog）に戻ります。
+        {entry.status === "needs_clarification"
+          ? "回答は Issue に記録されます。すべて決まると Issue は元のステータス（Todo / Backlog）に戻ります。"
+          : "回答は Issue に記録されます。"}
       </p>
       <Link to="/issues/$issueId" params={{ issueId: entry.issueId }} className={s.openIssue}>
         Issue を開く
@@ -247,7 +259,7 @@ function DecidedItem({ question }: { question: Question }) {
       <div className={s.decidedHead}>
         <Icon name="check" size={14} color="var(--ready)" />
         <span className={s.decidedQuestion}>{question.question}</span>
-        {question.answeredAt && <span className={s.itemTime}>{formatRelative(question.answeredAt)}</span>}
+        {question.answeredAt && <span className={split.itemTime}>{formatRelative(question.answeredAt)}</span>}
       </div>
       <p className={s.decidedAnswer}>回答：{question.answer}</p>
     </div>

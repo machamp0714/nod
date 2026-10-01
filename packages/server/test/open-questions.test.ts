@@ -34,7 +34,7 @@ describe("GET /api/open-questions", () => {
     expect(await ids("askedBy=llm")).toEqual(["API-2"]);
     expect(await ids("askedBy=me&workspace=WEB")).toEqual(["WEB-1"]);
     expect(await ids("status=in_progress")).toEqual(["API-2"]);
-    expect(await ids(`q=${encodeURIComponent("期限")}`)).toEqual(["API-1"]);
+    expect(await ids(`q=${encodeURIComponent("期限")}`)).toEqual(["API-1", "API-1"]); // Issue 単位。合った Issue の未回答の質問をすべて返す
     const limited = await call(app, "GET", "/api/open-questions?limit=1");
     expect(limited.json).toMatchObject({ total: 4, issueCount: 3, more: 2 });
   });

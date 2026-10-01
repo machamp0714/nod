@@ -1,6 +1,7 @@
 import {
   type ActivityItem,
   DEFAULT_STATUS_LABELS,
+  HUMAN_ACTOR,
   type StatusNames,
   type AgentState,
   type Issue,
@@ -103,7 +104,8 @@ export function formatIssueListLines(issues: Issue[]): string[] {
 }
 
 // 未回答の未決事項の一覧（#173）。Issue ごとにまとめ、質問は nod answer --question に渡す #番号つきで出す
-export function formatOpenQuestions(r: OpenQuestions): string {
+// llm は実行者が LLM のとき。me が付けた未決事項は LLM が回答できないので、回答のしかたの代わりにそのことを案内する
+export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
   if (r.total === 0) return "未回答の未決事項はありません";
   const groups = new Map<string, OpenQuestions["questions"]>();
   for (const q of r.questions) groups.set(q.issueId, [...(groups.get(q.issueId) ?? []), q]);
@@ -116,7 +118,8 @@ export function formatOpenQuestions(r: OpenQuestions): string {
     for (const q of questions) lines.push(`  #${q.id} ${q.question.replaceAll("\n", "\n     ")}（${q.askedBy}・${localDate(q.askedAt)}）`);
   }
   if (r.more > 0) lines.push(`ほか ${r.more} Issue`);
-  lines.push("", "回答: nod answer <Issue の ID> <回答> --question <#番号>");
+  const forMe = llm && r.questions.some((q) => q.askedBy === HUMAN_ACTOR);
+  lines.push("", forMe ? "me が付けた未決事項は me が決めます（LLM は回答できません）" : "回答: nod answer <Issue の ID> <回答> --question <#番号>");
   return lines.join("\n");
 }
 

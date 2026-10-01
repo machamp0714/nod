@@ -15,7 +15,7 @@ export interface OpenQuestionsQuery {
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
   status?: Status[]; // Issue のステータス。done と canceled は指定できない
-  q?: string; // 質問文・Issue のタイトル・ID の文字列検索
+  q?: string; // 文字列検索。Issue のタイトル・ID・いずれかの質問文に合えば、その Issue の未回答の質問をすべて返す
   limit?: number; // 返す Issue の数。省略時はすべて
 }
 
@@ -94,9 +94,10 @@ interface Row extends QuestionRow {
   question_answered: number;
 }
 
-// 並びは Issue の優先度（Urgent から Low、なしは最後）、その Issue の最古の未回答の質問の古い順、Issue の順。Issue の中は質問の id 順
-const ORDER_BY = `ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END,
-  (SELECT min(o.asked_at) FROM questions o WHERE o.issue_id = i.id AND o.answer IS NULL), w.key, i.number, q.id`;
+// 並びは Issue の優先度（Urgent から Low、なしは最後）、その Issue の最古の未回答の質問の古い順、Issue の順。Issue の中は質問の id 順。
+// 最古の質問は、一覧に出す質問（質問者で絞った後）の中で選ぶ
+const orderBy = (asker: string) => `ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END,
+  (SELECT min(o.asked_at) FROM questions o WHERE o.issue_id = i.id AND o.answer IS NULL${asker}), w.key, i.number, q.id`;
 
 export function listOpenQuestions(db: Database, query: OpenQuestionsQuery = {}): OpenQuestions {
   if (query.limit !== undefined && (!Number.isSafeInteger(query.limit) || query.limit < 1)) {
@@ -107,8 +108,9 @@ export function listOpenQuestions(db: Database, query: OpenQuestionsQuery = {}):
   const scope = issueScope(db, query);
   const where = [`q.answer IS NULL AND i.archived_at IS NULL AND i.status NOT IN (${CLOSED.map(() => "?").join(", ")})${scope.where}`];
   const params: (string | number)[] = [...CLOSED, ...scope.params];
-  if (query.askedBy) {
-    where.push(query.askedBy === "me" ? "q.asked_by = ?" : "q.asked_by <> ?");
+  const asker = query.askedBy === undefined ? "" : query.askedBy === "me" ? "asked_by = ?" : "asked_by <> ?";
+  if (asker) {
+    where.push(`q.${asker}`);
     params.push(HUMAN_ACTOR);
   }
   if (query.status?.length) {
@@ -122,14 +124,14 @@ export function listOpenQuestions(db: Database, query: OpenQuestionsQuery = {}):
         (SELECT count(*) FROM questions t WHERE t.issue_id = i.id AND t.answer IS NOT NULL) AS question_answered
        FROM questions q JOIN issues i ON i.id = q.issue_id JOIN workspaces w ON w.id = i.workspace_id
        LEFT JOIN projects pr ON pr.id = i.project_id
-       WHERE ${where.join(" AND ")} ${ORDER_BY}`,
+       WHERE ${where.join(" AND ")} ${orderBy(asker ? ` AND o.${asker}` : "")}`,
     )
-    .all(...params) as Row[];
+    .all(...params, ...(asker ? [HUMAN_ACTOR] : [])) as Row[];
 
   // SQLite の lower は非ASCIIで Web と異なるため、検索は Issue 一覧と同じく JavaScript で判定する
   const needle = query.q?.trim().toLowerCase() ?? "";
-  const questions = rows
-    .map((r): OpenQuestion => ({
+  const found = rows.map(
+    (r): OpenQuestion => ({
       ...toQuestion(r, formatIssueId(r.ws_key, r.issue_number)),
       issueTitle: r.issue_title,
       workspace: r.ws_key,
@@ -137,8 +139,11 @@ export function listOpenQuestions(db: Database, query: OpenQuestionsQuery = {}):
       priority: r.priority,
       project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
       questionCount: { answered: r.question_answered, total: r.question_total },
-    }))
-    .filter((q) => !needle || [q.question, q.issueTitle, q.issueId].some((text) => text.toLowerCase().includes(needle)));
+    }),
+  );
+  // 検索は Issue 単位。質問文に合ったときも、その Issue の未回答の質問はすべて返す（まとめて決めるため。Web と同じ）
+  const matched = new Set(found.filter((q) => [q.question, q.issueTitle, q.issueId].some((text) => text.toLowerCase().includes(needle))).map((q) => q.issueId));
+  const questions = needle ? found.filter((q) => matched.has(q.issueId)) : found;
 
   const issueIds = [...new Set(questions.map((q) => q.issueId))];
   const kept = new Set(query.limit === undefined ? issueIds : issueIds.slice(0, query.limit));

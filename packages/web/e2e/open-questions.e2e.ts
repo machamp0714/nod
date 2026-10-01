@@ -165,3 +165,44 @@ test("未回答の未決事項がなければ空状態を出し、Sidebar に件
   await expect(nav(page).getByRole("link", { name: /^Open questions/ })).toHaveText("Open questions");
   await expect(detail(page).getByRole("heading", { level: 2 })).toHaveCount(0);
 });
+
+test("URL の selected が一覧に無ければ先頭を選んで URL を書き換え、注記のステータスの文は needs_clarification のときだけ出す", async ({ page, nod }) => {
+  const s = await seed(nod);
+  // 作業中（in_progress）の Issue に人が足した未決事項。すべて決めてもステータスは変わらない
+  await nod.me.askQuestion(s.search.id, "対象のテーブルはどれか");
+
+  await page.goto("/open-questions?selected=API-999&group=none");
+  await expect(detail(page).getByRole("heading", { level: 2, name: "設問の必須設定を追加" })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`selected=${s.survey.id}&group=none$`));
+  await expect(detail(page).getByText("すべて決まると Issue は元のステータス（Todo / Backlog）に戻ります。")).toBeVisible();
+
+  await items(page).filter({ hasText: "検索を速くする" }).click();
+  await expect(detail(page).getByText("In Progress")).toBeVisible();
+  // 人が付けたものだけを出す（LLM の質問のカードは出さない）
+  await expect(cards(page)).toHaveCount(1);
+  await expect(detail(page).getByText("回答は Issue に記録されます。", { exact: true })).toBeVisible();
+  await expect(detail(page).getByText("元のステータス")).toHaveCount(0);
+});
+
+test("絞り込みのフォーカスは枠の外に 2px の線で示し、選択中の名前と項目のタイトルを title で読める", async ({ page, nod }) => {
+  await seed(nod);
+  await page.goto("/open-questions");
+  await expect(items(page)).toHaveCount(4);
+  const outline = (el: Element) => {
+    const style = getComputedStyle(el);
+    return `${style.outlineStyle} ${style.outlineWidth} ${style.outlineOffset}`;
+  };
+
+  const workspace = list(page).getByLabel("Workspace", { exact: true });
+  const chip = workspace.locator("xpath=..");
+  await expect(chip).toHaveAttribute("title", "All workspaces");
+  await workspace.focus();
+  expect(await chip.evaluate(outline)).toBe("solid 2px 1px");
+  await workspace.selectOption("WEB");
+  await expect(chip).toHaveAttribute("title", "web-app");
+
+  const search = list(page).getByRole("searchbox", { name: "未決事項を絞り込む" });
+  await search.focus();
+  expect(await search.locator("xpath=..").evaluate(outline)).toBe("solid 2px 1px");
+  await expect(items(page).first().getByText("画面の配色")).toHaveAttribute("title", "画面の配色");
+});

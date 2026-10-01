@@ -57,7 +57,7 @@ describe("nod questions", () => {
     expect(listed(await me(["-w", "WEB", "questions"]))).toEqual(["ボタンの色"]);
     expect(listed(await me(["questions", "--project", "調査票"]))).toEqual(["Q3 は必須にするか", "回答期限はいつか"]);
     expect(listed(await me(["questions", "-s", "in_progress"]))).toEqual(["インデックスを足してよいか"]);
-    expect(listed(await me(["questions", "--query", "期限"]))).toEqual(["回答期限はいつか"]);
+    expect(listed(await me(["questions", "--query", "期限"]))).toEqual(["Q3 は必須にするか", "回答期限はいつか"]);
     const limited = await me(["questions", "--limit", "1"]);
     expect(limited.json).toMatchObject({ total: 4, issueCount: 3, more: 2 });
     expect(listed(limited)).toEqual(["Q3 は必須にするか", "回答期限はいつか"]);
@@ -90,6 +90,18 @@ describe("nod questions", () => {
 
   test("手引きに nod questions がある", async () => {
     expect((await run(["skills", "get", "nod"])).stdout).toContain("nod questions [--asked-by me|llm]");
+  });
+
+  test("実行者が LLM で me が付けた未決事項を含むときは、回答のしかたの代わりに me が決めることを案内する", async () => {
+    const forMe = "me が付けた未決事項は me が決めます（LLM は回答できません）";
+    const howTo = "回答: nod answer <Issue の ID> <回答> --question <#番号>";
+    const last = async (args: string[], actor?: string) => (await run(args, api, actor)).stdout.trimEnd().split("\n").at(-1);
+    expect(await last(["questions"], "claude-code")).toBe(forMe);
+    expect(await last(["questions", "--asked-by", "me"], "claude-code")).toBe(forMe);
+    expect(await last(["questions", "--asked-by", "llm"], "claude-code")).toBe(howTo);
+    expect(await last(["questions", "--asked-by", "me"])).toBe(howTo);
+    // 既定の --asked-by は変えない（LLM にも両方を出す）
+    expect((await llm(["questions"])).json.total).toBe(4);
   });
 
   test("LLM も一覧は読める", async () => {

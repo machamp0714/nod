@@ -8,6 +8,7 @@ import {
   duplicateTriage,
   getInbox,
   getPrStatus,
+  HUMAN_ACTOR,
   listOpenQuestions,
   listTriageProposals,
   listNotifications,
@@ -66,7 +67,7 @@ export function registerHumanCommands(program: Command): void {
     .option("--asked-by <me|llm>", "質問者で絞る（me は人が付けたもの、llm は LLM からのもの。既定は両方）")
     .option("--project <project>", "Project の名前か ID")
     .option("-s, --status <statuses>", "Issue のステータス（カンマ区切り。done と canceled は指定できない）")
-    .option("--query <text>", "質問文・Issue のタイトル・ID で検索")
+    .option("--query <text>", "Issue のタイトル・ID・質問文で検索（合った Issue の未回答の質問をすべて出す）")
     .option("--limit <n>", "出す Issue の数（既定はすべて。超えた分は「ほか N Issue」）")
     .action(
       act((cli, cmd, o: { askedBy?: string; project?: string; status?: string; query?: string; limit?: string }) => {
@@ -78,7 +79,7 @@ export function registerHumanCommands(program: Command): void {
           q: o.query,
           limit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
         });
-        print(cli, result, () => formatOpenQuestions(result));
+        print(cli, result, () => formatOpenQuestions(result, cli.ctx.actor !== HUMAN_ACTOR));
       }),
     );
 

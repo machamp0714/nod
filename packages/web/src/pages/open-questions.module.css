@@ -1,10 +1,6 @@
 /* Open questions（#173）。nod.pen T5k0Dn（Project ごと）・S6fqq4（グループ化なし）・m2aCdE（空状態）・SbKB6（絞り込み0件） */
-.split {
-  display: grid;
-  grid-template-columns: var(--list-pane-width) minmax(0, 1fr);
-  height: 100%;
-}
-
+/* 2列の枠・詳細・一覧の項目（Item）は共通の split.module.css を使う。
+   一覧の列だけは、Header と絞り込みを固定して行だけをスクロールさせるため、ここで持つ（SplitLayout は列全体がスクロールする） */
 .list {
   display: flex;
   flex-direction: column;
@@ -72,9 +68,11 @@
   pointer-events: none;
 }
 
+/* フォーカスの表示は共通の SelectChip と同じ */
 .select:focus-within,
 .search:focus-within {
-  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .select select:focus-visible,
@@ -169,46 +167,6 @@
   font-weight: 400;
 }
 
-.item {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 8px;
-}
-
-.item:hover {
-  background: var(--bg);
-}
-
-.item[data-selected="true"] {
-  background: var(--sunken);
-}
-
-.itemHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.itemTitle {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.itemTime {
-  flex: none;
-  color: var(--ink3);
-  font-size: 11.5px;
-}
-
 .itemQuestion {
   display: -webkit-box;
   overflow: hidden;
@@ -260,11 +218,6 @@
   color: var(--ink2);
   font-size: 13px;
   font-weight: 500;
-}
-
-.detail {
-  min-width: 0;
-  overflow-y: auto;
 }
 
 .detailBody {
