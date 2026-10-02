@@ -1,5 +1,6 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage } from "../api/errors";
+import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary, ProjectUpdate } from "../api/types";
@@ -10,6 +11,7 @@ import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
+import { withoutPageDisplay } from "../lib/page-display";
 import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
@@ -18,12 +20,15 @@ const route = getRouteApi("/projects/$projectId");
 
 export function ProjectDetailPage() {
   const { projectId } = route.useParams();
-  const search = route.useSearch();
+  const url = route.useSearch();
   const navigate = useNavigate({ from: "/projects/$projectId" });
   const projects = useProjects();
   const found = projects.data?.some((project) => String(project.id) === projectId) ?? false;
   const detail = useProject(Number(projectId), found);
   // 一覧にない ID なら、useIssueRows は API を呼ばない
+  // 保存した表示設定（#218）と URL を合わせた状態。blocked は保存しないので URL の値のまま
+  const page = usePageDisplay({ key: `project:${projectId}`, sameValueColumn: "project" }, url);
+  const search = page.search;
   const rows = useIssueRows({ project: projectId, blocked: search.blocked });
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
@@ -31,6 +36,7 @@ export function ProjectDetailPage() {
   if (!found) return <NotFoundMessage title="Project が見つかりません" />;
   if (detail.error) return <PageError message={errorMessage(detail.error)} />;
   if (!detail.data) return <PageLoading />;
+  if (!page.ready) return <PageLoading />;
   return (
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
@@ -44,7 +50,15 @@ export function ProjectDetailPage() {
       error={rows.error}
       search={search}
       sameValueColumn="project"
-      onSearchChange={(patch) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
+      onSearchChange={(patch) => {
+        page.save(patch);
+        navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+      }}
+      onResetDisplay={() => {
+        page.reset();
+        navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+      }}
+      resetDisplayDisabled={page.resetDisabled}
     />
   );
 }

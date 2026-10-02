@@ -22,6 +22,8 @@ export function DisplayPopover({
   subGroupBy,
   columns,
   onSearchChange,
+  onReset,
+  resetDisabled,
 }: {
   search: IssueListSearch;
   layout: IssueLayout;
@@ -29,6 +31,8 @@ export function DisplayPopover({
   subGroupBy: IssueGroupKey | undefined;
   columns: readonly IssueColumn[];
   onSearchChange: (patch: IssueListSearch) => void;
+  onReset?: () => void; // 省くと「既定に戻す」を出さない
+  resetDisabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -159,6 +163,14 @@ export function DisplayPopover({
               ))}
             </div>
           </fieldset>
+          {/* ページごとに保存した表示設定（#218）を消して既定の表示に戻す。View の画面では出さない（View は「元に戻す」を使う） */}
+          {onReset && (
+            <div className={s.displaySection}>
+              <button type="button" className={s.displayReset} disabled={resetDisabled} onClick={onReset}>
+                既定に戻す
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
