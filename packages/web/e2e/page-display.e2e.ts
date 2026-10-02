@@ -25,8 +25,10 @@ test("Issues で Board・グループ化 Project にすると、別ページか�
 test("Project ごとに別の表示を覚える", async ({ page }) => {
   await page.goto("/projects/1");
   await setLayout(page, "Board");
+  await expect.poll(async () => (await savedDisplays(page))["project:1"]).toEqual({ layout: "board" });
   await page.goto("/projects/2");
   await expect(await layoutTab(page, "List")).toHaveAttribute("aria-selected", "true");
+  expect((await savedDisplays(page))["project:2"]).toBeUndefined();
   await page.goto("/projects/1");
   await expect(await layoutTab(page, "Board")).toHaveAttribute("aria-selected", "true");
   await page.goto("/projects/2");
@@ -105,6 +107,9 @@ test("View の表示設定は自動保存せず、「変更を保存」を押す
   await setLayout(page, "Board");
   await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toBeVisible();
   await expect((await openDisplay(page)).getByRole("button", { name: "既定に戻す" })).toHaveCount(0);
+  // クエリなしで開き直すと View 本来の表示（List）に戻る。保存されていれば Board になる
+  await page.goto("/views/1");
+  await expect(await layoutTab(page, "List")).toHaveAttribute("aria-selected", "true");
   expect((await (await page.request.get("/api/views/1")).json()).display).toEqual(before.display);
   expect(await savedDisplays(page)).toEqual({});
 });
