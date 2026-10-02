@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Issue, Status } from "../../api/types";
-import { countRows, filterRows, groupForBoard, groupRowsByWorkspace, sortRows } from "./issue-list";
+import { canDropOnStatus, countRows, filterRows, groupForBoard, groupRowsByWorkspace, sortRows } from "./issue-list";
 import type { IssueListRow } from "./types";
 
 function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; assignee?: string; estimate?: number | null; dueDate?: string | null } = {}): IssueListRow {
@@ -133,5 +133,19 @@ describe("見積もり・期限の並び順", () => {
     const rows = [row("API-1", "todo"), row("API-2", "todo", { dueDate: "2026-12-01" }), row("API-3", "todo", { dueDate: "2026-10-01" })];
     expect(ids(sortRows(rows, "dueDate"))).toEqual(["API-3", "API-2", "API-1"]);
     expect(ids(sortRows(rows, "dueDate", "desc"))).toEqual(["API-2", "API-3", "API-1"]);
+  });
+});
+
+describe("canDropOnStatus", () => {
+  test("元と同じ列と Needs Clarification の列には落とせない", () => {
+    expect(canDropOnStatus("todo", "todo")).toBe(false);
+    expect(canDropOnStatus("todo", "needs_clarification")).toBe(false);
+    expect(canDropOnStatus("needs_clarification", "needs_clarification")).toBe(false);
+  });
+
+  test("ほかの列には落とせる（Needs Clarification から出すのも可）", () => {
+    expect(canDropOnStatus("todo", "in_progress")).toBe(true);
+    expect(canDropOnStatus("backlog", "done")).toBe(true);
+    expect(canDropOnStatus("needs_clarification", "todo")).toBe(true);
   });
 });

@@ -1,12 +1,16 @@
-import { type ReactNode, useState } from "react";
+import { type DragEvent, type ReactNode, useState } from "react";
 import { BlockedBy } from "./BlockedBy";
 import { Link } from "@tanstack/react-router";
+import { errorMessage } from "../../api/errors";
+import type { Status } from "../../api/types";
+import { useBulkUpdateIssues } from "../../api/hooks/issues";
 import { useWorkspaces } from "../../api/hooks/shared";
+import { bulkFailures } from "../../lib/bulk-selection";
 import { formatQuestionCount, prLabel } from "../../lib/format";
 import { AGENT_STATE_META, STATUS_META, type Tone, TONE_COLORS } from "../../lib/meta";
 import { workspaceColorOf } from "../../lib/workspace-color";
 import { AgentAvatar, Icon, type IconName, StatusIcon } from "../ui";
-import { groupForBoard } from "./issue-list";
+import { canDropOnStatus, groupForBoard } from "./issue-list";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
@@ -21,7 +25,8 @@ const COLUMN_DESCRIPTIONS: Partial<Record<IssueListRow["issue"]["status"], strin
 
 // design/nod.pen「Issues｜ボード（Linear 準拠）」（Cjq7Z）：列は幅 340 固定で、あふれた分は Board の中で横にスクロールする。
 // Issue が 0 件の列は、右端の Hidden columns（PR46C）にまとめる。
-// nameOfStatus は列見出しに Workspace の表示名を使うときに渡す
+// nameOfStatus は列見出しに Workspace の表示名を使うときに渡す。
+// カードを別の列（Hidden columns の行を含む）へドラッグすると status を変える。グループ表示では同じ Board の中だけで受ける
 export function IssueBoard({
   rows,
   nameOfStatus = (status) => STATUS_META[status].label,
@@ -33,46 +38,111 @@ export function IssueBoard({
   const hidden = columns.filter((column) => column.rows.length === 0);
   const empty = hidden.length === columns.length;
   const [showHidden, setShowHidden] = useState(true);
+  const update = useBulkUpdateIssues();
+  const [dragging, setDragging] = useState<{ id: string; status: Status } | null>(null);
+  const [over, setOver] = useState<Status | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const droppable = (status: Status) => dragging !== null && canDropOnStatus(dragging.status, status);
+
+  // 楽観的更新はせず、保存後の再取得で列が移る。拒否されたら Board の上部に理由を出す
+  async function move(id: string, status: Status) {
+    setSaving(id);
+    setError("");
+    try {
+      await update.mutateAsync({ ids: [id], status });
+    } catch (e) {
+      const failure = bulkFailures(e)[0];
+      setError(`${id} を ${nameOfStatus(status)} に移せませんでした：${failure ? failure.message : errorMessage(e)}`);
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  // 列と Hidden columns の行に付ける、ドロップ先の振る舞い
+  const dropTarget = (status: Status) => ({
+    "data-droppable": droppable(status) || undefined,
+    "data-over": (droppable(status) && over === status) || undefined,
+    onDragOver: (e: DragEvent) => {
+      if (!droppable(status)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setOver(status);
+    },
+    onDragLeave: (e: DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((current) => (current === status ? null : current));
+    },
+    onDrop: (e: DragEvent) => {
+      if (!dragging || !droppable(status)) return;
+      e.preventDefault();
+      const { id } = dragging;
+      setDragging(null);
+      setOver(null);
+      void move(id, status);
+    },
+  });
+
   return (
-    <div className={s.board}>
-      {/* 全列が 0 件のときは、List と同じ空の表示を出す（右の Hidden columns は残す） */}
-      {empty && <p className={s.boardEmpty}>該当する Issue はありません</p>}
-      {columns.filter((column) => column.rows.length > 0).map((column) => {
-        const label = nameOfStatus(column.status);
-        return (
-          <section key={column.status} className={s.column} aria-label={label}>
-            <header className={s.columnHead}>
-              <div className={s.columnHeadRow}>
-                <StatusIcon status={column.status} />
-                <h2 className={s.columnName}>{label}</h2>
-                <span className={s.columnCount}>{column.rows.length}</span>
-              </div>
-              <p className={s.columnDescription} title={COLUMN_DESCRIPTIONS[column.status]}>{COLUMN_DESCRIPTIONS[column.status]}</p>
-            </header>
-            {column.rows.map((row) => <BoardCard key={row.issue.id} row={row} />)}
-          </section>
-        );
-      })}
-      {hidden.length > 0 && (
-        <section className={s.hiddenColumns} aria-label="Hidden columns">
-          <button type="button" className={s.hiddenToggle} aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>
-            <Icon name={showHidden ? "chevron-down" : "chevron-right"} color="var(--ink2)" />
-            Hidden columns
-          </button>
-          {showHidden && (
-            <ul className={s.hiddenRows}>
-              {hidden.map((column) => (
-                <li key={column.status} className={s.hiddenRow} title={COLUMN_DESCRIPTIONS[column.status]}>
-                  <StatusIcon status={column.status} />
-                  <span className={s.hiddenName}>{nameOfStatus(column.status)}</span>
-                  <span className={s.hiddenCount}>0</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+    <>
+      {error && (
+        <div role="alert" className={`${s.bulkError} ${s.boardError}`}>
+          <p className={s.bulkErrorHead}>
+            <Icon name="circle-alert" size={14} color="var(--fail)" />
+            {error}
+          </p>
+        </div>
       )}
-    </div>
+      <div className={s.board}>
+        {/* 全列が 0 件のときは、List と同じ空の表示を出す（右の Hidden columns は残す） */}
+        {empty && <p className={s.boardEmpty}>該当する Issue はありません</p>}
+        {columns.filter((column) => column.rows.length > 0).map((column) => {
+          const label = nameOfStatus(column.status);
+          return (
+            <section key={column.status} className={s.column} aria-label={label} {...dropTarget(column.status)}>
+              <header className={s.columnHead}>
+                <div className={s.columnHeadRow}>
+                  <StatusIcon status={column.status} />
+                  <h2 className={s.columnName}>{label}</h2>
+                  <span className={s.columnCount}>{column.rows.length}</span>
+                </div>
+                <p className={s.columnDescription} title={COLUMN_DESCRIPTIONS[column.status]}>{COLUMN_DESCRIPTIONS[column.status]}</p>
+              </header>
+              {column.rows.map((row) => (
+                <BoardCard
+                  key={row.issue.id}
+                  row={row}
+                  saving={saving === row.issue.id}
+                  onDragStart={() => setDragging({ id: row.issue.id, status: row.issue.status })}
+                  onDragEnd={() => {
+                    setDragging(null);
+                    setOver(null);
+                  }}
+                />
+              ))}
+            </section>
+          );
+        })}
+        {hidden.length > 0 && (
+          <section className={s.hiddenColumns} aria-label="Hidden columns">
+            <button type="button" className={s.hiddenToggle} aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>
+              <Icon name={showHidden ? "chevron-down" : "chevron-right"} color="var(--ink2)" />
+              Hidden columns
+            </button>
+            {showHidden && (
+              <ul className={s.hiddenRows}>
+                {hidden.map((column) => (
+                  <li key={column.status} className={s.hiddenRow} title={COLUMN_DESCRIPTIONS[column.status]} {...dropTarget(column.status)}>
+                    <StatusIcon status={column.status} />
+                    <span className={s.hiddenName}>{nameOfStatus(column.status)}</span>
+                    <span className={s.hiddenCount}>0</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -94,10 +164,22 @@ function Chip({ tone, icon, dot, children }: { tone: Tone; icon?: IconName; dot?
   );
 }
 
-function BoardCard({ row }: { row: IssueListRow }) {
+// 保存中のカードは薄くし、ドラッグできなくする
+function BoardCard({ row, saving, onDragStart, onDragEnd }: { row: IssueListRow; saving: boolean; onDragStart: () => void; onDragEnd: () => void }) {
   const { issue, questions, workspaceName } = row;
   return (
-    <article className={s.boardCard}>
+    <article
+      className={s.boardCard}
+      draggable={!saving}
+      aria-busy={saving || undefined}
+      data-saving={saving || undefined}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", issue.id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+    >
       <div className={s.boardCardTop}>
         <div className={s.boardCardMeta}>
           <WorkspaceSwatch workspaceKey={issue.workspace} name={workspaceName} />
@@ -110,7 +192,7 @@ function BoardCard({ row }: { row: IssueListRow }) {
           <span className={s.boardCardStatus}>
             <StatusIcon status={issue.status} />
           </span>
-          <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={`${s.boardCardTitle} ${s.titleLink}`} title={issue.title}>
+          <Link to="/issues/$issueId" params={{ issueId: issue.id }} className={`${s.boardCardTitle} ${s.titleLink}`} title={issue.title} draggable={false}>
             {issue.title}
           </Link>
         </div>

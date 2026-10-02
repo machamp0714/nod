@@ -532,6 +532,31 @@
 }
 
 /* Board に出す Issue が 0 件のとき */
+/* Board のドラッグ＆ドロップ：ドロップできる列（Hidden columns の行を含む）を枠で示し、カーソルが乗った先を塗る。保存中のカードは薄くする */
+.column[data-droppable],
+.hiddenRow[data-droppable] {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.column[data-over],
+.hiddenRow[data-over] {
+  outline-style: solid;
+  background: var(--accent-soft);
+}
+
+.boardCard[draggable="true"] {
+  cursor: grab;
+}
+
+.boardCard[data-saving] {
+  opacity: 0.5;
+}
+
+.boardError {
+  margin-bottom: 8px;
+}
+
 .boardEmpty {
   flex: 1;
   min-width: 0;
