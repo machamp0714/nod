@@ -2,6 +2,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useCycle, useCycles, useMoveOpenIssues } from "../api/hooks/cycles";
+import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
 import type { CycleDetail, CycleSummary } from "../api/types";
 import { IssueList } from "../components/issue-list/IssueList";
@@ -9,6 +10,7 @@ import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
 import { Button, Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { CYCLE_STATE_LABEL, defaultDestination, formatCyclePeriod } from "../lib/cycles";
+import { withoutPageDisplay } from "../lib/page-display";
 import { cleanIssueListSearch, replacesIssueListHistory } from "../routes/search";
 import { CycleStateBadge } from "./CyclesPage";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -19,11 +21,14 @@ const route = getRouteApi("/cycles/$cycleId");
 // Pencil「Cycle詳細（#82）」。概要（期間・進捗・未完了）と、未完了を別の Cycle へ移す操作、Cycle の Issue 一覧
 export function CycleDetailPage() {
   const { cycleId } = route.useParams();
-  const search = route.useSearch();
+  const url = route.useSearch();
   const navigate = useNavigate({ from: "/cycles/$cycleId" });
   const cycles = useCycles();
   const found = cycles.data?.some((c) => String(c.id) === cycleId) ?? false;
   const detail = useCycle(Number(cycleId), found);
+  // 保存した表示設定（#218）と URL を合わせた状態
+  const page = usePageDisplay({ key: `cycle:${cycleId}` }, url);
+  const search = page.search;
   const rows = useIssueRows({ cycle: cycleId }, found);
 
   if (cycles.error) return <PageError message={errorMessage(cycles.error)} />;
@@ -31,6 +36,7 @@ export function CycleDetailPage() {
   if (!found) return <NotFoundMessage title="Cycle が見つかりません" />;
   if (detail.error) return <PageError message={errorMessage(detail.error)} />;
   if (!detail.data) return <PageLoading />;
+  if (!page.ready) return <PageLoading />;
   const cycle = detail.data;
   const siblings = cycles.data.filter((c) => c.workspace === cycle.workspace);
   return (
@@ -44,7 +50,15 @@ export function CycleDetailPage() {
       error={rows.error}
       search={search}
       statusWorkspace={cycle.workspace}
-      onSearchChange={(patch) => navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) })}
+      onSearchChange={(patch) => {
+        page.save(patch);
+        navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+      }}
+      onResetDisplay={() => {
+        page.reset();
+        navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+      }}
+      resetDisplayDisabled={page.resetDisabled}
     />
   );
 }

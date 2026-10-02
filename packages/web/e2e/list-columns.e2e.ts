@@ -123,9 +123,10 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
   await expect(page).toHaveURL(/columns=/);
   await page.reload();
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
+  // 戻った先の最初の /issues は表示設定のクエリがないため、保存した列（#218）で開く
   await page.goBack();
   await page.goBack();
-  await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS);
+  await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
 });
 
 test("優先度の列を外すと、ID がチェックの次（36）に来る", async ({ page }) => {

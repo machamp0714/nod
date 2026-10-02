@@ -31,6 +31,8 @@ export * from "./issue-filter";
 export * from "./view-display";
 export * from "./issue-sort";
 export * from "./ops/views";
+export * from "./page-display";
+export * from "./ops/page-displays";
 export * from "./ops/diagnose";
 export * from "./ops/notifications";
 export * from "./ops/reminders";

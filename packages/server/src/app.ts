@@ -21,6 +21,7 @@ import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { type OrcaRunnerOption, registerOrcaRoutes } from "./routes/orca";
 import { registerAutomationRoutes } from "./routes/automation";
 import { registerViewRoutes } from "./routes/views";
+import { registerPageDisplayRoutes } from "./routes/page-displays";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { type ChangeFeed, createChangeFeed } from "./change-feed";
 import { registerEventRoutes } from "./routes/events";
@@ -90,6 +91,7 @@ export function createApp(opts: AppOptions): Hono {
   registerPrDiffRoutes(app, me, opts.ghRunner);
   registerAutomationRoutes(app, me);
   registerViewRoutes(app, opts.db);
+  registerPageDisplayRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 

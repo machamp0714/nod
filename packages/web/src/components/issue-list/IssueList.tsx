@@ -39,6 +39,9 @@ export interface IssueListProps {
   mine?: boolean;
   // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す。My issues は担当タブの担当を自分で外す
   sameValueColumn?: IssueColumn;
+  // ページごとに保存した表示設定を消す（#218）。View では渡さない
+  onResetDisplay?: () => void;
+  resetDisplayDisabled?: boolean;
 }
 
 // プレビュー中に表から外す列。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
@@ -64,6 +67,8 @@ export function IssueList({
   statusWorkspace,
   mine = false,
   sameValueColumn,
+  onResetDisplay,
+  resetDisplayDisabled,
 }: IssueListProps) {
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
@@ -259,7 +264,7 @@ export function IssueList({
           <IconButton ref={searchButton} icon="search" label="検索を開く" bordered onClick={() => setSearching(true)} />
         )}
         {hasFilterPanel && <IconButton icon="list-filter" label="絞り込み条件を開く" bordered aria-expanded={filterPanelOpen} onClick={toggleFilterPanel} />}
-        <DisplayPopover search={search} layout={layout} groupBy={groupBy} subGroupBy={subGroupBy} columns={columns} onSearchChange={onSearchChange} />
+        <DisplayPopover search={search} layout={layout} groupBy={groupBy} subGroupBy={subGroupBy} columns={columns} onSearchChange={onSearchChange} onReset={onResetDisplay} resetDisabled={resetDisplayDisabled} />
       </ViewBar>
       {(selectable || filterBar) && (
         // design/nod.pen「Issues｜一括編集」：表示中の全選択は Filters の行の左端に置く

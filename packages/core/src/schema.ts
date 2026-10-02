@@ -556,4 +556,13 @@ export const MIGRATIONS: MigrationStep[][] = [
   [
     `ALTER TABLE workspaces ADD COLUMN default_agent TEXT NOT NULL DEFAULT 'claude' CHECK (default_agent IN ('claude', 'codex'))`,
   ],
+  // Issue 一覧の表示設定をページごとに保存する（#218）。page は issues・my-issues・project:<id>・cycle:<id>。
+  // Project・Cycle を消しても行は残す（外部キーを持たず、読むページがないだけ）
+  [
+    `CREATE TABLE page_displays (
+      page TEXT PRIMARY KEY,
+      display TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    )`,
+  ],
 ];

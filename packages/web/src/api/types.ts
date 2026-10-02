@@ -104,6 +104,7 @@ export type {
   UpdateIssueInput,
   View,
   ViewDisplay,
+  PageDisplay,
   ViewInput,
   Workspace,
   WorkspaceLabel,
