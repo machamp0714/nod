@@ -81,6 +81,12 @@ export function groupForBoard(rows: readonly IssueListRow[]): BoardColumn[] {
   return BOARD_STATUSES.map((status) => ({ status, rows: rows.filter((r) => r.issue.status === status) }));
 }
 
+// Board のドラッグ＆ドロップ：元と同じ列と、core が自動で切り替える Needs Clarification の列には落とせない。
+// Needs Clarification から出すのは可（可否はサーバーの遷移ルールで判定する）
+export function canDropOnStatus(from: Status, to: Status): boolean {
+  return from !== to && to !== "needs_clarification";
+}
+
 export function groupRowsByWorkspace(rows: readonly IssueListRow[]): { key: string; name: string; rows: IssueListRow[] }[] {
   return groupRows(rows, "workspace").map((group) => ({ key: group.key, name: group.workspaceName ?? group.key, rows: group.rows }));
 }
