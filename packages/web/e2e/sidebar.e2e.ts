@@ -50,13 +50,13 @@ test.describe("件数", () => {
   });
 });
 
-test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せず、View を追加は押せる", async ({ page }) => {
+test("準備中の項目はリンクにせず Soon と出し、準備中のボタンは押せず、検索と View を追加は押せる", async ({ page }) => {
   await page.goto("/inbox");
   const nav = page.getByRole("navigation", { name: "メイン" });
   await expect(nav.getByText("Favorites")).toBeVisible();
   await expect(nav.getByRole("link", { name: "Favorites" })).toHaveCount(0);
   await expect(nav.getByText("Soon")).toHaveCount(1);
-  await expect(nav.getByRole("button", { name: "検索" })).toBeDisabled();
+  await expect(nav.getByRole("button", { name: "検索" })).toBeEnabled();
   await expect(nav.getByRole("button", { name: "New Issue" })).toBeDisabled();
   await expect(nav.getByRole("button", { name: "View を追加" })).toBeEnabled();
 });
