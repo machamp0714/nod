@@ -35,9 +35,9 @@ export interface IssueListProps {
   onSearchChange: (patch: IssueListSearch) => void;
   // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
   statusWorkspace?: string | null;
-  // My issues：タブを「担当｜委任中」にする。担当タブは Status でまとめるのが既定
+  // My issues：タブは担当（me と LLM の担当）だけにする。Status でまとめるのが既定
   mine?: boolean;
-  // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す。My issues は担当タブの担当を自分で外す
+  // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す
   sameValueColumn?: IssueColumn;
   // ページごとに保存した表示設定を消す（#218）。View では渡さない
   onResetDisplay?: () => void;

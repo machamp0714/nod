@@ -677,7 +677,7 @@ test("My issues、View、Project 詳細、Cycle 詳細も同じ型で、List と
     expect(list.header).toBe(44);
     expect(list.viewBar).toBe(43);
     expect(list.rowHeights).toEqual([44]);
-    // My issues の担当タブは Status でまとめるのが既定
+    // My issues は Status でまとめるのが既定
     if (path === "/my-issues") expect(list.groupHeadings).toEqual([36]);
     expect(list.selects).toBe(0);
     expect(board.widths).toEqual([340]);

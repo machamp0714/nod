@@ -58,6 +58,10 @@ test.describe("My issues", () => {
     await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "status");
     await closeDisplay(page);
     await expect(tableRows(page)).toHaveCount(8);
+    // 固定チップも担当タブと同じ（旧仕様の委任中タブの「担当 is LLM」にはしない）
+    await expect(chips(page)).toContainText(/担当\s*is\s*me, LLM/);
+    await page.reload();
+    await expect(page.getByRole("tab", { name: "担当 8", exact: true })).toHaveAttribute("aria-selected", "true");
     await chooseDisplay(page, "グループ化", "なし");
     await expect(page).not.toHaveURL(/tab=/);
   });
