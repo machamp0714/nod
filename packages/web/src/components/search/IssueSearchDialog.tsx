@@ -20,10 +20,19 @@ export function IssueSearchDialog({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
+  // 閉じたら、開く前にフォーカスがあった場所（Sidebar の検索ボタンなど）へ戻す。showModal で入力欄へ移る前の要素を、最初の描画で覚える
+  const [before] = useState(() => document.activeElement);
+
   useEffect(() => {
     // 開発時の StrictMode は effect を2回呼ぶため、開いていなければ開く
     if (!ref.current?.open) ref.current?.showModal();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus();
+    };
+  }, [before]);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(text.trim()), DEBOUNCE_MS);
@@ -48,6 +57,8 @@ export function IssueSearchDialog({ onClose }: { onClose: () => void }) {
       setActive((current + step + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
+      // 入力が問い合わせに届くまでは、前の語の結果に移らないよう何もしない
+      if (query !== text.trim() || list.isFetching) return;
       const issue = results[current];
       if (issue) open(issue.id);
     }
@@ -79,7 +90,7 @@ export function IssueSearchDialog({ onClose }: { onClose: () => void }) {
           role="combobox"
           aria-label="Issue を検索"
           aria-expanded={results.length > 0}
-          aria-controls={listId}
+          aria-controls={results.length > 0 ? listId : undefined}
           aria-activedescendant={results.length > 0 ? `${optionId}-${current}` : undefined}
           aria-autocomplete="list"
           placeholder="ID・タイトルで検索"

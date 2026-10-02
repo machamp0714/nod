@@ -43,6 +43,18 @@ describe("matchIssueSearch", () => {
     expect(matchIssueSearch(issues, "   ")).toEqual([]);
   });
 
+  test("ID が完全に一致するものを先頭に置き、上限で切っても残す", () => {
+    const many = [
+      { id: "API-12", title: "a" },
+      { id: "API-112", title: "b" },
+      { id: "NOD-12", title: "c" },
+      { id: "NOD-120", title: "d" },
+    ];
+    expect(matchIssueSearch(many, "nod-12").map((i) => i.id)).toEqual(["NOD-12", "NOD-120"]);
+    expect(matchIssueSearch(many, "API-112").map((i) => i.id)).toEqual(["API-112"]);
+    expect(matchIssueSearch([...many].reverse(), "nod-12", 1).map((i) => i.id)).toEqual(["NOD-12"]);
+  });
+
   test("件数の上限で切る", () => {
     expect(matchIssueSearch(issues, "-", 2).map((i) => i.id)).toEqual(["NOD-1", "NOD-12"]);
   });

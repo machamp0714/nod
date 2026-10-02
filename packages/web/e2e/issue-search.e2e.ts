@@ -46,4 +46,28 @@ test.describe("Issue 検索", () => {
     await page.keyboard.press("Escape");
     await expect(dialog(page)).toHaveCount(0);
   });
+
+  test("入力が問い合わせに届く前の Enter では、前の語の結果に移らない", async ({ page }) => {
+    await page.goto("/inbox");
+    await page.getByRole("heading", { level: 1 }).waitFor();
+    await page.keyboard.press("Meta+Shift+F");
+    await box(page).fill("api-1");
+    await expect(options(page).first()).toContainText("API-1");
+    await box(page).press("6");
+    await box(page).press("Enter");
+    await expect(options(page)).toHaveText([/API-16/]);
+    await expect(page).toHaveURL(/\/inbox/);
+    await box(page).press("Enter");
+    await expect(page).toHaveURL(/\/issues\/API-16$/);
+  });
+
+  test("Sidebar の検索ボタンから開いて Escape で閉じると、ボタンにフォーカスが戻る", async ({ page }) => {
+    await page.goto("/inbox");
+    const button = page.getByRole("navigation", { name: "メイン" }).getByRole("button", { name: "検索" });
+    await button.click();
+    await expect(box(page)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
 });

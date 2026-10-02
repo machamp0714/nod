@@ -18,5 +18,8 @@ export function isIssueSearchShortcut(event: ShortcutKey): boolean {
 export function matchIssueSearch<T extends { id: string; title: string }>(issues: readonly T[], query: string, limit = ISSUE_SEARCH_LIMIT): T[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  return issues.filter((issue) => issue.id.toLowerCase().includes(needle) || issue.title.toLowerCase().includes(needle)).slice(0, limit);
+  const found = issues.filter((issue) => issue.id.toLowerCase().includes(needle) || issue.title.toLowerCase().includes(needle));
+  // 件数の上限で切っても目的の Issue が落ちないよう、ID の完全一致を先頭に置く（ほかはサーバーの並び順のまま）
+  const exact = found.filter((issue) => issue.id.toLowerCase() === needle);
+  return [...exact, ...found.filter((issue) => issue.id.toLowerCase() !== needle)].slice(0, limit);
 }

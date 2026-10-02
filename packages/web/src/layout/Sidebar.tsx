@@ -36,6 +36,9 @@ function SoonItem({ icon, label }: { icon: IconName; label: string }) {
   );
 }
 
+// Mac は ⇧⌘F、それ以外は Ctrl+Shift+F
+const SEARCH_SHORTCUT = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⇧⌘F" : "Ctrl+Shift+F";
+
 export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
   const { counts, views, viewsReady, workspaces } = useSidebarData();
   const navigate = useNavigate();
@@ -46,7 +49,7 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
       <div className={s.top}>
         <span className={s.logo}>n</span>
         <span className={s.name}>nod</span>
-        <IconButton icon="search" label="検索" title="Issue を検索（⇧⌘F）" onClick={onOpenSearch} />
+        <IconButton icon="search" label="検索" title={`Issue を検索（${SEARCH_SHORTCUT}）`} onClick={onOpenSearch} />
         <IconButton icon="square-pen" label="New Issue" title="New Issue（準備中）" bordered disabled />
       </div>
 
