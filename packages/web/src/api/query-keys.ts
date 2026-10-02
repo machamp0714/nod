@@ -40,6 +40,7 @@ export const queryKeys = {
   cycleList: (tz: string) => ["cycles", "list", tz] as const,
   cycle: (id: number, tz: string) => ["cycles", "detail", id, tz] as const,
   views: () => ["views"] as const,
+  pageDisplays: () => ["page-displays"] as const,
   documentList: () => ["documents", "list"] as const,
   documentsRoot: () => ["documents", "root"] as const,
   document: (id: number) => ["documents", id] as const,
