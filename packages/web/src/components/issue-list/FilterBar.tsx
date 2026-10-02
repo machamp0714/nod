@@ -43,7 +43,7 @@ export function useFilterChips(filter: IssueQuery, options: FilterOptions): Filt
 }
 
 // nod.pen の 11 Issues の Filters の行。今の条件をチップで並べ、「Filter」のパネルで足し引きする。
-// fixedAssignee は My issues の固定の担当（Pencil「My issues（#162）」の外せないチップ。担当タブは me、委任中タブは LLM）。担当の条件はパネルに出さない
+// fixedAssignee は My issues の固定の担当（Pencil「My issues（#162）」の外せないチップ。me と LLM）。担当の条件はパネルに出さない
 export function FilterBar({
   filter,
   options,

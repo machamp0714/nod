@@ -102,13 +102,13 @@ describe("effectiveGrouping", () => {
     }
   });
 
-  test("My issues の担当タブは Status でまとめ、Board では列が Status なのでまとめない。委任中タブは担当でまとめる", () => {
+  test("My issues は Status でまとめ、Board では列が Status なのでまとめない。URL に残った委任中タブは使わない", () => {
     expect(effectiveGrouping({}, "list", true)).toEqual({ groupBy: "status" });
     expect(effectiveGrouping({ subGroupBy: "priority" }, "list", true)).toEqual({ groupBy: "status", subGroupBy: "priority" });
     expect(effectiveGrouping({}, "board", true)).toEqual({});
     expect(effectiveGrouping({ groupBy: "none" }, "list", true)).toEqual({});
     expect(effectiveGrouping({ groupBy: "project" }, "list", true)).toEqual({ groupBy: "project" });
-    expect(effectiveGrouping({ tab: "delegated" }, "list", true)).toEqual({ groupBy: "assignee" });
+    expect(effectiveGrouping({ tab: "delegated" }, "list", true)).toEqual({ groupBy: "status" });
   });
 });
 

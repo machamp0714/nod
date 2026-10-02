@@ -39,9 +39,9 @@ export function isDelegated(issue: Pick<Issue, "assignee" | "status">): boolean 
   return issue.assignee != null && issue.assignee !== "me" && issue.status !== "done" && issue.status !== "canceled";
 }
 
-// My issues の担当タブ：担当が私（me）の Issue。ステータスは問わず、完了済みは表示設定に従う
+// My issues の担当タブ：担当が私（me）か LLM（claude-code・codex など）の Issue。ステータスは問わず、完了済みは表示設定に従う
 export function isMine(issue: Pick<Issue, "assignee">): boolean {
-  return issue.assignee === "me";
+  return issue.assignee != null;
 }
 
 // 一覧のタブ。mine は My issues だけにあり、URL には書かない（My issues の既定のタブ）

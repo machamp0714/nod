@@ -17,16 +17,12 @@ export type IssueColumn = typeof ISSUE_COLUMNS[number];
 // ID・タイトル・ラベル・更新日時は列のキーを持たず、常に出す
 export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project", "assignee"];
 
-// 画面の既定の列。全行が同じ値になる列（Project 詳細の Project、My issues の担当タブの担当）は既定から外す。
+// 画面の既定の列。全行が同じ値になる列（Project 詳細の Project）は既定から外す。
 // 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
 export function defaultIssueColumns(sameValueColumn?: IssueColumn): IssueColumn[] {
   return DEFAULT_ISSUE_COLUMNS.filter((column) => column !== sameValueColumn);
 }
 
-// My issues で全行が同じ値になる列。担当タブは担当（全行が me）。委任中タブは LLM ごとに違うため外さない
-export function mineSameValueColumn(tab: IssueTab | undefined): IssueColumn | undefined {
-  return tab === "delegated" ? undefined : "assignee";
-}
 export type ProjectTab = "active" | "completed" | "all";
 
 export interface SelectedSearch {
@@ -132,23 +128,20 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
 
 // タブの既定のグループ化。委任中タブは LLM ごとに見られるよう、グループ化が未指定なら担当でまとめる。
 // URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す。
-// My issues（mine）の担当タブは Status でまとめる（Pencil「My issues｜担当タブ（#162）」）
+// My issues（mine）はタブを持たず、Status でまとめる（Pencil「My issues｜担当タブ（#162）」）
 export function defaultGroupBy(tab: IssueTab | undefined, mine = false): IssueGroupKey | undefined {
-  if (tab === "delegated") return "assignee";
-  return mine ? "status" : undefined;
+  if (mine) return "status";
+  return tab === "delegated" ? "assignee" : undefined;
 }
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
   return a.length === b.length && b.every((column) => a.includes(column));
 }
 
-// mine は My issues の URL。タブは担当（既定）と委任中だけで、担当の条件は me に固定するため URL に持たない。
+// mine は My issues の URL。タブを持たず（担当が me と LLM の Issue をまとめて出す）、担当の条件は固定のため URL に持たない。
 // sameValueColumn はその画面で既定から外す列（defaultIssueColumns）。列がその画面の既定と同じなら URL に書かない
 export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn): IssueListSearch {
-  if (mine) {
-    search = { ...search, tab: search.tab === "delegated" ? "delegated" : undefined, assignee: undefined };
-    sameValueColumn = mineSameValueColumn(search.tab);
-  }
+  if (mine) search = { ...search, tab: undefined, assignee: undefined };
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;

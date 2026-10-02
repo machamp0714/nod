@@ -4,7 +4,7 @@ import type { NodData } from "./support/nod";
 import { chooseDisplay, closeDisplay, displaySelect, displaySwitch, openDisplay } from "./support/issue-list";
 
 // issue-list に私の担当を足す：API-4・NOD-5（Todo）を me に、API-9（Needs Clarification）を一覧にない担当 gemini に割り当てる。
-// 委任中は claude-code の API-12・API-7・BLOG-2、codex の API-8、gemini の API-9。NOD-3 は claude-code の担当だが done
+// LLM の担当は claude-code の API-12・API-7・BLOG-2・NOD-3（done）、codex の API-8、gemini の API-9
 test.use({ dataset: "issue-list" });
 
 async function assign(nod: NodData) {
@@ -13,12 +13,14 @@ async function assign(nod: NodData) {
   await nod.me.updateIssue("API-9", { assignee: "gemini" });
 }
 
+const LLM_ISSUES = ["API-12", "API-7", "BLOG-2", "NOD-3", "API-8"];
+
 const region = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 const tableRows = (page: Page) => page.locator("tbody tr");
 const chips = (page: Page) => page.getByRole("group", { name: "絞り込み条件" });
 
 test.describe("My issues", () => {
-  test("Sidebar から開くと担当タブに私の担当だけを Status でまとめて出し、担当の条件は外せない", async ({ page, nod }) => {
+  test("Sidebar から開くと担当が me と LLM の Issue をまとめて Status ごとに出し、担当の条件は外せない", async ({ page, nod }) => {
     await assign(nod);
     await page.goto("/inbox");
     const nav = page.getByRole("navigation", { name: "メイン" });
@@ -28,93 +30,76 @@ test.describe("My issues", () => {
     await expect(nav.getByRole("link", { name: "My issues" })).toHaveAttribute("aria-current", "page");
     await expect(nav.getByRole("link", { name: "My issues" })).toHaveText("My issues");
 
-    await expect(page.getByRole("tab")).toHaveText(["担当 2", "委任中 5"]);
-    await expect(page.getByRole("tab", { name: "担当 2", exact: true })).toHaveAttribute("aria-selected", "true");
+    // 委任中タブはなく、担当タブだけ
+    await expect(page.getByRole("tab")).toHaveText(["担当 8"]);
+    await expect(page.getByRole("tab", { name: "担当 8", exact: true })).toHaveAttribute("aria-selected", "true");
     // List と Board の切り替えとグループ化は Display のポップオーバーにある
     const popover = await openDisplay(page);
     await expect(popover.getByRole("tablist", { name: "表示" }).getByRole("tab")).toHaveText(["List", "Board"]);
     await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "status");
     await closeDisplay(page);
-    await expect(region(page, "Status Todo").locator("tbody tr")).toHaveCount(2);
-    await expect(tableRows(page)).toHaveCount(2);
-    await expect(tableRows(page)).toContainText(["NOD-5", "API-4"]);
+    await expect(tableRows(page)).toHaveCount(8);
+    await expect(region(page, "Status Todo").locator("tbody tr")).toContainText(["NOD-5", "API-4"]);
+    for (const id of ["API-9", ...LLM_ISSUES]) await expect(page.locator(`[data-issue-row="${id}"]`).first()).toBeVisible();
+    // 行ごとに担当が違うため、担当の列を既定で出す
+    await expect(page.getByRole("columnheader", { name: "担当", exact: true }).first()).toBeVisible();
 
-    await expect(chips(page)).toContainText(/担当\s*is\s*me/);
+    await expect(chips(page)).toContainText(/担当\s*is\s*me, LLM/);
     await expect(chips(page).getByRole("button", { name: "担当 の条件を外す" })).toHaveCount(0);
     // 件数カードと「View として保存」は置かない
     await expect(page.getByRole("button", { name: /^Ready/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "View として保存" })).toHaveCount(0);
   });
 
-  test("委任中タブは LLM ごとに担当でまとめ、URL で復元し、担当タブに戻ると URL から消す", async ({ page, nod }) => {
+  test("URL に残った委任中タブは使わず、担当タブを出す", async ({ page, nod }) => {
     await assign(nod);
-    await page.goto("/my-issues");
-    await page.getByRole("tab", { name: "委任中 5", exact: true }).click();
-    await expect(page).toHaveURL(/tab=delegated/);
-    await expect(page).not.toHaveURL(/groupBy=/);
-    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "assignee");
+    await page.goto("/my-issues?tab=delegated");
+    await expect(page.getByRole("tab")).toHaveText(["担当 8"]);
+    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "status");
     await closeDisplay(page);
-    await expect(region(page, "担当 claude-code").locator("tbody tr")).toHaveCount(3);
-    await expect(region(page, "担当 claude-code").getByRole("heading").getByLabel("作業状況の内訳")).toHaveText("入力待ち 2完了 1");
-    await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
-    await expect(region(page, "担当 gemini").locator("tbody tr")).toHaveCount(1);
-    await expect(tableRows(page)).toHaveCount(5);
-    // 委任中タブの固定チップは「担当 is LLM」（行の担当は LLM。「担当 is me」は出さない）で、外せない（#166）
-    await expect(chips(page)).toContainText(/担当\s*is\s*LLM/);
-    await expect(chips(page)).not.toContainText(/is\s*me/);
-    await expect(chips(page).getByRole("button", { name: "担当 の条件を外す" })).toHaveCount(0);
-
-    await page.reload();
-    await expect(page.getByRole("tab", { name: "委任中 5", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(region(page, "担当 codex").locator("tbody tr")).toHaveCount(1);
-    await expect(chips(page)).toContainText(/担当\s*is\s*LLM/);
-
-    await page.getByRole("tab", { name: "担当 2", exact: true }).click();
+    await expect(tableRows(page)).toHaveCount(8);
+    await chooseDisplay(page, "グループ化", "なし");
     await expect(page).not.toHaveURL(/tab=/);
-    await expect(tableRows(page)).toHaveCount(2);
-    await expect(chips(page)).toContainText(/担当\s*is\s*me/);
-    await expect(chips(page)).not.toContainText(/is\s*LLM/);
   });
 
   test("ほかの条件で絞り込め、URL に残る。担当の条件と Issues のタブは URL にあっても使わない", async ({ page, nod }) => {
     await assign(nod);
     await page.goto(`/my-issues?assignee=${encodeURIComponent(JSON.stringify(["codex"]))}&tab=ready`);
-    await expect(page.getByRole("tab", { name: "担当 2", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(tableRows(page)).toHaveCount(2);
+    await expect(page.getByRole("tab", { name: "担当 8", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(tableRows(page)).toHaveCount(8);
 
     await page.getByText("Filter", { exact: true }).click();
     await expect(page.getByRole("group", { name: "担当", exact: true })).toHaveCount(0);
     await page.getByRole("group", { name: "Workspace" }).getByRole("checkbox", { name: "nod", exact: true }).check();
     await expect(page).toHaveURL(/workspace=/);
     await expect(page).not.toHaveURL(/assignee=|tab=/);
-    await expect(page.getByRole("tab")).toContainText(["担当 1", "委任中 0"]);
-    await expect(tableRows(page)).toHaveCount(1);
-    await expect(tableRows(page)).toContainText("NOD-5");
+    await expect(page.getByRole("tab")).toHaveText(["担当 2"]);
+    await expect(tableRows(page)).toHaveCount(2);
+    await expect(tableRows(page)).toContainText(["NOD-5", "NOD-3"]);
 
     await page.reload();
-    await expect(tableRows(page)).toHaveCount(1);
-    await page.getByRole("tab", { name: "委任中 0", exact: true }).click();
-    await expect(page.getByText("LLM に委任中の Issue はありません", { exact: true })).toBeVisible();
+    await expect(tableRows(page)).toHaveCount(2);
   });
 
   test("「なし」を選ぶとフラットに出し、再読み込みしても保つ。完了済みは表示設定に従う", async ({ page, nod }) => {
     await assign(nod);
     await nod.me.updateIssue("NOD-5", { status: "done" });
     await page.goto("/my-issues");
-    await expect(region(page, "Status Done").locator("tbody tr")).toHaveCount(1);
+    await expect(region(page, "Status Done").locator("tbody tr")).toHaveCount(2);
     await chooseDisplay(page, "グループ化", "なし");
     await expect(page).toHaveURL(/groupBy=none/);
     await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
-    await expect(tableRows(page)).toHaveCount(2);
+    await expect(tableRows(page)).toHaveCount(8);
     await page.reload();
     await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
 
     await (await displaySwitch(page, "完了済み Issue を表示")).click();
-    await expect(tableRows(page)).toHaveCount(1);
-    await expect(tableRows(page)).toContainText("API-4");
+    await expect(tableRows(page)).toHaveCount(6);
+    await expect(tableRows(page)).not.toContainText(["NOD-5"]);
   });
 
-  test("私の担当がなければ空の状態を出す", async ({ page }) => {
+  test("担当が me でも LLM でもなければ空の状態を出す", async ({ page, nod }) => {
+    for (const id of LLM_ISSUES) await nod.me.updateIssue(id, { assignee: null });
     await page.goto("/my-issues");
     await expect(page.getByRole("tab", { name: "担当 0", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByText("担当している Issue はありません", { exact: true })).toBeVisible();
