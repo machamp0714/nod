@@ -136,5 +136,14 @@ test.describe("表示設定の取得失敗", () => {
     // 5xx は3回再試行されるため、表示まで約7秒かかる（display-options.e2e.ts の取得失敗と同じ）
     await expect(page.getByRole("table")).toBeVisible({ timeout: 15_000 });
     await expect(await layoutTab(page, "List")).toHaveAttribute("aria-selected", "true");
+
+    // 取得に失敗している間は、表示を変えても保存の要求（PUT・DELETE）を送らない
+    let writes = 0;
+    page.on("request", (req) => {
+      if (req.url().includes("/api/page-displays/") && req.method() !== "GET") writes++;
+    });
+    await setLayout(page, "Board");
+    await expect(await layoutTab(page, "Board")).toHaveAttribute("aria-selected", "true");
+    expect(writes).toBe(0);
   });
 });

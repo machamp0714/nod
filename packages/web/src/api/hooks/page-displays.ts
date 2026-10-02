@@ -8,7 +8,12 @@ import type { PageDisplay } from "../types";
 type PageDisplays = Record<string, PageDisplay>;
 
 export function usePageDisplays() {
-  return useQuery({ queryKey: queryKeys.pageDisplays(), queryFn: () => apiFetch<PageDisplays>("/page-displays") });
+  return useQuery({
+    queryKey: queryKeys.pageDisplays(),
+    queryFn: () => apiFetch<PageDisplays>("/page-displays"),
+    // 書き込むのはこのフックだけ。他の変更の onSettled や SSE による全体の読み直しが PUT と競合し、楽観的な値を古い値で上書きしうるので除く
+    meta: { immutable: true },
+  });
 }
 
 const pagePath = (page: PageKey) => `/page-displays/${encodeURIComponent(page)}`;
@@ -47,10 +52,13 @@ export function usePageDisplay(scope: PageScope, url: IssueListSearch) {
     ready: !displays.isPending,
     search: pageSearch(saved, url),
     // ポップオーバーの変更だけを保存する。見えている表示設定（保存 ＋ URL）に変更を重ねたものを丸ごと保存する
+    // 取得に失敗している間は送らない（{} から作った値で、実際に保存されている値を上書きしないため）
     save: (patch: IssueListSearch) => {
-      if (hasDisplayKey(patch)) put.mutate({ display: pageDisplayFromSearch({ ...pageSearch(saved, url), ...patch }, scope) });
+      if (!displays.isError && hasDisplayKey(patch)) put.mutate({ display: pageDisplayFromSearch({ ...pageSearch(saved, url), ...patch }, scope) });
     },
-    reset: () => remove.mutate(),
+    reset: () => {
+      if (!displays.isError) remove.mutate();
+    },
     resetDisabled: Object.keys(saved).length === 0 && !hasDisplayKey(url),
   };
 }
