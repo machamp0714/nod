@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
-import { defaultIssueColumns, mineSameValueColumn } from "../../routes/search";
+import { defaultIssueColumns } from "../../routes/search";
 import type { IssueColumn, IssueGroupKey, IssueListSearch } from "../../routes/search";
 import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
@@ -35,9 +35,9 @@ export interface IssueListProps {
   onSearchChange: (patch: IssueListSearch) => void;
   // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
   statusWorkspace?: string | null;
-  // My issues：タブを「担当｜委任中」にする。担当タブは Status でまとめるのが既定
+  // My issues：タブは担当（me と LLM の担当）だけにする。Status でまとめるのが既定
   mine?: boolean;
-  // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す。My issues は担当タブの担当を自分で外す
+  // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す
   sameValueColumn?: IssueColumn;
   // ページごとに保存した表示設定を消す（#218）。View では渡さない
   onResetDisplay?: () => void;
@@ -79,7 +79,7 @@ export function IssueList({
     const cycle = cycles.data?.find((c) => c.id === id);
     return cycle && { label: cycleLabel(cycle, cycles.data ?? []), rank: `${cycle.startDate} ${cycle.workspace}`, current: cycle.state === "current" };
   };
-  const tab: ListTab = mine ? (search.tab === "delegated" ? "delegated" : "mine") : (search.tab ?? "all");
+  const tab: ListTab = mine ? "mine" : (search.tab ?? "all");
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
   const counts = countRows(rows);
@@ -87,7 +87,7 @@ export function IssueList({
   const preview = search.preview;
   // プレビュー中は一覧の幅が狭くなるため、PREVIEW_HIDDEN_COLUMNS（Project・Workspace とチップで足した列）を隠して題名の幅を保つ（#174・#196）
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
-  const columns = search.columns ?? defaultIssueColumns(mine ? mineSameValueColumn(search.tab) : sameValueColumn);
+  const columns = search.columns ?? defaultIssueColumns(sameValueColumn);
   const tableColumns = preview ? columns.filter((column) => !PREVIEW_HIDDEN_COLUMNS.includes(column)) : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout, mine);
   const groups = groupBy
@@ -122,7 +122,7 @@ export function IssueList({
     if (markCurrent) currentShown = true;
     const selection = rowSelection && { ...rowSelection, offset };
     offset += tableRows.length;
-    return <IssueTable rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated} selection={selection} />;
+    return <IssueTable rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
@@ -226,7 +226,6 @@ export function IssueList({
           onChange={selectTab}
           items={mine ? [
             { value: "mine", label: `担当 ${counts.mine}` },
-            { value: "delegated", label: `委任中 ${counts.delegated}` },
           ] : [
             { value: "all", label: `All ${counts.all}` },
             { value: "ready", label: `Ready ${counts.ready}` },

@@ -285,22 +285,18 @@ test("Project 詳細では Project の列を既定で出さず、チップで出
   await expect(page).not.toHaveURL(/columns=/);
 });
 
-test("My issues の担当タブでは担当の列を既定で出さず、委任中タブでは出す", async ({ page, nod }) => {
+test("My issues は担当が me と LLM に分かれるため、担当の列を既定で出す", async ({ page, nod }) => {
   await nod.me.updateIssue("API-4", { assignee: "me" });
   await page.goto("/my-issues");
-  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(1);
-  await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS.filter((name) => name !== "担当"));
-  await expect(await columnChip(page, "担当")).toHaveAttribute("aria-pressed", "false");
-  await setColumn(page, "担当", true);
-  await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS);
-  await expect(page).toHaveURL(/columns=/);
-  await page.reload();
-  await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(1);
-
-  await page.goto("/my-issues?tab=delegated");
   await expect(page.locator("main tbody tr[data-issue-row]").first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "担当", exact: true }).first()).toBeVisible();
   await expect(await columnChip(page, "担当")).toHaveAttribute("aria-pressed", "true");
+  await setColumn(page, "担当", false);
+  await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(/columns=/);
+  await page.reload();
+  await expect(page.locator("main tbody tr[data-issue-row]").first()).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(0);
 });
 
 // priority の条件は CLI・API で作った View だけが持つ。Web では ready・委任中と同じく、チップに出して外すことだけできる

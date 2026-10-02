@@ -64,7 +64,7 @@ export function IssueTable({
   previewId?: string;
   markCurrent?: boolean; // 同じ Issue が複数のグループに出るとき、aria-current は最初の1行だけに付ける
   onPreview?: (id: string) => void;
-  showAgentState?: boolean; // 委任中タブだけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
+  showAgentState?: boolean; // 委任中タブと My issues だけ、タイトルの横に作業状況を出す（design/nod.pen「Issues｜委任中タブ（#53）」）
   // 一括編集の選択（design/nod.pen「Issues｜一括編集（#31）」）。List 表示のときだけ渡す
   // offset はこの表の先頭行の、一覧全体での表示位置（Shift の範囲選択に使う）
   selection?: { ids: ReadonlySet<string>; offset: number; onToggle: (at: number, shift: boolean) => void };

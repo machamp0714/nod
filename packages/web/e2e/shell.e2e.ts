@@ -77,7 +77,7 @@ const ROUTES: Route[] = [
     },
     ready: [count('section[aria-label="説明"]', 1), count('section[aria-label="プロパティ"] button[aria-label="Project"]', 1)],
   },
-  { name: "/my-issues", ready: [text("担当している Issue はありません")] },
+  { name: "/my-issues", ready: [count("table tbody tr", 5)] },
   { name: "/views/1", ready: [count("table tbody tr", 8)] },
   { name: "/projects", ready: [count("table tbody tr", 4)] },
   { name: "/projects/1", ready: [count("table tbody tr", 3), count('section[aria-label="Milestones"]', 1)] },
