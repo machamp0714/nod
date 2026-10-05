@@ -565,4 +565,40 @@ export const MIGRATIONS: MigrationStep[][] = [
       updated_at TEXT NOT NULL
     )`,
   ],
+  // Cycle を全体で1系列にする（NOD-2）。Workspace を外し、名前は全体で一意。期間が重ならないことは作成・更新時に検査する。
+  // 既存の名前が Workspace 間で重なるときは「名前 · キー」に改名する。周期の設定（行は最大1つ）と、自動持ち越しの印も足す
+  [
+    `UPDATE cycles SET name = name || ' · ' || (SELECT key FROM workspaces w WHERE w.id = cycles.workspace_id)
+     WHERE id NOT IN (SELECT min(id) FROM cycles GROUP BY name)`,
+    // 外部キーが有効なまま古い cycles を DROP すると issues.cycle_id が ON DELETE SET NULL で消えるため、所属を控えて戻す
+    `CREATE TEMP TABLE cycle_members AS SELECT id, cycle_id FROM issues WHERE cycle_id IS NOT NULL`,
+    `CREATE TABLE cycles_new (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      start_date TEXT NOT NULL CHECK (typeof(start_date) = 'text' AND length(start_date) = 10 AND date(start_date) = start_date),
+      end_date TEXT NOT NULL CHECK (typeof(end_date) = 'text' AND length(end_date) = 10 AND date(end_date) = end_date),
+      carried_over_at TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (start_date <= end_date)
+    )`,
+    `INSERT INTO cycles_new (id, name, start_date, end_date, created_by, created_at, updated_at)
+     SELECT id, name, start_date, end_date, created_by, created_at, updated_at FROM cycles`,
+    `DROP INDEX cycles_workspace`,
+    `DROP TABLE cycles`,
+    `ALTER TABLE cycles_new RENAME TO cycles`,
+    `UPDATE issues SET cycle_id = (SELECT m.cycle_id FROM cycle_members m WHERE m.id = issues.id) WHERE id IN (SELECT id FROM cycle_members)`,
+    `DROP TABLE cycle_members`,
+    `CREATE INDEX cycles_start ON cycles (start_date)`,
+    `CREATE TABLE cycle_cadence (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      weeks INTEGER NOT NULL CHECK (weeks BETWEEN 1 AND 4),
+      auto_carry_over INTEGER NOT NULL DEFAULT 1 CHECK (auto_carry_over IN (0, 1)),
+      anchor_date TEXT NOT NULL CHECK (length(anchor_date) = 10 AND date(anchor_date) = anchor_date),
+      next_number INTEGER NOT NULL DEFAULT 1,
+      updated_by TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
+  ],
 ];

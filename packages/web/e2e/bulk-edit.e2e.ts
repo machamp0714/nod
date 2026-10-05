@@ -187,9 +187,9 @@ test("上限の100件を超えて選ぶと、送る前に知らせて項目を�
 test("Cycle・Milestone をまとめて入れ・外し、Workspace・Project が混ざると理由を出して選べなくする（#154）", async ({ page, nod }) => {
   const { ws, ids } = await seed(nod);
   const [b1, b2, b3] = ids as [string, string, string, string];
-  await nod.me.createCycle({ workspaceId: ws.id, name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
-  const current = await nod.me.createCycle({ workspaceId: ws.id, name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
-  await nod.me.createCycle({ workspaceId: ws.id, name: "Sprint 13", startDate: localDate(8), endDate: localDate(20) });
+  await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
+  const current = await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
+  await nod.me.createCycle({ name: "Sprint 13", startDate: localDate(8), endDate: localDate(20) });
   const m = await nod.me.createMilestone("決済まわり", { name: "v1.0" });
   await nod.me.createMilestone("決済まわり", { name: "v1.1" });
   for (const id of [b1, b2]) await nod.me.updateIssue(id, { projectRef: "決済まわり" });

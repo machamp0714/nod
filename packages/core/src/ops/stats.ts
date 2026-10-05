@@ -4,7 +4,7 @@ import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
 import { isNoneRef } from "../none-ref";
-import { resolveCycleInScope } from "./cycles";
+import { resolveCycle } from "./cycles";
 import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 
@@ -19,7 +19,7 @@ export interface StatsQuery {
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
   milestone?: string; // Milestone の ID か none（Milestone のない Issue）。名前は project を指定したときだけ（その Project の中で引く）
-  cycle?: string; // Cycle の ID か none（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ（current は tz の今日で決める）
+  cycle?: string; // Cycle の ID・名前・current か none（Cycle のない Issue）。current は tz の今日で決める
   now?: Date; // テスト用。既定の範囲の基準
 }
 
@@ -155,14 +155,12 @@ export function issueScope(
 ): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
-  let workspaceIds: number[] | undefined;
   if (q.workspace?.length) {
     const ids = q.workspace.map((key) => {
       const found = findWorkspace(db, key);
       if (!found) throw new NodError("NOT_FOUND", `Workspace ${key} はありません`);
       return found.id;
     });
-    workspaceIds = [...new Set(ids)];
     where.push(`i.workspace_id IN (${ids.map(() => "?").join(",")})`);
     params.push(...ids);
   }
@@ -192,7 +190,7 @@ export function issueScope(
     if (isNoneRef(q.cycle)) where.push("i.cycle_id IS NULL");
     else {
       where.push("i.cycle_id = ?");
-      params.push(resolveCycleInScope(db, q.cycle, workspaceIds, { tz: q.tz, now: q.now }));
+      params.push(resolveCycle(db, q.cycle, { tz: q.tz, now: q.now }).id);
     }
   }
   return { where: where.map((w) => ` AND ${w}`).join(""), params };

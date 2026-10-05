@@ -19,7 +19,7 @@ function repo(): string {
 }
 
 describe("Cycle CLI", () => {
-  test("LLM も Cycle を作り、Issue を入れ、未完了を次の Cycle へ移せるが、削除は人だけ", () => {
+  test("LLM も Cycle を作り、Issue を入れられるが、削除は人だけ。別 repo の Issue も同じ Cycle に入る", () => {
     const db = tempDb();
     const cwd = repo();
     expect(cli(db, cwd, ["init", "--key", "CYC"], "me").code).toBe(0);
@@ -36,10 +36,16 @@ describe("Cycle CLI", () => {
     const outside = cli(db, cwd, ["issue", "create", "Cycle の外", "--json"], "me").json;
     expect(cli(db, cwd, ["issue", "list", "--cycle", "none", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([outside.id]);
     expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  持ち越し候補 1");
-    expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).toContain("nod cycle move-open");
+    expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).not.toContain("move-open");
+    // 手動でまとめて移すコマンドは廃止した
+    expect(cli(db, cwd, ["cycle", "move-open", "S1", "--to", "S2"]).code).not.toBe(0);
 
-    const moved = cli(db, cwd, ["cycle", "move-open", "S1", "--to", "S2", "--json"]);
-    expect(moved.json).toMatchObject({ moved: [created.id], to: { name: "S2", open: 1 } });
+    // 別の repo（Workspace）の Issue も同じ Cycle に入れ、名前で両方を絞れる
+    const webCwd = repo();
+    expect(cli(db, webCwd, ["init", "--key", "WEB"], "me").code).toBe(0);
+    const web = cli(db, webCwd, ["issue", "create", "Web の作業", "--cycle", "S1", "--json"], "me").json;
+    expect(web.cycle.name).toBe("S1");
+    expect(cli(db, cwd, ["issue", "list", "--all-workspaces", "--cycle", "S1", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([created.id, web.id]);
     expect(cli(db, cwd, ["issue", "update", created.id, "--cycle", "", "--json"]).json.cycle).toBeNull();
     expect(cli(db, cwd, ["summary", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["stats", "--cycle", "S2", "--json"]).code).toBe(0);

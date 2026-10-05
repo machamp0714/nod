@@ -129,9 +129,9 @@ test("URL の Project と食い違う Milestone は、API を呼ばずに知ら�
 test("Cycle で絞り込むと URL に残し、同じ名前の Cycle は Workspace のキーで見分け、Cycle なしでも絞れる", async ({ page, nod }) => {
   const { reviewed, apiId, webId } = await seed(nod);
   const period = { startDate: "2026-10-01", endDate: "2026-10-14" };
-  const apiSprint = await nod.me.createCycle({ workspaceId: apiId, name: "Sprint 12", ...period });
-  await nod.me.createCycle({ workspaceId: webId, name: "Sprint 12", ...period });
-  await nod.me.createCycle({ workspaceId: webId, name: "Design Week", startDate: "2026-10-15", endDate: "2026-10-21" });
+  const apiSprint = await nod.me.createCycle({ name: "Sprint 12", ...period });
+  await nod.me.createCycle({ name: "Sprint 12", ...period });
+  await nod.me.createCycle({ name: "Design Week", startDate: "2026-10-15", endDate: "2026-10-21" });
   await nod.me.updateIssue(reviewed.id, { cycleRef: String(apiSprint.id) });
   await page.goto("/analytics");
   const cycle = page.getByLabel("Cycle");
@@ -154,8 +154,8 @@ test("Cycle で絞り込むと URL に残し、同じ名前の Cycle は Workspa
 test("Workspace を選ぶと Cycle の選択肢をその Workspace に絞り、選び直すと食い違う Cycle を外す。URL の食い違いは API を呼ばずに知らせる", async ({ page, nod }) => {
   const { apiId, webId } = await seed(nod);
   const period = { startDate: "2026-10-01", endDate: "2026-10-14" };
-  const apiSprint = await nod.me.createCycle({ workspaceId: apiId, name: "Sprint 12", ...period });
-  const webSprint = await nod.me.createCycle({ workspaceId: webId, name: "Sprint 12", ...period });
+  const apiSprint = await nod.me.createCycle({ name: "Sprint 12", ...period });
+  const webSprint = await nod.me.createCycle({ name: "Sprint 12", ...period });
   const called: string[] = [];
   page.on("request", (req) => {
     if (/\/api\/stats\?.*cycle=/.test(req.url())) called.push(req.url());
@@ -282,7 +282,7 @@ test("フィルタは Header の下の高さ 43 の行に置き、select は高�
   const { apiId } = await seed(nod);
   await nod.me.createProject({ name: LONG_PROJECT });
   await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
-  await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  await nod.me.createCycle({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
   await page.goto("/analytics");
   // 選択肢が出てから測る（select の幅は選択肢で変わりうる）
   await expect(page.getByLabel("Project").locator("option")).toHaveCount(3);
@@ -309,7 +309,7 @@ test("長い名前の Project・Milestone・Cycle を選ぶと、フィルタは
   const { apiId } = await seed(nod);
   const project = await nod.me.createProject({ name: LONG_PROJECT });
   const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
-  const cycle = await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  const cycle = await nod.me.createCycle({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
   await page.goto(`/analytics?project=${project.id}&milestone=${milestone.id}&cycle=${cycle.id}`);
   await expect(page.getByLabel("Project")).toHaveValue(String(project.id));
   await expect(page.getByLabel("Milestone")).toHaveValue(String(milestone.id));
@@ -340,7 +340,7 @@ test("幅が狭くても、フィルタのラベルは1行のままで、枠の�
   const { apiId } = await seed(nod);
   const project = await nod.me.createProject({ name: LONG_PROJECT });
   const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
-  const cycle = await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  const cycle = await nod.me.createCycle({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
   for (const width of [1280, 720, 480]) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto(`/analytics?project=${project.id}&milestone=${milestone.id}&cycle=${cycle.id}`);
@@ -364,7 +364,7 @@ test("field-sizing が効かなくても、/analytics と /summary の Main に�
   const { apiId } = await seed(nod);
   await nod.me.createProject({ name: LONG_PROJECT });
   await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
-  await nod.me.createCycle({ workspaceId: apiId, name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
+  await nod.me.createCycle({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
   for (const path of ["/analytics", "/summary"]) {
     await page.goto(path);
     const project = page.getByLabel("Project");

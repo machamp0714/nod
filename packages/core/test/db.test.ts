@@ -29,6 +29,7 @@ describe("openDb", () => {
       "agent_instructions",
       "auto_transitions",
       "comments",
+      "cycle_cadence",
       "cycles",
       "document_links",
       "documents",

@@ -41,7 +41,7 @@ const rowMisalignment = (page: Page, rowSelector: string, itemSelector: string) 
 async function cycleDetailPath(nod: NodData): Promise<string> {
   const [api] = (await nod.me.listWorkspaces()).filter((w) => w.key === "API");
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString("sv-SE");
-  const cycle = await nod.me.createCycle({ workspaceId: api!.id, name: "Sprint 12", startDate: day(-3), endDate: day(3) });
+  const cycle = await nod.me.createCycle({ name: "Sprint 12", startDate: day(-3), endDate: day(3) });
   for (const id of ["API-12", "API-8", "API-4"]) await nod.me.updateIssue(id, { cycleRef: String(cycle.id) });
   return `/cycles/${cycle.id}`;
 }

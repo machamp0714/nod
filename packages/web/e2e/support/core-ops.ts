@@ -80,7 +80,7 @@ export const DB_OPS = [
   "listMilestones",
   "getInitiative",
   "listInitiatives",
-  "listAllCycles",
+  "listCycles",
   "getDocument",
   "listDocuments",
   "readDocument",

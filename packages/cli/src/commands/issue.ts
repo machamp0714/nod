@@ -204,7 +204,7 @@ export function registerIssueCommands(program: Command): void {
     .option("-s, --status <statuses>", "ステータス（カンマ区切り）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の ID か none（Milestone なし）。名前は --project を指定したとき")
-    .option("--cycle <cycle>", "Cycle の ID か none（Cycle なし）。名前・current は Workspace を1つに絞ったとき")
+    .option("--cycle <cycle>", "Cycle の ID・名前・current か none（Cycle なし）")
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
     .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")

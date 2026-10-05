@@ -53,7 +53,7 @@ export interface Issue {
   parentId: string | null;
   project: { id: number; name: string } | null;
   milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
-  cycle: { id: number; name: string } | null; // 所属する Cycle（同じ Workspace のもの）。未設定は null
+  cycle: { id: number; name: string } | null; // 所属する Cycle。未設定は null
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
@@ -176,13 +176,12 @@ export interface InitiativeDetail extends InitiativeSummary {
   projects: ProjectSummary[]; // 名前順
 }
 
-// 期間（#82）。Workspace ごとで、期間は時刻なしの暦日（両端を含む）。状態は保存せず、今日の暦日から求める
+// 期間（#82・NOD-2）。全体で1系列で、期間は時刻なしの暦日（両端を含む）。状態は保存せず、今日の暦日から求める
 export const CYCLE_STATES = ["upcoming", "current", "completed"] as const;
 export type CycleState = (typeof CYCLE_STATES)[number];
 
 export interface Cycle {
   id: number;
-  workspace: string; // Workspace のキー
   name: string;
   startDate: string;
   endDate: string;

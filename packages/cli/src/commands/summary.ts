@@ -51,7 +51,7 @@ export function registerSummaryCommand(program: Command): void {
     .description("期間内の動き（完了・着手・レビュー提出・差し戻し・質問/回答・ブロッカー・新規起票・アーカイブ）を種類別にまとめる。読み取り専用")
     .option("--since <期間>", `24h・7d・2w のような直近の長さか ISO 日時（既定は ${SUMMARY_DEFAULT_SINCE}、最長 90 日）`)
     .option("--project <project>", "Project の名前か ID")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current、none は Cycle のない Issue（名前と current は Workspace を1つに絞ったとき）")
+    .option("--cycle <cycle>", "Cycle の ID・名前・current、none は Cycle のない Issue")
     .option("--limit <n>", `種類ごとに並べる件数（既定は ${SUMMARY_DEFAULT_LIMIT}、最大 200）。超えた分は「他N件」`)
     .option("--include-archived", "アーカイブ済み Issue の動きも含める")
     .option("--all-workspaces", "すべての Workspace をまとめる（既定は現在の Workspace）")

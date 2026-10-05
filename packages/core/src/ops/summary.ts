@@ -43,7 +43,7 @@ export interface SummaryQuery {
   since?: string; // 24h・7d・2w のような直近の長さか ISO 日時。省略時は 24h
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
-  cycle?: string; // Cycle の ID か none（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ（current は実行環境のローカルの今日）
+  cycle?: string; // Cycle の ID・名前・current か none（Cycle のない Issue）。current は実行環境のローカルの今日
   limit?: number; // 種類ごとに返す件数。省略時は 20
   includeArchived?: boolean; // アーカイブ済み Issue の動きも含める
   now?: Date; // テスト用。期間の終点
