@@ -20,6 +20,12 @@ describe("周期の設定", () => {
     clearCadence(me);
     expect(getCadence(db)).toBeNull();
   });
+
+  test("最初の Cycle の終了日が 9999-12-31 を超える開始日は受け付けない", () => {
+    const { me } = setup();
+    expect(codeOf(() => setCadence(me, { weeks: 2, anchorDate: "9999-12-25" }))).toBe("INVALID_ARGS");
+    expect(setCadence(me, { weeks: 1, anchorDate: "9999-12-25" }, at("2026-10-05")).anchorDate).toBe("9999-12-25");
+  });
 });
 
 describe("syncCycles: 自動作成", () => {
@@ -105,6 +111,26 @@ describe("syncCycles: 自動作成", () => {
     expect(syncCycles(me, at("2026-10-05"))).toEqual({ created: [], carried: [] });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  test("終了日が 9999-12-31 を超える Cycle は作らず、以後の呼び出しも何もしない", () => {
+    const { db, me } = setup();
+    createCycle(me, { name: "長期", startDate: "2026-10-01", endDate: "9999-12-25" }, at("2026-10-05"));
+    setCadence(me, { weeks: 1 }, at("2026-10-05"));
+    expect(syncCycles(me, at("2026-10-05"))).toEqual({ created: [], carried: [] });
+    expect(names(db, "2026-10-05")).toEqual(["長期 2026-10-01〜9999-12-25 current"]);
+    const spy = spyOn(db, "transaction");
+    expect(syncCycles(me, at("2026-10-05"))).toEqual({ created: [], carried: [] });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test("最後の Cycle が 9999-12-31 に終わっていても例外にしない", () => {
+    const { db, me } = setup();
+    createCycle(me, { name: "最後", startDate: "9999-12-01", endDate: "9999-12-31" }, at("9999-12-31"));
+    setCadence(me, { weeks: 1 }, at("9999-12-31"));
+    expect(syncCycles(me, at("9999-12-31"))).toEqual({ created: [], carried: [] });
+    expect(listCycles(db)).toHaveLength(1);
   });
 });
 

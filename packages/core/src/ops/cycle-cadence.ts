@@ -25,6 +25,15 @@ export function addDays(date: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// 自動で作る Cycle の終了日の上限。日付は4桁の年までしか扱えない
+const MAX_CYCLE_DATE = "9999-12-31";
+
+// start から length 日の Cycle の終了日。上限を超えるなら null
+function cycleEnd(start: string, length: number): string | null {
+  if (start > MAX_CYCLE_DATE || daysBetween(start, MAX_CYCLE_DATE) < length - 1) return null;
+  return addDays(start, length - 1);
+}
+
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
@@ -58,6 +67,9 @@ export function setCadence(ctx: OpCtx, input: { weeks: number; autoCarryOver?: b
   if (input.anchorDate !== undefined && !isValidDueDateInput(input.anchorDate)) {
     throw new NodError("INVALID_ARGS", `開始日は YYYY-MM-DD の日付で指定してください（${input.anchorDate}）`);
   }
+  if (input.anchorDate !== undefined && cycleEnd(input.anchorDate, input.weeks * 7) === null) {
+    throw new NodError("INVALID_ARGS", `最初の Cycle の終了日が ${MAX_CYCLE_DATE} を超えます。開始日を前にしてください（${input.anchorDate}）`);
+  }
   const today = cycleToday(clock);
   return tx(ctx.db, () => {
     const before = getCadence(ctx.db);
@@ -81,14 +93,17 @@ export function clearCadence(ctx: OpCtx): void {
   ctx.db.query("DELETE FROM cycle_cadence WHERE id = 1").run();
 }
 
-// 次に作る Cycle の初日。作る必要がなければ null
+// 次に作る Cycle の初日。作る必要がない、または終了日が上限を超えるなら null
 function nextStart(db: Database, cadence: CycleCadence, today: string): string | null {
   const length = cadence.weeks * 7;
   const last = db.query("SELECT end_date FROM cycles ORDER BY end_date DESC LIMIT 1").get() as { end_date: string } | null;
-  if (!last) return gridStart(cadence.anchorDate, length, today);
-  if (last.end_date < today) return gridStart(addDays(last.end_date, 1), length, today);
-  const ahead = db.query("SELECT 1 FROM cycles WHERE start_date > ? LIMIT 1").get(today);
-  return ahead ? null : addDays(last.end_date, 1);
+  if (last && last.end_date >= MAX_CYCLE_DATE) return null;
+  let start: string;
+  if (!last) start = gridStart(cadence.anchorDate, length, today);
+  else if (last.end_date < today) start = gridStart(addDays(last.end_date, 1), length, today);
+  else if (db.query("SELECT 1 FROM cycles WHERE start_date > ? LIMIT 1").get(today)) return null;
+  else start = addDays(last.end_date, 1);
+  return cycleEnd(start, length) === null ? null : start;
 }
 
 // 自動持ち越しの対象（終了していて印のない Cycle）と、その移動先
@@ -104,7 +119,7 @@ function carryTargets(db: Database, today: string): { from: number; to: number }
 function insertAutoCycle(ctx: OpCtx, cadence: CycleCadence, start: string): number {
   let n = cadence.nextNumber;
   while (ctx.db.query("SELECT 1 FROM cycles WHERE name = ?").get(`Cycle ${n}`)) n++;
-  const end = addDays(start, cadence.weeks * 7 - 1);
+  const end = cycleEnd(start, cadence.weeks * 7)!; // nextStart が上限内の start だけを返す
   assertFree(ctx.db, `Cycle ${n}`, start, end);
   const id = insertCycle(ctx.db, ctx.actor, `Cycle ${n}`, start, end);
   ctx.db.query("UPDATE cycle_cadence SET next_number = ? WHERE id = 1").run(n + 1);
