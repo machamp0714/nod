@@ -13,6 +13,7 @@ import type { Hono } from "hono";
 import {
   type Body,
   invalid,
+  optBool,
   optInt,
   optNullableInt,
   optNullableString,
@@ -38,13 +39,6 @@ const KEYS = [
   "timeZone",
   "enabled",
 ] as const;
-
-function optBool(body: Body, key: string): boolean | undefined {
-  const v = body[key];
-  if (v === undefined) return undefined;
-  if (typeof v !== "boolean") throw invalid(`${key} は true か false で指定してください`);
-  return v;
-}
 
 // 値の検証（周期・曜日・日付・TZ など）は core で行う
 function patchOf(body: Body): RecurringIssuePatch {

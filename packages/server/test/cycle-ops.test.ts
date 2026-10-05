@@ -90,4 +90,19 @@ describe("Cycle API", () => {
     expect((await call(app, "GET", "/api/stats/llm?milestone=NONE&cycle=none")).status).toBe(200);
     expect((await call(app, "GET", "/api/issues?milestone=None&cycle=NONE")).json.issues.map((i: { title: string }) => i.title)).toEqual(["外"]);
   });
+
+  test("周期の設定と、各リクエストの最初の自動作成・分析", async () => {
+    const { app } = setup();
+    expect((await call(app, "GET", "/api/cycle-cadence")).json).toBeNull();
+    const today = new Intl.DateTimeFormat("en-CA").format(new Date()); // サーバーと同じローカルの暦日 YYYY-MM-DD
+    const put = await call(app, "PUT", "/api/cycle-cadence", { weeks: 2, anchorDate: today });
+    expect(put.json).toMatchObject({ weeks: 2, autoCarryOver: true });
+    const list = (await call(app, "GET", "/api/cycles")).json; // ミドルウェアで作られる
+    expect(list.map((c: { name: string }) => c.name)).toEqual(["Cycle 1", "Cycle 2"]);
+    const analytics = (await call(app, "GET", `/api/cycles/${list[0].id}/analytics`)).json;
+    expect(analytics).toMatchObject({ cycleId: list[0].id, scope: 0, completedRate: null });
+    expect((await call(app, "PUT", "/api/cycle-cadence", { weeks: 9 })).status).toBe(400);
+    expect((await call(app, "PUT", "/api/cycle-cadence", {})).status).toBe(400);
+    expect((await call(app, "DELETE", "/api/cycle-cadence")).json).toEqual({ ok: true });
+  });
 });
