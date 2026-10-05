@@ -850,3 +850,13 @@ export interface AgentTargets {
   terminals: OrcaTerminal[];
   failure: OrcaFailure | null;
 }
+
+// Cycle の周期。全体で1つ。nextNumber は次に自動で付ける `Cycle {N}` の N
+export interface CycleCadence {
+  weeks: number;
+  autoCarryOver: boolean;
+  anchorDate: string; // Cycle が1つもないときの最初の開始日
+  nextNumber: number;
+  updatedBy: string;
+  updatedAt: string;
+}
