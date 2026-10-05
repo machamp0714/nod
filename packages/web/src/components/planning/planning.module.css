@@ -68,6 +68,70 @@
   gap: 8px;
 }
 
+.footerStart {
+  display: flex;
+  margin-right: auto;
+}
+
+/* 欄の下の補足（11.5 / ink3） */
+.hint {
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+/* 周期の設定の自動持ち越し。スイッチ（28×16）と、見出しと補足の2行 */
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.switchText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: 28px;
+  height: 16px;
+  margin-top: 1px;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  cursor: pointer;
+}
+
+.switch[aria-checked="true"] {
+  justify-content: flex-end;
+  background: var(--accent);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #FFFFFF;
+}
+
+/* 枠のない文字だけのボタン（「周期を外す」） */
+.plain {
+  border-color: transparent;
+}
+
 /* 状態バッジ（Cycles）。Current は accent、Upcoming は gate、Completed は ready */
 .badge {
   display: inline-flex;
@@ -132,4 +196,17 @@
   padding: 8px 24px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
+}
+
+/* Cycles 一覧の見出しの下の周期の要約（高さ 36、$sunken） */
+.cadence {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 18px;
+  background: var(--sunken);
+  color: var(--ink2);
+  font-size: 12px;
 }

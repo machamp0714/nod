@@ -1,4 +1,4 @@
-import type { Cycle, CycleState } from "../api/types";
+import type { Cycle, CycleCadence, CycleState } from "../api/types";
 
 export const CYCLE_STATE_LABEL: Record<CycleState, string> = { current: "Current", upcoming: "Upcoming", completed: "Completed" };
 
@@ -11,4 +11,18 @@ export function formatCyclePeriod(cycle: Pick<Cycle, "startDate" | "endDate">): 
 // 見出し・選択肢の表記「Sprint 12（Current）」
 export function cycleLabel(cycle: Pick<Cycle, "name" | "state">): string {
   return `${cycle.name}（${CYCLE_STATE_LABEL[cycle.state]}）`;
+}
+
+// Cycles 一覧の見出しの下に出す周期の要約。次は最初の予定の Cycle
+export function formatCadence(c: CycleCadence | null, cycles: readonly Pick<Cycle, "name" | "startDate" | "state">[]): string {
+  if (!c) return "周期は未設定です";
+  const next = cycles.find((x) => x.state === "upcoming");
+  return [`${c.weeks}週間ごと`, `自動持ち越し ${c.autoCarryOver ? "ON" : "OFF"}`, ...(next ? [`次は ${next.name}（${next.startDate.slice(5)}〜）`] : [])].join(" · ");
+}
+
+// サイドバーの「Current」の行き先。今の Cycle の詳細、なければ一覧。読み込み前は出さない
+export function currentCycleLink(cycles: readonly Pick<Cycle, "id" | "name" | "state">[] | undefined): { to: string; label: string } | null {
+  if (!cycles) return null;
+  const current = cycles.find((c) => c.state === "current");
+  return current ? { to: `/cycles/${current.id}`, label: current.name } : { to: "/cycles", label: "なし" };
 }

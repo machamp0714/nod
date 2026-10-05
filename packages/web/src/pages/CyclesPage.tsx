@@ -1,19 +1,22 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { errorMessage } from "../api/errors";
-import { useCreateCycle, useCycles } from "../api/hooks/cycles";
+import { useCadence, useCreateCycle, useCycles } from "../api/hooks/cycles";
 import type { CycleSummary } from "../api/types";
+import { CadenceDialog } from "../components/cycles/CadenceDialog";
 import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
 import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Spacer } from "../components/ui";
-import { CYCLE_STATE_LABEL, formatCyclePeriod } from "../lib/cycles";
+import { CYCLE_STATE_LABEL, formatCadence, formatCyclePeriod } from "../lib/cycles";
 import s from "./projects.module.css";
 
-// Pencil「Cycles｜一覧（#82）」。Cycle は全体で1つの系列なので、開始日の順に1つの表で並べる
+// Pencil「Cycles｜一覧（NOD-2）」。Cycle は全体で1つの系列なので、開始日の順に1つの表で並べる。見出しの下に周期の要約を出す
 export function CyclesPage() {
   const cycles = useCycles();
+  const cadence = useCadence();
   const [creating, setCreating] = useState(false);
-  const error = cycles.error;
+  const [settingCadence, setSettingCadence] = useState(false);
+  const error = cycles.error ?? cadence.error;
   const newButton = (
     <Button icon="plus" onClick={() => setCreating(true)}>
       New cycle
@@ -24,8 +27,17 @@ export function CyclesPage() {
       <PageHeader>
         <PageTitle>Cycles</PageTitle>
         <Spacer />
+        <Button icon="repeat" onClick={() => setSettingCadence(true)} disabled={!cycles.data || cadence.isPending}>
+          周期の設定
+        </Button>
         {newButton}
       </PageHeader>
+      {cadence.isSuccess && (
+        <p className={d.cadence}>
+          <Icon name="repeat" size={13} />
+          {formatCadence(cadence.data, cycles.data ?? [])}
+        </p>
+      )}
       {error ? (
         <PageError message={errorMessage(error)} />
       ) : !cycles.data ? (
@@ -64,6 +76,9 @@ export function CyclesPage() {
         </table>
       )}
       {creating && <NewCycleDialog onClose={() => setCreating(false)} />}
+      {settingCadence && cycles.data && (
+        <CadenceDialog cadence={cadence.data ?? null} hasCycles={cycles.data.length > 0} onClose={() => setSettingCadence(false)} />
+      )}
     </div>
   );
 }

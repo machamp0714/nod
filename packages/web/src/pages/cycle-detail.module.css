@@ -29,3 +29,21 @@
   font-weight: 500;
 }
 
+
+.menuWrap {
+  position: relative;
+}
+
+/* メニューの位置だけを決める。枠と項目は components/ui の Menu */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+}
+
+/* 「削除」。Menu の項目（.menuItem）の色より強くするため要素名を付ける */
+button.danger,
+button.danger svg {
+  color: var(--fail);
+}

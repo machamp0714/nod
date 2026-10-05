@@ -39,6 +39,7 @@ export const queryKeys = {
   // 状態（現在・予定・終了）はブラウザのタイムゾーンの今日で決まるので、tz をキーに含める
   cycleList: (tz: string) => ["cycles", "list", tz] as const,
   cycle: (id: number, tz: string) => ["cycles", "detail", id, tz] as const,
+  cycleCadence: () => ["cycles", "cadence"] as const,
   views: () => ["views"] as const,
   pageDisplays: () => ["page-displays"] as const,
   documentList: () => ["documents", "list"] as const,
