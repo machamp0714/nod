@@ -200,6 +200,7 @@ export interface CycleSummary extends Cycle {
 
 export interface CycleDetail extends CycleSummary {
   issues: Issue[]; // アーカイブ以外
+  memberCount: number; // 所属する Issue の件数（アーカイブ・canceled も含む）。削除で Cycle なしに戻る件数
 }
 
 // 内訳の1行。担当なしは key "" ・label "担当なし"、Project なしは key "" ・label "Project なし"

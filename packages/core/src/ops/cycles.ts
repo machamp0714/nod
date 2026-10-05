@@ -188,15 +188,20 @@ export function updateCycle(ctx: OpCtx, ref: string, input: UpdateCycleInput, cl
   });
 }
 
-// Cycle を消す。所属 Issue は Cycle なしに戻る（ON DELETE SET NULL）。Issue の event は残さない。
+// 所属する Issue の件数（アーカイブ・canceled も含む）
+function memberCount(db: Database, id: number): number {
+  return (db.query("SELECT count(*) AS n FROM issues WHERE cycle_id = ?").get(id) as { n: number }).n;
+}
+
+// Cycle を消す。所属 Issue は（アーカイブ済みも）Cycle なしに戻る（ON DELETE SET NULL）。Issue の event は残さない。
 // 所属がまとめて外れて戻せないため、削除は人だけ（作成・編集は LLM もできる。Milestone と同じ）
 export function deleteCycle(ctx: OpCtx, ref: string, clock: CycleClock = {}): { id: number; name: string; issues: number } {
   if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Cycle を削除できません。削除は me に依頼してください");
   return tx(ctx.db, () => {
     const cycle = resolveCycle(ctx.db, ref, clock);
-    const { n } = ctx.db.query("SELECT count(*) AS n FROM issues WHERE cycle_id = ?").get(cycle.id) as { n: number };
+    const issues = memberCount(ctx.db, cycle.id);
     ctx.db.query("DELETE FROM cycles WHERE id = ?").run(cycle.id);
-    return { ...cycle, issues: n };
+    return { ...cycle, issues };
   });
 }
 
@@ -211,6 +216,7 @@ export function getCycle(db: Database, ref: string, clock: CycleClock = {}): Cyc
   return {
     ...summaryById(db, id, cycleToday(clock)),
     issues: selectIssues(db, "WHERE i.cycle_id = ? AND i.archived_at IS NULL ORDER BY w.key, i.number", [id]),
+    memberCount: memberCount(db, id),
   };
 }
 

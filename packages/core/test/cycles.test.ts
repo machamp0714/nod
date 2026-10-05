@@ -184,12 +184,16 @@ describe("Cycle", () => {
     expect(getIssue(db, a.id).cycle).toBeNull();
   });
 
-  test("Cycle を消すと Issue は Cycle なしに戻る", () => {
+  test("Cycle を消すと Issue（アーカイブ済みも）は Cycle なしに戻る。詳細の memberCount はその件数", () => {
     const { db, ws, me } = setup();
     sprints(me);
     const issue = createIssue(me, { workspaceId: ws.id, title: "作業", cycleRef: "Sprint 2" });
-    expect(deleteCycle(me, "Sprint 2", clock)).toMatchObject({ name: "Sprint 2", issues: 1 });
+    const archived = createIssue(me, { workspaceId: ws.id, title: "アーカイブ", cycleRef: "Sprint 2" });
+    archiveIssue(me, archived.id);
+    expect(getCycle(db, "Sprint 2", clock)).toMatchObject({ memberCount: 2, issues: [{ id: issue.id }] });
+    expect(deleteCycle(me, "Sprint 2", clock)).toMatchObject({ name: "Sprint 2", issues: 2 });
     expect(getIssue(db, issue.id).cycle).toBeNull();
+    expect(getIssue(db, archived.id).cycle).toBeNull();
     expect(listCycles(db, clock).map((c) => c.name)).toEqual(["Sprint 1", "Sprint 3"]);
     expect(codeOf(() => deleteCycle(me, "Sprint 2", clock))).toBe("NOT_FOUND");
   });

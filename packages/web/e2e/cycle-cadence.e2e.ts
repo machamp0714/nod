@@ -71,6 +71,10 @@ test.describe("Cycle の周期・編集・削除・分析（NOD-2）", () => {
     const c = await nod.me.createCycle({ name: "編集前", startDate: "2999-01-01", endDate: "2999-01-14" });
     const issue = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "所属" });
     await nod.me.updateIssue(issue.id, { cycleRef: String(c.id) });
+    // アーカイブ済みの所属も削除で Cycle なしに戻るので、確認の件数に含める
+    const archived = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "アーカイブ済み" });
+    await nod.me.updateIssue(archived.id, { cycleRef: String(c.id) });
+    await nod.me.archiveIssue(archived.id);
     await page.goto(`/cycles/${c.id}`);
     await page.getByRole("button", { name: "Cycle の操作" }).click();
     await page.getByRole("menuitem", { name: "編集" }).click();
@@ -80,10 +84,11 @@ test.describe("Cycle の周期・編集・削除・分析（NOD-2）", () => {
     await page.getByRole("button", { name: "Cycle の操作" }).click();
     await page.getByRole("menuitem", { name: "削除" }).click();
     const confirm = page.getByRole("alertdialog");
-    await expect(confirm).toContainText("所属する 1 件は Cycle なしに戻ります");
+    await expect(confirm).toContainText("所属する 2 件（アーカイブ済みを含む）は Cycle なしに戻ります");
     await confirm.getByRole("button", { name: "削除" }).click();
     await expect(page).toHaveURL(/\/cycles$/);
     expect((await nod.me.getIssue(issue.id)).cycle).toBeNull();
+    expect((await nod.me.getIssue(archived.id)).cycle).toBeNull();
   });
 
   test("分析ボタンで右に分析パネルが開き、進捗・Cycle graph・内訳が出る", async ({ page, nod }) => {
