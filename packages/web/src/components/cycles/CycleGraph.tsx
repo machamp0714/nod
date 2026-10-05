@@ -34,10 +34,7 @@ export function CycleGraph({ analytics, startDate, endDate, today }: {
   const todayAt = today ? g.days.indexOf(today) : -1;
   const table = {
     head: ["日付", "Scope", "Started", "Completed", "Target"],
-    rows: g.days.map((d, n) => {
-      const b = analytics.burnup.find((x) => x.date === d);
-      return [d, String(b?.scope ?? "—"), String(b?.started ?? "—"), String(b?.completed ?? "—"), g.target[n]!.toFixed(1)];
-    }),
+    rows: g.days.map((d, n) => [d, String(g.scope[n] ?? "—"), String(g.started[n] ?? "—"), String(g.completed[n] ?? "—"), g.target[n]!.toFixed(1)]),
   };
   return (
     <div className={s.graph}>

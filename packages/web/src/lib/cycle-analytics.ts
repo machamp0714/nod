@@ -13,29 +13,44 @@ export function breakdownLabel(row: { total: number; done: number }): string {
   return `${formatRate(row.total === 0 ? null : row.done / row.total)} of ${row.total}`;
 }
 
-function addDay(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
+const DAY_MS = 86_400_000;
 
-// Cycle graph の系列。横軸は期間の全日で、まだ来ていない日は null（線を引かない）。
-// Started は Completed の上に積む（Linear と同じ）。Target は開始日 0 から終了日に今の Scope までの直線
+// 日付は4桁の年までしか扱えない。終了日がこれより後でも、ここで打ち切る
+const MAX_DATE = "9999-12-31";
+
+// グラフと表に出す点の上限。これより長い Cycle は均等に間引く
+const MAX_POINTS = 120;
+
+const toTime = (date: string) => Date.parse(`${date}T00:00:00Z`);
+const toDate = (time: number) => new Date(time).toISOString().slice(0, 10);
+
+// Cycle graph の系列。横軸は期間の日（MAX_POINTS 日を超える期間は間引き、初日・終了日・推移の最終日は残す）で、
+// まだ来ていない日は null（線を引かない）。Started は Completed の上に積む（Linear と同じ）。
+// Target は開始日 0 から終了日に今の Scope までの直線
 export function graphSeries(burnup: CycleAnalytics["burnup"], startDate: string, endDate: string) {
-  const days: string[] = [];
-  for (let d = startDate; d <= endDate; d = addDay(d)) days.push(d);
-  const at = (d: string) => burnup.find((b) => b.date === d);
+  const first = toTime(startDate);
+  const span = Math.max(0, Math.round((toTime(endDate < MAX_DATE ? endDate : MAX_DATE) - first) / DAY_MS));
+  const offsets = new Set<number>();
+  if (span < MAX_POINTS) {
+    for (let i = 0; i <= span; i++) offsets.add(i);
+  } else {
+    for (let k = 0; k < MAX_POINTS; k++) offsets.add(Math.round((k * span) / (MAX_POINTS - 1)));
+    const lastBurnup = burnup.at(-1);
+    if (lastBurnup) offsets.add(Math.round((toTime(lastBurnup.date) - first) / DAY_MS));
+  }
+  const sorted = [...offsets].filter((i) => i >= 0 && i <= span).sort((a, b) => a - b);
+  const days = sorted.map((i) => toDate(first + i * DAY_MS));
+  const byDate = new Map(burnup.map((b) => [b.date, b]));
+  const at = days.map((d) => byDate.get(d));
   const finalScope = burnup.at(-1)?.scope ?? 0;
   return {
     days,
-    scope: days.map((d) => at(d)?.scope ?? null),
-    startedStack: days.map((d) => {
-      const b = at(d);
-      return b ? b.started + b.completed : null;
-    }),
-    completed: days.map((d) => at(d)?.completed ?? null),
-    target: days.map((_, i) => (days.length === 1 ? finalScope : (finalScope * i) / (days.length - 1))),
-    max: Math.max(1, finalScope, ...burnup.map((b) => b.scope)),
+    scope: at.map((b) => b?.scope ?? null),
+    started: at.map((b) => b?.started ?? null),
+    startedStack: at.map((b) => (b ? b.started + b.completed : null)),
+    completed: at.map((b) => b?.completed ?? null),
+    target: sorted.map((i) => (span === 0 ? finalScope : (finalScope * i) / span)),
+    max: burnup.reduce((m, b) => Math.max(m, b.scope), Math.max(1, finalScope)),
   };
 }
 

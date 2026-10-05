@@ -9,8 +9,7 @@ function localDate(offsetDays: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// 今日を含む Cycle。周期のテストとは分ける（DB はテストごとに空に戻る）。
-// 推移は日ごとに計算するため、期間は長くしない
+// 今日を含む Cycle。周期のテストとは分ける（DB はテストごとに空に戻る）
 const around = () => ({ startDate: localDate(-3), endDate: localDate(3) });
 
 test.describe("Cycle の周期・編集・削除・分析（NOD-2）", () => {
@@ -28,6 +27,30 @@ test.describe("Cycle の周期・編集・削除・分析（NOD-2）", () => {
     await page.getByRole("dialog").getByRole("button", { name: "周期を外す" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "外す" }).click();
     await expect(page.getByText("周期は未設定です")).toBeVisible();
+  });
+
+  test.describe("周期を外せないとき", () => {
+    test.use({ allowedConsoleErrors: [/status of 400/] });
+
+    test("周期を外せなかったときの文言は、確認を開き直すと元に戻る", async ({ page }) => {
+      await page.goto("/cycles");
+      await page.getByRole("button", { name: "周期の設定" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "保存" }).click();
+      await expect(page.getByText(/2週間ごと/)).toBeVisible();
+      await page.route("**/api/cycle-cadence", (route) =>
+        route.request().method() === "DELETE"
+          ? route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "INVALID_ARGS", message: "失敗" } }) })
+          : route.continue(),
+      );
+      await page.getByRole("button", { name: "周期の設定" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "周期を外す" }).click();
+      const confirm = page.getByRole("alertdialog");
+      await confirm.getByRole("button", { name: "外す" }).click();
+      await expect(confirm).toContainText("外せませんでした");
+      await confirm.getByRole("button", { name: "キャンセル" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "周期を外す" }).click();
+      await expect(page.getByRole("alertdialog")).toContainText("以後、Cycle は自動で作られず");
+    });
   });
 
   test("サイドバーの Current で今の Cycle の詳細を開き、なければ一覧を開く", async ({ page, nod }) => {
@@ -81,9 +104,20 @@ test.describe("Cycle の周期・編集・削除・分析（NOD-2）", () => {
     await breakdown.getByRole("tab", { name: "Workspaces" }).click();
     await expect(breakdown).toContainText("50% of 2");
     await breakdown.getByRole("tab", { name: "Status" }).click();
-    await expect(breakdown).toContainText("1");
+    const rows = breakdown.getByRole("tabpanel").getByRole("listitem");
+    await expect(rows.filter({ hasText: "Done" })).toHaveText(/^\s*Done\s*1\s*$/);
+    await expect(rows.filter({ hasText: "Canceled" })).toHaveText(/^\s*Canceled\s*0\s*$/);
     await page.keyboard.press("Escape");
     await expect(section).toHaveCount(0);
     await expect(page.getByRole("button", { name: "分析" })).toBeFocused();
+  });
+
+  test("期間が非常に長い Cycle でも分析パネルの Cycle graph が出る", async ({ page, nod }) => {
+    const c = await nod.me.createCycle({ name: "長期", startDate: "2000-01-01", endDate: "2999-12-31" });
+    await page.goto(`/cycles/${c.id}`);
+    await page.getByRole("button", { name: "分析" }).click();
+    const section = page.getByRole("complementary", { name: "Cycle の分析" });
+    await expect(section.getByRole("region", { name: "Cycle graph" })).toBeVisible();
+    await expect(section.getByRole("img", { name: "Cycle graph" })).toBeVisible();
   });
 });

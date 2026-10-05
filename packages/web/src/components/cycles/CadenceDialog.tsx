@@ -23,6 +23,11 @@ export function CadenceDialog({ cadence, hasCycles, onClose }: { cadence: CycleC
   const weeksId = useId();
   const anchorId = useId();
   const [clearError, setClearError] = useState<string | null>(null);
+  // 確認を開き直したとき、前回の失敗の文言を残さない
+  const openClearing = (open: boolean) => {
+    setClearError(null);
+    setClearing(open);
+  };
   return (
     <>
       <FormDialog
@@ -44,7 +49,7 @@ export function CadenceDialog({ cadence, hasCycles, onClose }: { cadence: CycleC
         }}
         footerStart={
           cadence && (
-            <Button variant="danger" className={d.plain} onClick={() => setClearing(true)}>
+            <Button variant="danger" className={d.plain} onClick={() => openClearing(true)}>
               周期を外す
             </Button>
           )
@@ -98,7 +103,7 @@ export function CadenceDialog({ cadence, hasCycles, onClose }: { cadence: CycleC
           }
           confirmLabel="外す"
           busy={clear.isPending}
-          onClose={() => setClearing(false)}
+          onClose={() => openClearing(false)}
           onConfirm={() =>
             clear.mutate(undefined, {
               onSuccess: onClose,

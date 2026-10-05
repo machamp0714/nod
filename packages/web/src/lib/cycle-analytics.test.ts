@@ -26,6 +26,31 @@ describe("cycle-analytics", () => {
     expect(r.max).toBe(4);
   });
 
+  test("graphSeries は長い Cycle の点を約120に間引き、初日・終了日・推移の最終日を残す", () => {
+    const burnup = [];
+    for (let t = Date.UTC(2000, 0, 1); t <= Date.UTC(2026, 9, 5); t += 86_400_000) {
+      burnup.push({ date: new Date(t).toISOString().slice(0, 10), scope: 3, started: 1, completed: 1 });
+    }
+    const began = performance.now();
+    const r = graphSeries(burnup, "2000-01-01", "2999-12-31");
+    expect(performance.now() - began).toBeLessThan(200);
+    expect(r.days.length).toBeLessThanOrEqual(121);
+    expect(r.days[0]).toBe("2000-01-01");
+    expect(r.days.at(-1)).toBe("2999-12-31");
+    expect(r.days).toContain("2026-10-05");
+    expect(r.days).toEqual([...r.days].sort());
+    const last = r.days.indexOf("2026-10-05");
+    expect(r.completed[last]).toBe(1);
+    expect(r.completed[last + 1]).toBeNull();
+    expect(r.target[0]).toBe(0);
+    expect(r.target.at(-1)).toBe(3);
+  });
+
+  test("graphSeries は 9999-12-31 で止まる", () => {
+    expect(graphSeries([], "9999-12-29", "9999-12-31").days).toEqual(["9999-12-29", "9999-12-30", "9999-12-31"]);
+    expect(graphSeries([], "9999-12-31", "9999-12-31").days).toEqual(["9999-12-31"]);
+  });
+
   test("panelPeriod は「10/06 – 10/19」と、現在の Cycle だけ今日から終了日までの残り日数を足す", () => {
     const cycle = { startDate: "2026-10-06", endDate: "2026-10-19" };
     expect(panelPeriod({ ...cycle, state: "current" }, "2026-10-14")).toBe("10/06 – 10/19 · 残り 5 日");
