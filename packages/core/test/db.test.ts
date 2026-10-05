@@ -55,6 +55,7 @@ describe("openDb", () => {
       "recurring_issues",
       "relations",
       "reminders",
+      "sqlite_sequence",
       "subscriptions",
       "templates",
       "triage_proposals",

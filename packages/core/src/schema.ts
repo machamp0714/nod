@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
 import { migrateWorkspaceColorsV2 } from "./migrations/workspace-colors-v2";
 
 export type MigrationStep = string | ((db: Database) => void);
@@ -566,14 +567,14 @@ export const MIGRATIONS: MigrationStep[][] = [
     )`,
   ],
   // Cycle を全体で1系列にする（NOD-2）。Workspace を外し、名前は全体で一意。期間が重ならないことは作成・更新時に検査する。
-  // 既存の名前が Workspace 間で重なるときは「名前 · キー」に改名する。周期の設定（行は最大1つ）と、自動持ち越しの印も足す
+  // 既存の名前が Workspace 間で重なるときは「名前 · キー」に改名する。周期の設定（行は最大1つ）と、自動持ち越しの印も足す。
+  // ID は AUTOINCREMENT にし、消した Cycle の ID を使い回さない（記録の Cycle ID が新しい Cycle を指さないため）
   [
-    `UPDATE cycles SET name = name || ' · ' || (SELECT key FROM workspaces w WHERE w.id = cycles.workspace_id)
-     WHERE id NOT IN (SELECT min(id) FROM cycles GROUP BY name)`,
+    renameDuplicateCycleNames,
     // 外部キーが有効なまま古い cycles を DROP すると issues.cycle_id が ON DELETE SET NULL で消えるため、所属を控えて戻す
     `CREATE TEMP TABLE cycle_members AS SELECT id, cycle_id FROM issues WHERE cycle_id IS NOT NULL`,
     `CREATE TABLE cycles_new (
-      id INTEGER PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       start_date TEXT NOT NULL CHECK (typeof(start_date) = 'text' AND length(start_date) = 10 AND date(start_date) = start_date),
       end_date TEXT NOT NULL CHECK (typeof(end_date) = 'text' AND length(end_date) = 10 AND date(end_date) = end_date),

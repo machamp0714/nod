@@ -299,8 +299,8 @@ test("Cycle の前の版の DB を移行しても既存の Issue を保ち、Cyc
   db.close();
 });
 
-test("移行: 既存の Cycle の名前が Workspace 間で重なれば「名前 · キー」に改名し、Issue の所属を保つ", () => {
-  // このタスクで足すマイグレーション（cycle_cadence を作るもの）の手前まで適用した DB を作る。既存の移行テストと同じ書き方
+// Cycle を全体で1系列にするマイグレーション（cycle_cadence を作るもの）の手前まで適用し、Workspace 2つ（API・WEB）を足した DB を作る。既存の移行テストと同じ書き方
+function beforeGlobalCycles(): { path: string; old: Database } {
   const before = MIGRATIONS.findIndex((steps) => steps.some((s) => typeof s === "string" && s.includes("CREATE TABLE cycle_cadence")));
   expect(before).toBeGreaterThan(0);
   const path = tempDbPath();
@@ -315,8 +315,19 @@ test("移行: 既存の Cycle の名前が Workspace 間で重なれば「名前
   }
   old.exec("INSERT INTO workspaces (id,key,name,path,next_number,created_at,color) VALUES (1,'API','api','/tmp/api',2,'2026-01-01','#3B82F6')");
   old.exec("INSERT INTO workspaces (id,key,name,path,next_number,created_at,color) VALUES (2,'WEB','web','/tmp/web',2,'2026-01-01','#10B981')");
-  old.exec("INSERT INTO cycles (id,workspace_id,name,start_date,end_date,created_by,created_at,updated_at) VALUES (1,1,'Sprint 1','2026-01-01','2026-01-14','me','2026-01-01','2026-01-01')");
-  old.exec("INSERT INTO cycles (id,workspace_id,name,start_date,end_date,created_by,created_at,updated_at) VALUES (2,2,'Sprint 1','2026-02-01','2026-02-14','me','2026-01-01','2026-01-01')");
+  return { path, old };
+}
+
+function insertOldCycle(old: Database, id: number, workspaceId: number, name: string, start: string, end: string) {
+  old
+    .query("INSERT INTO cycles (id,workspace_id,name,start_date,end_date,created_by,created_at,updated_at) VALUES (?,?,?,?,?,'me','2026-01-01','2026-01-01')")
+    .run(id, workspaceId, name, start, end);
+}
+
+test("移行: 既存の Cycle の名前が Workspace 間で重なれば「名前 · キー」に改名し、Issue の所属を保つ。ID は使い回さない", () => {
+  const { path, old } = beforeGlobalCycles();
+  insertOldCycle(old, 1, 1, "Sprint 1", "2026-01-01", "2026-01-14");
+  insertOldCycle(old, 2, 2, "Sprint 1", "2026-02-01", "2026-02-14");
   old.exec("INSERT INTO issues (id,workspace_id,number,title,status,cycle_id,created_by,created_at,updated_at) VALUES (1,2,1,'既存','todo',2,'me','2026-01-01','2026-01-01')");
   old.close();
 
@@ -325,5 +336,25 @@ test("移行: 既存の Cycle の名前が Workspace 間で重なれば「名前
   expect(listCycles(db).map((c) => c.name)).toEqual(["Sprint 1", "Sprint 1 · WEB"]);
   expect(getIssue(db, "WEB-1").cycle).toEqual({ id: 2, name: "Sprint 1 · WEB" });
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  // 移した行の最大 ID から採番を続ける。消した Cycle の ID を新しい Cycle に使い回さないため
+  expect(db.query("SELECT seq FROM sqlite_sequence WHERE name = 'cycles'").get()).toEqual({ seq: 2 });
+  db.close();
+});
+
+test("移行: 「名前 · キー」が既存の名前と重なるなら、さらに ID を付けて一意にする", () => {
+  const { path, old } = beforeGlobalCycles();
+  insertOldCycle(old, 1, 1, "Sprint 1", "2026-01-01", "2026-01-14");
+  insertOldCycle(old, 2, 1, "Sprint 1 · WEB", "2026-02-01", "2026-02-14");
+  insertOldCycle(old, 3, 2, "Sprint 1", "2026-03-01", "2026-03-14");
+  insertOldCycle(old, 4, 2, "Sprint 1 · WEB · 3", "2026-04-01", "2026-04-14");
+  old.close();
+
+  const db = openDb(path);
+  expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
+  const names = listCycles(db).map((c) => c.name);
+  expect(names.slice(0, 2)).toEqual(["Sprint 1", "Sprint 1 · WEB"]);
+  expect(names[2]).not.toBe("Sprint 1 · WEB");
+  expect(names[2]!.startsWith("Sprint 1 · WEB · ")).toBe(true);
+  expect(new Set(names).size).toBe(4);
   db.close();
 });

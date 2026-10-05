@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findIssueRow } from "../src/issue-query";
 import { cycleAnalytics } from "../src/ops/cycle-analytics";
-import { createCycle } from "../src/ops/cycles";
+import { createCycle, deleteCycle } from "../src/ops/cycles";
 import { archiveIssue, createIssue, updateIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -92,6 +92,16 @@ describe("cycleAnalytics", () => {
     db.query("UPDATE events SET created_at = '2026-10-01T03:00:00.000Z' WHERE issue_id = ? AND type = 'created'").run(row);
     db.query("UPDATE events SET created_at = '2026-10-02T03:00:00.000Z' WHERE issue_id = ? AND type <> 'created'").run(row);
     expect(cycleAnalytics(db, "S", clock).burnup.map((d) => d.completed)).toEqual([1, 1, 1, 1]);
+  });
+
+  test("最大の ID の Cycle を消して作り直しても ID を使い回さず、消した Cycle の Issue を推移に含めない", () => {
+    const { db, ws, me } = setup();
+    const old = createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
+    const a = createIssue(me, { workspaceId: ws.id, title: "旧", cycleRef: "S" }); stamp(db, a.id, "2026-10-05");
+    deleteCycle(me, "S", clock);
+    const fresh = createCycle(me, { name: "T", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
+    expect(fresh.id).not.toBe(old.id);
+    expect(cycleAnalytics(db, "T", clock).burnup.map((d) => d.scope)).toEqual([0, 0, 0, 0]);
   });
 
   test("日の区切りは clock の tz。UTC では前日でも東京の翌日に入った Issue はその日から数える", () => {

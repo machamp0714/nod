@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { clearCadence, getCadence, setCadence, syncCycles } from "../src/ops/cycle-cadence";
-import { createCycle, listCycles } from "../src/ops/cycles";
+import { createCycle, deleteCycle, listCycles } from "../src/ops/cycles";
 import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
@@ -131,6 +131,17 @@ describe("syncCycles: 自動作成", () => {
     setCadence(me, { weeks: 1 }, at("9999-12-31"));
     expect(syncCycles(me, at("9999-12-31"))).toEqual({ created: [], carried: [] });
     expect(listCycles(db)).toHaveLength(1);
+  });
+
+  test("最大の ID の Cycle を消すと作り直すが、ID は使い回さない", () => {
+    const { db, me } = setup();
+    setCadence(me, { weeks: 2, anchorDate: "2026-10-05" }, at("2026-10-05"));
+    syncCycles(me, at("2026-10-05"));
+    const last = listCycles(db, at("2026-10-05")).at(-1)!;
+    deleteCycle(me, String(last.id), at("2026-10-05"));
+    const [recreated] = syncCycles(me, at("2026-10-05")).created;
+    expect(recreated).toMatchObject({ startDate: last.startDate });
+    expect(recreated!.id).toBeGreaterThan(last.id);
   });
 });
 
