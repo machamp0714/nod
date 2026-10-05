@@ -96,7 +96,7 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
     case "milestone_changed":
       return line(`${actor} が Milestone を ${typeof data.from === "string" ? data.from : "なし"} から ${typeof data.to === "string" ? data.to : "なし"} に変えた`);
     case "cycle_changed":
-      return line(data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた`, data.from == null ? [] : [`以前: ${String(data.from)}`]);
+      return line(data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた`, [...(data.from == null ? [] : [`以前: ${String(data.from)}`]), ...automationOf(data)]);
     case "parent_changed":
       return line(`${actor} が親 Issue を変えた`, fromTo(data));
     case "labels_changed": {
