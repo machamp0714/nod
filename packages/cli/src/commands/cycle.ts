@@ -10,6 +10,7 @@ import {
   getCycle,
   listCycles,
   NodError,
+  resolveCycle,
   setCadence,
   syncCycles,
   updateCycle,
@@ -69,8 +70,10 @@ export function registerCycleCommands(program: Command): void {
     .option("--tz <zone>", TZ_HELP)
     .action(
       act((cli, _cmd, ref: string, o: { tz?: string }) => {
-        const c = getCycle(cli.db, ref, clockOf(o));
-        const a = cycleAnalytics(cli.db, ref, clockOf(o));
+        // current が日付の変わり目で別の Cycle を指さないよう、ref は一度だけ解決する
+        const id = String(resolveCycle(cli.db, ref, clockOf(o)).id);
+        const c = getCycle(cli.db, id, clockOf(o));
+        const a = cycleAnalytics(cli.db, id, clockOf(o));
         print(cli, { ...c, analytics: a }, () =>
           [
             formatCycle(c),
