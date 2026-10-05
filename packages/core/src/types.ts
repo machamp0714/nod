@@ -203,6 +203,28 @@ export interface CycleDetail extends CycleSummary {
   issues: Issue[]; // アーカイブ以外
 }
 
+// 内訳の1行。担当なしは key "" ・label "担当なし"、Project なしは key "" ・label "Project なし"
+export interface CycleBreakdownRow {
+  key: string;
+  label: string;
+  total: number;
+  done: number;
+}
+
+// Cycle の分析（Linear の Cycle の右パネル）。started は done を含まない（Web が Completed の上に積む）
+export interface CycleAnalytics {
+  cycleId: number;
+  scope: number;
+  started: number;
+  completed: number;
+  startedRate: number | null;
+  completedRate: number | null;
+  scopeAdded: number;
+  burnup: { date: string; scope: number; started: number; completed: number }[];
+  breakdown: { assignees: CycleBreakdownRow[]; labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
+  statuses: { status: Status; count: number }[];
+}
+
 export interface UpdateInitiativeInput {
   name?: string;
   description?: string | null; // null で解除
