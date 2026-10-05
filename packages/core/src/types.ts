@@ -191,8 +191,7 @@ export interface Cycle {
   updatedAt: string;
 }
 
-// 進捗は Project と同じ定義（total は canceled・アーカイブ以外、done は done）。open は未完了（total - done）で、
-// 終了した Cycle では持ち越し候補になる（自動では移さない）
+// 進捗は Project と同じ定義（total は canceled・アーカイブ以外、done は done）。open は未完了（total - done）
 export interface CycleSummary extends Cycle {
   total: number;
   done: number;

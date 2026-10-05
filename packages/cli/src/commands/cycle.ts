@@ -22,8 +22,8 @@ import { formatIssueLines, print } from "../output";
 const STATE_LABEL = { upcoming: "予定", current: "現在", completed: "終了" } as const;
 
 function formatCycle(c: CycleSummary): string {
-  const carry = c.state === "completed" && c.open > 0 ? `  持ち越し候補 ${c.open}` : c.open > 0 ? `  未完了 ${c.open}` : "";
-  return `${c.id}  ${c.name}（${STATE_LABEL[c.state]}）  ${c.startDate}〜${c.endDate}  ${c.done}/${c.total}${carry}`;
+  const open = c.open > 0 ? `  未完了 ${c.open}` : "";
+  return `${c.id}  ${c.name}（${STATE_LABEL[c.state]}）  ${c.startDate}〜${c.endDate}  ${c.done}/${c.total}${open}`;
 }
 
 function formatCadence(c: CycleCadence | null): string {

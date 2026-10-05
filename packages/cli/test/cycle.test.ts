@@ -35,7 +35,7 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["issue", "list", "--cycle", "S1", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([created.id]);
     const outside = cli(db, cwd, ["issue", "create", "Cycle の外", "--json"], "me").json;
     expect(cli(db, cwd, ["issue", "list", "--cycle", "none", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([outside.id]);
-    expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  持ち越し候補 1");
+    expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  未完了 1");
     expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).not.toContain("move-open");
     // 手動でまとめて移すコマンドは廃止した
     expect(cli(db, cwd, ["cycle", "move-open", "S1", "--to", "S2"]).code).not.toBe(0);
