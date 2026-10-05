@@ -1,10 +1,11 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { useCycle, useCycles } from "../api/hooks/cycles";
 import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
 import type { CycleDetail } from "../api/types";
+import { CycleAnalyticsPanel } from "../components/cycles/CycleAnalyticsPanel";
 import { DeleteCycleDialog } from "../components/cycles/DeleteCycleDialog";
 import { EditCycleDialog } from "../components/cycles/EditCycleDialog";
 import { IssueList } from "../components/issue-list/IssueList";
@@ -18,7 +19,8 @@ import s from "./cycle-detail.module.css";
 
 const route = getRouteApi("/cycles/$cycleId");
 
-// Pencil「Cycle詳細（NOD-2）」。見出しの右に状態と「…」メニュー（編集・削除）、概要（期間・進捗・未完了）と、Cycle の Issue 一覧
+// Pencil「Cycle詳細（NOD-2）」。見出しの右に状態と分析のボタンと「…」メニュー（編集・削除）、概要（期間・進捗・未完了）と、Cycle の Issue 一覧。
+// 分析のボタンで右に分析パネル（Pencil「Cycle詳細｜分析パネル（NOD-2）」）を開き、Issue 一覧はその分だけ縮む。開閉は URL に残さない
 export function CycleDetailPage() {
   const { cycleId } = route.useParams();
   const url = route.useSearch();
@@ -30,6 +32,24 @@ export function CycleDetailPage() {
   const page = usePageDisplay({ key: `cycle:${cycleId}` }, url);
   const search = page.search;
   const rows = useIssueRows({ cycle: cycleId }, found);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const analyticsButton = useRef<HTMLButtonElement>(null);
+  const closeAnalytics = useCallback(() => {
+    setAnalyticsOpen(false);
+    analyticsButton.current?.focus();
+  }, []);
+  // Escape で閉じる。入力欄・ダイアログ・メニューの Escape はそれぞれに任せる（メニューは閉じるときに preventDefault する）
+  useEffect(() => {
+    if (!analyticsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if ((event.target as HTMLElement | null)?.closest("input, textarea, select, dialog, [role=dialog], [role=menu]")) return;
+      event.preventDefault();
+      closeAnalytics();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [analyticsOpen, closeAnalytics]);
 
   if (cycles.error) return <PageError message={errorMessage(cycles.error)} />;
   if (!cycles.data) return <PageLoading />;
@@ -39,27 +59,42 @@ export function CycleDetailPage() {
   if (!page.ready) return <PageLoading />;
   const cycle = detail.data;
   return (
-    <IssueList
-      crumb={<Link to="/cycles">Cycles</Link>}
-      title={cycle.name}
-      titleNote={<CycleStateBadge state={cycle.state} />}
-      // 分析のボタン（Pencil「Cycle詳細｜分析パネル（NOD-2）」）は「…」の左に置く
-      actions={<CycleMenu key={cycle.id} cycle={cycle} />}
-      intro={<CycleOverview key={cycle.id} cycle={cycle} />}
-      rows={rows.rows}
-      loading={rows.loading}
-      error={rows.error}
-      search={search}
-      onSearchChange={(patch) => {
-        page.save(patch);
-        navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
-      }}
-      onResetDisplay={() => {
-        page.reset();
-        navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
-      }}
-      resetDisplayDisabled={page.resetDisabled}
-    />
+    <div className={s.layout}>
+      <IssueList
+        crumb={<Link to="/cycles">Cycles</Link>}
+        title={cycle.name}
+        titleNote={<CycleStateBadge state={cycle.state} />}
+        actions={
+          <>
+            <IconButton
+              ref={analyticsButton}
+              icon="chart-line"
+              label="分析"
+              bordered
+              className={analyticsOpen ? s.pressed : undefined}
+              aria-pressed={analyticsOpen}
+              onClick={() => (analyticsOpen ? closeAnalytics() : setAnalyticsOpen(true))}
+            />
+            <CycleMenu key={cycle.id} cycle={cycle} />
+          </>
+        }
+        intro={<CycleOverview key={cycle.id} cycle={cycle} />}
+        rows={rows.rows}
+        loading={rows.loading}
+        error={rows.error}
+        search={search}
+        onSearchChange={(patch) => {
+          page.save(patch);
+          navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+        }}
+        onResetDisplay={() => {
+          page.reset();
+          navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+        }}
+        resetDisplayDisabled={page.resetDisabled}
+      />
+      {analyticsOpen && <CycleAnalyticsPanel key={cycle.id} cycle={cycle} onClose={closeAnalytics} />}
+    </div>
   );
 }
 
@@ -97,6 +132,12 @@ function CycleMenu({ cycle }: { cycle: CycleDetail }) {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
+  // 分析パネルの Escape に渡さず、メニューだけを閉じる
+  const closeOnEscape = (event: React.KeyboardEvent) => {
+    if (!open || event.key !== "Escape") return;
+    event.preventDefault();
+    setOpen(false);
+  };
   const choose = (next: "edit" | "delete") => {
     setOpen(false);
     setDialog(next);
@@ -110,10 +151,10 @@ function CycleMenu({ cycle }: { cycle: CycleDetail }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        onKeyDown={closeOnEscape}
       />
       {open && (
-        <Menu label="Cycle の操作" className={s.menu} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+        <Menu label="Cycle の操作" className={s.menu} onKeyDown={closeOnEscape}>
           <MenuItem ref={first} onClick={() => choose("edit")}>
             <Icon name="pencil" />
             編集

@@ -91,6 +91,8 @@ export type {
   InitiativeSummary,
   UpdateInitiativeInput,
   Cycle,
+  CycleAnalytics,
+  CycleBreakdownRow,
   CycleCadence,
   CycleDetail,
   CycleState,

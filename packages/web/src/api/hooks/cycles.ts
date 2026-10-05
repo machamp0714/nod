@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { mutableQueries, queryKeys } from "../query-keys";
-import type { CycleCadence, CycleDetail, CycleSummary } from "../types";
+import type { CycleAnalytics, CycleCadence, CycleDetail, CycleSummary } from "../types";
 import { useApiMutation } from "./shared";
 
 // 「現在」の Cycle はブラウザのタイムゾーンの今日で決める
@@ -24,6 +24,16 @@ export function useCycle(id: number, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.cycle(id, tz),
     queryFn: () => apiFetch<CycleDetail>(`/cycles/${id}?tz=${encodeURIComponent(tz)}`),
+    enabled,
+  });
+}
+
+// 分析パネル（進捗・Cycle graph・内訳）。パネルを開いているあいだだけ取る
+export function useCycleAnalytics(id: number, enabled: boolean) {
+  const tz = browserTimeZone();
+  return useQuery({
+    queryKey: queryKeys.cycleAnalytics(id, tz),
+    queryFn: () => apiFetch<CycleAnalytics>(`/cycles/${id}/analytics?tz=${encodeURIComponent(tz)}`),
     enabled,
   });
 }
