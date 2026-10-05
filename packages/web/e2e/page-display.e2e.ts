@@ -117,11 +117,11 @@ test("View の表示設定は自動保存せず、「変更を保存」を押す
 test("Cycle の表示を保存したあと Cycle を消しても、エラーにならない", async ({ page, nod }) => {
   const workspaces = (await (await page.request.get("/api/workspaces")).json()) as { id: number; key: string }[];
   const api = workspaces.find((w) => w.key === "API")!;
-  const cycle = (await nod.me.createCycle({ workspaceId: api.id, name: "Sprint 1", startDate: "2026-10-01", endDate: "2026-10-14" })) as { id: number };
+  const cycle = (await nod.me.createCycle({ name: "Sprint 1", startDate: "2026-10-01", endDate: "2026-10-14" })) as { id: number };
   await page.goto(`/cycles/${cycle.id}`);
   await setLayout(page, "Board");
   await expect.poll(async () => (await savedDisplays(page))[`cycle:${cycle.id}`]).toEqual({ layout: "board" });
-  await nod.me.deleteCycle(api.id, String(cycle.id));
+  await nod.me.deleteCycle(String(cycle.id));
   await page.goto(`/cycles/${cycle.id}`);
   await expect(page.getByText("Cycle が見つかりません")).toBeVisible();
   await page.goto("/issues");

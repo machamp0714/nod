@@ -103,46 +103,25 @@ describe("Milestone の選択肢", () => {
 
 describe("Cycle の選択肢", () => {
   const cycles = [
-    { id: 1, name: "Sprint 12", workspace: "API" },
-    { id: 2, name: "Sprint 12", workspace: "NOD" },
-    { id: 3, name: "Sprint 13", workspace: "API" },
-    { id: 4, name: "Design Week", workspace: "WEB" },
+    { id: 1, name: "S1" },
+    { id: 2, name: "Sprint 13" },
   ];
-  test("名前をそのまま出し、同じ名前の Cycle がほかの Workspace にあるときだけ Workspace のキーを添える", () => {
-    expect(cycleOptions(cycles)).toEqual([
-      { value: "1", label: "Sprint 12 · API" },
-      { value: "2", label: "Sprint 12 · NOD" },
-      { value: "3", label: "Sprint 13" },
-      { value: "4", label: "Design Week" },
-    ]);
+  test("名前をそのまま出す", () => {
+    expect(cycleOptions([{ id: 1, name: "S1" }])).toEqual([{ value: "1", label: "S1" }]);
   });
 
-  test("消えた Cycle の ID は API を呼ばずに知らせる。none は Cycle なし", () => {
+  test("消えた Cycle の ID だけを API を呼ばずに知らせる。none と読み込み中は null", () => {
     expect(cycleProblem({ cycle: "9" }, undefined)).toBeNull();
     expect(cycleProblem({ cycle: "1" }, cycles)).toBeNull();
+    expect(cycleProblem({ workspace: "NOD", cycle: "1" }, cycles)).toBeNull();
     expect(cycleProblem({ cycle: "none" }, cycles)).toBeNull();
     expect(cycleProblem({ cycle: "9" }, cycles)).toBe("条件の Cycle（9）が見つかりません");
   });
 
-  test("Workspace を選んでいれば、選択肢はその Workspace の Cycle だけにし、名前にキーを添えない", () => {
-    expect(cycleOptions(cycles, "API")).toEqual([
-      { value: "1", label: "Sprint 12" },
-      { value: "3", label: "Sprint 13" },
-    ]);
-  });
-
-  test("URL の Workspace と食い違う Cycle は API を呼ばずに知らせる", () => {
-    expect(cycleProblem({ workspace: "NOD", cycle: "1" }, cycles)).toBe("条件の Cycle（Sprint 12）は条件の Workspace のものではありません");
-    expect(cycleProblem({ workspace: "API", cycle: "1" }, cycles)).toBeNull();
-    expect(cycleProblem({ workspace: "NOD", cycle: "none" }, cycles)).toBeNull();
-  });
-
-  test("Workspace を変えると、その Workspace にない Cycle の選択を外す。none と読み込み中は残す", () => {
-    expect(withWorkspace({ by: "day", cycle: "1" }, "API", cycles)).toEqual({ by: "day", workspace: "API", cycle: "1" });
-    expect(withWorkspace({ workspace: "API", cycle: "1" }, "NOD", cycles)).toEqual({ workspace: "NOD", cycle: undefined });
-    expect(withWorkspace({ workspace: "API", cycle: "1" }, undefined, cycles)).toEqual({ workspace: undefined, cycle: "1" });
-    expect(withWorkspace({ cycle: "none" }, "NOD", cycles)).toEqual({ workspace: "NOD", cycle: "none" });
-    expect(withWorkspace({ cycle: "1" }, "NOD", undefined)).toEqual({ workspace: "NOD", cycle: "1" });
+  test("Workspace を変えても Cycle の選択は保つ", () => {
+    expect(withWorkspace({ by: "day", cycle: "1" }, "API")).toEqual({ by: "day", workspace: "API", cycle: "1" });
+    expect(withWorkspace({ workspace: "API", cycle: "1" }, "NOD")).toEqual({ workspace: "NOD", cycle: "1" });
+    expect(withWorkspace({ workspace: "API", cycle: "1" }, undefined)).toEqual({ workspace: undefined, cycle: "1" });
   });
 });
 

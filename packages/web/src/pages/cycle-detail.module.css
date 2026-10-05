@@ -1,3 +1,23 @@
+/* 開いた分析パネルを Issue 一覧の右に並べる。Issue 一覧はパネルの分だけ縮む（issue-list の .split と同じ） */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100%;
+}
+
+.layout > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 分析パネルを開いているときの分析のボタン（Pencil の「押下中」）。hover の背景より強くするため要素名を付ける */
+button.pressed,
+button.pressed:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .overview {
   display: flex;
   flex-wrap: wrap;
@@ -29,6 +49,21 @@
   font-weight: 500;
 }
 
-.spacer {
-  flex: 1;
+
+.menuWrap {
+  position: relative;
+}
+
+/* メニューの位置だけを決める。枠と項目は components/ui の Menu */
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+}
+
+/* 「削除」。Menu の項目（.menuItem）の色より強くするため要素名を付ける */
+button.danger,
+button.danger svg {
+  color: var(--fail);
 }

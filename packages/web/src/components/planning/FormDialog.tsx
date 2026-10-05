@@ -2,7 +2,8 @@ import { type FormEvent, type ReactNode, useEffect, useId, useRef } from "react"
 import { Button } from "../ui";
 import s from "./planning.module.css";
 
-// Pencil「Cycles｜新規作成」「Cycle詳細｜移動の確認」のダイアログ。開いている間だけ描画し、閉じるときは親が描画をやめる
+// Pencil「Cycles｜新規作成」「Cycles｜周期の設定・編集・削除（NOD-2）」のダイアログ。開いている間だけ描画し、閉じるときは親が描画をやめる。
+// footerStart はフッターの左端に置く（周期の設定の「周期を外す」）
 export function FormDialog({
   title,
   submitLabel,
@@ -10,6 +11,7 @@ export function FormDialog({
   error,
   onSubmit,
   onClose,
+  footerStart,
   children,
 }: {
   title: string;
@@ -18,6 +20,7 @@ export function FormDialog({
   error: string | null;
   onSubmit: () => void;
   onClose: () => void;
+  footerStart?: ReactNode;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -55,6 +58,7 @@ export function FormDialog({
           )}
         </div>
         <div className={s.footer}>
+          {footerStart && <div className={s.footerStart}>{footerStart}</div>}
           <Button onClick={onClose}>キャンセル</Button>
           <Button type="submit" variant="primary" disabled={busy}>
             {submitLabel}

@@ -216,3 +216,21 @@
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* 1段下げた項目（「Cycles」の下の「Current」）。左 28、文字 12.5 */
+.subItem {
+  padding-left: 28px;
+  font-size: 12.5px;
+}
+
+.subItem:not(.active) {
+  color: var(--ink2);
+}
+
+/* 右端の薄い注記（今の Cycle の名前） */
+.subNote {
+  flex: none;
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: 400;
+}

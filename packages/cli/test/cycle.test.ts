@@ -4,9 +4,9 @@ import { tempDb } from "./helpers";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-function cli(db: string, cwd: string, args: string[], actor = "codex") {
+function cli(db: string, cwd: string, args: string[], actor = "codex", env: Record<string, string> = {}) {
   const proc = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), ...args], {
-    cwd, env: { ...process.env, NOD_DB: db, NOD_ORCA: "0", NOD_ACTOR: actor }, stdout: "pipe", stderr: "pipe",
+    cwd, env: { ...process.env, NOD_DB: db, NOD_ORCA: "0", NOD_ACTOR: actor, ...env }, stdout: "pipe", stderr: "pipe",
   });
   const stdout = proc.stdout.toString();
   return { code: proc.exitCode, stdout, stderr: proc.stderr.toString(), json: args.includes("--json") ? JSON.parse(stdout) : undefined };
@@ -19,7 +19,7 @@ function repo(): string {
 }
 
 describe("Cycle CLI", () => {
-  test("LLM も Cycle を作り、Issue を入れ、未完了を次の Cycle へ移せるが、削除は人だけ", () => {
+  test("LLM も Cycle を作り、Issue を入れられるが、削除は人だけ。別 repo の Issue も同じ Cycle に入る", () => {
     const db = tempDb();
     const cwd = repo();
     expect(cli(db, cwd, ["init", "--key", "CYC"], "me").code).toBe(0);
@@ -35,11 +35,17 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["issue", "list", "--cycle", "S1", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([created.id]);
     const outside = cli(db, cwd, ["issue", "create", "Cycle の外", "--json"], "me").json;
     expect(cli(db, cwd, ["issue", "list", "--cycle", "none", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([outside.id]);
-    expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  持ち越し候補 1");
-    expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).toContain("nod cycle move-open");
+    expect(cli(db, cwd, ["cycle", "list"]).stdout).toContain("S1（終了）  2000-01-01〜2000-01-14  0/1  未完了 1");
+    expect(cli(db, cwd, ["cycle", "show", "S1"]).stdout).not.toContain("move-open");
+    // 手動でまとめて移すコマンドは廃止した
+    expect(cli(db, cwd, ["cycle", "move-open", "S1", "--to", "S2"]).code).not.toBe(0);
 
-    const moved = cli(db, cwd, ["cycle", "move-open", "S1", "--to", "S2", "--json"]);
-    expect(moved.json).toMatchObject({ moved: [created.id], to: { name: "S2", open: 1 } });
+    // 別の repo（Workspace）の Issue も同じ Cycle に入れ、名前で両方を絞れる
+    const webCwd = repo();
+    expect(cli(db, webCwd, ["init", "--key", "WEB"], "me").code).toBe(0);
+    const web = cli(db, webCwd, ["issue", "create", "Web の作業", "--cycle", "S1", "--json"], "me").json;
+    expect(web.cycle.name).toBe("S1");
+    expect(cli(db, cwd, ["issue", "list", "--all-workspaces", "--cycle", "S1", "--json"]).json.map((i: { id: string }) => i.id)).toEqual([created.id, web.id]);
     expect(cli(db, cwd, ["issue", "update", created.id, "--cycle", "", "--json"]).json.cycle).toBeNull();
     expect(cli(db, cwd, ["summary", "--cycle", "S2", "--json"]).code).toBe(0);
     expect(cli(db, cwd, ["stats", "--cycle", "S2", "--json"]).code).toBe(0);
@@ -57,6 +63,42 @@ describe("Cycle CLI", () => {
     const forbidden = cli(db, cwd, ["cycle", "delete", "次", "--json"]);
     expect([forbidden.code, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
     expect(cli(db, cwd, ["cycle", "delete", "次", "--json"], "me").json).toMatchObject({ name: "次" });
+  });
+
+  test("周期の設定は人だけ。設定するとコマンドの実行時に Cycle が作られ、show に分析が出る", () => {
+    const db = tempDb();
+    const cwd = repo();
+    expect(cli(db, cwd, ["init", "--key", "CAD"], "me").code).toBe(0);
+    const llm = cli(db, cwd, ["cycle", "cadence", "set", "--weeks", "2"]);
+    expect(llm.code).not.toBe(0);
+    expect(llm.stderr).toContain("FORBIDDEN_FOR_LLM");
+    expect(cli(db, cwd, ["cycle", "cadence", "set", "--weeks", "2", "--no-carry-over", "--json"], "me").json).toMatchObject({ weeks: 2, autoCarryOver: false });
+    expect(cli(db, cwd, ["cycle", "cadence", "show"]).stdout).toContain("2週間ごと");
+    const list = cli(db, cwd, ["cycle", "list", "--json"]).json;
+    expect(list.map((c: { name: string }) => c.name)).toEqual(["Cycle 1", "Cycle 2"]);
+    // 週数だけ変えても、指定しなかった自動持ち越しの設定は保たれる
+    expect(cli(db, cwd, ["cycle", "cadence", "set", "--weeks", "3", "--json"], "me").json).toMatchObject({ weeks: 3, autoCarryOver: false });
+    cli(db, cwd, ["issue", "create", "作業", "--cycle", "current"], "me");
+    const show = cli(db, cwd, ["cycle", "show", "current"]).stdout;
+    expect(show).toContain("Completed 0（0%）");
+    expect(show).toContain("todo 1");
+    expect(cli(db, cwd, ["cycle", "show", "current", "--json"]).json.analytics).toMatchObject({ scope: 1 });
+    expect(cli(db, cwd, ["cycle", "cadence", "clear"], "me").code).toBe(0);
+    expect(cli(db, cwd, ["cycle", "cadence", "show"]).stdout).toContain("周期は未設定です");
+  });
+
+  test("コマンドの --tz の今日で Cycle を作る", () => {
+    const db = tempDb();
+    const cwd = repo();
+    // このマシンのローカルを UTC-12 にし、UTC+14 の今日（ローカルより1日以上先）から始まる1週の Cycle を1つ作っておく
+    const local = { TZ: "Etc/GMT+12" };
+    const kiritimati = new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Kiritimati" }).format(new Date());
+    cli(db, cwd, ["init", "--key", "CTZ"], "me", local);
+    cli(db, cwd, ["cycle", "cadence", "set", "--weeks", "1", "--start", kiritimati], "me", local);
+    expect(cli(db, cwd, ["cycle", "list", "--json"], "codex", local).json.map((c: { state: string }) => c.state)).toEqual(["upcoming"]);
+    // UTC+14 では最初の Cycle が今日を含むので、次の Cycle も作る
+    const list = cli(db, cwd, ["cycle", "list", "--tz", "Pacific/Kiritimati", "--json"], "codex", local).json;
+    expect(list.map((c: { name: string; state: string }) => `${c.name} ${c.state}`)).toEqual(["Cycle 1 current", "Cycle 2 upcoming"]);
   });
 
   test("重なり・不正値・不存在はエラーになる", () => {

@@ -33,7 +33,7 @@ import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationState, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
-import { resolveCycle, resolveCycleInScope } from "./cycles";
+import { resolveCycle } from "./cycles";
 import { isNoneRef, validateAssignee } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
@@ -103,7 +103,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
-    const cycle = input.cycleRef ? resolveCycle(ctx.db, input.workspaceId, input.cycleRef) : null;
+    const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     return insertIssue(ctx, {
       workspaceId: input.workspaceId,
@@ -182,7 +182,11 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
   }
-  recordEvent(ctx.db, id, ctx.actor, "created", { status, ...input.origin });
+  recordEvent(ctx.db, id, ctx.actor, "created", {
+    status,
+    ...(input.cycleId !== null && input.cycleId !== undefined ? { cycle_id: input.cycleId } : {}),
+    ...input.origin,
+  });
   return toIssue(issueRowById(ctx.db, id));
 }
 
@@ -215,7 +219,7 @@ export interface ListIssuesFilter {
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
   milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）。名前は projectRef を指定したときだけ
-  cycleRef?: string; // Cycle の ID か "none"（Cycle のない Issue）。名前・current は Workspace を1つに絞ったときだけ
+  cycleRef?: string; // Cycle の ID・名前・current か "none"（Cycle のない Issue）
   labels?: string[];
   ready?: boolean;
   query?: string;
@@ -225,14 +229,6 @@ export interface ListIssuesFilter {
   priorities?: number[]; // 優先度（0 = なし）。どれかに合うもの
   completionCandidate?: boolean; // true で親の完了候補だけにする
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
-}
-
-// 絞り込みの Workspace（1つに決まるときの Cycle の名前の解決に使う）。絞っていなければ undefined
-function scopeWorkspaceIds(db: Database, filter: ListIssuesFilter): number[] | undefined {
-  if (filter.workspaceId !== undefined) return [filter.workspaceId];
-  if (!filter.workspaceKeys?.length) return undefined;
-  const keys = [...new Set(filter.workspaceKeys.map((k) => k.toUpperCase()))];
-  return (db.query(`SELECT id FROM workspaces WHERE key IN (${keys.map(() => "?").join(", ")})`).all(...keys) as { id: number }[]).map((r) => r.id);
 }
 
 // Workspace、Project、Cycle、ラベル、担当、優先度の条件。Ready と Needs Clarification の件数もこの範囲で数える
@@ -268,7 +264,7 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   if (isNoneRef(filter.cycleRef)) where.push("i.cycle_id IS NULL");
   else if (filter.cycleRef) {
     where.push("i.cycle_id = ?");
-    params.push(resolveCycleInScope(db, filter.cycleRef, scopeWorkspaceIds(db, filter)));
+    params.push(resolveCycle(db, filter.cycleRef).id);
   }
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
@@ -461,6 +457,7 @@ export interface UpdateIssueInput {
   addLabels?: string[];
   removeLabels?: string[];
   reason?: string;
+  automation?: string; // 自動化による変更の名前。core の内部用で、API・CLI からは渡さない
 }
 
 function changeLabels(ctx: OpCtx, row: IssueRow, add: string[], remove: string[]): void {
@@ -587,8 +584,13 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     }
     if (input.milestoneRef !== undefined || row.milestone_id !== null) setMilestone(ctx, row, input.milestoneRef);
     if (input.cycleRef !== undefined) {
-      const cycle = input.cycleRef ? resolveCycle(ctx.db, row.workspace_id, input.cycleRef) : null;
-      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, { from: row.cycle_name, to: cycle?.name ?? null });
+      const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
+      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, {
+        from: row.cycle_name,
+        to: cycle?.name ?? null,
+        data: { from_id: row.cycle_id, to_id: cycle?.id ?? null },
+        automation: input.automation,
+      });
     }
     if (input.status !== undefined) {
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {

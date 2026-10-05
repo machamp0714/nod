@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, type Workspace } from "@nod/core";
+import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, syncClockOf, syncCycles, type Workspace } from "@nod/core";
 import type { Command } from "commander";
 import { detectActor } from "./actor";
 import { useStatusNames } from "./output";
@@ -20,7 +20,11 @@ export function globalOpts(cmd: Command): { json: boolean; workspace?: string } 
 export function openCli(cmd: Command): Cli {
   const db = openDb();
   useStatusNames(listAllStatusNames(db));
-  return { db, ctx: { db, actor: detectActor() }, json: globalOpts(cmd).json };
+  const ctx = { db, actor: detectActor() };
+  // 周期に従って Cycle を作り、終了した Cycle の未完了を持ち越す（NOD-2）。常駐処理の代わりに、コマンドのたびに確かめる。
+  // 今日はコマンドの --tz の暦日（ない・不正ならこのマシンのローカル）
+  syncCycles(ctx, syncClockOf((cmd.opts() as { tz?: unknown }).tz));
+  return { db, ctx, json: globalOpts(cmd).json };
 }
 
 // git worktree の中でも、本体のリポジトリのルートを返す

@@ -42,6 +42,7 @@ describe("describeEvent（#198）", () => {
       text: "me がアーカイブした：30 日動きなし",
       detail: ["自動化: auto_archive"],
     });
+    expect(event("cycle_changed", { from: "Cycle 1", to: "Cycle 2", automation: "cycle-carry-over" })?.detail).toEqual(["以前: Cycle 1", "自動化: cycle-carry-over"]);
   });
 
   test("作業状況は入力待ちの理由（質問文）を出さず、エラーの理由だけを補足に残す", () => {

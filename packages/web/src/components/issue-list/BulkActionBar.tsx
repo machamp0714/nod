@@ -38,7 +38,7 @@ export function BulkActionBar({
   const projects = useProjectChoices();
   const cycleList = useCycles();
   const milestoneList = useMilestones();
-  const cycles = cycleMenu(selected, cycleList.data ?? []);
+  const cycles = cycleMenu(cycleList.data ?? []);
   const milestones = milestoneMenu(selected, milestoneList.data ?? []);
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [failures, setFailures] = useState<BulkFailure[]>([]);
@@ -165,22 +165,20 @@ export function BulkActionBar({
         <Dropdown icon="calendar" label="期限" disabled={disabled} {...menu("dueDate")}>
           <ValueForm label="期限" type="date" onSet={(value) => apply({ dueDate: value })} onClear={() => apply({ dueDate: null })} />
         </Dropdown>
-        {/* Pencil Q2vFJ（#154）。Workspace・Project が混ざる選択では無効にし、理由を title で出す */}
-        <Dropdown icon="calendar-range" label="Cycle" disabled={disabled || !!cycles.disabled} title={cycles.disabled} {...menu("cycle")}>
-          {cycles.disabled === undefined && (
-            <ChoiceMenu
-              label="Cycle を変更"
-              items={cycles.cycles.map((c) => ({
-                key: String(c.id),
-                icon: "calendar-range",
-                label: c.name,
-                badge: <span className={d.badge} data-state={c.state}>{CYCLE_STATE_LABEL[c.state]}</span>,
-                run: () => apply({ cycleRef: String(c.id) }),
-              }))}
-              empty={listNotice(cycleList, "この Workspace に終了していない Cycle はありません")}
-              none={{ label: "Cycle なし", run: () => apply({ cycleRef: null }) }}
-            />
-          )}
+        {/* Pencil Q2vFJ（#154）。Cycle は Workspace が混ざっていても変えられる。Project が混ざる選択では Milestone を無効にし、理由を title で出す */}
+        <Dropdown icon="calendar-range" label="Cycle" disabled={disabled} {...menu("cycle")}>
+          <ChoiceMenu
+            label="Cycle を変更"
+            items={cycles.map((c) => ({
+              key: String(c.id),
+              icon: "calendar-range",
+              label: c.name,
+              badge: <span className={d.badge} data-state={c.state}>{CYCLE_STATE_LABEL[c.state]}</span>,
+              run: () => apply({ cycleRef: String(c.id) }),
+            }))}
+            empty={listNotice(cycleList, "終了していない Cycle はありません")}
+            none={{ label: "Cycle なし", run: () => apply({ cycleRef: null }) }}
+          />
         </Dropdown>
         <Dropdown icon="flag" label="Milestone" disabled={disabled || !!milestones.disabled} title={milestones.disabled} {...menu("milestone")}>
           {milestones.disabled === undefined && (

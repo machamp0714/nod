@@ -1,4 +1,4 @@
-import type { Cycle, CycleState } from "../api/types";
+import type { Cycle, CycleCadence, CycleState } from "../api/types";
 
 export const CYCLE_STATE_LABEL: Record<CycleState, string> = { current: "Current", upcoming: "Upcoming", completed: "Completed" };
 
@@ -8,16 +8,21 @@ export function formatCyclePeriod(cycle: Pick<Cycle, "startDate" | "endDate">): 
   return `${cycle.startDate} – ${sameYear ? cycle.endDate.slice(5) : cycle.endDate}`;
 }
 
-// 見出し・選択肢の表記「Sprint 12（Current）」。同じ名前の Cycle が別の Workspace にあるときだけ「· キー」を足す
-export function cycleLabel(cycle: Pick<Cycle, "id" | "name" | "state" | "workspace">, all: readonly Pick<Cycle, "id" | "name" | "workspace">[]): string {
-  const base = `${cycle.name}（${CYCLE_STATE_LABEL[cycle.state]}）`;
-  const ambiguous = all.some((c) => c.id !== cycle.id && c.name === cycle.name && c.workspace !== cycle.workspace);
-  return ambiguous ? `${base} · ${cycle.workspace}` : base;
+// 見出し・選択肢の表記「Sprint 12（Current）」
+export function cycleLabel(cycle: Pick<Cycle, "name" | "state">): string {
+  return `${cycle.name}（${CYCLE_STATE_LABEL[cycle.state]}）`;
 }
 
-// 未完了を移す先の既定。移動元以外で、現在の Cycle があればそれ、なければ（移動元が現在なら）次の予定の Cycle。
-// cycles は同じ Workspace の Cycle を開始日の順に並べたもの
-export function defaultDestination<T extends Pick<Cycle, "id" | "state" | "startDate">>(source: Pick<Cycle, "id" | "startDate">, cycles: readonly T[]): T | undefined {
-  const others = cycles.filter((c) => c.id !== source.id);
-  return others.find((c) => c.state === "current") ?? others.find((c) => c.state === "upcoming" && c.startDate > source.startDate) ?? others.find((c) => c.state === "upcoming");
+// Cycles 一覧の見出しの下に出す周期の要約。次は最初の予定の Cycle
+export function formatCadence(c: CycleCadence | null, cycles: readonly Pick<Cycle, "name" | "startDate" | "state">[]): string {
+  if (!c) return "周期は未設定です";
+  const next = cycles.find((x) => x.state === "upcoming");
+  return [`${c.weeks}週間ごと`, `自動持ち越し ${c.autoCarryOver ? "ON" : "OFF"}`, ...(next ? [`次は ${next.name}（${next.startDate.slice(5)}〜）`] : [])].join(" · ");
+}
+
+// サイドバーの「Current」の行き先。今の Cycle の詳細、なければ一覧。読み込み前は出さない
+export function currentCycleLink(cycles: readonly Pick<Cycle, "id" | "name" | "state">[] | undefined): { to: string; label: string } | null {
+  if (!cycles) return null;
+  const current = cycles.find((c) => c.state === "current");
+  return current ? { to: `/cycles/${current.id}`, label: current.name } : { to: "/cycles", label: "なし" };
 }

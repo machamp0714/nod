@@ -1,27 +1,24 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { errorMessage } from "../api/errors";
-import { useCreateCycle, useCycles } from "../api/hooks/cycles";
-import { useWorkspaces } from "../api/hooks/shared";
+import { useCadence, useCreateCycle, useCycles } from "../api/hooks/cycles";
 import type { CycleSummary } from "../api/types";
+import { CadenceDialog } from "../components/cycles/CadenceDialog";
 import { FormDialog } from "../components/planning/FormDialog";
 import d from "../components/planning/planning.module.css";
-import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Spacer, WorkspaceBadge } from "../components/ui";
-import { CYCLE_STATE_LABEL, formatCyclePeriod } from "../lib/cycles";
+import { Button, Icon, PageError, PageHeader, PageTitle, ProgressBar, Spacer } from "../components/ui";
+import { CYCLE_STATE_LABEL, formatCadence, formatCyclePeriod } from "../lib/cycles";
 import s from "./projects.module.css";
 
-// Pencil「Cycles｜一覧（#82）」。Cycle は Workspace ごとなので、Workspace が2つ以上あれば Workspace の見出しでまとめる
+// Pencil「Cycles｜一覧（NOD-2）」。Cycle は全体で1つの系列なので、開始日の順に1つの表で並べる。見出しの下に周期の要約を出す
 export function CyclesPage() {
   const cycles = useCycles();
-  const workspaces = useWorkspaces();
+  const cadence = useCadence();
   const [creating, setCreating] = useState(false);
-  const error = cycles.error ?? workspaces.error;
-  const multi = (workspaces.data?.length ?? 0) > 1;
-  const groups = (workspaces.data ?? [])
-    .map((w) => ({ workspace: w, cycles: (cycles.data ?? []).filter((c) => c.workspace === w.key) }))
-    .filter((g) => g.cycles.length > 0);
+  const [settingCadence, setSettingCadence] = useState(false);
+  const error = cycles.error ?? cadence.error;
   const newButton = (
-    <Button icon="plus" disabled={!workspaces.data?.length} onClick={() => setCreating(true)}>
+    <Button icon="plus" onClick={() => setCreating(true)}>
       New cycle
     </Button>
   );
@@ -30,11 +27,20 @@ export function CyclesPage() {
       <PageHeader>
         <PageTitle>Cycles</PageTitle>
         <Spacer />
+        <Button icon="repeat" onClick={() => setSettingCadence(true)} disabled={!cycles.data || cadence.isPending}>
+          周期の設定
+        </Button>
         {newButton}
       </PageHeader>
+      {cadence.isSuccess && (
+        <p className={d.cadence}>
+          <Icon name="repeat" size={13} />
+          {formatCadence(cadence.data, cycles.data ?? [])}
+        </p>
+      )}
       {error ? (
         <PageError message={errorMessage(error)} />
-      ) : !cycles.data || !workspaces.data ? (
+      ) : !cycles.data ? (
         <p className={s.muted} style={{ padding: 24 }}>
           <span role="status">読み込み中…</span>
         </p>
@@ -62,23 +68,17 @@ export function CyclesPage() {
               <th>未完了</th>
             </tr>
           </thead>
-          {groups.map((g) => (
-            <tbody key={g.workspace.key} aria-label={multi ? `Workspace ${g.workspace.name}` : undefined}>
-              {multi && (
-                <tr>
-                  <th colSpan={5} scope="rowgroup">
-                    <WorkspaceBadge workspaceKey={g.workspace.key} name={g.workspace.name} />
-                  </th>
-                </tr>
-              )}
-              {g.cycles.map((cycle) => (
-                <CycleRow key={cycle.id} cycle={cycle} />
-              ))}
-            </tbody>
-          ))}
+          <tbody>
+            {cycles.data.map((cycle) => (
+              <CycleRow key={cycle.id} cycle={cycle} />
+            ))}
+          </tbody>
         </table>
       )}
-      {creating && workspaces.data && <NewCycleDialog workspaces={workspaces.data} onClose={() => setCreating(false)} />}
+      {creating && <NewCycleDialog onClose={() => setCreating(false)} />}
+      {settingCadence && cycles.data && (
+        <CadenceDialog cadence={cadence.data ?? null} hasCycles={cycles.data.length > 0} onClose={() => setSettingCadence(false)} />
+      )}
     </div>
   );
 }
@@ -119,9 +119,8 @@ export function CycleStateBadge({ state }: { state: CycleSummary["state"] }) {
   );
 }
 
-function NewCycleDialog({ workspaces, onClose }: { workspaces: { key: string; name: string }[]; onClose: () => void }) {
+function NewCycleDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateCycle();
-  const [workspace, setWorkspace] = useState(workspaces[0]?.key ?? "");
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -140,23 +139,11 @@ function NewCycleDialog({ workspaces, onClose }: { workspaces: { key: string; na
         }
         setError(null);
         create.mutate(
-          { workspace, name: name.trim(), startDate, endDate },
+          { name: name.trim(), startDate, endDate },
           { onSuccess: onClose, onError: (err) => setError(errorMessage(err)) },
         );
       }}
     >
-      {workspaces.length > 1 && (
-        <label className={d.field}>
-          Workspace
-          <select className={d.input} value={workspace} onChange={(event) => setWorkspace(event.target.value)}>
-            {workspaces.map((w) => (
-              <option key={w.key} value={w.key}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <label className={d.field}>
         名前
         <input className={d.input} value={name} onChange={(event) => setName(event.target.value)} />

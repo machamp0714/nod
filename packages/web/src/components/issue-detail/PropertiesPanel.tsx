@@ -6,6 +6,7 @@ import { attachmentDate } from "./DocumentsSection";
 import { PrStatusSection } from "./PrStatusSection";
 import { prLabel } from "../../lib/format";
 import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
+import { cycleMenu as unfinishedCycles } from "../../lib/bulk-selection";
 import { executionLocation } from "../../lib/execution-location";
 import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
 import { statusName } from "../../lib/workspace-labels";
@@ -325,9 +326,9 @@ export function PropertiesPanel({
   const projectMilestones = (milestones.data ?? []).filter((m) => m.projectId === issue.project?.id);
   const milestoneOptions =
     issue.milestone && !projectMilestones.some((m) => m.id === issue.milestone?.id) ? [...projectMilestones, issue.milestone] : projectMilestones;
-  // Cycle は同じ Workspace のものだけを選べる（Pencil「Issue詳細｜Cycle」は名前だけを出す）。一覧を読み込む前でも今の値を表示する
+  // 終了していない Cycle を選べる（Pencil「Issue詳細｜Cycle」は名前だけを出す）。一覧を読み込む前や終了した Cycle でも今の値を表示する
   const cycles = useCycles();
-  const cycleOptions = (cycles.data ?? []).filter((c) => c.workspace === issue.workspace).map((c) => ({ id: c.id, label: c.name }));
+  const cycleOptions = unfinishedCycles(cycles.data ?? []).map((c) => ({ id: c.id, label: c.name }));
   if (issue.cycle && !cycleOptions.some((c) => c.id === issue.cycle?.id)) cycleOptions.push({ id: issue.cycle.id, label: issue.cycle.name });
   // メニューの項目。未設定は値 "" の「なし」
   const none = (icon: IconName): PropertyOption => ({ value: "", label: "なし", icon: <PropIcon name={icon} color="var(--ink3)" /> });

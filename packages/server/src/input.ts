@@ -53,6 +53,19 @@ export function reqString(body: Body, key: string): string {
   return v;
 }
 
+export function optBool(body: Body, key: string): boolean | undefined {
+  const v = body[key];
+  if (v === undefined) return undefined;
+  if (typeof v !== "boolean") throw invalid(`${key} は true か false で指定してください`);
+  return v;
+}
+
+export function reqInt(body: Body, key: string): number {
+  const v = optInt(body, key);
+  if (v === undefined) throw invalid(`${key} を指定してください`);
+  return v;
+}
+
 export function optNullableString(body: Body, key: string): string | null | undefined {
   return body[key] === null ? null : optString(body, key);
 }

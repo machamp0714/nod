@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx } from "@nod/core";
+import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -48,6 +48,8 @@ export function createApp(opts: AppOptions): Hono {
   app.onError((err) => errorJson(err));
   app.notFound((c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));
 
+  const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
+
   app.use("/api/*", async (c, next) => {
     // Hono の HEAD→GET 変換で SSE の購読を作らない。API は明示したメソッドだけを受け付ける
     if (c.req.method === "HEAD") {
@@ -68,12 +70,13 @@ export function createApp(opts: AppOptions): Hono {
       }
       if (!allowed) throw new NodError("FORBIDDEN_ORIGIN", "外部サイトからの書き込みは受け付けません");
     }
+    // 周期に従って Cycle を作り、終了した Cycle の未完了を持ち越す（NOD-2）。常駐処理の代わりに、API の呼び出しのたびに確かめる
+    syncCycles(me, syncClockOf(c.req.query("tz")));
     await next();
   });
 
   registerReadRoutes(app, opts.db, opts.docsDir);
   registerStatsRoutes(app, opts.db);
-  const me: OpCtx = { db: opts.db, actor: HUMAN_ACTOR }; // web からの操作の書き手は me
   registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上

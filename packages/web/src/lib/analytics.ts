@@ -117,32 +117,20 @@ export function milestoneProblem(search: AnalyticsSearch, milestones: MilestoneR
   return null;
 }
 
-type CycleRef = { id: number; name: string; workspace: string };
-
-// nod.pen の Cycle Select のメニュー（C8VwtJ）。名前だけを出し、同じ名前の Cycle がほかの Workspace にあるときだけ「名前 · Workspaceキー」にする。
-// Workspace を選んでいればその Workspace の Cycle だけにする。並びは受け取った順（GET /api/cycles は Workspace のキー、開始日の順）
-export function cycleOptions(all: readonly CycleRef[], workspace?: string): { value: string; label: string }[] {
-  const cycles = workspace ? all.filter((c) => c.workspace === workspace) : all;
-  return cycles.map((c) => ({
-    value: String(c.id),
-    label: cycles.some((o) => o.id !== c.id && o.name === c.name && o.workspace !== c.workspace) ? `${c.name} · ${c.workspace}` : c.name,
-  }));
+// nod.pen の Cycle Select のメニュー（C8VwtJ）。名前だけを出す。並びは受け取った順（GET /api/cycles は開始日の順）
+export function cycleOptions(all: readonly { id: number; name: string }[]): { value: string; label: string }[] {
+  return all.map((c) => ({ value: String(c.id), label: c.name }));
 }
 
-// Workspace を選び直す。選んでいた Cycle が新しい Workspace のものでなければ外す（withProject と同じ）。
-// Cycle の一覧を読み込む前は判断できないため外さない。none（Cycle なし）はどの Workspace とも組み合わせられるため残す
-export function withWorkspace(search: AnalyticsSearch, workspace: string | undefined, cycles: readonly CycleRef[] | undefined): AnalyticsSearch {
-  const { cycle } = search;
-  const keep = !cycle || cycle === NO_CYCLE || !workspace || !cycles || cycles.some((c) => String(c.id) === cycle && c.workspace === workspace);
-  return { ...search, workspace, cycle: keep ? cycle : undefined };
+// Workspace を選び直す。Cycle は Workspace をまたいで使えるため、選んでいた Cycle はそのまま残す
+export function withWorkspace(search: AnalyticsSearch, workspace: string | undefined): AnalyticsSearch {
+  return { ...search, workspace };
 }
 
-// URL の Cycle が消えている、または URL の Workspace のものでないとき、API を呼ばずに出すメッセージ。none（Cycle なし）と一覧の読み込み中は null
-export function cycleProblem(search: AnalyticsSearch, cycles: readonly CycleRef[] | undefined): string | null {
+// URL の Cycle が消えているとき、API を呼ばずに出すメッセージ。none（Cycle なし）と一覧の読み込み中は null
+export function cycleProblem(search: AnalyticsSearch, cycles: readonly { id: number }[] | undefined): string | null {
   if (!search.cycle || search.cycle === NO_CYCLE || !cycles) return null;
-  const found = cycles.find((c) => String(c.id) === search.cycle);
-  if (!found) return `条件の Cycle（${search.cycle}）が見つかりません`;
-  if (search.workspace && found.workspace !== search.workspace) return `条件の Cycle（${found.name}）は条件の Workspace のものではありません`;
+  if (!cycles.some((c) => String(c.id) === search.cycle)) return `条件の Cycle（${search.cycle}）が見つかりません`;
   return null;
 }
 

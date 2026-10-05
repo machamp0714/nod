@@ -1,0 +1,200 @@
+/* Pencil「Cycle詳細｜分析パネル（NOD-2）」（xe3ue）の Analytics Panel に合わせる */
+.panel {
+  position: sticky;
+  top: 0;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  /* Main のカードの内側の高さ */
+  height: var(--main-height);
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  animation: slide-in 160ms ease-out;
+}
+
+/* 開くときだけ右から出す。閉じるときは親が外す */
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: var(--header-height);
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dates {
+  color: var(--ink3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px;
+}
+
+.progress {
+  display: flex;
+  gap: 12px;
+}
+
+.metric {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metricHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.metricValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.number {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.sub {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plot {
+  position: relative;
+  width: 100%;
+  height: 140px;
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink3);
+  font-size: 10.5px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.tab {
+  flex: 1;
+  height: var(--control-height-sm);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink3);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--ink2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}

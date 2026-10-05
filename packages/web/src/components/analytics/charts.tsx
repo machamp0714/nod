@@ -26,7 +26,7 @@ export interface ChartTable {
   rows: string[][];
 }
 
-function DataTable({ id, label, table }: { id: string; label: string; table: ChartTable }) {
+export function DataTable({ id, label, table }: { id: string; label: string; table: ChartTable }) {
   return (
     <table id={id} className={s.visuallyHidden}>
       <caption>{label}</caption>
@@ -45,7 +45,7 @@ function DataTable({ id, label, table }: { id: string; label: string; table: Cha
 }
 
 // 親の幅に合わせて描く。SVG を伸縮させると文字が歪むため、幅を測って座標を計算する
-function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
+export function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(512);
   useLayoutEffect(() => {

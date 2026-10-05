@@ -17,6 +17,8 @@ export * from "./ops/projects";
 export * from "./ops/milestones";
 export * from "./ops/initiatives";
 export * from "./ops/cycles";
+export * from "./ops/cycle-cadence";
+export * from "./ops/cycle-analytics";
 export * from "./ops/documents";
 export * from "./ops/attachments";
 export * from "./ops/issue-deletions";

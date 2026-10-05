@@ -53,7 +53,7 @@ export interface Issue {
   parentId: string | null;
   project: { id: number; name: string } | null;
   milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
-  cycle: { id: number; name: string } | null; // 所属する Cycle（同じ Workspace のもの）。未設定は null
+  cycle: { id: number; name: string } | null; // 所属する Cycle。未設定は null
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
@@ -176,13 +176,12 @@ export interface InitiativeDetail extends InitiativeSummary {
   projects: ProjectSummary[]; // 名前順
 }
 
-// 期間（#82）。Workspace ごとで、期間は時刻なしの暦日（両端を含む）。状態は保存せず、今日の暦日から求める
+// 期間（#82・NOD-2）。全体で1系列で、期間は時刻なしの暦日（両端を含む）。状態は保存せず、今日の暦日から求める
 export const CYCLE_STATES = ["upcoming", "current", "completed"] as const;
 export type CycleState = (typeof CYCLE_STATES)[number];
 
 export interface Cycle {
   id: number;
-  workspace: string; // Workspace のキー
   name: string;
   startDate: string;
   endDate: string;
@@ -192,8 +191,7 @@ export interface Cycle {
   updatedAt: string;
 }
 
-// 進捗は Project と同じ定義（total は canceled・アーカイブ以外、done は done）。open は未完了（total - done）で、
-// 終了した Cycle では持ち越し候補になる（自動では移さない）
+// 進捗は Project と同じ定義（total は canceled・アーカイブ以外、done は done）。open は未完了（total - done）
 export interface CycleSummary extends Cycle {
   total: number;
   done: number;
@@ -202,6 +200,29 @@ export interface CycleSummary extends Cycle {
 
 export interface CycleDetail extends CycleSummary {
   issues: Issue[]; // アーカイブ以外
+  memberCount: number; // 所属する Issue の件数（アーカイブ・canceled も含む）。削除で Cycle なしに戻る件数
+}
+
+// 内訳の1行。担当なしは key "" ・label "担当なし"、Project なしは key "" ・label "Project なし"
+export interface CycleBreakdownRow {
+  key: string;
+  label: string;
+  total: number;
+  done: number;
+}
+
+// Cycle の分析（Linear の Cycle の右パネル）。started は done を含まない（Web が Completed の上に積む）
+export interface CycleAnalytics {
+  cycleId: number;
+  scope: number;
+  started: number;
+  completed: number;
+  startedRate: number | null;
+  completedRate: number | null;
+  scopeAdded: number;
+  burnup: { date: string; scope: number; started: number; completed: number }[];
+  breakdown: { assignees: CycleBreakdownRow[]; labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
+  statuses: { status: Status; count: number }[];
 }
 
 export interface UpdateInitiativeInput {
@@ -850,4 +871,14 @@ export interface AgentTargets {
   worktree: string | null;
   terminals: OrcaTerminal[];
   failure: OrcaFailure | null;
+}
+
+// Cycle の周期。全体で1つ。nextNumber は次に自動で付ける `Cycle {N}` の N
+export interface CycleCadence {
+  weeks: number;
+  autoCarryOver: boolean;
+  anchorDate: string; // Cycle が1つもないときの最初の開始日
+  nextNumber: number;
+  updatedBy: string;
+  updatedAt: string;
 }

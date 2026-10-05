@@ -1,8 +1,10 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useCycles } from "../api/hooks/cycles";
 import { useCreateView } from "../api/hooks/views";
 import { Icon, IconButton, type IconName } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
+import { currentCycleLink } from "../lib/cycles";
 import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
@@ -11,15 +13,41 @@ type NavPath = "/inbox" | "/reviews" | "/triage" | "/open-questions" | "/issues"
 
 const ACTIVE_PROPS = { className: s.active, "aria-current": "page" } as const;
 
-function NavItem({ to, icon, label, count, askTone }: { to: NavPath; icon: IconName; label: string; count?: number; askTone?: boolean }) {
+// exact は配下のパスで選択中にしない（今の Cycle の詳細を開いているときの「Cycles」）
+function NavItem({ to, icon, label, count, askTone, exact }: { to: NavPath; icon: IconName; label: string; count?: number; askTone?: boolean; exact?: boolean }) {
   return (
-    <Link to={to} className={s.item} activeProps={ACTIVE_PROPS} activeOptions={{ includeSearch: false }}>
+    <Link to={to} className={s.item} activeProps={ACTIVE_PROPS} activeOptions={{ includeSearch: false, exact }}>
       <span className={s.itemIcon}>
         <Icon name={icon} />
       </span>
       <span className={s.label}>{label}</span>
       {count !== undefined && <span className={`${s.count} ${askTone && count > 0 ? s.countAsk : ""}`}>{count}</span>}
     </Link>
+  );
+}
+
+// 「Cycles」の下に1段下げて置く「Current」。右端に今の Cycle の名前（なければ「なし」）を出す。
+// 今の Cycle の詳細を開いているときだけ選択中にする。なしのときの行き先は一覧だが、一覧では「Cycles」だけを選択中にするため、
+// Link の自動の選択中（aria-current）を使わず、選択中は呼び出し側が決める
+function CurrentCycleItem({ to, label, active }: { to: string; label: string; active: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <a
+      href={to}
+      className={`${s.item} ${s.subItem} ${active ? s.active : ""}`}
+      aria-current={active ? "page" : undefined}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        void navigate({ to });
+      }}
+    >
+      <span className={s.itemIcon}>
+        <Icon name="circle-dot" size={12} />
+      </span>
+      <span className={s.label}>Current</span>
+      <span className={s.subNote}>{label}</span>
+    </a>
   );
 }
 
@@ -44,6 +72,9 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
   const navigate = useNavigate();
   const createView = useCreateView();
   const [creating, setCreating] = useState(false);
+  const current = currentCycleLink(useCycles().data);
+  const { pathname } = useLocation();
+  const currentActive = current !== null && current.to !== "/cycles" && pathname === current.to;
   return (
     <nav aria-label="メイン" className={s.sidebar}>
       <div className={s.top}>
@@ -66,7 +97,8 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
         <NavItem to="/issues" icon="copy" label="Issues" />
         <NavItem to="/initiatives" icon="target" label="Initiatives" />
         <NavItem to="/projects" icon="box" label="Projects" />
-        <NavItem to="/cycles" icon="calendar-range" label="Cycles" />
+        <NavItem to="/cycles" icon="calendar-range" label="Cycles" exact={currentActive} />
+        {current && <CurrentCycleItem to={current.to} label={current.label} active={currentActive} />}
         <NavItem to="/documents" icon="file-text" label="Documents" />
         <NavItem to="/analytics" icon="chart-column" label="Analytics" />
         <NavItem to="/summary" icon="activity" label="Summary" />

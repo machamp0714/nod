@@ -122,60 +122,55 @@ test.describe("Initiative の編集（#154）", () => {
 test.describe("Cycle", () => {
   test.use({ allowedConsoleErrors: [/status of 409/] });
 
-  test("Workspace を選んで Cycle を作り、重なりは理由を出して作らない", async ({ page, nod }) => {
+  test("名前と期間で Cycle を作り、重なりは理由を出して作らない", async ({ page, nod }) => {
     await page.goto("/cycles");
     await expect(page.getByText("Cycle はまだありません")).toBeVisible();
     await page.getByRole("button", { name: "New cycle" }).first().click();
     const dialog = page.getByRole("dialog", { name: "New cycle" });
-    await dialog.getByLabel("Workspace").selectOption({ label: "nod" });
+    await expect(dialog.getByLabel("Workspace")).toHaveCount(0);
     await dialog.getByLabel("名前").fill("Sprint 12");
     await dialog.getByLabel("開始日").fill(localDate(-3));
     await dialog.getByLabel("終了日").fill(localDate(3));
     await dialog.getByRole("button", { name: "作成" }).click();
     await expect(dialog).toHaveCount(0);
-    const group = page.getByRole("rowgroup", { name: "Workspace nod" });
-    await expect(group.getByRole("row", { name: /Sprint 12/ })).toContainText("Current");
+    await expect(page.getByRole("row", { name: /Sprint 12/ })).toContainText("Current");
 
     await page.getByRole("button", { name: "New cycle" }).click();
-    await dialog.getByLabel("Workspace").selectOption({ label: "nod" });
     await dialog.getByLabel("名前").fill("重なり");
     await dialog.getByLabel("開始日").fill(localDate(0));
     await dialog.getByLabel("終了日").fill(localDate(10));
     await dialog.getByRole("button", { name: "作成" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Sprint 12");
     await dialog.getByRole("button", { name: "キャンセル" }).click();
-    expect((await nod.me.listAllCycles({})).map((c) => c.name)).toEqual(["Sprint 12"]);
+    expect((await nod.me.listCycles()).map((c) => c.name)).toEqual(["Sprint 12"]);
   });
 
-  test("終了した Cycle の未完了を確認のうえ現在の Cycle へ移し、Issues を Cycle で絞り・まとめる", async ({ page, nod }) => {
-    const [api] = await nod.me.listWorkspaces().then((list) => list.filter((w) => w.key === "API"));
-    const past = await nod.me.createCycle({ workspaceId: api!.id, name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
-    const current = await nod.me.createCycle({ workspaceId: api!.id, name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
+  test("終了した Cycle の詳細に未完了を移す操作は出さず、Issues を Cycle で絞り・まとめる", async ({ page, nod }) => {
+    const past = await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
+    const current = await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
     const issues = (await nod.me.queryIssues({ workspace: ["API"] })).issues;
     const [a, b, c] = issues.filter((i) => i.status !== "done" && i.status !== "canceled" && i.status !== "triage");
+    // 終了した Sprint 11 に未完了 1 件と完了 1 件、現在の Sprint 12 に未完了 1 件
     const open = [a!, b!];
     const done = await nod.me.updateIssue(c!.id, { status: "done" });
-    for (const issue of [...open, done]) await nod.me.updateIssue(issue.id, { cycleRef: String(past.id) });
+    for (const issue of [a!, done]) await nod.me.updateIssue(issue.id, { cycleRef: String(past.id) });
+    await nod.me.updateIssue(b!.id, { cycleRef: String(current.id) });
 
     await page.goto(`/cycles/${past.id}`);
     await expect(page.getByRole("heading", { level: 1, name: "Sprint 11" })).toBeVisible();
     await expect(page.getByText("Completed", { exact: true })).toBeVisible();
-    await expect(page.getByText("未完了 2", { exact: true })).toBeVisible();
-    await expect(page.getByRole("combobox", { name: "移動先" })).toHaveValue(String(current.id));
-    await page.getByRole("button", { name: "未完了 2 件を別の Cycle へ移す" }).click();
-    const confirm = page.getByRole("dialog", { name: "未完了 2 件を Sprint 12 へ移しますか？" });
-    await expect(confirm).toContainText(open.map((i) => i.id).join("・"));
-    await confirm.getByRole("button", { name: "移す" }).click();
-    await expect(confirm).toHaveCount(0);
+    await expect(page.getByText("未完了 1", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: a!.title })).toBeVisible();
+    // 未完了を手で別の Cycle へ移す操作はなくした
+    await expect(page.getByRole("combobox", { name: "移動先" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /件を別の Cycle へ移す/ })).toHaveCount(0);
-    for (const issue of open) expect((await nod.me.getIssue(issue.id)).cycle?.name).toBe("Sprint 12");
-    expect((await nod.me.getIssue(done.id)).cycle?.name).toBe("Sprint 11");
 
     await page.goto("/issues");
     await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "Sprint 12（Current）" });
     // TanStack Router は数字の文字列を引用符つきで書く（cycle=%222%22）ため、値で確かめる
     await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe(`"${current.id}"`);
-    await expect(page.getByRole("link", { name: open[0]!.title })).toBeVisible();
+    await expect(page.getByRole("link", { name: open[1]!.title })).toBeVisible();
+    await expect(page.getByRole("link", { name: open[0]!.title })).toHaveCount(0);
     await expect(page.getByRole("link", { name: done.title })).toHaveCount(0);
     await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "Cycle なし" });
     await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe("none");
@@ -194,10 +189,9 @@ test.describe("Cycle", () => {
   });
 
   test("消えた Cycle の ID が URL や保存済みの View に残ると、API を呼ばずにメッセージを出す", async ({ page, nod }) => {
-    const [api] = await nod.me.listWorkspaces().then((list) => list.filter((w) => w.key === "API"));
-    const gone = await nod.me.createCycle({ workspaceId: api!.id, name: "消す", startDate: localDate(-1), endDate: localDate(1) });
+    const gone = await nod.me.createCycle({ name: "消す", startDate: localDate(-1), endDate: localDate(1) });
     const view = await nod.me.createView({ name: "消えた Cycle", filter: { cycle: String(gone.id) } });
-    await nod.me.deleteCycle(api!.id, String(gone.id));
+    await nod.me.deleteCycle(String(gone.id));
     const message = `条件の Cycle（${gone.id}）が見つかりません`;
 
     await page.goto(`/issues?cycle=${gone.id}`);
@@ -206,15 +200,14 @@ test.describe("Cycle", () => {
     await expect(page.getByRole("alert")).toHaveText(message);
   });
 
-  test("Issue 詳細で同じ Workspace の Cycle に入れ、外せる", async ({ page, nod }) => {
-    const [api] = await nod.me.listWorkspaces().then((list) => list.filter((w) => w.key === "API"));
-    const [nodWs] = await nod.me.listWorkspaces().then((list) => list.filter((w) => w.key === "NOD"));
-    await nod.me.createCycle({ workspaceId: api!.id, name: "Sprint 12", startDate: localDate(-1), endDate: localDate(1) });
-    await nod.me.createCycle({ workspaceId: nodWs!.id, name: "他の Workspace", startDate: localDate(-1), endDate: localDate(1) });
+  test("Issue 詳細で終了していない Cycle に入れ、外せる", async ({ page, nod }) => {
+    await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-10), endDate: localDate(-2) });
+    await nod.me.createCycle({ name: "Sprint 13", startDate: localDate(2), endDate: localDate(8) });
+    await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-1), endDate: localDate(1) });
     const issue = (await nod.me.queryIssues({ workspace: ["API"] })).issues.find((i) => i.status === "todo")!;
     await page.goto(`/issues/${issue.id}`);
     await property(page, "Cycle").click();
-    await expect(propertyMenu(page, "Cycle").getByRole("menuitemradio")).toHaveText(["なし", "Sprint 12"]);
+    await expect(propertyMenu(page, "Cycle").getByRole("menuitemradio")).toHaveText(["なし", "Sprint 12", "Sprint 13"]);
     await propertyMenu(page, "Cycle").getByRole("menuitemradio", { name: "Sprint 12", exact: true }).click();
     await expect.poll(async () => (await nod.me.getIssue(issue.id)).cycle?.name).toBe("Sprint 12");
     await expect(page.getByText("me が Cycle を Sprint 12 に変えた")).toBeVisible();

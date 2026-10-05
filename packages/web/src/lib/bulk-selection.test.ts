@@ -93,16 +93,9 @@ describe("labelMenu", () => {
 });
 
 describe("cycleMenu・milestoneMenu（#154）", () => {
-  const cycle = (id: number, workspace: string, state: "current" | "upcoming" | "completed", startDate: string) => ({ id, workspace, name: `S${id}`, state, startDate });
-  const cycles = [cycle(1, "API", "completed", "2026-09-01"), cycle(3, "API", "upcoming", "2026-10-15"), cycle(2, "API", "upcoming", "2026-10-01"), cycle(4, "API", "current", "2026-09-20"), cycle(5, "WEB", "current", "2026-09-20")];
-
-  test("選択の Workspace が1つなら、その Workspace の終了していない Cycle を現在→開始日の順に出す", () => {
-    const menu = cycleMenu([{ workspace: "API" }, { workspace: "API" }], cycles);
-    expect(menu).toEqual({ cycles: [cycles[3]!, cycles[2]!, cycles[1]!] });
-  });
-
-  test("Workspace が混ざると理由つきで無効にする", () => {
-    expect(cycleMenu([{ workspace: "API" }, { workspace: "WEB" }], cycles)).toEqual({ disabled: "選択に複数の Workspace が混在しているため、Cycle は一括変更できません" });
+  test("cycleMenu は Workspace が混ざっていても、終了していない Cycle を current 先頭・開始日順で返す", () => {
+    const c = (id: number, state: "current" | "upcoming" | "completed", startDate: string) => ({ id, name: `S${id}`, state, startDate });
+    expect(cycleMenu([c(1, "completed", "2026-09-01"), c(3, "upcoming", "2026-10-19"), c(2, "current", "2026-10-05")]).map((x) => x.id)).toEqual([2, 3]);
   });
 
   const ms = (id: number, projectId: number) => ({ id, projectId, name: `M${id}` });
