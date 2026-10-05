@@ -86,24 +86,11 @@ export function labelMenu(selected: readonly { labels: readonly string[] }[], kn
   };
 }
 
-type BulkChoices<K extends string, T> = { disabled: string } | ({ [key in K]: T[] } & { disabled?: undefined });
-
 // design/nod.pen「一括編集バーの Cycle / Milestone」（Q2vFJ）の Cycle メニュー（#154）。
-// Cycle は Issue と同じ Workspace のものしか入れられないため、選択の Workspace が1つのときだけ、その Workspace の
-// 終了していない Cycle を現在の Cycle を先頭に開始日の順で出す
-export function cycleMenu<C extends { workspace: string; state: string; startDate: string }>(
-  selected: readonly { workspace: string }[],
-  cycles: readonly C[],
-): BulkChoices<"cycles", C> {
-  const workspaces = new Set(selected.map((i) => i.workspace));
-  if (workspaces.size !== 1) return { disabled: "選択に複数の Workspace が混在しているため、Cycle は一括変更できません" };
-  const [workspace] = workspaces;
+// 終了していない Cycle を、現在の Cycle を先頭に開始日の順で出す。Cycle は Workspace をまたいで使える
+export function cycleMenu<C extends { state: string; startDate: string }>(cycles: readonly C[]): C[] {
   const rank = (c: C) => (c.state === "current" ? 0 : 1);
-  return {
-    cycles: cycles
-      .filter((c) => c.workspace === workspace && c.state !== "completed")
-      .sort((a, b) => rank(a) - rank(b) || a.startDate.localeCompare(b.startDate)),
-  };
+  return cycles.filter((c) => c.state !== "completed").sort((a, b) => rank(a) - rank(b) || a.startDate.localeCompare(b.startDate));
 }
 
 // 同じく Milestone メニュー。Milestone は Issue の Project のものしか付けられないため、選択の Project が1つのときだけ出す

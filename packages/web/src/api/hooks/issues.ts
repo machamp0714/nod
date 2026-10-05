@@ -90,7 +90,7 @@ export function useFilterOptions(): FilterOptions {
       projectId: String(m.projectId),
     })),
     milestoneRefs: milestones.data,
-    cycles: (cycles.data ?? []).map((c) => ({ value: String(c.id), label: cycleLabel(c, cycles.data ?? []) })),
+    cycles: (cycles.data ?? []).map((c) => ({ value: String(c.id), label: cycleLabel(c) })),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
     assignees: [...new Set((all.data?.issues ?? []).flatMap((i) => (i.assignee ? [i.assignee] : [])))].sort(),
   };

@@ -77,7 +77,7 @@ export function IssueList({
   const cycles = useCycles();
   const cycleInfo = (id: number) => {
     const cycle = cycles.data?.find((c) => c.id === id);
-    return cycle && { label: cycleLabel(cycle, cycles.data ?? []), rank: `${cycle.startDate} ${cycle.workspace}`, current: cycle.state === "current" };
+    return cycle && { label: cycleLabel(cycle), rank: cycle.startDate, current: cycle.state === "current" };
   };
   const tab: ListTab = mine ? "mine" : (search.tab ?? "all");
   const layout = search.layout ?? "list";

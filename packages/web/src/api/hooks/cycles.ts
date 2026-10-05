@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { CycleDetail, CycleSummary, MoveOpenIssuesResult } from "../types";
+import type { CycleDetail, CycleSummary } from "../types";
 import { useApiMutation } from "./shared";
 
 // 「現在」の Cycle はブラウザのタイムゾーンの今日で決める
@@ -9,7 +9,7 @@ export function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-// すべての Workspace の Cycle（Workspace のキー、開始日の順）
+// すべての Cycle（開始日の順）
 export function useCycles() {
   const tz = browserTimeZone();
   return useQuery({
@@ -29,19 +29,10 @@ export function useCycle(id: number, enabled: boolean) {
 }
 
 export function useCreateCycle() {
-  return useApiMutation<{ workspace: string; name: string; startDate: string; endDate: string }, CycleSummary>(({ workspace, ...body }) =>
-    apiFetch<CycleSummary>(`/workspaces/${encodeURIComponent(workspace)}/cycles?tz=${encodeURIComponent(browserTimeZone())}`, {
+  return useApiMutation<{ name: string; startDate: string; endDate: string }, CycleSummary>((body) =>
+    apiFetch<CycleSummary>(`/cycles?tz=${encodeURIComponent(browserTimeZone())}`, {
       method: "POST",
       body,
-    }),
-  );
-}
-
-export function useMoveOpenIssues(id: number) {
-  return useApiMutation<{ to: number }, MoveOpenIssuesResult>(({ to }) =>
-    apiFetch<MoveOpenIssuesResult>(`/cycles/${id}/move-open?tz=${encodeURIComponent(browserTimeZone())}`, {
-      method: "POST",
-      body: { to: String(to) },
     }),
   );
 }

@@ -94,7 +94,6 @@ export type {
   CycleDetail,
   CycleState,
   CycleSummary,
-  MoveOpenIssuesResult,
   Question,
   RelationType,
   Relations,

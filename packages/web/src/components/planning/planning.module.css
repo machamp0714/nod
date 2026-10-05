@@ -29,11 +29,6 @@
   font-weight: 600;
 }
 
-.message {
-  color: var(--ink2);
-  font-size: 12.5px;
-}
-
 .field {
   display: flex;
   flex: 1;
@@ -115,26 +110,6 @@
 .open {
   color: var(--ask);
   font-size: 12px;
-}
-
-.inlineSelect {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink3);
-  font-size: 12px;
-}
-
-.inlineSelect select,
-.inlineSelect input {
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  font-size: 12.5px;
 }
 
 .empty {
