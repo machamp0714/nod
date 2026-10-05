@@ -222,7 +222,13 @@ export interface MoveOpenIssuesResult {
 
 // 未完了（done・canceled 以外、アーカイブ以外）の Issue を別の Cycle へまとめて移す。
 // 自動持ち越しの内部でだけ使う。Issue ごとに cycle_changed を記録する
-export function moveOpenIssues(ctx: OpCtx, fromRef: string, toRef: string, clock: CycleClock = {}): MoveOpenIssuesResult {
+export function moveOpenIssues(
+  ctx: OpCtx,
+  fromRef: string,
+  toRef: string,
+  clock: CycleClock = {},
+  opts: { automation?: string } = {},
+): MoveOpenIssuesResult {
   return tx(ctx.db, () => {
     const from = resolveCycle(ctx.db, fromRef, clock);
     const to = resolveCycle(ctx.db, toRef, clock);
@@ -232,7 +238,7 @@ export function moveOpenIssues(ctx: OpCtx, fromRef: string, toRef: string, clock
       "WHERE i.cycle_id = ? AND i.archived_at IS NULL AND i.status NOT IN ('done', 'canceled') ORDER BY w.key, i.number",
       [from.id],
     );
-    for (const issue of open) updateIssue(ctx, issue.id, { cycleRef: String(to.id) });
+    for (const issue of open) updateIssue(ctx, issue.id, { cycleRef: String(to.id), automation: opts.automation });
     const today = cycleToday(clock);
     return { moved: open.map((i) => i.id), from: summaryById(ctx.db, from.id, today), to: summaryById(ctx.db, to.id, today) };
   });

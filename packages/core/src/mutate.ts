@@ -54,6 +54,7 @@ export function setColumn(
     trigger?: "answer";
     report_comment_id?: number;
     automation?: string;
+    data?: Record<string, unknown>; // event の data に足す値（推移の再現に使う ID など）
     system?: boolean;
   } = {},
 ): boolean {
@@ -79,6 +80,7 @@ export function setColumn(
       from: "from" in extra ? extra.from : from,
       to: "to" in extra ? extra.to : to,
     };
+    if (extra.data) Object.assign(data, extra.data);
     if (extra.reason) data.reason = extra.reason;
     // 人が実行した自動化ルールによる変更は、どのルールかを残す
     if (extra.automation) data.automation = extra.automation;

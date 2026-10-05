@@ -36,6 +36,20 @@ describe("Cycle", () => {
     expect(codeOf(() => resolveCycle(db, "current", { today: "2027-01-01" }))).toBe("NOT_FOUND");
   });
 
+  test("Cycle の変更記録に ID を残し、作成時の Cycle も残す。移動の自動化名を残せる", () => {
+    const { db, ws, me } = setup();
+    const { current, next } = sprints(me);
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", cycleRef: "current" });
+    expect(eventsOf(db, a.id)[0]).toMatchObject({ type: "created", data: { cycle_id: current.id } });
+    updateIssue(me, a.id, { cycleRef: String(next.id) });
+    expect(eventsOf(db, a.id).at(-1)).toMatchObject({ type: "cycle_changed", data: { from: "Sprint 2", to: "Sprint 3", from_id: current.id, to_id: next.id } });
+    updateIssue(me, a.id, { cycleRef: String(current.id) });
+    moveOpenIssues(me, String(current.id), String(next.id), clock, { automation: "cycle-carry-over" });
+    expect(eventsOf(db, a.id).at(-1)!.data).toMatchObject({ from_id: current.id, to_id: next.id, automation: "cycle-carry-over" });
+    updateIssue(me, a.id, { cycleRef: null });
+    expect(eventsOf(db, a.id).at(-1)!.data).toMatchObject({ from_id: next.id, to_id: null });
+  });
+
   test("今日は tz の暦日で決める", () => {
     // 2026-10-04T20:00Z は東京では 10-05、ロサンゼルスでは 10-04
     const now = new Date("2026-10-04T20:00:00Z");
@@ -108,8 +122,8 @@ describe("Cycle", () => {
     updateIssue(me, issue.id, { cycleRef: null });
     expect(getIssue(db, issue.id).cycle).toBeNull();
     expect(eventsOf(db, issue.id).filter((e) => e.type === "cycle_changed")).toEqual([
-      { type: "cycle_changed", actor: "claude-code", data: { from: "Sprint 2", to: "Sprint 3" } },
-      { type: "cycle_changed", actor: "me", data: { from: "Sprint 3", to: null } },
+      { type: "cycle_changed", actor: "claude-code", data: { from: "Sprint 2", to: "Sprint 3", from_id: current.id, to_id: next.id } },
+      { type: "cycle_changed", actor: "me", data: { from: "Sprint 3", to: null, from_id: next.id, to_id: null } },
     ]);
     expect(codeOf(() => updateIssue(me, issue.id, { cycleRef: "999" }))).toBe("NOT_FOUND");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "x", cycleRef: "外" }))).toBe("NOT_FOUND");
@@ -134,7 +148,7 @@ describe("Cycle", () => {
 
   test("終了しても読むだけでは移さず、moveOpenIssues で未完了だけを移す", () => {
     const { db, ws, me, llm } = setup();
-    sprints(me);
+    const { past, current } = sprints(me);
     const done = createIssue(me, { workspaceId: ws.id, title: "完了", cycleRef: "Sprint 1" });
     updateIssue(me, done.id, { status: "done" });
     const canceled = createIssue(me, { workspaceId: ws.id, title: "中止", cycleRef: "Sprint 1" });
@@ -154,7 +168,7 @@ describe("Cycle", () => {
     expect(getIssue(db, open2.id)).toMatchObject({ status: "triage", cycle: { name: "Sprint 2" } });
     expect(getIssue(db, done.id).cycle?.name).toBe("Sprint 1");
     expect(getIssue(db, archived.id).cycle?.name).toBe("Sprint 1");
-    expect(eventsOf(db, open1.id).at(-1)).toEqual({ type: "cycle_changed", actor: "claude-code", data: { from: "Sprint 1", to: "Sprint 2" } });
+    expect(eventsOf(db, open1.id).at(-1)).toEqual({ type: "cycle_changed", actor: "claude-code", data: { from: "Sprint 1", to: "Sprint 2", from_id: past.id, to_id: current.id } });
     expect(codeOf(() => moveOpenIssues(me, "Sprint 2", "Sprint 2", clock))).toBe("INVALID_ARGS");
     expect(moveOpenIssues(me, "Sprint 1", "Sprint 3", clock).moved).toEqual([]);
   });

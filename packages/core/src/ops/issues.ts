@@ -182,7 +182,11 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
   }
-  recordEvent(ctx.db, id, ctx.actor, "created", { status, ...input.origin });
+  recordEvent(ctx.db, id, ctx.actor, "created", {
+    status,
+    ...(input.cycleId !== null && input.cycleId !== undefined ? { cycle_id: input.cycleId } : {}),
+    ...input.origin,
+  });
   return toIssue(issueRowById(ctx.db, id));
 }
 
@@ -453,6 +457,7 @@ export interface UpdateIssueInput {
   addLabels?: string[];
   removeLabels?: string[];
   reason?: string;
+  automation?: string; // 自動化による変更の名前。core の内部用で、API・CLI からは渡さない
 }
 
 function changeLabels(ctx: OpCtx, row: IssueRow, add: string[], remove: string[]): void {
@@ -580,7 +585,12 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     if (input.milestoneRef !== undefined || row.milestone_id !== null) setMilestone(ctx, row, input.milestoneRef);
     if (input.cycleRef !== undefined) {
       const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
-      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, { from: row.cycle_name, to: cycle?.name ?? null });
+      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, {
+        from: row.cycle_name,
+        to: cycle?.name ?? null,
+        data: { from_id: row.cycle_id, to_id: cycle?.id ?? null },
+        automation: input.automation,
+      });
     }
     if (input.status !== undefined) {
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {
