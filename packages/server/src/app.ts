@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncCycles } from "@nod/core";
+import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -71,8 +71,7 @@ export function createApp(opts: AppOptions): Hono {
       if (!allowed) throw new NodError("FORBIDDEN_ORIGIN", "外部サイトからの書き込みは受け付けません");
     }
     // 周期に従って Cycle を作り、終了した Cycle の未完了を持ち越す（NOD-2）。常駐処理の代わりに、API の呼び出しのたびに確かめる
-    const tz = c.req.query("tz");
-    syncCycles(me, tz ? { tz } : {});
+    syncCycles(me, syncClockOf(c.req.query("tz")));
     await next();
   });
 

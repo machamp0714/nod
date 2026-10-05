@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, getIssue, initWorkspace } from "@nod/core";
+import { createIssue, getIssue, initWorkspace, setCadence } from "@nod/core";
 import { call, setup } from "./helpers";
 
 // 期間は遠い将来・過去にして、実行日に左右されないようにする
@@ -67,6 +67,14 @@ describe("Cycle API", () => {
       expect([path, res.status, res.json.error.code]).toEqual([path, status, code]);
     }
     expect(getIssue(db, issue.id).cycle).toBeNull();
+  });
+
+  test("周期があっても、不正な tz は tz を使わない API を拒まない。tz を使う API は従来どおり拒む", async () => {
+    const { app, me } = setup();
+    setCadence(me, { weeks: 2 });
+    expect((await call(app, "GET", "/api/workspaces?tz=%2B09:00")).status).toBe(200);
+    expect((await call(app, "GET", "/api/cycles?tz=%2B09:00")).json.error.code).toBe("INVALID_ARGS");
+    expect((await call(app, "GET", "/api/cycles")).json.map((c: { name: string }) => c.name)).toEqual(["Cycle 1", "Cycle 2"]);
   });
 
   test("分析と要約の API で cycle を受け付け、none（Cycle のない Issue）は Issue 一覧と同じく扱う", async () => {

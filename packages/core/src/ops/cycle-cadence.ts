@@ -5,6 +5,7 @@ import { isValidDueDateInput } from "../due-date";
 import { NodError } from "../errors";
 import type { CycleCadence, CycleSummary } from "../types";
 import { assertFree, type CycleClock, cycleToday, insertCycle, type MoveOpenIssuesResult, moveOpenIssues, summaryById } from "./cycles";
+import { dateFormatter } from "./stats";
 
 // 自動持ち越しの記録に付ける自動化名
 export const CYCLE_CARRY_OVER = "cycle-carry-over";
@@ -125,6 +126,18 @@ function insertAutoCycle(ctx: OpCtx, cadence: CycleCadence, start: string): numb
   ctx.db.query("UPDATE cycle_cadence SET next_number = ? WHERE id = 1").run(n + 1);
   cadence.nextNumber = n + 1;
   return id;
+}
+
+// syncCycles に渡す「今日」の決め方。呼び出しで指定された tz を使い、使えない tz なら実行環境のローカルにする。
+// 不正な tz は、それを使う処理がそれぞれ拒む（tz を使わない処理まで失敗させない）
+export function syncClockOf(tz: unknown): CycleClock {
+  if (typeof tz !== "string" || !tz) return {};
+  try {
+    dateFormatter(tz);
+    return { tz };
+  } catch {
+    return {};
+  }
 }
 
 // 周期に従って不足している Cycle を作り、終了した Cycle の未完了を持ち越す。CLI・API の各呼び出しの最初に呼ぶ。

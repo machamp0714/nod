@@ -4,9 +4,9 @@ import { tempDb } from "./helpers";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 
-function cli(db: string, cwd: string, args: string[], actor = "codex") {
+function cli(db: string, cwd: string, args: string[], actor = "codex", env: Record<string, string> = {}) {
   const proc = Bun.spawnSync(["bun", join(import.meta.dir, "../src/main.ts"), ...args], {
-    cwd, env: { ...process.env, NOD_DB: db, NOD_ORCA: "0", NOD_ACTOR: actor }, stdout: "pipe", stderr: "pipe",
+    cwd, env: { ...process.env, NOD_DB: db, NOD_ORCA: "0", NOD_ACTOR: actor, ...env }, stdout: "pipe", stderr: "pipe",
   });
   const stdout = proc.stdout.toString();
   return { code: proc.exitCode, stdout, stderr: proc.stderr.toString(), json: args.includes("--json") ? JSON.parse(stdout) : undefined };
@@ -85,6 +85,20 @@ describe("Cycle CLI", () => {
     expect(cli(db, cwd, ["cycle", "show", "current", "--json"]).json.analytics).toMatchObject({ scope: 1 });
     expect(cli(db, cwd, ["cycle", "cadence", "clear"], "me").code).toBe(0);
     expect(cli(db, cwd, ["cycle", "cadence", "show"]).stdout).toContain("周期は未設定です");
+  });
+
+  test("コマンドの --tz の今日で Cycle を作る", () => {
+    const db = tempDb();
+    const cwd = repo();
+    // このマシンのローカルを UTC-12 にし、UTC+14 の今日（ローカルより1日以上先）から始まる1週の Cycle を1つ作っておく
+    const local = { TZ: "Etc/GMT+12" };
+    const kiritimati = new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Kiritimati" }).format(new Date());
+    cli(db, cwd, ["init", "--key", "CTZ"], "me", local);
+    cli(db, cwd, ["cycle", "cadence", "set", "--weeks", "1", "--start", kiritimati], "me", local);
+    expect(cli(db, cwd, ["cycle", "list", "--json"], "codex", local).json.map((c: { state: string }) => c.state)).toEqual(["upcoming"]);
+    // UTC+14 では最初の Cycle が今日を含むので、次の Cycle も作る
+    const list = cli(db, cwd, ["cycle", "list", "--tz", "Pacific/Kiritimati", "--json"], "codex", local).json;
+    expect(list.map((c: { name: string; state: string }) => `${c.name} ${c.state}`)).toEqual(["Cycle 1 current", "Cycle 2 upcoming"]);
   });
 
   test("重なり・不正値・不存在はエラーになる", () => {
