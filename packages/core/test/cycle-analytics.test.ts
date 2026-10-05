@@ -81,6 +81,19 @@ describe("cycleAnalytics", () => {
     db.query("UPDATE events SET data = json_remove(data, '$.cycle_id'), created_at = '2026-10-01T03:00:00.000Z'").run();
     expect(cycleAnalytics(db, "S", clock).burnup[0]).toEqual({ date: "2026-10-05", scope: 1, started: 0, completed: 0 });
   });
+
+  test("ID のない旧記録の Issue が開始前に done になっていたら、開始日から done として数える", () => {
+    const { db, ws, me } = setup();
+    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
+    const a = createIssue(me, { workspaceId: ws.id, title: "旧", cycleRef: "S" });
+    updateIssue(me, a.id, { status: "done" });
+    const row = findIssueRow(db, a.id).id;
+    db.query("UPDATE events SET data = json_remove(data, '$.cycle_id') WHERE issue_id = ?").run(row);
+    db.query("UPDATE events SET created_at = '2026-10-01T03:00:00.000Z' WHERE issue_id = ? AND type = 'created'").run(row);
+    db.query("UPDATE events SET created_at = '2026-10-02T03:00:00.000Z' WHERE issue_id = ? AND type <> 'created'").run(row);
+    expect(cycleAnalytics(db, "S", clock).burnup.map((d) => d.completed)).toEqual([1, 1, 1, 1]);
+  });
+
   test("日の区切りは clock の tz。UTC では前日でも東京の翌日に入った Issue はその日から数える", () => {
     const { db, ws, me } = setup();
     createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);

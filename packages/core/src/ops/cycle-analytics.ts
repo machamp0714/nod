@@ -104,7 +104,7 @@ function timelineOf(db: Database, issue: { id: number; cycle_id: number | null }
     snaps.push({ date: localDate.format(new Date(e.created_at)), member, status });
   }
   if (issue.cycle_id === id && !knowsMembership) {
-    return [{ date: start, member: true, status: snaps[0]?.status ?? status }, ...snaps.map((s) => ({ ...s, member: true }))].sort((x, y) => x.date.localeCompare(y.date));
+    return [{ date: start, member: true, status: snaps.filter((s) => s.date <= start).at(-1)?.status ?? snaps[0]?.status ?? status }, ...snaps.map((s) => ({ ...s, member: true }))].sort((x, y) => x.date.localeCompare(y.date));
   }
   return snaps;
 }
