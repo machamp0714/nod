@@ -44,8 +44,8 @@ function pastedName(ext: string, at: Date): string {
 
 // ドロップした画像の名前。空白は - にし、制御文字・区切り・先頭の . は拒否する
 function droppedName(name: string): string {
-  if (CONTROL_OR_FORMAT.test(name) || /[\\/]/.test(name) || name.startsWith(".")) throw invalid(`${name} は画像の名前に使えません`);
   const normalized = name.trim().replace(/\s+/g, "-");
+  if (CONTROL_OR_FORMAT.test(normalized) || /[\\/]/.test(normalized) || normalized.startsWith(".")) throw invalid(`${name} は画像の名前に使えません`);
   if (normalized.length > 255) throw invalid("ファイル名は 255 文字までです");
   return normalized;
 }
@@ -66,9 +66,15 @@ export function saveDocumentAsset(
   const rootReal = realpathSync(docDir);
   const imagesDir = join(docDir, "images");
   mkdirAllowingExisting(imagesDir);
-  if (!isInside(rootReal, realpathSync(imagesDir)) || !statSync(imagesDir).isDirectory()) {
-    throw invalid("images が Document のディレクトリの外を指しています");
+  let imagesReal: string;
+  try {
+    imagesReal = realpathSync(imagesDir);
+    if (!statSync(imagesDir).isDirectory()) throw invalid("images がディレクトリではありません");
+  } catch (e) {
+    if (e instanceof NodError) throw e;
+    throw invalid("images がディレクトリではありません（リンク切れの可能性があります）");
   }
+  if (!isInside(rootReal, imagesReal)) throw invalid("images が Document のディレクトリの外を指しています");
   const stem = basename(base, extname(base));
   const suffix = extname(base);
   for (let n = 1; ; n++) {
@@ -94,10 +100,11 @@ export function resolveDocumentAsset(db: Database, id: number, rel: string): { a
   let real: string;
   try {
     real = realpathSync(abs);
-    if (!isInside(realpathSync(docDir), real) || !lstatSync(real).isFile()) throw notFound(rel);
+    // symlink の行き先も画像でなければ返さない（images/x.png -> ../.env を防ぐ）
+    if (!imageMime(real) || !isInside(realpathSync(docDir), real) || !lstatSync(real).isFile()) throw notFound(rel);
   } catch (e) {
     if (e instanceof NodError) throw e;
     throw notFound(rel);
   }
-  return { abs, mime, fileName: basename(abs) };
+  return { abs: real, mime, fileName: basename(abs) };
 }

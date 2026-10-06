@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDocumentAsset, saveDocumentAsset } from "../src/ops/document-assets";
@@ -36,7 +36,7 @@ describe("saveDocumentAsset", () => {
 
   test("画像以外・大きすぎる・不正な名前は INVALID_ARGS", () => {
     const { db, id } = setupDoc();
-    for (const name of ["a.svg", "a.md", ".env.png", "a\u0007.png", "a/b.png", "a\\b.png", "noext"]) {
+    for (const name of ["a.svg", "a.md", ".env.png", "a\u0007.png", "a/b.png", "a\\b.png", "noext", " .png", "\t.png"]) {
       expect([name, codeOf(() => saveDocumentAsset(db, id, { name, data: PNG, pasted: false }))]).toEqual([name, "INVALID_ARGS"]);
     }
     const big = new Uint8Array(ATTACHMENT_MAX_BYTES + 1);
@@ -53,13 +53,32 @@ describe("saveDocumentAsset", () => {
   });
 });
 
+describe("saveDocumentAsset の images の異常", () => {
+  test("images がリンク切れの symlink・通常ファイルなら INVALID_ARGS", () => {
+    const a = setupDoc();
+    symlinkSync(join(a.dir, "nowhere"), join(a.dir, "images"));
+    expect(codeOf(() => saveDocumentAsset(a.db, a.id, { name: "a.png", data: PNG, pasted: false }))).toBe("INVALID_ARGS");
+    const b = setupDoc();
+    writeFileSync(join(b.dir, "images"), "x");
+    expect(codeOf(() => saveDocumentAsset(b.db, b.id, { name: "a.png", data: PNG, pasted: false }))).toBe("INVALID_ARGS");
+  });
+});
+
 describe("resolveDocumentAsset", () => {
+  test("画像に見える symlink の行き先が画像でなければ NOT_FOUND", () => {
+    const { db, dir, id } = setupDoc();
+    mkdirSync(join(dir, "images"));
+    writeFileSync(join(dir, ".env"), "SECRET=1");
+    symlinkSync("../.env", join(dir, "images", "x.png"));
+    expect(codeOf(() => resolveDocumentAsset(db, id, "images/x.png"))).toBe("NOT_FOUND");
+  });
+
   test(".md のディレクトリの下の画像だけを返す", () => {
     const { db, dir, id } = setupDoc();
     mkdirSync(join(dir, "images"));
     writeFileSync(join(dir, "images", "a.png"), PNG);
     writeFileSync(join(dir, ".env"), "SECRET=1");
-    expect(resolveDocumentAsset(db, id, "images/a.png")).toMatchObject({ abs: join(dir, "images", "a.png"), mime: "image/png", fileName: "a.png" });
+    expect(resolveDocumentAsset(db, id, "images/a.png")).toMatchObject({ abs: realpathSync(join(dir, "images", "a.png")), mime: "image/png", fileName: "a.png" });
     const outside = mkdtempSync(join(tmpdir(), "nod-out-"));
     writeFileSync(join(outside, "x.png"), PNG);
     symlinkSync(join(outside, "x.png"), join(dir, "images", "link.png"));
