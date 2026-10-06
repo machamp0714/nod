@@ -84,26 +84,28 @@ export type CreateOutcome =
 
 const codePoints = (s: string) => Array.from(s).length;
 
+// 送る文面そのものの問題（空のタイトル・長さの上限）。送信では INVALID_ARGS で止め、下見では公開できない理由として示す
+export function textBlockersOf(input: { title: string; body: string }): GithubPublishBlocker[] {
+  const out: GithubPublishBlocker[] = [];
+  if (!input.title.trim()) out.push({ code: "INVALID_ARGS", message: "タイトルを指定してください" });
+  else if (codePoints(input.title) > GITHUB_TITLE_MAX) out.push({ code: "INVALID_ARGS", message: `タイトルは ${GITHUB_TITLE_MAX} 文字までです` });
+  if (codePoints(input.body) > GITHUB_BODY_MAX) out.push({ code: "INVALID_ARGS", message: `本文は ${GITHUB_BODY_MAX} 文字までです` });
+  return out;
+}
+
 function validateText(input: { title: string; body: string }): void {
-  if (!input.title.trim()) throw new NodError("INVALID_ARGS", "タイトルを指定してください");
-  if (codePoints(input.title) > GITHUB_TITLE_MAX) throw new NodError("INVALID_ARGS", `タイトルは ${GITHUB_TITLE_MAX} 文字までです`);
-  if (codePoints(input.body) > GITHUB_BODY_MAX) throw new NodError("INVALID_ARGS", `本文は ${GITHUB_BODY_MAX} 文字までです`);
+  const blocker = textBlockersOf(input)[0];
+  if (blocker) throw new NodError(blocker.code, blocker.message);
 }
 
 function leakError(findings: LeakFinding[]): NodError {
   return new NodError("LEAK_DETECTED", `nod の情報が ${findings.length} 件見つかったため送信しません。書き換えてから送ってください`, { findings });
 }
 
+// 先頭の理由で送信を止めるため、復旧の案内がある送信中・結果不明を先に置く
 function blockersOf(db: Database, row: IssueRow): GithubPublishBlocker[] {
   const id = formatIssueId(row.ws_key, row.number);
   const out: GithubPublishBlocker[] = [];
-  if (row.archived_at) out.push({ code: "ISSUE_ARCHIVED", message: `${id} はアーカイブ済みのため公開できません` });
-  if (row.status === "done" || row.status === "canceled") out.push({ code: "ISSUE_CLOSED", message: `${id} は ${row.status} のため公開できません` });
-  const link = githubLinkOf(db, row.id);
-  if (link) out.push({ code: "GITHUB_ALREADY_LINKED", message: `${id} はすでに ${link.url} に対応しています` });
-  else if (hasSentAttempt(db, row.id)) {
-    out.push({ code: "GITHUB_ALREADY_PUBLISHED", message: `${id} は一度 GitHub Issue を作成しています。紐付けを外しても再公開はできません（nod issue link-github で紐付け直せます）` });
-  }
   const pending = pendingAttemptOf(db, row.id);
   if (pending?.state === "sending") out.push({ code: "GITHUB_PUBLISH_PENDING", message: `${id} は GitHub に送信中です` });
   if (pending?.state === "unknown") {
@@ -111,6 +113,13 @@ function blockersOf(db: Database, row: IssueRow): GithubPublishBlocker[] {
       code: "GITHUB_RESULT_UNKNOWN",
       message: `${id} の前回の作成は結果不明です。GitHub の ${pending.repo} を確かめ、作られていれば nod issue link-github ${id} <URL>、作られていなければ nod issue publish ${id} --clear-unknown で解除してください`,
     });
+  }
+  if (row.archived_at) out.push({ code: "ISSUE_ARCHIVED", message: `${id} はアーカイブ済みのため公開できません` });
+  if (row.status === "done" || row.status === "canceled") out.push({ code: "ISSUE_CLOSED", message: `${id} は ${row.status} のため公開できません` });
+  const link = githubLinkOf(db, row.id);
+  if (link) out.push({ code: "GITHUB_ALREADY_LINKED", message: `${id} はすでに ${link.url} に対応しています` });
+  else if (hasSentAttempt(db, row.id)) {
+    out.push({ code: "GITHUB_ALREADY_PUBLISHED", message: `${id} は一度 GitHub Issue を作成しています。紐付けを外しても再公開はできません（nod issue link-github で紐付け直せます）` });
   }
   return out;
 }
@@ -152,7 +161,7 @@ export async function previewGithubPublish(ctx: OpCtx, ref: string, deps: Github
     ghLogin: "login" in login ? login.login : null,
     ghError: "error" in login ? login.error : null,
     findings: detectLeaks({ title, body }, leakConfigOf(ctx.db, deps)),
-    blockers: blockersOf(ctx.db, row),
+    blockers: [...blockersOf(ctx.db, row), ...textBlockersOf({ title, body })],
     state: githubStateOfRow(ctx.db, row),
   };
 }

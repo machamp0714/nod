@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { errorMessage } from "../../api/errors";
 import { useGithubState, useLinkGithub, useUnlinkGithub } from "../../api/hooks/github";
-import { GITHUB_LINK_ORIGIN_LABEL, githubLinkLabel } from "../../lib/github-publish";
+import { GITHUB_LINK_ORIGIN_LABEL, githubLinkLabel, unlinkConfirmText } from "../../lib/github-publish";
 import { Button } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -44,7 +44,7 @@ export function GithubLinkRow({ issueId }: { issueId: string }) {
           {!confirming && <Button size="sm" className={s.unlocked} onClick={() => setConfirming(true)}>解除</Button>}
           {confirming && (
             <span role="alertdialog" aria-label="紐付けを外す確認" className={s.githubConfirm}>
-              {githubLinkLabel(current)} の紐付けを外しますか？外しても再公開はできません
+              {githubLinkLabel(current)} の紐付けを外しますか？{unlinkConfirmText(state.data?.published ?? false)}
               <Button size="sm" variant="danger" className={s.unlocked} disabled={unlink.isPending} onClick={() => void submitUnlink()}>外す</Button>
               <Button size="sm" className={s.unlocked} onClick={() => setConfirming(false)}>やめる</Button>
             </span>

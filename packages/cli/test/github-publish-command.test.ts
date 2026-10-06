@@ -169,3 +169,38 @@ test("--body-file が CRLF でも検出の行番号は LF と同じで、確認�
   await runPublishCommand(cli, id, { bodyFile: file }, io, { gh: fakeGh().run });
   expect(io.out.join("")).toContain("a\r\nb\\u{000d}c");
 });
+
+test("done の Issue に結果不明の試行が残っていれば、ISSUE_CLOSED ではなく復旧の案内（GITHUB_RESULT_UNKNOWN）で止める", async () => {
+  const { db, cli, id } = fixture();
+  const timeout: GhRunner = async (args) => (args.includes("POST") ? { kind: "timeout" } : exited("alice\n"));
+  expect(await codeOf(runPublishCommand(cli, id, {}, fakeIo(), { gh: timeout }))).toBe("GITHUB_RESULT_UNKNOWN");
+  db.query("UPDATE issues SET status = 'done'").run();
+  const gh = fakeGh();
+  let message = "";
+  try {
+    await runPublishCommand(cli, id, {}, fakeIo(), { gh: gh.run });
+  } catch (e) {
+    message = (e as Error).message;
+  }
+  expect(message).toContain("--clear-unknown");
+  expect(gh.posts()).toBe(0);
+});
+
+test("nod のタイトルが 256 文字を超えると --dry-run で理由を示し、--title で短くすれば送れる", async () => {
+  const { db, cli, id } = fixture();
+  db.query("UPDATE issues SET title = ?").run("𠮷".repeat(257));
+  const gh = fakeGh();
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (t: string) => logs.push(t);
+  try {
+    await runPublishCommand(cli, id, { dryRun: true }, fakeIo(), { gh: gh.run });
+  } finally {
+    console.log = original;
+  }
+  expect(logs.join("\n")).toContain("公開できません: タイトルは 256 文字までです");
+  expect(await codeOf(runPublishCommand(cli, id, {}, fakeIo(), { gh: gh.run }))).toBe("INVALID_ARGS");
+  expect(gh.posts()).toBe(0);
+  await runPublishCommand(cli, id, { title: "短いタイトル" }, fakeIo(), { gh: gh.run });
+  expect(JSON.parse(gh.payloads[0]!).title).toBe("短いタイトル");
+});

@@ -78,6 +78,15 @@ describe("下見", () => {
     const p = await previewGithubPublish(me, id, { ...deps(fakeGh()), git });
     expect(p).toMatchObject({ repo: null, repoCandidate: "example/api-server", repoCandidateReason: null });
   });
+
+  test("タイトル 256・本文 65536 コードポイントを超えると、公開できない理由に INVALID_ARGS を出す", async () => {
+    const { db, me, id, deps } = fixture();
+    const textCodes = async () => (await previewGithubPublish(me, id, deps(fakeGh()))).blockers.filter((b) => b.code === "INVALID_ARGS").map((b) => b.message);
+    db.query("UPDATE issues SET title = ?, description = ?").run("𠮷".repeat(256), "𠮷".repeat(65_536));
+    expect(await textCodes()).toEqual([]);
+    db.query("UPDATE issues SET title = ?, description = ?").run("𠮷".repeat(257), "𠮷".repeat(65_537));
+    expect(await textCodes()).toEqual(["タイトルは 256 文字までです", "本文は 65536 文字までです"]);
+  });
 });
 
 describe("作成", () => {
@@ -225,6 +234,16 @@ describe("作成", () => {
     db.query("UPDATE issues SET status = 'todo'").run();
     archiveIssue(me, id);
     expect(await codeOfAsync(publishGithubIssue(me, id, input, deps(gh)))).toBe("ISSUE_ARCHIVED");
+    expect(posts(gh)).toBe(0);
+  });
+
+  test("閉じた Issue に結果不明の試行が残っていれば、復旧の案内（GITHUB_RESULT_UNKNOWN）を先に出す", async () => {
+    const { db, me, id, deps, input } = fixture();
+    await codeOfAsync(publishGithubIssue(me, id, input, deps(fakeGh({ create: () => ({ kind: "timeout" }) }))));
+    db.query("UPDATE issues SET status = 'done'").run();
+    const gh = fakeGh();
+    expect((await previewGithubPublish(me, id, deps(gh))).blockers.map((b) => b.code)).toEqual(["GITHUB_RESULT_UNKNOWN", "ISSUE_CLOSED"]);
+    expect(await codeOfAsync(publishGithubIssue(me, id, input, deps(gh)))).toBe("GITHUB_RESULT_UNKNOWN");
     expect(posts(gh)).toBe(0);
   });
 

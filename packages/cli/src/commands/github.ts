@@ -102,8 +102,11 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
   const preview = await previewGithubPublish(cli.ctx, id, deps);
   const title = o.title ?? preview.title;
   const body = o.bodyFile !== undefined ? readBodyFile(o.bodyFile) : preview.body;
-  const findings = title === preview.title && body === preview.body ? preview.findings : checkGithubPublishText(cli.db, { title, body }, deps);
-  const view: GithubPublishPreview = { ...preview, title, body, findings };
+  const same = title === preview.title && body === preview.body;
+  // 差し替えた文面は checkGithubPublishText が長さも確かめる（超えていれば INVALID_ARGS）ため、nod の文面の長さの理由は外す
+  const findings = same ? preview.findings : checkGithubPublishText(cli.db, { title, body }, deps);
+  const blockers = same ? preview.blockers : preview.blockers.filter((b) => b.code !== "INVALID_ARGS");
+  const view: GithubPublishPreview = { ...preview, title, body, findings, blockers };
   if (o.dryRun) {
     print(cli, view, () => describePreview(view));
     return;
@@ -111,7 +114,7 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
   if (isLlm(cli.ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub Issue を作成できません（nod issue publish --dry-run での確認はできます）。作成は me に依頼してください");
   }
-  const blocker = preview.blockers[0];
+  const blocker = view.blockers[0];
   if (blocker) throw new NodError(blocker.code, blocker.message);
   if (!preview.repo) {
     throw new NodError(

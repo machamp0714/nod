@@ -3,7 +3,7 @@ import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { checkGithubText, useClearGithubUnknown, useGithubPreview, useLinkGithub, usePublishGithub, useSetWorkspaceGithubRepo } from "../../api/hooks/github";
 import type { GithubPublishPreview, GithubPublishResult, LeakFinding } from "../../api/types";
-import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck } from "../../lib/github-publish";
+import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, splitBlockers } from "../../lib/github-publish";
 import { Button } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -59,11 +59,16 @@ function FindingList({ findings }: { findings: LeakFinding[] }) {
 function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; preview: GithubPublishPreview; onDone: () => void; onStale: () => void }) {
   const [title, setTitle] = useState(preview.title);
   const [body, setBody] = useState(preview.body);
-  const [check, dispatch] = useReducer(checkReducer, preview.findings, initialCheck);
+  // 文面の長さの理由は編集で直せるため、検査の失敗として始め、再検査が通れば送れるようにする
+  const { text: textError, others: blockers } = splitBlockers(preview.blockers);
+  const [check, dispatch] = useReducer(checkReducer, null, () => initialCheck(preview.findings, textError));
   const [error, setError] = useState("");
   const [created, setCreated] = useState<GithubPublishResult | null>(null);
+  const [unrecorded, setUnrecorded] = useState<{ url: string; message: string } | null>(null);
   const publish = usePublishGithub(issueId);
-  const blocked = preview.blockers.length > 0 || preview.ghError !== null;
+  // isPending が描画に反映される前の連打で、2回送らない
+  const inFlight = useRef(false);
+  const blocked = blockers.length > 0 || preview.ghError !== null;
   // 編集のたびに、少し待ってから今の版を server で再検査する。古い版の結果は reducer が捨てる
   useEffect(() => {
     if (check.status !== "checking") return;
@@ -76,9 +81,10 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
     }, CHECK_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [issueId, title, body, check.revision, check.status]);
-  const sendable = !created && canSend(check, { sending: publish.isPending, repo: preview.repo, ghLogin: preview.ghLogin, blocked });
+  const sendable = !created && !unrecorded && canSend(check, { sending: publish.isPending, repo: preview.repo, ghLogin: preview.ghLogin, blocked });
   async function send() {
-    if (!sendable || !preview.repo || !preview.ghLogin) return;
+    if (inFlight.current || !sendable || !preview.repo || !preview.ghLogin) return;
+    inFlight.current = true;
     setError("");
     try {
       const result = await publish.mutateAsync({ title, body, repo: preview.repo, ghLogin: preview.ghLogin });
@@ -91,10 +97,29 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
         dispatch({ type: "result", revision: check.revision, findings });
         return;
       }
+      // GitHub には作られている。作成の失敗として出すと手で作り直して重複しかねないため、別に知らせる
+      const url = recordFailedUrl(e);
+      if (url) {
+        setUnrecorded({ url, message: errorMessage(e) });
+        return;
+      }
       setError(errorMessage(e));
       // 結果不明（502）・送信中（409）などは下見を取り直し、復旧の操作や理由を出す
       if (e instanceof ApiError) onStale();
+    } finally {
+      inFlight.current = false;
     }
+  }
+  if (unrecorded) {
+    return (
+      <div className={s.githubDialogBody} role="alert">
+        <p>
+          GitHub に <a href={unrecorded.url} target="_blank" rel="noreferrer" className={s.link}>{unrecorded.url}</a> を作成しましたが、nod に紐付けを記録できませんでした。
+          もう一度作成せず、このダイアログを閉じて「GitHub」の行の「紐付ける」にこの URL を入力してください
+        </p>
+        <p className={s.githubDialogNote}>{unrecorded.message}</p>
+      </div>
+    );
   }
   if (created) {
     return (
@@ -112,7 +137,7 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
         <dt>宛先</dt><dd>{preview.repo}</dd>
         <dt>gh アカウント</dt><dd>{preview.ghLogin ?? `確かめられません（${preview.ghError?.message ?? ""}）`}</dd>
       </dl>
-      {preview.blockers.map((b) => <p key={b.code} role="alert" className={s.error}>{b.message}</p>)}
+      {blockers.map((b) => <p key={b.code} role="alert" className={s.error}>{b.message}</p>)}
       <label className={s.githubField}>
         <span>タイトル</span>
         <input value={title} onChange={(e) => { setTitle(e.target.value); dispatch({ type: "edited" }); }} />

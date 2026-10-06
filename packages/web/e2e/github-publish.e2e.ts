@@ -36,6 +36,10 @@ test("検出で止まり、直すと作成でき、GitHub の行にリンクが�
   const github = region(page, "プロパティ").getByRole("group", { name: "GitHub" });
   await expect(github.getByRole("link", { name: "example/api-server#41" })).toHaveAttribute("href", "https://github.com/example/api-server/issues/41");
   expect((await ghCalls()).filter((a) => a.includes("POST"))).toHaveLength(1);
+  // 作成した試行があるので、解除の確認は再公開できないと伝える
+  await github.getByRole("button", { name: "解除" }).click();
+  await expect(github.getByRole("alertdialog", { name: "紐付けを外す確認" })).toContainText("外しても再公開はできません");
+  await github.getByRole("button", { name: "やめる" }).click();
 
   // nod の本文は変わらない
   expect((await nod.me.getIssue(issue.id)).description).toBe(`${issue.id} の続き`);
@@ -45,4 +49,36 @@ test("検出で止まり、直すと作成でき、GitHub の行にリンクが�
   await page.getByRole("menuitem", { name: "GitHub に Issue を作成" }).click();
   await expect(dialog.getByText("すでに https://github.com/example/api-server/issues/41 に対応しています")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "GitHub に作成する" })).toBeDisabled();
+});
+
+test.describe("記録の失敗", () => {
+  test.use({ allowedConsoleErrors: [/status of 500/] });
+
+  test("作成できたが nod に記録できなかったときは、作成の失敗ではなく作成済みの URL と紐付けの案内を出す", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    await nod.me.setWorkspaceGithubRepo("API", "example/api-server");
+    const issue = await api.startedIssue("検索を速くする");
+    await stubGhBy({ "github.com user": { kind: "exited", exitCode: 0, stdout: "alice\n", stderr: "" } });
+    const url = "https://github.com/example/api-server/issues/41";
+    let posts = 0;
+    await page.route("**/api/issues/*/github/publish", (route) => {
+      posts += 1;
+      return route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "GITHUB_RECORD_FAILED", message: `GitHub Issue ${url} は作成しましたが、nod への記録に失敗しました`, details: { url } } }),
+      });
+    });
+    await page.goto(`/issues/${issue.id}`);
+    await page.getByRole("button", { name: "Issueのメニュー" }).click();
+    await page.getByRole("menuitem", { name: "GitHub に Issue を作成" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "GitHub に Issue を作成" });
+    await dialog.getByRole("button", { name: "GitHub に作成する" }).click();
+    await expect(dialog.getByRole("link", { name: url })).toHaveAttribute("href", url);
+    await expect(dialog.getByText("「紐付ける」にこの URL を入力してください")).toBeVisible();
+    await expect(dialog.getByText("作成できませんでした")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "GitHub に作成する" })).toHaveCount(0);
+    expect(posts).toBe(1);
+  });
 });
