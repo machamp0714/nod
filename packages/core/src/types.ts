@@ -241,6 +241,7 @@ export interface DocumentRef {
 
 export interface DocumentContent extends DocumentRef {
   content: string | null; // ファイルが見つからない、または読めないときは null
+  mtime: number | null; // ファイルの更新時刻（statSync().mtimeMs）。保存時の競合の検知に使う。ファイルがなければ null
 }
 
 export interface DocumentIssueLink {

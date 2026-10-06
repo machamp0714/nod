@@ -158,7 +158,34 @@ export function readDocument(db: Database, id: number): DocumentContent {
   } catch {
     content = null;
   }
-  return { ...doc, content };
+  return { ...doc, content, mtime: content === null ? null : mtimeOrNull(doc.path) };
+}
+
+function mtimeOrNull(path: string): number | null {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+// 本文の最初の空でない行が「# 見出し」ならその見出し。documentTitle と違い、2行目以降の # 行は見ない
+export function leadingTitle(content: string): string | null {
+  const first = content.split(/\r?\n/).find((line) => line.trim() !== "");
+  return first ? (/^#\s+(.+?)\s*$/.exec(first)?.[1] ?? null) : null;
+}
+
+// 登録済みの Document のファイルを書き換える。読んだときの mtime と今の mtime が違えば、ほかで変更されたとみなして書かない。
+// 調べてから書くまでの間の競合は防がない（ローカルで1人が使う道具のため）
+export function updateDocumentContent(ctx: OpCtx, id: number, input: { content: string; mtime: number }): DocumentDetail {
+  const doc = findDocumentRef(ctx.db, id);
+  const current = mtimeOrNull(doc.path);
+  if (current === null) throw new NodError("FILE_NOT_FOUND", `${doc.path} が見つかりません`);
+  if (current !== input.mtime) throw new NodError("CONFLICT", "ファイルがほかで変更されています。読み直してください");
+  writeFileSync(doc.path, input.content);
+  const title = leadingTitle(input.content);
+  if (title !== null && title !== doc.title) ctx.db.query("UPDATE documents SET title = ? WHERE id = ?").run(title, id);
+  return getDocument(ctx.db, id);
 }
 
 // 新しい Document を作る場所。NOD_DB と同じく環境変数で差し替えられる
