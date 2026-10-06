@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { displayPath, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "./document";
+import { displayPath, documentAssetSrc, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "./document";
 
 describe("parseDocumentId", () => {
   test("正の整数だけを ID とする", () => {
@@ -36,5 +36,17 @@ describe("normalizeIssueRef", () => {
     expect(normalizeIssueRef(" api-8 ")).toBe("API-8");
     expect(normalizeIssueRef("API")).toBeNull();
     expect(normalizeIssueRef("")).toBeNull();
+  });
+});
+
+describe("documentAssetSrc", () => {
+  test("相対パスだけを Document の assets の URL にする", () => {
+    expect(documentAssetSrc(3, "images/a.png")).toBe("/api/documents/3/assets/images/a.png");
+    expect(documentAssetSrc(3, "./images/画面 1.png")).toBe(`/api/documents/3/assets/images/${encodeURIComponent("画面 1.png")}`);
+  });
+  test("スキーム付き・/ 始まり・../ 始まりはそのまま", () => {
+    for (const src of ["https://example.com/a.png", "http://x/a.png", "data:image/png;base64,AA", "/abs.png", "../assets/a.png"]) {
+      expect(documentAssetSrc(3, src)).toBe(src);
+    }
   });
 });

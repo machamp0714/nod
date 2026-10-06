@@ -38,3 +38,11 @@ export function stripLeadingTitle(content: string, title: string): string {
   while (rest.length > 0 && rest[0]?.trim() === "") rest.shift();
   return rest.join("\n");
 }
+
+// Document の本文の画像の src。.md からの相対パス（images/x.png・./images/x.png）だけを server の配信 URL にする。
+// スキーム付き・/ 始まり・../ 始まり（.md より上を指すもの。spec で表示しないと決めた）はそのまま返す
+export function documentAssetSrc(documentId: number, src: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("/") || src.startsWith("../")) return src;
+  const rel = src.replace(/^(\.\/)+/, "");
+  return `/api/documents/${documentId}/assets/${rel.split("/").map(encodeURIComponent).join("/")}`;
+}

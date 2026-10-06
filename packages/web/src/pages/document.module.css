@@ -30,7 +30,8 @@
   flex-direction: column;
   gap: 28px;
   width: 100%;
-  max-width: 888px;
+  max-width: 1040px;
+  margin: 0 auto;
   padding: 32px 64px;
 }
 

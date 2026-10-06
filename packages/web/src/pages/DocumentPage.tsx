@@ -3,7 +3,7 @@ import { useState } from "react";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import { useDocument, useDocumentsRoot, useLinkDocument, useUnlinkDocument } from "../api/hooks/document";
 import type { DocumentDetail } from "../api/types";
-import { Markdown } from "../components/markdown/Markdown";
+import { DocumentAssetContext, Markdown } from "../components/markdown/Markdown";
 import { Button, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, StatusLabel } from "../components/ui";
 import { workspaceOfIssueId } from "../lib/workspace-labels";
 import { displayPath, documentDate, KIND_LABELS, KIND_TONES, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "../lib/document";
@@ -167,7 +167,9 @@ export function DocumentPage() {
           </div>
         ) : (
           <div className={s.body}>
-            <Markdown>{stripLeadingTitle(doc.content, doc.title)}</Markdown>
+            <DocumentAssetContext.Provider value={doc.id}>
+              <Markdown>{stripLeadingTitle(doc.content, doc.title)}</Markdown>
+            </DocumentAssetContext.Provider>
           </div>
         )}
       </div>
