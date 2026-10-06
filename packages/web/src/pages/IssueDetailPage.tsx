@@ -27,6 +27,7 @@ import type { Issue, IssueDetail } from "../api/types";
 import { type DeletedIssueState } from "../components/issue-detail/DeletedIssueToast";
 import { DocumentsSection } from "../components/issue-detail/DocumentsSection";
 import { AttachmentsSection } from "../components/issue-detail/AttachmentsSection";
+import { GithubPublishDialog } from "../components/issue-detail/GithubPublishDialog";
 import { IssueHeaderActions } from "../components/issue-detail/IssueHeaderActions";
 import { SubscribeToggle } from "../components/issue-detail/SubscribeToggle";
 import { ActivitySection } from "../components/issue-detail/ActivitySection";
@@ -67,6 +68,7 @@ export function IssueDetailPage() {
 function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const [answerRequest, setAnswerRequest] = useState<{ questionId: number; requestId: number }>();
   const [questionsBusy, setQuestionsBusy] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
   const remind = useRemind(issue.id);
@@ -128,7 +130,9 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             await navigate({ to: "/issues", search: { archived: true }, state: (prev) => ({ ...prev, deletedIssue: deleted.issueId } as typeof prev & DeletedIssueState) });
             void deleteIssue.refresh();
           }}
+          onPublishGithub={() => setPublishing(true)}
         />
+        {publishing && <GithubPublishDialog issueId={issue.id} workspaceKey={issue.workspace} onClose={() => setPublishing(false)} />}
       </PageHeader>
 
       <div className={s.body}>

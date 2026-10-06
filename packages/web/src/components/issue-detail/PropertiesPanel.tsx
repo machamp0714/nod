@@ -17,6 +17,7 @@ import { relationMark } from "../../lib/relation-state";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
+import { GithubLinkRow } from "./GithubLinkRow";
 import { OpenInOrcaButton } from "./OpenInOrcaButton";
 import { PropertyMenu, type PropertyOption } from "./PropertyMenu";
 import { StartInOrcaButton } from "./StartInOrcaButton";
@@ -427,6 +428,7 @@ export function PropertiesPanel({
             )}
           </Prop>
         )}
+        {full && <Prop label="GitHub"><GithubLinkRow issueId={issue.id} /></Prop>}
         {full && (
           <div className={s.prGroup}>
             <dt className={s.propKey}>PR</dt>

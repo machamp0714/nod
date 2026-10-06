@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, CircleAlert, CopyPlus, Ellipsis, Hash, Link as LinkIcon, Terminal, Trash2 } from "lucide-react";
 import { errorMessage } from "../../api/errors";
+import { Icon } from "../ui";
 import { DeleteIssueDialog } from "./DeleteIssueDialog";
 import s from "./issue-detail.module.css";
 
 // onDuplicate は複製して新しい Issue へ移る。onArchive はアーカイブ済みなら復元、そうでなければアーカイブする。
 // 失敗したらメニューを開いたまま理由を出す（Pencil「Issue詳細｜複製メニュー」「Issue詳細｜アーカイブメニュー」）。
+// onPublishGithub は GitHub に Issue を作成する確認ダイアログを開く（使えない理由はダイアログの中で示すため、項目は常に出す）。
 // アーカイブ済みなら「完全に削除」を出し、確認ダイアログで Issue ID を入力してから onDelete を呼ぶ（Pencil「アーカイブ済み｜完全に削除」）
-export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive, onDelete }: {
+export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive, onDelete, onPublishGithub }: {
   issueId: string;
   archived: boolean;
   onDuplicate: () => Promise<unknown>;
   onArchive: () => Promise<unknown>;
   onDelete: () => Promise<unknown>;
+  onPublishGithub: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -69,6 +72,7 @@ export function IssueHeaderActions({ issueId, archived, onDuplicate, onArchive, 
       <button role="menuitem" onClick={() => { void copy(`nod issue show ${issueId}`); close(); }}><Terminal size={14} aria-hidden="true" />コマンドをコピー</button>
       <hr className={s.menuSeparator} />
       <button role="menuitem" aria-disabled={busy} onClick={() => void run(onDuplicate, "複製できませんでした")}><CopyPlus size={14} aria-hidden="true" />Issueを複製</button>
+      <button role="menuitem" onClick={() => { setOpen(false); onPublishGithub(); }}><Icon name="github" size={14} />GitHub に Issue を作成</button>
       <hr className={s.menuSeparator} />
       {archived
         ? <button role="menuitem" aria-disabled={busy} onClick={() => void run(onArchive, "復元できませんでした")}><ArchiveRestore size={14} aria-hidden="true" />復元</button>
