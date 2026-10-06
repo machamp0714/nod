@@ -40,9 +40,20 @@ export function stripLeadingTitle(content: string, title: string): string {
 }
 
 // Document の本文の画像の src。.md からの相対パス（images/x.png・./images/x.png）だけを server の配信 URL にする。
-// スキーム付き・/ 始まり・../ 始まり（.md より上を指すもの。spec で表示しないと決めた）はそのまま返す
+// スキーム付き・/ 始まり・../ 始まり（.md より上を指すもの。spec で表示しないと決めた）はそのまま返す。
+// react-markdown は src を encode 済みで渡す（例: 画面 → %E7...）。server は各セグメントを1回だけ decode するため、
+// 各セグメントを decode してから encode し、生でも encode 済みでも結果を1回 encode した形にそろえる
 export function documentAssetSrc(documentId: number, src: string): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("/") || src.startsWith("../")) return src;
   const rel = src.replace(/^(\.\/)+/, "");
-  return `/api/documents/${documentId}/assets/${rel.split("/").map(encodeURIComponent).join("/")}`;
+  if (rel.startsWith("../")) return src;
+  return `/api/documents/${documentId}/assets/${rel.split("/").map((seg) => encodeURIComponent(decodeSegment(seg))).join("/")}`;
+}
+
+function decodeSegment(seg: string): string {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
 }

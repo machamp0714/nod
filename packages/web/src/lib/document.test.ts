@@ -49,4 +49,16 @@ describe("documentAssetSrc", () => {
       expect(documentAssetSrc(3, src)).toBe(src);
     }
   });
+  test("react-markdown が encode 済みで渡す src も、1回だけ encode した URL にする", () => {
+    const jp = encodeURIComponent("画面-1.png");
+    expect(documentAssetSrc(3, `images/${jp}`)).toBe(`/api/documents/3/assets/images/${jp}`);
+    expect(documentAssetSrc(3, "images/画面-1.png")).toBe(`/api/documents/3/assets/images/${jp}`);
+    expect(documentAssetSrc(3, "images/a%20b.png")).toBe("/api/documents/3/assets/images/a%20b.png");
+  });
+  test("不正な % の並びは生の文字として encode する", () => {
+    expect(documentAssetSrc(3, "images/%E7.png")).toBe("/api/documents/3/assets/images/%25E7.png");
+  });
+  test("./ を除いた後に ../ が残るものはそのまま", () => {
+    expect(documentAssetSrc(3, "./../x.png")).toBe("./../x.png");
+  });
 });
