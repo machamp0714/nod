@@ -36,9 +36,10 @@ function requireWorkspace(db: Database, keyOrPath: string): Workspace {
   return workspace;
 }
 
+// 追加と変更は LLM にも許す。削除だけは人に限る
 function requireHuman(ctx: OpCtx): void {
   if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はラベルの定義を追加・変更・削除できません。変更は me に依頼してください");
+    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はラベルの定義を削除できません。削除は me に依頼してください");
   }
 }
 
@@ -112,7 +113,6 @@ export function listAllWorkspaceLabels(db: Database): WorkspaceLabel[] {
 }
 
 export function addWorkspaceLabel(ctx: OpCtx, keyOrPath: string, input: WorkspaceLabelInput): WorkspaceLabel {
-  requireHuman(ctx);
   const name = normalizeLabelName(input.name);
   const color = normalizeColor(input.color);
   const description = normalizeDescription(input.description);
@@ -132,7 +132,6 @@ export function addWorkspaceLabel(ctx: OpCtx, keyOrPath: string, input: Workspac
 // 改名は、その Workspace の Issue に付いたラベルも同じトランザクションで置き換える。
 // 新しい名前をすでに持つ Issue は1つにまとめる。Issue ごとの event は残さない。定期Issueのラベルも同じく置き換える
 export function updateWorkspaceLabel(ctx: OpCtx, keyOrPath: string, currentName: string, patch: WorkspaceLabelPatch): WorkspaceLabel {
-  requireHuman(ctx);
   const name = patch.name === undefined ? undefined : normalizeLabelName(patch.name);
   const color = patch.color === undefined ? undefined : normalizeColor(patch.color);
   const description = patch.description === undefined ? undefined : normalizeDescription(patch.description);
