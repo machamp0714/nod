@@ -6,6 +6,7 @@ import { addComment } from "../events";
 import { findIssueRow, formatIssueId } from "../issue-query";
 import type { Status } from "../types";
 import { AUTOMATION_LIMIT_DEFAULT, AUTOMATION_LIMIT_MAX } from "./automation";
+import { GITHUB_REPO_RE } from "./github-repo";
 import { insertIssue } from "./issues";
 import { type GhRunner, type GhRunResult, ghRunner } from "./pr-status";
 import { resolveProject } from "./projects";
@@ -26,8 +27,6 @@ export const GITHUB_IMPORT_OPEN_STATUSES = ["triage", "backlog", "todo"] as cons
 export type GithubImportOpenStatus = (typeof GITHUB_IMPORT_OPEN_STATUSES)[number];
 
 const LIST_FIELDS = "number,title,body,state,stateReason,labels,assignees,author,createdAt,closedAt,url";
-// owner は英数字とハイフン、repo は英数字と . _ -。先頭の - は gh のオプションと取り違えるので認めない
-const REPO_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/;
 const ISSUE_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
 
 export interface GithubImportOptions {
@@ -91,7 +90,7 @@ interface GhComment {
 }
 
 function validate(repo: string, o: GithubImportOptions): void {
-  if (!REPO_RE.test(repo)) throw new NodError("INVALID_ARGS", `${repo} は owner/repo の形ではありません（例: machamp0714/nod）`);
+  if (!GITHUB_REPO_RE.test(repo)) throw new NodError("INVALID_ARGS", `${repo} は owner/repo の形ではありません（例: machamp0714/nod）`);
   if (o.limit !== undefined && (!Number.isInteger(o.limit) || o.limit < 1 || o.limit > GITHUB_IMPORT_LIMIT_MAX)) {
     throw new NodError("INVALID_ARGS", `--limit は 1〜${GITHUB_IMPORT_LIMIT_MAX} の整数で指定してください`);
   }
