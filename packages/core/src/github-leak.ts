@@ -89,7 +89,7 @@ function patternsOf(config: LeakConfig): Pattern[] {
 
 // Markdown のリンク・画像・参照定義、HTML の src・href、autolink。リンク先は1〜3番目のグループのどれか
 const LINK_PATTERNS: RegExp[] = [
-  /!?\[[^\]\n]*\]\(\s*<?([^)\s>]*)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g,
+  /\]\(\s*(<[^>\n]*>|[^\s)]*)/g, // リンクテキストに依存せず、"](" から先のリンク先だけを見る
   /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*<?([^\s>]*)>?/gm,
   /\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
   /<([a-z][a-z0-9+.-]*:[^\s<>]*)>/gi,
@@ -110,12 +110,15 @@ function position(text: string, index: number): { line: number; column: number }
 // URL はスキームとホストを外したパスと、percent-decode を1回した形も調べる（壊れたエンコードは原文だけ）
 function urlVariants(url: string): string[] {
   const out = [url.replace(SCHEME_HOST_RE, "")];
-  try {
-    const decoded = decodeURIComponent(url);
-    if (decoded !== url) out.push(decoded, decoded.replace(SCHEME_HOST_RE, ""));
-  } catch {
-    // 壊れたエンコードは原文だけを調べる
-  }
+  // 壊れたエンコードの連なりだけ原文のまま残し、ほかは decode する
+  const decoded = url.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+  if (decoded !== url) out.push(decoded, decoded.replace(SCHEME_HOST_RE, "").replace(/\/{2,}/g, "/"));
   return out;
 }
 
@@ -148,10 +151,11 @@ function scanField(raw: string, patterns: Pattern[]): Hit[] {
   }
   for (const re of LINK_PATTERNS) {
     for (const m of raw.matchAll(re)) {
-      const target = m[1] ?? m[2] ?? m[3] ?? "";
+      const group = m[1] ?? m[2] ?? m[3] ?? "";
+      const bracketed = group.startsWith("<") && group.endsWith(">") && re === LINK_PATTERNS[0];
+      const target = bracketed ? group.slice(1, -1) : group;
       if (allowedTarget(target)) continue;
-      const base = m[0].search(/\]\(|\]:|=|</);
-      const offset = m[0].indexOf(target, base + 1);
+      const offset = m[0].lastIndexOf(group) + (bracketed ? 1 : 0);
       hits.push({ index: (m.index ?? 0) + Math.max(0, offset), text: target || m[0], rule: "link_target" });
     }
   }

@@ -35,6 +35,11 @@ describe("検出する", () => {
     ["https://example.com/x?p=/Users/alice", "absolute_path"],
     ["https://github.com/a/b/issues/1/NOD-4", "issue_id"],
     ["![](images/a.png)", "link_target"],
+    ["[a [b] c](images/x.png)", "link_target"],
+    ["[x](<images/a b.png>)", "link_target"],
+    ["[foo\nbar](images/a.png)", "link_target"],
+    ["[x](images/a.png (title))", "link_target"],
+    ["https://x.com/%2FUsers%2Falice?q=%E0%A4%A", "absolute_path"],
     ["[spec](../spec.md)", "link_target"],
     ["[x](/api/attachments/3)", "link_target"],
     ["[x](www.example.com)", "link_target"],
@@ -92,6 +97,12 @@ describe("通す", () => {
   test("GitHub の URL の例外はその範囲だけ。前後の本文や別ホストは調べる", () => {
     expect(rulesOf("https://github.com/a/b/issues/1 と NOD-2")).toEqual(["issue_id"]);
     expect(rulesOf("https://github.com.evil/a/b/issues/1#2").length).toBeGreaterThan(0);
+  });
+
+  test("長い [ の連続でも遅くならない", () => {
+    const t = performance.now();
+    detectLeaks({ title: "t", body: "[".repeat(65536) }, CONFIG);
+    expect(performance.now() - t).toBeLessThan(1000);
   });
 
   test("壊れた percent-encoding でも落ちない", () => {
