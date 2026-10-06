@@ -7,6 +7,7 @@ import { findWorkspace } from "./workspaces";
 
 // nod の Issue を GitHub Issue として作成するときの公開先（Workspace ごと）と、git の origin の読み取り。
 // 対応表（issue_imports）のキーと比べるため、repo は小文字の owner/repo で持つ
+
 // owner は英数字とハイフン、repo は英数字と . _ -。先頭の - は gh のオプションと取り違えるので認めない
 export const GITHUB_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/;
 export const ORIGIN_TIMEOUT_MS = 15_000;
