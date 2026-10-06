@@ -38,6 +38,7 @@ export const CTX_OPS = [
   "markNotificationsRead",
   "markNotificationsUnread",
   "setWorkspaceRules",
+  "setWorkspaceGithubRepo",
   "snoozeNotifications",
   "archiveIssue",
   "unarchiveIssue",

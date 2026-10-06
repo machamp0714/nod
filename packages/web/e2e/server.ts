@@ -29,7 +29,14 @@ let releaseGh: () => void = () => {};
 const ghRunner: core.GhRunner = async (args) => {
   ghCalls.push(args);
   if (ghGate) await ghGate;
-  return ghResults[args[0] ?? ""] ?? ghResult;
+  // サブコマンド（args[0]）の完全一致を先に見る。無ければ、空白を含むキー（"-X POST" など）が引数の文字列に含まれるものを、長い順に使う
+  const exact = ghResults[args[0] ?? ""];
+  if (exact !== undefined) return exact;
+  const joined = args.join(" ");
+  const key = Object.keys(ghResults)
+    .filter((k) => k.includes(" ") && joined.includes(k))
+    .sort((a, b) => b.length - a.length)[0];
+  return key === undefined ? ghResult : ghResults[key]!;
 };
 
 // Orca 連携（#52・#51・#58）で orca の代わりに使う。実際の orca・Orca には触れず、/orca で決めた結果を

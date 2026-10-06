@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
 import { region } from "./helpers";
 import { orcaCalls, stubOrca } from "./support/nod";
 
 // Orca で作業を始める（#210）。e2e の server は実際の orca の代わりに stubOrca の結果を返す（Orca には触れず、worktree も作らない）
+const hashOf = (id: string) => createHash("sha256").update(id.toUpperCase()).digest("hex").slice(0, 8);
 const ok = (result: unknown) => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
 
 test("実行場所が未記録の Issue で「Orca で作業を始める」から worktree を作ると、実行場所が記録されて「Orca で開く」に変わる", async ({ page, nod }) => {
@@ -26,7 +28,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(feature).toHaveValue("orca-worktree");
   await expect(feature).toBeFocused();
   // 入力欄の説明は名前のプレビュー。トリガーはポップオーバーを aria-controls で指す
-  await expect(feature).toHaveAccessibleDescription(`作成される名前 ${created.id}+orca-worktree`);
+  await expect(feature).toHaveAccessibleDescription(`作成される名前 orca-worktree-${hashOf(created.id)}`);
   expect(await start.getAttribute("aria-controls")).toBe(await popover.getAttribute("id"));
   // エージェントは Claude Code と Codex の2択。初期値は Workspace の既定（最初は Claude Code）で、説明文は選んだエージェントに合わせる
   const agents = popover.getByRole("radiogroup", { name: "エージェント" });
@@ -37,11 +39,11 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(submit).toBeDisabled();
   // 空欄の間は名前のプレビューを出さない
   await expect(popover.getByText("作成される名前")).toHaveCount(0);
-  await expect(popover.getByText(`${created.id}+`)).toHaveCount(0);
+  await expect(popover.getByText(hashOf(created.id))).toHaveCount(0);
   await feature.fill("Search N+1_検索");
   await expect(feature).toHaveValue("searchn1");
   await feature.fill("search-n1");
-  await expect(popover.getByText(`${created.id}+search-n1`)).toBeVisible();
+  await expect(popover.getByText(`search-n1-${hashOf(created.id)}`)).toBeVisible();
   // ポップオーバーはボタンの直下に開き、Main にも画面にもはみ出さない
   const fit = await popover.evaluate((el) => {
     const main = document.querySelector("main")!.getBoundingClientRect();
@@ -85,7 +87,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(row.getByRole("button", { name: "Orca で開く" })).toBeFocused();
   await expect(start).toHaveCount(0);
   expect(await orcaCalls()).toEqual([
-    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `${created.id}+search-n1`, "--no-parent", "--agent", "codex", "--activate", "--json"],
+    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `search-n1-${hashOf(created.id)}`, "--no-parent", "--agent", "codex", "--activate", "--json"],
   ]);
   const issue = await api.show(created.id);
   expect({ worktree: issue.worktree, branch: issue.branch, status: issue.status, assignee: issue.assignee }).toEqual({
