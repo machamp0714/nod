@@ -108,4 +108,41 @@ describe("Documents API", () => {
     }
     expect((await call(app, "PUT", "/api/documents/999/content", { content: "x", mtime })).status).toBe(404);
   });
+
+  test("POST /api/documents/:id/assets は images/ に保存し、GET で同じ画像を安全なヘッダーで返す", async () => {
+    const { app, docsDir } = setupDocs();
+    const id = (await call(app, "POST", "/api/documents", { path: "img/e.md" })).json.id;
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array([1, 2, 3])], "画面 1.png", { type: "image/png" }));
+    const up = await app.request(`/api/documents/${id}/assets`, { method: "POST", body: form });
+    expect(up.status).toBe(201);
+    expect(await up.json()).toEqual({ path: "images/画面-1.png" });
+    expect(existsSync(join(docsDir, "img", "images", "画面-1.png"))).toBe(true);
+
+    const got = await app.request(`/api/documents/${id}/assets/images/${encodeURIComponent("画面-1.png")}`);
+    expect(got.status).toBe(200);
+    expect(got.headers.get("content-type")).toBe("image/png");
+    expect(got.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(got.headers.get("content-disposition")).toStartWith("inline;");
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+
+    writeFileSync(join(docsDir, "secret.png"), "x");
+    for (const p of ["images/..%2F..%2Fsecret.png", "..%2Fsecret.png", "e.md", "images/none.png"]) {
+      expect([p, (await app.request(`/api/documents/${id}/assets/${p}`)).status]).toEqual([p, 404]);
+    }
+  });
+
+  test("POST /api/documents/:id/assets は画像以外・file なしを 400、貼り付けは時刻の名前", async () => {
+    const { app } = setupDocs();
+    const id = (await call(app, "POST", "/api/documents", { path: "p.md" })).json.id;
+    const bad = new FormData();
+    bad.append("file", new File(["<svg/>"], "a.svg", { type: "image/svg+xml" }));
+    expect((await app.request(`/api/documents/${id}/assets`, { method: "POST", body: bad })).status).toBe(400);
+    expect((await app.request(`/api/documents/${id}/assets`, { method: "POST", body: new FormData() })).status).toBe(400);
+    const pasted = new FormData();
+    pasted.append("file", new File([new Uint8Array([1])], "image.png", { type: "image/png" }));
+    pasted.append("pasted", "1");
+    const r = await app.request(`/api/documents/${id}/assets`, { method: "POST", body: pasted });
+    expect((await r.json()).path).toMatch(/^images\/\d{8}-\d{6}-[a-z0-9]{4}\.png$/);
+  });
 });
