@@ -33,7 +33,9 @@ export function parseDocumentId(raw: string): number | null {
 export function stripLeadingTitle(content: string, title: string): string {
   const lines = content.split(/\r?\n/);
   const first = lines.findIndex((line) => line.trim() !== "");
-  if (first < 0 || lines[first]?.trim() !== `# ${title}`) return content;
+  // core の leadingTitle と同じ規則（# の後の空白は何文字でも・タブでもよく、前後の空白は無視する）
+  const heading = first < 0 ? undefined : /^#\s+(.+?)\s*$/.exec(lines[first] ?? "")?.[1]?.trim();
+  if (heading === undefined || heading !== title) return content;
   const rest = lines.slice(first + 1);
   while (rest.length > 0 && rest[0]?.trim() === "") rest.shift();
   return rest.join("\n");

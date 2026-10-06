@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createIssue, getIssue, HUMAN_ACTOR, initWorkspace, openDb } from "@nod/core";
 import { createApp } from "../src/app";
@@ -92,6 +92,9 @@ describe("Documents API", () => {
   test("PUT /api/documents/:id/content は mtime が合えば保存し、違えば 409", async () => {
     const { app, docsDir } = setupDocs();
     const id = (await call(app, "POST", "/api/documents", { path: "e.md", title: "元" })).json.id;
+    // mtimeMs は 1ms 刻みなので、作成から PUT までが 1ms 以内だと mtime が変わらず 409 にならない。先に過去へ戻す
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(join(docsDir, "e.md"), past, past);
     const { mtime } = (await call(app, "GET", `/api/documents/${id}`)).json;
     expect(typeof mtime).toBe("number");
 

@@ -168,9 +168,10 @@ export function DocumentBody({ doc }: { doc: DocumentDetail }) {
           if (carriesFiles(e.dataTransfer)) e.preventDefault();
         }}
         onDrop={(e) => {
+          // dragover で受け付けたので、画像以外のファイルでもブラウザの既定動作（ページ遷移）は止める
+          if (carriesFiles(e.dataTransfer)) e.preventDefault();
           const files = imagesOf(e.dataTransfer);
           if (files.length === 0) return;
-          e.preventDefault();
           appendImages(files, false);
         }}
       >
@@ -201,9 +202,10 @@ export function DocumentBody({ doc }: { doc: DocumentDetail }) {
           if (carriesFiles(e.dataTransfer)) e.preventDefault();
         }}
         onDrop={(e) => {
+          // dragover で受け付けたので、画像以外のファイルでもブラウザの既定動作（ページ遷移）は止める
+          if (carriesFiles(e.dataTransfer)) e.preventDefault();
           const files = imagesOf(e.dataTransfer);
           if (files.length === 0) return;
-          e.preventDefault();
           insertImages(files, false, e.currentTarget.selectionStart);
         }}
         onKeyDown={(e) => {

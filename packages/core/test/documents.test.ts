@@ -99,6 +99,12 @@ describe("leadingTitle", () => {
     expect(leadingTitle("## 小見出し\n")).toBeNull();
     expect(leadingTitle("")).toBeNull();
   });
+
+  test("# の後が空白だけなら見出しとみなさず、前後の空白は落とす", () => {
+    expect(leadingTitle("#  \n本文")).toBeNull();
+    expect(leadingTitle("#\t\n本文")).toBeNull();
+    expect(leadingTitle("#  題  \n")).toBe("題");
+  });
 });
 
 describe("updateDocumentContent", () => {

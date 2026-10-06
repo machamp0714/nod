@@ -172,7 +172,8 @@ function mtimeOrNull(path: string): number | null {
 // 本文の最初の空でない行が「# 見出し」ならその見出し。documentTitle と違い、2行目以降の # 行は見ない
 export function leadingTitle(content: string): string | null {
   const first = content.split(/\r?\n/).find((line) => line.trim() !== "");
-  return first ? (/^#\s+(.+?)\s*$/.exec(first)?.[1] ?? null) : null;
+  const title = first ? /^#\s+(.+?)\s*$/.exec(first)?.[1]?.trim() : undefined;
+  return title ? title : null;
 }
 
 // 登録済みの Document のファイルを書き換える。読んだときの mtime と今の mtime が違えば、ほかで変更されたとみなして書かない。

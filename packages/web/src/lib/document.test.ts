@@ -16,6 +16,11 @@ describe("stripLeadingTitle", () => {
     expect(stripLeadingTitle("\n# 設計\n\n## 目的\n", "設計")).toBe("## 目的\n");
   });
 
+  test("# の後の空白が複数やタブでも、タイトルと同じなら省く", () => {
+    expect(stripLeadingTitle("#  題\n\n本文", "題")).toBe("本文");
+    expect(stripLeadingTitle("#\t題\n\n本文", "題")).toBe("本文");
+  });
+
   test("タイトルと違う見出しや、先頭でない見出しは残す", () => {
     expect(stripLeadingTitle("# 別の題\n\n本文", "設計")).toBe("# 別の題\n\n本文");
     expect(stripLeadingTitle("前書き\n\n# 設計", "設計")).toBe("前書き\n\n# 設計");
