@@ -48,6 +48,7 @@ export * from "./work-log";
 export * from "./activity-text";
 export * from "./ops/pr-status";
 export * from "./ops/pr-diff";
+export * from "./ops/github-links";
 export * from "./ops/automation";
 export * from "./ops/summary";
 export * from "./ops/auto-transitions";

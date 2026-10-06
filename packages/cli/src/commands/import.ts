@@ -31,7 +31,7 @@ function describeImport(r: GithubImportResult): string {
   ];
   if (r.truncated) lines.push(`  --limit に達したため、それより古い Issue は読んでいません（--limit を増やすか --label で絞ると読めます）`);
   for (const i of r.items) {
-    const where = i.existing ? `取り込み済み（${i.existing}）` : i.deleted ? "削除済み（取り込まない）" : `→ ${i.status}`;
+    const where = i.existing ? `取り込み済み（${i.existing}）` : i.deleted ? "削除済み・紐付け解除済み（取り込まない）" : `→ ${i.status}`;
     const labels = i.labels.length ? `  [${i.labels.join(", ")}]` : "";
     lines.push(`  #${i.number}  ${i.state}${i.stateReason && i.state === "CLOSED" ? `/${i.stateReason}` : ""}  ${where}  ${i.title}${labels}`);
   }
@@ -40,7 +40,7 @@ function describeImport(r: GithubImportResult): string {
   } else {
     lines.push(`  取り込みました: ${r.imported.length} 件${r.imported.length ? `（${r.imported.map((i) => i.id).join(", ")}）` : ""}`);
     if (r.skipped.length) lines.push(`  スキップ（取り込み済み・上書きしない）: ${r.skipped.map((s) => s.id).join(", ")}`);
-    if (r.deleted.length) lines.push(`  スキップ（nod で削除済み・作り直さない）: ${r.deleted.map((d) => d.sourceKey).join(", ")}`);
+    if (r.deleted.length) lines.push(`  スキップ（nod で削除済み・紐付け解除済み。作り直さない）: ${r.deleted.map((d) => d.sourceKey).join(", ")}`);
     for (const f of r.failed) lines.push(`  失敗: ${f.sourceKey} ${f.message}`);
     if (r.failed.length) lines.push("  失敗した Issue は取り込まれていません。再実行すると、取り込み済みを飛ばしてそれだけを取り込みます");
   }
