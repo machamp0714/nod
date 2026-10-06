@@ -3,6 +3,7 @@ import {
   AUTOMATION_LIMIT_MAX,
   GIT_SYNC_SCAN_MAX,
   GIT_SYNC_SINCE_DAYS_DEFAULT,
+  type GitSyncRefMissReason,
   type GitSyncResult,
   NodError,
   syncGitCommits,
@@ -19,6 +20,15 @@ function parseCount(option: string, max: number) {
   };
 }
 
+const MISS_LABELS: Record<GitSyncRefMissReason, string> = {
+  no_origin: "origin がない",
+  unparsable: "origin を読めない",
+  other_host: "origin が github.com でない",
+  repo_not_set: "公開先が未設定（nod workspace github set）",
+  repo_mismatch: "公開先・origin・参照の repo が一致しない",
+  not_linked: "対応する nod の Issue がない",
+};
+
 function describeSync(r: GitSyncResult): string {
   const lines = [
     `コミット連動（${r.ref}・直近${r.sinceDays}日・${r.scanned} コミットを読みました${r.truncated ? `。上限 ${GIT_SYNC_SCAN_MAX} 件に達したため、それより古いコミットは読んでいません` : ""}）: 対象 ${r.total} 件`,
@@ -27,6 +37,7 @@ function describeSync(r: GitSyncResult): string {
   for (const c of r.candidates) {
     lines.push(`  ${c.id}  ${c.status}  ${c.sha.slice(0, 12)} ${c.keyword} 「${c.subject}」  ${c.title}${ruleNote(c.ruleSkipReason)}`);
   }
+  for (const u of r.unresolvedRefs) lines.push(`  解決しなかった参照: ${u.sha.slice(0, 12)} ${u.ref}（${MISS_LABELS[u.reason]}）`);
   if (r.remaining) lines.push(`  ほか ${r.remaining} 件は上限を超えたため${r.dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
   if (r.dryRun) {
     lines.push("（dry-run のため変更していません。実行するには --dry-run を外してください）");
