@@ -6,6 +6,7 @@ import type { IssueQuery } from "./types";
 export const queryKeys = {
   workspaces: () => ["workspaces"] as const,
   workspaceRules: (key: string) => ["workspaces", "rules", key] as const,
+  workspaceGithubRepo: (key: string) => ["workspaces", "github-repo", key] as const,
   automation: (key: string) => ["workspaces", "automation", key] as const,
   workspaceLabels: (key: string) => ["workspaces", "labels", key] as const,
   allLabels: () => ["workspaces", "all-labels"] as const,
@@ -20,6 +21,8 @@ export const queryKeys = {
   prDiff: (id: string) => ["issues", "pr-diff", id] as const,
   // 取得（headSha・fetchedAt）ごとに中身が変わらないので immutable にし、無関係な変更で取り直さない
   prDiffFile: (id: string, headSha: string, fetchedAt: string, path: string) => ["issues", "pr-diff-file", id, headSha, fetchedAt, path] as const,
+  githubState: (id: string) => ["issues", "github", id] as const,
+  worktreeName: (id: string, feature: string) => ["issues", "worktree-name", id, feature] as const,
   inbox: () => ["inbox"] as const,
   inboxHistory: () => ["inbox", "history"] as const,
   openQuestions: () => ["open-questions"] as const,
