@@ -21,6 +21,7 @@ export * from "./ops/cycle-cadence";
 export * from "./ops/cycle-analytics";
 export * from "./ops/documents";
 export * from "./ops/attachments";
+export * from "./ops/document-assets";
 export * from "./ops/issue-deletions";
 export * from "./ops/agent";
 export * from "./ops/human";

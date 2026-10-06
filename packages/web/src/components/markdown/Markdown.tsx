@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { documentAssetSrc } from "../../lib/document";
 import s from "./markdown.module.css";
 
 // チェックボックスを押したときに呼ぶ。offset はその項目（li）の Markdown 上の開始位置
@@ -10,6 +11,15 @@ export type TaskToggle = (offset: number, checked: boolean) => void;
 const TaskToggleContext = createContext<{ onToggle: TaskToggle; disabled: boolean } | null>(null);
 // チェックボックスが属する項目の開始位置。項目の間に空行があるとチェックボックスは p の中に入るため、li から渡す
 const TaskOffsetContext = createContext<number | null>(null);
+
+// Document の本文を描くときだけ、その id を渡す。null（既定）なら画像の src を書き換えない（Issue の説明など）
+export const DocumentAssetContext = createContext<number | null>(null);
+
+function DocumentImage({ src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const documentId = useContext(DocumentAssetContext);
+  const resolved = documentId !== null && typeof src === "string" ? documentAssetSrc(documentId, src) : src;
+  return <img {...props} src={resolved} />;
+}
 
 // ページの見出し（<h1>）と重ならないよう、本文の見出しを1段下げる。
 // react-markdown は部品に node を渡すため、DOM の属性にしないよう取り除く。
@@ -26,6 +36,7 @@ const components: Components = {
     </TaskOffsetContext.Provider>
   ),
   input: ({ node: _node, ...props }) => <TaskCheckbox {...props} />,
+  img: ({ node: _node, ...props }) => <DocumentImage {...props} />,
 };
 
 function TaskCheckbox(props: React.InputHTMLAttributes<HTMLInputElement>) {

@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "../client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError, apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
 import type { DocKind, DocumentDetail, DocumentRef, DocumentSummary } from "../types";
 import { useApiMutation } from "./shared";
@@ -34,6 +34,30 @@ export const useLinkDocument = (id: number) =>
 
 export const useUnlinkDocument = (id: number) =>
   useApiMutation((body: { issueRef: string }) => apiFetch<DocumentDetail>(`/documents/${id}/unlink`, { method: "POST", body }));
+
+// 本文の保存。useApiMutation は終わるたびに全 query を無効にして Document を読み直すため使わない。
+// 返った詳細をそのまま入れ、タイトルが変わりうる一覧だけを読み直す
+export function useUpdateDocumentContent(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation<DocumentDetail, Error, { content: string; mtime: number }>({
+    mutationFn: (body) => apiFetch<DocumentDetail>(`/documents/${id}/content`, { method: "PUT", body }),
+    onSuccess: (doc) => {
+      queryClient.setQueryData(queryKeys.document(id), doc);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documentList() });
+    },
+  });
+}
+
+// 本文に貼る画像のアップロード。apiFetch は JSON 専用なので FormData で直接送る。失敗の読み方は apiFetch と同じ
+export async function uploadDocumentAsset(id: number, file: File, pasted: boolean): Promise<{ path: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (pasted) form.append("pasted", "1");
+  const res = await fetch(`/api/documents/${id}/assets`, { method: "POST", body: form });
+  const body = (await res.json().catch(() => null)) as { path?: string; error?: { code?: string; message?: string } } | null;
+  if (!res.ok) throw new ApiError(res.status, body?.error?.code ?? "HTTP_ERROR", body?.error?.message ?? `HTTP ${res.status}`);
+  return body as { path: string };
+}
 
 export function useDocumentsRoot() {
   return useQuery({ queryKey: queryKeys.documentsRoot(), queryFn: () => apiFetch<{ docsDir: string }>("/documents/root"), staleTime: Infinity });

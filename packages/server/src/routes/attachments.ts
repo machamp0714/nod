@@ -19,7 +19,7 @@ export function contentDisposition(fileName: string, type: "attachment" | "inlin
 }
 
 // 添付を配信するときに必ず付けるヘッダー。中身から種類を推測させず、開かれてもスクリプトを動かさず、ほかのサイトに埋め込ませない
-const SAFE_HEADERS = {
+export const SAFE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; sandbox",
   "Cache-Control": "no-store",

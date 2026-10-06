@@ -3,10 +3,10 @@ import { useState } from "react";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import { useDocument, useDocumentsRoot, useLinkDocument, useUnlinkDocument } from "../api/hooks/document";
 import type { DocumentDetail } from "../api/types";
-import { Markdown } from "../components/markdown/Markdown";
+import { DocumentBody } from "../components/document/DocumentBody";
 import { Button, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, StatusLabel } from "../components/ui";
 import { workspaceOfIssueId } from "../lib/workspace-labels";
-import { displayPath, documentDate, KIND_LABELS, KIND_TONES, normalizeIssueRef, parseDocumentId, stripLeadingTitle } from "../lib/document";
+import { displayPath, documentDate, KIND_LABELS, KIND_TONES, normalizeIssueRef, parseDocumentId } from "../lib/document";
 import s from "./document.module.css";
 import { NotFoundMessage } from "./NotFoundPage";
 
@@ -160,16 +160,7 @@ export function DocumentPage() {
           </div>
         </header>
         <LinkedIssues doc={doc} />
-        {doc.content === null ? (
-          <div className={s.missing} role="status">
-            <Icon name="circle-alert" />
-            ファイルが見つかりません
-          </div>
-        ) : (
-          <div className={s.body}>
-            <Markdown>{stripLeadingTitle(doc.content, doc.title)}</Markdown>
-          </div>
-        )}
+        <DocumentBody doc={doc} />
       </div>
     </div>
   );

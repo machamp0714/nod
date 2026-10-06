@@ -81,7 +81,7 @@ export function normalizeAttachmentUrl(raw: string): string {
 }
 
 // 制御文字（改行など）と書式文字（U+202E などの双方向制御・ゼロ幅文字）。表示を偽装できるので名前に使わせない
-const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
+export const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
 function normalizeTitle(title: string | undefined): string | null {
   const t = title?.trim();
