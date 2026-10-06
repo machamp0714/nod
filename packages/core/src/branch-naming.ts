@@ -12,11 +12,22 @@ export const SLUG_MAX = 40;
 
 export function slugOf(text: string, workspaceKeys: string[]): string {
   let s = text.normalize("NFKC").toLowerCase();
-  if (workspaceKeys.length) {
-    const keys = workspaceKeys.map((k) => k.toLowerCase()).join("|");
-    s = s.replace(new RegExp(String.raw`(?<![a-z0-9])(?:${keys})-\d+(?![a-z0-9])`, "g"), " ");
-  }
-  return (s.match(/[a-z0-9]+/g) ?? []).join("-").slice(0, SLUG_MAX).replace(/^-+|-+$/g, "");
+  const keys = workspaceKeys.map((k) => k.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  if (keys) s = s.replace(new RegExp(String.raw`(?<![a-z0-9])(?:${keys})-\d+(?![a-z0-9])`, "g"), " ");
+  // 区切りが空白や _ や ‑ だった "API 12" のような並びも、- でつないだ後は ID と同じ形になる。語の単位で取り除く
+  const strip = (joined: string): string => {
+    if (!keys) return joined;
+    const re = new RegExp(`(^|-)(?:${keys})-\\d+(?=-|$)`);
+    let prev: string;
+    do {
+      prev = joined;
+      joined = joined.replace(re, "$1").replace(/^-+|-+$/g, "").replace(/--+/g, "-");
+    } while (joined !== prev);
+    return joined;
+  };
+  const joined = strip((s.match(/[a-z0-9]+/g) ?? []).join("-"));
+  // 切り詰めで "api-12x" が "api-12" になることがあるので、もう一度かける
+  return strip(joined.slice(0, SLUG_MAX).replace(/^-+|-+$/g, ""));
 }
 
 export function issueHash(key: string, number: number): string {

@@ -14,6 +14,10 @@ test("slug は NFKC・小文字・英数字の語を - でつなぎ、40 文字�
   expect(slugOf("日本語だけ", ["API"])).toBe("");
   expect(slugOf("a".repeat(39) + " bc", [])).toBe("a".repeat(39));
   expect(slugOf("x".repeat(50), []).length).toBe(40);
+  expect(slugOf("API 12 fix", ["API"])).toBe("fix");
+  expect(slugOf("api_12", ["API"])).toBe("");
+  expect(slugOf("API\u201112 fix", ["API"])).toBe("fix");
+  expect(slugOf("a ".repeat(18) + "api-12x", ["API"])).not.toMatch(/api-12(-|$)/);
 });
 
 test("hash はキーと番号から決まる 8 桁", () => {
@@ -50,4 +54,13 @@ test("公開済み（今の公開先の対応がある）なら issue-<N>-<slug>
   expect(getIssueBranchName(db, issue.id).suggestedBranch).toBe("issue-12-fix-search");
   updateIssue(me, issue.id, { title: "日本語" });
   expect(getIssueBranchName(db, issue.id).suggestedBranch).toBe("issue-12");
+});
+
+test("公開先が大文字小文字混じりで保存されていても、対応があれば issue-<N>", () => {
+  const { db, ws, me } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "Fix search" });
+  const row = findIssueRow(db, issue.id);
+  db.query("INSERT INTO issue_imports (workspace_id, source, source_key, issue_id, imported_by, imported_at, origin) VALUES (?, 'github', 'example/api-server#12', ?, 'me', 'x', 'publish')").run(ws.id, row.id);
+  db.query("UPDATE workspaces SET github_repo = 'Example/API-Server' WHERE id = ?").run(ws.id);
+  expect(getIssueBranchName(db, issue.id).suggestedBranch).toBe("issue-12-fix-search");
 });

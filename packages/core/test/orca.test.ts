@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { findIssueRow } from "../src/issue-query";
+import { setWorkspaceGithubRepo } from "../src/ops/github-repo";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
 import { cdCommand, createOrcaWorktree, getWorktreeName, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
@@ -331,4 +333,14 @@ test("worktree 名は feature を slug にして、未公開なら hash、公開
   expect(getWorktreeName(db, issue.id, "api-1-fix").name).toBe("fix-a67fefb7");
   expect(getWorktreeName(db, issue.id, "").name).toBe("a67fefb7");
   expect(codeOf(() => getWorktreeName(db, issue.id, "Bad Name"))).toBe("INVALID_ARGS");
+});
+
+test("公開済みの worktree 名は issue-<N> を付ける", () => {
+  const { db, ws, me } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
+  const row = findIssueRow(db, issue.id);
+  db.query("INSERT INTO issue_imports (workspace_id, source, source_key, issue_id, imported_by, imported_at, origin) VALUES (?, 'github', 'example/api-server#12', ?, 'me', 'x', 'publish')").run(ws.id, row.id);
+  setWorkspaceGithubRepo(me, "API", "example/api-server");
+  expect(getWorktreeName(db, issue.id, "search-n1").name).toBe("issue-12-search-n1");
+  expect(getWorktreeName(db, issue.id, "").name).toBe("issue-12");
 });
