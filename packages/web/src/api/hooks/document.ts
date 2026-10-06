@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
 import type { DocKind, DocumentDetail, DocumentRef, DocumentSummary } from "../types";
@@ -34,6 +34,19 @@ export const useLinkDocument = (id: number) =>
 
 export const useUnlinkDocument = (id: number) =>
   useApiMutation((body: { issueRef: string }) => apiFetch<DocumentDetail>(`/documents/${id}/unlink`, { method: "POST", body }));
+
+// 本文の保存。useApiMutation は終わるたびに全 query を無効にして Document を読み直すため使わない。
+// 返った詳細をそのまま入れ、タイトルが変わりうる一覧だけを読み直す
+export function useUpdateDocumentContent(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation<DocumentDetail, Error, { content: string; mtime: number }>({
+    mutationFn: (body) => apiFetch<DocumentDetail>(`/documents/${id}/content`, { method: "PUT", body }),
+    onSuccess: (doc) => {
+      queryClient.setQueryData(queryKeys.document(id), doc);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documentList() });
+    },
+  });
+}
 
 export function useDocumentsRoot() {
   return useQuery({ queryKey: queryKeys.documentsRoot(), queryFn: () => apiFetch<{ docsDir: string }>("/documents/root"), staleTime: Infinity });
