@@ -60,7 +60,6 @@ const specPath = (nod: { repo(name: string): string }) => join(nod.repo("api-ser
 
 // NOD-3：本文をクリックして生の Markdown を直接編集する
 test.describe("本文の直接編集", () => {
-  test.use({ allowedConsoleErrors: [/status of 409/] });
 
   test("本文をクリックすると生の Markdown を編集でき、blur で保存されファイルとタイトルに残る", async ({ page, nod }) => {
     await page.goto(`/documents/${DOC.spec}`);
@@ -91,7 +90,29 @@ test.describe("本文の直接編集", () => {
     expect(readFileSync(specPath(nod), "utf8")).toBe("# 検索 API の高速化 設計\n\n保存する\n");
   });
 
-  test("ほかで書き換えられていたら 409 を出して下書きを残し、読み直すと最新を編集できる", async ({ page, nod }) => {
+  test("日本語の変換中の Esc では下書きを捨てない", async ({ page }) => {
+    await page.goto(`/documents/${DOC.spec}`);
+    await page.getByText("/search の p95 を 200ms 以下にする。").first().click();
+    const editor = page.getByRole("textbox", { name: "本文" });
+    await editor.fill("# 検索 API の高速化 設計\n\n変換中の下書き\n");
+    // 変換の確定・取り消しの Esc は isComposing が立った keydown として届く
+    await editor.evaluate((el) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true })));
+    await expect(editor).toBeFocused();
+    await expect(editor).toHaveValue(/変換中の下書き/);
+  });
+
+  // SPEC_BODY には本文中のリンクがないため、リンクのクリックで編集に入らないことは単体テスト（document-edit.test.ts）に任せる
+  test("ファイルがない Document は編集できない", async ({ page }) => {
+    await page.goto(`/documents/${DOC.missing}`);
+    await page.getByRole("status").click();
+    await expect(page.getByRole("textbox", { name: "本文" })).toHaveCount(0);
+  });
+});
+
+test.describe("本文の直接編集の競合", () => {
+  test.use({ allowedConsoleErrors: [/status of 409/] });
+
+  test("ほかで書き換えられていたら 409 を出して下書きを残し、読み直すと最新の mtime で保存できる", async ({ page, nod }) => {
     await page.goto(`/documents/${DOC.spec}`);
     await page.getByText("/search の p95 を 200ms 以下にする。").first().click();
     const editor = page.getByRole("textbox", { name: "本文" });
@@ -103,13 +124,12 @@ test.describe("本文の直接編集", () => {
     await expect(editor).toHaveValue(/私の下書き/);
     await page.getByRole("button", { name: "読み直す" }).click();
     await expect(editor).toHaveValue(/ほかの変更/);
-    expect(readFileSync(specPath(nod), "utf8")).toContain("ほかの変更");
-  });
-
-  // SPEC_BODY には本文中のリンクがないため、リンクのクリックで編集に入らないことは単体テスト（document-edit.test.ts）に任せる
-  test("ファイルがない Document は編集できない", async ({ page }) => {
-    await page.goto(`/documents/${DOC.missing}`);
-    await page.getByRole("status").click();
-    await expect(page.getByRole("textbox", { name: "本文" })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    // 読み直した後の mtime で送るので、今度は 409 にならずに保存できる
+    await editor.fill("# 検索 API の高速化 設計\n\n読み直した後の変更\n");
+    await editor.press("ControlOrMeta+s");
+    await expect(page.getByText("読み直した後の変更")).toBeVisible();
+    await expect(editor).toHaveCount(0);
+    expect(readFileSync(specPath(nod), "utf8")).toBe("# 検索 API の高速化 設計\n\n読み直した後の変更\n");
   });
 });

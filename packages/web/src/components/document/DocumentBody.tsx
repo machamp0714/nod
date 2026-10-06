@@ -20,6 +20,8 @@ export function DocumentBody({ doc }: { doc: DocumentDetail }) {
   const [base, setBase] = useState<{ content: string; mtime: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cancelling = useRef(false);
+  // 送信中の印。isPending は描画の後にしか変わらないため、Cmd+S の連打や Cmd+S の直後の blur で二重に送らないよう ref で持つ
+  const saving = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const editing = draft !== null;
@@ -41,14 +43,17 @@ export function DocumentBody({ doc }: { doc: DocumentDetail }) {
   }
 
   async function save() {
-    if (draft === null || base === null || update.isPending) return;
+    if (draft === null || base === null || saving.current) return;
     if (draft === base.content) return close();
+    saving.current = true;
     try {
       await update.mutateAsync({ content: draft, mtime: base.mtime });
       close();
     } catch (e) {
       const conflict = e instanceof ApiError && e.status === 409;
       setError(conflict ? "ファイルがほかで変更されています。読み直してください" : `保存できませんでした：${errorMessage(e)}`);
+    } finally {
+      saving.current = false;
     }
   }
 
@@ -114,6 +119,8 @@ export function DocumentBody({ doc }: { doc: DocumentDetail }) {
         onChange={(e) => setDraft(e.target.value)}
         onBlur={onBlur}
         onKeyDown={(e) => {
+          // 日本語の変換中の Esc（変換の取り消し）や Enter で下書きを捨てたり保存したりしない
+          if (e.nativeEvent.isComposing) return;
           if (e.key.toLowerCase() === "s" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             setError(null);
