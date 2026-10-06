@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, realpathSync } from "node:fs";
 import type { OpCtx } from "../ctx";
+import { worktreeNameFor } from "../branch-naming";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
@@ -189,6 +190,15 @@ export async function openInOrca(db: Database, ref: string, run: OrcaRunner | nu
 
 const FEATURE_RE = /^[a-z0-9-]+$/;
 
+// 「Orca で作業を始める」で作られる worktree 名（Web のプレビュー用。hash を Web で計算しないため）。空の feature は省略形になる
+export function getWorktreeName(db: Database, ref: string, feature: string): { issueId: string; name: string } {
+  if (feature !== "" && !FEATURE_RE.test(feature)) {
+    throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
+  }
+  const row = findIssueRow(db, ref);
+  return { issueId: formatIssueId(row.ws_key, row.number), name: worktreeNameFor(db, row, feature) };
+}
+
 // worktree を作成中の Issue（DB ごとの Issue の内部 ID）。記録済みの確認は orca を呼ぶ前に行うため、
 // orca を待つ間（最長 60 秒）に来た同じ Issue への要求をここで止める。server は1プロセスなので、プロセス内の印で足りる
 const creating = new WeakMap<Database, Set<number>>();
@@ -238,7 +248,7 @@ async function createAndRecord(
   const agent = chosen ?? workspace.default_agent;
   const res = readOrcaEnvelope(
     await run(
-      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", `${issueId}+${feature}`, "--no-parent", "--agent", agent, "--activate", "--json"],
+      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", worktreeNameFor(ctx.db, row, feature), "--no-parent", "--agent", agent, "--activate", "--json"],
       { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
     ),
     ORCA_CREATE_TIMEOUT_MS,

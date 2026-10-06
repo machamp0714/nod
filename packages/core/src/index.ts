@@ -59,3 +59,4 @@ export * from "./ops/github-publish";
 export * from "./github-leak";
 export * from "./ops/orca";
 export * from "./ops/instructions";
+export * from "./branch-naming";

@@ -29,6 +29,7 @@ import {
   toIssue,
   toQuestion,
 } from "../issue-query";
+import { branchNameFor } from "../branch-naming";
 import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationState, type RelationType, type Relations, type Status, STATUSES } from "../types";
@@ -40,8 +41,7 @@ import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WOR
 
 export function getIssueBranchName(db: Database, ref: string): { issueId: string; suggestedBranch: string } {
   const row = findIssueRow(db, ref);
-  const issueId = formatIssueId(row.ws_key, row.number);
-  return { issueId, suggestedBranch: `nod/${issueId.toLowerCase()}` };
+  return { issueId: formatIssueId(row.ws_key, row.number), suggestedBranch: branchNameFor(db, row) };
 }
 
 export function requireText(value: string | undefined, what: string): string {

@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
-import { cdCommand, createOrcaWorktree, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
+import { cdCommand, createOrcaWorktree, getWorktreeName, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
 import { findWorkspace, listWorkspaces, setWorkspaceDefaultAgent } from "../src/ops/workspaces";
-import { setup } from "./helpers";
+import { codeOf, setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
 
@@ -168,7 +168,7 @@ describe("createOrcaWorktree（#210）", () => {
     const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "API-1+search-n1", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
     ]);
     const after = getIssue(db, ref);
     expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee, agentState: before.agentState });
@@ -322,4 +322,13 @@ describe("createOrcaWorktree（#210）", () => {
     expect(await createOrcaWorktree(me, ref, { feature: "x" }, run).then(() => undefined, (e) => e.code)).toBe("ISSUE_ARCHIVED");
     expect(calls).toHaveLength(0);
   });
+});
+
+test("worktree 名は feature を slug にして、未公開なら hash、公開済みなら issue-<N> を付ける", () => {
+  const { db, ws, me } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
+  expect(getWorktreeName(db, issue.id, "search-n1")).toEqual({ issueId: issue.id, name: "search-n1-a67fefb7" });
+  expect(getWorktreeName(db, issue.id, "api-1-fix").name).toBe("fix-a67fefb7");
+  expect(getWorktreeName(db, issue.id, "").name).toBe("a67fefb7");
+  expect(codeOf(() => getWorktreeName(db, issue.id, "Bad Name"))).toBe("INVALID_ARGS");
 });
