@@ -602,4 +602,34 @@ export const MIGRATIONS: MigrationStep[][] = [
       updated_at TEXT NOT NULL
     )`,
   ],
+  // nod の Issue を GitHub Issue として作成する。Workspace の公開先 repo、対応の登録経路（取り込み・作成・紐付け）、送信の試行。
+  // 送信権は github_publishes の部分 UNIQUE（sending・unknown は Issue ごとに1件）で取る。issue_imports の issue_id は1つの Issue に1件
+  [
+    `ALTER TABLE workspaces ADD COLUMN github_repo TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN github_repo_updated_at TEXT`,
+    `ALTER TABLE workspaces ADD COLUMN github_repo_updated_by TEXT`,
+    `ALTER TABLE issue_imports ADD COLUMN origin TEXT NOT NULL DEFAULT 'import' CHECK (origin IN ('import', 'publish', 'link'))`,
+    `CREATE UNIQUE INDEX issue_imports_issue ON issue_imports (issue_id) WHERE issue_id IS NOT NULL`,
+    `CREATE TABLE github_publishes (
+      id INTEGER PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      repo TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      gh_login TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('sending', 'sent', 'unknown', 'failed', 'cleared')),
+      result_number INTEGER,
+      result_url TEXT,
+      error TEXT,
+      started_by TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      cleared_by TEXT,
+      cleared_at TEXT
+    )`,
+    `CREATE UNIQUE INDEX github_publishes_pending ON github_publishes (issue_id) WHERE state IN ('sending', 'unknown')`,
+    `CREATE INDEX github_publishes_issue ON github_publishes (issue_id)`,
+  ],
 ];
