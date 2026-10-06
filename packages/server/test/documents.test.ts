@@ -88,4 +88,24 @@ describe("Documents API", () => {
     expect((await call(app, "POST", `/api/issues/${i.id}/doc-remove`, { documentId: id })).status).toBe(404);
     expect((await call(app, "POST", `/api/issues/${i.id}/doc-remove`, { documentId: "x" })).status).toBe(400);
   });
+
+  test("PUT /api/documents/:id/content は mtime が合えば保存し、違えば 409", async () => {
+    const { app, docsDir } = setupDocs();
+    const id = (await call(app, "POST", "/api/documents", { path: "e.md", title: "元" })).json.id;
+    const { mtime } = (await call(app, "GET", `/api/documents/${id}`)).json;
+    expect(typeof mtime).toBe("number");
+
+    const ok = await call(app, "PUT", `/api/documents/${id}/content`, { content: "# 新\n\n本文\n", mtime });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toMatchObject({ id, title: "新", content: "# 新\n\n本文\n" });
+    expect(readFileSync(join(docsDir, "e.md"), "utf8")).toBe("# 新\n\n本文\n");
+
+    const stale = await call(app, "PUT", `/api/documents/${id}/content`, { content: "x", mtime });
+    expect([stale.status, stale.json.error.code]).toEqual([409, "CONFLICT"]);
+
+    for (const body of [{ content: 1, mtime }, { content: "x" }, { content: "x", mtime: "1" }, { content: "x", mtime, extra: 1 }]) {
+      expect((await call(app, "PUT", `/api/documents/${id}/content`, body)).status).toBe(400);
+    }
+    expect((await call(app, "PUT", "/api/documents/999/content", { content: "x", mtime })).status).toBe(404);
+  });
 });
