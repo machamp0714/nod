@@ -49,6 +49,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` でレビューに回す。
    Issue を自分で done にしない（nod issue update --status done は拒否される）。done にするのは、レビューを終えた人である。
    人の \`nod review approve\`（nod の承認）は Issue を done にするだけで、GitHub の承認・マージではない。nod は GitHub の PR に承認・マージを書き込まず、\`gh pr review\` も \`gh pr merge\` も実行しない。PR の承認・マージは GitHub 側で別に行う。
+nod が GitHub に書き込むのは、人が確認した Issue の新規作成（\`nod issue publish\`）だけである。更新・close・コメントはしない。LLM は \`nod issue publish <id> --dry-run\` で内容と検出結果を確かめ、作成は人に依頼する。
 9. レビューで差し戻されると、Issue は in_progress のまま残る。\`nod issue start <id>\` で再開すると、出力に差し戻しの理由（\`--json\` では \`rejection\`）が出るので、先に読んで対応する（\`nod issue show <id>\` の Activity でも読める）。理由は \`nod issue done\` で再提出するまで、start のたびに出る。
    \`nod issue start\` は、まだ受け取っていない追加指示を \`pendingInstructions\`（テキストでは「追加指示」）で返す。先に読んで対応する。
    担当の LLM が \`nod issue show\` の「未確認の追加指示」で読んだ指示は確認済みになり、\`nod issue start\` では渡し直されない。
@@ -89,8 +90,10 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 ## Issue 用のブランチ名を取得する
 
-\`nod issue branch-name <id>\` はコピーできるブランチ名だけを返す。例：API-12 は \`nod/api-12\`。
-タイトルに依存せず、IDの大小文字を変えても同じ名前になる。\`--json\` では \`issueId\` と \`suggestedBranch\` を返す。
+\`nod issue branch-name <id>\` はコピーできるブランチ名だけを返す。GitHub に出るので nod の Issue ID は含まない。
+GitHub Issue に対応している（公開済み）なら \`issue-<GitHub の番号>-<slug>\`、未公開なら \`<slug>-<8 桁の hash>\` になる。slug はタイトルの英数字の語で、作れなければ省く。
+hash は Workspace のキーと番号から決まるので、同じ Issue なら同じ名前になる（キーを変えると変わる）。公開しても既存のブランチは改名しない。
+\`--json\` では \`issueId\` と \`suggestedBranch\` を返す。
 この名前は生成候補であり、記録済みの実行場所の \`branch\` とは別である。ブランチ作成・checkout・着手・DB更新・Orca通知は行わない。
 
 ## Issue を複製する
@@ -106,7 +109,8 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。\`nod automation run\` は定期Issueの起票も同じ回に行う。LLM は \`nod automation run --dry-run\` で対象（起票する定期Issueを含む）を確かめ、人に伝えるだけにする。
 PR 連動・コミット連動による in_review への自動遷移の取消（\`nod automation undo <id>\`）も人だけが行える。
 \`nod git sync\`（コミットメッセージの Closes/Fixes <ID> で Issue を in_review にする）の実行は人だけが行える。LLM は \`nod git sync --dry-run\` で対象を確かめ、人に伝えるだけにする。
-コミットメッセージに Issue ID を書くときは、作業が済んだコミットだけに \`Fixes <ID>\` を付け、途中のコミットには付けない。
+GitHub に送るブランチ名・コミット・PR に nod の Issue ID を書かない。対応する GitHub Issue があり、コードと同じ repo のときだけ、作業が済んだコミットに \`Fixes #<GitHub の番号>\` を付ける（途中のコミットには付けない）。未公開なら closing reference を付けない。過去のコミットの \`Fixes <nod の ID>\` は互換のため引き続き読む。
+\`nod git sync\` は、origin の repo・公開先・参照の repo が一致するときだけ \`#N\` を解決する。公開先を変えると、前の repo への参照は解決されなくなる。
 \`nod import github <owner/repo>\`（GitHub Issues の取り込み）の実行は人だけが行える。LLM は \`nod import github <owner/repo> --dry-run\` で取り込む内容と状態の対応を確かめ、人に伝えるだけにする。
 
 ## 引数の書き方
@@ -159,6 +163,9 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
 - \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
+- \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する（人だけ。LLM は --dry-run だけ。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS）。送るのはタイトルと本文だけ。nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）が見つかれば行番号付きで示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か --clear-unknown で解除する
+- \`nod issue link-github <id> <URL>\` / \`nod issue unlink-github <id>\`：既存の GitHub Issue を紐付ける・外す（人だけ）。外した GitHub Issue は import で取り込み直さない
+- \`nod workspace github show|set <owner/repo>|clear\`：GitHub の公開先（人だけが変えられる）。未設定なら show が origin の候補を示す
 - \`nod issue pr-diff <id> [--refresh] [--file <パス>]\`：PR の変更ファイル（パス・状態・+/-行数）を表示し、\`--file\` でそのファイルの unified diff を出す。\`--refresh\` で gh から PR の HEAD に固定した差分を取得して保存する（GitHub へは読み取りのみ。LLM も実行できる。gh の呼び出しごとに15秒で時間切れ）。上限はファイル 300 件・全体 5 MB（超えると DIFF_TOO_LARGE）、1ファイル 200 KB か 5,000 行を超えるものとバイナリは本文を保存しない。PR 状態の取得で別の HEAD を知ると古い差分は出さず \`stale\` に両方の HEAD が入る。\`--json\` の一覧は patch を含まないので、本文は \`--file\` で読む。双方向の制御文字は ⟪U+202E⟫ のように符号で表示する
 - \`nod project list\`、\`nod project show <名前>\`：list の行末は LLM の状況で、正の件数だけを 入力待ち・エラー・レビュー待ち・作業中 の順に出す（すべて0なら \`—\`）
 - \`nod triage list\`、\`nod review list\`：全 Workspace の Triage の Issue（スヌーズ中を除く）とレビュー待ちの Issue を一覧する読み取り専用のコマンド（LLM も実行できる。受け入れ・却下・承認・差し戻しの判断は人が行う）。\`nod inbox\` は末尾に Triage の件数を出す
