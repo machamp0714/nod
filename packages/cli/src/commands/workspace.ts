@@ -29,10 +29,14 @@ import {
   ORCA_AGENT_LABELS,
   ORCA_AGENTS,
   setWorkspaceDefaultAgent,
+  clearWorkspaceGithubRepo,
+  getWorkspaceGithubRepoView,
+  gitRunner,
+  setWorkspaceGithubRepo,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect } from "../args";
-import { act, currentWorkspace, repoRootOf } from "../context";
+import { act, actAsync, currentWorkspace, repoRootOf } from "../context";
 import { print } from "../output";
 
 export function registerWorkspaceCommands(program: Command): void {
@@ -146,6 +150,7 @@ export function registerWorkspaceCommands(program: Command): void {
   registerLabelCommands(ws);
   registerStatusNameCommands(ws);
   registerAgentCommands(ws);
+  registerGithubRepoCommands(ws);
   registerTransitionCommands(ws);
 }
 
@@ -323,6 +328,40 @@ function registerTransitionCommands(ws: Command): void {
         const workspace = currentWorkspace(cli, cmd);
         const r = resetTransitionRules(cli.ctx, workspace.key);
         print(cli, r, () => `${workspace.name} の遷移ルールをすべて解除しました`);
+      }),
+    );
+}
+
+// nod issue publish で GitHub Issue を作る公開先。未設定なら origin から推定した候補を示す
+function registerGithubRepoCommands(ws: Command): void {
+  const github = ws.command("github").description("GitHub の公開先（nod issue publish で Issue を作る repo）を管理する。変更は人だけが行える");
+  github
+    .command("show")
+    .description("現在の Workspace の公開先を表示する。未設定なら origin から推定した候補を示す")
+    .action(
+      actAsync(async (cli, cmd) => {
+        const r = await getWorkspaceGithubRepoView(cli.db, currentWorkspace(cli, cmd).key, gitRunner);
+        print(cli, r, () =>
+          r.repo ? `公開先: ${r.repo}` : `公開先は未設定です${r.originCandidate ? `（origin の候補: ${r.originCandidate}。nod workspace github set ${r.originCandidate} で設定できます）` : ""}`,
+        );
+      }),
+    );
+  github
+    .command("set <owner/repo>")
+    .description("公開先を設定する（作成済みの対応と送信中の宛先は変わらない）")
+    .action(
+      act((cli, cmd, repo: string) => {
+        const r = setWorkspaceGithubRepo(cli.ctx, currentWorkspace(cli, cmd).key, repo);
+        print(cli, r, () => `公開先を ${r.repo} にしました`);
+      }),
+    );
+  github
+    .command("clear")
+    .description("公開先を解除する")
+    .action(
+      act((cli, cmd) => {
+        const r = clearWorkspaceGithubRepo(cli.ctx, currentWorkspace(cli, cmd).key);
+        print(cli, r, () => "公開先を解除しました");
       }),
     );
 }

@@ -70,6 +70,7 @@ import {
 import type { Command } from "commander";
 import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
+import { registerGithubIssueCommands } from "./github";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
   formatAttachment,
@@ -333,6 +334,7 @@ export function registerIssueCommands(program: Command): void {
         print(cli, name, () => name.suggestedBranch);
       }),
     );
+  registerGithubIssueCommands(issue);
 
   issue
     .command("update <id>")
