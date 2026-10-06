@@ -26,12 +26,12 @@ test("人とLLMがコピー可能な名前とJSONを取得でき、DB・git refs
     const opts = { cwd, db, actor, env: { NOD_ORCA: "1", ORCA_CLI_COMMAND: bin } };
     const human = await runNod(["issue", "branch-name", created.id.toLowerCase()], opts);
     expect(human.exitCode).toBe(0);
-    expect(human.stdout).toBe("nod/api-1\n");
+    expect(human.stdout).toBe("a67fefb7\n");
     const json = await runNod(["issue", "branch-name", created.id, "--json"], opts);
     expect(json.exitCode).toBe(0);
-    expect(json.json).toEqual({ issueId: "API-1", suggestedBranch: "nod/api-1" });
+    expect(json.json).toEqual({ issueId: "API-1", suggestedBranch: "a67fefb7" });
     const cross = await runNod(["issue", "branch-name", elsewhere.id, "--json"], opts);
-    expect(cross.json.suggestedBranch).toBe("nod/other-1");
+    expect(cross.json.suggestedBranch).toBe("workspace-ac3366a7");
   }
   expect(connection.serialize()).toEqual(before);
   connection.close();

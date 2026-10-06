@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import { listAutoTransitions, undoAutoTransition } from "../src/ops/auto-transitions";
 import { getAutomationSettings, setAutomationSettings } from "../src/ops/automation";
-import { findClosingRefs, GIT_SYNC_SCAN_MAX, gitRunner, syncGitCommits } from "../src/ops/git-sync";
+import { findClosingRefs, findGithubClosingRefs, GIT_SYNC_SCAN_MAX, gitRunner, syncGitCommits } from "../src/ops/git-sync";
+import { setWorkspaceGithubRepo } from "../src/ops/github-repo";
+import { findIssueRow } from "../src/issue-query";
+import type { GitSyncRefMissReason } from "../src/types";
 import { answerQuestion, rejectReview } from "../src/ops/human";
 import { archiveIssue, createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -305,5 +308,83 @@ describe("遷移ルール（#73）とコミット連動", () => {
     expect(run.skipped).toEqual([a]);
     expect(run.skippedReasons).toEqual([{ id: a, message: expect.stringContaining("遷移ルールでスキップ") }]);
     expect(statusOf(s.db, a)).toBe("backlog");
+  });
+});
+
+describe("GitHub の番号の参照", () => {
+  test("#N・owner/repo#N・Issue の URL を拾い、PR の URL とコードブロックは拾わない", () => {
+    expect(findGithubClosingRefs("Fixes #12, example/api-server#13 and https://github.com/Example/API-Server/issues/14")).toEqual([
+      { raw: "#12", repo: null, number: 12, keyword: "Fixes" },
+      { raw: "example/api-server#13", repo: "example/api-server", number: 13, keyword: "Fixes" },
+      { raw: "https://github.com/Example/API-Server/issues/14", repo: "example/api-server", number: 14, keyword: "Fixes" },
+    ]);
+    expect(findGithubClosingRefs("Fixes https://github.com/example/api-server/pull/12")).toEqual([]);
+    expect(findGithubClosingRefs("```\nFixes #12\n```")).toEqual([]);
+    expect(findGithubClosingRefs("See #12")).toEqual([]);
+  });
+
+  function linked(opts: { origin?: string | null; configured?: string | null } = {}) {
+    const f = fixture();
+    const origin = opts.origin === undefined ? "git@github.com:Example/API-Server.git" : opts.origin;
+    if (origin) git(f.repo, "remote", "add", "origin", origin);
+    const configured = opts.configured === undefined ? "example/api-server" : opts.configured;
+    if (configured) setWorkspaceGithubRepo(f.me, "API", configured);
+    const id = f.make("in_progress");
+    const row = findIssueRow(f.db, id);
+    f.db
+      .query("INSERT INTO issue_imports (workspace_id, source, source_key, issue_id, imported_by, imported_at, origin) VALUES (?, 'github', 'example/api-server#12', ?, 'me', 'x', 'import')")
+      .run(f.ws.id, row.id);
+    return { ...f, id };
+  }
+
+  test("同じ repo の対応がある #N で in_review に進める（import 由来も対象）", async () => {
+    for (const message of ["Fixes #12", "Closes example/api-server#12", "Resolves https://github.com/example/api-server/issues/12"]) {
+      const f = linked();
+      f.commit(message);
+      const r = await syncGitCommits(f.me, "API");
+      expect(r.processed).toEqual([f.id]);
+      expect(statusOf(f.db, f.id)).toBe("in_review");
+      expect(r.unresolvedRefs).toEqual([]);
+    }
+  });
+
+  test.each<[string, { origin?: string | null; configured?: string | null }, string, GitSyncRefMissReason]>([
+    ["origin がない", { origin: null }, "Fixes #12", "no_origin"],
+    ["origin が GitHub でない", { origin: "https://gitlab.com/example/api-server.git" }, "Fixes #12", "other_host"],
+    ["公開先が未設定", { configured: null }, "Fixes #12", "repo_not_set"],
+    ["公開先と origin が違う", { configured: "example/other" }, "Fixes #12", "repo_mismatch"],
+    ["参照の repo が違う", {}, "Fixes other/repo#12", "repo_mismatch"],
+    ["対応がない番号", {}, "Fixes #99", "not_linked"],
+  ])("%s なら解決せず、理由を返す", async (_name, opts, message, reason) => {
+    const f = linked(opts);
+    const sha = f.commit(message);
+    const r = await syncGitCommits(f.me, "API", { dryRun: true });
+    expect(r.candidates).toEqual([]);
+    expect(r.unresolvedRefs).toEqual([{ sha, ref: message.replace(/^Fixes /, ""), reason }]);
+  });
+
+  test("公開先が未設定でも Fixes KEY-N は解決し、#N は repo_not_set になる", async () => {
+    const f = linked({ configured: null });
+    f.commit(`Fixes #12\n\nFixes ${f.id}`);
+    const r = await syncGitCommits(f.me, "API", { dryRun: true });
+    expect(r.candidates.map((c) => c.id)).toEqual([f.id]);
+    expect(r.unresolvedRefs.map((u) => u.reason)).toEqual(["repo_not_set"]);
+  });
+
+  test("紐付けを外した番号は解決しない。Fixes KEY-N は今までどおり解決する", async () => {
+    const f = linked();
+    f.db.query("UPDATE issue_imports SET issue_id = NULL").run();
+    f.commit("Fixes #12");
+    expect((await syncGitCommits(f.me, "API", { dryRun: true })).unresolvedRefs.map((u) => u.reason)).toEqual(["not_linked"]);
+    f.commit(`Fixes ${f.id}`);
+    expect((await syncGitCommits(f.me, "API", { dryRun: true })).candidates.map((c) => c.id)).toEqual([f.id]);
+  });
+
+  test("遷移の理由には参照の原文を残す", async () => {
+    const f = linked();
+    f.commit("Fixes #12");
+    await syncGitCommits(f.me, "API");
+    const changed = eventsOf(f.db, f.id).find((e) => e.type === "status_changed");
+    expect(String(changed?.data.reason)).toContain("Fixes #12");
   });
 });

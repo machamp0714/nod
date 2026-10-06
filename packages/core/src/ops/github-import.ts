@@ -6,6 +6,8 @@ import { addComment } from "../events";
 import { findIssueRow, formatIssueId } from "../issue-query";
 import type { Status } from "../types";
 import { AUTOMATION_LIMIT_DEFAULT, AUTOMATION_LIMIT_MAX } from "./automation";
+import { GITHUB_REPO_RE } from "./github-repo";
+import { ghAuthFailed } from "./github-links";
 import { insertIssue } from "./issues";
 import { type GhRunner, type GhRunResult, ghRunner } from "./pr-status";
 import { resolveProject } from "./projects";
@@ -26,8 +28,6 @@ export const GITHUB_IMPORT_OPEN_STATUSES = ["triage", "backlog", "todo"] as cons
 export type GithubImportOpenStatus = (typeof GITHUB_IMPORT_OPEN_STATUSES)[number];
 
 const LIST_FIELDS = "number,title,body,state,stateReason,labels,assignees,author,createdAt,closedAt,url";
-// owner は英数字とハイフン、repo は英数字と . _ -。先頭の - は gh のオプションと取り違えるので認めない
-const REPO_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/;
 const ISSUE_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
 
 export interface GithubImportOptions {
@@ -53,7 +53,7 @@ export interface GithubImportItem {
   createdAt: string;
   closedAt: string | null;
   existing: string | null; // 取り込み済みなら nod の Issue ID
-  deleted: boolean; // 取り込んだ後に nod で永久削除した（再取り込みしない）
+  deleted: boolean; // 取り込んだ後に nod で永久削除した、または紐付けを外した（再取り込みしない）
 }
 
 export interface GithubImportResult {
@@ -66,7 +66,7 @@ export interface GithubImportResult {
   items: GithubImportItem[];
   imported: { sourceKey: string; id: string }[];
   skipped: { sourceKey: string; id: string }[]; // 取り込み済み
-  deleted: { sourceKey: string }[]; // 取り込んだ後に永久削除したので取り込まない
+  deleted: { sourceKey: string }[]; // 取り込んだ後に永久削除した、または紐付けを外したので取り込まない
   failed: { sourceKey: string; message: string }[];
 }
 
@@ -91,7 +91,7 @@ interface GhComment {
 }
 
 function validate(repo: string, o: GithubImportOptions): void {
-  if (!REPO_RE.test(repo)) throw new NodError("INVALID_ARGS", `${repo} は owner/repo の形ではありません（例: machamp0714/nod）`);
+  if (!GITHUB_REPO_RE.test(repo)) throw new NodError("INVALID_ARGS", `${repo} は owner/repo の形ではありません（例: machamp0714/nod）`);
   if (o.limit !== undefined && (!Number.isInteger(o.limit) || o.limit < 1 || o.limit > GITHUB_IMPORT_LIMIT_MAX)) {
     throw new NodError("INVALID_ARGS", `--limit は 1〜${GITHUB_IMPORT_LIMIT_MAX} の整数で指定してください`);
   }
@@ -118,7 +118,7 @@ function ghError(result: Exclude<GhRunResult, { kind: "exited"; exitCode: 0 }>, 
       return new NodError("GH_FAILED", `${what}の出力が大きすぎます（${result.limitBytes} バイト超）。--limit か --label で絞ってください`);
     case "exited": {
       const stderr = result.stderr;
-      if (result.exitCode === 4 || /gh auth login|not logged in|authentication required|bad credentials/i.test(stderr)) {
+      if (ghAuthFailed(stderr, result.exitCode)) {
         return new NodError("GH_AUTH", "gh が未認証です。gh auth login を実行してください");
       }
       if (/could not resolve to a repository/i.test(stderr)) {

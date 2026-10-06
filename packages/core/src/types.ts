@@ -574,6 +574,9 @@ export interface PrStatusView {
   autoTransitionSkipped?: string; // PR 連動の条件を満たしたが、遷移ルール（#73）で進めなかったときの理由
 }
 
+// GitHub の番号の参照（#12 など）を nod の Issue に解決できなかった理由
+export type GitSyncRefMissReason = "no_origin" | "unparsable" | "other_host" | "repo_not_set" | "repo_mismatch" | "not_linked";
+
 // nod git sync（#68）の候補。同じ Issue を書いたコミットが複数あれば最新のもの
 export interface GitSyncCandidate {
   id: string;
@@ -582,6 +585,7 @@ export interface GitSyncCandidate {
   sha: string;
   subject: string;
   keyword: string; // メッセージに書かれたキーワード（Closes・fixes など）
+  ref?: string; // GitHub の番号の参照で解決したとき、その原文（#12 など）
   committedAt: string;
   ruleSkipReason?: string; // 遷移ルール（#73）で実行時にスキップする見込みのとき、その理由
 }
@@ -601,6 +605,7 @@ export interface GitSyncResult {
   skippedReasons: { id: string; message: string }[]; // skipped のうち理由のあるもの（遷移ルール #73 で止めたもの）
   failed: { id: string; message: string }[];
   remaining: number;
+  unresolvedRefs: { sha: string; ref: string; reason: GitSyncRefMissReason }[]; // 解決しなかった GitHub の番号の参照
 }
 
 // PR・コミットによる自動のステータス遷移（#66・#68）の記録。同じ Issue・同じ PR/コミットでは一度だけ遷移させる

@@ -4,9 +4,11 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId } from "../issue-query";
 import { transitionBlockReason } from "../transition-rules";
-import type { GitSyncCandidate, GitSyncResult, Status, Workspace } from "../types";
+import type { GitSyncCandidate, GitSyncRefMissReason, GitSyncResult, Status, Workspace } from "../types";
 import { applyAutoTransition } from "./auto-transitions";
 import { AUTOMATION_DAYS_MAX, AUTOMATION_LIMIT_DEFAULT, AUTOMATION_LIMIT_MAX, getAutomationSettings } from "./automation";
+import { githubRepoOfWorkspace, type OriginRepo, readOriginRepo } from "./github-repo";
+import { sourceKeyOf } from "./github-links";
 import { createCommandRunner, type GhRunner, type GhRunResult } from "./pr-status";
 import { findWorkspace } from "./workspaces";
 
@@ -63,6 +65,54 @@ export function findClosingRefs(message: string, workspaceKey: string): { id: st
     }
   }
   return found;
+}
+
+// GitHub の番号の参照。#12、owner/repo#12、https://github.com/owner/repo/issues/12（PR の URL は対象外）
+const GH_REF = String.raw`(?:https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+/issues/\d+|[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+#\d+|#\d+)(?![\w-])`;
+const GH_CLOSING_RE = new RegExp(String.raw`(?<![\w-])${KEYWORD}:?\s+(${GH_REF}(?:\s*(?:,|&|\band\b)\s*${GH_REF})*)`, "gi");
+const GH_REF_RE = new RegExp(GH_REF, "gi");
+
+export interface GithubClosingRef {
+  raw: string;
+  repo: string | null; // #12 のように repo を書かないときは null（origin の repo で補う）。書いたときは小文字
+  number: number;
+  keyword: string;
+}
+
+export function findGithubClosingRefs(message: string): GithubClosingRef[] {
+  const found: GithubClosingRef[] = [];
+  for (const m of stripCodeBlocks(message).matchAll(GH_CLOSING_RE)) {
+    for (const r of (m[2] ?? "").matchAll(GH_REF_RE)) {
+      const raw = r[0];
+      const url = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/i.exec(raw);
+      const qualified = /^([^/#]+)\/([^#]+)#(\d+)$/.exec(raw);
+      const parsed = url
+        ? { repo: `${url[1]}/${url[2]}`.toLowerCase(), number: Number(url[3]) }
+        : qualified
+          ? { repo: `${qualified[1]}/${qualified[2]}`.toLowerCase(), number: Number(qualified[3]) }
+          : { repo: null, number: Number(raw.slice(1)) };
+      if (!found.some((f) => f.raw.toLowerCase() === raw.toLowerCase())) found.push({ raw, ...parsed, keyword: m[1] ?? "" });
+    }
+  }
+  return found;
+}
+
+// origin の repo・今の公開先・参照の repo の3つが一致するときだけ、対応表（経路は問わない）から nod の Issue に解決する。
+// origin・公開先・参照の repo はどれも小文字に揃えてあるが、念のため大文字小文字を区別せず比べる（GitHub の repo 名は区別しない）
+function resolveGithubRef(db: Database, workspace: Workspace, ref: GithubClosingRef, origin: OriginRepo, configured: string | null): { id: string } | { reason: GitSyncRefMissReason } {
+  if (origin.repo === null) return { reason: origin.reason };
+  if (!configured) return { reason: "repo_not_set" };
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  if (!same(origin.repo, configured)) return { reason: "repo_mismatch" };
+  const repo = ref.repo ?? origin.repo;
+  if (!same(repo, configured)) return { reason: "repo_mismatch" };
+  const row = db
+    .query(
+      `SELECT i.number FROM issue_imports m JOIN issues i ON i.id = m.issue_id
+       WHERE m.workspace_id = ? AND m.source = 'github' AND m.source_key = ? AND i.workspace_id = ?`,
+    )
+    .get(workspace.id, sourceKeyOf(repo, ref.number), workspace.id) as { number: number } | null;
+  return row ? { id: formatIssueId(workspace.key, row.number) } : { reason: "not_linked" };
 }
 
 interface Commit {
@@ -167,9 +217,26 @@ export async function syncGitCommits(
   }
   const commits = await readCommits(run, workspace.path, ref, sinceDays);
   const byIssue = new Map<string, GitSyncCandidate & { at: number }>();
+  const configured = githubRepoOfWorkspace(ctx.db, workspace.id);
+  let origin: OriginRepo | null = null; // GitHub の参照があったときだけ読む
+  const unresolvedRefs: GitSyncResult["unresolvedRefs"] = [];
   for (const c of commits) {
     if (isRevertCommit(c.subject, c.body)) continue;
-    for (const r of findClosingRefs(c.body || c.subject, workspace.key)) {
+    const message = c.body || c.subject;
+    const refs: { id: string; keyword: string; ref?: string }[] = findClosingRefs(message, workspace.key);
+    const ghRefs = findGithubClosingRefs(message);
+    if (ghRefs.length) {
+      origin ??= await readOriginRepo(run, workspace.path);
+      for (const g of ghRefs) {
+        const resolved = resolveGithubRef(ctx.db, workspace, g, origin, configured);
+        if ("reason" in resolved) {
+          unresolvedRefs.push({ sha: c.sha, ref: g.raw, reason: resolved.reason });
+          continue;
+        }
+        if (!refs.some((r) => r.id === resolved.id)) refs.push({ id: resolved.id, keyword: g.keyword, ref: g.raw });
+      }
+    }
+    for (const r of refs) {
       if (byIssue.has(r.id)) continue; // 新しいコミットが先に来る
       const row = eligible(ctx.db, workspace, Number(r.id.split("-")[1]), c.sha, c.committedAt);
       if (!row) continue;
@@ -180,6 +247,7 @@ export async function syncGitCommits(
         sha: c.sha,
         subject: c.subject,
         keyword: r.keyword,
+        ...(r.ref ? { ref: r.ref } : {}),
         committedAt: c.committedAt,
         at: Date.parse(c.committedAt),
       });
@@ -205,6 +273,7 @@ export async function syncGitCommits(
     skippedReasons: [],
     failed: [],
     remaining: found.length - candidates.length,
+    unresolvedRefs,
   };
   if (dryRun) return result;
   // 1件ごとに確定し、途中で失敗しても残りを続ける。読んでから書くまでに変わりうるので、書く transaction の中で確かめ直す
@@ -218,7 +287,7 @@ export async function syncGitCommits(
         applyAutoTransition(ctx, row, {
           source: "commit",
           sourceKey: c.sha,
-          reason: `コミット ${c.sha.slice(0, 12)}「${c.subject.slice(0, 80)}」の ${c.keyword} ${c.id}`,
+          reason: `コミット ${c.sha.slice(0, 12)}「${c.subject.slice(0, 80)}」の ${c.keyword} ${c.ref ?? c.id}`,
           automation: "commit_review",
         });
         return true;

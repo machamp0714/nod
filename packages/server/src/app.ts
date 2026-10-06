@@ -19,6 +19,7 @@ import { registerTemplateRoutes } from "./routes/templates";
 import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { type OrcaRunnerOption, registerOrcaRoutes } from "./routes/orca";
+import { registerGithubRoutes } from "./routes/github";
 import { registerAutomationRoutes } from "./routes/automation";
 import { registerViewRoutes } from "./routes/views";
 import { registerPageDisplayRoutes } from "./routes/page-displays";
@@ -34,6 +35,8 @@ export interface AppOptions {
   docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
   ghRunner?: GhRunner; // PR 状態の取得で gh を実行する部分。省くと本物の gh。テストと e2e はスタブを渡す
   attachmentsDir?: string; // 添付ファイルのコピーを置く場所。省くと core の defaultAttachmentsDir()（NOD_ATTACHMENTS_DIR）
+  gitRunner?: GhRunner; // origin の読み取りで git を実行する部分。省くと本物の git
+  webPort?: () => number | undefined; // 検出に使う、待ち受けている実際のポート
   orcaRunner?: OrcaRunnerOption; // Orca 連携で orca を実行する部分。省くと本物の orca（NOD_ORCA=0 なら使わない）。null で無効。テストと e2e はスタブを渡す
 }
 
@@ -80,6 +83,7 @@ export function createApp(opts: AppOptions): Hono {
   registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
+  registerGithubRoutes(app, me, { gh: opts.ghRunner, git: opts.gitRunner, webPort: opts.webPort }); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);

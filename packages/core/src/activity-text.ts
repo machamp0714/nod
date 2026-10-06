@@ -70,6 +70,20 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
       const before = text(data.from);
       return line(`${actor} が PR を紐付けた：${String(data.to ?? "")}`, before ? [`以前: ${before}`] : []);
     }
+    case "github_linked": {
+      const detail: string[] = [];
+      if (typeof data.previous_origin === "string") detail.push(`以前の経路: ${String(data.previous_origin)}`);
+      if (typeof data.resolved_attempt === "string") detail.push("結果不明の作成を、この紐付けで確定した");
+      return line(`${actor} が GitHub Issue を紐付けた：${String(data.url ?? "")}`, detail);
+    }
+    case "github_unlinked":
+      return line(`${actor} が GitHub Issue の紐付けを外した：${String(data.url ?? "")}`);
+    case "github_published":
+      return line(`${actor} が GitHub Issue を作成した：${String(data.url ?? "")}`, data.recorded === false ? ["対応は記録できなかった"] : []);
+    case "github_publish_unknown":
+      return line(`${actor} の GitHub Issue の作成は結果不明になった（${String(data.repo ?? "")}）`, typeof data.reason === "string" ? [data.reason] : []);
+    case "github_publish_cleared":
+      return line(`${actor} が GitHub Issue の作成の結果不明を解除した（${String(data.repo ?? "")} に作られていないことを確かめた）`);
     case "status_changed": {
       const detail = automationOf(data);
       if (typeof data.report_comment_id === "number") detail.push(`報告: #${data.report_comment_id}`);

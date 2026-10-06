@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/errors";
+import { useWorktreeName } from "../../api/hooks/github";
 import { useCreateOrcaWorktree } from "../../api/hooks/orca";
 import { useWorkspaces } from "../../api/hooks/shared";
 import type { OrcaAgent } from "../../api/types";
-import { defaultFeature, ORCA_AGENT_OPTIONS, orcaAgentLabel, sanitizeFeature, worktreeName } from "../../lib/orca-feature";
+import { defaultFeature, ORCA_AGENT_OPTIONS, orcaAgentLabel, sanitizeFeature } from "../../lib/orca-feature";
 import { Button, Icon, RadioPills } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -25,6 +26,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
   const create = useCreateOrcaWorktree(issueId);
   const [open, setOpen] = useState(false);
   const [feature, setFeature] = useState("");
+  const preview = useWorktreeName(issueId, feature);
   const [error, setError] = useState("");
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -76,9 +78,9 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
           <div className={s.orcaStartField}>
             <label className={s.orcaStartLabel} htmlFor={`orca-feature-${issueId}`}>feature 名</label>
             <input ref={input} id={`orca-feature-${issueId}`} className={s.orcaStartInput} autoComplete="off" spellCheck={false}
-              aria-describedby={feature ? previewId : undefined}
+              aria-describedby={feature && preview.data ? previewId : undefined}
               value={feature} disabled={busy} onChange={(e) => setFeature(sanitizeFeature(e.target.value))} />
-            {feature && <span id={previewId} className={s.orcaStartPreview}>作成される名前<span className={s.orcaStartName}>{worktreeName(issueId, feature)}</span></span>}
+            {feature && preview.data && <span id={previewId} className={s.orcaStartPreview}>作成される名前<span className={s.orcaStartName}>{preview.data.name}</span></span>}
           </div>
           <div className={s.orcaStartField}>
             <span className={s.orcaStartLabel}>エージェント</span>

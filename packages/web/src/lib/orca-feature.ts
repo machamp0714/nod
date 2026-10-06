@@ -12,10 +12,6 @@ export function sanitizeFeature(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9-]/g, "");
 }
 
-export function worktreeName(issueId: string, feature: string): string {
-  return `${issueId}+${feature}`;
-}
-
 // 起動できるエージェントと表示名（core の ORCA_AGENT_LABELS と同じ。web は core の値を import しないため、ここに持つ）
 const AGENT_LABELS: Record<OrcaAgent, string> = { claude: "Claude Code", codex: "Codex" };
 export const ORCA_AGENT_OPTIONS = (Object.keys(AGENT_LABELS) as OrcaAgent[]).map((value) => ({ value, label: AGENT_LABELS[value] }));

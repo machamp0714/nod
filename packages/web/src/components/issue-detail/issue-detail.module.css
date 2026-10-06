@@ -978,8 +978,8 @@
 .archivedError { margin: 0; color: var(--fail); font-size: 12px; flex-basis: 100%; }
 .commentBoxLocked { margin: 0; padding: 12px 14px; background: var(--sunken); color: var(--ink3); font-size: 13px; opacity: 0.6; }
 .propsLocked select, .propsLocked input, .propsLocked button { opacity: 0.45; }
-/* アーカイブ済みでも使える操作（リマインダーの解除）は淡くしない */
-.propsLocked button.unlocked { opacity: 1; }
+/* アーカイブ済みでも使える操作（リマインダーの解除、GitHub の紐付け・解除）は淡くしない */
+.propsLocked button.unlocked, .propsLocked input.unlocked { opacity: 1; }
 
 /* 作業ログ（nod.pen「Issue詳細｜作業ログ」） */
 .kindFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
@@ -1303,3 +1303,28 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .resendButton:disabled { cursor: default; opacity: 0.6; }
 .modeSwitchRow { padding: 10px 14px 0; }
 .instructionBody { white-space: pre-wrap; }
+
+/* GitHub に Issue を作成する確認ダイアログ */
+.githubDialog { width: min(720px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 20px; background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px #0000001a; }
+.githubDialog::backdrop { background: color-mix(in srgb, var(--ink) 30%, transparent); }
+.githubDialogTitle { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+.githubDialogBody { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; font-size: 13px; }
+.githubDialogBody > p, .githubDialogBody > ul { margin: 0; }
+.githubDialogBody > ul { padding-left: 18px; }
+.githubDialogNote { font-size: 12px; color: var(--ink2); margin: 0; }
+.githubDialogActions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.githubTarget { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.githubTarget dt { color: var(--ink2); }
+.githubTarget dd { margin: 0; overflow-wrap: anywhere; }
+.githubField { display: flex; flex-direction: column; gap: 4px; align-self: stretch; font-size: 12px; color: var(--ink2); }
+.githubField input, .githubField textarea { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
+.githubField textarea { font-family: var(--font-mono); resize: vertical; }
+.githubFindings { align-self: stretch; border: 1px solid var(--fail); border-radius: var(--radius-md); padding: 8px 12px; font-size: 12px; }
+.githubFindings ul { margin: 4px 0 0; padding-left: 16px; }
+.githubFindingsHead { margin: 0; font-weight: 600; color: var(--fail); }
+.githubFindingAt { font-variant-numeric: tabular-nums; }
+.githubRow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.githubLinked { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.githubConfirm { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.githubLinkForm { display: flex; align-items: center; gap: 6px; align-self: stretch; }
+.githubLinkForm input { flex: 1; min-width: 0; font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }

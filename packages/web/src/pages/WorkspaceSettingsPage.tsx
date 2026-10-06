@@ -10,6 +10,7 @@ import { ORCA_AGENT_OPTIONS } from "../lib/orca-feature";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "../lib/workspace-rules";
 import { NotFoundMessage } from "./NotFoundPage";
 import { AutomationSection } from "./WorkspaceAutomationSettings";
+import { GithubRepoSection } from "./WorkspaceGithubSettings";
 import { LabelsSection, StatusNamesSection } from "./WorkspaceLabelSettings";
 import { RecurringSection } from "./WorkspaceRecurringSettings";
 import { TemplatesSection } from "./WorkspaceTemplateSettings";
@@ -63,6 +64,7 @@ export function WorkspaceSettingsPage() {
         <TransitionRulesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TemplatesSection onSaved={setToast} />
         <DefaultAgentSection workspace={workspace} onSaved={() => setToast("保存しました")} />
+        <GithubRepoSection workspace={workspace} onSaved={setToast} />
         <AutomationSection workspace={workspace} onToast={setToast} />
         <RecurringSection workspace={workspace} onSaved={setToast} />
       </div>
