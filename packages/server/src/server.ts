@@ -35,7 +35,8 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const db = openDb(dbPath);
   const feed = createChangeFeed(db);
-  const app = createApp({ db, feed, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner });
+  let boundPort: number | undefined;
+  const app = createApp({ db, feed, webPort: () => boundPort, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner });
   let server: ReturnType<typeof Bun.serve>;
   try {
     // idleTimeout の既定（10秒）では、書き込みのない SSE の接続が切られるため無効にする
@@ -56,6 +57,7 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
   }, opts.pollIntervalMs ?? POLL_INTERVAL_MS);
   // TCP で起動しているため、Unix socket の場合の undefined にはならない。
   const port = server.port!;
+  boundPort = port;
   return {
     url: `http://${HOSTNAME}:${port}`,
     port,
