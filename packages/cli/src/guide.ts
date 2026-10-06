@@ -172,7 +172,8 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod cycle cadence show\`：周期の設定を見る。周期が設定されていると、nod のコマンドや Web の操作のたびに「今日を含む Cycle と次の1つ」が自動で作られ、自動持ち越しが ON なら終了した Cycle の未完了（done・canceled・アーカイブ済み以外）が今日の Cycle へ移る（記録に（自動化: cycle-carry-over）が付く）。設定・解除（\`set\`・\`clear\`）は人だけが行える
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
-- \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる。定義の変更は人だけが行える
+- \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる
+- \`nod workspace labels add <name> --color <#RRGGBB> [-d <説明>]\`：ラベルを定義する。\`nod workspace labels update <name> [--name <新しい名前>] [--color <#RRGGBB>] [-d <説明>]\` で定義を変える（改名するとこの Workspace の Issue のラベルも置き換わる）。定義の削除は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
 - \`nod workspace agent show\`：Web の「Orca で作業を始める」で起動する既定のエージェント（claude か codex）を見る。変更（\`set\`）は人だけが行える
 - \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える

@@ -125,13 +125,12 @@ describe("Workspace のラベル定義", () => {
     expect(labelsOf(db, a.id)).toEqual(["other", "unknown"]);
   });
 
-  test("LLM は追加・変更・削除できず FORBIDDEN_FOR_LLM、一覧は読める", () => {
-    const { db, ws, me, llm } = setup();
-    expect(codeOf(() => addWorkspaceLabel(llm, ws.key, { name: "bug", color: "#DB2777" }))).toBe("FORBIDDEN_FOR_LLM");
-    addWorkspaceLabel(me, ws.key, { name: "bug", color: "#DB2777" });
-    expect(codeOf(() => updateWorkspaceLabel(llm, ws.key, "bug", { color: "#2563EB" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => removeWorkspaceLabel(llm, ws.key, "bug"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(listWorkspaceLabels(db, ws.key).map((l) => l.name)).toEqual(["bug"]);
+  test("LLM は追加・変更ができ、削除は FORBIDDEN_FOR_LLM", () => {
+    const { db, ws, llm } = setup();
+    expect(addWorkspaceLabel(llm, ws.key, { name: "bug", color: "#DB2777" })).toMatchObject({ name: "bug", color: "#DB2777" });
+    expect(updateWorkspaceLabel(llm, ws.key, "bug", { name: "defect", color: "#2563EB" })).toMatchObject({ name: "defect", color: "#2563EB" });
+    expect(codeOf(() => removeWorkspaceLabel(llm, ws.key, "defect"))).toBe("FORBIDDEN_FOR_LLM");
+    expect(listWorkspaceLabels(db, ws.key).map((l) => l.name)).toEqual(["defect"]);
   });
 
   test("未登録の Workspace は NOT_FOUND", () => {

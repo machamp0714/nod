@@ -152,7 +152,7 @@ export function registerWorkspaceCommands(program: Command): void {
 function registerLabelCommands(ws: Command): void {
   const labels = ws
     .command("labels")
-    .description("Workspace のラベル定義（名前・色・説明）を管理する。変更は人だけが行える。未定義のラベルも Issue に付けられる");
+    .description("Workspace のラベル定義（名前・色・説明）を管理する。削除は人だけが行える。未定義のラベルも Issue に付けられる");
   labels
     .command("list")
     .description("現在の Workspace のラベル定義を一覧する")

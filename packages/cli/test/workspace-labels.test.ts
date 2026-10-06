@@ -44,17 +44,16 @@ describe("nod workspace labels", () => {
     expect(r.json.error.code).toBe("INVALID_ARGS");
   });
 
-  test("LLM は add・update・remove できず FORBIDDEN_FOR_LLM、list はできる", async () => {
+  test("LLM は add・update・list ができ、remove は FORBIDDEN_FOR_LLM", async () => {
     const { db, repo } = await setupRepo();
     const add = await runNod(["workspace", "labels", "add", "bug", "--color", "#DB2777", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(add.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    await runNod(["workspace", "labels", "add", "bug", "--color", "#DB2777"], { cwd: repo, db });
-    for (const args of [["update", "bug", "--color", "#2563EB"], ["remove", "bug"]]) {
-      const r = await runNod(["workspace", "labels", ...args, "--json"], { cwd: repo, db, actor: "claude-code" });
-      expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    }
+    expect(add.exitCode).toBe(0);
+    const update = await runNod(["workspace", "labels", "update", "bug", "--color", "#2563EB", "--json"], { cwd: repo, db, actor: "claude-code" });
+    expect(update.exitCode).toBe(0);
+    const remove = await runNod(["workspace", "labels", "remove", "bug", "--json"], { cwd: repo, db, actor: "claude-code" });
+    expect(remove.json.error.code).toBe("FORBIDDEN_FOR_LLM");
     const list = await runNod(["workspace", "labels", "list", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(list.json.map((l: { color: string }) => l.color)).toEqual(["#DB2777"]);
+    expect(list.json.map((l: { color: string }) => l.color)).toEqual(["#2563EB"]);
   });
 });
 
