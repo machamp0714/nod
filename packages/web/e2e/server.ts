@@ -56,17 +56,32 @@ type FakeTogglEntry = { id: number; workspace_id: number; description: string; s
 let togglCurrent: FakeTogglEntry | null = null;
 let togglCalls: core.TogglRequest[] = [];
 let togglNextId = 9001;
+// 切り替えの途中の失敗を起こす。start: 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）。
+// stop: "conflict" なら止めようとした打刻がほかで止められていた（409）。currentAfterStart: 開始のあとの取り直しが通信に失敗する
+type TogglFailures = { start?: "http_error" | "timeout"; stop?: "conflict"; currentAfterStart?: boolean };
+let togglFailures: TogglFailures = {};
+let togglStartAttempted = false;
 const togglClient: core.TogglClient = async (req) => {
   togglCalls.push(req);
   const ok = (body: unknown): core.TogglResponse => ({ kind: "ok", status: 200, body });
   if (req.method === "GET" && req.path === "/me") return ok({ id: 1, default_workspace_id: TOGGL_WORKSPACE_ID });
-  if (req.method === "GET" && req.path === "/me/time_entries/current") return ok(togglCurrent);
+  if (req.method === "GET" && req.path === "/me/time_entries/current") {
+    if (togglStartAttempted && togglFailures.currentAfterStart) return { kind: "network_error", detail: "ECONNRESET" };
+    return ok(togglCurrent);
+  }
   if (req.method === "POST" && req.path === `/workspaces/${TOGGL_WORKSPACE_ID}/time_entries`) {
+    togglStartAttempted = true;
+    if (togglFailures.start === "http_error") return { kind: "ok", status: 500, body: "Internal Server Error" };
     const body = req.body as { description: string; start: string };
     togglCurrent = { id: togglNextId++, workspace_id: TOGGL_WORKSPACE_ID, description: body.description, start: body.start, duration: -1 };
+    if (togglFailures.start === "timeout") return { kind: "timeout" };
     return ok(togglCurrent);
   }
   const stop = /^\/workspaces\/(\d+)\/time_entries\/(\d+)\/stop$/.exec(req.path);
+  if (req.method === "PATCH" && stop && togglFailures.stop === "conflict") {
+    togglCurrent = null;
+    return { kind: "ok", status: 409, body: "Time entry already stopped" };
+  }
   if (req.method === "PATCH" && stop && togglCurrent?.id === Number(stop[2])) {
     const stopped = { ...togglCurrent, duration: Math.round((Date.now() - Date.parse(togglCurrent.start)) / 1000) };
     togglCurrent = null;
@@ -137,14 +152,19 @@ const control = Bun.serve({
         rmSync(togglConfigPath, { force: true });
         togglCurrent = null;
         togglCalls = [];
+        togglFailures = {};
+        togglStartAttempted = false;
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/toggl") {
         // token が null ならトークンの設定ファイルを消す（未設定）。current は Toggl の現在の打刻
-        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null };
+        // failures は切り替えの途中の失敗（省くと失敗しない）
+        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null; failures?: TogglFailures };
         if (body.token === null) rmSync(togglConfigPath, { force: true });
         else if (body.token !== undefined) writeFileSync(togglConfigPath, JSON.stringify({ apiToken: body.token }));
         if (body.current !== undefined) togglCurrent = body.current;
+        togglFailures = body.failures ?? {};
+        togglStartAttempted = false;
         togglCalls = [];
         return Response.json({ ok: true, configPath: togglConfigPath });
       }

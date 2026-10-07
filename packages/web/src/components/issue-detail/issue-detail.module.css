@@ -1355,6 +1355,24 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
   font-size: 12.5px;
 }
 
+.togglOther {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.togglOtherLabel {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.togglOtherDescription {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 .togglGuide {
   display: flex;
   flex-direction: column;

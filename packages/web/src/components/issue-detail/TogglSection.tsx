@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { useToggl, useTogglAction } from "../../api/hooks/toggl";
 import { Button, Icon } from "../ui";
@@ -25,13 +26,21 @@ function Elapsed({ start }: { start: string }) {
   );
 }
 
-// 右 rail の Toggl 打刻の欄（NOD-6）。この Issue の打刻（説明が「<ID> 」で始まる）なら停止と経過時間を、そうでなければ開始を出す
+// 開始・停止の失敗の表示。切り替えの途中の失敗・競合は、server が前の打刻と新しい打刻の成否を書いた文言をそのまま出す
+function actionErrorText(err: Error): string {
+  if (err instanceof ApiError && (err.code === "TOGGL_START_FAILED" || err.code === "TOGGL_CONFLICT")) return err.message;
+  return `Toggl の操作に失敗しました：${errorMessage(err)}`;
+}
+
+// 右 rail の Toggl 打刻の欄（NOD-6）。この Issue の打刻（説明が「<ID> 」で始まる）なら停止と経過時間を出す。
+// 別の打刻が動いていれば、その説明と「この Issue に切り替える」を出し、確認なしで止めて切り替える。何も動いていなければ開始を出す
 export function TogglSection({ issueId }: { issueId: string }) {
   const query = useToggl(issueId);
   const action = useTogglAction(issueId);
   const view = query.data;
   const current = view?.current ?? null;
   const mine = current?.thisIssue ? current : null;
+  const other = current && !current.thisIssue ? current : null;
   const busy = action.isPending || query.isPending;
   const error = action.error ?? query.error;
 
@@ -46,6 +55,18 @@ export function TogglSection({ issueId }: { issueId: string }) {
               打刻を停止
             </Button>
           </div>
+        ) : other ? (
+          <>
+            <p className={s.togglOther}>
+              <span className={s.togglOtherLabel}>別の打刻が動いています</span>
+              <span className={s.togglOtherDescription}>{other.description || "（説明なし）"}</span>
+            </p>
+            <div className={s.togglRow}>
+              <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => action.mutate("start")}>
+                この Issue に切り替える
+              </Button>
+            </div>
+          </>
         ) : (
           <div className={s.togglRow}>
             {/* 読み込み中・取得の失敗では「停止中」と言い切らない */}
@@ -65,7 +86,7 @@ export function TogglSection({ issueId }: { issueId: string }) {
         {error && (
           <p className={s.prError} role="alert">
             <Icon name="circle-alert" size={12} />
-            <span>{action.error ? "Toggl の操作に失敗しました" : "Toggl の状態を取得できませんでした"}：{errorMessage(error)}</span>
+            <span>{action.error ? actionErrorText(action.error) : `Toggl の状態を取得できませんでした：${errorMessage(error)}`}</span>
           </p>
         )}
       </div>

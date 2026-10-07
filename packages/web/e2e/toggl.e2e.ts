@@ -70,7 +70,84 @@ test("API-10 の打刻を API-1 の打刻と取り違えない", async ({ page, 
   await stubToggl({ token: "tok-e2e", current: running("API-10 別の作業", 3) });
   await page.goto("/issues/API-1");
   const panel = toggl(page);
-  await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+  // API-10 の打刻は「別の打刻」として扱う
+  await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "打刻を停止" })).toHaveCount(0);
   await expect(panel.getByRole("timer")).toHaveCount(0);
+});
+
+test("別の打刻が動いているときは、その説明と「この Issue に切り替える」を出し、確認なしで切り替える", async ({ page, nod }) => {
+  const id = await issue(nod);
+  await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10) });
+  await page.goto(`/issues/${id}`);
+  const panel = toggl(page);
+  await expect(panel.getByText("API-99 レビュー対応")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "打刻を開始" })).toHaveCount(0);
+  await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+
+  await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+  await expect(panel.getByText("API-99 レビュー対応")).toHaveCount(0);
+  const { calls, current } = await togglState();
+  // 開始の直前に取り直し、動いている打刻を明示的に止めてから開始する
+  expect(calls.slice(-3).map((c) => `${c.method} ${c.path}`)).toEqual([
+    "GET /me",
+    "PATCH /workspaces/4242/time_entries/501/stop",
+    "POST /workspaces/4242/time_entries",
+  ]);
+  expect(current?.description).toBe(`${id} 検索 API の N+1 を解消`);
+});
+
+test.describe("切り替えの途中の失敗", () => {
+  // server がわざと 409・502 を返す
+  test.use({ allowedConsoleErrors: [/status of (409|502)/] });
+
+  test("切り替えで開始に失敗したら、前の打刻が止まったことと開始の失敗を出し、再送しない", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10), failures: { start: "http_error" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+
+    await expect(panel.getByRole("alert")).toHaveText(/前の打刻「API-99 レビュー対応」は止まりました。この Issue の打刻は開始できませんでした（HTTP 500）/);
+    // 取り直した状態（何も動いていない）を表示する
+    await expect(panel.getByText("停止中")).toBeVisible();
+    const { calls } = await togglState();
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
+  test("開始の応答が途絶えたら成否不明と出し、取り直した打刻を表示する", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10), failures: { start: "timeout" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+
+    await expect(panel.getByRole("alert")).toHaveText(/前の打刻「API-99 レビュー対応」は止まりました。この Issue の打刻が開始されたかは分かりません/);
+    // Toggl 側では打刻が作られていたので、取り直した状態ではこの Issue の打刻が動いている
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    expect((await togglState()).calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
+  test("開始に失敗し、取り直しにも失敗したら「成否を確認できません」と出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10), failures: { start: "timeout", currentAfterStart: true } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+
+    await expect(panel.getByRole("alert").first()).toHaveText(/成否を確認できません/);
+    expect((await togglState()).calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
+  test("止めようとした打刻がほかで止められていたら、中断して取り直した状態を出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10), failures: { stop: "conflict" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+
+    await expect(panel.getByRole("alert")).toHaveText(/ほかで変わっていたため、操作を中断しました/);
+    await expect(panel.getByText("停止中")).toBeVisible();
+    expect((await togglState()).calls.some((c) => c.method === "POST")).toBe(false);
+  });
 });

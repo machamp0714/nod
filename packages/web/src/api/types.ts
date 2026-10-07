@@ -77,6 +77,8 @@ export type {
   PrStatusView,
   TogglCurrentEntry,
   TogglIssueView,
+  TogglFailureDetails,
+  TogglStartFailureDetails,
   PrDiff,
   PrDiffError,
   PrDiffFileSummary,

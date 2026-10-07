@@ -77,7 +77,9 @@ export async function ghCalls(): Promise<string[][]> {
 }
 
 // Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
-// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻
+// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻。
+// failures は切り替えの途中の失敗（start: 開始が断られる・応答が途絶える、stop: 止めようとした打刻がほかで止められていた、
+// currentAfterStart: 開始のあとの取り直しが通信に失敗する）
 export interface FakeTogglEntry {
   id: number;
   workspace_id: number;
@@ -85,7 +87,12 @@ export interface FakeTogglEntry {
   start: string;
   duration: number;
 }
-export async function stubToggl(state: { token?: string | null; current?: FakeTogglEntry | null }): Promise<void> {
+export interface FakeTogglFailures {
+  start?: "http_error" | "timeout";
+  stop?: "conflict";
+  currentAfterStart?: boolean;
+}
+export async function stubToggl(state: { token?: string | null; current?: FakeTogglEntry | null; failures?: FakeTogglFailures }): Promise<void> {
   await post("/toggl", state);
 }
 
