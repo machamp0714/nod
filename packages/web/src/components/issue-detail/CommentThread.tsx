@@ -32,9 +32,10 @@ function WorkLogBadge({ kind }: { kind: WorkLogKind }) {
   );
 }
 
-// 作業ログの本文は6行を超えたら折りたたみ、「続きを表示」で開く。行数は折り返しを含めて実際の表示で測る
+// 作業ログの本文は6行を超えたら折りたたみ、「続きを表示」で開く。行数は折り返しを含めて実際の表示で測る。
+// コマンドの出力とテスト結果は桁を崩さないよう等幅の素の文字で、それ以外はコメントと同じく Markdown で描く
 function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
-  const ref = useRef<HTMLParagraphElement>(null);
+  const ref = useRef<HTMLDivElement & HTMLParagraphElement>(null);
   const [open, setOpen] = useState(false);
   const [overflow, setOverflow] = useState(false);
   useLayoutEffect(() => {
@@ -43,9 +44,15 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
   }, [body, open]);
   return (
     <>
-      <p ref={ref} className={`${isMonoWorkLog(kind) ? s.logMono : ""} ${open ? "" : s.logClamp}`}>
-        {body}
-      </p>
+      {isMonoWorkLog(kind) ? (
+        <p ref={ref} className={`${s.logMono} ${open ? "" : s.logClamp}`} data-log-body>
+          {body}
+        </p>
+      ) : (
+        <div ref={ref} className={`${s.commentBody} ${open ? "" : s.logClampBox}`} data-log-body>
+          <Markdown breaks>{body}</Markdown>
+        </div>
+      )}
       {(overflow || open) && (
         <button type="button" className={s.logToggle} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? "折りたたむ" : "続きを表示"}

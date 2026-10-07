@@ -994,6 +994,8 @@
 .threadBlocker { border-color: var(--ask); }
 .commentThread p.logMono { font-family: var(--font-mono); font-size: 12px; }
 .logClamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
+/* Markdown の本文は見出しやリストを含むため、行数ではなく6行ぶんの高さで切る */
+.logClampBox { max-height: calc(13px * 1.6 * 6); overflow: hidden; }
 .logToggle {
   display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 0; border: 0; background: transparent;
   color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;

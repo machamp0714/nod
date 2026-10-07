@@ -43,13 +43,26 @@ test("作業ログを種類バッジつきで出し、種類ごとに絞り込�
   await expect(activity.getByRole("article", { name: "コメント記録" }).filter({ hasText: "ふつうのコメント" })).toBeVisible();
 });
 
+test("作業ログの本文は Markdown として描き、コマンドの出力とテスト結果は素の文字のまま出す", async ({ page, nod }) => {
+  await nod.claude.logWork(ISSUE.comment, "## 方針\n\n- **抜け漏れチェック** のみ\n- `end_interview` を呼ぶ", { kind: "rationale" });
+  await nod.claude.logWork(ISSUE.comment, "$ bun test\n- **raw**", { kind: "test" });
+  await page.goto(`/issues/${ISSUE.comment}`);
+  const logs = region(page, "Activity").getByRole("article", { name: "作業ログ" });
+  const md = logs.filter({ hasText: "抜け漏れチェック" });
+  await expect(md.getByRole("heading", { name: "方針" })).toBeVisible();
+  await expect(md.locator("strong", { hasText: "抜け漏れチェック" })).toBeVisible();
+  await expect(md.locator("code", { hasText: "end_interview" })).toBeVisible();
+  await expect(md.getByText("## 方針")).toHaveCount(0);
+  await expect(logs.filter({ hasText: "bun test" }).locator("p")).toContainText("- **raw**");
+});
+
 test("6行を超える作業ログは折りたたみ、続きを表示で開いて折りたたむで戻せる", async ({ page, nod }) => {
   await nod.claude.logWork(ISSUE.comment, LONG, { kind: "rationale" });
   await nod.claude.logWork(ISSUE.comment, "短い経過");
   await page.goto(`/issues/${ISSUE.comment}`);
   const activity = region(page, "Activity");
   const long = activity.getByRole("article", { name: "作業ログ" }).filter({ hasText: "判断の根拠 1 行目" });
-  const body = long.locator("p");
+  const body = long.locator("[data-log-body]");
   await expect(long).toContainText("判断根拠");
   const clamped = await body.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
   expect(clamped).toBe(true);
