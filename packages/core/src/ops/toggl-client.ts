@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 // Toggl の API への要求。path は https://api.track.toggl.com/api/v9 からの相対
 export interface TogglRequest {
-  method: "GET" | "POST" | "PATCH";
+  method: "GET" | "POST" | "PATCH" | "PUT";
   path: string;
   token: string;
   body?: unknown;

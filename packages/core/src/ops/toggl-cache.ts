@@ -1,4 +1,4 @@
-import type { TogglEntry, TogglFailure } from "./toggl";
+import type { TogglEntry, TogglFailure, TogglProject } from "./toggl";
 
 // Toggl Track の打刻（NOD-6）の、サーバーのメモリに持つキャッシュ
 
@@ -11,13 +11,19 @@ export interface TogglSnapshot {
   fetchedAt: number; // epoch ミリ秒
 }
 
+// 既定の Workspace の有効な Project の一覧を、取得した時刻とともに持つ
+export interface TogglProjectsSnapshot {
+  projects: TogglProject[];
+  fetchedAt: number; // epoch ミリ秒
+}
+
 // キャッシュの世代。開始・停止の結果や成否不明が入るたびに進む
 export type TogglCacheGeneration = number;
 
 // 現在の打刻のキャッシュ。サーバーのメモリに 1 つだけ持ち、すべての Issue・タブで共有する（Toggl の現在の打刻の取得は毎時 30 回まで）。
 // 期限が切れても最後に分かっている打刻は残す（停止は期限切れでもこの打刻 ID で行う）。
 // 利用上限の待ち（quota）、認証の失敗（authFailure）、開始・停止の成否を確認できていないこと（unconfirmed）、
-// トークンの持ち主の既定の Workspace も持つ。
+// トークンの持ち主の既定の Workspace と、その Workspace の Project の一覧（期限なし。「最新にする」で取り直す）も持つ。
 // トークンが変わったら捨てる
 export interface TogglCache {
   now: () => number; // epoch ミリ秒。テストは時計を差し替える
@@ -36,16 +42,18 @@ export interface TogglCache {
   setUnconfirmed(token: string): void;
   workspaceId(token: string): number | null; // 既定の Workspace（/me の default_workspace_id）。まだ分かっていなければ null
   setWorkspaceId(token: string, id: number): void;
+  projects(token: string): TogglProjectsSnapshot | null; // Project の一覧。まだ取得できていなければ null
+  setProjects(token: string, projects: TogglProject[]): TogglProjectsSnapshot;
   clear(): void;
 }
 
 export function createTogglCache(opts: { now?: () => number; ttlMs?: number } = {}): TogglCache {
-  let state: { token: string; snapshot: TogglSnapshot | null; quota: TogglFailure | null; authFailure: TogglFailure | null; unconfirmed: boolean; workspaceId: number | null } | null = null;
+  let state: { token: string; snapshot: TogglSnapshot | null; quota: TogglFailure | null; authFailure: TogglFailure | null; unconfirmed: boolean; workspaceId: number | null; projects: TogglProjectsSnapshot | null } | null = null;
   let generation: TogglCacheGeneration = 0;
   const now = opts.now ?? Date.now;
   // このトークンの状態。トークンが変わっていたら捨てて作り直す
   const stateFor = (token: string) => {
-    if (state?.token !== token) state = { token, snapshot: null, quota: null, authFailure: null, unconfirmed: false, workspaceId: null };
+    if (state?.token !== token) state = { token, snapshot: null, quota: null, authFailure: null, unconfirmed: false, workspaceId: null, projects: null };
     return state;
   };
   return {
@@ -84,6 +92,12 @@ export function createTogglCache(opts: { now?: () => number; ttlMs?: number } = 
     workspaceId: (token) => stateFor(token).workspaceId,
     setWorkspaceId(token, id) {
       stateFor(token).workspaceId = id;
+    },
+    projects: (token) => stateFor(token).projects,
+    setProjects(token, projects) {
+      const snapshot = { projects, fetchedAt: now() };
+      stateFor(token).projects = snapshot;
+      return snapshot;
     },
     clear() {
       state = null;

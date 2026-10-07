@@ -1345,6 +1345,13 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
   gap: 8px;
 }
 
+/* Project の選択欄。ボタンの横で残りの幅を使い、長い名前は切る */
+.togglProject {
+  flex: 1;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
 .togglElapsed {
   font-family: var(--font-mono);
   font-size: 13px;

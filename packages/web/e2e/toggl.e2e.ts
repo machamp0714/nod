@@ -1,7 +1,7 @@
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
 import { region } from "./helpers";
-import { type FakeTogglEntry, stubToggl, togglState } from "./support/nod";
+import { type FakeTogglEntry, type FakeTogglProject, stubToggl, togglState } from "./support/nod";
 
 // Toggl 打刻（NOD-6）。e2e の server は本物の Toggl の代わりに偽のクライアントを使い、Toggl には触れない
 const toggl = (page: import("@playwright/test").Page) => region(page, "Toggl 打刻");
@@ -13,6 +13,16 @@ const running = (description: string, minutesAgo: number): FakeTogglEntry => ({
   start: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
   duration: -1,
 });
+
+// 打刻の要求だけ（Project の一覧の取得と、そのための既定の Workspace の取得は除く。開くと打刻の取得と並んで走る）
+const entryCalls = async () =>
+  (await togglState()).calls.filter((c) => c.path !== "/me" && !c.path.endsWith("/projects?active=true"));
+
+const PROJECTS: FakeTogglProject[] = [
+  { id: 11, name: "nod", color: "#0b83d9" },
+  { id: 12, name: "社内業務", color: "#e36a00" },
+];
+const projectSelect = (page: import("@playwright/test").Page) => toggl(page).getByRole("combobox", { name: "Toggl の Project" });
 
 async function issue(nod: Parameters<typeof seedApiWorkspace>[0]) {
   const api = await seedApiWorkspace(nod);
@@ -60,7 +70,7 @@ test("この Issue の打刻中なら、開始時刻から数えた経過時間�
   const first = await timer.textContent();
   await expect(timer).not.toHaveText(first ?? "");
   // 経過時間は画面内で数え、毎秒 Toggl を呼ばない
-  expect((await togglState()).calls.length).toBeLessThanOrEqual(2);
+  expect((await entryCalls()).length).toBeLessThanOrEqual(2);
 });
 
 test("API-10 の打刻を API-1 の打刻と取り違えない", async ({ page, nod }) => {
@@ -87,10 +97,10 @@ test("別の打刻が動いているときは、その説明と「この Issue �
 
   await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
   await expect(panel.getByText("API-99 レビュー対応")).toHaveCount(0);
-  const { calls, current } = await togglState();
+  const { current } = await togglState();
   // 開始の直前に取り直し、動いている打刻を明示的に止めてから開始する
-  expect(calls.slice(-3).map((c) => `${c.method} ${c.path}`)).toEqual([
-    "GET /me",
+  expect((await entryCalls()).slice(-3).map((c) => `${c.method} ${c.path}`)).toEqual([
+    "GET /me/time_entries/current",
     "PATCH /workspaces/4242/time_entries/501/stop",
     "POST /workspaces/4242/time_entries",
   ]);
@@ -146,7 +156,7 @@ test.describe("現在の打刻のキャッシュ", () => {
     await panel.getByRole("button", { name: "打刻を停止" }).click();
     await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
     await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
-    expect((await togglState()).calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+    expect((await entryCalls()).map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /me/time_entries/current",
       "PATCH /workspaces/4242/time_entries/501/stop",
     ]);
@@ -162,7 +172,8 @@ test.describe("現在の打刻のキャッシュ", () => {
     await stubToggl({ token: "tok-new", current: running("新しいアカウントの打刻", 1), keepCache: true });
     await page.reload();
     await expect(panel.getByText("新しいアカウントの打刻")).toBeVisible();
-    expect((await togglState()).calls.map((c) => c.token)).toEqual(["tok-new"]);
+    expect((await togglState()).calls.map((c) => c.token)).not.toContain("tok-e2e");
+    expect((await entryCalls()).map((c) => c.token)).toEqual(["tok-new"]);
   });
 });
 
@@ -255,14 +266,14 @@ test.describe("Toggl を呼べなかったとき", () => {
     // トークンが誤ったままなら、開き直しても Toggl を呼ばない
     await page.reload();
     await expect(panel.getByText(/API トークンが受け付けられませんでした（HTTP 401）/)).toBeVisible();
-    expect((await togglState()).calls).toHaveLength(1);
+    expect(await entryCalls()).toHaveLength(1);
 
     // 設定ファイルのトークンを直したら、開き直したときにすぐ取り直す
     await stubToggl({ token: "tok-good", failures: {}, keepCache: true });
     await page.reload();
     await expect(panel.getByText("停止中")).toBeVisible();
     await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
-    expect((await togglState()).calls.map((c) => c.token)).toEqual(["tok-good"]);
+    expect((await entryCalls()).map((c) => c.token)).toEqual(["tok-good"]);
   });
 
   test("利用上限に達したら最後に分かっている状態を「〜時点」と添えて出し、待っている間はボタンを無効にして理由を出す", async ({ page, nod }) => {
@@ -283,7 +294,7 @@ test.describe("Toggl を呼べなかったとき", () => {
     // 開き直しても待っている間は Toggl を呼ばない
     await page.reload();
     await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeDisabled();
-    expect((await togglState()).calls).toHaveLength(1);
+    expect(await entryCalls()).toHaveLength(1);
   });
 
   test("初めての取得に通信で失敗したら「停止中」ではなく「未確認」と出す", async ({ page, nod }) => {
@@ -308,5 +319,132 @@ test.describe("Toggl を呼べなかったとき", () => {
     await expect(panel.getByText(/Toggl に接続できませんでした（ECONNREFUSED）。表示は最後に分かっている状態です/)).toBeVisible();
     await expect(panel.getByRole("timer", { name: "経過時間" })).toBeVisible();
     await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
+  });
+});
+
+test("打刻の欄は右 rail の一番上に置く", async ({ page, nod }) => {
+  const id = await issue(nod);
+  await page.goto(`/issues/${id}`);
+  const first = page.getByRole("complementary").getByRole("region").first();
+  await expect(first).toHaveAccessibleName("Toggl 打刻");
+});
+
+test.describe("Project", () => {
+  test("開始ボタンの横で Project を選んで開始し、次に開いたときは前回の Project を選んでおく", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const first = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索 API" });
+    const second = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "一覧 API" });
+    await stubToggl({ token: "tok-e2e", current: null, projects: PROJECTS });
+    await page.goto(`/issues/${first.id}`);
+    const panel = toggl(page);
+    const select = projectSelect(page);
+    await expect(select).toHaveValue("");
+    await expect(select.getByRole("option")).toHaveText(["Project なし", "nod", "社内業務"]);
+    await select.selectOption({ label: "社内業務" });
+    await panel.getByRole("button", { name: "打刻を開始" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    expect((await togglState()).calls.find((c) => c.method === "POST")?.body).toMatchObject({ project_id: 12 });
+    // 打刻中はその打刻の Project を出す
+    await expect(select).toHaveValue("12");
+
+    await panel.getByRole("button", { name: "打刻を停止" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+    await page.goto(`/issues/${second.id}`);
+    await expect(select).toHaveValue("12");
+    // Project の一覧は詳細ページを開くたびには取り直さない
+    expect((await togglState()).calls.filter((c) => c.path.endsWith("/projects?active=true"))).toHaveLength(1);
+  });
+
+  test("別の打刻からの切り替えも選んだ Project で開始する", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: { ...running("API-99 レビュー対応", 10), project_id: 11 }, projects: PROJECTS });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await projectSelect(page).selectOption({ label: "社内業務" });
+    await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    expect((await togglState()).current).toMatchObject({ description: `${id} 検索 API の N+1 を解消`, project_id: 12 });
+  });
+
+  test("打刻中に Project を変えると Toggl の打刻の Project も変える。Project なしにもできる", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: { ...running(`${id} 検索 API の N+1 を解消`, 5), project_id: 11 }, projects: PROJECTS });
+    await page.goto(`/issues/${id}`);
+    const select = projectSelect(page);
+    await expect(select).toHaveValue("11");
+    await select.selectOption({ label: "社内業務" });
+    await expect.poll(async () => (await togglState()).current?.project_id).toBe(12);
+    await expect(select).toHaveValue("12");
+    await expect(select).toBeEnabled();
+    await select.selectOption({ label: "Project なし" });
+    await expect.poll(async () => (await togglState()).current?.project_id).toBeNull();
+    const puts = (await togglState()).calls.filter((c) => c.method === "PUT");
+    expect(puts.map((c) => [c.path, c.body])).toEqual([
+      ["/workspaces/4242/time_entries/501", { project_id: 12 }],
+      ["/workspaces/4242/time_entries/501", { project_id: null }],
+    ]);
+    // 変えた Project を、次の開始の初期値にする
+    await page.reload();
+    await toggl(page).getByRole("button", { name: "打刻を停止" }).click();
+    await expect(select).toHaveValue("");
+  });
+
+  test("前回の Project が一覧に無くなっていたら「Project なし」にする", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await page.addInitScript(() => window.localStorage.setItem("nod.toggl.projectId", "99"));
+    await stubToggl({ token: "tok-e2e", current: null, projects: PROJECTS });
+    await page.goto(`/issues/${id}`);
+    await expect(projectSelect(page)).toHaveValue("");
+    await toggl(page).getByRole("button", { name: "打刻を開始" }).click();
+    await expect(toggl(page).getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    expect((await togglState()).calls.find((c) => c.method === "POST")?.body).not.toHaveProperty("project_id");
+  });
+
+  test("ブラウザに覚えられなくても、Project を選んで開始できる", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "localStorage", { get: () => { throw new Error("blocked"); } });
+    });
+    await stubToggl({ token: "tok-e2e", current: null, projects: PROJECTS });
+    await page.goto(`/issues/${id}`);
+    await projectSelect(page).selectOption({ label: "nod" });
+    await toggl(page).getByRole("button", { name: "打刻を開始" }).click();
+    await expect(toggl(page).getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    expect((await togglState()).current?.project_id).toBe(11);
+  });
+
+  test("一覧の取得に失敗したら選択欄だけを無効にして理由を出し、Project なしで開始できる。「最新にする」で取り直す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: null, projects: PROJECTS, failures: { projects: "network" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(projectSelect(page)).toBeDisabled();
+    await expect(panel.getByText(/Project の一覧を取得できませんでした（ECONNREFUSED）/)).toBeVisible();
+    await panel.getByRole("button", { name: "打刻を開始" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeEnabled();
+
+    await stubToggl({ failures: {}, keepCache: true });
+    await panel.getByRole("button", { name: "最新にする" }).click();
+    await expect(projectSelect(page)).toBeEnabled();
+    await expect(projectSelect(page).getByRole("option")).toHaveText(["Project なし", "nod", "社内業務"]);
+    await expect(panel.getByText(/Project の一覧を取得できませんでした/)).toHaveCount(0);
+  });
+
+  test.describe("変更の失敗", () => {
+    // server がわざと 502 を返す
+    test.use({ allowedConsoleErrors: [/status of 502/] });
+
+    test("Project の変更に失敗したら知らせ、再送しない", async ({ page, nod }) => {
+      const id = await issue(nod);
+      await stubToggl({ token: "tok-e2e", current: running(`${id} 検索 API の N+1 を解消`, 5), projects: PROJECTS, failures: { update: "http_error" } });
+      await page.goto(`/issues/${id}`);
+      const select = projectSelect(page);
+      await expect(select).toHaveValue("");
+      await select.selectOption({ label: "nod" });
+      await expect(toggl(page).getByRole("alert")).toHaveText(/打刻の Project を変更できませんでした（HTTP 500）/);
+      // 取り直した打刻の Project を出す
+      await expect(select).toHaveValue("");
+      expect((await togglState()).calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+    });
   });
 });

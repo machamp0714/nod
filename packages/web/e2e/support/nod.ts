@@ -80,25 +80,36 @@ export async function ghCalls(): Promise<string[][]> {
 export interface FakeTogglEntry {
   id: number;
   workspace_id: number;
+  project_id?: number | null;
   description: string;
   start: string;
   duration: number;
+}
+// e2e の server の偽の Toggl が返す Project（Toggl の project の形のうち使う部分）
+export interface FakeTogglProject {
+  id: number;
+  name: string;
+  color: string;
 }
 // e2e の server の偽の Toggl に起こさせる失敗。e2e の server もこの型を使う
 export interface FakeTogglFailures {
   start?: "http_error" | "timeout"; // 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）
   stop?: "conflict"; // 止めようとした打刻がほかで止められていた（409）
   currentAfterStart?: boolean; // 開始のあとの取り直しが通信に失敗する
-  current?: "auth" | "quota" | "network"; // 現在の打刻の取得が 401・402（X-Toggl-Quota-Resets-In: 600）・接続できないになる
+  // auth・quota はどの呼び出しも 401・402（X-Toggl-Quota-Resets-In: 600）になる。network は現在の打刻の取得が接続できないになる
+  current?: "auth" | "quota" | "network";
+  projects?: "network"; // Project の一覧の取得が接続できないになる
+  update?: "http_error"; // 打刻の Project の変更が HTTP 500 で断られる
 }
 
 // Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
-// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻。
+// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻、projects は Project の一覧。
 // failures は起こす失敗（省くと失敗しない）。server の現在の打刻のキャッシュは消す。
 // keepCache なら消さない（nod の外で Toggl 側だけが変わったときを表す）
 export async function stubToggl(state: {
   token?: string | null;
   current?: FakeTogglEntry | null;
+  projects?: FakeTogglProject[];
   failures?: FakeTogglFailures;
   keepCache?: boolean;
 }): Promise<void> {

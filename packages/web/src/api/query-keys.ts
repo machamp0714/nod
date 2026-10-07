@@ -20,6 +20,8 @@ export const queryKeys = {
   prStatus: (id: string) => ["issues", "pr-status", id] as const,
   prDiff: (id: string) => ["issues", "pr-diff", id] as const,
   toggl: (id: string) => ["issues", "toggl", id] as const,
+  // Toggl の Project の一覧は Issue によらず、すべての Issue の詳細で共有する
+  togglProjects: () => ["toggl", "projects"] as const,
   // 取得（headSha・fetchedAt）ごとに中身が変わらないので immutable にし、無関係な変更で取り直さない
   prDiffFile: (id: string, headSha: string, fetchedAt: string, path: string) => ["issues", "pr-diff-file", id, headSha, fetchedAt, path] as const,
   githubState: (id: string) => ["issues", "github", id] as const,

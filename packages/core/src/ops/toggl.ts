@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { now } from "../ctx";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId } from "../issue-query";
-import type { TogglCache, TogglSnapshot } from "./toggl-cache";
+import type { TogglCache, TogglProjectsSnapshot, TogglSnapshot } from "./toggl-cache";
 import { readTogglToken, TOGGL_QUOTA_FALLBACK_MS, TOGGL_TIMEOUT_MS, type TogglClient, type TogglRequest, type TogglResponse } from "./toggl-client";
 
 // Toggl Track の打刻（NOD-6）。nod のサーバーが Toggl の API を呼び、トークンはブラウザに渡さない。
@@ -18,6 +18,7 @@ export interface TogglDeps {
 export interface TogglEntry {
   id: number;
   workspaceId: number;
+  projectId: number | null; // Toggl の Project。無ければ null
   description: string;
   start: string;
 }
@@ -45,6 +46,21 @@ export interface TogglIssueView {
   unconfirmed: boolean; // 開始・停止の成否を確認できていない。取り直せるまで開始・停止させない
 }
 
+// Toggl の Project（既定の Workspace の有効なもの）
+export interface TogglProject {
+  id: number;
+  name: string;
+  color: string;
+}
+
+// 打刻の欄の Project の選択欄が表示する一覧
+export interface TogglProjectsView {
+  configured: boolean; // トークンが設定されているか
+  projects: TogglProject[] | null; // 最後に分かっている一覧。一度も取得できていなければ null
+  fetchedAt: string | null; // projects が Toggl で分かった時刻
+  failure: TogglFailure | null; // 直近の Toggl の呼び出しの失敗。projects は最後に分かっている一覧のまま
+}
+
 function isFresh(cache: TogglCache, snapshot: TogglSnapshot): boolean {
   return cache.now() - snapshot.fetchedAt < cache.ttlMs;
 }
@@ -53,8 +69,10 @@ function isFresh(cache: TogglCache, snapshot: TogglSnapshot): boolean {
 interface TogglEntryBody {
   id: number;
   workspace_id: number;
+  project_id?: number | null;
   description: string | null;
   start: string;
+  duration?: number; // 動いている打刻は負の数
 }
 
 // Toggl の応答の分類。状態コードの判定はここだけで行う。
@@ -118,12 +136,16 @@ class TogglCallError extends Error {
   }
 }
 
-// 1 回の操作の対象。トークンは操作の初めに設定ファイルから 1 度だけ読み、停止→開始の一連の操作で同じものを使う
-interface TogglSession {
+// Toggl を呼ぶときのトークン。操作の初めに設定ファイルから 1 度だけ読み、停止→開始の一連の操作で同じものを使う
+interface TogglAuth {
   deps: TogglDeps;
+  token: string;
+}
+
+// 1 回の操作の対象の Issue とトークン
+interface TogglSession extends TogglAuth {
   issueId: string;
   title: string;
-  token: string;
 }
 
 // Issue と設定ファイルのトークンを読む。トークンが未設定なら null
@@ -142,7 +164,7 @@ function requireSession(db: Database, ref: string, deps: TogglDeps): TogglSessio
 
 // Toggl を呼ぶ。利用上限の応答なら待ちをキャッシュに入れ、待ち終わるまでどの呼び出しも Toggl に送らない。
 // 認証の失敗もキャッシュに入れ、同じトークンのままでは表示のたびに呼ばない。2xx が返ればトークンは通るので、認証の失敗を消す
-async function callToggl(session: TogglSession, req: Omit<TogglRequest, "token">): Promise<TogglResponse> {
+async function callToggl(session: TogglAuth, req: Omit<TogglRequest, "token">): Promise<TogglResponse> {
   const { deps, token } = session;
   const res = await deps.client({ ...req, token });
   const outcome = outcomeOf(res);
@@ -153,7 +175,7 @@ async function callToggl(session: TogglSession, req: Omit<TogglRequest, "token">
 }
 
 // Toggl から読み、2xx の本文を返す。利用上限を待っている間は呼ばない。失敗なら種類（認証・利用上限・通信）を TogglCallError で投げる
-async function readToggl(session: TogglSession, path: string): Promise<unknown> {
+async function readToggl(session: TogglAuth, path: string): Promise<unknown> {
   const quota = session.deps.cache.quota(session.token);
   if (quota) throw new TogglCallError(quota);
   const res = await callToggl(session, { method: "GET", path });
@@ -162,13 +184,13 @@ async function readToggl(session: TogglSession, path: string): Promise<unknown> 
 }
 
 // Toggl を呼ばずに断る理由。利用上限を待っている間か、同じトークンで認証に失敗したあと
-function blockedBy(session: TogglSession): TogglFailure | null {
+function blockedBy(session: TogglAuth): TogglFailure | null {
   const { cache } = session.deps;
   return cache.quota(session.token) ?? cache.authFailure(session.token);
 }
 
 function toEntry(body: TogglEntryBody): TogglEntry {
-  return { id: body.id, workspaceId: body.workspace_id, description: body.description ?? "", start: body.start };
+  return { id: body.id, workspaceId: body.workspace_id, projectId: body.project_id ?? null, description: body.description ?? "", start: body.start };
 }
 
 // 打刻がこの Issue のものか。"NOD-6 " で始まる説明だけを NOD-6 の打刻とし、NOD-60 と取り違えない
@@ -311,7 +333,7 @@ async function failStart(
 }
 
 // トークンの持ち主の既定の Workspace。トークンごとにキャッシュに覚え、2 回目からの開始では /me を呼ばない
-async function defaultWorkspaceId(session: TogglSession): Promise<number> {
+async function defaultWorkspaceId(session: TogglAuth): Promise<number> {
   const { cache } = session.deps;
   const cached = cache.workspaceId(session.token);
   if (cached !== null) return cached;
@@ -323,10 +345,10 @@ async function defaultWorkspaceId(session: TogglSession): Promise<number> {
 }
 
 // この Issue の打刻を、トークンの持ち主の既定の Workspace に開始する。説明は開始時点のタイトルで作り、あとから書き換えない。
-// Project・タグは付けない。開始の直前に現在の打刻を取り直し、別の打刻が動いていれば明示的に止めてから開始する
+// Project は projectId（null・省略なら付けない）。タグは付けない。開始の直前に現在の打刻を取り直し、別の打刻が動いていれば明示的に止めてから開始する
 // （duration=-1 での開始が既存の打刻を自動で止めるかは未確認のため、それに頼らない）。
 // 途中で失敗しても再送せず、取り直した状態と、前の打刻・新しい打刻それぞれの成否を返す
-export async function startTogglEntry(db: Database, ref: string, deps: TogglDeps): Promise<TogglIssueView> {
+export async function startTogglEntry(db: Database, ref: string, deps: TogglDeps, opts: { projectId?: number | null } = {}): Promise<TogglIssueView> {
   const session = requireSession(db, ref, deps);
   let fetched: TogglSnapshot;
   let workspaceId: number;
@@ -353,7 +375,14 @@ export async function startTogglEntry(db: Database, ref: string, deps: TogglDeps
     deps.cache.set(session.token, null);
     previous = { description: running.description, stopped: true };
   }
-  const body = { created_with: "nod", workspace_id: workspaceId, description: `${session.issueId} ${session.title}`, start: now(), duration: -1 };
+  const body = {
+    created_with: "nod",
+    workspace_id: workspaceId,
+    description: `${session.issueId} ${session.title}`,
+    start: now(),
+    duration: -1,
+    ...(opts.projectId == null ? {} : { project_id: opts.projectId }),
+  };
   const created = await callToggl(session, { method: "POST", path: `/workspaces/${workspaceId}/time_entries`, body });
   if (!succeeded(created)) return failStart(session, previous, writeOutcome(created), created);
   return viewOf(session, deps.cache.set(session.token, toEntry(created.body as TogglEntryBody)));
@@ -386,7 +415,89 @@ export async function stopTogglEntry(db: Database, ref: string, deps: TogglDeps)
   return viewOf(session, deps.cache.set(session.token, null));
 }
 
-// nod 内の開始・停止を 1 つずつ処理する。2 つのタブからの同時の操作が、取り直しと書き込みの間に割り込まないようにする
+// この Issue の打刻の Project を変える（PUT .../time_entries/{id} に project_id。null なら Project なし）。
+// 停止と同じく、キャッシュの打刻 ID で行い（キャッシュが無い・成否を確認できていなければ取得する）、この Issue の打刻でなければ変えない。
+// 変えようとした打刻が無かった・すでに止まっていた（Toggl は止まった打刻も編集できるので、応答の duration で見る）なら、
+// 競合として取り直した状態を返す。そのほかの失敗でも再送せずに取り直し、その状態を返す
+export async function setTogglEntryProject(db: Database, ref: string, deps: TogglDeps, projectId: number | null): Promise<TogglIssueView> {
+  const session = requireSession(db, ref, deps);
+  let snapshot: TogglSnapshot;
+  try {
+    const blocked = blockedBy(session);
+    if (blocked) throw new TogglCallError(blocked);
+    const cached = deps.cache.get(session.token);
+    snapshot = cached && !deps.cache.unconfirmed(session.token) ? cached : await fetchCurrent(session);
+  } catch (e) {
+    return failBeforeWrite(session, e);
+  }
+  const current = toCurrent(snapshot.entry, session.issueId);
+  if (!current?.thisIssue) throw new NodError("INVALID_STATE", `${session.issueId} の打刻は動いていません`);
+  const res = await callToggl(session, { method: "PUT", path: `/workspaces/${current.workspaceId}/time_entries/${current.id}`, body: { project_id: projectId } });
+  if (outcomeOf(res) === "gone") return abortOnConflict(session);
+  if (!succeeded(res)) {
+    const view = await refetchAfterFailure(session, res);
+    const detail = failureDetail(res);
+    const message = writeOutcome(res) === "failed" ? `打刻の Project を変更できませんでした（${detail}）` : `打刻の Project が変わったかは分かりません（${detail}）`;
+    throw new NodError("TOGGL_FAILED", `${message}${view.unconfirmed ? UNCONFIRMED_SUFFIX : ""}`, { view } satisfies TogglFailureDetails);
+  }
+  const updated = res.body as TogglEntryBody;
+  if (typeof updated.duration === "number" && updated.duration >= 0) return abortOnConflict(session);
+  return viewOf(session, deps.cache.set(session.token, toEntry(updated)));
+}
+
+// トークンを読む。未設定なら null
+function openAuth(deps: TogglDeps): TogglAuth | null {
+  const token = readTogglToken(deps.configPath);
+  return token === null ? null : { deps, token };
+}
+
+function projectsViewOf(snapshot: TogglProjectsSnapshot | null, failure: TogglFailure | null = null): TogglProjectsView {
+  return { configured: true, projects: snapshot?.projects ?? null, fetchedAt: snapshot ? new Date(snapshot.fetchedAt).toISOString() : null, failure };
+}
+
+const UNCONFIGURED_PROJECTS: TogglProjectsView = { configured: false, projects: null, fetchedAt: null, failure: null };
+
+// Toggl のプロジェクトの応答のうち nod が使う部分
+interface TogglProjectBody {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
+// 既定の Workspace の有効な Project を取り直し、キャッシュに入れる。失敗したら最後に分かっている一覧と理由を返す
+async function fetchProjects(auth: TogglAuth): Promise<TogglProjectsView> {
+  const { cache } = auth.deps;
+  try {
+    const workspaceId = await defaultWorkspaceId(auth);
+    const body = (await readToggl(auth, `/workspaces/${workspaceId}/projects?active=true`)) as TogglProjectBody[] | null;
+    const projects = (body ?? []).map((p) => ({ id: p.id, name: p.name, color: p.color ?? "" }));
+    return projectsViewOf(cache.setProjects(auth.token, projects));
+  } catch (e) {
+    if (e instanceof TogglCallError) return projectsViewOf(cache.projects(auth.token), e.failure);
+    if (e instanceof NodError) return projectsViewOf(cache.projects(auth.token), { kind: "network", detail: e.message });
+    throw e;
+  }
+}
+
+// 打刻の欄の Project の選択欄の一覧。一度取得したら、トークンが変わるか「最新にする」まで Toggl を呼ばない。
+// 利用上限を待っている間と、同じトークンで認証に失敗したあとは Toggl を呼ばない
+export async function getTogglProjects(deps: TogglDeps): Promise<TogglProjectsView> {
+  const auth = openAuth(deps);
+  if (auth === null) return UNCONFIGURED_PROJECTS;
+  const cached = deps.cache.projects(auth.token);
+  const blocked = blockedBy(auth);
+  if (blocked) return projectsViewOf(cached, blocked);
+  return cached ? projectsViewOf(cached) : fetchProjects(auth);
+}
+
+// 「最新にする」。一覧を取り直す（認証の失敗を覚えていても取り直す。利用上限を待っている間は Toggl を呼ばない）
+export async function refreshTogglProjects(deps: TogglDeps): Promise<TogglProjectsView> {
+  const auth = openAuth(deps);
+  if (auth === null) return UNCONFIGURED_PROJECTS;
+  return fetchProjects(auth);
+}
+
+// nod 内の開始・停止・Project の変更を 1 つずつ処理する。2 つのタブからの同時の操作が、取り直しと書き込みの間に割り込まないようにする
 export function createTogglSerializer(): <T>(fn: () => Promise<T>) => Promise<T> {
   let tail: Promise<unknown> = Promise.resolve();
   return (fn) => {

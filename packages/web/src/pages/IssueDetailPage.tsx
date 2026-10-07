@@ -178,6 +178,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
         </article>
 
         <aside className={s.rail}>
+          {/* Toggl 打刻は作業の始めと終わりに触るので、rail の一番上に置く（NOD-6） */}
+          <TogglSection key={`toggl-${issue.id}`} issueId={issue.id} />
           <QuestionsPanel
             questions={issue.questions}
             readOnly={readOnly}
@@ -188,7 +190,6 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           />
           <PropertiesPanel readOnly={readOnly} issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)}
             reminder={issue.reminder ?? null} onRemind={remind} />
-          <TogglSection key={`toggl-${issue.id}`} issueId={issue.id} />
           <RelationsPanel relations={issue.relations} relationStates={issue.relationStates} />
         </aside>
       </div>
