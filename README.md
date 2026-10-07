@@ -18,6 +18,17 @@ DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えら
 `nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
 `nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
 
+### ワークフローのプラグイン（nod:to-spec / to-plan / implement / code-review）
+
+仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル4つを、`plugins/nod` に置いている。Claude Code と Codex の両方から、GitHub のマーケットプレイスとして導入する。
+
+```sh
+claude plugin marketplace add machamp0714/nod && claude plugin install nod@nod
+codex plugin marketplace add machamp0714/nod && codex plugin add nod@nod
+```
+
+スキルを変えたら、`plugins/nod/.claude-plugin/plugin.json`・`plugins/nod/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json`（2か所）の version を同じ値に上げる。Claude Code の `claude plugin update nod@nod` は version が変わらないと「already at the latest version」で反映しない。マージ後に `claude plugin marketplace update nod && claude plugin update nod@nod`、Codex は `codex plugin marketplace upgrade` で反映する。
+
 ### PR 連動（#66）
 
 Workspace ごとに `nod automation set --pr-review on` で有効にする（既定は無効。設定は人だけ）。
