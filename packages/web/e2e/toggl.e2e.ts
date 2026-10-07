@@ -211,11 +211,14 @@ test.describe("切り替えの途中の失敗", () => {
     await expect(panel.getByText("API-99 レビュー対応", { exact: true })).toHaveCount(0);
     await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toHaveCount(0);
     await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
+    // 成否が分からない間も、最後に Toggl の状態が分かった時刻を添える
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
     expect((await togglState()).calls.filter((c) => c.method === "POST")).toHaveLength(1);
 
     // 開き直しても取り直せなければ無効のまま。取り直せたらその状態を出す
     await page.reload();
     await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
     await stubToggl({ failures: {}, keepCache: true });
     await panel.getByRole("button", { name: "最新にする" }).click();
     await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeEnabled();
@@ -248,6 +251,18 @@ test.describe("Toggl を呼べなかったとき", () => {
     await expect(panel.getByText(configPath)).toBeVisible();
     await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
     await expect(panel.getByText("停止中")).toHaveCount(0);
+
+    // トークンが誤ったままなら、開き直しても Toggl を呼ばない
+    await page.reload();
+    await expect(panel.getByText(/API トークンが受け付けられませんでした（HTTP 401）/)).toBeVisible();
+    expect((await togglState()).calls).toHaveLength(1);
+
+    // 設定ファイルのトークンを直したら、開き直したときにすぐ取り直す
+    await stubToggl({ token: "tok-good", failures: {}, keepCache: true });
+    await page.reload();
+    await expect(panel.getByText("停止中")).toBeVisible();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+    expect((await togglState()).calls.map((c) => c.token)).toEqual(["tok-good"]);
   });
 
   test("利用上限に達したら最後に分かっている状態を「〜時点」と添えて出し、待っている間はボタンを無効にして理由を出す", async ({ page, nod }) => {

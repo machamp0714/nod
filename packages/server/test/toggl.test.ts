@@ -143,6 +143,21 @@ describe("Toggl 打刻 API", () => {
     expect(world.current?.id).toBe(601);
   });
 
+  test("既定の Workspace はトークンごとに覚え、2 回目からの開始では /me を呼ばない。トークンが変わったら取り直す", async () => {
+    const { handler } = togglWorld(null);
+    const { app, ref, configPath, calls } = withToggl(handler);
+    const startAndStop = async () => {
+      expect((await call(app, "POST", `/api/issues/${ref}/toggl/start`)).status).toBe(200);
+      expect((await call(app, "POST", `/api/issues/${ref}/toggl/stop`)).status).toBe(200);
+    };
+    await startAndStop();
+    await startAndStop();
+    expect(callNames(calls).filter((c) => c === "GET /me")).toHaveLength(1);
+    writeFileSync(configPath, JSON.stringify({ apiToken: "tok-2" }));
+    await startAndStop();
+    expect(calls.filter((c) => c.path === "/me").map((c) => c.token)).toEqual(["tok-1", "tok-2"]);
+  });
+
   test("この Issue の打刻がすでに動いていれば、開始は新しい打刻を作らずに今の打刻を返す", async () => {
     const { handler } = togglWorld(running("API-1 検索 API"));
     const { app, ref, calls } = withToggl(handler);
@@ -527,6 +542,41 @@ describe("Toggl の失敗の区別", () => {
       expect(res.status).toBe(200);
       expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: null, failure: { kind: "auth", detail: `HTTP ${status}` }, unconfirmed: false });
     }
+  });
+
+  test("認証に失敗したら、同じトークンのままでは開き直しても Toggl を呼ばない。「最新にする」とトークンの書き換えでは取り直す", async () => {
+    let authorized = false;
+    const { handler } = togglWorld(null, () => (authorized ? undefined : { kind: "ok", status: 401, body: "Unauthorized" }));
+    const { app, ref, configPath, calls } = withToggl(handler);
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    const again = await call(app, "GET", `/api/issues/${ref}/toggl`);
+    expect(again.json).toMatchObject({ current: null, fetchedAt: null, failure: { kind: "auth", detail: "HTTP 401" } });
+    expect(calls).toHaveLength(1);
+    // 「最新にする」は認証の失敗を覚えていても取り直す
+    expect((await call(app, "POST", `/api/issues/${ref}/toggl/refresh`)).json.failure).toMatchObject({ kind: "auth" });
+    expect(calls).toHaveLength(2);
+    // 設定ファイルのトークンを直したら、次の表示ですぐ取り直す
+    authorized = true;
+    writeFileSync(configPath, JSON.stringify({ apiToken: "tok-2" }));
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toMatchObject({ failure: null, fetchedAt: NOW });
+    expect(calls.map((c) => c.token)).toEqual(["tok-1", "tok-1", "tok-2"]);
+  });
+
+  test("認証の失敗を覚えている間は、開始も停止も Toggl を呼ばずに TOGGL_AUTH を返す", async () => {
+    let authorized = true;
+    const { handler } = togglWorld(running("API-1 検索 API"), () => (authorized ? undefined : { kind: "ok", status: 401, body: "Unauthorized" }));
+    const { app, ref, calls } = withToggl(handler);
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    authorized = false;
+    await call(app, "POST", `/api/issues/${ref}/toggl/refresh`);
+    const before = calls.length;
+    for (const op of ["start", "stop"]) {
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/${op}`);
+      expect(res.status).toBe(502);
+      expect(res.json.error.code).toBe("TOGGL_AUTH");
+      expect(res.json.error.details.view).toMatchObject({ current: { id: 501 }, failure: { kind: "auth" } });
+    }
+    expect(calls).toHaveLength(before);
   });
 
   test("認証に失敗したら開始は TOGGL_AUTH で、Toggl に書き込まない", async () => {

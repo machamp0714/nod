@@ -1,16 +1,11 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { useToggl, useTogglAction, useTogglRefresh } from "../../api/hooks/toggl";
+import type { TogglCurrentEntry, TogglIssueView } from "../../api/types";
+import { formatElapsed, formatTime } from "../../lib/format";
 import { Button, Icon } from "../ui";
 import s from "./issue-detail.module.css";
-
-// 開始時刻からの経過を「時:分:秒」で表す（Toggl の表示と同じ形）
-export function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`;
-}
 
 // 経過時間は取得した開始時刻から画面内で数え、毎秒 Toggl を呼ばない
 function Elapsed({ start }: { start: string }) {
@@ -26,18 +21,6 @@ function Elapsed({ start }: { start: string }) {
   );
 }
 
-// ローカル時刻の「HH:mm」
-function formatClock(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return Number.isNaN(d.getTime()) ? iso : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-// 表示している状態がいつ Toggl で分かったものか（「HH:mm 時点」）
-function formatFetchedAt(iso: string): string {
-  return `${formatClock(iso)} 時点`;
-}
-
 // 開始・停止の失敗の表示。切り替えの途中の失敗・競合は、server が前の打刻と新しい打刻の成否を書いた文言をそのまま出す。
 // 認証の失敗・利用上限の待ちは、返ってきた状態（failure）の案内で知らせるので、ここでは出さない
 function actionErrorText(err: Error): string | null {
@@ -46,8 +29,8 @@ function actionErrorText(err: Error): string | null {
   return `Toggl の操作に失敗しました：${errorMessage(err)}`;
 }
 
-// until（ISO）より前か。until を過ぎたら描き直す（利用上限の待ちが終わったらボタンを戻す）
-function useBefore(until: string | undefined): boolean {
+// until（ISO）より前の間は true。until を過ぎたら描き直す（利用上限の待ちが終わったらボタンを戻す）
+function useWaitingUntil(until: string | undefined): boolean {
   const end = until ? Date.parse(until) : Number.NaN;
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -56,6 +39,22 @@ function useBefore(until: string | undefined): boolean {
     return () => clearTimeout(timer);
   }, [end]);
   return !Number.isNaN(end) && Date.now() < end;
+}
+
+// 欄の上段に出すもの。この Issue の打刻（停止と経過時間）、別の打刻（説明と切り替え）、どちらでもない（状態の文言と開始）
+type EntryDisplay =
+  | { kind: "this_issue"; entry: TogglCurrentEntry }
+  | { kind: "other"; entry: TogglCurrentEntry }
+  | { kind: "none"; label: string };
+
+// 成否を確認できていない間は、操作前の打刻を表示しない（「未確認」と出す）。
+// 読み込み中・一度も取得できていない・成否を確認できていないときは「停止中」と言い切らない
+function entryDisplayOf(view: TogglIssueView | undefined): EntryDisplay {
+  if (view === undefined) return { kind: "none", label: "" };
+  if (!view.configured) return { kind: "none", label: "未設定" };
+  if (view.unconfirmed || view.fetchedAt === null) return { kind: "none", label: "未確認" };
+  if (view.current === null) return { kind: "none", label: "停止中" };
+  return { kind: view.current.thisIssue ? "this_issue" : "other", entry: view.current };
 }
 
 // 右 rail の Toggl 打刻の欄（NOD-6）。この Issue の打刻（説明が「<ID> 」で始まる）なら停止と経過時間を出す。
@@ -69,15 +68,11 @@ export function TogglSection({ issueId }: { issueId: string }) {
   const view = query.data;
   const failure = view?.failure ?? null;
   const authFailed = failure?.kind === "auth";
-  const waiting = useBefore(failure?.kind === "quota" ? failure.retryAfter : undefined);
+  const quotaWaiting = useWaitingUntil(failure?.kind === "quota" ? failure.retryAfter : undefined);
   const unconfirmed = view?.unconfirmed === true;
-  // 成否を確認できていない間は、操作前の打刻を表示しない（「未確認」と出す）
-  const current = unconfirmed ? null : (view?.current ?? null);
-  const unknown = view?.configured === true && (unconfirmed || view.fetchedAt === null);
-  const mine = current?.thisIssue ? current : null;
-  const other = current && !current.thisIssue ? current : null;
+  const display = entryDisplayOf(view);
   const busy = action.isPending || query.isPending || refresh.isPending;
-  const blocked = busy || view?.configured !== true || authFailed || waiting || unconfirmed;
+  const blocked = busy || view?.configured !== true || authFailed || quotaWaiting || unconfirmed;
   const error = action.error ?? refresh.error ?? query.error;
   const errorText = action.error ? actionErrorText(action.error) : error ? `Toggl の状態を取得できませんでした：${errorMessage(error)}` : null;
   // 開始・停止と「最新にする」は、前の操作の失敗の表示を消してから行う
@@ -94,18 +89,19 @@ export function TogglSection({ issueId }: { issueId: string }) {
     <section className={s.panel} aria-label="Toggl 打刻" aria-busy={busy}>
       <h2 className={s.panelHeading}>Toggl 打刻</h2>
       <div className={s.toggl}>
-        {mine ? (
+        {display.kind === "this_issue" && (
           <div className={s.togglRow}>
-            <Elapsed start={mine.start} />
+            <Elapsed start={display.entry.start} />
             <Button size="sm" icon="square" disabled={blocked} onClick={() => run("stop")}>
               打刻を停止
             </Button>
           </div>
-        ) : other ? (
+        )}
+        {display.kind === "other" && (
           <>
             <p className={s.togglOther}>
               <span className={s.togglOtherLabel}>別の打刻が動いています</span>
-              <span className={s.togglOtherDescription}>{other.description || "（説明なし）"}</span>
+              <span className={s.togglOtherDescription}>{display.entry.description || "（説明なし）"}</span>
             </p>
             <div className={s.togglRow}>
               <Button size="sm" icon="play" disabled={blocked} onClick={() => run("start")}>
@@ -113,73 +109,83 @@ export function TogglSection({ issueId }: { issueId: string }) {
               </Button>
             </div>
           </>
-        ) : (
+        )}
+        {display.kind === "none" && (
           <div className={s.togglRow}>
-            {/* 読み込み中・一度も取得できていない・成否を確認できていないときは「停止中」と言い切らない */}
-            <span className={s.togglIdle}>{view?.configured === false ? "未設定" : unknown ? "未確認" : view?.configured === true ? "停止中" : ""}</span>
+            <span className={s.togglIdle}>{display.label}</span>
             <Button size="sm" icon="play" disabled={blocked} onClick={() => run("start")}>
               打刻を開始
             </Button>
           </div>
         )}
-        {/* 取得時刻と「最新にする」。初めての取得に失敗したときも取り直せるように出す */}
+        {/* 取得時刻と「最新にする」。成否を確認できていない間も、最後に Toggl の状態が分かった時刻を出す。
+            初めての取得に失敗したときも取り直せるように出す */}
         {(view?.configured || query.isError) && (
-          <div className={s.prFetchRow}>
-            <span className={s.prFetched} title={view?.fetchedAt ?? undefined}>
-              {refresh.isPending ? "取得中…" : view?.fetchedAt && !unconfirmed ? formatFetchedAt(view.fetchedAt) : ""}
+          <div className={s.fetchRow}>
+            <span className={s.fetchedText} title={view?.fetchedAt ?? undefined}>
+              {refresh.isPending ? "取得中…" : view?.fetchedAt ? `${formatTime(view.fetchedAt)} 時点` : ""}
             </span>
             <button
               type="button"
-              className={s.prRefresh}
+              className={s.refreshButton}
               aria-label="最新にする"
               title="Toggl から現在の打刻を取り直す"
-              disabled={busy || waiting}
+              disabled={busy || quotaWaiting}
               onClick={reload}
             >
               <Icon name={refresh.isPending ? "loader-circle" : "refresh-cw"} size={12} />
             </button>
           </div>
         )}
-        {view?.configured === false && (
-          <div className={s.togglGuide}>
-            <p>Toggl の API トークンを次のファイルに書くと使えます（権限は 600 を推奨）。</p>
-            <code className={s.togglCode}>{view.configPath}</code>
-            <code className={s.togglCode}>{'{"apiToken": "<API トークン>"}'}</code>
-          </div>
-        )}
-        {authFailed && view && (
-          <div className={s.togglGuide} role="status">
-            <p>Toggl の API トークンが受け付けられませんでした（{failure.detail}）。次のファイルのトークンを直してください。</p>
-            <code className={s.togglCode}>{view.configPath}</code>
-          </div>
-        )}
-        {waiting && failure?.retryAfter && (
-          <p className={s.prError} role="status">
-            <Icon name="circle-alert" size={12} />
-            <span>Toggl の利用上限に達したため、{formatClock(failure.retryAfter)} まで打刻を操作できません</span>
-          </p>
-        )}
-        {failure?.kind === "network" && !unconfirmed && (
-          <p className={s.prError} role="status">
-            <Icon name="circle-alert" size={12} />
-            <span>
-              Toggl に接続できませんでした（{failure.detail}）。{view?.fetchedAt ? "表示は最後に分かっている状態です" : "打刻の状態は分かりません"}
-            </span>
-          </p>
-        )}
-        {unconfirmed && (
-          <p className={s.prError} role="status">
-            <Icon name="circle-alert" size={12} />
-            <span>打刻の成否を確認できていません。「最新にする」で取り直せるまで操作できません</span>
-          </p>
-        )}
+        {view && <TogglNotices view={view} quotaWaiting={quotaWaiting} />}
         {errorText && (
-          <p className={s.prError} role="alert">
+          <p className={s.inlineError} role="alert">
             <Icon name="circle-alert" size={12} />
             <span>{errorText}</span>
           </p>
         )}
       </div>
     </section>
+  );
+}
+
+function Notice({ children }: { children: ReactNode }) {
+  return (
+    <p className={s.inlineError} role="status">
+      <Icon name="circle-alert" size={12} />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+// 未設定・認証の失敗の案内と、利用上限の待ち・通信の失敗・成否不明の知らせ。
+// 成否を確認できていない間は、通信の失敗より成否不明を知らせる
+function TogglNotices({ view, quotaWaiting }: { view: TogglIssueView; quotaWaiting: boolean }) {
+  const { failure } = view;
+  return (
+    <>
+      {!view.configured && (
+        <div className={s.togglGuide}>
+          <p>Toggl の API トークンを次のファイルに書くと使えます（権限は 600 を推奨）。</p>
+          <code className={s.togglCode}>{view.configPath}</code>
+          <code className={s.togglCode}>{'{"apiToken": "<API トークン>"}'}</code>
+        </div>
+      )}
+      {failure?.kind === "auth" && (
+        <div className={s.togglGuide} role="status">
+          <p>Toggl の API トークンが受け付けられませんでした（{failure.detail}）。次のファイルのトークンを直してください。</p>
+          <code className={s.togglCode}>{view.configPath}</code>
+        </div>
+      )}
+      {failure?.kind === "quota" && quotaWaiting && failure.retryAfter && (
+        <Notice>Toggl の利用上限に達したため、{formatTime(failure.retryAfter)} まで打刻を操作できません</Notice>
+      )}
+      {failure?.kind === "network" && !view.unconfirmed && (
+        <Notice>
+          Toggl に接続できませんでした（{failure.detail}）。{view.fetchedAt ? "表示は最後に分かっている状態です" : "打刻の状態は分かりません"}
+        </Notice>
+      )}
+      {view.unconfirmed && <Notice>打刻の成否を確認できていません。「最新にする」で取り直せるまで操作できません</Notice>}
+    </>
   );
 }

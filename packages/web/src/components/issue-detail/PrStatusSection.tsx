@@ -91,7 +91,7 @@ export function PrFetchError({ view }: { view: PrStatusView }) {
   const { fetchError, requestError } = view;
   if (!fetchError && !requestError) return null;
   return (
-    <p className={s.prError} role="alert">
+    <p className={s.inlineError} role="alert">
       <Icon name="circle-alert" size={12} />
       <span>{fetchError ? fetchError.message : `更新できませんでした：${errorMessage(requestError)}`}</span>
     </p>
@@ -125,13 +125,13 @@ export function PrStatusSection({ issueId }: { issueId: string }) {
         </div>
       )}
       <PrFetchError view={view} />
-      <div className={s.prFetchRow}>
-        <span className={s.prFetched} title={status && !busy ? status.fetchedAt : undefined}>
+      <div className={s.fetchRow}>
+        <span className={s.fetchedText} title={status && !busy ? status.fetchedAt : undefined}>
           {prFetchedText(view, "未取得")}
         </span>
         <button
           type="button"
-          className={s.prRefresh}
+          className={s.refreshButton}
           aria-label="PR の状態を更新"
           title="gh で PR の状態を取得する"
           disabled={busy}

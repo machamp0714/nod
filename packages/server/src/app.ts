@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { createTogglCache, defaultTogglConfigPath, type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient, togglClient } from "@nod/core";
+import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -88,8 +88,7 @@ export function createApp(opts: AppOptions): Hono {
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
   registerGithubRoutes(app, me, { gh: opts.ghRunner, git: opts.gitRunner, webPort: opts.webPort }); // 同上
-  const togglCache = opts.togglCache ?? createTogglCache();
-  registerTogglRoutes(app, me, () => ({ client: opts.togglClient ?? togglClient, configPath: opts.togglConfigPath ?? defaultTogglConfigPath(), cache: togglCache })); // 同上
+  registerTogglRoutes(app, me, { client: opts.togglClient, configPath: opts.togglConfigPath, cache: opts.togglCache }); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);

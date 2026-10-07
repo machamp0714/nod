@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { countQuestions, formatDateTime, formatOpenQuestions, formatQuestionCount, formatRelative, formatUpdated, prLabel } from "./format";
+import { countQuestions, formatDateTime, formatElapsed, formatOpenQuestions, formatQuestionCount, formatRelative, formatTime, formatUpdated, prLabel } from "./format";
 
 const NOW = new Date("2026-09-28T12:00:00.000Z");
 const before = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -64,4 +64,16 @@ test("formatDateTime はローカル時刻の YYYY-MM-DD HH:mm にし、読め�
   const d = new Date(2026, 8, 29, 23, 40, 12);
   expect(formatDateTime(d.toISOString())).toBe("2026-09-29 23:40");
   expect(formatDateTime("bad")).toBe("bad");
+});
+
+test("formatTime はローカル時刻の HH:mm にし、読めない値はそのまま返す", () => {
+  expect(formatTime(new Date(2026, 8, 29, 9, 5, 12).toISOString())).toBe("09:05");
+  expect(formatTime("bad")).toBe("bad");
+});
+
+test("formatElapsed は経過時間を「時:分:秒」にし、負の値は 0 にする", () => {
+  expect(formatElapsed(0)).toBe("0:00:00");
+  expect(formatElapsed((1 * 3600 + 5 * 60 + 9) * 1000 + 999)).toBe("1:05:09");
+  expect(formatElapsed(27 * 3600 * 1000)).toBe("27:00:00");
+  expect(formatElapsed(-5000)).toBe("0:00:00");
 });

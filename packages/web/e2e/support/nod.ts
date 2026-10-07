@@ -76,12 +76,7 @@ export async function ghCalls(): Promise<string[][]> {
   return ((await res.json()) as { calls: string[][] }).calls;
 }
 
-// Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
-// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻。
-// failures は切り替えの途中の失敗（start: 開始が断られる・応答が途絶える、stop: 止めようとした打刻がほかで止められていた、
-// currentAfterStart: 開始のあとの取り直しが通信に失敗する）と、現在の打刻の取得の失敗（current: auth は 401、
-// quota は 402 と X-Toggl-Quota-Resets-In: 600、network は接続できない）。server の現在の打刻のキャッシュは消す。
-// keepCache なら消さない（nod の外で Toggl 側だけが変わったときを表す）
+// e2e の server の偽の Toggl が持つ現在の打刻（Toggl の time entry の形）。e2e の server もこの型を使う
 export interface FakeTogglEntry {
   id: number;
   workspace_id: number;
@@ -89,12 +84,18 @@ export interface FakeTogglEntry {
   start: string;
   duration: number;
 }
+// e2e の server の偽の Toggl に起こさせる失敗。e2e の server もこの型を使う
 export interface FakeTogglFailures {
-  start?: "http_error" | "timeout";
-  stop?: "conflict";
-  currentAfterStart?: boolean;
-  current?: "auth" | "quota" | "network";
+  start?: "http_error" | "timeout"; // 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）
+  stop?: "conflict"; // 止めようとした打刻がほかで止められていた（409）
+  currentAfterStart?: boolean; // 開始のあとの取り直しが通信に失敗する
+  current?: "auth" | "quota" | "network"; // 現在の打刻の取得が 401・402（X-Toggl-Quota-Resets-In: 600）・接続できないになる
 }
+
+// Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
+// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻。
+// failures は起こす失敗（省くと失敗しない）。server の現在の打刻のキャッシュは消す。
+// keepCache なら消さない（nod の外で Toggl 側だけが変わったときを表す）
 export async function stubToggl(state: {
   token?: string | null;
   current?: FakeTogglEntry | null;

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import * as core from "@nod/core";
 import { startServer } from "@nod/server";
 import { CTX_OPS, DB_OPS } from "./support/core-ops";
+import type { FakeTogglEntry, FakeTogglFailures } from "./support/nod";
 import { type Dataset, datasetContext, wipe } from "./support/dataset";
 import { API_PORT, CONTROL_PORT } from "./support/ports";
 
@@ -52,15 +53,11 @@ const orcaRunner: core.OrcaRunner = async (args) => {
 // トークンの設定ファイルも一時ディレクトリの下に置き（~/.config/nod/toggl.json を読まない）、/toggl で書き換える
 const togglConfigPath = join(dir, "toggl.json");
 const TOGGL_WORKSPACE_ID = 4242;
-type FakeTogglEntry = { id: number; workspace_id: number; description: string; start: string; duration: number };
 let togglCurrent: FakeTogglEntry | null = null;
 let togglCalls: core.TogglRequest[] = [];
 let togglNextId = 9001;
-// 切り替えの途中の失敗を起こす。start: 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）。
-// stop: "conflict" なら止めようとした打刻がほかで止められていた（409）。currentAfterStart: 開始のあとの取り直しが通信に失敗する。
-// current: 現在の打刻の取得が認証の失敗（401）・利用上限（402。10 分待つ）・通信の失敗になる
-type TogglFailures = { start?: "http_error" | "timeout"; stop?: "conflict"; currentAfterStart?: boolean; current?: "auth" | "quota" | "network" };
-let togglFailures: TogglFailures = {};
+// 起こす失敗（中身は support/nod.ts の FakeTogglFailures）
+let togglFailures: FakeTogglFailures = {};
 let togglStartAttempted = false;
 // server の現在の打刻のキャッシュ。テストの間で持ち越さないよう、/reset と /toggl で消す
 const togglCache = core.createTogglCache();
@@ -166,7 +163,7 @@ const control = Bun.serve({
       if (req.method === "POST" && path === "/toggl") {
         // token が null ならトークンの設定ファイルを消す（未設定）。current は Toggl の現在の打刻
         // failures は切り替えの途中の失敗（省くと失敗しない）。keepCache なら server のキャッシュを消さない（Toggl 側だけが変わったとき）
-        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null; failures?: TogglFailures; keepCache?: boolean };
+        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null; failures?: FakeTogglFailures; keepCache?: boolean };
         if (body.token === null) rmSync(togglConfigPath, { force: true });
         else if (body.token !== undefined) writeFileSync(togglConfigPath, JSON.stringify({ apiToken: body.token }));
         if (body.current !== undefined) togglCurrent = body.current;

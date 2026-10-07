@@ -59,5 +59,7 @@ export * from "./ops/github-publish";
 export * from "./github-leak";
 export * from "./ops/orca";
 export * from "./ops/toggl";
+export * from "./ops/toggl-client";
+export * from "./ops/toggl-cache";
 export * from "./ops/instructions";
 export * from "./branch-naming";
