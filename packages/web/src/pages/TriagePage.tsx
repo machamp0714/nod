@@ -6,6 +6,7 @@ import { useIssueDetail } from "../api/hooks/shared";
 import { assigneeChoices, parseLabels } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, TriageSuggestions } from "../api/types";
+import { Markdown } from "../components/markdown/Markdown";
 import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
@@ -117,7 +118,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
       </div>
       {detail.isError ? <ActionError error={detail.error} /> : detail.isPending ? <p className={d.muted}>起票元を読み込み中…</p> :
         <p className={d.muted}>{source ? <><Link to="/issues/$issueId" params={{ issueId: source }}>{source}</Link> の作業中に発見</> : "起票元は記録されていません"}</p>}
-      <p className={d.body}>{issue.description ?? "説明はありません"}</p>
+      {issue.description ? <Markdown breaks>{issue.description}</Markdown> : <p className={d.body}>説明はありません</p>}
       <div className={d.acceptGroup}>
         {proposals.isError ? <ActionError error={proposals.error} /> :
           <Proposals proposals={proposals.data ?? []} workspace={issue.workspace} disabled={busy} onApply={applyProposal} />}

@@ -22,6 +22,17 @@ test("LLM が起票した Issue だけを並べ、起票者と説明と4つの�
   }
 });
 
+test("説明は Markdown として描き、見出しやリストを記号のまま出さない", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  await api.triageIssue("ページングがずれる", "## 概要\n\n- `page=2` で 1 件ずれる\n- [ ] 直す");
+  await page.goto("/triage");
+  await expect(detail(page).getByRole("heading", { name: "概要" })).toBeVisible();
+  await expect(detail(page).getByRole("listitem").filter({ hasText: "page=2 で 1 件ずれる" })).toBeVisible();
+  await expect(detail(page).locator("code", { hasText: "page=2" })).toBeVisible();
+  await expect(detail(page).getByRole("checkbox")).toBeVisible();
+  await expect(detail(page).getByText("## 概要")).toHaveCount(0);
+});
+
 test("受け入れると Todo になり、一覧から消える", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const i = await api.triageIssue("検索結果のページングが 1 件ずれる");
