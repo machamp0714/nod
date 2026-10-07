@@ -64,5 +64,5 @@ Issue の仕様を **Task** に分け、`nod issue plan` で Issue の計画に�
 
 番号付きで示し、おすすめを 1 つ理由つきで添えて、ユーザーの選択を待つ（自分から次へ進まない）。
 
-1. 作業ブランチ（または worktree）を用意して `nod:implement` に進む（おすすめ。`nod:implement` はデフォルトブランチ上では止まるため。ブランチ名は `nod issue branch-name <id>` で得られる）
+1. 作業ブランチ（または worktree）を用意して `nod:implement` に進む（おすすめ。`nod:implement` はデフォルトブランチ上では止まるため。ブランチ名は `nod issue branch-name <id>` で得られる。nod の Issue ID を含まない名前になっている）
 2. 計画を見直す

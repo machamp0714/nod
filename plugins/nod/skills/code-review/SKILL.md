@@ -27,7 +27,7 @@ description: "基点（コミット・ブランチ・タグ・merge-base）か�
 次の順で探す。
 
 1. 引数で渡された Issue id か Document のパス
-2. コミットメッセージやブランチ名にある nod の Issue id（例: `nod/am-2` → AM-2）。`nod issue show <id>` の Documents から kind=spec の Document を取り、`nod doc show <Document id>` で全文を読む。計画（Task と Step）も受け入れ条件として使う
+2. 今のブランチを作業場所として記録している nod の Issue（`nod issue list --json` の `branch` が今のブランチと一致するもの）。ブランチ名・コミット・PR には nod の Issue ID を書かない決まりなので、そこから ID を読み取らない。`nod issue show <id>` の Documents から kind=spec の Document を取り、`nod doc show <Document id>` で全文を読む。計画（Task と Step）も受け入れ条件として使う
 3. 見つからなければ、仕様の場所をユーザーに聞く。無いと言われたら、Spec のサブエージェントは飛ばし「仕様なし」と報告する
 
 ## 3. 規約を集める

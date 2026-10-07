@@ -15,7 +15,7 @@ Issue の計画（`nod:to-plan` で作った Task と Step）を、依存の順�
 ## 0. 準備
 
 - Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
-- **デフォルトブランチ（main / develop など）の上なら、何もせずに止めて**、作業ブランチを作るよう伝える（`nod issue branch-name <id>` で候補が得られる）。これだけは止まる。
+- **デフォルトブランチ（main / develop など）の上なら、何もせずに止めて**、作業ブランチを作るよう伝える（`nod issue branch-name <id>` で候補が得られる。GitHub に出るブランチ名・コミット・PR には nod の Issue ID を書かない）。これだけは止まる。
 - 作業ツリーに、この Issue と関係のない未コミットの変更があれば触らない（stash もしない）。コミットには自分の変更だけを入れる。
 - `nod issue start <id>` を実行し、差し戻しの理由や追加指示が出たら先に読んで反映する。
 - `nod issue show <id>` で計画（Task・Step の状態）、Documents、Activity（作業ログ）を読む。kind=spec の Document を全文読む。計画が無ければ止めて `nod:to-plan` を勧める。
@@ -39,7 +39,7 @@ Issue の計画（`nod:to-plan` で作った Task と Step）を、依存の順�
    - 終わったら、変えた内容・実行したテストと結果・判断したこと・残った懸念を報告すること
 3. 結果を確かめる。差分が Task の範囲に収まっているか、Step を満たしているかを見る。足りなければ同じ Task を続けさせる。
 4. 満たした Step を `nod issue step <id> <N.M> done`、Task を `nod issue step <id> <N> done` にする。満たせなかった Step は skipped にせず doing のまま残し、ログに理由を書く。
-5. **コミットする。** メッセージはリポジトリの既存のコミットの書き方に合わせる。`Fixes <id>` は付けない（Issue を閉じるのは PR とレビューの段階）。
+5. **コミットする。** メッセージはリポジトリの既存のコミットの書き方に合わせる。nod の Issue ID は書かない。対応する GitHub Issue がコードと同じ repo にあるときだけ、作業が済んだ最後のコミットに `Fixes #<GitHub の番号>` を付ける（途中のコミットには付けない）。
 6. **作業ログを残す**（引き継ぎの正本）。
    - `nod issue log <id> "Task N 完了: <何ができたか>。コミット <短い sha>。次: Task M" --kind progress`
    - 実行したテストと件数・成否を `--kind test` で 1 件
@@ -63,4 +63,4 @@ Issue の計画（`nod:to-plan` で作った Task と Step）を、依存の順�
 終えた Task・飛ばした Task とその理由・テストの結果・レビューの指摘を簡潔に報告する。続けて、次の一手を番号付きで示し、おすすめを 1 つ理由つきで添えて、ユーザーの選択を待つ（自分から次へ進まない）。指摘の有無でおすすめを変える。
 
 1. レビューの指摘に対応する
-2. PR を作る（作ったら `nod issue link-pr <id> <URL>`、提出は `nod issue done <id> --summary "<要約>"`）
+2. PR を作る（PR のタイトル・本文に nod の Issue ID を書かない。作ったら `nod issue link-pr <id> <URL>`、提出は `nod issue done <id> --summary "<要約>"`）
