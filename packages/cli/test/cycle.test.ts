@@ -19,6 +19,17 @@ function repo(): string {
 }
 
 describe("Cycle CLI", () => {
+  test("triage accept --cycle で受け入れと同時に Cycle に入れる", () => {
+    const db = tempDb();
+    const cwd = repo();
+    expect(cli(db, cwd, ["init", "--key", "CYC"], "me").code).toBe(0);
+    cli(db, cwd, ["cycle", "create", "S1", "--start", "2999-01-01", "--end", "2999-01-14"]);
+    const issue = cli(db, cwd, ["issue", "create", "判断待ち", "--json"]).json;
+    expect(issue.status).toBe("triage");
+    const accepted = cli(db, cwd, ["triage", "accept", issue.id, "--cycle", "S1", "--json"], "me").json;
+    expect(accepted).toMatchObject({ status: "todo", cycle: { name: "S1" } });
+  });
+
   test("LLM も Cycle を作り、Issue を入れられるが、削除は人だけ。別 repo の Issue も同じ Cycle に入る", () => {
     const db = tempDb();
     const cwd = repo();

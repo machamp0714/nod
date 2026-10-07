@@ -1,4 +1,5 @@
 import type { Cycle, CycleCadence, CycleState } from "../api/types";
+import { cycleMenu } from "./bulk-selection";
 
 export const CYCLE_STATE_LABEL: Record<CycleState, string> = { current: "Current", upcoming: "Upcoming", completed: "Completed" };
 
@@ -25,4 +26,14 @@ export function currentCycleLink(cycles: readonly Pick<Cycle, "id" | "name" | "s
   if (!cycles) return null;
   const current = cycles.find((c) => c.state === "current");
   return current ? { to: `/cycles/${current.id}`, label: current.name } : { to: "/cycles", label: "なし" };
+}
+
+// Issue に付ける Cycle の選択肢。終了していない Cycle を current を先に開始日の順で並べ、今付いている Cycle は終了していても残す
+export function cycleChoices(
+  cycles: readonly Pick<Cycle, "id" | "name" | "state" | "startDate">[],
+  assigned: { id: number; name: string } | null,
+): { id: number; name: string }[] {
+  const choices = cycleMenu(cycles).map((c) => ({ id: c.id, name: c.name }));
+  if (assigned && !choices.some((c) => c.id === assigned.id)) choices.push({ id: assigned.id, name: assigned.name });
+  return choices;
 }

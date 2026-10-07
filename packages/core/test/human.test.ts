@@ -12,6 +12,7 @@ import {
   rejectReview,
   snoozeTriage,
 } from "../src/ops/human";
+import { createCycle } from "../src/ops/cycles";
 import { createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
@@ -71,6 +72,25 @@ describe("Triage", () => {
     expect(acceptTriage(me, i.id).status).toBe("todo");
     expect(eventsOf(db, i.id).at(-1)?.type).toBe("triage_accepted");
     expect(codeOf(() => acceptTriage(me, i.id))).toBe("NOT_IN_TRIAGE");
+  });
+
+  test("accept で Cycle を付け、null で外す。存在しない Cycle は受け入れない", () => {
+    const { db, ws, me, llm } = setup();
+    const cycle = createCycle(me, { name: "Sprint 1", startDate: "2026-10-05", endDate: "2026-10-18" });
+    const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
+    expect(acceptTriage(me, a.id, { cycleRef: "Sprint 1" }).cycle).toEqual({ id: cycle.id, name: "Sprint 1" });
+    const b = createIssue(llm, { workspaceId: ws.id, title: "b", cycleRef: String(cycle.id) });
+    expect(acceptTriage(me, b.id, { cycleRef: null }).cycle).toBeNull();
+    const c = createIssue(llm, { workspaceId: ws.id, title: "c" });
+    expect(codeOf(() => acceptTriage(me, c.id, { cycleRef: "Sprint 9" }))).toBe("NOT_FOUND");
+    expect(getIssue(db, c.id).status).toBe("triage");
+  });
+
+  test("accept の cycleRef に current を渡すと今日を含む Cycle に入れる", () => {
+    const { ws, me, llm } = setup();
+    const current = createCycle(me, { name: "長期", startDate: "2000-01-01", endDate: "2999-12-31" });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    expect(acceptTriage(me, i.id, { cycleRef: "current" }).cycle).toEqual({ id: current.id, name: "長期" });
   });
 
   test("decline は理由つきで canceled にする", () => {

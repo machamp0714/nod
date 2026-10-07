@@ -96,9 +96,9 @@ const OPS: Record<string, Op> = {
     run: (me, ref, b) => answerQuestion(me, ref, reqString(b, "answer"), { questionId: optInt(b, "questionId") }),
   },
   accept: {
-    keys: ["projectRef", "priority", "addLabels", "removeLabels", "assignee"],
+    keys: ["projectRef", "priority", "cycleRef", "addLabels", "removeLabels", "assignee"],
     run: (me, ref, b) => acceptTriage(me, ref, {
-      projectRef: optNullableString(b, "projectRef"), priority: optInt(b, "priority"),
+      projectRef: optNullableString(b, "projectRef"), priority: optInt(b, "priority"), cycleRef: optNullableString(b, "cycleRef"),
       addLabels: optStringArray(b, "addLabels"), removeLabels: optStringArray(b, "removeLabels"),
       assignee: optNullableString(b, "assignee"),
     }),

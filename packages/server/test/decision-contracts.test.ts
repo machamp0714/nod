@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { askQuestion, createIssue, getIssue, updateIssue } from "@nod/core";
+import { askQuestion, createCycle, createIssue, getIssue, updateIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 test("acceptは許可属性だけ受け取り、失敗は原子的で空本文も互換", async () => {
@@ -16,6 +16,17 @@ test("acceptは許可属性だけ受け取り、失敗は原子的で空本文�
   expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { priority: 2, addLabels: ["bug"] })).json).toMatchObject({ status: "todo", priority: 2, labels: ["bug"] });
   const second = createIssue(llm, { workspaceId: ws.id, title: "空" });
   expect((await call(app, "POST", `/api/issues/${second.id}/accept`)).status).toBe(200);
+  db.close();
+});
+test("acceptはcycleRefでCycleを付け、文字列とnull以外を拒否する", async () => {
+  const { db, app, ws, me, llm } = setup();
+  const cycle = createCycle(me, { name: "Sprint 1", startDate: "2026-10-05", endDate: "2026-10-18" });
+  const i = createIssue(llm, { workspaceId: ws.id, title: "判断" });
+  expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { cycleRef: 1 })).status).toBe(400);
+  expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { cycleRef: "存在しない" })).status).toBe(404);
+  expect(getIssue(db, i.id).status).toBe("triage");
+  const r = await call(app, "POST", `/api/issues/${i.id}/accept`, { cycleRef: String(cycle.id) });
+  expect(r.json).toMatchObject({ status: "todo", cycle: { id: cycle.id, name: "Sprint 1" } });
   db.close();
 });
 test("includeAnsweredは終端も含むLLM履歴を返し、boolean以外を拒否する", async () => {

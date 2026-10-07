@@ -49,8 +49,8 @@ describe("postDecision と fetchInbox", () => {
 });
 
 test("受け入れ属性は一回のPOSTへ含め、履歴だけ別クエリを使う", async () => {
-  expect(actionRequest({ op: "accept", issueId: "API-1", input: { priority: 0, projectRef: null, addLabels: ["bug"] } }).body)
-    .toEqual({ priority: 0, projectRef: null, addLabels: ["bug"] });
+  expect(actionRequest({ op: "accept", issueId: "API-1", input: { priority: 0, projectRef: null, cycleRef: "3", addLabels: ["bug"] } }).body)
+    .toEqual({ priority: 0, projectRef: null, cycleRef: "3", addLabels: ["bug"] });
   const urls: string[] = [];
   await fetchInbox(async (url) => { urls.push(url); return new Response("{}"); }, { includeAnswered: true });
   expect(urls).toEqual(["/api/inbox?includeAnswered=true"]);
