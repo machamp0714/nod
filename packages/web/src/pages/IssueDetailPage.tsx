@@ -36,6 +36,7 @@ import { DescriptionSection } from "../components/issue-detail/DescriptionSectio
 import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
+import { TogglSection } from "../components/issue-detail/TogglSection";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
 import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
@@ -187,6 +188,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
           />
           <PropertiesPanel readOnly={readOnly} issue={issue} workspaceName={wsName} projects={projects} onUpdate={(input) => update.mutateAsync(input)}
             reminder={issue.reminder ?? null} onRemind={remind} />
+          <TogglSection key={`toggl-${issue.id}`} issueId={issue.id} />
           <RelationsPanel relations={issue.relations} relationStates={issue.relationStates} />
         </aside>
       </div>

@@ -1,0 +1,74 @@
+import { useEffect, useState } from "react";
+import { errorMessage } from "../../api/errors";
+import { useToggl, useTogglAction } from "../../api/hooks/toggl";
+import { Button, Icon } from "../ui";
+import s from "./issue-detail.module.css";
+
+// 開始時刻からの経過を「時:分:秒」で表す（Toggl の表示と同じ形）
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`;
+}
+
+// 経過時間は取得した開始時刻から画面内で数え、毎秒 Toggl を呼ばない
+function Elapsed({ start }: { start: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span role="timer" aria-label="経過時間" className={s.togglElapsed}>
+      {formatElapsed(now - Date.parse(start))}
+    </span>
+  );
+}
+
+// 右 rail の Toggl 打刻の欄（NOD-6）。この Issue の打刻（説明が「<ID> 」で始まる）なら停止と経過時間を、そうでなければ開始を出す
+export function TogglSection({ issueId }: { issueId: string }) {
+  const query = useToggl(issueId);
+  const action = useTogglAction(issueId);
+  const view = query.data;
+  const current = view?.current ?? null;
+  const mine = current?.thisIssue ? current : null;
+  const busy = action.isPending || query.isPending;
+  const error = action.error ?? query.error;
+
+  return (
+    <section className={s.panel} aria-label="Toggl 打刻" aria-busy={busy}>
+      <h2 className={s.panelHeading}>Toggl 打刻</h2>
+      <div className={s.toggl}>
+        {mine ? (
+          <div className={s.togglRow}>
+            <Elapsed start={mine.start} />
+            <Button size="sm" icon="square" disabled={busy} onClick={() => action.mutate("stop")}>
+              打刻を停止
+            </Button>
+          </div>
+        ) : (
+          <div className={s.togglRow}>
+            {/* 読み込み中・取得の失敗では「停止中」と言い切らない */}
+            <span className={s.togglIdle}>{view?.configured === false ? "未設定" : view?.configured === true ? "停止中" : ""}</span>
+            <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => action.mutate("start")}>
+              打刻を開始
+            </Button>
+          </div>
+        )}
+        {view?.configured === false && (
+          <div className={s.togglGuide}>
+            <p>Toggl の API トークンを次のファイルに書くと使えます（権限は 600 を推奨）。</p>
+            <code className={s.togglCode}>{view.configPath}</code>
+            <code className={s.togglCode}>{'{"apiToken": "<API トークン>"}'}</code>
+          </div>
+        )}
+        {error && (
+          <p className={s.prError} role="alert">
+            <Icon name="circle-alert" size={12} />
+            <span>{action.error ? "Toggl の操作に失敗しました" : "Toggl の状態を取得できませんでした"}：{errorMessage(error)}</span>
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}

@@ -1,4 +1,4 @@
-import { defaultDbPath, type GhRunner, NodError, openDb } from "@nod/core";
+import { defaultDbPath, type GhRunner, NodError, openDb, type TogglClient } from "@nod/core";
 import type { OrcaRunnerOption } from "./routes/orca";
 import { createApp } from "./app";
 import { createChangeFeed, POLL_INTERVAL_MS } from "./change-feed";
@@ -15,6 +15,8 @@ export interface StartServerOptions {
   ghRunner?: GhRunner; // PR 状態の取得で gh を実行する部分。e2e はスタブを渡す
   attachmentsDir?: string; // 添付ファイルのコピーを置く場所。既定は defaultAttachmentsDir()（NOD_ATTACHMENTS_DIR）
   orcaRunner?: OrcaRunnerOption; // Orca 連携で orca を実行する部分。e2e はスタブを渡す
+  togglClient?: TogglClient; // Toggl 打刻で Toggl の API を呼ぶ部分。e2e は偽のクライアントを渡す
+  togglConfigPath?: string; // Toggl のトークンの設定ファイル。既定は defaultTogglConfigPath()（NOD_TOGGL_CONFIG）
 }
 
 export interface NodServer {
@@ -36,7 +38,7 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
   const db = openDb(dbPath);
   const feed = createChangeFeed(db);
   let boundPort: number | undefined;
-  const app = createApp({ db, feed, webPort: () => boundPort, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner });
+  const app = createApp({ db, feed, webPort: () => boundPort, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner, togglClient: opts.togglClient, togglConfigPath: opts.togglConfigPath });
   let server: ReturnType<typeof Bun.serve>;
   try {
     // idleTimeout の既定（10秒）では、書き込みのない SSE の接続が切られるため無効にする

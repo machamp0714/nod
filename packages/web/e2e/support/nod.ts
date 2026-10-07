@@ -76,6 +76,25 @@ export async function ghCalls(): Promise<string[][]> {
   return ((await res.json()) as { calls: string[][] }).calls;
 }
 
+// Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
+// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻
+export interface FakeTogglEntry {
+  id: number;
+  workspace_id: number;
+  description: string;
+  start: string;
+  duration: number;
+}
+export async function stubToggl(state: { token?: string | null; current?: FakeTogglEntry | null }): Promise<void> {
+  await post("/toggl", state);
+}
+
+// 偽の Toggl が受け取った要求（stubToggl・resetData で空に戻る）と、現在の打刻・設定ファイルの場所
+export async function togglState(): Promise<{ calls: Core.TogglRequest[]; current: FakeTogglEntry | null; configPath: string }> {
+  const res = await fetch(`${CONTROL_URL}/toggl/calls`);
+  return (await res.json()) as { calls: Core.TogglRequest[]; current: FakeTogglEntry | null; configPath: string };
+}
+
 // actor を書き手にして core の関数を呼ぶクライアント。
 // 末尾の undefined の引数は送らない（JSON では null になり、省略とみなされないため）
 export function nodAs(actor: string): NodClient {

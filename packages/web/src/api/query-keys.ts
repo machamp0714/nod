@@ -19,6 +19,7 @@ export const queryKeys = {
   issue: (id: string) => ["issues", "detail", id] as const,
   prStatus: (id: string) => ["issues", "pr-status", id] as const,
   prDiff: (id: string) => ["issues", "pr-diff", id] as const,
+  toggl: (id: string) => ["issues", "toggl", id] as const,
   // 取得（headSha・fetchedAt）ごとに中身が変わらないので immutable にし、無関係な変更で取り直さない
   prDiffFile: (id: string, headSha: string, fetchedAt: string, path: string) => ["issues", "pr-diff-file", id, headSha, fetchedAt, path] as const,
   githubState: (id: string) => ["issues", "github", id] as const,

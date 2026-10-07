@@ -2,7 +2,7 @@
 // 1. 本物の server（C の startServer）を一時ファイルの DB で API_PORT に起動する。
 // 2. テストのデータを入れる口を CONTROL_PORT に開く。書き込みは server とは別の接続で行うため、
 //    nod を別の端末で実行したときと同じく data_version が変わり、SSE の change が届く。
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as core from "@nod/core";
 import { startServer } from "@nod/server";
@@ -48,8 +48,39 @@ const orcaRunner: core.OrcaRunner = async (args) => {
   return orcaResults[`${args[0]} ${args[1]}`] ?? { kind: "not_found" };
 };
 
+// Toggl 打刻（NOD-6）で本物の Toggl の代わりに使う。/toggl で決めた現在の打刻を持ち、開始・停止で書き換える。
+// トークンの設定ファイルも一時ディレクトリの下に置き（~/.config/nod/toggl.json を読まない）、/toggl で書き換える
+const togglConfigPath = join(dir, "toggl.json");
+const TOGGL_WORKSPACE_ID = 4242;
+type FakeTogglEntry = { id: number; workspace_id: number; description: string; start: string; duration: number };
+let togglCurrent: FakeTogglEntry | null = null;
+let togglCalls: core.TogglRequest[] = [];
+let togglNextId = 9001;
+const togglClient: core.TogglClient = async (req) => {
+  togglCalls.push(req);
+  const ok = (body: unknown): core.TogglResponse => ({ kind: "ok", status: 200, body });
+  if (req.method === "GET" && req.path === "/me") return ok({ id: 1, default_workspace_id: TOGGL_WORKSPACE_ID });
+  if (req.method === "GET" && req.path === "/me/time_entries/current") return ok(togglCurrent);
+  if (req.method === "POST" && req.path === `/workspaces/${TOGGL_WORKSPACE_ID}/time_entries`) {
+    const body = req.body as { description: string; start: string };
+    togglCurrent = { id: togglNextId++, workspace_id: TOGGL_WORKSPACE_ID, description: body.description, start: body.start, duration: -1 };
+    return ok(togglCurrent);
+  }
+  const stop = /^\/workspaces\/(\d+)\/time_entries\/(\d+)\/stop$/.exec(req.path);
+  if (req.method === "PATCH" && stop && togglCurrent?.id === Number(stop[2])) {
+    const stopped = { ...togglCurrent, duration: Math.round((Date.now() - Date.parse(togglCurrent.start)) / 1000) };
+    togglCurrent = null;
+    return ok(stopped);
+  }
+  return { kind: "ok", status: 404, body: "Not Found" };
+};
+
+function serve() {
+  return startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath });
+}
+
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
-let server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner });
+let server = serve();
 const db = core.openDb(dbPath);
 
 const ctxOps = new Set<string>(CTX_OPS);
@@ -90,7 +121,7 @@ const control = Bun.serve({
       // 初期化由来の未通知の変更を、対象の外部書き込みと取り違えないようにする。
       if (req.method === "POST" && path === "/restart-server") {
         await server.stop();
-        server = startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner });
+        server = serve();
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/reset") {
@@ -103,7 +134,22 @@ const control = Bun.serve({
         ghGate = null;
         orcaResults = {};
         orcaCalls = [];
+        rmSync(togglConfigPath, { force: true });
+        togglCurrent = null;
+        togglCalls = [];
         return Response.json({ ok: true });
+      }
+      if (req.method === "POST" && path === "/toggl") {
+        // token が null ならトークンの設定ファイルを消す（未設定）。current は Toggl の現在の打刻
+        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null };
+        if (body.token === null) rmSync(togglConfigPath, { force: true });
+        else if (body.token !== undefined) writeFileSync(togglConfigPath, JSON.stringify({ apiToken: body.token }));
+        if (body.current !== undefined) togglCurrent = body.current;
+        togglCalls = [];
+        return Response.json({ ok: true, configPath: togglConfigPath });
+      }
+      if (req.method === "GET" && path === "/toggl/calls") {
+        return Response.json({ calls: togglCalls, current: togglCurrent, configPath: togglConfigPath });
       }
       if (req.method === "POST" && path === "/orca") {
         orcaResults = ((await req.json()) as { results: Record<string, core.GhRunResult> }).results;
