@@ -63,4 +63,4 @@ Issue の計画（`nod:to-plan` で作った Task と Step）を、依存の順�
 終えた Task・飛ばした Task とその理由・テストの結果・レビューの指摘を簡潔に報告する。続けて、次の一手を番号付きで示し、おすすめを 1 つ理由つきで添えて、ユーザーの選択を待つ（自分から次へ進まない）。指摘の有無でおすすめを変える。
 
 1. レビューの指摘に対応する
-2. PR を作る（PR のタイトル・本文に nod の Issue ID を書かない。作ったら `nod issue link-pr <id> <URL>`、提出は `nod issue done <id> --summary "<要約>"`）
+2. PR を作る（PR のタイトル・本文に nod の Issue ID を書かない）。作ったら `nod issue link-pr <id> <URL>` で紐付ける。PR 連動が有効な Workspace ではこの時点で in_review に進むので、`nod issue done` は要らない（実行すると NOT_IN_PROGRESS で失敗する）。紐付けた後も in_progress のままなら、`nod issue done <id> --summary "<要約>"` で提出する
