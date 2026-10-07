@@ -1,0 +1,5 @@
+interface:
+  display_name: "nod: Implement"
+  short_description: "Issue の計画を最後まで実装する"
+policy:
+  allow_implicit_invocation: false

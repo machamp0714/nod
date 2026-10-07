@@ -1,0 +1,20 @@
+{
+  "name": "nod",
+  "interface": {
+    "displayName": "nod"
+  },
+  "plugins": [
+    {
+      "name": "nod",
+      "source": {
+        "source": "local",
+        "path": "./plugins/nod"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

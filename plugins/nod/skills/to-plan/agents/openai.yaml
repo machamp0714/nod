@@ -1,0 +1,5 @@
+interface:
+  display_name: "nod: To Plan"
+  short_description: "仕様を縦切りの Task にして Issue の計画にする"
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,14 @@
+{
+  "name": "nod",
+  "version": "0.1.0",
+  "description": "仕様（to-spec）→計画（to-plan）→実装（implement）→レビュー（code-review）を nod の Issue に記録しながら進める。",
+  "author": {
+    "name": "machamp0714"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "nod",
+    "shortDescription": "nod の Issue で仕様・計画・実装・レビューを進める",
+    "category": "Developer Tools"
+  }
+}

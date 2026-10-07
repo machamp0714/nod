@@ -1,0 +1,3 @@
+interface:
+  display_name: "nod: Code Review"
+  short_description: "差分を規約と仕様の 2 軸でレビューする"
