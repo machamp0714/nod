@@ -622,9 +622,9 @@
 .commentThread > p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; margin: 0; }
 /* コメント・返信の本文は Markdown で描く。文字の大きさはスレッドの他の本文に合わせる */
 /* min-width: 0 がないと、折り返さないコードブロックや表の幅がカードと Activity 欄を押し広げる */
-.commentBody { min-width: 0; }
-.commentBody > div { font-size: 13px; line-height: 1.6; }
-.threadReply .commentBody > div { font-size: 12.5px; }
+.commentBody { min-width: 0; font-size: 13px; line-height: 1.6; }
+.commentBody > div { font-size: inherit; line-height: inherit; }
+.threadReply .commentBody { font-size: 12.5px; }
 .threadResolved { background: var(--bg); }
 .threadActions { margin-left: auto; display: flex; gap: 2px; }
 .threadAction, .reopenButton {
@@ -994,6 +994,8 @@
 .threadBlocker { border-color: var(--ask); }
 .commentThread p.logMono { font-family: var(--font-mono); font-size: 12px; }
 .logClamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
+/* Markdown の本文は見出しやリストを含むため、行数ではなく本文の行の高さ6つぶんで切る */
+.logClampBox { max-height: 6lh; overflow: hidden; }
 .logToggle {
   display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 0; border: 0; background: transparent;
   color: var(--accent); font-size: 12px; font-weight: 500; cursor: pointer;

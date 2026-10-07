@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { type ComponentProps, useLayoutEffect, useRef, useState } from "react";
 import type { ActivityItem, AgentInstruction, WorkLogKind } from "../../api/types";
 import { formatRelative } from "../../lib/format";
 import { hasText } from "../../lib/issue-edit";
@@ -32,9 +32,13 @@ function WorkLogBadge({ kind }: { kind: WorkLogKind }) {
   );
 }
 
-// 作業ログの本文は6行を超えたら折りたたみ、「続きを表示」で開く。行数は折り返しを含めて実際の表示で測る
+// 作業ログの本文は6行ぶんを超えたら折りたたみ、「続きを表示」で開く。はみ出すかは折り返しを含めて実際の表示で測る。
+// コマンドの出力とテスト結果は桁を崩さないよう等幅の素の文字で6行に、それ以外はコメントと同じく Markdown で6行ぶんの高さに切る
 function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
-  const ref = useRef<HTMLParagraphElement>(null);
+  const ref = useRef<HTMLElement | null>(null);
+  const setRef = (el: HTMLElement | null) => {
+    ref.current = el;
+  };
   const [open, setOpen] = useState(false);
   const [overflow, setOverflow] = useState(false);
   useLayoutEffect(() => {
@@ -43,9 +47,13 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
   }, [body, open]);
   return (
     <>
-      <p ref={ref} className={`${isMonoWorkLog(kind) ? s.logMono : ""} ${open ? "" : s.logClamp}`}>
-        {body}
-      </p>
+      {isMonoWorkLog(kind) ? (
+        <p ref={setRef} className={`${s.logMono} ${open ? "" : s.logClamp}`} data-log-body>
+          {body}
+        </p>
+      ) : (
+        <CommentBody ref={setRef} body={body} className={open ? "" : s.logClampBox} data-log-body />
+      )}
       {(overflow || open) && (
         <button type="button" className={s.logToggle} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? "折りたたむ" : "続きを表示"}
@@ -57,9 +65,9 @@ function WorkLogBody({ body, kind }: { body: string; kind: WorkLogKind }) {
 }
 
 // コメントと返信の本文。LLM は行を改行だけで区切って書くため、説明と同じく改行1つを改行のまま出す
-function CommentBody({ body }: { body: string }) {
+function CommentBody({ body, className = "", ...props }: { body: string } & ComponentProps<"div">) {
   return (
-    <div className={s.commentBody}>
+    <div {...props} className={`${s.commentBody} ${className}`}>
       <Markdown breaks>{body}</Markdown>
     </div>
   );
