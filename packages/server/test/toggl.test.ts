@@ -73,7 +73,7 @@ describe("Toggl 打刻 API", () => {
     const { app, ref, configPath, calls } = withToggl(undefined, { token: null });
     const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ configured: false, configPath, current: null, fetchedAt: null });
+    expect(res.json).toEqual({ configured: false, configPath, current: null, fetchedAt: null, failure: null, unconfirmed: false });
     expect(calls).toEqual([]);
   });
 
@@ -81,7 +81,7 @@ describe("Toggl 打刻 API", () => {
     const { app, ref, configPath, calls } = withToggl(currentIs(null));
     const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: NOW });
+    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: NOW, failure: null, unconfirmed: false });
     expect(calls).toEqual([{ method: "GET", path: "/me/time_entries/current", token: "tok-1" }]);
   });
 
@@ -123,6 +123,8 @@ describe("Toggl 打刻 API", () => {
       configPath,
       current: { id: 601, workspaceId: 77, description: "API-1 検索 API", start: body.start, thisIssue: true },
       fetchedAt: NOW,
+      failure: null,
+      unconfirmed: false,
     });
   });
 
@@ -192,6 +194,8 @@ describe("Toggl 打刻 API", () => {
           configPath,
           current: { id: 777, workspaceId: 77, description: "外で始めた打刻", start: START, thisIssue: false },
           fetchedAt: NOW,
+          failure: null,
+          unconfirmed: false,
         },
       });
       expect(calls.some((c) => c.method === "POST")).toBe(false);
@@ -224,7 +228,7 @@ describe("Toggl 打刻 API", () => {
     expect(res.json.error.details).toEqual({
       previous: { description: "API-10 別の作業", stopped: true },
       start: "failed",
-      view: { configured: true, configPath, current: null, fetchedAt: NOW },
+      view: { configured: true, configPath, current: null, fetchedAt: NOW, failure: null, unconfirmed: false },
     });
     expect(res.json.error.message).toBe("前の打刻「API-10 別の作業」は止まりました。この Issue の打刻は開始できませんでした（HTTP 500）");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
@@ -247,7 +251,7 @@ describe("Toggl 打刻 API", () => {
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
-  test("開始に失敗し、取り直しにも失敗したら「成否を確認できません」と返す", async () => {
+  test("開始に失敗し、取り直しにも失敗したら「成否を確認できません」と返し、取り直せるまで成否不明として扱う", async () => {
     let started = false;
     const { handler } = togglWorld(running("API-10 別の作業"), (req) => {
       if (req.method === "POST") {
@@ -256,10 +260,15 @@ describe("Toggl 打刻 API", () => {
       }
       if (started && req.path === "/me/time_entries/current") return { kind: "network_error", detail: "ECONNREFUSED" };
     });
-    const { app, ref } = withToggl(handler);
+    const { app, ref, configPath } = withToggl(handler);
     const res = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
     expect(res.status).toBe(502);
-    expect(res.json.error.details).toEqual({ previous: { description: "API-10 別の作業", stopped: true }, start: "unknown", view: null });
+    // 前の打刻が止まったことは分かっているので、最後に分かっている状態は「何も動いていない」
+    expect(res.json.error.details).toEqual({
+      previous: { description: "API-10 別の作業", stopped: true },
+      start: "unknown",
+      view: { configured: true, configPath, current: null, fetchedAt: NOW, failure: { kind: "network", detail: "ECONNREFUSED" }, unconfirmed: true },
+    });
     expect(res.json.error.message).toContain("成否を確認できません");
   });
 
@@ -346,7 +355,7 @@ describe("Toggl 打刻 API", () => {
     writeFileSync(configPath, JSON.stringify({ apiToken: "tok-env" }));
     process.env.NOD_TOGGL_CONFIG = configPath;
     const res = await call(app, "GET", `/api/issues/${issue.id}/toggl`);
-    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: expect.any(String) });
+    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: expect.any(String), failure: null, unconfirmed: false });
     expect(toggl.calls.map((c) => c.token)).toEqual(["tok-env"]);
   });
 
@@ -507,5 +516,180 @@ describe("Toggl 打刻 API", () => {
       await call(app, "GET", `/api/issues/${ref}/toggl`);
       expect(calls.map((c) => c.token)).toEqual(["tok-1", "tok-2", "tok-1"]);
     });
+  });
+});
+
+describe("Toggl の失敗の区別", () => {
+  test("認証に失敗（401・403）したら、200 で failure: auth を返す", async () => {
+    for (const status of [401, 403]) {
+      const { app, ref, configPath } = withToggl(() => ({ kind: "ok", status, body: "Unauthorized" }));
+      const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      expect(res.status).toBe(200);
+      expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: null, failure: { kind: "auth", detail: `HTTP ${status}` }, unconfirmed: false });
+    }
+  });
+
+  test("認証に失敗したら開始は TOGGL_AUTH で、Toggl に書き込まない", async () => {
+    const { app, ref, calls } = withToggl(() => ({ kind: "ok", status: 403, body: "Forbidden" }));
+    const res = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
+    expect(res.status).toBe(502);
+    expect(res.json.error.code).toBe("TOGGL_AUTH");
+    expect(res.json.error.details.view).toMatchObject({ current: null, fetchedAt: null, failure: { kind: "auth" }, unconfirmed: false });
+    expect(callNames(calls)).toEqual(["GET /me/time_entries/current"]);
+  });
+
+  test("利用上限（402）では最後に分かっている状態と待つ期限を返し、待っている間はどの操作でも Toggl を呼ばない。期限が過ぎたら取り直す", async () => {
+    let limited = false;
+    const { handler } = togglWorld(running("API-1 検索 API"), (req) =>
+      limited ? { kind: "ok", status: 402, body: "quota", headers: { "x-toggl-quota-resets-in": "120" } } : undefined,
+    );
+    const { app, ref, calls, clock } = withToggl(handler);
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    limited = true;
+    clock.ms += TOGGL_CACHE_TTL_MS;
+    const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
+    expect(res.status).toBe(200);
+    const until = new Date(clock.ms + 120_000).toISOString();
+    expect(res.json).toMatchObject({ current: { id: 501, thisIssue: true }, fetchedAt: NOW, failure: { kind: "quota", detail: "HTTP 402", retryAfter: until }, unconfirmed: false });
+    const before = calls.length;
+    clock.ms += 119_000;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.failure).toMatchObject({ kind: "quota", retryAfter: until });
+    expect((await call(app, "POST", `/api/issues/${ref}/toggl/refresh`)).json.failure).toMatchObject({ kind: "quota" });
+    for (const op of ["start", "stop"]) {
+      const r = await call(app, "POST", `/api/issues/${ref}/toggl/${op}`);
+      expect(r.status).toBe(502);
+      expect(r.json.error.code).toBe("TOGGL_QUOTA");
+      expect(r.json.error.details.view).toMatchObject({ current: { id: 501 }, failure: { kind: "quota", retryAfter: until } });
+    }
+    expect(calls).toHaveLength(before);
+    limited = false;
+    clock.ms += 1000;
+    const after = await call(app, "GET", `/api/issues/${ref}/toggl`);
+    expect(after.json).toMatchObject({ failure: null, fetchedAt: new Date(clock.ms).toISOString() });
+    expect(calls).toHaveLength(before + 1);
+  });
+
+  test("429 も利用上限として扱い、Retry-After（秒・日付）を待つ。ヘッダが無ければ 1 分待つ", async () => {
+    const at = new Date(Date.parse(NOW) + 30_000).toUTCString();
+    for (const [headers, waitMs] of [
+      [{ "retry-after": "7" }, 7_000],
+      [{ "retry-after": at }, 30_000],
+      [undefined, 60_000],
+    ] as const) {
+      const { app, ref } = withToggl(() => ({ kind: "ok", status: 429, body: "Too Many Requests", headers }));
+      const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      expect(res.json.failure).toEqual({ kind: "quota", detail: "HTTP 429", retryAfter: new Date(Date.parse(NOW) + waitMs).toISOString() });
+    }
+  });
+
+  test("開始・停止の書き込みが利用上限で断られたら、待ち終わるまで Toggl を呼ばない", async () => {
+    const { handler } = togglWorld(running("API-10 別の作業"), (req) =>
+      req.method === "POST" ? { kind: "ok", status: 402, body: "quota", headers: { "x-toggl-quota-resets-in": "600" } } : undefined,
+    );
+    const { app, ref, calls } = withToggl(handler);
+    const res = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
+    expect(res.json.error.code).toBe("TOGGL_START_FAILED");
+    expect(res.json.error.message).toBe("前の打刻「API-10 別の作業」は止まりました。この Issue の打刻は開始できませんでした（HTTP 402）");
+    // 前の打刻が止まったことは分かっているので、取り直さずにそれを返す
+    expect(res.json.error.details.view).toMatchObject({ current: null, failure: { kind: "quota" }, unconfirmed: false });
+    const before = calls.length;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.failure).toMatchObject({ kind: "quota" });
+    expect(calls).toHaveLength(before);
+  });
+
+  test("通信に失敗したら、初めての取得なら current も fetchedAt も null、以前に取得していれば最後に分かっている状態を返す", async () => {
+    let down = true;
+    const { handler } = togglWorld(running("API-1 検索 API"), () => (down ? { kind: "network_error", detail: "ECONNREFUSED" } : undefined));
+    const { app, ref, calls, clock } = withToggl(handler);
+    const first = await call(app, "GET", `/api/issues/${ref}/toggl`);
+    expect(first.status).toBe(200);
+    expect(first.json).toMatchObject({ current: null, fetchedAt: null, failure: { kind: "network", detail: "ECONNREFUSED" }, unconfirmed: false });
+    down = false;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toMatchObject({ current: { id: 501 }, fetchedAt: NOW, failure: null });
+    down = true;
+    clock.ms += TOGGL_CACHE_TTL_MS;
+    const later = await call(app, "POST", `/api/issues/${ref}/toggl/refresh`);
+    expect(later.json).toMatchObject({ current: { id: 501, thisIssue: true }, fetchedAt: NOW, failure: { kind: "network" } });
+    // 通信の失敗は待たない。次の表示でまた取り直す
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    expect(calls).toHaveLength(4);
+  });
+
+  test("成否を確認できなかったら、期限内でも次の表示で取り直し、取り直せるまで unconfirmed を返す", async () => {
+    let down = false;
+    const { world, handler } = togglWorld(running("API-1 検索 API"), (req) => {
+      if (req.method === "PATCH") {
+        world.current = null;
+        down = true;
+        return { kind: "timeout" };
+      }
+      if (down) return { kind: "network_error", detail: "ECONNRESET" };
+    });
+    const { app, ref, calls } = withToggl(handler);
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    const stop = await call(app, "POST", `/api/issues/${ref}/toggl/stop`);
+    expect(stop.json.error.message).toContain("成否を確認できません");
+    expect(stop.json.error.details.view).toMatchObject({ current: { id: 501 }, unconfirmed: true });
+    const before = calls.length;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toMatchObject({ unconfirmed: true, failure: { kind: "network" } });
+    expect(calls).toHaveLength(before + 1);
+    // 停止もキャッシュの打刻 ID を使わずに取り直す
+    expect((await call(app, "POST", `/api/issues/${ref}/toggl/stop`)).json.error.details.view).toMatchObject({ unconfirmed: true });
+    expect(callNames(calls.slice(before + 1))).toEqual(["GET /me/time_entries/current"]);
+    down = false;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toMatchObject({ current: null, unconfirmed: false, failure: null });
+  });
+
+  test("遅れて届いた取得の結果で、その間に済んだ開始の結果を上書きしない", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let first = true;
+    const { handler } = togglWorld(null, async (req) => {
+      if (req.method === "GET" && req.path === "/me/time_entries/current" && first) {
+        first = false;
+        await gate;
+        return { kind: "ok", status: 200, body: null };
+      }
+      return undefined;
+    });
+    const { app, ref, calls } = withToggl(handler);
+    const slow = call(app, "GET", `/api/issues/${ref}/toggl`);
+    await Bun.sleep(20);
+    expect((await call(app, "POST", `/api/issues/${ref}/toggl/start`)).json.current).toMatchObject({ id: 601 });
+    release();
+    expect((await slow).json.current).toMatchObject({ id: 601 });
+    const before = calls.length;
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.current).toMatchObject({ id: 601, thisIssue: true });
+    expect(calls).toHaveLength(before);
+  });
+
+  test("遅れて届いた取得の結果で、その間に成否不明になったことを消さない", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let gets = 0;
+    let down = false;
+    const { handler } = togglWorld(running("API-1 検索 API"), async (req) => {
+      if (req.method === "PATCH") {
+        down = true;
+        return { kind: "timeout" };
+      }
+      if (req.path !== "/me/time_entries/current") return undefined;
+      gets++;
+      // 2 回めの取得（遅い表示）は停止の前の状態を遅れて返す
+      if (gets === 2) {
+        await gate;
+        return { kind: "ok", status: 200, body: running("API-1 検索 API") };
+      }
+      if (down) return { kind: "network_error", detail: "ECONNRESET" };
+    });
+    const { app, ref, clock } = withToggl(handler);
+    await call(app, "GET", `/api/issues/${ref}/toggl`);
+    clock.ms += TOGGL_CACHE_TTL_MS;
+    const slow = call(app, "GET", `/api/issues/${ref}/toggl`);
+    await Bun.sleep(20);
+    expect((await call(app, "POST", `/api/issues/${ref}/toggl/stop`)).json.error.details.view.unconfirmed).toBe(true);
+    release();
+    expect((await slow).json.unconfirmed).toBe(true);
+    expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.unconfirmed).toBe(true);
   });
 });

@@ -57,8 +57,9 @@ let togglCurrent: FakeTogglEntry | null = null;
 let togglCalls: core.TogglRequest[] = [];
 let togglNextId = 9001;
 // 切り替えの途中の失敗を起こす。start: 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）。
-// stop: "conflict" なら止めようとした打刻がほかで止められていた（409）。currentAfterStart: 開始のあとの取り直しが通信に失敗する
-type TogglFailures = { start?: "http_error" | "timeout"; stop?: "conflict"; currentAfterStart?: boolean };
+// stop: "conflict" なら止めようとした打刻がほかで止められていた（409）。currentAfterStart: 開始のあとの取り直しが通信に失敗する。
+// current: 現在の打刻の取得が認証の失敗（401）・利用上限（402。10 分待つ）・通信の失敗になる
+type TogglFailures = { start?: "http_error" | "timeout"; stop?: "conflict"; currentAfterStart?: boolean; current?: "auth" | "quota" | "network" };
 let togglFailures: TogglFailures = {};
 let togglStartAttempted = false;
 // server の現在の打刻のキャッシュ。テストの間で持ち越さないよう、/reset と /toggl で消す
@@ -69,6 +70,9 @@ const togglClient: core.TogglClient = async (req) => {
   if (req.method === "GET" && req.path === "/me") return ok({ id: 1, default_workspace_id: TOGGL_WORKSPACE_ID });
   if (req.method === "GET" && req.path === "/me/time_entries/current") {
     if (togglStartAttempted && togglFailures.currentAfterStart) return { kind: "network_error", detail: "ECONNRESET" };
+    if (togglFailures.current === "auth") return { kind: "ok", status: 401, body: "Unauthorized" };
+    if (togglFailures.current === "quota") return { kind: "ok", status: 402, body: "quota exceeded", headers: { "x-toggl-quota-resets-in": "600" } };
+    if (togglFailures.current === "network") return { kind: "network_error", detail: "ECONNREFUSED" };
     return ok(togglCurrent);
   }
   if (req.method === "POST" && req.path === `/workspaces/${TOGGL_WORKSPACE_ID}/time_entries`) {

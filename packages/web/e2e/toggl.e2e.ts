@@ -197,15 +197,28 @@ test.describe("切り替えの途中の失敗", () => {
     expect((await togglState()).calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
-  test("開始に失敗し、取り直しにも失敗したら「成否を確認できません」と出す", async ({ page, nod }) => {
+  test("開始に失敗し、取り直しにも失敗したら「成否を確認できません」と出し、取り直せるまでボタンを無効にする", async ({ page, nod }) => {
     const id = await issue(nod);
     await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10), failures: { start: "timeout", currentAfterStart: true } });
     await page.goto(`/issues/${id}`);
     const panel = toggl(page);
     await panel.getByRole("button", { name: "この Issue に切り替える" }).click();
 
-    await expect(panel.getByRole("alert").first()).toHaveText(/成否を確認できません/);
+    await expect(panel.getByRole("alert")).toHaveText(/成否を確認できません/);
+    // 操作前の打刻と切り替えボタンは残さず、「未確認」としてボタンを無効にする
+    await expect(panel.getByText("未確認")).toBeVisible();
+    // 打刻の説明（文言の中の引用は除く）
+    await expect(panel.getByText("API-99 レビュー対応", { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
     expect((await togglState()).calls.filter((c) => c.method === "POST")).toHaveLength(1);
+
+    // 開き直しても取り直せなければ無効のまま。取り直せたらその状態を出す
+    await page.reload();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
+    await stubToggl({ failures: {}, keepCache: true });
+    await panel.getByRole("button", { name: "最新にする" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeEnabled();
   });
 
   test("止めようとした打刻がほかで止められていたら、中断して取り直した状態を出す", async ({ page, nod }) => {
@@ -218,5 +231,67 @@ test.describe("切り替えの途中の失敗", () => {
     await expect(panel.getByRole("alert")).toHaveText(/ほかで変わっていたため、操作を中断しました/);
     await expect(panel.getByText("停止中")).toBeVisible();
     expect((await togglState()).calls.some((c) => c.method === "POST")).toBe(false);
+  });
+});
+
+test.describe("Toggl を呼べなかったとき", () => {
+  // server がわざと 502 を返す
+  test.use({ allowedConsoleErrors: [/status of 502/] });
+
+  test("トークンが受け付けられなければボタンを無効にし、トークンを直す案内を出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-bad", current: null, failures: { current: "auth" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByText(/API トークンが受け付けられませんでした（HTTP 401）/)).toBeVisible();
+    const { configPath } = await togglState();
+    await expect(panel.getByText(configPath)).toBeVisible();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeDisabled();
+    await expect(panel.getByText("停止中")).toHaveCount(0);
+  });
+
+  test("利用上限に達したら最後に分かっている状態を「〜時点」と添えて出し、待っている間はボタンを無効にして理由を出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running("API-99 レビュー対応", 10) });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeEnabled();
+
+    await stubToggl({ failures: { current: "quota" }, keepCache: true });
+    await panel.getByRole("button", { name: "最新にする" }).click();
+    await expect(panel.getByText(/利用上限に達したため、\d\d:\d\d まで打刻を操作できません/)).toBeVisible();
+    await expect(panel.getByText("API-99 レビュー対応")).toBeVisible();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeDisabled();
+    await expect(panel.getByRole("button", { name: "最新にする" })).toBeDisabled();
+
+    // 開き直しても待っている間は Toggl を呼ばない
+    await page.reload();
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeDisabled();
+    expect((await togglState()).calls).toHaveLength(1);
+  });
+
+  test("初めての取得に通信で失敗したら「停止中」ではなく「未確認」と出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: null, failures: { current: "network" } });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByText("未確認")).toBeVisible();
+    await expect(panel.getByText("停止中")).toHaveCount(0);
+    await expect(panel.getByText(/Toggl に接続できませんでした（ECONNREFUSED）。打刻の状態は分かりません/)).toBeVisible();
+  });
+
+  test("以前に取得していれば、通信に失敗しても最後に分かっている状態を「〜時点」と添えて出す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running(`${id} 検索 API の N+1 を解消`, 5) });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+
+    await stubToggl({ failures: { current: "network" }, keepCache: true });
+    await panel.getByRole("button", { name: "最新にする" }).click();
+    await expect(panel.getByText(/Toggl に接続できませんでした（ECONNREFUSED）。表示は最後に分かっている状態です/)).toBeVisible();
+    await expect(panel.getByRole("timer", { name: "経過時間" })).toBeVisible();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
   });
 });
