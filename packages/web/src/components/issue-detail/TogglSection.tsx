@@ -112,13 +112,15 @@ export function TogglSection({ issueId }: { issueId: string }) {
   const pendingProject = action.isPending && action.variables?.op === "project" ? action.variables.projectId : undefined;
   const shownProject = display.kind === "this_issue" ? (pendingProject !== undefined ? pendingProject : display.entry.projectId) : startProject;
   // 開始・停止・Project の変更と「最新にする」は、前の操作の失敗の表示を消してから行う。
-  // 開始・変更に成功した Project を、次の開始の初期値としてブラウザに覚える
+  // 開始・変更に成功した Project を、次の開始の初期値としてブラウザに覚える。ただし応答の打刻に付いた Project が選んだものと
+  // 違えば覚えない（この Issue の打刻がすでに動いていると、開始は新しく作らずに今の打刻を返し、選んだ Project は使われない）
   const run = (input: TogglActionInput) => {
     refresh.reset();
     projectsRefresh.reset();
     action.mutate(input, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         if (input.op === "stop") return;
+        if (result.current?.thisIssue !== true || result.current.projectId !== input.projectId) return;
         saveLastProject(input.projectId);
         setLastProject(input.projectId);
       },

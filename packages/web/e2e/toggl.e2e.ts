@@ -389,6 +389,30 @@ test.describe("Project", () => {
     await expect(select).toHaveValue("");
   });
 
+  test("この Issue の打刻がすでに動いていて開始が既存の打刻を返したら、その打刻の Project を出し、選んだ Project は覚えない", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: null, projects: PROJECTS });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+    // nod の外でこの Issue の打刻が Project「nod」で始まっていた（表示はまだ停止中）
+    await stubToggl({ current: { ...running(`${id} 検索 API の N+1 を解消`, 5), project_id: 11 }, keepCache: true });
+    const select = projectSelect(page);
+    await select.selectOption({ label: "社内業務" });
+    await panel.getByRole("button", { name: "打刻を開始" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    // 開始は既存の打刻を返し、新しく作らない。表示は実際の打刻の Project
+    await expect(select).toHaveValue("11");
+    expect((await togglState()).calls.some((c) => c.method === "POST")).toBe(false);
+    // 使われなかった「社内業務」は次の開始の初期値にしない
+    await panel.getByRole("button", { name: "打刻を停止" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+    await page.reload();
+    await expect(select).toBeEnabled();
+    await expect(select.getByRole("option")).toHaveText(["Project なし", "nod", "社内業務"]);
+    await expect(select).toHaveValue("");
+  });
+
   test("前回の Project が一覧に無くなっていたら「Project なし」にする", async ({ page, nod }) => {
     const id = await issue(nod);
     await page.addInitScript(() => window.localStorage.setItem("nod.toggl.projectId", "99"));
@@ -431,8 +455,8 @@ test.describe("Project", () => {
   });
 
   test.describe("変更の失敗", () => {
-    // server がわざと 502 を返す
-    test.use({ allowedConsoleErrors: [/status of 502/] });
+    // server がわざと 409・502 を返す
+    test.use({ allowedConsoleErrors: [/status of (409|502)/] });
 
     test("Project の変更に失敗したら知らせ、再送しない", async ({ page, nod }) => {
       const id = await issue(nod);
@@ -444,6 +468,19 @@ test.describe("Project", () => {
       await expect(toggl(page).getByRole("alert")).toHaveText(/打刻の Project を変更できませんでした（HTTP 500）/);
       // 取り直した打刻の Project を出す
       await expect(select).toHaveValue("");
+      expect((await togglState()).calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+    });
+
+    test("ほかで止められていた打刻の Project を変えてしまったら、その打刻と変えた Project を知らせ、取り直した状態を出す。戻さない", async ({ page, nod }) => {
+      const id = await issue(nod);
+      await stubToggl({ token: "tok-e2e", current: running(`${id} 検索 API の N+1 を解消`, 5), projects: PROJECTS, failures: { update: "stopped" } });
+      await page.goto(`/issues/${id}`);
+      const panel = toggl(page);
+      await projectSelect(page).selectOption({ label: "nod" });
+      await expect(panel.getByRole("alert")).toHaveText(
+        `Toggl の打刻「${id} 検索 API の N+1 を解消」はほかで止まっていましたが、止まった打刻の Project を「nod」に変更しました。最新の状態を表示します`,
+      );
+      await expect(panel.getByText("停止中")).toBeVisible();
       expect((await togglState()).calls.filter((c) => c.method === "PUT")).toHaveLength(1);
     });
   });

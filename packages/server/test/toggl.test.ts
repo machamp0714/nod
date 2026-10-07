@@ -914,27 +914,63 @@ describe("Toggl の Project", () => {
       expect(res.json.error.details.view).toMatchObject({ unconfirmed: true, failure: { kind: "network" } });
     });
 
-    test("変更しようとした打刻がほかで止められていたら、競合として取り直した状態を返す", async () => {
-      // 無い打刻（404）と、止まった打刻の Project が変わった応答（Toggl は止まった打刻も編集できる）
-      for (const resp of [
-        { kind: "ok", status: 404, body: null },
-        { kind: "ok", status: 200, body: { ...running("API-1 検索 API"), duration: 60, project_id: 11 } },
-      ] as const) {
-        const box: { world?: { current: unknown } } = {};
-        const { world, handler } = togglWorld(running("API-1 検索 API"), (req) => {
-          if (req.method !== "PUT") return undefined;
-          box.world!.current = null;
-          return resp;
-        });
-        box.world = world;
-        const { app, ref, calls } = withToggl(handler);
+    // 変更しようとした打刻を、PUT の前にほかで止める偽の Toggl。resp は PUT の応答
+    function stoppedBeforePut(resp: TogglResponse) {
+      const box: { world?: { current: unknown } } = {};
+      const { world, handler } = togglWorld(running("API-1 検索 API"), (req) => {
+        if (req.method !== "PUT") return undefined;
+        box.world!.current = null;
+        return resp;
+      });
+      box.world = world;
+      return handler;
+    }
+
+    test("変更しようとした打刻が無かった（404）ら、競合として取り直した状態を返す", async () => {
+      const { app, ref, calls } = withToggl(stoppedBeforePut({ kind: "ok", status: 404, body: null }));
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/project`, { projectId: 11 });
+      expect(res.status).toBe(409);
+      expect(res.json.error.code).toBe("TOGGL_CONFLICT");
+      expect(res.json.error.details.view.current).toBeNull();
+      expect(callNames(calls).at(-1)).toBe("GET /me/time_entries/current");
+    });
+
+    test("変更の応答で打刻がすでに止まっていたと分かったら、止まった打刻の Project を変えたことを知らせ、取り直した状態を返す。戻さない・再送しない", async () => {
+      // Toggl は止まった打刻も編集できるので、PUT は成功し、止まった打刻の Project が変わる
+      const stopped = (projectId: number | null) => ({ ...running("API-1 検索 API"), duration: 60, project_id: projectId });
+      for (const [projectId, name] of [[11, "nod"], [null, "Project なし"]] as const) {
+        const { app, ref, calls } = withToggl(stoppedBeforePut({ kind: "ok", status: 200, body: stopped(projectId) }));
+        await call(app, "GET", "/api/toggl/projects");
         await call(app, "GET", `/api/issues/${ref}/toggl`);
-        const res = await call(app, "POST", `/api/issues/${ref}/toggl/project`, { projectId: 11 });
+        const res = await call(app, "POST", `/api/issues/${ref}/toggl/project`, { projectId });
         expect(res.status).toBe(409);
         expect(res.json.error.code).toBe("TOGGL_CONFLICT");
+        expect(res.json.error.message).toBe(
+          `Toggl の打刻「API-1 検索 API」はほかで止まっていましたが、止まった打刻の Project を「${name}」に変更しました。最新の状態を表示します`,
+        );
         expect(res.json.error.details.view.current).toBeNull();
+        expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
         expect(callNames(calls).at(-1)).toBe("GET /me/time_entries/current");
       }
+    });
+
+    test("止まった打刻の Project の名前が分からなければ ID で知らせる。取り直しにも失敗したら「成否を確認できません」と添える", async () => {
+      let down = false;
+      const { handler } = togglWorld(running("API-1 検索 API"), (req) => {
+        if (req.method === "PUT") {
+          down = true;
+          return { kind: "ok", status: 200, body: { ...running("API-1 検索 API"), duration: 60, project_id: 99 } };
+        }
+        if (down && req.path === "/me/time_entries/current") return { kind: "network_error", detail: "ECONNRESET" };
+      });
+      const { app, ref } = withToggl(handler);
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/project`, { projectId: 99 });
+      expect(res.json.error.message).toBe(
+        "Toggl の打刻「API-1 検索 API」はほかで止まっていましたが、止まった打刻の Project を「ID 99 の Project」に変更しました。現在の打刻を取得できず、成否を確認できません",
+      );
+      expect(res.json.error.details.view).toMatchObject({ unconfirmed: true });
     });
 
     test("認証の失敗・利用上限の待ちを覚えている間は Toggl を呼ばずに断る", async () => {

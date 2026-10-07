@@ -90,6 +90,12 @@ const togglClient: core.TogglClient = async (req) => {
   if (req.method === "PUT" && update && togglFailures.update === "http_error") return { kind: "ok", status: 500, body: "Internal Server Error" };
   if (req.method === "PUT" && update && togglCurrent?.id === Number(update[2])) {
     togglCurrent = { ...togglCurrent, project_id: (req.body as { project_id: number | null }).project_id };
+    if (togglFailures.update === "stopped") {
+      // Toggl は止まった打刻も編集できる。止まった打刻の Project が変わる
+      const stopped = { ...togglCurrent, duration: Math.round((Date.now() - Date.parse(togglCurrent.start)) / 1000) };
+      togglCurrent = null;
+      return ok(stopped);
+    }
     return ok(togglCurrent);
   }
   const stop = /^\/workspaces\/(\d+)\/time_entries\/(\d+)\/stop$/.exec(req.path);

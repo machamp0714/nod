@@ -99,7 +99,8 @@ export interface FakeTogglFailures {
   // auth・quota はどの呼び出しも 401・402（X-Toggl-Quota-Resets-In: 600）になる。network は現在の打刻の取得が接続できないになる
   current?: "auth" | "quota" | "network";
   projects?: "network"; // Project の一覧の取得が接続できないになる
-  update?: "http_error"; // 打刻の Project の変更が HTTP 500 で断られる
+  // 打刻の Project の変更が HTTP 500 で断られる・ほかで止められた打刻の Project を変える（止まった打刻を返す）
+  update?: "http_error" | "stopped";
 }
 
 // Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。

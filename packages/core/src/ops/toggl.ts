@@ -295,11 +295,18 @@ async function refetchAfterFailure(session: TogglSession, write?: TogglResponse)
 // 取り直しにも失敗したときに、失敗の文言に添える
 const UNCONFIRMED_SUFFIX = "。現在の打刻を取得できず、成否を確認できません";
 
-// 外部との競合を検出したら、それ以上 Toggl に書き込まずに中断し、取り直した状態を返す
-async function abortOnConflict(session: TogglSession): Promise<never> {
+// 外部との競合を検出したら、それ以上 Toggl に書き込まずに中断し、取り直した状態を返す。reason は競合で起きたことの文言（省けば中断したことだけ）
+async function abortOnConflict(session: TogglSession, reason = "Toggl の打刻がほかで変わっていたため、操作を中断しました"): Promise<never> {
   const view = await refetchAfterFailure(session);
-  const message = `Toggl の打刻がほかで変わっていたため、操作を中断しました${view.unconfirmed ? UNCONFIRMED_SUFFIX : "。最新の状態を表示します"}`;
+  const message = `${reason}${view.unconfirmed ? UNCONFIRMED_SUFFIX : "。最新の状態を表示します"}`;
   throw new NodError("TOGGL_CONFLICT", message, { view } satisfies TogglFailureDetails);
+}
+
+// 知らせに出す Project の名前。一覧を取得していなければ（Toggl を呼ばずに）ID で出す
+function projectLabel(session: TogglAuth, projectId: number | null): string {
+  if (projectId === null) return "Project なし";
+  const project = session.deps.cache.projects(session.token)?.projects.find((p) => p.id === projectId);
+  return project ? project.name : `ID ${projectId} の Project`;
 }
 
 // 開始・停止の失敗・競合で返す補足。view は取り直した現在の打刻（取り直せなければ最後に分かっている状態と unconfirmed: true）
@@ -418,7 +425,7 @@ export async function stopTogglEntry(db: Database, ref: string, deps: TogglDeps)
 // この Issue の打刻の Project を変える（PUT .../time_entries/{id} に project_id。null なら Project なし）。
 // 停止と同じく、キャッシュの打刻 ID で行い（キャッシュが無い・成否を確認できていなければ取得する）、この Issue の打刻でなければ変えない。
 // 変えようとした打刻が無かった・すでに止まっていた（Toggl は止まった打刻も編集できるので、応答の duration で見る）なら、
-// 競合として取り直した状態を返す。そのほかの失敗でも再送せずに取り直し、その状態を返す
+// 競合として取り直した状態を返す（止まっていた打刻の Project を変えたことは知らせる）。そのほかの失敗でも再送せずに取り直し、その状態を返す
 export async function setTogglEntryProject(db: Database, ref: string, deps: TogglDeps, projectId: number | null): Promise<TogglIssueView> {
   const session = requireSession(db, ref, deps);
   let snapshot: TogglSnapshot;
@@ -441,7 +448,11 @@ export async function setTogglEntryProject(db: Database, ref: string, deps: Togg
     throw new NodError("TOGGL_FAILED", `${message}${view.unconfirmed ? UNCONFIRMED_SUFFIX : ""}`, { view } satisfies TogglFailureDetails);
   }
   const updated = res.body as TogglEntryBody;
-  if (typeof updated.duration === "number" && updated.duration >= 0) return abortOnConflict(session);
+  // 止まっていた打刻の Project は変わってしまった。戻さず（自動で再送しない）、どの打刻をどの Project にしたかを知らせる
+  if (typeof updated.duration === "number" && updated.duration >= 0) {
+    const reason = `Toggl の打刻「${current.description}」はほかで止まっていましたが、止まった打刻の Project を「${projectLabel(session, toEntry(updated).projectId)}」に変更しました`;
+    return abortOnConflict(session, reason);
+  }
   return viewOf(session, deps.cache.set(session.token, toEntry(updated)));
 }
 
