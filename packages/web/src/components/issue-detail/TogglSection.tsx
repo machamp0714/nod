@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import { useToggl, useTogglAction } from "../../api/hooks/toggl";
+import { useToggl, useTogglAction, useTogglRefresh } from "../../api/hooks/toggl";
 import { Button, Icon } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -26,6 +26,13 @@ function Elapsed({ start }: { start: string }) {
   );
 }
 
+// 表示している状態がいつ Toggl で分かったものか（ローカル時刻の「HH:mm 時点」）
+function formatFetchedAt(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return Number.isNaN(d.getTime()) ? iso : `${pad(d.getHours())}:${pad(d.getMinutes())} 時点`;
+}
+
 // 開始・停止の失敗の表示。切り替えの途中の失敗・競合は、server が前の打刻と新しい打刻の成否を書いた文言をそのまま出す
 function actionErrorText(err: Error): string {
   if (err instanceof ApiError && (err.code === "TOGGL_START_FAILED" || err.code === "TOGGL_CONFLICT")) return err.message;
@@ -37,12 +44,22 @@ function actionErrorText(err: Error): string {
 export function TogglSection({ issueId }: { issueId: string }) {
   const query = useToggl(issueId);
   const action = useTogglAction(issueId);
+  const refresh = useTogglRefresh(issueId);
   const view = query.data;
   const current = view?.current ?? null;
   const mine = current?.thisIssue ? current : null;
   const other = current && !current.thisIssue ? current : null;
-  const busy = action.isPending || query.isPending;
-  const error = action.error ?? query.error;
+  const busy = action.isPending || query.isPending || refresh.isPending;
+  const error = action.error ?? refresh.error ?? query.error;
+  // 開始・停止と「最新にする」は、前の操作の失敗の表示を消してから行う
+  const run = (op: "start" | "stop") => {
+    refresh.reset();
+    action.mutate(op);
+  };
+  const reload = () => {
+    action.reset();
+    refresh.mutate();
+  };
 
   return (
     <section className={s.panel} aria-label="Toggl 打刻" aria-busy={busy}>
@@ -51,7 +68,7 @@ export function TogglSection({ issueId }: { issueId: string }) {
         {mine ? (
           <div className={s.togglRow}>
             <Elapsed start={mine.start} />
-            <Button size="sm" icon="square" disabled={busy} onClick={() => action.mutate("stop")}>
+            <Button size="sm" icon="square" disabled={busy} onClick={() => run("stop")}>
               打刻を停止
             </Button>
           </div>
@@ -62,7 +79,7 @@ export function TogglSection({ issueId }: { issueId: string }) {
               <span className={s.togglOtherDescription}>{other.description || "（説明なし）"}</span>
             </p>
             <div className={s.togglRow}>
-              <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => action.mutate("start")}>
+              <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => run("start")}>
                 この Issue に切り替える
               </Button>
             </div>
@@ -71,9 +88,27 @@ export function TogglSection({ issueId }: { issueId: string }) {
           <div className={s.togglRow}>
             {/* 読み込み中・取得の失敗では「停止中」と言い切らない */}
             <span className={s.togglIdle}>{view?.configured === false ? "未設定" : view?.configured === true ? "停止中" : ""}</span>
-            <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => action.mutate("start")}>
+            <Button size="sm" icon="play" disabled={busy || view?.configured !== true} onClick={() => run("start")}>
               打刻を開始
             </Button>
+          </div>
+        )}
+        {/* 取得時刻と「最新にする」。初めての取得に失敗したときも取り直せるように出す */}
+        {(view?.configured || query.isError) && (
+          <div className={s.prFetchRow}>
+            <span className={s.prFetched} title={view?.fetchedAt ?? undefined}>
+              {refresh.isPending ? "取得中…" : view?.fetchedAt ? formatFetchedAt(view.fetchedAt) : ""}
+            </span>
+            <button
+              type="button"
+              className={s.prRefresh}
+              aria-label="最新にする"
+              title="Toggl から現在の打刻を取り直す"
+              disabled={busy}
+              onClick={reload}
+            >
+              <Icon name={refresh.isPending ? "loader-circle" : "refresh-cw"} size={12} />
+            </button>
           </div>
         )}
         {view?.configured === false && (

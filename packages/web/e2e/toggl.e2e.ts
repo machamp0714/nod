@@ -97,6 +97,75 @@ test("別の打刻が動いているときは、その説明と「この Issue �
   expect(current?.description).toBe(`${id} 検索 API の N+1 を解消`);
 });
 
+test.describe("現在の打刻のキャッシュ", () => {
+  const currentCalls = async () => (await togglState()).calls.filter((c) => c.path === "/me/time_entries/current").length;
+
+  test("取得時刻を添えて表示し、詳細ページを開き直しても別の Issue を開いても期限内は Toggl を呼ばない", async ({ page, nod }) => {
+    const api = await seedApiWorkspace(nod);
+    const first = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索 API" });
+    const second = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "一覧 API" });
+    await stubToggl({ token: "tok-e2e", current: running(`${first.id} 検索 API`, 5) });
+    await page.goto(`/issues/${first.id}`);
+    const panel = toggl(page);
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
+
+    await page.reload();
+    await expect(panel.getByRole("button", { name: "打刻を停止" })).toBeVisible();
+    // 同じキャッシュを、別の Issue では「別の打刻」として表示する
+    await page.goto(`/issues/${second.id}`);
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeVisible();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
+    expect(await currentCalls()).toBe(1);
+  });
+
+  test("Toggl 側の変化は「最新にする」を押したときだけ取り直して反映する", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: null });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByText("停止中")).toBeVisible();
+
+    // nod の外で Toggl の打刻が始まった。開き直してもキャッシュの状態のまま
+    await stubToggl({ current: running("Toggl で始めた打刻", 1), keepCache: true });
+    await page.reload();
+    await expect(panel.getByText("停止中")).toBeVisible();
+    expect(await currentCalls()).toBe(0);
+
+    await panel.getByRole("button", { name: "最新にする" }).click();
+    await expect(panel.getByText("Toggl で始めた打刻")).toBeVisible();
+    await expect(panel.getByRole("button", { name: "この Issue に切り替える" })).toBeVisible();
+    expect(await currentCalls()).toBe(1);
+  });
+
+  test("停止はキャッシュの打刻 ID で行い、直前に取り直さない", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: running(`${id} 検索 API の N+1 を解消`, 5) });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await panel.getByRole("button", { name: "打刻を停止" }).click();
+    await expect(panel.getByRole("button", { name: "打刻を開始" })).toBeEnabled();
+    await expect(panel.getByText(/^\d\d:\d\d 時点$/)).toBeVisible();
+    expect((await togglState()).calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /me/time_entries/current",
+      "PATCH /workspaces/4242/time_entries/501/stop",
+    ]);
+  });
+
+  test("トークンを書き換えたら、開き直したときに新しいトークンで取り直す", async ({ page, nod }) => {
+    const id = await issue(nod);
+    await stubToggl({ token: "tok-e2e", current: null });
+    await page.goto(`/issues/${id}`);
+    const panel = toggl(page);
+    await expect(panel.getByText("停止中")).toBeVisible();
+
+    await stubToggl({ token: "tok-new", current: running("新しいアカウントの打刻", 1), keepCache: true });
+    await page.reload();
+    await expect(panel.getByText("新しいアカウントの打刻")).toBeVisible();
+    expect((await togglState()).calls.map((c) => c.token)).toEqual(["tok-new"]);
+  });
+});
+
 test.describe("切り替えの途中の失敗", () => {
   // server がわざと 409・502 を返す
   test.use({ allowedConsoleErrors: [/status of (409|502)/] });

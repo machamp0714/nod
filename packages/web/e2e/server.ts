@@ -61,6 +61,8 @@ let togglNextId = 9001;
 type TogglFailures = { start?: "http_error" | "timeout"; stop?: "conflict"; currentAfterStart?: boolean };
 let togglFailures: TogglFailures = {};
 let togglStartAttempted = false;
+// server の現在の打刻のキャッシュ。テストの間で持ち越さないよう、/reset と /toggl で消す
+const togglCache = core.createTogglCache();
 const togglClient: core.TogglClient = async (req) => {
   togglCalls.push(req);
   const ok = (body: unknown): core.TogglResponse => ({ kind: "ok", status: 200, body });
@@ -91,7 +93,7 @@ const togglClient: core.TogglClient = async (req) => {
 };
 
 function serve() {
-  return startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath });
+  return startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath, togglCache });
 }
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する
@@ -154,18 +156,20 @@ const control = Bun.serve({
         togglCalls = [];
         togglFailures = {};
         togglStartAttempted = false;
+        togglCache.clear();
         return Response.json({ ok: true });
       }
       if (req.method === "POST" && path === "/toggl") {
         // token が null ならトークンの設定ファイルを消す（未設定）。current は Toggl の現在の打刻
-        // failures は切り替えの途中の失敗（省くと失敗しない）
-        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null; failures?: TogglFailures };
+        // failures は切り替えの途中の失敗（省くと失敗しない）。keepCache なら server のキャッシュを消さない（Toggl 側だけが変わったとき）
+        const body = (await req.json()) as { token?: string | null; current?: FakeTogglEntry | null; failures?: TogglFailures; keepCache?: boolean };
         if (body.token === null) rmSync(togglConfigPath, { force: true });
         else if (body.token !== undefined) writeFileSync(togglConfigPath, JSON.stringify({ apiToken: body.token }));
         if (body.current !== undefined) togglCurrent = body.current;
         togglFailures = body.failures ?? {};
         togglStartAttempted = false;
         togglCalls = [];
+        if (!body.keepCache) togglCache.clear();
         return Response.json({ ok: true, configPath: togglConfigPath });
       }
       if (req.method === "GET" && path === "/toggl/calls") {

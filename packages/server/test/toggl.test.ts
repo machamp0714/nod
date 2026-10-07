@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createIssue, type TogglClient, type TogglRequest, type TogglResponse } from "@nod/core";
+import { createIssue, createTogglCache, TOGGL_CACHE_TTL_MS, type TogglClient, type TogglRequest, type TogglResponse } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup, tempDir } from "./helpers";
 
@@ -22,12 +22,16 @@ function withToggl(handler?: Handler, opts: { token?: string | null } = {}) {
   const token = opts.token === undefined ? "tok-1" : opts.token;
   if (token !== null) writeFileSync(configPath, JSON.stringify({ apiToken: token }));
   const toggl = fakeToggl(handler);
-  const app = createApp({ db: s.db, togglClient: toggl.client, togglConfigPath: configPath });
+  // 現在の打刻のキャッシュの時計。テストが進める
+  const clock = { ms: Date.parse(NOW) };
+  const app = createApp({ db: s.db, togglClient: toggl.client, togglConfigPath: configPath, togglCache: createTogglCache({ now: () => clock.ms }) });
   const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
-  return { ...s, app, ref: issue.id, configPath, calls: toggl.calls };
+  return { ...s, app, ref: issue.id, configPath, calls: toggl.calls, clock };
 }
 
 const START = "2026-10-07T01:00:00Z";
+// キャッシュの時計の初期値（取得時刻）
+const NOW = "2026-10-07T02:00:00.000Z";
 // Toggl の現在の打刻（GET /me/time_entries/current）の応答
 const running = (description: string, id = 501) => ({ id, workspace_id: 77, description, start: START, duration: -1, project_id: null });
 const currentIs = (entry: unknown) => (req: TogglRequest): TogglResponse | undefined =>
@@ -69,7 +73,7 @@ describe("Toggl 打刻 API", () => {
     const { app, ref, configPath, calls } = withToggl(undefined, { token: null });
     const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ configured: false, configPath, current: null });
+    expect(res.json).toEqual({ configured: false, configPath, current: null, fetchedAt: null });
     expect(calls).toEqual([]);
   });
 
@@ -77,7 +81,7 @@ describe("Toggl 打刻 API", () => {
     const { app, ref, configPath, calls } = withToggl(currentIs(null));
     const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({ configured: true, configPath, current: null });
+    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: NOW });
     expect(calls).toEqual([{ method: "GET", path: "/me/time_entries/current", token: "tok-1" }]);
   });
 
@@ -118,6 +122,7 @@ describe("Toggl 打刻 API", () => {
       configured: true,
       configPath,
       current: { id: 601, workspaceId: 77, description: "API-1 検索 API", start: body.start, thisIssue: true },
+      fetchedAt: NOW,
     });
   });
 
@@ -182,7 +187,12 @@ describe("Toggl 打刻 API", () => {
       expect(res.status).toBe(409);
       expect(res.json.error.code).toBe("TOGGL_CONFLICT");
       expect(res.json.error.details).toEqual({
-        view: { configured: true, configPath, current: { id: 777, workspaceId: 77, description: "外で始めた打刻", start: START, thisIssue: false } },
+        view: {
+          configured: true,
+          configPath,
+          current: { id: 777, workspaceId: 77, description: "外で始めた打刻", start: START, thisIssue: false },
+          fetchedAt: NOW,
+        },
       });
       expect(calls.some((c) => c.method === "POST")).toBe(false);
       expect(callNames(calls).at(-1)).toBe("GET /me/time_entries/current");
@@ -214,7 +224,7 @@ describe("Toggl 打刻 API", () => {
     expect(res.json.error.details).toEqual({
       previous: { description: "API-10 別の作業", stopped: true },
       start: "failed",
-      view: { configured: true, configPath, current: null },
+      view: { configured: true, configPath, current: null, fetchedAt: NOW },
     });
     expect(res.json.error.message).toBe("前の打刻「API-10 別の作業」は止まりました。この Issue の打刻は開始できませんでした（HTTP 500）");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
@@ -336,7 +346,7 @@ describe("Toggl 打刻 API", () => {
     writeFileSync(configPath, JSON.stringify({ apiToken: "tok-env" }));
     process.env.NOD_TOGGL_CONFIG = configPath;
     const res = await call(app, "GET", `/api/issues/${issue.id}/toggl`);
-    expect(res.json).toEqual({ configured: true, configPath, current: null });
+    expect(res.json).toEqual({ configured: true, configPath, current: null, fetchedAt: expect.any(String) });
     expect(toggl.calls.map((c) => c.token)).toEqual(["tok-env"]);
   });
 
@@ -353,5 +363,149 @@ describe("Toggl 打刻 API", () => {
     const { app } = withToggl();
     expect((await call(app, "GET", "/api/issues/API-999/toggl")).status).toBe(404);
     expect((await call(app, "POST", "/api/issues/API-999/toggl/start")).status).toBe(404);
+  });
+
+  describe("現在の打刻のキャッシュ", () => {
+    test("取得時刻を添えて返し、期限内に何度開いても Toggl を呼ばない", async () => {
+      const { app, ref, calls } = withToggl(currentIs(running("API-1 検索 API")));
+      const a = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      const b = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      expect(a.json.fetchedAt).toBe(NOW);
+      expect(b.json).toEqual(a.json);
+      expect(callNames(calls)).toEqual(["GET /me/time_entries/current"]);
+    });
+
+    test("キャッシュはすべての Issue で共有し、この Issue の打刻かどうかは Issue ごとに決める", async () => {
+      const { app, ref, calls, me, ws } = withToggl(currentIs(running("API-1 検索 API")));
+      const other = createIssue(me, { workspaceId: ws.id, title: "別の Issue" });
+      const mine = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      const theirs = await call(app, "GET", `/api/issues/${other.id}/toggl`);
+      expect(mine.json.current).toMatchObject({ id: 501, thisIssue: true });
+      expect(theirs.json.current).toMatchObject({ id: 501, thisIssue: false });
+      expect(theirs.json.fetchedAt).toBe(NOW);
+      expect(callNames(calls)).toEqual(["GET /me/time_entries/current"]);
+    });
+
+    test("5 分が過ぎたら次の表示で取り直す", async () => {
+      const { app, ref, calls, clock } = withToggl(currentIs(null));
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      clock.ms += TOGGL_CACHE_TTL_MS - 1;
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.fetchedAt).toBe(NOW);
+      expect(calls).toHaveLength(1);
+      clock.ms += 1;
+      const res = await call(app, "GET", `/api/issues/${ref}/toggl`);
+      expect(res.json.fetchedAt).toBe(new Date(clock.ms).toISOString());
+      expect(callNames(calls)).toEqual(["GET /me/time_entries/current", "GET /me/time_entries/current"]);
+    });
+
+    test("「最新にする」は期限内でもキャッシュを無視して取り直し、以後の表示もその結果を使う", async () => {
+      const { world, handler } = togglWorld(null);
+      const { app, ref, calls, clock } = withToggl(handler);
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      // Toggl 側で打刻が始まった
+      world.current = running("外で始めた打刻", 777);
+      clock.ms += 60_000;
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json.current).toBeNull();
+      const refreshed = await call(app, "POST", `/api/issues/${ref}/toggl/refresh`);
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.json.current).toMatchObject({ id: 777, thisIssue: false });
+      expect(refreshed.json.fetchedAt).toBe(new Date(clock.ms).toISOString());
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toEqual(refreshed.json);
+      expect(callNames(calls)).toEqual(["GET /me/time_entries/current", "GET /me/time_entries/current"]);
+    });
+
+    test("「最新にする」もトークンが未設定なら Toggl を呼ばない", async () => {
+      const { app, ref, calls } = withToggl(undefined, { token: null });
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/refresh`);
+      expect(res.json).toMatchObject({ configured: false, current: null, fetchedAt: null });
+      expect(calls).toEqual([]);
+    });
+
+    test("開始・停止の応答でキャッシュを更新し、続く表示では Toggl を呼ばない", async () => {
+      const { handler } = togglWorld(null);
+      const { app, ref, calls, clock } = withToggl(handler);
+      clock.ms += 1000;
+      const started = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
+      expect(started.json.fetchedAt).toBe(new Date(clock.ms).toISOString());
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toEqual(started.json);
+      const before = calls.length;
+      clock.ms += 1000;
+      const stopped = await call(app, "POST", `/api/issues/${ref}/toggl/stop`);
+      expect(stopped.json).toMatchObject({ current: null, fetchedAt: new Date(clock.ms).toISOString() });
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toEqual(stopped.json);
+      // 停止はキャッシュの打刻 ID で行い、直前に取り直さない
+      expect(callNames(calls.slice(before))).toEqual(["PATCH /workspaces/77/time_entries/601/stop"]);
+    });
+
+    test("切り替えの途中の失敗で取り直した状態もキャッシュに入れる", async () => {
+      const { handler } = togglWorld(running("API-10 別の作業"), (req) =>
+        req.method === "POST" ? { kind: "ok", status: 500, body: "Internal Server Error" } : undefined,
+      );
+      const { app, ref, calls } = withToggl(handler);
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
+      expect(res.status).toBe(502);
+      const before = calls.length;
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toEqual(res.json.error.details.view);
+      expect(calls).toHaveLength(before);
+    });
+
+    test("開始の直前は期限内でも取り直す", async () => {
+      const { world, handler } = togglWorld(null);
+      const { app, ref, calls } = withToggl(handler);
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      world.current = running("API-10 別の作業");
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/start`);
+      expect(res.status).toBe(200);
+      expect(callNames(calls)).toEqual([
+        "GET /me/time_entries/current",
+        "GET /me/time_entries/current",
+        "GET /me",
+        "PATCH /workspaces/77/time_entries/501/stop",
+        "POST /workspaces/77/time_entries",
+      ]);
+    });
+
+    test("キャッシュの打刻がほかで止められていたら、停止は競合として取り直した状態を返す（期限切れのキャッシュも ID に使う）", async () => {
+      const { world, handler } = togglWorld(running("API-1 検索 API"));
+      const { app, ref, calls, clock } = withToggl(handler);
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      // Toggl 側で止められ、別の打刻が始まっていた
+      world.current = running("外で始めた打刻", 777);
+      clock.ms += TOGGL_CACHE_TTL_MS * 2;
+      const res = await call(app, "POST", `/api/issues/${ref}/toggl/stop`);
+      expect(res.status).toBe(409);
+      expect(res.json.error.code).toBe("TOGGL_CONFLICT");
+      expect(res.json.error.details.view.current).toMatchObject({ id: 777, thisIssue: false });
+      expect(callNames(calls)).toEqual(["GET /me/time_entries/current", "PATCH /workspaces/77/time_entries/501/stop", "GET /me/time_entries/current"]);
+      expect((await call(app, "GET", `/api/issues/${ref}/toggl`)).json).toEqual(res.json.error.details.view);
+    });
+
+    test("停止に失敗したら再送せずに取り直し、その状態を返す", async () => {
+      for (const [resp, message] of [
+        [{ kind: "ok", status: 500, body: null }, "打刻を停止できませんでした（HTTP 500）"],
+        [{ kind: "timeout" }, "打刻が止まったかは分かりません（15秒以内に応答がありませんでした）"],
+      ] as const) {
+        const { handler } = togglWorld(running("API-1 検索 API"), (req) => (req.method === "PATCH" ? resp : undefined));
+        const { app, ref, calls } = withToggl(handler);
+        await call(app, "GET", `/api/issues/${ref}/toggl`);
+        const res = await call(app, "POST", `/api/issues/${ref}/toggl/stop`);
+        expect(res.status).toBe(502);
+        expect(res.json.error.message).toBe(message);
+        expect(res.json.error.details.view.current).toMatchObject({ id: 501, thisIssue: true });
+        expect(callNames(calls)).toEqual(["GET /me/time_entries/current", "PATCH /workspaces/77/time_entries/501/stop", "GET /me/time_entries/current"]);
+      }
+    });
+
+    test("トークンが変わったらキャッシュを捨てて取り直す", async () => {
+      const { app, ref, configPath, calls } = withToggl(currentIs(running("API-1 検索 API")));
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      writeFileSync(configPath, JSON.stringify({ apiToken: "tok-2" }));
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      // 元のトークンに戻しても、別のトークンの結果は使わない
+      writeFileSync(configPath, JSON.stringify({ apiToken: "tok-1" }));
+      await call(app, "GET", `/api/issues/${ref}/toggl`);
+      expect(calls.map((c) => c.token)).toEqual(["tok-1", "tok-2", "tok-1"]);
+    });
   });
 });

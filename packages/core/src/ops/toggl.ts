@@ -61,6 +61,7 @@ export const togglClient: TogglClient = createTogglClient();
 export interface TogglDeps {
   client: TogglClient;
   configPath: string;
+  cache: TogglCache;
 }
 
 // トークンの設定ファイルの場所。NOD_DOCS_DIR などと同じく環境変数で差し替えられる
@@ -84,12 +85,16 @@ export function readTogglToken(configPath: string): string | null {
   }
 }
 
-// Toggl の現在の打刻。thisIssue は説明が "<Issue ID> " で始まるか
-export interface TogglCurrentEntry {
+// Toggl の動いている打刻そのもの（Issue に依存しない）
+export interface TogglEntry {
   id: number;
   workspaceId: number;
   description: string;
   start: string;
+}
+
+// Toggl の現在の打刻。thisIssue は説明が "<Issue ID> " で始まるか
+export interface TogglCurrentEntry extends TogglEntry {
   thisIssue: boolean;
 }
 
@@ -98,6 +103,50 @@ export interface TogglIssueView {
   configured: boolean; // トークンが設定されているか
   configPath: string; // トークンの設定ファイルの場所（未設定の案内に使う）
   current: TogglCurrentEntry | null; // 動いている打刻。無ければ null
+  fetchedAt: string | null; // current が Toggl で分かった時刻。未設定なら null
+}
+
+export const TOGGL_CACHE_TTL_MS = 5 * 60_000;
+
+// Toggl の現在の打刻を、取得したトークンと時刻とともに持つ
+export interface TogglSnapshot {
+  token: string;
+  entry: TogglEntry | null;
+  fetchedAt: number; // epoch ミリ秒
+}
+
+// 現在の打刻のキャッシュ。サーバーのメモリに 1 つだけ持ち、すべての Issue・タブで共有する（Toggl の現在の打刻の取得は毎時 30 回まで）。
+// 期限が切れても最後に分かっている打刻は残す（停止は期限切れでもこの打刻 ID で行う）。トークンが変わったら捨てる
+export interface TogglCache {
+  now: () => number; // epoch ミリ秒。テストは時計を差し替える
+  ttlMs: number;
+  get(token: string): TogglSnapshot | null; // 最後に分かっている現在の打刻（期限切れも返す）
+  set(token: string, entry: TogglEntry | null): TogglSnapshot;
+  clear(): void;
+}
+
+export function createTogglCache(opts: { now?: () => number; ttlMs?: number } = {}): TogglCache {
+  let snapshot: TogglSnapshot | null = null;
+  const now = opts.now ?? Date.now;
+  return {
+    now,
+    ttlMs: opts.ttlMs ?? TOGGL_CACHE_TTL_MS,
+    get(token) {
+      if (snapshot && snapshot.token !== token) snapshot = null;
+      return snapshot;
+    },
+    set(token, entry) {
+      snapshot = { token, entry, fetchedAt: now() };
+      return snapshot;
+    },
+    clear() {
+      snapshot = null;
+    },
+  };
+}
+
+function isFresh(cache: TogglCache, snapshot: TogglSnapshot): boolean {
+  return cache.now() - snapshot.fetchedAt < cache.ttlMs;
 }
 
 // Toggl の時間記録（time entry）のうち nod が使う部分
@@ -128,10 +177,21 @@ async function request(deps: TogglDeps, req: TogglRequest): Promise<unknown> {
   throw new NodError("TOGGL_FAILED", `Toggl を呼び出せませんでした（${failureDetail(res)}）`);
 }
 
+function toEntry(body: TogglEntryBody): TogglEntry {
+  return { id: body.id, workspaceId: body.workspace_id, description: body.description ?? "", start: body.start };
+}
+
 // 打刻がこの Issue のものか。"NOD-6 " で始まる説明だけを NOD-6 の打刻とし、NOD-60 と取り違えない
-function toCurrent(entry: TogglEntryBody, issueId: string): TogglCurrentEntry {
-  const description = entry.description ?? "";
-  return { id: entry.id, workspaceId: entry.workspace_id, description, start: entry.start, thisIssue: description.startsWith(`${issueId} `) };
+function toCurrent(entry: TogglEntry | null, issueId: string): TogglCurrentEntry | null {
+  return entry ? { ...entry, thisIssue: entry.description.startsWith(`${issueId} `) } : null;
+}
+
+function viewOf(deps: TogglDeps, snapshot: TogglSnapshot, issueId: string): TogglIssueView {
+  return { configured: true, configPath: deps.configPath, current: toCurrent(snapshot.entry, issueId), fetchedAt: new Date(snapshot.fetchedAt).toISOString() };
+}
+
+function unconfiguredView(deps: TogglDeps): TogglIssueView {
+  return { configured: false, configPath: deps.configPath, current: null, fetchedAt: null };
 }
 
 interface TogglIssueTarget {
@@ -145,16 +205,25 @@ function target(db: Database, ref: string, deps: TogglDeps): TogglIssueTarget {
   return { issueId: formatIssueId(row.ws_key, row.number), title: row.title, token: readTogglToken(deps.configPath) };
 }
 
-async function fetchCurrent(deps: TogglDeps, token: string, issueId: string): Promise<TogglCurrentEntry | null> {
+// Toggl から現在の打刻を取り直し、キャッシュに入れる
+async function fetchCurrent(deps: TogglDeps, token: string): Promise<TogglSnapshot> {
   const body = (await request(deps, { method: "GET", path: "/me/time_entries/current", token })) as TogglEntryBody | null;
-  return body ? toCurrent(body, issueId) : null;
+  return deps.cache.set(token, body ? toEntry(body) : null);
 }
 
-// Issue 詳細の打刻の欄の状態。トークンが未設定なら Toggl を呼ばない
+// Issue 詳細の打刻の欄の状態。期限内ならキャッシュを返し、Toggl を呼ばない。トークンが未設定なら Toggl を呼ばない
 export async function getTogglState(db: Database, ref: string, deps: TogglDeps): Promise<TogglIssueView> {
   const { issueId, token } = target(db, ref, deps);
-  if (token === null) return { configured: false, configPath: deps.configPath, current: null };
-  return { configured: true, configPath: deps.configPath, current: await fetchCurrent(deps, token, issueId) };
+  if (token === null) return unconfiguredView(deps);
+  const cached = deps.cache.get(token);
+  return viewOf(deps, cached && isFresh(deps.cache, cached) ? cached : await fetchCurrent(deps, token), issueId);
+}
+
+// 「最新にする」。キャッシュを無視して現在の打刻を取り直す
+export async function refreshTogglState(db: Database, ref: string, deps: TogglDeps): Promise<TogglIssueView> {
+  const { issueId, token } = target(db, ref, deps);
+  if (token === null) return unconfiguredView(deps);
+  return viewOf(deps, await fetchCurrent(deps, token), issueId);
 }
 
 function requireToken(t: TogglIssueTarget): string {
@@ -171,7 +240,7 @@ function isStopConflict(res: TogglResponse): boolean {
 // 失敗のあとに現在の打刻を取り直す。取り直しにも失敗したら null（成否を確認できない）
 async function refetch(deps: TogglDeps, t: TogglIssueTarget, token: string): Promise<TogglIssueView | null> {
   try {
-    return { configured: true, configPath: deps.configPath, current: await fetchCurrent(deps, token, t.issueId) };
+    return viewOf(deps, await fetchCurrent(deps, token), t.issueId);
   } catch {
     return null;
   }
@@ -225,9 +294,10 @@ async function startFailed(
 export async function startTogglEntry(db: Database, ref: string, deps: TogglDeps): Promise<TogglIssueView> {
   const t = target(db, ref, deps);
   const token = requireToken(t);
-  const current = await fetchCurrent(deps, token, t.issueId);
+  const fetched = await fetchCurrent(deps, token);
+  const current = toCurrent(fetched.entry, t.issueId);
   // この Issue の打刻がすでに動いていれば、二重に作らない
-  if (current?.thisIssue) return { configured: true, configPath: deps.configPath, current };
+  if (current?.thisIssue) return viewOf(deps, fetched, t.issueId);
   const me = (await request(deps, { method: "GET", path: "/me", token })) as { default_workspace_id?: unknown } | null;
   const workspaceId = me?.default_workspace_id;
   if (typeof workspaceId !== "number") throw new NodError("TOGGL_FAILED", "Toggl の既定の Workspace が分かりませんでした");
@@ -244,20 +314,26 @@ export async function startTogglEntry(db: Database, ref: string, deps: TogglDeps
   const body = { created_with: "nod", workspace_id: workspaceId, description: `${t.issueId} ${t.title}`, start: now(), duration: -1 };
   const created = await deps.client({ method: "POST", path: `/workspaces/${workspaceId}/time_entries`, token, body });
   if (!succeeded(created)) return startFailed(deps, t, token, previous, writeOutcome(created), created);
-  return { configured: true, configPath: deps.configPath, current: toCurrent(created.body as TogglEntryBody, t.issueId) };
+  return viewOf(deps, deps.cache.set(token, toEntry(created.body as TogglEntryBody)), t.issueId);
 }
 
-// この Issue の打刻を止める。動いている打刻がこの Issue のものでなければ止めない。
-// 止めようとした打刻がすでに止まっていた・無かったら、競合として取り直した状態を返す
+// この Issue の打刻を、キャッシュの打刻 ID で止める（期限切れでも使う。キャッシュが無ければ取得する）。
+// 動いている打刻がこの Issue のものでなければ止めない。止めようとした打刻がすでに止まっていた・無かったら、
+// 競合として取り直した状態を返す。そのほかの失敗でも再送せずに取り直し、その状態を返す
 export async function stopTogglEntry(db: Database, ref: string, deps: TogglDeps): Promise<TogglIssueView> {
   const t = target(db, ref, deps);
   const token = requireToken(t);
-  const current = await fetchCurrent(deps, token, t.issueId);
+  const current = toCurrent((deps.cache.get(token) ?? (await fetchCurrent(deps, token))).entry, t.issueId);
   if (!current?.thisIssue) throw new NodError("INVALID_STATE", `${t.issueId} の打刻は動いていません`);
   const res = await deps.client({ method: "PATCH", path: `/workspaces/${current.workspaceId}/time_entries/${current.id}/stop`, token });
   if (isStopConflict(res)) return conflict(deps, t, token);
-  if (!succeeded(res)) throw new NodError("TOGGL_FAILED", `Toggl を呼び出せませんでした（${failureDetail(res)}）`);
-  return { configured: true, configPath: deps.configPath, current: null };
+  if (!succeeded(res)) {
+    const view = await refetch(deps, t, token);
+    const detail = failureDetail(res);
+    const message = writeOutcome(res) === "failed" ? `打刻を停止できませんでした（${detail}）` : `打刻が止まったかは分かりません（${detail}）`;
+    throw new NodError("TOGGL_FAILED", `${message}${view ? "" : UNCONFIRMED}`, { view } satisfies TogglFailureDetails);
+  }
+  return viewOf(deps, deps.cache.set(token, null), t.issueId);
 }
 
 // nod 内の開始・停止を 1 つずつ処理する。2 つのタブからの同時の操作が、取り直しと書き込みの間に割り込まないようにする
