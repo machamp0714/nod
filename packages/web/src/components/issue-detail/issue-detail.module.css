@@ -1096,7 +1096,8 @@ button.prCiPill {
   color: inherit;
 }
 
-.prError {
+/* 外部から取得する欄（PR 状態・GitHub・Toggl 打刻）で共有する、失敗の表示と取得時刻・「更新」の行 */
+.inlineError {
   display: flex;
   align-items: flex-start;
   gap: 5px;
@@ -1106,24 +1107,24 @@ button.prCiPill {
   overflow-wrap: anywhere;
 }
 
-.prError > svg {
+.inlineError > svg {
   flex: none;
   margin-top: 2px;
 }
 
-.prFetchRow {
+.fetchRow {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.prFetched {
+.fetchedText {
   flex: 1;
   color: var(--ink3);
   font-size: 11.5px;
 }
 
-.prRefresh {
+.refreshButton {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -1138,7 +1139,7 @@ button.prCiPill {
   cursor: pointer;
 }
 
-.prRefresh:disabled {
+.refreshButton:disabled {
   background: var(--sunken);
   color: var(--ink3);
   cursor: default;
@@ -1197,7 +1198,7 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .ghStatusRow > svg { flex: none; }
 .ghStatusLabel { color: var(--ink2); font-size: 12px; font-weight: 500; }
 .ghStatusUnfetched { color: var(--ink3); font-size: 12px; }
-.ghStatusRow .prFetched { flex: none; }
+.ghStatusRow .fetchedText { flex: none; }
 .ghStatusSpacer { flex: 1; }
 .approvalNote { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink3); font-size: 12px; overflow-wrap: anywhere; }
 .approvalNote > svg { flex: none; }
@@ -1330,3 +1331,73 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .githubConfirm { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .githubLinkForm { display: flex; align-items: center; gap: 6px; align-self: stretch; }
 .githubLinkForm input { flex: 1; min-width: 0; font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
+
+/* 右 rail の Toggl 打刻の欄（NOD-6） */
+.toggl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 14px 12px 16px;
+}
+
+.togglRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Project の選択欄。ボタンの横で残りの幅を使い、長い名前は切る */
+.togglProject {
+  flex: 1;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.togglElapsed {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.togglIdle {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+
+.togglOther {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.togglOtherLabel {
+  color: var(--ink3);
+  font-size: 11.5px;
+}
+
+.togglOtherDescription {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.togglGuide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+
+.togglGuide p {
+  margin: 0;
+}
+
+.togglCode {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

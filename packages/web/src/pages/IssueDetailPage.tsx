@@ -36,6 +36,7 @@ import { DescriptionSection } from "../components/issue-detail/DescriptionSectio
 import s from "../components/issue-detail/issue-detail.module.css";
 import { PlanSection } from "../components/issue-detail/PlanSection";
 import { PropertiesPanel, RelationsPanel } from "../components/issue-detail/PropertiesPanel";
+import { TogglSection } from "../components/issue-detail/TogglSection";
 import { QuestionsPanel } from "../components/issue-detail/QuestionsPanel";
 import { TitleSection } from "../components/issue-detail/TitleSection";
 import { AgentStatePill, ErrorMessage, Icon, LoadingMessage, PageHeader, Pill, StatusIcon, WorkspaceBadge } from "../components/ui";
@@ -177,6 +178,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
         </article>
 
         <aside className={s.rail}>
+          {/* Toggl 打刻は作業の始めと終わりに触るので、rail の一番上に置く（NOD-6） */}
+          <TogglSection key={`toggl-${issue.id}`} issueId={issue.id} />
           <QuestionsPanel
             questions={issue.questions}
             readOnly={readOnly}

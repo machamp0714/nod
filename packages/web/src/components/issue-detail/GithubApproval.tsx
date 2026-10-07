@@ -26,14 +26,14 @@ export function GithubStatusRow({ issueId }: { issueId: string }) {
           !busy && <span className={s.ghStatusUnfetched}>{PR_STATUS_UNFETCHED}</span>
         )}
         {(status || busy) && (
-          <span className={s.prFetched} title={status && !busy ? status.fetchedAt : undefined}>
+          <span className={s.fetchedText} title={status && !busy ? status.fetchedAt : undefined}>
             {prFetchedText(view, "")}
           </span>
         )}
         <span className={s.ghStatusSpacer} />
         <button
           type="button"
-          className={s.prRefresh}
+          className={s.refreshButton}
           aria-label="GitHub の状態を更新"
           title="gh で PR の状態を取得する（GitHub へは読み取りのみ）"
           disabled={busy}

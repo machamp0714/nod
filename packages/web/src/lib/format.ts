@@ -24,12 +24,25 @@ export interface QuestionCount {
   total: number;
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
 // ローカル時刻の「YYYY-MM-DD HH:mm」。読めない値はそのまま返す
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${formatTime(iso)}`;
+}
+
+// ローカル時刻の「HH:mm」。読めない値はそのまま返す
+export function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+// 経過時間を「時:分:秒」で表す（Toggl の表示と同じ形）。負の値は 0 にする
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 3600)}:${pad2(Math.floor(total / 60) % 60)}:${pad2(total % 60)}`;
 }
 
 export function countQuestions(questions: readonly Pick<Question, "answer">[]): QuestionCount {

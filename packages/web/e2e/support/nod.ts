@@ -76,6 +76,53 @@ export async function ghCalls(): Promise<string[][]> {
   return ((await res.json()) as { calls: string[][] }).calls;
 }
 
+// e2e の server の偽の Toggl が持つ現在の打刻（Toggl の time entry の形）。e2e の server もこの型を使う
+export interface FakeTogglEntry {
+  id: number;
+  workspace_id: number;
+  project_id?: number | null;
+  description: string;
+  start: string;
+  duration: number;
+}
+// e2e の server の偽の Toggl が返す Project（Toggl の project の形のうち使う部分）
+export interface FakeTogglProject {
+  id: number;
+  name: string;
+  color: string;
+}
+// e2e の server の偽の Toggl に起こさせる失敗。e2e の server もこの型を使う
+export interface FakeTogglFailures {
+  start?: "http_error" | "timeout"; // 開始が HTTP 500 で断られる・応答が途絶える（打刻は作られる）
+  stop?: "conflict"; // 止めようとした打刻がほかで止められていた（409）
+  currentAfterStart?: boolean; // 開始のあとの取り直しが通信に失敗する
+  // auth・quota はどの呼び出しも 401・402（X-Toggl-Quota-Resets-In: 600）になる。network は現在の打刻の取得が接続できないになる
+  current?: "auth" | "quota" | "network";
+  projects?: "network"; // Project の一覧の取得が接続できないになる
+  // 打刻の Project の変更が HTTP 500 で断られる・ほかで止められた打刻の Project を変える（止まった打刻を返す）
+  update?: "http_error" | "stopped";
+}
+
+// Toggl 打刻（NOD-6）で e2e の server が本物の Toggl の代わりに持つ状態を決める。
+// token が null ならトークンの設定ファイルを消し（未設定）、文字列なら書く。current は Toggl の現在の打刻、projects は Project の一覧。
+// failures は起こす失敗（省くと失敗しない）。server の現在の打刻のキャッシュは消す。
+// keepCache なら消さない（nod の外で Toggl 側だけが変わったときを表す）
+export async function stubToggl(state: {
+  token?: string | null;
+  current?: FakeTogglEntry | null;
+  projects?: FakeTogglProject[];
+  failures?: FakeTogglFailures;
+  keepCache?: boolean;
+}): Promise<void> {
+  await post("/toggl", state);
+}
+
+// 偽の Toggl が受け取った要求（stubToggl・resetData で空に戻る）と、現在の打刻・設定ファイルの場所
+export async function togglState(): Promise<{ calls: Core.TogglRequest[]; current: FakeTogglEntry | null; configPath: string }> {
+  const res = await fetch(`${CONTROL_URL}/toggl/calls`);
+  return (await res.json()) as { calls: Core.TogglRequest[]; current: FakeTogglEntry | null; configPath: string };
+}
+
 // actor を書き手にして core の関数を呼ぶクライアント。
 // 末尾の undefined の引数は送らない（JSON では null になり、省略とみなされないため）
 export function nodAs(actor: string): NodClient {

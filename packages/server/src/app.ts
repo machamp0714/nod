@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles } from "@nod/core";
+import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -20,6 +20,7 @@ import { registerPrStatusRoutes } from "./routes/pr-status";
 import { registerPrDiffRoutes } from "./routes/pr-diff";
 import { type OrcaRunnerOption, registerOrcaRoutes } from "./routes/orca";
 import { registerGithubRoutes } from "./routes/github";
+import { registerTogglRoutes } from "./routes/toggl";
 import { registerAutomationRoutes } from "./routes/automation";
 import { registerViewRoutes } from "./routes/views";
 import { registerPageDisplayRoutes } from "./routes/page-displays";
@@ -38,6 +39,9 @@ export interface AppOptions {
   gitRunner?: GhRunner; // origin の読み取りで git を実行する部分。省くと本物の git
   webPort?: () => number | undefined; // 検出に使う、待ち受けている実際のポート
   orcaRunner?: OrcaRunnerOption; // Orca 連携で orca を実行する部分。省くと本物の orca（NOD_ORCA=0 なら使わない）。null で無効。テストと e2e はスタブを渡す
+  togglClient?: TogglClient; // Toggl 打刻で Toggl の API を呼ぶ部分。省くと本物の Toggl。テストと e2e は偽のクライアントを渡す
+  togglConfigPath?: string; // Toggl のトークンの設定ファイル。省くと core の defaultTogglConfigPath()（NOD_TOGGL_CONFIG）
+  togglCache?: TogglCache; // Toggl の現在の打刻のキャッシュ。省くと app ごとに作る。テストは時計を、e2e は消す口を持つものを渡す
 }
 
 function errorJson(err: unknown): Response {
@@ -84,6 +88,7 @@ export function createApp(opts: AppOptions): Hono {
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
   registerGithubRoutes(app, me, { gh: opts.ghRunner, git: opts.gitRunner, webPort: opts.webPort }); // 同上
+  registerTogglRoutes(app, me, { client: opts.togglClient, configPath: opts.togglConfigPath, cache: opts.togglCache }); // 同上
   registerIssueOps(app, me);
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);
