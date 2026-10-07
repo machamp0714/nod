@@ -53,7 +53,7 @@ test("作業ログの本文は Markdown として描き、コマンドの出力�
   await expect(md.locator("strong", { hasText: "抜け漏れチェック" })).toBeVisible();
   await expect(md.locator("code", { hasText: "end_interview" })).toBeVisible();
   await expect(md.getByText("## 方針")).toHaveCount(0);
-  await expect(logs.filter({ hasText: "bun test" }).locator("p")).toContainText("- **raw**");
+  await expect(logs.filter({ hasText: "bun test" }).locator("[data-log-body]")).toContainText("- **raw**");
 });
 
 test("6行を超える作業ログは折りたたみ、続きを表示で開いて折りたたむで戻せる", async ({ page, nod }) => {
