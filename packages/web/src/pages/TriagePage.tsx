@@ -4,7 +4,6 @@ import { useDecision, useTriage, useTriageProposalCounts, useTriageProposals, us
 import { useCycles } from "../api/hooks/cycles";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
-import { cycleMenu } from "../lib/bulk-selection";
 import { assigneeChoices, parseLabels } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, TriageSuggestions } from "../api/types";
@@ -13,6 +12,7 @@ import { ActionError } from "../components/split/ActionError";
 import { QueueEmpty, QueueItem } from "../components/split/QueueItem";
 import { SplitLayout } from "../components/split/SplitLayout";
 import { AgentAvatar, Button, Icon, LabelDot, StatusLabel, WorkspaceBadge } from "../components/ui";
+import { cycleChoices } from "../lib/cycles";
 import { tomorrow } from "../lib/decision";
 import { formatRelative } from "../lib/format";
 import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeading } from "../lib/triage-proposal";
@@ -77,11 +77,11 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   const source = created?.kind === "event" && typeof created.data.discovered_from === "string" ? created.data.discovered_from : null;
   const [projectRef, setProjectRef] = useState(issue.project ? String(issue.project.id) : "");
   const [priority, setPriority] = useState(issue.priority);
-  // 終了していない Cycle を選べる（Issue 詳細の Cycle と同じ並び）。今付いている Cycle は終了していても残す
+  // Cycle の選択肢は Issue 詳細と同じ
   const cycles = useCycles();
-  const [cycleRef, setCycleRef] = useState(issue.cycle ? String(issue.cycle.id) : "");
-  const cycleChoices = cycleMenu(cycles.data ?? []).map(c => ({ id: c.id, name: c.name }));
-  if (issue.cycle && !cycleChoices.some(c => c.id === issue.cycle?.id)) cycleChoices.push(issue.cycle);
+  const initialCycleRef = issue.cycle ? String(issue.cycle.id) : "";
+  const [cycleRef, setCycleRef] = useState(initialCycleRef);
+  const cycleOptions = cycleChoices(cycles.data ?? [], issue.cycle);
   const [labels, setLabels] = useState(issue.labels.join(", "));
   const [assignee, setAssignee] = useState(issue.assignee ?? "");
   const choices = projects.data ?? [];
@@ -141,7 +141,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           </select></label>
           <label>Cycle<select aria-label="受け入れ時のCycle" value={cycleRef} disabled={cycles.isPending || cycles.isError} onChange={e => setCycleRef(e.target.value)}>
             <option value="">なし</option>
-            {cycleChoices.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+            {cycleOptions.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
           </select></label>
           <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
           <label>Assignee<select aria-label="受け入れ時のAssignee" value={assignee} onChange={e => setAssignee(e.target.value)}>
@@ -161,7 +161,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           const selected = parseLabels(labels, []);
           decision.mutate({ op: "accept", issueId: issue.id, input: { projectRef: projectRef || null, priority,
             addLabels: selected.filter(l => !issue.labels.includes(l)), removeLabels: issue.labels.filter(l => !selected.includes(l)),
-            ...(cycleRef !== (issue.cycle ? String(issue.cycle.id) : "") ? { cycleRef: cycleRef || null } : {}),
+            ...(cycleRef !== initialCycleRef ? { cycleRef: cycleRef || null } : {}),
             ...(assignee !== (issue.assignee ?? "") ? { assignee: assignee || null } : {}) } });
         }}>
           受け入れる

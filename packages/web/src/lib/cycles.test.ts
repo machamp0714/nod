@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { currentCycleLink, cycleLabel, formatCadence, formatCyclePeriod } from "./cycles";
+import { currentCycleLink, cycleChoices, cycleLabel, formatCadence, formatCyclePeriod } from "./cycles";
 
 describe("Cycle の表示", () => {
   test("期間は同じ年なら終了日の年を省く", () => {
@@ -31,5 +31,20 @@ describe("Cycle の表示", () => {
       ]),
     ).toEqual({ to: "/cycles/4", label: "Cycle 4" });
     expect(currentCycleLink([{ id: 5, name: "Cycle 5", state: "upcoming" }])).toEqual({ to: "/cycles", label: "なし" });
+  });
+});
+
+describe("cycleChoices", () => {
+  const c = (id: number, name: string, state: "current" | "upcoming" | "completed", startDate: string) => ({ id, name, state, startDate });
+  const cycles = [c(1, "S1", "completed", "2026-09-01"), c(3, "S3", "upcoming", "2026-10-15"), c(2, "S2", "current", "2026-10-01")];
+
+  test("終了していない Cycle を current を先に開始日の順で並べる", () => {
+    expect(cycleChoices(cycles, null)).toEqual([{ id: 2, name: "S2" }, { id: 3, name: "S3" }]);
+  });
+
+  test("今付いている Cycle は終了していても末尾に残し、重ねて出さない", () => {
+    expect(cycleChoices(cycles, { id: 1, name: "S1" })).toEqual([{ id: 2, name: "S2" }, { id: 3, name: "S3" }, { id: 1, name: "S1" }]);
+    expect(cycleChoices(cycles, { id: 3, name: "S3" })).toEqual([{ id: 2, name: "S2" }, { id: 3, name: "S3" }]);
+    expect(cycleChoices([], { id: 1, name: "S1" })).toEqual([{ id: 1, name: "S1" }]);
   });
 });

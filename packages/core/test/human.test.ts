@@ -86,6 +86,13 @@ describe("Triage", () => {
     expect(getIssue(db, c.id).status).toBe("triage");
   });
 
+  test("accept の cycleRef に current を渡すと今日を含む Cycle に入れる", () => {
+    const { ws, me, llm } = setup();
+    const current = createCycle(me, { name: "長期", startDate: "2000-01-01", endDate: "2999-12-31" });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    expect(acceptTriage(me, i.id, { cycleRef: "current" }).cycle).toEqual({ id: current.id, name: "長期" });
+  });
+
   test("decline は理由つきで canceled にする", () => {
     const { db, ws, me, llm } = setup();
     const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
