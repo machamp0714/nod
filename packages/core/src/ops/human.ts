@@ -168,7 +168,7 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
     const assignee = typeof input.assignee === "string" ? requireText(input.assignee, "担当").trim() : input.assignee;
     const since = lastNotificationId(ctx.db);
     updateIssue(ctx, ref, {
-      projectRef: input.projectRef, priority: input.priority, addLabels: input.addLabels, removeLabels: input.removeLabels, assignee,
+      projectRef: input.projectRef, priority: input.priority, cycleRef: input.cycleRef, addLabels: input.addLabels, removeLabels: input.removeLabels, assignee,
     });
     Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");

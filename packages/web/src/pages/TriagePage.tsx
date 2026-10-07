@@ -1,8 +1,10 @@
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useDecision, useTriage, useTriageProposalCounts, useTriageProposals, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
+import { useCycles } from "../api/hooks/cycles";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
+import { cycleMenu } from "../lib/bulk-selection";
 import { assigneeChoices, parseLabels } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, TriageSuggestions } from "../api/types";
@@ -75,6 +77,11 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   const source = created?.kind === "event" && typeof created.data.discovered_from === "string" ? created.data.discovered_from : null;
   const [projectRef, setProjectRef] = useState(issue.project ? String(issue.project.id) : "");
   const [priority, setPriority] = useState(issue.priority);
+  // 終了していない Cycle を選べる（Issue 詳細の Cycle と同じ並び）。今付いている Cycle は終了していても残す
+  const cycles = useCycles();
+  const [cycleRef, setCycleRef] = useState(issue.cycle ? String(issue.cycle.id) : "");
+  const cycleChoices = cycleMenu(cycles.data ?? []).map(c => ({ id: c.id, name: c.name }));
+  if (issue.cycle && !cycleChoices.some(c => c.id === issue.cycle?.id)) cycleChoices.push(issue.cycle);
   const [labels, setLabels] = useState(issue.labels.join(", "));
   const [assignee, setAssignee] = useState(issue.assignee ?? "");
   const choices = projects.data ?? [];
@@ -132,12 +139,17 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           <label>Priority<select aria-label="受け入れ時のPriority" value={priority} onChange={e => setPriority(Number(e.target.value))}>
             {[0, 1, 2, 3, 4].map(p => <option key={p} value={p}>{priorityMeta(p).label}</option>)}
           </select></label>
+          <label>Cycle<select aria-label="受け入れ時のCycle" value={cycleRef} disabled={cycles.isPending || cycles.isError} onChange={e => setCycleRef(e.target.value)}>
+            <option value="">なし</option>
+            {cycleChoices.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+          </select></label>
           <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
           <label>Assignee<select aria-label="受け入れ時のAssignee" value={assignee} onChange={e => setAssignee(e.target.value)}>
             <option value="">担当者を選択</option>
             {assigneeChoices(assignee || null).map(a => <option key={a} value={a}>{a}</option>)}
           </select></label>
           <ActionError error={projects.error} />
+          <ActionError error={cycles.error} />
           <Candidates suggestions={suggestions.data} workspace={issue.workspace} labels={parseLabels(labels, [])} assignee={assignee}
             onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} onAssignee={setAssignee} />
         </fieldset>
@@ -149,6 +161,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
           const selected = parseLabels(labels, []);
           decision.mutate({ op: "accept", issueId: issue.id, input: { projectRef: projectRef || null, priority,
             addLabels: selected.filter(l => !issue.labels.includes(l)), removeLabels: issue.labels.filter(l => !selected.includes(l)),
+            ...(cycleRef !== (issue.cycle ? String(issue.cycle.id) : "") ? { cycleRef: cycleRef || null } : {}),
             ...(assignee !== (issue.assignee ?? "") ? { assignee: assignee || null } : {}) } });
         }}>
           受け入れる

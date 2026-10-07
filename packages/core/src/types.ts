@@ -356,6 +356,7 @@ export interface ReviewIssue extends Issue {
 export interface AcceptTriageInput {
   projectRef?: string | null;
   priority?: number;
+  cycleRef?: string | null; // Cycle の ID・名前・current。null で外す
   addLabels?: string[];
   removeLabels?: string[];
   assignee?: string | null;
