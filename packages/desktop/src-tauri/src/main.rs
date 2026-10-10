@@ -1,11 +1,12 @@
 // Tauri のイベントループ側。起動・停止のロジックは lib（nod_desktop）にあり、ここは薄く保つ。
-// ウィンドウの作り込み・失敗画面・ログは後続の Task。
+// ウィンドウとメニューは shell.rs。失敗画面・ログは後続の Task。
+mod shell;
 use nod_desktop::{
     run_launch, stop_process, LaunchConfig, LaunchOutcome, RealPlatform, Supervisor, STOP_GRACE,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent};
 
 fn sidecar_path() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -21,14 +22,6 @@ fn launch_config(handle: &tauri::AppHandle) -> Result<LaunchConfig, String> {
         .unwrap_or(0);
     let nonce = format!("{}_{}", std::process::id(), nanos);
     Ok(LaunchConfig::new(sidecar_path()?, web_dir, nonce))
-}
-
-fn open_window(handle: &tauri::AppHandle, url: &str) {
-    let Ok(parsed) = url.parse() else { return };
-    let _ = WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(parsed))
-        .title("nod")
-        .inner_size(1280.0, 800.0)
-        .build();
 }
 
 fn start_launch(handle: tauri::AppHandle) {
@@ -50,7 +43,7 @@ fn start_launch(handle: tauri::AppHandle) {
                 let (h, s) = (handle.clone(), sup.clone());
                 let _ = handle.run_on_main_thread(move || {
                     if s.is_current(token) {
-                        open_window(&h, &url);
+                        shell::open_main_window(&h, &url);
                     }
                 });
             }
@@ -67,14 +60,15 @@ fn main() {
     let app = tauri::Builder::default()
         // 二重起動では既存のウィンドウを前面に出す。ウィンドウが未作成の待機中は何もしない。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            shell::show_main(app);
         }))
+        .on_menu_event(shell::on_menu_event)
         .manage(Arc::new(Supervisor::new()))
         .setup(|app| {
+            app.manage(shell::WindowStateStore::new(app.handle()));
+            // resource_dir は setup 以降でないと使えないため、メニューもここで設定する。
+            let menu = shell::build_menu(app.handle())?;
+            app.set_menu(menu)?;
             start_launch(app.handle().clone());
             Ok(())
         })
@@ -82,7 +76,14 @@ fn main() {
         .expect("tauri の初期化に失敗しました");
 
     app.run(|handle, event| {
+        // Dock のクリックで、非表示にした主ウィンドウを再表示する。
+        if let RunEvent::Reopen { .. } = event {
+            shell::show_main(handle);
+        }
         if let RunEvent::Exit = event {
+            if let Some(store) = handle.try_state::<shell::WindowStateStore>() {
+                store.flush(handle);
+            }
             // 終了後に遅れて届く起動成功は世代で無効になる。SIGTERM → 猶予 → SIGKILL。
             let sup = handle.state::<Arc<Supervisor>>();
             if let Some(proc) = sup.quit() {
