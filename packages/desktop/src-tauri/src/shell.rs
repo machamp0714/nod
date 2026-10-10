@@ -1,9 +1,13 @@
 // ウィンドウとメニュー（Tauri 依存の部分）。判定ロジックは lib 側の純粋関数に置く。
 use nod_desktop::about::about_text;
-use nod_desktop::navigation::{decide, is_openable_local_url, NavDecision};
+use crate::status::{self, Status};
+use nod_desktop::navigation::{
+    decide, is_app_page, is_openable_local_url, parse_action, NavDecision,
+};
 use nod_desktop::window_state::{self, Rect};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{
     AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
@@ -18,6 +22,12 @@ const SAVE_INTERVAL: Duration = Duration::from_millis(500);
 const ID_RELOAD: &str = "view.reload";
 const ID_OPEN_IN_BROWSER: &str = "view.open_in_browser";
 const ID_DEVTOOLS: &str = "help.devtools";
+const ID_OPEN_LOGS: &str = "help.open_logs";
+const ID_COPY_DIAGNOSTICS: &str = "help.copy_diagnostics";
+
+/// いま主ウィンドウが開いている sidecar の port（再試行で変わる）。0 は未確定。
+#[derive(Default)]
+pub struct OwnPort(AtomicU16);
 
 /// 位置とサイズの保存先と、直近の値。
 pub struct WindowStateStore {
@@ -96,32 +106,41 @@ pub fn show_main(handle: &AppHandle) {
     }
 }
 
-/// 主ウィンドウを 1 枚だけ作る。すでにあれば前面に出す。常に見える状態で開く。
-pub fn open_main_window(handle: &AppHandle, url: &str) {
-    if handle.get_webview_window(MAIN_WINDOW).is_some() {
-        show_main(handle);
-        return;
-    }
-    let Ok(parsed) = url.parse::<Url>() else { return };
-    let Some(own_port) = parsed.port_or_known_default() else { return };
-
+/// 主ウィンドウを作る（非表示のまま返す）。位置とサイズの復元・遷移の制限・閉じる操作を設定する。
+fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
     let new_win_handle = handle.clone();
-    let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(parsed))
+    let nav_handle = handle.clone();
+    let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(url))
         .title("nod")
         .inner_size(1280.0, 800.0)
         .min_inner_size(1024.0, 640.0)
         .visible(false)
         // 自分の origin 以外へは遷移させない。外部 http(s) は既定ブラウザへ。
-        .on_navigation(move |u| match decide(u, own_port) {
-            NavDecision::Allow => true,
-            NavDecision::OpenExternal => {
-                open_in_default_browser(u);
-                false
+        // アプリの静的画面（tauri://localhost）と、そのボタン（nod-action://）だけは別扱い。
+        .on_navigation(move |u| {
+            if let Some(action) = parse_action(u) {
+                // ボタンは静的画面からのみ受け付ける（sidecar のページ内のリンクでは動かさない）。
+                if nav_handle.state::<Arc<Status>>().page_is_app() {
+                    status::dispatch(&nav_handle, action);
+                }
+                return false;
             }
-            NavDecision::Deny => false,
+            if is_app_page(u) {
+                return true;
+            }
+            let own_port = nav_handle.state::<OwnPort>().0.load(Ordering::SeqCst);
+            match decide(u, own_port) {
+                NavDecision::Allow => true,
+                NavDecision::OpenExternal => {
+                    open_in_default_browser(u);
+                    false
+                }
+                NavDecision::Deny => false,
+            }
         })
         // window.open / target=_blank。新しいウィンドウは作らない。
         .on_new_window(move |u, _features| {
+            let own_port = new_win_handle.state::<OwnPort>().0.load(Ordering::SeqCst);
             match decide(&u, own_port) {
                 NavDecision::Allow => {
                     if let Some(w) = new_win_handle.get_webview_window(MAIN_WINDOW) {
@@ -134,7 +153,7 @@ pub fn open_main_window(handle: &AppHandle, url: &str) {
             NewWindowResponse::Deny
         })
         .build();
-    let Ok(win) = built else { return };
+    let win = built.ok()?;
 
     // 保存位置の復元。画面外なら既定サイズで中央に置く。
     let store = handle.state::<WindowStateStore>();
@@ -175,9 +194,51 @@ pub fn open_main_window(handle: &AppHandle, url: &str) {
             _ => {}
         }
     });
+    Some(win)
+}
 
+fn show_window(win: &WebviewWindow) {
+    let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
+}
+
+/// 主ウィンドウ（1 枚）で `url` を表示する。なければ作る。いずれも見える状態にする。
+fn show_url(handle: &AppHandle, url: Url) {
+    if let Some(w) = handle.get_webview_window(MAIN_WINDOW) {
+        let _ = w.navigate(url);
+        show_window(&w);
+    } else if let Some(w) = build_main(handle, url) {
+        show_window(&w);
+    }
+}
+
+/// sidecar の URL を主ウィンドウで開く（起動中・失敗画面からの遷移を含む）。
+pub fn open_main_window(handle: &AppHandle, url: &str) {
+    let Ok(parsed) = url.parse::<Url>() else { return };
+    let Some(port) = parsed.port_or_known_default() else { return };
+    handle.state::<OwnPort>().0.store(port, Ordering::SeqCst);
+    show_url(handle, parsed);
+}
+
+/// アプリの静的画面（frontend の HTML）を主ウィンドウで表示する。
+pub fn show_app_page(handle: &AppHandle, page: &str, query: Option<&str>) {
+    let mut u = format!("tauri://localhost/{page}");
+    if let Some(q) = query {
+        u.push('?');
+        u.push_str(q);
+    }
+    if let Ok(url) = u.parse::<Url>() {
+        show_url(handle, url);
+    }
+}
+
+/// 失敗画面のボタンの結果などを、表示中の静的画面へ知らせる。
+pub fn notify_page(handle: &AppHandle, text: &str) {
+    if let Some(w) = handle.get_webview_window(MAIN_WINDOW) {
+        let msg = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into());
+        let _ = w.eval(format!("window.__nodNotice && window.__nodNotice({msg})"));
+    }
 }
 
 pub fn build_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -264,12 +325,16 @@ pub fn build_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
-    // Task 6 で「ログを開く」「診断情報をコピー」をここ（開発者ツールの前）に足す。
     let help_menu = Submenu::with_items(
         handle,
         "ヘルプ",
         true,
-        &[&MenuItem::with_id(handle, ID_DEVTOOLS, "開発者ツール", true, Some("CmdOrCtrl+Alt+I"))?],
+        &[
+            &MenuItem::with_id(handle, ID_OPEN_LOGS, "ログを開く", true, None::<&str>)?,
+            &MenuItem::with_id(handle, ID_COPY_DIAGNOSTICS, "診断情報をコピー", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, ID_DEVTOOLS, "開発者ツール", true, Some("CmdOrCtrl+Alt+I"))?,
+        ],
     )?;
 
     let menu = Menu::with_items(
@@ -285,6 +350,14 @@ pub fn build_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn on_menu_event(handle: &AppHandle, event: MenuEvent) {
+    // ログと診断情報は、ウィンドウがない起動待機中でも使える。
+    match event.id().as_ref() {
+        ID_OPEN_LOGS => return status::dispatch(handle, nod_desktop::navigation::UiAction::OpenLogs),
+        ID_COPY_DIAGNOSTICS => {
+            return status::dispatch(handle, nod_desktop::navigation::UiAction::CopyDiagnostics)
+        }
+        _ => {}
+    }
     let Some(w) = handle.get_webview_window(MAIN_WINDOW) else { return };
     match event.id().as_ref() {
         // 現在のページだけを再読み込みする。sidecar は再起動しない。

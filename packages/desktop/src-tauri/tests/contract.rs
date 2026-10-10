@@ -157,3 +157,37 @@ fn http_status_は_200_とそれ以外を区別する() {
     assert_eq!(http_status(&format!("http://127.0.0.1:{port}/api/workspaces"), Duration::from_secs(1)), Some(200));
     assert_eq!(http_status(&format!("http://127.0.0.1:{}/", free_port()), Duration::from_millis(300)), None);
 }
+
+#[test]
+fn 実プロセス_版が新しすぎる場合は標準エラーから検出し_失敗の記録に秘密を残さない() {
+    let dir = tmp("schema");
+    let mut c = cfg(&dir, "fake-shell.sh", "schema", 1);
+    c.shell_env_overlay.push(("NOD_TEST_SECRET".into(), "sekret-value-12345".into()));
+    let logs = dir.join("logs");
+    let logger = std::sync::Arc::new(Logger::new(logs.clone(), "0.0.0-test".into()));
+    logger.set_launch_id("test-launch");
+    let real = RealPlatform::with_logger(logger);
+    let r = launch(&real, &c, &|| false, &|_| {});
+    assert_eq!(r.err(), Some(LaunchError::SchemaTooNew));
+
+    let text = fs::read_to_string(logs.join("nod.log")).unwrap();
+    assert!(text.contains("launch=test-launch") && text.contains("stage=environment"), "{text}");
+    assert!(text.contains("環境を取得しました") && text.contains("sidecar を起動しました"), "{text}");
+    assert!(text.contains("終了コード Some(1)"), "{text}");
+    assert!(!text.contains("sekret-value-12345") && !text.contains("NOD_TEST_SECRET"), "{text}");
+    assert!(!text.contains("/stub/bin"), "PATH の中身を記録しない: {text}");
+}
+
+#[test]
+fn 実プロセス_環境取得の失敗は分類と所要時間だけを記録する() {
+    let dir = tmp("envfail");
+    let mut c = cfg(&dir, "fake-shell.sh", "ok", 1);
+    c.shell = Some("/nonexistent/shell".into());
+    let logs = dir.join("logs");
+    let real = RealPlatform::with_logger(std::sync::Arc::new(Logger::new(logs.clone(), "t".into())));
+    let r = launch(&real, &c, &|| false, &|_| {});
+    assert!(matches!(r, Err(LaunchError::EnvFailed(_))));
+    let text = fs::read_to_string(logs.join("nod.log")).unwrap();
+    assert!(text.contains("環境の取得に失敗しました"), "{text}");
+    assert!(!text.contains("/nonexistent/shell"), "シェルのエラー文は載せない: {text}");
+}

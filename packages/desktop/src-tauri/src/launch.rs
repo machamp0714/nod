@@ -1,5 +1,6 @@
 // 起動シーケンス: ログインシェルから環境を取得 → ポートを決めて sidecar を起動 →
 // URL 行と /api/workspaces の 200 の両方が揃うまで待つ。
+use crate::log::Stage;
 use crate::platform::{Platform, Proc, ProcEvent, SpawnSpec};
 use std::fmt;
 use std::path::PathBuf;
@@ -52,6 +53,8 @@ pub enum LaunchError {
     /// 4700 に別の nod ui がいて、sidecar が再利用を選んだ。
     PortReused,
     StartupTimeout { url_seen: bool },
+    /// DB の版が sidecar より新しい（sidecar の出力の `SCHEMA_TOO_NEW` で検出）。
+    SchemaTooNew,
     Cancelled,
 }
 
@@ -69,6 +72,7 @@ impl fmt::Display for LaunchError {
                 "sidecar の起動が制限時間内に完了しませんでした（URL 行: {}）",
                 if *url_seen { "受信済み" } else { "未受信" }
             ),
+            Self::SchemaTooNew => write!(f, "DB の版が nod より新しいため開けません"),
             Self::Cancelled => write!(f, "起動は取り消されました"),
         }
     }
@@ -141,6 +145,30 @@ fn fetch_env(
     cfg: &LaunchConfig,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<(String, String)>, LaunchError> {
+    let started = p.now();
+    let r = fetch_env_inner(p, cfg, cancel);
+    if let Err(e) = &r {
+        if !matches!(e, LaunchError::Cancelled) {
+            // 原因の文字列（シェルのエラー文など）は載せず、分類と所要時間だけを残す。
+            let kind = match e {
+                LaunchError::EnvTimeout => "タイムアウト",
+                LaunchError::EnvFailed(_) => "シェルの起動または出力の解析に失敗",
+                _ => "その他",
+            };
+            p.log_at(
+                Stage::Environment,
+                &format!("環境の取得に失敗しました（{kind}、{} ms）", p.now().saturating_sub(started).as_millis()),
+            );
+        }
+    }
+    r
+}
+
+fn fetch_env_inner(
+    p: &dyn Platform,
+    cfg: &LaunchConfig,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<(String, String)>, LaunchError> {
     let shell = cfg
         .shell
         .clone()
@@ -174,8 +202,7 @@ fn fetch_env(
         }
         if p.now().saturating_sub(started) >= cfg.env_timeout {
             proc.kill();
-            p.log("環境の取得がタイムアウトしました");
-            return Err(LaunchError::EnvTimeout);
+                        return Err(LaunchError::EnvTimeout);
         }
         p.sleep(cfg.poll_interval);
     };
@@ -183,7 +210,7 @@ fn fetch_env(
         return Err(LaunchError::EnvFailed(format!("シェルが終了コード {code:?} で終了しました")));
     }
     let vars = parse_env_block(&out, &begin, &end).map_err(LaunchError::EnvFailed)?;
-    p.log(&format!(
+    p.log_at(Stage::Environment, &format!(
         "環境を取得しました（{} 個、{} ms）",
         vars.len(),
         p.now().saturating_sub(started).as_millis()
@@ -213,7 +240,10 @@ pub fn launch(
     let ports: Vec<u16> = if p.port_is_free(cfg.preferred_port) {
         vec![cfg.preferred_port, 0]
     } else {
-        p.log(&format!("ポート {} は使用中のため空きポートを使います", cfg.preferred_port));
+        p.log_at(
+            Stage::Spawn,
+            &format!("ポート {} は使用中のため空きポートを使います", cfg.preferred_port),
+        );
         vec![0]
     };
     let deadline = p.now() + cfg.startup_timeout;
@@ -224,7 +254,10 @@ pub fn launch(
             Err(e @ (LaunchError::PortReused | LaunchError::EarlyExit(_)))
                 if *port != 0 && i + 1 < ports.len() =>
             {
-                p.log(&format!("ポート {port} での起動に失敗したため、空きポートでやり直します（{e}）"));
+                p.log_at(
+                    Stage::Spawn,
+                    &format!("ポート {port} での起動に失敗したため、空きポートでやり直します（{e}）"),
+                );
                 last = e;
             }
             Err(e) => return Err(e),
@@ -262,7 +295,10 @@ fn attempt(
     };
     let proc = p.spawn(&spec).map_err(LaunchError::SpawnFailed)?;
     on_spawn(&proc);
-    p.log(&format!("sidecar を起動しました（pid {}、要求ポート {port}）", proc.pid()));
+    p.log_at(
+        Stage::Spawn,
+        &format!("sidecar を起動しました（pid {}、要求ポート {port}）", proc.pid()),
+    );
 
     let fail = |e: LaunchError| -> Result<Launched, LaunchError> {
         proc.kill();
@@ -294,12 +330,26 @@ fn attempt(
             }
         }
         if let Some(code) = exited {
+            let signal = proc.exit_signal();
+            p.log_at(
+                Stage::Startup,
+                &format!(
+                    "sidecar が起動の完了前に終了しました（pid {}、終了コード {code:?}、シグナル {signal:?}）",
+                    proc.pid()
+                ),
+            );
+            // 版が新しすぎる場合は標準エラー（または標準出力）の `SCHEMA_TOO_NEW` で分かる。
+            if proc.stderr_tail().contains("SCHEMA_TOO_NEW")
+                || String::from_utf8_lossy(&buf).contains("SCHEMA_TOO_NEW")
+            {
+                return Err(LaunchError::SchemaTooNew);
+            }
             return Err(LaunchError::EarlyExit(code));
         }
         if let Some(u) = &url {
             if p.http_status(&format!("{u}api/workspaces")) == Some(200) {
                 proc.discard_output();
-                p.log(&format!("起動完了: {u}"));
+                p.log_at(Stage::Startup, &format!("起動完了: {u}（pid {}）", proc.pid()));
                 return Ok(Launched { url: u.clone(), proc, port_requested: port });
             }
         }

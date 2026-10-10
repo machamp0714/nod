@@ -9,6 +9,9 @@ case "$STUB_MODE" in
     exit 0 ;;
   exit)
     exit 3 ;;
+  schema)
+    echo "エラー（SCHEMA_TOO_NEW）: DB のスキーマ（版 999）がこの nod（版 39）より新しいため開けません" >&2
+    exit 1 ;;
   silent)
     ;;
   *)

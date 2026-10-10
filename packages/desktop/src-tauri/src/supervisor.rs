@@ -1,5 +1,6 @@
 // 起動の世代管理と停止。ウィンドウ操作を持たないので、Tauri なしでテストできる。
 use crate::launch::{launch, LaunchConfig, LaunchError};
+use crate::log::Stage;
 use crate::platform::{Platform, Proc};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -62,6 +63,15 @@ impl Supervisor {
         true
     }
 
+    /// 登録済みの sidecar を取り外す（再試行の前に、残りがあれば止めるため）。
+    pub fn take_current(&self) -> Option<Arc<dyn Proc>> {
+        self.inner.lock().unwrap().current.take()
+    }
+
+    pub fn current_pid(&self) -> Option<u32> {
+        self.inner.lock().unwrap().current.as_ref().map(|p| p.pid())
+    }
+
     /// 終了要求。以降の起動はすべて無効になる。停止すべき sidecar を返す。
     pub fn quit(&self) -> Option<Arc<dyn Proc>> {
         let mut g = self.inner.lock().unwrap();
@@ -82,16 +92,30 @@ pub fn stop_process(p: &dyn Platform, proc: &dyn Proc, grace: Duration) {
         proc.kill(); // グループに孫が残っていれば片付ける
         return;
     }
-    p.log(&format!("sidecar に SIGTERM を送ります（pid {}）", proc.pid()));
+    p.log_at(Stage::Shutdown, &format!("sidecar に SIGTERM を送ります（pid {}）", proc.pid()));
     proc.terminate();
     let deadline = p.now() + grace;
     while !proc.is_exited() && p.now() < deadline {
         p.sleep(Duration::from_millis(25));
     }
     if !proc.is_exited() {
-        p.log(&format!("sidecar が止まらないため SIGKILL を送ります（pid {}）", proc.pid()));
+        p.log_at(
+            Stage::Shutdown,
+            &format!("sidecar が止まらないため SIGKILL を送ります（pid {}）", proc.pid()),
+        );
     }
     proc.kill();
+    // kill 直後は回収が済んでいないことがあるため、短く待ってから結果を残す。
+    let wait_until = p.now() + Duration::from_millis(200);
+    while !proc.is_exited() && p.now() < wait_until {
+        p.sleep(Duration::from_millis(10));
+    }
+    if proc.is_exited() {
+        p.log_at(
+            Stage::Shutdown,
+            &format!("sidecar が終了しました（pid {}、シグナル {:?}）", proc.pid(), proc.exit_signal()),
+        );
+    }
 }
 
 /// 1 回の起動を実行し、世代が古ければ成功しても Discarded にして sidecar を止める。

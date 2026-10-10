@@ -1,10 +1,11 @@
 // 外部効果（プロセス・HTTP・時計・ポート・環境変数・ログ）の境界。
+use crate::log::{Logger, Stage};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,8 +21,14 @@ pub struct SpawnSpec {
     pub cwd: Option<PathBuf>,
     /// 新しいプロセスグループで起動する（孫プロセスごと kill するため）。
     pub new_group: bool,
-    /// 標準エラーを自分の標準エラーへ流す（false なら捨てる）。
+    /// 標準エラーを自分の標準エラーへ流しつつ、末尾だけ分類用に保持する（false なら捨てる）。
     pub inherit_stderr: bool,
+}
+
+impl SpawnSpec {
+    fn stderr_is_null(&self) -> bool {
+        !self.inherit_stderr
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +47,18 @@ pub trait Proc: Send + Sync {
     fn kill(&self);
     /// 以降の標準出力を読み捨てる（パイプを詰まらせず、メモリも使わない）。
     fn discard_output(&self);
+    /// 標準エラーの末尾（分類専用。ログにも画面にも載せない）。取得していなければ空。
+    fn stderr_tail(&self) -> String {
+        String::new()
+    }
+    /// シグナルで終了した場合のシグナル番号。
+    fn exit_signal(&self) -> Option<i32> {
+        None
+    }
 }
+
+/// 標準エラーの保持量。SCHEMA_TOO_NEW などの行を拾えれば足りる。
+const STDERR_TAIL_BYTES: usize = 4096;
 
 pub trait Platform: Send + Sync {
     /// 起動からの経過時間。単調増加。
@@ -52,15 +70,25 @@ pub trait Platform: Send + Sync {
     fn port_is_free(&self, port: u16) -> bool;
     fn var(&self, key: &str) -> Option<String>;
     fn log(&self, msg: &str);
+    /// 処理段階つきのログ。既定は段階なしの `log`。
+    fn log_at(&self, _stage: Stage, msg: &str) {
+        self.log(msg);
+    }
 }
 
 pub struct RealPlatform {
     start: Instant,
+    logger: Option<Arc<Logger>>,
 }
 
 impl RealPlatform {
     pub fn new() -> Self {
-        Self { start: Instant::now() }
+        Self { start: Instant::now(), logger: None }
+    }
+
+    /// ファイルにもログを残す。
+    pub fn with_logger(logger: Arc<Logger>) -> Self {
+        Self { start: Instant::now(), logger: Some(logger) }
     }
 }
 
@@ -89,7 +117,7 @@ impl Platform for RealPlatform {
             cmd.current_dir(cwd);
         }
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(if spec.inherit_stderr {
-            Stdio::inherit()
+            Stdio::piped()
         } else {
             Stdio::null()
         });
@@ -102,8 +130,33 @@ impl Platform for RealPlatform {
         let (tx, rx) = channel();
         let exited = Arc::new(AtomicBool::new(false));
         let discard = Arc::new(AtomicBool::new(false));
+        let tail: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+        let signal = Arc::new(AtomicI32::new(0));
+        let stderr_done = Arc::new(AtomicBool::new(spec.stderr_is_null()));
+        if let Some(mut stderr) = child.stderr.take() {
+            let (tail, done) = (tail.clone(), stderr_done.clone());
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 1024];
+                loop {
+                    match stderr.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let _ = std::io::stderr().write_all(&buf[..n]);
+                            let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
+                            t.extend_from_slice(&buf[..n]);
+                            if t.len() > STDERR_TAIL_BYTES {
+                                let cut = t.len() - STDERR_TAIL_BYTES;
+                                t.drain(..cut);
+                            }
+                        }
+                    }
+                }
+                done.store(true, Ordering::SeqCst);
+            });
+        }
         {
-            let (exited, discard) = (exited.clone(), discard.clone());
+            let (exited, discard, signal, stderr_done) =
+                (exited.clone(), discard.clone(), signal.clone(), stderr_done.clone());
             std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
                 loop {
@@ -116,12 +169,31 @@ impl Platform for RealPlatform {
                         }
                     }
                 }
-                let code = child.wait().ok().and_then(|s| s.code());
+                let status = child.wait().ok();
+                let code = status.and_then(|s| s.code());
+                if let Some(sig) = status.and_then(|s| s.signal()) {
+                    signal.store(sig, Ordering::SeqCst);
+                }
+                // 標準エラーの読み切りを（孫が握っていても）短時間だけ待つ。
+                for _ in 0..30 {
+                    if stderr_done.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 exited.store(true, Ordering::SeqCst);
                 let _ = tx.send(ProcEvent::Exited(code));
             });
         }
-        Ok(Arc::new(RealProc { pid, group: spec.new_group, rx: Mutex::new(rx), exited, discard }))
+        Ok(Arc::new(RealProc {
+            pid,
+            group: spec.new_group,
+            rx: Mutex::new(rx),
+            exited,
+            discard,
+            tail,
+            signal,
+        }))
     }
     fn http_status(&self, url: &str) -> Option<u16> {
         http_status(url, Duration::from_secs(1))
@@ -133,7 +205,13 @@ impl Platform for RealPlatform {
         std::env::var(key).ok()
     }
     fn log(&self, msg: &str) {
+        self.log_at(Stage::App, msg);
+    }
+    fn log_at(&self, stage: Stage, msg: &str) {
         eprintln!("nod: {msg}");
+        if let Some(l) = &self.logger {
+            l.event(stage, msg);
+        }
     }
 }
 
@@ -143,6 +221,8 @@ struct RealProc {
     rx: Mutex<Receiver<ProcEvent>>,
     exited: Arc<AtomicBool>,
     discard: Arc<AtomicBool>,
+    tail: Arc<Mutex<Vec<u8>>>,
+    signal: Arc<AtomicI32>,
 }
 
 impl Proc for RealProc {
@@ -171,6 +251,15 @@ impl Proc for RealProc {
     }
     fn discard_output(&self) {
         self.discard.store(true, Ordering::SeqCst);
+    }
+    fn stderr_tail(&self) -> String {
+        String::from_utf8_lossy(&self.tail.lock().unwrap_or_else(|e| e.into_inner())).into_owned()
+    }
+    fn exit_signal(&self) -> Option<i32> {
+        match self.signal.load(Ordering::SeqCst) {
+            0 => None,
+            n => Some(n),
+        }
     }
 }
 

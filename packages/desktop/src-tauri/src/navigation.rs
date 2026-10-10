@@ -35,6 +35,36 @@ pub fn decide(url: &Url, own_port: u16) -> NavDecision {
     }
 }
 
+/// アプリ自身の静的画面（起動中・失敗画面）の origin か。macOS の tauri の内部 URL は tauri://localhost。
+pub fn is_app_page(url: &Url) -> bool {
+    url.scheme() == "tauri" && url.host_str() == Some("localhost")
+}
+
+/// 静的画面のボタンが指す操作。URL スキーム `nod-action://<名前>` で Rust へ伝える。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum UiAction {
+    Retry,
+    Quit,
+    OpenLogs,
+    CopyDiagnostics,
+}
+
+pub const ACTION_SCHEME: &str = "nod-action";
+
+/// `nod-action://retry` などを操作へ。スキームが違う、または未知の名前なら None。
+pub fn parse_action(url: &Url) -> Option<UiAction> {
+    if url.scheme() != ACTION_SCHEME {
+        return None;
+    }
+    match url.host_str()? {
+        "retry" => Some(UiAction::Retry),
+        "quit" => Some(UiAction::Quit),
+        "open-logs" => Some(UiAction::OpenLogs),
+        "copy-diagnostics" => Some(UiAction::CopyDiagnostics),
+        _ => None,
+    }
+}
+
 /// 「ブラウザで開く」に渡してよい URL か。http(s) の 127.0.0.1 のみ（userinfo なし）。
 pub fn is_openable_local_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
@@ -106,5 +136,25 @@ mod tests {
         assert!(!is_openable_local_url(&u("http://127.0.0.1:4700@evil.example/")));
         assert!(!is_openable_local_url(&u("file:///tmp/x")));
         assert!(!is_openable_local_url(&u("about:blank")));
+    }
+
+    #[test]
+    fn app_pages_are_only_the_tauri_internal_origin() {
+        assert!(is_app_page(&u("tauri://localhost/failure.html?a=b")));
+        assert!(!is_app_page(&u("http://127.0.0.1:4700/")));
+        assert!(!is_app_page(&u("tauri://evil/")));
+        assert!(!is_app_page(&u("http://localhost/")));
+    }
+
+    #[test]
+    fn actions_are_parsed_from_the_scheme_only() {
+        assert_eq!(parse_action(&u("nod-action://retry")), Some(UiAction::Retry));
+        assert_eq!(parse_action(&u("nod-action://quit")), Some(UiAction::Quit));
+        assert_eq!(parse_action(&u("nod-action://open-logs")), Some(UiAction::OpenLogs));
+        assert_eq!(parse_action(&u("nod-action://copy-diagnostics")), Some(UiAction::CopyDiagnostics));
+        assert_eq!(parse_action(&u("nod-action://unknown")), None);
+        assert_eq!(parse_action(&u("https://retry/")), None);
+        // 外部 URL は操作として扱われず、これまでどおり decide で判定される。
+        assert_eq!(decide(&u("nod-action://retry"), 4700), NavDecision::Deny);
     }
 }
