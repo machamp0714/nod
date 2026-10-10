@@ -13,6 +13,7 @@ import {
   completeIssue,
   copyIssue,
   createIssue,
+  assessCreatedIssue,
   detachDocument,
   diagnoseIssues,
   failIssue,
@@ -76,6 +77,7 @@ import {
   formatAttachment,
   formatDelegations,
   formatIssueDetail,
+  formatSpecAssessment,
   formatIssueLine,
   formatIssueLines,
   formatIssueListLines,
@@ -121,8 +123,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
     .action(
-      act(
-        (
+      actAsync(
+        async (
           cli,
           cmd,
           title: string,
@@ -143,7 +145,8 @@ export function registerIssueCommands(program: Command): void {
             dueDate: o.due,
             labels: o.label,
           });
-          print(cli, created, () => `起票しました: ${formatIssueLine(created)}`);
+          const assessed = await assessCreatedIssue(cli.ctx, created.id);
+          print(cli, assessed, () => `起票しました: ${formatIssueLine(assessed)}\n${formatSpecAssessment(assessed)}`);
         },
       ),
     );

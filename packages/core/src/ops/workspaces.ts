@@ -15,12 +15,13 @@ interface WorkspaceRow {
   name: string;
   path: string;
   color: string;
+  spec_assessment_enabled: number;
   default_agent: OrcaAgent;
   created_at: string;
 }
 
 function toWorkspace(r: WorkspaceRow): Workspace {
-  return { id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, defaultAgent: r.default_agent, createdAt: r.created_at };
+  return { specAssessmentEnabled: r.spec_assessment_enabled === 1, id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, defaultAgent: r.default_agent, createdAt: r.created_at };
 }
 
 export function deriveKey(repoName: string): string | null {
@@ -118,4 +119,14 @@ export function removeWorkspace(
   });
   removeStoredFiles(files, attachmentsDir);
   return result;
+}
+
+export function setWorkspaceSpecAssessment(ctx: OpCtx, keyOrPath: string, enabled: boolean): Workspace {
+  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "自動仕様判定の設定は人間だけが変更できます");
+  return tx(ctx.db, () => {
+    const workspace = findWorkspace(ctx.db, keyOrPath);
+    if (!workspace) throw new NodError("NOT_FOUND", "Workspace がありません");
+    ctx.db.query("UPDATE workspaces SET spec_assessment_enabled = ? WHERE id = ?").run(enabled ? 1 : 0, workspace.id);
+    return { ...workspace, specAssessmentEnabled: enabled };
+  });
 }

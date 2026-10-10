@@ -90,6 +90,11 @@ export function nextIssue(
 export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocation | null } = {}): Issue {
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
+    const assessment = toIssue(row).specAssessment;
+    const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(row.workspace_id) as { spec_assessment_enabled: number };
+    if (ws.spec_assessment_enabled && assessment && assessment.status !== "completed") {
+      throw new NodError("SPEC_ASSESSMENT_REQUIRED", `${ref} の仕様判定は未完了です（${assessment.status}）。同じIssueへの明示再試行が必要です`);
+    }
     if (row.status === "triage") {
       throw new NodError("NOT_ACCEPTED", `${ref} はまだ Triage にあります。受け入れられるまで着手できません`);
     }

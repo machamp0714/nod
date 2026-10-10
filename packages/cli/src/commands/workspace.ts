@@ -29,6 +29,7 @@ import {
   ORCA_AGENT_LABELS,
   ORCA_AGENTS,
   setWorkspaceDefaultAgent,
+  setWorkspaceSpecAssessment,
   clearWorkspaceGithubRepo,
   getWorkspaceGithubRepoView,
   gitRunner,
@@ -147,6 +148,17 @@ export function registerWorkspaceCommands(program: Command): void {
       }),
     );
 
+  const assessment = ws.command("spec-assessment").description("起票時の自動仕様判定を管理する");
+  assessment.command("show").action(act((cli, cmd) => {
+    const w = currentWorkspace(cli, cmd);
+    const result = { workspaceKey: w.key, enabled: w.specAssessmentEnabled === true };
+    print(cli, result, () => `自動仕様判定: ${result.enabled ? "ON" : "OFF"}`);
+  }));
+  assessment.command("set <state>").description("人間がON/OFFを変更する（on または off）").action(act((cli, cmd, state: string) => {
+    if (state !== "on" && state !== "off") throw new NodError("INVALID_ARGS", "on または off を指定してください");
+    const w = setWorkspaceSpecAssessment(cli.ctx, currentWorkspace(cli, cmd).key, state === "on");
+    print(cli, { workspaceKey: w.key, enabled: w.specAssessmentEnabled }, () => `自動仕様判定を${state === "on" ? "ON" : "OFF"}にしました`);
+  }));
   registerLabelCommands(ws);
   registerStatusNameCommands(ws);
   registerAgentCommands(ws);

@@ -11,6 +11,7 @@ export interface Workspace {
   name: string;
   path: string;
   color: string;
+  specAssessmentEnabled?: boolean;
   defaultAgent: OrcaAgent; // 「Orca で作業を始める」の既定のエージェント
   createdAt: string;
 }
@@ -38,7 +39,23 @@ export type DocKind = (typeof DOC_KINDS)[number];
 
 export type RelationType = "blocks" | "related" | "duplicate";
 
+export interface SpecAssessment {
+  status: "pending" | "completed" | "failed";
+  generation: number;
+  bodyHash: string;
+  model: string;
+  criteriaVersion: string;
+  threshold: number;
+  requestedAt: string;
+  finishedAt: string | null;
+  probability: number | null;
+  inputTokens: number | null;
+  elapsedMs: number | null;
+  failureKind: import("./ops/jev-client").JevFailureKind | null;
+}
+
 export interface Issue {
+  specAssessment?: SpecAssessment | null;
   id: string;
   workspace: string;
   number: number;

@@ -1,3 +1,4 @@
+import { prepareCreatedIssueAssessment } from "./spec-assessment";
 import { listIssueAttachments } from "./attachments";
 import { instructionsOfIssue } from "./instructions";
 import { isSubscribedRow } from "./notifications";
@@ -182,6 +183,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
   }
+  if (!closed) prepareCreatedIssueAssessment(ctx, id, ws.id, input.description);
   recordEvent(ctx.db, id, ctx.actor, "created", {
     status,
     ...(input.cycleId !== null && input.cycleId !== undefined ? { cycle_id: input.cycleId } : {}),

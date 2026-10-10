@@ -64,3 +64,4 @@ export * from "./ops/toggl-cache";
 export * from "./ops/instructions";
 export * from "./branch-naming";
 export * from "./ops/jev-client";
+export * from "./ops/spec-assessment";
