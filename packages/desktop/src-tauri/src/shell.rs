@@ -19,6 +19,8 @@ pub const MAIN_WINDOW: &str = "main";
 const STATE_FILE: &str = "window-state.json";
 const SAVE_INTERVAL: Duration = Duration::from_millis(500);
 
+const ID_BACK: &str = "view.back";
+const ID_FORWARD: &str = "view.forward";
 const ID_RELOAD: &str = "view.reload";
 const ID_OPEN_IN_BROWSER: &str = "view.open_in_browser";
 const ID_DEVTOOLS: &str = "help.devtools";
@@ -359,6 +361,9 @@ pub fn build_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "表示",
         true,
         &[
+            &MenuItem::with_id(handle, ID_BACK, "戻る", true, Some("CmdOrCtrl+["))?,
+            &MenuItem::with_id(handle, ID_FORWARD, "進む", true, Some("CmdOrCtrl+]"))?,
+            &PredefinedMenuItem::separator(handle)?,
             &MenuItem::with_id(handle, ID_RELOAD, "再読み込み", true, Some("CmdOrCtrl+R"))?,
             &MenuItem::with_id(
                 handle,
@@ -417,6 +422,13 @@ pub fn on_menu_event(handle: &AppHandle, event: MenuEvent) {
     }
     let Some(w) = handle.get_webview_window(MAIN_WINDOW) else { return };
     match event.id().as_ref() {
+        // ブラウザ版と同じ履歴の移動（Safari と同じ Cmd+[ / Cmd+]）。sidecar には触れない。
+        ID_BACK => {
+            let _ = w.eval("history.back()");
+        }
+        ID_FORWARD => {
+            let _ = w.eval("history.forward()");
+        }
         // 現在のページだけを再読み込みする。sidecar は再起動しない。
         ID_RELOAD => {
             let _ = w.reload();
