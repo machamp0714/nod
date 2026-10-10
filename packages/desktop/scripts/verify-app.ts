@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { capture, type ExecResult } from "./exec";
 
 export interface BuildInfo {
   version: string;
@@ -41,19 +42,10 @@ export const REQUIRED_ENTITLEMENTS = [
 
 const LAUNCH_TIMEOUT_MS = 15000;
 
-interface Exec {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
+const EXEC_TIMEOUT_MS = 20000;
 
-function exec(cmd: string[], env?: Record<string, string>, timeoutMs = 20000): Exec {
-  try {
-    const r = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env, timeout: timeoutMs });
-    return { code: r.exitCode ?? -1, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
-  } catch (e) {
-    return { code: -1, stdout: "", stderr: String(e) };
-  }
+function exec(cmd: string[], env?: Record<string, string>): ExecResult {
+  return capture(cmd, { env, timeoutMs: EXEC_TIMEOUT_MS });
 }
 
 function isolatedEnv(dir: string): Record<string, string> {

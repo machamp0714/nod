@@ -147,14 +147,18 @@ fn classify_line(line: &str) -> Line {
     Line::Url(format!("http://127.0.0.1:{digits}/"))
 }
 
-fn fetch_env(
-    p: &dyn Platform,
-    cfg: &LaunchConfig,
-    cancel: &dyn Fn() -> bool,
-    on_spawn: &dyn Fn(&Arc<dyn Proc>),
-) -> Result<Vec<(String, String)>, LaunchError> {
+/// 起動シーケンスの各段に共通で渡す依存（プラットフォーム・設定・取り消し・spawn 通知）。
+struct LaunchCtx<'a> {
+    p: &'a dyn Platform,
+    cfg: &'a LaunchConfig,
+    cancel: &'a dyn Fn() -> bool,
+    on_spawn: &'a dyn Fn(&Arc<dyn Proc>),
+}
+
+fn fetch_env(ctx: &LaunchCtx<'_>) -> Result<Vec<(String, String)>, LaunchError> {
+    let p = ctx.p;
     let started = p.now();
-    let r = fetch_env_inner(p, cfg, cancel, on_spawn);
+    let r = fetch_env_inner(ctx);
     if let Err(e) = &r {
         if !matches!(e, LaunchError::Cancelled) {
             // 原因の文字列（シェルのエラー文など）は載せず、分類と所要時間だけを残す。
@@ -172,12 +176,8 @@ fn fetch_env(
     r
 }
 
-fn fetch_env_inner(
-    p: &dyn Platform,
-    cfg: &LaunchConfig,
-    cancel: &dyn Fn() -> bool,
-    on_spawn: &dyn Fn(&Arc<dyn Proc>),
-) -> Result<Vec<(String, String)>, LaunchError> {
+fn fetch_env_inner(ctx: &LaunchCtx<'_>) -> Result<Vec<(String, String)>, LaunchError> {
+    let LaunchCtx { p, cfg, cancel, on_spawn } = *ctx;
     let shell = cfg
         .shell
         .clone()
@@ -213,7 +213,7 @@ fn fetch_env_inner(
         }
         if p.now().saturating_sub(started) >= cfg.env_timeout {
             proc.kill();
-                        return Err(LaunchError::EnvTimeout);
+            return Err(LaunchError::EnvTimeout);
         }
         p.sleep(cfg.poll_interval);
     };
@@ -238,6 +238,7 @@ pub fn launch(
     cancel: &dyn Fn() -> bool,
     on_spawn: &dyn Fn(&Arc<dyn Proc>),
 ) -> Result<Launched, LaunchError> {
+    let ctx = LaunchCtx { p, cfg, cancel, on_spawn };
     // 前回の孤児の回収は、環境の取得より前（Single Instance の後）。
     if let Some(path) = &cfg.pidfile {
         match reclaim_orphan(p, path, cancel) {
@@ -246,7 +247,7 @@ pub fn launch(
             _ => {}
         }
     }
-    let env = fetch_env(p, cfg, cancel, on_spawn)?;
+    let env = fetch_env(&ctx)?;
     let home = env
         .iter()
         .find(|(k, _)| k == "HOME")
@@ -268,7 +269,7 @@ pub fn launch(
     let deadline = p.now() + cfg.startup_timeout;
     let mut last = LaunchError::StartupTimeout { url_seen: false };
     for (i, port) in ports.iter().enumerate() {
-        match attempt(p, cfg, &env, &home, *port, deadline, cancel, on_spawn) {
+        match attempt(&ctx, &env, &home, *port, deadline) {
             Ok(l) => return Ok(l),
             Err(e @ (LaunchError::PortReused | LaunchError::EarlyExit(_)))
                 if *port != 0 && i + 1 < ports.len() =>
@@ -285,17 +286,14 @@ pub fn launch(
     Err(last)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn attempt(
-    p: &dyn Platform,
-    cfg: &LaunchConfig,
+    ctx: &LaunchCtx<'_>,
     env: &[(String, String)],
     home: &str,
     port: u16,
     deadline: Duration,
-    cancel: &dyn Fn() -> bool,
-    on_spawn: &dyn Fn(&Arc<dyn Proc>),
 ) -> Result<Launched, LaunchError> {
+    let LaunchCtx { p, cfg, cancel, on_spawn } = *ctx;
     let spec = SpawnSpec {
         program: cfg.sidecar.clone(),
         args: vec![

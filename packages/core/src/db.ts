@@ -29,7 +29,12 @@ export function openDb(path: string = defaultDbPath(), opts: { busyTimeoutMs?: n
 }
 
 const BACKUP_GENERATIONS = 5;
-const BACKUP_NAME = /^nod-\d{8}T\d{9}Z-\d{4}-v\d+\.db$/;
+// バックアップ名・退避名に使うタイムスタンプ（UTC、ミリ秒。例 20261010T123456789Z）。辞書順が時系列になる
+export const BACKUP_STAMP_PATTERN = "\\d{8}T\\d{9}Z";
+export function backupStamp(d: Date = new Date()): string {
+  return d.toISOString().replace(/[-:.]/g, "");
+}
+const BACKUP_NAME = new RegExp(`^nod-${BACKUP_STAMP_PATTERN}-\\d{4}-v\\d+\\.db$`);
 
 // 版が上がる migration があるとき（新規 DB の版 0 と、新しすぎる DB は除く）、DB の隣の backups/ に VACUUM INTO で
 // 整合したコピーを取る（WAL のコミット済みデータを含む）。一時名で作って完了後に世代へ加え、最新 5 世代だけを残す。
@@ -43,7 +48,7 @@ function backupBeforeMigrate(db: Database, path: string): void {
   try {
     mkdirSync(dir, { recursive: true });
     db.query("VACUUM INTO ?").run(tmp);
-    const stamp = new Date().toISOString().replace(/[-:.]/g, "");
+    const stamp = backupStamp();
     for (let seq = 0; ; seq++) {
       const dest = join(dir, `nod-${stamp}-${String(seq).padStart(4, "0")}-v${from}.db`);
       try {

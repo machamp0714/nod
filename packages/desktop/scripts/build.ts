@@ -3,6 +3,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SCHEMA_VERSION } from "../../core/src/db";
+import { capture as execCapture, runInherit } from "./exec";
 import { formatResult, verifyApp, type BuildInfo } from "./verify-app";
 
 const desktop = join(import.meta.dir, "..");
@@ -18,8 +19,8 @@ const stagedApp = join(stageDir, "nod.app");
 
 function run(cmd: string[], cwd: string = root): void {
   console.log(`$ ${cmd.join(" ")}`);
-  const r = Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
-  if (r.exitCode !== 0) throw new Error(`失敗しました（${r.exitCode}）: ${cmd.join(" ")}`);
+  const code = runInherit(cmd, { cwd });
+  if (code !== 0) throw new Error(`失敗しました（${code}）: ${cmd.join(" ")}`);
 }
 
 // 0. 前回の成果物を消す。このビルドが検査を通るまで、dist/nod.app は存在しない
@@ -37,9 +38,9 @@ for (const other of [join(tauriDir, "tauri.conf.json"), join(root, "packages", "
 }
 
 function capture(cmd: string[]): string {
-  const r = Bun.spawnSync(cmd, { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (r.exitCode !== 0) throw new Error(`失敗しました（${r.exitCode}）: ${cmd.join(" ")}\n${r.stderr.toString()}`);
-  return r.stdout.toString().trim();
+  const r = execCapture(cmd, { cwd: root });
+  if (r.code !== 0) throw new Error(`失敗しました（${r.code}）: ${cmd.join(" ")}\n${r.stderr}`);
+  return r.stdout.trim();
 }
 
 // 1. web

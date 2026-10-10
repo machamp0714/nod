@@ -7,7 +7,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { defaultDbPath } from "../../core/src/db";
+import { BACKUP_STAMP_PATTERN, backupStamp, defaultDbPath } from "../../core/src/db";
+import { capture as execCapture, runInherit } from "./exec";
 
 export const BUNDLE_ID = "io.github.machamp0714.nod";
 export const APP_NAME = "nod.app";
@@ -138,11 +139,9 @@ export function wrapperContent(appPath: string): string {
   ].join("\n");
 }
 
-function stamp(d: Date): string {
-  return d.toISOString().replace(/[-:.]/g, ""); // 20261010T123456789Z
-}
+const stamp = backupStamp; // 20261010T123456789Z
 
-const ARCHIVE_APP = /^nod-(\d{8}T\d{9}Z)-.+\.app$/;
+const ARCHIVE_APP = new RegExp(`^nod-(${BACKUP_STAMP_PATTERN})-.+\\.app$`);
 
 function readBuildInfo(app: string): BuildInfoLite | null {
   try {
@@ -177,12 +176,12 @@ function moveDir(from: string, to: string): void {
 // 隔離（quarantine）属性が付かない複製。署名とパーミッションを保つため ditto を使う
 function copyApp(from: string, to: string): void {
   mkdirSync(dirname(to), { recursive: true });
-  const r = Bun.spawnSync(["ditto", "--noqtn", from, to], { stdout: "pipe", stderr: "pipe" });
-  if (r.exitCode !== 0) {
+  const r = execCapture(["ditto", "--noqtn", from, to]);
+  if (r.code !== 0) {
     rmSync(to, { recursive: true, force: true });
     cpSync(from, to, { recursive: true, verbatimSymlinks: true });
   }
-  Bun.spawnSync(["xattr", "-dr", "com.apple.quarantine", to], { stdout: "pipe", stderr: "pipe" });
+  execCapture(["xattr", "-dr", "com.apple.quarantine", to]);
 }
 
 function writeExecutable(path: string, content: string): void {
@@ -399,13 +398,9 @@ async function quitAndWait(cfg: DeployConfig, deps: DeployDeps, appPath: string)
 
 // ---- 実環境の依存 ----
 
+// 失敗しても例外にせず、code と stdout だけを見る
 function capture(cmd: string[], cwd?: string): { code: number; stdout: string } {
-  try {
-    const r = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-    return { code: r.exitCode ?? -1, stdout: r.stdout.toString() };
-  } catch {
-    return { code: -1, stdout: "" };
-  }
+  return execCapture(cmd, { cwd });
 }
 
 function psList(): ProcessInfo[] {
@@ -490,10 +485,7 @@ export function realDeps(cfg: DeployConfig): DeployDeps {
     gitStatus: () => capture(["git", "status", "--porcelain"], cfg.repoRoot).stdout,
     gitHead: () => capture(["git", "rev-parse", "HEAD"], cfg.repoRoot).stdout.trim(),
     listProcesses: psList,
-    runBuild: (command) => {
-      const r = Bun.spawnSync(["sh", "-c", command], { cwd: cfg.repoRoot, stdout: "inherit", stderr: "inherit" });
-      return r.exitCode ?? -1;
-    },
+    runBuild: (command) => runInherit(["sh", "-c", command], { cwd: cfg.repoRoot }),
     isAppRunning: (appPath) => {
       const r = capture(["osascript", "-e", `application id "${BUNDLE_ID}" is running`]);
       if (r.code === 0 && r.stdout.trim() === "true") return true;
