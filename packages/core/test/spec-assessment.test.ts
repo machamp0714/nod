@@ -81,3 +81,96 @@ test("外部clientの例外本文を返さずnetworkとして保存する", asyn
   expect(result.specAssessment?.failureKind).toBe("network");
   expect(JSON.stringify(result)).not.toContain("secret-value");
 });
+
+test("初回失敗の明示再試行は同じIssueで回復し、完了後の再評価はラベルを変えない", async () => {
+  const { db, ws, me, llm } = setup();
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  const issue = createIssue(me, { workspaceId: ws.id, title: "再試行" });
+  await assessCreatedIssue(me, issue.id, async () => ({ kind: "failed", failureKind: "timeout", elapsedMs: 5 }));
+  const { retryIssueAssessment } = await import("../src/ops/spec-assessment");
+  const success = async () => ({ kind: "success" as const, probability: 1, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 });
+  expect((await retryIssueAssessment(llm, issue.id, success)).labels).toEqual(["needs-spec"]);
+  const { updateIssue } = await import("../src/ops/issues");
+  updateIssue(me, issue.id, { removeLabels: ["needs-spec"] });
+  expect((await retryIssueAssessment(me, issue.id, success)).labels).toEqual([]);
+  expect(getIssue(db, issue.id).specAssessment?.history?.length).toBe(2);
+});
+
+test("本文A→B→Aでも古い応答を採用せず最新本文の明示再試行で回復する", async () => {
+  const { ws, me } = setup();
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  const issue = createIssue(me, { workspaceId: ws.id, title: "本文競合", description: "A" });
+  let resolve!: (result: any) => void;
+  const pending = assessCreatedIssue(me, issue.id, () => new Promise(r => resolve = r));
+  const { updateIssue } = await import("../src/ops/issues");
+  updateIssue(me, issue.id, { description: "B" });
+  updateIssue(me, issue.id, { description: "A" });
+  resolve({ kind: "success", probability: 1, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 });
+  const stale = await pending;
+  expect(stale.specAssessment).toMatchObject({ status: "failed", failureKind: "stale" });
+  expect(stale.labels).toEqual([]);
+  const { retryIssueAssessment } = await import("../src/ops/spec-assessment");
+  const recovered = await retryIssueAssessment(me, issue.id, async () => ({ kind: "success", probability: 0, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 }));
+  expect(recovered.specAssessment?.status).toBe("completed");
+  updateIssue(me, issue.id, { description: "変更後" });
+  expect(startIssue(me, issue.id).status).toBe("in_progress");
+});
+
+test("並行再試行の古い応答は新しい結果を上書きしない", async () => {
+  const { ws, me } = setup();
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  const issue = createIssue(me, { workspaceId: ws.id, title: "並行" });
+  const { retryIssueAssessment } = await import("../src/ops/spec-assessment");
+  let resolve!: (result: any) => void;
+  const old = retryIssueAssessment(me, issue.id, () => new Promise(r => resolve = r));
+  await retryIssueAssessment(me, issue.id, async () => ({ kind: "success", probability: 0, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 }));
+  resolve({ kind: "success", probability: 1, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 });
+  const result = await old;
+  expect(result.specAssessment?.probability).toBe(0);
+  expect(result.labels).toEqual([]);
+});
+
+for (const change of ["label", "off-on", "done", "canceled", "archive"] as const) {
+  test(change + "中の遅延応答は人間の操作を上書きしない", async () => {
+    const { db, ws, me } = setup();
+    setWorkspaceSpecAssessment(me, ws.key, true);
+    const issue = createIssue(me, { workspaceId: ws.id, title: "遅延" });
+    let resolve!: (result: any) => void;
+    const pending = assessCreatedIssue(me, issue.id, () => new Promise(r => resolve = r));
+    const { updateIssue, archiveIssue } = await import("../src/ops/issues");
+    if (change === "label") {
+      updateIssue(me, issue.id, { addLabels: ["needs-spec"] });
+      updateIssue(me, issue.id, { removeLabels: ["needs-spec"] });
+    } else if (change === "off-on") {
+      setWorkspaceSpecAssessment(me, ws.key, false);
+      setWorkspaceSpecAssessment(me, ws.key, true);
+    } else if (change === "archive") archiveIssue(me, issue.id);
+    else updateIssue(me, issue.id, { status: change });
+    resolve({ kind: "success", probability: 1, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 });
+    expect((await pending).labels).toEqual([]);
+    expect(getIssue(db, issue.id).specAssessment).not.toBeNull();
+    if (change === "off-on") expect(startIssue(me, issue.id).status).toBe("in_progress");
+  });
+}
+
+test("既存対象外Issueは個別判定でき、無効時の明示要求はAPIを呼ばない", async () => {
+  const { ws, me } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "既存" });
+  const { retryIssueAssessment } = await import("../src/ops/spec-assessment");
+  let calls = 0;
+  const client = async () => { calls++; return { kind: "success" as const, probability: 1, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 }; };
+  await expect(retryIssueAssessment(me, issue.id, client)).rejects.toThrow();
+  expect(calls).toBe(0);
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  expect((await retryIssueAssessment(me, issue.id, client)).labels).toEqual(["needs-spec"]);
+});
+
+test("OFF→ONでは既に失敗した判定による着手制限も復活させず履歴を保持する", async () => {
+  const { ws, me } = setup();
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  const issue = createIssue(me, { workspaceId: ws.id, title: "設定変更" });
+  await assessCreatedIssue(me, issue.id, async () => ({ kind: "failed", failureKind: "timeout", elapsedMs: 5 }));
+  setWorkspaceSpecAssessment(me, ws.key, false);
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  expect(startIssue(me, issue.id).status).toBe("in_progress");
+});

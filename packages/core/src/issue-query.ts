@@ -89,7 +89,7 @@ LEFT JOIN cycles cy ON cy.id = i.cycle_id`;
 // 着手できる Issue の条件のうち、担当者に関係しないもの（web の Ready）。? には現在時刻を渡す
 export const READY_WHERE = `(i.status = 'todo'
   AND i.archived_at IS NULL
-  AND NOT (EXISTS (SELECT 1 FROM workspaces sw WHERE sw.id = i.workspace_id AND sw.spec_assessment_enabled = 1) AND COALESCE(json_extract(i.spec_assessment, '$.status'), 'completed') <> 'completed')
+  AND NOT (EXISTS (SELECT 1 FROM workspaces sw WHERE sw.id = i.workspace_id AND sw.spec_assessment_enabled = 1) AND COALESCE(json_extract(i.spec_assessment, '$.suspended'), 0) = 0 AND COALESCE(json_extract(i.spec_assessment, '$.recordOnly'), 0) = 0 AND COALESCE(json_extract(i.spec_assessment, '$.status'), 'completed') <> 'completed')
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
   AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL)
   AND NOT EXISTS (

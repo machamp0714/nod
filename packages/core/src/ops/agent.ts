@@ -92,7 +92,7 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
     const row = findWritableIssueRow(ctx.db, ref);
     const assessment = toIssue(row).specAssessment;
     const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(row.workspace_id) as { spec_assessment_enabled: number };
-    if (ws.spec_assessment_enabled && assessment && assessment.status !== "completed") {
+    if (ws.spec_assessment_enabled && assessment && !assessment.suspended && !assessment.recordOnly && assessment.status !== "completed") {
       throw new NodError("SPEC_ASSESSMENT_REQUIRED", `${ref} の仕様判定は未完了です（${assessment.status}）。同じIssueへの明示再試行が必要です`);
     }
     if (row.status === "triage") {

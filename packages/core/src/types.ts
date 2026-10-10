@@ -40,6 +40,10 @@ export type DocKind = (typeof DOC_KINDS)[number];
 export type RelationType = "blocks" | "related" | "duplicate";
 
 export interface SpecAssessment {
+  history?: Omit<SpecAssessment, "history">[];
+  recordOnly?: boolean;
+  labelEdited?: boolean;
+  suspended?: boolean;
   status: "pending" | "completed" | "failed";
   generation: number;
   bodyHash: string;
@@ -51,7 +55,7 @@ export interface SpecAssessment {
   probability: number | null;
   inputTokens: number | null;
   elapsedMs: number | null;
-  failureKind: import("./ops/jev-client").JevFailureKind | null;
+  failureKind: import("./ops/jev-client").JevFailureKind | "stale" | "disabled" | "inactive" | null;
 }
 
 export interface Issue {

@@ -14,6 +14,7 @@ import {
   copyIssue,
   createIssue,
   assessCreatedIssue,
+  retryIssueAssessment,
   detachDocument,
   diagnoseIssues,
   failIssue,
@@ -150,6 +151,14 @@ export function registerIssueCommands(program: Command): void {
         },
       ),
     );
+
+  issue
+    .command("assess <id>")
+    .description("仕様要否を明示判定・再試行する（判定済みの場合は記録のみ）")
+    .action(actAsync(async (cli, _cmd, id: string) => {
+      const assessed = await retryIssueAssessment(cli.ctx, id);
+      print(cli, assessed, () => formatSpecAssessment(assessed));
+    }));
 
   issue
     .command("copy <id>")

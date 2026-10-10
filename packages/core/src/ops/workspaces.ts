@@ -1,3 +1,4 @@
+import { invalidateIssueAssessment } from "./spec-assessment";
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
 import { isLlm, now, type OpCtx } from "../ctx";
@@ -126,6 +127,10 @@ export function setWorkspaceSpecAssessment(ctx: OpCtx, keyOrPath: string, enable
   return tx(ctx.db, () => {
     const workspace = findWorkspace(ctx.db, keyOrPath);
     if (!workspace) throw new NodError("NOT_FOUND", "Workspace がありません");
+    if (!enabled) {
+      const issues = ctx.db.query("SELECT id FROM issues WHERE workspace_id = ?").all(workspace.id) as { id: number }[];
+      for (const issue of issues) invalidateIssueAssessment(ctx, issue.id, "disabled", true);
+    }
     ctx.db.query("UPDATE workspaces SET spec_assessment_enabled = ? WHERE id = ?").run(enabled ? 1 : 0, workspace.id);
     return { ...workspace, specAssessmentEnabled: enabled };
   });
