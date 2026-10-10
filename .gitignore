@@ -8,3 +8,10 @@ docs/superpowers/
 
 node_modules/
 dist/
+
+# desktop (Tauri)
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
+packages/desktop/src-tauri/binaries/
+packages/desktop/build/
+packages/desktop/dist/

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { NodError, toNodError } from "./errors";
@@ -16,6 +16,8 @@ export function openDb(path: string = defaultDbPath(), opts: { busyTimeoutMs?: n
   const db = new Database(path, { create: true });
   try {
     db.exec(`PRAGMA busy_timeout = ${opts.busyTimeoutMs ?? 5000}`);
+    // 版が上がる migration の前に、旧版の整合したコピーを取る。失敗したら DB を変えずに止める
+    backupBeforeMigrate(db, path);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);
@@ -24,6 +26,53 @@ export function openDb(path: string = defaultDbPath(), opts: { busyTimeoutMs?: n
     throw toNodError(e);
   }
   return db;
+}
+
+const BACKUP_GENERATIONS = 5;
+// バックアップ名・退避名に使うタイムスタンプ（UTC、ミリ秒。例 20261010T123456789Z）。辞書順が時系列になる
+export const BACKUP_STAMP_PATTERN = "\\d{8}T\\d{9}Z";
+export function backupStamp(d: Date = new Date()): string {
+  return d.toISOString().replace(/[-:.]/g, "");
+}
+const BACKUP_NAME = new RegExp(`^nod-${BACKUP_STAMP_PATTERN}-\\d{4}-v\\d+\\.db$`);
+
+// 版が上がる migration があるとき（新規 DB の版 0 と、新しすぎる DB は除く）、DB の隣の backups/ に VACUUM INTO で
+// 整合したコピーを取る（WAL のコミット済みデータを含む）。一時名で作って完了後に世代へ加え、最新 5 世代だけを残す。
+// 名前は nod-<UTC 時刻(ミリ秒)>-<同一時刻の連番>-v<元の版>.db で、辞書順が時系列になる
+function backupBeforeMigrate(db: Database, path: string): void {
+  if (path === ":memory:" || path === "") return;
+  const from = schemaVersion(db);
+  if (from === 0 || from >= SCHEMA_VERSION) return;
+  const dir = join(dirname(path), "backups");
+  const tmp = join(dir, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    db.query("VACUUM INTO ?").run(tmp);
+    const stamp = backupStamp();
+    for (let seq = 0; ; seq++) {
+      const dest = join(dir, `nod-${stamp}-${String(seq).padStart(4, "0")}-v${from}.db`);
+      try {
+        linkSync(tmp, dest); // 既にあれば失敗する（上書きしない）
+        break;
+      } catch (e) {
+        if ((e as { code?: string }).code !== "EEXIST") throw e;
+      }
+    }
+    unlinkSync(tmp);
+  } catch (e) {
+    try {
+      unlinkSync(tmp);
+    } catch {}
+    throw new NodError(
+      "DB_BACKUP_FAILED",
+      `migration 前のバックアップを取れなかったため、DB を変更せずに中止しました（${dir}）: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  // 古い世代の削除は付随処理。失敗しても migration は止めない
+  try {
+    const names = readdirSync(dir).filter((n) => BACKUP_NAME.test(n)).sort();
+    for (const n of names.slice(0, Math.max(0, names.length - BACKUP_GENERATIONS))) unlinkSync(join(dir, n));
+  } catch {}
 }
 
 // 読むだけのときに使う。DB がなければ作らず null を返し、migration もしない（古い DB では読みたい表や列がなく、クエリが失敗しうる）。

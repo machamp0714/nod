@@ -1,0 +1,13 @@
+{
+  "name": "@nod/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "icons": "bun run scripts/make-icons.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1"
+  }
+}

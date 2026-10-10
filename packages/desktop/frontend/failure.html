@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>nod</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #161A21; color: #E6E8EC;
+        font: 14px/1.6 -apple-system, BlinkMacSystemFont, sans-serif; }
+      body { display: grid; place-items: center; }
+      main { width: min(560px, 86vw); }
+      h1 { margin: 0 0 16px; font-size: 20px; font-weight: 600; }
+      p { margin: 0 0 10px; }
+      .stage { color: #8B93A5; font-size: 12px; }
+      .update { padding: 10px 12px; border: 1px solid #5B6B8C; border-radius: 6px; background: #1E2430; }
+      nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+      a.btn { padding: 7px 14px; border: 1px solid #3A4150; border-radius: 6px; color: #E6E8EC;
+        background: #222836; text-decoration: none; }
+      a.btn:hover, a.btn:focus { background: #2C3446; outline: none; }
+      a.primary { background: #3B5BDB; border-color: #3B5BDB; }
+      #notice { margin-top: 14px; min-height: 1.6em; color: #8B93A5; font-size: 12px; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>nod を起動できませんでした</h1>
+      <p class="stage">失敗した段階: <span id="stage"></span></p>
+      <p id="summary"></p>
+      <p id="hint"></p>
+      <p id="update" class="update" hidden>.app を更新してください。新しい版の nod.app に入れ替えてから「再試行」を押します。</p>
+      <nav>
+        <a class="btn primary" href="nod-action://retry">再試行</a>
+        <a class="btn" href="nod-action://open-logs">ログを開く</a>
+        <a class="btn" href="nod-action://copy-diagnostics">診断情報をコピー</a>
+        <a class="btn" href="nod-action://quit">終了</a>
+      </nav>
+      <p id="notice" role="status"></p>
+    </main>
+    <script>
+      // 表示するのは、アプリが渡した分類済みの固定文だけ（textContent で入れる）。
+      var q = new URLSearchParams(location.search);
+      document.getElementById("stage").textContent = q.get("stage") || "";
+      document.getElementById("summary").textContent = q.get("summary") || "";
+      document.getElementById("hint").textContent = q.get("hint") || "";
+      if (q.get("update") === "1") document.getElementById("update").hidden = false;
+      window.__nodNotice = function (text) {
+        document.getElementById("notice").textContent = String(text);
+      };
+    </script>
+  </body>
+</html>
