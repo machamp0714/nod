@@ -8,7 +8,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
     "build": "bun build packages/cli/src/main.ts --compile --outfile dist/nod",
-    "desktop:build": "bun run packages/desktop/scripts/build.ts"
+    "desktop:build": "bun run packages/desktop/scripts/build.ts",
+    "desktop:deploy": "bun run packages/desktop/scripts/deploy.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
