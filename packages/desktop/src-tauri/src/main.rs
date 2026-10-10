@@ -1,22 +1,11 @@
-// 骨格。sidecar（同梱した nod）に `nod ui` を起動させ、WebView でその URL を開く。
-// ポート 4700 優先・環境取得・15 秒判定・Single Instance などは後続の Task で入れる。
-use std::io::{BufRead, BufReader};
+// Tauri のイベントループ側。起動・停止のロジックは lib（nod_desktop）にあり、ここは薄く保つ。
+// ウィンドウの作り込み・失敗画面・ログは後続の Task。
+use nod_desktop::{
+    run_launch, stop_process, LaunchConfig, LaunchOutcome, RealPlatform, Supervisor, STOP_GRACE,
+};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::Arc;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-
-struct Sidecar(Mutex<Option<Child>>);
-
-/// `nod ui: http://127.0.0.1:PORT/（DB: ...）` の行から URL を取り出す。
-fn parse_url(line: &str) -> Option<String> {
-    let i = line.find("http://127.0.0.1:")?;
-    let url: String = line[i..]
-        .chars()
-        .take_while(|c| c.is_ascii() && !c.is_whitespace())
-        .collect();
-    Some(url)
-}
 
 fn sidecar_path() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -24,70 +13,69 @@ fn sidecar_path() -> Result<PathBuf, String> {
     Ok(exe.parent().ok_or("exe に親がありません")?.join("nod"))
 }
 
-fn start_sidecar(handle: tauri::AppHandle) -> Result<(), String> {
-    let web_dir = handle
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("web");
-    let mut child = Command::new(sidecar_path()?)
-        .args(["ui", "--port", "0", "--no-open", "--web-dir"])
-        .arg(&web_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| format!("sidecar を起動できません: {e}"))?;
-    let stdout = child.stdout.take().ok_or("sidecar の標準出力がありません")?;
-    handle.state::<Sidecar>().0.lock().unwrap().replace(child);
-
-    let mut url = None;
-    let mut reader = BufReader::new(stdout);
-    let mut line = String::new();
-    while url.is_none() {
-        line.clear();
-        if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-            return Err("URL を出力する前に sidecar が終了しました".into());
-        }
-        url = parse_url(&line);
-    }
-    let url = url.unwrap();
-    println!("nod: sidecar url = {url}");
-
-    let h = handle.clone();
-    handle
-        .run_on_main_thread(move || {
-            let parsed = url.parse().expect("URL");
-            let _ = WebviewWindowBuilder::new(&h, "main", WebviewUrl::External(parsed))
-                .title("nod")
-                .inner_size(1280.0, 800.0)
-                .build();
-        })
-        .map_err(|e| e.to_string())?;
-
-    // パイプを詰まらせないよう、以降の出力は読み捨てる。
-    for _ in reader.lines() {}
-    Ok(())
+fn launch_config(handle: &tauri::AppHandle) -> Result<LaunchConfig, String> {
+    let web_dir = handle.path().resource_dir().map_err(|e| e.to_string())?.join("web");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let nonce = format!("{}_{}", std::process::id(), nanos);
+    Ok(LaunchConfig::new(sidecar_path()?, web_dir, nonce))
 }
 
-fn stop_sidecar(app: &tauri::AppHandle) {
-    if let Some(mut child) = app.state::<Sidecar>().0.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+fn open_window(handle: &tauri::AppHandle, url: &str) {
+    let Ok(parsed) = url.parse() else { return };
+    let _ = WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(parsed))
+        .title("nod")
+        .inner_size(1280.0, 800.0)
+        .build();
+}
+
+fn start_launch(handle: tauri::AppHandle) {
+    let sup = handle.state::<Arc<Supervisor>>().inner().clone();
+    let Some(token) = sup.begin_launch() else { return };
+    std::thread::spawn(move || {
+        let platform = RealPlatform::new();
+        let cfg = match launch_config(&handle) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("nod: 起動に失敗しました: {e}");
+                handle.exit(1);
+                return;
+            }
+        };
+        match run_launch(&platform, &cfg, &sup, token) {
+            LaunchOutcome::Ready(url) => {
+                // 世代はメインスレッドで再確認する（終了・再試行との競合を避ける）。
+                let (h, s) = (handle.clone(), sup.clone());
+                let _ = handle.run_on_main_thread(move || {
+                    if s.is_current(token) {
+                        open_window(&h, &url);
+                    }
+                });
+            }
+            LaunchOutcome::Discarded => {}
+            LaunchOutcome::Failed(e) => {
+                eprintln!("nod: 起動に失敗しました: {e}");
+                handle.exit(1);
+            }
+        }
+    });
 }
 
 fn main() {
     let app = tauri::Builder::default()
-        .manage(Sidecar(Mutex::new(None)))
+        // 二重起動では既存のウィンドウを前面に出す。ウィンドウが未作成の待機中は何もしない。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .manage(Arc::new(Supervisor::new()))
         .setup(|app| {
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                if let Err(e) = start_sidecar(handle.clone()) {
-                    eprintln!("nod: 起動に失敗しました: {e}");
-                    stop_sidecar(&handle);
-                    handle.exit(1);
-                }
-            });
+            start_launch(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -95,7 +83,11 @@ fn main() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            stop_sidecar(handle);
+            // 終了後に遅れて届く起動成功は世代で無効になる。SIGTERM → 猶予 → SIGKILL。
+            let sup = handle.state::<Arc<Supervisor>>();
+            if let Some(proc) = sup.quit() {
+                stop_process(&RealPlatform::new(), proc.as_ref(), STOP_GRACE);
+            }
         }
     });
 }
