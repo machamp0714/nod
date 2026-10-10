@@ -147,7 +147,7 @@ export function registerIssueCommands(program: Command): void {
             labels: o.label,
           });
           const assessed = await assessCreatedIssue(cli.ctx, created.id);
-          print(cli, assessed, () => `起票しました: ${formatIssueLine(assessed)}\n${formatSpecAssessment(assessed)}`);
+          print(cli, assessed, () => `起票しました: ${formatIssueLine(assessed)}${assessed.specAssessment ? `\n${formatSpecAssessment(assessed)}` : ""}`);
         },
       ),
     );
