@@ -6,7 +6,7 @@ use nod_desktop::navigation::{
 };
 use nod_desktop::window_state::{self, Rect};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{
@@ -106,11 +106,21 @@ pub fn show_main(handle: &AppHandle) {
     }
 }
 
+/// 読み込みの開始・完了の通し番号。開始から LOAD_STALL を過ぎても完了が追いつかなければ「未完了」
+#[derive(Default)]
+struct LoadSeq {
+    started: AtomicU64,
+    finished: AtomicU64,
+}
+
+const LOAD_STALL: Duration = Duration::from_secs(10);
+
 /// 主ウィンドウを作る（非表示のまま返す）。位置とサイズの復元・遷移の制限・閉じる操作を設定する。
 fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
     let new_win_handle = handle.clone();
     let nav_handle = handle.clone();
     let load_handle = handle.clone();
+    let load_seq = Arc::new(LoadSeq::default());
     let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(url))
         .title("nod")
         .inner_size(1280.0, 800.0)
@@ -140,18 +150,33 @@ fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
             }
         })
         // 読み込みの開始と完了を記録する（URL の origin とパスのみ。クエリ・本文は残さない）。
-        // Tauri の API は読み込みの失敗そのものを通知しないため、開始だけがあって完了がない行が失敗の手がかりになる。
+        // Tauri の API は読み込みの失敗そのものを通知しないため、開始から LOAD_STALL 以内に完了しなければ
+        // 「未完了」を記録して失敗の手がかりにする。
         .on_page_load(move |_w, payload| {
             let u = payload.url();
-            let what = match payload.event() {
-                tauri::webview::PageLoadEvent::Started => "開始",
-                tauri::webview::PageLoadEvent::Finished => "完了",
-            };
             let origin = format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or(""), u.path());
-            load_handle
-                .state::<Arc<Status>>()
-                .logger
-                .event(nod_desktop::log::Stage::Running, &format!("WebView の読み込み{what}: {origin}"));
+            let logger = load_handle.state::<Arc<Status>>().logger.clone();
+            let seq = &load_seq;
+            match payload.event() {
+                tauri::webview::PageLoadEvent::Started => {
+                    let id = seq.started.fetch_add(1, Ordering::SeqCst) + 1;
+                    logger.event(nod_desktop::log::Stage::Running, &format!("WebView の読み込み開始: {origin}"));
+                    let seq = seq.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(LOAD_STALL);
+                        if seq.finished.load(Ordering::SeqCst) < id {
+                            logger.event(
+                                nod_desktop::log::Stage::Running,
+                                &format!("WebView の読み込みが {} 秒以内に完了しませんでした: {origin}", LOAD_STALL.as_secs()),
+                            );
+                        }
+                    });
+                }
+                tauri::webview::PageLoadEvent::Finished => {
+                    seq.finished.store(seq.started.load(Ordering::SeqCst), Ordering::SeqCst);
+                    logger.event(nod_desktop::log::Stage::Running, &format!("WebView の読み込み完了: {origin}"));
+                }
+            }
         })
         // window.open / target=_blank。新しいウィンドウは作らない。
         .on_new_window(move |u, _features| {

@@ -570,6 +570,31 @@ fn 起動完了の前に_pidfile_を書き_失敗したら消す() {
 }
 
 #[test]
+fn spawn_直後に_pidfile_を書けなくても_起動完了の前にもう一度書く() {
+    // spawn 直後は ps が情報を返さない（OS の表に無い）。起動完了までに現れたら書く。
+    let fake = Fake::new(|_, c| FakeProc::sidecar(c, 4700, None));
+    let dir = tmpdir("pidfile-retry");
+    let mut c = cfg();
+    let path = dir.join("sidecar.pid");
+    c.pidfile = Some(path.clone());
+    let calls_after_spawn = std::cell::Cell::new(0);
+    let f = fake.clone();
+    let l = launch(&*fake, &c, &|| {
+        if !f.spawned.lock().unwrap().is_empty() {
+            calls_after_spawn.set(calls_after_spawn.get() + 1);
+            // 1 回目は spawn 直後の書き込みの前の確認。2 回目（ループの先頭）で現れる
+            if calls_after_spawn.get() == 2 {
+                f.put_process(9700, "Sat Oct 10 10:00:00 2026", "/app/nod", OnTerm::Exits);
+            }
+        }
+        false
+    }, &|_| {})
+    .unwrap();
+    assert_eq!(l.proc.pid(), 9700);
+    assert!(orphan::read_pidfile(&path).is_some_and(|r| r.pid == 9700), "完了の前に書き直されている");
+}
+
+#[test]
 fn 環境取得中の終了要求ではシェルも停止対象として取り出せる() {
     // シェルが終わらない。起動待機中に Cmd+Q が来て、アプリが先に終わっても孤児にしないため。
     let fake = Fake::new(|_, c| FakeProc::sidecar(c, 4700, None));

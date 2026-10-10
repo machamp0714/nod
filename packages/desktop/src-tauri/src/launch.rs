@@ -321,9 +321,15 @@ fn attempt(
 
     // 起動完了を待つ間にアプリが強制終了しても、次回起動で回収できるよう spawn 直後に書く。
     // 失敗して自分で止めた場合は消す（次回起動で別のプロセスと誤って照合しないため）
+    // 再試行などで世代が替わっていたら書かない（新しい世代の記録を上書きしないため）。
+    // 書けなかった場合は、起動完了の直前にもう一度試す
+    let mut pid_recorded = false;
     if let Some(path) = &cfg.pidfile {
-        if !write_pidfile(p, path, proc.pid()) {
-            p.log_at(Stage::Spawn, "pidfile を書けませんでした（次回起動時の孤児の回収はできません）");
+        if !cancel() {
+            pid_recorded = write_pidfile(p, path, proc.pid());
+        }
+        if !pid_recorded {
+            p.log_at(Stage::Spawn, "pidfile をまだ書けていません（起動完了の前に再度試します）");
         }
     }
     let fail = |e: LaunchError| -> Result<Launched, LaunchError> {
@@ -381,6 +387,11 @@ fn attempt(
         if let Some(u) = &url {
             if p.http_status(&format!("{u}api/workspaces")) == Some(200) {
                 proc.discard_output();
+                if let Some(path) = &cfg.pidfile {
+                    if !pid_recorded && !cancel() && !write_pidfile(p, path, proc.pid()) {
+                        p.log_at(Stage::Startup, "pidfile を書けませんでした（次回起動時の孤児の回収はできません）");
+                    }
+                }
                 p.log_at(Stage::Startup, &format!("起動完了: {u}（pid {}）", proc.pid()));
                 return Ok(Launched { url: u.clone(), proc, port_requested: port });
             }
