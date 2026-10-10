@@ -11,6 +11,7 @@ import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
 import { markPrLinked } from "./pr-status";
 import { resolveProject } from "./projects";
+import { isWorkspaceSpecAssessmentEnabled } from "./spec-assessment";
 
 export interface WorkLocation {
   branch: string | null;
@@ -91,8 +92,7 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     const assessment = toIssue(row).specAssessment;
-    const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(row.workspace_id) as { spec_assessment_enabled: number };
-    if (ws.spec_assessment_enabled && assessment && !assessment.suspended && !assessment.recordOnly && assessment.status !== "completed") {
+    if (isWorkspaceSpecAssessmentEnabled(ctx.db, row.workspace_id) && assessment && !assessment.suspended && !assessment.recordOnly && assessment.status !== "completed") {
       throw new NodError("SPEC_ASSESSMENT_REQUIRED", `${ref} の仕様判定は未完了です（${assessment.status}）。同じIssueへの明示再試行が必要です`);
     }
     if (row.status === "triage") {

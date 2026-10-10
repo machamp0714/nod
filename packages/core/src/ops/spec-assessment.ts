@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Database } from "bun:sqlite";
 import { NodError } from "../errors";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
@@ -10,10 +11,14 @@ export function specBodyHash(body: string | null): string {
   return createHash("sha256").update(body ?? "").digest("hex");
 }
 
+export function isWorkspaceSpecAssessmentEnabled(db: Database, workspaceId: number): boolean {
+  const workspace = db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(workspaceId) as { spec_assessment_enabled: number } | null;
+  return workspace?.spec_assessment_enabled === 1;
+}
+
 // 呼び出し元の起票transaction内で保存する。既存Issueへの遡及はしない。
 export function prepareCreatedIssueAssessment(ctx: OpCtx, issueId: number, workspaceId: number, body: string | null): void {
-  const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(workspaceId) as { spec_assessment_enabled: number };
-  if (!ws.spec_assessment_enabled) return;
+  if (!isWorkspaceSpecAssessmentEnabled(ctx.db, workspaceId)) return;
   const assessment: SpecAssessment = {
     status: "pending", generation: 1, bodyHash: specBodyHash(body), model: JEV_MODEL,
     criteriaVersion: JEV_CRITERIA_VERSION, threshold: JEV_THRESHOLD, requestedAt: now(), finishedAt: null,
@@ -25,8 +30,7 @@ export function prepareCreatedIssueAssessment(ctx: OpCtx, issueId: number, works
 export async function assessCreatedIssue(ctx: OpCtx, ref: string, client: JevClient = jevClient) {
   const row = findIssueRow(ctx.db, ref);
   const assessment = toIssue(row).specAssessment;
-  const enabled = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(row.workspace_id) as { spec_assessment_enabled: number };
-  if (!assessment || assessment.status !== "pending" || !enabled.spec_assessment_enabled) return toIssue(row);
+  if (!assessment || assessment.status !== "pending" || !isWorkspaceSpecAssessmentEnabled(ctx.db, row.workspace_id)) return toIssue(row);
   let result: JevResult;
   try { result = await client(row.description ?? ""); }
   catch { result = { kind: "failed", failureKind: "network", elapsedMs: 0 }; }
@@ -34,9 +38,9 @@ export async function assessCreatedIssue(ctx: OpCtx, ref: string, client: JevCli
     const current = findIssueRow(ctx.db, ref);
     const live = toIssue(current).specAssessment;
     if (!live || live.generation !== assessment.generation || live.status !== "pending") return toIssue(current);
-    const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(current.workspace_id) as { spec_assessment_enabled: number };
-    if (!ws.spec_assessment_enabled || current.archived_at || ["done", "canceled"].includes(current.status)) {
-      invalidateIssueAssessment(ctx, current.id, !ws.spec_assessment_enabled ? "disabled" : "inactive", true);
+    const enabled = isWorkspaceSpecAssessmentEnabled(ctx.db, current.workspace_id);
+    if (!enabled || current.archived_at || ["done", "canceled"].includes(current.status)) {
+      invalidateIssueAssessment(ctx, current.id, !enabled ? "disabled" : "inactive", true);
       return toIssue(findIssueRow(ctx.db, ref));
     }
     const updated: SpecAssessment = {
@@ -57,8 +61,7 @@ export async function assessCreatedIssue(ctx: OpCtx, ref: string, client: JevCli
 export async function retryIssueAssessment(ctx: OpCtx, ref: string, client: JevClient = jevClient) {
   tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
-    const ws = ctx.db.query("SELECT spec_assessment_enabled FROM workspaces WHERE id = ?").get(row.workspace_id) as { spec_assessment_enabled: number };
-    if (!ws.spec_assessment_enabled) throw new NodError("INVALID_ARGS", "Workspace の自動仕様判定は無効です");
+    if (!isWorkspaceSpecAssessmentEnabled(ctx.db, row.workspace_id)) throw new NodError("INVALID_ARGS", "Workspace の自動仕様判定は無効です");
     if (row.archived_at || ["done", "canceled"].includes(row.status)) throw new NodError("INVALID_ARGS", "完了・キャンセル・アーカイブ済みのIssueは判定できません");
     const old = toIssue(row).specAssessment;
     const { history = [], ...previous } = old ?? {} as SpecAssessment;

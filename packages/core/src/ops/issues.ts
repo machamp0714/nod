@@ -576,7 +576,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       if (input.description !== row.description) invalidateIssueAssessment(ctx, row.id, "stale");
       setColumn(ctx, row, "description", input.description);
     }
-    if (input.status === "done" || input.status === "canceled") invalidateIssueAssessment(ctx, row.id, "inactive", true);
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
     if (input.estimate !== undefined) setColumn(ctx, row, "estimate", input.estimate);
     if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);

@@ -4,6 +4,29 @@ import { createIssue, getIssue, listIssues } from "../src/ops/issues";
 import { setWorkspaceSpecAssessment, findWorkspace } from "../src/ops/workspaces";
 import { assessCreatedIssue } from "../src/ops/spec-assessment";
 import { startIssue, suggestIssue, nextIssue } from "../src/ops/agent";
+import { declineTriage, duplicateTriage } from "../src/ops/human";
+import { updateIssue } from "../src/ops/issues";
+import type { JevResult } from "../src/ops/jev-client";
+
+for (const decision of ["decline", "duplicate"] as const) {
+  test(`Triageの${decision}後に再開しても取消前の判定応答を適用しない`, async () => {
+    const { db, ws, me, llm } = setup();
+    const original = createIssue(me, { workspaceId: ws.id, title: "元のIssue" });
+    setWorkspaceSpecAssessment(me, ws.key, true);
+    const issue = createIssue(llm, { workspaceId: ws.id, title: "判定中のIssue" });
+    let resolve!: (result: JevResult) => void;
+    const pending = assessCreatedIssue(me, issue.id, () => new Promise(r => { resolve = r; }));
+    if (decision === "decline") declineTriage(me, issue.id);
+    else duplicateTriage(me, issue.id, original.id);
+    updateIssue(me, issue.id, { status: "todo" });
+    resolve({ kind: "success", probability: 0.9, model: "jev-1.13.0", inputTokens: 1, elapsedMs: 1 });
+    await pending;
+    const result = getIssue(db, issue.id);
+    expect(result.specAssessment).toMatchObject({ status: "failed", failureKind: "inactive", suspended: true });
+    expect(result.labels).toEqual([]);
+    expect(startIssue(me, issue.id).status).toBe("in_progress");
+  });
+}
 
 test("設定は既定OFFで人間だけが変更でき、既存Issueへ遡及しない", () => {
   const { db, ws, me, llm } = setup();
