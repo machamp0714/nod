@@ -1,3 +1,4 @@
+import { useSaveSpecAssessment } from "../api/hooks/spec-assessment";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage, isNotFoundError } from "../api/errors";
@@ -59,6 +60,7 @@ export function WorkspaceSettingsPage() {
           saved={rules.data}
           onSaved={() => setToast("保存しました")}
         />
+        <SpecAssessmentSettings workspace={workspace} onSaved={() => setToast("保存しました")} />
         <LabelsSection workspace={workspace} onSaved={setToast} />
         <StatusNamesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TransitionRulesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
@@ -275,4 +277,26 @@ export function DeleteDialog({
       </div>
     </dialog>
   );
+}
+
+function SpecAssessmentSettings({ workspace, onSaved }: { workspace: Workspace; onSaved: () => void }) {
+  const save = useSaveSpecAssessment(workspace.key);
+  const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState(workspace.specAssessmentEnabled ? "on" : "off");
+  useEffect(() => setChosen(workspace.specAssessmentEnabled ? "on" : "off"), [workspace.specAssessmentEnabled]);
+  async function choose(value: string) {
+    setChosen(value);
+    setError(null);
+    try { await save.mutateAsync(value === "on"); onSaved(); } catch (err) { setChosen(workspace.specAssessmentEnabled ? "on" : "off"); setError(errorMessage(err)); }
+  }
+  return <section className={s.section} aria-label="仕様要否の自動判定">
+    <div className={s.sectionHeader}>
+      <h2 className={s.sectionTitle}>仕様要否の自動判定</h2>
+      <p className={s.description}>新しいIssueの本文をJevで判定し、仕様整理が必要ならneeds-specを付けます。判定後のラベルは人間が管理します。既存Issueの一括判定は行いません。</p>
+    </div>
+    <RadioPills label="仕様要否の自動判定" name={`spec-assessment-${workspace.key}`} items={[{ value: "off", label: "無効" }, { value: "on", label: "有効" }]}
+      value={chosen} disabled={save.isPending} onChange={value => void choose(value)} />
+    {save.isPending && <p role="status">設定を保存しています…</p>}
+    {error && <p role="alert" className={s.error}>{error}</p>}
+  </section>;
 }

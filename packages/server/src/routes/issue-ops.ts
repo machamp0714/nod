@@ -1,5 +1,6 @@
 import type { JevClient } from "@nod/core";
 import {
+  retryIssueAssessment,
   acceptTriage,
   attachDocument,
   DOC_KINDS,
@@ -91,6 +92,7 @@ function toUpdateInput(b: Body): UpdateIssueInput {
 }
 
 const OPS: Record<string, Op> = {
+  "assess-spec": { keys: [], run: (me, ref, _body, client) => retryIssueAssessment(me, ref, client) },
   ask: { keys: ["question"], run: (me, ref, b) => askQuestion(me, ref, reqString(b, "question")) },
   answer: {
     keys: ["answer", "questionId"],

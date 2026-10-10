@@ -1,3 +1,4 @@
+import { SpecAssessmentSection } from "../components/issue-detail/SpecAssessmentSection";
 import { useState } from "react";
 import { AwaitingInputBanner } from "../components/issue-detail/AwaitingInputBanner";
 import { CompletionCandidateBanner } from "../components/issue-detail/CompletionCandidateBanner";
@@ -149,6 +150,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
 
           <DescriptionSection readOnly={readOnly} description={issue.description} onSave={(description) => update.mutateAsync({ description })} />
           <AwaitingInputBanner readOnly={readOnly} issue={issue} busy={questionsBusy} onAnswer={(questionId) => setAnswerRequest((previous) => ({ questionId, requestId: (previous?.requestId ?? 0) + 1 }))} />
+          <SpecAssessmentSection issue={issue} />
           <PlanSection key={issue.id} plan={issue.plan} />
           <DocumentsSection readOnly={readOnly} issueId={issue.id} documents={issue.documents} onAttach={input => attach.mutateAsync(input)}
             onRemove={documentId => removeDocument.mutateAsync({ documentId })} />
