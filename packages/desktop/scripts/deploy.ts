@@ -36,6 +36,8 @@ export interface DeployConfig {
 export interface ProcessInfo {
   pid: number;
   command: string;
+  /** 親プロセスが .app 本体（nod-desktop）のとき true。アプリ自身の sidecar を手動起動と区別するために使う */
+  appChild?: boolean;
 }
 
 export interface BuildInfoLite {
@@ -84,9 +86,10 @@ export interface DeployResult {
 
 // ---- 純粋な補助関数（テスト対象） ----
 
-// 手動の `nod ui`。.app 自身の sidecar（…/nod.app/Contents/MacOS/nod ui …）は除く
-export function isManualNodUi(command: string): boolean {
-  if (/\.app\/Contents\/MacOS\/nod(\s|$)/.test(command)) return false;
+// 手動の `nod ui`。.app 自身の sidecar（親が nod-desktop）は除く。
+// 新しいラッパー経由の手動起動も実体は .app 内の nod なので、コマンドの形ではなく親プロセスで区別する
+export function isManualNodUi(command: string, appChild = false): boolean {
+  if (appChild) return false;
   return /(?:^|\/)nod\s+ui(?:\s|$)/.test(command) || /cli\/src\/main\.ts\s+ui(?:\s|$)/.test(command);
 }
 
@@ -219,7 +222,7 @@ export async function deploy(cfg: DeployConfig, deps: DeployDeps): Promise<Deplo
       `作業ツリーに未コミットの変更があります（build-info の commit を確定させるため）。コミットしてから実行してください。\n${dirty}`,
     );
   }
-  const manual = deps.listProcesses().filter((p) => isManualNodUi(p.command));
+  const manual = deps.listProcesses().filter((p) => isManualNodUi(p.command, p.appChild));
   if (manual.length > 0) {
     return abort(
       "aborted-precondition",
@@ -406,7 +409,17 @@ function capture(cmd: string[], cwd?: string): { code: number; stdout: string } 
 }
 
 function psList(): ProcessInfo[] {
-  return parsePs(capture(["ps", "-axo", "pid=,command="]).stdout);
+  const procs = parsePs(capture(["ps", "-axo", "pid=,command="]).stdout);
+  const ppids = new Map<number, number>();
+  for (const line of capture(["ps", "-axo", "pid=,ppid="]).stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m) ppids.set(Number(m[1]), Number(m[2]));
+  }
+  const commandOf = new Map(procs.map((p) => [p.pid, p.command] as const));
+  return procs.map((p) => {
+    const parent = commandOf.get(ppids.get(p.pid) ?? -1) ?? "";
+    return { ...p, appChild: /\.app\/Contents\/MacOS\/nod-desktop(\s|$)/.test(parent) };
+  });
 }
 
 function sidecarPorts(pid: number): number[] {

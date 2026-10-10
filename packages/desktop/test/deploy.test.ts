@@ -34,7 +34,7 @@ interface Harness {
     running: boolean;
     stuck: boolean; // true なら終了を依頼しても止まらない
     status: string;
-    procs: { pid: number; command: string }[];
+    procs: { pid: number; command: string; appChild?: boolean }[];
     buildCode: number;
     buildCalls: number;
     quitCalls: number;
@@ -256,7 +256,7 @@ describe("deploy: 前提の確認での中止", () => {
 
   test(".app 自身の sidecar は手動の nod ui に数えない", async () => {
     const h = harness();
-    h.state.procs = [{ pid: 7, command: "/Users/x/Applications/nod.app/Contents/MacOS/nod ui --port 0 --no-open" }];
+    h.state.procs = [{ pid: 7, command: "/Users/x/Applications/nod.app/Contents/MacOS/nod ui --port 0 --no-open", appChild: true }];
     const r = await deploy(h.cfg, h.deps);
     expect(r.ok).toBe(true);
   });
@@ -365,7 +365,9 @@ describe("補助関数", () => {
   test("isManualNodUi", () => {
     expect(isManualNodUi("/Users/x/.local/share/nod-app/nod ui --web-dir /w")).toBe(true);
     expect(isManualNodUi("nod ui")).toBe(true);
-    expect(isManualNodUi("/Users/x/Applications/nod.app/Contents/MacOS/nod ui --port 0")).toBe(false);
+    expect(isManualNodUi("/Users/x/Applications/nod.app/Contents/MacOS/nod ui --port 0", true)).toBe(false);
+    // 新しいラッパー経由の手動起動は実体が .app 内でも、親が nod-desktop でなければ手動
+    expect(isManualNodUi("/Users/x/Applications/nod.app/Contents/MacOS/nod ui --web-dir /w")).toBe(true);
     expect(isManualNodUi("/x/nod.app/Contents/MacOS/nod-desktop")).toBe(false);
     expect(isManualNodUi("/Users/x/.local/share/nod-app/nod issue list")).toBe(false);
     expect(isManualNodUi("grep nodes ui")).toBe(false);
