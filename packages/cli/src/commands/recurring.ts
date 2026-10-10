@@ -9,12 +9,12 @@ import {
   type RecurringIssuePatch,
   type RecurringRun,
   removeRecurringIssue,
-  runRecurringIssues,
+  runRecurringIssuesWithAssessment,
   updateRecurringIssue,
 } from "@nod/core";
 import type { Command } from "commander";
 import { collect, orNull, parsePositiveInt, parsePriority, PRIORITY_HELP } from "../args";
-import { act, currentWorkspace } from "../context";
+import { act, actAsync, currentWorkspace } from "../context";
 import { print } from "../output";
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -223,8 +223,8 @@ export function registerRecurringCommands(program: Command): void {
     .description("発生日が来ている定期Issueを今すぐ起票する（実行は人だけ。--dry-run は起票する予定を表示するだけ）")
     .option("--dry-run", "起票する予定を表示するだけで変更しない")
     .action(
-      act((cli, cmd, o: { dryRun?: boolean }) => {
-        const r = runRecurringIssues(cli.ctx, currentWorkspace(cli, cmd).key, { dryRun: o.dryRun });
+      actAsync(async (cli, cmd, o: { dryRun?: boolean }) => {
+        const r = await runRecurringIssuesWithAssessment(cli.ctx, currentWorkspace(cli, cmd).key, { dryRun: o.dryRun });
         print(cli, r, () => describeRun(r));
       }),
     );

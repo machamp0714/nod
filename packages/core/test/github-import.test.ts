@@ -390,3 +390,23 @@ describe("importGithubIssues", () => {
     }
   });
 });
+
+test("自動判定は新規の未完了取り込みだけで、失敗しても取り込みと重複防止を維持する", async () => {
+  const { db, me, ws } = fixture();
+  const { setWorkspaceSpecAssessment } = await import("../src/ops/workspaces");
+  setWorkspaceSpecAssessment(me, ws.key, true);
+  const gh = fakeGh([{ number: 1, title: "未完了", body: "本文" }, { number: 2, title: "完了", state: "CLOSED" }, { number: 3, title: "中止", state: "CLOSED", stateReason: "NOT_PLANNED" }]);
+  let calls = 0;
+  const client = async () => {
+    calls++; expect(db.inTransaction).toBe(false);
+    return { kind: "failed" as const, failureKind: "timeout" as const, elapsedMs: 5 };
+  };
+  const dry = await importGithubIssues(me, ws.key, "Example/API-Server", { state: "all", dryRun: true }, gh, client);
+  expect(calls).toBe(0); expect(dry.imported).toHaveLength(0);
+  const result = await importGithubIssues(me, ws.key, "Example/API-Server", { state: "all" }, gh, client);
+  expect(calls).toBe(1); expect(result.imported).toHaveLength(3); expect(result.failed).toHaveLength(0);
+  expect(getIssue(db, result.imported[0]!.id).specAssessment?.status).toBe("failed");
+  for (const item of result.imported.slice(1)) expect(getIssue(db, item.id).specAssessment).toBeNull();
+  const again = await importGithubIssues(me, ws.key, "Example/API-Server", { state: "all" }, gh, client);
+  expect(again.imported).toHaveLength(0); expect(again.skipped).toHaveLength(3); expect(calls).toBe(1);
+});

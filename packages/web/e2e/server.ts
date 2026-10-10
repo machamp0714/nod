@@ -112,7 +112,11 @@ const togglClient: core.TogglClient = async (req) => {
 };
 
 function serve() {
-  return startServer({ port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath, togglCache });
+  return startServer({ jevClient: async (body) => {
+    await Bun.sleep(400);
+    return body === "失敗例" ? { kind: "failed", failureKind: "timeout", elapsedMs: 5000 }
+      : { kind: "success", probability: 0.9, model: "jev-test", inputTokens: 10, elapsedMs: 400 };
+  }, port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath, togglCache });
 }
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する

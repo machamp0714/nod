@@ -4,6 +4,7 @@ import type { IssueRow } from "./issue-query";
 import { readTriageProposalNotifications } from "./notify";
 import { assertTransitionAllowed } from "./transition-rules";
 import type { Status } from "./types";
+import { invalidateIssueAssessment } from "./ops/spec-assessment";
 
 export type Column =
   | "status"
@@ -66,6 +67,7 @@ export function setColumn(
   (row as unknown as Record<string, unknown>)[column] = to;
   row.updated_at = ts;
   if (column === "status") {
+    if (to === "done" || to === "canceled") invalidateIssueAssessment(ctx, row.id, "inactive", true);
     const closedAt = to === "done" || to === "canceled" ? ts : null;
     const startedAt = to === "in_progress" && !row.started_at ? ts : row.started_at;
     ctx.db.query("UPDATE issues SET closed_at = ?, started_at = ? WHERE id = ?").run(closedAt, startedAt, row.id);

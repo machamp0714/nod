@@ -1,3 +1,4 @@
+import { invalidateIssueAssessment, prepareCreatedIssueAssessment } from "./spec-assessment";
 import { listIssueAttachments } from "./attachments";
 import { instructionsOfIssue } from "./instructions";
 import { isSubscribedRow } from "./notifications";
@@ -182,6 +183,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
   }
+  if (!closed) prepareCreatedIssueAssessment(ctx, id, ws.id, input.description);
   recordEvent(ctx.db, id, ctx.actor, "created", {
     status,
     ...(input.cycleId !== null && input.cycleId !== undefined ? { cycle_id: input.cycleId } : {}),
@@ -461,6 +463,14 @@ export interface UpdateIssueInput {
 }
 
 function changeLabels(ctx: OpCtx, row: IssueRow, add: string[], remove: string[]): void {
+  if (add.includes("needs-spec") || remove.includes("needs-spec")) {
+    const current = ctx.db.query("SELECT spec_assessment FROM issues WHERE id = ?").get(row.id) as { spec_assessment: string | null };
+    if (current.spec_assessment) {
+      const assessment = JSON.parse(current.spec_assessment);
+      assessment.labelEdited = true;
+      ctx.db.query("UPDATE issues SET spec_assessment = ? WHERE id = ?").run(JSON.stringify(assessment), row.id);
+    }
+  }
   const added = [...new Set(add)].filter(
     (l) => ctx.db.query("INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)").run(row.id, l).changes > 0,
   );
@@ -562,7 +572,10 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     }
     if (isLlm(ctx) && input.status !== undefined) assertLlmLeavesHumanQuestions(ctx, row, input.status);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
-    if (input.description !== undefined) setColumn(ctx, row, "description", input.description);
+    if (input.description !== undefined) {
+      if (input.description !== row.description) invalidateIssueAssessment(ctx, row.id, "stale");
+      setColumn(ctx, row, "description", input.description);
+    }
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
     if (input.estimate !== undefined) setColumn(ctx, row, "estimate", input.estimate);
     if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);
@@ -679,6 +692,7 @@ export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; a
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (row.archived_at === null) {
+      invalidateIssueAssessment(ctx, row.id, "inactive", true);
       const ts = now();
       ctx.db.query("UPDATE issues SET archived_at = ?, updated_at = ? WHERE id = ?").run(ts, ts, row.id);
       const data: Record<string, unknown> = opts.reason?.trim() ? { reason: opts.reason } : {};

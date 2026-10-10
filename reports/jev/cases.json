@@ -1,0 +1,119 @@
+[
+  {
+    "id": "gh-216",
+    "source": "https://github.com/machamp0714/nod/issues/216",
+    "split": "tuning",
+    "expected": false,
+    "reason": "Markdown記号を除いた平文という期待が明記されている",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## 現状\n#215 でコメントと返信の本文を Markdown で描くようにした。しかし解決済みスレッドを折りたたんだ1行表示（`CommentThread.tsx` の `threadExcerpt`）は生の本文を出すため、`**`・`###`・`- `・バッククォート・`[text](url)` がそのまま見える。\n\n## やりたいこと\n1行表示では Markdown の記号を取り除いた平文を出す。remark で平文にするか、簡単な正規表現で記号を消す。Markdown を平文にする既存の helper はない（`DocumentPage` に似た処理がある）。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+  },
+  {
+    "id": "gh-183",
+    "source": "https://github.com/machamp0714/nod/issues/183",
+    "split": "tuning",
+    "expected": false,
+    "reason": "列幅340固定と横スクロール、見出し高さの期待が明記されている",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## 現象\n`/issues?layout=board` は列が画面幅を等分するため、6列で 171px になり、カードの題名が3行で切れる。列見出しの説明文が1行と2行に分かれ（47.3px と 64px）、カードの開始位置が列ごとにずれる。\n\n## 期待\n`design/nod.pen` の `Issues｜ボード（Linear 準拠）`（`Cjq7Z`）と `Linear 準拠｜コントロールの型`（`PR46C`）の Hidden columns に合わせる。\n- 列：幅 340 固定、間隔 8、背景 `--bg`、角丸 8。あふれた分は横スクロール。\n- 列見出し：題名の行 46 と説明文の行 18（1行で切る）で全列同じ高さ。\n- カード：余白 12、角丸 8、間隔 8。ID 12、題名 13 / 500（行の高さ 16）、担当 18 を右上、チップは高さ 24 の円形。\n- Issue が 0 件の列は右端の Hidden columns（幅 338、行の高さ 38）にまとめる。\n\n## 出典\nLinear を基準にしたレイアウトの見直し（2026-09-30）。Linear と nod を 1440×960 で実測し、`design/nod.pen` に反映済み。\n差分表は `docs/superpowers/specs/2026-09-30-linear-layout-alignment-design.md`（`design/` と `docs/superpowers/` は git の対象外で、リポジトリ本体のチェックアウトにだけある）。\nカラートークンとフォントファミリーは変えない。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+  },
+  {
+    "id": "gh-41",
+    "source": "https://github.com/machamp0714/nod/issues/41",
+    "split": "tuning",
+    "expected": true,
+    "reason": "提案対象はあるが候補生成基準・採用操作・失敗時の振る舞いがない",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## ユースケース\nTRI-06：私が担当者、ラベル、重複候補の提案を受けられる\n\n## 現状\n担当者・ラベル・重複候補の自動提案がない。\n2026-09-29再検証の判定：満たさない。\n\n## 完了条件\n- [ ] ユースケース「私が担当者、ラベル、重複候補の提案を受けられる」を満たす操作と確認方法を定義する。\n- [ ] 現状の不足（担当者・ラベル・重複候補の自動提案がない。）を解消する。\n- [ ] 対応するCLI/API/Webの動作と失敗時の扱いを、必要な範囲で回帰テストに残す。\n\n## 出典\n- `docs/linear-usecases.md` の TRI-06\n- 次期候補の追跡：#21（追跡issue自体は変更しない）\n"
+  },
+  {
+    "id": "gh-47",
+    "source": "https://github.com/machamp0714/nod/issues/47",
+    "split": "tuning",
+    "expected": true,
+    "reason": "リマインダーの時刻・通知先・発火条件が未決",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## ユースケース\nINB-08：私がイシューにリマインダーを設定できる\n\n## 現状\nIssueリマインダーの設定がない。\n2026-09-29再検証の判定：満たさない。\n\n## 完了条件\n- [ ] ユースケース「私がイシューにリマインダーを設定できる」を満たす操作と確認方法を定義する。\n- [ ] 現状の不足（Issueリマインダーの設定がない。）を解消する。\n- [ ] 対応するCLI/API/Webの動作と失敗時の扱いを、必要な範囲で回帰テストに残す。\n\n## 出典\n- `docs/linear-usecases.md` の INB-08\n- 次期候補の追跡：#21（追跡issue自体は変更しない）\n"
+  },
+  {
+    "id": "gh-224",
+    "source": "https://github.com/machamp0714/nod/issues/224",
+    "split": "tuning",
+    "expected": true,
+    "reason": "本文が空で変更内容を特定できない",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": ""
+  },
+  {
+    "id": "gh-217",
+    "source": "https://github.com/machamp0714/nod/issues/217",
+    "split": "confirmation",
+    "expected": false,
+    "reason": "対象要素と余白・大きさの期待が具体的に指定されている",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## 現状\n`components/markdown/markdown.module.css` に由来するずれ。Issue の説明欄と、#215 からのコメント欄の両方で起きる。\n\n- global.css のリセットは h1〜h3・p・ul・ol にしか効かないため、h4〜h6・`pre`・`blockquote` にはブラウザ既定の余白が残る。`.markdown > * + *` は margin-top しか上書きしない。\n  - 本文の先頭が `### 見出し` だと、上に約 1.33em の余白が出る。\n  - 本文の末尾がコードブロックだと、下の余白が増える。\n  - `blockquote` に左右 40px の字下げが付く。\n- `img` に `max-width` がなく、大きい画像がはみ出す。\n- コメント（13px）の中では `# 見出し`（h2、20px と margin-top 20px）が大きすぎる。また `code` は 12.5px 固定なので、返信（12.5px）では本文とコードが同じ大きさになる。\n\n## やりたいこと\n最初と最後の要素の余白を消し、pre・blockquote・h4〜h6 の余白をそろえ、`img { max-width: 100% }` を足す。コメント内の見出しとコードの大きさは、本文の大きさに合わせた相対値にする。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+  },
+  {
+    "id": "gh-194",
+    "source": "https://github.com/machamp0714/nod/issues/194",
+    "split": "confirmation",
+    "expected": false,
+    "reason": "行の高さと件数表示除去の期待が具体的",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## 現象\nLinear 準拠レイアウトの見直し（#178〜#185）のあとに、`design/nod.pen` と2か所が食い違っている。どちらもユーザーの判断で nod.pen に合わせることになった（2026-10-01）。\n\n1. Issue 詳細のプロパティ欄の「実行場所」の行が、worktree のパスと「Orca で開く」の段を折り返して表示するため、高さが 28 を超える（E2E のデータで 133）。ほかの行は高さ 28 にそろっている。\n2. Inbox、Reviews、Triage の一覧ヘッダーの右端に、件数（等幅 12 の数字）が出ている。nod.pen の一覧ヘッダー（`pbgvS`、`OzV0j`、`UNHD3`、`TCAVE`）には件数がない。\n\n## 期待\n1. 実行場所の行を、ほかのプロパティと同じ高さ 28 の1行にする（nod.pen の `Olqdi`）。長いパスは値の列の幅で切って末尾を「…」にし、全文は `title` で読めるようにする。「Orca で開く」の操作（#52）は失わない。\n2. 一覧ヘッダーの件数を外す。Inbox は「題名＋右にタブ」、Reviews と Triage は「題名＋説明文」にする。タブの件数（「確認依頼 N」など）は残す。\n\n## 出典\nPR #189（#180）と PR #193（#185）のレビューで残した判断事項。仕様書は `docs/superpowers/specs/2026-09-30-linear-layout-alignment-design.md`（リポジトリ本体のチェックアウトにだけある）。\nカラートークンとフォントファミリーは変えない。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+  },
+  {
+    "id": "gh-45",
+    "source": "https://github.com/machamp0714/nod/issues/45",
+    "split": "confirmation",
+    "expected": true,
+    "reason": "購読・解除の対象通知や購読状態の初期値が未決",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## ユースケース\nINB-06：私がイシューの購読を開始、解除できる\n\n## 現状\nIssueの購読と解除の仕組みがない。\n2026-09-29再検証の判定：満たさない。\n\n## 完了条件\n- [ ] ユースケース「私がイシューの購読を開始、解除できる」を満たす操作と確認方法を定義する。\n- [ ] 現状の不足（Issueの購読と解除の仕組みがない。）を解消する。\n- [ ] 対応するCLI/API/Webの動作と失敗時の扱いを、必要な範囲で回帰テストに残す。\n\n## 出典\n- `docs/linear-usecases.md` の INB-06\n- 次期候補の追跡：#21（追跡issue自体は変更しない）\n"
+  },
+  {
+    "id": "gh-40",
+    "source": "https://github.com/machamp0714/nod/issues/40",
+    "split": "confirmation",
+    "expected": true,
+    "reason": "中身をすぐ確認する操作の表示内容・閉じ方が未決",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## ユースケース\nVIW-14：私が一覧からイシューの中身をすぐ確認できる\n\n## 現状\nIssue一覧にPeek操作がない。\n2026-09-29再検証の判定：満たさない。\n\n## 完了条件\n- [ ] ユースケース「私が一覧からイシューの中身をすぐ確認できる」を満たす操作と確認方法を定義する。\n- [ ] 現状の不足（Issue一覧にPeek操作がない。）を解消する。\n- [ ] 対応するCLI/API/Webの動作と失敗時の扱いを、必要な範囲で回帰テストに残す。\n\n## 出典\n- `docs/linear-usecases.md` の VIW-14\n- 次期候補の追跡：#21（追跡issue自体は変更しない）\n"
+  },
+  {
+    "id": "gh-223",
+    "source": "https://github.com/machamp0714/nod/issues/223",
+    "split": "confirmation",
+    "expected": true,
+    "reason": "タイトルのみで本文が空、本文だけでは要求不明",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": ""
+  },
+  {
+    "id": "gh-49",
+    "source": "https://github.com/machamp0714/nod/issues/49",
+    "split": "ambiguous",
+    "expected": null,
+    "reason": "解決済み操作は明確だが権限・再開・表示の仕様は未記載",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## ユースケース\nCMT-04：私がコメントのスレッドを解決済みにできる\n\n## 現状\nスレッドの解決済み操作がない。\n2026-09-29再検証の判定：満たさない。\n\n## 完了条件\n- [ ] ユースケース「私がコメントのスレッドを解決済みにできる」を満たす操作と確認方法を定義する。\n- [ ] 現状の不足（スレッドの解決済み操作がない。）を解消する。\n- [ ] 対応するCLI/API/Webの動作と失敗時の扱いを、必要な範囲で回帰テストに残す。\n\n## 関連ユースケース\nCMT-02（コメントのスレッド）\n\n## 出典\n- `docs/linear-usecases.md` の CMT-04\n- 次期候補の追跡：#21（追跡issue自体は変更しない）\n"
+  },
+  {
+    "id": "gh-201",
+    "source": "https://github.com/machamp0714/nod/issues/201",
+    "split": "ambiguous",
+    "expected": null,
+    "reason": "不安定テストの原因究明は可能だが解消判定は別資料参照を含む",
+    "annotation": "LLM（Codex）、人手正解付けなし",
+    "body": "## 現象\n`packages/web/e2e/notifications.e2e.ts:113`（LLM の Triage 提案は通知タブに届き、人が受け入れると既読になる）が、まれに失敗する。main `85f6dea` で、全件実行（488 件、`--workers=1`）で1回、単独の `--repeat-each=3` で3回中1回失敗した。\n\n失敗は 122 行の `toHaveCount(0)`。受け入れて再読み込みしたあとも、通知の一覧にその Issue の行が1件残る。失敗時の画面では、行は既読の表示（「（未読 1）」がなく、「既読にする」が押せない）で、詳細に開かれていた。既読にはなっているが、一覧から消えていない。\n\n## 見立て（未確認）\n- 再読み込みの時点で URL に `selected` が付いている（一覧の先頭を開いたときに入る）と、開いている Issue の既読の通知が一覧に残る経路があるように見える。どちらになるかは、受け入れと再読み込みの間の時間で変わる。\n- 2026-10-01 の main には、#185 と #194（Inbox の Header と行の見た目だけの変更）、#173、#170（未決事項のデータ層）が続けて入った。#185 と #194 の PR の検証ではこの spec は通っていた。どの変更から失敗しはじめたかは調べていない。\n\n## 期待\n受け入れて既読になった通知の行が、再読み込みのあとの一覧に出ない（または、選択中の行を残すのが仕様なら、テストがその仕様に沿って安定して通る）。\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+  },
+  {
+    "id": "short-clear",
+    "source": "https://github.com/machamp0714/nod/issues/216",
+    "split": "confirmation",
+    "expected": false,
+    "reason": "既存本文の要求を短くした派生例。何を平文表示するか明確",
+    "annotation": "LLM派生例、人手正解付けなし",
+    "body": "解決済みスレッドの折りたたみ1行表示ではMarkdown記号を除いた平文を出す。"
+  }
+]

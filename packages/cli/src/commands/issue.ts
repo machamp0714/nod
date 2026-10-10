@@ -11,8 +11,10 @@ import {
   clearReminder,
   commentIssue,
   completeIssue,
-  copyIssue,
+  copyIssueWithAssessment,
   createIssue,
+  assessCreatedIssue,
+  retryIssueAssessment,
   detachDocument,
   diagnoseIssues,
   failIssue,
@@ -76,6 +78,7 @@ import {
   formatAttachment,
   formatDelegations,
   formatIssueDetail,
+  formatSpecAssessment,
   formatIssueLine,
   formatIssueLines,
   formatIssueListLines,
@@ -121,8 +124,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-l, --label <label>", "ラベル（繰り返し可）", collect)
     .action(
-      act(
-        (
+      actAsync(
+        async (
           cli,
           cmd,
           title: string,
@@ -143,18 +146,27 @@ export function registerIssueCommands(program: Command): void {
             dueDate: o.due,
             labels: o.label,
           });
-          print(cli, created, () => `起票しました: ${formatIssueLine(created)}`);
+          const assessed = await assessCreatedIssue(cli.ctx, created.id);
+          print(cli, assessed, () => `起票しました: ${formatIssueLine(assessed)}${assessed.specAssessment ? `\n${formatSpecAssessment(assessed)}` : ""}`);
         },
       ),
     );
+
+  issue
+    .command("assess <id>")
+    .description("仕様要否を明示判定・再試行する（判定済みの場合は記録のみ）")
+    .action(actAsync(async (cli, _cmd, id: string) => {
+      const assessed = await retryIssueAssessment(cli.ctx, id);
+      print(cli, assessed, () => formatSpecAssessment(assessed));
+    }));
 
   issue
     .command("copy <id>")
     .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度・見積もりだけを引き継ぎ、元の Issue は変えない）")
     .option("--title <text>", "複製のタイトル（省くと元のタイトル）")
     .action(
-      act((cli, _cmd, id: string, o: { title?: string }) => {
-        const copied = copyIssue(cli.ctx, id, { title: o.title });
+      actAsync(async (cli, _cmd, id: string, o: { title?: string }) => {
+        const copied = await copyIssueWithAssessment(cli.ctx, id, { title: o.title });
         print(cli, copied, () => `${id.toUpperCase()} から複製しました: ${formatIssueLine(copied)}`);
       }),
     );

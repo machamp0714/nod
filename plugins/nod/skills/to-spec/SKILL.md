@@ -90,9 +90,10 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 1. `nod doc list` で同名のファイルがないことを確かめる（`nod doc create` は既存ファイルを上書きしない）。ファイル名は `<id を小文字にしたもの>-spec-YYYYMMDD.md` にする。
 2. `nod doc create <ファイル名> --title "<id> 仕様: <短い題>" --kind spec --issue <id> --body - < <仕様書>` で作って添付する。
-3. `nod issue update <id> --add-label ready-for-agent` でラベルを付ける。ラベルの定義が無くても付けられる。
-4. `nod issue log <id> "<決定の要約と照合の経緯。問いと答えの Document id>" --kind rationale` を 1 件残す。
-5. Out of Scope に別 Issue へ切り出すものがあれば、ユーザーに確認してから `nod issue create ... --discovered-from <id>` で起票する。
+3. `needs-spec` は仕様が確定しても自動解除しない。仕様 Document の添付や本文変更でも自動更新しない。初回判定後のラベルの付与・解除は人間が管理するため、実装へ進む前に人間が解除する必要があることを報告する。
+4. `nod issue update <id> --add-label ready-for-agent` でラベルを付ける。ラベルの定義が無くても付けられる。
+5. `nod issue log <id> "<決定の要約と照合の経緯。問いと答えの Document id>" --kind rationale` を 1 件残す。
+6. Out of Scope に別 Issue へ切り出すものがあれば、ユーザーに確認してから `nod issue create ... --discovered-from <id>` で起票する。
 
 ## 6. 完了時のネクストアクション
 

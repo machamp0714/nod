@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: "基点（コミット・ブランチ・タグ・merge-base）からの差分を、Standards（このリポジトリの規約に沿うか）と Spec（nod の Issue に添付された仕様どおりか）の 2 軸で、並列のサブエージェントでレビューして並べて報告する。ブランチ・PR・作業中の変更のレビューや「X 以降をレビューして」のときに使う。"
+description: "基点（コミット・ブランチ・タグ・merge-base）からの差分を、Standards（このリポジトリの規約に沿うか）と Spec（nod の Issue の本文・添付仕様どおりか）の 2 軸で、並列のサブエージェントでレビューして並べて報告する。ブランチ・PR・作業中の変更のレビューや「X 以降をレビューして」のときに使う。"
 ---
 
 <!-- mattpocock/skills の engineering/code-review（c55ee46）を元に、仕様の取得元を nod の Document にし、サブエージェントの増殖を止める一文を足した。 -->
@@ -27,8 +27,10 @@ description: "基点（コミット・ブランチ・タグ・merge-base）か�
 次の順で探す。
 
 1. 引数で渡された Issue id か Document のパス
-2. 今のブランチを作業場所として記録している nod の Issue（`nod issue list --json` の `branch` が今のブランチと一致するもの）。ブランチ名・コミット・PR には nod の Issue ID を書かない決まりなので、そこから ID を読み取らない。`nod issue show <id>` の Documents から kind=spec の Document を取り、`nod doc show <Document id>` で全文を読む。計画（Task と Step）も受け入れ条件として使う
-3. 見つからなければ、仕様の場所をユーザーに聞く。無いと言われたら、Spec のサブエージェントは飛ばし「仕様なし」と報告する
+2. 今のブランチを作業場所として記録している nod の Issue（`nod issue list --json` の `branch` が今のブランチと一致するもの）。ブランチ名・コミット・PR には nod の Issue ID を書かない決まりなので、そこから ID を読み取らない。`nod issue show <id>` の Documents から kind=spec の Document を取り、`nod doc show <Document id>` で全文を読む。kind=spec がなければ Issue 本文の全文を正本として使う。計画（Task と Step）があれば受け入れ条件として併用する
+3. Issue 自体が見つからなければ、Issue id または要求の正本の場所をユーザーに聞く。独立した仕様書がないという理由で Spec 軸を省略しない。要求を取得できなければレビューを未完了として止める。
+
+本文の期待する振る舞いと完了条件を読み、仕様漏れ・誤実装・スコープの膨張を確認する。受け入れ条件の見出しやチェックボックスがないこと、短文であることだけを仕様不足の根拠にしない。
 
 ## 3. 規約を集める
 
@@ -69,10 +71,10 @@ description: "基点（コミット・ブランチ・タグ・merge-base）か�
 **Spec のサブエージェント** に渡すもの:
 
 - 差分のコマンドとコミット一覧
-- 仕様の全文（と、あれば計画の Task・Step）
+- 仕様の全文（spec Document がなければ Issue 本文の全文。あれば計画の Task・Step も渡す）
 - 指示: 「(a) 仕様が求めたのに欠けている・不完全な要求、(b) 差分にあって求められていない振る舞い（スコープの膨張）、(c) 実装されているように見えて誤っている要求を報告する。各指摘に仕様の該当行を引用する。400 語以内」
 
-仕様が無ければ Spec のサブエージェントは飛ばし、最終報告にそう書く。
+spec Document がなくても、Issue 本文を根拠に Spec のサブエージェントを必ず実行する。
 
 ## 5. まとめる
 

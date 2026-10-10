@@ -1,4 +1,4 @@
-import { defaultDbPath, type GhRunner, NodError, openDb, type TogglCache, type TogglClient } from "@nod/core";
+import { type JevClient, defaultDbPath, type GhRunner, NodError, openDb, type TogglCache, type TogglClient } from "@nod/core";
 import type { OrcaRunnerOption } from "./routes/orca";
 import { createApp } from "./app";
 import { createChangeFeed, POLL_INTERVAL_MS } from "./change-feed";
@@ -7,6 +7,7 @@ export const DEFAULT_PORT = 4700;
 export const HOSTNAME = "127.0.0.1";
 
 export interface StartServerOptions {
+  jevClient?: JevClient; // 自動テストでは実APIの代わりに渡す
   port?: number; // 既定は DEFAULT_PORT。0 なら空いているポート
   dbPath?: string; // 既定は defaultDbPath()
   staticDir?: string; // ビルド済みの web のディレクトリ
@@ -39,7 +40,7 @@ export function startServer(opts: StartServerOptions = {}): NodServer {
   const db = openDb(dbPath);
   const feed = createChangeFeed(db);
   let boundPort: number | undefined;
-  const app = createApp({ db, feed, webPort: () => boundPort, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner, togglClient: opts.togglClient, togglConfigPath: opts.togglConfigPath, togglCache: opts.togglCache });
+  const app = createApp({ db, feed, jevClient: opts.jevClient, webPort: () => boundPort, staticDir: opts.staticDir, docsDir: opts.docsDir, ghRunner: opts.ghRunner, attachmentsDir: opts.attachmentsDir, orcaRunner: opts.orcaRunner, togglClient: opts.togglClient, togglConfigPath: opts.togglConfigPath, togglCache: opts.togglCache });
   let server: ReturnType<typeof Bun.serve>;
   try {
     // idleTimeout の既定（10秒）では、書き込みのない SSE の接続が切られるため無効にする

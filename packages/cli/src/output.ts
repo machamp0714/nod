@@ -318,6 +318,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
     `ステータス: ${statusText(d.status, d.id)}${shownAgentState(d) ? `（作業状況: ${shownAgentState(d)}）` : ""}`,
     `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
+  lines.push(formatSpecAssessment(d));
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
   if (d.estimate !== null) lines.push(`見積もり: ${d.estimate} pt`);
   if (d.dueDate !== null) lines.push(`期限: ${d.dueDate}${isOverdue(d, localToday()) ? "（期限超過）" : ""}`);
@@ -606,4 +607,11 @@ export function formatPrDiffFile(f: PrDiffFile): string {
   if (f.omitted === "too_large") return `${head}\n大きいため差分を保存していません。GitHub で確認してください`;
   const bidi = [f.path, f.oldPath ?? "", f.patch ?? ""].some((t) => BIDI_RE.test(t));
   return `${head}\n${bidi ? `${BIDI_WARNING}\n` : ""}${f.patch ? safe(f.patch, "\n\t") : "（内容の変更はありません）"}`;
+}
+
+export function formatSpecAssessment(issue: Issue): string {
+  const a = issue.specAssessment;
+  if (!a) return "仕様判定: 対象外";
+  const state = a.status === "pending" ? "判定待ち" : a.status === "completed" ? "判定済み" : `判定失敗（${a.failureKind}）`;
+  return `仕様判定: ${state}\n  確率: ${a.probability ?? "—"}  閾値: ${a.threshold}  モデル: ${a.model}  基準: ${a.criteriaVersion}\n  対象本文: ${a.bodyHash}  要求世代: ${a.generation}\n  要求: ${a.requestedAt}  終了: ${a.finishedAt ?? "—"}  入力token: ${a.inputTokens ?? "—"}  所要時間: ${a.elapsedMs ?? "—"}ms`;
 }

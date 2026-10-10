@@ -632,4 +632,8 @@ export const MIGRATIONS: MigrationStep[][] = [
     `CREATE UNIQUE INDEX github_publishes_pending ON github_publishes (issue_id) WHERE state IN ('sending', 'unknown')`,
     `CREATE INDEX github_publishes_issue ON github_publishes (issue_id)`,
   ],
+  [
+    `ALTER TABLE workspaces ADD COLUMN spec_assessment_enabled INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE issues ADD COLUMN spec_assessment TEXT`,
+  ],
 ];

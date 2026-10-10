@@ -12,7 +12,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 ## 作業の流れ
 
 1. \`nod issue next --json\` で着手する Issue を1件取る。null なら着手できる Issue はない。
-   指定された Issue があるときは \`nod issue start <id>\` を使う。
+   指定された Issue があるときは、先に \`nod issue show <id> --json\` で本文・ラベル・仕様要否判定を読み、下の「仕様要否判定と実装」を確認してから \`nod issue start <id>\` を使う。
 2. \`nod issue show <id>\` で説明、計画、Documents、Sub-issue、Activity を読む。
 3. writing-plans などで実装計画書を書いたときは \`nod issue plan <id> --from <計画書のパス>\` で取り込む。
    計画書の「### Task N」と「- [ ] **Step N**」が Issue の計画になり、計画書は Document として添付される。
@@ -58,6 +58,17 @@ nod が GitHub に書き込むのは、人が確認した Issue の新規作成�
    - rebase：ベースブランチの最新に rebase して競合を解消し、テストを再実行して push してから \`nod issue done <id> --summary "<対応の要約>"\` で再提出する。
    稼働中のセッションには、人が確認画面で送ると端末に \`nod: <id> が差し戻されました。…\` という通知が届く。セッションが無いときは、次に \`nod issue start <id>\` したときに受け取る。
    差し戻された Issue は in_progress のため \`nod issue next\` には出ない。自分が担当していた Issue は \`nod issue list --status in_progress\` で確かめ、\`nod issue start <id>\` で拾う。
+
+## 仕様要否判定と実装
+
+Workspace の自動判定は既定 OFF で、人間が設定する。有効時の新規未完了 Issue は本文だけで判定され、必要な場合に needs-spec が付く。
+\`nod issue show <id> --json\` の \`specAssessment\` で状態を確認する。null または省略なら対象外である。
+初回判定が \`pending\` または \`failed\` なら Ready・next・suggest から除外され、start は拒否される。
+\`nod:implement\` は start より先に \`nod issue assess <id>\` で同じ Issue の判定を1回だけ再試行し、再確認しても解消しなければ、安全な失敗種別を報告して止める。Issue を再作成しない。
+\`suspended\` による制限解除と、初回判定完了後の \`recordOnly\` の再評価は、履歴上の未完了・失敗で着手を妨げない。LLM が設定を OFF にして制限を回避しない。
+needs-spec があれば \`nod:to-spec\` へ案内して実装を止める。初回判定後のラベル管理は人間が行う。本文変更・仕様添付・仕様確定で自動更新せず、to-spec も自動解除しない。
+needs-spec がなく判定完了済みか対象外・制限解除済みなら、独立した仕様書・計画書・事前の to-plan は必須にしない。既存 spec・plan は使い、なければ本文の要求と完了条件を正本に必要な軽い Task・Step だけを記録する。
+code-review は仕様書がなくても本文で Spec 軸を必ず実行する。見出しやチェックボックスがないことだけで仕様不足と決めない。
 
 ## 追加指示を受け取る
 
