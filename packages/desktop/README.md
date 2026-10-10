@@ -3,7 +3,7 @@
 nod の macOS 用デスクトップアプリ（Tauri v2）。内部で既存の `nod ui` を sidecar として起動し、Web 画面をウィンドウに表示する。
 Apple Silicon（arm64）専用。ad-hoc 署名で、公証・自動更新・配布はしない。ビルドと配置は手元の Mac だけで行う。
 
-- 仕様: NOD-17（Document「NOD-17 仕様」）。受入条件・中止条件・旧配置の保持は NOD-15 の解決コメントが正本。
+- 受入条件・中止条件・旧配置の保持は、このアプリの切替時に定めた条件（nod の Issue の解決コメント）を正本とする。ここには要点を再掲している。
 - 保存先は CLI と同じ（`~/.local/share/nod/`、`~/.config/nod/`）。アプリ用のデータ移行はない。
 - CLI の実体は `nod.app/Contents/MacOS/nod`。`~/.local/bin/nod` のラッパーがそれを実行する。アプリが終了していても CLI は同じデータで動く。
 

@@ -110,6 +110,7 @@ pub fn show_main(handle: &AppHandle) {
 fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
     let new_win_handle = handle.clone();
     let nav_handle = handle.clone();
+    let load_handle = handle.clone();
     let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(url))
         .title("nod")
         .inner_size(1280.0, 800.0)
@@ -137,6 +138,20 @@ fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
                 }
                 NavDecision::Deny => false,
             }
+        })
+        // 読み込みの開始と完了を記録する（URL の origin とパスのみ。クエリ・本文は残さない）。
+        // Tauri の API は読み込みの失敗そのものを通知しないため、開始だけがあって完了がない行が失敗の手がかりになる。
+        .on_page_load(move |_w, payload| {
+            let u = payload.url();
+            let what = match payload.event() {
+                tauri::webview::PageLoadEvent::Started => "開始",
+                tauri::webview::PageLoadEvent::Finished => "完了",
+            };
+            let origin = format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or(""), u.path());
+            load_handle
+                .state::<Arc<Status>>()
+                .logger
+                .event(nod_desktop::log::Stage::Running, &format!("WebView の読み込み{what}: {origin}"));
         })
         // window.open / target=_blank。新しいウィンドウは作らない。
         .on_new_window(move |u, _features| {

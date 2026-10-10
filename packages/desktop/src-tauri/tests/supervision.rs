@@ -549,6 +549,27 @@ fn 起動成功で_pidfile_を書き_正常停止で消す() {
 }
 
 #[test]
+fn 起動完了の前に_pidfile_を書き_失敗したら消す() {
+    // 起動完了を待つ間にアプリが強制終了しても、次回起動で回収できるようにする。
+    let fake = Fake::new(|_, c| FakeProc::with_events(c, vec![], 7000));
+    fake.put_process(7000, "Sat Oct 10 10:00:00 2026", "/app/nod", OnTerm::Exits);
+    let dir = tmpdir("pidfile-early");
+    let mut c = cfg();
+    let path = dir.join("sidecar.pid");
+    c.pidfile = Some(path.clone());
+    let seen = std::cell::Cell::new(false);
+    let r = launch(&*fake, &c, &|| {
+        // spawn の後で、起動完了の前（URL 行なし）に pidfile が見えたら中断する
+        let exists = path.exists();
+        seen.set(seen.get() || exists);
+        exists
+    }, &|_| {});
+    assert_eq!(r.err(), Some(LaunchError::Cancelled));
+    assert!(seen.get(), "起動完了の前に pidfile が書かれている");
+    assert!(!path.exists(), "失敗して止めたら消す");
+}
+
+#[test]
 fn 環境取得中の終了要求ではシェルも停止対象として取り出せる() {
     // シェルが終わらない。起動待機中に Cmd+Q が来て、アプリが先に終わっても孤児にしないため。
     let fake = Fake::new(|_, c| FakeProc::sidecar(c, 4700, None));

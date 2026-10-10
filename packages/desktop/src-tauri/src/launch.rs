@@ -1,7 +1,7 @@
 // 起動シーケンス: ログインシェルから環境を取得 → ポートを決めて sidecar を起動 →
 // URL 行と /api/workspaces の 200 の両方が揃うまで待つ。
 use crate::log::Stage;
-use crate::orphan::{reclaim_orphan, write_pidfile, Reclaim};
+use crate::orphan::{forget, reclaim_orphan, write_pidfile, Reclaim};
 use crate::platform::{Platform, Proc, ProcEvent, SpawnSpec};
 use std::fmt;
 use std::path::PathBuf;
@@ -319,8 +319,18 @@ fn attempt(
         &format!("sidecar を起動しました（pid {}、要求ポート {port}）", proc.pid()),
     );
 
+    // 起動完了を待つ間にアプリが強制終了しても、次回起動で回収できるよう spawn 直後に書く。
+    // 失敗して自分で止めた場合は消す（次回起動で別のプロセスと誤って照合しないため）
+    if let Some(path) = &cfg.pidfile {
+        if !write_pidfile(p, path, proc.pid()) {
+            p.log_at(Stage::Spawn, "pidfile を書けませんでした（次回起動時の孤児の回収はできません）");
+        }
+    }
     let fail = |e: LaunchError| -> Result<Launched, LaunchError> {
         proc.kill();
+        if let Some(path) = &cfg.pidfile {
+            forget(path, proc.pid());
+        }
         Err(e)
     };
     let mut buf: Vec<u8> = Vec::new();
@@ -349,6 +359,9 @@ fn attempt(
             }
         }
         if let Some(code) = exited {
+            if let Some(path) = &cfg.pidfile {
+                forget(path, proc.pid());
+            }
             let signal = proc.exit_signal();
             p.log_at(
                 Stage::Startup,
@@ -369,13 +382,6 @@ fn attempt(
             if p.http_status(&format!("{u}api/workspaces")) == Some(200) {
                 proc.discard_output();
                 p.log_at(Stage::Startup, &format!("起動完了: {u}（pid {}）", proc.pid()));
-                if let Some(path) = &cfg.pidfile {
-                    if write_pidfile(p, path, proc.pid()) {
-                        p.log_at(Stage::Startup, "pidfile を書きました");
-                    } else {
-                        p.log_at(Stage::Startup, "pidfile を書けませんでした（次回起動時の孤児の回収はできません）");
-                    }
-                }
                 return Ok(Launched { url: u.clone(), proc, port_requested: port });
             }
         }
