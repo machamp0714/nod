@@ -66,6 +66,11 @@ impl Status {
         }
     }
 
+    /// sidecar の pidfile。ログと同じ場所に置く。
+    pub fn pidfile(&self) -> PathBuf {
+        self.log_dir.join(nod_desktop::orphan::PIDFILE_NAME)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }

@@ -214,11 +214,28 @@ fn show_url(handle: &AppHandle, url: Url) {
 }
 
 /// sidecar の URL を主ウィンドウで開く（起動中・失敗画面からの遷移を含む）。
-pub fn open_main_window(handle: &AppHandle, url: &str) {
+/// `reveal` が false なら、利用者が隠しているウィンドウは出さず、あるウィンドウの遷移だけを行う。
+pub fn open_main_window(handle: &AppHandle, url: &str, reveal: bool) {
     let Ok(parsed) = url.parse::<Url>() else { return };
     let Some(port) = parsed.port_or_known_default() else { return };
+    // 復旧でポートが変わりうる。遷移の判定（on_navigation / on_new_window）が新しい origin に追従する。
     handle.state::<OwnPort>().0.store(port, Ordering::SeqCst);
-    show_url(handle, parsed);
+    if reveal {
+        show_url(handle, parsed);
+    } else if let Some(w) = handle.get_webview_window(MAIN_WINDOW) {
+        let _ = w.navigate(parsed);
+    } else {
+        show_url(handle, parsed);
+    }
+}
+
+/// 起動中の画面などを、ウィンドウの表示状態を変えずに出す。ウィンドウが無ければ何もしない。
+pub fn show_app_page_quiet(handle: &AppHandle, page: &str) {
+    if let (Some(w), Ok(url)) =
+        (handle.get_webview_window(MAIN_WINDOW), format!("tauri://localhost/{page}").parse::<Url>())
+    {
+        let _ = w.navigate(url);
+    }
 }
 
 /// アプリの静的画面（frontend の HTML）を主ウィンドウで表示する。

@@ -57,6 +57,21 @@ pub trait Proc: Send + Sync {
     }
 }
 
+/// OS が報告するプロセスの素性。孤児の照合に使う（PID だけでは再利用で別物になりうる）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcInfo {
+    /// `ps -o lstart=` の開始時刻（秒単位）。
+    pub started: String,
+    /// `ps -o comm=` の実行パス。
+    pub exe: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
+    Term,
+    Kill,
+}
+
 /// 標準エラーの保持量。SCHEMA_TOO_NEW などの行を拾えれば足りる。
 const STDERR_TAIL_BYTES: usize = 4096;
 
@@ -70,6 +85,12 @@ pub trait Platform: Send + Sync {
     fn port_is_free(&self, port: u16) -> bool;
     fn var(&self, key: &str) -> Option<String>;
     fn log(&self, msg: &str);
+    /// 子ではない PID の素性（孤児の照合用）。存在しなければ None。既定は常に None。
+    fn process_info(&self, _pid: u32) -> Option<ProcInfo> {
+        None
+    }
+    /// 子ではない PID へのシグナル（孤児の停止用）。既定は何もしない。
+    fn signal_pid(&self, _pid: u32, _sig: Signal) {}
     /// 処理段階つきのログ。既定は段階なしの `log`。
     fn log_at(&self, _stage: Stage, msg: &str) {
         self.log(msg);
@@ -206,6 +227,32 @@ impl Platform for RealPlatform {
     }
     fn log(&self, msg: &str) {
         self.log_at(Stage::App, msg);
+    }
+    fn process_info(&self, pid: u32) -> Option<ProcInfo> {
+        // ロケールで書式が変わらないよう C に固定する。出力が取れなければ「存在しない」扱い。
+        let ps = |field: &str| -> Option<String> {
+            let out = Command::new("/bin/ps")
+                .args(["-o", field, "-p", &pid.to_string()])
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok()?;
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            (out.status.success() && !s.is_empty()).then_some(s)
+        };
+        let started = ps("lstart=")?;
+        let exe = ps("comm=")?;
+        Some(ProcInfo { started, exe })
+    }
+    fn signal_pid(&self, pid: u32, sig: Signal) {
+        let n = match sig {
+            Signal::Term => libc::SIGTERM,
+            Signal::Kill => libc::SIGKILL,
+        };
+        if pid > 1 {
+            unsafe { libc::kill(pid as i32, n) };
+        }
     }
     fn log_at(&self, stage: Stage, msg: &str) {
         eprintln!("nod: {msg}");

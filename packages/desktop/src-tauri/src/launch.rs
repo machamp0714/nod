@@ -1,6 +1,7 @@
 // 起動シーケンス: ログインシェルから環境を取得 → ポートを決めて sidecar を起動 →
 // URL 行と /api/workspaces の 200 の両方が揃うまで待つ。
 use crate::log::Stage;
+use crate::orphan::{reclaim_orphan, write_pidfile, Reclaim};
 use crate::platform::{Platform, Proc, ProcEvent, SpawnSpec};
 use std::fmt;
 use std::path::PathBuf;
@@ -23,6 +24,8 @@ pub struct LaunchConfig {
     pub shell: Option<String>,
     /// シェルを起動するときだけ環境へ重ねる値（テスト用）。
     pub shell_env_overlay: Vec<(String, String)>,
+    /// sidecar の pidfile。None なら孤児の回収も記録もしない（テスト用）。
+    pub pidfile: Option<PathBuf>,
 }
 
 impl LaunchConfig {
@@ -37,6 +40,7 @@ impl LaunchConfig {
             nonce,
             shell: None,
             shell_env_overlay: Vec::new(),
+            pidfile: None,
         }
     }
 }
@@ -55,6 +59,8 @@ pub enum LaunchError {
     StartupTimeout { url_seen: bool },
     /// DB の版が sidecar より新しい（sidecar の出力の `SCHEMA_TOO_NEW` で検出）。
     SchemaTooNew,
+    /// 前回の孤児（照合が一致した sidecar）を停止できなかった。起動すると DB を二重に握る。
+    OrphanAlive,
     Cancelled,
 }
 
@@ -73,6 +79,7 @@ impl fmt::Display for LaunchError {
                 if *url_seen { "受信済み" } else { "未受信" }
             ),
             Self::SchemaTooNew => write!(f, "DB の版が nod より新しいため開けません"),
+            Self::OrphanAlive => write!(f, "前回の sidecar が残っており、停止できません"),
             Self::Cancelled => write!(f, "起動は取り消されました"),
         }
     }
@@ -144,9 +151,10 @@ fn fetch_env(
     p: &dyn Platform,
     cfg: &LaunchConfig,
     cancel: &dyn Fn() -> bool,
+    on_spawn: &dyn Fn(&Arc<dyn Proc>),
 ) -> Result<Vec<(String, String)>, LaunchError> {
     let started = p.now();
-    let r = fetch_env_inner(p, cfg, cancel);
+    let r = fetch_env_inner(p, cfg, cancel, on_spawn);
     if let Err(e) = &r {
         if !matches!(e, LaunchError::Cancelled) {
             // 原因の文字列（シェルのエラー文など）は載せず、分類と所要時間だけを残す。
@@ -168,6 +176,7 @@ fn fetch_env_inner(
     p: &dyn Platform,
     cfg: &LaunchConfig,
     cancel: &dyn Fn() -> bool,
+    on_spawn: &dyn Fn(&Arc<dyn Proc>),
 ) -> Result<Vec<(String, String)>, LaunchError> {
     let shell = cfg
         .shell
@@ -186,6 +195,8 @@ fn fetch_env_inner(
     };
     let started = p.now();
     let proc = p.spawn(&spec).map_err(LaunchError::EnvFailed)?;
+    // 環境取得中に終了しても、シェルを孤児にしないよう、終了処理の停止対象に入れる。
+    on_spawn(&proc);
     let mut out = Vec::new();
     let code = loop {
         match proc.poll() {
@@ -227,7 +238,15 @@ pub fn launch(
     cancel: &dyn Fn() -> bool,
     on_spawn: &dyn Fn(&Arc<dyn Proc>),
 ) -> Result<Launched, LaunchError> {
-    let env = fetch_env(p, cfg, cancel)?;
+    // 前回の孤児の回収は、環境の取得より前（Single Instance の後）。
+    if let Some(path) = &cfg.pidfile {
+        match reclaim_orphan(p, path, cancel) {
+            Reclaim::Stuck => return Err(LaunchError::OrphanAlive),
+            Reclaim::Cancelled => return Err(LaunchError::Cancelled),
+            _ => {}
+        }
+    }
+    let env = fetch_env(p, cfg, cancel, on_spawn)?;
     let home = env
         .iter()
         .find(|(k, _)| k == "HOME")
@@ -350,6 +369,13 @@ fn attempt(
             if p.http_status(&format!("{u}api/workspaces")) == Some(200) {
                 proc.discard_output();
                 p.log_at(Stage::Startup, &format!("起動完了: {u}（pid {}）", proc.pid()));
+                if let Some(path) = &cfg.pidfile {
+                    if write_pidfile(p, path, proc.pid()) {
+                        p.log_at(Stage::Startup, "pidfile を書きました");
+                    } else {
+                        p.log_at(Stage::Startup, "pidfile を書けませんでした（次回起動時の孤児の回収はできません）");
+                    }
+                }
                 return Ok(Launched { url: u.clone(), proc, port_requested: port });
             }
         }

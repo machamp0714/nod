@@ -13,6 +13,9 @@ pub enum FailureKind {
     PortReused,
     StartupTimeout,
     SchemaTooNew,
+    OrphanAlive,
+    /// 稼働中に異常終了を繰り返し、自動の再起動の上限を超えた。
+    Crashed,
     Internal,
 }
 
@@ -27,6 +30,8 @@ impl FailureKind {
             Self::PortReused => "port_reused",
             Self::StartupTimeout => "startup_timeout",
             Self::SchemaTooNew => "schema_too_new",
+            Self::OrphanAlive => "orphan_alive",
+            Self::Crashed => "crashed",
             Self::Internal => "internal",
         }
     }
@@ -107,10 +112,26 @@ pub fn classify(e: &LaunchError) -> Failure {
             "データベースの版がこの nod より新しいため、開けません。",
             ".app を更新してください（新しい版の nod.app に入れ替えます）。",
         ),
+        LaunchError::OrphanAlive => failure(
+            Stage::Startup,
+            FailureKind::OrphanAlive,
+            "前回の nod の本体が残っており、停止できませんでした。",
+            "アクティビティモニタで nod を終了してから、再試行してください。",
+        ),
         LaunchError::Cancelled => {
             failure(Stage::Startup, FailureKind::Internal, "起動は取り消されました。", "再試行してください。")
         }
     }
+}
+
+/// 稼働中の異常終了が続き、自動の再起動の上限を超えた。
+pub fn crashed() -> Failure {
+    failure(
+        Stage::Running,
+        FailureKind::Crashed,
+        "nod の本体が繰り返し異常終了したため、自動の復旧を止めました。",
+        "ログを開いて原因を確認してから、再試行してください。",
+    )
 }
 
 /// アプリ自身の初期化の失敗（設定の解決など）。

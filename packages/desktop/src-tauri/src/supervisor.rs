@@ -68,6 +68,11 @@ impl Supervisor {
         self.inner.lock().unwrap().current.take()
     }
 
+    /// 登録済みの sidecar（取り外さない）。
+    pub fn current(&self) -> Option<Arc<dyn Proc>> {
+        self.inner.lock().unwrap().current.clone()
+    }
+
     pub fn current_pid(&self) -> Option<u32> {
         self.inner.lock().unwrap().current.as_ref().map(|p| p.pid())
     }
