@@ -1,7 +1,7 @@
 {
   "name": "nod",
-  "version": "0.2.1",
-  "description": "仕様（to-spec）→計画（to-plan）→実装（implement）→レビュー（code-review）を nod の Issue に記録しながら進める。",
+  "version": "0.3.0",
+  "description": "構想の整理（wayfinder）→仕様（to-spec）→計画（to-plan）→実装（implement）→レビュー（code-review）を nod の Issue に記録しながら進める。",
   "author": {
     "name": "machamp0714"
   }

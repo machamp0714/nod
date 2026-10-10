@@ -1,0 +1,5 @@
+interface:
+  display_name: "nod: Wayfinder"
+  short_description: "大きな構想を nod の判断用 Issue に分け、対話で方針を固める"
+policy:
+  allow_implicit_invocation: false
