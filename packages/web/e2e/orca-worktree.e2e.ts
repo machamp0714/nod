@@ -87,7 +87,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(row.getByRole("button", { name: "Orca で開く" })).toBeFocused();
   await expect(start).toHaveCount(0);
   expect(await orcaCalls()).toEqual([
-    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `search-n1-${hashOf(created.id)}`, "--no-parent", "--agent", "codex", "--activate", "--json"],
+    ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `search-n1-${hashOf(created.id)}`, "--no-parent", "--agent", "codex", "--prompt", created.id, "--activate", "--json"],
   ]);
   const issue = await api.show(created.id);
   expect({ worktree: issue.worktree, branch: issue.branch, status: issue.status, assignee: issue.assignee }).toEqual({
