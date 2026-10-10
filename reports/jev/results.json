@@ -1,0 +1,403 @@
+{
+  "measuredAt": "2026-10-10T04:15:07.615Z",
+  "model": "jev-1.13.0",
+  "priceUsdPerMillionInputTokens": 0.042,
+  "rows": [
+    {
+      "id": "gh-216",
+      "split": "tuning",
+      "expected": false,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.49,
+      "model": "jev-1.13.0",
+      "inputTokens": 566,
+      "elapsedMs": 4473
+    },
+    {
+      "id": "gh-183",
+      "split": "tuning",
+      "expected": false,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.39,
+      "model": "jev-1.13.0",
+      "inputTokens": 895,
+      "elapsedMs": 157
+    },
+    {
+      "id": "gh-41",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.75,
+      "model": "jev-1.13.0",
+      "inputTokens": 623,
+      "elapsedMs": 210
+    },
+    {
+      "id": "gh-47",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.75,
+      "model": "jev-1.13.0",
+      "inputTokens": 600,
+      "elapsedMs": 173
+    },
+    {
+      "id": "gh-224",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.55,
+      "model": "jev-1.13.0",
+      "inputTokens": 333,
+      "elapsedMs": 164
+    },
+    {
+      "id": "gh-217",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.43,
+      "model": "jev-1.13.0",
+      "inputTokens": 803,
+      "elapsedMs": 187
+    },
+    {
+      "id": "gh-194",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.45,
+      "model": "jev-1.13.0",
+      "inputTokens": 936,
+      "elapsedMs": 219
+    },
+    {
+      "id": "gh-45",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.7,
+      "model": "jev-1.13.0",
+      "inputTokens": 600,
+      "elapsedMs": 160
+    },
+    {
+      "id": "gh-40",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.69,
+      "model": "jev-1.13.0",
+      "inputTokens": 600,
+      "elapsedMs": 160
+    },
+    {
+      "id": "gh-223",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.55,
+      "model": "jev-1.13.0",
+      "inputTokens": 333,
+      "elapsedMs": 172
+    },
+    {
+      "id": "gh-49",
+      "split": "ambiguous",
+      "expected": null,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.71,
+      "model": "jev-1.13.0",
+      "inputTokens": 631,
+      "elapsedMs": 159
+    },
+    {
+      "id": "gh-201",
+      "split": "ambiguous",
+      "expected": null,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.62,
+      "model": "jev-1.13.0",
+      "inputTokens": 924,
+      "elapsedMs": 147
+    },
+    {
+      "id": "short-clear",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "question-only",
+      "kind": "success",
+      "probability": 0.53,
+      "model": "jev-1.13.0",
+      "inputTokens": 368,
+      "elapsedMs": 157
+    },
+    {
+      "id": "gh-216",
+      "split": "tuning",
+      "expected": false,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.32,
+      "model": "jev-1.13.0",
+      "inputTokens": 730,
+      "elapsedMs": 168
+    },
+    {
+      "id": "gh-183",
+      "split": "tuning",
+      "expected": false,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.26,
+      "model": "jev-1.13.0",
+      "inputTokens": 1059,
+      "elapsedMs": 164
+    },
+    {
+      "id": "gh-41",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.76,
+      "model": "jev-1.13.0",
+      "inputTokens": 787,
+      "elapsedMs": 187
+    },
+    {
+      "id": "gh-47",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.78,
+      "model": "jev-1.13.0",
+      "inputTokens": 764,
+      "elapsedMs": 180
+    },
+    {
+      "id": "gh-224",
+      "split": "tuning",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.91,
+      "model": "jev-1.13.0",
+      "inputTokens": 497,
+      "elapsedMs": 189
+    },
+    {
+      "id": "gh-217",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.31,
+      "model": "jev-1.13.0",
+      "inputTokens": 967,
+      "elapsedMs": 159
+    },
+    {
+      "id": "gh-194",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.27,
+      "model": "jev-1.13.0",
+      "inputTokens": 1100,
+      "elapsedMs": 168
+    },
+    {
+      "id": "gh-45",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.73,
+      "model": "jev-1.13.0",
+      "inputTokens": 764,
+      "elapsedMs": 204
+    },
+    {
+      "id": "gh-40",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.69,
+      "model": "jev-1.13.0",
+      "inputTokens": 764,
+      "elapsedMs": 163
+    },
+    {
+      "id": "gh-223",
+      "split": "confirmation",
+      "expected": true,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.91,
+      "model": "jev-1.13.0",
+      "inputTokens": 497,
+      "elapsedMs": 153
+    },
+    {
+      "id": "gh-49",
+      "split": "ambiguous",
+      "expected": null,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.72,
+      "model": "jev-1.13.0",
+      "inputTokens": 795,
+      "elapsedMs": 159
+    },
+    {
+      "id": "gh-201",
+      "split": "ambiguous",
+      "expected": null,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.44,
+      "model": "jev-1.13.0",
+      "inputTokens": 1088,
+      "elapsedMs": 199
+    },
+    {
+      "id": "short-clear",
+      "split": "confirmation",
+      "expected": false,
+      "candidate": "needs-spec-v1",
+      "kind": "success",
+      "probability": 0.42,
+      "model": "jev-1.13.0",
+      "inputTokens": 532,
+      "elapsedMs": 205
+    }
+  ],
+  "summary": [
+    {
+      "candidate": "question-only",
+      "threshold": 0.3,
+      "split": "tuning",
+      "count": 5,
+      "misses": 0,
+      "excess": 2,
+      "failures": 0
+    },
+    {
+      "candidate": "question-only",
+      "threshold": 0.3,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 0,
+      "excess": 3,
+      "failures": 0
+    },
+    {
+      "candidate": "question-only",
+      "threshold": 0.5,
+      "split": "tuning",
+      "count": 5,
+      "misses": 0,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "question-only",
+      "threshold": 0.5,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 0,
+      "excess": 1,
+      "failures": 0
+    },
+    {
+      "candidate": "question-only",
+      "threshold": 0.7,
+      "split": "tuning",
+      "count": 5,
+      "misses": 1,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "question-only",
+      "threshold": 0.7,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 2,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.3,
+      "split": "tuning",
+      "count": 5,
+      "misses": 0,
+      "excess": 1,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.3,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 0,
+      "excess": 2,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.5,
+      "split": "tuning",
+      "count": 5,
+      "misses": 0,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.5,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 0,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.7,
+      "split": "tuning",
+      "count": 5,
+      "misses": 0,
+      "excess": 0,
+      "failures": 0
+    },
+    {
+      "candidate": "needs-spec-v1",
+      "threshold": 0.7,
+      "split": "confirmation",
+      "count": 6,
+      "misses": 1,
+      "excess": 0,
+      "failures": 0
+    }
+  ]
+}
