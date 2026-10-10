@@ -1,3 +1,4 @@
+import type { JevClient } from "@nod/core";
 import {
   acceptTriage,
   attachDocument,
@@ -9,7 +10,7 @@ import {
   bulkUpdateIssues,
   askQuestion,
   commentIssue,
-  copyIssue,
+  copyIssueWithAssessment,
   linkPr,
   declineTriage,
   duplicateTriage,
@@ -45,7 +46,7 @@ import {
 
 interface Op {
   keys: readonly string[];
-  run: (me: OpCtx, ref: string, body: Body) => unknown;
+  run: (me: OpCtx, ref: string, body: Body, client?: JevClient) => unknown;
   created?: boolean; // true なら 201 で返す
 }
 
@@ -138,7 +139,7 @@ const OPS: Record<string, Op> = {
     },
   },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
-  copy: { keys: ["title"], run: (me, ref, b) => copyIssue(me, ref, { title: optString(b, "title") }), created: true },
+  copy: { keys: ["title"], run: (me, ref, b, client) => copyIssueWithAssessment(me, ref, { title: optString(b, "title") }, client), created: true },
   archive: { keys: ["reason"], run: (me, ref, b) => archiveIssue(me, ref, { reason: optString(b, "reason") }) },
   unarchive: { keys: [], run: (me, ref) => unarchiveIssue(me, ref) },
   // 作業中の Issue に PR を紐付ける（ステータスは変えない。#66 の PR 連動の前提）
@@ -166,7 +167,7 @@ const OPS: Record<string, Op> = {
 const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "milestoneRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
 
 // web からの Issue の操作。書き手は me
-export function registerIssueOps(app: Hono, me: OpCtx): void {
+export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void {
   // 一覧で選んだ複数 Issue の一括編集。/api/issues/:id/:op とは段数が違うので衝突しない
   app.post("/api/issues/bulk-update", async (c) => {
     const body = await readBody(c, BULK_UPDATE_KEYS);
@@ -183,6 +184,6 @@ export function registerIssueOps(app: Hono, me: OpCtx): void {
       throw new NodError("NOT_FOUND", `操作 ${name} はありません（使えるもの: ${Object.keys(OPS).join(", ")}）`);
     }
     const body = await readBody(c, op.keys);
-    return c.json(op.run(me, c.req.param("id"), body), op.created ? 201 : 200);
+    return c.json(await op.run(me, c.req.param("id"), body, client), op.created ? 201 : 200);
   });
 }

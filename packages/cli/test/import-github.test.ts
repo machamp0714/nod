@@ -95,3 +95,17 @@ test("nod import github: 引数の誤りを gh を起動する前に拒む", asy
   }
   expect(() => readFileSync(gh.log, "utf8")).toThrow();
 });
+
+test("有効WorkspaceのGitHub取り込みは未完了だけ判定し失敗でもIDを返す", async () => {
+  const db = tempDb(), cwd = makeRepo();
+  registerRepo(db, cwd);
+  const gh = fakeGh(LIST);
+  const opts = { cwd, db, env: { NOD_GH: gh.path, TYPESAFE_API_KEY: "" } };
+  expect((await runNod(["workspace", "spec-assessment", "set", "on"], opts)).exitCode).toBe(0);
+  const run = await runNod(["import", "github", "example/api-server", "--state", "all", "--json"], opts);
+  expect(run.exitCode).toBe(0); expect(run.json.imported).toHaveLength(2);
+  const open = await runNod(["issue", "show", "API-2", "--json"], opts);
+  expect(open.json.specAssessment).toMatchObject({ status: "failed", failureKind: "missing_key" });
+  const closed = await runNod(["issue", "show", "API-1", "--json"], opts);
+  expect(closed.json.specAssessment).toBeNull();
+});

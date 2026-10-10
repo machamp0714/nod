@@ -1,4 +1,5 @@
-import { type AutomationTargets, getAutomationSettings, type OpCtx, runAutomation, setAutomationSettings } from "@nod/core";
+import type { JevClient } from "@nod/core";
+import { type AutomationTargets, getAutomationSettings, type OpCtx, runAutomationWithAssessment, setAutomationSettings } from "@nod/core";
 import type { Hono } from "hono";
 import { invalid, optInt, optNullableInt, readBody } from "../input";
 
@@ -13,7 +14,7 @@ function optTargets(value: unknown): AutomationTargets | undefined {
 }
 
 // 自動化（#71・#72）は web（実行者 me）から設定・確認・1回実行する。常駐の実行はしない
-export function registerAutomationRoutes(app: Hono, me: OpCtx): void {
+export function registerAutomationRoutes(app: Hono, me: OpCtx, client?: JevClient): void {
   app.get("/api/workspaces/:key/automation", (c) => c.json(getAutomationSettings(me.db, c.req.param("key"))));
   app.put("/api/workspaces/:key/automation", async (c) => {
     const body = await readBody(c, ["closeAfterDays", "archiveAfterDays", "prReview", "commitReview"]);
@@ -38,11 +39,11 @@ export function registerAutomationRoutes(app: Hono, me: OpCtx): void {
     const body = await readBody(c, ["dryRun", "limit", "targets"]);
     if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") throw invalid("dryRun は true か false で指定してください");
     return c.json(
-      runAutomation(me, c.req.param("key"), {
+      await runAutomationWithAssessment(me, c.req.param("key"), {
         dryRun: body.dryRun !== false,
         limit: optInt(body, "limit"),
         targets: optTargets(body.targets),
-      }),
+      }, client),
     );
   });
 }

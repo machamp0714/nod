@@ -1,3 +1,5 @@
+import { assessCreatedIssues } from "./assessed-creation";
+import { jevClient, type JevClient } from "./jev-client";
 import type { Database } from "bun:sqlite";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
@@ -249,6 +251,7 @@ export async function importGithubIssues(
   repo: string,
   opts: GithubImportOptions = {},
   run: GhRunner = ghRunner,
+  client: JevClient = jevClient,
 ): Promise<GithubImportResult> {
   validate(repo, opts);
   const dryRun = opts.dryRun ?? false;
@@ -309,5 +312,6 @@ export async function importGithubIssues(
       result.failed.push({ sourceKey: item.sourceKey, message: e instanceof Error ? e.message : String(e) });
     }
   }
+  await assessCreatedIssues(ctx, result.imported.map(i => i.id), client);
   return result;
 }

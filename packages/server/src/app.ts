@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
+import { type JevClient, type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -31,6 +31,7 @@ import { registerStatic } from "./static";
 
 export interface AppOptions {
   db: Database;
+  jevClient?: JevClient; // 仕様要否判定の差し替え境界。省略時は実際のJevを利用する
   feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
   staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
   docsDir?: string; // 新しい Document を作る場所。省くと core の defaultDocsDir()（NOD_DOCS_DIR）
@@ -89,7 +90,7 @@ export function createApp(opts: AppOptions): Hono {
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
   registerGithubRoutes(app, me, { gh: opts.ghRunner, git: opts.gitRunner, webPort: opts.webPort }); // 同上
   registerTogglRoutes(app, me, { client: opts.togglClient, configPath: opts.togglConfigPath, cache: opts.togglCache }); // 同上
-  registerIssueOps(app, me);
+  registerIssueOps(app, me, opts.jevClient);
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);
   registerCycleRoutes(app, me);
@@ -97,11 +98,11 @@ export function createApp(opts: AppOptions): Hono {
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);
   registerWorkspaceTransitionRoutes(app, me);
-  registerRecurringRoutes(app, me);
+  registerRecurringRoutes(app, me, opts.jevClient);
   registerTemplateRoutes(app, me);
   registerPrStatusRoutes(app, me, opts.ghRunner);
   registerPrDiffRoutes(app, me, opts.ghRunner);
-  registerAutomationRoutes(app, me);
+  registerAutomationRoutes(app, me, opts.jevClient);
   registerViewRoutes(app, opts.db);
   registerPageDisplayRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);

@@ -11,7 +11,7 @@ import {
   clearReminder,
   commentIssue,
   completeIssue,
-  copyIssue,
+  copyIssueWithAssessment,
   createIssue,
   assessCreatedIssue,
   retryIssueAssessment,
@@ -165,8 +165,8 @@ export function registerIssueCommands(program: Command): void {
     .description("Issue を複製する（タイトル・説明・Project・ラベル・優先度・見積もりだけを引き継ぎ、元の Issue は変えない）")
     .option("--title <text>", "複製のタイトル（省くと元のタイトル）")
     .action(
-      act((cli, _cmd, id: string, o: { title?: string }) => {
-        const copied = copyIssue(cli.ctx, id, { title: o.title });
+      actAsync(async (cli, _cmd, id: string, o: { title?: string }) => {
+        const copied = await copyIssueWithAssessment(cli.ctx, id, { title: o.title });
         print(cli, copied, () => `${id.toUpperCase()} から複製しました: ${formatIssueLine(copied)}`);
       }),
     );

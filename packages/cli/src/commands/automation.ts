@@ -6,12 +6,12 @@ import {
   getAutomationSettings,
   NodError,
   localDate,
-  runAutomation,
+  runAutomationWithAssessment,
   setAutomationSettings,
   undoAutoTransition,
 } from "@nod/core";
 import type { Command } from "commander";
-import { act, currentWorkspace } from "../context";
+import { act, actAsync, currentWorkspace } from "../context";
 import { print } from "../output";
 
 // "off" はルールを無効にする。commander は解析結果の null を '' に置き換えるため、"off" のまま受け取る。日数の範囲は core で確かめる
@@ -175,8 +175,8 @@ export function registerAutomationCommands(program: Command): void {
       ].join("\n"),
     )
     .action(
-      act((cli, cmd, o: { dryRun?: boolean; limit?: number }) => {
-        const r = runAutomation(cli.ctx, currentWorkspace(cli, cmd).key, { dryRun: o.dryRun, limit: o.limit });
+      actAsync(async (cli, cmd, o: { dryRun?: boolean; limit?: number }) => {
+        const r = await runAutomationWithAssessment(cli.ctx, currentWorkspace(cli, cmd).key, { dryRun: o.dryRun, limit: o.limit });
         print(cli, r, () => {
           const recurring = describeRecurring(r.recurring, r.dryRun);
           const body = [...(recurring === null ? [] : [recurring]), ...r.rules.map((rule) => describeRule(rule, r.dryRun))].join("\n");

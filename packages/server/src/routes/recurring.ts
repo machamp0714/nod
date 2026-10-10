@@ -1,3 +1,4 @@
+import type { JevClient } from "@nod/core";
 import {
   addRecurringIssue,
   getRecurringIssue,
@@ -6,7 +7,7 @@ import {
   type RecurrenceCadence,
   type RecurringIssuePatch,
   removeRecurringIssue,
-  runRecurringIssues,
+  runRecurringIssuesWithAssessment,
   updateRecurringIssue,
 } from "@nod/core";
 import type { Hono } from "hono";
@@ -60,7 +61,7 @@ function patchOf(body: Body): RecurringIssuePatch {
 }
 
 // 定期Issueの登録・変更・実行は web（書き手 me）から行う。LLM は CLI の list / run --dry-run で読むだけ
-export function registerRecurringRoutes(app: Hono, me: OpCtx): void {
+export function registerRecurringRoutes(app: Hono, me: OpCtx, client?: JevClient): void {
   const id = (value: string) => paramInt(value, "定期Issueの ID ");
   app.get("/api/workspaces/:key/recurring", (c) => c.json(listRecurringIssues(me.db, c.req.param("key"))));
   app.post("/api/workspaces/:key/recurring", async (c) => {
@@ -76,7 +77,7 @@ export function registerRecurringRoutes(app: Hono, me: OpCtx): void {
   });
   app.post("/api/workspaces/:key/recurring/run", async (c) => {
     const body = await readBody(c, ["dryRun"]);
-    return c.json(runRecurringIssues(me, c.req.param("key"), { dryRun: optBool(body, "dryRun") ?? false }));
+    return c.json(await runRecurringIssuesWithAssessment(me, c.req.param("key"), { dryRun: optBool(body, "dryRun") ?? false }, client));
   });
   app.get("/api/workspaces/:key/recurring/:id", (c) =>
     c.json(getRecurringIssue(me.db, c.req.param("key"), id(c.req.param("id")))),
