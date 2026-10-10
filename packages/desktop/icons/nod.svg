@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- packages/web のロゴ（濃色 #161A21 の角丸に白い小文字 n）を基にした macOS アプリアイコンの原画 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#161A21"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="84" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M372 676 V470"/>
+    <path d="M372 492 C372 410 436 366 514 366 C598 366 652 416 652 500 V676"/>
+  </g>
+</svg>
