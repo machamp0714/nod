@@ -66,7 +66,7 @@ Workspace の自動判定は既定 OFF で、人間が設定する。有効時�
 初回判定が \`pending\` または \`failed\` なら Ready・next・suggest から除外され、start は拒否される。
 \`nod:implement\` は start より先に \`nod issue assess <id>\` で同じ Issue の判定を1回だけ再試行し、再確認しても解消しなければ、安全な失敗種別を報告して止める。Issue を再作成しない。
 \`suspended\` による制限解除と、初回判定完了後の \`recordOnly\` の再評価は、履歴上の未完了・失敗で着手を妨げない。LLM が設定を OFF にして制限を回避しない。
-needs-spec があれば \`nod:to-spec\` へ案内して実装を止める。初回判定後のラベル管理は人間が行う。本文変更・仕様添付・仕様確定で自動更新せず、to-spec も自動解除しない。
+needs-spec があれば \`nod:to-spec\` へ案内して実装を止める。初回判定後のラベル管理は原則として人間が行う。\`nod:to-spec\` は仕様書の作成・添付の完了を確認して \`nod issue update <id> --remove-label needs-spec\` で解除する。本文変更や仕様 Document の添付だけではシステムによる自動更新・解除は行わない。
 needs-spec がなく判定完了済みか対象外・制限解除済みなら、独立した仕様書・計画書・事前の to-plan は必須にしない。既存 spec・plan は使い、なければ本文の要求と完了条件を正本に必要な軽い Task・Step だけを記録する。
 code-review は仕様書がなくても本文で Spec 軸を必ず実行する。見出しやチェックボックスがないことだけで仕様不足と決めない。
 

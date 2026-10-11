@@ -21,7 +21,7 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 - Issue の Workspace で `nod workspace spec-assessment show --json` を読み、現在の `enabled` を確認する（別 Workspace の Issue は、その Workspace を指定して確認する）。
 - Workspace が有効で、`specAssessment` があり、`status` が `pending` または `failed`、かつ `suspended` でも `recordOnly` でもない場合は、`nod issue assess <id> --json` で初回判定の回復を **1 回だけ**試み、`show --json` で状態を再確認する。まだ実効的な未完了・失敗なら、作成済みの同じ ID と安全な失敗種別を報告して止める。Issue を作り直さず、秘密値や未加工の API エラー本文を出さない。
 - `specAssessment` がない（null／省略）場合は対象外、`suspended` は Workspace の無効化による制限解除、`recordOnly` は初回判定後の任意再評価である。これらの履歴上の待機・失敗で実装を止めない。設定の無効化やラベル削除を LLM が制限回避のために行わない。
-- 現在のラベルに `needs-spec` があれば、`nod:to-spec <id>` へ案内して実装を始めずに止める。仕様書があっても同じ。仕様確定後の解除は人間が行い、LLM は自動解除しない。
+- 現在のラベルに `needs-spec` があれば、`nod:to-spec <id>` へ案内して実装を始めずに止める。仕様書があっても同じ。`nod:to-spec` は仕様書の作成・添付の完了を確認して解除する。`nod:implement` 自身は解除しない。
 - `needs-spec` がなく判定完了済み（任意再評価中も含む）または対象外・制限解除済みなら `nod issue start <id>` を実行する。差し戻しの理由や追加指示が出たら先に読んで反映する。
 - spec・plan・事前の `nod:to-plan` は必須にしない。既存 spec と計画は引き続き使う。spec がなければ Issue 本文の要求と完了条件を正本にする。見出しやチェックボックスの有無、短文であることだけで仕様不足と決めない。
 - 計画がなければ本文から実装・検証できる範囲の軽い Task・Step を作業追跡用に記録する（例: `nod issue plan <id> --step "本文の要求を実装・検証する"`）。計画 Document の作成や別工程の承認を増やさない。重要な利用者向け仕様を決めないと進められない場合だけ、未決事項を `nod issue ask` に記録して止める。
