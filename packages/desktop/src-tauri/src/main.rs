@@ -1,5 +1,7 @@
 // Tauri のイベントループ側。起動・停止のロジックは lib（nod_desktop）にあり、ここは薄く保つ。
 // ウィンドウとメニューは shell.rs、起動状態・ログ・失敗画面のボタンは status.rs。
+#[cfg(target_os = "macos")]
+mod mouse_nav;
 mod shell;
 mod status;
 use nod_desktop::recovery::{monitor, Recovery, RecoveryHooks};
@@ -243,6 +245,8 @@ fn main() {
             // resource_dir は setup 以降でないと使えないため、メニューもここで設定する。
             let menu = shell::build_menu(app.handle())?;
             app.set_menu(menu)?;
+            #[cfg(target_os = "macos")]
+            mouse_nav::install(app.handle(), shell::MAIN_WINDOW);
             watch_signals(app.handle().clone());
             start_launch(app.handle().clone());
             Ok(())
