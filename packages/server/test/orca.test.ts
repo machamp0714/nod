@@ -58,7 +58,7 @@ describe("Orca で作業を始める API（#210）", () => {
     const calls: string[][] = [];
     const orca: OrcaRunner = async (args) => {
       calls.push(args);
-      return result;
+      return args[0] === "worktree" ? result : args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
     };
     return { orca, calls };
   }
@@ -71,7 +71,9 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ issueId: ref, created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--prompt", ref, "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+      ["terminal", "send", "--terminal", "term_new", "--text", ref, "--json"],
     ]);
     expect(getIssue(db, ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
   });
@@ -87,7 +89,7 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(calls[0]?.slice(7, 9)).toEqual(["--agent", "codex"]);
     const s2 = withOrca(orca, null);
     await call(s2.app, "POST", `/api/issues/${s2.ref}/orca-worktree`, { feature: "x", agent: "codex" });
-    expect(calls[1]?.slice(7, 9)).toEqual(["--agent", "codex"]);
+    expect(calls.filter((args) => args[0] === "worktree")[1]?.slice(7, 9)).toEqual(["--agent", "codex"]);
     expect((await call(s2.app, "GET", "/api/workspaces")).json[0].defaultAgent).toBe("claude");
   });
 
@@ -143,6 +145,7 @@ describe("Orca で作業を始める API（#210）", () => {
     const calls: string[][] = [];
     let release: (r: GhRunResult) => void = () => {};
     const { app, db, ref } = withOrca((args) => {
+      if (args[0] !== "worktree") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
       calls.push(args);
       return new Promise((resolve) => { release = resolve; });
     }, null);

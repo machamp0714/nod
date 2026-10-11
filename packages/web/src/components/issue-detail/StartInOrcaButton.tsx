@@ -18,7 +18,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
   workspaceKey: string;
   title: string;
   disabled: boolean;
-  onCreated: () => void;
+  onCreated: (warning?: string) => void;
 }) {
   const workspaces = useWorkspaces();
   const defaultAgent = workspaces.data?.find((w) => w.key === workspaceKey)?.defaultAgent ?? "claude";
@@ -58,7 +58,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
     setError("");
     try {
       const result = await create.mutateAsync({ feature, agent });
-      if (result.created) { setOpen(false); onCreated(); }
+      if (result.created) { setOpen(false); onCreated(result.draftWarning); }
       else setError(result.failure?.message ?? "理由は分かりません");
     } catch (e) {
       setError(errorMessage(e));
@@ -86,7 +86,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
             <span className={s.orcaStartLabel}>エージェント</span>
             <RadioPills label="エージェント" name={`orca-agent-${issueId}`} items={ORCA_AGENT_OPTIONS} value={agent} disabled={busy} onChange={setAgent} />
           </div>
-          <p className={s.orcaStartNote}>worktree を作り、{orcaAgentLabel(agent)} のセッションを起動します。</p>
+          <p className={s.orcaStartNote}>worktree を作り、{orcaAgentLabel(agent)} のセッションを起動します。IDを入力欄に入れ、送信はしません。</p>
           <div className={s.orcaStartActions}>
             <Button size="sm" disabled={busy} onClick={close}>キャンセル</Button>
             <Button type="submit" variant="primary" disabled={busy || feature === ""}>{busy ? "作成中…" : "作成して起動"}</Button>

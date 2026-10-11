@@ -34,7 +34,7 @@ function stubOrca(results: Record<string, GhRunResult>): { run: OrcaRunner; call
   const calls: string[][] = [];
   const run: OrcaRunner = async (args) => {
     calls.push(args);
-    return results[`${args[0]} ${args[1]}`] ?? { kind: "not_found" };
+    return results[`${args[0]} ${args[1]}`] ?? (args[1] === "wait" ? ok({ wait: { satisfied: true } }) : args[1] === "send" ? ok({ send: { accepted: true } }) : { kind: "not_found" });
   };
   return { run, calls };
 }
@@ -170,15 +170,79 @@ describe("createOrcaWorktree（#210）", () => {
     const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--prompt", "API-1", "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+      ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
     ]);
     const after = getIssue(db, ref);
     expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee, agentState: before.agentState });
   });
 
+  test("入力待ちを確認し、Issue IDをEnterなしで入力する", async () => {
+    const { me, ref } = unstarted();
+    const { run, calls } = stubOrca({
+      "worktree create": created,
+      "terminal wait": ok({ wait: { satisfied: true } }),
+      "terminal send": ok({ send: { accepted: true } }),
+    });
+    const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+    expect(result.created).toBe(true);
+    expect(calls.slice(1)).toEqual([
+      ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+      ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
+    ]);
+  });
+
+  test("入力待ちにならなければIDを入力せず、作成済みの実行場所と警告を返す", async () => {
+    const { db, me, ref } = unstarted();
+    const { run, calls } = stubOrca({ "worktree create": created, "terminal wait": ok({ wait: { satisfied: false } }) });
+    const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+    expect(result).toMatchObject({ created: true, worktree: NEW_WT });
+    expect((result as { draftWarning?: string }).draftWarning).toContain("API-1");
+    expect(calls.map((c) => c[1])).toEqual(["create", "wait"]);
+    expect(getIssue(db, ref).worktree).toBe(NEW_WT);
+    expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).failure?.code).toBe("WORKTREE_ALREADY_RECORDED");
+  });
+
+  test("旧形式の起動端末と一覧から特定した端末にもEnterなしで入力する", async () => {
+    for (const startup of [{ startupTerminal: { handle: "term_old" } }, {}]) {
+      const { me, ref } = unstarted();
+      const { run, calls } = stubOrca({
+        "worktree create": ok({ worktree: { path: NEW_WT }, ...startup }),
+        "terminal list": ok({ terminals: [terminal({ handle: "term_old", worktreePath: NEW_WT })] }),
+      });
+      const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+      expect(result.draftWarning).toBeUndefined();
+      expect(calls.at(-1)).toEqual(["terminal", "send", "--terminal", "term_old", "--text", "API-1", "--json"]);
+    }
+  });
+
+  test("入力が拒否・時間切れ・結果不明でも再送せず、作成済みworktreeを保持する", async () => {
+    for (const response of [ok({ send: { accepted: false } }), ok({}), { kind: "timeout" } as GhRunResult]) {
+      const { db, me, ref } = unstarted();
+      const { run, calls } = stubOrca({ "worktree create": created, "terminal send": response });
+      const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+      expect(result.created).toBe(true);
+      expect(result.draftWarning).toContain("API-1");
+      expect(calls.filter((args) => args[1] === "send")).toHaveLength(1);
+      expect(getIssue(db, ref).worktree).toBe(NEW_WT);
+    }
+  });
+
+  test("一覧の端末が曖昧なら入力しない", async () => {
+    const { me, ref } = unstarted();
+    const { run, calls } = stubOrca({
+      "worktree create": ok({ worktree: { path: NEW_WT } }),
+      "terminal list": ok({ terminals: [terminal({ worktreePath: NEW_WT }), terminal({ handle: "term_other", worktreePath: NEW_WT })] }),
+    });
+    expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).draftWarning).toContain("特定できません");
+    expect(calls.map((args) => args[1])).toEqual(["create", "list"]);
+  });
+
   test("エージェントは作成時の指定、無ければ Workspace の既定、既定は claude。時間切れは 60 秒で打ち切る", async () => {
     const seen: { args: string[]; timeoutMs: number }[] = [];
     const run: OrcaRunner = async (args, opts) => {
+      if (args[0] !== "worktree") return args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
       seen.push({ args, timeoutMs: opts.timeoutMs });
       return created;
     };
@@ -285,6 +349,7 @@ describe("createOrcaWorktree（#210）", () => {
     const calls: string[][] = [];
     const releases: ((r: GhRunResult) => void)[] = [];
     const run: OrcaRunner = (args) => {
+      if (args[0] !== "worktree") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
       calls.push(args);
       return new Promise((resolve) => releases.push(resolve));
     };
