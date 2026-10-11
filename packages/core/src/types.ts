@@ -866,6 +866,7 @@ export interface OrcaWorktreeResult {
   worktree: string | null;
   branch: string | null;
   failure: OrcaFailure | null;
+  draftWarning?: string; // 作成は成功したが、未送信のID入力を確認できなかった場合
 }
 
 // LLM への追加指示（#51）と差し戻しの対応依頼（#58）の種類

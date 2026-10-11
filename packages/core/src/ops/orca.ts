@@ -203,7 +203,7 @@ export function getWorktreeName(db: Database, ref: string, feature: string): { i
 // orca を待つ間（最長 60 秒）に来た同じ Issue への要求をここで止める。server は1プロセスなので、プロセス内の印で足りる
 const creating = new WeakMap<Database, Set<number>>();
 
-// Issue の worktree を Orca に作り、エージェントのセッションを起動する（#210）。セッションには Issue の ID だけを送り（--prompt）、着手の指示は送らない。
+// Issue の worktree を Orca に作り、エージェントのセッションを起動する（#210）。入力待ちを確認して Issue ID を入力し、Enter は送らない。
 // エージェントは input.agent（作成時の選択）、無ければ Workspace の既定。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
 // 実行場所（worktree かブランチ）が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
@@ -248,7 +248,7 @@ async function createAndRecord(
   const agent = chosen ?? workspace.default_agent;
   const res = readOrcaEnvelope(
     await run(
-      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", worktreeNameFor(ctx.db, row, feature), "--no-parent", "--agent", agent, "--prompt", issueId, "--activate", "--json"],
+      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", worktreeNameFor(ctx.db, row, feature), "--no-parent", "--agent", agent, "--activate", "--json"],
       { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
     ),
     ORCA_CREATE_TIMEOUT_MS,
@@ -258,7 +258,7 @@ async function createAndRecord(
   if (typeof raw?.path !== "string" || !raw.path) return fail(orcaFailure("ORCA_ERROR", "結果から worktree のパスを読めません"));
   const worktree = raw.path;
   const branch = typeof raw.branch === "string" && raw.branch ? raw.branch.replace(/^refs\/heads\//, "") : null;
-  return tx(ctx.db, () => {
+  const recorded: OrcaWorktreeResult = tx(ctx.db, () => {
     // orca を待つ間に変わっているかもしれないため、読み直してから記録する
     const current = findIssueRow(ctx.db, ref);
     // 待つ間にアーカイブされたら記録できない。作られた worktree を手で片付けられるよう、パスを理由に含めて返す
@@ -269,4 +269,44 @@ async function createAndRecord(
     setColumn(ctx, current, "worktree", worktree);
     return { issueId, created: true, worktree, branch, failure: null };
   });
+  if (!recorded.created) return recorded;
+  // 作成済みの場所を先に保存する。下書き入力の失敗で worktree を重複作成しない。
+  const draftWarning = await fillIssueDraft(run, res.result, worktree, issueId, agent);
+  return draftWarning ? { ...recorded, draftWarning } : recorded;
+}
+
+async function fillIssueDraft(run: OrcaRunner, created: unknown, worktree: string, issueId: string, agent: OrcaAgent): Promise<string | null> {
+  const warn = (detail: string) => `セッションは起動しましたが、IDの入力を確認できませんでした。Orcaの入力欄を確認し、必要なら ${issueId} を入力してください。${detail}`;
+  try {
+    const result = created as { agentTerminalHandle?: unknown; startupTerminal?: { handle?: unknown } } | null;
+    const handles = [result?.agentTerminalHandle, result?.startupTerminal?.handle];
+    let handle = handles.find((value): value is string => typeof value === "string" && value.length > 0);
+    if (!handle) {
+      const listed = await listOrcaTerminals(run, worktree);
+      if ("failure" in listed) return warn(listed.failure.message);
+      const candidates = agentTerminals(listed.terminals).filter((terminal) => terminal.agentIdentity === agent);
+      if (candidates.length !== 1) return warn("起動したエージェントの端末を特定できません。");
+      handle = candidates[0]!.handle;
+    }
+    const ready = readOrcaEnvelope(await run(
+      ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+      { timeoutMs: 35_000, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
+    ), 35_000);
+    if (!ready.ok) return warn(ready.failure.message);
+    if ((ready.result as { wait?: { satisfied?: unknown } } | null)?.wait?.satisfied !== true) {
+      return warn("エージェントの入力待ちを確認できません。");
+    }
+    // --enter と --prompt は使わない。人が送信するまで作業を開始させない。
+    const typed = readOrcaEnvelope(await run(
+      ["terminal", "send", "--terminal", handle, "--text", issueId, "--json"],
+      { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
+    ));
+    if (!typed.ok) return warn(typed.failure.message);
+    const receipt = typed.result as { send?: { accepted?: unknown } } | null;
+    if (receipt?.send?.accepted !== true) return warn("入力の受け付けを確認できません。");
+    return null;
+  } catch {
+    // 入力結果が不明な場合も自動再送しない（二重入力の防止）。
+    return warn("Orcaとの通信に失敗しました。");
+  }
 }
