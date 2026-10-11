@@ -19,6 +19,23 @@ pub const MAIN_WINDOW: &str = "main";
 const STATE_FILE: &str = "window-state.json";
 const SAVE_INTERVAL: Duration = Duration::from_millis(500);
 
+/// マウスの戻る/進むボタン（button 3/4）を履歴移動に割り当てる。WKWebView は既定では何もしない。
+const MOUSE_NAV_SCRIPT: &str = r#"
+(() => {
+  if (window.__nodMouseNav) return;
+  window.__nodMouseNav = true;
+  const handle = (e) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    if (e.type === 'mouseup') {
+      if (e.button === 3) history.back(); else history.forward();
+    }
+  };
+  addEventListener('mousedown', handle, true);
+  addEventListener('mouseup', handle, true);
+})();
+"#;
+
 const ID_BACK: &str = "view.back";
 const ID_FORWARD: &str = "view.forward";
 const ID_RELOAD: &str = "view.reload";
@@ -128,6 +145,7 @@ fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
         .inner_size(1280.0, 800.0)
         .min_inner_size(1024.0, 640.0)
         .visible(false)
+        .initialization_script(MOUSE_NAV_SCRIPT)
         // 自分の origin 以外へは遷移させない。外部 http(s) は既定ブラウザへ。
         // アプリの静的画面（tauri://localhost）と、そのボタン（nod-action://）だけは別扱い。
         .on_navigation(move |u| {
