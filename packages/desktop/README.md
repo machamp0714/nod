@@ -69,13 +69,30 @@ cd packages/desktop/src-tauri && cargo test                       # 起動・監
 2. CLI の compile（`bun build --compile --target=bun-darwin-arm64`）。これが sidecar になる。
 3. Tauri のビルド（`.app` まで。ad-hoc 署名される）。
 4. `Contents/Resources/build-info`（アプリ版・commit・dirty・ビルド日時・schema 版）の書き込み。
-5. sidecar 自身へ entitlements（JIT 系の 3 種。`scripts/entitlements.plist`）を付けて署名し、続けて `.app` を `--deep` なしで再署名する。
-6. 検査。署名の検証、sidecar の entitlements、arm64、build-info と同梱バイナリの版の一致、隔離データでの起動（`/api/workspaces` が 200）、DB の schema 版と build-info の一致。
+5. sidecar 自身へ entitlements（JIT 系の 3 種。`scripts/entitlements.plist`）を付けて署名し、続けて `.app` を `--deep` なしで再署名する。外側には bundle ID と一致する共通の明示DRを付ける。
+6. 検査。署名の検証、更新に対応する明示DR、sidecar の entitlements、arm64、build-info と同梱バイナリの版の一致、隔離データでの起動（`/api/workspaces` が 200）、DB の schema 版と build-info の一致。
 
 検査に通ったものだけが `packages/desktop/dist/nod.app` に置かれる。通らなければ成果物は作られない。
 `dist/`・`build/`・`src-tauri/target/`・`src-tauri/binaries/` は git 管理外。
 
 版は `packages/desktop/package.json`、`src-tauri/tauri.conf.json`、`packages/cli/package.json` で一致させる（一致しないとビルドが中止される）。
+
+### 更新時の通知識別と署名
+
+外側の `.app` は ad-hoc 署名を維持し、`designated => identifier "io.github.machamp0714.nod"` を明示DR（Designated Requirement）として使う。
+ビルドは `tauri.conf.json` の identifier を使い、完成品検査は実際の `Info.plist` の `CFBundleIdentifier` と明示DRの一致を確認する。
+署名の整合性に加え、更新前に表示した通知から更新後のアプリを起動できる識別条件を保つためである。
+専用IDの検証アプリを再署名する場合も、対応するidentifierの同じ明示DRを指定する。
+
+既定の ad-hoc 署名ではDRが特定版のcdhashに結びつくため、更新後に旧通知からアプリを起動できないケースを実測した。
+共通DRを使う隔離アプリでは、resource変更でcdhashが変わった後も旧通知から自動起動し、対象Issueを表示できた。
+共通DRを適用した製品構成では閉窓中の両種類の配信と個別リマインダーのクリック、アーカイブ済みIssueや削除済み通知の参照も確認した。
+通知機能の最初の本番配布版から共通DRを使い、以後の更新で同じ識別条件を維持する。
+従来のcdhash DRで送った既存通知を、後から遡って直すことは保証しない。
+
+このDRはbundle IDによる識別であり、証明書による配布者認証ではない。
+新しい証明書や公証は導入していない。
+DRの意味は [AppleのTN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) を参照する。
 
 ## 導入（初回も更新も `desktop:deploy`）
 

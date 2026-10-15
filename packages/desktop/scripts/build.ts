@@ -81,7 +81,9 @@ run([
   "codesign", "--force", "--sign", "-", "--options", "runtime",
   "--entitlements", join(import.meta.dir, "entitlements.plist"), sidecar,
 ]);
-run(["codesign", "--force", "--sign", "-", stagedApp]);
+// 初回の通知配布版から更新間で同じDRを使い、旧通知から更新後のアプリを識別できるようにする。
+const appIdentifier = ((await Bun.file(join(tauriDir, "tauri.conf.json")).json()) as { identifier: string }).identifier;
+run(["codesign", "--force", "--sign", "-", "--requirements", `=designated => identifier ${JSON.stringify(appIdentifier)}`, stagedApp]);
 
 // 6. 検査。通ったものだけを dist/nod.app に置く
 console.log(`\n検査: ${stagedApp}`);
