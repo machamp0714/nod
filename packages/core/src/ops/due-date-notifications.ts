@@ -11,6 +11,13 @@ export function recordDueDateSetting(db: Database, issueId: number, dueDate: str
     ON CONFLICT (issue_id, due_date) DO UPDATE SET set_at = excluded.set_at WHERE due_date_occurrences.state = 'pending'`).run(issueId, dueDate, setAt);
 }
 
+// 生成済みの旧期日は変更と同じトランザクションで除外し、元の日付・未完了に戻しても復活させない。
+// 取得済みの通知と、まだInbox化していない発生は変更しない。
+export function excludeUnclaimedDueDateNotifications(db: Database, issueId: number, ts: string): void {
+  db.query(`INSERT OR IGNORE INTO desktop_notification_deliveries (notification_id, state, reason, claimed_at, finished_at)
+    SELECT id, 'excluded', 'due_date_inactive', ?, ? FROM notifications WHERE issue_id = ? AND kind = 'due_date'`).run(ts, ts, issueId);
+}
+
 export function deliverDueDateNotifications(db: Database): number {
   return tx(db, () => {
     const ts = now();

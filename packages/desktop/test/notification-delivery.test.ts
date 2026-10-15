@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { join } from "node:path";
 import { createApp } from "../../server/src/app";
-import { openDb, initWorkspace, createIssue, setReminder, clearReminder, setDesktopNotificationSettings, getDesktopNotificationDelivery, listNotifications, updateIssue, archiveIssue, unarchiveIssue, snoozeNotifications, unsnoozeNotifications, markNotificationsRead, markNotificationsUnread, deleteNotifications, restoreNotifications, deleteIssue, type DesktopNotification } from "../../core/src";
+import { openDb, initWorkspace, createIssue, setReminder, clearReminder, setDesktopNotificationSettings, getDesktopNotificationDelivery, listNotifications, updateIssue, bulkUpdateIssues, getIssue, archiveIssue, unarchiveIssue, snoozeNotifications, unsnoozeNotifications, markNotificationsRead, markNotificationsUnread, deleteNotifications, restoreNotifications, deleteIssue, type DesktopNotification } from "../../core/src";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
@@ -32,8 +32,8 @@ function fixture(initialTime = "2026-10-15T00:00:00Z", prepare?: (path: string) 
   return {
     db, me, ws, origin,
     at: (seconds: number) => setSystemTime(new Date(`2026-10-15T00:00:${String(seconds).padStart(2, "0")}Z`)),
-    async tick(mode = "ok"): Promise<DesktopNotification[]> {
-      const child = Bun.spawn([harness, origin, mode], { stdout: "pipe", stderr: "pipe" });
+    async tick(mode = "ok", targetOrigin = origin): Promise<DesktopNotification[]> {
+      const child = Bun.spawn([harness, targetOrigin, mode], { stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(code, stderr).toBe(0);
       if (mode === "permission-error") expect(stderr).toContain("偽OSの許可取得失敗");
@@ -176,6 +176,291 @@ for (const dueDate of ["2026-10-15", "2026-10-14"]) for (const operation of ["�
     } finally { f.close(); }
   }, 20000);
 }
+
+test.skipIf(!supported)("実ネイティブ配信：Inbox生成後に期日を往復しても旧期日は復活せず、個別リマインダーは維持する", async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "生成済み期日を往復", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: new Date(2026, 9, 15, 9).toISOString(), note: "独立した旧リマインダー" });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(listNotifications(f.db).map(n => n.kind).sort()).toEqual(["due_date", "reminder"]);
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+    expect(await f.tick()).toEqual([expect.objectContaining({ issueId: issue.id, body: "独立した旧リマインダー" })]);
+    expect(listNotifications(f.db).map(n => n.kind).sort()).toEqual(["due_date", "reminder"]);
+    expect(await f.tick()).toEqual([]);
+  } finally { f.close(); }
+}, 20000);
+
+for (const operation of ["変更", "解除", "done", "canceled"] as const) for (const generated of [false, true]) {
+  test.skipIf(!supported)(`期日追従：${generated ? "Inbox生成済み" : "未生成"}の${operation}は旧期日を抑止し、処理済み分は復帰しても送らない`, async () => {
+    const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+    try {
+      setDesktopNotificationSettings(f.db, true);
+      const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "期日を取り消す", dueDate: "2026-10-15" });
+      setSystemTime(new Date(2026, 9, 15, 9));
+      if (generated) expect(listNotifications(f.db)).toHaveLength(1);
+      if (operation === "変更" || operation === "解除") updateIssue(f.me, issue.id, { dueDate: operation === "変更" ? "2026-10-16" : null });
+      else updateIssue(f.me, issue.id, { status: operation });
+      expect(await f.tick()).toEqual([]);
+      expect(listNotifications(f.db)).toHaveLength(generated ? 1 : 0);
+      if (operation === "変更" || operation === "解除") updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+      else updateIssue(f.me, issue.id, { status: "todo" });
+      // 未生成の期日変更はまだ発生を処理していないため、現在の期日を一回通知する。
+      const canNotify = !generated && (operation === "変更" || operation === "解除");
+      expect(await f.tick()).toEqual(canNotify ? [expect.objectContaining({ issueId: issue.id })] : []);
+      expect(await f.tick()).toEqual([]);
+    } finally { f.close(); }
+  }, 20000);
+}
+
+test.skipIf(!supported)("期日追従：発火前の往復は現期日を一回送り、送信後の同値保存・往復・未完了復帰では再送せず別期日を一回送る", async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "一つの期日に一回", dueDate: "2026-10-15" });
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+    expect(await f.tick()).toEqual([]);
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(await f.tick()).toEqual([expect.objectContaining({ issueId: issue.id, body: "期日が到来しました（2026-10-15）" })]);
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+    updateIssue(f.me, issue.id, { status: "done" });
+    updateIssue(f.me, issue.id, { status: "todo" });
+    expect(await f.tick()).toEqual([]);
+    setSystemTime(new Date(2026, 9, 15, 9, 0, 1));
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-14" });
+    expect(await f.tick()).toEqual([expect.objectContaining({ issueId: issue.id, body: "期日が到来しました（2026-10-14）", scheduledAt: new Date(2026, 9, 15, 9, 0, 1).toISOString() })]);
+    updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+    setSystemTime(new Date(2026, 9, 16, 9));
+    expect(await f.tick()).toEqual([expect.objectContaining({ issueId: issue.id, body: "期日が到来しました（2026-10-16）" })]);
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(3);
+  } finally { f.close(); }
+}, 20000);
+
+for (const status of ["done", "canceled"] as const) test.skipIf(!supported)(`期日追従：発火前の${status}と未完了復帰は現期日を一回送る`, async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "到来前に復帰", dueDate: "2026-10-15" });
+    updateIssue(f.me, issue.id, { status });
+    expect(await f.tick()).toEqual([]);
+    updateIssue(f.me, issue.id, { status: "todo" });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(await f.tick()).toEqual([expect.objectContaining({ issueId: issue.id })]);
+    expect(await f.tick()).toEqual([]);
+  } finally { f.close(); }
+}, 20000);
+
+for (const status of ["done", "canceled"] as const) test.skipIf(!supported)(`期日追従：Inbox生成後に${status}から未完了へ戻しても旧期日は復活せず、個別リマインダーは維持する`, async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "配信前に状態を往復", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: new Date(2026, 9, 15, 9).toISOString(), note: "完了でも独立" });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(listNotifications(f.db)).toHaveLength(2);
+    updateIssue(f.me, issue.id, { status });
+    updateIssue(f.me, issue.id, { status: "todo" });
+    expect(await f.tick()).toEqual([expect.objectContaining({ body: "完了でも独立" })]);
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(2);
+  } finally { f.close(); }
+}, 20000);
+
+for (const held of ["archive", "snooze"] as const) for (const operation of ["維持", "期日変更", "完了", "既読", "削除"] as const) {
+  test.skipIf(!supported)(`期日追従：${held}の保留中は不許可でも除外せず、${operation}後の復元では適格な期日だけを一回送る`, async () => {
+    const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+    try {
+      setDesktopNotificationSettings(f.db, true);
+      const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "保留する期日", dueDate: "2026-10-15" });
+      setSystemTime(new Date(2026, 9, 15, 9));
+      const notification = listNotifications(f.db)[0]!;
+      if (held === "archive") archiveIssue(f.me, issue.id);
+      else snoozeNotifications(f.me, { ids: [notification.id], until: new Date(2026, 9, 16, 12).toISOString() });
+      expect(await f.tick("denied")).toEqual([]);
+      if (operation === "既読") {
+        // 既存の既読操作はスヌーズ中を対象にしないため、解除後に既読にして配信へ反映する。
+        if (held === "snooze") unsnoozeNotifications(f.me, { ids: [notification.id] });
+        expect(markNotificationsRead(f.me, { ids: [notification.id] }).updated).toBe(1);
+      }
+      else if (operation === "削除") deleteNotifications(f.me, { ids: [notification.id] });
+      if (operation === "既読" || operation === "削除") expect(await f.tick()).toEqual([]);
+      if (held === "archive") unarchiveIssue(f.me, issue.id);
+      else if (operation !== "削除") unsnoozeNotifications(f.me, { ids: [notification.id] });
+      if (operation === "期日変更") updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+      else if (operation === "完了") updateIssue(f.me, issue.id, { status: "done" });
+      else if (operation === "既読") markNotificationsUnread(f.me, { ids: [notification.id] });
+      else if (operation === "削除") {
+        restoreNotifications(f.me, { ids: [notification.id] });
+        if (held === "snooze") unsnoozeNotifications(f.me, { ids: [notification.id] });
+      }
+      expect(await f.tick()).toEqual(operation === "維持" ? [expect.objectContaining({ issueId: issue.id, notificationId: notification.id })] : []);
+      expect(await f.tick()).toEqual([]);
+      expect(listNotifications(f.db)).toEqual([expect.objectContaining({ id: notification.id, kind: "due_date" })]);
+    } finally { f.close(); }
+  }, 20000);
+}
+
+// TZのケース間干渉を避け、配信先APIの時計・端末タイムゾーンを別プロセスで固定する。
+async function clockedApi(f: ReturnType<typeof fixture>, initialTime: string, timezone: string) {
+  const child = Bun.spawn(["bun", join(import.meta.dir, "notification-server.ts"), f.db.filename, initialTime], {
+    env: { ...process.env, TZ: timezone }, stdout: "pipe", stderr: "pipe",
+  });
+  const origin = await lines(child.stdout)();
+  expect(origin).toStartWith("http://127.0.0.1:");
+  return {
+    tick: () => f.tick("ok", origin),
+    async at(at: string, timezone?: string) {
+      const response = await fetch(`${origin}/__test/clock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ at, timezone }) });
+      expect(response.status).toBe(200);
+    },
+    async close() { child.kill(); await child.exited; },
+  };
+}
+
+for (const [timezone, dueDate, midnight, beforeNine, atNine] of [
+  ["Asia/Tokyo", "2026-10-15", "2026-10-14T15:00:00Z", "2026-10-14T23:59:59Z", "2026-10-15T00:00:00.000Z"],
+  ["America/New_York", "2026-03-07", "2026-03-07T05:00:00Z", "2026-03-07T13:59:59Z", "2026-03-07T14:00:00.000Z"],
+  ["America/New_York", "2026-03-08", "2026-03-08T05:00:00Z", "2026-03-08T12:59:59Z", "2026-03-08T13:00:00.000Z"],
+  ["America/New_York", "2026-10-31", "2026-10-31T04:00:00Z", "2026-10-31T12:59:59Z", "2026-10-31T13:00:00.000Z"],
+  ["America/New_York", "2026-11-01", "2026-11-01T04:00:00Z", "2026-11-01T13:59:59Z", "2026-11-01T14:00:00.000Z"],
+] as const) test.skipIf(!supported)(`期日時刻：${timezone}の${dueDate}は日付境界・夏時間に従いローカル09:00に一回だけ送る`, async () => {
+  const initialTime = new Date(Date.parse(midnight) - 1000).toISOString();
+  const f = fixture(initialTime);
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "ローカル暦日の期日", dueDate });
+    api = await clockedApi(f, initialTime, timezone);
+    await api.at(midnight);
+    expect(await api.tick()).toEqual([]);
+    await api.at(beforeNine);
+    expect(await api.tick()).toEqual([]);
+    await api.at(atNine);
+    expect(await api.tick()).toEqual([expect.objectContaining({ issueId: issue.id, scheduledAt: atNine })]);
+    expect(await api.tick()).toEqual([]);
+  } finally { await api?.close(); f.close(); }
+}, 20000);
+
+test.skipIf(!supported)("期日時刻：タイムゾーン変更前の09:00では送らず、変更後の09:00で送り、再変更で同じ期日を再送しない", async () => {
+  const f = fixture("2026-10-14T23:59:58Z");
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "移動先の09:00", dueDate: "2026-10-15" });
+    api = await clockedApi(f, "2026-10-14T23:59:58Z", "Asia/Tokyo");
+    await api.at("2026-10-15T00:00:00Z", "America/New_York");
+    expect(await api.tick()).toEqual([]);
+    await api.at("2026-10-15T12:59:59Z");
+    expect(await api.tick()).toEqual([]);
+    await api.at("2026-10-15T13:00:00Z");
+    expect(await api.tick()).toEqual([expect.objectContaining({ issueId: issue.id, scheduledAt: "2026-10-15T13:00:00.000Z" })]);
+    await api.at("2026-10-15T16:00:00Z", "America/Los_Angeles");
+    expect(await api.tick()).toEqual([]);
+    await api.at("2026-10-15T16:00:00Z", "Asia/Tokyo");
+    expect(await api.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(1);
+  } finally { await api?.close(); f.close(); }
+}, 20000);
+
+test.skipIf(!supported)("期日時刻：タイムゾーンが異なるAPIプロセスへの再接続でも同一期日の送信履歴を維持する", async () => {
+  const f = fixture("2026-10-14T23:59:58Z");
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "時差をまたいで再接続", dueDate: "2026-10-15" });
+    api = await clockedApi(f, "2026-10-15T00:00:00Z", "Asia/Tokyo");
+    expect(await api.tick()).toEqual([expect.objectContaining({ issueId: issue.id, scheduledAt: "2026-10-15T00:00:00.000Z" })]);
+    await api.close();
+    api = await clockedApi(f, "2026-10-15T16:00:00Z", "America/Los_Angeles");
+    expect(await api.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(1);
+  } finally { await api?.close(); f.close(); }
+}, 20000);
+
+for (const operation of ["期日変更", "期日解除", "done", "canceled", "期日往復", "状態往復", "期日ロールバック", "状態ロールバック", "一括更新ロールバック"] as const) {
+  test.skipIf(!supported)(`期日競合：${operation}の実DBロックを待つclaimは確定後の期日・状態と履歴を使う`, async () => {
+    const atNine = new Date(2026, 9, 15, 9).toISOString();
+    const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+    let api: import("bun").Subprocess<"ignore", "pipe", "pipe"> | undefined;
+    let native: import("bun").Subprocess<"ignore", "pipe", "pipe"> | undefined;
+    try {
+      setDesktopNotificationSettings(f.db, true);
+      const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "変更と取得の競合", dueDate: "2026-10-15" });
+      setSystemTime(new Date(atNine));
+      const notification = listNotifications(f.db)[0]!;
+      api = Bun.spawn(["bun", join(import.meta.dir, "notification-server.ts"), f.db.filename, atNine], { stdout: "pipe", stderr: "pipe" });
+      const nextLine = lines(api.stdout);
+      const origin = await nextLine();
+      expect(origin).toStartWith("http://127.0.0.1:");
+      f.db.exec("BEGIN IMMEDIATE");
+      if (operation === "一括更新ロールバック") {
+        expect(() => bulkUpdateIssues(f.me, [issue.id, "STATE-9999"], { dueDate: "2026-10-16" })).toThrow("何も変更していません");
+      } else if (operation === "期日解除") updateIssue(f.me, issue.id, { dueDate: null });
+      else if (operation === "done" || operation === "canceled") updateIssue(f.me, issue.id, { status: operation });
+      else if (operation === "状態往復" || operation === "状態ロールバック") {
+        updateIssue(f.me, issue.id, { status: "done" });
+        if (operation === "状態往復") updateIssue(f.me, issue.id, { status: "todo" });
+      } else {
+        updateIssue(f.me, issue.id, { dueDate: "2026-10-16" });
+        if (operation === "期日往復") updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+      }
+      native = Bun.spawn([harness, origin, "ok"], { stdout: "pipe", stderr: "pipe" });
+      expect(await nextLine()).toBe("claim");
+      expect(await Promise.race([native.exited.then(() => "exited"), Bun.sleep(30).then(() => "waiting")])).toBe("waiting");
+      // 手動で開始した外側のトランザクションが、一括更新の失敗も含めてロールバックを所有する。
+      if (operation.endsWith("ロールバック")) f.db.exec("ROLLBACK");
+      else f.db.exec("COMMIT");
+      const [stdout, stderr, code] = await Promise.all([new Response(native.stdout).text(), new Response(native.stderr).text(), native.exited]);
+      expect(code, stderr).toBe(0);
+      const rolledBack = operation.endsWith("ロールバック");
+      expect(JSON.parse(stdout)).toEqual(rolledBack ? [expect.objectContaining({ issueId: issue.id, notificationId: notification.id })] : []);
+      expect(await f.tick()).toEqual([]);
+      expect(listNotifications(f.db)).toEqual([expect.objectContaining({ id: notification.id, data: { dueDate: "2026-10-15" } })]);
+      if (rolledBack) expect(getIssue(f.db, issue.id)).toMatchObject({ dueDate: "2026-10-15", status: "todo" });
+    } finally {
+      if (f.db.inTransaction) f.db.exec("ROLLBACK");
+      native?.kill(); api?.kill();
+      if (native) await native.exited;
+      if (api) await api.exited;
+      f.close();
+    }
+  }, 20000);
+}
+
+for (const operation of ["期日変更", "期日解除", "done", "canceled"] as const) test.skipIf(!supported)(`期日競合：claim確定後の${operation}は取得済みの一回を撤回せず再送しない`, async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  let native: import("bun").Subprocess<"pipe", "pipe", "pipe"> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "取得を先に確定", dueDate: "2026-10-15" });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    native = Bun.spawn([harness, f.origin, "pause-before-send"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    expect(await lines(native.stderr)()).toBe("送信待機");
+    const notification = listNotifications(f.db)[0]!;
+    if (operation === "期日変更" || operation === "期日解除") updateIssue(f.me, issue.id, { dueDate: operation === "期日変更" ? "2026-10-16" : null });
+    else updateIssue(f.me, issue.id, { status: operation });
+    expect(getDesktopNotificationDelivery(f.db, notification.id)?.state).toBe("claimed");
+    native.stdin.write("release\n"); native.stdin.end();
+    const stdout = await new Response(native.stdout).text();
+    expect(await native.exited).toBe(0);
+    expect(JSON.parse(stdout)).toEqual([expect.objectContaining({ issueId: issue.id, notificationId: notification.id })]);
+    expect(getDesktopNotificationDelivery(f.db, notification.id)?.state).toBe("sent");
+    if (operation === "期日変更" || operation === "期日解除") updateIssue(f.me, issue.id, { dueDate: "2026-10-15" });
+    else updateIssue(f.me, issue.id, { status: "todo" });
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(1);
+  } finally {
+    native?.kill();
+    if (native) await native.exited;
+    f.close();
+  }
+}, 20000);
 
 function lines(stream: ReadableStream<Uint8Array>) {
   const reader = stream.getReader();
