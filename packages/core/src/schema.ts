@@ -636,4 +636,15 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE workspaces ADD COLUMN spec_assessment_enabled INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE issues ADD COLUMN spec_assessment TEXT`,
   ],
+  [
+    `CREATE TABLE desktop_notification_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1), enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)), last_enabled_at TEXT
+    )`,
+    `INSERT INTO desktop_notification_settings (id) VALUES (1)`,
+    `CREATE TABLE desktop_notification_deliveries (
+      notification_id INTEGER PRIMARY KEY REFERENCES notifications(id) ON DELETE CASCADE,
+      state TEXT NOT NULL CHECK (state IN ('claimed', 'sent', 'failed', 'excluded')),
+      reason TEXT, claimed_at TEXT NOT NULL, finished_at TEXT
+    )`,
+  ],
 ];

@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod notifications;
 // Tauri のイベントループ側。起動・停止のロジックは lib（nod_desktop）にあり、ここは薄く保つ。
 // ウィンドウとメニューは shell.rs、起動状態・ログ・失敗画面のボタンは status.rs。
 #[cfg(target_os = "macos")]
@@ -236,6 +238,7 @@ fn main() {
             shell::show_main(app);
         }))
         .on_menu_event(shell::on_menu_event)
+        .invoke_handler(tauri::generate_handler![notifications::notification_permission, notifications::notification_opened])
         .manage(Arc::new(Supervisor::new()))
         .manage(Arc::new(Recovery::new()))
         .setup(|app| {
@@ -247,6 +250,7 @@ fn main() {
             app.set_menu(menu)?;
             #[cfg(target_os = "macos")]
             mouse_nav::install(app.handle(), shell::MAIN_WINDOW);
+            notifications::install(app.handle());
             watch_signals(app.handle().clone());
             start_launch(app.handle().clone());
             Ok(())

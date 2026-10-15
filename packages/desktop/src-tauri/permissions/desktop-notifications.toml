@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-desktop-notifications"
+description = "現在接続中のデスクトップ画面から通知許可の確認・要求と通知クリックの完了を伝える"
+commands.allow = ["notification_permission", "notification_opened"]

@@ -1,0 +1,33 @@
+import { afterEach, expect, setSystemTime, test } from "bun:test";
+import { createIssue, listNotifications, setReminder, subscribeIssue, commentIssue } from "@nod/core";
+import { setup } from "./helpers";
+afterEach(() => setSystemTime());
+test("設定と原子的取得をAPI経由で使い、正常表示のackは指定通知だけ既読にする", async () => {
+  setSystemTime(new Date("2026-10-15T00:00:00Z"));
+  const { app, db, me, ws } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "API通知" });
+  subscribeIssue(me, issue.id);
+  commentIssue({ ...me, actor: "codex" }, issue.id, "他の通知");
+  const post = (path: string, body: unknown) => app.request(`/api/desktop-notifications/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  expect((await post("settings", { enabled: true })).status).toBe(200);
+  setReminder(me, issue.id, { at: "2026-10-15T00:00:01Z" });
+  setSystemTime(new Date("2026-10-15T00:00:01Z"));
+  const response = await post("claim", { permission: "granted" });
+  expect(response.status).toBe(200);
+  const [item] = await response.json();
+  expect(item.issueId).toBe(issue.id);
+  expect((await post("opened", { issueId: issue.id, notificationId: item.notificationId })).status).toBe(200);
+  expect(listNotifications(db).map(n => n.kind)).toEqual(["issue_change"]);
+});
+test("別Issueの通知IDでは既読にせず、存在しないIssueの表示失敗でも通知を残す", async () => {
+  const { app, db, me, ws } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "対象" });
+  const another = createIssue(me, { workspaceId: ws.id, title: "別" });
+  subscribeIssue(me, issue.id);
+  commentIssue({ ...me, actor: "codex" }, issue.id, "残す通知");
+  const notification = listNotifications(db)[0]!;
+  const opened = (issueId: string) => app.request("/api/desktop-notifications/opened", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ issueId, notificationId: notification.id }) });
+  expect((await opened(another.id)).status).toBe(400);
+  expect((await opened("API-999")).status).toBe(404);
+  expect(listNotifications(db)).toHaveLength(1);
+});
