@@ -93,12 +93,12 @@ describe("購読中の Issue の変化の通知", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     subscribeIssue(me, a.id);
-    updateIssue(llm, a.id, { estimate: 5, dueDate: "2026-10-15" });
+    updateIssue(llm, a.id, { estimate: 5, dueDate: "2099-10-15" });
     updateIssue(me, a.id, { estimate: 8 });
 
     const list = listNotifications(db);
     expect(list.map((n) => [n.eventType, n.actor, n.data]).sort()).toEqual([
-      ["due_date_changed", "claude-code", { from: null, to: "2026-10-15" }],
+      ["due_date_changed", "claude-code", { from: null, to: "2099-10-15" }],
       ["estimate_changed", "claude-code", { from: null, to: 5 }],
     ]);
   });

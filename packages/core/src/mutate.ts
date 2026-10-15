@@ -5,6 +5,7 @@ import { readTriageProposalNotifications } from "./notify";
 import { assertTransitionAllowed } from "./transition-rules";
 import type { Status } from "./types";
 import { invalidateIssueAssessment } from "./ops/spec-assessment";
+import { recordDueDateSetting } from "./ops/due-date-notifications";
 
 export type Column =
   | "status"
@@ -66,6 +67,7 @@ export function setColumn(
   ctx.db.query(`UPDATE issues SET ${column} = ?, updated_at = ? WHERE id = ?`).run(to, ts, row.id);
   (row as unknown as Record<string, unknown>)[column] = to;
   row.updated_at = ts;
+  if (column === "due_date") recordDueDateSetting(ctx.db, row.id, to as string | null, ts);
   if (column === "status") {
     if (to === "done" || to === "canceled") invalidateIssueAssessment(ctx, row.id, "inactive", true);
     const closedAt = to === "done" || to === "canceled" ? ts : null;

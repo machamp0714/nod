@@ -8,6 +8,9 @@ const n = (over: Partial<Notification>): Notification => ({
 });
 
 describe("describeNotification", () => {
+  test("期日到来は変更通知と区別し、過去の期日も対象の日付を表示する", () => {
+    expect(describeNotification(n({ kind: "due_date", eventType: "due_date_arrived", actor: "me", data: { dueDate: "2026-10-14" } }))).toBe("期日が到来しました（2026-10-14）");
+  });
   test("誰が何をどう変えたかを1文で返し、short では本文を省く", () => {
     expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } }))).toBe("codex がステータスを In Review に変更しました");
     expect(describeNotification(n({ eventType: "priority_changed", data: { from: 0, to: 2 } }))).toBe("codex が優先度を High に変更しました");

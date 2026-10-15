@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
 import { migrateWorkspaceColorsV2 } from "./migrations/workspace-colors-v2";
+import { now } from "./ctx";
+import { dueDateAtNine } from "./due-date-time";
 
 export type MigrationStep = string | ((db: Database) => void);
 
@@ -646,5 +648,23 @@ export const MIGRATIONS: MigrationStep[][] = [
       state TEXT NOT NULL CHECK (state IN ('claimed', 'sent', 'failed', 'excluded')),
       reason TEXT, claimed_at TEXT NOT NULL, finished_at TEXT
     )`,
+  ],
+  [
+    `CREATE TABLE due_date_notification_settings (id INTEGER PRIMARY KEY CHECK (id = 1), introduced_at TEXT NOT NULL)`,
+    `CREATE TABLE due_date_occurrences (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      due_date TEXT NOT NULL, set_at TEXT,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'notified', 'excluded')),
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE SET NULL,
+      PRIMARY KEY (issue_id, due_date)
+    )`,
+    (db) => {
+      const introducedAt = now();
+      db.query("INSERT INTO due_date_notification_settings (id, introduced_at) VALUES (1, ?)").run(introducedAt);
+      const issues = db.query("SELECT id, due_date FROM issues WHERE due_date IS NOT NULL").all() as { id: number; due_date: string }[];
+      const insert = db.query("INSERT INTO due_date_occurrences (issue_id, due_date, state) VALUES (?, ?, ?)");
+      // SQLのUTC日付ではなく、導入時の端末ローカル09:00で古い既存期日を除外する。
+      for (const issue of issues) insert.run(issue.id, issue.due_date, dueDateAtNine(issue.due_date) < introducedAt ? "excluded" : "pending");
+    },
   ],
 ];
