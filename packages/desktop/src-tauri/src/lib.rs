@@ -21,3 +21,4 @@ pub use failure::{classify, diagnostics, DiagInput, Failure, FailureKind, RunSta
 pub use log::{Logger, Stage};
 
 pub mod notification_delivery;
+pub mod notification_runtime;

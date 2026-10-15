@@ -31,6 +31,7 @@ const ID_COPY_DIAGNOSTICS: &str = "help.copy_diagnostics";
 #[derive(Default)]
 pub struct OwnPort(AtomicU16);
 pub fn own_port(handle: &AppHandle) -> u16 { handle.state::<OwnPort>().0.load(Ordering::SeqCst) }
+pub fn clear_own_port(handle: &AppHandle) { handle.state::<OwnPort>().0.store(0, Ordering::SeqCst); }
 
 /// 位置とサイズの保存先と、直近の値。
 pub struct WindowStateStore {

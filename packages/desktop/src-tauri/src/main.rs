@@ -56,6 +56,7 @@ impl RecoveryHooks for DesktopHooks {
         let _ = self.handle.run_on_main_thread(move || {
             // 起動中の画面。利用者が閉じて隠しているウィンドウは出さない。
             if sup.is_current(token) {
+                notifications::disconnected(&h);
                 shell::show_app_page_quiet(&h, "index.html");
             }
         });
@@ -70,6 +71,7 @@ impl RecoveryHooks for DesktopHooks {
                 s.logger.event(Stage::Running, &format!("復旧しました。新しい URL へ遷移します（{url}）"));
                 // GET の遷移のみ。直前のリクエストは再送しない。ポートが変わりうるため origin も更新する。
                 shell::open_main_window(&h, &url, false);
+                notifications::connected(&h);
             }
         });
     }
@@ -107,6 +109,7 @@ fn start_launch(handle: tauri::AppHandle) {
     let sup = handle.state::<Arc<Supervisor>>().inner().clone();
     let status = handle.state::<Arc<Status>>().inner().clone();
     let Some(token) = sup.begin_launch() else { return };
+    notifications::disconnected(&handle);
     // 手動の再試行（と最初の起動）で、自動の再起動の数え方を 0 に戻す。
     handle.state::<Arc<Recovery>>().reset();
     let launch_id = status.begin(token);
@@ -160,6 +163,7 @@ fn start_launch(handle: tauri::AppHandle) {
                         s.ready(token, sup2.current_pid(), port);
                         s.logger.event(Stage::Running, &format!("主ウィンドウを表示します（{url}）"));
                         shell::open_main_window(&h, &url, true);
+                        notifications::connected(&h);
                     }
                 });
                 // 起動完了後は、異常終了を監視して自動で復旧する（終了・再試行まで戻らない）。
@@ -216,6 +220,7 @@ fn shutdown(handle: &tauri::AppHandle, via: &str) {
     };
     // 先に quitting を立て、以降の再起動・起動成功の通知を無効にする。
     let proc = sup.quit();
+    notifications::stop(handle);
     if let Some(st) = &status {
         st.logger.event(
             Stage::Shutdown,

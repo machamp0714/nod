@@ -19,8 +19,15 @@ pub trait Os {
     fn send(&self, item: &Notification) -> Result<(), String>;
 }
 pub fn tick(source: &impl Source, os: &impl Os) -> Result<(), String> {
+    tick_while(source, os, || true)
+}
+pub fn tick_while(source: &impl Source, os: &impl Os, active: impl Fn() -> bool) -> Result<(), String> {
+    if !active() { return Ok(()); }
     let permission = os.permission()?;
+    if !active() { return Ok(()); }
     for item in source.claim(&permission)? {
+        // 終了中に新たなOS送信を始めない。確定済みのclaimは再送しない契約を維持する。
+        if !active() { break; }
         let state = if os.send(&item).is_ok() { "sent" } else { "failed" };
         // 結果保存の失敗でもclaimは残す。重複回避を優先し、送信を繰り返さない。
         source.finish(item.notification_id, state)?;

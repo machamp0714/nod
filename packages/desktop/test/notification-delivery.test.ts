@@ -307,13 +307,14 @@ for (const held of ["archive", "snooze"] as const) for (const operation of ["維
 }
 
 // TZのケース間干渉を避け、配信先APIの時計・端末タイムゾーンを別プロセスで固定する。
-async function clockedApi(f: ReturnType<typeof fixture>, initialTime: string, timezone: string) {
-  const child = Bun.spawn(["bun", join(import.meta.dir, "notification-server.ts"), f.db.filename, initialTime], {
+async function clockedApi(f: ReturnType<typeof fixture>, initialTime: string, timezone: string, fault = "none", busyTimeoutMs = 5000) {
+  const child = Bun.spawn(["bun", join(import.meta.dir, "notification-server.ts"), f.db.filename, initialTime, fault, String(busyTimeoutMs)], {
     env: { ...process.env, TZ: timezone }, stdout: "pipe", stderr: "pipe",
   });
   const origin = await lines(child.stdout)();
   expect(origin).toStartWith("http://127.0.0.1:");
   return {
+    origin,
     tick: () => f.tick("ok", origin),
     async at(at: string, timezone?: string) {
       const response = await fetch(`${origin}/__test/clock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ at, timezone }) });
@@ -478,6 +479,241 @@ function lines(stream: ReadableStream<Uint8Array>) {
     return line;
   };
 }
+
+for (const resume of ["完全終了", "スリープ"] as const) test.skipIf(!supported)(`復帰配信：${resume}後の実workerは5秒以内に古い順で両種類を回収して現条件の不適格分を送らない`, async () => {
+  const f = fixture(new Date(2026, 9, 14, 8, 59, 58).toISOString());
+  let native: import("bun").Subprocess<"pipe", "pipe", "pipe"> | undefined;
+  let next: ReturnType<typeof lines> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const first = createIssue(f.me, { workspaceId: f.ws.id, title: "最も古い明示分" });
+    const due = createIssue(f.me, { workspaceId: f.ws.id, title: "古い期日", dueDate: "2026-10-14" });
+    const last = createIssue(f.me, { workspaceId: f.ws.id, title: "後の明示分" });
+    const obsolete = createIssue(f.me, { workspaceId: f.ws.id, title: "現在は別の期日", dueDate: "2026-10-14" });
+    const held = createIssue(f.me, { workspaceId: f.ws.id, title: "復元後に回収" });
+    const read = createIssue(f.me, { workspaceId: f.ws.id, title: "回収前に既読" });
+    setReminder(f.me, first.id, { at: new Date(2026, 9, 14, 8, 59, 59).toISOString() });
+    setReminder(f.me, last.id, { at: new Date(2026, 9, 14, 9, 0, 1).toISOString() });
+    for (const issue of [held, read]) setReminder(f.me, issue.id, { at: new Date(2026, 9, 14, 9, 0, 2).toISOString() });
+    if (resume === "スリープ") {
+      native = Bun.spawn([harness, "disconnected", "loop"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      next = lines(native.stdout);
+      expect(await next()).toBe("ready");
+    }
+    // 配信workerを休止したまま端末時計を進める。WebViewのタイマーは使わない。
+    setSystemTime(new Date(2026, 9, 16, 12));
+    const inbox = listNotifications(f.db);
+    markNotificationsRead(f.me, { ids: [inbox.find(n => n.issueId === read.id)!.id] });
+    archiveIssue(f.me, held.id);
+    updateIssue(f.me, obsolete.id, { dueDate: "2026-10-17" });
+    const started = performance.now();
+    if (resume === "完全終了") {
+      native = Bun.spawn([harness, f.origin, "loop"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      next = lines(native.stdout);
+      expect(await next()).toBe("ready");
+    } else native!.stdin.write(`connect ${f.origin}\n`);
+    const readNext = next!;
+    const running = native!;
+    const sent = [JSON.parse(await readNext()), JSON.parse(await readNext()), JSON.parse(await readNext())] as DesktopNotification[];
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(sent.map(n => n.issueId)).toEqual([first.id, due.id, last.id]);
+    expect(sent[1]!.body).toBe("期日が到来しました（2026-10-14）");
+    unarchiveIssue(f.me, held.id);
+    running.stdin.write(`connect ${f.origin}\n`);
+    expect(JSON.parse(await readNext())).toMatchObject({ issueId: held.id });
+    running.stdin.write("stop\n"); running.stdin.end();
+    expect(await readNext()).toBe("stopped");
+    expect(await running.exited).toBe(0);
+    // 完全終了後にnative側を起動し直しても、処理済み分は再送しない。
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db, { includeRead: true })).toHaveLength(6);
+  } finally {
+    native?.kill();
+    if (native) await native.exited;
+    f.close();
+  }
+}, 20000);
+
+for (const crash of ["crash-before-send", "crash-after-send"] as const) test.skipIf(!supported)(`障害配信：${crash}後はclaimedを成功にせず、再起動しても両種類を再送せずInboxを残す`, async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const reminder = createIssue(f.me, { workspaceId: f.ws.id, title: "障害時の明示分" });
+    const due = createIssue(f.me, { workspaceId: f.ws.id, title: "障害時の期日", dueDate: "2026-10-15" });
+    setReminder(f.me, reminder.id, { at: new Date(2026, 9, 15, 9).toISOString() });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    const child = Bun.spawn([harness, f.origin, crash], { stdout: "pipe", stderr: "pipe" });
+    const stderr = await new Response(child.stderr).text();
+    expect(await child.exited).toBe(crash === "crash-before-send" ? 23 : 24);
+    expect(stderr).toContain(crash === "crash-before-send" ? "claim確定後に終了" : "OSへ送信依頼後に結果不明");
+    const inbox = listNotifications(f.db);
+    expect(inbox.map(n => n.issueId).sort()).toEqual([reminder.id, due.id].sort());
+    for (const item of inbox) expect(getDesktopNotificationDelivery(f.db, item.id)?.state).toBe("claimed");
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(2);
+  } finally { f.close(); }
+}, 20000);
+
+for (const fault of ["claim-before", "claim-after", "result-before"] as const) test.skipIf(!supported)(`障害配信：${fault}の応答障害は取得境界に従って回収・再送禁止を保つ`, async () => {
+  const f = fixture("2026-10-14T23:59:58Z");
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "境界障害", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: "2026-10-15T00:00:00Z" });
+    setSystemTime(new Date("2026-10-15T00:00:00Z"));
+    api = await clockedApi(f, "2026-10-15T00:00:00Z", "Asia/Tokyo", fault);
+    const child = Bun.spawn([harness, api.origin, "recoverable-error"], { stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain("通知APIへ接続できません");
+    const sent = JSON.parse(stdout) as DesktopNotification[];
+    expect(sent).toHaveLength(fault === "claim-before" ? 2 : fault === "result-before" ? 1 : 0);
+    const inbox = listNotifications(f.db);
+    expect(inbox).toHaveLength(2);
+    for (const item of inbox) expect(getDesktopNotificationDelivery(f.db, item.id)?.state).toBe(fault === "claim-before" ? "sent" : "claimed");
+    await api.close(); api = undefined;
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(2);
+  } finally { await api?.close(); f.close(); }
+}, 20000);
+
+test.skipIf(!supported)("終了配信：回収batch中の終了要求で次のOS送信を始めず、未送信claimも成功にしない", async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "終了と回収", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: new Date(2026, 9, 15, 9).toISOString() });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(await f.tick("quit-after-first")).toHaveLength(1);
+    const states = listNotifications(f.db).map(n => getDesktopNotificationDelivery(f.db, n.id)?.state).sort();
+    expect(states).toEqual(["claimed", "sent"]);
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(2);
+  } finally { f.close(); }
+}, 20000);
+
+for (const failure of ["DBロック", "接続障害"] as const) test.skipIf(!supported)(`障害復旧：${failure}のclaim前障害から実workerが5秒以内に両種類を回収する`, async () => {
+  const initial = new Date(2026, 9, 15, 8, 59, 58).toISOString();
+  const atNine = new Date(2026, 9, 15, 9).toISOString();
+  const f = fixture(initial);
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  let native: import("bun").Subprocess<"pipe", "pipe", "pipe"> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "取得前に復旧", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: atNine });
+    setSystemTime(new Date(atNine));
+    api = await clockedApi(f, atNine, Intl.DateTimeFormat().resolvedOptions().timeZone, "none", 50);
+    if (failure === "DBロック") f.db.exec("BEGIN IMMEDIATE");
+    native = Bun.spawn([harness, failure === "DBロック" ? api.origin : "http://127.0.0.1:0", "loop"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const next = lines(native.stdout);
+    expect(await next()).toBe("ready");
+    expect(await lines(native.stderr)()).toBe("通知APIへ接続できません");
+    if (f.db.inTransaction) f.db.exec("COMMIT");
+    expect(listNotifications(f.db)).toHaveLength(2);
+    for (const n of listNotifications(f.db)) expect(getDesktopNotificationDelivery(f.db, n.id)).toBeNull();
+    const started = performance.now();
+    if (failure === "接続障害") native.stdin.write(`connect ${api.origin}\n`);
+    const sent = [JSON.parse(await next()), JSON.parse(await next())] as DesktopNotification[];
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(sent.map(n => n.issueId)).toEqual([issue.id, issue.id]);
+    native.stdin.write("stop\n"); native.stdin.end();
+    expect(await next()).toBe("stopped");
+    expect(await native.exited).toBe(0);
+    expect(await api.tick()).toEqual([]);
+  } finally {
+    if (f.db.inTransaction) f.db.exec("ROLLBACK");
+    native?.kill();
+    if (native) await native.exited;
+    await api?.close(); f.close();
+  }
+}, 20000);
+
+test.skipIf(!supported)("実DB多重接続：3つのsidecar接続とRustprocessが同時回収しても両種類を各一回だけ送り再起動後も重複しない", async () => {
+  const f = fixture("2026-10-15T08:59:58Z");
+  const apis: Awaited<ReturnType<typeof clockedApi>>[] = [];
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    for (let i = 0; i < 24; i++) {
+      const issue = createIssue(f.me, { workspaceId: f.ws.id, title: `同時回収${i}`, dueDate: "2026-10-15" });
+      setReminder(f.me, issue.id, { at: "2026-10-15T09:00:00Z" });
+    }
+    setSystemTime(new Date("2026-10-15T09:00:00Z"));
+    // HTTPだけでなくDB接続とプロセスも分離し、32件の取得batchをまたぐ。
+    for (let i = 0; i < 3; i++) apis.push(await clockedApi(f, "2026-10-15T09:00:00Z", "UTC"));
+    const sent = (await Promise.all(apis.map(api => api.tick()))).flat();
+    expect(sent).toHaveLength(48);
+    expect(new Set(sent.map(n => n.notificationId)).size).toBe(48);
+    const inbox = listNotifications(f.db);
+    expect(inbox.filter(n => n.kind === "due_date")).toHaveLength(24);
+    expect(inbox.filter(n => n.kind === "reminder")).toHaveLength(24);
+    for (const n of inbox) expect(getDesktopNotificationDelivery(f.db, n.id)?.state).toBe("sent");
+    for (const api of apis) await api.close();
+    apis.length = 0;
+    const restarted = await clockedApi(f, "2026-10-16T12:00:00Z", "UTC"); apis.push(restarted);
+    expect(await restarted.tick()).toEqual([]);
+    expect(await restarted.tick()).toEqual([]);
+  } finally { for (const api of apis) await api.close(); f.close(); }
+}, 20000);
+
+for (const failure of ["permission-error", "fail"] as const) test.skipIf(!supported)(`障害配信：両種類の${failure}は許可取得前の保留と送信試行後の再送禁止を区別する`, async () => {
+  const f = fixture(new Date(2026, 9, 15, 8, 59, 58).toISOString());
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "両種類の障害", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: new Date(2026, 9, 15, 9).toISOString() });
+    setSystemTime(new Date(2026, 9, 15, 9));
+    expect(await f.tick(failure)).toHaveLength(failure === "fail" ? 2 : 0);
+    const inbox = listNotifications(f.db);
+    expect(inbox).toHaveLength(2);
+    for (const n of inbox) expect(getDesktopNotificationDelivery(f.db, n.id)?.state ?? null).toBe(failure === "fail" ? "failed" : null);
+    expect(await f.tick()).toHaveLength(failure === "fail" ? 0 : 2);
+    expect(await f.tick()).toEqual([]);
+    expect(listNotifications(f.db)).toHaveLength(2);
+  } finally { f.close(); }
+}, 20000);
+
+test.skipIf(!supported)("sidecar復旧：稼働中の同じworkerが新しいポートへ2回追従して未送信分だけを回収し停止する", async () => {
+  const initial = new Date(2026, 9, 15, 8, 59, 58).toISOString();
+  const atNine = new Date(2026, 9, 15, 9).toISOString();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const f = fixture(initial);
+  let api: Awaited<ReturnType<typeof clockedApi>> | undefined;
+  let native: import("bun").Subprocess<"pipe", "pipe", "pipe"> | undefined;
+  try {
+    setDesktopNotificationSettings(f.db, true);
+    const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "ポート復旧", dueDate: "2026-10-15" });
+    setReminder(f.me, issue.id, { at: atNine });
+    api = await clockedApi(f, atNine, timezone);
+    native = Bun.spawn([harness, api.origin, "loop"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const next = lines(native.stdout);
+    const nextError = lines(native.stderr);
+    expect(await next()).toBe("ready");
+    expect([JSON.parse(await next()), JSON.parse(await next())]).toHaveLength(2);
+    for (let round = 1; round <= 2; round++) {
+      const oldOrigin = api.origin;
+      await api.close(); api = undefined;
+      expect(await nextError()).toBe("通知APIへ接続できません");
+      const after = new Date(2026, 9, 15, 9, 0, round * 2).toISOString();
+      setSystemTime(new Date(2026, 9, 15, 9, 0, round * 2 - 1));
+      setReminder(f.me, issue.id, { at: after, note: `復旧${round}` });
+      api = await clockedApi(f, after, timezone);
+      expect(api.origin).not.toBe(oldOrigin);
+      const started = performance.now();
+      native.stdin.write(`connect ${api.origin}\n`);
+      expect(JSON.parse(await next())).toMatchObject({ issueId: issue.id, body: `復旧${round}` });
+      expect(performance.now() - started).toBeLessThan(5000);
+    }
+    native.stdin.write("stop\n"); native.stdin.end();
+    expect(await next()).toBe("stopped");
+    expect(await native.exited).toBe(0);
+    expect(await api.tick()).toEqual([]);
+  } finally {
+    native?.kill(); if (native) await native.exited;
+    await api?.close(); f.close();
+  }
+}, 20000);
 
 for (const held of ["archive", "snooze"] as const) test.skipIf(!supported)(`実ネイティブ配信：${held}中は不許可でも保留し、解除後の許可済み未読を一度送る`, async () => {
   const f = fixture();

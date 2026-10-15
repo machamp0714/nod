@@ -5,21 +5,18 @@ use objc2::{define_class, msg_send, rc::Retained, runtime::{Bool, ProtocolObject
 use objc2_foundation::{NSDictionary, NSError, NSObject, NSObjectProtocol, NSString};
 use objc2_user_notifications::*;
 use nod_desktop::notification_delivery::{self, HttpSource, Notification, Os};
-use serde::{Deserialize, Serialize};
+use nod_desktop::notification_runtime::{DeliveryWorker, Navigation, Pending};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::{shell, status::Status};
 use nod_desktop::Stage;
 use std::io::Write;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Pending { issue_id: String, notification_id: u64 }
-pub struct State { pending: Mutex<Option<Pending>>, path: PathBuf, navigating: Mutex<Option<(Pending, u16)>> }
+pub struct State { pending: Mutex<Option<Pending>>, path: PathBuf, navigating: Mutex<Navigation> }
 impl State {
     fn save(&self, value: Pending) -> Result<(), String> {
         // 保存障害時も、この起動中のクリック遷移は保持する。
         *self.pending.lock().unwrap() = Some(value.clone());
-        *self.navigating.lock().unwrap() = None;
+        self.navigating.lock().unwrap().reset();
         let save = || -> std::io::Result<()> {
             if let Some(parent) = self.path.parent() { std::fs::create_dir_all(parent)?; }
             let temporary = self.path.with_extension("tmp");
@@ -129,7 +126,7 @@ pub async fn notification_opened(handle: AppHandle, window: WebviewWindow, issue
             body["missing"] = serde_json::json!(missing.unwrap_or(false));
             source(&handle)?.post("opened", body)?;
             let mut current = state.pending.lock().unwrap();
-            if current.as_ref() == Some(&value) { *current = None; let _ = std::fs::remove_file(&state.path); *state.navigating.lock().unwrap() = None; }
+            if current.as_ref() == Some(&value) { *current = None; let _ = std::fs::remove_file(&state.path); state.navigating.lock().unwrap().reset(); }
         }
         Ok(())
     }).await.map_err(|_| "通知の既読を保存できません".to_string())?
@@ -137,27 +134,41 @@ pub async fn notification_opened(handle: AppHandle, window: WebviewWindow, issue
 pub fn navigate_pending(handle: &AppHandle) {
     let state = handle.state::<Arc<State>>();
     let pending = state.pending.lock().unwrap().clone();
-    let port = shell::own_port(handle);
-    if let Some(value) = pending.filter(|_| port != 0) {
-        let mut nav = state.navigating.lock().unwrap();
-        if nav.as_ref() == Some(&(value.clone(), port)) { return; }
-        *nav = Some((value.clone(), port));
-        shell::open_main_window(handle, &format!("http://127.0.0.1:{port}/issues/{}", value.issue_id), true);
+    if let Some(value) = pending {
+        if let Some(url) = state.navigating.lock().unwrap().destination(&value) {
+            shell::open_main_window(handle, &url, true);
+        }
     }
+}
+pub fn disconnected(handle: &AppHandle) {
+    shell::clear_own_port(handle);
+    handle.state::<Arc<State>>().navigating.lock().unwrap().connected(0);
+}
+pub fn connected(handle: &AppHandle) {
+    handle.state::<Arc<State>>().navigating.lock().unwrap().connected(shell::own_port(handle));
+    navigate_pending(handle);
+    handle.state::<Arc<DeliveryWorker>>().wake();
+}
+pub fn stop(handle: &AppHandle) {
+    disconnected(handle);
+    handle.state::<Arc<DeliveryWorker>>().stop();
 }
 pub fn install(handle: &AppHandle) {
     let path = handle.path().app_data_dir().unwrap().join("pending-notification.json");
     let pending = std::fs::read(&path).ok().and_then(|v| serde_json::from_slice(&v).ok());
-    handle.manage(Arc::new(State { path, pending: Mutex::new(pending), navigating: Mutex::new(None) }));
+    handle.manage(Arc::new(State { path, pending: Mutex::new(pending), navigating: Mutex::new(Navigation::default()) }));
     let delegate = Delegate::new(handle.clone());
     UNUserNotificationCenter::currentNotificationCenter().setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     // UNUserNotificationCenterのdelegateはweakなのでアプリ終了まで強参照を保持する。
     std::mem::forget(delegate);
     let h = handle.clone();
-    std::thread::spawn(move || loop {
-        if let Ok(src) = source(&h) { let _ = notification_delivery::tick(&src, &AppleOs); }
+    let worker = DeliveryWorker::start(move || {
+        let active = || !h.state::<Arc<nod_desktop::Supervisor>>().quitting();
+        if let Ok(src) = source(&h) { let _ = notification_delivery::tick_while(&src, &AppleOs, active); }
         let h2 = h.clone();
-        let _ = h.run_on_main_thread(move || navigate_pending(&h2));
-        std::thread::sleep(Duration::from_secs(1));
+        let _ = h.run_on_main_thread(move || {
+            if !h2.state::<Arc<nod_desktop::Supervisor>>().quitting() { navigate_pending(&h2); }
+        });
     });
+    handle.manage(Arc::new(worker));
 }
