@@ -68,6 +68,7 @@ export const ERROR_STATUS: Record<string, number> = {
   TOGGL_START_FAILED: 502,
   GITHUB_RECORD_FAILED: 500,
   DB_BUSY: 503,
+  DB_BACKUP_FAILED: 500,
   SCHEMA_TOO_NEW: 500,
 };
 
