@@ -24,9 +24,18 @@ export function registerDesktopNotificationRoutes(app: Hono, db: Database): void
     return c.json({ ok: true });
   });
   app.post(`${prefix}/opened`, async c => {
-    const body = await readBody(c, ["issueId", "notificationId"]);
-    const issue = findIssueRow(db, reqString(body, "issueId"));
+    const body = await readBody(c, ["issueId", "notificationId", "missing"]);
+    const issueId = reqString(body, "issueId");
     if (!Number.isSafeInteger(body.notificationId) || (body.notificationId as number) < 1) throw invalid("通知IDが不正です");
+    if (body.missing !== undefined && typeof body.missing !== "boolean") throw invalid("Issue消失の状態が不正です");
+    let issue;
+    try { issue = findIssueRow(db, issueId); }
+    catch (error) {
+      // 見つからない案内の表示後だけ遷移先を解放する。通知の既読更新は行わない。
+      if (body.missing === true && error instanceof NodError && error.code === "NOT_FOUND") return c.json({ ok: true });
+      throw error;
+    }
+    if (body.missing === true) throw invalid("Issueは存在しています。詳細を表示してください");
     // 通知だけ削除済みでもIssueを開ける。別IssueのIDや他の通知を既読にしない。
     const notification = db.query("SELECT issue_id FROM notifications WHERE id = ? AND recipient = ?").get(body.notificationId as number, HUMAN_ACTOR) as { issue_id: number } | null;
     if (notification && notification.issue_id !== issue.id) throw new NodError("INVALID_ARGS", "通知のIssueが一致しません");

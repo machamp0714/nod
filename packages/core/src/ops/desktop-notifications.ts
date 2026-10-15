@@ -39,12 +39,14 @@ export function claimDesktopNotifications(db: Database, permission: DesktopPermi
       ORDER BY n.created_at, n.id`).all(HUMAN_ACTOR, ts) as { id: number; created_at: string; data: string; read_at: string | null; deleted_at: string | null; snoozed_until: string | null; archived_at: string | null; title: string; number: number; ws_key: string }[];
     const result: DesktopNotification[] = [];
     for (const row of rows) {
-      const reason = row.created_at <= settings.lastEnabledAt ? "before_enabled" : row.read_at ? "read" : row.deleted_at ? "deleted" : permission !== "granted" ? "permission" : null;
+      // 既読・削除・再有効化前は保留中でも除外する。スヌーズ・アーカイブ中は許可判定を待つ。
+      const held = row.archived_at || (row.snoozed_until && row.snoozed_until > ts);
+      const reason = row.created_at <= settings.lastEnabledAt ? "before_enabled" : row.read_at ? "read" : row.deleted_at ? "deleted" : !held && permission !== "granted" ? "permission" : null;
       if (reason) {
         db.query("INSERT OR IGNORE INTO desktop_notification_deliveries (notification_id, state, reason, claimed_at, finished_at) VALUES (?, 'excluded', ?, ?, ?)").run(row.id, reason, ts, ts);
         continue;
       }
-      if (row.archived_at || (row.snoozed_until && row.snoozed_until > ts)) continue;
+      if (held) continue;
       const changes = db.query("INSERT OR IGNORE INTO desktop_notification_deliveries (notification_id, state, claimed_at) VALUES (?, 'claimed', ?)").run(row.id, ts).changes;
       if (changes) {
         const data = JSON.parse(row.data) as { note?: string | null };

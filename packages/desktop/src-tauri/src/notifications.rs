@@ -119,13 +119,15 @@ pub async fn notification_permission(handle: AppHandle, window: WebviewWindow, r
     }).await.map_err(|_| "通知許可を確認できません".to_string())?
 }
 #[tauri::command]
-pub async fn notification_opened(handle: AppHandle, window: WebviewWindow, issue_id: String) -> Result<(), String> {
+pub async fn notification_opened(handle: AppHandle, window: WebviewWindow, issue_id: String, missing: Option<bool>) -> Result<(), String> {
     trusted(&handle, &window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<Arc<State>>();
         let pending = state.pending.lock().unwrap().clone();
         if let Some(value) = pending.filter(|p| p.issue_id == issue_id) {
-            source(&handle)?.post("opened", serde_json::to_value(&value).unwrap())?;
+            let mut body = serde_json::to_value(&value).unwrap();
+            body["missing"] = serde_json::json!(missing.unwrap_or(false));
+            source(&handle)?.post("opened", body)?;
             let mut current = state.pending.lock().unwrap();
             if current.as_ref() == Some(&value) { *current = None; let _ = std::fs::remove_file(&state.path); *state.navigating.lock().unwrap() = None; }
         }

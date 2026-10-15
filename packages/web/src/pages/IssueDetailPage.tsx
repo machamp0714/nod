@@ -55,18 +55,19 @@ const route = getRouteApi("/issues/$issueId");
 export function IssueDetailPage() {
   const { issueId } = route.useParams();
   const query = useIssueDetail(issueId);
+  const missing = query.isError && isNotFoundError(query.error);
   useEffect(() => {
-    if (!query.data || query.isError || !isDesktopApp()) return;
+    if ((!missing && (!query.data || query.isError)) || !isDesktopApp()) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const acknowledge = () => {
-      desktopInvoke("notification_opened", { issueId }).catch(() => {
+      desktopInvoke("notification_opened", { issueId, missing }).catch(() => {
         if (!stopped) timer = setTimeout(acknowledge, 1000);
       });
     };
     acknowledge();
     return () => { stopped = true; clearTimeout(timer); };
-  }, [issueId, query.data, query.isError]);
+  }, [issueId, query.data, query.isError, missing]);
   if (query.isError && isNotFoundError(query.error)) return <NotFoundMessage title="Issue が見つかりません" />;
   if (query.data === undefined) {
     return query.isError ? <ErrorMessage error={query.error} /> : <LoadingMessage />;
