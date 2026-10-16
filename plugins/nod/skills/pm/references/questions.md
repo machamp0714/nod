@@ -53,6 +53,8 @@ nod -w <Workspace> issue log <IssueID> "<質問の対応と待機条件>" --kind
 ログには、質問ID、質問の原文、選択肢、推奨と理由、元の工程、Run、Task、Dispatch、workerの質問message ID、terminalとworktree、モデルとeffort、停止理由、再開条件を残す。
 Orca質問がない起動前の確認では、未作成の実行IDを捏造せず「実行未作成」と書く。
 人の回答待ちでも元の実装枠を占有し、workerを終了扱いにしたり新しい実装者を起動したりしない。
+質問作成だけでは人への明示的引き継ぎにならない。
+空き枠の補充と質問待ち中の監督は[並行と待機](parallel.md)で行う。
 
 ## 実回答の取り込み
 

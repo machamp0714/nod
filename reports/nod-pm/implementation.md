@@ -137,3 +137,35 @@ fixtureは現在意図だけの解釈と2巡目c→dへ補修し、別PR URLの�
 Task 4の4 Stepを満たした。
 報告は[evaluations/task4-success-with-skill.md](evaluations/task4-success-with-skill.md)と[evaluations/task4-stopped-with-skill.md](evaluations/task4-stopped-with-skill.md)、実操作は同ディレクトリの`task4-*.operations.jsonl`に保存した。
 行動評価中の読取では未知のguideとIssue IDの誤記が各1件拒否され、正しい読取へ訂正した。状態変更は伴わなかった。
+
+### Task 5のbaselineとfixture補修
+
+旧Task 4版のbaseline初回は、元実装者へのPR依頼後も提出証拠を得られず未完了として停止した。
+親の確認で、偽workerのPR開始条件が公開ガイドにない不備と、API-1のPR branchがAPI-2用に固定された不整合を見つけた。
+公開契約をREDからGREENで補修し、fixtureを再凍結して、未使用環境でbaselineとgreenをやり直した。
+旧失敗をSkillの失敗や成功と混同しない。
+補修後baselineは質問待ち1枠を保持して独立API-2を提出できたため、この正常経路を新手順による改善とは主張しない。
+
+### Task 5の完了確認
+
+新しい独立エージェント2名が8環境で実際に依頼、質問、記録、提出判断を発行した。
+上限2ではAPI-1質問待ち1枠を保持してAPI-2の1枠だけを予約、同じ実装者でPR提出した。
+API-2の現在commit cとPR branch export-column、実nodのin_review、現Dispatch release後ackを確認し、API-1の質問は未回答のまま占有1を維持した。
+既定1ではAPI-2を起動せず、質問作成を明示的引き継ぎへ読み替えなかった。
+モデル照合待ち、起動試行中、通信断は予約1を保持して追加起動と開始通知を行わなかった。
+停止では空きがあっても補充せず、元worker、質問、所有権を維持した。
+新規候補なしでも既存workerを監督し、API-1の元実装者でPR branch retentionと現在commit aを確認して提出した。
+workerなしの環境は成果なし、未回答の人起点質問、API-4依存待ちを報告し、代理回答しなかった。
+API-4依存とAPI-6 needs-specは全環境で保持した。
+
+親の契約確認は10 pass、0 fail、134 assertions、型検査と差分検査成功だった。
+担当のPM回帰は42 pass、0 fail、507 assertions。
+初回はsetup未実装、API-17誤参照、labels APIとnarrowingの型不整合を検出して訂正した。
+公開PR開始契約とPR branchは追加の失敗を確認して補修した。
+Task 5の4 Stepを満たした。
+各報告と実操作はevaluations/task5-*.mdおよびtask5-*.operations.jsonlへ保存した。
+モデル、git、テスト、レビュー、PRは偽接続先の外部状態を照合した証拠であり、実機実装の検証ではない。
+実nodの作業場所メタデータはPM cwdを示す既知境界があり、Studioの実行場所をその記録だけから推定していない。
+
+superviseの初回PR読取では、PMがまだ取得していない番号41を指定してPR_NOT_FOUNDとなった。
+受信通知の実URL42へ訂正し、提出失敗と推定せず再取得を確認した。状態変更は伴わなかった。

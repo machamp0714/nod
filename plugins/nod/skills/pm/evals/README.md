@@ -89,3 +89,19 @@ bun run typecheck
 
 契約テストは外部報告、同じ実装者の再利用、独立確認、巡ごとのcommit、所有権とack順序、一時保存先への強制を検査する。
 実際の依頼の根拠や判断の妥当性は、凍結したfakeと独立した新セッションの行動評価で別に確認する。
+
+## Task 5の実行と採点
+
+[枠の占有と独立作業の評価](task5-parallel.md)を使う。
+`task5-setup.ts <未使用ディレクトリ> <シナリオ>`で質問待ちの既存Issue、独立候補、依存待ち、仕様準備を同じ一時DBに用意する。
+同じwaiting環境を上限2と既定1の別セッションで評価し、停止、モデル照合待ち、起動試行中、通信断、候補なしの監督、workerなしの待機報告も確認する。
+fakeはPMの上限、依存、停止判断を強制せず、誤った新規依頼も操作ログへ残す。
+無回答の待機を完了とみなさず、評価入力で指定したcheckpointで成果と残る状態を報告する。
+
+```sh
+bun test packages/cli/test/pm-evaluation.test.ts packages/cli/test/pm-task3-evaluation.test.ts packages/cli/test/pm-task4-evaluation.test.ts packages/cli/test/pm-task5-evaluation.test.ts
+bun run typecheck
+```
+
+契約テストはIssueごとの質問と成果、独立PR提出、実装者の再利用とcleanup、予約の保持、一時保存先への固定を検査する。
+既定1と最大2でPMが実際に正しい選定を行ったかは、新しい独立セッションの外部操作を使って別に判定する。
