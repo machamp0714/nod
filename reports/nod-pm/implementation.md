@@ -108,3 +108,32 @@ nod回答は評価者だけが一時DBへ明示投入し、PMがansweredBy=meの
 担当の最終契約検証はTask 1から3の21 pass、0 fail、195 assertions、親側はTask 3の6 pass、0 fail、43 assertionsと型検査成功を確認した。
 初回はsetup/helper未作成の失敗、テスト側のlabels型誤認、型検査2件の不整合を検出し訂正した。
 Task 3の4 Stepを満たした。
+
+### Task 4のbaselineとfixture補修
+
+旧Task 3版スキルを固定した新しい独立エージェントが、F1の元実装者への返却、1巡目修正、別identityの独立確認、同じ実装者へのPR提出、cleanupを実操作した。
+任意改善O1を強制せず、初回レビューを重複せず、修正1巡で`in_review`を確認した。
+この正常経路はbaselineでも合格し、新スキルによる改善と主張しない。
+報告と実操作は[evaluations/task4-baseline.md](evaluations/task4-baseline.md)と[evaluations/task4-baseline.operations.jsonl](evaluations/task4-baseline.operations.jsonl)に保存した。
+
+親のfixture確認では、後段の履歴説明を現在のPR依頼と誤分類する可能性と、2巡目の確認基点がaに固定された問題を見つけた。
+公開CLI契約テストで計4件の失敗を確認し、baseline終了後に補修する。
+PMの依頼の意味は評価者が全文で判断し、偽workerの単語一致による誤動作と区別する。
+
+### Task 4の完了確認
+
+fixtureは現在意図だけの解釈と2巡目c→dへ補修し、別PR URLの拒否も失敗を確認してから追加した。
+親側の契約検証は11 pass、0 fail、178 assertions、型と差分検査成功だった。
+担当はTask 1から4の契約32 pass、0 failも確認した。
+
+スキルあり6環境を新しい独立エージェント2名が実操作した。
+1巡解消はa→c、2巡目解消はa→c→d、任意改善だけは0巡で提出し、元実装者と実効設定を維持した。
+独立確認は別identityで既存指摘と各修正差分だけを確認し、初回レビューを重複しなかった。
+現在commitとPRのHEAD、nodの`in_review`、現所有者のrelease後ackを確認した。
+
+2巡後のF1残存、古いcommitの解消申告、新しいF2不具合ではpushとPRを依頼せず、人へ番号選択肢、推奨、理由、再開条件を記録した。
+古いcommitは有効完了0、進行中1、確認報告受領1を区別し、未完了巡をリセットしなかった。
+確認中は元実装者を維持し、明示的な人への引き継ぎ報告後だけ現所有者をreleaseしてackした。
+Task 4の4 Stepを満たした。
+報告は[evaluations/task4-success-with-skill.md](evaluations/task4-success-with-skill.md)と[evaluations/task4-stopped-with-skill.md](evaluations/task4-stopped-with-skill.md)、実操作は同ディレクトリの`task4-*.operations.jsonl`に保存した。
+行動評価中の読取では未知のguideとIssue IDの誤記が各1件拒否され、正しい読取へ訂正した。状態変更は伴わなかった。

@@ -72,3 +72,20 @@ bun run typecheck
 
 Task 3の契約テストは元messageへのreplyによる同じDispatchの再開、無回答での待機保持、指定質問だけへの人回答、正式Specの実CLI取得と一時文書への隔離、人起点質問へのLLM回答拒否を検査する。
 PM自身が原文と出典を記録して適切な時点に再開したかは、別セッションの行動評価で判定する。
+
+## Task 4の実行と採点
+
+[指摘修正と独立確認の評価](task4-review.md)を使う。
+`task4-setup.ts <未使用ディレクトリ> <シナリオ>`で初回レビュー済みの既存実装者と、根拠付き必須指摘、任意改善を用意する。
+修正1巡で解消、2巡目で解消、2巡後の残存、古いcommit、新しい不具合、任意改善のみの6シナリオを使う。
+子nod CLIのDB、Documents、AttachmentsとGitHub読取先を一時環境へ強制する。
+元実装者の同terminal再利用、確認待機の所有権、別identityのread-only確認、次所有者の決定からackまでを偽Orcaで観測する。
+fixtureは誤ったPR依頼も実行ログへ残し、PMの回数制限や提出判断を代行しない。
+
+```sh
+bun test packages/cli/test/pm-evaluation.test.ts packages/cli/test/pm-task3-evaluation.test.ts packages/cli/test/pm-task4-evaluation.test.ts
+bun run typecheck
+```
+
+契約テストは外部報告、同じ実装者の再利用、独立確認、巡ごとのcommit、所有権とack順序、一時保存先への強制を検査する。
+実際の依頼の根拠や判断の妥当性は、凍結したfakeと独立した新セッションの行動評価で別に確認する。
