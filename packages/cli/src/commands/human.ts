@@ -8,7 +8,6 @@ import {
   duplicateTriage,
   getInbox,
   getPrStatus,
-  HUMAN_ACTOR,
   listOpenQuestions,
   listTriage,
   listTriageProposals,
@@ -90,13 +89,13 @@ export function registerHumanCommands(program: Command): void {
           q: o.query,
           limit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
         });
-        print(cli, result, () => formatOpenQuestions(result, cli.ctx.actor !== HUMAN_ACTOR));
+        print(cli, result, () => formatOpenQuestions(result));
       }),
     );
 
   program
     .command("answer <id> <text>")
-    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する（me が付けた未決事項に回答できるのは me だけ）")
+    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する")
     .option("--question <questionId>", "回答する質問の id（nod issue show の未決事項の #番号）")
     .action(
       act((cli, _cmd, id: string, text: string, o: { question?: string }) => {

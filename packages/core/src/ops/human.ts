@@ -63,10 +63,7 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
     .all(row.id, HUMAN_ACTOR) as QuestionRow[];
   if (open.length > 0) return open;
   const mine = openQuestionCount(ctx.db, row.id);
-  // me の未決事項は LLM には回答できないため、LLM を --question へ誘導しない
-  const rest = isLlm(ctx)
-    ? `未決事項（${mine} 件）は me が決めます`
-    : `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
+  const rest = `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
   throw new NodError(
     "NO_OPEN_QUESTION",
     mine > 0 ? `${ref} に LLM からの未回答の確認依頼はありません。${rest}` : `${ref} に未回答の確認依頼はありません`,
@@ -76,13 +73,6 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
 function pickQuestion(ctx: OpCtx, row: IssueRow, ref: string, questionId: number): QuestionRow {
   const q = ctx.db.query("SELECT * FROM questions WHERE id = ? AND issue_id = ?").get(questionId, row.id) as QuestionRow | null;
   if (!q) throw new NodError("NOT_FOUND", `${ref} に質問 ${questionId} はありません`);
-  // 人が付けた未決事項を決めるのは人だけ。判定は回答者だけでなく、質問に記録された書き手（asked_by）で行う（#172）
-  if (isLlm(ctx) && q.asked_by === HUMAN_ACTOR) {
-    throw new NodError(
-      "FORBIDDEN_FOR_LLM",
-      `LLM は me が付けた未決事項（質問 ${questionId}）に回答できません。回答は me に依頼してください`,
-    );
-  }
   if (q.answer !== null) throw new NodError("NO_OPEN_QUESTION", `質問 ${questionId} はすでに回答済みです`);
   return q;
 }
