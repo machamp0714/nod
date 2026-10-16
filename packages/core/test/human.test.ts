@@ -189,22 +189,17 @@ describe("listTriage", () => {
 
 for (const actor of ["codex", "claude-code", "other-agent"]) {
   for (const op of ["accept", "decline", "duplicate"] as const) {
-    test(`${actor} の triage ${op} は書き込みなしで拒否する`, () => {
+    test(`${actor} も triage ${op} で判断でき、event の書き手に残る`, () => {
       const { db, ws, me, llm } = setup();
       const original = createIssue(me, { workspaceId: ws.id, title: "元の Issue" });
       const issue = createIssue(llm, { workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
-      const before = getIssue(db, issue.id);
-      const originalBefore = getIssue(db, original.id);
-      const changes = db.query("SELECT total_changes() AS n").get();
       const ctx = { ...llm, actor };
-      expect(codeOf(() => {
-        if (op === "accept") acceptTriage(ctx, issue.id);
-        else if (op === "decline") declineTriage(ctx, issue.id, "不要");
-        else duplicateTriage(ctx, issue.id, original.id);
-      })).toBe("FORBIDDEN_FOR_LLM");
-      expect(db.query("SELECT total_changes() AS n").get()).toEqual(changes);
-      expect(getIssue(db, issue.id)).toEqual(before);
-      expect(getIssue(db, original.id)).toEqual(originalBefore);
+      const decided =
+        op === "accept" ? acceptTriage(ctx, issue.id)
+        : op === "decline" ? declineTriage(ctx, issue.id, "不要")
+        : duplicateTriage(ctx, issue.id, original.id);
+      expect(decided.status).toBe(op === "accept" ? "todo" : "canceled");
+      expect(eventsOf(db, issue.id).find((e) => e.type === (op === "accept" ? "triage_accepted" : "triage_declined"))?.actor).toBe(actor);
     });
   }
 }

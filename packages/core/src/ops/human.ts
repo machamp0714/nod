@@ -153,14 +153,7 @@ function requireStatus(row: IssueRow, ref: string, status: Status, code: string)
   if (row.status !== status) throw new NodError(code, `${ref} は ${row.status} です（${status} の Issue だけを扱えます）`);
 }
 
-function requireHumanTriage(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Triage の受け入れ・却下・重複の判断をできません。判断は me に依頼してください");
-  }
-}
-
 export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -181,7 +174,6 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
 }
 
 export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -195,7 +187,6 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
 }
 
 export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");

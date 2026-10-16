@@ -121,7 +121,7 @@ describe("bulkUpdateIssues", () => {
     expect(getIssue(db, triage.id)).toMatchObject({ status: "triage", priority: 3, labels: ["x"] });
   });
 
-  test("LLM が Triage の Issue の状態を変えようとすると FORBIDDEN_FOR_LLM で失敗一覧に入り、1件も書かない", () => {
+  test("LLM が Triage の Issue の状態を変えようとすると、人と同じ TRIAGE_DECISION_REQUIRED で失敗一覧に入り、1件も書かない", () => {
     const { db, ws, me, llm } = setup();
     const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
     const triage = createIssue(llm, { workspaceId: ws.id, title: "triage" });
@@ -133,7 +133,7 @@ describe("bulkUpdateIssues", () => {
     const before = snapshot();
     const e = errorOf(() => bulkUpdateIssues(llm, [ok.id, triage.id], { status: "in_progress", priority: 1 }));
     expect(e.code).toBe("BULK_UPDATE_FAILED");
-    expect(e.details).toEqual({ failures: [{ id: triage.id, code: "FORBIDDEN_FOR_LLM", message: expect.any(String) }] });
+    expect(e.details).toEqual({ failures: [{ id: triage.id, code: "TRIAGE_DECISION_REQUIRED", message: expect.any(String) }] });
     expect((e.details as { failures: { message: string }[] }).failures[0]!.message).not.toContain(triage.id);
     expect(snapshot()).toEqual(before);
     // 状態以外なら LLM も Triage の Issue を一括で変えられる
