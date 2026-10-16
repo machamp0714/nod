@@ -54,3 +54,21 @@ LLMが正しく分類できたことは、このテストの成功だけから�
 
 偽CLIの操作ログはテスト観測用であり、新しいPMデータベースではない。
 本番運用では要求と判断をnod、実行の権限と状態をOrcaへ記録する。
+
+## Task 3の実行と採点
+
+[仕様準備と質問対応の評価](task3-questions.md)を使う。
+`task3-setup.ts <未使用ディレクトリ> <シナリオ>`で既存workerのblocking ask、仕様化の途中記録、正式Specと合意の有無を用意する。
+`NOD_DOCS_DIR`と`NOD_ATTACHMENTS_DIR`は評価環境の下へ固定し、実環境の文書を作成しない。
+シナリオは技術質問、新しい利用者判断、仕様未合意、正式Spec添付済み、人起点質問である。
+新しい利用者判断は評価者がチャットまたは評価者専用`task3-human.ts`で実回答を投入する。
+無回答、回答先不明、一意な回答の各段階の操作を分けて保存する。
+fixtureは実際の別モデルやworkerを起動せず、スキルの語句を検査して判断を代行しない。
+
+```sh
+bun test packages/cli/test/pm-evaluation.test.ts packages/cli/test/pm-task3-evaluation.test.ts
+bun run typecheck
+```
+
+Task 3の契約テストは元messageへのreplyによる同じDispatchの再開、無回答での待機保持、指定質問だけへの人回答、正式Specの実CLI取得と一時文書への隔離、人起点質問へのLLM回答拒否を検査する。
+PM自身が原文と出典を記録して適切な時点に再開したかは、別セッションの行動評価で判定する。

@@ -82,3 +82,29 @@ normal/onとnormal/offでは元のterminalを1回再利用し、新PRを各1件�
 所有権とack順序、PR selector、補完依頼でPRを作らない境界も、失敗を確認してから補修した。
 親側の最終確認は15 pass、0 fail、152 assertions、型検査と差分検査の成功である。
 モデル適用、git、テスト、画面、レビューは偽workerの状態をPMが照合したもので、実機転送や実コードの検証ではない。
+
+### Task 3のbaseline
+
+Task 2までのスキルを読む新しい独立エージェントが、API-1の技術質問へ本文の12pxを根拠に元messageへreplyし、working復帰を確認した。
+API-2の未決仕様は質問を作成して停止し、needs-specと未合意を維持した。
+この主要な保護と返信はbaselineでも合格だった。
+人への選択肢はA/Bであり、仕様が求める番号付きではなかったため、新手順では全工程の1/2選択肢と推奨、理由、決定後の動作を共通書式にした。
+報告と実操作は[evaluations/task3-baseline.md](evaluations/task3-baseline.md)と[evaluations/task3-baseline.operations.jsonl](evaluations/task3-baseline.operations.jsonl)に保存した。
+
+### Task 3の完了確認
+
+スキルあり5環境を新しい独立エージェント2名が実操作した。
+仕様未合意ではneeds-specを維持し、正式Specと実回答、仕様とテスト境界の合意を確認した環境だけto-spec最終工程で解除した。
+両環境でAPI-1の既決質問を元messageへreplyし、仕様化中も監督した。
+人起点API-7の質問にはチャット原文を保存しただけで代理answerを発行しなかった。
+
+PM起点API-1の質問は番号選択肢、推奨、理由、決定後の動作を記録した。
+無回答と曖昧な「それでお願いします」では元workerをawaiting_inputに保ち、一意なチャット実回答の原文と出典を保存した後だけ、同じ質問IDへcodexとして転記して元askへreplyした。
+nod回答は評価者だけが一時DBへ明示投入し、PMがansweredBy=meの原文と日時を再取得して、answerを重ねず同じworkerへ渡した。
+両窓口で同じDispatch、terminal、worktreeと実効設定を維持し、working復帰を確認した。
+新worker、PRは作成していない。
+
+報告は[evaluations/task3-spec-with-skill.md](evaluations/task3-spec-with-skill.md)と[evaluations/task3-answer-with-skill.md](evaluations/task3-answer-with-skill.md)、実操作は同ディレクトリの`task3-*.operations.jsonl`に保存した。
+担当の最終契約検証はTask 1から3の21 pass、0 fail、195 assertions、親側はTask 3の6 pass、0 fail、43 assertionsと型検査成功を確認した。
+初回はsetup/helper未作成の失敗、テスト側のlabels型誤認、型検査2件の不整合を検出し訂正した。
+Task 3の4 Stepを満たした。

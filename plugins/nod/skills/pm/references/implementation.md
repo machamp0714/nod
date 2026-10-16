@@ -32,7 +32,7 @@ PMは実装ファイルを変更しない。
 
 Studio側が指定agentとモデル転送に対応することを、現行ガイドが定める接続先の能力情報で確認する。
 能力を表すJSONの場所を推測しない。
-確認できなければRunやworkerを増やさず、必要な確認を人に提示する。
+確認できなければRunやworkerを増やさず、[質問の手順](questions.md)で番号選択肢、推奨、理由、決定後の動作を人に提示する。
 既存Runがある場合は対応を照合して使い、新規のPMセッションならRunを1つ作る。
 
 ```sh
@@ -50,6 +50,7 @@ RunとTaskの正本はPM側に残る。
 両方のモデルIDとeffortが指定値に一致することを確かめ、Issue、Run、Task、Dispatch、実行先、worktree、terminal、要求値、実効値、選定理由、工程「実装待機」をnodの作業ログへ残す。
 対応が不明、値の欠落、不一致があれば、実装開始通知を送らない。
 別モデル、別effort、Airの実装者への切り替えを黙って行わない。
+新しい利用者判断が必要なら[質問の手順](questions.md)で相談し、実回答を元の実行へ対応させる。
 起動失敗や結果不明は残存資源を確認し、現行のrecoveryガイドに従う。
 
 一致した場合だけ、同じDispatchへ開始を通知する。
@@ -64,6 +65,7 @@ nodへ工程「実装中」と対応するDispatchを記録する。
 ## 初回レビューを受け取る
 
 Orcaの`check`でDeliveryを受け取り、全メッセージを処理する。
+workerの質問は[質問の手順](questions.md)で既決の技術質問と新しい利用者判断に分け、元messageへの回答と実回答待ちを記録する。
 対象のRun、Task、active Dispatch、Issue、実行場所に一致する`worker_done`だけを受け入れる。
 `worker-show`、`worker-read`と実行先のgit証拠で現在commitを照合する。
 gitの証拠は、実装先で取得した`git rev-parse HEAD`と`git show --no-patch <commit>`の結果を含める。
