@@ -1,3 +1,4 @@
+import { writeEvaluationEnv } from "./shell-env";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openDb, setAutomationSettings } from "../../../../../packages/core/src";
@@ -22,7 +23,7 @@ export async function createTask2Scenario(options: { directory?: string; variant
   }));
   // Orcaのdiscovery stubが実機の実行ファイルへ進まないよう、偽CLIを明示する。
   scenario.env.ORCA_CLI_COMMAND = scenario.orca;
-  writeFileSync(join(scenario.dir, "env.sh"), `\nexport ORCA_CLI_COMMAND='${scenario.orca}'\n`, { flag: "a" });
+  writeEvaluationEnv(scenario.dir, { ORCA_CLI_COMMAND: scenario.orca }, true);
   return scenario;
 }
 

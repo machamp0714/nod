@@ -1,3 +1,4 @@
+import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDocument, logWork, openDb, updateIssue } from "../../../../../packages/core/src";
@@ -5,7 +6,6 @@ import { createTask2Scenario } from "./task2-setup";
 
 export const task3Variants = ["technical", "worker-question", "spec-pending", "spec-ready", "human-origin"] as const;
 export type Task3Variant = typeof task3Variants[number];
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** 既存実行の外部状態と仕様化済み記録を用意する。人の新しい回答は生成しない。 */
 export async function createTask3Scenario(options: { directory?: string; variant?: Task3Variant } = {}) {
@@ -34,10 +34,10 @@ export async function createTask3Scenario(options: { directory?: string; variant
   Object.assign(scenario.env, { NOD_DOCS_DIR: docsDir, NOD_ATTACHMENTS_DIR: join(scenario.dir, "attachments") });
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(scenario.bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(import.meta.dir, "task3-fake-cli.ts"))} ${quote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "task3-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
-  writeFileSync(join(scenario.dir, "env.sh"), Object.entries(scenario.env).filter(([key]) => ["PATH", "NOD_DB", "NOD_ACTOR", "NOD_ORCA", "NOD_GH", "PM_EVAL_DIR", "PM_EVAL_LOG", "PM_EVAL_BUN", "PM_EVAL_NOD_MAIN", "TYPESAFE_API_KEY", "BUN_OPTIONS", "ORCA_CLI_COMMAND", "NOD_DOCS_DIR", "NOD_ATTACHMENTS_DIR"].includes(key)).map(([key, value]) => `export ${key}=${quote(value!)}`).join("\n") + "\n");
+  writeEvaluationEnv(scenario.dir, scenario.env);
   return scenario;
 }
 

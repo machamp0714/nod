@@ -1,3 +1,4 @@
+import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { archiveIssue, askQuestion, linkPr, logWork, openDb, updateIssue } from "../../../../../packages/core/src";
@@ -6,7 +7,6 @@ import { createTask2Scenario } from "./task2-setup";
 
 export const task6Variants = ["unknown", "pr-lost", "fix-confirm", "spec-wait", "implementation", "two-issue", "duplicate-old"] as const;
 export type Task6Variant = typeof task6Variants[number];
-const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /** 再起動前の永続状態を用意する。復元と再送の判断はPMに任せる。 */
 export async function createTask6Scenario(options: { directory?: string; variant?: Task6Variant } = {}) {
@@ -67,11 +67,10 @@ export async function createTask6Scenario(options: { directory?: string; variant
   Object.assign(s.env, { NOD_DOCS_DIR: join(s.dir, "documents"), NOD_ATTACHMENTS_DIR: join(s.dir, "attachments") });
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(s.bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(import.meta.dir, "task6-fake-cli.ts"))} ${quote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "task6-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
-  const keys = ["PATH", "NOD_DB", "NOD_ACTOR", "NOD_ORCA", "NOD_GH", "PM_EVAL_DIR", "PM_EVAL_LOG", "PM_EVAL_BUN", "PM_EVAL_NOD_MAIN", "TYPESAFE_API_KEY", "BUN_OPTIONS", "ORCA_CLI_COMMAND", "NOD_DOCS_DIR", "NOD_ATTACHMENTS_DIR"];
-  writeFileSync(join(s.dir, "env.sh"), Object.entries(s.env).filter(([key]) => keys.includes(key)).map(([key, value]) => `export ${key}=${quote(value!)}`).join("\n") + "\n");
+  writeEvaluationEnv(s.dir, s.env);
   return s;
 }
 

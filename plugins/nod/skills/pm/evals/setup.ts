@@ -1,3 +1,4 @@
+import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -7,7 +8,6 @@ import {
 } from "../../../../../packages/core/src";
 
 const ROOT = resolve(import.meta.dir, "../../../../..");
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** 一時DBと外部CLIの偽接続先を作る。PMの選定判断はここでは行わない。 */
 export async function createTask1Scenario(directory?: string) {
@@ -67,24 +67,24 @@ export async function createTask1Scenario(directory?: string) {
 
   const log = join(dir, "operations.jsonl");
   writeFileSync(log, "");
-  const preload = join(dir, "fake-jev.ts");
-  writeFileSync(preload, `globalThis.fetch = async (_input, init) => {
+  const preloadSource = `globalThis.fetch = async (_input, init) => {
     if (String(init?.body).includes("再試行も失敗")) throw new Error("評価用の通信失敗");
     return Response.json({model:"jev-1.13.0", answers:{needs_spec:{type:"noul",noul:0}},usage:{input_tokens:2}});
-  };\n`);
+  };\n`;
   const env: Record<string, string> = {
     PATH: `${bin}:${process.env.PATH ?? ""}`,
     NOD_DB: dbPath, NOD_ACTOR: "codex", NOD_ORCA: "0", NOD_GH: join(bin, "gh"),
     PM_EVAL_DIR: dir, PM_EVAL_LOG: log, PM_EVAL_BUN: process.execPath,
     PM_EVAL_NOD_MAIN: join(ROOT, "packages/cli/src/main.ts"),
-    TYPESAFE_API_KEY: "evaluation-only", BUN_OPTIONS: `--preload=${preload}`,
+    // BUN_OPTIONSは空白入りpathを分割するため、偽APIをpath不要のmoduleとして渡す。
+    TYPESAFE_API_KEY: "evaluation-only", BUN_OPTIONS: `--preload=data:text/javascript;base64,${Buffer.from(preloadSource).toString("base64")}`,
   };
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(import.meta.dir, "fake-cli.ts"))} ${quote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
-  writeFileSync(join(dir, "env.sh"), Object.entries(env).map(([key, value]) => `export ${key}=${quote(value)}`).join("\n") + "\n");
+  writeEvaluationEnv(dir, env);
   return { dir, bin, dbPath, log, nod: join(bin, "nod"), orca: join(bin, "orca"), gh: join(bin, "gh"), env: { ...process.env, ...env } };
 }
 
