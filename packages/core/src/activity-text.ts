@@ -60,6 +60,7 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
       if (typeof data.recurring_id === "number" && typeof data.occurrence === "string") {
         return line(`${actor} が定期Issue #${data.recurring_id}（${data.occurrence} 分）から起票した`, detail);
       }
+      if (data.requested_by === "me") return line(`${actor} が me の依頼で起票した`, detail);
       return line(`${actor} が起票した`, detail);
     }
     case "archived":

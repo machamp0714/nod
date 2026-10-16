@@ -52,6 +52,14 @@ describe("nod issue", () => {
     expect(asked.json.question.question).toBe("--force を外してよいか");
   });
 
+  test("LLM の --requested 付きの起票は Todo で、Activity に me の依頼と出る。付けなければ Triage", async () => {
+    const requested = await llm(["issue", "create", "--json", "--requested", "頼まれた作業"]);
+    expect(requested.exitCode).toBe(0);
+    expect(requested.json.status).toBe("todo");
+    expect((await llm(["issue", "show", requested.json.id])).stdout).toContain("claude-code が me の依頼で起票した");
+    expect((await llm(["issue", "create", "--json", "見つけた作業"])).json.status).toBe("triage");
+  });
+
   test("着手できる Issue がなければ null を返し、終了コードは0", async () => {
     const empty = makeRepo("empty");
     registerRepo(db, empty, "EMP");

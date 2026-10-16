@@ -83,6 +83,7 @@ export interface CreateIssueInput {
   estimate?: number;
   dueDate?: string;
   labels?: string[];
+  requested?: boolean; // me に頼まれた起票（LLM の申告）。LLM のときだけ Triage ではなく todo で作り、由来を残す
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
@@ -106,6 +107,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
     const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
+    const requested = isLlm(ctx) && input.requested === true;
     return insertIssue(ctx, {
       workspaceId: input.workspaceId,
       title: input.title,
@@ -118,7 +120,11 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       milestoneId: milestone?.id ?? null,
       cycleId: cycle?.id ?? null,
       labels: input.labels ?? [],
-      origin: source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {},
+      ...(requested ? { status: "todo" as const } : {}),
+      origin: {
+        ...(requested ? { requested_by: HUMAN_ACTOR } : {}),
+        ...(source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {}),
+      },
     });
   });
 }

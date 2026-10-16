@@ -111,7 +111,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("create <title>")
-    .description("Issue を起票する（LLM の起票は Triage に入る）")
+    .description("Issue を起票する（LLM の起票は Triage に入る。me に頼まれた起票は --requested で Todo）")
     .option("-d, --description <text>", "説明")
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
@@ -119,6 +119,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--cycle <cycle>", "Cycle の ID・名前・current（現在の Cycle）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
+    .option("--requested", "me に頼まれて起票する（LLM の起票を Triage ではなく Todo にする）")
     .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
@@ -129,7 +130,7 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { template?: string; description?: string; project?: string; milestone?: string; cycle?: string; parent?: string; discoveredFrom?: string; priority?: string; estimate?: string; due?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; milestone?: string; cycle?: string; parent?: string; discoveredFrom?: string; requested?: boolean; priority?: string; estimate?: string; due?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
@@ -141,6 +142,7 @@ export function registerIssueCommands(program: Command): void {
             cycleRef: o.cycle,
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
+            requested: o.requested,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
             estimate: o.estimate === undefined ? undefined : parseEstimate(o.estimate),
             dueDate: o.due,
