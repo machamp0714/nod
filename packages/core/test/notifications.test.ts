@@ -464,6 +464,23 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
     expect(agentOf(db).filter((n) => n.issueId === a.id)).toHaveLength(3);
   });
 
+  test("LLM が承認・差し戻ししても、me への LLM の通知は既読にしない", () => {
+    const { db, ws, me, llm } = setup();
+    const codex = { db, actor: "codex" };
+    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
+    startIssue(llm, a.id);
+    markNotificationsRead(me, { all: true });
+    completeIssue(llm, a.id, { summary: "直した" });
+    rejectReview(codex, a.id, "テスト不足");
+    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([a.id]);
+    completeIssue(llm, a.id, { summary: "再度直した" });
+    const unread = () => listNotifications(db).filter((n) => n.kind === "agent" && n.issueId === a.id).length;
+    const before = unread();
+    approveReview(codex, a.id);
+    expect(unread()).toBe(before);
+    expect(before).toBeGreaterThan(0);
+  });
+
   test("別の LLM が操作しても、通知には作業の担当（data.agent）を残す", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });

@@ -4,6 +4,7 @@ import { askQuestion, startIssue } from "../src/ops/agent";
 import { answerQuestion } from "../src/ops/human";
 import {
   commentIssue,
+  copyIssue,
   createIssue,
   getIssue,
   listIssues,
@@ -30,6 +31,42 @@ describe("createIssue", () => {
     const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
     expect(i).toMatchObject({ status: "triage", createdBy: "claude-code" });
     expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "triage" } }]);
+  });
+
+  test("LLM が requested を付けると todo で作られ、created の event に requested_by: me が残る", () => {
+    const { db, ws, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", requested: true });
+    expect(i).toMatchObject({ status: "todo", createdBy: "claude-code" });
+    expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "todo", requested_by: "me" } }]);
+  });
+
+  test("LLM が requested を付けなければ Triage", () => {
+    const { db, ws, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "見つけた", requested: false });
+    expect(i.status).toBe("triage");
+    expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "triage" } }]);
+  });
+
+  test("me が requested を付けても todo で、requested_by は残らない", () => {
+    const { db, ws, me } = setup();
+    const i = createIssue(me, { workspaceId: ws.id, title: "自分で", requested: true });
+    expect(i.status).toBe("todo");
+    expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "me", data: { status: "todo" } }]);
+  });
+
+  test("requested と discoveredFromRef を併せると両方が event に残る", () => {
+    const { db, ws, me, llm } = setup();
+    const source = createIssue(me, { workspaceId: ws.id, title: "元" });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", requested: true, discoveredFromRef: source.id });
+    expect(eventsOf(db, i.id)).toEqual([
+      { type: "created", actor: "claude-code", data: { status: "todo", requested_by: "me", discovered_from: source.id } },
+    ]);
+  });
+
+  test("LLM の copyIssue は依頼起票の Issue からでも Triage", () => {
+    const { ws, llm } = setup();
+    const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", requested: true });
+    expect(copyIssue(llm, i.id).status).toBe("triage");
   });
 
   test("Sub-issue は同じ連番を使い、親の children に出る", () => {
@@ -117,25 +154,20 @@ describe("updateIssue", () => {
     ]);
   });
 
-  test("LLM は done にできない", () => {
-    const { ws, me, llm } = setup();
+  test("LLM も done にでき、event の書き手に残る", () => {
+    const { db, ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    expect(codeOf(() => updateIssue(llm, i.id, { status: "done" }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(updateIssue(llm, i.id, { status: "done" }).status).toBe("done");
+    expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "status_changed", actor: "claude-code", data: { from: "todo", to: "done" } });
   });
 
-  test("LLM は Triage の Issue の状態を変えられず、Issue・event・通知を何も書かない", () => {
-    const { db, ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
-    const snapshot = () => ({
-      issue: getIssue(db, i.id),
-      events: db.query("SELECT * FROM events ORDER BY id").all(),
-      notifications: db.query("SELECT * FROM notifications ORDER BY id").all(),
-    });
-    const before = snapshot();
+  test("LLM も Triage の Issue の状態を変えて Triage から出せ、event の書き手に残る", () => {
+    const { db, ws, llm } = setup();
     for (const status of ["todo", "backlog", "in_progress", "canceled"] as const) {
-      expect(codeOf(() => updateIssue(llm, i.id, { status, priority: 1, title: "書き換え" }))).toBe("FORBIDDEN_FOR_LLM");
+      const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+      expect(updateIssue(llm, i.id, { status }).status).toBe(status);
+      expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "status_changed", actor: "claude-code", data: { from: "triage", to: status } });
     }
-    expect(snapshot()).toEqual(before);
   });
 
   test("LLM も Triage の Issue の状態以外は変えられ、状態を triage のまま指定しても拒まない", () => {

@@ -92,12 +92,11 @@ describe("nod questions", () => {
     expect((await run(["skills", "get", "nod"])).stdout).toContain("nod questions [--asked-by me|llm]");
   });
 
-  test("実行者が LLM で me が付けた未決事項を含むときは、回答のしかたの代わりに me が決めることを案内する", async () => {
-    const forMe = "me が付けた未決事項は me が決めます（LLM は回答できません）";
+  test("実行者が LLM でも、me が付けた未決事項を含むときに回答のしかたを案内する", async () => {
     const howTo = "回答: nod answer <Issue の ID> <回答> --question <#番号>";
     const last = async (args: string[], actor?: string) => (await run(args, api, actor)).stdout.trimEnd().split("\n").at(-1);
-    expect(await last(["questions"], "claude-code")).toBe(forMe);
-    expect(await last(["questions", "--asked-by", "me"], "claude-code")).toBe(forMe);
+    expect(await last(["questions"], "claude-code")).toBe(howTo);
+    expect(await last(["questions", "--asked-by", "me"], "claude-code")).toBe(howTo);
     expect(await last(["questions", "--asked-by", "llm"], "claude-code")).toBe(howTo);
     expect(await last(["questions", "--asked-by", "me"])).toBe(howTo);
     // 既定の --asked-by は変えない（LLM にも両方を出す）

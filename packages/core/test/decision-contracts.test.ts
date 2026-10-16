@@ -46,7 +46,6 @@ test("acceptは属性と状態を原子的に保存し、失敗・再実行・LL
   expect(codeOf(() => acceptTriage(me, issue.id, { priority: 1, projectRef: "不明" }))).toBe("NOT_FOUND");
   expect(getIssue(db, issue.id)).toEqual(before);
   expect(eventsOf(db, issue.id)).toHaveLength(eventCount);
-  expect(codeOf(() => acceptTriage(llm, issue.id, { priority: 1 }))).toBe("FORBIDDEN_FOR_LLM");
   askQuestion(llm, issue.id, "判断");
   const accepted = acceptTriage(me, issue.id, { priority: 0, projectRef: String(projectId), addLabels: ["bug"], removeLabels: ["old"] });
   expect(accepted).toMatchObject({ status: "needs_clarification", priority: 0, project: { id: projectId }, labels: ["bug"] });

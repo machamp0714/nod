@@ -138,8 +138,7 @@ test("PR 連動: set --pr-review で有効にし、pr-status --refresh で in_re
   expect(refreshed.stdout).toContain(`nod automation undo ${id}`);
   expect((await runNod(["issue", "show", id, "--json"], opts)).json.status).toBe("in_review");
 
-  expect((await runNod(["automation", "undo", id, "--json"], { ...opts, actor: "codex" })).json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  const undo = await runNod(["automation", "undo", id], opts);
+  const undo = await runNod(["automation", "undo", id], { ...opts, actor: "codex" });
   expect(undo.exitCode).toBe(0);
   expect(undo.stdout).toContain(`${id} を in_review から in_progress に戻しました`);
   expect((await runNod(["issue", "show", id, "--json"], opts)).json.status).toBe("in_progress");

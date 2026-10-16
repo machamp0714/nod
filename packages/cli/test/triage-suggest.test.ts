@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDBを変えない。accept --assignee は人だけが使える", async () => {
+test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDBを変えない。LLM も accept --assignee を使える", async () => {
   const db = tempDb();
   const cwd = makeRepo();
   registerRepo(db, cwd);
@@ -21,9 +21,7 @@ test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDB
   expect(human.stdout).toContain("採用は人が行います");
   expect(connection.serialize()).toEqual(before);
   connection.close();
-  const forbidden = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db, actor: "codex" });
-  expect(forbidden.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  const accepted = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db });
+  const accepted = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db, actor: "codex" });
   expect(accepted.json).toMatchObject({ status: "todo", assignee: "codex" });
   const notTriage = await runNod(["triage", "suggest", triage.json.id, "--json"], { cwd, db });
   expect(notTriage.json.error.code).toBe("NOT_IN_TRIAGE");

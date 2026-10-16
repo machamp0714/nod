@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
@@ -165,9 +165,6 @@ export function prReviewTargets(db: Database, workspaceId: number, issueRowId?: 
 // その Issue の最新の未取消の自動遷移を取り消す。Issue がまだ遷移先（in_review）で、自動遷移のあとに状態が変わっていないときだけ
 // 元の状態に戻す（me だけ）。戻すのは status だけで、自動遷移で外した作業状況（agent_state）は戻さない
 export function undoAutoTransition(ctx: OpCtx, ref: string): AutoTransition {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動遷移を取り消せません。取消は me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     const id = formatIssueId(row.ws_key, row.number);

@@ -33,12 +33,13 @@ describe("deleteIssue", () => {
     expect(getIssue(db, issue.id).id).toBe(issue.id);
   });
 
-  test("LLM は FORBIDDEN_FOR_LLM で消せない", () => {
+  test("LLM も削除でき、監査ログの書き手に残る", () => {
     const { me, llm, ws, db } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
     archiveIssue(me, issue.id);
-    expect(codeOf(() => deleteIssue(llm, issue.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(db, issue.id).id).toBe(issue.id);
+    deleteIssue(llm, issue.id);
+    expect(codeOf(() => getIssue(db, issue.id))).toBe("NOT_FOUND");
+    expect(listIssueDeletions(db, ws.key).map((d) => d.deletedBy)).toEqual(["claude-code"]);
   });
 
   test("ない Issue は NOT_FOUND", () => {

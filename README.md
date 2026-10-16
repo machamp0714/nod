@@ -50,7 +50,7 @@ in_progress の Issue の PR が open（draft 以外）かマージ済みなら 
 PR は作業中に `nod issue link-pr <id> <url>` で紐付ける（ステータスは変えない）。
 同じ Issue・同じ PR URL では一度だけ進め（`auto_transitions` に記録）、現在の PR を付けたあとに一度でも in_review になった、または in_review から動いた Issue（`nod issue done` 済み・差し戻し後）は進めない。
 PR を付け直せば、新しい PR では再び対象になる。
-誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review で、自動遷移のあとに状態が変わっていなければ元の状態に戻す（人だけ。変わっていれば `INVALID_STATE`）。
+誤って進んだときは `nod automation undo <id>` で、Issue がまだ in_review で、自動遷移のあとに状態が変わっていなければ元の状態に戻す（変わっていれば `INVALID_STATE`）。
 戻すのは status だけで、自動遷移で外した作業状況（agent_state）は戻さない。取消も event と記録に残り、同じ PR では再び進めない。
 
 ### コミット連動（#68）
@@ -96,7 +96,7 @@ nod は常駐せず、LLM のセッションも起動しない。定型作業は
 
 ### 人だけが行える操作と、その限界
 
-Triage の受け入れ・却下・重複、Workspace の作業規約の登録・変更・削除、テンプレートの登録・置き換え・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
+Workspace の作業規約の登録・変更・削除、テンプレートの登録・置き換え・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
 LLM かどうかは書き手（`NOD_ACTOR`、なければ `CLAUDECODE=1` なら `claude-code`、どちらもなければ `me`）で判定する。
 これは LLM の誤操作を防ぐための取り決めで、権限の仕組みではない。
 `NOD_ACTOR=me` を付けて CLI を実行したり、ローカルの API（`nod ui` の server。書き手は常に `me`）を curl などで直接呼んだり（Origin のない同じマシンからの要求は受け付ける）、DB を直接書き換えたりすれば回避できる。

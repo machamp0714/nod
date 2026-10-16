@@ -94,11 +94,10 @@ describe("nod inbox の Triage の件数と triage list・review list（#177）"
     expect((await me(["review", "list"])).stdout.trim()).toBe("レビュー待ちの Issue はありません");
   });
 
-  test("LLM の Triage の判断は list を足しても拒否される", async () => {
+  test("LLM も Triage の判断をできる", async () => {
     const { llm } = await seed();
     const r = await llm(["triage", "accept", "API-1"]);
-    expect(r.exitCode).not.toBe(0);
-    expect(r.stderr).toContain("FORBIDDEN_FOR_LLM");
+    expect(r.exitCode).toBe(0);
   });
 });
 

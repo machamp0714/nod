@@ -58,13 +58,11 @@ describe("親の完了候補", () => {
     expect(queryIssues(t.db, {}).issues.find((i) => i.id === t.parent.id)?.completionCandidate).toBe(true);
   });
 
-  test("LLM は候補を読めるが、既存の保護により done にも承認にもできない", () => {
+  test("LLM も候補の親を承認して完了でき、候補から外れる", () => {
     const t = family(["done"]);
     expect(getIssue(t.db, t.parent.id).completionCandidate).toBe(true);
-    expect(codeOf(() => updateIssue(t.llm, t.parent.id, { status: "done" }))).toBe("FORBIDDEN_FOR_LLM");
     updateIssue(t.me, t.parent.id, { status: "in_review" });
-    expect(codeOf(() => approveReview(t.llm, t.parent.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(t.db, t.parent.id)).toMatchObject({ status: "in_review", completionCandidate: true });
+    expect(approveReview(t.llm, t.parent.id)).toMatchObject({ status: "done", completionCandidate: false });
   });
 
   test("人が既存の経路で完了すると候補から外れる", () => {

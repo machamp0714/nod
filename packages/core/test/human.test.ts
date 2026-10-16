@@ -161,13 +161,13 @@ describe("レビュー", () => {
     expect(getIssue(db, b.id).activity.filter((a) => a.kind === "comment").at(-1)).toMatchObject({ body: "テストが足りない" });
   });
 
-  test("approve を LLM が実行すると FORBIDDEN_FOR_LLM になり、Issue は変わらない", () => {
+  test("LLM も approve で done にでき、review_approved の書き手に残る", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "やった" });
-    expect(codeOf(() => approveReview(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(db, a.id).status).toBe("in_review");
+    expect(approveReview({ db, actor: "codex" }, a.id).status).toBe("done");
+    expect(eventsOf(db, a.id).find((e) => e.type === "review_approved")?.actor).toBe("codex");
   });
 });
 
@@ -189,22 +189,17 @@ describe("listTriage", () => {
 
 for (const actor of ["codex", "claude-code", "other-agent"]) {
   for (const op of ["accept", "decline", "duplicate"] as const) {
-    test(`${actor} の triage ${op} は書き込みなしで拒否する`, () => {
+    test(`${actor} も triage ${op} で判断でき、event の書き手に残る`, () => {
       const { db, ws, me, llm } = setup();
       const original = createIssue(me, { workspaceId: ws.id, title: "元の Issue" });
       const issue = createIssue(llm, { workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
-      const before = getIssue(db, issue.id);
-      const originalBefore = getIssue(db, original.id);
-      const changes = db.query("SELECT total_changes() AS n").get();
       const ctx = { ...llm, actor };
-      expect(codeOf(() => {
-        if (op === "accept") acceptTriage(ctx, issue.id);
-        else if (op === "decline") declineTriage(ctx, issue.id, "不要");
-        else duplicateTriage(ctx, issue.id, original.id);
-      })).toBe("FORBIDDEN_FOR_LLM");
-      expect(db.query("SELECT total_changes() AS n").get()).toEqual(changes);
-      expect(getIssue(db, issue.id)).toEqual(before);
-      expect(getIssue(db, original.id)).toEqual(originalBefore);
+      const decided =
+        op === "accept" ? acceptTriage(ctx, issue.id)
+        : op === "decline" ? declineTriage(ctx, issue.id, "不要")
+        : duplicateTriage(ctx, issue.id, original.id);
+      expect(decided.status).toBe(op === "accept" ? "todo" : "canceled");
+      expect(eventsOf(db, issue.id).find((e) => e.type === (op === "accept" ? "triage_accepted" : "triage_declined"))?.actor).toBe(actor);
     });
   }
 }

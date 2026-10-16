@@ -29,17 +29,12 @@ describe("nod issue bulk-update", () => {
     expect((await me(["issue", "show", a, "--json"])).json).toMatchObject({ assignee: null, estimate: null });
   });
 
-  test("LLM は done にできず、1件も変えずに終了コード 1 と失敗一覧を返す", async () => {
+  test("LLM も一括で done にできる", async () => {
     const a = await create("LLM一括A");
     const b = await create("LLM一括B");
     const r = await llm(["issue", "bulk-update", a, b, "--json", "-s", "done", "-p", "1"]);
-    expect(r.exitCode).toBe(1);
-    expect(r.json.error.code).toBe("BULK_UPDATE_FAILED");
-    expect(r.json.error.details.failures.map((f: { id: string; code: string }) => [f.id, f.code])).toEqual([
-      [a, "FORBIDDEN_FOR_LLM"],
-      [b, "FORBIDDEN_FOR_LLM"],
-    ]);
-    expect((await me(["issue", "show", a, "--json"])).json.priority).toBe(0);
+    expect(r.exitCode).toBe(0);
+    expect((await me(["issue", "show", a, "--json"])).json).toMatchObject({ status: "done", priority: 1 });
   });
 
   test("Triage の Issue の状態は変えられず、理由をテキストでも示す", async () => {

@@ -26,15 +26,15 @@ test("nod issue archive / unarchive で既定の一覧から外し、--archived 
   expect((await me(["issue", "list", "--json"])).json.map((i: { id: string }) => i.id)).toEqual([keep.id, gone.id]);
 });
 
-test("LLM はアーカイブも復元もできない", async () => {
+test("LLM もアーカイブ・復元できる", async () => {
   const db = tempDb();
   const cwd = makeRepo();
   registerRepo(db, cwd, "API");
   const issue = (await runNod(["issue", "create", "x", "--json"], { cwd, db })).json;
   const r = await runNod(["issue", "archive", issue.id, "--json"], { cwd, db, actor: "claude-code" });
-  expect(r.exitCode).toBe(1);
-  expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  await runNod(["issue", "archive", issue.id], { cwd, db });
+  expect(r.exitCode).toBe(0);
+  expect(r.json.archivedAt).not.toBeNull();
   const u = await runNod(["issue", "unarchive", issue.id, "--json"], { cwd, db, actor: "claude-code" });
-  expect(u.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  expect(u.exitCode).toBe(0);
+  expect(u.json.archivedAt).toBeNull();
 });
