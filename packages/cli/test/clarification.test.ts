@@ -60,9 +60,10 @@ describe("未決事項と Needs Clarification", () => {
     expect(detail.questions).toEqual([expect.objectContaining({ id: mine.id, answer: "全部", answeredBy: "claude-code" })]);
   });
 
-  test("手引きに、人が付けた未決事項へ LLM が回答できないことがある", async () => {
+  test("手引きに、人が付けた未決事項へ LLM も --question で回答できることがある", async () => {
     const guide = (await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout;
-    expect(guide).toContain("人が付けた未決事項（`nod issue show` で書き手が me の質問）には LLM は回答できない（FORBIDDEN_FOR_LLM）");
+    expect(guide).toContain("人が付けた未決事項（`nod issue show` で書き手が me の質問）にも LLM は `nod answer <id> <回答> --question <番号>` で回答できる");
+    expect(guide).not.toContain("には LLM は回答できない（FORBIDDEN_FOR_LLM）");
   });
 
   test("手で needs_clarification に変えようとすると INVALID_ARGS", async () => {

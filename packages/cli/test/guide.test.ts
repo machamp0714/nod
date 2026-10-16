@@ -30,7 +30,7 @@ describe("main.ts", () => {
   });
 });
 
-test("Triageの3操作は人に依頼し、権限エラーで回避しないと案内する", () => {
+test("Triageの3操作は LLM も実行できるが判断は人に依頼し、権限エラーで回避しないと案内する", () => {
   expect(GUIDE).toContain("nod triage accept");
   expect(GUIDE).toContain("nod triage decline");
   expect(GUIDE).toContain("nod triage duplicate");
@@ -38,9 +38,9 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("nod triage proposals <id>");
   expect(GUIDE).toContain("nod triage propose <id> --withdraw");
   expect(GUIDE).toContain("FORBIDDEN_FOR_LLM：");
-  expect(GUIDE).toContain("人が足した未決事項が未回答の間");
-  expect(GUIDE).toContain("needs_clarification からは canceled にしか出せず（todo・backlog・triage も不可）");
-  expect(GUIDE).toContain("canceled を経由しても同じ");
+  expect(GUIDE).toContain("`nod triage accept`、`nod triage decline`、`nod triage duplicate` は LLM も実行できる");
+  expect(GUIDE).not.toContain("人が足した未決事項が未回答の間");
+  expect(GUIDE).not.toContain("needs_clarification からは canceled にしか出せず");
   expect(GUIDE).toContain("同じ文面の `nod issue ask` の再実行は質問を増やさず、状態も変えない");
   expect(GUIDE).toContain("人に判断を依頼");
   expect(GUIDE).toContain("nod project update");
@@ -56,11 +56,30 @@ test("Triageの3操作は人に依頼し、権限エラーで回避しないと�
   expect(GUIDE).toContain("`delete`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
 });
 
-test("LLM は nod issue update --status や bulk-update でも Triage の Issue を Triage から出せないと案内する", () => {
-  const line = GUIDE.split("\n").find((l) => l.includes("nod issue update --status") && l.includes("Triage から出す"));
+test("LLM も nod issue update --status で Triage から出せ、bulk-update では誰も出せないと案内する", () => {
+  const line = GUIDE.split("\n").find((l) => l.includes("nod issue update --status") && l.includes("Triage から出"));
   expect(line).toBeDefined();
   expect(line).toContain("nod issue bulk-update");
-  expect(line).toContain("FORBIDDEN_FOR_LLM");
+  expect(line).toContain("TRIAGE_DECISION_REQUIRED");
+  expect(line).not.toContain("FORBIDDEN_FOR_LLM");
+});
+
+test("依頼起票の --requested は、me に頼まれたときだけ付けると案内する", () => {
+  expect(GUIDE).toContain("[--requested]");
+  expect(GUIDE).toContain("me に起票を頼まれたときだけ `--requested` を付ける。自分で見つけた作業には付けない（Triage で me が判断する）");
+});
+
+test("開放した操作を「人だけ」「FORBIDDEN_FOR_LLM」と書かず、A2〜A4 の記述は残す", () => {
+  const lineOf = (needle: string) => GUIDE.split("\n").find((l) => l.includes(needle)) ?? "";
+  for (const needle of ["`nod issue archive <id>", "完全な削除（`nod issue delete <id> --yes`）", "`nod automation undo <id>`", "`nod issue resolve <id>", "- ISSUE_ARCHIVED：", "書き手が me の質問"]) {
+    expect(lineOf(needle)).not.toBe("");
+    expect(lineOf(needle)).not.toContain("FORBIDDEN_FOR_LLM");
+    expect(lineOf(needle)).not.toContain("人だけ");
+  }
+  expect(GUIDE).not.toContain("nod issue update --status done は拒否される");
+  expect(lineOf("`nod automation set` と `nod automation run`")).toContain("人だけ");
+  expect(lineOf("`nod git sync`（")).toContain("人だけ");
+  expect(lineOf("追加指示の記録")).toContain("FORBIDDEN_FOR_LLM");
 });
 
 test("nod の承認は GitHub の承認・マージではなく、nod は GitHub へ書き込まないと案内する（#56/#57）", () => {

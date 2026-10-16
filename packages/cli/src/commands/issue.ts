@@ -175,7 +175,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("archive <id>")
-    .description("Issue をアーカイブする（ステータスは変えず、既定の一覧・ボード・Inbox・next から外す。人だけが行える）")
+    .description("Issue をアーカイブする（ステータスは変えず、既定の一覧・ボード・Inbox・next から外す）")
     .option("--reason <text>", "アーカイブの理由（Activity に残る）")
     .action(
       act((cli, _cmd, id: string, o: { reason?: string }) => {
@@ -186,7 +186,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("unarchive <id>")
-    .description("アーカイブした Issue を元に戻す（ステータスはアーカイブ前のまま。人だけが行える）")
+    .description("アーカイブした Issue を元に戻す（ステータスはアーカイブ前のまま）")
     .action(
       act((cli, _cmd, id: string) => {
         const restored = unarchiveIssue(cli.ctx, id);
@@ -196,7 +196,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("delete <id>")
-    .description("アーカイブ済みの Issue を完全に削除する（元に戻せない。Workspace の監査ログに残る。人だけが行える）")
+    .description("アーカイブ済みの Issue を完全に削除する（元に戻せない。Workspace の監査ログに残る）")
     .option("--yes", "確認なしで削除する")
     .action(
       act((cli, _cmd, id: string, o: { yes?: boolean }) => {
@@ -506,7 +506,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("resolve <id> <commentId>")
-    .description("コメントのスレッドを解決済みにする（人だけが行える）")
+    .description("コメントのスレッドを解決済みにする")
     .option("--reopen", "解決済みのスレッドを未解決に戻す")
     .action(
       act((cli, cmd, id: string, commentId: string) => {
