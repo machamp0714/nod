@@ -64,6 +64,8 @@ describe("未決事項と Needs Clarification", () => {
     const guide = (await runNod(["skills", "get", "nod"], { cwd: repo, db })).stdout;
     expect(guide).toContain("人が付けた未決事項（`nod issue show` で書き手が me の質問）にも LLM は `nod answer <id> <回答> --question <番号>` で回答できる");
     expect(guide).not.toContain("には LLM は回答できない（FORBIDDEN_FOR_LLM）");
+    // 回答できるのは事実として書き、自分で決めて埋めない運用方針は残す（nod questions の項と揃える）
+    expect(guide).toContain("回答できる。自分で決めて埋めず、人に回答を依頼する。");
   });
 
   test("手で needs_clarification に変えようとすると INVALID_ARGS", async () => {
