@@ -161,13 +161,13 @@ describe("レビュー", () => {
     expect(getIssue(db, b.id).activity.filter((a) => a.kind === "comment").at(-1)).toMatchObject({ body: "テストが足りない" });
   });
 
-  test("approve を LLM が実行すると FORBIDDEN_FOR_LLM になり、Issue は変わらない", () => {
+  test("LLM も approve で done にでき、review_approved の書き手に残る", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "やった" });
-    expect(codeOf(() => approveReview(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(db, a.id).status).toBe("in_review");
+    expect(approveReview({ db, actor: "codex" }, a.id).status).toBe("done");
+    expect(eventsOf(db, a.id).find((e) => e.type === "review_approved")?.actor).toBe("codex");
   });
 });
 

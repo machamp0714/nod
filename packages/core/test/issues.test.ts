@@ -154,10 +154,11 @@ describe("updateIssue", () => {
     ]);
   });
 
-  test("LLM は done にできない", () => {
-    const { ws, me, llm } = setup();
+  test("LLM も done にでき、event の書き手に残る", () => {
+    const { db, ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    expect(codeOf(() => updateIssue(llm, i.id, { status: "done" }))).toBe("FORBIDDEN_FOR_LLM");
+    expect(updateIssue(llm, i.id, { status: "done" }).status).toBe("done");
+    expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "status_changed", actor: "claude-code", data: { from: "todo", to: "done" } });
   });
 
   test("LLM も Triage の Issue の状態を変えて Triage から出せ、event の書き手に残る", () => {

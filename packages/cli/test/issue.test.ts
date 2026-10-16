@@ -116,7 +116,7 @@ describe("nod issue", () => {
     expect((await me(["issue", "show", created.id, "--json"])).json.documents).toHaveLength(1);
   });
 
-  test("引数の誤りは INVALID_ARGS、LLM の done への更新は FORBIDDEN_FOR_LLM", async () => {
+  test("引数の誤りは INVALID_ARGS、LLM も done に更新できる", async () => {
     const badStatus = await llm(["issue", "list", "--status", "wip", "--json"]);
     expect(badStatus.exitCode).toBe(1);
     expect(badStatus.json.error.code).toBe("INVALID_ARGS");
@@ -124,8 +124,9 @@ describe("nod issue", () => {
     expect(unknown.exitCode).toBe(1);
     expect(unknown.json.error.code).toBe("INVALID_ARGS");
     const created = (await me(["issue", "create", "--json", "t"])).json;
-    const forbidden = await llm(["issue", "update", created.id, "--status", "done", "--json"]);
-    expect(forbidden.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    const done = await llm(["issue", "update", created.id, "--status", "done", "--json"]);
+    expect(done.exitCode).toBe(0);
+    expect(done.json.status).toBe("done");
   });
 });
 

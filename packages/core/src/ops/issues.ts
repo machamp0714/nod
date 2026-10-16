@@ -556,12 +556,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       "needs_clarification は確認依頼に応じて自動で切り替わるため、手では変えられません。未決事項は nod issue ask で足してください",
     );
   }
-  if (input.status === "done" && isLlm(ctx)) {
-    throw new NodError(
-      "FORBIDDEN_FOR_LLM",
-      "LLM は Issue を done にできません。作業を終えたら nod issue done でレビューに回してください",
-    );
-  }
   if (input.title !== undefined) requireText(input.title, "タイトル");
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);

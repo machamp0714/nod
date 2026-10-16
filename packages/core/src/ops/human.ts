@@ -214,9 +214,6 @@ export function snoozeTriage(ctx: OpCtx, ref: string, until: string): Issue {
 }
 
 export function approveReview(ctx: OpCtx, ref: string): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はレビューを承認できません。承認は me が行います");
-  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
@@ -257,9 +254,6 @@ export function rejectReview(
   requireText(reason, "差し戻しの理由");
   if (opts.delegate !== undefined && opts.delegate !== "review_fix" && opts.delegate !== "rebase") {
     throw new NodError("INVALID_ARGS", "対応依頼は review_fix（指摘対応）か rebase で指定してください");
-  }
-  if (opts.delegate && isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は差し戻しの対応依頼を記録できません。対応依頼は me が行います");
   }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);

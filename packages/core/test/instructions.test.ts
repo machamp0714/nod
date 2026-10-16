@@ -346,9 +346,15 @@ describe("差し戻しの対応依頼（#58）", () => {
     );
   });
 
-  test("delegate なしは従来どおり理由のコメントだけ。LLM の対応依頼と不正な値は拒否する", () => {
-    const { me, llm, db, ref } = inReview();
-    expect(codeOf(() => rejectReview(llm, ref, "x", { delegate: "rebase" }))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も対応依頼を付けて差し戻せる", () => {
+    const { llm, db, ref } = inReview();
+    const rejected = rejectReview({ db, actor: "codex" }, ref, "main に追従して", { delegate: "rebase" });
+    expect(rejected).toMatchObject({ status: "in_progress", instruction: { kind: "rebase" } });
+    expect(takePendingInstructions(llm, ref).map((i) => i.kind)).toEqual(["rebase"]);
+  });
+
+  test("delegate なしは従来どおり理由のコメントだけ。不正な値は拒否する", () => {
+    const { me, db, ref } = inReview();
     expect(codeOf(() => rejectReview(me, ref, "x", { delegate: "instruction" as never }))).toBe("INVALID_ARGS");
     expect(getIssue(db, ref).status).toBe("in_review");
     const plain = rejectReview(me, ref, "理由だけ");

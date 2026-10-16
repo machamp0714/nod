@@ -98,14 +98,12 @@ describe("bulkUpdateIssues", () => {
     expect(eventsOf(db, ok.id).map((ev) => ev.type)).toEqual(["created"]);
   });
 
-  test("LLM が done にすると FORBIDDEN_FOR_LLM で、1件も書かない", () => {
+  test("LLM も一括で done にできる", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    const e = errorOf(() => bulkUpdateIssues(llm, [a.id, b.id], { status: "done", priority: 1 }));
-    expect(e.code).toBe("BULK_UPDATE_FAILED");
-    expect((e.details as { failures: { code: string }[] }).failures.map((f) => f.code)).toEqual(["FORBIDDEN_FOR_LLM", "FORBIDDEN_FOR_LLM"]);
-    expect(getIssue(db, a.id).priority).toBe(0);
+    bulkUpdateIssues(llm, [a.id, b.id], { status: "done", priority: 1 });
+    expect([getIssue(db, a.id), getIssue(db, b.id)].map((i) => [i.status, i.priority])).toEqual([["done", 1], ["done", 1]]);
   });
 
   test("Triage の Issue の状態変更と、状態を triage にする変更は拒否する（人でも）", () => {

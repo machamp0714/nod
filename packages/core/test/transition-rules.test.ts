@@ -95,6 +95,14 @@ describe("ステータスの遷移ルールの設定", () => {
 });
 
 describe("遷移ルールの適用", () => {
+  test("LLM の done への更新も遷移ルールに従い、TRANSITION_NOT_ALLOWED で止まる", () => {
+    const { db, ws, me, llm } = setup();
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "done" }], presets: [] });
+    const issue = createIssue(me, { workspaceId: ws.id, title: "t" });
+    expect(codeOf(() => updateIssue(llm, issue.id, { status: "done" }))).toBe("TRANSITION_NOT_ALLOWED");
+    expect(eventsOf(db, issue.id).map((e) => e.type)).toEqual(["created"]);
+  });
+
   test("禁止した組の遷移は TRANSITION_NOT_ALLOWED で、どのルールかを示し、何も変えない", () => {
     const { db, ws, me } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
