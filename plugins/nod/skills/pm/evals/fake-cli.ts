@@ -1,7 +1,8 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
+import { runTask2Cli } from "./task2-cli";
 
 const [tool, ...argv] = process.argv.slice(2);
-appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool, argv, actor: process.env.NOD_ACTOR, at: new Date().toISOString() }) + "\n");
+appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool, argv, actor: process.env.NOD_ACTOR, origin: process.env.PM_EVAL_ORIGIN ?? "pm", at: new Date().toISOString() }) + "\n");
 const output = (value: unknown) => console.log(JSON.stringify(value));
 const receipt = (result: unknown) => output({ id: "evaluation", ok: true, result, _meta: { runtimeId: "evaluation" } });
 
@@ -11,6 +12,11 @@ if (tool === "nod") {
     stdout: "inherit", stderr: "inherit",
   });
   process.exit(result.exitCode);
+}
+
+if (existsSync(`${process.env.PM_EVAL_DIR}/task2-state.json`)) {
+  runTask2Cli(tool!, argv);
+  process.exit(0);
 }
 
 const existing = {

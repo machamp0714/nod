@@ -1,6 +1,152 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
+import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
+
+test("PM評価の指定モデルworkerは照合待機から開始通知を経て対象commitの初回レビューを返す", async () => {
+  const scenario = await createTask2Scenario();
+  const orca = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.orca, ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString()).result;
+  };
+  const run = orca("orchestration", "run-create", "--objective", "一覧の余白を調整");
+  const launch = orca("orchestration", "worker-start", "--run", run.id, "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。実効設定の照合完了と開始通知まで実装禁止。");
+  expect(launch.launch).toEqual({ requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } });
+  expect(orca("orchestration", "check").messages).toEqual([]);
+  orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "gpt-6.1-sol:highの適用を確認。実装を開始してください。");
+  const delivery = orca("orchestration", "check");
+  expect(delivery.messages).toHaveLength(1);
+  const report = JSON.parse(delivery.messages[0].body);
+  expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: { independent: true, standards: { findings: [] }, spec: { findings: [] } } });
+  expect(report.review.headCommit).toBe(report.commit);
+  const read = JSON.parse(orca("orchestration", "worker-read", "--dispatch", launch.dispatch.id).text);
+  expect(read.gitEvidence).toMatchObject({ executionHost: "Studio", simulated: true, commands: [
+    { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${"a".repeat(40)}\n` },
+    { argv: ["git", "show", "--no-patch", "a".repeat(40)], exitCode: 0 },
+  ] });
+});
+
+for (const [prReview, variant] of [[true, "normal"], [false, "normal"], [true, "existing-pr"]] as const) {
+  test(`PM評価の同じworkerによるPR提出を実nodで確認できる（連動${prReview ? "on" : "off"}、${variant}）`, async () => {
+    const scenario = await createTask2Scenario({ prReview, variant });
+    const call = (tool: string, args: string[]) => {
+      const result = Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
+      expect(result.exitCode).toBe(0);
+      return JSON.parse(result.stdout.toString());
+    };
+    const orca = (...args: string[]) => call(scenario.orca, ["orchestration", ...args]).result;
+    orca("run-create", "--objective", "一覧の余白を調整");
+    const implementation = orca("worker-start", "--spec", "API-1。実効設定確認まで実装禁止", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
+    orca("send", "--to", `dispatch:${implementation.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
+    const initial = orca("check");
+    const task = orca("task-create", "--spec", "API-1の現在commitの証跡を確認済み。gpt-6.1-sol:highを維持してpushとPR作成・nod提出だけを行う");
+    const submission = orca("worker-start", "--task", task.id, "--terminal", implementation.terminalId, "--worktree", `id:${implementation.worktreeId}`);
+    expect(submission.launch).toEqual(implementation.launch);
+    orca("check", "--ack", initial.id);
+    const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
+    expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
+    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url });
+    orca("worker-release", "--dispatch", submission.dispatch.id);
+    expect(orca("worker-list", "--run", "run-pm", "--terminal-state", "reclaimable", "--include-remote").workers).toEqual([]);
+    const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(prReview ? 0 : 1);
+    expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("create"))).toHaveLength(variant === "existing-pr" ? 0 : 1);
+    expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
+  });
+}
+
+test("PM評価のGitHubは別PRを実在する提出PRとして返さない", async () => {
+  const scenario = await createTask2Scenario({ variant: "existing-pr" });
+  const result = Bun.spawnSync([scenario.gh, "pr", "view", "https://github.com/other/repo/pull/99", "--json", "url,headRefOid"], { env: scenario.env });
+  expect(result.exitCode).toBe(1);
+  expect(JSON.parse(result.stdout.toString()).error.code).toBe("PR_NOT_FOUND");
+});
+
+test("PM評価のsettlementは次所有者の決定前にackできず、reuse後の旧Dispatchはrelease権限を失う", async () => {
+  const scenario = await createTask2Scenario();
+  const call = (...args: string[]) => Bun.spawnSync([scenario.orca, "orchestration", ...args, "--json"], { env: scenario.env });
+  const success = (...args: string[]) => {
+    const result = call(...args);
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString()).result;
+  };
+  success("run-create", "--objective", "一覧の余白");
+  const initial = success("worker-start", "--spec", "API-1。照合後に開始", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
+  success("send", "--to", `dispatch:${initial.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
+  const delivery = success("check");
+  const earlyAck = call("check", "--ack", delivery.id);
+  expect(earlyAck.exitCode).toBe(1);
+  expect(JSON.parse(earlyAck.stdout.toString()).error.code).toBe("CLEANUP_DECISION_REQUIRED");
+  expect(success("check").id).toBe(delivery.id);
+  const task = success("task-create", "--spec", "証跡一致確認済み。元実装者がpushとPR作成");
+  const next = success("worker-start", "--task", task.id, "--terminal", initial.terminalId, "--worktree", `id:${initial.worktreeId}`);
+  const oldRelease = call("worker-release", "--dispatch", initial.dispatch.id);
+  expect(oldRelease.exitCode).toBe(1);
+  expect(JSON.parse(oldRelease.stdout.toString()).error.code).toBe("CLEANUP_OWNERSHIP_TRANSFERRED");
+  const submitted = success("check", "--ack", delivery.id);
+  expect(call("check", "--ack", submitted.id).exitCode).toBe(1);
+  success("worker-release", "--dispatch", next.dispatch.id);
+  expect(success("check", "--ack", submitted.id).messages).toEqual([]);
+});
+
+test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自動生成しない", async () => {
+  const scenario = await createTask2Scenario({ variant: "evidence-missing" });
+  const orca = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.orca, "orchestration", ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString()).result;
+  };
+  orca("run-create", "--objective", "一覧の余白");
+  const initial = orca("worker-start", "--spec", "API-1。照合後に実装開始", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
+  orca("send", "--to", `dispatch:${initial.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
+  const delivery = orca("check");
+  const task = orca("task-create", "--spec", "gpt-6.1-sol:highを維持し、欠落したSpec軸のレビュー証跡だけを報告してください。実装、push、PR作成は禁止。");
+  orca("worker-start", "--task", task.id, "--terminal", initial.terminalId, "--worktree", `id:${initial.worktreeId}`);
+  const followup = orca("check", "--ack", delivery.id);
+  expect(followup.messages[0].outcome).toBe("failed");
+  const pr = Bun.spawnSync([scenario.gh, "pr", "list", "--json", "url"], { env: scenario.env });
+  expect(JSON.parse(pr.stdout.toString())).toEqual([]);
+  expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
+});
+
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing"] as const) {
+  test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
+    const scenario = await createTask2Scenario({ variant });
+    const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
+    const orca = (...args: string[]) => {
+      const result = call(scenario.orca, args);
+      expect(result.exitCode).toBe(0);
+      return JSON.parse(result.stdout.toString()).result;
+    };
+    const status = orca("status");
+    expect(status.servers[0].capabilities.launchPreferences).toBe(variant !== "unsupported");
+    orca("orchestration", "run-create", "--objective", "一覧の余白");
+    const launched = call(scenario.orca, ["orchestration", "worker-start", "--spec", "API-1。照合完了まで実装禁止", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high"]);
+    if (variant === "unsupported") {
+      expect(launched.exitCode).toBe(1);
+      expect(JSON.parse(launched.stdout.toString()).error.code).toBe("LAUNCH_UNSUPPORTED");
+      return;
+    }
+    expect(launched.exitCode).toBe(0);
+    const worker = JSON.parse(launched.stdout.toString()).result;
+    if (variant === "model-mismatch" || variant === "model-unknown") {
+      expect(worker.launch.effective).toEqual(variant === "model-unknown" ? null : { model: "different-model", effort: "high" });
+      expect(orca("orchestration", "check").messages).toEqual([]);
+      const issue = call(scenario.nod, ["issue", "show", "API-1"]);
+      expect(JSON.parse(issue.stdout.toString()).status).toBe("todo");
+      return;
+    }
+    orca("orchestration", "send", "--to", `dispatch:${worker.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
+    const report = JSON.parse(orca("orchestration", "check").messages[0].body);
+    if (variant === "test-failure") expect(report.tests[0]).toMatchObject({ exitCode: 1, passed: false });
+    else {
+      expect(report.review.spec).toBeUndefined();
+      expect(report.review.headCommit).not.toBe(report.commit);
+    }
+    expect(JSON.parse(call(scenario.gh, ["pr", "list"]).stdout.toString())).toEqual([]);
+  });
+}
 
 test("PM評価の混在候補を実nod CLIから取得できる", async () => {
   const scenario = await createTask1Scenario();

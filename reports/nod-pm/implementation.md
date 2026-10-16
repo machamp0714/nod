@@ -55,3 +55,30 @@ Task 1の5 Stepを満たした。
 既存規約に合わせてPMの`agents/openai.yaml`も追加し、Codex側の暗黙起動を無効にした。
 スキルとREADMEを追加し、配布manifestの4つのversionを0.4.0に揃えた。
 実際のグローバル導入は今回の指示に従い実施していない。
+
+### Task 2のbaseline
+
+新しい独立エージェントが、モデルの照合後の実装依頼から、既存実装者へのPR依頼と実nodの`in_review`確認まで進めた。
+元のterminalを再利用し、初回レビューの重複起動と人の承認、マージはなかった。
+ただし親が実操作を照合すると、再利用後の旧Dispatchにもreleaseを送り、最終Deliveryをackしてからreleaseする2つのOrca契約逸脱があった。
+評価エージェント自身の「完了」報告だけでは合格にせず、Task 2担当へ手順と偽CLIの契約検出を補強するよう戻した。
+偽CLIは初期版でこの2操作を受理していたため、baselineを後片付けの適合証拠には用いない。
+報告は[evaluations/task2-baseline.md](evaluations/task2-baseline.md)、実操作は[evaluations/task2-baseline.operations.jsonl](evaluations/task2-baseline.operations.jsonl)に保存した。
+
+### Task 2の行動確認
+
+新しい独立エージェント2名が、スキルを読んで8つの一時環境を実際に操作した。
+normal/onとnormal/offでは元のterminalを1回再利用し、新PRを各1件作成、既存PR環境はcreateせずeditを1件発行した。
+現在commit、必要なテスト、受け入れ、初回独立StandardsとSpec、PRのHEAD、nodの`in_review`を照合した。
+最終Dispatchだけをreleaseしてからackし、旧Dispatchのreleaseと初回レビューの重複起動はなかった。
+
+モデル不一致と実効値nullでは待機workerを保持して開始通知を送らず、非対応環境ではRunも作らなかった。
+テスト失敗とレビュー証拠欠落ではPRへ進めず、同じIssueに理由と後続工程を記録した。
+この2環境のsettled実装者とDeliveryは後続所有者未決のまま保持しており、後片付け済みとは扱わない。
+これらの停止条件を観測したことと、実装から提出までの成功を区別する。
+停止報告は[evaluations/task2-stopped-with-skill.md](evaluations/task2-stopped-with-skill.md)、各環境の実操作は同ディレクトリの`task2-*.operations.jsonl`に保存した。
+
+契約テストは初回setup未実装で0 pass、1 fail、1 errorだった。
+所有権とack順序、PR selector、補完依頼でPRを作らない境界も、失敗を確認してから補修した。
+親側の最終確認は15 pass、0 fail、152 assertions、型検査と差分検査の成功である。
+モデル適用、git、テスト、画面、レビューは偽workerの状態をPMが照合したもので、実機転送や実コードの検証ではない。
