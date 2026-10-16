@@ -5,6 +5,9 @@ PMが同じ初回レビューを追加起動せず、元実装者による修正
 PM自身は実装ファイルを修正しない。
 Orcaの現行`references/coordinator-loop.md`、`references/placement-and-remote.md`、`references/messaging-and-gates.md`と`worker-start --help`を確認する。
 以下の`ORCA`はこのセッションで手引きを取得した実行ファイルを指す。
+新規依頼、通知、所有権移転の前後には[永続記録と再開](recovery.md)のintentとcheckpointを残す。
+Taskを先に作りIDを保存してから起動し、各mutationへ記録済みの`--retry-request`を付ける。
+startedとcompletedを区別して記録し、会話履歴や重複報告から巡数を数え直さない。
 
 ## 初回指摘を分ける
 
@@ -106,6 +109,8 @@ PMは完了報告のactive Dispatchとreviewer identity、基点と対象commit�
 | 確認対象が古いcommit、現在commitの証拠が不足または不一致 | 現在の確認として採用せず、人へ不足と停止理由を示す。PR作成へ進まない |
 
 確認待機Taskがactiveなら、同じDispatchへ次の修正またはPR作業の自足した依頼を`send --to dispatch:<待機DispatchID>`で渡す。
+独立確認がsettleしても元実装者の待機Taskはactiveのままであり、同じterminalへ新Dispatchを重ねない。
+PR依頼は現在commitと確認済み証拠を含め、subjectにもpushとPR作業の目的を明示し、enqueueだけで提出完了にしない。
 settle済みなら同じterminalに新Taskをreuseし、どちらでも元の実効設定を再照合して`モデル:effort`を明記する。
 PRの実在、headRefOid、nodとの関連と`in_review`の確認は既存手順どおり行う。
 修正ありのPR条件では、古い初回レビューだけを現在commitの確認とせず、その後の全修正差分の独立確認と現在commitの必要テストを揃える。

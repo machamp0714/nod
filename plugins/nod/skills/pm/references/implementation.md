@@ -30,6 +30,10 @@ PMは実装ファイルを変更しない。
 
 ## 起動とモデルの照合
 
+各副作用の前後に[永続記録と再開](recovery.md)のintentとcheckpointを残す。
+新規Taskを先に作ってIDをnodへ保存し、worker-startにはそのTaskを渡す。
+操作相関IDを副作用前に保存し、応答喪失ではrequest-showと既存Task/Dispatchを照合する。
+
 新規起動前に[並行と待機](parallel.md)でIssue枠を予約する。
 起動試行中とモデル照合待ちも予約を保持し、同じ選定波で上限を超えてworkerを起動しない。
 
@@ -40,8 +44,10 @@ Studio側が指定agentとモデル転送に対応することを、現行ガイ
 
 ```sh
 ORCA status --json
-ORCA orchestration run-create --objective "<Workspaceと固定CycleのIssue進行>" --json
-ORCA orchestration worker-start --run <RunID> --spec "<上記の依頼全文>" --on <Studio接続先> --worktree new-top-level --repo <取得したStudioのrepo selector> --name <Issue IDを含めない作業名> --agent <codexまたはclaude> --model <指定モデルID> --effort <指定effort> --json
+ORCA orchestration run-create --objective "<Workspaceと固定CycleのIssue進行>" --retry-request <Run作成の操作相関ID> --json
+ORCA orchestration task-create --run <RunID> --spec "<上記の依頼全文と操作相関>" --retry-request <Task作成の操作相関ID> --json
+nod -w <Workspace> issue log <IssueID> "<RunとTask ID、起動操作相関、予約、起動前intent>" --kind progress
+ORCA orchestration worker-start --run <RunID> --task <記録済みTaskID> --on <Studio接続先> --worktree new-top-level --repo <取得したStudioのrepo selector> --name <Issue IDを含めない作業名> --agent <codexまたはclaude> --model <指定モデルID> --effort <指定effort> --retry-request <起動の操作相関ID> --json
 ```
 
 `--on`はworkerのplacementだけを選ぶ。
@@ -59,11 +65,11 @@ RunとTaskの正本はPM側に残る。
 一致した場合だけ、同じDispatchへ開始を通知する。
 
 ```sh
-ORCA orchestration send --to dispatch:<DispatchID> --subject "実装開始" --body "<照合したモデル:effortと実効値、開始条件を満たしたこと、実装開始の依頼>" --json
+ORCA orchestration send --to dispatch:<DispatchID> --subject "実装開始" --body "<照合したモデル:effortと実効値、開始条件を満たしたこと、実装開始の依頼>" --retry-request <開始通知の操作相関ID> --json
 ```
 
-enqueueの成功を実装開始や完了の証明とせず、worker報告を監督する。
-nodへ工程「実装中」と対応するDispatchを記録する。
+enqueueの成功を実装開始や完了の証明とせず、開始通知送信済みとして記録し、worker報告を監督する。
+開始を確認できてからnodへ工程「実装中」と対応するDispatchを記録する。
 
 ## 初回レビューを受け取る
 
@@ -96,11 +102,15 @@ PMは`nod:implement`に含まれる初回`nod:code-review`を重複起動しな�
 現在commitの条件が揃ったら、実装報告をnodへ記録し、同じagentへPR作業だけを依頼する。
 その時点の実効設定を`worker-show --dispatch`で再取得し、元の`モデル:effort`と一致していることを確認する。
 不明、不一致、元agentの再利用が非対応なら提出を止め、別の実装者を黙って起動しない。
+修正確認を終えた元実装者がactiveな確認待機Dispatchを持つ場合は、その現所有者へsendでPR作業を渡す。
+以下の新Taskとreuseは、現在の元実装者がsettle済みの場合に限る。
+いずれもPR依頼前のintent、Task作成後、送信後のcheckpointを残す。
 
 ```sh
 ORCA orchestration worker-show --dispatch <実装DispatchID> --json
-ORCA orchestration task-create --spec "<同じIssue、現在commit、受け入れとテストと独立レビュー証拠、同じモデル:effort、pushと既存PR更新またはPR作成、nodへの提出だけの依頼>" --json
-ORCA orchestration worker-start --task <PR作業TaskID> --terminal <確認した元agentのhandle> --worktree <そのterminalの正確なworktree selector> --json
+ORCA orchestration task-create --spec "pushとPR提出。<同じIssue、現在commit、受け入れとテストと独立レビュー証拠、同じモデル:effort、既存PR更新またはPR作成、nodへの提出だけの依頼>" --retry-request <PR Task作成の操作相関ID> --json
+nod -w <Workspace> issue log <IssueID> "<PR作業Task ID、元実装者、対象commit、起動操作相関、intent>" --kind progress
+ORCA orchestration worker-start --task <PR作業TaskID> --terminal <確認した元agentのhandle> --worktree <そのterminalの正確なworktree selector> --retry-request <PR作業起動の操作相関ID> --json
 ```
 
 reuseの`--terminal`には`--model`と`--effort`を併用しない。
@@ -127,6 +137,7 @@ PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRe
 タイトルやURLだけ、workerの「作成済み」だけでは完了にしない。
 nodへ対象commit、PR URL、両軸レビューとテストの参照、提出状態を残す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。
+PR作成後の応答喪失では[既存PRへの合流](recovery.md#pr結果不明から既存成果へ合流する)を先に行い、branchと現在headが一致する既存PRへの関連と提出状態だけを回復する。
 
 受理したsettlement後、同じagentへ直ちに次のDispatchを渡すか、人が保持を求めた場合の`worker-retain`、または`worker-release --dispatch <PR作業DispatchID>`のいずれかを行う。
 terminalの直接closeを後片付けの代わりにしない。

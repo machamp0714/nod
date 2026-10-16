@@ -26,6 +26,8 @@ workerのblocking `ask`には元message IDへの`reply`が必要である。
 
 質問する前に最新のIssueと未回答質問を読み、同じ未決事項の質問IDがあれば再利用する。
 新しいPM起点質問は`nod issue ask`で作り、receiptの質問IDを取得する。
+作成前に原文、元message、操作相関をintentとして保存し、応答喪失では質問とActivityを再取得して同じ質問を探す。
+回答記録とreplyの前後も[永続記録と再開](recovery.md)に従い、受理済み操作を無条件に再送しない。
 番号はIssue IDと質問IDに対応させ、複数Issueを同じ「質問1」だけで指さない。
 一つの質問で決めることを一つに絞り、選択肢の意味が混ざらないようにする。
 

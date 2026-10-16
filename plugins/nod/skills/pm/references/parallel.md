@@ -1,5 +1,9 @@
 # 並行するIssueの枠と監督
 
+起動と再開時は[永続記録と再開](recovery.md)で管理範囲、試行、工程、占有と予約を復元する。
+旧実装者、独立確認担当、現在所有者は同じIssueの対応記録として扱い、枠を重ねて数えない。
+起動予約と解放の前後もnodへintentとcheckpointを残す。
+
 以下の`ORCA`は、このセッションで現行手引きを取得した実行ファイルを指す。
 新規候補は[candidates.md](candidates.md)、開始と提出は[implementation.md](implementation.md)、質問は[questions.md](questions.md)の既存条件を満たす必要がある。
 空き枠があることだけで着手条件を満たしたと判断しない。

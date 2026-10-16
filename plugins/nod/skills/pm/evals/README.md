@@ -105,3 +105,21 @@ bun run typecheck
 
 契約テストはIssueごとの質問と成果、独立PR提出、実装者の再利用とcleanup、予約の保持、一時保存先への固定を検査する。
 既定1と最大2でPMが実際に正しい選定を行ったかは、新しい独立セッションの外部操作を使って別に判定する。
+
+## Task 6の実行と採点
+
+[会話履歴なしの復元評価](task6-recovery.md)を使う。
+`task6-setup.ts <未使用directory> <variant>`で通信断、実装中、仕様待ち、修正確認中、PR応答喪失、重複通知と古い報告、2件中の質問待ちと提出済み成果を用意する。
+unknownは第1PMがunverifiableを保持して記録した後、評価者だけが`task6-control.ts <同じdirectory> recover`を実行する。
+第2freshPMへは同じenv.shだけを引き継ぎ、第1PMの会話と報告を渡さない。
+Task、Dispatch、terminalのidentityを維持した同じDBとbackendから、実効値と現在commitを照合して再開したかを見る。
+PR応答喪失は既存PRのrepo、branch、headから関連と提出状態を回復し、createを重ねない。
+
+```sh
+bun test packages/cli/test/pm-task6-evaluation.test.ts
+bun run typecheck
+```
+
+契約テストはrecover境界、実nodの永続質問と成果、同一試行、既存PRのselectorとrepo絞り、古commitと再配送、元実装者の待機所有権を確認する。
+初期のreceipt喪失は投入状態であり、実通信切断や実機モデル転送を試験したとは主張しない。
+fixtureはPM判断を代行せず、独立LLMが実際に出した依頼、質問、記録、PR判断を別に採点する。

@@ -10,6 +10,10 @@ disable-model-invocation: true
 PMは要求の確認、依頼、結果の照合、人への相談を担当し、実装ファイルは実装担当が変更する。
 要求と判断の正本はnod、実行の権限と状態の正本はOrcaのRun、Task、Dispatchである。
 以前の会話だけに依存して担当や工程を決めない。
+起動直後と副作用の前後は[永続記録と再開の手順](references/recovery.md)を使う。
+nodへ操作前のintentと操作後のcheckpointを残し、起動Taskを先に作ってIDを保存してからworkerを起動する。
+既存Run、Task、active Dispatch、実行場所、現在commit、要求値と観測した実効値、予約と占有、修正巡、受理通知、PRと質問を照合する。
+応答喪失では操作receiptと既存試行を照合し、結果不明のまま同じ依頼を再送しない。
 
 ## 1. 起動条件を揃える
 
@@ -125,3 +129,14 @@ worker質問と全工程の人への相談は[質問の手順](references/questi
 `check --wait --timeout-ms 60000`程度のcheckpointで通知を処理し、timeoutや空通知でも実行状態を保持する。
 稼働workerも実行可能な作業もなければ、Issueごとの提出済み成果、待機事項、再開条件を報告する。
 停止指示では新規着手を止め、既存の実行、質問、対象commitと所有権を残す。
+
+## 7. 再起動と通信断から復元する
+
+[永続記録と再開の手順](references/recovery.md)でnodの要求、判断、工程、成果とOrcaの実行権限を照合する。
+仕様待ち、実装中、修正確認中、PR提出後を区別し、前PMの会話なしで既存工程を継続する。
+通信断はunverifiableとして枠を保持し、生存や結果が不明な実装者を追加起動しない。
+実効値不明を要求値で埋めず、同じIssueの元実装者、reviewer、履歴Dispatchを別枠に数えない。
+重複通知では受理済みmessageへ合流し、古いDispatchやcommitの報告では工程を進めない。
+修正確認後も元実装者のactiveな待機Dispatchを確認して依頼し、移転済みの旧Dispatchをreleaseしない。
+PR結果不明はghのrepo、branch、head、既存リンクで照合し、確認できた既存PRへのnod関連と提出状態だけを回復する。
+停止と引き継ぎでは、Issueごとの未解決事項、占有と予約、所有者、次に確認する証拠または必要な人の判断をnodと利用者への報告へ残す。

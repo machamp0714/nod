@@ -169,3 +169,38 @@ Task 5の4 Stepを満たした。
 
 superviseの初回PR読取では、PMがまだ取得していない番号41を指定してPR_NOT_FOUNDとなった。
 受信通知の実URL42へ訂正し、提出失敗と推定せず再取得を確認した。状態変更は伴わなかった。
+
+### Task 6のbaseline
+
+旧Task 5版を読む独立PMが、通信断では実効値unknownと予約1を保持し、PR応答喪失では既存PR42へlink/pr-statusのみでin_reviewを回復した。
+この二重作成を避ける経路はbaselineでも成立し、改善と主張しない。
+PRケースのsettled Dispatchはrelease未実施のまま保持されており、baselineをcleanup完了の証拠に使わない。
+報告と実操作はevaluations/task6-baseline*.md、task6-baseline-*.operations.jsonlに保存した。
+
+### Task 6の行動確認
+
+7環境を新しい独立PMで操作し、unknownは第1PMと第2fresh PMの2セッションで評価した。
+第1PMは起動結果不明とunverifiable、実効値nullを確認し、自足checkpointを実nodへ保存して予約1を保持した。
+親が評価者専用controlで接続と実効値だけを回復し、第1PMの会話も報告も渡さず別の新規PMを同じ永続状態へ投入した。
+第2PMは同じTask、Dispatch、terminal、実効設定と正のliveを照合し、元workerに開始を通知した。
+元の起動要求や実装者を再作成せず、初回独立両軸と現在commit aの必要テストを照合後、同terminalの後続PRだけを依頼して提出した。
+実装中の復元も初回レビューを重複せず同じ実装者で提出した。
+
+修正確認中はstarted=1/completed=0から既存独立確認を受理してcompleted=1へ進め、元のactive dispatch-waitへ現在commit cのPR作業を1回依頼した。
+再配送ケースは受理済みdone-review-1二重通知と古いDispatchのcommit aを全行分類し、巡1を保持して現在cだけを提出した。
+旧Dispatchと既解放reviewerを再releaseせず、現所有者release成功後にDeliveryをackした。
+PR応答喪失はrepo/branch/headと既存PR42へ合流し、nod関連とin_reviewだけを回復した。
+新Task、worker、PR作成や再提出依頼はなく、現所有者releaseとreclaimable一覧空を確認した。
+過去のDelivery/ack履歴は公開契約に照会がなく未確認であり、今回のrelease確認と区別して残した。
+
+仕様待ちは既存質問ID、未回答、仕様とテスト境界の未合意、正式Specなしを区別し、needs-specと元workerを維持した。
+2件並行はAPI-1未回答/占有1とAPI-2提出済みPR/current c/in_review/release済み/占有0を別々に復元し、停止中の空き枠を補充しなかった。
+全ケースでintent/checkpointと操作相関、枠、未解決事項、次に照合する根拠を実nodへ残した。
+
+親のTask 6契約は8 pass、0 fail、62 assertions、担当のPM全回帰は50 pass、0 fail、569 assertions。
+初回はsetup未実装と各シナリオ未投入のRED、既存PRの誤create記録のREDを確認して補修した。
+行動評価の読取ではnod skills get to-specのUNKNOWN_SKILLと未対応workspace showを各1件記録し、状態制約を回避せず適切な読取へ戻った。
+Task 6の4 Stepを満たした。
+報告と実操作はevaluations/task6-*-with-skill.mdおよびtask6-*.operations.jsonlに保存した。
+モデル、git、テスト、独立レビュー、PRは模擬外部状態であり、実機の転送、負荷、実コード、実画面を検証したとは主張しない。
+初期の応答喪失は永続状態として投入しており、全Orca mutationの実通信切断やreceipt回復を網羅した試験ではない。
