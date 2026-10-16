@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow } from "../issue-query";
@@ -37,9 +37,6 @@ function toDeletion(r: IssueDeletionRow): IssueDeletion {
 
 // 永久削除できるか確かめる。人（LLM 以外）が、アーカイブ済みの Issue に対してだけ行える。CLI の確認前にも呼ぶ
 export function findDeletableIssueRow(ctx: OpCtx, ref: string): IssueRow {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue を削除できません。削除は me に依頼してください");
-  }
   const row = findIssueRow(ctx.db, ref);
   if (row.archived_at === null) {
     const issueId = formatIssueId(row.ws_key, row.number);

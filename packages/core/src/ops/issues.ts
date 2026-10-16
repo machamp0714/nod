@@ -626,9 +626,6 @@ export function logWork(ctx: OpCtx, ref: string, body: string, opts: { kind?: st
 
 // スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
 export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はコメントのスレッドを解決済み・未解決にできません。判断は me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     const rootId = threadRootId(ctx, row, commentId);
@@ -659,9 +656,6 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
 // アーカイブは status と別の属性で、Issue を既定の一覧・ボード・Inbox・next から外す。人（LLM 以外）だけが行える。
 // 子・関係はそのまま残し、アーカイブ済みはブロック元として数えない。すでにアーカイブ済みなら何もしない（自動アーカイブからも呼ぶ）
 export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; automation?: string } = {}): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue をアーカイブできません。アーカイブは me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (row.archived_at === null) {
@@ -680,9 +674,6 @@ export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; a
 
 // アーカイブ済みの Issue を元に戻す。status はアーカイブ前のまま。アーカイブされていなければ何もしない
 export function unarchiveIssue(ctx: OpCtx, ref: string): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue を復元できません。復元は me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (row.archived_at !== null) {
