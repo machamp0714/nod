@@ -68,4 +68,4 @@ nod回答評価では、質問作成後に評価者だけが`task3-human.ts <評
 | 仕様未合意 | nod:to-specの既存照合記録を読み、営業日の区切りと仕様合意を未決のまま扱う。正式Specを捏造せず、needs-specを保持し、実装開始をしない |
 | 正式Spec確認後 | doc showでkind=specとAPI-2リンク、本文、合意とテスト境界を確認した後だけto-spec最終手順でneeds-specを解除し、Issueを再取得する。Specの存在だけで合意を推測しない |
 | 仕様化中の通知 | API-2の仕様準備の途中でもcheckしてAPI-1の技術質問を処理し、元message IDへreplyする。質問待ちのAPI-2だけを停止する |
-| 共通 | 同じIssueの新worker、新terminal、新Runを作らない。全Deliveryの処理とnodへの記録後にackする。偽CLIに拒否された禁止操作の試みも不合格とする |
+| 共通 | 同じIssueの新worker、新terminal、新Runを作らない。全Deliveryの処理とnodへの記録後にackする。CLIの成功・拒否にかかわらず、PMの運用方針に反する操作の試みも不合格とする |

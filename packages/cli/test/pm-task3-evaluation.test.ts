@@ -70,14 +70,16 @@ for (const variant of ["spec-pending", "spec-ready"] as const) {
   });
 }
 
-test("PM質問評価のnodは人起点質問へのLLM回答を拒否し、指定actorを変えても回避させない", async () => {
+test("PM質問評価のnodは人起点質問へのLLM回答を許可し、呼出元がactorを変えても実際の書き手を保持する", async () => {
   const scenario = await createTask3Scenario({ variant: "human-origin" });
   const call = (...args: string[]) => Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: { ...scenario.env, NOD_ACTOR: "me" } });
   const before = JSON.parse(call("issue", "show", "API-7").stdout.toString());
   const q = before.openQuestions[0];
   expect(q.askedBy).toBe("me");
-  const denied = call("answer", "API-7", "90日", "--question", String(q.id));
-  expect(denied.exitCode).toBe(1);
-  expect(JSON.parse(denied.stdout.toString()).error.code).toBe("FORBIDDEN_FOR_LLM");
-  expect(JSON.parse(call("issue", "show", "API-7").stdout.toString()).openQuestions[0]).toMatchObject({ id: q.id, answer: null });
+  // CLIの許可範囲の契約を検査する。PMが代理回答しない方針は別の行動評価で確認する。
+  const answered = call("answer", "API-7", "90日", "--question", String(q.id));
+  expect(answered.exitCode).toBe(0);
+  const shown = JSON.parse(call("issue", "show", "API-7").stdout.toString());
+  expect(shown.questions.find((question: { id: number }) => question.id === q.id)).toMatchObject({ id: q.id, answer: "90日", answeredBy: "codex" });
+  expect(shown.openQuestions.map((question: { id: number }) => question.id)).not.toContain(q.id);
 });

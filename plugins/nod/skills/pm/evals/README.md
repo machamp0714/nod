@@ -70,7 +70,9 @@ bun test packages/cli/test/pm-evaluation.test.ts packages/cli/test/pm-task3-eval
 bun run typecheck
 ```
 
-Task 3の契約テストは元messageへのreplyによる同じDispatchの再開、無回答での待機保持、指定質問だけへの人回答、正式Specの実CLI取得と一時文書への隔離、人起点質問へのLLM回答拒否を検査する。
+Task 3の契約テストは元messageへのreplyによる同じDispatchの再開、無回答での待機保持、指定質問だけへの人回答、正式Specの実CLI取得と一時文書への隔離を検査する。
+現行CLIが人起点質問へのLLM回答を許可し、評価用CLIが書き手をcodexに保持することも検査する。
+この許可範囲と、PMが人起点質問を代理回答しない運用方針は別であり、後者はhuman-originの行動評価で確認する。
 PM自身が原文と出典を記録して適切な時点に再開したかは、別セッションの行動評価で判定する。
 
 ## Task 4の実行と採点
