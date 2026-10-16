@@ -18,9 +18,19 @@ DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えら
 `nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
 `nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
 
-### ワークフローのプラグイン（nod:wayfinder / to-spec / to-plan / implement / code-review）
+### ワークフローのプラグイン（nod:pm / wayfinder / to-spec / to-plan / implement / code-review）
 
-構想の整理→仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル5つを、`plugins/nod` に置いている。Claude Code と Codex の両方から、GitHub のマーケットプレイスとして導入する。
+指定範囲の進行管理と、構想の整理→仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル6つを、`plugins/nod` に置いている。
+Claude Code と Codex の両方から、GitHub のマーケットプレイスとして導入する。
+
+`nod:pm <Workspace> --cycle <Cycle> --on Studio` は、Airで起動し、指定Workspaceと固定CycleのIssueをOrcaで監督する。
+並行上限は既定1件、`--max-parallel 2`で最大2件にできる。
+実装担当、モデルとeffortは、`--agent codex --model <モデルID> --effort <effort>`などの個別指定、合意済み方針、既存ユーザー設定の具体値を使う。
+モデルをスキル独自の既定値へ変えない。
+これらはスキルへの指示であり、nod CLIのオプションではない。
+候補表示だけを頼むこともでき、その段階でworkerを起動しない。
+人や他担当の作業、未受理のTriage、未回答の人の質問、未完了の依存先を保護し、指定外Workspaceや次Cycleへ範囲を広げない。
+起動手順は[PMスキル](plugins/nod/skills/pm/SKILL.md)、一時DBと偽の接続先による評価手順は[PMの行動評価](plugins/nod/skills/pm/evals/README.md)にある。
 
 `nod:wayfinder <構想またはマップの Issue ID>` は、大きな構想を判断用の親子 Issue と依存関係に分ける。子ごとに調査・試作・人との対話で方針を固め、別モデルの推奨も参考にする。モデル同士が一致しても、人の回答を待って判断する。判断用 Issue の全てに `to-spec` を実行する必要はなく、実装対象の仕様を詰める段階で `nod:to-spec` を使う。
 
