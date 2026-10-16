@@ -65,13 +65,12 @@ test("Project を作って Issue を束ね、Document を添付する", async ()
 });
 
 // controller の裁定で追加したテスト
-test("LLM は review approve できず FORBIDDEN_FOR_LLM になり、Issue は In Review のまま", async () => {
+test("LLM も review approve で Done にできる", async () => {
   const { llm, me } = await workspace();
   const d = (await me(["issue", "create", "d"])).json;
   await llm(["issue", "start", d.id]);
   await llm(["issue", "done", d.id, "--summary", "やった"]);
   const r = await llm(["review", "approve", d.id]);
-  expect(r.exitCode).toBe(1);
-  expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  expect((await me(["issue", "show", d.id])).json.status).toBe("in_review");
+  expect(r.exitCode).toBe(0);
+  expect((await me(["issue", "show", d.id])).json.status).toBe("done");
 });

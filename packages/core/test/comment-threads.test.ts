@@ -80,12 +80,23 @@ describe("スレッドの解決済み化", () => {
     expect(resolveThread(me, i.id, reply.id, true)).toMatchObject({ id: root.id, resolvedBy: "me" });
   });
 
-  test("LLM は切り替えられず、存在しない・他 Issue のコメントは拒否する", () => {
+  test("LLM も解決・未解決にでき、event の書き手に残る", () => {
     const { db, ws, me, llm } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const root = commentIssue(me, a.id, "親");
+    resolveThread(llm, a.id, root.id, true);
+    resolveThread(llm, a.id, root.id, false);
+    expect(eventsOf(db, a.id).filter((e) => e.type.startsWith("comment_thread_")).map((e) => [e.type, e.actor])).toEqual([
+      ["comment_thread_resolved", "claude-code"],
+      ["comment_thread_reopened", "claude-code"],
+    ]);
+  });
+
+  test("存在しない・他 Issue のコメントは拒否する", () => {
+    const { db, ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
     const root = commentIssue(me, a.id, "親");
-    expect(codeOf(() => resolveThread(llm, a.id, root.id, true))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => resolveThread(me, a.id, 9999, true))).toBe("NOT_FOUND");
     expect(codeOf(() => resolveThread(me, b.id, root.id, true))).toBe("INVALID_ARGS");
     expect(commentsOf(getIssue(db, a.id).activity)[0]).toMatchObject({ resolvedAt: null });

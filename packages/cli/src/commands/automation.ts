@@ -186,7 +186,7 @@ export function registerAutomationCommands(program: Command): void {
     );
   automation
     .command("undo <id>")
-    .description("PR 連動・コミット連動（nod git sync）による自動遷移を取り消し、Issue を元の状態に戻す（人だけ。Issue がまだ in_review のときだけ）")
+    .description("PR 連動・コミット連動（nod git sync）による自動遷移を取り消し、Issue を元の状態に戻す（Issue がまだ in_review のときだけ）")
     .addHelpText(
       "after",
       [

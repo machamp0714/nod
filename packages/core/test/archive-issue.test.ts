@@ -61,13 +61,15 @@ test("すでにアーカイブ済み・未アーカイブなら何もせず even
   expect(eventsOf(db, issue.id).filter((e) => e.type === "archived" || e.type === "unarchived")).toHaveLength(1);
 });
 
-test("LLM はアーカイブも復元もできない", () => {
+test("LLM もアーカイブ・復元でき、Activity の書き手に残る", () => {
   const { me, llm, ws } = setup();
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
-  expect(codeOf(() => archiveIssue(llm, issue.id))).toBe("FORBIDDEN_FOR_LLM");
-  archiveIssue(me, issue.id);
-  expect(codeOf(() => unarchiveIssue(llm, issue.id))).toBe("FORBIDDEN_FOR_LLM");
+  archiveIssue(llm, issue.id);
   expect(getIssue(me.db, issue.id).archivedAt).not.toBeNull();
+  unarchiveIssue(llm, issue.id);
+  expect(getIssue(me.db, issue.id).archivedAt).toBeNull();
+  const actors = getIssue(me.db, issue.id).activity.filter((a) => a.kind === "event" && (a.type === "archived" || a.type === "unarchived"));
+  expect(actors.map((a) => [a.kind === "event" ? a.type : "", a.actor])).toEqual([["archived", "claude-code"], ["unarchived", "claude-code"]]);
 });
 
 test("自動アーカイブ（#72）は me として呼び、理由を event に残せる", () => {

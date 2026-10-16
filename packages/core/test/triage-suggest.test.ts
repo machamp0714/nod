@@ -228,14 +228,14 @@ describe("suggestTriage", () => {
 });
 
 describe("acceptTriage の assignee", () => {
-  test("受け入れと同時に担当を設定し、LLMはFORBIDDEN_FOR_LLMで何も変えない", () => {
+  test("受け入れと同時に担当を設定する。LLM の受け入れでも設定できる", () => {
     const { me, llm, create } = seed();
     const triage = create(llm, "検索結果のページングがずれる");
-    expect(codeOf(() => acceptTriage(llm, triage.id, { assignee: "codex" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(eventsOf(me.db, triage.id).map((e) => e.type)).toEqual(["created"]);
     const accepted = acceptTriage(me, triage.id, { assignee: "codex" });
     expect(accepted.assignee).toBe("codex");
     expect(accepted.status).toBe("todo");
+    const byLlm = acceptTriage(llm, create(llm, "一覧が崩れる").id, { assignee: "codex" });
+    expect(byLlm).toMatchObject({ status: "todo", assignee: "codex" });
   });
 
   test("assignee の空文字・空白だけはINVALID_ARGSで何も変えず、前後の空白は除いて設定する", () => {

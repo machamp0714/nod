@@ -102,16 +102,16 @@ describe("proposeTriage", () => {
     expect(codeOf(() => proposeTriage(llm, issue.id, { decision: "decline" }))).toBe("NOT_IN_TRIAGE");
   });
 
-  test("提案した LLM も accept / decline / duplicate は従来どおり FORBIDDEN_FOR_LLM で、何も書き込まない", () => {
-    const { me, llm, create, snapshot } = seed();
+  test("提案した LLM も accept / decline / duplicate で確定できる", () => {
+    const { me, llm, create } = seed();
     const original = create(me, "元の Issue");
-    const issue = create(llm, "判断待ち");
-    proposeTriage(llm, issue.id, { decision: "accept", labels: ["bug"] });
-    const before = snapshot();
-    expect(codeOf(() => acceptTriage(llm, issue.id, { addLabels: ["bug"] }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => declineTriage(llm, issue.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => duplicateTriage(llm, issue.id, original.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(snapshot()).toEqual(before);
+    const accepted = create(llm, "受け入れる");
+    proposeTriage(llm, accepted.id, { decision: "accept", labels: ["bug"] });
+    expect(acceptTriage(llm, accepted.id, { addLabels: ["bug"] })).toMatchObject({ status: "todo", labels: ["bug"] });
+    const declined = create(llm, "却下する");
+    expect(declineTriage(llm, declined.id).status).toBe("canceled");
+    const duplicate = create(llm, "重複");
+    expect(duplicateTriage(llm, duplicate.id, original.id).status).toBe("canceled");
   });
 
   test("重複先の Issue を永久削除しても提案は残り、重複先だけが外れる（#145）", () => {
@@ -248,14 +248,17 @@ describe("Triage 提案の通知（#125）", () => {
     expect(proposalNotifications(db).map((x) => [x.id, x.data.decision, x.readAt])).toEqual([[second!.id, "accept", null]]);
   });
 
-  test("LLM は updateIssue で Triage を出せず提案通知は未読のまま、人が状態を変えて Triage を出すと既読にする（#134）", () => {
+  test("人でも LLM でも、状態を変えて Triage を出すと提案通知を既読にする（#134）", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
-    proposeTriage(llm, issue.id, { decision: "accept" });
-    expect(codeOf(() => updateIssue(llm, issue.id, { status: "backlog" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null])).toEqual([[issue.id, false]]);
-    updateIssue(me, issue.id, { status: "backlog" });
-    expect(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null])).toEqual([[issue.id, true]]);
+    const byMe = create(llm, "人が出す");
+    proposeTriage(llm, byMe.id, { decision: "accept" });
+    const byLlm = create(llm, "LLM が出す");
+    proposeTriage(llm, byLlm.id, { decision: "accept" });
+    const read = () => Object.fromEntries(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null]));
+    expect(read()).toEqual({ [byMe.id]: false, [byLlm.id]: false });
+    updateIssue(me, byMe.id, { status: "backlog" });
+    updateIssue(llm, byLlm.id, { status: "backlog" });
+    expect(read()).toEqual({ [byMe.id]: true, [byLlm.id]: true });
   });
 
   test("同じ Issue の削除をまとめて取り消すと、置き換えで消えた通知だけを読み飛ばして残りを戻す（#134）", () => {

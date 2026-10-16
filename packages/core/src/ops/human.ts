@@ -63,10 +63,7 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
     .all(row.id, HUMAN_ACTOR) as QuestionRow[];
   if (open.length > 0) return open;
   const mine = openQuestionCount(ctx.db, row.id);
-  // me の未決事項は LLM には回答できないため、LLM を --question へ誘導しない
-  const rest = isLlm(ctx)
-    ? `未決事項（${mine} 件）は me が決めます`
-    : `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
+  const rest = `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
   throw new NodError(
     "NO_OPEN_QUESTION",
     mine > 0 ? `${ref} に LLM からの未回答の確認依頼はありません。${rest}` : `${ref} に未回答の確認依頼はありません`,
@@ -76,13 +73,6 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
 function pickQuestion(ctx: OpCtx, row: IssueRow, ref: string, questionId: number): QuestionRow {
   const q = ctx.db.query("SELECT * FROM questions WHERE id = ? AND issue_id = ?").get(questionId, row.id) as QuestionRow | null;
   if (!q) throw new NodError("NOT_FOUND", `${ref} に質問 ${questionId} はありません`);
-  // 人が付けた未決事項を決めるのは人だけ。判定は回答者だけでなく、質問に記録された書き手（asked_by）で行う（#172）
-  if (isLlm(ctx) && q.asked_by === HUMAN_ACTOR) {
-    throw new NodError(
-      "FORBIDDEN_FOR_LLM",
-      `LLM は me が付けた未決事項（質問 ${questionId}）に回答できません。回答は me に依頼してください`,
-    );
-  }
   if (q.answer !== null) throw new NodError("NO_OPEN_QUESTION", `質問 ${questionId} はすでに回答済みです`);
   return q;
 }
@@ -153,14 +143,7 @@ function requireStatus(row: IssueRow, ref: string, status: Status, code: string)
   if (row.status !== status) throw new NodError(code, `${ref} は ${row.status} です（${status} の Issue だけを扱えます）`);
 }
 
-function requireHumanTriage(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Triage の受け入れ・却下・重複の判断をできません。判断は me に依頼してください");
-  }
-}
-
 export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -181,7 +164,6 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
 }
 
 export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -195,7 +177,6 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
 }
 
 export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -223,9 +204,6 @@ export function snoozeTriage(ctx: OpCtx, ref: string, until: string): Issue {
 }
 
 export function approveReview(ctx: OpCtx, ref: string): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はレビューを承認できません。承認は me が行います");
-  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
@@ -266,9 +244,6 @@ export function rejectReview(
   requireText(reason, "差し戻しの理由");
   if (opts.delegate !== undefined && opts.delegate !== "review_fix" && opts.delegate !== "rebase") {
     throw new NodError("INVALID_ARGS", "対応依頼は review_fix（指摘対応）か rebase で指定してください");
-  }
-  if (opts.delegate && isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は差し戻しの対応依頼を記録できません。対応依頼は me が行います");
   }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);

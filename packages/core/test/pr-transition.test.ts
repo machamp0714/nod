@@ -247,12 +247,15 @@ describe("自動遷移の取消", () => {
     expect(statusOf(s, ref)).toBe("in_progress");
   });
 
-  test("LLM は取り消せない。in_review でなくなっていれば拒否。取り消す遷移がなければ NOT_FOUND", async () => {
+  test("LLM も取り消せる。in_review でなくなっていれば拒否。取り消す遷移がなければ NOT_FOUND", async () => {
     const s = fixture();
+    const undone = s.make();
+    await refreshPrStatus(s.me, undone, gh({}));
+    undoAutoTransition(s.llm, undone);
+    expect(statusOf(s, undone)).toBe("in_progress");
     const ref = s.make();
     expect(codeOf(() => undoAutoTransition(s.me, ref))).toBe("NOT_FOUND");
     await refreshPrStatus(s.me, ref, gh({}));
-    expect(codeOf(() => undoAutoTransition(s.llm, ref))).toBe("FORBIDDEN_FOR_LLM");
     updateIssue(s.me, ref, { status: "done" });
     expect(codeOf(() => undoAutoTransition(s.me, ref))).toBe("NOT_IN_REVIEW");
     expect(statusOf(s, ref)).toBe("done");

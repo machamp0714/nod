@@ -98,14 +98,12 @@ describe("bulkUpdateIssues", () => {
     expect(eventsOf(db, ok.id).map((ev) => ev.type)).toEqual(["created"]);
   });
 
-  test("LLM が done にすると FORBIDDEN_FOR_LLM で、1件も書かない", () => {
+  test("LLM も一括で done にできる", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    const e = errorOf(() => bulkUpdateIssues(llm, [a.id, b.id], { status: "done", priority: 1 }));
-    expect(e.code).toBe("BULK_UPDATE_FAILED");
-    expect((e.details as { failures: { code: string }[] }).failures.map((f) => f.code)).toEqual(["FORBIDDEN_FOR_LLM", "FORBIDDEN_FOR_LLM"]);
-    expect(getIssue(db, a.id).priority).toBe(0);
+    bulkUpdateIssues(llm, [a.id, b.id], { status: "done", priority: 1 });
+    expect([getIssue(db, a.id), getIssue(db, b.id)].map((i) => [i.status, i.priority])).toEqual([["done", 1], ["done", 1]]);
   });
 
   test("Triage の Issue の状態変更と、状態を triage にする変更は拒否する（人でも）", () => {
@@ -121,7 +119,7 @@ describe("bulkUpdateIssues", () => {
     expect(getIssue(db, triage.id)).toMatchObject({ status: "triage", priority: 3, labels: ["x"] });
   });
 
-  test("LLM が Triage の Issue の状態を変えようとすると FORBIDDEN_FOR_LLM で失敗一覧に入り、1件も書かない", () => {
+  test("LLM が Triage の Issue の状態を変えようとすると、人と同じ TRIAGE_DECISION_REQUIRED で失敗一覧に入り、1件も書かない", () => {
     const { db, ws, me, llm } = setup();
     const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
     const triage = createIssue(llm, { workspaceId: ws.id, title: "triage" });
@@ -133,7 +131,7 @@ describe("bulkUpdateIssues", () => {
     const before = snapshot();
     const e = errorOf(() => bulkUpdateIssues(llm, [ok.id, triage.id], { status: "in_progress", priority: 1 }));
     expect(e.code).toBe("BULK_UPDATE_FAILED");
-    expect(e.details).toEqual({ failures: [{ id: triage.id, code: "FORBIDDEN_FOR_LLM", message: expect.any(String) }] });
+    expect(e.details).toEqual({ failures: [{ id: triage.id, code: "TRIAGE_DECISION_REQUIRED", message: expect.any(String) }] });
     expect((e.details as { failures: { message: string }[] }).failures[0]!.message).not.toContain(triage.id);
     expect(snapshot()).toEqual(before);
     // 状態以外なら LLM も Triage の Issue を一括で変えられる
