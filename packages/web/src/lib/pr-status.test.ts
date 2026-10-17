@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PrStatus } from "../api/types";
-import { approvalWarnings, ciPill, prStatePill, reviewPill, safeCheckUrl } from "./pr-status";
+import { ciPill, prStatePill, reviewPill, safeCheckUrl } from "./pr-status";
 
 function status(over: Partial<PrStatus> = {}): PrStatus {
   return {
@@ -64,25 +64,5 @@ describe("PR 状態の不正な値", () => {
     expect(safeCheckUrl("javascript:alert(1)")).toBeNull();
     expect(safeCheckUrl("data:text/html,x")).toBeNull();
     expect(safeCheckUrl(null)).toBeNull();
-  });
-});
-
-describe("承認時の GitHub 側の注意（#56/#57）", () => {
-  test("未マージと変更要求を知らせ、マージ済み・未取得なら出さない", () => {
-    expect(approvalWarnings(null)).toEqual([]);
-    expect(approvalWarnings(status({ state: "MERGED", reviewDecision: "APPROVED" }))).toEqual([]);
-    expect(approvalWarnings(status({ isDraft: true }))).toEqual(["取得時点で GitHub の PR はまだマージされていません（Draft）"]);
-    expect(approvalWarnings(status({ reviewDecision: "CHANGES_REQUESTED" }))).toEqual([
-      "取得時点で GitHub の PR はまだマージされていません（Open）",
-      "取得時点で GitHub に変更要求が出ています",
-    ]);
-  });
-
-  test("Closed はマージされずに閉じられていると知らせる（#143）", () => {
-    expect(approvalWarnings(status({ state: "CLOSED" }))).toEqual(["取得時点で GitHub の PR はマージされずに閉じられています（Closed）"]);
-    expect(approvalWarnings(status({ state: "CLOSED", reviewDecision: "CHANGES_REQUESTED" }))).toEqual([
-      "取得時点で GitHub の PR はマージされずに閉じられています（Closed）",
-      "取得時点で GitHub に変更要求が出ています",
-    ]);
   });
 });

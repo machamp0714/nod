@@ -92,7 +92,7 @@ describe("nod issue", () => {
     const done = (
       await llm(["issue", "done", created.id, "--summary", "直した", "--pr", "https://example.com/pull/1", "--json"], flow)
     ).json;
-    expect(done).toMatchObject({ status: "in_review", agentState: "done", prUrl: "https://example.com/pull/1" });
+    expect(done).toMatchObject({ status: "done", agentState: "done", prUrl: "https://example.com/pull/1" });
   });
 
   test("計画書を取り込み、Step を進め、show に表示する", async () => {

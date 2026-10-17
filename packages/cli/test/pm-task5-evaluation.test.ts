@@ -61,7 +61,7 @@ test("PM並行評価は独立IssueのPRだけを提出し、質問と成果とcl
   h.call("check", "--ack", submitted.id);
   expect(h.nod("issue", "show", "API-1").openQuestions[0]).toMatchObject({ id: q.id, answer: null });
   expect(h.nod("issue", "show", "API-1").status).toBe("in_progress");
-  expect(h.nod("issue", "show", "API-2").status).toBe("in_review");
+  expect(h.nod("issue", "show", "API-2").status).toBe("done");
   expect(h.call("worker-show", "--dispatch", "dispatch-api1").phase).toBe("awaiting_input");
   expect(h.call("worker-list", "--terminal-state", "reclaimable").workers).toEqual([]);
 });
@@ -120,7 +120,7 @@ for (const route of ["Task先頭文", "send subject"] as const) {
     expect(prResult.exitCode).toBe(0);
     const current = h.call("worker-show", "--dispatch", next.dispatch.id);
     expect(JSON.parse(prResult.stdout.toString())).toMatchObject({ headRefName: current.git.branch, headRefOid: "a".repeat(40), title: "保持期間の境界を確認" });
-    expect(h.nod("issue", "show", "API-1").status).toBe("in_review");
+    expect(h.nod("issue", "show", "API-1").status).toBe("done");
     h.call("worker-release", "--dispatch", next.dispatch.id);
     h.call("check", "--ack", submitted.id);
   });

@@ -23,7 +23,7 @@ describe("Project", () => {
     updateIssue(me, c.id, { status: "canceled" });
 
     expect(listProjects(db)).toEqual([
-      expect.objectContaining({ name: "検索", total: 2, done: 1, agents: { working: 0, awaitingInput: 1, awaitingReview: 0, error: 0 } }),
+      expect.objectContaining({ name: "検索", total: 2, done: 1, agents: { working: 0, awaitingInput: 1, error: 0 } }),
     ]);
     const detail = getProject(db, String(p.id));
     expect(detail.issues.map((i) => i.id)).toEqual([a.id, b.id, c.id]);
@@ -49,7 +49,7 @@ describe("Project", () => {
   });
 });
 
-describe("Project の更新とレビュー待ち", () => {
+describe("Project の更新", () => {
   test("四状態を相互変更し、同値は時刻を維持、IssueとDocumentsには連動しない", () => {
     const { db, ws, me } = setup();
     const codex = { db, actor: "codex" };
@@ -83,36 +83,6 @@ describe("Project の更新とレビュー待ち", () => {
     }
     expect(codeOf(() => updateProject(me, "不存在", { status: "completed" }))).toBe("NOT_FOUND");
     expect(getProject(db, p.name)).toMatchObject(p);
-  });
-
-  test("レビュー待ちはWorkspaceと担当者を問わずin_reviewを数え、他指標とは独立する", () => {
-    const { db, ws, me } = setup();
-    const ws2 = initWorkspace(db, { path: "/tmp/project-other", key: "OTHER" }).workspace;
-    const p = createProject(me, { name: "集計" });
-    const empty = createProject(me, { name: "空" });
-    const samples = [
-      [ws.id, "in_review", null, "me", p.name],
-      [ws2.id, "in_review", "error", "codex", p.name],
-      [ws.id, "in_review", null, null, p.name],
-      [ws.id, "in_progress", "working", "codex", p.name],
-      [ws.id, "in_progress", "awaiting_input", "codex", p.name],
-      [ws.id, "done", "working", "codex", p.name],
-      [ws.id, "canceled", "error", "codex", p.name],
-      [ws.id, "in_review", null, "codex", empty.name],
-      [ws.id, "in_review", null, "codex", undefined],
-    ] as const;
-    for (const [workspaceId, status, agentState, assignee, projectRef] of samples) {
-      const issue = createIssue(me, { workspaceId, title: status, projectRef });
-      db.query("UPDATE issues SET status = ?, agent_state = ?, assignee = ? WHERE workspace_id = ? AND number = ?")
-        .run(status, agentState, assignee, workspaceId, issue.number);
-    }
-    const summary = { total: 6, done: 1, agents: { working: 1, awaitingInput: 1, awaitingReview: 3, error: 1 } };
-    expect(getProject(db, p.name)).toMatchObject(summary);
-    expect(listProjects(db).find((x) => x.id === p.id)).toMatchObject(summary);
-    updateProject(me, p.name, { status: "completed" });
-    expect(getProject(db, p.name)).toMatchObject(summary);
-    const zero = createProject(me, { name: "ゼロ" });
-    expect(getProject(db, zero.name).agents).toEqual({ working: 0, awaitingInput: 0, awaitingReview: 0, error: 0 });
   });
 });
 

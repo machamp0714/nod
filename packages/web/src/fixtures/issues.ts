@@ -78,7 +78,7 @@ export const ISSUES: Issue[] = [
   issue({
     id: "API-7",
     title: "決済 Webhook の署名検証を追加",
-    status: "in_review",
+    status: "done",
     priority: 2,
     assignee: "claude-code",
     agentState: "done",

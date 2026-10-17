@@ -361,7 +361,7 @@ describe("queryIssues", () => {
     const assigned = createIssue(me, { workspaceId: web.id, title: "assigned" });
     updateIssue(me, assigned.id, { assignee: "codex" });
     const review = createIssue(me, { workspaceId: ws.id, title: "review" });
-    updateIssue(me, review.id, { assignee: "codex", status: "in_review" });
+    updateIssue(me, review.id, { assignee: "codex", status: "in_progress" });
     const mine = createIssue(me, { workspaceId: ws.id, title: "mine" });
     updateIssue(me, mine.id, { assignee: "me" });
     createIssue(me, { workspaceId: ws.id, title: "unassigned" });
@@ -371,9 +371,9 @@ describe("queryIssues", () => {
     updateIssue(me, dropped.id, { assignee: "codex", status: "canceled" });
     const ids = (q: IssueQuery) => queryIssues(db, q).issues.map((i) => i.id);
     expect(ids({ delegated: true })).toEqual([working.id, review.id, assigned.id]);
-    expect(ids({ delegated: true, status: ["done", "in_review"] })).toEqual([review.id]);
+    expect(ids({ delegated: true, status: ["done", "in_progress"] })).toEqual([working.id, review.id]);
     expect(ids({ delegated: true, workspace: ["WEB"] })).toEqual([assigned.id]);
-    expect(listIssues(db, { delegated: true, statuses: ["done", "canceled", "todo", "in_progress", "in_review"] }).map((i) => i.id)).toEqual([
+    expect(listIssues(db, { delegated: true, statuses: ["done", "canceled", "todo", "in_progress"] }).map((i) => i.id)).toEqual([
       working.id,
       review.id,
       assigned.id,

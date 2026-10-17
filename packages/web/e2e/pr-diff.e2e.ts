@@ -246,23 +246,3 @@ test("PR 状態の取得で HEAD が変わったと分かったら、古い差�
   await expect(section(page).getByRole("status")).toHaveCount(0);
   await expect(fileRow(page, /^変更 internal\/webhook\/verify\.go/)).toBeVisible();
 });
-
-test("Reviews では PR カードの下に折りたたんで出し、開いて差分を見てから既存の操作で承認できる", async ({ page, nod }) => {
-  const id = await issueWithPr(nod);
-  await stubGhBy({ pr: ok(view()), api: ok(DIFF) });
-  await page.goto("/reviews");
-  const detail = page.getByRole("region", { name: "詳細", exact: true });
-  const diff = detail.getByRole("region", { name: "変更ファイル" });
-  await expect(diff.getByText("未取得。更新で gh から取得します")).toBeVisible();
-  await diff.getByRole("button", { name: "変更ファイルを更新" }).click();
-  await expect(diff.getByText("HEAD abc1234", { exact: true })).toBeVisible();
-  await expect(diff.getByRole("list", { name: "変更ファイルの一覧" })).toHaveCount(0);
-
-  await diff.getByRole("button", { name: "変更ファイルを開く" }).click();
-  await diff.getByRole("button", { name: /^変更 internal\/webhook\/verify\.go/ }).click();
-  await expect(diff.getByRole("table", { name: "internal/webhook/verify.go の差分" })).toBeVisible();
-
-  await detail.getByRole("button", { name: "承認して閉じる" }).click();
-  await expect(page.getByRole("region", { name: "レビュー待ちの一覧" }).getByText("レビュー待ちの Issue はありません")).toBeVisible();
-  expect((await nod.me.getIssue(id)).status).toBe("done");
-});

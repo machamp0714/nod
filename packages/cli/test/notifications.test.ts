@@ -27,7 +27,7 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect(inbox.stdout).toContain("claude-code が優先度を変更: なし → High");
   expect(inbox.stdout).not.toContain("自分のメモ");
   const inboxJson = await nod(["inbox", "--json"]);
-  expect(Object.keys(inboxJson.json).sort()).toEqual(["notifications", "questions", "reviews", "triageCount"]);
+  expect(Object.keys(inboxJson.json).sort()).toEqual(["notifications", "questions", "triageCount"]);
 
   const list = await nod(["notification", "list", "--json"]);
   expect(list.json.map((n: { eventType: string }) => n.eventType)).toEqual(["comment_added", "priority_changed"]);
@@ -158,12 +158,12 @@ test("通知の要約は種別ごとに変化を表す", async () => {
   const base = { id: 1, kind: "issue_change", issueId: "API-1", issueTitle: "t", workspace: "API", actor: "codex", body: null, createdAt: "", readAt: null, snoozedUntil: null };
   const say = (eventType: string, data: Record<string, unknown> = {}, body: string | null = null) =>
     describeNotification({ ...base, eventType, data, body });
-  expect(say("status_changed", { from: "in_progress", to: "in_review" })).toBe("codex がステータスを変更: In Progress → In Review");
+  expect(say("status_changed", { from: "in_progress", to: "done" })).toBe("codex がステータスを変更: In Progress → Done");
   expect(say("assignee_changed", { from: null, to: "codex" })).toBe("codex が担当を変更: なし → codex");
   expect(say("labels_changed", { added: ["bug"], removed: ["ui"] })).toBe("codex がラベルを変更: +bug -ui");
   expect(say("review_rejected", { reason: "直して" })).toBe("codex が差し戻し: 直して");
   expect(say("triage_accepted")).toBe("codex が Triage を受け入れ");
-  expect(say("agent_state_changed", { from: "working", to: "done", agent: "codex" })).toBe("codex が作業を完了（レビュー待ち）");
+  expect(say("agent_state_changed", { from: "working", to: "done", agent: "codex" })).toBe("codex が作業を完了");
   expect(say("agent_state_changed", { from: "working", to: "awaiting_input", reason: "進めてよいか" })).toBe("codex が確認を求めた（入力待ち）: 進めてよいか");
   expect(say("agent_state_changed", { from: "working", to: "error", reason: "落ちた" })).toBe("codex がエラーで停止: 落ちた");
   // 操作したのが別の LLM でも、主語は担当（data.agent）

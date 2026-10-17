@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
-import { answerQuestion, approveReview, rejectReview } from "../src/ops/human";
+import { answerQuestion } from "../src/ops/human";
 import { createIssue, getIssue, listIssues, queryIssues, updateIssue } from "../src/ops/issues";
 import { issueQueryFromParams, validateIssueQuery } from "../src/issue-filter";
 import { createView, getView } from "../src/ops/views";
@@ -16,7 +16,7 @@ function started() {
 
 describe("手動遷移の作業状況", () => {
   for (const state of ["working", "awaiting_input", "error"] as const) {
-    for (const status of ["triage", "backlog", "todo", "in_review", "done", "canceled"] as const) {
+    for (const status of ["triage", "backlog", "todo", "done", "canceled"] as const) {
       test(`${state} から ${status} で解除する`, () => {
         const { db, me, llm, id } = started();
         if (state === "awaiting_input") askQuestion(llm, id, "確認");
@@ -42,17 +42,13 @@ describe("手動遷移の作業状況", () => {
     expect(eventsOf(db, id)).toHaveLength(count);
     db.close();
   });
-  test("レビューのdoneを保持し、再開はnullにする", () => {
-    const { db, me, llm, id } = started();
-    completeIssue(llm, id, { summary: "完了" });
-    expect(updateIssue(me, id, { status: "in_review" }).agentState).toBe("done");
-    expect(updateIssue(me, id, { status: "done" }).agentState).toBe("done");
-    expect(updateIssue(me, id, { status: "in_review" }).agentState).toBe("done");
-    expect(approveReview(me, id).agentState).toBe("done");
-    updateIssue(me, id, { status: "in_review" });
-    expect(rejectReview(me, id, "再確認").agentState).toBeNull();
-    completeIssue(llm, id, { summary: "完了" });
-    expect(updateIssue(me, id, { status: "in_progress" }).agentState).toBeNull();
+  test("完了の作業状況を保持し、再開はnullにする", () => {
+    const {db,me,llm,id}=started();
+    completeIssue(llm,id,{summary:"完了"});
+    expect(updateIssue(me,id,{status:"done"}).agentState).toBe("done");
+    expect(updateIssue(me,id,{status:"in_progress"}).agentState).toBeNull();
+    completeIssue(llm,id,{summary:"再完了"});
+    expect(getIssue(db,id).agentState).toBe("done");
     db.close();
   });
   test("Todo移動後の未決事項への回答でworkingへ戻さない", () => {

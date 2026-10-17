@@ -89,7 +89,7 @@ test.describe("My issues", () => {
     await assign(nod);
     await nod.me.updateIssue("NOD-5", { status: "done" });
     await page.goto("/my-issues");
-    await expect(region(page, "Status Done").locator("tbody tr")).toHaveCount(2);
+    await expect(region(page, "Status Done").locator("tbody tr")).toHaveCount(3);
     await chooseDisplay(page, "グループ化", "なし");
     await expect(page).toHaveURL(/groupBy=none/);
     await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
@@ -98,7 +98,7 @@ test.describe("My issues", () => {
     await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
 
     await (await displaySwitch(page, "完了済み Issue を表示")).click();
-    await expect(tableRows(page)).toHaveCount(6);
+    await expect(tableRows(page)).toHaveCount(5);
     await expect(tableRows(page)).not.toContainText(["NOD-5"]);
   });
 

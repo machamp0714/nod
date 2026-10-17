@@ -3,13 +3,11 @@ import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import {
   acceptTriage,
   answerQuestion,
-  approveReview,
   declineTriage,
   duplicateTriage,
   getInbox,
   listTriage,
   parseDateTime,
-  rejectReview,
   snoozeTriage,
 } from "../src/ops/human";
 import { createCycle } from "../src/ops/cycles";
@@ -18,7 +16,7 @@ import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 describe("getInbox と answerQuestion", () => {
-  test("全 Workspace の未回答の確認依頼とレビュー待ちを集め、回答で消える", () => {
+  test("全 Workspace の未回答の確認依頼を集め、回答で消える", () => {
     const { db, ws, me, llm } = setup();
     const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
@@ -40,7 +38,7 @@ describe("getInbox と answerQuestion", () => {
         worktree: "/wt/a",
       }),
     ]);
-    expect(inbox.reviews.map((i) => i.id)).toEqual([b.id]);
+    expect(inbox).not.toHaveProperty("reviews");
 
     const r = answerQuestion(me, a.id, "足してよい");
     expect(r.answered).toEqual([expect.objectContaining({ answer: "足してよい", answeredBy: "me" })]);
@@ -140,34 +138,6 @@ describe("parseDateTime", () => {
     expect(codeOf(() => parseDateTime("2026-02-30 09:00"))).toBe("INVALID_ARGS");
     expect(codeOf(() => parseDateTime("2026-10-01  09:00"))).toBe("INVALID_ARGS");
     expect(codeOf(() => parseDateTime("2026-10-01 25:00"))).toBe("INVALID_ARGS");
-  });
-});
-
-describe("レビュー", () => {
-  test("approve は done、reject は理由を残して in_progress に戻し作業状況を消す", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "やった" });
-    expect(approveReview(me, a.id).status).toBe("done");
-    expect(codeOf(() => approveReview(me, a.id))).toBe("NOT_IN_REVIEW");
-
-    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    startIssue(llm, b.id);
-    completeIssue(llm, b.id, { summary: "やった" });
-    const rejected = rejectReview(me, b.id, "テストが足りない");
-    expect(rejected).toMatchObject({ status: "in_progress", agentState: null });
-    expect(eventsOf(db, b.id).at(-1)).toMatchObject({ type: "review_rejected", data: { reason: "テストが足りない" } });
-    expect(getIssue(db, b.id).activity.filter((a) => a.kind === "comment").at(-1)).toMatchObject({ body: "テストが足りない" });
-  });
-
-  test("LLM も approve で done にでき、review_approved の書き手に残る", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "やった" });
-    expect(approveReview({ db, actor: "codex" }, a.id).status).toBe("done");
-    expect(eventsOf(db, a.id).find((e) => e.type === "review_approved")?.actor).toBe("codex");
   });
 });
 

@@ -53,7 +53,6 @@ interface SummaryRow extends ProjectRow {
   done: number;
   working: number;
   awaiting_input: number;
-  awaiting_review: number;
   error: number;
 }
 
@@ -75,7 +74,7 @@ function toSummary(r: SummaryRow): ProjectSummary {
     health: r.health,
     total: r.total,
     done: r.done,
-    agents: { working: r.working, awaitingInput: r.awaiting_input, awaitingReview: r.awaiting_review, error: r.error },
+    agents: { working: r.working, awaitingInput: r.awaiting_input, error: r.error },
   };
 }
 
@@ -86,7 +85,6 @@ const SUMMARY_SELECT = `SELECT p.*,
   (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'done') AS done,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'working') AS working,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'awaiting_input') AS awaiting_input,
-  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'in_review') AS awaiting_review,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'error') AS error
 FROM projects p`;
 

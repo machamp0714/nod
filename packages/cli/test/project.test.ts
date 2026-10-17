@@ -47,7 +47,7 @@ describe("Project CLI", () => {
     }
   });
 
-  test("一覧のJSONとテキストにレビュー待ちを出す", () => {
+  test("一覧のJSONとテキストからレビュー待ちを除く", () => {
     const path = tempDb();
     const db = openDb(path);
     const me = { db, actor: "me" };
@@ -55,11 +55,11 @@ describe("Project CLI", () => {
     // WorkspaceはCLI登録を要求せず、テスト用DBだけに用意する。
     db.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('API', 'api', '/tmp/review-api', '2000', '#7C5CFF')").run();
     const issue = createIssue(me, { workspaceId: 1, title: "確認", projectRef: "レビュー" });
-    updateIssue(me, issue.id, { status: "in_review" });
+    updateIssue(me, issue.id, { status: "done" });
     db.close();
     const cwd = tempDir();
-    expect(cli(path, cwd, ["project", "list", "--json"]).json[0].agents.awaitingReview).toBe(1);
-    expect(cli(path, cwd, ["project", "list"]).stdout).toContain("レビュー待ち 1");
+    expect(cli(path, cwd, ["project", "list", "--json"]).json[0].agents).not.toHaveProperty("awaitingReview");
+    expect(cli(path, cwd, ["project", "list"]).stdout).not.toContain("レビュー待ち");
   });
 });
 

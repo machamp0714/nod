@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, findWorkspace, initWorkspace, logWork, openDb, rejectReview, completeIssue, startIssue } from "@nod/core";
+import { createIssue, findWorkspace, initWorkspace, logWork, openDb, completeIssue, startIssue } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-// 現在の Workspace で LLM が着手・レビュー提出・ブロッカー記録をし、人が差し戻す。別の Workspace に1件起票する
+// 現在の Workspace で LLM が着手・完了・ブロッカー記録をする。別の Workspace に1件起票する
 function seed() {
   const db = tempDb();
   const repo = makeRepo();
@@ -19,7 +19,6 @@ function seed() {
   startIssue(llm, a.id);
   logWork(llm, a.id, "ベンチ用のデータが無い", { kind: "blocker" });
   completeIssue(llm, a.id, { summary: "索引を足した" });
-  rejectReview(me, a.id, "計測結果を添えて");
   d.close();
   return { db, repo, a };
 }
@@ -31,20 +30,19 @@ describe("nod summary", () => {
     expect(r.exitCode).toBe(0);
     const count = (kind: string) => r.json.sections.find((x: any) => x.kind === kind);
     expect(count("created").total).toBe(3);
-    expect([count("started").llm, count("submitted").llm, count("rejected").human, count("blocker").llm]).toEqual([1, 1, 1, 1]);
-    expect(count("rejected").items[0]).toMatchObject({ issueId: a.id, actor: "me", actorKind: "human", detail: "計測結果を添えて" });
+    expect([count("started").llm, count("completed").llm, count("blocker").llm]).toEqual([1, 1, 1]);
+    expect(count("completed").items[0]).toMatchObject({ issueId: a.id, actor: "claude-code", actorKind: "llm" });
   });
 
   test("文字の出力は種類ごとの件数と項目、他N件を出し、0件の種類は出さない", async () => {
     const { db, repo, a } = seed();
     const r = await runNod(["summary", "--limit", "1", "--all-workspaces"], { cwd: repo, db });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("合計 8（人 5 / LLM 3）");
+    expect(r.stdout).toContain("合計 7（人 4 / LLM 3）");
     expect(r.stdout).toContain("新規起票 4（人 4 / LLM 0）");
     expect(r.stdout).toContain("  他3件");
     expect(r.stdout).toContain(`${a.id}  検索を速くする`);
-    expect(r.stdout).toContain("    計測結果を添えて");
-    expect(r.stdout).not.toContain("完了 ");
+    expect(r.stdout).toContain("完了 1");
   });
 
   test("期間に動きがなければその旨を出し、ない Project は NOT_FOUND", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { askQuestion, completeIssue, createIssue, startIssue } from "@nod/core";
+import { askQuestion, createIssue, startIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 const actorsOf = (db: Database, type: string) =>
@@ -110,7 +110,7 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
   });
 });
 
-describe("Triage とレビュー", () => {
+describe("Triage", () => {
   test("accept、decline、duplicate、snooze は書き手 me で記録する", async () => {
     const { app, db, llm, ws } = setup();
     const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
@@ -141,21 +141,7 @@ describe("Triage とレビュー", () => {
     expect((await call(app, "POST", `/api/issues/${t.id}/snooze`, { until: "来週" })).status).toBe(400);
   });
 
-  test("approve は done、reject は理由をコメントに残して in_progress に戻す", async () => {
-    const { app, db, me, llm, ws } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    for (const i of [a, b]) {
-      startIssue(llm, i.id);
-      completeIssue(llm, i.id, { summary: "やった" });
-    }
-    expect((await call(app, "POST", `/api/issues/${a.id}/approve`)).json.status).toBe("done");
-    expect(actorsOf(db, "review_approved")).toEqual(["me"]);
-    const rejected = await call(app, "POST", `/api/issues/${b.id}/reject`, { reason: "テストが足りない" });
-    expect(rejected.json).toMatchObject({ status: "in_progress", agentState: null });
-    expect((await call(app, "POST", `/api/issues/${a.id}/approve`)).json.error.code).toBe("NOT_IN_REVIEW");
-    expect((await call(app, "POST", `/api/issues/${b.id}/reject`, {})).status).toBe(400);
-  });
+
 });
 
 describe("update と comment", () => {

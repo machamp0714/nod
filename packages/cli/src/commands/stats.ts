@@ -44,7 +44,7 @@ function statsQuery(cli: Cli, cmd: Command): StatsQuery {
   };
 }
 
-// Reviews の作業時間と同じ書き方にする
+// 作業時間を分単位で表示する
 export function formatMinutes(minutes: number | null): string {
   if (minutes === null) return "-";
   if (minutes === 0) return "1分未満";
@@ -75,18 +75,18 @@ function formatLlm(s: LlmStats): string {
     head,
     ...s.llms.flatMap((l) => [
       "",
-      `${l.name}  完了 ${l.totals.completed}  担当開始 ${l.totals.assigned}  レビュー提出 ${l.totals.submitted}  作業時間 ${formatWork(l.totals.work)}`,
-      ...l.buckets.map((b) => `  ${period(b.start, b.end)}  完了 ${b.completed}  担当開始 ${b.assigned}  レビュー提出 ${b.submitted}  作業時間 ${formatWork(b.work)}`),
+      `${l.name}  完了 ${l.totals.completed}  担当開始 ${l.totals.assigned}  完了報告 ${l.totals.submitted}  作業時間 ${formatWork(l.totals.work)}`,
+      ...l.buckets.map((b) => `  ${period(b.start, b.end)}  完了 ${b.completed}  担当開始 ${b.assigned}  完了報告 ${b.submitted}  作業時間 ${formatWork(b.work)}`),
     ]),
   ].join("\n");
 }
 
 export function registerStatsCommands(program: Command): void {
   const stats = withStatsOptions(
-    program.command("stats").description("完了数と作業時間（着手からレビュー提出まで）の推移を集計する"),
+    program.command("stats").description("完了数と作業時間（着手から完了まで）の推移を集計する"),
   );
   withStatsOptions(
-    stats.command("llm").description("LLM ごとの作業量（完了・担当開始・レビュー提出・作業時間）の推移を集計する"),
+    stats.command("llm").description("LLM ごとの作業量（完了・担当開始・完了報告・作業時間）の推移を集計する"),
   ).action(
     act((cli, cmd) => {
       const result = llmStats(cli.db, statsQuery(cli, cmd));

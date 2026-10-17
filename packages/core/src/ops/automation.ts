@@ -19,7 +19,6 @@ import type {
   Status,
   Workspace,
 } from "../types";
-import { applyAutoTransition, prReviewReason, prReviewTargets } from "./auto-transitions";
 import { archiveIssue } from "./issues";
 import { countEnabledRecurringIssues, isRecurringDay, runRecurringIssuesOnly } from "./recurring";
 import { findWorkspace } from "./workspaces";
@@ -30,7 +29,7 @@ export const AUTOMATION_LIMIT_DEFAULT = 50;
 export const AUTOMATION_LIMIT_MAX = 500;
 
 const DAY_MS = 86_400_000;
-// Triage（人の判断待ち）と in_review（レビュー待ちの成果）は閉じない
+// Triage（人の判断待ち）は閉じない
 const CLOSE_STATUSES: Status[] = ["backlog", "todo", "in_progress", "needs_clarification"];
 // 未完了で未アーカイブの子を持つ親は、どちらのルールでも対象外
 const NO_OPEN_CHILD = `NOT EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL
@@ -46,8 +45,6 @@ const NO_BLOCK_RELATION = `NOT EXISTS (SELECT 1 FROM relations r JOIN issues b O
 interface SettingsRow {
   auto_close_days: number | null;
   auto_archive_days: number | null;
-  pr_review_enabled: number;
-  commit_review_enabled: number;
   automation_updated_at: string | null;
   automation_updated_by: string | null;
 }
@@ -79,7 +76,7 @@ function validateDays(days: number | null | undefined, label: string): void {
 function readSettings(db: Database, workspace: Workspace): AutomationSettings {
   const row = db
     .query(
-      `SELECT auto_close_days, auto_archive_days, pr_review_enabled, commit_review_enabled, automation_updated_at, automation_updated_by
+      `SELECT auto_close_days, auto_archive_days, automation_updated_at, automation_updated_by
        FROM workspaces WHERE id = ?`,
     )
     .get(workspace.id) as SettingsRow;
@@ -87,8 +84,6 @@ function readSettings(db: Database, workspace: Workspace): AutomationSettings {
     workspaceKey: workspace.key,
     closeAfterDays: row.auto_close_days,
     archiveAfterDays: row.auto_archive_days,
-    prReview: row.pr_review_enabled === 1,
-    commitReview: row.commit_review_enabled === 1,
     updatedAt: row.automation_updated_at,
     updatedBy: row.automation_updated_by,
   };
@@ -98,36 +93,28 @@ export function getAutomationSettings(db: Database, keyOrPath: string): Automati
   return readSettings(db, requireWorkspace(db, keyOrPath));
 }
 
-// 渡した項目だけを変える。日数の null はそのルールを無効にする。prReview は PR 連動（#66）、commitReview はコミット連動（#68）の有効・無効
+// 渡した項目だけを変える。日数の null はそのルールを無効にする
 export function setAutomationSettings(
   ctx: OpCtx,
   keyOrPath: string,
-  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null; prReview?: boolean; commitReview?: boolean },
+  input: { closeAfterDays?: number | null; archiveAfterDays?: number | null },
 ): AutomationSettings {
   if (isLlm(ctx)) {
     throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動化の設定を変えられません。変更は me に依頼してください");
   }
   validateDays(input.closeAfterDays, "自動クローズの日数");
   validateDays(input.archiveAfterDays, "自動アーカイブの日数");
-  if (input.prReview !== undefined && typeof input.prReview !== "boolean") {
-    throw new NodError("INVALID_ARGS", "PR 連動は true か false で指定してください");
-  }
-  if (input.commitReview !== undefined && typeof input.commitReview !== "boolean") {
-    throw new NodError("INVALID_ARGS", "コミット連動は true か false で指定してください");
-  }
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const current = readSettings(ctx.db, workspace);
     ctx.db
       .query(
-        `UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?, pr_review_enabled = ?, commit_review_enabled = ?,
+        `UPDATE workspaces SET auto_close_days = ?, auto_archive_days = ?,
           automation_updated_at = ?, automation_updated_by = ? WHERE id = ?`,
       )
       .run(
         input.closeAfterDays !== undefined ? input.closeAfterDays : current.closeAfterDays,
         input.archiveAfterDays !== undefined ? input.archiveAfterDays : current.archiveAfterDays,
-        (input.prReview ?? current.prReview) ? 1 : 0,
-        (input.commitReview ?? current.commitReview) ? 1 : 0,
         now(),
         ctx.actor,
         workspace.id,
@@ -217,39 +204,9 @@ type Finder = (days: number, issueId?: number) => Found[];
 // 実行1件の結果。true は変更した、false は条件から外れていた、文字列は遷移ルール（#73）で止めた理由
 type ActResult = boolean | string;
 
-// PR 連動（#66）。保存済みの PR 状態（Issue の現在の PR URL のもの）で評価し、gh は呼ばない
-function prReviewCandidates(db: Database, workspace: Workspace, current: number, issueId?: number): Found[] {
-  return prReviewTargets(db, workspace.id, issueId).flatMap((t) => {
-    const at = recordedTimestamp(t.fetched_at);
-    if (at === null) return [];
-    const found = candidateOf(workspace, t, at, current);
-    found.candidate.prUrl = t.pr_url;
-    found.candidate.prState = t.state;
-    return [found];
-  });
-}
-
 // 遷移ルール（#73）で止まる遷移なら、その理由（スキップとして報告する）
 function ruleSkip(ctx: OpCtx, row: IssueRow, to: Status): string | null {
   return transitionBlockReason(ctx.db, { id: row.workspace_id, key: row.ws_key }, row.status, to);
-}
-
-function prReviewOne(ctx: OpCtx, find: Finder, ref: string): ActResult {
-  return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
-    const found = find(0, row.id)[0];
-    if (!found?.candidate.prUrl || !found.candidate.prState) return false;
-    const skip = ruleSkip(ctx, row, "in_review");
-    if (skip) return skip;
-    applyAutoTransition(ctx, row, {
-      source: "pr",
-      sourceKey: found.candidate.prUrl,
-      reason: prReviewReason(found.candidate.prState),
-      automation: "pr_review",
-      mergeCandidate: found.candidate.prState === "MERGED",
-    });
-    return true;
-  });
 }
 
 // 自動クローズ1件。候補を探してから処理するまでにほかの操作で変わりうるので、書き込む transaction の中で
@@ -346,7 +303,7 @@ function validateTargets(targets: AutomationTargets | undefined): void {
       `targets.recurring は ${AUTOMATION_LIMIT_MAX} 件以下の { recurringId: 定期Issueの id（正の整数）, occurrence: 確認時点の発生日（YYYY-MM-DD） } の配列で指定してください`,
     );
   }
-  for (const kind of ["auto_close", "auto_archive", "pr_review"] as const) {
+  for (const kind of ["auto_close", "auto_archive"] as const) {
     const list: unknown = targets[kind];
     if (list === undefined) continue;
     if (!Array.isArray(list) || list.length > AUTOMATION_LIMIT_MAX || !list.every((id) => typeof id === "string")) {
@@ -386,8 +343,7 @@ function applyRecurring(
 }
 
 // 有効なルールを1回だけ評価・実行する。定期Issueの起票（#32）を最初に行い、その回で起票した Issue はほかのルールの対象にしない。
-// 次に PR 連動を行い（PR がレビュー待ちの Issue を自動クローズしない）、
-// 次に自動クローズを行い、その回で閉じた Issue はアーカイブしない。結果の rules は auto_close・auto_archive・pr_review の順。
+// 次に自動クローズを行い、その回で閉じた Issue はアーカイブしない。結果の rules は auto_close・auto_archive の順。
 // targets を渡すと、各ルールはその Issue（確認時点の一覧）だけを扱い、limit は使わない。targets に一覧のないルールは何もしない
 export function runAutomation(
   ctx: OpCtx,
@@ -412,20 +368,6 @@ export function runAutomation(
   const recurring = applyRecurring(ctx, workspace, dryRun, current, opts.targets ? (opts.targets.recurring ?? []) : undefined);
   const created = new Set(recurring.items.flatMap((i) => (i.issueId === null ? [] : [i.issueId])));
   const notCreated = (found: Found[]) => found.filter((f) => !created.has(f.candidate.id));
-  // targets を渡したのに pr_review の一覧がなければ、確認していない PR 連動は実行しない
-  const prReview = applyRule(
-    ctx,
-    workspace,
-    "pr_review",
-    null,
-    settings.prReview,
-    dryRun,
-    limit,
-    opts.targets ? (opts.targets.pr_review ?? []) : undefined,
-    (_days, issueId) => notCreated(prReviewCandidates(ctx.db, workspace, current, issueId)),
-    (find, ref) => prReviewOne(ctx, find, ref),
-    "in_review",
-  );
   const close = applyRule(
     ctx,
     workspace,
@@ -453,5 +395,5 @@ export function runAutomation(
     (find, ref, days) => archiveOne(ctx, find, ref, days),
     null,
   );
-  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive, prReview], recurring };
+  return { evaluatedAt, workspaceKey: workspace.key, dryRun, rules: [close, archive], recurring };
 }

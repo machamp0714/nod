@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { completeIssue, startIssue } from "../src/ops/agent";
-import { createIssue, getIssue } from "../src/ops/issues";
-import { rejectReview } from "../src/ops/human";
+import { createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 test("完了の遷移は同じtxで作った報告comment IDを記録し、再完了でも更新する", () => {
@@ -9,10 +8,10 @@ test("完了の遷移は同じtxで作った報告comment IDを記録し、再�
   const issue = createIssue(me, { workspaceId: ws.id, title: "報告" });
   startIssue(llm, issue.id);
   completeIssue(llm, issue.id, { summary: "一回目" });
-  const reports = () => eventsOf(db, issue.id).filter(e => e.type === "status_changed" && e.data.to === "in_review");
+  const reports = () => eventsOf(db, issue.id).filter(e => e.type === "status_changed" && e.data.to === "done");
   const first = reports()[0]!.data.report_comment_id;
   expect(db.query("SELECT body FROM comments WHERE id = ?").get(first ?? -1)).toEqual({ body: "一回目" });
-  rejectReview(me, issue.id, "修正して");
+  updateIssue(me, issue.id, {status:"in_progress"});
   completeIssue(llm, issue.id, { summary: "二回目" });
   const last = reports().at(-1)!.data.report_comment_id;
   expect(last).not.toBe(first);

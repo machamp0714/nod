@@ -59,7 +59,6 @@ import {
   subscribeIssue,
   suggestIssue,
   takePendingInstructions,
-  getPendingRejection,
   unarchiveIssue,
   unsubscribeIssue,
   updateIssue,
@@ -83,7 +82,6 @@ import {
   formatIssueLines,
   formatIssueListLines,
   formatInstructions,
-  formatRejection,
   formatPlan,
   formatPrStatus,
   formatPrDiff,
@@ -330,7 +328,7 @@ export function registerIssueCommands(program: Command): void {
     .description("作業中の Issue に PR（draft を含む）を紐付ける。ステータスは変えない（draft PR を作った時点で使う）")
     .addHelpText(
       "after",
-      "\nWorkspace で PR 連動（nod automation set --pr-review on）が有効なら、紐付けたあとの nod issue pr-status --refresh で\nPR が open（draft 以外）かマージ済みのとき in_progress を in_review に進める（done にはしない）。",
+      "\nPR の紐付けと状態取得は Issue のステータスを変更しません。",
     )
     .action(
       act((cli, _cmd, id: string, url: string) => {
@@ -496,7 +494,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("instructions <id>")
-    .description("追加指示・差し戻しの対応依頼と、その送信・確認の状態を一覧する")
+    .description("追加指示と、その送信・確認の状態を一覧する")
     .action(
       act((cli, _cmd, id: string) => {
         const list = listInstructions(cli.db, id);
@@ -579,7 +577,7 @@ export function registerIssueCommands(program: Command): void {
       return days;
     })
     .option("--project <project>", "Project の中を診断する")
-    .addHelpText("after", "\n停滞候補は in_progress / in_review / needs_clarification が対象です。実際の作業停止は断定しません。")
+    .addHelpText("after", "\n停滞候補は in_progress / needs_clarification が対象です。実際の作業停止は断定しません。")
     .action(act((cli, cmd, o: { staleDays: number; project?: string }) => {
       const result = diagnoseIssues(cli.db, {
         workspaceId: currentWorkspace(cli, cmd).id, projectRef: o.project, staleDays: o.staleDays,
@@ -633,17 +631,13 @@ export function registerIssueCommands(program: Command): void {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
         const rules = workspaceGuidance(cli.db, started.workspace);
-        // 差し戻しの対応依頼・追加指示（#51・#58）。LLM が受け取ると確認済みになる
+        // 追加指示。LLM が受け取ると確認済みになる
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
-        // 再提出するまで、差し戻しの理由を start のたびに出す（#177）。対応依頼を渡す回は、その本文に理由があるので重ねない
-        const rejection = getPendingRejection(cli.db, started.id);
-        const delegated = rejection?.delegate && pendingInstructions.some((i) => i.kind === rejection.delegate);
         const text = [
           `着手しました: ${formatIssueLine(started)}`,
-          ...(rejection && !delegated ? ["", ...formatRejection(rejection)] : []),
           ...(pendingInstructions.length ? ["", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)] : []),
         ].join("\n");
-        print(cli, { ...withRules(started, rules), pendingInstructions, rejection }, () => withRulesText(text, rules));
+        print(cli, { ...withRules(started, rules), pendingInstructions }, () => withRulesText(text, rules));
       }),
     );
 
@@ -710,14 +704,14 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("done <id>")
-    .description("作業を終え、人のレビューに回す")
+    .description("作業を終え、Issue を完了にする")
     .requiredOption("--summary <text>", "やったことの要約")
     .option("--pr <url>", "PR の URL")
     .action(
       actAsync(async (cli, _cmd, id: string, o: { summary: string; pr?: string }) => {
         const done = completeIssue(cli.ctx, id, { summary: o.summary, prUrl: o.pr });
-        await notifyIfLlm(cli, { status: "in-review", comment: `レビュー待ち: ${done.id} ${done.title}` });
-        print(cli, done, () => `レビューに回しました: ${formatIssueLine(done)}`);
+        await notifyIfLlm(cli, { status: "done", comment: `完了: ${done.id} ${done.title}` });
+        print(cli, done, () => `完了しました: ${formatIssueLine(done)}`);
       }),
     );
 

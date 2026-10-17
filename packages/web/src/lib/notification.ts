@@ -42,7 +42,7 @@ export function describeNotification(n: Notification, opts: { short?: boolean; s
     case "agent_state_changed": {
       // 主語は操作した人ではなく、作業を任された担当（data.agent）
       const agent = typeof d.agent === "string" ? d.agent : who;
-      if (to === "done") return `${agent} が作業を完了しました（レビュー待ち）`;
+      if (to === "done") return `${agent} が作業を完了しました`;
       if (to === "awaiting_input") return `${agent} が確認を求めました（入力待ち）${quote(d.reason)}`;
       if (to === "error") return `${agent} がエラーで止まりました（エラー）${quote(d.reason)}`;
       return `${agent} ${n.eventType}`;

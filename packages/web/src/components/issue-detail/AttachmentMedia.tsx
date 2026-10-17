@@ -120,20 +120,3 @@ export function AttachmentMediaBlock({ attachments }: { attachments: IssueAttach
   if (items.length === 0) return null;
   return <div className={s.inline}><p className={s.label}>メディア</p><MediaGallery items={items} /></div>;
 }
-
-// nod.pen「Reviews｜添付メディア（#55）」。変更ファイルの直前に置き、同じ見出しの体裁で折りたためる
-export function ReviewMediaSection({ attachments }: { attachments: IssueAttachment[] }) {
-  const [open, setOpen] = useState(true);
-  const items = mediaAttachments(attachments);
-  if (items.length === 0) return null;
-  return <section className={s.section} aria-label="添付メディア">
-    <div className={s.head}>
-      <button type="button" className={s.toggle} aria-expanded={open} aria-label={open ? "添付メディアを閉じる" : "添付メディアを開く"} onClick={() => setOpen(!open)}>
-        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
-      </button>
-      <h2 className={s.title}>添付メディア</h2>
-      <span className={s.count}>{items.length}</span>
-    </div>
-    {open && <MediaGallery items={items} />}
-  </section>;
-}

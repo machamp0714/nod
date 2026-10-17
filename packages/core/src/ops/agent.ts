@@ -9,7 +9,6 @@ import { assertTransitionAllowed } from "../transition-rules";
 import { collapseIntoAgentNotification, lastNotificationId } from "../notify";
 import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
-import { markPrLinked } from "./pr-status";
 import { resolveProject } from "./projects";
 import { isWorkspaceSpecAssessmentEnabled } from "./spec-assessment";
 
@@ -181,13 +180,13 @@ export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; 
     if (row.status !== "in_progress") {
       throw new NodError(
         "NOT_IN_PROGRESS",
-        `${ref} は ${row.status} です。着手中（in_progress）の Issue だけをレビューに回せます`,
+        `${ref} は ${row.status} です。着手中（in_progress）の Issue だけを完了できます`,
       );
     }
     const since = lastNotificationId(ctx.db);
     const report = addComment(ctx, row, opts.summary);
-    if (opts.prUrl && setColumn(ctx, row, "pr_url", opts.prUrl)) markPrLinked(ctx, row.id);
-    setColumn(ctx, row, "status", "in_review", { report_comment_id: report.id });
+    if (opts.prUrl) setColumn(ctx, row, "pr_url", opts.prUrl);
+    setColumn(ctx, row, "status", "done", { report_comment_id: report.id });
     setColumn(ctx, row, "agent_state", "done");
     collapseIntoAgentNotification(ctx.db, row.id, since);
     return toIssue(issueRowById(ctx.db, row.id));

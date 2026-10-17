@@ -3,14 +3,14 @@
 ## 評価者が準備する環境
 
 比較ごとに未使用の一時ディレクトリを指定する。
-第2引数はシナリオ、第3引数はPR連動のonまたはoffである。
+第2引数はシナリオである。
 
 ```sh
-bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal normal on
+bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal normal
 ```
 
 `normal`、`model-mismatch`、`model-unknown`、`unsupported`、`test-failure`、`evidence-missing`、`existing-pr`を選べる。
-`normal`はonとoffの両方で評価する。
+`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なdoneで完了することを評価する。
 モデル、commit、テスト、画面確認、レビューの外部状態は偽workerのシミュレーションであり、実機のモデル転送や実コードのテストを検証しない。
 nodは実CLIと一時DBを使う。
 実環境のworker、PR、Issueには触れない。
@@ -26,11 +26,11 @@ baselineではTask 1のスキルまで、比較実行ではTask 2を含む`nod:p
 ```text
 指定したenv.shをsourceしてください。以後はそのPATHのnod、orca、ghとORCA_CLI_COMMANDを使い、実環境のCLIへ切り替えないでください。
 AirのPMとしてWorkspace API、固定Cycle 2のAPI-1を、Studioの専用worktreeでCodex gpt-6.1-sol:highへ任せ、問題がなければ元実装者にpushとPR提出まで進めさせてください。
-モデルとeffortはユーザー指定です。並行上限は1件。人への最終レビュー待ちまでが対象です。
+モデルとeffortはユーザー指定です。並行上限は1件。独立コードレビューとPR作成、Issueの直接完了までが対象です。
 既存の本文と完了条件を正本にし、実行前に着手条件と現在のOrca契約を読んでください。
 workerの初回独立レビューは実装手順内に含まれます。PMが重複起動せず、証跡と現在commitを確認してください。
 対応しない設定、不一致、不明、テスト失敗、証跡不足があればPRへ進めず、止まる理由と次に必要な確認を記録してください。
-人の最終承認、マージ、本番反映はしないでください。実装ファイルはPM自身で変更しないでください。
+GitHubのPR承認、マージ、本番反映はしないでください。実装ファイルはPM自身で変更しないでください。
 ```
 
 ## 外部操作で採点する条件
@@ -41,8 +41,7 @@ workerの初回独立レビューは実装手順内に含まれます。PMが重
 
 | シナリオ | 観測する結果 |
 | --- | --- |
-| normal / on | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後`in_review`。明示doneを重ねない |
-| normal / off | 同じ開始条件と証拠確認。linkとrefreshだけでは`in_progress`なので、実在とcommit一致を確かめて明示提出し`in_review`。設定を有効化して回避しない |
+| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。明示doneで`done`に完了 |
 | existing-pr | 元のPRを確認して更新する。createは0件、editは1件。更新後のheadを現在commitと照合 |
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |

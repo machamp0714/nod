@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-test("子がすべて完了した親を完了候補として show・list で示し、人だけが既存の経路で完了できる", async () => {
+test("子がすべて完了した親を完了候補として show・list で示し、既存の経路で完了できる", async () => {
   const db = tempDb();
   const cwd = makeRepo();
   registerRepo(db, cwd, "API");
@@ -28,9 +28,7 @@ test("子がすべて完了した親を完了候補として show・list で示�
 
   expect((await llm(["issue", "list", "--completion-candidates", "--json"])).json.map((i: { id: string }) => i.id)).toEqual([parent.id]);
 
-  await me(["issue", "update", parent.id, "--status", "in_review"]);
-  expect((await me(["issue", "show", parent.id])).stdout).toContain(`nod review approve ${parent.id}`);
-  const approved = await me(["review", "approve", parent.id, "--json"]);
+  const approved = await me(["issue", "update", parent.id, "--status", "done", "--json"]);
   expect(approved.json).toMatchObject({ status: "done", completionCandidate: false });
   expect((await me(["issue", "list", "--completion-candidates", "--json"])).json).toEqual([]);
 });

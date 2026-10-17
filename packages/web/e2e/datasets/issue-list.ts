@@ -2,7 +2,6 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   answerQuestion,
-  approveReview,
   askQuestion,
   attachDocument,
   type CreateIssueInput,
@@ -131,7 +130,6 @@ const dataset: Dataset = ({ db, dir, repo, writeFile }) => {
     summary: "取り合いを UPDATE の件数で防いだ",
     prUrl: "https://github.com/example/nod/pull/12",
   });
-  approveReview(me, "NOD-3");
 
   issue(me, "NOD-5", { title: "Inbox の回答フォームを作る", priority: 3, projectRef: "3" });
   issue(me, "NOD-6", { title: "Sidebar に件数を表示する", projectRef: "3" });

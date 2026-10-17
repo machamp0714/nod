@@ -53,7 +53,7 @@ describe("filterRows", () => {
   test("委任中タブは担当が LLM で done/canceled 以外の Issue だけを出し、件数を数える", () => {
     const delegated = [
       row("API-1", "in_progress", { assignee: "claude-code" }),
-      row("API-2", "in_review", { assignee: "codex" }),
+      row("API-2", "todo", { assignee: "codex" }),
       row("API-3", "todo", { assignee: "me" }),
       row("API-4", "todo"),
       row("API-5", "done", { assignee: "codex" }),
@@ -90,10 +90,10 @@ describe("filterRows", () => {
 });
 
 describe("groupForBoard", () => {
-  test("6つの列を順に作り、Triage と Canceled を出さず、空の列も残す", () => {
+  test("5つの列を順に作り、Triage と Canceled を出さず、空の列も残す", () => {
     const columns = groupForBoard([row("API-1", "triage"), row("API-2", "canceled"), row("API-3", "todo"), row("API-4", "todo")]);
-    expect(columns.map((c) => c.status)).toEqual(["needs_clarification", "backlog", "todo", "in_progress", "in_review", "done"]);
-    expect(columns.map((c) => c.rows.length)).toEqual([0, 0, 2, 0, 0, 0]);
+    expect(columns.map((c) => c.status)).toEqual(["needs_clarification", "backlog", "todo", "in_progress", "done"]);
+    expect(columns.map((c) => c.rows.length)).toEqual([0, 0, 2, 0, 0]);
   });
 });
 

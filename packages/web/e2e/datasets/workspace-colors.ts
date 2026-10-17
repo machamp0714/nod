@@ -13,9 +13,9 @@ const dataset: Dataset = ({ db, repo }) => {
     const question = createIssue(me, { ...input, title: `${key} 回答待ち課題` });
     startIssue(codex, question.id);
     askQuestion(codex, question.id, "どの方式を使いますか");
-    const review = createIssue(me, { ...input, title: `${key} レビュー課題` });
-    startIssue(codex, review.id);
-    completeIssue(codex, review.id, { summary: `${key} の実装を完了しました` });
+    const completed = createIssue(me, { ...input, title: `${key} 完了課題` });
+    startIssue(codex, completed.id);
+    completeIssue(codex, completed.id, { summary: `${key} の実装を完了しました` });
   }
   createView(db, { name: "色の一覧", color: "#7C5CFF", filter: {} });
 };

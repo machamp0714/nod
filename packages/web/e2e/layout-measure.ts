@@ -41,7 +41,7 @@ export async function measureFilterBar(page: Page) {
   });
 }
 
-// Inbox、Reviews、Triage の一覧（幅 400 の列）。label は一覧の aria-label
+// Inbox、Triage の一覧（幅 400 の列）。label は一覧の aria-label
 export async function measureSplitList(page: Page, label: string) {
   return page.evaluate((listLabel) => {
     const list = document.querySelector(`section[aria-label="${listLabel}"]`) as HTMLElement;

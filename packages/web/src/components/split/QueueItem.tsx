@@ -18,7 +18,7 @@ export function QueueItem({
   selected,
   proposalCount = 0,
 }: {
-  to: "/inbox" | "/reviews" | "/triage";
+  to: "/inbox" | "/triage";
   tab?: InboxTab;
   issueId: string;
   title: string;

@@ -6,24 +6,20 @@ import { findWorkspace } from "./ops/workspaces";
 import { getStatusNames, statusDisplayName } from "./status-names";
 import { STATUSES, type Status, type Workspace } from "./types";
 
-// ステータスの遷移ルール（#73）。8状態は固定のまま、Workspace ごとに許可しない遷移を人が設定する。未設定なら制限なし。
-// ルールは制限を足すだけで、既存の保護（Triage の判断は人のみ、LLM は done にしない、レビュー承認）を緩めない
+// ステータスの遷移ルール（#73）。状態は固定のまま、Workspace ごとに許可しない遷移を人が設定する。未設定なら制限なし。
+// ルールは制限を足すだけで、既存の保護（Triage の判断は人のみ）を緩めない
 
 // needs_clarification は確認依頼に応じて core が切り替えるため、ルールの from・to に指定できない
 export const RULE_STATUSES: Status[] = STATUSES.filter((s) => s !== "needs_clarification");
 
-export const TRANSITION_PRESETS = ["review_before_done"] as const;
+export const TRANSITION_PRESETS = [] as const;
 export type TransitionPreset = (typeof TRANSITION_PRESETS)[number];
 
 export const TRANSITION_PRESET_LABELS: Record<TransitionPreset, string> = {
-  review_before_done: "done の前に in_review 必須",
 };
 
-// 塞ぐとレビュー依頼・承認・差し戻し・Triage の判断ができなくなる遷移。ルールで禁止できない
+// 塞ぐとTriage の判断ができなくなる遷移。ルールで禁止できない
 const PROTECTED_PAIRS: { from: Status; to: Status; why: string }[] = [
-  { from: "in_review", to: "done", why: "レビュー承認に必要" },
-  { from: "in_progress", to: "in_review", why: "レビュー依頼（nod issue done）に必要" },
-  { from: "in_review", to: "in_progress", why: "レビューの差し戻しに必要" },
   { from: "triage", to: "todo", why: "Triage の受け入れに必要" },
   { from: "triage", to: "canceled", why: "Triage の却下・重複に必要" },
 ];
@@ -129,12 +125,6 @@ export function transitionViolation(db: Database, workspaceId: number, from: Sta
     .query("SELECT 1 FROM workspace_transition_rules WHERE workspace_id = ? AND from_status = ? AND to_status = ?")
     .get(workspaceId, from, to);
   if (pair) return { kind: "forbidden" };
-  if (to === "done" && from !== "in_review") {
-    const preset = db
-      .query("SELECT 1 FROM workspace_transition_presets WHERE workspace_id = ? AND preset = 'review_before_done'")
-      .get(workspaceId);
-    if (preset) return { kind: "preset", preset: "review_before_done" };
-  }
   return null;
 }
 

@@ -52,14 +52,13 @@ export function summaryQueryString(search: SummarySearch, limit: number): string
 }
 
 // 画面の区分。質問と回答は1つにまとめる
-export type SummaryGroup = "completed" | "canceled" | "started" | "submitted" | "rejected" | "qa" | "created" | "archived" | "blocker";
+export type SummaryGroup = "completed" | "canceled" | "started" | "submitted" | "qa" | "created" | "archived" | "blocker";
 
 const GROUP_KINDS: Record<SummaryGroup, readonly SummaryKind[]> = {
   completed: ["completed"],
   canceled: ["canceled"],
   started: ["started"],
   submitted: ["submitted"],
-  rejected: ["rejected"],
   qa: ["asked", "answered"],
   created: ["created"],
   archived: ["archived"],
@@ -70,8 +69,7 @@ export const GROUP_LABEL: Record<SummaryGroup, string> = {
   completed: "完了",
   canceled: "キャンセル",
   started: "着手",
-  submitted: "レビュー提出",
-  rejected: "差し戻し",
+  submitted: "完了報告",
   qa: "質問/回答",
   created: "新規起票",
   archived: "アーカイブ",
@@ -79,8 +77,8 @@ export const GROUP_LABEL: Record<SummaryGroup, string> = {
 };
 
 // 件数カードの並び（nod.pen の Kind Counts）と、一覧の並び（人の対応が要るものから）
-export const CARD_ORDER: readonly SummaryGroup[] = ["completed", "canceled", "started", "submitted", "rejected", "qa", "created", "archived", "blocker"];
-export const SECTION_ORDER: readonly SummaryGroup[] = ["blocker", "rejected", "qa", "completed", "submitted", "started", "created", "canceled", "archived"];
+export const CARD_ORDER: readonly SummaryGroup[] = ["completed", "canceled", "started", "submitted", "qa", "created", "archived", "blocker"];
+export const SECTION_ORDER: readonly SummaryGroup[] = ["blocker", "qa", "completed", "submitted", "started", "created", "canceled", "archived"];
 
 export interface SummaryGroupView {
   group: SummaryGroup;
@@ -127,8 +125,6 @@ export function summaryTime(at: string, now: Date): string {
 // 行の補足。遷移はステータスの表示名で、理由・質問・回答は前置きを付ける
 export function summaryNote(item: SummaryItem, statusLabel: (status: Status) => string): string {
   switch (item.kind) {
-    case "rejected":
-      return item.detail ? `理由: ${item.detail}` : "";
     case "asked":
       return item.detail ? `質問: ${item.detail}` : "";
     case "answered":

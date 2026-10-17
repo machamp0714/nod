@@ -18,7 +18,7 @@ export function PrPill({ spec }: { spec: PillSpec }) {
   );
 }
 
-// 保存済みの PR 状態と「更新」の状態。プロパティの PR 状態と Reviews の「GitHub の状態」で共通
+// 保存済みの PR 状態と「更新」の状態
 export function usePrStatusView(issueId: string) {
   const query = usePrStatus(issueId);
   const refresh = useRefreshPrStatus(issueId);

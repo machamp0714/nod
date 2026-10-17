@@ -6,12 +6,10 @@ import { attachDocument, detachDocument, getDocument, unlinkDocumentById } from 
 import {
   acceptTriage,
   answerQuestion,
-  approveReview,
   declineTriage,
   duplicateTriage,
   getInbox,
   listTriage,
-  rejectReview,
   snoozeTriage,
 } from "../src/ops/human";
 import {
@@ -127,7 +125,6 @@ test("アーカイブ済みは next・suggest・Triage・Inbox・Project の件�
   expect(listTriage(db)).toEqual([]);
   const inbox = getInbox(db, { includeAnswered: true });
   expect(inbox.questions).toEqual([]);
-  expect(inbox.reviews).toEqual([]);
   const project = getProject(db, "P");
   expect(project.issues).toEqual([]);
   expect(project.total).toBe(0);
@@ -208,8 +205,6 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
     ["unlink", () => unlinkDocumentById(me, attached.id, { issueRef: issue.id })],
     ["start", () => startIssue(llm, issue.id)],
     ["fail", () => failIssue(llm, issue.id, "失敗")],
-    ["approve", () => approveReview(me, issue.id)],
-    ["reject", () => rejectReview(me, issue.id, "差し戻し")],
     ["estimate", () => updateIssue(me, issue.id, { estimate: 3 })],
     ["due date", () => updateIssue(me, issue.id, { dueDate: "2026-10-01" })],
   ];

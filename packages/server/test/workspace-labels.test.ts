@@ -56,7 +56,7 @@ describe("ステータス表示名API", () => {
   test("GET・PUT で表示名を読み書きし、全 Workspace 分も返す", async () => {
     const { app, db, ws } = setup();
     expect((await call(app, "GET", `/api/workspaces/${ws.key}/status-names`)).json).toEqual({ workspaceKey: ws.key, names: {} });
-    const put = await call(app, "PUT", `/api/workspaces/${ws.key}/status-names`, { names: { todo: " 着手可 ", done: null, in_review: "" } });
+    const put = await call(app, "PUT", `/api/workspaces/${ws.key}/status-names`, { names: { todo: " 着手可 ", done: null, in_progress: "" } });
     expect(put.status).toBe(200);
     expect(put.json).toEqual({ workspaceKey: ws.key, names: { todo: "着手可" } });
     expect(getStatusNames(db, ws.key).names).toEqual({ todo: "着手可" });

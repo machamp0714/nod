@@ -14,7 +14,7 @@ import {
 } from "../types";
 import { agentTerminals, listOrcaTerminals, ORCA_TIMEOUT_MS, orcaFailure, type OrcaRunner, readOrcaEnvelope } from "./orca";
 
-// LLM への追加指示（#51）と差し戻しの対応依頼（#58）。記録と送信は人だけが行い、送信は人の明示操作でだけ行う（自動送信はしない）。
+// LLM への追加指示（#51）。記録と送信は人だけが行い、送信は人の明示操作でだけ行う（自動送信はしない）。
 // 端末には本文ではなく、nod で読むよう促す短い定型文を送る。本文の正本は nod のコメントである
 
 export const INSTRUCTION_KIND_LABEL: Record<AgentInstructionKind, string> = {
@@ -27,7 +27,6 @@ export const INSTRUCTION_KIND_LABEL: Record<AgentInstructionKind, string> = {
 // 送信中の操作が終わる前に結果不明にして送り直せないよう、orca の時間切れより十分長くする
 export const SENDING_STALE_MS = 60_000;
 const SEND_OUTPUT_MAX_BYTES = 1024 * 1024;
-const SUMMARY_MAX = 100;
 
 interface InstructionRow {
   id: number;
@@ -115,19 +114,19 @@ function requireHuman(ctx: OpCtx, what: string): void {
   if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", `LLM は${what}できません。追加指示の記録と送信は me が行います`);
 }
 
-// 追加指示を記録する（送信はしない）。rejectReview の対応依頼からも、差し戻しと同じトランザクションの中で呼ぶ
-export function addInstruction(ctx: OpCtx, row: IssueRow, body: string, kind: AgentInstructionKind): AgentInstruction {
+// 追加指示を記録する（送信はしない）。
+function addInstruction(ctx: OpCtx, row: IssueRow, body: string): AgentInstruction {
   const comment = addComment(ctx, row, body);
   const { lastInsertRowid } = ctx.db
     .query("INSERT INTO agent_instructions (issue_id, comment_id, kind, created_by, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(row.id, comment.id, kind, ctx.actor, comment.createdAt);
+    .run(row.id, comment.id, "instruction", ctx.actor, comment.createdAt);
   return toInstruction(instructionRow(ctx.db, Number(lastInsertRowid)) as InstructionRow);
 }
 
 export function recordInstruction(ctx: OpCtx, ref: string, body: string): AgentInstruction {
   requireHuman(ctx, "追加指示を記録");
   requireText(body, "追加指示の本文");
-  return tx(ctx.db, () => addInstruction(ctx, findWritableIssueRow(ctx.db, ref), body, "instruction"));
+  return tx(ctx.db, () => addInstruction(ctx, findWritableIssueRow(ctx.db, ref), body));
 }
 
 export function isAgentInstructionKind(value: string): value is AgentInstructionKind {
@@ -145,26 +144,14 @@ export async function getAgentTargets(db: Database, ref: string, run: OrcaRunner
   return { issueId, worktree: row.worktree, terminals, failure: terminals.length === 0 ? orcaFailure("NO_TERMINAL") : null };
 }
 
-function firstLine(text: string): string {
-  const line = text.trim().split("\n")[0]?.trim() ?? "";
-  const chars = [...line];
-  return chars.length <= SUMMARY_MAX ? line : `${chars.slice(0, SUMMARY_MAX - 1).join("")}…`;
-}
-
 // 端末の入力として解釈される文字（\r・ESC などの制御文字）。定型文から除き、改行や端末の操作として働かないようにする
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]+/g;
 
 // 端末に送る定型文。全文は nod に残るので、エスケープや長文の問題を避けるため短くし、制御文字を除く
 export function instructionMessage(instruction: AgentInstruction): string {
   const id = instruction.issueId;
-  if (instruction.kind === "instruction") {
-    return `nod: ${id} に追加指示があります（#${instruction.id}）。nod issue show ${id} で読んでください`.replace(CONTROL_CHARS, " ");
-  }
-  const reason = firstLine(instruction.body.replace(/^.*\n理由: /s, ""));
-  return `nod: ${id} が差し戻されました。${INSTRUCTION_KIND_LABEL[instruction.kind]}: ${reason}。nod issue start ${id} で再開し、nod issue show ${id} で指示を読んでください`.replace(
-    CONTROL_CHARS,
-    " ",
-  );
+  // 旧対応依頼も通常の追加指示として読み、廃止した再提出フローへは案内しない。
+  return `nod: ${id} に追加指示があります（#${instruction.id}）。nod issue show ${id} で読んでください`.replace(CONTROL_CHARS, " ");
 }
 
 // 受付の結果から accepted と受付 ID を探す（orca の版によって置き場所が違うため、浅い階層だけを探す）

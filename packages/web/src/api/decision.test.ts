@@ -10,14 +10,11 @@ describe("actionRequest", () => {
     });
   });
 
-  test("承認と受け入れは空のオブジェクトを送る", () => {
-    expect(actionRequest({ op: "approve", issueId: "API-1" })).toEqual({ path: "/issues/API-1/approve", body: {} });
+  test("受け入れは空のオブジェクトを送る", () => {
     expect(actionRequest({ op: "accept", issueId: "API-1" })).toEqual({ path: "/issues/API-1/accept", body: {} });
   });
 
-  test("差し戻し、重複、後回しは server のキーで送る", () => {
-    expect(actionRequest({ op: "reject", issueId: "API-1", reason: "テストが足りない" }).body).toEqual({ reason: "テストが足りない" });
-    expect(actionRequest({ op: "reject", issueId: "API-1", reason: " x ", delegate: "rebase" }).body).toEqual({ reason: "x", delegate: "rebase" });
+  test("重複、後回しは server のキーで送る", () => {
     expect(actionRequest({ op: "duplicate", issueId: "API-1", original: " api-2 " }).body).toEqual({ original: "api-2" });
     expect(actionRequest({ op: "snooze", issueId: "API-1", until: "2026-10-01" }).body).toEqual({ until: "2026-10-01" });
   });
@@ -36,11 +33,11 @@ describe("postDecision と fetchInbox", () => {
       calls.push({ url, init });
       return new Response("{}", { status: 200 });
     };
-    await postDecision({ op: "approve", issueId: "API-1" }, fetchImpl);
+    await postDecision({ op: "accept", issueId: "API-1" }, fetchImpl);
     await fetchInbox(fetchImpl);
     await fetchOpenQuestions(fetchImpl);
     expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
-      ["POST", "/api/issues/API-1/approve"],
+      ["POST", "/api/issues/API-1/accept"],
       ["GET", "/api/inbox"],
       ["GET", "/api/open-questions?askedBy=me"],
     ]);

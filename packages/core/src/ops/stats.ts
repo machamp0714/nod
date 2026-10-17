@@ -23,7 +23,7 @@ export interface StatsQuery {
   now?: Date; // テスト用。既定の範囲の基準
 }
 
-// 作業時間の集計。Reviews と同じく、記録から求められない Issue は unrecorded に数える
+// 作業時間の集計。記録から求められない Issue は unrecorded に数える
 export interface WorkTime {
   measured: number;
   unrecorded: number;
@@ -196,11 +196,11 @@ export function issueScope(
   return { where: where.map((w) => ` AND ${w}`).join(""), params };
 }
 
-// 作業時間の終点。Reviews と同じく最後のレビュー提出、なければ完了時刻
+// 作業時間の終点。最後の完了報告（旧記録はレビュー提出）、なければ完了時刻
 export const WORK_END_SQL = `COALESCE((SELECT e.created_at FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
-  AND json_extract(e.data, '$.to') = 'in_review' ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
+  AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL)) ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
 
-// 分単位の作業時間。Reviews の表示と同じく分未満を切り捨て、記録から求められなければ null
+// 分単位の作業時間。分未満を切り捨て、記録から求められなければ null
 export function workMinutes(startedAt: string | null, endAt: string | null): number | null {
   const start = recordedTimestamp(startedAt);
   const end = recordedTimestamp(endAt);
@@ -274,7 +274,7 @@ export interface LlmBucket {
   start: string;
   end: string;
   assigned: number; // その LLM が担当になった回数（自分で取った・人が割り当てたの両方）
-  submitted: number; // その LLM がレビューに回した回数
+  submitted: number; // その LLM が完了報告した回数（旧レビュー提出を含む）
   completed: number; // その LLM に帰属する done の件数
   work: WorkTime;
 }
@@ -296,7 +296,7 @@ export function llmAssignee(alias: string): string {
 }
 const LLM_ASSIGNEE = llmAssignee("e");
 
-// LLM ごとの作業量。LLM は done にできないため、完了は closed_at 以前で最後に LLM を担当にした記録へ帰属させる
+// LLM ごとの作業量。完了は closed_at 以前で最後に LLM を担当にした記録へ帰属させる
 export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
   const frame = statsFrame(q);
   const scope = issueScope(db, q);
@@ -315,7 +315,7 @@ export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
   const events = db.query(`SELECT e.type, e.actor, json_extract(e.data, '$.to') AS "to", e.created_at
     FROM events e JOIN issues i ON i.id = e.issue_id
     WHERE ((e.type = 'assignee_changed' AND ${LLM_ASSIGNEE})
-      OR (e.type = 'status_changed' AND e.actor <> ? AND json_extract(e.data, '$.to') = 'in_review'))
+      OR (e.type = 'status_changed' AND e.actor <> ? AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
       AND e.created_at >= ? AND e.created_at < ?${scope.where}`)
     .all(HUMAN_ACTOR, frame.since, frame.until, ...scope.params) as
     { type: string; actor: string; to: string; created_at: string }[];

@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
-import { answerQuestion, rejectReview, approveReview } from "../src/ops/human";
+import { answerQuestion } from "../src/ops/human";
 import { archiveIssue, createIssue, logWork, updateIssue } from "../src/ops/issues";
 import { createProject } from "../src/ops/projects";
 import { initWorkspace } from "../src/ops/workspaces";
@@ -63,9 +63,6 @@ describe("recentSummary（期間の要約）", () => {
     askQuestion(llm, a.id, "どちらの API を使う？");
     answerQuestion(me, a.id, "新しい方");
     completeIssue(llm, a.id, { summary: "実装しました" });
-    rejectReview(me, a.id, "テストが足りない");
-    completeIssue(llm, a.id, { summary: "テストを足しました" });
-    approveReview(me, a.id);
     updateIssue(me, b.id, { status: "canceled" });
     backdate(db, "2026-09-30T10:00:00.000Z");
 
@@ -75,18 +72,17 @@ describe("recentSummary（期間の要約）", () => {
       completed: [1, 0, 1],
       canceled: [1, 1, 0],
       started: [1, 0, 1], // 差し戻しによる in_progress は着手に数えない
-      submitted: [2, 0, 2],
-      rejected: [1, 1, 0],
+      submitted: [0, 0, 0],
+      rejected: [0, 0, 0],
       asked: [1, 0, 1],
       answered: [1, 1, 0],
       created: [2, 1, 1],
     });
-    expect(section(s, "rejected").items[0]).toMatchObject({ actor: "me", actorKind: "human", detail: "テストが足りない" });
     expect(section(s, "asked").items[0]).toMatchObject({ actor: "claude-code", actorKind: "llm", detail: "どちらの API を使う？" });
     // 完了は人が確定するが、担当の LLM に帰属させる。キャンセルは担当がいなければ書き手のまま
     expect(section(s, "completed").items[0]).toMatchObject({
       issueId: a.id, title: "a", assignee: "claude-code", status: "done",
-      actor: "claude-code", actorKind: "llm", recordedBy: "me", from: "in_review", to: "done",
+      actor: "claude-code", actorKind: "llm", recordedBy: "claude-code", from: "in_progress", to: "done",
     });
     expect(section(s, "canceled").items[0]).toMatchObject({ actor: "me", actorKind: "human", recordedBy: "me" });
     expect(s.totals.total).toBe(s.sections.reduce((n, x) => n + x.total, 0));
@@ -155,35 +151,15 @@ describe("recentSummary（期間の要約）", () => {
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "実装しました" });
     updateIssue(me, a.id, { assignee: "me" });
-    approveReview(me, a.id);
     updateIssue(me, b.id, { assignee: "me" });
     updateIssue(me, b.id, { status: "in_progress" });
-    updateIssue(me, b.id, { status: "in_review" });
-    approveReview(me, b.id);
+    updateIssue(me, b.id, { status: "done" });
     backdate(db, "2026-09-30T10:00:00.000Z");
     const items = section(recentSummary(db, { now: NOW }), "completed").items;
     expect(items.map((x) => [x.issueId, x.assignee, x.actor, x.actorKind, x.recordedBy])).toEqual([
       [b.id, "me", "me", "human", "me"],
-      [a.id, "me", "claude-code", "llm", "me"],
+      [a.id, "me", "claude-code", "llm", "claude-code"],
     ]);
-  });
-
-  test("手動の in_review→in_progress は着手に数え、差し戻しによる遷移だけを除く", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "1回目" });
-    rejectReview(me, a.id, "足りない");
-    updateIssue(me, b.id, { status: "in_review" });
-    updateIssue(me, b.id, { status: "in_progress" });
-    backdate(db, "2026-09-30T10:00:00.000Z");
-    const s = recentSummary(db, { now: NOW });
-    expect(section(s, "started").items.map((x) => [x.issueId, x.from, x.to])).toEqual([
-      [b.id, "in_review", "in_progress"],
-      [a.id, "todo", "in_progress"],
-    ]);
-    expect(section(s, "rejected").items.map((x) => x.issueId)).toEqual([a.id]);
   });
 
   test("期間の両端ちょうどの動きを含め、1ms 外は含めない", () => {

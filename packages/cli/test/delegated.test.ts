@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 // API: API-1 を claude-code が着手、API-2 を codex に割り当て、API-3 は私の担当、API-4 は codex で done
-// WEB: WEB-1 を codex に割り当てて In Review
+// WEB: WEB-1 を codex に割り当てて Todo
 async function seed() {
   const db = tempDb();
   const api = makeRepo("api-server");
@@ -12,12 +12,12 @@ async function seed() {
   const me = (args: string[], cwd = api) => runNod(args, { cwd, db });
   const claude = (args: string[], cwd = api) => runNod(args, { cwd, db, actor: "claude-code" });
   for (const title of ["着手済み", "割り当てだけ", "私の担当", "完了"]) await me(["issue", "create", title]);
-  await me(["issue", "create", "レビュー待ち"], web);
+  await me(["issue", "create", "委任した作業"], web);
   await claude(["issue", "start", "API-1"]);
   await me(["issue", "update", "API-2", "--assignee", "codex"]);
   await me(["issue", "update", "API-3", "--assignee", "me"]);
   await me(["issue", "update", "API-4", "--assignee", "codex", "--status", "done"]);
-  await me(["issue", "update", "WEB-1", "--assignee", "codex", "--status", "in_review"]);
+  await me(["issue", "update", "WEB-1", "--assignee", "codex", "--status", "todo"]);
   return { db, api, me };
 }
 
@@ -45,14 +45,14 @@ describe("nod issue list --delegated", () => {
     expect(lines[2]).toBe("");
     expect(lines[3]).toBe("codex（2件: 未着手 2）");
     expect(lines[4]).toMatch(/^ {2}API-2 {2}Todo.* {2}割り当てだけ$/);
-    expect(lines[5]).toMatch(/^ {2}WEB-1 {2}In Review.* {2}レビュー待ち$/);
+    expect(lines[5]).toMatch(/^ {2}WEB-1 {2}Todo.* {2}委任した作業$/);
     expect(lines).toHaveLength(6);
   });
 
   test("ほかの条件と組み合わせられ、該当がなければその旨を出す", async () => {
     const { me } = await seed();
-    const review = await me(["issue", "list", "--delegated", "--status", "in_review", "--json"]);
-    expect(review.json.map((i: { id: string }) => i.id)).toEqual(["WEB-1"]);
+    const review = await me(["issue", "list", "--delegated", "--status", "todo", "--json"]);
+    expect(review.json.map((i: { id: string }) => i.id)).toEqual(["API-2", "WEB-1"]);
     const none = await me(["issue", "list", "--delegated", "--query", "該当なし"]);
     expect(none.stdout.trim()).toBe("LLM に委任中の Issue はありません");
   });

@@ -1,3 +1,4 @@
+import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
 import { migrateWorkspaceColorsV2 } from "./migrations/workspace-colors-v2";
@@ -636,4 +637,5 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE workspaces ADD COLUMN spec_assessment_enabled INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE issues ADD COLUMN spec_assessment TEXT`,
   ],
+  [removeReview],
 ];

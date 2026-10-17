@@ -68,7 +68,7 @@ describe("summaryGroups", () => {
   });
 
   test("一覧は人の対応が要る区分から並べる", () => {
-    expect(SECTION_ORDER.slice(0, 3)).toEqual(["blocker", "rejected", "qa"]);
+    expect(SECTION_ORDER.slice(0, 3)).toEqual(["blocker", "qa", "completed"]);
   });
 });
 
@@ -81,10 +81,9 @@ describe("行の表示", () => {
 
   test("補足は種類ごとに前置きや遷移を付ける", () => {
     const label = (s: string) => s.toUpperCase();
-    expect(summaryNote(item("rejected", "", { detail: "テスト不足" }), label)).toBe("理由: テスト不足");
     expect(summaryNote(item("asked", "", { detail: "どれ？" }), label)).toBe("質問: どれ？");
     expect(summaryNote(item("answered", "", { detail: "A" }), label)).toBe("回答: A");
-    expect(summaryNote(item("completed", "", { from: "in_review", to: "done" }), label)).toBe("IN_REVIEW → DONE");
+    expect(summaryNote(item("completed", "", { from: "in_progress", to: "done" }), label)).toBe("IN_PROGRESS → DONE");
     expect(summaryNote(item("blocker", "", { detail: "権限がない" }), label)).toBe("権限がない");
     expect(summaryNote(item("created", ""), label)).toBe("");
   });

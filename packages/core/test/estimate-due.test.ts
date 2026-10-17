@@ -133,7 +133,7 @@ describe("期限超過", () => {
   test("done / canceled 以外で期限が今日より前なら超過、当日と未設定は超過にしない", () => {
     const today = "2026-10-01";
     expect(isOverdue({ dueDate: "2026-09-30", status: "todo" }, today)).toBe(true);
-    expect(isOverdue({ dueDate: "2026-09-30", status: "in_review" }, today)).toBe(true);
+    expect(isOverdue({ dueDate: "2026-09-30", status: "in_progress" }, today)).toBe(true);
     expect(isOverdue({ dueDate: "2026-10-01", status: "todo" }, today)).toBe(false);
     expect(isOverdue({ dueDate: "2026-10-02", status: "todo" }, today)).toBe(false);
     expect(isOverdue({ dueDate: null, status: "todo" }, today)).toBe(false);
