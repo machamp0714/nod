@@ -201,7 +201,7 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
   });
 
   describe("LLM も、me の未決事項が未回答の間に状態を変えられる", () => {
-    for (const to of ["todo", "backlog", "triage", "in_progress", "in_review"] as const) {
+    for (const to of ["todo", "backlog", "triage", "in_progress"] as const) {
       test(`needs_clarification から ${to} にでき、event の書き手に残る`, () => {
         const { db, ws, me, llm } = setup();
         const i = createIssue(me, { workspaceId: ws.id, title: "t" });
@@ -230,7 +230,7 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
       const viaCanceled = createIssue(me, { workspaceId: ws.id, title: "b" });
       askQuestion(me, viaCanceled.id, "対象はどれか");
       updateIssue(llm, viaCanceled.id, { status: "canceled" });
-      expect(updateIssue(llm, viaCanceled.id, { status: "in_review" }).status).toBe("in_review");
+      expect(updateIssue(llm, viaCanceled.id, { status: "in_progress" }).status).toBe("in_progress");
       const fromDone = createIssue(me, { workspaceId: ws.id, title: "c" });
       askQuestion(me, fromDone.id, "対象はどれか");
       updateIssue(me, fromDone.id, { status: "done" });

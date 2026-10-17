@@ -58,7 +58,7 @@ export interface IssueRow {
 }
 
 // 親の完了候補：直接の子がすべて done/canceled で、done が1件以上あり、親が done・canceled・triage 以外。
-// 孫は見ない。候補は表示だけで、完了は人が既存の経路（done への変更、レビュー承認）で確定する。
+// 孫は見ない。候補は表示だけで、完了は既存の経路（完了報告・done への変更）で確定する。
 // アーカイブ済みの親は完了にできないので候補にせず、アーカイブ済みの子は Sub-issues と同じく数えない
 export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', 'triage') AND i.archived_at IS NULL
   AND EXISTS (SELECT 1 FROM issues c WHERE c.parent_id = i.id AND c.archived_at IS NULL AND c.status = 'done')

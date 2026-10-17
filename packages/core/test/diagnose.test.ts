@@ -23,7 +23,7 @@ function fixture() {
 test("停滞は対象3statusに限定し、UTCの閾値一致を含め、未来・不正日時を除く", () => {
   const { make, diagnose } = fixture();
   const first = make();
-  const review = make("in_review", "2026-09-22T09:00:00+09:00");
+  const review = make("in_progress", "2026-09-22T09:00:00+09:00");
   const clarification = make("needs_clarification", "2026-09-21T23:59:59.999Z");
   make("in_progress", "2026-09-22T00:00:00.001Z");
   for (const status of ["triage", "backlog", "todo", "done", "canceled"]) make(status);

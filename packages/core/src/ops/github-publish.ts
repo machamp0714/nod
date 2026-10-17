@@ -9,7 +9,7 @@ import { NodError } from "../errors";
 import { recordEvent } from "../events";
 import { detectLeaks, type LeakFinding, leakConfigOf } from "../github-leak";
 import { findIssueRow, formatIssueId, issueRowById, type IssueRow } from "../issue-query";
-import { gitRunner } from "./git-sync";
+import { gitRunner } from "./git-runner";
 import {
   GITHUB_API_TIMEOUT_MS,
   type GithubIssueState,

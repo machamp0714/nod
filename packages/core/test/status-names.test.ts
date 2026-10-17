@@ -17,7 +17,6 @@ describe("ステータスの表示名", () => {
       needs_clarification: "Needs Clarification",
       todo: "Todo",
       in_progress: "In Progress",
-      in_review: "In Review",
       done: "Done",
       canceled: "Canceled",
     });
@@ -31,8 +30,8 @@ describe("ステータスの表示名", () => {
 
   test("人が設定すると前後の空白を落として保存し、空の値は既定に戻す", () => {
     const { db, ws, me } = setup();
-    const saved = setStatusNames(me, ws.key, { todo: " 着手可 ", in_review: "確認待ち", done: " " });
-    expect(saved).toEqual({ workspaceKey: ws.key, names: { todo: "着手可", in_review: "確認待ち" } });
+    const saved = setStatusNames(me, ws.key, { todo: " 着手可 ", in_progress: "確認待ち", done: " " });
+    expect(saved).toEqual({ workspaceKey: ws.key, names: { todo: "着手可", in_progress: "確認待ち" } });
     expect(getStatusNames(db, ws.key)).toEqual(saved);
     expect(statusDisplayName("todo", saved.names)).toBe("着手可");
     expect(statusDisplayName("done", saved.names)).toBe("Done");
@@ -40,7 +39,7 @@ describe("ステータスの表示名", () => {
 
   test("保存は全体の置き換えで、渡さなかったステータスは既定に戻る", () => {
     const { db, ws, me } = setup();
-    setStatusNames(me, ws.key, { todo: "着手可", in_review: "確認待ち" });
+    setStatusNames(me, ws.key, { todo: "着手可", in_progress: "確認待ち" });
     setStatusNames(me, ws.key, { todo: "やる" });
     expect(getStatusNames(db, ws.key).names).toEqual({ todo: "やる" });
     setStatusNames(me, ws.key, {});

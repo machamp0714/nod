@@ -16,7 +16,7 @@ function stamp(db: Database, ref: string, at: { started?: string | null; closed?
   if (at.closed !== undefined) db.query("UPDATE issues SET closed_at = ? WHERE id = ?").run(at.closed, row.id);
   if (at.submitted !== undefined) {
     db.query(`UPDATE events SET created_at = ? WHERE issue_id = ? AND type = 'status_changed'
-      AND json_extract(data, '$.to') = 'in_review'`).run(at.submitted, row.id);
+      AND json_extract(data, '$.to') = 'done'`).run(at.submitted, row.id);
   }
 }
 
@@ -86,7 +86,7 @@ describe("completionStats（完了数・作業時間の推移）", () => {
     expect(day).toMatchObject({ completed: 1, canceled: 1, work: { measured: 1, medianMinutes: 60, totalMinutes: 60 } });
   });
 
-  test("作業時間は Reviews と同じく着手から最後のレビュー提出まで。提出がなければ完了時刻まで", () => {
+  test("作業時間は着手から最後の完了報告まで。報告がなければ完了時刻まで", () => {
     const { db, ws, me, llm } = setup();
     const reviewed = createIssue(me, { workspaceId: ws.id, title: "reviewed" });
     startIssue(llm, reviewed.id);
@@ -295,7 +295,7 @@ describe("llmStats（LLM ごとの作業量）", () => {
   }
   const Q = { ...UTC, by: "day" as const, from: "2026-09-01", to: "2026-09-02" };
 
-  test("担当開始・レビュー提出・完了・作業時間を LLM ごと期間ごとに数え、人（me）は含めない", () => {
+  test("担当開始・完了報告・完了・作業時間を LLM ごと期間ごとに数え、人（me）は含めない", () => {
     const { db, ws, me, llm } = setup();
     const codex = { db, actor: "codex" };
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });

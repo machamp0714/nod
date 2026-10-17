@@ -176,13 +176,15 @@ describe("failIssue と completeIssue", () => {
     });
   });
 
-  test("done は報告を残して in_review にし、着手中でなければ NOT_IN_PROGRESS", () => {
+  test("done は報告を残して done にし、着手中でなければ NOT_IN_PROGRESS", () => {
     const { db, ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     expect(codeOf(() => completeIssue(llm, i.id, { summary: "やった" }))).toBe("NOT_IN_PROGRESS");
     startIssue(llm, i.id);
     const done = completeIssue(llm, i.id, { summary: "インデックスを足した", prUrl: "https://example.com/pull/1" });
-    expect(done).toMatchObject({ status: "in_review", agentState: "done", prUrl: "https://example.com/pull/1" });
+    expect(done).toMatchObject({ status: "done", agentState: "done", prUrl: "https://example.com/pull/1" });
+    expect(done.closedAt).not.toBeNull();
+    expect(eventsOf(db, i.id).find(e => e.type === "status_changed" && e.data.to === "done")?.data.report_comment_id).toBeNumber();
     expect(getIssue(db, i.id).activity.some((a) => a.kind === "comment" && a.body === "インデックスを足した")).toBe(true);
   });
 });

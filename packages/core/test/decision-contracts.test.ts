@@ -8,35 +8,6 @@ import { createIssue, commentIssue, getIssue, updateIssue } from "../src/ops/iss
 import { attachDocument, detachDocument } from "../src/ops/documents";
 import { addProjectRow, codeOf, eventsOf, setup } from "./helpers";
 
-test("Reviewsは報告IDを優先し同一msの後続コメントと旧eventを区別する", () => {
-  const { db, ws, me, llm } = setup();
-  const issue = createIssue(me, { workspaceId: ws.id, title: "報告" });
-  startIssue(llm, issue.id);
-  completeIssue(llm, issue.id, { summary: "本来の報告" });
-  commentIssue(me, issue.id, "後の雑談");
-  db.query("UPDATE comments SET created_at = '2026-09-28T00:00:00Z'").run();
-  db.query("UPDATE events SET created_at = '2026-09-28T00:00:00Z' WHERE type='status_changed' AND json_extract(data, '$.to')='in_review'").run();
-  expect(getInbox(db).reviews[0]).toMatchObject({ reviewSummary: "本来の報告", reviewReport: { body: "本来の報告", actor: "claude-code" }, reviewSubmittedAt: "2026-09-28T00:00:00Z" });
-  db.query("UPDATE events SET data=json_remove(data,'$.report_comment_id') WHERE type='status_changed'").run();
-  expect(getInbox(db).reviews[0]!.reviewSummary).toBe("後の雑談");
-  db.query("UPDATE events SET data=json_set(data,'$.report_comment_id',99999) WHERE type='status_changed'").run();
-  expect(getInbox(db).reviews[0]!.reviewSummary).toBeNull();
-  db.close();
-});
-
-test("報告IDのない旧記録の時刻復元は親コメントだけから選び、返信を報告にしない（#97）", () => {
-  const { db, ws, me, llm } = setup();
-  const issue = createIssue(me, { workspaceId: ws.id, title: "報告" });
-  startIssue(llm, issue.id);
-  completeIssue(llm, issue.id, { summary: "本来の報告" });
-  const report = db.query("SELECT id FROM comments WHERE body = '本来の報告'").get() as { id: number };
-  commentIssue(me, issue.id, "報告への返信", { replyTo: report.id });
-  db.query("UPDATE comments SET created_at = '2026-09-28T00:00:00Z'").run();
-  db.query("UPDATE events SET created_at = '2026-09-28T00:00:00Z', data = json_remove(data, '$.report_comment_id') WHERE type='status_changed' AND json_extract(data, '$.to')='in_review'").run();
-  expect(getInbox(db).reviews[0]).toMatchObject({ reviewSummary: "本来の報告", reviewReport: { body: "本来の報告", actor: "claude-code" } });
-  db.close();
-});
-
 test("acceptは属性と状態を原子的に保存し、失敗・再実行・LLMに部分更新を残さない", () => {
   const { db, ws, me, llm } = setup();
   const projectId = addProjectRow(db, "検索");
@@ -110,22 +81,5 @@ test.each(["done", "canceled", "backlog"] as const)("旧%sのawaiting_inputは�
   db.query("UPDATE issues SET agent_state='awaiting_input' WHERE number=?").run(issue.number);
   answerQuestion(me, issue.id, "記録", { questionId: q.id });
   expect(getIssue(db, issue.id)).toMatchObject({ status: status === "backlog" ? "backlog" : status, agentState: "awaiting_input" });
-  db.close();
-});
-
-test("報告IDは別Issueのcommentや文字列IDを採用せず、報告がない手動reviewはnull", () => {
-  const { db, ws, me, llm } = setup();
-  const other = createIssue(me, { workspaceId: ws.id, title: "別のIssue" });
-  const comment = commentIssue(me, other.id, "他人の報告");
-  const issue = createIssue(me, { workspaceId: ws.id, title: "手動review" });
-  updateIssue(me, issue.id, { status: "in_review" });
-  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
-  db.query("UPDATE events SET data=json_set(data,'$.report_comment_id',?) WHERE json_extract(data,'$.to')='in_review'").run(comment.id);
-  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
-  updateIssue(me, issue.id, { status: "in_progress" });
-  completeIssue(llm, issue.id, { summary: "正しい報告" });
-  expect(getInbox(db).reviews[0]?.reviewSummary).toBe("正しい報告");
-  db.query("UPDATE events SET data=json_set(data,'$.report_comment_id',CAST(json_extract(data,'$.report_comment_id') AS TEXT)) WHERE json_extract(data,'$.to')='in_review'").run();
-  expect(getInbox(db).reviews[0]?.reviewReport).toBeNull();
   db.close();
 });

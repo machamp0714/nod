@@ -14,8 +14,6 @@ export const NOTIFY_EVENT_TYPES = [
   "project_changed",
   "labels_changed",
   "comment_added",
-  "review_approved",
-  "review_rejected",
   "triage_accepted",
   "triage_declined",
 ] as const;
@@ -100,7 +98,7 @@ export function collapseIntoAgentNotification(db: Database, issueId: number, sin
   ).run(sinceId, issueId);
 }
 
-// me が回答・承認・差し戻しで応じたら、その Issue の未読の LLM の通知は対応済みとして既読にする。
+// me が回答で応じたら、その Issue の未読の LLM の通知は対応済みとして既読にする。
 // スヌーズ中のものも既読にしてスヌーズを解く（対応済みなので、期限が来ても未読で戻さない）
 export function readAgentNotifications(db: Database, issueId: number, recipient: string): void {
   db.query(
@@ -147,7 +145,7 @@ export function lastNotificationId(db: Database): number {
   return (db.query("SELECT COALESCE(MAX(id), 0) AS id FROM notifications").get() as { id: number }).id;
 }
 
-// 1つの判断の操作（承認・差し戻し・Triage の判断）は、その操作を表す1件（keepType）だけを通知に残す。
+// 1つの判断の操作（Triage の判断）は、その操作を表す1件（keepType）だけを通知に残す。
 // 同じ操作で起きたステータスの変化やコメントは、Issue の Activity に残るので通知から外す
 export function collapseNotifications(db: Database, issueId: number, sinceId: number, keepType: NotifyEventType): void {
   db.query("DELETE FROM notifications WHERE id > ? AND issue_id = ? AND event_type <> ?").run(sinceId, issueId, keepType);

@@ -55,8 +55,6 @@ describe("自動化の設定", () => {
       workspaceKey: ws.key,
       closeAfterDays: null,
       archiveAfterDays: null,
-      prReview: false,
-      commitReview: false,
       updatedAt: null,
       updatedBy: null,
     });
@@ -110,7 +108,6 @@ describe("自動クローズ（#71）", () => {
     expect(r.rules.map((x) => [x.kind, x.enabled, x.total])).toEqual([
       ["auto_close", false, 0],
       ["auto_archive", false, 0],
-      ["pr_review", false, 0],
     ]);
     run();
     expect(getIssue(db, target).status).toBe("todo");
@@ -120,7 +117,7 @@ describe("自動クローズ（#71）", () => {
     const { make, enable, dry } = fixture();
     enable(10, null);
     const expected = ["backlog", "todo", "in_progress", "needs_clarification"].map((s) => make(s));
-    for (const s of ["triage", "in_review", "done", "canceled"]) make(s);
+    for (const s of ["triage", "done", "canceled"]) make(s);
     make("todo", "2026-09-19T00:00:00.001Z"); // 閾値に 1ms 足りない
     make("todo", "2027-01-01T00:00:00.000Z"); // 未来
     expect(ids(dry().rules[0]!)).toEqual(expected);
@@ -136,7 +133,7 @@ describe("自動クローズ（#71）", () => {
     const parent = make("todo");
     make("done", old, { parent }); // 閉じた子は親を止めない
     const parent2 = make("todo");
-    const openChild = make("in_review", old, { parent: parent2 }); // 開いた子は親を止める
+    const openChild = make("in_progress", old, { parent: parent2, assignee: "codex" }); // 開いた子は親を止める
     const archived = make("todo");
     archiveIssue(me, archived);
     db.query("UPDATE issues SET updated_at=? WHERE id=?").run(old, findIssueRow(db, archived).id);
@@ -161,7 +158,7 @@ describe("自動クローズ（#71）", () => {
     archiveIssue(me, archived);
     block(blocksArchived, archived); // アーカイブ済みは未完了として数えない
     const related = make("todo");
-    block(related, make("in_review"), "related"); // blocks 以外の関係は問わない
+    block(related, make("in_progress", old, {assignee:"codex"}), "related"); // blocks 以外の関係は問わない
     expect(ids(dry().rules[0]!).sort()).toEqual([blocksDone, blockedByCanceled, blocksArchived, related].sort());
     expect(ids(dry().rules[0]!)).not.toContain(blocker);
     expect(ids(dry().rules[0]!)).not.toContain(waiting);
@@ -183,14 +180,14 @@ describe("自動クローズ（#71）", () => {
       UPDATE issues SET assignee = 'claude-code' WHERE id = ${id(delegated)};
       UPDATE issues SET parent_id = ${id(gotChild)} WHERE id = ${id(openChild)};
       INSERT INTO relations(from_id, to_id, type, created_at) VALUES (${id(openBlocker)}, ${id(gotBlocker)}, 'blocks', '${old}');
-      UPDATE issues SET status = 'in_review' WHERE id = ${id(reviewed)};
+      UPDATE issues SET status = 'done' WHERE id = ${id(reviewed)};
     END`);
     const r = run().rules[0]!;
     expect(r).toMatchObject({ total: 5, processed: [first], skipped: [delegated, gotChild, gotBlocker, reviewed], failed: [] });
     expect(getIssue(db, delegated).status).toBe("todo");
     expect(getIssue(db, gotChild).status).toBe("todo");
     expect(getIssue(db, gotBlocker).status).toBe("todo");
-    expect(getIssue(db, reviewed).status).toBe("in_review");
+    expect(getIssue(db, reviewed).status).toBe("done");
   });
 
   test("コメント・質問・event・更新日時のいずれかが新しければ対象外", () => {

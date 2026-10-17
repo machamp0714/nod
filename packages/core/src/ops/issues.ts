@@ -584,8 +584,8 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       }
       // 手動の移動では needs_clarification に切り替えない（#170）。未回答が残っていても、指定した状態のままにする
       const changed = setColumn(ctx, row, "status", input.status, input.reason ? { reason: input.reason } : {});
-      // 手動移動は着手を意味しない。レビュー済みの作業完了だけは保持する。
-      if (changed && !(row.agent_state === "done" && (row.status === "in_review" || row.status === "done"))) {
+      // 手動移動は着手を意味しない。作業完了だけは保持する。
+      if (changed && !(row.agent_state === "done" && row.status === "done")) {
         setColumn(ctx, row, "agent_state", null);
       }
     }
