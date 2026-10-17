@@ -34,7 +34,7 @@ test("APIとWEBの目印は保存色を使って異なる色になる", async ({
   }
 });
 
-for (const route of ["/issues", "/views/1", "/projects/1", "/projects", "/inbox", "/triage", "/reviews"]) {
+for (const route of ["/issues", "/views/1", "/projects/1", "/projects", "/inbox", "/triage"]) {
   test(`${route}の既存Workspace目印が保存値と一致する`, async ({ page }) => {
     await page.goto(route);
     await expectSavedColors(page);

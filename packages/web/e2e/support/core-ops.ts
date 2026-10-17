@@ -17,8 +17,6 @@ export const CTX_OPS = [
   "declineTriage",
   "duplicateTriage",
   "snoozeTriage",
-  "approveReview",
-  "rejectReview",
   "createProject",
   "updateProject",
   "addProjectUpdate",

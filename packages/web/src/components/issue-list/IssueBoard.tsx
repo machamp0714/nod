@@ -19,7 +19,6 @@ const COLUMN_DESCRIPTIONS: Partial<Record<IssueListRow["issue"]["status"], strin
   backlog: "受け入れ済み・着手は後で",
   todo: "着手の対象・ブロック状況を確認",
   in_progress: "作業中・進み具合を確認",
-  in_review: "作業報告を確認して承認・差し戻し",
   done: "完了した Issue",
 };
 

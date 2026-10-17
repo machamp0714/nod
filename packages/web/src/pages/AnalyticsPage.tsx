@@ -164,7 +164,7 @@ function CompletionSection({ stats, rangeText }: { stats: CompletionStats; range
     <>
       <div className={s.kpis}>
         <Kpi label="完了数" value={String(stats.totals.completed)} sub={`${rangeText} · canceled ${stats.totals.canceled} 件は除く`} />
-        <Kpi label="作業時間 中央値" value={formatHours(stats.totals.work.medianMinutes)} sub="着手 → レビュー提出" />
+        <Kpi label="作業時間 中央値" value={formatHours(stats.totals.work.medianMinutes)} sub="着手 → 完了" />
         <Kpi label="記録なし件数" value={String(stats.totals.work.unrecorded)} sub="作業時間を算出できない完了 Issue" />
       </div>
       <div className={s.row}>

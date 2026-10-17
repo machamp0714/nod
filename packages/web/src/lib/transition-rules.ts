@@ -1,4 +1,4 @@
-import type { Status, TransitionPreset, WorkspaceTransitionRules } from "../api/types";
+import type { Status, WorkspaceTransitionRules } from "../api/types";
 import { STATUS_META, STATUS_ORDER } from "./meta";
 import type { StatusNames } from "./workspace-labels";
 
@@ -7,13 +7,9 @@ import type { StatusNames } from "./workspace-labels";
 // needs_clarification は確認依頼に応じて core が切り替えるため、ルールに指定できない
 export const RULE_STATUSES: Status[] = STATUS_ORDER.filter((s) => s !== "needs_clarification");
 
-export const REVIEW_BEFORE_DONE: TransitionPreset = "review_before_done";
 
-// 塞ぐとレビュー依頼・承認・差し戻し・Triage の判断ができなくなる遷移
+// 塞ぐと Triage の判断ができなくなる遷移
 const PROTECTED_PAIRS: { from: Status; to: Status; why: string }[] = [
-  { from: "in_review", to: "done", why: "レビュー承認に必要" },
-  { from: "in_progress", to: "in_review", why: "レビュー依頼（nod issue done）に必要" },
-  { from: "in_review", to: "in_progress", why: "レビューの差し戻しに必要" },
   { from: "triage", to: "todo", why: "Triage の受け入れに必要" },
   { from: "triage", to: "canceled", why: "Triage の却下・重複に必要" },
 ];
@@ -25,11 +21,10 @@ export interface TransitionPairDraft {
 
 export interface TransitionRulesDraft {
   forbidden: TransitionPairDraft[];
-  reviewBeforeDone: boolean;
 }
 
 export function transitionRulesDraft(saved: WorkspaceTransitionRules): TransitionRulesDraft {
-  return { forbidden: saved.forbidden.map((p) => ({ ...p })), reviewBeforeDone: saved.presets.includes(REVIEW_BEFORE_DONE) };
+  return { forbidden: saved.forbidden.map((p) => ({ ...p })) };
 }
 
 // 追加する行の初期値。まだ使っていない組のうち、状態の順で最初のもの
@@ -61,11 +56,11 @@ export function transitionRulesEditState(draft: TransitionRulesDraft, saved: Wor
       return fail(i, `${label(row.from)} → ${label(row.to)} が重なっています`);
     }
   });
-  const presets: TransitionPreset[] = draft.reviewBeforeDone ? [REVIEW_BEFORE_DONE] : [];
+  const presets: [] = [];
   const input = { forbidden: draft.forbidden.map((r) => ({ from: r.from, to: r.to })), presets };
   const savedKeys = saved.forbidden.map(pairKey).sort().join(",");
   const draftKeys = [...new Set(draft.forbidden.map(pairKey))].sort().join(",");
-  const changed = savedKeys !== draftKeys || draft.reviewBeforeDone !== saved.presets.includes(REVIEW_BEFORE_DONE);
-  const empty = draft.forbidden.length === 0 && !draft.reviewBeforeDone;
+  const changed = savedKeys !== draftKeys;
+  const empty = draft.forbidden.length === 0;
   return { input, invalidRows, error, changed, empty, canSave: changed && error === null };
 }

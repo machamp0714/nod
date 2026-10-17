@@ -3,14 +3,13 @@ import { expect, test } from "./fixtures";
 import { measureFilterBar } from "./layout-measure";
 import type { NodData } from "./support/nod";
 
-// API に完了2件（うち1件は claude-code がレビューに回したもの）と canceled 1件、WEB に完了1件を今日の日付で作る
+// API に完了2件（うち1件は claude-code が完了報告したもの）と canceled 1件、WEB に完了1件を今日の日付で作る
 async function seed(nod: NodData) {
   const api = await seedApiWorkspace(nod);
   const web = (await nod.me.initWorkspace({ path: nod.repo("web-app"), key: "WEB", name: "web-app" })).workspace;
   const project = await nod.me.createProject({ name: "検索" });
-  const reviewed = await api.inReview("検索 API の N+1 を解消", "直した");
+  const reviewed = await api.completedIssue("検索 API の N+1 を解消", "直した");
   await nod.me.updateIssue(reviewed.id, { projectRef: "検索" });
-  await nod.me.approveReview(reviewed.id);
   const direct = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "ログの整理" });
   await nod.me.updateIssue(direct.id, { status: "done" });
   const dropped = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "不要になった調査" });
@@ -42,7 +41,7 @@ test("完了数・作業時間・記録なしと週ごとのグラフを API の
   await expect(kpi(page, "完了数")).toContainText("3");
   await expect(kpi(page, "完了数")).toContainText("直近12週 · canceled 1 件は除く");
   await expect(kpi(page, "作業時間 中央値")).toContainText("0.0h");
-  await expect(kpi(page, "作業時間 中央値")).toContainText("着手 → レビュー提出");
+  await expect(kpi(page, "作業時間 中央値")).toContainText("着手 → 完了");
   // 着手を経ずに done にした2件は作業時間を求められない
   await expect(kpi(page, "記録なし件数")).toContainText("2");
   await expect(page.getByRole("img", { name: "週ごとの完了数", exact: true })).toBeVisible();
@@ -182,7 +181,7 @@ test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) 
   await expect(kpi(page, "完了数")).toContainText("3");
 });
 
-test("LLM 別に完了数・作業時間・担当開始・レビュー提出の表と積み上げ棒を出す", async ({ page, nod }) => {
+test("LLM 別に完了数・作業時間・担当開始・完了報告の表と積み上げ棒を出す", async ({ page, nod }) => {
   await seed(nod);
   const api = (await nod.me.listWorkspaces()).find((w) => w.key === "API")!;
   const other = await nod.me.createIssue({ workspaceId: api.id, title: "codex が担当して止まった作業" });
@@ -190,7 +189,7 @@ test("LLM 別に完了数・作業時間・担当開始・レビュー提出の�
   await page.goto("/analytics");
   const section = page.getByRole("region", { name: "LLM 別" });
   const totals = section.getByRole("table", { name: "LLM ごとの合計" });
-  await expect(totals.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "レビュー提出"]);
+  await expect(totals.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "完了報告"]);
   await expect(totals.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "0.0h", "0.0h", "1", "1"]);
   await expect(totals.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "—", "—", "1", "0"]);
   await expect(section.getByText("記録なしの 0 件は時間の集計から除く")).toBeVisible();

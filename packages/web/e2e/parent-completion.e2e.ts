@@ -46,27 +46,27 @@ test("子がすべて完了した親は一覧に完了候補ピル、詳細に�
 test.describe("失敗時", () => {
   test.use({ allowedConsoleErrors: [/status of 500/] });
 
-  test("In Review の親は承認して完了にし、失敗時はバナーに理由を出して状態を変えない", async ({ page, nod }) => {
-    const { parent } = await seedParent(nod, "レビュー中の親");
-    await nod.me.updateIssue(parent.id, { status: "in_review" });
+  test("作業中の親を完了にし、失敗時はバナーに理由を出して状態を変えない", async ({ page, nod }) => {
+    const { parent } = await seedParent(nod, "作業中の親");
+    await nod.me.updateIssue(parent.id, { status: "in_progress" });
     await page.goto(`/issues/${parent.id}`);
     await waitForServerEvents(page);
     const banner = page.getByRole("region", { name: "親の完了候補", exact: true });
-    const button = banner.getByRole("button", { name: "承認して完了" });
+    const button = banner.getByRole("button", { name: "完了にする" });
 
-    await page.route(`**/api/issues/${parent.id}/approve`, (route) =>
+    await page.route(`**/api/issues/${parent.id}/update`, (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "DB_BUSY", message: "書き込めません" } }) }),
     );
     await button.click();
     await expect(banner.getByRole("alert")).toContainText("完了にできませんでした：");
     await expect(banner.getByRole("alert")).toContainText("書き込めません");
-    expect((await nod.me.getIssue(parent.id)).status).toBe("in_review");
+    expect((await nod.me.getIssue(parent.id)).status).toBe("in_progress");
 
-    await page.unroute(`**/api/issues/${parent.id}/approve`);
+    await page.unroute(`**/api/issues/${parent.id}/update`);
     await button.click();
     await expect(banner).toHaveCount(0);
     const detail = await nod.me.getIssue(parent.id);
     expect(detail.status).toBe("done");
-    expect(detail.activity.some((a: { kind: string; type?: string }) => a.kind === "event" && a.type === "review_approved")).toBe(true);
+    expect(detail.activity.some((a: { kind: string; type?: string }) => a.kind === "event" && a.type === "status_changed")).toBe(true);
   });
 });

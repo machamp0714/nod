@@ -15,7 +15,7 @@ import {
 import type { StatusNames } from "../lib/workspace-labels";
 import s from "./workspace-settings.module.css";
 
-// ステータスの遷移ルール（#73、nod.pen「Workspace設定｜ステータス遷移」）。許可しない遷移の組とプリセットを全体で置き換えて保存する。LLM・自動化も従う
+// ステータスの遷移ルール（#73、nod.pen「Workspace設定｜ステータス遷移」）。許可しない遷移の組を全体で置き換えて保存する。LLM・自動化も従う
 export function TransitionRulesSection({ workspace, onSaved }: { workspace: Workspace; onSaved: () => void }) {
   const titleId = useId();
   const rules = useTransitionRules(workspace.key);
@@ -93,15 +93,6 @@ function TransitionRulesForm({
   return (
     <section className={s.section} aria-labelledby={titleId}>
       <Header id={titleId} />
-      <label className={s.transitionPreset}>
-        <input
-          type="checkbox"
-          className={s.transitionCheckbox}
-          checked={draft.reviewBeforeDone}
-          onChange={(event) => setDraft({ ...draft, reviewBeforeDone: event.target.checked })}
-        />
-        {label("done")} の前に {label("in_review")} を必須にする
-      </label>
       <span id={listId} className={s.transitionSubLabel}>
         許可しない遷移
       </span>

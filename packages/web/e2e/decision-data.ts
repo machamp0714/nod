@@ -12,8 +12,8 @@ export interface ApiWorkspace {
   // 私が起票し（todo）、LLM が着手した Issue（in_progress、実行場所は main）
   startedIssue(title: string, actor?: NodClient): Promise<IssueRef>;
   ask(id: string, question: string, actor?: NodClient): Promise<unknown>;
-  // LLM が着手し、報告を残してレビューに回した Issue（in_review）
-  inReview(title: string, summary: string, prUrl?: string): Promise<IssueRef>;
+  // LLM が着手し、報告を残して直接完了した Issue（done）
+  completedIssue(title: string, summary: string, prUrl?: string): Promise<IssueRef>;
   // LLM が起票した Issue（triage）
   triageIssue(title: string, description?: string, actor?: NodClient): Promise<IssueRef>;
   show(id: string): Promise<IssueDetail>;
@@ -33,7 +33,7 @@ export async function seedApiWorkspace(nod: NodData): Promise<ApiWorkspace> {
     repo,
     startedIssue,
     ask: (id, question, actor = nod.claude) => actor.askQuestion(id, question),
-    inReview: async (title, summary, prUrl) => {
+    completedIssue: async (title, summary, prUrl) => {
       const issue = await startedIssue(title);
       await nod.claude.completeIssue(issue.id, { summary, prUrl });
       return issue;

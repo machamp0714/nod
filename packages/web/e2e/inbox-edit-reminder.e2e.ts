@@ -69,9 +69,9 @@ test.describe("通知からの編集（#46）", () => {
 
     await chooseProperty(props(page), "Priority", "High");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).priority).toBe(2);
-    await chooseProperty(props(page), "Status", "In Review");
-    await expect.poll(async () => (await nod.me.getIssue(a.id)).status).toBe("in_review");
-    await expect(detail(page).getByText("In Review").first()).toBeVisible();
+    await chooseProperty(props(page), "Status", "Done");
+    await expect.poll(async () => (await nod.me.getIssue(a.id)).status).toBe("done");
+    await expect(detail(page).getByText("Done").first()).toBeVisible();
     await chooseProperty(props(page), "Project", "検索の高速化");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).project?.name).toBe("検索の高速化");
     await props(page).getByRole("button", { name: "ラベルを追加", exact: true }).click();

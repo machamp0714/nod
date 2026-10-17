@@ -45,7 +45,6 @@ export function useDecisionCounts(): SidebarData["counts"] {
   const openQuestions = useOpenQuestions();
   return {
     inbox: inbox.data?.questions.length ?? 0,
-    reviews: inbox.data?.reviews.length ?? 0,
     triage: triage.data?.length ?? 0,
     // 人が付けた未回答の未決事項（#173）。Inbox の件数（LLM からの質問）とは別に数える
     openQuestions: openQuestions.data?.total ?? 0,

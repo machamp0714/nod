@@ -100,35 +100,3 @@ test("画像は inline、それ以外は attachment で配信する", async ({ p
   const other = await page.request.get(`/api/attachments/${log.id}/view`);
   expect(other.headers()["content-disposition"]).toMatch(/^attachment;/);
 });
-
-test("Reviews で変更ファイルの前に添付メディアを出し、拡大表示できる。メディアがなければ出さない", async ({ page, nod }) => {
-  const api = await seedApiWorkspace(nod);
-  const dir = attachmentsDir(nod.dir);
-  const a = await api.inReview("録画付きのレビュー", "画面を直した", "https://github.com/example/api-server/pull/7");
-  await nod.claude.addFileAttachment(a.id, { path: writeBinary(nod.dir, "screen.png", PNG), dir });
-  await nod.claude.addFileAttachment(a.id, { path: writeBinary(nod.dir, "demo.webm", "not a video"), dir });
-  const b = await api.inReview("添付なしのレビュー", "文言を直した", "https://github.com/example/api-server/pull/8");
-
-  await page.goto(`/reviews?selected=${a.id}`);
-  const detail = page.getByRole("region", { name: "詳細", exact: true });
-  const media = detail.getByRole("region", { name: "添付メディア" });
-  await expect(media.getByRole("heading", { name: "添付メディア" })).toBeVisible();
-  await expect(media.getByText("2", { exact: true })).toBeVisible();
-  // 変更ファイルの直前に並ぶ
-  const order = await detail.getByRole("region").evaluateAll(els => els.map(e => e.getAttribute("aria-label")));
-  expect(order.indexOf("添付メディア")).toBe(order.indexOf("変更ファイル") - 1);
-  await expect(media.getByRole("button", { name: "demo.webm を拡大表示" })).toContainText("WEBM");
-
-  await media.getByRole("button", { name: "screen.png を拡大表示" }).click();
-  await expect(page.getByRole("dialog", { name: "screen.png" })).toBeVisible();
-  await expect.poll(() => naturalWidth(page, "screen.png")).toBe(1);
-  await page.keyboard.press("Escape");
-
-  // 折りたためる
-  await media.getByRole("button", { name: "添付メディアを閉じる" }).click();
-  await expect(media.getByRole("list", { name: "添付メディア" })).toHaveCount(0);
-
-  await page.goto(`/reviews?selected=${b.id}`);
-  await expect(detail.getByRole("heading", { name: "添付なしのレビュー" })).toBeVisible();
-  await expect(detail.getByRole("region", { name: "添付メディア" })).toHaveCount(0);
-});

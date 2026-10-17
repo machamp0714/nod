@@ -31,7 +31,7 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
   // Status はアイコンだけを出し、名前は支援技術とツールチップに出す
   const status = cells("API-4").nth(3);
   const statusName = (await status.locator("[title]").getAttribute("title")) ?? "";
-  expect(["Backlog", "Todo", "In Progress", "In Review", "Needs Clarification"]).toContain(statusName);
+  expect(["Backlog", "Todo", "In Progress", "Needs Clarification"]).toContain(statusName);
   await expect(page.locator('tr[data-issue-row="API-4"]').getByRole("cell", { name: statusName, exact: true })).toHaveCount(1);
   const statusIcon = await status.evaluate((td) => {
     const svg = td.querySelector("svg") as SVGElement;

@@ -64,7 +64,6 @@ const ROUTES: Route[] = [
   { name: "/inbox", ready: [count('section[aria-label="確認依頼の一覧"] a', 3), count('section[aria-label="詳細"] h2', 1)] },
   // プロパティ欄はピル型ボタン（#180）。ピルの幅は今の値だけで決まる（選択肢の一覧に左右されない）ため、ピルと行が出てから測る
   { name: "/inbox?tab=notifications", ready: [count('section[aria-label="プロパティ"] button[aria-label="Project"]', 1), count('section[aria-label="プロパティ"] dl > div', 10)] },
-  { name: "/reviews", ready: [count('section[aria-label="完了報告"]', 1)] },
   { name: "/triage", ready: [count('select[aria-label="受け入れ時のProject"] option', 6)] },
   { name: "/issues", ready: [count("table tbody tr", 13), count('select[aria-label="Project"] option', 6)] },
   { name: "/issues?layout=board", ready: [count("article", 10)] },

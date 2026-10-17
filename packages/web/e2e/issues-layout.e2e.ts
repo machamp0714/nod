@@ -313,7 +313,7 @@ test("ボードは列の幅 340 と間隔 8 で、あふれた分は Board の�
     };
   });
   console.log(`[issues-layout] board ${JSON.stringify(m)}`);
-  expect(m.columns).toBe(6);
+  expect(m.columns).toBe(5);
   expect(m.widths).toEqual([340]);
   expect(m.gaps).toEqual([8]);
   expect(m.column).toEqual({ background: "rgb(245, 246, 248)", radius: "8px", padding: "0px 8px 8px" });

@@ -3,19 +3,17 @@ import { expect, test } from "./fixtures";
 import { measureFilterBar } from "./layout-measure";
 import type { NodData } from "./support/nod";
 
-// API で claude-code が着手・ブロッカー記録・質問・レビュー提出し、人が回答・差し戻す。完了1件・アーカイブ1件、WEB に起票1件
+// API で LLM の着手・ブロッカー記録・質問・完了報告と、人の回答を記録する
 async function seed(nod: NodData) {
   const api = await seedApiWorkspace(nod);
   const web = (await nod.me.initWorkspace({ path: nod.repo("web-app"), key: "WEB", name: "web-app" })).workspace;
   const project = await nod.me.createProject({ name: "検索" });
-  const rejected = await api.inReview("決済 Webhook の署名検証を追加", "実装しました");
+  const rejected = await api.startedIssue("決済 Webhook の署名検証を追加");
   await nod.me.updateIssue(rejected.id, { projectRef: "検索" });
   await nod.claude.logWork(rejected.id, "CI の権限が足りず push できない", { kind: "blocker" });
   await nod.claude.askQuestion(rejected.id, "複合インデックスにしてよいですか？");
   await nod.me.answerQuestion(rejected.id, "はい");
-  await nod.me.rejectReview(rejected.id, "署名ヘッダが無いリクエストのテストが無い");
-  const approved = await api.inReview("検索 API の N+1 を解消", "直した");
-  await nod.me.approveReview(approved.id);
+  const approved = await api.completedIssue("検索 API の N+1 を解消", "直した");
   const archived = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "古い調査" });
   await nod.me.archiveIssue(archived.id);
   await nod.me.createIssue({ workspaceId: web.id, title: "料金ページの比較表を更新" });
@@ -36,12 +34,11 @@ test("Sidebar の Summary から最近の動きに移り、項目が選択中に
 });
 
 test("種類ごとの件数を人と LLM に分けて出し、各行から Issue に移れる", async ({ page, nod }) => {
-  const { rejected, approved } = await seed(nod);
+  const { approved } = await seed(nod);
   await page.goto("/summary");
   await expect(page.getByRole("button", { name: "24h", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(card(page, "完了")).toContainText("1人 0 / LLM 1");
-  await expect(card(page, "レビュー提出")).toContainText("2人 0 / LLM 2");
-  await expect(card(page, "差し戻し")).toContainText("1人 1 / LLM 0");
+  await expect(card(page, "完了報告")).toContainText("1人 0 / LLM 1");
   await expect(card(page, "質問/回答")).toContainText("2人 1 / LLM 1");
   await expect(card(page, "ブロッカー")).toContainText("1人 0 / LLM 1");
   await expect(card(page, "新規起票")).toContainText("3人 3 / LLM 0"); // アーカイブ済みの起票は既定で除く
@@ -49,15 +46,11 @@ test("種類ごとの件数を人と LLM に分けて出し、各行から Issue
 
   const sections = page.getByRole("region", { name: /の一覧$/ });
   await expect(sections.first()).toHaveAccessibleName("ブロッカーの一覧");
-  const rejectRow = list(page, "差し戻し").locator('[data-kind="rejected"]');
-  await expect(rejectRow).toContainText(rejected.id);
-  await expect(rejectRow).toContainText("人 · me");
-  await expect(rejectRow).toContainText("理由: 署名ヘッダが無いリクエストのテストが無い");
   await expect(list(page, "質問/回答").locator('[data-kind="asked"]')).toContainText("claude-code");
   await expect(list(page, "質問/回答").locator('[data-kind="answered"]')).toContainText("回答: はい");
   const doneRow = list(page, "完了").locator('[data-kind="completed"]');
   await expect(doneRow).toContainText("claude-code");
-  await expect(doneRow).toContainText("In Review → Done");
+  await expect(doneRow).toContainText("In Progress → Done");
 
   await doneRow.getByRole("link", { name: /検索 API の N\+1 を解消/ }).click();
   await expect(page).toHaveURL(new RegExp(`/issues/${approved.id}$`));
@@ -77,7 +70,7 @@ test("期間・Workspace・Project・アーカイブを切り替えると URL �
   await page.getByLabel("Workspace").selectOption("");
   await page.getByLabel("Project").selectOption(String(project.id));
   await expect(page).toHaveURL(/project=/);
-  await expect(card(page, "差し戻し")).toContainText("1");
+  await expect(card(page, "質問/回答")).toContainText("2");
   await expect(card(page, "新規起票")).toContainText("1人 1 / LLM 0");
 
   await page.getByLabel("Project").selectOption("");

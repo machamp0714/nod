@@ -4,7 +4,7 @@ import { assigneeChoices, descriptionInput, hasText, parseLabels, statusChoices 
 describe("statusChoices", () => {
   test("Needs Clarification は選べない。今の値のときだけ、選べない項目として出す", () => {
     const todo = statusChoices("todo");
-    expect(todo.map((c) => c.value)).toEqual(["triage", "backlog", "todo", "in_progress", "in_review", "done", "canceled"]);
+    expect(todo.map((c) => c.value)).toEqual(["triage", "backlog", "todo", "in_progress", "done", "canceled"]);
     expect(todo.every((c) => !c.disabled)).toBe(true);
     const nc = statusChoices("needs_clarification");
     expect(nc.find((c) => c.value === "needs_clarification")).toEqual({
