@@ -1,18 +1,14 @@
 import { writeEvaluationEnv } from "./shell-env";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openDb, setAutomationSettings } from "../../../../../packages/core/src";
 import { createTask1Scenario } from "./setup";
 
 export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "test-failure" | "evidence-missing" | "existing-pr";
 export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "existing-pr"];
 
 /** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。 */
-export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; prReview?: boolean } = {}) {
+export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant } = {}) {
   const scenario = await createTask1Scenario(options.directory);
-  const db = openDb(scenario.dbPath);
-  setAutomationSettings({ db, actor: "me" }, "API", { prReview: options.prReview ?? true });
-  db.close();
   writeFileSync(join(scenario.dir, "task2-state.json"), JSON.stringify({
     variant: options.variant ?? "normal", run: null, tasks: [], workers: [], sent: [], delivery: null,
     pr: options.variant === "existing-pr" ? {
@@ -30,6 +26,6 @@ export async function createTask2Scenario(options: { directory?: string; variant
 if (import.meta.main) {
   const variant = process.argv[3] ?? "normal";
   if (!task2Variants.includes(variant as Task2Variant)) throw new Error(`未対応の評価シナリオ: ${variant}`);
-  const scenario = await createTask2Scenario({ directory: process.argv[2], variant: variant as Task2Variant, prReview: process.argv[4] !== "off" });
+  const scenario = await createTask2Scenario({ directory: process.argv[2], variant: variant as Task2Variant });
   console.log(JSON.stringify({ directory: scenario.dir, source: join(scenario.dir, "env.sh"), operations: scenario.log }, null, 2));
 }

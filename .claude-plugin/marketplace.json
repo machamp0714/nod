@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "nod で Issue を進めるための Claude Code / Codex プラグイン。",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "plugins": [
     {
       "name": "nod",
       "description": "指定範囲の進行管理（pm）と、構想の整理（wayfinder）→仕様（to-spec）→計画（to-plan）→実装（implement）→レビュー（code-review）を nod の Issue に記録しながら進める。",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "author": {
         "name": "machamp0714"
       },

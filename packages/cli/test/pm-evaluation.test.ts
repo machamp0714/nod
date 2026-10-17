@@ -27,9 +27,9 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   ] });
 });
 
-for (const [prReview, variant] of [[true, "normal"], [false, "normal"], [true, "existing-pr"]] as const) {
-  test(`PM評価の同じworkerによるPR提出を実nodで確認できる（連動${prReview ? "on" : "off"}、${variant}）`, async () => {
-    const scenario = await createTask2Scenario({ prReview, variant });
+for (const variant of ["normal", "existing-pr"] as const) {
+  test(`PM評価の同じworkerによるPR提出を実nodで確認できる（${variant}）`, async () => {
+    const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => {
       const result = Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
       expect(result.exitCode).toBe(0);
@@ -46,15 +46,32 @@ for (const [prReview, variant] of [[true, "normal"], [false, "normal"], [true, "
     orca("check", "--ack", initial.id);
     const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
     expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
-    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url });
+    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "done", prUrl: pr.url });
     orca("worker-release", "--dispatch", submission.dispatch.id);
     expect(orca("worker-list", "--run", "run-pm", "--terminal-state", "reclaimable", "--include-remote").workers).toEqual([]);
     const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(prReview ? 0 : 1);
+    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(1);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("create"))).toHaveLength(variant === "existing-pr" ? 0 : 1);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
   });
 }
+
+test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
+  const scenario = await createTask2Scenario({ variant: "existing-pr" });
+  const nod = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.nod, ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  nod("issue", "start", "API-1");
+  nod("issue", "link-pr", "API-1", "https://github.com/evaluation/api/pull/42");
+  expect(nod("issue", "show", "API-1").status).toBe("in_progress");
+  const pr = nod("issue", "pr-status", "API-1", "--refresh");
+  expect(pr.fetchError).toBeNull();
+  expect(nod("issue", "show", "API-1").status).toBe("in_progress");
+  nod("issue", "done", "API-1", "--summary", "完了条件とテストを確認済み");
+  expect(nod("issue", "show", "API-1").status).toBe("done");
+});
 
 test("PM評価のGitHubは別PRを実在する提出PRとして返さない", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr" });

@@ -47,9 +47,9 @@ nodの対応ログ、Task spec、active Dispatchを照合して管理範囲を�
 仕様準備を実装枠に加算せず、正式Spec未添付のままAPI-6を実装しない。
 
 waitingでは質問のnod IDとmessage `ask-api1`、Task `task-api1`、Dispatch `dispatch-api1`、terminal `term-api1`をAPI-1へ対応させる。
-API-2の受入証拠、commit、テスト、独立レビュー、PR URL、`in_review`はAPI-2のログだけへ残す。
+API-2の受入証拠、commit、テスト、独立レビュー、PR URL、`done`はAPI-2のログだけへ残す。
 API-1の無回答、API-2の提出、占有枠の3種類が混ざらないか確認する。
-API-2の初回報告で枠を解放せず、PR実在と関連、現在commitと`in_review`を確認してから解放する。
+API-2の初回報告で枠を解放せず、PR実在と関連、現在commitと`done`を確認してから解放する。
 同じ実装者の再利用では起動用modelとeffortとplacementを重ねず、次所有者かrelease成功後にDeliveryをackする。
 
 待機の`check --wait`は60000ms以下のcheckpointを使う。

@@ -100,6 +100,7 @@ PMは`nod:implement`に含まれる初回`nod:code-review`を重複起動しな�
 ## 同じ実装者へPR作業を渡す
 
 現在commitの条件が揃ったら、実装報告をnodへ記録し、同じagentへPR作業だけを依頼する。
+`nod:implement`が既にIssueをdoneにしていても、依頼済みのPR作業とOrcaの所有権処理は継続する。doneを理由に実装を始め直したり、完了を重ねたりしない。
 その時点の実効設定を`worker-show --dispatch`で再取得し、元の`モデル:effort`と一致していることを確認する。
 不明、不一致、元agentの再利用が非対応なら提出を止め、別の実装者を黙って起動しない。
 修正確認を終えた元実装者がactiveな確認待機Dispatchを持つ場合は、その現所有者へsendでPR作業を渡す。
@@ -126,14 +127,14 @@ PR依頼には次の終了条件を明記する。
 - PRのタイトル、本文、ブランチ名へnodのIssue IDを書かない。GitHubへの操作は`gh`を使う。
 - PRのURLと`headRefOid`、branch、base、openかつdraftではないことを確認し、pushした現在commitと照合する。
 - `nod issue link-pr <IssueID> <PR URL>`で関連づけ、`nod issue pr-status <IssueID> --refresh --json`で取得結果と状態を確認する。
-- PR連動が有効でもlinkだけで提出済みとせず、refresh後の`in_review`を確認する。取得失敗、別commit、draftなら提出完了としない。
-- PR連動が無効で、関連とPRの実在を確認しても`in_progress`なら、`nod issue done <IssueID> --summary "<検証結果と提出要約>"`で人のレビュー待ちへ提出する。既に`in_review`ならdoneを重ねない。
-- 人の最終承認、Issueのdone化、マージ、本番反映を行わない。PR URL、pushしたcommit、検証結果、nodの提出状態を報告してsettleする。
+- PRの紐付けと状態取得はIssueの状態を変えない。取得失敗、別commit、draftならPR作業の完了としない。
+- 関連とPRの実在、現在commitの検証を確認したら、`nod issue done <IssueID> --summary "<検証結果と完了要約>"`で直接doneにする。既に`done`なら完了を重ねない。
+- GitHubのPR承認、マージ、本番反映は依頼された範囲に従う。PR URL、pushしたcommit、検証結果、nodの提出状態を報告してsettleする。
 
 ## 提出確認と終了
 
 PR作業の報告も新しいactive Dispatchと照合する。
-PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`in_review`を再確認する。
+PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`done`を再確認する。
 タイトルやURLだけ、workerの「作成済み」だけでは完了にしない。
 nodへ対象commit、PR URL、両軸レビューとテストの参照、提出状態を残す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。
