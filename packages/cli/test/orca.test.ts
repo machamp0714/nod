@@ -104,8 +104,10 @@ describe("nod issue と Orca", () => {
     const lines = readFileSync(log, "utf8").split("\n");
     expect(lines).toContain(`作業中: ${created.id} 検索を直す`);
     expect(lines).toContain("入力待ち: 複合インデックスでよいか");
-    expect(lines).toContain(`レビュー待ち: ${created.id} 検索を直す`);
+    expect(lines).toContain(`完了: ${created.id} 検索を直す`);
     expect(lines.filter((l) => l === "--workspace-status")).toHaveLength(2);
+    expect(lines).toContain("done");
+    expect(lines).not.toContain("in-review");
   });
 
   test("orca が失敗しても nod は成功する", async () => {

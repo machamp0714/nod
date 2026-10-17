@@ -28,12 +28,11 @@ function formatProjectUpdate(u: ProjectUpdate): string {
   return [`  ${at}  ${u.author}${u.health ? `（${u.health}）` : u.healthCleared ? "（健全性を未設定に戻した）" : ""}:`, ...u.body.split("\n").map((line) => `    ${line}`)].join("\n");
 }
 
-// LLM の状況。Web の Projects と同じく、正の件数だけを 入力待ち・エラー・レビュー待ち・作業中 の順に出し、すべて0なら —（#177）
+// LLM の状況。Web の Projects と同じく、正の件数だけを 入力待ち・エラー・作業中 の順に出し、すべて0なら —（#177）
 function formatAgentSummary(agents: ProjectSummary["agents"]): string {
   const parts = [
     ["入力待ち", agents.awaitingInput],
     ["エラー", agents.error],
-    ["レビュー待ち", agents.awaitingReview],
     ["作業中", agents.working],
   ] as const;
   return parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join("、") || "—";

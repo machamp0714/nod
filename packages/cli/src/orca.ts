@@ -1,7 +1,7 @@
 import { orcaCommand, type WorkLocation } from "@nod/core";
 
 export interface OrcaUpdate {
-  status?: "in-progress" | "in-review";
+  status?: "in-progress" | "done";
   comment: string;
 }
 

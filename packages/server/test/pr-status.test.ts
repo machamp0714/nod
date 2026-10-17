@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { completeIssue, createIssue, type GhRunner, getIssue, getPrStatus, setAutomationSettings, startIssue } from "@nod/core";
+import { completeIssue, createIssue, type GhRunner, getIssue, getPrStatus, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup, tempDir } from "./helpers";
 
@@ -56,18 +56,7 @@ describe("PR 状態 API", () => {
     expect(readFileSync(gh.log, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
-  test("既定の ghRunner のまま承認しても、PATH 上の gh は起動しない（#56/#57）", async () => {
-    const gh = fakeGhOnPath();
-    const s = setup();
-    const app = createApp({ db: s.db });
-    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
-    startIssue(s.llm, issue.id);
-    completeIssue(s.llm, issue.id, { summary: "直した", prUrl: PR_URL });
-    const res = await call(app, "POST", `/api/issues/${issue.id}/approve`);
-    expect(res.status).toBe(200);
-    expect(res.json.status).toBe("done");
-    expect(existsSync(gh.log)).toBe(false);
-  });
+
 
   test("GET は保存済みの状態を返し、gh は実行しない", async () => {
     let calls = 0;
@@ -81,23 +70,7 @@ describe("PR 状態 API", () => {
     expect(calls).toBe(0);
   });
 
-  test("承認（approve）は gh を実行せず、保存済みの PR 状態も変えない（#56/#57）", async () => {
-    const gh = fakeGhOnPath();
-    let calls = 0;
-    const { app, db, ref } = withGh(async () => {
-      calls++;
-      return { kind: "exited", exitCode: 0, stdout: GH_OK, stderr: "" };
-    });
-    await call(app, "POST", `/api/issues/${ref}/pr-status/refresh`);
-    expect(calls).toBe(1);
-    const before = getPrStatus(db, ref);
-    const res = await call(app, "POST", `/api/issues/${ref}/approve`);
-    expect(res.status).toBe(200);
-    expect(res.json.status).toBe("done");
-    expect(calls).toBe(1);
-    expect(getPrStatus(db, ref)).toEqual(before);
-    expect(existsSync(gh.log)).toBe(false);
-  });
+
 
   test("POST refresh で gh を実行し、書き手 me で保存する", async () => {
     const { app, db, ref } = withGh(async () => ({ kind: "exited", exitCode: 0, stdout: GH_OK, stderr: "" }));
@@ -108,18 +81,17 @@ describe("PR 状態 API", () => {
     expect(getPrStatus(db, ref).status?.fetchedBy).toBe("me");
   });
 
-  test("PR 連動が有効なら、更新で in_progress の Issue を in_review にし autoTransition を返す（#66）", async () => {
+  test("PR 状態の取得は Issue の状態を変えない", async () => {
     const s = setup();
     const gh: GhRunner = async () => ({ kind: "exited", exitCode: 0, stdout: GH_OK.replace('"isDraft":true', '"isDraft":false'), stderr: "" });
     const app = createApp({ db: s.db, ghRunner: gh });
     const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "作業中" });
     startIssue(s.llm, issue.id);
     s.db.query("UPDATE issues SET pr_url = ?").run(PR_URL);
-    setAutomationSettings(s.me, s.ws.key, { prReview: true });
     const res = await call(app, "POST", `/api/issues/${issue.id}/pr-status/refresh`);
     expect(res.status).toBe(200);
-    expect(res.json.autoTransition).toMatchObject({ source: "pr", sourceKey: PR_URL, from: "in_progress", to: "in_review", actor: "me" });
-    expect(getIssue(s.db, issue.id).status).toBe("in_review");
+    expect(res.json).not.toHaveProperty("autoTransition");
+    expect(getIssue(s.db, issue.id).status).toBe("in_progress");
   });
 
   test("POST /link-pr で作業中の Issue に PR を紐付け、ステータスは変えない。不正な URL は 400", async () => {

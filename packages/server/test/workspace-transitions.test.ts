@@ -14,10 +14,10 @@ describe("ステータス遷移ルールAPI（#73）", () => {
     const { app, db, ws } = setup();
     const put = await call(app, "PUT", `/api/workspaces/${ws.key}/transitions`, {
       forbidden: [{ from: "backlog", to: "done" }],
-      presets: ["review_before_done"],
+      presets: [],
     });
     expect(put.status).toBe(200);
-    expect(put.json).toEqual({ workspaceKey: ws.key, forbidden: [{ from: "backlog", to: "done" }], presets: ["review_before_done"] });
+    expect(put.json).toEqual({ workspaceKey: ws.key, forbidden: [{ from: "backlog", to: "done" }], presets: [] });
     expect(getTransitionRules(db, ws.key)).toEqual(put.json);
     const del = await call(app, "DELETE", `/api/workspaces/${ws.key}/transitions`);
     expect(del.status).toBe(200);
@@ -33,6 +33,7 @@ describe("ステータス遷移ルールAPI（#73）", () => {
       { forbidden: [["todo", "done"]] },
       { forbidden: [{ from: "in_review", to: "done" }] },
       { presets: ["nope"] },
+      { presets: ["review_before_done"] },
       { presets: "review_before_done" },
       { forbidden: [], actor: "codex" },
     ]) {
@@ -51,13 +52,13 @@ describe("ステータス遷移ルールAPI（#73）", () => {
   test("違反する状態変更は 409 TRANSITION_NOT_ALLOWED で、どのルールかを返す", async () => {
     const { app, ws, me } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
-    setTransitionRules(me, ws.key, { presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "done" }] });
     const res = await call(app, "POST", `/api/issues/${issue.id}/update`, { status: "done" });
     expect(res.status).toBe(409);
     expect(res.json.error).toMatchObject({
       code: "TRANSITION_NOT_ALLOWED",
-      details: { from: "todo", to: "done", rule: { kind: "preset", preset: "review_before_done" } },
+      details: { from: "todo", to: "done", rule: { kind: "forbidden" } },
     });
-    expect(res.json.error.message).toContain("done の前に in_review 必須");
+    expect(res.json.error.message).toContain("許可しない遷移");
   });
 });

@@ -48,7 +48,7 @@ export function formatSummary(s: Summary): string {
 export function registerSummaryCommand(program: Command): void {
   program
     .command("summary")
-    .description("期間内の動き（完了・着手・レビュー提出・差し戻し・質問/回答・ブロッカー・新規起票・アーカイブ）を種類別にまとめる。読み取り専用")
+    .description("期間内の動き（完了・着手・質問/回答・ブロッカー・新規起票・アーカイブ。過去のレビュー提出・差し戻し履歴を含む）を種類別にまとめる。読み取り専用")
     .option("--since <期間>", `24h・7d・2w のような直近の長さか ISO 日時（既定は ${SUMMARY_DEFAULT_SINCE}、最長 90 日）`)
     .option("--project <project>", "Project の名前か ID")
     .option("--cycle <cycle>", "Cycle の ID・名前・current、none は Cycle のない Issue")
