@@ -1,7 +1,6 @@
 ---
 name: implement
-description: "nod の Issue の要求を、既存計画または軽い Task ごとに新しいエージェントで実装し、止まらずに最後まで進める。Task ごとに Step・コミット・作業ログを残し、最後に nod:code-review を 1 回実行する。"
-disable-model-invocation: true
+description: "nod の Issue の要求を、既存計画または軽い Task ごとに新しいエージェントで実装し、止まらずに最後まで進める。Task ごとに Step・コミット・作業ログを残し、最後に nod:code-review を 1 回実行する。人やオーケストレーターが Issue ID を指定して nod:implement での実装を求めたときだけ使い、一般的な実装依頼では起動しない。"
 ---
 
 <!-- mattpocock/skills の engineering/implement（c55ee46）を元に、計画の完走と nod への記録を足した。tdd は呼び出す。 -->

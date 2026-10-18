@@ -1,7 +1,6 @@
 ---
 name: wayfinder
-description: "複数セッションにまたがる構想を nod の親子 Issue と依存関係で整理し、調査・試作・人との対話で実装前の判断を一件ずつ固める。新しいマップの作成と既存マップの再開に使う。"
-disable-model-invocation: true
+description: "複数セッションにまたがる構想を nod の親子 Issue と依存関係で整理し、調査・試作・人との対話で実装前の判断を一件ずつ固める。新しいマップの作成と既存マップの再開に使う。マップの作成・再開（nod:wayfinder）を明示的に求められたときだけ使い、単発の Issue の起票や実装では起動しない。"
 ---
 
 <!-- mattpocock-skills の wayfinder を nod 向けに適応。対話の独立照合と Document 記録は nod:to-spec を参考にした。 -->
