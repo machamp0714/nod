@@ -1,7 +1,6 @@
 ---
 name: pm
-description: "人が指定したWorkspaceとCycleのIssue進行をAirから管理するときに使う。OrcaでStudioの実装担当を監督し、候補、待機理由、質問、成果をnodで確認する。"
-disable-model-invocation: true
+description: "人が指定したWorkspaceとCycleのIssue進行をAirから管理するときに使う。OrcaでStudioの実装担当を監督し、候補、待機理由、質問、成果をnodで確認する。進行管理（nod:pm）を明示的に求められたときだけ使い、個別Issueの実装や確認では起動しない。"
 ---
 
 # nod:pm
