@@ -1,6 +1,6 @@
 ---
 name: to-plan
-description: "nod の Issue の仕様を、縦切り（tracer bullet）の Task に分けて、Issue の計画として取り込む。Issue の分解（Sub-issue 化）はしない。人やオーケストレーターが Issue ID を指定して計画の作成（nod:to-plan）を求めたときだけ使う。"
+description: "nod の Issue の仕様を、縦切り（tracer bullet）の Task に分けて、Issue の計画として取り込む。Issue の分解（Sub-issue 化）はしない。人やオーケストレーターが Issue ID を指定して計画の作成（nod:to-plan）を求めたときだけ使い、一般的な作業の段取りでは起動しない。"
 ---
 
 <!-- mattpocock/skills の engineering/to-tickets（c55ee46）の分割ルールを元に、出力先を nod の計画に書き換えた。 -->

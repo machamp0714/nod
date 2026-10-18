@@ -1,6 +1,6 @@
 ---
 name: to-spec
-description: "nod の Issue の仕様を、grilling と別モデルの独立回答で詰め、仕様書（kind=spec の Document）にして Issue に添付する。人やオーケストレーターが Issue ID を指定して仕様書の作成（nod:to-spec）を求めたときと、needs-spec の Issue で案内されたときだけ使う。"
+description: "nod の Issue の仕様を、grilling と別モデルの独立回答で詰め、仕様書（kind=spec の Document）にして Issue に添付する。人やオーケストレーターが Issue ID を指定して仕様書の作成（nod:to-spec）を求めたときと、needs-spec の Issue で nod:implement や nod:pm から案内されたときだけ使い、一般的な仕様の相談では起動しない。"
 ---
 
 <!-- mattpocock/skills の engineering/to-spec（c55ee46）を元に、nod 向けに書き換えた。grilling は呼び出す。 -->

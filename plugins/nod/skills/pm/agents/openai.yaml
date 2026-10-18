@@ -1,5 +1,3 @@
 interface:
   display_name: "nod: PM"
   short_description: "指定WorkspaceとCycleの進行を管理し、実装担当を監督する"
-policy:
-  allow_implicit_invocation: false
