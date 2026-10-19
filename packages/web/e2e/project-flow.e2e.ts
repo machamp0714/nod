@@ -281,6 +281,91 @@ test.describe("分岐と合流のある Project", () => {
   });
 });
 
+test.describe("進捗報告の保存中の切り替え", () => {
+  test.use({ allowedConsoleErrors: [/status of 500/] });
+  const reports = "**/api/projects/*/reports";
+
+  // POST を止めておき、release で本物の server へ流すか、失敗を返す
+  async function holdReports(page: Page, outcome: "continue" | "fail") {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const posts: string[] = [];
+    await page.route(reports, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      posts.push(route.request().postData() ?? "");
+      await released;
+      if (outcome === "continue") return route.continue();
+      return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "INTERNAL", message: "壊れた" } }) });
+    });
+    return { release, posts };
+  }
+
+  test("保存中に一覧とフローを切り替えても保存中のまま入力と送信を止め、保存の完了で下書きを空にし、その後の新しい下書きは残る", async ({ page, nod }) => {
+    const { projectId } = await seedBranchAndMerge(nod);
+    const input = page.getByRole("textbox", { name: "進捗報告の本文" });
+    const held = await holdReports(page, "continue");
+    await page.goto(`/projects/${projectId}`);
+    await input.fill("保存中に切り替える報告");
+    await page.getByRole("button", { name: "報告する" }).click();
+    await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+    await viewTab(page, "フロー").click();
+    await expect(card(flowRegion(page), "FL-1")).toBeVisible();
+    // 作り直された欄でも保存中のまま、書き換えも二重の送信もできない
+    await expect(input).toBeDisabled();
+    await expect(input).toHaveValue("保存中に切り替える報告");
+    await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "報告する" })).toHaveCount(0);
+    await viewTab(page, "一覧").click();
+    await expect(input).toBeDisabled();
+    held.release();
+    await expect(page.getByRole("article", { name: "進捗報告の記録" })).toHaveCount(1);
+    await expect(page.getByRole("article", { name: "進捗報告の記録" })).toContainText("保存中に切り替える報告");
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue("");
+    expect(held.posts).toHaveLength(1);
+    // 保存の後に書いた下書きは、切り替えても消えない
+    await input.fill("次の下書き");
+    await viewTab(page, "フロー").click();
+    await expect(input).toHaveValue("次の下書き");
+    await expect(page.getByRole("article", { name: "進捗報告の記録" })).toHaveCount(1);
+    expect((await nod.me.getProject(String(projectId))).updates.map((u) => u.body)).toEqual(["保存中に切り替える報告"]);
+  });
+
+  test("保存中に切り替えて保存に失敗すると、新しい欄に失敗を出して下書き（本文と健全性）を残し、送り直せる", async ({ page, nod }) => {
+    const { projectId } = await seedBranchAndMerge(nod);
+    const input = page.getByRole("textbox", { name: "進捗報告の本文" });
+    const held = await holdReports(page, "fail");
+    await page.goto(`/projects/${projectId}?view=flow`);
+    await expect(card(flowRegion(page), "FL-1")).toBeVisible();
+    await input.fill("失敗しても残る報告");
+    await page.getByRole("button", { name: /^健全性: / }).click();
+    await page.getByRole("listbox", { name: "健全性" }).getByRole("option").filter({ hasText: "At risk" }).getByRole("button").click();
+    await page.getByRole("button", { name: "報告する" }).click();
+    await expect(page.getByRole("button", { name: "保存中…" })).toBeDisabled();
+    await viewTab(page, "一覧").click();
+    await expect(rows(page).first()).toBeVisible();
+    await expect(input).toBeDisabled();
+    held.release();
+    const updates = page.getByRole("region", { name: "進捗報告" });
+    await expect(updates.getByRole("alert")).toContainText("保存できませんでした");
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue("失敗しても残る報告");
+    await expect(page.getByRole("button", { name: "健全性: At risk" })).toBeVisible();
+    await expect(page.getByRole("article", { name: "進捗報告の記録" })).toHaveCount(0);
+    expect(held.posts).toHaveLength(1);
+    // 切り替えても失敗と下書きは残り、送り直すと保存できる
+    await viewTab(page, "フロー").click();
+    await expect(updates.getByRole("alert")).toContainText("保存できませんでした");
+    await expect(input).toHaveValue("失敗しても残る報告");
+    await page.unroute(reports);
+    await page.getByRole("button", { name: "報告する" }).click();
+    await expect(page.getByRole("article", { name: "進捗報告の記録" })).toHaveCount(1);
+    await expect(updates.getByRole("alert")).toHaveCount(0);
+    await expect(input).toHaveValue("");
+    expect((await nod.me.getProject(String(projectId))).updates.map((u) => u.body)).toEqual(["失敗しても残る報告"]);
+  });
+});
+
 test("フローを開いたまま関係と状態を変えると、再読み込みせずにグラフを更新する", async ({ page, nod }) => {
   const { projectId } = await seedBranchAndMerge(nod);
   await page.goto(`/projects/${projectId}?view=flow`);

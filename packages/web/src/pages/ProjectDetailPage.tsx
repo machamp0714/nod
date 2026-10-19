@@ -11,7 +11,7 @@ import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectFlowPage, ProjectIssuesBar, ProjectViewSwitch } from "../components/projects/ProjectFlow";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
-import { EMPTY_PROJECT_UPDATE_DRAFT, type ProjectUpdateDraft, ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
+import { EMPTY_PROJECT_UPDATE_COMPOSER, type ProjectUpdateComposer, ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
 import { withoutPageDisplay } from "../lib/page-display";
 import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
@@ -39,8 +39,8 @@ export function ProjectDetailPage() {
   // 一覧にない Project と、フローの表示のときは一覧の Issue を読まない
   const rows = useIssueRows({ project: projectId, blocked: search.blocked }, found && view === "list");
   const switched = useRef(false);
-  // 進捗報告の下書き。一覧とフローを切り替えると進捗報告の欄が作り直されるため、切り替えをまたいで残る親が Project ごとに持つ
-  const [drafts, setDrafts] = useState<Record<string, ProjectUpdateDraft>>({});
+  // 進捗報告の欄の状態（下書き・保存中・失敗）。一覧とフローを切り替えると欄が作り直されるため、切り替えをまたいで残る親が Project ごとに持つ
+  const [composers, setComposers] = useState<Record<string, ProjectUpdateComposer>>({});
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
   if (!projects.data) return <PageLoading />;
@@ -56,8 +56,8 @@ export function ProjectDetailPage() {
       key={`updates-${detail.data.id}`}
       projectId={detail.data.id}
       updates={detail.data.updates}
-      draft={drafts[projectId] ?? EMPTY_PROJECT_UPDATE_DRAFT}
-      onDraftChange={(next) => setDrafts((prev) => ({ ...prev, [projectId]: next }))}
+      composer={composers[projectId] ?? EMPTY_PROJECT_UPDATE_COMPOSER}
+      onComposerChange={(next) => setComposers((prev) => ({ ...prev, [projectId]: next(prev[projectId] ?? EMPTY_PROJECT_UPDATE_COMPOSER) }))}
     />
   );
   // 切り替えは履歴に積み、戻る・進むで復元できるようにする。一覧の設定は URL にそのまま残す
