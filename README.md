@@ -29,6 +29,7 @@ Claude Code と Codex の両方から、GitHub のマーケットプレイスと
 テンプレートの取得失敗時や候補を選べない場合は、未登録として進めず確認する。
 下書きだけの依頼では本文の提示までにし、起票後には本文・起票先と、Issue ID・タイトル・使用したテンプレートを確認して報告する。
 手順は[バックログ作成スキル](plugins/nod/skills/backlog/SKILL.md)にある。
+独立したLLMと一時DBでの評価方法と結果は[バックログの行動評価](plugins/nod/evals/backlog/README.md)にある。
 
 `nod:pm <Workspace> --cycle <Cycle> --on Studio` は、Airで起動し、指定Workspaceと固定CycleのIssueをOrcaで監督する。
 並行上限は既定1件、`--max-parallel 2`で最大2件にできる。
