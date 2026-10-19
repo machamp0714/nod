@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { openDb, initWorkspace, saveTemplate } from "../../../../packages/core/src";
 const root = process.argv[2] ? resolve(process.argv[2]) : realpathSync(mkdtempSync(join(tmpdir(), "nod-backlog-eval-")));
 const repoRoot = resolve(import.meta.dir, "../../../..");
-const cases = ["empty", "registered", "ambiguous", "failure", "draft", "update-failure"];
+const cases = ["empty", "registered", "ambiguous", "failure", "draft", "update-failure", "multi-empty", "multi-registered", "small"];
 mkdirSync(root, { recursive: true });
 for (const [index, name] of cases.entries()) {
   const dir = join(root, String(index + 1).padStart(2, "0"));
@@ -21,7 +21,7 @@ for (const [index, name] of cases.entries()) {
   initWorkspace(db, { path: repo, key: "EVAL" });
   // 隔離DBだけに、人が登録済みのテンプレートをfixtureとして用意する。
   const human = { db, actor: "me" };
-  if (["registered", "update-failure"].includes(name)) {
+  if (["registered", "update-failure", "multi-registered"].includes(name)) {
     saveTemplate(human, {name:"機能改善", body:"## 利用場面\n［対象者と場面］\n\n## 実現したいこと\n［価値と動作］\n\n## 確認項目\n- [ ] ［観測できる結果］\n\n## 補足\n［未決事項など］\n"});
   }
   if (name === "ambiguous") {
@@ -38,4 +38,4 @@ for (const [index, name] of cases.entries()) {
   chmodSync(join(bin,"nod"),0o755);
   writeFileSync(join(dir,"env.sh"),"export PATH=" + quote(bin) + ":\"$PATH\"\nexport NOD_ACTOR=codex\nexport NOD_DB=" + quote(dbPath) + "\nexport NOD_ORCA=0\nexport NOD_DOCS_DIR=" + quote(config.docs) + "\nexport NOD_ATTACHMENTS_DIR=" + quote(config.attachments) + "\ncd " + quote(repo) + "\n");
 }
-console.log(JSON.stringify({ directory: root, cases: ["01", "02", "03", "04", "05", "06"] }, null, 2));
+console.log(JSON.stringify({ directory: root, cases: cases.map((_, index) => String(index + 1).padStart(2, "0")) }, null, 2));
