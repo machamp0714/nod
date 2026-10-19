@@ -2,8 +2,21 @@ import type { ProjectFlow, ProjectFlowNode } from "../../api/types";
 
 // design/nod.pen「Project詳細｜フロー」（R4bvo）のカードと間隔。位置を計算するためカードは固定の大きさにする
 export const CARD_WIDTH = 232;
-export const CARD_HEIGHT = 148; // ID・2行のタイトル・状態・前提・Project 外の行が入る高さ
+// カードの高さは載せる行から決める（位置を計算するため、文字を測らずに決まる値にする）。
+// 枠 1・余白 16 の上下、ID の行 16、2行ぶんのタイトル 40、状態の行 16 を必ず置き、前提・Project 外の行は 16 ずつ足す。行の間は 6
+const CARD_CHROME = 2 * (16 + 1);
+const LINE_GAP = 6;
+const SMALL_LINE = 16;
+const TITLE_HEIGHT = 40;
+export const CARD_HEIGHT = CARD_CHROME + SMALL_LINE + LINE_GAP + TITLE_HEIGHT + LINE_GAP + SMALL_LINE; // 前提も Project 外の行もないカード
+
+export function cardHeight(node: ProjectFlowNode, hasPrerequisite: boolean): number {
+  const extra = (hasPrerequisite ? 1 : 0) + (node.external ? 1 : 0);
+  return CARD_HEIGHT + extra * (LINE_GAP + SMALL_LINE);
+}
 export const COLUMN_GAP = 48;
+// 列の間で、前提（from）ごとに分ける縦線どうしの最小の間隔。縦線が多い間は列の間を広げる
+export const TRUNK_SPACING = 12;
 export const ROW_GAP = 16;
 // 段をまたぐ矢印が途中の列で通る帯の高さ
 const LANE_HEIGHT = 8;
@@ -17,6 +30,7 @@ export interface FlowCard {
   node: ProjectFlowNode;
   x: number;
   y: number;
+  height: number;
 }
 
 export interface FlowEdgePath {
@@ -106,7 +120,9 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
     (layers[l] ??= []).push(slot);
     slotOf.set(slot.key, { layer: l, slot });
   };
-  for (const n of placed) addSlot(layer.get(n.id)!, { key: n.id, node: n, height: CARD_HEIGHT, order: order.get(n.id)!, y: 0 });
+  // 前提の行は、まだ止めているブロック元か、直接の前提（完了したものも含む）があるときに出す
+  const heightOf = (n: ProjectFlowNode) => cardHeight(n, n.openBlockers.length > 0 || predecessors.has(n.id));
+  for (const n of placed) addSlot(layer.get(n.id)!, { key: n.id, node: n, height: heightOf(n), order: order.get(n.id)!, y: 0 });
   // 各スロットの左隣（前の段）のスロット
   const slotPreds = new Map<string, string[]>();
   const chains = placedEdges.map((e) => {
@@ -138,18 +154,67 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
 
   const columnHeight = (slots: Slot[]) => slots.reduce((sum, slot) => sum + slot.height, 0) + Math.max(0, slots.length - 1) * ROW_GAP;
   const height = layers.reduce((max, slots) => Math.max(max, columnHeight(slots ?? [])), 0);
-  const columnX = (l: number) => l * (CARD_WIDTH + COLUMN_GAP);
+  // 列の間（l は l-1 列と l 列の間）を通る前提。前提の違う矢印は別の縦線を通し、ほかの前提から分岐したように見せない。
+  // 同じ前提からの分岐は1本の縦線を共有し、同じ後続への合流は最後の横線（後続へ入る線）だけを共有する
+  const gapSources = new Map<number, Set<string>>(); // 間ごとの前提
+  for (const { edge, keys } of chains) {
+    for (let i = 1; i < keys.length; i++) {
+      const l = slotOf.get(keys[i]!)!.layer;
+      gapSources.set(l, (gapSources.get(l) ?? new Set<string>()).add(edge.from));
+    }
+  }
+  const gapWidth = (l: number) => Math.max(COLUMN_GAP, ((gapSources.get(l)?.size ?? 0) + 1) * TRUNK_SPACING);
+  const xs: number[] = [];
+  for (let l = 0, x = 0; l < layers.length; l++) {
+    if (l > 0) x += CARD_WIDTH + gapWidth(l);
+    xs[l] = x;
+  }
+  const columnX = (l: number) => xs[l]!;
   const cards: FlowCard[] = [];
   layers.forEach((slots, l) => {
     // 段ごとに上下中央へ寄せる
     let y = (height - columnHeight(slots)) / 2;
     for (const slot of slots) {
       slot.y = y;
-      if (slot.node) cards.push({ node: slot.node, x: columnX(l), y });
+      if (slot.node) cards.push({ node: slot.node, x: columnX(l), y, height: slot.height });
       y += slot.height + ROW_GAP;
     }
   });
   cards.sort((a, b) => a.x - b.x || a.y - b.y);
+
+  // 縦線の位置。前提から出る横線がほかの前提の縦線と交わらないよう、間ごとに次の順で左から並べる。
+  // 上へ向かう前提（後続の平均が上）は上から順に、下へ向かう前提は下から順に。上へ向かう前提を左に置く
+  const spans = new Map<string, { source: number; targetSum: number; targets: number }>();
+  for (const { edge, keys } of chains) {
+    for (let i = 1; i < keys.length; i++) {
+      const l = slotOf.get(keys[i]!)!.layer;
+      const from = slotOf.get(keys[i - 1]!)!.slot;
+      const to = slotOf.get(keys[i]!)!.slot;
+      const key = `${l}\u0000${edge.from}`;
+      const span = spans.get(key) ?? { source: Infinity, targetSum: 0, targets: 0 };
+      span.source = Math.min(span.source, from.y + from.height / 2);
+      span.targetSum += to.y + to.height / 2;
+      span.targets += 1;
+      spans.set(key, span);
+    }
+  }
+  const trunkX = new Map<string, number>();
+  for (const [l, sources] of gapSources) {
+    const ordered = [...sources.keys()]
+      .map((from) => {
+        const span = spans.get(`${l}\u0000${from}`)!;
+        const up = span.targetSum / span.targets < span.source;
+        return { from, up, source: span.source };
+      })
+      .sort((a, b) =>
+        Number(b.up) - Number(a.up) ||
+        (a.up ? a.source - b.source : b.source - a.source) ||
+        order.get(a.from)! - order.get(b.from)!,
+      );
+    const start = columnX(l - 1) + CARD_WIDTH;
+    const step = gapWidth(l) / (ordered.length + 1);
+    ordered.forEach(({ from }, i) => trunkX.set(`${l}\u0000${from}`, start + Math.round(step * (i + 1))));
+  }
 
   const edgePaths = chains.map(({ edge, keys }) => {
     const points: FlowPoint[] = [];
@@ -160,7 +225,7 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
       const right = { x: columnX(l) + CARD_WIDTH, y: mid };
       if (i > 0) {
         const prev = points[points.length - 1]!;
-        const gapX = prev.x + COLUMN_GAP / 2;
+        const gapX = trunkX.get(`${l}\u0000${edge.from}`)!;
         points.push({ x: gapX, y: prev.y }, { x: gapX, y: mid }, left);
       }
       if (i < keys.length - 1) points.push(right);

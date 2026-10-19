@@ -5,11 +5,40 @@
   flex: none;
 }
 
-/* View Bar の左に置く、全体表示であることの注記 */
-.scopeNote {
+/* 狭い画面では見出しと切り替えを折り返し、重ねない */
+.viewBar {
+  flex-wrap: wrap;
+}
+
+/* View Bar の左の見出し「Issue 一覧」と件数。本文の左端（20px）に揃える */
+.listHeading {
+  flex: none;
+  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
   padding-left: 12px;
-  color: var(--ink2);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.listCount {
+  color: var(--ink3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 全体表示であることの注記 */
+.scopeNote {
+  min-width: 0;
+  color: var(--ink3);
   font-size: 12px;
 }
 
@@ -61,10 +90,22 @@
   background: var(--bg);
 }
 
+@media (max-width: 640px) {
+  .canvas {
+    padding: 12px;
+  }
+}
+
 /* 大量の Issue・狭い画面でもカードを潰さず、領域の中でスクロールする */
 .scroller {
   min-width: 0;
   overflow: auto;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.scroller:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .graph {
@@ -92,10 +133,11 @@
 }
 
 /* カード：本文 14px・補助 12px、余白 16px */
+/* 行の間 6px は flow-layout.ts の LINE_GAP と揃える */
 .card {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   overflow: hidden;
   padding: 16px;
   border: 1px solid var(--line);
@@ -128,12 +170,16 @@
 }
 
 .mono {
+  flex: none;
   font-family: var(--font-mono);
   font-size: 12px;
+  white-space: nowrap;
 }
 
+/* 2行ぶんの高さを取る（flow-layout.ts の TITLE_HEIGHT）。1行のときは状態の行がすぐ下に来るよう、余りはカードの下に回す */
 .cardTitle {
   display: -webkit-box;
+  flex: none;
   overflow: hidden;
   font-size: 14px;
   font-weight: 500;
@@ -242,6 +288,12 @@
   gap: 4px 20px;
 }
 
+/* 狭い枠でも項目を枠の幅に収め、タイトルを省略する */
+.independent li {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .inline {
   display: inline-flex;
   align-items: center;
@@ -254,6 +306,12 @@
 
 .inline.done {
   color: var(--ready);
+}
+
+.inline > svg,
+.inline > span:first-child,
+.cardId > svg {
+  flex: none;
 }
 
 .inline:hover .inlineTitle {

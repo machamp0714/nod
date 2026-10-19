@@ -1,5 +1,5 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
@@ -11,7 +11,7 @@ import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectFlowPage, ProjectViewSwitch } from "../components/projects/ProjectFlow";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
-import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
+import { EMPTY_PROJECT_UPDATE_DRAFT, type ProjectUpdateDraft, ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
 import { withoutPageDisplay } from "../lib/page-display";
 import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
@@ -36,8 +36,11 @@ export function ProjectDetailPage() {
   const search = page.search;
   // 一覧とフローの切り替えは URL（view=flow）だけに置き、ページの表示設定には保存しない
   const view = url.view === "flow" ? "flow" : "list";
-  const rows = useIssueRows({ project: projectId, blocked: search.blocked }, view === "list");
+  // 一覧にない Project と、フローの表示のときは一覧の Issue を読まない
+  const rows = useIssueRows({ project: projectId, blocked: search.blocked }, found && view === "list");
   const switched = useRef(false);
+  // 進捗報告の下書き。一覧とフローを切り替えると進捗報告の欄が作り直されるため、切り替えをまたいで残る親が Project ごとに持つ
+  const [drafts, setDrafts] = useState<Record<string, ProjectUpdateDraft>>({});
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
   if (!projects.data) return <PageLoading />;
@@ -48,7 +51,15 @@ export function ProjectDetailPage() {
   const crumb = <Link to="/projects">Projects</Link>;
   const intro = <ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} initiatives={detail.data.initiatives} />;
   // design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：進捗報告は Issue 一覧の後に置く
-  const updates = <ProjectUpdatesSection key={`updates-${detail.data.id}`} projectId={detail.data.id} updates={detail.data.updates} />;
+  const updates = (
+    <ProjectUpdatesSection
+      key={`updates-${detail.data.id}`}
+      projectId={detail.data.id}
+      updates={detail.data.updates}
+      draft={drafts[projectId] ?? EMPTY_PROJECT_UPDATE_DRAFT}
+      onDraftChange={(next) => setDrafts((prev) => ({ ...prev, [projectId]: next }))}
+    />
+  );
   // 切り替えは履歴に積み、戻る・進むで復元できるようにする。一覧の設定は URL にそのまま残す
   const viewSwitch = (
     <ProjectViewSwitch

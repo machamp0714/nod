@@ -11,16 +11,37 @@ import s from "./project-updates.module.css";
 // Project の進捗報告。本文はプレーンテキストとして表示し、保存に失敗したら下書き（本文と健全性）を残す。
 // 健全性は任意で、添えた値が Project の現在の健全性になる（「未設定に戻す」は未設定に戻す）。
 // 健全性のない報告には Pill を出さない（未設定に戻したように読めないように。#154）
-export function ProjectUpdatesSection({ projectId, updates }: { projectId: number; updates: ProjectUpdate[] }) {
+// 下書き（本文と健全性）。Project 詳細の一覧とフローの切り替えで消えないよう、親が持つこともできる
+export interface ProjectUpdateDraft {
+  body: string;
+  health: HealthChoice;
+}
+
+export const EMPTY_PROJECT_UPDATE_DRAFT: ProjectUpdateDraft = { body: "", health: null };
+
+export function ProjectUpdatesSection({
+  projectId,
+  updates,
+  draft: controlled,
+  onDraftChange,
+}: {
+  projectId: number;
+  updates: ProjectUpdate[];
+  draft?: ProjectUpdateDraft; // 渡したときは親の下書きを使う（onDraftChange と組で渡す）
+  onDraftChange?: (next: ProjectUpdateDraft) => void;
+}) {
   const add = useAddProjectUpdate(projectId);
-  const [body, setBody] = useState("");
-  const [health, setHealth] = useState<HealthChoice>(null);
+  const [local, setLocal] = useState<ProjectUpdateDraft>(EMPTY_PROJECT_UPDATE_DRAFT);
+  const draft = controlled ?? local;
+  const setDraft = (next: ProjectUpdateDraft) => (onDraftChange ?? setLocal)(next);
+  const { body, health } = draft;
+  const setBody = (next: string) => setDraft({ ...draft, body: next });
+  const setHealth = (next: HealthChoice) => setDraft({ ...draft, health: next });
   const action = useAsyncAction();
 
   async function submit() {
     if (await action.run(() => add.mutateAsync({ body, health }), "保存できませんでした")) {
-      setBody("");
-      setHealth(null);
+      setDraft(EMPTY_PROJECT_UPDATE_DRAFT);
     }
   }
 

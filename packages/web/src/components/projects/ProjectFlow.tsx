@@ -7,7 +7,7 @@ import type { ProjectFlow, ProjectFlowNode, Status } from "../../api/types";
 import { statusName } from "../../lib/workspace-labels";
 import { Button, Icon, type IconName, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar } from "../ui";
 import l from "../issue-list/issue-list.module.css";
-import { CARD_HEIGHT, CARD_WIDTH, type FlowNodeState, flowNodeState, layoutFlow } from "./flow-layout";
+import { CARD_WIDTH, cardHeight, type FlowNodeState, flowNodeState, layoutFlow } from "./flow-layout";
 import s from "./project-flow.module.css";
 
 export type ProjectView = "list" | "flow";
@@ -56,6 +56,9 @@ export function ProjectFlowPage({
   afterContent: ReactNode;
   projectId: number;
 }) {
+  const flow = useProjectFlow(projectId, true);
+  // 見出しの件数は Project 内（アーカイブ済みを除く）の Issue の数。Project 外の参照ノードは数えない
+  const mainCount = flow.data ? flow.data.nodes.filter((n) => !n.external).length : null;
   return (
     <div className={l.page}>
       <PageHeader>
@@ -64,24 +67,30 @@ export function ProjectFlowPage({
         <PageTitle>{title}</PageTitle>
       </PageHeader>
       <div className={l.intro}>{intro}</div>
-      <ViewBar>
-        <p className={s.scopeNote}>Project 全体を表示しています（一覧の検索・絞り込みは適用されません）</p>
+      <ViewBar className={s.viewBar}>
+        <h2 className={s.listHeading}>
+          Issue 一覧
+          {mainCount !== null && " "}
+          {mainCount !== null && <span className={s.listCount}>{mainCount}</span>}
+        </h2>
         <Spacer />
         {viewSwitch}
       </ViewBar>
       <div className={s.body}>
-        <ProjectFlowSection projectId={projectId} />
+        <ProjectFlowSection flow={flow} />
       </div>
       <div className={l.afterContent}>{afterContent}</div>
     </div>
   );
 }
 
-function ProjectFlowSection({ projectId }: { projectId: number }) {
-  const flow = useProjectFlow(projectId, true);
+function ProjectFlowSection({ flow }: { flow: ReturnType<typeof useProjectFlow> }) {
   return (
     <section className={s.section} aria-label="依存関係のフロー">
-      <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業は並行して進められます。</p>
+      <div className={s.notes}>
+        <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業は並行して進められます。</p>
+        <p className={s.scopeNote}>Project 全体を表示しています（一覧の検索・絞り込みは適用されません）</p>
+      </div>
       {flow.error ? (
         <div role="alert" className={s.error}>
           <p>フローを読み込めませんでした：{errorMessage(flow.error)}</p>
@@ -151,7 +160,8 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
         {noDependencies ? (
           <p className={s.message}>依存関係はまだありません</p>
         ) : layout.cards.length > 0 && (
-          <div className={s.scroller}>
+          // 狭い画面では図の中だけを横にスクロールする。キーボードでもスクロールできるようフォーカスを受ける
+          <div className={s.scroller} role="region" aria-label="依存関係の図" tabIndex={0}>
             <div className={s.graph} style={{ width: layout.width, height: layout.height }}>
               <svg className={s.arrows} width={layout.width} height={layout.height} aria-hidden="true">
                 <defs>
@@ -169,7 +179,7 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
                 ))}
               </svg>
               {layout.cards.map((card) => (
-                <FlowCard key={card.node.id} node={card.node} text={text(card.node)} style={{ left: card.x, top: card.y }} />
+                <FlowCard key={card.node.id} node={card.node} text={text(card.node)} height={card.height} style={{ left: card.x, top: card.y }} />
               ))}
             </div>
           </div>
@@ -186,7 +196,7 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
             <ul className={s.cycleCards}>
               {layout.cycle.map((node) => (
                 <li key={node.id}>
-                  <FlowCard node={node} text={text(node)} />
+                  <FlowCard node={node} text={text(node)} height={cardHeight(node, true)} />
                 </li>
               ))}
             </ul>
@@ -203,7 +213,7 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
                     <Link
                       to="/issues/$issueId"
                       params={{ issueId: node.id }}
-                      className={`${s.inline} ${s[t.state]}`}
+                      className={`${s.inline} ${s[t.state] ?? ""}`}
                       aria-label={`${node.id} ${node.title}、${t.label}`}
                       title={`${node.title}（${t.label}）`}
                     >
@@ -231,14 +241,14 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
 }
 
 // フローのカード。Issue 詳細へのリンクで、色だけに頼らずアイコンと文字で状態を示す
-function FlowCard({ node, text, style }: { node: ProjectFlowNode; text: CardText; style?: { left: number; top: number } }) {
+function FlowCard({ node, text, height, style }: { node: ProjectFlowNode; text: CardText; height: number; style?: { left: number; top: number } }) {
   const name = [`${node.id} ${node.title}`, text.label, text.prerequisite, text.outside].filter(Boolean).join("、");
   return (
     <Link
       to="/issues/$issueId"
       params={{ issueId: node.id }}
-      className={`${s.card} ${s[text.state]} ${node.external ? s.external : ""} ${style ? s.placed : ""}`}
-      style={{ width: CARD_WIDTH, height: CARD_HEIGHT, ...style }}
+      className={[s.card, s[text.state], node.external && s.external, style && s.placed].filter(Boolean).join(" ")}
+      style={{ width: CARD_WIDTH, height, ...style }}
       aria-label={name}
     >
       <span className={s.cardId}>

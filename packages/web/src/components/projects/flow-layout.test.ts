@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ProjectFlow, ProjectFlowNode } from "../../api/types";
-import { CARD_HEIGHT, CARD_WIDTH, COLUMN_GAP, flowNodeState, layoutFlow, ROW_GAP } from "./flow-layout";
+import { CARD_HEIGHT, CARD_WIDTH, COLUMN_GAP, cardHeight, flowNodeState, layoutFlow, ROW_GAP, TRUNK_SPACING } from "./flow-layout";
 
 function node(id: string, extra: Partial<ProjectFlowNode> = {}): ProjectFlowNode {
   return {
@@ -45,7 +45,7 @@ describe("layoutFlow", () => {
     expect(layout.predecessors.get("A-5")).toEqual(["A-3", "A-4"]);
     // 列を横に、カードどうしは重ならない
     expect(layout.width).toBe(4 * CARD_WIDTH + 3 * COLUMN_GAP);
-    expect(layout.height).toBe(2 * CARD_HEIGHT + ROW_GAP);
+    expect(layout.height).toBe(2 * cardHeight(node("A-3"), true) + ROW_GAP);
   });
 
   test("矢印は前提の右端の中央から後続の左端の中央へ、縦横の線でつなぐ", () => {
@@ -54,13 +54,61 @@ describe("layoutFlow", () => {
     for (const edge of layout.edges) {
       const from = card(edge.from);
       const to = card(edge.to);
-      expect(edge.points[0]).toEqual({ x: from.x + CARD_WIDTH, y: from.y + CARD_HEIGHT / 2 });
-      expect(edge.points.at(-1)).toEqual({ x: to.x, y: to.y + CARD_HEIGHT / 2 });
+      expect(edge.points[0]).toEqual({ x: from.x + CARD_WIDTH, y: from.y + from.height / 2 });
+      expect(edge.points.at(-1)).toEqual({ x: to.x, y: to.y + to.height / 2 });
       edge.points.slice(1).forEach((p, i) => {
         const q = edge.points[i]!;
         expect(p.x === q.x || p.y === q.y).toBe(true);
       });
     }
+  });
+
+  test("前提の違う矢印は列の間で別の縦線を通り、同じ前提の分岐だけが縦線を共有する", () => {
+    // e2e の seedBranchAndMerge と同じ形。FL-1 → FL-2・FL-3・FL-8、FL-2・FL-3 → FL-4、Project 外の OUT-1 → FL-4（列をまたぐ）
+    const layout = layoutFlow(flow(
+      ["FL-1", "FL-2", "FL-3", "FL-4", "FL-8", "OUT-1"],
+      [["FL-1", "FL-2"], ["FL-1", "FL-3"], ["FL-1", "FL-8"], ["FL-2", "FL-4"], ["FL-3", "FL-4"], ["OUT-1", "FL-4"]],
+      { "OUT-1": { external: true } },
+    ));
+    expect(columns(layout)).toEqual([["FL-1", "OUT-1"], ["FL-2", "FL-3", "FL-8"], ["FL-4"]]);
+    // 縦の線分を x ごとに集めると、どの x も1つの前提だけが使う
+    const fromsByX = new Map<number, Set<string>>();
+    for (const edge of layout.edges) {
+      edge.points.slice(1).forEach((p, i) => {
+        const q = edge.points[i]!;
+        if (p.x !== q.x || p.y === q.y) return;
+        fromsByX.set(p.x, (fromsByX.get(p.x) ?? new Set()).add(edge.from));
+      });
+    }
+    for (const [x, froms] of fromsByX) expect([x, [...froms]]).toEqual([x, [...froms].slice(0, 1)]);
+    // FL-1 の分岐は1本の縦線を共有する
+    const trunk = (edge: (typeof layout.edges)[number]) => edge.points.find((p, i) => i > 0 && p.x === edge.points[i - 1]!.x)?.x;
+    const fromFl1 = layout.edges.filter((e) => e.from === "FL-1").map(trunk).filter((x) => x !== undefined);
+    expect(new Set(fromFl1).size).toBe(1);
+    // 縦線は列の間に収まり、カードに重ならない
+    for (const x of fromsByX.keys()) {
+      for (const card of layout.cards) expect(x > card.x && x < card.x + CARD_WIDTH).toBe(false);
+    }
+  });
+
+  test("列の間を通る前提が多いと、縦線の間隔を保つよう列の間を広げる", () => {
+    const sources = Array.from({ length: 6 }, (_, i) => `A-${i + 1}`);
+    const layout = layoutFlow(flow([...sources, "B-1"], sources.map((id) => [id, "B-1"])));
+    const target = layout.cards.find((c) => c.node.id === "B-1")!;
+    expect(target.x - CARD_WIDTH).toBe(7 * TRUNK_SPACING);
+    const xs = [...new Set(layout.edges.map((e) => e.points[1]!.x))].sort((a, b) => a - b);
+    expect(xs).toHaveLength(6);
+    xs.slice(1).forEach((x, i) => expect(x - xs[i]!).toBeGreaterThanOrEqual(TRUNK_SPACING));
+  });
+
+  test("カードの高さは前提・Project 外の行の有無で決まる", () => {
+    const layout = layoutFlow(flow(["A-1", "A-2", "B-1"], [["A-1", "A-2"], ["B-1", "A-2"]], { "B-1": { external: true } }));
+    const height = (id: string) => layout.cards.find((c) => c.node.id === id)!.height;
+    expect(height("A-1")).toBe(CARD_HEIGHT);
+    expect(height("A-2")).toBe(cardHeight(node("A-2"), true));
+    expect(height("B-1")).toBe(cardHeight(node("B-1", { external: true }), false));
+    expect(cardHeight(node("A-2"), true)).toBeGreaterThan(CARD_HEIGHT);
+    expect(cardHeight(node("B-1", { external: true }), true)).toBe(CARD_HEIGHT + 2 * (cardHeight(node("A-2"), true) - CARD_HEIGHT));
   });
 
   test("依存辺のない主対象は別枠に出し、段には並べない", () => {
@@ -115,7 +163,7 @@ describe("layoutFlow", () => {
         const q = long.points[i]!;
         if (p.y !== q.y) return;
         const crossesX = Math.min(p.x, q.x) < card.x + CARD_WIDTH && Math.max(p.x, q.x) > card.x;
-        const insideY = p.y > card.y && p.y < card.y + CARD_HEIGHT;
+        const insideY = p.y > card.y && p.y < card.y + card.height;
         expect(crossesX && insideY).toBe(false);
       });
     }
