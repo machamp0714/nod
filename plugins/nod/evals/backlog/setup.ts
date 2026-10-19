@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { openDb, initWorkspace, saveTemplate } from "../../../../packages/core/src";
 const root = process.argv[2] ? resolve(process.argv[2]) : realpathSync(mkdtempSync(join(tmpdir(), "nod-backlog-eval-")));
 const repoRoot = resolve(import.meta.dir, "../../../..");
-const cases = ["empty", "registered", "ambiguous", "failure", "draft", "update-failure", "multi-empty", "multi-registered", "small"];
+const cases = ["empty", "registered", "ambiguous", "failure", "draft", "update-failure", "multi-empty", "multi-registered", "small", "multi-update-failure", "multi-response-lost"];
 mkdirSync(root, { recursive: true });
 for (const [index, name] of cases.entries()) {
   const dir = join(root, String(index + 1).padStart(2, "0"));
@@ -21,7 +21,7 @@ for (const [index, name] of cases.entries()) {
   initWorkspace(db, { path: repo, key: "EVAL" });
   // 隔離DBだけに、人が登録済みのテンプレートをfixtureとして用意する。
   const human = { db, actor: "me" };
-  if (["registered", "update-failure", "multi-registered"].includes(name)) {
+  if (["registered", "update-failure", "multi-registered", "multi-update-failure"].includes(name)) {
     saveTemplate(human, {name:"機能改善", body:"## 利用場面\n［対象者と場面］\n\n## 実現したいこと\n［価値と動作］\n\n## 確認項目\n- [ ] ［観測できる結果］\n\n## 補足\n［未決事項など］\n"});
   }
   if (name === "ambiguous") {
