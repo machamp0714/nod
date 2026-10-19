@@ -3,7 +3,7 @@ import { errorMessage } from "../api/errors";
 import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
-import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary, ProjectUpdate } from "../api/types";
+import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { HealthPill } from "../components/projects/HealthPill";
@@ -44,7 +44,9 @@ export function ProjectDetailPage() {
     <IssueList
       crumb={<Link to="/projects">Projects</Link>}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} initiatives={detail.data.initiatives} />}
+      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} initiatives={detail.data.initiatives} />}
+      // design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：進捗報告は Issue 一覧の後に置く
+      afterContent={<ProjectUpdatesSection key={`updates-${detail.data.id}`} projectId={detail.data.id} updates={detail.data.updates} />}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
       </div>}
@@ -71,13 +73,11 @@ function ProjectIntro({
   project,
   documents,
   milestones,
-  updates,
   initiatives,
 }: {
   project: ProjectSummary;
   documents: DocumentRef[];
   milestones: Milestone[];
-  updates: ProjectUpdate[];
   initiatives: ProjectDetail["initiatives"];
 }) {
   return (
@@ -125,7 +125,6 @@ function ProjectIntro({
         )}
       </div>
       <MilestonesSection key={`milestones-${project.id}`} projectId={project.id} milestones={milestones} />
-      <ProjectUpdatesSection key={`updates-${project.id}`} projectId={project.id} updates={updates} />
     </section>
   );
 }

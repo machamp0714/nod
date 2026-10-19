@@ -26,6 +26,7 @@ export interface IssueListProps {
   titleIcon?: ReactNode; // タイトルの左に置く印（View の色）
   titleNote?: ReactNode; // タイトルの右に置く注記（View の「変更あり」）
   intro?: ReactNode;
+  afterContent?: ReactNode; // 一覧の後に置く内容（Project 詳細の進捗報告）
   actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
   filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
   rows: IssueListRow[];
@@ -59,6 +60,7 @@ export function IssueList({
   titleIcon,
   titleNote,
   intro,
+  afterContent,
   actions,
   filterBar,
   rows,
@@ -193,8 +195,8 @@ export function IssueList({
     if (panel.open) panel.querySelector("summary")?.focus();
   };
   // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする。
-  // 概要（intro）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
-  const fill = layout === "board" && !groupBy && !intro;
+  // 概要（intro）や一覧の後の内容（afterContent）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
+  const fill = layout === "board" && !groupBy && !intro && !afterContent;
 
   return (
     <div className={fill ? `${s.split} ${s.splitFill}` : s.split}>
@@ -344,6 +346,7 @@ export function IssueList({
         )}
       </div>
       </StatusTonesProvider>
+      {afterContent && <div className={s.afterContent}>{afterContent}</div>}
     </div>
     {preview && (
       <PreviewPane

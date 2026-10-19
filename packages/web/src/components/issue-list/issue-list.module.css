@@ -13,6 +13,12 @@
   padding: 16px 20px 8px;
 }
 
+/* 一覧の後に置く内容（Project 詳細の進捗報告） */
+.afterContent {
+  min-width: 0;
+  padding: 16px 20px 24px;
+}
+
 /* nod.pen の Filters の行：高さ 46、左右 20、下線 1。左端に表示中の全選択を置く。
    チップ（26）もネイティブの select（28）も 46 の中央に置く。折り返したときは上下 8 を空ける */
 .filters {
