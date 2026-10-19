@@ -39,26 +39,38 @@ export function ProjectViewSwitch({ value, onChange, focusOnMount }: { value: Pr
   );
 }
 
+// design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）・「Project詳細｜フロー」（R4bvo）の見出し行。
+// 左に「Issue 一覧」と Project 内（アーカイブ済みを除き、完了・中止を含む）の件数、右に一覧とフローの切り替えを置き、一覧でもフローでも同じ部品を使う
+export function ProjectIssuesBar({ count, viewSwitch }: { count: number; viewSwitch: ReactNode }) {
+  return (
+    <ViewBar className={s.viewBar}>
+      <h2 className={s.listHeading}>
+        Issue 一覧 <span className={s.listCount}>{count}</span>
+      </h2>
+      <Spacer />
+      {viewSwitch}
+    </ViewBar>
+  );
+}
+
 // フロー表示のときの Project 詳細。一覧専用の絞り込み・Display・一括選択・プレビューは出さない。
 // Header・概要・View Bar・本文・進捗報告の余白は一覧（IssueList）に合わせる
 export function ProjectFlowPage({
   crumb,
   title,
   intro,
-  viewSwitch,
+  heading,
   afterContent,
   projectId,
 }: {
   crumb: ReactNode;
   title: string;
   intro: ReactNode;
-  viewSwitch: ReactNode;
+  heading: ReactNode;
   afterContent: ReactNode;
   projectId: number;
 }) {
   const flow = useProjectFlow(projectId, true);
-  // 見出しの件数は Project 内（アーカイブ済みを除く）の Issue の数。Project 外の参照ノードは数えない
-  const mainCount = flow.data ? flow.data.nodes.filter((n) => !n.external).length : null;
   return (
     <div className={l.page}>
       <PageHeader>
@@ -67,15 +79,7 @@ export function ProjectFlowPage({
         <PageTitle>{title}</PageTitle>
       </PageHeader>
       <div className={l.intro}>{intro}</div>
-      <ViewBar className={s.viewBar}>
-        <h2 className={s.listHeading}>
-          Issue 一覧
-          {mainCount !== null && " "}
-          {mainCount !== null && <span className={s.listCount}>{mainCount}</span>}
-        </h2>
-        <Spacer />
-        {viewSwitch}
-      </ViewBar>
+      {heading}
       <div className={s.body}>
         <ProjectFlowSection flow={flow} />
       </div>

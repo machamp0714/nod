@@ -27,7 +27,7 @@ export interface IssueListProps {
   titleNote?: ReactNode; // タイトルの右に置く注記（View の「変更あり」）
   intro?: ReactNode;
   afterContent?: ReactNode; // 一覧の後に置く内容（Project 詳細の進捗報告）
-  viewSwitch?: ReactNode; // View Bar の右に置く表示の切り替え（Project 詳細の一覧とフロー）
+  heading?: ReactNode; // 概要と View Bar の間に置く見出しの行（Project 詳細の「Issue 一覧」と一覧・フローの切り替え）
   actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
   filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
   rows: IssueListRow[];
@@ -62,7 +62,7 @@ export function IssueList({
   titleNote,
   intro,
   afterContent,
-  viewSwitch,
+  heading,
   actions,
   filterBar,
   rows,
@@ -226,6 +226,7 @@ export function IssueList({
         {actions && <div className={s.actions}>{actions}</div>}
       </PageHeader>
       {intro && <div className={s.intro}>{intro}</div>}
+      {heading}
       <ViewBar>
         <Segmented<ListTab>
           label="絞り込み"
@@ -241,7 +242,6 @@ export function IssueList({
           ]}
         />
         <Spacer />
-        {viewSwitch}
         {searchOpen ? (
           <label className={s.search}>
             <Icon name="search" />

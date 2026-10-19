@@ -9,7 +9,7 @@ import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
-import { ProjectFlowPage, ProjectViewSwitch } from "../components/projects/ProjectFlow";
+import { ProjectFlowPage, ProjectIssuesBar, ProjectViewSwitch } from "../components/projects/ProjectFlow";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { EMPTY_PROJECT_UPDATE_DRAFT, type ProjectUpdateDraft, ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
@@ -68,9 +68,10 @@ export function ProjectDetailPage() {
       onChange={(next) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, view: next === "flow" ? "flow" : undefined }) })}
     />
   );
+  const heading = <ProjectIssuesBar count={detail.data.issues.length} viewSwitch={viewSwitch} />;
   // design/nod.pen「Project詳細｜フロー」（R4bvo）：一覧の絞り込みを使わず、Project 全体の依存関係を示す
   if (view === "flow") {
-    return <ProjectFlowPage crumb={crumb} title={detail.data.name} intro={intro} viewSwitch={viewSwitch} afterContent={updates} projectId={detail.data.id} />;
+    return <ProjectFlowPage crumb={crumb} title={detail.data.name} intro={intro} heading={heading} afterContent={updates} projectId={detail.data.id} />;
   }
   return (
     <IssueList
@@ -78,7 +79,7 @@ export function ProjectDetailPage() {
       title={detail.data.name}
       intro={intro}
       afterContent={updates}
-      viewSwitch={viewSwitch}
+      heading={heading}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
       </div>}

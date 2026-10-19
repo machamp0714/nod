@@ -129,6 +129,27 @@ test.describe("分岐と合流のある Project", () => {
     await expect(page.getByRole("table")).toHaveCount(0);
   });
 
+  test("一覧でも検索・タブの行の上に「Issue 一覧」と Project 内の件数、右に切り替えを出し、一覧の操作は保つ", async ({ page, nod }) => {
+    const { projectId } = await seedBranchAndMerge(nod);
+    // 件数は一覧の検索・タブに関わらず、アーカイブ済みを除く Project 内の Issue（完了・中止を含む）
+    await page.goto(`/projects/${projectId}?q=負荷&tab=ready`);
+    const heading = page.getByRole("heading", { level: 2, name: "Issue 一覧 7" });
+    await expect(heading).toBeVisible();
+    const tabs = page.getByRole("tablist", { name: "絞り込み", exact: true });
+    await expect(tabs).toBeVisible();
+    const switcher = page.getByRole("tablist", { name: "Issue の表示", exact: true });
+    await expect(switcher.getByRole("tab", { name: "一覧" })).toHaveAttribute("aria-selected", "true");
+    const head = await box(heading);
+    const sw = await box(switcher);
+    expect(head.y + head.height).toBeLessThanOrEqual((await box(tabs)).y);
+    // 切り替えは見出しと同じ行の右側
+    expect(Math.abs(sw.y + sw.height / 2 - (head.y + head.height / 2))).toBeLessThan(sw.height);
+    expect(sw.x).toBeGreaterThan(head.x + head.width);
+    await expect(page.getByRole("textbox", { name: "検索" })).toHaveValue("負荷");
+    await expect(page.getByRole("button", { name: "表示設定", exact: true })).toBeVisible();
+    await expect(page.getByRole("group", { name: "絞り込み条件" })).toBeVisible();
+  });
+
   test("分岐と合流をカード・状態の文字・前提・矢印・列の順で示す", async ({ page, nod }) => {
     const { projectId } = await seedBranchAndMerge(nod);
     await page.goto(`/projects/${projectId}?view=flow`);
