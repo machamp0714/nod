@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useId, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../../api/errors";
 import { useProjectFlow } from "../../api/hooks/projects";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import type { ProjectFlow, ProjectFlowNode, Status } from "../../api/types";
+import { STATUS_META, TONE_COLORS } from "../../lib/meta";
 import { statusName } from "../../lib/workspace-labels";
 import { Button, Icon, type IconName, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar } from "../ui";
 import l from "../issue-list/issue-list.module.css";
@@ -159,92 +160,134 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
   };
 
   const mainCount = flow.nodes.filter((n) => !n.external).length;
-  if (mainCount === 0) return <p className={s.message}>この Project に Issue はありません</p>;
+  if (mainCount === 0) return <p className={s.message}>Issue はありません</p>;
   const noDependencies = layout.cards.length === 0 && layout.cycle.length === 0;
 
   return (
     <>
-      <div className={s.canvas}>
-        {noDependencies ? (
-          <p className={s.message}>依存関係はまだありません</p>
-        ) : layout.cards.length > 0 && (
-          // 狭い画面では図の中だけを横にスクロールする。キーボードでもスクロールできるようフォーカスを受ける
-          <div className={s.scroller} role="region" aria-label="依存関係の図" tabIndex={0}>
-            <div className={s.graph} style={{ width: layout.width, height: layout.height }}>
-              <svg className={s.arrows} width={layout.width} height={layout.height} aria-hidden="true">
-                <defs>
-                  <marker id={markerId} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-                    <path d="M 0 1 L 10 5 L 0 9" className={s.arrowHead} />
-                  </marker>
-                </defs>
-                {layout.edges.map((edge) => (
-                  <path
-                    key={`${edge.from}-${edge.to}`}
-                    className={s.arrow}
-                    d={edge.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")}
-                    markerEnd={`url(#${markerId})`}
-                  />
-                ))}
-              </svg>
-              {layout.cards.map((card) => (
-                <FlowCard key={card.node.id} node={card.node} text={text(card.node)} height={card.height} style={{ left: card.x, top: card.y }} />
-              ))}
-            </div>
+      {!noDependencies && (
+        <>
+          <div className={s.canvas}>
+            {layout.cards.length > 0 && (
+              // 狭い画面では図の中だけを横にスクロールする。キーボードでもスクロールできるようフォーカスを受ける
+              <div className={s.scroller} role="region" aria-label="依存関係の図" tabIndex={0}>
+                <div className={s.graph} style={{ width: layout.width, height: layout.height }}>
+                  <svg className={s.arrows} width={layout.width} height={layout.height} aria-hidden="true">
+                    <defs>
+                      <marker id={markerId} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9" className={s.arrowHead} />
+                      </marker>
+                    </defs>
+                    {layout.edges.map((edge) => (
+                      <path
+                        key={`${edge.from}-${edge.to}`}
+                        className={s.arrow}
+                        d={edge.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")}
+                        markerEnd={`url(#${markerId})`}
+                      />
+                    ))}
+                  </svg>
+                  {layout.cards.map((card) => (
+                    <FlowCard key={card.node.id} node={card.node} text={text(card.node)} height={card.height} style={{ left: card.x, top: card.y }} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {layout.cycle.length > 0 && (
+              <section className={s.frame} aria-label="循環している依存関係">
+                <h3 className={`${s.frameHeading} ${s.cycleHeading}`}>
+                  <Icon name="triangle-alert" size={14} color="var(--ask)" />
+                  循環している依存関係 · {layout.cycle.length} 件
+                </h3>
+                <p role="note" className={s.frameNote}>
+                  依存関係が循環しているため、順序を決められません。ブロックの関係を見直してください。
+                </p>
+                <ul className={s.cycleCards}>
+                  {layout.cycle.map((node) => (
+                    <li key={node.id}>
+                      <FlowCard node={node} text={text(node)} height={cardHeight(node, true)} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
-        )}
-        {layout.cycle.length > 0 && (
-          <section className={s.frame} aria-label="循環している依存関係">
-            <h3 className={`${s.frameHeading} ${s.cycleHeading}`}>
-              <Icon name="triangle-alert" size={14} color="var(--ask)" />
-              循環している依存関係 · {layout.cycle.length} 件
-            </h3>
-            <p role="note" className={s.frameNote}>
-              依存関係が循環しているため、順序を決められません。ブロックの関係を見直してください。
-            </p>
-            <ul className={s.cycleCards}>
-              {layout.cycle.map((node) => (
-                <li key={node.id}>
-                  <FlowCard node={node} text={text(node)} height={cardHeight(node, true)} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        {layout.independent.length > 0 && (
-          <section className={s.frame} aria-label="依存関係なし">
-            <h3 className={s.frameHeading}>依存関係なし · {layout.independent.length} 件</h3>
-            <ul className={s.independent}>
-              {layout.independent.map((node) => {
-                const t = text(node);
-                return (
-                  <li key={node.id}>
-                    <Link
-                      to="/issues/$issueId"
-                      params={{ issueId: node.id }}
-                      className={`${s.inline} ${s[t.state] ?? ""}`}
-                      aria-label={`${node.id} ${node.title}、${t.label}`}
-                      title={`${node.title}（${t.label}）`}
-                    >
-                      {t.icon}
-                      <span className={s.mono}>{node.id}</span>
-                      <span className={s.inlineTitle}>{node.title}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-      </div>
-      <ul className={s.legend} aria-label="凡例">
-        {(["done", "in_progress", "ready", "waiting"] as const).map((state) => (
-          <li key={state}>
-            <Icon name={STATE_ICONS[state]!.icon} size={12} color={STATE_ICONS[state]!.color} />
-            {STATE_ICONS[state]!.label}
-          </li>
-        ))}
-      </ul>
+          <ul className={s.legend} aria-label="凡例">
+            {(["done", "in_progress", "ready", "waiting"] as const).map((state) => (
+              <li key={state}>
+                <Icon name={STATE_ICONS[state]!.icon} size={12} color={STATE_ICONS[state]!.color} />
+                {STATE_ICONS[state]!.label}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {layout.independent.length > 0 && <IndependentIssues nodes={layout.independent} text={text} />}
     </>
+  );
+}
+
+// 独立 Issue は依存図の外で状態ごとに表示し、完了・中止だけを初期状態で折りたたむ。
+function IndependentIssues({ nodes, text }: { nodes: ProjectFlowNode[]; text: (node: ProjectFlowNode) => CardText }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const groups = [
+    { key: "in_progress", label: "対応中", matches: (state: FlowNodeState) => state === "in_progress" },
+    { key: "ready", label: "着手可能", matches: (state: FlowNodeState) => state === "ready" },
+    { key: "other", label: "その他の未完了", matches: (state: FlowNodeState) => state === "other" || state === "waiting" },
+    { key: "done", label: "完了", matches: (state: FlowNodeState) => state === "done" },
+    { key: "canceled", label: "中止", matches: (state: FlowNodeState) => state === "canceled" },
+  ];
+  return (
+    <section className={s.independentSection} aria-label="独立したIssue">
+      <h3 className={s.independentHeading}>独立したIssue {nodes.length}件</h3>
+      <p className={s.independentNote}>登録された依存関係のないIssueです。状態ごとにまとめて表示します。</p>
+      {groups.map((group) => {
+        const items = nodes.filter((node) => group.matches(flowNodeState(node)));
+        if (items.length === 0) return null;
+        const cards = (
+          <ul className={s.independent}>
+            {items.map((node) => {
+              const t = text(node);
+              const label = t.state === "canceled" ? "中止" : t.label;
+              const color = STATE_ICONS[t.state]?.color ?? TONE_COLORS[STATUS_META[node.status].tone].fg;
+              return (
+                <li key={node.id}>
+                  <Link to="/issues/$issueId" params={{ issueId: node.id }} className={s.independentCard} aria-label={`${node.id} ${node.title}、${label}`}>
+                    <span className={s.independentMeta}>
+                      <span className={s.mono}>{node.id}</span>
+                      <span className={s.independentState} style={{ color }}>{t.icon}{label}</span>
+                    </span>
+                    <span className={s.cardTitle} title={node.title}>{node.title}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        );
+        return group.key === "done" || group.key === "canceled" ? (
+          <details
+            key={group.key}
+            className={s.closedGroup}
+            open={expanded[group.key] ?? false}
+            onToggle={(event) => {
+              const open = event.currentTarget.open;
+              setExpanded((current) => ({ ...current, [group.key]: open }));
+            }}
+          >
+            <summary className={s.groupToggle} style={{ color: group.key === "done" ? "var(--ready)" : "var(--ink2)" }}>
+              <Icon name="chevron-right" size={14} />
+              {group.label} {items.length}件を{expanded[group.key] ? "非表示" : "表示"}
+            </summary>
+            {cards}
+          </details>
+        ) : (
+          <section key={group.key} className={s.independentGroup} aria-label={group.label}>
+            <h4 className={s.groupHeading}>{group.label} {items.length}</h4>
+            {cards}
+          </section>
+        );
+      })}
+    </section>
   );
 }
 

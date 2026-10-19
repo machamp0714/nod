@@ -115,7 +115,9 @@ test.describe("分岐と合流のある Project", () => {
     await page.goto(`/projects/${projectId}?view=flow&q=負荷&tab=ready&showCompleted=false&blocked=true`);
     const flow = flowRegion(page);
     // アーカイブ済みの FL-7 を除く Project の Issue をすべて出す（完了・中止も含む）
-    for (const id of ["FL-1", "FL-2", "FL-3", "FL-4", "FL-5", "FL-6", "FL-8"]) await expect(card(flow, id)).toBeVisible();
+    for (const id of ["FL-1", "FL-2", "FL-3", "FL-4", "FL-5", "FL-8"]) await expect(card(flow, id)).toBeVisible();
+    await expect(flow.getByText("中止 1件を表示", { exact: true })).toBeVisible();
+    await expect(card(flow, "FL-6")).toBeHidden();
     await expect(card(flow, "FL-7")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 2, name: "Issue 一覧 7" })).toBeVisible();
     await expect(page.getByText("Project 全体を表示しています（一覧の検索・絞り込みは適用されません）")).toBeVisible();
@@ -211,16 +213,26 @@ test.describe("分岐と合流のある Project", () => {
     await expect(card(flowRegion(page), "OUT-3")).toContainText("Project外 · Projectなし · payments");
   });
 
-  test("依存辺のない Issue は「依存関係なし」の枠にまとめる", async ({ page, nod }) => {
+  test("依存辺のない Issue は図の下へ状態別カードとして出し、中止は初期折りたたみにする", async ({ page, nod }, testInfo) => {
     const { projectId } = await seedBranchAndMerge(nod);
     await page.goto(`/projects/${projectId}?view=flow`);
-    const frame = flowRegion(page).getByRole("region", { name: "依存関係なし", exact: true });
-    await expect(frame.getByRole("heading")).toHaveText("依存関係なし · 2 件");
+    const flow = flowRegion(page);
+    const frame = flow.getByRole("region", { name: "独立したIssue", exact: true });
+    await expect(frame.getByRole("heading", { level: 3 })).toHaveText("独立したIssue 2件");
+    await expect(frame.getByRole("heading", { name: "着手可能 1", exact: true })).toBeVisible();
     await expect(card(frame, "FL-5")).toHaveAccessibleName(/、着手可能$/);
-    await expect(card(frame, "FL-6")).toHaveAccessibleName(/、Canceled$/);
-    // 枠はキャンバスの中で、矢印のグラフの下
-    const graphBottom = (await box(card(flowRegion(page), "FL-3"))).y;
-    expect((await box(frame)).y).toBeGreaterThan(graphBottom);
+    await expect(card(frame, "FL-6")).toBeHidden();
+    await page.setViewportSize({ width: 1440, height: 1600 });
+    await page.screenshot({ path: testInfo.outputPath("independent-mixed-collapsed.png"), fullPage: true });
+    await frame.getByText("中止 1件を表示", { exact: true }).click();
+    await expect(card(frame, "FL-6")).toBeVisible();
+    await expect(card(frame, "FL-6")).toHaveAccessibleName(/、中止$/);
+    await expect(card(flow, "FL-5")).toHaveCount(1);
+    await expect(card(flow, "FL-1")).toHaveCount(1);
+    const legend = await box(page.getByRole("list", { name: "凡例" }));
+    expect((await box(frame)).y).toBeGreaterThanOrEqual(legend.y + legend.height);
+    await expect(arrows(page)).toHaveCount(6);
+    await page.screenshot({ path: testInfo.outputPath("independent-mixed-expanded.png"), fullPage: true });
   });
 
   test("Tab でカードに移り Enter で Issue 詳細を開く", async ({ page, nod }) => {
@@ -402,7 +414,7 @@ test.describe("読み込みの失敗", () => {
     const alert = flowRegion(page).getByRole("alert");
     await expect(alert).toBeVisible({ timeout: 20_000 });
     await expect(alert).toContainText("フローを読み込めませんでした");
-    await expect(page.getByText("この Project に Issue はありません")).toHaveCount(0);
+    await expect(page.getByText("Issue はありません", { exact: true })).toHaveCount(0);
     await expect(page.getByText("依存関係はまだありません")).toHaveCount(0);
     await page.unroute(pattern);
     await alert.getByRole("button", { name: "再試行" }).click();
@@ -430,7 +442,7 @@ test.describe("読み込みの失敗", () => {
   });
 });
 
-test("依存関係のない Project と Issue のない Project はそれぞれの文言を出す", async ({ page, nod }) => {
+test("依存関係のない Project はカードだけを出し、Issue のない Project は空の文言を出す", async ({ page, nod }) => {
   const ws = (await nod.me.initWorkspace({ path: nod.repo("flat"), key: "FT", name: "flat" })).workspace;
   const flat = await nod.me.createProject({ name: "依存のない Project" });
   const empty = await nod.me.createProject({ name: "空の Project" });
@@ -438,15 +450,127 @@ test("依存関係のない Project と Issue のない Project はそれぞれ�
   await nod.me.createIssue({ workspaceId: ws.id, title: "ふたつめ", projectRef: String(flat.id) });
 
   await page.goto(`/projects/${flat.id}?view=flow`);
-  await expect(page.getByText("依存関係はまだありません")).toBeVisible();
-  const frame = flowRegion(page).getByRole("region", { name: "依存関係なし", exact: true });
-  await expect(frame).toContainText("依存関係なし · 2 件");
+  await expect(page.getByText("依存関係はまだありません")).toHaveCount(0);
+  await expect(flowRegion(page).getByRole("region", { name: "依存関係の図", exact: true })).toHaveCount(0);
+  await expect(flowRegion(page).getByRole("list", { name: "凡例" })).toHaveCount(0);
+  const frame = flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true });
+  await expect(frame).toContainText("独立したIssue 2件");
+  await expect(card(frame, "FT-1")).toBeVisible();
+  await expect(card(frame, "FT-2")).toBeVisible();
   await expect(arrows(page)).toHaveCount(0);
 
   await page.goto(`/projects/${empty.id}?view=flow`);
-  await expect(page.getByText("この Project に Issue はありません")).toBeVisible();
+  await expect(page.getByText("Issue はありません", { exact: true })).toBeVisible();
   await expect(page.getByText("依存関係はまだありません")).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 2, name: "Issue 一覧 0" })).toBeVisible();
+});
+
+test("独立カードは対応中・着手可能・その他の順で件数と状態を表示し、グループ内の順序を保つ", async ({ page, nod }, testInfo) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("states"), key: "ST", name: "states" })).workspace;
+  const project = await nod.me.createProject({ name: "状態を確認する Project" });
+  for (const title of ["待機中の作業", "先に登録した着手可能", "対応中の作業", "後に登録した着手可能", "未決事項がある作業"]) {
+    await nod.me.createIssue({ workspaceId: ws.id, title, projectRef: String(project.id) });
+  }
+  await nod.me.updateIssue("ST-1", { status: "backlog" });
+  await nod.claude.startIssue("ST-3");
+  await nod.me.askQuestion("ST-5", "検証用の未決事項");
+  await nod.me.updateIssue("ST-5", { status: "todo" });
+  await page.goto(`/projects/${project.id}?view=flow`);
+  const frame = flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true });
+  await expect(frame.getByRole("heading")).toHaveText(["独立したIssue 5件", "対応中 1", "着手可能 2", "その他の未完了 2"]);
+  await expect(frame.getByRole("region", { name: "着手可能", exact: true }).getByRole("link")).toHaveText([
+    "ST-2着手可能先に登録した着手可能", "ST-4着手可能後に登録した着手可能",
+  ]);
+  await expect(card(frame, "ST-1")).toContainText("Backlog");
+  await expect(card(frame, "ST-5")).toContainText("Todo");
+  await expect(card(frame, "ST-5")).not.toContainText("着手可能");
+  await expect(frame.getByText(/件を表示$/)).toHaveCount(0);
+  const target = card(frame, "ST-3");
+  await expect(target.locator("svg")).toHaveCSS("color", "rgb(63, 81, 216)");
+  await expect(target.getByText("対応中の作業", { exact: true })).toHaveCSS("color", "rgb(22, 26, 33)");
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.screenshot({ path: testInfo.outputPath("independent-states.png"), fullPage: true });
+});
+
+test("完了・中止だけでも個別にTabとEnterで開閉でき、カードのEnterでIssueを開ける", async ({ page, nod }) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("closed"), key: "CL", name: "closed" })).workspace;
+  const project = await nod.me.createProject({ name: "完了した Project" });
+  await nod.me.createIssue({ workspaceId: ws.id, title: "完了した作業", projectRef: String(project.id) });
+  await nod.me.createIssue({ workspaceId: ws.id, title: "中止した作業", projectRef: String(project.id) });
+  await nod.me.updateIssue("CL-1", { status: "done" });
+  await nod.me.updateIssue("CL-2", { status: "canceled", reason: "不要になった" });
+  await page.goto(`/projects/${project.id}?view=flow`);
+  const frame = flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true });
+  const done = frame.locator("summary").filter({ hasText: /^完了 1件を/ });
+  const canceled = frame.locator("summary").filter({ hasText: /^中止 1件を/ });
+  await expect(done).toBeVisible();
+  await expect(canceled).toBeVisible();
+  await expect(frame.getByRole("heading")).toHaveText(["独立したIssue 2件"]);
+  await expect(card(frame, "CL-1")).toBeHidden();
+  await expect(card(frame, "CL-2")).toBeHidden();
+  await viewTab(page, "フロー").focus();
+  await page.keyboard.press("Tab");
+  await expect(done).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(card(frame, "CL-1")).toBeVisible();
+  await expect(done).toHaveText("完了 1件を非表示");
+  await expect(card(frame, "CL-1").locator("svg")).toHaveCSS("color", "rgb(22, 121, 75)");
+  await expect(card(frame, "CL-1").getByText("完了", { exact: true })).toHaveCSS("color", "rgb(22, 121, 75)");
+  await page.keyboard.press("Enter");
+  await expect(card(frame, "CL-1")).toBeHidden();
+  await page.keyboard.press("Tab");
+  await expect(canceled).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(card(frame, "CL-2")).toBeVisible();
+  await expect(card(frame, "CL-1")).toBeHidden();
+  await page.keyboard.press("Tab");
+  await expect(card(frame, "CL-2")).toBeFocused();
+  await expect(card(frame, "CL-2")).toHaveCSS("outline-width", "2px");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/issues\/CL-2$/);
+});
+
+test("完了だけのProjectでも空の状態グループを省略し、完了カードを展開できる", async ({ page, nod }, testInfo) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("finished"), key: "FN", name: "finished" })).workspace;
+  const project = await nod.me.createProject({ name: "完了のみの Project" });
+  await nod.me.createIssue({ workspaceId: ws.id, title: "完了した作業", projectRef: String(project.id) });
+  await nod.me.updateIssue("FN-1", { status: "done" });
+  await page.goto(`/projects/${project.id}?view=flow`);
+  const frame = flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true });
+  await expect(frame.getByRole("heading")).toHaveText(["独立したIssue 1件"]);
+  await expect(frame.locator("summary")).toHaveCount(1);
+  await expect(card(frame, "FN-1")).toBeHidden();
+  await frame.getByText("完了 1件を表示", { exact: true }).click();
+  await expect(card(frame, "FN-1")).toBeVisible();
+  await expect(card(frame, "FN-1").getByText("完了した作業", { exact: true })).toHaveCSS("color", "rgb(22, 26, 33)");
+  await page.screenshot({ path: testInfo.outputPath("independent-done-only.png"), fullPage: true });
+});
+
+test("独立カードはコンテナの幅に合わせて3列・2列・1列となり、長文も2行で収まる", async ({ page, nod }, testInfo) => {
+  const ws = (await nod.me.initWorkspace({ path: nod.repo("long"), key: "LG", name: "long" })).workspace;
+  const project = await nod.me.createProject({ name: "長いタイトルの Project" });
+  const titles = ["長い日本語のタイトルを折り返して読みやすく表示できることをカードの幅を変えながら確認する".repeat(3), "LongUnbrokenWord".repeat(15), "短いタイトル", "次の行の作業"];
+  for (const title of titles) await nod.me.createIssue({ workspaceId: ws.id, title, projectRef: String(project.id) });
+  await page.goto(`/projects/${project.id}?view=flow`);
+  const frame = flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true });
+  for (const [width, columns] of [[1440, 3], [1000, 2], [390, 1]] as const) {
+    await page.setViewportSize({ width, height: 960 });
+    await expect(card(frame, "LG-1")).toBeVisible();
+    const boxes = await Promise.all([1, 2, 3, 4].map((i) => box(card(frame, `LG-${i}`))));
+    const first = boxes[0]!;
+    expect(boxes.filter((b) => Math.abs(b.y - first.y) < 1)).toHaveLength(columns);
+    expect(boxes[columns]!.y).toBeGreaterThanOrEqual(first.y + first.height + 16);
+    for (const id of ["LG-1", "LG-2"]) {
+      const title = card(frame, id).getByText(titles[id === "LG-1" ? 0 : 1]!, { exact: true });
+      expect((await box(title)).height).toBeLessThanOrEqual(40);
+      await expect(title).toHaveCSS("color", "rgb(22, 26, 33)");
+    }
+    const doc = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }));
+    expect(doc.scroll).toBeLessThanOrEqual(doc.inner + 1);
+    await card(frame, "LG-1").scrollIntoViewIfNeeded();
+    if (columns === 1) await card(frame, "LG-1").evaluate((element) => element.scrollIntoView({ block: "start" }));
+    await page.screenshot({ path: testInfo.outputPath(`independent-${columns}-columns.png`), fullPage: true });
+  }
 });
 
 test("循環した依存関係は警告つきの別枠に出し、画面は崩れない", async ({ page, nod }) => {
@@ -467,7 +591,7 @@ test("循環した依存関係は警告つきの別枠に出し、画面は崩�
   await expect(card(flowRegion(page), "CY-3")).toBeVisible();
   // 循環へ続く前提は矢印を描けないため、カードに循環の中の後続を示し、依存関係なしと区別する
   await expect(card(flowRegion(page), "CY-4")).toContainText("後続（循環）：CY-1");
-  await expect(flowRegion(page).getByRole("region", { name: "依存関係なし", exact: true })).toHaveCount(0);
+  await expect(flowRegion(page).getByRole("region", { name: "独立したIssue", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "進捗報告" })).toBeVisible();
 });
 
