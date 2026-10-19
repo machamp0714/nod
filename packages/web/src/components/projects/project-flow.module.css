@@ -154,7 +154,8 @@
 }
 
 .card:focus-visible,
-.inline:focus-visible {
+.independentCard:focus-visible,
+.groupToggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -169,6 +170,11 @@
   gap: 6px;
   color: var(--ink2);
   line-height: 16px;
+}
+
+.cardId > svg,
+.independentState > svg {
+  flex: none;
 }
 
 .mono {
@@ -284,46 +290,137 @@
   gap: 16px;
 }
 
-.independent {
+.independentSection {
+  container-type: inline-size;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  margin-top: 4px;
 }
 
-/* 狭い枠でも項目を枠の幅に収め、タイトルを省略する */
+.independentHeading {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.independentNote {
+  margin-top: -12px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.independentGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.groupHeading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.independent {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+}
+
+@container (max-width: 800px) {
+  .independent {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 520px) {
+  .independent {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .independent li {
   min-width: 0;
-  max-width: 100%;
 }
 
-.inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  color: var(--ink2);
-  font-size: 12px;
+.independentCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 128px;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
   text-decoration: none;
 }
 
-.inline.done {
-  color: var(--ready);
+.independentCard:hover {
+  background: var(--sunken);
 }
 
-.inline > svg,
-.inline > span:first-child,
-.cardId > svg {
-  flex: none;
-}
-
-.inline:hover .inlineTitle {
+.independentCard:hover .cardTitle {
   text-decoration: underline;
 }
 
-.inlineTitle {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.independentCard .cardTitle {
+  overflow-wrap: anywhere;
+}
+
+.independentMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink2);
+}
+
+.independentState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.closedGroup {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+}
+
+.closedGroup + .closedGroup {
+  margin-top: -24px;
+}
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.groupToggle::-webkit-details-marker {
+  display: none;
+}
+
+.closedGroup[open] > .groupToggle > svg {
+  transform: rotate(90deg);
+}
+
+.closedGroup[open] {
+  padding-bottom: 24px;
 }
 
 .legend {
