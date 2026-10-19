@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import type { AgentState, Status } from "../../api/types";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { AGENT_STATE_META, priorityMeta, STATUS_META, type Tone, TONE_COLORS } from "../../lib/meta";
@@ -16,9 +16,15 @@ export function Pill({ tone, icon, children }: { tone: Tone; icon?: IconName; ch
   );
 }
 
+// 画面の一部だけで Status の色を変える。STATUS_META の既定は全画面で共有するため変えない（Project 詳細の完了は ready）
+export type StatusTones = Partial<Record<Status, Tone>>;
+const StatusTonesContext = createContext<StatusTones>({});
+export const StatusTonesProvider = StatusTonesContext.Provider;
+
 export function StatusIcon({ status, size = 14 }: { status: Status; size?: number }) {
   const meta = STATUS_META[status];
-  return <Icon name={meta.icon} size={size} color={TONE_COLORS[meta.tone].fg} />;
+  const tone = useContext(StatusTonesContext)[status] ?? meta.tone;
+  return <Icon name={meta.icon} size={size} color={TONE_COLORS[tone].fg} />;
 }
 
 // workspace を渡すと、その Workspace で設定した表示名を出す

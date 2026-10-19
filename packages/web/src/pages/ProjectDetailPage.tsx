@@ -10,13 +10,16 @@ import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
-import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
+import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
 import { withoutPageDisplay } from "../lib/page-display";
 import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
 
 const route = getRouteApi("/projects/$projectId");
+
+// design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：完了のチェックを ready 色にし、ほかの Status は既存の色のまま
+const PROJECT_STATUS_TONES: StatusTones = { done: "ready" };
 
 export function ProjectDetailPage() {
   const { projectId } = route.useParams();
@@ -59,6 +62,7 @@ export function ProjectDetailPage() {
         navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
       }}
       resetDisplayDisabled={page.resetDisabled}
+      statusTones={PROJECT_STATUS_TONES}
     />
   );
 }
