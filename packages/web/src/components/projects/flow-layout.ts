@@ -3,15 +3,15 @@ import type { ProjectFlow, ProjectFlowNode } from "../../api/types";
 // design/nod.pen「Project詳細｜フロー」（R4bvo）のカードと間隔。位置を計算するためカードは固定の大きさにする
 export const CARD_WIDTH = 232;
 // カードの高さは載せる行から決める（位置を計算するため、文字を測らずに決まる値にする）。
-// 枠 1・余白 16 の上下、ID の行 16、2行ぶんのタイトル 40、状態の行 16 を必ず置き、前提・Project 外の行は 16 ずつ足す。行の間は 6
+// 枠 1・余白 16 の上下、ID の行 16、2行ぶんのタイトル 40、状態の行 16 を必ず置き、前提・循環へ続く後続・Project 外の行は 16 ずつ足す。行の間は 6
 const CARD_CHROME = 2 * (16 + 1);
 const LINE_GAP = 6;
 const SMALL_LINE = 16;
 const TITLE_HEIGHT = 40;
 export const CARD_HEIGHT = CARD_CHROME + SMALL_LINE + LINE_GAP + TITLE_HEIGHT + LINE_GAP + SMALL_LINE; // 前提も Project 外の行もないカード
 
-export function cardHeight(node: ProjectFlowNode, hasPrerequisite: boolean): number {
-  const extra = (hasPrerequisite ? 1 : 0) + (node.external ? 1 : 0);
+export function cardHeight(node: ProjectFlowNode, hasPrerequisite: boolean, hasCycleSuccessor = false): number {
+  const extra = (hasPrerequisite ? 1 : 0) + (hasCycleSuccessor ? 1 : 0) + (node.external ? 1 : 0);
   return CARD_HEIGHT + extra * (LINE_GAP + SMALL_LINE);
 }
 export const COLUMN_GAP = 48;
@@ -47,6 +47,7 @@ export interface FlowLayout {
   independent: ProjectFlowNode[]; // 依存辺を持たない主対象
   cycle: ProjectFlowNode[]; // 循環に含まれる Issue（段に並べない）
   predecessors: Map<string, string[]>; // 各 Issue の直接の前提（循環の中の辺も含む）
+  cycleSuccessors: Map<string, string[]>; // 段に並べた Issue の、循環の中にある直接の後続（矢印を描けないので文字で示す）
 }
 
 // カードの状態。完了・中止の前提は待ちの原因にしない（openBlockers に入らない）。
@@ -93,6 +94,10 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
   const cycle = connected.filter((n) => cyclic.has(n.id));
   const placed = connected.filter((n) => !cyclic.has(n.id));
   const placedEdges = edges.filter((e) => !cyclic.has(e.from) && !cyclic.has(e.to));
+  const cycleSuccessors = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!cyclic.has(e.from) && cyclic.has(e.to)) cycleSuccessors.set(e.from, [...(cycleSuccessors.get(e.from) ?? []), e.to]);
+  }
 
   // 最長路で段を決める（前提がすべて左の段に来る）
   const layer = new Map<string, number>();
@@ -121,7 +126,7 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
     slotOf.set(slot.key, { layer: l, slot });
   };
   // 前提の行は、まだ止めているブロック元か、直接の前提（完了したものも含む）があるときに出す
-  const heightOf = (n: ProjectFlowNode) => cardHeight(n, n.openBlockers.length > 0 || predecessors.has(n.id));
+  const heightOf = (n: ProjectFlowNode) => cardHeight(n, n.openBlockers.length > 0 || predecessors.has(n.id), cycleSuccessors.has(n.id));
   for (const n of placed) addSlot(layer.get(n.id)!, { key: n.id, node: n, height: heightOf(n), order: order.get(n.id)!, y: 0 });
   // 各スロットの左隣（前の段）のスロット
   const slotPreds = new Map<string, string[]>();
@@ -234,7 +239,7 @@ export function layoutFlow(flow: ProjectFlow): FlowLayout {
   });
 
   const width = layers.length ? columnX(layers.length - 1) + CARD_WIDTH : 0;
-  return { cards, edges: edgePaths, width, height, independent, cycle, predecessors };
+  return { cards, edges: edgePaths, width, height, independent, cycle, predecessors, cycleSuccessors };
 }
 
 // 強連結成分（Tarjan の方法を再帰なしで）のうち、2件以上のものと自己ループの Issue

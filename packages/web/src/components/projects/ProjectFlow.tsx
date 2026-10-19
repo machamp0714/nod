@@ -91,19 +91,21 @@ function ProjectFlowSection({ flow }: { flow: ReturnType<typeof useProjectFlow> 
         <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業は並行して進められます。</p>
         <p className={s.scopeNote}>Project 全体を表示しています（一覧の検索・絞り込みは適用されません）</p>
       </div>
-      {flow.error ? (
+      {/* 読み直しに失敗しても、直前のグラフは消さずに失敗と再試行を添える */}
+      {flow.error && (
         <div role="alert" className={s.error}>
           <p>フローを読み込めませんでした：{errorMessage(flow.error)}</p>
           <Button size="sm" icon="refresh-cw" onClick={() => void flow.refetch()} disabled={flow.isFetching}>
             再試行
           </Button>
         </div>
-      ) : !flow.data ? (
+      )}
+      {flow.data ? (
+        <FlowContent flow={flow.data} />
+      ) : !flow.error && (
         <p role="status" className={s.message}>
           読み込み中…
         </p>
-      ) : (
-        <FlowContent flow={flow.data} />
       )}
     </section>
   );
@@ -114,6 +116,7 @@ interface CardText {
   icon: ReactNode;
   label: string;
   prerequisite: string | null;
+  cycleNext: string | null;
   outside: string | null;
 }
 
@@ -146,6 +149,7 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
       icon: meta ? <Icon name={meta.icon} size={14} color={meta.color} /> : <StatusIcon status={node.status} />,
       label: meta ? meta.label : nameOf(node.status, node.workspace),
       prerequisite: node.openBlockers.length > 0 ? `${node.openBlockers.join("・")} の完了後` : preds.length > 0 ? `前提：${preds.map(predText).join("・")}` : null,
+      cycleNext: layout.cycleSuccessors.has(node.id) ? `後続（循環）：${layout.cycleSuccessors.get(node.id)!.join("・")}` : null,
       outside: node.external ? `Project外 · ${node.project?.name ?? "Projectなし"} · ${node.workspaceName}` : null,
     };
   };
@@ -242,7 +246,7 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
 
 // フローのカード。Issue 詳細へのリンクで、色だけに頼らずアイコンと文字で状態を示す
 function FlowCard({ node, text, height, style }: { node: ProjectFlowNode; text: CardText; height: number; style?: { left: number; top: number } }) {
-  const name = [`${node.id} ${node.title}`, text.label, text.prerequisite, text.outside].filter(Boolean).join("、");
+  const name = [`${node.id} ${node.title}`, text.label, text.prerequisite, text.cycleNext, text.outside].filter(Boolean).join("、");
   return (
     <Link
       to="/issues/$issueId"
@@ -260,6 +264,7 @@ function FlowCard({ node, text, height, style }: { node: ProjectFlowNode; text: 
       </span>
       <span className={s.stateLabel}>{text.label}</span>
       {text.prerequisite && <span className={s.line} title={text.prerequisite}>{text.prerequisite}</span>}
+      {text.cycleNext && <span className={s.line} title={text.cycleNext}>{text.cycleNext}</span>}
       {text.outside && <span className={s.line} title={text.outside}>{text.outside}</span>}
     </Link>
   );

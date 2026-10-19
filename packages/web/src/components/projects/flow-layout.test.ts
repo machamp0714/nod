@@ -145,6 +145,12 @@ describe("layoutFlow", () => {
     expect(columns(layout)).toEqual([["A-1", "A-4"], ["A-5"]]);
     expect(layout.edges.map((e) => [e.from, e.to])).toEqual([["A-1", "A-5"]]);
     expect(layout.predecessors.get("A-2")).toEqual(["A-1", "A-3"]);
+    // 循環へ続く辺は図に描けないため、前提側のカードに循環の中の後続を示し、その行の高さを足す
+    expect(layout.cycleSuccessors.get("A-1")).toEqual(["A-2"]);
+    expect(layout.cycleSuccessors.has("A-5")).toBe(false);
+    const height = (id: string) => layout.cards.find((c) => c.node.id === id)!.height;
+    expect(height("A-1")).toBe(cardHeight(node("A-1"), false, true));
+    expect(height("A-1")).toBeGreaterThan(CARD_HEIGHT);
   });
 
   test("自分自身をブロックする Issue も循環として扱う", () => {

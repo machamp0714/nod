@@ -96,9 +96,11 @@
   }
 }
 
-/* 大量の Issue・狭い画面でもカードを潰さず、領域の中でスクロールする */
+/* 大量の Issue・狭い画面でもカードを潰さず、領域の中でスクロールする。
+   縦にも上限を置き、横のスクロールバーがページの奥に隠れないようにする */
 .scroller {
   min-width: 0;
+  max-height: 70vh;
   overflow: auto;
   border-radius: var(--radius-sm, 4px);
 }

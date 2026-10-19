@@ -303,6 +303,25 @@ test.describe("読み込みの失敗", () => {
     await expect(card(flowRegion(page), "FL-4")).toBeVisible();
     await expect(flowRegion(page).getByRole("alert")).toHaveCount(0);
   });
+
+  test("表示中の読み直しに失敗しても、直前のグラフを残して alert と再試行を添える", async ({ page, nod }) => {
+    const { projectId } = await seedBranchAndMerge(nod);
+    await page.goto(`/projects/${projectId}?view=flow`);
+    await expect(card(flowRegion(page), "FL-4")).toBeVisible();
+    await waitForServerEvents(page);
+    const pattern = "**/api/projects/*/flow";
+    await page.route(pattern, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "INTERNAL", message: "壊れた" } }) }));
+    // nod の変更が SSE で届き、フローを読み直して失敗する
+    await nod.me.updateIssue("FL-3", { title: "読み直しの確認" });
+    const alert = flowRegion(page).getByRole("alert");
+    await expect(alert).toBeVisible({ timeout: 20_000 });
+    await expect(card(flowRegion(page), "FL-4")).toBeVisible();
+    await expect(arrows(page)).toHaveCount(6);
+    await page.unroute(pattern);
+    await alert.getByRole("button", { name: "再試行" }).click();
+    await expect(card(flowRegion(page), "FL-3")).toContainText("読み直しの確認");
+    await expect(flowRegion(page).getByRole("alert")).toHaveCount(0);
+  });
 });
 
 test("依存関係のない Project と Issue のない Project はそれぞれの文言を出す", async ({ page, nod }) => {
@@ -327,7 +346,8 @@ test("依存関係のない Project と Issue のない Project はそれぞれ�
 test("循環した依存関係は警告つきの別枠に出し、画面は崩れない", async ({ page, nod }) => {
   const ws = (await nod.me.initWorkspace({ path: nod.repo("cycle"), key: "CY", name: "cycle" })).workspace;
   const project = await nod.me.createProject({ name: "循環のある Project" });
-  for (const title of ["前の作業", "後の作業", "続く作業"]) await nod.me.createIssue({ workspaceId: ws.id, title, projectRef: String(project.id) });
+  for (const title of ["前の作業", "後の作業", "続く作業", "循環の前提"]) await nod.me.createIssue({ workspaceId: ws.id, title, projectRef: String(project.id) });
+  await nod.me.relateIssue("CY-4", { blocks: "CY-1" });
   await nod.me.relateIssue("CY-1", { blocks: "CY-2" });
   await nod.me.relateIssue("CY-2", { blocks: "CY-1" });
   await nod.me.relateIssue("CY-2", { blocks: "CY-3" });
@@ -339,6 +359,9 @@ test("循環した依存関係は警告つきの別枠に出し、画面は崩�
   await expect(card(frame, "CY-2")).toBeVisible();
   // 循環の外の CY-3 はフローに出す
   await expect(card(flowRegion(page), "CY-3")).toBeVisible();
+  // 循環へ続く前提は矢印を描けないため、カードに循環の中の後続を示し、依存関係なしと区別する
+  await expect(card(flowRegion(page), "CY-4")).toContainText("後続（循環）：CY-1");
+  await expect(flowRegion(page).getByRole("region", { name: "依存関係なし", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "進捗報告" })).toBeVisible();
 });
 
@@ -359,4 +382,7 @@ test("Issue が多く画面が狭くても、フローの中だけを横にス�
   expect(overflow.scroll).toBeGreaterThan(overflow.client);
   const doc = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth }));
   expect(doc.scroll).toBeLessThanOrEqual(doc.inner + 1);
+  // 縦にも上限を置き、図の中でスクロールする（横のスクロールバーがページの奥に隠れない）
+  const vertical = await scroller.evaluate((el) => ({ client: el.clientHeight, inner: window.innerHeight }));
+  expect(vertical.client).toBeLessThanOrEqual(vertical.inner);
 });
