@@ -12,8 +12,20 @@ env.update(
     NOD_DOCS_DIR=cfg['docs'], NOD_ATTACHMENTS_DIR=cfg['attachments'],
     TYPESAFE_API_KEY='',
 )
-# Workspaceをコマンドより前に指定した場合も同じ障害を再現する。
-command = args[2:] if args[:1] in [['-w'], ['--workspace']] else args
+# CLIが受け付ける先頭のグローバルオプションを読み飛ばす。
+# 不明なオプションや引数不足は実CLIに渡し、通常のエラーを維持する。
+offset = 0
+while offset < len(args):
+    option = args[offset]
+    if option == '--json':
+        offset += 1
+    elif option in ['-w', '--workspace'] and offset + 1 < len(args):
+        offset += 2
+    elif option.startswith('--workspace=') or (option.startswith('-w') and len(option) > 2):
+        offset += 1
+    else:
+        break
+command = args[offset:]
 message = None
 if '--help' not in args:
     if cfg['name'] == 'failure' and command[:2] == ['template', 'list']:
