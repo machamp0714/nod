@@ -4,7 +4,7 @@ export { Icon, type IconName } from "./Icon";
 export { LabelChip, LabelDot } from "./LabelChip";
 export { Menu, MenuItem } from "./Menu";
 export { PageHeader, PageTitle, Spacer, ViewBar } from "./PageHeader";
-export { AgentStatePill, Pill, PriorityLabel, StatusIcon, StatusLabel } from "./Pill";
+export { AgentStatePill, Pill, PriorityLabel, StatusIcon, StatusLabel, type StatusTones, StatusTonesProvider } from "./Pill";
 
 export { ActivityLines } from "./ActivityLines";
 

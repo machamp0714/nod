@@ -3,6 +3,7 @@ import {
   cleanIssueListSearch,
   cleanMyIssuesSearch,
   cleanProjectIssuesSearch,
+  parseProjectDetailSearch,
   defaultGroupBy,
   defaultIssueColumns,
   type IssueListSearch,
@@ -189,5 +190,23 @@ describe("画面ごとの既定の列（#174）", () => {
     // Issues・View・Cycle 詳細は変えない
     expect(cleanIssueListSearch({ columns: all })).toEqual({});
     expect(cleanIssueListSearch({ columns: defaultIssueColumns("project") })).toEqual({ columns: defaultIssueColumns("project") });
+  });
+});
+
+describe("Project 詳細の一覧とフローの切り替え", () => {
+  test("view=flow だけを受け付け、知らない値は捨てて一覧に戻す", () => {
+    expect(parseProjectDetailSearch({ view: "flow" })).toEqual({ view: "flow" });
+    expect(parseProjectDetailSearch({ view: "list" })).toEqual({});
+    expect(parseProjectDetailSearch({ view: "board" })).toEqual({});
+    expect(parseProjectDetailSearch({ view: 1 })).toEqual({});
+  });
+
+  test("フローにしても一覧の設定は URL に残る", () => {
+    expect(parseProjectDetailSearch({ view: "flow", q: "api", tab: "ready", blocked: "true" })).toEqual({ view: "flow", q: "api", tab: "ready", blocked: true });
+  });
+
+  test("一覧の設定を変えても view は消えない", () => {
+    expect(cleanProjectIssuesSearch({ view: "flow", q: "api", layout: "list" })).toEqual({ view: "flow", q: "api" });
+    expect(cleanProjectIssuesSearch({ q: "api" })).toEqual({ q: "api" });
   });
 });

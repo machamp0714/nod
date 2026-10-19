@@ -1,22 +1,27 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { useRef, useState } from "react";
 import { errorMessage } from "../api/errors";
 import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
 import { useProject, useProjects } from "../api/hooks/projects";
-import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary, ProjectUpdate } from "../api/types";
+import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
+import { ProjectFlowPage, ProjectIssuesBar, ProjectViewSwitch } from "../components/projects/ProjectFlow";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
-import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
-import { Icon, PageError, PageLoading, ProgressBar } from "../components/ui";
+import { EMPTY_PROJECT_UPDATE_COMPOSER, type ProjectUpdateComposer, ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
+import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
 import { withoutPageDisplay } from "../lib/page-display";
 import { replacesIssueListHistory, cleanProjectIssuesSearch } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
 import p from "./project-detail.module.css";
 
 const route = getRouteApi("/projects/$projectId");
+
+// design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：完了のチェックを ready 色にし、ほかの Status は既存の色のまま
+const PROJECT_STATUS_TONES: StatusTones = { done: "ready" };
 
 export function ProjectDetailPage() {
   const { projectId } = route.useParams();
@@ -29,7 +34,13 @@ export function ProjectDetailPage() {
   // 保存した表示設定（#218）と URL を合わせた状態。blocked は保存しないので URL の値のまま
   const page = usePageDisplay({ key: `project:${projectId}`, sameValueColumn: "project" }, url);
   const search = page.search;
-  const rows = useIssueRows({ project: projectId, blocked: search.blocked });
+  // 一覧とフローの切り替えは URL（view=flow）だけに置き、ページの表示設定には保存しない
+  const view = url.view === "flow" ? "flow" : "list";
+  // 一覧にない Project と、フローの表示のときは一覧の Issue を読まない
+  const rows = useIssueRows({ project: projectId, blocked: search.blocked }, found && view === "list");
+  const switched = useRef(false);
+  // 進捗報告の欄の状態（下書き・保存中・失敗）。一覧とフローを切り替えると欄が作り直されるため、切り替えをまたいで残る親が Project ごとに持つ
+  const [composers, setComposers] = useState<Record<string, ProjectUpdateComposer>>({});
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
   if (!projects.data) return <PageLoading />;
@@ -37,11 +48,38 @@ export function ProjectDetailPage() {
   if (detail.error) return <PageError message={errorMessage(detail.error)} />;
   if (!detail.data) return <PageLoading />;
   if (!page.ready) return <PageLoading />;
+  const crumb = <Link to="/projects">Projects</Link>;
+  const intro = <ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} initiatives={detail.data.initiatives} />;
+  // design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：進捗報告は Issue 一覧の後に置く
+  const updates = (
+    <ProjectUpdatesSection
+      key={`updates-${detail.data.id}`}
+      projectId={detail.data.id}
+      updates={detail.data.updates}
+      composer={composers[projectId] ?? EMPTY_PROJECT_UPDATE_COMPOSER}
+      onComposerChange={(next) => setComposers((prev) => ({ ...prev, [projectId]: next(prev[projectId] ?? EMPTY_PROJECT_UPDATE_COMPOSER) }))}
+    />
+  );
+  // 切り替えは履歴に積み、戻る・進むで復元できるようにする。一覧の設定は URL にそのまま残す
+  const viewSwitch = (
+    <ProjectViewSwitch
+      value={view}
+      focusOnMount={switched}
+      onChange={(next) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, view: next === "flow" ? "flow" : undefined }) })}
+    />
+  );
+  const heading = <ProjectIssuesBar count={detail.data.issues.length} viewSwitch={viewSwitch} />;
+  // design/nod.pen「Project詳細｜フロー」（R4bvo）：一覧の絞り込みを使わず、Project 全体の依存関係を示す
+  if (view === "flow") {
+    return <ProjectFlowPage crumb={crumb} title={detail.data.name} intro={intro} heading={heading} afterContent={updates} projectId={detail.data.id} />;
+  }
   return (
     <IssueList
-      crumb={<Link to="/projects">Projects</Link>}
+      crumb={crumb}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} updates={detail.data.updates} initiatives={detail.data.initiatives} />}
+      intro={intro}
+      afterContent={updates}
+      heading={heading}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
       </div>}
@@ -59,6 +97,7 @@ export function ProjectDetailPage() {
         navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
       }}
       resetDisplayDisabled={page.resetDisabled}
+      statusTones={PROJECT_STATUS_TONES}
     />
   );
 }
@@ -67,13 +106,11 @@ function ProjectIntro({
   project,
   documents,
   milestones,
-  updates,
   initiatives,
 }: {
   project: ProjectSummary;
   documents: DocumentRef[];
   milestones: Milestone[];
-  updates: ProjectUpdate[];
   initiatives: ProjectDetail["initiatives"];
 }) {
   return (
@@ -121,7 +158,6 @@ function ProjectIntro({
         )}
       </div>
       <MilestonesSection key={`milestones-${project.id}`} projectId={project.id} milestones={milestones} />
-      <ProjectUpdatesSection key={`updates-${project.id}`} projectId={project.id} updates={updates} />
     </section>
   );
 }
