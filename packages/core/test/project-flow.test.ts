@@ -120,6 +120,34 @@ describe("Project の依存フロー", () => {
     ]);
   });
 
+  test("無関係な Issue と blocks が多くても、Project の Issue と直接つながる Issue だけを読み、まだ止めているブロック元は Project 外のものも返す", () => {
+    const { db, ws, me } = setup();
+    const p = createProject(me, { name: "検索" });
+    const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b", projectRef: "検索" });
+    const unrelated = Array.from({ length: 60 }, (_, i) => createIssue(me, { workspaceId: ws.id, title: `u${i}` }));
+    for (let i = 1; i < unrelated.length; i++) relateIssue(me, unrelated[i - 1]!.id, { blocks: unrelated[i]!.id });
+    const before = createIssue(me, { workspaceId: ws.id, title: "before" });
+    const after = createIssue(me, { workspaceId: ws.id, title: "after" });
+    relateIssue(me, before.id, { blocks: a.id }); // 後ろ向き（to_id が Project の Issue）
+    relateIssue(me, b.id, { blocks: after.id }); // 前向き（from_id が Project の Issue）
+    relateIssue(me, unrelated[0]!.id, { blocks: before.id }); // 参照ノードを止める Project 外のブロック元
+    relateIssue(me, unrelated[1]!.id, { blocks: after.id });
+
+    const flow = getProjectFlow(db, p.name);
+    expect(flow.nodes.map((n) => n.id)).toEqual([a.id, b.id, before.id, after.id]);
+    expect(flow.nodes.map((n) => [n.id, n.openBlockers, n.ready])).toEqual([
+      [a.id, [before.id], false],
+      [b.id, [], true],
+      [before.id, [unrelated[0]!.id], false],
+      [after.id, [b.id, unrelated[1]!.id], false],
+    ]);
+    expect(flow.edges).toEqual([
+      { from: b.id, to: after.id },
+      { from: before.id, to: a.id },
+    ]);
+  });
+
   test("存在しない Project は NOT_FOUND", () => {
     const { db } = setup();
     expect(codeOf(() => getProjectFlow(db, "ない"))).toBe("NOT_FOUND");
