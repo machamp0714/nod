@@ -18,10 +18,18 @@ DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えら
 `nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
 `nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
 
-### ワークフローのプラグイン（nod:pm / wayfinder / to-spec / to-plan / implement / code-review）
+### ワークフローのプラグイン（nod:backlog / pm / wayfinder / to-spec / to-plan / implement / code-review）
 
-指定範囲の進行管理と、構想の整理→仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル6つを、`plugins/nod` に置いている。
+バックログ作成・指定範囲の進行管理と、構想の整理→仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル7つを、`plugins/nod` に置いている。
 Claude Code と Codex の両方から、GitHub のマーケットプレイスとして導入する。
+
+`nod:backlog <要望・会話・PRD>` は、利用者への価値と受け入れ条件が分かる Issue を作成する。
+起票前に `nod template list` と `nod template show <名前>` で登録済みテンプレートを確認し、その見出し・順序・項目を使う。
+未登録の場合はスキル内の標準テンプレートを使い、Story を自然な日本語で記述する。
+テンプレートの取得失敗時や候補を選べない場合は、未登録として進めず確認する。
+下書きだけの依頼では本文の提示までにし、起票後には本文・起票先と、Issue ID・タイトル・使用したテンプレートを確認して報告する。
+手順は[バックログ作成スキル](plugins/nod/skills/backlog/SKILL.md)にある。
+独立したLLMと一時DBでの評価方法と結果は[バックログの行動評価](plugins/nod/evals/backlog/README.md)にある。
 
 `nod:pm <Workspace> --cycle <Cycle> --on Studio` は、Airで起動し、指定Workspaceと固定CycleのIssueをOrcaで監督する。
 並行上限は既定1件、`--max-parallel 2`で最大2件にできる。
