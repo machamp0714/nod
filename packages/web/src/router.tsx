@@ -23,6 +23,7 @@ import {
   parseDocumentsSearch,
   parseIssueListSearch,
   parseNewDocumentSearch,
+  parseProjectDetailSearch,
   parseProjectsSearch,
   parseSelectedSearch,
 } from "./routes/search";
@@ -54,7 +55,7 @@ const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/pro
 const projectDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
-  validateSearch: parseIssueListSearch,
+  validateSearch: parseProjectDetailSearch,
   component: ProjectDetailPage,
 });
 const initiativesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives", validateSearch: parseProjectsSearch, component: InitiativesPage });

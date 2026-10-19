@@ -174,9 +174,23 @@ export function cleanMyIssuesSearch(search: IssueListSearch): IssueListSearch {
   return cleanIssueListSearch(search, true);
 }
 
-// Project 詳細の URL。全行が同じ Project になるため、Project の列を既定から外す
-export function cleanProjectIssuesSearch(search: IssueListSearch): IssueListSearch {
-  return cleanIssueListSearch(search, false, "project");
+// Project 詳細の URL。一覧の設定に加え、一覧とフローの切り替え（view）を持つ。
+// view は URL だけに置き、ページの表示設定には保存しない
+export interface ProjectDetailSearch extends IssueListSearch {
+  view?: "flow";
+}
+
+export function parseProjectDetailSearch(raw: Record<string, unknown>): ProjectDetailSearch {
+  const out: ProjectDetailSearch = parseIssueListSearch(raw);
+  if (raw.view === "flow") out.view = "flow";
+  return out;
+}
+
+// 全行が同じ Project になるため、Project の列を既定から外す。一覧の設定を変えても view は残す
+export function cleanProjectIssuesSearch(search: ProjectDetailSearch): ProjectDetailSearch {
+  const out: ProjectDetailSearch = cleanIssueListSearch(search, false, "project");
+  if (search.view === "flow") out.view = "flow";
+  return out;
 }
 
 export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearch {

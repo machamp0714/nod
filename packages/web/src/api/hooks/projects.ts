@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { Milestone, Project, ProjectDetail, ProjectHealth, ProjectSummary, ProjectUpdate, UpdateProjectInput } from "../types";
+import type { Milestone, Project, ProjectDetail, ProjectFlow, ProjectHealth, ProjectSummary, ProjectUpdate, UpdateProjectInput } from "../types";
 import { useApiMutation } from "./shared";
 
 // Projects のタブ（Active、Completed、All）を画面で切り替えるため、完了と中止の Project も読む
@@ -17,6 +17,15 @@ export function useProject(id: number, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.project(id),
     queryFn: () => apiFetch<ProjectDetail>(`/projects/${id}`),
+    enabled,
+  });
+}
+
+// Project 詳細のフロー。フローを表示しているときだけ読む。Issue・依存関係・状態の変更は SSE の全体の読み直しで反映する
+export function useProjectFlow(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.projectFlow(id),
+    queryFn: () => apiFetch<ProjectFlow>(`/projects/${id}/flow`),
     enabled,
   });
 }

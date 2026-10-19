@@ -1,4 +1,5 @@
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { useRef } from "react";
 import { errorMessage } from "../api/errors";
 import { usePageDisplay } from "../api/hooks/page-displays";
 import { useIssueRows } from "../api/hooks/issues";
@@ -8,6 +9,7 @@ import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
 import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
+import { ProjectFlowPage, ProjectViewSwitch } from "../components/projects/ProjectFlow";
 import { ProjectStatusControl } from "../components/projects/ProjectStatusControl";
 import { ProjectUpdatesSection } from "../components/projects/ProjectUpdatesSection";
 import { Icon, PageError, PageLoading, ProgressBar, type StatusTones } from "../components/ui";
@@ -32,7 +34,10 @@ export function ProjectDetailPage() {
   // 保存した表示設定（#218）と URL を合わせた状態。blocked は保存しないので URL の値のまま
   const page = usePageDisplay({ key: `project:${projectId}`, sameValueColumn: "project" }, url);
   const search = page.search;
-  const rows = useIssueRows({ project: projectId, blocked: search.blocked });
+  // 一覧とフローの切り替えは URL（view=flow）だけに置き、ページの表示設定には保存しない
+  const view = url.view === "flow" ? "flow" : "list";
+  const rows = useIssueRows({ project: projectId, blocked: search.blocked }, view === "list");
+  const switched = useRef(false);
 
   if (projects.error) return <PageError message={errorMessage(projects.error)} />;
   if (!projects.data) return <PageLoading />;
@@ -40,13 +45,29 @@ export function ProjectDetailPage() {
   if (detail.error) return <PageError message={errorMessage(detail.error)} />;
   if (!detail.data) return <PageLoading />;
   if (!page.ready) return <PageLoading />;
+  const crumb = <Link to="/projects">Projects</Link>;
+  const intro = <ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} initiatives={detail.data.initiatives} />;
+  // design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：進捗報告は Issue 一覧の後に置く
+  const updates = <ProjectUpdatesSection key={`updates-${detail.data.id}`} projectId={detail.data.id} updates={detail.data.updates} />;
+  // 切り替えは履歴に積み、戻る・進むで復元できるようにする。一覧の設定は URL にそのまま残す
+  const viewSwitch = (
+    <ProjectViewSwitch
+      value={view}
+      focusOnMount={switched}
+      onChange={(next) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, view: next === "flow" ? "flow" : undefined }) })}
+    />
+  );
+  // design/nod.pen「Project詳細｜フロー」（R4bvo）：一覧の絞り込みを使わず、Project 全体の依存関係を示す
+  if (view === "flow") {
+    return <ProjectFlowPage crumb={crumb} title={detail.data.name} intro={intro} viewSwitch={viewSwitch} afterContent={updates} projectId={detail.data.id} />;
+  }
   return (
     <IssueList
-      crumb={<Link to="/projects">Projects</Link>}
+      crumb={crumb}
       title={detail.data.name}
-      intro={<ProjectIntro project={detail.data} documents={detail.data.documents} milestones={detail.data.milestones} initiatives={detail.data.initiatives} />}
-      // design/nod.pen「Project詳細｜一覧（正本）」（DOM7I）：進捗報告は Issue 一覧の後に置く
-      afterContent={<ProjectUpdatesSection key={`updates-${detail.data.id}`} projectId={detail.data.id} updates={detail.data.updates} />}
+      intro={intro}
+      afterContent={updates}
+      viewSwitch={viewSwitch}
       filterBar={<div role="group" aria-label="絞り込み条件">
         <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
       </div>}
