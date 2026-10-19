@@ -170,6 +170,31 @@ export interface ProjectDetail extends ProjectSummary {
   initiatives: { id: number; name: string }[]; // 所属する Initiative（名前順）
 }
 
+// Project の依存フロー。blocks だけを辺にし、Project 外は直接つながる Issue だけを参照ノードにする
+export interface ProjectFlowNode {
+  id: string;
+  title: string;
+  status: Status;
+  workspace: string;
+  workspaceName: string;
+  project: { id: number; name: string } | null; // Issue 自身の所属 Project
+  external: boolean; // 指定した Project の外の参照ノード
+  ready: boolean; // 着手できる（web の Ready と同じ条件）
+  openBlockers: string[]; // まだ止めている直接のブロック元（Issue.blockedBy と同じ）
+}
+
+// from が to をブロックする（前提 → 後続）
+export interface ProjectFlowEdge {
+  from: string;
+  to: string;
+}
+
+export interface ProjectFlow {
+  projectId: number;
+  nodes: ProjectFlowNode[]; // 主ノード → 参照ノードの順に、それぞれ Workspace キー・番号順
+  edges: ProjectFlowEdge[];
+}
+
 // 上位目標（#81）。状態は Project と同じ4値で、Project・Issue の状態には連動しない
 export const INITIATIVE_STATUSES = PROJECT_STATUSES;
 export type InitiativeStatus = ProjectStatus;

@@ -3,6 +3,7 @@ import {
   getInbox,
   getIssue,
   getProject,
+  getProjectFlow,
   issueQueryFromParams,
   listAllMilestones,
   listProjects,
@@ -41,6 +42,8 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): v
     c.json(listProjects(db, { includeClosed: queryFlag(c.req.query("includeClosed"), "includeClosed") })),
   );
   app.get("/api/projects/:id", (c) => c.json(getProject(db, c.req.param("id"))));
+  // Project の依存フロー。読み取りだけで、blocks の向きのまま主ノードと直接つながる参照ノードを返す
+  app.get("/api/projects/:id/flow", (c) => c.json(getProjectFlow(db, c.req.param("id"))));
   // すべての Project の Milestone（Issue 一覧の Milestone 絞り込みの選択肢）
   app.get("/api/milestones", (c) => c.json(listAllMilestones(db)));
   app.get("/api/documents", (c) => c.json(listDocuments(db)));

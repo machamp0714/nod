@@ -2,9 +2,9 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { loadDocuments, selectIssues } from "../issue-query";
+import { formatIssueId, loadDocuments, OPEN_BLOCKER, READY_WHERE, selectIssues } from "../issue-query";
 import { selectMilestones } from "./milestones";
-import { PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
+import { PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectFlow, type ProjectFlowEdge, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type Status, type UpdateProjectInput } from "../types";
 
 export function resolveProject(db: Database, ref: string): { id: number; name: string } {
   const row = (
@@ -145,6 +145,66 @@ export function getProject(db: Database, ref: string): ProjectDetail {
       )
       .all(id) as { id: number; name: string }[],
   };
+}
+
+interface FlowNodeRow {
+  ws_key: string;
+  ws_name: string;
+  number: number;
+  title: string;
+  status: Status;
+  project_id: number | null;
+  project_name: string | null;
+  ready: number;
+  blocked_by: string | null;
+}
+
+// Project の依存フロー。Issue 詳細を1件ずつ読まず、ノードと辺をそれぞれ1回の読み取りで返す
+export function getProjectFlow(db: Database, ref: string): ProjectFlow {
+  const { id } = resolveProject(db, ref);
+  // 主ノード（Project 内）と、主ノードと直接 blocks でつながる参照ノード（Project 外）。アーカイブ済みは両端とも除く
+  const rows = db
+    .query(
+      `SELECT w.key AS ws_key, w.name AS ws_name, i.number, i.title, i.status, i.project_id, pr.name AS project_name,
+         ${READY_WHERE} AS ready,
+         (SELECT group_concat(blocker_id, char(10)) FROM (
+           SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
+           JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
+           WHERE r.to_id = i.id AND r.type = 'blocks' AND ${OPEN_BLOCKER}
+           ORDER BY bw.key, b.number
+         )) AS blocked_by
+       FROM issues i
+       JOIN workspaces w ON w.id = i.workspace_id
+       LEFT JOIN projects pr ON pr.id = i.project_id
+       WHERE i.archived_at IS NULL AND (i.project_id = ? OR EXISTS (
+         SELECT 1 FROM relations r JOIN issues m ON m.id = CASE WHEN r.from_id = i.id THEN r.to_id ELSE r.from_id END
+         WHERE r.type = 'blocks' AND (r.from_id = i.id OR r.to_id = i.id) AND m.project_id = ? AND m.archived_at IS NULL
+       ))
+       ORDER BY i.project_id IS NOT ?, w.key, i.number`,
+    )
+    .all(now(), id, id, id) as FlowNodeRow[]; // ? の順：READY_WHERE の現在時刻、主ノード、参照ノード、並び順
+  const nodes = rows.map((r) => ({
+    id: formatIssueId(r.ws_key, r.number),
+    title: r.title,
+    status: r.status,
+    workspace: r.ws_key,
+    workspaceName: r.ws_name,
+    project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
+    external: r.project_id !== id,
+    ready: r.ready === 1,
+    openBlockers: r.blocked_by ? r.blocked_by.split("\n") : [],
+  }));
+  // 生の blocks の向きのまま返す（完了・中止のブロック元も辺に残す）。参照ノード同士の辺は含めない
+  const edges = db
+    .query(
+      `SELECT fw.key || '-' || f.number AS "from", tw.key || '-' || t.number AS "to" FROM relations r
+       JOIN issues f ON f.id = r.from_id JOIN workspaces fw ON fw.id = f.workspace_id
+       JOIN issues t ON t.id = r.to_id JOIN workspaces tw ON tw.id = t.workspace_id
+       WHERE r.type = 'blocks' AND f.archived_at IS NULL AND t.archived_at IS NULL AND (f.project_id = ? OR t.project_id = ?)
+       ORDER BY fw.key, f.number, tw.key, t.number`,
+    )
+    .all(id, id) as ProjectFlowEdge[];
+  return { projectId: id, nodes, edges };
 }
 
 export const PROJECT_UPDATE_MAX_LENGTH = 10000;
