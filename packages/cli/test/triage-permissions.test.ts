@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { makeRepo, registerRepo, tempDb } from "./helpers";
 
 for (const actor of ["codex", "claude-code", "other-agent"]) {
-  test(`${actor} のTriage判断をCLIで拒否し、人は判断できる`, () => {
+  test(`${actor} も Triage の判断を CLI で行え、書き手に残る`, () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo, "API");
@@ -16,20 +16,17 @@ for (const actor of ["codex", "claude-code", "other-agent"]) {
     const original = run("me", ["issue", "create", "元の Issue"]).json;
     for (const op of ["accept", "decline", "duplicate"]) {
       const issue = run(actor, ["issue", "create", "判断待ち"]).json;
-      const before = run("me", ["issue", "show", issue.id]).json;
-      const args = ["triage", op, issue.id, ...(op === "duplicate" ? [original.id] : [])];
-      const result = run(actor, args);
-      expect(result.code).toBe(1);
-      expect(result.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-      expect(run("me", ["issue", "show", issue.id]).json).toEqual(before);
-      const accepted = run("me", args);
-      expect(accepted.code).toBe(0);
-      expect(accepted.json.status).toBe(op === "accept" ? "todo" : "canceled");
+      const result = run(actor, ["triage", op, issue.id, ...(op === "duplicate" ? [original.id] : [])]);
+      expect(result.code).toBe(0);
+      expect(result.json.status).toBe(op === "accept" ? "todo" : "canceled");
+      const shown = run("me", ["issue", "show", issue.id]).json;
+      const type = op === "accept" ? "triage_accepted" : "triage_declined";
+      expect(shown.activity.find((a: { type?: string }) => a.type === type)?.actor).toBe(actor);
     }
   });
 }
 
-test("LLM は nod issue update --status と bulk-update で Triage の Issue を Triage から出せず、人は出せる", () => {
+test("LLM も nod issue update --status で Triage から出せる。bulk-update では人と同じく TRIAGE_DECISION_REQUIRED", () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
@@ -39,16 +36,14 @@ test("LLM は nod issue update --status と bulk-update で Triage の Issue を
     });
     return { code: result.exitCode, json: JSON.parse(result.stdout.toString()) };
   };
-  const issue = run("claude-code", ["issue", "create", "判断待ち"]).json;
-  const before = run("me", ["issue", "show", issue.id]).json;
-  const update = run("claude-code", ["issue", "update", issue.id, "--status", "todo", "-p", "1"]);
-  expect(update.code).toBe(1);
-  expect(update.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  const bulk = run("claude-code", ["issue", "bulk-update", issue.id, "-s", "todo"]);
+  const bulkTarget = run("claude-code", ["issue", "create", "一括"]).json;
+  const before = run("me", ["issue", "show", bulkTarget.id]).json;
+  const bulk = run("claude-code", ["issue", "bulk-update", bulkTarget.id, "-s", "todo"]);
   expect(bulk.code).toBe(1);
-  expect(bulk.json.error.details.failures).toEqual([{ id: issue.id, code: "FORBIDDEN_FOR_LLM", message: expect.any(String) }]);
-  expect(run("me", ["issue", "show", issue.id]).json).toEqual(before);
-  const human = run("me", ["issue", "update", issue.id, "--status", "todo"]);
-  expect(human.code).toBe(0);
-  expect(human.json.status).toBe("todo");
+  expect(bulk.json.error.details.failures).toEqual([{ id: bulkTarget.id, code: "TRIAGE_DECISION_REQUIRED", message: expect.any(String) }]);
+  expect(run("me", ["issue", "show", bulkTarget.id]).json).toEqual(before);
+  const issue = run("claude-code", ["issue", "create", "判断待ち"]).json;
+  const update = run("claude-code", ["issue", "update", issue.id, "--status", "todo", "-p", "1"]);
+  expect(update.code).toBe(0);
+  expect(update.json).toMatchObject({ status: "todo", priority: 1 });
 });

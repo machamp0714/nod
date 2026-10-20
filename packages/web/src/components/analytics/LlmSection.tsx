@@ -45,7 +45,7 @@ function LlmBody({ stats }: { stats: LlmStats }) {
               <th>時間 中央値</th>
               <th>時間 合計</th>
               <th>担当開始</th>
-              <th>レビュー提出</th>
+              <th>完了報告</th>
             </tr>
           </thead>
           <tbody>
@@ -69,7 +69,7 @@ function LlmBody({ stats }: { stats: LlmStats }) {
           </tbody>
         </table>
         <p className={s.footnote}>
-          作業時間 = 着手からレビュー提出まで（提出がなければ完了まで）。記録なしの {unrecorded} 件は時間の集計から除く。
+          作業時間 = 着手から完了まで。記録なしの {unrecorded} 件は時間の集計から除く。
         </p>
       </div>
       <Card

@@ -49,7 +49,7 @@ export function diagnoseIssues(db: Database, opts: {
       const reasons: DiagnosisReason[] = [];
       if (issue.blockedBy.length) reasons.push({ type: "blocked", blockedBy: issue.blockedBy });
       const snoozedUntil = recordedTimestamp(issue.snoozedUntil);
-      if (["in_progress", "in_review", "needs_clarification"].includes(issue.status)
+      if (["in_progress", "needs_clarification"].includes(issue.status)
         && !(snoozedUntil !== null && snoozedUntil > current)
         && latest !== null && current - latest >= opts.staleDays * DAY_MS) {
         reasons.push({ type: "stale", inactiveDays: Math.floor((current - latest) / DAY_MS) });

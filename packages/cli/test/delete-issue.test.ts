@@ -43,13 +43,15 @@ test("nod issue delete はアーカイブ済みだけを --yes で消し、nod w
   expect(text.stdout).toMatch(new RegExp(`^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}  ${issue.id}  消す  （削除: me）`));
 });
 
-test("LLM は --yes を付けても削除できない", async () => {
+test("LLM も --yes を付ければ削除でき、監査ログに書き手が残る。--yes なしは従来どおり拒否する", async () => {
   const { nod } = setupDelete();
   const issue = (await nod(["issue", "create", "x", "--json"])).json;
   await nod(["issue", "archive", issue.id]);
-  const r = await nod(["issue", "delete", issue.id, "--yes", "--json"], "claude-code");
-  expect(r.exitCode).toBe(1);
-  expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  const noYes = await nod(["issue", "delete", issue.id, "--json"], "claude-code");
+  expect(noYes.exitCode).toBe(1);
   expect((await nod(["issue", "show", issue.id, "--json"])).exitCode).toBe(0);
-  expect((await nod(["workspace", "audit"])).stdout).toContain("削除した Issue の記録はありません");
+  const r = await nod(["issue", "delete", issue.id, "--yes", "--json"], "claude-code");
+  expect(r.exitCode).toBe(0);
+  expect((await nod(["issue", "show", issue.id, "--json"])).exitCode).toBe(1);
+  expect((await nod(["workspace", "audit", "--json"])).json.map((d: { deletedBy: string }) => d.deletedBy)).toEqual(["claude-code"]);
 });

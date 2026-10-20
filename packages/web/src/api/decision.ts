@@ -2,12 +2,9 @@ import { apiFetch, type FetchLike } from "./client";
 import { issuePath } from "./query-keys";
 import type { AcceptTriageInput, Inbox, Issue, OpenQuestions, TriageProposal, TriageSuggestions } from "./types";
 
-// 判断の画面（Inbox、Reviews、Triage）が使う API。形は C の計画の API の表に従う。
+// 判断の画面（Inbox、Triage）が使う API。形は C の計画の API の表に従う。
 export type DecisionAction =
   | { op: "answer"; issueId: string; questionId: number; answer: string }
-  | { op: "approve"; issueId: string }
-  // delegate を付けると、理由を LLM への対応依頼として記録する（#58）
-  | { op: "reject"; issueId: string; reason: string; delegate?: "review_fix" | "rebase" }
   | { op: "accept"; issueId: string; input?: AcceptTriageInput }
   | { op: "decline"; issueId: string; reason?: string }
   | { op: "duplicate"; issueId: string; original: string }
@@ -41,14 +38,12 @@ export function fetchTriageProposals(id: string, fetchImpl?: FetchLike): Promise
   return apiFetch<TriageProposal[]>(`/triage/${encodeURIComponent(id)}/proposals`, {}, fetchImpl);
 }
 
-// 本文を持たない操作（approve、accept）も {} を送る。server は空か {} を受け付ける
+// 本文を持たない操作（accept）も {} を送る。server は空か {} を受け付ける
 export function actionRequest(action: DecisionAction): { path: string; body: Record<string, unknown> } {
   const path = issuePath(action.issueId, action.op);
   switch (action.op) {
     case "answer":
       return { path, body: { answer: action.answer.trim(), questionId: action.questionId } };
-    case "reject":
-      return { path, body: action.delegate ? { reason: action.reason.trim(), delegate: action.delegate } : { reason: action.reason.trim() } };
     case "decline": {
       const reason = action.reason?.trim();
       return { path, body: reason ? { reason } : {} };
@@ -59,8 +54,6 @@ export function actionRequest(action: DecisionAction): { path: string; body: Rec
       return { path, body: { until: action.until.trim() } };
     case "accept":
       return { path, body: { ...action.input } };
-    case "approve":
-      return { path, body: {} };
   }
 }
 

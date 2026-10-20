@@ -16,7 +16,6 @@ import { InitiativeDetailPage } from "./pages/InitiativeDetailPage";
 import { InitiativesPage } from "./pages/InitiativesPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
-import { ReviewsPage } from "./pages/ReviewsPage";
 import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
 import { WorkspaceSettingsPage } from "./pages/WorkspaceSettingsPage";
@@ -24,6 +23,7 @@ import {
   parseDocumentsSearch,
   parseIssueListSearch,
   parseNewDocumentSearch,
+  parseProjectDetailSearch,
   parseProjectsSearch,
   parseSelectedSearch,
 } from "./routes/search";
@@ -45,7 +45,6 @@ const indexRoute = createRoute({
 });
 
 const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox", validateSearch: parseInboxSearch, component: InboxPage });
-const reviewsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reviews", validateSearch: parseSelectedSearch, component: ReviewsPage });
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
 const openQuestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/open-questions", validateSearch: parseOpenQuestionsSearch, component: OpenQuestionsPage });
 const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });
@@ -56,7 +55,7 @@ const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/pro
 const projectDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
-  validateSearch: parseIssueListSearch,
+  validateSearch: parseProjectDetailSearch,
   component: ProjectDetailPage,
 });
 const initiativesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives", validateSearch: parseProjectsSearch, component: InitiativesPage });
@@ -88,7 +87,6 @@ const workspaceSettingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   inboxRoute,
-  reviewsRoute,
   triageRoute,
   openQuestionsRoute,
   issuesRoute,

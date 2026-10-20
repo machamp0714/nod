@@ -11,7 +11,7 @@ function snapshot(path: string) {
   return rows;
 }
 
-test("LLM は triage propose で提案だけを記録でき、Triage の状態は変わらない。確定は人だけが行える", async () => {
+test("LLM は triage propose で提案だけを記録でき、Triage の状態は変わらない。確定は accept / decline / duplicate で行う", async () => {
   const db = tempDb();
   const cwd = makeRepo();
   registerRepo(db, cwd);
@@ -38,10 +38,6 @@ test("LLM は triage propose で提案だけを記録でき、Triage の状態�
     const bad = await runNod(["triage", "propose", issue.json.id, ...args, "--json"], { cwd, db, actor: "codex" });
     expect(bad.exitCode).toBe(1);
     expect(bad.json.error.code).toBe("INVALID_ARGS");
-  }
-  for (const args of [["accept", issue.json.id], ["decline", issue.json.id], ["duplicate", issue.json.id, original.json.id]]) {
-    const forbidden = await runNod(["triage", ...args, "--json"], { cwd, db, actor: "codex" });
-    expect(forbidden.json.error.code).toBe("FORBIDDEN_FOR_LLM");
   }
   expect(snapshot(db)).toEqual(before);
 

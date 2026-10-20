@@ -2,7 +2,6 @@ import {
   type ActivityItem,
   describeEvent,
   DEFAULT_STATUS_LABELS,
-  HUMAN_ACTOR,
   type StatusNames,
   type AgentState,
   type Issue,
@@ -28,7 +27,6 @@ import {
   WORK_LOG_KIND_LABEL,
   INSTRUCTION_KIND_LABEL,
   type AgentInstruction,
-  type ReviewRejection,
   type PrReviewDecision,
   type PrState,
   type PrStatus,
@@ -85,8 +83,8 @@ export function statusColumnWidth(issues: Pick<Issue, "status" | "id">[]): numbe
   return Math.max(11, ...issues.map((i) => displayWidth(statusText(i.status, i.id))));
 }
 
-// 作業状況のタグ。レビュー待ち・完了・キャンセルの Issue では、作業状況 done を出さない（Issue の完了と紛らわしいため。#176）
-const CLOSED_FOR_AGENT: Status[] = ["in_review", "done", "canceled"];
+// 作業状況のタグ。完了・キャンセルの Issue では、作業状況 done を出さない（Issue の完了と紛らわしいため。#176）
+const CLOSED_FOR_AGENT: Status[] = ["done", "canceled"];
 
 function shownAgentState(i: Pick<Issue, "status" | "agentState">): AgentState | null {
   return i.agentState === "done" && CLOSED_FOR_AGENT.includes(i.status) ? null : i.agentState;
@@ -117,7 +115,7 @@ function questionCountTag(count: Issue["questionCount"]): string {
 
 // 未回答の未決事項の一覧（#173）。Issue ごとにまとめ、質問は nod answer --question に渡す #番号つきで出す
 // llm は実行者が LLM のとき。me が付けた未決事項は LLM が回答できないので、回答のしかたの代わりにそのことを案内する
-export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
+export function formatOpenQuestions(r: OpenQuestions): string {
   if (r.total === 0) return "未回答の未決事項はありません";
   const groups = new Map<string, OpenQuestions["questions"]>();
   for (const q of r.questions) groups.set(q.issueId, [...(groups.get(q.issueId) ?? []), q]);
@@ -130,8 +128,7 @@ export function formatOpenQuestions(r: OpenQuestions, llm = false): string {
     for (const q of questions) lines.push(`  #${q.id} ${q.question.replaceAll("\n", "\n     ")}（${q.askedBy}・${localDate(q.askedAt)}）`);
   }
   if (r.more > 0) lines.push(`ほか ${r.more} Issue`);
-  const forMe = llm && r.questions.some((q) => q.askedBy === HUMAN_ACTOR);
-  lines.push("", forMe ? "me が付けた未決事項は me が決めます（LLM は回答できません）" : "回答: nod answer <Issue の ID> <回答> --question <#番号>");
+  lines.push("", "回答: nod answer <Issue の ID> <回答> --question <#番号>");
   return lines.join("\n");
 }
 
@@ -288,16 +285,11 @@ export function formatInstructions(list: AgentInstruction[]): string[] {
   });
 }
 
-// nod issue start に出す差し戻しの理由（#177）
-export function formatRejection(r: ReviewRejection): string[] {
-  return [`差し戻しの理由（${r.actor}、${localMinute(r.at)}）:`, ...r.reason.split("\n").map((line) => `  ${line}`)];
-}
-
-// 親の完了候補の案内。確定は人が既存の経路で行う（LLM はどちらも拒否される）
+// 親の完了候補の案内。既存の更新操作で完了する
 function formatCompletionCandidate(d: IssueDetail): string {
   const count = (status: string) => d.children.filter((c) => c.status === status).length;
-  const how = d.status === "in_review" ? `nod review approve ${d.id}` : `nod issue update ${d.id} --status done`;
-  return `完了候補: Sub-issue がすべて完了しています（完了 ${count("done")}・キャンセル ${count("canceled")}）。人が ${how} で完了にできます`;
+  const how = `nod issue update ${d.id} --status done`;
+  return `完了候補: Sub-issue がすべて完了しています（完了 ${count("done")}・キャンセル ${count("canceled")}）。${how} で完了にできます`;
 }
 
 function formatBytes(n: number): string {
@@ -406,7 +398,7 @@ export function describeNotification(n: Notification): string {
     case "agent_state_changed": {
       // 主語は操作した人ではなく、作業を任された担当（data.agent）
       const agent = typeof d.agent === "string" ? d.agent : n.actor;
-      if (d.to === "done") return `${agent} が作業を完了（レビュー待ち）`;
+      if (d.to === "done") return `${agent} が作業を完了`;
       if (d.to === "awaiting_input") return `${agent} が確認を求めた（入力待ち）${d.reason ? `: ${d.reason}` : ""}`;
       if (d.to === "error") return `${agent} がエラーで停止${d.reason ? `: ${d.reason}` : ""}`;
       return `${agent} ${n.eventType}`;
@@ -506,32 +498,6 @@ export function formatPrStatusLine(v: PrStatusView): string | null {
   return null;
 }
 
-// nod review approve に添える GitHub 側の状態（#56/#57）。保存済みの結果だけを読み、gh は実行しない。
-// 未マージ・変更要求は注意として出すが、承認は止めない。保存済みの結果は古いことがあるので「取得時点で」と添える
-export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません。GitHub には何も書き込みません";
-
-export function approvalWarnings(s: PrStatus): string[] {
-  const warnings: string[] = [];
-  if (s.state === "CLOSED") warnings.push(`取得時点で GitHub の PR はマージされずに閉じられています（${prState(s)}）`);
-  else if (s.state !== "MERGED") warnings.push(`取得時点で GitHub の PR はまだマージされていません（${prState(s)}）`);
-  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("取得時点で GitHub に変更要求が出ています");
-  return warnings;
-}
-
-export function formatApprovalGithub(v: PrStatusView): string[] {
-  const lines: string[] = [];
-  if (v.prUrl) {
-    if (v.status) {
-      lines.push(`GitHub: #${v.status.number} ${prSummary(v.status)}（取得: ${localMinute(v.status.fetchedAt)}）`);
-      lines.push(...approvalWarnings(v.status).map((w) => `注意: ${w}`));
-    } else {
-      lines.push(`GitHub の状態は未取得（nod issue pr-status ${v.issueId} --refresh で取得）`);
-    }
-  }
-  lines.push(APPROVAL_NOTE);
-  return lines;
-}
-
 export function formatPrStatus(v: PrStatusView): string {
   if (!v.prUrl) return `${v.issueId} に PR がありません`;
   const lines = [`${v.issueId}  PR: ${v.prUrl}`];
@@ -553,13 +519,6 @@ export function formatPrStatus(v: PrStatusView): string {
   } else if (!v.fetchError) {
     lines.push(`未取得。nod issue pr-status ${v.issueId} --refresh で gh から取得する`);
   }
-  if (v.autoTransition) {
-    const t = v.autoTransition;
-    lines.push(
-      `PR 連動: ${t.from} → ${t.to} にしました${t.mergeCandidate ? "（マージ済み: 完了候補。done にするかは人が判断）" : ""}。誤りなら nod automation undo ${t.issueId}`,
-    );
-  }
-  if (v.autoTransitionSkipped) lines.push(`PR 連動: ${v.autoTransitionSkipped}`);
   return lines.join("\n");
 }
 

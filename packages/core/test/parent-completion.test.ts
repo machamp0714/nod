@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { approveReview } from "../src/ops/human";
 import { createIssue, getIssue, listIssues, queryIssues, updateIssue } from "../src/ops/issues";
 import { codeOf, setup } from "./helpers";
 
@@ -58,13 +57,10 @@ describe("親の完了候補", () => {
     expect(queryIssues(t.db, {}).issues.find((i) => i.id === t.parent.id)?.completionCandidate).toBe(true);
   });
 
-  test("LLM は候補を読めるが、既存の保護により done にも承認にもできない", () => {
+  test("LLM も候補の親を完了でき、候補から外れる", () => {
     const t = family(["done"]);
     expect(getIssue(t.db, t.parent.id).completionCandidate).toBe(true);
-    expect(codeOf(() => updateIssue(t.llm, t.parent.id, { status: "done" }))).toBe("FORBIDDEN_FOR_LLM");
-    updateIssue(t.me, t.parent.id, { status: "in_review" });
-    expect(codeOf(() => approveReview(t.llm, t.parent.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(t.db, t.parent.id)).toMatchObject({ status: "in_review", completionCandidate: true });
+    expect(updateIssue(t.llm, t.parent.id, { status: "done" })).toMatchObject({ status: "done", completionCandidate: false });
   });
 
   test("人が既存の経路で完了すると候補から外れる", () => {
@@ -72,8 +68,7 @@ describe("親の完了候補", () => {
     updateIssue(t.me, t.parent.id, { status: "done" });
     expect(getIssue(t.db, t.parent.id)).toMatchObject({ status: "done", completionCandidate: false });
     const r = family(["done"]);
-    updateIssue(r.me, r.parent.id, { status: "in_review" });
-    expect(approveReview(r.me, r.parent.id)).toMatchObject({ status: "done", completionCandidate: false });
+    expect(updateIssue(r.me, r.parent.id, { status: "done" })).toMatchObject({ status: "done", completionCandidate: false });
   });
 
   test("子が再び開くと候補から外れる", () => {

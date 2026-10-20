@@ -3,7 +3,7 @@ import type { AgentState, Status } from "../../api/types";
 import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
 import { defaultIssueColumns } from "../../routes/search";
 import type { IssueColumn, IssueGroupKey, IssueListSearch } from "../../routes/search";
-import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, ViewBar, WorkspaceBadge } from "../ui";
+import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, type StatusTones, StatusTonesProvider, ViewBar, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
 import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
@@ -26,6 +26,8 @@ export interface IssueListProps {
   titleIcon?: ReactNode; // タイトルの左に置く印（View の色）
   titleNote?: ReactNode; // タイトルの右に置く注記（View の「変更あり」）
   intro?: ReactNode;
+  afterContent?: ReactNode; // 一覧の後に置く内容（Project 詳細の進捗報告）
+  heading?: ReactNode; // 概要と View Bar の間に置く見出しの行（Project 詳細の「Issue 一覧」と一覧・フローの切り替え）
   actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
   filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
   rows: IssueListRow[];
@@ -42,6 +44,8 @@ export interface IssueListProps {
   // ページごとに保存した表示設定を消す（#218）。View では渡さない
   onResetDisplay?: () => void;
   resetDisplayDisabled?: boolean;
+  // 一覧（表・Board・グループの見出し）の Status アイコンの色を上書きする（Project 詳細の完了）。プレビューには使わない
+  statusTones?: StatusTones;
 }
 
 // プレビュー中に表から外す列。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
@@ -57,6 +61,8 @@ export function IssueList({
   titleIcon,
   titleNote,
   intro,
+  afterContent,
+  heading,
   actions,
   filterBar,
   rows,
@@ -69,6 +75,7 @@ export function IssueList({
   sameValueColumn,
   onResetDisplay,
   resetDisplayDisabled,
+  statusTones = NO_STATUS_TONES,
 }: IssueListProps) {
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
@@ -190,8 +197,8 @@ export function IssueList({
     if (panel.open) panel.querySelector("summary")?.focus();
   };
   // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする。
-  // 概要（intro）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
-  const fill = layout === "board" && !groupBy && !intro;
+  // 概要（intro）や一覧の後の内容（afterContent）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
+  const fill = layout === "board" && !groupBy && !intro && !afterContent;
 
   return (
     <div className={fill ? `${s.split} ${s.splitFill}` : s.split}>
@@ -219,6 +226,7 @@ export function IssueList({
         {actions && <div className={s.actions}>{actions}</div>}
       </PageHeader>
       {intro && <div className={s.intro}>{intro}</div>}
+      {heading}
       <ViewBar>
         <Segmented<ListTab>
           label="絞り込み"
@@ -272,6 +280,7 @@ export function IssueList({
           {filterBar}
         </div>
       )}
+      <StatusTonesProvider value={statusTones}>
       <div className={fill ? `${s.body} ${s.bodyFill}` : s.body}>
         {error ? (
           <p role="alert" className={`${s.message} ${s.messageError}`}>
@@ -339,6 +348,8 @@ export function IssueList({
           </div>
         )}
       </div>
+      </StatusTonesProvider>
+      {afterContent && <div className={s.afterContent}>{afterContent}</div>}
     </div>
     {preview && (
       <PreviewPane
@@ -355,6 +366,7 @@ export function IssueList({
 
 const AGENT_STATES = Object.keys(AGENT_STATE_META) as AgentState[];
 const NO_SELECTION: ReadonlySet<string> = new Set();
+const NO_STATUS_TONES: StatusTones = {};
 
 // 表示順の ID（ラベルのグループで同じ Issue が何度も出ても1回だけ）
 function idsOf(rows: IssueListRow[]): string[] {

@@ -6,7 +6,6 @@ import { CompletionCandidateBanner } from "../components/issue-detail/Completion
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { errorMessage, isNotFoundError } from "../api/errors";
 import {
-  useApproveReview,
   useAttachDocument,
   useRemoveDocument,
   useAddAttachmentLink,
@@ -88,7 +87,6 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
   const remind = useRemind(issue.id);
-  const approve = useApproveReview(issue.id);
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
   const projects = useProjectChoices();
@@ -174,7 +172,6 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             key={`completion-${issue.id}`}
             issue={issue}
             onComplete={() => update.mutateAsync({ status: "done" })}
-            onApprove={() => approve.mutateAsync({})}
           />
           <SubIssuesSection issues={issue.children} />
           {issue.prUrl && <PrDiffSection key={`diff-${issue.id}`} issueId={issue.id} prUrl={issue.prUrl} />}

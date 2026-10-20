@@ -23,7 +23,7 @@ test("Issues は spec の列でリストを出す", async ({ page }) => {
 test("件数はタブに出し、Ready のタブで絞り込み、All のタブで戻す（件数カードは出さない）", async ({ page }) => {
   await page.goto("/issues");
   const tabs = page.getByRole("tablist", { name: "絞り込み" });
-  await expect(tabs.getByRole("tab")).toHaveText(["All 13", "Ready 2", "Needs Clarification 1", "委任中 4"]);
+  await expect(tabs.getByRole("tab")).toHaveText(["All 13", "Ready 2", "Needs Clarification 1", "委任中 3"]);
   // 件数カード（タブと同じ件数を示すボタン）は置かない
   await expect(page.getByRole("button", { name: /^Ready/ })).toHaveCount(0);
   const ready = tabs.getByRole("tab", { name: "Ready 2", exact: true });
@@ -111,7 +111,7 @@ test("Board は6つの Status を列か Hidden columns に出し、Triage と Ca
   await setLayout(page, "Board");
   await closeDisplay(page);
   await expect(page).toHaveURL(/layout=board/);
-  for (const name of ["Needs Clarification", "Backlog", "Todo", "In Progress", "In Review", "Done"]) {
+  for (const name of ["Needs Clarification", "Backlog", "Todo", "In Progress", "Done"]) {
     await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("region", { name: "Hidden columns", exact: true })).toHaveCount(0);

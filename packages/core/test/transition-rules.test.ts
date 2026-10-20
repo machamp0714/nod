@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { NodError } from "../src/errors";
 import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import { bulkUpdateIssues } from "../src/ops/bulk-update";
-import { acceptTriage, approveReview, declineTriage, rejectReview } from "../src/ops/human";
+import { acceptTriage, declineTriage } from "../src/ops/human";
 import { createIssue, updateIssue } from "../src/ops/issues";
 import { setStatusNames } from "../src/status-names";
 import { answerQuestion } from "../src/ops/human";
@@ -34,26 +34,26 @@ describe("ステータスの遷移ルールの設定", () => {
     setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "done" }], presets: [] });
     const saved = setTransitionRules(me, ws.key, {
       forbidden: [
-        { from: "todo", to: "in_review" },
+        { from: "todo", to: "canceled" },
         { from: "backlog", to: "done" },
         { from: "backlog", to: "done" },
       ],
-      presets: ["review_before_done", "review_before_done"],
+      presets: [],
     });
     expect(saved).toEqual({
       workspaceKey: ws.key,
       forbidden: [
         { from: "backlog", to: "done" },
-        { from: "todo", to: "in_review" },
+        { from: "todo", to: "canceled" },
       ],
-      presets: ["review_before_done"],
+      presets: [],
     });
     expect(getTransitionRules(db, ws.key)).toEqual(saved);
   });
 
   test("reset ですべて解除する", () => {
     const { db, ws, me } = setup();
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "done" }], presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "done" }], presets: [] });
     expect(resetTransitionRules(me, ws.key)).toEqual({ workspaceKey: ws.key, forbidden: [], presets: [] });
     expect(getTransitionRules(db, ws.key).forbidden).toEqual([]);
   });
@@ -74,7 +74,8 @@ describe("ステータスの遷移ルールの設定", () => {
       { forbidden: [{ from: "todo", to: "needs_clarification" }] },
       { forbidden: [{ from: "todo", to: "todo" }] },
       { presets: ["nope"] },
-      // レビュー依頼・承認・差し戻しの経路は塞げない
+      { presets: ["review_before_done"] },
+      // 廃止した状態を遷移ルールに指定できない
       { forbidden: [{ from: "in_review", to: "done" }] },
       { forbidden: [{ from: "in_progress", to: "in_review" }] },
       { forbidden: [{ from: "in_review", to: "in_progress" }] },
@@ -95,6 +96,14 @@ describe("ステータスの遷移ルールの設定", () => {
 });
 
 describe("遷移ルールの適用", () => {
+  test("LLM の done への更新も遷移ルールに従い、TRANSITION_NOT_ALLOWED で止まる", () => {
+    const { db, ws, me, llm } = setup();
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "done" }], presets: [] });
+    const issue = createIssue(me, { workspaceId: ws.id, title: "t" });
+    expect(codeOf(() => updateIssue(llm, issue.id, { status: "done" }))).toBe("TRANSITION_NOT_ALLOWED");
+    expect(eventsOf(db, issue.id).map((e) => e.type)).toEqual(["created"]);
+  });
+
   test("禁止した組の遷移は TRANSITION_NOT_ALLOWED で、どのルールかを示し、何も変えない", () => {
     const { db, ws, me } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
@@ -114,60 +123,46 @@ describe("遷移ルールの適用", () => {
     expect(updateIssue(me, issue.id, { status: "done" }).status).toBe("done");
   });
 
-  test("プリセット『done の前に in_review 必須』は in_review 以外から done への遷移を止める", () => {
-    const { ws, me, llm } = setup();
-    setTransitionRules(me, ws.key, { presets: ["review_before_done"] });
-    const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const e = errorOf(() => updateIssue(me, issue.id, { status: "done" }));
-    expect(e.code).toBe("TRANSITION_NOT_ALLOWED");
-    expect(e.message).toContain("done の前に in_review 必須");
-    expect(e.details).toEqual({ from: "todo", to: "done", rule: { kind: "preset", preset: "review_before_done" } });
-    // レビュー経由なら done にできる
-    startIssue(llm, issue.id);
-    completeIssue(llm, issue.id, { summary: "終わりました" });
-    expect(approveReview(me, issue.id).status).toBe("done");
-  });
-
   test("人の一括編集では違反した Issue が失敗一覧に出て、何も変えない", () => {
     const { ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    updateIssue(me, b.id, { status: "in_review" });
-    setTransitionRules(me, ws.key, { presets: ["review_before_done"] });
+    updateIssue(me, b.id, { status: "backlog" });
+    setTransitionRules(me, ws.key, { forbidden:[{from:"todo",to:"done"}] });
     const e = errorOf(() => bulkUpdateIssues(me, [a.id, b.id], { status: "done" }));
     expect(e.code).toBe("BULK_UPDATE_FAILED");
     expect((e.details as { failures: { id: string; code: string }[] }).failures).toEqual([
       expect.objectContaining({ id: a.id, code: "TRANSITION_NOT_ALLOWED" }),
     ]);
-    expect(updateIssue(me, b.id, {}).status).toBe("in_review");
+    expect(updateIssue(me, b.id, {}).status).toBe("backlog");
   });
 
-  test("LLM の着手もルールに従い、完了報告（レビュー依頼）は塞がれない", () => {
+  test("LLM の着手もルールに従い、完了報告は done に進む", () => {
     const { ws, me, llm } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "in_progress" }], presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "todo", to: "in_progress" }], presets: [] });
     expect(codeOf(() => startIssue(llm, issue.id))).toBe("TRANSITION_NOT_ALLOWED");
-    setTransitionRules(me, ws.key, { presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { presets: [] });
     startIssue(llm, issue.id);
-    expect(completeIssue(llm, issue.id, { summary: "終わりました" }).status).toBe("in_review");
+    expect(completeIssue(llm, issue.id, { summary: "終わりました" }).status).toBe("done");
   });
 
-  test("Triage の判断とレビューの差し戻しはルールがあっても塞がれない", () => {
+  test("Triage の判断はルールがあっても塞がれない", () => {
     const { ws, me, llm } = setup();
     const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: [] });
     expect(acceptTriage(me, t.id).status).toBe("todo");
     const t2 = createIssue(llm, { workspaceId: ws.id, title: "t2" });
     expect(declineTriage(me, t2.id).status).toBe("canceled");
-    updateIssue(me, t.id, { status: "in_review" });
-    expect(rejectReview(me, t.id, "直して").status).toBe("in_progress");
+    updateIssue(me, t.id, { status: "todo" });
+
   });
 
   test("確認依頼による needs_clarification の出入りはルールの対象にしない", () => {
     const { ws, me, llm } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
     updateIssue(me, issue.id, { status: "backlog" });
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: ["review_before_done"] });
+    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: [] });
     askQuestion(llm, issue.id, "どちら？");
     expect(updateIssue(me, issue.id, {}).status).toBe("needs_clarification");
     answerQuestion(me, issue.id, "こちら");

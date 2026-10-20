@@ -2,9 +2,8 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createIssue } from "../src/ops/issues";
+import { createIssue, getIssue } from "../src/ops/issues";
 import { completeIssue, startIssue } from "../src/ops/agent";
-import { approveReview } from "../src/ops/human";
 import { copyIssue } from "../src/ops/issues";
 import {
   classify,
@@ -17,6 +16,7 @@ import {
   parseGhPrView,
   PR_STATUS_TIMEOUT_MS,
   refreshPrStatus,
+  linkPr,
 } from "../src/ops/pr-status";
 import { setup } from "./helpers";
 
@@ -133,8 +133,8 @@ describe("PR 状態の取得と保存", () => {
     expect(view.status).toMatchObject({ prUrl: PR_URL, number: 128, state: "OPEN", reviewDecision: "APPROVED", fetchedBy: "me" });
     expect(view.status!.fetchedAt).toBeString();
     // 表示（getPrStatus）には自動遷移の結果を付けない
-    expect(getPrStatus(db, ref)).toEqual({ ...view, autoTransition: undefined });
-    expect(view.autoTransition).toBeNull();
+    expect(getPrStatus(db, ref)).toEqual(view);
+    expect(view).not.toHaveProperty("autoTransition");
   });
 
   test("LLM も更新でき、書き手が記録される。アクティビティには残さない", async () => {
@@ -390,24 +390,22 @@ describe("createCommandRunner（実 gh は使わない）", () => {
   });
 });
 
-describe("nod の承認と GitHub PR（#56/#57）", () => {
-  test("approveReview は外部コマンド（gh）を起動せず、保存済みの PR 状態も変えない", async () => {
-    const s = setup();
-    const issue = createIssue(s.me, { workspaceId: s.ws.id, title: "検索 API" });
-    startIssue(s.llm, issue.id);
-    completeIssue(s.llm, issue.id, { summary: "直した", prUrl: PR_URL });
-    await refreshPrStatus(s.me, issue.id, async () => ({ kind: "exited", exitCode: 0, stdout: ghJson({ reviewDecision: "CHANGES_REQUESTED" }), stderr: "" }));
-    const before = getPrStatus(s.db, issue.id);
-    const spawn = spyOn(Bun, "spawn");
-    const spawnSync = spyOn(Bun, "spawnSync");
-    try {
-      expect(approveReview(s.me, issue.id).status).toBe("done");
-      expect(spawn).not.toHaveBeenCalled();
-      expect(spawnSync).not.toHaveBeenCalled();
-    } finally {
-      spawn.mockRestore();
-      spawnSync.mockRestore();
-    }
-    expect(getPrStatus(s.db, issue.id)).toEqual(before);
-  });
+
+describe("PR 参照と Issue の完了を独立して扱う", () => {
+  for (const state of ["OPEN", "MERGED"] as const) {
+    test(`${state} の PR を紐付けて更新しても作業中の Issue を遷移させない`, async () => {
+      const {db,ws,me,llm} = setup();
+      const issue = createIssue(me, {workspaceId:ws.id,title:"実装中"});
+      startIssue(llm,issue.id);
+      expect(linkPr(llm,issue.id,PR_URL).status).toBe("in_progress");
+      const view = await refreshPrStatus(llm,issue.id,stub(ok(ghJson({state}))));
+      expect(view.status?.state).toBe(state);
+      expect(view).not.toHaveProperty("autoTransition");
+      expect(getIssue(db,issue.id)).toMatchObject({status:"in_progress",agentState:"working",prUrl:PR_URL});
+      completeIssue(llm,issue.id,{summary:"検証が完了しました"});
+      await refreshPrStatus(llm,issue.id,stub(ok(ghJson({state}))));
+      expect(getIssue(db,issue.id).status).toBe("done");
+      db.close();
+    });
+  }
 });

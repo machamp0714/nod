@@ -1,7 +1,6 @@
 ---
 name: implement
-description: "nod の Issue の要求を、既存計画または軽い Task ごとに新しいエージェントで実装し、止まらずに最後まで進める。Task ごとに Step・コミット・作業ログを残し、最後に nod:code-review を 1 回実行する。"
-disable-model-invocation: true
+description: "nod の Issue の要求を、既存計画または軽い Task ごとに新しいエージェントで実装し、止まらずに最後まで進める。Task ごとに Step・コミット・作業ログを残し、最後に nod:code-review を 1 回実行する。人やオーケストレーターが Issue ID を指定して nod:implement での実装を求めたときだけ使い、一般的な実装依頼では起動しない。"
 ---
 
 <!-- mattpocock/skills の engineering/implement（c55ee46）を元に、計画の完走と nod への記録を足した。tdd は呼び出す。 -->
@@ -22,7 +21,7 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 - Workspace が有効で、`specAssessment` があり、`status` が `pending` または `failed`、かつ `suspended` でも `recordOnly` でもない場合は、`nod issue assess <id> --json` で初回判定の回復を **1 回だけ**試み、`show --json` で状態を再確認する。まだ実効的な未完了・失敗なら、作成済みの同じ ID と安全な失敗種別を報告して止める。Issue を作り直さず、秘密値や未加工の API エラー本文を出さない。
 - `specAssessment` がない（null／省略）場合は対象外、`suspended` は Workspace の無効化による制限解除、`recordOnly` は初回判定後の任意再評価である。これらの履歴上の待機・失敗で実装を止めない。設定の無効化やラベル削除を LLM が制限回避のために行わない。
 - 現在のラベルに `needs-spec` があれば、`nod:to-spec <id>` へ案内して実装を始めずに止める。仕様書があっても同じ。`nod:to-spec` は仕様書の作成・添付の完了を確認して解除する。`nod:implement` 自身は解除しない。
-- `needs-spec` がなく判定完了済み（任意再評価中も含む）または対象外・制限解除済みなら `nod issue start <id>` を実行する。差し戻しの理由や追加指示が出たら先に読んで反映する。
+- `needs-spec` がなく判定完了済み（任意再評価中も含む）または対象外・制限解除済みなら `nod issue start <id>` を実行する。追加指示が出たら先に読んで反映する。
 - spec・plan・事前の `nod:to-plan` は必須にしない。既存 spec と計画は引き続き使う。spec がなければ Issue 本文の要求と完了条件を正本にする。見出しやチェックボックスの有無、短文であることだけで仕様不足と決めない。
 - 計画がなければ本文から実装・検証できる範囲の軽い Task・Step を作業追跡用に記録する（例: `nod issue plan <id> --step "本文の要求を実装・検証する"`）。計画 Document の作成や別工程の承認を増やさない。重要な利用者向け仕様を決めないと進められない場合だけ、未決事項を `nod issue ask` に記録して止める。
 
@@ -62,11 +61,15 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 1. テストスイート全体を 1 回実行し、`--kind test` に残す。
 2. **`nod:code-review` を新しいエージェントで 1 回実行する。** 基点はデフォルトブランチとの merge-base、仕様はこの Issue の kind=spec の Document、なければ Issue 本文の全文と完了条件。Spec 軸は省略しない。書いたこのセッションではレビューしない（確証バイアスを避けるため）。
 3. レビューの指摘は直さない。要点を `nod issue log <id> "<観点ごとの指摘の要約>" --kind progress` に残し、報告に載せる（何度回しても新しい指摘が出るので、自動で直すと終わらない）。
-4. `nod issue done` は実行しない（レビューへの提出は PR を作ってから）。
+4. Task・Stepと必要な検証が完了したら、`nod issue done <id> --summary "<実装内容と検証結果>"`で直接doneにする。PRの作成・紐付け・状態取得はIssueの状態を変えない。独立コードレビューの結果は作業ログと報告に残す。
 
 ## 4. 報告と完了時のネクストアクション
 
-終えた Task・飛ばした Task とその理由・テストの結果・レビューの指摘を簡潔に報告する。続けて、次の一手を番号付きで示し、おすすめを 1 つ理由つきで添えて、ユーザーの選択を待つ（自分から次へ進まない）。指摘の有無でおすすめを変える。
+終えた Task・飛ばした Task とその理由・テストの結果・独立コードレビューの指摘・Issueの完了状態を簡潔に報告する。
+未完了のTaskや失敗した必要テストが残る場合はdoneにせず、原因と再開条件を記録する。
+人によるnodの承認待ちは設けない。
 
-1. レビューの指摘に対応する
-2. PR を作る（PR のタイトル・本文に nod の Issue ID を書かない）。作ったら `nod issue link-pr <id> <URL>` で紐付ける。PR 連動が有効な Workspace ではこの時点で in_review に進むので、`nod issue done` は要らない（実行すると NOT_IN_PROGRESS で失敗する）。紐付けた後も in_progress のままなら、`nod issue done <id> --summary "<要約>"` で提出する
+次の作業がある場合だけ、具体的な選択肢を番号付きで示し、おすすめを理由つきで添える。
+コードレビューの指摘対応やPR作成は独立した次の作業として扱う。
+PR作成を依頼されたら、タイトル・本文にnodのIssue IDを書かず、作成後に`nod issue link-pr <id> <URL>`で紐付ける。
+既にdoneのIssueへ完了を重ねない。

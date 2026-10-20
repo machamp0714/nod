@@ -63,7 +63,7 @@ describe("nod workspace status-names", () => {
     expect((await runNod(["workspace", "status-names", "show", "--json"], { cwd: repo, db })).json).toEqual({ workspaceKey: "API", names: {} });
     const set = await runNod(["workspace", "status-names", "set", "todo", "着手可", "--json"], { cwd: repo, db });
     expect(set.json).toEqual({ workspaceKey: "API", names: { todo: "着手可" } });
-    await runNod(["workspace", "status-names", "set", "in_review", "確認待ち"], { cwd: repo, db });
+    await runNod(["workspace", "status-names", "set", "in_progress", "確認待ち"], { cwd: repo, db });
     const shown = await runNod(["workspace", "status-names", "show"], { cwd: repo, db });
     expect(shown.stdout).toContain("todo");
     expect(shown.stdout).toContain("着手可");
@@ -71,7 +71,7 @@ describe("nod workspace status-names", () => {
     expect(shown.stdout).toContain("Backlog");
 
     await runNod(["workspace", "status-names", "reset", "todo"], { cwd: repo, db });
-    expect((await runNod(["workspace", "status-names", "show", "--json"], { cwd: repo, db })).json.names).toEqual({ in_review: "確認待ち" });
+    expect((await runNod(["workspace", "status-names", "show", "--json"], { cwd: repo, db })).json.names).toEqual({ in_progress: "確認待ち" });
     await runNod(["workspace", "status-names", "reset"], { cwd: repo, db });
     expect((await runNod(["workspace", "status-names", "show", "--json"], { cwd: repo, db })).json.names).toEqual({});
   });

@@ -106,7 +106,7 @@ describe("GET /api/issues/:id", () => {
 });
 
 describe("GET /api/inbox と GET /api/triage", () => {
-  test("Inbox は LLM の未回答の質問とレビュー待ちだけを返す", async () => {
+  test("Inbox は LLM の未回答の質問を返し、レビュー待ちを含めない", async () => {
     const { app, me, llm, ws } = setup();
     const asked = createIssue(me, { workspaceId: ws.id, title: "asked" });
     const mine = createIssue(me, { workspaceId: ws.id, title: "mine" });
@@ -121,7 +121,7 @@ describe("GET /api/inbox と GET /api/triage", () => {
     expect(r.json.questions.map((q: { issueId: string; question: string }) => [q.issueId, q.question])).toEqual([
       ["API-1", "どちらの方式にするか"],
     ]);
-    expect(r.json.reviews.map((i: { id: string }) => i.id)).toEqual(["API-3"]);
+    expect(r.json).not.toHaveProperty("reviews");
   });
 
   test("Triage は Snooze の期限が来ていない Issue を除く", async () => {

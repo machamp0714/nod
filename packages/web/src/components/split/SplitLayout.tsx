@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { PageHeader, PageTitle, Spacer } from "../ui";
 import s from "./split.module.css";
 
-// Inbox、Reviews、Triage の2列（一覧と詳細）。一覧の見出しをページの <h1> にする。
+// Inbox、Triage の2列（一覧と詳細）。一覧の見出しをページの <h1> にする。
 // 一覧の Header（高さ 44）は、題名、説明文、タブ（headerTabs）の順に並べる。headerExtra は Header と行の間に置く
 export function SplitLayout({
   title,

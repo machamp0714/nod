@@ -5,9 +5,7 @@ import { NodError } from "../errors";
 import { recordEvent } from "../events";
 import { findIssueRow, findWritableIssueRow, formatIssueId, issueRowById, toIssue } from "../issue-query";
 import { setColumn } from "../mutate";
-import { applyPrReview, prReviewRuleSkip } from "./auto-transitions";
 import type {
-  AutoTransition,
   Issue,
   PrCheck,
   PrCheckState,
@@ -241,13 +239,7 @@ function readView(db: Database, issueRowId: number, issueId: string, prUrl: stri
   return view;
 }
 
-// 現在の PR を付けた日時。PR 連動（#66）は、これ以降に一度でも in_review になった Issue を進めない
-export function markPrLinked(ctx: OpCtx, issueRowId: number): void {
-  ctx.db.query("UPDATE issues SET pr_linked_at = ? WHERE id = ?").run(now(), issueRowId);
-}
-
 // 作業中に PR（draft を含む）を Issue に紐付ける（nod issue link-pr）。ステータスは変えない。LLM も使える。
-// PR 連動が有効な Workspace では、紐付けたあとの更新で PR が open（draft 以外）かマージ済みなら in_review に進む
 export function linkPr(ctx: OpCtx, ref: string, url: string): Issue {
   const prUrl = url.trim();
   if (!GITHUB_PR_URL_RE.test(prUrl)) {
@@ -257,7 +249,6 @@ export function linkPr(ctx: OpCtx, ref: string, url: string): Issue {
     const row = findWritableIssueRow(ctx.db, ref);
     const from = row.pr_url;
     if (setColumn(ctx, row, "pr_url", prUrl)) {
-      markPrLinked(ctx, row.id);
       recordEvent(ctx.db, row.id, ctx.actor, "pr_linked", { from, to: prUrl });
     }
     return toIssue(issueRowById(ctx.db, row.id));
@@ -275,7 +266,6 @@ const inflight = new WeakMap<Database, Map<string, Promise<PrStatusView>>>();
 
 // gh pr view で PR の状態を取得して保存する（GitHub へは読み取りのみ）。
 // 取得の失敗は例外にせず fetchError として保存・返却し、前回の成功結果は残す。アクティビティ・通知には残さない。
-// Workspace で PR 連動（#66）が有効なら、保存と同じ transaction で in_progress の Issue を in_review に進め、その記録を autoTransition で返す
 export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunner): Promise<PrStatusView> {
   const row = findIssueRow(ctx.db, ref);
   const issueId = formatIssueId(row.ws_key, row.number);
@@ -288,9 +278,8 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   if (pending) return pending;
   const job = (async () => {
     try {
-      const autoTransition = await fetchAndSave(ctx, row.id, prUrl, run);
-      const skipped = autoTransition ? null : prReviewRuleSkip(ctx.db, row.id);
-      return { ...getPrStatus(ctx.db, issueId), autoTransition, ...(skipped ? { autoTransitionSkipped: skipped } : {}) };
+      await fetchAndSave(ctx, row.id, prUrl, run);
+      return getPrStatus(ctx.db, issueId);
     } finally {
       byIssue.delete(key);
     }
@@ -299,7 +288,7 @@ export function refreshPrStatus(ctx: OpCtx, ref: string, run: GhRunner = ghRunne
   return job;
 }
 
-async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: GhRunner): Promise<AutoTransition | null> {
+async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: GhRunner): Promise<null> {
   const startedAt = now();
   let outcome: { data: Omit<PrStatus, "prUrl" | "fetchedAt" | "fetchedBy"> } | { error: { code: PrStatusErrorCode; message: string } };
   if (!GITHUB_PR_URL_RE.test(prUrl)) {
@@ -323,7 +312,7 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
     if (current?.pr_url !== prUrl) return null;
     // 保存済みより後に始めた取得のときだけ書く（別プロセスの新しい結果を古い結果で上書きしない）
     if ("data" in outcome) {
-      const { changes } = ctx.db
+      ctx.db
         .query(
           `INSERT INTO pr_statuses (issue_id, pr_url, data, fetched_at, fetched_by, started_at) VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT (issue_id) DO UPDATE SET pr_url = excluded.pr_url, data = excluded.data,
@@ -333,7 +322,7 @@ async function fetchAndSave(ctx: OpCtx, issueRowId: number, prUrl: string, run: 
         )
         .run(issueRowId, prUrl, JSON.stringify(outcome.data), at, ctx.actor, startedAt);
       // 新しい結果を保存できたときだけ評価する（古い取得の結果では進めない）
-      return changes > 0 ? applyPrReview(ctx, issueRowId) : null;
+      return null;
     } else {
       ctx.db
         .query(

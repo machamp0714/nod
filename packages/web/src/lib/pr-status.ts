@@ -22,11 +22,6 @@ const REVIEW_PILLS: Record<PrReviewDecision, PillSpec> = {
   REVIEW_REQUIRED: { label: "レビュー待ち", icon: "eye", tone: "gate" },
 };
 
-// 状態だけで決めるピル（draft を区別しない一覧用。自動化の PR 連動の対象一覧など）
-export function prStatePillOf(state: PrState): PillSpec {
-  return STATE_PILLS[state];
-}
-
 export function prStatePill(s: PrStatus): PillSpec {
   return s.state === "OPEN" && s.isDraft ? DRAFT_PILL : STATE_PILLS[s.state];
 }
@@ -56,20 +51,4 @@ export function ciPill(s: PrStatus): { text: string; tone: Tone; title: string }
     tone: c.failure > 0 ? "fail" : c.pending > 0 ? "ask" : "ready",
     title: `成功 ${c.success} / 失敗 ${c.failure} / 実行中 ${c.pending} / スキップ ${c.skipped}`,
   };
-}
-
-// nod の承認と GitHub PR の関係（#56/#57）。nod の承認は GitHub へ何も書き込まない
-export const APPROVAL_NOTE = "nod の承認は GitHub の承認・マージではありません。GitHub には何も書き込みません";
-export const PR_STATUS_UNFETCHED = "GitHub の状態は未取得（更新で取得）";
-
-// 承認ボタン付近に出す注意。未マージ・変更要求を知らせるが、承認は止めない。
-// 保存済みの結果は古いことがある（親の完了候補バナーには取得時刻も出ない）ので「取得時点で」と添える
-export function approvalWarnings(s: PrStatus | null): string[] {
-  if (!s) return [];
-  const warnings: string[] = [];
-  const state = prStatePill(s).label;
-  if (s.state === "CLOSED") warnings.push(`取得時点で GitHub の PR はマージされずに閉じられています（${state}）`);
-  else if (s.state !== "MERGED") warnings.push(`取得時点で GitHub の PR はまだマージされていません（${state}）`);
-  if (s.reviewDecision === "CHANGES_REQUESTED") warnings.push("取得時点で GitHub に変更要求が出ています");
-  return warnings;
 }

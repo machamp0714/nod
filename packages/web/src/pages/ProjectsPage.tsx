@@ -159,11 +159,6 @@ export function AgentSummary({ agents }: { agents: ProjectSummary["agents"] }) {
         エラー {agents.error}
       </ProjectAgentPill>
     ),
-    agents.awaitingReview > 0 && (
-      <ProjectAgentPill key="review" tone="ready">
-        レビュー待ち {agents.awaitingReview}
-      </ProjectAgentPill>
-    ),
     agents.working > 0 && (
       <ProjectAgentPill key="working" tone="accent">
         作業中 {agents.working}

@@ -22,21 +22,18 @@ import s from "./pr-diff.module.css";
 // 一覧で最初に出すファイル数。残りは「他 N ファイルを表示」で出す
 const INITIAL_FILES = 5;
 
-// PR の変更ファイルと差分（#55）。nod.pen「Issue詳細｜変更ファイル」「Reviews｜変更ファイル」「変更ファイル｜状態」に合わせる。
+// PR の変更ファイルと差分（#55）。nod.pen「Issue詳細｜変更ファイル」「変更ファイル｜状態」に合わせる。
 // 保存済みの結果を表示し、gh の実行は「更新」ボタンでだけ行う。差分・パスはテキストノードとしてだけ描画する（HTML にしない）。
 // 一覧は要約だけを読み、patch は開いたファイルだけを読む
 export function PrDiffSection({
   issueId,
   prUrl,
-  collapsible = false,
 }: {
   issueId: string;
   prUrl: string;
-  collapsible?: boolean;
 }) {
   const query = usePrDiff(issueId);
   const refresh = useRefreshPrDiff(issueId);
-  const [open, setOpen] = useState(!collapsible);
   const view = query.data;
   const diff = view?.diff ?? null;
   const stale = view?.stale ?? null;
@@ -58,22 +55,11 @@ export function PrDiffSection({
 
   return (
     <section
-      className={collapsible ? `${s.section} ${s.boxed}` : s.section}
+      className={s.section}
       aria-label="変更ファイル"
       aria-busy={busy}
     >
       <div className={s.head}>
-        {collapsible && (
-          <button
-            type="button"
-            className={s.toggle}
-            aria-expanded={open}
-            aria-label={open ? "変更ファイルを閉じる" : "変更ファイルを開く"}
-            onClick={() => setOpen(!open)}
-          >
-            <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
-          </button>
-        )}
         <h2 className={s.title}>変更ファイル</h2>
         {summary && (
           <>
@@ -122,54 +108,50 @@ export function PrDiffSection({
         )}
       </div>
 
-      {open && (
-        <>
-          {(requestError || (fetchError && !tooLarge)) && (
-            <p className={s.error} role="alert">
-              <Icon name="circle-alert" size={13} />
-              <span>
-                {requestError
-                  ? `更新できませんでした：${errorMessage(requestError)}`
-                  : diff
-                    ? `差分を取得できませんでした：${fetchError!.message}`
-                    : fetchError!.message}
-              </span>
-            </p>
+      {(requestError || (fetchError && !tooLarge)) && (
+        <p className={s.error} role="alert">
+          <Icon name="circle-alert" size={13} />
+          <span>
+            {requestError
+              ? `更新できませんでした：${errorMessage(requestError)}`
+              : diff
+                ? `差分を取得できませんでした：${fetchError!.message}`
+                : fetchError!.message}
+          </span>
+        </p>
+      )}
+      {stale && (
+        <p className={s.stale} role="status">
+          <Icon name="triangle-alert" size={13} />
+          <span>
+            PR が更新されています（HEAD {shortSha(stale.diffHeadSha)} →{" "}
+            {shortSha(stale.currentHeadSha)}）。差分を更新してください
+          </span>
+        </p>
+      )}
+      {tooLarge && (
+        <div className={s.tooLarge} role="status">
+          <Icon name="file-warning" size={14} />
+          <span className={s.tooLargeText} title={fetchError!.message}>
+            差分が大きすぎます。GitHub で確認してください
+          </span>
+          {filesUrl && (
+            <a
+              className={s.link}
+              href={filesUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub で開く ↗
+            </a>
           )}
-          {stale && (
-            <p className={s.stale} role="status">
-              <Icon name="triangle-alert" size={13} />
-              <span>
-                PR が更新されています（HEAD {shortSha(stale.diffHeadSha)} →{" "}
-                {shortSha(stale.currentHeadSha)}）。差分を更新してください
-              </span>
-            </p>
-          )}
-          {tooLarge && (
-            <div className={s.tooLarge} role="status">
-              <Icon name="file-warning" size={14} />
-              <span className={s.tooLargeText} title={fetchError!.message}>
-                差分が大きすぎます。GitHub で確認してください
-              </span>
-              {filesUrl && (
-                <a
-                  className={s.link}
-                  href={filesUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  GitHub で開く ↗
-                </a>
-              )}
-            </div>
-          )}
-          {diff && diff.files.length > 0 && (
-            <FileList issueId={issueId} diff={diff} />
-          )}
-          {diff && diff.files.length === 0 && (
-            <p className={s.note}>変更ファイルはありません</p>
-          )}
-        </>
+        </div>
+      )}
+      {diff && diff.files.length > 0 && (
+        <FileList issueId={issueId} diff={diff} />
+      )}
+      {diff && diff.files.length === 0 && (
+        <p className={s.note}>変更ファイルはありません</p>
       )}
     </section>
   );

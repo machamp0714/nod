@@ -3,13 +3,11 @@ import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
 import {
   acceptTriage,
   answerQuestion,
-  approveReview,
   declineTriage,
   duplicateTriage,
   getInbox,
   listTriage,
   parseDateTime,
-  rejectReview,
   snoozeTriage,
 } from "../src/ops/human";
 import { createCycle } from "../src/ops/cycles";
@@ -18,7 +16,7 @@ import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 describe("getInbox と answerQuestion", () => {
-  test("全 Workspace の未回答の確認依頼とレビュー待ちを集め、回答で消える", () => {
+  test("全 Workspace の未回答の確認依頼を集め、回答で消える", () => {
     const { db, ws, me, llm } = setup();
     const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
@@ -40,7 +38,7 @@ describe("getInbox と answerQuestion", () => {
         worktree: "/wt/a",
       }),
     ]);
-    expect(inbox.reviews.map((i) => i.id)).toEqual([b.id]);
+    expect(inbox).not.toHaveProperty("reviews");
 
     const r = answerQuestion(me, a.id, "足してよい");
     expect(r.answered).toEqual([expect.objectContaining({ answer: "足してよい", answeredBy: "me" })]);
@@ -143,34 +141,6 @@ describe("parseDateTime", () => {
   });
 });
 
-describe("レビュー", () => {
-  test("approve は done、reject は理由を残して in_progress に戻し作業状況を消す", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "やった" });
-    expect(approveReview(me, a.id).status).toBe("done");
-    expect(codeOf(() => approveReview(me, a.id))).toBe("NOT_IN_REVIEW");
-
-    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    startIssue(llm, b.id);
-    completeIssue(llm, b.id, { summary: "やった" });
-    const rejected = rejectReview(me, b.id, "テストが足りない");
-    expect(rejected).toMatchObject({ status: "in_progress", agentState: null });
-    expect(eventsOf(db, b.id).at(-1)).toMatchObject({ type: "review_rejected", data: { reason: "テストが足りない" } });
-    expect(getIssue(db, b.id).activity.filter((a) => a.kind === "comment").at(-1)).toMatchObject({ body: "テストが足りない" });
-  });
-
-  test("approve を LLM が実行すると FORBIDDEN_FOR_LLM になり、Issue は変わらない", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "やった" });
-    expect(codeOf(() => approveReview(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getIssue(db, a.id).status).toBe("in_review");
-  });
-});
-
 describe("listTriage", () => {
   test("全 Workspace の Triage を作成順に返し、Snooze の期限が来ていないものは除く", () => {
     const { db, ws, me, llm } = setup();
@@ -189,22 +159,17 @@ describe("listTriage", () => {
 
 for (const actor of ["codex", "claude-code", "other-agent"]) {
   for (const op of ["accept", "decline", "duplicate"] as const) {
-    test(`${actor} の triage ${op} は書き込みなしで拒否する`, () => {
+    test(`${actor} も triage ${op} で判断でき、event の書き手に残る`, () => {
       const { db, ws, me, llm } = setup();
       const original = createIssue(me, { workspaceId: ws.id, title: "元の Issue" });
       const issue = createIssue(llm, { workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
-      const before = getIssue(db, issue.id);
-      const originalBefore = getIssue(db, original.id);
-      const changes = db.query("SELECT total_changes() AS n").get();
       const ctx = { ...llm, actor };
-      expect(codeOf(() => {
-        if (op === "accept") acceptTriage(ctx, issue.id);
-        else if (op === "decline") declineTriage(ctx, issue.id, "不要");
-        else duplicateTriage(ctx, issue.id, original.id);
-      })).toBe("FORBIDDEN_FOR_LLM");
-      expect(db.query("SELECT total_changes() AS n").get()).toEqual(changes);
-      expect(getIssue(db, issue.id)).toEqual(before);
-      expect(getIssue(db, original.id)).toEqual(originalBefore);
+      const decided =
+        op === "accept" ? acceptTriage(ctx, issue.id)
+        : op === "decline" ? declineTriage(ctx, issue.id, "不要")
+        : duplicateTriage(ctx, issue.id, original.id);
+      expect(decided.status).toBe(op === "accept" ? "todo" : "canceled");
+      expect(eventsOf(db, issue.id).find((e) => e.type === (op === "accept" ? "triage_accepted" : "triage_declined"))?.actor).toBe(actor);
     });
   }
 }

@@ -86,19 +86,18 @@ describe("関係の相手の印（#176 項目2）", () => {
 });
 
 describe("作業状況のタグ（#176 項目3）", () => {
-  test("in_review・done の Issue には [done] を出さず、ほかの作業状況は出す", async () => {
+  test("done の Issue には [done] を出さず、ほかの作業状況は出す", async () => {
     const id = await create("レビューに回す");
     await llm(["issue", "start", id]);
     expect(await text(["issue", "list", "--status", "in_progress"])).toMatch(new RegExp(`${id}\\s+In Progress \\[working\\]`));
     await llm(["issue", "done", id, "--summary", "終えた"]);
-    const inReview = await text(["issue", "list", "--status", "in_review"]);
-    expect(inReview).toContain(id);
-    expect(inReview).not.toContain("[done]");
+    const completed = await text(["issue", "list", "--status", "done"]);
+    expect(completed).toContain(id);
+    expect(completed).not.toContain("[done]");
     expect(await text(["inbox"])).not.toContain("[done]");
     const shown = await text(["issue", "show", id]);
-    expect(shown).toContain("ステータス: In Review\n");
+    expect(shown).toContain("ステータス: Done\n");
     expect(shown).not.toContain("作業状況: done");
-    await me(["review", "approve", id]);
     expect(await text(["issue", "list", "--status", "done"])).not.toContain("[done]");
     expect(await text(["issue", "show", id])).toContain("ステータス: Done\n");
     // --json は変えない
@@ -140,7 +139,7 @@ describe("ID の検索（#176 項目5）", () => {
     for (let n = 1; n <= 61; n++) await me(["issue", "create", `埋める ${n}`]);
     await me(["issue", "update", "TS-2", "-d", "TS-6 を参照"]);
     await me(["issue", "update", "TS-60", "-p", "1"]);
-    const all = ["--status", "triage,todo,backlog,in_progress,in_review,done,canceled", "--query", "ts-6"];
+    const all = ["--status", "triage,todo,backlog,in_progress,done,canceled", "--query", "ts-6"];
     const byId = (await me(["issue", "list", ...all])).json.map((i: { id: string }) => i.id);
     expect(byId[0]).toBe("TS-6");
     expect(byId).toContain("TS-2");
@@ -160,7 +159,6 @@ describe("Activity の文（#198・#176 項目6）", () => {
     await me(["issue", "update", id, "--title", "見つけた不具合（再現あり）", "-d", "とても長い説明", "-p", "2", "--add-label", "bug"]);
     await llm(["issue", "start", id]);
     await llm(["issue", "done", id, "--summary", "直した"]);
-    await me(["review", "reject", id, "テストがない", "--delegate", "review_fix"]);
     const out = await text(["issue", "show", id]);
     expect(out).toContain(`起票元: ${source}\n`);
     expect(out).toContain(`claude-code が起票した（状態: Triage、起票元: ${source}）`);
@@ -171,8 +169,7 @@ describe("Activity の文（#198・#176 項目6）", () => {
     expect(out).toContain("me がラベルを変えた（+bug）");
     expect(out).toContain("claude-code がステータスを Todo から In Progress に変えた");
     expect(out).toContain("claude-code の作業状況が 作業中 になった");
-    expect(out).toMatch(/claude-code がステータスを In Progress から In Review に変えた（報告: #\d+）/);
-    expect(out).toContain("me が差し戻した：テストがない（対応依頼: review_fix）");
+    expect(out).toMatch(/claude-code がステータスを In Progress から Done に変えた（報告: #\d+）/);
     // 生の JSON と event の種類の名前は出ない
     expect(out).not.toMatch(/\{"/);
     expect(out).not.toContain("status_changed");

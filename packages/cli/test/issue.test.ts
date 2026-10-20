@@ -52,6 +52,14 @@ describe("nod issue", () => {
     expect(asked.json.question.question).toBe("--force を外してよいか");
   });
 
+  test("LLM の --requested 付きの起票は Todo で、Activity に me の依頼と出る。付けなければ Triage", async () => {
+    const requested = await llm(["issue", "create", "--json", "--requested", "頼まれた作業"]);
+    expect(requested.exitCode).toBe(0);
+    expect(requested.json.status).toBe("todo");
+    expect((await llm(["issue", "show", requested.json.id])).stdout).toContain("claude-code が me の依頼で起票した");
+    expect((await llm(["issue", "create", "--json", "見つけた作業"])).json.status).toBe("triage");
+  });
+
   test("着手できる Issue がなければ null を返し、終了コードは0", async () => {
     const empty = makeRepo("empty");
     registerRepo(db, empty, "EMP");
@@ -84,7 +92,7 @@ describe("nod issue", () => {
     const done = (
       await llm(["issue", "done", created.id, "--summary", "直した", "--pr", "https://example.com/pull/1", "--json"], flow)
     ).json;
-    expect(done).toMatchObject({ status: "in_review", agentState: "done", prUrl: "https://example.com/pull/1" });
+    expect(done).toMatchObject({ status: "done", agentState: "done", prUrl: "https://example.com/pull/1" });
   });
 
   test("計画書を取り込み、Step を進め、show に表示する", async () => {
@@ -108,7 +116,7 @@ describe("nod issue", () => {
     expect((await me(["issue", "show", created.id, "--json"])).json.documents).toHaveLength(1);
   });
 
-  test("引数の誤りは INVALID_ARGS、LLM の done への更新は FORBIDDEN_FOR_LLM", async () => {
+  test("引数の誤りは INVALID_ARGS、LLM も done に更新できる", async () => {
     const badStatus = await llm(["issue", "list", "--status", "wip", "--json"]);
     expect(badStatus.exitCode).toBe(1);
     expect(badStatus.json.error.code).toBe("INVALID_ARGS");
@@ -116,8 +124,9 @@ describe("nod issue", () => {
     expect(unknown.exitCode).toBe(1);
     expect(unknown.json.error.code).toBe("INVALID_ARGS");
     const created = (await me(["issue", "create", "--json", "t"])).json;
-    const forbidden = await llm(["issue", "update", created.id, "--status", "done", "--json"]);
-    expect(forbidden.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    const done = await llm(["issue", "update", created.id, "--status", "done", "--json"]);
+    expect(done.exitCode).toBe(0);
+    expect(done.json.status).toBe("done");
   });
 });
 
@@ -138,11 +147,11 @@ describe("コメントのスレッド", () => {
     expect(bad.json.error.code).toBe("INVALID_ARGS");
   });
 
-  test("resolve で解決済みにし、--reopen で戻す。LLM は FORBIDDEN_FOR_LLM", async () => {
+  test("resolve で解決済みにし、--reopen で戻す。LLM も実行できる", async () => {
     const created = (await me(["issue", "create", "--json", "解決"])).json;
     const root = (await me(["issue", "comment", created.id, "決めたい", "--json"])).json;
-    const forbidden = await llm(["issue", "resolve", created.id, String(root.id), "--json"]);
-    expect([forbidden.exitCode, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
+    const byLlm = (await llm(["issue", "comment", created.id, "LLM が解決する", "--json"])).json;
+    expect((await llm(["issue", "resolve", created.id, String(byLlm.id), "--json"])).exitCode).toBe(0);
     const resolved = await me(["issue", "resolve", created.id, String(root.id)]);
     expect(resolved.exitCode).toBe(0);
     expect(resolved.stdout).toContain(`#${root.id} を解決済みにしました`);

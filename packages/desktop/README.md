@@ -189,7 +189,8 @@ NOD_DEPLOY_ARCHIVE_DIR=/tmp/x/archive NOD_DEPLOY_LEGACY_DIR=/tmp/x/legacy bun ru
 5. `nod.db-wal` と `nod.db-shm` を削除する（古い WAL が復元した DB に適用されるのを防ぐ）。
 6. 旧版を起動し、`nod issue list` などで内容を確認する。
 
-通知機能を含む版は schema 41 を使用する。
+最新 main と統合した通知機能を含む版は schema 42 を使用する。
+main の schema 40（レビュー状態の撤去）を維持し、41でデスクトップ通知の設定・配信履歴、42で Due date の自動通知を追加する。
 schema を上げる版を入れた後に旧版へ戻す場合は、DB を開けなければ 4〜5 のバックアップ復元が必要になる。
 
 ## 中止条件

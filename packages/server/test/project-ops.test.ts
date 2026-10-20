@@ -42,13 +42,13 @@ describe("Project 更新API", () => {
     expect(getProject(db, p.name)).toMatchObject(p);
   });
 
-  test("GETの一覧と詳細に同じレビュー待ち件数を返す", async () => {
+  test("GETの一覧と詳細からレビュー待ちの内訳を除く", async () => {
     const { app, ws, me } = setup();
     const p = createProject(me, { name: "レビュー" });
     const issue = createIssue(me, { workspaceId: ws.id, title: "確認", projectRef: p.name });
-    updateIssue(me, issue.id, { status: "in_review" });
-    expect((await call(app, "GET", "/api/projects")).json[0].agents.awaitingReview).toBe(1);
-    expect((await call(app, "GET", `/api/projects/${p.id}`)).json.agents.awaitingReview).toBe(1);
+    updateIssue(me, issue.id, { status: "done" });
+    expect((await call(app, "GET", "/api/projects")).json[0].agents).not.toHaveProperty("awaitingReview");
+    expect((await call(app, "GET", `/api/projects/${p.id}`)).json.agents).not.toHaveProperty("awaitingReview");
   });
 });
 

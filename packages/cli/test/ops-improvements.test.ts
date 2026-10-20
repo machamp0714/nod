@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 function setup() {
@@ -44,7 +43,7 @@ describe("優先度を名前でも指定する（#177）", () => {
   });
 });
 
-describe("nod inbox の Triage の件数と triage list・review list（#177）", () => {
+describe("nod inbox の Triage の件数と triage list（#177）", () => {
   async function seed() {
     const s = setup();
     await s.llm(["issue", "create", "llm-1"]); // API-1 triage
@@ -82,89 +81,17 @@ describe("nod inbox の Triage の件数と triage list・review list（#177）"
     expect((await me(["triage", "list"])).stdout.trim()).toBe("Triage の Issue はありません");
   });
 
-  test("review list は inbox のレビュー待ちと同じ Issue を出し、LLM も実行できる", async () => {
-    const { me, llm } = await seed();
-    const r = await me(["review", "list"]);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout.trimEnd().split("\n")).toEqual(["API-3  In Review    mine"]);
-    const asLlm = await llm(["review", "list", "--json"]);
-    expect(asLlm.json.map((i: { id: string }) => i.id)).toEqual(["API-3"]);
-    expect(asLlm.json).toEqual((await me(["inbox", "--json"])).json.reviews);
-    await me(["review", "approve", "API-3"]);
-    expect((await me(["review", "list"])).stdout.trim()).toBe("レビュー待ちの Issue はありません");
-  });
 
-  test("LLM の Triage の判断は list を足しても拒否される", async () => {
+
+  test("LLM も Triage の判断をできる", async () => {
     const { llm } = await seed();
     const r = await llm(["triage", "accept", "API-1"]);
-    expect(r.exitCode).not.toBe(0);
-    expect(r.stderr).toContain("FORBIDDEN_FOR_LLM");
-  });
-});
-
-describe("差し戻し後の nod issue start は差し戻しの理由を出す（#177）", () => {
-  async function submitted() {
-    const s = setup();
-    await s.me(["issue", "create", "a"]);
-    await s.llm(["issue", "start", "API-1"]);
-    await s.llm(["issue", "done", "API-1", "--summary", "終えた"]);
-    return s;
-  }
-
-  test("差し戻されていなければ理由を出さず、rejection は null", async () => {
-    const { me, llm } = setup();
-    await me(["issue", "create", "a"]);
-    const r = await llm(["issue", "start", "API-1"]);
-    expect(r.stdout).not.toContain("差し戻し");
-    expect((await llm(["issue", "start", "API-1", "--json"])).json.rejection).toBeNull();
-  });
-
-  test("理由だけの差し戻しのあと、再提出するまで start のたびに理由を出す", async () => {
-    const { me, llm } = await submitted();
-    await me(["review", "reject", "API-1", "テストが足りない。\n境界値を足す"]);
-    for (let n = 0; n < 2; n++) {
-      const r = await llm(["issue", "start", "API-1"]);
-      expect(r.stdout).toMatch(/差し戻しの理由（me、\d{4}-\d{2}-\d{2} \d{2}:\d{2}）:\n  テストが足りない。\n  境界値を足す/);
-    }
-    const json = (await llm(["issue", "start", "API-1", "--json"])).json;
-    expect(json.rejection).toMatchObject({ reason: "テストが足りない。\n境界値を足す", actor: "me", delegate: null });
-    expect(typeof json.rejection.at).toBe("string");
-    await llm(["issue", "done", "API-1", "--summary", "直した"]);
-    await me(["review", "reject", "API-1", "まだ足りない"]);
-    const again = await llm(["issue", "start", "API-1"]);
-    expect(again.stdout).toContain("  まだ足りない");
-    expect(again.stdout).not.toContain("テストが足りない");
-  });
-
-  test("再提出のあとは出さない（人が手で in_progress に戻しても同じ）", async () => {
-    const { db, me, llm } = await submitted();
-    await me(["review", "reject", "API-1", "やり直し"]);
-    await llm(["issue", "start", "API-1"]);
-    await llm(["issue", "done", "API-1", "--summary", "直した"]);
-    await me(["issue", "update", "API-1", "--status", "in_progress"]);
-    const r = await llm(["issue", "start", "API-1", "--json"]);
-    expect(r.json.rejection).toBeNull();
-    const d = openDb(db);
-    expect((d.query("SELECT COUNT(*) AS n FROM events WHERE type = 'review_rejected'").get() as { n: number }).n).toBe(1);
-    d.close();
-  });
-
-  test("対応依頼つきの差し戻しは、対応依頼を渡す回は理由を重ねず、次からは理由を出す", async () => {
-    const { me, llm } = await submitted();
-    await me(["review", "reject", "API-1", "main に追従して", "--delegate", "rebase"]);
-    const first = await llm(["issue", "start", "API-1"]);
-    expect(first.stdout).toContain("追加指示（先に読んで対応する）:");
-    expect(first.stdout).not.toContain("差し戻しの理由（");
-    const second = await llm(["issue", "start", "API-1"]);
-    expect(second.stdout).not.toContain("追加指示（先に読んで対応する）:");
-    expect(second.stdout).toContain("差し戻しの理由（me、");
-    expect(second.stdout).toContain("  main に追従して");
-    expect((await llm(["issue", "start", "API-1", "--json"])).json.rejection).toMatchObject({ reason: "main に追従して", delegate: "rebase" });
+    expect(r.exitCode).toBe(0);
   });
 });
 
 describe("nod project list の LLM の状況（#177）", () => {
-  test("正の件数だけを 入力待ち・エラー・レビュー待ち・作業中 の順に出し、すべて0なら — を出す", async () => {
+  test("正の件数だけを 入力待ち・エラー・作業中 の順に出し、すべて0なら — を出す", async () => {
     const { me, llm } = setup();
     await me(["project", "create", "空"]);
     await me(["project", "create", "動く"]);
@@ -177,12 +104,12 @@ describe("nod project list の LLM の状況（#177）", () => {
     const lines = () => me(["project", "list"]).then((r) => r.stdout.trimEnd().split("\n"));
     expect((await lines()).sort()).toEqual([
       "1  空  0/0  健全性 未設定  —",
-      "2  動く  0/4  健全性 未設定  入力待ち 1、レビュー待ち 1、作業中 1",
+      "2  動く  1/4  健全性 未設定  入力待ち 1、作業中 1",
     ]);
     await llm(["issue", "start", "API-4"]);
     await llm(["issue", "fail", "API-4", "環境が壊れている"]);
-    expect((await lines()).sort()[1]).toBe("2  動く  0/4  健全性 未設定  入力待ち 1、エラー 1、レビュー待ち 1、作業中 1");
+    expect((await lines()).sort()[1]).toBe("2  動く  1/4  健全性 未設定  入力待ち 1、エラー 1、作業中 1");
     const json = (await me(["project", "list", "--json"])).json;
-    expect(json.find((p: { name: string }) => p.name === "空").agents).toEqual({ working: 0, awaitingInput: 0, awaitingReview: 0, error: 0 });
+    expect(json.find((p: { name: string }) => p.name === "空").agents).toEqual({ working: 0, awaitingInput: 0, error: 0 });
   });
 });

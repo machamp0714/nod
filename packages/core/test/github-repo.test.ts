@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitRunner } from "../src/ops/git-sync";
+import { gitRunner } from "../src/ops/git-runner";
 import {
   clearWorkspaceGithubRepo,
   getWorkspaceGithubRepo,

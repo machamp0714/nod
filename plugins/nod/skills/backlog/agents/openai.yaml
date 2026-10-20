@@ -1,0 +1,3 @@
+interface:
+  display_name: "nod: バックログ作成"
+  short_description: "nod のテンプレートを優先し、自然な日本語の Story で起票する"

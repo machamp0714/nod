@@ -22,7 +22,6 @@ export const STATUSES = [
   "needs_clarification",
   "todo",
   "in_progress",
-  "in_review",
   "done",
   "canceled",
 ] as const;
@@ -78,7 +77,7 @@ export interface Issue {
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
-  completionCandidate: boolean; // 親の完了候補（直接の子がすべて完了）。確定は人が行う
+  completionCandidate: boolean; // 親の完了候補（直接の子がすべて完了）。確定は完了報告または状態変更で行う
   snoozedUntil: string | null;
   prUrl: string | null;
   branch: string | null;
@@ -135,7 +134,7 @@ export interface ProjectSummary extends Project {
   health: ProjectHealth | null; // 健全性つきの最新の進捗報告の値。なければ null
   total: number;
   done: number;
-  agents: { working: number; awaitingInput: number; awaitingReview: number; error: number };
+  agents: { working: number; awaitingInput: number; error: number };
 }
 
 // Project の進捗報告。追記のみで、Issue・Project の状態には連動しない
@@ -169,6 +168,31 @@ export interface ProjectDetail extends ProjectSummary {
   documents: DocumentRef[];
   updates: ProjectUpdate[]; // 新しい順（同じ時刻は id の大きい順）
   initiatives: { id: number; name: string }[]; // 所属する Initiative（名前順）
+}
+
+// Project の依存フロー。blocks だけを辺にし、Project 外は直接つながる Issue だけを参照ノードにする
+export interface ProjectFlowNode {
+  id: string;
+  title: string;
+  status: Status;
+  workspace: string;
+  workspaceName: string;
+  project: { id: number; name: string } | null; // Issue 自身の所属 Project
+  external: boolean; // 指定した Project の外の参照ノード
+  ready: boolean; // 着手できる（web の Ready と同じ条件）
+  openBlockers: string[]; // まだ止めている直接のブロック元（Issue.blockedBy と同じ）
+}
+
+// from が to をブロックする（前提 → 後続）
+export interface ProjectFlowEdge {
+  from: string;
+  to: string;
+}
+
+export interface ProjectFlow {
+  projectId: number;
+  nodes: ProjectFlowNode[]; // 主ノード → 参照ノードの順に、それぞれ Workspace キー・番号順
+  edges: ProjectFlowEdge[];
 }
 
 // 上位目標（#81）。状態は Project と同じ4値で、Project・Issue の状態には連動しない
@@ -368,12 +392,6 @@ export interface InboxQuestion extends Question {
   worktree: string | null;
 }
 
-export interface ReviewReport { actor: string; at: string; body: string }
-export interface ReviewIssue extends Issue {
-  reviewSummary: string | null;
-  reviewReport: ReviewReport | null;
-  reviewSubmittedAt: string | null;
-}
 export interface AcceptTriageInput {
   projectRef?: string | null;
   priority?: number;
@@ -389,15 +407,6 @@ export interface IssueDocumentRef extends DocumentRef {
 
 export interface Inbox {
   questions: InboxQuestion[];
-  reviews: ReviewIssue[];
-}
-
-// まだ再提出していない、直近の差し戻し（#177）。delegate は対応依頼つきの差し戻しの種類
-export interface ReviewRejection {
-  reason: string;
-  actor: string;
-  at: string;
-  delegate: "review_fix" | "rebase" | null;
 }
 
 export type AttachmentKind = "link" | "file";
@@ -513,7 +522,7 @@ export interface TriageSuggestions {
   assignees: AssigneeSuggestion[];
 }
 
-// LLM の Triage 提案（#62）。記録だけで Triage の状態は変えず、確定は人が行う
+// LLM の Triage 提案（#62）。記録だけで Triage の状態は変えず、確定は完了報告または状態変更で行う
 export const TRIAGE_DECISIONS = ["accept", "decline", "duplicate"] as const;
 export type TriageDecision = (typeof TRIAGE_DECISIONS)[number];
 
@@ -592,59 +601,6 @@ export interface PrStatusView {
   prUrl: string | null;
   status: PrStatus | null;
   fetchError: PrStatusError | null; // CLI の --json の失敗（{"error": ...}）と取り違えないよう error とは呼ばない
-  autoTransition?: AutoTransition | null; // 更新（refresh）でステータスを進めたとき、その記録。表示だけのときは付けない
-  autoTransitionSkipped?: string; // PR 連動の条件を満たしたが、遷移ルール（#73）で進めなかったときの理由
-}
-
-// GitHub の番号の参照（#12 など）を nod の Issue に解決できなかった理由
-export type GitSyncRefMissReason = "no_origin" | "unparsable" | "other_host" | "repo_not_set" | "repo_mismatch" | "not_linked";
-
-// nod git sync（#68）の候補。同じ Issue を書いたコミットが複数あれば最新のもの
-export interface GitSyncCandidate {
-  id: string;
-  title: string;
-  status: Status;
-  sha: string;
-  subject: string;
-  keyword: string; // メッセージに書かれたキーワード（Closes・fixes など）
-  ref?: string; // GitHub の番号の参照で解決したとき、その原文（#12 など）
-  committedAt: string;
-  ruleSkipReason?: string; // 遷移ルール（#73）で実行時にスキップする見込みのとき、その理由
-}
-
-export interface GitSyncResult {
-  workspaceKey: string;
-  ref: string;
-  sinceDays: number;
-  dryRun: boolean;
-  enabled: boolean; // Workspace でコミット連動が有効か（無効でも dry-run はできる）
-  scanned: number; // 読んだコミット数
-  truncated: boolean; // 読む上限に達した（それより古いコミットは読んでいない）
-  total: number;
-  candidates: GitSyncCandidate[];
-  processed: string[];
-  skipped: string[];
-  skippedReasons: { id: string; message: string }[]; // skipped のうち理由のあるもの（遷移ルール #73 で止めたもの）
-  failed: { id: string; message: string }[];
-  remaining: number;
-  unresolvedRefs: { sha: string; ref: string; reason: GitSyncRefMissReason }[]; // 解決しなかった GitHub の番号の参照
-}
-
-// PR・コミットによる自動のステータス遷移（#66・#68）の記録。同じ Issue・同じ PR/コミットでは一度だけ遷移させる
-export type AutoTransitionSource = "pr" | "commit";
-
-export interface AutoTransition {
-  id: number;
-  issueId: string;
-  source: AutoTransitionSource;
-  sourceKey: string; // PR URL またはコミット SHA
-  from: Status;
-  to: Status;
-  mergeCandidate: boolean; // PR がマージ済み（done にはせず、完了候補として人の承認を待つ）
-  actor: string;
-  createdAt: string;
-  revertedAt: string | null;
-  revertedBy: string | null;
 }
 
 // PR の差分（#55）。ファイルの状態は unified diff のヘッダーから決める
@@ -719,13 +675,11 @@ export interface AutomationSettings {
   workspaceKey: string;
   closeAfterDays: number | null;
   archiveAfterDays: number | null;
-  prReview: boolean; // PR が open（draft 以外）かマージ済みになったら in_progress を in_review にする（#66）
-  commitReview: boolean; // nod git sync でコミットメッセージの Closes/Fixes <ID> を読み、Issue を in_review にする（#68）
   updatedAt: string | null;
   updatedBy: string | null;
 }
 
-export type AutomationKind = "auto_close" | "auto_archive" | "pr_review";
+export type AutomationKind = "auto_close" | "auto_archive";
 
 export interface AutomationCandidate {
   id: string;
@@ -869,7 +823,7 @@ export interface OrcaWorktreeResult {
   draftWarning?: string; // 作成は成功したが、未送信のID入力を確認できなかった場合
 }
 
-// LLM への追加指示（#51）と差し戻しの対応依頼（#58）の種類
+// 追加指示の種類。review_fix / rebase は旧記録の読み出しと表示だけに使う。
 export const AGENT_INSTRUCTION_KINDS = ["instruction", "review_fix", "rebase"] as const;
 export type AgentInstructionKind = (typeof AGENT_INSTRUCTION_KINDS)[number];
 // 送信状態。unconfirmed は orca が時間切れなどで、端末に届いたか分からない状態

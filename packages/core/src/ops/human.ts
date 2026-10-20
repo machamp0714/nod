@@ -17,9 +17,7 @@ import {
 } from "../issue-query";
 import { setColumn } from "../mutate";
 import { collapseNotifications, lastNotificationId, readAgentNotifications } from "../notify";
-import { readReviewSummaries } from "../review-summary";
-import type { AcceptTriageInput, AgentInstruction, Inbox, InboxQuestion, Issue, Question, ReviewRejection, Status } from "../types";
-import { addInstruction } from "./instructions";
+import type { AcceptTriageInput, Inbox, InboxQuestion, Issue, Question, Status } from "../types";
 import { addRelation, requireText, updateIssue } from "./issues";
 
 export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {}): Inbox {
@@ -43,9 +41,7 @@ export function getInbox(db: Database, opts: { includeAnswered?: boolean } = {})
     branch: r.branch,
     worktree: r.worktree,
   }));
-  const reviews = selectIssues(db, "WHERE i.status = 'in_review' AND i.archived_at IS NULL ORDER BY i.updated_at, i.id", []);
-  const summaries = readReviewSummaries(db, reviews.map(i => i.id));
-  return { questions, reviews: reviews.map(i => ({ ...i, ...summaries.get(i.id)! })) };
+  return { questions };
 }
 
 // web の Triage。Snooze の期限が来ていないものは除く
@@ -63,10 +59,7 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
     .all(row.id, HUMAN_ACTOR) as QuestionRow[];
   if (open.length > 0) return open;
   const mine = openQuestionCount(ctx.db, row.id);
-  // me の未決事項は LLM には回答できないため、LLM を --question へ誘導しない
-  const rest = isLlm(ctx)
-    ? `未決事項（${mine} 件）は me が決めます`
-    : `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
+  const rest = `未決事項（${mine} 件）には --question <質問の id> で1つずつ回答してください`;
   throw new NodError(
     "NO_OPEN_QUESTION",
     mine > 0 ? `${ref} に LLM からの未回答の確認依頼はありません。${rest}` : `${ref} に未回答の確認依頼はありません`,
@@ -76,13 +69,6 @@ function openLlmQuestions(ctx: OpCtx, row: IssueRow, ref: string): QuestionRow[]
 function pickQuestion(ctx: OpCtx, row: IssueRow, ref: string, questionId: number): QuestionRow {
   const q = ctx.db.query("SELECT * FROM questions WHERE id = ? AND issue_id = ?").get(questionId, row.id) as QuestionRow | null;
   if (!q) throw new NodError("NOT_FOUND", `${ref} に質問 ${questionId} はありません`);
-  // 人が付けた未決事項を決めるのは人だけ。判定は回答者だけでなく、質問に記録された書き手（asked_by）で行う（#172）
-  if (isLlm(ctx) && q.asked_by === HUMAN_ACTOR) {
-    throw new NodError(
-      "FORBIDDEN_FOR_LLM",
-      `LLM は me が付けた未決事項（質問 ${questionId}）に回答できません。回答は me に依頼してください`,
-    );
-  }
   if (q.answer !== null) throw new NodError("NO_OPEN_QUESTION", `質問 ${questionId} はすでに回答済みです`);
   return q;
 }
@@ -153,14 +139,7 @@ function requireStatus(row: IssueRow, ref: string, status: Status, code: string)
   if (row.status !== status) throw new NodError(code, `${ref} は ${row.status} です（${status} の Issue だけを扱えます）`);
 }
 
-function requireHumanTriage(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Triage の受け入れ・却下・重複の判断をできません。判断は me に依頼してください");
-  }
-}
-
 export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -181,7 +160,6 @@ export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput =
 }
 
 export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -195,7 +173,6 @@ export function declineTriage(ctx: OpCtx, ref: string, reason?: string): Issue {
 }
 
 export function duplicateTriage(ctx: OpCtx, ref: string, originalRef: string): Issue {
-  requireHumanTriage(ctx);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
@@ -220,92 +197,4 @@ export function snoozeTriage(ctx: OpCtx, ref: string, until: string): Issue {
     recordEvent(ctx.db, row.id, ctx.actor, "snoozed", { until: iso });
     return toIssue(issueRowById(ctx.db, row.id));
   });
-}
-
-export function approveReview(ctx: OpCtx, ref: string): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はレビューを承認できません。承認は me が行います");
-  }
-  return tx(ctx.db, () => {
-    const row = findWritableIssueRow(ctx.db, ref);
-    requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
-    const since = lastNotificationId(ctx.db);
-    setColumn(ctx, row, "status", "done");
-    recordEvent(ctx.db, row.id, ctx.actor, "review_approved", {});
-    collapseNotifications(ctx.db, row.id, since, "review_approved");
-    readAgentNotifications(ctx.db, row.id, ctx.actor);
-    return toIssue(issueRowById(ctx.db, row.id));
-  });
-}
-
-// 差し戻しで LLM に頼む対応（#58）。指摘対応か、ベースブランチへの rebase か
-export type ReviewDelegation = "review_fix" | "rebase";
-
-// 差し戻しの対応依頼の本文。理由と手順を決まった形で書き、LLM が nod issue start / show で読む
-export function delegationInstruction(issueId: string, delegate: ReviewDelegation, reason: string): string {
-  const steps =
-    delegate === "review_fix"
-      ? ["理由に書かれた指摘に対応する", `テストを実行し、nod issue done ${issueId} --summary "<対応の要約>" で再提出する`]
-      : ["ベースブランチの最新に rebase し、競合を解消する", `テストを再実行して push し、nod issue done ${issueId} --summary "<対応の要約>" で再提出する`];
-  return [
-    `差し戻しの対応依頼（${delegate === "review_fix" ? "指摘対応" : "rebase"}）`,
-    `理由: ${reason.trim()}`,
-    "手順:",
-    `1. nod issue start ${issueId} で再開する`,
-    ...steps.map((step, i) => `${i + 2}. ${step}`),
-  ].join("\n");
-}
-
-// delegate を渡すと、理由を構造化した対応依頼（追加指示）として記録する（人だけ）。送信は #51 と同じく確認画面から人が行う
-export function rejectReview(
-  ctx: OpCtx,
-  ref: string,
-  reason: string,
-  opts: { delegate?: ReviewDelegation } = {},
-): Issue & { instruction?: AgentInstruction } {
-  requireText(reason, "差し戻しの理由");
-  if (opts.delegate !== undefined && opts.delegate !== "review_fix" && opts.delegate !== "rebase") {
-    throw new NodError("INVALID_ARGS", "対応依頼は review_fix（指摘対応）か rebase で指定してください");
-  }
-  if (opts.delegate && isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は差し戻しの対応依頼を記録できません。対応依頼は me が行います");
-  }
-  return tx(ctx.db, () => {
-    const row = findWritableIssueRow(ctx.db, ref);
-    requireStatus(row, ref, "in_review", "NOT_IN_REVIEW");
-    const since = lastNotificationId(ctx.db);
-    // 対応依頼は理由を含むので、理由だけのコメントは別に残さない
-    const instruction = opts.delegate
-      ? addInstruction(ctx, row, delegationInstruction(formatIssueId(row.ws_key, row.number), opts.delegate, reason), opts.delegate)
-      : undefined;
-    if (!instruction) addComment(ctx, row, reason);
-    setColumn(ctx, row, "status", "in_progress");
-    setColumn(ctx, row, "agent_state", null);
-    recordEvent(ctx.db, row.id, ctx.actor, "review_rejected", opts.delegate ? { reason, delegate: opts.delegate } : { reason });
-    collapseNotifications(ctx.db, row.id, since, "review_rejected");
-    if (!isLlm(ctx)) readAgentNotifications(ctx.db, row.id, ctx.actor);
-    const issue = toIssue(issueRowById(ctx.db, row.id));
-    return instruction ? { ...issue, instruction } : issue;
-  });
-}
-
-// 直近の差し戻しのうち、そのあとにレビューへ出し直していないもの（#177）。nod issue start が理由を出すのに使う。
-// 出し直し（in_review への遷移）のあとは、手で in_progress に戻しても null を返す
-export function getPendingRejection(db: Database, ref: string): ReviewRejection | null {
-  const row = findIssueRow(db, ref);
-  const event = db
-    .query(
-      `SELECT actor, data, created_at FROM events WHERE issue_id = ? AND type = 'review_rejected'
-       AND id > COALESCE((SELECT MAX(id) FROM events WHERE issue_id = ? AND type = 'status_changed' AND json_extract(data, '$.to') = 'in_review'), 0)
-       ORDER BY id DESC LIMIT 1`,
-    )
-    .get(row.id, row.id) as { actor: string; data: string; created_at: string } | null;
-  if (!event) return null;
-  const data = JSON.parse(event.data) as { reason?: unknown; delegate?: unknown };
-  return {
-    reason: typeof data.reason === "string" ? data.reason : "",
-    actor: event.actor,
-    at: event.created_at,
-    delegate: data.delegate === "review_fix" || data.delegate === "rebase" ? data.delegate : null,
-  };
 }

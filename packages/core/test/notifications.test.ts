@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
-import { acceptTriage, answerQuestion, approveReview, getInbox, rejectReview } from "../src/ops/human";
+import { acceptTriage, answerQuestion, getInbox } from "../src/ops/human";
 import { archiveIssue, commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
   deleteNotifications,
@@ -54,9 +54,7 @@ describe("購読中の Issue の変化の通知", () => {
         "labels_changed",
         "priority_changed",
         "project_changed",
-        "review_approved",
-        "review_rejected",
-        "status_changed",
+                        "status_changed",
         "title_changed",
         "triage_accepted",
         "triage_declined",
@@ -147,7 +145,7 @@ describe("購読中の Issue の変化の通知", () => {
     expect(dup).toEqual([]);
   });
 
-  test("差し戻しと完了報告も届き、既存の Inbox の中身は変わらない", () => {
+  test("完了報告の通知が届き、Inbox は確認依頼だけを返す", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     subscribeIssue(me, a.id);
@@ -158,42 +156,11 @@ describe("購読中の Issue の変化の通知", () => {
     expect(types).not.toContain("comment_added");
     expect(types.filter((t) => t === "status_changed")).toHaveLength(1);
     expect(listNotifications(db)[0]).toEqual(expect.objectContaining({ kind: "agent", eventType: "agent_state_changed", data: expect.objectContaining({ to: "done" }) }));
-    expect(getInbox(db).reviews.map((i) => i.id)).toEqual([a.id]);
-    rejectReview(me, a.id, "やり直し");
-    // 自分の差し戻しは届かず、応じた LLM の完了の通知は既読になる
-    expect(listNotifications(db).map((n) => n.eventType)).toEqual(types.filter((t) => t !== "agent_state_changed"));
+    expect(getInbox(db)).not.toHaveProperty("reviews");
   });
 });
 
 describe("1つの判断の操作は1件の通知にまとめる", () => {
-  test("差し戻し・承認・Triage の受け入れは、その操作を表す1件だけが届く", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
-    subscribeIssue(me, a.id);
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "直した" });
-    markNotificationsRead(me, { all: true });
-    rejectReview(llm, a.id, "テストが足りない");
-    expect(listNotifications(db).map((n) => [n.eventType, n.data])).toEqual([["review_rejected", { reason: "テストが足りない" }]]);
-
-    // me 以外の購読者（将来の複数人）でも、me の判断は1件にまとまる
-    const now = new Date().toISOString();
-    const b = createIssue(llm, { workspaceId: ws.id, title: "画面" });
-    const internal = (ref: string) => (db.query("SELECT i.id FROM issues i WHERE i.number = ?").get(Number(ref.split("-")[1])) as { id: number }).id;
-    db.query("INSERT INTO subscriptions (issue_id, subscriber, created_at) VALUES (?, 'other', ?)").run(internal(b.id), now);
-    acceptTriage(me, b.id, { priority: 2, addLabels: ["bug"] });
-    const other = listNotifications(db, { recipient: "other" });
-    expect(other.map((n) => n.eventType)).toEqual(["triage_accepted"]);
-    db.query("INSERT INTO subscriptions (issue_id, subscriber, created_at) VALUES (?, 'other', ?)").run(internal(a.id), now);
-    startIssue(llm, a.id);
-    completeIssue(llm, a.id, { summary: "再度直した" });
-    markNotificationsRead({ db, actor: "me" }, { all: true });
-    const before = listNotifications(db, { recipient: "other" }).length;
-    approveReview(me, a.id);
-    const after = listNotifications(db, { recipient: "other" });
-    expect(after.length - before).toBe(1);
-    expect(after[0]?.eventType).toBe("review_approved");
-  });
 });
 
 describe("通知の既読", () => {
@@ -434,7 +401,7 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
     expect(agentOf(db).map((n) => n.data.to)).toEqual(["done"]);
   });
 
-  test("me が回答・承認・差し戻しをすると、その Issue の未読の LLM の通知を既読にする", () => {
+  test("me が回答すると、その Issue の未読の LLM の通知を既読にする", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     const b = createIssue(me, { workspaceId: ws.id, title: "画面" });
@@ -452,16 +419,7 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
       [b.id, "agent"],
     ]);
 
-    completeIssue(llm, a.id, { summary: "直した" });
-    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([a.id, b.id]);
-    rejectReview(me, a.id, "テスト不足");
-    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([b.id]);
 
-    completeIssue(llm, a.id, { summary: "再度直した" });
-    approveReview(me, a.id);
-    expect(listNotifications(db).filter((n) => n.kind === "agent").map((n) => n.issueId)).toEqual([b.id]);
-    // 既読にしただけで、履歴には残る
-    expect(agentOf(db).filter((n) => n.issueId === a.id)).toHaveLength(3);
   });
 
   test("別の LLM が操作しても、通知には作業の担当（data.agent）を残す", () => {
@@ -614,7 +572,7 @@ describe("通知のスヌーズ（#43）", () => {
     expect(listNotifications(db, { includeRead: true }).map((n) => n.data.to)).toEqual(["awaiting_input", "error"]);
   });
 
-  test("スヌーズ中の LLM の通知は、回答・承認・差し戻しで対応済みとして既読になり、期限が来ても戻らない", () => {
+  test("スヌーズ中の LLM の通知は、回答で対応済みとして既読になり、期限が来ても戻らない", () => {
     const { db, ws, me, llm } = setup();
     const c = createIssue(me, { workspaceId: ws.id, title: "任せた" });
     startIssue(llm, c.id);
@@ -627,12 +585,8 @@ describe("通知のスヌーズ（#43）", () => {
       ["awaiting_input", true, null],
     ]);
 
-    completeIssue(llm, c.id, { summary: "直した" });
-    snoozeNotifications(me, { issueRef: c.id, until: FUTURE });
-    rejectReview(me, c.id, "やり直し");
     expire(db);
     expect(listNotifications(db)).toEqual([]);
-    expect(listNotifications(db, { snoozed: true })).toEqual([]);
   });
 
   test("購読中の Issue で LLM の通知と一緒にスヌーズしても、回答で対応したら期限が来ても未読で戻らない", () => {

@@ -19,12 +19,3 @@ test("詳細と一覧が completionCandidate を返し、既存の update で完
   expect(done.status).toBe(200);
   expect(done.json).toMatchObject({ status: "done", completionCandidate: false });
 });
-
-test("レビュー中の親は既存の approve で完了し、LLM は done にできない", async () => {
-  const { app, llm, me, parent } = family();
-  updateIssue(me, parent.id, { status: "in_review" });
-  expect(() => updateIssue(llm, parent.id, { status: "done" })).toThrow();
-  const approved = await call(app, "POST", `/api/issues/${parent.id}/approve`, {});
-  expect(approved.status).toBe(200);
-  expect(approved.json).toMatchObject({ status: "done", completionCandidate: false });
-});

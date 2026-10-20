@@ -30,7 +30,7 @@ describe("ダミーデータの整合", () => {
 
   test("すべてのステータスの Issue がある", () => {
     const statuses = new Set(ISSUES.map((i) => i.status));
-    for (const s of ["triage", "backlog", "needs_clarification", "todo", "in_progress", "in_review", "done", "canceled"]) {
+    for (const s of ["triage", "backlog", "needs_clarification", "todo", "in_progress", "done", "canceled"]) {
       expect(statuses.has(s as never)).toBe(true);
     }
   });
@@ -45,7 +45,6 @@ describe("ダミーデータの整合", () => {
   test("Inbox は LLM の未回答の質問を新しい順に並べ、Triage は triage の Issue だけを持つ", () => {
     expect(INBOX.questions.map((q) => q.issueId)).toEqual(["API-12", "API-8", "BLOG-2"]);
     expect(INBOX.questions.every((q) => q.askedBy !== "me" && q.answer === null)).toBe(true);
-    expect(INBOX.reviews.map((i) => i.id)).toEqual(["API-7"]);
     expect(TRIAGE_ISSUES.map((i) => i.id)).toEqual(["API-15", "API-16"]);
   });
 

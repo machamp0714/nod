@@ -2,13 +2,10 @@ import { collect, parsePositiveInt, parsePriority, parseStatuses } from "../args
 import {
   acceptTriage,
   answerQuestion,
-  approveReview,
   declineTriage,
   deleteNotifications,
   duplicateTriage,
   getInbox,
-  getPrStatus,
-  HUMAN_ACTOR,
   listOpenQuestions,
   listTriage,
   listTriageProposals,
@@ -22,7 +19,6 @@ import {
   parseOpenQuestionAsker,
   proposeTriage,
   withdrawTriageProposal,
-  rejectReview,
   restoreNotifications,
   snoozeNotifications,
   snoozeTriage,
@@ -31,7 +27,7 @@ import {
 } from "@nod/core";
 import type { Command } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
-import { formatApprovalGithub, formatIssueLine, formatIssueLines, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print, statusColumnWidth } from "../output";
+import { formatIssueLine, formatIssueLines, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print } from "../output";
 
 // 通知を操作する対象。id（nod notification list の #番号）か --issue
 function notificationTarget(ids: string[], issue: string | undefined): { ids?: number[]; issueRef?: string } {
@@ -41,7 +37,7 @@ function notificationTarget(ids: string[], issue: string | undefined): { ids?: n
 export function registerHumanCommands(program: Command): void {
   program
     .command("inbox")
-    .description("全 Workspace の LLM からの確認依頼とレビュー待ち、購読中の Issue と LLM に任せた Issue の未読の通知を一覧し、Triage の件数を出す")
+    .description("全 Workspace の LLM からの確認依頼、購読中の Issue と LLM に任せた Issue の未読の通知を一覧し、Triage の件数を出す")
     .action(
       act((cli) => {
         // Triage は件数だけを出す（Web の Sidebar と同じく、スヌーズ中を除く。#177）
@@ -58,9 +54,6 @@ export function registerHumanCommands(program: Command): void {
               (q) =>
                 `  ${q.issueId}  ${q.issueTitle}\n    Q: ${q.question}（${q.askedBy}）${q.worktree ? `\n    実行場所: ${q.branch ?? "(detached)"}  ${q.worktree}` : ""}`,
             ),
-            "",
-            `レビュー待ち（${inbox.reviews.length}）`,
-            ...(() => { const width = statusColumnWidth(inbox.reviews); return inbox.reviews.map((i) => `  ${formatIssueLine(i, width)}${i.prUrl ? `  ${i.prUrl}` : ""}`); })(),
             "",
             `通知（未読 ${shown.length}）`,
             ...shown.map(formatNotification),
@@ -90,13 +83,13 @@ export function registerHumanCommands(program: Command): void {
           q: o.query,
           limit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
         });
-        print(cli, result, () => formatOpenQuestions(result, cli.ctx.actor !== HUMAN_ACTOR));
+        print(cli, result, () => formatOpenQuestions(result));
       }),
     );
 
   program
     .command("answer <id> <text>")
-    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する（me が付けた未決事項に回答できるのは me だけ）")
+    .description("LLM からの未回答の確認依頼にまとめて回答する。--question なら指定した質問だけに回答する")
     .option("--question <questionId>", "回答する質問の id（nod issue show の未決事項の #番号）")
     .action(
       act((cli, _cmd, id: string, text: string, o: { question?: string }) => {
@@ -332,45 +325,4 @@ export function registerHumanCommands(program: Command): void {
       }),
     );
 
-  const review = program.command("review").description("In Review の Issue を判断する");
-  review
-    .command("list")
-    .description("全 Workspace のレビュー待ち（In Review）の Issue を一覧する（読み取りのみ）")
-    .action(
-      act((cli) => {
-        const { reviews } = getInbox(cli.db);
-        const width = statusColumnWidth(reviews);
-        print(cli, reviews, () =>
-          reviews.length ? reviews.map((i) => `${formatIssueLine(i, width)}${i.prUrl ? `  ${i.prUrl}` : ""}`).join("\n") : "レビュー待ちの Issue はありません",
-        );
-      }),
-    );
-  review
-    .command("approve <id>")
-    .description("承認して Done にする（nod の承認で、GitHub の PR の承認・マージではない）")
-    .action(
-      act((cli, _cmd, id: string) => {
-        const issue = approveReview(cli.ctx, id);
-        // GitHub 側の状態は保存済みの結果を添えるだけで、gh は実行しない（#56/#57）
-        print(cli, issue, () => [`承認しました: ${formatIssueLine(issue)}`, ...formatApprovalGithub(getPrStatus(cli.db, issue.id))].join("\n"));
-      }),
-    );
-  review
-    .command("reject <id> <text>")
-    .description("差し戻しの理由を残して In Progress に戻す")
-    .option("--delegate <kind>", "LLM に対応を依頼する（review_fix: 指摘対応、rebase）。理由を対応依頼として記録し、LLM は start / show で読む")
-    .action(
-      act((cli, cmd, id: string, text: string) => {
-        const { delegate } = cmd.opts<{ delegate?: string }>();
-        if (delegate !== undefined && delegate !== "review_fix" && delegate !== "rebase") {
-          throw new NodError("INVALID_ARGS", "--delegate は review_fix（指摘対応）か rebase で指定してください");
-        }
-        const issue = rejectReview(cli.ctx, id, text, { delegate });
-        print(cli, issue, () =>
-          issue.instruction
-            ? `差し戻しました: ${formatIssueLine(issue)}\n対応依頼を記録しました（#${issue.instruction.id}）。Orca の端末へ送るときは web の Issue 詳細から送信します`
-            : `差し戻しました: ${formatIssueLine(issue)}`,
-        );
-      }),
-    );
 }

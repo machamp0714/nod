@@ -6,7 +6,6 @@ import { deliverDueRemindersIfFree, loadReminder } from "./reminders";
 import { recordDueDateSetting } from "./due-date-notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
-import { openQuestionCount } from "../clarification";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
@@ -84,6 +83,7 @@ export interface CreateIssueInput {
   estimate?: number;
   dueDate?: string;
   labels?: string[];
+  requested?: boolean; // me に頼まれた起票（LLM の申告）。LLM のときだけ Triage ではなく todo で作り、由来を残す
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
@@ -107,6 +107,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
     const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
+    const requested = isLlm(ctx) && input.requested === true;
     return insertIssue(ctx, {
       workspaceId: input.workspaceId,
       title: input.title,
@@ -119,7 +120,11 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       milestoneId: milestone?.id ?? null,
       cycleId: cycle?.id ?? null,
       labels: input.labels ?? [],
-      origin: source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {},
+      ...(requested ? { status: "todo" as const } : {}),
+      origin: {
+        ...(requested ? { requested_by: HUMAN_ACTOR } : {}),
+        ...(source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {}),
+      },
     });
   });
 }
@@ -527,35 +532,11 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
   setColumn(ctx, row, "milestone_id", target?.id ?? null, { from, to: target?.name ?? null });
 }
 
-// 私が足した未決事項が未回答の間、LLM はその Issue を着手の状態にできない（#170）。人が決める前に着手させないため。
-// needs_clarification からは canceled にしか出せない。それ以外の着手していない状態（canceled・done を含む）からは
-// in_progress・in_review にできない。canceled への移動、todo と backlog の間の移動、着手後の in_progress と in_review の間の移動は止めない。
-// 一括編集の失敗一覧は ID と理由を並べて出すため、理由には ID を含めない
-const STARTED: Status[] = ["in_progress", "in_review"];
-
-function assertLlmLeavesHumanQuestions(ctx: OpCtx, row: IssueRow, to: Status): void {
-  const held =
-    row.status === "needs_clarification" ? to !== "canceled" : STARTED.includes(to) && !STARTED.includes(row.status);
-  if (!held) return;
-  const open = openQuestionCount(ctx.db, row.id, { askedBy: "human" });
-  if (open === 0) return;
-  throw new NodError(
-    "FORBIDDEN_FOR_LLM",
-    `me の未決事項が ${open} 件未回答のため、LLM は ${row.status} の Issue を ${to} にできません。回答を me に依頼してください`,
-  );
-}
-
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
   if (input.status === "needs_clarification") {
     throw new NodError(
       "INVALID_ARGS",
       "needs_clarification は確認依頼に応じて自動で切り替わるため、手では変えられません。未決事項は nod issue ask で足してください",
-    );
-  }
-  if (input.status === "done" && isLlm(ctx)) {
-    throw new NodError(
-      "FORBIDDEN_FOR_LLM",
-      "LLM は Issue を done にできません。作業を終えたら nod issue done でレビューに回してください",
     );
   }
   if (input.title !== undefined) requireText(input.title, "タイトル");
@@ -565,14 +546,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
-    // Triage を出すのは人の判断（受け入れ・却下・重複と人の状態変更）だけ。何かを書く前に拒む
-    if (isLlm(ctx) && input.status !== undefined && input.status !== "triage" && row.status === "triage") {
-      throw new NodError(
-        "FORBIDDEN_FOR_LLM",
-        `LLM は Triage にある ${ref} の状態を変えられません。受け入れ・却下は me に依頼するか、nod triage propose で提案してください`,
-      );
-    }
-    if (isLlm(ctx) && input.status !== undefined) assertLlmLeavesHumanQuestions(ctx, row, input.status);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) {
       if (input.description !== row.description) invalidateIssueAssessment(ctx, row.id, "stale");
@@ -613,8 +586,8 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       }
       // 手動の移動では needs_clarification に切り替えない（#170）。未回答が残っていても、指定した状態のままにする
       const changed = setColumn(ctx, row, "status", input.status, input.reason ? { reason: input.reason } : {});
-      // 手動移動は着手を意味しない。レビュー済みの作業完了だけは保持する。
-      if (changed && !(row.agent_state === "done" && (row.status === "in_review" || row.status === "done"))) {
+      // 手動移動は着手を意味しない。作業完了だけは保持する。
+      if (changed && !(row.agent_state === "done" && row.status === "done")) {
         setColumn(ctx, row, "agent_state", null);
       }
     }
@@ -655,9 +628,6 @@ export function logWork(ctx: OpCtx, ref: string, body: string, opts: { kind?: st
 
 // スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
 export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はコメントのスレッドを解決済み・未解決にできません。判断は me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     const rootId = threadRootId(ctx, row, commentId);
@@ -688,9 +658,6 @@ export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolv
 // アーカイブは status と別の属性で、Issue を既定の一覧・ボード・Inbox・next から外す。人（LLM 以外）だけが行える。
 // 子・関係はそのまま残し、アーカイブ済みはブロック元として数えない。すでにアーカイブ済みなら何もしない（自動アーカイブからも呼ぶ）
 export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; automation?: string } = {}): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue をアーカイブできません。アーカイブは me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (row.archived_at === null) {
@@ -709,9 +676,6 @@ export function archiveIssue(ctx: OpCtx, ref: string, opts: { reason?: string; a
 
 // アーカイブ済みの Issue を元に戻す。status はアーカイブ前のまま。アーカイブされていなければ何もしない
 export function unarchiveIssue(ctx: OpCtx, ref: string): Issue {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Issue を復元できません。復元は me に依頼してください");
-  }
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     if (row.archived_at !== null) {

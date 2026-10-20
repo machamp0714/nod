@@ -2,9 +2,9 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { loadDocuments, selectIssues } from "../issue-query";
+import { formatIssueId, loadDocuments, OPEN_BLOCKER, READY_UNLESS_BLOCKED_WHERE, selectIssues } from "../issue-query";
 import { selectMilestones } from "./milestones";
-import { PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type UpdateProjectInput } from "../types";
+import { PROJECT_HEALTH_CLEAR, PROJECT_HEALTHS, PROJECT_STATUSES, type Project, type ProjectHealth, type ProjectDetail, type ProjectFlow, type ProjectFlowEdge, type ProjectStatus, type ProjectSummary, type ProjectUpdate, type Status, type UpdateProjectInput } from "../types";
 
 export function resolveProject(db: Database, ref: string): { id: number; name: string } {
   const row = (
@@ -53,7 +53,6 @@ interface SummaryRow extends ProjectRow {
   done: number;
   working: number;
   awaiting_input: number;
-  awaiting_review: number;
   error: number;
 }
 
@@ -75,7 +74,7 @@ function toSummary(r: SummaryRow): ProjectSummary {
     health: r.health,
     total: r.total,
     done: r.done,
-    agents: { working: r.working, awaitingInput: r.awaiting_input, awaitingReview: r.awaiting_review, error: r.error },
+    agents: { working: r.working, awaitingInput: r.awaiting_input, error: r.error },
   };
 }
 
@@ -86,7 +85,6 @@ const SUMMARY_SELECT = `SELECT p.*,
   (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'done') AS done,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'working') AS working,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'awaiting_input') AS awaiting_input,
-  (SELECT count(*) FROM issues i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'in_review') AS awaiting_review,
   (SELECT count(*) FROM issues i WHERE ${open} AND i.agent_state = 'error') AS error
 FROM projects p`;
 
@@ -147,6 +145,90 @@ export function getProject(db: Database, ref: string): ProjectDetail {
       )
       .all(id) as { id: number; name: string }[],
   };
+}
+
+interface FlowNodeRow {
+  issue_id: number;
+  ws_key: string;
+  ws_name: string;
+  number: number;
+  title: string;
+  status: Status;
+  project_id: number | null;
+  project_name: string | null;
+  ready_unless_blocked: number;
+}
+
+// Project の依存フロー。Issue 詳細を1件ずつ読まず、ノード・まだ止めているブロック元・辺をそれぞれ1回の読み取りで返す
+export function getProjectFlow(db: Database, ref: string): ProjectFlow {
+  const { id } = resolveProject(db, ref);
+  // 先に Project の Issue（members）と、それと直接 blocks でつながる Issue（targets）の集合を作り、
+  // Project と無関係な Issue ごとに relations を読まない。relations には to_id の索引がないため、
+  // 後ろ向き（to_id）の辺は Issue ごとに引かず、1回の読み取りでまとめて引く。前向きの辺は主キー（from_id 始まり）で引く
+  const members = `members AS (SELECT id FROM issues WHERE project_id = ? AND archived_at IS NULL)`;
+  const links = `links AS (
+    SELECT r.from_id, r.to_id FROM members m JOIN relations r ON r.from_id = m.id WHERE r.type = 'blocks'
+    UNION SELECT r.from_id, r.to_id FROM relations r WHERE r.type = 'blocks' AND r.to_id IN (SELECT id FROM members)
+  )`;
+  const targets = `targets AS (SELECT id FROM members UNION SELECT from_id FROM links UNION SELECT to_id FROM links)`;
+  // 主ノード（Project 内）と参照ノード（Project 外）。アーカイブ済みは両端とも除く
+  const rows = db
+    .query(
+      `WITH ${members}, ${links}, ${targets}
+       SELECT i.id AS issue_id, w.key AS ws_key, w.name AS ws_name, i.number, i.title, i.status, i.project_id, pr.name AS project_name,
+         ${READY_UNLESS_BLOCKED_WHERE} AS ready_unless_blocked
+       FROM targets t
+       JOIN issues i ON i.id = t.id
+       JOIN workspaces w ON w.id = i.workspace_id
+       LEFT JOIN projects pr ON pr.id = i.project_id
+       WHERE i.archived_at IS NULL
+       ORDER BY i.project_id IS NOT ?, w.key, i.number`,
+    )
+    .all(id, now(), id) as FlowNodeRow[]; // ? の順：主ノード、READY_UNLESS_BLOCKED_WHERE の現在時刻、並び順
+  // ノードをまだ止めているブロック元（Issue.blockedBy と同じ）。Project 外のブロック元も含める。
+  // relations を1回だけ読み、ノードごとの読み取りにしない
+  const blockers = db
+    .query(
+      `WITH ${members}, ${links}, ${targets}
+       SELECT r.to_id, bw.key || '-' || b.number AS blocker_id FROM relations r
+       JOIN issues b ON b.id = r.from_id JOIN workspaces bw ON bw.id = b.workspace_id
+       WHERE r.type = 'blocks' AND r.to_id IN (SELECT id FROM targets) AND ${OPEN_BLOCKER}
+       ORDER BY bw.key, b.number`,
+    )
+    .all(id) as { to_id: number; blocker_id: string }[];
+  const openBlockers = new Map<number, string[]>();
+  for (const b of blockers) {
+    const list = openBlockers.get(b.to_id);
+    if (list) list.push(b.blocker_id);
+    else openBlockers.set(b.to_id, [b.blocker_id]);
+  }
+  const nodes = rows.map((r) => {
+    const blockedBy = openBlockers.get(r.issue_id) ?? [];
+    return {
+      id: formatIssueId(r.ws_key, r.number),
+      title: r.title,
+      status: r.status,
+      workspace: r.ws_key,
+      workspaceName: r.ws_name,
+      project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
+      external: r.project_id !== id,
+      // web の Ready（READY_WHERE）と同じ条件：ブロック元以外の条件を満たし、まだ止めているブロック元がない
+      ready: r.ready_unless_blocked === 1 && blockedBy.length === 0,
+      openBlockers: blockedBy,
+    };
+  });
+  // 生の blocks の向きのまま返す（完了・中止のブロック元も辺に残す）。参照ノード同士の辺は含めない
+  const edges = db
+    .query(
+      `WITH ${members}, ${links}
+       SELECT fw.key || '-' || f.number AS "from", tw.key || '-' || t.number AS "to" FROM links r
+       JOIN issues f ON f.id = r.from_id JOIN workspaces fw ON fw.id = f.workspace_id
+       JOIN issues t ON t.id = r.to_id JOIN workspaces tw ON tw.id = t.workspace_id
+       WHERE f.archived_at IS NULL AND t.archived_at IS NULL
+       ORDER BY fw.key, f.number, tw.key, t.number`,
+    )
+    .all(id) as ProjectFlowEdge[];
+  return { projectId: id, nodes, edges };
 }
 
 export const PROJECT_UPDATE_MAX_LENGTH = 10000;

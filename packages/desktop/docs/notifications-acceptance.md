@@ -12,6 +12,12 @@ macOS 26.3.1、Apple Silicon arm64、Tauri 2、ad-hoc 署名で検証した。
 アプリ版は `0.1.0`、DB schema は `41`。
 build-info の `dirty` は `true` で、未コミット状態を隠していない。
 
+2026年10月20日の最新 main（`4928b4cc`）統合では、schema 40 のレビュー状態撤去を保ち、41で通知設定・配信履歴、42で Due date を追加する順序へ変更した。
+以下の10月15日の schema 40→41 は旧試作版での実測であり、現在の本番 main の schema 40→42 とは異なる。
+統合後は実DBテストで本番相当40→42、WALを含む既存全テーブルのデータ保持、版40の自動バックアップ、レビュー状態を拒む制約、古い期日の除外と将来期日の通知を確認した。
+対象回帰は core 107件、server 43件、CLI 36件、実Rust配信 worker 97件が成功し、型検査も成功した（`/tmp/nod19-production/` の各 `*-integration.log`、`migration-red.log`、`migration-green.log`）。
+実スリープ受入は10月20日に利用者の指示でスキップし、OS側の許可取消など残る実機の組合せは未検証のまま、本番反映に向けた互換性・ビルド検査を進める。
+
 | 用途 | 対象 |
 | --- | --- |
 | 通常の配布用ビルド | `packages/desktop/dist/nod.app` |

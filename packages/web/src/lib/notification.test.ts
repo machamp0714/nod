@@ -12,7 +12,7 @@ describe("describeNotification", () => {
     expect(describeNotification(n({ kind: "due_date", eventType: "due_date_arrived", actor: "me", data: { dueDate: "2026-10-14" } }))).toBe("期日が到来しました（2026-10-14）");
   });
   test("誰が何をどう変えたかを1文で返し、short では本文を省く", () => {
-    expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } }))).toBe("codex がステータスを In Review に変更しました");
+    expect(describeNotification(n({ eventType: "status_changed", data: { from: "in_progress", to: "done" } }))).toBe("codex がステータスを Done に変更しました");
     expect(describeNotification(n({ eventType: "priority_changed", data: { from: 0, to: 2 } }))).toBe("codex が優先度を High に変更しました");
     expect(describeNotification(n({ eventType: "estimate_changed", data: { from: null, to: 5 } }))).toBe("codex が見積もりを 5 pt に変更しました");
     expect(describeNotification(n({ eventType: "estimate_changed", data: { from: 5, to: null } }))).toBe("codex が見積もりを外しました");
@@ -29,7 +29,7 @@ describe("describeNotification", () => {
 
   test("LLM の完了・入力待ち・エラーは Pencil の行の形で表し、short では質問・理由を省く（#54）", () => {
     const agent = (to: string, reason?: string) => n({ kind: "agent", eventType: "agent_state_changed", data: { from: "working", to, agent: "codex", ...(reason ? { reason } : {}) } });
-    expect(describeNotification(agent("done"))).toBe("codex が作業を完了しました（レビュー待ち）");
+    expect(describeNotification(agent("done"))).toBe("codex が作業を完了しました");
     expect(describeNotification(agent("awaiting_input", "進めてよいか"))).toBe("codex が確認を求めました（入力待ち）：「進めてよいか」");
     expect(describeNotification(agent("awaiting_input", "進めてよいか"), { short: true })).toBe("codex が確認を求めました（入力待ち）");
     expect(describeNotification(agent("error", "DB に接続できない"))).toBe("codex がエラーで止まりました（エラー）：「DB に接続できない」");
@@ -141,9 +141,8 @@ describe("nextSnoozeExpiry", () => {
 
 describe("ステータスの表示名", () => {
   test("通知の Issue の Workspace で設定した表示名で書く", () => {
-    const item = n({ eventType: "status_changed", data: { from: "in_progress", to: "in_review" } });
-    expect(describeNotification(item, { statusNames: { API: { in_review: "確認待ち" } } })).toBe("codex がステータスを 確認待ち に変更しました");
-    expect(describeNotification(item, { statusNames: { NOD: { in_review: "確認待ち" } } })).toBe("codex がステータスを In Review に変更しました");
+    const item = n({ eventType: "status_changed", data: { from: "in_progress", to: "done" } });
+    expect(describeNotification(item, { statusNames: { API: { done: "確認待ち" } } })).toBe("codex がステータスを 確認待ち に変更しました");
+    expect(describeNotification(item, { statusNames: { NOD: { done: "確認待ち" } } })).toBe("codex がステータスを Done に変更しました");
   });
 });
-

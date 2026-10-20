@@ -1,4 +1,4 @@
-/* nod.pen「Issue詳細｜添付メディア（#55）」「添付｜拡大表示（#55）」「Reviews｜添付メディア（#55）」 */
+/* nod.pen「Issue詳細｜添付メディア（#55）」「添付｜拡大表示（#55）」 */
 .grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .thumb { position: relative; display: flex; align-items: center; justify-content: center; width: 96px; height: 72px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--sunken); cursor: zoom-in; }
 .thumb:hover { border-color: var(--ink3); }
@@ -31,10 +31,5 @@
 .bottom { display: flex; justify-content: center; min-height: 18px; padding: 16px 0 24px; }
 .counter { color: #fff; font-size: 12.5px; }
 
-.section { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); }
-.head { display: flex; align-items: center; gap: 6px; }
-.toggle { display: inline-flex; padding: 0; border: 0; background: none; color: var(--ink3); cursor: pointer; }
-.title { margin: 0; color: var(--ink); font-size: 13px; font-weight: 600; }
-.count { color: var(--ink3); font-family: var(--font-mono); font-size: 12px; }
 .label { margin: 0; color: var(--ink3); font-size: 12px; }
 .inline { display: flex; flex-direction: column; gap: 6px; }

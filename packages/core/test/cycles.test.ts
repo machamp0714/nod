@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { openDb, SCHEMA_VERSION, schemaVersion } from "../src/db";
 import { bulkUpdateIssues } from "../src/ops/bulk-update";
 import { createCycle, cycleToday, deleteCycle, getCycle, listCycles, moveOpenIssues, resolveCycle, updateCycle } from "../src/ops/cycles";
@@ -15,6 +15,15 @@ import { codeOf, eventsOf, setup, tempDbPath } from "./helpers";
 
 const today = "2026-10-05";
 const clock = { today };
+
+beforeEach(() => {
+  // current を実時計で解決する経路も、実行環境の暦日を fixture とそろえる。
+  setSystemTime(new Date(`${today}T12:00:00`));
+});
+
+afterEach(() => {
+  setSystemTime();
+});
 
 function sprints(me: Parameters<typeof createCycle>[0]) {
   const past = createCycle(me, { name: "Sprint 1", startDate: "2026-09-21", endDate: "2026-10-04" }, clock);

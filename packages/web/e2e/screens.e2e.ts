@@ -7,7 +7,6 @@ const GROUPS = [
     dataset: "issue-list",
     screens: [
       { path: "/inbox", heading: "Inbox" },
-      { path: "/reviews", heading: "Reviews" },
       { path: "/triage", heading: "Triage" },
       { path: "/open-questions", heading: "Open questions" },
       { path: "/issues", heading: "Issues" },

@@ -8,7 +8,6 @@ import {
   localDate,
   runAutomationWithAssessment,
   setAutomationSettings,
-  undoAutoTransition,
 } from "@nod/core";
 import type { Command } from "commander";
 import { act, actAsync, currentWorkspace } from "../context";
@@ -23,14 +22,6 @@ function parseDays(option: string) {
   };
 }
 
-function parseSwitch(option: string) {
-  return (value: string): boolean => {
-    if (value === "on") return true;
-    if (value === "off") return false;
-    throw new NodError("INVALID_ARGS", `${option} は on か off で指定してください`);
-  };
-}
-
 function parseLimit(value: string): number {
   if (!/^[0-9]+$/.test(value)) throw new NodError("INVALID_ARGS", `--limit は 1〜${AUTOMATION_LIMIT_MAX} の整数で指定してください`);
   return Number(value);
@@ -40,8 +31,6 @@ function describeSettings(s: AutomationSettings): string {
   return [
     `自動クローズ: ${s.closeAfterDays === null ? "無効" : `${s.closeAfterDays}日間更新のない未完了の Issue を canceled にする`}`,
     `自動アーカイブ: ${s.archiveAfterDays === null ? "無効" : `done / canceled から ${s.archiveAfterDays}日たった Issue をアーカイブする`}`,
-    `PR 連動: ${s.prReview ? "PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする（done にはしない）" : "無効"}`,
-    `コミット連動: ${s.commitReview ? "nod git sync でコミットの Closes/Fixes <ID> を読み、Issue を in_review にする（done にはしない）" : "無効"}`,
   ].join("\n");
 }
 
@@ -59,24 +48,7 @@ export function skippedLines(skipped: string[], reasons: { id: string; message: 
   ];
 }
 
-function describePrReview(rule: AutomationRuleResult, dryRun: boolean): string {
-  if (!rule.enabled) return "PR 連動: 無効";
-  const lines = [`PR 連動（PR が open かマージ済み → in_review）: 対象 ${rule.total} 件`];
-  for (const c of rule.candidates) {
-    const state = c.prState === "MERGED" ? "マージ済み（完了候補）" : "open";
-    lines.push(`  ${c.id}  ${c.status}  PR ${state}  ${c.prUrl}  ${c.title}${ruleNote(c.ruleSkipReason)}`);
-  }
-  if (rule.remaining) lines.push(`  ほか ${rule.remaining} 件は上限を超えたため${dryRun ? "今回の対象外" : "次回の実行で処理します"}`);
-  if (!dryRun) {
-    lines.push(`  in_review にしました: ${rule.processed.length} 件${rule.processed.length ? `（${rule.processed.join(", ")}）` : ""}`);
-    lines.push(...skippedLines(rule.skipped, rule.skippedReasons));
-    for (const f of rule.failed) lines.push(`  失敗: ${f.id} ${f.message}`);
-  }
-  return lines.join("\n");
-}
-
 function describeRule(rule: AutomationRuleResult, dryRun: boolean): string {
-  if (rule.kind === "pr_review") return describePrReview(rule, dryRun);
   const name = rule.kind === "auto_close" ? "自動クローズ" : "自動アーカイブ";
   if (!rule.enabled) return `${name}: 無効`;
   const heading =
@@ -132,22 +104,18 @@ export function registerAutomationCommands(program: Command): void {
     .description("自動化のルールを有効にする・日数を変える・無効にする（人だけが行える）")
     .option("--close-after-days <days|off>", "この日数だけ更新のない未完了の Issue を canceled にする（1〜3650、off で無効）", parseDays("--close-after-days"))
     .option("--archive-after-days <days|off>", "done / canceled からこの日数たった Issue をアーカイブする（1〜3650、off で無効）", parseDays("--archive-after-days"))
-    .option("--pr-review <on|off>", "PR が open（draft 以外）かマージ済みになったら in_progress の Issue を in_review にする（既定 off）", parseSwitch("--pr-review"))
-    .option("--commit-review <on|off>", "nod git sync でコミットの Closes/Fixes <ID> を読み、Issue を in_review にする（既定 off）", parseSwitch("--commit-review"))
     .action(
-      act((cli, cmd, o: { closeAfterDays?: number | "off"; archiveAfterDays?: number | "off"; prReview?: boolean; commitReview?: boolean }) => {
-        if ([o.closeAfterDays, o.archiveAfterDays, o.prReview, o.commitReview].every((v) => v === undefined)) {
+      act((cli, cmd, o: { closeAfterDays?: number | "off"; archiveAfterDays?: number | "off" }) => {
+        if ([o.closeAfterDays, o.archiveAfterDays].every((v) => v === undefined)) {
           throw new NodError(
             "INVALID_ARGS",
-            "--close-after-days・--archive-after-days・--pr-review・--commit-review のどれかを指定してください（例: nod automation set --close-after-days 90）",
+            "--close-after-days・--archive-after-days のどれかを指定してください（例: nod automation set --close-after-days 90）",
           );
         }
         const days = (v: number | "off" | undefined) => (v === "off" ? null : v);
         const r = setAutomationSettings(cli.ctx, currentWorkspace(cli, cmd).key, {
           closeAfterDays: days(o.closeAfterDays),
           archiveAfterDays: days(o.archiveAfterDays),
-          prReview: o.prReview,
-          commitReview: o.commitReview,
         });
         print(cli, r, () => `自動化の設定を保存しました\n${describeSettings(r)}`);
       }),
@@ -164,14 +132,10 @@ export function registerAutomationCommands(program: Command): void {
         "定期Issueの起票（nod recurring で登録）を最初に行い、自動クローズ・自動アーカイブの順に続ける。",
         "  発生日が来ている有効な定期Issueを起票する（nod recurring run と同じ）。同じ回に起票した Issue はほかのルールの対象にしない。",
         "自動クローズの対象: backlog / todo / in_progress / needs_clarification で、最後の活動（更新・event・コメント・質問）から指定日数たったもの。",
-        "  triage・in_review・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
+        "  triage・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
         "  （未完了の Issue をブロックしている、または未完了のブロッカーを待っている）は対象外。done にはしない。",
         "自動アーカイブの対象: done / canceled になってから指定日数たったもの。未完了の子を持つ親は対象外。",
         "同じ回で自動クローズした Issue はアーカイブしない。もう一度実行しても同じ Issue は対象にならない。",
-        "PR 連動の対象: in_progress で、保存済みの PR 状態（nod issue pr-status --refresh で取得）が open（draft 以外）かマージ済みのもの。",
-        "  gh は呼ばない。in_review にするだけで done にはしない（マージ済みは完了候補として人の承認を待つ）。",
-        "  同じ PR で一度進めた Issue と、PR を付けたあとに in_review から動かした Issue（差し戻し・取消）は、同じ PR では進めない。",
-        "  取消は nod automation undo <id>。",
       ].join("\n"),
     )
     .action(
@@ -182,24 +146,6 @@ export function registerAutomationCommands(program: Command): void {
           const body = [...(recurring === null ? [] : [recurring]), ...r.rules.map((rule) => describeRule(rule, r.dryRun))].join("\n");
           return r.dryRun ? `${body}\n（dry-run のため変更していません。実行するには --dry-run を外してください）` : body;
         });
-      }),
-    );
-  automation
-    .command("undo <id>")
-    .description("PR 連動・コミット連動（nod git sync）による自動遷移を取り消し、Issue を元の状態に戻す（人だけ。Issue がまだ in_review のときだけ）")
-    .addHelpText(
-      "after",
-      [
-        "",
-        "取り消せるのは、その Issue の最新の自動遷移のあとに状態が一度も変わっていないときだけ（変わっていれば INVALID_STATE）。",
-        "戻すのは status だけ。自動遷移で外した作業状況（agent_state）は戻さないので、必要なら作業者が付け直す。",
-      ].join("\n"),
-    )
-    .action(
-      act((cli, _cmd, id: string) => {
-        const t = undoAutoTransition(cli.ctx, id);
-        const what = t.source === "pr" ? `PR ${t.sourceKey}` : `コミット ${t.sourceKey.slice(0, 12)}`;
-        print(cli, t, () => `${t.issueId} を ${t.to} から ${t.from} に戻しました（${what} による自動遷移の取消）。同じ${t.source === "pr" ? " PR" : "コミット"}では再び進めません`);
       }),
     );
 }

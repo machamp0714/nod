@@ -17,6 +17,14 @@ describe("describeEvent（#198）", () => {
       text: "claude-code が起票した",
       detail: ["状態: S:triage", "起票元: TS-1"],
     });
+    expect(event("created", { status: "todo", requested_by: "me" }, "claude-code")).toEqual({
+      text: "claude-code が me の依頼で起票した",
+      detail: ["状態: S:todo"],
+    });
+    expect(event("created", { status: "todo", requested_by: "me", discovered_from: "TS-1" }, "claude-code")).toEqual({
+      text: "claude-code が me の依頼で起票した",
+      detail: ["状態: S:todo", "起票元: TS-1"],
+    });
     expect(event("created", { status: "todo", copied_from: "TS-3" })).toEqual({ text: "me が TS-3 から複製した", detail: ["状態: S:todo"] });
     expect(event("created", { status: "todo", recurring_id: 3, occurrence: "2026-10-01" })).toEqual({
       text: "me が定期Issue #3（2026-10-01 分）から起票した",

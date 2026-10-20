@@ -94,7 +94,7 @@ export function setColumn(
     if (extra.reason) data.reason = extra.reason;
     // 人が実行した自動化ルールによる変更は、どのルールかを残す
     if (extra.automation) data.automation = extra.automation;
-    if (type === "status_changed" && to === "in_review" && extra.report_comment_id !== undefined) {
+    if (type === "status_changed" && to === "done" && extra.report_comment_id !== undefined) {
       data.report_comment_id = extra.report_comment_id;
     }
     // 書き手と作業主体は別。過去の履歴を現在の担当者で解釈し直さないよう記録する。

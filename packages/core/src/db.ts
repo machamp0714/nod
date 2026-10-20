@@ -102,15 +102,23 @@ export function migrate(db: Database): void {
     );
   }
   for (let v = current; v < SCHEMA_VERSION; v++) {
-    db.transaction(() => {
-      // ほかのプロセスが同時に適用し終えていたら、何もしない
-      if (schemaVersion(db) !== v) return;
-      for (const step of MIGRATIONS[v] ?? []) {
-        if (typeof step === "string") db.exec(step);
-        else step(db);
-      }
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-    }).immediate();
+    // レビュー状態の撤去では issues の CHECK を再作成するため、参照を保って外部キーを一時停止する。
+    const rebuildIssues = v === 39;
+    if (rebuildIssues) db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      db.transaction(() => {
+        // ほかのプロセスが同時に適用し終えていたら、何もしない
+        if (schemaVersion(db) !== v) return;
+        for (const step of MIGRATIONS[v] ?? []) {
+          if (typeof step === "string") db.exec(step);
+          else step(db);
+        }
+        if (rebuildIssues && db.query("PRAGMA foreign_key_check").all().length) throw new Error("移行後の外部キー整合性検査に失敗しました");
+        db.exec(`PRAGMA user_version = ${v + 1}`);
+      }).immediate();
+    } finally {
+      if (rebuildIssues) db.exec("PRAGMA foreign_keys = ON");
+    }
   }
 }
 

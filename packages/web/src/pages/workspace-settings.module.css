@@ -409,24 +409,6 @@
   font-size: 12.5px;
 }
 
-/* ステータス遷移（#73、nod.pen「Workspace設定｜ステータス遷移」） */
-.transitionPreset {
-  display: flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 8px;
-  color: var(--ink);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.transitionCheckbox {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
 .transitionSubLabel {
   color: var(--ink2);
   font-size: 12px;
@@ -821,38 +803,6 @@
 .dryRunRemaining {
   color: var(--ink3);
   font-size: 12px;
-}
-
-.colPr {
-  width: 56px;
-}
-
-.dryRunTable td.colPr {
-  font-family: var(--font-mono);
-}
-
-.prLink {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.prLink:hover {
-  text-decoration: underline;
-}
-
-.colPrState {
-  width: 76px;
-}
-
-.prPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 /* 遷移ルール（#73）で実行時にスキップする見込みの候補の小ピル（nod.pen「ステータス遷移｜状態」の dry-run 表） */

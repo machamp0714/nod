@@ -6,7 +6,6 @@ import {
   DOC_KINDS,
   type DocKind,
   answerQuestion,
-  approveReview,
   archiveIssue,
   bulkUpdateIssues,
   askQuestion,
@@ -18,7 +17,6 @@ import {
   NodError,
   type OpCtx,
   clearReminder,
-  rejectReview,
   resolveThread,
   STATUSES,
   type Status,
@@ -128,23 +126,11 @@ const OPS: Record<string, Op> = {
   decline: { keys: ["reason"], run: (me, ref, b) => declineTriage(me, ref, optString(b, "reason")) },
   duplicate: { keys: ["original"], run: (me, ref, b) => duplicateTriage(me, ref, reqString(b, "original")) },
   snooze: { keys: ["until"], run: (me, ref, b) => snoozeTriage(me, ref, reqString(b, "until")) },
-  approve: { keys: [], run: (me, ref) => approveReview(me, ref) },
-  // delegate（review_fix | rebase）を付けると、理由を LLM への対応依頼として記録する（#58）。送信は追加指示の送信 API で人が行う
-  reject: {
-    keys: ["reason", "delegate"],
-    run: (me, ref, b) => {
-      const delegate = optString(b, "delegate");
-      if (delegate !== undefined && delegate !== "review_fix" && delegate !== "rebase") {
-        throw invalid("delegate は review_fix（指摘対応）か rebase で指定してください");
-      }
-      return rejectReview(me, ref, reqString(b, "reason"), { delegate });
-    },
-  },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
   copy: { keys: ["title"], run: (me, ref, b, client) => copyIssueWithAssessment(me, ref, { title: optString(b, "title") }, client), created: true },
   archive: { keys: ["reason"], run: (me, ref, b) => archiveIssue(me, ref, { reason: optString(b, "reason") }) },
   unarchive: { keys: [], run: (me, ref) => unarchiveIssue(me, ref) },
-  // 作業中の Issue に PR を紐付ける（ステータスは変えない。#66 の PR 連動の前提）
+  // 作業中の Issue に PR を紐付ける（ステータスは変えない）
   "link-pr": { keys: ["url"], run: (me, ref, b) => linkPr(me, ref, reqString(b, "url")) },
   "resolve-thread": {
     keys: ["commentId", "resolved"],

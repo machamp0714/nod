@@ -1,4 +1,4 @@
-/* nod.pen「Issue詳細｜変更ファイル（#55）」「Reviews｜変更ファイル（#55）」「変更ファイル｜状態（#55）」 */
+/* nod.pen「Issue詳細｜変更ファイル（#55）」「変更ファイル｜状態（#55）」 */
 .section {
   display: flex;
   flex-direction: column;
@@ -6,26 +6,11 @@
   min-width: 0;
 }
 
-.boxed {
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-}
-
-.toggle {
-  display: inline-flex;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink3);
-  cursor: pointer;
 }
 
 .title {

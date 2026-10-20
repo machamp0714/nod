@@ -1,5 +1,3 @@
 interface:
   display_name: "nod: To Spec"
   short_description: "Issue の仕様を詰めて Document にする"
-policy:
-  allow_implicit_invocation: false

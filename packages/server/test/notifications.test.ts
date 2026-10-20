@@ -53,7 +53,7 @@ describe("購読と通知の API", () => {
     }
 
     const inbox = await call(app, "GET", "/api/inbox");
-    expect(Object.keys(inbox.json).sort()).toEqual(["questions", "reviews"]);
+    expect(Object.keys(inbox.json).sort()).toEqual(["questions"]);
     expect(inbox.json).toEqual(JSON.parse(JSON.stringify(getInbox(db))));
   });
 

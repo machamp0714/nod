@@ -4,22 +4,6 @@ import { restartApiServer } from "./support/nod";
 
 const evidence = "/Users/ooidetatsuya/orca/workspaces/nod/nod-detail-decisions/.superpowers/sdd/nod-remaining";
 
-test("Reviewsの一覧と詳細は同じ完了報告を示し4Task進捗と待機込み時間を出す", async ({ page, nod }) => {
-  const api = await seedApiWorkspace(nod);
-  const i = await api.startedIssue("レビュー契約");
-  await nod.claude.setPlanTasks(i.id, ["調査", "実装", "試験", "報告"]);
-  for (const index of [1, 2, 3, 4]) await nod.claude.setStep(i.id, String(index), index === 3 ? "skipped" : "done");
-  await nod.claude.completeIssue(i.id, { summary: "レビュー用の本来の報告" });
-  await nod.me.commentIssue(i.id, "完了後の別コメント");
-  await page.goto("/reviews");
-  await expect(page.getByText("LLM が作業を終え、確認を待っている Issue")).toBeVisible();
-  await expect(page.getByRole("region", { name: "レビュー待ちの一覧" })).toContainText("レビュー用の本来の報告");
-  await expect(page.getByRole("region", { name: "完了報告" })).toContainText("レビュー用の本来の報告");
-  await expect(page.getByRole("region", { name: "完了報告" })).not.toContainText("完了後の別コメント");
-  await expect(page.getByText("計画 4/4 完了")).toBeVisible();
-  await expect(page.getByText("作業時間（待機・中断・差し戻しを含む） 1分未満")).toBeVisible();
-  await page.screenshot({ path: `${evidence}/reviews.png` });
-});
 
 test("Triage属性と起票元を表示し一回のacceptで保存する", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
