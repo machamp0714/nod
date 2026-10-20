@@ -4,8 +4,55 @@ nod の macOS 用デスクトップアプリ（Tauri v2）。内部で既存の 
 Apple Silicon（arm64）専用。ad-hoc 署名で、公証・自動更新・配布はしない。ビルドと配置は手元の Mac だけで行う。
 
 - 受入条件・中止条件・旧配置の保持は、このアプリの切替時に定めた条件（nod の Issue の解決コメント）を正本とする。ここには要点を再掲している。
-- 保存先は CLI と同じ（`~/.local/share/nod/`、`~/.config/nod/`）。アプリ用のデータ移行はない。
+- 保存先は CLI と同じ（`~/.local/share/nod/`、`~/.config/nod/`）。DB の schema 更新は core の migration を共用し、更新前にバックアップを取る。
 - CLI の実体は `nod.app/Contents/MacOS/nod`。`~/.local/bin/nod` のラッパーがそれを実行する。アプリが終了していても CLI は同じデータで動く。
+
+## デスクトップ通知の利用
+
+Workspace の「設定」にある「デスクトップ通知」で「通知を ON にする」を押し、macOS の通知許可を与える。
+初期状態は OFF で、設定はこの Mac のすべての Workspace に共通する。
+アプリ設定の ON/OFF と OS の通知許可は別々に表示され、通常の再起動や更新でもアプリ設定と配信履歴を保持する。
+許可を拒否した場合や後から取り消した場合は、macOS の「システム設定 → 通知 → nod」で許可を変更し、「OS 許可を再確認」で状態を確認する。
+許可要求のダイアログが毎回表示されるとは限らない。
+OFF や OS 不許可でも Inbox と通常操作は利用できる。
+通常のブラウザでは有効化ボタンを操作できず、ブラウザや CLI だけの利用では OS 通知を送らない。
+
+個別リマインダーは Issue 詳細で日時と任意のメモを指定する。
+Due date は別の予定で、期日当日の Mac のローカル時刻09:00に「期日が到来しました」と期日を通知する。
+当日09:00以降や過去の日付を新しく設定した場合は、設定した時点で一回の通知対象になる。
+Due date の通知時刻は09:00固定で、専用の時刻設定や ON/OFF はない。
+同じ Issue の個別リマインダーと Due date が同時刻でも、それぞれ一件ずつ通知する。
+担当者や購読の有無、表示中の Workspace による絞り込みは行わない。
+
+ウィンドウを閉じてもアプリが常駐していれば通知する。
+通知には送信時点の Issue タイトルと、個別リマインダーのメモまたは対象の期日を表示する。
+クリックすると対象 Issue を開き、正常に表示した後でその通知だけを既読にする。
+アーカイブ済みの Issue は参照画面を開き、永久削除済みなら「Issue が見つかりません」と案内する。
+
+### 再有効化と保留の扱い
+
+初回 ON や OFF からの再有効化では、最後に ON にした時刻以前の予定を OS 通知へ遡らせない。
+OFF 中の分や再有効化より前から保留していた分も含まれるが、Inbox の履歴は残る。
+導入時にすでに09:00を過ぎている既存の期日は一斉通知せず、導入後に09:00を迎える既存の期日は対象にする。
+
+ON のまま完全終了やスリープ中に到来した分は、起動、復帰、sidecar 復旧後に適格な未送信分を古い順に個別通知する。
+完全終了中の予約配信は行わない。
+正常に処理できる状態になってから5秒以内に回収を開始し、通常配信も予定時刻から5秒以内に OS への送信を試みる。
+バナーの表示は OS の通知設定や集中モードにも従う。
+
+未送信の通知はスヌーズ中や Issue のアーカイブ中には保留し、解除や復元後に未読などの条件を再確認する。
+既読や削除、OS 不許可を確認して対象外になった分は、後から未読や許可済みに戻しても再送しない。
+Due date の変更、解除、完了、キャンセルは旧期日の未送信分を抑止する。
+個別リマインダーは完了やキャンセルだけでは取り消さず、到来後の日時変更や解除でも旧分を Inbox に残す。
+
+### 送信障害と確認方法
+
+同じ Inbox 通知の二重送信を避けるため、送信の取得確定後は OS 送信が失敗した場合や結果が不明な場合も自動再送しない。
+取得確定から送信完了の間にクラッシュすると、OS 通知が欠落する可能性がある。
+この場合も Inbox は残るため、アプリ内で確認できる。
+取得確定前の DB ロック、接続障害、許可状態の取得エラーは、回復後に回収する。
+
+実機と自動検証の結果、および残る確認項目は [通知の受入検証記録](docs/notifications-acceptance.md) を参照する。
 
 ## ビルドと検査
 
@@ -22,13 +69,30 @@ cd packages/desktop/src-tauri && cargo test                       # 起動・監
 2. CLI の compile（`bun build --compile --target=bun-darwin-arm64`）。これが sidecar になる。
 3. Tauri のビルド（`.app` まで。ad-hoc 署名される）。
 4. `Contents/Resources/build-info`（アプリ版・commit・dirty・ビルド日時・schema 版）の書き込み。
-5. sidecar 自身へ entitlements（JIT 系の 3 種。`scripts/entitlements.plist`）を付けて署名し、続けて `.app` を `--deep` なしで再署名する。
-6. 検査。署名の検証、sidecar の entitlements、arm64、build-info と同梱バイナリの版の一致、隔離データでの起動（`/api/workspaces` が 200）、DB の schema 版と build-info の一致。
+5. sidecar 自身へ entitlements（JIT 系の 3 種。`scripts/entitlements.plist`）を付けて署名し、続けて `.app` を `--deep` なしで再署名する。外側には bundle ID と一致する共通の明示DRを付ける。
+6. 検査。署名の検証、更新に対応する明示DR、sidecar の entitlements、arm64、build-info と同梱バイナリの版の一致、隔離データでの起動（`/api/workspaces` が 200）、DB の schema 版と build-info の一致。
 
 検査に通ったものだけが `packages/desktop/dist/nod.app` に置かれる。通らなければ成果物は作られない。
 `dist/`・`build/`・`src-tauri/target/`・`src-tauri/binaries/` は git 管理外。
 
 版は `packages/desktop/package.json`、`src-tauri/tauri.conf.json`、`packages/cli/package.json` で一致させる（一致しないとビルドが中止される）。
+
+### 更新時の通知識別と署名
+
+外側の `.app` は ad-hoc 署名を維持し、`designated => identifier "io.github.machamp0714.nod"` を明示DR（Designated Requirement）として使う。
+ビルドは `tauri.conf.json` の identifier を使い、完成品検査は実際の `Info.plist` の `CFBundleIdentifier` と明示DRの一致を確認する。
+署名の整合性に加え、更新前に表示した通知から更新後のアプリを起動できる識別条件を保つためである。
+専用IDの検証アプリを再署名する場合も、対応するidentifierの同じ明示DRを指定する。
+
+既定の ad-hoc 署名ではDRが特定版のcdhashに結びつくため、更新後に旧通知からアプリを起動できないケースを実測した。
+共通DRを使う隔離アプリでは、resource変更でcdhashが変わった後も旧通知から自動起動し、対象Issueを表示できた。
+共通DRを適用した製品構成では閉窓中の両種類の配信と個別リマインダーのクリック、アーカイブ済みIssueや削除済み通知の参照も確認した。
+通知機能の最初の本番配布版から共通DRを使い、以後の更新で同じ識別条件を維持する。
+従来のcdhash DRで送った既存通知を、後から遡って直すことは保証しない。
+
+このDRはbundle IDによる識別であり、証明書による配布者認証ではない。
+新しい証明書や公証は導入していない。
+DRの意味は [AppleのTN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements) を参照する。
 
 ## 導入（初回も更新も `desktop:deploy`）
 
@@ -108,8 +172,9 @@ NOD_DEPLOY_ARCHIVE_DIR=/tmp/x/archive NOD_DEPLOY_LEGACY_DIR=/tmp/x/legacy bun ru
 
 - 隔離属性（`com.apple.quarantine`）が付いた `.app` は Gatekeeper に止められ、起動できない。ダウンロード・AirDrop・メッセージ経由の `.app` は使わず、同じ Mac 内のコピーだけで入れ替える。
   付いてしまった場合は `xattr -dr com.apple.quarantine <nod.app>` で外せる。
-- ad-hoc 署名のため、内容が変わるたびに macOS の許可が失効する。入れ替え後、保護フォルダ（`~/Documents`・`~/Desktop`・`~/Downloads`）配下の Document を最初に開いたとき、許可を再度求められうる（試作で `~/Documents` について実測）。
+- ad-hoc 署名のアプリを入れ替えた後は、保護フォルダ（`~/Documents`・`~/Desktop`・`~/Downloads`）配下の Document を最初に開いたとき、アクセス許可を再度求められることがある（試作で `~/Documents` について実測）。
   iCloud（Obsidian）配下は試作で許可ダイアログが出なかった。DB の Document に保護フォルダ配下のものは現状 0 件。
+- 通知のアプリ設定と配信履歴は DB に保持する。OS の通知許可はアプリ設定とは別に、入れ替え後も設定画面で実状態を確認する。
 - 初回・更新直後の一度の許可ダイアログは想定内。通常起動のたびに許可や端末での介入が要る場合は、中止条件に当たる。
 
 ## 手動の切り戻し（異常系）
@@ -124,7 +189,9 @@ NOD_DEPLOY_ARCHIVE_DIR=/tmp/x/archive NOD_DEPLOY_LEGACY_DIR=/tmp/x/legacy bun ru
 5. `nod.db-wal` と `nod.db-shm` を削除する（古い WAL が復元した DB に適用されるのを防ぐ）。
 6. 旧版を起動し、`nod issue list` などで内容を確認する。
 
-初版の `.app` は schema 版を上げる migration を同梱しない（現行 main の 39 のまま）。そのため、旧ラッパーへ戻すだけで復帰できる想定。schema を上げる版を入れた後は、旧版へ戻すときに 4〜5 が必要になる。
+最新 main と統合した通知機能を含む版は schema 42 を使用する。
+main の schema 40（レビュー状態の撤去）を維持し、41でデスクトップ通知の設定・配信履歴、42で Due date の自動通知を追加する。
+schema を上げる版を入れた後に旧版へ戻す場合は、DB を開けなければ 4〜5 のバックアップ復元が必要になる。
 
 ## 中止条件
 

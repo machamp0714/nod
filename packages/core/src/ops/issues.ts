@@ -3,6 +3,7 @@ import { listIssueAttachments } from "./attachments";
 import { instructionsOfIssue } from "./instructions";
 import { isSubscribedRow } from "./notifications";
 import { deliverDueRemindersIfFree, loadReminder } from "./reminders";
+import { recordDueDateSetting } from "./due-date-notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -185,6 +186,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       ts,
     );
   const id = Number(lastInsertRowid);
+  recordDueDateSetting(ctx.db, id, input.dueDate, ts);
   for (const label of new Set(input.labels)) {
     ctx.db.query("INSERT INTO issue_labels (issue_id, label) VALUES (?, ?)").run(id, label);
   }

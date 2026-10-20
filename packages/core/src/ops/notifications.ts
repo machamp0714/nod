@@ -6,6 +6,7 @@ import { findIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import type { Notification, SubscriptionState } from "../types";
 import { parseDateTime } from "./human";
 import { deliverDueRemindersIfFree } from "./reminders";
+import { deliverDueDateNotificationsIfFree } from "./due-date-notifications";
 
 export { NOTIFY_EVENT_TYPES } from "../notify";
 
@@ -82,6 +83,7 @@ export function listNotifications(
     throw new NodError("INVALID_ARGS", "既読の通知の上限は正の整数で指定してください");
   }
   deliverDueRemindersIfFree(db);
+  deliverDueDateNotificationsIfFree(db);
   const ts = now();
   const recipient = opts.recipient ?? HUMAN_ACTOR;
   const visible = (t: string) => (opts.snoozed ? `${t}.snoozed_until > ?` : `(${t}.snoozed_until IS NULL OR ${t}.snoozed_until <= ?)`);

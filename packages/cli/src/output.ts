@@ -408,6 +408,8 @@ export function describeNotification(n: Notification): string {
       const what = p.decision === "accept" ? "受け入れ" : p.decision === "decline" ? "却下" : p.decision === "duplicate" ? `重複（元: ${String(p.duplicateOf)}）` : String(p.decision);
       return `${n.actor} が Triage を提案: ${what}（確定は人が行います）`;
     }
+    case "due_date_arrived":
+      return `期日が到来しました（${String(n.data.dueDate)}）`;
     case "reminder": {
       const note = (n.data as { note?: unknown }).note;
       return typeof note === "string" && note ? `リマインダー: ${note}` : "リマインダーの時刻です";

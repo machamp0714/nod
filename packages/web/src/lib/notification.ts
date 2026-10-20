@@ -54,6 +54,8 @@ export function describeNotification(n: Notification, opts: { short?: boolean; s
         p.decision === "accept" ? "受け入れ" : p.decision === "decline" ? "却下" : p.decision === "duplicate" ? `重複${opts.short ? "" : `、元: ${String(p.duplicateOf)}`}` : String(p.decision);
       return `${who} が Triage を提案しました（${what}）`;
     }
+    case "due_date_arrived":
+      return `期日が到来しました（${String(n.data.dueDate)}）`;
     case "reminder": {
       const note = (n.data as { note?: unknown }).note;
       return typeof note === "string" && note ? `リマインダー：${note}` : "リマインダーの時刻です";

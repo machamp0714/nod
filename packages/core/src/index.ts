@@ -66,3 +66,5 @@ export * from "./ops/jev-client";
 export * from "./ops/spec-assessment";
 
 export * from "./ops/assessed-creation";
+
+export * from "./ops/desktop-notifications";

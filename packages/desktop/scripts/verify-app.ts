@@ -114,6 +114,20 @@ export async function verifyApp(appPath: string): Promise<VerifyResult> {
   const sig = exec(["codesign", "--verify", "--deep", "--strict", "--verbose=2", app]);
   push("signature", sig.code === 0, sig.code === 0 ? "codesign --verify --deep --strict 合格" : sig.stderr.trim() || `終了コード ${sig.code}`);
 
+  // 更新で既定のcdhash DRが変わると旧通知からの起動が失敗するため、bundle IDだけの明示DRを要求する。
+  const plistId = exec(["plutil", "-convert", "json", "-o", "-", join(app, "Contents", "Info.plist")]);
+  let bundleId: unknown;
+  try { if (plistId.code === 0) bundleId = JSON.parse(plistId.stdout).CFBundleIdentifier; } catch {}
+  const dr = exec(["codesign", "-d", "-r-", app]);
+  // 明示DRはstdout、既定DRのコメントはstderrへ出ることがあるため、両方を読む。
+  const drLines = `${dr.stdout}\n${dr.stderr}`.split("\n").map((line) => line.trim());
+  const hasBundleId = typeof bundleId === "string" && bundleId !== "";
+  const compatible = hasBundleId && dr.code === 0 && drLines.includes(`designated => identifier ${JSON.stringify(bundleId)}`);
+  push("update-identity", compatible, compatible
+    ? `bundle IDと一致する明示identifier DR（${bundleId}）`
+    : hasBundleId ? `bundle ID（${bundleId}）と一致する明示identifier DRがありません`
+      : "Info.plistのCFBundleIdentifierを読み取れません");
+
   // 2. sidecar 自身の entitlements（実際に付いたもの）
   if (!hasSidecar) {
     push("entitlements", false, `sidecar がありません: ${sidecar}`);

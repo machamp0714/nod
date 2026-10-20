@@ -2,6 +2,8 @@ import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
 import { migrateWorkspaceColorsV2 } from "./migrations/workspace-colors-v2";
+import { now } from "./ctx";
+import { dueDateAtNine } from "./due-date-time";
 
 export type MigrationStep = string | ((db: Database) => void);
 
@@ -637,5 +639,37 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE workspaces ADD COLUMN spec_assessment_enabled INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE issues ADD COLUMN spec_assessment TEXT`,
   ],
+  // 版40: mainで導入済みのレビュー状態撤去。通知の追加は、この版の後に続ける。
   [removeReview],
+  // 版41: デスクトップ通知の設定と配信履歴。
+  [
+    `CREATE TABLE desktop_notification_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1), enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)), last_enabled_at TEXT
+    )`,
+    `INSERT INTO desktop_notification_settings (id) VALUES (1)`,
+    `CREATE TABLE desktop_notification_deliveries (
+      notification_id INTEGER PRIMARY KEY REFERENCES notifications(id) ON DELETE CASCADE,
+      state TEXT NOT NULL CHECK (state IN ('claimed', 'sent', 'failed', 'excluded')),
+      reason TEXT, claimed_at TEXT NOT NULL, finished_at TEXT
+    )`,
+  ],
+  [
+    // 版42: 既存期日の導入判定と、期日ごとの通知履歴。
+    `CREATE TABLE due_date_notification_settings (id INTEGER PRIMARY KEY CHECK (id = 1), introduced_at TEXT NOT NULL)`,
+    `CREATE TABLE due_date_occurrences (
+      issue_id INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+      due_date TEXT NOT NULL, set_at TEXT,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'notified', 'excluded')),
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE SET NULL,
+      PRIMARY KEY (issue_id, due_date)
+    )`,
+    (db) => {
+      const introducedAt = now();
+      db.query("INSERT INTO due_date_notification_settings (id, introduced_at) VALUES (1, ?)").run(introducedAt);
+      const issues = db.query("SELECT id, due_date FROM issues WHERE due_date IS NOT NULL").all() as { id: number; due_date: string }[];
+      const insert = db.query("INSERT INTO due_date_occurrences (issue_id, due_date, state) VALUES (?, ?, ?)");
+      // SQLのUTC日付ではなく、導入時の端末ローカル09:00で古い既存期日を除外する。
+      for (const issue of issues) insert.run(issue.id, issue.due_date, dueDateAtNine(issue.due_date) < introducedAt ? "excluded" : "pending");
+    },
+  ],
 ];

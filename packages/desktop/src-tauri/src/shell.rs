@@ -30,6 +30,8 @@ const ID_COPY_DIAGNOSTICS: &str = "help.copy_diagnostics";
 /// いま主ウィンドウが開いている sidecar の port（再試行で変わる）。0 は未確定。
 #[derive(Default)]
 pub struct OwnPort(AtomicU16);
+pub fn own_port(handle: &AppHandle) -> u16 { handle.state::<OwnPort>().0.load(Ordering::SeqCst) }
+pub fn clear_own_port(handle: &AppHandle) { handle.state::<OwnPort>().0.store(0, Ordering::SeqCst); }
 
 /// 位置とサイズの保存先と、直近の値。
 pub struct WindowStateStore {
@@ -125,6 +127,7 @@ fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
     let load_seq = Arc::new(LoadSeq::default());
     let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(url))
         .title("nod")
+        .initialization_script("window.__NOD_DESKTOP__ = true;")
         .inner_size(1280.0, 800.0)
         .min_inner_size(1024.0, 640.0)
         .visible(false)

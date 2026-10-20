@@ -1,3 +1,4 @@
+import { DesktopNotificationSettings } from "./DesktopNotificationSettings";
 import { useSaveSpecAssessment } from "../api/hooks/spec-assessment";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
@@ -54,6 +55,7 @@ export function WorkspaceSettingsPage() {
       <div className={s.content}>
         <h1 className={s.title}>{workspace.name} の設定</h1>
         {/* 保存済みの本文が変わったら（別の場所での更新を含む）下書きを作り直す */}
+        <DesktopNotificationSettings />
         <RulesSection
           key={`${workspace.key}:${rules.data?.updatedAt ?? ""}`}
           workspace={workspace}

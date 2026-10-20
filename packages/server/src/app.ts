@@ -1,3 +1,4 @@
+import { registerDesktopNotificationRoutes } from "./routes/desktop-notifications";
 import type { Database } from "bun:sqlite";
 import { type JevClient, type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
 import { Hono } from "hono";
@@ -106,6 +107,7 @@ export function createApp(opts: AppOptions): Hono {
   registerViewRoutes(app, opts.db);
   registerPageDisplayRoutes(app, opts.db);
   registerNotificationRoutes(app, opts.db, me);
+  registerDesktopNotificationRoutes(app, opts.db);
   registerEventRoutes(app, opts.feed ?? createChangeFeed(opts.db));
 
   app.all("/api/*", (c) => errorJson(new NodError("NOT_FOUND", `${c.req.method} ${c.req.path} はありません`)));

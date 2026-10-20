@@ -34,22 +34,71 @@ maybe("verifyApp", () => {
   afterAll(() => rmSync(work, { recursive: true, force: true }));
 
   // 正規の .app を作業用にコピーして返す
-  function copyApp(): string {
+  function copyApp(source = goodApp): string {
     const dest = join(work, `case-${n++}`, "nod.app");
     sh(["mkdir", "-p", join(dest, "..")]);
-    sh(["ditto", goodApp, dest]);
+    sh(["ditto", source, dest]);
     return dest;
   }
   const sidecarOf = (app: string) => join(app, "Contents", "MacOS", "nod");
   const buildInfoOf = (app: string) => join(app, "Contents", "Resources", "build-info");
   // sidecar の署名を保ったまま .app だけ署名し直す（--deep なし）
-  const resign = (app: string) => sh(["codesign", "--force", "--sign", "-", app]);
+  const resign = (app: string, identifier = "io.github.machamp0714.nod") => sh([
+    "codesign", "--force", "--sign", "-", "--identifier", identifier,
+    "--requirements", `=designated => identifier ${JSON.stringify(identifier)}`, app,
+  ]);
+
+  test("既定のcdhash DRは署名が有効でも更新互換の完成品として拒否する", async () => {
+    const app = copyApp();
+    sh(["codesign", "--remove-signature", app]);
+    sh(["codesign", "--force", "--sign", "-", app]);
+    const r = await verifyApp(app);
+    expect(r.ok).toBe(false);
+    expect(failed(r)).toContain("update-identity");
+    expect(failed(r)).not.toContain("signature");
+  }, 60000);
 
   test("正規の成果物はすべての検査を通る", async () => {
     const r = await verifyApp(goodApp);
     expect(failed(r)).toEqual([]);
     expect(r.ok).toBe(true);
-    expect(r.checks.map((c) => c.name)).toEqual(["signature", "entitlements", "arch", "build-info", "version", "launch", "schema"]);
+    expect(r.checks.map((c) => c.name)).toEqual(["signature", "update-identity", "entitlements", "arch", "build-info", "version", "launch", "schema"]);
+  }, 60000);
+
+  test("専用bundle IDの共通DRはresource変更した更新でも完成品検査と相互要求を通る", async () => {
+    const identifier = "io.github.machamp0714.nod.update-identity-test";
+    const a = copyApp();
+    sh(["/usr/libexec/PlistBuddy", "-c", `Set :CFBundleIdentifier ${identifier}`, join(a, "Contents", "Info.plist")]);
+    resign(a, identifier);
+    expect(failed(await verifyApp(a))).toEqual([]);
+    const b = copyApp(a);
+    writeFileSync(join(b, "Contents", "Resources", "update-marker"), "更新後のresource\n");
+    resign(b, identifier);
+    expect(failed(await verifyApp(b))).toEqual([]);
+
+    function signatureOf(app: string) {
+      const result = Bun.spawnSync(["codesign", "-d", "-r-", "--verbose=4", app], { stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode).toBe(0);
+      const text = `${result.stdout.toString()}\n${result.stderr.toString()}`;
+      const requirement = /^designated => (.+)$/m.exec(text)?.[1];
+      const hash = /^CDHash=(.+)$/m.exec(text)?.[1];
+      expect(requirement).toBeDefined();
+      expect(hash).toBeDefined();
+      return { requirement: requirement!, hash: hash! };
+    }
+    const before = signatureOf(a);
+    const after = signatureOf(b);
+    expect(before.hash).not.toBe(after.hash);
+    sh(["codesign", "--verify", "--test-requirement", `=${before.requirement}`, b]);
+    sh(["codesign", "--verify", "--test-requirement", `=${after.requirement}`, a]);
+  }, 60000);
+
+  test("別identifierの明示DRは署名が有効でもInfo.plistのbundle IDと一致しなければ拒否する", async () => {
+    const app = copyApp();
+    resign(app, "io.github.machamp0714.nod.wrong-identity-test");
+    const r = await verifyApp(app);
+    expect(failed(r)).toContain("update-identity");
+    expect(failed(r)).not.toContain("signature");
   }, 60000);
 
   test("sidecar に entitlements が無ければ落ちる", async () => {

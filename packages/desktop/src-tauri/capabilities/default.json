@@ -1,1 +1,15 @@
-{ "identifier": "default", "windows": ["main"], "permissions": ["core:default"] }
+{
+  "identifier": "default",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-desktop-notifications"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*"
+    ]
+  }
+}

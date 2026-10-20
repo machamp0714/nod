@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
+test("期日到来をCLIのInboxに日付付きで表示し、同じ期日を再生成しない", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[]) => runNod(args, { cwd: repo, db });
+  expect((await nod(["issue", "create", "過去の期日の作業", "--due", "2026-10-01", "--json"])).exitCode).toBe(0);
+  const inbox = await nod(["inbox"]);
+  expect(inbox.stdout).toContain("期日が到来しました（2026-10-01）");
+  expect(inbox.stdout).toContain("過去の期日の作業");
+  const list = await nod(["notification", "list", "--json"]);
+  expect(list.json).toHaveLength(1);
+  expect(list.json[0]).toMatchObject({ kind: "due_date", eventType: "due_date_arrived", data: { dueDate: "2026-10-01" } });
+});
+
 test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購読を操作できない", async () => {
   const db = tempDb();
   const repo = makeRepo();
