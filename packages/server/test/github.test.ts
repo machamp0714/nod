@@ -65,7 +65,7 @@ test("Workspace の公開先の読み書きと origin の候補、worktree 名",
   expect((await call(app, "GET", "/api/workspaces/API/github-repo")).json).toMatchObject({ repo: null, originCandidate: "example/api-server" });
   expect((await call(app, "PUT", "/api/workspaces/API/github-repo", { repo: "Example/API-Server" })).json.repo).toBe("example/api-server");
   expect((await call(app, "DELETE", "/api/workspaces/API/github-repo")).json.repo).toBeNull();
-  expect((await call(app, "GET", `/api/issues/${id}/worktree-name?feature=search-n1`)).json).toEqual({ issueId: id, name: "search-n1-a67fefb7" });
+  expect((await call(app, "GET", `/api/issues/${id}/worktree-name?feature=search-n1`)).json).toEqual({ issueId: id, name: "search-n1-a67fefb7", displayName: "API-1 検索を速くする" });
 });
 
 test("結果不明は 502、記録失敗は 500 で url を details に載せる", async () => {

@@ -3,7 +3,7 @@ import { errorMessage } from "../../api/errors";
 import { useWorktreeName } from "../../api/hooks/github";
 import { useCreateOrcaWorktree } from "../../api/hooks/orca";
 import { useWorkspaces } from "../../api/hooks/shared";
-import type { OrcaAgent } from "../../api/types";
+import type { OrcaAgent, OrcaWorktreeResult } from "../../api/types";
 import { defaultFeature, ORCA_AGENT_OPTIONS, orcaAgentLabel, sanitizeFeature } from "../../lib/orca-feature";
 import { Button, Icon, RadioPills } from "../ui";
 import s from "./issue-detail.module.css";
@@ -18,7 +18,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
   workspaceKey: string;
   title: string;
   disabled: boolean;
-  onCreated: (warning?: string) => void;
+  onCreated: (result: OrcaWorktreeResult) => void;
 }) {
   const workspaces = useWorkspaces();
   const defaultAgent = workspaces.data?.find((w) => w.key === workspaceKey)?.defaultAgent ?? "claude";
@@ -54,11 +54,11 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
     trigger.current?.focus();
   }
   async function submit() {
-    if (busy || feature === "") return;
+    if (busy) return;
     setError("");
     try {
       const result = await create.mutateAsync({ feature, agent });
-      if (result.created) { setOpen(false); onCreated(result.draftWarning); }
+      if (result.created) { setOpen(false); onCreated(result); }
       else setError(result.failure?.message ?? "理由は分かりません");
     } catch (e) {
       setError(errorMessage(e));
@@ -76,11 +76,14 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
           onKeyDown={(e) => { if (e.key === "Escape" && !e.nativeEvent.isComposing && !busy) { e.preventDefault(); close(); } }}>
           {error && <p role="alert" className={s.orcaStartError}><Icon name="circle-alert" size={14} />作成できませんでした：{error}</p>}
           <div className={s.orcaStartField}>
-            <label className={s.orcaStartLabel} htmlFor={`orca-feature-${issueId}`}>feature 名</label>
+            <label className={s.orcaStartLabel} htmlFor={`orca-feature-${issueId}`}>feature 名（任意）</label>
             <input ref={input} id={`orca-feature-${issueId}`} className={s.orcaStartInput} autoComplete="off" spellCheck={false}
-              aria-describedby={feature && preview.data ? previewId : undefined}
+              aria-describedby={preview.data ? previewId : undefined}
               value={feature} disabled={busy} onChange={(e) => setFeature(sanitizeFeature(e.target.value))} />
-            {feature && preview.data && <span id={previewId} className={s.orcaStartPreview}>作成される名前<span className={s.orcaStartName}>{preview.data.name}</span></span>}
+            {preview.data && <div id={previewId} className={s.orcaStartField}>
+              <span className={s.orcaStartPreview}>Orca の表示名<span className={s.orcaStartDisplayName}>{preview.data.displayName}</span></span>
+              <span className={s.orcaStartPreview}>ディレクトリ・ブランチの作成名<span className={s.orcaStartName}>{preview.data.name}</span></span>
+            </div>}
           </div>
           <div className={s.orcaStartField}>
             <span className={s.orcaStartLabel}>エージェント</span>
@@ -89,7 +92,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
           <p className={s.orcaStartNote}>worktree を作り、{orcaAgentLabel(agent)} のセッションを起動します。IDを入力欄に入れ、送信はしません。</p>
           <div className={s.orcaStartActions}>
             <Button size="sm" disabled={busy} onClick={close}>キャンセル</Button>
-            <Button type="submit" variant="primary" disabled={busy || feature === ""}>{busy ? "作成中…" : "作成して起動"}</Button>
+            <Button type="submit" variant="primary" disabled={busy}>{busy ? "作成中…" : "作成して起動"}</Button>
           </div>
         </form>
       )}

@@ -42,6 +42,8 @@ export function wipe(db: Database): void {
   try {
     db.transaction(() => {
       for (const { name } of tables) db.run(`DELETE FROM "${name}"`);
+      // 設定 API が前提とする単一行は、各テストでも初期状態（通知 OFF）へ戻す。
+      db.run("INSERT INTO desktop_notification_settings (id) VALUES (1)");
     })();
   } finally {
     db.run("PRAGMA foreign_keys = ON");

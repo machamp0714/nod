@@ -15,7 +15,7 @@ export function useOpenInOrca(id: string) {
 // Orca に worktree を作ってエージェントを起動する（#210）。成功すると Issue に実行場所が記録されるため、終わったら読み直す。
 // 作れなかった理由は HTTP の失敗ではなく結果の failure で返る
 export function useCreateOrcaWorktree(id: string) {
-  return useApiMutation((input: { feature: string; agent: OrcaAgent }) =>
+  return useApiMutation((input: { feature?: string; agent: OrcaAgent }) =>
     apiFetch<OrcaWorktreeResult>(issuePath(id, "orca-worktree"), { method: "POST", body: input }),
   );
 }

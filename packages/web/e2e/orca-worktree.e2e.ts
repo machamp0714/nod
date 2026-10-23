@@ -8,6 +8,28 @@ import { orcaCalls, stubOrca } from "./support/nod";
 const hashOf = (id: string) => createHash("sha256").update(id.toUpperCase()).digest("hex").slice(0, 8);
 const ok = (result: unknown) => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
 
+test("表示名と下書き入力が失敗しても作成済みの場所を保持し、両方の警告と復旧コマンドを表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "通知の表示を直す" });
+  const worktree = `${nod.dir}/orca/recovery`;
+  await stubOrca({
+    "worktree create": ok({ worktree: { path: worktree, branch: "machamp0714/recovery" }, agentTerminalHandle: "term_new" }),
+    "worktree set": { kind: "timeout" },
+    "terminal wait": { kind: "timeout" },
+  });
+  await page.goto(`/issues/${created.id}`);
+  await region(page, "プロパティ").getByRole("button", { name: "Orca で作業を始める" }).click();
+  const popover = page.getByRole("dialog", { name: "Orca で作業を始める" });
+  await popover.getByRole("button", { name: "作成して起動" }).click();
+  await expect(popover).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Orca で開く" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "表示名を設定できませんでした" })).toContainText("作成しました");
+  await expect(page.getByRole("alert").filter({ hasText: "IDの入力を確認できませんでした" })).toBeVisible();
+  await expect(page.getByText(`orca worktree set --worktree 'path:${worktree}' --display-name '${created.id} 通知の表示を直す' --json`, { exact: true })).toBeVisible();
+  expect((await api.show(created.id)).worktree).toBe(worktree);
+  expect((await orcaCalls()).map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create", "worktree set", "terminal wait"]);
+});
+
 test("実行場所が未記録の Issue で「Orca で作業を始める」から worktree を作ると、実行場所が記録されて「Orca で開く」に変わる", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "Orca で worktree を作成" });
@@ -21,14 +43,14 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await start.click();
   expect((await row.boundingBox())?.height).toBe(28);
 
-  // feature 名の初期値はタイトルの英数字の語。英小文字・数字・- 以外は入らず、空欄の間は作成できない
+  // feature 名の初期値はタイトルの英数字の語。英小文字・数字・- 以外は入らず、空欄でも作成できる
   const popover = page.getByRole("dialog", { name: "Orca で作業を始める" });
-  const feature = popover.getByLabel("feature 名");
+  const feature = popover.getByLabel("feature 名（任意）");
   const submit = popover.getByRole("button", { name: "作成して起動" });
   await expect(feature).toHaveValue("orca-worktree");
   await expect(feature).toBeFocused();
   // 入力欄の説明は名前のプレビュー。トリガーはポップオーバーを aria-controls で指す
-  await expect(feature).toHaveAccessibleDescription(`作成される名前 orca-worktree-${hashOf(created.id)}`);
+  await expect(feature).toHaveAccessibleDescription(`Orca の表示名 ${created.id} Orca で worktree を作成 ディレクトリ・ブランチの作成名 orca-worktree-${hashOf(created.id)}`);
   expect(await start.getAttribute("aria-controls")).toBe(await popover.getAttribute("id"));
   // エージェントは Claude Code と Codex の2択。初期値は Workspace の既定（最初は Claude Code）で、説明文は選んだエージェントに合わせる
   const agents = popover.getByRole("radiogroup", { name: "エージェント" });
@@ -36,10 +58,10 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(agents.getByRole("radio", { name: "Claude Code" })).toBeChecked();
   await expect(popover.getByText("worktree を作り、Claude Code のセッションを起動します。IDを入力欄に入れ、送信はしません。")).toBeVisible();
   await feature.fill("");
-  await expect(submit).toBeDisabled();
-  // 空欄の間は名前のプレビューを出さない
-  await expect(popover.getByText("作成される名前")).toHaveCount(0);
-  await expect(popover.getByText(hashOf(created.id))).toHaveCount(0);
+  await expect(submit).toBeEnabled();
+  // 空欄でも表示名と省略形の作成名を確認できる
+  await expect(popover.getByText(`${created.id} Orca で worktree を作成`, { exact: true })).toBeVisible();
+  await expect(popover.getByText(hashOf(created.id), { exact: true })).toBeVisible();
   await feature.fill("Search N+1_検索");
   await expect(feature).toHaveValue("searchn1");
   await feature.fill("search-n1");
@@ -64,7 +86,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(popover.getByText("worktree を作り、Codex のセッションを起動します。IDを入力欄に入れ、送信はしません。")).toBeVisible();
 
   // 作成中は入力とボタンを無効にし、ラベルを「作成中…」にする
-  await stubOrca({ "worktree create": ok({ worktree: { path: worktree, branch: "refs/heads/machamp0714/API-1-search-n1" }, agentTerminalHandle: "term_new" }), "terminal wait": ok({ wait: { satisfied: true } }), "terminal send": ok({ send: { accepted: true } }) });
+  await stubOrca({ "worktree create": ok({ worktree: { path: worktree, branch: "refs/heads/machamp0714/API-1-search-n1" }, agentTerminalHandle: "term_new" }), "worktree set": ok({}), "terminal wait": ok({ wait: { satisfied: true } }), "terminal send": ok({ send: { accepted: true } }) });
   let release = () => {};
   const held = new Promise<void>((resolve) => { release = resolve; });
   await page.route("**/api/issues/*/orca-worktree", async (route) => { await held; await route.continue(); });
@@ -88,6 +110,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
   await expect(start).toHaveCount(0);
   expect(await orcaCalls()).toEqual([
     ["worktree", "create", "--repo", `path:${api.repo}`, "--name", `search-n1-${hashOf(created.id)}`, "--no-parent", "--agent", "codex", "--activate", "--json"],
+    ["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", `${created.id} Orca で worktree を作成`, "--json"],
     ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
     ["terminal", "send", "--terminal", "term_new", "--text", created.id, "--json"],
   ]);
@@ -100,7 +123,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
 test("Workspace の設定で既定のエージェントを Codex にすると、「Orca で作業を始める」の初期値が Codex になる", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "search n1" });
-  await stubOrca({ "worktree create": ok({ worktree: { path: `${nod.dir}/orca/x`, branch: "refs/heads/x" } }) });
+  await stubOrca({ "worktree create": ok({ worktree: { path: `${nod.dir}/orca/x`, branch: "refs/heads/x" } }), "worktree set": ok({}) });
   await page.goto(`/workspaces/${api.workspace.key}/settings`);
   const section = region(page, "Orca で起動するエージェント");
   const defaults = section.getByRole("radiogroup", { name: "既定のエージェント" });
@@ -123,4 +146,26 @@ test("Workspace の設定で既定のエージェントを Codex にすると、
   expect((await nod.me.listWorkspaces())[0]?.defaultAgent).toBe("codex");
   await expect(page.getByRole("alert")).toContainText(`必要なら ${created.id} を入力してください`);
   await expect(page.getByRole("button", { name: "Orca で開く" })).toBeVisible();
+});
+
+test("日本語だけのタイトルも feature 名なしで作成でき、同名・別名の作業を表示名で見分けられる", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  for (const title of ["検索を速くする", "検索を速くする", "通知の表示を直す"]) {
+    const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title });
+    const worktree = `${nod.dir}/orca/${hashOf(created.id)}`;
+    await stubOrca({ "worktree create": ok({ worktree: { path: worktree, branch: `machamp0714/${hashOf(created.id)}` }, agentTerminalHandle: "term_new" }), "worktree set": ok({}), "terminal wait": ok({ wait: { satisfied: true } }), "terminal send": ok({ send: { accepted: true } }) });
+    await page.goto(`/issues/${created.id}`);
+    await region(page, "プロパティ").getByRole("button", { name: "Orca で作業を始める" }).click();
+    const popover = page.getByRole("dialog", { name: "Orca で作業を始める" });
+    await expect(popover.getByLabel("feature 名（任意）")).toHaveValue("");
+    await expect(popover.getByText(`${created.id} ${title}`, { exact: true })).toBeVisible();
+    await expect(popover.getByText(hashOf(created.id), { exact: true })).toBeVisible();
+    await popover.getByRole("button", { name: "作成して起動" }).click();
+    await expect(popover).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Orca で開く" })).toBeVisible();
+    expect((await orcaCalls()).filter((args) => args[1] === "set").at(-1)).toEqual([
+      "worktree", "set", "--worktree", `path:${worktree}`, "--display-name", `${created.id} ${title}`, "--json",
+    ]);
+    expect((await api.show(created.id)).worktree).toBe(worktree);
+  }
 });

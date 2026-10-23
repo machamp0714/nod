@@ -821,6 +821,7 @@ export interface OrcaWorktreeResult {
   branch: string | null;
   failure: OrcaFailure | null;
   draftWarning?: string; // 作成は成功したが、未送信のID入力を確認できなかった場合
+  displayNameWarning?: { message: string; recoveryCommand: string }; // 作成は成功したが、表示名を設定できなかった場合
 }
 
 // 追加指示の種類。review_fix / rebase は旧記録の読み出しと表示だけに使う。

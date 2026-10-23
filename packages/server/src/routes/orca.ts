@@ -28,7 +28,7 @@ export function registerOrcaRoutes(app: Hono, me: OpCtx, orca: OrcaRunnerOption)
   app.post("/api/issues/:id/orca-open", async (c) => c.json(await openInOrca(me.db, c.req.param("id"), resolveOrcaRunner(orca))));
   app.post("/api/issues/:id/orca-worktree", async (c) => {
     const body = await readBody(c, ["feature", "agent"]);
-    const input = { feature: reqString(body, "feature"), agent: optString(body, "agent") };
+    const input = { feature: optString(body, "feature"), agent: optString(body, "agent") };
     return c.json(await createOrcaWorktree(me, c.req.param("id"), input, resolveOrcaRunner(orca)));
   });
   // 「Orca で作業を始める」の既定のエージェント（claude・codex）。web（書き手 me）から変える
