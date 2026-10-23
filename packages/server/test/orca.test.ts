@@ -63,6 +63,55 @@ describe("Orca で作業を始める API（#210）", () => {
     return { orca, calls };
   }
 
+  test("作成名と日本語の表示名をプレビューし、保存した正確な場所に表示名を設定する", async () => {
+    const calls: string[][] = [];
+    const s = withOrca(async (args) => {
+      calls.push(args);
+      if (args[1] === "set") expect(getIssue(s.db, s.ref).worktree).toBe(NEW_WT);
+      return args[1] === "create" ? created : args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
+    }, null);
+    const preview = await call(s.app, "GET", `/api/issues/${s.ref}/worktree-name?feature=search-n1`);
+    expect(preview.json).toEqual({ issueId: s.ref, name: "search-n1-a67fefb7", displayName: "API-1 検索" });
+    const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, { feature: "search-n1" });
+    expect(res.json.created).toBe(true);
+    expect(calls[1]).toEqual(["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", "API-1 検索", "--json"]);
+  });
+
+  test("feature の省略と空文字で未公開・公開済みの作成名を使い、日本語表示名を保持する", async () => {
+    for (const feature of [undefined, ""]) {
+      for (const published of [false, true]) {
+        const { orca, calls } = recording();
+        const s = withOrca(orca, null);
+        if (published) {
+          await call(s.app, "PUT", "/api/workspaces/API/github-repo", { repo: "example/api-server" });
+          // GitHub との境界は代替応答で公開済み Issue を作る。
+          const app = createApp({ db: s.db, orcaRunner: orca, ghRunner: async () => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ number: 7, html_url: "https://github.com/example/api-server/issues/7" }), stderr: "" }) });
+          expect((await call(app, "POST", `/api/issues/${s.ref}/github/link`, { url: "https://github.com/example/api-server/issues/7" })).status).toBe(200);
+        }
+        const preview = await call(s.app, "GET", `/api/issues/${s.ref}/worktree-name?feature=`);
+        expect(preview.json).toMatchObject({ name: published ? "issue-7" : "a67fefb7", displayName: "API-1 検索" });
+        const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, feature === undefined ? {} : { feature });
+        expect(res.status).toBe(200);
+        expect(res.json.created).toBe(true);
+        expect(calls[0]?.[5]).toBe(published ? "issue-7" : "a67fefb7");
+        expect(calls[1]?.[5]).toBe("API-1 検索");
+      }
+    }
+  });
+
+  test("表示名は長い日本語と引用符を保持し、改行・制御文字・連続空白を一行に整える", async () => {
+    const { orca, calls } = recording();
+    const s = withOrca(orca, null);
+    const title = `通知の表示\n\tを直す\u0001  '$(echo unsafe)' ${"長い作業内容".repeat(60)} 末尾の違い`;
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title });
+    const expected = `API-2 通知の表示 を直す '$(echo unsafe)' ${"長い作業内容".repeat(60)} 末尾の違い`;
+    const preview = await call(s.app, "GET", `/api/issues/${issue.id}/worktree-name?feature=custom-name`);
+    expect(preview.json.displayName).toBe(expected);
+    const res = await call(s.app, "POST", `/api/issues/${issue.id}/orca-worktree`, { feature: "custom-name" });
+    expect(res.json.created).toBe(true);
+    expect(calls[1]).toEqual(["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", expected, "--json"]);
+  });
+
   test("POST orca-worktree は orca worktree create を1回呼び、worktree とブランチを記録する", async () => {
     const { orca, calls } = recording();
     const { app, db, ref } = withOrca(orca, null);
@@ -72,6 +121,7 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.json).toEqual({ issueId: ref, created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
       ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", "API-1 検索", "--json"],
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", ref, "--json"],
     ]);
@@ -89,7 +139,7 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(calls[0]?.slice(7, 9)).toEqual(["--agent", "codex"]);
     const s2 = withOrca(orca, null);
     await call(s2.app, "POST", `/api/issues/${s2.ref}/orca-worktree`, { feature: "x", agent: "codex" });
-    expect(calls.filter((args) => args[0] === "worktree")[1]?.slice(7, 9)).toEqual(["--agent", "codex"]);
+    expect(calls.filter((args) => args[1] === "create")[1]?.slice(7, 9)).toEqual(["--agent", "codex"]);
     expect((await call(s2.app, "GET", "/api/workspaces")).json[0].defaultAgent).toBe("claude");
   });
 
@@ -145,7 +195,7 @@ describe("Orca で作業を始める API（#210）", () => {
     const calls: string[][] = [];
     let release: (r: GhRunResult) => void = () => {};
     const { app, db, ref } = withOrca((args) => {
-      if (args[0] !== "worktree") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
+      if (args[1] !== "create") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
       calls.push(args);
       return new Promise((resolve) => { release = resolve; });
     }, null);
@@ -170,10 +220,10 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.json.failure.message).toContain(NEW_WT);
   });
 
-  test("feature が使えない文字を含む・空・無い・文字列でない要求は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {
+  test("feature が使えない文字を含む・文字列でない要求は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {
     const { orca, calls } = recording();
     const { app, ref } = withOrca(orca, null);
-    for (const body of [{ feature: "Bad_Name" }, { feature: "a b" }, { feature: "" }, {}, { feature: 1 }, { feature: "x", agent: "gemini" }, { feature: "x", agent: 1 }, { feature: "x", extra: 1 }]) {
+    for (const body of [{ feature: "Bad_Name" }, { feature: "a b" }, { feature: 1 }, { feature: "x", agent: "gemini" }, { feature: "x", agent: 1 }, { feature: "x", extra: 1 }]) {
       const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, body);
       expect([body, res.status, res.json.error?.code]).toEqual([body, 400, "INVALID_ARGS"]);
     }

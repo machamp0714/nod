@@ -54,7 +54,6 @@ export function useClearWorkspaceGithubRepo(key: string) {
 export function useWorktreeName(id: string, feature: string) {
   return useQuery({
     queryKey: queryKeys.worktreeName(id, feature),
-    queryFn: () => apiFetch<{ issueId: string; name: string }>(`${issuePath(id, "worktree-name")}?feature=${encodeURIComponent(feature)}`),
-    enabled: feature !== "",
+    queryFn: () => apiFetch<{ issueId: string; name: string; displayName: string }>(`${issuePath(id, "worktree-name")}?feature=${encodeURIComponent(feature)}`),
   });
 }

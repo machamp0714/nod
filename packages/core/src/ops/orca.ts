@@ -190,13 +190,19 @@ export async function openInOrca(db: Database, ref: string, run: OrcaRunner | nu
 
 const FEATURE_RE = /^[a-z0-9-]+$/;
 
+// 一覧で安全に読める一行に整え、タイトルの内容と長さを保持する。
+function worktreeDisplayName(issueId: string, title: string): string {
+  return `${issueId} ${title.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim()}`;
+}
+
 // 「Orca で作業を始める」で作られる worktree 名（Web のプレビュー用。hash を Web で計算しないため）。空の feature は省略形になる
-export function getWorktreeName(db: Database, ref: string, feature: string): { issueId: string; name: string } {
+export function getWorktreeName(db: Database, ref: string, feature: string): { issueId: string; name: string; displayName: string } {
   if (feature !== "" && !FEATURE_RE.test(feature)) {
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
   }
   const row = findIssueRow(db, ref);
-  return { issueId: formatIssueId(row.ws_key, row.number), name: worktreeNameFor(db, row, feature) };
+  const issueId = formatIssueId(row.ws_key, row.number);
+  return { issueId, name: worktreeNameFor(db, row, feature), displayName: worktreeDisplayName(issueId, row.title) };
 }
 
 // worktree を作成中の Issue（DB ごとの Issue の内部 ID）。記録済みの確認は orca を呼ぶ前に行うため、
@@ -210,12 +216,13 @@ const creating = new WeakMap<Database, Set<number>>();
 export async function createOrcaWorktree(
   ctx: OpCtx,
   ref: string,
-  input: { feature: string; agent?: string },
+  input: { feature?: string; agent?: string },
   run: OrcaRunner | null,
 ): Promise<OrcaWorktreeResult> {
   const row = findWritableIssueRow(ctx.db, ref);
   const issueId = formatIssueId(row.ws_key, row.number);
-  if (!FEATURE_RE.test(input.feature)) {
+  const feature = input.feature ?? "";
+  if (feature !== "" && !FEATURE_RE.test(feature)) {
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
   }
   const chosen = input.agent === undefined ? null : parseOrcaAgent(input.agent);
@@ -228,7 +235,7 @@ export async function createOrcaWorktree(
   if (inFlight.has(row.id)) return fail(orcaFailure("WORKTREE_CREATING"));
   inFlight.add(row.id);
   try {
-    return await createAndRecord(ctx, ref, row, issueId, input.feature, chosen, run, fail);
+    return await createAndRecord(ctx, ref, row, issueId, feature, chosen, run, fail);
   } finally {
     inFlight.delete(row.id);
   }
@@ -270,6 +277,15 @@ async function createAndRecord(
     return { issueId, created: true, worktree, branch, failure: null };
   });
   if (!recorded.created) return recorded;
+  // 作成結果の正確な場所だけを指定する。名前の設定前に記録し、失敗しても再作成しない。
+  try {
+    await run(["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", worktreeDisplayName(issueId, row.title), "--json"], {
+      timeoutMs: ORCA_TIMEOUT_MS,
+      maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES,
+    });
+  } catch {
+    // 作成済みの場所と下書き入力を保持する。表示名設定の警告契約は次の Task で扱う。
+  }
   // 作成済みの場所を先に保存する。下書き入力の失敗で worktree を重複作成しない。
   const draftWarning = await fillIssueDraft(run, res.result, worktree, issueId, agent);
   return draftWarning ? { ...recorded, draftWarning } : recorded;

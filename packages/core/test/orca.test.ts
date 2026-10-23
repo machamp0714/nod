@@ -171,6 +171,7 @@ describe("createOrcaWorktree（#210）", () => {
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
       ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", "API-1 検索", "--json"],
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
     ]);
@@ -187,7 +188,7 @@ describe("createOrcaWorktree（#210）", () => {
     });
     const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
     expect(result.created).toBe(true);
-    expect(calls.slice(1)).toEqual([
+    expect(calls.slice(2)).toEqual([
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
     ]);
@@ -199,7 +200,7 @@ describe("createOrcaWorktree（#210）", () => {
     const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
     expect(result).toMatchObject({ created: true, worktree: NEW_WT });
     expect((result as { draftWarning?: string }).draftWarning).toContain("API-1");
-    expect(calls.map((c) => c[1])).toEqual(["create", "wait"]);
+    expect(calls.map((c) => c[1])).toEqual(["create", "set", "wait"]);
     expect(getIssue(db, ref).worktree).toBe(NEW_WT);
     expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).failure?.code).toBe("WORKTREE_ALREADY_RECORDED");
   });
@@ -236,13 +237,13 @@ describe("createOrcaWorktree（#210）", () => {
       "terminal list": ok({ terminals: [terminal({ worktreePath: NEW_WT }), terminal({ handle: "term_other", worktreePath: NEW_WT })] }),
     });
     expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).draftWarning).toContain("特定できません");
-    expect(calls.map((args) => args[1])).toEqual(["create", "list"]);
+    expect(calls.map((args) => args[1])).toEqual(["create", "set", "list"]);
   });
 
   test("エージェントは作成時の指定、無ければ Workspace の既定、既定は claude。時間切れは 60 秒で打ち切る", async () => {
     const seen: { args: string[]; timeoutMs: number }[] = [];
     const run: OrcaRunner = async (args, opts) => {
-      if (args[0] !== "worktree") return args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
+      if (args[1] !== "create") return args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
       seen.push({ args, timeoutMs: opts.timeoutMs });
       return created;
     };
@@ -349,7 +350,7 @@ describe("createOrcaWorktree（#210）", () => {
     const calls: string[][] = [];
     const releases: ((r: GhRunResult) => void)[] = [];
     const run: OrcaRunner = (args) => {
-      if (args[0] !== "worktree") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
+      if (args[1] !== "create") return Promise.resolve(args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } }));
       calls.push(args);
       return new Promise((resolve) => releases.push(resolve));
     };
@@ -371,10 +372,10 @@ describe("createOrcaWorktree（#210）", () => {
     expect((await retry).created).toBe(true);
   });
 
-  test("feature に英小文字・数字・- 以外があるか空なら INVALID_ARGS で、orca を呼ばない", async () => {
+  test("feature に英小文字・数字・- 以外があれば INVALID_ARGS で、orca を呼ばない", async () => {
     const { me, ref } = unstarted();
     const { run, calls } = stubOrca({ "worktree create": created });
-    for (const feature of ["", "Search", "a b", "a_b", "a+b", "検索", "a/b", "--x\n"]) {
+    for (const feature of ["Search", "a b", "a_b", "a+b", "検索", "a/b", "--x\n"]) {
       const code = await createOrcaWorktree(me, ref, { feature }, run).then(() => undefined, (e) => (e as { code?: string }).code);
       expect([feature, code]).toEqual([feature, "INVALID_ARGS"]);
     }
@@ -394,7 +395,7 @@ describe("createOrcaWorktree（#210）", () => {
 test("worktree 名は feature を slug にして、未公開なら hash、公開済みなら issue-<N> を付ける", () => {
   const { db, ws, me } = setup();
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
-  expect(getWorktreeName(db, issue.id, "search-n1")).toEqual({ issueId: issue.id, name: "search-n1-a67fefb7" });
+  expect(getWorktreeName(db, issue.id, "search-n1")).toEqual({ issueId: issue.id, name: "search-n1-a67fefb7", displayName: "API-1 x" });
   expect(getWorktreeName(db, issue.id, "api-1-fix").name).toBe("fix-a67fefb7");
   expect(getWorktreeName(db, issue.id, "").name).toBe("a67fefb7");
   expect(codeOf(() => getWorktreeName(db, issue.id, "Bad Name"))).toBe("INVALID_ARGS");

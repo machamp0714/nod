@@ -1239,7 +1239,8 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .orcaStartInput { min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font-family: var(--font-mono); font-size: 12px; outline: none; }
 .orcaStartInput:focus { border-color: var(--accent); }
 .orcaStartInput:disabled { color: var(--ink3); }
-.orcaStartPreview { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink3); font-size: 11.5px; white-space: nowrap; }
+.orcaStartPreview { display: flex; flex-direction: column; gap: 3px; min-width: 0; color: var(--ink3); font-size: 11.5px; }
+.orcaStartDisplayName { color: var(--ink2); overflow-wrap: anywhere; white-space: normal; }
 .orcaStartName { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink2); font-family: var(--font-mono); }
 .orcaStartNote { margin: 0; color: var(--ink3); font-size: 11.5px; line-height: 1.5; }
 .orcaStartActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
