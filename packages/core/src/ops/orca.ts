@@ -278,17 +278,24 @@ async function createAndRecord(
   });
   if (!recorded.created) return recorded;
   // 作成結果の正確な場所だけを指定する。名前の設定前に記録し、失敗しても再作成しない。
+  const displayName = worktreeDisplayName(issueId, row.title);
+  let displayNameFailure: string | null = null;
   try {
-    await run(["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", worktreeDisplayName(issueId, row.title), "--json"], {
+    const renamed = readOrcaEnvelope(await run(["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", displayName, "--json"], {
       timeoutMs: ORCA_TIMEOUT_MS,
       maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES,
-    });
+    }));
+    if (!renamed.ok) displayNameFailure = renamed.failure.message;
   } catch {
-    // 作成済みの場所と下書き入力を保持する。表示名設定の警告契約は次の Task で扱う。
+    displayNameFailure = "Orcaとの通信に失敗しました。";
   }
+  const displayNameWarning = displayNameFailure ? {
+    message: `Worktree は作成しましたが、表示名を設定できませんでした。表示名だけを直すには、次のコマンドを実行してください。${displayNameFailure}`,
+    recoveryCommand: `orca worktree set --worktree ${shellQuote(`path:${worktree}`)} --display-name ${shellQuote(displayName)} --json`,
+  } : undefined;
   // 作成済みの場所を先に保存する。下書き入力の失敗で worktree を重複作成しない。
   const draftWarning = await fillIssueDraft(run, res.result, worktree, issueId, agent);
-  return draftWarning ? { ...recorded, draftWarning } : recorded;
+  return { ...recorded, ...(displayNameWarning ? { displayNameWarning } : {}), ...(draftWarning ? { draftWarning } : {}) };
 }
 
 async function fillIssueDraft(run: OrcaRunner, created: unknown, worktree: string, issueId: string, agent: OrcaAgent): Promise<string | null> {

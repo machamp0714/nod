@@ -1,7 +1,7 @@
 import { useCycles } from "../../api/hooks/cycles";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { Issue, IssueReminder, Relations, RelationState, Status, UpdateIssueInput } from "../../api/types";
+import type { Issue, IssueReminder, OrcaWorktreeResult, Relations, RelationState, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
 import { PrStatusSection } from "./PrStatusSection";
 import { cycleChoices } from "../../lib/cycles";
@@ -309,7 +309,7 @@ export function PropertiesPanel({
   // 「Orca で作業を始める」が成功したら、押したボタンが消えるため、代わりに出る「Orca で開く」へフォーカスを移す（#210）。
   // 読み直しの描画が成功の通知より後になることもあるため、通知のときと worktree が変わったときの両方で試す
   const openInOrca = useRef<HTMLButtonElement>(null);
-  const [orcaDraftWarning, setOrcaDraftWarning] = useState<{ issueId: string; message: string } | null>(null);
+  const [orcaCreatedResult, setOrcaCreatedResult] = useState<OrcaWorktreeResult | null>(null);
   const focusOpenInOrca = useRef(false);
   const moveFocusToOpenInOrca = () => {
     if (!focusOpenInOrca.current || !openInOrca.current) return;
@@ -424,11 +424,17 @@ export function PropertiesPanel({
             ) : (
               // 実行場所が未記録（worktree もブランチも無い）のときだけ、値の位置に「Orca で作業を始める」を出す（#210、nod.pen「PHJ9L」）
               <StartInOrcaButton issueId={issue.id} workspaceKey={issue.workspace} title={issue.title} disabled={readOnly}
-                onCreated={(warning) => { setOrcaDraftWarning(warning ? { issueId: issue.id, message: warning } : null); focusOpenInOrca.current = true; moveFocusToOpenInOrca(); }} />
+                onCreated={(result) => { setOrcaCreatedResult(result); focusOpenInOrca.current = true; moveFocusToOpenInOrca(); }} />
             )}
           </Prop>
         )}
-        {full && orcaDraftWarning?.issueId === issue.id && <Prop label="起動結果"><span role="alert">{orcaDraftWarning.message}</span></Prop>}
+        {full && orcaCreatedResult?.issueId === issue.id && <>
+          {orcaCreatedResult.displayNameWarning && <Prop label="表示名の設定"><div role="alert" className={s.orcaCreateWarning}>
+            <span>{orcaCreatedResult.displayNameWarning.message}</span>
+            <code className={s.orcaRecoveryCommand}>{orcaCreatedResult.displayNameWarning.recoveryCommand}</code>
+          </div></Prop>}
+          {orcaCreatedResult.draftWarning && <Prop label="起動結果"><span role="alert">{orcaCreatedResult.draftWarning}</span></Prop>}
+        </>}
         {full && <Prop label="GitHub"><GithubLinkRow issueId={issue.id} /></Prop>}
         {full && (
           <div className={s.prGroup}>

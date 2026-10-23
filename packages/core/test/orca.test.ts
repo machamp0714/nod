@@ -166,7 +166,7 @@ describe("createOrcaWorktree（#210）", () => {
   test("orca worktree create を1回呼び、結果の worktree とブランチを Issue に記録する。ステータスと担当は変えない", async () => {
     const { db, me, ref } = unstarted();
     const before = getIssue(db, ref);
-    const { run, calls } = stubOrca({ "worktree create": created });
+    const { run, calls } = stubOrca({ "worktree create": created, "worktree set": ok({}) });
     const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([

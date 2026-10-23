@@ -3,7 +3,7 @@ import { errorMessage } from "../../api/errors";
 import { useWorktreeName } from "../../api/hooks/github";
 import { useCreateOrcaWorktree } from "../../api/hooks/orca";
 import { useWorkspaces } from "../../api/hooks/shared";
-import type { OrcaAgent } from "../../api/types";
+import type { OrcaAgent, OrcaWorktreeResult } from "../../api/types";
 import { defaultFeature, ORCA_AGENT_OPTIONS, orcaAgentLabel, sanitizeFeature } from "../../lib/orca-feature";
 import { Button, Icon, RadioPills } from "../ui";
 import s from "./issue-detail.module.css";
@@ -18,7 +18,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
   workspaceKey: string;
   title: string;
   disabled: boolean;
-  onCreated: (warning?: string) => void;
+  onCreated: (result: OrcaWorktreeResult) => void;
 }) {
   const workspaces = useWorkspaces();
   const defaultAgent = workspaces.data?.find((w) => w.key === workspaceKey)?.defaultAgent ?? "claude";
@@ -58,7 +58,7 @@ export function StartInOrcaButton({ issueId, workspaceKey, title, disabled, onCr
     setError("");
     try {
       const result = await create.mutateAsync({ feature, agent });
-      if (result.created) { setOpen(false); onCreated(result.draftWarning); }
+      if (result.created) { setOpen(false); onCreated(result); }
       else setError(result.failure?.message ?? "理由は分かりません");
     } catch (e) {
       setError(errorMessage(e));

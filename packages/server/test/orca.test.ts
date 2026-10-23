@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { archiveIssue, completeIssue, createIssue, getIssue, type GhRunResult, type OrcaRunner, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
@@ -62,6 +63,71 @@ describe("Orca で作業を始める API（#210）", () => {
     };
     return { orca, calls };
   }
+
+  test("表示名設定の失敗は作成成功に付随する警告となり、下書きの警告を隠さず再作成も再送もしない", async () => {
+    const failures: Array<GhRunResult | Error> = [
+      { kind: "timeout" }, { kind: "not_found" },
+      { kind: "exited", exitCode: 1, stdout: JSON.stringify({ ok: false, error: { message: "名前が長すぎます" } }), stderr: "" },
+      { kind: "exited", exitCode: 0, stdout: "invalid-json", stderr: "" },
+      new Error("通信切断"),
+    ];
+    for (const failure of failures) {
+      const calls: string[][] = [];
+      const s = withOrca(async (args) => {
+        calls.push(args);
+        if (args[1] === "create") return created;
+        if (args[1] === "set") {
+          if (failure instanceof Error) throw failure;
+          return failure;
+        }
+        return { kind: "timeout" };
+      }, null);
+      const before = getIssue(s.db, s.ref);
+      const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, { agent: "codex" });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({ created: true, worktree: NEW_WT, failure: null });
+      expect(res.json.displayNameWarning.message).toContain("表示名を設定できませんでした");
+      expect(res.json.displayNameWarning.recoveryCommand).toBe(`orca worktree set --worktree 'path:${NEW_WT}' --display-name 'API-1 検索' --json`);
+      expect(res.json.draftWarning).toContain("IDの入力を確認できませんでした");
+      expect(getIssue(s.db, s.ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
+      expect((await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, {})).json.failure.code).toBe("WORKTREE_ALREADY_RECORDED");
+      expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create", "worktree set", "terminal wait"]);
+      expect(calls[0]?.[8]).toBe("codex");
+    }
+  });
+
+  test("復旧コマンドは引用符とシェル特殊文字のある正確な場所と表示名を独立した引数として渡す", async () => {
+    const worktree = "/tmp/orca/日本語 ' $(printf unsafe) `printf bad`; printf injected";
+    const title = "通知 ' $(printf unsafe) `printf bad`; printf injected";
+    const calls: string[][] = [];
+    const s = withOrca(async (args) => {
+      calls.push(args);
+      if (args[1] === "create") return ok({ worktree: { path: worktree, branch: "recovery" }, agentTerminalHandle: "term_new" });
+      if (args[1] === "set") return { kind: "timeout" };
+      return args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
+    }, null);
+    const issue = createIssue(s.me, { workspaceId: s.ws.id, title });
+    const res = await call(s.app, "POST", `/api/issues/${issue.id}/orca-worktree`, {});
+    expect(res.json.created).toBe(true);
+    expect(res.json.draftWarning).toBeUndefined();
+    const command = res.json.displayNameWarning.recoveryCommand;
+    // 復旧コマンドをシェルで解析し、orca の代わりに引数だけ出力する。実 Orca は起動しない。
+    const parsed = spawnSync("/bin/sh", ["-c", `orca() { printf '%s\\0' "$@"; }; ${command}`], { encoding: "utf8" });
+    expect(parsed.status).toBe(0);
+    expect(parsed.stdout.split("\0").slice(0, -1)).toEqual(["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", `API-2 ${title}`, "--json"]);
+    expect(calls[1]).toEqual(["worktree", "set", "--worktree", `path:${worktree}`, "--display-name", `API-2 ${title}`, "--json"]);
+    expect(getIssue(s.db, issue.id).worktree).toBe(worktree);
+  });
+
+  test("作成名の衝突は既存場所を改名や削除せず理由を返す", async () => {
+    const { orca, calls } = recording({ kind: "exited", exitCode: 1, stdout: JSON.stringify({ ok: false, error: { message: "worktree already exists" } }), stderr: "" });
+    const s = withOrca(orca, null);
+    const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, {});
+    expect(res.json).toMatchObject({ created: false, worktree: null, branch: null, failure: { code: "ORCA_ERROR" } });
+    expect(res.json.failure.message).toContain("worktree already exists");
+    expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create"]);
+    expect(getIssue(s.db, s.ref).worktree).toBeNull();
+  });
 
   test("作成名と日本語の表示名をプレビューし、保存した正確な場所に表示名を設定する", async () => {
     const calls: string[][] = [];
@@ -161,6 +227,19 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.json).toMatchObject({ created: false, worktree: WT, failure: { code: "WORKTREE_ALREADY_RECORDED" } });
     expect(calls).toHaveLength(0);
     expect(getIssue(db, ref).worktree).toBe(WT);
+  });
+
+  test("既存場所の Issue タイトル変更と開く操作は表示名を設定し直さない", async () => {
+    const calls: string[][] = [];
+    const s = withOrca(async (args) => {
+      calls.push(args);
+      return args[1] === "list" ? ok({ terminals: [{ handle: "term_existing", worktreePath: WT }] }) : ok({});
+    });
+    expect((await call(s.app, "POST", `/api/issues/${s.ref}/update`, { title: "変更後の日本語タイトル" })).status).toBe(200);
+    expect(calls).toEqual([]);
+    expect((await call(s.app, "POST", `/api/issues/${s.ref}/orca-open`)).json.opened).toBe(true);
+    expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual(["terminal list", "terminal switch"]);
+    expect(getIssue(s.db, s.ref)).toMatchObject({ title: "変更後の日本語タイトル", worktree: WT, branch: "feat-search" });
   });
 
   test("ブランチだけが記録済みでも orca を呼ばず、200 で failure を返す", async () => {

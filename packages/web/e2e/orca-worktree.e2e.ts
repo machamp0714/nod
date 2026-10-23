@@ -8,6 +8,28 @@ import { orcaCalls, stubOrca } from "./support/nod";
 const hashOf = (id: string) => createHash("sha256").update(id.toUpperCase()).digest("hex").slice(0, 8);
 const ok = (result: unknown) => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
 
+test("表示名と下書き入力が失敗しても作成済みの場所を保持し、両方の警告と復旧コマンドを表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "通知の表示を直す" });
+  const worktree = `${nod.dir}/orca/recovery`;
+  await stubOrca({
+    "worktree create": ok({ worktree: { path: worktree, branch: "machamp0714/recovery" }, agentTerminalHandle: "term_new" }),
+    "worktree set": { kind: "timeout" },
+    "terminal wait": { kind: "timeout" },
+  });
+  await page.goto(`/issues/${created.id}`);
+  await region(page, "プロパティ").getByRole("button", { name: "Orca で作業を始める" }).click();
+  const popover = page.getByRole("dialog", { name: "Orca で作業を始める" });
+  await popover.getByRole("button", { name: "作成して起動" }).click();
+  await expect(popover).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Orca で開く" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "表示名を設定できませんでした" })).toContainText("作成しました");
+  await expect(page.getByRole("alert").filter({ hasText: "IDの入力を確認できませんでした" })).toBeVisible();
+  await expect(page.getByText(`orca worktree set --worktree 'path:${worktree}' --display-name '${created.id} 通知の表示を直す' --json`, { exact: true })).toBeVisible();
+  expect((await api.show(created.id)).worktree).toBe(worktree);
+  expect((await orcaCalls()).map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create", "worktree set", "terminal wait"]);
+});
+
 test("実行場所が未記録の Issue で「Orca で作業を始める」から worktree を作ると、実行場所が記録されて「Orca で開く」に変わる", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "Orca で worktree を作成" });
@@ -101,7 +123,7 @@ test("実行場所が未記録の Issue で「Orca で作業を始める」か�
 test("Workspace の設定で既定のエージェントを Codex にすると、「Orca で作業を始める」の初期値が Codex になる", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const created = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "search n1" });
-  await stubOrca({ "worktree create": ok({ worktree: { path: `${nod.dir}/orca/x`, branch: "refs/heads/x" } }) });
+  await stubOrca({ "worktree create": ok({ worktree: { path: `${nod.dir}/orca/x`, branch: "refs/heads/x" } }), "worktree set": ok({}) });
   await page.goto(`/workspaces/${api.workspace.key}/settings`);
   const section = region(page, "Orca で起動するエージェント");
   const defaults = section.getByRole("radiogroup", { name: "既定のエージェント" });
