@@ -5,6 +5,59 @@ test.use({ dataset: "issue-list" });
 
 const rows = (page: import("@playwright/test").Page) => page.getByRole("table").locator("tbody tr");
 
+test("Project 詳細は保存済みの説明を Markdown で表示し、リンク先を開いても本文を変更しない", async ({ page, nod }) => {
+  const description = "## 目的\n\n導入の背景です。\n\n前提を確認します。\n\n- データを準備する\n- モデルを評価する\n\n[導入ガイド](https://example.com/guide)";
+  const project = await nod.me.createProject({ name: "Markdown の説明", description });
+  await page.context().route("https://example.com/guide", (route) => route.fulfill({ contentType: "text/html", body: "<p>導入ガイド</p>" }));
+  await page.goto(`/projects/${project.id}`);
+  const intro = page.getByRole("region", { name: "Project の概要" });
+  await expect(intro.getByRole("heading", { level: 3, name: "目的" })).toBeVisible();
+  await expect(intro.locator("p", { hasText: "導入の背景です。" })).toHaveText("導入の背景です。");
+  await expect(intro.locator("p", { hasText: "前提を確認します。" })).toHaveText("前提を確認します。");
+  await expect(intro.getByRole("listitem").filter({ hasText: /データを準備する|モデルを評価する/ })).toHaveText(["データを準備する", "モデルを評価する"]);
+  const link = intro.getByRole("link", { name: "導入ガイド", exact: true });
+  await expect(link).toHaveAttribute("href", "https://example.com/guide");
+  const popupPromise = page.waitForEvent("popup");
+  await link.click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL("https://example.com/guide");
+  await popup.close();
+  await page.reload();
+  await expect(intro.getByRole("heading", { name: "目的" })).toBeVisible();
+  await page.goto(`/projects/${project.id}?view=flow`);
+  await expect(intro.getByRole("heading", { name: "目的" })).toBeVisible();
+  const saved = await page.request.get(`/api/projects/${project.id}`);
+  expect((await saved.json()).description).toBe(description);
+});
+
+test("Project 詳細は Markdown のない長文を省略せず、改行と折り返しを保つ", async ({ page, nod }) => {
+  const firstLine = "説明の先頭。";
+  const lastLine = "説明の末尾。";
+  const description = `${firstLine}\n${"長い説明を最後まで読む。".repeat(300)}\n${lastLine}`;
+  const project = await nod.me.createProject({ name: "長文の説明", description });
+  await page.setViewportSize({ width: 800, height: 960 });
+  await page.goto(`/projects/${project.id}`);
+  const paragraph = page.getByRole("region", { name: "Project の概要" }).locator("p").filter({ hasText: firstLine });
+  expect(await paragraph.textContent()).toBe(description);
+  await expect(paragraph.locator("br")).toHaveCount(2);
+  await paragraph.scrollIntoViewIfNeeded();
+  await expect(paragraph).toBeVisible();
+  expect(await paragraph.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(page.getByRole("heading", { name: "Documents" })).toBeVisible();
+});
+
+for (const description of [undefined, ""]) {
+  test(`Project 詳細は説明が${description === undefined ? "未設定" : "空文字"}でも概要を表示する`, async ({ page, nod }) => {
+    const project = await nod.me.createProject({ name: "説明なし", description });
+    await page.goto(`/projects/${project.id}`);
+    const intro = page.getByRole("region", { name: "Project の概要" });
+    await expect(intro.getByText("0/0 完了")).toBeVisible();
+    await expect(intro.getByRole("heading", { name: "Documents" })).toBeVisible();
+    await expect(intro).not.toContainText("undefined");
+    await expect(intro).not.toContainText("null");
+  });
+}
+
 test("Projects は Active の Project を列つきで出す", async ({ page }) => {
   await page.goto("/projects");
   await expect(page.getByRole("table").getByRole("columnheader")).toHaveText(["Name", "Workspace", "Progress", "健全性", "LLM の状況", "Updated"]);

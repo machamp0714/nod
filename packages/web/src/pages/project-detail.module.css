@@ -4,11 +4,6 @@
   gap: 12px;
 }
 
-.description {
-  color: var(--ink2);
-  font-size: 13.5px;
-}
-
 .progress {
   display: flex;
   align-items: center;

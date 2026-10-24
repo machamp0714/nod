@@ -7,6 +7,7 @@ import { useProject, useProjects } from "../api/hooks/projects";
 import type { DocumentRef, Milestone, ProjectDetail, ProjectSummary } from "../api/types";
 import { BlockedFilter } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { Markdown } from "../components/markdown/Markdown";
 import { HealthPill } from "../components/projects/HealthPill";
 import { MilestonesSection } from "../components/projects/MilestonesSection";
 import { ProjectFlowPage, ProjectIssuesBar, ProjectViewSwitch } from "../components/projects/ProjectFlow";
@@ -130,7 +131,7 @@ function ProjectIntro({
           </Link>
         ))}
       </div>
-      {project.description && <p className={p.description}>{project.description}</p>}
+      {project.description && <Markdown breaks>{project.description}</Markdown>}
       <div className={p.progress}>
         <span className={p.health} aria-label="現在の健全性">
           <HealthPill health={project.health} />
