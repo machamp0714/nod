@@ -6,11 +6,11 @@ import { type ViewDisplay, type ViewGroupKey, validateViewDisplay } from "./view
 // My Issues の既定のグループ化は Status のため、「なし」を選んだことを groupBy: "none" で持てる
 export type PageDisplay = Omit<ViewDisplay, "tab" | "groupBy"> & { groupBy?: ViewGroupKey | "none" };
 
-const PAGE_RE = /^(issues|my-issues|project:[1-9]\d*|cycle:[1-9]\d*)$/;
+const PAGE_RE = /^(issues|my-issues|project:[1-9]\d*|cycle:[1-9]\d*|sprint:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 export function validatePage(page: string): string {
   if (!PAGE_RE.test(page)) {
-    throw new NodError("INVALID_ARGS", `表示設定を保存するページ「${page}」は使えません（使えるもの: issues, my-issues, project:<id>, cycle:<id>）`);
+    throw new NodError("INVALID_ARGS", `表示設定を保存するページ「${page}」は使えません（使えるもの: issues, my-issues, project:<id>, sprint:<UUID>）`);
   }
   return page;
 }

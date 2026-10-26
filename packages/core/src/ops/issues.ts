@@ -35,7 +35,8 @@ import { setColumn } from "../mutate";
 import { readTriageProposalNotifications } from "../notify";
 import { type ActivityItem, type AgentInstruction, type Comment, type Issue, type IssueDetail, type RelationState, type RelationType, type Relations, type Status, STATUSES } from "../types";
 import { resolveMilestone } from "./milestones";
-import { resolveCycle } from "./cycles";
+import { sprintIssueScope } from "./sprints";
+import type { SprintClock } from "../sprint-types";
 import { isNoneRef, validateAssignee } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
@@ -87,6 +88,7 @@ export interface CreateIssueInput {
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
   requireText(input.title, "タイトル");
   if (input.template !== undefined && input.description !== undefined) {
     throw new NodError(
@@ -105,7 +107,6 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
-    const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
     const requested = isLlm(ctx) && input.requested === true;
     return insertIssue(ctx, {
@@ -118,7 +119,6 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       parentId: parent?.id ?? null,
       projectId: project?.id ?? null,
       milestoneId: milestone?.id ?? null,
-      cycleId: cycle?.id ?? null,
       labels: input.labels ?? [],
       ...(requested ? { status: "todo" as const } : {}),
       origin: {
@@ -149,6 +149,7 @@ export interface NewIssueRow {
 
 // 起票・複製・定期Issueで共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
 export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
+  if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
   const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
     id: number;
     next_number: number;
@@ -162,8 +163,8 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, cycle_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -177,7 +178,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.parentId,
       input.projectId,
       input.milestoneId ?? null,
-      input.cycleId ?? null,
       input.assignee ?? null,
       closed ? (input.closeReason ?? null) : null,
       closed ? ts : null,
@@ -193,7 +193,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   if (!closed) prepareCreatedIssueAssessment(ctx, id, ws.id, input.description);
   recordEvent(ctx.db, id, ctx.actor, "created", {
     status,
-    ...(input.cycleId !== null && input.cycleId !== undefined ? { cycle_id: input.cycleId } : {}),
     ...input.origin,
   });
   return toIssue(issueRowById(ctx.db, id));
@@ -228,7 +227,9 @@ export interface ListIssuesFilter {
   statuses?: Status[]; // 省くと done と canceled を除く
   projectRef?: string;
   milestone?: string; // Milestone の ID か "none"（Milestone のない Issue）。名前は projectRef を指定したときだけ
-  cycleRef?: string; // Cycle の ID・名前・current か "none"（Cycle のない Issue）
+  sprintRef?: string;
+  sprintClock?: SprintClock;
+  cycleRef?: string; // 廃止済み。旧呼び出し元の撤去まで型だけを保持する
   labels?: string[];
   ready?: boolean;
   query?: string;
@@ -270,10 +271,11 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("i.milestone_id = ?");
     params.push(milestone.id);
   }
-  if (isNoneRef(filter.cycleRef)) where.push("i.cycle_id IS NULL");
-  else if (filter.cycleRef) {
-    where.push("i.cycle_id = ?");
-    params.push(resolveCycle(db, filter.cycleRef).id);
+  if (filter.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleの検索は廃止されました。SprintのUUID・番号・current・noneを指定してください");
+  if (filter.sprintRef !== undefined) {
+    const scope=sprintIssueScope(db,filter.sprintRef,filter.sprintClock);
+    where.push(scope.where);
+    params.push(...scope.params);
   }
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
@@ -344,7 +346,7 @@ export interface IssueList {
 }
 
 // web の Issue 一覧（Issues、Views、Project 詳細）の読み出し。ステータスを省くとすべてのステータスを返す
-export function queryIssues(db: Database, query: IssueQuery): IssueList {
+export function queryIssues(db: Database, query: IssueQuery, clock: SprintClock = {}): IssueList {
   const q = validateIssueQuery(query);
   const filter: ListIssuesFilter = {
     workspaceKeys: q.workspace,
@@ -352,6 +354,8 @@ export function queryIssues(db: Database, query: IssueQuery): IssueList {
     projectRef: q.project,
     milestone: q.milestone,
     cycleRef: q.cycle,
+    sprintRef: q.sprint,
+    sprintClock: {now:clock.now ?? new Date()},
     labels: q.label,
     ready: q.ready,
     query: q.q,
@@ -533,6 +537,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
   if (input.status === "needs_clarification") {
     throw new NodError(
       "INVALID_ARGS",
@@ -571,15 +576,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
       setColumn(ctx, row, "project_id", project?.id ?? null, { from: row.project_name, to: project?.name ?? null });
     }
     if (input.milestoneRef !== undefined || row.milestone_id !== null) setMilestone(ctx, row, input.milestoneRef);
-    if (input.cycleRef !== undefined) {
-      const cycle = input.cycleRef ? resolveCycle(ctx.db, input.cycleRef) : null;
-      setColumn(ctx, row, "cycle_id", cycle?.id ?? null, {
-        from: row.cycle_name,
-        to: cycle?.name ?? null,
-        data: { from_id: row.cycle_id, to_id: cycle?.id ?? null },
-        automation: input.automation,
-      });
-    }
     if (input.status !== undefined) {
       if (input.reason !== undefined && (input.status === "done" || input.status === "canceled")) {
         setColumn(ctx, row, "close_reason", input.reason);

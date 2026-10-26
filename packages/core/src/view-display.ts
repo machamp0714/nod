@@ -4,7 +4,7 @@ import { NodError } from "./errors";
 // 既定と同じ値は持たない（省いたキーは画面の既定で表示する）。
 // 委任中タブは filter の delegated で持つため、tab は取得した行を画面で絞るタブだけを持つ
 export const VIEW_TABS = ["ready", "needs_clarification"] as const;
-export const VIEW_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "assignee", "label"] as const;
+export const VIEW_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "sprint", "assignee", "label"] as const;
 export const VIEW_SORTS = ["priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"] as const;
 export const VIEW_COLUMNS = ["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"] as const;
 

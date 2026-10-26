@@ -1,3 +1,4 @@
+import { NodError } from "./errors";
 import { now, type OpCtx } from "./ctx";
 import { recordEvent } from "./events";
 import type { IssueRow } from "./issue-query";
@@ -60,6 +61,7 @@ export function setColumn(
     system?: boolean;
   } = {},
 ): boolean {
+  if (column === "cycle_id") throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
   const from = row[column];
   if (from === to) return false;
   if (column === "status" && !extra.system) assertTransitionAllowed(ctx.db, row, from as Status, to as Status);

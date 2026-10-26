@@ -1,3 +1,4 @@
+import { importSprintHistory } from "./migrations/sprint-history";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -672,4 +673,6 @@ export const MIGRATIONS: MigrationStep[][] = [
       for (const issue of issues) insert.run(issue.id, issue.due_date, dueDateAtNine(issue.due_date) < introducedAt ? "excluded" : "pending");
     },
   ],
+  // 版43: Cycleの保存原本をSprint履歴へ移し、旧所属を撤去する。
+  [importSprintHistory],
 ];

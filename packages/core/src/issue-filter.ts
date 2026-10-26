@@ -10,6 +10,7 @@ export interface IssueQuery {
   status?: Status[]; // どれかに合うもの。省くとすべてのステータス
   project?: string; // Project の名前か ID
   milestone?: string; // Milestone の数字の ID か、Milestone のない Issue だけにする "none"
+  sprint?: string; // UUID・共通番号・current・none。未解決の旧参照も条件として保持する
   cycle?: string; // Cycle の ID・名前・current か、Cycle のない Issue だけにする "none"
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
@@ -19,7 +20,7 @@ export interface IssueQuery {
   priority?: number[]; // 優先度（0 = なし、1 = Urgent 〜 4 = Low）。どれかに合うもの
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "label", "ready", "q", "blocked", "delegated", "assignee", "archived", "priority"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "sprint", "label", "ready", "q", "blocked", "delegated", "assignee", "archived", "priority"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -106,6 +107,10 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     }
     q.cycle = isNoneRef(raw.cycle) ? NONE_REF : raw.cycle.trim();
   }
+  if (raw.sprint !== undefined) {
+    if (typeof raw.sprint !== "string" || !raw.sprint.trim()) throw invalid("sprint には Sprint のUUID・番号・current・noneを指定してください");
+    q.sprint = isNoneRef(raw.sprint) ? NONE_REF : raw.sprint.trim();
+  }
   const label = stringList(raw.label, "label", false);
   if (label) q.label = label;
   if (raw.blocked !== undefined) {
@@ -136,7 +141,7 @@ export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     const last = values[values.length - 1] ?? "";
-    if (key === "project" || key === "milestone" || key === "cycle" || key === "q") {
+    if (key === "project" || key === "milestone" || key === "cycle" || key === "sprint" || key === "q") {
       raw[key] = last;
     } else if (key === "ready" || key === "blocked" || key === "delegated" || key === "archived") {
       if (!["true", "1", "false", "0"].includes(last)) {

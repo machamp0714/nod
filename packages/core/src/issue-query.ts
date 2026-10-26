@@ -67,7 +67,7 @@ export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', '
 // ブロック元 b がまだブロックしている条件。完了・取り消し・アーカイブ済みのブロック元は数えない
 export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived_at IS NULL";
 
-export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name, cy.name AS cycle_name,
+export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name, NULL AS cycle_id, NULL AS cycle_name,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
   (SELECT group_concat(blocker_id, char(10)) FROM (
     SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
@@ -83,8 +83,7 @@ JOIN workspaces w ON w.id = i.workspace_id
 LEFT JOIN issues pi ON pi.id = i.parent_id
 LEFT JOIN workspaces pw ON pw.id = pi.workspace_id
 LEFT JOIN projects pr ON pr.id = i.project_id
-LEFT JOIN milestones ms ON ms.id = i.milestone_id
-LEFT JOIN cycles cy ON cy.id = i.cycle_id`;
+LEFT JOIN milestones ms ON ms.id = i.milestone_id`;
 
 // 着手できる Issue の条件のうち、担当者とブロック元に関係しないもの。? には現在時刻を渡す。
 // ブロック元を別に1回で読む画面（Project のフロー）は、これとまだ止めているブロック元がないことを合わせて Ready とする
