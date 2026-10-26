@@ -199,7 +199,7 @@ function classify(row: Row): { kind: SummaryKind; detail: string | null } | null
 }
 
 // 要約で読む events と作業ログを1本の UNION ALL にする。EXPLAIN で索引を確かめられるよう SQL と引数を返す
-export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace" | "project" | "cycle" | "sprint">, since: string, until: string, includeArchived: boolean): { sql: string; params: (string | number)[] } {
+export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace" | "project" | "cycle" | "sprint" | "now">, since: string, until: string, includeArchived: boolean): { sql: string; params: (string | number)[] } {
   const scope = issueScope(db, q);
   // アーカイブ操作そのものは、アーカイブ済みを除くときも「アーカイブ」に出す
   const archivedEvents = includeArchived ? "" : " AND (i.archived_at IS NULL OR e.type = 'archived')";

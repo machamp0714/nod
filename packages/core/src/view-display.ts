@@ -6,7 +6,7 @@ import { NodError } from "./errors";
 export const VIEW_TABS = ["ready", "needs_clarification"] as const;
 export const VIEW_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "sprint", "assignee", "label"] as const;
 export const VIEW_SORTS = ["priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"] as const;
-export const VIEW_COLUMNS = ["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"] as const;
+export const VIEW_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"] as const;
 
 export type ViewGroupKey = (typeof VIEW_GROUP_KEYS)[number];
 

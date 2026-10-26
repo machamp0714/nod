@@ -48,11 +48,13 @@ function fixture() {
 }
 
 test('各Workspaceの有効な現在Sprintと人が合意した採択だけを全状態で読み、時刻境界・閲覧範囲・重複を守る',()=>{
-  const {db,workspaces,sprints,expected,archived}=fixture();
+  const {db,workspaces,sprints,expected,archived,candidate}=fixture();
   const current=resolveCurrentSprints(db,{clock});
   expect(current.sprints.map(s=>s.id)).toEqual(sprints.slice(0,2));
   expect(current.issues.map(i=>i.id)).toEqual(expected);
   expect(current.issues[0]!.sprints.map(s=>s.id)).toEqual([sprints[0]!]);
+  expect(queryIssues(db, {sprint:'current'}, clock).issues[0]!.sprints).toEqual(current.issues[0]!.sprints);
+  expect(queryIssues(db, {sprint:'none'}, clock).issues.find(i=>i.id===candidate)!.sprints).toEqual([]);
   expect(resolveCurrentSprints(db,{clock,workspaceIds:[workspaces[0]!.id]}).issues.map(i=>i.id)).toEqual(expected.slice(0,STATUSES.length));
   expect(resolveCurrentSprints(db,{clock,workspaceIds:[]}).issues).toEqual([]);
   expect(resolveCurrentSprints(db,{clock,workspaceIds:[workspaces[2]!.id]})).toEqual({sprints:[],issues:[]});
@@ -93,5 +95,24 @@ test('完了分析も同じcurrentと固定Sprintのscopeを用い、候補を�
   expect(completionStats(db,{...range,sprint:sprints[0]}).totals.completed).toBe(1);
   expect(completionStats(db,{...range,sprint:'none'}).totals.completed).toBe(0);
   expect(()=>completionStats(db,{...range,sprint:'legacy-cycle:99'})).toThrow();
+  db.close();
+});
+
+test('同じ保存current Viewが採用planと採択集合の更新を再読込に反映する',()=>{
+  const {db,sprints,expected}=fixture();
+  const view=createView(db,{name:'採用planに追従',color:'#123456',filter:{sprint:'current'},display:{columns:['status','sprint'],groupBy:'sprint',subGroupBy:'workspace'}});
+  const read=()=>queryIssues(db,getView(db,view.id).filter,clock).issues.map(issue=>issue.id);
+  expect(read()).toEqual(expected);
+  const nextPlan=crypto.randomUUID();
+  db.query("INSERT INTO sprint_plans VALUES(?,?,2,'次のhash','me','2026-10-26','次のhash')").run(nextPlan,sprints[0]!);
+  db.query('UPDATE sprints SET adopted_plan_id=? WHERE id=?').run(nextPlan,sprints[0]!);
+  expect(read()).toEqual(expected.slice(STATUSES.length));
+  const done=expected[STATUSES.indexOf('done')]!;
+  const item=db.query('SELECT id FROM sprint_items WHERE sprint_id=? AND source_issue_key=?').get(sprints[0]!,done) as {id:string};
+  db.query('INSERT INTO sprint_plan_items VALUES(?,?)').run(nextPlan,item.id);
+  expect(read()).toEqual([done,...expected.slice(STATUSES.length)]);
+  db.query('DELETE FROM sprint_plan_items WHERE plan_id=? AND item_id=?').run(nextPlan,item.id);
+  expect(read()).toEqual(expected.slice(STATUSES.length));
+  expect(getView(db,view.id)).toEqual(view);
   db.close();
 });

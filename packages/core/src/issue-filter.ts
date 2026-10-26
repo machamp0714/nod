@@ -102,10 +102,7 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     } else q.milestone = value;
   }
   if (raw.cycle !== undefined) {
-    if (typeof raw.cycle !== "string" || !raw.cycle.trim()) {
-      throw invalid("cycle には Cycle の ID を文字列で指定してください");
-    }
-    q.cycle = isNoneRef(raw.cycle) ? NONE_REF : raw.cycle.trim();
+    throw new NodError("CYCLE_RETIRED", "Cycleの検索・保存条件は廃止されました。SprintのUUID・番号・current・noneを指定してください");
   }
   if (raw.sprint !== undefined) {
     if (typeof raw.sprint !== "string" || !raw.sprint.trim()) throw invalid("sprint には Sprint のUUID・番号・current・noneを指定してください");

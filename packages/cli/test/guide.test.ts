@@ -52,7 +52,9 @@ test("Triageの3操作は LLM も実行できるが判断は人に依頼し、�
   expect(GUIDE).toContain("--milestone <名前かID>");
   expect(GUIDE).toContain("nod issue list --milestone <ID|none>");
   expect(GUIDE).toContain("`remove`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
-  expect(GUIDE).toContain("`delete`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
+  expect(GUIDE).toContain("旧`nod cycle`・`--cycle`・周期の自動作成と自動持ち越しは廃止済み");
+  expect(GUIDE).toContain("nod sprint list|show <sprint>");
+  expect(GUIDE).toContain("nod issue list|stats|summary --sprint <sprint>");
 });
 
 test("LLM も nod issue update --status で Triage から出せ、bulk-update では誰も出せないと案内する", () => {

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
+  type SprintClock,
   getInbox,
   getIssue,
   getProject,
@@ -24,9 +25,9 @@ import type { Hono } from "hono";
 import { paramInt, queryFlag } from "../input";
 
 // 読み出しの API。core の戻り値をそのまま JSON で返す
-export function registerReadRoutes(app: Hono, db: Database, docsDir?: string): void {
+export function registerReadRoutes(app: Hono, db: Database, docsDir?: string, clock: SprintClock = {}): void {
   app.get("/api/workspaces", (c) => c.json(listWorkspaces(db)));
-  app.get("/api/issues", (c) => c.json(queryIssues(db, issueQueryFromParams(new URL(c.req.url).searchParams))));
+  app.get("/api/issues", (c) => c.json(queryIssues(db, issueQueryFromParams(new URL(c.req.url).searchParams), clock)));
   app.get("/api/issues/:id", (c) => c.json(getIssue(db, c.req.param("id"))));
   app.get("/api/inbox", (c) => c.json(getInbox(db, { includeAnswered: queryFlag(c.req.query("includeAnswered"), "includeAnswered") })));
   // 未回答の未決事項の Issue 横断の一覧（#173）。人が付けたものも含む。Inbox の質問（LLM からのものだけ）とは別に返す

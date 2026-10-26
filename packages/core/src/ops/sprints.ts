@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
-import { HUMAN_ACTOR } from "../ctx";
+import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_MEMBERSHIP } from "../sprint-membership";
 import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase } from "../sprint-types";
 
 interface SprintRow {
@@ -57,10 +57,6 @@ export function getSprint(db: Database, ref: string): SprintDetail {
   };
 }
 
-const AGREED_PLAN = `p.sprint_id=s.id AND p.id=s.adopted_plan_id
-  AND p.agreed_by='${HUMAN_ACTOR}' AND p.agreed_at IS NOT NULL AND p.content_hash<>'' AND p.agreed_hash=p.content_hash`;
-const CURRENT_SPRINT = `s.phase='active' AND julianday(s.starts_at)<=julianday(?) AND julianday(s.ends_at)>julianday(?)`; 
-
 export interface CurrentSprintOptions {
   clock?: SprintClock;
   // 未指定は全Workspace。空配列は閲覧できるWorkspaceなし。
@@ -77,27 +73,12 @@ export function resolveCurrentSprints(db: Database, options: CurrentSprintOption
       JOIN workspaces w ON w.id=s.workspace_id WHERE ${CURRENT_SPRINT}${workspaceSql}
       ORDER BY s.number`).all(instant, instant, ...(options.workspaceIds ?? [])) as SprintRow[];
     const sprints = rows.map(toSprint);
-    // 表の取得失敗を「現在なし」へ変換しない。
-    const memberships = db.query(`SELECT DISTINCT w.key || '-' || i.number AS issue_ref,s.id AS sprint_id FROM sprints s
-      JOIN sprint_plans p ON ${AGREED_PLAN}
-      JOIN sprint_plan_items pi ON pi.plan_id=p.id JOIN sprint_items si ON si.id=pi.item_id AND si.sprint_id=s.id
-      JOIN issues i ON i.id=si.issue_id AND i.workspace_id=s.workspace_id
-      JOIN workspaces w ON w.id=i.workspace_id
-      WHERE ${CURRENT_SPRINT}${workspaceSql}`)
-      .all(instant, instant, ...(options.workspaceIds ?? [])) as {issue_ref:string;sprint_id:string}[];
-    const byIssue = new Map<string, Set<string>>();
-    for (const row of memberships) {
-      const ids = byIssue.get(row.issue_ref) ?? new Set<string>();
-      ids.add(row.sprint_id);
-      byIssue.set(row.issue_ref, ids);
-    }
+    // Issueの参照集合は通常読取と同じ変換を使い、取得失敗を空結果へ変換しない。
     const scope=sprintIssueScope(db,'current',{now:options.clock?.now ?? new Date(instant)});
     const issueWorkspaceSql=workspaceSql.replaceAll('s.workspace_id','i.workspace_id');
     const issues=selectIssues(db, `WHERE i.archived_at IS ${options.archived ? "NOT " : ""}NULL
       AND ${scope.where}${issueWorkspaceSql} ORDER BY w.key,i.number`, [...scope.params,...(options.workspaceIds ?? [])]);
-    return {sprints, issues: issues.map(issue => ({...issue,
-      sprints: sprints.filter(s => byIssue.get(issue.id)?.has(s.id)).map(({id,number,name,workspaceId})=>({id,number,name,workspaceId})),
-    }))};
+    return {sprints, issues};
   };
   return db.inTransaction ? read() : db.transaction(read)();
 }
@@ -106,11 +87,7 @@ export function resolveCurrentSprints(db: Database, options: CurrentSprintOption
 // 候補や未採用の合意済み案は所属として数えない。
 export function sprintIssueScope(db: Database, ref: string, clock: SprintClock = {}): {where: string; params: (string | number)[]} {
   const value=ref.trim();
-  const membership = `SELECT 1 FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
-    WHERE si.issue_id=i.id AND (
-      (s.phase='imported' AND si.origin='imported') OR EXISTS (
-        SELECT 1 FROM sprint_plan_items pi JOIN sprint_plans p ON p.id=pi.plan_id
-        WHERE pi.item_id=si.id AND ${AGREED_PLAN}))`;
+  const membership = SPRINT_MEMBERSHIP;
   if (value.toLowerCase()==='none') return {where:`NOT EXISTS (${membership})`, params:[]};
   if (value.toLowerCase()==='current') {
     const instant=(clock.now ?? new Date()).toISOString();

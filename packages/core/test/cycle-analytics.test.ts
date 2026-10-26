@@ -1,115 +1,57 @@
-import { describe, expect, test } from "bun:test";
-import { findIssueRow } from "../src/issue-query";
-import { cycleAnalytics } from "../src/ops/cycle-analytics";
-import { createCycle, deleteCycle } from "../src/ops/cycles";
-import { archiveIssue, createIssue, updateIssue } from "../src/ops/issues";
-import { createProject } from "../src/ops/projects";
-import { initWorkspace } from "../src/ops/workspaces";
-import { setup } from "./helpers";
+import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import { openDb } from "../src/db";
+import { getSprint } from "../src/ops/sprints";
+import { cycleAnalytics, sprintAnalytics } from "../src/ops/cycle-analytics";
+import { archiveIssue, updateIssue } from "../src/ops/issues";
+import { deleteIssue } from "../src/ops/issue-deletions";
+import { legacySprintFixture } from "./fixtures/sprint";
+import { tempDbPath } from "./helpers";
 
-const clock = { today: "2026-10-08", tz: "Asia/Tokyo" };
+test("移行時の分析を取得済みの写しから読み、過去終了時点とみなさずIssue変更・削除後も保つ", () => {
+  const path=tempDbPath(); legacySprintFixture(path); const db=openDb(path);
+  const sprint=getSprint(db,"1");
+  const result=sprintAnalytics(db,sprint.id);
+  expect(result).toMatchObject({sprintId:sprint.id,number:1,statusBasis:"migration_snapshot",scope:2,completed:1,started:0});
+  expect(result.capturedAt).toBe(sprint.legacy!.capturedAt);
+  expect(result.history).toMatchObject({timezone:null,unavailableReason:"timezone_unknown"});
+  expect(result.burnup).toEqual([]);
+  expect(result.breakdown.workspaces.map(row=>[row.key,row.total])).toEqual([["AAA",1],["BBB",1]]);
+  expect(cycleAnalytics(db,"1")).toEqual(result);
+  updateIssue({db,actor:"me"},"AAA-1",{title:"後の要求",status:"todo"});
+  archiveIssue({db,actor:"me"},"BBB-1");
+  deleteIssue({db,actor:"me"},"BBB-1");
+  expect(sprintAnalytics(db,sprint.id)).toEqual(result);
+  expect(()=>cycleAnalytics(db,"99")).toThrow("削除");
+  expect(()=>cycleAnalytics(db,"100")).toThrow("ありません");
+  db.close();
+});
 
-// その Issue のまだ日時を固定していない event を、東京の date の正午（03:00Z）にする。1回の操作で複数の event が出ても揃う
-function stamp(db: Parameters<typeof findIssueRow>[0], ref: string, date: string) {
-  db.query("UPDATE events SET created_at = ? WHERE issue_id = ? AND created_at NOT LIKE '%T03:00:00.000Z'").run(`${date}T03:00:00.000Z`, findIssueRow(db, ref).id);
-}
+test("明示した日時解釈では取得済みイベントだけで推移を読み、移行後の完了を過去へ補わない", () => {
+  const path=tempDbPath(); legacySprintFixture(path); const db=openDb(path);
+  const result=sprintAnalytics(db,"1",{timezone:"UTC",clock:{now:new Date('2026-10-26T00:00:00.000Z')}});
+  expect(result.completed).toBe(1);
+  expect(result.history).toMatchObject({timezone:"UTC",timezoneBasis:"requested",unavailableReason:null,recordedEventIds:[1,3],ambiguousEventIds:[2]});
+  expect(result.burnup).toHaveLength(14);
+  expect(result.burnup[0]).toEqual({date:"2026-01-01",scope:1,started:0,completed:0,unknown:0});
+  expect(result.burnup.at(-1)).toEqual({date:"2026-01-14",scope:2,started:0,completed:0,unknown:0});
+  expect(result.scopeAdded).toBe(1);
+  expect(()=>sprintAnalytics(db,"1",{timezone:"+09:00"})).toThrow("タイムゾーン");
+  db.close();
+});
 
-describe("cycleAnalytics", () => {
-  test("Scope・Started・Completed、開始後の増減、日ごとの推移", () => {
-    const { db, ws, me } = setup();
-    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    createCycle(me, { name: "T", startDate: "2026-10-12", endDate: "2026-10-18" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "作成時に指定", cycleRef: "S" }); stamp(db, a.id, "2026-10-05");
-    const b = createIssue(me, { workspaceId: web.id, title: "途中で入る" }); stamp(db, b.id, "2026-10-05");
-    updateIssue(me, b.id, { cycleRef: "S" }); stamp(db, b.id, "2026-10-06");
-    updateIssue(me, b.id, { status: "in_progress" }); stamp(db, b.id, "2026-10-07");
-    updateIssue(me, a.id, { status: "done" }); stamp(db, a.id, "2026-10-07");
-    const d = createIssue(me, { workspaceId: ws.id, title: "出て戻る", cycleRef: "S" }); stamp(db, d.id, "2026-10-05");
-    updateIssue(me, d.id, { cycleRef: "T" }); stamp(db, d.id, "2026-10-06");
-    updateIssue(me, d.id, { cycleRef: "S" }); stamp(db, d.id, "2026-10-07");
-    const e = createIssue(me, { workspaceId: ws.id, title: "中止", cycleRef: "S" }); stamp(db, e.id, "2026-10-05");
-    updateIssue(me, e.id, { status: "canceled" }); stamp(db, e.id, "2026-10-06");
-    const f = createIssue(me, { workspaceId: ws.id, title: "アーカイブ", cycleRef: "S" }); stamp(db, f.id, "2026-10-05");
-    archiveIssue(me, f.id);
-
-    const r = cycleAnalytics(db, "S", clock);
-    expect(r).toMatchObject({ scope: 3, started: 1, completed: 1, scopeAdded: 0 });
-    expect(r.completedRate).toBeCloseTo(1 / 3);
-    expect(r.startedRate).toBeCloseTo(1 / 3);
-    expect(r.burnup).toEqual([
-      { date: "2026-10-05", scope: 3, started: 0, completed: 0 }, // a, d, e（f はアーカイブ済みで除く）
-      { date: "2026-10-06", scope: 2, started: 0, completed: 0 }, // a, b（d は出た、e は canceled）
-      { date: "2026-10-07", scope: 3, started: 1, completed: 1 }, // a(done), b(in_progress), d（戻った）
-      { date: "2026-10-08", scope: 3, started: 1, completed: 1 },
-    ]);
-    expect(r.statuses.find((s) => s.status === "canceled")!.count).toBe(1);
-    expect(r.statuses.find((s) => s.status === "todo")!.count).toBe(1);
-  });
-
-  test("内訳: 担当・ラベル・Project・Workspace ごとの total と done。なしも1行、多い順", () => {
-    const { db, ws, me } = setup();
-    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
-    createProject(me, { name: "決済" });
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "a", cycleRef: "S", projectRef: "決済", labels: ["bug", "api"] });
-    updateIssue(me, a.id, { assignee: "me", status: "done" });
-    const b = createIssue(me, { workspaceId: web.id, title: "b", cycleRef: "S", labels: ["bug"] });
-    updateIssue(me, b.id, { assignee: "me" });
-    createIssue(me, { workspaceId: web.id, title: "c", cycleRef: "S" });
-    const r = cycleAnalytics(db, "S", clock).breakdown;
-    expect(r.assignees).toEqual([{ key: "me", label: "me", total: 2, done: 1 }, { key: "", label: "担当なし", total: 1, done: 0 }]);
-    expect(r.labels).toEqual([{ key: "bug", label: "bug", total: 2, done: 1 }, { key: "api", label: "api", total: 1, done: 1 }]);
-    expect(r.projects.map((p) => [p.label, p.total, p.done])).toEqual([["Project なし", 2, 0], ["決済", 1, 1]]);
-    expect(r.workspaces.map((w) => [w.key, w.total, w.done])).toEqual([[web.key, 2, 0], [ws.key, 1, 1]]);
-  });
-
-  test("予定の Cycle は推移が空で率は null。開始後に増えた分を scopeAdded に出す", () => {
-    const { db, ws, me } = setup();
-    createCycle(me, { name: "未来", startDate: "2026-11-01", endDate: "2026-11-07" }, clock);
-    expect(cycleAnalytics(db, "未来", clock)).toMatchObject({ burnup: [], completedRate: null, startedRate: null, scope: 0, scopeAdded: 0 });
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "最初から", cycleRef: "S" }); stamp(db, a.id, "2026-10-05");
-    const b = createIssue(me, { workspaceId: ws.id, title: "後から", cycleRef: "S" }); stamp(db, b.id, "2026-10-07");
-    expect(cycleAnalytics(db, "S", clock).scopeAdded).toBe(1);
-  });
-
-  test("記録に ID がないのに所属している Issue は開始日から所属とみなす", () => {
-    const { db, ws, me } = setup();
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    createIssue(me, { workspaceId: ws.id, title: "旧", cycleRef: "S" });
-    db.query("UPDATE events SET data = json_remove(data, '$.cycle_id'), created_at = '2026-10-01T03:00:00.000Z'").run();
-    expect(cycleAnalytics(db, "S", clock).burnup[0]).toEqual({ date: "2026-10-05", scope: 1, started: 0, completed: 0 });
-  });
-
-  test("ID のない旧記録の Issue が開始前に done になっていたら、開始日から done として数える", () => {
-    const { db, ws, me } = setup();
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "旧", cycleRef: "S" });
-    updateIssue(me, a.id, { status: "done" });
-    const row = findIssueRow(db, a.id).id;
-    db.query("UPDATE events SET data = json_remove(data, '$.cycle_id') WHERE issue_id = ?").run(row);
-    db.query("UPDATE events SET created_at = '2026-10-01T03:00:00.000Z' WHERE issue_id = ? AND type = 'created'").run(row);
-    db.query("UPDATE events SET created_at = '2026-10-02T03:00:00.000Z' WHERE issue_id = ? AND type <> 'created'").run(row);
-    expect(cycleAnalytics(db, "S", clock).burnup.map((d) => d.completed)).toEqual([1, 1, 1, 1]);
-  });
-
-  test("最大の ID の Cycle を消して作り直しても ID を使い回さず、消した Cycle の Issue を推移に含めない", () => {
-    const { db, ws, me } = setup();
-    const old = createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "旧", cycleRef: "S" }); stamp(db, a.id, "2026-10-05");
-    deleteCycle(me, "S", clock);
-    const fresh = createCycle(me, { name: "T", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    expect(fresh.id).not.toBe(old.id);
-    expect(cycleAnalytics(db, "T", clock).burnup.map((d) => d.scope)).toEqual([0, 0, 0, 0]);
-  });
-
-  test("日の区切りは clock の tz。UTC では前日でも東京の翌日に入った Issue はその日から数える", () => {
-    const { db, ws, me } = setup();
-    createCycle(me, { name: "S", startDate: "2026-10-05", endDate: "2026-10-11" }, clock);
-    const a = createIssue(me, { workspaceId: ws.id, title: "a", cycleRef: "S" });
-    db.query("UPDATE events SET created_at = '2026-10-05T16:00:00.000Z' WHERE issue_id = ?").run(findIssueRow(db, a.id).id);
-    expect(cycleAnalytics(db, "S", clock).burnup.map((d) => d.scope)).toEqual([0, 1, 1, 1]);
-    expect(cycleAnalytics(db, "S", { today: "2026-10-08", tz: "UTC" }).burnup.map((d) => d.scope)).toEqual([1, 1, 1, 1]);
-  });
+test("旧ID再利用疑いと欠落イベントを推測で埋めず、確定関連と分けて返す", () => {
+  const path=tempDbPath(); legacySprintFixture(path);
+  const old=new Database(path);
+  old.exec("UPDATE events SET created_at='2025-01-01T03:00:00.000Z' WHERE id=1; DELETE FROM events WHERE id=3;"); old.close();
+  const db=openDb(path);
+  const before=getSprint(db,"1");
+  const result=sprintAnalytics(db,"1",{timezone:"UTC",clock:{now:new Date('2026-10-26T00:00:00.000Z')}});
+  expect(result.history.recordedEventIds).toEqual([]);
+  expect(result.history.ambiguousEventIds).toEqual([1,2]);
+  expect(result.burnup[0]).toEqual({date:"2026-01-01",scope:null,started:null,completed:null,unknown:2});
+  expect(result.scopeAdded).toBeNull();
+  expect(result.completed).toBe(1);
+  expect(getSprint(db,"1").events).toEqual(before.events);
+  db.close();
 });

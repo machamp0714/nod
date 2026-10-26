@@ -58,11 +58,29 @@ export type LegacyCycleResolution =
 
 export interface SprintClock { now?: Date }
 
-export interface CurrentSprintIssue extends Issue {
-  sprints: Pick<Sprint, "id" | "number" | "name" | "workspaceId">[];
+export interface SprintReference extends Pick<Sprint, "id" | "number" | "name" | "workspaceId" | "phase"> {
+  association: "imported" | "adopted";
 }
+
+export interface CurrentSprintIssue extends Issue {}
 
 export interface CurrentSprintResolution {
   sprints: Sprint[];
   issues: CurrentSprintIssue[];
+}
+
+export interface SprintAnalytics extends Omit<import("./types").CycleAnalytics, "cycleId" | "burnup" | "scopeAdded"> {
+  sprintId: string;
+  number: number;
+  statusBasis: "migration_snapshot" | "live_adopted";
+  capturedAt: string | null;
+  scopeAdded: number | null;
+  burnup: {date: string; scope: number | null; started: number | null; completed: number | null; unknown: number}[];
+  history: {
+    timezone: string | null;
+    timezoneBasis: "recorded" | "requested" | "unknown";
+    unavailableReason: "timezone_unknown" | "not_recorded" | null;
+    recordedEventIds: number[];
+    ambiguousEventIds: number[];
+  };
 }

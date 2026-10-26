@@ -1,3 +1,4 @@
+import type { SprintReference } from "./sprint-types";
 import type { WorkLogKind } from "./work-log";
 
 // 「Orca で作業を始める」（#210）で起動できるエージェント。値は orca worktree create の --agent にそのまま渡す
@@ -73,6 +74,7 @@ export interface Issue {
   parentId: string | null;
   project: { id: number; name: string } | null;
   milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
+  sprints: SprintReference[]; // 移行・採択の関連の集合。候補だけは含めない
   cycle: { id: number; name: string } | null; // 所属する Cycle。未設定は null
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
