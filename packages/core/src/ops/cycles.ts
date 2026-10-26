@@ -11,7 +11,7 @@ export function cycleToday(clock: CycleClock = {}): string {
   return clock.today ?? dateFormatter(clock.tz).format(clock.now ?? new Date());
 }
 export function cycleRetired(): never {
-  throw new NodError("CYCLE_RETIRED", "Cycleの操作は廃止されました。Sprint履歴を参照し、候補と採択で計画してください");
+  throw new NodError("CYCLE_RETIRED", "Cycleの操作は廃止されました。Sprint履歴を参照してください。候補、採択、開始の公開操作は後続で接続します");
 }
 export interface CreateCycleInput { name: string; startDate: string; endDate: string }
 export interface UpdateCycleInput { name?: string; startDate?: string; endDate?: string }

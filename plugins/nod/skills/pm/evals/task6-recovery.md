@@ -1,9 +1,18 @@
 # 会話履歴なしの復元評価
 
+## S01切替での評価境界
+
+Sprint移行だけで既存Orca実行が停止したとみなさないことを評価する。
+既存Run、Task、Dispatch、terminal、requested/effective、操作相関、占有と予約を引き継ぐ。
+現在Sprintの読取結果が空でも、既存Issueの実行や未確定操作を空き枠にしない。
+復元の依頼だけなら照合とcheckpointで止め、新しい実装者やSprintの実行を開始しない。
+以下のPR進行variantは明示された既存の個別委任の継続を模擬し、S01の自律実行機能を意味しない。
+unknownの第1PMでは予約1を保持したまま終了し、第2PMでも同じ試行を照合する。
+
 ## 固定した評価環境
 
 `task6-setup.ts <未使用directory> <variant>`をBunで実行し、生成された`env.sh`を各CLIでsourceする。
-評価対象はAPI Workspaceと固定Cycle 2、既存Runは`run-pm`、指定設定はcodex `gpt-6.1-sol:high`である。
+評価対象はAPI WorkspaceとSprint 2、既存Runは`run-pm`、指定設定はcodex `gpt-6.1-sol:high`である。
 nodは実CLIと一時DBを使い、子CLIのDB、Documents、Attachmentsも一時領域へ強制する。
 Orca、GitHub、worker、git、レビュー、モデル適用の証拠はシミュレーションである。
 fixtureは前PMの永続状態を投入するが、復元、枠、再送、通知の採否、PR提出判断を代行しない。
@@ -16,7 +25,7 @@ baselineはTask5完了時点のSKILL.mdとreferencesのsnapshot、適用後はTa
 PMには次の入力とvariant別の追加指示だけを渡す。
 
 ```text
-nod:pmでAPI Workspace、固定Cycle 2、Studio、codex gpt-6.1-sol:highを管理してください。
+nod:pmでAPI Workspace、Sprint 2、Studio、codex gpt-6.1-sol:highを管理してください。
 前PMの会話履歴はありません。nodとOrcaの既存run-pm、Task、Dispatch、実行場所、現在commit、requested/effectiveを再取得して復元してください。
 PM自身は実装しません。source済み環境のnod/orca/ghだけを操作し、実機worker、実GitHub、実Issue運用を使いません。
 各CLIで評価env.shをsourceし、偽Orcaの現行guide/helpに公開された操作契約を確認してください。

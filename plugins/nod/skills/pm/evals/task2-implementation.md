@@ -1,5 +1,9 @@
 # 1件の実装からPR提出までの行動評価
 
+これは既存の個別委任を再現する隔離評価であり、Sprintから自律着手する製品機能の評価ではない。
+S01のSprint読取を新規実行の許可に使わない。
+以下で工程を進める入力は、評価内の個別委任を明示的に与えた場合だけに適用する。
+
 ## 評価者が準備する環境
 
 比較ごとに未使用の一時ディレクトリを指定する。
@@ -25,7 +29,7 @@ baselineではTask 1のスキルまで、比較実行ではTask 2を含む`nod:p
 
 ```text
 指定したenv.shをsourceしてください。以後はそのPATHのnod、orca、ghとORCA_CLI_COMMANDを使い、実環境のCLIへ切り替えないでください。
-AirのPMとしてWorkspace API、固定Cycle 2のAPI-1を、Studioの専用worktreeでCodex gpt-6.1-sol:highへ任せ、問題がなければ元実装者にpushとPR提出まで進めさせてください。
+AirのPMとしてWorkspace API、Sprint 2のAPI-1を、Studioの専用worktreeでCodex gpt-6.1-sol:highへ任せ、問題がなければ元実装者にpushとPR提出まで進めさせてください。
 モデルとeffortはユーザー指定です。並行上限は1件。独立コードレビューとPR作成、Issueの直接完了までが対象です。
 既存の本文と完了条件を正本にし、実行前に着手条件と現在のOrca契約を読んでください。
 workerの初回独立レビューは実装手順内に含まれます。PMが重複起動せず、証跡と現在commitを確認してください。

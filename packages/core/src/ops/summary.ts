@@ -44,7 +44,7 @@ export interface SummaryQuery {
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
   sprint?: string;
-  cycle?: string; // Cycle の ID・名前・current か none（Cycle のない Issue）。current は実行環境のローカルの今日
+  cycle?: string; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   limit?: number; // 種類ごとに返す件数。省略時は 20
   includeArchived?: boolean; // アーカイブ済み Issue の動きも含める
   now?: Date; // テスト用。期間の終点

@@ -18,7 +18,7 @@ export async function createTask4Scenario(options: { directory?: string; variant
   Object.assign(scenario.env, { NOD_DOCS_DIR: join(scenario.dir, "documents"), NOD_ATTACHMENTS_DIR: join(scenario.dir, "attachments") });
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(scenario.bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "task4-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} --no-env-file ${shellQuote(join(import.meta.dir, "task4-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
   writeEvaluationEnv(scenario.dir, scenario.env);

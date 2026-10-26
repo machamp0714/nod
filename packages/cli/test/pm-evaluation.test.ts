@@ -165,14 +165,45 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
   });
 }
 
-test("PM評価の混在候補を実nod CLIから取得できる", async () => {
+test("PM評価の現在Sprintに採択された混在Issueを実nod CLIから読める", async () => {
   const scenario = await createTask1Scenario();
-  const result = Bun.spawnSync([scenario.nod, "issue", "list", "-w", "API", "--cycle", "2", "--json"], { env: scenario.env });
+  const result = Bun.spawnSync([scenario.nod, "issue", "list", "-w", "API", "--sprint", "current", "--json"], { env: scenario.env });
   expect(result.exitCode).toBe(0);
   const issues = JSON.parse(result.stdout.toString());
   expect(issues.map((issue: { id: string }) => issue.id)).toEqual([
     "API-1", "API-2", "API-3", "API-4", "API-5", "API-6", "API-7", "API-8", "API-9", "API-10", "API-11", "API-12", "API-13", "API-14", "API-15",
   ]);
+});
+
+test("PM評価でも旧cycleは拒否され、未接続のSprint開始や直接所属でIssueと期間を変更できない", async () => {
+  const s = await createTask1Scenario();
+  const call = (...args: string[]) => Bun.spawnSync([s.nod, ...args, "--json"], { env: s.env });
+  const read = (...args: string[]) => {
+    const result = call(...args);
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  const before = {
+    periods: read("sprint", "list"), issue: read("issue", "show", "API-1"),
+    current: read("issue", "list", "-w", "API", "--sprint", "current"),
+  };
+  expect(before.periods.map((s: { number: number; phase: string }) => [s.number, s.phase])).toEqual([
+    [1, "imported"], [2, "active"], [3, "draft"], [4, "active"],
+  ]);
+  expect(read("sprint", "show", "1")).toMatchObject({ phase: "imported", items: [{ sourceIssueKey: "API-16" }] });
+  for (const args of [["issue", "list", "-w", "API", "--cycle", "2"], ["cycle", "show", "2"]]) {
+    const retired = call(...args);
+    expect(retired.exitCode).toBe(1);
+    expect(JSON.parse(retired.stdout.toString()).error.code).toBe("CYCLE_RETIRED");
+  }
+  for (const args of [["sprint", "start", "2"], ["issue", "update", "API-1", "--sprint", "2", "--title", "変更禁止"]]) {
+    expect(call(...args).exitCode).toBe(1);
+  }
+  expect(read("sprint", "list")).toEqual(before.periods);
+  expect(read("issue", "show", "API-1")).toEqual(before.issue);
+  expect(read("issue", "list", "-w", "API", "--sprint", "current")).toEqual(before.current);
+  const operations = readFileSync(s.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(operations.filter(op => op.tool === "orca" || op.tool === "gh")).toEqual([]);
 });
 
 test("PM評価の判定は初回未完了と回復しない失敗、対象外、制限解除、任意再評価を区別できる", async () => {

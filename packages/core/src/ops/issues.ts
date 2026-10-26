@@ -77,7 +77,7 @@ export interface CreateIssueInput {
   template?: string; // テンプレートの名前。本文を説明の初期値にする（description と同時には使えない）
   projectRef?: string;
   milestoneRef?: string; // Milestone の ID か、projectRef の Project の中の名前（Project の指定が要る）
-  cycleRef?: string; // Cycle の ID・名前・current（起票先の Workspace のもの）
+  cycleRef?: string; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   parentRef?: string;
   discoveredFromRef?: string;
   priority?: number;
@@ -88,7 +88,7 @@ export interface CreateIssueInput {
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
-  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
   requireText(input.title, "タイトル");
   if (input.template !== undefined && input.description !== undefined) {
     throw new NodError(
@@ -149,7 +149,7 @@ export interface NewIssueRow {
 
 // 起票・複製・定期Issueで共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
 export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
-  if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
+  if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
   const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
     id: number;
     next_number: number;
@@ -241,7 +241,7 @@ export interface ListIssuesFilter {
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
 }
 
-// Workspace、Project、Cycle、ラベル、担当、優先度の条件。Ready と Needs Clarification の件数もこの範囲で数える
+// Workspace、Project、Sprint、ラベル、担当、優先度の条件。Ready と Needs Clarification の件数もこの範囲で数える
 function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; params: SQLQueryBindings[] } {
   const where: string[] = [filter.archived ? "i.archived_at IS NOT NULL" : "i.archived_at IS NULL"];
   const params: SQLQueryBindings[] = [];
@@ -466,7 +466,7 @@ export interface UpdateIssueInput {
   parentRef?: string | null;
   projectRef?: string | null;
   milestoneRef?: string | null; // Milestone の ID か、Issue の Project の中の名前。null で外す
-  cycleRef?: string | null; // Cycle の ID・名前・current（Issue と同じ Workspace のもの）。null で外す
+  cycleRef?: string | null; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   addLabels?: string[];
   removeLabels?: string[];
   reason?: string;
@@ -537,7 +537,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
-  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補と採択を利用してください");
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
   if (input.status === "needs_clarification") {
     throw new NodError(
       "INVALID_ARGS",

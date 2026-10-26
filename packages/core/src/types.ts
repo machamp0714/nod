@@ -75,7 +75,7 @@ export interface Issue {
   project: { id: number; name: string } | null;
   milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
   sprints: SprintReference[]; // 移行・採択の関連の集合。候補だけは含めない
-  cycle: { id: number; name: string } | null; // 所属する Cycle。未設定は null
+  cycle: { id: number; name: string } | null; // 廃止済みの互換応答。常にnull。期間参照はsprintsを使う
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID
   questionCount: { answered: number; total: number }; // 未決事項（確認依頼）の決定数と総数
@@ -397,7 +397,7 @@ export interface InboxQuestion extends Question {
 export interface AcceptTriageInput {
   projectRef?: string | null;
   priority?: number;
-  cycleRef?: string | null; // Cycle の ID・名前・current。null で外す
+  cycleRef?: string | null; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   addLabels?: string[];
   removeLabels?: string[];
   assignee?: string | null;

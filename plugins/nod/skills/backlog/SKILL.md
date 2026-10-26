@@ -55,7 +55,7 @@ description: "要望や会話、PRD から nod のバックログ Issue を作�
 ## 5. 1 Story ごとに1 Issue を起票する
 
 - 手順1で作成まで依頼されていることを確認できた場合に、整理できた Story から個別に起票する。各 Story に対して以下の作成・本文反映を繰り返し、Story と返った Issue ID の対応を保持する。
-- ユーザーに依頼された起票には `--requested` を付ける。Workspace・Project・親子関係・優先度・依存関係は依頼または確認できた内容だけを反映し、独自に Cycle や担当を割り当てない。Story 一覧の P0（最優先）と nod の 0（優先度なし）は意味が異なるため、数値をそのまま渡さず `nod issue create --help` の意味に合わせる。
+- ユーザーに依頼された起票には `--requested` を付ける。Workspace・Project・親子関係・優先度・依存関係は依頼または確認できた内容だけを反映し、独自に Sprint へ採択したり担当を割り当てたりしない。Story 一覧の P0（最優先）と nod の 0（優先度なし）は意味が異なるため、数値をそのまま渡さず `nod issue create --help` の意味に合わせる。
 - 登録済みテンプレートを使うときは `nod issue create "<タイトル>" --template "<名前>" --requested --json` で作成し、返った ID に対して `nod issue update <id> -d "<空欄を埋めた本文>"` を実行する。`--template` と `-d` は同時に渡せない。
 - 標準テンプレートの場合は `nod issue create "<タイトル>" -d "<完成した本文>" --requested --json` を使う。本文は構造化引数か安全に引用した引数で渡し、シェルに本文中の記号を実行させない。
 - 必要なオプションは上記のコマンドに追加する。依存先から作り、確定したブロック関係は `nod issue relate <先に終えるID> --blocks <待つID>` で記録する。単なる関連や未確認の依存をブロック関係にしない。

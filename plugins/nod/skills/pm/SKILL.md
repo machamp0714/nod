@@ -1,11 +1,11 @@
 ---
 name: pm
-description: "人が指定したWorkspaceとCycleのIssue進行をAirから管理するときに使う。OrcaでStudioの実装担当を監督し、候補、待機理由、質問、成果をnodで確認する。進行管理（nod:pm）を明示的に求められたときだけ使い、個別Issueの実装や確認では起動しない。"
+description: "人が指定したWorkspaceとSprintをAirから読み、既存Orca実行を照合して引き継ぐときに使う。S01ではSprintからの新規自律実行を開始しない。OrcaでStudioの実装担当を監督し、候補、待機理由、質問、成果をnodで確認する。進行管理（nod:pm）を明示的に求められたときだけ使い、個別Issueの実装や確認では起動しない。"
 ---
 
 # nod:pm
 
-指定したWorkspaceと固定CycleのIssueを管理する。
+指定したWorkspaceとSprintを読み、既存の個別委任とOrca実行を照合する。
 PMは要求の確認、依頼、結果の照合、人への相談を担当し、実装ファイルは実装担当が変更する。
 要求と判断の正本はnod、実行の権限と状態の正本はOrcaのRun、Task、Dispatchである。
 以前の会話だけに依存して担当や工程を決めない。
@@ -14,12 +14,34 @@ nodへ操作前のintentと操作後のcheckpointを残し、起動Taskを先に
 既存Run、Task、active Dispatch、実行場所、現在commit、要求値と観測した実効値、予約と占有、修正巡、受理通知、PRと質問を照合する。
 応答喪失では操作receiptと既存試行を照合し、結果不明のまま同じ依頼を再送しない。
 
-## 1. 起動条件を揃える
+## S01の読取と既存実行の引継ぎ
+
+期間管理はSprintへ一本化した。
+旧`--cycle`指定は廃止案内を返す対象であり、互換オプションとして実行せず、Sprint番号へ黙って読み替えない。
+`nod sprint list/show`で履歴を読み、`nod issue list --sprint current`で各Workspaceの現在Sprintに採択された全状態のIssueを読む。
+現在Sprintがなければ空として報告し、取得失敗と区別する。
+importedは閲覧専用の履歴であり、移行時の状態を過去終了時点の成果へ読み替えない。
+候補だけのIssue、imported、終了済み、中止済みは現在Sprintの集合に含めない。
+
+S01では人の計画合意、採択、開始、切替をつなぐ公開操作が未接続である。
+Sprintからの新規Run作成、Task作成、worker起動、`nod issue start/next`、自律的な枠補充を行わない。
+読取集合にIssueがあっても、実行開始の許可とは扱わない。
+実行監督、worker中継、Inbox判断、評価、期間終了、振り返りのSprint運用はS02以降で接続する。
+後述の実装、質問、レビュー、提出の手順は、移行前からある個別委任の権限と現所有者を確認して引き継ぐために保持する。
+新しいSprintの機能として案内せず、引継ぎで委任範囲を拡大しない。
+
+切替の前に[永続記録と再開](references/recovery.md)で旧PMとworkerを照合する。
+移行によってOrca実行が停止したとはみなさず、Sprintの検索結果に出ない既存Issueも管理記録から読む。
+不明実行、未確定操作、通信断は予約と占有を保持し、空き枠や終了済みに変えない。
+個別セッションで合意したProject限定などの例外は原文と出典を記録し、製品の一般規則にしない。
+
+## 1. 読取範囲と引継ぎ条件を揃える
 
 呼び出し例:
 
 ```text
-nod:pm API --cycle 2 --on Studio --max-parallel 2 --agent codex --model gpt-6.1-sol --effort high
+nod:pm API --sprint current --on Studio --max-parallel 2 --agent codex --model gpt-6.1-sol --effort high
+対象は読取と既存実行の照合。
 ```
 
 これらはスキルへの指示であり、`nod` CLIのサブコマンドやオプションではない。
@@ -32,7 +54,7 @@ nod:pm API --cycle 2 --on Studio --max-parallel 2 --agent codex --model gpt-6.1-
 | 入力 | 確認する値 |
 | --- | --- |
 | Workspace | 登録済みのキーとパス。複数Workspaceへ広げない |
-| Cycle | IDと名前。`current`や名前は起動時にIDへ一度解決し、以後は固定IDを使う |
+| Sprint | UUID、全Workspace共通番号、または相対指定`current`。旧Cycle IDや名前で代用しない。`current`は再取得時も相対条件を保持する |
 | 実行先 | Studioの接続先と対象リポジトリ。PMの入口はAir。Airへ黙って切り替えない |
 | 並行上限 | 省略時1件、明示時1または2件。0、3以上、整数以外を受け入れない |
 | 実装担当 | CodexまたはClaude Codeと、nodで使う担当名（`codex`または`claude-code`） |
@@ -50,7 +72,7 @@ Codexではnodへ書き込む前に`export NOD_ACTOR=codex`を設定する。
 `nod skills get nod`と、この環境の`orchestration`スキルを読み、そこで解決したOrca実行ファイルを以後も使う。
 Orcaの実行ファイルから`skills get orchestration`で現行の手引きを取得する。
 未対応の操作やflagを推測しない。
-この節の入力を短く提示し、以後は指定Workspaceと固定Cycleだけを再取得する。
+この節の入力を短く提示し、以後は指定WorkspaceとSprint条件を再取得し、既存実行は記録されたIssue IDでも別に読む。
 
 ## 2. 候補と既存実行を照合する
 
@@ -75,18 +97,21 @@ Orcaの実行ファイルから`skills get orchestration`で現行の手引き�
 報告は、起動条件、PM管理内の占有枠と空き枠、Issueごとの分類、理由と次の条件の順に書く。
 分類は「実装可能」「仕様準備」「人への確認待ち」「依存待ち」「管理外」を使い、複数の停止理由があれば併記する。
 管理中の既存作業は新規候補に混ぜず、工程と実行の対応を示す。
-指定外Workspace、次Cycle、Cycle未設定のIssueを新規候補へ入れない。
-Cycle内の変更は固定IDで再取得するが、次のCycleへ自動で管理範囲を広げない。
+指定外Workspace、次Sprint、未採択の候補へ読取範囲を広げない。
+currentは相対条件のまま再取得するが、集合の変化を実行許可へ読み替えない。
+S01では分類を読取結果と停止理由として示し、「実装可能」という分類だけで新規着手しない。
 
 候補表示だけを依頼された場合は、この報告で止める。
 候補を見せるためにRun、Task、Dispatch、worker、PRを作らず、`nod issue start`や着手を伴う`next`も使わない。
-初回仕様判定の1回の回復と停止理由の記録は、確認手順に従う。
+S01の読取では判定状態と停止理由を報告し、自動assessで新規着手条件を作らない。
+既存の個別委任で判定回復が必要な場合だけ、確認手順に従う。
 PMの運用方針として、人に委ねたTriage判断、GitHubのPR承認、マージ、本番反映を代行しない。
 CLIの操作権限とこの方針は区別する。CLIがLLMの操作を許可していても、人の判断や承認をPMが代行する根拠にはしない。
 
 ## 4. 1件を実装からPR提出へ進める
 
-実装まで依頼されている場合は、[実装依頼と提出の手順](references/implementation.md)を使う。
+S01の新規Sprint運用には適用しない。
+既存の個別委任の継続が許可されている場合は、[実装依頼と提出の手順](references/implementation.md)を使う。
 新規着手直前に候補と空き枠を再確認し、Studioの専用worktreeで実装者を起動する。
 初期依頼には「PMが`launch.requested`と`launch.effective`を照合して開始を通知するまで、実装も`nod issue start`も行わない」という開始条件を入れる。
 Studioの対応を確認し、起動結果が指定と一致した場合だけDispatch宛てに開始通知を送る。
@@ -106,7 +131,7 @@ PR作成のための追加承認は要求しない。
 
 ## 5. 仕様準備と質問待ちから元の作業へ戻す
 
-needs-spec付きIssueは[仕様準備の手順](references/specification.md)で既存の`nod:to-spec`へ渡す。
+既存の個別委任の継続として許可されているneeds-spec付きIssueは[仕様準備の手順](references/specification.md)で既存の`nod:to-spec`へ渡す。
 別モデルとの照合、未決論点への実回答、仕様とテスト境界の合意、正式Specの添付を確認する。
 needs-specの解除はto-specの正式な確認工程でのみ行い、既存の合意を聞き直して不要な承認を増やさない。
 仕様準備中と人の回答待ちも、既存workerのcheckを続けて通知を処理する。
@@ -117,12 +142,13 @@ worker質問と全工程の人への相談は[質問の手順](references/questi
 チャットまたはnodの実回答を一意に対応させ、原文と出典をnodへ記録した後、同じ元作業へ渡す。
 人起点質問をLLMが代理回答せず、回答先不明、曖昧な回答、無回答、経過時間では再開しない。
 
-## 6. 空き枠の補充と既存作業の監督
+## 6. 既存の占有枠と実行状態を保持する
 
 [並行と待機の手順](references/parallel.md)で、通知の処理とIssueごとの枠の照合を繰り返す。
-既定1件、明示時最大2件を守り、新規起動前の予約を含めた空き枠に独立した候補だけを入れる。
+既定1件、明示時最大2件の既存管理枠を復元する。
+S01のSprint読取を根拠に新規候補を起動しない。
 人への質問を作っただけでは明示的引き継ぎにならず、回答待ちIssueは枠を保持する。
-例えば上限2で1件が質問待ちなら独立した1件を進められるが、既定1なら2件目を開始しない。
+上限2で1件が質問待ちなら占有1と空き1を報告するが、空きを理由にSprintからの自律実行を開始しない。
 一方のPR提出を確認しても、他方の質問、成果、枠を一緒に解除しない。
 
 新規候補がなくても稼働workerがいる間は監督を続ける。
