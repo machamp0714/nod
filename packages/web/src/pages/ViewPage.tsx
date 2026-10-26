@@ -31,19 +31,20 @@ export function ViewPage() {
 
 function ViewIssues({ view, views }: { view: View; views: View[] }) {
   // URL に明示した表示設定は URL を優先し、ないものは View に保存した表示設定で表示する（#175）
-  const search = viewSearch(view.display, route.useSearch());
-  const navigate = useNavigate({ from: "/views/$viewId" });
   const [draft, setDraft] = useState<IssueQuery>(view.filter);
+  const currentSprint = draft.sprint === "current";
+  const search = viewSearch(view.display, route.useSearch(), currentSprint);
+  const navigate = useNavigate({ from: "/views/$viewId" });
   const [renaming, setRenaming] = useState(false);
   const rows = useIssueRows(draft);
-  const options = useFilterOptions();
+  const options = useFilterOptions(draft.sprint);
   const saveFilter = useUpdateView();
   const rename = useUpdateView();
   const remove = useDeleteView();
   // 委任中タブは表示設定ではなく絞り込み条件（delegated）として保存する（Issues の「View として保存」と同じ）
   const nextFilter = search.tab === "delegated" ? { ...draft, delegated: true } : draft;
-  const nextDisplay = displayFromSearch(search);
-  const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, savedDisplay(view.display));
+  const nextDisplay = displayFromSearch(search, currentSprint);
+  const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, savedDisplay(view.display, currentSprint));
 
   // 表示設定のクエリを URL から外すと、View に保存した表示設定に戻る。絞り込みの下書きも一緒に戻す
   async function revert() {
@@ -83,12 +84,15 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
           </span>
         }
         titleNote={dirty && <span className={s.dirtyBox}><span className={s.dirty}>変更あり</span></span>}
+        sprintIds={rows.sprintIds}
+        emptyMessage={rows.emptyMessage}
+        onRetry={rows.retry}
         rows={rows.rows}
         loading={rows.loading}
         error={rows.error}
         search={search}
         statusWorkspace={singleWorkspace(draft.workspace)}
-        onSearchChange={(patch) => navigate({ search: (prev) => cleanViewSearch({ ...viewSearch(view.display, prev), ...patch }, view.display), replace: replacesIssueListHistory(patch) })}
+        onSearchChange={(patch) => navigate({ search: (prev) => cleanViewSearch({ ...viewSearch(view.display, prev, currentSprint), ...patch }, view.display, currentSprint), replace: replacesIssueListHistory(patch) })}
         // 失敗の表示は Header（高さ 44 で折り返さない）の外に出す
         intro={
           (saveFilter.isError || remove.isError) && (

@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { CycleAnalytics } from "../../api/types";
+import type { SprintAnalytics } from "../../api/types";
 import { graphSeries, shortDate } from "../../lib/cycle-analytics";
 import { DataTable, Legend, useWidth } from "../analytics/charts";
 import s from "./cycle-analytics.module.css";
@@ -12,8 +12,10 @@ export const CYCLE_COLORS = { scope: "var(--ink3)", started: "var(--ask)", compl
 
 // Linear の Cycle graph。Scope・Started（Completed に積む）・Completed の線と、Completed の日ごとの薄い棒、
 // Target の破線、今日の縦線。today は現在の Cycle のときだけ渡す
-export function CycleGraph({ analytics, startDate, endDate, today }: {
-  analytics: CycleAnalytics;
+export function CycleGraph({ analytics, startDate, endDate, today, label = "Cycle graph", showTarget = true }: {
+  analytics: Pick<SprintAnalytics, "burnup">;
+  label?: string;
+  showTarget?: boolean;
   startDate: string;
   endDate: string;
   today: string | null;
@@ -33,25 +35,25 @@ export function CycleGraph({ analytics, startDate, endDate, today }: {
   };
   const todayAt = today ? g.days.indexOf(today) : -1;
   const table = {
-    head: ["日付", "Scope", "Started", "Completed", "Target"],
-    rows: g.days.map((d, n) => [d, String(g.scope[n] ?? "—"), String(g.started[n] ?? "—"), String(g.completed[n] ?? "—"), g.target[n]!.toFixed(1)]),
+    head: ["日付", "Scope", "Started", "Completed", "不明件数"],
+    rows: g.days.map((d, n) => [d, String(g.scope[n] ?? "—"), String(g.started[n] ?? "—"), String(g.completed[n] ?? "—"), String(g.unknown[n] ?? "不明")]),
   };
   return (
     <div className={s.graph}>
       <div ref={ref} className={s.plot}>
-        <svg className={s.svg} width={width} height={HEIGHT} role="img" aria-label="Cycle graph" aria-describedby={tableId}>
+        <svg className={s.svg} width={width} height={HEIGHT} role="img" aria-label={label} aria-describedby={tableId}>
           <rect x={0} y={0} width={width} height={1} fill="var(--line)" />
           <rect x={0} y={HEIGHT / 2} width={width} height={1} fill="var(--line)" />
           {g.completed.map((v, n) =>
             v ? <rect key={g.days[n]} x={x(n) - slotW / 4} y={y(v)} width={slotW / 2} height={HEIGHT - y(v)} fill="var(--accent-soft)" /> : null,
           )}
-          <path d={line(g.target)} fill="none" stroke={CYCLE_COLORS.target} strokeWidth={1.5} strokeDasharray="4 4" opacity={0.7} />
+          {showTarget && <path d={line(g.target)} fill="none" stroke={CYCLE_COLORS.target} strokeWidth={1.5} strokeDasharray="4 4" opacity={0.7} />}
           <path d={line(g.scope)} fill="none" stroke={CYCLE_COLORS.scope} strokeWidth={1.5} strokeLinejoin="round" />
           <path d={line(g.startedStack)} fill="none" stroke={CYCLE_COLORS.started} strokeWidth={1.5} strokeLinejoin="round" />
           <path d={line(g.completed)} fill="none" stroke={CYCLE_COLORS.completed} strokeWidth={2} strokeLinejoin="round" />
           {todayAt >= 0 && <rect x={x(todayAt)} y={0} width={1} height={HEIGHT} fill="var(--ink3)" opacity={0.4} />}
         </svg>
-        <DataTable id={tableId} label="Cycle graph の日ごとの値" table={table} />
+        <DataTable id={tableId} label={`${label} の日ごとの値`} table={table} />
       </div>
       <div className={s.axis}>
         <span>{shortDate(startDate)}</span>
@@ -63,7 +65,7 @@ export function CycleGraph({ analytics, startDate, endDate, today }: {
           { key: "Scope", color: CYCLE_COLORS.scope, line: true },
           { key: "Started", color: CYCLE_COLORS.started, line: true },
           { key: "Completed", color: CYCLE_COLORS.completed, line: true },
-          { key: "Target", color: CYCLE_COLORS.target, line: true },
+          ...(showTarget ? [{ key: "Target", color: CYCLE_COLORS.target, line: true }] : []),
         ]}
       />
     </div>

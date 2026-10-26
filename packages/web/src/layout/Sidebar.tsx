@@ -1,15 +1,14 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useCycles } from "../api/hooks/cycles";
+import { useCurrentSprints } from "../api/hooks/sprints";
 import { useCreateView } from "../api/hooks/views";
 import { Icon, IconButton, type IconName } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
-import { currentCycleLink } from "../lib/cycles";
 import { workspaceColorOf } from "../lib/workspace-color";
 import s from "./layout.module.css";
 import { useSidebarData } from "./useSidebarData";
 
-type NavPath = "/inbox" | "/triage" | "/open-questions" | "/issues" | "/my-issues" | "/initiatives" | "/projects" | "/cycles" | "/documents" | "/analytics" | "/summary";
+type NavPath = "/inbox" | "/triage" | "/open-questions" | "/issues" | "/my-issues" | "/initiatives" | "/projects" | "/sprints" | "/documents" | "/analytics" | "/summary";
 
 const ACTIVE_PROPS = { className: s.active, "aria-current": "page" } as const;
 
@@ -72,9 +71,11 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
   const navigate = useNavigate();
   const createView = useCreateView();
   const [creating, setCreating] = useState(false);
-  const current = currentCycleLink(useCycles().data);
+  const current = useCurrentSprints();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const { pathname } = useLocation();
-  const currentActive = current !== null && current.to !== "/cycles" && pathname === current.to;
+  const currentActive = current.data?.sprints.some((item) => pathname === `/sprints/${item.id}` || pathname === `/sprints/${item.number}`) ?? false;
+
   return (
     <nav aria-label="メイン" className={s.sidebar}>
       <div className={s.top}>
@@ -96,8 +97,7 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
         <NavItem to="/issues" icon="copy" label="Issues" />
         <NavItem to="/initiatives" icon="target" label="Initiatives" />
         <NavItem to="/projects" icon="box" label="Projects" />
-        <NavItem to="/cycles" icon="calendar-range" label="Cycles" exact={currentActive} />
-        {current && <CurrentCycleItem to={current.to} label={current.label} active={currentActive} />}
+        <NavItem to="/sprints" icon="calendar-range" label="Sprints" exact={currentActive} />
         <NavItem to="/documents" icon="file-text" label="Documents" />
         <NavItem to="/analytics" icon="chart-column" label="Analytics" />
         <NavItem to="/summary" icon="activity" label="Summary" />
@@ -107,22 +107,34 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
 
       {workspaces.length > 0 && (
         <div className={s.group}>
-          {workspaces.map((workspace) => (
-            <div key={workspace.key} className={s.workspaceHeading}>
-              <span className={s.workspaceSwatch} style={{ background: workspaceColorOf(workspaces, workspace.key) }} />
-              <span className={s.workspaceName}>{workspace.name}</span>
-              <Link
-                to="/workspaces/$workspaceKey/settings"
-                params={{ workspaceKey: workspace.key }}
-                className={s.settingsLink}
-                activeProps={ACTIVE_PROPS}
-                title="設定"
-                aria-label={`${workspace.name} の設定`}
-              >
-                <Icon name="settings" />
-              </Link>
-            </div>
-          ))}
+          {workspaces.map((workspace) => {
+            const open = expanded.has(workspace.key);
+            const sprint = current.data?.sprints.find((item) => item.workspaceId === workspace.id);
+            const to = sprint ? `/sprints/${sprint.id}` : null;
+            return <div key={workspace.key}>
+              <div className={s.workspaceHeading}>
+                <button type="button" className={s.workspaceToggle} aria-label={`${workspace.name} を開閉`}
+                  aria-expanded={open} aria-controls={`workspace-${workspace.key}`}
+                  onClick={() => setExpanded((prev) => { const next = new Set(prev); if (open) next.delete(workspace.key); else next.add(workspace.key); return next; })}>
+                  <Icon name={open ? "chevron-down" : "chevron-right"} size={12} />
+                  <span className={s.workspaceSwatch} style={{ background: workspaceColorOf(workspaces, workspace.key) }} />
+                  <span className={s.workspaceName}>{workspace.name}</span>
+                </button>
+                <Link to="/workspaces/$workspaceKey/settings" params={{ workspaceKey: workspace.key }} className={s.settingsLink}
+                  activeProps={ACTIVE_PROPS} title="設定" aria-label={`${workspace.name} の設定`}><Icon name="settings" /></Link>
+              </div>
+              {open && <div id={`workspace-${workspace.key}`}>
+                {to ? <CurrentCycleItem to={to} label={sprint!.name} active={pathname === to || pathname === `/sprints/${sprint!.number}`} /> :
+                  <div className={`${s.item} ${s.subItem}`} aria-live="polite">
+                    <Icon name="circle-dot" size={12} /><span className={s.label}>Current</span>
+                    <span className={s.subNote}>{current.isError ? "取得失敗" : current.data ? "なし" : "読込中…"}</span>
+                    {current.isError && <button type="button" className={s.headingButton} aria-label={`${workspace.name} の現在Sprintを再試行`} onClick={() => void current.refetch()}><Icon name="refresh-cw" size={12} /></button>}
+                  </div>}
+                <Link to="/issues" search={{ workspace: [workspace.key] }} className={`${s.item} ${s.subItem}`}><Icon name="copy" size={14} /><span className={s.label}>Issues</span></Link>
+                <Link to="/projects" search={{ workspace: workspace.key }} className={`${s.item} ${s.subItem}`}><Icon name="box" size={14} /><span className={s.label}>Projects</span></Link>
+              </div>}
+            </div>;
+          })}
         </div>
       )}
 

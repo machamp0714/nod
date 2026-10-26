@@ -1,5 +1,5 @@
 import type { ViewDisplay } from "../api/types";
-import { cleanIssueListSearch, DEFAULT_ISSUE_COLUMNS, defaultGroupBy, ISSUE_COLUMNS, type IssueColumn, type IssueListSearch } from "../routes/search";
+import { cleanIssueListSearch, defaultIssueColumns, defaultGroupBy, ISSUE_COLUMNS, type IssueColumn, type IssueListSearch } from "../routes/search";
 import { COLUMN_NAMES, GROUP_NAMES, SORT_OPTIONS } from "./display-names";
 
 // View に保存する一覧の表示設定（#175）。core の ViewDisplay と同じく、既定と違う値だけを持つ。
@@ -7,8 +7,8 @@ import { COLUMN_NAMES, GROUP_NAMES, SORT_OPTIONS } from "./display-names";
 
 // URL のクエリから、View に保存する表示設定を取り出す。
 // 委任中タブは filter の delegated で保存するため tab には入れず、そのタブの既定のグループ化（担当）を保存する
-export function displayFromSearch(search: IssueListSearch): ViewDisplay {
-  const s = cleanIssueListSearch(search);
+export function displayFromSearch(search: IssueListSearch, currentSprint = search.sprint === "current"): ViewDisplay {
+  const s = cleanIssueListSearch(search, false, undefined, currentSprint);
   const d: ViewDisplay = {};
   if (s.tab === "ready" || s.tab === "needs_clarification") d.tab = s.tab;
   if (s.layout === "board") d.layout = "board";
@@ -27,19 +27,19 @@ export function displayFromSearch(search: IssueListSearch): ViewDisplay {
 
 // View の画面に表示する状態。URL に明示したキーは URL を優先し、ないキーは View の表示設定を使う。
 // URL の subGroupBy が表示中の groupBy と同じなら「サブグループなし」を表す（cleanIssueListSearch が無視する）
-export function viewSearch(display: ViewDisplay, url: IssueListSearch): IssueListSearch {
+export function viewSearch(display: ViewDisplay, url: IssueListSearch, currentSprint = false): IssueListSearch {
   return cleanIssueListSearch({
     ...url,
     tab: url.tab ?? display.tab,
     layout: url.layout ?? display.layout,
-    groupBy: url.groupBy ?? display.groupBy,
-    subGroupBy: url.subGroupBy ?? display.subGroupBy,
+    groupBy: url.groupBy ?? (display.groupBy === "cycle" ? "sprint" : display.groupBy),
+    subGroupBy: url.subGroupBy ?? (display.subGroupBy === "cycle" ? "sprint" : display.subGroupBy),
     sort: url.sort ?? display.sort,
     direction: url.direction ?? display.direction,
     columns: url.columns ?? display.columns,
     showCompleted: url.showCompleted ?? display.showCompleted,
     showChildren: url.showChildren ?? display.showChildren,
-  });
+  }, false, undefined, currentSprint);
 }
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
@@ -49,9 +49,10 @@ function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): bool
 // View の画面の URL。View の表示設定と同じ値は書かず（開き直すと View の表示設定に戻る）、違う値だけを書く。
 // View の表示設定を既定に戻したときは、既定の値を明示する（tab=all、groupBy=none、sort=default など）。
 // サブグループを外したときは、subGroupBy に表示中の groupBy と同じ値を書く
-export function cleanViewSearch(search: IssueListSearch, display: ViewDisplay): IssueListSearch {
-  const current = cleanIssueListSearch(search);
-  const saved = viewSearch(display, {});
+export function cleanViewSearch(search: IssueListSearch, display: ViewDisplay, currentSprint = false): IssueListSearch {
+  const current = cleanIssueListSearch(search, false, undefined, currentSprint);
+  const saved = viewSearch(display, {}, currentSprint);
+  const defaultColumns = defaultIssueColumns(undefined, currentSprint);
   const out: IssueListSearch = { ...current };
   delete out.tab;
   if ((current.tab ?? "all") !== (saved.tab ?? "all")) out.tab = current.tab ?? "all";
@@ -71,7 +72,7 @@ export function cleanViewSearch(search: IssueListSearch, display: ViewDisplay): 
   delete out.direction;
   if ((current.direction ?? "asc") !== (saved.direction ?? "asc")) out.direction = current.direction ?? "asc";
   delete out.columns;
-  if (!sameColumns(current.columns ?? DEFAULT_ISSUE_COLUMNS, saved.columns ?? DEFAULT_ISSUE_COLUMNS)) out.columns = current.columns ?? [...DEFAULT_ISSUE_COLUMNS];
+  if (!sameColumns(current.columns ?? defaultColumns, saved.columns ?? defaultColumns)) out.columns = current.columns ?? [...defaultColumns];
   delete out.showCompleted;
   if ((current.showCompleted !== false) !== (saved.showCompleted !== false)) out.showCompleted = current.showCompleted !== false;
   delete out.showChildren;
@@ -91,8 +92,8 @@ function normalize(d: ViewDisplay) {
 
 // View に保存した表示設定を、画面が保存するときと同じ形にそろえる。
 // API は既定と同じ列（順だけ違うものも）も受け付けるため、そのまま比べると開くたびに「変更あり」になる
-export function savedDisplay(display: ViewDisplay): ViewDisplay {
-  return displayFromSearch(viewSearch(display, {}));
+export function savedDisplay(display: ViewDisplay, currentSprint = false): ViewDisplay {
+  return displayFromSearch(viewSearch(display, {}, currentSprint), currentSprint);
 }
 
 // キーの順を問わずに2つの表示設定を比べる（View の保存していない変更の判定）
@@ -112,8 +113,8 @@ export function describeDisplay(d: ViewDisplay): DisplayItem[] {
   const items: DisplayItem[] = [];
   if (d.tab) items.push({ name: "タブ", value: TAB_NAMES[d.tab] });
   if (d.layout === "board") items.push({ name: "表示", value: "ボード" });
-  if (d.groupBy) items.push({ name: "グループ", value: GROUP_NAMES[d.groupBy] });
-  if (d.subGroupBy) items.push({ name: "サブグループ", value: GROUP_NAMES[d.subGroupBy] });
+  if (d.groupBy) items.push({ name: "グループ", value: GROUP_NAMES[d.groupBy === "cycle" ? "sprint" : d.groupBy] });
+  if (d.subGroupBy) items.push({ name: "サブグループ", value: GROUP_NAMES[d.subGroupBy === "cycle" ? "sprint" : d.subGroupBy] });
   if (d.sort || d.direction) {
     const option = SORT_OPTIONS.find((o) => o.value === (d.sort ?? "default"));
     items.push({ name: "並び", value: `${option?.short ?? option?.label ?? ""}（${d.direction === "desc" ? "降順" : "昇順"}）` });

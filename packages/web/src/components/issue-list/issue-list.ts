@@ -101,14 +101,14 @@ export interface RowGroup {
 }
 
 // Cycle のグループの見出しと並び順（開始日）。一覧にない Cycle は名前で見出しにする
-export type CycleInfo = (id: number) => { label: string; rank: string; current?: boolean } | undefined;
+export type SprintInfo = (id: string) => { label: string; rank: string; current?: boolean } | undefined;
 
 // 1行が属するグループ（キー、見出し、並び順）。ラベルは複数のグループに属する
 function groupEntries(
   row: IssueListRow,
   by: IssueGroupKey,
   nameOfStatus: (status: Status) => string,
-  cycleInfo: CycleInfo,
+  sprintInfo: SprintInfo,
 ): { key: string; label: string; rank: number | string; current?: boolean }[] {
   const { issue } = row;
   switch (by) {
@@ -120,10 +120,12 @@ function groupEntries(
       return [{ key: String(issue.priority), label: priorityMeta(issue.priority).label, rank: priorityRank(issue.priority) }];
     case "project":
       return [issue.project ? { key: String(issue.project.id), label: issue.project.name, rank: issue.project.name } : { key: "", label: "Projectなし", rank: "" }];
-    case "cycle": {
-      if (!issue.cycle) return [{ key: "", label: "Cycleなし", rank: "" }];
-      const info = cycleInfo(issue.cycle.id);
-      return [{ key: String(issue.cycle.id), label: info?.label ?? issue.cycle.name, rank: info?.rank ?? issue.cycle.name, current: info?.current }];
+    case "sprint": {
+      if (!issue.sprints.length) return [{ key: "", label: "Sprintなし", rank: "" }];
+      return issue.sprints.map((sprint) => {
+        const info = sprintInfo(sprint.id);
+        return { key: sprint.id, label: info?.label ?? sprint.name, rank: info?.rank ?? sprint.name, current: info?.current };
+      });
     }
     case "assignee":
       return [issue.assignee ? { key: issue.assignee, label: issue.assignee, rank: issue.assignee } : { key: "", label: "未割り当て", rank: "" }];
@@ -134,17 +136,17 @@ function groupEntries(
 
 // 表示中の行をプロパティで分ける。行があるグループだけを返し、グループ内は入力の並び順を保つ。
 // 値なしのグループ（Projectなし、Cycleなし、未割り当て、ラベルなし）は最後に置く。
-// nameOfStatus は Status の見出しに Workspace の表示名を使うときに、cycleInfo は Cycle の見出しに状態と開始日を使うときに渡す
+// nameOfStatus は Status の見出しに Workspace の表示名を使うときに、sprintInfo は Cycle の見出しに状態と開始日を使うときに渡す
 export function groupRows(
   rows: readonly IssueListRow[],
   by: IssueGroupKey,
   subBy?: IssueGroupKey,
   nameOfStatus: (status: Status) => string = (status) => STATUS_META[status].label,
-  cycleInfo: CycleInfo = () => undefined,
+  sprintInfo: SprintInfo = () => undefined,
 ): RowGroup[] {
   const groups = new Map<string, RowGroup & { rank: number | string }>();
   for (const row of rows) {
-    for (const entry of groupEntries(row, by, nameOfStatus, cycleInfo)) {
+    for (const entry of groupEntries(row, by, nameOfStatus, sprintInfo)) {
       let group = groups.get(entry.key);
       if (!group) {
         group = { key: entry.key, label: entry.label, rank: entry.rank, rows: [] };
@@ -161,7 +163,7 @@ export function groupRows(
       if (typeof a.rank === "number" && typeof b.rank === "number") return a.rank - b.rank;
       return String(a.rank).localeCompare(String(b.rank), "ja", { numeric: true }) || a.key.localeCompare(b.key);
     })
-    .map(({ rank: _rank, ...group }) => (subBy && subBy !== by ? { ...group, subgroups: groupRows(group.rows, subBy, undefined, nameOfStatus, cycleInfo) } : group));
+    .map(({ rank: _rank, ...group }) => (subBy && subBy !== by ? { ...group, subgroups: groupRows(group.rows, subBy, undefined, nameOfStatus, sprintInfo) } : group));
 }
 
 // 画面に適用するグループ化。Board は列が Status なので Status のグループ化を無効にし、サブグループはリストだけで使う

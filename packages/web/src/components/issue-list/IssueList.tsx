@@ -9,9 +9,8 @@ import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
 import { DisplayPopover, GROUP_NAMES } from "./DisplayPopover";
 import { IssueBoard } from "./IssueBoard";
-import { useCycles } from "../../api/hooks/cycles";
+import { useSprints } from "../../api/hooks/sprints";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
-import { cycleLabel } from "../../lib/cycles";
 import { useDraftText } from "../../lib/draft-text";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
 import { countRows, effectiveGrouping, filterRows, groupRows, type ListTab, type RowGroup, sortRows } from "./issue-list";
@@ -31,6 +30,10 @@ export interface IssueListProps {
   actions?: ReactNode; // Header の右に置くボタン（View として保存、View の変更など）
   filterBar?: ReactNode; // 絞り込み条件のチップの行。条件を足すパネル（<details>）があれば、View Bar の Filter のボタンから開ける
   rows: IssueListRow[];
+  readOnly?: boolean;
+  sprintIds?: readonly string[];
+  emptyMessage?: string;
+  onRetry?: () => void;
   loading?: boolean;
   error?: string | null;
   search: IssueListSearch;
@@ -50,7 +53,7 @@ export interface IssueListProps {
 
 // プレビュー中に表から外す列。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
 // 表示設定で足した列（未決事項・PR・見積もり・期限）も、題名の幅を保つため外す（#196）
-const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["workspace", "project", "questions", "pr", "estimate", "dueDate"];
+const PREVIEW_HIDDEN_COLUMNS: readonly IssueColumn[] = ["workspace", "project", "sprint", "questions", "pr", "estimate", "dueDate"];
 
 // design/nod.pen「11 Issues」（O7KCp3）：Header、View Bar（タブと、検索、Filter、Display のアイコンボタン）、Filters の行、一覧。
 // 件数はタブに出す。グループ化、並び順、表示列、List と Board の切り替えは Display のポップオーバーにまとめる。
@@ -65,7 +68,11 @@ export function IssueList({
   heading,
   actions,
   filterBar,
-  rows,
+  rows: sourceRows,
+  readOnly = false,
+  sprintIds,
+  emptyMessage,
+  onRetry,
   loading = false,
   error = null,
   search,
@@ -77,14 +84,16 @@ export function IssueList({
   resetDisplayDisabled,
   statusTones = NO_STATUS_TONES,
 }: IssueListProps) {
+  // currentの列とグループだけを有効集合へ対応させる。元Issueの参照集合は変更しない。
+  const rows = sprintIds ? sourceRows.map((row) => ({ ...row, issue: { ...row.issue, sprints: row.issue.sprints.filter((item) => sprintIds.includes(item.id)) } })) : sourceRows;
   const statusNames = useStatusNames();
   const namesWorkspace = statusWorkspace === undefined ? singleWorkspace(search.workspace) : statusWorkspace;
   const nameOfStatus = (status: Status) => statusName(status, statusNames.data, namesWorkspace);
   // Cycle のグループは「名前（状態）」を見出しにし、開始日の順に並べる
-  const cycles = useCycles();
-  const cycleInfo = (id: number) => {
+  const cycles = useSprints();
+  const cycleInfo = (id: string) => {
     const cycle = cycles.data?.find((c) => c.id === id);
-    return cycle && { label: cycleLabel(cycle), rank: cycle.startDate, current: cycle.state === "current" };
+    return cycle && { label: cycle.name, rank: `${cycle.startDate}:${cycle.number}`, current: cycle.phase === "active" };
   };
   const tab: ListTab = mine ? "mine" : (search.tab ?? "all");
   const layout = search.layout ?? "list";
@@ -94,7 +103,7 @@ export function IssueList({
   const preview = search.preview;
   // プレビュー中は一覧の幅が狭くなるため、PREVIEW_HIDDEN_COLUMNS（Project・Workspace とチップで足した列）を隠して題名の幅を保つ（#174・#196）
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
-  const columns = search.columns ?? defaultIssueColumns(sameValueColumn);
+  const columns = search.columns ?? defaultIssueColumns(sameValueColumn, sprintIds !== undefined);
   const tableColumns = preview ? columns.filter((column) => !PREVIEW_HIDDEN_COLUMNS.includes(column)) : columns;
   const { groupBy, subGroupBy } = effectiveGrouping(search, layout, mine);
   const groups = groupBy
@@ -129,13 +138,13 @@ export function IssueList({
     if (markCurrent) currentShown = true;
     const selection = rowSelection && { ...rowSelection, offset };
     offset += tableRows.length;
-    return <IssueTable rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} />;
+    return <IssueTable unknownQuestions={readOnly} rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
   const [toast, setToast] = useState<string | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  const selectable = layout === "list";
+  const selectable = !readOnly && layout === "list";
   // 表示順の ID。positions はラベルのグループで同じ Issue が何度も出る並びのまま、order は1回ずつ
   const positions = useMemo(() => (groupBy ? groups.flatMap(rowsOf) : visible).map((r) => r.issue.id), [groupBy, groups, visible]);
   const order = useMemo(() => [...new Set(positions)], [positions]);
@@ -227,7 +236,7 @@ export function IssueList({
       </PageHeader>
       {intro && <div className={s.intro}>{intro}</div>}
       {heading}
-      <ViewBar>
+      <ViewBar className={s.viewBar}>
         <Segmented<ListTab>
           label="絞り込み"
           value={tab}
@@ -236,7 +245,7 @@ export function IssueList({
             { value: "mine", label: `担当 ${counts.mine}` },
           ] : [
             { value: "all", label: `All ${counts.all}` },
-            { value: "ready", label: `Ready ${counts.ready}` },
+            { value: "ready", label: readOnly ? "Ready 不明" : `Ready ${counts.ready}` },
             { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
             { value: "delegated", label: `委任中 ${counts.delegated}` },
           ]}
@@ -285,12 +294,13 @@ export function IssueList({
         {error ? (
           <p role="alert" className={`${s.message} ${s.messageError}`}>
             {error}
+            {onRetry && <button type="button" onClick={onRetry}>再試行</button>}
           </p>
         ) : loading ? (
           <p role="status" className={s.message}>
             読み込み中…
           </p>
-        ) : delegated && counts.delegated === 0 ? (
+        ) : readOnly && tab === "ready" ? <p role="status" className={s.message}>移行時のReady判定は未記録です</p> : emptyMessage && rows.length === 0 ? <p role="status" className={s.message}>{emptyMessage}</p> : delegated && counts.delegated === 0 ? (
           <div className={s.emptyDelegated}>
             <Icon name="bot" size={24} color="var(--ink3)" />
             LLM に委任中の Issue はありません
@@ -311,7 +321,7 @@ export function IssueList({
                   delegated={delegated}
                   select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
                 />
-                {layout === "board" ? <IssueBoard rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
+                {layout === "board" ? <IssueBoard readOnly={readOnly} rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
                   group.subgroups.map((subgroup) => (
                     <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
                       <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
@@ -325,7 +335,7 @@ export function IssueList({
         ) : layout === "list" ? (
           table(visible)
         ) : (
-          <IssueBoard rows={visible} nameOfStatus={nameOfStatus} />
+          <IssueBoard readOnly={readOnly} rows={visible} nameOfStatus={nameOfStatus} />
         )}
         {selectedIssues.length > 0 && (
           <BulkActionBar
@@ -433,7 +443,7 @@ function GroupHeading({ by, group, level = 2, delegated = false, select }: { by:
           {by === "status" && <StatusIcon status={group.key as Status} />}
           {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
           {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
-          {by === "cycle" && <Icon name={empty ? "circle-dashed" : "calendar-range"} size={14} color={group.current ? "var(--accent)" : "var(--ink3)"} />}
+          {by === "sprint" && <Icon name={empty ? "circle-dashed" : "calendar-range"} size={14} color={group.current ? "var(--accent)" : "var(--ink3)"} />}
           {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
           {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
           <span className={s.groupLabel}>{group.label}</span>

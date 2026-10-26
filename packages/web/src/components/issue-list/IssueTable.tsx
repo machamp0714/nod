@@ -52,6 +52,7 @@ function StatusCell({ issue }: { issue: Issue }) {
 
 export function IssueTable({
   rows,
+  unknownQuestions = false,
   columns = [...DEFAULT_ISSUE_COLUMNS],
   previewId,
   markCurrent = true,
@@ -60,6 +61,7 @@ export function IssueTable({
   selection,
 }: {
   rows: IssueListRow[];
+  unknownQuestions?: boolean;
   columns?: IssueColumn[];
   previewId?: string;
   markCurrent?: boolean; // 同じ Issue が複数のグループに出るとき、aria-current は最初の1行だけに付ける
@@ -88,6 +90,7 @@ export function IssueTable({
         {columns.includes("status") && <col className={s.colStatus} />}
         <col />
         {columns.includes("project") && <col className={s.colProject} />}
+        {columns.includes("sprint") && <col style={{ width: 120 }} />}
         {columns.includes("workspace") && <col className={s.colWorkspace} />}
         {columns.includes("questions") && <col className={s.colQuestions} />}
         {columns.includes("pr") && <col className={s.colPr} />}
@@ -106,6 +109,7 @@ export function IssueTable({
           {columns.includes("status") && <th>Status</th>}
           <th>Title</th>
           {columns.includes("project") && <th>Project</th>}
+          {columns.includes("sprint") && <th>Sprint</th>}
           {columns.includes("workspace") && <th>Workspace</th>}
           {columns.includes("questions") && <th>未決事項</th>}
           {columns.includes("pr") && <th>PR</th>}
@@ -175,7 +179,7 @@ export function IssueTable({
                   {/* 並びは 題名、作業状況、未決、完了候補（design/nod.pen「11 Issues｜行：未決ピル」a21Zf）。
                       未決事項の列を出しているときは列で示し、ピルは出さない（「11 Issues｜行：未決事項・PR の列を出したとき」w4l2KK） */}
                   {showAgentState && issue.agentState && <AgentStateDot state={issue.agentState} />}
-                  {!columns.includes("questions") && formatOpenQuestions(questions) && <span className={s.openPill}>{formatOpenQuestions(questions)}</span>}
+                  {!unknownQuestions && !columns.includes("questions") && formatOpenQuestions(questions) && <span className={s.openPill}>{formatOpenQuestions(questions)}</span>}
                   {issue.completionCandidate && (
                     <span className={s.completionPill}>
                       <Icon name="circle-check" size={11} />
@@ -207,6 +211,12 @@ export function IssueTable({
                   )}
                 </td>
               )}
+              {columns.includes("sprint") && <td><span className={s.projectCell}>
+                <Icon name="calendar-range" size={12} color="var(--ink3)" />
+                <span className={s.projectName} title={issue.sprints.map((item) => `${item.name}（${item.association === "imported" ? "移行履歴" : "採択"}）`).join("、")}>
+                  {issue.sprints.map((item) => item.name).join("、") || "—"}
+                </span>
+              </span></td>}
               {columns.includes("workspace") && (
                 <td>
                   <WorkspaceBadge workspaceKey={issue.workspace} name={workspaceName} />
@@ -214,7 +224,7 @@ export function IssueTable({
               )}
               {columns.includes("questions") && (
                 <td>
-                  <QuestionProgress count={questions} />
+                  {unknownQuestions ? <span className={s.muted}>不明</span> : <QuestionProgress count={questions} />}
                 </td>
               )}
               {columns.includes("pr") && (

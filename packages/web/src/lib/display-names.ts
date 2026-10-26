@@ -6,7 +6,7 @@ export const GROUP_NAMES: Record<IssueGroupKey, string> = {
   status: "Status",
   priority: "Priority",
   project: "Project",
-  cycle: "Cycle",
+  sprint: "Sprint",
   assignee: "担当",
   label: "ラベル",
 };
@@ -21,4 +21,4 @@ export const SORT_OPTIONS: { value: IssueSort; label: string; short?: string }[]
   { value: "dueDate", label: "期限" },
 ];
 
-export const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", project: "Project", assignee: "担当", pr: "PR", estimate: "見積もり", dueDate: "期限" };
+export const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", sprint: "Sprint", project: "Project", assignee: "担当", pr: "PR", estimate: "見積もり", dueDate: "期限" };

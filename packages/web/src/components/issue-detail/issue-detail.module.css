@@ -1387,3 +1387,6 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
   font-size: 11px;
   overflow-wrap: anywhere;
 }
+
+.propSprints { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.propSprints > a { max-width: 100%; height: auto; min-height: 28px; overflow-wrap: anywhere; }

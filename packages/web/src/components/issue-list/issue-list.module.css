@@ -1144,3 +1144,10 @@
   font-size: 12.5px;
   transform: translateX(-50%);
 }
+
+/* Sidebar幅を保つ狭幅では、Headerと操作行をMain内で折り返す。 */
+@media (max-width: 640px) {
+  .page > header { flex-wrap: wrap; height: auto; min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+  .actions { flex-wrap: wrap; max-width: 100%; }
+  .page > .viewBar { flex-wrap: wrap; padding-top: 7px; padding-bottom: 7px; }
+}

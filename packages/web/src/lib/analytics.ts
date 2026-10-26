@@ -1,6 +1,6 @@
 // Analytics 画面の純粋な計算。条件は URL の search に持ち、API の /api/stats と /api/stats/llm に渡す
 
-import { NO_CYCLE, withProject as withIssueProject } from "./issue-filter";
+import { NO_SPRINT, withProject as withIssueProject } from "./issue-filter";
 
 export type StatsBy = "day" | "week";
 
@@ -10,7 +10,7 @@ export interface AnalyticsSearch {
   workspace?: string; // Workspace のキー
   project?: string; // Project の数字の ID
   milestone?: string; // Milestone の数字の ID
-  cycle?: string; // Cycle の数字の ID か none（Cycle のない Issue）
+  sprint?: string; // Sprint の数字の ID か none（Sprint のない Issue）
 }
 
 export const RANGE_PRESETS: Record<StatsBy, readonly number[]> = { day: [7, 14, 30, 90], week: [4, 12, 26, 52] };
@@ -32,7 +32,7 @@ export function parseAnalyticsSearch(raw: Record<string, unknown>): AnalyticsSea
     workspace,
     project: idOf(raw.project),
     milestone: idOf(raw.milestone),
-    cycle: typeof raw.cycle === "string" && raw.cycle.toLowerCase() === NO_CYCLE ? NO_CYCLE : idOf(raw.cycle),
+    sprint: typeof raw.sprint === "number" ? String(raw.sprint) : typeof raw.sprint === "string" && raw.sprint.trim() ? raw.sprint.trim() : undefined,
   };
   for (const key of Object.keys(out) as (keyof AnalyticsSearch)[]) {
     if (out[key] === undefined && !(key in raw)) delete out[key];
@@ -49,7 +49,7 @@ export function cleanAnalyticsSearch(search: AnalyticsSearch): AnalyticsSearch {
   if (search.workspace) out.workspace = search.workspace;
   if (search.project) out.project = search.project;
   if (search.milestone) out.milestone = search.milestone;
-  if (search.cycle) out.cycle = search.cycle;
+  if (search.sprint) out.sprint = search.sprint;
   return out;
 }
 
@@ -78,7 +78,7 @@ export function statsQueryString(search: AnalyticsSearch, today: Date, tz: strin
   if (search.workspace) params.set("workspace", search.workspace);
   if (search.project) params.set("project", search.project);
   if (search.milestone) params.set("milestone", search.milestone);
-  if (search.cycle) params.set("cycle", search.cycle);
+  if (search.sprint) params.set("sprint", search.sprint);
   return params.toString();
 }
 
@@ -117,20 +117,25 @@ export function milestoneProblem(search: AnalyticsSearch, milestones: MilestoneR
   return null;
 }
 
-// nod.pen の Cycle Select のメニュー（C8VwtJ）。名前だけを出す。並びは受け取った順（GET /api/cycles は開始日の順）
-export function cycleOptions(all: readonly { id: number; name: string }[]): { value: string; label: string }[] {
-  return all.map((c) => ({ value: String(c.id), label: c.name }));
+// nod.pen の Sprint Select のメニュー（C8VwtJ）。名前だけを出す。並びは受け取った順（GET /api/sprints は開始日の順）
+export function sprintOptions(all: readonly { id: string | number; number?: number; name: string }[], selected?: string): { value: string; label: string }[] {
+  const options = all.map((item) => ({ value: String(item.id), label: item.name }));
+  if (selected && !options.some((item) => item.value === selected)) {
+    const numbered = all.find((item) => item.number !== undefined && String(item.number) === selected);
+    if (numbered) options.push({ value: selected, label: numbered.name });
+  }
+  return options;
 }
 
-// Workspace を選び直す。Cycle は Workspace をまたいで使えるため、選んでいた Cycle はそのまま残す
+// Workspace を選び直す。Sprint は Workspace をまたいで使えるため、選んでいた Sprint はそのまま残す
 export function withWorkspace(search: AnalyticsSearch, workspace: string | undefined): AnalyticsSearch {
   return { ...search, workspace };
 }
 
-// URL の Cycle が消えているとき、API を呼ばずに出すメッセージ。none（Cycle なし）と一覧の読み込み中は null
-export function cycleProblem(search: AnalyticsSearch, cycles: readonly { id: number }[] | undefined): string | null {
-  if (!search.cycle || search.cycle === NO_CYCLE || !cycles) return null;
-  if (!cycles.some((c) => String(c.id) === search.cycle)) return `条件の Cycle（${search.cycle}）が見つかりません`;
+// URL の Sprint が消えているとき、API を呼ばずに出すメッセージ。none（Sprint なし）と一覧の読み込み中は null
+export function sprintProblem(search: AnalyticsSearch, sprints: readonly { id: string | number; number?: number }[] | undefined): string | null {
+  if (!search.sprint || search.sprint === NO_SPRINT || search.sprint === "current" || !sprints) return null;
+  if (!sprints.some((c) => (String(c.id) === search.sprint || String(c.number) === search.sprint))) return `条件の Sprint（${search.sprint}）が見つかりません`;
   return null;
 }
 

@@ -1,6 +1,6 @@
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useCompletionStats } from "../api/hooks/analytics";
-import { useCycles } from "../api/hooks/cycles";
+import { useSprints } from "../api/hooks/sprints";
 import { useMilestones, useProjects } from "../api/hooks/projects";
 import { useWorkspaces } from "../api/hooks/shared";
 import { errorMessage } from "../api/errors";
@@ -12,8 +12,8 @@ import { FilterRow, Icon, PageError, PageHeader, PageLoading, PageTitle, Segment
 import {
   type AnalyticsSearch,
   cleanAnalyticsSearch,
-  cycleOptions,
-  cycleProblem,
+  sprintOptions,
+  sprintProblem,
   DEFAULT_RANGE,
   formatHours,
   milestoneGroups,
@@ -25,7 +25,7 @@ import {
   withProject,
   withWorkspace,
 } from "../lib/analytics";
-import { NO_CYCLE } from "../lib/issue-filter";
+import { NO_SPRINT } from "../lib/issue-filter";
 import s from "./analytics.module.css";
 
 const route = getRouteApi("/analytics");
@@ -38,21 +38,21 @@ export function AnalyticsPage() {
   const by = search.by ?? "week";
   const range = search.range ?? DEFAULT_RANGE[by];
   const query = statsQueryString(search, new Date(), BROWSER_TZ);
-  // 消えた Milestone・Cycle の ID や、Project と食い違う Milestone が URL に残っていたら、Issue 一覧と同じく API を呼ばずに知らせる
+  // 消えた Milestone・Sprint の ID や、Project と食い違う Milestone が URL に残っていたら、Issue 一覧と同じく API を呼ばずに知らせる
   const milestones = useMilestones();
-  const cycles = useCycles();
-  const problem = milestoneProblem(search, milestones.data) ?? cycleProblem(search, cycles.data);
-  const needsCycles = search.cycle !== undefined && search.cycle !== NO_CYCLE;
+  const sprints = useSprints();
+  const problem = milestoneProblem(search, milestones.data) ?? sprintProblem(search, sprints.data);
+  const needsSprints = search.sprint !== undefined && search.sprint !== NO_SPRINT && search.sprint !== "current";
   const ready =
-    problem === null && (search.milestone === undefined || milestones.data !== undefined) && (!needsCycles || cycles.data !== undefined);
+    problem === null && (search.milestone === undefined || milestones.data !== undefined) && (!needsSprints || sprints.data !== undefined);
   const stats = useCompletionStats(query, ready);
   const update = (next: AnalyticsSearch) => navigate({ search: cleanAnalyticsSearch(next), replace: true });
   const blocked =
     problem ??
     (search.milestone !== undefined && milestones.error
       ? errorMessage(milestones.error)
-      : needsCycles && cycles.error
-        ? errorMessage(cycles.error)
+      : needsSprints && sprints.error
+        ? errorMessage(sprints.error)
         : null);
   return (
     <div className={s.page}>
@@ -93,12 +93,12 @@ function FilterBar({ search, by, range, onChange }: {
   const workspaces = useWorkspaces();
   const projects = useProjects();
   const milestones = useMilestones();
-  const cycles = useCycles();
+  const sprints = useSprints();
   const groups = milestoneGroups(milestones.data ?? [], projects.data ?? [], search.project);
-  const cycleList = cycleOptions(cycles.data ?? []);
+  const sprintList = sprintOptions(sprints.data ?? [], search.sprint);
   // 一覧にない ID（消されたもの・別の Project のもの）も今の条件として選択肢に出し、「すべて」を選び直して外せるようにする
   const strayMilestone = search.milestone && !groups.some((g) => g.options.some((o) => o.value === search.milestone)) ? search.milestone : undefined;
-  const strayCycle = search.cycle && search.cycle !== NO_CYCLE && !cycleList.some((o) => o.value === search.cycle) ? search.cycle : undefined;
+  const straySprint = search.sprint && search.sprint !== NO_SPRINT && search.sprint !== "current" && !sprintList.some((o) => o.value === search.sprint) ? search.sprint : undefined;
   return (
     <FilterRow>
       <Segmented<StatsBy>
@@ -136,13 +136,14 @@ function FilterBar({ search, by, range, onChange }: {
         )}
         {strayMilestone && <option value={strayMilestone}>Milestone {strayMilestone}</option>}
       </SelectChip>
-      {/* nod.pen の Cycle Select（DSQa3）とメニュー（C8VwtJ）。「すべて」「Cycle なし」、区切り、Cycle の名前の順 */}
-      <SelectChip label="Cycle" value={search.cycle ?? ""} onChange={(v) => onChange({ ...search, cycle: v || undefined })}>
+      {/* nod.pen の Sprint Select（DSQa3）とメニュー（C8VwtJ）。「すべて」「Sprint なし」、区切り、Sprint の名前の順 */}
+      <SelectChip label="Sprint" value={search.sprint ?? ""} onChange={(v) => onChange({ ...search, sprint: v || undefined })}>
         <option value="">すべて</option>
-        <option value={NO_CYCLE}>Cycle なし</option>
+        <option value="current">現在</option>
+        <option value={NO_SPRINT}>Sprint なし</option>
         <hr />
-        {cycleList.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        {strayCycle && <option value={strayCycle}>Cycle {strayCycle}</option>}
+        {sprintList.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        {straySprint && <option value={straySprint}>Sprint {straySprint}</option>}
       </SelectChip>
     </FilterRow>
   );

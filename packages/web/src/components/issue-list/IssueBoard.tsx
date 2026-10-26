@@ -28,9 +28,11 @@ const COLUMN_DESCRIPTIONS: Partial<Record<IssueListRow["issue"]["status"], strin
 // カードを別の列（Hidden columns の行を含む）へドラッグすると status を変える。グループ表示では同じ Board の中だけで受ける
 export function IssueBoard({
   rows,
+  readOnly = false,
   nameOfStatus = (status) => STATUS_META[status].label,
 }: {
   rows: IssueListRow[];
+  readOnly?: boolean;
   nameOfStatus?: (status: IssueListRow["issue"]["status"]) => string;
 }) {
   const columns = groupForBoard(rows);
@@ -42,10 +44,11 @@ export function IssueBoard({
   const [over, setOver] = useState<Status | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const droppable = (status: Status) => dragging !== null && canDropOnStatus(dragging.status, status);
+  const droppable = (status: Status) => !readOnly && dragging !== null && canDropOnStatus(dragging.status, status);
 
   // 楽観的更新はせず、保存後の再取得で列が移る。拒否されたら Board の上部に理由を出す
   async function move(id: string, status: Status) {
+    if (readOnly) return;
     setSaving(id);
     setError("");
     try {
@@ -110,7 +113,7 @@ export function IssueBoard({
                 <BoardCard
                   key={row.issue.id}
                   row={row}
-                  saving={saving === row.issue.id}
+                  saving={readOnly || saving === row.issue.id}
                   onDragStart={() => setDragging({ id: row.issue.id, status: row.issue.status })}
                   onDragEnd={() => {
                     setDragging(null);
