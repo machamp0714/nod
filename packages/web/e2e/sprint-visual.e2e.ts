@@ -2,10 +2,10 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
 
-const output = process.env.TASK3_UI_OUT ?? "/tmp/nod-sprint-history-validation/task3-ui";
 test.use({ dataset: "sprint-history" });
 
-test("承認v3のSidebar・現在View・保存・共通一覧をブラウザで確認する", async ({ page }) => {
+test("承認v3のSidebar・現在View・保存・共通一覧をブラウザで確認する", async ({ page }, testInfo) => {
+  const output = process.env.TASK3_UI_OUT ?? testInfo.outputPath("task3-ui");
   mkdirSync(output, { recursive: true });
   await page.goto("/views/1");
   await expect(page.locator("tr[data-issue-row]")).toHaveCount(8);

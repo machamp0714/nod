@@ -78,9 +78,11 @@ test("手動でTodoへ戻すと作業中の表示が消え、検索してもタ�
   await expect(todo).not.toContainText("作業中");
   await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
   await (await searchBox(page)).fill("存在しない");
-  // 全列が 0 件の Board は、空の表示と Hidden columns の6行を出す
+  // 全列が 0 件の Board は、空の表示と既存5状態の Hidden columns を出す
   await expect(page.getByText("該当する Issue はありません", { exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(6);
+  const hidden = page.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem");
+  await expect(hidden).toHaveCount(5);
+  await expect(hidden).toHaveText(["Needs Clarification0", "Backlog0", "Todo0", "In Progress0", "Done0"]);
   await expect(page.getByRole("tab", { name: "Ready 2", exact: true })).toBeVisible();
 });
 
