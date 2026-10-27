@@ -1,5 +1,9 @@
 # 実装依頼と提出の手順
 
+S01ではSprintからの新規自律実行を開始しない。
+この手順は移行前からある個別委任の権限と現在の所有者を照合した引継ぎ用である。
+Sprintの合意、採択、開始、実行監督が製品機能として接続済みとは扱わない。
+
 以下の`ORCA`には、このセッションで手引きを取得した実行ファイルを使う。
 現行の`orchestration`ガイドに加え、`references/coordinator-loop.md`、`references/placement-and-remote.md`、`references/messaging-and-gates.md`を読む。
 `ORCA orchestration worker-start --help`も読み、同じterminalの再利用に必要なworktree指定を確認する。
@@ -15,7 +19,7 @@
 
 | 必須項目 | 渡す内容 |
 | --- | --- |
-| 対象 | Issue ID、Workspace、固定Cycle、対象ファイルまたはコンポーネント |
+| 対象 | Issue ID、Workspace、Sprint参照、対象ファイルまたはコンポーネント |
 | 要求 | 既存specの内容。specがなければ本文の要求と完了条件の全文。既存planも使う |
 | 制約と担当範囲 | 変更できる場所、触らない場所、互換性、競合する作業、運用操作の禁止 |
 | 実行場所 | Studio、専用worktree、作業ブランチ。Airへの代替実行をしない |
@@ -44,7 +48,7 @@ Studio側が指定agentとモデル転送に対応することを、現行ガイ
 
 ```sh
 ORCA status --json
-ORCA orchestration run-create --objective "<Workspaceと固定CycleのIssue進行>" --retry-request <Run作成の操作相関ID> --json
+ORCA orchestration run-create --objective "<WorkspaceとSprint参照のIssue進行>" --retry-request <Run作成の操作相関ID> --json
 ORCA orchestration task-create --run <RunID> --spec "<上記の依頼全文と操作相関>" --retry-request <Task作成の操作相関ID> --json
 nod -w <Workspace> issue log <IssueID> "<RunとTask ID、起動操作相関、予約、起動前intent>" --kind progress
 ORCA orchestration worker-start --run <RunID> --task <記録済みTaskID> --on <Studio接続先> --worktree new-top-level --repo <取得したStudioのrepo selector> --name <Issue IDを含めない作業名> --agent <codexまたはclaude> --model <指定モデルID> --effort <指定effort> --retry-request <起動の操作相関ID> --json

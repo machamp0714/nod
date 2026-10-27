@@ -7,7 +7,7 @@ const output = (value: unknown) => console.log(JSON.stringify(value));
 const receipt = (result: unknown) => output({ id: "evaluation", ok: true, result, _meta: { runtimeId: "evaluation" } });
 
 if (tool === "nod") {
-  const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, process.env.PM_EVAL_NOD_MAIN!, ...argv], {
+  const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, "--no-env-file", process.env.PM_EVAL_NOD_MAIN!, ...argv], {
     env: { ...process.env, NOD_DB: `${process.env.PM_EVAL_DIR}/nod.db`, NOD_ACTOR: "codex", NOD_ORCA: "0" },
     stdout: "inherit", stderr: "inherit",
   });

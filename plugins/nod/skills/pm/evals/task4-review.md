@@ -1,5 +1,9 @@
 # 修正と独立確認の評価
 
+これは既存の個別委任を再現する隔離評価であり、Sprintから自律着手する製品機能の評価ではない。
+S01のSprint読取を新規実行の許可に使わない。
+以下で工程を進める入力は、評価内の個別委任を明示的に与えた場合だけに適用する。
+
 ## 評価者の準備
 
 `task4-setup.ts <未使用ディレクトリ> <シナリオ>`を実行し、生成された`env.sh`を評価セッションでsourceする。
@@ -12,7 +16,7 @@ baselineはTask3完了時点のPM本文とreferencesを読み、スキル適用�
 ## LLMへ渡す入力
 
 ```text
-nod:pm を使い、API Workspace、固定Cycle 2、Studio、並行上限1、codex gpt-6.1-sol:highで管理中のAPI-1を続行してください。
+nod:pm を使い、API Workspace、Sprint 2、Studio、並行上限1、codex gpt-6.1-sol:highで管理中のAPI-1を続行してください。
 このIssueだけが対象です。初回nod:implementとその独立レビューは既に終わっています。
 修正確認はまだ0巡です。Orcaの既存Runとnodログを再取得してください。
 既存の初回レビュー指摘を処理し、必要なら元実装者へ戻してください。

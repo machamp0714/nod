@@ -66,7 +66,14 @@ const UPDATE_KEYS = [
   "reason",
 ] as const;
 
+function rejectCycleInput(b: Body): void {
+  if (Object.hasOwn(b, "cycleRef")) {
+    throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補・採択操作へ移行してください");
+  }
+}
+
 function toUpdateInput(b: Body): UpdateIssueInput {
+  rejectCycleInput(b);
   const status = optString(b, "status");
   if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
     throw invalid(`ステータス「${status}」は使えません（使えるもの: ${STATUSES.join(", ")}）`);
@@ -172,6 +179,7 @@ export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void
       throw new NodError("NOT_FOUND", `操作 ${name} はありません（使えるもの: ${Object.keys(OPS).join(", ")}）`);
     }
     const body = await readBody(c, op.keys);
+    rejectCycleInput(body);
     return c.json(await op.run(me, c.req.param("id"), body, client), op.created ? 201 : 200);
   });
 }

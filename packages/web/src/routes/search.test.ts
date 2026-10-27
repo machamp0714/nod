@@ -102,7 +102,7 @@ describe("表示設定のURL", () => {
     expect(parseIssueListSearch({ columns: ["dueDate", "estimate", "status"] }).columns).toEqual(["status", "estimate", "dueDate"]);
   });
   test("優先度・Project・担当の列は既定で表示し、列を明示した既存の URL には足さない（#174）", () => {
-    expect(ISSUE_COLUMNS).toEqual(["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"]);
+    expect(ISSUE_COLUMNS).toEqual(["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"]);
     // #174 より前の既定（status・questions・workspace・pr）を明示した URL は、その4列のまま復元する
     const before: IssueListSearch = { columns: ["status", "questions", "workspace", "pr"] };
     expect(parseIssueListSearch({ ...before }).columns).toEqual(before.columns);
@@ -151,7 +151,7 @@ describe("担当の絞り込みと My issues（#162）", () => {
   });
 
   test("assignee のない既存の URL はそのまま復元する", () => {
-    const search = { tab: "delegated", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", cycle: "none", blocked: false } as const;
+    const search = { tab: "delegated", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", sprint: "none", blocked: false } as const;
     expect(cleanIssueListSearch(parseIssueListSearch({ ...search }))).toEqual({ ...search, workspace: ["API"], status: ["todo"] });
   });
 

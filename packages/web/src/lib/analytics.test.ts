@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   axisDate,
   cleanAnalyticsSearch,
-  cycleOptions,
-  cycleProblem,
+  sprintOptions,
+  sprintProblem,
   formatHours,
   labelEvery,
   llmColors,
@@ -28,11 +28,11 @@ describe("parseAnalyticsSearch / cleanAnalyticsSearch", () => {
     expect(Object.keys(parseAnalyticsSearch({}))).toEqual([]);
   });
 
-  test("Cycle は ID か none（Cycle なし）を残す", () => {
-    expect(parseAnalyticsSearch({ cycle: 4 })).toEqual({ cycle: "4" });
-    expect(parseAnalyticsSearch({ cycle: "None" })).toEqual({ cycle: "none" });
-    expect(parseAnalyticsSearch({ cycle: "Sprint 1" })).toEqual({ cycle: undefined });
-    expect(cleanAnalyticsSearch({ cycle: "none" })).toEqual({ cycle: "none" });
+  test("Sprint は ID か none（Sprint なし）を残す", () => {
+    expect(parseAnalyticsSearch({ sprint: 4 })).toEqual({ sprint: "4" });
+    expect(parseAnalyticsSearch({ sprint: "none" })).toEqual({ sprint: "none" });
+    expect(parseAnalyticsSearch({ sprint: "失われた期間" })).toEqual({ sprint: "失われた期間" });
+    expect(cleanAnalyticsSearch({ sprint: "none" })).toEqual({ sprint: "none" });
   });
 
   test("既定値（週・直近12週）は URL に残さない", () => {
@@ -59,8 +59,8 @@ describe("statsRange / statsQueryString", () => {
     expect(statsQueryString({ project: "2", milestone: "5" }, today, "UTC")).toBe(
       "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&project=2&milestone=5",
     );
-    expect(statsQueryString({ workspace: "API", cycle: "none" }, today, "UTC")).toBe(
-      "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&workspace=API&cycle=none",
+    expect(statsQueryString({ workspace: "API", sprint: "none" }, today, "UTC")).toBe(
+      "by=week&from=2026-07-13&to=2026-09-29&tz=UTC&workspace=API&sprint=none",
     );
   });
 });
@@ -101,27 +101,27 @@ describe("Milestone の選択肢", () => {
   });
 });
 
-describe("Cycle の選択肢", () => {
-  const cycles = [
+describe("Sprint の選択肢", () => {
+  const sprints = [
     { id: 1, name: "S1" },
     { id: 2, name: "Sprint 13" },
   ];
   test("名前をそのまま出す", () => {
-    expect(cycleOptions([{ id: 1, name: "S1" }])).toEqual([{ value: "1", label: "S1" }]);
+    expect(sprintOptions([{ id: 1, name: "S1" }])).toEqual([{ value: "1", label: "S1" }]);
   });
 
-  test("消えた Cycle の ID だけを API を呼ばずに知らせる。none と読み込み中は null", () => {
-    expect(cycleProblem({ cycle: "9" }, undefined)).toBeNull();
-    expect(cycleProblem({ cycle: "1" }, cycles)).toBeNull();
-    expect(cycleProblem({ workspace: "NOD", cycle: "1" }, cycles)).toBeNull();
-    expect(cycleProblem({ cycle: "none" }, cycles)).toBeNull();
-    expect(cycleProblem({ cycle: "9" }, cycles)).toBe("条件の Cycle（9）が見つかりません");
+  test("消えた Sprint の ID だけを API を呼ばずに知らせる。none と読み込み中は null", () => {
+    expect(sprintProblem({ sprint: "9" }, undefined)).toBeNull();
+    expect(sprintProblem({ sprint: "1" }, sprints)).toBeNull();
+    expect(sprintProblem({ workspace: "NOD", sprint: "1" }, sprints)).toBeNull();
+    expect(sprintProblem({ sprint: "none" }, sprints)).toBeNull();
+    expect(sprintProblem({ sprint: "9" }, sprints)).toBe("条件の Sprint（9）が見つかりません");
   });
 
-  test("Workspace を変えても Cycle の選択は保つ", () => {
-    expect(withWorkspace({ by: "day", cycle: "1" }, "API")).toEqual({ by: "day", workspace: "API", cycle: "1" });
-    expect(withWorkspace({ workspace: "API", cycle: "1" }, "NOD")).toEqual({ workspace: "NOD", cycle: "1" });
-    expect(withWorkspace({ workspace: "API", cycle: "1" }, undefined)).toEqual({ workspace: undefined, cycle: "1" });
+  test("Workspace を変えても Sprint の選択は保つ", () => {
+    expect(withWorkspace({ by: "day", sprint: "1" }, "API")).toEqual({ by: "day", workspace: "API", sprint: "1" });
+    expect(withWorkspace({ workspace: "API", sprint: "1" }, "NOD")).toEqual({ workspace: "NOD", sprint: "1" });
+    expect(withWorkspace({ workspace: "API", sprint: "1" }, undefined)).toEqual({ workspace: undefined, sprint: "1" });
   });
 });
 

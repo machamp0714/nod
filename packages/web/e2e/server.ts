@@ -9,6 +9,7 @@ import { startServer } from "@nod/server";
 import { CTX_OPS, DB_OPS } from "./support/core-ops";
 import type { FakeTogglEntry, FakeTogglFailures, FakeTogglProject } from "./support/nod";
 import { type Dataset, datasetContext, wipe } from "./support/dataset";
+import { seedSprintFixture, associateSprintFixture, removeSprintFixture } from "./support/sprint-fixture";
 import { API_PORT, CONTROL_PORT } from "./support/ports";
 
 const dir = process.env.NOD_E2E_DIR;
@@ -163,6 +164,13 @@ const control = Bun.serve({
         await server.stop();
         server = serve();
         return Response.json({ ok: true });
+      }
+      if (req.method === "POST" && path === "/sprint-fixture") {
+        const body = await req.json() as { op: "seed" | "associate" | "remove"; input: { name: string; startDate: string; endDate: string }; sprintId: string; issueRef: string };
+        if (body.op === "seed") return Response.json({ result: seedSprintFixture(db, body.input) });
+        if (body.op === "associate") { associateSprintFixture(db, body.sprintId, body.issueRef); return Response.json({ result: { ok: true } }); }
+        if (body.op === "remove") { removeSprintFixture(db, body.sprintId); return Response.json({ result: { ok: true } }); }
+        throw new Error("未知のfixture操作です");
       }
       if (req.method === "POST" && path === "/reset") {
         const { dataset } = (await req.json()) as { dataset: string };

@@ -2,6 +2,8 @@ export * from "./errors";
 export * from "./db";
 export * from "./ctx";
 export * from "./types";
+export * from "./sprint-types";
+export * from "./ops/sprints";
 export * from "./ops/workspaces";
 export * from "./ops/workspace-rules";
 export * from "./ops/workspace-labels";

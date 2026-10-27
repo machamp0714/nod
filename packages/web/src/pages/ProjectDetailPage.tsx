@@ -66,7 +66,7 @@ export function ProjectDetailPage() {
     <ProjectViewSwitch
       value={view}
       focusOnMount={switched}
-      onChange={(next) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, view: next === "flow" ? "flow" : undefined }) })}
+      onChange={(next) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, view: next === "flow" ? "flow" : undefined }), state: true })}
     />
   );
   const heading = <ProjectIssuesBar count={detail.data.issues.length} viewSwitch={viewSwitch} />;
@@ -82,7 +82,7 @@ export function ProjectDetailPage() {
       afterContent={updates}
       heading={heading}
       filterBar={<div role="group" aria-label="絞り込み条件">
-        <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), replace: true })} />
+        <BlockedFilter value={search.blocked} onChange={(blocked) => navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, blocked }), state: true, replace: true })} />
       </div>}
       rows={rows.rows}
       loading={rows.loading}
@@ -90,12 +90,12 @@ export function ProjectDetailPage() {
       search={search}
       sameValueColumn="project"
       onSearchChange={(patch) => {
-        page.save(patch);
-        navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+        const pageDisplay = page.save(patch);
+        navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) });
       }}
       onResetDisplay={() => {
-        page.reset();
-        navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+        const pageDisplay = page.reset();
+        navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true });
       }}
       resetDisplayDisabled={page.resetDisabled}
       statusTones={PROJECT_STATUS_TONES}

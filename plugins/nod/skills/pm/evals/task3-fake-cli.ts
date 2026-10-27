@@ -11,7 +11,7 @@ const output = (result: unknown) => console.log(JSON.stringify({ ok: true, resul
 const fail = (code: string, message: string): never => { console.log(JSON.stringify({ ok: false, error: { code, message } })); process.exit(1); };
 const flag = (name: string) => argv[argv.indexOf(name) + 1];
 if (tool === "nod") {
-  const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, process.env.PM_EVAL_NOD_MAIN!, ...argv], { env: { ...process.env, NOD_DB: join(dir, "nod.db"), NOD_ACTOR: "codex", NOD_ORCA: "0", NOD_DOCS_DIR: join(dir, "documents"), NOD_ATTACHMENTS_DIR: join(dir, "attachments") }, stdout: "inherit", stderr: "inherit" });
+  const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, "--no-env-file", process.env.PM_EVAL_NOD_MAIN!, ...argv], { env: { ...process.env, NOD_DB: join(dir, "nod.db"), NOD_ACTOR: "codex", NOD_ORCA: "0", NOD_DOCS_DIR: join(dir, "documents"), NOD_ATTACHMENTS_DIR: join(dir, "attachments") }, stdout: "inherit", stderr: "inherit" });
   process.exit(result.exitCode);
 }
 if (tool === "gh") { runTask2Cli(tool, argv); process.exit(0); }

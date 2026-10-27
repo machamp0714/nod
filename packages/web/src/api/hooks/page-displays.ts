@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useRouter } from "@tanstack/react-router";
 import { pageDisplayFromSearch, pageSearch, hasDisplayKey, type PageKey, type PageScope } from "../../lib/page-display";
 import type { IssueListSearch } from "../../routes/search";
 import { apiFetch } from "../client";
@@ -6,6 +7,12 @@ import { queryKeys } from "../query-keys";
 import type { PageDisplay } from "../types";
 
 type PageDisplays = Record<string, PageDisplay>;
+
+declare module "@tanstack/react-router" {
+  interface HistoryState {
+    pageDisplay?: { key: PageKey; display: PageDisplay };
+  }
+}
 
 export function usePageDisplays() {
   return useQuery({
@@ -35,8 +42,13 @@ function usePageDisplayMutation<T>(request: (vars: T) => Promise<unknown>, apply
 
 // ページの一覧に渡す状態と、保存・既定に戻す操作。ready になるまで（取得中）は一覧を出さない。取得に失敗したら保存なしとして扱う
 export function usePageDisplay(scope: PageScope, url: IssueListSearch) {
+  const router = useRouter();
+  const entry = useLocation({ select: (location) => location.state.pageDisplay });
   const displays = usePageDisplays();
   const saved = displays.data?.[scope.key] ?? {};
+  // 履歴に保存した表示は、その後の自動保存で変えない。明示されたURLは引き続き優先する。
+  const display = entry?.key === scope.key ? entry.display : saved;
+  const search = pageSearch(display, url);
   const put = usePageDisplayMutation(
     ({ display }: { display: PageDisplay }) => apiFetch<PageDisplay>(pagePath(scope.key), { method: "PUT", body: { display } }),
     (prev, { display }) => ({ ...prev, [scope.key]: display }),
@@ -48,17 +60,31 @@ export function usePageDisplay(scope: PageScope, url: IssueListSearch) {
       return rest;
     },
   );
+  const rememberCurrent = () => {
+    const { history } = router;
+    if (history.location.state.pageDisplay?.key === scope.key) return;
+    history.replace(history.location.href, {
+      ...history.location.state,
+      pageDisplay: { key: scope.key, display: pageDisplayFromSearch(search, scope) },
+    });
+    // 次のpushとまとめられる前に、既定値を省いた元の履歴も確定する。
+    history.flush();
+  };
   return {
     ready: !displays.isPending,
-    search: pageSearch(saved, url),
+    search,
     // ポップオーバーの変更だけを保存する。見えている表示設定（保存 ＋ URL）に変更を重ねたものを丸ごと保存する
     // 取得に失敗している間は送らない（{} から作った値で、実際に保存されている値を上書きしないため）
     save: (patch: IssueListSearch) => {
-      if (!displays.isError && hasDisplayKey(patch)) put.mutate({ display: pageDisplayFromSearch({ ...pageSearch(saved, url), ...patch }, scope) });
+      rememberCurrent();
+      const next = pageDisplayFromSearch({ ...search, ...patch }, scope);
+      if (!displays.isError && hasDisplayKey(patch)) put.mutate({ display: next });
+      return { key: scope.key, display: next };
     },
     reset: () => {
       if (!displays.isError) remove.mutate();
+      return { key: scope.key, display: {} };
     },
-    resetDisabled: Object.keys(saved).length === 0 && !hasDisplayKey(url),
+    resetDisabled: Object.keys(saved).length === 0 && Object.keys(display).length === 0 && !hasDisplayKey(url),
   };
 }

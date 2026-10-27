@@ -1,10 +1,8 @@
-import { useCycles } from "../../api/hooks/cycles";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Issue, IssueReminder, OrcaWorktreeResult, Relations, RelationState, Status, UpdateIssueInput } from "../../api/types";
 import { attachmentDate } from "./DocumentsSection";
 import { PrStatusSection } from "./PrStatusSection";
-import { cycleChoices } from "../../lib/cycles";
 import { prLabel } from "../../lib/format";
 import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
 import { executionLocation } from "../../lib/execution-location";
@@ -328,9 +326,6 @@ export function PropertiesPanel({
   const projectMilestones = (milestones.data ?? []).filter((m) => m.projectId === issue.project?.id);
   const milestoneOptions =
     issue.milestone && !projectMilestones.some((m) => m.id === issue.milestone?.id) ? [...projectMilestones, issue.milestone] : projectMilestones;
-  // 終了していない Cycle を選べる（Pencil「Issue詳細｜Cycle」は名前だけを出す）。一覧を読み込む前や終了した Cycle でも今の値を表示する
-  const cycles = useCycles();
-  const cycleOptions = cycleChoices(cycles.data ?? [], issue.cycle);
   // メニューの項目。未設定は値 "" の「なし」
   const none = (icon: IconName): PropertyOption => ({ value: "", label: "なし", icon: <PropIcon name={icon} color="var(--ink3)" /> });
   const statusOptions: PropertyOption[] = statusChoices(issue.status, (status) => statusName(status, statusNames.data, issue.workspace)).map((choice) => ({
@@ -339,7 +334,6 @@ export function PropertiesPanel({
   }));
   const projectMenu: PropertyOption[] = [none("box"), ...projectOptions.map((p) => ({ value: String(p.id), label: p.name, icon: <PropIcon name="box" color="var(--ink3)" /> }))];
   const milestoneMenu: PropertyOption[] = [none("flag"), ...milestoneOptions.map((m) => ({ value: String(m.id), label: m.name, icon: <PropIcon name="flag" color="var(--ink2)" /> }))];
-  const cycleMenu: PropertyOption[] = [none("calendar-range"), ...cycleOptions.map((c) => ({ value: String(c.id), label: c.name, icon: <PropIcon name="calendar-range" color="var(--ink2)" /> }))];
   const assigneeMenu: PropertyOption[] = [
     none("circle-user"),
     ...assigneeChoices(issue.assignee).map((assignee) => ({ value: assignee, label: assignee, icon: <span className={s.propIcon} aria-hidden="true"><AgentAvatar actor={assignee} /></span> })),
@@ -380,9 +374,12 @@ export function PropertiesPanel({
             </span>
           )}
         </Prop>
-        <Prop label="Cycle">
-          <PropertyMenu label="Cycle" value={issue.cycle ? String(issue.cycle.id) : ""} options={cycleMenu} disabled={locked}
-            onChange={(value) => void change({ cycleRef: value === "" ? null : value })} />
+        <Prop label="Sprint">
+          <span className={s.propSprints}>
+            {issue.sprints.length ? issue.sprints.map((sprint) => <Link key={sprint.id} to="/sprints/$sprintId" params={{ sprintId: sprint.id }} className={s.propStatic}>
+              {sprint.name}（{sprint.association === "imported" ? "移行履歴" : "採択"}）
+            </Link>) : <Static>なし</Static>}
+          </span>
         </Prop>
         <Prop label="Labels">
           <span className={s.propLabels}>

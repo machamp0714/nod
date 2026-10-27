@@ -67,3 +67,8 @@ button.danger,
 button.danger svg {
   color: var(--fail);
 }
+
+.evidence { padding: 8px 20px; color: var(--ink2); font-size: 12px; overflow-wrap: anywhere; }
+.evidence p { margin: 4px 0; }
+.evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .layout { flex-direction: column; } .layout > :first-child { width: 100%; } }

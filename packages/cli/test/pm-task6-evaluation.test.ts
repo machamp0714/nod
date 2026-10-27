@@ -111,6 +111,22 @@ test("PM復元評価は通信断を保持し、公開recover後も同じTaskとD
   const before = call("worker-show", "--dispatch", "dispatch-api1");
   expect(before.launch.effective).toBeNull();
   expect(before.projection.liveness.verdict).toBe("unverifiable");
+  // Sprint切替の読取と旧入口の拒否は、既存の予約や所有権を解放しない。
+  const issue = Bun.spawnSync([s.nod, "issue", "show", "API-1", "--json"], { env: s.env });
+  expect(issue.exitCode).toBe(0);
+  expect(issue.stdout.toString()).toContain("枠予約=1");
+  expect(issue.stdout.toString()).toContain("op-api1-launch");
+  const current = Bun.spawnSync([s.nod, "issue", "list", "-w", "API", "--sprint", "current", "--json"], { env: s.env });
+  expect(current.exitCode).toBe(0);
+  const retired = Bun.spawnSync([s.nod, "issue", "list", "-w", "API", "--cycle", "2", "--json"], { env: s.env });
+  expect(retired.exitCode).toBe(1);
+  expect(JSON.parse(retired.stdout.toString()).error.code).toBe("CYCLE_RETIRED");
+  expect(call("check", "--wait", "--timeout-ms", "1").messages).toEqual([]);
+  const retained = call("worker-show", "--dispatch", "dispatch-api1");
+  expect(retained.task.id).toBe(before.task.id);
+  expect(retained.terminalId).toBe(before.terminalId);
+  expect(retained.launch.effective).toBeNull();
+  expect(retained.projection.liveness.verdict).toBe("unverifiable");
   const guide = Bun.spawnSync([s.orca, "skills", "get", "orchestration"], { env: s.env }).stdout.toString();
   expect(guide).toContain("task6-control.ts");
   const recovery = Bun.spawnSync([process.execPath, "plugins/nod/skills/pm/evals/task6-control.ts", s.dir, "recover"], { env: s.env });
@@ -120,4 +136,6 @@ test("PM復元評価は通信断を保持し、公開recover後も同じTaskとD
   expect(after.terminalId).toBe(before.terminalId);
   expect(after.launch.effective).toEqual({ model: "gpt-6.1-sol", effort: "high" });
   expect(call("request-show", "--request", "op-api1-launch")).toMatchObject({ status: "completed", receipt: { dispatchId: "dispatch-api1" } });
+  const operations = readFileSync(s.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(operations.filter(op => op.tool === "orca" && op.argv.some((arg: string) => ["task-create", "worker-start", "send", "worker-stop", "worker-abandon", "worker-release"].includes(arg)))).toEqual([]);
 });

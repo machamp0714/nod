@@ -1,6 +1,6 @@
 import { registerDesktopNotificationRoutes } from "./routes/desktop-notifications";
 import type { Database } from "bun:sqlite";
-import { type JevClient, type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, syncClockOf, syncCycles, type TogglCache, type TogglClient } from "@nod/core";
+import { type JevClient, type GhRunner, HUMAN_ACTOR, NodError, type OpCtx, type SprintClock, type TogglCache, type TogglClient } from "@nod/core";
 import { Hono } from "hono";
 import { toErrorResponse } from "./errors";
 import { registerReadRoutes } from "./routes/read";
@@ -9,6 +9,7 @@ import { registerIssueOps } from "./routes/issue-ops";
 import { registerDocumentOps } from "./routes/document-ops";
 import { registerAttachmentRoutes } from "./routes/attachments";
 import { registerIssueDeletionRoutes } from "./routes/issue-deletions";
+import { registerSprintRoutes } from "./routes/sprints";
 import { registerCycleRoutes } from "./routes/cycle-ops";
 import { registerInitiativeRoutes } from "./routes/initiative-ops";
 import { registerProjectOps } from "./routes/project-ops";
@@ -32,6 +33,8 @@ import { registerStatic } from "./static";
 
 export interface AppOptions {
   db: Database;
+  sprintClock?: SprintClock; // 読取の時計。HTTP入力からは指定できない
+
   jevClient?: JevClient; // 仕様要否判定の差し替え境界。省略時は実際のJevを利用する
   feed?: ChangeFeed; // 省くと、確認されない ChangeFeed を作る（テスト用）。定期的な確認は startServer が行う
   staticDir?: string; // ビルド済みの web のディレクトリ。省くと API だけを配信する
@@ -79,13 +82,11 @@ export function createApp(opts: AppOptions): Hono {
       }
       if (!allowed) throw new NodError("FORBIDDEN_ORIGIN", "外部サイトからの書き込みは受け付けません");
     }
-    // 周期に従って Cycle を作り、終了した Cycle の未完了を持ち越す（NOD-2）。常駐処理の代わりに、API の呼び出しのたびに確かめる
-    syncCycles(me, syncClockOf(c.req.query("tz")));
     await next();
   });
 
-  registerReadRoutes(app, opts.db, opts.docsDir);
-  registerStatsRoutes(app, opts.db);
+  registerReadRoutes(app, opts.db, opts.docsDir, opts.sprintClock);
+  registerStatsRoutes(app, opts.db, opts.sprintClock);
   registerAttachmentRoutes(app, me, opts.attachmentsDir); // /api/issues/:id/:op より先に登録する
   registerIssueDeletionRoutes(app, me, opts.attachmentsDir); // 同上
   registerOrcaRoutes(app, me, opts.orcaRunner); // 同上
@@ -95,6 +96,7 @@ export function createApp(opts: AppOptions): Hono {
   registerProjectOps(app, me);
   registerInitiativeRoutes(app, opts.db, me);
   registerCycleRoutes(app, me);
+  registerSprintRoutes(app, me, opts.sprintClock);
   registerDocumentOps(app, me, opts.docsDir);
   registerWorkspaceRuleRoutes(app, me);
   registerWorkspaceLabelRoutes(app, me);

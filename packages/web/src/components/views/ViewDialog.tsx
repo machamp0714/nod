@@ -28,6 +28,7 @@ export interface ViewDialogProps {
 // summary があるときは design/nod.pen「View として保存｜ダイアログ」（D6fZTr、幅 440）。保存する内容と、保存しないものの注記を出す（#175）
 export function ViewDialog({ title, submitLabel, initial, views, selfId, summary, onSubmit, onClose }: ViewDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const summaryId = useId();
   const noteId = useId();
@@ -37,8 +38,14 @@ export function ViewDialog({ title, submitLabel, initial, views, selfId, summary
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    const dialog = ref.current;
+    if (document.activeElement instanceof HTMLElement && !dialog?.contains(document.activeElement)) opener.current = document.activeElement;
     // 開発時の StrictMode は effect を2回呼ぶため、開いていなければ開く
-    if (!ref.current?.open) ref.current?.showModal();
+    if (!dialog?.open) dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (opener.current?.isConnected) opener.current.focus();
+    };
   }, []);
 
   async function submit(event: FormEvent) {

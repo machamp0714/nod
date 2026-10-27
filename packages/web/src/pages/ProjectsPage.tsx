@@ -24,7 +24,7 @@ export function ProjectsPage() {
   const workspaces = useWorkspaces();
   const error = projects.error ?? issues.error ?? workspaces.error;
   const items =
-    projects.data && issues.data ? filterProjects(withWorkspaces(projects.data, issues.data.issues), tab) : undefined;
+    projects.data && issues.data ? filterProjects(withWorkspaces(projects.data, issues.data.issues), tab).filter((item) => !search.workspace || item.workspaces.includes(search.workspace)) : undefined;
   const names = new Map((workspaces.data ?? []).map((w) => [w.key, w.name]));
   const workspaceName = (key: string) => names.get(key) ?? key;
   return (
@@ -40,7 +40,7 @@ export function ProjectsPage() {
         <Segmented<ProjectTab>
           label="Project の絞り込み"
           value={tab}
-          onChange={(value) => navigate({ search: cleanProjectsSearch({ tab: value }), replace: true })}
+          onChange={(value) => navigate({ search: cleanProjectsSearch({ ...search, tab: value }), replace: true })}
           items={[
             { value: "active", label: "Active" },
             { value: "completed", label: "Completed" },

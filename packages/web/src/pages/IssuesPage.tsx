@@ -11,7 +11,7 @@ import { ViewDialog } from "../components/views/ViewDialog";
 import { filterFromSearch, filterToSearch } from "../lib/issue-filter";
 import { withoutPageDisplay } from "../lib/page-display";
 import { describeDisplay, displayFromSearch, unsavedNote } from "../lib/view-display";
-import { replacesIssueListHistory, cleanIssueListSearch, type IssueListSearch } from "../routes/search";
+import { replacesIssueListHistory, cleanIssueListSearch, defaultIssueColumns, type IssueListSearch } from "../routes/search";
 
 const route = getRouteApi("/issues");
 
@@ -23,7 +23,7 @@ export function IssuesPage() {
   const search = page.search;
   const filter = filterFromSearch(search);
   const rows = useIssueRows(filter);
-  const options = useFilterOptions();
+  const options = useFilterOptions(filter.sprint);
   const views = useViews();
   const createView = useCreateView();
   const [saving, setSaving] = useState(false);
@@ -33,12 +33,12 @@ export function IssuesPage() {
   const savedDisplay = displayFromSearch(search);
   const savedChips = useFilterChips(savedFilter, options);
   const change = (patch: IssueListSearch) => {
-    page.save(patch);
-    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+    const pageDisplay = page.save(patch);
+    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) });
   };
   const resetDisplay = () => {
-    page.reset();
-    navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+    const pageDisplay = page.reset();
+    navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true });
   };
   if (!page.ready) return <PageLoading />;
   return (
@@ -46,6 +46,9 @@ export function IssuesPage() {
       <IssueList
         crumb="All workspaces"
         title="Issues"
+        sprintIds={rows.sprintIds}
+        emptyMessage={rows.emptyMessage}
+        onRetry={rows.retry}
         rows={rows.rows}
         loading={rows.loading}
         error={rows.error}
@@ -68,7 +71,7 @@ export function IssuesPage() {
           initial={{ name: "", color: null }}
           views={views.isError ? undefined : views.data}
           selfId={null}
-          summary={{ chips: savedChips, display: describeDisplay(savedDisplay), note: unsavedNote(search) }}
+          summary={{ chips: savedChips, display: describeDisplay(savedFilter.sprint === "current" && savedDisplay.columns === undefined ? { ...savedDisplay, columns: defaultIssueColumns(undefined, true) } : savedDisplay), note: [savedFilter.sprint === "current" ? "「現在」の条件を保存します。Sprintが切り替わっても、同じViewで確認できます。" : null, unsavedNote(search)].filter(Boolean).join(" ") || null }}
           onSubmit={async (value) => {
             const view = await createView.mutateAsync({ ...value, filter: savedFilter, display: savedDisplay });
             setSaving(false);

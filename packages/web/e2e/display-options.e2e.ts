@@ -39,9 +39,9 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(group.getByRole("table").locator("tbody tr").getByRole("link")).toHaveText(["ZZZ 表示設定", "AAA 表示設定"]);
     await setLayout(page, "Board");
     await expect(group.getByRole("region", { name: "In Progress", exact: true }).getByRole("link")).toHaveText(["ZZZ 表示設定", "AAA 表示設定"]);
-    // Issue のある列は In Progress だけで、残りの5列は Hidden columns にまとまる
+    // Issue のある列は In Progress だけで、残りの4列は Hidden columns にまとまる
     await expect(group.getByRole("region")).toHaveCount(2);
-    await expect(group.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(5);
+    await expect(group.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(4);
     await expect(await columnChip(page, "Status")).toBeDisabled();
   });
 }

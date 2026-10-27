@@ -43,13 +43,13 @@ export async function createTask6Scenario(options: { directory?: string; variant
   }
   if (variant === "implementation") {
     worker.phase = "implementation"; worker.launch.effective = { model: "gpt-6.1-sol", effort: "high" };
-    logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Workspace=API Cycle=2 max-parallel=1。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention branch=retention currentcommit=" + "a".repeat(40) + "。工程=実装中。operation=op-api1-start の開始通知enqueueを受理、開始済みをworker-showで確認。requested/effective=gpt-6.1-sol:high照合済み。占有=1。修正巡started=0 completed=0、初回レビューはnod:implement内、PR未依頼。", { kind: "progress" });
+    logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Workspace=API Sprint=2 max-parallel=1。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention branch=retention currentcommit=" + "a".repeat(40) + "。工程=実装中。operation=op-api1-start の開始通知enqueueを受理、開始済みをworker-showで確認。requested/effective=gpt-6.1-sol:high照合済み。占有=1。修正巡started=0 completed=0、初回レビューはnod:implement内、PR未依頼。", { kind: "progress" });
   }
   if (variant === "two-issue") {
     updateIssue({ db, actor: "me" }, "API-1", { description: "保持期間を30日か90日か利用者が決める。回答まで元の作業を保持する。" });
     worker.phase = "awaiting_input"; worker.launch.effective = { model: "gpt-6.1-sol", effort: "high" };
     const q = askQuestion({ db, actor: "codex" }, "API-1", "保持期間は1.30日（推奨、保存量）、2.90日（長期比較）。決定後は元の期間集計作業を再開。").question;
-    logWork({ db, actor: "codex" }, "API-1", `PM checkpoint。Workspace=API Cycle=2 max-parallel=2。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention。requested/effective=gpt-6.1-sol:high照合済み。工程=人回答待ち。占有=1。質問#${q.id} message=ask-api1、利用者の回答なし、質問は記録済み、無回答で再開しない。修正巡started=0 completed=0。`, { kind: "blocker" });
+    logWork({ db, actor: "codex" }, "API-1", `PM checkpoint。Workspace=API Sprint=2 max-parallel=2。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention。requested/effective=gpt-6.1-sol:high照合済み。工程=人回答待ち。占有=1。質問#${q.id} message=ask-api1、利用者の回答なし、質問は記録済み、無回答で再開しない。修正巡started=0 completed=0。`, { kind: "blocker" });
     updateIssue({ db, actor: "me" }, "API-2", { status: "done", assignee: "codex", removeLabels: ["needs-spec"], description: "CSV serializerの列名をsales_totalに統一。集計APIと独立した変更。" });
     linkPr({ db, actor: "codex" }, "API-2", "https://github.com/evaluation/api/pull/42");
     const submitted: Worker = { ...worker, issueId: "API-2", task: { id: "task-api2-pr", spec: "pushとPR提出。API-2。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-api2-pr", taskId: "task-api2-pr", status: "succeeded", terminalId: "term-api2" }, terminalId: "term-api2", worktreeId: "repo-api::/evaluation/studio/export-column", worktreePath: "/evaluation/studio/export-column", phase: "submission", reported: true, released: true, commit: "c".repeat(40), branch: "export-column" };
@@ -61,13 +61,13 @@ export async function createTask6Scenario(options: { directory?: string; variant
     Object.assign(worker.launch, { effective: { model: "gpt-6.1-sol", effort: "high" } });
     logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Run=run-pm Task=task-api1 Dispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention branch=retention currentcommit=" + "a".repeat(40) + "。requested/effective=gpt-6.1-sol:high照合済み。工程=PR依頼応答喪失。operation=op-api1-pr intent記録済み。占有=1。現在commitの受入、テスト、初回独立レビューStandards/Spec指摘なしは受理済み。修正巡started=0 completed=0。pushとPRを依頼したがURLと結果が未確認。再作成せずghでbranchとheadを照合する。", { kind: "progress" });
   }
-  if (variant === "unknown") logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Workspace=API Cycle=2 max-parallel=1。Run=run-pm Task=task-api1 operation=op-api1-launch。工程=起動結果不明。起動前intent記録済み、枠予約=1。Studio repo=id:repo-api worktree=new-top-level。codex requested=gpt-6.1-sol:high effective=unknown。worker-start応答喪失、Dispatchとterminalは未確認。未受理messageなし、修正巡started=0 completed=0、PR未依頼。再送せずOrcaのTask、request、既存試行を照合する。", { kind: "progress" });
+  if (variant === "unknown") logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Workspace=API Sprint=2 max-parallel=1。Run=run-pm Task=task-api1 operation=op-api1-launch。工程=起動結果不明。起動前intent記録済み、枠予約=1。Studio repo=id:repo-api worktree=new-top-level。codex requested=gpt-6.1-sol:high effective=unknown。worker-start応答喪失、Dispatchとterminalは未確認。未受理messageなし、修正巡started=0 completed=0、PR未依頼。再送せずOrcaのTask、request、既存試行を照合する。", { kind: "progress" });
   db.close();
   writeFileSync(join(s.dir, "task6-state.json"), JSON.stringify({ variant, tasks: workers.map(w => w.task), workers, pending, delivery: null, deliveries: 0, acknowledged: [], sent: [], prs: ["pr-lost", "two-issue"].includes(variant) ? [{ number: 42, url: "https://github.com/evaluation/api/pull/42", title: "保持期間の境界を確認", state: "OPEN", isDraft: false, headRefName: variant === "two-issue" ? "export-column" : "retention", baseRefName: "main", headRefOid: (variant === "two-issue" ? "c" : "a").repeat(40), baseRefOid: "b".repeat(40), reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }] : [], checks: 0, requests: { "op-api1-launch": variant === "unknown" ? { status: "pending", taskId: "task-api1", observation: "unverifiable" } : { status: "completed", receipt: { taskId: "task-api1", dispatchId: "dispatch-api1", terminalId: "term-api1" } }, ...(variant === "pr-lost" ? { "op-api1-pr": { status: "completed", receipt: { enqueued: true, to: "dispatch:dispatch-api1" }, note: "送信受理はPR完成の証明ではない" } } : {}) } }));
   Object.assign(s.env, { NOD_DOCS_DIR: join(s.dir, "documents"), NOD_ATTACHMENTS_DIR: join(s.dir, "attachments") });
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(s.bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "task6-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} --no-env-file ${shellQuote(join(import.meta.dir, "task6-fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
   writeEvaluationEnv(s.dir, s.env);

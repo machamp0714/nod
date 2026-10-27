@@ -43,7 +43,8 @@ export interface SummaryQuery {
   since?: string; // 24h・7d・2w のような直近の長さか ISO 日時。省略時は 24h
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
-  cycle?: string; // Cycle の ID・名前・current か none（Cycle のない Issue）。current は実行環境のローカルの今日
+  sprint?: string;
+  cycle?: string; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   limit?: number; // 種類ごとに返す件数。省略時は 20
   includeArchived?: boolean; // アーカイブ済み Issue の動きも含める
   now?: Date; // テスト用。期間の終点
@@ -89,7 +90,7 @@ export interface Summary {
   sections: SummarySection[];
 }
 
-const QUERY_KEYS = ["since", "workspace", "project", "cycle", "limit", "includeArchived"];
+const QUERY_KEYS = ["since", "workspace", "project", "cycle", "sprint", "limit", "includeArchived"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -109,6 +110,8 @@ export function summaryQueryFromParams(params: URLSearchParams): SummaryQuery {
   if (since !== undefined) q.since = since;
   const project = single("project");
   if (project !== undefined) q.project = project;
+  const sprint = single("sprint");
+  if (sprint !== undefined) q.sprint = sprint;
   const cycle = single("cycle");
   if (cycle !== undefined) q.cycle = cycle;
   const limit = single("limit");
@@ -196,7 +199,7 @@ function classify(row: Row): { kind: SummaryKind; detail: string | null } | null
 }
 
 // 要約で読む events と作業ログを1本の UNION ALL にする。EXPLAIN で索引を確かめられるよう SQL と引数を返す
-export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace" | "project" | "cycle">, since: string, until: string, includeArchived: boolean): { sql: string; params: (string | number)[] } {
+export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace" | "project" | "cycle" | "sprint" | "now">, since: string, until: string, includeArchived: boolean): { sql: string; params: (string | number)[] } {
   const scope = issueScope(db, q);
   // アーカイブ操作そのものは、アーカイブ済みを除くときも「アーカイブ」に出す
   const archivedEvents = includeArchived ? "" : " AND (i.archived_at IS NULL OR e.type = 'archived')";

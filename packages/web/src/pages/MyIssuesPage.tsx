@@ -19,14 +19,14 @@ export function MyIssuesPage() {
   const search = page.search;
   const filter = withoutKey(filterFromSearch(search), "assignee");
   const rows = useIssueRows(filter);
-  const options = useFilterOptions();
+  const options = useFilterOptions(filter.sprint);
   const change = (patch: IssueListSearch) => {
-    page.save(patch);
-    navigate({ search: (prev) => cleanMyIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+    const pageDisplay = page.save(patch);
+    navigate({ search: (prev) => cleanMyIssuesSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) });
   };
   const resetDisplay = () => {
-    page.reset();
-    navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+    const pageDisplay = page.reset();
+    navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true });
   };
   if (!page.ready) return <PageLoading />;
   return (
@@ -35,6 +35,9 @@ export function MyIssuesPage() {
       crumb="All workspaces"
       title="My issues"
       rows={rows.rows}
+      sprintIds={rows.sprintIds}
+      emptyMessage={rows.emptyMessage}
+      onRetry={rows.retry}
       loading={rows.loading}
       error={rows.error}
       search={search}

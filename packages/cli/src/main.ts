@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
+import { registerSprintCommands } from "./commands/sprint";
 import { registerUiCommand } from "./commands/ui";
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, Option } from "commander";
 import pkg from "../package.json";
 import { registerAttachmentsCommands } from "./commands/attachments";
 import { registerAutomationCommands } from "./commands/automation";
@@ -8,7 +9,7 @@ import { registerDocCommands } from "./commands/doc";
 import { registerHumanCommands } from "./commands/human";
 import { registerImportCommands } from "./commands/import";
 import { registerIssueCommands } from "./commands/issue";
-import { registerCycleCommands } from "./commands/cycle";
+import { cycleRetired, registerCycleCommands } from "./commands/cycle";
 import { registerInitiativeCommands } from "./commands/initiative";
 import { registerProjectCommands } from "./commands/project";
 import { registerTemplateCommands } from "./commands/template";
@@ -33,6 +34,7 @@ export function buildProgram(): Command {
   registerProjectCommands(program);
   registerInitiativeCommands(program);
   registerCycleCommands(program);
+  registerSprintCommands(program);
   registerDocCommands(program);
   registerHumanCommands(program);
   registerWorkspaceCommands(program);
@@ -45,6 +47,14 @@ export function buildProgram(): Command {
   registerSummaryCommand(program);
   registerUiCommand(program);
   registerSkillsCommands(program);
+  const retireOption = (command: Command): void => {
+    if (!command.commands.length || command.name() === "stats") {
+      command.addOption(new Option("--cycle [cycle]", "廃止済み").hideHelp());
+      command.on("option:cycle", cycleRetired);
+    }
+    command.commands.forEach(retireOption);
+  };
+  program.commands.forEach(retireOption);
   return program;
 }
 

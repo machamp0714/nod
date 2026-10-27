@@ -176,3 +176,14 @@ export function nodData(): NodData {
     },
   };
 }
+
+// 期間の書込みはテスト制御サーバー内に閉じる（製品の操作ではない）。
+export async function seedSprint(input: { name: string; startDate: string; endDate: string }): Promise<Core.SprintDetail> {
+  return await post("/sprint-fixture", { op: "seed", input }) as Core.SprintDetail;
+}
+export async function associateSprint(sprintId: string, issueRef: string): Promise<void> {
+  await post("/sprint-fixture", { op: "associate", sprintId, issueRef });
+}
+export async function removeSprint(sprintId: string): Promise<void> {
+  await post("/sprint-fixture", { op: "remove", sprintId });
+}

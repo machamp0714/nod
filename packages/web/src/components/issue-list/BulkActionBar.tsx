@@ -1,12 +1,10 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/errors";
-import { useCycles } from "../../api/hooks/cycles";
 import { useProjectChoices } from "../../api/hooks/issue-detail";
 import { useMilestones } from "../../api/hooks/projects";
 import { type BulkUpdateInput, useBulkUpdateIssues } from "../../api/hooks/issues";
 import type { Issue, Status } from "../../api/types";
-import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, cycleMenu, labelMenu, milestoneMenu } from "../../lib/bulk-selection";
-import { CYCLE_STATE_LABEL } from "../../lib/cycles";
+import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, labelMenu, milestoneMenu } from "../../lib/bulk-selection";
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Button, Icon, type IconName, MenuItem } from "../ui";
@@ -17,7 +15,7 @@ import s from "./issue-list.module.css";
 const BULK_STATUSES = STATUS_ORDER.filter((status) => status !== "needs_clarification" && status !== "triage");
 const PRIORITIES = [1, 2, 3, 4, 0];
 
-type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "estimate" | "dueDate" | "cycle" | "milestone";
+type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "estimate" | "dueDate" | "milestone";
 
 // design/nod.pen「Issues｜一括編集（#31）」の一括操作バー。項目を選ぶとすぐに選択中の全 Issue へ適用する。
 // 1件でも失敗したら何も変わらないため、失敗した Issue と理由をバーの上に出し、選択はそのまま残す
@@ -36,9 +34,7 @@ export function BulkActionBar({
 }) {
   const update = useBulkUpdateIssues();
   const projects = useProjectChoices();
-  const cycleList = useCycles();
   const milestoneList = useMilestones();
-  const cycles = cycleMenu(cycleList.data ?? []);
   const milestones = milestoneMenu(selected, milestoneList.data ?? []);
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [failures, setFailures] = useState<BulkFailure[]>([]);
@@ -164,21 +160,6 @@ export function BulkActionBar({
         </Dropdown>
         <Dropdown icon="calendar" label="期限" disabled={disabled} {...menu("dueDate")}>
           <ValueForm label="期限" type="date" onSet={(value) => apply({ dueDate: value })} onClear={() => apply({ dueDate: null })} />
-        </Dropdown>
-        {/* Pencil Q2vFJ（#154）。Cycle は Workspace が混ざっていても変えられる。Project が混ざる選択では Milestone を無効にし、理由を title で出す */}
-        <Dropdown icon="calendar-range" label="Cycle" disabled={disabled} {...menu("cycle")}>
-          <ChoiceMenu
-            label="Cycle を変更"
-            items={cycles.map((c) => ({
-              key: String(c.id),
-              icon: "calendar-range",
-              label: c.name,
-              badge: <span className={d.badge} data-state={c.state}>{CYCLE_STATE_LABEL[c.state]}</span>,
-              run: () => apply({ cycleRef: String(c.id) }),
-            }))}
-            empty={listNotice(cycleList, "終了していない Cycle はありません")}
-            none={{ label: "Cycle なし", run: () => apply({ cycleRef: null }) }}
-          />
         </Dropdown>
         <Dropdown icon="flag" label="Milestone" disabled={disabled || !!milestones.disabled} title={milestones.disabled} {...menu("milestone")}>
           {milestones.disabled === undefined && (

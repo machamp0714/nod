@@ -119,99 +119,21 @@ test.describe("Initiative の編集（#154）", () => {
   });
 });
 
-test.describe("Cycle", () => {
-  test.use({ allowedConsoleErrors: [/status of 409/] });
-
-  test("名前と期間で Cycle を作り、重なりは理由を出して作らない", async ({ page, nod }) => {
-    await page.goto("/cycles");
-    await expect(page.getByText("Cycle はまだありません")).toBeVisible();
-    await page.getByRole("button", { name: "New cycle" }).first().click();
-    const dialog = page.getByRole("dialog", { name: "New cycle" });
-    await expect(dialog.getByLabel("Workspace")).toHaveCount(0);
-    await dialog.getByLabel("名前").fill("Sprint 12");
-    await dialog.getByLabel("開始日").fill(localDate(-3));
-    await dialog.getByLabel("終了日").fill(localDate(3));
-    await dialog.getByRole("button", { name: "作成" }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("row", { name: /Sprint 12/ })).toContainText("Current");
-
-    await page.getByRole("button", { name: "New cycle" }).click();
-    await dialog.getByLabel("名前").fill("重なり");
-    await dialog.getByLabel("開始日").fill(localDate(0));
-    await dialog.getByLabel("終了日").fill(localDate(10));
-    await dialog.getByRole("button", { name: "作成" }).click();
-    await expect(dialog.getByRole("alert")).toContainText("Sprint 12");
-    await dialog.getByRole("button", { name: "キャンセル" }).click();
-    expect((await nod.me.listCycles()).map((c) => c.name)).toEqual(["Sprint 12"]);
+test.describe("Sprint", () => {
+  test.use({ dataset: "sprint-history" });
+  test("現在の採択集合をSprintでまとめ、固定とnoneへ切り替えられる", async ({ page }) => {
+    await page.goto("/issues?sprint=current&groupBy=sprint");
+    await expect(page.getByRole("heading", { level: 2 })).toHaveText(["実行 127", "実行 141"]);
+    await page.getByRole("combobox", { name: "Sprint", exact: true }).selectOption("none");
+    await expect(page.getByText("候補のみ", { exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Sprint", exact: true }).selectOption("");
+    await expect(page).not.toHaveURL(/sprint=/);
   });
-
-  test("終了した Cycle の詳細に未完了を移す操作は出さず、Issues を Cycle で絞り・まとめる", async ({ page, nod }) => {
-    const past = await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
-    const current = await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
-    const issues = (await nod.me.queryIssues({ workspace: ["API"] })).issues;
-    const [a, b, c] = issues.filter((i) => i.status !== "done" && i.status !== "canceled" && i.status !== "triage");
-    // 終了した Sprint 11 に未完了 1 件と完了 1 件、現在の Sprint 12 に未完了 1 件
-    const open = [a!, b!];
-    const done = await nod.me.updateIssue(c!.id, { status: "done" });
-    for (const issue of [a!, done]) await nod.me.updateIssue(issue.id, { cycleRef: String(past.id) });
-    await nod.me.updateIssue(b!.id, { cycleRef: String(current.id) });
-
-    await page.goto(`/cycles/${past.id}`);
-    await expect(page.getByRole("heading", { level: 1, name: "Sprint 11" })).toBeVisible();
-    await expect(page.getByText("Completed", { exact: true })).toBeVisible();
-    await expect(page.getByText("未完了 1", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: a!.title })).toBeVisible();
-    // 未完了を手で別の Cycle へ移す操作はなくした
-    await expect(page.getByRole("combobox", { name: "移動先" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /件を別の Cycle へ移す/ })).toHaveCount(0);
-
-    await page.goto("/issues");
-    await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "Sprint 12（Current）" });
-    // TanStack Router は数字の文字列を引用符つきで書く（cycle=%222%22）ため、値で確かめる
-    await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe(`"${current.id}"`);
-    await expect(page.getByRole("link", { name: open[1]!.title })).toBeVisible();
-    await expect(page.getByRole("link", { name: open[0]!.title })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: done.title })).toHaveCount(0);
-    await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "Cycle なし" });
-    await expect.poll(() => new URL(page.url()).searchParams.get("cycle")).toBe("none");
-    await expect(page.getByRole("link", { name: open[0]!.title })).toHaveCount(0);
-    const loose = issues.find((i) => i.status === "todo" && ![...open, done].some((o) => o.id === i.id))!;
-    await expect(page.getByRole("link", { name: loose.title })).toBeVisible();
-    await page.getByRole("combobox", { name: "Cycle" }).selectOption({ label: "すべて" });
-    await expect(page).not.toHaveURL(/cycle=/);
-
-    await chooseDisplay(page, "グループ化", "Cycle");
-    await expect(page).toHaveURL(/groupBy=cycle/);
-    const headings = page.getByRole("heading", { level: 2 });
-    await expect(headings.filter({ hasText: /Sprint|Cycleなし/ })).toHaveText([/Sprint 11（Completed）/, /Sprint 12（Current）/, /Cycleなし/]);
-    await page.reload();
-    await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "cycle");
-  });
-
-  test("消えた Cycle の ID が URL や保存済みの View に残ると、API を呼ばずにメッセージを出す", async ({ page, nod }) => {
-    const gone = await nod.me.createCycle({ name: "消す", startDate: localDate(-1), endDate: localDate(1) });
-    const view = await nod.me.createView({ name: "消えた Cycle", filter: { cycle: String(gone.id) } });
-    await nod.me.deleteCycle(String(gone.id));
-    const message = `条件の Cycle（${gone.id}）が見つかりません`;
-
-    await page.goto(`/issues?cycle=${gone.id}`);
-    await expect(page.getByRole("alert")).toHaveText(message);
-    await page.goto(`/views/${view.id}`);
-    await expect(page.getByRole("alert")).toHaveText(message);
-  });
-
-  test("Issue 詳細で終了していない Cycle に入れ、外せる", async ({ page, nod }) => {
-    await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-10), endDate: localDate(-2) });
-    await nod.me.createCycle({ name: "Sprint 13", startDate: localDate(2), endDate: localDate(8) });
-    await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-1), endDate: localDate(1) });
-    const issue = (await nod.me.queryIssues({ workspace: ["API"] })).issues.find((i) => i.status === "todo")!;
-    await page.goto(`/issues/${issue.id}`);
-    await property(page, "Cycle").click();
-    await expect(propertyMenu(page, "Cycle").getByRole("menuitemradio")).toHaveText(["なし", "Sprint 12", "Sprint 13"]);
-    await propertyMenu(page, "Cycle").getByRole("menuitemradio", { name: "Sprint 12", exact: true }).click();
-    await expect.poll(async () => (await nod.me.getIssue(issue.id)).cycle?.name).toBe("Sprint 12");
-    await expect(page.getByText("me が Cycle を Sprint 12 に変えた")).toBeVisible();
-    await chooseProperty(page, "Cycle", "なし");
-    await expect.poll(async () => (await nod.me.getIssue(issue.id)).cycle).toBeNull();
+  test("未解決の保存条件を外さず、範囲を広げずに表示する", async ({ page, nod }) => {
+    await nod.me.createView({ name: "未解決", filter: { sprint: "unresolved:cycle:99" } });
+    await page.goto("/views/2");
+    await expect(page.getByText("条件の Sprint（unresolved:cycle:99）が見つかりません")).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Sprint", exact: true })).toHaveValue("unresolved:cycle:99");
+    await expect(page.locator("tr[data-issue-row]")).toHaveCount(0);
   });
 });

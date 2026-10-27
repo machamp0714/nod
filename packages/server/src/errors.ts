@@ -3,6 +3,8 @@ import { NodError, toNodError } from "@nod/core";
 // core の NodError のコードから HTTP ステータスへの対応。表にないコードは 500 とする
 export const ERROR_STATUS: Record<string, number> = {
   INVALID_ARGS: 400,
+  CYCLE_RETIRED: 410,
+  LEGACY_CYCLE_DELETED: 410,
   INVALID_STEP: 400,
   NO_TASKS: 400,
   SECRET_DETECTED: 400,
