@@ -6,6 +6,18 @@ const tab = (page: Page, name: string) => page.getByRole("tablist", { name: "Iss
 const region = (page: Page) => page.getByRole("region", { name: "依存関係のフロー", exact: true });
 const card = (scope: Page | Locator, id: string) => scope.getByRole("link", { name: new RegExp(`^${id} `) });
 
+async function installFlowRetryCapture(page: Page) {
+  await page.addInitScript(() => {
+    // buttonが再生成されても、製品のclick handlerより先に実クリックを同期的に記録する。
+    document.addEventListener("click", event => {
+      const button = event.target instanceof Element ? event.target.closest("button") : null;
+      if (button?.textContent?.trim() === "再試行" && button.closest('section[aria-label="依存関係のフロー"]')) {
+        document.documentElement.dataset.flowRetryClicked = "true";
+      }
+    }, { capture: true });
+  });
+}
+
 test("Projectの共通フローで開始前・複数Project・分岐合流・外部前提・独立Issueを表示し、開始後は旧合意の採択集合を維持する", async ({ page, nod }, info) => {
   const ws = (await nod.me.initWorkspace({ key: "FL", name: "フロー製品", path: nod.repo("flow") })).workspace;
   const projects = [await nod.me.createProject({ name: "第一" }), await nod.me.createProject({ name: "第二" })];
@@ -83,29 +95,38 @@ test.describe("フロー取得失敗", () => {
     const ws = (await nod.me.initWorkspace({ key: "ER", name: "取得確認", path: nod.repo("error") })).workspace;
     const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "最後に確認したIssue" });
     const planned = await plannedSprint(page, ws.key, [issue.id]);
+    await installFlowRetryCapture(page);
+    let failFlow = false;
+    await page.route(`**/api/sprints/${planned.sprint.id}/flow*`, async route => {
+      if (!failFlow || await page.evaluate(() => document.documentElement.dataset.flowRetryClicked === "true")) return route.continue();
+      await route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "読取を再試行してください" } } });
+    });
     await page.goto(`/sprints/${planned.sprint.id}?section=plan&view=flow`);
     await expect(card(region(page), issue.id)).toBeVisible();
-    await page.route(`**/api/sprints/${planned.sprint.id}/flow*`, route => route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "読取を再試行してください" } } }));
+    failFlow = true;
     await tab(page, "一覧").click(); await tab(page, "フロー").click();
     await expect(region(page).getByRole("alert")).toContainText("最後の確認");
     await expect(card(region(page), issue.id)).toBeVisible();
     await captureSprint(page, "flow-last-graph-on-error", info);
-    await page.unroute(`**/api/sprints/${planned.sprint.id}/flow*`);
     await region(page).getByRole("button", { name: "再試行", exact: true }).click();
     await expect(region(page).getByRole("alert")).toHaveCount(0);
   });
   test("計画0件・読み込み中・初回失敗を混同しない", async ({ page, nod }, info) => {
     const ws = (await nod.me.initWorkspace({ key: "ZE", name: "0件確認", path: nod.repo("zero") })).workspace;
     const planned = await plannedSprint(page, ws.key, []);
+    await installFlowRetryCapture(page);
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
-    await page.route(`**/api/sprints/${planned.sprint.id}/flow*`, async route => { await gate; await route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "取得失敗の検証" } } }); });
+    await page.route(`**/api/sprints/${planned.sprint.id}/flow*`, async route => {
+      await gate;
+      if (await page.evaluate(() => document.documentElement.dataset.flowRetryClicked === "true")) return route.continue();
+      await route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "取得失敗の検証" } } });
+    });
     await page.goto(`/sprints/${planned.sprint.id}?section=plan&view=flow`);
     await expect(region(page).getByRole("status")).toHaveText("読み込み中…");
     release();
     await expect(region(page).getByRole("alert")).toContainText("取得失敗の検証");
     await expect(region(page).getByText("Issue はありません", { exact: true })).toHaveCount(0);
-    await page.unroute(`**/api/sprints/${planned.sprint.id}/flow*`);
     await region(page).getByRole("button", { name: "再試行", exact: true }).click();
     await expect(region(page).getByText("Issue はありません", { exact: true })).toBeVisible();
     await captureSprint(page, "flow-empty-after-retry", info);
