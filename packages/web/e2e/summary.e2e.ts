@@ -38,7 +38,7 @@ test("種類ごとの件数を人と LLM に分けて出し、各行から Issue
   await page.goto("/summary");
   await expect(page.getByRole("button", { name: "24h", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(card(page, "完了")).toContainText("1人 0 / LLM 1");
-  await expect(card(page, "完了報告")).toContainText("1人 0 / LLM 1");
+  await expect(card(page, "完了報告")).toHaveText("完了報告0人 0 / LLM 0");
   await expect(card(page, "質問/回答")).toContainText("2人 1 / LLM 1");
   await expect(card(page, "ブロッカー")).toContainText("1人 0 / LLM 1");
   await expect(card(page, "新規起票")).toContainText("3人 3 / LLM 0"); // アーカイブ済みの起票は既定で除く
