@@ -33,12 +33,12 @@ export function IssuesPage() {
   const savedDisplay = displayFromSearch(search);
   const savedChips = useFilterChips(savedFilter, options);
   const change = (patch: IssueListSearch) => {
-    page.save(patch);
-    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+    const pageDisplay = page.save(patch);
+    navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) });
   };
   const resetDisplay = () => {
-    page.reset();
-    navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+    const pageDisplay = page.reset();
+    navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true });
   };
   if (!page.ready) return <PageLoading />;
   return (

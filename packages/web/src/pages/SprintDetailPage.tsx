@@ -71,8 +71,8 @@ export function SprintDetailPage() {
       </>}
       rows={shownRows} loading={!imported && rows.loading} error={!imported ? rows.error : null}
       onRetry={rows.retry} readOnly={imported} search={page.search}
-      onSearchChange={(patch) => { page.save(patch); void navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) }); }}
-      onResetDisplay={() => { page.reset(); void navigate({ search: (prev) => withoutPageDisplay(prev), replace: true }); }} resetDisplayDisabled={page.resetDisabled}
+      onSearchChange={(patch) => { const pageDisplay = page.save(patch); void navigate({ search: (prev) => cleanIssueListSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); }}
+      onResetDisplay={() => { const pageDisplay = page.reset(); void navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true }); }} resetDisplayDisabled={page.resetDisabled}
       afterContent={imported && <section className={s.evidence} aria-label="履歴の根拠">
         <details><summary>取得済みの履歴と元イベント（{sprint.events.length}件）</summary>
           {sprint.events.map((event) => <div key={event.original.id}>

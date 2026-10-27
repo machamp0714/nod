@@ -90,12 +90,12 @@ export function ProjectDetailPage() {
       search={search}
       sameValueColumn="project"
       onSearchChange={(patch) => {
-        page.save(patch);
-        navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), replace: replacesIssueListHistory(patch) });
+        const pageDisplay = page.save(patch);
+        navigate({ search: (prev) => cleanProjectIssuesSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) });
       }}
       onResetDisplay={() => {
-        page.reset();
-        navigate({ search: (prev) => withoutPageDisplay(prev), replace: true });
+        const pageDisplay = page.reset();
+        navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true });
       }}
       resetDisplayDisabled={page.resetDisabled}
       statusTones={PROJECT_STATUS_TONES}
