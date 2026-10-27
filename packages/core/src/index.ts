@@ -16,6 +16,7 @@ export * from "./events";
 export * from "./mutate";
 export * from "./ops/issues";
 export * from "./ops/bulk-update";
+export * from "./ops/sprint-eligibility";
 export * from "./ops/projects";
 export * from "./ops/milestones";
 export * from "./ops/initiatives";

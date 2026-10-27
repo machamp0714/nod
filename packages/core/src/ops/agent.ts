@@ -11,6 +11,7 @@ import type { Issue, Question } from "../types";
 import { requireText } from "./issues";
 import { resolveProject } from "./projects";
 import { isWorkspaceSpecAssessmentEnabled } from "./spec-assessment";
+import { assertOrdinaryIssueStart, MANAGED_SPRINT_ISSUE } from "../sprint-membership";
 
 export interface WorkLocation {
   branch: string | null;
@@ -42,6 +43,7 @@ function openBlockersOf(issueId: string): string {
 const NEXT_SQL = `SELECT i.id FROM issues i
 WHERE i.workspace_id = ?
   AND ${READY_WHERE}
+  AND NOT EXISTS (${MANAGED_SPRINT_ISSUE})
   AND (i.assignee IS NULL OR i.assignee = ?)
   AND (? IS NULL OR i.project_id = ?)
 ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END, i.created_at, i.id`;
@@ -90,6 +92,7 @@ export function nextIssue(
 export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocation | null } = {}): Issue {
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
+    assertOrdinaryIssueStart(ctx.db, row.id);
     const assessment = toIssue(row).specAssessment;
     if (isWorkspaceSpecAssessmentEnabled(ctx.db, row.workspace_id) && assessment && !assessment.suspended && !assessment.recordOnly && assessment.status !== "completed") {
       throw new NodError("SPEC_ASSESSMENT_REQUIRED", `${ref} の仕様判定は未完了です（${assessment.status}）。同じIssueへの明示再試行が必要です`);
