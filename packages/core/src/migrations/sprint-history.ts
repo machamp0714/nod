@@ -61,7 +61,6 @@ export function importSprintHistory(db: Database): void {
   const cycles = db.query('SELECT * FROM cycles ORDER BY id').all() as Record<string, any>[];
   const cadence = db.query('SELECT * FROM cycle_cadence WHERE id=1').get();
   const sequence = db.query("SELECT seq FROM sqlite_sequence WHERE name='cycles'").get() as {seq:number}|null;
-  db.query('INSERT INTO sprint_migration_source VALUES(1,?)').run(JSON.stringify({schemaVersion:1,capturedAt,cadence,cycleSequence:sequence}));
   const next = Math.max(0, sequence?.seq ?? 0, ...cycles.map(c=>c.id), ((cadence as {next_number:number}|null)?.next_number ?? 1)-1)+1;
   db.query('INSERT INTO sprint_number_sequence VALUES(1,?)').run(next);
   const byId = new Map<number,Record<string,any>>();
@@ -87,6 +86,14 @@ export function importSprintHistory(db: Database): void {
     for (const ref of explicitRefs(event)) refs.add(ref);
     if (refs.size) issueRefs.set(event.issue_id,refs);
   }
+  // 名前だけの旧記録は期間を推測せず独立して保管する。対応する期間が0件でも失わない。
+  const unresolvedIssueIds = new Set(events.filter(event => event.type === 'cycle_changed' && explicitRefs(event).size === 0)
+    .map(event => event.issue_id));
+  const unresolvedEvidence = [...unresolvedIssueIds].map(sourceIssueId => {
+    const evidence = snapshots.get(sourceIssueId)!;
+    return {sourceIssueId,sourceIssueKey:evidence.sourceIssueKey,snapshot:JSON.parse(evidence.snapshot)};
+  });
+  db.query('INSERT INTO sprint_migration_source VALUES(1,?)').run(JSON.stringify({schemaVersion:1,capturedAt,cadence,cycleSequence:sequence,unresolvedEvidence}));
   for (const cycle of cycles) {
     const id = crypto.randomUUID();
     byId.set(cycle.id,cycle);
@@ -104,10 +111,10 @@ export function importSprintHistory(db: Database): void {
   }
   for (const event of events) {
     const refs=issueRefs.get(event.issue_id);
-    if (!refs?.size) continue;
+    if (!refs?.size && !unresolvedIssueIds.has(event.issue_id)) continue;
     db.query('INSERT INTO sprint_legacy_events VALUES(?,?)').run(event.id,JSON.stringify(event));
     const explicit=explicitRefs(event);
-    for (const ref of refs) {
+    for (const ref of refs ?? []) {
       if (!byId.has(ref)) db.query("INSERT OR IGNORE INTO sprint_legacy_refs VALUES(?,NULL,'deleted')").run(ref);
       const cycle=byId.get(ref);
       // 当時の明示IDがあり、現行レコード作成後の記録だけを確定関連とする。

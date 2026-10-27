@@ -51,6 +51,17 @@ export interface SprintDetail extends Sprint {
   legacy: { schemaVersion: number; cycle: Record<string, unknown>; cadence: Record<string, unknown> | null; capturedAt: string; statusBasis: "migration_snapshot" } | null;
 }
 
+// 期間との関連を確定できない旧履歴。所属・採択とは分けて保持する。
+export interface SprintUnresolvedHistory {
+  capturedAt: string | null;
+  issues: {
+    sourceIssueId: number;
+    sourceIssueKey: string;
+    snapshot: SprintItem["snapshot"];
+    events: SprintLegacyEvent["original"][];
+  }[];
+}
+
 export type LegacyCycleResolution =
   | { kind: "imported"; sprintId: string }
   | { kind: "deleted" }

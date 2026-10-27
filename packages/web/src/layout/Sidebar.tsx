@@ -124,12 +124,15 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
                   activeProps={ACTIVE_PROPS} title="設定" aria-label={`${workspace.name} の設定`}><Icon name="settings" /></Link>
               </div>
               {open && <div id={`workspace-${workspace.key}`}>
-                {to ? <CurrentCycleItem to={to} label={sprint!.name} active={pathname === to || pathname === `/sprints/${sprint!.number}`} /> :
+                {!current.isError && to ? <CurrentCycleItem to={to} label={sprint!.name} active={pathname === to || pathname === `/sprints/${sprint!.number}`} /> :
                   <div className={`${s.item} ${s.subItem}`} aria-live="polite">
                     <Icon name="circle-dot" size={12} /><span className={s.label}>Current</span>
                     <span className={s.subNote}>{current.isError ? "取得失敗" : current.data ? "なし" : "読込中…"}</span>
                     {current.isError && <button type="button" className={s.headingButton} aria-label={`${workspace.name} の現在Sprintを再試行`} onClick={() => void current.refetch()}><Icon name="refresh-cw" size={12} /></button>}
                   </div>}
+                {current.isError && current.dataUpdatedAt > 0 && <p className={s.subNote} style={{ margin: "0 12px 4px 28px" }}>
+                  最終確認 <time dateTime={new Date(current.dataUpdatedAt).toISOString()}>{new Date(current.dataUpdatedAt).toLocaleString("ja-JP")}</time>
+                </p>}
                 <Link to="/issues" search={{ workspace: [workspace.key] }} className={`${s.item} ${s.subItem}`}><Icon name="copy" size={14} /><span className={s.label}>Issues</span></Link>
                 <Link to="/projects" search={{ workspace: workspace.key }} className={`${s.item} ${s.subItem}`}><Icon name="box" size={14} /><span className={s.label}>Projects</span></Link>
               </div>}

@@ -55,3 +55,27 @@ test("旧ID再利用疑いと欠落イベントを推測で埋めず、確定関
   expect(getSprint(db,"1").events).toEqual(before.events);
   db.close();
 });
+
+test("期間作成前の既知状態を後日の明示所属に引き継ぎ、作成前の同ID所属は確定しない", () => {
+  const path=tempDbPath(); legacySprintFixture(path);
+  const old=new Database(path);
+  old.exec(`UPDATE cycles SET start_date='2026-10-01',end_date='2026-10-03',created_at='2026-10-01T00:00:00.000Z' WHERE id=1;
+    DELETE FROM events;
+    INSERT INTO events(id,issue_id,type,data,actor,created_at) VALUES
+      (1,1,'created','{"status":"todo","cycle_id":1}','me','2026-09-01T00:00:00.000Z'),
+      (2,2,'created','{"status":"todo","cycle_id":null}','me','2026-09-01T00:00:00.000Z'),
+      (3,2,'status_changed','{"from":"todo","to":"in_progress"}','me','2026-09-02T00:00:00.000Z'),
+      (4,1,'cycle_changed','{"from_id":null,"to_id":1}','me','2026-10-02T00:00:00.000Z'),
+      (5,2,'cycle_changed','{"from_id":null,"to_id":1}','me','2026-10-02T00:00:00.000Z');`);
+  old.close();
+  const db=openDb(path);
+  const result=sprintAnalytics(db,"1",{timezone:"UTC",clock:{now:new Date('2026-10-04T00:00:00.000Z')}});
+  expect(result.burnup).toEqual([
+    {date:"2026-10-01",scope:null,started:null,completed:null,unknown:2},
+    {date:"2026-10-02",scope:2,started:1,completed:0,unknown:0},
+    {date:"2026-10-03",scope:2,started:1,completed:0,unknown:0},
+  ]);
+  expect(result.history.ambiguousEventIds).toContain(1);
+  expect(sprintAnalytics(db,"1").history.timezoneBasis).toBe("unknown");
+  db.close();
+});

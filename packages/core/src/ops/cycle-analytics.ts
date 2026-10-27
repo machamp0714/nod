@@ -74,10 +74,8 @@ function historyDays(sprint: SprintDetail, timezone: string, clock: SprintClock)
   const today=localDate.format(clock.now ?? new Date());
   const last=sprint.endDate < today ? sprint.endDate : today;
   if(last < sprint.startDate) return [];
-  const sourceCreated=Date.parse(String(sprint.legacy?.cycle.created_at));
   const timelines=sprint.evidence.filter(e=>!e.snapshot.issue.archived_at).map(evidence=> {
     const events=sprint.events.filter(e=>e.original.issue_id===evidence.sourceIssueId)
-      .filter(e=>Date.parse(e.original.created_at)>=sourceCreated)
       .sort((a,b)=>Date.parse(a.original.created_at)-Date.parse(b.original.created_at) || a.original.id-b.original.id);
     // 存在が確定したcreatedより前だけは未作成と判断できる。
     let member: boolean | null = events.some(e=>e.original.type==='created' && e.association==='recorded') ? false : null;
@@ -86,6 +84,7 @@ function historyDays(sprint: SprintDetail, timezone: string, clock: SprintClock)
     for(const event of events) {
       const data=JSON.parse(event.original.data) as Record<string,unknown>;
       if(event.original.type==='created') {
+        // 状態の記録は期間作成前も利用する。所属は作成後の明示IDだけで確定する。
         if(event.association==='recorded') member=data.cycle_id===sprint.legacyCycleId;
         status=STATUSES.includes(data.status as Status) ? data.status as Status : null;
       } else if(event.original.type==='cycle_changed' && event.association==='recorded' && 'to_id' in data) {

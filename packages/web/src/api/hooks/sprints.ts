@@ -1,10 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
-import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintAnalytics, SprintDetail } from "../types";
+import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintAnalytics, SprintDetail, SprintUnresolvedHistory } from "../types";
 
 export function useSprints() {
   return useQuery({ queryKey: queryKeys.sprints(), queryFn: () => apiFetch<Sprint[]>("/sprints") });
+}
+
+export function useUnresolvedSprintHistory() {
+  return useQuery({ queryKey: queryKeys.unresolvedSprintHistory(), queryFn: () => apiFetch<SprintUnresolvedHistory>("/sprints/unresolved-history") });
 }
 
 export function useCurrentSprints(archived = false) {

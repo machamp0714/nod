@@ -1,9 +1,47 @@
 import { expect, test } from "bun:test";
-import { openDb } from "@nod/core";
-import { addActiveSprint, legacySprintFixture } from "../../core/test/fixtures/sprint";
+import { archiveIssue, deleteIssue, getUnresolvedSprintHistory, openDb, updateIssue } from "@nod/core";
+import { addActiveSprint, legacyNameOnlySprintFixture, legacySprintFixture } from "../../core/test/fixtures/sprint";
 import { createApp } from "../src/app";
 import { call, tempDir } from "./helpers";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
+
+test("名前のみの旧履歴を未確定の根拠として公開読取し、元Issue削除と再起動後も保持する", async () => {
+  for (const noCycles of [false, true]) {
+    const path=join(tempDir(),"nod.db"); legacyNameOnlySprintFixture(path,noCycles);
+    const old=new Database(path,{readonly:true});
+    const originals=old.query("SELECT * FROM events WHERE issue_id IN (3,4) ORDER BY id").all(); old.close();
+    let db=openDb(path); let app=createApp({db});
+    const read=await call(app,"GET","/api/sprints/unresolved-history");
+    expect(read.status).toBe(200);
+    const before=read.json;
+    expect(getUnresolvedSprintHistory(db)).toEqual(before);
+    expect(getUnresolvedSprintHistory(db,{workspaceIds:[]})).toEqual({capturedAt:before.capturedAt,issues:[]});
+    expect(before.issues.map((i:any)=>[i.sourceIssueId,i.sourceIssueKey,i.snapshot.workspace.key])).toEqual([[3,"AAA-2","AAA"],[4,"BBB-2","BBB"]]);
+    expect(before.issues.flatMap((i:any)=>i.events)).toEqual(originals);
+    expect(before.issues[0].snapshot).toMatchObject({capturedAt:before.capturedAt,statusBasis:"migration_snapshot",issue:{title:"所属なし",cycle_id:null}});
+    expect((await call(app,"GET","/api/sprints/unresolved-history?workspaceId=2")).json.issues.map((i:any)=>i.sourceIssueKey)).toEqual(["BBB-2"]);
+    expect((await call(app,"GET","/api/sprints/unresolved-history?workspaceId=999")).json.issues).toEqual([]);
+    expect((await call(app,"GET","/api/sprints/unresolved-history?workspaceId=abc")).status).toBe(400);
+    expect((await call(app,"GET","/api/sprints/current")).json).toEqual({sprints:[],issues:[]});
+    expect((await call(app,"GET","/api/issues?sprint=none")).json.issues.map((i:any)=>i.id)).toContain("AAA-2");
+    if (!noCycles) {
+      const detail=(await call(app,"GET","/api/sprints/1")).json;
+      expect(detail.items.map((i:any)=>i.sourceIssueKey)).toEqual(["AAA-1","BBB-1"]);
+      expect(detail.events.find((e:any)=>e.original.id===1).association).toBe("recorded");
+      expect(detail.events.some((e:any)=>e.original.id===4)).toBe(false);
+    }
+    for (const ref of ["AAA-2","BBB-2"]) {
+      updateIssue({db,actor:"me"},ref,{title:"後の名前"});
+      archiveIssue({db,actor:"me"},ref); deleteIssue({db,actor:"me"},ref);
+    }
+    expect((await call(app,"GET","/api/sprints/unresolved-history")).json).toEqual(before);
+    expect(db.query('PRAGMA foreign_key_check').all()).toEqual([]);
+    db.close(); db=openDb(path); app=createApp({db});
+    expect((await call(app,"GET","/api/sprints/unresolved-history")).json).toEqual(before);
+    db.close();
+  }
+});
 
 test("Sprint全件・詳細・旧IDの専用解決を読み、旧IDを新番号へ読み替えない", async () => {
   const path=join(tempDir(),"nod.db"); legacySprintFixture(path);

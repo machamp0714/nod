@@ -50,6 +50,7 @@ export const queryKeys = {
   cycleCadence: () => ["cycles", "cadence"] as const,
   views: () => ["views"] as const,
   sprints: () => ["sprints", "list"] as const,
+  unresolvedSprintHistory: () => ["sprints", "unresolved-history"] as const,
   sprint: (ref: string) => ["sprints", "detail", ref] as const,
   currentSprints: (archived = false) => ["sprints", "current", archived] as const,
   sprintAnalytics: (ref: string, timezone?: string) => ["sprints", "analytics", ref, timezone ?? null] as const,

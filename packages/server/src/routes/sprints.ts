@@ -1,4 +1,4 @@
-import { getSprint, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
+import { getSprint, getUnresolvedSprintHistory, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag } from "../input";
 
@@ -14,6 +14,9 @@ export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = 
       archived: queryFlag(c.req.query("archived"),"archived"),
     }));
   });
+  app.get("/api/sprints/unresolved-history", c => c.json(getUnresolvedSprintHistory(me.db, {
+    workspaceIds:c.req.queries("workspaceId")?.map(id=>paramInt(id,"Workspace ID")),
+  })));
   app.get("/api/sprints/:ref/analytics", c => c.json(sprintAnalytics(me.db,c.req.param("ref"),{clock,timezone:c.req.query("tz")})));
   app.get("/api/sprints/:ref", c => c.json(getSprint(me.db,c.req.param("ref"))));
 }

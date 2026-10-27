@@ -28,6 +28,23 @@ export function legacySprintFixture(path: string): void {
   db.close();
 }
 
+// 名前だけを記録していた旧版の履歴。名前一致を所属の確定根拠にしない。
+export function legacyNameOnlySprintFixture(path: string, noCycles = false): void {
+  legacySprintFixture(path);
+  const db = new Database(path);
+  db.exec(`DELETE FROM events WHERE id=4;
+    INSERT INTO issues(id,workspace_id,number,title,status,created_by,created_at,updated_at)
+      VALUES(4,2,2,'名前の対応がない元Issue','todo','me','2026-01-01','2026-10-01');
+    UPDATE workspaces SET next_number=3 WHERE id=2;
+    INSERT INTO events(id,issue_id,actor,type,data,created_at) VALUES
+      (4,3,'旧担当','cycle_changed','{ "from": "過去", "to": null }','2026-01-03'),
+      (5,3,'me','status_changed','{"from":"backlog","to":"todo"}','2026-01-04'),
+      (6,4,'me','cycle_changed','{"from":"削除された名前","to":"変更前の名前"}','2026-01-03'),
+      (7,4,'me','cycle_changed','{"from":"変更前の名前","to":null}','2026-01-04');`);
+  if (noCycles) db.exec('UPDATE issues SET cycle_id=NULL; DELETE FROM cycles');
+  db.close();
+}
+
 export function addActiveSprint(db: Database, workspaceId: number, number: number, issueRefs: string[]): string {
   const id=crypto.randomUUID();
   const plan=crypto.randomUUID();

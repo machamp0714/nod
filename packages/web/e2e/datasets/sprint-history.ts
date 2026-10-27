@@ -1,27 +1,11 @@
-import { join } from "node:path";
-import { createIssue, createView, openDb } from "@nod/core";
-import { addActiveSprint, legacySprintFixture } from "../../../core/test/fixtures/sprint";
+import { createIssue, createView } from "@nod/core";
+import { addActiveSprint } from "../../../core/test/fixtures/sprint";
 import type { Dataset } from "../support/dataset";
+import { loadLegacySprintDataset } from "../support/legacy-sprint-dataset";
 
 // 旧版の移行と内部採択fixtureを使う。製品へ開始・採択操作を追加しない。
 const dataset: Dataset = ({ db, dir }) => {
-  const path = join(dir, `sprint-history-${crypto.randomUUID()}.db`);
-  legacySprintFixture(path);
-  openDb(path).close();
-  db.run("ATTACH DATABASE ? AS legacy_fixture", [path]);
-  db.run("PRAGMA foreign_keys=OFF");
-  try {
-    const tables = db.query("SELECT name FROM legacy_fixture.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
-    db.transaction(() => {
-      for (const { name } of tables) {
-        db.run(`DELETE FROM main."${name}"`);
-        db.run(`INSERT INTO main."${name}" SELECT * FROM legacy_fixture."${name}"`);
-      }
-    })();
-  } finally {
-    db.run("PRAGMA foreign_keys=ON");
-    db.run("DETACH DATABASE legacy_fixture");
-  }
+  loadLegacySprintDataset({ db, dir });
   const ctx = { db, actor: "me" };
   const refs = ["AAA-1", "AAA-2"];
   for (const status of ["in_progress", "triage", "needs_clarification", "canceled", "backlog"]) {

@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
 import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_MEMBERSHIP } from "../sprint-membership";
-import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase } from "../sprint-types";
+import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase, SprintUnresolvedHistory } from "../sprint-types";
 
 interface SprintRow {
   id: string; number: number; workspace_id: number | null; name: string; phase: SprintPhase;
@@ -55,6 +55,19 @@ export function getSprint(db: Database, ref: string): SprintDetail {
     items: items.map(i => ({id: i.id, sprintId: i.sprint_id, issueId: i.issue_id, sourceIssueKey: i.source_issue_key, origin: i.origin, snapshot: JSON.parse(i.snapshot)})),
     events: events.map(e => ({original: JSON.parse(e.original), association: e.association})),
   };
+}
+
+export function getUnresolvedSprintHistory(db: Database, options: { workspaceIds?: readonly number[] } = {}): SprintUnresolvedHistory {
+  const source = db.query('SELECT snapshot FROM sprint_migration_source WHERE id=1').get() as {snapshot:string} | null;
+  if (!source) return {capturedAt:null,issues:[]};
+  const {capturedAt,unresolvedEvidence = []} = JSON.parse(source.snapshot) as {
+    capturedAt:string; unresolvedEvidence?: Omit<SprintUnresolvedHistory["issues"][number],"events">[];
+  };
+  // 現在のIssueやWorkspaceへ結び直さず、取得時の閲覧範囲で絞る。空配列は閲覧対象なし。
+  const evidence = unresolvedEvidence.filter(item => options.workspaceIds === undefined || options.workspaceIds.includes(item.snapshot.workspace.id));
+  const events = db.query('SELECT original FROM sprint_legacy_events ORDER BY event_id').all() as {original:string}[];
+  const originals = events.map(event => JSON.parse(event.original) as SprintLegacyEvent["original"]);
+  return {capturedAt,issues:evidence.map(item => ({...item,events:originals.filter(event => event.issue_id === item.sourceIssueId)}))};
 }
 
 export interface CurrentSprintOptions {

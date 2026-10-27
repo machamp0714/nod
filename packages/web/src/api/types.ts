@@ -113,6 +113,7 @@ export type {
   CycleSummary,
   Sprint,
   SprintDetail,
+  SprintUnresolvedHistory,
   SprintReference,
   SprintAnalytics,
   SprintPhase,

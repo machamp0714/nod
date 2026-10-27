@@ -51,7 +51,7 @@ export function filterRows(rows: readonly IssueListRow[], filter: { tab: ListTab
   const needle = filter.q.trim().toLowerCase();
   return rows.filter((row) => {
     if (filter.showCompleted === false && row.issue.status === "done") return false;
-    if (filter.showChildren === false && row.issue.parentId != null) return false;
+    if (filter.showChildren === false && (row.hasParent || row.issue.parentId != null)) return false;
     if (filter.tab === "ready" && !row.ready) return false;
     if (filter.tab === "needs_clarification" && row.issue.status !== "needs_clarification") return false;
     if (filter.tab === "delegated" && !isDelegated(row.issue)) return false;

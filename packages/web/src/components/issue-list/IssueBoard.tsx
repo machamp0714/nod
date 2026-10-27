@@ -113,7 +113,8 @@ export function IssueBoard({
                 <BoardCard
                   key={row.issue.id}
                   row={row}
-                  saving={readOnly || saving === row.issue.id}
+                  readOnly={readOnly}
+                  saving={saving === row.issue.id}
                   onDragStart={() => setDragging({ id: row.issue.id, status: row.issue.status })}
                   onDragEnd={() => {
                     setDragging(null);
@@ -167,15 +168,19 @@ function Chip({ tone, icon, dot, children }: { tone: Tone; icon?: IconName; dot?
 }
 
 // 保存中のカードは薄くし、ドラッグできなくする
-function BoardCard({ row, saving, onDragStart, onDragEnd }: { row: IssueListRow; saving: boolean; onDragStart: () => void; onDragEnd: () => void }) {
+function BoardCard({ row, readOnly, saving, onDragStart, onDragEnd }: { row: IssueListRow; readOnly: boolean; saving: boolean; onDragStart: () => void; onDragEnd: () => void }) {
   const { issue, questions, workspaceName } = row;
   return (
     <article
       className={s.boardCard}
-      draggable={!saving}
+      draggable={!readOnly && !saving}
       aria-busy={saving || undefined}
       data-saving={saving || undefined}
       onDragStart={(e) => {
+        if (readOnly || saving) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", issue.id);
         onDragStart();

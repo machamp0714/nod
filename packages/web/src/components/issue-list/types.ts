@@ -7,4 +7,6 @@ export interface IssueListRow {
   questions: QuestionCount;
   ready: boolean;
   workspaceName: string;
+  // 親キーが未記録の移行履歴でも、子であるという取得済みの事実は保持する。
+  hasParent?: boolean;
 }
