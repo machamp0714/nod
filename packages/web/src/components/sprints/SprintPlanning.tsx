@@ -84,7 +84,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onActiv
         <section className={s.section}><p>{started ? "有効な合意済み計画の採択集合を表示します。未合意の追加案は含みません。" : "採択予定・開始前。合意して開始するまでは実行されません。"}</p>
           {plan?.content.items.map(item => <details key={item.itemId}><summary>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey ?? "削除されたIssue"}の貢献と実行計画</summary><p>採択理由・ゴールへの貢献：{item.contribution}</p><p>実行計画：{item.executionPlan}</p><p>合意時の要求：{item.requirement.title}</p><p>{item.requirement.description}</p></details>)}
         </section>
-        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
+        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} disabled={command.isPending} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
           <form className={s.controls} aria-label="候補の追加" onSubmit={e => { e.preventDefault(); if (command.isPending) return; void run("/candidates", { issueRef: candidateRef }, "候補に追加しました。採択は計画案で選びます。").then(ok => { if (ok) setCandidate(""); }); }}>
             <label className={s.field}>候補に追加するIssue<input required value={candidateRef} onChange={e => setCandidate(e.target.value)} disabled={command.isPending} placeholder="AAA-1" /></label>
             <Button type="submit" disabled={command.isPending}>{command.isPending ? "保存中…" : "候補に追加"}</Button>

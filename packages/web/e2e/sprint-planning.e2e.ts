@@ -1,6 +1,16 @@
 import { expect, test } from "./fixtures";
 
 test("方向設定から公開フォームで計画の版に合意して開始する", async ({ page, nod }, info) => {
+  let releaseCandidate!: () => void;
+  const candidateGate = new Promise<void>(resolve => { releaseCandidate = resolve; });
+  let candidateRequested!: () => void;
+  const candidateStarted = new Promise<void>(resolve => { candidateRequested = resolve; });
+  await page.route("**/api/sprints/*/candidates", async route => {
+    if (route.request().method() !== "POST") { await route.continue(); return; }
+    candidateRequested();
+    await candidateGate;
+    await route.continue();
+  });
   const ws = await nod.me.initWorkspace({ key: "AAA", name: "製品A", path: nod.repo("a") });
   const issue = await nod.me.createIssue({ workspaceId: ws.workspace.id, title: "判断を一か所で確認" });
   await page.goto("/workspaces/AAA/settings");
@@ -26,7 +36,19 @@ test("方向設定から公開フォームで計画の版に合意して開始�
   await expect(page).toHaveURL(/\/sprints\/[^/]+$/);
   await page.getByRole("button", { name: "計画", exact: true }).click();
   await page.getByLabel("候補に追加するIssue").fill(issue.id);
-  await page.getByRole("button", { name: "候補に追加", exact: true }).click();
+  const candidateResponse = page.waitForResponse(response => response.request().method() === "POST" && /\/api\/sprints\/[^/]+\/candidates$/.test(new URL(response.url()).pathname));
+  try {
+    await page.getByRole("button", { name: "候補に追加", exact: true }).click();
+    await candidateStarted;
+    await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeDisabled();
+  } finally {
+    releaseCandidate();
+    await (await candidateResponse).finished();
+    await expect(page.getByRole("status").filter({ hasText: "候補に追加しました。採択は計画案で選びます。" })).toBeVisible();
+  }
+  await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "計画案を編集", exact: true }).click();
   const editor = page.getByRole("form", { name: "計画案の編集" });
   await editor.getByLabel("今回のゴール", { exact: true }).fill("判断の確認を完結できる");
