@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test, waitForServerEvents } from "./fixtures";
 
 // issue-list：API-13「workspace の取得をまとめる」はタイトルに workspace を含み、API-12 は説明にだけ含む。NOD-3 は done
 test.use({ dataset: "issue-list" });
@@ -50,6 +50,7 @@ test.describe("Issue 検索", () => {
   test("入力が問い合わせに届く前の Enter では、前の語の結果に移らない", async ({ page }) => {
     await page.goto("/inbox");
     await page.getByRole("heading", { level: 1 }).waitFor();
+    await waitForServerEvents(page);
     await page.keyboard.press("Meta+Shift+F");
     await box(page).fill("api-1");
     await expect(options(page).first()).toContainText("API-1");
