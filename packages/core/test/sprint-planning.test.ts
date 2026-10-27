@@ -24,6 +24,89 @@ function proposal() {
   return { ...f, issue, item: added.item, ...proposed };
 }
 
+test("中止期間への未関連の期間更新を拒否しSprintを変更しない", () => {
+  const { db, ws, me, llm, sprint, plan } = proposal();
+  try {
+    const clock = { now: new Date("2026-03-08T12:00:00.000Z") };
+    const ready = core.acceptSprintPlan(me, sprint.id, plan.id, { expectedVersion: sprint.version, requestKey: "合意", contentHash: plan.contentHash });
+    const active = core.activateSprint(me, sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, clock);
+    core.cancelSprint(me, sprint.id, { expectedVersion: active.version, requestKey: "中止", reason: "優先順位を再検討する" }, clock);
+    const unlinked = core.createSprint(llm, { ...period, startDate: "2026-03-10", endDate: "2026-03-10", workspaceKey: ws.key, expectedVersion: 0, requestKey: "未関連作成" });
+    const before = core.getSprint(db, unlinked.id);
+
+    expect(codeOf(() => core.updateSprint(llm, unlinked.id, { ...period, expectedVersion: unlinked.version, requestKey: "中止期間へ変更" }))).toBe("INVALID_ARGS");
+    expect(core.getSprint(db, unlinked.id)).toEqual(before);
+  } finally {
+    db.close();
+  }
+});
+
+function canceledProposal() {
+  const f = proposal();
+  const clock = { now: new Date("2026-03-08T12:00:00.000Z") };
+  const ready = core.acceptSprintPlan(f.me, f.sprint.id, f.plan.id, { expectedVersion: f.sprint.version, requestKey: "合意", contentHash: f.plan.contentHash });
+  const active = core.activateSprint(f.me, f.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, clock);
+  const sprint = core.cancelSprint(f.me, f.sprint.id, { expectedVersion: active.version, requestKey: "中止", reason: "再計画する" }, clock);
+  return { ...f, sprint };
+}
+
+test("既存の中止元関連を保持して期間を更新し、版・再送・actorの整合を守る", () => {
+  const { db, ws, me, llm, sprint } = canceledProposal();
+  try {
+    const linked = core.createSprint(llm, { ...period, startDate: "2026-03-10", endDate: "2026-03-10", workspaceKey: ws.key, expectedVersion: 0, requestKey: "関連済み作成", replansSprintId: sprint.id });
+    const input = { ...period, expectedVersion: linked.version, requestKey: "関連を保持して変更" };
+    const updated = core.updateSprint(llm, linked.id, input);
+    expect(updated).toMatchObject({ ...period, startsAt: sprint.startsAt, endsAt: sprint.endsAt, replansSprintId: sprint.id, version: linked.version + 1 });
+    expect(core.getSprint(db, linked.id)).toMatchObject(updated);
+    expect(core.updateSprint(llm, linked.id, input)).toEqual(updated);
+    expect(codeOf(() => core.updateSprint(llm, linked.id, { ...input, requestKey: "古い版" }))).toBe("STALE_REVISION");
+    expect(codeOf(() => core.updateSprint(llm, linked.id, { ...input, name: "異なる入力" }))).toBe("IDEMPOTENCY_CONFLICT");
+    expect(codeOf(() => core.updateSprint(me, linked.id, input))).toBe("IDEMPOTENCY_CONFLICT");
+    expect(codeOf(() => core.updateSprint(llm, linked.id, { expectedVersion: updated.version, requestKey: "関連付替え", replansSprintId: null } as any))).toBe("INVALID_ARGS");
+    expect(core.getSprint(db, linked.id)).toMatchObject(updated);
+  } finally {
+    db.close();
+  }
+});
+
+test("別の中止元への関連だけでは期間更新を許さず、activeの期間固定も維持する", () => {
+  const { db, ws, me, llm, sprint } = canceledProposal();
+  try {
+    const other = core.createSprint(llm, { ...period, startDate: "2026-03-06", endDate: "2026-03-06", workspaceKey: ws.key, expectedVersion: 0, requestKey: "別中止元作成" });
+    core.cancelSprint(me, other.id, { expectedVersion: other.version, requestKey: "別中止元を中止", reason: "別の再計画" });
+    const linked = core.createSprint(llm, { ...period, startDate: "2026-03-10", endDate: "2026-03-10", workspaceKey: ws.key, expectedVersion: 0, requestKey: "誤った関連作成", replansSprintId: other.id });
+    const before = core.getSprint(db, linked.id);
+    expect(codeOf(() => core.updateSprint(llm, linked.id, { ...period, expectedVersion: linked.version, requestKey: "別中止期間へ変更" }))).toBe("INVALID_ARGS");
+    expect(core.getSprint(db, linked.id)).toEqual(before);
+    const proposed = core.proposeSprintPlan(llm, linked.id, { ...planInput("", linked.version), items: [] });
+    const ready = core.acceptSprintPlan(me, linked.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "次合意", contentHash: proposed.plan.contentHash });
+    const active = core.activateSprint(me, linked.id, { expectedVersion: ready.sprint.version, requestKey: "次開始" }, { now: new Date("2026-03-10T12:00:00.000Z") });
+    expect(codeOf(() => core.updateSprint(me, linked.id, { ...period, expectedVersion: active.version, requestKey: "開始後の期間変更" }))).toBe("INVALID_STATE");
+    expect(core.getSprint(db, linked.id)).toMatchObject({ ...active, replansSprintId: other.id });
+    expect(core.getSprint(db, sprint.id).phase).toBe("canceled");
+  } finally {
+    db.close();
+  }
+});
+
+test("中止期間に前後で隣接する更新と通常の非重複更新を許し、通常期間の重複は拒否する", () => {
+  const { db, ws, me, llm, sprint } = canceledProposal();
+  try {
+    let next = core.createSprint(llm, { ...period, startDate: "2026-03-10", endDate: "2026-03-10", workspaceKey: ws.key, expectedVersion: 0, requestKey: "通常作成" });
+    next = core.updateSprint(llm, next.id, { expectedVersion: next.version, requestKey: "後隣接", startDate: "2026-03-09", endDate: "2026-03-09" });
+    expect(next).toMatchObject({ startsAt: sprint.endsAt, replansSprintId: null });
+    next = core.updateSprint(me, next.id, { expectedVersion: next.version, requestKey: "前隣接", startDate: "2026-03-07", endDate: "2026-03-07" });
+    expect(next).toMatchObject({ endsAt: sprint.startsAt, replansSprintId: null });
+    next = core.updateSprint(llm, next.id, { expectedVersion: next.version, requestKey: "通常変更", startDate: "2026-03-12", endDate: "2026-03-12" });
+    expect(next).toMatchObject({ startDate: "2026-03-12", endDate: "2026-03-12", version: 4, replansSprintId: null });
+    const occupied = core.createSprint(llm, { ...period, startDate: "2026-03-13", endDate: "2026-03-13", workspaceKey: ws.key, expectedVersion: 0, requestKey: "通常の別期間" });
+    expect(codeOf(() => core.updateSprint(llm, next.id, { expectedVersion: next.version, requestKey: "通常重複", startDate: occupied.startDate, endDate: occupied.endDate }))).toBe("SPRINT_OVERLAP");
+    expect(core.getSprint(db, next.id)).toMatchObject(next);
+  } finally {
+    db.close();
+  }
+});
+
 test("人がWorkspaceの問題・目標・優先順位を版付きで設定し、同じ要求を再送できる", () => {
   const { db, ws, me, llm } = setup();
   expect(core.getScrumWorkspace(db, ws.key)).toMatchObject({ enabled: false, version: 0 });

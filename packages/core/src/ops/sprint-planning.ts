@@ -37,6 +37,15 @@ function nonOverlapping(db: Database, ws: number, period: { startsAt: string; en
     throw new NodError("SPRINT_OVERLAP", "同じWorkspaceのSprint期間が重複しています");
   }
 }
+function checkReplanning(db: Database, ws: number, period: { startsAt: string; endsAt: string }, replansSprintId?: string | null): void {
+  const canceled = db.query(`SELECT id FROM sprints WHERE workspace_id=? AND phase='canceled'
+    AND julianday(starts_at)<julianday(?) AND julianday(ends_at)>julianday(?)`).all(ws, period.endsAt, period.startsAt) as {id:string}[];
+  if (canceled.length && !canceled.some(s => s.id === replansSprintId)) invalidSprint("中止した期間の再計画ではreplansSprintIdを指定してください");
+  if (replansSprintId) {
+    const original = resolveSprint(db, replansSprintId);
+    if (original.phase !== "canceled" || original.workspaceId !== ws) invalidSprint("再計画元は同じWorkspaceの中止済みSprintを指定してください");
+  }
+}
 export function createSprint(ctx: OpCtx, input: CreateSprintInput): Sprint {
   sprintObject(input, [...MUTATION_KEYS, "workspaceKey", "name", "startDate", "endDate", "timezone", "workingDays", "replansSprintId"]);
   const ws = workspace(ctx.db, sprintText(input.workspaceKey, "Workspace"));
@@ -47,13 +56,7 @@ export function createSprint(ctx: OpCtx, input: CreateSprintInput): Sprint {
     checkVersion(0, input.expectedVersion);
     if (!getScrumWorkspace(ctx.db, ws.key).enabled) throw new NodError("SCRUM_DISABLED", "WorkspaceのSprint運用が有効ではありません");
     nonOverlapping(ctx.db, ws.id, period);
-    const canceled = ctx.db.query(`SELECT id FROM sprints WHERE workspace_id=? AND phase='canceled'
-      AND julianday(starts_at)<julianday(?) AND julianday(ends_at)>julianday(?)`).all(ws.id, period.endsAt, period.startsAt) as {id:string}[];
-    if (canceled.length && !canceled.some(s => s.id === input.replansSprintId)) invalidSprint("中止した期間の再計画ではreplansSprintIdを指定してください");
-    if (input.replansSprintId) {
-      const original = resolveSprint(ctx.db, input.replansSprintId);
-      if (original.phase !== "canceled" || original.workspaceId !== ws.id) invalidSprint("再計画元は同じWorkspaceの中止済みSprintを指定してください");
-    }
+    checkReplanning(ctx.db, ws.id, period, input.replansSprintId);
     const id = crypto.randomUUID(), number = nextSprintNumber(ctx.db), timestamp = now();
     ctx.db.query(`INSERT INTO sprints(id,number,workspace_id,name,phase,start_date,end_date,timezone,starts_at,ends_at,created_at,updated_at,version,working_days,workspace_snapshot,replans_sprint_id)
       VALUES(?,?,?,?,'draft',?,?,?,?,?,?,?,1,?,?,?)`).run(id, number, ws.id, input.name === undefined ? `Sprint ${number}` : sprintText(input.name, "名前"),
@@ -73,6 +76,7 @@ export function updateSprint(ctx: OpCtx, ref: string, input: UpdateSprintInput):
     const periodChanged = period.startsAt !== sprint.startsAt || period.endsAt !== sprint.endsAt || period.timezone !== sprint.timezone || JSON.stringify(days) !== JSON.stringify(sprint.workingDays);
     if (sprint.phase === "active" && periodChanged) throw new NodError("INVALID_STATE", "開始済みSprintの期間・timezone・稼働曜日は変更できません");
     nonOverlapping(ctx.db, sprint.workspaceId!, period, sprint.id);
+    checkReplanning(ctx.db, sprint.workspaceId!, period, sprint.replansSprintId);
     ctx.db.query(`UPDATE sprints SET name=?,start_date=?,end_date=?,timezone=?,starts_at=?,ends_at=?,working_days=?,
       phase=?,version=version+1,updated_at=? WHERE id=?`).run(input.name === undefined ? sprint.name : sprintText(input.name, "名前"), period.startDate, period.endDate, period.timezone, period.startsAt, period.endsAt,
       JSON.stringify(days), periodChanged ? "draft" : sprint.phase, now(), sprint.id);
