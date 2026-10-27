@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { startIssue } from "../../core/src";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
 
@@ -14,12 +15,23 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const launch = orca("orchestration", "worker-start", "--run", run.id, "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。実効設定の照合完了と開始通知まで実装禁止。");
   expect(launch.launch).toEqual({ requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } });
   expect(orca("orchestration", "check").messages).toEqual([]);
+  const blocked = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
+  expect(blocked.exitCode).toBe(1);
+  expect(JSON.parse(blocked.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
   orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "gpt-6.1-sol:highの適用を確認。実装を開始してください。");
   const delivery = orca("orchestration", "check");
   expect(delivery.messages).toHaveLength(1);
   const report = JSON.parse(delivery.messages[0].body);
   expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: { independent: true, standards: { findings: [] }, spec: { findings: [] } } });
   expect(report.review.headCommit).toBe(report.commit);
+  const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
+  expect(issue.exitCode).toBe(0);
+  expect(JSON.parse(issue.stdout.toString())).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
+  const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(operations.filter(op => op.tool === "fixture")).toMatchObject([
+    { origin: "worker", actor: "codex", simulated: true, argv: ["worker-start-state", "API-1"] },
+  ]);
+  expect(operations.filter(op => op.origin === "worker" && op.tool === "nod" && op.argv.includes("start"))).toEqual([]);
   const read = JSON.parse(orca("orchestration", "worker-read", "--dispatch", launch.dispatch.id).text);
   expect(read.gitEvidence).toMatchObject({ executionHost: "Studio", simulated: true, commands: [
     { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${"a".repeat(40)}\n` },
@@ -57,13 +69,18 @@ for (const variant of ["normal", "existing-pr"] as const) {
 }
 
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
-  const scenario = await createTask2Scenario({ variant: "existing-pr" });
+  const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
+    // PR操作の前提となる既存実行を、通常startが許可される採択前に作る。
+    startIssue({ db, actor: "codex" }, "API-1");
+  } });
   const nod = (...args: string[]) => {
     const result = Bun.spawnSync([scenario.nod, ...args, "--json"], { env: scenario.env });
     expect(result.exitCode).toBe(0);
     return JSON.parse(result.stdout.toString());
   };
-  nod("issue", "start", "API-1");
+  const restart = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
+  expect(restart.exitCode).toBe(1);
+  expect(JSON.parse(restart.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
   nod("issue", "link-pr", "API-1", "https://github.com/evaluation/api/pull/42");
   expect(nod("issue", "show", "API-1").status).toBe("in_progress");
   const pr = nod("issue", "pr-status", "API-1", "--refresh");
