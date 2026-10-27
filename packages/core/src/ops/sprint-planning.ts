@@ -298,6 +298,37 @@ export function acceptSprintPlan(ctx: OpCtx, ref: string, planId: string, input:
     return {sprint:touchSprint(ctx.db,id),plan:getSprintPlan(ctx.db,id,plan.id)};
   });
 }
+export interface SprintPlanningStatus {
+  sprintId: string; sprintVersion: number; observedAt: string; canStart: boolean;
+  reason: { code: string; message: string } | null;
+}
+// 開始操作と同じ条件を読取で示す。予約・実行の許可にはしない。
+export function getSprintPlanningStatus(db: Database, ref: string, clock: SprintClock = {}): SprintPlanningStatus {
+  return tx(db, () => {
+    const sprint = resolveSprint(db, ref);
+    const instant = clock.now ?? new Date();
+    if (!Number.isFinite(instant.getTime())) invalidSprint("時計の時刻が不正です");
+    let reason: SprintPlanningStatus["reason"] = null;
+    try { assertSprintCanActivate(db, sprint, { now: instant }); }
+    catch (error) { if (!(error instanceof NodError)) throw error; reason = { code: error.code, message: error.message }; }
+    return { sprintId: sprint.id, sprintVersion: sprint.version, observedAt: instant.toISOString(), canStart: reason === null, reason };
+  });
+}
+function assertSprintCanActivate(db: Database, sprint: Sprint, clock: SprintClock): Date {
+  if (sprint.phase !== "ready" || !sprint.adoptedPlanId) throw new NodError("NOT_ACCEPTED","合意済みの計画を確認してから開始してください");
+  const plan = getSprintPlan(db,sprint.id,sprint.adoptedPlanId);
+  if (plan.agreedBy !== HUMAN_ACTOR || !plan.agreedAt || plan.agreedHash !== plan.contentHash) throw new NodError("NOT_ACCEPTED","対象の版とhashへの人の合意がありません");
+  checkPlanTarget(db,sprint,plan);
+  const config = db.query("SELECT enabled FROM scrum_workspaces WHERE workspace_id=?").get(sprint.workspaceId!) as {enabled:number}|null;
+  if (!config?.enabled) throw new NodError("SCRUM_DISABLED","WorkspaceのSprint運用が無効です");
+  const instant = clock.now ?? new Date();
+  if (!Number.isFinite(instant.getTime())) invalidSprint("時計の時刻が不正です");
+  if (instant.getTime() < Date.parse(sprint.startsAt!)) throw new NodError("SPRINT_NOT_ACTIVE","Sprintの開始期間前です");
+  if (instant.getTime() >= Date.parse(sprint.endsAt!)) throw new NodError("SPRINT_EXPIRED","Sprintの期間は終了しています");
+  if (db.query("SELECT id FROM sprints WHERE workspace_id=? AND phase='active'").get(sprint.workspaceId!)) throw new NodError("SPRINT_ALREADY_ACTIVE","同じWorkspaceで実行中のSprintがあります");
+  return instant;
+}
+
 export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, clock: SprintClock = {}): Sprint {
   human(ctx);
   sprintObject(input,MUTATION_KEYS);
@@ -305,17 +336,7 @@ export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, c
   return mutate(ctx,id,"activate",input,() => {
     const sprint = writableSprint(ctx.db,id);
     checkVersion(sprint.version,input.expectedVersion);
-    if (sprint.phase !== "ready" || !sprint.adoptedPlanId) throw new NodError("NOT_ACCEPTED","合意済みの計画を確認してから開始してください");
-    const plan = getSprintPlan(ctx.db,id,sprint.adoptedPlanId);
-    if (plan.agreedBy !== HUMAN_ACTOR || !plan.agreedAt || plan.agreedHash !== plan.contentHash) throw new NodError("NOT_ACCEPTED","対象の版とhashへの人の合意がありません");
-    checkPlanTarget(ctx.db,sprint,plan);
-    const config = ctx.db.query("SELECT enabled FROM scrum_workspaces WHERE workspace_id=?").get(sprint.workspaceId!) as {enabled:number}|null;
-    if (!config?.enabled) throw new NodError("SCRUM_DISABLED","WorkspaceのSprint運用が無効です");
-    const instant = clock.now ?? new Date();
-    if (!Number.isFinite(instant.getTime())) invalidSprint("時計の時刻が不正です");
-    if (instant.getTime() < Date.parse(sprint.startsAt!)) throw new NodError("SPRINT_NOT_ACTIVE","Sprintの開始期間前です");
-    if (instant.getTime() >= Date.parse(sprint.endsAt!)) throw new NodError("SPRINT_EXPIRED","Sprintの期間は終了しています");
-    if (ctx.db.query("SELECT id FROM sprints WHERE workspace_id=? AND phase='active'").get(sprint.workspaceId!)) throw new NodError("SPRINT_ALREADY_ACTIVE","同じWorkspaceで実行中のSprintがあります");
+    const instant = assertSprintCanActivate(ctx.db, sprint, clock);
     ctx.db.query("UPDATE sprints SET phase='active',activated_at=? WHERE id=?").run(instant.toISOString(),id);
     return touchSprint(ctx.db,id);
   });

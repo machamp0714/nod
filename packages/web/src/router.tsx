@@ -21,6 +21,7 @@ import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
 import { WorkspaceSettingsPage } from "./pages/WorkspaceSettingsPage";
 import {
+  parseSprintDetailSearch,
   parseDocumentsSearch,
   parseIssueListSearch,
   parseNewDocumentSearch,
@@ -69,7 +70,7 @@ const cycleDetailRoute = createRoute({
   component: CycleDetailPage,
 });
 const sprintsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints", component: SprintsPage });
-const sprintDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints/$sprintId", validateSearch: parseIssueListSearch, component: SprintDetailPage });
+const sprintDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints/$sprintId", validateSearch: parseSprintDetailSearch, component: SprintDetailPage });
 const documentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents", validateSearch: parseDocumentsSearch, component: DocumentsPage });
 const newDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,

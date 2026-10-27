@@ -72,3 +72,7 @@ export * from "./ops/spec-assessment";
 export * from "./ops/assessed-creation";
 
 export * from "./ops/desktop-notifications";
+
+export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
+
+export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";

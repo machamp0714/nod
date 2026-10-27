@@ -1,4 +1,7 @@
-import { Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { SprintCreateDialog } from "../components/sprints/SprintCreateDialog";
+import { Spacer } from "../components/ui";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useSprints, useUnresolvedSprintHistory } from "../api/hooks/sprints";
 import { errorMessage } from "../api/errors";
 import { useWorkspaces } from "../api/hooks/shared";
@@ -9,10 +12,13 @@ import historyStyle from "./cycle-detail.module.css";
 
 export function SprintsPage() {
   const sprints = useSprints();
+  const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
   const unresolved = useUnresolvedSprintHistory();
   const workspaces = useWorkspaces();
   return <div className={s.page}>
-    <PageHeader><PageTitle>Sprints</PageTitle></PageHeader>
+    <PageHeader><PageTitle>Sprints</PageTitle><Spacer /><Button style={{ minHeight: 32 }} icon="plus" onClick={() => setCreating(true)}>Sprintを作成</Button></PageHeader>
+    {creating && <SprintCreateDialog onClose={() => setCreating(false)} onCreated={sprint => { setCreating(false); void navigate({ to: "/sprints/$sprintId", params: { sprintId: sprint.id } }); }} />}
     {sprints.error ? <><PageError message={errorMessage(sprints.error)} /><Button onClick={() => void sprints.refetch()}>再試行</Button></> : !sprints.data ? <PageLoading /> :
       sprints.data.length === 0 ? <p className={s.muted} style={{ padding: 24 }}>Sprint はまだありません</p> :
       <div style={{ overflowX: "auto" }}><table className={s.table}>

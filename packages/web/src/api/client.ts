@@ -1,7 +1,7 @@
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface ApiRequest {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 }
 

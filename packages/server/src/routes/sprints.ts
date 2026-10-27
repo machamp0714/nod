@@ -1,4 +1,4 @@
-import { getSprint, getUnresolvedSprintHistory, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
+import { getSprintPlanningStatus, getSprintFlow, getSprintIssueEligibility, getSprint, getUnresolvedSprintHistory, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
 import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addSprintCandidate, listSprintCandidates,
   proposeSprintPlan, listSprintPlans, getSprintPlan, acceptSprintPlan, activateSprint, cancelSprint,
   type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput, type AddSprintCandidateInput,
@@ -42,6 +42,9 @@ export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = 
   app.get("/api/sprints/unresolved-history", c => c.json(getUnresolvedSprintHistory(me.db, {
     workspaceIds:c.req.queries("workspaceId")?.map(id=>paramInt(id,"Workspace ID")),
   })));
+  app.get("/api/sprints/:ref/planning-status", c => c.json(getSprintPlanningStatus(me.db,c.req.param("ref"),clock)));
+  app.get("/api/sprints/:ref/flow", c => c.json(getSprintFlow(me,c.req.param("ref"),c.req.query("planId"),clock)));
+  app.get("/api/sprints/:ref/items/:itemId/eligibility", c => c.json(getSprintIssueEligibility(me,c.req.param("ref"),c.req.param("itemId"),clock)));
   app.get("/api/sprints/:ref/analytics", c => c.json(sprintAnalytics(me.db,c.req.param("ref"),{clock,timezone:c.req.query("tz")})));
   app.get("/api/sprints/:ref", c => c.json(getSprint(me.db,c.req.param("ref"))));
 }
