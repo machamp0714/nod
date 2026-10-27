@@ -50,6 +50,9 @@ test.describe("現在Sprintの再取得", () => {
   test("成功後のSSE再取得失敗でもエラーと最終確認時刻を示し、再試行で復帰する", async ({ page, nod }) => {
     const confirmedAt = new Date("2026-10-27T03:04:05.000Z");
     await page.clock.setFixedTime(confirmedAt);
+    let retryClicked = false;
+    let refetchFails = false;
+    await page.route("**/api/sprints/current", (route) => !refetchFails || retryClicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "再取得失敗" } } }));
     await page.goto("/issues");
     await waitForServerEvents(page);
     await page.getByRole("button", { name: "元A を開閉" }).click();
@@ -57,9 +60,8 @@ test.describe("現在Sprintの再取得", () => {
     const current = workspace.getByRole("link", { name: "Current 実行 12" });
     await expect(current).toBeVisible();
     await expect(page).toHaveURL(/\/issues$/);
-    let retryClicked = false;
     await page.exposeFunction("sidebarRetryClicked", () => { retryClicked = true; });
-    await page.route("**/api/sprints/current", (route) => retryClicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "再取得失敗" } } }));
+    refetchFails = true;
     await page.clock.setFixedTime(new Date("2026-10-27T03:05:00.000Z"));
     await nod.me.updateIssue("AAA-2", { title: "SSEで更新" });
     await expect(workspace).toContainText("取得失敗");
