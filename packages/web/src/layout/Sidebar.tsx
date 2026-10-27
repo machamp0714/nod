@@ -130,7 +130,7 @@ export function Sidebar({ onOpenSearch }: { onOpenSearch: () => void }) {
                     <span className={s.subNote}>{current.isError ? "取得失敗" : current.data ? "なし" : "読込中…"}</span>
                     {current.isError && <button type="button" className={s.headingButton} aria-label={`${workspace.name} の現在Sprintを再試行`} onClick={() => void current.refetch()}><Icon name="refresh-cw" size={12} /></button>}
                   </div>}
-                {current.isError && current.dataUpdatedAt > 0 && <p className={s.subNote} style={{ margin: "0 12px 4px 28px" }}>
+                {current.isError && current.dataUpdatedAt > 0 && <p className={s.currentCheckedAt}>
                   最終確認 <time dateTime={new Date(current.dataUpdatedAt).toISOString()}>{new Date(current.dataUpdatedAt).toLocaleString("ja-JP")}</time>
                 </p>}
                 <Link to="/issues" search={{ workspace: [workspace.key] }} className={`${s.item} ${s.subItem}`}><Icon name="copy" size={14} /><span className={s.label}>Issues</span></Link>

@@ -66,6 +66,8 @@ test.describe("現在Sprintの再取得", () => {
     await expect(workspace.getByRole("link", { name: /Current/ })).toHaveCount(0);
     await expect(workspace.locator("time")).toHaveAttribute("datetime", confirmedAt.toISOString());
     await expect(workspace).toContainText("最終確認");
+    const confirmation = workspace.locator("p").filter({hasText:"最終確認"});
+    expect(await confirmation.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("sidebar-refetch-error.png"), fullPage: true });
     const retry = workspace.getByRole("button", { name: "元A の現在Sprintを再試行" });
     await retry.evaluate((button) => {
