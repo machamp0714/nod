@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test, waitForServerEvents } from "./fixtures";
 
 test.describe("現在なし", () => {
   test.use({ dataset: "issue-list" });
@@ -42,25 +42,36 @@ test.describe("失敗と再試行", () => {
     await expect(page).toHaveURL(/\/views\/1$/);
   });
 
-  test("旧参照の取得失敗では旧条件を残し、再試行後だけ移行先へ置き換える", async ({ page }) => {
-    let retryClicked = false;
-    await page.exposeFunction("legacyRetryClicked", () => { retryClicked = true; });
+  test("旧参照の取得失敗では旧条件を残し、再試行後だけ移行先へ置き換える", async ({ page, nod }) => {
     // 旧参照も、クリック前の自動取得では移行先へ解決させない。
-    await page.route("**/api/cycles/1", (route) => retryClicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "旧対応の取得失敗" } } }));
+    await page.route("**/api/cycles/1", async (route) => {
+      const clicked = await page.evaluate(() => document.documentElement.dataset.e2eLegacyRetryClicked === "true");
+      return clicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "旧対応の取得失敗" } } });
+    });
     await page.goto("/issues?cycle=1");
+    await waitForServerEvents(page);
     await expect(page.getByRole("alert")).toContainText("旧対応の取得失敗");
     await expect(page).toHaveURL(/cycle=1/);
     await expect(page.locator("tr[data-issue-row]")).toHaveCount(0);
     const retry = page.getByRole("button", { name: "再試行", exact: true });
-    await retry.evaluate((button) => {
-      button.addEventListener("click", () => {
-        void (window as unknown as { legacyRetryClicked: () => Promise<void> }).legacyRetryClicked();
-      }, { once: true });
+    await page.evaluate(() => {
+      // ボタンの置換に依存せず、Reactの再取得より前にブラウザ内で実クリックを記録する。
+      document.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("button")?.textContent?.trim() === "再試行") {
+          document.documentElement.dataset.e2eLegacyRetryClicked = "true";
+        }
+      }, { capture: true });
     });
+    // 外部更新で再取得とボタンの再描画が起きても、実クリック前には復旧しない。
+    const refetched = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/cycles/1" && response.status() === 400);
+    await nod.me.updateIssue("AAA-2", { title: "旧参照の再取得確認" });
+    await refetched;
+    await expect(page.getByRole("alert")).toContainText("旧対応の取得失敗");
+    await expect(page).toHaveURL(/cycle=1/);
     const recovered = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/cycles/1" && response.status() === 200);
     await retry.click();
     await recovered;
-    expect(retryClicked).toBe(true);
+    await expect(page.locator("html")).toHaveAttribute("data-e2e-legacy-retry-clicked", "true");
     await expect(page).toHaveURL(/sprint=/);
     await expect(page.locator("tr[data-issue-row]")).toHaveCount(2);
     await expect(page.getByRole("alert")).toHaveCount(0);
