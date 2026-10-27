@@ -1,3 +1,4 @@
+import type { Request, Route } from "@playwright/test";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test, waitForServerEvents } from "./fixtures";
 import { chooseProperty } from "./helpers";
@@ -162,11 +163,59 @@ test.describe("詳細の再取得エラー", () => {
     await page.getByRole("heading", { level: 1 }).click();
     await page.getByRole("textbox", { name: "タイトル", exact: true }).fill("保存できない");
     const fail = { status: 404, contentType: "application/json", body: JSON.stringify({ error: { code: "NOT_FOUND", message: "Issue が見つかりません" } }) };
-    await page.route(`**/api/issues/${issue.id}/update`, (route) => route.fulfill(fail));
-    await page.route(`**/api/issues/${issue.id}`, (route) => route.fulfill(fail));
-    await page.getByRole("button", { name: "タイトルを保存" }).click();
-    await expect(page.getByRole("heading", { name: "Issue が見つかりません" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "タイトル", exact: true })).toHaveCount(0);
+    const saveUrl = `**/api/issues/${issue.id}/update`;
+    const issueUrl = `**/api/issues/${issue.id}`;
+    let reachedPost!: () => void;
+    const postReached = new Promise<void>((resolve) => { reachedPost = resolve; });
+    let releasePost!: () => void;
+    const postGate = new Promise<void>((resolve) => { releasePost = resolve; });
+    let clickCompleted = false;
+    let get404Enabled = false;
+    const getAfterClick = new WeakMap<Request, boolean>();
+    const order: string[] = [];
+    const observeGet = (request: Request) => {
+      if (request.method() === "GET" && request.url().endsWith(`/api/issues/${issue.id}`)) {
+        getAfterClick.set(request, clickCompleted);
+      }
+    };
+    const saveRoute = async (route: Route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      order.push("POST");
+      reachedPost();
+      await postGate;
+      await route.fulfill(fail);
+    };
+    const issueRoute = async (route: Route) => {
+      if (!get404Enabled || getAfterClick.get(route.request()) !== true) return route.continue();
+      order.push("GET404");
+      await route.fulfill(fail);
+    };
+    page.on("request", observeGet);
+    let clicking: Promise<void> | undefined;
+    try {
+      await page.route(saveUrl, saveRoute);
+      await page.route(issueUrl, issueRoute);
+      clicking = page.getByRole("button", { name: "タイトルを保存" }).click();
+      await postReached;
+      await clicking;
+      clickCompleted = true;
+      order.push("click完了");
+      get404Enabled = true;
+      releasePost();
+      await expect(page.getByRole("heading", { name: "Issue が見つかりません" })).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "タイトル", exact: true })).toHaveCount(0);
+      expect(order.filter((event) => event === "POST")).toHaveLength(1);
+      expect(order.indexOf("POST")).toBe(0);
+      expect(order.indexOf("click完了")).toBe(1);
+      expect(order.indexOf("GET404")).toBeGreaterThan(order.indexOf("click完了"));
+      console.log("保存と再取得の公開順序", JSON.stringify(order));
+    } finally {
+      get404Enabled = false;
+      releasePost();
+      void clicking?.catch(() => {});
+      page.off("request", observeGet);
+      await Promise.all([page.unroute(saveUrl, saveRoute), page.unroute(issueUrl, issueRoute)]);
+    }
   });
 });
 

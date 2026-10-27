@@ -195,6 +195,21 @@ export function cleanProjectIssuesSearch(search: ProjectDetailSearch): ProjectDe
   return out;
 }
 
+// Sprintの計画タブとフローもURLで復元する。一覧の保存設定には含めない。
+export interface SprintDetailSearch extends IssueListSearch { section?: "plan"; view?: "flow" }
+export function parseSprintDetailSearch(raw: Record<string, unknown>): SprintDetailSearch {
+  const out: SprintDetailSearch = parseIssueListSearch(raw);
+  if (raw.section === "plan") out.section = "plan";
+  if (raw.view === "flow") { out.section = "plan"; out.view = "flow"; }
+  return out;
+}
+export function cleanSprintDetailSearch(search: SprintDetailSearch): SprintDetailSearch {
+  const out: SprintDetailSearch = cleanIssueListSearch(search);
+  if (search.section === "plan") out.section = "plan";
+  if (search.view === "flow" && search.section === "plan") out.view = "flow";
+  return out;
+}
+
 export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearch {
   return typeof raw.selected === "string" ? { selected: raw.selected } : {};
 }

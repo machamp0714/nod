@@ -1,9 +1,10 @@
+import type { Database } from "bun:sqlite";
 import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  askQuestion, createIssue, initWorkspace,
+  askQuestion, createIssue, getIssue, initWorkspace,
   openDb, relateIssue, retryIssueAssessment, setWorkspaceSpecAssessment, updateIssue,
 } from "../../../../../packages/core/src";
 import { addActiveSprint } from "../../../../../packages/core/test/fixtures/sprint";
@@ -11,7 +12,9 @@ import { addActiveSprint } from "../../../../../packages/core/test/fixtures/spri
 const ROOT = resolve(import.meta.dir, "../../../../..");
 
 /** 一時DBと外部CLIの偽接続先を作る。PMの選定判断はここでは行わない。 */
-export async function createTask1Scenario(directory?: string) {
+export type BeforeSprintAdoption = (db: Database, directory: string) => void;
+
+export async function createTask1Scenario(directory?: string, beforeAdoption?: BeforeSprintAdoption) {
   const dir = directory ? resolve(directory) : realpathSync(mkdtempSync(join(tmpdir(), "nod-pm-eval-")));
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, "bin");
@@ -60,7 +63,9 @@ export async function createTask1Scenario(directory?: string) {
   relateIssue(human, "API-9", { blocks: "API-8" });
   const next = createIssue(human, { workspaceId: api.id, title: "次Sprintの候補" });
   const outside = createIssue(human, { workspaceId: other.id, title: "別Workspaceの変更" });
-  // S01の公開操作は読取のみ。合意・採択・開始は評価専用の内部fixtureで用意する。
+  // 既存実行や質問待ちの準備は採択前に行う。採択後の通常着手guardは通過させない。
+  beforeAdoption?.(db, dir);
+  // Sprintの外部状態は評価専用の内部fixture。本番の合意・開始許可を表さない。
   const imported = crypto.randomUUID();
   db.query(`INSERT INTO sprints(id,number,name,phase,start_date,end_date,created_at,updated_at)
     VALUES(?,1,'移行履歴','imported','2026-09-01','2026-09-14','2026-09-01','2026-09-01')`).run(imported);
@@ -78,7 +83,7 @@ export async function createTask1Scenario(directory?: string) {
   for (const item of [...issues, outside]) {
     const row = db.query("SELECT * FROM issues WHERE number=? AND workspace_id=?").get(item.number, item.workspace === "API" ? api.id : other.id);
     const workspace = item.workspace === "API" ? api : other;
-    db.query("UPDATE sprint_items SET snapshot=? WHERE source_issue_key=?").run(JSON.stringify({ schemaVersion: 1, issue: row, workspace, labels: item.labels, project: null }), item.id);
+    db.query("UPDATE sprint_items SET snapshot=? WHERE source_issue_key=?").run(JSON.stringify({ schemaVersion: 1, issue: row, workspace, labels: getIssue(db, item.id).labels, project: null }), item.id);
   }
   db.close();
 

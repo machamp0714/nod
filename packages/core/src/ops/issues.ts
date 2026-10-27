@@ -38,6 +38,7 @@ import { resolveMilestone } from "./milestones";
 import { sprintIssueScope } from "./sprints";
 import type { SprintClock } from "../sprint-types";
 import { isNoneRef, validateAssignee } from "../none-ref";
+import { assertOrdinaryIssueStart } from "../sprint-membership";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -551,6 +552,7 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
+    if (input.status === "in_progress") assertOrdinaryIssueStart(ctx.db, row.id);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
     if (input.description !== undefined) {
       if (input.description !== row.description) invalidateIssueAssessment(ctx, row.id, "stale");

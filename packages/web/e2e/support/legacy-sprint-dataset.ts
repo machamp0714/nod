@@ -18,10 +18,10 @@ export function loadLegacySprintDataset({ db, dir }: Pick<DatasetContext, "db" |
   try {
     const tables = db.query("SELECT name FROM legacy_fixture.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
     db.transaction(() => {
-      for (const { name } of tables) {
-        db.run(`DELETE FROM main."${name}"`);
-        db.run(`INSERT INTO main."${name}" SELECT * FROM legacy_fixture."${name}"`);
-      }
+      for (const { name } of tables) db.run(`DELETE FROM main."${name}"`);
+      // 版44の表再作成でsqlite_masterの順序は変わる。採番sequenceは期間の転送後に復元する。
+      const ordered = [...tables.filter(t => t.name !== "sprint_number_sequence"), ...tables.filter(t => t.name === "sprint_number_sequence")];
+      for (const { name } of ordered) db.run(`INSERT INTO main."${name}" SELECT * FROM legacy_fixture."${name}"`);
     })();
   } finally {
     db.run("PRAGMA foreign_keys=ON");

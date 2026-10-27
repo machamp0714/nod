@@ -2,7 +2,7 @@ import { seedApiWorkspace } from "./decision-data";
 import { expect, test, waitForServerEvents } from "./fixtures";
 import { restartApiServer } from "./support/nod";
 
-test("回答待ちバナーから個別回答し、再操作と別フォームの下書きを保つ", async ({ page, nod }) => {
+test("回答待ちバナーから個別回答し、再操作と別フォームの下書きを保つ", async ({ page, nod }, testInfo) => {
   const api = await seedApiWorkspace(nod);
   const issue = await api.startedIssue("回答待ち", nod.codex);
   await api.ask(issue.id, "最初の質問", nod.codex);
@@ -15,7 +15,7 @@ test("回答待ちバナーから個別回答し、再操作と別フォーム�
   const second = panel.getByRole("listitem").filter({ hasText: "次の質問" });
   await expect(banner).toContainText("codex が回答を待っています");
   await expect(banner).toContainText("ほか 1 件");
-  await page.screenshot({ path: "../../.superpowers/sdd/2026-09-28-nod-detail-decisions-banner-plan/banner-normal.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("banner-normal.png"), fullPage: true });
   await second.getByRole("button", { name: "回答を記録" }).click();
   await second.getByRole("textbox", { name: "回答", exact: true }).fill("次の下書き");
   await banner.getByRole("button", { name: "回答する" }).click();
@@ -38,7 +38,7 @@ test("回答待ちバナーから個別回答し、再操作と別フォーム�
   await expect(panel.getByRole("textbox", { name: "未決事項", exact: true })).toHaveValue("追加の下書き");
 });
 
-test("原本の位置と色で長文とdetachedを表示し、外部回答で消える", async ({ page, nod }) => {
+test("原本の位置と色で長文とdetachedを表示し、外部回答で消える", async ({ page, nod }, testInfo) => {
   const api = await seedApiWorkspace(nod);
   const issue = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "長文確認", description: "バナーの前の説明" });
   const worktree = `${api.repo}/${"長い作業場所".repeat(30)}`;
@@ -62,7 +62,7 @@ test("原本の位置と色で長文とdetachedを表示し、外部回答で消
   expect(await banner.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await banner.getByRole("button", { name: "回答する" }).click();
   await expect(page.getByRole("textbox", { name: "回答", exact: true })).toBeFocused();
-  await page.screenshot({ path: "../../.superpowers/sdd/2026-09-28-nod-detail-decisions-banner-plan/banner-browser.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("banner-browser.png"), fullPage: true });
   const detail = await api.show(issue.id);
   await nod.me.answerQuestion(issue.id, "進めてください", { questionId: detail.questions[0]!.id });
   await expect(banner).toHaveCount(0);

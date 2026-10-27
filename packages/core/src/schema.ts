@@ -1,4 +1,5 @@
 import { importSprintHistory } from "./migrations/sprint-history";
+import { prepareSprintPlanning } from "./migrations/sprint-planning";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -675,4 +676,29 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // 版43: Cycleの保存原本をSprint履歴へ移し、旧所属を撤去する。
   [importSprintHistory],
+  // 版44: Workspaceの方向設定とローカル変更の再送結果。
+  [
+    prepareSprintPlanning,
+    `CREATE TABLE scrum_workspaces (
+      workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), problem TEXT NOT NULL,
+      product_goal TEXT NOT NULL, priority_rationale TEXT NOT NULL, version INTEGER NOT NULL, updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE sprint_mutation_receipts (
+      target TEXT NOT NULL, operation TEXT NOT NULL, request_key TEXT NOT NULL, input_hash TEXT NOT NULL,
+      result TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(target,operation,request_key)
+    )`,
+    `CREATE TRIGGER scrum_workspace_receipts_cleanup BEFORE DELETE ON workspaces
+      BEGIN DELETE FROM sprint_mutation_receipts WHERE target='workspace:' || OLD.id; END`,
+    `CREATE TABLE sprint_plan_contents (
+      plan_id TEXT PRIMARY KEY REFERENCES sprint_plans(id) ON DELETE RESTRICT,
+      schema_version INTEGER NOT NULL CHECK(schema_version=1), base_plan_id TEXT REFERENCES sprint_plans(id) ON DELETE RESTRICT,
+      content TEXT NOT NULL, change_reason TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL,
+      agreement_source TEXT
+    )`,
+    `CREATE TRIGGER sprint_plan_content_immutable BEFORE UPDATE OF schema_version,base_plan_id,content,change_reason,created_by,created_at ON sprint_plan_contents
+      BEGIN SELECT RAISE(ABORT,'Sprint計画の本文は追記のみです'); END`,
+    `CREATE TRIGGER sprint_plan_identity_immutable BEFORE UPDATE OF sprint_id,revision,content_hash ON sprint_plans
+      BEGIN SELECT RAISE(ABORT,'Sprint計画の版とhashは変更できません'); END`,
+  ],
 ];

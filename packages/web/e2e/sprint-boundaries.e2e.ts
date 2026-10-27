@@ -16,8 +16,20 @@ test.describe("失敗と再試行", () => {
   test("current API失敗をなしと区別し、条件を保持したまま再試行する", async ({ page }) => {
     let retryClicked = false;
     await page.exposeFunction("currentRetryClicked", () => { retryClicked = true; });
+    await page.addInitScript(() => {
+      // ボタンの置換に依存せず、製品のclick handlerより先に実クリックを同期的に記録する。
+      document.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("button")?.textContent?.trim() === "再試行") {
+          document.documentElement.dataset.e2eCurrentRetryClicked = "true";
+          void (window as unknown as { currentRetryClicked: () => Promise<void> }).currentRetryClicked();
+        }
+      }, { capture: true });
+    });
     // SSEなどの自動取得では復旧させず、利用者の再試行クリック後の要求だけを通す。
-    await page.route("**/api/sprints/current", (route) => retryClicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "現在の取得失敗" } } }));
+    await page.route("**/api/sprints/current", async (route) => {
+      const clicked = await page.evaluate(() => document.documentElement.dataset.e2eCurrentRetryClicked === "true");
+      return clicked ? route.continue() : route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "現在の取得失敗" } } });
+    });
     await page.goto("/views/1");
     await expect(page.getByRole("alert")).toContainText("現在の取得失敗");
     await expect(page.getByText("現在のSprintはありません", { exact: true })).toHaveCount(0);
@@ -26,12 +38,6 @@ test.describe("失敗と再試行", () => {
     await expect(page.getByRole("combobox", { name: "Sprint", exact: true })).toHaveValue("current");
     await expect(page.locator("tr[data-issue-row]")).toHaveCount(0);
     const retry = page.getByRole("button", { name: "再試行", exact: true });
-    await retry.evaluate((button) => {
-      // Reactの委譲ハンドラが再取得を始める前に、実際のクリックをNode側へ通知する。
-      button.addEventListener("click", () => {
-        void (window as unknown as { currentRetryClicked: () => Promise<void> }).currentRetryClicked();
-      }, { once: true });
-    });
     const recovered = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/sprints/current" && response.status() === 200);
     await retry.click();
     await recovered;

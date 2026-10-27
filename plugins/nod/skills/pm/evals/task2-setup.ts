@@ -1,14 +1,18 @@
+import { captureWorkerStartFixture } from "./worker-fixture";
 import { writeEvaluationEnv } from "./shell-env";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createTask1Scenario } from "./setup";
+import { createTask1Scenario, type BeforeSprintAdoption } from "./setup";
 
 export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "test-failure" | "evidence-missing" | "existing-pr";
 export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "existing-pr"];
 
 /** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。 */
-export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant } = {}) {
-  const scenario = await createTask1Scenario(options.directory);
+export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; beforeAdoption?: BeforeSprintAdoption } = {}) {
+  const scenario = await createTask1Scenario(options.directory, (db, dir) => {
+    if (options.beforeAdoption) options.beforeAdoption(db, dir);
+    else captureWorkerStartFixture(db, dir, "API-1");
+  });
   writeFileSync(join(scenario.dir, "task2-state.json"), JSON.stringify({
     variant: options.variant ?? "normal", run: null, tasks: [], workers: [], sent: [], delivery: null,
     pr: options.variant === "existing-pr" ? {

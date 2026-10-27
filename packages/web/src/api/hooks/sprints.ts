@@ -16,7 +16,7 @@ export function useCurrentSprints(archived = false) {
 }
 
 export function useSprint(ref: string, enabled = true) {
-  return useQuery({ queryKey: queryKeys.sprint(ref), queryFn: () => apiFetch<SprintDetail>(`/sprints/${encodeURIComponent(ref)}`), enabled });
+  return useQuery({ queryKey: queryKeys.sprint(ref), queryFn: () => apiFetch<SprintDetail>(`/sprints/${encodeURIComponent(ref)}`), enabled, refetchInterval: 30_000, refetchOnWindowFocus: true });
 }
 
 export function useSprintAnalytics(ref: string, enabled: boolean, timezone?: string) {

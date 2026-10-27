@@ -133,9 +133,12 @@ async function reset(dataset: string): Promise<void> {
   wipe(db);
   rmSync(docsDir, { recursive: true, force: true });
   rmSync(attachmentsDir, { recursive: true, force: true });
-  if (dataset === "empty") return;
-  const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
-  mod.default(datasetContext(db, dir as string));
+  if (dataset !== "empty") {
+    const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
+    mod.default(datasetContext(db, dir as string));
+  }
+  // 旧版fixtureの転送が完了してから採番の単一行を補う。転送中に番号再利用のtriggerを発火させない。
+  db.run("INSERT OR IGNORE INTO sprint_number_sequence (id, next_number) SELECT 1, COALESCE(MAX(number), 0) + 1 FROM sprints");
 }
 
 function call(actor: string, op: string, args: unknown[]): unknown {

@@ -72,7 +72,7 @@ interface Slot {
 }
 
 // 依存段階を横に、分岐を縦に並べる。循環は強連結成分で見つけて別枠に出し、残りだけを段に並べる
-export function layoutFlow(flow: ProjectFlow): FlowLayout {
+export function layoutFlow(flow: Pick<ProjectFlow, "nodes" | "edges"> & { projectId?: number }): FlowLayout {
   const byId = new Map(flow.nodes.map((n) => [n.id, n]));
   const order = new Map(flow.nodes.map((n, i) => [n.id, i]));
   const seen = new Set<string>();

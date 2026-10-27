@@ -1,3 +1,4 @@
+import { installWorkerStartFixture } from "./worker-fixture";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -38,7 +39,7 @@ export function runTask6Cli(tool: string, argv: string[]) {
     if (nod("issue", "show", w.issueId).status !== "done") nod("issue", "done", w.issueId, "--summary", "現在commitの必要テストと独立レビューを確認してPR提出");
   };
   if (has("--help") || (tool === "orca" && argv[0] === "skills")) {
-    console.log("評価用Orca。ok/result。Run=run-pm。status.servers[].capabilities.launchPreferencesが転送対応。Studio repo=id:repo-api。worker-list --run run-pm --include-remote、terminal list、worker-show/read --dispatch、task-list/create --spec、worker-start --spec|--task --run run-pm --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、send --to dispatch:<ID> --subject --body、reply --id --body、check [--ack ID] [--wait --timeout-ms]、worker-release --dispatch。reuseはworker-start --task --terminal <元handle> --worktree id:<元worktreeId>、起動用model/effort/on併用禁止。worker-readはtextにgitとtestと初回独立review証拠を返す。新規workerは開始通知まで待つ。通知enqueueは開始完了ではない。settlementの現cleanup所有者だけrelease可能。次ownerかrelease成功後にDelivery ack。worker_done後の再利用は同じ実装者を使う。質問のackは回答を作らない。複数Issueの枠上限、依存、停止判断をfakeは代行しない。gh pr list/viewのみPM読取。モデルとgitとレビューはシミュレーション。");
+    console.log("評価用Orca。ok/result。Run=run-pm。status.servers[].capabilities.launchPreferencesが転送対応。Studio repo=id:repo-api。worker-list --run run-pm --include-remote、terminal list、worker-show/read --dispatch、task-list/create --spec、worker-start --spec|--task --run run-pm --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、send --to dispatch:<ID> --subject --body、reply --id --body、check [--ack ID] [--wait --timeout-ms]、worker-release --dispatch。reuseはworker-start --task --terminal <元handle> --worktree id:<元worktreeId>、起動用model/effort/on併用禁止。worker-readはtextにgitとtestと初回独立review証拠を返す。新規workerは開始通知まで待つ。通知enqueueは開始完了ではない。settlementの現cleanup所有者だけrelease可能。次ownerかrelease成功後にDelivery ack。worker_done後の再利用は同じ実装者を使う。質問のackは回答を作らない。複数Issueの枠上限、依存、停止判断をfakeは代行しない。gh pr list/viewのみPM読取。モデルとgitとレビューはシミュレーション。Issueの着手状態も評価専用fixtureであり、S02の実行許可を表さない。通常nod startは拒否される。");
     console.log('この偽workerのPR工程開始契約: 再利用Taskのspec先頭文にpushとPRの両方を明記すると提出工程を開始する。\nPR Task spec例: "pushとPR提出。<IssueID> gpt-6.1-sol:high。現在commitの必要テストと独立レビューを確認済み。"\n既存の待機Dispatchへ依頼する場合はsendのsubjectにpushとPRの両方を明記する。\nsend --to dispatch:<ID> --subject "push・PR提出" --body "<IssueID、現在commit、確認済み証拠、同じモデル:effortでpushとPR提出する依頼>" --json\nその他のsubjectは通知だけをenqueueし、工程は変更しない。PR提出というsubjectだけでは開始しない。enqueue後もworker-showのphaseとcheckのworker_doneで工程と完了を確認する。');
     console.log("GitHub読取契約: gh pr list --repo evaluation/api --head <branch> --json <fields>。gh pr view <URL|number|branch> --repo evaluation/api --json <fields>。repo/headが違えばlistは空。PMはPR作成せず元実装者へ渡す。\n復元評価: request-show --request <operationID>で応答喪失を照合する。通信断はunverifiable。recoverは評価者専用: bun plugins/nod/skills/pm/evals/task6-control.ts <directory> recover。PMはこのcontrolを実行しない。同じdirectoryを再setupせずfresh PMへenv.shだけ引き継ぐ。");
     return;
@@ -108,7 +109,7 @@ export function runTask6Cli(tool: string, argv: string[]) {
       if (!state.delivery) {
         const messages = state.pending.splice(0);
         for (const w of state.workers.filter(w => !w.reported && !w.released && ["implementation", "submission", "confirmation"].includes(w.phase))) {
-          if (w.phase === "implementation" && nod("issue", "show", w.issueId).status === "todo") nod("issue", "start", w.issueId);
+          if (w.phase === "implementation") installWorkerStartFixture(dir, w.issueId);
           if (w.phase === "submission") submit(w);
           w.reported = true; w.dispatch.status = "succeeded";
           messages.push({ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(report(w)) });
