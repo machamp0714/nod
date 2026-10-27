@@ -1,0 +1,33 @@
+import { expect, test } from "bun:test";
+import { createIssue, getSprint } from "@nod/core";
+import { createApp } from "../src/app";
+import { call, setup } from "./helpers";
+
+test("HTTPから方向設定・作成・候補・版への合意・開始・中止を操作し、同じcore競合を返す", async () => {
+  const { db, ws, me } = setup();
+  const app = createApp({ db, sprintClock: { now: new Date("2026-10-27T03:00:00.000Z") } });
+  const base = { expectedVersion: 0, requestKey: "設定", enabled: true, problem: "停滞", productGoal: "判断して再開", priorityRationale: "回答を優先" };
+  expect((await call(app,"PUT",`/api/workspaces/${ws.key}/scrum`,base)).status).toBe(200);
+  expect((await call(app,"GET",`/api/workspaces/${ws.key}/scrum`)).json.version).toBe(1);
+  expect((await call(app,"PUT",`/api/workspaces/${ws.key}/scrum`,{...base,actor:"me"})).status).toBe(400);
+  const created = await call(app,"POST","/api/sprints",{workspaceKey:ws.key,startDate:"2026-10-27",endDate:"2026-11-08",timezone:"Asia/Tokyo",expectedVersion:0,requestKey:"作成"});
+  expect(created.status).toBe(201);
+  const sprint = created.json;
+  const issue = createIssue(me,{workspaceId:ws.id,title:"判断する"});
+  const added = await call(app,"POST",`/api/sprints/${sprint.id}/candidates`,{issueRef:issue.id,expectedVersion:sprint.version,requestKey:"候補"});
+  expect(added.status).toBe(201);
+  const proposed = await call(app,"POST",`/api/sprints/${sprint.id}/plans`,{expectedVersion:added.json.sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡を確認",items:[{itemId:added.json.item.id,contribution:"回答を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"確認",text:"再開を確認"}],constraints:{executionScope:"Workspace",maxParallel:1,notes:"公開は既存権限"},changeReason:"初期計画"});
+  expect(proposed.status).toBe(201);
+  const accepted = await call(app,"POST",`/api/sprints/${sprint.id}/plans/${proposed.json.plan.id}/accept`,{expectedVersion:proposed.json.sprint.version,requestKey:"合意",contentHash:proposed.json.plan.contentHash});
+  expect(accepted.status).toBe(200);
+  const stale = await call(app,"POST",`/api/sprints/${sprint.id}/activate`,{expectedVersion:0,requestKey:"古い開始"});
+  expect(stale).toMatchObject({status:409,json:{error:{code:"STALE_REVISION"}}});
+  const active = await call(app,"POST",`/api/sprints/${sprint.id}/activate`,{expectedVersion:accepted.json.sprint.version,requestKey:"開始"});
+  expect(active).toMatchObject({status:200,json:{phase:"active"}});
+  expect((await call(app,"GET","/api/sprints/current")).json.issues.map((i:any)=>i.id)).toEqual([issue.id]);
+  expect((await call(app,"PATCH",`/api/sprints/${sprint.id}`,{expectedVersion:active.json.version,requestKey:"延長",endDate:"2026-11-09"})).status).toBe(409);
+  const canceled = await call(app,"POST",`/api/sprints/${sprint.id}/cancel`,{expectedVersion:active.json.version,requestKey:"中止",reason:"優先順位の変更"});
+  expect(canceled).toMatchObject({status:200,json:{phase:"canceled",cancelReason:"優先順位の変更"}});
+  expect((await call(app,"GET",`/api/sprints/${sprint.id}`)).json).toEqual(getSprint(db,sprint.id));
+  db.close();
+});

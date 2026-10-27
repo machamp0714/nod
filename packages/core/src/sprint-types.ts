@@ -20,6 +20,13 @@ export interface Sprint {
   legacyCycleId: number | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
+  workingDays: number[];
+  workspaceSnapshot: { id: number; key: string; name: string } | null;
+  activatedAt: string | null;
+  canceledAt: string | null;
+  cancelReason: string | null;
+  replansSprintId: string | null;
 }
 
 export interface SprintItem {
@@ -31,7 +38,7 @@ export interface SprintItem {
   snapshot: {
     schemaVersion: number;
     capturedAt: string;
-    statusBasis: "migration_snapshot";
+    statusBasis: "migration_snapshot" | "candidate_snapshot";
     labels: string[];
     project: Record<string, unknown> | null;
     workspace: { id: number; key: string; name: string };
@@ -45,10 +52,36 @@ export interface SprintLegacyEvent {
 }
 
 export interface SprintDetail extends Sprint {
+  plans: SprintPlan[];
   items: SprintItem[];
   events: SprintLegacyEvent[];
   evidence: {sourceIssueId:number;sourceIssueKey:string;snapshot:SprintItem["snapshot"]}[];
   legacy: { schemaVersion: number; cycle: Record<string, unknown>; cadence: Record<string, unknown> | null; capturedAt: string; statusBasis: "migration_snapshot" } | null;
+}
+
+export interface SprintPlanConstraints {
+  executionScope: string;
+  maxParallel: number;
+  notes: string;
+  executionTarget?: string;
+  model?: string;
+  effort?: string;
+}
+export interface SprintPlanContent {
+  schemaVersion: 1;
+  goal: string;
+  verificationMethod: string;
+  period: { startDate: string; endDate: string; timezone: string; startsAt: string; endsAt: string; workingDays: number[] };
+  items: { itemId: string; contribution: string; executionPlan: string; requirement: { title: string; description: string | null } }[];
+  definitionOfDone: { id: string; text: string }[];
+  constraints: SprintPlanConstraints;
+}
+export interface SprintPlan {
+  id: string; sprintId: string; revision: number; basePlanId: string | null;
+  contentHash: string; content: SprintPlanContent; changeReason: string;
+  createdBy: string; createdAt: string;
+  agreedBy: string | null; agreedAt: string | null; agreedHash: string | null;
+  agreementSource: { source: string; quote: string } | null;
 }
 
 // 期間との関連を確定できない旧履歴。所属・採択とは分けて保持する。

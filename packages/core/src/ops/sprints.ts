@@ -3,12 +3,15 @@ import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
 import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_MEMBERSHIP } from "../sprint-membership";
 import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase, SprintUnresolvedHistory } from "../sprint-types";
+import { listSprintPlans } from "./sprint-planning";
 
 interface SprintRow {
   id: string; number: number; workspace_id: number | null; name: string; phase: SprintPhase;
   start_date: string; end_date: string; timezone: string | null; starts_at: string | null; ends_at: string | null;
   adopted_plan_id: string | null; goal: string | null; definition_of_done: string | null; outcome: string | null;
   legacy_cycle_id: number | null; legacy_data: string | null; created_at: string; updated_at: string;
+  version: number; working_days: string; workspace_snapshot: string | null; activated_at: string | null;
+  canceled_at: string | null; cancel_reason: string | null; replans_sprint_id: string | null;
 }
 
 function toSprint(r: SprintRow): Sprint {
@@ -17,6 +20,8 @@ function toSprint(r: SprintRow): Sprint {
     startDate: r.start_date, endDate: r.end_date, timezone: r.timezone, startsAt: r.starts_at, endsAt: r.ends_at,
     adoptedPlanId: r.adopted_plan_id, goal: r.goal, definitionOfDone: r.definition_of_done, outcome: r.outcome,
     legacyCycleId: r.legacy_cycle_id, createdAt: r.created_at, updatedAt: r.updated_at,
+    version: r.version, workingDays: JSON.parse(r.working_days), workspaceSnapshot: r.workspace_snapshot ? JSON.parse(r.workspace_snapshot) : null,
+    activatedAt: r.activated_at, canceledAt: r.canceled_at, cancelReason: r.cancel_reason, replansSprintId: r.replans_sprint_id,
   };
 }
 
@@ -51,7 +56,7 @@ export function getSprint(db: Database, ref: string): SprintDetail {
   const events = db.query(`SELECT e.original,r.association FROM sprint_legacy_event_refs r
     JOIN sprint_legacy_events e ON e.event_id=r.event_id WHERE r.cycle_id=? ORDER BY e.event_id`).all(sprint.legacyCycleId) as {original: string; association: SprintLegacyEvent["association"]}[];
   const evidence=db.query('SELECT * FROM sprint_legacy_issue_evidence WHERE sprint_id=? ORDER BY source_issue_key').all(sprint.id) as {source_issue_id:number;source_issue_key:string;snapshot:string}[];
-  return {...sprint, evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
+  return {...sprint, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
     items: items.map(i => ({id: i.id, sprintId: i.sprint_id, issueId: i.issue_id, sourceIssueKey: i.source_issue_key, origin: i.origin, snapshot: JSON.parse(i.snapshot)})),
     events: events.map(e => ({original: JSON.parse(e.original), association: e.association})),
   };
