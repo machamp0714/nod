@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { openDb } from "@nod/core";
+import { createIssue, findWorkspace, HUMAN_ACTOR, listIssues, openDb, updateIssue } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 let db: string;
@@ -134,20 +134,34 @@ describe("ID の検索（#176 項目5）", () => {
     const repo = makeRepo();
     registerRepo(db, repo, "TS");
     const me = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db });
-    const text = async (args: string[]) => (await runNod(args, { cwd: repo, db })).stdout;
-    // TS-6 と TS-60 台がそろうまで起票する
-    for (let n = 1; n <= 61; n++) await me(["issue", "create", `埋める ${n}`]);
-    await me(["issue", "update", "TS-2", "-d", "TS-6 を参照"]);
-    await me(["issue", "update", "TS-60", "-p", "1"]);
+    // 検索の母集団は公開core操作で準備し、検索そのものを3つの実CLI呼出しで検証する。
+    const fixture = openDb(db);
+    try {
+      const workspace = findWorkspace(fixture, repo)!;
+      const ctx = { db: fixture, actor: HUMAN_ACTOR };
+      for (let n = 1; n <= 61; n++) {
+        expect(createIssue(ctx, { workspaceId: workspace.id, title: `埋める ${n}` }).id).toBe(`TS-${n}`);
+      }
+      updateIssue(ctx, "TS-2", { description: "TS-6 を参照" });
+      updateIssue(ctx, "TS-60", { priority: 1 });
+      expect(listIssues(fixture, { workspaceId: workspace.id })).toHaveLength(61);
+    } finally { fixture.close(); }
     const all = ["--status", "triage,todo,backlog,in_progress,done,canceled", "--query", "ts-6"];
-    const byId = (await me(["issue", "list", ...all])).json.map((i: { id: string }) => i.id);
+    const result = await me(["issue", "list", ...all]);
+    expect(result.exitCode).toBe(0);
+    expect(Array.isArray(result.json)).toBe(true);
+    const byId = result.json.map((i: { id: string }) => i.id);
     expect(byId[0]).toBe("TS-6");
     expect(byId).toContain("TS-2");
     expect(byId).toContain("TS-60");
-    const byPriority = (await me(["issue", "list", ...all, "--sort", "priority"])).json.map((i: { id: string }) => i.id);
+    const sorted = await me(["issue", "list", ...all, "--sort", "priority"]);
+    expect(sorted.exitCode).toBe(0);
+    expect(Array.isArray(sorted.json)).toBe(true);
+    const byPriority = sorted.json.map((i: { id: string }) => i.id);
     expect(byPriority.slice(0, 2)).toEqual(["TS-6", "TS-60"]);
-    const desc = await text(["issue", "list", ...all, "--desc"]);
-    expect(desc.split("\n")[0]).toMatch(/^TS-6 /);
+    const desc = await runNod(["issue", "list", ...all, "--desc"], { cwd: repo, db });
+    expect(desc.exitCode).toBe(0);
+    expect(desc.stdout.split("\n")[0]).toMatch(/^TS-6 /);
   });
 });
 
