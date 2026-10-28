@@ -32,17 +32,25 @@ function describe(state: SprintExecutionState): string {
   return [
     `現在の監督: ${current ? `${current.caller}（世代${current.generation}、${current.state === "handover" ? "引継ぎ待ち" : "所有中"}）` : "未登録"}`,
     `元Run: ${current?.runId ?? "未確認"}  計画: ${current?.planId ?? "未確認"}  hash: ${current?.planHash ?? "未確認"}`,
-    `占有: ${state.occupied}  予約: ${state.reserved}  実装開始: 確認待ち`,
+    `占有: ${state.occupied} / 上限 ${state.maxParallel ?? "未確認"}（主試行の予約: ${state.reserved}、通常所有の未照合: ${state.unreconciledOwnership.length}）  実装開始: ${state.canStart ? "許可あり・開始報告を確認" : "不可・理由を確認"}`,
+    `保存状態の取得: ${state.observedAt}（Orcaの再照合日時とは別）`,
     `最終確認: ${current?.observedAt ?? "未取得"}（${state.stale ? "現在の監督状態は未確認" : "取得時点の状態"}）`,
     ...state.unreconciledOwnership.map(a => `${a.sourceIssueKey}  通常経路の既存所有: ${a.assignee ?? "担当未確認"}（${a.status}）\n  実行場所: ${a.worktree ?? a.branch ?? "未確認"}\n  理由: ${a.reason.code} ${a.reason.message}`),
-    ...state.attempts.map(a => `${a.sourceIssueKey}  ${a.parentAttemptId ? "補助担当" : "主担当"}: ${a.actor}  試行: ${a.id}\n  Task: ${a.taskId ?? "未確認"}  Dispatch: ${a.dispatchId ?? "未確認"}\n  配置: ${a.placement.on ?? "Run home"} / ${a.placement.worktree}\n  理由: ${a.reason.code} ${a.reason.message}`),
-    ...state.operations.map(o => `操作: ${o.id}  ${o.kind === "task_create" ? "Task作成" : "担当起動"}  ${o.state}\n  request: ${o.requestId ?? "未取得"}${o.reason ? `\n  理由: ${o.reason.code} ${o.reason.message}` : ""}`),
-    ...state.nextActions.map(action => `${action.description}\n  ${action.argv.join(" ")}${action.input ? `\n  入力JSON: ${JSON.stringify(action.input)}` : ""}`),
+    ...state.attempts.map(a => `${a.sourceIssueKey}  ${a.parentAttemptId ? "補助担当" : "主担当"}: ${a.actor}  試行: ${a.id}\n  Task: ${a.taskId ?? "未確認"}  Dispatch: ${a.dispatchId ?? "未確認"}\n  配置: ${a.placement.on ?? "Run home"} / ${a.placement.worktree}\n  理由: ${a.reason.code} ${a.reason.message}
+  工程: ${a.phase} / 実行観測: ${a.executionLiveness?.verdict ?? "未取得"}（${a.executionLiveness?.observedAt ?? "未取得"} / ${a.executionLiveness?.source ?? "取得元未記録"}）
+  要求した実行設定: ${a.settingsRequirement?.agent ?? a.placement.agent} / ${a.settingsRequirement?.model ?? "未指定・継承条件を確認"} / ${a.settingsRequirement?.effort ?? "未指定・継承条件を確認"} / ${a.settingsRequirement?.target ?? a.placement.on ?? a.placement.worktree}（取得元: 合意済み計画 ${a.planId}、要求記録日時: 未記録）
+  起動receipt: ${JSON.stringify(state.operations.find(o => o.attemptId === a.id && o.kind === "worker_start")?.receipt ?? null)}
+  ホストの実行設定: ${a.hostObservation?.metadata.model ?? "取得不能"} / ${a.hostObservation?.metadata.effort ?? "取得不能"}（取得元: ${a.hostObservation?.metadata.source ?? "未取得"}）
+  設定適用: ${a.hostObservation?.metadata.settingsAppliedAt ?? "取得不能"} / 採取: ${a.hostObservation?.metadata.collectedAt ?? "未取得"} / Orca観測: ${a.hostObservation?.independent?.observedAt ?? "未取得"} / PM照合: ${a.hostObservation?.verifiedAt ?? "未取得"}
+  起動: ${state.operations.find(o => o.attemptId === a.id && o.kind === "worker_start")?.state ?? "未記録"} / 開始許可通知: ${state.operations.find(o => o.attemptId === a.id && o.kind === "worker_begin")?.state ?? "未記録"} / 実開始報告: ${a.startedReport?.reportedAt ?? "未記録"}${a.phase === "completed" ? " / 担当終了確認・成果確認待ち" : ""}`),
+    ...state.operations.map(o => `操作: ${o.id}  ${o.kind === "task_create" ? "Task作成" : o.kind === "worker_start" ? "担当起動" : "開始許可通知"}  ${o.state}\n  request: ${o.requestId ?? "未取得"}${o.reason ? `\n  理由: ${o.reason.code} ${o.reason.message}` : ""}`),
+    "再照合手順は、元RunのOrca接続先と同じnod DBを使う端末で実行してください。保存状態の再取得だけではOrcaを再照合しません。",
+    ...state.nextActions.map(action => `${action.description}\n  ${action.command}`),
   ].join("\n");
 }
 function describeNotifications(state: SprintNotificationState): string {
   return [describe(state.execution), `受理結果: ${state.results.length}  受信ID: ${state.receptions.length}  競合: ${state.conflicts.length}  隔離: ${state.quarantined.length}`,
-    ...state.results.map(r => `受理結果: ${r.id}（${r.kind === "question" ? "相談" : r.kind === "completion" ? "完了通知" : r.kind === "observation" ? "ホスト観測" : r.kind === "notice" ? "通知" : "要求の拒否"}）${r.completion ? `\n  完了の照合: ${r.completion.state}  次所有者: ${r.completion.nextOwner ?? "未確定"}  解放: ${r.completion.ownership.state}` : ""}`),
+    ...state.results.map(r => `受理結果: ${r.id}（${r.kind === "question" ? "相談" : r.kind === "completion" ? "完了通知" : r.kind === "observation" ? "ホスト観測" : r.kind === "notice" ? "通知" : "要求の拒否"}）${r.completion ? `\n  完了の照合: ${r.completion.state}  次所有者: ${r.completion.nextOwner ?? "未確定"}  解放: ${r.completion.ownership.state} / 物理解放receipt: ${r.completion.ownership.receipt?.state ?? "未取得"} / 解放operation: ${r.completion.releaseOperation?.state ?? "未記録"} / 理由: ${r.completion.ownership.receipt?.reason ?? "未取得"}` : ""}`),
     ...state.deliveries.map(d => `配送: ${d.deliveryId}  ack: ${d.acknowledged ? "確認済み" : "未確定"}${d.reason ? `\n  理由: ${d.reason.code} ${d.reason.message}` : ""}\n${d.rows.filter(r => r.reason).map(r => `  受信ID: ${r.messageId ?? "解析不能"}  ${r.reason!.code} ${r.reason!.message}`).join("\n")}`),
     ...state.quarantined.map(q => `隔離した受信ID: ${q.messageId}  ${q.reason.code} ${q.reason.message}`),
   ].join("\n");

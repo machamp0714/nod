@@ -67,7 +67,7 @@ test("方向設定から公開フォームで計画の版に合意して開始�
   await page.getByRole("button", { name: "この計画に合意する", exact: true }).click();
   await expect(page.getByRole("region", { name: "表示中の計画" }).getByText("第1版に合意済み", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Sprintを開始する", exact: true }).click();
-  await expect(page.getByText("Sprintを開始しました。PM・workerは起動していません。", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "タスク一覧", exact: true }).click();
   await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
   await expect(page.getByRole("region", { name: "Sprint の記録" })).toContainText("判断できない");

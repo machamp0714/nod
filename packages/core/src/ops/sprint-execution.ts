@@ -215,20 +215,24 @@ export function getSprintExecutionState(db: Database, ref: string, clock: Sprint
         attempt.reason = eligibility.reason ?? { code: "START_RECHECK_REQUIRED", message: "現在の監督・identity・設定を開始直前に再検査してください" };
       }
     }
-    return { sprintId, session: current, executionVersion: version(db, sprintId), attempts,
+    const plan = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
+    const nextActions: Omit<SprintExecutionState["nextActions"][number], "command">[] = current ? [
+      ...(sprint.adoptedPlanId && sprint.adoptedPlanId !== current.planId ? [{ description: "採用中の新合意と元の試行を照合して監督を再開する",
+        argv: ["nod", "sprint", "session", "resume", sprintId, "--input", "-"],
+        input: { sessionId: current.id, generation: current.generation, requestKey: current.handover?.requestKey ?? `plan:${sprint.adoptedPlanId}` } }] : []),
+      ...unreconciledOwnership.map(a => ({ description: "元の担当と保存された通常着手・実行場所を確認する", argv: ["nod", "issue", "show", a.sourceIssueKey, "--json"] })),
+      { description: "保存した主試行と元Runの要求・Task・Dispatchを照合する", argv: ["nod", "sprint", "execution", "reconcile", sprintId, "--input", "-"],
+        input: { sessionId: current.id, generation: current.generation } }]
+      : [{ description: "Sprintの計画と保存した実行対象を確認する", argv: ["nod", "sprint", "show", sprintId] }];
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+    return { sprintId, observedAt: timestamp(clock), maxParallel: plan?.content.constraints.maxParallel ?? null, session: current, executionVersion: version(db, sprintId), attempts,
       operations: rows<SprintExecutionOperation>(db, "sprint_operations", sprintId), occupied: attempts.filter(a => !a.parentAttemptId).length + unreconciledOwnership.length,
       unreconciledOwnership,
       reserved: attempts.filter(a => !a.parentAttemptId).length, canStart: attempts.some(a => a.canStart),
       stale: current ? !fresh(current.observedAt, clock) : true,
       quarantined: rows(db, "sprint_execution_quarantine", sprintId),
-      nextActions: current ? [
-        ...(sprint.adoptedPlanId && sprint.adoptedPlanId !== current.planId ? [{ description: "採用中の新合意と元の試行を照合して監督を再開する",
-          argv: ["nod", "sprint", "session", "resume", sprintId, "--input", "-"],
-          input: { sessionId: current.id, generation: current.generation, requestKey: current.handover?.requestKey ?? `plan:${sprint.adoptedPlanId}` } }] : []),
-        ...unreconciledOwnership.map(a => ({ description: "元の担当と保存された通常着手・実行場所を確認する", argv: ["nod", "issue", "show", a.sourceIssueKey, "--json"] })),
-        { description: "保存した主試行と元Runの要求・Task・Dispatchを照合する", argv: ["nod", "sprint", "execution", "reconcile", sprintId, "--input", "-"],
-        input: { sessionId: current.id, generation: current.generation } }]
-        : [{ description: "Sprintの計画と保存した実行対象を確認する", argv: ["nod", "sprint", "show", sprintId] }] };
+      nextActions: nextActions.map(action => ({ ...action, command:
+        `${action.input ? `printf '%s\\n' ${quote(JSON.stringify(action.input))} | ` : ""}${current ? `NOD_ACTOR=${quote(current.actor)} ` : ""}${[...action.argv, ...(action.input && current ? ["--from", current.caller] : [])].map(quote).join(" ")}` })) };
   });
 }
 

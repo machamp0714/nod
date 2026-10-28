@@ -2,6 +2,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSprintPlanningStatus } from "../api/hooks/sprint-planning";
 import { SprintPlanning } from "../components/sprints/SprintPlanning";
+import { SprintSupervision } from "../components/sprints/SprintSupervision";
 import { SprintCancel } from "../components/sprints/SprintCancel";
 import { errorMessage } from "../api/errors";
 import { useSprint, useSprints } from "../api/hooks/sprints";
@@ -67,7 +68,7 @@ export function SprintDetailPage() {
         onClick={() => analyticsOpen ? closeAnalytics() : setAnalyticsOpen(true)} /></>}
       intro={<>
         {error && <p role="alert">取得に失敗しました。最後の確認：{new Date(detail.dataUpdatedAt).toLocaleString("ja-JP")} <Button onClick={() => void detail.refetch()}>再読み込み</Button></p>}
-        {activated === sprint.id && <p role="status">Sprintを開始しました。PM・workerは起動していません。</p>}
+        {activated === sprint.id && <p role="status">Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。</p>}
         <section className={s.overview} aria-label="Sprint の概要">
           <span className={s.field}><span className={s.label}>期間</span>{sprint.startDate} – {sprint.endDate}</span>
           <span className={s.field}><span className={s.label}>{imported ? "移行時の完了" : "タスク完了"}</span>
@@ -82,9 +83,10 @@ export function SprintDetailPage() {
           <p><strong>ゴール: {shownPlan?.content.goal ?? sprint.goal ?? "不明"}</strong></p>
           {imported && <p>DoD: {sprint.definitionOfDone ?? "不明"}</p>}
           <p>達成の確認：{shownPlan?.content.verificationMethod ?? "未設定"}</p>
-          <p>見通し：判断できない。成果の検証・実行の観測が未記録のため、ゴール達成を判断する根拠が不足しています。</p>
-          <p>根拠：保存された計画とIssueの状態のみ。確認時刻：<time dateTime={availability.data?.observedAt ?? new Date(detail.dataUpdatedAt).toISOString()}>{new Date(availability.data?.observedAt ?? detail.dataUpdatedAt).toLocaleString("ja-JP")}</time> / PM・workerの状態：未確認</p>
-          <p>次の行動：{sprint.phase === "canceled" ? "中止理由と残件を確認する" : sprint.phase === "active" ? "採択済みの要求と着手条件を確認する。実行機能は未導入です。" : "計画のゴール・採択理由・条件を確認して合意する"}</p>
+          <p>見通し：判断できない。成果の検証が確認できないため、実行の観測だけではゴール達成を判断する根拠が不足しています。</p>
+          <p>根拠：保存された計画とIssueの状態のみ。確認時刻：<time dateTime={availability.data?.observedAt ?? new Date(detail.dataUpdatedAt).toISOString()}>{new Date(availability.data?.observedAt ?? detail.dataUpdatedAt).toLocaleString("ja-JP")}</time></p>
+          <p>次の行動：{sprint.phase === "canceled" ? "中止理由と残件を確認する" : sprint.phase === "active" ? "採択済みの要求と着手条件、現在の監督と再照合手順を確認する" : "計画のゴール・採択理由・条件を確認して合意する"}</p>
+          <SprintSupervision key={sprint.id} sprint={sprint} />
           {shownPlan && <details><summary>採択理由・ゴールへの貢献</summary>{shownPlan.content.items.map(item => <p key={item.itemId}>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey}：{item.contribution}</p>)}</details>}
           <p>合意: {sprint.adoptedPlanId ? "採用計画あり" : "不明"} / 達成結果: {sprint.outcome ?? "不明"}</p>
           {sprint.cancelReason && <p>中止理由：{sprint.cancelReason} / {sprint.canceledAt}</p>}

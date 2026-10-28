@@ -113,6 +113,8 @@ export type {
   CycleSummary,
   Sprint,
   SprintDetail,
+  SprintNotificationState,
+  SprintExecutionState,
   SprintUnresolvedHistory,
   SprintReference,
   SprintAnalytics,

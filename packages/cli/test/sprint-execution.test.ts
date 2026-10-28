@@ -23,7 +23,7 @@ test("CLIは同じ公開coreの監督・予約・不明理由と再照合操作�
   expect(json.json.attempts[0]).toMatchObject({ id: attempt.id, reason: { code: "HOST_OBSERVATION_REQUIRED" } });
   const human = await runNod(["sprint", "execution", "show", sprint.id], { cwd, db: path, actor: "codex" });
   expect(human.stdout).toContain("現在の監督"); expect(human.stdout).toContain("予約"); expect(human.stdout).toContain("元Run");
-  expect(human.stdout).toContain("実行設定"); expect(human.stdout).toContain("execution reconcile");
+  expect(human.stdout).toContain("実行設定"); expect(human.stdout).toContain("'execution' 'reconcile'");
   expect(human.stdout).not.toContain("未実装");
   const file = join(inputDir, "照合.json"); writeFileSync(file, JSON.stringify({ sessionId: session.id, generation: 1 }));
   const unknown = await runNod(["sprint", "execution", "reconcile", sprint.id, "--input", file, "--json"], { cwd, db: path, actor: "codex" });
@@ -105,4 +105,38 @@ test("CLIは通常着手の元担当と未照合占有を表示し、別採択Is
     actor: "codex", spec: "Bを始める", placement: { agent: "codex", worktree: "path:/専用" } }));
   expect(await runNod(["sprint", "execution", "request", sprint.id, "--input", file, "--json"], { cwd, db: path, actor: "codex" }))
     .toMatchObject({ exitCode: 1, json: { error: { code: "PARALLEL_LIMIT" } } });
+});
+
+test("表示した完全な再照合手順をactor補充なしで実行し、保存した同世代の予約と拒否理由を読む", async () => {
+  const cwd = makeRepo(), path = tempDb(), dir = tempDir(), db = core.openDb(path);
+  const me = { db, actor: "me" }, agent = { db, actor: "codex" };
+  const ws = core.initWorkspace(db, { path: cwd }).workspace;
+  const issue = core.createIssue(me, { workspaceId: ws.id, title: "コピー手順で照合する" });
+  const planned = prepareSprint(me, ws.key, [issue.id]);
+  const period = core.updateSprint(me, planned.sprint.id, { expectedVersion: planned.sprint.version, requestKey: "期間", startDate: "2000-01-01", endDate: "2999-01-01" });
+  const proposal = core.proposeSprintPlan(me, period.id, { ...planned.input, expectedVersion: period.version, requestKey: "期間変更後の計画" });
+  const ready = core.acceptSprintPlan(me, period.id, proposal.plan.id, { expectedVersion: proposal.sprint.version, requestKey: "合意", contentHash: proposal.plan.contentHash });
+  const sprint = core.activateSprint(me, period.id, { expectedVersion: ready.sprint.version, requestKey: "開始" });
+  const caller = "監督 ' $(nod37_should_never_run)";
+  const session = await core.beginSprintSession(agent, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, {
+    authority: async () => ({ runId: "元Run", caller, coordinator: caller, consumerGeneration: 1, runtimeId: "home", source: "模擬Orca", observedAt: new Date().toISOString() }),
+  });
+  core.prepareSprintExecution(agent, sprint.id, { sessionId: session.id, generation: 1, requestKey: "担当", itemId: planned.items[0]!.id,
+    actor: "codex", spec: "確認する", placement: { agent: "codex", worktree: "path:/専用" } });
+  const read = core.getSprintExecutionState(db, sprint.id);
+  db.close();
+  const action = read.nextActions.find(a => a.argv.includes("reconcile"))!;
+  const shown = await runNod(["sprint", "execution", "show", sprint.id], { cwd, db: path });
+  expect(shown.stdout).toContain(action.command);
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+  const nod = join(dir, "nod");
+  writeFileSync(nod, `#!/bin/sh\nexec bun ${quote(join(import.meta.dir, "../src/main.ts"))} "$@"\n`, { mode: 0o755 });
+  // runNodのactorオプションを使わず、画面のcommand自身だけがNOD_ACTORを指定する。
+  const env: Record<string, string | undefined> = { ...process.env, NOD_DB: path, NOD_ORCA: "0", PATH: `${dir}:${process.env.PATH}` };
+  delete env.NOD_ACTOR; delete env.CLAUDECODE;
+  const child = Bun.spawn(["/bin/sh", "-c", `${action.command} --json`], { cwd, env, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(stderr).not.toContain("nod37_should_never_run: command not found");
+  expect(exit).toBe(0);
+  expect(JSON.parse(stdout)).toMatchObject({ occupied: 1, reserved: 1, session: { actor: "codex", generation: 1 }, attempts: [{ reason: { code: "HOST_OBSERVATION_REQUIRED" } }] });
 });

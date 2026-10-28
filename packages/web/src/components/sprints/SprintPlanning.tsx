@@ -102,9 +102,9 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onActiv
           {otherActive && <p className={s.notice}>{otherActive.name}が同じWorkspaceで実行中です。開始できません。</p>}
           {availability.error ? <p role="alert">開始条件を取得できません：{errorMessage(availability.error)} <Button onClick={() => void availability.refetch()}>再読み込み</Button></p> : availability.data && <p role="status">{availability.data.reason?.message ?? "開始条件を満たしています"} / 確認：{availability.data.observedAt}</p>}
           <p className={s.muted}>期間内・有効なWorkspace設定・同Workspaceに他の実行中Sprintがない場合に開始できます。保存時に最新条件を確認します。</p>
-          <Button variant="primary" disabled={command.isPending || sprint.phase !== "ready" || !!otherActive || !availability.data?.canStart || !!availability.error || availability.data.sprintVersion !== sprint.version} onClick={() => void run("/activate", {}, "Sprintを開始しました。PM・workerは起動していません。").then(ok => { if (ok) onActivated(); })}>{command.isPending ? "保存中…" : "Sprintを開始する"}</Button>
+          <Button variant="primary" disabled={command.isPending || sprint.phase !== "ready" || !!otherActive || !availability.data?.canStart || !!availability.error || availability.data.sprintVersion !== sprint.version} onClick={() => void run("/activate", {}, "Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。").then(ok => { if (ok) onActivated(); })}>{command.isPending ? "保存中…" : "Sprintを開始する"}</Button>
         </section>}
-        {started && <section className={s.section}><h2>開始後の状態</h2><p>開始：{sprint.activatedAt}</p><p>期間は固定されています。PM・workerの実行は未確認です。</p></section>}
+        {started && <section className={s.section}><h2>開始後の状態</h2><p>開始：{sprint.activatedAt}</p><p>期間は固定されています。保存された監督・workerの実行記録はタスク一覧で確認できます。</p></section>}
         <section className={s.section}><h2>計画の版と合意の記録</h2>{sprint.plans.map(p => <details key={p.id}><summary>第{p.revision}版 · {p.agreedAt ? "合意済み" : "未合意"}{p.id === sprint.adoptedPlanId && " · 採用中"}</summary><PlanSummary plan={p} label={`過去の計画 第${p.revision}版`} /></details>)}</section>
       </aside>
     </div>

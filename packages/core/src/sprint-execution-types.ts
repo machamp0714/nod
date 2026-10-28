@@ -78,9 +78,10 @@ export interface SprintExecutionState {
   sprintId: string; session: SprintSession | null; executionVersion: number;
   attempts: SprintAttempt[]; operations: SprintExecutionOperation[];
   occupied: number; reserved: number; canStart: boolean; stale: boolean;
+  observedAt: string; maxParallel: number | null;
   unreconciledOwnership: SprintExistingOwnership[];
   quarantined: { operationId: string; generation: number; reason: string; receipt: SprintExecutionReceipt }[];
-  nextActions: { description: string; argv: string[]; input?: SprintSessionContext & { requestKey?: string } }[];
+  nextActions: { description: string; argv: string[]; input?: SprintSessionContext & { requestKey?: string }; command: string }[];
 }
 export interface SprintOrcaTask { runId: string; taskId: string; spec: string | null; parentTaskId: string | null }
 export interface SprintOrcaWorker {

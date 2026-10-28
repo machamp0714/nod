@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { queryKeys } from "../query-keys";
@@ -25,4 +26,23 @@ export function useSprintAnalytics(ref: string, enabled: boolean, timezone?: str
 
 export function useLegacyCycle(oldId: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.legacyCycle(oldId), queryFn: () => apiFetch<LegacyCycleResolution>(`/cycles/${encodeURIComponent(oldId)}`), enabled });
+}
+
+// 鮮度はDB変更なしでも変化する。非表示中は止め、復帰時は保存状態を取り直す。
+export function useSprintExecution(ref: string, enabled = true) {
+  const [visible, setVisible] = useState(() => document.visibilityState !== "hidden");
+  const query = useQuery({ queryKey: queryKeys.sprintExecution(ref),
+    queryFn: () => apiFetch<import("../types").SprintNotificationState>(`/sprints/${encodeURIComponent(ref)}/execution`),
+    enabled: enabled && visible, refetchInterval: visible ? 30_000 : false, refetchIntervalInBackground: false, refetchOnWindowFocus: true });
+  const { refetch } = query;
+  useEffect(() => {
+    const changed = () => {
+      const current = document.visibilityState !== "hidden";
+      setVisible(current);
+      if (current && enabled) void refetch();
+    };
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, [enabled, refetch]);
+  return query;
 }
