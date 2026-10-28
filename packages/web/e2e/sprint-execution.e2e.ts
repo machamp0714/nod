@@ -110,6 +110,8 @@ test.describe("保存状態の取得失敗", () => {
 });
 
 test("表示中は30秒で再取得し、非表示中は止めて復帰時に保存状態を取り直す", async ({ page, nod }) => {
+  // アプリがtimerを登録する前に時計を導入する。
+  await page.clock.install();
   const ws = (await nod.me.initWorkspace({ key: "PO", name: "鮮度", path: nod.repo("poll") })).workspace;
   const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "鮮度の仕事" });
   const planned = await plannedSprint(page, ws.key, [issue.id]);
@@ -119,7 +121,6 @@ test("表示中は30秒で再取得し、非表示中は止めて復帰時に保
   await page.goto(`/sprints/${sprint.id}`);
   await expect(page.getByRole("region", { name: "監督と実行", exact: true })).toContainText("記録なし");
   await waitForServerEvents(page);
-  await page.clock.install();
   const before = reads;
   await page.clock.fastForward(31_000);
   await expect.poll(() => reads).toBeGreaterThan(before);
