@@ -1,12 +1,35 @@
 import type { SprintClock } from "./sprint-types";
+import type { SprintSelfMetadata } from "./sprint-self-metadata";
 import type { SprintOrcaDelivery, SprintOrcaReplyReceipt, SprintOrcaSettlement, SprintOrcaReleaseReceipt, SprintNotificationRequestObservation } from "./sprint-notification-types";
 import type { SprintHostObservation, SprintOrcaHostObservation, SprintOrcaStatusMessage, SprintSettingsRequirement,
   SprintStartAuthorization, SprintStartConfirmation } from "./sprint-observation-types";
+
+export type SprintCallerEvidence =
+  // Orca公開callerShowのfield名を保持する。値はorca_session_id:付きaddressでありraw UIDではない。
+  | { kind: "orca_session"; orcaSessionId: string; source: string; observedAt: string }
+  | { kind: "native_terminal"; identity: SprintExecutionIdentity; metadata: SprintSelfMetadata;
+      source: string; observedAt: string;
+      observations: { kind: "status" | "terminal" | "run_current" | "run_show"; source: string; observedAt: string; runtimeId: string }[] };
+
+// UIDとterminal証拠を混ぜない。採取時刻・usage digestの増加は本人交代ではない。
+export function sameSprintCaller(a: { callerIdentity?: string | null; callerEvidence?: SprintCallerEvidence },
+  b: { callerIdentity?: string | null; callerEvidence?: SprintCallerEvidence }): boolean {
+  const key = (v: typeof a) => {
+    const e = v.callerEvidence;
+    if (!e) return v.callerIdentity ? ["orca_session", v.callerIdentity] : ["legacy_unobserved"];
+    if (e.kind === "orca_session") return [e.kind, e.orcaSessionId];
+    const m = e.metadata, i = e.identity;
+    return [e.kind, i.terminal, i.incarnationId, i.runtimeId, i.remoteRuntimeEpoch,
+      m.threadId, m.turnId, m.terminal, m.cwd, m.model, m.effort, m.provider, m.cliVersion, m.collectorDigest];
+  };
+  return JSON.stringify(key(a)) === JSON.stringify(key(b));
+}
 
 export interface SprintRunAuthority {
   runId: string; caller: string; coordinator: string; consumerGeneration: number;
   runtimeId: string; source: string; observedAt: string;
   callerIdentity?: string;
+  callerEvidence?: SprintCallerEvidence;
 }
 export interface SprintExecutionPlacement { worktree: string; agent: string; on?: string; model?: string; effort?: string }
 export interface SprintExecutionIdentity {
@@ -27,6 +50,7 @@ export interface SprintSession {
   requestKey: string; inputHash: string; observedAt: string; source: string;
   handover: { requestKey: string; caller: string | null } | null;
   callerIdentity?: string;
+  callerEvidence?: SprintCallerEvidence;
   unreconciledOwnership?: SprintExistingOwnership[];
   planHistory?: { planId: string; planHash: string; reconciledAt: string }[];
 }
@@ -61,6 +85,8 @@ export interface SprintExecutionOperation {
   schemaVersion: 1; id: string; sprintId: string; attemptId: string;
   kind: "task_create" | "worker_start" | "worker_begin"; requestKey: string; inputHash: string;
   sessionId: string; generation: number; caller: string; callerIdentity: string | null; runtimeId: string; runId: string;
+  callerEvidence?: SprintCallerEvidence;
+  consumerGeneration?: number;
   state: "prepared" | "sending" | "confirmed" | "unknown" | "failed";
   requestId: string | null; receipt: SprintExecutionReceipt | null;
   input: { spec: string; placement: SprintExecutionPlacement; taskId: string | null; parentTaskId: string | null };

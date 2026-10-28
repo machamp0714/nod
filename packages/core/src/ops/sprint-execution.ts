@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { SprintOrcaMutationError } from "../sprint-execution-types";
+import { SprintOrcaMutationError, sameSprintCaller } from "../sprint-execution-types";
 import { sprintHash, sprintObject, sprintText, sprintVersion } from "../sprint-validation";
 import type { SprintClock, SprintDetail, SprintPlan } from "../sprint-types";
 import type { PrepareSprintExecutionInput, SprintAttempt, SprintExecutionOperation, SprintExecutionState,
@@ -112,6 +112,17 @@ function checkAuthority(value: SprintRunAuthority, runId: string, clock: SprintC
     fail("AUTHORITY_UNKNOWN", "元Runの現在の監督権限と取得時刻を確認できません");
   }
 }
+async function verifySprintSender(ctx: OpCtx, sprintId: string, input: SprintSessionContext,
+  adapter: SprintOrcaAdapter, clock: SprintClock): Promise<void> {
+  const owner = owned(ctx, sprintId, input);
+  const authority = await adapter.authority(owner.runId);
+  checkAuthority(authority, owner.runId, clock);
+  const current = owned(ctx, sprintId, input);
+  if (authority.caller !== current.caller || authority.runtimeId !== current.runtimeId
+    || authority.consumerGeneration !== current.consumerGeneration || !sameSprintCaller(authority, current)) {
+    fail("AUTHORITY_CHANGED", "送信直前の本人証拠・runtime・consumerが変わりました。元Runを再照合してください");
+  }
+}
 export async function beginSprintSession(ctx: OpCtx, ref: string, input: SprintSessionInput, adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintSession> {
   sprintObject(input, ["expectedVersion", "requestKey", "runId"]);
   sprintVersion(input.expectedVersion); sprintText(input.requestKey, "要求キー"); sprintText(input.runId, "Run");
@@ -122,7 +133,8 @@ export async function beginSprintSession(ctx: OpCtx, ref: string, input: SprintS
     const inputHash = sprintHash({ actor: ctx.actor, input });
     const current = session(ctx.db, sprint.id);
     if (current) {
-      if (current.requestKey === input.requestKey && current.inputHash === inputHash && current.caller === authority.caller) return current;
+      if (current.requestKey === input.requestKey && current.inputHash === inputHash && current.caller === authority.caller
+        && current.runtimeId === authority.runtimeId && current.consumerGeneration === authority.consumerGeneration && sameSprintCaller(current, authority)) return current;
       if (current.requestKey === input.requestKey && current.inputHash !== inputHash) return fail("IDEMPOTENCY_CONFLICT", "同じ要求キーの入力が異なります");
       return fail("EXECUTION_OWNED", "既存の監督が所有しています。session resumeで元Runへ合流してください");
     }
@@ -132,6 +144,7 @@ export async function beginSprintSession(ctx: OpCtx, ref: string, input: SprintS
       runId: input.runId, actor: ctx.actor, caller: authority.caller, consumerGeneration: authority.consumerGeneration,
       runtimeId: authority.runtimeId, planId: plan.id, planHash: plan.contentHash, state: "active", requestKey: input.requestKey,
       inputHash, observedAt: authority.observedAt, source: authority.source, handover: null, callerIdentity: authority.callerIdentity,
+      callerEvidence: authority.callerEvidence,
       unreconciledOwnership: existingOwnership(ctx.db, sprint, rows<SprintAttempt>(ctx.db, "sprint_attempts", sprint.id), [], clock) };
     storeSession(ctx.db, value); touch(ctx.db, sprint.id); return value;
   });
@@ -192,6 +205,7 @@ export function prepareSprintExecution(ctx: OpCtx, ref: string, input: PrepareSp
     const operation: SprintExecutionOperation = { schemaVersion: 1, id: crypto.randomUUID(), sprintId: sprint.id,
       attemptId: attempt.id, kind: "task_create", requestKey: input.requestKey, inputHash: hash, sessionId: current.id,
       generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null,
+      callerEvidence: current.callerEvidence, consumerGeneration: current.consumerGeneration,
       runtimeId: current.runtimeId, runId: current.runId, state: "prepared",
       requestId: null, receipt: null, input: { spec: input.spec, placement: input.placement, taskId: null, parentTaskId: parent?.taskId ?? null }, reason: null };
     if (parent && !parent.taskId) fail("PARENT_NOT_READY", "主試行のTaskを照合してから補助担当を予約してください");
@@ -394,10 +408,12 @@ export function completeSprintHandover(ctx: OpCtx, ref: string,
     current.generation++; current.caller = snapshot.authority.caller; current.actor = ctx.actor;
     current.consumerGeneration = snapshot.authority.consumerGeneration; current.observedAt = snapshot.authority.observedAt;
     current.callerIdentity = snapshot.authority.callerIdentity;
+    current.callerEvidence = snapshot.authority.callerEvidence;
     current.source = snapshot.authority.source; current.runtimeId = snapshot.authority.runtimeId; current.state = "active"; current.handover = null;
     storeSession(ctx.db, current);
     for (const operation of rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId).filter(o => o.state === "prepared")) {
       operation.generation = current.generation; operation.caller = current.caller; operation.callerIdentity = current.callerIdentity ?? null;
+      operation.callerEvidence = current.callerEvidence; operation.consumerGeneration = current.consumerGeneration;
       operation.runtimeId = current.runtimeId; storeOperation(ctx.db, operation);
     }
     for (const attempt of rows<SprintAttempt>(ctx.db, "sprint_attempts", sprintId)) {
@@ -498,9 +514,10 @@ export async function requestSprintExecution(ctx: OpCtx, ref: string,
   const authority = await adapter.authority(current.runId);
   checkAuthority(authority, current.runId, clock);
   if (authority.caller !== current.caller || authority.runtimeId !== current.runtimeId
-    || (current.callerIdentity && authority.callerIdentity !== current.callerIdentity)
+    || !sameSprintCaller(current, authority)
     || authority.consumerGeneration !== current.consumerGeneration) fail("AUTHORITY_CHANGED", "監督権限、caller identityまたはruntimeが変わりました。元Runを再照合してください");
   for (let stage = 0; stage < 2; stage++) {
+    if (stage > 0) await verifySprintSender(ctx, sprintId, input, adapter, clock);
     const pending = tx(ctx.db, () => {
       const owner = owned(ctx, sprintId, input);
       attemptById(ctx.db, sprintId, input.attemptId);
@@ -675,7 +692,7 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
   if (proof.state !== "pending" || proof.requestId !== operation.requestId || !fresh(proof.observedAt, clock)
     || !proof.recovery?.originalInactive || !proof.recovery.evidence || JSON.stringify(proof.recovery.argv) !== JSON.stringify(expected)
     || !inventory.complete || authority.caller !== operation.caller || authority.runtimeId !== operation.runtimeId
-    || (operation.callerIdentity && authority.callerIdentity !== operation.callerIdentity)
+    || !sameSprintCaller(operation, authority)
     || authority.consumerGeneration !== owner.consumerGeneration) return state;
   let startHost: SprintOrcaHostObservation | null = null;
   if (operation.kind === "worker_begin") {
@@ -687,6 +704,7 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
     if (verdict.result !== "matched" || verdict.identityFingerprint !== operation.start.authorization.identityFingerprint
       || verdict.settingsFingerprint !== operation.start.authorization.settingsFingerprint || operation.start.authorization.generation !== owner.generation) return state;
   }
+  await verifySprintSender(ctx, state.sprintId, context, adapter, clock);
   const started = tx(ctx.db, () => {
     const current = owned(ctx, state.sprintId, context);
     if (version(ctx.db, state.sprintId) !== state.executionVersion) fail("RECONCILE_REQUIRED", "回復確認中に操作または予約が変わりました");
@@ -972,26 +990,28 @@ async function replyToSprintNotification(ctx: OpCtx, ref: string, input: SprintN
   const current = owned(ctx, sprintId, input);
   const previous = reception.reply;
   if (previous?.state === "sending") return { code: "REPLY_PENDING", message: "保存した同じ返信操作を照合してください" };
-  const retry = previous?.caller === current.caller ? previous.requestId ?? undefined : undefined;
+  const retry = previous?.caller === current.caller && previous.runtimeId === current.runtimeId && sameSprintCaller(previous, current)
+    ? previous.requestId ?? undefined : undefined;
   tx(ctx.db, () => {
     owned(ctx, sprintId, input);
     result.response = { body };
     ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(result), result.id, sprintId);
     const target = { runId: message.runId, messageId: message.id };
     reception.reply = { operationId: previous?.operationId ?? crypto.randomUUID(), state: "sending", body, caller: current.caller,
-      target, inputHash: sprintHash({ target, body }), sessionId: current.id, runtimeId: current.runtimeId, callerIdentity: current.callerIdentity ?? null,
+      target, inputHash: sprintHash({ target, body }), sessionId: current.id, runtimeId: current.runtimeId, callerIdentity: current.callerIdentity ?? null, callerEvidence: current.callerEvidence,
       generation: current.generation, requestId: retry ?? null, receipt: null,
-      history: [...(previous?.history ?? []), ...(previous ? [{ caller: previous.caller, generation: previous.generation,
+      history: [...(previous?.history ?? []), ...(previous ? [{ caller: previous.caller, generation: previous.generation, callerEvidence: previous.callerEvidence,
         requestId: previous.requestId, state: previous.state, receipt: previous.receipt }] : [])] };
     storeNotificationReception(ctx.db, sprintId, reception);
     touch(ctx.db, sprintId);
   });
   try {
+    await verifySprintSender(ctx, sprintId, input, adapter, clock);
     const receipt = await adapter.reply(message.runId, message.id, body, retry);
     if (receipt.questionId !== message.id || receipt.status !== "answered" || receipt.body !== body || !receipt.answerMessageId) throw Error();
     try { owned(ctx, sprintId, input); }
     catch (error) {
-      reception.reply!.history.push({ caller: current.caller, generation: current.generation,
+      reception.reply!.history.push({ caller: current.caller, generation: current.generation, callerEvidence: current.callerEvidence,
         requestId: receipt.requestId, state: "unknown", receipt });
       throw error;
     }
@@ -1106,12 +1126,12 @@ async function releaseCompletionNotification(ctx: OpCtx, ref: string, input: Spr
     const target = { runId: attempt.runId, dispatchId: attempt.dispatchId! }, inputHash = sprintHash(target);
     if (previous && previous.inputHash !== inputHash) notificationConflict("保存した解放対象が異なります", latest.logicalKey, latest.id, inputHash);
     const sameCaller = previous ? previous.caller === current.caller && previous.runtimeId === current.runtimeId
-      && previous.callerIdentity === (current.callerIdentity ?? null) : ownership.caller === current.caller;
+      && sameSprintCaller(previous, current) : ownership.caller === current.caller && !current.callerEvidence && !current.callerIdentity;
     const operation: SprintNotificationReleaseOperation = { operationId: previous?.operationId ?? ownership.operationId ?? crypto.randomUUID(), inputHash, target,
-      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, runtimeId: current.runtimeId,
+      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, callerEvidence: current.callerEvidence, runtimeId: current.runtimeId,
       state: "sending", requestId: sameCaller ? previous?.requestId ?? ownership.requestId ?? null : null, receipt: null,
       revision: (previous?.revision ?? 0) + 1, history: [...(previous?.history ?? []), ...(previous ? [{ operationId: previous.operationId,
-        revision: previous.revision, generation: previous.generation, caller: previous.caller, state: previous.state, requestId: previous.requestId, receipt: previous.receipt }] : [])] };
+        revision: previous.revision, generation: previous.generation, caller: previous.caller, callerEvidence: previous.callerEvidence, state: previous.state, requestId: previous.requestId, receipt: previous.receipt }] : [])] };
     completion.releaseOperation = operation;
     completion.ownershipRevision = (completion.ownershipRevision ?? 0) + 1;
     completion.ownership = { ...ownership, state: "sending", operationId: operation.operationId, caller: current.caller, generation: current.generation,
@@ -1126,6 +1146,7 @@ async function releaseCompletionNotification(ctx: OpCtx, ref: string, input: Spr
   const sent = claim.operation;
   let receipt = null, requestId = sent.requestId, confirmed = false;
   try {
+    await verifySprintSender(ctx, sprintId, input, adapter, clock);
     receipt = await adapter.release(attempt.runId, attempt.dispatchId, sent.requestId ?? undefined);
     requestId = receipt.requestId ?? requestId;
     if (receipt.dispatchId !== attempt.dispatchId || !((receipt.state === "released" && receipt.processAction === "closed_agent_terminal") || receipt.state === "already_released")) throw Error();
@@ -1136,7 +1157,7 @@ async function releaseCompletionNotification(ctx: OpCtx, ref: string, input: Spr
     const completion = latest.completion!, operation = completion.releaseOperation!;
     if (operation.operationId !== sent.operationId || operation.revision !== sent.revision || operation.state !== "sending") {
       operation.history.push({ operationId: sent.operationId, revision: sent.revision, generation: sent.generation,
-        caller: sent.caller, state: "unknown", requestId, receipt });
+        caller: sent.caller, callerEvidence: sent.callerEvidence, state: "unknown", requestId, receipt });
       confirmed = false;
     } else {
       operation.state = confirmed ? "confirmed" : "unknown"; operation.requestId = requestId; operation.receipt = receipt;
@@ -1163,10 +1184,10 @@ export async function reconcileSprintNotifications(ctx: OpCtx, ref: string, inpu
   if (!adapter.notificationRequest || !pending.length && !replies.length && !acknowledgments.length) return state;
   const authority = await adapter.authority(owner.runId); checkAuthority(authority, owner.runId, clock);
   if (authority.caller !== owner.caller || authority.runtimeId !== owner.runtimeId || authority.consumerGeneration !== owner.consumerGeneration
-    || (authority.callerIdentity ?? null) !== (owner.callerIdentity ?? null)) fail("AUTHORITY_CHANGED", "通知の元requestと現在のcallerを照合してください");
+    || !sameSprintCaller(authority, owner)) fail("AUTHORITY_CHANGED", "通知の元requestと現在のcallerを照合してください");
   for (const result of pending) {
     const operation = result.completion!.releaseOperation!;
-    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || !sameSprintCaller(operation, owner)
       || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash(operation.target)) continue;
     let observation = null;
     try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 欠測やpendingを再送許可へ変えない。 */ }
@@ -1201,7 +1222,7 @@ export async function reconcileSprintNotifications(ctx: OpCtx, ref: string, inpu
   }
   for (const reception of replies) {
     const operation = reception.reply!;
-    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || !sameSprintCaller(operation, owner)
       || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash({ target: operation.target, body: operation.body })) continue;
     let observation = null;
     try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 未確認は保留する。 */ }
@@ -1222,7 +1243,7 @@ export async function reconcileSprintNotifications(ctx: OpCtx, ref: string, inpu
   }
   for (const delivery of acknowledgments) {
     const operation = delivery.ackOperation!;
-    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || !sameSprintCaller(operation, owner)
       || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash(operation.target)) continue;
     let observation = null;
     try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 別callerのabsentや欠測でも再送しない。 */ }
@@ -1260,7 +1281,7 @@ export async function receiveSprintNotifications(ctx: OpCtx, ref: string, input:
   if (!adapter.check || !adapter.acknowledge) fail("NOTIFICATION_UNAVAILABLE", "元Runの配送とackを確認できません");
   const authority = await adapter.authority(current.runId);
   checkAuthority(authority, current.runId, clock);
-  if (authority.caller !== current.caller || authority.consumerGeneration !== current.consumerGeneration) fail("STALE_GENERATION", "元Runの現在の監督を再照合してください");
+  if (authority.caller !== current.caller || authority.consumerGeneration !== current.consumerGeneration || authority.runtimeId !== current.runtimeId || !sameSprintCaller(authority, current)) fail("STALE_GENERATION", "元Runの現在の監督を再照合してください");
   await reconcileSprintNotifications(ctx, ref, { sessionId: input.sessionId, generation: input.generation }, adapter, clock);
   let batch = await adapter.check(current.runId);
   const checked = new Set<string>();
@@ -1322,17 +1343,18 @@ export async function receiveSprintNotifications(ctx: OpCtx, ref: string, input:
       if (previous?.state === "sending") { delivery.ackOperation = previous; delivery.reason = { code: "ACK_PENDING", message: "保存した現在Deliveryのack操作を照合してください" }; storeNotificationDelivery(ctx.db, sprintId, delivery); return false; }
       if (previous?.state === "confirmed") { delivery.ackOperation = previous; delivery.acknowledged = true; storeNotificationDelivery(ctx.db, sprintId, delivery); return false; }
       const target = { runId: owner.runId, deliveryId: batch.deliveryId! };
-      const sameCaller = previous?.caller === owner.caller && previous.runtimeId === owner.runtimeId && previous.callerIdentity === (owner.callerIdentity ?? null);
+      const sameCaller = previous?.caller === owner.caller && previous.runtimeId === owner.runtimeId && sameSprintCaller(previous, owner);
       delivery.ackOperation = { operationId: previous?.operationId ?? crypto.randomUUID(), inputHash: sprintHash(target), target,
-        sessionId: owner.id, generation: owner.generation, caller: owner.caller, callerIdentity: owner.callerIdentity ?? null, runtimeId: owner.runtimeId,
+        sessionId: owner.id, generation: owner.generation, caller: owner.caller, callerIdentity: owner.callerIdentity ?? null, callerEvidence: owner.callerEvidence, runtimeId: owner.runtimeId,
         state: "sending", requestId: sameCaller ? previous?.requestId ?? null : null, receipt: null,
-        history: [...(previous?.history ?? []), ...(previous ? [{ generation: previous.generation, caller: previous.caller,
+        history: [...(previous?.history ?? []), ...(previous ? [{ generation: previous.generation, caller: previous.caller, callerEvidence: previous.callerEvidence,
           requestId: previous.requestId, state: previous.state, receipt: previous.receipt }] : [])] };
       storeNotificationDelivery(ctx.db, sprintId, delivery); touch(ctx.db, sprintId); return true;
     });
     if (!canAck) return getSprintNotificationState(ctx.db, ref, clock);
     let next: SprintOrcaDelivery | null = null;
     try {
+      await verifySprintSender(ctx, sprintId, input, adapter, clock);
       const ack = await adapter.acknowledge(current.runId, batch.deliveryId, delivery.ackOperation!.requestId ?? undefined);
       delivery.acknowledged = ack.acknowledged === batch.deliveryId;
       next = ack.next;
@@ -1341,9 +1363,10 @@ export async function receiveSprintNotifications(ctx: OpCtx, ref: string, input:
       delivery.ackOperation!.requestId = ack.requestId ?? delivery.ackOperation!.requestId;
     } catch (error) {
       if (error instanceof SprintOrcaMutationError) delivery.ackOperation!.requestId ??= error.requestId;
+      if (error instanceof NodError) delivery.reason = { code: error.code, message: error.message };
     }
     delivery.ackOperation!.state = delivery.acknowledged ? "confirmed" : "unknown";
-    if (!delivery.acknowledged) delivery.reason = { code: "ACK_UNKNOWN", message: "現在の配送のack結果を確認してください" };
+    if (!delivery.acknowledged) delivery.reason ??= { code: "ACK_UNKNOWN", message: "現在の配送のack結果を確認してください" };
     tx(ctx.db, () => storeNotificationDelivery(ctx.db, sprintId, delivery));
     if (delivery.acknowledged && next) { batch = next; continue; }
     return getSprintNotificationState(ctx.db, ref, clock);
@@ -1382,7 +1405,7 @@ export async function requestSprintExecutionStart(ctx: OpCtx, ref: string,
     const current = owned(ctx, before.sprintId, input), saved = attemptById(ctx.db, before.sprintId, input.attemptId);
     if (before.executionVersion !== version(ctx.db, before.sprintId)) fail("RECONCILE_REQUIRED", "開始直前に予約または観測が変わりました");
     if (authority.caller !== current.caller || authority.runtimeId !== current.runtimeId || authority.consumerGeneration !== current.consumerGeneration
-      || (current.callerIdentity && authority.callerIdentity !== current.callerIdentity)) fail("AUTHORITY_CHANGED", "開始直前の監督権限が変わりました");
+      || !sameSprintCaller(current, authority)) fail("AUTHORITY_CHANGED", "開始直前の監督権限が変わりました");
     const launch = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", before.sprintId).find(o => o.attemptId === saved.id && o.kind === "worker_start")!;
     const observed = saved.hostObservation, confirmation = saved.startConfirmation;
     const notifications = getSprintNotificationState(ctx.db, before.sprintId, clock);
@@ -1404,8 +1427,8 @@ export async function requestSprintExecutionStart(ctx: OpCtx, ref: string,
     const inputValue = { spec: "確認済みの同担当に実装開始を許可", placement: saved.placement, taskId: saved.taskId, parentTaskId: null };
     const value: SprintExecutionOperation = { schemaVersion: 1, id, sprintId: before.sprintId, attemptId: saved.id, kind: "worker_begin",
       requestKey: `begin:${saved.id}:${confirmation.id}`, inputHash: sprintHash({ inputValue, authorization, dispatchId: saved.dispatchId }),
-      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, runtimeId: current.runtimeId,
-      runId: current.runId, state: "sending", requestId: null, receipt: null, input: inputValue, reason: null,
+      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, callerEvidence: current.callerEvidence, runtimeId: current.runtimeId,
+      consumerGeneration: current.consumerGeneration, runId: current.runId, state: "sending", requestId: null, receipt: null, input: inputValue, reason: null,
       start: { dispatchId: saved.dispatchId!, authorization, identity: host!.identity } };
     saved.startAuthorization = authorization; saved.canStart = true; saved.phase = "start_authorized";
     saved.reason = { code: "START_AUTHORIZED", message: "開始を許可しました。通知結果と担当の開始報告を確認してください" };

@@ -15,7 +15,7 @@ function prepared(count = 1) {
 
 function authority() {
   return { runId: "元Run", caller: "監督A", coordinator: "監督A", consumerGeneration: 7,
-    runtimeId: "home-runtime", source: "OrcaのRunとcaller", observedAt: sprintTestClock.now.toISOString() };
+    runtimeId: "home-runtime", callerIdentity: "orca_session_id:fixture-session", source: "OrcaのRunとcaller", observedAt: sprintTestClock.now.toISOString() };
 }
 
 function receipt(requestId: string, taskId: string, dispatchId: string | null = null): core.SprintExecutionReceipt {
@@ -134,7 +134,7 @@ test("Orca adapterは初回にretry要求を作らず、実receiptだけを保�
   const runner: core.OrcaRunner = async args => {
     commands.push(args);
     let result: unknown;
-    if (args[0] === "status") result = { runtime: { runtimeId: "home-runtime" }, caller: { orcaSessionId: "実caller" } };
+    if (args[0] === "status") result = { runtime: { runtimeId: "home-runtime", state: "ready", reachable: true, connectionState: "connected" }, caller: { orcaSessionId: "orca_session_id:fixture-session", live: true } };
     else if (args[1] === "run-show" || args[1] === "run-current") result = { run: { id: "元Run", coordinator_handle: "監督A", consumer_generation: 7 } };
     else if (args[1] === "task-create") result = { task: { id: "実Task", run_id: "元Run" }, mutation: { requestId: "実Task要求" } };
     else if (args[1] === "worker-start") result = { runId: "元Run", taskId: "実Task", dispatchId: "実Dispatch", mutation: { requestId: "実起動要求" },
@@ -365,14 +365,14 @@ test("Task作成の応答を全て失っても実際の送信specと正確な既
   let externalSpec = "", tasks = 0, starts = 0;
   const runner: core.OrcaRunner = async args => {
     let result: unknown;
-    if (args[0] === "status") result = { runtime: { runtimeId: "home-runtime" }, caller: { orcaSessionId: "実caller" } };
+    if (args[0] === "status") result = { runtime: { runtimeId: "home-runtime", state: "ready", reachable: true, connectionState: "connected" }, caller: { orcaSessionId: "orca_session_id:fixture-session", live: true } };
     else if (["run-show", "run-current"].includes(args[1]!)) result = { run: { id: "元Run", coordinator_handle: "監督A", consumer_generation: 7 } };
     else if (args[1] === "task-create") { tasks++; externalSpec = args[args.indexOf("--spec") + 1]!; return { kind: "timeout" }; }
     else if (args[1] === "task-list") result = { tasks: [{ id: "既存Task", run_id: "元Run", parent_id: null, spec: externalSpec }] };
     else if (args[1] === "worker-list") result = { workers: [], page: { hasMore: false, nextCursor: null } };
     else if (args[1] === "worker-start") { starts++; result = { runId: "元Run", taskId: "既存Task", dispatchId: "既存Dispatch", mutation: { requestId: "実起動要求" } }; }
     else throw new Error("想定外の操作");
-    return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" };
+    return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result, _meta: { runtimeId: "home-runtime" } }), stderr: "" };
   };
   const adapter = core.createSprintOrcaAdapter(runner, { from: "監督A", clock: sprintTestClock });
   const unknown = await core.requestSprintExecution(state.llm, state.sprint.id, { ...context, attemptId: state.attempt.id }, adapter, sprintTestClock);

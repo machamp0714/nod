@@ -1,9 +1,55 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as core from "@nod/core";
 import { makeRepo, runNod, tempDb, tempDir } from "./helpers";
 import { prepareSprint, acceptPreparedSprint, sprintTestClock } from "../../core/test/fixtures/sprint-start";
+
+test("CLIの通常PMは既定自己collectorで開始し、借用fromの実行依頼は送信しない", async () => {
+  const cwd = makeRepo(), path = tempDb(), db = core.openDb(path), dir = tempDir();
+  const me = { db, actor: "me" }, ws = core.initWorkspace(db, { path: cwd }).workspace;
+  const issue = core.createIssue(me, { workspaceId: ws.id, title: "通常PMの公開入口" });
+  const p = prepareSprint(me, ws.key, [issue.id]);
+  const period = core.updateSprint(me, p.sprint.id, { expectedVersion: p.sprint.version, requestKey: "期間", startDate: "2000-01-01", endDate: "2999-01-01" });
+  const proposed = core.proposeSprintPlan(me, period.id, { ...p.input, expectedVersion: period.version, requestKey: "通常PM計画" });
+  const ready = core.acceptSprintPlan(me, period.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
+  const sprint = core.activateSprint(me, period.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }); db.close();
+  const terminal = "term_22222222-2222-4222-8222-222222222222", thread = "11111111-1111-4111-8111-111111111111";
+  const metadataDir = join(dir, "sessions/2026/10/29"); mkdirSync(metadataDir, { recursive: true });
+  const line = (type: string, payload: unknown) => JSON.stringify({ timestamp: new Date().toISOString(), type, payload }) + "\n";
+  writeFileSync(join(metadataDir, `rollout-${thread}.jsonl`), [
+    line("session_meta", { id: thread, cwd, cli_version: "0.164.0", originator: "codex-tui", source: "cli", model_provider: "openai" }),
+    line("event_msg", { type: "task_started", turn_id: "native-turn" }),
+    line("turn_context", { turn_id: "native-turn", cwd, model: "gpt-6.1-sol", effort: "high" }),
+    line("event_msg", { type: "thread_settings_applied", thread_id: thread, thread_settings: { cwd, model: "gpt-6.1-sol", reasoning_effort: "high", model_provider_id: "openai" } }),
+    line("token_usage_record", { thread_id: thread, session_id: thread, turn_id: "native-turn", root_turn_id: "native-turn" }),
+  ].join(""));
+  const fake = join(dir, "orca.ts"), saved = join(dir, "commands.json");
+  writeFileSync(fake, `import {existsSync,readFileSync,writeFileSync} from 'node:fs';
+const a=process.argv.slice(2),file=process.env.NOD_TEST_ORCA_STATE!,commands=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];commands.push(a);writeFileSync(file,JSON.stringify(commands));let result;
+if(a[0]==='status')result={runtime:{runtimeId:'native-home',state:'ready',reachable:true,connectionState:'connected'}};
+else if(a[0]==='terminal')result={terminal:{handle:${JSON.stringify(terminal)},incarnationId:'native-incarnation',connected:true,agentIdentity:'codex',worktreePath:process.cwd()}};
+else if(['run-current','run-show'].includes(a[1])){if(a[1]==='run-current'&&a.includes('--from'))throw Error('default本人resolver必須');result={run:{id:'native-run',coordinator_handle:${JSON.stringify(terminal)},consumer_generation:1}};}
+else if(a[1]==='task-create')result={task:{id:'native-task',run_id:'native-run'},mutation:{requestId:'native-task-request'}};
+else if(a[1]==='worker-start')result={runId:'native-run',taskId:'native-task',dispatchId:'native-dispatch',mutation:{requestId:'native-start-request'}};
+else throw Error('unexpected command');console.log(JSON.stringify({ok:true,result,_meta:{runtimeId:'native-home'}}));`);
+  const opts = { cwd, db: path, actor: "codex", env: { NOD_ORCA: "1", ORCA_CLI_COMMAND: `bun ${fake}`, NOD_TEST_ORCA_STATE: saved,
+    ORCA_TERMINAL_HANDLE: terminal, CODEX_THREAD_ID: thread, CODEX_HOME: dir, ORCA_AGENT_SESSION_ID: "" } };
+  const input = join(dir, "input.json");
+  writeFileSync(input, JSON.stringify({ expectedVersion: sprint.version, requestKey: "監督", runId: "native-run" }));
+  const begin = await runNod(["sprint", "session", "begin", sprint.id, "--input", input, "--json"], opts);
+  expect(begin).toMatchObject({ exitCode: 0, json: { callerEvidence: { kind: "native_terminal", metadata: { threadId: thread }, identity: { terminal, incarnationId: "native-incarnation" } } } });
+  expect(begin.json.callerIdentity).toBeUndefined();
+  const context = { sessionId: begin.json.id, generation: 1 };
+  writeFileSync(input, JSON.stringify({ ...context, requestKey: "担当", itemId: p.items[0]!.id, actor: "codex", spec: "仕事", placement: { agent: "codex", worktree: "path:/native" } }));
+  const requested = await runNod(["sprint", "execution", "request", sprint.id, "--input", input, "--json"], opts);
+  expect(requested).toMatchObject({ exitCode: 0, json: { occupied: 1, attempts: [{ taskId: "native-task", dispatchId: "native-dispatch" }] } });
+  writeFileSync(input, JSON.stringify({ ...context, attemptId: requested.json.attempts[0].id }));
+  const rejected = await runNod(["sprint", "execution", "request", sprint.id, "--input", input, "--from", "term_33333333-3333-4333-8333-333333333333", "--json"], opts);
+  expect(rejected).toMatchObject({ exitCode: 1, json: { error: { code: "ORCA_OBSERVATION_UNKNOWN" } } });
+  const commands: string[][] = JSON.parse(readFileSync(saved, "utf8"));
+  expect(commands.filter(a => ["task-create", "worker-start"].includes(a[1]!))).toHaveLength(2);
+});
 
 test("CLIは同じ公開coreの監督・予約・不明理由と再照合操作をJSONと日本語で表示する", async () => {
   const cwd = makeRepo(), path = tempDb(), db = core.openDb(path), inputDir = tempDir();
@@ -45,14 +91,14 @@ test("CLIのbegin・request・observe・resumeが同じ元Runの担当へ合流�
 const args=process.argv.slice(2),file=process.env.NOD_TEST_ORCA_STATE!;
 const state=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):{commands:[],spec:null,started:false};state.commands.push(args);
 const coordinator=process.env.NOD_TEST_COORDINATOR??'監督A';let result;
-if(args[0]==='status')result={runtime:{runtimeId:'home-runtime'},caller:{orcaSessionId:'実caller'}};
+if(args[0]==='status')result={runtime:{runtimeId:'home-runtime',state:'ready',reachable:true,connectionState:'connected'},caller:{orcaSessionId:'orca_session_id:fixture-session',live:true}};
 else if(['run-current','run-show'].includes(args[1]!))result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:coordinator==='監督A'?7:8}};
 else if(args[1]==='task-create'){state.spec=args[args.indexOf('--spec')+1];result={task:{id:'元Task',run_id:'元Run'},mutation:{requestId:'Task要求'}};}
 else if(args[1]==='worker-start'){state.started=true;result={runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',mutation:{requestId:'起動要求'}};}
 else if(args[1]==='task-list')result={tasks:[{id:'元Task',run_id:'元Run',spec:state.spec,parent_id:null}]};
 else if(args[1]==='worker-list')result={workers:state.started?[{runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',identity:{runtimeId:'host',incarnationId:'incarnation',terminal:'端末',remoteRuntimeEpoch:'epoch'},projection:{liveness:{verdict:'live',observedAt:Date.now()}}}]:[],page:{hasMore:false,nextCursor:null}};
 else if(args[1]==='request-show'){const id=args[args.indexOf('--request')+1];result={requestId:id,state:'completed',receipt:{runId:'元Run',taskId:'元Task',dispatchId:id==='起動要求'?'元Dispatch':null,mutation:{requestId:id}}};}
-else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result}));
+else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result,_meta:{runtimeId:'home-runtime'}}));
 `);
   const env = { NOD_ORCA: "1", ORCA_CLI_COMMAND: `bun ${fake}`, NOD_TEST_ORCA_STATE: saved };
   let sequence = 0;

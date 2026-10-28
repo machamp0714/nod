@@ -1,4 +1,4 @@
-import type { SprintExecutionState, SprintSessionContext } from "./sprint-execution-types";
+import type { SprintCallerEvidence, SprintExecutionState, SprintSessionContext } from "./sprint-execution-types";
 import type { SprintHostObservation, SprintOrcaStatusMessage } from "./sprint-observation-types";
 
 export interface SprintOrcaDelivery {
@@ -21,9 +21,11 @@ export interface SprintNotificationResult {
 export interface SprintNotificationReleaseOperation {
   operationId: string; inputHash: string; sessionId: string; generation: number; caller: string;
   callerIdentity: string | null; runtimeId: string; target: { runId: string; dispatchId: string };
+  callerEvidence?: SprintCallerEvidence;
   state: "sending" | "confirmed" | "unknown"; requestId: string | null; receipt: SprintOrcaReleaseReceipt | null;
   revision: number;
   history: { operationId: string; revision: number; generation: number; caller: string; state: "sending" | "confirmed" | "unknown";
+    callerEvidence?: SprintCallerEvidence;
     requestId: string | null; receipt: SprintOrcaReleaseReceipt | null }[];
   reconciliation?: SprintNotificationRequestObservation;
 }
@@ -38,9 +40,10 @@ export interface SprintNotificationReception {
   reason: { code: string; message: string } | null;
   reply?: { operationId: string; state: "sending" | "confirmed" | "unknown"; body: string; caller: string; generation: number;
     target: { runId: string; messageId: string }; inputHash: string; sessionId: string; runtimeId: string; callerIdentity: string | null;
+    callerEvidence?: SprintCallerEvidence;
     requestId: string | null; receipt: SprintOrcaReplyReceipt | null;
     reconciliation?: SprintNotificationRequestObservation;
-    history: { caller: string; generation: number; requestId: string | null; state: "sending" | "confirmed" | "unknown"; receipt: SprintOrcaReplyReceipt | null }[] };
+    history: { caller: string; generation: number; callerEvidence?: SprintCallerEvidence; requestId: string | null; state: "sending" | "confirmed" | "unknown"; receipt: SprintOrcaReplyReceipt | null }[] };
 }
 export interface SprintOrcaReplyReceipt {
   questionId: string; answerMessageId: string; body: string; status: "answered";
@@ -67,11 +70,13 @@ export interface SprintNotificationDelivery {
 export interface SprintNotificationAckOperation {
   operationId: string; inputHash: string; sessionId: string; generation: number; caller: string;
   callerIdentity: string | null; runtimeId: string; target: { runId: string; deliveryId: string };
+  callerEvidence?: SprintCallerEvidence;
   state: "sending" | "confirmed" | "unknown"; requestId: string | null;
   reconciliation?: SprintNotificationRequestObservation;
   receipt: { acknowledged: string | null; requestId: string | null; source: string | null; observedAt: string | null;
     nextDeliveryId: string | null; nextCount: number } | null;
   history: { generation: number; caller: string; requestId: string | null; state: "sending" | "confirmed" | "unknown";
+    callerEvidence?: SprintCallerEvidence;
     receipt: SprintNotificationAckOperation["receipt"] }[];
 }
 export interface SprintNotificationState {

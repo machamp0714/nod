@@ -1,11 +1,11 @@
 import { NodError } from "../errors";
 import { isDeepStrictEqual } from "node:util";
-import { SprintOrcaMutationError, type SprintExecutionIdentity, type SprintExecutionOperation,
+import { SprintOrcaMutationError, sameSprintCaller, type SprintCallerEvidence, type SprintExecutionIdentity, type SprintExecutionOperation,
   type SprintExecutionReceipt, type SprintOrcaAdapter, type SprintOrcaInventory, type SprintRequestObservation } from "../sprint-execution-types";
 import type { SprintClock } from "../sprint-types";
 import { ORCA_CREATE_TIMEOUT_MS, ORCA_TIMEOUT_MS, type OrcaRunner } from "./orca";
 import { sprintOrcaTaskSpec, sprintOrcaStartNotificationArgs } from "./sprint-execution";
-import type { SprintSelfMetadata } from "../sprint-self-metadata";
+import { collectSprintSelfMetadata, type SprintSelfMetadata, type SprintSelfMetadataSource } from "../sprint-self-metadata";
 import type { SprintHostObservation } from "../sprint-observation-types";
 import type { SprintOrcaDelivery } from "../sprint-notification-types";
 
@@ -35,7 +35,7 @@ export function parseSprintOrcaSendReceipt(raw: unknown, expected: SprintOrcaSen
     messageId: string(relay.messageId ?? message.id), requestId: string(object(value.mutation).requestId),
   };
 }
-function invalid(): never { throw new NodError("ORCA_OBSERVATION_UNKNOWN", "Orcaの応答形式または対応を確認できません"); }
+function invalid(reason = "Orcaの応答形式または対応を確認できません"): never { throw new NodError("ORCA_OBSERVATION_UNKNOWN", reason); }
 function identity(value: unknown): SprintExecutionIdentity {
   const raw = object(value);
   return { runtimeId: string(raw.runtimeId), incarnationId: string(raw.incarnationId ?? raw.terminalIncarnationId),
@@ -67,7 +67,7 @@ export async function collectSprintSelfHost(run: OrcaRunner | null, metadata: Sp
 }
 // shellを挟まずargvで呼ぶ。資格情報を含み得るraw応答は保存せず、許可したreceipt項目だけを返す。
 export function createSprintOrcaAdapter(run: OrcaRunner | null,
-  options: { from?: string; environment?: string; clock?: SprintClock } = {}): SprintOrcaAdapter {
+  options: { from?: string; environment?: string; clock?: SprintClock; selfMetadataSource?: SprintSelfMetadataSource } = {}): SprintOrcaAdapter {
   const at = () => (options.clock?.now ?? new Date()).toISOString();
   const from = options.from ?? process.env.ORCA_TERMINAL_HANDLE;
   const sender = from ? ["--from", from] : [];
@@ -91,6 +91,66 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
       return invalid();
     }
     return { result, runtimeId: string(object(envelope._meta).runtimeId) };
+  }
+  async function authority(runId: string) {
+    if (!from) return invalid("自己callerが未取得です");
+    const observe = async () => {
+      const observations: Extract<SprintCallerEvidence, { kind: "native_terminal" }>["observations"] = [];
+      const read = async (args: string[], kind: typeof observations[number]["kind"]) => {
+        const value = await call(args);
+        if (!value.runtimeId) return invalid("観測元runtimeが未取得です");
+        observations.push({ kind, source: `Orca ${args.slice(0, 2).join(" ")}`, observedAt: at(), runtimeId: value.runtimeId });
+        return value;
+      };
+      const status = await read(["status"], "status"), runtime = object(status.result.runtime);
+      const runtimeId = string(runtime.runtimeId);
+      if (!runtimeId || status.runtimeId !== runtimeId || runtime.state !== "ready" || runtime.reachable !== true
+        || runtime.connectionState !== "connected") return invalid("自己runtimeがready・接続中ではありません");
+      let callerIdentity: string | undefined, callerEvidence: SprintCallerEvidence;
+      if (Object.hasOwn(status.result, "caller")) {
+        const caller = object(status.result.caller);
+        callerIdentity = string(caller.orcaSessionId) ?? undefined;
+        if (!callerIdentity?.startsWith("orca_session_id:") || !callerIdentity.slice("orca_session_id:".length)
+          || caller.live !== true || caller.refusal !== undefined) return invalid("structured callerの正式session address・live観測が拒否または不完全です");
+        // 公開fieldの値はhostがlineage解決したaddress。injected raw UIDと同一視しない。
+        callerEvidence = { kind: "orca_session", orcaSessionId: callerIdentity, source: "Orca statusのhost解決済みsession address", observedAt: at() };
+      } else {
+        if (process.env.ORCA_AGENT_SESSION_ID?.trim()) return invalid("structured callerの観測が欠測しています");
+        const self = process.env.ORCA_TERMINAL_HANDLE;
+        if (!self || self !== from) return invalid("指定fromが継承された自己terminalと一致しません");
+        const metadata = collectSprintSelfMetadata(options.selfMetadataSource, options.clock);
+        if (metadata.status !== "observed" || metadata.terminal !== self || metadata.cwd !== process.cwd()
+          || metadata.threadId !== (options.selfMetadataSource?.threadId ?? process.env.CODEX_THREAD_ID)) {
+          return invalid(`自己metadataを照合できません: ${metadata.reasons.join(",") || "identity_mismatch"}`);
+        }
+        const shown = await read(["terminal", "show", "--terminal", self], "terminal"), terminal = object(shown.result.terminal);
+        if (shown.runtimeId !== runtimeId || terminal.handle !== self || terminal.worktreePath !== metadata.cwd
+          || terminal.connected !== true || terminal.agentIdentity !== "codex" || !string(terminal.incarnationId)) {
+          return invalid("自己terminalのincarnation・接続・cwd・agentを照合できません");
+        }
+        callerEvidence = { kind: "native_terminal", identity: { terminal: self, incarnationId: string(terminal.incarnationId), runtimeId,
+          remoteRuntimeEpoch: string(shown.result.remoteRuntimeEpoch) }, metadata, observations,
+          source: "自己collectorと独立したOrca status・terminal show・default Run binding", observedAt: at() };
+      }
+      // 明示--fromはCLIの本人resolverを迂回するため、binding取得へ渡さない。
+      const bound = await read(["orchestration", "run-current"], "run_current");
+      const shown = await read(["orchestration", "run-show", "--id", runId], "run_show");
+      const current = object(bound.result.run), target = object(shown.result.run);
+      if (bound.runtimeId !== runtimeId || shown.runtimeId !== runtimeId || current.id !== runId || target.id !== runId
+        || current.coordinator_handle !== from || target.coordinator_handle !== from
+        || current.consumer_generation !== target.consumer_generation || !Number.isSafeInteger(target.consumer_generation)
+        || (target.consumer_generation as number) < 0) return invalid("自己Run bindingと現在consumerの対応が変化または欠測しています");
+      return { runId, caller: from, ...(callerIdentity ? { callerIdentity } : {}), callerEvidence, coordinator: from,
+        consumerGeneration: target.consumer_generation as number, runtimeId, source: "Orca本人status・default run-current・run-showの前後照合", observedAt: at() };
+    };
+    const first = await observe(), last = await observe();
+    if (!sameSprintCaller(first, last) || first.runtimeId !== last.runtimeId || first.consumerGeneration !== last.consumerGeneration) {
+      return invalid("権限取得中に本人・runtime・incarnationまたはconsumerが変わりました");
+    }
+    if (first.callerEvidence.kind === "native_terminal" && last.callerEvidence.kind === "native_terminal") {
+      last.callerEvidence.observations = [...first.callerEvidence.observations, ...last.callerEvidence.observations];
+    }
+    return last;
   }
   function receipt(raw: unknown, knownRequest: string | null = null, expected?: SprintOrcaSendExpectation): SprintExecutionReceipt {
     const value = object(raw), task = object(value.task), dispatch = object(value.dispatch), worker = object(value.worker);
@@ -256,22 +316,16 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
         livenessSource: string(live.source), livenessObservedAt: liveAt,
         source: "Orca worker-showのexactWorker・実行host status（別取得）", observedAt: at() };
     },
-    async authority(runId) {
-      if (!from) return invalid();
-      const status = await call(["status"]);
-      const bound = await call(["orchestration", "run-current", ...sender]);
-      const shown = await call(["orchestration", "run-show", "--id", runId]);
-      const current = object(bound.result.run), target = object(shown.result.run);
-      const runtimeId = string(object(status.result.runtime).runtimeId) ?? status.runtimeId;
-      const callerIdentity = string(object(status.result.caller).orcaSessionId);
-      if (current.id !== runId || target.id !== runId || current.coordinator_handle !== from || target.coordinator_handle !== from
-        || current.consumer_generation !== target.consumer_generation || !runtimeId || !callerIdentity
-        || !Number.isSafeInteger(target.consumer_generation)) return invalid();
-      return { runId, caller: from, callerIdentity, coordinator: from, consumerGeneration: target.consumer_generation as number,
-        runtimeId, source: "Orca status・run-current・run-show", observedAt: at() };
-    },
+    authority,
     async send(operation, retryRequestId) {
       if (retryRequestId && operation.requestId !== retryRequestId) throw new NodError("REQUEST_MISMATCH", "保存したrequest IDだけを回復できます");
+      if (operation.callerEvidence) {
+        const current = await authority(operation.runId);
+        if (current.caller !== operation.caller || current.runtimeId !== operation.runtimeId
+          || current.consumerGeneration !== operation.consumerGeneration || !sameSprintCaller(current, operation)) {
+          return invalid("送信直前のcaller証拠が保存した操作と一致しません");
+        }
+      }
       const retry = retryRequestId ? ["--retry-request", retryRequestId] : [];
       if (operation.kind === "worker_begin") {
         if (!operation.start || !from || from !== operation.caller) return invalid();
