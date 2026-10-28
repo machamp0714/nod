@@ -3,7 +3,9 @@ import { SprintOrcaMutationError, type SprintExecutionIdentity, type SprintExecu
   type SprintExecutionReceipt, type SprintOrcaAdapter, type SprintOrcaInventory, type SprintRequestObservation } from "../sprint-execution-types";
 import type { SprintClock } from "../sprint-types";
 import { ORCA_CREATE_TIMEOUT_MS, ORCA_TIMEOUT_MS, type OrcaRunner } from "./orca";
-import { sprintOrcaTaskSpec } from "./sprint-execution";
+import { sprintOrcaTaskSpec, sprintOrcaStartNotificationArgs } from "./sprint-execution";
+import type { SprintSelfMetadata } from "../sprint-self-metadata";
+import type { SprintHostObservation } from "../sprint-observation-types";
 
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as ObjectValue : {}; }
@@ -19,16 +21,34 @@ function settings(value: unknown): SprintExecutionReceipt["requested"] {
   const raw = object(value);
   return { agent: string(raw.agent), model: string(raw.model), effort: string(raw.effort) };
 }
+export async function collectSprintSelfHost(run: OrcaRunner | null, metadata: SprintSelfMetadata, clock: SprintClock = {}): Promise<SprintHostObservation["selfHost"]> {
+  const missing = { identity: { terminal: metadata.terminal, incarnationId: null, runtimeId: null, remoteRuntimeEpoch: null }, cwd: metadata.cwd ?? "",
+    source: "自己hostのOrca status・terminal showは取得不能", observedAt: (clock.now ?? new Date()).toISOString() };
+  if (!run || !metadata.terminal) return missing;
+  try {
+    const read = async (args: string[]) => {
+      const response = await run([...args, "--json"], { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 });
+      if (response.kind !== "exited" || response.exitCode !== 0) return invalid();
+      const value = object(JSON.parse(response.stdout)); if (value.ok !== true) return invalid(); return value;
+    };
+    const status = await read(["status"]), shown = await read(["terminal", "show", "--terminal", metadata.terminal]);
+    const runtime = object(object(status.result).runtime), terminal = object(object(shown.result).terminal);
+    if (!string(runtime.runtimeId) || object(status._meta).runtimeId !== runtime.runtimeId || object(shown._meta).runtimeId !== runtime.runtimeId
+      || runtime.reachable !== true || terminal.handle !== metadata.terminal || terminal.worktreePath !== metadata.cwd
+      || terminal.agentIdentity !== "codex" || terminal.connected !== true || !string(terminal.incarnationId)) return missing;
+    return { identity: { terminal: metadata.terminal, incarnationId: string(terminal.incarnationId), runtimeId: string(runtime.runtimeId),
+      remoteRuntimeEpoch: string(object(shown.result).remoteRuntimeEpoch) }, cwd: metadata.cwd!, source: "自己hostのOrca status・terminal show（許可metadataのみ）", observedAt: (clock.now ?? new Date()).toISOString() };
+  } catch { return missing; }
+}
 // shellを挟まずargvで呼ぶ。資格情報を含み得るraw応答は保存せず、許可したreceipt項目だけを返す。
 export function createSprintOrcaAdapter(run: OrcaRunner | null,
   options: { from?: string; environment?: string; clock?: SprintClock } = {}): SprintOrcaAdapter {
   const at = () => (options.clock?.now ?? new Date()).toISOString();
   const from = options.from ?? process.env.ORCA_TERMINAL_HANDLE;
-  const environment = options.environment ? ["--environment", options.environment] : [];
   const sender = from ? ["--from", from] : [];
-  async function call(args: string[], mutation = false): Promise<{ result: ObjectValue; runtimeId: string | null }> {
+  async function call(args: string[], mutation = false, target: string | null | undefined = options.environment): Promise<{ result: ObjectValue; runtimeId: string | null }> {
     if (!run) throw new NodError("ORCA_DISABLED", "Orcaとの接続が無効です。元Runの実行先を確認してください");
-    const response = await run([...args, ...environment, "--json"], {
+    const response = await run([...args, ...(target ? ["--environment", target] : []), "--json"], {
       timeoutMs: mutation ? ORCA_CREATE_TIMEOUT_MS : ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024,
     });
     if (response.kind !== "exited") {
@@ -50,12 +70,16 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
   function receipt(raw: unknown, knownRequest: string | null = null): SprintExecutionReceipt {
     const value = object(raw), task = object(value.task), dispatch = object(value.dispatch), worker = object(value.worker);
     const launch = object(value.launch ?? object(value.startOptions).launch);
+    const relay = object(value.relay), message = object(value.message);
+    const messageId = string(relay.messageId ?? message.id);
+    const toHandle = string(message.to_handle) ?? (relay.destination === "worker" && string(relay.dispatchId) ? `dispatch:${relay.dispatchId}` : null);
     return { runId: string(value.runId ?? task.run_id ?? dispatch.runId), requestId: string(object(value.mutation).requestId ?? value.requestId) ?? knownRequest,
       taskId: string(value.taskId ?? task.id ?? dispatch.task_id ?? worker.taskId),
       dispatchId: string(value.dispatchId ?? dispatch.id ?? worker.dispatchId),
       requested: settings(launch.requested), effective: settings(launch.effective),
       identity: value.identity ? identity(value.identity) : null,
-      source: "Orca起動・操作receipt", receivedAt: at() };
+      source: "Orca起動・操作receipt", receivedAt: at(),
+      ...(value.accepted === true && messageId && toHandle ? { notification: { messageId, toHandle, accepted: true as const } } : {}) };
   }
   async function allPages(verb: "task-list" | "worker-list", runId: string): Promise<{ values: ObjectValue[]; complete: boolean }> {
     let cursor: string | null = null;
@@ -74,6 +98,39 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
     }
   }
   return {
+    async status(messageId, runId) {
+      if (!from) return invalid();
+      const { result } = await call(["orchestration", "check", "--terminal", from, "--run", runId, "--all", "--types", "status"]);
+      if (!Array.isArray(result.messages)) return invalid();
+      const messages = result.messages.map(object).filter(m => m.id === messageId);
+      if (messages.length !== 1) return null;
+      const message = messages[0]!;
+      if (message.run_id !== runId || !string(message.from_handle) || message.type !== "status") return invalid();
+      return { id: messageId, runId, fromHandle: string(message.from_handle)!, type: "status", receivedAt: at(), payload: message.payload };
+    },
+    async host(attempt) {
+      if (!attempt.dispatchId || !attempt.taskId) return invalid();
+      const { result } = await call(["orchestration", "worker-show", "--dispatch", attempt.dispatchId]);
+      const dispatch = object(result.dispatch), terminal = object(result.terminal), observation = object(result.observation);
+      const projection = object(result.projection), live = object(projection.liveness), host = object(projection.host);
+      if (dispatch.id !== attempt.dispatchId || dispatch.runId !== attempt.runId || (dispatch.taskId ?? dispatch.task_id) !== attempt.taskId) return invalid();
+      const remote = host.kind === "remote";
+      const target = remote ? string(object(result.server).environmentId) ?? string(host.id) : null;
+      if (remote && !target) return invalid();
+      // Run homeの_metaとremoteRuntimeEpochからruntime IDを作らず、実行hostのstatusを別に読む。
+      const status = await call(["status"], false, target);
+      const runtime = object(status.result.runtime);
+      const verdict = live.verdict;
+      const liveAt = typeof live.observedAt === "number" && Number.isFinite(live.observedAt)
+        ? new Date(live.observedAt).toISOString() : string(live.observedAt);
+      return { runId: attempt.runId, taskId: attempt.taskId, dispatchId: attempt.dispatchId,
+        active: dispatch.status === "dispatched", exactWorker: observation.exactWorker === true && terminal.connected === true && runtime.reachable === true,
+        identity: { terminal: string(terminal.handle), incarnationId: string(terminal.incarnationId), runtimeId: string(runtime.runtimeId), remoteRuntimeEpoch: string(result.remoteRuntimeEpoch) },
+        cwd: string(terminal.worktreePath), agent: string(terminal.agentIdentity),
+        liveness: verdict === "live" || verdict === "exited" ? verdict : "unverifiable",
+        livenessSource: string(live.source), livenessObservedAt: liveAt,
+        source: "Orca worker-showのexactWorker・実行host status（別取得）", observedAt: at() };
+    },
     async authority(runId) {
       if (!from) return invalid();
       const status = await call(["status"]);
@@ -91,6 +148,13 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
     async send(operation, retryRequestId) {
       if (retryRequestId && operation.requestId !== retryRequestId) throw new NodError("REQUEST_MISMATCH", "保存したrequest IDだけを回復できます");
       const retry = retryRequestId ? ["--retry-request", retryRequestId] : [];
+      if (operation.kind === "worker_begin") {
+        if (!operation.start || !from || from !== operation.caller) return invalid();
+        const response = await call([...sprintOrcaStartNotificationArgs(operation), ...retry], true);
+        const parsed = receipt(response.result);
+        if (!parsed.notification || parsed.notification.toHandle !== `dispatch:${operation.start.dispatchId}`) throw new SprintOrcaMutationError(parsed.requestId);
+        return { ...parsed, runId: operation.runId, taskId: operation.input.taskId, dispatchId: operation.start.dispatchId };
+      }
       const placement = operation.input.placement;
       const args = operation.kind === "task_create"
         ? ["orchestration", "task-create", "--spec", sprintOrcaTaskSpec(operation), "--run", operation.runId,

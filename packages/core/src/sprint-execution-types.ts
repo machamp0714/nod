@@ -1,4 +1,6 @@
 import type { SprintClock } from "./sprint-types";
+import type { SprintHostObservation, SprintOrcaHostObservation, SprintOrcaStatusMessage, SprintSettingsRequirement,
+  SprintStartAuthorization, SprintStartConfirmation } from "./sprint-observation-types";
 
 export interface SprintRunAuthority {
   runId: string; caller: string; coordinator: string; consumerGeneration: number;
@@ -15,6 +17,7 @@ export interface SprintExecutionReceipt {
   requested: { agent: string | null; model: string | null; effort: string | null } | null;
   effective: { agent: string | null; model: string | null; effort: string | null } | null;
   identity: SprintExecutionIdentity | null; source: string; receivedAt: string;
+  notification?: { messageId: string; toHandle: string; accepted: true };
 }
 export interface SprintSession {
   schemaVersion: 1; id: string; sprintId: string; generation: number; runId: string;
@@ -40,18 +43,26 @@ export interface SprintAttempt {
   parentAttemptId: string | null; actor: string; sessionId: string; generation: number;
   planId: string; planHash: string; decisionRefs: string[];
   runId: string; taskId: string | null; dispatchId: string | null;
-  placement: SprintExecutionPlacement; phase: "reserved" | "awaiting_confirmation" | "unknown";
-  occupied: true; canStart: false; reason: { code: string; message: string };
+  placement: SprintExecutionPlacement; phase: "reserved" | "awaiting_confirmation" | "unknown" | "start_authorized" | "implementing";
+  occupied: true; canStart: boolean; reason: { code: string; message: string };
   identity: SprintExecutionIdentity | null; observation: { source: string; observedAt: string } | null;
   planHistory?: { planId: string; planHash: string; reconciledAt: string }[];
+  settingsRequirement?: SprintSettingsRequirement;
+  hostObservation?: SprintHostObservation;
+  observationHistory?: SprintHostObservation[];
+  startConfirmation?: SprintStartConfirmation;
+  startAuthorization?: SprintStartAuthorization;
+  startedReport?: { messageId: string; authorizationId: string; reportedAt: string; verifiedAt: string };
+  executionLiveness?: { verdict: "live" | "exited" | "unverifiable"; source: string; observedAt: string };
 }
 export interface SprintExecutionOperation {
   schemaVersion: 1; id: string; sprintId: string; attemptId: string;
-  kind: "task_create" | "worker_start"; requestKey: string; inputHash: string;
+  kind: "task_create" | "worker_start" | "worker_begin"; requestKey: string; inputHash: string;
   sessionId: string; generation: number; caller: string; callerIdentity: string | null; runtimeId: string; runId: string;
   state: "prepared" | "sending" | "confirmed" | "unknown" | "failed";
   requestId: string | null; receipt: SprintExecutionReceipt | null;
   input: { spec: string; placement: SprintExecutionPlacement; taskId: string | null; parentTaskId: string | null };
+  start?: { dispatchId: string; authorization: SprintStartAuthorization; identity: SprintExecutionIdentity };
   reason: { code: string; message: string } | null;
 }
 export interface SprintExecutionSnapshot {
@@ -64,7 +75,7 @@ export interface SprintExecutionSnapshot {
 export interface SprintExecutionState {
   sprintId: string; session: SprintSession | null; executionVersion: number;
   attempts: SprintAttempt[]; operations: SprintExecutionOperation[];
-  occupied: number; reserved: number; canStart: false; stale: boolean;
+  occupied: number; reserved: number; canStart: boolean; stale: boolean;
   unreconciledOwnership: SprintExistingOwnership[];
   quarantined: { operationId: string; generation: number; reason: string; receipt: SprintExecutionReceipt }[];
   nextActions: { description: string; argv: string[]; input?: SprintSessionContext & { requestKey?: string } }[];
@@ -88,6 +99,9 @@ export interface SprintOrcaAdapter {
   inventory?(runId: string, targets?: { taskId: string | null; dispatchId: string | null }[]): Promise<SprintOrcaInventory>;
   send?(operation: SprintExecutionOperation, retryRequestId?: string): Promise<SprintExecutionReceipt>;
   request?(requestId: string): Promise<SprintRequestObservation>;
+  // 実際のOrca受信箱と、保存したDispatchの独立host観測。payloadによる代替は禁止。
+  status?(messageId: string, runId: string): Promise<SprintOrcaStatusMessage | null>;
+  host?(attempt: SprintAttempt): Promise<SprintOrcaHostObservation>;
 }
 export interface SprintSessionInput { expectedVersion: number; requestKey: string; runId: string }
 export interface SprintSessionContext { sessionId: string; generation: number }

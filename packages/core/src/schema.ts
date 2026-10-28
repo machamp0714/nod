@@ -1,6 +1,7 @@
 import { importSprintHistory } from "./migrations/sprint-history";
 import { prepareSprintPlanning } from "./migrations/sprint-planning";
 import { prepareSprintExecutionStorage } from "./migrations/sprint-execution";
+import { prepareSprintStartObservation } from "./migrations/sprint-start-observation";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -704,4 +705,6 @@ export const MIGRATIONS: MigrationStep[][] = [
   ],
   // 版45: 監督世代・主試行の予約と外部操作の照合記録。
   [prepareSprintExecutionStorage],
+  // 版46: 観測済み同担当への開始通知を外部操作として保持する。
+  [prepareSprintStartObservation],
 ];

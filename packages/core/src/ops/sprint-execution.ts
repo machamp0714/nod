@@ -11,6 +11,8 @@ import type { PrepareSprintExecutionInput, SprintAttempt, SprintExecutionOperati
 import { getSprint } from "./sprints";
 import { getSprintIssueEligibility } from "./sprint-eligibility";
 import { findIssueRow } from "../issue-query";
+import type { SprintHostObservation, SprintOrcaHostObservation, SprintSettingsRequirement, SprintStartConfirmation } from "../sprint-observation-types";
+import type { SprintSelfMetadata } from "../sprint-self-metadata";
 
 const missingObservation = { code: "HOST_OBSERVATION_REQUIRED", message: "担当の実行設定と現在の実行identityを確認してください" };
 function fail(code: string, message: string): never { throw new NodError(code, message); }
@@ -87,6 +89,13 @@ function planReconciliationReason(ctx: OpCtx, sprint: SprintDetail, plan: Sprint
     const newItem = plan.content.items.find(i => i.itemId === attempt.itemId);
     if (!original || !oldItem || !newItem || sprintHash(oldItem.requirement) !== sprintHash(newItem.requirement)) {
       return blocked("TARGET_CHANGED", "依頼済みの要求が新合意で変わっています。同じ担当と要求の対応を確認してください");
+    }
+    const inherited = plan.content.constraints.executionSettingsPolicy;
+    if (inherited && (inherited.agent !== attempt.placement.agent
+      || !inherited.allowedModels.includes(attempt.placement.model ?? attempt.hostObservation?.metadata.model ?? "")
+      || !inherited.allowedEfforts.includes(attempt.placement.effort ?? attempt.hostObservation?.metadata.effort ?? "")
+      || !inherited.allowedTargets.includes(attempt.placement.on ?? attempt.placement.worktree))) {
+      return blocked("EXECUTION_SETTINGS_CHANGED", "元の要求設定が新合意の継承許可範囲と一致しません。元の試行を保持して現在の設定を照合してください");
     }
     for (const [key, actual] of [["executionTarget", attempt.placement.on ?? attempt.placement.worktree], ["model", attempt.placement.model], ["effort", attempt.placement.effort]] as const) {
       if (plan.content.constraints[key] !== undefined && plan.content.constraints[key] !== actual) {
@@ -177,7 +186,8 @@ export function prepareSprintExecution(ctx: OpCtx, ref: string, input: PrepareSp
       decisionRefs: (ctx.db.query("SELECT id FROM questions WHERE issue_id=? AND answer IS NOT NULL ORDER BY id").all(item.issueId!) as { id: number }[])
         .map(question => `question:${question.id}`), runId: current.runId,
       taskId: null, dispatchId: null, placement: input.placement, phase: "reserved", occupied: true,
-      canStart: false, reason: missingObservation, identity: null, observation: null };
+      canStart: false, reason: missingObservation, identity: null, observation: null,
+      settingsRequirement: settingsRequirement(plan, input.placement) };
     const operation: SprintExecutionOperation = { schemaVersion: 1, id: crypto.randomUUID(), sprintId: sprint.id,
       attemptId: attempt.id, kind: "task_create", requestKey: input.requestKey, inputHash: hash, sessionId: current.id,
       generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null,
@@ -195,10 +205,19 @@ export function getSprintExecutionState(db: Database, ref: string, clock: Sprint
     if (current && unreconciledOwnership.length !== (current.unreconciledOwnership?.length ?? 0)) {
       current.unreconciledOwnership = unreconciledOwnership; storeSession(db, current); touch(db, sprintId);
     }
+    for (const attempt of attempts.filter(a => a.canStart)) {
+      const eligibility = getSprintIssueEligibility({ db, actor: attempt.actor }, sprintId, attempt.itemId, clock);
+      if (!eligibility.eligible || !current || current.state !== "active" || attempt.startAuthorization?.generation !== current.generation
+        || attempt.planId !== current.planId || attempt.planHash !== current.planHash || attempt.phase !== "start_authorized"
+        || attempt.hostObservation?.result !== "matched" || !fresh(attempt.hostObservation.metadata.collectedAt, clock)) {
+        attempt.canStart = false;
+        attempt.reason = eligibility.reason ?? { code: "START_RECHECK_REQUIRED", message: "現在の監督・identity・設定を開始直前に再検査してください" };
+      }
+    }
     return { sprintId, session: current, executionVersion: version(db, sprintId), attempts,
       operations: rows<SprintExecutionOperation>(db, "sprint_operations", sprintId), occupied: attempts.filter(a => !a.parentAttemptId).length + unreconciledOwnership.length,
       unreconciledOwnership,
-      reserved: attempts.filter(a => !a.parentAttemptId).length, canStart: false,
+      reserved: attempts.filter(a => !a.parentAttemptId).length, canStart: attempts.some(a => a.canStart),
       stale: current ? !fresh(current.observedAt, clock) : true,
       quarantined: rows(db, "sprint_execution_quarantine", sprintId),
       nextActions: current ? [
@@ -223,7 +242,11 @@ function attemptById(db: Database, sprintId: string, id: string): SprintAttempt 
 function unknown(db: Database, operation: SprintExecutionOperation, code: string, message: string): void {
   operation.state = "unknown"; operation.reason = { code, message }; storeOperation(db, operation);
   const attempt = attemptById(db, operation.sprintId, operation.attemptId);
-  attempt.phase = "unknown"; attempt.reason = operation.reason; storeAttempt(db, attempt); touch(db, operation.sprintId);
+  attempt.phase = "unknown"; attempt.canStart = false; attempt.reason = operation.reason; storeAttempt(db, attempt); touch(db, operation.sprintId);
+}
+function invalidateHostObservation(attempt: SprintAttempt, reason: SprintAttempt["reason"]): void {
+  attempt.canStart = false;
+  if (attempt.hostObservation) attempt.hostObservation = { ...attempt.hostObservation, result: "unavailable", reason };
 }
 function canSend(ctx: OpCtx, operation: SprintExecutionOperation, current: SprintSession, clock: SprintClock): void {
   const attempt = attemptById(ctx.db, operation.sprintId, operation.attemptId);
@@ -281,8 +304,14 @@ export async function observeSprintSession(ctx: OpCtx, ref: string, input: Sprin
         const requestId = operation.requestId ?? state.quarantined.find(q => q.operationId === operation.id && q.receipt.requestId)?.receipt.requestId;
         const response = requestId && adapter.request ? await adapter.request(requestId) : null;
         let receipt = response?.state === "completed" ? response.receipt : null;
+        if (receipt && operation.kind === "worker_begin") receipt = bindStartReceipt(operation, receipt);
         if (response?.state === "completed" && (!receipt || receipt.runId !== attempt.runId || response.requestId !== requestId
           || !fresh(response.observedAt, clock) || receipt.requestId !== requestId)) { runtimeConfirmed = false; break; }
+        if (operation.kind === "worker_begin") {
+          receipt ??= operation.state === "confirmed" ? operation.receipt : null;
+          if (!receipt || receipt.taskId !== attempt.taskId || receipt.dispatchId !== attempt.dispatchId) { runtimeConfirmed = false; break; }
+          bindings.push({ operationId: operation.id, receipt }); continue;
+        }
         if (!receipt) {
           const candidates = inventory.tasks.filter(t => t.runId === attempt.runId && (attempt.taskId ? t.taskId === attempt.taskId
             : operation.kind === "task_create" && t.spec === sprintOrcaTaskSpec(operation) && t.parentTaskId === operation.input.parentTaskId));
@@ -369,6 +398,10 @@ export function completeSprintHandover(ctx: OpCtx, ref: string,
       if (changedPlan) {
         attempt.planHistory = [...(attempt.planHistory ?? []), { planId: attempt.planId, planHash: attempt.planHash, reconciledAt: timestamp(clock) }];
         attempt.planId = plan.id; attempt.planHash = plan.contentHash; attempt.reason = missingObservation;
+        attempt.settingsRequirement = settingsRequirement(plan, attempt.placement); attempt.canStart = false;
+        delete attempt.startConfirmation;
+        if (attempt.hostObservation) attempt.hostObservation = { ...attempt.hostObservation, result: "unavailable",
+          reason: { code: "PLAN_OBSERVATION_REQUIRED", message: "新合意の版に対応するホスト観測を取り直してください" } };
       }
       attempt.generation = current.generation; storeAttempt(ctx.db, attempt);
     }
@@ -392,12 +425,21 @@ export function getSprintWorkerContext(db: Database, ref: string,
   return { attempt, generation: state.session.generation, canStart: false };
 }
 function applyReceipt(db: Database, operation: SprintExecutionOperation, receipt: SprintExecutionReceipt): void {
+  if (operation.kind === "worker_begin") {
+    const bound = bindStartReceipt(operation, receipt);
+    if (!bound) {
+      if (receipt.requestId && !operation.requestId) operation.requestId = receipt.requestId;
+      unknown(db, operation, "START_RECEIPT_INCOMPLETE", "元の開始通知requestと実recipientのreceiptを確認できません"); return;
+    }
+    receipt = bound;
+  }
   if (receipt.runId !== operation.runId) {
     if (receipt.requestId && !operation.requestId) operation.requestId = receipt.requestId;
     unknown(db, operation, "RUN_MISMATCH", "応答と保存した元Runの対応を確認できません"); return;
   }
   if (!receipt.source || !Number.isFinite(Date.parse(receipt.receivedAt)) || !receipt.taskId
-    || (operation.kind === "worker_start" && (!receipt.dispatchId || receipt.taskId !== operation.input.taskId))) {
+    || (operation.kind !== "task_create" && (!receipt.dispatchId || receipt.taskId !== operation.input.taskId))
+    || (operation.kind === "worker_begin" && receipt.dispatchId !== operation.start?.dispatchId)) {
     if (receipt.requestId && !operation.requestId) operation.requestId = receipt.requestId;
     unknown(db, operation, "RECEIPT_INCOMPLETE", "応答のTask・Dispatch対応を確認できません"); return;
   }
@@ -411,10 +453,20 @@ function applyReceipt(db: Database, operation: SprintExecutionOperation, receipt
   operation.requestId ??= receipt.requestId; operation.receipt = receipt; operation.state = "confirmed"; operation.reason = null;
   storeOperation(db, operation);
   const attempt = attemptById(db, operation.sprintId, operation.attemptId);
+  if (operation.kind === "worker_begin") {
+    if (!attempt.startedReport && attempt.startAuthorization?.id === operation.start?.authorization.id && attempt.hostObservation?.result === "matched") {
+      attempt.phase = "start_authorized"; attempt.canStart = true;
+      attempt.reason = { code: "START_AUTHORIZED", message: "元の開始通知receiptを確認しました。担当の開始報告を確認してください" };
+      storeAttempt(db, attempt);
+    }
+    touch(db, operation.sprintId); return;
+  }
   if (attempt.taskId && attempt.taskId !== receipt.taskId) fail("IDEMPOTENCY_CONFLICT", "主試行のTaskが一致しません");
   if (attempt.dispatchId && receipt.dispatchId && attempt.dispatchId !== receipt.dispatchId) fail("IDEMPOTENCY_CONFLICT", "主試行のDispatchが一致しません");
   attempt.taskId = receipt.taskId; attempt.dispatchId = receipt.dispatchId ?? attempt.dispatchId;
-  attempt.identity = receipt.identity ?? attempt.identity; attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation;
+  if (receipt.identity && identityChanged(attempt, receipt.identity)) invalidateHostObservation(attempt, { code: "IDENTITY_CHANGED", message: "receiptの実行identityが変わりました。現在のホストを再照合してください" });
+  attempt.identity = receipt.identity ?? attempt.identity;
+  if (!attempt.startedReport && !attempt.startAuthorization) { attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation; }
   attempt.observation = { source: receipt.source, observedAt: receipt.receivedAt }; storeAttempt(db, attempt);
   if (operation.kind === "task_create") {
     const prior = rows<SprintExecutionOperation>(db, "sprint_operations", operation.sprintId).find(o => o.attemptId === attempt.id && o.kind === "worker_start");
@@ -423,6 +475,14 @@ function applyReceipt(db: Database, operation: SprintExecutionOperation, receipt
       input: { ...operation.input, taskId: receipt.taskId } });
   }
   touch(db, operation.sprintId);
+}
+function bindStartReceipt(operation: SprintExecutionOperation, receipt: SprintExecutionReceipt): SprintExecutionReceipt | null {
+  if (!operation.start || receipt.notification?.accepted !== true || !receipt.notification.messageId
+    || receipt.notification.toHandle !== `dispatch:${operation.start.dispatchId}` || !receipt.requestId
+    || (operation.requestId !== null && operation.requestId !== receipt.requestId)) return null;
+  // 同じdurable requestと実recipientが揃った場合の操作対応。ホスト設定や欠測identityは補わない。
+  return { ...receipt, runId: receipt.runId ?? operation.runId, taskId: receipt.taskId ?? operation.input.taskId,
+    dispatchId: receipt.dispatchId ?? operation.start.dispatchId };
 }
 export async function requestSprintExecution(ctx: OpCtx, ref: string,
   input: SprintSessionContext & { attemptId: string }, adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintExecutionState> {
@@ -438,7 +498,7 @@ export async function requestSprintExecution(ctx: OpCtx, ref: string,
     const pending = tx(ctx.db, () => {
       const owner = owned(ctx, sprintId, input);
       attemptById(ctx.db, sprintId, input.attemptId);
-      const operations = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId).filter(o => o.attemptId === input.attemptId);
+      const operations = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId).filter(o => o.attemptId === input.attemptId && o.kind !== "worker_begin");
       const operation = operations.find(o => o.state !== "confirmed");
       if (!operation || operation.state !== "prepared") return null;
       if (operation.generation !== owner.generation || operation.sessionId !== owner.id) fail("STALE_GENERATION", "旧監督の操作です。再照合してください");
@@ -497,6 +557,7 @@ export async function reconcileSprintExecution(ctx: OpCtx, ref: string, input: S
         else {
           const attempt = attemptById(ctx.db, sprintId, operation.attemptId);
           attempt.phase = "unknown"; attempt.reason = { code: "CONTACT_UNKNOWN", message: "実行ホストとの通信を確認できません" };
+          invalidateHostObservation(attempt, attempt.reason);
           storeAttempt(ctx.db, attempt); touch(ctx.db, sprintId);
         }
       }
@@ -538,9 +599,11 @@ export async function reconcileSprintExecution(ctx: OpCtx, ref: string, input: S
         }
         if (operation.kind === "worker_start" && workers.length === 1) {
           const worker = workers[0]!;
+          attempt.executionLiveness = { verdict: worker.liveness, source: worker.source, observedAt: worker.observedAt };
           staleWorker = !fresh(worker.observedAt, clock);
           if (identityChanged(attempt, worker.identity)) {
             attempt.phase = "unknown"; attempt.reason = { code: "IDENTITY_CHANGED", message: "runtimeまたは端末incarnationが変わりました。現在の担当を再確認してください" };
+            invalidateHostObservation(attempt, attempt.reason);
             storeAttempt(ctx.db, attempt); touch(ctx.db, sprintId); continue;
           }
           if (worker.liveness !== "unverifiable" && fresh(worker.observedAt, clock)) {
@@ -549,7 +612,13 @@ export async function reconcileSprintExecution(ctx: OpCtx, ref: string, input: S
               identity: worker.identity, source: worker.source, receivedAt: worker.observedAt });
             const updated = attemptById(ctx.db, sprintId, attempt.id);
             updated.identity = worker.identity; updated.observation = { source: worker.source, observedAt: worker.observedAt };
-            updated.phase = "awaiting_confirmation"; updated.reason = missingObservation;
+            updated.executionLiveness = attempt.executionLiveness;
+            if (worker.liveness === "exited") {
+              updated.phase = "unknown"; updated.reason = { code: "WORKER_EXITED", message: "元の担当の終了を観測しました。所有と枠を保持して次の扱いを確認してください" };
+              invalidateHostObservation(updated, updated.reason);
+            } else if (updated.startedReport) {
+              updated.phase = "implementing"; updated.reason = { code: "WORKER_STARTED", message: "同じ担当の開始報告を受理済みです" };
+            } else if (!updated.startAuthorization) { updated.phase = "awaiting_confirmation"; updated.reason = missingObservation; }
             storeAttempt(ctx.db, updated); touch(ctx.db, sprintId); continue;
           }
         }
@@ -563,7 +632,8 @@ export async function reconcileSprintExecution(ctx: OpCtx, ref: string, input: S
         : "元要求とTask・Dispatchの現在の対応を確認できません";
       if (operation.state !== "confirmed") unknown(ctx.db, operation, code, message);
       else if (operation.kind === "worker_start") {
-        attempt.phase = "unknown"; attempt.reason = { code, message }; storeAttempt(ctx.db, attempt); touch(ctx.db, sprintId);
+        attempt.phase = "unknown"; attempt.reason = { code, message }; invalidateHostObservation(attempt, attempt.reason);
+        storeAttempt(ctx.db, attempt); touch(ctx.db, sprintId);
       }
     }
     return getSprintExecutionState(ctx.db, sprintId, clock);
@@ -584,7 +654,7 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
   const inventory = await adapter.inventory(owner.runId, state.attempts);
   checkAuthority(authority, owner.runId, clock);
   const p = operation.input.placement;
-  const expected = ["orca", "orchestration", operation.kind === "task_create" ? "task-create" : "worker-start",
+  const expected = operation.kind === "worker_begin" ? ["orca", ...sprintOrcaStartNotificationArgs(operation), "--retry-request", operation.requestId, "--json"] : ["orca", "orchestration", operation.kind === "task_create" ? "task-create" : "worker-start",
     ...(operation.kind === "task_create" ? ["--spec", sprintOrcaTaskSpec(operation)] : ["--task", operation.input.taskId!]),
     "--run", operation.runId,
     ...(operation.kind === "task_create" ? operation.input.parentTaskId ? ["--parent", operation.input.parentTaskId] : []
@@ -595,6 +665,16 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
     || !inventory.complete || authority.caller !== operation.caller || authority.runtimeId !== operation.runtimeId
     || (operation.callerIdentity && authority.callerIdentity !== operation.callerIdentity)
     || authority.consumerGeneration !== owner.consumerGeneration) return state;
+  let startHost: SprintOrcaHostObservation | null = null;
+  if (operation.kind === "worker_begin") {
+    const attempt = attemptById(ctx.db, state.sprintId, operation.attemptId);
+    try { startHost = adapter.host ? await adapter.host(attempt) : null; } catch { return state; }
+    const observed = attempt.hostObservation;
+    if (!observed || !operation.start) return state;
+    const verdict = judgeObservation(attempt, observed.metadata, observed.selfHost, startHost, clock);
+    if (verdict.result !== "matched" || verdict.identityFingerprint !== operation.start.authorization.identityFingerprint
+      || verdict.settingsFingerprint !== operation.start.authorization.settingsFingerprint || operation.start.authorization.generation !== owner.generation) return state;
+  }
   const started = tx(ctx.db, () => {
     const current = owned(ctx, state.sprintId, context);
     if (version(ctx.db, state.sprintId) !== state.executionVersion) fail("RECONCILE_REQUIRED", "回復確認中に操作または予約が変わりました");
@@ -610,4 +690,215 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
     tx(ctx.db, () => unknown(ctx.db, operationById(ctx.db, state.sprintId, started.id), "RESPONSE_UNKNOWN", "同じ既知requestの回復応答を確認できません。元要求を再照合してください"));
     return getSprintExecutionState(ctx.db, state.sprintId, clock);
   }
+}
+export function sprintOrcaStartNotificationArgs(operation: SprintExecutionOperation): string[] {
+  if (operation.kind !== "worker_begin" || !operation.start) fail("INVALID_ARGS", "保存した開始通知操作を指定してください");
+  return ["orchestration", "send", "--to", `dispatch:${operation.start.dispatchId}`, "--run", operation.runId, "--from", operation.caller,
+    "--type", "status", "--subject", "Sprint実装開始の許可", "--payload", JSON.stringify({ kind: "nod.sprint.start-authorization", schemaVersion: 1,
+      runId: operation.runId, taskId: operation.input.taskId, dispatchId: operation.start.dispatchId, attemptId: operation.attemptId,
+      authorization: operation.start.authorization })];
+}
+
+function settingsRequirement(plan: SprintPlan, placement: PrepareSprintExecutionInput["placement"]): SprintSettingsRequirement {
+  const policy = plan.content.constraints.executionSettingsPolicy;
+  const value = { mode: policy ? "inherit" as const : "explicit" as const, planId: plan.id, planHash: plan.contentHash, agent: policy?.agent ?? placement.agent,
+    model: plan.content.constraints.model ?? null, effort: plan.content.constraints.effort ?? null,
+    target: plan.content.constraints.executionTarget ?? null, ...(policy ? { policy } : {}) };
+  return { ...value, fingerprint: sprintHash(value) };
+}
+function observationPayload(value: unknown) {
+  const p = sprintObject(value, ["kind", "schemaVersion", "sprintId", "attemptId", "runId", "taskId", "dispatchId", "metadata", "host", "confirmationId", "authorizationId"]);
+  if (!["nod.sprint.host-observation", "nod.sprint.worker-started"].includes(String(p.kind)) || p.schemaVersion !== 1) fail("OBSERVATION_KIND_REQUIRED", "観測専用statusだけを受理できます");
+  for (const key of ["sprintId", "attemptId", "runId", "taskId", "dispatchId"] as const) sprintText(p[key], key);
+  const m = sprintObject(p.metadata, ["schemaVersion", "status", "reasons", "threadId", "turnId", "terminal", "cwd", "model", "effort", "provider", "cliVersion", "settingsAppliedAt", "collectedAt", "collectorDigest", "metadataDigest", "source", "association"]);
+  if (m.schemaVersion !== 1 || !["observed", "unknown"].includes(String(m.status)) || !Array.isArray(m.reasons)
+    || !m.reasons.every(r => typeof r === "string" && r.length < 256)) fail("INVALID_ARGS", "metadataの形式を確認できません");
+  for (const [key, value] of Object.entries(m)) if (!["schemaVersion", "reasons"].includes(key) && value !== null
+    && (typeof value !== "string" || value.length > 2048)) fail("INVALID_ARGS", "metadataは許可された値だけを指定してください");
+  const h = sprintObject(p.host, ["identity", "cwd", "source", "observedAt"]);
+  sprintObject(h.identity, ["runtimeId", "incarnationId", "terminal", "remoteRuntimeEpoch"]);
+  for (const v of Object.values(h.identity as object)) if (v !== null && (typeof v !== "string" || v.length > 2048)) fail("INVALID_ARGS", "host identityの形式を確認できません");
+  for (const key of ["cwd", "source", "observedAt"] as const) sprintText(h[key], key);
+  for (const key of ["confirmationId", "authorizationId"] as const) if (p[key] !== undefined) sprintText(p[key], key);
+  return p as unknown as { kind: string; sprintId: string; attemptId: string; runId: string; taskId: string; dispatchId: string;
+    metadata: SprintSelfMetadata; host: SprintHostObservation["selfHost"]; confirmationId?: string; authorizationId?: string };
+}
+function judgeObservation(attempt: SprintAttempt, metadata: SprintSelfMetadata, selfHost: SprintHostObservation["selfHost"],
+  host: SprintOrcaHostObservation | null, clock: SprintClock): Pick<SprintHostObservation, "result" | "reason" | "identityFingerprint" | "settingsFingerprint"> {
+  const unknown = (code: string, message: string) => ({ result: "unavailable" as const, reason: { code, message }, identityFingerprint: null, settingsFingerprint: null });
+  const mismatch = (message: string) => ({ result: "mismatched" as const, reason: { code: "HOST_SETTINGS_MISMATCH", message }, identityFingerprint: null, settingsFingerprint: null });
+  if (metadata.status !== "observed" || metadata.reasons.length || metadata.cliVersion !== "0.164.0"
+    || !metadata.threadId || !metadata.turnId || !metadata.model || !metadata.effort || !metadata.provider
+    || !/^[a-f0-9]{64}$/.test(metadata.collectorDigest) || !/^[a-f0-9]{64}$/.test(metadata.metadataDigest ?? "")
+    || !metadata.source || !Number.isFinite(Date.parse(metadata.settingsAppliedAt ?? ""))
+    || !fresh(metadata.collectedAt, clock) || !fresh(selfHost.observedAt, clock)) return unknown("HOST_METADATA_UNAVAILABLE", "active turnの適用済み設定を取り直してください");
+  if (!host || !host.source || !fresh(host.observedAt, clock) || !host.livenessSource || !fresh(host.livenessObservedAt ?? "", clock) || !host.exactWorker || !host.active
+    || host.liveness !== "live" || host.runId !== attempt.runId || host.taskId !== attempt.taskId || host.dispatchId !== attempt.dispatchId) {
+    return unknown("HOST_IDENTITY_UNAVAILABLE", "保存したactive Dispatchと実行ホストの独立観測を確認できません");
+  }
+  for (const key of ["runtimeId", "incarnationId", "terminal"] as const) {
+    if (!selfHost.identity[key] || !host.identity[key]) return unknown("HOST_IDENTITY_UNAVAILABLE", "実行hostのruntime・端末incarnationの対応が不足しています");
+    if (selfHost.identity[key] !== host.identity[key]) return mismatch("自己観測とOrcaの独立host identityが一致しません");
+  }
+  if (selfHost.identity.remoteRuntimeEpoch !== null && selfHost.identity.remoteRuntimeEpoch !== host.identity.remoteRuntimeEpoch) return mismatch("明示的runtime epochの対応が一致しません");
+  if (metadata.terminal !== host.identity.terminal || metadata.cwd !== selfHost.cwd || selfHost.cwd !== host.cwd || host.agent !== attempt.placement.agent) return mismatch("端末・cwd・agentが現在の担当と一致しません");
+  const selector = attempt.placement.worktree;
+  const requestedPath = selector.startsWith("path:") ? selector.slice(5) : selector.startsWith("/") ? selector
+    : selector.startsWith("id:") && selector.includes("::/") ? selector.slice(selector.indexOf("::/") + 2) : null;
+  if (!requestedPath) return unknown("PLACEMENT_UNVERIFIABLE", "保存した作業場所selectorと実行cwdの正確な対応を確認してください");
+  if (requestedPath !== host.cwd) return mismatch("実行cwdが保存した依頼先の作業場所と一致しません");
+  if (attempt.identity && (["runtimeId", "incarnationId", "terminal", "remoteRuntimeEpoch"] as const).some(k => attempt.identity![k] !== null && attempt.identity![k] !== host.identity[k])) return unknown("IDENTITY_CHANGED", "元の担当identityが変わっています。元Dispatchを再照合してください");
+  const requirement = attempt.settingsRequirement;
+  if (!requirement || ((!requirement.model || !requirement.effort || !requirement.target) && !requirement.policy)) return unknown("SETTINGS_POLICY_REQUIRED", "合意済みの明示設定または継承方針と許可範囲を確認してください");
+  const accepts = (actual: string, explicit: string | null, allowed: string[] | undefined) => explicit ? actual === explicit : allowed?.includes(actual) === true;
+  if (!accepts(metadata.model, requirement.model, requirement.policy?.allowedModels) || !accepts(metadata.effort, requirement.effort, requirement.policy?.allowedEfforts)
+    || !accepts(attempt.placement.on ?? attempt.placement.worktree, requirement.target, requirement.policy?.allowedTargets) || host.agent !== requirement.agent) return mismatch("ホストの適用設定が合意した要求と一致しません");
+  return { result: "matched", reason: null,
+    identityFingerprint: sprintHash({ dispatch: attempt.dispatchId, identity: host.identity, cwd: host.cwd, thread: metadata.threadId, turn: metadata.turnId, collector: metadata.collectorDigest }),
+    settingsFingerprint: sprintHash({ requirement: requirement.fingerprint, model: metadata.model, effort: metadata.effort, provider: metadata.provider }) };
+}
+function startReportSettingsMatch(db: Database, attempt: SprintAttempt, authorization: NonNullable<SprintAttempt["startAuthorization"]>, observation: SprintHostObservation): boolean {
+  if (observation.settingsFingerprint === authorization.settingsFingerprint) return true;
+  const operation = rows<SprintExecutionOperation>(db, "sprint_operations", attempt.sprintId).find(o => o.id === authorization.operationId);
+  if (operation?.kind !== "worker_begin" || operation.runId !== attempt.runId || operation.input.taskId !== attempt.taskId
+    || operation.start?.dispatchId !== attempt.dispatchId || sprintHash(operation.start.authorization) !== sprintHash(authorization)) return false;
+  const sprint = getSprint(db, attempt.sprintId);
+  const plan = sprint.plans.find(p => p.id === attempt.planId && p.contentHash === attempt.planHash);
+  if (!plan) return false;
+  const scope = ({ goal: _goal, ...content }: SprintPlan["content"]) => sprintHash(content);
+  const currentScope = scope(plan.content), history = attempt.planHistory ?? [];
+  // 版番号を無視せず、保存した引継ぎ履歴の全区間でゴール以外が同じ正式合意だけに限る。
+  for (let i = 0; i < history.length; i++) {
+    const chain = history.slice(i).map(h => sprint.plans.find(p => p.id === h.planId && p.contentHash === h.planHash));
+    if (chain.some(p => !p || p.agreedBy !== "me" || !p.agreedAt || p.agreedHash !== p.contentHash || scope(p.content) !== currentScope)) continue;
+    const original = chain[0]!;
+    const requirement = settingsRequirement(original, operation.input.placement);
+    if (sprintHash({ requirement: requirement.fingerprint, model: observation.metadata.model, effort: observation.metadata.effort,
+      provider: observation.metadata.provider }) === authorization.settingsFingerprint) return true;
+  }
+  return false;
+}
+// message IDだけを受け、実envelopeはadapterのOrca受信箱から取得する。Task3のbatch受理もこの境界へ接続する。
+export async function receiveSprintHostObservation(ctx: OpCtx, ref: string, input: { messageId: string },
+  adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintExecutionState> {
+  sprintObject(input, ["messageId"]); sprintText(input.messageId, "message ID");
+  const before = getSprintExecutionState(ctx.db, ref, clock);
+  if (!before.session || !adapter.status) fail("OBSERVATION_UNAVAILABLE", "元Runの実statusを確認できません");
+  const message = await adapter.status(input.messageId, before.session.runId);
+  if (!message || message.id !== input.messageId || message.type !== "status" || message.runId !== before.session.runId
+    || !fresh(message.receivedAt, clock)) fail("WORKER_MISMATCH", "実際のOrca status送信元を確認できません");
+  const payload = observationPayload(message.payload);
+  const binding = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId: payload.taskId, dispatchId: payload.dispatchId });
+  const attempt = binding.attempt;
+  if (payload.runId !== attempt.runId || payload.sprintId !== before.sprintId || payload.attemptId !== attempt.id) fail("WORKER_MISMATCH", "観測の対象は実送信元の試行と一致しません");
+  let host: SprintOrcaHostObservation | null = null;
+  try { host = adapter.host ? await adapter.host(attempt) : null; } catch { /* 欠測を保存する。 */ }
+  const hash = sprintHash({ from: message.fromHandle, payload });
+  return tx(ctx.db, () => {
+    if (version(ctx.db, before.sprintId) !== before.executionVersion) fail("RECONCILE_REQUIRED", "観測中に所有または試行が変わりました");
+    const current = attemptById(ctx.db, before.sprintId, attempt.id);
+    // Task1で保存済みの同試行は作り直さず、元の合意済みplanから要求設定だけを対応付ける。
+    if (!current.settingsRequirement) {
+      const sprint = getSprint(ctx.db, before.sprintId), original = sprint.plans.find(p => p.id === current.planId && p.contentHash === current.planHash
+        && p.agreedHash === p.contentHash && p.agreedBy === "me" && p.agreedAt);
+      if (original) current.settingsRequirement = settingsRequirement(original, current.placement);
+    }
+    const prior = current.observationHistory?.find(o => o.messageId === message.id);
+    if (prior && prior.inputHash !== hash) fail("IDEMPOTENCY_CONFLICT", "同じ観測messageの内容が異なります");
+    if (prior) return getSprintExecutionState(ctx.db, ref, clock);
+    const observation: SprintHostObservation = { messageId: message.id, inputHash: hash,
+      ...judgeObservation(current, payload.metadata, payload.host, host, clock), metadata: payload.metadata, selfHost: payload.host,
+      independent: host, verifiedAt: timestamp(clock), confirmationId: payload.confirmationId ?? null, authorizationId: payload.authorizationId ?? null };
+    current.hostObservation = observation; current.observationHistory = [...(current.observationHistory ?? []), observation];
+    current.canStart = false;
+    current.reason = observation.reason ?? { code: "START_CONFIRMATION_REQUIRED", message: "同じ担当で開始直前の観測を取り直してください" };
+    current.phase = observation.result === "matched" ? "awaiting_confirmation" : "unknown";
+    if (payload.kind === "nod.sprint.worker-started") {
+      const authorization = current.startAuthorization;
+      const eligibility = getSprintIssueEligibility({ ...ctx, actor: current.actor }, before.sprintId, current.itemId, clock);
+      if (!authorization || payload.authorizationId !== authorization.id || observation.result !== "matched"
+        || !eligibility.eligible || eligibility.planId !== current.planId || eligibility.planHash !== current.planHash
+        || Date.parse(payload.metadata.collectedAt) < Date.parse(authorization.authorizedAt)
+        || observation.identityFingerprint !== authorization.identityFingerprint || !startReportSettingsMatch(ctx.db, current, authorization, observation)) {
+        observation.result = "unavailable"; observation.reason = { code: "START_REPORT_MISMATCH", message: "開始許可と現在の担当・設定の対応を確認できません" };
+        current.reason = observation.reason; current.phase = "unknown";
+      } else {
+        current.startedReport = { messageId: message.id, authorizationId: authorization.id, reportedAt: payload.metadata.collectedAt, verifiedAt: timestamp(clock) };
+        current.phase = "implementing"; current.reason = { code: "WORKER_STARTED", message: "同じ担当から実装開始の報告を受理しました" };
+      }
+    }
+    storeAttempt(ctx.db, current); touch(ctx.db, before.sprintId); return getSprintExecutionState(ctx.db, ref, clock);
+  });
+}
+export function prepareSprintStartConfirmation(ctx: OpCtx, ref: string, input: SprintSessionContext & { attemptId: string }, clock: SprintClock = {}): SprintStartConfirmation {
+  sprintObject(input, ["sessionId", "generation", "attemptId"]);
+  return tx(ctx.db, () => {
+    const sprintId = getSprint(ctx.db, ref).id, current = owned(ctx, sprintId, input), attempt = attemptById(ctx.db, sprintId, input.attemptId);
+    const launch = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId).find(o => o.attemptId === attempt.id && o.kind === "worker_start");
+    if (!launch || launch.state !== "confirmed") fail("RECONCILE_REQUIRED", "元の起動要求を再照合してください");
+    canSend(ctx, launch, current, clock);
+    const observed = attempt.hostObservation;
+    if (observed?.result !== "matched" || !observed.identityFingerprint || !observed.settingsFingerprint || !fresh(observed.metadata.collectedAt, clock)) fail("HOST_OBSERVATION_REQUIRED", "現在の担当のホスト観測を取り直してください");
+    if (attempt.startedReport) fail("ALREADY_STARTED", "同じ担当の開始報告を受理済みです");
+    if (attempt.startAuthorization) fail("RECONCILE_REQUIRED", "保存した開始通知と開始報告を確認してください");
+    const confirmation: SprintStartConfirmation = { id: crypto.randomUUID(), createdAt: timestamp(clock), messageId: observed.messageId,
+      identityFingerprint: observed.identityFingerprint, settingsFingerprint: observed.settingsFingerprint };
+    attempt.startConfirmation = confirmation; attempt.canStart = false; storeAttempt(ctx.db, attempt); touch(ctx.db, sprintId); return confirmation;
+  });
+}
+export async function requestSprintExecutionStart(ctx: OpCtx, ref: string,
+  input: SprintSessionContext & { attemptId: string; messageId: string; confirmationId: string }, adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintExecutionState> {
+  sprintObject(input, ["sessionId", "generation", "attemptId", "messageId", "confirmationId"]);
+  const initial = getSprintExecutionState(ctx.db, ref, clock), owner = owned(ctx, initial.sprintId, input);
+  const existing = initial.operations.find(o => o.attemptId === input.attemptId && o.kind === "worker_begin");
+  if (existing) return initial; // 応答喪失でも新通知を送らない。元requestへ照合する。
+  await receiveSprintHostObservation(ctx, ref, { messageId: input.messageId }, adapter, clock);
+  const before = getSprintExecutionState(ctx.db, ref, clock), attempt = attemptById(ctx.db, before.sprintId, input.attemptId);
+  const authority = await adapter.authority(owner.runId); checkAuthority(authority, owner.runId, clock);
+  let host: SprintOrcaHostObservation | null = null;
+  try { host = adapter.host ? await adapter.host(attempt) : null; } catch { /* 直前の欠測は拒否する。 */ }
+  const operation = tx(ctx.db, () => {
+    const current = owned(ctx, before.sprintId, input), saved = attemptById(ctx.db, before.sprintId, input.attemptId);
+    if (before.executionVersion !== version(ctx.db, before.sprintId)) fail("RECONCILE_REQUIRED", "開始直前に予約または観測が変わりました");
+    if (authority.caller !== current.caller || authority.runtimeId !== current.runtimeId || authority.consumerGeneration !== current.consumerGeneration
+      || (current.callerIdentity && authority.callerIdentity !== current.callerIdentity)) fail("AUTHORITY_CHANGED", "開始直前の監督権限が変わりました");
+    const launch = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", before.sprintId).find(o => o.attemptId === saved.id && o.kind === "worker_start")!;
+    const observed = saved.hostObservation, confirmation = saved.startConfirmation;
+    const denied = (code: string, message: string) => {
+      saved.canStart = false; saved.phase = "unknown"; saved.reason = { code, message }; storeAttempt(ctx.db, saved); touch(ctx.db, before.sprintId); return null;
+    };
+    try { canSend(ctx, launch, current, clock); }
+    catch (error) { if (error instanceof NodError) return denied(error.code, error.message); throw error; }
+    if (!observed || !confirmation || confirmation.id !== input.confirmationId || observed.confirmationId !== confirmation.id
+      || observed.messageId !== input.messageId || observed.messageId === confirmation.messageId
+      || Date.parse(observed.metadata.collectedAt) < Date.parse(confirmation.createdAt)) return denied("FRESH_CONFIRMATION_REQUIRED", "新しい開始確認に対応する自己観測を取り直してください");
+    const verdict = judgeObservation(saved, observed.metadata, observed.selfHost, host, clock);
+    if (verdict.result !== "matched") return denied(verdict.reason!.code, verdict.reason!.message);
+    if (verdict.identityFingerprint !== confirmation.identityFingerprint || verdict.settingsFingerprint !== confirmation.settingsFingerprint) return denied("START_TARGET_CHANGED", "開始確認後にthread・turn・collectorまたは設定が変わりました。開始確認を取り直してください");
+    const id = crypto.randomUUID(), authorization = { id: crypto.randomUUID(), confirmationId: confirmation.id, operationId: id, generation: current.generation,
+      authorizedAt: timestamp(clock), identityFingerprint: verdict.identityFingerprint!, settingsFingerprint: verdict.settingsFingerprint! };
+    const inputValue = { spec: "確認済みの同担当に実装開始を許可", placement: saved.placement, taskId: saved.taskId, parentTaskId: null };
+    const value: SprintExecutionOperation = { schemaVersion: 1, id, sprintId: before.sprintId, attemptId: saved.id, kind: "worker_begin",
+      requestKey: `begin:${saved.id}:${confirmation.id}`, inputHash: sprintHash({ inputValue, authorization, dispatchId: saved.dispatchId }),
+      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, runtimeId: current.runtimeId,
+      runId: current.runId, state: "sending", requestId: null, receipt: null, input: inputValue, reason: null,
+      start: { dispatchId: saved.dispatchId!, authorization, identity: host!.identity } };
+    saved.startAuthorization = authorization; saved.canStart = true; saved.phase = "start_authorized";
+    saved.reason = { code: "START_AUTHORIZED", message: "開始を許可しました。通知結果と担当の開始報告を確認してください" };
+    storeAttempt(ctx.db, saved); storeOperation(ctx.db, value); touch(ctx.db, before.sprintId); return value;
+  });
+  if (operation) {
+    try {
+      if (!adapter.send) throw Error();
+      const receipt = await adapter.send(operation);
+      recordSprintExecutionReceipt(ctx, before.sprintId, { ...input, operationId: operation.id, receipt }, clock);
+    } catch (error) {
+      tx(ctx.db, () => {
+        const saved = operationById(ctx.db, before.sprintId, operation.id);
+        if (error instanceof SprintOrcaMutationError && error.requestId) saved.requestId ??= error.requestId;
+        unknown(ctx.db, saved, "START_NOTIFICATION_UNKNOWN", "開始通知の結果は不明です。同じ元requestを照合してください");
+      });
+    }
+  }
+  return getSprintExecutionState(ctx.db, before.sprintId, clock);
 }

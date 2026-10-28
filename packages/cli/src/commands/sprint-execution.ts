@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { beginSprintSession, resumeSprintSession, observeSprintSession, getSprintExecutionState,
   prepareSprintExecution, requestSprintExecution, reconcileSprintExecution, recoverSprintExecution,
-  createSprintOrcaAdapter, defaultOrcaRunner, NodError, type SprintExecutionState,
+  createSprintOrcaAdapter, defaultOrcaRunner, collectSprintSelfMetadata, collectSprintSelfHost,
+  receiveSprintHostObservation, prepareSprintStartConfirmation, requestSprintExecutionStart,
+  ORCA_TIMEOUT_MS, NodError, type SprintExecutionState,
   type SprintSessionContext, type SprintSessionInput, type PrepareSprintExecutionInput } from "@nod/core";
 import { act, actAsync } from "../context";
 import { print } from "../output";
@@ -38,6 +40,32 @@ function describe(state: SprintExecutionState): string {
   ].join("\n");
 }
 export function registerSprintExecutionCommands(sprint: Command): void {
+  const worker = sprint.command("worker").description("自己metadataの観測専用操作");
+  worker.command("collect").description("自身の既定thread metadataだけを読む（nod DBは開かない）")
+    .action(() => { process.stdout.write(JSON.stringify(collectSprintSelfMetadata(), null, 2) + "\n"); });
+  worker.command("observe <sprint>").description("自身の観測専用statusを元Runへ送る（nod DBは開かない）")
+    .requiredOption("--run <id>", "保存したRun").requiredOption("--task <id>", "現在のTask")
+    .requiredOption("--dispatch <id>", "現在のDispatch").requiredOption("--attempt <id>", "保存した試行")
+    .requiredOption("--dispatch-capability <value>", "現在のpreambleにあるDispatch capability")
+    .option("--confirmation <id>", "新しい開始確認ID").option("--authorization <id>", "開始報告の対象許可ID")
+    .action(async (ref: string, opts: { run: string; task: string; dispatch: string; attempt: string; dispatchCapability: string; confirmation?: string; authorization?: string }) => {
+      const metadata = collectSprintSelfMetadata(), run = defaultOrcaRunner();
+      if (!metadata.terminal) throw new NodError("SELF_IDENTITY_REQUIRED", "自身のOrca terminal identityを確認できません");
+      if (!run) throw new NodError("ORCA_DISABLED", "元Runへの観測送信を利用できません");
+      const host = await collectSprintSelfHost(run, metadata);
+      const payload = { kind: opts.authorization ? "nod.sprint.worker-started" : "nod.sprint.host-observation", schemaVersion: 1,
+        sprintId: ref, attemptId: opts.attempt, runId: opts.run, taskId: opts.task, dispatchId: opts.dispatch, metadata, host,
+        ...(opts.confirmation ? { confirmationId: opts.confirmation } : {}), ...(opts.authorization ? { authorizationId: opts.authorization } : {}) };
+      const response = await run(["orchestration", "send", "--from", metadata.terminal, "--dispatch-capability", opts.dispatchCapability,
+        "--type", "status", "--subject", "Sprint実行host観測", "--payload", JSON.stringify(payload), "--json"], { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 });
+      // raw応答/本文/capabilityは出力しない。応答不明は再送せず、実requestを照合する。
+      let envelope: any = {};
+      if (response.kind === "exited") { try { envelope = JSON.parse(response.stdout); } catch { /* unknown */ } }
+      const result = envelope.result ?? {}, relay = result.relay ?? {}, message = result.message ?? {};
+      process.stdout.write(JSON.stringify({ accepted: envelope.ok === true && result.accepted === true,
+        messageId: relay.messageId ?? message.id ?? null, requestId: result.mutation?.requestId ?? envelope.error?.data?.orchestrationRequestId ?? null,
+        source: "Orca観測status送信receipt", receivedAt: new Date().toISOString(), metadataStatus: metadata.status }, null, 2) + "\n");
+    });
   const session = sprint.command("session").description("元Runと保存した監督の開始・引継ぎ・観測");
   writable(session.command("begin <sprint>").description("合意済み計画と元Runの現在権限を照合して監督を登録する"))
     .action(actAsync(async (cli, cmd, ref: string) => {
@@ -56,6 +84,21 @@ export function registerSprintExecutionCommands(sprint: Command): void {
       print(cli, { state, snapshot }, () => `${describe(state)}\n照合: ${snapshot.reason?.message ?? "対応を確認しました"}`);
     }));
   const execution = sprint.command("execution").description("実行予約・元要求への合流と不明状態の確認");
+  writable(execution.command("receive-observation <sprint>").description("実Orca statusと独立hostを照合して観測だけを記録する"))
+    .action(actAsync(async (cli, cmd, ref: string) => {
+      const state = await receiveSprintHostObservation(cli.ctx, ref, input<{ messageId: string }>(cmd), external(cmd));
+      print(cli, state, () => describe(state));
+    }));
+  writable(execution.command("confirm-start <sprint>").description("現在の同担当に開始直前の再観測を求める確認IDを保存する"))
+    .action(act((cli, cmd, ref: string) => {
+      const value = prepareSprintStartConfirmation(cli.ctx, ref, input<SprintSessionContext & { attemptId: string }>(cmd));
+      print(cli, value, () => `開始確認: ${value.id}\n同じ担当からこのIDを付けた観測statusを取得してください`);
+    }));
+  writable(execution.command("start <sprint>").description("同じ開始確認の新観測と着手条件を再検査し、同Task・Dispatchへ開始を通知する"))
+    .action(actAsync(async (cli, cmd, ref: string) => {
+      const state = await requestSprintExecutionStart(cli.ctx, ref, input<SprintSessionContext & { attemptId: string; messageId: string; confirmationId: string }>(cmd), external(cmd));
+      print(cli, state, () => describe(state));
+    }));
   execution.command("show <sprint>").description("監督・所有・予約・拒否理由と照合手順を読む")
     .action(act((cli, _cmd, ref: string) => {
       const state = getSprintExecutionState(cli.db, ref); print(cli, state, () => describe(state));

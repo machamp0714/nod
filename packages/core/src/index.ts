@@ -79,3 +79,6 @@ export * from "./ops/desktop-notifications";
 export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
 
 export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";
+export { collectSprintSelfMetadata } from "./sprint-self-metadata";
+export type { SprintSelfMetadata, SprintSelfMetadataSource } from "./sprint-self-metadata";
+export type * from "./sprint-observation-types";

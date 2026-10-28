@@ -201,10 +201,20 @@ export function getSprintPlan(db: Database, ref: string, planId: string): Sprint
   return plan;
 }
 function planConstraints(value: unknown): SprintPlanConstraints {
-  const row = sprintObject(value, ["executionScope", "maxParallel", "notes", "executionTarget", "model", "effort"], "制約");
+  const row = sprintObject(value, ["executionScope", "maxParallel", "notes", "executionTarget", "model", "effort", "executionSettingsPolicy"], "制約");
   if (!Number.isSafeInteger(row.maxParallel) || (row.maxParallel as number) < 1) invalidSprint("並行上限は1以上の整数で指定してください");
   const result: SprintPlanConstraints = { executionScope: sprintText(row.executionScope, "実行範囲"), maxParallel: row.maxParallel as number, notes: sprintText(row.notes, "制約の説明") };
   for (const key of ["executionTarget", "model", "effort"] as const) if (row[key] !== undefined) result[key] = sprintText(row[key], key);
+  if (row.executionSettingsPolicy !== undefined) {
+    const p = sprintObject(row.executionSettingsPolicy, ["version", "agent", "allowedModels", "allowedEfforts", "allowedTargets"], "継承設定の方針");
+    const values = (key: string) => {
+      const values = p[key];
+      if (!Array.isArray(values) || !values.length || values.length > 64) return invalidSprint("継承設定の許可範囲を指定してください");
+      return values.map(v => sprintText(v, key));
+    };
+    result.executionSettingsPolicy = { version: sprintText(p.version, "方針の版"), agent: sprintText(p.agent, "agent"),
+      allowedModels: values("allowedModels"), allowedEfforts: values("allowedEfforts"), allowedTargets: values("allowedTargets") };
+  }
   return result;
 }
 export function proposeSprintPlan(ctx: OpCtx, ref: string, input: ProposeSprintPlanInput): SprintPlanResult {
