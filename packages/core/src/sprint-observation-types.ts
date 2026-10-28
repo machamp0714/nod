@@ -4,6 +4,7 @@ import type { SprintPlanConstraints } from "./sprint-types";
 
 export interface SprintOrcaStatusMessage {
   id: string; runId: string; fromHandle: string; type: string; receivedAt: string; payload: unknown;
+  body?: string | null; createdAt?: string | null;
 }
 export interface SprintOrcaHostObservation {
   runId: string; taskId: string; dispatchId: string; active: boolean; exactWorker: boolean;

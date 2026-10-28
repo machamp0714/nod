@@ -2,6 +2,7 @@ import { importSprintHistory } from "./migrations/sprint-history";
 import { prepareSprintPlanning } from "./migrations/sprint-planning";
 import { prepareSprintExecutionStorage } from "./migrations/sprint-execution";
 import { prepareSprintStartObservation } from "./migrations/sprint-start-observation";
+import { prepareSprintNotifications } from "./migrations/sprint-notifications";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -707,4 +708,5 @@ export const MIGRATIONS: MigrationStep[][] = [
   [prepareSprintExecutionStorage],
   // 版46: 観測済み同担当への開始通知を外部操作として保持する。
   [prepareSprintStartObservation],
+  [prepareSprintNotifications],
 ];

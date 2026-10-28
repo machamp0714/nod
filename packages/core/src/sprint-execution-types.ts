@@ -1,4 +1,5 @@
 import type { SprintClock } from "./sprint-types";
+import type { SprintOrcaDelivery, SprintOrcaReplyReceipt, SprintOrcaSettlement, SprintOrcaReleaseReceipt, SprintNotificationRequestObservation } from "./sprint-notification-types";
 import type { SprintHostObservation, SprintOrcaHostObservation, SprintOrcaStatusMessage, SprintSettingsRequirement,
   SprintStartAuthorization, SprintStartConfirmation } from "./sprint-observation-types";
 
@@ -43,7 +44,7 @@ export interface SprintAttempt {
   parentAttemptId: string | null; actor: string; sessionId: string; generation: number;
   planId: string; planHash: string; decisionRefs: string[];
   runId: string; taskId: string | null; dispatchId: string | null;
-  placement: SprintExecutionPlacement; phase: "reserved" | "awaiting_confirmation" | "unknown" | "start_authorized" | "implementing";
+  placement: SprintExecutionPlacement; phase: "reserved" | "awaiting_confirmation" | "unknown" | "start_authorized" | "implementing" | "completed";
   occupied: true; canStart: boolean; reason: { code: string; message: string };
   identity: SprintExecutionIdentity | null; observation: { source: string; observedAt: string } | null;
   planHistory?: { planId: string; planHash: string; reconciledAt: string }[];
@@ -54,6 +55,7 @@ export interface SprintAttempt {
   startAuthorization?: SprintStartAuthorization;
   startedReport?: { messageId: string; authorizationId: string; reportedAt: string; verifiedAt: string };
   executionLiveness?: { verdict: "live" | "exited" | "unverifiable"; source: string; observedAt: string };
+  completionResultId?: string;
 }
 export interface SprintExecutionOperation {
   schemaVersion: 1; id: string; sprintId: string; attemptId: string;
@@ -102,6 +104,13 @@ export interface SprintOrcaAdapter {
   // 実際のOrca受信箱と、保存したDispatchの独立host観測。payloadによる代替は禁止。
   status?(messageId: string, runId: string): Promise<SprintOrcaStatusMessage | null>;
   host?(attempt: SprintAttempt): Promise<SprintOrcaHostObservation>;
+  check?(runId: string): Promise<SprintOrcaDelivery>;
+  acknowledge?(runId: string, deliveryId: string, retryRequestId?: string): Promise<{ acknowledged: string | null; next: SprintOrcaDelivery | null;
+    requestId?: string | null; source?: string; observedAt?: string }>;
+  reply?(runId: string, messageId: string, body: string, retryRequestId?: string): Promise<SprintOrcaReplyReceipt>;
+  settlement?(attempt: SprintAttempt): Promise<SprintOrcaSettlement>;
+  release?(runId: string, dispatchId: string, retryRequestId?: string): Promise<SprintOrcaReleaseReceipt>;
+  notificationRequest?(requestId: string): Promise<SprintNotificationRequestObservation>;
 }
 export interface SprintSessionInput { expectedVersion: number; requestKey: string; runId: string }
 export interface SprintSessionContext { sessionId: string; generation: number }

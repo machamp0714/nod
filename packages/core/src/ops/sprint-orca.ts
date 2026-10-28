@@ -6,6 +6,7 @@ import { ORCA_CREATE_TIMEOUT_MS, ORCA_TIMEOUT_MS, type OrcaRunner } from "./orca
 import { sprintOrcaTaskSpec, sprintOrcaStartNotificationArgs } from "./sprint-execution";
 import type { SprintSelfMetadata } from "../sprint-self-metadata";
 import type { SprintHostObservation } from "../sprint-observation-types";
+import type { SprintOrcaDelivery } from "../sprint-notification-types";
 
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as ObjectValue : {}; }
@@ -91,22 +92,115 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
       if (!Array.isArray(list)) return { values, complete: false };
       values.push(...list.map(object));
       const page = object(result.page), hasMore = page.hasMore ?? (string(result.nextCursor) !== null);
-      if (hasMore === false) return { values, complete: true };
+      if (hasMore === false) {
+        const total = typeof page.total === "number" ? page.total : cursor === null && typeof result.count === "number" ? result.count : null;
+        return { values, complete: total === null || Number.isSafeInteger(total) && total === values.length };
+      }
       cursor = string(page.nextCursor ?? result.nextCursor);
       if (!cursor || seen.has(cursor)) return { values, complete: false };
       seen.add(cursor);
     }
   }
+  function message(raw: unknown) {
+    const value = object(raw);
+    let payload = value.payload;
+    if (typeof payload === "string") { try { payload = JSON.parse(payload); } catch { /* 不正な行を捨てずcoreの診断へ渡す。 */ } }
+    return { id: string(value.id) ?? "", runId: string(value.run_id) ?? "", fromHandle: string(value.from_handle) ?? "",
+      type: string(value.type) ?? "", receivedAt: at(), payload, body: string(value.body), createdAt: string(value.created_at) };
+  }
+  function delivery(result: ObjectValue, runId: string): SprintOrcaDelivery {
+    if (result.runId !== runId || !Array.isArray(result.messages) || !Number.isSafeInteger(result.count)) return invalid();
+    return { runId, deliveryId: string(result.deliveryId), messages: result.messages.map(message), count: result.count as number,
+      source: "Orca orchestration checkの全行", observedAt: at() };
+  }
   return {
+    async notificationRequest(requestId) {
+      const { result, runtimeId } = await call(["orchestration", "request-show", "--request", requestId]);
+      const state = result.state, method = string(result.method), saved = object(result.receipt);
+      if (result.requestId !== requestId || !["absent", "pending", "completed"].includes(String(state))) return invalid();
+      const base = { requestId, state: state as "absent" | "pending" | "completed", method, runtimeId,
+        source: "Orca request-show（現在のcallerで保存requestを読取）", observedAt: at() };
+      if (state !== "completed") return base;
+      if (method === "orchestration.check") {
+        const runId = string(saved.runId), acknowledged = string(saved.acknowledged), receiptRequest = string(object(saved.mutation).requestId);
+        if (!runId || !acknowledged || receiptRequest !== requestId || !Array.isArray(saved.messages) || !Number.isSafeInteger(saved.count)
+          || saved.count !== saved.messages.length || saved.count !== 0 && !string(saved.deliveryId)) return base;
+        return { ...base, ack: { runId, acknowledged, requestId: receiptRequest, nextDeliveryId: string(saved.deliveryId), nextCount: saved.count as number,
+          source: "Orca request-showの保存check receipt（元ackと次Delivery）", observedAt: at() } };
+      }
+      if (method === "orchestration.reply") {
+        const question = object(saved.question), answer = object(saved.message), receiptRequest = string(object(saved.mutation).requestId);
+        const runId = string(question.run_id), dispatchId = string(question.dispatch_id), questionId = string(question.message_id);
+        const answerMessageId = string(question.answer_message_id), body = string(question.answer_body);
+        if (!runId || !dispatchId || !questionId || !answerMessageId || body === null || question.status !== "answered" || receiptRequest !== requestId
+          || question.asker_handle !== `dispatch:${dispatchId}` || answer.id !== answerMessageId || answer.run_id !== runId
+          || answer.thread_id !== questionId || answer.to_handle !== question.asker_handle || answer.body !== body) return base;
+        return { ...base, reply: { runId, dispatchId, questionId, answerMessageId, body, status: "answered" as const, requestId: receiptRequest,
+          source: "Orca request-showの保存reply receipt（質問・回答対応）", observedAt: at() } };
+      }
+      if (method !== "orchestration.workerRelease") return base;
+      const dispatchId = string(saved.dispatchId), receiptRequest = string(object(saved.mutation).requestId), releaseState = string(saved.state);
+      if (!dispatchId || !releaseState || receiptRequest !== requestId) return base;
+      return { ...base, release: { dispatchId, state: releaseState, processAction: string(saved.processAction), requestId: receiptRequest,
+        ...(saved.reason !== undefined ? { reason: string(saved.reason) } : {}),
+        source: "Orca request-showの保存worker-release receipt（許可fieldのみ）", observedAt: at() } };
+    },
+    async release(_runId, dispatchId, retryRequestId) {
+      const { result } = await call(["orchestration", "worker-release", "--dispatch", dispatchId,
+        ...(retryRequestId ? ["--retry-request", retryRequestId] : [])], true);
+      const requestId = string(object(result.mutation).requestId);
+      if (result.dispatchId !== dispatchId || !string(result.state)) throw new SprintOrcaMutationError(requestId);
+      return { dispatchId, state: result.state as string, processAction: string(result.processAction), requestId,
+        ...(result.reason !== undefined ? { reason: string(result.reason) } : {}),
+        source: "Orca worker-releaseの同Dispatch receipt", observedAt: at() };
+    },
+    async settlement(attempt) {
+      if (!attempt.taskId || !attempt.dispatchId) return invalid();
+      const { result } = await call(["orchestration", "worker-show", "--dispatch", attempt.dispatchId]);
+      const dispatch = object(result.dispatch), projection = object(result.projection);
+      if (dispatch.id !== attempt.dispatchId || dispatch.runId !== attempt.runId || (dispatch.taskId ?? dispatch.task_id) !== attempt.taskId
+        || projection.taskId !== attempt.taskId || projection.dispatchId !== attempt.dispatchId) return invalid();
+      const tasks = await allPages("task-list", attempt.runId);
+      const matches = tasks.values.filter(t => t.id === attempt.taskId && (t.run_id ?? t.runId) === attempt.runId);
+      if (!tasks.complete || matches.length !== 1) return invalid();
+      const task = matches[0]!, outcome = projection.outcome;
+      return { runId: attempt.runId, taskId: attempt.taskId, dispatchId: attempt.dispatchId,
+        activeDispatchId: string(task.dispatch_id ?? task.dispatchId), taskStatus: string(task.status), dispatchStatus: string(dispatch.status),
+        outcome: outcome === "succeeded" || outcome === "failed" ? outcome : null,
+        completedAt: string(dispatch.completedAt), source: "Orca task-listの現在Dispatch・worker-showのsettlement（端末livenessとは別）", observedAt: at() };
+    },
+    async reply(runId, messageId, body, retryRequestId) {
+      if (!from) return invalid();
+      const { result } = await call(["orchestration", "reply", "--id", messageId, "--body", body, "--run", runId,
+        ...sender, ...(retryRequestId ? ["--retry-request", retryRequestId] : [])], true);
+      const question = object(result.question), answer = object(result.message), requestId = string(object(result.mutation).requestId);
+      if (question.message_id !== messageId || question.run_id !== runId || question.status !== "answered" || question.answer_body !== body
+        || !string(question.answer_message_id) || answer.id !== question.answer_message_id || answer.thread_id !== messageId
+        || answer.run_id !== runId || answer.body !== body || answer.to_handle !== question.asker_handle) throw new SprintOrcaMutationError(requestId);
+      return { questionId: messageId, answerMessageId: question.answer_message_id as string, body, status: "answered", requestId,
+        source: "Orca replyのquestion・回答message対応", observedAt: at() };
+    },
+    async check(runId) {
+      if (!from) return invalid();
+      return delivery((await call(["orchestration", "check", "--terminal", from, "--run", runId])).result, runId);
+    },
+    async acknowledge(runId, deliveryId, retryRequestId) {
+      if (!from) return invalid();
+      const { result } = await call(["orchestration", "check", "--terminal", from, "--run", runId, "--ack", deliveryId,
+        ...(retryRequestId ? ["--retry-request", retryRequestId] : [])], true);
+      const next = delivery(result, runId);
+      return { acknowledged: string(result.acknowledged), next: next.deliveryId || next.count ? next : null,
+        requestId: string(object(result.mutation).requestId), source: "Orca check --ackのmutation・現在Delivery receipt", observedAt: at() };
+    },
     async status(messageId, runId) {
       if (!from) return invalid();
       const { result } = await call(["orchestration", "check", "--terminal", from, "--run", runId, "--all", "--types", "status"]);
       if (!Array.isArray(result.messages)) return invalid();
       const messages = result.messages.map(object).filter(m => m.id === messageId);
       if (messages.length !== 1) return null;
-      const message = messages[0]!;
-      if (message.run_id !== runId || !string(message.from_handle) || message.type !== "status") return invalid();
-      return { id: messageId, runId, fromHandle: string(message.from_handle)!, type: "status", receivedAt: at(), payload: message.payload };
+      const raw = messages[0]!;
+      if (raw.run_id !== runId || !string(raw.from_handle) || raw.type !== "status") return invalid();
+      return message(raw);
     },
     async host(attempt) {
       if (!attempt.dispatchId || !attempt.taskId) return invalid();

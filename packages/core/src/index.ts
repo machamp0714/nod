@@ -82,3 +82,4 @@ export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint
 export { collectSprintSelfMetadata } from "./sprint-self-metadata";
 export type { SprintSelfMetadata, SprintSelfMetadataSource } from "./sprint-self-metadata";
 export type * from "./sprint-observation-types";
+export type * from "./sprint-notification-types";

@@ -11,7 +11,8 @@ import type { PrepareSprintExecutionInput, SprintAttempt, SprintExecutionOperati
 import { getSprint } from "./sprints";
 import { getSprintIssueEligibility } from "./sprint-eligibility";
 import { findIssueRow } from "../issue-query";
-import type { SprintHostObservation, SprintOrcaHostObservation, SprintSettingsRequirement, SprintStartConfirmation } from "../sprint-observation-types";
+import type { SprintHostObservation, SprintOrcaHostObservation, SprintOrcaStatusMessage, SprintSettingsRequirement, SprintStartConfirmation } from "../sprint-observation-types";
+import type { SprintNotificationState, SprintNotificationResult, SprintNotificationReception, SprintNotificationDelivery, SprintNotificationInput, SprintOrcaDelivery, SprintNotificationReleaseOperation } from "../sprint-notification-types";
 import type { SprintSelfMetadata } from "../sprint-self-metadata";
 
 const missingObservation = { code: "HOST_OBSERVATION_REQUIRED", message: "担当の実行設定と現在の実行identityを確認してください" };
@@ -382,7 +383,8 @@ export function completeSprintHandover(ctx: OpCtx, ref: string,
       if (operation.kind === "worker_start") {
         const attempt = attemptById(ctx.db, sprintId, operation.attemptId);
         attempt.identity = binding.receipt.identity; attempt.observation = { source: binding.receipt.source, observedAt: binding.receipt.receivedAt };
-        attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation; storeAttempt(ctx.db, attempt);
+        if (!attempt.completionResultId) { attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation; }
+        storeAttempt(ctx.db, attempt);
       }
     }
     current.generation++; current.caller = snapshot.authority.caller; current.actor = ctx.actor;
@@ -454,7 +456,7 @@ function applyReceipt(db: Database, operation: SprintExecutionOperation, receipt
   storeOperation(db, operation);
   const attempt = attemptById(db, operation.sprintId, operation.attemptId);
   if (operation.kind === "worker_begin") {
-    if (!attempt.startedReport && attempt.startAuthorization?.id === operation.start?.authorization.id && attempt.hostObservation?.result === "matched") {
+    if (!attempt.completionResultId && !attempt.startedReport && attempt.startAuthorization?.id === operation.start?.authorization.id && attempt.hostObservation?.result === "matched") {
       attempt.phase = "start_authorized"; attempt.canStart = true;
       attempt.reason = { code: "START_AUTHORIZED", message: "元の開始通知receiptを確認しました。担当の開始報告を確認してください" };
       storeAttempt(db, attempt);
@@ -466,7 +468,7 @@ function applyReceipt(db: Database, operation: SprintExecutionOperation, receipt
   attempt.taskId = receipt.taskId; attempt.dispatchId = receipt.dispatchId ?? attempt.dispatchId;
   if (receipt.identity && identityChanged(attempt, receipt.identity)) invalidateHostObservation(attempt, { code: "IDENTITY_CHANGED", message: "receiptの実行identityが変わりました。現在のホストを再照合してください" });
   attempt.identity = receipt.identity ?? attempt.identity;
-  if (!attempt.startedReport && !attempt.startAuthorization) { attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation; }
+  if (!attempt.completionResultId && !attempt.startedReport && !attempt.startAuthorization) { attempt.phase = "awaiting_confirmation"; attempt.reason = missingObservation; }
   attempt.observation = { source: receipt.source, observedAt: receipt.receivedAt }; storeAttempt(db, attempt);
   if (operation.kind === "task_create") {
     const prior = rows<SprintExecutionOperation>(db, "sprint_operations", operation.sprintId).find(o => o.attemptId === attempt.id && o.kind === "worker_start");
@@ -574,6 +576,12 @@ export async function reconcileSprintExecution(ctx: OpCtx, ref: string, input: S
     }
     for (const operation of rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId)) {
       const attempt = attemptById(ctx.db, sprintId, operation.attemptId);
+      if (attempt.completionResultId && operation.state === "confirmed") {
+        const worker = inventory?.workers.find(w => w.runId === attempt.runId && w.taskId === attempt.taskId && w.dispatchId === attempt.dispatchId);
+        if (worker) attempt.executionLiveness = { verdict: worker.liveness, source: worker.source, observedAt: worker.observedAt };
+        if (authorityChanged) invalidateHostObservation(attempt, { code: "RUNTIME_CHANGED", message: "保存した完了結果は保持し、元Runの現在の接続を再照合してください" });
+        storeAttempt(ctx.db, attempt); continue;
+      }
       const request = requests.get(operation.id);
       let staleWorker = false;
       if (!authorityChanged && request && fresh(request.observedAt, clock) && request.source && request.requestId === (operation.requestId ?? request.receipt?.requestId)) {
@@ -707,7 +715,7 @@ function settingsRequirement(plan: SprintPlan, placement: PrepareSprintExecution
   return { ...value, fingerprint: sprintHash(value) };
 }
 function observationPayload(value: unknown) {
-  const p = sprintObject(value, ["kind", "schemaVersion", "sprintId", "attemptId", "runId", "taskId", "dispatchId", "metadata", "host", "confirmationId", "authorizationId"]);
+  const p = sprintObject(value, ["kind", "schemaVersion", "sprintId", "attemptId", "runId", "taskId", "dispatchId", "metadata", "host", "confirmationId", "authorizationId", "observationId"]);
   if (!["nod.sprint.host-observation", "nod.sprint.worker-started"].includes(String(p.kind)) || p.schemaVersion !== 1) fail("OBSERVATION_KIND_REQUIRED", "観測専用statusだけを受理できます");
   for (const key of ["sprintId", "attemptId", "runId", "taskId", "dispatchId"] as const) sprintText(p[key], key);
   const m = sprintObject(p.metadata, ["schemaVersion", "status", "reasons", "threadId", "turnId", "terminal", "cwd", "model", "effort", "provider", "cliVersion", "settingsAppliedAt", "collectedAt", "collectorDigest", "metadataDigest", "source", "association"]);
@@ -719,9 +727,9 @@ function observationPayload(value: unknown) {
   sprintObject(h.identity, ["runtimeId", "incarnationId", "terminal", "remoteRuntimeEpoch"]);
   for (const v of Object.values(h.identity as object)) if (v !== null && (typeof v !== "string" || v.length > 2048)) fail("INVALID_ARGS", "host identityの形式を確認できません");
   for (const key of ["cwd", "source", "observedAt"] as const) sprintText(h[key], key);
-  for (const key of ["confirmationId", "authorizationId"] as const) if (p[key] !== undefined) sprintText(p[key], key);
+  for (const key of ["confirmationId", "authorizationId", "observationId"] as const) if (p[key] !== undefined) sprintText(p[key], key);
   return p as unknown as { kind: string; sprintId: string; attemptId: string; runId: string; taskId: string; dispatchId: string;
-    metadata: SprintSelfMetadata; host: SprintHostObservation["selfHost"]; confirmationId?: string; authorizationId?: string };
+    metadata: SprintSelfMetadata; host: SprintHostObservation["selfHost"]; confirmationId?: string; authorizationId?: string; observationId?: string };
 }
 function judgeObservation(attempt: SprintAttempt, metadata: SprintSelfMetadata, selfHost: SprintHostObservation["selfHost"],
   host: SprintOrcaHostObservation | null, clock: SprintClock): Pick<SprintHostObservation, "result" | "reason" | "identityFingerprint" | "settingsFingerprint"> {
@@ -785,7 +793,18 @@ export async function receiveSprintHostObservation(ctx: OpCtx, ref: string, inpu
   const before = getSprintExecutionState(ctx.db, ref, clock);
   if (!before.session || !adapter.status) fail("OBSERVATION_UNAVAILABLE", "元Runの実statusを確認できません");
   const message = await adapter.status(input.messageId, before.session.runId);
-  if (!message || message.id !== input.messageId || message.type !== "status" || message.runId !== before.session.runId
+  if (!message || message.id !== input.messageId) fail("WORKER_MISMATCH", "実際のOrca status送信元を確認できません");
+  try { await recordObservationNotification(ctx, ref, message, adapter, clock); }
+  catch (error) {
+    if (error instanceof NodError && error.code === "IDEMPOTENCY_CONFLICT") recordNotificationConflict(ctx, ref, message, error, clock);
+    throw error;
+  }
+  return getSprintExecutionState(ctx.db, ref, clock);
+}
+async function prepareObservationApplication(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage,
+  adapter: SprintOrcaAdapter, clock: SprintClock): Promise<() => SprintExecutionState> {
+  const before = getSprintExecutionState(ctx.db, ref, clock);
+  if (!before.session || message.type !== "status" || message.runId !== before.session.runId
     || !fresh(message.receivedAt, clock)) fail("WORKER_MISMATCH", "実際のOrca status送信元を確認できません");
   const payload = observationPayload(message.payload);
   const binding = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId: payload.taskId, dispatchId: payload.dispatchId });
@@ -794,7 +813,7 @@ export async function receiveSprintHostObservation(ctx: OpCtx, ref: string, inpu
   let host: SprintOrcaHostObservation | null = null;
   try { host = adapter.host ? await adapter.host(attempt) : null; } catch { /* 欠測を保存する。 */ }
   const hash = sprintHash({ from: message.fromHandle, payload });
-  return tx(ctx.db, () => {
+  return () => tx(ctx.db, () => {
     if (version(ctx.db, before.sprintId) !== before.executionVersion) fail("RECONCILE_REQUIRED", "観測中に所有または試行が変わりました");
     const current = attemptById(ctx.db, before.sprintId, attempt.id);
     // Task1で保存済みの同試行は作り直さず、元の合意済みplanから要求設定だけを対応付ける。
@@ -830,10 +849,507 @@ export async function receiveSprintHostObservation(ctx: OpCtx, ref: string, inpu
     storeAttempt(ctx.db, current); touch(ctx.db, before.sprintId); return getSprintExecutionState(ctx.db, ref, clock);
   });
 }
+export function getSprintNotificationState(db: Database, ref: string, clock: SprintClock = {}): SprintNotificationState {
+  const execution = getSprintExecutionState(db, ref, clock);
+  return { execution, results: rows(db, "sprint_notification_results", execution.sprintId),
+    conflicts: rows(db, "sprint_notification_conflicts", execution.sprintId),
+    quarantined: rows(db, "sprint_notification_quarantine", execution.sprintId),
+    receptions: rows(db, "sprint_notification_receptions", execution.sprintId),
+    deliveries: rows(db, "sprint_notification_deliveries", execution.sprintId) };
+}
+function notificationConflict(message: string, logicalKey: string, existingResultId: string | null, inputHash: string): never {
+  throw new NodError("IDEMPOTENCY_CONFLICT", message, { logicalKey, existingResultId, inputHash });
+}
+function recordNotificationConflict(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage, error: NodError,
+  clock: SprintClock, fallbackHash?: string): void {
+  const sprintId = getSprint(ctx.db, ref).id;
+  const details = error.details && typeof error.details === "object" ? error.details as Record<string, unknown> : {};
+  const hash = typeof details.inputHash === "string" ? details.inputHash : fallbackHash ?? sprintHash({ from: message.fromHandle, payload: message.payload });
+  const reason = { code: "IDEMPOTENCY_CONFLICT", message: error.message };
+  const conflict = { messageId: message.id, inputHash: hash, reason, savedAt: timestamp(clock),
+    logicalKey: typeof details.logicalKey === "string" ? details.logicalKey : null,
+    existingResultId: typeof details.existingResultId === "string" ? details.existingResultId : null };
+  tx(ctx.db, () => {
+    ctx.db.query("INSERT OR IGNORE INTO sprint_notification_conflicts VALUES(?,?,?,?)").run(sprintId, message.id, hash, JSON.stringify(conflict));
+    const received: SprintNotificationReception = { messageId: message.id, resultId: null, inputHash: hash, receivedAt: message.receivedAt, reason };
+    ctx.db.query("INSERT OR IGNORE INTO sprint_notification_receptions VALUES(?,?,?)").run(message.id, sprintId, JSON.stringify(received));
+  });
+}
+async function recordObservationNotification(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage,
+  adapter: SprintOrcaAdapter, clock: SprintClock, guard: () => void = () => {}): Promise<SprintNotificationResult> {
+  const state = getSprintNotificationState(ctx.db, ref, clock), sprintId = state.execution.sprintId;
+  const payload = observationPayload(message.payload);
+  const binding = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId: payload.taskId, dispatchId: payload.dispatchId });
+  if (payload.sprintId !== sprintId || payload.attemptId !== binding.attempt.id || payload.runId !== message.runId || message.type !== "status") fail("WORKER_MISMATCH", "実envelopeと観測対象が一致しません");
+  const hash = sprintHash({ from: message.fromHandle, payload });
+  const logicalKey = JSON.stringify([message.runId, payload.dispatchId, payload.kind, payload.confirmationId ?? null,
+    payload.authorizationId ?? null, payload.observationId ?? message.id]);
+  const received = state.receptions.find(r => r.messageId === message.id);
+  if (received && (received.inputHash !== hash || received.reason)) notificationConflict("同じ受信IDの内容が異なります", logicalKey, received.resultId, hash);
+  const prior = state.results.find(r => r.logicalKey === logicalKey);
+  if (prior && prior.inputHash !== hash) notificationConflict("同じ業務キーの内容が異なります", logicalKey, prior.id, hash);
+  if (!prior && binding.attempt.completionResultId) fail("ATTEMPT_COMPLETED", "完了受理済みの試行です。保存した完了結果と現在の所有者を確認してください");
+  const apply = prior ? null : await prepareObservationApplication(ctx, ref, message, adapter, clock);
+  return tx(ctx.db, () => {
+    guard();
+    const latest = getSprintNotificationState(ctx.db, ref, clock);
+    let result = latest.results.find(r => r.logicalKey === logicalKey);
+    if (result && result.inputHash !== hash) notificationConflict("同じ業務キーの内容が異なります", logicalKey, result.id, hash);
+    if (!result) {
+      const applied = apply!(), attempt = applied.attempts.find(a => a.id === payload.attemptId)!;
+      const observation = attempt.observationHistory?.find(o => o.messageId === message.id)!;
+      result = { id: crypto.randomUUID(), logicalKey, inputHash: hash, kind: "observation", attemptId: attempt.id, observation, savedAt: timestamp(clock) };
+      ctx.db.query("INSERT INTO sprint_notification_results VALUES(?,?,?,?)").run(result.id, sprintId, logicalKey, JSON.stringify(result));
+    }
+    const reception: SprintNotificationReception = { messageId: message.id, resultId: result.id, inputHash: hash, receivedAt: message.receivedAt, reason: null };
+    ctx.db.query("INSERT OR IGNORE INTO sprint_notification_receptions VALUES(?,?,?)").run(message.id, sprintId, JSON.stringify(reception));
+    return result;
+  });
+}
+function storeNotificationDelivery(db: Database, sprintId: string, delivery: SprintNotificationDelivery): void {
+  const row = db.query("SELECT payload FROM sprint_notification_deliveries WHERE sprint_id=? AND delivery_id=?").get(sprintId, delivery.deliveryId) as { payload: string } | null;
+  const previous = row ? JSON.parse(row.payload) as SprintNotificationDelivery : null;
+  if (previous?.ackOperation?.state === "confirmed") {
+    // 遅いreceiveの未確定結果で、別receiveが確定した現在Deliveryのackを消さない。
+    delivery.ackOperation = previous.ackOperation; delivery.acknowledged = true;
+    delivery.rows = previous.rows; delivery.reason = previous.reason;
+  } else if (!delivery.ackOperation && previous?.ackOperation) delivery.ackOperation = previous.ackOperation;
+  db.query(`INSERT INTO sprint_notification_deliveries VALUES(?,?,?) ON CONFLICT(sprint_id,delivery_id)
+    DO UPDATE SET payload=excluded.payload`).run(delivery.deliveryId, sprintId, JSON.stringify(delivery));
+}
+function storeNotificationReception(db: Database, sprintId: string, reception: SprintNotificationReception): void {
+  db.query(`INSERT INTO sprint_notification_receptions VALUES(?,?,?) ON CONFLICT(sprint_id,message_id)
+    DO UPDATE SET payload=excluded.payload`).run(reception.messageId, sprintId, JSON.stringify(reception));
+}
+function recordQuestionNotification(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage, clock: SprintClock): SprintNotificationResult {
+  const p = sprintObject(message.payload, ["taskId", "dispatchId", "question", "options"]);
+  const taskId = sprintText(p.taskId, "Task"), dispatchId = sprintText(p.dispatchId, "Dispatch"), text = sprintText(p.question, "質問");
+  const { attempt } = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId, dispatchId });
+  let request: Record<string, unknown> | null = null;
+  try { const parsed = JSON.parse(text); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    && (typeof parsed.kind === "string" && parsed.kind.startsWith("nod.sprint.") || "requestId" in parsed || "workerRequestId" in parsed)) request = parsed; }
+  catch { /* 通常の相談をJSONの解析エラーにはしない。 */ }
+  const identified = request !== null || /"kind"\s*:\s*"nod\.sprint\./.test(text);
+  const requestId = typeof request?.requestId === "string" ? request.requestId : typeof request?.workerRequestId === "string" ? request.workerRequestId : null;
+  const hash = sprintHash({ from: message.fromHandle, type: message.type, payload: request ? { ...p, question: request } : p });
+  const logicalKey = JSON.stringify([message.runId, dispatchId, identified ? "request" : "question", requestId ?? message.id]);
+  const error = request?.kind === "nod.sprint.host-observation" || request?.kind === "nod.sprint.worker-started"
+    ? { code: "OBSERVATION_STATUS_REQUIRED", message: "観測は専用のstatus経路で送信してください" }
+    : identified ? request?.kind === "nod.sprint.worker-request" && request.schemaVersion === 1 && requestId
+      ? { code: "UNSUPPORTED_OPERATION", message: "この要求はSprintの通知受理で扱える操作ではありません" }
+      : { code: "INVALID_REQUEST", message: "識別された要求の形式を確認できません" } : null;
+  return tx(ctx.db, () => {
+    const state = getSprintNotificationState(ctx.db, ref, clock), sprintId = state.execution.sprintId;
+    const prior = state.results.find(r => r.logicalKey === logicalKey);
+    if (prior && prior.inputHash !== hash) notificationConflict("同じ質問の内容が異なります", logicalKey, prior.id, hash);
+    const reception = state.receptions.find(r => r.messageId === message.id);
+    if (reception && reception.inputHash !== hash) notificationConflict("同じ受信IDの内容が異なります", logicalKey, reception.resultId, hash);
+    if (prior) {
+      if (!reception) storeNotificationReception(ctx.db, sprintId, { messageId: message.id, resultId: prior.id, inputHash: hash, receivedAt: message.receivedAt, reason: null });
+      return prior;
+    }
+    const result: SprintNotificationResult = { id: crypto.randomUUID(), logicalKey, inputHash: hash, kind: error ? "request_rejected" : "question", attemptId: attempt.id,
+      question: { text }, response: { body: error ? JSON.stringify({ kind: "nod.sprint.worker-result", schemaVersion: 1, requestId, error }) : null }, savedAt: timestamp(clock) };
+    ctx.db.query("INSERT INTO sprint_notification_results VALUES(?,?,?,?)").run(result.id, sprintId, logicalKey, JSON.stringify(result));
+    storeNotificationReception(ctx.db, sprintId, { messageId: message.id, resultId: result.id, inputHash: hash, receivedAt: message.receivedAt, reason: null });
+    return result;
+  });
+}
+async function replyToSprintNotification(ctx: OpCtx, ref: string, input: SprintNotificationInput, result: SprintNotificationResult,
+  message: SprintOrcaStatusMessage, adapter: SprintOrcaAdapter, clock: SprintClock): Promise<SprintNotificationDelivery["reason"]> {
+  const sprintId = getSprint(ctx.db, ref).id;
+  const answer = input.answers?.find(a => a.messageId === message.id)?.body;
+  const body = result.response?.body ?? answer;
+  if (answer && result.response?.body && answer !== result.response.body) notificationConflict("保存した返信の内容と異なります", result.logicalKey, result.id, sprintHash({ request: result.inputHash, answer }));
+  if (!body) return { code: "REPLY_REQUIRED", message: "保存した質問に回答してから配送をackしてください" };
+  if (!adapter.reply) return { code: "REPLY_UNAVAILABLE", message: "元Runへの返信経路を確認してください" };
+  const reception = getSprintNotificationState(ctx.db, ref, clock).receptions.find(r => r.messageId === message.id)!;
+  if (reception.reply?.state === "confirmed") return null;
+  const current = owned(ctx, sprintId, input);
+  const previous = reception.reply;
+  if (previous?.state === "sending") return { code: "REPLY_PENDING", message: "保存した同じ返信操作を照合してください" };
+  const retry = previous?.caller === current.caller ? previous.requestId ?? undefined : undefined;
+  tx(ctx.db, () => {
+    owned(ctx, sprintId, input);
+    result.response = { body };
+    ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(result), result.id, sprintId);
+    const target = { runId: message.runId, messageId: message.id };
+    reception.reply = { operationId: previous?.operationId ?? crypto.randomUUID(), state: "sending", body, caller: current.caller,
+      target, inputHash: sprintHash({ target, body }), sessionId: current.id, runtimeId: current.runtimeId, callerIdentity: current.callerIdentity ?? null,
+      generation: current.generation, requestId: retry ?? null, receipt: null,
+      history: [...(previous?.history ?? []), ...(previous ? [{ caller: previous.caller, generation: previous.generation,
+        requestId: previous.requestId, state: previous.state, receipt: previous.receipt }] : [])] };
+    storeNotificationReception(ctx.db, sprintId, reception);
+    touch(ctx.db, sprintId);
+  });
+  try {
+    const receipt = await adapter.reply(message.runId, message.id, body, retry);
+    if (receipt.questionId !== message.id || receipt.status !== "answered" || receipt.body !== body || !receipt.answerMessageId) throw Error();
+    try { owned(ctx, sprintId, input); }
+    catch (error) {
+      reception.reply!.history.push({ caller: current.caller, generation: current.generation,
+        requestId: receipt.requestId, state: "unknown", receipt });
+      throw error;
+    }
+    reception.reply!.state = "confirmed"; reception.reply!.requestId = receipt.requestId; reception.reply!.receipt = receipt;
+  } catch (error) {
+    reception.reply!.state = "unknown";
+    if (error instanceof SprintOrcaMutationError) reception.reply!.requestId ??= error.requestId;
+  }
+  tx(ctx.db, () => {
+    const latest = getSprintNotificationState(ctx.db, ref, clock).receptions.find(r => r.messageId === message.id)!;
+    if (latest.reply && (latest.reply.generation !== current.generation || latest.reply.caller !== current.caller
+      || latest.reply.state === "confirmed")) {
+      latest.reply.history.push(...reception.reply!.history.filter(h => h.receipt !== null));
+      storeNotificationReception(ctx.db, sprintId, latest);
+      reception.reply!.state = "unknown";
+    } else storeNotificationReception(ctx.db, sprintId, reception);
+    touch(ctx.db, sprintId);
+  });
+  return reception.reply!.state === "confirmed" ? null : { code: "REPLY_UNKNOWN", message: "保存した同じ返信の結果を元質問で照合してください" };
+}
+function recordNoticeNotification(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage, clock: SprintClock): SprintNotificationResult {
+  if (!["status", "heartbeat", "escalation"].includes(message.type)) fail("NOTIFICATION_KIND_UNKNOWN", "通知の種類に対応する処理を確認してください");
+  const p = sprintObject(message.payload, ["taskId", "dispatchId", "phase"]);
+  const taskId = sprintText(p.taskId, "Task"), dispatchId = sprintText(p.dispatchId, "Dispatch");
+  if (p.phase !== undefined) sprintText(p.phase, "工程");
+  const { attempt } = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId, dispatchId });
+  const hash = sprintHash({ from: message.fromHandle, type: message.type, payload: p, body: message.body ?? null });
+  const logicalKey = JSON.stringify([message.runId, dispatchId, message.type, message.id]);
+  return tx(ctx.db, () => {
+    const state = getSprintNotificationState(ctx.db, ref, clock), sprintId = state.execution.sprintId;
+    const prior = state.results.find(r => r.logicalKey === logicalKey), reception = state.receptions.find(r => r.messageId === message.id);
+    if (prior && prior.inputHash !== hash || reception && reception.inputHash !== hash) notificationConflict("同じ通知の内容が異なります", logicalKey, prior?.id ?? reception?.resultId ?? null, hash);
+    const result: SprintNotificationResult = prior ?? { id: crypto.randomUUID(), logicalKey, inputHash: hash, kind: "notice", attemptId: attempt.id,
+      savedAt: timestamp(clock), notice: { type: message.type, body: message.body ?? null, phase: p.phase as string ?? null } };
+    if (!prior) ctx.db.query("INSERT INTO sprint_notification_results VALUES(?,?,?,?)").run(result.id, sprintId, logicalKey, JSON.stringify(result));
+    if (!reception) storeNotificationReception(ctx.db, sprintId, { messageId: message.id, resultId: result.id, inputHash: hash, receivedAt: message.receivedAt, reason: null });
+    return result;
+  });
+}
+function recordCompletionNotification(ctx: OpCtx, ref: string, message: SprintOrcaStatusMessage, clock: SprintClock): SprintNotificationResult {
+  const p = sprintObject(message.payload, ["taskId", "dispatchId", "outcome", "filesModified", "reportPath"]);
+  const taskId = sprintText(p.taskId, "Task"), dispatchId = sprintText(p.dispatchId, "Dispatch");
+  if (p.outcome !== "succeeded" && p.outcome !== "failed") fail("INVALID_COMPLETION", "完了通知のoutcomeを確認できません");
+  if (p.filesModified !== undefined && (!Array.isArray(p.filesModified) || !p.filesModified.every(v => typeof v === "string"))) fail("INVALID_COMPLETION", "成果への参照形式を確認できません");
+  if (p.reportPath !== undefined) sprintText(p.reportPath, "報告への参照");
+  const { attempt } = getSprintWorkerContext(ctx.db, ref, { fromHandle: message.fromHandle, runId: message.runId, taskId, dispatchId });
+  const hash = sprintHash({ from: message.fromHandle, type: message.type, payload: message.payload, body: message.body ?? null });
+  const logicalKey = JSON.stringify([message.runId, dispatchId, "worker_done"]);
+  return tx(ctx.db, () => {
+    const state = getSprintNotificationState(ctx.db, ref, clock), sprintId = state.execution.sprintId;
+    const prior = state.results.find(r => r.logicalKey === logicalKey), reception = state.receptions.find(r => r.messageId === message.id);
+    if (prior && prior.inputHash !== hash || reception && reception.inputHash !== hash) notificationConflict("同じDispatchの完了内容が異なります", logicalKey, prior?.id ?? reception?.resultId ?? null, hash);
+    const result: SprintNotificationResult = prior ?? { id: crypto.randomUUID(), logicalKey, inputHash: hash, kind: "completion", attemptId: attempt.id,
+      savedAt: timestamp(clock), completion: { outcome: p.outcome as "succeeded" | "failed", body: message.body ?? null,
+        filesModified: p.filesModified as string[] ?? [], reportPath: p.reportPath as string ?? null,
+        state: "unknown", settlement: null, nextOwner: null, ownership: { state: "pending" } } };
+    if (!prior) ctx.db.query("INSERT INTO sprint_notification_results VALUES(?,?,?,?)").run(result.id, sprintId, logicalKey, JSON.stringify(result));
+    if (!reception) storeNotificationReception(ctx.db, sprintId, { messageId: message.id, resultId: result.id, inputHash: hash, receivedAt: message.receivedAt, reason: null });
+    return result;
+  });
+}
+async function reconcileCompletionNotification(ctx: OpCtx, ref: string, input: SprintNotificationInput, result: SprintNotificationResult,
+  adapter: SprintOrcaAdapter, clock: SprintClock): Promise<SprintNotificationDelivery["reason"]> {
+  const sprintId = getSprint(ctx.db, ref).id, attempt = attemptById(ctx.db, sprintId, result.attemptId);
+  let completion = result.completion!;
+  const owner = owned(ctx, sprintId, input), decision = input.ownership?.find(d => d.dispatchId === attempt.dispatchId);
+  if (completion.state === "settled" && (completion.ownership.state === "released"
+    || completion.ownership.state === "assigned" && completion.nextOwner === owner.caller && decision?.action !== "release")) return null;
+  let settlement = null;
+  try { settlement = adapter.settlement ? await adapter.settlement(attempt) : null; } catch { /* 不明は所有と枠を保持する。 */ }
+  const positive = settlement && settlement.runId === attempt.runId && settlement.taskId === attempt.taskId && settlement.dispatchId === attempt.dispatchId
+    && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === "completed" && settlement.outcome === completion.outcome
+    && settlement.taskStatus === completion.outcome && settlement.completedAt && Number.isFinite(Date.parse(settlement.completedAt))
+    && settlement.source && fresh(settlement.observedAt, clock);
+  const reason = !positive ? { code: "SETTLEMENT_UNKNOWN", message: "現在のTask・Dispatchの肯定的な完了を確認してください。所有と枠は保持しています" }
+    : !decision ? { code: "NEXT_OWNER_REQUIRED", message: "完了した担当の次所有者または正規解放を指定してください" }
+    : decision.action === "release" ? { code: "RELEASE_REQUIRED", message: "同じDispatchの正規解放を確認してください" } : null;
+  tx(ctx.db, () => {
+    const current = owned(ctx, sprintId, input);
+    result = getSprintNotificationState(ctx.db, ref, clock).results.find(r => r.id === result.id)!;
+    completion = result.completion!;
+    completion.settlement = settlement; completion.state = positive ? "settled" : "unknown";
+    if (!reason) {
+      if (completion.nextOwner !== current.caller || completion.ownership.state !== "assigned") completion.ownershipRevision = (completion.ownershipRevision ?? 0) + 1;
+      completion.nextOwner = current.caller; completion.ownership = { ...completion.ownership, state: "assigned" };
+    }
+    ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(result), result.id, sprintId);
+    const saved = attemptById(ctx.db, sprintId, attempt.id);
+    saved.canStart = false; saved.phase = positive ? "completed" : "unknown";
+    if (positive) saved.completionResultId = result.id;
+    saved.reason = reason ?? { code: "COMPLETION_RECEIVED", message: "完了通知を受理しました。保存した成果と残件は現在の監督が確認してください" };
+    storeAttempt(ctx.db, saved); touch(ctx.db, sprintId);
+  });
+  if (positive && decision?.action === "release") return releaseCompletionNotification(ctx, ref, input, result, adapter, clock);
+  return reason;
+}
+async function releaseCompletionNotification(ctx: OpCtx, ref: string, input: SprintNotificationInput, result: SprintNotificationResult,
+  adapter: SprintOrcaAdapter, clock: SprintClock): Promise<SprintNotificationDelivery["reason"]> {
+  const sprintId = getSprint(ctx.db, ref).id, attempt = attemptById(ctx.db, sprintId, result.attemptId);
+  if (!adapter.release || !attempt.dispatchId) return { code: "RELEASE_UNKNOWN", message: "同じDispatchの正規解放経路を確認してください" };
+  const current = owned(ctx, sprintId, input);
+  const claim = tx(ctx.db, (): { operation: SprintNotificationReleaseOperation | null; pending: boolean; retained?: boolean; ownershipRevision: number } => {
+    owned(ctx, sprintId, input);
+    const latest = getSprintNotificationState(ctx.db, ref, clock).results.find(r => r.id === result.id)!;
+    const completion = latest.completion!, previous = completion.releaseOperation, ownership = completion.ownership;
+    if (previous?.reconciliation?.state === "completed" && previous.receipt?.state === "retained") {
+      return { operation: null, pending: false, retained: true, ownershipRevision: completion.ownershipRevision ?? 0 };
+    }
+    // caller/世代が同じでも、別receiveの送信中操作は新しく作らない。
+    if (previous?.state === "sending") return { operation: null, pending: true, ownershipRevision: completion.ownershipRevision ?? 0 };
+    if (previous?.state === "confirmed") return { operation: null, pending: false, ownershipRevision: completion.ownershipRevision ?? 0 };
+    const target = { runId: attempt.runId, dispatchId: attempt.dispatchId! }, inputHash = sprintHash(target);
+    if (previous && previous.inputHash !== inputHash) notificationConflict("保存した解放対象が異なります", latest.logicalKey, latest.id, inputHash);
+    const sameCaller = previous ? previous.caller === current.caller && previous.runtimeId === current.runtimeId
+      && previous.callerIdentity === (current.callerIdentity ?? null) : ownership.caller === current.caller;
+    const operation: SprintNotificationReleaseOperation = { operationId: previous?.operationId ?? ownership.operationId ?? crypto.randomUUID(), inputHash, target,
+      sessionId: current.id, generation: current.generation, caller: current.caller, callerIdentity: current.callerIdentity ?? null, runtimeId: current.runtimeId,
+      state: "sending", requestId: sameCaller ? previous?.requestId ?? ownership.requestId ?? null : null, receipt: null,
+      revision: (previous?.revision ?? 0) + 1, history: [...(previous?.history ?? []), ...(previous ? [{ operationId: previous.operationId,
+        revision: previous.revision, generation: previous.generation, caller: previous.caller, state: previous.state, requestId: previous.requestId, receipt: previous.receipt }] : [])] };
+    completion.releaseOperation = operation;
+    completion.ownershipRevision = (completion.ownershipRevision ?? 0) + 1;
+    completion.ownership = { ...ownership, state: "sending", operationId: operation.operationId, caller: current.caller, generation: current.generation,
+      requestId: operation.requestId, receipt: null, history: [...(ownership.history ?? []), ...(ownership.operationId ? [{ caller: ownership.caller ?? null,
+        requestId: ownership.requestId ?? null, receipt: ownership.receipt ?? null }] : [])] };
+    ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(latest), latest.id, sprintId);
+    touch(ctx.db, sprintId);
+    return { operation, pending: false, ownershipRevision: completion.ownershipRevision };
+  });
+  if (!claim.operation) return claim.retained ? { code: "RELEASE_RETAINED", message: "元requestは端末を保持しました。次所有者を確認してください。所有と枠は保持しています" }
+    : claim.pending ? { code: "RELEASE_PENDING", message: "保存した同じ解放操作が送信中です。元操作の結果を確認してください" } : null;
+  const sent = claim.operation;
+  let receipt = null, requestId = sent.requestId, confirmed = false;
+  try {
+    receipt = await adapter.release(attempt.runId, attempt.dispatchId, sent.requestId ?? undefined);
+    requestId = receipt.requestId ?? requestId;
+    if (receipt.dispatchId !== attempt.dispatchId || !((receipt.state === "released" && receipt.processAction === "closed_agent_terminal") || receipt.state === "already_released")) throw Error();
+    owned(ctx, sprintId, input); confirmed = true;
+  } catch (error) { if (error instanceof SprintOrcaMutationError) requestId ??= error.requestId; }
+  tx(ctx.db, () => {
+    const latest = getSprintNotificationState(ctx.db, ref, clock).results.find(r => r.id === result.id)!;
+    const completion = latest.completion!, operation = completion.releaseOperation!;
+    if (operation.operationId !== sent.operationId || operation.revision !== sent.revision || operation.state !== "sending") {
+      operation.history.push({ operationId: sent.operationId, revision: sent.revision, generation: sent.generation,
+        caller: sent.caller, state: "unknown", requestId, receipt });
+      confirmed = false;
+    } else {
+      operation.state = confirmed ? "confirmed" : "unknown"; operation.requestId = requestId; operation.receipt = receipt;
+      // 応答待ちに選ばれた次所有者を、古いreceiveの結果で置換しない。
+      const sameDecision = completion.ownershipRevision === claim.ownershipRevision;
+      completion.ownership = { ...completion.ownership, operationId: operation.operationId, requestId, receipt,
+        ...(sameDecision ? { state: confirmed ? "released" as const : "unknown" as const } : {}) };
+      if (sameDecision && confirmed) completion.nextOwner = null;
+    }
+    ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(latest), latest.id, sprintId);
+    touch(ctx.db, sprintId);
+  });
+  return confirmed ? null : { code: "RELEASE_UNKNOWN", message: "保存した同じDispatchの解放結果を照合してください。所有と枠は保持しています" };
+}
+// 通知の外部操作は実行起動operationsとは別に保持する。肯定的な同callerの保存receiptだけを採用し、ここから送信しない。
+export async function reconcileSprintNotifications(ctx: OpCtx, ref: string, input: SprintSessionContext,
+  adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintNotificationState> {
+  sprintObject(input, ["sessionId", "generation"]);
+  const state = getSprintNotificationState(ctx.db, ref, clock), sprintId = state.execution.sprintId;
+  const owner = owned(ctx, sprintId, input, true);
+  const pending = state.results.filter(r => r.completion?.releaseOperation?.state === "sending" && r.completion.releaseOperation.requestId);
+  const replies = state.receptions.filter(r => r.reply?.state === "sending" && r.reply.requestId);
+  const acknowledgments = state.deliveries.filter(d => d.ackOperation?.state === "sending" && d.ackOperation.requestId);
+  if (!adapter.notificationRequest || !pending.length && !replies.length && !acknowledgments.length) return state;
+  const authority = await adapter.authority(owner.runId); checkAuthority(authority, owner.runId, clock);
+  if (authority.caller !== owner.caller || authority.runtimeId !== owner.runtimeId || authority.consumerGeneration !== owner.consumerGeneration
+    || (authority.callerIdentity ?? null) !== (owner.callerIdentity ?? null)) fail("AUTHORITY_CHANGED", "通知の元requestと現在のcallerを照合してください");
+  for (const result of pending) {
+    const operation = result.completion!.releaseOperation!;
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+      || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash(operation.target)) continue;
+    let observation = null;
+    try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 欠測やpendingを再送許可へ変えない。 */ }
+    const receipt = observation?.release;
+    if (!observation || observation.state !== "completed" || observation.method !== "orchestration.workerRelease"
+      || observation.requestId !== operation.requestId || observation.runtimeId !== operation.runtimeId || !observation.source || !fresh(observation.observedAt, clock)
+      || !receipt || receipt.requestId !== operation.requestId || receipt.dispatchId !== operation.target.dispatchId) continue;
+    const physicallyReleased = receipt.state === "released" && receipt.processAction === "closed_agent_terminal" || receipt.state === "already_released";
+    if (!physicallyReleased && !(receipt.state === "retained" && receipt.processAction === "none")) continue;
+    const attempt = attemptById(ctx.db, sprintId, result.attemptId);
+    let settlement = null;
+    try { settlement = adapter.settlement ? await adapter.settlement(attempt) : null; } catch { /* 現在Taskも別に照合する。 */ }
+    const positiveSettlement = settlement && settlement.runId === attempt.runId && settlement.taskId === attempt.taskId && settlement.dispatchId === attempt.dispatchId
+      && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === "completed" && settlement.taskStatus === result.completion!.outcome
+      && settlement.outcome === result.completion!.outcome && settlement.completedAt && Number.isFinite(Date.parse(settlement.completedAt))
+      && settlement.source && fresh(settlement.observedAt, clock);
+    if (physicallyReleased && !positiveSettlement) continue;
+    tx(ctx.db, () => {
+      owned(ctx, sprintId, input, true);
+      const latest = getSprintNotificationState(ctx.db, ref, clock).results.find(r => r.id === result.id)!;
+      const completion = latest.completion!, saved = completion.releaseOperation!;
+      if (saved.operationId !== operation.operationId || saved.revision !== operation.revision || saved.inputHash !== operation.inputHash
+        || saved.requestId !== operation.requestId || saved.state !== "sending") return;
+      saved.state = physicallyReleased ? "confirmed" : "unknown"; saved.receipt = receipt; saved.reconciliation = observation!;
+      if (positiveSettlement) { completion.settlement = settlement; completion.state = "settled"; }
+      completion.ownership = { ...completion.ownership, operationId: saved.operationId, requestId: saved.requestId, receipt,
+        ...(["sending", "unknown"].includes(completion.ownership.state) ? { state: physicallyReleased ? "released" as const : "unknown" as const } : {}) };
+      if (completion.ownership.state === "released") completion.nextOwner = null;
+      ctx.db.query("UPDATE sprint_notification_results SET payload=? WHERE id=? AND sprint_id=?").run(JSON.stringify(latest), latest.id, sprintId);
+      touch(ctx.db, sprintId);
+    });
+  }
+  for (const reception of replies) {
+    const operation = reception.reply!;
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+      || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash({ target: operation.target, body: operation.body })) continue;
+    let observation = null;
+    try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 未確認は保留する。 */ }
+    const receipt = observation?.reply;
+    const result = state.results.find(r => r.id === reception.resultId), attempt = result ? attemptById(ctx.db, sprintId, result.attemptId) : null;
+    if (!observation || observation.state !== "completed" || observation.method !== "orchestration.reply"
+      || observation.requestId !== operation.requestId || observation.runtimeId !== operation.runtimeId || !observation.source || !fresh(observation.observedAt, clock)
+      || !receipt || receipt.runId !== operation.target.runId || receipt.dispatchId !== attempt?.dispatchId || receipt.questionId !== operation.target.messageId
+      || receipt.requestId !== operation.requestId || receipt.body !== operation.body || receipt.status !== "answered" || !receipt.answerMessageId) continue;
+    tx(ctx.db, () => {
+      owned(ctx, sprintId, input, true);
+      const latest = getSprintNotificationState(ctx.db, ref, clock).receptions.find(r => r.messageId === reception.messageId)!;
+      const saved = latest.reply!;
+      if (saved.operationId !== operation.operationId || saved.inputHash !== operation.inputHash || saved.requestId !== operation.requestId || saved.state !== "sending") return;
+      saved.state = "confirmed"; saved.receipt = receipt; saved.reconciliation = observation!;
+      storeNotificationReception(ctx.db, sprintId, latest); touch(ctx.db, sprintId);
+    });
+  }
+  for (const delivery of acknowledgments) {
+    const operation = delivery.ackOperation!;
+    if (operation.caller !== owner.caller || operation.runtimeId !== owner.runtimeId || operation.callerIdentity !== (owner.callerIdentity ?? null)
+      || operation.target.runId !== owner.runId || operation.inputHash !== sprintHash(operation.target)) continue;
+    let observation = null;
+    try { observation = await adapter.notificationRequest(operation.requestId!); } catch { /* 別callerのabsentや欠測でも再送しない。 */ }
+    const receipt = observation?.ack;
+    if (!observation || observation.state !== "completed" || observation.method !== "orchestration.check"
+      || observation.requestId !== operation.requestId || observation.runtimeId !== operation.runtimeId || !observation.source || !fresh(observation.observedAt, clock)
+      || !receipt || receipt.runId !== operation.target.runId || receipt.acknowledged !== operation.target.deliveryId || receipt.requestId !== operation.requestId) continue;
+    tx(ctx.db, () => {
+      owned(ctx, sprintId, input, true);
+      const latest = getSprintNotificationState(ctx.db, ref, clock).deliveries.find(d => d.deliveryId === delivery.deliveryId)!;
+      const saved = latest.ackOperation!;
+      if (saved.operationId !== operation.operationId || saved.inputHash !== operation.inputHash || saved.requestId !== operation.requestId || saved.state !== "sending") return;
+      saved.state = "confirmed"; saved.receipt = receipt; saved.reconciliation = observation!;
+      latest.acknowledged = true; latest.reason = null;
+      storeNotificationDelivery(ctx.db, sprintId, latest); touch(ctx.db, sprintId);
+    });
+  }
+  return getSprintNotificationState(ctx.db, ref, clock);
+}
+// 業務適用と再送用結果は同じ即時transaction。外部check・host観測・ackはtransactionの外。
+export async function receiveSprintNotifications(ctx: OpCtx, ref: string, input: SprintNotificationInput,
+  adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintNotificationState> {
+  sprintObject(input, ["sessionId", "generation", "answers", "ownership"]);
+  if (input.answers !== undefined) {
+    if (!Array.isArray(input.answers)) fail("INVALID_ARGS", "返信は配列で指定してください");
+    for (const answer of input.answers) { sprintObject(answer, ["messageId", "body"]); sprintText(answer.messageId, "質問の受信ID"); sprintText(answer.body, "返信本文"); }
+  }
+  if (input.ownership !== undefined) {
+    if (!Array.isArray(input.ownership)) fail("INVALID_ARGS", "次所有者の指定は配列で指定してください");
+    for (const decision of input.ownership) { sprintObject(decision, ["dispatchId", "action"]); sprintText(decision.dispatchId, "Dispatch");
+      if (!["coordinator", "release"].includes(decision.action)) fail("INVALID_ARGS", "現在の監督への引継ぎまたは解放を指定してください"); }
+  }
+  const execution = getSprintExecutionState(ctx.db, ref, clock), sprintId = execution.sprintId;
+  const current = owned(ctx, sprintId, input);
+  if (!adapter.check || !adapter.acknowledge) fail("NOTIFICATION_UNAVAILABLE", "元Runの配送とackを確認できません");
+  const authority = await adapter.authority(current.runId);
+  checkAuthority(authority, current.runId, clock);
+  if (authority.caller !== current.caller || authority.consumerGeneration !== current.consumerGeneration) fail("STALE_GENERATION", "元Runの現在の監督を再照合してください");
+  await reconcileSprintNotifications(ctx, ref, { sessionId: input.sessionId, generation: input.generation }, adapter, clock);
+  let batch = await adapter.check(current.runId);
+  const checked = new Set<string>();
+  for (;;) {
+    if (batch.runId !== current.runId || !Array.isArray(batch.messages) || batch.count !== batch.messages.length) fail("DELIVERY_UNKNOWN", "配送の全行を確認できません");
+    if (!batch.deliveryId) {
+      if (batch.count) fail("DELIVERY_UNKNOWN", "現在のDelivery IDを確認できません");
+      return getSprintNotificationState(ctx.db, ref, clock);
+    }
+    if (checked.has(batch.deliveryId)) fail("DELIVERY_UNKNOWN", "ack応答が同じ配送を再び返しました。現在のDeliveryを再取得してください");
+    checked.add(batch.deliveryId);
+    const priorDelivery = getSprintNotificationState(ctx.db, ref, clock).deliveries.find(d => d.deliveryId === batch.deliveryId);
+    const delivery: SprintNotificationDelivery = { deliveryId: batch.deliveryId, messageIds: batch.messages.map(m => m?.id).filter(id => typeof id === "string"), acknowledged: false, rows: [], reason: null,
+      ...(priorDelivery?.ackOperation ? { ackOperation: priorDelivery.ackOperation } : {}) };
+    tx(ctx.db, () => { owned(ctx, sprintId, input); storeNotificationDelivery(ctx.db, sprintId, delivery); });
+    for (const message of batch.messages) {
+      const row: SprintNotificationDelivery["rows"][number] = { messageId: typeof message?.id === "string" ? message.id : null, resultId: null, reason: null };
+      delivery.rows.push(row);
+      let receivedHash: string | null = null;
+      try {
+        if (!message || !message.id || message.runId !== current.runId || !message.fromHandle || !message.type || !message.receivedAt) fail("INVALID_ENVELOPE", "実際の受信envelopeの必須項目を確認できません");
+        receivedHash = sprintHash({ from: message.fromHandle, type: message.type, payload: message.payload, ...(message.type === "worker_done" ? { body: message.body ?? null } : {}) });
+        if (message.payload && typeof message.payload === "object" && "kind" in message.payload && message.payload.kind === "nod.sprint.start-authorization") {
+          fail("COORDINATOR_RESULT_QUARANTINED", "届いた監督の許可は現在状態へ適用しません。元operationと現在の監督世代を再照合してください");
+        }
+        const result = message.type === "question" ? recordQuestionNotification(ctx, ref, message, clock)
+          : message.type === "worker_done" ? recordCompletionNotification(ctx, ref, message, clock)
+          : message.type === "status" && message.payload && typeof message.payload === "object" && "kind" in message.payload
+            ? await recordObservationNotification(ctx, ref, message, adapter, clock, () => { owned(ctx, sprintId, input); })
+            : recordNoticeNotification(ctx, ref, message, clock);
+        row.resultId = result.id;
+        if (message.type === "question") row.reason = await replyToSprintNotification(ctx, ref, input, result, message, adapter, clock);
+        if (message.type === "worker_done") row.reason = await reconcileCompletionNotification(ctx, ref, input, result, adapter, clock);
+      } catch (error) {
+        row.reason = error instanceof NodError ? { code: error.code, message: error.message } : { code: "NOTIFICATION_UNKNOWN", message: "通知の受理結果を確認できません。元Runを再照合してください" };
+        if (row.reason.code === "IDEMPOTENCY_CONFLICT" && receivedHash && row.messageId) {
+          recordNotificationConflict(ctx, ref, message, error as NodError, clock, receivedHash);
+        } else if (row.messageId && message.fromHandle) {
+          const p = message.payload && typeof message.payload === "object" ? message.payload as Record<string, unknown> : {};
+          const authorization = p.authorization && typeof p.authorization === "object" ? p.authorization as Record<string, unknown> : {};
+          const id = (value: unknown) => typeof value === "string" && value.length <= 2048 ? value : null;
+          const generation = p.generation ?? authorization.generation;
+          const quarantined = { messageId: row.messageId, fromHandle: message.fromHandle, runId: message.runId, reason: row.reason,
+            source: batch.source, observedAt: batch.observedAt, references: { operationId: id(p.operationId ?? authorization.operationId),
+              requestId: id(p.requestId), generation: typeof generation === "number" && Number.isSafeInteger(generation) ? generation : null } };
+          tx(ctx.db, () => ctx.db.query("INSERT OR IGNORE INTO sprint_notification_quarantine VALUES(?,?,?,?)")
+            .run(sprintId, row.messageId!, receivedHash ?? sprintHash({ id: row.messageId, reason: row.reason }), JSON.stringify(quarantined)));
+        }
+      }
+    }
+    if (delivery.rows.some(r => r.reason)) {
+      delivery.reason = { code: "BATCH_INCOMPLETE", message: "未処理行があるため、この配送はackできません" };
+      tx(ctx.db, () => storeNotificationDelivery(ctx.db, sprintId, delivery));
+      return getSprintNotificationState(ctx.db, ref, clock);
+    }
+    const canAck = tx(ctx.db, () => {
+      const owner = owned(ctx, sprintId, input);
+      const previous = getSprintNotificationState(ctx.db, ref, clock).deliveries.find(d => d.deliveryId === batch.deliveryId)?.ackOperation;
+      if (previous?.state === "sending") { delivery.ackOperation = previous; delivery.reason = { code: "ACK_PENDING", message: "保存した現在Deliveryのack操作を照合してください" }; storeNotificationDelivery(ctx.db, sprintId, delivery); return false; }
+      if (previous?.state === "confirmed") { delivery.ackOperation = previous; delivery.acknowledged = true; storeNotificationDelivery(ctx.db, sprintId, delivery); return false; }
+      const target = { runId: owner.runId, deliveryId: batch.deliveryId! };
+      const sameCaller = previous?.caller === owner.caller && previous.runtimeId === owner.runtimeId && previous.callerIdentity === (owner.callerIdentity ?? null);
+      delivery.ackOperation = { operationId: previous?.operationId ?? crypto.randomUUID(), inputHash: sprintHash(target), target,
+        sessionId: owner.id, generation: owner.generation, caller: owner.caller, callerIdentity: owner.callerIdentity ?? null, runtimeId: owner.runtimeId,
+        state: "sending", requestId: sameCaller ? previous?.requestId ?? null : null, receipt: null,
+        history: [...(previous?.history ?? []), ...(previous ? [{ generation: previous.generation, caller: previous.caller,
+          requestId: previous.requestId, state: previous.state, receipt: previous.receipt }] : [])] };
+      storeNotificationDelivery(ctx.db, sprintId, delivery); touch(ctx.db, sprintId); return true;
+    });
+    if (!canAck) return getSprintNotificationState(ctx.db, ref, clock);
+    let next: SprintOrcaDelivery | null = null;
+    try {
+      const ack = await adapter.acknowledge(current.runId, batch.deliveryId, delivery.ackOperation!.requestId ?? undefined);
+      delivery.acknowledged = ack.acknowledged === batch.deliveryId;
+      next = ack.next;
+      delivery.ackOperation!.receipt = { acknowledged: ack.acknowledged, requestId: ack.requestId ?? null, source: ack.source ?? null,
+        observedAt: ack.observedAt ?? null, nextDeliveryId: ack.next?.deliveryId ?? null, nextCount: ack.next?.count ?? 0 };
+      delivery.ackOperation!.requestId = ack.requestId ?? delivery.ackOperation!.requestId;
+    } catch (error) {
+      if (error instanceof SprintOrcaMutationError) delivery.ackOperation!.requestId ??= error.requestId;
+    }
+    delivery.ackOperation!.state = delivery.acknowledged ? "confirmed" : "unknown";
+    if (!delivery.acknowledged) delivery.reason = { code: "ACK_UNKNOWN", message: "現在の配送のack結果を確認してください" };
+    tx(ctx.db, () => storeNotificationDelivery(ctx.db, sprintId, delivery));
+    if (delivery.acknowledged && next) { batch = next; continue; }
+    return getSprintNotificationState(ctx.db, ref, clock);
+  }
+}
 export function prepareSprintStartConfirmation(ctx: OpCtx, ref: string, input: SprintSessionContext & { attemptId: string }, clock: SprintClock = {}): SprintStartConfirmation {
   sprintObject(input, ["sessionId", "generation", "attemptId"]);
   return tx(ctx.db, () => {
     const sprintId = getSprint(ctx.db, ref).id, current = owned(ctx, sprintId, input), attempt = attemptById(ctx.db, sprintId, input.attemptId);
+    if (attempt.completionResultId) fail("ATTEMPT_COMPLETED", "完了受理済みの試行へ開始確認を再発行できません");
     const launch = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", sprintId).find(o => o.attemptId === attempt.id && o.kind === "worker_start");
     if (!launch || launch.state !== "confirmed") fail("RECONCILE_REQUIRED", "元の起動要求を再照合してください");
     canSend(ctx, launch, current, clock);
@@ -850,6 +1366,7 @@ export async function requestSprintExecutionStart(ctx: OpCtx, ref: string,
   input: SprintSessionContext & { attemptId: string; messageId: string; confirmationId: string }, adapter: SprintOrcaAdapter, clock: SprintClock = {}): Promise<SprintExecutionState> {
   sprintObject(input, ["sessionId", "generation", "attemptId", "messageId", "confirmationId"]);
   const initial = getSprintExecutionState(ctx.db, ref, clock), owner = owned(ctx, initial.sprintId, input);
+  if (initial.attempts.find(a => a.id === input.attemptId)?.completionResultId) fail("ATTEMPT_COMPLETED", "完了受理済みの試行へ新しい開始を許可できません");
   const existing = initial.operations.find(o => o.attemptId === input.attemptId && o.kind === "worker_begin");
   if (existing) return initial; // 応答喪失でも新通知を送らない。元requestへ照合する。
   await receiveSprintHostObservation(ctx, ref, { messageId: input.messageId }, adapter, clock);
@@ -864,13 +1381,16 @@ export async function requestSprintExecutionStart(ctx: OpCtx, ref: string,
       || (current.callerIdentity && authority.callerIdentity !== current.callerIdentity)) fail("AUTHORITY_CHANGED", "開始直前の監督権限が変わりました");
     const launch = rows<SprintExecutionOperation>(ctx.db, "sprint_operations", before.sprintId).find(o => o.attemptId === saved.id && o.kind === "worker_start")!;
     const observed = saved.hostObservation, confirmation = saved.startConfirmation;
+    const notifications = getSprintNotificationState(ctx.db, before.sprintId, clock);
+    const reception = notifications.receptions.find(r => r.messageId === input.messageId && !r.reason);
+    const canonical = notifications.results.find(r => r.id === reception?.resultId && r.attemptId === saved.id)?.observation?.messageId;
     const denied = (code: string, message: string) => {
       saved.canStart = false; saved.phase = "unknown"; saved.reason = { code, message }; storeAttempt(ctx.db, saved); touch(ctx.db, before.sprintId); return null;
     };
     try { canSend(ctx, launch, current, clock); }
     catch (error) { if (error instanceof NodError) return denied(error.code, error.message); throw error; }
     if (!observed || !confirmation || confirmation.id !== input.confirmationId || observed.confirmationId !== confirmation.id
-      || observed.messageId !== input.messageId || observed.messageId === confirmation.messageId
+      || observed.messageId !== canonical || observed.messageId === confirmation.messageId
       || Date.parse(observed.metadata.collectedAt) < Date.parse(confirmation.createdAt)) return denied("FRESH_CONFIRMATION_REQUIRED", "新しい開始確認に対応する自己観測を取り直してください");
     const verdict = judgeObservation(saved, observed.metadata, observed.selfHost, host, clock);
     if (verdict.result !== "matched") return denied(verdict.reason!.code, verdict.reason!.message);
