@@ -1,5 +1,6 @@
 import { importSprintHistory } from "./migrations/sprint-history";
 import { prepareSprintPlanning } from "./migrations/sprint-planning";
+import { prepareSprintExecutionStorage } from "./migrations/sprint-execution";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -701,4 +702,6 @@ export const MIGRATIONS: MigrationStep[][] = [
     `CREATE TRIGGER sprint_plan_identity_immutable BEFORE UPDATE OF sprint_id,revision,content_hash ON sprint_plans
       BEGIN SELECT RAISE(ABORT,'Sprint計画の版とhashは変更できません'); END`,
   ],
+  // 版45: 監督世代・主試行の予約と外部操作の照合記録。
+  [prepareSprintExecutionStorage],
 ];
