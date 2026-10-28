@@ -1,4 +1,5 @@
 import { NodError } from "../errors";
+import { isDeepStrictEqual } from "node:util";
 import { SprintOrcaMutationError, type SprintExecutionIdentity, type SprintExecutionOperation,
   type SprintExecutionReceipt, type SprintOrcaAdapter, type SprintOrcaInventory, type SprintRequestObservation } from "../sprint-execution-types";
 import type { SprintClock } from "../sprint-types";
@@ -11,6 +12,29 @@ import type { SprintOrcaDelivery } from "../sprint-notification-types";
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as ObjectValue : {}; }
 function string(value: unknown): string | null { return typeof value === "string" && value.length > 0 ? value : null; }
+// 公開sendのdurable enqueueだけを判定する。受信側の適用や実装開始の証拠ではない。
+interface SprintOrcaSendExpectation { dispatchId: string; destination: "run_home" | "worker"; runId: string; from: string; payload: ObjectValue }
+export function parseSprintOrcaSendReceipt(raw: unknown, expected: SprintOrcaSendExpectation) {
+  const value = object(raw), relay = object(value.relay), message = object(value.message);
+  let payload: ObjectValue = {};
+  if (typeof message.payload === "string") { try { payload = object(JSON.parse(message.payload)); } catch { /* 不明のまま保持する。 */ } }
+  const allowed = (value.accepted === undefined || value.accepted === true)
+    && !["rejected", "suppressed"].includes(String(object(value.lifecycle).action))
+    && (value.runId === undefined || value.runId === expected.runId)
+    && (value.taskId === undefined || value.taskId === expected.payload.taskId)
+    && (value.dispatchId === undefined || value.dispatchId === expected.dispatchId);
+  const relayed = value.relay !== undefined && value.message === undefined
+    && relay.accepted === true && !!string(relay.messageId)
+    && relay.dispatchId === expected.dispatchId && relay.destination === expected.destination;
+  const direct = value.message !== undefined && value.relay === undefined && !!string(message.id) && !!string(message.from_handle)
+    && message.run_id === expected.runId && message.from_handle === expected.from && message.type === "status"
+    && message.to_handle === (expected.destination === "worker" ? `dispatch:${expected.dispatchId}` : `run:${expected.runId}`)
+    && isDeepStrictEqual(payload, expected.payload);
+  return {
+    accepted: allowed && (relayed || direct),
+    messageId: string(relay.messageId ?? message.id), requestId: string(object(value.mutation).requestId),
+  };
+}
 function invalid(): never { throw new NodError("ORCA_OBSERVATION_UNKNOWN", "Orcaの応答形式または対応を確認できません"); }
 function identity(value: unknown): SprintExecutionIdentity {
   const raw = object(value);
@@ -68,19 +92,26 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
     }
     return { result, runtimeId: string(object(envelope._meta).runtimeId) };
   }
-  function receipt(raw: unknown, knownRequest: string | null = null): SprintExecutionReceipt {
+  function receipt(raw: unknown, knownRequest: string | null = null, expected?: SprintOrcaSendExpectation): SprintExecutionReceipt {
     const value = object(raw), task = object(value.task), dispatch = object(value.dispatch), worker = object(value.worker);
     const launch = object(value.launch ?? object(value.startOptions).launch);
     const relay = object(value.relay), message = object(value.message);
-    const messageId = string(relay.messageId ?? message.id);
+    let payload: ObjectValue = {};
+    if (typeof message.payload === "string") { try { payload = object(JSON.parse(message.payload)); } catch { /* unknown */ } }
+    const recoveredStart = payload.kind === "nod.sprint.start-authorization" && payload.schemaVersion === 1
+      && string(payload.runId) && string(payload.taskId) && string(payload.dispatchId) && string(payload.attemptId)
+      && string(object(payload.authorization).id);
+    const sent = parseSprintOrcaSendReceipt(value, expected ?? { dispatchId: string(relay.dispatchId ?? payload.dispatchId) ?? "", destination: "worker",
+      runId: string(value.runId ?? payload.runId) ?? "", from: recoveredStart ? string(message.from_handle) ?? "" : "", payload: recoveredStart ? payload : {} });
+    const messageId = sent.messageId;
     const toHandle = string(message.to_handle) ?? (relay.destination === "worker" && string(relay.dispatchId) ? `dispatch:${relay.dispatchId}` : null);
-    return { runId: string(value.runId ?? task.run_id ?? dispatch.runId), requestId: string(object(value.mutation).requestId ?? value.requestId) ?? knownRequest,
-      taskId: string(value.taskId ?? task.id ?? dispatch.task_id ?? worker.taskId),
-      dispatchId: string(value.dispatchId ?? dispatch.id ?? worker.dispatchId),
+    return { runId: string(value.runId ?? task.run_id ?? dispatch.runId ?? message.run_id), requestId: string(object(value.mutation).requestId ?? value.requestId) ?? knownRequest,
+      taskId: string(value.taskId ?? task.id ?? dispatch.task_id ?? worker.taskId ?? payload.taskId),
+      dispatchId: string(value.dispatchId ?? dispatch.id ?? worker.dispatchId ?? relay.dispatchId ?? payload.dispatchId),
       requested: settings(launch.requested), effective: settings(launch.effective),
       identity: value.identity ? identity(value.identity) : null,
       source: "Orca起動・操作receipt", receivedAt: at(),
-      ...(value.accepted === true && messageId && toHandle ? { notification: { messageId, toHandle, accepted: true as const } } : {}) };
+      ...(sent.accepted && messageId && toHandle ? { notification: { messageId, toHandle, accepted: true as const } } : {}) };
   }
   async function allPages(verb: "task-list" | "worker-list", runId: string): Promise<{ values: ObjectValue[]; complete: boolean }> {
     let cursor: string | null = null;
@@ -244,8 +275,10 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
       const retry = retryRequestId ? ["--retry-request", retryRequestId] : [];
       if (operation.kind === "worker_begin") {
         if (!operation.start || !from || from !== operation.caller) return invalid();
-        const response = await call([...sprintOrcaStartNotificationArgs(operation), ...retry], true);
-        const parsed = receipt(response.result);
+        const args = sprintOrcaStartNotificationArgs(operation);
+        const response = await call([...args, ...retry], true);
+        const parsed = receipt(response.result, null, { dispatchId: operation.start.dispatchId, destination: "worker", runId: operation.runId, from,
+          payload: object(JSON.parse(args[args.indexOf("--payload") + 1]!)) });
         if (!parsed.notification || parsed.notification.toHandle !== `dispatch:${operation.start.dispatchId}`) throw new SprintOrcaMutationError(parsed.requestId);
         return { ...parsed, runId: operation.runId, taskId: operation.input.taskId, dispatchId: operation.start.dispatchId };
       }

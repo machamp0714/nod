@@ -53,6 +53,27 @@ test("実envelopeと独立hostが一致した同担当だけ、取り直した�
   s.db.close();
 });
 
+test("公開adapterの正式worker relay receiptは同TaskとDispatchの開始通知を確定する", async () => {
+  const s = await worker(), commands: string[][] = [];
+  const wire = { ok: true, result: { relay: { messageId: "relay_start", sequence: 12, dispatchId: "dispatch", destination: "worker", accepted: true }, mutation: { requestId: "start_request" } } };
+  const external = core.createSprintOrcaAdapter(async args => {
+    commands.push(args);
+    return { kind: "exited", exitCode: 0, stdout: JSON.stringify(wire), stderr: "" };
+  }, { from: "PM", clock });
+  s.message("初観測relay");
+  await core.receiveSprintHostObservation(s.llm, s.sprint.id, { messageId: "初観測relay" }, s.adapter, clock);
+  const confirmation = core.prepareSprintStartConfirmation(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id }, clock);
+  s.message("直前relay", { confirmationId: confirmation.id });
+  const state = await core.requestSprintExecutionStart(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id, messageId: "直前relay", confirmationId: confirmation.id }, { ...s.adapter, send: external.send }, clock);
+  expect(state.operations.find(o => o.kind === "worker_begin")).toMatchObject({ state: "confirmed", requestId: "start_request", receipt: {
+    runId: "run", taskId: "task", dispatchId: "dispatch", notification: { messageId: "relay_start", toHandle: "dispatch:dispatch", accepted: true } } });
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toEqual(expect.arrayContaining(["--run", "run", "--to", "dispatch:dispatch", "--from", "PM"]));
+  expect(state.attempts[0]?.startedReport).toBeUndefined();
+  expect(core.getIssue(s.db, s.issue.id).status).toBe("todo");
+  s.db.close();
+});
+
 test("公開Orca adapterは実受信箱とworker-show・host statusを別取得し、epochを合成しない", async () => {
   const s = await worker(), commands: string[][] = [];
   const message = s.message("実status");
@@ -196,7 +217,7 @@ test("開始operationのOrca adapterはworkerを再起動せず同Dispatch宛sta
   const commands: string[][] = [];
   const adapter = core.createSprintOrcaAdapter(async args => {
     commands.push(args);
-    return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result: { accepted: true, relay: { destination: "worker", dispatchId: "dispatch", messageId: "開始通知" }, mutation: { requestId: "通知request" } } }), stderr: "" };
+    return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result: { accepted: true, relay: { destination: "worker", dispatchId: "dispatch", messageId: "開始通知", accepted: true }, mutation: { requestId: "通知request" } } }), stderr: "" };
   }, { from: "PM", clock });
   const receipt = await adapter.send!(s.sends.at(-1)!);
   expect(commands[0]?.slice(0, 2)).toEqual(["orchestration", "send"]);
@@ -351,5 +372,96 @@ test("ゴール更新後も実設定・権限範囲・identity・期間が変わ
     expect(rejected.attempts[0]?.phase).not.toBe("implementing"); expect(rejected.attempts[0]?.startedReport).toBeUndefined();
     expect(rejected.attempts[0]?.startAuthorization).toEqual(authorization);
     expect(rejected.occupied).toBe(1); expect(s.sends).toHaveLength(3); s.db.close();
+  }
+});
+
+// 公開sendの入力と公式wireを独立の固定値で置く。private parserへは接続しない。
+const directStartOperation: core.SprintExecutionOperation = {
+  schemaVersion: 1, id: "begin_operation", sprintId: "sprint", attemptId: "attempt", kind: "worker_begin", requestKey: "begin", inputHash: "input",
+  sessionId: "session", generation: 1, caller: "PM", callerIdentity: null, runtimeId: "home", runId: "run", state: "sending", requestId: null, receipt: null, reason: null,
+  input: { spec: "開始", placement: { agent: "codex", worktree: "path:/dedicated" }, taskId: "task", parentTaskId: null },
+  start: { dispatchId: "dispatch", identity, authorization: { id: "authorization", confirmationId: "confirmation", operationId: "begin_operation", generation: 1,
+    authorizedAt: "2026-03-08T12:00:00.000Z", identityFingerprint: "identity", settingsFingerprint: "settings" } },
+};
+const directStartWire = { message: { id: "direct_start", run_id: "run", from_handle: "PM", to_handle: "dispatch:dispatch", type: "status",
+  payload: '{"kind":"nod.sprint.start-authorization","schemaVersion":1,"runId":"run","taskId":"task","dispatchId":"dispatch","attemptId":"attempt","authorization":{"id":"authorization","confirmationId":"confirmation","operationId":"begin_operation","generation":1,"authorizedAt":"2026-03-08T12:00:00.000Z","identityFingerprint":"identity","settingsFingerprint":"settings"}}' }, mutation: { requestId: "direct_request" } };
+
+test("公開adapterはtop-level acceptedなしの正式direct messageを同開始通知へ結ぶ", async () => {
+  let sends = 0;
+  const adapter = core.createSprintOrcaAdapter(async () => { sends++; return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result: directStartWire }), stderr: "" }; }, { from: "PM", clock });
+  const receipt = await adapter.send!(directStartOperation);
+  expect(receipt).toMatchObject({ runId: "run", taskId: "task", dispatchId: "dispatch", requestId: "direct_request", notification: { messageId: "direct_start", toHandle: "dispatch:dispatch", accepted: true } });
+  expect(sends).toBe(1);
+});
+
+
+test("正式directの明示accepted互換を保ち、拒否や別通知やidentity不一致は実request付き不明にする", async () => {
+  const message = directStartWire.message;
+  const invalidMessages = [
+    { ...message, id: undefined }, { ...message, run_id: "other" }, { ...message, from_handle: "other" },
+    { ...message, to_handle: "run:run" }, { ...message, to_handle: "dispatch:other" }, { ...message, type: "rejection" },
+    { ...message, payload: message.payload.replace('"taskId":"task"', '"taskId":"other"') },
+    { ...message, payload: message.payload.replace('"dispatchId":"dispatch"', '"dispatchId":"other"') },
+    { ...message, payload: message.payload.replace('"id":"authorization"', '"id":"other"') },
+    { ...message, payload: message.payload.replace('nod.sprint.start-authorization', 'nod.sprint.worker-started') },
+    { ...message, payload: "invalid" }, { ...message, payload: undefined },
+  ];
+  const cases: Record<string, unknown>[] = invalidMessages.map(message => ({ ...directStartWire, message }));
+  cases.push({ ...directStartWire, accepted: false }, { ...directStartWire, lifecycle: { action: "rejected" } });
+  for (const result of [{ ...directStartWire, accepted: true }, ...cases]) {
+    let sends = 0;
+    const adapter = core.createSprintOrcaAdapter(async () => { sends++; return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" }; }, { from: "PM", clock });
+    if ("accepted" in result && result.accepted === true) expect((await adapter.send!(directStartOperation)).notification?.accepted).toBe(true);
+    else await expect(adapter.send!(directStartOperation)).rejects.toMatchObject({ requestId: "direct_request" });
+    expect(sends).toBe(1);
+  }
+});
+
+test("公開開始APIは不正relayとenvelope失敗の実request・unknown・予約を保ち再送しない", async () => {
+  const relay = { messageId: "relay_begin", sequence: 8, dispatchId: "dispatch", destination: "worker", accepted: true };
+  const results: Record<string, unknown>[] = [
+    { relay: { ...relay, accepted: undefined }, accepted: true }, { relay: { ...relay, accepted: false }, accepted: true },
+    { relay: { ...relay, messageId: undefined } }, { relay: { ...relay, dispatchId: undefined } }, { relay: { ...relay, dispatchId: "other" } },
+    { relay: { ...relay, destination: "run_home" } }, { relay, accepted: false }, { relay, lifecycle: { action: "rejected" } },
+    { relay, runId: "other" }, { relay, taskId: "other" }, { relay, dispatchId: "other" },
+  ];
+  for (const [index, result] of [...results, { relay }, { relay }].entries()) {
+    const s = await worker();
+    s.message("初観測failure"); await core.receiveSprintHostObservation(s.llm, s.sprint.id, { messageId: "初観測failure" }, s.adapter, clock);
+    const confirmation = core.prepareSprintStartConfirmation(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id }, clock);
+    s.message("直前failure", { confirmationId: confirmation.id });
+    let sends = 0;
+    const external = core.createSprintOrcaAdapter(async () => { sends++; return { kind: "exited", exitCode: index === results.length + 1 ? 9 : 0,
+      stdout: JSON.stringify({ ok: index !== results.length, result: { ...result, mutation: { requestId: "unknown_request" } } }), stderr: "" }; }, { from: "PM", clock });
+    const adapter = { ...s.adapter, send: external.send };
+    const input = { ...s.context, attemptId: s.attempt.id, messageId: "直前failure", confirmationId: confirmation.id };
+    let state = await core.requestSprintExecutionStart(s.llm, s.sprint.id, input, adapter, clock);
+    expect(state.operations.find(o => o.kind === "worker_begin")).toMatchObject({ state: "unknown", requestId: "unknown_request" });
+    expect(state).toMatchObject({ occupied: 1, reserved: 1, canStart: false });
+    state = await core.requestSprintExecutionStart(s.llm, s.sprint.id, input, adapter, clock);
+    expect(state.operations.find(o => o.kind === "worker_begin")).toMatchObject({ state: "unknown", requestId: "unknown_request" });
+    expect(sends).toBe(1); expect(core.getIssue(s.db, s.issue.id).status).toBe("todo");
+    s.db.close();
+  }
+});
+
+
+test("公開request照合も正式directとrelayを読み、欠測や拒否を通知確定にしない", async () => {
+  const relay = { messageId: "relay_saved", sequence: 3, dispatchId: "dispatch", destination: "worker", accepted: true };
+  const cases = [
+    { receipt: directStartWire, accepted: true, runId: "run" },
+    { receipt: { relay }, accepted: true, runId: null },
+    { receipt: { relay: { ...relay, accepted: undefined }, accepted: true }, accepted: false, runId: null },
+    { receipt: { relay, lifecycle: { action: "rejected" } }, accepted: false, runId: null },
+    { receipt: { ...directStartWire, message: { ...directStartWire.message, from_handle: "" } }, accepted: false, runId: "run" },
+  ];
+  for (const fixture of cases) {
+    const commands: string[][] = [];
+    const adapter = core.createSprintOrcaAdapter(async args => { commands.push(args); return { kind: "exited", exitCode: 0,
+      stdout: JSON.stringify({ ok: true, result: { requestId: "saved_request", state: "completed", receipt: { ...fixture.receipt, mutation: { requestId: "saved_request" } } } }), stderr: "" }; }, { from: "PM", clock });
+    const observed = await adapter.request!("saved_request");
+    expect(observed).toMatchObject({ state: "completed", requestId: "saved_request", receipt: { runId: fixture.runId, requestId: "saved_request" } });
+    expect(observed.receipt?.notification?.accepted ?? false).toBe(fixture.accepted);
+    expect(commands).toHaveLength(1); expect(commands[0]?.[1]).toBe("request-show");
   }
 });

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { beginSprintSession, resumeSprintSession, observeSprintSession, getSprintExecutionState,
   prepareSprintExecution, requestSprintExecution, reconcileSprintExecution, recoverSprintExecution,
-  createSprintOrcaAdapter, defaultOrcaRunner, collectSprintSelfMetadata, collectSprintSelfHost,
+  createSprintOrcaAdapter, defaultOrcaRunner, collectSprintSelfMetadata, collectSprintSelfHost, parseSprintOrcaSendReceipt,
   receiveSprintHostObservation, prepareSprintStartConfirmation, requestSprintExecutionStart,
   receiveSprintNotifications, getSprintNotificationState, type SprintNotificationInput, type SprintNotificationState,
   ORCA_TIMEOUT_MS, NodError, type SprintExecutionState,
@@ -74,16 +74,29 @@ export function registerSprintExecutionCommands(sprint: Command): void {
         observationId,
         sprintId: ref, attemptId: opts.attempt, runId: opts.run, taskId: opts.task, dispatchId: opts.dispatch, metadata, host,
         ...(opts.confirmation ? { confirmationId: opts.confirmation } : {}), ...(opts.authorization ? { authorizationId: opts.authorization } : {}) };
-      const response = await run(["orchestration", "send", "--from", metadata.terminal, "--dispatch-capability", opts.dispatchCapability,
-        "--type", "status", "--subject", "Sprint実行host観測", "--payload", JSON.stringify(payload), "--json"], { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 });
+      // 自身のactive attachmentを非消費peekで照合する。raw受信箱は保存も出力もしない。
+      let binding: { runId: string; dispatchId: string; source: string; observedAt: string } | null = null;
+      try {
+        const peek = await run(["orchestration", "check", "--terminal", metadata.terminal, "--peek", "--json"], { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 });
+        if (peek.kind === "exited" && peek.exitCode === 0) {
+          const value = JSON.parse(peek.stdout), actual = value?.result;
+          if (value?.ok === true && typeof actual?.runId === "string" && actual.runId && typeof actual?.dispatchId === "string" && actual.dispatchId) {
+            binding = { runId: actual.runId, dispatchId: actual.dispatchId, source: "自己terminalのOrca check --peek", observedAt: new Date().toISOString() };
+          }
+        }
+      } catch { /* 未確認のbindingでは送信しない。 */ }
+      const matches = binding?.runId === opts.run && binding?.dispatchId === opts.dispatch;
+      // Studioのfederated senderは--to/--runを拒否する。照合したactive attachmentへ送る。
+      const response = matches ? await run(["orchestration", "send", "--from", metadata.terminal, "--dispatch-capability", opts.dispatchCapability,
+        "--type", "status", "--subject", "Sprint実行host観測", "--payload", JSON.stringify(payload), "--json"], { timeoutMs: ORCA_TIMEOUT_MS, maxStdoutBytes: 1024 * 1024 }) : null;
       // raw応答/本文/capabilityは出力しない。応答不明は再送せず、実requestを照合する。
       let envelope: any = {};
-      if (response.kind === "exited") { try { envelope = JSON.parse(response.stdout); } catch { /* unknown */ } }
-      const result = envelope.result ?? {}, relay = result.relay ?? {}, message = result.message ?? {};
-      process.stdout.write(JSON.stringify({ accepted: envelope.ok === true && result.accepted === true,
-        observationId,
-        messageId: relay.messageId ?? message.id ?? null, requestId: result.mutation?.requestId ?? envelope.error?.data?.orchestrationRequestId ?? null,
-        source: "Orca観測status送信receipt", receivedAt: new Date().toISOString(), metadataStatus: metadata.status }, null, 2) + "\n");
+      if (response?.kind === "exited") { try { envelope = JSON.parse(response.stdout); } catch { /* unknown */ } }
+      const result = envelope?.result ?? {}, sent = parseSprintOrcaSendReceipt(result, { dispatchId: opts.dispatch, destination: "run_home", runId: opts.run, from: metadata.terminal, payload });
+      process.stdout.write(JSON.stringify({ accepted: response?.kind === "exited" && response.exitCode === 0 && envelope?.ok === true && sent.accepted,
+        observationId, binding,
+        messageId: sent.messageId, requestId: sent.requestId ?? envelope?.error?.data?.orchestrationRequestId ?? null,
+        source: matches ? "Orca観測status送信receipt" : "自己RunとDispatchの対応が未確認のため未送信", receivedAt: new Date().toISOString(), metadataStatus: metadata.status }, null, 2) + "\n");
     });
   const session = sprint.command("session").description("元Runと保存した監督の開始・引継ぎ・観測");
   writable(session.command("begin <sprint>").description("合意済み計画と元Runの現在権限を照合して監督を登録する"))
