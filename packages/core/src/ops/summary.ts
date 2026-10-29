@@ -175,7 +175,7 @@ function classify(row: Row): { kind: SummaryKind; detail: string | null } | null
     case "status_changed":
       if (data.to === "done") return { kind: "completed", detail: null };
       if (data.to === "canceled") return { kind: "canceled", detail: text(data.reason) };
-      if (data.to === "in_review") return { kind: "submitted", detail: null };
+      if (data.to === "in_review" && data.review_semantics == null) return { kind: "submitted", detail: null };
       // 差し戻し（直後に review_rejected が続く in_review→in_progress）は差し戻しとして数え、着手に重ねない
       if (data.to === "in_progress" && !(data.from === "in_review" && row.rejected_after)) return { kind: "started", detail: null };
       return null;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { archiveIssue, createIssue, createProject, initWorkspace, startIssue } from "@nod/core";
+import { archiveIssue, completeIssue, createIssue, createProject, findIssueRow, initWorkspace, startIssue, updateIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 function seed() {
@@ -50,4 +50,33 @@ describe("GET /api/summary", () => {
     const missing = await call(app, "GET", "/api/summary?project=ない");
     expect([missing.status, missing.json.error.code]).toEqual([404, "NOT_FOUND"]);
   });
+});
+
+
+test("新しいレビュー入りと再提出は完了報告に数えず、旧レビュー提出とDoneの意味を保つ", async () => {
+  const { app, db, ws, me, llm } = setup();
+  try {
+    const legacy = createIssue(me, { workspaceId: ws.id, title: "旧レビュー提出" });
+    // 移行前のレビュー提出履歴。新しいレビュー入りの識別子を持たない。
+    db.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, 'status_changed', ?, ?)")
+      .run(findIssueRow(db, legacy.id).id, llm.actor, JSON.stringify({ from: "in_progress", to: "in_review" }), new Date().toISOString());
+    const fresh = createIssue(me, { workspaceId: ws.id, title: "PRレビューを繰り返す" });
+    startIssue(llm, fresh.id);
+    for (let n = 0; n < 2; n++) {
+      updateIssue(llm, fresh.id, { status: "in_review" });
+      const summary = await call(app, "GET", "/api/summary");
+      expect(summary.status).toBe(200);
+      expect(count(summary.json, "submitted")).toBe(1);
+      expect(summary.json.sections.find((section: any) => section.kind === "submitted").items.map((item: any) => item.issueId)).toEqual([legacy.id]);
+      expect(count(summary.json, "completed")).toBe(0);
+      if (n === 0) startIssue(llm, fresh.id);
+    }
+    completeIssue(llm, fresh.id, { summary: "mergeと完了条件を確認" });
+    const summary = (await call(app, "GET", "/api/summary")).json;
+    expect(count(summary, "completed")).toBe(1);
+    expect(count(summary, "submitted")).toBe(1);
+    expect(summary.sections.find((section: any) => section.kind === "completed").items[0].issueId).toBe(fresh.id);
+  } finally {
+    db.close();
+  }
 });
