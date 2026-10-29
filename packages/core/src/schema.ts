@@ -1,3 +1,4 @@
+import { addInReview } from "./migrations/add-in-review";
 import { removeReview } from "./migrations/remove-review";
 import type { Database } from "bun:sqlite";
 import { renameDuplicateCycleNames } from "./migrations/global-cycle-names";
@@ -672,4 +673,6 @@ export const MIGRATIONS: MigrationStep[][] = [
       for (const issue of issues) insert.run(issue.id, issue.due_date, dueDateAtNine(issue.due_date) < introducedAt ? "excluded" : "pending");
     },
   ],
+  // 版43: PRレビュー中の状態を追加する。既存の状態・履歴・設定は変更しない。
+  [addInReview],
 ];

@@ -114,7 +114,7 @@ test("Board は6つの Status を列か Hidden columns に出し、Triage と Ca
   for (const name of ["Needs Clarification", "Backlog", "Todo", "In Progress", "Done"]) {
     await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
   }
-  await expect(page.getByRole("region", { name: "Hidden columns", exact: true })).toHaveCount(0);
+  await expect(hiddenColumn(page, "In Review")).toHaveText("In Review0");
   await expect(page.getByRole("region", { name: "Triage", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Canceled", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "In Progress", exact: true }).getByRole("link")).toHaveCount(3);
@@ -124,7 +124,7 @@ test("Board は6つの Status を列か Hidden columns に出し、Triage と Ca
   await nod.me.updateIssue("API-9", { status: "canceled" });
   await expect(page.getByRole("region", { name: "Needs Clarification", exact: true })).toHaveCount(0);
   const hidden = page.getByRole("region", { name: "Hidden columns", exact: true });
-  await expect(hidden.getByRole("listitem")).toHaveText(["Needs Clarification0"]);
+  await expect(hidden.getByRole("listitem")).toHaveText(["Needs Clarification0", "In Review0"]);
   await expect(hiddenColumn(page, "Needs Clarification")).toBeVisible();
   // トグルで行をたたみ、もう一度押すと開く
   const toggle = hidden.getByRole("button", { name: "Hidden columns", exact: true });
@@ -132,7 +132,7 @@ test("Board は6つの Status を列か Hidden columns に出し、Triage と Ca
   await toggle.click();
   await expect(hidden.getByRole("listitem")).toHaveCount(0);
   await toggle.click();
-  await expect(hidden.getByRole("listitem")).toHaveCount(1);
+  await expect(hidden.getByRole("listitem")).toHaveCount(2);
 });
 
 test.describe("Issue 詳細", () => {

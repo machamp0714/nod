@@ -40,7 +40,7 @@ describe("nod workspace transitions（#73）", () => {
 
   test("指定の誤りは INVALID_ARGS", async () => {
     const { db, repo } = await setupRepo();
-    for (const args of [[], ["--forbid", "backlog-done"], ["--forbid", "in_review:done"], ["--preset", "nope"], ["--preset", "review_before_done"]]) {
+    for (const args of [[], ["--forbid", "backlog-done"], ["--forbid", "unknown_status:done"], ["--preset", "nope"], ["--preset", "review_before_done"]]) {
       const r = await runNod(["workspace", "transitions", "set", ...args, "--json"], { cwd: repo, db });
       expect(r.exitCode).not.toBe(0);
       expect(r.json.error.code).toBe("INVALID_ARGS");

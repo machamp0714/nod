@@ -22,6 +22,7 @@ export const STATUSES = [
   "needs_clarification",
   "todo",
   "in_progress",
+  "in_review",
   "done",
   "canceled",
 ] as const;

@@ -102,8 +102,8 @@ export function migrate(db: Database): void {
     );
   }
   for (let v = current; v < SCHEMA_VERSION; v++) {
-    // レビュー状態の撤去では issues の CHECK を再作成するため、参照を保って外部キーを一時停止する。
-    const rebuildIssues = v === 39;
+    // 状態のCHECKを再作成する移行では、参照を保って外部キーを一時停止する。
+    const rebuildIssues = v === 39 || v === 42;
     if (rebuildIssues) db.exec("PRAGMA foreign_keys = OFF");
     try {
       db.transaction(() => {

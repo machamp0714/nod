@@ -92,6 +92,8 @@ export function setColumn(
     };
     if (extra.data) Object.assign(data, extra.data);
     if (extra.reason) data.reason = extra.reason;
+    // 旧来の完了提出と、新しいPRレビュー待ちを履歴のまま区別する。
+    if (type === "status_changed" && to === "in_review") data.review_semantics = "pr_review";
     // 人が実行した自動化ルールによる変更は、どのルールかを残す
     if (extra.automation) data.automation = extra.automation;
     if (type === "status_changed" && to === "done" && extra.report_comment_id !== undefined) {

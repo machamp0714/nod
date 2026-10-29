@@ -75,10 +75,10 @@ describe("ステータスの遷移ルールの設定", () => {
       { forbidden: [{ from: "todo", to: "todo" }] },
       { presets: ["nope"] },
       { presets: ["review_before_done"] },
-      // 廃止した状態を遷移ルールに指定できない
-      { forbidden: [{ from: "in_review", to: "done" }] },
-      { forbidden: [{ from: "in_progress", to: "in_review" }] },
-      { forbidden: [{ from: "in_review", to: "in_progress" }] },
+      // 未知の状態を遷移ルールに指定できない
+      { forbidden: [{ from: "unknown_status", to: "done" }] },
+      { forbidden: [{ from: "in_progress", to: "unknown_status" }] },
+      { forbidden: [{ from: "unknown_status", to: "in_progress" }] },
       // Triage の判断（受け入れ・却下）の経路は塞げない
       { forbidden: [{ from: "triage", to: "todo" }] },
       { forbidden: [{ from: "triage", to: "canceled" }] },
