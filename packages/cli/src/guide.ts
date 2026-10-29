@@ -46,11 +46,19 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
 8. 作業中に PR（draft を含む）を作ったら、その時点で \`nod issue link-pr <id> <PR の URL>\` で Issue に紐付ける（ステータスは変わらない）。
    PR の紐付けと状態取得は Issue のステータスを変えない。
-   終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` で完了にする。LLM も直接 done にできる。
-   GitHub の PR の承認・マージは GitHub 側で別に行う。nod は \`gh pr review\` も \`gh pr merge\` も実行しない。
-   nod が GitHub に書き込むのは、人が確認した Issue の新規作成（\`nod issue publish\`）だけである。更新・close・コメントはしない。LLM は \`nod issue publish <id> --dry-run\` で内容と検出結果を確かめ、作成は人に依頼する。
-9. 作業を再開するときは \`nod issue start <id>\` を使う。まだ受け取っていない追加指示が \`pendingInstructions\`（テキストでは「追加指示」）にあれば先に読んで対応する。
-   担当の LLM が \`nod issue show\` の「未確認の追加指示」で読んだ指示は確認済みになり、\`nod issue start\` では渡し直されない。
+   PR を含む依頼では、必要な実装・検証・独立レビューを済ませ、レビュー依頼時に \`nod issue update <id> --status in_review\` で In Review に移す。提出しただけでは Done にしない。
+   merge と Issue の完了条件（検証・反映など）を確認した人または権限のあるエージェントが \`nod issue done <id> --summary "<やったことと検証結果>" [--pr <URL>]\` で完了報告する。in_progress と in_review から使える。
+   PR が不要なら、必要な検証と完了条件を満たした時点で LLM も直接 done にできる。完了後に別途 PR 作成を頼まれた場合は、そのレビュー依頼時に明示的に In Review へ戻す。
+   指摘対応は \`nod issue start <id>\` で In Review から In Progress へ再開する。最初の着手日時を保ち、担当者・未回答・依存関係・仕様判定・遷移ルールを守る。
+   GitHub の PR の承認・マージは GitHub 側で別に行う。nod は \`gh pr review\` も \`gh pr merge\` も実行しない。PR の作成・承認・merge・本番反映の権限は依頼と既存運用に従い、この手順では追加しない。
+
+## PR と状態の運用
+
+- 実装中・draft は原則 In Progress。レビュー依頼後は明示的に In Review にする。PR なし・draft でも明示設定は可能で、PR の存在や merge をシステムの必須条件にはしない。
+- merge せず close して継続するなら In Progress、中止するなら理由を付けて Canceled、後回しなら Todo または Backlog に明示的に移す。
+- reopen 後にレビューを再開するなら In Review、修正するなら In Progress に明示的に移す。
+- PR の作成・紐付け・取得・取得失敗・merge・close・reopen は状態を自動変更しない。Done・Canceled からの自動再開もない。リンクの付け替えは1件の置換である。
+- In Review は未完了で、エージェントの稼働状態と完了日時をクリアする。Done に戻すための人間承認を新たな必須条件にはしない。
 
 ## 仕様要否判定と実装
 
@@ -203,7 +211,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
 - ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。必要なら \`nod issue unarchive <id>\` で復元し、そうでなければ別の Issue を取る。
-- NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
+- NOT_IN_PROGRESS：done は着手中（in_progress）かレビュー中（in_review）の Issue に使える。先に \`nod issue start <id>\` で着手する。
 - TRANSITION_NOT_ALLOWED：その状態変更は Workspace の遷移ルールで許可されていない（message にどのルールかが出る）。別の経路で回避せず、ルールに沿った状態を経由するか、人に判断を依頼する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - SECRET_DETECTED：作業ログに秘密値らしき値が含まれていた。値を伏せて書き直し、再実行する。

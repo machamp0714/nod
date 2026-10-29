@@ -177,10 +177,10 @@ export function completeIssue(ctx: OpCtx, ref: string, opts: { summary: string; 
   requireText(opts.summary, "報告（--summary）");
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
-    if (row.status !== "in_progress") {
+    if (row.status !== "in_progress" && row.status !== "in_review") {
       throw new NodError(
         "NOT_IN_PROGRESS",
-        `${ref} は ${row.status} です。着手中（in_progress）の Issue だけを完了できます`,
+        `${ref} は ${row.status} です。着手中（in_progress）かレビュー中（in_review）の Issue だけを完了できます`,
       );
     }
     const since = lastNotificationId(ctx.db);

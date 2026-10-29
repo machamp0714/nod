@@ -625,7 +625,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("start <id>")
-    .description("指定した Issue に着手する")
+    .description("指定した Issue に着手する（In Review からの修正再開も可能）")
     .action(
       actAsync(async (cli, _cmd, id: string) => {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
@@ -704,7 +704,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("done <id>")
-    .description("作業を終え、Issue を完了にする")
+    .description("着手中・レビュー中の Issue に完了報告を残す（PR を含む依頼は merge と完了条件を確認して実行）")
     .requiredOption("--summary <text>", "やったことの要約")
     .option("--pr <url>", "PR の URL")
     .action(

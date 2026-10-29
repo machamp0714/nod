@@ -72,7 +72,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 仕様待ちは未回答質問、別モデル照合、仕様合意、テスト境界合意、正式Spec添付を個別に復元する。
 実装中は既存試行を監督し、初回レビューを追加起動しない。
 修正確認中はstarted/completedと対象commit、独立担当、元実装者の待機所有者を復元し、既存確認を受け取る。
-PR提出後はPR実在とhead、nodのdone、cleanupとackの残件を確認し、実装を始め直さない。
+PR提出後はPR実在とhead、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
 
 ## 応答喪失と通信断
 
@@ -124,7 +124,7 @@ gh pr view <確認したURLまたはnumberまたはbranch> --repo <OWNER/REPO> -
 ```
 
 既存PRのheadが確認済み現在commitと一致し、対象branchとbase、openかつ非draftである場合は、そのPRへ合流する。
-nodのリンクとrefreshで状態が自動で変わることはない。受け入れ条件と検証が確認済みなら`nod issue done`による完了を回復し、既にdoneなら完了を重ねない。
+nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
 成果が確認できても実行settlementが不明なら、PR確認済みとcleanup未確認を分けて残す。
 古いhead、複数候補、取得失敗、PR不在の読取だけでは、新PRを作る根拠にしない。
 元の依頼と実行結果を照合し、必要なら同じ元実装者へ既存PRの更新または不足証拠だけを依頼する。

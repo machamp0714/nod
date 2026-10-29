@@ -46,11 +46,11 @@ for (const variant of ["normal", "existing-pr"] as const) {
     orca("check", "--ack", initial.id);
     const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
     expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
-    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "done", prUrl: pr.url });
+    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url });
     orca("worker-release", "--dispatch", submission.dispatch.id);
     expect(orca("worker-list", "--run", "run-pm", "--terminal-state", "reclaimable", "--include-remote").workers).toEqual([]);
     const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(1);
+    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(0);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("create"))).toHaveLength(variant === "existing-pr" ? 0 : 1);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
   });

@@ -50,7 +50,7 @@ export async function createTask6Scenario(options: { directory?: string; variant
     worker.phase = "awaiting_input"; worker.launch.effective = { model: "gpt-6.1-sol", effort: "high" };
     const q = askQuestion({ db, actor: "codex" }, "API-1", "保持期間は1.30日（推奨、保存量）、2.90日（長期比較）。決定後は元の期間集計作業を再開。").question;
     logWork({ db, actor: "codex" }, "API-1", `PM checkpoint。Workspace=API Cycle=2 max-parallel=2。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention。requested/effective=gpt-6.1-sol:high照合済み。工程=人回答待ち。占有=1。質問#${q.id} message=ask-api1、利用者の回答なし、質問は記録済み、無回答で再開しない。修正巡started=0 completed=0。`, { kind: "blocker" });
-    updateIssue({ db, actor: "me" }, "API-2", { status: "done", assignee: "codex", removeLabels: ["needs-spec"], description: "CSV serializerの列名をsales_totalに統一。集計APIと独立した変更。" });
+    updateIssue({ db, actor: "me" }, "API-2", { status: "in_review", assignee: "codex", removeLabels: ["needs-spec"], description: "CSV serializerの列名をsales_totalに統一。集計APIと独立した変更。" });
     linkPr({ db, actor: "codex" }, "API-2", "https://github.com/evaluation/api/pull/42");
     const submitted: Worker = { ...worker, issueId: "API-2", task: { id: "task-api2-pr", spec: "pushとPR提出。API-2。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-api2-pr", taskId: "task-api2-pr", status: "succeeded", terminalId: "term-api2" }, terminalId: "term-api2", worktreeId: "repo-api::/evaluation/studio/export-column", worktreePath: "/evaluation/studio/export-column", phase: "submission", reported: true, released: true, commit: "c".repeat(40), branch: "export-column" };
     workers.push(submitted);

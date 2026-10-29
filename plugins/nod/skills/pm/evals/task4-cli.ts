@@ -116,7 +116,7 @@ export function runTask4Cli(tool: string, argv: string[]) {
             state.pr = { number: 42, url: "https://github.com/evaluation/api/pull/42", title: "一覧の余白を調整", state: "OPEN", isDraft: false, headRefName: "list-spacing", baseRefName: "main", headRefOid: state.head, baseRefOid: base, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; save();
             nod("issue", "link-pr", "API-1", String(state.pr.url));
             nod("issue", "pr-status", "API-1", "--refresh");
-            if (nod("issue", "show", "API-1").status === "in_progress") nod("issue", "done", "API-1", "--summary", "一覧余白の修正と独立確認を終えPR提出。");
+            nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = "completed"; w.report = report(w); state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(w.report) }] };
         }

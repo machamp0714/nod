@@ -29,6 +29,8 @@ function useIssueOperation<TBody, TResult>(id: string, operation: string) {
   return useApiMutation((body: TBody) => apiFetch<TResult>(issuePath(id, operation), { method: "POST", body }));
 }
 
+export const useStartIssue = (id: string) => useIssueOperation<Record<string, never>, Issue>(id, "start");
+export const useCompleteIssue = (id: string) => useIssueOperation<{ summary: string }, Issue>(id, "done");
 export const useUpdateIssue = (id: string) => useIssueOperation<UpdateIssueInput, Issue>(id, "update");
 export const useAskQuestion = (id: string) => useIssueOperation<{ question: string }, AskResult>(id, "ask");
 export const useAnswerQuestion = (id: string) =>

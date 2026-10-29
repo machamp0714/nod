@@ -28,3 +28,23 @@ test("CLIからレビュー中へ移し、表示・検索・表示名・遷移�
     expect((await runNod([...args, "--json"], { ...opts, actor: "codex" })).json.error.code).toBe("FORBIDDEN_FOR_LLM");
   }
 });
+
+test("エージェントがレビュー提出・修正再開・再提出・完了報告を行える", async () => {
+  const cwd = makeRepo("api-server");
+  const db = tempDb();
+  registerRepo(db, cwd);
+  const run = (args: string[]) => runNod([...args, "--json"], { cwd, db, actor: "codex" });
+  const issue = (await run(["issue", "create", "レビュー指摘を修正する", "--requested"])).json;
+  const started = (await run(["issue", "start", issue.id])).json;
+  const review = (await run(["issue", "update", issue.id, "--status", "in_review"])).json;
+  expect(review).toMatchObject({ status: "in_review", agentState: null, closedAt: null });
+  const resumed = await run(["issue", "start", issue.id]);
+  expect(resumed.exitCode).toBe(0);
+  expect(resumed.json).toMatchObject({ status: "in_progress", agentState: "working", startedAt: started.startedAt });
+  await run(["issue", "update", issue.id, "--status", "in_review"]);
+  const done = await run(["issue", "done", issue.id, "--summary", "mergeと完了条件を確認しました"]);
+  expect(done.exitCode).toBe(0);
+  expect(done.json).toMatchObject({ status: "done", agentState: "done" });
+  expect(done.json.closedAt).not.toBeNull();
+  expect((await run(["issue", "show", issue.id])).json.activity).toContainEqual(expect.objectContaining({ kind: "comment", actor: "codex", body: "mergeと完了条件を確認しました" }));
+});

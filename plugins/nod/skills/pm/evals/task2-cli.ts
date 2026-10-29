@@ -134,7 +134,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
             nod("issue", "link-pr", "API-1", state.pr.url);
             const prStatus = nod("issue", "pr-status", "API-1", "--refresh");
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
-            if (nod("issue", "show", "API-1").status === "in_progress") nod("issue", "done", "API-1", "--summary", "一覧の余白を調整。テストと独立レビュー済み。PR提出。");
+            nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";
           state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, outcome: w.phase === "followup" ? "failed" : "succeeded", body: JSON.stringify(report(w)) }] };
