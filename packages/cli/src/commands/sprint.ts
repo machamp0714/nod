@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
 import { print } from "../output";
+import { registerSprintExecutionCommands } from "./sprint-execution";
 
 function line(sprint: Sprint): string {
   return `${sprint.number}  ${sprint.name}（${sprint.phase}）  ${sprint.startDate}〜${sprint.endDate}  ${sprint.id}`;
@@ -36,6 +37,7 @@ export function registerSprintCommands(program: Command): void {
       print(cli,value,()=>`Workspaceの方向を保存しました（版${value.version}）`);
     }));
   const sprint = program.command("sprint").description("Sprintを計画・合意・開始し、履歴を読む");
+  registerSprintExecutionCommands(sprint);
   sprint.command("create").description("期間・timezoneを指定して下書きを作る")
     .requiredOption("--input <file>","JSONファイルまたは -（stdin）。workspaceKey/expectedVersion:0/requestKey必須")
     .action(act((cli,cmd) => { const value=createSprint(cli.ctx,input<CreateSprintInput>(cmd)); print(cli,value,()=>line(value)); }));

@@ -201,10 +201,20 @@ export function getSprintPlan(db: Database, ref: string, planId: string): Sprint
   return plan;
 }
 function planConstraints(value: unknown): SprintPlanConstraints {
-  const row = sprintObject(value, ["executionScope", "maxParallel", "notes", "executionTarget", "model", "effort"], "制約");
+  const row = sprintObject(value, ["executionScope", "maxParallel", "notes", "executionTarget", "model", "effort", "executionSettingsPolicy"], "制約");
   if (!Number.isSafeInteger(row.maxParallel) || (row.maxParallel as number) < 1) invalidSprint("並行上限は1以上の整数で指定してください");
   const result: SprintPlanConstraints = { executionScope: sprintText(row.executionScope, "実行範囲"), maxParallel: row.maxParallel as number, notes: sprintText(row.notes, "制約の説明") };
   for (const key of ["executionTarget", "model", "effort"] as const) if (row[key] !== undefined) result[key] = sprintText(row[key], key);
+  if (row.executionSettingsPolicy !== undefined) {
+    const p = sprintObject(row.executionSettingsPolicy, ["version", "agent", "allowedModels", "allowedEfforts", "allowedTargets"], "継承設定の方針");
+    const values = (key: string) => {
+      const values = p[key];
+      if (!Array.isArray(values) || !values.length || values.length > 64) return invalidSprint("継承設定の許可範囲を指定してください");
+      return values.map(v => sprintText(v, key));
+    };
+    result.executionSettingsPolicy = { version: sprintText(p.version, "方針の版"), agent: sprintText(p.agent, "agent"),
+      allowedModels: values("allowedModels"), allowedEfforts: values("allowedEfforts"), allowedTargets: values("allowedTargets") };
+  }
   return result;
 }
 export function proposeSprintPlan(ctx: OpCtx, ref: string, input: ProposeSprintPlanInput): SprintPlanResult {
@@ -274,6 +284,13 @@ function checkPlanTarget(db: Database, sprint: Sprint, plan: SprintPlan): void {
 }
 function adoptPlan(ctx: OpCtx, sprint: Sprint, plan: SprintPlan, agreedAt: string, source: SprintPlan["agreementSource"]): void {
   checkPlanTarget(ctx.db, sprint, plan);
+  const occupied = ctx.db.query("SELECT item_id FROM sprint_attempts WHERE sprint_id=? AND occupied=1 AND parent_attempt_id IS NULL").all(sprint.id) as { item_id: string }[];
+  if (occupied.some(a => !plan.content.items.some(item => item.itemId === a.item_id))) {
+    throw new NodError("EXECUTION_OWNED", "未解決の試行を採択から除外できません。元Task・Dispatchと引継ぎを照合してください");
+  }
+  if (occupied.length > plan.content.constraints.maxParallel) {
+    throw new NodError("PARALLEL_LIMIT", "未解決の予約を下回る並行上限へ変更できません");
+  }
   ctx.db.query("UPDATE sprint_plans SET agreed_by=?,agreed_at=?,agreed_hash=? WHERE id=?").run(HUMAN_ACTOR,agreedAt,plan.contentHash,plan.id);
   ctx.db.query("UPDATE sprint_plan_contents SET agreement_source=? WHERE plan_id=?").run(source ? JSON.stringify(source) : null,plan.id);
   ctx.db.query("UPDATE sprints SET adopted_plan_id=?,goal=?,definition_of_done=?,phase=? WHERE id=?").run(plan.id,plan.content.goal,JSON.stringify(plan.content.definitionOfDone),sprint.phase === "active" ? "active" : "ready",sprint.id);

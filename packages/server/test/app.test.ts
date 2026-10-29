@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { NodError } from "@nod/core";
+import { createSprintOrcaAdapter, NodError } from "@nod/core";
 import { ERROR_STATUS, toErrorResponse } from "../src/errors";
 import { call, setup } from "./helpers";
 
@@ -14,11 +14,43 @@ function coreErrorCodes(): string[] {
     for (const m of src.matchAll(/new NodError\(\s*"([A-Z_]+)"/g)) codes.add(m[1] as string);
     // human.ts の requireStatus(row, ref, "triage", "NOT_IN_TRIAGE") の形
     for (const m of src.matchAll(/requireStatus\([^)]*?"([A-Z_]+)"\s*\)/g)) codes.add(m[1] as string);
+    // Sprint実行のfailと、予約時に拒否へ変換する着手条件も同じ変換境界を通る。
+    if (file === "ops/sprint-execution.ts" || file === "ops/sprint-eligibility.ts") {
+      for (const m of src.matchAll(/(?:fail|blocked)\(\s*"([A-Z_]+)"/g)) codes.add(m[1] as string);
+    }
   }
   return [...codes].sort();
 }
 
 describe("エラーの対応表", () => {
+  test.each([
+    ["STALE_GENERATION", "現在の監督世代と一致しません。元Runを再照合してください", 409],
+    ["REQUEST_MISMATCH", "保存したrequest IDだけを回復できます", 409],
+    ["HOST_OBSERVATION_REQUIRED", "現在の担当のホスト観測を取り直してください", 409],
+    ["INVALID_COMPLETION", "完了通知のoutcomeを確認できません", 400],
+    ["AUTHORITY_UNKNOWN", "元Runの現在の監督権限と取得時刻を確認できません", 502],
+  ])("%sの拒否・観測不能を分類し、CLIと同じ理由と補足を保つ", (code, message, status) => {
+    const details = { target: "元の実行", lastObservedAt: "2026-03-08T12:00:00.000Z" };
+    expect(toErrorResponse(new NodError(code as string, message as string, details))).toEqual({
+      status, body: { error: { code, message, details } },
+    });
+  });
+
+  test("Orcaの接続設定による拒否と外部応答の取得不能を区別し、空の成功にしない", async () => {
+    const adapters = [
+      { adapter: createSprintOrcaAdapter(null, { from: "自己端末" }), code: "ORCA_DISABLED", status: 409,
+        message: "Orcaとの接続が無効です。元Runの実行先を確認してください" },
+      { adapter: createSprintOrcaAdapter(async () => ({ kind: "exited", exitCode: 0, stdout: "不正な応答", stderr: "" }), { from: "自己端末" }),
+        code: "ORCA_OBSERVATION_UNKNOWN", status: 502, message: "Orcaの応答形式または対応を確認できません" },
+    ];
+    for (const { adapter, code, message, status } of adapters) {
+      let failure: unknown;
+      try { await adapter.authority("元Run"); } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(NodError);
+      expect(toErrorResponse(failure)).toEqual({ status, body: { error: { code, message } } });
+    }
+  });
+
   test("core が投げるコードは、すべて対応表にある", () => {
     const codes = coreErrorCodes();
     // 集め方が壊れていないことを、既知のコードで確かめる

@@ -2,18 +2,23 @@
 // 1. 本物の server（C の startServer）を一時ファイルの DB で API_PORT に起動する。
 // 2. テストのデータを入れる口を CONTROL_PORT に開く。書き込みは server とは別の接続で行うため、
 //    nod を別の端末で実行したときと同じく data_version が変わり、SSE の change が届く。
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, relative } from "node:path";
 import * as core from "@nod/core";
 import { startServer } from "@nod/server";
 import { CTX_OPS, DB_OPS } from "./support/core-ops";
 import type { FakeTogglEntry, FakeTogglFailures, FakeTogglProject } from "./support/nod";
 import { type Dataset, datasetContext, wipe } from "./support/dataset";
+import { sprintExecutionFixture } from "./support/sprint-execution-fixture";
 import { seedSprintFixture, associateSprintFixture, removeSprintFixture } from "./support/sprint-fixture";
 import { API_PORT, CONTROL_PORT } from "./support/ports";
 
 const dir = process.env.NOD_E2E_DIR;
 if (!dir) throw new Error("NOD_E2E_DIR がありません（playwright.config.ts が設定する）");
+const canonicalTmp = realpathSync(tmpdir()), canonicalDir = realpathSync(dir);
+if (relative(canonicalTmp, canonicalDir).startsWith("..") || !basename(canonicalDir).startsWith("nod-e2e-")) throw new Error("e2e runtimeは実子TMPDIR内のnod-e2e-prefixへ隔離してください");
+console.log(JSON.stringify({ kind: "e2e-isolation", pid: process.pid, tmpdir: canonicalTmp, dir: canonicalDir, bun: Bun.version, noEnvDir: process.env.NOD_VITE_ENV_DIR }));
 const dbPath = join(dir, "nod.db");
 // web から作る Document も一時ディレクトリの下に置く（~/.local/share/nod/documents に書かない）
 const docsDir = join(dir, "documents");
@@ -167,6 +172,11 @@ const control = Bun.serve({
         await server.stop();
         server = serve();
         return Response.json({ ok: true });
+      }
+      if (req.method === "POST" && path === "/sprint-execution") {
+        const body = await req.json() as { sprintId: string; action: "stale" | "unknown" | "unavailable" | "complete" };
+        if (!["stale", "unknown", "unavailable", "complete"].includes(body.action)) throw new Error("未知の実行fixture操作です");
+        return Response.json(await sprintExecutionFixture(db, body.sprintId, body.action));
       }
       if (req.method === "POST" && path === "/sprint-fixture") {
         const body = await req.json() as { op: "seed" | "associate" | "remove"; input: { name: string; startDate: string; endDate: string }; sprintId: string; issueRef: string };

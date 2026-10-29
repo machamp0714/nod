@@ -3,6 +3,9 @@ export * from "./db";
 export * from "./ctx";
 export * from "./types";
 export * from "./sprint-types";
+export * from "./sprint-execution-types";
+export * from "./ops/sprint-execution";
+export * from "./ops/sprint-orca";
 export * from "./ops/sprints";
 export * from "./ops/sprint-planning";
 export * from "./ops/workspaces";
@@ -76,3 +79,7 @@ export * from "./ops/desktop-notifications";
 export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
 
 export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";
+export { collectSprintSelfMetadata } from "./sprint-self-metadata";
+export type { SprintSelfMetadata, SprintSelfMetadataSource } from "./sprint-self-metadata";
+export type * from "./sprint-observation-types";
+export type * from "./sprint-notification-types";
