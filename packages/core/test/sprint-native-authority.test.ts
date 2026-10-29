@@ -51,7 +51,7 @@ function fixture() {
       result = { runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", mutation: { requestId: "fixture-start-request" } };
     }
     else if (args[1] === "task-list") result = { tasks: wire.spec ? [{ id: "fixture-task", run_id: "fixture-run", spec: wire.spec, parent_id: null,
-      status: wire.completed ? "succeeded" : "dispatched", dispatch_id: wire.started ? "fixture-dispatch" : null }] : [], page: { hasMore: false } };
+      status: wire.completed ? "completed" : "dispatched" }] : [], page: { hasMore: false } };
     else if (args[1] === "worker-list") result = { workers: wire.started ? [{ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch",
       identity: { terminal: "fixture-worker", incarnationId: "worker-incarnation", runtimeId: "fixture-home", remoteRuntimeEpoch: null },
       projection: { liveness: { verdict: "live", observedAt: clock.now.getTime() } } }] : [], page: { hasMore: false } };
@@ -62,6 +62,8 @@ function fixture() {
     }
     else if (args[1] === "worker-show") result = { dispatch: { id: "fixture-dispatch", runId: "fixture-run", taskId: "fixture-task",
       status: wire.completed ? "completed" : "dispatched", completedAt: wire.completed ? at : null }, projection: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: wire.completed ? "succeeded" : null } };
+    else if (args[1] === "dispatch-show") result = { dispatch: { id: "fixture-dispatch", run_id: "fixture-run", task_id: "fixture-task",
+      status: wire.completed ? "completed" : "dispatched", completed_at: wire.completed ? at : null } };
     else if (args[1] === "check") {
       if (!args.includes("--ack")) wire.afterCheck();
       result = { runId: "fixture-run", deliveryId: args.includes("--ack") ? null : "fixture-delivery", messages: args.includes("--ack") ? [] : wire.messages, count: args.includes("--ack") ? 0 : wire.messages.length,

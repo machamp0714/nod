@@ -254,11 +254,14 @@ export function createSprintOrcaAdapter(run: OrcaRunner | null,
       const tasks = await allPages("task-list", attempt.runId);
       const matches = tasks.values.filter(t => t.id === attempt.taskId && (t.run_id ?? t.runId) === attempt.runId);
       if (!tasks.complete || matches.length !== 1) return invalid();
+      const current = object((await call(["orchestration", "dispatch-show", "--task", attempt.taskId])).result.dispatch);
+      if (current.id !== attempt.dispatchId || current.run_id !== attempt.runId || current.task_id !== attempt.taskId
+        || current.status !== dispatch.status || (current.status !== "completed" && current.status !== "failed")) return invalid();
       const task = matches[0]!, outcome = projection.outcome;
       return { runId: attempt.runId, taskId: attempt.taskId, dispatchId: attempt.dispatchId,
-        activeDispatchId: string(task.dispatch_id ?? task.dispatchId), taskStatus: string(task.status), dispatchStatus: string(dispatch.status),
+        activeDispatchId: string(current.id), taskStatus: string(task.status), dispatchStatus: string(dispatch.status),
         outcome: outcome === "succeeded" || outcome === "failed" ? outcome : null,
-        completedAt: string(dispatch.completedAt), source: "Orca task-listの現在Dispatch・worker-showのsettlement（端末livenessとは別）", observedAt: at() };
+        completedAt: string(dispatch.completedAt), source: "Orca task-list・dispatch-show --taskの現在Dispatch・worker-showのsettlement（端末livenessとは別）", observedAt: at() };
     },
     async reply(runId, messageId, body, retryRequestId) {
       if (!from) return invalid();

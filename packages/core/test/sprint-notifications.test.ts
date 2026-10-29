@@ -316,7 +316,7 @@ test("完了通知だけでは解放せず、現在Task・Dispatchのpositive se
     payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded", filesModified: ["src/fixture.ts"], reportPath: "/fixture/report.md" } };
   let positive = false;
   s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch",
-    taskStatus: positive ? "succeeded" : "dispatched", dispatchStatus: positive ? "completed" : "dispatched", outcome: positive ? "succeeded" : null,
+    taskStatus: positive ? "completed" : "dispatched", dispatchStatus: positive ? "completed" : "dispatched", outcome: positive ? "succeeded" : null,
     completedAt: positive ? at : null, source: "Orca現在Taskとworker-show", observedAt: at });
   s.adapter.release = async (_run, dispatchId) => { releases.push(dispatchId); return { dispatchId, state: "released", processAction: "closed_agent_terminal", requestId: "fixture-release", source: "Orca worker-release", observedAt: at }; };
   s.batch("delivery-unsettled", [done]);
@@ -336,39 +336,119 @@ test("完了通知だけでは解放せず、現在Task・Dispatchのpositive se
   s.db.close();
 });
 
-test("公開Orca adapterは端末liveとTask完了を分け、Taskの現在Dispatchとworker-showの完了を照合する", async () => {
+test.each([ ["succeeded", "completed"], ["failed", "failed"] ] as const)("公開Orca adapterは正式Task statusとTask指定の現在Dispatchで%sを確定する", async (outcome, taskStatus) => {
   const s = await notifications(), commands: string[][] = [];
   const adapter = core.createSprintOrcaAdapter(async args => {
     commands.push(args);
-    const result = args[1] === "task-list" ? { runId: "fixture-run", tasks: [{ id: "fixture-task", run_id: "fixture-run", status: "succeeded", dispatch_id: "fixture-dispatch" }], count: 1 }
-      : { dispatch: { id: "fixture-dispatch", runId: "fixture-run", taskId: "fixture-task", task_id: "fixture-task", status: "completed", completedAt: at },
-        worker: { dispatchId: "fixture-dispatch", state: "succeeded" }, projection: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded", liveness: { verdict: "live", observedAt: clock.now.getTime(), source: "execution_host" } },
-        terminal: { handle: "fixture-terminal", connected: true, incarnationId: "fixture-incarnation", agentIdentity: "codex" }, observation: { status: "live", exactWorker: true, agentWait: null } };
+    const result = args[1] === "task-list" ? { runId: "fixture-run", tasks: [{ id: "fixture-task", run_id: "fixture-run", status: taskStatus, completed_at: at }], count: 1 }
+      : args[1] === "dispatch-show" ? { dispatch: { id: "fixture-dispatch", run_id: "fixture-run", task_id: "fixture-task", status: taskStatus, completed_at: at, capability_hash: "fixture-private-field" } }
+      : { dispatch: { id: "fixture-dispatch", runId: "fixture-run", taskId: "fixture-task", status: taskStatus, completedAt: at },
+        projection: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome, liveness: { verdict: "live", observedAt: clock.now.getTime(), source: "execution_host" } } };
     return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" };
   }, { from: "fixture-pm", clock });
   const attempt = core.getSprintExecutionState(s.db, s.sprint.id, clock).attempts[0]!;
   const settlement = await adapter.settlement!(attempt);
-  expect(settlement).toMatchObject({ taskStatus: "succeeded", dispatchStatus: "completed", activeDispatchId: "fixture-dispatch", outcome: "succeeded", completedAt: at });
+  expect(settlement).toMatchObject({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", taskStatus, dispatchStatus: taskStatus, activeDispatchId: "fixture-dispatch", outcome, completedAt: at });
+  expect(JSON.stringify(settlement)).not.toContain("fixture-private-field");
   expect(commands).toContainEqual(["orchestration", "worker-show", "--dispatch", "fixture-dispatch", "--json"]);
   expect(commands).toContainEqual(["orchestration", "task-list", "--run", "fixture-run", "--json"]);
+  expect(commands).toContainEqual(["orchestration", "dispatch-show", "--task", "fixture-task", "--json"]);
+  const done = { id: "fixture-formal-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
+    payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome } };
+  s.batch("delivery-formal", [done]);
+  const state = await core.receiveSprintNotifications(s.llm, s.sprint.id,
+    { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "coordinator" }] }, { ...s.adapter, settlement: adapter.settlement }, clock);
+  expect(state.results[0]?.completion).toMatchObject({ outcome, state: "settled", nextOwner: "fixture-pm", ownership: { state: "assigned" } });
+  expect(state.execution.attempts[0]?.phase).toBe("completed");
+  expect(s.acks).toEqual(["delivery-formal"]);
   s.db.close();
 });
 
 test("公開Orca adapterは原countより少ない抽出Task行を全件一覧と扱わずsettlementを確定しない", async () => {
   const s = await notifications();
   const adapter = core.createSprintOrcaAdapter(async args => ({ kind: "exited", exitCode: 0, stderr: "", stdout: JSON.stringify({ ok: true,
-    result: args[1] === "task-list" ? { runId: "fixture-run", tasks: [{ id: "fixture-task", run_id: "fixture-run", dispatch_id: "fixture-dispatch", status: "succeeded" }], count: 2 }
+    result: args[1] === "task-list" ? { runId: "fixture-run", tasks: [{ id: "fixture-task", run_id: "fixture-run", status: "completed" }], count: 2 }
       : { dispatch: { id: "fixture-dispatch", runId: "fixture-run", taskId: "fixture-task", status: "completed", completedAt: at }, projection: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } } }) }), { from: "fixture-pm", clock });
   const attempt = core.getSprintExecutionState(s.db, s.sprint.id, clock).attempts[0]!;
   await expect(adapter.settlement!(attempt)).rejects.toMatchObject({ code: "ORCA_OBSERVATION_UNKNOWN" });
   s.db.close();
 });
 
+test("公開Orca adapterの現在Dispatchや完了証拠が欠測・不一致・不正なら所有と枠を保って未ackにする", async () => {
+  const cases = [
+    "current-run", "current-task", "successor", "current-id-missing", "current-run-missing", "current-task-missing",
+    "current-status-missing", "current-status-unknown", "current-status-invalid", "current-dispatched", "current-null",
+    "getter-exit", "getter-timeout", "getter-json", "getter-rejected", "getter-missing",
+    "task-run", "task-id", "task-missing", "task-duplicate", "task-count", "task-page",
+    "task-status-missing", "task-status-unknown", "task-status-invalid", "task-status-succeeded", "task-status-failed",
+    "worker-run", "worker-task", "worker-dispatch", "worker-status", "worker-outcome", "worker-outcome-missing", "worker-date", "worker-date-missing", "failed-dispatch-for-success",
+  ];
+  for (const selected of cases) {
+    const s = await notifications(), releases: string[] = [];
+    const adapter = core.createSprintOrcaAdapter(async args => {
+      const task: Record<string, unknown> = { id: "fixture-task", run_id: "fixture-run", status: "completed", completed_at: at,
+        // 元Task行やworker-showが一致しても、現在Dispatch getterの欠測は補完しない。
+        dispatch_id: "fixture-dispatch" };
+      const current: Record<string, unknown> = { id: "fixture-dispatch", run_id: "fixture-run", task_id: "fixture-task", status: "completed", completed_at: at };
+      const worker = { dispatch: { id: "fixture-dispatch", runId: "fixture-run", taskId: "fixture-task", status: "completed", completedAt: at as string | undefined },
+        projection: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" as string | undefined } };
+      if (selected === "current-run") current.run_id = "other-run";
+      if (selected === "current-task") current.task_id = "other-task";
+      if (selected === "successor") current.id = "successor-dispatch";
+      if (selected === "current-id-missing") delete current.id;
+      if (selected === "current-run-missing") delete current.run_id;
+      if (selected === "current-task-missing") delete current.task_id;
+      if (selected === "current-status-missing") delete current.status;
+      if (selected === "current-status-unknown") current.status = "future-status";
+      if (selected === "current-status-invalid") current.status = { value: "completed" };
+      if (selected === "current-dispatched") current.status = "dispatched";
+      if (selected === "task-run") task.run_id = "other-run";
+      if (selected === "task-id") task.id = "other-task";
+      if (selected === "task-status-missing") delete task.status;
+      if (selected === "task-status-unknown") task.status = "future-status";
+      if (selected === "task-status-invalid") task.status = { value: "completed" };
+      if (selected === "task-status-succeeded") task.status = "succeeded";
+      if (selected === "task-status-failed") task.status = "failed";
+      if (selected === "worker-run") worker.dispatch.runId = "other-run";
+      if (selected === "worker-task") worker.dispatch.taskId = "other-task";
+      if (selected === "worker-dispatch") worker.dispatch.id = "other-dispatch";
+      if (selected === "worker-status") worker.dispatch.status = "dispatched";
+      if (selected === "worker-outcome") worker.projection.outcome = "failed";
+      if (selected === "worker-outcome-missing") delete worker.projection.outcome;
+      if (selected === "failed-dispatch-for-success") { current.status = "failed"; worker.dispatch.status = "failed"; }
+      if (selected === "worker-date") worker.dispatch.completedAt = "invalid";
+      if (selected === "worker-date-missing") delete worker.dispatch.completedAt;
+      if (args[1] === "dispatch-show") {
+        if (selected === "getter-exit") return { kind: "exited", exitCode: 1, stdout: "{}", stderr: "" };
+        if (selected === "getter-timeout") return { kind: "timeout", stdout: "", stderr: "" };
+        if (selected === "getter-json") return { kind: "exited", exitCode: 0, stdout: "{", stderr: "" };
+        if (selected === "getter-rejected") return { kind: "exited", exitCode: 0, stdout: '{"ok":false,"result":{}}', stderr: "" };
+      }
+      const tasks = selected === "task-missing" ? [] : selected === "task-duplicate" ? [task, task] : [task];
+      const result = args[1] === "task-list" ? { runId: "fixture-run", tasks, count: selected === "task-count" ? 2 : tasks.length,
+        ...(selected === "task-page" ? { page: { hasMore: true } } : {}) }
+        : args[1] === "dispatch-show" ? selected === "getter-missing" ? {} : { dispatch: selected === "current-null" ? null : current } : worker;
+      return { kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" };
+    }, { from: "fixture-pm", clock });
+    const done = { id: "fixture-uncertain-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
+      payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
+    s.batch("delivery-uncertain", [done]);
+    const state = await core.receiveSprintNotifications(s.llm, s.sprint.id,
+      { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "release" }] }, { ...s.adapter, settlement: adapter.settlement,
+        release: async (_run, dispatchId) => { releases.push(dispatchId); throw Error("unexpected release"); } }, clock);
+    expect({ selected, completion: state.results[0]?.completion }).toMatchObject({ selected, completion: { state: "unknown", nextOwner: null, ownership: { state: "pending" } } });
+    expect(state.deliveries[0]).toMatchObject({ acknowledged: false, rows: [{ reason: { code: "SETTLEMENT_UNKNOWN" } }] });
+    expect(state.execution).toMatchObject({ occupied: 1, reserved: 1 });
+    expect(releases).toEqual([]); expect(s.acks).toEqual([]);
+    s.db.close();
+  }
+});
+
 test("positive settlement後の正規解放だけを保存し、解放応答喪失の再配送も同operationとrequestへ合流する", async () => {
   const s = await notifications(), retries: (string | undefined)[] = [];
   const done = { id: "fixture-failed-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
     payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "failed" } };
-  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "failed", dispatchStatus: "completed", outcome: "failed", completedAt: at, source: "Orca settlement", observedAt: at });
+  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "failed", dispatchStatus: "failed", outcome: "failed", completedAt: at, source: "Orca settlement", observedAt: at });
   s.adapter.release = async (_run, dispatchId, retry) => {
     retries.push(retry);
     if (retries.length === 1) throw new core.SprintOrcaMutationError("fixture-release-request");
@@ -437,7 +517,7 @@ test("受理した完了結果は実行照合や遅れた新観測で開始待�
   const s = await notifications();
   const done = { id: "fixture-final-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
     payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
   s.batch("delivery-final", [done]);
   const completed = await core.receiveSprintNotifications(s.llm, s.sprint.id, { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "coordinator" }] }, s.adapter, clock);
   const operation = completed.execution.operations.find(o => o.kind === "task_create")!;
@@ -513,7 +593,7 @@ test("解放が未確定またはretainedでも次所有者へ変更するとき
     const s = await notifications();
     const done = { id: "fixture-owner-change", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
       payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
     s.adapter.release = async (_run, dispatchId) => {
       if (!retained) throw new core.SprintOrcaMutationError("fixture-unresolved-release");
       return { dispatchId, state: "retained", processAction: "external_terminal", requestId: "fixture-unresolved-release", source: "Orca release retained", observedAt: at };
@@ -540,7 +620,7 @@ test("同世代の並行receiveは応答順が逆でも送信中の同じ解放o
     const s = await notifications();
     const done = { id: "fixture-concurrent-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
       payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-    const settlement = { runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded" as const, completedAt: at, source: "Orca settlement", observedAt: at };
+    const settlement = { runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded" as const, completedAt: at, source: "Orca settlement", observedAt: at };
     const slots = [deferred<core.SprintOrcaSettlement>(), deferred<core.SprintOrcaSettlement>()], entered = [deferred<void>(), deferred<void>()], sent = deferred<void>(), finish = deferred<void>();
     const adapters = slots.map((slot, index) => ({ ...s.adapter, settlement: async () => { entered[index]!.resolve(); return slot.promise; } }));
     const operations: string[] = [], retries: (string | undefined)[] = [];
@@ -574,7 +654,7 @@ test("解放応答待ちの次所有者変更を遅い同世代応答で上書�
     const sentPromise = new Promise<void>(r => { sent = r; }), finishPromise = new Promise<void>(r => { finish = r; });
     const done = { id: "fixture-late-release-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
       payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
     s.adapter.release = async (_run, dispatchId) => { sent(); await finishPromise; return { dispatchId, state: released ? "released" : "retained", processAction: released ? "closed_agent_terminal" : "external_terminal", requestId: "fixture-late-release-request", source: "Orca release", observedAt: at }; };
     s.batch("fixture-late-release-delivery", [done]);
     const pending = core.receiveSprintNotifications(s.llm, s.sprint.id, { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "release" }] }, s.adapter, clock);
@@ -593,12 +673,12 @@ test("解放応答待ちの次所有者変更を遅い同世代応答で上書�
   }
 });
 
-test("アプリ応答を失ったsendingの既知release requestをcompleted証拠へ合流し追加送信しない", async () => {
+test.each([ ["succeeded", "completed"], ["failed", "failed"] ] as const)("アプリ応答を失ったsendingの既知release requestを%sの正式証拠へ合流し追加送信しない", async (outcome, taskStatus) => {
   const s = await notifications(); let entered!: () => void, finish!: () => void;
   const enteredPromise = new Promise<void>(r => { entered = r; }), finishPromise = new Promise<void>(r => { finish = r; });
   const done = { id: "fixture-resume-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
-    payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+    payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome } };
+  s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus, dispatchStatus: taskStatus, outcome, completedAt: at, source: "Orca settlement", observedAt: at });
   let sends = 0; const lookups: string[] = [];
   s.adapter.release = async () => { sends++; if (sends === 2) { entered(); await finishPromise; } throw new core.SprintOrcaMutationError("fixture-resume-request"); };
   const input = { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "release" as const }] };
@@ -721,7 +801,7 @@ test("保存requestがpending・absent・欠測や異なる証拠なら三操作
         payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", question: "確認先", options: [] } } : s.message;
     const input = { ...s.context, ...(kind === "release" ? { ownership: [{ dispatchId: "fixture-dispatch", action: "release" as const }] }
       : kind === "reply" ? { answers: [{ messageId: message.id, body: "保存回答" }] } : {}) };
-    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
     if (kind === "release") s.adapter.release = effect;
     if (kind === "reply") s.adapter.reply = effect;
     if (kind === "ack") s.adapter.acknowledge = effect;
@@ -791,7 +871,7 @@ test("completedでretainedの解放receiptも元操作へ保存し、次ownerと
     const enteredPromise = new Promise<void>(r => { entered = r; }), finishPromise = new Promise<void>(r => { finish = r; });
     const done = { id: "fixture-retained-done", runId: "fixture-run", fromHandle: "dispatch:fixture-dispatch", type: "worker_done", receivedAt: at,
       payload: { taskId: "fixture-task", dispatchId: "fixture-dispatch", outcome: "succeeded" } };
-    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
+    s.adapter.settlement = async () => ({ runId: "fixture-run", taskId: "fixture-task", dispatchId: "fixture-dispatch", activeDispatchId: "fixture-dispatch", taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "Orca settlement", observedAt: at });
     s.adapter.release = async () => { sends++; if (sends === 2) { entered(); await finishPromise; } throw new core.SprintOrcaMutationError("fixture-retained-request"); };
     s.batch("fixture-retained-delivery", [done]);
     const input = { ...s.context, ownership: [{ dispatchId: "fixture-dispatch", action: "release" as const }] };

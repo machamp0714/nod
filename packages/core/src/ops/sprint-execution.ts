@@ -1083,8 +1083,8 @@ async function reconcileCompletionNotification(ctx: OpCtx, ref: string, input: S
   let settlement = null;
   try { settlement = adapter.settlement ? await adapter.settlement(attempt) : null; } catch { /* 不明は所有と枠を保持する。 */ }
   const positive = settlement && settlement.runId === attempt.runId && settlement.taskId === attempt.taskId && settlement.dispatchId === attempt.dispatchId
-    && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === "completed" && settlement.outcome === completion.outcome
-    && settlement.taskStatus === completion.outcome && settlement.completedAt && Number.isFinite(Date.parse(settlement.completedAt))
+    && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === (completion.outcome === "succeeded" ? "completed" : "failed") && settlement.outcome === completion.outcome
+    && settlement.taskStatus === (completion.outcome === "succeeded" ? "completed" : "failed") && settlement.completedAt && Number.isFinite(Date.parse(settlement.completedAt))
     && settlement.source && fresh(settlement.observedAt, clock);
   const reason = !positive ? { code: "SETTLEMENT_UNKNOWN", message: "現在のTask・Dispatchの肯定的な完了を確認してください。所有と枠は保持しています" }
     : !decision ? { code: "NEXT_OWNER_REQUIRED", message: "完了した担当の次所有者または正規解放を指定してください" }
@@ -1201,7 +1201,8 @@ export async function reconcileSprintNotifications(ctx: OpCtx, ref: string, inpu
     let settlement = null;
     try { settlement = adapter.settlement ? await adapter.settlement(attempt) : null; } catch { /* 現在Taskも別に照合する。 */ }
     const positiveSettlement = settlement && settlement.runId === attempt.runId && settlement.taskId === attempt.taskId && settlement.dispatchId === attempt.dispatchId
-      && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === "completed" && settlement.taskStatus === result.completion!.outcome
+      && settlement.activeDispatchId === attempt.dispatchId && settlement.dispatchStatus === (result.completion!.outcome === "succeeded" ? "completed" : "failed")
+      && settlement.taskStatus === (result.completion!.outcome === "succeeded" ? "completed" : "failed")
       && settlement.outcome === result.completion!.outcome && settlement.completedAt && Number.isFinite(Date.parse(settlement.completedAt))
       && settlement.source && fresh(settlement.observedAt, clock);
     if (physicallyReleased && !positiveSettlement) continue;
