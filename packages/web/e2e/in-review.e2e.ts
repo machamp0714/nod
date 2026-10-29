@@ -85,3 +85,37 @@ test.describe("レビュー中の操作の拒否", () => {
     expect((await nod.me.getIssue(issue.id)).status).toBe("in_review");
   });
 });
+
+test("Projectフローでレビュー中を着手済みの独立した内訳として表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const project = await nod.me.createProject({ name: "レビュー進捗" });
+  const issue = await api.startedIssue("提出済みの実装");
+  await nod.me.updateIssue(issue.id, { projectRef: String(project.id), status: "in_review" });
+  await page.goto(`/projects/${project.id}?view=flow`);
+  const independent = page.getByRole("region", { name: "独立したIssue", exact: true });
+  await expect(independent.getByRole("region", { name: "In Review", exact: true })).toContainText(issue.title);
+  await expect(independent.getByRole("heading", { name: "In Review 1", exact: true })).toBeVisible();
+  await expect(independent.getByRole("region", { name: "その他の未完了", exact: true })).toHaveCount(0);
+});
+
+test("Cycleの分析とProjectの進捗はレビュー中を未完了として表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const today = new Intl.DateTimeFormat("en-CA").format(new Date());
+  const cycle = await nod.me.createCycle({ name: "レビュー集計", startDate: today, endDate: today });
+  const project = await nod.me.createProject({ name: "レビュー進捗" });
+  const issue = await api.startedIssue("レビューで確認中");
+  await nod.me.updateIssue(issue.id, { cycleRef: String(cycle.id), projectRef: String(project.id), status: "in_review" });
+  await page.goto(`/cycles/${cycle.id}`);
+  await page.getByRole("button", { name: "分析", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "Cycle の分析" });
+  await expect(panel.getByRole("region", { name: "進捗", exact: true })).toContainText("Started1100%");
+  await expect(panel.getByRole("region", { name: "進捗", exact: true })).toContainText("Completed00%");
+  await panel.getByRole("tab", { name: "Status", exact: true }).click();
+  await expect(panel.getByRole("tabpanel").getByRole("listitem").filter({ hasText: "In Review" })).toHaveText(/^\s*In Review\s*1\s*$/);
+  await page.goto(`/projects/${project.id}`);
+  await expect(page.getByText("0/1 完了", { exact: true })).toBeVisible();
+  await expect(page.getByRole("table")).toContainText("In Review");
+  await nod.claude.completeIssue(issue.id, { summary: "完了条件を確認" });
+  await page.reload();
+  await expect(page.getByText("1/1 完了", { exact: true })).toBeVisible();
+});

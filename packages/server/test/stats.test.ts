@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createIssue, createMilestone, createProject, findIssueRow, initWorkspace, llmStats, startIssue, updateIssue } from "@nod/core";
+import { completeIssue, createIssue, createMilestone, createProject, findIssueRow, initWorkspace, llmStats, startIssue, updateIssue } from "@nod/core";
 import { call, setup } from "./helpers";
 
 function seed() {
@@ -83,4 +83,55 @@ describe("GET /api/stats/llm", () => {
     const bad = await call(app, "GET", "/api/stats/llm?by=month");
     expect([bad.status, bad.json.error.code]).toEqual([400, "INVALID_ARGS"]);
   });
+});
+
+
+test("旧レビュー提出を保ち、新しいレビュー提出と再開は完了報告に重複計上しない", async () => {
+  const { app, db, ws, me, llm } = setup();
+  const old = createIssue(me, { workspaceId: ws.id, title: "旧レビュー提出" });
+  startIssue(llm, old.id);
+  updateIssue(me, old.id, { status: "done" });
+  // 移行前の提出履歴を再現する。識別子のない旧履歴は旧完了提出の意味を持つ。
+  db.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, 'status_changed', ?, ?)")
+    .run(findIssueRow(db, old.id).id, llm.actor, JSON.stringify({ from: "in_progress", to: "in_review" }), "2026-09-01T01:00:00.000Z");
+  const fresh = createIssue(me, { workspaceId: ws.id, title: "修正と再提出" });
+  startIssue(llm, fresh.id);
+  for (let n = 0; n < 2; n++) {
+    updateIssue(llm, fresh.id, { status: "in_review" });
+    startIssue(llm, fresh.id);
+  }
+  updateIssue(llm, fresh.id, { status: "in_review" });
+  const query = `/api/stats/llm?${RANGE}`;
+  db.query("UPDATE events SET created_at = '2026-09-01T01:00:00.000Z'").run();
+  expect((await call(app, "GET", query)).json.llms[0].totals.submitted).toBe(1);
+  completeIssue(llm, fresh.id, { summary: "mergeと完了条件を確認" });
+  db.query("UPDATE events SET created_at = '2026-09-01T02:00:00.000Z' WHERE issue_id = ? AND json_extract(data, '$.report_comment_id') IS NOT NULL")
+    .run(findIssueRow(db, fresh.id).id);
+  db.query("UPDATE issues SET started_at = '2026-09-01T00:00:00.000Z', closed_at = '2026-09-01T03:00:00.000Z'").run();
+  expect((await call(app, "GET", query)).json.llms[0].totals).toMatchObject({ submitted: 2, completed: 2, work: { measured: 2, totalMinutes: 180 } });
+  expect((await call(app, "GET", `/api/stats?${RANGE}`)).json.totals).toMatchObject({ completed: 2, work: { totalMinutes: 180 } });
+  expect((await call(app, "GET", `/api/issues/${old.id}`)).json.activity).toContainEqual(expect.objectContaining({
+    type: "status_changed", data: { from: "in_progress", to: "in_review" },
+  }));
+  updateIssue(llm, fresh.id, { status: "in_review" });
+  expect((await call(app, "GET", `/api/stats?${RANGE}`)).json.totals.completed).toBe(1);
+  startIssue(llm, fresh.id);
+  updateIssue(llm, fresh.id, { status: "in_review" });
+  completeIssue(llm, fresh.id, { summary: "追加修正を完了" });
+  db.query("UPDATE events SET created_at = '2026-09-01T04:00:00.000Z' WHERE created_at > '2026-09-02'").run();
+  db.query("UPDATE issues SET closed_at = '2026-09-01T04:00:00.000Z' WHERE id = ?").run(findIssueRow(db, fresh.id).id);
+  expect((await call(app, "GET", query)).json.llms[0].totals).toMatchObject({ submitted: 3, completed: 2, work: { totalMinutes: 300 } });
+});
+
+
+test("新しいレビュー入りを作業時間の終点にせず、報告なしのDoneは完了日時まで測る", async () => {
+  const { app, db, ws, me, llm } = setup();
+  const issue = createIssue(me, { workspaceId: ws.id, title: "レビュー後に直接Done" });
+  startIssue(llm, issue.id);
+  updateIssue(llm, issue.id, { status: "in_review" });
+  updateIssue(me, issue.id, { status: "done" });
+  db.query("UPDATE events SET created_at = '2026-09-01T01:00:00.000Z'").run();
+  db.query("UPDATE issues SET started_at = '2026-09-01T00:00:00.000Z', closed_at = '2026-09-01T03:00:00.000Z'").run();
+  expect((await call(app, "GET", `/api/stats?${RANGE}`)).json.totals).toMatchObject({ completed: 1, work: { measured: 1, totalMinutes: 180 } });
+  expect((await call(app, "GET", `/api/stats/llm?${RANGE}`)).json.llms[0].totals).toMatchObject({ submitted: 0, completed: 1, work: { totalMinutes: 180 } });
 });

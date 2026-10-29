@@ -5,7 +5,7 @@ import { type CycleClock, cycleToday, resolveCycle, summaryById } from "./cycles
 import { dateFormatter } from "./stats";
 
 // Linear の Started に当たる status
-export const STARTED_STATUSES: readonly Status[] = ["in_progress"];
+export const STARTED_STATUSES: readonly Status[] = ["in_progress", "in_review"];
 
 interface EventRow { type: string; data: string; created_at: string }
 interface Snapshot { date: string; member: boolean; status: Status }

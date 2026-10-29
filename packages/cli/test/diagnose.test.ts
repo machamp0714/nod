@@ -41,3 +41,16 @@ test("diagnoseは閾値の未指定・不正値とWorkspace未登録を拒否す
   const missing = await runNod(["issue", "diagnose", "--stale-days", "1", "-w", "MISSING", "--json"], opts);
   expect(missing.json.error.code).toBe("NOT_INITIALIZED");
 });
+
+test("レビュー中は長期間活動がなくても停滞診断の対象に追加しない", async () => {
+  const db = tempDb(), cwd = makeRepo();
+  registerRepo(db, cwd);
+  const opts = { cwd, db };
+  const issue = (await runNod(["issue", "create", "レビュー待ち", "--json"], opts)).json;
+  await runNod(["issue", "update", issue.id, "--status", "in_review"], opts);
+  const connection = openDb(db);
+  connection.exec("UPDATE issues SET created_at='2020-01-01T00:00:00Z', updated_at='2020-01-01T00:00:00Z'; UPDATE events SET created_at='2020-01-01T00:00:00Z'");
+  connection.close();
+  expect((await runNod(["issue", "diagnose", "--stale-days", "1", "--json"], opts)).json.findings).toEqual([]);
+  expect((await runNod(["issue", "show", issue.id, "--json"], opts)).json.status).toBe("in_review");
+});

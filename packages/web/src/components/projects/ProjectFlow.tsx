@@ -232,6 +232,7 @@ function IndependentIssues({ nodes, text }: { nodes: ProjectFlowNode[]; text: (n
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const groups = [
     { key: "in_progress", label: "対応中", matches: (state: FlowNodeState) => state === "in_progress" },
+    { key: "in_review", label: "In Review", matches: (state: FlowNodeState) => state === "in_review" },
     { key: "ready", label: "着手可能", matches: (state: FlowNodeState) => state === "ready" },
     { key: "other", label: "その他の未完了", matches: (state: FlowNodeState) => state === "other" || state === "waiting" },
     { key: "done", label: "完了", matches: (state: FlowNodeState) => state === "done" },

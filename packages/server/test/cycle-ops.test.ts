@@ -114,3 +114,16 @@ describe("Cycle API", () => {
     expect((await call(app, "DELETE", "/api/cycle-cadence")).json).toEqual({ ok: true });
   });
 });
+
+test("レビュー中はCycleの現在値と推移で未完了・着手済みとして集計される", async () => {
+  const { app, ws, me } = setup();
+  const today = new Date().toISOString().slice(0, 10);
+  const cycle = (await call(app, "POST", "/api/cycles", { name: "レビュー集計", startDate: today, endDate: today })).json;
+  const issue = createIssue(me, { workspaceId: ws.id, title: "レビュー待ち", cycleRef: String(cycle.id) });
+  expect((await call(app, "POST", `/api/issues/${issue.id}/update`, { status: "in_review" })).status).toBe(200);
+  expect((await call(app, "GET", `/api/cycles/${cycle.id}?tz=UTC`)).json).toMatchObject({ total: 1, open: 1, done: 0 });
+  const analytics = (await call(app, "GET", `/api/cycles/${cycle.id}/analytics?tz=UTC`)).json;
+  expect(analytics).toMatchObject({ scope: 1, started: 1, completed: 0, startedRate: 1, completedRate: 0,
+    burnup: [{ date: today, scope: 1, started: 1, completed: 0 }] });
+  expect(analytics.statuses).toContainEqual({ status: "in_review", count: 1 });
+});

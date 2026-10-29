@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createIssue, relateIssue, startIssue } from "@nod/core";
+import { createProject, createIssue, relateIssue, startIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
@@ -192,6 +192,46 @@ test("PRの作成後の紐付け・付け替え・merge・close・reopen・取�
       expect(after).toMatchObject({ status, prUrl: url, closedAt: before.closedAt, agentState: before.agentState });
       expect(after.activity.filter((item: { kind: string; type?: string }) => item.kind === "event" && item.type === "status_changed")).toEqual(before.activity.filter((item: { kind: string; type?: string }) => item.kind === "event" && item.type === "status_changed"));
     }
+  } finally {
+    db.close();
+  }
+});
+
+test("レビュー中はReadyに混ざらず依存を解除せず、Projectの完了数にも含まれない", async () => {
+  const { app, db, me, ws } = setup();
+  try {
+    const project = createProject(me, { name: "レビュー進捗" });
+    const review = createIssue(me, { workspaceId: ws.id, title: "レビュー待ち", projectRef: String(project.id) });
+    const blocked = createIssue(me, { workspaceId: ws.id, title: "依存先", projectRef: String(project.id) });
+    relateIssue(me, review.id, { blocks: blocked.id });
+    await call(app, "POST", `/api/issues/${review.id}/start`, {});
+    await call(app, "POST", `/api/issues/${review.id}/update`, { status: "in_review" });
+    const ready = await call(app, "GET", "/api/issues?ready=true");
+    expect(ready.json).toMatchObject({ issues: [], counts: { ready: 0 } });
+    expect((await call(app, "GET", `/api/issues/${blocked.id}`)).json.blockedBy).toEqual([review.id]);
+    expect((await call(app, "POST", `/api/issues/${blocked.id}/start`, {})).json.error.code).toBe("BLOCKED");
+    expect((await call(app, "GET", `/api/projects/${project.id}`)).json).toMatchObject({ total: 2, done: 0, agents: { working: 0 } });
+    expect((await call(app, "GET", "/api/projects")).json[0]).toMatchObject({ total: 2, done: 0 });
+    const flow = (await call(app, "GET", `/api/projects/${project.id}/flow`)).json;
+    expect(flow.nodes).toContainEqual(expect.objectContaining({ id: review.id, status: "in_review", ready: false }));
+    expect(flow.nodes).toContainEqual(expect.objectContaining({ id: blocked.id, ready: false, openBlockers: [review.id] }));
+    await call(app, "POST", `/api/issues/${review.id}/done`, { summary: "完了条件を確認" });
+    expect((await call(app, "GET", "/api/issues?ready=true")).json.issues.map((i: { id: string }) => i.id)).toEqual([blocked.id]);
+    expect((await call(app, "GET", `/api/projects/${project.id}`)).json).toMatchObject({ total: 2, done: 1 });
+  } finally {
+    db.close();
+  }
+});
+
+test("レビュー中の質問は状態や稼働状態を変える対象に追加しない", async () => {
+  const { app, db, me, ws } = setup();
+  try {
+    const issue = createIssue(me, { workspaceId: ws.id, title: "レビュー中の確認" });
+    await call(app, "POST", `/api/issues/${issue.id}/update`, { status: "in_review" });
+    const asked = await call(app, "POST", `/api/issues/${issue.id}/ask`, { question: "レビュー観点を確認したい" });
+    expect(asked.status).toBe(200);
+    expect(asked.json.issue).toMatchObject({ status: "in_review", agentState: null });
+    expect((await call(app, "GET", `/api/issues/${issue.id}`)).json).toMatchObject({ status: "in_review", agentState: null });
   } finally {
     db.close();
   }

@@ -48,3 +48,32 @@ test("エージェントがレビュー提出・修正再開・再提出・完�
   expect(done.json.closedAt).not.toBeNull();
   expect((await run(["issue", "show", issue.id])).json.activity).toContainEqual(expect.objectContaining({ kind: "comment", actor: "codex", body: "mergeと完了条件を確認しました" }));
 });
+
+test("CLIの進捗・統計・候補でレビュー中を未完了として扱い、完了報告だけを数える", async () => {
+  const cwd = makeRepo("api-server");
+  const db = tempDb();
+  registerRepo(db, cwd);
+  const run = (args: string[]) => runNod([...args, "--json"], { cwd, db, actor: "codex" });
+  const today = new Date().toISOString().slice(0, 10);
+  await run(["cycle", "create", "レビュー集計", "--start", today, "--end", today]);
+  await run(["project", "create", "レビュー進捗"]);
+  const review = (await run(["issue", "create", "レビュー待ち", "--requested", "--cycle", "レビュー集計", "--project", "レビュー進捗"])).json;
+  const blocked = (await run(["issue", "create", "後続", "--requested", "--project", "レビュー進捗"])).json;
+  expect((await run(["issue", "relate", review.id, "--blocks", blocked.id])).exitCode).toBe(0);
+  await run(["issue", "start", review.id]);
+  await run(["issue", "update", review.id, "--status", "in_review"]);
+  for (const command of ["suggest", "next"]) expect((await run(["issue", command])).json).toBeNull();
+  expect((await run(["issue", "list", "--ready"])).json).toEqual([]);
+  expect((await run(["issue", "start", blocked.id])).json.error.code).toBe("BLOCKED");
+  expect((await run(["cycle", "show", "レビュー集計", "--tz", "UTC"])).json).toMatchObject({ open: 1, done: 0, analytics: { scope: 1, started: 1, completed: 0 } });
+  expect((await run(["project", "show", "レビュー進捗"])).json).toMatchObject({ total: 2, done: 0 });
+  const stats = ["stats", "llm", "--by", "day", "--from", today, "--to", today, "--tz", "UTC"];
+  expect((await run(stats)).json.llms[0].totals).toMatchObject({ submitted: 0, completed: 0 });
+  await run(["issue", "start", review.id]);
+  await run(["issue", "update", review.id, "--status", "in_review"]);
+  expect((await run(stats)).json.llms[0].totals).toMatchObject({ submitted: 0, completed: 0 });
+  await run(["issue", "done", review.id, "--summary", "mergeと完了条件を確認"]);
+  expect((await run(stats)).json.llms[0].totals).toMatchObject({ submitted: 1, completed: 1 });
+  expect((await run(["stats", "--by", "day", "--from", today, "--to", today, "--tz", "UTC"])).json.totals.completed).toBe(1);
+  expect((await run(["issue", "next"])).json.id).toBe(blocked.id);
+});
