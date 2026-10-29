@@ -91,14 +91,15 @@ test("CLIのbegin・request・observe・resumeが同じ元Runの担当へ合流�
 const args=process.argv.slice(2),file=process.env.NOD_TEST_ORCA_STATE!;
 const state=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):{commands:[],spec:null,started:false};state.commands.push(args);
 const coordinator=process.env.NOD_TEST_COORDINATOR??'監督A';let result;
-if(args[0]==='status')result={runtime:{runtimeId:'home-runtime',state:'ready',reachable:true,connectionState:'connected'},caller:{orcaSessionId:'orca_session_id:fixture-session',live:true}};
+if(args[0]==='status')result={runtime:{runtimeId:'home-runtime',state:'ready',reachable:true,connectionState:'connected'},...(process.env.NOD_TEST_MISSING_CALLER?'':{caller:{orcaSessionId:'orca_session_id:'+coordinator,live:true}})};
+else if(args[1]==='run-use'){if(args.includes('--from'))throw Error('旧callerの借用禁止');state.bound=coordinator;result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:8}};}
 else if(['run-current','run-show'].includes(args[1]!))result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:coordinator==='監督A'?7:8}};
 else if(args[1]==='task-create'){state.spec=args[args.indexOf('--spec')+1];result={task:{id:'元Task',run_id:'元Run'},mutation:{requestId:'Task要求'}};}
 else if(args[1]==='worker-start'){state.started=true;result={runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',mutation:{requestId:'起動要求'}};}
 else if(args[1]==='task-list')result={tasks:[{id:'元Task',run_id:'元Run',spec:state.spec,parent_id:null}]};
 else if(args[1]==='worker-list')result={workers:state.started?[{runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',identity:{runtimeId:'host',incarnationId:'incarnation',terminal:'端末',remoteRuntimeEpoch:'epoch'},projection:{liveness:{verdict:'live',observedAt:Date.now()}}}]:[],page:{hasMore:false,nextCursor:null}};
 else if(args[1]==='request-show'){const id=args[args.indexOf('--request')+1];result={requestId:id,state:'completed',receipt:{runId:'元Run',taskId:'元Task',dispatchId:id==='起動要求'?'元Dispatch':null,mutation:{requestId:id}}};}
-else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result,_meta:{runtimeId:'home-runtime'}}));
+else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result,_meta:{runtimeId:'home-runtime'}})+'\\n');
 `);
   const env = { NOD_ORCA: "1", ORCA_CLI_COMMAND: `bun ${fake}`, NOD_TEST_ORCA_STATE: saved };
   let sequence = 0;
@@ -112,19 +113,41 @@ else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state))
   const request = await run(["execution", "request"], { ...context, requestKey: "担当", itemId: original.items[0]!.id, actor: "codex", spec: "合意した仕事", placement: { agent: "codex", worktree: "path:/専用" } });
   expect(request).toMatchObject({ exitCode: 0, json: { occupied: 1, canStart: false } });
   expect(request.json.attempts[0]).toMatchObject({ taskId: "元Task", dispatchId: "元Dispatch" });
+  const observed = await run(["session", "observe"], context);
+  expect(observed.json.snapshot).toMatchObject({ resolved: true, planId: ready.plan.id, planHash: ready.plan.contentHash });
+  expect(observed.json.state.nextActions).toContainEqual(expect.objectContaining({ argv: ["nod", "sprint", "session", "resume", sprint.id, "--input", "-"] }));
+  const action = observed.json.state.nextActions.find((a: any) => a.argv.includes("resume"));
+  expect(action.command).not.toContain("--from");
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+  writeFileSync(join(dir, "nod"), `#!/bin/sh\nexec bun ${quote(join(import.meta.dir, "../src/main.ts"))} "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(dir, "orca"), `#!/bin/sh\nexec bun ${quote(fake)} "$@"\n`, { mode: 0o755 });
+  const copied = async (missing: boolean) => {
+    const child = Bun.spawn(["/bin/sh", "-c", `${action.command} --json`], { cwd, env: { ...process.env, ...env, NOD_DB: path,
+      NOD_ACTOR: "", NOD_TEST_COORDINATOR: "監督B", ORCA_TERMINAL_HANDLE: "監督B", ORCA_AGENT_SESSION_ID: "", CODEX_THREAD_ID: "",
+      NOD_TEST_MISSING_CALLER: missing ? "1" : "", PATH: `${dir}:${process.env.PATH}` }, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(stderr).toBe(""); return { exitCode, json: JSON.parse(stdout.split("\n").slice(3).join("\n")) };
+  };
+  const unavailable = await copied(true);
+  expect(unavailable).toMatchObject({ exitCode: 0, json: { snapshot: { resolved: false }, state: { session: { generation: 1, state: "handover", caller: "監督A" }, occupied: 1 } } });
+  const resumed = await copied(false);
+  expect(resumed).toMatchObject({ exitCode: 0, json: { state: { session: { generation: 2, caller: "監督B", consumerGeneration: 8, planId: ready.plan.id, planHash: ready.plan.contentHash }, occupied: 1 } } });
+  expect(resumed.json.state.attempts[0]).toMatchObject({ id: request.json.attempts[0].id, taskId: "元Task", dispatchId: "元Dispatch", canStart: false });
+  expect(resumed.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
+  expect(await run(["execution", "request"], { ...context, attemptId: request.json.attempts[0].id }, "監督A")).toMatchObject({ exitCode: 1, json: { error: { code: "STALE_GENERATION" } } });
+  // 同計画のコピー再開に加え、既存の新合意へ再開する経路も維持する。
   const latestDb = core.openDb(path), latestCtx = { db: latestDb, actor: "me" };
   const revised = core.proposeSprintPlan(latestCtx, sprint.id, { ...original.input, expectedVersion: core.getSprint(latestDb, sprint.id).version,
     requestKey: "新計画", goal: "人が正式に変えたゴール", changeReason: "同じ担当へ新合意を渡す" });
   core.acceptSprintPlan(latestCtx, sprint.id, revised.plan.id, { expectedVersion: revised.sprint.version, requestKey: "新合意", contentHash: revised.plan.contentHash });
   latestDb.close();
-  const observed = await run(["session", "observe"], context);
-  expect(observed.json.snapshot).toMatchObject({ resolved: true, planId: revised.plan.id, planHash: revised.plan.contentHash });
-  expect(observed.json.state.nextActions).toContainEqual(expect.objectContaining({ argv: ["nod", "sprint", "session", "resume", sprint.id, "--input", "-"] }));
-  const resumed = await run(["session", "resume"], { ...context, requestKey: "引継ぎ" }, "監督B");
-  expect(resumed).toMatchObject({ exitCode: 0, json: { state: { session: { generation: 2, caller: "監督B", consumerGeneration: 8, planId: revised.plan.id, planHash: revised.plan.contentHash }, occupied: 1 } } });
-  expect(resumed.json.state.attempts[0]).toMatchObject({ id: request.json.attempts[0].id, taskId: "元Task", dispatchId: "元Dispatch", canStart: false });
-  expect(resumed.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
-  expect(await run(["execution", "request"], { ...context, attemptId: request.json.attempts[0].id }, "監督A")).toMatchObject({ exitCode: 1, json: { error: { code: "STALE_GENERATION" } } });
+  const current = { ...context, generation: 2 };
+  const replannedObservation = await run(["session", "observe"], current, "監督B");
+  expect(replannedObservation.json.snapshot).toMatchObject({ resolved: true, planId: revised.plan.id, planHash: revised.plan.contentHash });
+  const replanned = await run(["session", "resume"], { ...current, requestKey: "新合意の引継ぎ" }, "監督C");
+  expect(replanned).toMatchObject({ exitCode: 0, json: { state: { session: { generation: 3, caller: "監督C", planId: revised.plan.id, planHash: revised.plan.contentHash }, occupied: 1 } } });
+  expect(replanned.json.state.attempts[0]).toMatchObject({ id: request.json.attempts[0].id, taskId: "元Task", dispatchId: "元Dispatch", canStart: false });
+  expect(replanned.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
 });
 
 test("CLIは通常着手の元担当と未照合占有を表示し、別採択Issueの予約を同じcoreで拒否する", async () => {

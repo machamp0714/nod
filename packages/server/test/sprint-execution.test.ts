@@ -61,6 +61,10 @@ test("HTTPの保存状態読取はcoreと同じ時計・監督・予約・通知
   expect(response.json).toEqual(core.getSprintNotificationState(db, sprint.id, clock));
   expect(response.json.execution).toMatchObject({ occupied: 1, reserved: 1, maxParallel: 1, stale: true, observedAt: "2026-03-08T12:03:00.000Z" });
   expect(response.json.execution.nextActions[0].command).toContain("NOD_ACTOR='codex'");
+  const resume = response.json.execution.nextActions.find((action: any) => action.argv.includes("resume"));
+  expect(resume.input).toMatchObject({ sessionId: session.id, generation: 1 });
+  expect(resume.command).toContain("'run-use' '--id' '元Run'");
+  expect(resume.command).not.toContain("--from");
   for (const route of ["execution", "session/begin", "execution/receive"]) {
     expect((await call(app, "POST", `/api/sprints/${sprint.id}/${route}`, { actor: "codex", authorized: true })).status).toBe(404);
   }

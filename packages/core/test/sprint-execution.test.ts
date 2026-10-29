@@ -567,7 +567,7 @@ test("新合意を照合した後でも世代交代CAS時に期限を越えれ�
   state.db.close();
 });
 
-test("保存状態の再照合手順は現在のactor・監督・JSONを一回のshell入力へ結び、時計と上限を返す", async () => {
+test("同じ計画の再開手順は本人と元Runの準備を示し、旧callerを強制せず時計と上限を返す", async () => {
   const state = prepared();
   const caller = "監督 ' $(触らない)";
   const session = await core.beginSprintSession({ ...state.llm, actor: "codex" }, state.sprint.id,
@@ -577,10 +577,18 @@ test("保存状態の再照合手順は現在のactor・監督・JSONを一回�
   expect(read).toMatchObject({ observedAt: "2026-03-08T12:00:00.000Z", maxParallel: 1 });
   const action = read.nextActions.find(a => a.argv.includes("reconcile"))!;
   expect(action.command).toContain("NOD_ACTOR='codex'");
-  expect(action.command).toContain("'--from' '監督 '\"'\"' $(触らない)'");
+  expect(action.command).not.toContain("--from");
+  expect(action.command).not.toContain(caller);
   expect(action.input).toEqual({ sessionId: session.id, generation: 1 });
   expect(action.command).toContain(JSON.stringify(action.input));
   expect(action.command).toContain("'--input' '-'");
+  const resume = read.nextActions.find(a => a.argv.includes("resume"))!;
+  expect(resume).toBeDefined();
+  expect(resume.input).toMatchObject({ sessionId: session.id, generation: 1, requestKey: expect.any(String) });
+  expect(resume.command).toContain("'orca' 'status' '--json' &&");
+  expect(resume.command).toContain("'orca' 'orchestration' 'run-use' '--id' '元Run' '--json' &&");
+  expect(resume.command).toContain("'orca' 'orchestration' 'run-current' '--json' &&");
+  expect(resume.command).not.toContain("--from");
   const later = core.getSprintExecutionState(state.db, state.sprint.id, { now: new Date("2026-03-08T12:03:00.000Z") });
   expect(later.stale).toBe(true);
   expect(later.session?.observedAt).toBe("2026-03-08T12:00:00.000Z");

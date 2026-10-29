@@ -34,11 +34,13 @@ export interface SprintNotificationRequestObservation {
   runtimeId: string | null; source: string; observedAt: string; release?: SprintOrcaReleaseReceipt;
   reply?: SprintOrcaReplyReceipt & { runId: string; dispatchId: string };
   ack?: NonNullable<SprintNotificationAckOperation["receipt"]> & { runId: string };
+  recovery?: { originalInactive: true; evidence: string; argv: string[] };
 }
 export interface SprintNotificationReception {
   messageId: string; resultId: string | null; inputHash: string; receivedAt: string;
   reason: { code: string; message: string } | null;
   reply?: { operationId: string; state: "sending" | "confirmed" | "unknown"; body: string; caller: string; generation: number;
+    revision?: number;
     target: { runId: string; messageId: string }; inputHash: string; sessionId: string; runtimeId: string; callerIdentity: string | null;
     callerEvidence?: SprintCallerEvidence;
     requestId: string | null; receipt: SprintOrcaReplyReceipt | null;
@@ -68,6 +70,7 @@ export interface SprintNotificationDelivery {
   ackOperation?: SprintNotificationAckOperation;
 }
 export interface SprintNotificationAckOperation {
+  revision?: number;
   operationId: string; inputHash: string; sessionId: string; generation: number; caller: string;
   callerIdentity: string | null; runtimeId: string; target: { runId: string; deliveryId: string };
   callerEvidence?: SprintCallerEvidence;
