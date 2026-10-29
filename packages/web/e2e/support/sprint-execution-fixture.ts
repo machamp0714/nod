@@ -42,7 +42,7 @@ export async function sprintExecutionFixture(db: Database, ref: string, action: 
     adapter.check = async () => ({ runId, deliveryId: "e2e-done-delivery", count: 1, source: "模擬Orca check", observedAt: at,
       messages: [{ id: "e2e-done", runId, fromHandle: `dispatch:${dispatchId}`, type: "worker_done", receivedAt: at, body: "成果は別途確認してください",
         payload: { taskId, dispatchId, outcome: "succeeded" } }] });
-    adapter.settlement = async () => ({ runId, taskId, dispatchId, activeDispatchId: dispatchId, taskStatus: "succeeded", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "模擬Orca positive settlement", observedAt: at });
+    adapter.settlement = async () => ({ runId, taskId, dispatchId, activeDispatchId: dispatchId, taskStatus: "completed", dispatchStatus: "completed", outcome: "succeeded", completedAt: at, source: "模擬Orca positive settlement", observedAt: at });
     adapter.release = async () => ({ dispatchId, state: "released", processAction: "closed_agent_terminal", requestId: "e2e-release", source: "模擬Orca release", observedAt: at });
     adapter.acknowledge = async (_run, id) => ({ acknowledged: id, next: null });
     await core.receiveSprintNotifications(ctx, ref, { ...context, ownership: [{ dispatchId, action: "release" }] }, adapter, clock);

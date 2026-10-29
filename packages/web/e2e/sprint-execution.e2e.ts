@@ -30,11 +30,26 @@ test("保存した監督・予約と古い観測を保ち、三種の設定と�
   await expect(supervision.getByText(/監督端末：/)).toBeHidden();
   await captureSprint(page, "task4-overview-stale-reserved", info);
   await supervision.getByText("実行の詳細・再照合手順", { exact: true }).click();
-  const command = supervision.getByLabel("実行できるCLI手順");
-  await expect(command).toHaveText(fixture.execution.nextActions[0]!.command);
-  await expect(command).toContainText("NOD_ACTOR='codex'");
-  await expect(command).toContainText("'--input' '-' '--from'");
-  await expect(command).toContainText(JSON.stringify({ sessionId: fixture.execution.session!.id, generation: 1 }));
+  const commands = supervision.getByLabel("実行できるCLI手順"), actions = fixture.execution.nextActions;
+  await expect(commands).toHaveCount(actions.length);
+  for (const [index, action] of actions.entries()) {
+    const command = commands.nth(index);
+    await expect(command).toHaveText(action.command);
+    await expect(command).toContainText("NOD_ACTOR='codex'");
+    await expect(command).not.toContainText("--from");
+    if (action.input) {
+      await expect(command).toContainText("'--input' '-'");
+      await expect(command).toContainText(JSON.stringify(action.input));
+    }
+  }
+  const resumeIndex = actions.findIndex(action => action.argv.includes("resume"));
+  expect(resumeIndex).toBeGreaterThanOrEqual(0);
+  expect(actions[resumeIndex]!.input).toMatchObject({ sessionId: fixture.execution.session!.id, generation: 1, requestKey: expect.any(String) });
+  const resume = commands.nth(resumeIndex);
+  await expect(resume).toContainText("'orca' 'status' '--json' &&");
+  await expect(resume).toContainText(`'run-use' '--id' '${fixture.execution.session!.runId}' '--json' &&`);
+  await expect(resume).toContainText("'orca' 'orchestration' 'run-current' '--json' &&");
+  await expect(resume).toContainText("'nod' 'sprint' 'session' 'resume'");
   await supervision.getByText(`${issue.id} 主担当 codexの根拠`, { exact: true }).click();
   await expect(supervision).toContainText("要求した設定：codex / model：required-model / effort：high");
   await expect(supervision).toContainText("起動receiptのeffective：codex / receipt-model / medium");
@@ -91,11 +106,20 @@ test.describe("保存状態の取得失敗", () => {
     await expect(supervision).toContainText("記録なし。実際のPM・workerの存在は未確認");
     await expect(supervision).toContainText("既存の計画と元Runを確認");
     await execute(page, sprint.id, "stale");
+    // SSEと手動再取得の成功応答を同じ肯定的snapshotへ固定し、失敗境界より前の時刻を一意にする。
+    const saved = await sprintApi<SprintNotificationState>(page, "GET", `/sprints/${sprint.id}/execution`);
+    let rejectRefresh = false;
+    const controlledRead = async (route: import("@playwright/test").Route) => {
+      if (rejectRefresh) return failure(route);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(saved) });
+    };
+    await page.route(path, controlledRead);
     await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
     await expect(supervision).toContainText("codex（監督を所有");
-    const previous = await supervision.locator("p").filter({ hasText: /^保存状態の取得時刻：/ }).locator("time").getAttribute("datetime");
+    const previous = saved.execution.observedAt;
+    await expect(supervision.locator("p").filter({ hasText: /^保存状態の取得時刻：/ }).locator("time")).toHaveAttribute("datetime", previous);
     failed = new Promise<void>(resolve => { finishFailure = resolve; });
-    await page.route(path, failure);
+    rejectRefresh = true;
     await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
     await failed;
     await expect(supervision.getByRole("alert")).toContainText("最後に取得した状態を表示");
@@ -103,7 +127,7 @@ test.describe("保存状態の取得失敗", () => {
     await expect(supervision).toContainText("占有 1 / 上限 2");
     await expect(supervision.locator("time").first()).toHaveAttribute("datetime", previous!);
     await captureSprint(page, "task4-refresh-failed-retained", info);
-    await page.unroute(path, failure);
+    await page.unroute(path, controlledRead);
     await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
     await expect(supervision.getByRole("alert")).toHaveCount(0);
   });
