@@ -49,14 +49,14 @@ export function resolveLegacyCycle(db: Database, cycleId: number): LegacyCycleRe
 
 export function getSprint(db: Database, ref: string): SprintDetail {
   const sprint = resolveSprint(db, ref);
-  const row = db.query("SELECT legacy_data FROM sprints WHERE id=?").get(sprint.id) as {legacy_data: string | null};
+  const row = db.query("SELECT legacy_data,closure_record FROM sprints WHERE id=?").get(sprint.id) as {legacy_data: string | null; closure_record: string | null};
   const items = db.query("SELECT * FROM sprint_items WHERE sprint_id=? ORDER BY source_issue_key").all(sprint.id) as {
     id: string; sprint_id: string; issue_id: number | null; source_issue_key: string; origin: SprintItem["origin"]; snapshot: string;
   }[];
   const events = db.query(`SELECT e.original,r.association FROM sprint_legacy_event_refs r
     JOIN sprint_legacy_events e ON e.event_id=r.event_id WHERE r.cycle_id=? ORDER BY e.event_id`).all(sprint.legacyCycleId) as {original: string; association: SprintLegacyEvent["association"]}[];
   const evidence=db.query('SELECT * FROM sprint_legacy_issue_evidence WHERE sprint_id=? ORDER BY source_issue_key').all(sprint.id) as {source_issue_id:number;source_issue_key:string;snapshot:string}[];
-  return {...sprint, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
+  return {...sprint, closureRecord: row.closure_record ? JSON.parse(row.closure_record) : null, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
     items: items.map(i => ({id: i.id, sprintId: i.sprint_id, issueId: i.issue_id, sourceIssueKey: i.source_issue_key, origin: i.origin, snapshot: JSON.parse(i.snapshot)})),
     events: events.map(e => ({original: JSON.parse(e.original), association: e.association})),
   };

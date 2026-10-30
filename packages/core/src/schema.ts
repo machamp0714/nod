@@ -709,4 +709,6 @@ export const MIGRATIONS: MigrationStep[][] = [
   // 版46: 観測済み同担当への開始通知を外部操作として保持する。
   [prepareSprintStartObservation],
   [prepareSprintNotifications],
+  // 版48: 終了・中止を記録した時点の残件を保持する。
+  [`ALTER TABLE sprints ADD COLUMN closure_record TEXT`],
 ];
