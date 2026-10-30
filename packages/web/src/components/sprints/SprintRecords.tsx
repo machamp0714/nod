@@ -24,6 +24,7 @@ export function SprintRecordLinks({ links }: { links: SprintRecordLink[] }) {
   return links.length ? <ul>{links.map((link, index) => <li key={index}>{link.kind === "document"
     ? <Link to="/documents/$documentId" params={{ documentId: link.ref }}>{link.label ?? `Document ${link.ref}`}</Link>
     : link.kind === "issue" ? <Link to="/issues/$issueId" params={{ issueId: link.ref }}>{link.label ?? link.ref}</Link>
+      : link.kind === "sprint-plan" ? <Link to="/sprints/$sprintId" params={{ sprintId: link.ref }} search={{ section: "plan" }}>{link.label ?? `Sprint ${link.ref}の計画・候補`}</Link>
       : <a href={link.ref} target="_blank" rel="noreferrer">{link.label ?? link.ref}</a>}</li>)}</ul> : <p>未記録</p>;
 }
 
@@ -31,11 +32,11 @@ export function SprintRecordText({ title, text }: { title: string; text: string 
   return <div><h3>{title}</h3>{text ? <Markdown>{text}</Markdown> : <p>未記録</p>}</div>;
 }
 
-export function SprintRecordLinkFields({ links, onChange, disabled }: { links: SprintRecordLink[]; onChange: (links: SprintRecordLink[]) => void; disabled: boolean }) {
-  return <fieldset disabled={disabled} className={s.fields}><legend>成果リンク（Document・Issue・PR・URL）</legend>
+export function SprintRecordLinkFields({ links, onChange, disabled, title = "成果リンク（Document・Issue・PR・URL）" }: { links: SprintRecordLink[]; onChange: (links: SprintRecordLink[]) => void; disabled: boolean; title?: string }) {
+  return <fieldset disabled={disabled} className={s.fields}><legend>{title}</legend>
     {links.map((link, index) => <div key={index} className={s.fields}>
-      <div className={s.row}><label className={s.field}>リンクの種類<select value={link.kind} onChange={e => onChange(links.map((item, i) => i === index ? { ...item, kind: e.target.value as SprintRecordLink["kind"] } : item))}><option value="document">Document</option><option value="issue">Issue</option><option value="url">PR・URL</option></select></label>
-        <label className={s.field}>参照先<input required value={link.ref} placeholder={link.kind === "document" ? "Document ID" : link.kind === "issue" ? "NOD-41" : "https://…"} onChange={e => onChange(links.map((item, i) => i === index ? { ...item, ref: e.target.value } : item))} /></label></div>
+      <div className={s.row}><label className={s.field}>リンクの種類<select value={link.kind} onChange={e => onChange(links.map((item, i) => i === index ? { ...item, kind: e.target.value as SprintRecordLink["kind"] } : item))}><option value="document">Document</option><option value="issue">Issue</option><option value="url">PR・URL</option><option value="sprint-plan">候補の計画画面</option></select></label>
+        <label className={s.field}>参照先<input required value={link.ref} placeholder={link.kind === "document" ? "Document ID" : link.kind === "issue" ? "NOD-41" : link.kind === "sprint-plan" ? "Sprint IDまたは番号" : "https://…"} onChange={e => onChange(links.map((item, i) => i === index ? { ...item, ref: e.target.value } : item))} /></label></div>
       <label className={s.field}>リンク名（任意）<input value={link.label ?? ""} onChange={e => onChange(links.map((item, i) => i === index ? { ...item, label: e.target.value } : item))} /></label>
       <Button onClick={() => onChange(links.filter((_, i) => i !== index))}>リンクを除く</Button>
     </div>)}
@@ -43,20 +44,20 @@ export function SprintRecordLinkFields({ links, onChange, disabled }: { links: S
   </fieldset>;
 }
 
-export function SprintRecordsLayout({ sprint, title, onBack, onPlan, children, aside }: {
-  sprint: SprintDetail; title: string; onBack: () => void; onPlan: () => void; children: ReactNode; aside?: ReactNode;
+export function SprintRecordsLayout({ sprint, title, onBack, onPlan, onOutcomes, onRetrospective, children, aside }: {
+  sprint: SprintDetail; title: string; onBack: () => void; onPlan: () => void; onOutcomes: () => void; onRetrospective: () => void; children: ReactNode; aside?: ReactNode;
 }) {
-  return <div className={s.page}><PageHeader><Link to="/sprints">Sprints</Link><PageTitle>{sprint.name}</PageTitle><span>{SPRINT_PHASE_LABEL[sprint.phase]}</span><Spacer /><Button onClick={onPlan}>計画</Button><Button aria-pressed={title === "成果と評価"}>成果と評価</Button></PageHeader>
+  return <div className={s.page}><PageHeader><Link to="/sprints">Sprints</Link><PageTitle>{sprint.name}</PageTitle><span>{SPRINT_PHASE_LABEL[sprint.phase]}</span><Spacer /><Button onClick={onPlan}>計画</Button><Button aria-pressed={title === "成果と評価"} onClick={onOutcomes}>成果と評価</Button><Button aria-pressed={title === "振り返り"} onClick={onRetrospective}>振り返り</Button></PageHeader>
     <div className={s.bar}><Button onClick={onBack}>タスク一覧へ戻る</Button><strong>{title}</strong></div>
     <div className={`${s.body} ${s.columns}`}><div className={s.main}>{children}</div><aside className={s.aside}>{aside}</aside></div>
   </div>;
 }
 
-export function SprintOutcomes({ sprint, onBack, onPlan, readError, onRetry }: { sprint: SprintDetail; onBack: () => void; onPlan: () => void; readError?: unknown; onRetry: () => void }) {
+export function SprintOutcomes({ sprint, onBack, onPlan, onRetrospective, readError, onRetry }: { sprint: SprintDetail; onBack: () => void; onPlan: () => void; onRetrospective: () => void; readError?: unknown; onRetry: () => void }) {
   const records = useSprintRecords(sprint.id);
   const outcomes = records.data?.filter(record => record.kind === "outcome") ?? [];
   const feedback = records.data?.filter((record): record is SprintFeedbackRecord => record.kind === "feedback" && record.recordedBy === "me");
-  return <SprintRecordsLayout sprint={sprint} title="成果と評価" onBack={onBack} onPlan={onPlan} aside={<>
+  return <SprintRecordsLayout sprint={sprint} title="成果と評価" onBack={onBack} onPlan={onPlan} onOutcomes={() => {}} onRetrospective={onRetrospective} aside={<>
     <section className={s.section}><h2>利用者の感想</h2><p>成果を試して感じたことを、本人の感想として残せます。</p>
       {records.isPending && <p role="status">感想の記録を読み込み中…</p>}
       {records.error && <p role="alert" className={s.error}>感想の記録を取得できません：{errorMessage(records.error)}。{records.data && "最後に取得した記録を表示しています。"}<Button onClick={() => void records.refetch()}>再読み込み</Button></p>}

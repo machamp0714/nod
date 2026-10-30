@@ -1,5 +1,5 @@
 export interface SprintRecordLink {
-  kind: "document" | "issue" | "url";
+  kind: "document" | "issue" | "url" | "sprint-plan";
   ref: string;
   label?: string;
 }
@@ -18,6 +18,14 @@ export interface SprintFeedbackContent {
   requests: string;
 }
 
+export interface SprintRetrospectiveContent {
+  wentWell: string;
+  difficulties: string;
+  improvements: string;
+  nextActions: string;
+  links: SprintRecordLink[];
+}
+
 interface SprintRecordBase {
   id: string;
   sprintId: string;
@@ -28,9 +36,10 @@ interface SprintRecordBase {
 
 export type SprintOutcomeRecord = SprintRecordBase & { kind: "outcome"; content: SprintOutcomeContent };
 export type SprintFeedbackRecord = SprintRecordBase & { kind: "feedback"; content: SprintFeedbackContent };
-export type SprintRecord = SprintOutcomeRecord | SprintFeedbackRecord;
+export type SprintRetrospectiveRecord = SprintRecordBase & { kind: "retrospective"; content: SprintRetrospectiveContent };
+export type SprintRecord = SprintOutcomeRecord | SprintFeedbackRecord | SprintRetrospectiveRecord;
 
 export type AddSprintRecordInput = {
   requestKey: string;
   correctsRecordId?: string;
-} & ({ kind: "outcome"; content: Partial<SprintOutcomeContent> } | { kind: "feedback"; content: Partial<SprintFeedbackContent> });
+} & ({ kind: "outcome"; content: Partial<SprintOutcomeContent> } | { kind: "feedback"; content: Partial<SprintFeedbackContent> } | { kind: "retrospective"; content: Partial<SprintRetrospectiveContent> });

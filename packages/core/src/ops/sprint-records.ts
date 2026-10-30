@@ -4,7 +4,7 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintText } from "../sprint-validation";
 import type { SprintClock } from "../sprint-types";
-import type { AddSprintRecordInput, SprintFeedbackContent, SprintOutcomeContent, SprintRecord, SprintRecordLink } from "../sprint-record-types";
+import type { AddSprintRecordInput, SprintFeedbackContent, SprintOutcomeContent, SprintRecord, SprintRecordLink, SprintRetrospectiveContent } from "../sprint-record-types";
 import { resolveSprint } from "./sprints";
 
 interface RecordRow {
@@ -33,11 +33,12 @@ export function sprintRecordLinks(value: unknown): SprintRecordLink[] {
   if (!Array.isArray(value) || value.length > 50) return invalidSprint("関連リンクは50件以内の配列で指定してください");
   return value.map(raw => {
     const link = sprintObject(raw, ["kind", "ref", "label"], "関連リンク");
-    if (!["document", "issue", "url"].includes(link.kind as string)) return invalidSprint("関連リンクの種類が不正です");
+    if (!["document", "issue", "url", "sprint-plan"].includes(link.kind as string)) return invalidSprint("関連リンクの種類が不正です");
     const ref = sprintText(link.ref, "関連リンクの参照");
     if (ref.length > 2048) return invalidSprint("関連リンクが長すぎます");
     if (link.kind === "document" && !/^[1-9]\d*$/.test(ref)) return invalidSprint("DocumentはIDで指定してください");
     if (link.kind === "issue" && !/^[A-Z0-9]{2,6}-[1-9]\d*$/i.test(ref)) return invalidSprint("IssueはIssueキーで指定してください");
+    if (link.kind === "sprint-plan" && !/^(?:[1-9]\d*|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.test(ref)) return invalidSprint("候補の計画画面はSprint IDまたは番号で指定してください");
     if (link.kind === "url") {
       try { if (!["http:", "https:"].includes(new URL(ref).protocol)) return invalidSprint("URLはhttpまたはhttpsで指定してください"); }
       catch { return invalidSprint("有効なURLを指定してください"); }
@@ -65,12 +66,21 @@ function feedbackContent(value: unknown): SprintFeedbackContent {
   return { helpful, difficulties, requests };
 }
 
+function retrospectiveContent(value: unknown): SprintRetrospectiveContent {
+  const content = sprintObject(value, ["wentWell", "difficulties", "improvements", "nextActions", "links"], "振り返り");
+  const wentWell = recordText(content.wentWell, "よかったこと"), difficulties = recordText(content.difficulties, "困ったこと");
+  const improvements = recordText(content.improvements, "次に改善すること"), nextActions = recordText(content.nextActions, "次の行動");
+  const links = sprintRecordLinks(content.links);
+  if (!wentWell && !difficulties && !improvements && !nextActions && !links.length) return invalidSprint("空の振り返りは記録できません");
+  return { wentWell, difficulties, improvements, nextActions, links };
+}
+
 export function addSprintRecord(ctx: OpCtx, ref: string, input: AddSprintRecordInput, clock: SprintClock = {}): SprintRecord {
   sprintObject(input, ["requestKey", "kind", "content", "correctsRecordId"]);
   const requestKey = sprintText(input.requestKey, "requestKey");
-  if (input.kind !== "outcome" && input.kind !== "feedback") return invalidSprint("記録の種類が不正です");
+  if (input.kind !== "outcome" && input.kind !== "feedback" && input.kind !== "retrospective") return invalidSprint("記録の種類が不正です");
   if (input.kind === "feedback" && isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "利用者の感想は本人だけが記録できます");
-  const content = input.kind === "outcome" ? outcomeContent(input.content) : feedbackContent(input.content);
+  const content = input.kind === "outcome" ? outcomeContent(input.content) : input.kind === "feedback" ? feedbackContent(input.content) : retrospectiveContent(input.content);
   const correctsRecordId = input.correctsRecordId === undefined ? null : sprintText(input.correctsRecordId, "訂正元の記録");
   const inputHash = sprintHash({ kind: input.kind, content, correctsRecordId });
   return tx(ctx.db, () => {

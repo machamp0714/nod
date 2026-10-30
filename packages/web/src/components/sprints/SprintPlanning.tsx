@@ -31,8 +31,8 @@ export function PlanSummary({ plan, label }: { plan: SprintPlan; label: string }
   </section>;
 }
 
-export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutcomes, onActivated, view, onViewChange, readError, lastCheckedAt, onRetry }: {
-  sprint: SprintDetail; readError?: unknown; lastCheckedAt: number; onRetry: () => void; view: ProjectView; onViewChange: (view: ProjectView) => void; search: IssueListSearch; onSearchChange: (patch: IssueListSearch) => void; onBack: () => void; onOutcomes: () => void; onActivated: () => void;
+export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutcomes, onRetrospective, onActivated, view, onViewChange, readError, lastCheckedAt, onRetry }: {
+  sprint: SprintDetail; readError?: unknown; lastCheckedAt: number; onRetry: () => void; view: ProjectView; onViewChange: (view: ProjectView) => void; search: IssueListSearch; onSearchChange: (patch: IssueListSearch) => void; onBack: () => void; onOutcomes: () => void; onRetrospective: () => void; onActivated: () => void;
 }) {
   const switchFocus = useRef(false);
   const [editing, setEditing] = useState(false);
@@ -113,7 +113,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   const heading = <div className={s.bar}><strong>{showCandidates && view === "list" ? "候補（未採択）" : started ? "採択済みのIssue" : "採択予定のIssue"} · {view === "flow" ? plan?.content.items.length ?? 0 : keys.size}件</strong>
     {view === "list" && <><Button aria-pressed={!showCandidates} onClick={() => setCandidates(false)}>採択{started ? "済み" : "予定"}</Button><Button aria-pressed={showCandidates} onClick={() => setCandidates(true)}>候補</Button></>}
     <Spacer /><ProjectViewSwitch value={view} onChange={onViewChange} focusOnMount={switchFocus} /></div>;
-  if (view === "flow") return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画</PageTitle><Spacer /><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button></PageHeader>{readFailure}
+  if (view === "flow") return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画</PageTitle><Spacer /><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button><Button onClick={onRetrospective}>振り返り</Button></PageHeader>{readFailure}
     <div className={s.bar}><Button onClick={onBack}>タスク一覧</Button><strong>{plan?.content.goal ?? "計画なし"}</strong><span>計画 第{plan?.revision ?? "—"}版 · {plan?.agreedAt ? "合意済み" : "未合意"} · {sprint.startDate} – {sprint.endDate}</span></div>
     {heading}<div className={s.body}><ProjectFlowSection flow={flow} beforeStart={!started} externalLabel="Sprint外・参照のみ" observedAt={flow.data?.observedAt}
       scopeNote={`${started ? "有効な合意済み計画" : "表示中の計画案"} 第${plan?.revision ?? "—"}版の採択${started ? "済み" : "予定"}${plan?.content.items.length ?? 0}件。候補・未合意の追加は含みません。一覧の検索・絞り込み・一括操作は適用されません。Sprint外の前提は参照のみで採択件数に含めません。表示だけでは採択・合意・着手は更新されません。`} />
@@ -122,7 +122,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
       {flow.data?.eligibility.map(item => <p key={item.itemId} className={s.muted}>{item.issueId ?? "削除されたIssue"}：{item.eligible ? "採択と既存の着手条件を確認済み（実行の許可・予約ではありません）" : item.reason?.message}</p>)}
     </div></div>;
   return <div className={s.page}><IssueList crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name} intro={intro}
-    actions={<><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button></>}
+    actions={<><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button><Button onClick={onRetrospective}>振り返り</Button></>}
     heading={heading}
     filterBar={<div role="group" aria-label="絞り込み条件"><BlockedFilter value={search.blocked} onChange={blocked => onSearchChange({ blocked })} /></div>}
     rows={rows} loading={allRows.loading} error={allRows.error} onRetry={allRows.retry} search={search} onSearchChange={onSearchChange} readOnly={!writable} />
