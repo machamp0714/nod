@@ -6,6 +6,7 @@ import { SprintSupervision } from "../components/sprints/SprintSupervision";
 import { SprintCancel } from "../components/sprints/SprintCancel";
 import { SprintEnd } from "../components/sprints/SprintEnd";
 import { SprintClosure } from "../components/sprints/SprintClosure";
+import { SprintOutcomes } from "../components/sprints/SprintRecords";
 import { errorMessage } from "../api/errors";
 import { useSprint, useSprints } from "../api/hooks/sprints";
 import { usePageDisplay } from "../api/hooks/page-displays";
@@ -57,7 +58,8 @@ export function SprintDetailPage() {
   const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
   const shownPlan = sprint.activatedAt ? adopted : sprint.plans.at(-1);
   const changeSearch = (patch: import("../routes/search").IssueListSearch) => { const pageDisplay = page.save(patch); void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); };
-  if (tab === "plan" && sprint.phase !== "imported") return <SprintPlanning key={sprint.id} sprint={sprint} search={page.search} onSearchChange={changeSearch} view={url.view === "flow" ? "flow" : "list"} onViewChange={view => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan", view: view === "flow" ? "flow" : undefined }) })} onBack={() => { void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: undefined, view: undefined }) }); requestAnimationFrame(() => planButton.current?.focus()); }} onActivated={() => setActivated(sprint.id)} readError={error} lastCheckedAt={detail.dataUpdatedAt} onRetry={() => { void detail.refetch(); void sprints.refetch(); }} />;
+  if (url.section === "outcomes") return <SprintOutcomes key={sprint.id} sprint={sprint} onBack={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: undefined, view: undefined }) })} onPlan={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan", view: undefined }) })} readError={error} onRetry={() => void detail.refetch()} />;
+  if (tab === "plan" && sprint.phase !== "imported") return <SprintPlanning key={sprint.id} sprint={sprint} search={page.search} onSearchChange={changeSearch} view={url.view === "flow" ? "flow" : "list"} onViewChange={view => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan", view: view === "flow" ? "flow" : undefined }) })} onOutcomes={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "outcomes", view: undefined }) })} onBack={() => { void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: undefined, view: undefined }) }); requestAnimationFrame(() => planButton.current?.focus()); }} onActivated={() => setActivated(sprint.id)} readError={error} lastCheckedAt={detail.dataUpdatedAt} onRetry={() => { void detail.refetch(); void sprints.refetch(); }} />;
   const imported = sprint.phase === "imported";
   const deadlineReached = !!sprint.endsAt && !!availability.data && Date.parse(availability.data.observedAt) >= Date.parse(sprint.endsAt);
   const awaitingClosure = sprint.phase === "active" && deadlineReached;
@@ -68,7 +70,7 @@ export function SprintDetailPage() {
   return <div className={s.layout}>
     <IssueList crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name}
       titleNote={<span>{SPRINT_PHASE_LABEL[sprint.phase]}</span>}
-      actions={<>{!imported && <><Button style={{ minHeight: 32 }} ref={planButton} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan" }) })}>計画</Button><SprintEnd key={`end:${sprint.id}`} sprint={sprint} deadlineReached={deadlineReached} /><SprintCancel key={sprint.id} sprint={sprint} /></>}<IconButton ref={analyticsButton} icon="chart-line" label="分析" bordered aria-pressed={analyticsOpen} className={analyticsOpen ? s.pressed : undefined}
+      actions={<>{!imported && <><Button style={{ minHeight: 32 }} ref={planButton} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan" }) })}>計画</Button><Button style={{ minHeight: 32 }} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "outcomes", view: undefined }) })}>成果と評価</Button><SprintEnd key={`end:${sprint.id}`} sprint={sprint} deadlineReached={deadlineReached} /><SprintCancel key={sprint.id} sprint={sprint} /></>}<IconButton ref={analyticsButton} icon="chart-line" label="分析" bordered aria-pressed={analyticsOpen} className={analyticsOpen ? s.pressed : undefined}
         onClick={() => analyticsOpen ? closeAnalytics() : setAnalyticsOpen(true)} /></>}
       intro={<>
         {error && <p role="alert">取得に失敗しました。最後の確認：{new Date(detail.dataUpdatedAt).toLocaleString("ja-JP")} <Button onClick={() => void detail.refetch()}>再読み込み</Button></p>}

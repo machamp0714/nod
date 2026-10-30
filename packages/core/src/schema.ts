@@ -711,4 +711,15 @@ export const MIGRATIONS: MigrationStep[][] = [
   [prepareSprintNotifications],
   // 版48: 終了・中止を記録した時点の残件を保持する。
   [`ALTER TABLE sprints ADD COLUMN closure_record TEXT`],
+  // 版49: 成果・感想・振り返りの短い追記記録。計画や終了記録とは独立して保持する。
+  [`CREATE TABLE sprint_records (
+    id TEXT PRIMARY KEY, sprint_id TEXT NOT NULL REFERENCES sprints(id) ON DELETE RESTRICT,
+    kind TEXT NOT NULL, content TEXT NOT NULL, recorded_by TEXT NOT NULL, recorded_at TEXT NOT NULL,
+    corrects_record_id TEXT REFERENCES sprint_records(id) ON DELETE RESTRICT,
+    request_key TEXT NOT NULL, input_hash TEXT NOT NULL,
+    UNIQUE(sprint_id, recorded_by, request_key)
+  )`,
+  `CREATE INDEX sprint_records_sprint ON sprint_records(sprint_id)`,
+  `CREATE TRIGGER sprint_record_immutable BEFORE UPDATE ON sprint_records
+    BEGIN SELECT RAISE(ABORT,'Sprint記録は追記のみです'); END`],
 ];

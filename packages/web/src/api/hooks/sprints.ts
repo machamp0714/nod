@@ -20,6 +20,10 @@ export function useSprint(ref: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.sprint(ref), queryFn: () => apiFetch<SprintDetail>(`/sprints/${encodeURIComponent(ref)}`), enabled, refetchInterval: 30_000, refetchOnWindowFocus: true });
 }
 
+export function useSprintRecords(ref: string) {
+  return useQuery({ queryKey: queryKeys.sprintRecords(ref), queryFn: () => apiFetch<import("@nod/core").SprintRecord[]>(`/sprints/${encodeURIComponent(ref)}/records`), refetchOnWindowFocus: true });
+}
+
 export function useSprintAnalytics(ref: string, enabled: boolean, timezone?: string) {
   return useQuery({ queryKey: queryKeys.sprintAnalytics(ref, timezone), queryFn: () => apiFetch<SprintAnalytics>(`/sprints/${encodeURIComponent(ref)}/analytics${timezone ? `?tz=${encodeURIComponent(timezone)}` : ""}`), enabled });
 }

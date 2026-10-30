@@ -51,6 +51,7 @@ export const queryKeys = {
   views: () => ["views"] as const,
   scrumWorkspace: (key: string) => ["workspaces", "scrum", key] as const,
   sprintExecution: (ref: string) => ["sprints", "execution", ref] as const,
+  sprintRecords: (ref: string) => ["sprints", "records", ref] as const,
   sprintPlanningStatus: (ref: string) => ["sprints", "planning-status", ref] as const,
   sprintFlow: (ref: string, planId: string | null) => ["sprints", "flow", ref, planId] as const,
   sprints: () => ["sprints", "list"] as const,
