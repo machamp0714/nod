@@ -61,7 +61,8 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 1. テストスイート全体を 1 回実行し、`--kind test` に残す。
 2. **`nod:code-review` を新しいエージェントで 1 回実行する。** 基点はデフォルトブランチとの merge-base、仕様はこの Issue の kind=spec の Document、なければ Issue 本文の全文と完了条件。Spec 軸は省略しない。書いたこのセッションではレビューしない（確証バイアスを避けるため）。
 3. レビューの指摘は直さない。要点を `nod issue log <id> "<観点ごとの指摘の要約>" --kind progress` に残し、報告に載せる（何度回しても新しい指摘が出るので、自動で直すと終わらない）。
-4. Task・Stepと必要な検証が完了したら、`nod issue done <id> --summary "<実装内容と検証結果>"`で直接doneにする。PRの作成・紐付け・状態取得はIssueの状態を変えない。独立コードレビューの結果は作業ログと報告に残す。
+4. Task・Stepと必要な検証が完了したら、独立コードレビューの結果を作業ログと報告に残す。PRを含む依頼では、既存の指摘対応・提出条件を満たしてPRを作成・紐付けし、レビュー依頼時に `nod issue update <id> --status in_review` で In Review に移す。PM等の後続PR依頼待ちなら実装結果を報告して待ち、先にDoneにしない。
+5. PRを含む依頼は、mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <id> --summary "<実装内容と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証と完了条件を満たして直接Doneにできる。人間承認の新たな必須条件は設けず、PR作成・承認・merge・本番反映の権限は既存の依頼範囲を守る。
 
 ## 4. 報告と完了時のネクストアクション
 
@@ -70,6 +71,7 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 人によるnodの承認待ちは設けない。
 
 次の作業がある場合だけ、具体的な選択肢を番号付きで示し、おすすめを理由つきで添える。
-コードレビューの指摘対応やPR作成は独立した次の作業として扱う。
-PR作成を依頼されたら、タイトル・本文にnodのIssue IDを書かず、作成後に`nod issue link-pr <id> <URL>`で紐付ける。
-既にdoneのIssueへ完了を重ねない。
+コードレビューの指摘対応や、依頼範囲に含まれていなかったPR作成は独立した次の作業として扱う。
+PR作成を依頼されたら、タイトル・本文にnodのIssue IDを書かず、作成後に`nod issue link-pr <id> <URL>`で紐付ける。完了後に別途依頼された場合も、レビュー依頼時に明示的にIn Reviewへ戻す。提出しただけではDoneにしない。
+指摘対応は`nod issue start <id>`でIn ReviewからIn Progressへ再開し、既存の着手条件を守る。draftは原則In Progress、mergeせずcloseして継続するならIn Progress、中止なら理由付きCanceled、後回しならTodo/Backlogへ明示的に移す。reopen後はレビューならIn Review、修正ならIn Progressにする。
+PRの作成・紐付け・状態取得・取得失敗・merge・close・reopenでIssueの状態は自動変更されない。

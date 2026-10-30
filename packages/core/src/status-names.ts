@@ -12,6 +12,7 @@ export const DEFAULT_STATUS_LABELS: Record<Status, string> = {
   needs_clarification: "Needs Clarification",
   todo: "Todo",
   in_progress: "In Progress",
+  in_review: "In Review",
   done: "Done",
   canceled: "Canceled",
 };

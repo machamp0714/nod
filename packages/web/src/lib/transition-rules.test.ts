@@ -5,8 +5,8 @@ const saved = { workspaceKey: "API", forbidden: [{ from: "backlog" as const, to:
 const draftOf = (d: Partial<TransitionRulesDraft>): TransitionRulesDraft => ({ forbidden: [], ...d });
 
 describe("遷移ルールの編集状態（#73）", () => {
-  test("選べるステータスは needs_clarification を除く6つ", () => {
-    expect(RULE_STATUSES).toEqual(["triage", "backlog", "todo", "in_progress", "done", "canceled"]);
+  test("選べるステータスは needs_clarification を除く7つ", () => {
+    expect(RULE_STATUSES).toEqual(["triage", "backlog", "todo", "in_progress", "in_review", "done", "canceled"]);
   });
 
   test("保存済みと同じなら保存できず、変えると保存できる", () => {

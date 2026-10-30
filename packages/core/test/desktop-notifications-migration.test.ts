@@ -11,7 +11,7 @@ import { tempDbPath } from "./helpers";
 
 afterEach(() => setSystemTime());
 
-test("本番の版40から通知を導入し、既存データと版40のバックアップを保ちレビュー状態を復活させない", () => {
+test("本番の版40から通知を導入し、既存データと版40のバックアップを保ち完了済みの状態を変えない", () => {
   setSystemTime(new Date("2026-10-20T03:00:00Z"));
   const path = tempDbPath();
   const old = new Database(path);
@@ -45,7 +45,7 @@ test("本番の版40から通知を導入し、既存データと版40のバッ�
   }));
   expect(getIssue(db, "NOD-1")).toMatchObject({ status: "done", closedAt: "2026-10-19" });
   expect(listNotifications(db)).toMatchObject([{ kind: "reminder", data: { note: "既存の通知" } }]);
-  expect(() => db.exec("UPDATE issues SET status='in_review' WHERE id=1")).toThrow();
+  expect(() => db.exec("UPDATE issues SET status='unknown_status' WHERE id=1")).toThrow();
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
 
   const backups = readdirSync(join(dirname(path), "backups"));

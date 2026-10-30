@@ -195,9 +195,9 @@ export function issueScope(
   return { where: where.map((w) => ` AND ${w}`).join(""), params };
 }
 
-// 作業時間の終点。最後の完了報告（旧記録はレビュー提出）、なければ完了時刻
+// 作業時間の終点。最後の完了報告（識別子のない旧レビュー提出を含む）、なければ完了時刻。新しいPRレビュー入りは終点にしない
 export const WORK_END_SQL = `COALESCE((SELECT e.created_at FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
-  AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL)) ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
+  AND ((json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL) OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL)) ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
 
 // 分単位の作業時間。分未満を切り捨て、記録から求められなければ null
 export function workMinutes(startedAt: string | null, endAt: string | null): number | null {
@@ -314,7 +314,7 @@ export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
   const events = db.query(`SELECT e.type, e.actor, json_extract(e.data, '$.to') AS "to", e.created_at
     FROM events e JOIN issues i ON i.id = e.issue_id
     WHERE ((e.type = 'assignee_changed' AND ${LLM_ASSIGNEE})
-      OR (e.type = 'status_changed' AND e.actor <> ? AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
+      OR (e.type = 'status_changed' AND e.actor <> ? AND ((json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL) OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
       AND e.created_at >= ? AND e.created_at < ?${scope.where}`)
     .all(HUMAN_ACTOR, frame.since, frame.until, ...scope.params) as
     { type: string; actor: string; to: string; created_at: string }[];

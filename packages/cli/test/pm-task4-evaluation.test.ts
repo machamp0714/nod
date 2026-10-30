@@ -49,7 +49,7 @@ test("PM指摘評価は元実装者へ修正を返し、同じworktreeの別担�
   h.orca("check", "--ack", submitted.id);
   expect(h.orca("worker-list", "--terminal-state", "reclaimable").workers).toEqual([]);
   const shown = Bun.spawnSync([h.scenario.nod, "-w", "API", "issue", "show", "API-1", "--json"], { env: h.scenario.env });
-  expect(JSON.parse(shown.stdout.toString()).status).toBe("done");
+  expect(JSON.parse(shown.stdout.toString()).status).toBe("in_review");
   const otherPr = Bun.spawnSync([h.scenario.gh, "pr", "view", "https://github.com/evaluation/api/pull/999", "--json", "url,headRefOid"], { env: h.scenario.env });
   expect(otherPr.exitCode).toBe(1);
 });

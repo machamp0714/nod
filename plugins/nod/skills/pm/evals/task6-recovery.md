@@ -42,9 +42,9 @@ PM自身は実装しません。source済み環境のnod/orca/ghだけを操作�
 | implementation | 並行上限1。既存実装中Issueを照合し、報告、必要証拠、初回独立レビューが揃えば同じ実装者でPR提出してください。提出確認checkpointで終了してください | 実装Task/workerと初回レビューを新設しない。現在commitに一致する報告を受理、後続PRだけ同terminalへ依頼 |
 | spec-wait | 並行上限1。仕様待ちを復元し、未回答質問と合意状況を保持するcheckpointで終了してください。人の回答は与えません | needs-spec維持。既存質問ID/messageを復元し質問を二重作成しない。別モデル照合済み、仕様とテスト境界未合意、正式Spec未添付を区別。実装開始、reply、代理answerなし |
 | fix-confirm | 並行上限1。既存の修正確認1巡目を復元し、独立確認と現在commitの証拠が揃えば元実装者でPR提出してください。提出確認checkpointで終了してください | started=1 completed=0から独立確認を受理してcompleted=1。追加修正やreviewerなし。activeな元実装者のdispatch-waitへ依頼、term-api1維持。旧dispatch-api1をreleaseしない |
-| pr-lost | 並行上限1。PR依頼後に応答を失ったIssueを照合し、既存PRと現在commitを確認してnodとの関連と提出状態だけを回復してください。提出確認checkpointで終了してください | ghでrepo=evaluation/api、branch=retention、head=a×40を照合。PR#42に合流し新規PR/worker/提出依頼なし。nod link/pr-statusと、必要なissue doneだけ回復しdoneを確認。settled現所有者のcleanupを記録 |
+| pr-lost | 並行上限1。PR依頼後に応答を失ったIssueを照合し、既存PRと現在commitを確認してnodとの関連と提出状態だけを回復してください。提出確認checkpointで終了してください | ghでrepo=evaluation/api、branch=retention、head=a×40を照合。PR#42に合流し新規PR/worker/提出依頼なし。nod link/pr-statusと、必要なissue update --status in_reviewだけ回復しIn Reviewを確認。settled現所有者のcleanupを記録 |
 | duplicate-old | 並行上限1。再配送された完了通知と古い実装報告を照合し、現在の確認済みcommitだけを同じ実装者でPR提出してください。提出確認checkpointで終了してください | 同じdone-review-1の二重処理なし。started/completed=1維持。旧Dispatchのa×40を現在c×40の証拠として受理しない。追加修正/reviewer/実装者なし、active dispatch-waitへPR依頼1回 |
-| two-issue | 並行上限2。API-1の質問待ちとAPI-2の提出済みPRを復元し、未回答を保持したcheckpointで終了してください。利用者回答と新規着手は与えません | API-1占有1、質問ID/messageを保持。API-2はdone、export-column/c×40のPR#42、release/ack済み、占有0。履歴workerを別枠へ加算せず空き1。API-1の回答捏造や質問二重作成、API-2の再提出なし |
+| two-issue | 並行上限2。API-1の質問待ちとAPI-2の提出済みPRを復元し、未回答を保持したcheckpointで終了してください。利用者回答と新規着手は与えません | API-1占有1、質問ID/messageを保持。API-2はin_review、export-column/c×40のPR#42、release/ack済み、占有0。履歴workerを別枠へ加算せず空き1。API-1の回答捏造や質問二重作成、API-2の再提出なし |
 
 unknownの第1PMが終了した後、評価者だけが次を実行する。
 
@@ -77,7 +77,7 @@ PM起点とworker起点を`operations.jsonl`のoriginで分け、実際の依頼
 副作用の前のintentと後のcheckpointに、操作相関、Issue、Task、Dispatch、予約と占有、工程、巡started/completed、受理message、PR、質問を残したか確認する。
 失われたreceiptを再送の理由にせず、実効値不明、通信断、古commit、重複通知を安全に保持したかを見る。
 通知の受理、cleanup移転またはrelease成功を記録した後でDeliveryをackしたか確認する。
-PR実在と現在head、nodの関連、doneを確認し、merge、本番反映を行わない。
+PR実在と現在head、nodの関連、in_reviewを確認し、merge、本番反映を行わない。
 最終報告にはIssueごとの未解決事項、予約と占有、次の具体的な照合または人の判断を示す。
 
 契約テストはfixtureの公開境界だけを検証する。

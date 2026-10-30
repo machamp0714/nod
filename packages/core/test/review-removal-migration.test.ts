@@ -49,7 +49,7 @@ test("旧レビュー待ちを完了へ移行し、差し戻し・コメント�
   expect(db.query("SELECT * FROM workspace_status_names").all()).toEqual([]);
   expect(JSON.parse((db.query("SELECT filter FROM views").get() as {filter:string}).filter)).toEqual({status:["done","todo"]});
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-  expect(() => db.exec("UPDATE issues SET status='in_review' WHERE id=1")).toThrow();
+  expect(() => db.exec("UPDATE issues SET status='unknown_status' WHERE id=1")).toThrow();
   db.close();
   const reopened=openDb(path);
   expect(getIssue(reopened,"NOD-1").closedAt).toBe("2026-01-03");

@@ -1,3 +1,4 @@
+import { addInReview } from "./migrations/add-in-review";
 import { importSprintHistory } from "./migrations/sprint-history";
 import { prepareSprintPlanning } from "./migrations/sprint-planning";
 import { prepareSprintExecutionStorage } from "./migrations/sprint-execution";
@@ -681,6 +682,12 @@ export const MIGRATIONS: MigrationStep[][] = [
   [importSprintHistory],
   // 版44: Workspaceの方向設定とローカル変更の再送結果。
   [
+    (db) => {
+      // 本番の版43はレビュー状態の追加で、Sprint履歴はまだ導入されていない。
+      // 版を戻さず、計画表の移行と同じtransaction内で未実施の履歴移行を補う。
+      const table = (name: string) => db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+      if (table("cycles") && !table("sprints")) importSprintHistory(db);
+    },
     prepareSprintPlanning,
     `CREATE TABLE scrum_workspaces (
       workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -722,4 +729,6 @@ export const MIGRATIONS: MigrationStep[][] = [
   `CREATE INDEX sprint_records_sprint ON sprint_records(sprint_id)`,
   `CREATE TRIGGER sprint_record_immutable BEFORE UPDATE ON sprint_records
     BEGIN SELECT RAISE(ABORT,'Sprint記録は追記のみです'); END`],
+  // 版50: Sprint導入済みDBにも本番のPRレビュー状態を追加する。
+  [addInReview],
 ];

@@ -52,12 +52,13 @@ export interface FlowLayout {
 
 // カードの状態。完了・中止の前提は待ちの原因にしない（openBlockers に入らない）。
 // other は Triage や未決事項のある Todo など、前提以外の理由で着手できないもので、状態名のまま出す
-export type FlowNodeState = "done" | "canceled" | "in_progress" | "ready" | "waiting" | "other";
+export type FlowNodeState = "done" | "canceled" | "in_progress" | "in_review" | "ready" | "waiting" | "other";
 
 export function flowNodeState(node: ProjectFlowNode): FlowNodeState {
   if (node.status === "done") return "done";
   if (node.status === "canceled") return "canceled";
   if (node.status === "in_progress") return "in_progress";
+  if (node.status === "in_review") return "in_review";
   if (node.ready) return "ready";
   if (node.openBlockers.length > 0) return "waiting";
   return "other";

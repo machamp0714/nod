@@ -240,7 +240,7 @@ describe("誤った入力", () => {
   test("知らない操作とない Issue は 404。Object のプロパティ名も操作として扱わない", async () => {
     const { app, me, ws } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    for (const op of ["start", "constructor", "toString", "__proto__"]) {
+    for (const op of ["unknown", "constructor", "toString", "__proto__"]) {
       const r = await call(app, "POST", `/api/issues/${i.id}/${op}`, {});
       expect([op, r.status, r.json.error.code]).toEqual([op, 404, "NOT_FOUND"]);
     }
