@@ -389,7 +389,9 @@ export function cancelSprint(ctx: OpCtx, ref: string, input: CancelSprintInput, 
   return mutate(ctx,id,"cancel",input,() => {
     const sprint = writableSprint(ctx.db,id);
     checkVersion(sprint.version,input.expectedVersion);
-    ctx.db.query("UPDATE sprints SET phase='canceled',canceled_at=?,cancel_reason=? WHERE id=?").run((clock.now ?? new Date()).toISOString(),reason,id);
+    const recordedAt = (clock.now ?? new Date()).toISOString();
+    ctx.db.query("UPDATE sprints SET phase='canceled',canceled_at=?,cancel_reason=? WHERE id=?").run(recordedAt,reason,id);
+    saveSprintClosure(ctx.db,id,"canceled",reason,recordedAt);
     return touchSprint(ctx.db,id);
   });
 }
