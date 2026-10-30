@@ -12,19 +12,25 @@ export interface SprintOutcomeContent {
   links: SprintRecordLink[];
 }
 
-export interface SprintRecord {
+export interface SprintFeedbackContent {
+  helpful: string;
+  difficulties: string;
+  requests: string;
+}
+
+interface SprintRecordBase {
   id: string;
   sprintId: string;
-  kind: "outcome";
-  content: SprintOutcomeContent;
   recordedBy: string;
   recordedAt: string;
   correctsRecordId: string | null;
 }
 
-export interface AddSprintRecordInput {
+export type SprintOutcomeRecord = SprintRecordBase & { kind: "outcome"; content: SprintOutcomeContent };
+export type SprintFeedbackRecord = SprintRecordBase & { kind: "feedback"; content: SprintFeedbackContent };
+export type SprintRecord = SprintOutcomeRecord | SprintFeedbackRecord;
+
+export type AddSprintRecordInput = {
   requestKey: string;
-  kind: SprintRecord["kind"];
-  content: Partial<SprintOutcomeContent>;
   correctsRecordId?: string;
-}
+} & ({ kind: "outcome"; content: Partial<SprintOutcomeContent> } | { kind: "feedback"; content: Partial<SprintFeedbackContent> });

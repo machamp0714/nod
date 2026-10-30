@@ -5,6 +5,9 @@ import { call, setup, tempDir } from "./helpers";
 import { openDb } from "@nod/core";
 import { join } from "node:path";
 import { legacySprintFixture } from "../../core/test/fixtures/sprint";
+import { Hono } from "hono";
+import { registerSprintRoutes } from "../src/routes/sprints";
+import { toErrorResponse } from "../src/errors";
 
 async function recordSprint(phase: "draft" | "ready" | "active" = "active") {
   const f = setup();
@@ -30,6 +33,102 @@ test("成果のリンク・要約・試し方・テスト結果を保存して�
     const saved = await call(app, "POST", path, { requestKey: "成果", kind: "outcome", content });
     expect(saved).toMatchObject({ status: 201, json: { sprintId: sprint.id, kind: "outcome", content, recordedBy: "me", recordedAt: "2026-10-30T03:00:00.000Z", correctsRecordId: null } });
     expect(await call(app, "GET", path)).toEqual({ status: 200, json: [saved.json] });
+  } finally { db.close(); }
+});
+
+test("利用者本人の役立った点・困った点・次の要望を記録者と日時付きで読み返せる", async () => {
+  const { db, app, sprint } = await recordSprint();
+  try {
+    const path = `/api/sprints/${sprint.id}/records`;
+    expect((await call(app, "GET", path)).json).toEqual([]);
+    const content = { helpful: "試し方が分かりやすい", difficulties: "記録が増えると探しにくい", requests: "次は検索したい" };
+    const saved = await call(app, "POST", path, { requestKey: "本人の感想", kind: "feedback", content });
+    expect(saved).toMatchObject({ status: 201, json: { sprintId: sprint.id, kind: "feedback", content, recordedBy: "me", recordedAt: "2026-10-30T03:00:00.000Z", correctsRecordId: null } });
+    expect(await call(app, "GET", path)).toEqual({ status: 200, json: [saved.json] });
+  } finally { db.close(); }
+});
+
+test("エージェントの報告は成果として残せるが本人の感想としては保存できない", async () => {
+  const { db, app, sprint, llm, clock } = await recordSprint();
+  try {
+    const agentApp = new Hono();
+    agentApp.onError(error => { const response = toErrorResponse(error); return Response.json(response.body, { status: response.status }); });
+    registerSprintRoutes(agentApp, llm, clock);
+    const path = `/api/sprints/${sprint.id}/records`;
+    expect((await call(agentApp, "POST", path, { requestKey: "エージェントの報告", kind: "outcome", content: { summary: "感想を要約した報告" } })).json.recordedBy).toBe("claude-code");
+    expect(await call(agentApp, "POST", path, { requestKey: "本人評価の代筆", kind: "feedback", content: { helpful: "便利だったと推測" } })).toMatchObject({ status: 403, json: { error: { code: "FORBIDDEN_FOR_LLM" } } });
+    const records = (await call(app, "GET", path)).json;
+    expect(records).toHaveLength(1);
+    expect(records[0].kind).toBe("outcome");
+  } finally { db.close(); }
+});
+
+test("進行中・終了後・中止後の感想と訂正を追記しても元記録や成果・残件・計画・実行を変えない", async () => {
+  for (const operation of [null, "end", "cancel"]) {
+    const { db, app, sprint, clock } = await recordSprint();
+    try {
+      const base = `/api/sprints/${sprint.id}`, path = `${base}/records`;
+      const outcome = (await call(app, "POST", path, { requestKey: "合格の成果", kind: "outcome", content: { summary: "成果", testResult: "passed" } })).json;
+      const input = { requestKey: "初回の感想", kind: "feedback", content: { helpful: "試しやすい" } };
+      const original = await call(app, "POST", path, input);
+      expect(original).toMatchObject({ status: 201, json: { content: { helpful: "試しやすい", difficulties: "", requests: "" } } });
+      expect(await call(app, "POST", path, input)).toEqual(original);
+      if (operation) {
+        clock.now = new Date("2026-10-30T15:00:00.000Z");
+        expect((await call(app, "POST", `${base}/${operation}`, { expectedVersion: sprint.version, requestKey: "終了操作", reason: "記録を残す" })).status).toBe(200);
+      }
+      const before = (await call(app, "GET", base)).json;
+      const execution = (await call(app, "GET", `${base}/execution`)).json;
+      const allSprints = (await call(app, "GET", "/api/sprints")).json;
+      const observedAt = clock.now;
+      clock.now = new Date("2027-10-30T03:00:00.000Z");
+      const correction = await call(app, "POST", path, { requestKey: "後日の訂正", kind: "feedback", correctsRecordId: original.json.id, content: { difficulties: "長く使うと探しにくかった", requests: "検索したい" } });
+      expect(correction).toMatchObject({ status: 201, json: { kind: "feedback", content: { helpful: "", difficulties: "長く使うと探しにくかった", requests: "検索したい" }, recordedBy: "me", recordedAt: "2027-10-30T03:00:00.000Z", correctsRecordId: original.json.id } });
+      const later = await call(app, "POST", path, { requestKey: "後日の感想", kind: "feedback", content: { helpful: "再確認にも役立った" } });
+      expect(later.status).toBe(201);
+      expect((await call(app, "GET", path)).json).toEqual([outcome, original.json, correction.json, later.json]);
+      expect((await call(app, "GET", base)).json).toEqual(before);
+      clock.now = observedAt;
+      expect((await call(app, "GET", `${base}/execution`)).json).toEqual(execution);
+      expect((await call(app, "GET", "/api/sprints")).json).toEqual(allSprints);
+      expect((await call(app, "POST", path, { ...input, content: { helpful: "異なる再送" } })).status).toBe(409);
+      expect((await call(app, "POST", path, { ...input, requestKey: "成果を感想で訂正", correctsRecordId: outcome.id })).status).toBe(400);
+      expect((await call(app, "GET", path)).json).toEqual([outcome, original.json, correction.json, later.json]);
+    } finally { db.close(); }
+  }
+});
+
+test("開始前の感想・空の感想・本人性やテスト結果を偽装する入力を保存しない", async () => {
+  for (const phase of ["draft", "ready", "active"] as const) {
+    const { db, app, sprint } = await recordSprint(phase);
+    try {
+      const path = `/api/sprints/${sprint.id}/records`;
+      const input = { requestKey: "感想", kind: "feedback", content: { helpful: "役立った" } };
+      if (phase !== "active") expect((await call(app, "POST", path, input)).status).toBe(409);
+      for (const content of [{}, { helpful: " \n " }, { helpful: "役立った", testResult: "passed" }, { requests: 42 }]) {
+        expect((await call(app, "POST", path, { ...input, content })).status).toBe(400);
+      }
+      for (const extra of [{ actor: "me" }, { recordedBy: "me" }, { recordedAt: "2000-01-01" }]) {
+        expect((await call(app, "POST", path, { ...input, ...extra })).status).toBe(400);
+      }
+      expect((await call(app, "GET", path)).json).toEqual([]);
+    } finally { db.close(); }
+  }
+});
+
+test("感想の保存失敗は成功にならず、同じ入力の再試行で本人の感想を保存できる", async () => {
+  const { db, app, sprint } = await recordSprint();
+  try {
+    const base = `/api/sprints/${sprint.id}`, path = `${base}/records`;
+    const before = (await call(app, "GET", base)).json;
+    db.exec("CREATE TRIGGER 感想保存拒否 BEFORE INSERT ON sprint_records WHEN NEW.kind='feedback' BEGIN SELECT RAISE(ABORT,'感想を保存できません'); END");
+    const input = { requestKey: "感想の再試行", kind: "feedback", content: { requests: "入力を失わず再試行したい" } };
+    expect((await call(app, "POST", path, input)).status).toBe(500);
+    expect((await call(app, "GET", path)).json).toEqual([]);
+    expect((await call(app, "GET", base)).json).toEqual(before);
+    db.exec("DROP TRIGGER 感想保存拒否");
+    expect((await call(app, "POST", path, input)).status).toBe(201);
+    expect((await call(app, "GET", path)).json).toMatchObject([{ kind: "feedback", content: { requests: "入力を失わず再試行したい" }, recordedBy: "me" }]);
   } finally { db.close(); }
 });
 
@@ -152,6 +251,7 @@ test("旧Cycleから移行したSprintは閲覧だけでき、記録を追加で
     const before = (await call(app, "GET", base)).json;
     expect((await call(app, "GET", `${base}/records`)).json).toEqual([]);
     expect((await call(app, "POST", `${base}/records`, { requestKey: "移行履歴", kind: "outcome", content: { summary: "履歴に追加しない" } })).status).toBe(409);
+    expect((await call(app, "POST", `${base}/records`, { requestKey: "移行履歴の感想", kind: "feedback", content: { helpful: "履歴に追加しない" } })).status).toBe(409);
     expect((await call(app, "GET", base)).json).toEqual(before);
     expect((await call(app, "GET", `${base}/records`)).json).toEqual([]);
   } finally { db.close(); }

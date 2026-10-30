@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import type { SprintDetail, SprintOutcomeContent, SprintRecord, SprintRecordLink } from "@nod/core";
+import type { SprintDetail, SprintFeedbackRecord, SprintOutcomeContent, SprintOutcomeRecord, SprintRecord, SprintRecordLink } from "@nod/core";
 import { useSprintRecords } from "../../api/hooks/sprints";
 import { useSprintCommand } from "../../api/hooks/sprint-planning";
 import { errorMessage } from "../../api/errors";
@@ -55,7 +55,21 @@ export function SprintRecordsLayout({ sprint, title, onBack, onPlan, children, a
 export function SprintOutcomes({ sprint, onBack, onPlan, readError, onRetry }: { sprint: SprintDetail; onBack: () => void; onPlan: () => void; readError?: unknown; onRetry: () => void }) {
   const records = useSprintRecords(sprint.id);
   const outcomes = records.data?.filter(record => record.kind === "outcome") ?? [];
-  return <SprintRecordsLayout sprint={sprint} title="成果と評価" onBack={onBack} onPlan={onPlan} aside={<section className={s.section}><h2>利用者の感想</h2><p>未記録</p></section>}>
+  const feedback = records.data?.filter((record): record is SprintFeedbackRecord => record.kind === "feedback" && record.recordedBy === "me");
+  return <SprintRecordsLayout sprint={sprint} title="成果と評価" onBack={onBack} onPlan={onPlan} aside={<>
+    <section className={s.section}><h2>利用者の感想</h2><p>成果を試して感じたことを、本人の感想として残せます。</p>
+      {records.isPending && <p role="status">感想の記録を読み込み中…</p>}
+      {records.error && <p role="alert" className={s.error}>感想の記録を取得できません：{errorMessage(records.error)}。{records.data && "最後に取得した記録を表示しています。"}<Button onClick={() => void records.refetch()}>再読み込み</Button></p>}
+      {!records.isPending && !records.error && !feedback?.length && <p>感想は未記録です。</p>}
+    </section>
+    {feedback?.map(record => <section id={`record-${record.id}`} key={record.id} className={s.section} aria-label="利用者の感想の記録">
+      <h2>{record.correctsRecordId ? "感想の訂正" : "利用者の感想の記録"}</h2><SprintRecordMeta record={record} />
+      <SprintRecordText title="役立った点" text={record.content.helpful} />
+      <SprintRecordText title="困った点" text={record.content.difficulties} />
+      <SprintRecordText title="次の要望" text={record.content.requests} />
+    </section>)}
+    {canAddSprintRecord(sprint) ? <SprintFeedbackForm sprint={sprint} feedback={feedback ?? []} /> : <p>開始前のSprintと旧Cycleの移行履歴には感想を追加できません。</p>}
+  </>}>
     {!!readError && <p role="alert" className={s.error}>Sprintの再取得に失敗しました。<Button onClick={onRetry}>再読み込み</Button></p>}
     <section className={s.section}><h2>成果</h2><p>成果のリンク、変更の要約、試し方とテスト結果を確認できます。</p>
       {records.isPending && <p role="status">成果の記録を読み込み中…</p>}
@@ -75,7 +89,7 @@ export function SprintOutcomes({ sprint, onBack, onPlan, readError, onRetry }: {
   </SprintRecordsLayout>;
 }
 
-function SprintOutcomeForm({ sprint, outcomes }: { sprint: SprintDetail; outcomes: SprintRecord[] }) {
+function SprintOutcomeForm({ sprint, outcomes }: { sprint: SprintDetail; outcomes: SprintOutcomeRecord[] }) {
   const [summary, setSummary] = useState(""), [howToTry, setHowToTry] = useState(""), [tests, setTests] = useState("");
   const [testResult, setResult] = useState<SprintOutcomeContent["testResult"]>("unverified");
   const [links, setLinks] = useState<SprintRecordLink[]>([]), [correctsRecordId, setCorrection] = useState("");
@@ -103,5 +117,30 @@ function SprintOutcomeForm({ sprint, outcomes }: { sprint: SprintDetail; outcome
     {command.error && <p role="alert" className={s.error}>保存できませんでした。入力は保持しています：{errorMessage(command.error)}</p>}
     {saved && <p role="status">成果を記録しました。</p>}
     <Button type="submit" variant="primary" disabled={command.isPending || empty}>{command.isPending ? "保存中…" : "成果を記録する"}</Button>
+  </form>;
+}
+
+function SprintFeedbackForm({ sprint, feedback }: { sprint: SprintDetail; feedback: SprintFeedbackRecord[] }) {
+  const [helpful, setHelpful] = useState(""), [difficulties, setDifficulties] = useState(""), [requests, setRequests] = useState("");
+  const [correctsRecordId, setCorrection] = useState(""), [saved, setSaved] = useState(false);
+  const command = useSprintCommand<SprintFeedbackRecord>();
+  const empty = !helpful.trim() && !difficulties.trim() && !requests.trim();
+  return <form className={s.section} aria-label="感想を追記" onSubmit={e => {
+    e.preventDefault();
+    if (command.isPending || empty) return;
+    setSaved(false);
+    void command.run(`/sprints/${sprint.id}/records`, { kind: "feedback", content: { helpful, difficulties, requests }, ...(correctsRecordId ? { correctsRecordId } : {}) }).then(() => {
+      setHelpful(""); setDifficulties(""); setRequests(""); setCorrection(""); setSaved(true);
+    }, () => {});
+  }}><h2>感想を追記</h2><p>訂正や後日の感想も追記できます。前の記録は残ります。</p>
+    <fieldset disabled={command.isPending} className={s.fields}><legend>本人の感想と要望</legend>
+      <label className={s.field}>訂正元の感想（任意）<select value={correctsRecordId} onChange={e => setCorrection(e.target.value)}><option value="">新しい感想</option>{feedback.map(record => <option key={record.id} value={record.id}>{new Date(record.recordedAt).toLocaleString("ja-JP")} / {(record.content.helpful || record.content.difficulties || record.content.requests).slice(0, 50)}</option>)}</select></label>
+      <label className={s.field}>役立った点<textarea maxLength={8000} value={helpful} onChange={e => setHelpful(e.target.value)} /></label>
+      <label className={s.field}>困った点<textarea maxLength={8000} value={difficulties} onChange={e => setDifficulties(e.target.value)} /></label>
+      <label className={s.field}>次の要望<textarea maxLength={8000} value={requests} onChange={e => setRequests(e.target.value)} /></label>
+    </fieldset>
+    {command.error && <p role="alert" className={s.error}>保存できませんでした。入力は保持しています：{errorMessage(command.error)}</p>}
+    {saved && <p role="status">感想を記録しました。</p>}
+    <Button type="submit" variant="primary" disabled={command.isPending || empty}>{command.isPending ? "保存中…" : "感想を記録する"}</Button>
   </form>;
 }

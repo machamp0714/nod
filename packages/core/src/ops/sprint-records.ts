@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { now, type OpCtx } from "../ctx";
+import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintText } from "../sprint-validation";
 import type { SprintClock } from "../sprint-types";
-import type { AddSprintRecordInput, SprintOutcomeContent, SprintRecord, SprintRecordLink } from "../sprint-record-types";
+import type { AddSprintRecordInput, SprintFeedbackContent, SprintOutcomeContent, SprintRecord, SprintRecordLink } from "../sprint-record-types";
 import { resolveSprint } from "./sprints";
 
 interface RecordRow {
@@ -58,11 +58,19 @@ function outcomeContent(value: unknown): SprintOutcomeContent {
   return { summary, howToTry, tests, testResult: testResult as SprintOutcomeContent["testResult"], links };
 }
 
+function feedbackContent(value: unknown): SprintFeedbackContent {
+  const content = sprintObject(value, ["helpful", "difficulties", "requests"], "利用者の感想");
+  const helpful = recordText(content.helpful, "役立った点"), difficulties = recordText(content.difficulties, "困った点"), requests = recordText(content.requests, "次の要望");
+  if (!helpful && !difficulties && !requests) return invalidSprint("空の感想は記録できません");
+  return { helpful, difficulties, requests };
+}
+
 export function addSprintRecord(ctx: OpCtx, ref: string, input: AddSprintRecordInput, clock: SprintClock = {}): SprintRecord {
   sprintObject(input, ["requestKey", "kind", "content", "correctsRecordId"]);
   const requestKey = sprintText(input.requestKey, "requestKey");
-  if (input.kind !== "outcome") return invalidSprint("記録の種類が不正です");
-  const content = outcomeContent(input.content);
+  if (input.kind !== "outcome" && input.kind !== "feedback") return invalidSprint("記録の種類が不正です");
+  if (input.kind === "feedback" && isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "利用者の感想は本人だけが記録できます");
+  const content = input.kind === "outcome" ? outcomeContent(input.content) : feedbackContent(input.content);
   const correctsRecordId = input.correctsRecordId === undefined ? null : sprintText(input.correctsRecordId, "訂正元の記録");
   const inputHash = sprintHash({ kind: input.kind, content, correctsRecordId });
   return tx(ctx.db, () => {
@@ -78,7 +86,7 @@ export function addSprintRecord(ctx: OpCtx, ref: string, input: AddSprintRecordI
       if (!original) return invalidSprint("訂正元は同じSprintの同じ種類の記録を指定してください");
     }
     const record: SprintRecord = { id: crypto.randomUUID(), sprintId: sprint.id, kind: input.kind, content, recordedBy: ctx.actor,
-      recordedAt: clock.now?.toISOString() ?? now(), correctsRecordId };
+      recordedAt: clock.now?.toISOString() ?? now(), correctsRecordId } as SprintRecord;
     ctx.db.query(`INSERT INTO sprint_records(id,sprint_id,kind,content,recorded_by,recorded_at,corrects_record_id,request_key,input_hash)
       VALUES(?,?,?,?,?,?,?,?,?)`).run(record.id, record.sprintId, record.kind, JSON.stringify(record.content), record.recordedBy, record.recordedAt, correctsRecordId, requestKey, inputHash);
     return record;
