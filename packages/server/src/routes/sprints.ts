@@ -5,9 +5,13 @@ import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint,
   type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput, type EndSprintInput } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag, readBody } from "../input";
+import { addSprintRecord, listSprintRecords, type AddSprintRecordInput } from "@nod/core";
 
 export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = {}): void {
   const mutation = ["expectedVersion", "requestKey"];
+  app.get("/api/sprints/:ref/records", c => c.json(listSprintRecords(me.db, c.req.param("ref"))));
+  app.post("/api/sprints/:ref/records", async c => c.json(addSprintRecord(me, c.req.param("ref"),
+    await readBody(c, ["requestKey", "kind", "content", "correctsRecordId"]) as unknown as AddSprintRecordInput, clock), 201));
   app.get("/api/workspaces/:key/scrum", c => c.json(getScrumWorkspace(me.db,c.req.param("key"))));
   app.put("/api/workspaces/:key/scrum", async c => c.json(configureScrumWorkspace(me,c.req.param("key"),
     await readBody(c,[...mutation,"enabled","problem","productGoal","priorityRationale"]) as unknown as ConfigureScrumWorkspaceInput)));

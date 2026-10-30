@@ -3,6 +3,8 @@ export * from "./db";
 export * from "./ctx";
 export * from "./types";
 export * from "./sprint-types";
+export * from "./sprint-record-types";
+export * from "./ops/sprint-records";
 export * from "./sprint-execution-types";
 export * from "./ops/sprint-execution";
 export * from "./ops/sprint-orca";

@@ -80,6 +80,7 @@ describe("openDb", () => {
       "sprint_plan_contents",
       "sprint_plan_items",
       "sprint_plans",
+      "sprint_records",
       "sprint_sessions",
       "sprints",
       "sqlite_sequence",
