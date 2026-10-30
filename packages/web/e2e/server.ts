@@ -147,6 +147,9 @@ async function reset(dataset: string): Promise<void> {
 }
 
 function call(actor: string, op: string, args: unknown[]): unknown {
+  if (op === "activateSprint" && args[2]) {
+    args[2] = { now: new Date((args[2] as { now: string }).now) };
+  }
   const fn = (core as unknown as Record<string, AnyFn>)[op];
   if (fn && ctxOps.has(op)) return fn({ db, actor }, ...args);
   if (fn && dbOps.has(op)) return fn(db, ...args);

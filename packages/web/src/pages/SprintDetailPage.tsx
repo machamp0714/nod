@@ -4,6 +4,8 @@ import { useSprintPlanningStatus } from "../api/hooks/sprint-planning";
 import { SprintPlanning } from "../components/sprints/SprintPlanning";
 import { SprintSupervision } from "../components/sprints/SprintSupervision";
 import { SprintCancel } from "../components/sprints/SprintCancel";
+import { SprintEnd } from "../components/sprints/SprintEnd";
+import { SprintClosure } from "../components/sprints/SprintClosure";
 import { errorMessage } from "../api/errors";
 import { useSprint, useSprints } from "../api/hooks/sprints";
 import { usePageDisplay } from "../api/hooks/page-displays";
@@ -57,6 +59,8 @@ export function SprintDetailPage() {
   const changeSearch = (patch: import("../routes/search").IssueListSearch) => { const pageDisplay = page.save(patch); void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); };
   if (tab === "plan" && sprint.phase !== "imported") return <SprintPlanning key={sprint.id} sprint={sprint} search={page.search} onSearchChange={changeSearch} view={url.view === "flow" ? "flow" : "list"} onViewChange={view => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan", view: view === "flow" ? "flow" : undefined }) })} onBack={() => { void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: undefined, view: undefined }) }); requestAnimationFrame(() => planButton.current?.focus()); }} onActivated={() => setActivated(sprint.id)} readError={error} lastCheckedAt={detail.dataUpdatedAt} onRetry={() => { void detail.refetch(); void sprints.refetch(); }} />;
   const imported = sprint.phase === "imported";
+  const deadlineReached = !!sprint.endsAt && !!availability.data && Date.parse(availability.data.observedAt) >= Date.parse(sprint.endsAt);
+  const awaitingClosure = sprint.phase === "active" && deadlineReached;
   const snapshots = imported ? sprintSnapshotRows(sprint) : [];
   const shownRows = imported ? snapshots : rows.rows;
   const countsKnown = imported || (!rows.loading && !rows.error);
@@ -64,17 +68,19 @@ export function SprintDetailPage() {
   return <div className={s.layout}>
     <IssueList crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name}
       titleNote={<span>{SPRINT_PHASE_LABEL[sprint.phase]}</span>}
-      actions={<>{!imported && <><Button style={{ minHeight: 32 }} ref={planButton} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan" }) })}>計画</Button><SprintCancel key={sprint.id} sprint={sprint} /></>}<IconButton ref={analyticsButton} icon="chart-line" label="分析" bordered aria-pressed={analyticsOpen} className={analyticsOpen ? s.pressed : undefined}
+      actions={<>{!imported && <><Button style={{ minHeight: 32 }} ref={planButton} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan" }) })}>計画</Button><SprintEnd key={`end:${sprint.id}`} sprint={sprint} deadlineReached={deadlineReached} /><SprintCancel key={sprint.id} sprint={sprint} /></>}<IconButton ref={analyticsButton} icon="chart-line" label="分析" bordered aria-pressed={analyticsOpen} className={analyticsOpen ? s.pressed : undefined}
         onClick={() => analyticsOpen ? closeAnalytics() : setAnalyticsOpen(true)} /></>}
       intro={<>
         {error && <p role="alert">取得に失敗しました。最後の確認：{new Date(detail.dataUpdatedAt).toLocaleString("ja-JP")} <Button onClick={() => void detail.refetch()}>再読み込み</Button></p>}
         {activated === sprint.id && <p role="status">Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。</p>}
+        {awaitingClosure && <p role="status">期限超過、終了の記録待ち。Sprintを終了して残件を記録してください。</p>}
         <section className={s.overview} aria-label="Sprint の概要">
           <span className={s.field}><span className={s.label}>期間</span>{sprint.startDate} – {sprint.endDate}</span>
           <span className={s.field}><span className={s.label}>{imported ? "移行時の完了" : "タスク完了"}</span>
             {countsKnown ? <><ProgressBar value={completed} max={shownRows.length} /><span className={s.count}>{completed}/{shownRows.length}</span><span className={s.open}>未完了 {shownRows.length - completed}</span></> : <span>{rows.error ? "不明" : "読み込み中…"}</span>}
           </span>
           <span className={s.field}><span className={s.label}>timezone</span>{sprint.timezone ?? "不明"}</span>
+          <span className={s.field}><span className={s.label}>期限</span>{sprint.endsAt ? <time dateTime={sprint.endsAt}>{new Date(sprint.endsAt).toLocaleString("ja-JP", { timeZone: sprint.timezone ?? undefined })}</time> : "不明"}</span>
           <span className={s.field}><span className={s.label}>Sprint番号</span>{sprint.number}</span>
           {imported && <span>旧Cycle ID: {sprint.legacyCycleId ?? "不明"}</span>}
         </section>
@@ -85,11 +91,12 @@ export function SprintDetailPage() {
           <p>達成の確認：{shownPlan?.content.verificationMethod ?? "未設定"}</p>
           <p>見通し：判断できない。成果の検証が確認できないため、実行の観測だけではゴール達成を判断する根拠が不足しています。</p>
           <p>根拠：保存された計画とIssueの状態のみ。確認時刻：<time dateTime={availability.data?.observedAt ?? new Date(detail.dataUpdatedAt).toISOString()}>{new Date(availability.data?.observedAt ?? detail.dataUpdatedAt).toLocaleString("ja-JP")}</time></p>
-          <p>次の行動：{sprint.phase === "canceled" ? "中止理由と残件を確認する" : sprint.phase === "active" ? "採択済みの要求と着手条件、現在の監督と再照合手順を確認する" : "計画のゴール・採択理由・条件を確認して合意する"}</p>
+          <p>次の行動：{sprint.phase === "ended" ? "終了時の記録と現在のIssueを確認する" : sprint.phase === "canceled" ? "中止理由と残件を確認する" : awaitingClosure ? "終了を記録し、残件と現在の担当を確認する" : sprint.phase === "active" ? "採択済みの要求と着手条件、現在の監督と再照合手順を確認する" : "計画のゴール・採択理由・条件を確認して合意する"}</p>
           <SprintSupervision key={sprint.id} sprint={sprint} />
           {shownPlan && <details><summary>採択理由・ゴールへの貢献</summary>{shownPlan.content.items.map(item => <p key={item.itemId}>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey}：{item.contribution}</p>)}</details>}
           <p>合意: {sprint.adoptedPlanId ? "採用計画あり" : "不明"} / 達成結果: {sprint.outcome ?? "不明"}</p>
           {sprint.cancelReason && <p>中止理由：{sprint.cancelReason} / {sprint.canceledAt}</p>}
+          {sprint.closureRecord && <SprintClosure record={sprint.closureRecord} />}
           {imported && <><p>移行時の状態（{sprint.legacy?.capturedAt ?? "取得時点不明"}）。元のWorkspaceとともに表示します。</p><p>終了時点の成果は不明</p></>}
         </section>
       </>}

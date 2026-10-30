@@ -1,8 +1,8 @@
 import { getSprintNotificationState, getSprintPlanningStatus, getSprintFlow, getSprintIssueEligibility, getSprint, getUnresolvedSprintHistory, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
 import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addSprintCandidate, listSprintCandidates,
-  proposeSprintPlan, listSprintPlans, getSprintPlan, acceptSprintPlan, activateSprint, cancelSprint,
+  proposeSprintPlan, listSprintPlans, getSprintPlan, acceptSprintPlan, activateSprint, cancelSprint, endSprint,
   type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput, type AddSprintCandidateInput,
-  type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput } from "@nod/core";
+  type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput, type EndSprintInput } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag, readBody } from "../input";
 
@@ -28,6 +28,8 @@ export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = 
     await readBody(c,mutation) as unknown as SprintMutation,clock)));
   app.post("/api/sprints/:ref/cancel", async c => c.json(cancelSprint(me,c.req.param("ref"),
     await readBody(c,[...mutation,"reason"]) as unknown as CancelSprintInput,clock)));
+  app.post("/api/sprints/:ref/end", async c => c.json(endSprint(me,c.req.param("ref"),
+    await readBody(c,[...mutation,"reason"]) as unknown as EndSprintInput,clock)));
   app.get("/api/sprints", c => {
     const workspace = c.req.query("workspaceId");
     return c.json(listSprints(me.db,{workspaceId:workspace === undefined ? undefined : paramInt(workspace,"Workspace ID")}));

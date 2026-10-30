@@ -7,6 +7,7 @@ import type { Sprint, SprintClock, SprintItem, SprintPlan, SprintPlanContent, Sp
 import { nextSprintNumber, resolveSprint } from "./sprints";
 import { findIssueRow } from "../issue-query";
 import { findWorkspace } from "./workspaces";
+import { saveSprintClosure } from "./sprint-closure";
 
 export interface SprintMutation { expectedVersion: number; requestKey: string }
 export interface ScrumWorkspace {
@@ -363,6 +364,24 @@ export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, c
   });
 }
 export interface CancelSprintInput extends SprintMutation { reason: string }
+export interface EndSprintInput extends SprintMutation { reason: string }
+export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock: SprintClock = {}): Sprint {
+  human(ctx);
+  sprintObject(input,[...MUTATION_KEYS,"reason"]);
+  const reason = sprintText(input.reason,"終了理由");
+  const id = resolveSprint(ctx.db,ref).id;
+  return mutate(ctx,id,"end",input,() => {
+    const sprint = writableSprint(ctx.db,id);
+    checkVersion(sprint.version,input.expectedVersion);
+    if (sprint.phase !== "active") throw new NodError("INVALID_STATE","進行中のSprintだけを終了できます");
+    const instant = clock.now ?? new Date();
+    if (!Number.isFinite(instant.getTime())) invalidSprint("時計の時刻が不正です");
+    if (!sprint.endsAt || instant.getTime() < Date.parse(sprint.endsAt)) throw new NodError("SPRINT_NOT_EXPIRED","期限前に区切る場合は中止してください");
+    ctx.db.query("UPDATE sprints SET phase='ended' WHERE id=?").run(id);
+    saveSprintClosure(ctx.db,id,"ended",reason,instant.toISOString());
+    return touchSprint(ctx.db,id);
+  });
+}
 export function cancelSprint(ctx: OpCtx, ref: string, input: CancelSprintInput, clock: SprintClock = {}): Sprint {
   human(ctx);
   sprintObject(input,[...MUTATION_KEYS,"reason"]);

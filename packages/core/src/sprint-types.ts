@@ -52,11 +52,20 @@ export interface SprintLegacyEvent {
 }
 
 export interface SprintDetail extends Sprint {
+  closureRecord: SprintClosureRecord | null;
   plans: SprintPlan[];
   items: SprintItem[];
   events: SprintLegacyEvent[];
   evidence: {sourceIssueId:number;sourceIssueKey:string;snapshot:SprintItem["snapshot"]}[];
   legacy: { schemaVersion: number; cycle: Record<string, unknown>; cadence: Record<string, unknown> | null; capturedAt: string; statusBasis: "migration_snapshot" } | null;
+}
+
+export interface SprintClosureRecord {
+  kind: "ended" | "canceled";
+  recordedAt: string;
+  reason: string;
+  issues: { issueId: string; status: Issue["status"] }[];
+  questions: { questionId: number; issueId: string }[];
 }
 
 export interface SprintPlanConstraints {
