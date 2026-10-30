@@ -40,7 +40,7 @@ test("PM復元評価は2件中の質問待ちと提出済みPRを別Issueとし�
     return JSON.parse(r.stdout.toString());
   };
   expect(show("API-1")).toMatchObject({ status: "in_progress", openQuestions: [{ answer: null }] });
-  expect(show("API-2")).toMatchObject({ status: "done", openQuestions: [] });
+  expect(show("API-2")).toMatchObject({ status: "in_review", openQuestions: [] });
   const r = Bun.spawnSync([s.gh, "pr", "view", "export-column", "--repo", "evaluation/api"], { env: s.env });
   expect(JSON.parse(r.stdout.toString())).toMatchObject({ number: 42, headRefName: "export-column", headRefOid: "c".repeat(40) });
 });

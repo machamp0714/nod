@@ -10,6 +10,8 @@ import {
   bulkUpdateIssues,
   askQuestion,
   commentIssue,
+  completeIssue,
+  startIssue,
   copyIssueWithAssessment,
   linkPr,
   declineTriage,
@@ -97,6 +99,8 @@ function toUpdateInput(b: Body): UpdateIssueInput {
 }
 
 const OPS: Record<string, Op> = {
+  start: { keys: [], run: (me, ref) => startIssue(me, ref) },
+  done: { keys: ["summary", "prUrl"], run: (me, ref, b) => completeIssue(me, ref, { summary: reqString(b, "summary"), prUrl: optString(b, "prUrl") }) },
   "assess-spec": { keys: [], run: (me, ref, _body, client) => retryIssueAssessment(me, ref, client) },
   ask: { keys: ["question"], run: (me, ref, b) => askQuestion(me, ref, reqString(b, "question")) },
   answer: {

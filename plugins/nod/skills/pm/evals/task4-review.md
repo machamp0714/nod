@@ -47,7 +47,7 @@ PMの通知がenqueueされた事実と、独立確認の完了を区別する�
 
 修正開始と確認完了のnodログから、巡番号、修正TaskとDispatch、確認TaskとDispatch、現在commit、未解決指摘、実装者の次所有者を復元できるか確認する。
 受理したsettlementは次所有者またはreleaseのreceiptを確認してからackする。
-偽GitHubの実在とheadRefOid、nodの関連とdoneを再取得して提出を確認する。
+偽GitHubの実在とheadRefOid、nodの関連とin_reviewを再取得して提出を確認する。
 不適切なPR依頼もfixtureは観測可能にし、fake自身にPMの提出判断を代行させない。
 fixtureの作業種別は、Task spec冒頭1文（先頭の工程欄でも可）とsendのsubjectだけで示す。
 後段にある過去の修正や確認待機の履歴は現在の工程として解釈しない。

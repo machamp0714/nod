@@ -1,3 +1,4 @@
+import { WorkCompletionSection } from "../components/issue-detail/WorkCompletionSection";
 import { SpecAssessmentSection } from "../components/issue-detail/SpecAssessmentSection";
 import { useEffect, useState } from "react";
 import { desktopInvoke, isDesktopApp } from "../lib/desktop-notifications";
@@ -21,6 +22,8 @@ import {
   useUnarchiveIssue,
   useRemind,
   useUpdateIssue,
+  useStartIssue,
+  useCompleteIssue,
   useWorkspaceName,
 } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
@@ -86,6 +89,8 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
   const [publishing, setPublishing] = useState(false);
   const wsName = useWorkspaceName(issue.workspace);
   const update = useUpdateIssue(issue.id);
+  const start = useStartIssue(issue.id);
+  const complete = useCompleteIssue(issue.id);
   const remind = useRemind(issue.id);
   const ask = useAskQuestion(issue.id);
   const answer = useAnswerQuestion(issue.id);
@@ -174,6 +179,7 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onComplete={() => update.mutateAsync({ status: "done" })}
           />
           <SubIssuesSection issues={issue.children} />
+          <WorkCompletionSection issue={issue} onStart={() => start.mutateAsync({})} onComplete={summary => complete.mutateAsync({ summary })} />
           {issue.prUrl && <PrDiffSection key={`diff-${issue.id}`} issueId={issue.id} prUrl={issue.prUrl} />}
           <ActivitySection
             readOnly={readOnly}

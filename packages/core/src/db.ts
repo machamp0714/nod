@@ -103,7 +103,7 @@ export function migrate(db: Database): void {
   }
   for (let v = current; v < SCHEMA_VERSION; v++) {
     // CHECKの変更で表を再作成する版は、参照を保って外部キーを一時停止する。
-    const rebuildTables = v === 39 || v === 43;
+    const rebuildTables = v === 39 || v === 43 || v === 49;
     if (rebuildTables) db.exec("PRAGMA foreign_keys = OFF");
     try {
       db.transaction(() => {

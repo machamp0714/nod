@@ -8,7 +8,7 @@ import { type CycleClock } from "./cycles";
 import { queryIssues } from "./issues";
 import { getSprint, resolveLegacyCycle } from "./sprints";
 
-export const STARTED_STATUSES: readonly Status[] = ["in_progress"];
+export const STARTED_STATUSES: readonly Status[] = ["in_progress", "in_review"];
 export interface SprintAnalyticsOptions { clock?: SprintClock; timezone?: string }
 
 interface AnalysisIssue {
@@ -50,7 +50,7 @@ export function sprintAnalytics(db: Database, ref: string, options: SprintAnalyt
   const statuses=STATUSES.map(status=>({status,count:issues.filter(issue=>issue.status===status).length}));
   const count=(status:string)=>statuses.find(row=>row.status===status)?.count ?? 0;
   const scope=issues.filter(issue=>issue.status!=="canceled").length;
-  const started=count("in_progress"); const completed=count("done");
+  const started=STARTED_STATUSES.reduce((total,status)=>total+count(status),0); const completed=count("done");
   return {
     sprintId:sprint.id,number:sprint.number,statusBasis:imported ? "migration_snapshot" : "live_adopted",capturedAt:sprint.legacy?.capturedAt ?? null,
     scope,started,completed,startedRate:scope ? started/scope : null,completedRate:scope ? completed/scope : null,
@@ -105,7 +105,7 @@ function historyDays(sprint: SprintDetail, timezone: string, clock: SprintClock)
       if(state.member===null || state.status===null) { unknown++; continue; }
       if(state.status==='canceled') continue;
       scope++;
-      if(state.status==='in_progress') started++;
+      if(STARTED_STATUSES.includes(state.status)) started++;
       if(state.status==='done') completed++;
     }
     days.push({date,scope:unknown ? null : scope,started:unknown ? null : started,completed:unknown ? null : completed,unknown});
