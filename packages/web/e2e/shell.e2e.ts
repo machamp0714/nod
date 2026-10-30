@@ -81,7 +81,7 @@ const ROUTES: Route[] = [
   { name: "/projects", ready: [count("table tbody tr", 4)] },
   { name: "/projects/1", ready: [count("table tbody tr", 3), count('section[aria-label="Milestones"]', 1)] },
   { name: "/initiatives", ready: [count("table tbody tr", 1)] },
-  { name: "/cycles", ready: [text("Cycle はまだありません")] },
+  { name: "/cycles", ready: [text("Sprint はまだありません")] },
   { name: "/documents", ready: [count("table tbody tr", 3)] },
   { name: "/documents/new", ready: [count("select option", 3)] },
   { name: "/documents/1", ready: [count('section[aria-label="関連 Issue"] li', 1)] },

@@ -2,7 +2,7 @@ import type { DocKind, Status } from "../api/types";
 import { STATUS_ORDER } from "../lib/meta";
 
 export type IssueTab = "all" | "ready" | "needs_clarification" | "delegated";
-export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "assignee", "label"] as const;
+export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "assignee", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
 export type IssueLayout = "list" | "board";
@@ -10,7 +10,7 @@ export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "ti
 const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
 // 表示設定のチップの順（design/nod.pen「Display Popover｜表示列（行見本に合わせる）」U6jFNg）
-export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"] as const;
+export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
 // 既定の列は design/nod.pen「11 Issues」（O7KCp3）の行に合わせる（#196）。未決事項・PR・見積もり・期限は表示設定のチップで出す。
 // 列を明示した既存の URL（columns=...）と View（display.columns）はそのまま復元する。
@@ -19,8 +19,9 @@ export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "statu
 
 // 画面の既定の列。全行が同じ値になる列（Project 詳細の Project）は既定から外す。
 // 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
-export function defaultIssueColumns(sameValueColumn?: IssueColumn): IssueColumn[] {
-  return DEFAULT_ISSUE_COLUMNS.filter((column) => column !== sameValueColumn);
+export function defaultIssueColumns(sameValueColumn?: IssueColumn, currentSprint = false): IssueColumn[] {
+  const columns: readonly IssueColumn[] = currentSprint ? ISSUE_COLUMNS.filter((column) => DEFAULT_ISSUE_COLUMNS.includes(column) || column === "sprint") : DEFAULT_ISSUE_COLUMNS;
+  return columns.filter((column) => column !== sameValueColumn);
 }
 
 export type ProjectTab = "active" | "completed" | "all";
@@ -31,6 +32,7 @@ export interface SelectedSearch {
 
 export interface ProjectsSearch {
   tab?: ProjectTab;
+  workspace?: string;
 }
 
 const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification", "delegated"];
@@ -64,7 +66,7 @@ export interface IssueListSearch {
   status?: Status[];
   project?: string;
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
-  cycle?: string; // Cycle の数字の ID か "none"（Cycle のない Issue）
+  sprint?: string; // current、none、固定参照、未解決条件を保持する
   label?: string[];
   assignee?: string[]; // 担当の名前。"none" は未割り当て
 }
@@ -116,8 +118,8 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof project === "string" && /^\d+$/.test(project)) out.project = project;
   const milestone = typeof raw.milestone === "number" ? String(raw.milestone) : raw.milestone;
   if (typeof milestone === "string" && /^([1-9]\d*|none)$/.test(milestone)) out.milestone = milestone;
-  const cycle = typeof raw.cycle === "number" ? String(raw.cycle) : raw.cycle;
-  if (typeof cycle === "string" && /^(\d+|none)$/.test(cycle)) out.cycle = cycle;
+  const sprint = typeof raw.sprint === "number" ? String(raw.sprint) : raw.sprint;
+  if (typeof sprint === "string" && sprint.trim()) out.sprint = sprint.trim();
   const label = stringList(raw.label);
   if (label) out.label = label;
   // API は assignee をカンマでも分けるため、手で書いた assignee=me,codex もチップとパネルが API の結果と合うように分ける
@@ -140,14 +142,14 @@ function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): bool
 
 // mine は My issues の URL。タブを持たず（担当が me と LLM の Issue をまとめて出す）、担当の条件は固定のため URL に持たない。
 // sameValueColumn はその画面で既定から外す列（defaultIssueColumns）。列がその画面の既定と同じなら URL に書かない
-export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn): IssueListSearch {
+export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn, currentSprint = search.sprint === "current"): IssueListSearch {
   if (mine) search = { ...search, tab: undefined, assignee: undefined };
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
-  if (search.columns && !sameColumns(search.columns, defaultIssueColumns(sameValueColumn))) out.columns = search.columns;
+  if (search.columns && !sameColumns(search.columns, defaultIssueColumns(sameValueColumn, currentSprint))) out.columns = search.columns;
   const fallback = defaultGroupBy(search.tab, mine);
   if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
   else if (search.groupBy === "none" && fallback) out.groupBy = "none";
@@ -164,7 +166,7 @@ export function cleanIssueListSearch(search: IssueListSearch, mine = false, same
   if (search.status?.length) out.status = search.status;
   if (search.project) out.project = search.project;
   if (search.milestone) out.milestone = search.milestone;
-  if (search.cycle) out.cycle = search.cycle;
+  if (search.sprint) out.sprint = search.sprint;
   if (search.label?.length) out.label = search.label;
   if (search.assignee?.length) out.assignee = search.assignee;
   return out;
@@ -193,16 +195,33 @@ export function cleanProjectIssuesSearch(search: ProjectDetailSearch): ProjectDe
   return out;
 }
 
+// Sprintの計画タブとフローもURLで復元する。一覧の保存設定には含めない。
+export interface SprintDetailSearch extends IssueListSearch { section?: "plan" | "outcomes" | "retrospective"; view?: "flow" }
+export function parseSprintDetailSearch(raw: Record<string, unknown>): SprintDetailSearch {
+  const out: SprintDetailSearch = parseIssueListSearch(raw);
+  if (raw.section === "plan" || raw.section === "outcomes" || raw.section === "retrospective") out.section = raw.section;
+  if (raw.view === "flow") { out.section = "plan"; out.view = "flow"; }
+  return out;
+}
+export function cleanSprintDetailSearch(search: SprintDetailSearch): SprintDetailSearch {
+  const out: SprintDetailSearch = cleanIssueListSearch(search);
+  if (search.section === "plan" || search.section === "outcomes" || search.section === "retrospective") out.section = search.section;
+  if (search.view === "flow" && search.section === "plan") out.view = "flow";
+  return out;
+}
+
 export function parseSelectedSearch(raw: Record<string, unknown>): SelectedSearch {
   return typeof raw.selected === "string" ? { selected: raw.selected } : {};
 }
 
 export function parseProjectsSearch(raw: Record<string, unknown>): ProjectsSearch {
-  return "tab" in raw ? { tab: pick(raw.tab, PROJECT_TABS) ?? "active" } : {};
+  const out: ProjectsSearch = "tab" in raw ? { tab: pick(raw.tab, PROJECT_TABS) ?? "active" } : {};
+  if (typeof raw.workspace === "string" && raw.workspace.trim()) out.workspace = raw.workspace.trim().toUpperCase();
+  return out;
 }
 
 export function cleanProjectsSearch(search: ProjectsSearch): ProjectsSearch {
-  return search.tab && search.tab !== "active" ? { tab: search.tab } : {};
+  return { ...(search.tab && search.tab !== "active" ? { tab: search.tab } : {}), ...(search.workspace ? { workspace: search.workspace } : {}) };
 }
 
 // 表示設定の変更は履歴から戻せるようにする。検索入力は従来どおり履歴を置換する。

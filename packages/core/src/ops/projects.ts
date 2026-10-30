@@ -162,12 +162,17 @@ interface FlowNodeRow {
 // Project の依存フロー。Issue 詳細を1件ずつ読まず、ノード・まだ止めているブロック元・辺をそれぞれ1回の読み取りで返す
 export function getProjectFlow(db: Database, ref: string): ProjectFlow {
   const { id } = resolveProject(db, ref);
+  return { projectId: id, ...getIssueDependencyFlow(db, "SELECT id FROM issues WHERE project_id = ? AND archived_at IS NULL", [id]) };
+}
+
+// ProjectとSprintで同じ依存読取を使う。Sprint外は直接の前提だけを参照する。
+export function getIssueDependencyFlow(db: Database, memberSql: string, bindings: import("bun:sqlite").SQLQueryBindings[], externalSuccessors = true, observedAt = now()): Pick<ProjectFlow, "nodes" | "edges"> {
   // 先に Project の Issue（members）と、それと直接 blocks でつながる Issue（targets）の集合を作り、
   // Project と無関係な Issue ごとに relations を読まない。relations には to_id の索引がないため、
   // 後ろ向き（to_id）の辺は Issue ごとに引かず、1回の読み取りでまとめて引く。前向きの辺は主キー（from_id 始まり）で引く
-  const members = `members AS (SELECT id FROM issues WHERE project_id = ? AND archived_at IS NULL)`;
+  const members = `members AS (${memberSql})`;
   const links = `links AS (
-    SELECT r.from_id, r.to_id FROM members m JOIN relations r ON r.from_id = m.id WHERE r.type = 'blocks'
+    SELECT r.from_id, r.to_id FROM members m JOIN relations r ON r.from_id = m.id WHERE r.type = 'blocks' ${externalSuccessors ? '' : 'AND r.to_id IN (SELECT id FROM members)'}
     UNION SELECT r.from_id, r.to_id FROM relations r WHERE r.type = 'blocks' AND r.to_id IN (SELECT id FROM members)
   )`;
   const targets = `targets AS (SELECT id FROM members UNION SELECT from_id FROM links UNION SELECT to_id FROM links)`;
@@ -175,16 +180,16 @@ export function getProjectFlow(db: Database, ref: string): ProjectFlow {
   const rows = db
     .query(
       `WITH ${members}, ${links}, ${targets}
-       SELECT i.id AS issue_id, w.key AS ws_key, w.name AS ws_name, i.number, i.title, i.status, i.project_id, pr.name AS project_name,
+       SELECT i.id IN (SELECT id FROM members) AS is_member, i.id AS issue_id, w.key AS ws_key, w.name AS ws_name, i.number, i.title, i.status, i.project_id, pr.name AS project_name,
          ${READY_UNLESS_BLOCKED_WHERE} AS ready_unless_blocked
        FROM targets t
        JOIN issues i ON i.id = t.id
        JOIN workspaces w ON w.id = i.workspace_id
        LEFT JOIN projects pr ON pr.id = i.project_id
        WHERE i.archived_at IS NULL
-       ORDER BY i.project_id IS NOT ?, w.key, i.number`,
+       ORDER BY i.id NOT IN (SELECT id FROM members), w.key, i.number`,
     )
-    .all(id, now(), id) as FlowNodeRow[]; // ? の順：主ノード、READY_UNLESS_BLOCKED_WHERE の現在時刻、並び順
+    .all(...bindings, observedAt) as (FlowNodeRow & { is_member: number })[]; // ? の順：主ノード、READY_UNLESS_BLOCKED_WHERE の現在時刻、並び順
   // ノードをまだ止めているブロック元（Issue.blockedBy と同じ）。Project 外のブロック元も含める。
   // relations を1回だけ読み、ノードごとの読み取りにしない
   const blockers = db
@@ -195,7 +200,7 @@ export function getProjectFlow(db: Database, ref: string): ProjectFlow {
        WHERE r.type = 'blocks' AND r.to_id IN (SELECT id FROM targets) AND ${OPEN_BLOCKER}
        ORDER BY bw.key, b.number`,
     )
-    .all(id) as { to_id: number; blocker_id: string }[];
+    .all(...bindings) as { to_id: number; blocker_id: string }[];
   const openBlockers = new Map<number, string[]>();
   for (const b of blockers) {
     const list = openBlockers.get(b.to_id);
@@ -211,7 +216,7 @@ export function getProjectFlow(db: Database, ref: string): ProjectFlow {
       workspace: r.ws_key,
       workspaceName: r.ws_name,
       project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
-      external: r.project_id !== id,
+      external: r.is_member !== 1,
       // web の Ready（READY_WHERE）と同じ条件：ブロック元以外の条件を満たし、まだ止めているブロック元がない
       ready: r.ready_unless_blocked === 1 && blockedBy.length === 0,
       openBlockers: blockedBy,
@@ -227,8 +232,8 @@ export function getProjectFlow(db: Database, ref: string): ProjectFlow {
        WHERE f.archived_at IS NULL AND t.archived_at IS NULL
        ORDER BY fw.key, f.number, tw.key, t.number`,
     )
-    .all(id) as ProjectFlowEdge[];
-  return { projectId: id, nodes, edges };
+    .all(...bindings) as ProjectFlowEdge[];
+  return { nodes, edges };
 }
 
 export const PROJECT_UPDATE_MAX_LENGTH = 10000;

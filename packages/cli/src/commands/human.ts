@@ -219,10 +219,9 @@ export function registerHumanCommands(program: Command): void {
     .command("accept <id>")
     .description("受け入れて Todo にする")
     .option("--assignee <name>", "受け入れと同時に担当を設定する")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current（現在の Cycle）。空文字で外す")
     .action(
-      act((cli, _cmd, id: string, o: { assignee?: string; cycle?: string }) => {
-        const issue = acceptTriage(cli.ctx, id, { assignee: o.assignee, cycleRef: o.cycle });
+      act((cli, _cmd, id: string, o: { assignee?: string }) => {
+        const issue = acceptTriage(cli.ctx, id, { assignee: o.assignee });
         print(cli, issue, () => `受け入れました: ${formatIssueLine(issue)}`);
       }),
     );

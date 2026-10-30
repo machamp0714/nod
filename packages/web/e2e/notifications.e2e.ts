@@ -31,7 +31,7 @@ test("Issue 詳細で購読すると、LLM の変化が Inbox の通知タブに
   await expect(list(page).getByRole("link")).toHaveCount(2);
   const rowA = list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ });
   await expect(rowA).toContainText("claude-code がコメントしました");
-  await expect(list(page).getByRole("link", { name: /決済 Webhook の再送処理（未読 1）/ })).toContainText("claude-code が作業を完了しました（レビュー待ち）");
+  await expect(list(page).getByRole("link", { name: /決済 Webhook の再送処理（未読 1）/ }).getByText("claude-code が作業を完了しました", { exact: true })).toBeVisible();
 
   // 先頭（最新）の Issue は表示するだけでは既読にしない。一覧で開くと既読になる
   await rowA.click();
@@ -106,7 +106,7 @@ test("購読していなくても、LLM に任せた Issue の入力待ち・エ
   await expect.poll(async () => (await nod.me.listNotifications({})).map((n) => n.issueId)).toEqual([]);
   await nod.claude.completeIssue(a.id, { summary: "直した" });
   await page.reload();
-  await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ })).toContainText("claude-code が作業を完了しました（レビュー待ち）");
+  await expect(list(page).getByRole("link", { name: /検索 API の N\+1 を解消（未読 1）/ }).getByText("claude-code が作業を完了しました ほか 1 件", { exact: true })).toBeVisible();
 });
 
 // #125: LLM が Triage を提案したら、購読していなくても me の通知タブに届く。人が確定すると既読になる
@@ -119,7 +119,11 @@ test("LLM の Triage 提案は通知タブに届き、人が受け入れると�
   await expect(row).toContainText("claude-code が Triage を提案しました（受け入れ）");
   await nod.me.acceptTriage(i.id);
   await page.reload();
-  await expect(list(page).getByRole("link", { name: /検索結果のページングがずれる/ })).toHaveCount(0);
+  const readRow = list(page).getByRole("link", { name: "検索結果のページングがずれる", exact: true });
+  await expect(readRow).toHaveCount(1);
+  await expect(readRow).toHaveAttribute("data-unread", "false");
+  await expect(tabs(page).getByRole("tab", { name: "通知", exact: true })).toHaveText("通知");
+  expect((await nod.me.listNotifications({})).filter((n) => n.kind === "triage_proposal")).toEqual([]);
   expect((await nod.me.listNotifications({ includeRead: true })).filter((n) => n.kind === "triage_proposal")).toMatchObject([{ readAt: expect.any(String) }]);
 });
 

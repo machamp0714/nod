@@ -1,3 +1,4 @@
+import { NodError } from "./errors";
 import { now, type OpCtx } from "./ctx";
 import { recordEvent } from "./events";
 import type { IssueRow } from "./issue-query";
@@ -60,6 +61,7 @@ export function setColumn(
     system?: boolean;
   } = {},
 ): boolean {
+  if (column === "cycle_id") throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
   const from = row[column];
   if (from === to) return false;
   if (column === "status" && !extra.system) assertTransitionAllowed(ctx.db, row, from as Status, to as Status);
@@ -92,6 +94,8 @@ export function setColumn(
     };
     if (extra.data) Object.assign(data, extra.data);
     if (extra.reason) data.reason = extra.reason;
+    // 旧来の完了提出と、新しいPRレビュー待ちを履歴のまま区別する。
+    if (type === "status_changed" && to === "in_review") data.review_semantics = "pr_review";
     // 人が実行した自動化ルールによる変更は、どのルールかを残す
     if (extra.automation) data.automation = extra.automation;
     if (type === "status_changed" && to === "done" && extra.report_comment_id !== undefined) {

@@ -46,11 +46,19 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 7. 続けられないときは \`nod issue fail <id> "<理由>"\` で報告する。
 8. 作業中に PR（draft を含む）を作ったら、その時点で \`nod issue link-pr <id> <PR の URL>\` で Issue に紐付ける（ステータスは変わらない）。
    PR の紐付けと状態取得は Issue のステータスを変えない。
-   終えたら \`nod issue done <id> --summary "<やったことの要約>" [--pr <URL>]\` で完了にする。LLM も直接 done にできる。
-   GitHub の PR の承認・マージは GitHub 側で別に行う。nod は \`gh pr review\` も \`gh pr merge\` も実行しない。
-   nod が GitHub に書き込むのは、人が確認した Issue の新規作成（\`nod issue publish\`）だけである。更新・close・コメントはしない。LLM は \`nod issue publish <id> --dry-run\` で内容と検出結果を確かめ、作成は人に依頼する。
-9. 作業を再開するときは \`nod issue start <id>\` を使う。まだ受け取っていない追加指示が \`pendingInstructions\`（テキストでは「追加指示」）にあれば先に読んで対応する。
-   担当の LLM が \`nod issue show\` の「未確認の追加指示」で読んだ指示は確認済みになり、\`nod issue start\` では渡し直されない。
+   PR を含む依頼では、必要な実装・検証・独立レビューを済ませ、レビュー依頼時に \`nod issue update <id> --status in_review\` で In Review に移す。提出しただけでは Done にしない。
+   merge と Issue の完了条件（検証・反映など）を確認した人または権限のあるエージェントが \`nod issue done <id> --summary "<やったことと検証結果>" [--pr <URL>]\` で完了報告する。in_progress と in_review から使える。
+   PR が不要なら、必要な検証と完了条件を満たした時点で LLM も直接 done にできる。完了後に別途 PR 作成を頼まれた場合は、そのレビュー依頼時に明示的に In Review へ戻す。
+   指摘対応は \`nod issue start <id>\` で In Review から In Progress へ再開する。最初の着手日時を保ち、担当者・未回答・依存関係・仕様判定・遷移ルールを守る。
+   GitHub の PR の承認・マージは GitHub 側で別に行う。nod は \`gh pr review\` も \`gh pr merge\` も実行しない。PR の作成・承認・merge・本番反映の権限は依頼と既存運用に従い、この手順では追加しない。
+
+## PR と状態の運用
+
+- 実装中・draft は原則 In Progress。レビュー依頼後は明示的に In Review にする。PR なし・draft でも明示設定は可能で、PR の存在や merge をシステムの必須条件にはしない。
+- merge せず close して継続するなら In Progress、中止するなら理由を付けて Canceled、後回しなら Todo または Backlog に明示的に移す。
+- reopen 後にレビューを再開するなら In Review、修正するなら In Progress に明示的に移す。
+- PR の作成・紐付け・取得・取得失敗・merge・close・reopen は状態を自動変更しない。Done・Canceled からの自動再開もない。リンクの付け替えは1件の置換である。
+- In Review は未完了で、エージェントの稼働状態と完了日時をクリアする。Done に戻すための人間承認を新たな必須条件にはしない。
 
 ## 仕様要否判定と実装
 
@@ -177,8 +185,9 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue update <id> --milestone <名前かID>\`：Issue を同じ Project の Milestone に紐付ける（空文字で外す。Project を変えると外れる）。\`nod issue create --project <Project> --milestone <名前かID>\` で起票時に、\`nod issue bulk-update <ids...> --milestone\` でまとめて付けられる。\`nod issue list --milestone <ID|none>\` で絞る（名前は \`--project\` と一緒に）。\`nod stats|stats llm --milestone <ID|none>\`（名前は \`--project\` と一緒に指定）で完了数・作業時間を Milestone に絞る。\`none\`（Milestone のない Issue）は大文字小文字を問わず、Milestone の名前には使えない
 - \`nod initiative list [--all]\`、\`nod initiative show <名前かID>\`：複数の Project を束ねる上位目標と、配下 Project の Issue を合算した進捗（done/total）を見る
 - \`nod initiative create <名前> [-d] [--target YYYY-MM-DD]\`、\`nod initiative update <名前かID> [--name] [-d] [--target] [--status planned|started|completed|canceled]\`、\`nod initiative add-project|remove-project <名前かID> <Project>\`：1つの Project を複数の Initiative に紐付けられる。Project・Issue の状態は変えない
-- \`nod cycle list|show <cycle>|create <名前> --start YYYY-MM-DD --end YYYY-MM-DD|update\`：全体で1系列の期間（スプリント）。Cycle は Workspace に属さず、どの Workspace の Issue も入れられる。期間は重ねられない。\`delete\`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。\`<cycle>\` は ID・名前・\`current\`（今日を含む Cycle。今日は \`--tz\`、省略時はこのマシンのローカルの暦日）。Issue は \`nod issue create|update|bulk-update --cycle <cycle>\` で入れ（空文字で外す）、\`nod issue list|stats|summary --cycle\` で絞る（\`--cycle none\` は Cycle のない Issue）。\`show\` は Scope・Started・Completed と、担当・Workspace・status の内訳も出す
-- \`nod cycle cadence show\`：周期の設定を見る。周期が設定されていると、nod のコマンドや Web の操作のたびに「今日を含む Cycle と次の1つ」が自動で作られ、自動持ち越しが ON なら終了した Cycle の未完了（done・canceled・アーカイブ済み以外）が今日の Cycle へ移る（記録に（自動化: cycle-carry-over）が付く）。設定・解除（\`set\`・\`clear\`）は人だけが行える
+- \`nod sprint list|show <sprint>\`：Sprintと移行履歴を読む。参照はUUIDまたは全Workspace共通の番号。移行した履歴はimportedで、未記録のゴール・合意・timezone・達成結果は不明のまま。移行時の状態は過去終了時点の成果ではない。
+- \`nod issue list|stats|summary --sprint <sprint>\`：採択・移行関連を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの採用計画の採択集合で、Issue一覧は完了済みを含む。候補だけは所属に数えない。
+- 旧\`nod cycle\`・\`--cycle\`・周期の自動作成と自動持ち越しは廃止済み。期間への直接所属は行えない。Sprintの候補・合意・採択・開始操作は後続で接続する。
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる
@@ -203,7 +212,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
 - ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。必要なら \`nod issue unarchive <id>\` で復元し、そうでなければ別の Issue を取る。
-- NOT_IN_PROGRESS：done は着手中の Issue にしか使えない。先に \`nod issue start <id>\` で着手する。
+- NOT_IN_PROGRESS：done は着手中（in_progress）かレビュー中（in_review）の Issue に使える。先に \`nod issue start <id>\` で着手する。
 - TRANSITION_NOT_ALLOWED：その状態変更は Workspace の遷移ルールで許可されていない（message にどのルールかが出る）。別の経路で回避せず、ルールに沿った状態を経由するか、人に判断を依頼する。
 - DB_BUSY：ほかの処理が書き込み中である。少し待って再実行する。
 - SECRET_DETECTED：作業ログに秘密値らしき値が含まれていた。値を伏せて書き直し、再実行する。

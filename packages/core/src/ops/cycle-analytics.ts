@@ -1,110 +1,123 @@
 import type { Database } from "bun:sqlite";
-import { type CycleAnalytics, type CycleBreakdownRow, type Status, STATUSES } from "../types";
-import { addDays } from "./cycle-cadence";
-import { type CycleClock, cycleToday, resolveCycle, summaryById } from "./cycles";
+import { NodError } from "../errors";
+import type { SprintAnalytics, SprintClock, SprintDetail } from "../sprint-types";
+import { type CycleBreakdownRow, type Status, STATUSES } from "../types";
 import { dateFormatter } from "./stats";
+import { addDays } from "./cycle-cadence";
+import { type CycleClock } from "./cycles";
+import { queryIssues } from "./issues";
+import { getSprint, resolveLegacyCycle } from "./sprints";
 
-// Linear の Started に当たる status
-export const STARTED_STATUSES: readonly Status[] = ["in_progress"];
+export const STARTED_STATUSES: readonly Status[] = ["in_progress", "in_review"];
+export interface SprintAnalyticsOptions { clock?: SprintClock; timezone?: string }
 
-interface EventRow { type: string; data: string; created_at: string }
-interface Snapshot { date: string; member: boolean; status: Status }
-type Day = CycleAnalytics["burnup"][number];
+interface AnalysisIssue {
+  status: string;
+  assignee: string | null;
+  labels: string[];
+  project: {id: unknown; name: unknown} | null;
+  workspace: string;
+}
 
-const rate = (n: number, scope: number) => (scope === 0 ? null : n / scope);
+function breakdown(issues: AnalysisIssue[], values: (issue: AnalysisIssue) => [string,string][]): CycleBreakdownRow[] {
+  const rows=new Map<string,CycleBreakdownRow>();
+  for(const issue of issues) {
+    if(issue.status === "canceled") continue;
+    for(const [key,label] of values(issue)) {
+      const row=rows.get(key) ?? {key,label,total:0,done:0};
+      row.total++;
+      if(issue.status === "done") row.done++;
+      rows.set(key,row);
+    }
+  }
+  return [...rows.values()].sort((a,b)=>b.total-a.total || a.label.localeCompare(b.label));
+}
 
-// Cycle の分析（Linear の Cycle の右パネルと同じ内容）。数えるのは今所属している、アーカイブされていない Issue。
-// 推移は events から各日の終わりの所属と status を再現する（スナップショットは持たない）。現在アーカイブ済みの Issue は全期間から除く
-export function cycleAnalytics(db: Database, ref: string, clock: CycleClock = {}): CycleAnalytics {
-  const { id } = resolveCycle(db, ref, clock);
-  const today = cycleToday(clock);
-  const cycle = summaryById(db, id, today);
-  const live = "i.cycle_id = ? AND i.archived_at IS NULL";
-  const statusRows = db.query(`SELECT i.status, count(*) AS n FROM issues i WHERE ${live} GROUP BY i.status`).all(id) as { status: Status; n: number }[];
-  const count = (pick: (s: Status) => boolean) => statusRows.filter((r) => pick(r.status)).reduce((sum, r) => sum + r.n, 0);
-  const scope = count((s) => s !== "canceled");
-  const started = count((s) => STARTED_STATUSES.includes(s));
-  const completed = count((s) => s === "done");
-  const burnup = burnupOf(db, id, cycle.startDate, cycle.endDate < today ? cycle.endDate : today, clock);
+// importedの集計は移行時の写し。終了時の成果として表示しない。
+export function sprintAnalytics(db: Database, ref: string, options: SprintAnalyticsOptions = {}): SprintAnalytics {
+  const sprint=getSprint(db,ref);
+  const imported=sprint.phase === "imported";
+  const timezone=sprint.timezone ?? options.timezone ?? null;
+  // 不明な旧timezoneを実行マシンのローカルで補完しない。
+  if (timezone !== null) dateFormatter(timezone);
+  const burnup=imported && timezone ? historyDays(sprint,timezone,options.clock ?? {}) : [];
+  const issues: AnalysisIssue[] = imported
+    ? sprint.items.filter(item=>!item.snapshot.issue.archived_at).map(item=>({
+      status:item.snapshot.issue.status, assignee:typeof item.snapshot.issue.assignee === "string" ? item.snapshot.issue.assignee : null,
+      labels:item.snapshot.labels, project:item.snapshot.project as AnalysisIssue["project"], workspace:item.snapshot.workspace.key,
+    }))
+    : queryIssues(db,{sprint:sprint.id}).issues.map(issue=>({...issue,workspace:issue.workspace}));
+  const statuses=STATUSES.map(status=>({status,count:issues.filter(issue=>issue.status===status).length}));
+  const count=(status:string)=>statuses.find(row=>row.status===status)?.count ?? 0;
+  const scope=issues.filter(issue=>issue.status!=="canceled").length;
+  const started=STARTED_STATUSES.reduce((total,status)=>total+count(status),0); const completed=count("done");
   return {
-    cycleId: id,
-    scope,
-    started,
-    completed,
-    startedRate: rate(started, scope),
-    completedRate: rate(completed, scope),
-    scopeAdded: burnup.length ? burnup.at(-1)!.scope - burnup[0]!.scope : 0,
-    burnup,
-    breakdown: {
-      assignees: breakdown(db, id, "coalesce(i.assignee, '')", "coalesce(i.assignee, '担当なし')", ""),
-      labels: breakdown(db, id, "l.label", "l.label", "JOIN issue_labels l ON l.issue_id = i.id"),
-      projects: breakdown(db, id, "coalesce(p.id, '')", "coalesce(p.name, 'Project なし')", "LEFT JOIN projects p ON p.id = i.project_id"),
-      workspaces: breakdown(db, id, "w.key", "w.key", "JOIN workspaces w ON w.id = i.workspace_id"),
+    sprintId:sprint.id,number:sprint.number,statusBasis:imported ? "migration_snapshot" : "live_adopted",capturedAt:sprint.legacy?.capturedAt ?? null,
+    scope,started,completed,startedRate:scope ? started/scope : null,completedRate:scope ? completed/scope : null,
+    scopeAdded:burnup.length && burnup[0]!.scope !== null && burnup.at(-1)!.scope !== null
+      ? burnup.at(-1)!.scope! - burnup[0]!.scope! : null,burnup,statuses,
+    breakdown:{
+      assignees:breakdown(issues,i=>[[i.assignee ?? "",i.assignee ?? "担当なし"]]),
+      labels:breakdown(issues,i=>i.labels.map(label=>[label,label])),
+      projects:breakdown(issues,i=>[[String(i.project?.id ?? ""),String(i.project?.name ?? "Project なし")]]),
+      workspaces:breakdown(issues,i=>[[i.workspace,i.workspace]]),
     },
-    statuses: STATUSES.map((status) => ({ status, count: statusRows.find((r) => r.status === status)?.n ?? 0 })),
+    history:{timezone,timezoneBasis:sprint.timezone ? "recorded" : options.timezone ? "requested" : "unknown",unavailableReason:!imported ? "not_recorded" : timezone ? null : "timezone_unknown",
+      recordedEventIds:sprint.events.filter(e=>e.association==='recorded').map(e=>e.original.id),
+      ambiguousEventIds:sprint.events.filter(e=>e.association==='ambiguous').map(e=>e.original.id)},
   };
 }
 
-// 内訳の1種類。canceled を除いた total と done を、total の多い順・名前順で返す
-function breakdown(db: Database, id: number, key: string, label: string, join: string): CycleBreakdownRow[] {
-  return db
-    .query(
-      `SELECT CAST(${key} AS TEXT) AS key, ${label} AS label, count(*) AS total, sum(i.status = 'done') AS done
-       FROM issues i ${join} WHERE i.cycle_id = ? AND i.archived_at IS NULL AND i.status <> 'canceled'
-       GROUP BY 1, 2 ORDER BY total DESC, label`,
-    )
-    .all(id) as CycleBreakdownRow[];
-}
-
-function burnupOf(db: Database, id: number, start: string, last: string, clock: CycleClock): Day[] {
-  if (last < start) return [];
-  const localDate = dateFormatter(clock.tz);
-  const issues = db
-    .query(`SELECT i.id, i.cycle_id FROM issues i WHERE i.archived_at IS NULL AND (i.cycle_id = ? OR i.id IN (
-       SELECT issue_id FROM events WHERE (type = 'created' AND json_extract(data, '$.cycle_id') = ?)
-         OR (type = 'cycle_changed' AND (json_extract(data, '$.from_id') = ? OR json_extract(data, '$.to_id') = ?))))`)
-    .all(id, id, id, id) as { id: number; cycle_id: number | null }[];
-  const timelines = issues.map((issue) => timelineOf(db, issue, id, start, localDate));
-  const days: Day[] = [];
-  for (let date = start; date <= last; date = addDays(date, 1)) {
-    const day: Day = { date, scope: 0, started: 0, completed: 0 };
-    for (const snaps of timelines) {
-      const s = snaps.filter((x) => x.date <= date).at(-1);
-      if (!s?.member || s.status === "canceled") continue;
-      day.scope++;
-      if (s.status === "done") day.completed++;
-      else if (STARTED_STATUSES.includes(s.status)) day.started++;
+// 日次の所属・状態は取得済みのイベントだけから読む。写しを開始日に逆投影しない。
+function historyDays(sprint: SprintDetail, timezone: string, clock: SprintClock): SprintAnalytics["burnup"] {
+  const localDate=dateFormatter(timezone);
+  const today=localDate.format(clock.now ?? new Date());
+  const last=sprint.endDate < today ? sprint.endDate : today;
+  if(last < sprint.startDate) return [];
+  const timelines=sprint.evidence.filter(e=>!e.snapshot.issue.archived_at).map(evidence=> {
+    const events=sprint.events.filter(e=>e.original.issue_id===evidence.sourceIssueId)
+      .sort((a,b)=>Date.parse(a.original.created_at)-Date.parse(b.original.created_at) || a.original.id-b.original.id);
+    // 存在が確定したcreatedより前だけは未作成と判断できる。
+    let member: boolean | null = events.some(e=>e.original.type==='created' && e.association==='recorded') ? false : null;
+    let status: Status | null = null;
+    const timeline: {date:string;member:boolean|null;status:Status|null}[]=[{date:'0000-01-01',member,status}];
+    for(const event of events) {
+      const data=JSON.parse(event.original.data) as Record<string,unknown>;
+      if(event.original.type==='created') {
+        // 状態の記録は期間作成前も利用する。所属は作成後の明示IDだけで確定する。
+        if(event.association==='recorded') member=data.cycle_id===sprint.legacyCycleId;
+        status=STATUSES.includes(data.status as Status) ? data.status as Status : null;
+      } else if(event.original.type==='cycle_changed' && event.association==='recorded' && 'to_id' in data) {
+        member=data.to_id===sprint.legacyCycleId;
+      } else if(event.original.type==='status_changed') {
+        status=STATUSES.includes(data.to as Status) ? data.to as Status : null;
+      }
+      timeline.push({date:localDate.format(new Date(event.original.created_at)),member,status});
     }
-    days.push(day);
+    return timeline;
+  });
+  const days: SprintAnalytics["burnup"]=[];
+  for(let date=sprint.startDate;date<=last;date=addDays(date,1)) {
+    let scope=0,started=0,completed=0,unknown=0;
+    for(const timeline of timelines) {
+      const state=timeline.filter(s=>s.date<=date).at(-1)!;
+      if(state.member===false) continue;
+      if(state.member===null || state.status===null) { unknown++; continue; }
+      if(state.status==='canceled') continue;
+      scope++;
+      if(STARTED_STATUSES.includes(state.status)) started++;
+      if(state.status==='done') completed++;
+    }
+    days.push({date,scope:unknown ? null : scope,started:unknown ? null : started,completed:unknown ? null : completed,unknown});
   }
   return days;
 }
 
-// 1件の Issue の、日付ごとの所属と status。ID のない古い記録しかなく今は所属している Issue は、開始日から所属とみなす
-function timelineOf(db: Database, issue: { id: number; cycle_id: number | null }, id: number, start: string, localDate: Intl.DateTimeFormat): Snapshot[] {
-  const events = db
-    .query("SELECT type, data, created_at FROM events WHERE issue_id = ? AND type IN ('created', 'cycle_changed', 'status_changed') ORDER BY id")
-    .all(issue.id) as EventRow[];
-  const snaps: Snapshot[] = [];
-  let member = false;
-  let status: Status = "todo";
-  let knowsMembership = false;
-  for (const e of events) {
-    const data = JSON.parse(e.data) as Record<string, unknown>;
-    if (e.type === "created") {
-      status = data.status as Status;
-      member = data.cycle_id === id;
-      knowsMembership ||= "cycle_id" in data;
-    } else if (e.type === "cycle_changed" && "to_id" in data) {
-      member = data.to_id === id;
-      knowsMembership = true;
-    } else if (e.type === "status_changed") {
-      status = data.to as Status;
-    }
-    snaps.push({ date: localDate.format(new Date(e.created_at)), member, status });
-  }
-  if (issue.cycle_id === id && !knowsMembership) {
-    return [{ date: start, member: true, status: snaps.filter((s) => s.date <= start).at(-1)?.status ?? snaps[0]?.status ?? status }, ...snaps.map((s) => ({ ...s, member: true }))].sort((x, y) => x.date.localeCompare(y.date));
-  }
-  return snaps;
+// 旧ID専用の読取。新しいSprint番号として解決し直さない。
+export function cycleAnalytics(db: Database, ref: string, clock: CycleClock = {}): SprintAnalytics {
+  if(!/^[1-9]\d*$/.test(ref)) throw new NodError("INVALID_ARGS","旧Cycle IDは正の整数で指定してください。SprintのUUID・共通番号はSprint APIを利用してください");
+  const resolved=resolveLegacyCycle(db,Number(ref));
+  if(resolved.kind==='deleted') throw new NodError("LEGACY_CYCLE_DELETED",`旧Cycle ${ref} は削除済みです`);
+  if(resolved.kind==='not_found') throw new NodError("NOT_FOUND",`旧Cycle ${ref} の移行対応はありません`);
+  return sprintAnalytics(db,resolved.sprintId,{timezone:clock.tz,clock:{now:clock.now}});
 }

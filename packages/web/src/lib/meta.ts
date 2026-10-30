@@ -25,12 +25,13 @@ export const STATUS_ORDER: readonly Status[] = [
   "needs_clarification",
   "todo",
   "in_progress",
+  "in_review",
   "done",
   "canceled",
 ];
 
 // spec の Issue 一覧の節：カンバンは Triage と Canceled を出さない。
-export const BOARD_STATUSES: readonly Status[] = ["needs_clarification", "backlog", "todo", "in_progress", "done"];
+export const BOARD_STATUSES: readonly Status[] = ["needs_clarification", "backlog", "todo", "in_progress", "in_review", "done"];
 
 export const STATUS_META: Record<Status, Meta> = {
   triage: { label: "Triage", icon: "circle-dashed", tone: "ask" },
@@ -38,6 +39,7 @@ export const STATUS_META: Record<Status, Meta> = {
   needs_clarification: { label: "Needs Clarification", icon: "message-circle-warning", tone: "ask" },
   todo: { label: "Todo", icon: "circle", tone: "muted" },
   in_progress: { label: "In Progress", icon: "circle-dot", tone: "accent" },
+  in_review: { label: "In Review", icon: "circle-dot", tone: "gate" },
   done: { label: "Done", icon: "circle-check", tone: "muted" },
   canceled: { label: "Canceled", icon: "circle-x", tone: "muted" },
 };

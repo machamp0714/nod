@@ -45,6 +45,7 @@ import {
   logWork,
   nextIssue,
   NodError,
+  STATUSES,
   parseIssueSortKey,
   parsePriorityRefs,
   sortIssues,
@@ -114,7 +115,6 @@ export function registerIssueCommands(program: Command): void {
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（--project の Project のもの）")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current（現在の Cycle）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
     .option("--requested", "me に頼まれて起票する（LLM の起票を Triage ではなく Todo にする）")
@@ -128,7 +128,7 @@ export function registerIssueCommands(program: Command): void {
           cli,
           cmd,
           title: string,
-          o: { template?: string; description?: string; project?: string; milestone?: string; cycle?: string; parent?: string; discoveredFrom?: string; requested?: boolean; priority?: string; estimate?: string; due?: string; label?: string[] },
+          o: { template?: string; description?: string; project?: string; milestone?: string; parent?: string; discoveredFrom?: string; requested?: boolean; priority?: string; estimate?: string; due?: string; label?: string[] },
         ) => {
           const created = createIssue(cli.ctx, {
             workspaceId: currentWorkspace(cli, cmd).id,
@@ -137,7 +137,6 @@ export function registerIssueCommands(program: Command): void {
             template: o.template,
             projectRef: o.project,
             milestoneRef: o.milestone,
-            cycleRef: o.cycle,
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
             requested: o.requested,
@@ -217,7 +216,7 @@ export function registerIssueCommands(program: Command): void {
     .option("-s, --status <statuses>", "ステータス（カンマ区切り）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の ID か none（Milestone なし）。名前は --project を指定したとき")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current か none（Cycle なし）")
+    .option("--sprint <sprint>", "SprintのUUID・共通番号・current・none（検索だけ）")
     .option("-l, --label <label>", "ラベル（繰り返し可、すべてを満たすもの）", collect)
     .option("--query <text>", "ID・タイトル・説明で検索")
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
@@ -235,7 +234,7 @@ export function registerIssueCommands(program: Command): void {
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; milestone?: string; cycle?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
+          o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
           // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
           const allWorkspaces = o.allWorkspaces || ((o.delegated || o.mine) && !globalOpts(cmd).workspace);
@@ -249,10 +248,10 @@ export function registerIssueCommands(program: Command): void {
             priorities,
             query: o.query,
             workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
-            statuses: o.status ? parseStatuses(o.status) : undefined,
+            statuses: o.status ? parseStatuses(o.status) : o.sprint?.trim().toLowerCase() === "current" ? [...STATUSES] : undefined,
             projectRef: o.project,
             milestone: o.milestone,
-            cycleRef: o.cycle,
+            sprintRef: o.sprint,
             labels: o.label,
             ready: o.ready,
             delegated: o.delegated,
@@ -361,7 +360,6 @@ export function registerIssueCommands(program: Command): void {
     .option("--parent <id>", "親 Issue")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（Issue の Project のもの。Project を変えると外れる）")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current（空文字で外す）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
     .option("--remove-label <label>", "ラベルを外す（繰り返し可）", collect)
     .option("--reason <text>", "done か canceled にするときの理由")
@@ -382,7 +380,6 @@ export function registerIssueCommands(program: Command): void {
             assignee?: string;
             parent?: string;
             project?: string;
-            cycle?: string;
             addLabel?: string[];
             removeLabel?: string[];
             reason?: string;
@@ -399,7 +396,6 @@ export function registerIssueCommands(program: Command): void {
             parentRef: orNull(o.parent),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
-            cycleRef: orNull(o.cycle),
             addLabels: o.addLabel,
             removeLabels: o.removeLabel,
             reason: o.reason,
@@ -423,7 +419,6 @@ export function registerIssueCommands(program: Command): void {
     .option("--assignee <name>", "担当（空文字で外す。none は未割り当ての絞り込み用の予約語で使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（各 Issue の Project のもの。空文字で外す）")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current（空文字で外す）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
     .option("--remove-label <label>", "ラベルを外す（繰り返し可）", collect)
     .option("--reason <text>", "done か canceled にするときの理由")
@@ -441,7 +436,6 @@ export function registerIssueCommands(program: Command): void {
             assignee?: string;
             project?: string;
             milestone?: string;
-            cycle?: string;
             addLabel?: string[];
             removeLabel?: string[];
             reason?: string;
@@ -455,7 +449,6 @@ export function registerIssueCommands(program: Command): void {
             assignee: orNull(o.assignee),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
-            cycleRef: orNull(o.cycle),
             addLabels: o.addLabel,
             removeLabels: o.removeLabel,
             reason: o.reason,
@@ -625,7 +618,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("start <id>")
-    .description("指定した Issue に着手する")
+    .description("指定した Issue に着手する（In Review からの修正再開も可能）")
     .action(
       actAsync(async (cli, _cmd, id: string) => {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
@@ -704,7 +697,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("done <id>")
-    .description("作業を終え、Issue を完了にする")
+    .description("着手中・レビュー中の Issue に完了報告を残す（PR を含む依頼は merge と完了条件を確認して実行）")
     .requiredOption("--summary <text>", "やったことの要約")
     .option("--pr <url>", "PR の URL")
     .action(

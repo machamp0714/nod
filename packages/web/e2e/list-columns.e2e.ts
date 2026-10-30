@@ -112,20 +112,25 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
   expect(m.left).toEqual({ checkbox: 12, priority: 36, id: 60, idWidth: 72, status: 142, title: 166 });
   expect(m.right).toEqual({ project: { right: 344, width: 132 }, workspace: { right: 202, width: 96 }, assignee: 96, updated: { right: 68, width: 56 } });
 
-  // チップは 優先度・Status・未決事項・Workspace・Project・担当・PR・見積もり・期限 の順。未決事項・PR・見積もり・期限は既定で出さない
+  // チップは 優先度・Status・未決事項・Workspace・Sprint・Project・担当・PR・見積もり・期限 の順。未決事項・Sprint・PR・見積もり・期限は既定で出さない
   const chips = (await openDisplay(page)).getByRole("group", { name: "リストの表示列" }).getByRole("button");
-  await expect(chips).toHaveText(["優先度", "Status", "未決事項", "Workspace", "Project", "担当", "PR", "見積もり", "期限"]);
+  await expect(chips).toHaveText(["優先度", "Status", "未決事項", "Workspace", "Sprint", "Project", "担当", "PR", "見積もり", "期限"]);
   for (const name of ["優先度", "Status", "Workspace", "Project", "担当"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "true");
-  for (const name of ["未決事項", "PR", "見積もり", "期限"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "false");
+  for (const name of ["未決事項", "Sprint", "PR", "見積もり", "期限"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "false");
   await setColumn(page, "優先度", false);
   await setColumn(page, "担当", false);
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
   await expect(page).toHaveURL(/columns=/);
   await page.reload();
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
-  // 戻った先の最初の /issues は表示設定のクエリがないため、保存した列（#218）で開く
+  // 履歴に戻ると当時の表示へ戻す。自動保存した列は書き換えず、Sidebarからの再訪では保存した列を使う
   await page.goBack();
   await page.goBack();
+  await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS);
+  expect((await (await page.request.get("/api/page-displays")).json()).issues).toEqual({ columns: ["status", "workspace", "project"] });
+  const navigation = page.getByRole("navigation", { name: "メイン" });
+  await navigation.getByRole("link", { name: "My issues", exact: true }).click();
+  await navigation.getByRole("link", { name: "Issues", exact: true }).click();
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
 });
 

@@ -17,6 +17,15 @@
   overflow: auto;
 }
 
+/* Sidebarの幅を保ち、本文やDisplayを細い残余幅へ押し込まない。
+   狭幅では外枠を横にスクロールして、本文を読む領域へ移動できる。 */
+@media (max-width: 640px) {
+  .shell {
+    grid-template-columns: var(--sidebar-width) minmax(360px, 1fr);
+    overflow-x: auto;
+  }
+}
+
 /* nod.pen の Sidebar（mgInh） */
 .sidebar {
   display: flex;
@@ -233,4 +242,13 @@
   color: var(--ink3);
   font-size: 11.5px;
   font-weight: 400;
+}
+
+.workspaceToggle { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 0; height: 28px; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; }
+.subNote { max-width: 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.currentCheckedAt {
+  margin: 0 12px 4px 28px;
+  color: var(--ink3);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
 }

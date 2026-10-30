@@ -1,4 +1,4 @@
-import type { Cycle, CycleAnalytics } from "../api/types";
+import type { Cycle, SprintAnalytics } from "../api/types";
 
 export function formatRate(rate: number | null): string {
   return rate === null ? "—" : `${Math.round(rate * 100)}%`;
@@ -27,7 +27,7 @@ const toDate = (time: number) => new Date(time).toISOString().slice(0, 10);
 // Cycle graph の系列。横軸は期間の日（MAX_POINTS 日を超える期間は間引き、初日・終了日・推移の最終日は残す）で、
 // まだ来ていない日は null（線を引かない）。Started は Completed の上に積む（Linear と同じ）。
 // Target は開始日 0 から終了日に今の Scope までの直線
-export function graphSeries(burnup: CycleAnalytics["burnup"], startDate: string, endDate: string) {
+export function graphSeries(burnup: readonly {date: string; scope: number | null; started: number | null; completed: number | null; unknown?: number}[], startDate: string, endDate: string) {
   const first = toTime(startDate);
   const span = Math.max(0, Math.round((toTime(endDate < MAX_DATE ? endDate : MAX_DATE) - first) / DAY_MS));
   const offsets = new Set<number>();
@@ -42,15 +42,16 @@ export function graphSeries(burnup: CycleAnalytics["burnup"], startDate: string,
   const days = sorted.map((i) => toDate(first + i * DAY_MS));
   const byDate = new Map(burnup.map((b) => [b.date, b]));
   const at = days.map((d) => byDate.get(d));
-  const finalScope = burnup.at(-1)?.scope ?? 0;
+  const finalScope = burnup.at(-1)?.scope;
   return {
     days,
     scope: at.map((b) => b?.scope ?? null),
     started: at.map((b) => b?.started ?? null),
-    startedStack: at.map((b) => (b ? b.started + b.completed : null)),
+    startedStack: at.map((b) => (b && b.started !== null && b.completed !== null ? b.started + b.completed : null)),
     completed: at.map((b) => b?.completed ?? null),
-    target: sorted.map((i) => (span === 0 ? finalScope : (finalScope * i) / span)),
-    max: burnup.reduce((m, b) => Math.max(m, b.scope), Math.max(1, finalScope)),
+    unknown: at.map((b) => b?.unknown ?? null),
+    target: sorted.map((i) => (finalScope == null ? null : span === 0 ? finalScope : (finalScope * i) / span)),
+    max: burnup.reduce((m, b) => Math.max(m, b.scope ?? 0), Math.max(1, finalScope ?? 0)),
   };
 }
 

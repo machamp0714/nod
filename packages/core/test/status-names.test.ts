@@ -17,6 +17,7 @@ describe("ステータスの表示名", () => {
       needs_clarification: "Needs Clarification",
       todo: "Todo",
       in_progress: "In Progress",
+      in_review: "In Review",
       done: "Done",
       canceled: "Canceled",
     });

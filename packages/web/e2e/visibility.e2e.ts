@@ -21,6 +21,15 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await page.goBack();
     await expect(child).toBeVisible();
     await expect(completed).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.has("showChildren")).toBe(false);
+    // 既定値を省いた最初の履歴も、後から自動保存したfalseで上書きしない。
+    await page.goBack();
+    await expect(child).toBeVisible();
+    await expect(completed).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await page.goForward();
+    await expect(child).toBeVisible();
+    await expect(completed).toHaveCount(0);
     await page.goForward();
     await expect(child).toHaveCount(0);
     await page.reload();

@@ -61,6 +61,7 @@ test("チェックボックス・Shift 範囲・全選択で選び、状態・�
   await bar(page).getByRole("button", { name: "優先度" }).click();
   await page.getByRole("menuitem", { name: "High" }).click();
   await expect(page.getByRole("status").filter({ hasText: "4件を更新しました" })).toBeVisible();
+  await expect(bar(page)).toHaveCount(0);
 
   await selectAll(page).click();
   await bar(page).getByRole("button", { name: "ラベル" }).click();
@@ -68,6 +69,7 @@ test("チェックボックス・Shift 範囲・全選択で選び、状態・�
   await page.getByRole("textbox", { name: "ラベルを検索" }).fill("bulk");
   await page.getByRole("menuitem", { name: "「bulk」を新しく追加" }).click();
   await expect(page.getByRole("status").filter({ hasText: "4件を更新しました" })).toBeVisible();
+  await expect(bar(page)).toHaveCount(0);
 
   await box(page, b4).click();
   await bar(page).getByRole("button", { name: "Project" }).click();
@@ -184,12 +186,9 @@ test("上限の100件を超えて選ぶと、送る前に知らせて項目を�
   await expect(bar(page).getByRole("button", { name: "Status", exact: true })).toBeEnabled();
 });
 
-test("Cycle・Milestone をまとめて入れ・外し、Project が混ざると Milestone は理由を出して選べなくする。Workspace が混ざっていても Cycle は変えられる（#154）", async ({ page, nod }) => {
+test("Milestoneの一括更新を維持し、旧Cycle直接所属を出さない", async ({ page, nod }) => {
   const { ws, ids } = await seed(nod);
   const [b1, b2, b3] = ids as [string, string, string, string];
-  await nod.me.createCycle({ name: "Sprint 11", startDate: localDate(-20), endDate: localDate(-7) });
-  const current = await nod.me.createCycle({ name: "Sprint 12", startDate: localDate(-6), endDate: localDate(7) });
-  await nod.me.createCycle({ name: "Sprint 13", startDate: localDate(8), endDate: localDate(20) });
   const m = await nod.me.createMilestone("決済まわり", { name: "v1.0" });
   await nod.me.createMilestone("決済まわり", { name: "v1.1" });
   for (const id of [b1, b2]) await nod.me.updateIssue(id, { projectRef: "決済まわり" });
@@ -199,16 +198,7 @@ test("Cycle・Milestone をまとめて入れ・外し、Project が混ざると
   await page.goto("/issues?sort=title");
   await box(page, b1).click();
   await box(page, b2).click();
-  await bar(page).getByRole("button", { name: "Cycle" }).click();
-  const cycleMenu = page.getByRole("menu", { name: "Cycle を変更" });
-  // 終了した Cycle は出さず、現在の Cycle を先頭に出す
-  await expect(cycleMenu.getByRole("menuitem")).toHaveText(["Sprint 12Current", "Sprint 13Upcoming", "Cycle なし"]);
-  await cycleMenu.getByRole("menuitem", { name: /Sprint 12/ }).click();
-  await expect(page.getByRole("status").filter({ hasText: "2件を更新しました" })).toBeVisible();
-  for (const id of [b1, b2]) expect((await nod.me.getIssue(id)).cycle).toEqual({ id: current.id, name: "Sprint 12" });
-
-  await box(page, b1).click();
-  await box(page, b2).click();
+  await expect(bar(page).getByRole("button", { name: "Cycle" })).toHaveCount(0);
   await bar(page).getByRole("button", { name: "Milestone" }).click();
   const milestoneMenu = page.getByRole("menu", { name: "Milestone を変更" });
   await expect(milestoneMenu).toContainText("決済まわり");
@@ -222,12 +212,6 @@ test("Cycle・Milestone をまとめて入れ・外し、Project が混ざると
   await page.getByRole("menuitem", { name: "Milestone なし" }).click();
   await expect(page.getByRole("status").filter({ hasText: "1件を更新しました" })).toBeVisible();
   expect((await nod.me.getIssue(b1)).milestone).toBeNull();
-  await box(page, b1).click();
-  await bar(page).getByRole("button", { name: "Cycle" }).click();
-  await page.getByRole("menuitem", { name: "Cycle なし" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "1件を更新しました" })).toBeVisible();
-  expect((await nod.me.getIssue(b1)).cycle).toBeNull();
-
   // Project のない Issue を含むと Milestone を選べない。Workspace が混ざっていても Cycle は変えられる
   await box(page, b2).click();
   await box(page, b3).click();
@@ -235,30 +219,20 @@ test("Cycle・Milestone をまとめて入れ・外し、Project が混ざると
   await expect(bar(page).getByTitle("Project のない Issue が含まれるため、Milestone は一括変更できません")).toBeVisible();
   await box(page, other).click();
   await expect(bar(page).getByRole("button", { name: "Status" })).toBeEnabled();
-  await bar(page).getByRole("button", { name: "Cycle" }).click();
-  await page.getByRole("menu", { name: "Cycle を変更" }).getByRole("menuitem", { name: /Sprint 13/ }).click();
-  await expect(page.getByRole("status").filter({ hasText: "3件を更新しました" })).toBeVisible();
-  for (const id of [b2, b3, other]) expect((await nod.me.getIssue(id)).cycle?.name).toBe("Sprint 13");
+  await expect(bar(page).getByRole("button", { name: "Cycle" })).toHaveCount(0);
+
 });
 
-test.describe("Cycle・Milestone の一覧を読めないとき", () => {
+test.describe("Milestone の一覧を読めないとき", () => {
   test.use({ allowedConsoleErrors: [/status of 400/] });
 
   test("読み込み中・取得失敗を「ありません」と取り違えず、それぞれの文言を出す（#154）", async ({ page, nod }) => {
     const { ids } = await seed(nod);
     const [b1] = ids as [string];
     await nod.me.updateIssue(b1, { projectRef: "決済まわり" });
-    await page.route("**/api/cycles?*", (route) =>
-      route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: { code: "INVALID_ARGS", message: "Cycle の一覧の取得に失敗" } }) }),
-    );
     await page.route("**/api/milestones*", () => {}); // 応答を返さず、読み込み中のままにする
     await page.goto("/issues?sort=title");
     await box(page, b1).click();
-    await bar(page).getByRole("button", { name: "Cycle" }).click();
-    const cycleMenu = page.getByRole("menu", { name: "Cycle を変更" });
-    await expect(cycleMenu.getByRole("alert")).toHaveText("Cycle の一覧の取得に失敗");
-    await expect(cycleMenu).not.toContainText("終了していない Cycle はありません");
-    await page.keyboard.press("Escape");
     await bar(page).getByRole("button", { name: "Milestone" }).click();
     const milestoneMenu = page.getByRole("menu", { name: "Milestone を変更" });
     await expect(milestoneMenu).toContainText("読み込み中…");

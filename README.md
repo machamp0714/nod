@@ -31,14 +31,18 @@ Claude Code と Codex の両方から、GitHub のマーケットプレイスと
 手順は[バックログ作成スキル](plugins/nod/skills/backlog/SKILL.md)にある。
 独立したLLMと一時DBでの評価方法と結果は[バックログの行動評価](plugins/nod/evals/backlog/README.md)にある。
 
-`nod:pm <Workspace> --cycle <Cycle> --on Studio` は、Airで起動し、指定Workspaceと固定CycleのIssueをOrcaで監督する。
-並行上限は既定1件、`--max-parallel 2`で最大2件にできる。
-実装担当、モデルとeffortは、`--agent codex --model <モデルID> --effort <effort>`などの個別指定、合意済み方針、既存ユーザー設定の具体値を使う。
-モデルをスキル独自の既定値へ変えない。
-これらはスキルへの指示であり、nod CLIのオプションではない。
-候補表示だけを頼むこともでき、その段階でworkerを起動しない。
-人や他担当の作業、未受理のTriage、未回答の人の質問、未完了の依存先を保護し、指定外Workspaceや次Cycleへ範囲を広げない。
-起動手順は[PMスキル](plugins/nod/skills/pm/SKILL.md)、一時DBと偽の接続先による評価手順は[PMの行動評価](plugins/nod/skills/pm/evals/README.md)にある。
+`nod:pm <Workspace> --sprint current --on Studio` は、Airで指定Workspaceの現在Sprintと採択済みIssueを読み、既存Orca実行を照合する。
+S01では計画合意、採択、開始、切替の公開操作は未接続であり、Sprintから新規workerを自律起動しない。
+移行したimportedは閲覧専用で、候補だけのIssueも自動着手の対象にしない。
+旧PMの既存実行はRun、Task、Dispatch、実行場所、requested/effectiveと所有者を照合して引き継ぐ。
+通信断や不明実行は予約と占有を保持し、移行やcurrentの空結果を終了証拠にしない。
+個別委任のモデルとeffortは利用者指定や合意済み方針を維持する。
+手順は[PMスキル](plugins/nod/skills/pm/SKILL.md)、隔離fixtureの境界と限界は[PM評価](plugins/nod/skills/pm/evals/README.md)にある。
+
+期間の履歴は`nod sprint list`と`nod sprint show <UUIDまたは共通番号>`、検索は`nod issue list --sprint <UUID|共通番号|current|none>`で読む。
+currentは完了済みを含む採択集合、noneは採択と移行の関連がないIssueを示す。
+旧`nod cycle`と`--cycle`、自動作成、持ち越し、期間への直接所属は廃止済みで、廃止案内を返して変更しない。
+移行前バックアップと旧版への復旧は[移行と復旧の手順](docs/sprint-history-migration.md)を参照する。
 
 `nod:wayfinder <構想またはマップの Issue ID>` は、大きな構想を判断用の親子 Issue と依存関係に分ける。子ごとに調査・試作・人との対話で方針を固め、別モデルの推奨も参考にする。モデル同士が一致しても、人の回答を待って判断する。判断用 Issue の全てに `to-spec` を実行する必要はなく、実装対象の仕様を詰める段階で `nod:to-spec` を使う。
 

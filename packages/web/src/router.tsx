@@ -11,7 +11,8 @@ import { MyIssuesPage } from "./pages/MyIssuesPage";
 import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { CycleDetailPage } from "./pages/CycleDetailPage";
-import { CyclesPage } from "./pages/CyclesPage";
+import { SprintsPage } from "./pages/SprintsPage";
+import { SprintDetailPage } from "./pages/SprintDetailPage";
 import { InitiativeDetailPage } from "./pages/InitiativeDetailPage";
 import { InitiativesPage } from "./pages/InitiativesPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
@@ -20,6 +21,7 @@ import { TriagePage } from "./pages/TriagePage";
 import { ViewPage } from "./pages/ViewPage";
 import { WorkspaceSettingsPage } from "./pages/WorkspaceSettingsPage";
 import {
+  parseSprintDetailSearch,
   parseDocumentsSearch,
   parseIssueListSearch,
   parseNewDocumentSearch,
@@ -60,13 +62,15 @@ const projectDetailRoute = createRoute({
 });
 const initiativesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives", validateSearch: parseProjectsSearch, component: InitiativesPage });
 const initiativeDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives/$initiativeId", component: InitiativeDetailPage });
-const cyclesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/cycles", component: CyclesPage });
+const cyclesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/cycles", beforeLoad: () => { throw redirect({ to: "/sprints" }); } });
 const cycleDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/cycles/$cycleId",
   validateSearch: parseIssueListSearch,
   component: CycleDetailPage,
 });
+const sprintsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints", component: SprintsPage });
+const sprintDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints/$sprintId", validateSearch: parseSprintDetailSearch, component: SprintDetailPage });
 const documentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents", validateSearch: parseDocumentsSearch, component: DocumentsPage });
 const newDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -97,6 +101,8 @@ const routeTree = rootRoute.addChildren([
   projectDetailRoute,
   initiativesRoute,
   initiativeDetailRoute,
+  sprintsRoute,
+  sprintDetailRoute,
   cyclesRoute,
   cycleDetailRoute,
   documentsRoute,

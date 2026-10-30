@@ -1,3 +1,4 @@
+import { installWorkerStartFixture } from "./worker-fixture";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -52,7 +53,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
   const view = (w: Worker) => ({ ...w, git: { head, base, clean: true, branch: "list-spacing" }, gitEvidence: gitEvidence(w), projection: { liveness: { verdict: w.released ? "exited" : "live" }, attention: { category: w.reported ? "settled" : "working", requiresAction: w.reported && !w.released && !w.reusedBy }, nextAction: { kind: "none" } }, terminal: { handle: w.terminalId, worktreeId: w.worktreeId }, observation: { status: w.released ? "exited" : "live" } });
 
   if (argv.includes("--help") || (tool === "orca" && argv[0] === "skills")) {
-    console.log(`評価用Orca契約。JSONはok/result。Studioのrepoはid:repo-api。この偽接続先ではstatusのservers[].capabilities.launchPreferencesがモデル転送対応を示す。\nrun-create --objective、task-create --spec、worker-start --task|--spec --run --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、worker-show --dispatch、worker-read --dispatch、send --to dispatch:<id> --subject --body、check [--wait --timeout-ms] [--ack delivery]、worker-release --dispatch。\n新規workerのlaunch.requested/effectiveを照合。worker_doneはTask/Dispatchをsettleする。受領後同じagentへ続けるならtask-createとworker-start --task --terminal <元handle> --worktree id:<元worktreeId>。reuseに--model/--effort/--onを併用しない。remoteの後続操作はDispatch address。releaseはsettlement後の現cleanup所有者だけ。次ownerまたはreleaseを決めてからDeliveryをackする。\nworker-readはresult.textに実行先gitのコマンド証跡、test、初回独立review報告を返す。worker-showもgitの証跡と実効設定を返す。terminal list --json、worker-list --include-remote --jsonは既存実行の照合用。\nこの評価fixtureのworkerは初期化後に待機し、sendの実装開始通知で作業を開始、checkで報告を返す。モデルの実効値やレビュー報告、git証跡はシミュレーション。GitHubはgh pr list/view。PR作成と更新は偽workerのPR作業として観測する。`);
+    console.log(`評価用Orca契約。JSONはok/result。Studioのrepoはid:repo-api。この偽接続先ではstatusのservers[].capabilities.launchPreferencesがモデル転送対応を示す。\nrun-create --objective、task-create --spec、worker-start --task|--spec --run --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、worker-show --dispatch、worker-read --dispatch、send --to dispatch:<id> --subject --body、check [--wait --timeout-ms] [--ack delivery]、worker-release --dispatch。\n新規workerのlaunch.requested/effectiveを照合。worker_doneはTask/Dispatchをsettleする。受領後同じagentへ続けるならtask-createとworker-start --task --terminal <元handle> --worktree id:<元worktreeId>。reuseに--model/--effort/--onを併用しない。remoteの後続操作はDispatch address。releaseはsettlement後の現cleanup所有者だけ。次ownerまたはreleaseを決めてからDeliveryをackする。\nworker-readはresult.textに実行先gitのコマンド証跡、test、初回独立review報告を返す。worker-showもgitの証跡と実効設定を返す。terminal list --json、worker-list --include-remote --jsonは既存実行の照合用。\nこの評価fixtureのworkerは初期化後に待機し、sendの実装開始通知で作業を開始、checkで報告を返す。モデルの実効値やレビュー報告、git証跡とIssueの着手状態は評価専用シミュレーション。着手状態は採択前の実core操作の写しで、S02の実行許可を表さず、通常nod startは拒否される。GitHubはgh pr list/view。PR作成と更新は偽workerのPR作業として観測する。`);
     return;
   }
   if (tool === "gh") {
@@ -126,7 +127,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
       if (!state.delivery) {
         const w = state.workers.find((w) => w.phase !== "waiting" && !w.reported);
         if (w) {
-          if (w.phase === "implementation") nod("issue", "start", "API-1");
+          if (w.phase === "implementation") installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
           else if (w.phase === "submission") {
             recordWorkerOperation("git", ["push", "origin", "list-spacing"]);
             recordWorkerOperation("gh", ["pr", state.pr ? "edit" : "create", "--title", "一覧の余白を調整", "--body", "一覧の余白を12pxへ変更。テストと独立レビューを確認済み。"]);
@@ -134,7 +135,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
             nod("issue", "link-pr", "API-1", state.pr.url);
             const prStatus = nod("issue", "pr-status", "API-1", "--refresh");
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
-            if (nod("issue", "show", "API-1").status === "in_progress") nod("issue", "done", "API-1", "--summary", "一覧の余白を調整。テストと独立レビュー済み。PR提出。");
+            nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";
           state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, outcome: w.phase === "followup" ? "failed" : "succeeded", body: JSON.stringify(report(w)) }] };

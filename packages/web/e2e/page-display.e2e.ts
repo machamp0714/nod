@@ -1,3 +1,4 @@
+import { seedSprint, associateSprint, removeSprint } from "./support/nod";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { chooseDisplay, columnChip, displaySelect, openDisplay, setColumn, setDirection, setLayout } from "./support/issue-list";
@@ -114,16 +115,16 @@ test("View の表示設定は自動保存せず、「変更を保存」を押す
   expect(await savedDisplays(page)).toEqual({});
 });
 
-test("Cycle の表示を保存したあと Cycle を消しても、エラーにならない", async ({ page, nod }) => {
+test("Sprint の表示を保存したあと Sprint を消しても、エラーにならない", async ({ page, nod }) => {
   const workspaces = (await (await page.request.get("/api/workspaces")).json()) as { id: number; key: string }[];
   const api = workspaces.find((w) => w.key === "API")!;
-  const cycle = (await nod.me.createCycle({ name: "Sprint 1", startDate: "2026-10-01", endDate: "2026-10-14" })) as { id: number };
-  await page.goto(`/cycles/${cycle.id}`);
+  const sprint = (await seedSprint({ name: "Sprint 1", startDate: "2026-10-01", endDate: "2026-10-14" }));
+  await page.goto(`/sprints/${sprint.id}`);
   await setLayout(page, "Board");
-  await expect.poll(async () => (await savedDisplays(page))[`cycle:${cycle.id}`]).toEqual({ layout: "board" });
-  await nod.me.deleteCycle(String(cycle.id));
-  await page.goto(`/cycles/${cycle.id}`);
-  await expect(page.getByText("Cycle が見つかりません")).toBeVisible();
+  await expect.poll(async () => (await savedDisplays(page))[`sprint:${sprint.id}`]).toEqual({ layout: "board" });
+  await removeSprint(sprint.id);
+  await page.goto(`/sprints/${sprint.id}`);
+  await expect(page.getByText("Sprint が見つかりません")).toBeVisible();
   await page.goto("/issues");
   await expect(page.getByRole("table")).toBeVisible();
 });

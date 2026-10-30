@@ -9,13 +9,14 @@ describe("ステータスの表示", () => {
       "needs_clarification",
       "todo",
       "in_progress",
+      "in_review",
       "done",
       "canceled",
     ]);
   });
 
-  test("カンバンの列は Triage と Canceled を除いた5つ", () => {
-    expect(BOARD_STATUSES).toEqual(["needs_clarification", "backlog", "todo", "in_progress", "done"]);
+  test("カンバンの列は Triage と Canceled を除いた6つ", () => {
+    expect(BOARD_STATUSES).toEqual(["needs_clarification", "backlog", "todo", "in_progress", "in_review", "done"]);
   });
 
   test("ラベルは英語の表示ラベル", () => {
@@ -25,6 +26,7 @@ describe("ステータスの表示", () => {
       "Needs Clarification",
       "Todo",
       "In Progress",
+      "In Review",
       "Done",
       "Canceled",
     ]);

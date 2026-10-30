@@ -288,7 +288,7 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
     const main = document.querySelector("main")!;
     const panel = document.querySelector('section[aria-label="プロパティ"]')!;
     const center = (rect: DOMRect) => rect.top + rect.height / 2;
-    const rows = [...panel.querySelectorAll("dl > div")].map((row) => {
+    const rows = [...panel.querySelectorAll("dl > div")].filter((row) => row.querySelector("dt")?.textContent !== "GitHub").map((row) => {
       const key = row.querySelector("dt")!;
       const value = row.querySelector("dd")!;
       // 値の先頭の要素：ピル、変えられない値、Labels は先頭のチップ
@@ -332,7 +332,7 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
   // 値が1行の行はすべて高さ 28。Labels（折り返す）と PR（状態の段）は複数行になる。実行場所も1行（#194）
   const multiline = new Set(["Labels", "PR"]);
   const single = layout.rows.filter((row) => !multiline.has(row.label ?? ""));
-  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "Cycle", "Assignee", "作業状況", "実行場所", "Reminder", "Created"]);
+  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "Sprint", "Assignee", "作業状況", "実行場所", "Reminder", "Created"]);
   for (const row of single) expect(row, row.label ?? "").toMatchObject({ height: 28, pillHeight: 28, overflow: 0 });
   for (const row of layout.rows) expect(row.spread, `${row.label} の中心の差`).toBeLessThanOrEqual(2.5);
   expect(layout).toMatchObject({ gaps: [4], keyWidth: 88, pill: ["6px", "10px", "9999px", "13px", "500"], icon: 14, mainOverflow: 0, pageOverflow: 0 });

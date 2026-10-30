@@ -7,5 +7,6 @@ const API_URL = process.env.NOD_API_URL ?? "http://127.0.0.1:4700";
 
 export default defineConfig({
   plugins: [react()],
+  envDir: process.env.NOD_VITE_ENV_DIR,
   server: { port: 5173, proxy: { "/api": API_URL } },
 });

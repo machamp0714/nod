@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bulkFailures, cycleMenu, labelMenu, milestoneMenu, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
+import { bulkFailures, labelMenu, milestoneMenu, pruneSelection, selectAllState, toggleAll, toggleSelection } from "./bulk-selection";
 
 const order = ["A-1", "A-2", "A-3", "A-4", "A-5"];
 
@@ -92,12 +92,7 @@ describe("labelMenu", () => {
   });
 });
 
-describe("cycleMenu・milestoneMenu（#154）", () => {
-  test("cycleMenu は Workspace が混ざっていても、終了していない Cycle を current 先頭・開始日順で返す", () => {
-    const c = (id: number, state: "current" | "upcoming" | "completed", startDate: string) => ({ id, name: `S${id}`, state, startDate });
-    expect(cycleMenu([c(1, "completed", "2026-09-01"), c(3, "upcoming", "2026-10-19"), c(2, "current", "2026-10-05")]).map((x) => x.id)).toEqual([2, 3]);
-  });
-
+describe("milestoneMenu（#154）", () => {
   const ms = (id: number, projectId: number) => ({ id, projectId, name: `M${id}` });
   const milestones = [ms(1, 10), ms(2, 20), ms(3, 10)];
   const p = (id: number) => ({ project: { id, name: `P${id}` } });

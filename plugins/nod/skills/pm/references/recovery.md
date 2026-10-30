@@ -5,6 +5,17 @@ PMの起動直後、通信断、応答喪失、停止からの再開では、工
 Orcaの現行ガイドと`references/recovery-and-cleanup.md`、`references/coordinator-loop.md`、必要な操作の`--help`を読み、以下の`ORCA`にはその実行ファイルを使う。
 独自の復元DBを作らず、nodのActivityとDocument、Orcaの操作receiptと実行状態を使う。
 
+## Sprint切替時の既存実行の照合
+
+DBの移行やcurrentの空結果は、Orca実行の停止証拠ではない。
+旧PMの固定Cycleは移行元の記録として保持し、旧CLIを再実行せず、履歴の対応と既存Issue IDで読む。
+Sprintの読取集合から外れたIssueも、記録済みRun、Task、Dispatch、terminalと実行hostから照合する。
+操作相関、要求値と実効値、所有者、予約と占有、未回答質問を引き継ぐ。
+`unverifiable`、pending、通信断、effective不明は予約または占有を維持し、追加起動、再送、開始通知、stop、abandon、releaseを行わない。
+S01では新規のSprint自律実行を開始しない。
+以下の副作用手順は、既存の個別委任と現在の権限が確認できた場合だけ使う。
+切替の照合だけを依頼されたときは、未確認事項と次の照合を記録して止める。
+
 ## 副作用前のintentと後のcheckpoint
 
 起動、開始通知、修正依頼、独立確認、質問と回答、PR依頼、release、Delivery ackの前に、操作の**intent**（これから行う操作と照合に使う相関）をnodへ残す。
@@ -18,7 +29,7 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 
 | 項目 | 保存する情報 |
 | --- | --- |
-| 管理範囲と要求 | Workspace、固定Cycle、並行上限、新規着手停止の有無、要求の本文またはspec/plan参照、利用者判断の原文と出典 |
+| 管理範囲と要求 | Workspace、Sprint参照（currentは相対条件）、移行元の旧Cycle記録、個別委任の権限、並行上限、新規着手停止の有無、要求の本文またはspec/plan参照、利用者判断の原文と出典 |
 | 工程と枠 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
@@ -53,7 +64,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 
 ## 会話履歴を使わず照合する順序
 
-1. 指定Workspaceと固定Cycleの最新Issue、Activity、Document、質問、PR関連を取得する。
+1. 指定WorkspaceとSprint参照の最新Issue、Activity、Document、質問、PR関連を取得する。
    checkpointから管理中Issue、Run、Task、操作相関、元実装者、工程、予約、巡、受理messageを復元する。
    古い記録だけで現在の権限を確定しない。
 2. `status`、Runごとの`task-list`、`worker-list --run <RunID> --include-remote`、terminal一覧を読む。
@@ -72,7 +83,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 仕様待ちは未回答質問、別モデル照合、仕様合意、テスト境界合意、正式Spec添付を個別に復元する。
 実装中は既存試行を監督し、初回レビューを追加起動しない。
 修正確認中はstarted/completedと対象commit、独立担当、元実装者の待機所有者を復元し、既存確認を受け取る。
-PR提出後はPR実在とhead、nodのdone、cleanupとackの残件を確認し、実装を始め直さない。
+PR提出後はPR実在とhead、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
 
 ## 応答喪失と通信断
 
@@ -124,7 +135,7 @@ gh pr view <確認したURLまたはnumberまたはbranch> --repo <OWNER/REPO> -
 ```
 
 既存PRのheadが確認済み現在commitと一致し、対象branchとbase、openかつ非draftである場合は、そのPRへ合流する。
-nodのリンクとrefreshで状態が自動で変わることはない。受け入れ条件と検証が確認済みなら`nod issue done`による完了を回復し、既にdoneなら完了を重ねない。
+nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
 成果が確認できても実行settlementが不明なら、PR確認済みとcleanup未確認を分けて残す。
 古いhead、複数候補、取得失敗、PR不在の読取だけでは、新PRを作る根拠にしない。
 元の依頼と実行結果を照合し、必要なら同じ元実装者へ既存PRの更新または不足証拠だけを依頼する。

@@ -6,6 +6,7 @@ import { IssueSearchDialog } from "../components/search/IssueSearchDialog";
 import { isIssueSearchShortcut } from "../lib/issue-search";
 import s from "./layout.module.css";
 import { Sidebar } from "./Sidebar";
+import { LegacySprintSearch } from "./LegacySprintSearch";
 
 // SSE の購読は画面ごとのデータではないため、A の「src/layout/ は props だけでデータを受け取る」の対象外とし、ここで1回だけ行う
 export function AppLayout() {
@@ -27,7 +28,7 @@ export function AppLayout() {
     <div className={s.shell}>
       <Sidebar onOpenSearch={() => setSearching(true)} />
       <main className={s.main}>
-        <Outlet />
+        <LegacySprintSearch><Outlet /></LegacySprintSearch>
       </main>
       {searching && <IssueSearchDialog onClose={() => setSearching(false)} />}
     </div>

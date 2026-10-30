@@ -112,7 +112,7 @@ PMは完了報告のactive Dispatchとreviewer identity、基点と対象commit�
 独立確認がsettleしても元実装者の待機Taskはactiveのままであり、同じterminalへ新Dispatchを重ねない。
 PR依頼は現在commitと確認済み証拠を含め、subjectにもpushとPR作業の目的を明示し、enqueueだけで提出完了にしない。
 settle済みなら同じterminalに新Taskをreuseし、どちらでも元の実効設定を再照合して`モデル:effort`を明記する。
-PRの実在、headRefOid、nodとの関連と`done`の確認は既存手順どおり行う。
+PRの実在、headRefOid、nodとの関連と`in_review`の確認は既存手順どおり行う。
 修正ありのPR条件では、古い初回レビューだけを現在commitの確認とせず、その後の全修正差分の独立確認と現在commitの必要テストを揃える。
 
 人への相談は[質問の手順](questions.md)に従い、Issueと質問ID、番号選択肢、推奨、理由、回答後の動作を示す。

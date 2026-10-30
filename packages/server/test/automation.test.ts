@@ -149,3 +149,13 @@ describe("自動化API", () => {
     expect(getIssue(s.db, open).status).toBe("todo");
   });
 });
+
+test("長期間活動がないレビュー中Issueも自動クローズの対象に追加しない", async () => {
+  const s = setup();
+  const review = staleIssue(s, "in_review");
+  setAutomationSettings(s.me, s.ws.key, { closeAfterDays: 1 });
+  const url = `/api/workspaces/${s.ws.key}/automation/run`;
+  expect((await call(s.app, "POST", url, { dryRun: true })).json.rules[0].candidates).toEqual([]);
+  expect((await call(s.app, "POST", url, { dryRun: false, targets: { auto_close: [review] } })).json.rules[0]).toMatchObject({ processed: [], skipped: [review] });
+  expect((await call(s.app, "GET", `/api/issues/${review}`)).json).toMatchObject({ status: "in_review", closedAt: null });
+});

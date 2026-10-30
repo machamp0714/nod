@@ -8,7 +8,7 @@ import {
   milestoneOptionsFor,
   type MilestoneFilterOption,
   NO_ASSIGNEE,
-  NO_CYCLE,
+  NO_SPRINT,
   NO_MILESTONE,
   toggleValue,
   withoutKey,
@@ -37,6 +37,7 @@ export function useFilterChips(filter: IssueQuery, options: FilterOptions): Filt
   return describeFilter(filter, {
     workspace: (key) => nameOf(options.workspaces, key),
     project: (ref) => nameOf(options.projects, ref),
+    sprint: (ref) => nameOf(options.sprints, ref),
     milestone: (ref) => nameOf(options.milestones, ref),
     status: (status) => statusName(status, statusNames.data, singleWorkspace(filter.workspace)),
   });
@@ -70,22 +71,22 @@ export function FilterBar({
           <span className={s.chipValue}>{fixedAssignee}</span>
         </span>
       )}
-      {chips.map((chip) => (
+      {chips.filter((chip) => chip.key !== "sprint").map((chip) => (
         <span key={chip.key} className={s.chip}>
           <span className={s.chipName}>{chip.name}</span>
           <span className={s.chipName}>is</span>
           <span className={s.chipValue}>{chip.values}</span>
-          <button
+          {!(chip.key === "workspace" && !filter.workspace?.length) && <button
             type="button"
             className={s.chipRemove}
             aria-label={`${chip.name} の条件を外す`}
             onClick={() => onChange(withoutKey(filter, chip.key))}
           >
             <Icon name="x" size={12} />
-          </button>
+          </button>}
         </span>
       ))}
-      <CycleFilter value={filter.cycle} options={options.cycles} onChange={(cycle) => onChange({ ...filter, cycle })} />
+      <SprintFilter value={filter.sprint} options={options.sprints} onChange={(sprint) => onChange({ ...filter, sprint })} />
       <details className={s.menu}>
         <summary className={s.add}>
           <Icon name="plus" size={12} />
@@ -148,17 +149,18 @@ export function FilterBar({
 }
 
 // Pencil「Issues｜Cycle フィルタ・グループ（#82）」の Cycle Select。チップの並びに常に置き、「すべて」で条件を外す
-export function CycleFilter({ value, options, onChange }: { value: string | undefined; options: readonly FilterOption[]; onChange: (value: string | undefined) => void }) {
+export function SprintFilter({ value, options, onChange }: { value: string | undefined; options: readonly FilterOption[]; onChange: (value: string | undefined) => void }) {
   // 一覧にない ID（消された Cycle など）でも、今の条件を選択肢に出して外せるようにする
-  const list = value && value !== NO_CYCLE && !options.some((o) => o.value === value) ? [...options, { value, label: `Cycle ${value}` }] : options;
+  const list = value && value !== NO_SPRINT && value !== "current" && !options.some((o) => o.value === value) ? [...options, { value, label: `未解決: ${value}` }] : options;
   return <label className={`${s.inlineSelect} ${value ? s.inlineSelectActive : ""}`}>
     <Icon name="calendar-range" size={12} color="var(--ink3)" />
-    <span className={s.inlineSelectName}>Cycle</span>
-    <select className={s.inlineSelectValue} aria-label="Cycle" value={value ?? ""}
+    <span className={s.inlineSelectName}>Sprint</span>
+    <select className={s.inlineSelectValue} aria-label="Sprint" value={value ?? ""}
       onChange={(event) => onChange(event.target.value || undefined)}>
       <option value="">すべて</option>
+      <option value="current">現在</option>
       {list.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      <option value={NO_CYCLE}>Cycle なし</option>
+      <option value={NO_SPRINT}>Sprint なし</option>
     </select>
   </label>;
 }

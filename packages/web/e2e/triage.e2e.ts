@@ -42,19 +42,14 @@ test("受け入れると Todo になり、一覧から消える", async ({ page,
   expect((await api.show(i.id)).status).toBe("todo");
 });
 
-test("受け入れ時に終了していない Cycle を選べ、受け入れると Cycle に入る", async ({ page, nod }) => {
+test("受け入れ時に旧Cycle直接所属を出さず、通常の受け入れを維持する", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
-  await nod.me.createCycle({ name: "Sprint 1", startDate: "2000-01-01", endDate: "2000-01-14" });
-  const next = await nod.me.createCycle({ name: "Sprint 99", startDate: "2999-01-01", endDate: "2999-01-14" });
   const i = await api.triageIssue("検索結果のページングが 1 件ずれる");
   await page.goto("/triage");
-  const cycle = detail(page).getByRole("combobox", { name: "受け入れ時のCycle" });
-  await expect(cycle).toHaveValue("");
-  await expect(cycle.getByRole("option")).toHaveText(["なし", "Sprint 99"]);
-  await cycle.selectOption(String(next.id));
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のCycle" })).toHaveCount(0);
   await detail(page).getByRole("button", { name: "受け入れる" }).click();
   await expect(empty(page)).toBeVisible();
-  expect(await api.show(i.id)).toMatchObject({ status: "todo", cycle: { id: next.id, name: "Sprint 99" } });
+  expect(await api.show(i.id)).toMatchObject({ status: "todo", sprints: [] });
 });
 
 test("却下は理由を付けて Canceled にできる", async ({ page, nod }) => {

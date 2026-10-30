@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { startIssue } from "../../core/src";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
 
@@ -14,12 +15,23 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const launch = orca("orchestration", "worker-start", "--run", run.id, "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。実効設定の照合完了と開始通知まで実装禁止。");
   expect(launch.launch).toEqual({ requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } });
   expect(orca("orchestration", "check").messages).toEqual([]);
+  const blocked = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
+  expect(blocked.exitCode).toBe(1);
+  expect(JSON.parse(blocked.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
   orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "gpt-6.1-sol:highの適用を確認。実装を開始してください。");
   const delivery = orca("orchestration", "check");
   expect(delivery.messages).toHaveLength(1);
   const report = JSON.parse(delivery.messages[0].body);
   expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: { independent: true, standards: { findings: [] }, spec: { findings: [] } } });
   expect(report.review.headCommit).toBe(report.commit);
+  const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
+  expect(issue.exitCode).toBe(0);
+  expect(JSON.parse(issue.stdout.toString())).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
+  const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(operations.filter(op => op.tool === "fixture")).toMatchObject([
+    { origin: "worker", actor: "codex", simulated: true, argv: ["worker-start-state", "API-1"] },
+  ]);
+  expect(operations.filter(op => op.origin === "worker" && op.tool === "nod" && op.argv.includes("start"))).toEqual([]);
   const read = JSON.parse(orca("orchestration", "worker-read", "--dispatch", launch.dispatch.id).text);
   expect(read.gitEvidence).toMatchObject({ executionHost: "Studio", simulated: true, commands: [
     { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${"a".repeat(40)}\n` },
@@ -46,24 +58,29 @@ for (const variant of ["normal", "existing-pr"] as const) {
     orca("check", "--ack", initial.id);
     const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
     expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
-    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "done", prUrl: pr.url });
+    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url });
     orca("worker-release", "--dispatch", submission.dispatch.id);
     expect(orca("worker-list", "--run", "run-pm", "--terminal-state", "reclaimable", "--include-remote").workers).toEqual([]);
     const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(1);
+    expect(ops.filter((op) => op.tool === "nod" && op.argv.includes("done"))).toHaveLength(0);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("create"))).toHaveLength(variant === "existing-pr" ? 0 : 1);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
   });
 }
 
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
-  const scenario = await createTask2Scenario({ variant: "existing-pr" });
+  const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
+    // PR操作の前提となる既存実行を、通常startが許可される採択前に作る。
+    startIssue({ db, actor: "codex" }, "API-1");
+  } });
   const nod = (...args: string[]) => {
     const result = Bun.spawnSync([scenario.nod, ...args, "--json"], { env: scenario.env });
     expect(result.exitCode).toBe(0);
     return JSON.parse(result.stdout.toString());
   };
-  nod("issue", "start", "API-1");
+  const restart = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
+  expect(restart.exitCode).toBe(1);
+  expect(JSON.parse(restart.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
   nod("issue", "link-pr", "API-1", "https://github.com/evaluation/api/pull/42");
   expect(nod("issue", "show", "API-1").status).toBe("in_progress");
   const pr = nod("issue", "pr-status", "API-1", "--refresh");
@@ -165,14 +182,45 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
   });
 }
 
-test("PM評価の混在候補を実nod CLIから取得できる", async () => {
+test("PM評価の現在Sprintに採択された混在Issueを実nod CLIから読める", async () => {
   const scenario = await createTask1Scenario();
-  const result = Bun.spawnSync([scenario.nod, "issue", "list", "-w", "API", "--cycle", "2", "--json"], { env: scenario.env });
+  const result = Bun.spawnSync([scenario.nod, "issue", "list", "-w", "API", "--sprint", "current", "--json"], { env: scenario.env });
   expect(result.exitCode).toBe(0);
   const issues = JSON.parse(result.stdout.toString());
   expect(issues.map((issue: { id: string }) => issue.id)).toEqual([
     "API-1", "API-2", "API-3", "API-4", "API-5", "API-6", "API-7", "API-8", "API-9", "API-10", "API-11", "API-12", "API-13", "API-14", "API-15",
   ]);
+});
+
+test("PM評価でも旧cycleは拒否され、未接続のSprint開始や直接所属でIssueと期間を変更できない", async () => {
+  const s = await createTask1Scenario();
+  const call = (...args: string[]) => Bun.spawnSync([s.nod, ...args, "--json"], { env: s.env });
+  const read = (...args: string[]) => {
+    const result = call(...args);
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  const before = {
+    periods: read("sprint", "list"), issue: read("issue", "show", "API-1"),
+    current: read("issue", "list", "-w", "API", "--sprint", "current"),
+  };
+  expect(before.periods.map((s: { number: number; phase: string }) => [s.number, s.phase])).toEqual([
+    [1, "imported"], [2, "active"], [3, "draft"], [4, "active"],
+  ]);
+  expect(read("sprint", "show", "1")).toMatchObject({ phase: "imported", items: [{ sourceIssueKey: "API-16" }] });
+  for (const args of [["issue", "list", "-w", "API", "--cycle", "2"], ["cycle", "show", "2"]]) {
+    const retired = call(...args);
+    expect(retired.exitCode).toBe(1);
+    expect(JSON.parse(retired.stdout.toString()).error.code).toBe("CYCLE_RETIRED");
+  }
+  for (const args of [["sprint", "start", "2"], ["issue", "update", "API-1", "--sprint", "2", "--title", "変更禁止"]]) {
+    expect(call(...args).exitCode).toBe(1);
+  }
+  expect(read("sprint", "list")).toEqual(before.periods);
+  expect(read("issue", "show", "API-1")).toEqual(before.issue);
+  expect(read("issue", "list", "-w", "API", "--sprint", "current")).toEqual(before.current);
+  const operations = readFileSync(s.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(operations.filter(op => op.tool === "orca" || op.tool === "gh")).toEqual([]);
 });
 
 test("PM評価の判定は初回未完了と回復しない失敗、対象外、制限解除、任意再評価を区別できる", async () => {

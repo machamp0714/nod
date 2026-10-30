@@ -1,7 +1,7 @@
 import { NodError } from "./errors";
 
-// 絞り込みで「Milestone のない」「Cycle のない」「担当のない（未割り当て）」Issue を指す値。Issue 一覧・分析（stats・stats llm）・要約・API で同じく扱い、
-// 大文字小文字と前後の空白は問わない。Milestone・Cycle・担当の名前には使えない
+// 絞り込みで「Milestone のない」「Sprint の関連がない」「担当のない（未割り当て）」Issue を指す値。Issue 一覧・分析（stats・stats llm）・要約・API で同じく扱い、
+// 大文字小文字と前後の空白は問わない。Milestone・担当の名前には使えない
 export const NONE_REF = "none";
 
 export function isNoneRef(ref: string | undefined): boolean {

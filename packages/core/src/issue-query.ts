@@ -1,3 +1,4 @@
+import { SPRINT_MEMBERSHIP } from "./sprint-membership";
 import type { WorkLogKind } from "./work-log";
 import { recordedTimestamp } from "./recorded-time";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -50,6 +51,7 @@ export interface IssueRow {
   project_name: string | null;
   milestone_name: string | null;
   cycle_name: string | null;
+  sprint_refs: string;
   labels: string | null;
   blocked_by: string | null;
   question_total: number;
@@ -67,7 +69,12 @@ export const COMPLETION_CANDIDATE_SQL = `(i.status NOT IN ('done', 'canceled', '
 // ブロック元 b がまだブロックしている条件。完了・取り消し・アーカイブ済みのブロック元は数えない
 export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived_at IS NULL";
 
-export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name, cy.name AS cycle_name,
+export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name, NULL AS cycle_id, NULL AS cycle_name,
+  (SELECT json_group_array(json_object('id',sr.id,'number',sr.number,'name',sr.name,
+      'workspaceId',sr.workspace_id,'phase',sr.phase,'association',CASE WHEN sr.phase='imported' THEN 'imported' ELSE 'adopted' END))
+    FROM (SELECT sr_outer.id,sr_outer.number,sr_outer.name,sr_outer.workspace_id,sr_outer.phase
+      FROM sprints sr_outer WHERE EXISTS (${SPRINT_MEMBERSHIP} AND s.id=sr_outer.id)
+      ORDER BY sr_outer.number) sr) AS sprint_refs,
   (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
   (SELECT group_concat(blocker_id, char(10)) FROM (
     SELECT bw.key || '-' || b.number AS blocker_id FROM relations r
@@ -83,8 +90,7 @@ JOIN workspaces w ON w.id = i.workspace_id
 LEFT JOIN issues pi ON pi.id = i.parent_id
 LEFT JOIN workspaces pw ON pw.id = pi.workspace_id
 LEFT JOIN projects pr ON pr.id = i.project_id
-LEFT JOIN milestones ms ON ms.id = i.milestone_id
-LEFT JOIN cycles cy ON cy.id = i.cycle_id`;
+LEFT JOIN milestones ms ON ms.id = i.milestone_id`;
 
 // 着手できる Issue の条件のうち、担当者とブロック元に関係しないもの。? には現在時刻を渡す。
 // ブロック元を別に1回で読む画面（Project のフロー）は、これとまだ止めているブロック元がないことを合わせて Ready とする
@@ -159,6 +165,7 @@ export function toIssue(r: IssueRow): Issue {
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
     milestone: r.milestone_id !== null && r.milestone_name !== null ? { id: r.milestone_id, name: r.milestone_name } : null,
+    sprints: JSON.parse(r.sprint_refs),
     cycle: r.cycle_id !== null && r.cycle_name !== null ? { id: r.cycle_id, name: r.cycle_name } : null,
     labels: r.labels ? r.labels.split("\n").sort() : [],
     blockedBy: r.blocked_by ? r.blocked_by.split("\n") : [],

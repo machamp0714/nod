@@ -2,10 +2,7 @@ import { expect, test, waitForServerEvents } from "./fixtures";
 import { seedApiWorkspace } from "./decision-data";
 import { restartApiServer } from "./support/nod";
 
-const evidence = "/Users/ooidetatsuya/orca/workspaces/nod/nod-detail-decisions/.superpowers/sdd/nod-remaining";
-
-
-test("Triage属性と起票元を表示し一回のacceptで保存する", async ({ page, nod }) => {
+test("Triage属性と起票元を表示し一回のacceptで保存する", async ({ page, nod }, testInfo) => {
   const api = await seedApiWorkspace(nod);
   const source = await api.startedIssue("起票の元");
   const project = await nod.me.createProject({ name: "受け入れ先" });
@@ -19,7 +16,7 @@ test("Triage属性と起票元を表示し一回のacceptで保存する", async
   await page.getByLabel("受け入れ時のPriority").selectOption("2");
   await page.getByLabel("受け入れ時のLabels").fill("bug, perf");
   expect((await api.show(issue.id)).labels).toEqual(["old"]);
-  await page.screenshot({ path: `${evidence}/triage.png` });
+  await page.screenshot({ path: testInfo.outputPath("triage.png") });
   await page.getByRole("button", { name: "受け入れる", exact: true }).click();
   await expect(page.getByRole("region", { name: "Triage の一覧" })).toContainText("Triage の Issue はありません");
   expect(await api.show(issue.id)).toMatchObject({ status: "todo", priority: 2, project: { id: project.id }, labels: ["bug", "perf"] });
@@ -27,7 +24,7 @@ test("Triage属性と起票元を表示し一回のacceptで保存する", async
   expect(writes[0]).toMatch(/\/accept$/);
 });
 
-test("Inbox履歴と定型入力はURLと下書きを保ちSSE後も個別に回答する", async ({ page, nod }) => {
+test("Inbox履歴と定型入力はURLと下書きを保ちSSE後も個別に回答する", async ({ page, nod }, testInfo) => {
   const api = await seedApiWorkspace(nod);
   const issue = await api.startedIssue("質問の履歴");
   const first = await nod.claude.askQuestion(issue.id, "最初の質問");
@@ -56,7 +53,7 @@ test("Inbox履歴と定型入力はURLと下書きを保ちSSE後も個別に回
   await expect(page.getByRole("region", { name: "直近の経過" })).toContainText("SSEで取得し直す");
   await expect(card.getByRole("textbox", { name: "回答" })).toHaveValue("はい、進めて");
   await expect(page.getByRole("region", { name: "確認依頼", exact: true }).filter({ hasText: "meの未決は非表示" })).toHaveCount(0);
-  await page.screenshot({ path: `${evidence}/inbox.png` });
+  await page.screenshot({ path: testInfo.outputPath("inbox.png") });
   await card.getByRole("button", { name: "回答する", exact: true }).click();
   await expect(card.getByRole("textbox", { name: "回答" })).toHaveCount(0);
   expect((await api.show(issue.id)).questions.find(q => q.id === first.question.id)?.answer).toBe("はい、進めて");
@@ -76,7 +73,7 @@ test("終端の未回答へ履歴タブから回答してもIssueを再開しな
   expect(await api.show(i.id)).toMatchObject({ status: "canceled", agentState: null });
 });
 
-test("Documents追加とCreated・コメントカード・コピー2項目を使える", async ({ page, nod, context }) => {
+test("Documents追加とCreated・コメントカード・コピー2項目を使える", async ({ page, nod, context }, testInfo) => {
   const api = await seedApiWorkspace(nod);
   const i = await api.startedIssue("詳細のカード");
   await nod.codex.commentIssue(i.id, "複数行のコメント\n二行目 <b>テキスト</b>");
@@ -99,14 +96,14 @@ test("Documents追加とCreated・コメントカード・コピー2項目を使
   await page.getByRole("button", { name: "リンクをコピー", exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(`/issues/${i.id}`, page.url()).href);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
-  await expect(page.getByRole("menuitem")).toHaveCount(4);
+  await expect(page.getByRole("menuitem")).toHaveText(["Issue IDをコピー", "コマンドをコピー", "Issueを複製", "GitHub に Issue を作成", "アーカイブ"]);
   await page.getByRole("menuitem", { name: "Issue IDをコピー" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(i.id);
   await page.getByRole("button", { name: "Issueのメニュー", exact: true }).click();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`nod issue show ${i.id}`);
-  await page.screenshot({ path: `${evidence}/detail.png` });
+  await page.screenshot({ path: testInfo.outputPath("detail.png") });
   const attached = (await api.show(i.id)).documents[0]!;
   expect(attached.attachedBy).toBe("me");
   nod.removeFile(path);

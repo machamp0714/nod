@@ -1,16 +1,20 @@
+import type { Database } from "bun:sqlite";
 import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  askQuestion, createCycle, createIssue, initWorkspace,
+  askQuestion, createIssue, getIssue, initWorkspace,
   openDb, relateIssue, retryIssueAssessment, setWorkspaceSpecAssessment, updateIssue,
 } from "../../../../../packages/core/src";
+import { addActiveSprint } from "../../../../../packages/core/test/fixtures/sprint";
 
 const ROOT = resolve(import.meta.dir, "../../../../..");
 
 /** 一時DBと外部CLIの偽接続先を作る。PMの選定判断はここでは行わない。 */
-export async function createTask1Scenario(directory?: string) {
+export type BeforeSprintAdoption = (db: Database, directory: string) => void;
+
+export async function createTask1Scenario(directory?: string, beforeAdoption?: BeforeSprintAdoption) {
   const dir = directory ? resolve(directory) : realpathSync(mkdtempSync(join(tmpdir(), "nod-pm-eval-")));
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, "bin");
@@ -23,10 +27,6 @@ export async function createTask1Scenario(directory?: string) {
   const agent = { db, actor: "codex" };
   const api = initWorkspace(db, { path: apiPath, key: "API" }).workspace;
   const other = initWorkspace(db, { path: otherPath, key: "OTH" }).workspace;
-  // Cycle IDを固定するため、過去のCycleも含めて作る。
-  createCycle(human, { name: "Cycle 1", startDate: "2026-09-01", endDate: "2026-09-14" });
-  createCycle(human, { name: "Cycle 2", startDate: "2026-10-01", endDate: "2026-10-31" });
-  createCycle(human, { name: "Cycle 3", startDate: "2026-11-01", endDate: "2026-11-30" });
 
   const names = [
     "一覧の余白を調整", "未確定の集計仕様", "人が担当する変更", "Claudeが担当する変更",
@@ -36,7 +36,7 @@ export async function createTask1Scenario(directory?: string) {
   ];
   // 12は設定を有効にする前に起票し、既存Issueへの遡及なしを再現する。
   const issues = names.map((title, index) => createIssue(index === 5 ? agent : human, {
-    workspaceId: api.id, title, cycleRef: "2", labels: index === 1 ? ["needs-spec"] : [],
+    workspaceId: api.id, title, labels: index === 1 ? ["needs-spec"] : [],
     description: index === 14
       ? "本番DBへ接続して既存データを更新する運用作業。コード変更は不要。実行の可否を人に確認する。"
       : `${title}。対象は一覧画面。余白を8pxから12pxへ変更し、画面で反映を確認する。`,
@@ -61,8 +61,30 @@ export async function createTask1Scenario(directory?: string) {
   }
   askQuestion(human, "API-7", "保持期間を30日か90日か、人が決めてください。");
   relateIssue(human, "API-9", { blocks: "API-8" });
-  createIssue(human, { workspaceId: api.id, title: "次Cycleの変更", cycleRef: "3" });
-  createIssue(human, { workspaceId: other.id, title: "別Workspaceの変更", cycleRef: "2" });
+  const next = createIssue(human, { workspaceId: api.id, title: "次Sprintの候補" });
+  const outside = createIssue(human, { workspaceId: other.id, title: "別Workspaceの変更" });
+  // 既存実行や質問待ちの準備は採択前に行う。採択後の通常着手guardは通過させない。
+  beforeAdoption?.(db, dir);
+  // Sprintの外部状態は評価専用の内部fixture。本番の合意・開始許可を表さない。
+  const imported = crypto.randomUUID();
+  db.query(`INSERT INTO sprints(id,number,name,phase,start_date,end_date,created_at,updated_at)
+    VALUES(?,1,'移行履歴','imported','2026-09-01','2026-09-14','2026-09-01','2026-09-01')`).run(imported);
+  const current = addActiveSprint(db, api.id, 2, issues.map(issue => issue.id));
+  const draft = crypto.randomUUID();
+  db.query(`INSERT INTO sprints(id,number,workspace_id,name,phase,start_date,end_date,timezone,created_at,updated_at)
+    VALUES(?,3,?,'次の計画','draft','2999-01-01','2999-01-14','UTC','2026-10-01','2026-10-01')`).run(draft, api.id);
+  addActiveSprint(db, other.id, 4, [outside.id]);
+  // imported、draft、現在Sprintの未採択候補だけではcurrentの集合へ入らない。
+  const nextRow = db.query("SELECT * FROM issues WHERE workspace_id=? AND number=?").get(api.id, next.number) as { id: number };
+  const snapshot = JSON.stringify({ schemaVersion: 1, capturedAt: new Date().toISOString(), statusBasis: "migration_snapshot", issue: nextRow, workspace: { id: api.id, key: api.key, name: api.name }, labels: [], project: null });
+  for (const sprint of [imported, draft, current]) {
+    db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,?)").run(crypto.randomUUID(), sprint, nextRow.id, next.id, snapshot, sprint === imported ? 'imported' : 'candidate');
+  }
+  for (const item of [...issues, outside]) {
+    const row = db.query("SELECT * FROM issues WHERE number=? AND workspace_id=?").get(item.number, item.workspace === "API" ? api.id : other.id);
+    const workspace = item.workspace === "API" ? api : other;
+    db.query("UPDATE sprint_items SET snapshot=? WHERE source_issue_key=?").run(JSON.stringify({ schemaVersion: 1, issue: row, workspace, labels: getIssue(db, item.id).labels, project: null }), item.id);
+  }
   db.close();
 
   const log = join(dir, "operations.jsonl");
@@ -74,6 +96,7 @@ export async function createTask1Scenario(directory?: string) {
   const env: Record<string, string> = {
     PATH: `${bin}:${process.env.PATH ?? ""}`,
     NOD_DB: dbPath, NOD_ACTOR: "codex", NOD_ORCA: "0", NOD_GH: join(bin, "gh"),
+    NOD_DOCS_DIR: join(dir, "documents"), NOD_ATTACHMENTS_DIR: join(dir, "attachments"),
     PM_EVAL_DIR: dir, PM_EVAL_LOG: log, PM_EVAL_BUN: process.execPath,
     PM_EVAL_NOD_MAIN: join(ROOT, "packages/cli/src/main.ts"),
     // BUN_OPTIONSは空白入りpathを分割するため、偽APIをpath不要のmoduleとして渡す。
@@ -81,7 +104,7 @@ export async function createTask1Scenario(directory?: string) {
   };
   for (const name of ["nod", "orca", "gh"]) {
     const path = join(bin, name);
-    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(import.meta.dir, "fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
+    writeFileSync(path, `#!/bin/sh\nexec ${shellQuote(process.execPath)} --no-env-file ${shellQuote(join(import.meta.dir, "fake-cli.ts"))} ${shellQuote(name)} "$@"\n`);
     chmodSync(path, 0o755);
   }
   writeEvaluationEnv(dir, env);

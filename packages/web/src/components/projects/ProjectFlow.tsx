@@ -89,24 +89,27 @@ export function ProjectFlowPage({
   );
 }
 
-function ProjectFlowSection({ flow }: { flow: ReturnType<typeof useProjectFlow> }) {
+export function ProjectFlowSection({ flow, scopeNote = "Project 全体を表示しています（一覧の検索・絞り込みは適用されません）", beforeStart = false, externalLabel = "Project外", observedAt }: {
+  flow: { data?: Pick<ProjectFlow, "nodes" | "edges">; error: unknown; isFetching: boolean; refetch: () => unknown };
+  scopeNote?: string; beforeStart?: boolean; externalLabel?: string; observedAt?: string;
+}) {
   return (
     <section className={s.section} aria-label="依存関係のフロー">
       <div className={s.notes}>
-        <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業は並行して進められます。</p>
-        <p className={s.scopeNote}>Project 全体を表示しています（一覧の検索・絞り込みは適用されません）</p>
+        <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業も、着手条件と並行上限の範囲で進めます。</p>
+        <p className={s.scopeNote}>{scopeNote}</p>
       </div>
       {/* 読み直しに失敗しても、直前のグラフは消さずに失敗と再試行を添える */}
-      {flow.error && (
+      {!!flow.error && (
         <div role="alert" className={s.error}>
-          <p>フローを読み込めませんでした：{errorMessage(flow.error)}</p>
+          <p>フローを読み込めませんでした：{errorMessage(flow.error)}</p>{observedAt && <p>最後の確認：{observedAt}。現在の状態は確認できません。</p>}
           <Button size="sm" icon="refresh-cw" onClick={() => void flow.refetch()} disabled={flow.isFetching}>
             再試行
           </Button>
         </div>
       )}
       {flow.data ? (
-        <FlowContent flow={flow.data} />
+        <FlowContent flow={flow.data} beforeStart={beforeStart} externalLabel={externalLabel} />
       ) : !flow.error && (
         <p role="status" className={s.message}>
           読み込み中…
@@ -132,7 +135,7 @@ const STATE_ICONS: Partial<Record<FlowNodeState, { icon: IconName; color: string
   waiting: { icon: "lock", color: "var(--ask)", label: "前提待ち" },
 };
 
-function FlowContent({ flow }: { flow: ProjectFlow }) {
+function FlowContent({ flow, beforeStart = false, externalLabel = "Project外" }: { flow: Pick<ProjectFlow, "nodes" | "edges">; beforeStart?: boolean; externalLabel?: string }) {
   const names = useStatusNames();
   const layout = useMemo(() => layoutFlow(flow), [flow]);
   const byId = useMemo(() => new Map(flow.nodes.map((n) => [n.id, n])), [flow]);
@@ -152,10 +155,10 @@ function FlowContent({ flow }: { flow: ProjectFlow }) {
     return {
       state,
       icon: meta ? <Icon name={meta.icon} size={14} color={meta.color} /> : <StatusIcon status={node.status} />,
-      label: meta ? meta.label : nameOf(node.status, node.workspace),
+      label: beforeStart && !node.external ? "採択予定・開始前" : meta ? meta.label : nameOf(node.status, node.workspace),
       prerequisite: node.openBlockers.length > 0 ? `${node.openBlockers.join("・")} の完了後` : preds.length > 0 ? `前提：${preds.map(predText).join("・")}` : null,
       cycleNext: layout.cycleSuccessors.has(node.id) ? `後続（循環）：${layout.cycleSuccessors.get(node.id)!.join("・")}` : null,
-      outside: node.external ? `Project外 · ${node.project?.name ?? "Projectなし"} · ${node.workspaceName}` : null,
+      outside: node.external ? `${externalLabel} · ${node.project?.name ?? "Projectなし"} · ${node.workspaceName}` : null,
     };
   };
 
@@ -232,6 +235,7 @@ function IndependentIssues({ nodes, text }: { nodes: ProjectFlowNode[]; text: (n
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const groups = [
     { key: "in_progress", label: "対応中", matches: (state: FlowNodeState) => state === "in_progress" },
+    { key: "in_review", label: "In Review", matches: (state: FlowNodeState) => state === "in_review" },
     { key: "ready", label: "着手可能", matches: (state: FlowNodeState) => state === "ready" },
     { key: "other", label: "その他の未完了", matches: (state: FlowNodeState) => state === "other" || state === "waiting" },
     { key: "done", label: "完了", matches: (state: FlowNodeState) => state === "done" },
@@ -248,7 +252,7 @@ function IndependentIssues({ nodes, text }: { nodes: ProjectFlowNode[]; text: (n
           <ul className={s.independent}>
             {items.map((node) => {
               const t = text(node);
-              const label = t.state === "canceled" ? "中止" : t.label;
+              const label = t.label === "採択予定・開始前" ? t.label : t.state === "canceled" ? "中止" : t.label;
               const color = STATE_ICONS[t.state]?.color ?? TONE_COLORS[STATUS_META[node.status].tone].fg;
               return (
                 <li key={node.id}>

@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useId, useRef, useState } from "react";
-import { useCycleAnalytics } from "../../api/hooks/cycles";
-import type { CycleAnalytics, CycleBreakdownRow, CycleDetail } from "../../api/types";
-import { breakdownLabel, formatRate, formatScopeAdded, panelPeriod } from "../../lib/cycle-analytics";
+import { useSprintAnalytics } from "../../api/hooks/sprints";
+import type { SprintAnalytics, CycleBreakdownRow, SprintDetail } from "../../api/types";
+import { breakdownLabel, formatRate, formatScopeAdded } from "../../lib/cycle-analytics";
 import { statusLabel } from "../../lib/meta";
 import { AgentAvatar, ErrorMessage, Icon, IconButton, LabelDot, LoadingMessage, ProgressBar, StatusIcon, WorkspaceBadge } from "../ui";
 import { CYCLE_COLORS, CycleGraph } from "./CycleGraph";
@@ -18,37 +18,40 @@ type TabKey = (typeof TABS)[number]["key"];
 
 // Pencil「Cycle詳細｜分析パネル（NOD-2）」。Linear の Cycle の右パネルと同じく、上から見出し・進捗・Cycle graph・内訳。
 // 閉じたときは親が外す（描いたまま画面外へ寄せない）
-export function CycleAnalyticsPanel({ cycle, onClose }: { cycle: CycleDetail; onClose: () => void }) {
-  const analytics = useCycleAnalytics(cycle.id, true);
+export function SprintAnalyticsPanel({ cycle, onClose }: { cycle: SprintDetail; onClose: () => void }) {
+  const analytics = useSprintAnalytics(cycle.id, true);
   const data = analytics.data;
   // 推移は server が今日で打ち切るため、現在の Cycle では最終日が今日
-  const today = cycle.state === "current" ? (data?.burnup.at(-1)?.date ?? null) : null;
+  const today = cycle.phase === "active" ? (data?.burnup.at(-1)?.date ?? null) : null;
   return (
-    <aside className={s.panel} aria-label="Cycle の分析">
+    <aside className={s.panel} aria-label="Sprint の分析">
       <header className={s.header}>
         <Icon name="calendar-range" color="var(--ink2)" />
         <span className={s.title}>{cycle.name}</span>
-        <span className={s.dates}>{panelPeriod(cycle, today)}</span>
+        <span className={s.dates}>{cycle.startDate} – {cycle.endDate}</span>
         <span className={s.spacer} />
         <IconButton icon="x" label="分析を閉じる" onClick={onClose} />
       </header>
       <div className={s.body}>
         {analytics.error ? (
-          <ErrorMessage error={analytics.error} />
+          <><ErrorMessage error={analytics.error} /><button type="button" onClick={() => void analytics.refetch()}>再試行</button></>
         ) : !data ? (
           <LoadingMessage />
         ) : (
           <>
+            <p className={s.empty}>{data.statusBasis === "migration_snapshot" ? `移行時の写し（${data.capturedAt ?? "取得時点不明"}）。終了時点の成果を示す値ではありません。` : "現在の採択集合"}</p>
+            <p className={s.empty}>履歴timezone: {data.history.timezone ?? "不明"}（{data.history.timezoneBasis === "requested" ? "指定による解釈" : data.history.timezoneBasis === "recorded" ? "記録値" : "未記録"}）</p>
+            <p className={s.empty}>取得イベント {data.history.recordedEventIds.length}件 / 関連未確定 {data.history.ambiguousEventIds.length}件</p>
             <section className={s.progress} aria-label="進捗">
-              <Metric label="Scope" color={CYCLE_COLORS.scope} value={data.scope} sub={formatScopeAdded(data.scopeAdded)} />
-              <Metric label="Started" color={CYCLE_COLORS.started} value={data.started} sub={formatRate(data.startedRate)} />
-              <Metric label="Completed" color={CYCLE_COLORS.completed} value={data.completed} sub={formatRate(data.completedRate)} />
+              <Metric label="Scope" color={CYCLE_COLORS.scope} value={data.scope} sub={data.scopeAdded === null ? "追加数は不明" : formatScopeAdded(data.scopeAdded)} />
+              <Metric label="Started" color={CYCLE_COLORS.started} value={data.started} sub={data.startedRate === null ? "不明" : formatRate(data.startedRate)} />
+              <Metric label="Completed" color={CYCLE_COLORS.completed} value={data.completed} sub={data.completedRate === null ? "不明" : formatRate(data.completedRate)} />
             </section>
-            <section aria-label="Cycle graph">
+            <section aria-label="Sprint graph">
               {data.burnup.length === 0 ? (
-                <p className={s.empty}>開始前です</p>
+                <p className={s.empty}>{data.history.unavailableReason === "timezone_unknown" ? "timezoneが未記録のため推移は不明" : "日次履歴は未記録です"}</p>
               ) : (
-                <CycleGraph analytics={data} startDate={cycle.startDate} endDate={cycle.endDate} today={today} />
+                <CycleGraph analytics={data} startDate={cycle.startDate} endDate={cycle.endDate} today={today} label="Sprint graph" showTarget={false} />
               )}
             </section>
             <Breakdown analytics={data} />
@@ -75,7 +78,7 @@ function Metric({ label, color, value, sub }: { label: string; color: string; va
 }
 
 // 内訳のタブ。←→・Home・End でタブを移る（WAI-ARIA の Tabs と同じ）
-function Breakdown({ analytics }: { analytics: CycleAnalytics }) {
+function Breakdown({ analytics }: { analytics: SprintAnalytics }) {
   const [tab, setTab] = useState<TabKey>("assignees");
   const id = useId();
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);

@@ -4,7 +4,7 @@ import { NodError } from "../errors";
 import { recordedTimestamp } from "../recorded-time";
 import { findWorkspace } from "./workspaces";
 import { isNoneRef } from "../none-ref";
-import { resolveCycle } from "./cycles";
+import { sprintIssueScope } from "./sprints";
 import { resolveMilestone } from "./milestones";
 import { resolveProject } from "./projects";
 
@@ -19,6 +19,7 @@ export interface StatsQuery {
   workspace?: string[]; // Workspace のキー。どれかに合うもの
   project?: string; // Project の名前か ID
   milestone?: string; // Milestone の ID か none（Milestone のない Issue）。名前は project を指定したときだけ（その Project の中で引く）
+  sprint?: string; // UUID・共通番号・current・none
   cycle?: string; // Cycle の ID・名前・current か none（Cycle のない Issue）。current は tz の今日で決める
   now?: Date; // テスト用。既定の範囲の基準
 }
@@ -51,14 +52,14 @@ export interface CompletionStats extends StatsRange {
   totals: Omit<CompletionBucket, "start" | "end">;
 }
 
-const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project", "milestone", "cycle"];
+const QUERY_KEYS = ["by", "from", "to", "tz", "workspace", "project", "milestone", "cycle", "sprint"];
 
 // API のクエリパラメータを StatsQuery にする。workspace だけは複数指定できる
 export function statsQueryFromParams(params: URLSearchParams): StatsQuery {
   const unknownKeys = [...new Set(params.keys())].filter((k) => !QUERY_KEYS.includes(k));
   if (unknownKeys.length) throw invalid(`${unknownKeys.join(", ")} は受け付けません（使えるもの: ${QUERY_KEYS.join(", ")}）`);
   const q: StatsQuery = {};
-  for (const key of ["by", "from", "to", "tz", "project", "milestone", "cycle"] as const) {
+  for (const key of ["by", "from", "to", "tz", "project", "milestone", "cycle", "sprint"] as const) {
     const values = params.getAll(key);
     if (values.length > 1) throw invalid(`${key} は1つだけ指定してください`);
     if (values[0] !== undefined) (q as Record<string, string>)[key] = values[0];
@@ -151,7 +152,7 @@ export function statsFrame(q: StatsQuery): StatsFrame {
 // Workspace・Project・Milestone・Cycle の絞り込みを SQL の条件にする。i は issues の別名
 export function issueScope(
   db: Database,
-  q: Pick<StatsQuery, "workspace" | "project" | "milestone" | "cycle" | "tz" | "now">,
+  q: Pick<StatsQuery, "workspace" | "project" | "milestone" | "cycle" | "sprint" | "tz" | "now">,
 ): { where: string; params: (string | number)[] } {
   const where: string[] = [];
   const params: (string | number)[] = [];
@@ -185,20 +186,18 @@ export function issueScope(
       params.push(milestone.id);
     }
   }
-  if (q.cycle !== undefined) {
-    if (!q.cycle.trim()) throw invalid("Cycle を指定してください");
-    if (isNoneRef(q.cycle)) where.push("i.cycle_id IS NULL");
-    else {
-      where.push("i.cycle_id = ?");
-      params.push(resolveCycle(db, q.cycle, { tz: q.tz, now: q.now }).id);
-    }
+  if (q.cycle !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleの分析条件は廃止されました。Sprintを指定してください");
+  if (q.sprint !== undefined) {
+    const scope=sprintIssueScope(db,q.sprint,{now:q.now});
+    where.push(scope.where);
+    params.push(...scope.params);
   }
   return { where: where.map((w) => ` AND ${w}`).join(""), params };
 }
 
-// 作業時間の終点。最後の完了報告（旧記録はレビュー提出）、なければ完了時刻
+// 作業時間の終点。最後の完了報告（識別子のない旧レビュー提出を含む）、なければ完了時刻。新しいPRレビュー入りは終点にしない
 export const WORK_END_SQL = `COALESCE((SELECT e.created_at FROM events e WHERE e.issue_id = i.id AND e.type = 'status_changed'
-  AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL)) ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
+  AND ((json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL) OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL)) ORDER BY e.id DESC LIMIT 1), i.closed_at)`;
 
 // 分単位の作業時間。分未満を切り捨て、記録から求められなければ null
 export function workMinutes(startedAt: string | null, endAt: string | null): number | null {
@@ -315,7 +314,7 @@ export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
   const events = db.query(`SELECT e.type, e.actor, json_extract(e.data, '$.to') AS "to", e.created_at
     FROM events e JOIN issues i ON i.id = e.issue_id
     WHERE ((e.type = 'assignee_changed' AND ${LLM_ASSIGNEE})
-      OR (e.type = 'status_changed' AND e.actor <> ? AND (json_extract(e.data, '$.to') = 'in_review' OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
+      OR (e.type = 'status_changed' AND e.actor <> ? AND ((json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL) OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
       AND e.created_at >= ? AND e.created_at < ?${scope.where}`)
     .all(HUMAN_ACTOR, frame.since, frame.until, ...scope.params) as
     { type: string; actor: string; to: string; created_at: string }[];

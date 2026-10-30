@@ -10,7 +10,7 @@ interface StatsOptions {
   tz?: string;
   project?: string;
   milestone?: string;
-  cycle?: string;
+  sprint?: string;
   allWorkspaces?: boolean;
 }
 
@@ -21,8 +21,8 @@ function withStatsOptions(cmd: Command): Command {
     .option("--to <date>", "終了日 YYYY-MM-DD（この日を含む、既定は今日）")
     .option("--tz <zone>", "期間の境界に使うタイムゾーン（IANA の名前、既定はこのマシンのローカル）")
     .option("--project <project>", "Project の名前か ID")
+    .option("--sprint <sprint>", "SprintのUUID・共通番号・current・none")
     .option("--milestone <milestone>", "Milestone の ID か名前（名前は --project の Project の中で引く）、none は Milestone のない Issue")
-    .option("--cycle <cycle>", "Cycle の ID・名前・current、none は Cycle のない Issue")
     .option("--all-workspaces", "すべての Workspace を集計する（既定は現在の Workspace）");
 }
 
@@ -39,7 +39,7 @@ function statsQuery(cli: Cli, cmd: Command): StatsQuery {
     tz: o.tz,
     project: o.project,
     milestone: o.milestone,
-    cycle: o.cycle,
+    sprint: o.sprint,
     workspace: o.allWorkspaces ? undefined : [currentWorkspace(cli, cmd).key],
   };
 }

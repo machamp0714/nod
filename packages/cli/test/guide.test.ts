@@ -10,10 +10,13 @@ describe("手引き", () => {
     }
   });
 
-  test("LLMが直接完了し、PR操作は状態を変えず、旧レビュー操作を案内しない", () => {
+  test("PRのレビュー提出と完了を分け、PR不要なら直接完了できる", () => {
     expect(GUIDE).toContain("LLM も直接 done にできる");
     expect(GUIDE).toContain("PR の紐付けと状態取得は Issue のステータスを変えない");
-    for (const removed of ["nod review", "in_review", "nod automation undo", "nod git sync", "レビューに回す", "レビュー提出", "done にするのは人"]) {
+    expect(GUIDE).toContain("nod issue update <id> --status in_review");
+    expect(GUIDE).toContain("merge と Issue の完了条件");
+    expect(GUIDE).toContain("PR が不要なら");
+    for (const removed of ["nod review", "nod automation undo", "nod git sync", "done にするのは人"]) {
       expect(GUIDE).not.toContain(removed);
     }
   });
@@ -52,7 +55,9 @@ test("Triageの3操作は LLM も実行できるが判断は人に依頼し、�
   expect(GUIDE).toContain("--milestone <名前かID>");
   expect(GUIDE).toContain("nod issue list --milestone <ID|none>");
   expect(GUIDE).toContain("`remove`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
-  expect(GUIDE).toContain("`delete`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）");
+  expect(GUIDE).toContain("旧`nod cycle`・`--cycle`・周期の自動作成と自動持ち越しは廃止済み");
+  expect(GUIDE).toContain("nod sprint list|show <sprint>");
+  expect(GUIDE).toContain("nod issue list|stats|summary --sprint <sprint>");
 });
 
 test("LLM も nod issue update --status で Triage から出せ、bulk-update では誰も出せないと案内する", () => {

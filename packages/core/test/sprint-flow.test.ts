@@ -1,0 +1,33 @@
+import { expect, test } from "bun:test";
+import * as core from "../src/index";
+import { setup } from "./helpers";
+import { acceptPreparedSprint, prepareSprint, sprintTestClock } from "./fixtures/sprint-start";
+
+test("Sprintフローは開始前の表示案と開始後の採用中計画を分け、Project横断と外部前提を読取だけで返す", () => {
+  const { db, ws, me } = setup();
+  const aProject = core.createProject(me, { name: "第一" });
+  const bProject = core.createProject(me, { name: "第二" });
+  const prerequisite = core.createIssue(me, { workspaceId: ws.id, title: "外部前提" });
+  core.updateIssue(me, prerequisite.id, { status: "done" });
+  const a = core.createIssue(me, { workspaceId: ws.id, title: "第一の仕事", projectRef: String(aProject.id) });
+  const b = core.createIssue(me, { workspaceId: ws.id, title: "第二の仕事", projectRef: String(bProject.id) });
+  const candidate = core.createIssue(me, { workspaceId: ws.id, title: "候補のみ" });
+  core.relateIssue(me, prerequisite.id, { blocks: a.id });
+  core.relateIssue(me, a.id, { blocks: b.id });
+  const prepared = prepareSprint(me, ws.key, [a.id, b.id, candidate.id]);
+  const proposed = core.proposeSprintPlan(me, prepared.sprint.id, { ...prepared.input, expectedVersion: prepared.sprint.version, requestKey: "2件", items: prepared.input.items.slice(0, 2) });
+  const preview = core.getSprintFlow(me, proposed.sprint.id);
+  expect(preview).toMatchObject({ planId: proposed.plan.id, mode: "planned", selectedCount: 2 });
+  expect(preview.nodes.map(n => [n.id, n.external])).toEqual([[a.id, false], [b.id, false], [prerequisite.id, true]]);
+  expect(preview.edges).toEqual([{ from: prerequisite.id, to: a.id }, { from: a.id, to: b.id }]);
+  expect(preview.nodes.find(n => n.id === prerequisite.id)?.status).toBe("done");
+  const ready = core.acceptSprintPlan(me, proposed.sprint.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
+  const active = core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
+  const changed = core.proposeSprintPlan(me, active.id, { ...prepared.input, expectedVersion: active.version, requestKey: "追加案" });
+  const flow = core.getSprintFlow(me, active.id, changed.plan.id, sprintTestClock);
+  expect(flow).toMatchObject({ planId: proposed.plan.id, mode: "adopted", selectedCount: 2, observedAt: sprintTestClock.now.toISOString() });
+  expect(flow.nodes.some(n => n.id === candidate.id)).toBe(false);
+  expect(core.getSprint(db, active.id).version).toBe(changed.sprint.version);
+  expect(core.getSprint(db, active.id).adoptedPlanId).toBe(proposed.plan.id);
+  db.close();
+});

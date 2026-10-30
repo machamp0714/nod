@@ -2,17 +2,23 @@
 // 1. 本物の server（C の startServer）を一時ファイルの DB で API_PORT に起動する。
 // 2. テストのデータを入れる口を CONTROL_PORT に開く。書き込みは server とは別の接続で行うため、
 //    nod を別の端末で実行したときと同じく data_version が変わり、SSE の change が届く。
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, relative } from "node:path";
 import * as core from "@nod/core";
 import { startServer } from "@nod/server";
 import { CTX_OPS, DB_OPS } from "./support/core-ops";
 import type { FakeTogglEntry, FakeTogglFailures, FakeTogglProject } from "./support/nod";
 import { type Dataset, datasetContext, wipe } from "./support/dataset";
+import { sprintExecutionFixture } from "./support/sprint-execution-fixture";
+import { seedSprintFixture, associateSprintFixture, removeSprintFixture } from "./support/sprint-fixture";
 import { API_PORT, CONTROL_PORT } from "./support/ports";
 
 const dir = process.env.NOD_E2E_DIR;
 if (!dir) throw new Error("NOD_E2E_DIR がありません（playwright.config.ts が設定する）");
+const canonicalTmp = realpathSync(tmpdir()), canonicalDir = realpathSync(dir);
+if (relative(canonicalTmp, canonicalDir).startsWith("..") || !basename(canonicalDir).startsWith("nod-e2e-")) throw new Error("e2e runtimeは実子TMPDIR内のnod-e2e-prefixへ隔離してください");
+console.log(JSON.stringify({ kind: "e2e-isolation", pid: process.pid, tmpdir: canonicalTmp, dir: canonicalDir, bun: Bun.version, noEnvDir: process.env.NOD_VITE_ENV_DIR }));
 const dbPath = join(dir, "nod.db");
 // web から作る Document も一時ディレクトリの下に置く（~/.local/share/nod/documents に書かない）
 const docsDir = join(dir, "documents");
@@ -132,12 +138,18 @@ async function reset(dataset: string): Promise<void> {
   wipe(db);
   rmSync(docsDir, { recursive: true, force: true });
   rmSync(attachmentsDir, { recursive: true, force: true });
-  if (dataset === "empty") return;
-  const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
-  mod.default(datasetContext(db, dir as string));
+  if (dataset !== "empty") {
+    const mod = (await import(`./datasets/${dataset}.ts`)) as { default: Dataset };
+    mod.default(datasetContext(db, dir as string));
+  }
+  // 旧版fixtureの転送が完了してから採番の単一行を補う。転送中に番号再利用のtriggerを発火させない。
+  db.run("INSERT OR IGNORE INTO sprint_number_sequence (id, next_number) SELECT 1, COALESCE(MAX(number), 0) + 1 FROM sprints");
 }
 
 function call(actor: string, op: string, args: unknown[]): unknown {
+  if (op === "activateSprint" && args[2]) {
+    args[2] = { now: new Date((args[2] as { now: string }).now) };
+  }
   const fn = (core as unknown as Record<string, AnyFn>)[op];
   if (fn && ctxOps.has(op)) return fn({ db, actor }, ...args);
   if (fn && dbOps.has(op)) return fn(db, ...args);
@@ -163,6 +175,18 @@ const control = Bun.serve({
         await server.stop();
         server = serve();
         return Response.json({ ok: true });
+      }
+      if (req.method === "POST" && path === "/sprint-execution") {
+        const body = await req.json() as { sprintId: string; action: "stale" | "unknown" | "unavailable" | "complete" };
+        if (!["stale", "unknown", "unavailable", "complete"].includes(body.action)) throw new Error("未知の実行fixture操作です");
+        return Response.json(await sprintExecutionFixture(db, body.sprintId, body.action));
+      }
+      if (req.method === "POST" && path === "/sprint-fixture") {
+        const body = await req.json() as { op: "seed" | "associate" | "remove"; input: { name: string; startDate: string; endDate: string }; sprintId: string; issueRef: string };
+        if (body.op === "seed") return Response.json({ result: seedSprintFixture(db, body.input) });
+        if (body.op === "associate") { associateSprintFixture(db, body.sprintId, body.issueRef); return Response.json({ result: { ok: true } }); }
+        if (body.op === "remove") { removeSprintFixture(db, body.sprintId); return Response.json({ result: { ok: true } }); }
+        throw new Error("未知のfixture操作です");
       }
       if (req.method === "POST" && path === "/reset") {
         const { dataset } = (await req.json()) as { dataset: string };

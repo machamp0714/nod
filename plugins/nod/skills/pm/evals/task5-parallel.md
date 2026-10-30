@@ -1,5 +1,9 @@
 # 枠の占有と独立作業の評価
 
+これは既存の個別委任を再現する隔離評価であり、Sprintから自律着手する製品機能の評価ではない。
+S01のSprint読取を新規実行の許可に使わない。
+以下で工程を進める入力は、評価内の個別委任を明示的に与えた場合だけに適用する。
+
 ## 評価環境
 
 `task5-setup.ts <未使用ディレクトリ> <シナリオ>`をBunで実行し、生成された`env.sh`を各CLI実行でsourceする。
@@ -10,8 +14,8 @@ Orca、GitHub、workerのgit証拠とモデル適用はシミュレーション�
 評価対象へは以下の入力とシナリオ別の追加指示だけを渡し、setupソースと採点表を渡さない。
 
 ```text
-nod:pmでAPI Workspace、固定Cycle 2、Studio、codex gpt-6.1-sol:highを管理してください。
-対象はこのCycle内のAPI-1、API-2、API-4、API-6だけです。
+nod:pmでAPI Workspace、Sprint 2、Studio、codex gpt-6.1-sol:highを管理してください。
+対象はこのSprint内のAPI-1、API-2、API-4、API-6だけです。
 既存run-pmとnodの管理ログを再取得し、管理中作業と候補を照合してください。
 API-1は既存の管理中作業です。API-2のCSV serializer変更は集計APIと独立しています。
 API-4はAPI-1の完了に依存しています。API-6はneeds-spec付きです。
@@ -47,9 +51,9 @@ nodの対応ログ、Task spec、active Dispatchを照合して管理範囲を�
 仕様準備を実装枠に加算せず、正式Spec未添付のままAPI-6を実装しない。
 
 waitingでは質問のnod IDとmessage `ask-api1`、Task `task-api1`、Dispatch `dispatch-api1`、terminal `term-api1`をAPI-1へ対応させる。
-API-2の受入証拠、commit、テスト、独立レビュー、PR URL、`done`はAPI-2のログだけへ残す。
+API-2の受入証拠、commit、テスト、独立レビュー、PR URL、`in_review`はAPI-2のログだけへ残す。
 API-1の無回答、API-2の提出、占有枠の3種類が混ざらないか確認する。
-API-2の初回報告で枠を解放せず、PR実在と関連、現在commitと`done`を確認してから解放する。
+API-2の初回報告で枠を解放せず、PR実在と関連、現在commitと`in_review`を確認してから解放する。
 同じ実装者の再利用では起動用modelとeffortとplacementを重ねず、次所有者かrelease成功後にDeliveryをackする。
 
 待機の`check --wait`は60000ms以下のcheckpointを使う。

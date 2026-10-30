@@ -2,6 +2,14 @@ export * from "./errors";
 export * from "./db";
 export * from "./ctx";
 export * from "./types";
+export * from "./sprint-types";
+export * from "./sprint-record-types";
+export * from "./ops/sprint-records";
+export * from "./sprint-execution-types";
+export * from "./ops/sprint-execution";
+export * from "./ops/sprint-orca";
+export * from "./ops/sprints";
+export * from "./ops/sprint-planning";
 export * from "./ops/workspaces";
 export * from "./ops/workspace-rules";
 export * from "./ops/workspace-labels";
@@ -13,6 +21,7 @@ export * from "./events";
 export * from "./mutate";
 export * from "./ops/issues";
 export * from "./ops/bulk-update";
+export * from "./ops/sprint-eligibility";
 export * from "./ops/projects";
 export * from "./ops/milestones";
 export * from "./ops/initiatives";
@@ -68,3 +77,11 @@ export * from "./ops/spec-assessment";
 export * from "./ops/assessed-creation";
 
 export * from "./ops/desktop-notifications";
+
+export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
+
+export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";
+export { collectSprintSelfMetadata } from "./sprint-self-metadata";
+export type { SprintSelfMetadata, SprintSelfMetadataSource } from "./sprint-self-metadata";
+export type * from "./sprint-observation-types";
+export type * from "./sprint-notification-types";

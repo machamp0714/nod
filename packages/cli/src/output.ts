@@ -165,7 +165,7 @@ export function formatIssueListLines(issues: Issue[]): string[] {
   return issues.map((i, n) => {
     const candidate = i.completionCandidate ? " [完了候補]" : "";
     const priority = padEnd(PRIORITY_NAMES[i.priority] ?? "-", PRIORITY_WIDTH);
-    return `${padEnd(i.id, idWidth)}  ${padEnd(states[n] ?? "", stateWidth)}  ${priority}  ${padEnd(projects[n] ?? "-", projectWidth)}  ${i.title}${candidate}${questionCountTag(i.questionCount)}`;
+    return `${padEnd(i.id, idWidth)}  ${padEnd(states[n] ?? "", stateWidth)}  ${priority}  ${padEnd(projects[n] ?? "-", projectWidth)}  ${i.title}${candidate}${questionCountTag(i.questionCount)}${i.sprints?.length ? `  [Sprint ${i.sprints.map(s=>s.number).join(", ")}]` : ""}`;
   });
 }
 
@@ -319,7 +319,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (source) lines.push(`起票元: ${source}`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
-  if (d.cycle) lines.push(`Cycle: ${d.cycle.name}`);
+  if (d.sprints.length) lines.push(`Sprint: ${d.sprints.map(s=>`${s.number} ${s.name}（${s.association}）`).join("、")}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);
   if (d.prUrl && prStatusLine) lines.push(prStatusLine);

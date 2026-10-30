@@ -31,7 +31,7 @@ describe("ステータス遷移ルールAPI（#73）", () => {
       { forbidden: "x" },
       { forbidden: [{ from: "todo" }] },
       { forbidden: [["todo", "done"]] },
-      { forbidden: [{ from: "in_review", to: "done" }] },
+      { forbidden: [{ from: "unknown_status", to: "done" }] },
       { presets: ["nope"] },
       { presets: ["review_before_done"] },
       { presets: "review_before_done" },

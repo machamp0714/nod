@@ -10,6 +10,8 @@ import {
   bulkUpdateIssues,
   askQuestion,
   commentIssue,
+  completeIssue,
+  startIssue,
   copyIssueWithAssessment,
   linkPr,
   declineTriage,
@@ -66,7 +68,14 @@ const UPDATE_KEYS = [
   "reason",
 ] as const;
 
+function rejectCycleInput(b: Body): void {
+  if (Object.hasOwn(b, "cycleRef")) {
+    throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補・採択操作へ移行してください");
+  }
+}
+
 function toUpdateInput(b: Body): UpdateIssueInput {
+  rejectCycleInput(b);
   const status = optString(b, "status");
   if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
     throw invalid(`ステータス「${status}」は使えません（使えるもの: ${STATUSES.join(", ")}）`);
@@ -90,6 +99,8 @@ function toUpdateInput(b: Body): UpdateIssueInput {
 }
 
 const OPS: Record<string, Op> = {
+  start: { keys: [], run: (me, ref) => startIssue(me, ref) },
+  done: { keys: ["summary", "prUrl"], run: (me, ref, b) => completeIssue(me, ref, { summary: reqString(b, "summary"), prUrl: optString(b, "prUrl") }) },
   "assess-spec": { keys: [], run: (me, ref, _body, client) => retryIssueAssessment(me, ref, client) },
   ask: { keys: ["question"], run: (me, ref, b) => askQuestion(me, ref, reqString(b, "question")) },
   answer: {
@@ -172,6 +183,7 @@ export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void
       throw new NodError("NOT_FOUND", `操作 ${name} はありません（使えるもの: ${Object.keys(OPS).join(", ")}）`);
     }
     const body = await readBody(c, op.keys);
+    rejectCycleInput(body);
     return c.json(await op.run(me, c.req.param("id"), body, client), op.created ? 201 : 200);
   });
 }

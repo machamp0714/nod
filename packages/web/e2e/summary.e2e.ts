@@ -38,7 +38,7 @@ test("種類ごとの件数を人と LLM に分けて出し、各行から Issue
   await page.goto("/summary");
   await expect(page.getByRole("button", { name: "24h", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(card(page, "完了")).toContainText("1人 0 / LLM 1");
-  await expect(card(page, "完了報告")).toContainText("1人 0 / LLM 1");
+  await expect(card(page, "完了報告")).toHaveText("完了報告0人 0 / LLM 0");
   await expect(card(page, "質問/回答")).toContainText("2人 1 / LLM 1");
   await expect(card(page, "ブロッカー")).toContainText("1人 0 / LLM 1");
   await expect(card(page, "新規起票")).toContainText("3人 3 / LLM 0"); // アーカイブ済みの起票は既定で除く
@@ -151,4 +151,29 @@ test.describe("幅 900px", () => {
     expect(m.mainOverflow).toBe(0);
     expect(m.pageOverflow).toBe(0);
   });
+});
+
+
+test("PRレビュー入りと再提出を完了報告に数えず、Doneにしたときに完了へ表示する", async ({ page, nod }) => {
+  const api = await seedApiWorkspace(nod);
+  const issue = await api.startedIssue("レビュー指摘を修正して完了する");
+  await nod.claude.updateIssue(issue.id, { status: "in_review" });
+  await page.goto("/summary");
+  const expectUnfinished = async () => {
+    await expect(card(page, "完了報告")).toContainText("0人 0 / LLM 0");
+    await expect(card(page, "完了")).toContainText("0人 0 / LLM 0");
+    await expect(list(page, "完了報告")).toHaveCount(0);
+    await expect(list(page, "完了")).toHaveCount(0);
+  };
+  await expectUnfinished();
+  await nod.claude.startIssue(issue.id);
+  await nod.claude.updateIssue(issue.id, { status: "in_review" });
+  await page.reload();
+  await expectUnfinished();
+  await nod.claude.completeIssue(issue.id, { summary: "mergeと完了条件を確認" });
+  await page.reload();
+  await expect(card(page, "完了報告")).toContainText("0人 0 / LLM 0");
+  await expect(card(page, "完了")).toContainText("1人 0 / LLM 1");
+  await expect(list(page, "完了").locator('[data-kind="completed"]')).toContainText(issue.title);
+  await expect(list(page, "完了").locator('[data-kind="completed"]')).toContainText("In Review → Done");
 });

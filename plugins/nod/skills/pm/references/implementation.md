@@ -1,5 +1,9 @@
 # 実装依頼と提出の手順
 
+S01ではSprintからの新規自律実行を開始しない。
+この手順は移行前からある個別委任の権限と現在の所有者を照合した引継ぎ用である。
+Sprintの合意、採択、開始、実行監督が製品機能として接続済みとは扱わない。
+
 以下の`ORCA`には、このセッションで手引きを取得した実行ファイルを使う。
 現行の`orchestration`ガイドに加え、`references/coordinator-loop.md`、`references/placement-and-remote.md`、`references/messaging-and-gates.md`を読む。
 `ORCA orchestration worker-start --help`も読み、同じterminalの再利用に必要なworktree指定を確認する。
@@ -15,7 +19,7 @@
 
 | 必須項目 | 渡す内容 |
 | --- | --- |
-| 対象 | Issue ID、Workspace、固定Cycle、対象ファイルまたはコンポーネント |
+| 対象 | Issue ID、Workspace、Sprint参照、対象ファイルまたはコンポーネント |
 | 要求 | 既存specの内容。specがなければ本文の要求と完了条件の全文。既存planも使う |
 | 制約と担当範囲 | 変更できる場所、触らない場所、互換性、競合する作業、運用操作の禁止 |
 | 実行場所 | Studio、専用worktree、作業ブランチ。Airへの代替実行をしない |
@@ -23,7 +27,7 @@
 | 開始条件 | PMが要求値と実効値を照合してDispatchへ開始を通知するまで、実装、ファイル変更、`nod issue start`を行わない |
 | 実装と検証 | 開始後に`nod:implement <IssueID>`を使い、合意済み境界の必要なテスト、commit、手順内の初回独立レビューまで実施する |
 | 完了証拠 | Run、Task、Dispatch、worktree、terminal、現在commit、受け入れ証拠、実行コマンドとテスト結果、独立reviewerのidentity、レビューの基点と対象commit、StandardsとSpecの結果 |
-| 終了条件 | 初回レビューの指摘を勝手に修正せず報告。push、PR、nodへの提出はPMからの後続依頼を待つ。Orcaの`worker_done`後はidleにする |
+| 終了条件 | 初回レビューの指摘を勝手に修正せず報告。PRを含む依頼なので先にDoneにせず、push、PR、nodへの提出はPMからの後続依頼を待つ。Orcaの`worker_done`後はidleにする |
 
 新たな仕様や計画を作ること自体を着手条件に増やさない。
 PMは実装ファイルを変更しない。
@@ -44,7 +48,7 @@ Studio側が指定agentとモデル転送に対応することを、現行ガイ
 
 ```sh
 ORCA status --json
-ORCA orchestration run-create --objective "<Workspaceと固定CycleのIssue進行>" --retry-request <Run作成の操作相関ID> --json
+ORCA orchestration run-create --objective "<WorkspaceとSprint参照のIssue進行>" --retry-request <Run作成の操作相関ID> --json
 ORCA orchestration task-create --run <RunID> --spec "<上記の依頼全文と操作相関>" --retry-request <Task作成の操作相関ID> --json
 nod -w <Workspace> issue log <IssueID> "<RunとTask ID、起動操作相関、予約、起動前intent>" --kind progress
 ORCA orchestration worker-start --run <RunID> --task <記録済みTaskID> --on <Studio接続先> --worktree new-top-level --repo <取得したStudioのrepo selector> --name <Issue IDを含めない作業名> --agent <codexまたはclaude> --model <指定モデルID> --effort <指定effort> --retry-request <起動の操作相関ID> --json
@@ -100,7 +104,7 @@ PMは`nod:implement`に含まれる初回`nod:code-review`を重複起動しな�
 ## 同じ実装者へPR作業を渡す
 
 現在commitの条件が揃ったら、実装報告をnodへ記録し、同じagentへPR作業だけを依頼する。
-`nod:implement`が既にIssueをdoneにしていても、依頼済みのPR作業とOrcaの所有権処理は継続する。doneを理由に実装を始め直したり、完了を重ねたりしない。
+完了後に別途PR作成を依頼した場合も、依頼済みのPR作業とOrcaの所有権処理を継続し、レビュー依頼時に明示的にIn Reviewへ戻す。doneを理由に実装を始め直さない。
 その時点の実効設定を`worker-show --dispatch`で再取得し、元の`モデル:effort`と一致していることを確認する。
 不明、不一致、元agentの再利用が非対応なら提出を止め、別の実装者を黙って起動しない。
 修正確認を終えた元実装者がactiveな確認待機Dispatchを持つ場合は、その現所有者へsendでPR作業を渡す。
@@ -128,14 +132,14 @@ PR依頼には次の終了条件を明記する。
 - PRのURLと`headRefOid`、branch、base、openかつdraftではないことを確認し、pushした現在commitと照合する。
 - `nod issue link-pr <IssueID> <PR URL>`で関連づけ、`nod issue pr-status <IssueID> --refresh --json`で取得結果と状態を確認する。
 - PRの紐付けと状態取得はIssueの状態を変えない。取得失敗、別commit、draftならPR作業の完了としない。
-- 関連とPRの実在、現在commitの検証を確認したら、`nod issue done <IssueID> --summary "<検証結果と完了要約>"`で直接doneにする。既に`done`なら完了を重ねない。
+- 関連とPRの実在、現在commitの検証を確認したら、`nod issue update <IssueID> --status in_review`で明示的にIn Reviewへ移し、レビュー提出として報告する。提出しただけではDoneにしない。
 - GitHubのPR承認、マージ、本番反映は依頼された範囲に従う。PR URL、pushしたcommit、検証結果、nodの提出状態を報告してsettleする。
 
 ## 提出確認と終了
 
 PR作業の報告も新しいactive Dispatchと照合する。
-PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`done`を再確認する。
-タイトルやURLだけ、workerの「作成済み」だけでは完了にしない。
+PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`in_review`を再確認する。
+タイトルやURLだけ、workerの「作成済み」だけではレビュー提出済みと判断しない。
 nodへ対象commit、PR URL、両軸レビューとテストの参照、提出状態を残す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。
 PR作成後の応答喪失では[既存PRへの合流](recovery.md#pr結果不明から既存成果へ合流する)を先に行い、branchと現在headが一致する既存PRへの関連と提出状態だけを回復する。
@@ -146,3 +150,10 @@ releaseまたは次所有者の決定が成功したreceiptを確認してから
 先にackして、後からreleaseする順序にしない。
 Runの`worker-list --terminal-state reclaimable --include-remote --json`で所有者未決のterminalが残っていないことを確認する。
 提出先、対象commit、テストとレビュー、残る人の判断を報告する。
+
+## レビュー提出後の再開と完了
+
+mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <IssueID> --summary "<完了条件と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証・完了条件を満たして直接Doneにできる。PMのPR承認・マージ・本番反映を代行しない方針は維持し、この運用によって権限を追加しない。
+指摘対応は `nod issue start <IssueID>` でIn ReviewからIn Progressへ戻し、既存の着手条件と独立レビュー等の品質条件を守る。
+draftは原則In Progressのまま。mergeせずcloseして継続するならIn Progress、中止なら理由付きCanceled、後回しならTodo/Backlogに明示的に移す。reopen後はレビュー再開ならIn Review、修正ならIn Progressにする。
+PRの作成・紐付け・状態取得・取得失敗・merge・close・reopenでIssue状態を自動変更しない。PRなし・draftでも明示的なIn Review設定は可能で、PRの存在・mergeをシステムの必須条件にはしない。

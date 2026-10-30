@@ -1,3 +1,4 @@
+import { seedSprint, associateSprint, removeSprint } from "./support/nod";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { chooseDisplay, columnChip, displaySelect, displaySwitch, openDisplay, searchBox } from "./support/issue-list";
@@ -38,12 +39,12 @@ const rowMisalignment = (page: Page, rowSelector: string, itemSelector: string) 
     [rowSelector, itemSelector],
   );
 
-async function cycleDetailPath(nod: NodData): Promise<string> {
+async function sprintDetailPath(nod: NodData): Promise<string> {
   const [api] = (await nod.me.listWorkspaces()).filter((w) => w.key === "API");
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString("sv-SE");
-  const cycle = await nod.me.createCycle({ name: "Sprint 12", startDate: day(-3), endDate: day(3) });
-  for (const id of ["API-12", "API-8", "API-4"]) await nod.me.updateIssue(id, { cycleRef: String(cycle.id) });
-  return `/cycles/${cycle.id}`;
+  const sprint = await seedSprint({ name: "Sprint 12", startDate: day(-3), endDate: day(3) });
+  for (const id of ["API-12", "API-8", "API-4"]) await associateSprint(sprint.id, id);
+  return `/sprints/${sprint.id}`;
 }
 
 test("一覧は Header 44 の下に View Bar 43 を置き、件数カードと列見出しを出さず、行は 44、グループ見出しは 36", async ({ page }) => {
@@ -114,7 +115,7 @@ test("一覧は Header 44 の下に View Bar 43 を置き、件数カードと�
 test("ラベル、完了候補、ブロック元、プレビューのボタンがあっても行は 44 のまま", async ({ page, nod }) => {
   await nod.me.updateIssue("API-13", { addLabels: ["bug", "perf", "とても長いラベルの名前"] });
   await page.goto("/issues?tab=delegated");
-  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(4);
+  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(3);
   await page.goto("/issues");
   const rows = page.locator("main tbody tr[data-issue-row]");
   await expect(rows).toHaveCount(13);
@@ -371,7 +372,7 @@ test("Issue が 0 件の列は Hidden columns（幅 338、行の高さ 38、間�
     };
   });
   console.log(`[issues-layout] hidden columns ${JSON.stringify(m)}`);
-  expect(m.columns + m.rows).toBe(6);
+  expect(m.columns + m.rows).toBe(5);
   expect(m.rows).toBeGreaterThan(1);
   expect(m.width).toBe(338);
   expect(m.left).toBe(8);
@@ -386,12 +387,13 @@ test("Issue が 0 件の列は Hidden columns（幅 338、行の高さ 38、間�
 });
 
 // API の Workspace に Issue を n 件足す（すべて同じ Status の列に入る）
-async function addIssues(nod: NodData, n: number, extra: { projectRef?: string; cycleRef?: string } = {}): Promise<string[]> {
+async function addIssues(nod: NodData, n: number, extra: { projectRef?: string; sprintRef?: string } = {}): Promise<string[]> {
   const [api] = (await nod.me.listWorkspaces()).filter((w) => w.key === "API");
   const ids: string[] = [];
   for (let i = 1; i <= n; i++) {
     const issue = await nod.me.createIssue({ workspaceId: api!.id, title: `縦に積む Issue ${String(i).padStart(2, "0")}` });
-    if (extra.projectRef || extra.cycleRef) await nod.me.updateIssue(issue.id, extra);
+    if (extra.projectRef) await nod.me.updateIssue(issue.id, { projectRef: extra.projectRef });
+    if (extra.sprintRef) await associateSprint(extra.sprintRef, issue.id);
     ids.push(issue.id);
   }
   return ids;
@@ -452,10 +454,10 @@ test("グループのない Board で1列に 15 枚を超えるカードがあ�
   await expect(last).toBeInViewport({ ratio: 1 });
 });
 
-test("Project 詳細と Cycle 詳細の Board は内容の高さまで伸び、縦のスクロールは Main だけで二重にならない", async ({ page, nod }) => {
-  const cycle = await cycleDetailPath(nod);
-  await addIssues(nod, 15, { projectRef: "1", cycleRef: cycle.split("/").pop() });
-  for (const path of ["/projects/1", cycle]) {
+test("Project 詳細と Sprint 詳細の Board は内容の高さまで伸び、縦のスクロールは Main だけで二重にならない", async ({ page, nod }) => {
+  const sprint = await sprintDetailPath(nod);
+  await addIssues(nod, 15, { projectRef: "1", sprintRef: sprint.split("/").pop() });
+  for (const path of ["/projects/1", sprint]) {
     await page.goto(`${path}?layout=board`);
     await expect(page.locator("main article").filter({ hasText: "縦に積む Issue 15" })).toBeVisible();
     const m = await boardHeights(page);
@@ -640,11 +642,11 @@ test("一括編集のメニューで、長い Project 名は枠からはみ出�
   expect(await overflow(page)).toEqual({ page: 0, pageY: 0, main: 0 });
 });
 
-test("My issues、View、Project 詳細、Cycle 詳細も同じ型で、List と Board のどちらでも横スクロールが出ない", async ({ page, nod }) => {
+test("My issues、View、Project 詳細、Sprint 詳細も同じ型で、List と Board のどちらでも横スクロールが出ない", async ({ page, nod }) => {
   await nod.me.updateIssue("API-4", { assignee: "me" });
   await nod.me.updateIssue("NOD-5", { assignee: "me" });
-  const cycle = await cycleDetailPath(nod);
-  for (const path of ["/my-issues", "/views/1", "/projects/1", cycle]) {
+  const sprint = await sprintDetailPath(nod);
+  for (const path of ["/my-issues", "/views/1", "/projects/1", sprint]) {
     await page.goto(path);
     const rows = page.locator("main tbody tr[data-issue-row]");
     await expect(rows.first()).toBeVisible();

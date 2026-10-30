@@ -8,8 +8,10 @@
 
 ```sh
 nod workspace list --json
-nod cycle show <固定CycleID> --json
-nod -w <Workspace> issue list --cycle <固定CycleID> --json
+nod sprint list --json
+# 固定履歴の詳細を読む場合だけ、一覧で得たUUIDまたは共通番号を使う。
+nod sprint show <UUIDまたは共通番号> --json
+nod -w <Workspace> issue list --sprint <Sprint参照> --json
 nod -w <Workspace> workspace spec-assessment show --json
 nod -w <Workspace> workspace rules show --json
 nod -w <Workspace> workspace transitions show --json
@@ -18,8 +20,14 @@ ORCA orchestration worker-list --include-remote --json
 ORCA terminal list --json
 ```
 
-CycleはWorkspaceに属さないため、`cycle show`に出た全件を対象にしない。
-`issue list`で指定Workspaceと固定Cycleを同時に絞り、候補の`workspace`と`cycle.id`も照合する。
+`Sprint参照`はUUID、共通番号、または`current`である。
+`current`は相対条件のまま再取得し、`sprint show current`や固定IDへの置換を行わない。
+importedはWorkspace未確定を許す共通履歴であり、一覧の全件を管理対象にしない。
+`issue list`で指定WorkspaceとSprintを同時に絞り、`workspace`と`sprints`の関連を照合する。
+currentは完了済みを含む全状態を読むが、候補だけ、imported、終了、中止を含めない。
+現在Sprintなしと取得失敗を区別し、履歴や候補を代わりの実行対象にしない。
+S01では以下の分類や仕様判定の回復を新規自律実行の許可に使わない。
+既存実行は検索集合から消えても、管理記録のIssue IDとRun、Task、Dispatchから別に照合する。
 必要なら`--status`で状態を明示し、既存の管理記録にあるIssueは`show`で別に確認する。
 `--ready`は補助的な絞り込みであり、担当、needs-spec、通常のコード実装か、管理外セッションの保護を置き換えない。
 
@@ -57,7 +65,8 @@ specやplanがなければ、本文の要求と完了条件を正本にする。
 人への相談は[質問の手順](questions.md)で番号選択肢、推奨、理由、決定後の動作を添える。
 needs-spec付きの進行を任されている場合は[仕様準備の手順](specification.md)へ渡す。
 管理外や人待ちと確定したIssueへ、副作用のある再判定や担当変更を使って着手条件を作らない。
-実効的な初回判定の回復は、次の手順で候補ごとに行う。
+S01の読取では判定状態を報告する。
+次の回復手順は既存の個別委任で必要な場合だけ使い、新規Sprintからの着手条件を作らない。
 
 ## 初回仕様判定の回復
 

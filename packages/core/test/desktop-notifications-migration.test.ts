@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { openDb, schemaVersion } from "../src/db";
+import { openDb, schemaVersion, SCHEMA_VERSION } from "../src/db";
 import { getDesktopNotificationSettings } from "../src/ops/desktop-notifications";
 import { getIssue } from "../src/ops/issues";
 import { listNotifications } from "../src/ops/notifications";
@@ -11,7 +11,7 @@ import { tempDbPath } from "./helpers";
 
 afterEach(() => setSystemTime());
 
-test("本番の版40から通知を導入し、既存データと版40のバックアップを保ちレビュー状態を復活させない", () => {
+test("本番の版40から通知を導入し、既存データと版40のバックアップを保ち完了済みの状態を変えない", () => {
   setSystemTime(new Date("2026-10-20T03:00:00Z"));
   const path = tempDbPath();
   const old = new Database(path);
@@ -37,11 +37,15 @@ test("本番の版40から通知を導入し、既存データと版40のバッ�
   const db = openDb(path);
   old.close();
   expect(getDesktopNotificationSettings(db)).toEqual({ enabled: false, lastEnabledAt: null });
-  expect(schemaVersion(db)).toBe(42);
-  expect(retainedTables.map(table => db.query(`SELECT * FROM ${table}`).all())).toEqual(before);
+  expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
+  const preserved=retainedTables.filter(table=>table!=="cycles" && table!=="cycle_cadence");
+  expect(preserved.map(table=>db.query(`SELECT * FROM ${table}`).all())).toEqual(preserved.map(table=>{
+    const rows=before[retainedTables.indexOf(table)]!;
+    return table==="issues" ? rows.map(row=>{const {cycle_id,...kept}=row as Record<string,unknown>;return kept;}) : rows;
+  }));
   expect(getIssue(db, "NOD-1")).toMatchObject({ status: "done", closedAt: "2026-10-19" });
   expect(listNotifications(db)).toMatchObject([{ kind: "reminder", data: { note: "既存の通知" } }]);
-  expect(() => db.exec("UPDATE issues SET status='in_review' WHERE id=1")).toThrow();
+  expect(() => db.exec("UPDATE issues SET status='unknown_status' WHERE id=1")).toThrow();
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
 
   const backups = readdirSync(join(dirname(path), "backups"));
