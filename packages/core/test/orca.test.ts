@@ -9,7 +9,6 @@ import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
 import { cdCommand, createOrcaWorktree, getWorktreeName, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
-import { findWorkspace, listWorkspaces, setWorkspaceDefaultAgent } from "../src/ops/workspaces";
 import { codeOf, setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
@@ -302,18 +301,6 @@ describe("createOrcaWorktree（#210）", () => {
     expect(seen[0]?.args).toEqual(["worktree", "create", "--repo", "path:/tmp/repos/codex-default", "--name", "x-a67fefb7", "--no-parent", "--agent", "omp", "--surface", "terminal", "--activate", "--json"]);
     for (const flag of ["--model", "--prompt", "--effort"]) expect(seen[0]?.args).not.toContain(flag);
     expect(seen[0]?.timeoutMs).toBe(60_000);
-  });
-
-  test("Workspace の既定エージェントは claude で始まり、人だけが claude・codex に変えられる", () => {
-    const { db, me, llm, ws } = setup();
-    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("claude");
-    expect(setWorkspaceDefaultAgent(me, ws.key, "codex")).toMatchObject({ key: ws.key, defaultAgent: "codex" });
-    expect(listWorkspaces(db)[0]?.defaultAgent).toBe("codex");
-    const codeOf = (fn: () => unknown) => { try { fn(); } catch (e) { return (e as { code?: string }).code; } return undefined; };
-    expect(codeOf(() => setWorkspaceDefaultAgent(me, ws.key, "gemini"))).toBe("INVALID_ARGS");
-    expect(codeOf(() => setWorkspaceDefaultAgent(llm, ws.key, "claude"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => setWorkspaceDefaultAgent(me, "NOPE", "claude"))).toBe("NOT_FOUND");
-    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("codex");
   });
 
   test("ブランチが refs/heads/ で始まらなければそのまま、無ければ null を記録する", async () => {

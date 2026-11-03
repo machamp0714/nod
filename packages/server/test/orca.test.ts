@@ -83,7 +83,7 @@ describe("Orca で作業を始める API（#210）", () => {
         return { kind: "timeout" };
       }, null);
       const before = getIssue(s.db, s.ref);
-      const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, { agent: "codex" });
+      const res = await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, {});
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({ created: true, worktree: NEW_WT, failure: null });
       expect(res.json.displayNameWarning.message).toContain("表示名を設定できませんでした");
@@ -92,7 +92,7 @@ describe("Orca で作業を始める API（#210）", () => {
       expect(getIssue(s.db, s.ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
       expect((await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, {})).json.failure.code).toBe("WORKTREE_ALREADY_RECORDED");
       expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create", "worktree set", "terminal wait"]);
-      expect(calls[0]?.[8]).toBe("codex");
+      expect(calls[0]?.slice(7, 11)).toEqual(["--agent", "omp", "--surface", "terminal"]);
     }
   });
 
@@ -186,7 +186,7 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ issueId: ref, created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "omp", "--surface", "terminal", "--activate", "--json"],
       ["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", "API-1 検索", "--json"],
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", ref, "--json"],
@@ -194,29 +194,9 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(getIssue(db, ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
   });
 
-  test("エージェントは body の agent、無ければ Workspace の既定（PUT default-agent で変える）", async () => {
-    const { orca, calls } = recording();
-    const s1 = withOrca(orca, null);
-    const put = await call(s1.app, "PUT", `/api/workspaces/${s1.ws.key}/default-agent`, { agent: "codex" });
-    expect(put.status).toBe(200);
-    expect(put.json).toMatchObject({ key: s1.ws.key, defaultAgent: "codex" });
-    expect((await call(s1.app, "GET", "/api/workspaces")).json[0].defaultAgent).toBe("codex");
-    await call(s1.app, "POST", `/api/issues/${s1.ref}/orca-worktree`, { feature: "x" });
-    expect(calls[0]?.slice(7, 9)).toEqual(["--agent", "codex"]);
-    const s2 = withOrca(orca, null);
-    await call(s2.app, "POST", `/api/issues/${s2.ref}/orca-worktree`, { feature: "x", agent: "codex" });
-    expect(calls.filter((args) => args[1] === "create")[1]?.slice(7, 9)).toEqual(["--agent", "codex"]);
-    expect((await call(s2.app, "GET", "/api/workspaces")).json[0].defaultAgent).toBe("claude");
-  });
-
-  test("既定エージェントの不正な値は 400、存在しない Workspace は 404", async () => {
+  test("既定のエージェントを変える PUT default-agent はもう無い", async () => {
     const { app, ws } = withOrca(null, null);
-    for (const body of [{ agent: "gemini" }, { agent: 1 }, {}, { agent: "codex", extra: 1 }]) {
-      const res = await call(app, "PUT", `/api/workspaces/${ws.key}/default-agent`, body);
-      expect([body, res.status, res.json.error?.code]).toEqual([body, 400, "INVALID_ARGS"]);
-    }
-    expect((await call(app, "PUT", "/api/workspaces/NOPE/default-agent", { agent: "codex" })).status).toBe(404);
-    expect((await call(app, "GET", "/api/workspaces")).json[0].defaultAgent).toBe("claude");
+    expect((await call(app, "PUT", `/api/workspaces/${ws.key}/default-agent`, { agent: "codex" })).status).toBe(404);
   });
 
   test("実行場所が記録済みなら orca を呼ばず、200 で failure を返す", async () => {
@@ -299,10 +279,11 @@ describe("Orca で作業を始める API（#210）", () => {
     expect(res.json.failure.message).toContain(NEW_WT);
   });
 
-  test("feature が使えない文字を含む・文字列でない要求は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {
+  test("feature が使えない文字を含む・文字列でない要求と、agent を含む要求（値によらない）は 400 で、orca を呼ばない。存在しない Issue は 404", async () => {
     const { orca, calls } = recording();
     const { app, ref } = withOrca(orca, null);
-    for (const body of [{ feature: "Bad_Name" }, { feature: "a b" }, { feature: 1 }, { feature: "x", agent: "gemini" }, { feature: "x", agent: 1 }, { feature: "x", extra: 1 }]) {
+    const agentBodies = ["claude", "codex", "omp", "gemini", 1].flatMap((agent) => [{ agent }, { feature: "x", agent }]);
+    for (const body of [{ feature: "Bad_Name" }, { feature: "a b" }, { feature: 1 }, { feature: "x", extra: 1 }, ...agentBodies]) {
       const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, body);
       expect([body, res.status, res.json.error?.code]).toEqual([body, 400, "INVALID_ARGS"]);
     }
