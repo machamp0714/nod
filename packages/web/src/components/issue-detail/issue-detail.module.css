@@ -1311,6 +1311,11 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .githubFindings { align-self: stretch; border: 1px solid var(--fail); border-radius: var(--radius-md); padding: 8px 12px; font-size: 12px; }
 .githubFindings ul { margin: 4px 0 0; padding-left: 16px; }
 .githubFindingsHead { margin: 0; font-weight: 600; color: var(--fail); }
+.githubChanges { align-self: stretch; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; font-size: 12px; }
+.githubChanges ul { margin: 4px 0 0; padding-left: 16px; }
+.githubChanges code, .githubFindings code { overflow-wrap: anywhere; }
+.githubChangesHead { margin: 0; font-weight: 600; }
+.githubRevert { display: flex; gap: 6px; flex-wrap: wrap; }
 .githubFindingAt { font-variant-numeric: tabular-nums; }
 .githubRow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .githubLinked { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }

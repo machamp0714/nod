@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ApiError } from "../api/client";
-import type { LeakFinding } from "../api/types";
+import type { GithubDraftChange, LeakFinding } from "../api/types";
 import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, splitBlockers, unlinkConfirmText } from "./github-publish";
 
 const finding: LeakFinding = { field: "body", line: 2, column: 3, text: "NOD-1", rule: "issue_id", reason: "r" };
@@ -40,6 +40,9 @@ test("検出あり・検査失敗・送信中・宛先やアカウントがな�
 test("表示用の文字列", () => {
   expect(findingLocation(finding)).toBe("本文 2 行 3 桁");
   expect(findingLocation({ ...finding, field: "title", line: 1, column: 1 })).toBe("タイトル 1 行 1 桁");
+  // 整えた箇所も同じ書き方で、元の文面の位置を示す
+  const change: GithubDraftChange = { field: "body", line: 1, column: 1, before: "NOD-1", after: "この Issue", rule: "issue_id", reason: "r" };
+  expect(findingLocation(change)).toBe("本文 1 行 1 桁");
   expect(githubLinkLabel({ repo: "example/api-server", number: 41 })).toBe("example/api-server#41");
 });
 

@@ -2,15 +2,15 @@ import { useCallback, useEffect, useId, useReducer, useRef, useState } from "rea
 import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { checkGithubText, useClearGithubUnknown, useGithubPreview, useLinkGithub, usePublishGithub, useSetWorkspaceGithubRepo } from "../../api/hooks/github";
-import type { GithubPublishPreview, GithubPublishResult, LeakFinding } from "../../api/types";
+import type { GithubDraftChange, GithubPublishPreview, GithubPublishResult, LeakFinding } from "../../api/types";
 import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, splitBlockers } from "../../lib/github-publish";
 import { Button } from "../ui";
 import s from "./issue-detail.module.css";
 
 const CHECK_DEBOUNCE_MS = 400;
 
-// nod の Issue を GitHub Issue として作成する確認ダイアログ。宛先・アカウント・送る文面（その場で編集でき、保存しない）と、
-// nod の情報の検出結果を示す。検出なしの今の文面だけを送れる。結果不明のときは作成の代わりに復旧の操作（紐付け・解除）を出す
+// nod の Issue を GitHub Issue として作成する確認ダイアログ。宛先・アカウント・送る文面（GitHub 向けに整えた案から始まり、
+// その場で編集でき、保存しない）と、整えた箇所・nod の情報の検出結果を示す。検出なしの今の文面だけを送れる。結果不明のときは作成の代わりに復旧の操作（紐付け・解除）を出す
 export function GithubPublishDialog({ issueId, workspaceKey, onClose }: { issueId: string; workspaceKey: string; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -56,6 +56,23 @@ function FindingList({ findings }: { findings: LeakFinding[] }) {
   );
 }
 
+// 下見が GitHub 向けに書き換えた箇所。位置は nod の文面のもの
+function ChangeList({ changes }: { changes: GithubDraftChange[] }) {
+  if (!changes.length) return null;
+  return (
+    <div role="group" aria-label="GitHub 向けに整えた箇所" className={s.githubChanges}>
+      <p className={s.githubChangesHead}>GitHub 向けに整えた箇所（{changes.length} 件）</p>
+      <ul>
+        {changes.map((c) => (
+          <li key={`${c.field}:${c.line}:${c.column}:${c.rule}`}>
+            <span className={s.githubFindingAt}>{findingLocation(c)}</span> <code>{c.before}</code> → <code>{c.after}</code> — {c.reason}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; preview: GithubPublishPreview; onDone: () => void; onStale: () => void }) {
   const [title, setTitle] = useState(preview.title);
   const [body, setBody] = useState(preview.body);
@@ -69,6 +86,12 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
   // isPending が描画に反映される前の連打で、2回送らない
   const inFlight = useRef(false);
   const blocked = blockers.length > 0 || preview.ghError !== null;
+  // nod の文面・整えた案に戻す。編集と同じく、置き換えた文面を再検査するまで送れない
+  function replaceText(next: { title: string; body: string }) {
+    setTitle(next.title);
+    setBody(next.body);
+    dispatch({ type: "edited" });
+  }
   // 編集のたびに、少し待ってから今の版を server で再検査する。古い版の結果は reducer が捨てる
   useEffect(() => {
     if (check.status !== "checking") return;
@@ -146,7 +169,12 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
         <span>本文</span>
         <textarea rows={12} value={body} onChange={(e) => { setBody(e.target.value); dispatch({ type: "edited" }); }} />
       </label>
+      <div className={s.githubRevert}>
+        <Button size="sm" onClick={() => replaceText(preview.original)}>nod の文面に戻す</Button>
+        {preview.changes.length > 0 && <Button size="sm" onClick={() => replaceText({ title: preview.title, body: preview.body })}>整えた案に戻す</Button>}
+      </div>
       <p className={s.githubDialogNote}>ここで直した文面は送信にだけ使い、nod の本文は変えません</p>
+      <ChangeList changes={preview.changes} />
       {check.status === "checking" && <p className={s.githubDialogNote}>確かめています…</p>}
       {check.status === "error" && <p role="alert" className={s.error}>確かめられませんでした：{check.error}</p>}
       <FindingList findings={check.findings} />

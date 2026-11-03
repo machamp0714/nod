@@ -61,7 +61,8 @@ export function canSend(state: CheckState, opts: { sending: boolean; repo: strin
   return !opts.sending && !opts.blocked && opts.repo !== null && opts.ghLogin !== null && state.status === "clean" && state.checkedRevision === state.revision;
 }
 
-export function findingLocation(f: LeakFinding): string {
+// 検出（案の文面の位置）と整えた箇所（元の文面の位置）の位置を同じ書き方で示す
+export function findingLocation(f: Pick<LeakFinding, "field" | "line" | "column">): string {
   return `${f.field === "title" ? "タイトル" : "本文"} ${f.line} 行 ${f.column} 桁`;
 }
 

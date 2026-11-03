@@ -6,11 +6,13 @@ import { ghCalls, stubGhBy } from "./support/nod";
 // nod の Issue を GitHub Issue として作成する。e2e の server は実際の gh の代わりに stub の結果を返す（GitHub には触れない）
 const CREATED = `HTTP/2.0 201 Created\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ number: 41, html_url: "https://github.com/example/api-server/issues/41" })}`;
 
-test("検出で止まり、直すと作成でき、GitHub の行にリンクが出て、もう作成できない", async ({ page, nod }) => {
+test("整えた案から始まり、残った箇所で止まり、nod の文面に戻せて、直すと作成でき、GitHub の行にリンクが出て、もう作成できない", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   await nod.me.setWorkspaceGithubRepo("API", "example/api-server");
   const issue = await api.startedIssue("検索を速くする");
-  await nod.me.updateIssue(issue.id, { description: `${issue.id} の続き` });
+  const original = `${issue.id} の続き。#12 も見る`;
+  const draft = "この Issue の続き。#12 も見る";
+  await nod.me.updateIssue(issue.id, { description: original });
   await stubGhBy({
     "github.com user": { kind: "exited", exitCode: 0, stdout: "alice\n", stderr: "" },
     "-X POST": { kind: "exited", exitCode: 0, stdout: CREATED, stderr: "" },
@@ -22,12 +24,36 @@ test("検出で止まり、直すと作成でき、GitHub の行にリンクが�
   const dialog = page.getByRole("dialog", { name: "GitHub に Issue を作成" });
   await expect(dialog.getByText("example/api-server")).toBeVisible();
   await expect(dialog.getByText("alice")).toBeVisible();
+  const body = dialog.getByLabel("本文");
+  // 自身の ID は「この Issue」に整えた案が入り、整えた箇所を元の文面の位置で示す
+  await expect(body).toHaveValue(draft);
+  const changes = dialog.getByRole("group", { name: "GitHub 向けに整えた箇所" });
+  await expect(changes).toContainText("GitHub 向けに整えた箇所（1 件）");
+  await expect(changes.getByText("本文 1 行 1 桁")).toBeVisible();
+  await expect(changes.getByText("この Issue", { exact: true })).toBeVisible();
+  await expect(changes.getByText(issue.id, { exact: true })).toBeVisible();
+  // 参照先の repo が決まらない #12 は残り、送れない
   const findings = dialog.getByRole("group", { name: "nod の情報の検出結果" });
-  await expect(findings.getByText("本文 1 行 1 桁")).toBeVisible();
+  await expect(findings.getByText("#12", { exact: true })).toBeVisible();
+  await expect(findings.getByText(issue.id, { exact: true })).toHaveCount(0);
   const send = dialog.getByRole("button", { name: "GitHub に作成する" });
   await expect(send).toBeDisabled();
 
-  await dialog.getByLabel("本文").fill("続きの作業");
+  // nod の文面に戻すと、自身の ID も検出され、送れない
+  await dialog.getByRole("button", { name: "nod の文面に戻す" }).click();
+  await expect(body).toHaveValue(original);
+  await expect(findings.getByText(issue.id, { exact: true })).toBeVisible();
+  await expect(findings.getByText("#12", { exact: true })).toBeVisible();
+  await expect(send).toBeDisabled();
+
+  // 整えた案に戻すと、案の文面と検出に戻る
+  await dialog.getByRole("button", { name: "整えた案に戻す" }).click();
+  await expect(body).toHaveValue(draft);
+  await expect(findings.getByText(issue.id, { exact: true })).toHaveCount(0);
+  await expect(findings.getByText("#12", { exact: true })).toBeVisible();
+  await expect(send).toBeDisabled();
+
+  await body.fill("この Issue の続き");
   await expect(findings).toHaveCount(0);
   await expect(send).toBeEnabled();
   await send.click();
@@ -42,7 +68,7 @@ test("検出で止まり、直すと作成でき、GitHub の行にリンクが�
   await github.getByRole("button", { name: "やめる" }).click();
 
   // nod の本文は変わらない
-  expect((await nod.me.getIssue(issue.id)).description).toBe(`${issue.id} の続き`);
+  expect((await nod.me.getIssue(issue.id)).description).toBe(original);
 
   // もう一度開くと、すでに対応している理由を出して送れない
   await page.getByRole("button", { name: "Issueのメニュー" }).click();
