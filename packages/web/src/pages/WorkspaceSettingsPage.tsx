@@ -4,12 +4,10 @@ import { useSaveSpecAssessment } from "../api/hooks/spec-assessment";
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { errorMessage, isNotFoundError } from "../api/errors";
-import { useSaveDefaultAgent } from "../api/hooks/orca";
 import { useWorkspaces } from "../api/hooks/shared";
 import { useDeleteWorkspaceRules, useSaveWorkspaceRules, useWorkspaceRules } from "../api/hooks/workspace-rules";
 import type { Workspace, WorkspaceRules } from "../api/types";
 import { Button, Icon, PageError, PageHeader, PageLoading, RadioPills } from "../components/ui";
-import { ORCA_AGENT_OPTIONS } from "../lib/orca-feature";
 import { formatRulesCount, formatRulesUpdated, RULES_MAX_LENGTH, rulesEditState } from "../lib/workspace-rules";
 import { NotFoundMessage } from "./NotFoundPage";
 import { AutomationSection } from "./WorkspaceAutomationSettings";
@@ -69,7 +67,6 @@ export function WorkspaceSettingsPage() {
         <StatusNamesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TransitionRulesSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <TemplatesSection onSaved={setToast} />
-        <DefaultAgentSection workspace={workspace} onSaved={() => setToast("保存しました")} />
         <GithubRepoSection workspace={workspace} onSaved={setToast} />
         <AutomationSection workspace={workspace} onToast={setToast} />
         <RecurringSection workspace={workspace} onSaved={setToast} />
@@ -83,50 +80,6 @@ export function WorkspaceSettingsPage() {
         </div>
       )}
     </div>
-  );
-}
-
-// Issue 詳細の「Orca で作業を始める」（#210）で起動する既定のエージェント。選ぶとすぐ保存する（nod.pen に見本がなく、既存の節の書き方にならった）
-function DefaultAgentSection({ workspace, onSaved }: { workspace: Workspace; onSaved: () => void }) {
-  const titleId = useId();
-  const [error, setError] = useState<string | null>(null);
-  const save = useSaveDefaultAgent(workspace.key);
-  // 選んだ値をすぐ見せ、保存に失敗したら保存済みの値に戻す。保存済みの値が変わったら（別の場所での更新を含む）それに合わせる
-  const [chosen, setChosen] = useState(workspace.defaultAgent);
-  useEffect(() => setChosen(workspace.defaultAgent), [workspace.defaultAgent]);
-
-  async function choose(agent: Workspace["defaultAgent"]) {
-    if (agent === chosen) return;
-    setChosen(agent);
-    setError(null);
-    try {
-      await save.mutateAsync(agent);
-      onSaved();
-    } catch (err) {
-      setChosen(workspace.defaultAgent);
-      setError(errorMessage(err));
-    }
-  }
-
-  return (
-    <section className={s.section} aria-labelledby={titleId}>
-      <div className={s.sectionHeader}>
-        <h2 id={titleId} className={s.sectionTitle}>
-          Orca で起動するエージェント
-        </h2>
-        <p className={s.description}>Issue 詳細の「Orca で作業を始める」で起動する既定のエージェントです。作成するときに選び直せます。</p>
-      </div>
-      <div>
-        <RadioPills label="既定のエージェント" name={`default-agent-${workspace.key}`} items={ORCA_AGENT_OPTIONS} value={chosen}
-          disabled={save.isPending} onChange={(agent) => void choose(agent)} />
-      </div>
-      {error && (
-        <p role="alert" className={s.error}>
-          <Icon name="circle-alert" size={13} />
-          {error}
-        </p>
-      )}
-    </section>
   );
 }
 

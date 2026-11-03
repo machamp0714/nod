@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import type { OrcaAgent, Workspace } from "../types";
+import type { Workspace } from "../types";
 import { allocateWorkspaceColor } from "../workspace-colors";
 import { removeStoredFiles, workspaceAttachmentPaths } from "./attachments";
 
@@ -17,12 +17,11 @@ interface WorkspaceRow {
   path: string;
   color: string;
   spec_assessment_enabled: number;
-  default_agent: OrcaAgent;
   created_at: string;
 }
 
 function toWorkspace(r: WorkspaceRow): Workspace {
-  return { specAssessmentEnabled: r.spec_assessment_enabled === 1, id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, defaultAgent: r.default_agent, createdAt: r.created_at };
+  return { specAssessmentEnabled: r.spec_assessment_enabled === 1, id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, createdAt: r.created_at };
 }
 
 export function deriveKey(repoName: string): string | null {

@@ -51,7 +51,7 @@ describe("Orca で開く API（#52）", () => {
   });
 });
 
-describe("Orca で作業を始める API（#210）", () => {
+describe("Omp で作業を始める API（#210、NOD-61）", () => {
   const NEW_WT = "/tmp/orca/workspaces/api/API-1-search-n1";
   const created = ok({ worktree: { path: NEW_WT, branch: "refs/heads/machamp0714/API-1-search-n1" }, agentTerminalHandle: "term_new" });
 

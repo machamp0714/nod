@@ -12,7 +12,6 @@ export type {
   WorkspaceGithubRepoView,
   OrcaFailure,
   OrcaFailureCode,
-  OrcaAgent,
   OrcaOpenResult,
   OrcaWorktreeResult,
   OrcaTerminal,
