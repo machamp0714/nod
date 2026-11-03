@@ -1,121 +1,131 @@
 # nod
 
-LLM（Claude Code、Codex）が作業し、人が判断するための個人用 Issue 管理ツール。
-LLM は CLI（`nod`）で Issue を起票し、着手し、確認を依頼し、完了を報告する。
-人は Web UI で、確認依頼への回答、Triage を行う。
-用語と UI は Linear に合わせ、データは SQLite に保存する。
+**人が判断し、AIエージェントがスクラムを進め、振り返りを次の働き方に反映する開発基盤。**
 
-## 使い方
+nodは、AIエージェントを中心としたスクラムの計画、実行、振り返りを支えるデスクトップアプリです。
+人が目的や方針を判断し、エージェントが実装や検証などの実務を進めます。
+スプリントの成果と進め方を振り返り、そこで得た知見をエージェントへの指示、スキル、開発手順、モデルの割り当てに反映することで、次のスプリントの働き方を改善していきます。
+
+## 解決したい課題と設計の意図
+
+AIとの対話だけで開発を進めると、仕様の決定、実装の途中経過、人への質問が会話の中に混在します。
+セッションや担当エージェントが変わるたびに、どこまで決まり、何が未完了なのかを説明し直すことになり、スプリントとしての継続的な改善も難しくなります。
+
+nodは、作業の単位をIssueに揃え、要求、仕様書、実装計画、判断の根拠、テスト結果を一つの文脈として紐付けます。
+人はデスクトップアプリから全体像を把握し、未確定の仕様の決定や、AIが発見した追加作業の採否といった判断に集中できます。
+エージェントはCLIから同じ情報を読み書きし、前の担当が残した記録と人の回答を確認して作業を引き継ぎます。
+
+さらに、計画から完了までの記録が構造化されて残るため、スプリントの振り返りで「成果物」と「エージェントの進め方」の両方を検証できます。
+振り返りの結果をエージェントの定義や手順書へ戻すことで、場当たり的な依頼ではなく、チームの開発基盤として育てていくことを意図しています。
+
+## スクラムにおける人とAIの分担
+
+計画から実行、レビュー、振り返りまでの各段階で、人とAIエージェントの役割を次のように分けています。
+
+| 段階 | 人が行うこと | AIエージェントが行うこと | nodに残るもの |
+| --- | --- | --- | --- |
+| 要求の整理 | 目的と優先順位を決める | 要望をIssueに整理し、受け入れ条件を具体化する | 要求、完了条件、親子関係、依存関係 |
+| 仕様と計画 | 選択肢を検討し、方針を決める | 不明点を質問し、仕様書と実装計画を作る | 質問への回答、仕様書、TaskとStep |
+| 実装と検証 | 必要な判断や追加指示を返す | 実装、テスト、進捗報告を行う | 作業ログ、判断根拠、検証結果 |
+| レビューと完了 | 変更内容と受け入れ条件を確認する | 規約と仕様への適合をレビューし、指摘に対応する | レビュー結果、PRへのリンク、完了報告 |
+| 振り返りと改善 | 成果と進め方を評価し、改善方針を決める | 作業記録や判断待ちの経緯を集約する | 指示、スキル、開発手順、モデル割り当ての改定内容 |
+
+
+
+## 主な機能
+
+これらの開発サイクルを回すために、nodは次の機能を備えています。
+
+- **Issueと依存関係の管理**：Workspaceごとに作業を管理し、Project、親子関係、依存関係、優先度で整理します。
+- **判断待ちの可視化**：AIからの質問と人の回答をIssueに残し、未回答や依存先の未完了を着手条件に反映します。
+- **文脈の引き継ぎ**：仕様書、実装計画、作業ログ、テスト結果をIssueに集約し、担当が変わっても同じ前提から再開できるようにします。
+- **人向けのデスクトップアプリとAI向けのCLI**：同じ作業情報を、人は画面から、エージェントはCLIから読み書きします。
+- **開発ワークフローのスキル**：バックログ作成から仕様検討、計画、実装、コードレビューまでの手順を定義し、エージェント間で揃えます。
+- **GitHubとの連携**：PRをIssueに紐付け、レビュー、CI、マージ状態や差分を取得します。
+
+## Ompによるエージェント管理と改善サイクル
+
+エージェントの管理と実行は [Omp](https://omp.sh/docs/agents-and-roles) に集約しています。  
+nodはスプリントやIssue、仕様、人の判断、振り返りの記録を担い、Ompは実務を行うエージェントの定義とモデルの割り当てを担います。
+
+Ompでは、**agent**に役割ごとの指示と使用できるツールを定義し、**role**に使用するモデルを定義します。
+agentからroleを参照する仕組みになっているため、作業手順や指示を保ったまま、割り当てるモデルだけを切り替えることができます。
+たとえば、実装担当のagentは`@task`、レビュー担当のagentは`@slow`といったroleを参照し、それぞれの特性に合ったモデルをあらかじめ割り当てて運用します。
+
+スプリントの振り返りでは、機能の完成度だけでなく、エージェントがどこで判断に迷ったか、手戻りがなぜ起きたかを確認します。
+その分析をもとに、Omp上のagentの指示、nodのスキルや開発手順、roleへのモデル割り当てを見直します。
+改定した設定を次のスプリントで試し、人とエージェントの協働の仕方を継続的に改善していきます。
+
+## 使い始める
+
+### 必要なもの
+
+- Apple Silicon搭載のMac
+- Bun、Git、Rust、Xcode Command Line Tools
+- AIと協働する場合は、Ompの実行環境とモデル提供サービスの認証
+- GitHub連携を使う場合は、認証済みのGitHub CLI（`gh`）
+
+### デスクトップアプリの導入
+
+nodはmacOS向けのTauri v2アプリです。
+現在はソースから手元のMacでビルドして使用します。
 
 ```sh
+git clone https://github.com/machamp0714/nod.git
+cd nod
 bun install
-cd packages/cli && bun link   # nod コマンドを使えるようにする
-cd <リポジトリ> && nod init    # Workspace として登録する（キーはリポジトリ名から作る）
+bun run desktop:deploy
 ```
 
-LLM には `skills/nod` を Agent Skill として読ませる（例：`~/.claude/skills/nod` にシンボリックリンクを張る）。
-DB は `~/.local/share/nod/nod.db` に作られ、`NOD_DB` で場所を変えられる。
-`nod issue pr-status --refresh` は `gh pr view` で PR の状態を読み取る。`NOD_GH` は gh の代わりに起動するコマンドを指定するテスト用の口で、通常は設定しない。
-`nod issue pr-diff --refresh` は `gh pr view` と `gh api`（compare、GET のみ）で PR の HEAD に固定した差分を読み取って保存する（ファイル 300 件・5 MB まで。`--file <パス>` でファイルごとの差分を出す。一覧の `--json` は patch を含まない）。
+導入処理はアプリをビルドして`~/Applications/nod.app`に配置し、起動します。
+CLI用の`~/.local/bin/nod`も、アプリ内の実行ファイルを呼び出すラッパーとして配置します。
+導入には未コミットの変更がない作業ツリーが必要です。
+既存アプリやCLIの置き換えを含む手順は、[デスクトップアプリの導入説明](packages/desktop/README.md#導入初回も更新も-desktopdeploy)を参照してください。
 
-### ワークフローのプラグイン（nod:backlog / pm / wayfinder / to-spec / to-plan / implement / code-review）
-
-バックログ作成・指定範囲の進行管理と、構想の整理→仕様→計画→実装→レビューを nod の Issue に記録しながら進めるスキル7つを、`plugins/nod` に置いている。
-Claude Code と Codex の両方から、GitHub のマーケットプレイスとして導入する。
-
-`nod:backlog <要望・会話・PRD>` は、利用者への価値と受け入れ条件が分かる Issue を作成する。
-起票前に `nod template list` と `nod template show <名前>` で登録済みテンプレートを確認し、その見出し・順序・項目を使う。
-未登録の場合はスキル内の標準テンプレートを使い、Story を自然な日本語で記述する。
-テンプレートの取得失敗時や候補を選べない場合は、未登録として進めず確認する。
-下書きだけの依頼では本文の提示までにし、起票後には本文・起票先と、Issue ID・タイトル・使用したテンプレートを確認して報告する。
-手順は[バックログ作成スキル](plugins/nod/skills/backlog/SKILL.md)にある。
-独立したLLMと一時DBでの評価方法と結果は[バックログの行動評価](plugins/nod/evals/backlog/README.md)にある。
-
-`nod:pm <Workspace> --sprint current --on Studio` は、Airで指定Workspaceの現在Sprintと採択済みIssueを読み、既存Orca実行を照合する。
-S01では計画合意、採択、開始、切替の公開操作は未接続であり、Sprintから新規workerを自律起動しない。
-移行したimportedは閲覧専用で、候補だけのIssueも自動着手の対象にしない。
-旧PMの既存実行はRun、Task、Dispatch、実行場所、requested/effectiveと所有者を照合して引き継ぐ。
-通信断や不明実行は予約と占有を保持し、移行やcurrentの空結果を終了証拠にしない。
-個別委任のモデルとeffortは利用者指定や合意済み方針を維持する。
-手順は[PMスキル](plugins/nod/skills/pm/SKILL.md)、隔離fixtureの境界と限界は[PM評価](plugins/nod/skills/pm/evals/README.md)にある。
-
-期間の履歴は`nod sprint list`と`nod sprint show <UUIDまたは共通番号>`、検索は`nod issue list --sprint <UUID|共通番号|current|none>`で読む。
-currentは完了済みを含む採択集合、noneは採択と移行の関連がないIssueを示す。
-旧`nod cycle`と`--cycle`、自動作成、持ち越し、期間への直接所属は廃止済みで、廃止案内を返して変更しない。
-移行前バックアップと旧版への復旧は[移行と復旧の手順](docs/sprint-history-migration.md)を参照する。
-
-`nod:wayfinder <構想またはマップの Issue ID>` は、大きな構想を判断用の親子 Issue と依存関係に分ける。子ごとに調査・試作・人との対話で方針を固め、別モデルの推奨も参考にする。モデル同士が一致しても、人の回答を待って判断する。判断用 Issue の全てに `to-spec` を実行する必要はなく、実装対象の仕様を詰める段階で `nod:to-spec` を使う。
+別のターミナルで、管理したいリポジトリをWorkspaceとして登録します。
 
 ```sh
-claude plugin marketplace add machamp0714/nod && claude plugin install nod@nod
-codex plugin marketplace add machamp0714/nod && codex plugin add nod@nod
+cd /path/to/your-project
+nod init
+nod issue create "検索結果を更新日時順に表示する"
+nod issue list
 ```
 
-スキルを変えたら、`plugins/nod/.claude-plugin/plugin.json`・`plugins/nod/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json`（2か所）の version を同じ値に上げる。Claude Code の `claude plugin update nod@nod` は version が変わらないと「already at the latest version」で反映しない。マージ後に `claude plugin marketplace update nod && claude plugin update nod@nod`、Codex は `codex plugin marketplace upgrade` で反映する。
+Workspaceは管理対象のリポジトリに対応します。
+Issueの要求と完了条件は、デスクトップアプリまたはCLIから記入します。
 
-### Issue の完了と PR
+### AIエージェントへの手引きの組み込み
 
-LLM も `nod issue done <id> --summary "<完了内容>"` で、着手中の Issue を直接 done にできる。
-作業報告は Activity に残り、親子関係・依存関係・作業時間の集計にも完了が反映される。
-PR は `nod issue link-pr <id> <url>` で紐付け、`nod issue pr-status <id> --refresh` で GitHub のレビュー・CI・マージ状態を確認する。
-PR の紐付け・状態取得やコミットを理由に Issue の状態が自動で変わることはない。
-GitHub の PR レビュー・マージと、`nod:code-review` によるコードレビューは、それぞれ独立した機能として使える。
-単一の実行ファイルは `bun run build` で `dist/nod` に作られる。
+CLIの基本的な操作手引きは[`skills/nod`](skills/nod/SKILL.md)に、開発工程ごとの手順は[`plugins/nod/skills`](plugins/nod/skills)にまとまっています。
+これらをOmpの各agentの指示やスキルに組み込むことで、すべてのエージェントが共通の手順でnodを操作できるようになります。
+利用するモデルの選択は、Ompのrole側で管理します。
 
-### LLM に定型作業を定期実行させる（#64）
+エージェントからnodのCLIを実行する際は、環境変数`NOD_ACTOR`で書き手を明示します。
+Ompのagentに対応する書き手名を設定し、誰がどの判断や作業を行ったかを記録します。
 
-nod は常駐せず、LLM のセッションも起動しない。定型作業は、担当に LLM を指定した定期Issueとして起票し、LLM が `nod issue next` で拾う。
+## 技術アーキテクチャ
 
-1. 作業の手順をテンプレートにする（任意・人だけ）。テンプレートは全 Workspace で共通で、既定では何も登録されていない。例を `docs/templates/` に置いている。
-   LLM はテンプレートを読めるが、登録・置き換え・削除（`nod template add` / `remove`）は `FORBIDDEN_FOR_LLM` になる。
-   Web の Workspace 設定の「テンプレート」からも、追加・本文の編集・削除ができる（名前は変えられない）。
+[技術アーキテクチャ図（draw.io形式）](docs/images/nod-architecture.drawio)
 
-   ```sh
-   nod template add 依存更新チェック --from docs/templates/dependency-update-check.md
-   nod template add 週次レポート --from docs/templates/weekly-report.md
-   ```
+デスクトップアプリはTauri v2を採用し、React製の画面を内蔵WebViewに表示します。
+アプリが同梱CLIの`nod ui`をsidecarとして起動し、画面はlocalhost上のHono APIと通信します。
+Tauri側がsidecarの起動、終了、異常終了時の再起動を管理します。
 
-2. 定期Issueを登録する（人だけ）。担当に LLM の書き手名（`claude-code`、`codex` など）を指定する。Web では Workspace 設定の「定期Issue」で、担当の候補から選ぶか書き手名を入力する。
+ターミナルやエージェントから使うCLIは、共通処理を直接呼び出します。
+デスクトップアプリとCLIは同じSQLiteデータベースを参照し、仕様書や添付資料はローカルファイルとして管理します。
+保存先を共有しているため、デスクトップアプリを終了していてもCLIから作業を継続できます。
 
-   ```sh
-   nod recurring add 依存更新チェック --template 依存更新チェック --every monthly --day 1 --start 2026-10-01 --assignee claude-code
-   nod recurring add 週次レポート --template 週次レポート --every weekly --weekday 月 --start 2026-10-05 --assignee claude-code
-   ```
+図のAIサービス欄には、利用しているサービス名を記載しています。
+サービスそのものと推論に使うモデルは区別しており、Ompのroleに対して各サービスで提供されるモデルを割り当てます。
 
-3. 人が `nod recurring run`（`nod automation run` にも含まれる。Web は Workspace 設定の「定期Issue」または「自動化」の「今すぐ実行」）を実行すると、発生日が来たものが起票される。
-   人の起票なので Triage を通らず todo で入り、担当の LLM だけが `nod issue next` で拾える（ほかの LLM には出ない）。
-   ただし遷移ルール（#73）で todo → in_progress を禁止している Workspace では、`nod issue next` は `TRANSITION_NOT_ALLOWED` になり着手できない。
-4. LLM は説明の手順に従って作業し、`nod issue done` で直接完了にする。LLM への手引きは `nod skills get nod` の「定期Issueで起票された定型作業の扱い」にある。
+外部サービスへの接続境界と経路は、用途ごとに次のように分かれています。
 
-確認は、`nod recurring show <id>`（前回の起票と次回の発生日）、`nod issue list --delegated`（LLM に委任中の Issue）、`nod issue show <id>`（Activity の created に `recurring_id` と発生日が残る）で行う。
-テンプレートが消えているなど起票できなかった定期Issueは、実行結果の `failed` に理由付きで出て、ほかの定期Issueは起票される。
+| 接続先 | 接続元と経路 | 用途と渡す情報 |
+| --- | --- | --- |
+| Claude Code / Codex / Google Antigravity | Ompでroleに割り当てたモデルへ接続 | エージェントに渡した依頼や、作業で参照する文脈をもとに推論する |
+| GitHub | nodの共通処理からGitHub CLI（`gh`）を実行 | Issueの取り込みと公開、PRの状態と差分の取得を行う。公開時はIssueのタイトルと本文を送る |
+| TypeSafe / Jev | nodの共通処理からHTTPSで接続 | 仕様要否判定が有効な場合にIssue本文を送る |
+| Toggl Track | nodの共通処理からHTTPSで接続 | 打刻の取得、開始、停止などの時間記録を操作する |
 
-### 人だけが行える操作と、その限界
-
-Workspace の作業規約の登録・変更・削除、テンプレートの登録・置き換え・削除などは人だけが行え、LLM が実行すると `FORBIDDEN_FOR_LLM` になる。
-LLM かどうかは書き手（`NOD_ACTOR`、なければ `CLAUDECODE=1` なら `claude-code`、どちらもなければ `me`）で判定する。
-これは LLM の誤操作を防ぐための取り決めで、権限の仕組みではない。
-`NOD_ACTOR=me` を付けて CLI を実行したり、ローカルの API（`nod ui` の server。書き手は常に `me`）を curl などで直接呼んだり（Origin のない同じマシンからの要求は受け付ける）、DB を直接書き換えたりすれば回避できる。
-LLM には、書き手を変えて回避せず人に依頼するよう手引き（`skills/nod`）で指示している。
-
-### Web UI
-
-```sh
-bun run web:build   # packages/web/dist に web をビルドする（web を変えたら再実行する）
-nod ui              # http://127.0.0.1:4700 で server を起動し、ブラウザで開く。Ctrl+C で止める
-nod ui --port 4800  # ポートを変える（0 なら空いているポート）
-nod ui --no-open    # ブラウザを開かない
-```
-
-`nod ui` がすでに起動していれば、新しく起動せずにそれを開く。
-単一の実行ファイル（`dist/nod`）は web を含まないため、`nod ui --web-dir <リポジトリ>/packages/web/dist` でビルド済みの web を渡す。
-
-## server（開発時）
-
-```sh
-bun run server                # http://127.0.0.1:4700 で API を起動する
-NOD_PORT=4800 bun run server  # ポートを変える
-```
-
-DB は `nod` と同じく `NOD_DB` か `~/.local/share/nod/nod.db` を使う。
-web の開発サーバーは `/api` をこの server に転送する。
+Orcaはローカル側の連携ツールとして図示しています。
+リモート実行環境を使う場合の接続は、Orca側が管理します。
