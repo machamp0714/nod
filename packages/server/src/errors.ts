@@ -26,7 +26,6 @@ export const ERROR_STATUS: Record<string, number> = {
   TARGET_CHANGED: 409,
   // Sprintの所有・世代・開始条件による拒否。再照合してから同じ実行を続ける。
   EXECUTION_OWNED: 409,
-  PARALLEL_LIMIT: 409,
   REQUEST_MISMATCH: 409,
   ORCA_DISABLED: 409,
   STALE_GENERATION: 409,

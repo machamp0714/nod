@@ -1,10 +1,18 @@
 import { SprintEditConflict } from "./SprintEditConflict";
 import { useState } from "react";
-import type { SprintDetail, SprintPlan, SprintPlanResult } from "@nod/core";
+import type { SprintDetail, SprintPlan, SprintPlanConstraints, SprintPlanResult } from "@nod/core";
 import { errorMessage } from "../../api/errors";
 import { useSprintCommand } from "../../api/hooks/sprint-planning";
 import { Button } from "../ui";
 import s from "./sprint-planning.module.css";
+
+// 保存済みの旧計画には廃止した制約の項目が残りうる。送る制約は許可項目だけで組み立て、存続する項目は保つ。
+function editableConstraints(saved: SprintPlanConstraints | undefined): SprintPlanConstraints {
+  if (!saved) return { executionScope: "", notes: "" };
+  const { executionScope, notes, executionTarget, model, effort, executionSettingsPolicy } = saved;
+  return { executionScope, notes, ...(executionTarget !== undefined && { executionTarget }), ...(model !== undefined && { model }),
+    ...(effort !== undefined && { effort }), ...(executionSettingsPolicy !== undefined && { executionSettingsPolicy }) };
+}
 
 export function SprintPlanEditor({ sprint, plan, onClose, onSaved }: { sprint: SprintDetail; plan?: SprintPlan; onClose: () => void; onSaved: () => void }) {
   const [version, setVersion] = useState(sprint.version);
@@ -13,7 +21,7 @@ export function SprintPlanEditor({ sprint, plan, onClose, onSaved }: { sprint: S
   const [selected, setSelected] = useState(plan?.content.items.map(i => i.itemId) ?? []);
   const [details, setDetails] = useState<Record<string, { contribution: string; executionPlan: string }>>(Object.fromEntries(plan?.content.items.map(i => [i.itemId, { contribution: i.contribution, executionPlan: i.executionPlan }]) ?? []));
   const [dod, setDod] = useState(plan?.content.definitionOfDone ?? [{ id: crypto.randomUUID(), text: "" }]);
-  const [constraints, setConstraints] = useState(plan?.content.constraints ?? { executionScope: "", maxParallel: 1, notes: "" });
+  const [constraints, setConstraints] = useState(() => editableConstraints(plan?.content.constraints));
   const [reason, setReason] = useState("");
   const save = useSprintCommand<SprintPlanResult>();
   return <form className={s.editor} aria-label="計画案の編集" onSubmit={event => {
@@ -48,7 +56,6 @@ export function SprintPlanEditor({ sprint, plan, onClose, onSaved }: { sprint: S
           </section>
           <section className={s.section}><h2>実行範囲と制約</h2>
             <label className={s.field}>実行範囲<textarea required value={constraints.executionScope} onChange={e => setConstraints({ ...constraints, executionScope: e.target.value })} /></label>
-            <label className={s.field}>並行上限<input type="number" min={1} required value={constraints.maxParallel} onChange={e => setConstraints({ ...constraints, maxParallel: Number(e.target.value) })} /></label>
             <label className={s.field}>制約の補足<textarea required value={constraints.notes} onChange={e => setConstraints({ ...constraints, notes: e.target.value })} /></label>
             {(["executionTarget", "model", "effort"] as const).map((key, index) => <label key={key} className={s.field}>{["実行先（任意）", "モデル（任意）", "思考量（任意）"][index]}<input value={constraints[key] ?? ""} onChange={e => { const next = { ...constraints }; if (e.target.value) next[key] = e.target.value; else delete next[key]; setConstraints(next); }} /></label>)}
           </section>

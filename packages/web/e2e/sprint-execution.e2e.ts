@@ -16,14 +16,14 @@ test("保存した監督・予約と古い観測を保ち、三種の設定と�
   const planned = await plannedSprint(page, ws.key, [issue.id]);
   const configured = await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${planned.sprint.id}/plans`, {
     ...planned.input, expectedVersion: planned.sprint.version, requestKey: crypto.randomUUID(),
-    constraints: { ...planned.input.constraints, maxParallel: 1, model: "required-model", effort: "high", executionTarget: "fixture-host" },
+    constraints: { ...planned.input.constraints, model: "required-model", effort: "high", executionTarget: "fixture-host" },
   });
   const sprint = await acceptAndActivate(page, configured);
   const fixture = await execute(page, sprint.id, "stale");
   await page.goto(`/sprints/${sprint.id}`);
   const supervision = page.getByRole("region", { name: "監督と実行", exact: true });
   await expect(supervision).toContainText("codex（監督を所有、世代1）");
-  await expect(supervision).toContainText("占有 1 / 上限 1（主試行の予約 1");
+  await expect(supervision).toContainText("占有 1（主試行の予約 1");
   await expect(supervision).toContainText("観測が古いため、現在の監督状態は不明");
   await expect(supervision).toContainText("HOST_SETTINGS_MISMATCH");
   // 技術IDは閉じた詳細に置く。
@@ -62,7 +62,7 @@ test("保存した監督・予約と古い観測を保ち、三種の設定と�
   await execute(page, sprint.id, "unknown");
   await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
   await expect(supervision).toContainText("実行を確認できません。所有と枠を保持しています");
-  await expect(supervision).toContainText("占有 1 / 上限 1");
+  await expect(supervision).toContainText("占有 1（主試行の予約 1");
   await execute(page, sprint.id, "unavailable");
   await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
   await expect(supervision).toContainText("ホスト観測の設定：model 取得不能 / effort 取得不能");
@@ -73,7 +73,7 @@ test("保存した監督・予約と古い観測を保ち、三種の設定と�
   await supervision.getByRole("button", { name: "保存状態を再取得", exact: true }).click();
   await expect(supervision).toContainText("正規解放確認済み");
   await expect(supervision).toContainText("担当終了確認・成果確認待ち");
-  await expect(supervision).toContainText("占有 1 / 上限 1");
+  await expect(supervision).toContainText("占有 1（主試行の予約 1");
   expect((await sprintApi<{ status: string }>(page, "GET", `/issues/${issue.id}`)).status).toBe("todo");
   await captureSprint(page, "task4-completion-release-held", info);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -124,7 +124,7 @@ test.describe("保存状態の取得失敗", () => {
     await failed;
     await expect(supervision.getByRole("alert")).toContainText("最後に取得した状態を表示");
     await expect(supervision).toContainText("codex（監督を所有");
-    await expect(supervision).toContainText("占有 1 / 上限 2");
+    await expect(supervision).toContainText("占有 1（主試行の予約 1");
     await expect(supervision.locator("time").first()).toHaveAttribute("datetime", previous!);
     await captureSprint(page, "task4-refresh-failed-retained", info);
     await page.unroute(path, controlledRead);

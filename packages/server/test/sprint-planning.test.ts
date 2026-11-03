@@ -16,7 +16,7 @@ test("HTTPから方向設定・作成・候補・版への合意・開始・中�
   const issue = createIssue(me,{workspaceId:ws.id,title:"判断する"});
   const added = await call(app,"POST",`/api/sprints/${sprint.id}/candidates`,{issueRef:issue.id,expectedVersion:sprint.version,requestKey:"候補"});
   expect(added.status).toBe(201);
-  const proposed = await call(app,"POST",`/api/sprints/${sprint.id}/plans`,{expectedVersion:added.json.sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡を確認",items:[{itemId:added.json.item.id,contribution:"回答を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"確認",text:"再開を確認"}],constraints:{executionScope:"Workspace",maxParallel:1,notes:"公開は既存権限"},changeReason:"初期計画"});
+  const proposed = await call(app,"POST",`/api/sprints/${sprint.id}/plans`,{expectedVersion:added.json.sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡を確認",items:[{itemId:added.json.item.id,contribution:"回答を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"確認",text:"再開を確認"}],constraints:{executionScope:"Workspace",notes:"公開は既存権限"},changeReason:"初期計画"});
   expect(proposed.status).toBe(201);
   const accepted = await call(app,"POST",`/api/sprints/${sprint.id}/plans/${proposed.json.plan.id}/accept`,{expectedVersion:proposed.json.sprint.version,requestKey:"合意",contentHash:proposed.json.plan.contentHash});
   expect(accepted.status).toBe(200);

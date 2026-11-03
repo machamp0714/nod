@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as core from "../src/index";
 import { setup, codeOf } from "./helpers";
 import { prepareSprint, acceptPreparedSprint, sprintTestClock } from "./fixtures/sprint-start";
+import { sprintHash } from "../src/sprint-validation";
 
 function prepared(count = 1) {
   const state = setup();
@@ -319,7 +320,7 @@ test("runtime変更直後は不明を保持し、元要求と同Task・Dispatch�
   state.db.close();
 });
 
-test("正当なTask分割とレビュー補助は親の主試行に属し、unknown中の主試行は並行枠を使い続ける", async () => {
+test("正当なTask分割とレビュー補助は親の主試行に属し、unknown中の主試行を予約として保持したまま別Issueの主試行を件数で拒否しない", async () => {
   const state = await reserved(2), context = { sessionId: state.session.id, generation: 1 };
   await core.requestSprintExecution(state.llm, state.sprint.id, { ...context, attemptId: state.attempt.id }, {
     ...state.adapter, send: async operation => { if (operation.kind === "worker_start") throw new Error("応答喪失"); return receipt("Task要求", "主Task"); },
@@ -329,7 +330,12 @@ test("正当なTask分割とレビュー補助は親の主試行に属し、unkn
   const result = core.getSprintExecutionState(state.db, state.sprint.id);
   expect(result).toMatchObject({ occupied: 1, reserved: 1 }); expect(result.attempts).toHaveLength(2);
   expect(result.operations.find(o => o.attemptId === helper.id)?.input.parentTaskId).toBe("主Task");
-  expect(codeOf(() => core.prepareSprintExecution(state.llm, state.sprint.id, { ...state.input, requestKey: "別Issue", itemId: state.items[1]!.id }, sprintTestClock))).toBe("PARALLEL_LIMIT");
+  expect(codeOf(() => core.prepareSprintExecution(state.llm, state.sprint.id, { ...state.input, requestKey: "同Issueの別主試行" }, sprintTestClock))).toBe("EXECUTION_OWNED");
+  const other = core.prepareSprintExecution(state.llm, state.sprint.id, { ...state.input, requestKey: "別Issue", itemId: state.items[1]!.id }, sprintTestClock);
+  expect(other).toMatchObject({ itemId: state.items[1]!.id, parentAttemptId: null, phase: "reserved", occupied: true });
+  const after = core.getSprintExecutionState(state.db, state.sprint.id);
+  expect(after).toMatchObject({ occupied: 2, reserved: 2 }); expect(after.attempts).toHaveLength(3);
+  expect(after.attempts.find(a => a.id === state.attempt.id)).toMatchObject({ occupied: true });
   state.db.close();
 });
 
@@ -491,7 +497,7 @@ test("同じ端末でもcaller identityが変わった監督から新規送信�
   state.db.close();
 });
 
-test("合意前の通常着手を未照合の占有として保持し、別採択Issueの予約で並行上限を越えない", async () => {
+test("合意前の通常着手を未照合の占有として保持し、別採択Issueの主試行は件数で拒否せず予約できる", async () => {
   const state = setup();
   const a = core.createIssue(state.me, { workspaceId: state.ws.id, title: "先に通常着手した仕事" });
   const b = core.createIssue(state.me, { workspaceId: state.ws.id, title: "次に予約する仕事" });
@@ -502,12 +508,17 @@ test("合意前の通常着手を未照合の占有として保持し、別採�
   const session = await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
   expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ occupied: 1, reserved: 0,
     unreconciledOwnership: [{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id, assignee: state.llm.actor, status: "in_progress" }] });
-  expect(codeOf(() => core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: "B予約", itemId: proposal.items[1]!.id,
-    actor: state.llm.actor, spec: "別の仕事を開始する", placement: { agent: "codex", worktree: "path:/専用" } }, sprintTestClock))).toBe("PARALLEL_LIMIT");
+  const b予約 = core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: "B予約", itemId: proposal.items[1]!.id,
+    actor: state.llm.actor, spec: "別の仕事を開始する", placement: { agent: "codex", worktree: "path:/専用" } }, sprintTestClock);
+  expect(b予約).toMatchObject({ itemId: proposal.items[1]!.id, sourceIssueKey: b.id, phase: "reserved", occupied: true });
+  expect(codeOf(() => core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: "A予約", itemId: proposal.items[0]!.id,
+    actor: state.llm.actor, spec: "通常着手済みの仕事を開始する", placement: { agent: "codex", worktree: "path:/別" } }, sprintTestClock))).toBe("EXECUTION_OWNED");
   const observed = await core.reconcileSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1 }, {
     authority: async () => authority(), inventory: async () => ({ complete: true, tasks: [], workers: [] }),
   }, sprintTestClock);
-  expect(observed).toMatchObject({ occupied: 1, reserved: 0, attempts: [], operations: [] });
+  expect(observed).toMatchObject({ occupied: 2, reserved: 1,
+    unreconciledOwnership: [{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id }] });
+  expect(observed.attempts.map(x => x.id)).toEqual([b予約.id]);
   expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "in_progress", assignee: state.llm.actor });
   state.db.close();
 });
@@ -528,6 +539,45 @@ test("同itemの正式な新合意へ肯定的に照合し、同じ試行と操�
   expect(result.state.operations.map(o => [o.id, o.inputHash, o.requestId])).toEqual(before.operations.map(o => [o.id, o.inputHash, o.requestId]));
   expect(result.state).toMatchObject({ occupied: 1, reserved: 1, canStart: false });
   expect(core.getIssue(state.db, state.issue.id).status).toBe("todo");
+  state.db.close();
+});
+
+// 旧上限（1件）を超える別Issueの主試行を3件予約する。
+async function reservedBeyondFormerLimit() {
+  const state = await reserved(3);
+  const others = state.items.slice(1).map((item, i) => core.prepareSprintExecution(state.llm, state.sprint.id,
+    { ...state.input, requestKey: `別Issue${i + 1}`, itemId: item.id, placement: { worktree: `path:/別${i + 1}`, agent: "codex" } }, sprintTestClock));
+  const attempts = [state.attempt, ...others];
+  expect(core.getSprintExecutionState(state.db, state.sprint.id, sprintTestClock)).toMatchObject({ occupied: 3, reserved: 3 });
+  return { ...state, attempts };
+}
+
+test("未解決の主試行が何件あっても新しい計画の合意を件数で拒否しない", async () => {
+  const state = await reservedBeyondFormerLimit();
+  const proposed = core.proposeSprintPlan(state.me, state.sprint.id, { ...state.proposal.input, expectedVersion: core.getSprint(state.db, state.sprint.id).version,
+    requestKey: "3件を保ったまま変更", goal: "3件を進めたまま見直す", changeReason: "人の正式な変更" });
+  const accepted = core.acceptSprintPlan(state.me, state.sprint.id, proposed.plan.id, { expectedVersion: proposed.sprint.version,
+    requestKey: "3件の新合意", contentHash: proposed.plan.contentHash });
+  expect(accepted.sprint).toMatchObject({ adoptedPlanId: proposed.plan.id, phase: "active" });
+  expect(core.getSprintExecutionState(state.db, state.sprint.id, sprintTestClock)).toMatchObject({ occupied: 3, reserved: 3 });
+  state.db.close();
+});
+
+test("旧上限を超える主試行を保持したまま同itemの新合意へ照合し、同じ試行で新世代へ引継ぐ", async () => {
+  const state = await reservedBeyondFormerLimit();
+  const before = core.getSprintExecutionState(state.db, state.sprint.id, sprintTestClock);
+  const proposed = core.proposeSprintPlan(state.me, state.sprint.id, { ...state.proposal.input, expectedVersion: core.getSprint(state.db, state.sprint.id).version,
+    requestKey: "新しいゴール", goal: "人が選んだ新しいゴール", changeReason: "人の正式な変更" });
+  core.acceptSprintPlan(state.me, state.sprint.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "新合意", contentHash: proposed.plan.contentHash });
+  const adapter: core.SprintOrcaAdapter = { ...state.adapter, inventory: async () => ({ complete: true, tasks: [], workers: [] }) };
+  const context = { sessionId: state.session.id, generation: 1 };
+  const observed = await core.observeSprintSession(state.llm, state.sprint.id, context, adapter, sprintTestClock);
+  expect(observed).toMatchObject({ resolved: true, reason: null, planId: proposed.plan.id, planHash: proposed.plan.contentHash });
+  const result = await core.resumeSprintSession(state.llm, state.sprint.id, { ...context, requestKey: "新合意へ引継ぐ" }, adapter, sprintTestClock);
+  expect(result.state.session).toMatchObject({ generation: 2, planId: proposed.plan.id, state: "active" });
+  expect(result.state.attempts.map(a => [a.id, a.planId])).toEqual(state.attempts.map(a => [a.id, proposed.plan.id]));
+  expect(result.state.operations.map(o => o.id)).toEqual(before.operations.map(o => o.id));
+  expect(result.state).toMatchObject({ occupied: 3, reserved: 3 });
   state.db.close();
 });
 
@@ -593,14 +643,15 @@ test("新合意を照合した後でも世代交代CAS時に期限を越えれ�
   state.db.close();
 });
 
-test("同じ計画の再開手順は本人と元Runの準備を示し、旧callerを強制せず時計と上限を返す", async () => {
+test("同じ計画の再開手順は本人と元Runの準備を示し、旧callerを強制せず時計と占有を返して上限を返さない", async () => {
   const state = prepared();
   const caller = "監督 ' $(触らない)";
   const session = await core.beginSprintSession({ ...state.llm, actor: "codex" }, state.sprint.id,
     { expectedVersion: state.sprint.version, requestKey: "監督", runId: "元Run" },
     { authority: async () => ({ ...authority(), caller, coordinator: caller }) }, sprintTestClock);
   const read = core.getSprintExecutionState(state.db, state.sprint.id, sprintTestClock);
-  expect(read).toMatchObject({ observedAt: "2026-03-08T12:00:00.000Z", maxParallel: 1 });
+  expect(read).toMatchObject({ observedAt: "2026-03-08T12:00:00.000Z", occupied: 0, reserved: 0, unreconciledOwnership: [] });
+  expect(read).not.toHaveProperty("maxParallel");
   const action = read.nextActions.find(a => a.argv.includes("reconcile"))!;
   expect(action.command).toContain("NOD_ACTOR='codex'");
   expect(action.command).not.toContain("--from");
@@ -618,5 +669,59 @@ test("同じ計画の再開手順は本人と元Runの準備を示し、旧calle
   const later = core.getSprintExecutionState(state.db, state.sprint.id, { now: new Date("2026-03-08T12:03:00.000Z") });
   expect(later.stale).toBe(true);
   expect(later.session?.observedAt).toBe("2026-03-08T12:00:00.000Z");
+  state.db.close();
+});
+
+// 並行上限を廃止する前に保存された計画を、保存時と同じ形（content・contentHash・agreedHash の対応）でDBへ直接置く。
+function placeLegacyPlan(state: ReturnType<typeof setup>, proposal: ReturnType<typeof prepareSprint>, agreed: boolean) {
+  const content = { ...proposal.plan.content, constraints: { ...proposal.plan.content.constraints, maxParallel: 1 } };
+  const id = crypto.randomUUID(), hash = sprintHash(content), agreedAt = "2026-03-07T12:00:00.000Z";
+  state.db.query("INSERT INTO sprint_plans(id,sprint_id,revision,content_hash,agreed_by,agreed_at,agreed_hash) VALUES(?,?,2,?,?,?,?)")
+    .run(id, proposal.sprint.id, hash, agreed ? "me" : null, agreed ? agreedAt : null, agreed ? hash : null);
+  state.db.query("INSERT INTO sprint_plan_contents(plan_id,schema_version,base_plan_id,content,change_reason,created_by,created_at) VALUES(?,1,?,?,?,?,?)")
+    .run(id, proposal.plan.id, JSON.stringify(content), "並行上限つきの旧計画", "me", agreedAt);
+  for (const item of proposal.items) state.db.query("INSERT INTO sprint_plan_items VALUES(?,?)").run(id, item.id);
+  if (agreed) state.db.query("UPDATE sprints SET adopted_plan_id=?,goal=?,definition_of_done=?,phase='ready' WHERE id=?")
+    .run(id, content.goal, JSON.stringify(content.definitionOfDone), proposal.sprint.id);
+  return { id, hash };
+}
+
+test("並行上限を含む未合意の旧計画も保存どおり読み、合意・開始・適格性確認まで進められる", () => {
+  const state = setup();
+  const issue = core.createIssue(state.me, { workspaceId: state.ws.id, title: "旧計画の仕事" });
+  const proposal = prepareSprint(state.me, state.ws.key, [issue.id]);
+  const legacy = placeLegacyPlan(state, proposal, false);
+  const stored = core.getSprint(state.db, proposal.sprint.id).plans.find(p => p.id === legacy.id)!;
+  expect(stored).toMatchObject({ contentHash: legacy.hash, agreedHash: null, content: { constraints: { executionScope: "Workspace", maxParallel: 1 } } });
+  const ready = core.acceptSprintPlan(state.me, proposal.sprint.id, legacy.id, { expectedVersion: core.getSprint(state.db, proposal.sprint.id).version,
+    requestKey: "旧計画の合意", contentHash: legacy.hash });
+  expect(ready.plan).toMatchObject({ id: legacy.id, contentHash: legacy.hash, agreedHash: legacy.hash, content: { constraints: { maxParallel: 1 } } });
+  const active = core.activateSprint(state.me, proposal.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "旧計画の開始" }, sprintTestClock);
+  expect(active).toMatchObject({ phase: "active", adoptedPlanId: legacy.id });
+  expect(core.getSprintIssueEligibility(state.llm, proposal.sprint.id, proposal.items[0]!.id, sprintTestClock))
+    .toMatchObject({ eligible: true, reason: null, planId: legacy.id, planHash: legacy.hash });
+  state.db.close();
+});
+
+test("並行上限を含む合意・採用済みの旧計画を保存どおり読み、適格性をhash不一致にせず上限を実行状態へ出さない", async () => {
+  const state = setup();
+  const a = core.createIssue(state.me, { workspaceId: state.ws.id, title: "旧計画の仕事" });
+  const b = core.createIssue(state.me, { workspaceId: state.ws.id, title: "旧計画の次の仕事" });
+  const proposal = prepareSprint(state.me, state.ws.key, [a.id, b.id]);
+  const legacy = placeLegacyPlan(state, proposal, true);
+  const sprint = core.getSprint(state.db, proposal.sprint.id);
+  expect(sprint.plans.find(p => p.id === legacy.id)).toMatchObject({ contentHash: legacy.hash, agreedHash: legacy.hash, content: { constraints: { maxParallel: 1 } } });
+  const active = core.activateSprint(state.me, sprint.id, { expectedVersion: sprint.version, requestKey: "旧計画の開始" }, sprintTestClock);
+  for (const item of proposal.items) {
+    expect(core.getSprintIssueEligibility(state.llm, sprint.id, item.id, sprintTestClock)).toMatchObject({ eligible: true, reason: null, planHash: legacy.hash });
+  }
+  const session = await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: active.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
+  for (const [i, item] of proposal.items.entries()) {
+    core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: `旧計画の予約${i}`, itemId: item.id,
+      actor: state.llm.actor, spec: "旧計画の仕事を行う", placement: { agent: "codex", worktree: `path:/旧${i}` } }, sprintTestClock);
+  }
+  const read = core.getSprintExecutionState(state.db, sprint.id, sprintTestClock);
+  expect(read).toMatchObject({ occupied: 2, reserved: 2, session: { planId: legacy.id, planHash: legacy.hash } });
+  expect(read).not.toHaveProperty("maxParallel");
   state.db.close();
 });

@@ -71,6 +71,7 @@ test("CLIは同じ公開coreの監督・予約・不明理由と再照合操作�
   expect(human.stdout).toContain("現在の監督"); expect(human.stdout).toContain("予約"); expect(human.stdout).toContain("元Run");
   expect(human.stdout).toContain("実行設定"); expect(human.stdout).toContain("'execution' 'reconcile'");
   expect(human.stdout).not.toContain("未実装");
+  expect(human.stdout).toContain("占有: 1（主試行の予約: 1、通常所有の未照合: 0）"); expect(human.stdout).not.toContain("上限");
   const file = join(inputDir, "照合.json"); writeFileSync(file, JSON.stringify({ sessionId: session.id, generation: 1 }));
   const unknown = await runNod(["sprint", "execution", "reconcile", sprint.id, "--input", file, "--json"], { cwd, db: path, actor: "codex" });
   expect(unknown).toMatchObject({ exitCode: 0, json: { occupied: 1, canStart: false } });
@@ -150,7 +151,7 @@ else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state))
   expect(replanned.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
 });
 
-test("CLIは通常着手の元担当と未照合占有を表示し、別採択Issueの予約を同じcoreで拒否する", async () => {
+test("CLIは通常着手の元担当と未照合占有を表示し、別採択Issueの予約を同じcoreで件数により拒否しない", async () => {
   const cwd = makeRepo(), path = tempDb(), db = core.openDb(path), dir = tempDir();
   const me = { db, actor: "me" }, llm = { db, actor: "codex" }, ws = core.initWorkspace(db, { path: cwd }).workspace;
   const a = core.createIssue(me, { workspaceId: ws.id, title: "先に着手した仕事" });
@@ -172,8 +173,13 @@ test("CLIは通常着手の元担当と未照合占有を表示し、別採択Is
   const file = join(dir, "予約.json");
   writeFileSync(file, JSON.stringify({ sessionId: session.id, generation: 1, requestKey: "別の仕事", itemId: original.items[1]!.id,
     actor: "codex", spec: "Bを始める", placement: { agent: "codex", worktree: "path:/専用" } }));
+  // 予約は保存され、この試験ではOrca接続が無いので送信の段で止まる。
   expect(await runNod(["sprint", "execution", "request", sprint.id, "--input", file, "--json"], { cwd, db: path, actor: "codex" }))
-    .toMatchObject({ exitCode: 1, json: { error: { code: "PARALLEL_LIMIT" } } });
+    .toMatchObject({ exitCode: 1, json: { error: { code: "ORCA_DISABLED" } } });
+  const reserved = await runNod(["sprint", "execution", "show", sprint.id, "--json"], { cwd, db: path, actor: "codex" });
+  expect(reserved).toMatchObject({ exitCode: 0, json: { occupied: 2, reserved: 1,
+    attempts: [{ sourceIssueKey: b.id, itemId: original.items[1]!.id, parentAttemptId: null, occupied: true }],
+    unreconciledOwnership: [{ sourceIssueKey: a.id, assignee: "codex", status: "in_progress" }] } });
 });
 
 test("表示した完全な再照合手順をactor補充なしで実行し、保存した同世代の予約と拒否理由を読む", async () => {

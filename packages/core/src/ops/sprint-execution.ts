@@ -80,7 +80,6 @@ function planReconciliationReason(ctx: OpCtx, sprint: SprintDetail, plan: Sprint
   if (sprintHash(plan.content) !== plan.contentHash) return blocked("TARGET_CHANGED", "新合意の内容とhashが一致しません");
   const config = ctx.db.query("SELECT enabled FROM scrum_workspaces WHERE workspace_id=?").get(sprint.workspaceId!) as { enabled: number } | null;
   if (!config?.enabled) return blocked("SCRUM_DISABLED", "WorkspaceのSprint運用が無効です");
-  if (attempts.filter(a => !a.parentAttemptId).length > plan.content.constraints.maxParallel) return blocked("PARALLEL_LIMIT", "新合意の並行上限を予約が上回っています");
   for (const attempt of attempts) {
     const primary = attempt.parentAttemptId ? attempts.find(a => a.id === attempt.parentAttemptId)! : attempt;
     const eligibility = getSprintIssueEligibility({ ...ctx, actor: primary.actor }, sprint.id, attempt.itemId, clock);
@@ -187,8 +186,6 @@ export function prepareSprintExecution(ctx: OpCtx, ref: string, input: PrepareSp
       if (ctx.db.query("SELECT 1 FROM sprint_attempts WHERE source_issue_key=? AND occupied=1 AND parent_attempt_id IS NULL").get(item.sourceIssueKey)) fail("EXECUTION_OWNED", "未解決の主試行が所有しています");
       const issue = findIssueRow(ctx.db, item.sourceIssueKey);
       if (issue.status === "in_progress" || issue.agent_state || issue.worktree || issue.branch) fail("EXECUTION_OWNED", "通常経路の着手または既存実行場所を先に照合してください");
-      const existing = existingOwnership(ctx.db, sprint, attempts, current.unreconciledOwnership, clock);
-      if (attempts.filter(a => !a.parentAttemptId).length + existing.length >= plan.content.constraints.maxParallel) fail("PARALLEL_LIMIT", "実行枠は予約と未照合の通常着手を含めて使用中です");
     }
     for (const [key, actual] of [["executionTarget", input.placement.on ?? input.placement.worktree], ["model", input.placement.model], ["effort", input.placement.effort]] as const) {
       const expected = plan.content.constraints[key];
@@ -229,7 +226,6 @@ export function getSprintExecutionState(db: Database, ref: string, clock: Sprint
         attempt.reason = eligibility.reason ?? { code: "START_RECHECK_REQUIRED", message: "現在の監督・identity・設定を開始直前に再検査してください" };
       }
     }
-    const plan = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
     const nextActions: Omit<SprintExecutionState["nextActions"][number], "command">[] = current ? [
       { description: "新PM本人で元Runへ接続し、保存した計画・Task・Dispatch・requestを照合して監督を再開する（照合不能なら所有と枠を保持）",
         argv: ["nod", "sprint", "session", "resume", sprintId, "--input", "-"],
@@ -239,7 +235,7 @@ export function getSprintExecutionState(db: Database, ref: string, clock: Sprint
         input: { sessionId: current.id, generation: current.generation } }]
       : [{ description: "Sprintの計画と保存した実行対象を確認する", argv: ["nod", "sprint", "show", sprintId] }];
     const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
-    return { sprintId, observedAt: timestamp(clock), maxParallel: plan?.content.constraints.maxParallel ?? null, session: current, executionVersion: version(db, sprintId), attempts,
+    return { sprintId, observedAt: timestamp(clock), session: current, executionVersion: version(db, sprintId), attempts,
       operations: rows<SprintExecutionOperation>(db, "sprint_operations", sprintId), occupied: attempts.filter(a => !a.parentAttemptId).length + unreconciledOwnership.length,
       unreconciledOwnership,
       reserved: attempts.filter(a => !a.parentAttemptId).length, canStart: attempts.some(a => a.canStart),
