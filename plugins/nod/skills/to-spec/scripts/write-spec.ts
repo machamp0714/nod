@@ -4,10 +4,10 @@
 // 使い方:
 //   bun write-spec.ts --issue <ID> --issue-json <file> --decision-log <file>
 //     [--related <docId>=<file>]... [--mode new|rebuild|append] [--target <docId>=<file>]
-//     [--feedback <file> --previous <file>] [--effort low|medium|high] [--timeout <seconds>]
+//     [--feedback <file> --previous-record <前回の record.json>] [--effort low|medium|high] [--timeout <seconds>]
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -44,6 +44,12 @@ interface FileInput {
   text: string;
   bytes: Buffer;
 }
+// 差し戻しの元にする前回の試行。原稿（成功した試行）か未決の疑問（OPEN_QUESTIONS の試行）のどちらかを持つ
+interface Previous {
+  record: FileInput;
+  draft: FileInput | null;
+  openQuestions: OpenQuestion[];
+}
 interface Options {
   issue: string;
   issueJson: FileInput;
@@ -53,7 +59,7 @@ interface Options {
   mode: Mode;
   target: DocInput | null;
   feedback: FileInput | null;
-  previous: FileInput | null;
+  previous: Previous | null;
   effort: Effort;
   timeoutSeconds: number;
   reference: string;
@@ -90,10 +96,34 @@ function readDoc(spec: string, label: string): DocInput {
   return { documentId, ...readInput(path, `${label} ${documentId}`) };
 }
 
+// 前回の試行の実行記録から、差し戻しに渡す原稿か未決の疑問を読む。原稿は記録の SHA-256 と照合する
+function readPrevious(path: string, issue: string, mode: Mode): Previous {
+  const record = readInput(path, "--previous-record");
+  let r: any;
+  try {
+    r = JSON.parse(record.text);
+  } catch {
+    throw invalid(`--previous-record が JSON ではありません: ${record.file}`);
+  }
+  if (!r || typeof r !== "object" || r.issue !== issue) throw invalid(`--previous-record の Issue（${r?.issue}）が --issue ${issue} と一致しません`);
+  if (r.mode !== mode) throw invalid(`--previous-record の執筆の種類（${r.mode}）が --mode ${mode} と一致しません`);
+  if (r.ok === true && typeof r.draft?.file === "string") {
+    const draft = readInput(join(dirname(record.file), basename(r.draft.file)), "--previous-record の原稿");
+    if (sha256(draft.bytes) !== r.draft.sha256) throw invalid(`前回の原稿が実行記録の SHA-256 と一致しません: ${draft.file}`);
+    return { record, draft, openQuestions: [] };
+  }
+  const questions = Array.isArray(r.openQuestions) ? r.openQuestions : [];
+  const valid = questions.every((q: any) => q && typeof q.question === "string" && typeof q.reason === "string");
+  if (r.code === "OPEN_QUESTIONS" && questions.length && valid) {
+    return { record, draft: null, openQuestions: questions.map((q: OpenQuestion) => ({ question: q.question, reason: q.reason })) };
+  }
+  throw invalid(`差し戻せるのは、原稿を保存した試行か OPEN_QUESTIONS で終わった試行の実行記録だけです: ${record.file}`);
+}
+
 function parseArgs(argv: string[]): Options {
   const single = new Map<string, string>();
   const related: string[] = [];
-  const known = ["--issue", "--issue-json", "--decision-log", "--mode", "--target", "--feedback", "--previous", "--effort", "--timeout"];
+  const known = ["--issue", "--issue-json", "--decision-log", "--mode", "--target", "--feedback", "--previous-record", "--effort", "--timeout"];
   for (let i = 0; i < argv.length; i++) {
     const name = argv[i]!;
     if (name !== "--related" && !known.includes(name)) throw invalid(`不明な引数です: ${name}`);
@@ -120,7 +150,7 @@ function parseArgs(argv: string[]): Options {
   const targetSpec = single.get("--target");
   if (mode === "new" && targetSpec !== undefined) throw invalid("--mode new では --target を指定できません");
   if (mode !== "new" && targetSpec === undefined) throw invalid(`--mode ${mode} では --target <DocumentID>=<ファイル> が必要です`);
-  if (single.has("--feedback") !== single.has("--previous")) throw invalid("--feedback と --previous は両方そろえて指定してください");
+  if (single.has("--feedback") !== single.has("--previous-record")) throw invalid("--feedback と --previous-record は両方そろえて指定してください");
 
   const issueJson = readInput(required("--issue-json"), "--issue-json");
   let data: any;
@@ -138,7 +168,7 @@ function parseArgs(argv: string[]): Options {
   const relatedDocs = related.map((s) => readDoc(s, "--related"));
   const target = targetSpec === undefined ? null : readDoc(targetSpec, "--target");
   const feedback = single.has("--feedback") ? readInput(single.get("--feedback")!, "--feedback") : null;
-  const previous = single.has("--previous") ? readInput(single.get("--previous")!, "--previous") : null;
+  const previous = single.has("--previous-record") ? readPrevious(single.get("--previous-record")!, issue, mode) : null;
 
   let reference: string;
   try {
@@ -167,7 +197,7 @@ function buildRequest(o: Options): string {
     "## 執筆ルールと仕様書テンプレート",
     tag("spec-writing-rules", o.reference),
     "## 執筆の種類",
-    [`- ${MODE_TEXT[o.mode]}`, ...(o.feedback ? ["- 差し戻し: 下の「差し戻し」の主担当の指摘と前回の原稿を踏まえ、同じ執筆の種類の原稿を最初から全文書き直してください。指摘に無い確定事項は変えないでください。"] : [])].join("\n"),
+    [`- ${MODE_TEXT[o.mode]}`, ...(o.feedback ? ["- 差し戻し: 下の「差し戻し」の主担当の指摘と、前回の原稿または前回の未決の疑問を踏まえ、同じ執筆の種類の原稿を最初から全文書き直してください。指摘に無い確定事項は変えないでください。"] : [])].join("\n"),
     "## 確定事項",
     "### 対象 Issue の本文（前提として有効）",
     "Issue の本文（Story・背景・受け入れ条件を含む）はそのまま前提として有効です。変えないでください。",
@@ -187,7 +217,16 @@ function buildRequest(o: Options): string {
       : ["なし"]),
     ...(o.target ? [`## 改訂の対象の仕様書（Document ${o.target.documentId}）`, tag("target", o.target.text, ` document-id="${o.target.documentId}"`)] : []),
     ...(o.feedback && o.previous
-      ? ["## 差し戻し", "### 主担当の指摘", tag("feedback", o.feedback.text), "### 前回の原稿", tag("previous", o.previous.text)]
+      ? [
+          "## 差し戻し",
+          "### 主担当の指摘",
+          ...(o.previous.openQuestions.length ? ["前回の未決の疑問への主担当の回答（既決事項の根拠）を含みます。"] : []),
+          tag("feedback", o.feedback.text),
+          ...(o.previous.draft ? ["### 前回の原稿", tag("previous", o.previous.draft.text)] : []),
+          ...(o.previous.openQuestions.length
+            ? ["### 前回の未決の疑問", tag("previous-open-questions", o.previous.openQuestions.map((q) => `- 疑問: ${q.question}\n  理由: ${q.reason}`).join("\n"))]
+            : []),
+        ]
       : []),
     "## 不採用案と未確認の情報",
     [
@@ -214,6 +253,8 @@ function nextAttempt(dir: string, issue: string): number {
 interface OmpResult {
   timedOut: boolean;
   spawnError: NodeJS.ErrnoException | null;
+  // 生ログの書き込みに失敗した（想定外のエラー）
+  writeError: unknown;
   exitCode: number | null;
   signal: string | null;
   stdout: string;
@@ -227,13 +268,14 @@ function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: numbe
     const err: Buffer[] = [];
     let timedOut = false;
     let spawnError: NodeJS.ErrnoException | null = null;
+    let writeError: unknown = null;
     let settled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const finish = (exitCode: number | null, signal: string | null) => {
       if (settled) return;
       settled = true;
       for (const t of timers) clearTimeout(t);
-      done({ timedOut, spawnError, exitCode, signal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
+      done({ timedOut, spawnError, writeError, exitCode, signal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
     };
     const child = spawn(OMP, args, { cwd, env: process.env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     const killGroup = (sig: NodeJS.Signals) => {
@@ -245,7 +287,13 @@ function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: numbe
     };
     child.stdout!.on("data", (b: Buffer) => {
       out.push(b);
-      writeSync(eventsFd, b);
+      if (writeError) return;
+      try {
+        writeSync(eventsFd, b);
+      } catch (e) {
+        writeError = e;
+        killGroup("SIGKILL");
+      }
     });
     child.stderr!.on("data", (b: Buffer) => err.push(b));
     child.on("error", (e) => {
@@ -355,7 +403,16 @@ function judge(text: string, mode: Mode): Verdict {
 // nod doc create --body - は「# タイトル\n\n本文」で保存する。先頭の空行と末尾の空白を除き、改行1つで終える
 const normalize = (body: string) => `${body.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd()}\n`;
 
+// 理由コードの列挙に当たらない想定外のエラー（書き込み失敗など）。理由コード付きの失敗として返す
+function unexpected(e: unknown): Failure {
+  if (e instanceof Failure) return e;
+  const err = e as NodeJS.ErrnoException;
+  const detail = err && typeof err === "object" ? [err.code, err.message].filter(Boolean).join(": ") : String(e);
+  return new Failure("UNEXPECTED_ERROR", `想定外のエラーで中断しました: ${cap(detail || String(e))}`);
+}
+
 function classify(r: OmpResult, what: string): Failure | null {
+  if (r.writeError) return unexpected(r.writeError);
   if (r.timedOut) return new Failure("TIMEOUT", `${what}が時間内に終わりませんでした`);
   if (r.spawnError) return new Failure("OMP_NOT_FOUND", `omp を起動できません: ${OMP}（${r.spawnError.code ?? r.spawnError.message}）`);
   if (r.exitCode !== 0) {
@@ -372,34 +429,45 @@ function emit(result: Record<string, unknown>, ok: boolean): never {
   process.exit(ok ? 0 : 1);
 }
 
+// 試行のファイルを作る前の失敗の結果（ファイルなし）
+const bare = (f: Failure, issue: string | null = null) => ({
+  ok: false, code: f.code, message: f.message, issue, attempt: null, dir: null, files: null, draftSha256: null, openQuestions: [], changeProposals: [],
+});
+
 async function main(): Promise<void> {
   let o: Options;
   try {
     o = parseArgs(process.argv.slice(2));
   } catch (e) {
-    if (!(e instanceof Failure)) throw e;
-    emit({ ok: false, code: e.code, message: e.message, issue: null, attempt: null, dir: null, files: null, draftSha256: null, openQuestions: [], changeProposals: [] }, false);
+    emit(bare(unexpected(e)), false);
   }
 
   const startedAt = new Date();
-  const dir = dirname(realpathSync(o.decisionLog.file));
-  const request = buildRequest(o);
-  // 既存ファイルは上書きしない。同時に作られていたら次の番号にする
-  let attempt = nextAttempt(dir, o.issue);
+  let dir: string;
+  let request: string;
+  let attempt: number;
   let prefix: string;
-  for (;;) {
-    prefix = `${o.issue.toLowerCase()}-argon-${String(attempt).padStart(2, "0")}`;
-    try {
-      writeFileSync(join(dir, `${prefix}-request.md`), request, { flag: "wx" });
-      break;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      attempt++;
+  try {
+    dir = dirname(realpathSync(o.decisionLog.file));
+    request = buildRequest(o);
+    // 既存ファイルは上書きしない。同時に作られていたら次の番号にする
+    attempt = nextAttempt(dir, o.issue);
+    for (;;) {
+      prefix = `${o.issue.toLowerCase()}-argon-${String(attempt).padStart(2, "0")}`;
+      try {
+        writeFileSync(join(dir, `${prefix}-request.md`), request, { flag: "wx" });
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        attempt++;
+      }
     }
+  } catch (e) {
+    emit(bare(unexpected(e), o.issue), false);
   }
   const names = { request: `${prefix}-request.md`, events: `${prefix}-events.jsonl`, draft: `${prefix}-draft.md`, record: `${prefix}-record.json` };
-  const eventsFd = openSync(join(dir, names.events), "wx");
   const requestPath = join(dir, names.request);
+  const draftPath = join(dir, names.draft);
 
   let ompVersion: string | null = null;
   let responded = { provider: null as string | null, model: null as string | null, stopReason: null as string | null };
@@ -408,14 +476,19 @@ async function main(): Promise<void> {
   let openQuestions: OpenQuestion[] = [];
   let changeProposals: ChangeProposal[] = [];
   let draft: string | null = null;
+  let draftCreated = false;
   let failure: Failure | null = null;
-  const work = realpathSync(mkdtempSync(join(tmpdir(), "nod-argon-")));
+  let eventsFd: number | null = null;
+  let work: string | null = null;
   try {
+    eventsFd = openSync(join(dir, names.events), "wx");
+    work = realpathSync(mkdtempSync(join(tmpdir(), "nod-argon-")));
     const version = spawnSync(OMP, ["--version"], { cwd: work, env: process.env, encoding: "utf8", timeout: o.timeoutSeconds * 1000 });
     const versionFailure = classify(
       {
         timedOut: (version.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT",
         spawnError: version.error && (version.error as NodeJS.ErrnoException).code !== "ETIMEDOUT" ? (version.error as NodeJS.ErrnoException) : null,
+        writeError: null,
         exitCode: version.status,
         signal: version.signal,
         stdout: version.stdout ?? "",
@@ -457,28 +530,48 @@ async function main(): Promise<void> {
       if (meta) ({ openQuestions, changeProposals } = meta);
       throw e;
     }
-    writeFileSync(join(dir, names.draft), draft, { flag: "wx" });
+    const fd = openSync(draftPath, "wx");
+    draftCreated = true;
+    try {
+      writeSync(fd, draft);
+    } finally {
+      closeSync(fd);
+    }
   } catch (e) {
-    if (!(e instanceof Failure)) throw e;
-    failure = e;
-    draft = null;
+    failure = unexpected(e);
   } finally {
-    closeSync(eventsFd);
-    rmSync(work, { recursive: true, force: true });
+    try {
+      if (eventsFd !== null) closeSync(eventsFd);
+      if (work) rmSync(work, { recursive: true, force: true });
+    } catch {
+      // 後始末の失敗は結果を変えない
+    }
   }
 
-  const draftSha256 = draft === null ? null : sha256(draft);
-  const message = failure ? failure.message : `原稿を保存しました（試行 ${attempt}）`;
+  // 失敗の試行には原稿を残さない（自分で作った原稿ファイルだけを消す）
+  const dropDraft = () => {
+    draft = null;
+    if (!draftCreated) return;
+    try {
+      unlinkSync(draftPath);
+    } catch {
+      // 消せなくても結果は失敗のまま（files.draft は null）
+    }
+  };
+  if (failure) dropDraft();
+
   const inputs = [
     { role: "issue", file: o.issueJson.file, sha256: sha256(o.issueJson.bytes), bytes: o.issueJson.bytes.length },
     { role: "issue-description", sha256: sha256(o.issueData.description), bytes: Buffer.byteLength(o.issueData.description) },
     { role: "decision-log", file: o.decisionLog.file, sha256: sha256(o.decisionLog.bytes), bytes: o.decisionLog.bytes.length },
     ...o.related.map((r) => ({ role: "related", documentId: r.documentId, file: r.file, sha256: sha256(r.bytes), bytes: r.bytes.length })),
     ...(o.target ? [{ role: "target", documentId: o.target.documentId, file: o.target.file, sha256: sha256(o.target.bytes), bytes: o.target.bytes.length }] : []),
-    ...[o.feedback && { role: "feedback", ...o.feedback }, o.previous && { role: "previous", ...o.previous }]
+    ...[o.feedback && { role: "feedback", ...o.feedback }, o.previous && { role: "previous-record", ...o.previous.record }, o.previous?.draft && { role: "previous", ...o.previous.draft }]
       .filter((x) => !!x)
       .map((x) => ({ role: x.role, file: x.file, sha256: sha256(x.bytes), bytes: x.bytes.length })),
   ];
+  const draftSha256 = () => (draft === null ? null : sha256(draft));
+  const message = () => (failure ? failure.message : `原稿を保存しました（試行 ${attempt}）`);
   const record = {
     issue: o.issue,
     mode: o.mode,
@@ -491,27 +584,36 @@ async function main(): Promise<void> {
     sessionId,
     inputs,
     request: { file: names.request, sha256: sha256(request) },
-    draft: draft === null ? null : { file: names.draft, sha256: draftSha256 },
+    draft: draft === null ? null : { file: names.draft, sha256: draftSha256() },
     openQuestions,
     changeProposals,
     ok: !failure,
     code: failure?.code ?? null,
-    message,
+    message: message(),
     stderr,
     files: { request: names.request, events: names.events, draft: draft === null ? null : names.draft, record: names.record },
   };
-  writeFileSync(join(dir, names.record), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+  let recordSaved = false;
+  try {
+    writeFileSync(join(dir, names.record), `${JSON.stringify(record, null, 2)}\n`, { flag: "wx" });
+    recordSaved = true;
+  } catch (e) {
+    // 実行記録が無い原稿は採用できない。失敗にして原稿を消す
+    const why = unexpected(e).message;
+    failure = failure ? new Failure(failure.code, `${failure.message}（実行記録も保存できません: ${why}）`) : new Failure("UNEXPECTED_ERROR", `実行記録を保存できません: ${why}`);
+    dropDraft();
+  }
 
   emit(
     {
       ok: !failure,
       code: failure?.code ?? null,
-      message,
+      message: message(),
       issue: o.issue,
       attempt,
       dir,
-      files: { request: requestPath, events: join(dir, names.events), draft: draft === null ? null : join(dir, names.draft), record: join(dir, names.record) },
-      draftSha256,
+      files: { request: requestPath, events: join(dir, names.events), draft: draft === null ? null : draftPath, record: recordSaved ? join(dir, names.record) : null },
+      draftSha256: draftSha256(),
       openQuestions,
       changeProposals,
     },
@@ -519,4 +621,6 @@ async function main(): Promise<void> {
   );
 }
 
-await main();
+// 最後の砦: どの経路の想定外の例外でも、理由コード付きの結果 JSON を1つ出して非0で終える
+process.on("uncaughtException", (e) => emit(bare(unexpected(e)), false));
+await main().catch((e) => emit(bare(unexpected(e)), false));

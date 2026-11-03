@@ -32,7 +32,8 @@ interface Fake {
 }
 
 // 偽 omp: 引数と @ で渡されたファイル・作業ディレクトリを記録し、テストごとに決めた応答を返す
-function fakeOmp(opts: { events?: string; stderr?: string; exit?: number; hang?: boolean; versionExit?: number } = {}): Fake {
+// blockDraft: 原稿の保存先に先にディレクトリを作り、原稿の書き込みを想定外のエラー（EEXIST）にする
+function fakeOmp(opts: { events?: string; stderr?: string; exit?: number; hang?: boolean; versionExit?: number; blockDraft?: boolean } = {}): Fake {
   const dir = tempDir("nod-fake-omp-");
   if (opts.events !== undefined) writeFileSync(join(dir, "events.jsonl"), opts.events);
   if (opts.stderr !== undefined) writeFileSync(join(dir, "stderr.txt"), opts.stderr);
@@ -49,7 +50,7 @@ function fakeOmp(opts: { events?: string; stderr?: string; exit?: number; hang?:
       'pwd > "$D/cwd.log"',
       'for a in "$@"; do',
       '  printf "%s\\n" "$a" >> "$D/argv.log"',
-      '  case "$a" in @*) cp "${a#@}" "$D/request.md" ;; esac',
+      `  case "$a" in @*) cp "\${a#@}" "$D/request.md"${opts.blockDraft ? '; R="${a#@}"; mkdir "${R%-request.md}-draft.md"' : ""} ;; esac`,
       "done",
       // 応答しない動作: 孫プロセスの sleep が標準出力を開いたまま待つ
       opts.hang ? 'sleep 30 & echo $! > "$D/sleep.pid"; wait' : "",
@@ -431,22 +432,107 @@ describe("to-spec の執筆依頼スクリプト", () => {
     await expectFailure(i, fakeOmp({ events: events(answer("改訂の本文だけ。")) }), "SECTION_MISSING", ["--mode", "rebuild", "--target", `848=${target}`]);
   });
 
-  test("差し戻しでは主担当の指摘と前回の原稿を依頼文に入れる", async () => {
+  test("差し戻しでは前回の実行記録から原稿を読み、主担当の指摘とともに依頼文に入れる", async () => {
     const i = inputs();
-    const dir = tempDir();
-    const feedback = join(dir, "feedback.md");
-    const previous = join(dir, "previous.md");
+    const first = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody().replace("Solution の本文。", "PREVIOUS-DRAFT"))) }));
+    expect(first.json.ok).toBe(true);
+    const feedback = join(tempDir(), "feedback.md");
     writeFileSync(feedback, "FEEDBACK-TEXT Q1 の決定が反映されていない\n");
-    writeFileSync(previous, "PREVIOUS-DRAFT\n");
     const fake = fakeOmp({ events: events(answer()) });
-    const r = await run(baseArgs(i, ["--feedback", feedback, "--previous", previous]), fake);
+    const r = await run(baseArgs(i, ["--feedback", feedback, "--previous-record", first.json.files.record]), fake);
     expect(r.exitCode).toBe(0);
+    expect(r.json.attempt).toBe(2);
     const request = fake.request();
     expect(request).toContain("## 差し戻し");
     expect(request.indexOf("FEEDBACK-TEXT")).toBeGreaterThan(request.indexOf("### 主担当の指摘"));
     expect(request.indexOf("PREVIOUS-DRAFT")).toBeGreaterThan(request.indexOf("### 前回の原稿"));
-    const roles = JSON.parse(readFileSync(r.json.files.record, "utf8")).inputs.map((x: { role: string }) => x.role);
-    expect(roles).toEqual(["issue", "issue-description", "decision-log", "feedback", "previous"]);
+    expect(request).not.toContain("### 前回の未決の疑問");
+    const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
+    expect(record.inputs.map((x: { role: string }) => x.role)).toEqual(["issue", "issue-description", "decision-log", "feedback", "previous-record", "previous"]);
+    expect(record.inputs).toContainEqual({ role: "previous", file: first.json.files.draft, sha256: first.json.draftSha256, bytes: readFileSync(first.json.files.draft).length });
+  });
+
+  test("OPEN_QUESTIONS で終わった依頼は、前回の実行記録と主担当の回答で差し戻せ、疑問と回答が Argon に渡る", async () => {
+    const i = inputs();
+    const meta = { openQuestions: [{ question: "QUESTION-TEXT 上限は何秒か", reason: "REASON-TEXT 決定ログに無いと判断" }], changeProposals: [] };
+    const first = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody(), JSON.stringify(meta))) }));
+    expect(first.json).toMatchObject({ ok: false, code: "OPEN_QUESTIONS", files: { draft: null } });
+    const feedback = join(tempDir(), "feedback.md");
+    writeFileSync(feedback, "ANSWER-TEXT 既決: 決定ログ Q8 で上限600秒と決定済み\n");
+    const fake = fakeOmp({ events: events(answer()) });
+    const r = await run(baseArgs(i, ["--feedback", feedback, "--previous-record", first.json.files.record]), fake);
+    expect(r.exitCode).toBe(0);
+    expect(r.json).toMatchObject({ ok: true, attempt: 2 });
+    const request = fake.request();
+    const section = request.slice(request.indexOf("## 差し戻し"));
+    expect(section.indexOf("ANSWER-TEXT")).toBeGreaterThan(section.indexOf("### 主担当の指摘"));
+    expect(section.indexOf("QUESTION-TEXT")).toBeGreaterThan(section.indexOf("### 前回の未決の疑問"));
+    expect(section).toContain("REASON-TEXT");
+    expect(section).not.toContain("### 前回の原稿");
+    const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
+    expect(record.inputs.map((x: { role: string }) => x.role)).toEqual(["issue", "issue-description", "decision-log", "feedback", "previous-record"]);
+    expect(record.inputs).toContainEqual({ role: "previous-record", file: first.json.files.record, sha256: sha256(readFileSync(first.json.files.record)), bytes: readFileSync(first.json.files.record).length });
+  });
+
+  test("差し戻しに使えない前回の実行記録は INVALID_INPUT で、omp を呼ばない", async () => {
+    const i = inputs();
+    const feedback = join(tempDir(), "feedback.md");
+    writeFileSync(feedback, "指摘\n");
+    const ok = await run(baseArgs(i), fakeOmp({ events: events(answer()) }));
+    const failed = await run(baseArgs(i), fakeOmp({ events: events(answer("")) }));
+    expect(failed.json.code).toBe("EMPTY_BODY");
+    const tampered = join(tempDir(), "tampered-record.json");
+    const rec = JSON.parse(readFileSync(ok.json.files.record, "utf8"));
+    writeFileSync(tampered, JSON.stringify({ ...rec, draft: { ...rec.draft, sha256: "0".repeat(64) } }));
+    // 原稿ファイルは記録と同じディレクトリから読むので、書き換えた記録も同じ場所に置く
+    const tamperedInDocs = join(i.docs, "tampered-record.json");
+    writeFileSync(tamperedInDocs, readFileSync(tampered));
+    const notJson = join(tempDir(), "record.json");
+    writeFileSync(notJson, "{");
+    const before = readdirSync(i.docs).sort();
+    for (const [args, hint] of [
+      [["--feedback", feedback, "--previous-record", failed.json.files.record], "OPEN_QUESTIONS"],
+      [["--feedback", feedback, "--previous-record", tamperedInDocs], "SHA-256"],
+      [["--feedback", feedback, "--previous-record", notJson], "JSON"],
+      [["--mode", "append", "--target", `848=${i.related}`, "--feedback", feedback, "--previous-record", ok.json.files.record], "執筆の種類"],
+      [["--previous-record", ok.json.files.record], "--feedback"],
+    ] as const) {
+      const fake = fakeOmp({ events: events(answer()) });
+      const r = await run(baseArgs(i, [...args]), fake);
+      expect(r.exitCode).toBe(1);
+      expect(r.json).toMatchObject({ ok: false, code: "INVALID_INPUT", files: null });
+      expect(r.json.message).toContain(hint);
+      expect(existsSync(join(fake.dir, "argv.log"))).toBe(false);
+      expect(readdirSync(i.docs).sort()).toEqual(before);
+    }
+  });
+
+  test("原稿の保存が想定外のエラーで失敗すれば UNEXPECTED_ERROR で、実行記録を残し原稿を出さない", async () => {
+    const i = inputs();
+    const r = await run(baseArgs(i), fakeOmp({ events: events(answer()), blockDraft: true }));
+    expect(r.exitCode).toBe(1);
+    expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", attempt: 1, draftSha256: null });
+    expect(r.json.message).toContain("EEXIST");
+    expect(r.json.files.draft).toBeNull();
+    const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
+    expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
+    expect(record.responded).toEqual({ provider: "google-antigravity", model: "gemini-4-argon", stopReason: "stop" });
+  });
+
+  test("試行のファイルを作れなければ UNEXPECTED_ERROR の結果 JSON を出し、omp を呼ばない", async () => {
+    const i = inputs();
+    const fake = fakeOmp({ events: events(answer()) });
+    chmodSync(i.docs, 0o555);
+    try {
+      const r = await run(baseArgs(i), fake);
+      expect(r.exitCode).toBe(1);
+      expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", issue: "NOD-60", files: null, draftSha256: null });
+      expect(r.json.message).toContain("EACCES");
+      expect(existsSync(join(fake.dir, "argv.log"))).toBe(false);
+      expect(readdirSync(i.docs)).toEqual(["nod-60-grilling.md"]);
+    } finally {
+      chmodSync(i.docs, 0o755);
+    }
   });
 
   test("入力の不足・不正は INVALID_INPUT で、omp を呼ばずファイルも作らない", async () => {

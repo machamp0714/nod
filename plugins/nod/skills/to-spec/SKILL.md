@@ -65,6 +65,7 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
    bun <スキルのディレクトリ>/scripts/write-spec.ts --issue <id> --issue-json <issue.json> \
      --decision-log <決定ログのパス> [--related <Document id>=<パス>]... \
      [--mode new|rebuild|append] [--target <Document id>=<パス>] \
+     [--feedback <指摘ファイル> --previous-record <前回の files.record>] \
      [--effort <--writer-effort の値、既定 medium>] [--timeout <秒、既定 600>]
    ```
 
@@ -78,8 +79,8 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
    - テンプレートの 7 節がそろう（追記では不要）
    - ファイルパスとコード片が無い
    - 冒頭に、Issue 本文が前提であること・照合の経緯・Gemini 4 Argon が執筆したこと（追記では追記部分を執筆したこと）がある
-5. **食い違いは差し戻す。** 本文を直さない。指摘をファイルに書き、同じ引数に `--feedback <指摘ファイル> --previous <前回の files.draft>` を加えて再実行する。差し戻しは最大 2 回（1 つの依頼で呼び出しは合計 3 回まで）。それでも合わなければ、残った食い違いを理由に失敗として扱う。
-6. **未決の疑問（`OPEN_QUESTIONS`）が返ったら**、既決かを決定ログで確かめる。既決なら該当する決定を指摘して差し戻す（5 の回数に含める）。未決なら §2 の grilling の新しいラウンドに戻り、決まってから 1 から依頼し直す。
+5. **食い違いは差し戻す。** 本文を直さない。指摘をファイルに書き、同じ引数に `--feedback <指摘ファイル> --previous-record <前回の files.record>` を加えて再実行する。スクリプトは前回の実行記録から原稿（記録の SHA-256 と照合）を読んで依頼文に入れる。差し戻しは最大 2 回（1 つの依頼で呼び出しは合計 3 回まで）。それでも合わなければ、残った食い違いを理由に失敗として扱う。
+6. **未決の疑問（`OPEN_QUESTIONS`）が返ったら**、既決かを決定ログで確かめる。既決なら、疑問ごとに該当する決定（決定ログの問いと決定）を回答として指摘ファイルに書き、5 と同じく `--feedback <指摘ファイル> --previous-record <その試行の files.record>` で差し戻す（5 の回数に含める）。原稿は保存されていないので、スクリプトは前回の実行記録から未決の疑問を読み、回答とともに依頼文に入れる。未決なら §2 の grilling の新しいラウンドに戻り、決まってから 1 から依頼し直す。
 7. **変更提案（`changeProposals`）が返ったら**、決定ログに「変更提案（Argon）」の見出しで記録し、ユーザーに伝える。本文には反映させない（差し戻しで入れさせることもしない）。採否はユーザーが決める。
 8. **決定ログに「Argon 執筆記録」の節を追記する。** 採用した試行の実行記録（`files.record`）から、試行番号・執筆の種類・実行日時・所要時間・omp のバージョン・要求したモデルと thinking・応答したプロバイダとモデル・停止理由・セッション ID・各入力の SHA-256 とバイト数・原稿の SHA-256 と、保存したファイル名を書く。差し戻した・失敗した試行も、試行番号と理由を 1 行ずつ書く。
 
@@ -87,7 +88,7 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 ### 使えないとき・採用できないとき
 
-スクリプトの失敗（`OMP_NOT_FOUND`・`ARGON_UNAVAILABLE`・`TIMEOUT`・`OMP_FAILED`・`MODEL_NOT_ARGON`・`STOP_REASON`・`EMPTY_BODY`・`RESPONSE_FORMAT`・`TOP_HEADING`・`SECTION_MISSING`・`INVALID_INPUT`）や、差し戻しの上限に達したとき。
+スクリプトの失敗（`OMP_NOT_FOUND`・`ARGON_UNAVAILABLE`・`TIMEOUT`・`OMP_FAILED`・`MODEL_NOT_ARGON`・`STOP_REASON`・`EMPTY_BODY`・`RESPONSE_FORMAT`・`TOP_HEADING`・`SECTION_MISSING`・`INVALID_INPUT`・想定外のエラーの `UNEXPECTED_ERROR`）や、差し戻しの上限に達したとき。
 
 - 仕様 Document を作らない（作り直し・追記では既存の仕様書を変えない）。`needs-spec` を外さず、`ready-for-agent` を付けない。
 - 理由コードと説明（`message`）と実行記録のファイル名を決定ログに記録し、ユーザーに伝える。選択肢は「時間をおいて再試行」「執筆者を名指しで変える」。
