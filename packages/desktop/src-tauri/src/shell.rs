@@ -126,6 +126,8 @@ fn build_main(handle: &AppHandle, url: Url) -> Option<WebviewWindow> {
     let load_handle = handle.clone();
     let load_seq = Arc::new(LoadSeq::default());
     let built = WebviewWindowBuilder::new(handle, MAIN_WINDOW, WebviewUrl::External(url))
+        // Board と画像のドロップはフロントエンドの HTML D&D で扱う。
+        .disable_drag_drop_handler()
         .title("nod")
         .initialization_script("window.__NOD_DESKTOP__ = true;")
         .inner_size(1280.0, 800.0)

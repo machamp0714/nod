@@ -1,7 +1,7 @@
 // 実Desktopの入力→API保存→表示→再読み込みを通す手動起動の受入テスト。
-// 先に隔離アプリのBoardを開き、最新のスクリーンショットから座標を指定する。
+// 自動入力の到達を確認できない環境では、実手操作の前状態と観測記録を渡す。
 import { strict as assert } from "node:assert";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -10,6 +10,7 @@ const { values } = parseArgs({ args: Bun.argv.slice(2), options: {
   "window-id": { type: "string" }, from: { type: "string" }, to: { type: "string" },
   output: { type: "string" }, app: { type: "string", default: "io.github.machamp0714.nod" },
   status: { type: "string", default: "in_progress" }, column: { type: "string", default: "In Progress" },
+  before: { type: "string" }, "manual-observation": { type: "string" },
 } });
 function required(name: keyof typeof values): string {
   const value = values[name];
@@ -28,7 +29,9 @@ const issue = required("issue");
 const dataDir = resolve(required("data-dir"));
 const output = resolve(required("output"));
 const windowId = required("window-id");
-const from = point(required("from")), to = point(required("to"));
+const manual = values["manual-observation"] ? resolve(values["manual-observation"]) : null;
+const beforeFile = manual ? resolve(required("before")) : null;
+const from = manual ? null : point(required("from")), to = manual ? null : point(required("to"));
 mkdirSync(output); // 既存の証拠を上書きしない。
 
 interface Observation {
@@ -37,7 +40,8 @@ interface Observation {
   result?: { snapshot?: { treeText?: string }; screenshot?: { path?: string }; action?: unknown };
 }
 const evidence: Record<string, unknown> = { issue, origin: origin.origin, dataDir, windowId,
-  from, to, expectedStatus: values.status, expectedColumn: values.column, startedAt: new Date().toISOString() };
+  from, to, beforeFile, manualObservation: manual, inputMode: manual ? "manual_observed" : "orca_drag",
+  expectedStatus: values.status, expectedColumn: values.column, startedAt: new Date().toISOString() };
 function save(name: string, value: unknown): void {
   writeFileSync(`${output}/${name}.json`, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -52,7 +56,7 @@ function observe(name: string, args: string[]): Observation {
   if (screenshot) copyFileSync(screenshot, `${output}/${name}.png`);
   return observation;
 }
-interface SavedIssue { workspace: string; status: string }
+interface SavedIssue { id: string; workspace: string; status: string }
 async function api<T>(path: string): Promise<T> {
   const response = await fetch(new URL(path, origin));
   assert(response.ok, `${path}: HTTP ${response.status} ${await response.clone().text()}`);
@@ -77,16 +81,24 @@ async function visible(name: string): Promise<void> {
 }
 
 try {
-  const before = await api<SavedIssue>(`/api/issues/${encodeURIComponent(issue)}`);
+  const before = beforeFile ? JSON.parse(readFileSync(beforeFile, "utf8")) as SavedIssue
+    : await api<SavedIssue>(`/api/issues/${encodeURIComponent(issue)}`);
+  assert.equal(before.id, issue, "前状態が対象Issueと一致しません");
   const workspaces = await api<{ key: string; path: string }[]>("/api/workspaces");
   assert(workspaces.some(w => w.key === before.workspace && w.path.startsWith(dataDir + sep)),
     "対象Issueが指定した隔離データのWorkspaceにありません");
   assert.notEqual(before.status, values.status, "既に移動先の状態です。成功済みデータを再利用しないでください");
   save("api-before", before);
-  observe("before", ["get-app-state", "--restore-window"]);
-  const action = observe("drag", ["drag", "--from-x", String(from[0]), "--from-y", String(from[1]),
-    "--to-x", String(to[0]), "--to-y", String(to[1])]);
-  evidence.nativeAction = action.result?.action; // 入力の未検証メタデータもそのまま残す。
+  if (manual) {
+    // 実手操作の到達は外部の観測記録で確認する。スクリプトが確認したとは偽らない。
+    copyFileSync(manual, `${output}/manual-observation.md`);
+    observe("post-manual-input", ["get-app-state"]);
+  } else {
+    observe("before", ["get-app-state", "--restore-window"]);
+    const action = observe("drag", ["drag", "--from-x", String(from![0]), "--from-y", String(from![1]),
+      "--to-x", String(to![0]), "--to-y", String(to![1])]);
+    evidence.nativeAction = action.result?.action; // 入力の未検証メタデータもそのまま残す。
+  }
   let after = await api<SavedIssue>(`/api/issues/${encodeURIComponent(issue)}`);
   const until = Date.now() + 6_000;
   while (after.status !== values.status && Date.now() < until) {
