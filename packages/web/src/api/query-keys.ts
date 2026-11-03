@@ -50,6 +50,8 @@ export const queryKeys = {
   cycleCadence: () => ["cycles", "cadence"] as const,
   views: () => ["views"] as const,
   scrumWorkspace: (key: string) => ["workspaces", "scrum", key] as const,
+  // 期限到来時の自動引継ぎの状態。設定値・次に処理する時刻・後継の予定・止まっている理由（読取専用）
+  sprintRolloverStatus: (key: string) => ["workspaces", "scrum", key, "rollover"] as const,
   sprintExecution: (ref: string) => ["sprints", "execution", ref] as const,
   sprintRecords: (ref: string) => ["sprints", "records", ref] as const,
   sprintPlanningStatus: (ref: string) => ["sprints", "planning-status", ref] as const,

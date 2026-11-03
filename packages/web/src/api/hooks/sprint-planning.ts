@@ -1,12 +1,23 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { AddIssueToSprintResult, ScrumWorkspace, Sprint, SprintDetail, SprintPlanResult } from "@nod/core";
+import type { AddIssueToSprintResult, ScrumWorkspace, Sprint, SprintDetail, SprintPlanResult, SprintRolloverStatus } from "@nod/core";
 import { ApiError, apiFetch, type ApiRequest } from "../client";
 import { queryKeys } from "../query-keys";
 import { useApiMutation } from "./shared";
 
 export function useScrumWorkspace(key: string, enabled = true) {
   return useQuery({ queryKey: queryKeys.scrumWorkspace(key), queryFn: () => apiFetch<ScrumWorkspace>(`/workspaces/${encodeURIComponent(key)}/scrum`), enabled });
+}
+
+export function useSprintRolloverStatus(key: string) {
+  return useQuery({ queryKey: queryKeys.sprintRolloverStatus(key), queryFn: () => apiFetch<SprintRolloverStatus>(`/workspaces/${encodeURIComponent(key)}/scrum/rollover`) });
+}
+
+// 自動引継ぎの有効・無効だけを変える（人だけ。Web は me として書く）。Scrum設定の版も requestKey も送らない。
+// 書き込み後の再取得（useApiMutation）で状態とScrum設定を取り直す
+export function useSetSprintRollover(key: string) {
+  return useApiMutation<boolean, ScrumWorkspace>((enabled) =>
+    apiFetch<ScrumWorkspace>(`/workspaces/${encodeURIComponent(key)}/scrum/rollover`, { method: "PUT", body: { enabled } }));
 }
 
 // 応答喪失後も同じ入力は同じ版・requestKeyで再送する。競合後は読み直した版で再試行できる。

@@ -111,8 +111,11 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
     case "milestone_changed":
       return line(`${actor} が Milestone を ${typeof data.from === "string" ? data.from : "なし"} から ${typeof data.to === "string" ? data.to : "なし"} に変えた`);
     case "sprint_added":
-      // 内容は後から項目が増える（NOD-59 の引き継ぎなど）。文は Sprint の共通番号と名前だけで作る
-      return line(`${actor} が Sprint ${String(data.sprintNumber ?? "")}「${String(data.sprintName ?? "")}」に追加した`);
+      // 内容は後から項目が増える。文は Sprint の共通番号と名前だけで作り、自動引継ぎ（NOD-59）の自動化と引継ぎ元は補足に出す
+      return line(`${actor} が Sprint ${String(data.sprintNumber ?? "")}「${String(data.sprintName ?? "")}」に追加した`, [
+        ...automationOf(data),
+        ...(data.fromSprintNumber == null ? [] : [`引継ぎ元: Sprint ${String(data.fromSprintNumber)}「${String(data.fromSprintName ?? "")}」`]),
+      ]);
     case "cycle_changed":
       return line(data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた`, [...(data.from == null ? [] : [`以前: ${String(data.from)}`]), ...automationOf(data)]);
     case "parent_changed":

@@ -138,3 +138,11 @@ test("Sprintへの追加は追加した人とSprintの番号・名前を、Sprin
     describeActivity({ kind: "event", at, actor: "codex", type: "sprint_added", data: { sprintId: "uuid-15", sprintNumber: 15, sprintName: "Sprint 15" } }),
   ).toEqual({ icon: "calendar-range", text: "codex が Sprint 15「Sprint 15」に追加した" });
 });
+
+test("自動引継ぎによるSprintへの追加は、自動処理の主体の名前で同じ文を出す（補足は出さない）", () => {
+  const data = { sprintId: "uuid-16", sprintNumber: 16, sprintName: "Sprint 16", automation: "sprint-rollover", fromSprintId: "uuid-15", fromSprintNumber: 15, fromSprintName: "Sprint 15" };
+  expect(describeActivity({ kind: "event", at, actor: "nod-automation", type: "sprint_added", data })).toEqual({
+    icon: "calendar-range",
+    text: "nod-automation が Sprint 16「Sprint 16」に追加した",
+  });
+});

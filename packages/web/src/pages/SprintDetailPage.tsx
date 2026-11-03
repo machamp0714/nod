@@ -17,6 +17,7 @@ import { SprintAnalyticsPanel } from "../components/cycles/SprintAnalyticsPanel"
 import { IssueList } from "../components/issue-list/IssueList";
 import { Button, IconButton, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { SPRINT_PHASE_LABEL, sprintSnapshotRows } from "../lib/sprints";
+import { carriedItems, isAutoStarted, sprintAgreementText, sprintLinkLabel } from "../lib/sprint-rollover";
 import { withoutPageDisplay } from "../lib/page-display";
 import { cleanSprintDetailSearch, replacesIssueListHistory } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -70,6 +71,7 @@ export function SprintDetailPage() {
   const shownRows = imported ? snapshots : rows.rows;
   const countsKnown = imported || (!rows.loading && !rows.error);
   const completed = shownRows.filter((item) => item.issue.status === "done").length;
+  const carried = carriedItems(sprint);
   return <div className={s.layout}>
     <IssueList crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name}
       titleNote={<span>{SPRINT_PHASE_LABEL[sprint.phase]}</span>}
@@ -78,7 +80,7 @@ export function SprintDetailPage() {
       intro={<>
         {error && <p role="alert">取得に失敗しました。最後の確認：{new Date(detail.dataUpdatedAt).toLocaleString("ja-JP")} <Button onClick={() => void detail.refetch()}>再読み込み</Button></p>}
         {activated === sprint.id && <p role="status">Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。</p>}
-        {awaitingClosure && <p role="status">期限超過、終了の記録待ち。Sprintを終了して残件を記録してください。</p>}
+        {awaitingClosure && <p role="status">期限超過、終了の記録待ち。Sprintを終了して残件を記録してください。自動引継ぎが有効なWorkspaceでは、次の契機で自動で終了し後継へ引き継ぎます。</p>}
         <section className={s.overview} aria-label="Sprint の概要">
           <span className={s.field}><span className={s.label}>期間</span>{sprint.startDate} – {sprint.endDate}</span>
           <span className={s.field}><span className={s.label}>{imported ? "移行時の完了" : "タスク完了"}</span>
@@ -87,6 +89,9 @@ export function SprintDetailPage() {
           <span className={s.field}><span className={s.label}>timezone</span>{sprint.timezone ?? "不明"}</span>
           <span className={s.field}><span className={s.label}>期限</span>{sprint.endsAt ? <time dateTime={sprint.endsAt}>{new Date(sprint.endsAt).toLocaleString("ja-JP", { timeZone: sprint.timezone ?? undefined })}</time> : "不明"}</span>
           <span className={s.field}><span className={s.label}>Sprint番号</span>{sprint.number}</span>
+          {sprint.rolloverFrom && <span className={s.field}><span className={s.label}>前Sprint</span><Link to="/sprints/$sprintId" params={{ sprintId: sprint.rolloverFrom.id }}>{sprintLinkLabel(sprint.rolloverFrom)}</Link></span>}
+          {sprint.rolloverTo && <span className={s.field}><span className={s.label}>後継</span><Link to="/sprints/$sprintId" params={{ sprintId: sprint.rolloverTo.id }}>{sprintLinkLabel(sprint.rolloverTo)}</Link></span>}
+          {isAutoStarted(sprint) && sprint.activatedAt && <span className={s.field}><span className={s.label}>開始</span>自動開始（<time dateTime={sprint.activatedAt}>{new Date(sprint.activatedAt).toLocaleString("ja-JP")}</time>）</span>}
           {imported && <span>旧Cycle ID: {sprint.legacyCycleId ?? "不明"}</span>}
         </section>
         <section className={s.evidence} aria-label="Sprint の記録">
@@ -99,9 +104,12 @@ export function SprintDetailPage() {
           <p>次の行動：{sprint.phase === "ended" ? "終了時の記録と現在のIssueを確認する" : sprint.phase === "canceled" ? "中止理由と残件を確認する" : awaitingClosure ? "終了を記録し、残件と現在の担当を確認する" : sprint.phase === "active" ? "採択済みの要求と着手条件、現在の監督と再照合手順を確認する" : "計画のゴール・採択理由・条件を確認して合意する"}</p>
           <SprintSupervision key={sprint.id} sprint={sprint} />
           {shownPlan && <details><summary>採択理由・ゴールへの貢献</summary>{shownPlan.content.items.map(item => <p key={item.itemId}>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey}：{item.contribution}</p>)}</details>}
-          <p>合意: {sprint.adoptedPlanId ? "採用計画あり" : "不明"} / 達成結果: {sprint.outcome ?? "不明"}</p>
+          <p>合意: {sprintAgreementText(sprint)} / 達成結果: {sprint.outcome ?? "不明"}</p>
+          {carried.length > 0 && <details><summary>{sprint.rolloverFrom ? sprintLinkLabel(sprint.rolloverFrom) : "前Sprint"}から引き継いだIssue（{carried.length}件）</summary>
+            {carried.map(item => <p key={item.id}><Link to="/issues/$issueId" params={{ issueId: item.sourceIssueKey }}>{item.sourceIssueKey}</Link></p>)}
+          </details>}
           {sprint.cancelReason && <p>中止理由：{sprint.cancelReason} / {sprint.canceledAt}</p>}
-          {sprint.closureRecord && <SprintClosure record={sprint.closureRecord} />}
+          {sprint.closureRecord && <SprintClosure record={sprint.closureRecord} periodEndsAt={sprint.endsAt} />}
           {imported && <><p>移行時の状態（{sprint.legacy?.capturedAt ?? "取得時点不明"}）。元のWorkspaceとともに表示します。</p><p>終了時点の成果は不明</p></>}
         </section>
       </>}

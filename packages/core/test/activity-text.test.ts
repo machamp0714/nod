@@ -104,6 +104,14 @@ describe("describeEvent（#198）", () => {
     });
   });
 
+  test("自動引継ぎによるSprintへの追加は、文はそのままに自動化と引継ぎ元のSprintを補足にする（NOD-59）", () => {
+    const data = { sprintId: "uuid-16", sprintNumber: 16, sprintName: "Sprint 16", automation: "sprint-rollover", fromSprintId: "uuid-15", fromSprintNumber: 15, fromSprintName: "前の期間" };
+    expect(event("sprint_added", data, "nod-automation")).toEqual({
+      text: "nod-automation が Sprint 16「Sprint 16」に追加した",
+      detail: ["自動化: sprint-rollover", "引継ぎ元: Sprint 15「前の期間」"],
+    });
+  });
+
   test("知らない種類は null を返す", () => {
     expect(event("snoozed", { until: "2026-10-02T00:00:00.000Z" })).toBeNull();
   });

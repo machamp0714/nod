@@ -1,20 +1,63 @@
 import { SprintEditConflict } from "../components/sprints/SprintEditConflict";
 import { useState } from "react";
-import type { ScrumWorkspace } from "@nod/core";
+import { Link } from "@tanstack/react-router";
+import type { ScrumWorkspace, SprintRolloverStatus } from "@nod/core";
 import { errorMessage } from "../api/errors";
-import { useScrumWorkspace, useSprintCommand } from "../api/hooks/sprint-planning";
+import { useScrumWorkspace, useSetSprintRollover, useSprintCommand, useSprintRolloverStatus } from "../api/hooks/sprint-planning";
 import { Button } from "../components/ui";
+import { rolloverSuccessorPlan, sprintLinkLabel } from "../lib/sprint-rollover";
 import s from "./workspace-settings.module.css";
 import f from "../components/planning/planning.module.css";
 
 export function WorkspaceScrumSettings({ workspaceKey }: { workspaceKey: string }) {
   const data = useScrumWorkspace(workspaceKey);
-  return <section className={s.section} aria-label="Sprintの方向設定">
-    <h2 className={s.sectionTitle}>Sprintの方向設定</h2>
-    <p className={s.description}>問題・目標・優先順位を保存し、Sprintの計画に使います。</p>
-    {data.error && <p role="alert">{errorMessage(data.error)} <Button onClick={() => void data.refetch()}>再読み込み</Button></p>}
-    {data.data ? <DirectionForm key={workspaceKey} workspaceKey={workspaceKey} saved={data.data} /> : !data.error && <p role="status">読み込み中…</p>}
+  return <>
+    <section className={s.section} aria-label="Sprintの方向設定">
+      <h2 className={s.sectionTitle}>Sprintの方向設定</h2>
+      <p className={s.description}>問題・目標・優先順位を保存し、Sprintの計画に使います。</p>
+      {data.error && <p role="alert">{errorMessage(data.error)} <Button onClick={() => void data.refetch()}>再読み込み</Button></p>}
+      {data.data ? <DirectionForm key={workspaceKey} workspaceKey={workspaceKey} saved={data.data} /> : !data.error && <p role="status">読み込み中…</p>}
+    </section>
+    <RolloverSettings workspaceKey={workspaceKey} saved={data.data} />
+  </>;
+}
+
+// 期限到来時の自動引継ぎ。方向設定とは別の、値だけを変える操作（人だけ。LLM は変更できない）。
+// 状態は読取専用で、設定値・次に処理する時刻・後継の予定・止まっている理由を出す
+function RolloverSettings({ workspaceKey, saved }: { workspaceKey: string; saved: ScrumWorkspace | undefined }) {
+  const status = useSprintRolloverStatus(workspaceKey);
+  const save = useSetSprintRollover(workspaceKey);
+  // 方向設定を一度も保存していないWorkspaceには、切り替える設定の行がまだ無い
+  const unsaved = saved?.version === 0;
+  // 保存して状態を読み直すまでは、選んだ値を出す（読み直しの後は保存済みの値に戻す。失敗したときも保存済みの値に戻る）
+  const [requested, setRequested] = useState<boolean | null>(null);
+  const enabled = requested ?? status.data?.enabled ?? saved?.autoRollover ?? false;
+  return <section className={s.section} aria-label="期限到来時の自動引継ぎ">
+    <h2 className={s.sectionTitle}>期限到来時の自動引継ぎ</h2>
+    <p className={s.description}>Sprintの期間が終わったら自動で終了し、後継のSprintへ未完了の所属を引き継いで、期間が始まっていれば合意なしで開始します。LLM は設定を変更できません。</p>
+    <label><input type="checkbox" checked={enabled} disabled={!saved || unsaved || requested !== null}
+      onChange={e => {
+        const next = e.target.checked;
+        setRequested(next); save.reset();
+        void save.mutateAsync(next).catch(() => {}).finally(() => setRequested(null));
+      }} /> 期限到来時に自動で引き継ぐ</label>
+    {unsaved && <p className={s.description}>先に方向設定を保存すると切り替えられます。</p>}
+    {save.error && <p role="alert">自動引継ぎの設定を保存できませんでした：{errorMessage(save.error)}</p>}
+    {status.error && <p role="alert">自動引継ぎの状態を取得できません：{errorMessage(status.error)} <Button onClick={() => void status.refetch()}>再読み込み</Button></p>}
+    {status.data ? <RolloverStatusList status={status.data} /> : !status.error && <p role="status">読み込み中…</p>}
   </section>;
+}
+function RolloverStatusList({ status }: { status: SprintRolloverStatus }) {
+  const plan = rolloverSuccessorPlan(status.successor);
+  return <dl className={s.rolloverStatus} aria-label="自動引継ぎの状態">
+    <dt>設定</dt><dd>{status.enabled ? "有効" : "無効"}</dd>
+    <dt>次に処理する時刻</dt><dd>{status.nextRunAt
+      ? <><time dateTime={status.nextRunAt}>{new Date(status.nextRunAt).toLocaleString("ja-JP")}</time>
+        <span className={s.description}>（この時刻以降の次の契機（アプリの起動時と1分ごと、CLIの実行時）に処理します。この時刻ちょうどの実行は保証しません）</span></>
+      : "予定なし"}</dd>
+    <dt>後継の予定</dt><dd>{plan.text}{plan.sprint && <>：<Link to="/sprints/$sprintId" params={{ sprintId: plan.sprint.id }}>{sprintLinkLabel(plan.sprint)}</Link></>}</dd>
+    <dt>止まっている理由</dt><dd>{status.blocked?.message ?? "なし"}</dd>
+  </dl>;
 }
 function DirectionForm({ workspaceKey, saved }: { workspaceKey: string; saved: ScrumWorkspace }) {
   const [version, setVersion] = useState(saved.version);

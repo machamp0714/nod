@@ -86,7 +86,7 @@ export function SprintOutcomes({ sprint, onBack, onPlan, onRetrospective, readEr
       <p>テスト結果：<strong>{SPRINT_TEST_RESULT_LABEL[record.content.testResult]}</strong></p>
     </section>)}
     {canAddSprintRecord(sprint) ? <SprintOutcomeForm sprint={sprint} outcomes={outcomes} /> : <p>開始前のSprintと旧Cycleの移行履歴には記録を追加できません。</p>}
-    {sprint.closureRecord && <section className={s.section}><SprintClosure record={sprint.closureRecord} /></section>}
+    {sprint.closureRecord && <section className={s.section}><SprintClosure record={sprint.closureRecord} periodEndsAt={sprint.endsAt} /></section>}
   </SprintRecordsLayout>;
 }
 
