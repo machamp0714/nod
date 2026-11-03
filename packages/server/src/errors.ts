@@ -23,7 +23,6 @@ export const ERROR_STATUS: Record<string, number> = {
   SPRINT_ALREADY_ACTIVE: 409,
   SPRINT_OVERLAP: 409,
   SCRUM_DISABLED: 409,
-  SPRINT_CONTEXT_REQUIRED: 409,
   TARGET_CHANGED: 409,
   // Sprintの所有・世代・開始条件による拒否。再照合してから同じ実行を続ける。
   EXECUTION_OWNED: 409,
