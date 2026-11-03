@@ -1,12 +1,13 @@
 import type { Page } from "@playwright/test";
 import { expect, test, waitForServerEvents } from "./fixtures";
 import { chooseDisplay, closeDisplay } from "./support/issue-list";
-import { expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
+import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
 // Issues の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置（NOD-52）。
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する
 test.use({ dataset: "issue-list" });
+test.beforeEach(({ page }) => disableScrollAnchoring(page));
 
 const TITLE = "スクロール確認 Issue";
 
@@ -263,7 +264,7 @@ test("最終的に短くなった一覧は到達できる範囲に収め、更�
 });
 
 test("復元を待っている間に利用者がスクロールしたら、その後に一覧が伸びても引き戻さない", async ({ page, nod }) => {
-  const { grow } = await shrinkWhileDetail(page, nod);
+  const { expected, grow } = await shrinkWhileDetail(page, nod);
   const clamped = (await scrollRegions(page)).main!.y;
   await page.locator("main").hover();
   await page.mouse.wheel(0, -300);
@@ -271,6 +272,8 @@ test("復元を待っている間に利用者がスクロールしたら、そ�
   const user = (await scrollRegions(page)).main!.y;
   await grow();
   await expect(lastRow(page)).toHaveCount(1);
+  // 行が出ても領域の高さはまだ伸びていないことがあるため、元の目標まで届く高さになってから確かめる
+  await expect.poll(async () => (await scrollRegions(page)).main!.maxY).toBeGreaterThanOrEqual(expected.y);
   await nextFrames(page);
   expect((await scrollRegions(page)).main!.y).toBe(user);
 });
@@ -326,4 +329,43 @@ test.describe("戻ったときの再取得の失敗", () => {
     expect(m.y).toBeLessThanOrEqual(Math.max(m.maxY, 0));
     await page.unroute(ISSUE_LISTS);
   });
+});
+
+test("復元を待っている間に入力欄で Space や矢印のキーを打っても、目標を保ち、一覧が伸びたら元の位置へ戻る", async ({ page, nod }) => {
+  const { expected, grow } = await shrinkWhileDetail(page, nod);
+  const clamped = (await scrollRegions(page)).main!.y;
+  // 一覧の条件を変えない入力欄（全画面の Issue 検索）で、空白を含む語を打ち、カーソルを動かす。入力欄のキーは一覧のスクロール操作ではない
+  await page.keyboard.press("Shift+Control+F");
+  const dialog = page.getByRole("dialog", { name: "Issue を検索" });
+  const search = dialog.getByRole("combobox");
+  await expect(search).toBeFocused();
+  await page.keyboard.type("API 05");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("End");
+  await expect(search).toHaveValue("API 05");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  expect((await scrollRegions(page)).main!.y).toBe(clamped);
+  await grow();
+  await expect(lastRow(page)).toHaveCount(1);
+  await expectPositions(page, { main: expected });
+});
+
+test("ポインタイベントを伴わないスクロールバーの押下（WebKit の mousedown と scroll だけ）でも、その後に一覧が伸びても引き戻さない", async ({ page, nod }) => {
+  const { expected, grow } = await shrinkWhileDetail(page, nod);
+  const clamped = (await scrollRegions(page)).main!.y;
+  // WKWebView のスクロールバーのように、pointerdown なしの mousedown の後、位置だけが変わる
+  await page.evaluate(() => {
+    const main = document.querySelector("main") as HTMLElement;
+    main.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+  });
+  await scrollRegion(page, "main", { y: clamped - 150 });
+  const user = (await scrollRegions(page)).main!.y;
+  await grow();
+  await expect(lastRow(page)).toHaveCount(1);
+  // 行が出ても領域の高さはまだ伸びていないことがあるため、元の目標まで届く高さになってから確かめる
+  await expect.poll(async () => (await scrollRegions(page)).main!.maxY).toBeGreaterThanOrEqual(expected.y);
+  await nextFrames(page);
+  expect((await scrollRegions(page)).main!.y).toBe(user);
 });

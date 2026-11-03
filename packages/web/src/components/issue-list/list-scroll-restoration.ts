@@ -130,7 +130,8 @@ export function useListScrollRestoration(root: RefObject<HTMLElement | null>, re
   }, [root, apply]);
 
   // 利用者の新しい操作（ホイール、タッチ、ポインタでの押下やスクロールバーのドラッグ、スクロールに関わるキー）を優先する。
-  // 復元自身の scrollTop の代入は scroll イベントしか生まないため、ここで区別できる
+  // 復元自身の scrollTop の代入は scroll イベントしか生まないため、ここで区別できる。
+  // scroll イベントの位置の食い違いからは推し量らない（ブラウザのスクロールアンカーや到達範囲への収まりも同じ形で届き、復元自身の移動と取り違える）
   useEffect(() => {
     const cancel = () => {
       arriving.current = null;
@@ -138,23 +139,26 @@ export function useListScrollRestoration(root: RefObject<HTMLElement | null>, re
       pending.current = null;
       if (entry.current?.key) forgetListScroll(entry.current.key);
     };
-    const onPointer = (event: PointerEvent) => {
+    // WebKit（Desktop の WKWebView）のスクロールバーの押下は pointerdown を伴わず mousedown だけのことがあるため、両方を見る
+    const onPointer = (event: MouseEvent) => {
       // マウスの戻る・進むのボタンは画面を離れる操作なので、目標を消さない
       if (event.button === 3 || event.button === 4) return;
       cancel();
     };
     const onKey = (event: KeyboardEvent) => {
-      if (isScrollKey(event.key)) cancel();
+      if (isScrollKey(event.key, event.target)) cancel();
     };
     const options = { capture: true, passive: true };
     window.addEventListener("wheel", cancel, options);
     window.addEventListener("touchstart", cancel, options);
     window.addEventListener("pointerdown", onPointer, options);
+    window.addEventListener("mousedown", onPointer, options);
     window.addEventListener("keydown", onKey, options);
     return () => {
       window.removeEventListener("wheel", cancel, options);
       window.removeEventListener("touchstart", cancel, options);
       window.removeEventListener("pointerdown", onPointer, options);
+      window.removeEventListener("mousedown", onPointer, options);
       window.removeEventListener("keydown", onKey, options);
     };
   }, []);
@@ -188,13 +192,22 @@ export function useListScrollRestoration(root: RefObject<HTMLElement | null>, re
 }
 
 // URL にない保存前の状態（View の保存前の Filter）を、履歴エントリごとの一時状態として持つ useState。
-// 一覧のエントリから離れる直前（詳細を開く・戻る・進む）に今の値を記録し、同じエントリへ戻って開き直したら、保存済みの定義（key.base）が同じときだけ使う
+// 一覧のエントリから離れる直前（詳細を開く・戻る・進む）に今の値を記録し、記録のあるエントリへ戻ったら（開き直しても、同じ画面のまま戻る・進むで移っても）、保存済みの定義（key.base）が同じときだけ使う
 export function useListDraft<T>(key: ListDraftKey, initial: T): [T, (value: T) => void] {
   const router = useRouter();
   const entryKey = useLocation({ select: (location) => location.state.__TSR_key });
-  const [value, setValue] = useState<T>(() => (entryKey !== undefined ? recallListDraft<T>(entryKey, key) : undefined) ?? initial);
-  const latest = useRef({ key, value });
-  latest.current = { key, value };
+  const entryIndex = useLocation({ select: (location) => location.state.__TSR_index });
+  const [state, setState] = useState(() => ({ key: entryKey, index: entryIndex, value: (entryKey !== undefined ? recallListDraft<T>(entryKey, key) : undefined) ?? initial }));
+  let current = state;
+  // 別のエントリへ移ったら（replace で同じ位置のエントリが置き換わったのではなく）、そのエントリの記録を同じ描画で使う。記録がなければ今の値を引き継ぐ
+  if (state.key !== entryKey || state.index !== entryIndex) {
+    const moved = state.index !== entryIndex && entryKey !== undefined;
+    const value = moved ? (recallListDraft<T>(entryKey, key) ?? state.value) : state.value;
+    current = { key: entryKey, index: entryIndex, value };
+    setState(current);
+  }
+  const latest = useRef({ key, value: current.value });
+  latest.current = { key, value: current.value };
   // 値を記録する履歴エントリ。replace では同じエントリのキーが変わるため、通知のたびに追う
   const entry = useRef(entryKey);
   useEffect(
@@ -207,5 +220,6 @@ export function useListDraft<T>(key: ListDraftKey, initial: T): [T, (value: T) =
       }),
     [router],
   );
-  return [value, setValue];
+  const setValue = useRef((value: T) => setState((prev) => ({ ...prev, value }))).current;
+  return [current.value, setValue];
 }

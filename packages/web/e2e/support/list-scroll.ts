@@ -102,3 +102,18 @@ export async function holdRequests(page: Page, url: RegExp) {
     },
   };
 }
+
+// すべてのスクロール領域（main・表・Board）のスクロールアンカーを止める。各ファイルの beforeEach で、ページを開く前に呼ぶ。
+// 行が伸びた分をブラウザのスクロールアンカーが補正すると、復元が目標を当て直さなくても元の位置に見える。
+// Desktop の WKWebView にはスクロールアンカーがないため、止めた状態で当て直しを確かめる
+export async function disableScrollAnchoring(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const add = () => {
+      const style = document.createElement("style");
+      style.textContent = "[data-scroll-region] { overflow-anchor: none !important; }";
+      document.documentElement.appendChild(style);
+    };
+    if (document.documentElement) add();
+    else document.addEventListener("DOMContentLoaded", add, { once: true });
+  });
+}

@@ -1,12 +1,14 @@
 import type { Page } from "@playwright/test";
 import { expect, test, waitForServerEvents } from "./fixtures";
-import { expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
+import { chooseDisplay, closeDisplay } from "./support/issue-list";
+import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
 // View の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときの保存前の Filter とスクロール位置（NOD-52）。
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する。
 // データセットの View 1「仕事」は Workspace が API の Issue だけを出す
 test.use({ dataset: "issue-list" });
+test.beforeEach(({ page }) => disableScrollAnchoring(page));
 
 const TITLE = "スクロール確認 Issue";
 // データセットの BLOG の Issue。保存前の Filter で Workspace に blog を足したときだけ出る
@@ -76,6 +78,50 @@ const heading = (page: Page) => page.getByRole("main").getByRole("heading", { le
 
 // 描画が落ち着くまで（2フレーム）待つ。引き戻しがないことを確かめる前に使う
 const nextFrames = (page: Page) => page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+
+// データセットの NOD の Issue。保存前の Filter で Workspace に nod を足したときだけ出る
+const NOD_ROW = "Sidebar に件数を表示する";
+const nodRow = (page: Page) => page.getByRole("main").getByRole("link", { name: NOD_ROW, exact: true });
+
+test("同じ View の2つの履歴エントリを戻る・進むで行き来すると、それぞれの保存前の Filter と位置に戻る", async ({ page, nod }) => {
+  await addIssues(nod, 40);
+  await page.goto("/views/1");
+  await expect(lastRow(page)).toHaveCount(1);
+  await addBlogToFilter(page);
+  // 並び順を変える（同じ View の新しい履歴エントリになる）。新しいエントリでは、保存前の Filter に nod も足す
+  await chooseDisplay(page, "並び順", "タイトル");
+  await expect(page).toHaveURL(/sort=title/);
+  await closeDisplay(page);
+  const filter = page.getByText("Filter", { exact: true });
+  await filter.click();
+  await page.getByRole("group", { name: "Workspace" }).getByRole("checkbox", { name: "nod", exact: true }).check();
+  await filter.click();
+  await expect(nodRow(page)).toHaveCount(1);
+  await scrollRegion(page, "main", { y: 1000 });
+  const second = positions(await scrollRegions(page)).main!;
+  expect(second.y).toBeGreaterThan(900);
+  // 戻ると、元のエントリの保存前の Filter（blog だけを足したもの）に戻る
+  await page.goBack();
+  await expect(page).not.toHaveURL(/sort=title/);
+  await expect(blogRow(page)).toHaveCount(1);
+  await expect(nodRow(page)).toHaveCount(0);
+  await expect(dirty(page)).toHaveCount(1);
+  await scrollRegion(page, "main", { y: 600 });
+  const first = positions(await scrollRegions(page)).main!;
+  expect(first.y).toBeGreaterThan(500);
+  // 進むと、新しいエントリの保存前の Filter（nod も足したもの）と位置に戻る
+  await page.goForward();
+  await expect(page).toHaveURL(/sort=title/);
+  await expect(nodRow(page)).toHaveCount(1);
+  await expect(blogRow(page)).toHaveCount(1);
+  await expectPositions(page, { main: second });
+  // もう一度戻ると、元のエントリの Filter と位置に戻る
+  await page.goBack();
+  await expect(page).not.toHaveURL(/sort=title/);
+  await expect(nodRow(page)).toHaveCount(0);
+  await expect(blogRow(page)).toHaveCount(1);
+  await expectPositions(page, { main: first });
+});
 
 test("別の View はそれぞれの履歴エントリで自分の条件と位置に戻り、Sidebar から開き直した View は保存した条件で先頭から出す", async ({ page, nod }) => {
   await addIssues(nod, 40);
@@ -290,6 +336,8 @@ test("詳細を開いている間に View の一覧が短くなったら到達�
   const user = (await scrollRegions(page)).main!.y;
   for (const id of ids.slice(25)) await nod.me.unarchiveIssue(id);
   await expect(lastRow(page)).toHaveCount(1);
+  // 行が出ても領域の高さはまだ伸びていないことがあるため、元の目標まで届く高さになってから確かめる
+  await expect.poll(async () => (await scrollRegions(page)).main!.maxY).toBeGreaterThanOrEqual(expected.main!.y);
   await nextFrames(page);
   expect((await scrollRegions(page)).main!.y).toBe(user);
 });

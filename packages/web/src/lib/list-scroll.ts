@@ -105,7 +105,20 @@ export function atPoint(current: ScrollPoint, target: ScrollPoint): boolean {
 
 // スクロール操作に関わるキー。押したら、保留中の復元より利用者の操作を優先する
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", " ", "Spacebar", "Tab"]);
+// 文字を打つ欄の中では、文字の入力とカーソルの移動に使われ、外側の領域をスクロールしないキー。
+// Tab（フォーカスの移動で、移った先を見せるためにスクロールが起きうる）と PageUp・PageDown（1 行の欄では外側の領域をスクロールする）は、欄の中でも利用者の操作とみなす
+const EDITING_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", " ", "Spacebar"]);
+// 文字を打たない input。ここでの Space・矢印は欄の編集ではない
+const NON_TEXT_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"]);
 
-export function isScrollKey(key: string): boolean {
-  return SCROLL_KEYS.has(key);
+function isEditable(target: EventTarget | null): boolean {
+  if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  return target instanceof HTMLInputElement && !NON_TEXT_INPUTS.has(target.type);
+}
+
+// target はキーを受けた要素。検索欄などで打った Space や矢印は、一覧のスクロール操作にしない
+export function isScrollKey(key: string, target: EventTarget | null = null): boolean {
+  if (!SCROLL_KEYS.has(key)) return false;
+  return !(EDITING_KEYS.has(key) && isEditable(target));
 }

@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test, waitForServerEvents } from "./fixtures";
-import { expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
+import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
 // Sprint 詳細のタスク一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置（NOD-52）。
@@ -8,6 +8,7 @@ import type { NodData } from "./support/nod";
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する。
 // データセット: Sprint 15（AAA）と 16（BBB）は通常の Sprint で各 40 件、旧Cycle 1「過去」は移行時の写し 42 件
 test.use({ dataset: "sprint-scroll" });
+test.beforeEach(({ page }) => disableScrollAnchoring(page));
 
 const row = (page: Page, name: string) => page.getByRole("main").getByRole("link", { name, exact: true });
 const lastRow = (page: Page, key = "AAA") => row(page, `スクロール確認 ${key} 40`);
@@ -253,7 +254,7 @@ test("最終的に短くなった Sprint の一覧は到達できる範囲に収
 });
 
 test("復元を待っている間に利用者がスクロールしたら、その後に Sprint の一覧が伸びても引き戻さない", async ({ page, nod }) => {
-  const { grow } = await shrinkWhileDetail(page, nod);
+  const { expected, grow } = await shrinkWhileDetail(page, nod);
   const clamped = (await scrollRegions(page)).main!.y;
   await page.locator("main").hover();
   await page.mouse.wheel(0, -300);
@@ -261,6 +262,8 @@ test("復元を待っている間に利用者がスクロールしたら、そ�
   const user = (await scrollRegions(page)).main!.y;
   await grow();
   await expect(lastRow(page)).toHaveCount(1);
+  // 行が出ても領域の高さはまだ伸びていないことがあるため、元の目標まで届く高さになってから確かめる
+  await expect.poll(async () => (await scrollRegions(page)).main!.maxY).toBeGreaterThanOrEqual(expected.y);
   await nextFrames(page);
   expect((await scrollRegions(page)).main!.y).toBe(user);
 });
