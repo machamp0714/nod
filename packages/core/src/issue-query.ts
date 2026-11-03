@@ -71,7 +71,9 @@ export const OPEN_BLOCKER = "b.status NOT IN ('done', 'canceled') AND b.archived
 
 export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, pi.number AS parent_number, pr.name AS project_name, ms.name AS milestone_name, NULL AS cycle_id, NULL AS cycle_name,
   (SELECT json_group_array(json_object('id',sr.id,'number',sr.number,'name',sr.name,
-      'workspaceId',sr.workspace_id,'phase',sr.phase,'association',CASE WHEN sr.phase='imported' THEN 'imported' ELSE 'adopted' END))
+      'workspaceId',sr.workspace_id,'phase',sr.phase,'association',CASE WHEN sr.phase='imported' THEN 'imported'
+        WHEN EXISTS (SELECT 1 FROM sprint_items sa WHERE sa.sprint_id=sr.id AND sa.issue_id=i.id AND sa.added_by IS NOT NULL AND sa.added_at IS NOT NULL) THEN 'added'
+        ELSE 'adopted' END))
     FROM (SELECT sr_outer.id,sr_outer.number,sr_outer.name,sr_outer.workspace_id,sr_outer.phase
       FROM sprints sr_outer WHERE EXISTS (${SPRINT_MEMBERSHIP} AND s.id=sr_outer.id)
       ORDER BY sr_outer.number) sr) AS sprint_refs,

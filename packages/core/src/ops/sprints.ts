@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
-import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_MEMBERSHIP } from "../sprint-membership";
+import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_ITEM_MEMBER, SPRINT_MEMBERSHIP } from "../sprint-membership";
 import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase, SprintUnresolvedHistory } from "../sprint-types";
 import { listSprintPlans } from "./sprint-planning";
 
@@ -47,17 +47,31 @@ export function resolveLegacyCycle(db: Database, cycleId: number): LegacyCycleRe
   return row.kind === "imported" && row.sprint_id ? {kind: "imported", sprintId: row.sprint_id} : {kind: "deleted"};
 }
 
+// 所属の由来。1つのitemで重なるときは移行、追加、採択の順に優先する。候補だけはnull。
+const SPRINT_ITEM_ASSOCIATION = `CASE WHEN s.phase='imported' AND si.origin='imported' THEN 'imported'
+  WHEN si.added_by IS NOT NULL AND si.added_at IS NOT NULL THEN 'added'
+  WHEN EXISTS (SELECT 1 FROM sprint_plan_items pi JOIN sprint_plans p ON p.id=pi.plan_id
+    WHERE pi.item_id=si.id AND ${AGREED_PLAN}) THEN 'adopted' END`;
+
+// Sprint詳細とitem一覧で共通に使うitemの読み出し。所属かどうかは共通の所属条件で判定する。
+export function readSprintItems(db: Database, sprintId: string): SprintItem[] {
+  const rows = db.query(`SELECT si.*, ${SPRINT_ITEM_MEMBER} AS member, ${SPRINT_ITEM_ASSOCIATION} AS association
+    FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id WHERE si.sprint_id=? ORDER BY si.source_issue_key`).all(sprintId) as {
+    id: string; sprint_id: string; issue_id: number | null; source_issue_key: string; origin: SprintItem["origin"]; snapshot: string;
+    added_by: string | null; added_at: string | null; member: number; association: SprintItem["association"];
+  }[];
+  return rows.map(r => ({id: r.id, sprintId: r.sprint_id, issueId: r.issue_id, sourceIssueKey: r.source_issue_key, origin: r.origin,
+    snapshot: JSON.parse(r.snapshot), addedBy: r.added_by, addedAt: r.added_at, member: r.member === 1, association: r.association}));
+}
+
 export function getSprint(db: Database, ref: string): SprintDetail {
   const sprint = resolveSprint(db, ref);
   const row = db.query("SELECT legacy_data,closure_record FROM sprints WHERE id=?").get(sprint.id) as {legacy_data: string | null; closure_record: string | null};
-  const items = db.query("SELECT * FROM sprint_items WHERE sprint_id=? ORDER BY source_issue_key").all(sprint.id) as {
-    id: string; sprint_id: string; issue_id: number | null; source_issue_key: string; origin: SprintItem["origin"]; snapshot: string;
-  }[];
   const events = db.query(`SELECT e.original,r.association FROM sprint_legacy_event_refs r
     JOIN sprint_legacy_events e ON e.event_id=r.event_id WHERE r.cycle_id=? ORDER BY e.event_id`).all(sprint.legacyCycleId) as {original: string; association: SprintLegacyEvent["association"]}[];
   const evidence=db.query('SELECT * FROM sprint_legacy_issue_evidence WHERE sprint_id=? ORDER BY source_issue_key').all(sprint.id) as {source_issue_id:number;source_issue_key:string;snapshot:string}[];
   return {...sprint, closureRecord: row.closure_record ? JSON.parse(row.closure_record) : null, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
-    items: items.map(i => ({id: i.id, sprintId: i.sprint_id, issueId: i.issue_id, sourceIssueKey: i.source_issue_key, origin: i.origin, snapshot: JSON.parse(i.snapshot)})),
+    items: readSprintItems(db, sprint.id),
     events: events.map(e => ({original: JSON.parse(e.original), association: e.association})),
   };
 }
@@ -101,17 +115,17 @@ export function resolveCurrentSprints(db: Database, options: CurrentSprintOption
   return db.inTransaction ? read() : db.transaction(read)();
 }
 
-// iは呼び出し元のissues別名。採択は採用中の人が合意したplanだけで判定する。
-// 候補や未採用の合意済み案は所属として数えない。
+// iは呼び出し元のissues別名。所属は共通の所属条件（移行・採用中の合意済み計画・追加の記録）で判定する。
+// 候補として登録しただけのitemや未採用の合意済み案は所属として数えない。
 export function sprintIssueScope(db: Database, ref: string, clock: SprintClock = {}): {where: string; params: (string | number)[]} {
   const value=ref.trim();
   const membership = SPRINT_MEMBERSHIP;
   if (value.toLowerCase()==='none') return {where:`NOT EXISTS (${membership})`, params:[]};
   if (value.toLowerCase()==='current') {
     const instant=(clock.now ?? new Date()).toISOString();
-    return {where:`EXISTS (SELECT 1 FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
-      JOIN sprint_plans p ON ${AGREED_PLAN} JOIN sprint_plan_items pi ON pi.plan_id=p.id AND pi.item_id=si.id
-      WHERE si.issue_id=i.id AND i.workspace_id=s.workspace_id AND ${CURRENT_SPRINT})`,params:[instant,instant]};
+    // 現在Sprintの判定（active・期間内・採用中の合意済み計画・Workspace）は変えず、その所属を読む。
+    return {where:`EXISTS (${membership} AND i.workspace_id=s.workspace_id AND ${CURRENT_SPRINT}
+      AND EXISTS (SELECT 1 FROM sprint_plans p WHERE ${AGREED_PLAN}))`,params:[instant,instant]};
   }
   const sprint=resolveSprint(db,value);
   return {where:`EXISTS (${membership} AND s.id=?)`,params:[sprint.id]};

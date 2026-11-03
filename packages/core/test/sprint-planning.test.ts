@@ -19,7 +19,7 @@ const planInput = (itemId: string, version: number) => ({ expectedVersion: versi
 function proposal() {
   const f = draft();
   const issue = core.createIssue(f.me, { workspaceId: f.ws.id, title: "判断を表示" });
-  const added = core.addSprintCandidate(f.llm, f.sprint.id, { expectedVersion: f.sprint.version, requestKey: "候補", issueRef: issue.id });
+  const added = core.addIssueToSprint(f.llm, f.sprint.id, { issueRef: issue.id });
   const proposed = core.proposeSprintPlan(f.llm, f.sprint.id, planInput(added.item.id, added.sprint.version));
   return { ...f, issue, item: added.item, ...proposed };
 }
@@ -153,13 +153,13 @@ test("人の合意を版とhashに固定し、同内容の合意を再利用し�
   db.close();
 });
 
-test("候補の安定itemと要求の写しを使い、理由・DoD・制約を持つ計画を追記する", () => {
+test("追加した安定itemと要求の写しを使い、理由・DoD・制約を持つ計画を追記する", () => {
   const { db, ws, me, llm, sprint } = draft();
   const issue = core.createIssue(me, { workspaceId: ws.id, title: "判断を表示", description: "未回答を識別する" });
-  const added = core.addSprintCandidate(llm, sprint.id, { expectedVersion: sprint.version, requestKey: "候補", issueRef: issue.id });
-  expect(added.item).toMatchObject({ sourceIssueKey: issue.id, origin: "candidate", snapshot: { issue: { title: "判断を表示", description: "未回答を識別する" } } });
-  const duplicate = core.addSprintCandidate(llm, sprint.id, { expectedVersion: added.sprint.version, requestKey: "同じ候補", issueRef: issue.id });
-  expect(duplicate.item.id).toBe(added.item.id);
+  const added = core.addIssueToSprint(llm, sprint.id, { issueRef: issue.id });
+  expect(added).toMatchObject({ added: true, sprint: { version: sprint.version }, item: { sourceIssueKey: issue.id, origin: "candidate", addedBy: llm.actor, member: true, association: "added", snapshot: { issue: { title: "判断を表示", description: "未回答を識別する" } } } });
+  const duplicate = core.addIssueToSprint(llm, sprint.id, { issueRef: issue.id });
+  expect(duplicate).toEqual({ ...added, added: false });
   const proposed = core.proposeSprintPlan(llm, sprint.id, planInput(added.item.id, duplicate.sprint.version));
   expect(proposed.plan).toMatchObject({ revision: 1, agreedBy: null, content: { schemaVersion: 1, goal: "判断後に再開できる", period: { startsAt: "2026-03-08T05:00:00.000Z" }, items: [{ itemId: added.item.id, requirement: { title: "判断を表示", description: "未回答を識別する" } }] } });
   expect(proposed.plan.contentHash).toMatch(/^[a-f0-9]{64}$/);

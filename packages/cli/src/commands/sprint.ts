@@ -1,13 +1,15 @@
 import { getSprint, listSprints, sprintAnalytics, type Sprint } from "@nod/core";
-import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addSprintCandidate, listSprintCandidates,
+import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint,
   proposeSprintPlan, listSprintPlans, acceptSprintPlan, activateSprint, cancelSprint, NodError,
-  type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput, type AddSprintCandidateInput,
+  type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput,
   type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput } from "@nod/core";
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
 import { print } from "../output";
 import { registerSprintExecutionCommands } from "./sprint-execution";
+
+const ASSOCIATION_LABEL = { imported: "移行", adopted: "採択", added: "追加", none: "候補だけ" } as const;
 
 function line(sprint: Sprint): string {
   return `${sprint.number}  ${sprint.name}（${sprint.phase}）  ${sprint.startDate}〜${sprint.endDate}  ${sprint.id}`;
@@ -44,13 +46,11 @@ export function registerSprintCommands(program: Command): void {
   sprint.command("update <sprint>").description("準備中の期間・名前を更新する")
     .requiredOption("--input <file>","JSONファイルまたは -（stdin）。expectedVersion/requestKey必須")
     .action(act((cli,cmd,ref:string) => { const value=updateSprint(cli.ctx,ref,input<UpdateSprintInput>(cmd)); print(cli,value,()=>line(value)); }));
-  const candidates = sprint.command("candidates").description("実行対象と分けて候補を扱う");
-  candidates.command("list <sprint>").action(act((cli,_cmd,ref:string) => {
-    const value=listSprintCandidates(cli.db,ref); print(cli,value,()=>value.map(i=>`${i.sourceIssueKey}  ${i.snapshot.issue.title}  ${i.id}`).join("\n"));
-  }));
-  candidates.command("add <sprint>").description("Issueを安定した候補itemへ追加する")
-    .requiredOption("--input <file>","JSONファイルまたは -（stdin）。issueRef/expectedVersion/requestKey必須")
-    .action(act((cli,cmd,ref:string) => { const value=addSprintCandidate(cli.ctx,ref,input<AddSprintCandidateInput>(cmd)); print(cli,value,()=>`候補 ${value.item.sourceIssueKey}（${value.item.id}）`); }));
+  sprint.command("add <sprint> <issue>").description("IssueをSprintへ追加し、その時点で所属にする（人の合意・計画の再承認は不要）")
+    .action(act((cli,_cmd,ref:string,issueRef:string) => {
+      const value=addIssueToSprint(cli.ctx,ref,{issueRef});
+      print(cli,value,()=>`${value.added ? "追加しました" : "既に所属しています"}: Sprint ${value.sprint.number}「${value.sprint.name}」 ${value.item.sourceIssueKey}`);
+    }));
   const plan = sprint.command("plan").description("追記する計画の版と合意");
   plan.command("list <sprint>").action(act((cli,_cmd,ref:string) => {
     const value=listSprintPlans(cli.db,ref); print(cli,value,()=>value.map(p=>`第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}`).join("\n"));
@@ -84,9 +84,9 @@ export function registerSprintCommands(program: Command): void {
         `ゴール: ${detail.goal ?? "不明"}  DoD: ${detail.definitionOfDone ?? "不明"}  達成結果: ${detail.outcome ?? "不明"}`,
         `版: ${detail.version}  採用中の計画: ${detail.adoptedPlanId ?? "なし"}`,
         ...detail.plans.map(p=>`計画第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}\n  達成確認: ${p.content.verificationMethod}\n  理由: ${p.changeReason}`),
-        `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "採択Issueの現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,
-        detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "候補（採択と区別した登録時点の写し）:",
-        ...detail.items.map(item=>`  ${item.sourceIssueKey}  ${item.snapshot.workspace.key}  ${item.snapshot.issue.status}  ${item.snapshot.issue.title}`),
+        `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "所属 Issue の現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,
+        detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "所属（移行・採択・追加。候補だけは所属外）:",
+        ...detail.items.map(item=>`  ${item.sourceIssueKey}  ${item.snapshot.workspace.key}  ${item.snapshot.issue.status}  ${item.snapshot.issue.title}  ${ASSOCIATION_LABEL[item.association ?? "none"]}${item.addedBy ? `（追加者: ${item.addedBy}）` : ""}`),
         "取得済みの履歴:",
         ...detail.events.map(event=>`  #${event.original.id} ${event.original.created_at} ${event.original.type}（${event.association === "recorded" ? "確定関連" : "関連未確定"}） ${event.original.data}`),
       ].join("\n"));

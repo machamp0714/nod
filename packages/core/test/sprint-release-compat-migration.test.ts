@@ -51,7 +51,7 @@ test("本番系の版43をレビュー状態と関連原本と旧所属を保っ
   db.close();
 });
 
-test.each([43, 44, 45, 46, 47, 48, 49])("Sprint導入済みの版%iは履歴と参照を保ち、レビュー状態を追加して再読込できる", (version) => {
+test.each([43, 44, 45, 46, 47, 48, 49, 50])("Sprint導入済みの版%iは履歴と参照を保ち、レビュー状態を追加して再読込できる", (version) => {
   const path = tempDbPath();
   legacySprintFixture(path);
   const old = new Database(path);
@@ -68,7 +68,9 @@ test.each([43, 44, 45, 46, 47, 48, 49])("Sprint導入済みの版%iは履歴と�
   let db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(db.query("SELECT id,number,legacy_cycle_id,legacy_data FROM sprints ORDER BY number").all()).toEqual(identities);
-  expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before);
+  // 版51で足した追加の記録の列は、既存itemでは空のまま（推定で埋めない）。
+  expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before.map((rows, index) =>
+    tables[index] === "sprint_items" ? rows.map(row => ({ ...(row as Record<string, unknown>), added_by: null, added_at: null })) : rows));
   const history = getSprint(db, "1");
   updateIssue({ db, actor: "me" }, "AAA-1", { status: "in_review" });
   expect(getIssue(db, "AAA-1")).toMatchObject({ status: "in_review", questions: [{ question: "Sprint導入済みの質問" }] });

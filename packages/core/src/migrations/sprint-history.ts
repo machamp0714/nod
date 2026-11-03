@@ -103,7 +103,7 @@ export function importSprintHistory(db: Database): void {
     db.query("INSERT INTO sprint_legacy_refs VALUES(?,?,'imported')").run(cycle.id,id);
     for (const issue of issues) {
       const evidence=snapshots.get(issue.id)!;
-      if (issue.cycle_id===cycle.id) db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,'imported')")
+      if (issue.cycle_id===cycle.id) db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,'imported')")
         .run(crypto.randomUUID(),id,issue.id,evidence.sourceIssueKey,evidence.snapshot);
       if (issueRefs.get(issue.id)?.has(cycle.id)) db.query('INSERT INTO sprint_legacy_issue_evidence VALUES(?,?,?,?)')
         .run(id,issue.id,evidence.sourceIssueKey,evidence.snapshot);

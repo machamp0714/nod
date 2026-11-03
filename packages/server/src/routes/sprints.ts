@@ -1,7 +1,7 @@
 import { getSprintNotificationState, getSprintPlanningStatus, getSprintFlow, getSprintIssueEligibility, getSprint, getUnresolvedSprintHistory, listSprints, sprintAnalytics, resolveCurrentSprints, type SprintClock, type OpCtx } from "@nod/core";
-import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addSprintCandidate, listSprintCandidates,
+import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint,
   proposeSprintPlan, listSprintPlans, getSprintPlan, acceptSprintPlan, activateSprint, cancelSprint, endSprint,
-  type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput, type AddSprintCandidateInput,
+  type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput, type AddIssueToSprintInput,
   type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput, type EndSprintInput } from "@nod/core";
 import type { Hono } from "hono";
 import { paramInt, queryFlag, readBody } from "../input";
@@ -19,9 +19,9 @@ export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = 
     await readBody(c,[...mutation,"workspaceKey","name","startDate","endDate","timezone","workingDays","replansSprintId"]) as unknown as CreateSprintInput),201));
   app.patch("/api/sprints/:ref", async c => c.json(updateSprint(me,c.req.param("ref"),
     await readBody(c,[...mutation,"name","startDate","endDate","timezone","workingDays"]) as unknown as UpdateSprintInput)));
-  app.get("/api/sprints/:ref/candidates", c => c.json(listSprintCandidates(me.db,c.req.param("ref"))));
-  app.post("/api/sprints/:ref/candidates", async c => c.json(addSprintCandidate(me,c.req.param("ref"),
-    await readBody(c,[...mutation,"issueRef"]) as unknown as AddSprintCandidateInput),201));
+  // 追加した時点で所属にする。版・requestKeyは受け取らず、新規でも既存の所属でも200を返す。
+  app.post("/api/sprints/:ref/issues", async c => c.json(addIssueToSprint(me,c.req.param("ref"),
+    await readBody(c,["issueRef"]) as unknown as AddIssueToSprintInput)));
   app.get("/api/sprints/:ref/plans", c => c.json(listSprintPlans(me.db,c.req.param("ref"))));
   app.get("/api/sprints/:ref/plans/:planId", c => c.json(getSprintPlan(me.db,c.req.param("ref"),c.req.param("planId"))));
   app.post("/api/sprints/:ref/plans", async c => c.json(proposeSprintPlan(me,c.req.param("ref"),

@@ -6,6 +6,7 @@ import { STATUSES } from "../src/types";
 import { createIssue, queryIssues } from "../src/ops/issues";
 import { initWorkspace } from "../src/ops/workspaces";
 import { resolveCurrentSprints } from "../src/ops/sprints";
+import { addIssueToSprint } from "../src/ops/sprint-planning";
 import { tempDbPath } from "./helpers";
 
 const clock = {now: new Date('2026-10-26T03:00:00.000Z')};
@@ -30,7 +31,7 @@ function fixture() {
     db.query('UPDATE issues SET status=? WHERE workspace_id=? AND number=?').run(status,ws,issue.number);
     const row=db.query('SELECT id FROM issues WHERE workspace_id=? AND number=?').get(ws,issue.number) as {id:number};
     const item=crypto.randomUUID();
-    db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,'candidate')").run(item,sprint,row.id,issue.id,JSON.stringify({schemaVersion:1,workspace:{id:ws,key:issue.workspace,name:issue.workspace},issue:{id:row.id,title,description:null,status}}));
+    db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,'candidate')").run(item,sprint,row.id,issue.id,JSON.stringify({schemaVersion:1,workspace:{id:ws,key:issue.workspace,name:issue.workspace},issue:{id:row.id,title,description:null,status}}));
     if(adopted) db.query('INSERT INTO sprint_plan_items VALUES(?,?)').run(`plan-${sprint}`,item);
     return issue.id;
   };
@@ -38,7 +39,7 @@ function fixture() {
   for (let index=0;index<2;index++) for (const status of STATUSES) expected.push(addItem(workspaces[index]!.id,sprints[index]!,status,status));
   const first=db.query('SELECT * FROM sprint_items WHERE source_issue_key=?').get(expected[0]!) as {sprint_id:string;issue_id:number;snapshot:string};
   const duplicate=crypto.randomUUID();
-  db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,'candidate')").run(duplicate,first.sprint_id,first.issue_id,'重複する関連のfixture',first.snapshot);
+  db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,'candidate')").run(duplicate,first.sprint_id,first.issue_id,'重複する関連のfixture',first.snapshot);
   db.query('INSERT INTO sprint_plan_items VALUES(?,?)').run(`plan-${first.sprint_id}`,duplicate);
   const candidate=addItem(workspaces[0]!.id,sprints[0]!,'候補のみ','todo',false);
   const archived=addItem(workspaces[0]!.id,sprints[0]!,'アーカイブ');
@@ -114,5 +115,21 @@ test('同じ保存current Viewが採用planと採択集合の更新を再読込�
   db.query('DELETE FROM sprint_plan_items WHERE plan_id=? AND item_id=?').run(nextPlan,item.id);
   expect(read()).toEqual(expected.slice(STATUSES.length));
   expect(getView(db,view.id)).toEqual(view);
+  db.close();
+});
+
+test('直接追加したIssueは現在Sprintの所属に入るが、現在Sprintの判定（人の合意済み計画）は変えない',()=>{
+  const {db,workspaces,sprints,expected,candidate}=fixture();
+  const added=createIssue({db,actor:'codex'},{workspaceId:workspaces[0]!.id,title:'差し込み'});
+  const unagreed=createIssue({db,actor:'codex'},{workspaceId:workspaces[7]!.id,title:'未合意のactiveへの追加'});
+  expect(addIssueToSprint({db,actor:'codex'},sprints[0]!,{issueRef:added.id}).added).toBe(true);
+  expect(addIssueToSprint({db,actor:'codex'},sprints[7]!,{issueRef:unagreed.id}).added).toBe(true);
+  const current=resolveCurrentSprints(db,{clock});
+  expect(current.sprints.map(s=>s.id)).toEqual(sprints.slice(0,2));
+  expect(current.issues.map(i=>i.id).sort()).toEqual([...expected,added.id].sort());
+  expect(queryIssues(db,{sprint:'current'},clock).issues.map(i=>i.id).sort()).toEqual([...expected,added.id].sort());
+  expect(queryIssues(db,{sprint:sprints[7]},clock).issues.map(i=>i.id)).toEqual([unagreed.id]);
+  expect(queryIssues(db,{sprint:'none'},clock).issues.map(i=>i.id)).toContain(candidate);
+  expect(queryIssues(db,{sprint:'none'},clock).issues.map(i=>i.id)).not.toContain(unagreed.id);
   db.close();
 });

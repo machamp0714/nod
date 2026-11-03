@@ -22,8 +22,12 @@ export function assertOrdinaryIssueStart(db: Database, issueId: number): void {
     throw new NodError("SPRINT_CONTEXT_REQUIRED", "合意済みSprintまたは未解決の試行が管理中です。元Task・Dispatchと予約を照合してください");
   }
 }
-export const SPRINT_MEMBERSHIP = `SELECT 1 FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
-  WHERE si.issue_id=i.id AND (
-    (s.phase='imported' AND si.origin='imported') OR EXISTS (
+// itemが所属かどうか（si=sprint_items、s=sprints）。移行した履歴、採用中で人が合意した計画の項目、
+// 追加の記録（追加者と追加時刻の両方）があるitemを所属とする。候補として登録しただけのitemは数えない。
+export const SPRINT_ITEM_MEMBER = `((s.phase='imported' AND si.origin='imported')
+    OR (si.added_by IS NOT NULL AND si.added_at IS NOT NULL)
+    OR EXISTS (
       SELECT 1 FROM sprint_plan_items pi JOIN sprint_plans p ON p.id=pi.plan_id
       WHERE pi.item_id=si.id AND ${AGREED_SPRINT_PLAN}))`;
+export const SPRINT_MEMBERSHIP = `SELECT 1 FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
+  WHERE si.issue_id=i.id AND ${SPRINT_ITEM_MEMBER}`;

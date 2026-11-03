@@ -52,7 +52,7 @@ export function sprintAnalytics(db: Database, ref: string, options: SprintAnalyt
   const scope=issues.filter(issue=>issue.status!=="canceled").length;
   const started=STARTED_STATUSES.reduce((total,status)=>total+count(status),0); const completed=count("done");
   return {
-    sprintId:sprint.id,number:sprint.number,statusBasis:imported ? "migration_snapshot" : "live_adopted",capturedAt:sprint.legacy?.capturedAt ?? null,
+    sprintId:sprint.id,number:sprint.number,statusBasis:imported ? "migration_snapshot" : "live_membership",capturedAt:sprint.legacy?.capturedAt ?? null,
     scope,started,completed,startedRate:scope ? started/scope : null,completedRate:scope ? completed/scope : null,
     scopeAdded:burnup.length && burnup[0]!.scope !== null && burnup.at(-1)!.scope !== null
       ? burnup.at(-1)!.scope! - burnup[0]!.scope! : null,burnup,statuses,
