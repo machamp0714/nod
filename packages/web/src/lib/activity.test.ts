@@ -138,3 +138,9 @@ test("Sprintへの追加は追加した人とSprintの番号・名前を、Sprin
     describeActivity({ kind: "event", at, actor: "codex", type: "sprint_added", data: { sprintId: "uuid-15", sprintNumber: 15, sprintName: "Sprint 15" } }),
   ).toEqual({ icon: "calendar-range", text: "codex が Sprint 15「Sprint 15」に追加した" });
 });
+
+test("Sprintからの解除は外した人とSprintの番号・名前を、追加と同じSprintのアイコンで出す", () => {
+  expect(
+    describeActivity({ kind: "event", at, actor: "me", type: "sprint_removed", data: { sprintId: "uuid-15", sprintNumber: 15, sprintName: "Sprint 15" } }),
+  ).toEqual({ icon: "calendar-range", text: "me が Sprint 15「Sprint 15」から外した" });
+});

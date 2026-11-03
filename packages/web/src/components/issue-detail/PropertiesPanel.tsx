@@ -10,9 +10,12 @@ import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/
 import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useMilestones } from "../../api/hooks/projects";
+import { useSetIssueSprint } from "../../api/hooks/issue-detail";
+import { useWorkspaces } from "../../api/hooks/shared";
+import { useSprints } from "../../api/hooks/sprints";
 import { priorityMeta, STATUS_META, TONE_COLORS } from "../../lib/meta";
 import { relationMark } from "../../lib/relation-state";
-import { sprintAssociationLabel } from "../../lib/sprints";
+import { SPRINT_PHASE_LABEL, sprintAssociationLabel, sprintPicker } from "../../lib/sprints";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
@@ -335,6 +338,25 @@ export function PropertiesPanel({
   }));
   const projectMenu: PropertyOption[] = [none("box"), ...projectOptions.map((p) => ({ value: String(p.id), label: p.name, icon: <PropIcon name="box" color="var(--ink3)" /> }))];
   const milestoneMenu: PropertyOption[] = [none("flag"), ...milestoneOptions.map((m) => ({ value: String(m.id), label: m.name, icon: <PropIcon name="flag" color="var(--ink2)" /> }))];
+  // Sprint（NOD-56）は Issue と同じ Workspace の開いている Sprint から選ぶ。Workspace は ID で照合するため、Workspace の一覧も待つ。
+  // 楽観的には変えず、保存後の読み直し（useApiMutation）で所属の一覧とピルを更新する
+  const sprints = useSprints();
+  const workspaces = useWorkspaces();
+  const setSprint = useSetIssueSprint(issue.id);
+  const sprintList = sprints.data && workspaces.data ? sprints.data : null;
+  const picker = sprintPicker(issue.sprints, sprintList ?? [], workspaces.data?.find((w) => w.key === issue.workspace)?.id ?? null, Date.now());
+  const sprintStatus = !sprintList
+    ? sprints.isError || workspaces.isError ? "Sprint を読み込めませんでした" : "Sprint を読み込み中…"
+    : picker.choices.length === 0 ? "選べる Sprint はありません" : undefined;
+  const sprintIcon = <PropIcon name="calendar-range" color="var(--ink2)" />;
+  const sprintMenu: PropertyOption[] = [
+    { ...none("calendar-range"), disabled: picker.noneDisabled },
+    ...picker.choices.map((c) => ({
+      value: c.id, label: c.name, icon: sprintIcon, disabled: c.disabled,
+      detail: <><span>{SPRINT_PHASE_LABEL[c.phase]}</span>{c.overdue && <Pill tone="fail">期限超過</Pill>}<span className={s.propOptionPeriod}>{c.startDate} – {c.endDate}</span></>,
+    })),
+  ];
+  const sprintHint = picker.blockedBy.length ? `計画で採択されているため外せません（${picker.blockedBy.join("、")}）` : null;
   const assigneeMenu: PropertyOption[] = [
     none("circle-user"),
     ...assigneeChoices(issue.assignee).map((assignee) => ({ value: assignee, label: assignee, icon: <span className={s.propIcon} aria-hidden="true"><AgentAvatar actor={assignee} /></span> })),
@@ -376,6 +398,14 @@ export function PropertiesPanel({
           )}
         </Prop>
         <Prop label="Sprint">
+          {/* メニューは所属の一覧の下ではなく、ピルの直下に開く */}
+          <span className={s.propSprintPicker}>
+            <PropertyMenu label="Sprint" value={picker.value} valueLabel={picker.label} valueIcon={sprintIcon} options={sprintMenu} status={sprintStatus}
+              disabled={locked || picker.locked} describedBy={sprintHint ? `sprint-hint-${issue.id}` : undefined}
+              onChange={(value) => void action.run(() => setSprint.mutateAsync({ sprintRef: value === "" ? null : value }), "Sprintを変更できませんでした")} />
+          </span>
+          {sprintHint && <span id={`sprint-hint-${issue.id}`} className={s.propHint}>{sprintHint}</span>}
+          {/* 所属の一覧（閉じた Sprint を含む全所属）。ピルとは別に、Sprint 詳細へのリンクで由来を添えて並べる */}
           <span className={s.propSprints}>
             {issue.sprints.length ? issue.sprints.map((sprint) => <Link key={sprint.id} to="/sprints/$sprintId" params={{ sprintId: sprint.id }} className={s.propStatic}>
               {sprint.name}（{sprintAssociationLabel(sprint.association)}）

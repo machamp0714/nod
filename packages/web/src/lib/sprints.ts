@@ -1,4 +1,4 @@
-import type { Issue, SprintDetail, SprintPhase, SprintReference } from "../api/types";
+import type { Issue, Sprint, SprintDetail, SprintPhase, SprintReference } from "../api/types";
 import type { IssueListRow } from "../components/issue-list/types";
 
 export const SPRINT_PHASE_LABEL: Record<SprintPhase, string> = {
@@ -9,6 +9,46 @@ export const SPRINT_PHASE_LABEL: Record<SprintPhase, string> = {
 const SPRINT_ASSOCIATION_LABEL: Record<SprintReference["association"], string> = { imported: "移行履歴", added: "追加", adopted: "採択" };
 export function sprintAssociationLabel(association: SprintReference["association"]): string {
   return SPRINT_ASSOCIATION_LABEL[association];
+}
+
+// 開いている Sprint（所属を指定・変更・解除できる phase）。並びの順もこの順にする
+const OPEN_SPRINT_ORDER: Partial<Record<SprintPhase, number>> = { active: 0, ready: 1, draft: 2 };
+const isOpen = (phase: SprintPhase) => OPEN_SPRINT_ORDER[phase] !== undefined;
+
+// 開いている所属が2件以上のときのピルの値。どの項目とも一致しないため、どれを選んでも設定の操作を呼ぶ
+export const MULTIPLE_SPRINTS = "*multiple*";
+
+export interface SprintChoice extends Pick<Sprint, "id" | "number" | "name" | "phase" | "startDate" | "endDate"> {
+  overdue: boolean; // 期限を過ぎた進行中
+  disabled: boolean; // 選ぶと計画で採択された所属が外れる
+}
+
+export interface SprintPicker {
+  value: string; // "" はなし。開いている所属が1件ならその Sprint の ID、2件以上なら MULTIPLE_SPRINTS
+  label: string; // ピルの文字
+  choices: SprintChoice[]; // 「なし」を除く項目
+  noneDisabled: boolean;
+  locked: boolean; // 採択が2件以上で、どれを選んでも採択が外れる
+  blockedBy: string[]; // 外せない（計画で採択された）開いている所属の Sprint 名
+}
+
+// Issue 詳細の Sprint のピル（NOD-56）。項目は Issue と同じ Workspace（ID で照合し、Sprint の Workspace の写しは使わない）の開いている Sprint で、
+// Scrum 運用の有効・無効では絞らない。外せるかはサーバーの拒否条件と同じく、開いている所属の inAdoptedPlan だけで決める
+export function sprintPicker(memberships: readonly SprintReference[], sprints: readonly Sprint[], workspaceId: number | null, now: number): SprintPicker {
+  const open = memberships.filter((m) => isOpen(m.phase));
+  const adopted = open.filter((m) => m.inAdoptedPlan);
+  const keep = adopted.length === 1 ? adopted[0]!.id : null;
+  const choices = sprints
+    .filter((sprint) => workspaceId !== null && sprint.workspaceId === workspaceId && isOpen(sprint.phase))
+    .sort((a, b) => OPEN_SPRINT_ORDER[a.phase]! - OPEN_SPRINT_ORDER[b.phase]! || a.startDate.localeCompare(b.startDate) || a.number - b.number)
+    .map(({ id, number, name, phase, startDate, endDate, endsAt }) => ({
+      id, number, name, phase, startDate, endDate,
+      overdue: phase === "active" && endsAt !== null && now >= Date.parse(endsAt),
+      disabled: adopted.length > 0 && id !== keep,
+    }));
+  const value = open.length === 0 ? "" : open.length === 1 ? open[0]!.id : MULTIPLE_SPRINTS;
+  const label = open.length === 0 ? "なし" : open.length === 1 ? open[0]!.name : `${open.length} 件の Sprint`;
+  return { value, label, choices, noneDisabled: adopted.length > 0, locked: adopted.length > 1, blockedBy: adopted.map((m) => m.name) };
 }
 
 // 移行時の元Issueを共通一覧の表示型へ写す。現在のIssueから過去の状態を補わない。
