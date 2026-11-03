@@ -5,7 +5,9 @@ import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintPeriod, sprintText, sprintVersion } from "../sprint-validation";
 import type { Sprint, SprintClock, SprintItem, SprintPlan, SprintPlanContent, SprintPlanConstraints } from "../sprint-types";
 import { nextSprintNumber, readSprintItems, resolveSprint } from "./sprints";
-import { findIssueRow } from "../issue-query";
+import { assertWritable, findIssueRow, issueRowById, type IssueRow, toIssue } from "../issue-query";
+import { AGREED_SPRINT_PLAN, SPRINT_ITEM_MEMBER } from "../sprint-membership";
+import type { Issue } from "../types";
 import { findWorkspace } from "./workspaces";
 import { saveSprintClosure } from "./sprint-closure";
 import { recordEvent } from "../events";
@@ -151,37 +153,84 @@ function touchSprint(db: Database, id: string): Sprint {
   db.query("UPDATE sprints SET version=version+1,updated_at=? WHERE id=?").run(now(), id);
   return resolveSprint(db, id);
 }
+type SprintTarget = { sprint: Sprint; issue: IssueRow; existing: SprintItem | undefined };
+// 追加と解除で共通の検査。変更できるSprintで、同じWorkspaceのアーカイブされていないIssueかを確かめ、そのIssueのitemを返す。
+function sprintTarget(db: Database, id: string, issueRef: string): SprintTarget {
+  const sprint = writableSprint(db, id);
+  const issue = findIssueRow(db, issueRef);
+  if (issue.workspace_id !== sprint.workspaceId) invalidSprint("Sprintと同じWorkspaceのIssueを指定してください");
+  if (issue.archived_at) throw new NodError("ISSUE_ARCHIVED", "アーカイブ済みIssueのSprintの所属は変更できません");
+  const existing = listSprintItems(db, id).find(item => item.sourceIssueKey === `${issue.ws_key}-${issue.number}`);
+  if (existing && existing.issueId !== issue.id) throw new NodError("TARGET_CHANGED", "元のIssueは削除されています。再利用されたIDへ接続しません");
+  return { sprint, issue, existing };
+}
 // 追加した時点で所属にする。人とLLMで条件を変えず、計画・合意・Sprintの版には書かない。
 // 版を上げないので計画・期間の編集と競合しない。同時の追加はtransactionで直列にし、記録とActivityを1件にする。
 export function addIssueToSprint(ctx: OpCtx, ref: string, input: AddIssueToSprintInput): AddIssueToSprintResult {
   sprintObject(input, ["issueRef"]);
   const issueRef = sprintText(input.issueRef, "Issue");
   const id = resolveSprint(ctx.db, ref).id;
+  return tx(ctx.db, () => addTo(ctx, sprintTarget(ctx.db, id, issueRef)));
+}
+function addTo(ctx: OpCtx, { sprint, issue, existing }: SprintTarget): AddIssueToSprintResult {
+  if (existing && existing.addedBy !== null && existing.addedAt !== null) return { sprint, item: existing, added: false };
+  const itemId = existing?.id ?? crypto.randomUUID(), addedAt = now();
+  if (existing) {
+    ctx.db.query("UPDATE sprint_items SET added_by=?,added_at=? WHERE id=?").run(ctx.actor, addedAt, itemId);
+  } else {
+    const snapshot: SprintItem["snapshot"] = { schemaVersion: 1, capturedAt: addedAt, statusBasis: "candidate_snapshot",
+      workspace: { id: issue.workspace_id, key: issue.ws_key, name: workspace(ctx.db, issue.ws_key).name }, issue: { ...issue },
+      labels: (ctx.db.query("SELECT label FROM issue_labels WHERE issue_id=? ORDER BY label").all(issue.id) as {label:string}[]).map(r => r.label),
+      project: issue.project_id === null ? null : ctx.db.query("SELECT * FROM projects WHERE id=?").get(issue.project_id) as Record<string, unknown> | null };
+    ctx.db.query(`INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin,added_by,added_at)
+      VALUES(?,?,?,?,?,'candidate',?,?)`).run(itemId, sprint.id, issue.id, `${issue.ws_key}-${issue.number}`, JSON.stringify(snapshot), ctx.actor, addedAt);
+  }
+  // 内容は後から項目を足せる形にする。購読者への通知の種類には含めない。
+  recordEvent(ctx.db, issue.id, ctx.actor, "sprint_added", { sprintId: sprint.id, sprintNumber: sprint.number, sprintName: sprint.name });
+  return { sprint, item: listSprintItems(ctx.db, sprint.id).find(item => item.id === itemId)!, added: true };
+}
+
+export interface RemoveIssueFromSprintInput { issueRef: string }
+export interface RemoveIssueFromSprintResult { sprint: Sprint; item: SprintItem | null; removed: boolean }
+// 追加の記録だけを外す。item・写し・計画からの参照は残し、計画・合意・Sprintの版には書かない。人とLLMで条件を変えない。
+// 採用中の合意済み計画が採択したitemは、追加の記録が重なっていても外さない（計画を変えて人が合意する）。
+export function removeIssueFromSprint(ctx: OpCtx, ref: string, input: RemoveIssueFromSprintInput): RemoveIssueFromSprintResult {
+  sprintObject(input, ["issueRef"]);
+  const issueRef = sprintText(input.issueRef, "Issue");
+  const id = resolveSprint(ctx.db, ref).id;
+  return tx(ctx.db, () => removeFrom(ctx, sprintTarget(ctx.db, id, issueRef)));
+}
+function removeFrom(ctx: OpCtx, { sprint, issue, existing }: SprintTarget): RemoveIssueFromSprintResult {
+  if (existing && ctx.db.query(`SELECT 1 FROM sprint_plan_items pi JOIN sprint_plans p ON p.id=pi.plan_id JOIN sprints s ON s.id=p.sprint_id
+    WHERE pi.item_id=? AND ${AGREED_SPRINT_PLAN}`).get(existing.id)) {
+    throw new NodError("INVALID_STATE", `Sprint ${sprint.number}「${sprint.name}」の計画で採択されているため外せません。外すには計画を変えて人が合意してください`, { sprintId: sprint.id });
+  }
+  if (!existing || existing.addedBy === null || existing.addedAt === null) return { sprint, item: existing ?? null, removed: false };
+  ctx.db.query("UPDATE sprint_items SET added_by=NULL,added_at=NULL WHERE id=?").run(existing.id);
+  // sprint_addedと同じ内容。購読者への通知の種類には含めない。
+  recordEvent(ctx.db, issue.id, ctx.actor, "sprint_removed", { sprintId: sprint.id, sprintNumber: sprint.number, sprintName: sprint.name });
+  return { sprint, item: listSprintItems(ctx.db, sprint.id).find(item => item.id === existing.id)!, removed: true };
+}
+
+export interface SetIssueOpenSprintInput { sprintRef: string | null }
+export interface SetIssueOpenSprintResult { issue: Issue; added: boolean; removedSprintIds: string[] }
+// Issueの開いている（draft・ready・active）Sprintの所属を、指定したSprintだけ（nullならなし）にする。
+// 閉じたSprintの所属は履歴として変えない。外す対象に採択の所属があれば全体を拒否し、途中まで書かない。
+export function setIssueOpenSprint(ctx: OpCtx, issueRef: string, input: SetIssueOpenSprintInput): SetIssueOpenSprintResult {
+  sprintObject(input, ["sprintRef"]);
+  if (!Object.hasOwn(input, "sprintRef")) invalidSprint("sprintRefにSprintの参照かnullを指定してください");
+  const sprintRef = input.sprintRef === null ? null : sprintText(input.sprintRef, "sprintRef");
+  if (sprintRef !== null && ["current", "none"].includes(sprintRef)) invalidSprint("sprintRefにはSprintのUUIDか共通番号を指定してください");
   return tx(ctx.db, () => {
-    const sprint = writableSprint(ctx.db, id);
     const issue = findIssueRow(ctx.db, issueRef);
-    if (issue.workspace_id !== sprint.workspaceId) invalidSprint("Sprintと同じWorkspaceのIssueを指定してください");
-    if (issue.archived_at) throw new NodError("ISSUE_ARCHIVED", "アーカイブ済みIssueはSprintへ追加できません");
-    const sourceIssueKey = `${issue.ws_key}-${issue.number}`;
-    const existing = listSprintItems(ctx.db, id).find(item => item.sourceIssueKey === sourceIssueKey);
-    if (existing) {
-      if (existing.issueId !== issue.id) throw new NodError("TARGET_CHANGED", "元のIssueは削除されています。再利用されたIDへ接続しません");
-      if (existing.addedBy !== null && existing.addedAt !== null) return { sprint, item: existing, added: false };
-    }
-    const itemId = existing?.id ?? crypto.randomUUID(), addedAt = now();
-    if (existing) {
-      ctx.db.query("UPDATE sprint_items SET added_by=?,added_at=? WHERE id=?").run(ctx.actor, addedAt, itemId);
-    } else {
-      const snapshot: SprintItem["snapshot"] = { schemaVersion: 1, capturedAt: addedAt, statusBasis: "candidate_snapshot",
-        workspace: { id: issue.workspace_id, key: issue.ws_key, name: workspace(ctx.db, issue.ws_key).name }, issue: { ...issue },
-        labels: (ctx.db.query("SELECT label FROM issue_labels WHERE issue_id=? ORDER BY label").all(issue.id) as {label:string}[]).map(r => r.label),
-        project: issue.project_id === null ? null : ctx.db.query("SELECT * FROM projects WHERE id=?").get(issue.project_id) as Record<string, unknown> | null };
-      ctx.db.query(`INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin,added_by,added_at)
-        VALUES(?,?,?,?,?,'candidate',?,?)`).run(itemId, id, issue.id, sourceIssueKey, JSON.stringify(snapshot), ctx.actor, addedAt);
-    }
-    // 内容は後から項目を足せる形にする。購読者への通知の種類には含めない。
-    recordEvent(ctx.db, issue.id, ctx.actor, "sprint_added", { sprintId: sprint.id, sprintNumber: sprint.number, sprintName: sprint.name });
-    return { sprint, item: listSprintItems(ctx.db, id).find(item => item.id === itemId)!, added: true };
+    const target = sprintRef === null ? null : sprintTarget(ctx.db, resolveSprint(ctx.db, sprintRef).id, issueRef);
+    if (!target) assertWritable(issue);
+    const open = ctx.db.query(`SELECT DISTINCT s.id FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
+      WHERE si.issue_id=? AND s.phase IN ('draft','ready','active') AND s.id<>? AND ${SPRINT_ITEM_MEMBER} ORDER BY s.number`)
+      .all(issue.id, target?.sprint.id ?? "") as { id: string }[];
+    const removedSprintIds = open.filter(s => removeFrom(ctx, sprintTarget(ctx.db, s.id, issueRef)).removed).map(s => s.id);
+    const added = target ? addTo(ctx, target).added : false;
+    return { issue: toIssue(issueRowById(ctx.db, issue.id)), added, removedSprintIds };
   });
 }
 

@@ -26,7 +26,7 @@ export function sprintSnapshotRows(sprint: SprintDetail): IssueListRow[] {
       dueDate: text("due_date"), assignee: text("assignee"), agentState: null,
       parentId: typeof raw.parent_id === "number" ? sourceKeys.get(raw.parent_id) ?? null : null,
       project: snapshot.project && typeof snapshot.project.id === "number" && typeof snapshot.project.name === "string" ? { id: snapshot.project.id, name: snapshot.project.name } : null,
-      milestone: null, sprints: [{ id: sprint.id, number: sprint.number, name: sprint.name, workspaceId: sprint.workspaceId, phase: "imported", association: "imported" }],
+      milestone: null, sprints: [{ id: sprint.id, number: sprint.number, name: sprint.name, workspaceId: sprint.workspaceId, phase: "imported", association: "imported", inAdoptedPlan: false }],
       cycle: null, labels: snapshot.labels, blockedBy: [], questionCount: { answered: 0, total: 0 }, completionCandidate: false,
       snoozedUntil: null, prUrl: text("pr_url"), branch: text("branch"), worktree: text("worktree"), closeReason: text("close_reason"),
       createdBy: text("created_by") ?? "不明", createdAt: text("created_at") ?? snapshot.capturedAt,

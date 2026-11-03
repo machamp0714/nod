@@ -1,4 +1,4 @@
-import { SPRINT_MEMBERSHIP } from "./sprint-membership";
+import { AGREED_SPRINT_PLAN, SPRINT_MEMBERSHIP } from "./sprint-membership";
 import type { WorkLogKind } from "./work-log";
 import { recordedTimestamp } from "./recorded-time";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -73,7 +73,10 @@ export const ISSUE_SELECT = `SELECT i.*, w.key AS ws_key, pw.key AS parent_key, 
   (SELECT json_group_array(json_object('id',sr.id,'number',sr.number,'name',sr.name,
       'workspaceId',sr.workspace_id,'phase',sr.phase,'association',CASE WHEN sr.phase='imported' THEN 'imported'
         WHEN EXISTS (SELECT 1 FROM sprint_items sa WHERE sa.sprint_id=sr.id AND sa.issue_id=i.id AND sa.added_by IS NOT NULL AND sa.added_at IS NOT NULL) THEN 'added'
-        ELSE 'adopted' END))
+        ELSE 'adopted' END,
+      'inAdoptedPlan',CASE WHEN EXISTS (SELECT 1 FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id
+        JOIN sprint_plan_items pi ON pi.item_id=si.id JOIN sprint_plans p ON p.id=pi.plan_id
+        WHERE si.sprint_id=sr.id AND si.issue_id=i.id AND ${AGREED_SPRINT_PLAN}) THEN json('true') ELSE json('false') END))
     FROM (SELECT sr_outer.id,sr_outer.number,sr_outer.name,sr_outer.workspace_id,sr_outer.phase
       FROM sprints sr_outer WHERE EXISTS (${SPRINT_MEMBERSHIP} AND s.id=sr_outer.id)
       ORDER BY sr_outer.number) sr) AS sprint_refs,
