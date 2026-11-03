@@ -156,8 +156,7 @@ test("同じ内容の合意を再利用し、変更案へ旧合意を適用せ�
 });
 
 test.describe("共通IssueList", () => {
-  test.use({ allowedConsoleErrors: [/status of 409/] });
-  test("Sprintの44px行・検索・Filter・Display・プレビュー・一括操作を維持し、管理中Issueへの一括着手を拒否する", async ({ page, nod }, info) => {
+  test("Sprintの44px行・検索・Filter・Display・プレビュー・一括操作を維持し、採択Issueも一括で着手できる", async ({ page, nod }, info) => {
     const ws = (await nod.me.initWorkspace({ key: "LI", name: "一覧確認", path: nod.repo("list") })).workspace;
     const first = await nod.me.createIssue({ workspaceId: ws.id, title: "一覧の対象その一" });
     const second = await nod.me.createIssue({ workspaceId: ws.id, title: "一覧の対象その二" });
@@ -185,9 +184,10 @@ test.describe("共通IssueList", () => {
     const bulk = page.getByRole("toolbar", { name: "一括操作", exact: true });
     await bulk.getByRole("button", { name: "Status", exact: true }).click();
     await page.getByRole("menu", { name: "Status を変更", exact: true }).getByRole("menuitem", { name: "In Progress", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("何も変更していません");
-    expect((await nod.me.getIssue(first.id)).status).toBe("todo"); expect((await nod.me.getIssue(second.id)).status).toBe("todo");
-    await captureSprint(page, "issue-list-bulk-start-protected", info);
+    await expect(page.getByRole("status").filter({ hasText: "2件を更新しました" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect((await nod.me.getIssue(first.id)).status).toBe("in_progress"); expect((await nod.me.getIssue(second.id)).status).toBe("in_progress");
+    await captureSprint(page, "issue-list-bulk-start", info);
   });
 });
 
