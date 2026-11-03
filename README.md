@@ -105,9 +105,7 @@ Ompのagentに対応する書き手名を設定し、誰がどの判断や作業
 
 ## 技術アーキテクチャ
 
-![nodの技術アーキテクチャ。ローカル端末、nod本体、外部サービスの境界と接続経路](docs/images/nod-system-architecture.svg)
-
-[SVGを拡大する](docs/images/nod-system-architecture.svg)
+[技術アーキテクチャ図（draw.io形式）](docs/images/nod-architecture.drawio)
 
 デスクトップアプリはTauri v2を採用し、React製の画面を内蔵WebViewに表示します。
 アプリが同梱CLIの`nod ui`をsidecarとして起動し、画面はlocalhost上のHono APIと通信します。
