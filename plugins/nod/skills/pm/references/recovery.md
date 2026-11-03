@@ -29,8 +29,8 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 
 | 項目 | 保存する情報 |
 | --- | --- |
-| 管理範囲と要求 | Workspace、Sprint参照（currentは相対条件）、移行元の旧Cycle記録、個別委任の権限、並行上限、新規着手停止の有無、要求の本文またはspec/plan参照、利用者判断の原文と出典 |
-| 工程と枠 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
+| 管理範囲と要求 | Workspace、Sprint参照（currentは相対条件）、移行元の旧Cycle記録、個別委任の権限、新規着手停止の有無、要求の本文またはspec/plan参照、利用者判断の原文と出典 |
+| 工程と管理中の実行 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
 | 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、元実装者と独立確認担当のidentity、現在の待機Dispatch |
@@ -76,9 +76,9 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 4. nodの工程と成果に、Orcaの実行権限と現在状態を合わせ、Issueごとのcheckpointを追記する。
    読取不足、設定不明、所有権不明、commit不一致が残るIssueは止める。
    `launch.effective`の欠落を`launch.requested`で埋めず、実装開始を通知しない。
-5. 一意な管理Issueで枠を数え直す。
-   起動予約、unverifiable、レビュー、修正、回答待ちは枠を保持し、同Issueの旧workerとreviewerを別枠へ加算しない。
-   提出済みIssueの解放と、別Issueの質問待ちを混ぜない。
+5. 一意な管理Issueで管理中の実行を数え直す。
+   起動予約、unverifiable、レビュー、修正、回答待ちは予約または占有を保持し、同Issueの旧workerとreviewerを重ねて数えない。
+   提出済みIssueの管理終了と、別Issueの質問待ちを混ぜない。
 
 仕様待ちは未回答質問、別モデル照合、仕様合意、テスト境界合意、正式Spec添付を個別に復元する。
 実装中は既存試行を監督し、初回レビューを追加起動しない。
