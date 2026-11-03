@@ -1,16 +1,6 @@
 import { expect, test } from "./fixtures";
 
-test("方向設定から公開フォームで計画の版に合意して開始する", async ({ page, nod }, info) => {
-  let releaseCandidate!: () => void;
-  const candidateGate = new Promise<void>(resolve => { releaseCandidate = resolve; });
-  let candidateRequested!: () => void;
-  const candidateStarted = new Promise<void>(resolve => { candidateRequested = resolve; });
-  await page.route("**/api/sprints/*/candidates", async route => {
-    if (route.request().method() !== "POST") { await route.continue(); return; }
-    candidateRequested();
-    await candidateGate;
-    await route.continue();
-  });
+test("方向設定とSprint作成の公開フォームから、公開HTTPで提案した計画の版に合意して開始する", async ({ page, nod }, info) => {
   const ws = await nod.me.initWorkspace({ key: "AAA", name: "製品A", path: nod.repo("a") });
   const issue = await nod.me.createIssue({ workspaceId: ws.workspace.id, title: "判断を一か所で確認" });
   await page.goto("/workspaces/AAA/settings");
@@ -34,34 +24,13 @@ test("方向設定から公開フォームで計画の版に合意して開始�
   await captureSprint(page, "sprint-create-period-timezone", info);
   await create.getByRole("button", { name: "作成", exact: true }).click();
   await expect(page).toHaveURL(/\/sprints\/[^/]+$/);
-  await page.getByRole("button", { name: "計画", exact: true }).click();
-  await page.getByLabel("候補に追加するIssue").fill(issue.id);
-  const candidateResponse = page.waitForResponse(response => response.request().method() === "POST" && /\/api\/sprints\/[^/]+\/candidates$/.test(new URL(response.url()).pathname));
-  try {
-    await page.getByRole("button", { name: "候補に追加", exact: true }).click();
-    await candidateStarted;
-    await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeDisabled();
-  } finally {
-    releaseCandidate();
-    await (await candidateResponse).finished();
-    await expect(page.getByRole("status").filter({ hasText: "候補に追加しました。採択は計画案で選びます。" })).toBeVisible();
-  }
-  await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "計画案を編集", exact: true }).click();
-  const editor = page.getByRole("form", { name: "計画案の編集" });
-  await editor.getByLabel("今回のゴール", { exact: true }).fill("判断の確認を完結できる");
-  await editor.getByLabel("達成の確認方法", { exact: true }).fill("判断の発見から回答まで操作する");
-  await editor.getByLabel(`${issue.id}を採択予定にする`, { exact: true }).check();
-  await editor.getByLabel(`${issue.id}のゴールへの貢献`, { exact: true }).fill("判断を発見できる");
-  await editor.getByLabel(`${issue.id}の実行計画`, { exact: true }).fill("一覧を実装して操作を確認");
-  await editor.getByLabel("完成の定義 1", { exact: true }).fill("判断から回答まで確認できる");
-  await editor.getByLabel("実行範囲", { exact: true }).fill("製品A");
-  await editor.getByLabel("制約の補足", { exact: true }).fill("公開は既存の権限に従う");
-  await editor.getByLabel("変更理由", { exact: true }).fill("初回の計画");
-  await editor.getByRole("button", { name: "計画案を保存", exact: true }).click();
-  await expect(editor).toBeHidden();
+  const sprintId = new URL(page.url()).pathname.split("/").at(-1)!;
+  const created = await sprintDetail(page, sprintId);
+  const candidate = await sprintApi<{ sprint: Sprint; item: { id: string } }>(page, "POST", `/sprints/${sprintId}/candidates`, { expectedVersion: created.version, requestKey: crypto.randomUUID(), issueRef: issue.id });
+  await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprintId}/plans`, { expectedVersion: candidate.sprint.version, requestKey: crypto.randomUUID(),
+    goal: "判断の確認を完結できる", verificationMethod: "判断の発見から回答まで操作する", items: [{ itemId: candidate.item.id, contribution: "判断を発見できる", executionPlan: "一覧を実装して操作を確認" }],
+    definitionOfDone: [{ id: "確認", text: "判断から回答まで確認できる" }], constraints: { executionScope: "製品A", maxParallel: 1, notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" });
+  await page.goto(`/sprints/${sprintId}?section=plan`);
   await expect(page.getByRole("region", { name: "表示中の計画" })).toContainText("計画 第1版");
   await captureSprint(page, "plan-before-start-list", info);
   await page.getByRole("button", { name: "この計画に合意する", exact: true }).click();
@@ -74,8 +43,8 @@ test("方向設定から公開フォームで計画の版に合意して開始�
   await captureSprint(page, "sprint-home-overview", info);
 });
 
-import type { SprintPlanResult } from "@nod/core";
-import { captureSprint, plannedSprint, sprintApi, sprintDetail, todayUtc } from "./support/sprint-planning";
+import type { Sprint, SprintPlanResult } from "@nod/core";
+import { acceptAndActivate, captureSprint, plannedSprint, sprintApi, sprintDetail, todayUtc } from "./support/sprint-planning";
 
 test("開始条件はserverの期間と版に従い、開始前・期限外の合意済み計画を開始できない", async ({ page, nod }, info) => {
   const ws = (await nod.me.initWorkspace({ key: "AA", name: "期間確認", path: nod.repo("period") })).workspace;
@@ -90,38 +59,42 @@ test("開始条件はserverの期間と版に従い、開始前・期限外の�
   }
 });
 
-test.describe("保存失敗と重複送信", () => {
-  test.use({ allowedConsoleErrors: [/net::ERR_FAILED/] });
-  test("計画の保存失敗後に入力とDoDのIDを保ち、再試行中の重複送信を防ぐ", async ({ page, nod }, info) => {
-    const ws = (await nod.me.initWorkspace({ key: "AA", name: "再試行", path: nod.repo("retry") })).workspace;
-    const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "再試行の仕事" });
-    const planned = await plannedSprint(page, ws.key, [issue.id]);
-    await page.goto(`/sprints/${planned.sprint.id}?section=plan`);
-    await page.getByRole("button", { name: "計画案を編集", exact: true }).click();
-    const editor = page.getByRole("form", { name: "計画案の編集" });
-    await editor.getByLabel("今回のゴール", { exact: true }).fill("再送しても計画を増殖させない");
-    await editor.getByLabel("変更理由", { exact: true }).fill("保存失敗から復旧する");
-    await page.route(`**/api/sprints/${planned.sprint.id}/plans`, route => route.abort(), { times: 1 });
-    await editor.getByRole("button", { name: "計画案を保存", exact: true }).click();
-    await expect(editor.getByRole("alert")).toContainText("入力は保持しています");
-    await expect(editor.getByLabel("今回のゴール", { exact: true })).toHaveValue("再送しても計画を増殖させない");
-    await captureSprint(page, "plan-save-failed-retained", info);
-    let release!: () => void;
-    const gate = new Promise<void>(resolve => { release = resolve; });
-    let posts = 0;
-    await page.route(`**/api/sprints/${planned.sprint.id}/plans`, async route => { posts++; await gate; await route.continue(); });
-    await editor.getByRole("button", { name: "計画案を保存", exact: true }).click();
-    await expect(editor.getByRole("button", { name: "保存中…", exact: true })).toBeDisabled();
-    await editor.dispatchEvent("submit");
-    expect(posts).toBe(1);
-    release();
-    await expect(editor).toBeHidden();
-    expect(posts).toBe(1);
-    const saved = await sprintDetail(page, planned.sprint.id);
-    expect(saved.plans).toHaveLength(2);
-    expect(saved.plans[1]!.content.definitionOfDone).toEqual(planned.plan.content.definitionOfDone);
-    await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeFocused();
-  });
+test("開始後の計画画面は採択集合の説明と貢献・実行計画の一覧を出さず、計画の要約とタスク一覧を保つ", async ({ page, nod }, info) => {
+  const ws = (await nod.me.initWorkspace({ key: "RM", name: "撤去確認", path: nod.repo("removed") })).workspace;
+  const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "採択の仕事" });
+  const planned = await plannedSprint(page, ws.key, [issue.id]);
+  await acceptAndActivate(page, planned);
+  await page.goto(`/sprints/${planned.sprint.id}?section=plan`);
+  await expect(page.getByRole("region", { name: "表示中の計画", exact: true })).toContainText(planned.input.goal);
+  await expect(page.getByText("有効な合意済み計画の採択集合を表示します。未合意の追加案は含みません。", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(`${issue.id}の貢献と実行計画`, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("候補に追加するIssue", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "候補に追加", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "表示中の計画", exact: true })).toContainText(planned.input.goal);
+  await expect(page.getByRole("heading", { name: "開始後の状態", exact: true })).toBeVisible();
+  expect(await page.locator("main section").evaluateAll(sections => sections.filter(section => !section.textContent?.trim()).length)).toBe(0);
+  await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await captureSprint(page, "plan-active-without-removed-sections", info);
+});
+
+test("開始前の計画画面は計画案の編集と候補の追加を出さず、期間の編集と合意・開始を保つ", async ({ page, nod }, info) => {
+  const ws = (await nod.me.initWorkspace({ key: "RB", name: "開始前の撤去確認", path: nod.repo("removed-before") })).workspace;
+  const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "採択予定の仕事" });
+  const planned = await plannedSprint(page, ws.key, [issue.id]);
+  await page.goto(`/sprints/${planned.sprint.id}?section=plan`);
+  await expect(page.getByRole("region", { name: "表示中の計画", exact: true })).toContainText(planned.input.goal);
+  await expect(page.getByText("採択予定・開始前。合意して開始するまでは実行されません。", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(`${issue.id}の貢献と実行計画`, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("候補に追加するIssue", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "候補に追加", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "この計画に合意する", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "開始条件", exact: true })).toBeVisible();
+  expect(await page.locator("main section").evaluateAll(sections => sections.filter(section => !section.textContent?.trim()).length)).toBe(0);
+  await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await captureSprint(page, "plan-before-start-without-removed-sections", info);
 });
 
 test("同じ内容の合意を再利用し、変更案へ旧合意を適用せず、開始後の期間は固定して人が中止理由を残す", async ({ page, nod }, info) => {

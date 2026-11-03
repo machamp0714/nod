@@ -11,7 +11,6 @@ import { BlockedFilter } from "../issue-list/FilterBar";
 import { IssueList } from "../issue-list/IssueList";
 import { Button, PageHeader, PageTitle, Spacer } from "../ui";
 import type { IssueListSearch } from "../../routes/search";
-import { SprintPlanEditor } from "./SprintPlanEditor";
 import s from "./sprint-planning.module.css";
 
 export function PlanSummary({ plan, label }: { plan: SprintPlan; label: string }) {
@@ -35,8 +34,6 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   sprint: SprintDetail; readError?: unknown; lastCheckedAt: number; onRetry: () => void; view: ProjectView; onViewChange: (view: ProjectView) => void; search: IssueListSearch; onSearchChange: (patch: IssueListSearch) => void; onBack: () => void; onOutcomes: () => void; onRetrospective: () => void; onActivated: () => void;
 }) {
   const switchFocus = useRef(false);
-  const [editing, setEditing] = useState(false);
-  const [candidateRef, setCandidate] = useState("");
   const [showCandidates, setCandidates] = useState(false);
   const [viewedId, setViewedId] = useState<string | null>(null);
   const [source, setSource] = useState("");
@@ -47,7 +44,6 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   const allRows = useIssueRows({ workspace: sprint.workspaceSnapshot ? [sprint.workspaceSnapshot.key] : undefined, blocked: search.blocked }, view === "list");
   const sprints = useSprints();
   const availability = useSprintPlanningStatus(sprint.id);
-  const editorButton = useRef<HTMLButtonElement>(null);
   const latest = sprint.plans.at(-1);
   const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
   const started = sprint.activatedAt !== null;
@@ -81,15 +77,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
     <div className={`${s.body} ${s.columns}`}>
       <div className={s.main}>
         {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>候補を追加してゴールと採択予定を提案してください。</p></section>}
-        <section className={s.section}><p>{started ? "有効な合意済み計画の採択集合を表示します。未合意の追加案は含みません。" : "採択予定・開始前。合意して開始するまでは実行されません。"}</p>
-          {plan?.content.items.map(item => <details key={item.itemId}><summary>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey ?? "削除されたIssue"}の貢献と実行計画</summary><p>採択理由・ゴールへの貢献：{item.contribution}</p><p>実行計画：{item.executionPlan}</p><p>合意時の要求：{item.requirement.title}</p><p>{item.requirement.description}</p></details>)}
-        </section>
-        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} disabled={command.isPending} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
-          <form className={s.controls} aria-label="候補の追加" onSubmit={e => { e.preventDefault(); if (command.isPending) return; void run("/candidates", { issueRef: candidateRef }, "候補に追加しました。採択は計画案で選びます。").then(ok => { if (ok) setCandidate(""); }); }}>
-            <label className={s.field}>候補に追加するIssue<input required value={candidateRef} onChange={e => setCandidate(e.target.value)} disabled={command.isPending} placeholder="AAA-1" /></label>
-            <Button type="submit" disabled={command.isPending}>{command.isPending ? "保存中…" : "候補に追加"}</Button>
-          </form>
-        </section>}
+        {writable && !started && <section className={s.section}><div className={s.controls}><Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button></div></section>}
         {periodEdit && !started && <PeriodEditor sprint={sprint} onSaved={() => setPeriodEdit(false)} />}
       </div>
       <aside className={s.aside}>
@@ -109,7 +97,6 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
       </aside>
     </div>
   </>;
-  if (editing) return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画案</PageTitle></PageHeader><SprintPlanEditor sprint={sprint} plan={latest} onClose={() => { setEditing(false); requestAnimationFrame(() => editorButton.current?.focus()); }} onSaved={() => { setEditing(false); setViewedId(null); setCandidates(false); requestAnimationFrame(() => editorButton.current?.focus()); }} /></div>;
   const heading = <div className={s.bar}><strong>{showCandidates && view === "list" ? "候補（未採択）" : started ? "採択済みのIssue" : "採択予定のIssue"} · {view === "flow" ? plan?.content.items.length ?? 0 : keys.size}件</strong>
     {view === "list" && <><Button aria-pressed={!showCandidates} onClick={() => setCandidates(false)}>採択{started ? "済み" : "予定"}</Button><Button aria-pressed={showCandidates} onClick={() => setCandidates(true)}>候補</Button></>}
     <Spacer /><ProjectViewSwitch value={view} onChange={onViewChange} focusOnMount={switchFocus} /></div>;
