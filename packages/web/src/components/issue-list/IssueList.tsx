@@ -13,9 +13,11 @@ import { useSprints } from "../../api/hooks/sprints";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useDraftText } from "../../lib/draft-text";
 import { singleWorkspace, statusName } from "../../lib/workspace-labels";
+import { scrollRegionKey } from "../../lib/list-scroll";
 import { countRows, effectiveGrouping, filterRows, groupRows, type ListTab, type RowGroup, sortRows } from "./issue-list";
 import s from "./issue-list.module.css";
 import { IssueTable } from "./IssueTable";
+import { type ListContent, type ListScrollRestoration, useListScrollRestoration } from "./list-scroll-restoration";
 import { PreviewPane } from "./PreviewPane";
 import type { IssueListRow } from "./types";
 
@@ -49,6 +51,8 @@ export interface IssueListProps {
   resetDisplayDisabled?: boolean;
   // 一覧（表・Board・グループの見出し）の Status アイコンの色を上書きする（Project 詳細の完了）。プレビューには使わない
   statusTones?: StatusTones;
+  // 詳細から戻ったときのスクロール位置の復元（NOD-52）。渡したページだけで行う
+  scrollRestoration?: ListScrollRestoration;
 }
 
 // プレビュー中に表から外す列。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
@@ -83,6 +87,7 @@ export function IssueList({
   onResetDisplay,
   resetDisplayDisabled,
   statusTones = NO_STATUS_TONES,
+  scrollRestoration,
 }: IssueListProps) {
   // currentの列とグループだけを有効集合へ対応させる。元Issueの参照集合は変更しない。
   const rows = sprintIds ? sourceRows.map((row) => ({ ...row, issue: { ...row.issue, sprints: row.issue.sprints.filter((item) => sprintIds.includes(item.id)) } })) : sourceRows;
@@ -133,12 +138,12 @@ export function IssueList({
   let currentShown = false;
   // 表は positions と同じ順に描くので、描いた行数を数えて各表の先頭行の表示位置にする
   let offset = 0;
-  const table = (tableRows: IssueListRow[]) => {
+  const table = (tableRows: IssueListRow[], region: string) => {
     const markCurrent = !currentShown && tableRows.some((r) => r.issue.id === preview);
     if (markCurrent) currentShown = true;
     const selection = rowSelection && { ...rowSelection, offset };
     offset += tableRows.length;
-    return <IssueTable unknownQuestions={readOnly} rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} />;
+    return <IssueTable unknownQuestions={readOnly} rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} scrollRegion={region} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
@@ -208,9 +213,14 @@ export function IssueList({
   // グループのない Board は、Main の残りの高さいっぱいに列を伸ばし、Board の中でスクロールする。
   // 概要（intro）や一覧の後の内容（afterContent）がある画面（Project 詳細、Cycle 詳細）では Main の高さに固定せず、Board を内容の高さまで伸ばして Main だけをスクロールさせる
   const fill = layout === "board" && !groupBy && !intro && !afterContent;
+  // スクロール位置の復元は、行（表か Board）が出ているときだけ領域を測って当てる
+  const content: ListContent = error ? "error" : loading ? "loading"
+    : visible.length === 0 || (readOnly && tab === "ready") || (!!emptyMessage && rows.length === 0) || (!!groupBy && groups.length === 0) ? "empty" : "rows";
+  const root = useRef<HTMLDivElement>(null);
+  useListScrollRestoration(root, scrollRestoration, content);
 
   return (
-    <div className={fill ? `${s.split} ${s.splitFill}` : s.split}>
+    <div ref={root} className={fill ? `${s.split} ${s.splitFill}` : s.split}>
     <div
       className={s.page}
       onKeyDown={(event) => {
@@ -321,21 +331,21 @@ export function IssueList({
                   delegated={delegated}
                   select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
                 />
-                {layout === "board" ? <IssueBoard readOnly={readOnly} rows={group.rows} nameOfStatus={nameOfStatus} /> : group.subgroups && subGroupBy ? (
+                {layout === "board" ? <IssueBoard readOnly={readOnly} rows={group.rows} nameOfStatus={nameOfStatus} scrollRegion={scrollRegionKey("board", [group.key])} /> : group.subgroups && subGroupBy ? (
                   group.subgroups.map((subgroup) => (
                     <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
                       <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
-                      {table(subgroup.rows)}
+                      {table(subgroup.rows, scrollRegionKey("table", [group.key, subgroup.key]))}
                     </section>
                   ))
-                ) : table(group.rows)}
+                ) : table(group.rows, scrollRegionKey("table", [group.key]))}
               </section>
             ))
           )
         ) : layout === "list" ? (
-          table(visible)
+          table(visible, scrollRegionKey("table"))
         ) : (
-          <IssueBoard readOnly={readOnly} rows={visible} nameOfStatus={nameOfStatus} />
+          <IssueBoard readOnly={readOnly} rows={visible} nameOfStatus={nameOfStatus} scrollRegion={scrollRegionKey("board")} />
         )}
         {selectedIssues.length > 0 && (
           <BulkActionBar

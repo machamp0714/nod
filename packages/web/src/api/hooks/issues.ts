@@ -23,6 +23,8 @@ export function useIssueList(query: IssueQuery, enabled = true) {
 export interface IssueRowsState {
   rows: IssueListRow[];
   loading: boolean;
+  // 表示中の行を保ったまま読み直している（戻ったときの再取得など）。loading は行がまだないときだけ true
+  fetching?: boolean;
   error: string | null;
   sprintIds?: string[];
   emptyMessage?: string;
@@ -77,7 +79,7 @@ export function useIssueRows(query: IssueQuery, enabled = true): IssueRowsState 
   if (query.sprint === "current" && !current.data) return { rows: [], loading: true, error: null };
   const workspaceIds = new Set(workspaces.data.filter((workspace) => !query.workspace?.length || query.workspace.includes(workspace.key)).map((workspace) => workspace.id));
   const scopedSprints = current.data?.sprints.filter((sprint) => !query.workspace?.length || (sprint.workspaceId !== null && workspaceIds.has(sprint.workspaceId)));
-  return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, error: null,
+  return { rows: buildRows(all.data.issues, ready.data.issues, workspaces.data), loading: false, fetching: all.isFetching || ready.isFetching, error: null,
     sprintIds: query.sprint === "current" ? scopedSprints?.map((item) => item.id) : undefined,
     emptyMessage: query.sprint === "current" && scopedSprints?.length === 0 ? "現在のSprintはありません" : undefined };
 }

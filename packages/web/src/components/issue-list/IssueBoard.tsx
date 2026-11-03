@@ -31,10 +31,12 @@ export function IssueBoard({
   rows,
   readOnly = false,
   nameOfStatus = (status) => STATUS_META[status].label,
+  scrollRegion,
 }: {
   rows: IssueListRow[];
   readOnly?: boolean;
   nameOfStatus?: (status: IssueListRow["issue"]["status"]) => string;
+  scrollRegion?: string; // スクロールの位置を復元するときのキー（NOD-52）
 }) {
   const columns = groupForBoard(rows);
   const hidden = columns.filter((column) => column.rows.length === 0);
@@ -95,7 +97,7 @@ export function IssueBoard({
           </p>
         </div>
       )}
-      <div className={s.board}>
+      <div className={s.board} data-scroll-region={scrollRegion}>
         {/* 全列が 0 件のときは、List と同じ空の表示を出す（右の Hidden columns は残す） */}
         {empty && <p className={s.boardEmpty}>該当する Issue はありません</p>}
         {columns.filter((column) => column.rows.length > 0).map((column) => {

@@ -59,6 +59,7 @@ export function IssueTable({
   onPreview,
   showAgentState = false,
   selection,
+  scrollRegion,
 }: {
   rows: IssueListRow[];
   unknownQuestions?: boolean;
@@ -70,6 +71,7 @@ export function IssueTable({
   // 一括編集の選択（design/nod.pen「Issues｜一括編集（#31）」）。List 表示のときだけ渡す
   // offset はこの表の先頭行の、一覧全体での表示位置（Shift の範囲選択に使う）
   selection?: { ids: ReadonlySet<string>; offset: number; onToggle: (at: number, shift: boolean) => void };
+  scrollRegion?: string; // 横スクロールの位置を復元するときのキー（NOD-52）
 }) {
   const today = localToday();
   const now = new Date();
@@ -81,7 +83,7 @@ export function IssueTable({
   // 列の順は nod.pen の行に合わせる（#196）：優先度、ID、Status、タイトル（ラベル）、Project、Workspace、担当、更新日時。
   // 表示設定で足す 未決事項・PR・見積もり・期限 は Workspace と担当の間に置く（「Issues｜見積もり・期限列」I1mAzW）
   return (
-    <div className={s.tableScroll}>
+    <div className={s.tableScroll} data-scroll-region={scrollRegion}>
       <table className={s.table}>
       <colgroup>
         {select && <col className={lead(true, s.colSelect)} />}
