@@ -312,6 +312,49 @@ describe("下見の案", () => {
     expect([...new Set(p.findings.map((f) => f.line))]).toEqual([5, 6, 7, 8, 9]);
   });
 
+  test("画像・参照定義・HTML の src/href の中の ID・URL は書き換えず、位置と必要な対応つきの残った箇所として示す", async () => {
+    const { db, me, ws, id, deps } = fixture();
+    const unlinked = createIssue(me, { workspaceId: ws.id, title: "ログを整理する" }).id;
+    const linked = createIssue(me, { workspaceId: ws.id, title: "通知を送る" }).id;
+    linkRow(db, linked, "example/api-server#7");
+    const kept = [
+      `![${unlinked} の図](/issues/${unlinked})`,
+      `[ref]: /issues/${id}`,
+      `<a href="/issues/${linked}">通知</a>`,
+      `<img src="http://localhost:4700/issues/${unlinked}">`,
+      `[web]: http://localhost:4700/issues/${id}`,
+    ];
+    updateIssue(me, id, { description: [...kept, `${unlinked} の続き`].join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe([...kept, "「ログを整理する」の Issue の続き"].join("\n"));
+    expect(p.changes.map((c) => c.line)).toEqual([6]);
+    const at = (line: number, rule: string) => p.findings.filter((f) => f.line === line && f.rule === rule).map((f) => [f.column, f.text]);
+    expect(at(1, "link_target")).toEqual([[13, "/issues/API-2"]]);
+    expect(at(1, "issue_id")).toEqual([[3, "API-2"], [21, "API-2"]]);
+    expect(at(2, "link_target")).toEqual([[8, "/issues/API-1"]]);
+    expect(at(3, "link_target")).toEqual([[10, "/issues/API-3"]]);
+    expect(at(4, "nod_web")).toEqual([[18, "localhost:4700"]]);
+    expect(at(5, "nod_web")).toEqual([[15, "localhost:4700"]]);
+    for (const f of p.findings) expect(f.reason).toMatch(/てください$/);
+  });
+
+  test("パス・ファイル名・ブランチ名の一部になっている ID は書き換えず、残った箇所として示す。Workspace のパスの相対パス化はする", async () => {
+    const { me, id, deps } = fixture();
+    updateIssue(me, id, { description: [`docs/specs/${id}.md を見る`, `feature/${id} で作業`, `/tmp/repos/api-server/notes/${id}.md`, `${id}/memo も`, `${id}. 次`].join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe([`docs/specs/${id}.md を見る`, `feature/${id} で作業`, `notes/${id}.md`, `${id}/memo も`, "この Issue. 次"].join("\n"));
+    expect(p.changes.map((c) => [c.line, c.rule])).toEqual([
+      [3, "absolute_path"],
+      [5, "issue_id"],
+    ]);
+    expect(p.findings.map((f) => [f.line, f.column, f.text, f.rule])).toEqual([
+      [1, 12, id, "issue_id"],
+      [2, 9, id, "issue_id"],
+      [3, 7, id, "issue_id"],
+      [4, 1, id, "issue_id"],
+    ]);
+  });
+
   test("コードブロック・インラインコードの中は、Workspace のパスの相対パス化だけを行う", async () => {
     const { me, ws, id, deps } = fixture();
     createIssue(me, { workspaceId: ws.id, title: "ログを整理する" });

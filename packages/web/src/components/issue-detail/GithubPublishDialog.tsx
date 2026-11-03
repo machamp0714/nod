@@ -3,7 +3,7 @@ import { ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import { checkGithubText, useClearGithubUnknown, useGithubPreview, useLinkGithub, usePublishGithub, useSetWorkspaceGithubRepo } from "../../api/hooks/github";
 import type { GithubDraftChange, GithubPublishPreview, GithubPublishResult, LeakFinding } from "../../api/types";
-import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, splitBlockers } from "../../lib/github-publish";
+import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, shownChanges, splitBlockers } from "../../lib/github-publish";
 import { Button } from "../ui";
 import s from "./issue-detail.module.css";
 
@@ -174,7 +174,7 @@ function PublishForm({ issueId, preview, onDone, onStale }: { issueId: string; p
         {preview.changes.length > 0 && <Button size="sm" onClick={() => replaceText({ title: preview.title, body: preview.body })}>整えた案に戻す</Button>}
       </div>
       <p className={s.githubDialogNote}>ここで直した文面は送信にだけ使い、nod の本文は変えません</p>
-      <ChangeList changes={preview.changes} />
+      <ChangeList changes={shownChanges(preview.changes, preview, { title, body })} />
       {check.status === "checking" && <p className={s.githubDialogNote}>確かめています…</p>}
       {check.status === "error" && <p role="alert" className={s.error}>確かめられませんでした：{check.error}</p>}
       <FindingList findings={check.findings} />

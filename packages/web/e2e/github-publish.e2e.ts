@@ -39,21 +39,25 @@ test("整えた案から始まり、残った箇所で止まり、nod の文面�
   const send = dialog.getByRole("button", { name: "GitHub に作成する" });
   await expect(send).toBeDisabled();
 
-  // nod の文面に戻すと、自身の ID も検出され、送れない
+  // nod の文面に戻すと、自身の ID も検出され、送れない。整えた箇所は画面の文面と合わないので出さない
   await dialog.getByRole("button", { name: "nod の文面に戻す" }).click();
   await expect(body).toHaveValue(original);
+  await expect(changes).toHaveCount(0);
   await expect(findings.getByText(issue.id, { exact: true })).toBeVisible();
   await expect(findings.getByText("#12", { exact: true })).toBeVisible();
   await expect(send).toBeDisabled();
 
-  // 整えた案に戻すと、案の文面と検出に戻る
+  // 整えた案に戻すと、案の文面・整えた箇所・検出に戻る
   await dialog.getByRole("button", { name: "整えた案に戻す" }).click();
   await expect(body).toHaveValue(draft);
+  await expect(changes.getByText("本文 1 行 1 桁")).toBeVisible();
   await expect(findings.getByText(issue.id, { exact: true })).toHaveCount(0);
   await expect(findings.getByText("#12", { exact: true })).toBeVisible();
   await expect(send).toBeDisabled();
 
+  // 手で直すと、案と違う本文の整えた箇所は出さない
   await body.fill("この Issue の続き");
+  await expect(changes).toHaveCount(0);
   await expect(findings).toHaveCount(0);
   await expect(send).toBeEnabled();
   await send.click();

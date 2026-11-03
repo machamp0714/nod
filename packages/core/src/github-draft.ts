@@ -230,6 +230,22 @@ function planLinks(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): vo
   }
 }
 
+// 残すリンクの形（画像・参照定義・HTML の src/href）。中に検出があれば形ごと残し、中の ID・URL・パスをあとの規則で書き換えない
+const KEPT_LINK_RES: RegExp[] = [/!\[[^\]\n]*\]\([^)\n]*\)/g, /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
+
+function planKeptLinks(text: string, hits: LeakHit[], plan: Plan): void {
+  for (const re of KEPT_LINK_RES) {
+    for (const m of text.matchAll(re)) {
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= start && h.index < end)) claim(plan, start, end);
+    }
+  }
+}
+
+// パス・ファイル名・ブランチ名の一部になっている ID（docs/API-1.md、feature/API-1、API-1/memo）。言い換えるとパスが壊れるので残す
+const partOfPath = (text: string, start: number, end: number) => /[/\\]/.test(text[start - 1] ?? "") || /^(?:[/\\]|\.[A-Za-z0-9])/.test(text.slice(end, end + 2));
+
 function planUrls(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): void {
   for (const url of leakUrlsOf(text)) {
     if (!isFree(plan, url.index, url.index + url.text.length)) continue;
@@ -253,6 +269,7 @@ function planHits(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): voi
     const end = h.index + h.text.length;
     if (!isFree(plan, h.index, end) || inCode(plan, h.index, end)) continue;
     if (h.rule === "issue_id") {
+      if (partOfPath(text, h.index, end)) continue;
       const target = issueTargetOf(env, h.text);
       if (target) claim(plan, h.index, end, { after: target.after, rule: h.rule, reason: `nod の Issue ID を${target.as}にしました` });
     } else if (h.rule === "issue_ref") {
@@ -277,6 +294,7 @@ function editsOf(env: DraftEnv, text: string): Edit[] {
   const plan: Plan = { edits: [], claimed: [], code: codeRangesOf(text) };
   planImportFooter(text, hits, plan);
   planLinks(env, text, hits, plan);
+  planKeptLinks(text, hits, plan);
   planUrls(env, text, hits, plan);
   planHits(env, text, hits, plan);
   return plan.edits;
