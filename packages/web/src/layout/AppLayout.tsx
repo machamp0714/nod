@@ -27,7 +27,8 @@ export function AppLayout() {
   return (
     <div className={s.shell}>
       <Sidebar onOpenSearch={() => setSearching(true)} />
-      <main className={s.main}>
+      {/* 主領域のスクロール位置は、Issue 一覧から詳細へ行って戻るときに復元する */}
+      <main className={s.main} data-scroll-region="main">
         <LegacySprintSearch><Outlet /></LegacySprintSearch>
       </main>
       {searching && <IssueSearchDialog onClose={() => setSearching(false)} />}
