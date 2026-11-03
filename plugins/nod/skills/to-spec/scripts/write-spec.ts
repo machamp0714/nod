@@ -533,7 +533,8 @@ async function main(): Promise<void> {
     const fd = openSync(draftPath, "wx");
     draftCreated = true;
     try {
-      writeSync(fd, draft);
+      // writeSync は short write でも例外を出さずに書けたバイト数を返す。全量を書き切る（書けなければ例外で失敗にする）
+      writeFileSync(fd, draft);
     } finally {
       closeSync(fd);
     }

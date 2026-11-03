@@ -135,9 +135,11 @@ interface Run {
   ms: number;
 }
 
-async function run(args: string[], fake: { path: string } | string, script = SCRIPT): Promise<Run> {
+// fileSizeKb: スクリプトをファイルサイズの上限（ulimit -f、1024 バイト単位）付きで起動する。上限を超える書き込みは short write になる
+async function run(args: string[], fake: { path: string } | string, script = SCRIPT, opts: { fileSizeKb?: number } = {}): Promise<Run> {
   const started = Date.now();
-  const proc = Bun.spawn([process.execPath, script, ...args], {
+  const cmd = [process.execPath, script, ...args];
+  const proc = Bun.spawn(opts.fileSizeKb === undefined ? cmd : ["/bin/sh", "-c", `ulimit -f ${opts.fileSizeKb}; exec "$0" "$@"`, ...cmd], {
     cwd: tempDir("nod-to-spec-cwd-"),
     env: { ...process.env, NOD_OMP: typeof fake === "string" ? fake : fake.path },
     stdout: "pipe",
@@ -517,6 +519,34 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
     expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
     expect(record.responded).toEqual({ provider: "google-antigravity", model: "gemini-4-argon", stopReason: "stop" });
+  });
+
+  test("原稿の書き込みが short write になれば、不一致の原稿を成功にせず UNEXPECTED_ERROR で原稿を出さない", async () => {
+    // 依頼文と実行記録が上限に収まるよう、小さな執筆ルールを置いたスキルの写しで動かす
+    const root = tempDir("nod-to-spec-skill-");
+    mkdirSync(join(root, "scripts"));
+    mkdirSync(join(root, "references"));
+    const script = join(root, "scripts", "write-spec.ts");
+    writeFileSync(script, readFileSync(SCRIPT));
+    writeFileSync(join(root, "references", "spec-writing.md"), `小さな執筆ルール\n\n${SEP}\n`);
+    const i = inputs();
+    // 原稿は約 6KB、上限は 4KB。生ログは 1 回の読み取りで届く大きさにし、原稿より先に失敗させない
+    const body = specBody().replace("Solution の本文。", "x".repeat(6000));
+    const text = answer(body);
+    const oneEvent = `${JSON.stringify({ type: "session", id: "sess-short" })}\n${JSON.stringify({ type: "message_end", message: assistant(text) })}\n`;
+    const r = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script, { fileSizeKb: 4 });
+    expect(r.exitCode).toBe(1);
+    expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", attempt: 1, draftSha256: null });
+    expect(r.json.message).toContain("EFBIG");
+    expect(r.json.files.draft).toBeNull();
+    expect(existsSync(join(i.docs, "nod-60-argon-01-draft.md"))).toBe(false);
+    const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
+    expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
+    // 上限なしなら同じ応答で原稿を全文保存し、指紋が一致する
+    const full = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script);
+    expect(full.json.ok).toBe(true);
+    expect(sha256(readFileSync(full.json.files.draft))).toBe(full.json.draftSha256);
+    expect(readFileSync(full.json.files.draft, "utf8")).toContain("x".repeat(6000));
   });
 
   test("試行のファイルを作れなければ UNEXPECTED_ERROR の結果 JSON を出し、omp を呼ばない", async () => {
