@@ -186,8 +186,9 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod initiative list [--all]\`、\`nod initiative show <名前かID>\`：複数の Project を束ねる上位目標と、配下 Project の Issue を合算した進捗（done/total）を見る
 - \`nod initiative create <名前> [-d] [--target YYYY-MM-DD]\`、\`nod initiative update <名前かID> [--name] [-d] [--target] [--status planned|started|completed|canceled]\`、\`nod initiative add-project|remove-project <名前かID> <Project>\`：1つの Project を複数の Initiative に紐付けられる。Project・Issue の状態は変えない
 - \`nod sprint list|show <sprint>\`：Sprintと移行履歴を読む。参照はUUIDまたは全Workspace共通の番号。移行した履歴はimportedで、未記録のゴール・合意・timezone・達成結果は不明のまま。移行時の状態は過去終了時点の成果ではない。
-- \`nod issue list|stats|summary --sprint <sprint>\`：採択・移行関連を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの採用計画の採択集合で、Issue一覧は完了済みを含む。候補だけは所属に数えない。
-- 旧\`nod cycle\`・\`--cycle\`・周期の自動作成と自動持ち越しは廃止済み。期間への直接所属は行えない。Sprintの候補・合意・採択・開始操作は後続で接続する。
+- \`nod sprint add <sprint> <issue>\`：Issue を Sprint に追加し、追加した時点でその Sprint の所属になる（LLM も実行できる。LLM は CLI で追加する）。人の合意・計画の再承認・合意原文は要らない。Sprint の版も requestKey も要らない。Sprint はUUIDか共通番号で、draft・ready・active で Workspace があるものに追加できる（imported・ended・canceled と Workspace 削除済みは INVALID_STATE）。Issue は Sprint と同じ Workspace にあり、アーカイブ済みでなければ、どのステータスでも追加できる。同じ追加を再実行しても重複しない（\`--json\` は \`{ sprint, item, added }\` で、既に所属なら added は false）。他の Sprint の所属は変わらない。計画の提案・合意・開始・終了・中止とは別の操作で、それらの人だけが行える制約は残る。計画にない追加の Issue は Sprint 実行（PM の監督・予約・自動の着手）の対象にならない
+- \`nod issue list|stats|summary --sprint <sprint>\`：Sprint の所属（移行・採択・追加）を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの現在Sprintの所属で、Issue一覧は完了済みを含む。旧データの候補だけのitemは所属に数えない（追加し直すと所属になる）。
+- 旧\`nod cycle\`・\`--cycle\`・周期の自動作成と自動持ち越しは廃止済み。Sprint への追加は \`nod sprint add <sprint> <issue>\` で行う。
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる

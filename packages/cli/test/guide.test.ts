@@ -60,6 +60,24 @@ test("Triageの3操作は LLM も実行できるが判断は人に依頼し、�
   expect(GUIDE).toContain("nod issue list|stats|summary --sprint <sprint>");
 });
 
+test("Sprintへの追加は LLM も CLI で行え、合意や再承認が要らず、計画外の追加は Sprint 実行の対象にならないと案内する（NOD-57）", () => {
+  const line = GUIDE.split("\n").find((l) => l.startsWith("- `nod sprint add <sprint> <issue>`"));
+  expect(line).toBeDefined();
+  for (const text of [
+    "LLM も実行できる", "人の合意・計画の再承認・合意原文は要らない", "追加した時点でその Sprint の所属になる",
+    "draft・ready・active", "imported・ended・canceled", "同じ Workspace", "アーカイブ済み", "どのステータス",
+    "再実行しても重複しない", "Sprint の版も requestKey も要らない", "他の Sprint の所属は変わらない",
+    "人だけが行える制約は残る", "計画にない追加の Issue は Sprint 実行（PM の監督・予約・自動の着手）の対象にならない",
+  ]) expect([text, line!.includes(text)]).toEqual([text, true]);
+  const filter = GUIDE.split("\n").find((l) => l.startsWith("- `nod issue list|stats|summary --sprint <sprint>`"));
+  expect(filter).toContain("所属（移行・採択・追加）");
+  expect(filter).toContain("currentは有効な各Workspaceの現在Sprintの所属");
+  expect(filter).toContain("旧データの候補だけのitemは所属に数えない");
+  for (const removed of ["採択・移行関連", "期間への直接所属は行えない", "Sprintの候補・合意・採択・開始操作は後続で接続する", "sprint candidates"]) {
+    expect(GUIDE).not.toContain(removed);
+  }
+});
+
 test("LLM も nod issue update --status で Triage から出せ、bulk-update では誰も出せないと案内する", () => {
   const line = GUIDE.split("\n").find((l) => l.includes("nod issue update --status") && l.includes("Triage から出"));
   expect(line).toBeDefined();

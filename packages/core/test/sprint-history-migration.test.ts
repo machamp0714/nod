@@ -143,7 +143,7 @@ test('旧Cycleの全書込みと直接所属変更を案内して拒否し、同
     ()=>updateIssue(ctx,'AAA-1',{title:'巻き添え変更',cycleRef:null}),
   ]) {
     let error:unknown; try {operation();} catch(e) {error=e;}
-    expect(error).toMatchObject({code:'CYCLE_RETIRED'});
+    expect(error).toMatchObject({code:'CYCLE_RETIRED',message:expect.stringContaining('nod sprint add <sprint> <issue>')});
   }
   expect(syncCycles(ctx)).toEqual({created:[],carried:[]});
   expect(getSprint(db,before.id)).toEqual(before);

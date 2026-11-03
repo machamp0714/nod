@@ -70,7 +70,7 @@ const UPDATE_KEYS = [
 
 function rejectCycleInput(b: Body): void {
   if (Object.hasOwn(b, "cycleRef")) {
-    throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprintの候補・採択操作へ移行してください");
+    throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。SprintへのIssueの追加は nod sprint add <sprint> <issue>（HTTPは POST /api/sprints/:ref/issues）で行います");
   }
 }
 

@@ -78,7 +78,7 @@ export async function createTask1Scenario(directory?: string, beforeAdoption?: B
   const nextRow = db.query("SELECT * FROM issues WHERE workspace_id=? AND number=?").get(api.id, next.number) as { id: number };
   const snapshot = JSON.stringify({ schemaVersion: 1, capturedAt: new Date().toISOString(), statusBasis: "migration_snapshot", issue: nextRow, workspace: { id: api.id, key: api.key, name: api.name }, labels: [], project: null });
   for (const sprint of [imported, draft, current]) {
-    db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,?)").run(crypto.randomUUID(), sprint, nextRow.id, next.id, snapshot, sprint === imported ? 'imported' : 'candidate');
+    db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,?)").run(crypto.randomUUID(), sprint, nextRow.id, next.id, snapshot, sprint === imported ? 'imported' : 'candidate');
   }
   for (const item of [...issues, outside]) {
     const row = db.query("SELECT * FROM issues WHERE number=? AND workspace_id=?").get(item.number, item.workspace === "API" ? api.id : other.id);
