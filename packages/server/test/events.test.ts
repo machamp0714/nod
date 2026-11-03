@@ -32,6 +32,16 @@ describe("createChangeFeed", () => {
     expect(db.query("SELECT count(*) AS n FROM issues").get()).toEqual({ n: 2 });
   });
 
+  test("notify は同じ接続の書き込みでも、現在の版で購読者へ知らせる", () => {
+    const { me, ws, feed } = setupFeed();
+    const seen: number[] = [];
+    feed.subscribe((v) => seen.push(v));
+    createIssue(me, { workspaceId: ws.id, title: "server 自身の自動処理" });
+    expect(feed.check()).toBe(false);
+    feed.notify();
+    expect(seen).toEqual([feed.version]);
+  });
+
   test("購読をやめた相手には知らせず、1つの購読者の例外がほかを止めない", () => {
     const { dbPath, ws, feed } = setupFeed();
     const seen: string[] = [];

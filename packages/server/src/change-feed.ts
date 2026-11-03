@@ -6,6 +6,8 @@ export interface ChangeFeed {
   readonly version: number;
   readonly listenerCount: number;
   check(): boolean;
+  // 同じ接続での書き込み（サーバー自身の自動処理）を、外部の変更と同じ change で購読者へ知らせる
+  notify(): void;
   subscribe(listener: (version: number) => void): () => void;
 }
 
@@ -15,6 +17,15 @@ export function createChangeFeed(db: Database): ChangeFeed {
   const read = () => (db.query("PRAGMA data_version").get() as { data_version: number }).data_version;
   let version = read();
   const listeners = new Set<(version: number) => void>();
+  const emit = () => {
+    for (const listener of [...listeners]) {
+      try {
+        listener(version);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
   return {
     get version() {
       return version;
@@ -26,14 +37,11 @@ export function createChangeFeed(db: Database): ChangeFeed {
       const current = read();
       if (current === version) return false;
       version = current;
-      for (const listener of [...listeners]) {
-        try {
-          listener(current);
-        } catch (e) {
-          console.error(e);
-        }
-      }
+      emit();
       return true;
+    },
+    notify() {
+      emit();
     },
     subscribe(listener) {
       listeners.add(listener);

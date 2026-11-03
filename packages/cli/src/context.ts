@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, type Workspace } from "@nod/core";
+import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, syncSprintRollover, type Workspace } from "@nod/core";
 import type { Command } from "commander";
 import { detectActor } from "./actor";
 import { useStatusNames } from "./output";
@@ -17,8 +17,21 @@ export function globalOpts(cmd: Command): { json: boolean; workspace?: string } 
   return { json: Boolean(g.json), workspace: g.workspace };
 }
 
+// 期限到来時の自動引継ぎを、コマンドの本体より前に行う。失敗はstderrへの警告にとどめてコマンドを続ける。
+// stdout（--json を含む）には何も出さない。止まった理由（blocked）は警告せず、nod scrum show の状態で見せる
+function syncRollover(db: Database): void {
+  try {
+    for (const result of syncSprintRollover(db)) {
+      if (result.error) process.stderr.write(`警告: Sprintの自動引継ぎに失敗しました（${result.workspaceKey}）: ${result.error.message}\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`警告: Sprintの自動引継ぎに失敗しました: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+}
+
 export function openCli(cmd: Command): Cli {
   const db = openDb();
+  syncRollover(db);
   useStatusNames(listAllStatusNames(db));
   const ctx = { db, actor: detectActor() };
   return { db, ctx, json: globalOpts(cmd).json };

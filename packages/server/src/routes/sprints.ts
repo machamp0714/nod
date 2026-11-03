@@ -6,6 +6,7 @@ import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint,
 import type { Hono } from "hono";
 import { paramInt, queryFlag, readBody } from "../input";
 import { addSprintRecord, listSprintRecords, type AddSprintRecordInput } from "@nod/core";
+import { getSprintRolloverStatus, setSprintRollover, type SetSprintRolloverInput } from "@nod/core";
 
 export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = {}): void {
   const mutation = ["expectedVersion", "requestKey"];
@@ -15,6 +16,9 @@ export function registerSprintRoutes(app: Hono, me: OpCtx, clock: SprintClock = 
   app.get("/api/workspaces/:key/scrum", c => c.json(getScrumWorkspace(me.db,c.req.param("key"))));
   app.put("/api/workspaces/:key/scrum", async c => c.json(configureScrumWorkspace(me,c.req.param("key"),
     await readBody(c,[...mutation,"enabled","problem","productGoal","priorityRationale"]) as unknown as ConfigureScrumWorkspaceInput)));
+  app.get("/api/workspaces/:key/scrum/rollover", c => c.json(getSprintRolloverStatus(me.db,c.req.param("key"),clock)));
+  app.put("/api/workspaces/:key/scrum/rollover", async c => c.json(setSprintRollover(me,c.req.param("key"),
+    await readBody(c,["enabled"]) as unknown as SetSprintRolloverInput)));
   app.post("/api/sprints", async c => c.json(createSprint(me,
     await readBody(c,[...mutation,"workspaceKey","name","startDate","endDate","timezone","workingDays","replansSprintId"]) as unknown as CreateSprintInput),201));
   app.patch("/api/sprints/:ref", async c => c.json(updateSprint(me,c.req.param("ref"),
