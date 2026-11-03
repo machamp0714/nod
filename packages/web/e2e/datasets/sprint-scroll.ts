@@ -3,7 +3,7 @@ import { addActiveSprint } from "../../../core/test/fixtures/sprint";
 import type { Dataset } from "../support/dataset";
 import { loadLegacySprintDataset } from "../support/legacy-sprint-dataset";
 
-// Sprint 詳細のスクロール復元（NOD-52）。一覧がスクロールするだけの件数を、通常の Sprint 2つと移行済みの旧Cycle 1 に入れる。
+// Sprint 詳細のスクロール復元。一覧がスクロールするだけの件数を、通常の Sprint 2つと移行済みの旧Cycle 1 に入れる。
 // 旧Cycle 1（「過去」）は sprint-history と同じ旧版の移行で作り、移行前に Issue を足しておく。通常の Sprint は内部採択fixtureで作る
 const SCROLL_COUNT = 40;
 const STATUSES = ["backlog", "todo", "in_progress", "needs_clarification", "done"];

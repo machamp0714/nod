@@ -36,7 +36,7 @@ export function IssueBoard({
   rows: IssueListRow[];
   readOnly?: boolean;
   nameOfStatus?: (status: IssueListRow["issue"]["status"]) => string;
-  scrollRegion?: string; // スクロールの位置を復元するときのキー（NOD-52）
+  scrollRegion?: string; // スクロールの位置を復元するときのキー
 }) {
   const columns = groupForBoard(rows);
   const hidden = columns.filter((column) => column.rows.length === 0);

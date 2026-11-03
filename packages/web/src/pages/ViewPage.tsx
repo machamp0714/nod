@@ -32,7 +32,7 @@ export function ViewPage() {
 }
 
 function ViewIssues({ view, views }: { view: View; views: View[] }) {
-  // 保存していない絞り込み条件。詳細を開いて同じ履歴エントリへ戻ったときは、保存済みの条件と表示設定が同じなら続きから使う（NOD-52）。View には保存しない
+  // 保存していない絞り込み条件。詳細を開いて同じ履歴エントリへ戻ったときは、保存済みの条件と表示設定が同じなら続きから使う。View には保存しない
   const definition = listIdentity({ filter: view.filter, display: view.display });
   const [draft, setDraft] = useListDraft<IssueQuery>({ kind: "view", target: String(view.id), base: definition }, view.filter);
   const currentSprint = draft.sprint === "current";

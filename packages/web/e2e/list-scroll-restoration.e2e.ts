@@ -4,7 +4,7 @@ import { chooseDisplay, closeDisplay } from "./support/issue-list";
 import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
-// Issues の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置（NOD-52）。
+// Issues の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置。
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する
 test.use({ dataset: "issue-list" });
 test.beforeEach(({ page }) => disableScrollAnchoring(page));

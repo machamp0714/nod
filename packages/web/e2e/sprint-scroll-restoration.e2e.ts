@@ -3,7 +3,7 @@ import { expect, test, waitForServerEvents } from "./fixtures";
 import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
-// Sprint 詳細のタスク一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置（NOD-52）。
+// Sprint 詳細のタスク一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときのスクロール位置。
 // 通常の Sprint と、旧Cycleから移行した読取専用の Sprint の両方を確かめる。
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する。
 // データセット: Sprint 15（AAA）と 16（BBB）は通常の Sprint で各 40 件、旧Cycle 1「過去」は移行時の写し 42 件

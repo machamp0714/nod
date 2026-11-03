@@ -71,7 +71,7 @@ export function IssueTable({
   // 一括編集の選択（design/nod.pen「Issues｜一括編集（#31）」）。List 表示のときだけ渡す
   // offset はこの表の先頭行の、一覧全体での表示位置（Shift の範囲選択に使う）
   selection?: { ids: ReadonlySet<string>; offset: number; onToggle: (at: number, shift: boolean) => void };
-  scrollRegion?: string; // 横スクロールの位置を復元するときのキー（NOD-52）
+  scrollRegion?: string; // 横スクロールの位置を復元するときのキー
 }) {
   const today = localToday();
   const now = new Date();

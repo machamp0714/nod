@@ -27,7 +27,7 @@ export function AppLayout() {
   return (
     <div className={s.shell}>
       <Sidebar onOpenSearch={() => setSearching(true)} />
-      {/* 主領域のスクロール位置は、Issue 一覧から詳細へ行って戻るときに復元する（NOD-52） */}
+      {/* 主領域のスクロール位置は、Issue 一覧から詳細へ行って戻るときに復元する */}
       <main className={s.main} data-scroll-region="main">
         <LegacySprintSearch><Outlet /></LegacySprintSearch>
       </main>

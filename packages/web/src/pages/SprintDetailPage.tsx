@@ -113,7 +113,7 @@ export function SprintDetailPage() {
       rows={shownRows} loading={!imported && rows.loading} error={!imported ? rows.error : null}
       onRetry={rows.retry} readOnly={imported} search={page.search}
       // タスク一覧だけで位置を復元する（計画・成果・振り返りは対象外）。対象は番号とIDのどちらで開いても Sprint の ID にそろえ、
-      // 実効の条件と表示（保存した表示設定と URL を合わせたもの）が同じ履歴エントリへ戻ったときだけ使う（NOD-52）
+      // 実効の条件と表示（保存した表示設定と URL を合わせたもの）が同じ履歴エントリへ戻ったときだけ使う
       scrollRestoration={{ kind: "sprint", target: sprint.id, identity: listIdentity(page.search), fetching }}
       onSearchChange={(patch) => { const pageDisplay = page.save(patch); void navigate({ search: (prev) => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); }}
       onResetDisplay={() => { const pageDisplay = page.reset(); void navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true }); }} resetDisplayDisabled={page.resetDisabled}

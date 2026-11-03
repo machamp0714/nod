@@ -4,7 +4,7 @@ import { chooseDisplay, closeDisplay } from "./support/issue-list";
 import { disableScrollAnchoring, expectPositions, holdRequests, openDetailFrom, positions, scrollRegion, scrollRegions, visibleIssueLink } from "./support/list-scroll";
 import type { NodData } from "./support/nod";
 
-// View の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときの保存前の Filter とスクロール位置（NOD-52）。
+// View の一覧からタスク詳細を開き、同じ履歴エントリへ戻ったときの保存前の Filter とスクロール位置。
 // 期待値は、リンクを押す直前に各領域を実測した値にする。待つときは固定の sleep ではなく、応答・行・位置を観測する。
 // データセットの View 1「仕事」は Workspace が API の Issue だけを出す
 test.use({ dataset: "issue-list" });

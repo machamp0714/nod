@@ -2,7 +2,7 @@ import { useLocation, useRouter } from "@tanstack/react-router";
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { atPoint, forgetListScroll, isScrollKey, type ListDraftKey, type ListScrollKey, type ListScrollSnapshot, recallListDraft, recallListScroll, rememberListDraft, rememberListScroll, type ScrollPoint } from "../../lib/list-scroll";
 
-// ページが一覧に渡す同一性と取得の状態（NOD-52）。fetching はキャッシュを表示したまま読み直している間 true
+// ページが一覧に渡す同一性と取得の状態。fetching はキャッシュを表示したまま読み直している間 true
 export interface ListScrollRestoration extends ListScrollKey {
   fetching: boolean;
 }

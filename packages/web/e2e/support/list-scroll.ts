@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, type Route } from "@playwright/test";
 
-// Issue 一覧のスクロール復元（NOD-52）の観測。Issues・View・Sprint 詳細のテストで共通に使う。
+// Issue 一覧のスクロール復元の観測。Issues・View・Sprint 詳細のテストで共通に使う。
 // スクロール領域は data-scroll-region で区別する（main、表は table:…、Board は board / board:…）
 
 export interface RegionScroll {

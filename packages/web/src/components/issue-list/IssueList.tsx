@@ -51,7 +51,7 @@ export interface IssueListProps {
   resetDisplayDisabled?: boolean;
   // 一覧（表・Board・グループの見出し）の Status アイコンの色を上書きする（Project 詳細の完了）。プレビューには使わない
   statusTones?: StatusTones;
-  // 詳細から戻ったときのスクロール位置の復元（NOD-52）。渡したページだけで行う
+  // 詳細から戻ったときのスクロール位置の復元。渡したページだけで行う
   scrollRestoration?: ListScrollRestoration;
 }
 
