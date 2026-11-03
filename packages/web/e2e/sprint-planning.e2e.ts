@@ -75,6 +75,8 @@ test("開始後の計画画面は採択集合の説明と貢献・実行計画�
   await expect(page.getByRole("heading", { name: "開始後の状態", exact: true })).toBeVisible();
   expect(await page.locator("main section").evaluateAll(sections => sections.filter(section => !section.textContent?.trim()).length)).toBe(0);
   await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "計画の版と合意の記録", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: /^過去の計画/ })).toHaveCount(0);
   await captureSprint(page, "plan-active-without-removed-sections", info);
 });
 
@@ -94,6 +96,8 @@ test("開始前の計画画面は計画案の編集と候補の追加を出さ�
   await expect(page.getByRole("region", { name: "開始条件", exact: true })).toBeVisible();
   expect(await page.locator("main section").evaluateAll(sections => sections.filter(section => !section.textContent?.trim()).length)).toBe(0);
   await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "計画の版と合意の記録", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: /^過去の計画/ })).toHaveCount(0);
   await captureSprint(page, "plan-before-start-without-removed-sections", info);
 });
 
