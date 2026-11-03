@@ -7,6 +7,14 @@ Apple Silicon（arm64）専用。ad-hoc 署名で、公証・自動更新・配�
 - 保存先は CLI と同じ（`~/.local/share/nod/`、`~/.config/nod/`）。DB の schema 更新は core の migration を共用し、更新前にバックアップを取る。
 - CLI の実体は `nod.app/Contents/MacOS/nod`。`~/.local/bin/nod` のラッパーがそれを実行する。アプリが終了していても CLI は同じデータで動く。
 
+## ドラッグ＆ドロップ
+
+Board のカードは、同じ Board の通常列または Hidden columns の行へドロップすると状態を保存する。
+遷移ルールや Sprint 管理などで拒否された場合はエラーを表示し、元の状態を保つ。
+Document 本文への画像ドロップも含め、ウィンドウはフロントエンドの HTML D&D を使う。
+Tauri のネイティブファイルドロップハンドラは、HTML のドロップを遮るため無効にしている。
+実Desktopの検証方法と修正前の観測は [Board D&D の受入検証](docs/board-drag-acceptance.md) を参照する。
+
 ## デスクトップ通知の利用
 
 Workspace の「設定」にある「デスクトップ通知」で「通知を ON にする」を押し、macOS の通知許可を与える。
