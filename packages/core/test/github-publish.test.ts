@@ -342,6 +342,10 @@ describe("下見の案", () => {
     ["改行入りの画像", "![図](\nhttp://localhost:4700/issues/API-1\n)"],
     ["入れ子ラベルの画像", "![図 [注]](http://localhost:4700/issues/API-1)"],
     ["入れ子ラベルのリンク", "[図 [注]](http://localhost:4700/issues/API-1)"],
+    ["2段の入れ子ラベルの画像", "![図 [注 [内]]](http://localhost:4700/issues/API-1)"],
+    ["2段の入れ子ラベルのリンク", "[図 [注 [内]]](http://localhost:4700/issues/API-1)"],
+    ["3段の入れ子ラベルの画像", "![図 [注 [内 [奥]]]](http://localhost:4700/issues/API-1)"],
+    ["3段の入れ子ラベルのリンク", "[a [b [c [d]]]](http://localhost:4700/issues/API-1)"],
     ["次の行にリンク先がある参照定義", "[ref]:\n  http://localhost:4700/issues/API-1"],
   ])("%s も書き換えず、元の検出をそのまま残った箇所として示す", async (_name, description) => {
     const { db, me, id, deps } = fixture();

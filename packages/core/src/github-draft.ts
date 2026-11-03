@@ -230,23 +230,43 @@ function planLinks(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): vo
   }
 }
 
+// 対応する括弧の組（open の位置 → close の位置）。\ でエスケープした文字は数えない。
+// 1回の走査で積み上げて対応を取るので、入れ子の深さに依らず、閉じない括弧が多くても線形で済む
+function bracketPairsOf(text: string, open: string, close: string): Map<number, number> {
+  const pairs = new Map<number, number>();
+  const stack: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\\") i++;
+    else if (c === open) stack.push(i);
+    else if (c === close && stack.length) pairs.set(stack.pop() ?? 0, i);
+  }
+  return pairs;
+}
+
+// 角括弧のラベルの直後に (リンク先) が続く画像・インラインリンク。ラベルの入れ子の深さ・改行に依らず取る
+function bracketLinksOf(text: string): { start: number; targetStart: number; end: number; image: boolean }[] {
+  const labels = bracketPairsOf(text, "[", "]");
+  const parens = bracketPairsOf(text, "(", ")");
+  const out: { start: number; targetStart: number; end: number; image: boolean }[] = [];
+  for (const [open, close] of labels) {
+    const targetEnd = text[close + 1] === "(" ? parens.get(close + 1) : undefined;
+    if (targetEnd === undefined) continue;
+    const image = text[open - 1] === "!";
+    out.push({ start: image ? open - 1 : open, targetStart: close + 1, end: targetEnd + 1, image });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 // 残すリンクの形。中に検出があれば形ごと残し、中の ID・URL・パスをあとの規則で書き換えない。
-// ラベルは1段の入れ子の [] と改行を許す（Markdown として画像・リンクになる形を取りこぼさないため）
-const LABEL = String.raw`\[(?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*\]`;
-// 画像（中のどこかに検出があれば残す）と、planLinks で扱わなかったインラインリンク（リンク先に検出があれば残す）
-const BRACKET_LINK_RE = new RegExp(String.raw`(!?)${LABEL}(\([^)]*\))`, "g");
-// 参照定義（リンク先が次の行にあるものも含む）と HTML の src/href
+// 画像は中のどこかに、planLinks で扱わなかったインラインリンクはリンク先に検出があれば残す。参照定義（リンク先が次の行にあるものも含む）と HTML の src/href も残す
 const KEPT_LINK_RES: RegExp[] = [/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
 
 function planKeptLinks(text: string, hits: LeakHit[], plan: Plan): void {
   const keep = (start: number, end: number, from = start) => {
     if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= from && h.index < end)) claim(plan, start, end);
   };
-  for (const m of text.matchAll(BRACKET_LINK_RE)) {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    keep(start, end, m[1] ? start : end - (m[2] ?? "").length);
-  }
+  for (const l of bracketLinksOf(text)) keep(l.start, l.end, l.image ? l.start : l.targetStart);
   for (const re of KEPT_LINK_RES) for (const m of text.matchAll(re)) keep(m.index ?? 0, (m.index ?? 0) + m[0].length);
 }
 
