@@ -1,10 +1,14 @@
+import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openDb } from "../src/db";
 import { findIssueRow } from "../src/issue-query";
 import { getGithubState, linkGithubIssue, unlinkGithubIssue } from "../src/ops/github-links";
 import {
   type CreateOutcome,
+  checkGithubPublishText,
   classifyCreate,
   clearUnknownGithubPublish,
   type GithubPublishDeps,
@@ -14,6 +18,7 @@ import {
 import { setWorkspaceGithubRepo } from "../src/ops/github-repo";
 import { archiveIssue, createIssue, updateIssue } from "../src/ops/issues";
 import type { GhRunner, GhRunResult } from "../src/ops/pr-status";
+import { initWorkspace } from "../src/ops/workspaces";
 import { codeOf, eventsOf, setup } from "./helpers";
 
 const exited = (stdout: string, exitCode = 0, stderr = ""): GhRunResult => ({ kind: "exited", exitCode, stdout, stderr });
@@ -40,6 +45,12 @@ function fakeGh(opts: { login?: string[]; create?: () => Promise<GhRunResult> | 
     return opts.view ?? exited(JSON.stringify({ number: 41, html_url: "https://github.com/example/api-server/issues/41" }));
   };
   return Object.assign(run, { calls, payloads });
+}
+
+// GitHub の対応を記録する（link-github と同じ行を直接足す）
+function linkRow(db: Database, ref: string, sourceKey: string): void {
+  const row = findIssueRow(db, ref);
+  db.query("INSERT INTO issue_imports (workspace_id, source, source_key, issue_id, imported_by, imported_at, origin) VALUES (?, 'github', ?, ?, 'me', 'x', 'link')").run(row.workspace_id, sourceKey, row.id);
 }
 
 const posts = (gh: FakeGh) => gh.calls.filter((a) => a.includes("POST")).length;
@@ -86,6 +97,279 @@ describe("下見", () => {
     expect(await textCodes()).toEqual([]);
     db.query("UPDATE issues SET title = ?, description = ?").run("𠮷".repeat(257), "𠮷".repeat(65_537));
     expect(await textCodes()).toEqual(["タイトルは 256 文字までです", "本文は 65536 文字までです"]);
+  });
+});
+
+describe("下見の案", () => {
+  test("検出がなければ、案は nod の文面のままで、書き換えはない", async () => {
+    const { me, id, deps } = fixture();
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({ title: "検索を速くする", body: "遅い", original: { title: "検索を速くする", body: "遅い" }, changes: [], findings: [] });
+  });
+
+  test("公開する Issue 自身の ID は「この Issue」にし、元の文面での位置と書き換えを返す。nod の本文は変えない", async () => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { title: `${id} 検索を速くする`, description: "遅い\nあ😀 api-1 の続き" });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({
+      title: "この Issue 検索を速くする",
+      body: "遅い\nあ😀 この Issue の続き",
+      original: { title: "API-1 検索を速くする", body: "遅い\nあ😀 api-1 の続き" },
+      changes: [
+        { field: "title", line: 1, column: 1, before: "API-1", after: "この Issue", rule: "issue_id", reason: expect.any(String) },
+        { field: "body", line: 2, column: 4, before: "api-1", after: "この Issue", rule: "issue_id", reason: expect.any(String) },
+      ],
+      findings: [],
+    });
+    expect(findIssueRow(db, id)).toMatchObject({ title: "API-1 検索を速くする", description: "遅い\nあ😀 api-1 の続き" });
+    expect(checkGithubPublishText(db, p.original, deps(fakeGh())).map((f) => f.text)).toEqual(["API-1", "api-1"]);
+  });
+
+  test("ほかの ID は、GitHub に対応があれば（Workspace を問わず）その URL、同じ Workspace で対応がなければ（アーカイブ済みも）タイトルで言い換え、ほかは残す。検出の位置は案のもの", async () => {
+    const { db, me, ws, id, deps } = fixture();
+    const web = initWorkspace(db, { path: "/tmp/repos/web-app", key: "WEB" }).workspace;
+    const add = (workspaceId: number, title: string) => createIssue(me, { workspaceId, title }).id;
+    const unlinked = add(ws.id, "ログを整理する");
+    const archived = add(ws.id, "古い画面");
+    archiveIssue(me, archived);
+    const linked = add(ws.id, "通知を送る");
+    linkRow(db, linked, "example/api-server#7");
+    const otherLinked = add(web.id, "画面を作る");
+    linkRow(db, otherLinked, "example/web#3");
+    const otherUnlinked = add(web.id, "色を変える");
+    updateIssue(me, id, { description: [`- ${unlinked}`, `- ${archived}`, `- ${linked}`, `- ${otherLinked}`, `- ${unlinked} / ${otherUnlinked}`, "- API-99"].join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(
+      [
+        "- 「ログを整理する」の Issue",
+        "- 「古い画面」の Issue",
+        "- https://github.com/example/api-server/issues/7",
+        "- https://github.com/example/web/issues/3",
+        "- 「ログを整理する」の Issue / WEB-2",
+        "- API-99",
+      ].join("\n"),
+    );
+    expect(p.changes.map((c) => [c.line, c.column, c.before, c.rule])).toEqual([
+      [1, 3, "API-2", "issue_id"],
+      [2, 3, "API-3", "issue_id"],
+      [3, 3, "API-4", "issue_id"],
+      [4, 3, "WEB-1", "issue_id"],
+      [5, 3, "API-2", "issue_id"],
+    ]);
+    expect(p.findings).toEqual([
+      { field: "body", line: 5, column: 22, text: "WEB-2", rule: "issue_id", reason: expect.any(String) },
+      { field: "body", line: 6, column: 3, text: "API-99", rule: "issue_id", reason: expect.any(String) },
+    ]);
+  });
+
+  test("owner/repo#N は GitHub の URL にし、番号だけの #N は残す", async () => {
+    const { me, id, deps } = fixture();
+    updateIssue(me, id, { description: "example/web#5 を見る。#12 も" });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({
+      body: "https://github.com/example/web/issues/5 を見る。#12 も",
+      changes: [{ field: "body", line: 1, column: 1, before: "example/web#5", after: "https://github.com/example/web/issues/5", rule: "issue_ref" }],
+      findings: [{ line: 1, column: 45, text: "#12", rule: "issue_ref" }],
+    });
+  });
+
+  test("nod の Web の /issues/<ID> の URL は ID の規則で URL ごと書き換え、残す ID の URL・ほかの URL とその中の ID は残す", async () => {
+    const { db, me, ws, id, deps } = fixture();
+    const web = initWorkspace(db, { path: "/tmp/repos/web-app", key: "WEB" }).workspace;
+    const other = createIssue(me, { workspaceId: ws.id, title: "ログを整理する" }).id;
+    const kept = createIssue(me, { workspaceId: web.id, title: "色を変える" }).id;
+    updateIssue(me, id, {
+      description: [
+        `http://localhost:4700/issues/${other} を見る`,
+        `前回は http://127.0.0.1:4700/issues/${id}/?tab=log。`,
+        `http://localhost:4700/issues/${kept}`,
+        "http://localhost:4700/projects/1",
+        `https://example.com/${other}`,
+        `<http://localhost:4700/issues/${id}> と <http://localhost:4700/issues/${kept}>`,
+      ].join("\n"),
+    });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(
+      [
+        "「ログを整理する」の Issue を見る",
+        "前回は この Issue。",
+        "http://localhost:4700/issues/WEB-1",
+        "http://localhost:4700/projects/1",
+        "https://example.com/API-2",
+        "この Issue と <http://localhost:4700/issues/WEB-1>",
+      ].join("\n"),
+    );
+    expect(p.changes).toMatchObject([
+      { line: 1, column: 1, before: "http://localhost:4700/issues/API-2", after: "「ログを整理する」の Issue", rule: "nod_web" },
+      { line: 2, column: 5, before: "http://127.0.0.1:4700/issues/API-1/?tab=log", after: "この Issue", rule: "nod_web" },
+      { line: 6, column: 1, before: "<http://localhost:4700/issues/API-1>", after: "この Issue", rule: "nod_web" },
+    ]);
+    expect(p.findings.map((f) => [f.line, f.rule])).toEqual([
+      [3, "nod_web"],
+      [3, "issue_id"],
+      [4, "nod_web"],
+      [5, "issue_id"],
+      [6, "nod_web"],
+      [6, "issue_id"],
+    ]);
+  });
+
+  test("本文の末尾に生成したままの取り込みの footer は「参考: <取り込み元の URL>」の1行にし、形が崩れたもの・途中にあるものは残す", async () => {
+    const { me, id, deps } = fixture();
+    const footer = [
+      "取り込み元: https://github.com/Example/API-Server/issues/12（GitHub #12、@bob が 2026-01-02T03:04:05Z に作成、2026-02-01T00:00:00Z に close）",
+      "担当（GitHub）: @alice, @bob",
+    ].join("\n");
+    updateIssue(me, id, { description: `遅い\n\n---\n${footer}` });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({
+      body: "遅い\n\n---\n参考: https://github.com/Example/API-Server/issues/12",
+      changes: [{ field: "body", line: 4, column: 1, before: footer, after: "参考: https://github.com/Example/API-Server/issues/12", rule: "import_footer" }],
+      findings: [],
+    });
+    for (const description of [`---\n${footer}\n\n追記`, "---\n取り込み元: https://github.com/Example/API-Server/issues/12（手で書いた）"]) {
+      updateIssue(me, id, { description });
+      const kept = await previewGithubPublish(me, id, deps(fakeGh()));
+      expect(kept.body).toBe(description);
+      expect(kept.findings.map((f) => f.rule)).toContain("import_footer");
+    }
+  });
+
+  test("公開する Issue の Workspace の中を指す絶対パスは相対パスにし、Workspace のルート・ほかの Workspace・HOME・外のパスは残す", async () => {
+    const { db, me, id, deps } = fixture();
+    initWorkspace(db, { path: "/tmp/repos/api-server/vendor/lib", key: "LIB" });
+    const lines = [
+      "- /tmp/repos/api-server/src/a.ts を直す",
+      "- 手順は /tmp/repos/api-server/docs/b.md。",
+      "- /tmp/repos/api-server",
+      "- /tmp/repos/api-server/vendor/lib/x.ts",
+      "- /tmp/repos/api-server-old/x",
+      "- /Users/tester/notes.md",
+    ];
+    updateIssue(me, id, { description: lines.join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(["- src/a.ts を直す", "- 手順は docs/b.md。", ...lines.slice(2)].join("\n"));
+    expect(p.changes).toMatchObject([
+      { line: 1, column: 3, before: "/tmp/repos/api-server/src/a.ts", after: "src/a.ts", rule: "absolute_path" },
+      { line: 2, column: 7, before: "/tmp/repos/api-server/docs/b.md", after: "docs/b.md", rule: "absolute_path" },
+    ]);
+    expect(p.findings.map((f) => [f.line, f.rule])).toEqual([
+      [3, "absolute_path"],
+      [4, "absolute_path"],
+      [5, "absolute_path"],
+      [6, "absolute_path"],
+    ]);
+  });
+
+  test("Workspace のパスの実体（realpath）で書いたパスも相対パスにする", async () => {
+    const { db, me } = fixture();
+    const dir = mkdtempSync(join(tmpdir(), "nod-draft-"));
+    const real = realpathSync(dir);
+    const ws = initWorkspace(db, { path: dir, key: "REAL" }).workspace;
+    setWorkspaceGithubRepo(me, "REAL", "example/real");
+    const id = createIssue(me, { workspaceId: ws.id, title: "t", description: `${real}/src/a.ts と ${dir}/b.ts` }).id;
+    const p = await previewGithubPublish(me, id, { gh: fakeGh(), env: { HOME: "/Users/tester" } });
+    expect(p.body).toBe("src/a.ts と b.ts");
+  });
+
+  test("リンクは、GitHub に対応がある nod の Issue ならリンク先だけを GitHub の URL に、相対パス・Workspace のパスなら「文字（パス）」にし、ほかは残す", async () => {
+    const { db, me, ws, id, deps } = fixture();
+    const linked = createIssue(me, { workspaceId: ws.id, title: "通知を送る" }).id;
+    linkRow(db, linked, "example/api-server#7");
+    const unlinked = createIssue(me, { workspaceId: ws.id, title: "ログを整理する" }).id;
+    const kept = [
+      "![図](images/a.png)",
+      "[ref]: ./a.md",
+      "[添付](/api/attachments/3)",
+      `[未対応](/issues/${unlinked})`,
+      "[外](../other/x.md)",
+    ];
+    updateIssue(me, id, {
+      description: [
+        `[通知の件](/issues/${linked})`,
+        `[通知](http://localhost:4700/issues/${linked})`,
+        "[仕様](docs/spec.md)",
+        "[設計](</tmp/repos/api-server/docs/a b.md>) を見る",
+        ...kept,
+      ].join("\n"),
+    });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(
+      [
+        "[通知の件](https://github.com/example/api-server/issues/7)",
+        "[通知](https://github.com/example/api-server/issues/7)",
+        "仕様（docs/spec.md）",
+        "設計（docs/a b.md） を見る",
+        ...kept,
+      ].join("\n"),
+    );
+    expect(p.changes).toMatchObject([
+      { line: 1, column: 8, before: "/issues/API-2", after: "https://github.com/example/api-server/issues/7", rule: "link_target" },
+      { line: 2, column: 6, before: "http://localhost:4700/issues/API-2", after: "https://github.com/example/api-server/issues/7", rule: "nod_web" },
+      { line: 3, column: 1, before: "[仕様](docs/spec.md)", after: "仕様（docs/spec.md）", rule: "link_target" },
+      { line: 4, column: 1, before: "[設計](</tmp/repos/api-server/docs/a b.md>)", after: "設計（docs/a b.md）", rule: "link_target" },
+    ]);
+    expect([...new Set(p.findings.map((f) => f.line))]).toEqual([5, 6, 7, 8, 9]);
+  });
+
+  test("コードブロック・インラインコードの中は、Workspace のパスの相対パス化だけを行う", async () => {
+    const { me, ws, id, deps } = fixture();
+    createIssue(me, { workspaceId: ws.id, title: "ログを整理する" });
+    const fenced = (path: string) => ["```sh", `nod issue show ${id}`, `http://localhost:4700/issues/${id}`, "example/web#5", path, "```"];
+    const tilde = ["~~~", "[x](docs/a.md)", "~~~"];
+    updateIssue(me, id, {
+      description: ["`API-2` と `/tmp/repos/api-server/src/a.ts`", ...fenced("/tmp/repos/api-server/src/b.ts"), ...tilde, `${id} の続き`].join("\n"),
+    });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(["`API-2` と `src/a.ts`", ...fenced("src/b.ts"), ...tilde, "この Issue の続き"].join("\n"));
+    expect(p.changes.map((c) => [c.line, c.rule])).toEqual([
+      [1, "absolute_path"],
+      [6, "absolute_path"],
+      [11, "issue_id"],
+    ]);
+  });
+
+  test("書き換えは連鎖しない。言い換えに入れたタイトルの中の ID・パスは書き換えず、残った箇所として示す", async () => {
+    const { me, ws, id, deps } = fixture();
+    const related = createIssue(me, { workspaceId: ws.id, title: "API-3 と /tmp/repos/api-server/a.ts の続き" }).id;
+    createIssue(me, { workspaceId: ws.id, title: "古い件" });
+    updateIssue(me, id, { description: `${related} を先に` });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe("「API-3 と /tmp/repos/api-server/a.ts の続き」の Issue を先に");
+    expect(p.changes).toHaveLength(1);
+    expect(p.findings).toMatchObject([
+      { line: 1, column: 2, text: "API-3", rule: "issue_id" },
+      { line: 1, column: 10, rule: "absolute_path" },
+    ]);
+  });
+
+  test("残った箇所には、何をすればよいかを理由に示す", async () => {
+    const { db, me, id, deps } = fixture();
+    const web = initWorkspace(db, { path: "/tmp/repos/web-app", key: "WEB" }).workspace;
+    createIssue(me, { workspaceId: web.id, title: "色を変える" });
+    updateIssue(me, id, {
+      description: ["WEB-1", "#12", "`example/web#5`", "localhost:4700", "nod issue show", "---\n取り込み元: 手で書いた", "/Users/tester/x", "[外](../x.md)"].join("\n"),
+    });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    const reasonOf = (text: string) => p.findings.find((f) => f.text === text)?.reason;
+    expect(reasonOf("WEB-1")).toContain("GitHub の URL に直すか、内容の説明に言い換えてください");
+    expect(reasonOf("#12")).toContain("nod のログ・質問の番号なら内容の説明に直してください");
+    expect(reasonOf("example/web#5")).toContain("完全な GitHub の URL");
+    expect(reasonOf("localhost:4700")).toContain("GitHub の URL に差し替えるか、内容の説明に言い換えてください");
+    expect(reasonOf("nod issue show")).toContain("参照先の内容を書くか、削除してください");
+    expect(reasonOf("取り込み元:")).toContain("「参考: <取り込み元の URL>」の1行にし");
+    expect(reasonOf("/Users/tester")).toContain("リポジトリの中なら相対パスに");
+    expect(reasonOf("../x.md")).toContain("公開できる URL に差し替えるか");
+  });
+
+  test("書き換え・検出が多い長い本文でも遅くならない", async () => {
+    const { me, id, deps } = fixture();
+    updateIssue(me, id, { description: "a/b#1 API-1 #2 ".repeat(4000) });
+    const t = performance.now();
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(performance.now() - t).toBeLessThan(1000);
+    expect(p.changes).toHaveLength(8000);
+    expect(p.findings).toHaveLength(4000);
   });
 });
 
