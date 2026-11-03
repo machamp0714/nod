@@ -1,14 +1,14 @@
 import { expect, test } from "./fixtures";
 
 test("方向設定から公開フォームで計画の版に合意して開始する", async ({ page, nod }, info) => {
-  let releaseCandidate!: () => void;
-  const candidateGate = new Promise<void>(resolve => { releaseCandidate = resolve; });
-  let candidateRequested!: () => void;
-  const candidateStarted = new Promise<void>(resolve => { candidateRequested = resolve; });
-  await page.route("**/api/sprints/*/candidates", async route => {
+  let releaseAdd!: () => void;
+  const addGate = new Promise<void>(resolve => { releaseAdd = resolve; });
+  let addRequested!: (body: unknown) => void;
+  const addStarted = new Promise<unknown>(resolve => { addRequested = resolve; });
+  await page.route("**/api/sprints/*/issues", async route => {
     if (route.request().method() !== "POST") { await route.continue(); return; }
-    candidateRequested();
-    await candidateGate;
+    addRequested(route.request().postDataJSON());
+    await addGate;
     await route.continue();
   });
   const ws = await nod.me.initWorkspace({ key: "AAA", name: "製品A", path: nod.repo("a") });
@@ -35,20 +35,28 @@ test("方向設定から公開フォームで計画の版に合意して開始�
   await create.getByRole("button", { name: "作成", exact: true }).click();
   await expect(page).toHaveURL(/\/sprints\/[^/]+$/);
   await page.getByRole("button", { name: "計画", exact: true }).click();
-  await page.getByLabel("候補に追加するIssue").fill(issue.id);
-  const candidateResponse = page.waitForResponse(response => response.request().method() === "POST" && /\/api\/sprints\/[^/]+\/candidates$/.test(new URL(response.url()).pathname));
+  await page.getByLabel("Sprintに追加するIssue").fill(issue.id);
+  const addResponse = page.waitForResponse(response => response.request().method() === "POST" && /\/api\/sprints\/[^/]+\/issues$/.test(new URL(response.url()).pathname));
   try {
-    await page.getByRole("button", { name: "候補に追加", exact: true }).click();
-    await candidateStarted;
+    await page.getByRole("form", { name: "Sprintに追加" }).getByRole("button", { name: "Sprintに追加", exact: true }).click();
+    // 追加は承認なしの所属で、Sprintの版もrequestKeyも送らない
+    expect(await addStarted).toEqual({ issueRef: issue.id });
     await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeDisabled();
   } finally {
-    releaseCandidate();
-    await (await candidateResponse).finished();
-    await expect(page.getByRole("status").filter({ hasText: "候補に追加しました。採択は計画案で選びます。" })).toBeVisible();
+    releaseAdd();
+    expect((await addResponse).status()).toBe(200);
+    await expect(page.getByRole("status").filter({ hasText: "Sprintに追加しました。計画への採択は計画案で選びます。" })).toBeVisible();
   }
+  await expect(page.getByLabel("Sprintに追加するIssue")).toHaveValue("");
   await expect(page.getByRole("button", { name: "計画案を編集", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "期間を編集", exact: true })).toBeEnabled();
+  // 計画がないdraftでも、追加した時点でSprintのタスク一覧に所属として出る（版は変わらないため書き込み後の再取得で反映する）
+  await page.getByRole("button", { name: "タスク一覧", exact: true }).click();
+  await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await page.reload();
+  await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  await page.getByRole("button", { name: "計画", exact: true }).click();
   await page.getByRole("button", { name: "計画案を編集", exact: true }).click();
   const editor = page.getByRole("form", { name: "計画案の編集" });
   await editor.getByLabel("今回のゴール", { exact: true }).fill("判断の確認を完結できる");

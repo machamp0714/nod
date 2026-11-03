@@ -1,9 +1,15 @@
-import type { Issue, SprintDetail, SprintPhase } from "../api/types";
+import type { Issue, SprintDetail, SprintPhase, SprintReference } from "../api/types";
 import type { IssueListRow } from "../components/issue-list/types";
 
 export const SPRINT_PHASE_LABEL: Record<SprintPhase, string> = {
   imported: "移行履歴・読取専用", draft: "下書き", ready: "準備完了", active: "進行中", ended: "終了", canceled: "中止",
 };
+
+// Issue の Sprint 参照の由来。移行した履歴、Sprint への追加、合意済み計画の採択を区別する
+const SPRINT_ASSOCIATION_LABEL: Record<SprintReference["association"], string> = { imported: "移行履歴", added: "追加", adopted: "採択" };
+export function sprintAssociationLabel(association: SprintReference["association"]): string {
+  return SPRINT_ASSOCIATION_LABEL[association];
+}
 
 // 移行時の元Issueを共通一覧の表示型へ写す。現在のIssueから過去の状態を補わない。
 export function sprintSnapshotRows(sprint: SprintDetail): IssueListRow[] {

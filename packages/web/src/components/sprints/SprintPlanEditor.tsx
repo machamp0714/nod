@@ -28,7 +28,7 @@ export function SprintPlanEditor({ sprint, plan, onClose, onSaved }: { sprint: S
             <label className={s.field}>達成の確認方法<textarea required value={verification} onChange={e => setVerification(e.target.value)} /></label>
             <p className={s.muted}>期間：{sprint.startDate} – {sprint.endDate} · {sprint.timezone}。期間変更後は新しい計画として保存します。</p>
           </section>
-          <section className={s.section}><h2>今回取り組むIssue</h2><p className={s.muted}>採択予定にして保存しても、人が合意して開始するまでは実行されません。未選択のIssueは候補として保留・採択外です。</p>
+          <section className={s.section}><h2>今回取り組むIssue</h2><p className={s.muted}>採択予定にして保存しても、人が合意して開始するまでは実行されません。未選択のIssueは計画の採択外です。</p>
             {sprint.items.map(item => {
               const chosen = selected.includes(item.id), detail = details[item.id] ?? { contribution: "", executionPlan: "" };
               return <div key={item.id} className={s.item}>
@@ -37,7 +37,7 @@ export function SprintPlanEditor({ sprint, plan, onClose, onSaved }: { sprint: S
                   <label className={s.field}>{item.sourceIssueKey}の実行計画<textarea required value={detail.executionPlan} onChange={e => setDetails(prev => ({ ...prev, [item.id]: { ...detail, executionPlan: e.target.value } }))} /></label></>}
               </div>;
             })}
-            {!sprint.items.length && <p>候補はありません。計画案を閉じて候補を追加してください。</p>}
+            {!sprint.items.length && <p>選べるIssueはありません。計画案を閉じてSprintにIssueを追加してください。</p>}
           </section>
           <section className={s.section}><label className={s.field}>変更理由<textarea required value={reason} onChange={e => setReason(e.target.value)} /></label></section>
         </div>

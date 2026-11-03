@@ -12,6 +12,7 @@ import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useMilestones } from "../../api/hooks/projects";
 import { priorityMeta, STATUS_META, TONE_COLORS } from "../../lib/meta";
 import { relationMark } from "../../lib/relation-state";
+import { sprintAssociationLabel } from "../../lib/sprints";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
 import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
@@ -377,7 +378,7 @@ export function PropertiesPanel({
         <Prop label="Sprint">
           <span className={s.propSprints}>
             {issue.sprints.length ? issue.sprints.map((sprint) => <Link key={sprint.id} to="/sprints/$sprintId" params={{ sprintId: sprint.id }} className={s.propStatic}>
-              {sprint.name}（{sprint.association === "imported" ? "移行履歴" : "採択"}）
+              {sprint.name}（{sprintAssociationLabel(sprint.association)}）
             </Link>) : <Static>なし</Static>}
           </span>
         </Prop>

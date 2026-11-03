@@ -15,15 +15,18 @@ test("公開作成・提案・合意・開始した2WSの全状態を同じ保�
     else if (status !== "todo" && status !== "triage") await nod.me.updateIssue(issue.id, { status, ...(status === "canceled" ? { reason: "不要になった" } : {}) });
     (ws.id === a.id ? aRefs : bRefs).push(issue.id);
   }
-  const candidate = await nod.me.createIssue({ workspaceId: a.id, title: "候補だけ" });
-  const changed = await nod.me.createIssue({ workspaceId: a.id, title: "未合意追加" });
+  // 旧版の候補だけのitemは所属ではない。未合意の変更案に入れても所属にならない
+  const candidate = await nod.me.createIssue({ workspaceId: a.id, title: "旧候補だけ" });
+  const changed = await nod.me.createIssue({ workspaceId: a.id, title: "旧候補を未合意の変更案へ" });
+  // 公開の追加で所属にしたIssueは、計画になくても現在Sprintの所属に入る
+  const added = await nod.me.createIssue({ workspaceId: a.id, title: "計画外の直接追加" });
   const noCurrent = await nod.me.createIssue({ workspaceId: c.id, title: "現在なしの通常Issue" });
   const importedOnly = await nod.me.createIssue({ workspaceId: a.id, title: "移行履歴だけ" });
   const legacy = await seedSprint({ name: "移行履歴", startDate: "2020-01-01", endDate: "2020-01-02" });
   await associateSprint(legacy.id, importedOnly.id);
   const pastIssue = await nod.me.createIssue({ workspaceId: a.id, title: "過去の期間だけ" });
   await plannedSprint(page, a.key, [pastIssue.id], { name: "過去の期間", startDate: todayUtc(-3), endDate: todayUtc(-2) });
-  const pa = await plannedSprint(page, a.key, aRefs, { name: "A最初", candidates: [candidate.id, changed.id] });
+  const pa = await plannedSprint(page, a.key, aRefs, { name: "A最初", unplanned: [added.id], legacyCandidates: [candidate.id, changed.id] });
   const pb = await plannedSprint(page, b.key, bRefs, { name: "B維持" });
   let activeA = await acceptAndActivate(page, pa);
   const activeB = await acceptAndActivate(page, pb);
@@ -32,8 +35,8 @@ test("公開作成・提案・合意・開始した2WSの全状態を同じ保�
   const draft = await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${activeA.id}/plans`, { expectedVersion: activeA.version, requestKey: crypto.randomUUID(), ...pa.input, items: [...pa.input.items, { itemId: extra.id, contribution: "追加", executionPlan: "未合意" }], changeReason: "未合意の変更" });
   activeA = draft.sprint;
   await page.goto('/issues?sprint=current&groupBy=status&showCompleted=true&columns=["status","workspace","sprint"]');
-  await expect(page.locator("tr[data-issue-row]")).toHaveCount(14);
-  for (const id of [...aRefs, ...bRefs]) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toBeVisible();
+  await expect(page.locator("tr[data-issue-row]")).toHaveCount(15);
+  for (const id of [...aRefs, ...bRefs, added.id]) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toBeVisible();
   for (const id of [candidate.id, changed.id, noCurrent.id, importedOnly.id, pastIssue.id]) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toHaveCount(0);
   await page.getByRole("button", { name: "View として保存", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -49,6 +52,7 @@ test("公開作成・提案・合意・開始した2WSの全状態を同じ保�
   await expect(page.locator(`tr[data-issue-row="${aRefs[5]}"]`)).toContainText("Done");
   await expect(page.locator(`tr[data-issue-row="${aRefs[0]}"]`)).toContainText("A最初");
   await expect(page.locator(`tr[data-issue-row="${bRefs[0]}"]`)).toContainText("B維持");
+  await expect(page.locator(`tr[data-issue-row="${added.id}"]`)).toContainText("A最初");
   const current = await sprintApi<{ sprints: Sprint[] }>(page, "GET", "/sprints/current");
   expect(current.sprints.map(s => s.id).sort()).toEqual([activeA.id, activeB.id].sort());
   await page.setViewportSize({ width: 1440, height: 1300 });
@@ -61,7 +65,7 @@ test("公開作成・提案・合意・開始した2WSの全状態を同じ保�
   await page.reload();
   await expect(page).toHaveURL(viewUrl);
   await expect(page.locator("tr[data-issue-row]")).toHaveCount(8);
-  for (const id of aRefs) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toHaveCount(0);
+  for (const id of [...aRefs, added.id]) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toHaveCount(0);
   for (const id of bRefs) await expect(page.locator(`tr[data-issue-row="${id}"]`)).toBeVisible();
   await expect(page.locator(`tr[data-issue-row="${next.id}"]`)).toContainText("A新current");
   const viewAfter = await sprintApi<{ filter: unknown; display: unknown }>(page, "GET", `/views/${viewId}`);

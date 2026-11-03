@@ -7,6 +7,7 @@ import { formatDateTime, formatOpenQuestions, formatUpdated, prLabel } from "../
 import type { Issue } from "../../api/types";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { priorityMeta, TONE_COLORS } from "../../lib/meta";
+import { sprintAssociationLabel } from "../../lib/sprints";
 import { statusName } from "../../lib/workspace-labels";
 import { AgentAvatar, Button, Icon, LabelChip, QuestionProgress, StatusIcon, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
@@ -213,7 +214,7 @@ export function IssueTable({
               )}
               {columns.includes("sprint") && <td><span className={s.projectCell}>
                 <Icon name="calendar-range" size={12} color="var(--ink3)" />
-                <span className={s.projectName} title={issue.sprints.map((item) => `${item.name}（${item.association === "imported" ? "移行履歴" : "採択"}）`).join("、")}>
+                <span className={s.projectName} title={issue.sprints.map((item) => `${item.name}（${sprintAssociationLabel(item.association)}）`).join("、")}>
                   {issue.sprints.map((item) => item.name).join("、") || "—"}
                 </span>
               </span></td>}

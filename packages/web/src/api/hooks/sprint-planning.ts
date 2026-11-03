@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { ScrumWorkspace, Sprint, SprintDetail, SprintPlanResult } from "@nod/core";
+import type { AddIssueToSprintResult, ScrumWorkspace, Sprint, SprintDetail, SprintPlanResult } from "@nod/core";
 import { ApiError, apiFetch, type ApiRequest } from "../client";
 import { queryKeys } from "../query-keys";
 import { useApiMutation } from "./shared";
@@ -32,6 +32,13 @@ export function useSprintCommand<T = Sprint | SprintPlanResult | SprintDetail | 
     }
   }
   return { ...mutation, run };
+}
+
+// Sprint への追加は承認なしの所属で、Sprint の版も requestKey も送らない（同じ追加の再送は重複しない）。
+// 追加は Sprint の版を上げないため、版の変化ではなく書き込み後の再取得（useApiMutation）で Sprint と Issue の読み出しを取り直す
+export function useAddIssueToSprint(ref: string) {
+  return useApiMutation<string, AddIssueToSprintResult>((issueRef) =>
+    apiFetch<AddIssueToSprintResult>(`/sprints/${encodeURIComponent(ref)}/issues`, { method: "POST", body: { issueRef } }));
 }
 
 export function useSprintFlow(ref: string, planId: string | null, enabled: boolean) {

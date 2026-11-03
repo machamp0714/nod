@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { archiveIssue, deleteIssue, getSprint, openDb, updateIssue } from "@nod/core";
 import { legacySprintFixture } from "../../../core/test/fixtures/sprint";
 import { tempDbPath } from "../../../core/test/helpers";
-import { sprintSnapshotRows } from "./sprints";
+import { sprintAssociationLabel, sprintSnapshotRows } from "./sprints";
 
 test("履歴の親キーは保存済みの根拠だけから読み、期間外の親キーを推定しない", () => {
   const path = tempDbPath(); legacySprintFixture(path);
@@ -19,4 +19,10 @@ test("履歴の親キーは保存済みの根拠だけから読み、期間外�
     ["AAA-1",null,true], ["BBB-1","AAA-1",true],
   ]);
   db.close();
+});
+
+test("Sprintの由来は移行を「移行履歴」、追加を「追加」、計画の採択を「採択」と表示する", () => {
+  expect(sprintAssociationLabel("imported")).toBe("移行履歴");
+  expect(sprintAssociationLabel("added")).toBe("追加");
+  expect(sprintAssociationLabel("adopted")).toBe("採択");
 });

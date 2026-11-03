@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { SprintDetail, SprintPlan } from "@nod/core";
 import { errorMessage } from "../../api/errors";
-import { useSprintPlanningStatus, useSprintFlow, useSprintCommand } from "../../api/hooks/sprint-planning";
+import { useAddIssueToSprint, useSprintPlanningStatus, useSprintFlow, useSprintCommand } from "../../api/hooks/sprint-planning";
 import { useIssueRows } from "../../api/hooks/issues";
 import { useSprints } from "../../api/hooks/sprints";
 import { ProjectViewSwitch, ProjectFlowSection, type ProjectView } from "../projects/ProjectFlow";
@@ -36,7 +36,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
 }) {
   const switchFocus = useRef(false);
   const [editing, setEditing] = useState(false);
-  const [candidateRef, setCandidate] = useState("");
+  const [addRef, setAddRef] = useState("");
   const [showCandidates, setCandidates] = useState(false);
   const [viewedId, setViewedId] = useState<string | null>(null);
   const [source, setSource] = useState("");
@@ -44,6 +44,8 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   const [periodEdit, setPeriodEdit] = useState(false);
   const [message, setMessage] = useState("");
   const command = useSprintCommand();
+  const add = useAddIssueToSprint(sprint.id);
+  const pending = command.isPending || add.isPending;
   const allRows = useIssueRows({ workspace: sprint.workspaceSnapshot ? [sprint.workspaceSnapshot.key] : undefined, blocked: search.blocked }, view === "list");
   const sprints = useSprints();
   const availability = useSprintPlanningStatus(sprint.id);
@@ -80,15 +82,16 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
     {message && <p role="status" className={s.bar}>{message}</p>}
     <div className={`${s.body} ${s.columns}`}>
       <div className={s.main}>
-        {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>候補を追加してゴールと採択予定を提案してください。</p></section>}
-        <section className={s.section}><p>{started ? "有効な合意済み計画の採択集合を表示します。未合意の追加案は含みません。" : "採択予定・開始前。合意して開始するまでは実行されません。"}</p>
+        {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>SprintにIssueを追加し、ゴールと採択予定を提案してください。</p></section>}
+        <section className={s.section}><p>{started ? "有効な合意済み計画の採択集合を表示します。未合意の変更案は含みません。" : "採択予定・開始前。合意して開始するまでは実行されません。"}</p>
           {plan?.content.items.map(item => <details key={item.itemId}><summary>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey ?? "削除されたIssue"}の貢献と実行計画</summary><p>採択理由・ゴールへの貢献：{item.contribution}</p><p>実行計画：{item.executionPlan}</p><p>合意時の要求：{item.requirement.title}</p><p>{item.requirement.description}</p></details>)}
         </section>
-        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} disabled={command.isPending} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
-          <form className={s.controls} aria-label="候補の追加" onSubmit={e => { e.preventDefault(); if (command.isPending) return; void run("/candidates", { issueRef: candidateRef }, "候補に追加しました。採択は計画案で選びます。").then(ok => { if (ok) setCandidate(""); }); }}>
-            <label className={s.field}>候補に追加するIssue<input required value={candidateRef} onChange={e => setCandidate(e.target.value)} disabled={command.isPending} placeholder="AAA-1" /></label>
-            <Button type="submit" disabled={command.isPending}>{command.isPending ? "保存中…" : "候補に追加"}</Button>
+        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} disabled={pending} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button disabled={pending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
+          <form className={s.controls} aria-label="Sprintに追加" onSubmit={e => { e.preventDefault(); if (pending) return; setMessage(""); add.mutate(addRef.trim(), { onSuccess: () => { setAddRef(""); setMessage("Sprintに追加しました。計画への採択は計画案で選びます。"); } }); }}>
+            <label className={s.field}>Sprintに追加するIssue<input required value={addRef} onChange={e => setAddRef(e.target.value)} disabled={pending} placeholder="AAA-1" /></label>
+            <Button type="submit" disabled={pending}>{add.isPending ? "保存中…" : "Sprintに追加"}</Button>
           </form>
+          {add.error && <p role="alert" className={s.error}>Sprintに追加できませんでした。入力は保持しています：{errorMessage(add.error)}</p>}
         </section>}
         {periodEdit && !started && <PeriodEditor sprint={sprint} onSaved={() => setPeriodEdit(false)} />}
       </div>
@@ -116,7 +119,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   if (view === "flow") return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画</PageTitle><Spacer /><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button><Button onClick={onRetrospective}>振り返り</Button></PageHeader>{readFailure}
     <div className={s.bar}><Button onClick={onBack}>タスク一覧</Button><strong>{plan?.content.goal ?? "計画なし"}</strong><span>計画 第{plan?.revision ?? "—"}版 · {plan?.agreedAt ? "合意済み" : "未合意"} · {sprint.startDate} – {sprint.endDate}</span></div>
     {heading}<div className={s.body}><ProjectFlowSection flow={flow} beforeStart={!started} externalLabel="Sprint外・参照のみ" observedAt={flow.data?.observedAt}
-      scopeNote={`${started ? "有効な合意済み計画" : "表示中の計画案"} 第${plan?.revision ?? "—"}版の採択${started ? "済み" : "予定"}${plan?.content.items.length ?? 0}件。候補・未合意の追加は含みません。一覧の検索・絞り込み・一括操作は適用されません。Sprint外の前提は参照のみで採択件数に含めません。表示だけでは採択・合意・着手は更新されません。`} />
+      scopeNote={`${started ? "有効な合意済み計画" : "表示中の計画案"} 第${plan?.revision ?? "—"}版の採択${started ? "済み" : "予定"}${plan?.content.items.length ?? 0}件。計画にないIssue・未合意の変更案は含みません。一覧の検索・絞り込み・一括操作は適用されません。Sprint外の前提は参照のみで採択件数に含めません。表示だけでは採択・合意・着手は更新されません。`} />
       {!started && <p className={s.notice}>計画の合意・Sprintの開始を待っています。依存に問題がなくても開始前は着手しません。</p>}
       {flow.data?.missingItems.length ? <p role="note">削除・アーカイブ済みの採択：{flow.data.missingItems.join("・")}。採択履歴を保持しています。</p> : null}
       {flow.data?.eligibility.map(item => <p key={item.itemId} className={s.muted}>{item.issueId ?? "削除されたIssue"}：{item.eligible ? "採択と既存の着手条件を確認済み（実行の許可・予約ではありません）" : item.reason?.message}</p>)}

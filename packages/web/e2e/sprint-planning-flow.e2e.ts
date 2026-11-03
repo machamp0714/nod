@@ -24,12 +24,13 @@ test("Projectの共通フローで開始前・複数Project・分岐合流・外
   const refs: string[] = [];
   for (let i = 0; i < 7; i++) refs.push((await nod.me.createIssue({ workspaceId: ws.id, title: `採択 ${i + 1}`, projectRef: String(projects[i % 2]!.id) })).id);
   const outside = await nod.me.createIssue({ workspaceId: ws.id, title: "外部前提" });
-  const candidate = await nod.me.createIssue({ workspaceId: ws.id, title: "候補だけ" });
+  // Sprintに追加して所属しているが計画にないIssue。計画のフローには出さない
+  const unplanned = await nod.me.createIssue({ workspaceId: ws.id, title: "所属だが計画外" });
   await nod.me.updateIssue(refs[4]!, { status: "done" });
   await nod.me.updateIssue(refs[5]!, { status: "canceled", reason: "不要" });
   await nod.me.updateIssue(outside.id, { status: "done" });
   for (const [from, to] of [[outside.id, refs[0]], [refs[0], refs[1]], [refs[0], refs[2]], [refs[1], refs[3]], [refs[2], refs[3]]]) await nod.me.relateIssue(from!, { blocks: to! });
-  const planned = await plannedSprint(page, ws.key, refs, { candidates: [candidate.id] });
+  const planned = await plannedSprint(page, ws.key, refs, { unplanned: [unplanned.id] });
   const before = await sprintDetail(page, planned.sprint.id);
   await page.goto(`/sprints/${planned.sprint.id}?q=存在しない検索`);
   await page.getByRole("button", { name: "計画", exact: true }).click();
@@ -38,7 +39,7 @@ test("Projectの共通フローで開始前・複数Project・分岐合流・外
   await expect(tab(page, "フロー")).toBeFocused();
   await expect(card(region(page), refs[0]!)).toContainText("採択予定・開始前");
   await expect(card(region(page), outside.id)).toContainText("Sprint外・参照のみ");
-  await expect(card(region(page), candidate.id)).toHaveCount(0);
+  await expect(card(region(page), unplanned.id)).toHaveCount(0);
   await expect(region(page).locator("svg path[marker-end]")).toHaveCount(5);
   await expect(region(page).getByText("独立したIssue 3件", { exact: true })).toBeVisible();
   await expect(card(region(page), refs[4]!)).toBeHidden();
@@ -50,10 +51,10 @@ test("Projectの共通フローで開始前・複数Project・分岐合流・外
   expect((await sprintDetail(page, planned.sprint.id)).version).toBe(before.version);
   const active = await acceptAndActivate(page, planned);
   const detail = await sprintDetail(page, active.id);
-  const extra = detail.items.find(i => i.sourceIssueKey === candidate.id)!;
+  const extra = detail.items.find(i => i.sourceIssueKey === unplanned.id)!;
   await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${active.id}/plans`, { expectedVersion: active.version, requestKey: crypto.randomUUID(), ...planned.input, items: [...planned.input.items, { itemId: extra.id, contribution: "未合意追加", executionPlan: "未実行" }], changeReason: "範囲追加の提案" });
   await page.reload();
-  await expect(card(region(page), candidate.id)).toHaveCount(0);
+  await expect(card(region(page), unplanned.id)).toHaveCount(0);
   await expect(card(region(page), refs[0]!)).not.toContainText("採択予定・開始前");
   await captureSprint(page, "plan-active-flow", info);
   await tab(page, "一覧").click();

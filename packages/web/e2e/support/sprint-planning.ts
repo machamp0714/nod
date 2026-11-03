@@ -3,6 +3,7 @@ import type { Sprint, SprintDetail, SprintPlanResult } from "@nod/core";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect } from "../fixtures";
+import { legacySprintCandidate } from "./nod";
 
 export async function sprintApi<T>(page: Page, method: string, path: string, data?: unknown): Promise<T> {
   const response = await page.request.fetch(`/api${path}`, { method, data });
@@ -12,20 +13,23 @@ export async function sprintApi<T>(page: Page, method: string, path: string, dat
 }
 export const todayUtc = (offset = 0) => new Date(Date.now() + offset * 86400_000).toISOString().slice(0, 10);
 
-// Sprintの準備に製品の公開HTTPだけを使う。active/合意/採択のfixture書込みは使わない。
+// Sprintの準備に製品の公開HTTPを使う。active/合意/採択のfixture書込みは使わない。
+// refsは追加して計画に採択する。unplannedは公開の追加だけを行い「所属しているが計画外」にする。
+// legacyCandidatesは旧版の「候補だけ」のitem（所属ではない）で、公開の操作では作れないため旧データとして直接入れる。
+// 追加はSprintの版を上げないため、計画の提案は作成時の版で行う。
 export async function plannedSprint(page: Page, workspaceKey: string, refs: string[], options: {
-  name?: string; candidates?: string[]; startDate?: string; endDate?: string; replansSprintId?: string;
+  name?: string; unplanned?: string[]; legacyCandidates?: string[]; startDate?: string; endDate?: string; replansSprintId?: string;
 } = {}) {
   const config = await sprintApi<{ version: number; enabled: boolean }>(page, "GET", `/workspaces/${workspaceKey}/scrum`);
   if (!config.enabled) await sprintApi(page, "PUT", `/workspaces/${workspaceKey}/scrum`, { expectedVersion: config.version, requestKey: crypto.randomUUID(), enabled: true, problem: "判断が散在する", productGoal: "判断を確認できる", priorityRationale: "待ち時間を減らす" });
-  let sprint = await sprintApi<Sprint>(page, "POST", "/sprints", { expectedVersion: 0, requestKey: crypto.randomUUID(), workspaceKey,
+  const sprint = await sprintApi<Sprint>(page, "POST", "/sprints", { expectedVersion: 0, requestKey: crypto.randomUUID(), workspaceKey,
     name: options.name ?? `${workspaceKey}の計画`, startDate: options.startDate ?? todayUtc(), endDate: options.endDate ?? todayUtc(1), timezone: "UTC", ...(options.replansSprintId ? { replansSprintId: options.replansSprintId } : {}) });
   const items = [];
-  for (const ref of [...new Set([...refs, ...options.candidates ?? []])]) {
-    const result = await sprintApi<{ sprint: Sprint; item: { id: string; sourceIssueKey: string } }>(page, "POST", `/sprints/${sprint.id}/candidates`, { expectedVersion: sprint.version, requestKey: crypto.randomUUID(), issueRef: ref });
-    sprint = result.sprint;
+  for (const ref of [...new Set([...refs, ...options.unplanned ?? []])]) {
+    const result = await sprintApi<{ sprint: Sprint; item: { id: string; sourceIssueKey: string } }>(page, "POST", `/sprints/${sprint.id}/issues`, { issueRef: ref });
     if (refs.includes(ref)) items.push({ itemId: result.item.id, contribution: `${ref}で判断を確認できる`, executionPlan: "要求を確認し実装と検証を進める" });
   }
+  for (const ref of options.legacyCandidates ?? []) await legacySprintCandidate(sprint.id, ref);
   const input = { goal: `${workspaceKey}で判断を確認できる`, verificationMethod: "判断の発見から回答まで一巡する", items,
     definitionOfDone: [{ id: "確認", text: "公開操作で一巡を確認する" }], constraints: { executionScope: workspaceKey, maxParallel: 2, notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" };
   const result = await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprint.id}/plans`, { expectedVersion: sprint.version, requestKey: crypto.randomUUID(), ...input });
