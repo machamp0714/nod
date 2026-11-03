@@ -230,21 +230,30 @@ function planLinks(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): vo
   }
 }
 
-// 残すリンクの形（画像・参照定義・HTML の src/href）。中に検出があれば形ごと残し、中の ID・URL・パスをあとの規則で書き換えない
-const KEPT_LINK_RES: RegExp[] = [/!\[[^\]\n]*\]\([^)\n]*\)/g, /^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
+// 残すリンクの形。中に検出があれば形ごと残し、中の ID・URL・パスをあとの規則で書き換えない。
+// ラベルは1段の入れ子の [] と改行を許す（Markdown として画像・リンクになる形を取りこぼさないため）
+const LABEL = String.raw`\[(?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*\]`;
+// 画像（中のどこかに検出があれば残す）と、planLinks で扱わなかったインラインリンク（リンク先に検出があれば残す）
+const BRACKET_LINK_RE = new RegExp(String.raw`(!?)${LABEL}(\([^)]*\))`, "g");
+// 参照定義（リンク先が次の行にあるものも含む）と HTML の src/href
+const KEPT_LINK_RES: RegExp[] = [/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
 
 function planKeptLinks(text: string, hits: LeakHit[], plan: Plan): void {
-  for (const re of KEPT_LINK_RES) {
-    for (const m of text.matchAll(re)) {
-      const start = m.index ?? 0;
-      const end = start + m[0].length;
-      if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= start && h.index < end)) claim(plan, start, end);
-    }
+  const keep = (start: number, end: number, from = start) => {
+    if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= from && h.index < end)) claim(plan, start, end);
+  };
+  for (const m of text.matchAll(BRACKET_LINK_RE)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    keep(start, end, m[1] ? start : end - (m[2] ?? "").length);
   }
+  for (const re of KEPT_LINK_RES) for (const m of text.matchAll(re)) keep(m.index ?? 0, (m.index ?? 0) + m[0].length);
 }
 
-// パス・ファイル名・ブランチ名の一部になっている ID（docs/API-1.md、feature/API-1、API-1/memo）。言い換えるとパスが壊れるので残す
-const partOfPath = (text: string, start: number, end: number) => /[/\\]/.test(text[start - 1] ?? "") || /^(?:[/\\]|\.[A-Za-z0-9])/.test(text.slice(end, end + 2));
+// パス・ファイル名・ブランチ名の一部になっている ID（docs/API-1.md、feature/API-1、API-1/memo、API-1.設計.md）。言い換えるとパスが壊れるので残す。
+// 「.」のあとが空白・句読点・括弧・行末なら文の区切りとして言い換える
+const partOfPath = (text: string, start: number, end: number) =>
+  /[/\\]/.test(text[start - 1] ?? "") || /^(?:[/\\]|\.[^\s.,;:!?、。，．)）\]」』>"'`])/.test(text.slice(end, end + 2));
 
 function planUrls(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): void {
   for (const url of leakUrlsOf(text)) {

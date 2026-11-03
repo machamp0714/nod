@@ -338,6 +338,30 @@ describe("下見の案", () => {
     for (const f of p.findings) expect(f.reason).toMatch(/てください$/);
   });
 
+  test.each([
+    ["改行入りの画像", "![図](\nhttp://localhost:4700/issues/API-1\n)"],
+    ["入れ子ラベルの画像", "![図 [注]](http://localhost:4700/issues/API-1)"],
+    ["入れ子ラベルのリンク", "[図 [注]](http://localhost:4700/issues/API-1)"],
+    ["次の行にリンク先がある参照定義", "[ref]:\n  http://localhost:4700/issues/API-1"],
+  ])("%s も書き換えず、元の検出をそのまま残った箇所として示す", async (_name, description) => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({ body: description, changes: [] });
+    expect(p.findings.map((f) => f.rule)).toContain("nod_web");
+    expect(p.findings).toEqual(checkGithubPublishText(db, p.original, deps(fakeGh())));
+  });
+
+  test("「.」のあとに文字が続くファイル名の ID は書き換えず、文中の参照（句読点・括弧・行末の前）は言い換える", async () => {
+    const { me, id, deps } = fixture();
+    const kept = [`${id}.設計.md`, `${id}.①.txt`, `docs/specs/${id}.md`];
+    const said = [`${id} を参照`, `${id}。`, `${id}、次`, `${id}, 次`, `${id}. 次`, `${id}!`, `(${id})`, `（${id}）`, `行末の ${id}`, `${id}`, "次"];
+    updateIssue(me, id, { description: [...kept, ...said].join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe([...kept, ...said.map((l) => l.replace(id, "この Issue"))].join("\n"));
+    expect(p.findings.map((f) => [f.line, f.text])).toEqual(kept.map((_, i) => [i + 1, id]));
+  });
+
   test("パス・ファイル名・ブランチ名の一部になっている ID は書き換えず、残った箇所として示す。Workspace のパスの相対パス化はする", async () => {
     const { me, id, deps } = fixture();
     updateIssue(me, id, { description: [`docs/specs/${id}.md を見る`, `feature/${id} で作業`, `/tmp/repos/api-server/notes/${id}.md`, `${id}/memo も`, `${id}. 次`].join("\n") });
