@@ -1,6 +1,6 @@
 import { useLocation, useRouter } from "@tanstack/react-router";
-import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
-import { atPoint, forgetListScroll, isScrollKey, type ListScrollKey, type ListScrollSnapshot, recallListScroll, rememberListScroll, type ScrollPoint } from "../../lib/list-scroll";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { atPoint, forgetListScroll, isScrollKey, type ListDraftKey, type ListScrollKey, type ListScrollSnapshot, recallListDraft, recallListScroll, rememberListDraft, rememberListScroll, type ScrollPoint } from "../../lib/list-scroll";
 
 // ページが一覧に渡す同一性と取得の状態（NOD-52）。fetching はキャッシュを表示したまま読み直している間 true
 export interface ListScrollRestoration extends ListScrollKey {
@@ -185,4 +185,27 @@ export function useListScrollRestoration(root: RefObject<HTMLElement | null>, re
       }),
     [router, root],
   );
+}
+
+// URL にない保存前の状態（View の保存前の Filter）を、履歴エントリごとの一時状態として持つ useState。
+// 一覧のエントリから離れる直前（詳細を開く・戻る・進む）に今の値を記録し、同じエントリへ戻って開き直したら、保存済みの定義（key.base）が同じときだけ使う
+export function useListDraft<T>(key: ListDraftKey, initial: T): [T, (value: T) => void] {
+  const router = useRouter();
+  const entryKey = useLocation({ select: (location) => location.state.__TSR_key });
+  const [value, setValue] = useState<T>(() => (entryKey !== undefined ? recallListDraft<T>(entryKey, key) : undefined) ?? initial);
+  const latest = useRef({ key, value });
+  latest.current = { key, value };
+  // 値を記録する履歴エントリ。replace では同じエントリのキーが変わるため、通知のたびに追う
+  const entry = useRef(entryKey);
+  useEffect(
+    () =>
+      router.history.subscribe(({ location, action }) => {
+        const leaving = entry.current;
+        entry.current = location.state.__TSR_key;
+        if (action.type === "REPLACE" || !leaving || leaving === location.state.__TSR_key) return;
+        rememberListDraft(leaving, latest.current.key, latest.current.value);
+      }),
+    [router],
+  );
+  return [value, setValue];
 }

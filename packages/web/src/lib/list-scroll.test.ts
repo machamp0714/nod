@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { atPoint, forgetListScroll, listIdentity, recallListScroll, rememberListScroll, scrollRegionKey } from "./list-scroll";
+import { atPoint, forgetListScroll, listIdentity, recallListDraft, recallListScroll, rememberListDraft, rememberListScroll, scrollRegionKey } from "./list-scroll";
 
 const key = { kind: "issues", target: "", identity: listIdentity({ q: "a", sort: "title" }) };
 
@@ -20,6 +20,17 @@ describe("recallListScroll", () => {
     expect(recallListScroll("cap-0", key)).toBeNull();
     expect(recallListScroll("cap-1", key)).not.toBeNull();
     expect(recallListScroll("cap-100", key)).not.toBeNull();
+  });
+});
+
+describe("recallListDraft", () => {
+  test("同じ履歴エントリで、種類・対象・保存済みの定義が同じときだけ保存前の状態を返す", () => {
+    const draftKey = { kind: "view", target: "1", base: listIdentity({ filter: { workspace: ["API"] }, display: {} }) };
+    rememberListDraft("entry-d", draftKey, { workspace: ["API", "BLOG"] });
+    expect(recallListDraft<unknown>("entry-d", draftKey)).toEqual({ workspace: ["API", "BLOG"] });
+    expect(recallListDraft("entry-e", draftKey)).toBeUndefined();
+    expect(recallListDraft("entry-d", { ...draftKey, target: "2" })).toBeUndefined();
+    expect(recallListDraft("entry-d", { ...draftKey, base: listIdentity({ filter: { workspace: ["API"] }, display: { sort: "title" } }) })).toBeUndefined();
   });
 });
 

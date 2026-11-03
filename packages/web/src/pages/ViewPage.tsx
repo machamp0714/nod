@@ -6,10 +6,12 @@ import { useDeleteView, useUpdateView, useViews } from "../api/hooks/views";
 import type { IssueQuery, View } from "../api/types";
 import { FilterBar } from "../components/issue-list/FilterBar";
 import { IssueList } from "../components/issue-list/IssueList";
+import { useListDraft } from "../components/issue-list/list-scroll-restoration";
 import { Button, PageError, PageLoading, Pill } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { errorMessage } from "../api/errors";
 import { sameFilter } from "../lib/issue-filter";
+import { listIdentity } from "../lib/list-scroll";
 import { cleanViewSearch, displayFromSearch, sameDisplay, savedDisplay, viewSearch, withoutDisplay } from "../lib/view-display";
 import { replacesIssueListHistory } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -30,9 +32,11 @@ export function ViewPage() {
 }
 
 function ViewIssues({ view, views }: { view: View; views: View[] }) {
-  // URL に明示した表示設定は URL を優先し、ないものは View に保存した表示設定で表示する（#175）
-  const [draft, setDraft] = useState<IssueQuery>(view.filter);
+  // 保存していない絞り込み条件。詳細を開いて同じ履歴エントリへ戻ったときは、保存済みの条件と表示設定が同じなら続きから使う（NOD-52）。View には保存しない
+  const definition = listIdentity({ filter: view.filter, display: view.display });
+  const [draft, setDraft] = useListDraft<IssueQuery>({ kind: "view", target: String(view.id), base: definition }, view.filter);
   const currentSprint = draft.sprint === "current";
+  // URL に明示した表示設定は URL を優先し、ないものは View に保存した表示設定で表示する（#175）
   const search = viewSearch(view.display, route.useSearch(), currentSprint);
   const navigate = useNavigate({ from: "/views/$viewId" });
   const [renaming, setRenaming] = useState(false);
@@ -91,6 +95,8 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
         loading={rows.loading}
         error={rows.error}
         search={search}
+        // 保存済みの定義・保存前の条件・実効の表示がすべて同じ履歴エントリへ戻ったときだけ、位置を復元する
+        scrollRestoration={{ kind: "view", target: String(view.id), identity: listIdentity({ definition, filter: nextFilter, search }), fetching: rows.fetching ?? false }}
         statusWorkspace={singleWorkspace(draft.workspace)}
         onSearchChange={(patch) => navigate({ search: (prev) => cleanViewSearch({ ...viewSearch(view.display, prev, currentSprint), ...patch }, view.display, currentSprint), replace: replacesIssueListHistory(patch) })}
         // 失敗の表示は Header（高さ 44 で折り返さない）の外に出す

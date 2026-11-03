@@ -23,14 +23,18 @@ export interface ListScrollSnapshot extends ListScrollKey {
 const MAX_ENTRIES = 100;
 const snapshots = new Map<string, ListScrollSnapshot>();
 
-export function rememberListScroll(entry: string, snapshot: ListScrollSnapshot): void {
-  snapshots.delete(entry);
-  snapshots.set(entry, snapshot);
-  while (snapshots.size > MAX_ENTRIES) {
-    const oldest = snapshots.keys().next().value;
+function remember<T>(map: Map<string, T>, entry: string, value: T): void {
+  map.delete(entry);
+  map.set(entry, value);
+  while (map.size > MAX_ENTRIES) {
+    const oldest = map.keys().next().value;
     if (oldest === undefined) break;
-    snapshots.delete(oldest);
+    map.delete(oldest);
   }
+}
+
+export function rememberListScroll(entry: string, snapshot: ListScrollSnapshot): void {
+  remember(snapshots, entry, snapshot);
 }
 
 // 同じ履歴エントリで、画面の種類・対象・実効の条件と表示が同じときだけ返す
@@ -42,6 +46,31 @@ export function recallListScroll(entry: string, key: ListScrollKey): ListScrollS
 
 export function forgetListScroll(entry: string): void {
   snapshots.delete(entry);
+}
+
+// 一覧の画面が持つ、URL にない保存前の状態（View の保存前の Filter）。スクロール位置と同じく履歴エントリごとの一時状態で、View の定義には書かない。
+// base は保存済みの定義（View の条件と表示設定）を listIdentity にしたもの。戻るまでに定義が変わったら使わない
+export interface ListDraftKey {
+  kind: string;
+  target: string;
+  base: string;
+}
+
+interface ListDraft extends ListDraftKey {
+  value: unknown;
+}
+
+const drafts = new Map<string, ListDraft>();
+
+export function rememberListDraft(entry: string, key: ListDraftKey, value: unknown): void {
+  remember(drafts, entry, { ...key, value });
+}
+
+// 同じ履歴エントリで、画面の種類・対象・保存済みの定義が同じときだけ返す
+export function recallListDraft<T>(entry: string, key: ListDraftKey): T | undefined {
+  const draft = drafts.get(entry);
+  if (!draft || draft.kind !== key.kind || draft.target !== key.target || draft.base !== key.base) return undefined;
+  return draft.value as T;
 }
 
 // 条件と表示を、キーの順と undefined の有無によらない文字列にする
