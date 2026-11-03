@@ -68,9 +68,9 @@ test.each([43, 44, 45, 46, 47, 48, 49, 50])("Sprint導入済みの版%iは履歴
   let db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(db.query("SELECT id,number,legacy_cycle_id,legacy_data FROM sprints ORDER BY number").all()).toEqual(identities);
-  // 版51で足した追加の記録の列は、既存itemでは空のまま（推定で埋めない）。
+  // 版51で足した追加の記録の列と、版52で足した引継ぎ元の列は、既存itemでは空のまま（推定で埋めない）。
   expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before.map((rows, index) =>
-    tables[index] === "sprint_items" ? rows.map(row => ({ ...(row as Record<string, unknown>), added_by: null, added_at: null })) : rows));
+    tables[index] === "sprint_items" ? rows.map(row => ({ ...(row as Record<string, unknown>), added_by: null, added_at: null, rollover_from_item_id: null })) : rows));
   const history = getSprint(db, "1");
   updateIssue({ db, actor: "me" }, "AAA-1", { status: "in_review" });
   expect(getIssue(db, "AAA-1")).toMatchObject({ status: "in_review", questions: [{ question: "Sprint導入済みの質問" }] });

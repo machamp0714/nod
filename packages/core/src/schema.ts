@@ -733,4 +733,13 @@ export const MIGRATIONS: MigrationStep[][] = [
   [addInReview],
   // 版51: Sprintへの追加の記録。両方が入ったitemを所属とする。既存itemは推定で埋めない。
   [`ALTER TABLE sprint_items ADD COLUMN added_by TEXT`, `ALTER TABLE sprint_items ADD COLUMN added_at TEXT`],
+  // 版52: 期限到来時の自動引継ぎ。Workspaceの設定（既定は有効）、前Sprintとの対応（前Sprintから後継は1件）、
+  // 自動開始の記録、引継ぎ元のitem。既存行は変えない（既存のSprintは引継ぎ元なし、既存の設定は有効）。
+  [
+    `ALTER TABLE scrum_workspaces ADD COLUMN auto_rollover INTEGER NOT NULL DEFAULT 1 CHECK(auto_rollover IN (0,1))`,
+    `ALTER TABLE sprints ADD COLUMN rollover_from_sprint_id TEXT REFERENCES sprints(id) ON DELETE RESTRICT`,
+    `CREATE UNIQUE INDEX sprints_rollover_from ON sprints(rollover_from_sprint_id) WHERE rollover_from_sprint_id IS NOT NULL`,
+    `ALTER TABLE sprints ADD COLUMN activated_by TEXT`,
+    `ALTER TABLE sprint_items ADD COLUMN rollover_from_item_id TEXT REFERENCES sprint_items(id) ON DELETE RESTRICT`,
+  ],
 ];

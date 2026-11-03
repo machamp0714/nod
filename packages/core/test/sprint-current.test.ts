@@ -48,10 +48,12 @@ function fixture() {
   return {db,workspaces,sprints,expected,candidate,archived};
 }
 
-test('各Workspaceの有効な現在Sprintと人が合意した採択だけを全状態で読み、時刻境界・閲覧範囲・重複を守る',()=>{
+test('各Workspaceの期間内のactiveを現在Sprintとし、所属（人が合意した採択）だけを全状態で読み、時刻境界・閲覧範囲・重複を守る',()=>{
   const {db,workspaces,sprints,expected,archived,candidate}=fixture();
   const current=resolveCurrentSprints(db,{clock});
-  expect(current.sprints.map(s=>s.id)).toEqual(sprints.slice(0,2));
+  // NOD-59: 期間内のactiveは合意済み計画の有無を問わず現在Sprint（合意者がcodex・hash不一致のactiveも含む）。
+  // ただし未合意の計画の採択だけでは所属にならないため、それらのIssueは出ない。
+  expect(current.sprints.map(s=>s.id)).toEqual([...sprints.slice(0,2),sprints[7]!,sprints[8]!]);
   expect(current.issues.map(i=>i.id)).toEqual(expected);
   expect(current.issues[0]!.sprints.map(s=>s.id)).toEqual([sprints[0]!]);
   expect(queryIssues(db, {sprint:'current'}, clock).issues[0]!.sprints).toEqual(current.issues[0]!.sprints);
@@ -118,16 +120,17 @@ test('同じ保存current Viewが採用planと採択集合の更新を再読込�
   db.close();
 });
 
-test('直接追加したIssueは現在Sprintの所属に入るが、現在Sprintの判定（人の合意済み計画）は変えない',()=>{
+test('直接追加したIssueは、合意済み計画の無い期間内のactiveでも現在Sprintの所属に入る',()=>{
   const {db,workspaces,sprints,expected,candidate}=fixture();
   const added=createIssue({db,actor:'codex'},{workspaceId:workspaces[0]!.id,title:'差し込み'});
   const unagreed=createIssue({db,actor:'codex'},{workspaceId:workspaces[7]!.id,title:'未合意のactiveへの追加'});
   expect(addIssueToSprint({db,actor:'codex'},sprints[0]!,{issueRef:added.id}).added).toBe(true);
   expect(addIssueToSprint({db,actor:'codex'},sprints[7]!,{issueRef:unagreed.id}).added).toBe(true);
   const current=resolveCurrentSprints(db,{clock});
-  expect(current.sprints.map(s=>s.id)).toEqual(sprints.slice(0,2));
-  expect(current.issues.map(i=>i.id).sort()).toEqual([...expected,added.id].sort());
-  expect(queryIssues(db,{sprint:'current'},clock).issues.map(i=>i.id).sort()).toEqual([...expected,added.id].sort());
+  // NOD-59: 現在Sprintの判定は期間内のactiveで、人の合意済み計画を要求しない。一覧とIssue集合は整合する。
+  expect(current.sprints.map(s=>s.id)).toEqual([...sprints.slice(0,2),sprints[7]!,sprints[8]!]);
+  expect(current.issues.map(i=>i.id).sort()).toEqual([...expected,added.id,unagreed.id].sort());
+  expect(queryIssues(db,{sprint:'current'},clock).issues.map(i=>i.id).sort()).toEqual([...expected,added.id,unagreed.id].sort());
   expect(queryIssues(db,{sprint:sprints[7]},clock).issues.map(i=>i.id)).toEqual([unagreed.id]);
   expect(queryIssues(db,{sprint:'none'},clock).issues.map(i=>i.id)).toContain(candidate);
   expect(queryIssues(db,{sprint:'none'},clock).issues.map(i=>i.id)).not.toContain(unagreed.id);

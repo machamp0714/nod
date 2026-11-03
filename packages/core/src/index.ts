@@ -81,6 +81,11 @@ export * from "./ops/desktop-notifications";
 export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
 
 export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";
+// 手動終了との連携用の内部関数は公開しない。
+export {
+  syncSprintRollover, getSprintRolloverStatus, setSprintRollover, SPRINT_ROLLOVER_ACTOR, SPRINT_ROLLOVER_AUTOMATION,
+  type SprintRolloverResult, type SprintRolloverStatus, type SetSprintRolloverInput,
+} from "./ops/sprint-rollover";
 export { collectSprintSelfMetadata } from "./sprint-self-metadata";
 export type { SprintSelfMetadata, SprintSelfMetadataSource } from "./sprint-self-metadata";
 export type * from "./sprint-observation-types";

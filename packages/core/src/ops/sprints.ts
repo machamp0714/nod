@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { NodError } from "../errors";
 import { selectIssues } from "../issue-query";
 import { AGREED_SPRINT_PLAN as AGREED_PLAN, CURRENT_SPRINT, SPRINT_ITEM_MEMBER, SPRINT_MEMBERSHIP } from "../sprint-membership";
-import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintPhase, SprintUnresolvedHistory } from "../sprint-types";
+import type { CurrentSprintResolution, LegacyCycleResolution, Sprint, SprintClock, SprintDetail, SprintItem, SprintLegacyEvent, SprintLink, SprintPhase, SprintUnresolvedHistory } from "../sprint-types";
 import { listSprintPlans } from "./sprint-planning";
 
 interface SprintRow {
@@ -12,6 +12,7 @@ interface SprintRow {
   legacy_cycle_id: number | null; legacy_data: string | null; created_at: string; updated_at: string;
   version: number; working_days: string; workspace_snapshot: string | null; activated_at: string | null;
   canceled_at: string | null; cancel_reason: string | null; replans_sprint_id: string | null;
+  rollover_from_sprint_id: string | null; activated_by: string | null;
 }
 
 function toSprint(r: SprintRow): Sprint {
@@ -22,6 +23,7 @@ function toSprint(r: SprintRow): Sprint {
     legacyCycleId: r.legacy_cycle_id, createdAt: r.created_at, updatedAt: r.updated_at,
     version: r.version, workingDays: JSON.parse(r.working_days), workspaceSnapshot: r.workspace_snapshot ? JSON.parse(r.workspace_snapshot) : null,
     activatedAt: r.activated_at, canceledAt: r.canceled_at, cancelReason: r.cancel_reason, replansSprintId: r.replans_sprint_id,
+    rolloverFromSprintId: r.rollover_from_sprint_id, activatedBy: r.activated_by,
   };
 }
 
@@ -58,10 +60,10 @@ export function readSprintItems(db: Database, sprintId: string): SprintItem[] {
   const rows = db.query(`SELECT si.*, ${SPRINT_ITEM_MEMBER} AS member, ${SPRINT_ITEM_ASSOCIATION} AS association
     FROM sprint_items si JOIN sprints s ON s.id=si.sprint_id WHERE si.sprint_id=? ORDER BY si.source_issue_key`).all(sprintId) as {
     id: string; sprint_id: string; issue_id: number | null; source_issue_key: string; origin: SprintItem["origin"]; snapshot: string;
-    added_by: string | null; added_at: string | null; member: number; association: SprintItem["association"];
+    added_by: string | null; added_at: string | null; rollover_from_item_id: string | null; member: number; association: SprintItem["association"];
   }[];
   return rows.map(r => ({id: r.id, sprintId: r.sprint_id, issueId: r.issue_id, sourceIssueKey: r.source_issue_key, origin: r.origin,
-    snapshot: JSON.parse(r.snapshot), addedBy: r.added_by, addedAt: r.added_at, member: r.member === 1, association: r.association}));
+    snapshot: JSON.parse(r.snapshot), addedBy: r.added_by, addedAt: r.added_at, rolloverFromItemId: r.rollover_from_item_id, member: r.member === 1, association: r.association}));
 }
 
 export function getSprint(db: Database, ref: string): SprintDetail {
@@ -70,7 +72,10 @@ export function getSprint(db: Database, ref: string): SprintDetail {
   const events = db.query(`SELECT e.original,r.association FROM sprint_legacy_event_refs r
     JOIN sprint_legacy_events e ON e.event_id=r.event_id WHERE r.cycle_id=? ORDER BY e.event_id`).all(sprint.legacyCycleId) as {original: string; association: SprintLegacyEvent["association"]}[];
   const evidence=db.query('SELECT * FROM sprint_legacy_issue_evidence WHERE sprint_id=? ORDER BY source_issue_key').all(sprint.id) as {source_issue_id:number;source_issue_key:string;snapshot:string}[];
-  return {...sprint, closureRecord: row.closure_record ? JSON.parse(row.closure_record) : null, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
+  const link = (r: SprintRow | null): SprintLink | null => r && {id: r.id, number: r.number, name: r.name, phase: r.phase};
+  const rolloverFrom = link(sprint.rolloverFromSprintId ? db.query("SELECT * FROM sprints WHERE id=?").get(sprint.rolloverFromSprintId) as SprintRow | null : null);
+  const rolloverTo = link(db.query("SELECT * FROM sprints WHERE rollover_from_sprint_id=?").get(sprint.id) as SprintRow | null);
+  return {...sprint, closureRecord: row.closure_record ? JSON.parse(row.closure_record) : null, rolloverFrom, rolloverTo, plans: listSprintPlans(db, sprint.id), evidence:evidence.map(e=>({sourceIssueId:e.source_issue_id,sourceIssueKey:e.source_issue_key,snapshot:JSON.parse(e.snapshot)})), legacy: row.legacy_data ? JSON.parse(row.legacy_data) : null,
     items: readSprintItems(db, sprint.id),
     events: events.map(e => ({original: JSON.parse(e.original), association: e.association})),
   };
@@ -101,7 +106,8 @@ export function resolveCurrentSprints(db: Database, options: CurrentSprintOption
     const instant = (options.clock?.now ?? new Date()).toISOString();
     const workspaceSql = options.workspaceIds === undefined ? "" : options.workspaceIds.length
       ? ` AND s.workspace_id IN (${options.workspaceIds.map(() => "?").join(",")})` : " AND 0";
-    const rows = db.query(`SELECT s.* FROM sprints s JOIN sprint_plans p ON ${AGREED_PLAN}
+    // 期間内のactiveなら、人の合意済み計画の有無を問わず現在のSprintとする（自動開始した後継を含む）。
+    const rows = db.query(`SELECT s.* FROM sprints s
       JOIN workspaces w ON w.id=s.workspace_id WHERE ${CURRENT_SPRINT}${workspaceSql}
       ORDER BY s.number`).all(instant, instant, ...(options.workspaceIds ?? [])) as SprintRow[];
     const sprints = rows.map(toSprint);
@@ -123,9 +129,8 @@ export function sprintIssueScope(db: Database, ref: string, clock: SprintClock =
   if (value.toLowerCase()==='none') return {where:`NOT EXISTS (${membership})`, params:[]};
   if (value.toLowerCase()==='current') {
     const instant=(clock.now ?? new Date()).toISOString();
-    // 現在Sprintの判定（active・期間内・採用中の合意済み計画・Workspace）は変えず、その所属を読む。
-    return {where:`EXISTS (${membership} AND i.workspace_id=s.workspace_id AND ${CURRENT_SPRINT}
-      AND EXISTS (SELECT 1 FROM sprint_plans p WHERE ${AGREED_PLAN}))`,params:[instant,instant]};
+    // 現在Sprintの判定（active・期間内・Workspace）は一覧と同じにし、その所属を読む。
+    return {where:`EXISTS (${membership} AND i.workspace_id=s.workspace_id AND ${CURRENT_SPRINT})`,params:[instant,instant]};
   }
   const sprint=resolveSprint(db,value);
   return {where:`EXISTS (${membership} AND s.id=?)`,params:[sprint.id]};

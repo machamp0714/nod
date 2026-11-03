@@ -1,5 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
-import { clearCadence, getCadence, setCadence, syncCycles } from "../src/ops/cycle-cadence";
+import { expect, test } from "bun:test";
+import { clearCadence, getCadence, setCadence } from "../src/ops/cycle-cadence";
 import { createIssue, getIssue } from "../src/ops/issues";
 import { codeOf, setup } from "./helpers";
 
@@ -17,19 +17,4 @@ test('旧周期の取得と設定と解除はactorによらず廃止案内を返
   expect(getIssue(db,issue.id)).toEqual(before);
   db.close();
 });
-
-test('旧通常起動からの同期を何度呼んでも期間を作らず、未完了Issueを持ち越さず、transactionも開かない',()=>{
-  const {db,ws,me}=setup();
-  const issue=createIssue(me,{workspaceId:ws.id,title:'未完了Issue'});
-  const before=getIssue(db,issue.id);
-  const changes=db.query('SELECT total_changes() AS n').get();
-  const transaction=spyOn(db,'transaction');
-  try {
-    for (const today of ['2026-01-01','2026-10-26','2027-01-01']) expect(syncCycles(me,{today})).toEqual({created:[],carried:[]});
-    expect(transaction).not.toHaveBeenCalled();
-  } finally {transaction.mockRestore();}
-  expect(db.query('SELECT total_changes() AS n').get()).toEqual(changes);
-  expect(getIssue(db,issue.id)).toEqual(before);
-  expect(db.query('SELECT * FROM sprints').all()).toEqual([]);
-  db.close();
-});
+// 旧周期の同期（syncCycles）は、期限到来時のSprint自動引継ぎ（sprint-rollover.test.ts）に置き換えて取り除いた。
