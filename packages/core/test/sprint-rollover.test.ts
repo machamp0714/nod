@@ -271,6 +271,33 @@ test("作る後継の期間が連鎖外のSprintと重なるときは、Workspac
   }
 });
 
+test("期限内の実行中Sprintと期限切れの未開始の後継があるときは、状態の表示も後継を先に扱い、その後継期間の重なりで止まった理由を出す", () => {
+  const f = configured();
+  try {
+    const { sprint } = activeSprint(f, ["未完了"]);
+    const linked = core.createSprint(f.llm, { workspaceKey: f.ws.key, startDate: "2026-11-03", endDate: "2026-11-04", timezone: tz, expectedVersion: 0, requestKey: "短い次" });
+    core.syncSprintRollover(f.db, at("2026-11-02T00:00:00.000Z"));
+    expect(core.getSprint(f.db, linked.id)).toMatchObject({ phase: "draft", rolloverFromSprintId: sprint.id });
+    // 自動引継ぎを無効にしている間に、人が連鎖外のSprintを作成・合意・開始する。
+    core.setSprintRollover(f.me, f.ws.key, { enabled: false });
+    const { sprint: current } = activeSprint(f, [], { startDate: "2026-11-05", endDate: "2026-11-11" });
+    core.setSprintRollover(f.me, f.ws.key, { enabled: true });
+    const clock = at("2026-11-05T00:00:00.000Z");
+    const before = core.listSprints(f.db);
+
+    const results = core.syncSprintRollover(f.db, clock);
+
+    // 未開始の後継（11-03〜04）を先に終了させ、その後継（11-05〜06）が実行中のSprintと重なって止まる。
+    expect(results).toEqual([{ workspaceId: f.ws.id, workspaceKey: f.ws.key, ended: [], successors: [], started: [], carried: 0,
+      blocked: { code: "SPRINT_ROLLOVER_BLOCKED", message: expect.stringContaining(`Sprint ${current.number}`) }, error: null }]);
+    expect(core.listSprints(f.db)).toEqual(before);
+    expect(core.getSprintRolloverStatus(f.db, f.ws.key, clock)).toEqual({ workspaceKey: f.ws.key, enabled: true, scrumEnabled: true, nextRunAt: linked.endsAt,
+      successor: { kind: "create", startDate: "2026-11-05", endDate: "2026-11-06", timezone: tz }, blocked: results[0]!.blocked });
+  } finally {
+    f.db.close();
+  }
+});
+
 test("自動処理が結んだ後継を人が中止したら連鎖を止め、代わりを作らず、状態の表示に理由を出す", () => {
   const f = configured();
   try {

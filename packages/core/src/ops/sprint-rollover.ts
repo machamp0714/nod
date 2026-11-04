@@ -261,10 +261,12 @@ export function getSprintRolloverStatus(db: Database, workspaceKey: string, cloc
       nextRunAt: null, successor: null, blocked: null };
     if (!scrum.enabled) return { ...base, blocked: { code: "SCRUM_DISABLED", message: "WorkspaceのSprint運用が無効なため、自動引継ぎは動きません" } };
     if (!scrum.autoRollover) return { ...base, blocked: { code: "SPRINT_ROLLOVER_DISABLED", message: "期限到来時の自動引継ぎは無効に設定されています" } };
-    // 次に終了させるSprint（実行中、または期間を丸ごと過ぎた未開始の後継）。
-    const ending = sprintById(db, "SELECT id FROM sprints WHERE workspace_id=? AND phase='active'", wsId)
+    // 次に終了させるSprint。実処理と同じ順で、期限切れの実行中、期間を丸ごと過ぎた未開始の後継、期限内の実行中の順に選ぶ。
+    const active = sprintById(db, "SELECT id FROM sprints WHERE workspace_id=? AND phase='active'", wsId);
+    const ending = (active && julianLte(db, active.endsAt!, iso) ? active : null)
       ?? sprintById(db, `SELECT s.id FROM sprints s WHERE s.workspace_id=? AND ${CHAINED_UNSTARTED} AND julianday(s.ends_at)<=julianday(?)
-        ORDER BY julianday(s.starts_at),s.number LIMIT 1`, wsId, iso);
+        ORDER BY julianday(s.starts_at),s.number LIMIT 1`, wsId, iso)
+      ?? active;
     if (ending) {
       const decision = decideSuccessor(db, ending, Date.parse(ending.endsAt!) > instant.getTime() ? new Date(ending.endsAt!) : instant);
       const overlap = decision.kind === "create" ? decision.overlap : null;
