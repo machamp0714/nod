@@ -380,6 +380,28 @@ describe("下見の案", () => {
   });
 
   test.each([
+    ["比較の記号", "<div>\n1 < API-1 > 0\n</div>", "<div>\n1 < この Issue > 0\n</div>"],
+    ["空白で始まる山括弧", "<div>\n説明: < API-1 > を参照\n</div>", "<div>\n説明: < この Issue > を参照\n</div>"],
+    ["タグ名のあとの文", "<div>\na < b API-1 > c\n</div>", "<div>\na < b この Issue > c\n</div>"],
+  ])("HTML ブロックの中のタグでない「<」（%s）は通常の文として整える", async (_name, description, draft) => {
+    const { me, id, deps } = fixture();
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({ body: draft, findings: [] });
+    expect(p.changes.map((c) => [c.line, c.before, c.after])).toEqual([[2, id, "この Issue"]]);
+  });
+
+  test("タグ名・終了タグ・コメント・宣言・処理命令は HTML のタグとして残す", async () => {
+    const { db, me, id, deps } = fixture();
+    const description = ["<div>", "<API-1>x</API-1> <!-- API-1 --> <!DOCTYPE API-1> <?pi API-1?>", "</div>", "", "API-1 の続き"].join("\n");
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(description.replace(/API-1 の続き$/, "この Issue の続き"));
+    expect(p.changes.map((c) => c.line)).toEqual([5]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+  });
+
+  test.each([
     ["full の参照リンクの参照キー", "[仕様][API-1]\n\n[API-1]: https://example.com/spec", "[仕様][API-1]\n\n[API-1]: https://example.com/spec"],
     ["collapsed の参照リンク", "[API-1][]\n\n[API-1]: https://example.com/spec", "[API-1][]\n\n[API-1]: https://example.com/spec"],
     ["shortcut の参照リンク", "[API-1]\n\n[API-1]: https://example.com/spec", "[API-1]\n\n[API-1]: https://example.com/spec"],
