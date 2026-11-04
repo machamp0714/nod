@@ -289,7 +289,12 @@ function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: numbe
       out.push(b);
       if (writeError) return;
       try {
-        writeSync(eventsFd, b);
+        // writeSync は short write でも例外を出さずに書けたバイト数を返す。チャンクの全量を書き切る（書けなければ例外で失敗にする）
+        for (let off = 0; off < b.length; ) {
+          const n = writeSync(eventsFd, b, off);
+          if (n <= 0) throw new Error(`生ログを書き切れません（${off}/${b.length} バイト）`);
+          off += n;
+        }
       } catch (e) {
         writeError = e;
         killGroup("SIGKILL");

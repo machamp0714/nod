@@ -86,6 +86,8 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 依頼中（差し戻しを含む）は決定ログを書き換えない。7・8 や失敗の記録は、採用か失敗が決まってから**末尾にだけ**追記する（§5 の比較で、依頼時点の部分をバイト数で切り出すため）。
 
+追記は**追記の控え**を通して行う。追記の控えは、採用か失敗が決まった試行の実行記録（`files.record`）と同じディレクトリにあり、名前の `-record.json` を `-appendix.md` に変えたファイル（例: `nod-60-argon-03-appendix.md`）。採用か失敗が決まったら、追記より先に `touch <追記の控え>` で空の控えを作る。追記する節をファイルに書き、`cat <節のファイル> >> <追記の控え>` と `cat <節のファイル> >> <決定ログのパス>` を続けて実行する。§5 の添付を終えるまで、決定ログへの追記はすべてこの手順で行い、追記の控えはほかの方法で書き換えない。§5 の比較で主担当が追記した節だけを除き、利用者や別のセッションによる追記・変更を見つけるため。
+
 ### 使えないとき・採用できないとき
 
 スクリプトの失敗（`OMP_NOT_FOUND`・`ARGON_UNAVAILABLE`・`TIMEOUT`・`OMP_FAILED`・`MODEL_NOT_ARGON`・`STOP_REASON`・`EMPTY_BODY`・`RESPONSE_FORMAT`・`TOP_HEADING`・`SECTION_MISSING`・`INVALID_INPUT`・想定外のエラーの `UNEXPECTED_ERROR`）や、差し戻しの上限に達したとき。
@@ -99,7 +101,9 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 1. **入力が変わっていないことを確かめる。** 添付の直前に取り直し、採用した試行の実行記録（`files.record`）の `inputs` と比べる。
    - Issue 本文: `nod issue show <id> --json | jq -j .description | shasum -a 256` が、`role` が `issue-description` の `sha256` と一致する
-   - 決定ログ（依頼時点の部分。後から追記した節は除かれる）: `head -c <role が decision-log の bytes> <決定ログのパス> | shasum -a 256` が、その `sha256` と一致する
+   - 決定ログ: `role` が `decision-log` の `bytes` を N として、次の 2 つがともに成り立つ
+     - 依頼時点の部分: `head -c N <決定ログのパス> | shasum -a 256` が、その `sha256` と一致する
+     - その後の部分: `tail -c +<N+1> <決定ログのパス> | cmp - <採用した試行の追記の控え>` が一致する（終了コード 0）。控えが無いときは一致しないものとして扱う。主担当が §4 の手順で追記した節だけなら一致し、ほかの追記や変更が混ざれば一致しない
    - 関連仕様と改訂の対象: `role` が `related`・`target` の各項目で `shasum -a 256 <file>` が `sha256` と一致する
    - 1 つでも違えば原稿を採用せず、新しい入力で §4 をやり直す。
 2. 執筆の種類ごとに添付する。原稿（`files.draft`）は一字も変えない。
