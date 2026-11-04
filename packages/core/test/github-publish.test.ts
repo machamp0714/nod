@@ -338,6 +338,52 @@ describe("下見の案", () => {
     for (const f of p.findings) expect(f.reason).toMatch(/てください$/);
   });
 
+  test("「..」で Workspace の外に出るパスは相対パスにせず、検出を残す。Workspace の中に戻るパスは解決して相対パスにする", async () => {
+    const { db, me, id, deps } = fixture();
+    const description = ["/tmp/repos/api-server/../web-app/private.md を見る", "/tmp/repos/api-server/docs/../../api-server-old/a.md も", "/tmp/repos/api-server/docs/../src/a.ts は中"].join("\n");
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(["/tmp/repos/api-server/../web-app/private.md を見る", "/tmp/repos/api-server/docs/../../api-server-old/a.md も", "src/a.ts は中"].join("\n"));
+    expect(p.changes.map((c) => [c.line, c.rule, c.after])).toEqual([[3, "absolute_path", "src/a.ts"]]);
+    expect(p.findings.filter((f) => f.line < 3)).toEqual(checkGithubPublishText(db, p.original, deps(fakeGh())).filter((f) => f.line < 3));
+    expect(p.findings.filter((f) => f.rule === "absolute_path").map((f) => f.line)).toEqual(expect.arrayContaining([1, 2]));
+  });
+
+  test.each([
+    ["引用の中の ~~~", ["> ~~~text", "> API-1", "> ~~~", "API-1 の続き"]],
+    ["引用の中の ```", ["> ```", "> API-1", "> ```", "API-1 の続き"]],
+    ["入れ子の引用の中のフェンス", ["> > ~~~", "> > API-1", "> > ~~~", "API-1 の続き"]],
+    ["閉じないまま引用が終わるフェンス", ["> ~~~", "> API-1", "", "API-1 の続き"]],
+  ])("%s はコードとして扱い、中の ID を残して検出を保つ。引用の外は言い換える", async (_name, lines) => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { description: lines.join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe([...lines.slice(0, -1), "この Issue の続き"].join("\n"));
+    expect(p.changes.map((c) => c.line)).toEqual([4]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+    expect(p.findings.map((f) => [f.line, f.text])).toEqual([[2, "API-1"]]);
+  });
+
+  test("通常のフェンスの中にある「> ~~~」の行はフェンスを閉じない", async () => {
+    const { me, id, deps } = fixture();
+    const lines = ["~~~", "> ~~~", "API-1", "~~~", "API-1 の続き"];
+    updateIssue(me, id, { description: lines.join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe([...lines.slice(0, -1), "この Issue の続き"].join("\n"));
+  });
+
+  test.each([
+    ["画像のラベルの中の相対リンク", "![図 [注](docs/a.md)](https://example.com/image.png)"],
+    ["画像のラベルの中のリンクと nod の Issue の URL", "![図 [仕様](docs/a.md)](http://localhost:4700/issues/API-1)"],
+  ])("%s は画像ごと残し、元の検出をそのまま残った箇所として示す", async (_name, description) => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({ body: description, changes: [] });
+    expect(p.findings.length).toBeGreaterThan(0);
+    expect(p.findings).toEqual(checkGithubPublishText(db, p.original, deps(fakeGh())));
+  });
+
   test.each([
     ["改行入りの画像", "![図](\nhttp://localhost:4700/issues/API-1\n)"],
     ["入れ子ラベルの画像", "![図 [注]](http://localhost:4700/issues/API-1)"],

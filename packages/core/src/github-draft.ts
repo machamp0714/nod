@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
+import { posix } from "node:path";
 import { type LeakConfig, type LeakField, type LeakHit, type LeakRule, leakHitsOf, leakPathEnd, leakPositionsIn, leakUrlsOf } from "./github-leak";
 import { findIssueRow, type IssueRow } from "./issue-query";
 import { githubIssueUrl, githubLinkOf } from "./ops/github-links";
@@ -52,8 +53,10 @@ function workspaceRootsOf(db: Database, workspaceId: number): string[] {
   return [...roots].filter((r) => r.length > 1);
 }
 
-// Workspace の下を指すパスなら、Workspace のパスを外した相対パス。ルートそのもの・より長い別の既知パス（ほかの Workspace など）の下は null
-function relativePathOf(env: DraftEnv, path: string): string | null {
+// Workspace の下を指すパスなら、Workspace のパスを外した相対パス。. と .. を解決してから判定し、
+// ルートそのもの・Workspace の外に出るもの・より長い別の既知パス（ほかの Workspace など）の下は null
+function relativePathOf(env: DraftEnv, raw: string): string | null {
+  const path = posix.normalize(raw);
   for (const root of env.roots) {
     if (!path.startsWith(`${root}/`)) continue;
     const rel = path.slice(root.length + 1);
@@ -94,23 +97,45 @@ function claim(plan: Plan, start: number, end: number, edit?: Omit<Edit, "start"
 
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
 const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[\s\S]*?[^`]\1(?!`)/g;
+const QUOTE_MARK_RE = / {0,3}> ?/y;
 
-// フェンスのコードブロック（``` と ~~~。閉じていなければ本文の終わりまで）と、その外のインラインコード
+// 行頭の引用の印（>）を max 個まで外す。外した数と残り
+function unquote(line: string, max: number): { depth: number; rest: string } {
+  let depth = 0;
+  let at = 0;
+  while (depth < max) {
+    QUOTE_MARK_RE.lastIndex = at;
+    if (!QUOTE_MARK_RE.test(line)) break;
+    at = QUOTE_MARK_RE.lastIndex;
+    depth++;
+  }
+  return { depth, rest: line.slice(at) };
+}
+
+// フェンスのコードブロック（``` と ~~~。引用・入れ子の引用の中のものを含む。閉じていなければ、その引用か本文の終わりまで）と、その外のインラインコード
 function codeRangesOf(text: string): [number, number][] {
   const out: [number, number][] = [];
-  let open: { fence: string; start: number } | null = null;
+  let open: { fence: string; start: number; depth: number } | null = null;
   let pos = 0;
   for (const line of text.split("\n")) {
     const end = pos + line.length;
-    const m = FENCE_RE.exec(line);
+    // 開いているフェンスの中では、そのフェンスと同じ深さまでだけ引用の印を外す（中の「> ~~~」で閉じないため）
+    let q = unquote(line, open ? open.depth : Number.POSITIVE_INFINITY);
+    if (open && q.depth < open.depth) {
+      // 引用が終わると、その中のフェンスも終わる
+      out.push([open.start, Math.max(open.start, pos - 1)]);
+      open = null;
+      q = unquote(line, Number.POSITIVE_INFINITY);
+    }
+    const m = FENCE_RE.exec(q.rest);
     const fence = m?.[1] ?? "";
-    const rest = line.slice(m?.[0].length ?? 0);
+    const rest = q.rest.slice(m?.[0].length ?? 0);
     if (open) {
       if (m && fence[0] === open.fence[0] && fence.length >= open.fence.length && !rest.trim()) {
         out.push([open.start, end]);
         open = null;
       }
-    } else if (m && !(fence[0] === "`" && rest.includes("`"))) open = { fence, start: pos };
+    } else if (m && !(fence[0] === "`" && rest.includes("`"))) open = { fence, start: pos, depth: q.depth };
     pos = end + 1;
   }
   if (open) out.push([open.start, text.length]);
@@ -262,6 +287,13 @@ function bracketLinksOf(text: string): { start: number; targetStart: number; end
 // 画像は中のどこかに、planLinks で扱わなかったインラインリンクはリンク先に検出があれば残す。参照定義（リンク先が次の行にあるものも含む）と HTML の src/href も残す
 const KEPT_LINK_RES: RegExp[] = [/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
 
+// 画像は残す外側の構造なので、ラベルの中のリンクなどより先に確定する。中に検出があれば画像ごと残し、中をあとの規則で書き換えない
+function planKeptImages(text: string, hits: LeakHit[], plan: Plan): void {
+  for (const l of bracketLinksOf(text)) {
+    if (l.image && isFree(plan, l.start, l.end) && !inCode(plan, l.start, l.end) && hits.some((h) => h.index >= l.start && h.index < l.end)) claim(plan, l.start, l.end);
+  }
+}
+
 function planKeptLinks(text: string, hits: LeakHit[], plan: Plan): void {
   const keep = (start: number, end: number, from = start) => {
     if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= from && h.index < end)) claim(plan, start, end);
@@ -322,6 +354,7 @@ function editsOf(env: DraftEnv, text: string): Edit[] {
   if (!hits.length) return [];
   const plan: Plan = { edits: [], claimed: [], code: codeRangesOf(text) };
   planImportFooter(text, hits, plan);
+  planKeptImages(text, hits, plan);
   planLinks(env, text, hits, plan);
   planKeptLinks(text, hits, plan);
   planUrls(env, text, hits, plan);
