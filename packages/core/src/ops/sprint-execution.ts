@@ -186,6 +186,8 @@ export function prepareSprintExecution(ctx: OpCtx, ref: string, input: PrepareSp
       if (ctx.db.query("SELECT 1 FROM sprint_attempts WHERE source_issue_key=? AND occupied=1 AND parent_attempt_id IS NULL").get(item.sourceIssueKey)) fail("EXECUTION_OWNED", "未解決の主試行が所有しています");
       const issue = findIssueRow(ctx.db, item.sourceIssueKey);
       if (issue.status === "in_progress" || issue.agent_state || issue.worktree || issue.branch) fail("EXECUTION_OWNED", "通常経路の着手または既存実行場所を先に照合してください");
+      // 保存済みの未照合所有はIssueの状態を戻しても残る。同じIssueの新しい主試行を通さない。
+      if (current.unreconciledOwnership?.some(o => o.itemId === item.id)) fail("EXECUTION_OWNED", "保存済みの未照合の通常着手を先に照合してください");
     }
     for (const [key, actual] of [["executionTarget", input.placement.on ?? input.placement.worktree], ["model", input.placement.model], ["effort", input.placement.effort]] as const) {
       const expected = plan.content.constraints[key];

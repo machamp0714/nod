@@ -614,6 +614,29 @@ test("採択後に通常経路で着手したIssueへのSprintの新規主試行
   state.db.close();
 });
 
+test("保存済みの未照合所有はIssueをTodoへ戻しても同じIssueの新しい主試行を拒否し、別Issueは件数に関係なく予約できる", async () => {
+  const state = setup();
+  const a = core.createIssue(state.me, { workspaceId: state.ws.id, title: "実行場所なしで通常着手した仕事" });
+  const others = [1, 2].map(n => core.createIssue(state.me, { workspaceId: state.ws.id, title: `別の仕事${n}` }));
+  core.startIssue(state.llm, a.id);
+  const proposal = prepareSprint(state.me, state.ws.key, [a.id, ...others.map(i => i.id)]), ready = acceptPreparedSprint(state.me, proposal);
+  const sprint = core.activateSprint(state.me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
+  const session = await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
+  const ownership = core.getSprintExecutionState(state.db, sprint.id, sprintTestClock).unreconciledOwnership;
+  expect(ownership).toMatchObject([{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id, status: "in_progress", worktree: null, branch: null }]);
+  core.updateIssue(state.me, a.id, { status: "todo" });
+  expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "todo", agentState: null, worktree: null, branch: null });
+  const input = { sessionId: session.id, generation: 1, actor: state.llm.actor, placement: { agent: "codex", worktree: "path:/専用" } };
+  expect(codeOf(() => core.prepareSprintExecution(state.llm, sprint.id, { ...input, requestKey: "Todoへ戻した後のA予約",
+    itemId: proposal.items[0]!.id, spec: "Todoへ戻した仕事を開始する" }, sprintTestClock))).toBe("EXECUTION_OWNED");
+  expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ reserved: 0, attempts: [], operations: [], unreconciledOwnership: ownership });
+  const reservedOthers = proposal.items.slice(1).map((item, i) => core.prepareSprintExecution(state.llm, sprint.id, { ...input,
+    requestKey: `別Issue${i + 1}`, itemId: item.id, spec: "別の仕事を開始する", placement: { agent: "codex", worktree: `path:/別${i + 1}` } }, sprintTestClock));
+  expect(reservedOthers.map(x => x.sourceIssueKey)).toEqual(others.map(i => i.id));
+  expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ occupied: 3, reserved: 2, unreconciledOwnership: ownership });
+  state.db.close();
+});
+
 test("新合意の設定が元の要求と異なる場合は同試行と旧要求を保持して開始と世代交代を閉じる", async () => {
   const state = await reserved(), context = { sessionId: state.session.id, generation: 1 };
   const proposed = core.proposeSprintPlan(state.me, state.sprint.id, { ...state.proposal.input, expectedVersion: state.sprint.version,
