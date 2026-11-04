@@ -24,7 +24,11 @@ export interface GithubDraft {
   title: string;
   body: string;
   changes: GithubDraftChange[];
+  unparsed: LeakField[]; // Markdown として解析できず、自動では整えなかった項目
 }
+
+// 解析できなかった項目に残った箇所の理由に足す説明
+export const GITHUB_DRAFT_UNPARSED_REASON = "（Markdown として解析できなかったため、この項目は自動では整えていません）";
 
 // 元の文面の [start, end) を after に置き換える
 interface Edit {
@@ -104,6 +108,7 @@ interface MdNode {
   type: string;
   position?: { start: { offset?: number }; end: { offset?: number } };
   children?: MdNode[];
+  referenceType?: string; // linkReference の full・collapsed・shortcut
 }
 
 // インラインリンク [文字](リンク先)。label は [] の中、target はリンク先（<> を除く）の範囲
@@ -117,7 +122,7 @@ interface InlineLink {
 
 interface MdStructure {
   code: [number, number][]; // コードブロック・インラインコード。中はパスの相対パス化だけを行う
-  kept: [number, number][]; // 残す構造（画像・画像の参照・参照定義・HTML）
+  kept: [number, number][]; // 残す構造（画像・画像の参照・参照定義・HTML の src/href の値・参照キー・脚注の識別子）
   links: InlineLink[];
 }
 
@@ -145,23 +150,49 @@ function inlineLinkOf(text: string, node: MdNode, start: number, end: number): I
 }
 
 const CODE_TYPES = new Set(["code", "inlineCode"]);
-const KEPT_TYPES = new Set(["image", "imageReference", "definition", "html"]);
+// 形ごと残す構造。脚注の参照 [^ID] は識別子だけからなる
+const KEPT_TYPES = new Set(["image", "imageReference", "definition", "footnoteReference"]);
+// HTML は属性のうち src/href の値だけを残し、ほかの本文は通常の規則で扱う
+const HTML_URL_ATTR_RE = /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+const FOOTNOTE_LABEL_RE = /^\[\^[^\]\n]*\]:/;
 
+// 参照リンクの参照キー。full（[文字][キー]）は ][キー] の部分、collapsed（[キー][]）・shortcut（[キー]）は文字がキーを兼ねるので全体
+function referenceKeyOf(node: MdNode, start: number, end: number): [number, number] {
+  if (node.referenceType !== "full") return [start, end];
+  const last = node.children?.at(-1);
+  return [(last && rangeOf(last)?.[1]) ?? start + 1, end];
+}
+
+// 深い入れ子でも自分の走査でスタックを使い切らないよう、積み上げで辿る。パーサー自体が失敗したときは例外をそのまま投げる
 function structureOf(text: string): MdStructure {
   const out: MdStructure = { code: [], kept: [], links: [] };
   const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as unknown as MdNode;
-  const visit = (node: MdNode) => {
+  const stack: MdNode[] = [tree];
+  for (let node = stack.pop(); node; node = stack.pop()) {
     const range = rangeOf(node);
-    if (range && CODE_TYPES.has(node.type)) return void out.code.push(range);
-    if (range && KEPT_TYPES.has(node.type)) return void out.kept.push(range);
-    if (range && node.type === "link") {
-      const link = inlineLinkOf(text, node, range[0], range[1]);
-      if (link) out.links.push(link);
+    const children = node.children ?? [];
+    if (range && CODE_TYPES.has(node.type)) out.code.push(range);
+    else if (range && KEPT_TYPES.has(node.type)) out.kept.push(range);
+    else if (range && node.type === "html") {
+      for (const m of text.slice(range[0], range[1]).matchAll(HTML_URL_ATTR_RE)) out.kept.push([range[0] + (m.index ?? 0), range[0] + (m.index ?? 0) + m[0].length]);
+    } else if (range && node.type === "linkReference") {
+      out.kept.push(referenceKeyOf(node, range[0], range[1]));
+      if (node.referenceType === "full") stack.push(...children);
+    } else {
+      if (range && node.type === "footnoteDefinition") {
+        const label = FOOTNOTE_LABEL_RE.exec(text.slice(range[0], range[1]));
+        if (label) out.kept.push([range[0], range[0] + label[0].length]);
+      }
+      if (range && node.type === "link") {
+        const link = inlineLinkOf(text, node, range[0], range[1]);
+        if (link) out.links.push(link);
+      }
+      stack.push(...children);
     }
-    for (const child of node.children ?? []) visit(child);
-  };
-  visit(tree);
+  }
   out.code.sort((x, y) => x[0] - y[0]);
+  out.kept.sort((x, y) => x[0] - y[0]);
+  out.links.sort((x, y) => x.start - y.start);
   return out;
 }
 
@@ -323,10 +354,20 @@ function planPath(env: DraftEnv, text: string, index: number, plan: Plan): void 
   claim(plan, index, end, rel ? { after: rel, rule: "absolute_path", reason: "Workspace の中を指す絶対パスを、Workspace からの相対パスにしました" } : undefined);
 }
 
-function editsOf(env: DraftEnv, text: string): Edit[] {
+// Markdown として解析できなかった（深い入れ子でパーサーがスタックを使い切るなど）ときは null。自動では書き換えない
+function structureOrNull(text: string): MdStructure | null {
+  try {
+    return structureOf(text);
+  } catch {
+    return null;
+  }
+}
+
+function editsOf(env: DraftEnv, text: string): Edit[] | null {
   const hits = leakHitsOf(text, env.config);
   if (!hits.length) return [];
-  const md = structureOf(text);
+  const md = structureOrNull(text);
+  if (!md) return null;
   const plan: Plan = { edits: [], claimed: [], code: md.code };
   planImportFooter(text, hits, plan);
   planKept(md, hits, plan);
@@ -352,7 +393,13 @@ function applyEdits(field: LeakField, text: string, edits: Edit[]): { text: stri
 
 export function buildGithubDraft(db: Database, issue: IssueRow, input: { title: string; body: string }, config: LeakConfig): GithubDraft {
   const env: DraftEnv = { db, issue, config, roots: workspaceRootsOf(db, issue.workspace_id), issues: new Map() };
-  const title = applyEdits("title", input.title, editsOf(env, input.title));
-  const body = applyEdits("body", input.body, editsOf(env, input.body));
-  return { title: title.text, body: body.text, changes: [...title.changes, ...body.changes] };
+  const unparsed: LeakField[] = [];
+  const draftOf = (field: LeakField) => {
+    const edits = editsOf(env, input[field]);
+    if (!edits) unparsed.push(field);
+    return applyEdits(field, input[field], edits ?? []);
+  };
+  const title = draftOf("title");
+  const body = draftOf("body");
+  return { title: title.text, body: body.text, changes: [...title.changes, ...body.changes], unparsed };
 }

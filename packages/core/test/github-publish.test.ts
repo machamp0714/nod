@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import { mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -337,6 +340,53 @@ describe("下見の案", () => {
     expect(at(4, "nod_web")).toEqual([[18, "localhost:4700"]]);
     expect(at(5, "nod_web")).toEqual([[15, "localhost:4700"]]);
     for (const f of p.findings) expect(f.reason).toMatch(/てください$/);
+  });
+
+  test("HTML は src/href の値だけを残し、HTML ブロックの中の通常の文の ID は言い換える", async () => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { description: ["<div>", `${id}`, "</div>", "", `<a href="/issues/${id}">${id} の件</a>`].join("\n") });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(["<div>", "この Issue", "</div>", "", `<a href="/issues/${id}">この Issue の件</a>`].join("\n"));
+    expect(p.changes.map((c) => [c.line, c.before, c.after])).toEqual([
+      [2, id, "この Issue"],
+      [5, id, "この Issue"],
+    ]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+    expect(p.findings.map((f) => [f.line, f.text, f.rule])).toEqual([
+      [5, "/issues/API-1", "link_target"],
+      [5, "API-1", "issue_id"],
+    ]);
+  });
+
+  test.each([
+    ["full の参照リンクの参照キー", "[仕様][API-1]\n\n[API-1]: https://example.com/spec", "[仕様][API-1]\n\n[API-1]: https://example.com/spec"],
+    ["collapsed の参照リンク", "[API-1][]\n\n[API-1]: https://example.com/spec", "[API-1][]\n\n[API-1]: https://example.com/spec"],
+    ["shortcut の参照リンク", "[API-1]\n\n[API-1]: https://example.com/spec", "[API-1]\n\n[API-1]: https://example.com/spec"],
+    ["full の参照リンクのラベル", "[API-1 の仕様][spec]\n\n[spec]: https://example.com/spec", "[この Issue の仕様][spec]\n\n[spec]: https://example.com/spec"],
+    ["脚注の参照と定義の識別子", "API-1[^API-2]\n\n[^API-2]: API-1 [仕様](docs/a.md)", "この Issue[^API-2]\n\n[^API-2]: この Issue 仕様（docs/a.md）"],
+  ])("%s は参照関係を壊さず、識別子の中の ID は残った箇所として示す", async (_name, description, draft) => {
+    const { db, me, ws, id, deps } = fixture();
+    createIssue(me, { workspaceId: ws.id, title: "関連" });
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(draft);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+    const keys = [...description.matchAll(/\[\^?(API-\d+)\]/g)].map((m) => m[1]);
+    expect(p.findings.filter((f) => f.rule === "issue_id").map((f) => f.text)).toEqual(expect.arrayContaining(keys));
+  });
+
+  test("Markdown として解析できない深い入れ子でも下見は返し、自動では書き換えず、元の検出を理由つきで残す", async () => {
+    const { db, me, id, deps } = fixture();
+    const description = `${"> ".repeat(20_000)}${id} の続き`;
+    // パーサーがこの深さでスタックを使い切ることを確かめる（これが前提でなくなったら、テストの長さを見直す）
+    expect(() => fromMarkdown(description, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })).toThrow(RangeError);
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p).toMatchObject({ body: description, changes: [] });
+    const original = checkGithubPublishText(db, p.original, deps(fakeGh()));
+    expect(p.findings.map(({ reason: _, ...f }) => f)).toEqual(original.map(({ reason: _, ...f }) => f));
+    expect(p.findings.length).toBeGreaterThan(0);
+    for (const f of p.findings) expect(f.reason).toContain("解析できなかったため");
   });
 
   test("「..」で Workspace の外に出るパスは相対パスにせず、検出を残す。Workspace の中に戻るパスは解決して相対パスにする", async () => {

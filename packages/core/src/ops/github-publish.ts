@@ -7,7 +7,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
-import { buildGithubDraft, type GithubDraftChange } from "../github-draft";
+import { buildGithubDraft, GITHUB_DRAFT_UNPARSED_REASON, type GithubDraftChange } from "../github-draft";
 import { detectLeaks, type LeakFinding, leakConfigOf } from "../github-leak";
 import { findIssueRow, formatIssueId, issueRowById, type IssueRow } from "../issue-query";
 import { gitRunner } from "./git-runner";
@@ -154,7 +154,9 @@ export async function previewGithubPublish(ctx: OpCtx, ref: string, deps: Github
   const login = await fetchLogin(deps.gh ?? ghRunner);
   const original = { title: row.title, body: row.description ?? "" };
   const config = leakConfigOf(ctx.db, deps);
-  const { title, body, changes } = buildGithubDraft(ctx.db, row, original, config);
+  const { title, body, changes, unparsed } = buildGithubDraft(ctx.db, row, original, config);
+  // 解析できずに整えなかった項目は、残った箇所の理由にそのことを足す
+  const findings = detectLeaks({ title, body }, config).map((f) => (unparsed.includes(f.field) ? { ...f, reason: `${f.reason}${GITHUB_DRAFT_UNPARSED_REASON}` } : f));
   return {
     issueId: formatIssueId(row.ws_key, row.number),
     title,
@@ -166,7 +168,7 @@ export async function previewGithubPublish(ctx: OpCtx, ref: string, deps: Github
     repoCandidateReason,
     ghLogin: "login" in login ? login.login : null,
     ghError: "error" in login ? login.error : null,
-    findings: detectLeaks({ title, body }, config),
+    findings,
     blockers: [...blockersOf(ctx.db, row), ...textBlockersOf({ title, body })],
     state: githubStateOfRow(ctx.db, row),
   };
