@@ -391,6 +391,19 @@ describe("下見の案", () => {
     expect(p.changes.map((c) => [c.line, c.before, c.after])).toEqual([[2, id, "この Issue"]]);
   });
 
+  test("CDATA は丸ごと残し、中の ID は残った箇所として示す。HTML ブロックのあとの文は整える", async () => {
+    const { db, me, ws, id, deps } = fixture();
+    for (const title of ["a", "b", "c"]) createIssue(me, { workspaceId: ws.id, title });
+    const related = createIssue(me, { workspaceId: ws.id, title: "x]]>y" }).id;
+    const description = ["<svg>", `<![CDATA[${related}]]>`, "</svg>", "", `${id} の続き`].join("\n");
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(description.replace(`${id} の続き`, "この Issue の続き"));
+    expect(p.changes.map((c) => c.line)).toEqual([5]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+    expect(p.findings.map((f) => [f.line, f.text])).toEqual([[2, related]]);
+  });
+
   test("タグ名・終了タグ・コメント・宣言・処理命令は HTML のタグとして残す", async () => {
     const { db, me, id, deps } = fixture();
     const description = ["<div>", "<API-1>x</API-1> <!-- API-1 --> <!DOCTYPE API-1> <?pi API-1?>", "</div>", "", "API-1 の続き"].join("\n");
