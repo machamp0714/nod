@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { archiveIssue, askQuestion, createIssue, deleteIssue, initWorkspace, openDb, removeWorkspace, updateIssue } from "@nod/core";
 import { legacySprintFixture } from "../../core/test/fixtures/sprint";
@@ -57,6 +57,13 @@ function legacyCandidate(db: import("bun:sqlite").Database, sprintId: string, is
   return id;
 }
 const sprintAdded = (detail: any) => detail.activity.filter((a: any) => a.kind === "event" && a.type === "sprint_added");
+// 追加の時刻とActivityの時刻は別々に採るので同値を求めない。Activityが1件で、時刻が有効な日時であることを確かめる。
+async function oneSprintAdded(app: ReturnType<typeof createApp>, issueId: string, sprint: { id: string; number: number; name: string }) {
+  const events = sprintAdded((await call(app, "GET", `/api/issues/${issueId}`)).json);
+  expect(events).toEqual([{ kind: "event", at: expect.any(String), actor: "me", type: "sprint_added", data: { sprintId: sprint.id, sprintNumber: sprint.number, sprintName: sprint.name } }]);
+  expect(Number.isNaN(Date.parse(events[0].at))).toBe(false);
+  return events;
+}
 const ids = (res: { json: any }) => res.json.issues.map((i: any) => i.id);
 
 test("合意済み計画のあるreadyへ、新規・旧候補・計画のitemを追加しても計画と合意を変えず、再追加は重複しない", async () => {
@@ -79,10 +86,10 @@ test("合意済み計画のあるreadyへ、新規・旧候補・計画のitem�
       const added = await call(app, "POST", `/api/sprints/${draft.number}/issues`, { issueRef: issue.id });
       expect(added).toMatchObject({ status: 200, json: { added: true, sprint: { id: draft.id, version: ready.version }, item: { sourceIssueKey: issue.id, addedBy: "me", member: true, association: "added" } } });
       if (itemId) expect(added.json.item.id).toBe(itemId);
+      const activity = await oneSprintAdded(app, issue.id, draft);
       const again = await call(app, "POST", `/api/sprints/${draft.id}/issues`, { issueRef: issue.id });
       expect(again).toEqual({ status: 200, json: { ...added.json, added: false } });
-      expect(sprintAdded((await call(app, "GET", `/api/issues/${issue.id}`)).json)).toEqual([
-        { kind: "event", at: added.json.item.addedAt, actor: "me", type: "sprint_added", data: { sprintId: draft.id, sprintNumber: draft.number, sprintName: draft.name } }]);
+      expect(await oneSprintAdded(app, issue.id, draft)).toEqual(activity);
     }
     expect(await planState(app, draft.id)).toEqual(before);
     expect(ids(await call(app, "GET", `/api/issues?sprint=${draft.id}`)).sort()).toEqual([planned.id, legacy.id, extra.id].sort());
@@ -97,6 +104,24 @@ test("合意済み計画のあるreadyへ、新規・旧候補・計画のitem�
     expect((await call(app, "GET", `/api/issues/${planned.id}`)).json.sprints.map((s: any) => [s.id, s.association])).toEqual([[draft.id, "added"]]);
     expect(ids(await call(app, "GET", `/api/issues?sprint=${draft.id}`)).sort()).toEqual([planned.id, legacy.id, extra.id].sort());
   } finally { db.close(); }
+});
+
+test("追加の時刻とActivityの時刻がミリ秒の境界をまたいでも、追加の結果とActivityを確かめられる", async () => {
+  const { db, app, ws, me, draft } = await configured();
+  // 時刻を文字列にするたびに1ミリ秒進め、追加の時刻とActivityの時刻が必ず異なる状況を作る。
+  const toISOString = Date.prototype.toISOString;
+  let tick = 0;
+  const clock = spyOn(Date.prototype, "toISOString").mockImplementation(function (this: Date) { return toISOString.call(new Date(this.getTime() + tick++)); });
+  try {
+    const issue = createIssue(me, { workspaceId: ws.id, title: "境界をまたぐ追加" });
+    const added = await call(app, "POST", `/api/sprints/${draft.id}/issues`, { issueRef: issue.id });
+    expect(added.json).toMatchObject({ added: true, item: { sourceIssueKey: issue.id, addedAt: expect.any(String) } });
+    const activity = await oneSprintAdded(app, issue.id, draft);
+    expect(activity[0].at).not.toBe(added.json.item.addedAt);
+    const again = await call(app, "POST", `/api/sprints/${draft.id}/issues`, { issueRef: issue.id });
+    expect(again).toEqual({ status: 200, json: { ...added.json, added: false } });
+    expect(await oneSprintAdded(app, issue.id, draft)).toEqual(activity);
+  } finally { clock.mockRestore(); db.close(); }
 });
 
 for (const closing of ["end", "cancel"] as const) {
