@@ -122,7 +122,7 @@ interface InlineLink {
 
 interface MdStructure {
   code: [number, number][]; // コードブロック・インラインコード。中はパスの相対パス化だけを行う
-  kept: [number, number][]; // 残す構造（画像・画像の参照・参照定義・HTML の src/href の値・参照キー・脚注の識別子）
+  kept: [number, number][]; // 残す構造（画像・画像の参照・参照定義・HTML のタグ・参照キー・脚注の識別子）
   links: InlineLink[];
 }
 
@@ -152,8 +152,9 @@ function inlineLinkOf(text: string, node: MdNode, start: number, end: number): I
 const CODE_TYPES = new Set(["code", "inlineCode"]);
 // 形ごと残す構造。脚注の参照 [^ID] は識別子だけからなる
 const KEPT_TYPES = new Set(["image", "imageReference", "definition", "footnoteReference"]);
-// HTML は属性のうち src/href の値だけを残し、ほかの本文は通常の規則で扱う
-const HTML_URL_ATTR_RE = /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+// HTML はタグ（「<」から「>」まで。属性名・引用符で囲んだ値を含む）とコメントを形ごと残し、タグの間の文は通常の規則で扱う。
+// 引用符の中の「>」でタグを終わらせないよう、値は引用符ごとに読む
+const HTML_TAG_RE = /<!--[\s\S]*?-->|<(?:[^<>"']|"[^"]*"|'[^']*')*>/g;
 const FOOTNOTE_LABEL_RE = /^\[\^[^\]\n]*\]:/;
 
 // 参照リンクの参照キー。full（[文字][キー]）は ][キー] の部分、collapsed（[キー][]）・shortcut（[キー]）は文字がキーを兼ねるので全体
@@ -174,7 +175,7 @@ function structureOf(text: string): MdStructure {
     if (range && CODE_TYPES.has(node.type)) out.code.push(range);
     else if (range && KEPT_TYPES.has(node.type)) out.kept.push(range);
     else if (range && node.type === "html") {
-      for (const m of text.slice(range[0], range[1]).matchAll(HTML_URL_ATTR_RE)) out.kept.push([range[0] + (m.index ?? 0), range[0] + (m.index ?? 0) + m[0].length]);
+      for (const m of text.slice(range[0], range[1]).matchAll(HTML_TAG_RE)) out.kept.push([range[0] + (m.index ?? 0), range[0] + (m.index ?? 0) + m[0].length]);
     } else if (range && node.type === "linkReference") {
       out.kept.push(referenceKeyOf(node, range[0], range[1]));
       if (node.referenceType === "full") stack.push(...children);

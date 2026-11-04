@@ -359,6 +359,27 @@ describe("下見の案", () => {
   });
 
   test.each([
+    ["引用符なし・単引用符の属性", "<img src='/issues/API-1' alt='API-1' data-id=API-1> API-1", "<img src='/issues/API-1' alt='API-1' data-id=API-1> この Issue"],
+    ["二重引用符の属性に、二重引用符を含むタイトルの Issue の ID", '<div title="API-4">API-1</div>', '<div title="API-4">この Issue</div>'],
+    ["引用符なしの属性", "<span data-x=API-2>API-1</span>", "<span data-x=API-2>この Issue</span>"],
+    ["単引用符の属性", "<span data-x='API-2'>API-1</span>", "<span data-x='API-2'>この Issue</span>"],
+    ["二重引用符の属性", '<span data-x="API-2">API-1</span>', '<span data-x="API-2">この Issue</span>'],
+    ["HTML ブロックの中のタグ", '<div data-x="API-2">\nAPI-1\n</div>', '<div data-x="API-2">\nこの Issue\n</div>'],
+  ])("HTML のタグ（%s）は書き換えず中の ID を残った箇所として示し、タグの間の文は整える", async (_name, description, draft) => {
+    const { db, me, ws, id, deps } = fixture();
+    createIssue(me, { workspaceId: ws.id, title: "関連" });
+    createIssue(me, { workspaceId: ws.id, title: "別件" });
+    createIssue(me, { workspaceId: ws.id, title: 'say "hello"' });
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(draft);
+    expect(p.changes.map((c) => [c.before, c.after])).toEqual([[id, "この Issue"]]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
+    const inTags = [...description.matchAll(/<[^>]*>/g)].flatMap((m) => [...m[0].matchAll(/API-\d+/g)].map((x) => x[0]));
+    expect(p.findings.filter((f) => f.rule === "issue_id").map((f) => f.text)).toEqual(inTags);
+  });
+
+  test.each([
     ["full の参照リンクの参照キー", "[仕様][API-1]\n\n[API-1]: https://example.com/spec", "[仕様][API-1]\n\n[API-1]: https://example.com/spec"],
     ["collapsed の参照リンク", "[API-1][]\n\n[API-1]: https://example.com/spec", "[API-1][]\n\n[API-1]: https://example.com/spec"],
     ["shortcut の参照リンク", "[API-1]\n\n[API-1]: https://example.com/spec", "[API-1]\n\n[API-1]: https://example.com/spec"],
