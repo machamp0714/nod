@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { posix } from "node:path";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import { type LeakConfig, type LeakField, type LeakHit, type LeakRule, leakHitsOf, leakPathEnd, leakPositionsIn, leakUrlsOf } from "./github-leak";
 import { findIssueRow, type IssueRow } from "./issue-query";
 import { githubIssueUrl, githubLinkOf } from "./ops/github-links";
@@ -95,53 +98,71 @@ function claim(plan: Plan, start: number, end: number, edit?: Omit<Edit, "start"
   if (edit) plan.edits.push({ start, end, ...edit });
 }
 
-const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
-const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[\s\S]*?[^`]\1(?!`)/g;
-const QUOTE_MARK_RE = / {0,3}>[ \t]?/y; // 「>」のあとの空白1つ（タブを含む）までが引用の印
-
-// 行頭の引用の印（>）を max 個まで外す。外した数と残り
-function unquote(line: string, max: number): { depth: number; rest: string } {
-  let depth = 0;
-  let at = 0;
-  while (depth < max) {
-    QUOTE_MARK_RE.lastIndex = at;
-    if (!QUOTE_MARK_RE.test(line)) break;
-    at = QUOTE_MARK_RE.lastIndex;
-    depth++;
-  }
-  return { depth, rest: line.slice(at) };
+// Markdown の構造は GFM のパーサー（mdast-util-from-markdown）で見分け、各ノードの位置（offset）を使う。
+// 正規表現や括弧の走査で CommonMark の形（引用・リスト・段落・エスケープ・CRLF など）を真似ない
+interface MdNode {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: MdNode[];
 }
 
-// フェンスのコードブロック（``` と ~~~。引用・入れ子の引用の中のものを含む。閉じていなければ、その引用か本文の終わりまで）と、その外のインラインコード
-function codeRangesOf(text: string): [number, number][] {
-  const out: [number, number][] = [];
-  let open: { fence: string; start: number; depth: number } | null = null;
-  let pos = 0;
-  for (const line of text.split("\n")) {
-    const end = pos + line.length;
-    // 開いているフェンスの中では、そのフェンスと同じ深さまでだけ引用の印を外す（中の「> ~~~」で閉じないため）
-    let q = unquote(line, open ? open.depth : Number.POSITIVE_INFINITY);
-    if (open && q.depth < open.depth) {
-      // 引用が終わると、その中のフェンスも終わる
-      out.push([open.start, Math.max(open.start, pos - 1)]);
-      open = null;
-      q = unquote(line, Number.POSITIVE_INFINITY);
+// インラインリンク [文字](リンク先)。label は [] の中、target はリンク先（<> を除く）の範囲
+interface InlineLink {
+  start: number;
+  end: number;
+  labelEnd: number;
+  targetStart: number;
+  targetEnd: number;
+}
+
+interface MdStructure {
+  code: [number, number][]; // コードブロック・インラインコード。中はパスの相対パス化だけを行う
+  kept: [number, number][]; // 残す構造（画像・画像の参照・参照定義・HTML）
+  links: InlineLink[];
+}
+
+// ノードの範囲。位置のないノードは扱わない
+function rangeOf(node: MdNode): [number, number] | null {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  return start === undefined || end === undefined ? null : [start, end];
+}
+
+// ]( のあとの空白・リンク先（<...> か空白を含まない並び）・任意のタイトル・) までの形。リンク先の位置をここから求める
+const LINK_TAIL_RE = /^\]\((\s*)(<[^>\n]*>|\S*?)(?:\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^)\\]|\\.)*\)))?\s*\)$/;
+
+function inlineLinkOf(text: string, node: MdNode, start: number, end: number): InlineLink | null {
+  // [ で始まるものだけがインラインリンク。<URL> や文中の URL（GFM の autolink）は URL の規則で扱う
+  if (text[start] !== "[") return null;
+  const last = node.children?.at(-1);
+  const labelEnd = (last && rangeOf(last)?.[1]) ?? start + 1;
+  const m = LINK_TAIL_RE.exec(text.slice(labelEnd, end));
+  if (!m) return null; // [文字][参照] などリンク先を本文に持たない形
+  const raw = m[2] ?? "";
+  const bracketed = raw.startsWith("<");
+  const targetStart = labelEnd + 2 + (m[1] ?? "").length + (bracketed ? 1 : 0);
+  return { start, end, labelEnd, targetStart, targetEnd: targetStart + raw.length - (bracketed ? 2 : 0) };
+}
+
+const CODE_TYPES = new Set(["code", "inlineCode"]);
+const KEPT_TYPES = new Set(["image", "imageReference", "definition", "html"]);
+
+function structureOf(text: string): MdStructure {
+  const out: MdStructure = { code: [], kept: [], links: [] };
+  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as unknown as MdNode;
+  const visit = (node: MdNode) => {
+    const range = rangeOf(node);
+    if (range && CODE_TYPES.has(node.type)) return void out.code.push(range);
+    if (range && KEPT_TYPES.has(node.type)) return void out.kept.push(range);
+    if (range && node.type === "link") {
+      const link = inlineLinkOf(text, node, range[0], range[1]);
+      if (link) out.links.push(link);
     }
-    const m = FENCE_RE.exec(q.rest);
-    const fence = m?.[1] ?? "";
-    const rest = q.rest.slice(m?.[0].length ?? 0);
-    if (open) {
-      if (m && fence[0] === open.fence[0] && fence.length >= open.fence.length && !rest.trim()) {
-        out.push([open.start, end]);
-        open = null;
-      }
-    } else if (m && !(fence[0] === "`" && rest.includes("`"))) open = { fence, start: pos, depth: q.depth };
-    pos = end + 1;
-  }
-  if (open) out.push([open.start, text.length]);
-  const outside = out.reduce((t, [s, e]) => t.slice(0, s) + " ".repeat(e - s) + t.slice(e), text);
-  for (const m of outside.matchAll(INLINE_CODE_RE)) out.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
-  return out.sort((a, b) => a[0] - b[0]);
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(tree);
+  out.code.sort((x, y) => x[0] - y[0]);
+  return out;
 }
 
 // ID の規則の結果（as は何に書き換えたかの説明）。null なら残す
@@ -207,9 +228,6 @@ function planImportFooter(text: string, hits: LeakHit[], plan: Plan): void {
   claim(plan, start, start + m[1].length, { after: `参考: ${m[2]}`, rule: "import_footer", reason: "取り込みの footer を、出所の URL だけの1行にしました" });
 }
 
-// Markdown のインラインリンク [文字](リンク先)。画像（![）・文字が空や改行入り・入れ子の [] のものは扱わない（検出のまま残す）
-const INLINE_LINK_RE = /(?<![!\\])\[([^\[\]\n]+)\]\(\s*(<[^>\n]*>|[^\s()<>]*)\s*\)/g;
-
 // GitHub に対応がある nod の Issue（/issues/<ID> か nod の Web の Issue の URL）を指すリンク先なら、その GitHub の URL
 function linkedIssueUrlOf(env: DraftEnv, text: string, start: number, end: number, hits: LeakHit[]): { url: string; rule: LeakRule } | null {
   const target = text.slice(start, end);
@@ -233,86 +251,29 @@ function linkPathOf(env: DraftEnv, target: string): string | null {
   return target;
 }
 
-// 検出があったリンクは、ここで決めた書き換え（またはそのまま）だけにし、中の ID・パスはあとの規則で書き換えない
-function planLinks(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): void {
-  for (const m of text.matchAll(INLINE_LINK_RE)) {
-    const start = m.index ?? 0;
-    const end = start + m[0].length;
-    const raw = m[2] ?? "";
-    const bracketed = raw.startsWith("<");
-    const targetStart = start + m[0].lastIndexOf(raw) + (bracketed ? 1 : 0);
-    const target = bracketed ? raw.slice(1, -1) : raw;
-    const targetEnd = targetStart + target.length;
-    if (!isFree(plan, start, end) || inCode(plan, start, end) || !hits.some((h) => h.index >= targetStart && h.index < Math.max(targetEnd, targetStart + 1))) continue;
-    claim(plan, start, end);
-    const linked = linkedIssueUrlOf(env, text, targetStart, targetEnd, hits);
+// 残す構造（画像・画像の参照・参照定義・HTML）は、ラベルの中のリンクなどより先に確定する。中に検出があれば形ごと残し、中をあとの規則で書き換えない
+function planKept(md: MdStructure, hits: LeakHit[], plan: Plan): void {
+  for (const [start, end] of md.kept) {
+    if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= start && h.index < end)) claim(plan, start, end);
+  }
+}
+
+// リンク先に検出があったインラインリンクは、ここで決めた書き換え（またはそのまま）だけにし、中の ID・パスはあとの規則で書き換えない。
+// 文字が空のリンクは残す
+function planLinks(env: DraftEnv, text: string, md: MdStructure, hits: LeakHit[], plan: Plan): void {
+  for (const l of md.links) {
+    if (!isFree(plan, l.start, l.end) || inCode(plan, l.start, l.end) || !hits.some((h) => h.index >= l.targetStart && h.index < Math.max(l.targetEnd, l.targetStart + 1))) continue;
+    claim(plan, l.start, l.end);
+    const label = text.slice(l.start + 1, l.labelEnd);
+    if (!label) continue;
+    const linked = linkedIssueUrlOf(env, text, l.targetStart, l.targetEnd, hits);
     if (linked) {
-      plan.edits.push({ start: targetStart, end: targetEnd, after: linked.url, rule: linked.rule, reason: "nod の Issue へのリンク先を、対応する GitHub Issue の URL にしました" });
+      plan.edits.push({ start: l.targetStart, end: l.targetEnd, after: linked.url, rule: linked.rule, reason: "nod の Issue へのリンク先を、対応する GitHub Issue の URL にしました" });
       continue;
     }
-    const path = linkPathOf(env, target);
-    if (path) plan.edits.push({ start, end, after: `${m[1]}（${path}）`, rule: "link_target", reason: "GitHub で開けないリンクを、リンクの文字とパスの表記にしました" });
+    const path = linkPathOf(env, text.slice(l.targetStart, l.targetEnd));
+    if (path) plan.edits.push({ start: l.start, end: l.end, after: `${label}（${path}）`, rule: "link_target", reason: "GitHub で開けないリンクを、リンクの文字とパスの表記にしました" });
   }
-}
-
-// 対応する括弧の組（open の位置 → close の位置）。\ でエスケープした文字は数えず、空行（段落の区切り）はまたがない。
-// 1回の走査で積み上げて対応を取るので、入れ子の深さに依らず、閉じない括弧が多くても線形で済む
-const BLANK_LINE_RE = /\n[ \t]*(?=\n)/y;
-
-function bracketPairsOf(text: string, open: string, close: string): Map<number, number> {
-  const pairs = new Map<number, number>();
-  const stack: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === "\\") i++;
-    else if (c === open) stack.push(i);
-    else if (c === close && stack.length) pairs.set(stack.pop() ?? 0, i);
-    else if (c === "\n" && stack.length) {
-      BLANK_LINE_RE.lastIndex = i;
-      if (BLANK_LINE_RE.test(text)) stack.length = 0;
-    }
-  }
-  return pairs;
-}
-
-// index の文字が \ でエスケープされているか（直前の \ の連なりが奇数）
-function escaped(text: string, index: number): boolean {
-  let n = 0;
-  for (let i = index - 1; i >= 0 && text[i] === "\\"; i--) n++;
-  return n % 2 === 1;
-}
-
-// 角括弧のラベルの直後に (リンク先) が続く画像・インラインリンク。ラベルの入れ子の深さ・改行に依らず取り、段落（空行）はまたがない
-function bracketLinksOf(text: string): { start: number; targetStart: number; end: number; image: boolean }[] {
-  const labels = bracketPairsOf(text, "[", "]");
-  const parens = bracketPairsOf(text, "(", ")");
-  const out: { start: number; targetStart: number; end: number; image: boolean }[] = [];
-  for (const [open, close] of labels) {
-    const targetEnd = text[close + 1] === "(" ? parens.get(close + 1) : undefined;
-    if (targetEnd === undefined) continue;
-    const image = text[open - 1] === "!" && !escaped(text, open - 1); // \! は画像ではない
-    out.push({ start: image ? open - 1 : open, targetStart: close + 1, end: targetEnd + 1, image });
-  }
-  return out.sort((a, b) => a.start - b.start);
-}
-
-// 残すリンクの形。中に検出があれば形ごと残し、中の ID・URL・パスをあとの規則で書き換えない。
-// 画像は中のどこかに、planLinks で扱わなかったインラインリンクはリンク先に検出があれば残す。参照定義（リンク先が次の行にあるものも含む）と HTML の src/href も残す
-const KEPT_LINK_RES: RegExp[] = [/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?\S+/gm, /\b(?:src|href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi];
-
-// 画像は残す外側の構造なので、ラベルの中のリンクなどより先に確定する。中に検出があれば画像ごと残し、中をあとの規則で書き換えない
-function planKeptImages(text: string, hits: LeakHit[], plan: Plan): void {
-  for (const l of bracketLinksOf(text)) {
-    if (l.image && isFree(plan, l.start, l.end) && !inCode(plan, l.start, l.end) && hits.some((h) => h.index >= l.start && h.index < l.end)) claim(plan, l.start, l.end);
-  }
-}
-
-function planKeptLinks(text: string, hits: LeakHit[], plan: Plan): void {
-  const keep = (start: number, end: number, from = start) => {
-    if (isFree(plan, start, end) && !inCode(plan, start, end) && hits.some((h) => h.index >= from && h.index < end)) claim(plan, start, end);
-  };
-  for (const l of bracketLinksOf(text)) keep(l.start, l.end, l.image ? l.start : l.targetStart);
-  for (const re of KEPT_LINK_RES) for (const m of text.matchAll(re)) keep(m.index ?? 0, (m.index ?? 0) + m[0].length);
 }
 
 // パス・ファイル名・ブランチ名の一部になっている ID（docs/API-1.md、feature/API-1、API-1/memo、API-1.設計.md）。言い換えるとパスが壊れるので残す。
@@ -365,11 +326,11 @@ function planPath(env: DraftEnv, text: string, index: number, plan: Plan): void 
 function editsOf(env: DraftEnv, text: string): Edit[] {
   const hits = leakHitsOf(text, env.config);
   if (!hits.length) return [];
-  const plan: Plan = { edits: [], claimed: [], code: codeRangesOf(text) };
+  const md = structureOf(text);
+  const plan: Plan = { edits: [], claimed: [], code: md.code };
   planImportFooter(text, hits, plan);
-  planKeptImages(text, hits, plan);
-  planLinks(env, text, hits, plan);
-  planKeptLinks(text, hits, plan);
+  planKept(md, hits, plan);
+  planLinks(env, text, md, hits, plan);
   planUrls(env, text, hits, plan);
   planHits(env, text, hits, plan);
   return plan.edits;

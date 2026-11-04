@@ -324,11 +324,12 @@ describe("下見の案", () => {
       `<img src="http://localhost:4700/issues/${unlinked}">`,
       `[web]: http://localhost:4700/issues/${id}`,
     ];
-    updateIssue(me, id, { description: [...kept, `${unlinked} の続き`].join("\n") });
+    // 参照定義は段落の途中に置けない（CommonMark）ので、それぞれを別のブロックにする。n 番目の例は 2n-1 行目
+    updateIssue(me, id, { description: [...kept, `${unlinked} の続き`].join("\n\n") });
     const p = await previewGithubPublish(me, id, deps(fakeGh()));
-    expect(p.body).toBe([...kept, "「ログを整理する」の Issue の続き"].join("\n"));
-    expect(p.changes.map((c) => c.line)).toEqual([6]);
-    const at = (line: number, rule: string) => p.findings.filter((f) => f.line === line && f.rule === rule).map((f) => [f.column, f.text]);
+    expect(p.body).toBe([...kept, "「ログを整理する」の Issue の続き"].join("\n\n"));
+    expect(p.changes.map((c) => c.line)).toEqual([11]);
+    const at = (n: number, rule: string) => p.findings.filter((f) => f.line === 2 * n - 1 && f.rule === rule).map((f) => [f.column, f.text]);
     expect(at(1, "link_target")).toEqual([[13, "/issues/API-2"]]);
     expect(at(1, "issue_id")).toEqual([[3, "API-2"], [21, "API-2"]]);
     expect(at(2, "link_target")).toEqual([[8, "/issues/API-1"]]);
@@ -355,12 +356,14 @@ describe("下見の案", () => {
     ["入れ子の引用の中のフェンス", ["> > ~~~", "> > API-1", "> > ~~~", "API-1 の続き"]],
     ["閉じないまま引用が終わるフェンス", ["> ~~~", "> API-1", "", "API-1 の続き"]],
     ["引用記号のあとがタブのフェンス", [">\t~~~text", ">\tAPI-1", ">\t~~~", "API-1 の続き"]],
+    ["リストの中の引用のフェンス", ["- > ~~~text", "  > API-1", "  > ~~~", "", "API-1 の続き"]],
+    ["リストの中のフェンス", ["- ~~~text", "  API-1", "  ~~~", "", "API-1 の続き"]],
   ])("%s はコードとして扱い、中の ID を残して検出を保つ。引用の外は言い換える", async (_name, lines) => {
     const { db, me, id, deps } = fixture();
     updateIssue(me, id, { description: lines.join("\n") });
     const p = await previewGithubPublish(me, id, deps(fakeGh()));
     expect(p.body).toBe([...lines.slice(0, -1), "この Issue の続き"].join("\n"));
-    expect(p.changes.map((c) => c.line)).toEqual([4]);
+    expect(p.changes.map((c) => c.line)).toEqual([lines.length]);
     expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
     expect(p.findings.map((f) => [f.line, f.text])).toEqual([[2, "API-1"]]);
   });
@@ -376,6 +379,8 @@ describe("下見の案", () => {
   test.each([
     ["「!」をエスケープした画像でない形", "\\![図 [注](docs/a.md)](https://example.com/image.png)", "\\![図 注（docs/a.md）](https://example.com/image.png)"],
     ["空行で段落が分かれる画像でない形", "![図\n\n[注](docs/a.md)](https://example.com/image.png)", "![図\n\n注（docs/a.md）](https://example.com/image.png)"],
+    ["引用の中の空行で段落が分かれる画像でない形", "> ![図\n>\n> [注](docs/a.md)](https://example.com/image.png)", "> ![図\n>\n> 注（docs/a.md）](https://example.com/image.png)"],
+    ["CRLF の空行で段落が分かれる画像でない形", "![図\r\n\r\n[注](docs/a.md)](https://example.com/image.png)", "![図\r\n\r\n注（docs/a.md）](https://example.com/image.png)"],
   ])("%s は画像として残さず、中のリンクを整える", async (_name, description, draft) => {
     const { db, me, id, deps } = fixture();
     updateIssue(me, id, { description });

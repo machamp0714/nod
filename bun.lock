@@ -23,9 +23,15 @@
     },
     "packages/core": {
       "name": "@nod/core",
+      "dependencies": {
+        "mdast-util-from-markdown": "^2.0.3",
+        "mdast-util-gfm": "^3.1.0",
+        "micromark-extension-gfm": "^3.0.0",
+      },
     },
     "packages/desktop": {
       "name": "@nod/desktop",
+      "version": "0.1.0",
       "devDependencies": {
         "@tauri-apps/cli": "2.12.1",
       },
