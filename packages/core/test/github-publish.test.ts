@@ -354,6 +354,7 @@ describe("下見の案", () => {
     ["引用の中の ```", ["> ```", "> API-1", "> ```", "API-1 の続き"]],
     ["入れ子の引用の中のフェンス", ["> > ~~~", "> > API-1", "> > ~~~", "API-1 の続き"]],
     ["閉じないまま引用が終わるフェンス", ["> ~~~", "> API-1", "", "API-1 の続き"]],
+    ["引用記号のあとがタブのフェンス", [">\t~~~text", ">\tAPI-1", ">\t~~~", "API-1 の続き"]],
   ])("%s はコードとして扱い、中の ID を残して検出を保つ。引用の外は言い換える", async (_name, lines) => {
     const { db, me, id, deps } = fixture();
     updateIssue(me, id, { description: lines.join("\n") });
@@ -370,6 +371,18 @@ describe("下見の案", () => {
     updateIssue(me, id, { description: lines.join("\n") });
     const p = await previewGithubPublish(me, id, deps(fakeGh()));
     expect(p.body).toBe([...lines.slice(0, -1), "この Issue の続き"].join("\n"));
+  });
+
+  test.each([
+    ["「!」をエスケープした画像でない形", "\\![図 [注](docs/a.md)](https://example.com/image.png)", "\\![図 注（docs/a.md）](https://example.com/image.png)"],
+    ["空行で段落が分かれる画像でない形", "![図\n\n[注](docs/a.md)](https://example.com/image.png)", "![図\n\n注（docs/a.md）](https://example.com/image.png)"],
+  ])("%s は画像として残さず、中のリンクを整える", async (_name, description, draft) => {
+    const { db, me, id, deps } = fixture();
+    updateIssue(me, id, { description });
+    const p = await previewGithubPublish(me, id, deps(fakeGh()));
+    expect(p.body).toBe(draft);
+    expect(p.changes.map((c) => [c.before, c.after, c.rule])).toEqual([["[注](docs/a.md)", "注（docs/a.md）", "link_target"]]);
+    expect(p.findings).toEqual(checkGithubPublishText(db, { title: p.title, body: p.body }, deps(fakeGh())));
   });
 
   test.each([

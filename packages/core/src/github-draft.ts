@@ -97,7 +97,7 @@ function claim(plan: Plan, start: number, end: number, edit?: Omit<Edit, "start"
 
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
 const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[\s\S]*?[^`]\1(?!`)/g;
-const QUOTE_MARK_RE = / {0,3}> ?/y;
+const QUOTE_MARK_RE = / {0,3}>[ \t]?/y; // 「>」のあとの空白1つ（タブを含む）までが引用の印
 
 // 行頭の引用の印（>）を max 個まで外す。外した数と残り
 function unquote(line: string, max: number): { depth: number; rest: string } {
@@ -255,8 +255,10 @@ function planLinks(env: DraftEnv, text: string, hits: LeakHit[], plan: Plan): vo
   }
 }
 
-// 対応する括弧の組（open の位置 → close の位置）。\ でエスケープした文字は数えない。
+// 対応する括弧の組（open の位置 → close の位置）。\ でエスケープした文字は数えず、空行（段落の区切り）はまたがない。
 // 1回の走査で積み上げて対応を取るので、入れ子の深さに依らず、閉じない括弧が多くても線形で済む
+const BLANK_LINE_RE = /\n[ \t]*(?=\n)/y;
+
 function bracketPairsOf(text: string, open: string, close: string): Map<number, number> {
   const pairs = new Map<number, number>();
   const stack: number[] = [];
@@ -265,11 +267,22 @@ function bracketPairsOf(text: string, open: string, close: string): Map<number, 
     if (c === "\\") i++;
     else if (c === open) stack.push(i);
     else if (c === close && stack.length) pairs.set(stack.pop() ?? 0, i);
+    else if (c === "\n" && stack.length) {
+      BLANK_LINE_RE.lastIndex = i;
+      if (BLANK_LINE_RE.test(text)) stack.length = 0;
+    }
   }
   return pairs;
 }
 
-// 角括弧のラベルの直後に (リンク先) が続く画像・インラインリンク。ラベルの入れ子の深さ・改行に依らず取る
+// index の文字が \ でエスケープされているか（直前の \ の連なりが奇数）
+function escaped(text: string, index: number): boolean {
+  let n = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i--) n++;
+  return n % 2 === 1;
+}
+
+// 角括弧のラベルの直後に (リンク先) が続く画像・インラインリンク。ラベルの入れ子の深さ・改行に依らず取り、段落（空行）はまたがない
 function bracketLinksOf(text: string): { start: number; targetStart: number; end: number; image: boolean }[] {
   const labels = bracketPairsOf(text, "[", "]");
   const parens = bracketPairsOf(text, "(", ")");
@@ -277,7 +290,7 @@ function bracketLinksOf(text: string): { start: number; targetStart: number; end
   for (const [open, close] of labels) {
     const targetEnd = text[close + 1] === "(" ? parens.get(close + 1) : undefined;
     if (targetEnd === undefined) continue;
-    const image = text[open - 1] === "!";
+    const image = text[open - 1] === "!" && !escaped(text, open - 1); // \! は画像ではない
     out.push({ start: image ? open - 1 : open, targetStart: close + 1, end: targetEnd + 1, image });
   }
   return out.sort((a, b) => a.start - b.start);
