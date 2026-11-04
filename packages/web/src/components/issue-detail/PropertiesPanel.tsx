@@ -343,10 +343,12 @@ export function PropertiesPanel({
   const sprints = useSprints();
   const workspaces = useWorkspaces();
   const setSprint = useSetIssueSprint(issue.id);
-  const sprintList = sprints.data && workspaces.data ? sprints.data : null;
+  // 読み直しに失敗しても TanStack Query は前の data を残すため、data の有無より先に失敗を見る。失敗中は古い候補を並べない
+  const sprintLoadFailed = sprints.isError || workspaces.isError;
+  const sprintList = !sprintLoadFailed && sprints.data && workspaces.data ? sprints.data : null;
   const picker = sprintPicker(issue.sprints, sprintList ?? [], workspaces.data?.find((w) => w.key === issue.workspace)?.id ?? null, Date.now());
-  const sprintStatus = !sprintList
-    ? sprints.isError || workspaces.isError ? "Sprint を読み込めませんでした" : "Sprint を読み込み中…"
+  const sprintStatus = sprintLoadFailed ? "Sprint を読み込めませんでした"
+    : !sprintList ? "Sprint を読み込み中…"
     : picker.choices.length === 0 ? "選べる Sprint はありません" : undefined;
   const sprintIcon = <PropIcon name="calendar-range" color="var(--ink2)" />;
   const sprintMenu: PropertyOption[] = [

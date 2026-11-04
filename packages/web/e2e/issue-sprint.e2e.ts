@@ -108,6 +108,49 @@ test.describe("Sprint の一覧の読み込み", () => {
     await expect(props.getByText("Sprint を読み込み中…")).toHaveCount(0);
     await expect(props.getByText("選べる Sprint はありません")).toHaveCount(0);
   });
+
+  test("一度読み込んだ後の読み直しに失敗したら、空の一覧も古い候補も正常に見せず、読み込めなかったと出す", async ({ page, nod }) => {
+    const ws = await workspace(nod, "RFL");
+    const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "読み直しに失敗する" });
+    await page.goto(`/issues/${issue.id}`);
+    const props = region(page, "プロパティ");
+    const pill = property(props, "Sprint");
+    const priority = property(props, "Priority");
+    const failSprints = () => page.route("**/api/sprints", (route) => route.fulfill({ status: 400, json: { error: { code: "INVALID_ARGS", message: "読めない" } } }));
+    // web 自身の書き込みの後は、すべての一覧を読み直す
+    const rewrite = async (label: string) => {
+      const refetched = page.waitForResponse((res) => new URL(res.url()).pathname === "/api/sprints");
+      await priority.click();
+      await propertyMenu(props, "Priority").getByRole("menuitemradio", { name: label, exact: true }).click();
+      await refetched;
+    };
+
+    // 空の一覧を読み込めた後に読み直しが失敗しても、「選べる Sprint はありません」と出さない
+    await pill.click();
+    await expect(props.getByText("選べる Sprint はありません", { exact: true })).toBeVisible();
+    await pill.click();
+    await failSprints();
+    await rewrite("Urgent");
+    await pill.click();
+    await expect(props.getByText("Sprint を読み込めませんでした", { exact: true })).toBeVisible();
+    await expect(props.getByText("選べる Sprint はありません")).toHaveCount(0);
+    await pill.click();
+
+    // 候補を読み込めた後に読み直しが失敗したら、古い候補を正常に読めたように並べない
+    await page.unroute("**/api/sprints");
+    await draftSprint(page, "RFL", "古い候補", 3);
+    await rewrite("High");
+    await pill.click();
+    await expect(sprintOption(page, "古い候補")).toBeEnabled();
+    await expect(props.getByText("Sprint を読み込めませんでした")).toHaveCount(0);
+    await pill.click();
+    await failSprints();
+    await rewrite("Low");
+    await pill.click();
+    await expect(props.getByText("Sprint を読み込めませんでした", { exact: true })).toBeVisible();
+    await expect(sprintOption(page, "古い候補")).toHaveCount(0);
+    await expect(sprintMenu(page).getByRole("menuitemradio")).toHaveText(["なし"]);
+  });
 });
 
 test.describe("Sprint の指定・変更・解除", () => {
