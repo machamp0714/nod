@@ -174,7 +174,8 @@ test.skipIf(process.env.NOD_REPAIR_REAL_SANDBOX !== "1")("実OS隔離で外部�
   const f = await fixture();
   const canary = join(f.dir, "outside-canary");
   const secret = join(f.dir, ".env.test-fixture");
-  writeFileSync(canary, "保存する値"); writeFileSync(secret, "偽の秘密値");
+  const key = join(f.dir, "fixture-server.pem");
+  writeFileSync(canary, "保存する値"); writeFileSync(secret, "偽の秘密値"); writeFileSync(key, "偽の鍵");
   let connections = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { connections++; return new Response("接続は禁止"); } });
   try {
@@ -187,6 +188,7 @@ test.skipIf(process.env.NOD_REPAIR_REAL_SANDBOX !== "1")("実OS隔離で外部�
       denied("outside_write", () => fs.writeFileSync(${JSON.stringify(canary)}, "変更"));
       denied("source_read", () => fs.readFileSync(${JSON.stringify(join(f.repo, "value.ts"))}));
       denied("secret_read", () => fs.readFileSync(${JSON.stringify(secret)}));
+      denied("key_read", () => fs.readFileSync(${JSON.stringify(key)}));
       await new Promise((resolve, reject) => { const socket = require("node:net").createConnection({ host: "127.0.0.1", port: ${server.port} }); socket.on("connect", () => { socket.destroy(); reject(new Error("ネットワーク接続に成功した")); }); socket.on("error", e => { record({ label: "network", code: e.code, message: e.message }); ["EPERM", "EACCES", "ECONNREFUSED"].includes(e.code) ? resolve() : reject(e); }); });
       const { value } = await import("./value.ts"); if (value !== 2) process.exit(1);
     `];

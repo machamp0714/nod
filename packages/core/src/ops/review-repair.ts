@@ -153,7 +153,7 @@ export async function repairReviewOnce(db: Database, input: RunReviewInput, init
     };
     const temporaryDirectory = mkdtempSync(join(work, ".nod-review-tmp-"));
     const quote = (value: string) => JSON.stringify(value);
-    const sandboxPolicy = `(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath ${quote(work)}))(allow file-write* (literal "/dev/null"))(deny file-read* (subpath ${quote(realpathSync(target.repo))}))(deny file-read* (regex #"(^|/)([.]env([.][^/]*)?|[.]aws|credentials[^/]*|id_rsa|id_ed25519)(/|$)"))`;
+    const sandboxPolicy = `(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (subpath ${quote(work)}))(allow file-write* (literal "/dev/null"))(deny file-read* (subpath ${quote(realpathSync(target.repo))}))(deny file-read* (regex #"(^|/)([.]env([.][^/]*)?|[.]aws|credentials[^/]*|id_rsa|id_ed25519|[^/]*[.]([pP][eE][mM]|[kK][eE][yY]))(/|$)"))`;
     const runCommands = async (commands: Command[], phase: "prepare" | "verify") => {
       for (const command of commands) {
         check();

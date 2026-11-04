@@ -214,6 +214,11 @@ test("ブランチ名からIssue IDを推測せず、記録されたbranchの完
   const r = await f.cli(...args);
   expect(r.exitCode, r.stdout).toBe(0);
   expect(r.json.requirements.issueIds).toEqual([f.issue]);
+  const reviewing = await runNod(["issue", "update", f.issue, "--status", "in_review", "--json"], { cwd: f.repo, db: f.db, actor: "claude-code", env: f.env });
+  expect(reviewing.exitCode, reviewing.stdout).toBe(0);
+  const inReview = await f.cli(...args);
+  expect(inReview.exitCode, inReview.stdout).toBe(0);
+  expect(inReview.json.requirements.issueIds).toEqual([f.issue]);
 });
 
 test("別WorkspaceのIssueをbranchと作業場所で解決し、無関係repoの同名branchを選ばない", async () => {

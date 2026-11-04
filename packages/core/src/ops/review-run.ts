@@ -159,10 +159,19 @@ export async function runReviewPass(db: Database, input: RunReviewInput, fixed?:
     for (const entry of baseEntries) {
       const tab = entry.indexOf("\t"), path = entry.slice(tab + 1);
       const [mode, type, oid, size] = entry.slice(0, tab).trim().split(/\s+/);
-      if (!["100644", "100755"].includes(mode!) || type !== "blob" || sensitiveReviewPath(path) || path.split("/").some(p => p === ".." || p === ".git")) continue;
-      if (Number(size) > 2 * 1024 * 1024 || bytes + Number(size) > 128 * 1024 * 1024) continue;
+      if (path.split("/").some(p => p === ".." || p === ".git")) continue;
+      // 変更対象の基点本文を読めない場合は記録する。削除されたファイルは差分以外に読む手段がないため停止する。
+      const baseExclude = (reason: string) => {
+        if (!target.files.includes(path)) return;
+        result.execution.excludedSources.push({ path, reason: `base_${reason}` });
+        if (!code.some(c => c.path === path)) throw new ReviewFailure("SNAPSHOT_EXCLUDED", `削除された変更対象 ${path} の基点本文は ${reason} のため読み込めません。必要範囲の確認が不足しています`);
+      };
+      if (!["100644", "100755"].includes(mode!) || type !== "blob") { baseExclude("non_regular"); continue; }
+      if (sensitiveReviewPath(path)) { baseExclude("sensitive_path"); continue; }
+      if (Number(size) > 2 * 1024 * 1024 || bytes + Number(size) > 128 * 1024 * 1024) { baseExclude("size_limit"); continue; }
       const content = await blob(oid!);
-      if (content === null || content.includes("\0")) continue;
+      if (content === null) { baseExclude("invalid_utf8"); continue; }
+      if (content.includes("\0")) { baseExclude("binary"); continue; }
       const snapshotPath = `${baseDirectory}/${path}`, destination = resolve(cwd, snapshotPath);
       if (!destination.startsWith(cwd + sep)) throw new ReviewFailure("SNAPSHOT_FAILED", "基点資料のパスがsnapshot外です");
       mkdirSync(dirname(destination), { recursive: true }); writeFileSync(destination, content, { flag: "wx", mode: 0o444 });

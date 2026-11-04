@@ -173,6 +173,7 @@ for (const layer of ["review", "automatic_check", "unresolved"] as const) test(`
   expect(report.json.regression.majorTotal).toBe(layer === "review" ? 1 : 0);
   expect(report.json.metrics.valid).toBe(layer === "review" ? 1 : 0);
   expect(report.json.status).toBe(layer === "unresolved" ? "pending" : "evaluated");
+  expect(report.json.metrics.precisionIsFinal).toBe(layer !== "unresolved");
   expect(report.json.cases[0].classification[layer === "automatic_check" ? "automaticCheck" : layer]).toEqual(["known"]);
 });
 

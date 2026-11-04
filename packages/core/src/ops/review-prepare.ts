@@ -191,7 +191,7 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
       const branch = (await git("branch", "--show-current")).trim();
       const common = (await git("rev-parse", "--path-format=absolute", "--git-common-dir")).trim();
       const workspace = db.query("SELECT key FROM workspaces WHERE path = ?").get(dirname(common)) as { key: string } | null;
-      const candidates = branch ? listIssues(db, { statuses: ["triage", "backlog", "needs_clarification", "todo", "in_progress", "done", "canceled"] }).filter(i => i.branch === branch) : [];
+      const candidates = branch ? listIssues(db, { statuses: ["triage", "backlog", "needs_clarification", "todo", "in_progress", "in_review", "done", "canceled"] }).filter(i => i.branch === branch) : [];
       const matches = [];
       for (const candidate of candidates) {
         // Personalなど別WorkspaceのIssueも、記録した作業場所がこのrepoなら対象にする。

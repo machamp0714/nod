@@ -161,7 +161,7 @@ export function reportReviewEvaluation(dataset: string, judgmentsPath?: string) 
   const metrics = (subset: typeof rows) => {
     const required = subset.flatMap(r => r.required), valid = required.filter(r => r.verdict === "valid").length;
     const times = subset.flatMap(r => r.triageMinutes === null ? [] : [r.triageMinutes]);
-    return { prs: subset.length, required: required.length, valid, pending: required.filter(r => r.verdict === "pending").length, precision: required.length ? valid / required.length : null, precisionIsFinal: required.length > 0 && required.every(r => r.verdict !== "pending"),
+    return { prs: subset.length, required: required.length, valid, pending: required.filter(r => r.verdict === "pending").length, precision: required.length ? valid / required.length : null, precisionIsFinal: required.length > 0 && required.every(r => r.verdict !== "pending") && subset.every(r => (r.classification?.unresolved.length ?? 0) === 0),
       triageMedianMinutes: times.length === subset.length ? median(times) : null, observedTriageMedianMinutes: median(times), triageKnown: times.length, triageUnknown: subset.length - times.length,
       findingsOnlyMedianMinutes: median(subset.filter(r => r.hasFindings).flatMap(r => r.triageMinutes === null ? [] : [r.triageMinutes])),
       unevaluable: subset.filter(r => r.status === "unevaluable").length, notRun: subset.filter(r => r.status === "not_run").length,

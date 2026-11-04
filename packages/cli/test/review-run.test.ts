@@ -543,6 +543,19 @@ test(`local固定後からモデル起動前に${standard}が変わっても古�
 });
 }
 
+test("削除した変更対象の基点本文を読めなければ記録して未完了にする", async () => {
+  const f = await fixture();
+  writeFileSync(join(f.repo, "logo.bin"), Buffer.from([1, 0, 2, 0]));
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "バイナリ追加");
+  git(f.repo, "rm", "-q", "logo.bin"); git(f.repo, "commit", "-qm", "バイナリ削除");
+  successfulClaude(f.dir);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "SNAPSHOT_EXCLUDED" }));
+  expect(result.json.execution.excludedSources).toContainEqual({ path: "logo.bin", reason: "base_binary" });
+  expect(result.json.execution.stages).toEqual([]);
+});
+
 test("変更対象が不正UTF-8なら置換文字でレビューせず未完了にする", async () => {
   const f = await fixture();
   writeFileSync(join(f.repo, "value.ts"), Buffer.from([255, 128, 10]));
