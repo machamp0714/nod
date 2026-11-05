@@ -732,4 +732,6 @@ export const MIGRATIONS: MigrationStep[][] = [
     BEGIN SELECT RAISE(ABORT,'Sprint記録は追記のみです'); END`],
   // 版50: Sprint導入済みDBにも本番のPRレビュー状態を追加する。
   [addInReview],
+  // 版51: Sprintへの追加の記録。両方が入ったitemを所属とする。既存itemは推定で埋めない。
+  [`ALTER TABLE sprint_items ADD COLUMN added_by TEXT`, `ALTER TABLE sprint_items ADD COLUMN added_at TEXT`],
 ];

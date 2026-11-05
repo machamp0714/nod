@@ -52,6 +52,7 @@ const EVENT_ICON: Record<string, IconName> = {
   project_changed: "box",
   milestone_changed: "flag",
   cycle_changed: "calendar-range",
+  sprint_added: "calendar-range",
   parent_changed: "arrow-right",
   labels_changed: "tag",
   agent_state_changed: "loader-circle",

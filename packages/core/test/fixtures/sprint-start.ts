@@ -14,7 +14,7 @@ export function prepareSprint(ctx: core.OpCtx, workspaceKey: string, issueRefs: 
   });
   const items: core.SprintItem[] = [];
   for (const issueRef of issueRefs) {
-    const added = core.addSprintCandidate(ctx, sprint.id, { issueRef, expectedVersion: sprint.version, requestKey: `候補:${issueRef}` });
+    const added = core.addIssueToSprint(ctx, sprint.id, { issueRef });
     sprint = added.sprint;
     items.push(added.item);
   }

@@ -23,6 +23,8 @@ test("旧Cycleと周期のAPIは入力によらず廃止案内を返し、Issue�
     const res = await call(app,method,path,body);
     expect([path,res.status,res.json.error.code]).toEqual([path,410,"CYCLE_RETIRED"]);
     expect(res.json.error.message).toContain("Sprint");
+    // 検索・保存条件の拒否以外は、Sprintへの追加の操作を案内する
+    if (path !== "/api/views") expect([path,res.json.error.message]).toEqual([path,expect.stringContaining("nod sprint add <sprint> <issue>")]);
     expect(getIssue(db,issue.id)).toEqual(before);
   }
   expect(listViews(db)).toEqual([]);

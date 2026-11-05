@@ -39,7 +39,7 @@ export function SprintAnalyticsPanel({ cycle, onClose }: { cycle: SprintDetail; 
           <LoadingMessage />
         ) : (
           <>
-            <p className={s.empty}>{data.statusBasis === "migration_snapshot" ? `移行時の写し（${data.capturedAt ?? "取得時点不明"}）。終了時点の成果を示す値ではありません。` : "現在の採択集合"}</p>
+            <p className={s.empty}>{data.statusBasis === "migration_snapshot" ? `移行時の写し（${data.capturedAt ?? "取得時点不明"}）。終了時点の成果を示す値ではありません。` : "所属Issueの現在状態"}</p>
             <p className={s.empty}>履歴timezone: {data.history.timezone ?? "不明"}（{data.history.timezoneBasis === "requested" ? "指定による解釈" : data.history.timezoneBasis === "recorded" ? "記録値" : "未記録"}）</p>
             <p className={s.empty}>取得イベント {data.history.recordedEventIds.length}件 / 関連未確定 {data.history.ambiguousEventIds.length}件</p>
             <section className={s.progress} aria-label="進捗">

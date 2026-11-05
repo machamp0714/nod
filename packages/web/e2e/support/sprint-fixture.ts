@@ -19,6 +19,15 @@ export function associateSprintFixture(db: Database, sprintId: string, issueRef:
   db.query("INSERT OR REPLACE INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,'imported')").run(crypto.randomUUID(), sprintId, raw.id, issue.id, snapshot);
 }
 
+// 旧版で候補として登録しただけのitem（追加の記録なし・所属ではない）。新しい追加の操作ではこの状態を作れないため、旧データとして直接入れる。
+export function legacyCandidateFixture(db: Database, sprintId: string, issueRef: string) {
+  const issue = getIssue(db, issueRef);
+  const raw = db.query("SELECT * FROM issues WHERE workspace_id=(SELECT id FROM workspaces WHERE key=?) AND number=?").get(issue.workspace, issue.number) as Record<string, unknown> & { id: number; workspace_id: number };
+  const workspace = db.query("SELECT id,key,name FROM workspaces WHERE id=?").get(raw.workspace_id);
+  const snapshot = JSON.stringify({ schemaVersion: 1, capturedAt: new Date().toISOString(), statusBasis: "candidate_snapshot", workspace, issue: raw, labels: issue.labels, project: issue.project });
+  db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin,added_by,added_at) VALUES(?,?,?,?,?,'candidate',NULL,NULL)").run(crypto.randomUUID(), sprintId, raw.id, issue.id, snapshot);
+}
+
 export function removeSprintFixture(db: Database, sprintId: string) {
   db.query("DELETE FROM sprint_items WHERE sprint_id=?").run(sprintId);
   db.query("DELETE FROM sprints WHERE id=?").run(sprintId);

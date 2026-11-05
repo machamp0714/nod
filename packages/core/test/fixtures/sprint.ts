@@ -54,7 +54,8 @@ export function addActiveSprint(db: Database, workspaceId: number, number: numbe
   for(const ref of issueRefs) {
     const issue=db.query("SELECT i.id FROM issues i JOIN workspaces w ON w.id=i.workspace_id WHERE w.key || '-' || i.number=?").get(ref) as {id:number};
     const item=crypto.randomUUID();
-    db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,'candidate')").run(item,id,issue.id,ref,'{}');
+    // 採択だけで所属するitem。追加の記録は付けない。
+    db.query("INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin) VALUES(?,?,?,?,?,'candidate')").run(item,id,issue.id,ref,'{}');
     db.query('INSERT INTO sprint_plan_items VALUES(?,?)').run(plan,item);
   }
   return id;

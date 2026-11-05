@@ -184,6 +184,10 @@ export async function seedSprint(input: { name: string; startDate: string; endDa
 export async function associateSprint(sprintId: string, issueRef: string): Promise<void> {
   await post("/sprint-fixture", { op: "associate", sprintId, issueRef });
 }
+// 旧版の候補だけのitem（所属ではない）を入れる。新しい追加の操作では作れない旧データの検証にだけ使う。
+export async function legacySprintCandidate(sprintId: string, issueRef: string): Promise<void> {
+  await post("/sprint-fixture", { op: "legacyCandidate", sprintId, issueRef });
+}
 export async function removeSprint(sprintId: string): Promise<void> {
   await post("/sprint-fixture", { op: "remove", sprintId });
 }

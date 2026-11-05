@@ -25,10 +25,10 @@ test("方向設定とSprint作成の公開フォームから、公開HTTPで提�
   await create.getByRole("button", { name: "作成", exact: true }).click();
   await expect(page).toHaveURL(/\/sprints\/[^/]+$/);
   const sprintId = new URL(page.url()).pathname.split("/").at(-1)!;
-  const created = await sprintDetail(page, sprintId);
-  const candidate = await sprintApi<{ sprint: Sprint; item: { id: string } }>(page, "POST", `/sprints/${sprintId}/candidates`, { expectedVersion: created.version, requestKey: crypto.randomUUID(), issueRef: issue.id });
-  await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprintId}/plans`, { expectedVersion: candidate.sprint.version, requestKey: crypto.randomUUID(),
-    goal: "判断の確認を完結できる", verificationMethod: "判断の発見から回答まで操作する", items: [{ itemId: candidate.item.id, contribution: "判断を発見できる", executionPlan: "一覧を実装して操作を確認" }],
+  // 追加は承認なしの所属で、Sprintの版もrequestKeyも送らない
+  const added = await sprintApi<{ sprint: Sprint; item: { id: string } }>(page, "POST", `/sprints/${sprintId}/issues`, { issueRef: issue.id });
+  await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprintId}/plans`, { expectedVersion: added.sprint.version, requestKey: crypto.randomUUID(),
+    goal: "判断の確認を完結できる", verificationMethod: "判断の発見から回答まで操作する", items: [{ itemId: added.item.id, contribution: "判断を発見できる", executionPlan: "一覧を実装して操作を確認" }],
     definitionOfDone: [{ id: "確認", text: "判断から回答まで確認できる" }], constraints: { executionScope: "製品A", notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" });
   await page.goto(`/sprints/${sprintId}?section=plan`);
   await expect(page.getByRole("region", { name: "表示中の計画" })).toContainText("計画 第1版");

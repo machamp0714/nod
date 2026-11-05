@@ -76,7 +76,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
     {message && <p role="status" className={s.bar}>{message}</p>}
     <div className={`${s.body} ${s.columns}`}>
       <div className={s.main}>
-        {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>候補を追加してゴールと採択予定を提案してください。</p></section>}
+        {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>SprintにIssueを追加し、ゴールと採択予定を提案してください。</p></section>}
         {writable && !started && <section className={s.section}><div className={s.controls}><Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button></div></section>}
         {periodEdit && !started && <PeriodEditor sprint={sprint} onSaved={() => setPeriodEdit(false)} />}
       </div>
@@ -102,7 +102,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   if (view === "flow") return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画</PageTitle><Spacer /><Button aria-pressed>計画</Button><Button onClick={onOutcomes}>成果と評価</Button><Button onClick={onRetrospective}>振り返り</Button></PageHeader>{readFailure}
     <div className={s.bar}><Button onClick={onBack}>タスク一覧</Button><strong>{plan?.content.goal ?? "計画なし"}</strong><span>計画 第{plan?.revision ?? "—"}版 · {plan?.agreedAt ? "合意済み" : "未合意"} · {sprint.startDate} – {sprint.endDate}</span></div>
     {heading}<div className={s.body}><ProjectFlowSection flow={flow} beforeStart={!started} externalLabel="Sprint外・参照のみ" observedAt={flow.data?.observedAt}
-      scopeNote={`${started ? "有効な合意済み計画" : "表示中の計画案"} 第${plan?.revision ?? "—"}版の採択${started ? "済み" : "予定"}${plan?.content.items.length ?? 0}件。候補・未合意の追加は含みません。一覧の検索・絞り込み・一括操作は適用されません。Sprint外の前提は参照のみで採択件数に含めません。表示だけでは採択・合意・着手は更新されません。`} />
+      scopeNote={`${started ? "有効な合意済み計画" : "表示中の計画案"} 第${plan?.revision ?? "—"}版の採択${started ? "済み" : "予定"}${plan?.content.items.length ?? 0}件。計画にないIssue・未合意の変更案は含みません。一覧の検索・絞り込み・一括操作は適用されません。Sprint外の前提は参照のみで採択件数に含めません。表示だけでは採択・合意・着手は更新されません。`} />
       {!started && <p className={s.notice}>計画の合意・Sprintの開始を待っています。依存に問題がなくても開始前は着手しません。</p>}
       {flow.data?.missingItems.length ? <p role="note">削除・アーカイブ済みの採択：{flow.data.missingItems.join("・")}。採択履歴を保持しています。</p> : null}
       {flow.data?.eligibility.map(item => <p key={item.itemId} className={s.muted}>{item.issueId ?? "削除されたIssue"}：{item.eligible ? "採択と既存の着手条件を確認済み（実行の許可・予約ではありません）" : item.reason?.message}</p>)}

@@ -18,6 +18,7 @@ test("旧Cycleコマンドと直接所属オプションはDBを作成せず廃�
     const res = await runNod([...args, "--json"], { cwd, db });
     expect([args, res.json?.error?.code]).toEqual([args, "CYCLE_RETIRED"]);
     expect(res.json.error.message).toContain("Sprint");
+    expect(res.json.error.message).toContain("nod sprint add <sprint> <issue>");
     expect(existsSync(db)).toBe(false);
   }
 });

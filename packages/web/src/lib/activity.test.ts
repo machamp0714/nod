@@ -132,3 +132,9 @@ test("添付の元ファイルの場所は file の attachment_added だけか�
   expect(attachmentSourcePath({ ...added, data: { kind: "link", name: "e.com" } })).toBeNull();
   expect(attachmentSourcePath({ ...added, type: "attachment_removed" })).toBeNull();
 });
+
+test("Sprintへの追加は追加した人とSprintの番号・名前を、Sprintのアイコンで出す", () => {
+  expect(
+    describeActivity({ kind: "event", at, actor: "codex", type: "sprint_added", data: { sprintId: "uuid-15", sprintNumber: 15, sprintName: "Sprint 15" } }),
+  ).toEqual({ icon: "calendar-range", text: "codex が Sprint 15「Sprint 15」に追加した" });
+});

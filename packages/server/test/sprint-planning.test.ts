@@ -3,7 +3,7 @@ import { createIssue, getSprint } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
-test("HTTPから方向設定・作成・候補・版への合意・開始・中止を操作し、同じcore競合を返す", async () => {
+test("HTTPから方向設定・作成・追加・版への合意・開始・中止を操作し、同じcore競合を返す", async () => {
   const { db, ws, me } = setup();
   const app = createApp({ db, sprintClock: { now: new Date("2026-10-27T03:00:00.000Z") } });
   const base = { expectedVersion: 0, requestKey: "設定", enabled: true, problem: "停滞", productGoal: "判断して再開", priorityRationale: "回答を優先" };
@@ -14,8 +14,8 @@ test("HTTPから方向設定・作成・候補・版への合意・開始・中�
   expect(created.status).toBe(201);
   const sprint = created.json;
   const issue = createIssue(me,{workspaceId:ws.id,title:"判断する"});
-  const added = await call(app,"POST",`/api/sprints/${sprint.id}/candidates`,{issueRef:issue.id,expectedVersion:sprint.version,requestKey:"候補"});
-  expect(added.status).toBe(201);
+  const added = await call(app,"POST",`/api/sprints/${sprint.id}/issues`,{issueRef:issue.id});
+  expect(added.status).toBe(200);
   const proposed = await call(app,"POST",`/api/sprints/${sprint.id}/plans`,{expectedVersion:added.json.sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡を確認",items:[{itemId:added.json.item.id,contribution:"回答を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"確認",text:"再開を確認"}],constraints:{executionScope:"Workspace",notes:"公開は既存権限"},changeReason:"初期計画"});
   expect(proposed.status).toBe(201);
   const accepted = await call(app,"POST",`/api/sprints/${sprint.id}/plans/${proposed.json.plan.id}/accept`,{expectedVersion:proposed.json.sprint.version,requestKey:"合意",contentHash:proposed.json.plan.contentHash});

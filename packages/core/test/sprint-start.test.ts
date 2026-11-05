@@ -85,13 +85,15 @@ test("Sprint実行候補の公開判定は採択・合意・開始・timezoneの
   const adopted = core.createIssue(me, { workspaceId: ws.id, title: "採択" });
   const candidate = core.createIssue(me, { workspaceId: ws.id, title: "候補だけ" });
   const proposed = prepareSprint(me, ws.key, [adopted.id]);
-  const added = core.addSprintCandidate(me, proposed.sprint.id, { issueRef: candidate.id, expectedVersion: proposed.sprint.version, requestKey: "未採択候補" });
+  const added = core.addIssueToSprint(me, proposed.sprint.id, { issueRef: candidate.id });
   const check = (itemId = proposed.items[0]!.id, clock = sprintTestClock) => core.getSprintIssueEligibility(llm, proposed.sprint.id, itemId, clock);
   expect(check()).toMatchObject({ eligible: false, reason: { code: "NOT_ACCEPTED" } });
   const ready = core.acceptSprintPlan(me, proposed.sprint.id, proposed.plan.id, { expectedVersion: added.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
   expect(check()).toMatchObject({ eligible: false, reason: { code: "SPRINT_NOT_ACTIVE" } });
   core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   expect(check()).toMatchObject({ sprintId: ready.sprint.id, planId: ready.plan.id, itemId: proposed.items[0]!.id, issueId: adopted.id, eligible: true, reason: null });
+  // 所属しているが計画外のitemは、Sprint実行の対象にならない。
+  expect(core.getIssue(db, candidate.id).sprints.map(s => [s.id, s.association])).toEqual([[ready.sprint.id, "added"]]);
   expect(check(added.item.id)).toMatchObject({ eligible: false, reason: { code: "NOT_ACCEPTED" } });
   expect(check(undefined, { now: new Date("2026-03-08T04:59:59.999Z") })).toMatchObject({ eligible: false, reason: { code: "SPRINT_NOT_ACTIVE" } });
   expect(check(undefined, { now: new Date("2026-03-09T03:59:59.999Z") }).eligible).toBe(true);
@@ -160,7 +162,8 @@ test("active中の未合意追加を採用中の集合へ混ぜず、同じ候�
   const prepared = prepareSprint(me, ws.key, [adopted.id]);
   const ready = acceptPreparedSprint(me, prepared);
   const active = core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
-  const added = core.addSprintCandidate(me, active.id, { issueRef: candidate.id, expectedVersion: active.version, requestKey: "追加候補" });
+  const added = core.addIssueToSprint(me, active.id, { issueRef: candidate.id });
+  expect(core.queryIssues(db, { sprint: active.id }).issues.map(i => i.id).sort()).toEqual([adopted.id, candidate.id].sort());
   const changed = core.proposeSprintPlan(llm, active.id, { ...prepared.input, expectedVersion: added.sprint.version, requestKey: "未合意追加", items: [...prepared.input.items, { itemId: added.item.id, contribution: "追加の貢献", executionPlan: "追加実装" }], changeReason: "範囲追加" });
   expect(core.getSprintIssueEligibility(llm, active.id, prepared.items[0]!.id, sprintTestClock)).toMatchObject({ eligible: true, planId: ready.plan.id });
   expect(core.getSprintIssueEligibility(llm, active.id, added.item.id, sprintTestClock)).toMatchObject({ eligible: false, reason: { code: "NOT_ACCEPTED" } });

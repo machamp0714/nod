@@ -17,7 +17,7 @@ async function recordSprint(phase: "draft" | "ready" | "active" = "active") {
   const draft = (await call(app, "POST", "/api/sprints", { workspaceKey: f.ws.key, startDate: "2026-10-30", endDate: "2026-10-30", timezone: "Asia/Tokyo", expectedVersion: 0, requestKey: "作成" })).json;
   const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "成果を記録" });
   if (phase === "draft") return { ...f, app, clock, sprint: draft, issue };
-  const added = (await call(app, "POST", `/api/sprints/${draft.id}/candidates`, { expectedVersion: draft.version, requestKey: "候補", issueRef: issue.id })).json;
+  const added = (await call(app, "POST", `/api/sprints/${draft.id}/issues`, { issueRef: issue.id })).json;
   const proposed = (await call(app, "POST", `/api/sprints/${draft.id}/plans`, { expectedVersion: added.sprint.version, requestKey: "計画", goal: "成果を確認", verificationMethod: "記録を再取得", items: [{ itemId: added.item.id, contribution: "成果を確認", executionPlan: "記録する" }], definitionOfDone: [{ id: "確認", text: "記録を閲覧" }], constraints: { executionScope: "Workspace", notes: "既存権限" }, changeReason: "初期計画" })).json;
   const ready = (await call(app, "POST", `/api/sprints/${draft.id}/plans/${proposed.plan.id}/accept`, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash })).json.sprint;
   if (phase === "ready") return { ...f, app, clock, sprint: ready, issue };

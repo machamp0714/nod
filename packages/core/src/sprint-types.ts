@@ -34,7 +34,13 @@ export interface SprintItem {
   sprintId: string;
   issueId: number | null;
   sourceIssueKey: string;
+  // candidateはnod上で登録したitem。所属かどうかはmember・associationで読む。
   origin: "imported" | "candidate";
+  addedBy: string | null;
+  addedAt: string | null;
+  member: boolean;
+  // 所属の由来。重なるときは imported、added、adopted の順。候補だけ（所属外）はnull。
+  association: "imported" | "adopted" | "added" | null;
   snapshot: {
     schemaVersion: number;
     capturedAt: string;
@@ -112,7 +118,7 @@ export type LegacyCycleResolution =
 export interface SprintClock { now?: Date }
 
 export interface SprintReference extends Pick<Sprint, "id" | "number" | "name" | "workspaceId" | "phase"> {
-  association: "imported" | "adopted";
+  association: "imported" | "adopted" | "added";
 }
 
 export interface CurrentSprintIssue extends Issue {}
@@ -125,7 +131,7 @@ export interface CurrentSprintResolution {
 export interface SprintAnalytics extends Omit<import("./types").CycleAnalytics, "cycleId" | "burnup" | "scopeAdded"> {
   sprintId: string;
   number: number;
-  statusBasis: "migration_snapshot" | "live_adopted";
+  statusBasis: "migration_snapshot" | "live_membership";
   capturedAt: string | null;
   scopeAdded: number | null;
   burnup: {date: string; scope: number | null; started: number | null; completed: number | null; unknown: number}[];

@@ -18,10 +18,10 @@ nodへ操作前のintentと操作後のcheckpointを残し、起動Taskを先に
 
 期間管理はSprintへ一本化した。
 旧`--cycle`指定は廃止案内を返す対象であり、互換オプションとして実行せず、Sprint番号へ黙って読み替えない。
-`nod sprint list/show`で履歴を読み、`nod issue list --sprint current`で各Workspaceの現在Sprintに採択された全状態のIssueを読む。
+`nod sprint list/show`で履歴を読み、`nod issue list --sprint current`で各Workspaceの現在Sprintに所属する全状態のIssueを読む。
 現在Sprintがなければ空として報告し、取得失敗と区別する。
 importedは閲覧専用の履歴であり、移行時の状態を過去終了時点の成果へ読み替えない。
-候補だけのIssue、imported、終了済み、中止済みは現在Sprintの集合に含めない。
+旧データの候補だけのitem、imported、終了済み、中止済みは現在Sprintの集合に含めない。
 
 S01では人の計画合意、採択、開始、切替をつなぐ公開操作が未接続である。
 Sprintからの新規Run作成、Task作成、worker起動、`nod issue start/next`、自律的な追加起動を行わない。

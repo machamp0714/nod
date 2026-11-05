@@ -4,10 +4,11 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintPeriod, sprintText, sprintVersion } from "../sprint-validation";
 import type { Sprint, SprintClock, SprintItem, SprintPlan, SprintPlanContent, SprintPlanConstraints } from "../sprint-types";
-import { nextSprintNumber, resolveSprint } from "./sprints";
+import { nextSprintNumber, readSprintItems, resolveSprint } from "./sprints";
 import { findIssueRow } from "../issue-query";
 import { findWorkspace } from "./workspaces";
 import { saveSprintClosure } from "./sprint-closure";
+import { recordEvent } from "../events";
 
 export interface SprintMutation { expectedVersion: number; requestKey: string }
 export interface ScrumWorkspace {
@@ -141,41 +142,46 @@ export function configureScrumWorkspace(ctx: OpCtx, key: string, input: Configur
   });
 }
 
-export interface AddSprintCandidateInput extends SprintMutation { issueRef: string }
-export function listSprintCandidates(db: Database, ref: string): SprintItem[] {
-  const id = resolveSprint(db, ref).id;
-  const rows = db.query("SELECT * FROM sprint_items WHERE sprint_id=? ORDER BY source_issue_key").all(id) as {
-    id: string; sprint_id: string; issue_id: number | null; source_issue_key: string; origin: SprintItem["origin"]; snapshot: string;
-  }[];
-  return rows.map(r => ({ id: r.id, sprintId: r.sprint_id, issueId: r.issue_id, sourceIssueKey: r.source_issue_key, origin: r.origin, snapshot: JSON.parse(r.snapshot) }));
+export interface AddIssueToSprintInput { issueRef: string }
+export interface AddIssueToSprintResult { sprint: Sprint; item: SprintItem; added: boolean }
+export function listSprintItems(db: Database, ref: string): SprintItem[] {
+  return readSprintItems(db, resolveSprint(db, ref).id);
 }
 function touchSprint(db: Database, id: string): Sprint {
   db.query("UPDATE sprints SET version=version+1,updated_at=? WHERE id=?").run(now(), id);
   return resolveSprint(db, id);
 }
-export function addSprintCandidate(ctx: OpCtx, ref: string, input: AddSprintCandidateInput): { sprint: Sprint; item: SprintItem } {
-  sprintObject(input, [...MUTATION_KEYS, "issueRef"]);
-  sprintText(input.issueRef, "Issue");
+// 追加した時点で所属にする。人とLLMで条件を変えず、計画・合意・Sprintの版には書かない。
+// 版を上げないので計画・期間の編集と競合しない。同時の追加はtransactionで直列にし、記録とActivityを1件にする。
+export function addIssueToSprint(ctx: OpCtx, ref: string, input: AddIssueToSprintInput): AddIssueToSprintResult {
+  sprintObject(input, ["issueRef"]);
+  const issueRef = sprintText(input.issueRef, "Issue");
   const id = resolveSprint(ctx.db, ref).id;
-  return mutate(ctx, id, "add-candidate", input, () => {
+  return tx(ctx.db, () => {
     const sprint = writableSprint(ctx.db, id);
-    checkVersion(sprint.version, input.expectedVersion);
-    const issue = findIssueRow(ctx.db, input.issueRef);
-    if (issue.workspace_id !== sprint.workspaceId) invalidSprint("候補は同じWorkspaceのIssueを指定してください");
-    if (issue.archived_at) throw new NodError("ISSUE_ARCHIVED", "アーカイブ済みIssueは候補へ追加できません");
+    const issue = findIssueRow(ctx.db, issueRef);
+    if (issue.workspace_id !== sprint.workspaceId) invalidSprint("Sprintと同じWorkspaceのIssueを指定してください");
+    if (issue.archived_at) throw new NodError("ISSUE_ARCHIVED", "アーカイブ済みIssueはSprintへ追加できません");
     const sourceIssueKey = `${issue.ws_key}-${issue.number}`;
-    const existing = listSprintCandidates(ctx.db, id).find(item => item.sourceIssueKey === sourceIssueKey);
+    const existing = listSprintItems(ctx.db, id).find(item => item.sourceIssueKey === sourceIssueKey);
     if (existing) {
-      if (existing.issueId !== issue.id) throw new NodError("TARGET_CHANGED", "元の候補Issueは削除されています。再利用されたIDへ接続しません");
-      return { sprint, item: existing };
+      if (existing.issueId !== issue.id) throw new NodError("TARGET_CHANGED", "元のIssueは削除されています。再利用されたIDへ接続しません");
+      if (existing.addedBy !== null && existing.addedAt !== null) return { sprint, item: existing, added: false };
     }
-    const snapshot: SprintItem["snapshot"] = { schemaVersion: 1, capturedAt: now(), statusBasis: "candidate_snapshot",
-      workspace: { id: issue.workspace_id, key: issue.ws_key, name: workspace(ctx.db, issue.ws_key).name }, issue: { ...issue },
-      labels: (ctx.db.query("SELECT label FROM issue_labels WHERE issue_id=? ORDER BY label").all(issue.id) as {label:string}[]).map(r => r.label),
-      project: issue.project_id === null ? null : ctx.db.query("SELECT * FROM projects WHERE id=?").get(issue.project_id) as Record<string, unknown> | null };
-    const itemId = crypto.randomUUID();
-    ctx.db.query("INSERT INTO sprint_items VALUES(?,?,?,?,?,'candidate')").run(itemId, id, issue.id, sourceIssueKey, JSON.stringify(snapshot));
-    return { sprint: touchSprint(ctx.db, id), item: listSprintCandidates(ctx.db, id).find(item => item.id === itemId)! };
+    const itemId = existing?.id ?? crypto.randomUUID(), addedAt = now();
+    if (existing) {
+      ctx.db.query("UPDATE sprint_items SET added_by=?,added_at=? WHERE id=?").run(ctx.actor, addedAt, itemId);
+    } else {
+      const snapshot: SprintItem["snapshot"] = { schemaVersion: 1, capturedAt: addedAt, statusBasis: "candidate_snapshot",
+        workspace: { id: issue.workspace_id, key: issue.ws_key, name: workspace(ctx.db, issue.ws_key).name }, issue: { ...issue },
+        labels: (ctx.db.query("SELECT label FROM issue_labels WHERE issue_id=? ORDER BY label").all(issue.id) as {label:string}[]).map(r => r.label),
+        project: issue.project_id === null ? null : ctx.db.query("SELECT * FROM projects WHERE id=?").get(issue.project_id) as Record<string, unknown> | null };
+      ctx.db.query(`INSERT INTO sprint_items(id,sprint_id,issue_id,source_issue_key,snapshot,origin,added_by,added_at)
+        VALUES(?,?,?,?,?,'candidate',?,?)`).run(itemId, id, issue.id, sourceIssueKey, JSON.stringify(snapshot), ctx.actor, addedAt);
+    }
+    // 内容は後から項目を足せる形にする。購読者への通知の種類には含めない。
+    recordEvent(ctx.db, issue.id, ctx.actor, "sprint_added", { sprintId: sprint.id, sprintNumber: sprint.number, sprintName: sprint.name });
+    return { sprint, item: listSprintItems(ctx.db, id).find(item => item.id === itemId)!, added: true };
   });
 }
 
@@ -237,7 +243,7 @@ export function proposeSprintPlan(ctx: OpCtx, ref: string, input: ProposeSprintP
   return mutate(ctx, id, "propose", input, () => {
     const sprint = writableSprint(ctx.db, id);
     checkVersion(sprint.version, input.expectedVersion);
-    const candidates = listSprintCandidates(ctx.db, id);
+    const candidates = listSprintItems(ctx.db, id);
     const items = selected.map(item => {
       const candidate = candidates.find(c => c.id === item.itemId);
       if (!candidate) invalidSprint("別のSprintまたは存在しないitemは採択できません");
@@ -271,7 +277,7 @@ function checkPlanTarget(db: Database, sprint: Sprint, plan: SprintPlan): void {
     throw new NodError("TARGET_CHANGED", "期間が計画と異なります。変更した期間で新しい計画を提案してください");
   }
   if (sprintHash(plan.content) !== plan.contentHash) throw new NodError("TARGET_CHANGED", "計画のhashが内容と一致しません");
-  const candidates = listSprintCandidates(db, sprint.id);
+  const candidates = listSprintItems(db, sprint.id);
   for (const item of plan.content.items) {
     const candidate = candidates.find(c => c.id === item.itemId);
     if (!candidate || candidate.issueId === null) throw new NodError("TARGET_CHANGED", "採択対象の元Issueがありません");

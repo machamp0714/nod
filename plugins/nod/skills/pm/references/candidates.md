@@ -24,7 +24,7 @@ ORCA terminal list --json
 `current`は相対条件のまま再取得し、`sprint show current`や固定IDへの置換を行わない。
 importedはWorkspace未確定を許す共通履歴であり、一覧の全件を管理対象にしない。
 `issue list`で指定WorkspaceとSprintを同時に絞り、`workspace`と`sprints`の関連を照合する。
-currentは完了済みを含む全状態を読むが、候補だけ、imported、終了、中止を含めない。
+currentは完了済みを含む全状態の所属を読むが、旧データの候補だけのitem、imported、終了、中止を含めない。
 現在Sprintなしと取得失敗を区別し、履歴や候補を代わりの実行対象にしない。
 S01では以下の分類や仕様判定の回復を新規自律実行の許可に使わない。
 既存実行は検索集合から消えても、管理記録のIssue IDとRun、Task、Dispatchから別に照合する。

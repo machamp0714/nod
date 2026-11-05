@@ -69,7 +69,7 @@ export interface Issue {
   parentId: string | null;
   project: { id: number; name: string } | null;
   milestone: { id: number; name: string } | null; // 同じ Project の中間目標。Project を変えると外れる
-  sprints: SprintReference[]; // 移行・採択の関連の集合。候補だけは含めない
+  sprints: SprintReference[]; // 所属（移行・採択・追加）の集合。候補として登録しただけのものは含めない
   cycle: { id: number; name: string } | null; // 廃止済みの互換応答。常にnull。期間参照はsprintsを使う
   labels: string[];
   blockedBy: string[]; // 未完了の直接ブロック元の Issue ID

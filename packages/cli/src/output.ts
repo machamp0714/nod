@@ -267,6 +267,9 @@ function relationRef(d: IssueDetail, id: string, blocker: boolean): string {
   return id;
 }
 
+// Issue の Sprint 所属の由来。Web の表示（移行履歴・採択・追加）と揃える
+const SPRINT_ASSOCIATION_LABEL = { imported: "移行履歴", adopted: "採択", added: "追加" } as const;
+
 const SEND_STATE_LABEL: Record<AgentInstruction["sendState"], string> = {
   unsent: "未送信",
   sending: "送信中",
@@ -319,7 +322,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   if (source) lines.push(`起票元: ${source}`);
   if (d.project) lines.push(`Project: ${d.project.name}`);
   if (d.milestone) lines.push(`Milestone: ${d.milestone.name}`);
-  if (d.sprints.length) lines.push(`Sprint: ${d.sprints.map(s=>`${s.number} ${s.name}（${s.association}）`).join("、")}`);
+  if (d.sprints.length) lines.push(`Sprint: ${d.sprints.map(s=>`${s.number} ${s.name}（${SPRINT_ASSOCIATION_LABEL[s.association]}）`).join("、")}`);
   if (d.labels.length) lines.push(`ラベル: ${d.labels.join(", ")}`);
   if (d.prUrl) lines.push(`PR: ${d.prUrl}`);
   if (d.prUrl && prStatusLine) lines.push(prStatusLine);

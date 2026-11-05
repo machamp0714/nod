@@ -88,7 +88,7 @@ export interface CreateIssueInput {
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
-  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   requireText(input.title, "タイトル");
   if (input.template !== undefined && input.description !== undefined) {
     throw new NodError(
@@ -149,7 +149,7 @@ export interface NewIssueRow {
 
 // 起票・複製・定期Issueで共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
 export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
-  if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
+  if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
     id: number;
     next_number: number;
@@ -537,7 +537,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
-  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
+  if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   if (input.status === "needs_clarification") {
     throw new NodError(
       "INVALID_ARGS",

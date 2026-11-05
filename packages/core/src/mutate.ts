@@ -61,7 +61,7 @@ export function setColumn(
     system?: boolean;
   } = {},
 ): boolean {
-  if (column === "cycle_id") throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。候補と採択の公開操作は後続で接続します");
+  if (column === "cycle_id") throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   const from = row[column];
   if (from === to) return false;
   if (column === "status" && !extra.system) assertTransitionAllowed(ctx.db, row, from as Status, to as Status);
