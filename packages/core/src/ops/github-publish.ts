@@ -7,6 +7,7 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
+import { buildGithubDraft, GITHUB_DRAFT_UNPARSED_REASON, type GithubDraftChange } from "../github-draft";
 import { detectLeaks, type LeakFinding, leakConfigOf } from "../github-leak";
 import { findIssueRow, formatIssueId, issueRowById, type IssueRow } from "../issue-query";
 import { gitRunner } from "./git-runner";
@@ -48,14 +49,16 @@ export interface GithubPublishBlocker {
 
 export interface GithubPublishPreview {
   issueId: string;
-  title: string; // nod のタイトル（送信用の既定値）
-  body: string; // nod の本文（送信用の既定値）
+  title: string; // 案のタイトル（送信用の既定値）
+  body: string; // 案の本文（送信用の既定値）
+  original: { title: string; body: string }; // nod のタイトル・本文
+  changes: GithubDraftChange[]; // 案で書き換えた箇所。位置は nod の文面のもの
   repo: string | null;
   repoCandidate: string | null; // 公開先が未設定のとき、origin から推定した候補
   repoCandidateReason: OriginMissReason | null;
   ghLogin: string | null;
   ghError: GithubPublishBlocker | null;
-  findings: LeakFinding[];
+  findings: LeakFinding[]; // 案に残った検出
   blockers: GithubPublishBlocker[];
   state: GithubIssueState;
 }
@@ -149,18 +152,23 @@ export async function previewGithubPublish(ctx: OpCtx, ref: string, deps: Github
     repoCandidateReason = origin.reason;
   }
   const login = await fetchLogin(deps.gh ?? ghRunner);
-  const title = row.title;
-  const body = row.description ?? "";
+  const original = { title: row.title, body: row.description ?? "" };
+  const config = leakConfigOf(ctx.db, deps);
+  const { title, body, changes, unparsed } = buildGithubDraft(ctx.db, row, original, config);
+  // 解析できずに整えなかった項目は、残った箇所の理由にそのことを足す
+  const findings = detectLeaks({ title, body }, config).map((f) => (unparsed.includes(f.field) ? { ...f, reason: `${f.reason}${GITHUB_DRAFT_UNPARSED_REASON}` } : f));
   return {
     issueId: formatIssueId(row.ws_key, row.number),
     title,
     body,
+    original,
+    changes,
     repo,
     repoCandidate,
     repoCandidateReason,
     ghLogin: "login" in login ? login.login : null,
     ghError: "error" in login ? login.error : null,
-    findings: detectLeaks({ title, body }, leakConfigOf(ctx.db, deps)),
+    findings,
     blockers: [...blockersOf(ctx.db, row), ...textBlockersOf({ title, body })],
     state: githubStateOfRow(ctx.db, row),
   };

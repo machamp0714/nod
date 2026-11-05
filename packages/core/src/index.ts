@@ -65,6 +65,7 @@ export * from "./ops/github-import";
 export * from "./ops/github-repo";
 export * from "./ops/github-publish";
 export * from "./github-leak";
+export * from "./github-draft";
 export * from "./ops/orca";
 export * from "./ops/toggl";
 export * from "./ops/toggl-client";
