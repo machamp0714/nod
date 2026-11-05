@@ -819,3 +819,22 @@
   font-weight: 500;
   vertical-align: middle;
 }
+
+/* 期限到来時の自動引継ぎの状態（読取専用） */
+.rolloverStatus {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.rolloverStatus dt {
+  color: var(--ink2);
+}
+
+.rolloverStatus dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

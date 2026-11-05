@@ -122,7 +122,9 @@ function serve() {
     await Bun.sleep(400);
     return body === "失敗例" ? { kind: "failed", failureKind: "timeout", elapsedMs: 5000 }
       : { kind: "success", probability: 0.9, model: "jev-test", inputTokens: 10, elapsedMs: 400 };
-  }, port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath, togglCache });
+  }, port: API_PORT, dbPath, docsDir, ghRunner, attachmentsDir, orcaRunner, togglClient, togglConfigPath, togglCache,
+    // 期限超過のSprintを画面で手動終了する検証が、1分ごとの自動引継ぎと競わないようにする（起動時の1回はそのまま行う）
+    rolloverIntervalMs: 86_400_000 });
 }
 
 // 私の DB（~/.local/share/nod/nod.db）に触れないよう、DB のパスを必ず明示する

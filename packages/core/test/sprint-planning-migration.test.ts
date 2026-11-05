@@ -46,7 +46,7 @@ test("版50の候補だけのitemを版51で所属にせず、写しと計画の
   try {
     const detail = getSprint(db, "sprint-1");
     expect(detail.items).toEqual([{ id: "item-1", sprintId: "sprint-1", issueId: 1, sourceIssueKey: "AAA-1", origin: "candidate", snapshot: JSON.parse(snapshot),
-      addedBy: null, addedAt: null, member: false, association: null }]);
+      addedBy: null, addedAt: null, rolloverFromItemId: null, member: false, association: null }]);
     expect(detail.plans.map(p => [p.id, p.content.items.map(item => item.itemId)])).toEqual([["plan-1", ["item-1"]]]);
     expect(queryIssues(db, { sprint: "sprint-1" }).issues).toEqual([]);
     expect(getIssue(db, "AAA-1").sprints).toEqual([]);

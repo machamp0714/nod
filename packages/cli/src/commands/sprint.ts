@@ -1,4 +1,5 @@
-import { getSprint, listSprints, sprintAnalytics, type Sprint } from "@nod/core";
+import { getSprint, listSprints, sprintAnalytics, type Sprint, type SprintLink } from "@nod/core";
+import { getSprintRolloverStatus, setSprintRollover, SPRINT_ROLLOVER_ACTOR, type SprintRolloverStatus } from "@nod/core";
 import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint, removeIssueFromSprint,
   proposeSprintPlan, listSprintPlans, acceptSprintPlan, activateSprint, cancelSprint, NodError,
   type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput,
@@ -15,6 +16,16 @@ function line(sprint: Sprint): string {
   return `${sprint.number}  ${sprint.name}（${sprint.phase}）  ${sprint.startDate}〜${sprint.endDate}  ${sprint.id}`;
 }
 
+function linkText(sprint: SprintLink | null): string {
+  return sprint ? `Sprint ${sprint.number}「${sprint.name}」（${sprint.phase}）` : "なし";
+}
+
+function successorText(successor: SprintRolloverStatus["successor"]): string {
+  if (!successor) return "なし";
+  if (successor.kind === "create") return `新しく作る ${successor.startDate}〜${successor.endDate}（${successor.timezone}）`;
+  return `${successor.kind === "start" ? "開始待ちの" : "既存の"}${linkText(successor.sprint)}`;
+}
+
 // 全書込みで版とrequestKeyをJSONに含める。- はstdin。
 function input<T>(cmd: Command): T {
   const file = (cmd.opts() as {input:string}).input;
@@ -27,10 +38,21 @@ function input<T>(cmd: Command): T {
 
 export function registerSprintCommands(program: Command): void {
   const scrum = program.command("scrum").description("Workspaceの方向設定");
-  scrum.command("show").description("Workspaceの問題・目標・優先順位を読む")
+  scrum.command("show").description("Workspaceの問題・目標・優先順位と自動引継ぎの状態を読む")
     .action(act((cli,cmd) => {
-      const value = getScrumWorkspace(cli.db,currentWorkspace(cli,cmd).key);
-      print(cli,value,()=>`Sprint運用: ${value.enabled ? "有効" : "無効"}（版${value.version}）\n問題: ${value.problem ?? "未設定"}\n目標: ${value.productGoal ?? "未設定"}\n優先順位: ${value.priorityRationale ?? "未設定"}`);
+      const key = currentWorkspace(cli,cmd).key;
+      const value = getScrumWorkspace(cli.db,key), rollover = getSprintRolloverStatus(cli.db,key);
+      print(cli,{...value,rollover},()=>[`Sprint運用: ${value.enabled ? "有効" : "無効"}（版${value.version}）\n問題: ${value.problem ?? "未設定"}\n目標: ${value.productGoal ?? "未設定"}\n優先順位: ${value.priorityRationale ?? "未設定"}`,
+        `自動引継ぎ: ${value.autoRollover ? "有効" : "無効"}`,
+        `次に処理する時刻: ${rollover.nextRunAt ?? "なし"}（実行はこの時刻以降の契機）`,
+        `後継の予定: ${successorText(rollover.successor)}`,
+        `止まっている理由: ${rollover.blocked?.message ?? "なし"}`].join("\n"));
+    }));
+  scrum.command("rollover <on|off>").description("人が期限到来時の自動引継ぎを有効・無効にする")
+    .action(act((cli,cmd,mode:string) => {
+      if (mode !== "on" && mode !== "off") throw new NodError("INVALID_ARGS","on か off を指定してください");
+      const value = setSprintRollover(cli.ctx,currentWorkspace(cli,cmd).key,{enabled:mode === "on"});
+      print(cli,value,()=>`期限到来時の自動引継ぎを${value.autoRollover ? "有効" : "無効"}にしました`);
     }));
   scrum.command("configure").description("人がWorkspaceの方向を設定する")
     .requiredOption("--input <file>","JSONファイルまたは -（stdin）。expectedVersion/requestKey必須")
@@ -88,10 +110,13 @@ export function registerSprintCommands(program: Command): void {
         `Workspace: ${detail.workspaceId ?? "不明"}  タイムゾーン: ${detail.timezone ?? "不明"}`,
         `ゴール: ${detail.goal ?? "不明"}  DoD: ${detail.definitionOfDone ?? "不明"}  達成結果: ${detail.outcome ?? "不明"}`,
         `版: ${detail.version}  採用中の計画: ${detail.adoptedPlanId ?? "なし"}`,
+        `前のSprint: ${linkText(detail.rolloverFrom)}  後継のSprint: ${linkText(detail.rolloverTo)}`,
+        ...(detail.activatedBy === SPRINT_ROLLOVER_ACTOR ? [`自動開始: ${detail.activatedAt}（${SPRINT_ROLLOVER_ACTOR}）`] : []),
+        ...(detail.closureRecord?.automation ? [`自動終了: 期間の終了時刻 ${detail.endsAt}  記録時刻 ${detail.closureRecord.recordedAt}`] : []),
         ...detail.plans.map(p=>`計画第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}\n  達成確認: ${p.content.verificationMethod}\n  理由: ${p.changeReason}`),
         `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "所属 Issue の現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,
         detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "item（所属は移行・採択・追加。旧候補と解除済みは所属外）:",
-        ...detail.items.map(item=>`  ${item.sourceIssueKey}  ${item.snapshot.workspace.key}  ${item.snapshot.issue.status}  ${item.snapshot.issue.title}  ${ASSOCIATION_LABEL[item.association ?? "none"]}${item.addedBy ? `（追加者: ${item.addedBy}）` : ""}`),
+        ...detail.items.map(item=>`  ${item.sourceIssueKey}  ${item.snapshot.workspace.key}  ${item.snapshot.issue.status}  ${item.snapshot.issue.title}  ${ASSOCIATION_LABEL[item.association ?? "none"]}${item.addedBy ? `（追加者: ${item.addedBy}）` : ""}${item.rolloverFromItemId ? `  引継ぎ（${linkText(detail.rolloverFrom)}から）` : ""}`),
         "取得済みの履歴:",
         ...detail.events.map(event=>`  #${event.original.id} ${event.original.created_at} ${event.original.type}（${event.association === "recorded" ? "確定関連" : "関連未確定"}） ${event.original.data}`),
       ].join("\n"));

@@ -31,7 +31,7 @@ export function SprintRetrospective({ sprint, onBack, onPlan, onOutcomes, readEr
       <div><h3>次の作業・資料への参照</h3><SprintRecordLinks links={record.content.links} /></div>
     </section>)}
     <section className={s.section}><h2>区切り時点の残件</h2>
-      {sprint.closureRecord ? <SprintClosure record={sprint.closureRecord} /> : <p>終了・中止時の残件はまだ記録されていません。</p>}
+      {sprint.closureRecord ? <SprintClosure record={sprint.closureRecord} periodEndsAt={sprint.endsAt} /> : <p>終了・中止時の残件はまだ記録されていません。</p>}
     </section>
   </SprintRecordsLayout>;
 }

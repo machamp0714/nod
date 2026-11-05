@@ -33,6 +33,8 @@ async function configured(legacy = false) {
   const clock = { now: new Date("2026-10-30T03:00:00.000Z") };
   const app = createApp({ db: f.db, sprintClock: clock });
   await call(app, "PUT", `/api/workspaces/${f.ws.key}/scrum`, { expectedVersion: 0, requestKey: "設定", enabled: true, problem: "所属を画面で変えられない", productGoal: "Issue詳細で所属を変える", priorityRationale: "移動を優先" });
+  // 固定時計の過去の期間を終了するため、期限後の終了による自動引継ぎで後継へ移さず、設定と解除の所属だけを確かめる
+  expect((await call(app, "PUT", `/api/workspaces/${f.ws.key}/scrum/rollover`, { enabled: false })).status).toBe(200);
   const create = async (date: string) => (await call(app, "POST", "/api/sprints", { workspaceKey: f.ws.key, startDate: date, endDate: date, timezone: "Asia/Tokyo", expectedVersion: 0, requestKey: `作成${date}` })).json;
   // 採択だけで所属するitemを持つ、人が合意した計画のSprint。activeなら開始する。
   const agreed = async (date: string, adopted: string[], phase: "ready" | "active") => {

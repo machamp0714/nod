@@ -11,11 +11,14 @@ import type { Issue } from "../types";
 import { findWorkspace } from "./workspaces";
 import { saveSprintClosure } from "./sprint-closure";
 import { recordEvent } from "../events";
+import { assertNotAutoEnded, rolloverAfterManualEnd } from "./sprint-rollover";
 
 export interface SprintMutation { expectedVersion: number; requestKey: string }
 export interface ScrumWorkspace {
   workspaceId: number; enabled: boolean; problem: string | null; productGoal: string | null;
   priorityRationale: string | null; version: number; updatedAt: string | null;
+  // 期限到来時の自動引継ぎ。行が無いWorkspaceも有効として扱う（Sprint運用が無効なら値によらず動かない）。
+  autoRollover: boolean;
 }
 
 export interface CreateSprintInput extends SprintMutation {
@@ -122,10 +125,11 @@ function mutate<T>(ctx: OpCtx, target: string, operation: string, input: SprintM
 export function getScrumWorkspace(db: Database, key: string): ScrumWorkspace {
   const ws = workspace(db, key);
   const row = db.query("SELECT * FROM scrum_workspaces WHERE workspace_id=?").get(ws.id) as {
-    enabled: number; problem: string; product_goal: string; priority_rationale: string; version: number; updated_at: string;
+    enabled: number; problem: string; product_goal: string; priority_rationale: string; version: number; updated_at: string; auto_rollover: number;
   } | null;
   return { workspaceId: ws.id, enabled: row?.enabled === 1, problem: row?.problem ?? null,
-    productGoal: row?.product_goal ?? null, priorityRationale: row?.priority_rationale ?? null, version: row?.version ?? 0, updatedAt: row?.updated_at ?? null };
+    productGoal: row?.product_goal ?? null, priorityRationale: row?.priority_rationale ?? null, version: row?.version ?? 0, updatedAt: row?.updated_at ?? null,
+    autoRollover: row ? row.auto_rollover === 1 : true };
 }
 export function configureScrumWorkspace(ctx: OpCtx, key: string, input: ConfigureScrumWorkspaceInput): ScrumWorkspace {
   human(ctx);
@@ -422,6 +426,8 @@ export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock:
   const reason = sprintText(input.reason,"終了理由");
   const id = resolveSprint(ctx.db,ref).id;
   return mutate(ctx,id,"end",input,() => {
+    // 自動処理で終了・引継ぎ済みなら、後継が分かる理由で拒否する（終了記録は上書きしない）。
+    assertNotAutoEnded(ctx.db,resolveSprint(ctx.db,id));
     const sprint = writableSprint(ctx.db,id);
     checkVersion(sprint.version,input.expectedVersion);
     if (sprint.phase !== "active") throw new NodError("INVALID_STATE","進行中のSprintだけを終了できます");
@@ -430,7 +436,10 @@ export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock:
     if (!sprint.endsAt || instant.getTime() < Date.parse(sprint.endsAt)) throw new NodError("SPRINT_NOT_EXPIRED","期限前に区切る場合は中止してください");
     ctx.db.query("UPDATE sprints SET phase='ended' WHERE id=?").run(id);
     saveSprintClosure(ctx.db,id,"ended",reason,instant.toISOString());
-    return touchSprint(ctx.db,id);
+    const ended = touchSprint(ctx.db,id);
+    // 自動引継ぎが有効なら同じtransactionで後継の処理を行う。失敗は例外のまま返し、終了も確定させない。
+    rolloverAfterManualEnd(ctx.db,ended,instant);
+    return ended;
   });
 }
 export function cancelSprint(ctx: OpCtx, ref: string, input: CancelSprintInput, clock: SprintClock = {}): Sprint {

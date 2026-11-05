@@ -33,7 +33,7 @@ const sprint = (patch: Partial<Sprint> & Pick<Sprint, "id" | "number" | "phase">
   workspaceId: 1, name: `Sprint ${patch.number}`, startDate: "2026-11-01", endDate: "2026-11-14", timezone: "UTC",
   startsAt: null, endsAt: "2026-11-15T00:00:00.000Z", adoptedPlanId: null, goal: null, definitionOfDone: null, outcome: null,
   legacyCycleId: null, createdAt: "2026-11-01", updatedAt: "2026-11-01", version: 1, workingDays: [1, 2, 3, 4, 5],
-  workspaceSnapshot: null, activatedAt: null, canceledAt: null, cancelReason: null, replansSprintId: null, ...patch,
+  workspaceSnapshot: null, activatedAt: null, canceledAt: null, cancelReason: null, replansSprintId: null, rolloverFromSprintId: null, activatedBy: null, ...patch,
 });
 const member = (patch: Partial<SprintReference> & Pick<SprintReference, "id" | "phase">): SprintReference => ({
   number: 1, name: patch.id, workspaceId: 1, association: "added", inAdoptedPlan: false, ...patch,

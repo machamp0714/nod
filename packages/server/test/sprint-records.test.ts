@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answerQuestion, askQuestion, createIssue, initWorkspace, updateIssue } from "@nod/core";
+import { answerQuestion, askQuestion, createIssue, initWorkspace, setSprintRollover, updateIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup, tempDir } from "./helpers";
 import { openDb } from "@nod/core";
@@ -51,6 +51,8 @@ test("振り返りの訂正と後日の追記で当時の残件・未回答・�
   for (const operation of [null, "end", "cancel"]) {
     const { db, app, sprint, clock, issue, me, llm, ws } = await recordSprint();
     try {
+      // 次Sprintは人が用意する。期限到来時の自動引継ぎ（NOD-59）による後継の作成は止めておく。
+      setSprintRollover(me, ws.key, { enabled: false });
       const base = `/api/sprints/${sprint.id}`, path = `${base}/records`;
       const question = askQuestion(llm, issue.id, "次に確認することは何か").question;
       const input = { requestKey: "最初の振り返り", kind: "retrospective", content: { wentWell: "小さく確認できた" } };

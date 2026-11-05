@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { answerQuestion, askQuestion, createIssue, updateIssue } from "@nod/core";
+import { answerQuestion, askQuestion, createIssue, setSprintRollover, updateIssue } from "@nod/core";
 import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 
@@ -71,8 +71,10 @@ test("終了時の採択残件と完了済みIssueの未回答質問を保存し
 });
 
 test("終了の版確認と再送を維持し、終了後の新規着手と自動開始を認めない", async () => {
-  const { db, app, clock, sprint, item } = await activeSprint();
+  const { db, app, clock, sprint, item, me, ws } = await activeSprint();
   try {
+    // 手動終了そのものの検証。期限到来時の自動引継ぎ（NOD-59）による後継の作成は止めておく。
+    setSprintRollover(me, ws.key, { enabled: false });
     clock.now = new Date("2026-10-30T15:00:00.000Z");
     const path = `/api/sprints/${sprint.id}`;
     const input = { expectedVersion: sprint.version, requestKey: "一度だけ終了", reason: "予定期間の終了" };

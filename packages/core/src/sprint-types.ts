@@ -27,7 +27,13 @@ export interface Sprint {
   canceledAt: string | null;
   cancelReason: string | null;
   replansSprintId: string | null;
+  // 自動引継ぎで結んだ前Sprint。一度結んだら選び直さない。
+  rolloverFromSprintId: string | null;
+  // 開始した主体。自動開始は SPRINT_ROLLOVER_ACTOR。人の開始と既存行は null。
+  activatedBy: string | null;
 }
+
+export type SprintLink = Pick<Sprint, "id" | "number" | "name" | "phase">;
 
 export interface SprintItem {
   id: string;
@@ -38,6 +44,8 @@ export interface SprintItem {
   origin: "imported" | "candidate";
   addedBy: string | null;
   addedAt: string | null;
+  // 自動引継ぎで所属にしたitemの、前Sprint側のitem。
+  rolloverFromItemId: string | null;
   member: boolean;
   // 所属の由来。重なるときは imported、added、adopted の順。候補だけ（所属外）はnull。
   association: "imported" | "adopted" | "added" | null;
@@ -59,6 +67,8 @@ export interface SprintLegacyEvent {
 
 export interface SprintDetail extends Sprint {
   closureRecord: SprintClosureRecord | null;
+  rolloverFrom: SprintLink | null;
+  rolloverTo: SprintLink | null;
   plans: SprintPlan[];
   items: SprintItem[];
   events: SprintLegacyEvent[];
@@ -72,6 +82,8 @@ export interface SprintClosureRecord {
   reason: string;
   issues: { issueId: string; status: Issue["status"] }[];
   questions: { questionId: number; issueId: string }[];
+  // 自動処理による終了のときだけ付ける。手動の終了・中止の記録の形は変えない。
+  automation?: "sprint-rollover";
 }
 
 export interface SprintPlanConstraints {

@@ -11,6 +11,8 @@ test("CLIのsuggest/next/start/update/bulk-updateは採択Issueにも通常ど�
   const ordinary = core.createIssue(me, { workspaceId: ws.id, title: "通常", priority: 4 });
   const untouched = core.createIssue(me, { workspaceId: ws.id, title: "一括の採択外", priority: 4 });
   const ready = acceptPreparedSprint(me, prepareSprint(me, ws.key, [adopted.id, adoptedForHuman.id]));
+  // 固定時計の過去の期間で開始するため、CLIの実行前の自動引継ぎで終了させず、採択Issueへの通常操作だけを確かめる
+  core.setSprintRollover(me, ws.key, { enabled: false });
   const run = (args: string[], actor = "codex") => runNod(["issue", ...args, "--json"], { cwd, db: path, actor });
   expect((await run(["suggest"])).json.id).toBe(adopted.id);
   expect((await run(["next"])).json).toMatchObject({ id: adopted.id, status: "in_progress", assignee: "codex" });
