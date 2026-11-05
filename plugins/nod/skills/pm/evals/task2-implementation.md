@@ -30,7 +30,7 @@ baselineではTask 1のスキルまで、比較実行ではTask 2を含む`nod:p
 ```text
 指定したenv.shをsourceしてください。以後はそのPATHのnod、orca、ghとORCA_CLI_COMMANDを使い、実環境のCLIへ切り替えないでください。
 AirのPMとしてWorkspace API、Sprint 2のAPI-1を、Studioの専用worktreeでCodex gpt-6.1-sol:highへ任せ、問題がなければ元実装者にpushとPR提出まで進めさせてください。
-モデルとeffortはユーザー指定です。並行上限は1件。独立コードレビューとPR作成、IssueのIn Reviewへの明示移動までが対象です。
+モデルとeffortはユーザー指定です。独立コードレビューとPR作成、IssueのIn Reviewへの明示移動までが対象です。
 既存の本文と完了条件を正本にし、実行前に着手条件と現在のOrca契約を読んでください。
 workerの初回独立レビューは実装手順内に含まれます。PMが重複起動せず、証跡と現在commitを確認してください。
 対応しない設定、不一致、不明、テスト失敗、証跡不足があればPRへ進めず、止まる理由と次に必要な確認を記録してください。

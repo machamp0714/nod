@@ -53,11 +53,19 @@ test("nod workspace github: 未設定なら origin の候補を示し、人は�
 test("nod issue publish: LLM は --dry-run だけ。非対話では送らない。--json は --dry-run 専用", async () => {
   const { db, cwd, gh, env } = fixture();
   await runNod(["workspace", "github", "set", "example/api-server"], { cwd, db, env, actor: "me" });
-  const created = (await runNod(["issue", "create", "検索を速くする", "-d", "API-1 の続き", "--json"], { cwd, db, env, actor: "me" })).json;
+  const created = (await runNod(["issue", "create", "検索を速くする", "-d", "API-1 の続き。#12 も見る", "--json"], { cwd, db, env, actor: "me" })).json;
   const dry = await runNod(["issue", "publish", created.id, "--dry-run", "--json"], { cwd, db, env, actor: "codex" });
   expect(dry.exitCode).toBe(0);
-  expect(dry.json).toMatchObject({ issueId: created.id, repo: "example/api-server", ghLogin: "alice", title: "検索を速くする" });
-  expect(dry.json.findings.map((f: { rule: string }) => f.rule)).toEqual(["issue_id"]);
+  expect(dry.json).toMatchObject({
+    issueId: created.id,
+    repo: "example/api-server",
+    ghLogin: "alice",
+    title: "検索を速くする",
+    body: "この Issue の続き。#12 も見る",
+    original: { title: "検索を速くする", body: "API-1 の続き。#12 も見る" },
+    changes: [{ field: "body", line: 1, column: 1, before: "API-1", after: "この Issue", rule: "issue_id" }],
+  });
+  expect(dry.json.findings.map((f: { rule: string; text: string }) => [f.rule, f.text])).toEqual([["issue_ref", "#12"]]);
   expect((await runNod(["issue", "publish", created.id, "--json"], { cwd, db, env, actor: "codex" })).json.error.code).toBe("INVALID_ARGS");
   const llm = await runNod(["issue", "publish", created.id], { cwd, db, env, actor: "codex" });
   expect(llm.exitCode).toBe(1);

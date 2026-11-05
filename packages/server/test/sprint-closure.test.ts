@@ -17,7 +17,7 @@ async function activeSprint() {
   let sprint = (await call(app, "POST", "/api/sprints", { workspaceKey: f.ws.key, startDate: "2026-10-30", endDate: "2026-10-30", timezone: "Asia/Tokyo", expectedVersion: 0, requestKey: "作成" })).json;
   const issue = createIssue(f.me, { workspaceId: f.ws.id, title: "残件を確認" });
   const added = (await call(app, "POST", `/api/sprints/${sprint.id}/issues`, { issueRef: issue.id })).json;
-  const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: added.sprint.version, requestKey: "計画", goal: "残件を確認", verificationMethod: "記録を再取得", items: [{ itemId: added.item.id, contribution: "残件の確認", executionPlan: "終了を記録" }], definitionOfDone: [{ id: "確認", text: "記録を閲覧" }], constraints: { executionScope: "Workspace", maxParallel: 1, notes: "既存権限" }, changeReason: "初期計画" })).json;
+  const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: added.sprint.version, requestKey: "計画", goal: "残件を確認", verificationMethod: "記録を再取得", items: [{ itemId: added.item.id, contribution: "残件の確認", executionPlan: "終了を記録" }], definitionOfDone: [{ id: "確認", text: "記録を閲覧" }], constraints: { executionScope: "Workspace", notes: "既存権限" }, changeReason: "初期計画" })).json;
   const accepted = (await call(app, "POST", `/api/sprints/${sprint.id}/plans/${proposed.plan.id}/accept`, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash })).json;
   sprint = (await call(app, "POST", `/api/sprints/${sprint.id}/activate`, { expectedVersion: accepted.sprint.version, requestKey: "開始" })).json;
   return { ...f, app, clock, sprint, issue, item: added.item };
@@ -49,7 +49,7 @@ test("終了時の採択残件と完了済みIssueの未回答質問を保存し
       selected.push(added.item.id);
     }
     legacyCandidate(db, sprint.id, candidate.id);
-    const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: current.version, requestKey: "追加計画", goal: "終了時に確認", verificationMethod: "再取得", items: selected.map(itemId => ({ itemId, contribution: "残件確認", executionPlan: "記録する" })), definitionOfDone: [{ id: "記録", text: "再表示できる" }], constraints: { executionScope: "Workspace", maxParallel: 1, notes: "権限維持" }, changeReason: "対象を追加" })).json;
+    const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: current.version, requestKey: "追加計画", goal: "終了時に確認", verificationMethod: "再取得", items: selected.map(itemId => ({ itemId, contribution: "残件確認", executionPlan: "記録する" })), definitionOfDone: [{ id: "記録", text: "再表示できる" }], constraints: { executionScope: "Workspace", notes: "権限維持" }, changeReason: "対象を追加" })).json;
     current = (await call(app, "POST", `/api/sprints/${sprint.id}/plans/${proposed.plan.id}/accept`, { expectedVersion: proposed.sprint.version, requestKey: "追加合意", contentHash: proposed.plan.contentHash })).json.sprint;
     const openQuestion = askQuestion(llm, issue.id, "何が残ったか").question;
     const finishedQuestion = askQuestion(llm, finished.id, "完了後の判断は必要か").question;
@@ -125,7 +125,7 @@ test("中止時の採択残件と完了済みIssueの未回答質問を保存し
       selected.push(added.item.id);
     }
     legacyCandidate(db, sprint.id, candidate.id);
-    const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: current.version, requestKey: "追加計画", goal: "終了時に確認", verificationMethod: "再取得", items: selected.map(itemId => ({ itemId, contribution: "残件確認", executionPlan: "記録する" })), definitionOfDone: [{ id: "記録", text: "再表示できる" }], constraints: { executionScope: "Workspace", maxParallel: 1, notes: "権限維持" }, changeReason: "対象を追加" })).json;
+    const proposed = (await call(app, "POST", `/api/sprints/${sprint.id}/plans`, { expectedVersion: current.version, requestKey: "追加計画", goal: "終了時に確認", verificationMethod: "再取得", items: selected.map(itemId => ({ itemId, contribution: "残件確認", executionPlan: "記録する" })), definitionOfDone: [{ id: "記録", text: "再表示できる" }], constraints: { executionScope: "Workspace", notes: "権限維持" }, changeReason: "対象を追加" })).json;
     current = (await call(app, "POST", `/api/sprints/${sprint.id}/plans/${proposed.plan.id}/accept`, { expectedVersion: proposed.sprint.version, requestKey: "追加合意", contentHash: proposed.plan.contentHash })).json.sprint;
     const openQuestion = askQuestion(llm, issue.id, "何が残ったか").question;
     const finishedQuestion = askQuestion(llm, finished.id, "完了後の判断は必要か").question;

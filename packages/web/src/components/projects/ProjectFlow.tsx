@@ -96,7 +96,7 @@ export function ProjectFlowSection({ flow, scopeNote = "Project 全体を表示�
   return (
     <section className={s.section} aria-label="依存関係のフロー">
       <div className={s.notes}>
-        <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業も、着手条件と並行上限の範囲で進めます。</p>
+        <p className={s.explain}>矢印は前提となる Issue を示します。分岐した作業も、着手条件の範囲で進めます。</p>
         <p className={s.scopeNote}>{scopeNote}</p>
       </div>
       {/* 読み直しに失敗しても、直前のグラフは消さずに失敗と再試行を添える */}

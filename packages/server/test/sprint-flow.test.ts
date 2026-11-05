@@ -4,7 +4,7 @@ import { createApp } from "../src/app";
 import { call, setup } from "./helpers";
 import { acceptPreparedSprint, prepareSprint, sprintTestClock } from "../../core/test/fixtures/sprint-start";
 
-test("HTTPのSprintフローと着手条件読取は採用中の版へ固定し、actor入力や実行許可を増やさない", async () => {
+test("HTTPのSprintフローと着手条件読取は採用中の版へ固定し、actor入力を増やさず、採択Issueの通常startはSprintを変えない", async () => {
   const { db, ws, me } = setup();
   const issue = core.createIssue(me, { workspaceId: ws.id, title: "採択" });
   const proposal = prepareSprint(me, ws.key, [issue.id]);
@@ -22,7 +22,7 @@ test("HTTPのSprintフローと着手条件読取は採用中の版へ固定し�
   const after = await call(app, "GET", `/api/sprints/${active.id}/flow?planId=別の計画`);
   expect(after).toMatchObject({ status: 200, json: { mode: "adopted", planId: proposal.plan.id, sprintVersion: active.version } });
   expect((await call(app, "POST", `/api/sprints/${active.id}/items/${proposal.items[0]!.id}/eligibility`, { actor: "me" })).status).toBe(404);
-  expect((await call(app, "POST", `/api/issues/${issue.id}/start`, {})).status).not.toBe(200);
+  expect(await call(app, "POST", `/api/issues/${issue.id}/start`, {})).toMatchObject({ status: 200, json: { status: "in_progress" } });
   expect(core.getSprint(db, active.id).version).toBe(active.version);
   db.close();
 });

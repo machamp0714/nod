@@ -26,7 +26,7 @@ export function captureWorkerStartFixture(db: Database, directory: string, ref: 
   }
 }
 
-/** 偽Orcaだけが使う評価データの配置。nod startは常に実CLIへ渡し、S02では拒否される。 */
+/** 偽Orcaだけが使う評価データの配置。nod startは常に実CLIへ渡す。実CLIはSprint採択を理由に拒否しないが、開始通知前にstartしないのはPMの運用方針であり、この配置はstart成功を表さない。 */
 export function installWorkerStartFixture(directory: string, ref: string): void {
   if (ref !== "API-1" && ref !== "API-2") throw new Error("評価対象外のIssueです");
   const db = openDb(join(directory, "nod.db"));

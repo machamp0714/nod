@@ -84,10 +84,7 @@ test("Sprintの循環注意・狭い図内スクロール・キーボード操�
   await captureSprint(page, "flow-narrow-cycle-keyboard", info);
   await tab(page, "一覧").click();
   await expect(tab(page, "一覧")).toBeFocused();
-  await page.getByRole("button", { name: "計画案を編集", exact: true }).click();
-  await expect(page.getByRole("form", { name: "計画案の編集" }).getByLabel("今回のゴール", { exact: true })).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await captureSprint(page, "plan-editor-narrow", info);
 });
 
 test.describe("フロー取得失敗", () => {

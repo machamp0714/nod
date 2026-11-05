@@ -45,7 +45,7 @@ test("LLMはnod sprint addで合意の前にIssueを所属にし、別プロセ�
   // 計画・合意・開始・中止の人専用の制約は残る
   expect((await runNod(["sprint","add",sprint.id,planned.id,"--json"],codex)).json.added).toBe(true);
   const plannedItem = (await runNod(["sprint","show",sprint.id,"--json"],me)).json.items.find((i:any)=>i.sourceIssueKey===planned.id);
-  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"差し込みを進める",verificationMethod:"一巡する",items:[{itemId:plannedItem.id,contribution:"計画の作業",executionPlan:"実装する"}],definitionOfDone:[{id:"確認",text:"動く"}],constraints:{executionScope:"Workspace",maxParallel:1,notes:"既存権限"},changeReason:"最初の計画"},"codex")).json;
+  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"差し込みを進める",verificationMethod:"一巡する",items:[{itemId:plannedItem.id,contribution:"計画の作業",executionPlan:"実装する"}],definitionOfDone:[{id:"確認",text:"動く"}],constraints:{executionScope:"Workspace",notes:"既存権限"},changeReason:"最初の計画"},"codex")).json;
   const agree = {expectedVersion:proposed.sprint.version,requestKey:"合意",contentHash:proposed.plan.contentHash};
   expect((await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree,"codex")).json.error.code).toBe("FORBIDDEN_FOR_LLM");
   const ready = (await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree)).json;

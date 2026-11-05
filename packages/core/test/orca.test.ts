@@ -9,7 +9,6 @@ import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import { startIssue } from "../src/ops/agent";
 import { cdCommand, createOrcaWorktree, getWorktreeName, defaultOrcaRunner, openInOrca, orcaCommand, type OrcaRunner, samePath } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
-import { findWorkspace, listWorkspaces, setWorkspaceDefaultAgent } from "../src/ops/workspaces";
 import { codeOf, setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
@@ -170,7 +169,7 @@ describe("createOrcaWorktree（#210）", () => {
     const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
     expect(res).toEqual({ issueId: "API-1", created: true, worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", failure: null });
     expect(calls).toEqual([
-      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "claude", "--activate", "--json"],
+      ["worktree", "create", "--repo", "path:/tmp/repos/api-server", "--name", "search-n1-a67fefb7", "--no-parent", "--agent", "omp", "--surface", "terminal", "--activate", "--json"],
       ["worktree", "set", "--worktree", `path:${NEW_WT}`, "--display-name", "API-1 検索", "--json"],
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
@@ -205,16 +204,73 @@ describe("createOrcaWorktree（#210）", () => {
     expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).failure?.code).toBe("WORKTREE_ALREADY_RECORDED");
   });
 
-  test("旧形式の起動端末と一覧から特定した端末にもEnterなしで入力する", async () => {
-    for (const startup of [{ startupTerminal: { handle: "term_old" } }, {}]) {
+  test("新形式の launch.outcome の端末に入力待ちを確かめて Enter なしで入力し、旧形式の端末より優先する", async () => {
+    const outcome = { launch: { outcome: { kind: "terminal", handle: "term_outcome" } } };
+    for (const legacy of [{}, { agentTerminalHandle: "term_new", startupTerminal: { handle: "term_old" } }]) {
       const { me, ref } = unstarted();
-      const { run, calls } = stubOrca({
-        "worktree create": ok({ worktree: { path: NEW_WT }, ...startup }),
-        "terminal list": ok({ terminals: [terminal({ handle: "term_old", worktreePath: NEW_WT })] }),
-      });
+      const { run, calls } = stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT }, ...outcome, ...legacy }), "worktree set": ok({}) });
       const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
       expect(result.draftWarning).toBeUndefined();
-      expect(calls.at(-1)).toEqual(["terminal", "send", "--terminal", "term_old", "--text", "API-1", "--json"]);
+      expect(calls.slice(2)).toEqual([
+        ["terminal", "wait", "--terminal", "term_outcome", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+        ["terminal", "send", "--terminal", "term_outcome", "--text", "API-1", "--json"],
+      ]);
+    }
+  });
+
+  test("launch.outcome が端末でないか handle が空なら、旧形式の agentTerminalHandle・startupTerminal.handle の順に使う", async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ launch: { outcome: { kind: "terminal", handle: "" } }, agentTerminalHandle: "term_new", startupTerminal: { handle: "term_old" } }, "term_new"],
+      [{ launch: { outcome: { kind: "chat", handle: "term_chat" } }, startupTerminal: { handle: "term_old" } }, "term_old"],
+      [{ startupTerminal: { handle: "term_old" } }, "term_old"],
+    ];
+    for (const [extra, handle] of cases) {
+      const { me, ref } = unstarted();
+      const { run, calls } = stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT }, ...extra }), "worktree set": ok({}) });
+      const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+      expect(result.draftWarning).toBeUndefined();
+      expect(calls.slice(2)).toEqual([
+        ["terminal", "wait", "--terminal", handle, "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+        ["terminal", "send", "--terminal", handle, "--text", "API-1", "--json"],
+      ]);
+    }
+  });
+
+  test("結果に端末が無ければ、一覧で Omp の生存端末がちょうど1件のときだけそこへ Enter なしで入力する", async () => {
+    const { me, ref } = unstarted();
+    const { run, calls } = stubOrca({
+      "worktree create": ok({ worktree: { path: NEW_WT } }),
+      "worktree set": ok({}),
+      "terminal list": ok({ terminals: [
+        terminal({ handle: "term_claude", worktreePath: NEW_WT }),
+        terminal({ handle: "term_dead_omp", agentIdentity: "omp", connected: false, worktreePath: NEW_WT }),
+        terminal({ handle: "term_omp", title: "omp", agentIdentity: "omp", worktreePath: NEW_WT }),
+      ] }),
+    });
+    const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+    expect(result.draftWarning).toBeUndefined();
+    expect(calls.slice(2)).toEqual([
+      ["terminal", "list", "--worktree", `path:${NEW_WT}`, "--json"],
+      ["terminal", "wait", "--terminal", "term_omp", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
+      ["terminal", "send", "--terminal", "term_omp", "--text", "API-1", "--json"],
+    ]);
+  });
+
+  test("一覧の Omp の端末が0件・複数件、または別のエージェントの端末だけなら入力せず、作成済みの実行場所と警告を返す", async () => {
+    const omp = (handle: string) => terminal({ handle, title: "omp", agentIdentity: "omp", worktreePath: NEW_WT });
+    const cases: Record<string, unknown>[][] = [
+      [],
+      [omp("term_omp_a"), omp("term_omp_b")],
+      [terminal({ handle: "term_claude", worktreePath: NEW_WT }), terminal({ handle: "term_codex", agentIdentity: "codex", worktreePath: NEW_WT })],
+    ];
+    for (const terminals of cases) {
+      const { db, me, ref } = unstarted();
+      const { run, calls } = stubOrca({ "worktree create": ok({ worktree: { path: NEW_WT } }), "worktree set": ok({}), "terminal list": ok({ terminals }) });
+      const result = await createOrcaWorktree(me, ref, { feature: "draft" }, run);
+      expect(result).toMatchObject({ created: true, worktree: NEW_WT, failure: null });
+      expect(result.draftWarning).toBe("セッションは起動しましたが、IDの入力を確認できませんでした。Orcaの入力欄を確認し、必要なら API-1 を入力してください。起動したエージェントの端末を特定できません。");
+      expect(calls.map((args) => args[1])).toEqual(["create", "set", "list"]);
+      expect(getIssue(db, ref).worktree).toBe(NEW_WT);
     }
   });
 
@@ -230,58 +286,21 @@ describe("createOrcaWorktree（#210）", () => {
     }
   });
 
-  test("一覧の端末が曖昧なら入力しない", async () => {
-    const { me, ref } = unstarted();
-    const { run, calls } = stubOrca({
-      "worktree create": ok({ worktree: { path: NEW_WT } }),
-      "terminal list": ok({ terminals: [terminal({ worktreePath: NEW_WT }), terminal({ handle: "term_other", worktreePath: NEW_WT })] }),
-    });
-    expect((await createOrcaWorktree(me, ref, { feature: "draft" }, run)).draftWarning).toContain("特定できません");
-    expect(calls.map((args) => args[1])).toEqual(["create", "set", "list"]);
-  });
-
-  test("エージェントは作成時の指定、無ければ Workspace の既定、既定は claude。時間切れは 60 秒で打ち切る", async () => {
+  test("Workspace の既定エージェントの値によらず、その Workspace のリポジトリで Omp を端末で起動する。時間切れは 60 秒で打ち切る", async () => {
     const seen: { args: string[]; timeoutMs: number }[] = [];
     const run: OrcaRunner = async (args, opts) => {
       if (args[1] !== "create") return args[1] === "wait" ? ok({ wait: { satisfied: true } }) : ok({ send: { accepted: true } });
       seen.push({ args, timeoutMs: opts.timeoutMs });
       return created;
     };
-    const agentOf = (i: number) => seen[i]?.args.slice(7, 9);
-    const a = unstarted();
-    await createOrcaWorktree(a.me, a.ref, { feature: "x" }, run);
-    expect(agentOf(0)).toEqual(["--agent", "claude"]);
+    const { db, me, ws, ref } = unstarted();
+    db.query("UPDATE workspaces SET default_agent = 'codex', path = '/tmp/repos/codex-default' WHERE id = ?").run(ws.id);
+    const res = await createOrcaWorktree(me, ref, { feature: "x" }, run);
+    expect(res.created).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.args).toEqual(["worktree", "create", "--repo", "path:/tmp/repos/codex-default", "--name", "x-a67fefb7", "--no-parent", "--agent", "omp", "--surface", "terminal", "--activate", "--json"]);
+    for (const flag of ["--model", "--prompt", "--effort"]) expect(seen[0]?.args).not.toContain(flag);
     expect(seen[0]?.timeoutMs).toBe(60_000);
-    const b = unstarted();
-    setWorkspaceDefaultAgent(b.me, b.ws.key, "codex");
-    await createOrcaWorktree(b.me, b.ref, { feature: "x" }, run);
-    expect(agentOf(1)).toEqual(["--agent", "codex"]);
-    const c = unstarted();
-    setWorkspaceDefaultAgent(c.me, c.ws.key, "codex");
-    await createOrcaWorktree(c.me, c.ref, { feature: "x", agent: "claude" }, run);
-    expect(agentOf(2)).toEqual(["--agent", "claude"]);
-  });
-
-  test("agent が claude・codex 以外なら INVALID_ARGS で、orca を呼ばない", async () => {
-    const { me, ref } = unstarted();
-    const { run, calls } = stubOrca({ "worktree create": created });
-    for (const agent of ["", "gemini", "Claude", "claude --dangerously"]) {
-      const code = await createOrcaWorktree(me, ref, { feature: "x", agent }, run).then(() => undefined, (e) => (e as { code?: string }).code);
-      expect([agent, code]).toEqual([agent, "INVALID_ARGS"]);
-    }
-    expect(calls).toHaveLength(0);
-  });
-
-  test("Workspace の既定エージェントは claude で始まり、人だけが claude・codex に変えられる", () => {
-    const { db, me, llm, ws } = setup();
-    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("claude");
-    expect(setWorkspaceDefaultAgent(me, ws.key, "codex")).toMatchObject({ key: ws.key, defaultAgent: "codex" });
-    expect(listWorkspaces(db)[0]?.defaultAgent).toBe("codex");
-    const codeOf = (fn: () => unknown) => { try { fn(); } catch (e) { return (e as { code?: string }).code; } return undefined; };
-    expect(codeOf(() => setWorkspaceDefaultAgent(me, ws.key, "gemini"))).toBe("INVALID_ARGS");
-    expect(codeOf(() => setWorkspaceDefaultAgent(llm, ws.key, "claude"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => setWorkspaceDefaultAgent(me, "NOPE", "claude"))).toBe("NOT_FOUND");
-    expect(findWorkspace(db, ws.key)?.defaultAgent).toBe("codex");
   });
 
   test("ブランチが refs/heads/ で始まらなければそのまま、無ければ null を記録する", async () => {

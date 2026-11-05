@@ -104,7 +104,7 @@ export interface SprintExecutionState {
   sprintId: string; session: SprintSession | null; executionVersion: number;
   attempts: SprintAttempt[]; operations: SprintExecutionOperation[];
   occupied: number; reserved: number; canStart: boolean; stale: boolean;
-  observedAt: string; maxParallel: number | null;
+  observedAt: string;
   unreconciledOwnership: SprintExistingOwnership[];
   quarantined: { operationId: string; generation: number; reason: string; receipt: SprintExecutionReceipt }[];
   nextActions: { description: string; argv: string[]; input?: SprintSessionContext & { requestKey?: string }; command: string }[];

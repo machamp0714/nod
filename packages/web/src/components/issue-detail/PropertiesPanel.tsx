@@ -305,7 +305,7 @@ export function PropertiesPanel({
   const locked = action.busy || readOnly;
   const full = variant === "rail";
   const location = executionLocation(issue.branch, issue.worktree);
-  // 「Orca で作業を始める」が成功したら、押したボタンが消えるため、代わりに出る「Orca で開く」へフォーカスを移す（#210）。
+  // 「Omp で作業を始める」が成功したら、押したボタンが消えるため、代わりに出る「Orca で開く」へフォーカスを移す（#210）。
   // 読み直しの描画が成功の通知より後になることもあるため、通知のときと worktree が変わったときの両方で試す
   const openInOrca = useRef<HTMLButtonElement>(null);
   const [orcaCreatedResult, setOrcaCreatedResult] = useState<OrcaWorktreeResult | null>(null);
@@ -420,8 +420,8 @@ export function PropertiesPanel({
                 {issue.worktree && <OpenInOrcaButton issueId={issue.id} buttonRef={openInOrca} />}
               </span>
             ) : (
-              // 実行場所が未記録（worktree もブランチも無い）のときだけ、値の位置に「Orca で作業を始める」を出す（#210、nod.pen「PHJ9L」）
-              <StartInOrcaButton issueId={issue.id} workspaceKey={issue.workspace} title={issue.title} disabled={readOnly}
+              // 実行場所が未記録（worktree もブランチも無い）のときだけ、値の位置に「Omp で作業を始める」を出す（#210、nod.pen「PHJ9L」）
+              <StartInOrcaButton issueId={issue.id} title={issue.title} disabled={readOnly}
                 onCreated={(result) => { setOrcaCreatedResult(result); focusOpenInOrca.current = true; moveFocusToOpenInOrca(); }} />
             )}
           </Prop>

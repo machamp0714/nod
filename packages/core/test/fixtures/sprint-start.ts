@@ -22,7 +22,7 @@ export function prepareSprint(ctx: core.OpCtx, workspaceKey: string, issueRefs: 
     expectedVersion: sprint.version, requestKey: "計画", goal: "合意した範囲を実行する", verificationMethod: "公開操作で確認する",
     items: items.map(item => ({ itemId: item.id, contribution: "重複着手を防ぐ", executionPlan: "着手条件を確認する" })),
     definitionOfDone: [{ id: "着手", text: "採択範囲と既存条件を守る" }],
-    constraints: { executionScope: "Workspace", maxParallel: 1, notes: "人の合意を守る" }, changeReason: "最初の計画",
+    constraints: { executionScope: "Workspace", notes: "人の合意を守る" }, changeReason: "最初の計画",
   };
   const proposed = core.proposeSprintPlan(ctx, sprint.id, input);
   return { ...proposed, items, input };

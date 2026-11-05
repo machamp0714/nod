@@ -173,7 +173,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
 - \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
-- \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する（人だけ。LLM は --dry-run だけ。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS）。送るのはタイトルと本文だけ。nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）が見つかれば行番号付きで示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か --clear-unknown で解除する
+- \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する（人だけ。LLM は --dry-run だけ。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS）。送るのはタイトルと本文だけ。--title・--body-file を指定しない項目は、nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）を決まった規則で整えた案を既定にし、確認画面と --dry-run に書き換えた箇所（前 → 後）を示す（nod の本文は変えない。指定した文面は書き換えない）。整えられずに残った箇所があれば行番号と必要な対応を示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か --clear-unknown で解除する
 - \`nod issue link-github <id> <URL>\` / \`nod issue unlink-github <id>\`：既存の GitHub Issue を紐付ける・外す（人だけ）。外した GitHub Issue は import で取り込み直さない
 - \`nod workspace github show|set <owner/repo>|clear\`：GitHub の公開先（人だけが変えられる）。未設定なら show が origin の候補を示す
 - \`nod issue pr-diff <id> [--refresh] [--file <パス>]\`：PR の変更ファイル（パス・状態・+/-行数）を表示し、\`--file\` でそのファイルの unified diff を出す。\`--refresh\` で gh から PR の HEAD に固定した差分を取得して保存する（GitHub へは読み取りのみ。LLM も実行できる。gh の呼び出しごとに15秒で時間切れ）。上限はファイル 300 件・全体 5 MB（超えると DIFF_TOO_LARGE）、1ファイル 200 KB か 5,000 行を超えるものとバイナリは本文を保存しない。PR 状態の取得で別の HEAD を知ると古い差分は出さず \`stale\` に両方の HEAD が入る。\`--json\` の一覧は patch を含まないので、本文は \`--file\` で読む。双方向の制御文字は ⟪U+202E⟫ のように符号で表示する
@@ -189,12 +189,12 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod sprint add <sprint> <issue>\`：Issue を Sprint に追加し、追加した時点でその Sprint の所属になる（LLM も実行できる。LLM は CLI で追加する）。人の合意・計画の再承認・合意原文は要らない。Sprint の版も requestKey も要らない。Sprint はUUIDか共通番号で、draft・ready・active で Workspace があるものに追加できる（imported・ended・canceled と Workspace 削除済みは INVALID_STATE）。Issue は Sprint と同じ Workspace にあり、アーカイブ済みでなければ、どのステータスでも追加できる。同じ追加を再実行しても重複しない（\`--json\` は \`{ sprint, item, added }\` で、added は追加の記録を今回新しく付けたら true（計画で採択済みの Issue への初回の追加も true）、既に追加の記録があれば false）。他の Sprint の所属は変わらない。計画の提案・合意・開始・終了・中止とは別の操作で、それらの人だけが行える制約は残る。計画にない追加の Issue は Sprint 実行（PM の監督・予約・自動の着手）の対象にならない
 - \`nod issue list|stats|summary --sprint <sprint>\`：Sprint の所属（移行・採択・追加）を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの現在Sprintの所属で、Issue一覧は完了済みを含む。旧データの候補だけのitemは所属に数えない（追加し直すと所属になる）。
 - 旧\`nod cycle\`・\`--cycle\`・周期の自動作成と自動持ち越しは廃止済み。Sprint への追加は \`nod sprint add <sprint> <issue>\` で行う。
+- Sprintへの採択・Sprint実行の記録は、通常の状態更新・\`nod issue start\`・\`next\`・\`suggest\` を止めない。状態変更は Sprint 実行の予約・占有・未照合所有を解放しない（実行の占有は \`nod sprint execution show\` で別に確認する）。
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる
 - \`nod workspace labels add <name> --color <#RRGGBB> [-d <説明>]\`：ラベルを定義する。\`nod workspace labels update <name> [--name <新しい名前>] [--color <#RRGGBB>] [-d <説明>]\` で定義を変える（改名するとこの Workspace の Issue のラベルも置き換わる）。定義の削除は人だけが行える
 - \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
-- \`nod workspace agent show\`：Web の「Orca で作業を始める」で起動する既定のエージェント（claude か codex）を見る。変更（\`set\`）は人だけが行える
 - \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
 - \`nod issue show <id>\` の Activity は「誰が何をしたか」の文で出る。event に残る補足は文の後ろの（）に付く：起票は（状態: <起票時の状態>、起票元: <ID>、取り込み元: <URL>）、自動化による変更は（自動化: auto_close|auto_archive）。起票元は本体にも「起票元: <ID>」と出る。「関係」の相手がアーカイブ済みなら（アーカイブ済み）、ブロック元が done・canceled なら（Done）（Canceled）のようにその状態が付き（表示名を変えた Workspace では「表示名 (内部値)」）、これらは着手を妨げない。event の data をそのまま読むときは \`--json\` の \`activity\` を使う
 - \`--project\` は名前の全体か ID で指定する。名前の一部では解決せず、近い名前の候補（名前と ID）がエラーに出る

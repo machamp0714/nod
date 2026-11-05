@@ -1,11 +1,6 @@
 import type { SprintReference } from "./sprint-types";
 import type { WorkLogKind } from "./work-log";
 
-// 「Orca で作業を始める」（#210）で起動できるエージェント。値は orca worktree create の --agent にそのまま渡す
-export const ORCA_AGENTS = ["claude", "codex"] as const;
-export type OrcaAgent = (typeof ORCA_AGENTS)[number];
-export const ORCA_AGENT_LABELS: Record<OrcaAgent, string> = { claude: "Claude Code", codex: "Codex" };
-
 export interface Workspace {
   id: number;
   key: string;
@@ -13,7 +8,6 @@ export interface Workspace {
   path: string;
   color: string;
   specAssessmentEnabled?: boolean;
-  defaultAgent: OrcaAgent; // 「Orca で作業を始める」の既定のエージェント
   createdAt: string;
 }
 
@@ -816,7 +810,7 @@ export interface OrcaOpenResult {
   failure: OrcaFailure | null;
 }
 
-// 「Orca で作業を始める」（#210）の結果。作れなかったときは created が false で、worktree・branch は Issue に記録済みの値のまま
+// 「Omp で作業を始める」（#210、NOD-61）の結果。作れなかったときは created が false で、worktree・branch は Issue に記録済みの値のまま
 export interface OrcaWorktreeResult {
   issueId: string;
   created: boolean;
