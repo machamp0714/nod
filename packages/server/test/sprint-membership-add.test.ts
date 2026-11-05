@@ -8,7 +8,7 @@ import { call, setup, tempDir } from "./helpers";
 const plan = (version: number, requestKey: string, itemIds: string[]) => ({
   expectedVersion: version, requestKey, goal: "差し込みを進める", verificationMethod: "再取得で確認",
   items: itemIds.map(itemId => ({ itemId, contribution: "範囲を確定", executionPlan: "順に進める" })),
-  definitionOfDone: [{ id: "確認", text: "所属を確認" }], constraints: { executionScope: "Workspace", maxParallel: 1, notes: "既存権限" }, changeReason: requestKey,
+  definitionOfDone: [{ id: "確認", text: "所属を確認" }], constraints: { executionScope: "Workspace", notes: "既存権限" }, changeReason: requestKey,
 });
 
 async function configured() {

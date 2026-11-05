@@ -31,7 +31,7 @@ export async function plannedSprint(page: Page, workspaceKey: string, refs: stri
   }
   for (const ref of options.legacyCandidates ?? []) await legacySprintCandidate(sprint.id, ref);
   const input = { goal: `${workspaceKey}で判断を確認できる`, verificationMethod: "判断の発見から回答まで一巡する", items,
-    definitionOfDone: [{ id: "確認", text: "公開操作で一巡を確認する" }], constraints: { executionScope: workspaceKey, maxParallel: 2, notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" };
+    definitionOfDone: [{ id: "確認", text: "公開操作で一巡を確認する" }], constraints: { executionScope: workspaceKey, notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" };
   const result = await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprint.id}/plans`, { expectedVersion: sprint.version, requestKey: crypto.randomUUID(), ...input });
   return { ...result, input };
 }

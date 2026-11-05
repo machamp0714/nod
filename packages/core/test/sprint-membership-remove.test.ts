@@ -41,7 +41,7 @@ test("未知のキー・採択の所属・閉じたSprint・アーカイブ済�
     }
     const proposed = core.proposeSprintPlan(llm, sprint.id, { expectedVersion: added.sprint.version, requestKey: "計画", goal: "整理する", verificationMethod: "再取得",
       items: [{ itemId: added.item.id, contribution: "整理", executionPlan: "順に" }], definitionOfDone: [{ id: "確認", text: "所属を確認" }],
-      constraints: { executionScope: "Workspace", maxParallel: 1, notes: "既存権限" }, changeReason: "最初の計画" });
+      constraints: { executionScope: "Workspace", notes: "既存権限" }, changeReason: "最初の計画" });
     core.acceptSprintPlan(me, sprint.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
     const before = [core.getSprint(db, sprint.id), core.getIssue(db, issue.id)];
     // 追加の記録が重なっていても、採用中の合意済み計画の項目は人も外せない。

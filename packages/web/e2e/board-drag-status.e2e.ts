@@ -125,19 +125,17 @@ test.describe("遷移ルールで拒否されたとき", () => {
   });
 });
 
-test.describe("Sprint管理中の着手保護", () => {
-  test.use({ allowedConsoleErrors: [/status of 409/] });
-
-  test("現在SprintのBoardでも通常ドロップによる着手を拒否し、元の状態を保つ", async ({ page, nod }) => {
+test.describe("Sprint採択Issueの通常着手", () => {
+  test("現在SprintのBoardでも通常ドロップで着手でき、再読込後も状態を保つ", async ({ page, nod }) => {
     const { todo, ws } = await seed(nod);
     const sprint = await acceptAndActivate(page, await plannedSprint(page, ws.key, [todo]));
     await page.goto(`/sprints/${sprint.id}?layout=board&groupBy=none`);
     await card(page, todo).dragTo(hiddenRow(page, "In Progress"));
-    await expect(page.getByRole("alert")).toContainText(todo);
-    await expect(column(page, "Todo").getByRole("article").filter({ hasText: todo })).toBeVisible();
-    expect(await statusOf(page, todo)).toBe("todo");
+    await expect(column(page, "In Progress").getByRole("article").filter({ hasText: todo })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(await statusOf(page, todo)).toBe("in_progress");
     await page.reload();
-    await expect(column(page, "Todo").getByRole("article").filter({ hasText: todo })).toBeVisible();
-    expect(await statusOf(page, todo)).toBe("todo");
+    await expect(column(page, "In Progress").getByRole("article").filter({ hasText: todo })).toBeVisible();
+    expect(await statusOf(page, todo)).toBe("in_progress");
   });
 });

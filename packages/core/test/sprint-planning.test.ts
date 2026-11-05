@@ -15,7 +15,7 @@ function draft() {
 }
 const planInput = (itemId: string, version: number) => ({ expectedVersion: version, requestKey: "計画", goal: "判断後に再開できる", verificationMethod: "回答から再開までを一巡する",
   items: [{ itemId, contribution: "判断を一か所に集める", executionPlan: "既存Inboxから接続する" }],
-  definitionOfDone: [{ id: "操作", text: "回答から再開まで確認できる" }], constraints: { executionScope: "対象Workspace", maxParallel: 2, notes: "公開は既存権限に従う" }, changeReason: "最初の提案" });
+  definitionOfDone: [{ id: "操作", text: "回答から再開まで確認できる" }], constraints: { executionScope: "対象Workspace", notes: "公開は既存権限に従う" }, changeReason: "最初の提案" });
 function proposal() {
   const f = draft();
   const issue = core.createIssue(f.me, { workspaceId: f.ws.id, title: "判断を表示" });
@@ -242,6 +242,7 @@ test("JSONの型・未知の制約・欠落した版とrequestKeyをcoreで拒�
   for (const value of [null,[],{expectedVersion:-1,requestKey:"負数"},{expectedVersion:sprint.version},{expectedVersion:sprint.version,requestKey:"空",timezone:null}]) {
     expect(codeOf(() => core.updateSprint(me,sprint.id,value as any))).toBe("INVALID_ARGS");
   }
-  expect(codeOf(() => core.proposeSprintPlan(me,sprint.id,{...planInput(item.id,sprint.version),constraints:{executionScope:"WS",maxParallel:1,notes:"制約",budget:100} as any}))).toBe("INVALID_ARGS");
+  expect(codeOf(() => core.proposeSprintPlan(me,sprint.id,{...planInput(item.id,sprint.version),constraints:{executionScope:"WS",notes:"制約",budget:100} as any}))).toBe("INVALID_ARGS");
+  expect(codeOf(() => core.proposeSprintPlan(me,sprint.id,{...planInput(item.id,sprint.version),requestKey:"廃止した並行数",constraints:{executionScope:"WS",notes:"制約",maxParallel:1} as any}))).toBe("INVALID_ARGS");
   db.close();
 });

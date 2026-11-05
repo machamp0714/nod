@@ -8,7 +8,7 @@ import { createTask2Scenario } from "./task2-setup";
 export const task5Variants = ["waiting", "supervise", "idle", "stop", "model-pending", "launch-pending", "unverifiable"] as const;
 export type Task5Variant = typeof task5Variants[number];
 
-/** 複数Issueの外部状態を用意する。枠の選択と停止判断はPMが行う。 */
+/** 複数Issueの外部状態を用意する。起動の選択と停止判断はPMが行う。 */
 export async function createTask5Scenario(options: { directory?: string; variant?: Task5Variant } = {}) {
   const variant = options.variant ?? "waiting";
   const phase = variant === "supervise" ? "implementation" : variant === "model-pending" ? "model_pending" : variant === "launch-pending" ? "launching" : variant === "unverifiable" ? "unverifiable" : "awaiting_input";

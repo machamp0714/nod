@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { registerReviewCommands, ReviewPreparationIncomplete } from "./commands/review";
 import { registerSprintCommands } from "./commands/sprint";
 import { registerUiCommand } from "./commands/ui";
 import { Command, CommanderError, Option } from "commander";
@@ -30,6 +31,7 @@ export function buildProgram(): Command {
     .exitOverride()
     // commander の英語のエラーは出さず、run() で日本語にして出す。ヘルプ（writeErr）はそのまま出す
     .configureOutput({ outputError: () => {} });
+  registerReviewCommands(program);
   registerIssueCommands(program);
   registerProjectCommands(program);
   registerInitiativeCommands(program);
@@ -108,6 +110,7 @@ export async function run(argv: string[]): Promise<number> {
     await buildProgram().parseAsync(argv);
     return 0;
   } catch (err) {
+    if (err instanceof ReviewPreparationIncomplete) return 1;
     if (err instanceof CommanderError) {
       // --help と --version を明示したときだけ 0。サブコマンドを省いたときのヘルプ（commander.help）は 1 で返る
       if (err.exitCode === 0) return 0;

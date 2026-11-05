@@ -32,7 +32,7 @@ function describe(state: SprintExecutionState): string {
   return [
     `現在の監督: ${current ? `${current.caller}（世代${current.generation}、${current.state === "handover" ? "引継ぎ待ち" : "所有中"}）` : "未登録"}`,
     `元Run: ${current?.runId ?? "未確認"}  計画: ${current?.planId ?? "未確認"}  hash: ${current?.planHash ?? "未確認"}`,
-    `占有: ${state.occupied} / 上限 ${state.maxParallel ?? "未確認"}（主試行の予約: ${state.reserved}、通常所有の未照合: ${state.unreconciledOwnership.length}）  実装開始: ${state.canStart ? "許可あり・開始報告を確認" : "不可・理由を確認"}`,
+    `占有: ${state.occupied}（主試行の予約: ${state.reserved}、通常所有の未照合: ${state.unreconciledOwnership.length}）  実装開始: ${state.canStart ? "許可あり・開始報告を確認" : "不可・理由を確認"}`,
     `保存状態の取得: ${state.observedAt}（Orcaの再照合日時とは別）`,
     `最終確認: ${current?.observedAt ?? "未取得"}（${state.stale ? "現在の監督状態は未確認" : "取得時点の状態"}）`,
     ...state.unreconciledOwnership.map(a => `${a.sourceIssueKey}  通常経路の既存所有: ${a.assignee ?? "担当未確認"}（${a.status}）\n  実行場所: ${a.worktree ?? a.branch ?? "未確認"}\n  理由: ${a.reason.code} ${a.reason.message}`),

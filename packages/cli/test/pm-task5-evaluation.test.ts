@@ -42,7 +42,7 @@ test("PM並行評価は独立IssueのPRだけを提出し、質問と成果とcl
   expect(h.nod("issue", "show", "API-2").labels).not.toContain("needs-spec");
   expect(h.nod("issue", "show", "API-6").labels).toContain("needs-spec");
   const q = h.nod("issue", "ask", "API-1", "保持期間は1.30日、2.90日。推奨1。保存量のため。決定後は元の集計作業を再開。").question;
-  h.nod("issue", "log", "API-1", `質問#${q.id} Run=run-pm Task=task-api1 Dispatch=dispatch-api1 message=ask-api1。工程=人回答待ち。占有枠=1。`, "--kind", "blocker");
+  h.nod("issue", "log", "API-1", `質問#${q.id} Run=run-pm Task=task-api1 Dispatch=dispatch-api1 message=ask-api1。工程=人回答待ち。占有=1。`, "--kind", "blocker");
   h.call("check", "--ack", initial.id);
   const second = h.call("worker-start", "--spec", "実装。API-2。gpt-6.1-sol:high。照合完了まで変更しない。", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "export-column", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
   h.call("send", "--to", `dispatch:${second.dispatch.id}`, "--subject", "実装開始", "--body", "要求値と実効値が一致。開始してください。");

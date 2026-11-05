@@ -1259,7 +1259,7 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .orcaPopover button svg { flex: none; color: var(--ink2); }
 .orcaPopover button:hover, .orcaPopover button:focus-visible { background: var(--sunken); }
 
-/* 「Orca で作業を始める」（#210、nod.pen の PHJ9L・Y7Eyr）。ボタンは値の位置の高さ 24 のピル。
+/* 「Omp で作業を始める」（#210、NOD-61、nod.pen の PHJ9L・Y7Eyr）。ボタンは値の位置の高さ 24 のピル。
    ポップオーバーは行の直下に重ねる。値の列は幅 300 より狭いため、右端を値の列に合わせて左へ開く */
 .orcaStartButton { color: var(--ink2); }
 .orcaStartButton svg { width: 13px; height: 13px; }
@@ -1343,6 +1343,11 @@ a.attachmentTitle:hover, a.attachmentFileName:hover { color: var(--accent); text
 .githubFindings { align-self: stretch; border: 1px solid var(--fail); border-radius: var(--radius-md); padding: 8px 12px; font-size: 12px; }
 .githubFindings ul { margin: 4px 0 0; padding-left: 16px; }
 .githubFindingsHead { margin: 0; font-weight: 600; color: var(--fail); }
+.githubChanges { align-self: stretch; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; font-size: 12px; }
+.githubChanges ul { margin: 4px 0 0; padding-left: 16px; }
+.githubChanges code, .githubFindings code { overflow-wrap: anywhere; }
+.githubChangesHead { margin: 0; font-weight: 600; }
+.githubRevert { display: flex; gap: 6px; flex-wrap: wrap; }
 .githubFindingAt { font-variant-numeric: tabular-nums; }
 .githubRow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .githubLinked { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }

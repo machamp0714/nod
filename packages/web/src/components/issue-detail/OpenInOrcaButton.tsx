@@ -9,7 +9,7 @@ import s from "./issue-detail.module.css";
 // 開けなかったときは理由と、手で開くためのパス・cd コマンドのコピーをポップオーバーで出す
 const NOTICE_MS = 2500;
 
-// buttonRef は、「Orca で作業を始める」の成功後に親がフォーカスを移すために使う（#210）
+// buttonRef は、「Omp で作業を始める」の成功後に親がフォーカスを移すために使う（#210）
 export function OpenInOrcaButton({ issueId, buttonRef }: { issueId: string; buttonRef?: Ref<HTMLButtonElement> }) {
   const open = useOpenInOrca(issueId);
   const [failure, setFailure] = useState<{ message: string; worktree: string | null; command: string | null } | null>(null);

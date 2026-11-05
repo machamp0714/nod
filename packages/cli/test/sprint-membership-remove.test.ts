@@ -69,7 +69,7 @@ test("LLMはnod sprint removeで追加の所属を外し、別プロセスの詳
   // 計画で採択された所属は、追加の記録が重なっていても外せず、何も書かない
   expect((await runNod(["sprint","add",sprint.id,planned.id,"--json"],codex)).json.added).toBe(true);
   const plannedItem = (await runNod(["sprint","show",sprint.id,"--json"],me)).json.items.find((i:any)=>i.sourceIssueKey===planned.id);
-  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"送る",verificationMethod:"一巡する",items:[{itemId:plannedItem.id,contribution:"計画の作業",executionPlan:"実装する"}],definitionOfDone:[{id:"確認",text:"動く"}],constraints:{executionScope:"Workspace",maxParallel:1,notes:"既存権限"},changeReason:"最初の計画"},"codex")).json;
+  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"送る",verificationMethod:"一巡する",items:[{itemId:plannedItem.id,contribution:"計画の作業",executionPlan:"実装する"}],definitionOfDone:[{id:"確認",text:"動く"}],constraints:{executionScope:"Workspace",notes:"既存権限"},changeReason:"最初の計画"},"codex")).json;
   expect((await run(["sprint","plan","accept",sprint.id,proposed.plan.id],{expectedVersion:proposed.sprint.version,requestKey:"合意",contentHash:proposed.plan.contentHash})).exitCode).toBe(0);
   expect((await runNod(["issue","show",planned.id,"--json"],me)).json.sprints).toEqual([expect.objectContaining({id:sprint.id,association:"added",inAdoptedPlan:true})]);
   const adopted = await runNod(["sprint","remove",sprint.id,planned.id,"--json"],codex);

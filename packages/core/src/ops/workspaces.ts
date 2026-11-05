@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { ORCA_AGENTS, type OrcaAgent, type Workspace } from "../types";
+import type { Workspace } from "../types";
 import { allocateWorkspaceColor } from "../workspace-colors";
 import { removeStoredFiles, workspaceAttachmentPaths } from "./attachments";
 
@@ -17,12 +17,11 @@ interface WorkspaceRow {
   path: string;
   color: string;
   spec_assessment_enabled: number;
-  default_agent: OrcaAgent;
   created_at: string;
 }
 
 function toWorkspace(r: WorkspaceRow): Workspace {
-  return { specAssessmentEnabled: r.spec_assessment_enabled === 1, id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, defaultAgent: r.default_agent, createdAt: r.created_at };
+  return { specAssessmentEnabled: r.spec_assessment_enabled === 1, id: r.id, key: r.key, name: r.name, path: r.path, color: r.color, createdAt: r.created_at };
 }
 
 export function deriveKey(repoName: string): string | null {
@@ -31,27 +30,6 @@ export function deriveKey(repoName: string): string | null {
     .slice(0, 3)
     .toUpperCase();
   return KEY_RE.test(key) ? key : null;
-}
-
-export function parseOrcaAgent(value: string): OrcaAgent {
-  if (!(ORCA_AGENTS as readonly string[]).includes(value)) {
-    throw new NodError("INVALID_ARGS", `エージェントは ${ORCA_AGENTS.join("、")} のいずれかで指定してください（受け取った値: ${value}）`);
-  }
-  return value as OrcaAgent;
-}
-
-// 「Orca で作業を始める」（#210）の既定のエージェントを変える。ほかの Workspace 設定と同じく人だけが変えられる
-export function setWorkspaceDefaultAgent(ctx: OpCtx, keyOrPath: string, agent: string): Workspace {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は既定のエージェントを変えられません。変更は me に依頼してください");
-  }
-  const value = parseOrcaAgent(agent);
-  return tx(ctx.db, () => {
-    const workspace = findWorkspace(ctx.db, keyOrPath);
-    if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
-    ctx.db.query("UPDATE workspaces SET default_agent = ? WHERE id = ?").run(value, workspace.id);
-    return { ...workspace, defaultAgent: value };
-  });
 }
 
 export function listWorkspaces(db: Database): Workspace[] {

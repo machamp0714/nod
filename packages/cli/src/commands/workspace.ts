@@ -24,9 +24,6 @@ import {
   NodError,
   removeWorkspace,
   setWorkspaceRules,
-  ORCA_AGENT_LABELS,
-  ORCA_AGENTS,
-  setWorkspaceDefaultAgent,
   setWorkspaceSpecAssessment,
   clearWorkspaceGithubRepo,
   getWorkspaceGithubRepoView,
@@ -159,7 +156,6 @@ export function registerWorkspaceCommands(program: Command): void {
   }));
   registerLabelCommands(ws);
   registerStatusNameCommands(ws);
-  registerAgentCommands(ws);
   registerGithubRepoCommands(ws);
   registerTransitionCommands(ws);
 }
@@ -214,33 +210,6 @@ function registerLabelCommands(ws: Command): void {
       act((cli, cmd, name: string) => {
         const r = removeWorkspaceLabel(cli.ctx, currentWorkspace(cli, cmd).key, name);
         print(cli, r, () => `ラベル ${r.name} の定義を削除しました（Issue のラベルは残ります）`);
-      }),
-    );
-}
-
-// Web の「Orca で作業を始める」（#210）で起動する既定のエージェント。作成時に画面で選び直せる
-function registerAgentCommands(ws: Command): void {
-  const agent = ws
-    .command("agent")
-    .description("Web の「Orca で作業を始める」で起動する既定のエージェントを管理する。変更は人だけが行える");
-  agent
-    .command("show")
-    .description("現在の Workspace の既定のエージェントを表示する")
-    .action(
-      act((cli, cmd) => {
-        const workspace = currentWorkspace(cli, cmd);
-        const r = { workspaceKey: workspace.key, defaultAgent: workspace.defaultAgent };
-        print(cli, r, () => `${ORCA_AGENT_LABELS[r.defaultAgent]}（${r.defaultAgent}）`);
-      }),
-    );
-  agent
-    .command("set <agent>")
-    .description(`既定のエージェントを変える（${ORCA_AGENTS.join("、")} のいずれか）`)
-    .action(
-      act((cli, cmd, value: string) => {
-        const updated = setWorkspaceDefaultAgent(cli.ctx, currentWorkspace(cli, cmd).key, value);
-        const r = { workspaceKey: updated.key, defaultAgent: updated.defaultAgent };
-        print(cli, r, () => `既定のエージェントを ${ORCA_AGENT_LABELS[r.defaultAgent]}（${r.defaultAgent}）にしました`);
       }),
     );
 }
