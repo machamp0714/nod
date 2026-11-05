@@ -71,7 +71,6 @@ export interface SprintClosureRecord {
 export interface SprintPlanConstraints {
   executionSettingsPolicy?: { version: string; agent: string; allowedModels: string[]; allowedEfforts: string[]; allowedTargets: string[] };
   executionScope: string;
-  maxParallel: number;
   notes: string;
   executionTarget?: string;
   model?: string;

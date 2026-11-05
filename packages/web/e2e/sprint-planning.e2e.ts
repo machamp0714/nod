@@ -29,7 +29,7 @@ test("方向設定とSprint作成の公開フォームから、公開HTTPで提�
   const candidate = await sprintApi<{ sprint: Sprint; item: { id: string } }>(page, "POST", `/sprints/${sprintId}/candidates`, { expectedVersion: created.version, requestKey: crypto.randomUUID(), issueRef: issue.id });
   await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${sprintId}/plans`, { expectedVersion: candidate.sprint.version, requestKey: crypto.randomUUID(),
     goal: "判断の確認を完結できる", verificationMethod: "判断の発見から回答まで操作する", items: [{ itemId: candidate.item.id, contribution: "判断を発見できる", executionPlan: "一覧を実装して操作を確認" }],
-    definitionOfDone: [{ id: "確認", text: "判断から回答まで確認できる" }], constraints: { executionScope: "製品A", maxParallel: 1, notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" });
+    definitionOfDone: [{ id: "確認", text: "判断から回答まで確認できる" }], constraints: { executionScope: "製品A", notes: "公開は既存の権限に従う" }, changeReason: "初回の計画" });
   await page.goto(`/sprints/${sprintId}?section=plan`);
   await expect(page.getByRole("region", { name: "表示中の計画" })).toContainText("計画 第1版");
   await captureSprint(page, "plan-before-start-list", info);
@@ -133,8 +133,7 @@ test("同じ内容の合意を再利用し、変更案へ旧合意を適用せ�
 });
 
 test.describe("共通IssueList", () => {
-  test.use({ allowedConsoleErrors: [/status of 409/] });
-  test("Sprintの44px行・検索・Filter・Display・プレビュー・一括操作を維持し、管理中Issueへの一括着手を拒否する", async ({ page, nod }, info) => {
+  test("Sprintの44px行・検索・Filter・Display・プレビュー・一括操作を維持し、採択Issueも一括で着手できる", async ({ page, nod }, info) => {
     const ws = (await nod.me.initWorkspace({ key: "LI", name: "一覧確認", path: nod.repo("list") })).workspace;
     const first = await nod.me.createIssue({ workspaceId: ws.id, title: "一覧の対象その一" });
     const second = await nod.me.createIssue({ workspaceId: ws.id, title: "一覧の対象その二" });
@@ -162,9 +161,10 @@ test.describe("共通IssueList", () => {
     const bulk = page.getByRole("toolbar", { name: "一括操作", exact: true });
     await bulk.getByRole("button", { name: "Status", exact: true }).click();
     await page.getByRole("menu", { name: "Status を変更", exact: true }).getByRole("menuitem", { name: "In Progress", exact: true }).click();
-    await expect(page.getByRole("alert")).toContainText("何も変更していません");
-    expect((await nod.me.getIssue(first.id)).status).toBe("todo"); expect((await nod.me.getIssue(second.id)).status).toBe("todo");
-    await captureSprint(page, "issue-list-bulk-start-protected", info);
+    await expect(page.getByRole("status").filter({ hasText: "2件を更新しました" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect((await nod.me.getIssue(first.id)).status).toBe("in_progress"); expect((await nod.me.getIssue(second.id)).status).toBe("in_progress");
+    await captureSprint(page, "issue-list-bulk-start", info);
   });
 });
 

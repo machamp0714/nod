@@ -114,7 +114,7 @@ test("PM復元評価は通信断を保持し、公開recover後も同じTaskとD
   // Sprint切替の読取と旧入口の拒否は、既存の予約や所有権を解放しない。
   const issue = Bun.spawnSync([s.nod, "issue", "show", "API-1", "--json"], { env: s.env });
   expect(issue.exitCode).toBe(0);
-  expect(issue.stdout.toString()).toContain("枠予約=1");
+  expect(issue.stdout.toString()).toContain("起動予約=1");
   expect(issue.stdout.toString()).toContain("op-api1-launch");
   const current = Bun.spawnSync([s.nod, "issue", "list", "-w", "API", "--sprint", "current", "--json"], { env: s.env });
   expect(current.exitCode).toBe(0);

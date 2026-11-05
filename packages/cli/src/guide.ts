@@ -188,6 +188,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod sprint list|show <sprint>\`：Sprintと移行履歴を読む。参照はUUIDまたは全Workspace共通の番号。移行した履歴はimportedで、未記録のゴール・合意・timezone・達成結果は不明のまま。移行時の状態は過去終了時点の成果ではない。
 - \`nod issue list|stats|summary --sprint <sprint>\`：採択・移行関連を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの採用計画の採択集合で、Issue一覧は完了済みを含む。候補だけは所属に数えない。
 - 旧\`nod cycle\`・\`--cycle\`・周期の自動作成と自動持ち越しは廃止済み。期間への直接所属は行えない。Sprintの候補・合意・採択・開始操作は後続で接続する。
+- Sprintへの採択・Sprint実行の記録は、通常の状態更新・\`nod issue start\`・\`next\`・\`suggest\` を止めない。状態変更は Sprint 実行の予約・占有・未照合所有を解放しない（実行の占有は \`nod sprint execution show\` で別に確認する）。
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる

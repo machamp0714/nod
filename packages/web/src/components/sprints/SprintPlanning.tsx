@@ -20,7 +20,7 @@ export function PlanSummary({ plan, label }: { plan: SprintPlan; label: string }
     <p>期間：{plan.content.period.startDate} – {plan.content.period.endDate} · {plan.content.period.timezone}</p>
     <p>稼働曜日：{plan.content.period.workingDays.map(day => "日月火水木金土"[day]).join("・")}</p>
     <div><h3>完成の定義</h3>{plan.content.definitionOfDone.map(dod => <p key={dod.id}>{dod.text}</p>)}</div>
-    <p>実行範囲：{plan.content.constraints.executionScope} / 並行上限：{plan.content.constraints.maxParallel}</p>
+    <p>実行範囲：{plan.content.constraints.executionScope}</p>
     <p>制約：{plan.content.constraints.notes}</p>
     <p>{[plan.content.constraints.executionTarget, plan.content.constraints.model, plan.content.constraints.effort].filter(Boolean).join(" / ")}</p>
     <p>変更理由：{plan.changeReason}</p>
