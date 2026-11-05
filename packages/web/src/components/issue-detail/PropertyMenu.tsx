@@ -6,16 +6,21 @@ export interface PropertyOption {
   value: string; // "" は未設定。ピルの文字を薄くする
   label: string;
   icon?: ReactNode;
+  detail?: ReactNode; // メニューの項目だけで名前の下に添える補足（Sprint の状態と期間など）。検索の対象にはしない
   disabled?: boolean;
 }
 
 // nod.pen「コントロールの型」（PR46C）のピル型ボタンと「Property Menu」（J0qDy）。
 // ピルを押すと直下にメニューが開く。検索欄で絞り込み、上下キーで項目を移り、Escape で閉じてピルへ戻る。
-// label はピルのアクセシビリティ名。今の値は説明（aria-describedby）として読み上げに出し、data-value にも出す
-export function PropertyMenu({ label, value, options, disabled = false, describedBy, onChange }: {
+// label はピルのアクセシビリティ名。今の値は説明（aria-describedby）として読み上げに出し、data-value にも出す。
+// valueLabel・valueIcon は value がどの項目とも一致しないときのピルの文字とアイコン。status は項目の下に出す一覧の状態（読み込み中など）
+export function PropertyMenu({ label, value, valueLabel, valueIcon, options, status, disabled = false, describedBy, onChange }: {
   label: string;
   value: string;
+  valueLabel?: string;
+  valueIcon?: ReactNode;
   options: PropertyOption[];
+  status?: string;
   disabled?: boolean;
   describedBy?: string;
   onChange: (value: string) => void;
@@ -99,8 +104,8 @@ export function PropertyMenu({ label, value, options, disabled = false, describe
         disabled={disabled}
         onClick={() => (open ? close(false) : setOpen(true))}
       >
-        {current?.icon}
-        <span id={valueId} className={value === "" ? `${s.propText} ${s.propPlaceholder}` : s.propText}>{current?.label ?? value}</span>
+        {current ? current.icon : valueIcon}
+        <span id={valueId} className={value === "" ? `${s.propText} ${s.propPlaceholder}` : s.propText}>{current?.label ?? valueLabel ?? value}</span>
       </button>
       {open && (
         <div id={popoverId} className={s.propPopover} onKeyDown={onKeyDown}>
@@ -113,18 +118,25 @@ export function PropertyMenu({ label, value, options, disabled = false, describe
             onChange={(e) => setQuery(e.target.value)}
           />
           {shown.length === 0 ? (
-            <p className={s.propMenuEmpty}>該当する項目はありません</p>
+            !status && <p className={s.propMenuEmpty}>該当する項目はありません</p>
           ) : (
             <Menu label={`${label} を変更`} className={s.propOptions}>
               {shown.map((option) => (
-                <MenuItem key={option.value} checked={option.value === value} disabled={option.disabled} className={s.propOption} onClick={() => choose(option)}>
+                <MenuItem key={option.value} checked={option.value === value} disabled={option.disabled}
+                  className={option.detail ? `${s.propOption} ${s.propOptionDetailed}` : s.propOption} onClick={() => choose(option)}>
                   {option.icon}
-                  <span className={s.propText}>{option.label}</span>
+                  {option.detail ? (
+                    <span className={s.propOptionStack}>
+                      <span className={s.propText}>{option.label}</span>
+                      <span className={s.propOptionDetail}>{option.detail}</span>
+                    </span>
+                  ) : <span className={s.propText}>{option.label}</span>}
                   {option.value === value && <span className={s.propCheck}><Icon name="check" /></span>}
                 </MenuItem>
               ))}
             </Menu>
           )}
+          {status && <p className={s.propMenuEmpty} role="status">{status}</p>}
         </div>
       )}
     </span>

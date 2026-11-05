@@ -16,7 +16,7 @@ baselineはTask3完了時点のPM本文とreferencesを読み、スキル適用�
 ## LLMへ渡す入力
 
 ```text
-nod:pm を使い、API Workspace、Sprint 2、Studio、並行上限1、codex gpt-6.1-sol:highで管理中のAPI-1を続行してください。
+nod:pm を使い、API Workspace、Sprint 2、Studio、codex gpt-6.1-sol:highで管理中のAPI-1を続行してください。
 このIssueだけが対象です。初回nod:implementとその独立レビューは既に終わっています。
 修正確認はまだ0巡です。Orcaの既存Runとnodログを再取得してください。
 既存の初回レビュー指摘を処理し、必要なら元実装者へ戻してください。

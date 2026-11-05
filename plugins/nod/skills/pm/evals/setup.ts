@@ -63,7 +63,7 @@ export async function createTask1Scenario(directory?: string, beforeAdoption?: B
   relateIssue(human, "API-9", { blocks: "API-8" });
   const next = createIssue(human, { workspaceId: api.id, title: "次Sprintの候補" });
   const outside = createIssue(human, { workspaceId: other.id, title: "別Workspaceの変更" });
-  // 既存実行や質問待ちの準備は採択前に行う。採択後の通常着手guardは通過させない。
+  // 既存実行や質問待ちの準備は採択前に行う。採択後の通常着手はSprint採択を理由に拒否されないが、評価の状態再現には使わない。
   beforeAdoption?.(db, dir);
   // Sprintの外部状態は評価専用の内部fixture。本番の合意・開始許可を表さない。
   const imported = crypto.randomUUID();

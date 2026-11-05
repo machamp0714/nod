@@ -116,6 +116,8 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
         ...automationOf(data),
         ...(data.fromSprintNumber == null ? [] : [`引継ぎ元: Sprint ${String(data.fromSprintNumber)}「${String(data.fromSprintName ?? "")}」`]),
       ]);
+    case "sprint_removed":
+      return line(`${actor} が Sprint ${String(data.sprintNumber ?? "")}「${String(data.sprintName ?? "")}」から外した`);
     case "cycle_changed":
       return line(data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた`, [...(data.from == null ? [] : [`以前: ${String(data.from)}`]), ...automationOf(data)]);
     case "parent_changed":

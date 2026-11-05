@@ -18,10 +18,8 @@
 .hash { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .notice { padding: 12px; border-radius: var(--radius); background: var(--ask-soft, #fff1d7); color: var(--ask); }
 .error { padding: 12px; color: var(--fail); background: var(--fail-soft, #fce8e3); }
-.item { padding: 12px 0; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
-.editor { padding: 24px; }
 .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 @media(max-width: 1000px) { .columns { grid-template-columns: minmax(0,1fr); } .aside { border-left: 0; padding-left: 0; } }
-@media(max-width: 600px) { .body, .editor, .bar { padding: 12px; } }
+@media(max-width: 600px) { .body, .bar { padding: 12px; } }
 
 .page button { min-height: 32px; }

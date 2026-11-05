@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { SprintDetail, SprintPlan } from "@nod/core";
 import { errorMessage } from "../../api/errors";
-import { useAddIssueToSprint, useSprintPlanningStatus, useSprintFlow, useSprintCommand } from "../../api/hooks/sprint-planning";
+import { useSprintPlanningStatus, useSprintFlow, useSprintCommand } from "../../api/hooks/sprint-planning";
 import { useIssueRows } from "../../api/hooks/issues";
 import { useSprints } from "../../api/hooks/sprints";
 import { ProjectViewSwitch, ProjectFlowSection, type ProjectView } from "../projects/ProjectFlow";
@@ -11,7 +11,6 @@ import { BlockedFilter } from "../issue-list/FilterBar";
 import { IssueList } from "../issue-list/IssueList";
 import { Button, PageHeader, PageTitle, Spacer } from "../ui";
 import type { IssueListSearch } from "../../routes/search";
-import { SprintPlanEditor } from "./SprintPlanEditor";
 import s from "./sprint-planning.module.css";
 
 export function PlanSummary({ plan, label }: { plan: SprintPlan; label: string }) {
@@ -21,7 +20,7 @@ export function PlanSummary({ plan, label }: { plan: SprintPlan; label: string }
     <p>期間：{plan.content.period.startDate} – {plan.content.period.endDate} · {plan.content.period.timezone}</p>
     <p>稼働曜日：{plan.content.period.workingDays.map(day => "日月火水木金土"[day]).join("・")}</p>
     <div><h3>完成の定義</h3>{plan.content.definitionOfDone.map(dod => <p key={dod.id}>{dod.text}</p>)}</div>
-    <p>実行範囲：{plan.content.constraints.executionScope} / 並行上限：{plan.content.constraints.maxParallel}</p>
+    <p>実行範囲：{plan.content.constraints.executionScope}</p>
     <p>制約：{plan.content.constraints.notes}</p>
     <p>{[plan.content.constraints.executionTarget, plan.content.constraints.model, plan.content.constraints.effort].filter(Boolean).join(" / ")}</p>
     <p>変更理由：{plan.changeReason}</p>
@@ -35,8 +34,6 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   sprint: SprintDetail; readError?: unknown; lastCheckedAt: number; onRetry: () => void; view: ProjectView; onViewChange: (view: ProjectView) => void; search: IssueListSearch; onSearchChange: (patch: IssueListSearch) => void; onBack: () => void; onOutcomes: () => void; onRetrospective: () => void; onActivated: () => void;
 }) {
   const switchFocus = useRef(false);
-  const [editing, setEditing] = useState(false);
-  const [addRef, setAddRef] = useState("");
   const [showCandidates, setCandidates] = useState(false);
   const [viewedId, setViewedId] = useState<string | null>(null);
   const [source, setSource] = useState("");
@@ -44,12 +41,9 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   const [periodEdit, setPeriodEdit] = useState(false);
   const [message, setMessage] = useState("");
   const command = useSprintCommand();
-  const add = useAddIssueToSprint(sprint.id);
-  const pending = command.isPending || add.isPending;
   const allRows = useIssueRows({ workspace: sprint.workspaceSnapshot ? [sprint.workspaceSnapshot.key] : undefined, blocked: search.blocked }, view === "list");
   const sprints = useSprints();
   const availability = useSprintPlanningStatus(sprint.id);
-  const editorButton = useRef<HTMLButtonElement>(null);
   const latest = sprint.plans.at(-1);
   const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
   const started = sprint.activatedAt !== null;
@@ -83,16 +77,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
     <div className={`${s.body} ${s.columns}`}>
       <div className={s.main}>
         {plan ? <PlanSummary plan={plan} label="表示中の計画" /> : <section className={s.section}><h2>計画はまだありません</h2><p>SprintにIssueを追加し、ゴールと採択予定を提案してください。</p></section>}
-        <section className={s.section}><p>{started ? "有効な合意済み計画の採択集合を表示します。未合意の変更案は含みません。" : "採択予定・開始前。合意して開始するまでは実行されません。"}</p>
-          {plan?.content.items.map(item => <details key={item.itemId}><summary>{sprint.items.find(i => i.id === item.itemId)?.sourceIssueKey ?? "削除されたIssue"}の貢献と実行計画</summary><p>採択理由・ゴールへの貢献：{item.contribution}</p><p>実行計画：{item.executionPlan}</p><p>合意時の要求：{item.requirement.title}</p><p>{item.requirement.description}</p></details>)}
-        </section>
-        {writable && <section className={s.section}><div className={s.controls}><Button ref={editorButton} disabled={pending} onClick={() => setEditing(true)}>計画案を編集</Button>{!started && <Button disabled={pending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button>}</div>
-          <form className={s.controls} aria-label="Sprintに追加" onSubmit={e => { e.preventDefault(); if (pending) return; setMessage(""); add.mutate(addRef.trim(), { onSuccess: () => { setAddRef(""); setMessage("Sprintに追加しました。計画への採択は計画案で選びます。"); } }); }}>
-            <label className={s.field}>Sprintに追加するIssue<input required value={addRef} onChange={e => setAddRef(e.target.value)} disabled={pending} placeholder="AAA-1" /></label>
-            <Button type="submit" disabled={pending}>{add.isPending ? "保存中…" : "Sprintに追加"}</Button>
-          </form>
-          {add.error && <p role="alert" className={s.error}>Sprintに追加できませんでした。入力は保持しています：{errorMessage(add.error)}</p>}
-        </section>}
+        {writable && !started && <section className={s.section}><div className={s.controls}><Button disabled={command.isPending} onClick={() => setPeriodEdit(value => !value)}>期間を編集</Button></div></section>}
         {periodEdit && !started && <PeriodEditor sprint={sprint} onSaved={() => setPeriodEdit(false)} />}
       </div>
       <aside className={s.aside}>
@@ -108,11 +93,9 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
           <Button variant="primary" disabled={command.isPending || sprint.phase !== "ready" || !!otherActive || !availability.data?.canStart || !!availability.error || availability.data.sprintVersion !== sprint.version} onClick={() => void run("/activate", {}, "Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。").then(ok => { if (ok) onActivated(); })}>{command.isPending ? "保存中…" : "Sprintを開始する"}</Button>
         </section>}
         {started && <section className={s.section}><h2>開始後の状態</h2><p>開始：{sprint.activatedAt}</p><p>期間は固定されています。保存された監督・workerの実行記録はタスク一覧で確認できます。</p></section>}
-        <section className={s.section}><h2>計画の版と合意の記録</h2>{sprint.plans.map(p => <details key={p.id}><summary>第{p.revision}版 · {p.agreedAt ? "合意済み" : "未合意"}{p.id === sprint.adoptedPlanId && " · 採用中"}</summary><PlanSummary plan={p} label={`過去の計画 第${p.revision}版`} /></details>)}</section>
       </aside>
     </div>
   </>;
-  if (editing) return <div className={s.page}><PageHeader><PageTitle>{sprint.name} · 計画案</PageTitle></PageHeader><SprintPlanEditor sprint={sprint} plan={latest} onClose={() => { setEditing(false); requestAnimationFrame(() => editorButton.current?.focus()); }} onSaved={() => { setEditing(false); setViewedId(null); setCandidates(false); requestAnimationFrame(() => editorButton.current?.focus()); }} /></div>;
   const heading = <div className={s.bar}><strong>{showCandidates && view === "list" ? "候補（未採択）" : started ? "採択済みのIssue" : "採択予定のIssue"} · {view === "flow" ? plan?.content.items.length ?? 0 : keys.size}件</strong>
     {view === "list" && <><Button aria-pressed={!showCandidates} onClick={() => setCandidates(false)}>採択{started ? "済み" : "予定"}</Button><Button aria-pressed={showCandidates} onClick={() => setCandidates(true)}>候補</Button></>}
     <Spacer /><ProjectViewSwitch value={view} onChange={onViewChange} focusOnMount={switchFocus} /></div>;

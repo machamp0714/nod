@@ -15,7 +15,7 @@ function expiredActiveSprint(cwd: string, db: string) {
     const open = core.createIssue(me, { workspaceId: ws.id, title: "未完了" });
     core.addIssueToSprint(llm, created.id, { issueRef: open.id });
     const proposed = core.proposeSprintPlan(llm, created.id, { expectedVersion: created.version, requestKey: "計画", goal: "前のゴール", verificationMethod: "確認する",
-      items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", maxParallel: 1, notes: "なし" }, changeReason: "最初の提案" });
+      items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", notes: "なし" }, changeReason: "最初の提案" });
     const ready = core.acceptSprintPlan(me, created.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
     const sprint = core.activateSprint(me, created.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, { now: new Date(created.startsAt!) });
     return { ws, sprint, open };

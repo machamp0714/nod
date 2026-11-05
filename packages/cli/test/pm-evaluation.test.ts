@@ -15,9 +15,6 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const launch = orca("orchestration", "worker-start", "--run", run.id, "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。実効設定の照合完了と開始通知まで実装禁止。");
   expect(launch.launch).toEqual({ requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } });
   expect(orca("orchestration", "check").messages).toEqual([]);
-  const blocked = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
-  expect(blocked.exitCode).toBe(1);
-  expect(JSON.parse(blocked.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
   orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "gpt-6.1-sol:highの適用を確認。実装を開始してください。");
   const delivery = orca("orchestration", "check");
   expect(delivery.messages).toHaveLength(1);
@@ -70,7 +67,7 @@ for (const variant of ["normal", "existing-pr"] as const) {
 
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
-    // PR操作の前提となる既存実行を、通常startが許可される採択前に作る。
+    // PR操作の前提となる既存実行を採択前に作る。
     startIssue({ db, actor: "codex" }, "API-1");
   } });
   const nod = (...args: string[]) => {
@@ -78,9 +75,9 @@ test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけ�
     expect(result.exitCode).toBe(0);
     return JSON.parse(result.stdout.toString());
   };
-  const restart = Bun.spawnSync([scenario.nod, "issue", "start", "API-1", "--json"], { env: scenario.env });
-  expect(restart.exitCode).toBe(1);
-  expect(JSON.parse(restart.stdout.toString()).error.code).toBe("SPRINT_CONTEXT_REQUIRED");
+  // 採択後も、元の担当による再開startは通常どおり成功する。
+  expect(nod("issue", "start", "API-1")).toMatchObject({ status: "in_progress", assignee: "codex" });
+  expect(nod("issue", "show", "API-1").status).toBe("in_progress");
   nod("issue", "link-pr", "API-1", "https://github.com/evaluation/api/pull/42");
   expect(nod("issue", "show", "API-1").status).toBe("in_progress");
   const pr = nod("issue", "pr-status", "API-1", "--refresh");

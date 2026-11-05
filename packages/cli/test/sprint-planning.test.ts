@@ -20,7 +20,7 @@ test("CLIのJSON入力で提案から人の合意と開始へ進み、agentの�
   const sprint = (await run(["sprint","create"],{workspaceKey:ws.key,startDate:"2000-01-01",endDate:"2999-01-01",timezone:"Asia/Tokyo",expectedVersion:0,requestKey:"作成"},"codex")).json;
   expect(sprint.phase).toBe("draft");
   const added = (await runNod(["sprint","add",sprint.id,issue.id,"--json"],{cwd,db,actor:"codex"})).json;
-  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡する",items:[{itemId:added.item.id,contribution:"判断を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"操作",text:"再開を確認"}],constraints:{executionScope:"Workspace",maxParallel:1,notes:"公開は既存権限"},changeReason:"最初の計画"},"codex")).json;
+  const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"回答後に再開",verificationMethod:"一巡する",items:[{itemId:added.item.id,contribution:"判断を集約",executionPlan:"Inboxへ追加"}],definitionOfDone:[{id:"操作",text:"再開を確認"}],constraints:{executionScope:"Workspace",notes:"公開は既存権限"},changeReason:"最初の計画"},"codex")).json;
   const agree = {expectedVersion:proposed.sprint.version,requestKey:"合意",contentHash:proposed.plan.contentHash};
   expect((await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree,"codex")).json.error.code).toBe("FORBIDDEN_FOR_LLM");
   const ready = (await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree)).json;

@@ -65,6 +65,7 @@ export * from "./ops/github-import";
 export * from "./ops/github-repo";
 export * from "./ops/github-publish";
 export * from "./github-leak";
+export * from "./github-draft";
 export * from "./ops/orca";
 export * from "./ops/toggl";
 export * from "./ops/toggl-client";
@@ -78,6 +79,11 @@ export * from "./ops/assessed-creation";
 
 export * from "./ops/desktop-notifications";
 
+export * from "./ops/review-prepare";
+
+export * from "./ops/review-run";
+
+export { freezeReviewEvaluation, replayReviewEvaluation, reportReviewEvaluation } from "./ops/review-evaluation";
 export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
 
 export { getSprintPlanningStatus, type SprintPlanningStatus } from "./ops/sprint-planning";

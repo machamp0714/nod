@@ -21,7 +21,7 @@ function activeSprint(db: Database, wsKey: string, wsId: number) {
   const issue = core.createIssue(me, { workspaceId: wsId, title: "未完了" });
   core.addIssueToSprint(llm, created.id, { issueRef: issue.id });
   const proposed = core.proposeSprintPlan(llm, created.id, { expectedVersion: created.version, requestKey: "計画", goal: "前のゴール", verificationMethod: "確認する",
-    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", maxParallel: 1, notes: "なし" }, changeReason: "最初の提案" });
+    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", notes: "なし" }, changeReason: "最初の提案" });
   const ready = core.acceptSprintPlan(me, created.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
   return core.activateSprint(me, created.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, { now: new Date(created.startsAt!) });
 }

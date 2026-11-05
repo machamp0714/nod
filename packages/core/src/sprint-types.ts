@@ -89,7 +89,6 @@ export interface SprintClosureRecord {
 export interface SprintPlanConstraints {
   executionSettingsPolicy?: { version: string; agent: string; allowedModels: string[]; allowedEfforts: string[]; allowedTargets: string[] };
   executionScope: string;
-  maxParallel: number;
   notes: string;
   executionTarget?: string;
   model?: string;
@@ -132,6 +131,8 @@ export interface SprintClock { now?: Date }
 
 export interface SprintReference extends Pick<Sprint, "id" | "number" | "name" | "workspaceId" | "phase"> {
   association: "imported" | "adopted" | "added";
+  // 採用中で人が合意した計画にこのIssueのitemが含まれるか。外せるかどうかそのものではない（閉じたSprint・アーカイブ済みは別に拒否する）。
+  inAdoptedPlan: boolean;
 }
 
 export interface CurrentSprintIssue extends Issue {}

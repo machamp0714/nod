@@ -1,6 +1,6 @@
 import { getSprint, listSprints, sprintAnalytics, type Sprint, type SprintLink } from "@nod/core";
 import { getSprintRolloverStatus, setSprintRollover, SPRINT_ROLLOVER_ACTOR, type SprintRolloverStatus } from "@nod/core";
-import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint,
+import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint, removeIssueFromSprint,
   proposeSprintPlan, listSprintPlans, acceptSprintPlan, activateSprint, cancelSprint, NodError,
   type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput,
   type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput } from "@nod/core";
@@ -10,7 +10,7 @@ import { act, currentWorkspace, globalOpts } from "../context";
 import { print } from "../output";
 import { registerSprintExecutionCommands } from "./sprint-execution";
 
-const ASSOCIATION_LABEL = { imported: "移行", adopted: "採択", added: "追加", none: "候補だけ" } as const;
+const ASSOCIATION_LABEL = { imported: "移行", adopted: "採択", added: "追加", none: "所属外" } as const;
 
 function line(sprint: Sprint): string {
   return `${sprint.number}  ${sprint.name}（${sprint.phase}）  ${sprint.startDate}〜${sprint.endDate}  ${sprint.id}`;
@@ -73,6 +73,11 @@ export function registerSprintCommands(program: Command): void {
       const value=addIssueToSprint(cli.ctx,ref,{issueRef});
       print(cli,value,()=>`${value.added ? "追加しました" : "既に所属しています"}: Sprint ${value.sprint.number}「${value.sprint.name}」 ${value.item.sourceIssueKey}`);
     }));
+  sprint.command("remove <sprint> <issue>").description("IssueのSprintへの追加の記録を外す（採択された所属は外せない。所属でなければ何もしない）")
+    .action(act((cli,_cmd,ref:string,issueRef:string) => {
+      const value=removeIssueFromSprint(cli.ctx,ref,{issueRef});
+      print(cli,value,()=>`${value.removed ? "外しました" : "所属ではありません（何もしていません）"}: Sprint ${value.sprint.number}「${value.sprint.name}」 ${value.item?.sourceIssueKey ?? issueRef}`);
+    }));
   const plan = sprint.command("plan").description("追記する計画の版と合意");
   plan.command("list <sprint>").action(act((cli,_cmd,ref:string) => {
     const value=listSprintPlans(cli.db,ref); print(cli,value,()=>value.map(p=>`第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}`).join("\n"));
@@ -110,7 +115,7 @@ export function registerSprintCommands(program: Command): void {
         ...(detail.closureRecord?.automation ? [`自動終了: 期間の終了時刻 ${detail.endsAt}  記録時刻 ${detail.closureRecord.recordedAt}`] : []),
         ...detail.plans.map(p=>`計画第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}\n  達成確認: ${p.content.verificationMethod}\n  理由: ${p.changeReason}`),
         `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "所属 Issue の現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,
-        detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "所属（移行・採択・追加。候補だけは所属外）:",
+        detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "item（所属は移行・採択・追加。旧候補と解除済みは所属外）:",
         ...detail.items.map(item=>`  ${item.sourceIssueKey}  ${item.snapshot.workspace.key}  ${item.snapshot.issue.status}  ${item.snapshot.issue.title}  ${ASSOCIATION_LABEL[item.association ?? "none"]}${item.addedBy ? `（追加者: ${item.addedBy}）` : ""}${item.rolloverFromItemId ? `  引継ぎ（${linkText(detail.rolloverFrom)}から）` : ""}`),
         "取得済みの履歴:",
         ...detail.events.map(event=>`  #${event.original.id} ${event.original.created_at} ${event.original.type}（${event.association === "recorded" ? "確定関連" : "関連未確定"}） ${event.original.data}`),

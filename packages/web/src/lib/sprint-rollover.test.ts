@@ -16,7 +16,7 @@ function rolledOver() {
   const done = core.createIssue(f.me, { workspaceId: f.ws.id, title: "完了済み" });
   for (const issue of [open, done]) core.addIssueToSprint(f.llm, created.id, { issueRef: issue.id });
   const proposed = core.proposeSprintPlan(f.llm, created.id, { expectedVersion: created.version, requestKey: "計画", goal: "前のゴール", verificationMethod: "確認する",
-    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", maxParallel: 1, notes: "なし" }, changeReason: "最初の提案" });
+    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", notes: "なし" }, changeReason: "最初の提案" });
   const ready = core.acceptSprintPlan(f.me, created.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
   const previous = core.activateSprint(f.me, created.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, { now: new Date(created.startsAt!) });
   core.updateIssue(f.me, done.id, { status: "done" });

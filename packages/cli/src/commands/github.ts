@@ -5,6 +5,7 @@ import {
   checkGithubPublishText,
   clearUnknownGithubPublish,
   createCommandRunner,
+  type GithubDraftChange,
   type GithubIssueState,
   type GithubPublishDeps,
   type GithubPublishPreview,
@@ -62,8 +63,16 @@ export function visibleControls(text: string): string {
   return text.replace(/\r(?!\n)|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}}`);
 }
 
+const fieldName = (field: string) => (field === "title" ? "タイトル" : "本文");
+
 function describeFindings(findings: LeakFinding[]): string[] {
-  return findings.map((f) => `  ${f.field === "title" ? "タイトル" : "本文"} ${f.line} 行 ${f.column} 桁: ${visibleControls(f.text)} — ${f.reason}`);
+  return findings.map((f) => `  ${fieldName(f.field)} ${f.line} 行 ${f.column} 桁: ${visibleControls(f.text)} — ${f.reason}`);
+}
+
+// 書き換えた箇所の一覧。位置は nod の文面のもの
+function describeChanges(changes: GithubDraftChange[]): string[] {
+  if (!changes.length) return [];
+  return [`GitHub 向けに整えた箇所（${changes.length} 件）。位置は nod の文面のもの`, ...changes.map((c) => `  ${fieldName(c.field)} ${c.line} 行 ${c.column} 桁: ${visibleControls(c.before)} → ${visibleControls(c.after)} — ${c.reason}`)];
 }
 
 function describePreview(p: GithubPublishPreview): string {
@@ -71,14 +80,15 @@ function describePreview(p: GithubPublishPreview): string {
   lines.push(p.repo ? `宛先: ${p.repo}` : `宛先: 未設定${p.repoCandidate ? `（origin の候補: ${p.repoCandidate}。nod workspace github set ${p.repoCandidate} で設定できます）` : ""}`);
   lines.push(p.ghLogin ? `gh アカウント: ${p.ghLogin}` : `gh アカウント: 確かめられません（${p.ghError?.message ?? ""}）`);
   for (const b of p.blockers) lines.push(`公開できません: ${b.message}`);
+  lines.push(...describeChanges(p.changes));
   if (p.findings.length) lines.push(`nod の情報が ${p.findings.length} 件見つかりました（このままでは送れません）`, ...describeFindings(p.findings));
   else lines.push("nod の情報は見つかりませんでした");
   lines.push(`タイトル: ${visibleControls(p.title)}`, "本文:", "---", visibleControls(p.body), "---");
   return lines.join("\n");
 }
 
-function describeConfirmation(c: { repo: string; ghLogin: string; title: string; body: string }): string {
-  return [`宛先: ${c.repo}（gh アカウント: ${c.ghLogin}）`, `タイトル: ${visibleControls(c.title)}`, "本文:", "---", visibleControls(c.body), "---", ""].join("\n");
+function describeConfirmation(c: { repo: string; ghLogin: string; title: string; body: string; changes: GithubDraftChange[] }): string {
+  return [`宛先: ${c.repo}（gh アカウント: ${c.ghLogin}）`, ...describeChanges(c.changes), `タイトル: ${visibleControls(c.title)}`, "本文:", "---", visibleControls(c.body), "---", ""].join("\n");
 }
 
 function readBodyFile(path: string): string {
@@ -103,10 +113,12 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
   const title = o.title ?? preview.title;
   const body = o.bodyFile !== undefined ? readBodyFile(o.bodyFile) : preview.body;
   const same = title === preview.title && body === preview.body;
+  // 書き換えた箇所は、案をそのまま送る項目の分だけ示す（指定した文面は書き換えない）
+  const changes = preview.changes.filter((c) => (c.field === "title" ? o.title === undefined : o.bodyFile === undefined));
   // 差し替えた文面は checkGithubPublishText が長さも確かめる（超えていれば INVALID_ARGS）ため、nod の文面の長さの理由は外す
   const findings = same ? preview.findings : checkGithubPublishText(cli.db, { title, body }, deps);
   const blockers = same ? preview.blockers : preview.blockers.filter((b) => b.code !== "INVALID_ARGS");
-  const view: GithubPublishPreview = { ...preview, title, body, findings, blockers };
+  const view: GithubPublishPreview = { ...preview, title, body, findings, blockers, changes };
   if (o.dryRun) {
     print(cli, view, () => describePreview(view));
     return;
@@ -126,12 +138,12 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
   }
   if (preview.ghError || !preview.ghLogin) throw new NodError(preview.ghError?.code ?? "GH_FAILED", preview.ghError?.message ?? "gh のアカウントを確かめられません");
   if (findings.length) {
-    throw new NodError("LEAK_DETECTED", ["nod の情報が見つかったため送信しません。書き換えてから実行してください", ...describeFindings(findings)].join("\n"), { findings });
+    throw new NodError("LEAK_DETECTED", ["nod の情報が残っているため送信しません。次の箇所を示した対応で直し、--title・--body-file で渡して実行してください（--dry-run で案を確かめられます）", ...describeFindings(findings)].join("\n"), { findings });
   }
   if (!io.interactive()) {
     throw new NodError("NOT_INTERACTIVE", "対話できない環境では送信しません。端末で実行するか、Web の Issue 詳細から作成してください（--dry-run での確認はできます）");
   }
-  io.write(describeConfirmation({ repo: preview.repo, ghLogin: preview.ghLogin, title, body }));
+  io.write(describeConfirmation({ repo: preview.repo, ghLogin: preview.ghLogin, title, body, changes }));
   if (!(await io.confirm("この内容で GitHub に Issue を作成しますか？ [y/N] "))) {
     io.write("送信しませんでした\n");
     return;
@@ -155,16 +167,18 @@ export function registerGithubIssueCommands(issue: Command, io: PublishIo = term
     .description("nod の Issue を GitHub Issue として1回だけ作成する（実行は人だけ。--dry-run は内容の確認だけで LLM も使える）")
     .option("--title <text>", "送信用のタイトル（nod のタイトルは変えない）")
     .option("--body-file <path>", "送信用の本文を読むファイル（nod の本文は変えない）")
-    .option("--dry-run", "送らずに、宛先・アカウント・内容・nod の情報の検出結果を表示する")
+    .option("--dry-run", "送らずに、宛先・アカウント・送る内容・書き換えた箇所・残った nod の情報を表示する")
     .option("--clear-unknown", "結果不明の送信を解除する（GitHub に作られていないことを確かめてから使う。送信はしない）")
     .addHelpText(
       "after",
       [
         "",
         "送るのはタイトルと本文だけで、作成後の同期・更新・close・コメントはしない。",
-        "送る前に nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）を調べ、",
-        "  見つかれば行番号付きで示して送らない（自動では消さない）。",
-        "確認画面で宛先・gh アカウント・全文を示し、y で送る（既定は N）。端末でないときは送らない。",
+        "--title・--body-file を指定しない項目は、nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・",
+        "  nod でしか開けないリンク）を決まった規則で整えた案を送る（nod の本文は変えない。指定した文面は書き換えない）。",
+        "送る文面を調べ、整えられずに残った nod の情報があれば行番号と必要な対応を示して送らない。",
+        "  分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。",
+        "確認画面で宛先・gh アカウント・書き換えた箇所（前 → 後）・全文を示し、y で送る（既定は N）。端末でないときは送らない。",
         "結果が分からなかったときは再送しない。GitHub を確かめ、作られていれば nod issue link-github、",
         "  作られていなければ --clear-unknown で解除してから、もう一度 publish する。",
       ].join("\n"),

@@ -24,7 +24,7 @@ function activeSprint(f: Fixture, titles: string[], period = { startDate: "2026-
     return issue;
   });
   const proposed = core.proposeSprintPlan(f.llm, created.id, { expectedVersion: created.version, requestKey: "計画", goal: "前のゴール", verificationMethod: "確認する",
-    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", maxParallel: 1, notes: "なし" }, changeReason: "最初の提案" });
+    items: [], definitionOfDone: [{ id: "前", text: "前の完成の定義" }], constraints: { executionScope: "WS", notes: "なし" }, changeReason: "最初の提案" });
   const ready = core.acceptSprintPlan(f.me, created.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
   const sprint = core.activateSprint(f.me, created.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, { now: new Date(created.startsAt!) });
   return { sprint, issues };
@@ -183,7 +183,7 @@ test("人が合意した計画を持つreadyの後継は、計画と採択を保
     const added = core.addIssueToSprint(f.llm, next.id, { issueRef: planned.id });
     const proposed = core.proposeSprintPlan(f.llm, next.id, { expectedVersion: added.sprint.version, requestKey: "次計画", goal: "次のゴール", verificationMethod: "確認",
       items: [{ itemId: added.item.id, contribution: "貢献", executionPlan: "進め方" }], definitionOfDone: [{ id: "次", text: "次の完成" }],
-      constraints: { executionScope: "WS", maxParallel: 1, notes: "なし" }, changeReason: "提案" });
+      constraints: { executionScope: "WS", notes: "なし" }, changeReason: "提案" });
     const ready = core.acceptSprintPlan(f.me, next.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "次合意", contentHash: proposed.plan.contentHash });
     const plansBefore = core.getSprint(f.db, next.id).plans;
 

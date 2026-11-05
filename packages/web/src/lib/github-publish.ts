@@ -1,5 +1,5 @@
 import { ApiError } from "../api/client";
-import type { GithubLink, GithubPublishPreview, LeakFinding } from "../api/types";
+import type { GithubDraftChange, GithubLink, GithubPublishPreview, LeakFinding } from "../api/types";
 
 // GitHub に Issue を作成する確認ダイアログの判定。編集の版（revision）ごとに検査し、
 // 今の版の検査が「検出なし」で終わったときだけ送れる（古い応答で新しい文面を送らないため）
@@ -61,8 +61,14 @@ export function canSend(state: CheckState, opts: { sending: boolean; repo: strin
   return !opts.sending && !opts.blocked && opts.repo !== null && opts.ghLogin !== null && state.status === "clean" && state.checkedRevision === state.revision;
 }
 
-export function findingLocation(f: LeakFinding): string {
+// 検出（案の文面の位置）と整えた箇所（元の文面の位置）の位置を同じ書き方で示す
+export function findingLocation(f: Pick<LeakFinding, "field" | "line" | "column">): string {
   return `${f.field === "title" ? "タイトル" : "本文"} ${f.line} 行 ${f.column} 桁`;
+}
+
+// 整えた箇所は、表示中の文面が案のままの項目（タイトル・本文）の分だけ示す。nod の文面に戻した・手で編集した項目の分は、画面の文面と合わないので出さない
+export function shownChanges(changes: GithubDraftChange[], draft: { title: string; body: string }, shown: { title: string; body: string }): GithubDraftChange[] {
+  return changes.filter((c) => shown[c.field] === draft[c.field]);
 }
 
 export const GITHUB_LINK_ORIGIN_LABEL: Record<GithubLink["origin"], string> = { import: "取り込み", publish: "作成", link: "紐付け" };

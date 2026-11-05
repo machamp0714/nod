@@ -33,7 +33,7 @@ export function SprintSupervision({ sprint }: { sprint: SprintDetail }) {
     {query.error && <p role="alert">保存状態の再取得に失敗しました。{errorMessage(query.error)}。最後に取得した状態を表示しています。保存状態の取得時刻：{at(state.observedAt)}</p>}
     <p>現在の監督：{session ? `${session.actor}（${session.state === "handover" ? "引継ぎ待ち・新規許可停止" : "監督を所有"}、世代${session.generation}）` : "記録なし。実際のPM・workerの存在は未確認です。"}</p>
     <p>最終観測：{at(session?.observedAt)} / {session?.source ?? "観測元なし"}{session && state.stale ? "。観測が古いため、現在の監督状態は不明です。所有と枠を保持しています。" : session ? "（取得時点の記録）" : ""}</p>
-    <p>占有 {state.occupied} / 上限 {state.maxParallel ?? "未確認"}（主試行の予約 {state.reserved}、通常所有の未照合 {state.unreconciledOwnership.length}、補助担当 {state.attempts.filter(a => a.parentAttemptId).length}）</p>
+    <p>占有 {state.occupied}（主試行の予約 {state.reserved}、通常所有の未照合 {state.unreconciledOwnership.length}、補助担当 {state.attempts.filter(a => a.parentAttemptId).length}）</p>
     <p>実装開始：{state.canStart ? "許可あり。実開始報告は別に確認してください。" : "許可なし。各担当の理由と着手条件を確認してください。"}</p>
     {state.attempts.length === 0 && <p>担当の試行記録はありません。実際に担当がいないという証明ではありません。</p>}
     {state.attempts.map(a => <p key={a.id}>{a.sourceIssueKey} / {a.parentAttemptId ? "補助担当" : "主担当"} {a.actor} / 工程：{phase[a.phase]} / {a.reason.code}：{a.reason.message}{a.executionLiveness?.verdict === "unverifiable" ? "。実行を確認できません。所有と枠を保持しています。" : ""}</p>)}

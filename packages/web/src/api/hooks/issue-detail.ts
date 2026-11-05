@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import { issuePath, mutableQueries, queryKeys } from "../query-keys";
-import type { DocKind, DocumentRef, AskResult, IssueAttachment, IssueDeletion, Comment, Issue, ProjectSummary, Question, Reminder, UpdateIssueInput } from "../types";
+import type { DocKind, DocumentRef, AskResult, IssueAttachment, IssueDeletion, Comment, Issue, ProjectSummary, Question, Reminder, SetIssueOpenSprintInput, SetIssueOpenSprintResult, UpdateIssueInput } from "../types";
 import { useApiMutation, useWorkspaces } from "./shared";
 
 // Issue 詳細の取得は H の useIssueDetail（hooks/shared.ts）を使う
@@ -35,6 +35,8 @@ export const useUpdateIssue = (id: string) => useIssueOperation<UpdateIssueInput
 export const useAskQuestion = (id: string) => useIssueOperation<{ question: string }, AskResult>(id, "ask");
 export const useAnswerQuestion = (id: string) =>
   useIssueOperation<{ answer: string; questionId?: number }, { issue: Issue; answered: Question[] }>(id, "answer");
+// Issue の開いている Sprint を設定する（NOD-56）。sprintRef が null なら開いている Sprint の所属をすべて外す
+export const useSetIssueSprint = (id: string) => useIssueOperation<SetIssueOpenSprintInput, SetIssueOpenSprintResult>(id, "sprint");
 export const useCopyIssue = (id: string) => useIssueOperation<{ title?: string }, Issue>(id, "copy");
 export const useArchiveIssue = (id: string) => useIssueOperation<{ reason?: string }, Issue>(id, "archive");
 export const useUnarchiveIssue = (id: string) => useIssueOperation<Record<string, never>, Issue>(id, "unarchive");
