@@ -23,6 +23,7 @@ import {
   STATUSES,
   type Status,
   setReminder,
+  setIssueOpenSprint,
   snoozeTriage,
   subscribeIssue,
   unsubscribeIssue,
@@ -137,6 +138,8 @@ const OPS: Record<string, Op> = {
   decline: { keys: ["reason"], run: (me, ref, b) => declineTriage(me, ref, optString(b, "reason")) },
   duplicate: { keys: ["original"], run: (me, ref, b) => duplicateTriage(me, ref, reqString(b, "original")) },
   snooze: { keys: ["until"], run: (me, ref, b) => snoozeTriage(me, ref, reqString(b, "until")) },
+  // 開いているSprintの所属の設定（移動・解除）。sprintRefの検査はcoreで行う
+  sprint: { keys: ["sprintRef"], run: (me, ref, b) => setIssueOpenSprint(me, ref, b as { sprintRef: string | null }) },
   update: { keys: UPDATE_KEYS, run: (me, ref, b) => updateIssue(me, ref, toUpdateInput(b)) },
   copy: { keys: ["title"], run: (me, ref, b, client) => copyIssueWithAssessment(me, ref, { title: optString(b, "title") }, client), created: true },
   archive: { keys: ["reason"], run: (me, ref, b) => archiveIssue(me, ref, { reason: optString(b, "reason") }) },

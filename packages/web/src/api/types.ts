@@ -119,6 +119,8 @@ export type {
   SprintReference,
   SprintAnalytics,
   SprintPhase,
+  SetIssueOpenSprintInput,
+  SetIssueOpenSprintResult,
   LegacyCycleResolution,
   CurrentSprintResolution,
   Question,

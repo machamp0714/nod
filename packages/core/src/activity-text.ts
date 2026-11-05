@@ -113,6 +113,8 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
     case "sprint_added":
       // 内容は後から項目が増える（NOD-59 の引き継ぎなど）。文は Sprint の共通番号と名前だけで作る
       return line(`${actor} が Sprint ${String(data.sprintNumber ?? "")}「${String(data.sprintName ?? "")}」に追加した`);
+    case "sprint_removed":
+      return line(`${actor} が Sprint ${String(data.sprintNumber ?? "")}「${String(data.sprintName ?? "")}」から外した`);
     case "cycle_changed":
       return line(data.to == null ? `${actor} が Cycle から外した` : `${actor} が Cycle を ${String(data.to)} に変えた`, [...(data.from == null ? [] : [`以前: ${String(data.from)}`]), ...automationOf(data)]);
     case "parent_changed":

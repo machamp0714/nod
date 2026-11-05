@@ -81,6 +81,20 @@ test("Sprintへの追加は LLM も CLI で行え、合意や再承認が要ら�
   }
 });
 
+test("Sprintからの解除は LLM も CLI で行え、追加の記録だけを外し、採択の所属と閉じたSprintは外せず、add と remove は原子的な移動ではないと案内する（NOD-56）", () => {
+  const lines = GUIDE.split("\n");
+  const index = lines.findIndex((l) => l.startsWith("- `nod sprint remove <sprint> <issue>`"));
+  expect(index).toBe(lines.findIndex((l) => l.startsWith("- `nod sprint add <sprint> <issue>`")) + 1);
+  const line = lines[index]!;
+  for (const text of [
+    "LLM も実行できる", "追加の記録だけを外す", "item・写し・計画は残る",
+    "計画で採択された所属は外せず", "計画の変更と人の合意が要る", "追加と採択が重なっても同じ",
+    "imported・ended・canceled", "Workspace 削除済み", "INVALID_STATE",
+    "所属でなければ何もしない", "removed は false", "Sprint の版も requestKey も要らない",
+    "add と remove は指定した Sprint だけを変え", "原子的な移動にはならない", "inAdoptedPlan",
+  ]) expect([text, line.includes(text)]).toEqual([text, true]);
+});
+
 test("LLM も nod issue update --status で Triage から出せ、bulk-update では誰も出せないと案内する", () => {
   const line = GUIDE.split("\n").find((l) => l.includes("nod issue update --status") && l.includes("Triage から出"));
   expect(line).toBeDefined();

@@ -104,6 +104,13 @@ describe("describeEvent（#198）", () => {
     });
   });
 
+  test("Sprintからの解除は操作者と、Sprintの共通番号・名前を文にする（NOD-56）", () => {
+    expect(event("sprint_removed", { sprintId: "uuid-15", sprintNumber: 15, sprintName: "Sprint 15" }, "codex")).toEqual({
+      text: "codex が Sprint 15「Sprint 15」から外した",
+      detail: [],
+    });
+  });
+
   test("知らない種類は null を返す", () => {
     expect(event("snoozed", { until: "2026-10-02T00:00:00.000Z" })).toBeNull();
   });

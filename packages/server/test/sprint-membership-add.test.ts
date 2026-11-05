@@ -44,7 +44,7 @@ test("計画が無いdraftへissueRefだけで追加し、計画を作らずに�
     expect(detail.items).toEqual([added.json.item]);
     expect((await call(app, "GET", `/api/issues?sprint=${draft.id}`)).json.issues.map((i: any) => i.id)).toEqual([issue.id]);
     expect((await call(app, "GET", `/api/issues?sprint=none`)).json.issues.map((i: any) => i.id)).not.toContain(issue.id);
-    expect((await call(app, "GET", `/api/issues/${issue.id}`)).json.sprints).toEqual([{ id: draft.id, number: draft.number, name: draft.name, workspaceId: ws.id, phase: "draft", association: "added" }]);
+    expect((await call(app, "GET", `/api/issues/${issue.id}`)).json.sprints).toEqual([{ id: draft.id, number: draft.number, name: draft.name, workspaceId: ws.id, phase: "draft", association: "added", inAdoptedPlan: false }]);
   } finally { db.close(); }
 });
 
@@ -153,7 +153,7 @@ for (const closing of ["end", "cancel"] as const) {
       expect(ids(await call(app, "GET", `/api/issues?sprint=current`)).sort()).toEqual(members);
       expect((await call(app, "GET", `/api/sprints/current`)).json.issues.map((i: any) => i.id).sort()).toEqual(members);
       expect(ids(await call(app, "GET", `/api/issues?sprint=none`)).sort()).toEqual([legacy.id, outside.id].sort());
-      expect((await call(app, "GET", `/api/issues/${extra.id}`)).json.sprints).toEqual([{ id: draft.id, number: draft.number, name: draft.name, workspaceId: ws.id, phase: "active", association: "added" }]);
+      expect((await call(app, "GET", `/api/issues/${extra.id}`)).json.sprints).toEqual([{ id: draft.id, number: draft.number, name: draft.name, workspaceId: ws.id, phase: "active", association: "added", inAdoptedPlan: false }]);
       expect((await call(app, "GET", `/api/sprints/${draft.id}`)).json.items.map((i: any) => [i.sourceIssueKey, i.association]).sort())
         .toEqual([[planned.id, "added"], [extra.id, "added"], [done.id, "added"], [legacy.id, null]].sort());
       expect((await call(app, "GET", `/api/sprints/${draft.id}/analytics`)).json).toMatchObject({ statusBasis: "live_membership", scope: 3, completed: 1 });

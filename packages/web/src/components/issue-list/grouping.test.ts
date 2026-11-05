@@ -34,7 +34,7 @@ describe("groupRows", () => {
   });
 
   test("Sprintは開始日順で「名前（状態）」を見出しにし、Sprintなしを最後にする。現在の Sprint に印を付ける", () => {
-    const rows = [row("A-1"), row("A-2", { sprints: [{ id: "2", number: 2, workspaceId: 1, phase: "active", association: "adopted", name: "S2" }] }), row("A-3", { sprints: [{ id: "1", number: 1, workspaceId: null, phase: "imported", association: "imported", name: "S1" }] }), row("A-4", { sprints: [{ id: "9", number: 9, workspaceId: null, phase: "ended", association: "adopted", name: "消えた" }] })];
+    const rows = [row("A-1"), row("A-2", { sprints: [{ id: "2", number: 2, workspaceId: 1, phase: "active", association: "adopted", inAdoptedPlan: true, name: "S2" }] }), row("A-3", { sprints: [{ id: "1", number: 1, workspaceId: null, phase: "imported", association: "imported", inAdoptedPlan: false, name: "S1" }] }), row("A-4", { sprints: [{ id: "9", number: 9, workspaceId: null, phase: "ended", association: "adopted", inAdoptedPlan: true, name: "消えた" }] })];
     const info = (id: string) =>
       ({ 1: { label: "S1（Completed）", rank: "2026-09-01" }, 2: { label: "S2（Current）", rank: "2026-09-15", current: true } })[Number(id) as 1 | 2];
     const groups = groupRows(rows, "sprint", undefined, undefined, info);
