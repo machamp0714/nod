@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { ApiError } from "../api/client";
-import type { LeakFinding } from "../api/types";
-import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, splitBlockers, unlinkConfirmText } from "./github-publish";
+import type { GithubDraftChange, LeakFinding } from "../api/types";
+import { canSend, checkReducer, findingLocation, githubLinkLabel, initialCheck, recordFailedUrl, shownChanges, splitBlockers, unlinkConfirmText } from "./github-publish";
 
 const finding: LeakFinding = { field: "body", line: 2, column: 3, text: "NOD-1", rule: "issue_id", reason: "r" };
 const ok = { sending: false, repo: "example/api-server", ghLogin: "alice", blocked: false };
@@ -40,6 +40,9 @@ test("検出あり・検査失敗・送信中・宛先やアカウントがな�
 test("表示用の文字列", () => {
   expect(findingLocation(finding)).toBe("本文 2 行 3 桁");
   expect(findingLocation({ ...finding, field: "title", line: 1, column: 1 })).toBe("タイトル 1 行 1 桁");
+  // 整えた箇所も同じ書き方で、元の文面の位置を示す
+  const change: GithubDraftChange = { field: "body", line: 1, column: 1, before: "NOD-1", after: "この Issue", rule: "issue_id", reason: "r" };
+  expect(findingLocation(change)).toBe("本文 1 行 1 桁");
   expect(githubLinkLabel({ repo: "example/api-server", number: 41 })).toBe("example/api-server#41");
 });
 
@@ -73,4 +76,13 @@ test("GITHUB_RECORD_FAILED のときだけ、作成済みの URL を取り出す
 test("解除の確認文は、作成した試行があるときだけ再公開できないと伝える", () => {
   expect(unlinkConfirmText(true)).toContain("外しても再公開はできません");
   expect(unlinkConfirmText(false)).not.toContain("再公開はできません");
+});
+
+test("整えた箇所は、表示中の文面が案のままの項目の分だけ示す（nod の文面に戻した・手で編集した項目の分は出さない）", () => {
+  const draft = { title: "この Issue の件", body: "この Issue の続き" };
+  const at = (field: "title" | "body"): GithubDraftChange => ({ field, line: 1, column: 1, before: "API-1", after: "この Issue", rule: "issue_id", reason: "r" });
+  const changes = [at("title"), at("body")];
+  expect(shownChanges(changes, draft, draft)).toEqual(changes);
+  expect(shownChanges(changes, draft, { title: "API-1 の件", body: "API-1 の続き" })).toEqual([]);
+  expect(shownChanges(changes, draft, { ...draft, body: "この Issue の続き（直した）" })).toEqual([at("title")]);
 });

@@ -26,15 +26,22 @@ export interface LeakConfig {
 
 export const NOD_WEB_DEFAULT_PORT = 4700;
 
+// 残った箇所の理由。何が問題かと、何をすればよいかを示す
 const REASONS: Record<LeakRule, string> = {
-  issue_id: "nod の Issue ID です。GitHub に出さないよう書き換えてください",
-  issue_ref: "番号だけの参照です。nod の番号と取り違えないよう、完全な GitHub の URL（https://github.com/owner/repo/issues/N）に直してください",
-  nod_web: "nod の Web の URL です",
-  nod_command: "nod のコマンドです",
-  import_footer: "nod の取り込みで付いた footer です",
-  absolute_path: "手元の環境のパスです",
-  link_target: "GitHub で開けないリンク先です（http(s)://・mailto:・ページ内の #見出し だけを使えます）",
+  issue_id: "nod の Issue ID です。GitHub の読者には通じないため、GitHub の URL に直すか、内容の説明に言い換えてください",
+  issue_ref:
+    "番号だけの参照です。GitHub の Issue・PR なら完全な URL（https://github.com/owner/repo/issues/N）か owner/repo#N に、nod のログ・質問の番号なら内容の説明に直してください",
+  nod_web: "nod の Web の URL です。GitHub の読者は開けないため、GitHub の URL に差し替えるか、内容の説明に言い換えてください",
+  nod_command: "nod のコマンドです。GitHub の読者には実行できないため、参照先の内容を書くか、削除してください",
+  import_footer: "nod の取り込みで付いた footer です。出所を残すなら「参考: <取り込み元の URL>」の1行にし、ほかは削除してください",
+  absolute_path: "手元の環境のパスです。リポジトリの中なら相対パスに、それ以外は公開できる URL に差し替えるか、必要な内容を本文に書いてください",
+  link_target:
+    "GitHub で開けないリンク先です（http(s)://・mailto:・ページ内の #見出し だけを使えます）。公開できる URL に差し替えるか、リンクをやめて必要な内容を本文に書いてください",
 };
+// owner/repo#N の形は完全な URL に直せばよい
+const REPO_REF_REASON = "番号だけの参照です。nod の番号と取り違えないよう、完全な GitHub の URL（https://github.com/owner/repo/issues/N）に直してください";
+
+const reasonOf = (rule: LeakRule, text: string) => (rule === "issue_ref" && text.includes("/") ? REPO_REF_REASON : REASONS[rule]);
 
 // 正規の GitHub Issue/PR URL。この範囲だけを調べない（後ろに / ? # などが続くものは例外にしない）
 const GITHUB_URL_RE = /https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+\/(?:issues|pull)\/\d+(?=$|[\s)\]>"'<,;:!?、。]|\.(?:$|\s))/gm;
@@ -44,7 +51,8 @@ const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"'`)\]]+/gi;
 const SCHEME_HOST_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/]*/i;
 
 const PATH_BEFORE = String.raw`(?<![A-Za-z0-9_./\\~-])`;
-const DELIM = String.raw`[\s"'\`()\[\]{}<>,;:!?、。]`;
+const DELIM_CHARS = String.raw`\s"'\`()\[\]{}<>,;:!?、。`;
+const DELIM = `[${DELIM_CHARS}]`;
 const PATH_END = String.raw`(?=/|$|${DELIM})`;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -101,10 +109,25 @@ function allowedTarget(target: string): boolean {
 
 const mask = (text: string, re: RegExp) => text.replace(re, (m) => " ".repeat(m.length));
 
-function position(text: string, index: number): { line: number; column: number } {
-  const before = text.slice(0, index);
-  const lineStart = before.lastIndexOf("\n") + 1;
-  return { line: before.split("\n").length, column: Array.from(text.slice(lineStart, index)).length + 1 };
+// 位置は1始まりの行と桁（桁はコードポイント数）。案の書き換えの位置も同じ数え方にする。
+// 同じ文字列の位置を前から順に何度も求めるので、行の始まりを先に集め、直前に求めた位置から数え足す
+export function leakPositionsIn(text: string): (index: number) => { line: number; column: number } {
+  const starts = [0];
+  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
+  let last = { index: 0, line: 1, column: 1 };
+  return (index) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if ((starts[mid] ?? 0) <= index) lo = mid;
+      else hi = mid - 1;
+    }
+    const line = lo + 1;
+    const from = last.line === line && last.index <= index ? last : { index: starts[lo] ?? 0, column: 1 };
+    last = { index, line, column: from.column + Array.from(text.slice(from.index, index)).length };
+    return { line, column: last.column };
+  };
 }
 
 // URL はスキームとホストを外したパスと、percent-decode を1回した形も調べる（壊れたエンコードは原文だけ）
@@ -122,16 +145,16 @@ function urlVariants(url: string): string[] {
   return out;
 }
 
-interface Hit {
-  index: number;
+export interface LeakHit {
+  index: number; // 文字列の中の位置（UTF-16）
   text: string;
   rule: LeakRule;
 }
 
-function scanField(raw: string, patterns: Pattern[]): Hit[] {
+function scanField(raw: string, patterns: Pattern[]): LeakHit[] {
   const masked = mask(raw, GITHUB_URL_RE);
   const entityMasked = mask(masked, ENTITY_RE);
-  const hits: Hit[] = [];
+  const hits: LeakHit[] = [];
   for (const p of patterns) {
     for (const m of (p.entityMasked ? entityMasked : masked).matchAll(p.re)) hits.push({ index: m.index ?? 0, text: m[0], rule: p.rule });
   }
@@ -170,13 +193,32 @@ function scanField(raw: string, patterns: Pattern[]): Hit[] {
     .sort((a, b) => a.index - b.index);
 }
 
+// index から始まるパスの終わり（検出のパスの区切りの手前）
+export function leakPathEnd(text: string, index: number): number {
+  const re = new RegExp(`[^${DELIM_CHARS}]*`, "y");
+  re.lastIndex = index;
+  re.test(text);
+  return re.lastIndex;
+}
+
+// 検出が URL として調べる範囲（正規の GitHub Issue/PR の URL を除く）
+export function leakUrlsOf(text: string): { index: number; text: string }[] {
+  return [...mask(text, GITHUB_URL_RE).matchAll(URL_RE)].map((m) => ({ index: m.index ?? 0, text: m[0] }));
+}
+
+// 1つの文字列の検出を、位置（index）付きで返す。案を作る処理が書き換える範囲の起点にする
+export function leakHitsOf(text: string, config: LeakConfig): LeakHit[] {
+  return scanField(text, patternsOf(config));
+}
+
 export function detectLeaks(input: { title: string; body: string }, config: LeakConfig): LeakFinding[] {
   const patterns = patternsOf(config);
   const out: LeakFinding[] = [];
   for (const field of ["title", "body"] as const) {
     const raw = input[field];
+    const positionOf = leakPositionsIn(raw);
     for (const h of scanField(raw, patterns)) {
-      out.push({ field, ...position(raw, h.index), text: h.text, rule: h.rule, reason: REASONS[h.rule] });
+      out.push({ field, ...positionOf(h.index), text: h.text, rule: h.rule, reason: reasonOf(h.rule, h.text) });
     }
   }
   return out;

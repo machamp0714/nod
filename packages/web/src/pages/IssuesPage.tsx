@@ -9,6 +9,7 @@ import { IssueList } from "../components/issue-list/IssueList";
 import { Button, PageLoading } from "../components/ui";
 import { ViewDialog } from "../components/views/ViewDialog";
 import { filterFromSearch, filterToSearch } from "../lib/issue-filter";
+import { listIdentity } from "../lib/list-scroll";
 import { withoutPageDisplay } from "../lib/page-display";
 import { describeDisplay, displayFromSearch, unsavedNote } from "../lib/view-display";
 import { replacesIssueListHistory, cleanIssueListSearch, defaultIssueColumns, type IssueListSearch } from "../routes/search";
@@ -55,6 +56,8 @@ export function IssuesPage() {
         search={search}
         onSearchChange={change}
         onResetDisplay={resetDisplay}
+        // 実効の条件と表示（保存した表示設定と URL を合わせたもの）が同じ履歴エントリへ戻ったときだけ、位置を復元する
+        scrollRestoration={{ kind: "issues", target: "", identity: listIdentity(search), fetching: rows.fetching ?? false }}
         resetDisplayDisabled={page.resetDisabled}
         actions={
           <Button variant="soft" icon="layers" disabled={!views.data || views.isError} onClick={() => setSaving(true)}>

@@ -16,6 +16,7 @@ import { useIssueRows } from "../api/hooks/issues";
 import { SprintAnalyticsPanel } from "../components/cycles/SprintAnalyticsPanel";
 import { IssueList } from "../components/issue-list/IssueList";
 import { Button, IconButton, PageError, PageLoading, ProgressBar } from "../components/ui";
+import { listIdentity } from "../lib/list-scroll";
 import { SPRINT_PHASE_LABEL, sprintSnapshotRows } from "../lib/sprints";
 import { withoutPageDisplay } from "../lib/page-display";
 import { cleanSprintDetailSearch, replacesIssueListHistory } from "../routes/search";
@@ -70,8 +71,11 @@ export function SprintDetailPage() {
   const shownRows = imported ? snapshots : rows.rows;
   const countsKnown = imported || (!rows.loading && !rows.error);
   const completed = shownRows.filter((item) => item.issue.status === "done").length;
+  // 移行済みの Sprint は詳細の写しが行なので、詳細の読み直しを一覧の再取得として扱う。通常の Sprint は概要も詳細から描くため、両方を待つ
+  const fetching = imported ? detail.isFetching : (rows.fetching ?? false) || detail.isFetching;
   return <div className={s.layout}>
-    <IssueList crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name}
+    {/* 別の Sprint へ移ったら一覧を開き直す（選択や復元の状態を持ち越さない） */}
+    <IssueList key={`list:${sprint.id}`} crumb={<Link to="/sprints">Sprints</Link>} title={sprint.name}
       titleNote={<span>{SPRINT_PHASE_LABEL[sprint.phase]}</span>}
       actions={<>{!imported && <><Button style={{ minHeight: 32 }} ref={planButton} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "plan" }) })}>計画</Button><Button style={{ minHeight: 32 }} onClick={() => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "outcomes", view: undefined }) })}>成果と評価</Button><Button style={{ minHeight: 32 }} onClick={openRetrospective}>振り返り</Button><SprintEnd key={`end:${sprint.id}`} sprint={sprint} deadlineReached={deadlineReached} /><SprintCancel key={sprint.id} sprint={sprint} /></>}<IconButton ref={analyticsButton} icon="chart-line" label="分析" bordered aria-pressed={analyticsOpen} className={analyticsOpen ? s.pressed : undefined}
         onClick={() => analyticsOpen ? closeAnalytics() : setAnalyticsOpen(true)} /></>}
@@ -108,6 +112,9 @@ export function SprintDetailPage() {
       filterBar={!imported && <div role="group" aria-label="絞り込み条件"><BlockedFilter value={page.search.blocked} onChange={blocked => changeSearch({ blocked })} /></div>}
       rows={shownRows} loading={!imported && rows.loading} error={!imported ? rows.error : null}
       onRetry={rows.retry} readOnly={imported} search={page.search}
+      // タスク一覧だけで位置を復元する（計画・成果・振り返りは対象外）。対象は番号とIDのどちらで開いても Sprint の ID にそろえ、
+      // 実効の条件と表示（保存した表示設定と URL を合わせたもの）が同じ履歴エントリへ戻ったときだけ使う
+      scrollRestoration={{ kind: "sprint", target: sprint.id, identity: listIdentity(page.search), fetching }}
       onSearchChange={(patch) => { const pageDisplay = page.save(patch); void navigate({ search: (prev) => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); }}
       onResetDisplay={() => { const pageDisplay = page.reset(); void navigate({ search: (prev) => withoutPageDisplay(prev), state: { pageDisplay }, replace: true }); }} resetDisplayDisabled={page.resetDisabled}
       afterContent={imported && <section className={s.evidence} aria-label="履歴の根拠">

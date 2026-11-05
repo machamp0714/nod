@@ -38,12 +38,12 @@ function fakeIo(opts: { interactive?: boolean; answer?: boolean; onConfirm?: () 
   };
 }
 
-function fixture(repo: string | null = "example/api-server") {
+function fixture(repo: string | null = "example/api-server", description = "遅い") {
   const db = openDb(tempDb());
   const ws = initWorkspace(db, { path: "/tmp/repos/api-server", key: "API" }).workspace;
   const me = { db, actor: "me" };
   if (repo) setWorkspaceGithubRepo(me, "API", repo);
-  const id = createIssue(me, { workspaceId: ws.id, title: "検索を速くする", description: "遅い" }).id;
+  const id = createIssue(me, { workspaceId: ws.id, title: "検索を速くする", description }).id;
   const cli: Cli = { db, ctx: me, json: false };
   return { db, cli, id };
 }
@@ -203,4 +203,95 @@ test("nod のタイトルが 256 文字を超えると --dry-run で理由を示
   expect(gh.posts()).toBe(0);
   await runPublishCommand(cli, id, { title: "短いタイトル" }, fakeIo(), { gh: gh.run });
   expect(JSON.parse(gh.payloads[0]!).title).toBe("短いタイトル");
+});
+
+test("指定しなかった項目は規則で整えた案を送る（自身の ID は「この Issue」に）", async () => {
+  const { db, cli, id } = fixture("example/api-server", "API-1 の続き");
+  const gh = fakeGh();
+  await runPublishCommand(cli, id, {}, fakeIo(), { gh: gh.run });
+  expect(JSON.parse(gh.payloads[0]!)).toEqual({ title: "検索を速くする", body: "この Issue の続き" });
+  expect((db.query("SELECT description FROM issues").get() as { description: string }).description).toBe("API-1 の続き");
+});
+
+test("確認画面に、書き換えた箇所を位置・前 → 後・理由で出す", async () => {
+  const { cli, id } = fixture("example/api-server", "前置き\n依存: API-1 の続き");
+  const io = fakeIo({ answer: false });
+  await runPublishCommand(cli, id, {}, io, { gh: fakeGh().run });
+  const shown = io.out.join("");
+  expect(shown).toContain("GitHub 向けに整えた箇所（1 件）");
+  expect(shown).toMatch(/本文 2 行 5 桁: API-1 → この Issue — nod の Issue ID を.+にしました/);
+  expect(shown).toContain("依存: この Issue の続き");
+});
+
+async function dryRunText(cli: Cli, id: string, o: { title?: string; bodyFile?: string } = {}): Promise<string> {
+  const logs: string[] = [];
+  const original = console.log;
+  console.log = (t: string) => logs.push(t);
+  try {
+    await runPublishCommand(cli, id, { dryRun: true, ...o }, fakeIo(), { gh: fakeGh().run });
+  } finally {
+    console.log = original;
+  }
+  return logs.join("\n");
+}
+
+test("--dry-run は案の全文と書き換えた箇所を示し、整えられずに残った箇所（裸の #12）があれば送らない", async () => {
+  const { cli, id } = fixture("example/api-server", "API-1 の続き。#12 も参照");
+  const shown = await dryRunText(cli, id);
+  expect(shown).toContain("本文 1 行 1 桁: API-1 → この Issue");
+  expect(shown).toContain("この Issue の続き。#12 も参照");
+  expect(shown).toMatch(/本文 1 行 \d+ 桁: #12 — /);
+  const gh = fakeGh();
+  expect(await codeOf(runPublishCommand(cli, id, {}, fakeIo(), { gh: gh.run }))).toBe("LEAK_DETECTED");
+  expect(gh.posts()).toBe(0);
+});
+
+test("--body-file・--title の文面は書き換えずに検出だけ行い、その項目の書き換えた箇所は示さない", async () => {
+  const { db, cli, id } = fixture("example/api-server", "API-1 の続き");
+  db.query("UPDATE issues SET title = ?").run("API-1 を速くする");
+  const file = join(tempDir(), "body.md");
+  writeFileSync(file, "API-1 の続き");
+  const bodyGiven = await dryRunText(cli, id, { bodyFile: file });
+  expect(bodyGiven).toContain("タイトル 1 行 1 桁: API-1 → この Issue");
+  expect(bodyGiven).not.toContain("本文 1 行 1 桁: API-1 →");
+  expect(bodyGiven).toContain("本文 1 行 1 桁: API-1 — ");
+  const titleGiven = await dryRunText(cli, id, { title: "API-1 を速く" });
+  expect(titleGiven).toContain("GitHub 向けに整えた箇所（1 件）");
+  expect(titleGiven).toContain("本文 1 行 1 桁: API-1 → この Issue");
+  expect(titleGiven).toContain("タイトル 1 行 1 桁: API-1 — ");
+  const gh = fakeGh();
+  let message = "";
+  try {
+    await runPublishCommand(cli, id, { bodyFile: file }, fakeIo(), { gh: gh.run });
+  } catch (e) {
+    message = `${(e as { code?: string }).code} ${(e as Error).message}`;
+  }
+  expect(message).toMatch(/^LEAK_DETECTED /);
+  expect(message).toContain("本文 1 行 1 桁: API-1");
+  expect(gh.posts()).toBe(0);
+});
+
+test("--dry-run --json は送る文面の title・body・findings に、original と送る項目の changes を加える", async () => {
+  const { cli, id } = fixture("example/api-server", "API-1 の続き");
+  const file = join(tempDir(), "body.md");
+  writeFileSync(file, "差し替えた本文");
+  const run = async (o: { bodyFile?: string }) => {
+    const logs: string[] = [];
+    const original = console.log;
+    console.log = (t: string) => logs.push(t);
+    try {
+      await runPublishCommand({ ...cli, json: true }, id, { dryRun: true, ...o }, fakeIo(), { gh: fakeGh().run });
+    } finally {
+      console.log = original;
+    }
+    return JSON.parse(logs.join("\n"));
+  };
+  expect(await run({})).toMatchObject({
+    title: "検索を速くする",
+    body: "この Issue の続き",
+    findings: [],
+    original: { title: "検索を速くする", body: "API-1 の続き" },
+    changes: [{ field: "body", line: 1, column: 1, before: "API-1", after: "この Issue", rule: "issue_id" }],
+  });
+  expect(await run({ bodyFile: file })).toMatchObject({ body: "差し替えた本文", findings: [], original: { body: "API-1 の続き" }, changes: [] });
 });

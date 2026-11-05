@@ -6,15 +6,14 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import { setColumn } from "../mutate";
-import type { OrcaAgent, OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
-import { parseOrcaAgent } from "./workspaces";
+import type { OrcaFailure, OrcaFailureCode, OrcaOpenResult, OrcaTerminal, OrcaWorktreeResult } from "../types";
 import { createCommandRunner, type GhRunner, type GhRunResult } from "./pr-status";
 
 // orca の実行結果は gh と同じ形で受け取る。テストと e2e は実際の orca を起動しないスタブを渡す
 export type OrcaRunner = GhRunner;
 
 export const ORCA_TIMEOUT_MS = 15_000;
-// worktree の作成とエージェントの起動は時間がかかるため、専用に長く待つ（#210）
+// worktree の作成と Omp の起動は時間がかかるため、専用に長く待つ（#210）
 export const ORCA_CREATE_TIMEOUT_MS = 60_000;
 const ORCA_OUTPUT_MAX_BYTES = 1024 * 1024;
 
@@ -195,7 +194,7 @@ function worktreeDisplayName(issueId: string, title: string): string {
   return `${issueId} ${title.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim()}`;
 }
 
-// 「Orca で作業を始める」で作られる worktree 名（Web のプレビュー用。hash を Web で計算しないため）。空の feature は省略形になる
+// 作業開始（「Omp で作業を始める」）で作られる worktree 名（Web のプレビュー用。hash を Web で計算しないため）。空の feature は省略形になる
 export function getWorktreeName(db: Database, ref: string, feature: string): { issueId: string; name: string; displayName: string } {
   if (feature !== "" && !FEATURE_RE.test(feature)) {
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
@@ -209,14 +208,17 @@ export function getWorktreeName(db: Database, ref: string, feature: string): { i
 // orca を待つ間（最長 60 秒）に来た同じ Issue への要求をここで止める。server は1プロセスなので、プロセス内の印で足りる
 const creating = new WeakMap<Database, Set<number>>();
 
-// Issue の worktree を Orca に作り、エージェントのセッションを起動する（#210）。入力待ちを確認して Issue ID を入力し、Enter は送らない。
-// エージェントは input.agent（作成時の選択）、無ければ Workspace の既定。
+// 作業開始で起動するエージェント（Orca の TUI エージェント id）。選ばせず、Workspace の設定にもよらず常に Omp を起動する（NOD-61）
+const START_AGENT = "omp";
+
+// Issue の worktree を Orca に作り、Omp のセッションを Orca の端末で起動する（#210, NOD-61）。入力待ちを確認して Issue ID を入力し、Enter は送らない。
+// エージェントの選択は受け付けない。モデル・effort は Omp 自身の設定に任せ、--prompt（自動送信になる）も渡さない。
 // 成功したら worktree とブランチを Issue に記録する。ステータスと担当は変えない。
 // 実行場所（worktree かブランチ）が記録済みの Issue では作らない（二重作成の防止）。作れなかった理由は OrcaFailure で返し、Issue は変えない
 export async function createOrcaWorktree(
   ctx: OpCtx,
   ref: string,
-  input: { feature?: string; agent?: string },
+  input: { feature?: string },
   run: OrcaRunner | null,
 ): Promise<OrcaWorktreeResult> {
   const row = findWritableIssueRow(ctx.db, ref);
@@ -225,7 +227,6 @@ export async function createOrcaWorktree(
   if (feature !== "" && !FEATURE_RE.test(feature)) {
     throw new NodError("INVALID_ARGS", "feature は英小文字・数字・- だけで指定してください");
   }
-  const chosen = input.agent === undefined ? null : parseOrcaAgent(input.agent);
   const fail = (failure: OrcaFailure): OrcaWorktreeResult => ({ issueId, created: false, worktree: row.worktree, branch: row.branch, failure });
   // ブランチだけが記録済みの Issue（古いデータ）でも作らない。作ると記録済みのブランチ名を上書きしてしまう
   if (row.worktree || row.branch) return fail(orcaFailure("WORKTREE_ALREADY_RECORDED"));
@@ -235,7 +236,7 @@ export async function createOrcaWorktree(
   if (inFlight.has(row.id)) return fail(orcaFailure("WORKTREE_CREATING"));
   inFlight.add(row.id);
   try {
-    return await createAndRecord(ctx, ref, row, issueId, feature, chosen, run, fail);
+    return await createAndRecord(ctx, ref, row, issueId, feature, run, fail);
   } finally {
     inFlight.delete(row.id);
   }
@@ -247,15 +248,18 @@ async function createAndRecord(
   row: IssueRow,
   issueId: string,
   feature: string,
-  chosen: OrcaAgent | null,
   run: OrcaRunner,
   fail: (failure: OrcaFailure) => OrcaWorktreeResult,
 ): Promise<OrcaWorktreeResult> {
-  const workspace = ctx.db.query("SELECT path, default_agent FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string; default_agent: OrcaAgent };
-  const agent = chosen ?? workspace.default_agent;
+  // Workspace の既定エージェント（default_agent 列）は読まない。起動先は常に Omp
+  const workspace = ctx.db.query("SELECT path FROM workspaces WHERE id = ?").get(row.workspace_id) as { path: string };
   const res = readOrcaEnvelope(
     await run(
-      ["worktree", "create", "--repo", `path:${workspace.path}`, "--name", worktreeNameFor(ctx.db, row, feature), "--no-parent", "--agent", agent, "--activate", "--json"],
+      // --surface terminal: Orca の Chat UI 設定が有効でも端末で起動させ、下書き入力を成り立たせる
+      [
+        "worktree", "create", "--repo", `path:${workspace.path}`, "--name", worktreeNameFor(ctx.db, row, feature), "--no-parent",
+        "--agent", START_AGENT, "--surface", "terminal", "--activate", "--json",
+      ],
       { timeoutMs: ORCA_CREATE_TIMEOUT_MS, maxStdoutBytes: ORCA_OUTPUT_MAX_BYTES },
     ),
     ORCA_CREATE_TIMEOUT_MS,
@@ -294,20 +298,27 @@ async function createAndRecord(
     recoveryCommand: `orca worktree set --worktree ${shellQuote(`path:${worktree}`)} --display-name ${shellQuote(displayName)} --json`,
   } : undefined;
   // 作成済みの場所を先に保存する。下書き入力の失敗で worktree を重複作成しない。
-  const draftWarning = await fillIssueDraft(run, res.result, worktree, issueId, agent);
+  const draftWarning = await fillIssueDraft(run, res.result, worktree, issueId);
   return { ...recorded, ...(displayNameWarning ? { displayNameWarning } : {}), ...(draftWarning ? { draftWarning } : {}) };
 }
 
-async function fillIssueDraft(run: OrcaRunner, created: unknown, worktree: string, issueId: string, agent: OrcaAgent): Promise<string | null> {
+async function fillIssueDraft(run: OrcaRunner, created: unknown, worktree: string, issueId: string): Promise<string | null> {
   const warn = (detail: string) => `セッションは起動しましたが、IDの入力を確認できませんでした。Orcaの入力欄を確認し、必要なら ${issueId} を入力してください。${detail}`;
   try {
-    const result = created as { agentTerminalHandle?: unknown; startupTerminal?: { handle?: unknown } } | null;
-    const handles = [result?.agentTerminalHandle, result?.startupTerminal?.handle];
+    // 起動した Omp の端末は、新形式の launch.outcome（kind が terminal のときの handle）、旧形式の agentTerminalHandle、
+    // startupTerminal.handle の順に結果から読む。どれも無ければ worktree の端末一覧で Omp の生存端末がちょうど1件のときだけ使う
+    const result = created as {
+      launch?: { outcome?: { kind?: unknown; handle?: unknown } };
+      agentTerminalHandle?: unknown;
+      startupTerminal?: { handle?: unknown };
+    } | null;
+    const outcome = result?.launch?.outcome;
+    const handles = [outcome?.kind === "terminal" ? outcome.handle : undefined, result?.agentTerminalHandle, result?.startupTerminal?.handle];
     let handle = handles.find((value): value is string => typeof value === "string" && value.length > 0);
     if (!handle) {
       const listed = await listOrcaTerminals(run, worktree);
       if ("failure" in listed) return warn(listed.failure.message);
-      const candidates = agentTerminals(listed.terminals).filter((terminal) => terminal.agentIdentity === agent);
+      const candidates = agentTerminals(listed.terminals).filter((terminal) => terminal.agentIdentity === START_AGENT);
       if (candidates.length !== 1) return warn("起動したエージェントの端末を特定できません。");
       handle = candidates[0]!.handle;
     }
