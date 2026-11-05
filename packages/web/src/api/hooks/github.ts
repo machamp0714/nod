@@ -50,7 +50,7 @@ export function useClearWorkspaceGithubRepo(key: string) {
   return useApiMutation(() => apiFetch<WorkspaceGithubRepo>(repoPath(key), { method: "DELETE" }));
 }
 
-// 「Orca で作業を始める」で作られる worktree 名（hash を Web で計算しないため server に聞く）
+// 「Omp で作業を始める」で作られる worktree 名（hash を Web で計算しないため server に聞く）
 export function useWorktreeName(id: string, feature: string) {
   return useQuery({
     queryKey: queryKeys.worktreeName(id, feature),

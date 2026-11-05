@@ -562,7 +562,8 @@ export const MIGRATIONS: MigrationStep[][] = [
   [
     `ALTER TABLE views ADD COLUMN display TEXT NOT NULL DEFAULT '{}'`,
   ],
-  // 「Orca で作業を始める」で起動する既定のエージェント（#210）。既存の Workspace は claude
+  // 「Orca で作業を始める」で起動する既定のエージェント（#210）。既存の Workspace は claude。
+  // NOD-61 で起動先を Omp に固定し、この列はどこからも読まない（列は残す）
   [
     `ALTER TABLE workspaces ADD COLUMN default_agent TEXT NOT NULL DEFAULT 'claude' CHECK (default_agent IN ('claude', 'codex'))`,
   ],
