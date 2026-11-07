@@ -17,6 +17,15 @@ Documentは登録済みID・パス、または明示したMarkdownパスを受�
 
 規約は固定headにある `AGENTS.md`、`CLAUDE.md`、`CODING_STANDARDS.md`、`CONTRIBUTING.md`、`README.md` を変更ファイルの祖先ディレクトリから集め、そこからリンクされたローカルMarkdownをたどる。必要な参照が固定headに存在しない、通常ファイルでない、秘密候補のパスである場合は未完了にする。秘密候補の規約本文は読まない。未コミット・未追跡の規約や外部URLはこの準備対象に含まない。
 
+自動探索に含まれない必須規約は、`prepare` と `run` の両方に `--standard <リポジトリ相対Markdownパス>` を繰り返して指定する。指定ファイルとそのローカルMarkdownリンク先も同じ固定対象から収集する。重複は一度だけ保存する。絶対パス、リポジトリ外への参照、固定対象にないファイル、symlink、秘密候補のパスは拒否し、外部ファイルや未コミットの本文で補わない。
+
+```sh
+nod review prepare --repo /path/to/repo --base main --issue API-123 \
+  --standard DESIGN.md --standard .claude/rules/testing.md --json
+```
+
+この指定は取得経路を追加するもので、全行を今回の必須要件と認定するものではない。取得後の規約適用計画で必須範囲と参考範囲を判断する。`run` は準備JSONを再利用せず入力を固定し直すため、準備時と同じ `--standard` を渡す。
+
 結果はnod DBと同じディレクトリの `reviews/<実行ID>/preparation.json` に保存する。実行ごとにUUIDを割り当て、以前の結果は上書きしない。JSONには対象SHA・merge-base・差分・変更ファイル、全文の出典・SHA-256・節の行番号と識別値、要求元、除外理由、未完了理由、残件を含む。準備未完了は終了コード1で同じ形式の結果を返す。
 
 後続Taskはcoreの `prepareReview(db, input)` と `ReviewPreparation` を接続点にする。`status: prepared` の入力をモデル工程へ渡しても、`remaining` にある整合性・2軸探索・要求別記録・候補検証が終わるまでレビュー完了へ進めない。モデル設定・実効モデル照合・30分期限・修正と反映は後続Taskの責務である。

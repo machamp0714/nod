@@ -30,9 +30,10 @@ export function registerReviewCommands(program: Command): void {
     .option("--untracked <path>", "含める未追跡ファイル（繰り返し指定）", (value: string, paths: string[]) => [...paths, value], [])
     .option("--issue <id>", "要求を持つIssue")
     .option("--document <idOrPath>", "要求DocumentのIDまたはMarkdownパス")
+    .option("--standard <path>", "追加規約のリポジトリ相対Markdownパス（繰り返し指定）", (value: string, paths: string[]) => [...paths, value], [])
     .option("--scope-plan <path>", "固定規約の適用範囲と根拠のJSON")
     .option("--responsibility-plan <path>", "自動チェック担当の要求と根拠を事前固定したJSON")
-    .action(actAsync(async (cli, _cmd, opts: { repo: string; base: string; head: string; local?: boolean; untracked?: string[]; issue?: string; document?: string }) => {
+    .action(actAsync(async (cli, _cmd, opts: { repo: string; base: string; head: string; local?: boolean; untracked?: string[]; issue?: string; document?: string; standard?: string[] }) => {
       const result = await prepareReview(cli.db, { ...opts, outputDir: join(dirname(cli.db.filename), "reviews") });
       print(cli, result, () => [
         `${result.status === "prepared" ? "準備完了" : "準備未完了"}（レビュー未実施・点数なし）`,
@@ -56,6 +57,7 @@ export function registerReviewCommands(program: Command): void {
     .option("--untracked <path>", "含める未追跡ファイル（繰り返し指定）", (value: string, paths: string[]) => [...paths, value], [])
     .option("--issue <id>", "要求を持つIssue")
     .option("--document <idOrPath>", "要求Document")
+    .option("--standard <path>", "追加規約のリポジトリ相対Markdownパス（繰り返し指定）", (value: string, paths: string[]) => [...paths, value], [])
     .option("--scope-plan <path>", "固定規約の適用範囲と根拠のJSON")
     .option("--responsibility-plan <path>", "自動チェック担当の要求と根拠を事前固定したJSON")
     .requiredOption("--provider <provider>", "claude または codex")

@@ -53,6 +53,7 @@ export interface PrepareReviewInput {
   untracked?: string[];
   issue?: string;
   document?: string;
+  standard?: string[];
   scopePlan?: string;
   responsibilityPlan?: string;
   outputDir: string;
@@ -135,6 +136,14 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
         if (dir === ".") break;
         dir = dirname(dir);
       }
+    }
+    // 自動探索で見つからない規約も、作業ツリーではなく同じ固定対象から読む。
+    for (const path of input.standard ?? []) {
+      const ref = posix.normalize(path);
+      if (posix.isAbsolute(ref) || ref === ".." || ref.startsWith("../") || !/\.md$/i.test(ref) || !tracked.includes(ref)) {
+        throw new PreparationFailure("STANDARD_UNREADABLE", `追加規約 ${path} は固定対象にあるリポジトリ相対のMarkdownファイルで指定してください`);
+      }
+      standards.add(ref);
     }
     for (const path of standards) {
       if (sensitiveReviewPath(path)) throw new PreparationFailure("STANDARD_UNREADABLE", `規約 ${path} は秘密情報を含み得るため本文を読みません`);

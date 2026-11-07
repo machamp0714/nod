@@ -461,3 +461,70 @@ test("規約適用計画の雛形は固定hash・全行範囲を持ち、未判�
   const unresolved = await f.prepare("--scope-plan", prepared.json.standardScopeTemplatePath);
   expect(unresolved.json.problems).toContainEqual(expect.objectContaining({ code: "SCOPE_UNVERIFIED" }));
 });
+
+test("明示した追加規約と参照先を固定HEADから取得し、未コミットの本文を混ぜない", async () => {
+  const f = await fixture();
+  mkdirSync(join(f.repo, ".claude/rules"), { recursive: true });
+  mkdirSync(join(f.repo, ".claude/skills/design-system"), { recursive: true });
+  const policies = {
+    "DESIGN.md": "# デザイン\n[色](colors.md)を使用する。\n",
+    "colors.md": "エラーにはerrorTextを使用する。\n",
+    ".claude/rules/testing.md": "操作から回復までを検証する。\n",
+    ".claude/skills/design-system/SKILL.md": "Pencilを正本とする。\n",
+  };
+  for (const [path, body] of Object.entries(policies)) writeFileSync(join(f.repo, path), body);
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "追加規約");
+  const head = output(f.repo, "rev-parse", "HEAD").trim();
+  writeFileSync(join(f.repo, "DESIGN.md"), "未承認の作業ツリーの変更\n");
+  const index = readFileSync(join(f.repo, ".git/index"));
+  const result = await f.prepare(
+    "--standard", "./DESIGN.md", "--standard", "DESIGN.md",
+    "--standard", ".claude/rules/testing.md",
+    "--standard", ".claude/skills/design-system/SKILL.md",
+  );
+  expect(result.exitCode, result.stderr).toBe(0);
+  const standards = result.json.sources.filter((s: { type: string }) => s.type === "standard");
+  expect(standards.map((s: { id: string }) => s.id).sort()).toEqual(["AGENTS.md", ...Object.keys(policies)].sort());
+  for (const [path, body] of Object.entries(policies)) {
+    expect(standards).toContainEqual(expect.objectContaining({ id: path, content: body, version: head }));
+  }
+  expect(readFileSync(join(f.repo, ".git/index"))).toEqual(index);
+  expect(readFileSync(join(f.repo, "DESIGN.md"), "utf8")).toBe("未承認の作業ツリーの変更\n");
+});
+
+test.each(["untracked", "outside", "secret", "symlink"])("追加規約の%sを読まずに準備を停止する", async (kind) => {
+  const f = await fixture();
+  const external = join(tempDir("review-explicit-standard-"), "policy.md");
+  writeFileSync(external, "EXCLUDED_POLICY_SENTINEL\n");
+  let path = "policy.md";
+  if (kind === "outside") {
+    path = external;
+  } else if (kind === "symlink") {
+    symlinkSync(external, join(f.repo, path));
+    git(f.repo, "add", path); git(f.repo, "commit", "-qm", "規約symlink");
+  } else {
+    if (kind === "secret") {
+      mkdirSync(join(f.repo, "credentials"));
+      path = "credentials/policy.md";
+    }
+    writeFileSync(join(f.repo, path), "EXCLUDED_POLICY_SENTINEL\n");
+    if (kind === "secret") {
+      git(f.repo, "add", path); git(f.repo, "commit", "-qm", "秘密候補の規約");
+    }
+  }
+  const result = await f.prepare("--standard", path);
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "STANDARD_UNREADABLE" }));
+  expect(readFileSync(result.json.artifactPath, "utf8")).not.toContain("EXCLUDED_POLICY_SENTINEL");
+});
+
+test("runでも指定した追加規約が固定対象に無ければモデル開始前に停止する", async () => {
+  const f = await fixture();
+  const result = await f.cli(
+    "review", "run", "--repo", f.repo, "--base", f.base, "--issue", f.issue,
+    "--standard", "missing-policy.md", "--provider", "claude",
+    "--review-model", "claude-fable-5-1", "--implementation-models", "gpt-6-astra",
+  );
+  expect(result.json).toMatchObject({ status: "incomplete", score: null, execution: { status: "not_started", stages: [] } });
+  expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "STANDARD_UNREADABLE" }));
+});
