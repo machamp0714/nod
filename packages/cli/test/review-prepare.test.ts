@@ -512,7 +512,11 @@ test.each(["untracked", "outside", "secret", "symlink"])("追加規約の%sを�
       git(f.repo, "add", path); git(f.repo, "commit", "-qm", "秘密候補の規約");
     }
   }
-  const result = await f.prepare("--standard", path);
+  // 秘密候補自体は差分に含めず、追加規約の取得境界で拒否されることを確かめる。
+  const base = output(f.repo, "rev-parse", "HEAD").trim();
+  writeFileSync(join(f.repo, "value.ts"), "export const value = 3;\n");
+  git(f.repo, "add", "value.ts"); git(f.repo, "commit", "-qm", "レビュー対象の変更");
+  const result = await f.prepare("--base", base, "--standard", path);
   expect(result.json).toMatchObject({ status: "incomplete", score: null });
   expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "STANDARD_UNREADABLE" }));
   expect(readFileSync(result.json.artifactPath, "utf8")).not.toContain("EXCLUDED_POLICY_SENTINEL");
