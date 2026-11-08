@@ -21,6 +21,17 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const report = JSON.parse(delivery.messages[0].body);
   expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: { independent: true, standards: { findings: [] }, spec: { findings: [] } } });
   expect(report.review.headCommit).toBe(report.commit);
+  expect(report.review).toMatchObject({
+    runId: "review-api1-initial", artifactPath: "/evaluation/reviews/review-api1-initial/execution.json",
+    status: "completed", score: 5, reviewCompleted: true,
+    agents: {
+      exploration: { definition: "code-reviewer", id: "reviewer-api1-exploration" },
+      verification: { definition: "code-reviewer", id: "reviewer-api1-verification" },
+    },
+  });
+  expect(report.review.agents.exploration.id).not.toBe(report.terminalId);
+  expect(report.review.agents.verification.id).not.toBe(report.terminalId);
+  expect(report.review.agents.exploration.id).not.toBe(report.review.agents.verification.id);
   const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
   expect(issue.exitCode).toBe(0);
   expect(JSON.parse(issue.stdout.toString())).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });

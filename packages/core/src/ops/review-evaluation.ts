@@ -1,8 +1,6 @@
-import type { Database } from "bun:sqlite";
-import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { runReview, type RunReviewInput } from "./review-run";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const json = (path: string): any => JSON.parse(readFileSync(path, "utf8"));
@@ -49,33 +47,6 @@ export function freezeReviewEvaluation(manifest: string, out: string) {
   return { status: "frozen", hash: digest, path: resolve(out), cases: data.cases.length, purpose: data.purpose };
 }
 
-interface ReplayOptions { dataset: string; case: string; outputDir: string; provider: RunReviewInput["provider"]; reviewModel: string; reviewEffort?: string; implementationModels: string; extraUsageDisabled?: boolean; timeoutSeconds?: string; scopePlan?: string; responsibilityPlan?: string }
-export async function replayReviewEvaluation(db: Database, opts: ReplayOptions) {
-  const frozen = load(opts.dataset), c = frozen.data.cases.find(c => c.id === opts.case);
-  check(c, "指定した凍結事例がありません");
-  const attemptId = randomUUID(), startedAt = new Date().toISOString();
-  const directory = join(opts.outputDir, "evaluation", attemptId); mkdirSync(directory, { recursive: true });
-  const recordPath = join(directory, "evaluation-run.json");
-  // 実行前に台帳へ記録し、途中停止を後の成功で置き換えない。
-  appendFileSync(resolve(opts.dataset) + ".runs.jsonl", JSON.stringify({ datasetHash: frozen.hash, caseId: c!.id, attemptId, startedAt, recordPath }) + "\n", { mode: 0o600 });
-  let initial: unknown = null, reason = c!.unavailableReason;
-  if (!reason) {
-    const input = c!.input!;
-    const document = join(directory, "requirements.md");
-    check(hash(c!.documentContent!) === c!.documentHash, "凍結した要求文書のhashが一致しません");
-    writeFileSync(document, c!.documentContent!, { flag: "wx", mode: 0o444 });
-    // 正解・比較結果・人の判定は渡さない。修正オプションも受け取らない。
-    const result = await runReview(db, { repo: input.repo, base: input.base, head: input.head, document,
-      outputDir: directory, provider: opts.provider, reviewModel: opts.reviewModel, reviewEffort: opts.reviewEffort, implementationModels: opts.implementationModels,
-      extraUsageDisabled: opts.extraUsageDisabled, timeoutSeconds: opts.timeoutSeconds, scopePlan: opts.scopePlan, responsibilityPlan: opts.responsibilityPlan });
-    check(result.initialReviewPath, "初回レビュー記録がありません");
-    initial = json(result.initialReviewPath!);
-  }
-  const data = { version: 1, datasetHash: frozen.hash, caseId: c!.id, attemptId, startedAt, initial, unavailableReason: reason };
-  save(recordPath, { hash: hash(JSON.stringify(data)), data });
-  const result = initial as any;
-  return { status: "recorded", recordPath, attemptId, caseId: c!.id, reviewStatus: result?.status ?? "not_run", score: result?.score ?? null };
-}
 
 interface Judgment { caseId: string; attemptId: string; complete: boolean; triageMinutes: number | null; triageEvidence?: string;
   findings: { finding: string; causeId: string; verdict: "valid" | "invalid" | "pending"; evidence: string; knownCause?: string }[] }

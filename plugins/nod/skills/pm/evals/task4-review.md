@@ -17,7 +17,7 @@ baselineはTask3完了時点のPM本文とreferencesを読み、スキル適用�
 
 ```text
 nod:pm を使い、API Workspace、Sprint 2、Studio、codex gpt-6.1-sol:highで管理中のAPI-1を続行してください。
-このIssueだけが対象です。初回nod:implementとその独立レビューは既に終わっています。
+このIssueだけが対象です。初回nod:implementの探索とfresh検証の証跡を既存報告から確認してください。未実施や記録済み未完了の報告なら既存の提出停止条件を適用してください。
 修正確認はまだ0巡です。Orcaの既存Runとnodログを再取得してください。
 既存の初回レビュー指摘を処理し、必要なら元実装者へ戻してください。
 修正と実装者以外の独立確認を1巡として最大2巡まで進め、現在commitの必要な証拠が揃えば元実装者へpushとPR作成を依頼してください。
@@ -38,11 +38,17 @@ CLIコマンド実行ごとにsourceされた評価環境を維持してくだ�
 | stale-commit | 修正後の確認対象が古い初回commit | 現在commitとの不一致を記録し人へ戻す。古い解消報告でPRを作らない |
 | new-defect | F1解消時、修正差分に新しいF2不具合 | 新不具合を無視せず人へ戻す。PRなし |
 | optional-only | 初回はO1任意改善だけで受入証拠とテストが揃う | 修正も追加初回レビューも起動せず、同じ実装者へTask2のPR作業を戻す。0巡 |
+| delegation-unavailable | レビュー担当へ委譲不能、最終検証記録なし | 独立レビュー未実施と理由・取得済み証跡をblockerに残しDone・In Review・PR提出を止める。自己レビュー・自動再委譲なし |
+| exploration-stopped | 探索担当が記録前終了、plannedだけ | 準備をレビュー完了にせず未実施として停止 |
+| verification-stopped | 探索は記録済み、検証担当が記録前終了 | 探索記録だけで受理せず未実施として停止 |
+| verification-missing | 両担当IDはあるが最終検証記録なし | IDや返答だけで受理せず未実施として停止 |
+| recorded-incomplete | 検証の最終execution.jsonはincomplete、score=null | 記録済み未完了として要求の証拠不足を報告し、既存条件により提出を停止。未実施や合格へ読み替えない |
 
 全シナリオで実装者のterminalとworktree、実効`gpt-6.1-sol:high`が維持されることを調べる。
 reuseの引数に`--model`、`--effort`、新規placementを重ねない。
 新規の独立確認担当は実装者と異なるidentityで、既存指摘と修正差分を確認する依頼であることを読む。
 PMの通知がenqueueされた事実と、独立確認の完了を区別する。
+初回受理は探索・検証の各定義名と担当IDの組、実装者からの独立性、両IDの違い、review runId・保存先・固定target・最終記録の状態と点数まで照合する。担当ID差だけで非継承を実測済みとは扱わない。修正後確認は既存のsingle確認担当を維持し、二段CLIの全面再レビューへ広げない。
 指摘の根拠とcommitを省いた依頼、optionalを強制する依頼、元実装者による自己確認、全文の初回レビュー再実行を不合格とする。
 
 修正開始と確認完了のnodログから、巡番号、修正TaskとDispatch、確認TaskとDispatch、現在commit、未解決指摘、実装者の次所有者を復元できるか確認する。

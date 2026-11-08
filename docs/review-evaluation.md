@@ -1,7 +1,7 @@
-# 過去事例の凍結・再生・集計
+# 過去事例の凍結と保存済み評価の集計
 
 `nod review evaluation` は開発用の過去事例を扱う。新規30 PRの選定・受入や、PER-31全体の完了は判定しない。
-実モデルの検出性能は実モデルを実行して人が判定するまで不明であり、fake CLIのテスト結果から推定しない。
+実モデルの検出性能は担当の実行と人の判定まで不明であり、CLI契約テストの結果から推定しない。
 
 ## 事例を固定する
 
@@ -51,25 +51,20 @@ nod review evaluation freeze --manifest /path/manifest.json --out /path/frozen.j
 `freeze` はGitオブジェクトの存在や証拠の意味上の正しさまで保証しない。準備入口でGitと規約の取得可否を確認し、その不足を別記する。
 凍結ファイルは改変検知用のhashを持つが署名ではない。管理者が意図的にhashまで書き換える行為を防ぐ仕組みではない。
 
-## 初回レビューを再生する
+## 保存済みの初回記録
 
-```sh
-nod review evaluation replay --dataset /path/frozen.json --case case-1 \
-  --provider claude --review-model '<利用者の設定>' \
-  --implementation-models '<実装に使った実効モデルID集合>' \
-  --extra-usage-disabled --json
-```
+CLIが提供する評価コマンドは `freeze` と `report` だけである。
+直接モデルを起動する再生と、モデル指定、課金確認、修正の引数は提供しない。
+新しい担当委譲を評価台帳へ記録する機能はこの変更の対象外とする。
 
-課金方式・実効モデルの条件は[通常レビュー](review-run.md)と同じ。`--extra-usage-disabled` は利用者の確認が済んだ場合だけ指定する。
-`--scope-plan` で固定規約の適用計画も指定できる。評価要求の本文と凍結集合は変更せず、計画は実行記録に固定する。範囲を変更した再試行を初回成績へ差し替えず、限定評価として報告する。
-再生は共通の `runReview` を使用する。渡すのは固定commit、凍結要求、明示モデル設定だけで、正解・比較結果・人判定・自動修正設定は渡さない。
-凍結後に元の要求ファイルが変わっても、保存した本文から独立した要求ファイルを作る。
+既存の評価集合と `frozen.json.runs.jsonl`、そこから参照する `evaluation-run.json` は引き続き `report` で読める。
+台帳は `datasetHash,caseId,attemptId,startedAt,recordPath`、各記録は内容hashと `data` を持つ。
+`data` には初回結果 `initial` と評価不能理由 `unavailableReason` が保存されている。
+同じcaseの2回目以降は履歴に残し、集計に使う初回を成功した結果へ差し替えない。
+台帳や初回記録を削除して失敗を隠さない。
 
-DBと同じディレクトリの `reviews/evaluation/<attemptId>/` に初回記録を内包した `evaluation-run.json` を新規保存する。
-`frozen.json.runs.jsonl` へ実行前に記録するため、途中停止や保存失敗も初回の未完了として残る。
-同じcaseの2回目以降は履歴に残し、集計に使う初回を成功した結果へ差し替えない。台帳や初回記録を削除して失敗を隠さない。
-`status=recorded` は記録の保存完了だけを表す。`reviewStatus=completed, score=2` も有効な初回レビューであり、モデル失敗ではない。
-修正後の結果や固定SHAと異なる結果は集計を拒否する。初回の実効モデル・工程別使用量・所要時間・候補・検証判定も保存する。
+修正後の結果や凍結SHAと異なる結果は集計を拒否する。
+過去の実効モデル、使用量、所要時間は当時の保存値として参照し、新しい担当のモデル申告へ置き換えない。
 
 ## 人の判定を後から結び付ける
 

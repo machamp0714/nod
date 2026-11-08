@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ReviewSource } from "./review-prepare";
-import { ReviewFailure } from "./review-process";
+import { ReviewFailure } from "./review-failure";
 import { sensitiveReviewPath } from "./review-snapshot";
 
 export interface StandardRange { start: number; end: number; kind: "required" | "reference" | "unresolved"; rationale: string }

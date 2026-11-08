@@ -52,6 +52,18 @@ test("PM復元評価は実装中の既存試行だけを完了配信し、要求
   const d = JSON.parse(r.stdout.toString()).result;
   expect(d.messages).toHaveLength(1);
   expect(JSON.parse(d.messages[0].body)).toMatchObject({ taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), model: "gpt-6.1-sol", effort: "high", review: { standards: { findings: [] }, spec: { findings: [] } } });
+  const review = JSON.parse(d.messages[0].body).review;
+  expect(review).toMatchObject({
+    runId: "review-API-1-initial", status: "completed", score: 5,
+    artifactPath: "/evaluation/reviews/review-API-1-initial/execution.json",
+    agents: {
+      exploration: { definition: "code-reviewer", id: "reviewer-API-1-exploration" },
+      verification: { definition: "code-reviewer", id: "reviewer-API-1-verification" },
+    },
+  });
+  expect(review.agents.exploration.id).not.toBe("term-api1");
+  expect(review.agents.verification.id).not.toBe("term-api1");
+  expect(review.agents.exploration.id).not.toBe(review.agents.verification.id);
 });
 
 test("PM復元評価は仕様未合意の質問IDと元messageを実nodから再取得し、空通知でも待機を保持する", async () => {

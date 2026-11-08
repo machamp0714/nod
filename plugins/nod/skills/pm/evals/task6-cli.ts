@@ -27,7 +27,34 @@ export function runTask6Cli(tool: string, argv: string[]) {
     if (r.exitCode !== 0) fail("WORKER_NOD_FAILED", r.stdout.toString() + r.stderr.toString());
     return JSON.parse(r.stdout.toString());
   };
-  const report = (w: Worker) => w.role === "independent-confirmation" ? ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", role: w.role, round: w.round, reviewer: w.terminalId, implementer: "term-api1", commit: head(w), baseCommit: "a".repeat(40), headCommit: head(w), findings: [], resolvedFindingIds: ["F1"], standards: { findings: [], evidence: "F1の修正差分を確認" }, spec: { findings: [], evidence: "期間境界の受入条件を確認" }, gitEvidence: evidence(w) }) : ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: { independent: true, reviewer: `reviewer-${w.issueId}`, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w), standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" } }, ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w) && p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}) });
+  const report = (w: Worker) => w.role === "independent-confirmation" ? ({
+    issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", role: w.role, round: w.round,
+    reviewer: w.terminalId, implementer: "term-api1", commit: head(w), baseCommit: "a".repeat(40), headCommit: head(w),
+    findings: [], resolvedFindingIds: ["F1"], standards: { findings: [], evidence: "F1の修正差分を確認" },
+    spec: { findings: [], evidence: "期間境界の受入条件を確認" }, gitEvidence: evidence(w),
+  }) : ({
+    issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w),
+    terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort,
+    gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" },
+    tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }],
+    review: {
+      independent: true, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: (w.issueId === "API-2" ? "c" : "a").repeat(40),
+      runId: `review-${w.issueId}-initial`, artifactPath: `/evaluation/reviews/review-${w.issueId}-initial/execution.json`,
+      status: "completed", score: w.issueId === "API-1" && ["fix-confirm", "duplicate-old"].includes(state.variant) ? 3 : 5,
+      reviewCompleted: true, target: { baseSha: "b".repeat(40), headSha: (w.issueId === "API-2" ? "c" : "a").repeat(40) },
+      agents: {
+        exploration: { definition: "code-reviewer", id: `reviewer-${w.issueId}-exploration` },
+        verification: { definition: "code-reviewer", id: `reviewer-${w.issueId}-verification` },
+      },
+      standards: { findings: [], evidence: "既存規約を確認" },
+      spec: {
+        findings: w.issueId === "API-1" && ["fix-confirm", "duplicate-old"].includes(state.variant)
+          ? [{ id: "F1", evidence: "期間境界の仕様不適合", commit: "a".repeat(40) }] : [],
+        evidence: "Issue要求を照合。修正後の解消証拠は別の独立確認へ接続",
+      },
+    },
+    ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w) && p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}),
+  });
   const submit = (w: Worker) => {
     let pr = state.prs.find(p => p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")));
     const created = !pr;

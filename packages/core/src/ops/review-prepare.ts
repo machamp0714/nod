@@ -1,7 +1,11 @@
-import { readReviewResponsibility, verifyReviewResponsibility, type ReviewResponsibility } from "./review-responsibility";
-import { readStandardScope, verifyStandardScope, type StandardScope, type StandardRange } from "./review-scope";
+import type { ReviewResponsibility } from "./review-responsibility";
+import type { StandardScope, StandardRange } from "./review-scope";
+import { verifyReviewResponsibility } from "./review-responsibility";
+import { verifyStandardScope } from "./review-scope";
 import { captureLocalReview, sensitiveReviewPath, type LocalReviewSnapshot } from "./review-snapshot";
-import { reviewProcess, ReviewFailure } from "./review-process";
+import { emptyReviewContext, materializeReviewContext, type ReviewContext, type ReviewContextGit } from "./review-context";
+import { ReviewFailure } from "./review-failure";
+import { reviewGit } from "./review-git";
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, lstatSync, writeFileSync } from "node:fs";
@@ -30,6 +34,9 @@ export interface ReviewPreparation {
   score: null;
   review: { standards: "not_started"; spec: "not_started" };
   target: null | { mode: "commit" | "local"; local?: LocalReviewSnapshot; repo: string; baseSha: string; headSha: string; mergeBaseSha: string; patch: string; hash: string; files: string[]; commitMessages?: string[]; commitMessagesTruncated?: boolean };
+  /** 元の選択式を保持し、HEAD・branch等の移動を固定結果と区別する。 */
+  selection?: { base: string; head: string };
+  sourceFingerprint?: string;
   requirements: {
     primary: string[]; issueIds: string[]; consistency: "unverified"; excluded: { id: number; reason: string }[];
     /** 説明資料から参照されているが固定対象にない資料。必須かどうかはレビューが判断する。 */
@@ -41,6 +48,8 @@ export interface ReviewPreparation {
   standardScope?: StandardScope;
   responsibility?: ReviewResponsibility;
   standardScopeTemplatePath?: string;
+  /** 担当が読む読取専用snapshot。準備が途中で止まった場合も、それまでの除外理由を残す。 */
+  context?: ReviewContext;
   problems: { code: string; message: string }[];
   remaining: string[];
   artifactPath: string;
@@ -53,11 +62,7 @@ export interface PrepareReviewInput {
   untracked?: string[];
   issue?: string;
   document?: string;
-  scopePlan?: string;
-  responsibilityPlan?: string;
   outputDir: string;
-  deadline?: number;
-  signal?: AbortSignal;
 }
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 class PreparationFailure extends Error {
@@ -83,21 +88,11 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
     schemaVersion: 1, runId, startedAt: new Date().toISOString(), status: "incomplete", score: null,
     review: { standards: "not_started", spec: "not_started" }, target: null,
     requirements: { primary: [], issueIds: [], consistency: "unverified", excluded: [], unresolvedReferences: [] }, sources: [], problems: [],
-    remaining: ["要求同士の意味上の整合性確認", "Standards探索", "Spec探索と要求別の充足確認", "候補検証"],
+    remaining: ["規約適用計画と責務計画の固定", "Standards探索", "Spec探索と要求別の充足確認", "候補検証と要求同士の意味上の整合性確認"],
     artifactPath: join(resolve(input.outputDir), runId, "preparation.json"),
   };
   const repo = resolve(input.repo);
   const git = async (...args: string[]) => {
-    if (input.deadline !== undefined) {
-      try {
-        return (await reviewProcess("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", repo, ...args], {
-          cwd: repo, deadline: input.deadline, signal: input.signal ?? new AbortController().signal, maxBytes: 20 * 1024 * 1024,
-        })).stdout;
-      } catch (error) {
-        if (error instanceof ReviewFailure) throw new PreparationFailure(error.code === "CLI_FAILED" ? "GIT_FAILED" : error.code, error.message);
-        throw error;
-      }
-    }
     const r = await gitRunner(["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", repo, ...args], { timeoutMs: 15_000, maxStdoutBytes: 20 * 1024 * 1024 });
     if (r.kind !== "exited" || r.exitCode !== 0) throw new PreparationFailure("GIT_FAILED", `Gitで対象を取得できません: ${args[0]}（${r.kind === "exited" ? r.stderr.trim() : r.kind}）`);
     return r.stdout;
@@ -108,8 +103,17 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
     const baseSha = (await git("rev-parse", "--verify", "--end-of-options", `${input.base}^{commit}`)).trim();
     const headSha = (await git("rev-parse", "--verify", "--end-of-options", `${input.head ?? "HEAD"}^{commit}`)).trim();
     const mergeBaseSha = (await git("merge-base", baseSha, headSha)).trim();
-    const local = input.local ? await captureLocalReview({ repo, directory: dirname(result.artifactPath), headSha, untracked: input.untracked ?? [], git, deadline: input.deadline, signal: input.signal }) : undefined;
+    const local = input.local ? await captureLocalReview({ repo, directory: dirname(result.artifactPath), headSha, untracked: input.untracked ?? [], git }) : undefined;
     const snapshotGit = local ? (...args: string[]) => git("--git-dir", local.repo, ...args) : git;
+    // Gitはbyte列で取得し、blobの不正UTF-8を置換して取り込まない。
+    const contextGit: ReviewContextGit = async (...args) => {
+      try {
+        return await reviewGit(["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", repo, ...(local ? ["--git-dir", local.repo] : []), ...args], { cwd: repo });
+      } catch (error) {
+        if (error instanceof ReviewFailure && error.code === "CLI_FAILED") throw new PreparationFailure("GIT_FAILED", `Gitで固定対象を読めません: ${args[0]}`);
+        throw error;
+      }
+    };
     const revision = local?.treeSha ?? headSha;
     const files = (await snapshotGit("diff", "--name-only", "-z", mergeBaseSha, revision, "--")).split("\0").filter(Boolean);
     const excluded = files.find(sensitiveReviewPath);
@@ -196,14 +200,7 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
       for (const candidate of candidates) {
         // Personalなど別WorkspaceのIssueも、記録した作業場所がこのrepoなら対象にする。
         if (candidate.worktree) {
-          const location = input.deadline === undefined
-            ? await gitRunner(["-C", candidate.worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"], { timeoutMs: 15_000, maxStdoutBytes: 4096 })
-            : await reviewProcess("git", ["-C", candidate.worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-              cwd: repo, deadline: input.deadline, signal: input.signal ?? new AbortController().signal, maxBytes: 4096,
-            }).then(r => ({ kind: "exited" as const, exitCode: 0, stdout: r.stdout })).catch(error => {
-              if (error instanceof ReviewFailure && ["DEADLINE_EXCEEDED", "CANCELLED", "CHILD_STOP_FAILED"].includes(error.code)) throw new PreparationFailure(error.code, error.message);
-              return { kind: "not_found" as const };
-            });
+          const location = await gitRunner(["-C", candidate.worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"], { timeoutMs: 15_000, maxStdoutBytes: 4096 });
           if (location.kind === "exited" && location.exitCode === 0 && realpathSync(location.stdout.trim()) === realpathSync(common)) matches.push(candidate);
         } else if (candidate.workspace === workspace?.key) {
           matches.push(candidate);
@@ -249,12 +246,15 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
     if (result.requirements.primary.filter(p => p.startsWith("document:")).length > 1) {
       throw new PreparationFailure("REQUIREMENTS_AMBIGUOUS", "有効な要求Documentが複数あります。補完関係・矛盾・旧版の区別を確認してください。更新日時による自動選択は行いません");
     }
-    if (input.scopePlan) result.standardScope = readStandardScope(resolve(repo, input.scopePlan), result.sources);
-    if (input.responsibilityPlan) result.responsibility = readReviewResponsibility(resolve(repo, input.responsibilityPlan), result.sources);
     result.requirements.acquisition = {
       status: "complete", mode: issues.length ? "issue_context" : "document_only",
       sourceIds: result.sources.filter(s => s.type !== "standard").map(s => `${s.type}:${s.id}`),
     };
+    // 担当が元の作業ツリーではなく固定版だけを読めるよう、同じ準備実行で読取専用snapshotを作る。
+    result.context = emptyReviewContext(join(dirname(result.artifactPath), "context"), runId);
+    await materializeReviewContext(result.context, { runId, target: result.target!, sources: result.sources }, contextGit);
+    result.selection = { base: input.base, head: input.head ?? "HEAD" };
+    result.sourceFingerprint = reviewSourceFingerprint(db, result);
     result.status = "prepared";
   } catch (error) {
     result.problems.push({ code: error instanceof PreparationFailure || error instanceof ReviewFailure ? error.code : "SOURCE_FAILED", message: error instanceof Error ? error.message : String(error) });
@@ -269,6 +269,18 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
   }
   writeFileSync(result.artifactPath, JSON.stringify(result, null, 2) + "\n", { flag: "wx" });
   return result;
+}
+
+/**
+ * 規約の必須範囲（適用計画が無ければ全行）から指す資料が固定対象に無ければ、担当の判断に委ねず止める。
+ * 適用計画で参考とした範囲からのリンクは記録に留める。
+ */
+export function requireFixedStandardReferences(preparation: Pick<ReviewPreparation, "requirements" | "sources">): void {
+  const missing = preparation.requirements.unresolvedReferences.find(ref => {
+    const standard = preparation.sources.find(source => source.type === "standard" && source.id === ref.referencedFrom);
+    return !standard?.applicability || standard.applicability.some(range => range.kind === "required" && range.start <= ref.line && range.end >= ref.line);
+  });
+  if (missing) throw new ReviewFailure("STANDARD_UNREADABLE", `規約 ${missing.referencedFrom} の${missing.line}行目の参照先 ${missing.path} を固定対象から読めません。必須でなければ適用計画で参考範囲とする根拠を示してください`);
 }
 
 /** 実行中の要求・添付関係・適用規約の変更を検出する。準備結果は上書きしない。 */

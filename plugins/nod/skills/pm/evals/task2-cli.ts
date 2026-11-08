@@ -45,7 +45,13 @@ export function runTask2Cli(tool: string, argv: string[]) {
     acceptance: { passed: true, evidence: "一覧の余白が8pxから12pxへ変わる画面確認に成功" },
     tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: state.variant === "test-failure" ? 1 : 0, passed: state.variant !== "test-failure", commit: head }],
     review: state.variant === "evidence-missing" ? { independent: true, headCommit: "c".repeat(40), standards: { findings: [] } } : {
-      independent: true, reviewer: "reviewer-separate-session", implementer: w.terminalId, baseCommit: base, headCommit: head,
+      independent: true, implementer: w.terminalId, baseCommit: base, headCommit: head,
+      runId: "review-api1-initial", artifactPath: "/evaluation/reviews/review-api1-initial/execution.json",
+      status: "completed", score: 5, reviewCompleted: true, target: { baseSha: base, headSha: head },
+      agents: {
+        exploration: { definition: "code-reviewer", id: "reviewer-api1-exploration" },
+        verification: { definition: "code-reviewer", id: "reviewer-api1-verification" },
+      },
       standards: { findings: [], evidence: "規約と変更差分を照合" }, spec: { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
     },
     ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, nodStatus: nod("issue", "show", "API-1").status } : {}),

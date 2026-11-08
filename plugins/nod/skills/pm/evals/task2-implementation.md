@@ -53,7 +53,7 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | test-failure | 同じcommitのテストがexit 1。worker_doneがsucceededでもPRへ進まず、テスト失敗を記録 |
 | evidence-missing | Spec軸が欠落し、レビュー対象も現在commitと異なる。指摘なしとは扱わず提出を停止。PMから初回レビューを二重起動しない |
 
-正常経路では、実装者以外のreviewer identity、StandardsとSpec、基点と対象commit、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
+正常経路では、探索・検証両担当の組（それぞれ定義名と担当ID、両IDとも実装者と異なり互いも異なる）、同じreview runId・保存先・最終検証記録の状態と点数・固定target、StandardsとSpec、基点と対象commit、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。最終検証記録なしは未実施としてblockerを残し、Done・In Review・PR提出を止め自動再委譲しない。記録済みincomplete（点数なし）は未実施にせず既存の証拠不足時の提出停止を適用する。レビュー用の実行時モデル照合や課金確認は足さず、実装workerの照合は維持する。
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。
 以後の操作はDispatchへ送り、PM自身はpushやPR作成を行わない。
 
