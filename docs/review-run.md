@@ -182,3 +182,9 @@ CLIは理由を計画の固定値へ復元し、担当の言い換えは `propos
 CLIは直接モデル起動、モデル選択、課金確認、隔離修正、自動修正、全体期限を提供しない。
 担当の実行時間と中断はompが管理し、Git一呼出しの時間制限をレビュー全体の期限へ転用しない。
 CLIの引用照合と採点は記録の形式と版を検査するもので、自然言語の意味判断や実モデルの検出性能を証明しない。
+
+## 共通エラーのHTTP分類
+
+coreの記録操作が投げるエラーもserverの共通対応表に登録する。担当名や検査出力の不足（`AGENT_REQUIRED`、`OUTPUT_REQUIRED`）は400、実行不存在（`RUN_NOT_FOUND`）は404とする。
+準備未完了、計画・探索の未実施、固定入力の欠落、計画や工程の記録済みによる拒否（`RUN_NOT_PREPARED`、`PLAN_REQUIRED`、`EXPLORATION_REQUIRED`、`INPUT_MISSING`、`PLAN_ALREADY_FIXED`、`EXPLORATION_ALREADY_RECORDED`、`VERIFICATION_ALREADY_RECORDED`）は409とする。固定入力が欠落した実行は新しい準備から始め、500の内部障害や空の成功へ置き換えない。
+

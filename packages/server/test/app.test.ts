@@ -29,6 +29,16 @@ describe("エラーの対応表", () => {
     ["HOST_OBSERVATION_REQUIRED", "現在の担当のホスト観測を取り直してください", 409],
     ["INVALID_COMPLETION", "完了通知のoutcomeを確認できません", 400],
     ["AUTHORITY_UNKNOWN", "元Runの現在の監督権限と取得時刻を確認できません", 502],
+    ["AGENT_REQUIRED", "担当の定義名を指定してください", 400],
+    ["OUTPUT_REQUIRED", "検査する出力を指定してください", 400],
+    ["RUN_NOT_FOUND", "準備記録がありません", 404],
+    ["RUN_NOT_PREPARED", "準備が完了していません", 409],
+    ["PLAN_REQUIRED", "先に計画を固定してください", 409],
+    ["PLAN_ALREADY_FIXED", "この実行の計画は固定済みです", 409],
+    ["INPUT_MISSING", "固定した工程入力がなく新しい準備が必要です", 409],
+    ["EXPLORATION_REQUIRED", "探索の記録が必要です", 409],
+    ["EXPLORATION_ALREADY_RECORDED", "探索は記録済みです", 409],
+    ["VERIFICATION_ALREADY_RECORDED", "検証は記録済みです", 409],
   ])("%sの拒否・観測不能を分類し、CLIと同じ理由と補足を保つ", (code, message, status) => {
     const details = { target: "元の実行", lastObservedAt: "2026-03-08T12:00:00.000Z" };
     expect(toErrorResponse(new NodError(code as string, message as string, details))).toEqual({
