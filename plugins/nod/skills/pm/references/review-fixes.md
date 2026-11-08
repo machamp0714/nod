@@ -12,7 +12,7 @@ startedとcompletedを区別して記録し、会話履歴や重複報告から�
 ## 初回指摘を分ける
 
 初回報告のRun、Task、active Dispatch、Issue、元実装者、terminal、worktree、実効モデルとeffort、現在commitを[実装手順](implementation.md)どおり照合する。
-StandardsとSpecの両軸、実装者と異なるreviewer identity、レビュー基点と対象commitを確認する。
+StandardsとSpecの両軸、探索・検証両担当の組（各定義名と担当ID）、runId・保存先・最終execution.json・状態・固定target・レビュー基点と対象commitを確認する。両IDがそれぞれ実装者と異なり相互にも異なることを確認する。最終検証記録がなければ未実施としてblockerを残しDone・In Review・PR提出を止め、追加初回レビューを自動起動しない。保存済みincompleteは未実施と区別し、未確認や証拠不足による既存の提出停止を維持する。
 指摘ごとに次の区別を行い、nodへ分類と根拠を記録する。
 
 | 分類 | 修正対象にする根拠 |
@@ -43,7 +43,7 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、StandardsとSpec、reviewerと実装者identity、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit・固定target、StandardsとSpec、探索・検証の各定義名と担当ID、実装者identity、runId・保存先・最終記録の状態と点数、要求別対応・未確認、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
 | 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、reviewer identity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
@@ -76,6 +76,7 @@ reuseに`--agent`、`--model`、`--effort`、新しい`--on`を重ねない。
 
 確認は元実装者とは異なるidentityが行う。
 初回レビューの再実行ではなく、既存指摘IDの解消と、修正前commitから現在commitへの差分だけを対象にする。
+この修正後確認は単独の確認担当のidentityを維持し、初回レビューの探索・検証2段CLIへ強制移行しない。
 独立確認依頼には元の根拠と受入条件、修正報告、テスト、基点と対象commit、read-only制約を含める。
 確認担当は実装ファイルを変更せず、未解消の指摘、新しく確認した不具合、各結果の証拠を報告する。
 

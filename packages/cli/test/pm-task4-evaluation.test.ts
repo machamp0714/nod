@@ -21,11 +21,50 @@ test("PM指摘評価は初回独立レビューの根拠付き必須指摘と任
   expect(result.exitCode).toBe(0);
   const message = JSON.parse(result.stdout.toString()).result.messages[0];
   const report = JSON.parse(message.body);
-  expect(report.review).toMatchObject({ independent: true, reviewer: "reviewer-initial", implementer: "term-implementation", headCommit: "a".repeat(40) });
+  expect(report.review).toMatchObject({
+    independent: true, implementer: "term-implementation", headCommit: "a".repeat(40),
+    runId: "review-api1-initial", artifactPath: "/evaluation/reviews/review-api1-initial/execution.json",
+    status: "completed", reviewCompleted: true,
+    agents: {
+      exploration: { definition: "code-reviewer", id: "reviewer-initial-exploration" },
+      verification: { definition: "code-reviewer", id: "reviewer-initial-verification" },
+    },
+  });
+  expect(report.review.agents.exploration.id).not.toBe(report.review.implementer);
+  expect(report.review.agents.verification.id).not.toBe(report.review.implementer);
+  expect(report.review.agents.verification.id).not.toBe(report.review.agents.exploration.id);
   expect(report.review.spec.findings[0]).toMatchObject({ id: "F1", category: "仕様不適合", evidence: "Issue本文は12px、変更差分は10px", commit: "a".repeat(40), acceptance: "一覧余白12pxの境界テストが成功する" });
   expect(report.review.standards.findings[0]).toMatchObject({ id: "O1", category: "任意改善" });
   expect(report.gitEvidence.commands[0]).toMatchObject({ argv: ["git", "rev-parse", "HEAD"], stdout: "a".repeat(40) + "\n" });
 });
+
+for (const variant of ["delegation-unavailable", "exploration-stopped", "verification-stopped", "verification-missing", "recorded-incomplete"] as const) {
+  test(`PM初回レビュー評価は未実施と検証記録済み未完了を区別し提出証拠へ偽装しない（${variant}）`, async () => {
+    const h = await harness(variant);
+    const delivery = h.orca("check");
+    const report = h.readReport(delivery);
+    expect(report.review).toMatchObject({
+      runId: variant === "delegation-unavailable" ? null : "review-api1-initial", score: null, reviewCompleted: false,
+      status: variant === "recorded-incomplete" ? "incomplete" : variant === "delegation-unavailable" ? "not_started" : variant === "exploration-stopped" ? "planned" : "explored",
+      execution: variant === "recorded-incomplete" ? "recorded_incomplete" : "unperformed",
+    });
+    if (variant === "recorded-incomplete") {
+      expect(report.review.artifactPath).toBe("/evaluation/reviews/review-api1-initial/execution.json");
+      expect(report.review.agents.verification).toMatchObject({ definition: "code-reviewer", id: "reviewer-initial-verification" });
+      expect(report.review.unverified).toEqual(["要求の確認に必要な証拠が不足"]);
+    } else {
+      expect(report.review.artifactPath?.endsWith("/execution.json") ?? false).toBe(false);
+      expect(report.blocker).toContain("独立レビュー未実施");
+    }
+    const read = h.orca("worker-read", "--dispatch", "dispatch-initial");
+    expect(JSON.parse(read.text).report.review).toEqual(report.review);
+    const shown = Bun.spawnSync([h.scenario.nod, "-w", "API", "issue", "show", "API-1", "--json"], { env: h.scenario.env });
+    expect(JSON.parse(shown.stdout.toString()).status).toBe("in_progress");
+    const prs = Bun.spawnSync([h.scenario.gh, "pr", "list", "--json", "url"], { env: h.scenario.env });
+    expect(JSON.parse(prs.stdout.toString())).toEqual([]);
+    expect(h.orca("worker-list").workers).toHaveLength(1);
+  });
+}
 
 test("PM指摘評価は元実装者へ修正を返し、同じworktreeの別担当が修正差分を確認して提出する", async () => {
   const h = await harness();

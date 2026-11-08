@@ -27,7 +27,23 @@ export function runTask5Cli(tool: string, argv: string[]) {
     if (r.exitCode !== 0) fail("WORKER_NOD_FAILED", r.stdout.toString() + r.stderr.toString());
     return JSON.parse(r.stdout.toString());
   };
-  const report = (w: Worker) => ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: { independent: true, reviewer: `reviewer-${w.issueId}`, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w), standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" } }, ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}) });
+  const report = (w: Worker) => ({
+    issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w),
+    terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort,
+    gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" },
+    tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }],
+    review: {
+      independent: true, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w),
+      runId: `review-${w.issueId}-initial`, artifactPath: `/evaluation/reviews/review-${w.issueId}-initial/execution.json`,
+      status: "completed", score: 5, reviewCompleted: true, target: { baseSha: "b".repeat(40), headSha: head(w) },
+      agents: {
+        exploration: { definition: "code-reviewer", id: `reviewer-${w.issueId}-exploration` },
+        verification: { definition: "code-reviewer", id: `reviewer-${w.issueId}-verification` },
+      },
+      standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
+    },
+    ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}),
+  });
   const submit = (w: Worker) => {
     let pr = state.prs.find(p => p.headRefOid === head(w));
     if (!pr) { const number = 42 + state.prs.length; pr = { number, url: `https://github.com/evaluation/api/pull/${number}`, title: w.issueId === "API-2" ? "CSV列名を統一" : "保持期間の境界を確認", state: "OPEN", isDraft: false, headRefName: w.issueId === "API-2" ? "export-column" : "retention", baseRefName: "main", headRefOid: head(w), baseRefOid: "b".repeat(40), reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; state.prs.push(pr); }

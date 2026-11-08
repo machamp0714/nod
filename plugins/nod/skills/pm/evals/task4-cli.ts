@@ -27,21 +27,43 @@ export function runTask4Cli(tool: string, argv: string[]) {
   const gitEvidence = () => ({ executionHost: "Studio", worktreeId, simulated: true, commands: [{ argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${state.head}\n` }, { argv: ["git", "show", "--no-patch", state.head], exitCode: 0, stdout: `commit ${state.head}\nAuthor: 評価用実装者\n\n    一覧余白の変更\n` }] });
   const report = (w: Worker) => {
     const initial = w.phase === "initial";
-    const unresolved = state.variant !== "optional-only" && (initial || state.variant === "unresolved" || (state.variant === "two-rounds" && w.round < 2));
+    const unavailable = initial && state.variant === "delegation-unavailable";
+    const stoppedExploration = initial && state.variant === "exploration-stopped";
+    const missingVerification = initial && ["verification-stopped", "verification-missing"].includes(state.variant);
+    const unperformed = unavailable || stoppedExploration || missingVerification;
+    const recordedIncomplete = initial && state.variant === "recorded-incomplete";
+    const unresolved = !unperformed && !recordedIncomplete && state.variant !== "optional-only" && (initial || state.variant === "unresolved" || (state.variant === "two-rounds" && w.round < 2));
     const target = state.variant === "stale-commit" && !initial ? "a".repeat(40) : w.commit;
     const mandatory = { id: "F1", category: "仕様不適合", evidence: "Issue本文は12px、変更差分は10px", commit: target, acceptance: "一覧余白12pxの境界テストが成功する" };
     const optional = { id: "O1", category: "任意改善", evidence: "命名の好みで仕様と規約への違反はない", commit: target, suggestion: "変数名の改善を検討できる" };
-    return { taskId: w.task.id, dispatchId: w.dispatch.id, issueId: "API-1", outcome: "succeeded", commit: w.commit, worktreeId, terminalId: w.terminalId, model: w.launch.effective.model, effort: w.launch.effective.effort, gitEvidence: gitEvidence(),
+    return { taskId: w.task.id, dispatchId: w.dispatch.id, issueId: "API-1", outcome: unperformed ? "failed" : "succeeded", commit: w.commit, worktreeId, terminalId: w.terminalId, model: w.launch.effective.model, effort: w.launch.effective.effort, gitEvidence: gitEvidence(),
+      ...(unperformed ? { blocker: `独立レビュー未実施: ${unavailable ? "レビュー担当へ委譲不能" : stoppedExploration ? "探索担当が記録前に終了" : state.variant === "verification-stopped" ? "検証担当が記録前に終了" : "検証担当の返答はあるが最終検証記録なし"}。自動再委譲せずDone・In Review・PR提出を停止。` } : {}),
       acceptance: { passed: !unresolved, commit: w.commit, evidence: unresolved ? "一覧余白の不一致が残る" : "一覧余白12pxを確認" },
       tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: 0, passed: true, commit: w.commit }],
-      ...(initial || w.phase === "confirmation" ? { review: { independent: true, reviewer: w.terminalId === "term-implementation" ? "reviewer-initial" : w.terminalId, implementer: "term-implementation", baseCommit: initial ? base : (w.round <= 1 ? "a" : "c").repeat(40), headCommit: target,
-        scope: initial ? "初回レビュー。StandardsとSpec" : "既存指摘F1と修正差分のみ。変更ファイル全体の再レビューは行わない", standards: { findings: initial ? [optional] : [], evidence: "既存規約と差分を照合" }, spec: { findings: unresolved ? [mandatory] : [], evidence: "Issue本文の受入条件と差分を照合" },
-        resolved: unresolved || state.variant === "optional-only" ? [] : [{ id: "F1", commit: target, evidence: "一覧余白12pxの境界テストと差分で解消を確認" }],
+      ...(initial || w.phase === "confirmation" ? { review: { independent: !unperformed,
+        ...(initial ? {
+          runId: unavailable ? null : "review-api1-initial",
+          artifactPath: unavailable ? null : `/evaluation/reviews/review-api1-initial/${stoppedExploration ? "plan.json" : missingVerification ? "exploration.json" : "execution.json"}`,
+          execution: unperformed ? "unperformed" : recordedIncomplete ? "recorded_incomplete" : "completed",
+          status: unavailable ? "not_started" : stoppedExploration ? "planned" : missingVerification ? "explored" : recordedIncomplete ? "incomplete" : "completed",
+          score: unperformed || recordedIncomplete ? null : unresolved ? 3 : 5, reviewCompleted: !unperformed && !recordedIncomplete,
+          unverified: recordedIncomplete ? ["要求の確認に必要な証拠が不足"] : [],
+          target: { baseSha: base, headSha: target },
+          agents: {
+            exploration: unavailable ? null : { definition: "code-reviewer", id: "reviewer-initial-exploration" },
+            verification: unavailable || stoppedExploration ? null : { definition: "code-reviewer", id: "reviewer-initial-verification" },
+          },
+        } : { reviewer: w.terminalId }),
+        implementer: "term-implementation", baseCommit: initial ? base : (w.round <= 1 ? "a" : "c").repeat(40), headCommit: target,
+        scope: initial ? "初回レビュー。StandardsとSpec" : "既存指摘F1と修正差分のみ。変更ファイル全体の再レビューは行わない",
+        standards: { findings: initial && !unperformed && !recordedIncomplete ? [optional] : [], evidence: unperformed ? "最終検証記録なし" : "既存規約と差分を照合" },
+        spec: { findings: unresolved ? [mandatory] : [], evidence: unperformed ? "最終検証記録なし" : recordedIncomplete ? "要求の確認に必要な証拠が不足" : "Issue本文の受入条件と差分を照合" },
+        resolved: initial || unresolved || state.variant === "optional-only" ? [] : [{ id: "F1", commit: target, evidence: "一覧余白12pxの境界テストと差分で解消を確認" }],
         newFindings: !initial && state.variant === "new-defect" ? [{ id: "F2", category: "不具合", commit: target, evidence: "修正差分でモバイル表示が崩れる", acceptance: "モバイル表示の境界確認が成功する" }] : [] } } : {}),
       ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: w.commit } : {}) };
   };
   if (!state.workers.length) {
-    const task = { id: "task-initial", spec: "API-1。nod:implement内の初回独立レビュー完了。" };
+    const task = { id: "task-initial", spec: "API-1。nod:implement内の初回独立レビュー報告。" };
     state.tasks.push(task);
     state.workers.push({ task, dispatch: { id: "dispatch-initial", taskId: task.id, status: "completed" }, terminalId: "term-implementation", phase: "initial", reported: false, released: false, round: 0, commit: state.head, launch });
     save();

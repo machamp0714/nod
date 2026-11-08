@@ -33,6 +33,18 @@ test("PM並行評価は質問元と独立Issueを別Dispatchで配信し、無�
   call("send", "--to", `dispatch:${second.dispatch.id}`, "--subject", "実装開始", "--body", "要求値と実効値を照合済み。実装を開始してください。");
   const completed = call("check");
   expect(JSON.parse(completed.messages[0].body)).toMatchObject({ issueId: "API-2", dispatchId: second.dispatch.id, acceptance: { passed: true } });
+  const review = JSON.parse(completed.messages[0].body).review;
+  expect(review).toMatchObject({
+    runId: "review-API-2-initial", status: "completed", score: 5,
+    artifactPath: "/evaluation/reviews/review-API-2-initial/execution.json",
+    agents: {
+      exploration: { definition: "code-reviewer", id: "reviewer-API-2-exploration" },
+      verification: { definition: "code-reviewer", id: "reviewer-API-2-verification" },
+    },
+  });
+  expect(review.agents.exploration.id).not.toBe(second.terminalId);
+  expect(review.agents.verification.id).not.toBe(second.terminalId);
+  expect(review.agents.exploration.id).not.toBe(review.agents.verification.id);
   expect(call("worker-show", "--dispatch", "dispatch-api1").phase).toBe("awaiting_input");
 });
 

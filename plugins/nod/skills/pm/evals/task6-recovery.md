@@ -75,6 +75,7 @@ PR作成は元workerだけが実行し、既存branchは関連回復または更
 PM起点とworker起点を`operations.jsonl`のoriginで分け、実際の依頼、開始通知、質問、nod記録、PR判断を採点する。
 要求と判断はnod、実行の権限と状態はOrcaという区別を保ち、nodの古いログ単独でactive Dispatchを上書きしない。
 副作用の前のintentと後のcheckpointに、操作相関、Issue、Task、Dispatch、予約と占有、工程、巡started/completed、受理message、PR、質問を残したか確認する。
+初回レビューの復元は探索・検証両担当の組（各定義名と担当ID）、実装者との独立性と両ID差、review runId・保存先・固定target・最終記録の状態と点数まで照合する。修正後確認のsingle担当と初回組を混同しない。最終検証記録なしは未実施としてblockerを残し、自動再委譲せずDone・In Review・PR提出を止める。保存済みincompleteは記録済み未完了として既存の証拠不足時の提出停止を維持する。
 失われたreceiptを再送の理由にせず、実効値不明、通信断、古commit、重複通知を安全に保持したかを見る。
 通知の受理、cleanup移転またはrelease成功を記録した後でDeliveryをackしたか確認する。
 PR実在と現在head、nodの関連、in_reviewを確認し、merge、本番反映を行わない。

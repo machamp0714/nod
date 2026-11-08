@@ -24,13 +24,27 @@ export async function createTask6Scenario(options: { directory?: string; variant
       const reviewer: Worker = { ...waiting, task: { id: "task-confirm", spec: "独立修正確認。API-1。修正確認1巡目。F1期間境界の差分。対象commit=" + "c".repeat(40) + "。実装者とは異なるidentity、read-only。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-confirm", taskId: "task-confirm", status: "running", terminalId: "term-reviewer" }, terminalId: "term-reviewer", role: "independent-confirmation", round: 1, phase: "confirmation" };
       workers.push(waiting, reviewer);
       logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Run=run-pm。元実装者=term-api1 initialTask=task-api1 initialDispatch=dispatch-api1。現在の待機Task=task-wait Dispatch=dispatch-wait、cleanup移転済み。Studio worktree=id:repo-api::/evaluation/studio/retention currentcommit=" + "c".repeat(40) + " base=" + "a".repeat(40) + "。requested/effective=gpt-6.1-sol:high照合済み。工程=修正確認中。必須F1期間境界の修正と必要テストは元実装者から受理済み、message=done-fix-1。修正巡started=1 completed=0。独立担当=term-reviewer Task=task-confirm activeDispatch=dispatch-confirm、F1と修正差分だけをread-only確認中。占有=1、reviewerは同じIssueの管理中の実行に含め重ねて数えない。PR未依頼。", { kind: "progress" });
+      logWork({ db, actor: "codex" }, "API-1", "初回0巡受理証跡。探索=code-reviewer/reviewer-API-1-exploration 検証=code-reviewer/reviewer-API-1-verification 実装者=term-api1。reviewRunId=review-API-1-initial 保存先=/evaluation/reviews/review-API-1-initial/execution.json status=completed score=3 base=" + "b".repeat(40) + " target=" + "a".repeat(40) + "。両担当は互いと実装者から独立。初回必須F1を修正確認へ接続。", { kind: "progress" });
     }
     if (variant === "duplicate-old") {
       const reviewer = workers.find(w => w.dispatch.id === "dispatch-confirm")!;
       reviewer.reported = true; reviewer.released = true; reviewer.dispatch.status = "succeeded";
       const report = { issueId: "API-1", taskId: "task-confirm", dispatchId: "dispatch-confirm", outcome: "succeeded", role: "independent-confirmation", round: 1, commit: "c".repeat(40), headCommit: "c".repeat(40), baseCommit: "a".repeat(40), reviewer: "term-reviewer", implementer: "term-api1", findings: [], resolvedFindingIds: ["F1"], standards: { findings: [] }, spec: { findings: [] } };
       const done = { id: "done-review-1", type: "worker_done", taskId: "task-confirm", dispatchId: "dispatch-confirm", from: "dispatch:dispatch-confirm", body: JSON.stringify(report) };
-      pending.push(done, done, { id: "old-initial", type: "worker_done", taskId: "task-api1", dispatchId: "dispatch-api1", from: "dispatch:dispatch-api1", body: JSON.stringify({ issueId: "API-1", taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), outcome: "succeeded", review: { standards: { findings: [] }, spec: { findings: [] } } }) });
+      pending.push(done, done, { id: "old-initial", type: "worker_done", taskId: "task-api1", dispatchId: "dispatch-api1", from: "dispatch:dispatch-api1", body: JSON.stringify({
+        issueId: "API-1", taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), outcome: "succeeded",
+        review: {
+          implementer: "term-api1", baseCommit: "b".repeat(40), headCommit: "a".repeat(40),
+          runId: "review-API-1-initial", artifactPath: "/evaluation/reviews/review-API-1-initial/execution.json",
+          status: "completed", score: 3, reviewCompleted: true,
+          target: { baseSha: "b".repeat(40), headSha: "a".repeat(40) },
+          agents: {
+            exploration: { definition: "code-reviewer", id: "reviewer-API-1-exploration" },
+            verification: { definition: "code-reviewer", id: "reviewer-API-1-verification" },
+          },
+          standards: { findings: [] }, spec: { findings: [{ id: "F1", evidence: "期間境界の仕様不適合", commit: "a".repeat(40) }] },
+        },
+      }) });
       logWork({ db, actor: "codex" }, "API-1", "PM checkpoint更新。工程=PR準備。修正巡started=1 completed=1。acceptedmessage=done-review-1 Task=task-confirm Dispatch=dispatch-confirm head=" + "c".repeat(40) + "。独立確認F1解消と現在commitの必要テストを受理済み。reviewer release成功、Delivery=delivery-before ack済み。元実装者のactiveDispatch=dispatch-waitを維持、同じterm-api1、requested/effective=gpt-6.1-sol:high。旧dispatch-api1からの報告は古commit=" + "a".repeat(40) + "。再配送で巡を増やさず、PR未依頼。占有=1。", { kind: "progress" });
     }
     if (variant === "spec-wait") {
@@ -54,11 +68,13 @@ export async function createTask6Scenario(options: { directory?: string; variant
       const submitted: Worker = { ...worker, issueId: "API-2", task: { id: "task-api2-pr", spec: "pushとPR提出。API-2。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-api2-pr", taskId: "task-api2-pr", status: "succeeded", terminalId: "term-api2" }, terminalId: "term-api2", worktreeId: "repo-api::/evaluation/studio/export-column", worktreePath: "/evaluation/studio/export-column", phase: "submission", reported: true, released: true, commit: "c".repeat(40), branch: "export-column" };
       workers.push(submitted);
       logWork({ db, actor: "codex" }, "API-2", "PM checkpoint。Run=run-pm Task=task-api2-pr Dispatch=dispatch-api2-pr terminal=term-api2 Studio worktree=id:repo-api::/evaluation/studio/export-column branch=export-column currentcommit=" + "c".repeat(40) + "。requested/effective=gpt-6.1-sol:high照合済み。工程=PR提出済み。PR=https://github.com/evaluation/api/pull/42 実在とheadを確認済み、nod=in_review。受入、必要テスト、初回独立レビューStandards/Spec指摘なし受理済み。acceptedmessage=done-api2-pr Delivery=delivery-before ack済み、release成功。占有=0。API-1の質問と占有を解放しない。", { kind: "progress" });
+      logWork({ db, actor: "codex" }, "API-2", "初回受理証跡。探索=code-reviewer/reviewer-API-2-exploration 検証=code-reviewer/reviewer-API-2-verification 実装者=term-api2。reviewRunId=review-API-2-initial 保存先=/evaluation/reviews/review-API-2-initial/execution.json status=completed score=5 base=" + "b".repeat(40) + " target=" + "c".repeat(40) + "。両担当は互いと実装者から独立、最終記録照合済み。", { kind: "progress" });
     }
     if (variant === "pr-lost") {
       worker.phase = "submission"; worker.reported = true; worker.dispatch.status = "succeeded";
       Object.assign(worker.launch, { effective: { model: "gpt-6.1-sol", effort: "high" } });
       logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Run=run-pm Task=task-api1 Dispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention branch=retention currentcommit=" + "a".repeat(40) + "。requested/effective=gpt-6.1-sol:high照合済み。工程=PR依頼応答喪失。operation=op-api1-pr intent記録済み。占有=1。現在commitの受入、テスト、初回独立レビューStandards/Spec指摘なしは受理済み。修正巡started=0 completed=0。pushとPRを依頼したがURLと結果が未確認。再作成せずghでbranchとheadを照合する。", { kind: "progress" });
+      logWork({ db, actor: "codex" }, "API-1", "初回受理証跡。探索=code-reviewer/reviewer-API-1-exploration 検証=code-reviewer/reviewer-API-1-verification 実装者=term-api1。reviewRunId=review-API-1-initial 保存先=/evaluation/reviews/review-API-1-initial/execution.json status=completed score=5 base=" + "b".repeat(40) + " target=" + "a".repeat(40) + "。両担当は互いと実装者から独立、最終記録照合済み。", { kind: "progress" });
     }
     if (variant === "unknown") logWork({ db, actor: "codex" }, "API-1", "PM checkpoint。Workspace=API Sprint=2。Run=run-pm Task=task-api1 operation=op-api1-launch。工程=起動結果不明。起動前intent記録済み、起動予約=1。Studio repo=id:repo-api worktree=new-top-level。codex requested=gpt-6.1-sol:high effective=unknown。worker-start応答喪失、Dispatchとterminalは未確認。未受理messageなし、修正巡started=0 completed=0、PR未依頼。再送せずOrcaのTask、request、既存試行を照合する。", { kind: "progress" });
   } });

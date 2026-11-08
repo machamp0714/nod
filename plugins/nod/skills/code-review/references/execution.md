@@ -15,7 +15,7 @@ nod review prepare --repo /path/to/repo --base main --head HEAD --issue NOD-123 
 - 両方省略した場合はCLIがbranchと記録済み作業場所からIssueを解決する。
   候補0件や複数なら正本不明を報告し、ブランチ名から推測しない。
 - 未コミット変更は明示された場合だけ `--local` を使う。
-  このモードの `--head` は現在のHEADだけとし、明示された未追跡ファイルだけ `--untracked src/new.ts` のように繰り返す。
+  このモードでは `--head HEAD` を指定するか `--head` を省略する。現在HEADの具体的なSHA文字列を `--head` に渡すと `LOCAL_HEAD_INVALID` になる。SHAはprepareの返答に版の証跡として保存される。明示された未追跡ファイルだけ `--untracked src/new.ts` のように繰り返す。
   commitやstashを作って固定しない。
 - 秘密、ignore対象、symlinkなどの制約を解除して取得しない。
   必要対象を固定できなければ未完了として返す。

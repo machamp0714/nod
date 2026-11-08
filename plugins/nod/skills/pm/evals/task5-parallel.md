@@ -50,6 +50,7 @@ nodの対応ログ、Task spec、active Dispatchを照合して管理範囲を�
 
 waitingでは質問のnod IDとmessage `ask-api1`、Task `task-api1`、Dispatch `dispatch-api1`、terminal `term-api1`をAPI-1へ対応させる。
 API-2の受入証拠、commit、テスト、独立レビュー、PR URL、`in_review`はAPI-2のログだけへ残す。
+初回レビューは探索・検証の各定義名と担当ID、review runId・保存先・固定target・最終記録の状態と点数までAPI-2へ対応付ける。両IDは実装者と異なり互いにも異なることを確認する。最終検証記録なしは未実施のblockerとしてDone・In Review・PR提出を止め、自動再委譲しない。記録済みincompleteは未実施に読み替えず、証拠不足等の既存停止条件を適用する。
 API-1の無回答、API-2の提出、占有の3種類が混ざらないか確認する。
 API-2の初回報告で管理を終えず、PR実在と関連、現在commitと`in_review`を確認してから管理を終える。
 同じ実装者の再利用では起動用modelとeffortとplacementを重ねず、次所有者かrelease成功後にDeliveryをackする。

@@ -1,4 +1,4 @@
-# レビュー担当の設定と単独レビューの受け入れ
+# レビュー担当の設定と単独・実装後レビューの受け入れ
 
 ## 責務と配置先
 
@@ -25,18 +25,19 @@ advisor: false
 ---
 ```
 
-`autoloadSkills` はcamelCaseで指定する。
-`autoload-skills` は有効なキーではない。
+この配置例は `autoloadSkills` のcamelCase表記を使う。
+この環境の既存implementerの `autoload-skills` もfrontmatter正規化を経て解釈され、実行記録の `skill-prompt` に更新implementの自動読込先が残る。既存表記を無効とみなして不要に変更しない。
 `spawns: []` は子担当を許可せず、`advisor: false` は追加の相談担当を付けない。
-思考レベルを定義側で指定する場合のキーも `thinkingLevel` であり、`thinking-level` ではない。
+思考レベルを定義側で記載する場合、この例では `thinkingLevel` とする。既存の `thinking-level` もfrontmatter正規化の対象である。
 通常はroleの設定に任せ、ここでは省略する。
-実効parserはompの `src/discovery/helpers.ts` の `parseAgentFields` である。
+frontmatter正規化の後にompの `src/discovery/helpers.ts` の `parseAgentFields` が解釈する。配置表記だけでなく `skill-prompt` の実際の解決先を観測する。
 
 本文には次の権限と工程境界を記載する。
 
 - 自動読込された `code-review` のうち親から指定された探索または検証だけを実行する。
   親の委譲手順を実行せず、子、advisor、再帰起動を行わない。
 - 探索は渡された対象と資料を使い、prepare、両計画の固定、両軸の探索、中間記録まで行って終了する。
+  local対象では `--local --head HEAD` または `--head` 省略を使い、観測した現在HEADの具体SHAを `--head` に渡さない。
 - 検証は工程、runId、保存ディレクトリだけを受け取り、まず `review input --phase verification` を実行する。
   返された入力とschema、その参照先の固定資料とコードだけをレビュー入力として読む。
   探索の原記録、raw出力、親report、準備や計画の原記録、会話やセッション、他担当の履歴から禁止情報を回収しない。
@@ -67,6 +68,20 @@ modelRoles:
 両担当のモデル情報は知りうる範囲の申告と出典として記録される。
 不明なら `value=null,source=null,status=unverified` とし、実効モデルの証明や停止条件にしない。
 申告不明と要求の未確認を混同しない。
+
+## implementerからの委譲許可
+
+既存のユーザー定義 `~/.omp/agent/agents/implementer.md` の許可に `code-reviewer` を追加する。
+
+```yaml
+spawns: [task, code-reviewer]
+```
+
+既存のmodel、thinking-level、advisor、autoload-skillsなど無関係の設定は維持し、既存定義全体をこの例で置換しない。
+指示文は更新した `nod:implement` の仕上げに接続する。探索へrepo・基点・対象・Issue/Spec/plan・規約所在を渡し、fresh検証へは工程・runId・保存先だけを渡す。レビュー担当が子を起動する構成にしない。
+親はshowと同じrunId・targetの実在する最終execution.jsonを照合し、両担当の定義名と担当IDをrunId・保存先・対象版へ対応付けて作業ログと報告に残す。
+prepareから最終検証記録まで親もIssueのStep・ログ・状態・要求・計画を変更しない。Issue.updatedAtやplanの変更検出を避けるため途中のID等はローカルに保持し、最終照合後に一括記録する。途中終了は試行が終わってからblockerを残す。
+PMの初回受理は両担当の組と実装者からの独立性を確認するが、既存の実装workerのモデル照合を削除しない。修正後は既存指摘IDと修正差分だけのsingle独立確認、最大2巡を維持する。
 
 ## 単独レビューの親への入力
 
@@ -153,7 +168,10 @@ PATH="$REVIEW_RUNTIME/bin:$PATH" nod review show --run <実際のrunId> --json
 加えて `show.directory` の `execution.json` が実在し、同じrunId、target、最終状態を持つことを親が読む。
 準備と探索だけなら未実施とし、理由、取得済みID、保存先をblockerと報告へ残し、Done、In Review、PR提出を止める。
 担当失敗後に自動で再委譲しない。
-検証記録のある `incomplete` は記録済み未完了として結果を保持し、既存の提出条件へ接続する。
+検証記録のある `incomplete` は記録済み未完了として未確認を隠さず結果を保持し、レビューは未完了のまま既存の提出・完了条件へ接続する。score=nullやcurrentSubmissionの提出不可自体をIssueの新たな一律Done禁止・5点必須の条件にはしない。Issueの完了可否は既存の必要検証・受け入れ条件で判断し、その必要条件自体の未確認・失敗は停止する。PMの既存の証拠不足時の提出停止も維持する。
 
 CLIの詳細は[準備と探索記録](review-prepare.md)、[独立した候補検証と最終記録](review-run.md)を参照する。
-実装後レビューとPMの呼出側は同じ2回委譲と証跡の契約を使い、その配置や受け入れは単独レビューとは別に扱う。
+実装後レビューは単独レビューとは別の実受け入れとして、ownerが実Issueと更新implementer定義で実行する。同じ起動例のプロンプトを実装後レビュー用に替え、実repo・merge-base・対象commit・Issue/Spec/plan・規約所在、既存Taskの再開位置、不要なコード変更やコミットを行わない受け入れ範囲を指定する。今回限りのSol highはsession overlayを使い、永続@taskを変更しない。
+ownerはimplementer→探索→fresh検証、2段記録、親への返却、最終照合後のnod作業ログの対応まで実測する。prepareから最終記録までIssue.updatedAtとplanが不変であることも記録する。
+検証担当のsession_initと最初のuser入力・履歴から非継承を観測し、親要約・探索会話・推論・原因グループ・総合判断が入っていないことを確かめる。ID差だけで証明しない。
+これらを実行していない担当は「実装後実受け入れと非継承観測は未実施、ownerが実行」と報告する。単独レビューの実績やfixtureの成功を実装後受け入れへ流用しない。
