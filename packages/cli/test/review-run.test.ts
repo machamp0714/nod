@@ -1346,6 +1346,44 @@ test("出典の診断を工程・全体・初回記録へ保存し、不正な�
   }
 });
 
+for (const mode of ["typed", "untyped"] as const) test(`規約の出典を資料索引と同じtype:idで指示・復元し、型なしIDは補正せず拒否する（${mode}）`, async () => {
+  const f = await fixture(), trace = join(f.dir, "inputs.jsonl");
+  writeFileSync(join(f.repo, "AGENTS.md"), "# 規約\n公開名valueを保つ。\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "規約を追加");
+  adjudicatingClaude(f.dir, modernRequirements + `
+    require("node:fs").appendFileSync(${JSON.stringify(trace)}, JSON.stringify(input) + "\\n");
+    if (${mode === "untyped"} && input.phase === "standards") output.requirements[0].contentAssessment.references = [{ source: "AGENTS.md", line: 2 }];
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  const inputs = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const sourceIndex = result.json.sources.findIndex((s: any) => s.type === "standard" && s.id === "AGENTS.md");
+  for (const input of inputs) {
+    // 出典の指示は資料索引のtype:idだけを返させ、hash・quoteを出力形式として示さない。
+    const instructions = input.instructions + input.adjudicationInstructions;
+    expect(instructions).toContain("sources[].source");
+    expect(instructions).not.toMatch(/\{source[^}]*(hash|quote)/);
+    expect(input.sources).toContainEqual(expect.objectContaining({ source: "standard:AGENTS.md" }));
+  }
+  if (mode === "untyped") {
+    expect(result.json).toMatchObject({ status: "incomplete", score: null });
+    expect(inputs.map(input => input.phase)).not.toContain("verification");
+    expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "OUTPUT_INVALID", referenceDiagnostic: { reason: "unknown_source", field: "requirements[0].contentAssessment.references[0]",
+      requirementUnitIndex: expect.any(Number), sourceIndex: null, sourceForm: "id_without_type", matchedSourceIndex: sourceIndex, line: 2, lineCount: null } }));
+    return;
+  }
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const standard = result.json.sources[sourceIndex];
+  expect(result.json.execution.stages.find((s: any) => s.phase === "standards").output.requirements[0].contentAssessment.references)
+    .toEqual([{ source: "standard:AGENTS.md", line: 2, hash: standard.hash, quote: "公開名valueを保つ。" }]);
+  // 検証へ渡す探索記録の出典も、資料索引と同じtype:idのまま保つ。
+  const verification = inputs.find(input => input.phase === "verification"), cited: string[] = [];
+  const walk = (node: any): void => { if (!node || typeof node !== "object") return; if (typeof node.source === "string" && Number.isInteger(node.line)) cited.push(node.source); Object.values(node).forEach(walk); };
+  walk(verification.candidates);
+  expect(cited).toContain("standard:AGENTS.md");
+  const indexed = verification.sources.map((s: any) => s.source);
+  for (const source of cited) expect(indexed).toContain(source);
+});
+
 for (const forgedQuote of [false, true]) test(`format=3の固定引用を復元し、明示された偽の引用は補正しない（forged=${forgedQuote}）`, async () => {
   const f = await fixture();
   writeFileSync(join(f.repo, "legacy.ts"), "export const legacy = 1;\n");

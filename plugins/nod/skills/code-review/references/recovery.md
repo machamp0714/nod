@@ -12,6 +12,7 @@
 | 実装モデル不明、同一モデル、`MODEL_UNVERIFIED` | 実効値を確認でき、実装集合と異なる利用者設定を用意する |
 | `BILLING_POLICY_UNVERIFIED` | 利用者による追加使用無効の確認を得る。設定が変わったと推測しない |
 | 未認証・利用枠不足・CLI失敗・出力不正 | 認証・利用可能性・対応CLIを確認する。工程の `cliStatus` に記録された終了コード・既知の終了種別・HTTP状態を確認し、未記録の原因を推測しない。API課金へfallbackしない |
+| `OUTPUT_INVALID`（`referenceDiagnostic` あり） | `reason`・`field`・`sourceForm` で出典の取り違え（型なしID・snapshotのpath・未知の資料・範囲外の行）を確かめる。出典は `sources[].source` と同じ `type:id` が必要で、結果の出典を手で直したり未知の資料を受理させたりせず、新しい実行で再確認する |
 | `REVIEW_LAYER_VIOLATION`・候補担当の根拠不正 | 自動チェック結果の混入を取り除き、候補担当の固定参照・採否を確認する。対象外にするために必須要求を変更しない |
 | `REPAIR_PREPARATION_REQUIRED`、`REPAIR_PREPARATION_INVALID` | 固定規約に対する準備計画と環境言及の適用判断を補う。引用・行番号を照合し、未確認を説明扱いにしない |
 | `REPAIR_PREPARATION_UNSUPPORTED`、OS隔離不可 | 対象規約に対応するadapterと隔離環境が必要。非隔離実行へ変えない |

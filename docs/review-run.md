@@ -71,6 +71,8 @@ CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`exec
 
 要求本文・axis・出典hash・引用はモデルに繰り返させず、固定した要求IDからCLIが復元する。コード引用は `path/revision/line` を固定Gitへ照合し、実在する行全文を取得する。元の詳細形式も従来の照合を維持する。明示された誤った引用や対象hashを都合よく修正して合格させない。
 
+固定資料の出典は全て `{source,line}` で返し、`source` は資料索引 `sources[].source`・`reviewUnits[].reference.source` と同じ `type:id`（例 `standard:AGENTS.md`）を省略せずに使う。`--json-schema` は全ての出典の `source` に型接頭辞（`issue`/`document`/`plan`/`standard`）を必須とするので、型なしID・ファイル名・snapshotの `path` は実CLIの構造化出力検証で再出力させる。schemaの肥大化を避けるため全資料IDは列挙せず、索引に無いIDと範囲外・整数でない行はCLIが `OUTPUT_INVALID` で拒否する。拒否時の `problems[].referenceDiagnostic` には理由 `reason`（`unknown_source`/`invalid_line`/`line_out_of_range`）、出力項目 `field`、取り違えの種類 `sourceForm`（`catalog_id`/`id_without_type`/`snapshot_path`/`unknown`）、一致した資料の位置・行番号・行数だけを残し、モデルが返した文字列は保存しない。型なしIDやpathを索引の資料へ自動補正して通さない。
+
 新形式のrequired候補には今回の差分行の `changeEvidence` を要求する。差分外の既存問題はrequiredにしない。候補検証の `causeGroups` に全候補を一度ずつ割り当て、同一原因を共通IDへ統合し、根拠を保存する。グループの欠落・重複・未知候補は出力不正で停止。差分行の存在やグループの形式が、因果関係や意味上の同一性を証明するわけではない。
 
 ## 指摘・要求別判定の契約
@@ -84,7 +86,7 @@ CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`exec
 |---|---|
 | `findings[].decision` | `required`、`unverified`、`false_positive`、`out_of_scope`、`deferred`、`risk_accepted`、`optional` |
 | `findings[].proposedDecision` | 検証モデルが提案した判定。CLI照合で未確認へ変わった場合も残す |
-| `findings[].contract` | 固定sourceの `{source,hash,line,quote}`、または固定コードの `{path,revision,line,quote}` |
+| `findings[].contract` | 固定sourceの `{source,hash,line,quote}`、または固定コードの `{path,revision,line,quote}`。モデルは `source`（`type:id`）/`line` または `path`/`revision`/`line` だけを返し、hash・quoteはCLIが固定資料・固定Gitから復元する |
 | `findings[].location` | `{path,revision:head\|base,line,quote?}`。対象の主識別は `target.hash` |
 | `condition` / `failure` / `impact` | 到達条件、破綻、実際の影響と0〜4の影響点 |
 | `evidence` / `reproduction` | 静的証拠と再現手順。現在の工程は実行ツールを持たず、実行済みコマンドの証明にはしない |

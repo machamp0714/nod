@@ -1,4 +1,5 @@
 import { ReviewFailure, type ReviewReferenceDiagnostic } from "./review-process";
+import type { ReviewSource } from "./review-prepare";
 
 type Row = Record<string, any>;
 const text = { type: "string", minLength: 1 };
@@ -6,7 +7,9 @@ const object = (properties: Row, required = Object.keys(properties)) => ({ type:
 const array = (items: Row) => ({ type: "array", items });
 const nullable = (item: Row) => ({ anyOf: [item, { type: "null" }] });
 const location = object({ path: text, revision: { enum: ["head", "base"] }, line: { type: "integer", minimum: 1 } });
-const reference = object({ source: text, line: { type: "integer", minimum: 1 } });
+// 型なしID・ファイル名・snapshotのpathはStructuredOutputの検証で弾き、モデルに再出力させる。全資料IDのenumはschemaを肥大化させるので使わない。
+const sourceTypes = Object.keys({ issue: 1, document: 1, plan: 1, standard: 1 } satisfies Record<ReviewSource["type"], 1>);
+const reference = object({ source: { ...text, pattern: `^(${sourceTypes.join("|")}):.+`, description: "sources[].sourceのtype:idをそのまま使う" }, line: { type: "integer", minimum: 1 } });
 const citation = { anyOf: [reference, location] };
 const comparison = object({ requirement: text, candidate: text, match: { enum: ["same", "different", "unknown"] } });
 const findingLink = object({ findingAxis: { enum: ["standards", "spec"] }, findingId: text, relation: { enum: ["violation", "supporting", "rejected", "unresolved"], description: "supportingも操作・条件・期待動作の全match=sameとeffectOfFix=resolves_this_violationが必要。同原因だけでは不可。対応が異なり修正効果がunchangedならrejected、不明ならunresolvedかつ要求をunverifiedにする。" }, observedBehavior: text, requirementEvidence: { ...array(reference), minItems: 1 }, codeEvidence: { ...array(location), minItems: 1 },
@@ -130,7 +133,8 @@ relation=violationは操作・条件・期待動作の全match=sameかつeffectO
 relation=supportingも全match=sameかつeffectOfFix=resolves_this_violationを必要とする。そのうえで要求status=unsatisfied、候補が対象外またはfindingIdsにある要対応と同じ原因の別の要対応である場合だけ、findingIdsから除いて補足に保持できる。同じ原因や関連分野というだけではsupportingにしない。異なる期待動作や不明な修正効果を、通すために一致へ書き換えない。対象外の存在だけで今回の未充足を消さない。
 操作・条件・期待動作の対応が異なり、その候補を直しても当該要求違反が変わらないと確認できるならrelation=rejected、effectOfFix=unchangedとして残し、findingIdsに入れない。対応または修正効果が不明ならrelation=unresolvedかつ要求をunverifiedとする。対応の検討がなければfindingLinks=[]。候補の契約参照自体も同じ条件で成立するか確認し、成立しない文書参照は適切なコード契約・利用側の参照に訂正する。候補を無理に要求へ結び付けたり、対応しないというだけで独立した不具合を棄却したりしない。
 根拠は短く具体的に記述する。path/revision/lineの参照にはquoteを書かない。固定コードの行全文をCLIが取得して照合する。
-contractはsource/lineまたはpath/revision/line、scopeEvidenceはsource/lineで出典を指定し、hash・quoteを書かない。
+固定資料の出典（contract・scopeEvidence・contentAssessment.references・implementation・responsibility.references・scopeAssessment.references・findingLinks.requirementEvidence）は{source,line}だけを返す。sourceはsources[].source・reviewUnits.reference.sourceと同じtype:id（例 standard:AGENTS.md）を省略せずに使い、ファイル名・sourcesのpath・typeなしのidにしない。hash・quoteは書かず、CLIが固定資料から復元する。検証へ渡す探索記録の出典に付くhash・quoteもCLIの復元値であり、出力では同じsourceとlineだけを返す。CLIは索引に無い出典・範囲外の行を拒否する。
+contractはsource/lineまたはpath/revision/line、scopeEvidenceはsource/lineで出典を指定する。
 sdk.status=verifiedではlockfile等で解決済みの単一依存の実版を確認し、sdk.versionをsdk.sourceの引用値と一致させる。package.json等の^・~・不等号・wildcard・タグは実版ではなく、そこから数値だけを抜き出しても証拠にならない。実版が不明なら未確認とする。複数の依存名・版を連結しない。追加の依存が論証に必要なら、その実版と契約をevidenceへ記し、固定参照をresponsibility.referencesへ追加する。引用と版が対応しない候補を、通すためにnot_applicableへ変えない。
 今回導入・悪化・顕在化させた問題はorigin=introducedとし、changeEvidenceで今回の変更行を示す。locationは不具合を説明する場所、changeEvidenceは原因を導入した差分の行であり、同じ参照を機械的に複写しない。target.patchの+行はhead、-行はbaseの行番号で示す。削除だけの変更では残ったheadの周辺行は変更根拠にならず、削除されたbase行を使う。ファイル全体が消えた場合はlocationもbaseの実在行を使える。置換では原因となる追加行または削除行を指定する。行番号の移動や同じhunkにあることだけでは変更行にならない。削除箇所と現在の失敗をevidenceで結び付け、検証工程でもこの差分対応を独立に確認する。場所が差分外でも呼出側の変更が影響するなら対象内。基点から同じ条件で存在する問題はorigin=pre_existingとし、baselineEvidenceはcandidate.locationと対になる証拠で、location.revision=head、baselineEvidence.revision=base、両者のpathと行内容が同一となる行を示す。行番号は変更前後で異なってよい。関連する別ファイルのbase行を代わりに使わず、それはscopeAssessment.referencesへ記録する。行の一致だけで影響なしとは判断せず、変更した利用側・到達条件も読む。出自不明はorigin=unknownかつunverified。
 既存問題はscopeAssessmentで今回の要求との関係を区別する。今回のIssue/Specがその既存不具合の修正を明示的に要求するならkind=explicit_requirement、decision=required、changeEvidence=nullとし、rationaleとreferencesにその要求を示す。今回の変更で悪化せず、その修正も要求されていないならkind=unrelated_existing、decision=out_of_scope、changeEvidence=null、scopeEvidence=null、needsSpecificationDecision=false。referencesには現在のIssue/Document/計画による作業範囲の固定参照を1件以上含める。基点の証拠と範囲の理由を保持し、点数・未完了・自動修正から除く。既存規約や再構成した過去の契約を参考入力へ含めたことを、今回その全不整合を修正する約束と解釈しない。具体的な作業範囲が不明ならscopeAssessment=nullかつunverified。その他の候補はscopeAssessment=nullでよい。

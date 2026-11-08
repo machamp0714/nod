@@ -215,18 +215,18 @@ export function reviewFocus(target: NonNullable<ReviewPreparation["target"]>) {
 export const adjudicationInstructions = `
 reviewUnitsは固定資料の必須確認単位であり、assignedRequirementIdsの単位について同じidを返す。短い要求も省略しない。
 探索は自軸の全単位、verificationは全軸の全単位を担当し、requirementsへ返す。Standards探索に添えるSpec単位は主要求の参考である。各単位は必要に応じて複数の要求を含むので、その全てを確認する。
-要求statusはsatisfied/unsatisfied/unverified/out_of_scope/context。contextは説明だけと独立確認した本文記録であり、実装充足とは別である。targetはtarget.hash。implementationは{path,revision:head|base,line,quote?}の配列。
+要求statusはsatisfied/unsatisfied/unverified/out_of_scope/context。contextは説明だけと独立確認した本文記録であり、実装充足とは別である。targetはtarget.hash。implementationは固定コードの{path,revision:head|base,line}または固定資料の{source,line}の配列。
 verificationは{method:inspection,detail:静的な確認方法}。evidenceは具体的な静的証拠。既存テスト成功だけでは充足としない。
 unsatisfiedには要対応候補のaxis:idをfindingIdsに記録する。他軸で発見した候補でも、操作・条件・期待動作・修正効果の一致を検証して参照する。out_of_scopeには承認済みplanまたは固定responsibility、もしくは検証済みスコープ外既存候補のfindingIdsと当該要求のscopeEvidence・rationaleを必要とし、残る要求を消さない。
 候補のidは軸内で一意、検証時も全探索候補のidを保持し、棄却も省略しない。axisはstandards/spec、targetはtarget.hash。
-locationは{path,revision:head|base,line,quote?}。contractは固定sourceの{source:type:id,hash,line,quote}または固定コードの{path,revision,line,quote}。
+locationは{path,revision:head|base,line}。contractは固定資料の{source,line}または固定コードの{path,revision,line}。固定資料のsourceはsources[].sourceと同じtype:id（例 standard:AGENTS.md）を省略せずに使い、ファイル名・path・typeなしのidにしない。hash・quoteは書かず、CLIが固定資料・固定コードから復元する。
 condition, failure, reproduction, rootCause, rationale, defenseには到達条件・破綻・再現手順・原因・採否理由・既存防御の確認結果を記録する。
 requiredには、適用される契約、現在の到達条件、その条件での実際の不一致、具体的影響を固定証拠で結び付ける。可能性の説明や読み手が誤解するかもしれないという推測だけを、確認済みの誤動作・影響へ置き換えない。文書や指示文も同じ基準で判断し、実行時の被害が未発生でも、明示的な禁止・保証との矛盾や必須記載の欠落自体を固定資料で確認できる場合は契約違反として扱う。
 impactは{score:0..4,description:具体的影響}。0=広範再設計を要する致命問題、1=局所的致命問題、2=主要機能/重要状態の重大問題、3=その他契約不具合、4=軽微だが必須の対応。
 0/1には、重大な認可境界の突破、機密情報の漏えい、回復不能な重要データの消失・破壊など、機能停止を超える致命的影響の根拠が必要である。例の語があるだけでは足りず、具体的な到達条件・保護対象・失われる状態を固定コードと契約で確認する。主要機能が一部または全ての有効入力で停止しても、確認できた影響が機能停止にとどまるなら2とする。全呼出しで失敗すること、回避経路がないこと、公開関数が1つだけであることだけで1にしない。まず致命的影響の有無を確定し、その根本原因の解消に広範な再設計が必要なら0、局所修正で解消できるなら1とする。修正の局所性から致命的影響を逆算しない。未確認の致命的影響を、推測で0/1にしたり2へ確定したりせず未確認として保持する。
 重大度は、到達条件と、その条件が成立したときの影響を分けて判断する。サポートする利用経路で主要機能が停止する、または重要な状態を壊すと確認できる場合、条件が限定的という理由だけで4に下げない。一方、例外・失敗という語だけで重大にせず、実際に失われる機能、影響範囲、固定コード・契約で確認した回避手段をimpact.descriptionへ示す。主要機能が保たれる軽微な契約差と区別し、到達性や影響の証拠不足を低い重大度で代用せず未確認に残す。検証工程は探索側の点数を引き継がず、この根拠から再判定する。
 evidenceは{kind:static,detail:到達性と破綻を裏付ける静的証拠}。この工程に実行ツールはなく、コマンド実行済みと自己申告しない。
-sdkは{status:verified|not_applicable,evidence,version?,source?}。verifiedのsourceは実版を含む引用付きの固定依存ファイル{path,revision,line,quote}。SDK関係があるときは固定依存ファイルの実版と契約出典を照合する。
+sdkは{status:verified|not_applicable,evidence,version?,source?}。verifiedのsourceは実版を含む固定依存ファイルの行{path,revision,line}で、引用はCLIが固定コードから取得する。SDK関係があるときは固定依存ファイルの実版と契約出典を照合する。
 decisionはrequired/unverified/false_positive/out_of_scope/deferred/risk_accepted/optional。今回の必須要求の判定や確認済み要対応の修正に不可欠な仕様判断が未決ならneedsSpecificationDecision=trueかつunverifiedにし、どの要求を何が判定不能にしているかを示す。任意の設計改善に複数の選択肢があることだけでは未決仕様にしない。必須要求・具体的な不具合に必要な証拠不足は未確認のまま保持する。requiredはfalseを必要とする。
 未確認にする前に、何の必須契約または固定証拠に基づく具体的疑義を、どの不足事実が判定不能にしているかを示す。固定文脈を確認した結果、候補の前提が肯定・例示から追加した排他的制約や根拠のない可能性だけだと分かった場合は、探索では候補にせず、verificationでは元のid・axisを保持してfalse_positiveとし、成立しない前提と固定出典をrationaleへ記録する。思いついた懸念を否定し切れないことだけでunverifiedや仕様判断待ちにしない。ただし、必須契約の意味や必要資料が不明な場合、または具体的な疑義に必要な到達条件・影響を確定できない場合を、根拠のない仮説と取り違えて棄却しない。候補の棄却で必須要求の未確認を消さない。
 臭い・整理・好みだけの懸念は探索候補にしない。検証へ混入した場合だけoptionalとして監査記録に残し、通常報告・減点・停止・自動修正の対象にしない。条件付き懸念は証拠なしでrequiredにしない。out_of_scope/deferred/risk_acceptedは承認済みplanへのscopeEvidenceを必要とする。ただし固定コード・規約の根拠付きresponsibility.owner=automatic_checkの候補は、独立した担当分離によりout_of_scopeとしscopeEvidence=nullを使う。scopeAssessmentで今回と無関係と確認した既存候補も、基点証拠・固定した作業範囲の参照付きでout_of_scope、scopeEvidence=nullとする。

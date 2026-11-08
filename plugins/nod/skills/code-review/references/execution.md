@@ -155,6 +155,8 @@ Biome、lint、型検査、ビルド、テスト、再現コードはレビュ�
 
 ## 参照情報の不整合
 
+固定資料の出典は、資料索引 `sources[].source`・`reviewUnits[].reference.source` と同じ `type:id`（例 `standard:AGENTS.md`）と行番号だけで返す。出力schemaは `source` に型接頭辞（`issue`/`document`/`plan`/`standard`）を必須とし、hash・引用はCLIが固定資料から復元する。型なしID・ファイル名・snapshotのpath、索引に無いID、範囲外の行は `OUTPUT_INVALID` で未完了となり、`problems[].referenceDiagnostic` の `reason`・`field`・`sourceForm` で取り違えの種類を確認できる。CLIは未知の出典を受理せず、近い資料IDへ自動補正しない。結果を手で直さず、新しい実行で再確認する。
+
 `scopeEvidence` は、既存課題だけの要求を対象外にする場合、その要求自身の `reviewUnits.reference` のsource/lineを使う。範囲宣言の出典は候補の `scopeAssessment.references` に残す。
 
 `sdk.status=verified` の `version` は、`source` の引用行に含まれる単一依存の実版とする。複数依存の版を連結せず、追加の依存根拠は `evidence` と `responsibility.references` に保持する。
