@@ -1,6 +1,7 @@
 import { readReviewResponsibility, verifyReviewResponsibility, type ReviewResponsibility } from "./review-responsibility";
 import { readStandardScope, verifyStandardScope, type StandardScope, type StandardRange } from "./review-scope";
 import { captureLocalReview, sensitiveReviewPath, type LocalReviewSnapshot } from "./review-snapshot";
+import { emptyReviewContext, materializeReviewContext, type ReviewContext, type ReviewContextGit } from "./review-context";
 import { reviewProcess, ReviewFailure } from "./review-process";
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -41,6 +42,8 @@ export interface ReviewPreparation {
   standardScope?: StandardScope;
   responsibility?: ReviewResponsibility;
   standardScopeTemplatePath?: string;
+  /** 担当が読む読取専用snapshot。準備が途中で止まった場合も、それまでの除外理由を残す。 */
+  context?: ReviewContext;
   problems: { code: string; message: string }[];
   remaining: string[];
   artifactPath: string;
@@ -53,6 +56,7 @@ export interface PrepareReviewInput {
   untracked?: string[];
   issue?: string;
   document?: string;
+  /** 準備と同時に計画を固定する旧run経路だけが使う。新しい経路では `nod review plan` が固定する。 */
   scopePlan?: string;
   responsibilityPlan?: string;
   outputDir: string;
@@ -83,7 +87,7 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
     schemaVersion: 1, runId, startedAt: new Date().toISOString(), status: "incomplete", score: null,
     review: { standards: "not_started", spec: "not_started" }, target: null,
     requirements: { primary: [], issueIds: [], consistency: "unverified", excluded: [], unresolvedReferences: [] }, sources: [], problems: [],
-    remaining: ["要求同士の意味上の整合性確認", "Standards探索", "Spec探索と要求別の充足確認", "候補検証"],
+    remaining: ["規約適用計画と責務計画の固定", "Standards探索", "Spec探索と要求別の充足確認", "候補検証と要求同士の意味上の整合性確認"],
     artifactPath: join(resolve(input.outputDir), runId, "preparation.json"),
   };
   const repo = resolve(input.repo);
@@ -110,6 +114,17 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
     const mergeBaseSha = (await git("merge-base", baseSha, headSha)).trim();
     const local = input.local ? await captureLocalReview({ repo, directory: dirname(result.artifactPath), headSha, untracked: input.untracked ?? [], git, deadline: input.deadline, signal: input.signal }) : undefined;
     const snapshotGit = local ? (...args: string[]) => git("--git-dir", local.repo, ...args) : git;
+    // 担当が読むsnapshotはblobをbyte列のまま受け取る。期限のない準備では1回のGit呼出しごとに上限を置く。
+    const contextGit: ReviewContextGit = async (...args) => {
+      try {
+        return await reviewProcess("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", repo, ...(local ? ["--git-dir", local.repo] : []), ...args], {
+          cwd: repo, deadline: input.deadline ?? Date.now() + 60_000, signal: input.signal ?? new AbortController().signal, maxBytes: 16 * 1024 * 1024,
+        });
+      } catch (error) {
+        if (error instanceof ReviewFailure && error.code === "CLI_FAILED") throw new PreparationFailure("GIT_FAILED", `Gitで固定対象を読めません: ${args[0]}`);
+        throw error;
+      }
+    };
     const revision = local?.treeSha ?? headSha;
     const files = (await snapshotGit("diff", "--name-only", "-z", mergeBaseSha, revision, "--")).split("\0").filter(Boolean);
     const excluded = files.find(sensitiveReviewPath);
@@ -255,6 +270,9 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
       status: "complete", mode: issues.length ? "issue_context" : "document_only",
       sourceIds: result.sources.filter(s => s.type !== "standard").map(s => `${s.type}:${s.id}`),
     };
+    // 担当が元の作業ツリーではなく固定版だけを読めるよう、同じ準備実行で読取専用snapshotを作る。
+    result.context = emptyReviewContext(join(dirname(result.artifactPath), "context"), runId);
+    await materializeReviewContext(result.context, { runId, target: result.target!, sources: result.sources }, contextGit);
     result.status = "prepared";
   } catch (error) {
     result.problems.push({ code: error instanceof PreparationFailure || error instanceof ReviewFailure ? error.code : "SOURCE_FAILED", message: error instanceof Error ? error.message : String(error) });
@@ -269,6 +287,18 @@ export async function prepareReview(db: Database, input: PrepareReviewInput): Pr
   }
   writeFileSync(result.artifactPath, JSON.stringify(result, null, 2) + "\n", { flag: "wx" });
   return result;
+}
+
+/**
+ * 規約の必須範囲（適用計画が無ければ全行）から指す資料が固定対象に無ければ、担当の判断に委ねず止める。
+ * 適用計画で参考とした範囲からのリンクは記録に留める。
+ */
+export function requireFixedStandardReferences(preparation: Pick<ReviewPreparation, "requirements" | "sources">): void {
+  const missing = preparation.requirements.unresolvedReferences.find(ref => {
+    const standard = preparation.sources.find(source => source.type === "standard" && source.id === ref.referencedFrom);
+    return !standard?.applicability || standard.applicability.some(range => range.kind === "required" && range.start <= ref.line && range.end >= ref.line);
+  });
+  if (missing) throw new ReviewFailure("STANDARD_UNREADABLE", `規約 ${missing.referencedFrom} の${missing.line}行目の参照先 ${missing.path} を固定対象から読めません。必須でなければ適用計画で参考範囲とする根拠を示してください`);
 }
 
 /** 実行中の要求・添付関係・適用規約の変更を検出する。準備結果は上書きしない。 */

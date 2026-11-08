@@ -2,12 +2,15 @@ import { ReviewFailure, type ReviewReferenceDiagnostic } from "./review-process"
 import type { ReviewSource } from "./review-prepare";
 
 type Row = Record<string, any>;
+export type ReviewPhase = "standards" | "spec" | "verification";
+/** 工程出力を検査・展開した内部の工程記録。出典hash・引用・要求本文・固定分担理由はCLIの復元値。 */
+export interface ReviewStageOutput { completed: boolean; axis: ReviewPhase; candidates: Record<string, unknown>[]; requirements: Record<string, unknown>[]; consistency?: Record<string, unknown>; causeGroups?: Record<string, unknown>[] }
 const text = { type: "string", minLength: 1 };
 const object = (properties: Row, required = Object.keys(properties)) => ({ type: "object", additionalProperties: false, properties, required });
 const array = (items: Row) => ({ type: "array", items });
 const nullable = (item: Row) => ({ anyOf: [item, { type: "null" }] });
 const location = object({ path: text, revision: { enum: ["head", "base"] }, line: { type: "integer", minimum: 1 } });
-// 型なしID・ファイル名・snapshotのpathはStructuredOutputの検証で弾き、モデルに再出力させる。全資料IDのenumはschemaを肥大化させるので使わない。
+// 型なしID・ファイル名・snapshotのpathはschemaの検査（モデルCLIのStructuredOutput、または記録時のreviewSchemaViolation）で弾く。全資料IDのenumはschemaを肥大化させるので使わない。
 const sourceTypes = Object.keys({ issue: 1, document: 1, plan: 1, standard: 1 } satisfies Record<ReviewSource["type"], 1>);
 const reference = object({ source: { ...text, pattern: `^(${sourceTypes.join("|")}):.+`, description: "sources[].sourceのtype:idをそのまま使う" }, line: { type: "integer", minimum: 1 } });
 const citation = { anyOf: [reference, location] };
@@ -121,6 +124,70 @@ export function expandReviewOutput(output: Row, input: Row): Row {
     if (seen.size !== candidates.length) throw new ReviewFailure("OUTPUT_INVALID", "根本原因の統合に未確認の候補があります");
   }
   return { ...output, requirements, candidates };
+}
+
+/**
+ * reviewOutputSchemaが使う語彙（type・properties・required・additionalProperties・items・minItems・maxItems・minLength・pattern・minimum・maximum・enum・const・anyOf）だけでJSON Schema相当の検査を行い、最初の違反を返す。
+ * 担当が返した文字列（未知の項目名を含む）は理由に含めず、schema側の項目名と配列の位置だけで場所を示す。
+ */
+export function reviewSchemaViolation(value: unknown, schema: Row, path = "$"): string | undefined {
+  if (Array.isArray(schema.anyOf)) return schema.anyOf.some((option: Row) => reviewSchemaViolation(value, option, path) === undefined) ? undefined : `${path}: 許可された形式のどれにも一致しません`;
+  if (Object.hasOwn(schema, "const") && value !== schema.const) return `${path}: ${JSON.stringify(schema.const)} である必要があります`;
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return `${path}: 許可された値（${schema.enum.join("/")}）ではありません`;
+  switch (schema.type) {
+    case "null": return value === null ? undefined : `${path}: nullである必要があります`;
+    case "boolean": return typeof value === "boolean" ? undefined : `${path}: 真偽値である必要があります`;
+    case "integer":
+      if (typeof value !== "number" || !Number.isInteger(value)) return `${path}: 整数である必要があります`;
+      if (typeof schema.minimum === "number" && value < schema.minimum) return `${path}: ${schema.minimum}以上である必要があります`;
+      if (typeof schema.maximum === "number" && value > schema.maximum) return `${path}: ${schema.maximum}以下である必要があります`;
+      return;
+    case "string":
+      if (typeof value !== "string") return `${path}: 文字列である必要があります`;
+      if (typeof schema.minLength === "number" && [...value].length < schema.minLength) return `${path}: 空にできません`;
+      if (typeof schema.pattern === "string" && !new RegExp(schema.pattern, "u").test(value)) return `${path}: 形式が一致しません（${schema.pattern}）`;
+      return;
+    case "array": {
+      if (!Array.isArray(value)) return `${path}: 配列である必要があります`;
+      if (typeof schema.minItems === "number" && value.length < schema.minItems) return `${path}: ${schema.minItems}件以上必要です`;
+      if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return `${path}: ${schema.maxItems}件以下である必要があります`;
+      for (const [index, item] of value.entries()) {
+        const violation = schema.items ? reviewSchemaViolation(item, schema.items, `${path}[${index}]`) : undefined;
+        if (violation) return violation;
+      }
+      return;
+    }
+    case "object": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return `${path}: オブジェクトである必要があります`;
+      const row = value as Row, properties: Row = schema.properties ?? {};
+      for (const key of schema.required ?? []) if (!Object.hasOwn(row, key)) return `${path}.${key}: 必須の項目がありません`;
+      if (schema.additionalProperties === false && Object.keys(row).some(key => !Object.hasOwn(properties, key))) return `${path}: schemaに無い項目があります`;
+      for (const [key, property] of Object.entries(properties)) {
+        const violation = Object.hasOwn(row, key) ? reviewSchemaViolation(row[key], property, `${path}.${key}`) : undefined;
+        if (violation) return violation;
+      }
+      return;
+    }
+  }
+}
+
+const candidateKeys = ["id", "axis", "target", "location", "contract", "condition", "expectedBehavior", "failure", "impact", "evidence", "reproduction", "rootCause", "decision", "rationale", "defense", "sdk", "scopeEvidence", "needsSpecificationDecision", "changeEvidence", "origin", "baselineEvidence", "responsibility", "scopeAssessment"];
+const requirementKeys = ["id", "requirement", "status", "contentAssessment", "reference", "implementation", "verification", "evidence", "axis", "target", "findingIds", "findingLinks", "scopeEvidence", "rationale", "proposedRationale"];
+function records(value: unknown, keys: string[]): Record<string, unknown>[] {
+  if (!Array.isArray(value) || value.some(v => !v || typeof v !== "object" || Array.isArray(v))) throw new ReviewFailure("OUTPUT_INVALID", "候補または要求別記録が配列ではありません");
+  return value.map(v => Object.fromEntries(keys.filter(k => Object.hasOwn(v, k)).map(k => [k, v[k]])));
+}
+
+/**
+ * 1工程の出力の工程・完了状態・配列を検査し、固定資料から出典hash・引用・要求本文・固定分担理由を復元して内部の工程記録へ変換する。
+ * モデルの起動とは独立しており、担当エージェントが書いた出力の記録とモデルCLIの構造化出力の両方に使う。完了状態の扱いは呼出側が決める。
+ */
+export function reviewStageOutput(value: unknown, phase: ReviewPhase, input: Row): { format?: number; output: ReviewStageOutput } {
+  const row = value && typeof value === "object" && !Array.isArray(value) ? value as Row : undefined;
+  if (!row || row.axis !== phase || typeof row.completed !== "boolean") throw new ReviewFailure("OUTPUT_INVALID", "工程の出力に工程と完了状態がありません");
+  const output = expandReviewOutput(row, input);
+  return { format: output.format, output: { axis: output.axis, completed: output.completed, candidates: records(output.candidates, candidateKeys), requirements: records(output.requirements, requirementKeys),
+    causeGroups: output.causeGroups, consistency: output.consistency && typeof output.consistency === "object" ? output.consistency : undefined } };
 }
 
 export const compactReviewInstructions = `

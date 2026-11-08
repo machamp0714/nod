@@ -37,7 +37,7 @@ APIキーやprovider切替の環境変数をモデル子に渡さず、API認証
 
 ## 対象・取消・保存
 
-コードは固定commit、または明示したlocal対象のtreeのblobから実行専用の `context/` へ読み取り専用の通常ファイルとして保存する。主入力には差分・要求資料・ファイル索引を渡し、関係コードは必要な箇所だけ読む。未コミット作業やindexをモデルに触らせない。
+コードは固定commit、または明示したlocal対象のtreeのblobから、準備（`review prepare` と同じ処理）で作る実行専用の `context/` へ読み取り専用の通常ファイルとして保存し、`run` はそれをcwdとして使う（[レビュー入力の準備](review-prepare.md)）。主入力には差分・要求資料・ファイル索引と、その場所 `contextPath` を渡し、関係コードは必要な箇所だけ読む。未コミット作業やindexをモデルに触らせない。
 ファイル索引 `code` はhead側の相対パス一覧 `paths` と、実行属性のあるファイル `executable` だけを持つ。基点（merge-base）側は読み込めた全ファイルを `.review-base-<runId>/` 配下の同じ相対パスへ置き、`baseCode` には場所 `directory`、headと内容が異なるかheadに無いファイルの `paths`、headと同じblobのファイル数 `sameAsHead` だけを渡す。同じblobのファイルも `directory` 配下にあり、Read/Glob で読める。
 Claudeは `--restricted` でcwd内のRead/Grep/Globだけ許可する。Bash・Write・Edit・Agent・Skill・MCP・hookなどは提供せず、safe-modeでcustomizationを無効化する。資料内の命令を実行させない。
 秘密情報候補のパスは本文を読まず、symlink・submoduleは辿らない。バイナリ、不正なUTF-8、1ファイル2MiB超、総量64MiB超の資料も `execution.excludedSources` に理由を残す。
@@ -76,9 +76,9 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
 
 CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`execution.sourceFiles`）には引き続き全source本文とhashを保持する。
 
-`prepare` は全規約のhash・行数を持つ `standardScopeTemplatePath` も返す。初期値は `unresolved` で、判断を埋めるまで実行できない。
+`prepare` は全規約のhash・行数を持つ `standardScopeTemplatePath` も返す。初期値は `unresolved` で、判断を埋めるまで計画へ固定できない。
 
-`--scope-plan` は固定した `standard:<id>` とhashに対し、全行を `required`・`reference`・`unresolved` に分類したJSONを受け取る。形式と作成手順は[Skillの実行手順](../plugins/nod/skills/code-review/references/execution.md#規約の適用範囲を固定する)を参照する。未指定は従来の全規約確認。Issue・Spec・承認計画の除外は許さない。
+`--scope-plan` は固定した `standard:<id>` とhashに対し、全行を `required`・`reference`・`unresolved` に分類したJSONを受け取る。`run` では準備と同時に、準備と探索の記録の経路では `review plan` で同じ形式の計画を固定する。形式と作成手順は[Skillの実行手順](../plugins/nod/skills/code-review/references/execution.md#規約の適用範囲を固定する)を参照する。未指定は従来の全規約確認。Issue・Spec・承認計画の除外は許さない。
 
 全資料・全行を網羅しない計画、重複・hash不一致は `SCOPE_PLAN_INVALID`、未確認は `SCOPE_UNVERIFIED` で停止する。判断の意味上の妥当性は作成者・レビュー担当の責務。単なる資料取得や形式検査だけで証明したと扱わない。計画とhashは `standardScope` に固定し、途中変更・読取不能は `REQUIREMENTS_CHANGED`。隔離修正後も初回の計画を引き継ぐ。
 
@@ -263,7 +263,7 @@ Biome、lint、型検査、ビルド、テスト、再現コードはレビュ�
 
 書式や機械的な違反の再検出を目的にしない。Specとの不一致、業務ロジック、権限・状態遷移・境界条件、テストの期待値やCI設計の不足はレビュー対象とする。自動チェックの成功・失敗・未実行でレビューの状態や点数を変えず、マージ判断では両方を別々に確認する。
 
-機械的な合否だけを要求する行は、レビュー前に `--responsibility-plan /path/to/responsibility.json` で担当を固定できる。`prepare`・`run`・`evaluation replay` で使える。
+機械的な合否だけを要求する行は、レビュー前に `--responsibility-plan /path/to/responsibility.json` で担当を固定できる。`plan`・`run`・`evaluation replay` で使える。
 
 ```json
 {

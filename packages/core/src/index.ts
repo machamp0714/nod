@@ -83,6 +83,11 @@ export * from "./ops/review-prepare";
 
 export * from "./ops/review-run";
 
+export {
+  planReview, reviewInputFiles, checkReviewExploration, recordReviewExploration, showReview,
+  type ReviewPlan, type ReviewExploration, type ReviewExplorationCheck, type ReviewExplorationInput, type ReviewExplorationPhase, type ReviewRunState, type ReviewAgentClaim, type ReviewRecordedStage, type ReviewStageInputFiles,
+} from "./ops/review-record";
+
 export { freezeReviewEvaluation, replayReviewEvaluation, reportReviewEvaluation } from "./ops/review-evaluation";
 export { getSprintFlow, type SprintFlow } from "./ops/sprint-flow";
 

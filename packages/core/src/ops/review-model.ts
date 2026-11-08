@@ -1,7 +1,6 @@
-import { reviewOutputSchema, expandReviewOutput } from "./review-contract";
+import { reviewOutputSchema, reviewStageOutput, type ReviewPhase, type ReviewStageOutput } from "./review-contract";
 import { ReviewFailure, reviewProcess, reviewCliFailure, type ReviewReferenceDiagnostic } from "./review-process";
 
-export type ReviewPhase = "standards" | "spec" | "verification";
 /** 工程を確認単位で分けた1回のモデルCLI実行の計画。分割が1つの工程はshardを入力へ渡さず従来と同じ1セッションで実行する。 */
 export interface ReviewShardPlan {
   phase: ReviewPhase;
@@ -34,16 +33,10 @@ export interface ReviewStage {
   input?: { bodyBytes: number; schemaBytes: number; assignedRequirementIds: number; reviewUnits: number };
   format?: number;
   cliStatus?: { exitCode: number; resultSubtype: string; apiErrorStatus: number | null };
-  output: null | { completed: boolean; axis: ReviewPhase; candidates: Record<string, unknown>[]; requirements: Record<string, unknown>[]; consistency?: Record<string, unknown>; causeGroups?: Record<string, unknown>[] };
+  output: null | ReviewStageOutput;
   problem?: { code: string; message: string; referenceDiagnostic?: ReviewReferenceDiagnostic };
   /** 工程を構成した分割の状態・担当ID・入力量・使用量。未起動の分割も担当IDを残す。 */
   shards?: ReviewShard[];
-}
-const candidateKeys = ["id", "axis", "target", "location", "contract", "condition", "expectedBehavior", "failure", "impact", "evidence", "reproduction", "rootCause", "decision", "rationale", "defense", "sdk", "scopeEvidence", "needsSpecificationDecision", "changeEvidence", "origin", "baselineEvidence", "responsibility", "scopeAssessment"];
-const requirementKeys = ["id", "requirement", "status", "contentAssessment", "reference", "implementation", "verification", "evidence", "axis", "target", "findingIds", "findingLinks", "scopeEvidence", "rationale", "proposedRationale"];
-function records(value: unknown, keys: string[]): Record<string, unknown>[] {
-  if (!Array.isArray(value) || value.some(v => !v || typeof v !== "object" || Array.isArray(v))) throw new ReviewFailure("OUTPUT_INVALID", "候補または要求別記録が配列ではありません");
-  return value.map(v => Object.fromEntries(keys.filter(k => Object.hasOwn(v, k)).map(k => [k, v[k]])));
 }
 export async function authenticate(provider: "claude" | "codex", cwd: string, deadline: number, signal: AbortSignal) {
   const auth = await reviewProcess(provider, provider === "claude" ? ["auth", "status"] : ["login", "status"], { cwd, deadline, signal });
@@ -98,11 +91,9 @@ export async function invokeReviewModel(options: {
       throw new ReviewFailure("MODEL_UNVERIFIED", "ClaudeのmodelUsageに具体的な実効モデル識別子がありません");
     }
     if (stage.effectiveModels.some(model => options.implementationModels.includes(model))) throw new ReviewFailure("MODEL_OVERLAP", "実効レビューモデルが実装モデル集合と重なっています");
-    let output = data.structured_output;
-    if (!output || output.axis !== options.phase || typeof output.completed !== "boolean") throw new ReviewFailure("OUTPUT_INVALID", "モデルの構造化出力に工程と完了状態がありません");
-    output = expandReviewOutput(output, { ...request, sourceCatalog: options.sourceCatalog, unitCatalog: options.unitCatalog });
-    stage.format = output.format;
-    stage.output = { axis: output.axis, completed: output.completed, candidates: records(output.candidates, candidateKeys), requirements: records(output.requirements, requirementKeys), causeGroups: output.causeGroups, consistency: output.consistency && typeof output.consistency === "object" ? output.consistency : undefined };
+    const { format, output } = reviewStageOutput(data.structured_output, options.phase, { ...request, sourceCatalog: options.sourceCatalog, unitCatalog: options.unitCatalog });
+    stage.format = format;
+    stage.output = output;
     if (!output.completed) throw new ReviewFailure("MODEL_REVIEW_INCOMPLETE", "モデルが必要資料・確認の不足を報告しました");
     stage.status = "completed";
   } catch (error) {

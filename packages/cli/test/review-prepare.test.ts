@@ -451,13 +451,17 @@ test("READMEのsymlinkを規約としてたどらず未完了にする", async (
   expect(JSON.stringify(r.json)).not.toContain("EXTERNAL_POLICY_SENTINEL");
 });
 
-test("規約適用計画の雛形は固定hash・全行範囲を持ち、未判断のまま実行できない", async () => {
+test("規約適用計画の雛形は固定hash・全行範囲を持ち、未判断のまま計画へ固定できない", async () => {
   const f = await fixture();
   const prepared = await f.prepare();
   expect(prepared.json.standardScopeTemplatePath).toBeString();
   const template = JSON.parse(readFileSync(prepared.json.standardScopeTemplatePath, "utf8"));
   const standard = prepared.json.sources.find((s: any) => s.type === "standard");
   expect(template).toMatchObject({ version: 1, standards: [{ source: `standard:${standard.id}`, hash: standard.hash, ranges: [{ start: 1, end: standard.content.split("\n").length, kind: "unresolved" }] }] });
-  const unresolved = await f.prepare("--scope-plan", prepared.json.standardScopeTemplatePath);
-  expect(unresolved.json.problems).toContainEqual(expect.objectContaining({ code: "SCOPE_UNVERIFIED" }));
+  const unresolved = await f.cli("review", "plan", "--run", prepared.json.runId, "--scope-plan", prepared.json.standardScopeTemplatePath);
+  expect(unresolved.json.error.code).toBe("SCOPE_UNVERIFIED");
+  // 計画は準備から分けて固定する。準備は計画を受け付けない。
+  const legacy = await f.prepare("--scope-plan", prepared.json.standardScopeTemplatePath);
+  expect(legacy.exitCode).toBe(1);
+  expect(legacy.json.error.code).toBe("INVALID_ARGS");
 });
