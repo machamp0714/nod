@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
+import { echoReviewReferences, git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 async function fixture() {
   const repo = makeRepo();
@@ -89,8 +89,8 @@ test("固定資料で2軸を並列探索し、新しい検証コンテキスト�
   expect(new Set(starts.map(e => e.pid)).size).toBe(3);
   expect(starts[2].phase).toBe("verification");
   expect(JSON.stringify(starts[2].input)).not.toContain("引き継がない探索思考");
-  expect(starts[0].input.code).toContainEqual(expect.objectContaining({ path: "value.ts" }));
-  expect(starts[0].input.code.every((entry: any) => !("content" in entry))).toBe(true);
+  expect(starts[0].input.code.paths).toContain("value.ts");
+  expect(starts[0].input.code.paths.every((path: unknown) => typeof path === "string")).toBe(true);
   expect(starts[0].snapshot).toBe("export const value = 2;\n");
   expect(starts[0].cwd).not.toBe(f.repo);
   expect(starts[0].args).toContain("Read,Grep,Glob");
@@ -281,7 +281,8 @@ function adjudicatingClaude(dir: string, mutate = "") {
   fakeClaude(dir, `
     if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
     else {
-      const input = JSON.parse(await Bun.stdin.text());
+      const body = await Bun.stdin.text(), input = JSON.parse(body);
+      ${echoReviewReferences}
       const requirements = (input.reviewUnits ?? []).filter(u => input.phase === "verification" || u.axis === input.phase).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
       const output = { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "固定したIssue・Spec・計画の要求値と範囲を相互確認した" } };
       ${mutate}
@@ -435,6 +436,47 @@ test("削除した契約箇所は基点の引用を検証し、両軸の同根�
   expect(result.json.findings.map((f: any) => f.axis)).toEqual(["spec", "standards"]);
   expect(result.json.rootCauses).toHaveLength(1);
   expect(result.json.rootCauses[0].candidates).toHaveLength(2);
+});
+
+test("基点コードは場所を1回だけ示してheadと異なる・削除したファイルだけを列挙し、未変更ファイルも同じ相対パスで読める", async () => {
+  const f = await fixture(), trace = join(f.dir, "inputs.jsonl");
+  writeFileSync(join(f.repo, "same.ts"), "export const same = 1;\n");
+  writeFileSync(join(f.repo, "changed.ts"), "export const changed = 1;\n");
+  writeFileSync(join(f.repo, "deleted.ts"), "export const deleted = 1;\n");
+  writeFileSync(join(f.repo, "tool.sh"), "#!/bin/sh\necho tool\n"); chmodSync(join(f.repo, "tool.sh"), 0o755);
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "基点");
+  writeFileSync(join(f.repo, "changed.ts"), "export const changed = 2;\n");
+  writeFileSync(join(f.repo, "added.ts"), "export const added = 1;\n");
+  git(f.repo, "rm", "-q", "deleted.ts"); git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "変更");
+  adjudicatingClaude(f.dir, `
+    const fs = await import("node:fs"), base = input.baseCode;
+    const read = path => fs.existsSync(base.directory + "/" + path) ? fs.readFileSync(base.directory + "/" + path, "utf8") : null;
+    fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ phase: input.phase, body, code: input.code, baseCode: base,
+      listed: Object.fromEntries(base.paths.map(path => [path, read(path)])),
+      unlisted: Object.fromEntries(input.code.paths.filter(path => !base.paths.includes(path)).map(path => [path, { base: read(path), head: fs.readFileSync(path, "utf8") }])) }) + "\\n");
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const calls = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(calls.map(c => c.phase).sort()).toEqual(["spec", "standards", "verification"]);
+  for (const call of calls) {
+    expect(call.body).not.toContain("snapshotPath");
+    expect(call.body.split(".review-base-").length - 1).toBe(1);
+    expect(call.baseCode.directory).toMatch(/^\.review-base-[^/]+$/);
+    expect([...call.code.paths].sort()).toEqual(["added.ts", "changed.ts", "same.ts", "tool.sh", "value.ts"]);
+    expect(call.code.executable).toEqual(["tool.sh"]);
+    expect(call.baseCode.sameAsHead).toBe(3);
+    expect(call.listed).toEqual({ "changed.ts": "export const changed = 1;\n", "deleted.ts": "export const deleted = 1;\n" });
+    expect(call.unlisted).toEqual({
+      "added.ts": { base: null, head: "export const added = 1;\n" },
+      "same.ts": { base: "export const same = 1;\n", head: "export const same = 1;\n" },
+      "tool.sh": { base: "#!/bin/sh\necho tool\n", head: "#!/bin/sh\necho tool\n" },
+      "value.ts": { base: "export const value = 2;\n", head: "export const value = 2;\n" },
+    });
+  }
+  const { execution } = JSON.parse(readFileSync(result.json.artifactPath, "utf8"));
+  expect(execution.excludedSources).toEqual([]);
+  for (const stage of execution.stages) expect(stage.input.bodyBytes).toBe(Buffer.byteLength(calls.find(c => c.phase === stage.phase).body));
 });
 
 test("計画はTaskとStepを確認単位にし、JSONの状態や括弧を要求にしない", async () => {
@@ -656,12 +698,10 @@ test("全行が参考範囲の規約は主入力を索引だけにし、本文�
     { start: 1, end: 3, kind: "reference", rationale: "背景説明であり必須要求ではない" },
   ] }] }));
   adjudicatingClaude(f.dir, `
-    const row = input.sources.find(s => s.type === "standard");
-    if (!row.referenceOnly || row.sections || row.applicability) throw new Error("参考だけの規約へ見出し一覧を渡さない");
+    const row = input.sources.find(s => s.source === "standard:README.md");
+    if (!row.referenceOnly || row.headings || row.applicability) throw new Error("参考だけの規約へ見出し一覧を渡さない");
     if (input.standardScope.standards.length) throw new Error("参考だけの規約の範囲を渡さない");
-    const sourceFile = input.sourceFiles.find(s => s.source === "standard:README.md");
-    if (sourceFile.applicability) throw new Error("参考だけの規約の範囲を重複して渡さない");
-    if (!(await Bun.file(sourceFile.path).text()).includes("参考の背景説明。")) throw new Error("本文は取得可能にする");
+    if (!(await Bun.file(row.path).text()).includes("参考の背景説明。")) throw new Error("本文は取得可能にする");
   `);
   const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
   expect(result.json).toMatchObject({ status: "completed", score: 5 });
@@ -683,7 +723,7 @@ test("規約の適用計画で参考範囲を明示し、Specは残して固定�
     if (input.reviewUnits.some(u => u.requirement === "参考の背景説明。")) throw new Error("参考資料を必須要求にしない");
     if (!input.reviewUnits.some(u => u.axis === "spec")) throw new Error("Specを省略しない");
     if (input.sources.some(s => s.content)) throw new Error("本文を主入力へ重複して渡さない");
-    const sourceFile = input.sourceFiles.find(s => s.source === "standard:README.md");
+    const sourceFile = input.sources.find(s => s.source === "standard:README.md");
     if (!(await Bun.file(sourceFile.path).text()).includes("参考の背景説明。")) throw new Error("固定した参考資料は取得可能にする");
   `);
   const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
@@ -691,6 +731,284 @@ test("規約の適用計画で参考範囲を明示し、Specは残して固定�
   expect(result.json.standardScope.hash).toMatch(/^[a-f0-9]{64}$/);
   expect(result.json.coverage.some((r: any) => r.requirement === "参考の背景説明。")).toBe(false);
   expect(result.json.sources.find((s: any) => s.type === "standard").content).toContain("参考の背景説明。");
+});
+
+test("各工程へ担当単位と主要求だけを渡し、出典・段落・適用範囲を1回ずつにして入力量を記録する", async () => {
+  const f = await fixture();
+  await f.cli("issue", "update", f.issue, "-d", "利用時は、\n公開名valueで値2を返す。");
+  writeFileSync(join(f.repo, "README.md"), "# 規約\n変更時は、\n公開名valueを維持する。\n参考の背景説明。\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "規約");
+  const prepared = await f.cli("review", "prepare", "--repo", f.repo, "--base", "HEAD^", "--issue", f.issue);
+  const standard = prepared.json.sources.find((s: any) => s.type === "standard");
+  const plan = join(f.dir, "scope.json");
+  writeFileSync(plan, JSON.stringify({ version: 1, standards: [{ source: `standard:${standard.id}`, hash: standard.hash, ranges: [
+    { start: 1, end: 3, kind: "required", rationale: "公開名の規約を必須として確認する" },
+    { start: 4, end: 5, kind: "reference", rationale: "背景説明と末尾空行は参考にとどめる" },
+  ] }] }));
+  const trace = join(f.dir, "inputs.jsonl");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const body = await Bun.stdin.text(), input = JSON.parse(body), schema = process.argv[process.argv.indexOf("--json-schema") + 1];
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ phase: input.phase, body, bodyBytes: Buffer.byteLength(body), schemaBytes: Buffer.byteLength(schema) }) + "\\n");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "固定した要求と規約を相互確認した" } } }));
+    }
+  `);
+  const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const calls = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const issueParagraph = JSON.stringify("利用時は、\n公開名valueで値2を返す。"), standardParagraph = JSON.stringify("変更時は、\n公開名valueを維持する。\n参考の背景説明。");
+  const count = (body: string, text: string) => body.split(text).length - 1;
+  const specIds = [`issue:${f.issue}:L1`, `issue:${f.issue}:L2`], standardIds = ["standard:README.md:L2", "standard:README.md:L3"];
+  const expected: Record<string, { assigned: string[]; units: string[] }> = {
+    standards: { assigned: standardIds, units: [...specIds, ...standardIds] },
+    spec: { assigned: specIds, units: specIds },
+    // 検証はSpec単位を先頭（主分割）に置いて担当させる。
+    verification: { assigned: [...specIds, ...standardIds], units: [...specIds, ...standardIds] },
+  };
+  expect(calls.map(c => c.phase).sort()).toEqual(["spec", "standards", "verification"]);
+  for (const call of calls) {
+    const input = JSON.parse(call.body), want = expected[call.phase]!;
+    expect(input.assignedRequirementIds).toEqual(want.assigned);
+    expect(input.reviewUnits.map((u: any) => u.id).sort()).toEqual([...want.units].sort());
+    for (const unit of input.reviewUnits) {
+      expect(Object.keys(unit.reference).sort()).toEqual(["line", "source"]);
+      expect(unit.context).toBeUndefined();
+      expect(input.reviewParagraphs.map((p: any) => p.id)).toContain(unit.paragraph);
+      expect(unit.requiredAssessmentReferences).toEqual(({ [specIds[0]!]: [1], [specIds[1]!]: [2, 1], [standardIds[0]!]: [2], [standardIds[1]!]: [3, 2] } as Record<string, number[]>)[unit.id]!.map(line => ({ source: unit.reference.source, line })));
+    }
+    expect(count(call.body, issueParagraph)).toBe(1);
+    expect(count(call.body, standardParagraph)).toBe(call.phase === "spec" ? 0 : 1);
+    expect(count(call.body, "公開名の規約を必須として確認する")).toBe(1);
+    expect(count(call.body, "背景説明と末尾空行は参考にとどめる")).toBe(1);
+    expect(call.body).not.toContain(standard.hash);
+    const indexed = input.sources.find((s: any) => s.source === "standard:README.md");
+    expect(indexed).toEqual({ source: "standard:README.md", title: expect.any(String), path: expect.stringMatching(/^\.review-input-[^/]+\/source-\d+\.txt$/), lines: 5, headings: [{ title: "# 規約", line: 1 }] });
+    expect(input.sourceFiles).toBeUndefined();
+    expect(input.standardScope.standards).toEqual([{ source: "standard:README.md", ranges: expect.any(Array) }]);
+  }
+  const stages = result.json.execution.stages;
+  for (const stage of stages) {
+    const call = calls.find(c => c.phase === stage.phase);
+    expect(stage.input).toEqual({ bodyBytes: call.bodyBytes, schemaBytes: call.schemaBytes, assignedRequirementIds: expected[stage.phase]!.assigned.length, reviewUnits: expected[stage.phase]!.units.length });
+  }
+  expect(result.json.sources.find((s: any) => s.type === "standard")).toMatchObject({ hash: standard.hash, content: expect.stringContaining("参考の背景説明。"), applicability: expect.any(Array) });
+  expect(result.json.execution.sourceFiles).toContainEqual(expect.objectContaining({ source: "standard:README.md", hash: standard.hash }));
+});
+
+// 必須範囲の規約行を分割上限（80単位）より多く固定し、各行を独立した確認単位にする。
+function manyStandards(repo: string, count: number) {
+  writeFileSync(join(repo, "README.md"), `# 規約\n${Array.from({ length: count }, (_, i) => `- 規約${i + 1}: 公開値${i + 1}を維持する。`).join("\n")}\n`);
+  git(repo, "add", "."); git(repo, "commit", "-qm", "大量の規約");
+  return Array.from({ length: count }, (_, i) => `standard:README.md:L${i + 2}`);
+}
+
+test("80単位を超える規約は担当を分けて同時実行上限内で並列に探索・検証し、1工程ずつ集約して完了できる", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 700), specId = `issue:${f.issue}:L1`, trace = join(f.dir, "trace.jsonl");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), schema = JSON.parse(process.argv[process.argv.indexOf("--json-schema") + 1]);
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "start", pid: process.pid, phase: input.phase, shard: input.shard ?? null, assigned: input.assignedRequirementIds,
+        candidates: input.candidates ?? null, requirementIds: schema.properties.requirements.items.properties.id.enum, maxItems: schema.properties.requirements.maxItems,
+        candidateId: schema.properties.candidates.items?.properties?.id ?? null, candidatesMax: schema.properties.candidates.maxItems ?? null, causeGroupsMax: schema.properties.causeGroups.maxItems ?? null }) + "\\n");
+      await Bun.sleep(300);
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "end", pid: process.pid }) + "\\n");
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, usage: { output_tokens: 10 },
+        structured_output: { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "担当範囲の要求と規約を相互確認した" } } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, JSON.stringify(result.json?.problems)).toMatchObject({ status: "completed", score: 5, review: { standards: "passed", spec: "passed" } });
+  const events = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  let running = 0, peak = 0;
+  for (const event of events) { running += event.event === "start" ? 1 : -1; peak = Math.max(peak, running); }
+  expect(peak).toBeGreaterThan(1);
+  expect(peak).toBeLessThanOrEqual(8);
+  const starts = events.filter(e => e.event === "start");
+  for (const start of starts) {
+    // 各分割のschemaは担当IDだけを、担当件数どおりに返させる。
+    expect(start.requirementIds).toEqual(start.assigned);
+    expect(start.maxItems).toBe(start.assigned.length);
+    expect(start.assigned.length).toBeLessThanOrEqual(80);
+  }
+  const byPhase = (phase: string) => starts.filter(s => s.phase === phase).sort((a, b) => (a.shard?.index ?? 0) - (b.shard?.index ?? 0));
+  const standards = byPhase("standards"), spec = byPhase("spec"), verification = byPhase("verification");
+  expect(standards).toHaveLength(9);
+  expect(standards.flatMap(s => s.assigned)).toEqual(standardIds);
+  for (const [i, s] of standards.entries()) {
+    expect(s.assigned.length).toBeGreaterThanOrEqual(77);
+    expect(s.shard).toMatchObject({ index: i, count: 9, candidateIdPrefix: `s${i + 1}-` });
+    expect(s.candidateId.pattern).toBe(`^s${i + 1}-`);
+  }
+  expect(spec).toHaveLength(1);
+  expect(spec[0]).toMatchObject({ shard: null, assigned: [specId] });
+  expect(spec[0].candidateId.pattern).toBeUndefined();
+  // 検証は主分割がSpec単位と候補の採否・原因統合だけを担当し、規約単位は残りの分割へ分ける。
+  expect(verification).toHaveLength(10);
+  expect(verification[0]!.assigned).toEqual([specId]);
+  expect(verification.flatMap(s => s.assigned)).toEqual([specId, ...standardIds]);
+  for (const [i, s] of verification.entries()) {
+    expect(s.shard).toMatchObject({ index: i, count: 10, judgesCandidates: i === 0 });
+    expect(s.candidatesMax).toBe(i === 0 ? null : 0);
+    expect(s.causeGroupsMax).toBe(i === 0 ? null : 0);
+    expect(s.candidates.map((c: any) => c.axis)).toEqual(["standards", "spec"]);
+    expect(s.candidates.flatMap((c: any) => c.requirements.map((r: any) => r.id))).toEqual(s.assigned.filter((id: string) => id !== specId).concat(s.assigned.includes(specId) ? [specId] : []));
+  }
+  const stages = result.json.execution.stages;
+  expect(stages.map((s: any) => s.phase)).toEqual(["standards", "spec", "verification"]);
+  expect(stages[0].output.requirements.map((r: any) => r.id)).toEqual(standardIds);
+  expect(stages[2].output.requirements).toHaveLength(701);
+  expect(stages[0].usage.output_tokens).toBe(90);
+  expect(stages[0].shards.map((s: any) => [s.index, s.status, s.candidateIdPrefix, s.requirementIds.length > 0])).toEqual(standards.map((_, i) => [i, "completed", `s${i + 1}-`, true]));
+  expect(stages[0].shards.every((s: any) => s.input.assignedRequirementIds === s.requirementIds.length && s.output === undefined)).toBe(true);
+  expect(stages[2].shards.map((s: any) => s.judgesCandidates)).toEqual(verification.map((_, i) => i === 0));
+  expect(result.json.coverage).toHaveLength(701);
+});
+
+test("複数分割の探索で接頭辞の無い候補IDは書き換えずに拒否し、完了した分割の候補を保存する", async () => {
+  const f = await fixture();
+  manyStandards(f.repo, 100);
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), index = input.shard?.index ?? 0;
+      if (input.phase === "standards" && index === 1) await Bun.sleep(500);
+      const candidates = input.phase === "standards" ? [{ id: index === 0 ? input.shard.candidateIdPrefix + "dup" : "dup", axis: "standards" }] : [];
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates, requirements: [] } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems[0]).toMatchObject({ code: "OUTPUT_INVALID", message: expect.stringContaining("s2-") });
+  const standards = result.json.execution.stages.find((s: any) => s.phase === "standards");
+  expect(standards.shards.map((s: any) => s.status)).toEqual(["completed", "incomplete"]);
+  expect(standards.shards[1].problem.code).toBe("OUTPUT_INVALID");
+  expect(standards.output.candidates.map((c: any) => c.id)).toEqual(["s1-dup"]);
+  expect(result.json.execution.stages.some((s: any) => s.phase === "verification")).toBe(false);
+});
+
+test("検証の主分割が失敗したら残りの検証分割を起動せず、担当IDを未起動として保存する", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 100), marker = join(f.dir, "rest-started");
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text());
+      if (input.phase === "verification" && input.shard.judgesCandidates) process.exit(19);
+      if (input.phase === "verification") await Bun.write(${JSON.stringify(marker)}, "unexpected");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "照合した" }, evidence: "value.ts:1" }));
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems[0].code).toBe("CLI_FAILED");
+  expect(existsSync(marker)).toBe(false);
+  const verification = result.json.execution.stages.find((s: any) => s.phase === "verification");
+  expect(verification).toMatchObject({ status: "incomplete", output: null, problem: { code: "CLI_FAILED" } });
+  expect(verification.shards[0]).toMatchObject({ status: "incomplete", judgesCandidates: true, requirementIds: [`issue:${f.issue}:L1`] });
+  expect(verification.shards.slice(1).every((s: any) => s.status === "not_started")).toBe(true);
+  expect(verification.shards.slice(1).flatMap((s: any) => s.requirementIds)).toEqual(standardIds);
+});
+
+test("一部の分割が期限に達したら未完了・点数なしとし、完了分の出力と未完了・未起動の担当IDを保存する", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 700);
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text());
+      if (input.phase !== "standards" || input.shard.index !== 0) setInterval(() => {}, 100);
+      else {
+        ${echoReviewReferences}
+        const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "照合した" }, evidence: "value.ts:1" }));
+        console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements } }));
+      }
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled", "--timeout-seconds", "4");
+  expect(result.exitCode).toBe(1);
+  expect(result.json).toMatchObject({ status: "incomplete", score: null, execution: { status: "incomplete" } });
+  expect(result.json.problems[0].code).toBe("DEADLINE_EXCEEDED");
+  const [standards, spec] = result.json.execution.stages;
+  expect(result.json.execution.stages).toHaveLength(2);
+  expect(standards).toMatchObject({ phase: "standards", status: "incomplete", output: { completed: false } });
+  const done = standards.shards[0];
+  expect(done.status).toBe("completed");
+  expect(standards.output.requirements.map((r: any) => r.id)).toEqual(done.requirementIds);
+  // 起動済みで中断した分割と、待機中のまま起動しなかった分割の担当を区別して残す。
+  expect(standards.shards.slice(1).every((s: any) => ["incomplete", "not_started"].includes(s.status))).toBe(true);
+  expect(standards.shards.filter((s: any) => s.status === "not_started").length).toBeGreaterThan(0);
+  expect(standards.shards.filter((s: any) => s.status === "incomplete").every((s: any) => ["DEADLINE_EXCEEDED", "CANCELLED"].includes(s.problem.code))).toBe(true);
+  expect(standards.shards.flatMap((s: any) => s.requirementIds)).toEqual(standardIds);
+  expect(spec).toMatchObject({ phase: "spec", status: "incomplete", output: null });
+  const saved = JSON.parse(readFileSync(result.json.initialReviewPath, "utf8"));
+  expect(saved.execution.stages).toEqual(result.json.execution.stages);
+  expect(saved.problems[0].code).toBe("DEADLINE_EXCEEDED");
+});
+
+test("検証の主分割が言い換えた候補文を他の分割へ渡し、分割をまたぐ違反リンクを判定条件を緩めずに完了させる", async () => {
+  const f = await fixture(), trace = join(f.dir, "trace.jsonl");
+  // 対応する規約行を末尾に置き、主分割（Spec単位）とは別の検証分割が担当するようにする。
+  writeFileSync(join(f.repo, "README.md"), `# 規約\n${Array.from({ length: 99 }, (_, i) => `- 規約${i + 1}: 公開値${i + 1}を維持する。`).join("\n")}\n- 公開名valueで値2を返す。\n`);
+  writeFileSync(join(f.repo, "value.ts"), "export const value = 3;\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "公開値と規約を変更");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), main = input.phase === "verification" && input.shard?.judgesCandidates !== false;
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "start", phase: input.phase, shard: input.shard ?? null, main, candidates: input.candidates ?? null }) + "\\n");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 を要求と照合した" }));
+      const output = { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "担当範囲の要求と規約を相互確認した" } };
+      ${modernRequirements}
+      const spec = input.reviewUnits.find(u => u.axis === "spec");
+      const explored = { id: "missing", axis: "spec", target: input.target.hash, location: { path: "value.ts", revision: "head", line: 1 }, changeEvidence: { path: "value.ts", revision: "head", line: 1 }, origin: "introduced",
+        contract: spec.reference, condition: "利用者がvalueをimportする", expectedBehavior: "値2を返す", failure: "値3を返す", impact: { score: 2, description: "主要な公開値が不正になる" },
+        evidence: { kind: "static", detail: "公開exportの右辺を要求と照合した", recordIds: [] }, reproduction: "valueをimportして2と比較する", rootCause: "wrong-value", needsSpecificationDecision: false, decision: "required",
+        responsibility: { owner: "review", rationale: "値の公開契約を確認する", references: [] }, rationale: "公開契約に反する", defense: "公開値を補正する既存防御はない",
+        sdk: { status: "not_applicable", evidence: "言語の定数exportのみ", version: null, source: null }, scopeEvidence: null, scopeAssessment: null };
+      let candidate = explored;
+      if (input.phase === "spec") output.candidates = [explored];
+      if (main) {
+        // 主分割は候補の文面を言い換えて採否を確定する。
+        candidate = { ...explored, expectedBehavior: "公開名valueは値2を返す", failure: "公開名valueが値3を返す" };
+        output.candidates = [candidate];
+        output.causeGroups = [{ id: "wrong-value", members: ["spec:missing"], rationale: "公開定数の値" }];
+      } else if (input.phase === "verification") candidate = input.candidates.find(s => s.axis === "spec").candidates.find(c => c.id === "missing");
+      if (input.phase === "verification") for (const row of output.requirements) if (row.id === spec.id || row.requirement === "- 公開名valueで値2を返す。") {
+        row.status = "unsatisfied"; row.findingIds = ["spec:missing"];
+        row.findingLinks = [{ findingAxis: "spec", findingId: "missing", relation: "violation", observedBehavior: candidate.failure, requirementEvidence: row.requiredAssessmentReferences, codeEvidence: [candidate.location],
+          operation: { requirement: "valueをimportする", candidate: "valueをimportする", match: "same" }, condition: { requirement: "公開値の利用時", candidate: "公開値の利用時", match: "same" },
+          obligation: { requirement: "値2を返す", candidate: candidate.expectedBehavior, match: "same" }, effectOfFix: "resolves_this_violation", rationale: "公開定数の右辺を2へ戻すと要求値が得られる" }];
+      }
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "end", phase: input.phase, main }) + "\\n");
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: output }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, JSON.stringify(result.json?.problems)).toMatchObject({ status: "completed", score: 2, review: { standards: "failed", spec: "failed" } });
+  expect(result.json.problems.some((p: any) => p.code === "REQUIREMENT_LINK_UNVERIFIED")).toBe(false);
+  expect(result.json.coverage.find((r: any) => r.requirement === "- 公開名valueで値2を返す。")).toMatchObject({ status: "unsatisfied", findingIds: ["spec:missing"] });
+  const events = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const mainEnd = events.findIndex(e => e.event === "end" && e.main);
+  const others = events.map((e, i) => ({ ...e, i })).filter(e => e.event === "start" && e.phase === "verification" && !e.main);
+  // 主分割はSpec単位と候補の採否だけを担当し、終了後に残りの検証分割が主分割の検証済み候補を受け取って起動する。
+  expect(events.find(e => e.event === "start" && e.main).shard).toMatchObject({ index: 0, judgesCandidates: true });
+  expect(others.length).toBeGreaterThan(0);
+  for (const start of others) {
+    expect(start.i).toBeGreaterThan(mainEnd);
+    expect(start.candidates.flatMap((s: any) => s.candidates)).toEqual([expect.objectContaining({ id: "missing", failure: "公開名valueが値3を返す", expectedBehavior: "公開名valueは値2を返す", decision: "required", rootCause: "wrong-value" })]);
+  }
+  const verification = result.json.execution.stages.find((s: any) => s.phase === "verification");
+  expect(verification.shards[0]).toMatchObject({ judgesCandidates: true, requirementIds: [`issue:${f.issue}:L1`] });
 });
 
 for (const outside of [false, true]) {
@@ -808,7 +1126,7 @@ for (const mode of ["outside", "explicit", "missing_reference", "standard_only",
       if (input.scopePolicy !== "changes-and-explicit-requirements-v1") throw new Error("範囲方針が未指定");
       output.format = 2; output.target = input.target.hash;
       const scopeUnit = input.reviewUnits.filter(u => u.axis === "spec").at(-1);
-      const referenceUnit = ${JSON.stringify(mode)} === "standard_only" ? input.reviewUnits.find(u => u.axis === "standards") : scopeUnit;
+      const referenceUnit = ${JSON.stringify(mode)} === "standard_only" ? { reference: { source: "standard:README.md", line: 2 } } : scopeUnit;
       Object.assign(candidate, {
         origin: "pre_existing", baselineEvidence: { path: ${JSON.stringify(mode === "base_other_path" ? "peer.ts" : "value.ts")}, revision: "base", line: 1 },
         changeEvidence: ${mode === "change_evidence" ? '{ path: "notes.md", revision: "head", line: 1 }' : 'null'},
@@ -925,7 +1243,7 @@ test("独立チェックの成功・失敗・未実行をレビューへ渡さ�
   adjudicatingClaude(f.dir, `
     const { appendFileSync } = await import("node:fs");
     if (input.executionEvidence !== undefined || input.executionChecks !== undefined) throw new Error("結果が混入");
-    if (input.code.some(c => c.path.includes(".review-evidence"))) throw new Error("結果のファイルが混入");
+    if (input.code.paths.some(path => path.includes(".review-evidence"))) throw new Error("結果のファイルが混入");
     appendFileSync(${JSON.stringify(trace)}, JSON.stringify({phase: input.phase, target: input.target, units: input.reviewUnits, args: process.argv}) + "\\n");
   `);
   for (const status of ["passed", "failed", "not_run"]) {
@@ -959,7 +1277,7 @@ for (const mode of ["valid", "unknown", "diagnostic", "changed", "ignored"] as c
   writeFileSync(plan, JSON.stringify(data));
   adjudicatingClaude(f.dir, `
     for (const row of output.requirements) {
-      const a = input.responsibility?.assignments.find(a => a.sourceHash === row.reference.hash && a.line === row.reference.line);
+      const a = input.responsibility?.assignments.find(a => a.source === row.reference.source && a.line === row.reference.line);
       if (a && ${JSON.stringify(mode)} !== "ignored") Object.assign(row, { status: "out_of_scope", implementation: [], scopeEvidence: row.reference, rationale: a.rationale });
     }
     if (${JSON.stringify(mode)} === "changed" && input.phase === "verification") await Bun.write(${JSON.stringify(plan)}, "{}");
@@ -986,7 +1304,7 @@ for (const mode of ["automatic", "with_hook", "missing", "stale", "conflicting",
     adjudicatingClaude(f.dir, `
       output.format = 2; output.target = input.target.hash;
       const mode = ${JSON.stringify(mode)};
-      const standard = input.reviewUnits.find(u => u.reference.source === "standard:README.md" && u.reference.line === 2);
+      const standard = { reference: { source: "standard:README.md", line: 2 } };
       const formatting = { id: "format", axis: "standards", target: input.target.hash,
         location: { path: "value.ts", revision: "head", line: 1 }, contract: { source: standard.reference.source, line: 2 },
         condition: "書式設定が適用されるファイル", failure: "書式違反の候補であり実行結果は確認しない", impact: { score: 4, description: "書式の問題のみ" },
@@ -1068,7 +1386,8 @@ test("探索2軸と検証へ行の固定IDと条件を含む段落文脈を渡�
   await f.cli("issue", "update", f.issue, "--description", "登録時は、\n公開名valueで値2を返す。\n\n取消時は別処理とする。");
   adjudicatingClaude(f.dir, `
     const units = input.reviewUnits.filter(u=>u.axis === "spec");
-    if (units.length !== 3 || units[0].context.content !== "登録時は、\\n公開名valueで値2を返す。" || units[1].context.content !== units[0].context.content || units[2].context !== undefined) throw new Error("条件や別操作の境界が変わった");
+    const paragraph = unit => unit.paragraph && input.reviewParagraphs.find(p => p.id === unit.paragraph).content;
+    if (units.length !== 3 || paragraph(units[0]) !== "登録時は、\\n公開名valueで値2を返す。" || units[1].paragraph !== units[0].paragraph || units[2].paragraph !== undefined) throw new Error("条件や別操作の境界が変わった");
     output.format = 2; output.target = input.target.hash; output.causeGroups = [];
   `);
   const result = await f.run("--extra-usage-disabled");
@@ -1115,8 +1434,7 @@ const modernRequirements = `
   output.format = 3; output.target = input.target.hash; output.causeGroups = [];
   for (const row of output.requirements) {
     row.findingIds ??= []; row.findingLinks ??= []; row.scopeEvidence ??= null; row.rationale ??= "固定本文を確認した";
-    row.contentAssessment = { kind: "obligation", obligations: [row.requirement], rationale: "今回の実装に適用する要求", references: [row.reference,
-      ...(row.context ? [{ source: row.reference.source, line: row.context.startLine }] : [])] };
+    row.contentAssessment = { kind: "obligation", obligations: [row.requirement], rationale: "今回の実装に適用する要求", references: row.requiredAssessmentReferences };
   }
 `;
 
@@ -1200,6 +1518,44 @@ for (const mixed of [false, true]) test(`URL到達性は独立検査へ分担し
   expect(result.json.coverage.find((r: any) => r.reference.line === 3).status).toBe(mixed ? "unverified" : "out_of_scope");
 });
 
+for (const mode of ["paraphrased", "satisfied", "other_line"] as const) test(`固定分担の要求理由は計画から復元し、モデルの文面は別に保存する（${mode}）`, async () => {
+  const f = await fixture();
+  await f.cli("issue", "update", f.issue, "-d", "公開名valueで値2を返す。\n\n外部URLの現在の到達性を検査する。");
+  const prepared = await f.cli("review", "prepare", "--repo", f.repo, "--base", "HEAD^", "--issue", f.issue);
+  const source = prepared.json.sources.find((s: any) => s.type === "issue");
+  const plan = join(f.dir, "responsibility.json");
+  const assignment = { sourceHash: source.hash, line: 3, owner: "automatic_check", rationale: "外部の稼働状態は独立した検査で確認する" };
+  writeFileSync(plan, JSON.stringify({ version: 1, assignments: [assignment] }));
+  // 実モデルは固定文字列を書き写さず、短縮・言い換えた理由を返す。
+  adjudicatingClaude(f.dir, modernRequirements + `
+    const row = output.requirements.find(r => r.reference.line === 3);
+    if (row) {
+      const mode = ${JSON.stringify(mode)};
+      row.status = "out_of_scope"; row.implementation = []; row.scopeEvidence = { source: row.reference.source, line: row.reference.line };
+      row.rationale = input.phase + "では稼働確認を独立検査へ委ねる";
+      row.contentAssessment.kind = "independent_check"; row.contentAssessment.obligations = [];
+      if (input.phase === "verification" && mode === "satisfied") { row.status = "satisfied"; row.scopeEvidence = null; row.implementation = [{ path: "value.ts", revision: "head", line: 1 }]; }
+      if (input.phase === "verification" && mode === "other_line") row.scopeEvidence = { source: row.reference.source, line: 1 };
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled", "--responsibility-plan", plan);
+  const row = result.json.coverage.find((r: any) => r.reference.line === 3);
+  if (mode === "paraphrased") {
+    expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+    expect(row).toMatchObject({ status: "out_of_scope", rationale: assignment.rationale, proposedRationale: "verificationでは稼働確認を独立検査へ委ねる" });
+    const execution = JSON.parse(readFileSync(result.json.artifactPath, "utf8")).execution;
+    const explored = execution.stages.find((s: any) => s.phase === "spec").output.requirements.find((r: any) => r.id === row.id);
+    expect(explored).toMatchObject({ rationale: assignment.rationale, proposedRationale: "specでは稼働確認を独立検査へ委ねる" });
+    const reviewed = result.json.coverage.find((r: any) => r.reference.line === 1);
+    expect(reviewed.rationale).toBe("固定本文を確認した");
+    expect(reviewed).not.toHaveProperty("proposedRationale");
+  } else {
+    expect(result.json.score).toBeNull();
+    expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "COVERAGE_INCOMPLETE" }));
+    expect(row.status).toBe("unverified");
+  }
+});
+
 for (const withStandard of [false, true]) test(`担当要求だけを出力schemaへ割り当て、本文分類の参照を行別に示す（規約=${withStandard}）`, async () => {
   const f = await fixture();
   await f.cli("issue", "update", f.issue, "-d", "利用時は、\n公開名valueで値2を返す。");
@@ -1210,10 +1566,11 @@ for (const withStandard of [false, true]) test(`担当要求だけを出力schem
   adjudicatingClaude(f.dir, modernRequirements + `
     const schema = JSON.parse(process.argv[process.argv.indexOf("--json-schema") + 1]);
     const assigned = input.reviewUnits.filter(u => input.phase === "verification" || u.axis === input.phase);
-    if (JSON.stringify(input.assignedRequirementIds) !== JSON.stringify(assigned.map(u => u.id))) throw new Error("担当IDが一致しない");
+    // 検証はSpec単位を先頭に担当するので、担当の集合と、schemaが担当IDをそのまま列挙することを確かめる。
+    if (JSON.stringify([...input.assignedRequirementIds].sort()) !== JSON.stringify(assigned.map(u => u.id).sort())) throw new Error("担当IDが一致しない");
     const req = schema.properties.requirements;
     if (req.maxItems !== assigned.length) throw new Error("担当件数が制約されていない");
-    if (assigned.length && JSON.stringify(req.items.properties.id.enum) !== JSON.stringify(assigned.map(u => u.id))) throw new Error("他軸IDを出力可能");
+    if (assigned.length && JSON.stringify(req.items.properties.id.enum) !== JSON.stringify(input.assignedRequirementIds)) throw new Error("他軸IDを出力可能");
     const second = input.reviewUnits.find(u => u.axis === "spec" && u.reference.line === 2);
     if (!second || JSON.stringify(second.requiredAssessmentReferences.map(r => r.line)) !== "[2,1]") throw new Error("行と段落の参照がない");
     if (input.phase === "verification" && !input.assignedRequirementIds.includes(second.id)) throw new Error("検証から要求が落ちた");
@@ -1280,6 +1637,44 @@ test("出典の診断を工程・全体・初回記録へ保存し、不正な�
     expect(JSON.parse(saved).problems).toContainEqual(problem);
     expect(saved).not.toContain("未検証の秘密値に相当する文字列");
   }
+});
+
+for (const mode of ["typed", "untyped"] as const) test(`規約の出典を資料索引と同じtype:idで指示・復元し、型なしIDは補正せず拒否する（${mode}）`, async () => {
+  const f = await fixture(), trace = join(f.dir, "inputs.jsonl");
+  writeFileSync(join(f.repo, "AGENTS.md"), "# 規約\n公開名valueを保つ。\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "規約を追加");
+  adjudicatingClaude(f.dir, modernRequirements + `
+    require("node:fs").appendFileSync(${JSON.stringify(trace)}, JSON.stringify(input) + "\\n");
+    if (${mode === "untyped"} && input.phase === "standards") output.requirements[0].contentAssessment.references = [{ source: "AGENTS.md", line: 2 }];
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  const inputs = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const sourceIndex = result.json.sources.findIndex((s: any) => s.type === "standard" && s.id === "AGENTS.md");
+  for (const input of inputs) {
+    // 出典の指示は資料索引のtype:idだけを返させ、hash・quoteを出力形式として示さない。
+    const instructions = input.instructions + input.adjudicationInstructions;
+    expect(instructions).toContain("sources[].source");
+    expect(instructions).not.toMatch(/\{source[^}]*(hash|quote)/);
+    expect(input.sources).toContainEqual(expect.objectContaining({ source: "standard:AGENTS.md" }));
+  }
+  if (mode === "untyped") {
+    expect(result.json).toMatchObject({ status: "incomplete", score: null });
+    expect(inputs.map(input => input.phase)).not.toContain("verification");
+    expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "OUTPUT_INVALID", referenceDiagnostic: { reason: "unknown_source", field: "requirements[0].contentAssessment.references[0]",
+      requirementUnitIndex: expect.any(Number), sourceIndex: null, sourceForm: "id_without_type", matchedSourceIndex: sourceIndex, line: 2, lineCount: null } }));
+    return;
+  }
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const standard = result.json.sources[sourceIndex];
+  expect(result.json.execution.stages.find((s: any) => s.phase === "standards").output.requirements[0].contentAssessment.references)
+    .toEqual([{ source: "standard:AGENTS.md", line: 2, hash: standard.hash, quote: "公開名valueを保つ。" }]);
+  // 検証へ渡す探索記録の出典も、資料索引と同じtype:idのまま保つ。
+  const verification = inputs.find(input => input.phase === "verification"), cited: string[] = [];
+  const walk = (node: any): void => { if (!node || typeof node !== "object") return; if (typeof node.source === "string" && Number.isInteger(node.line)) cited.push(node.source); Object.values(node).forEach(walk); };
+  walk(verification.candidates);
+  expect(cited).toContain("standard:AGENTS.md");
+  const indexed = verification.sources.map((s: any) => s.source);
+  for (const source of cited) expect(indexed).toContain(source);
 });
 
 for (const forgedQuote of [false, true]) test(`format=3の固定引用を復元し、明示された偽の引用は補正しない（forged=${forgedQuote}）`, async () => {

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { exactSdkVersionQuoted } from "../../core/src/ops/review-sdk-evidence";
 import { reviewUnits } from "../../core/src/ops/review-adjudicate";
-import { expandReviewOutput } from "../../core/src/ops/review-contract";
+import { expandReviewOutput, reviewOutputSchema } from "../../core/src/ops/review-contract";
+import { reviewShardPlans } from "../../core/src/ops/review-run";
 import type { ReviewSource } from "../../core/src/ops/review-prepare";
 
 for (const [version, quote, accepted] of [
@@ -54,8 +55,29 @@ test("別の箇条書きや見出しの要求を同一段落へ混ぜない", ()
 test("構造化出力の展開はモデルの文脈を書き込まず固定入力を保持する", () => {
   const fixed = source("登録時は、\n通知する。");
   const units = reviewUnits([fixed]);
-  const output = expandReviewOutput({ format: 2, target: "target", candidates: [], causeGroups: [], requirements: [{ id: units[1]!.id, context: { content: "削除時に通知する" }, status: "satisfied", implementation: [], scopeEvidence: null }] }, { target: { hash: "target" }, phase: "spec", reviewUnits: units, sourceCatalog: [fixed] });
+  const output = expandReviewOutput({ format: 2, target: "target", candidates: [], causeGroups: [], requirements: [{ id: units[1]!.id, context: { content: "削除時に通知する" }, status: "satisfied", implementation: [], scopeEvidence: null }] }, { target: { hash: "target" }, phase: "spec", assignedRequirementIds: units.map(u => u.id), unitCatalog: units, sourceCatalog: [fixed] });
   expect(output.requirements[0].context).toEqual(units[1]!.context);
+});
+
+test("確認単位の分割は順序を保ち、上限内なら段落の途中で切らない", () => {
+  // 43〜47行目を1段落にし、2分割の理想位置（43単位目の後）が段落の途中に来るようにする。
+  const lines = Array.from({ length: 85 }, (_, i) => `- 規約${i + 1}を守る。`);
+  lines.splice(42, 5, "登録時は、", "入力を検証し、", "不正なら拒否し、", "理由を記録し、", "通知する。");
+  const units = reviewUnits([source(lines.join("\n"), { type: "standard" })]);
+  const [first, second] = reviewShardPlans(units).exploration.filter(plan => plan.phase === "standards");
+  expect([...first!.requirementIds, ...second!.requirementIds]).toEqual(units.map(u => u.id));
+  expect(first!.requirementIds.at(-1)).toBe("standard:requirements.md:L47");
+  expect(first!.requirementIds.length).toBeLessThanOrEqual(80);
+  expect([first!.candidateIdPrefix, second!.candidateIdPrefix]).toEqual(["s1-", "s2-"]);
+});
+
+test("検証の主分割以外が候補や原因統合を返したら書き換えずに拒否する", () => {
+  const fixed = source("通知する。");
+  const units = reviewUnits([fixed]);
+  const input = { target: { hash: "target" }, phase: "verification", assignedRequirementIds: units.map(u => u.id), unitCatalog: units, sourceCatalog: [fixed], shard: { index: 1, count: 2, judgesCandidates: false } };
+  expect(() => expandReviewOutput({ format: 3, target: "target", candidates: [{ id: "s1-a", axis: "spec" }], causeGroups: [], requirements: [] }, input)).toThrow("主分割");
+  expect(() => expandReviewOutput({ format: 3, target: "target", candidates: [], causeGroups: [{ id: "g", members: ["spec:s1-a"], rationale: "同原因" }], requirements: [] }, input)).toThrow("主分割");
+  expect(reviewOutputSchema("verification", "target", input.assignedRequirementIds, input.shard).properties.candidates).toMatchObject({ maxItems: 0 });
 });
 
 

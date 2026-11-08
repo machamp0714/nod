@@ -1,6 +1,7 @@
 # 異なるモデルによる固定差分レビュー
 
 `nod review run` は、`review prepare` と同じ対象固定・要求取得から始め、Standards探索とSpec探索を並列に実行し、その終了後に別コンテキストで候補を検証する。
+各工程は確認単位を最大80単位ずつの分割へ分け、モデルCLIを同時最大8プロセスで実行し、工程ごとに1つの記録へ集約する（[分割と集約](#分割と集約)）。
 探索後、CLIが候補・要求別証拠の出典と対象版を検査し、軸別結果と点数を返す。
 `status=completed` は必要なレビュー確認の完了を表す。要対応が残ると0〜4点、両軸の確認が完了し要対応0件なら5点となる。
 途中停止や証拠不足では `status=incomplete`、`score=null`。終了コードは5点のみ0、それ以外は1。
@@ -37,20 +38,43 @@ APIキーやprovider切替の環境変数をモデル子に渡さず、API認証
 ## 対象・取消・保存
 
 コードは固定commit、または明示したlocal対象のtreeのblobから実行専用の `context/` へ読み取り専用の通常ファイルとして保存する。主入力には差分・要求資料・ファイル索引を渡し、関係コードは必要な箇所だけ読む。未コミット作業やindexをモデルに触らせない。
+ファイル索引 `code` はhead側の相対パス一覧 `paths` と、実行属性のあるファイル `executable` だけを持つ。基点（merge-base）側は読み込めた全ファイルを `.review-base-<runId>/` 配下の同じ相対パスへ置き、`baseCode` には場所 `directory`、headと内容が異なるかheadに無いファイルの `paths`、headと同じblobのファイル数 `sameAsHead` だけを渡す。同じblobのファイルも `directory` 配下にあり、Read/Glob で読める。
 Claudeは `--restricted` でcwd内のRead/Grep/Globだけ許可する。Bash・Write・Edit・Agent・Skill・MCP・hookなどは提供せず、safe-modeでcustomizationを無効化する。資料内の命令を実行させない。
 秘密情報候補のパスは本文を読まず、symlink・submoduleは辿らない。バイナリ、不正なUTF-8、1ファイル2MiB超、総量64MiB超の資料も `execution.excludedSources` に理由を残す。
 変更対象が除外されれば未完了とする。無関係な除外資料は探索を妨げないが、必要な関係コード・証拠が不足する場合はモデルに `completed=false` と不足の記録を要求する。
 
 期限は準備開始から最大30分。`--timeout-seconds` で短くできるが延長はできない。
 SIGINT/SIGTERM、期限、失敗ではモデルのプロセス群を止め、SIGTERMに応じない子孫へSIGKILLを送る。停止処理と保存は期限後の後処理であり、成功には読み替えない。
+1つの分割の失敗・期限・取消で全分割を止め、待機中の分割は起動しない。最初の失敗理由（`DEADLINE_EXCEEDED`・`INPUT_TOO_LARGE`・`OUTPUT_INVALID` など）を `problems` の先頭に残し、巻き添えで中断した分割の `CANCELLED` で置き換えない。完了済みの分割の出力と、未完了・未起動の分割の担当IDは保存するが、部分完了は `status=incomplete`・`score=null` のままとする。
 Windowsなどプロセス群の停止を提供できない環境は未対応として停止する。
 
 保存先はDBと同じディレクトリの `reviews/<runId>/`。`preparation.json` と `execution.json`、初回の専用記録 `initial-review.json` を別々に新規作成し、再実行で前回結果を上書きしない。初回記録は未完了時も保存する。
-`execution.stages` には各工程の実効モデル、使用量、所要時間、候補・要求別記録、失敗理由を残す。生のstderrや探索の思考過程を次工程へ渡さない。
+`execution.stages` には工程（`standards`・`spec`・`verification`）ごとに1件、実効モデル、使用量、所要時間、候補・要求別記録、失敗理由を残す。生のstderrや探索の思考過程を次工程へ渡さない。
+`execution.stages[].input` には実CLIへ渡した入力量を残す。`bodyBytes` はstdinの本文JSON、`schemaBytes` は `--json-schema` のUTF-8 byte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。分割した工程では全分割の合計で、分割別の値は `shards[].input` にある。モデル入力の本文自体は保存しない。入力上限の失敗時もこの記録から肥大化を確認する。
+
+## 分割と集約
+
+1回のモデルCLIへ全単位の要求別記録を出力させると、出力生成だけで30分の期限を超える。期限は延長せず、確認単位を分けて並列に処理する。
+
+- 探索は軸ごとに、資料順・行順を保った最大80単位のほぼ均等な連続区間へ分ける。上限内なら段落の途中で分けない。80単位以下の工程は従来どおり1回のCLI実行で、入力に `shard` を付けない。
+- 探索の分割はSpecを先に、同時最大8プロセスで起動する。各分割の入力は担当単位と主要求の参考としてのSpec単位だけを持ち、出力schemaの `requirements` は担当IDだけを担当件数どおりに返させる。
+- 同じ軸に複数の探索分割があれば、入力の `shard.candidateIdPrefix`（例 `s2-`）で候補IDを始めさせる。schemaの `candidates[].id` の `pattern` とCLIの検査で接頭辞の無い候補を `OUTPUT_INVALID` として拒否し、CLIは候補IDを書き換えない。
+- 検証は全単位（Spec単位を先頭）が80単位以下なら1回で実行する。超える場合は2段階で実行する。
+  1. 主分割（`shard.judgesCandidates=true`）が単独で先に起動し、探索の全候補の採否（`candidates`）と原因統合（`causeGroups`）、Spec単位の先頭区間（最大80単位）の要求別記録だけを返す。
+  2. 主分割の完了後、残りのSpec単位と規約単位の分割を同時最大8プロセスで起動する。入力の `candidates[].candidates` は主分割が検証した候補（採否・`rootCause`・言い換え後の `failure`・`expectedBehavior` を含む）で、`findingLinks` の `observedBehavior`・`obligation.candidate` はその文と同一にさせる。schemaで `candidates`・`causeGroups` を `maxItems: 0` とし、候補の追加・判定はさせない。主分割が失敗・中断したら残りは起動せず `not_started` として担当IDを残す。
+  探索の要求別記録は各分割の担当分だけを渡す。リンクの完全一致の検査は緩めない。
+- 所要時間：探索は各巡の最も大きい分割の所要時間の和（規約1,000単位なら8プロセスで2巡）。検証は主分割の所要時間に、残りの分割の所要時間（1,000単位なら2巡）を加える。claude-opus-5-5での325単位（規約313・Spec 12、探索5分割・検証5分割）の実測は全体724〜952秒（4回）で、分割前は30分の期限に達していた。1,010単位は実測値からの推定で準備を除き約23分であり、実モデルでは未確認。
+- 工程の集約記録は、全分割が完了したときだけ `status=completed`。実効モデルは和集合（各分割で実装モデルとの重複を検査する）、使用量と入力量は合算、所要時間は工程の実時間、出力形式は全分割で一致しなければ `OUTPUT_INVALID`。`output` は出力を検証できた分割の候補・要求別記録を連結し、未完了の分割があれば `output.completed=false`。
+- 検証の `consistency` は、1つでも `conflict` なら `conflict`、全分割が根拠付きで `consistent` のときだけ `consistent`、それ以外は `unverified`。根拠は分割ごとに連結する。採点は従来どおり集約した1つの検証記録を全単位について判定し、判定条件は分割で緩めない。
+- `execution.stages[].shards` に分割ごとの `index`・`status`（`completed`・`incomplete`・`not_started`）・担当ID `requirementIds`・`candidateIdPrefix`・`judgesCandidates`・`elapsedMs`・`usage`・`effectiveModels`・`input`・`cliStatus`・`problem` を残す。分割の出力は工程の `output` にだけ置く。
 
 ## 固定資料の索引と規約適用計画
 
-モデルの主入力は対象diff、必須確認単位、資料索引である。`sources` の全文を重複して渡さず、`sourceFiles` が示す読取専用の固定ファイルから必要な本文を読む。CLIの保存成果には引き続き全source本文とhashを保持する。
+モデルの主入力は対象diff、確認単位、段落表、資料索引である。資料索引 `sources` は資料ごとに `source`（`type:id`）、`title`、読取専用の固定ファイル `path`、行数 `lines`、見出しの `title`/`line` を1回だけ持ち、本文・資料hash・見出しごとのhash・versionは渡さない。必要な本文は `path` から読む。規約の適用範囲と理由は `standardScope` にだけ置き、全行が参考範囲の規約は索引の `referenceOnly` だけにする。事前責務計画の分担は `sourceHash` ではなく資料ID `source` で渡す。
+
+確認単位 `reviewUnits` は `id`・`axis`・`requirement`・`reference`（`source`/`line`）・`requiredAssessmentReferences` と、複数行の段落なら `paragraph` を持つ。段落の範囲と本文は `reviewParagraphs` に段落ごと1回だけ置き、出典hashと引用は単位ごとに繰り返さない。各工程へは担当単位（Standards探索は規約、Spec探索はSpec、候補検証は全軸。分割した工程ではその分割の担当分）と、主要求の参考としてSpec単位だけを渡し、担当外の規約単位は渡さない。CLIは固定した全単位と全source本文から出典hash・引用・段落を復元して照合する。
+
+CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`execution.sourceFiles`）には引き続き全source本文とhashを保持する。
 
 `prepare` は全規約のhash・行数を持つ `standardScopeTemplatePath` も返す。初期値は `unresolved` で、判断を埋めるまで実行できない。
 
@@ -66,6 +90,8 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
 
 要求本文・axis・出典hash・引用はモデルに繰り返させず、固定した要求IDからCLIが復元する。コード引用は `path/revision/line` を固定Gitへ照合し、実在する行全文を取得する。元の詳細形式も従来の照合を維持する。明示された誤った引用や対象hashを都合よく修正して合格させない。
 
+固定資料の出典は全て `{source,line}` で返し、`source` は資料索引 `sources[].source`・`reviewUnits[].reference.source` と同じ `type:id`（例 `standard:AGENTS.md`）を省略せずに使う。`--json-schema` は全ての出典の `source` に型接頭辞（`issue`/`document`/`plan`/`standard`）を必須とするので、型なしID・ファイル名・snapshotの `path` は実CLIの構造化出力検証で再出力させる。schemaの肥大化を避けるため全資料IDは列挙せず、索引に無いIDと範囲外・整数でない行はCLIが `OUTPUT_INVALID` で拒否する。拒否時の `problems[].referenceDiagnostic` には理由 `reason`（`unknown_source`/`invalid_line`/`line_out_of_range`）、出力項目 `field`、取り違えの種類 `sourceForm`（`catalog_id`/`id_without_type`/`snapshot_path`/`unknown`）、一致した資料の位置・行番号・行数だけを残し、モデルが返した文字列は保存しない。型なしIDやpathを索引の資料へ自動補正して通さない。
+
 新形式のrequired候補には今回の差分行の `changeEvidence` を要求する。差分外の既存問題はrequiredにしない。候補検証の `causeGroups` に全候補を一度ずつ割り当て、同一原因を共通IDへ統合し、根拠を保存する。グループの欠落・重複・未知候補は出力不正で停止。差分行の存在やグループの形式が、因果関係や意味上の同一性を証明するわけではない。
 
 ## 指摘・要求別判定の契約
@@ -79,7 +105,7 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
 |---|---|
 | `findings[].decision` | `required`、`unverified`、`false_positive`、`out_of_scope`、`deferred`、`risk_accepted`、`optional` |
 | `findings[].proposedDecision` | 検証モデルが提案した判定。CLI照合で未確認へ変わった場合も残す |
-| `findings[].contract` | 固定sourceの `{source,hash,line,quote}`、または固定コードの `{path,revision,line,quote}` |
+| `findings[].contract` | 固定sourceの `{source,hash,line,quote}`、または固定コードの `{path,revision,line,quote}`。モデルは `source`（`type:id`）/`line` または `path`/`revision`/`line` だけを返し、hash・quoteはCLIが固定資料・固定Gitから復元する |
 | `findings[].location` | `{path,revision:head\|base,line,quote?}`。対象の主識別は `target.hash` |
 | `condition` / `failure` / `impact` | 到達条件、破綻、実際の影響と0〜4の影響点 |
 | `evidence` / `reproduction` | 静的証拠と再現手順。現在の工程は実行ツールを持たず、実行済みコマンドの証明にはしない |
@@ -251,13 +277,13 @@ Biome、lint、型検査、ビルド、テスト、再現コードはレビュ�
 }
 ```
 
-元の要求は変更せず対応表に残り、該当行は `out_of_scope` と分担の理由を記録する。結果や診断をこの計画に書かない。未登録の要求はレビュー対象のまま。意味・設計の要求を含む複合行を丸ごと除外せず、モデルが内容を読んで機械的な合否を判定せずに意味・設計部分を確認する。hash・行・重複・許可キーをCLIで照合し、途中変更は停止する。担当の意味的妥当性は利用者の要求から確認する必要があり、形式照合だけで正しさを保証しない。
+元の要求は変更せず対応表に残り、該当行は `out_of_scope` と分担の理由を記録する。分担の理由は計画の固定値であり、hash・引用と同じくモデルに書き写させない。format=2以降の出力では探索・検証とも、CLIが該当要求の `rationale` を計画の文字列で復元し、モデルが異なる文面を返した場合は捨てずに `proposedRationale` として保存する。判定は従来どおり、探索・検証の両方が `out_of_scope`、`scopeEvidence` がその要求自身の `source`/`line`（format=3では本文分類 `independent_check` も）であることを照合する。固定分担の行を充足など別の状態にした場合や、別の行を `scopeEvidence` にした場合は `COVERAGE_INCOMPLETE` で未完了とする。未登録の要求の `rationale` は変更しない。結果や診断をこの計画に書かない。未登録の要求はレビュー対象のまま。意味・設計の要求を含む複合行を丸ごと除外せず、モデルが内容を読んで機械的な合否を判定せずに意味・設計部分を確認する。hash・行・重複・許可キーをCLIで照合し、途中変更は停止する。担当の意味的妥当性は利用者の要求から確認する必要があり、形式照合だけで正しさを保証しない。
 
 証拠は `evidence.kind=static`、`verification.method=inspection`。`recordIds` は空配列にする。実行証拠を自己申告したモデル出力は `REVIEW_LAYER_VIOLATION` で未完了とする。
 
 ## 変更前から存在する要求未充足
 
-`baseCode` で基点側の固定コードも読める。固定Specが明確に要求する振る舞いを基点から満たしていない場合、候補を `required`、`origin: pre_existing` とし、`baselineEvidence` にbase側の同じpath・同じ内容の行を付ける。要求別判定は `unsatisfied` のまま保持し、対応候補を `findingIds` へ記録する。行が一致することだけで同じ原因を証明したとはせず、条件と周辺の変化も照合する。
+`baseCode` で基点側の固定コードも読める（`baseCode.directory` 配下の同じ相対パス）。固定Specが明確に要求する振る舞いを基点から満たしていない場合、候補を `required`、`origin: pre_existing` とし、`baselineEvidence` にbase側の同じpath（`directory` を付けない元のpath）・同じ内容の行を付ける。要求別判定は `unsatisfied` のまま保持し、対応候補を `findingIds` へ記録する。行が一致することだけで同じ原因を証明したとはせず、条件と周辺の変化も照合する。
 
 CLIは `BASELINE_REQUIREMENT_UNSATISFIED` と点数なしを返し、自動修正を開始しない。既存の未充足を今回導入した退行として数えず、仕様や修正範囲の判断が必要な残件として報告する。合格させるためにoptional・充足・対象外へ変えない。基点の証拠が足りない場合は `unverified` のままとする。今回導入した問題は `origin: introduced` と差分行の `changeEvidence` を持つ。
 
