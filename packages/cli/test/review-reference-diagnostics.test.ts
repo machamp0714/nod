@@ -5,7 +5,7 @@ import { ReviewFailure } from "../../core/src/ops/review-process";
 function fixture() {
   const source = { type: "document", id: "fixed", content: "要求\n説明", hash: "fixed-hash" };
   const unit = { id: "requirement", axis: "spec", reference: { source: "document:fixed", line: 1 } };
-  return { input: { phase: "spec", target: { hash: "target" }, sourceCatalog: [source], sourceFiles: [{ source: "document:fixed", path: ".review-input/source-0.txt" }], reviewUnits: [unit] },
+  return { input: { phase: "spec", target: { hash: "target" }, assignedRequirementIds: [unit.id], sourceCatalog: [source], unitCatalog: [unit], sources: [{ source: "document:fixed", path: ".review-input/source-0.txt" }] },
     output: { format: 3, target: "target", axis: "spec", requirements: [{ id: unit.id, implementation: [] }], candidates: [], causeGroups: [] } as any };
 }
 

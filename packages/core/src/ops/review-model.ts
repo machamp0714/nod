@@ -8,6 +8,8 @@ export interface ReviewStage {
   effectiveModels: string[];
   elapsedMs: number;
   usage: Record<string, number>;
+  /** 実CLIへ渡した入力量。本文はstdinのJSON、schemaは--json-schemaのUTF-8 byte数。モデル入力本文は保存しない。 */
+  input?: { bodyBytes: number; schemaBytes: number; assignedRequirementIds: number; reviewUnits: number };
   format?: number;
   cliStatus?: { exitCode: number; resultSubtype: string; apiErrorStatus: number | null };
   output: null | { completed: boolean; axis: ReviewPhase; candidates: Record<string, unknown>[]; requirements: Record<string, unknown>[]; consistency?: Record<string, unknown>; causeGroups?: Record<string, unknown>[] };
@@ -35,7 +37,7 @@ export async function authenticate(provider: "claude" | "codex", cwd: string, de
 
 export async function invokeReviewModel(options: {
   provider: "claude" | "codex"; model: string; effort?: string; implementationModels: string[]; phase: ReviewPhase;
-  cwd: string; input: string; deadline: number; signal: AbortSignal; sourceCatalog?: unknown[];
+  cwd: string; input: string; deadline: number; signal: AbortSignal; sourceCatalog: unknown[]; unitCatalog: unknown[];
 }): Promise<ReviewStage> {
   const started = Date.now();
   const stage: ReviewStage = { phase: options.phase, status: "incomplete", effectiveModels: [], elapsedMs: 0, usage: {}, output: null };
@@ -43,9 +45,10 @@ export async function invokeReviewModel(options: {
     // 主入力は差分と要求。関係コードはrestrictedの固定snapshot内だけ読み、コマンド・外部接続・再帰Agent/Skillを提供しない。
     if (options.provider === "codex") throw new ReviewFailure("MODEL_UNVERIFIED", "Codexの毎turnの実効モデル識別子を確認できる公開契約が必要です。推論は開始しません");
     const request = JSON.parse(options.input);
-    const requirementIds = request.reviewUnits.filter((unit: Record<string, unknown>) => options.phase === "verification" || unit.axis === options.phase).map((unit: Record<string, unknown>) => unit.id as string);
-    const schema = reviewOutputSchema(options.phase, request.target.hash, requirementIds);
-    const args = ["--print", "--output-format", "json", "--model", options.model, ...(options.effort !== undefined ? ["--effort", options.effort] : []), "--json-schema", JSON.stringify(schema),
+    const requirementIds: string[] = request.assignedRequirementIds;
+    const schema = JSON.stringify(reviewOutputSchema(options.phase, request.target.hash, requirementIds));
+    stage.input = { bodyBytes: Buffer.byteLength(options.input), schemaBytes: Buffer.byteLength(schema), assignedRequirementIds: requirementIds.length, reviewUnits: request.reviewUnits.length };
+    const args = ["--print", "--output-format", "json", "--model", options.model, ...(options.effort !== undefined ? ["--effort", options.effort] : []), "--json-schema", schema,
         "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--disable-slash-commands", "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--no-session-persistence",
         "--settings", '{"fastMode":false}'];
@@ -73,7 +76,7 @@ export async function invokeReviewModel(options: {
     if (stage.effectiveModels.some(model => options.implementationModels.includes(model))) throw new ReviewFailure("MODEL_OVERLAP", "実効レビューモデルが実装モデル集合と重なっています");
     let output = data.structured_output;
     if (!output || output.axis !== options.phase || typeof output.completed !== "boolean") throw new ReviewFailure("OUTPUT_INVALID", "モデルの構造化出力に工程と完了状態がありません");
-    output = expandReviewOutput(output, { ...request, sourceCatalog: options.sourceCatalog ?? request.sources });
+    output = expandReviewOutput(output, { ...request, sourceCatalog: options.sourceCatalog, unitCatalog: options.unitCatalog });
     stage.format = output.format;
     stage.output = { axis: output.axis, completed: output.completed, candidates: records(output.candidates, candidateKeys), requirements: records(output.requirements, requirementKeys), causeGroups: output.causeGroups, consistency: output.consistency && typeof output.consistency === "object" ? output.consistency : undefined };
     if (!output.completed) throw new ReviewFailure("MODEL_REVIEW_INCOMPLETE", "モデルが必要資料・確認の不足を報告しました");

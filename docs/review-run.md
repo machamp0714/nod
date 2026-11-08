@@ -47,10 +47,15 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
 
 保存先はDBと同じディレクトリの `reviews/<runId>/`。`preparation.json` と `execution.json`、初回の専用記録 `initial-review.json` を別々に新規作成し、再実行で前回結果を上書きしない。初回記録は未完了時も保存する。
 `execution.stages` には各工程の実効モデル、使用量、所要時間、候補・要求別記録、失敗理由を残す。生のstderrや探索の思考過程を次工程へ渡さない。
+`execution.stages[].input` には実CLIへ渡した入力量を残す。`bodyBytes` はstdinの本文JSON、`schemaBytes` は `--json-schema` のUTF-8 byte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。モデル入力の本文自体は保存しない。入力上限の失敗時もこの記録から肥大化を確認する。
 
 ## 固定資料の索引と規約適用計画
 
-モデルの主入力は対象diff、必須確認単位、資料索引である。`sources` の全文を重複して渡さず、`sourceFiles` が示す読取専用の固定ファイルから必要な本文を読む。CLIの保存成果には引き続き全source本文とhashを保持する。
+モデルの主入力は対象diff、確認単位、段落表、資料索引である。資料索引 `sources` は資料ごとに `source`（`type:id`）、`title`、読取専用の固定ファイル `path`、行数 `lines`、見出しの `title`/`line` を1回だけ持ち、本文・資料hash・見出しごとのhash・versionは渡さない。必要な本文は `path` から読む。規約の適用範囲と理由は `standardScope` にだけ置き、全行が参考範囲の規約は索引の `referenceOnly` だけにする。事前責務計画の分担は `sourceHash` ではなく資料ID `source` で渡す。
+
+確認単位 `reviewUnits` は `id`・`axis`・`requirement`・`reference`（`source`/`line`）・`requiredAssessmentReferences` と、複数行の段落なら `paragraph` を持つ。段落の範囲と本文は `reviewParagraphs` に段落ごと1回だけ置き、出典hashと引用は単位ごとに繰り返さない。各工程へは担当単位（Standards探索は規約、Spec探索はSpec、候補検証は全軸）と、主要求の参考としてSpec単位だけを渡し、担当外の規約単位は渡さない。CLIは固定した全単位と全source本文から出典hash・引用・段落を復元して照合する。
+
+CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`execution.sourceFiles`）には引き続き全source本文とhashを保持する。
 
 `prepare` は全規約のhash・行数を持つ `standardScopeTemplatePath` も返す。初期値は `unresolved` で、判断を埋めるまで実行できない。
 

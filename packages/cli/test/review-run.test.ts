@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
+import { echoReviewReferences, git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 async function fixture() {
   const repo = makeRepo();
@@ -282,6 +282,7 @@ function adjudicatingClaude(dir: string, mutate = "") {
     if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
     else {
       const input = JSON.parse(await Bun.stdin.text());
+      ${echoReviewReferences}
       const requirements = (input.reviewUnits ?? []).filter(u => input.phase === "verification" || u.axis === input.phase).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
       const output = { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "固定したIssue・Spec・計画の要求値と範囲を相互確認した" } };
       ${mutate}
@@ -656,12 +657,10 @@ test("全行が参考範囲の規約は主入力を索引だけにし、本文�
     { start: 1, end: 3, kind: "reference", rationale: "背景説明であり必須要求ではない" },
   ] }] }));
   adjudicatingClaude(f.dir, `
-    const row = input.sources.find(s => s.type === "standard");
-    if (!row.referenceOnly || row.sections || row.applicability) throw new Error("参考だけの規約へ見出し一覧を渡さない");
+    const row = input.sources.find(s => s.source === "standard:README.md");
+    if (!row.referenceOnly || row.headings || row.applicability) throw new Error("参考だけの規約へ見出し一覧を渡さない");
     if (input.standardScope.standards.length) throw new Error("参考だけの規約の範囲を渡さない");
-    const sourceFile = input.sourceFiles.find(s => s.source === "standard:README.md");
-    if (sourceFile.applicability) throw new Error("参考だけの規約の範囲を重複して渡さない");
-    if (!(await Bun.file(sourceFile.path).text()).includes("参考の背景説明。")) throw new Error("本文は取得可能にする");
+    if (!(await Bun.file(row.path).text()).includes("参考の背景説明。")) throw new Error("本文は取得可能にする");
   `);
   const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
   expect(result.json).toMatchObject({ status: "completed", score: 5 });
@@ -683,7 +682,7 @@ test("規約の適用計画で参考範囲を明示し、Specは残して固定�
     if (input.reviewUnits.some(u => u.requirement === "参考の背景説明。")) throw new Error("参考資料を必須要求にしない");
     if (!input.reviewUnits.some(u => u.axis === "spec")) throw new Error("Specを省略しない");
     if (input.sources.some(s => s.content)) throw new Error("本文を主入力へ重複して渡さない");
-    const sourceFile = input.sourceFiles.find(s => s.source === "standard:README.md");
+    const sourceFile = input.sources.find(s => s.source === "standard:README.md");
     if (!(await Bun.file(sourceFile.path).text()).includes("参考の背景説明。")) throw new Error("固定した参考資料は取得可能にする");
   `);
   const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
@@ -691,6 +690,71 @@ test("規約の適用計画で参考範囲を明示し、Specは残して固定�
   expect(result.json.standardScope.hash).toMatch(/^[a-f0-9]{64}$/);
   expect(result.json.coverage.some((r: any) => r.requirement === "参考の背景説明。")).toBe(false);
   expect(result.json.sources.find((s: any) => s.type === "standard").content).toContain("参考の背景説明。");
+});
+
+test("各工程へ担当単位と主要求だけを渡し、出典・段落・適用範囲を1回ずつにして入力量を記録する", async () => {
+  const f = await fixture();
+  await f.cli("issue", "update", f.issue, "-d", "利用時は、\n公開名valueで値2を返す。");
+  writeFileSync(join(f.repo, "README.md"), "# 規約\n変更時は、\n公開名valueを維持する。\n参考の背景説明。\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "規約");
+  const prepared = await f.cli("review", "prepare", "--repo", f.repo, "--base", "HEAD^", "--issue", f.issue);
+  const standard = prepared.json.sources.find((s: any) => s.type === "standard");
+  const plan = join(f.dir, "scope.json");
+  writeFileSync(plan, JSON.stringify({ version: 1, standards: [{ source: `standard:${standard.id}`, hash: standard.hash, ranges: [
+    { start: 1, end: 3, kind: "required", rationale: "公開名の規約を必須として確認する" },
+    { start: 4, end: 5, kind: "reference", rationale: "背景説明と末尾空行は参考にとどめる" },
+  ] }] }));
+  const trace = join(f.dir, "inputs.jsonl");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const body = await Bun.stdin.text(), input = JSON.parse(body), schema = process.argv[process.argv.indexOf("--json-schema") + 1];
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ phase: input.phase, body, bodyBytes: Buffer.byteLength(body), schemaBytes: Buffer.byteLength(schema) }) + "\\n");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "固定した要求と規約を相互確認した" } } }));
+    }
+  `);
+  const result = await f.run("--scope-plan", plan, "--extra-usage-disabled");
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const calls = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const issueParagraph = JSON.stringify("利用時は、\n公開名valueで値2を返す。"), standardParagraph = JSON.stringify("変更時は、\n公開名valueを維持する。\n参考の背景説明。");
+  const count = (body: string, text: string) => body.split(text).length - 1;
+  const specIds = [`issue:${f.issue}:L1`, `issue:${f.issue}:L2`], standardIds = ["standard:README.md:L2", "standard:README.md:L3"];
+  const expected: Record<string, { assigned: string[]; units: string[] }> = {
+    standards: { assigned: standardIds, units: [...specIds, ...standardIds] },
+    spec: { assigned: specIds, units: specIds },
+    verification: { assigned: [...standardIds, ...specIds], units: [...specIds, ...standardIds] },
+  };
+  expect(calls.map(c => c.phase).sort()).toEqual(["spec", "standards", "verification"]);
+  for (const call of calls) {
+    const input = JSON.parse(call.body), want = expected[call.phase]!;
+    expect(input.assignedRequirementIds).toEqual(want.assigned);
+    expect(input.reviewUnits.map((u: any) => u.id).sort()).toEqual([...want.units].sort());
+    for (const unit of input.reviewUnits) {
+      expect(Object.keys(unit.reference).sort()).toEqual(["line", "source"]);
+      expect(unit.context).toBeUndefined();
+      expect(input.reviewParagraphs.map((p: any) => p.id)).toContain(unit.paragraph);
+      expect(unit.requiredAssessmentReferences).toEqual(({ [specIds[0]!]: [1], [specIds[1]!]: [2, 1], [standardIds[0]!]: [2], [standardIds[1]!]: [3, 2] } as Record<string, number[]>)[unit.id]!.map(line => ({ source: unit.reference.source, line })));
+    }
+    expect(count(call.body, issueParagraph)).toBe(1);
+    expect(count(call.body, standardParagraph)).toBe(call.phase === "spec" ? 0 : 1);
+    expect(count(call.body, "公開名の規約を必須として確認する")).toBe(1);
+    expect(count(call.body, "背景説明と末尾空行は参考にとどめる")).toBe(1);
+    expect(call.body).not.toContain(standard.hash);
+    const indexed = input.sources.find((s: any) => s.source === "standard:README.md");
+    expect(indexed).toEqual({ source: "standard:README.md", title: expect.any(String), path: expect.stringMatching(/^\.review-input-[^/]+\/source-\d+\.txt$/), lines: 5, headings: [{ title: "# 規約", line: 1 }] });
+    expect(input.sourceFiles).toBeUndefined();
+    expect(input.standardScope.standards).toEqual([{ source: "standard:README.md", ranges: expect.any(Array) }]);
+  }
+  const stages = result.json.execution.stages;
+  for (const stage of stages) {
+    const call = calls.find(c => c.phase === stage.phase);
+    expect(stage.input).toEqual({ bodyBytes: call.bodyBytes, schemaBytes: call.schemaBytes, assignedRequirementIds: expected[stage.phase]!.assigned.length, reviewUnits: expected[stage.phase]!.units.length });
+  }
+  expect(result.json.sources.find((s: any) => s.type === "standard")).toMatchObject({ hash: standard.hash, content: expect.stringContaining("参考の背景説明。"), applicability: expect.any(Array) });
+  expect(result.json.execution.sourceFiles).toContainEqual(expect.objectContaining({ source: "standard:README.md", hash: standard.hash }));
 });
 
 for (const outside of [false, true]) {
@@ -808,7 +872,7 @@ for (const mode of ["outside", "explicit", "missing_reference", "standard_only",
       if (input.scopePolicy !== "changes-and-explicit-requirements-v1") throw new Error("範囲方針が未指定");
       output.format = 2; output.target = input.target.hash;
       const scopeUnit = input.reviewUnits.filter(u => u.axis === "spec").at(-1);
-      const referenceUnit = ${JSON.stringify(mode)} === "standard_only" ? input.reviewUnits.find(u => u.axis === "standards") : scopeUnit;
+      const referenceUnit = ${JSON.stringify(mode)} === "standard_only" ? { reference: { source: "standard:README.md", line: 2 } } : scopeUnit;
       Object.assign(candidate, {
         origin: "pre_existing", baselineEvidence: { path: ${JSON.stringify(mode === "base_other_path" ? "peer.ts" : "value.ts")}, revision: "base", line: 1 },
         changeEvidence: ${mode === "change_evidence" ? '{ path: "notes.md", revision: "head", line: 1 }' : 'null'},
@@ -959,7 +1023,7 @@ for (const mode of ["valid", "unknown", "diagnostic", "changed", "ignored"] as c
   writeFileSync(plan, JSON.stringify(data));
   adjudicatingClaude(f.dir, `
     for (const row of output.requirements) {
-      const a = input.responsibility?.assignments.find(a => a.sourceHash === row.reference.hash && a.line === row.reference.line);
+      const a = input.responsibility?.assignments.find(a => a.source === row.reference.source && a.line === row.reference.line);
       if (a && ${JSON.stringify(mode)} !== "ignored") Object.assign(row, { status: "out_of_scope", implementation: [], scopeEvidence: row.reference, rationale: a.rationale });
     }
     if (${JSON.stringify(mode)} === "changed" && input.phase === "verification") await Bun.write(${JSON.stringify(plan)}, "{}");
@@ -986,7 +1050,7 @@ for (const mode of ["automatic", "with_hook", "missing", "stale", "conflicting",
     adjudicatingClaude(f.dir, `
       output.format = 2; output.target = input.target.hash;
       const mode = ${JSON.stringify(mode)};
-      const standard = input.reviewUnits.find(u => u.reference.source === "standard:README.md" && u.reference.line === 2);
+      const standard = { reference: { source: "standard:README.md", line: 2 } };
       const formatting = { id: "format", axis: "standards", target: input.target.hash,
         location: { path: "value.ts", revision: "head", line: 1 }, contract: { source: standard.reference.source, line: 2 },
         condition: "書式設定が適用されるファイル", failure: "書式違反の候補であり実行結果は確認しない", impact: { score: 4, description: "書式の問題のみ" },
@@ -1068,7 +1132,8 @@ test("探索2軸と検証へ行の固定IDと条件を含む段落文脈を渡�
   await f.cli("issue", "update", f.issue, "--description", "登録時は、\n公開名valueで値2を返す。\n\n取消時は別処理とする。");
   adjudicatingClaude(f.dir, `
     const units = input.reviewUnits.filter(u=>u.axis === "spec");
-    if (units.length !== 3 || units[0].context.content !== "登録時は、\\n公開名valueで値2を返す。" || units[1].context.content !== units[0].context.content || units[2].context !== undefined) throw new Error("条件や別操作の境界が変わった");
+    const paragraph = unit => unit.paragraph && input.reviewParagraphs.find(p => p.id === unit.paragraph).content;
+    if (units.length !== 3 || paragraph(units[0]) !== "登録時は、\\n公開名valueで値2を返す。" || units[1].paragraph !== units[0].paragraph || units[2].paragraph !== undefined) throw new Error("条件や別操作の境界が変わった");
     output.format = 2; output.target = input.target.hash; output.causeGroups = [];
   `);
   const result = await f.run("--extra-usage-disabled");
@@ -1115,8 +1180,7 @@ const modernRequirements = `
   output.format = 3; output.target = input.target.hash; output.causeGroups = [];
   for (const row of output.requirements) {
     row.findingIds ??= []; row.findingLinks ??= []; row.scopeEvidence ??= null; row.rationale ??= "固定本文を確認した";
-    row.contentAssessment = { kind: "obligation", obligations: [row.requirement], rationale: "今回の実装に適用する要求", references: [row.reference,
-      ...(row.context ? [{ source: row.reference.source, line: row.context.startLine }] : [])] };
+    row.contentAssessment = { kind: "obligation", obligations: [row.requirement], rationale: "今回の実装に適用する要求", references: row.requiredAssessmentReferences };
   }
 `;
 

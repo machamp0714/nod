@@ -54,7 +54,7 @@ test("別の箇条書きや見出しの要求を同一段落へ混ぜない", ()
 test("構造化出力の展開はモデルの文脈を書き込まず固定入力を保持する", () => {
   const fixed = source("登録時は、\n通知する。");
   const units = reviewUnits([fixed]);
-  const output = expandReviewOutput({ format: 2, target: "target", candidates: [], causeGroups: [], requirements: [{ id: units[1]!.id, context: { content: "削除時に通知する" }, status: "satisfied", implementation: [], scopeEvidence: null }] }, { target: { hash: "target" }, phase: "spec", reviewUnits: units, sourceCatalog: [fixed] });
+  const output = expandReviewOutput({ format: 2, target: "target", candidates: [], causeGroups: [], requirements: [{ id: units[1]!.id, context: { content: "削除時に通知する" }, status: "satisfied", implementation: [], scopeEvidence: null }] }, { target: { hash: "target" }, phase: "spec", assignedRequirementIds: units.map(u => u.id), unitCatalog: units, sourceCatalog: [fixed] });
   expect(output.requirements[0].context).toEqual(units[1]!.context);
 });
 

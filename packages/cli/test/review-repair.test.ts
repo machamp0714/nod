@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
+import { echoReviewReferences, git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 async function fixture(options: { repairBody?: string; reviewBody?: string; check?: string; preparation?: string; repairModels?: string[] } = {}) {
   const repo = makeRepo();
@@ -19,6 +19,7 @@ async function fixture(options: { repairBody?: string; reviewBody?: string; chec
     if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
     else {
       const input = JSON.parse(await Bun.stdin.text());
+      ${echoReviewReferences}
       let output;
       if (input.phase === "repair") {
         output = { completed: true, target: input.target.hash, needsSpecificationDecision: false, rationale: "確定した公開値の要求へ戻す", changes: [{ path: "value.ts", content: "export const value = 2;\\n", findingIds: ["spec:wrong-value"] }] };

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
+import { echoReviewReferences, git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 async function fixture() {
   const repo = makeRepo(), db = tempDb(), dir = tempDir("evaluation-");
@@ -39,6 +39,7 @@ function model(f: Awaited<ReturnType<typeof fixture>>, variant = "required") {
     if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
     else {
       const input = JSON.parse(await Bun.stdin.text());
+      ${echoReviewReferences}
       if (JSON.stringify(input).includes("固定したテスト用正解")) throw new Error("正解が漏洩");
       const requirements = input.reviewUnits.filter(u => input.phase === "verification" || u.axis === input.phase).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開値の契約確認" }, evidence: "value.tsのexportを確認" }));
       const unit = input.reviewUnits.find(u => u.axis === "spec");
