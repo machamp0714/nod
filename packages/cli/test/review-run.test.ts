@@ -809,11 +809,12 @@ test("80単位を超える規約は担当を分けて同時実行上限内で並
   expect(spec).toHaveLength(1);
   expect(spec[0]).toMatchObject({ shard: null, assigned: [specId] });
   expect(spec[0].candidateId.pattern).toBeUndefined();
-  // 検証はSpec単位を主分割に含めて全単位を分け、主分割だけが候補の採否と原因統合を返せる。
-  expect(verification).toHaveLength(9);
+  // 検証は主分割がSpec単位と候補の採否・原因統合だけを担当し、規約単位は残りの分割へ分ける。
+  expect(verification).toHaveLength(10);
+  expect(verification[0]!.assigned).toEqual([specId]);
   expect(verification.flatMap(s => s.assigned)).toEqual([specId, ...standardIds]);
   for (const [i, s] of verification.entries()) {
-    expect(s.shard).toMatchObject({ index: i, count: 9, judgesCandidates: i === 0 });
+    expect(s.shard).toMatchObject({ index: i, count: 10, judgesCandidates: i === 0 });
     expect(s.candidatesMax).toBe(i === 0 ? null : 0);
     expect(s.causeGroupsMax).toBe(i === 0 ? null : 0);
     expect(s.candidates.map((c: any) => c.axis)).toEqual(["standards", "spec"]);
@@ -852,6 +853,30 @@ test("複数分割の探索で接頭辞の無い候補IDは書き換えずに拒
   expect(result.json.execution.stages.some((s: any) => s.phase === "verification")).toBe(false);
 });
 
+test("検証の主分割が失敗したら残りの検証分割を起動せず、担当IDを未起動として保存する", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 100), marker = join(f.dir, "rest-started");
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text());
+      if (input.phase === "verification" && input.shard.judgesCandidates) process.exit(19);
+      if (input.phase === "verification") await Bun.write(${JSON.stringify(marker)}, "unexpected");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "照合した" }, evidence: "value.ts:1" }));
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems[0].code).toBe("CLI_FAILED");
+  expect(existsSync(marker)).toBe(false);
+  const verification = result.json.execution.stages.find((s: any) => s.phase === "verification");
+  expect(verification).toMatchObject({ status: "incomplete", output: null, problem: { code: "CLI_FAILED" } });
+  expect(verification.shards[0]).toMatchObject({ status: "incomplete", judgesCandidates: true, requirementIds: [`issue:${f.issue}:L1`] });
+  expect(verification.shards.slice(1).every((s: any) => s.status === "not_started")).toBe(true);
+  expect(verification.shards.slice(1).flatMap((s: any) => s.requirementIds)).toEqual(standardIds);
+});
+
 test("一部の分割が期限に達したら未完了・点数なしとし、完了分の出力と未完了・未起動の担当IDを保存する", async () => {
   const f = await fixture(), standardIds = manyStandards(f.repo, 700);
   fakeClaude(f.dir, `
@@ -885,6 +910,64 @@ test("一部の分割が期限に達したら未完了・点数なしとし、�
   const saved = JSON.parse(readFileSync(result.json.initialReviewPath, "utf8"));
   expect(saved.execution.stages).toEqual(result.json.execution.stages);
   expect(saved.problems[0].code).toBe("DEADLINE_EXCEEDED");
+});
+
+test("検証の主分割が言い換えた候補文を他の分割へ渡し、分割をまたぐ違反リンクを判定条件を緩めずに完了させる", async () => {
+  const f = await fixture(), trace = join(f.dir, "trace.jsonl");
+  // 対応する規約行を末尾に置き、主分割（Spec単位）とは別の検証分割が担当するようにする。
+  writeFileSync(join(f.repo, "README.md"), `# 規約\n${Array.from({ length: 99 }, (_, i) => `- 規約${i + 1}: 公開値${i + 1}を維持する。`).join("\n")}\n- 公開名valueで値2を返す。\n`);
+  writeFileSync(join(f.repo, "value.ts"), "export const value = 3;\n");
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "公開値と規約を変更");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), main = input.phase === "verification" && input.shard?.judgesCandidates !== false;
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "start", phase: input.phase, shard: input.shard ?? null, main, candidates: input.candidates ?? null }) + "\\n");
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 を要求と照合した" }));
+      const output = { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "担当範囲の要求と規約を相互確認した" } };
+      ${modernRequirements}
+      const spec = input.reviewUnits.find(u => u.axis === "spec");
+      const explored = { id: "missing", axis: "spec", target: input.target.hash, location: { path: "value.ts", revision: "head", line: 1 }, changeEvidence: { path: "value.ts", revision: "head", line: 1 }, origin: "introduced",
+        contract: spec.reference, condition: "利用者がvalueをimportする", expectedBehavior: "値2を返す", failure: "値3を返す", impact: { score: 2, description: "主要な公開値が不正になる" },
+        evidence: { kind: "static", detail: "公開exportの右辺を要求と照合した", recordIds: [] }, reproduction: "valueをimportして2と比較する", rootCause: "wrong-value", needsSpecificationDecision: false, decision: "required",
+        responsibility: { owner: "review", rationale: "値の公開契約を確認する", references: [] }, rationale: "公開契約に反する", defense: "公開値を補正する既存防御はない",
+        sdk: { status: "not_applicable", evidence: "言語の定数exportのみ", version: null, source: null }, scopeEvidence: null, scopeAssessment: null };
+      let candidate = explored;
+      if (input.phase === "spec") output.candidates = [explored];
+      if (main) {
+        // 主分割は候補の文面を言い換えて採否を確定する。
+        candidate = { ...explored, expectedBehavior: "公開名valueは値2を返す", failure: "公開名valueが値3を返す" };
+        output.candidates = [candidate];
+        output.causeGroups = [{ id: "wrong-value", members: ["spec:missing"], rationale: "公開定数の値" }];
+      } else if (input.phase === "verification") candidate = input.candidates.find(s => s.axis === "spec").candidates.find(c => c.id === "missing");
+      if (input.phase === "verification") for (const row of output.requirements) if (row.id === spec.id || row.requirement === "- 公開名valueで値2を返す。") {
+        row.status = "unsatisfied"; row.findingIds = ["spec:missing"];
+        row.findingLinks = [{ findingAxis: "spec", findingId: "missing", relation: "violation", observedBehavior: candidate.failure, requirementEvidence: row.requiredAssessmentReferences, codeEvidence: [candidate.location],
+          operation: { requirement: "valueをimportする", candidate: "valueをimportする", match: "same" }, condition: { requirement: "公開値の利用時", candidate: "公開値の利用時", match: "same" },
+          obligation: { requirement: "値2を返す", candidate: candidate.expectedBehavior, match: "same" }, effectOfFix: "resolves_this_violation", rationale: "公開定数の右辺を2へ戻すと要求値が得られる" }];
+      }
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "end", phase: input.phase, main }) + "\\n");
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: output }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, JSON.stringify(result.json?.problems)).toMatchObject({ status: "completed", score: 2, review: { standards: "failed", spec: "failed" } });
+  expect(result.json.problems.some((p: any) => p.code === "REQUIREMENT_LINK_UNVERIFIED")).toBe(false);
+  expect(result.json.coverage.find((r: any) => r.requirement === "- 公開名valueで値2を返す。")).toMatchObject({ status: "unsatisfied", findingIds: ["spec:missing"] });
+  const events = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  const mainEnd = events.findIndex(e => e.event === "end" && e.main);
+  const others = events.map((e, i) => ({ ...e, i })).filter(e => e.event === "start" && e.phase === "verification" && !e.main);
+  // 主分割はSpec単位と候補の採否だけを担当し、終了後に残りの検証分割が主分割の検証済み候補を受け取って起動する。
+  expect(events.find(e => e.event === "start" && e.main).shard).toMatchObject({ index: 0, judgesCandidates: true });
+  expect(others.length).toBeGreaterThan(0);
+  for (const start of others) {
+    expect(start.i).toBeGreaterThan(mainEnd);
+    expect(start.candidates.flatMap((s: any) => s.candidates)).toEqual([expect.objectContaining({ id: "missing", failure: "公開名valueが値3を返す", expectedBehavior: "公開名valueは値2を返す", decision: "required", rootCause: "wrong-value" })]);
+  }
+  const verification = result.json.execution.stages.find((s: any) => s.phase === "verification");
+  expect(verification.shards[0]).toMatchObject({ judgesCandidates: true, requirementIds: [`issue:${f.issue}:L1`] });
 });
 
 for (const outside of [false, true]) {

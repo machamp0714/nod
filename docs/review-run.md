@@ -55,10 +55,14 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
 
 1回のモデルCLIへ全単位の要求別記録を出力させると、出力生成だけで30分の期限を超える。期限は延長せず、確認単位を分けて並列に処理する。
 
-- 探索は軸ごとに、検証は全単位（Spec単位を先頭）を、資料順・行順を保った最大80単位のほぼ均等な連続区間へ分ける。上限内なら段落の途中で分けない。80単位以下の工程は従来どおり1回のCLI実行で、入力に `shard` を付けない。
-- 分割はSpecを先に、同時最大8プロセスで起動する。各分割の入力は担当単位と主要求の参考としてのSpec単位だけを持ち、出力schemaの `requirements` は担当IDだけを担当件数どおりに返させる。
+- 探索は軸ごとに、資料順・行順を保った最大80単位のほぼ均等な連続区間へ分ける。上限内なら段落の途中で分けない。80単位以下の工程は従来どおり1回のCLI実行で、入力に `shard` を付けない。
+- 探索の分割はSpecを先に、同時最大8プロセスで起動する。各分割の入力は担当単位と主要求の参考としてのSpec単位だけを持ち、出力schemaの `requirements` は担当IDだけを担当件数どおりに返させる。
 - 同じ軸に複数の探索分割があれば、入力の `shard.candidateIdPrefix`（例 `s2-`）で候補IDを始めさせる。schemaの `candidates[].id` の `pattern` とCLIの検査で接頭辞の無い候補を `OUTPUT_INVALID` として拒否し、CLIは候補IDを書き換えない。
-- 検証の全分割へ探索の全候補を参考として渡し、探索の要求別記録は分割の担当分だけを渡す。候補の採否（`candidates`）と原因統合（`causeGroups`）は先頭の主分割（`shard.judgesCandidates=true`）だけが返す。他の分割はschemaで両方を `maxItems: 0` とし、`findingLinks`・`findingIds` で候補を参照するだけにする。
+- 検証は全単位（Spec単位を先頭）が80単位以下なら1回で実行する。超える場合は2段階で実行する。
+  1. 主分割（`shard.judgesCandidates=true`）が単独で先に起動し、探索の全候補の採否（`candidates`）と原因統合（`causeGroups`）、Spec単位の先頭区間（最大80単位）の要求別記録だけを返す。
+  2. 主分割の完了後、残りのSpec単位と規約単位の分割を同時最大8プロセスで起動する。入力の `candidates[].candidates` は主分割が検証した候補（採否・`rootCause`・言い換え後の `failure`・`expectedBehavior` を含む）で、`findingLinks` の `observedBehavior`・`obligation.candidate` はその文と同一にさせる。schemaで `candidates`・`causeGroups` を `maxItems: 0` とし、候補の追加・判定はさせない。主分割が失敗・中断したら残りは起動せず `not_started` として担当IDを残す。
+  探索の要求別記録は各分割の担当分だけを渡す。リンクの完全一致の検査は緩めない。
+- 時間の見込み（f1b5ae09の実測、要求1単位あたり探索約3.6秒・検証約1.5秒・1回の固定費約100秒からの推定。実モデルでは未確認）：探索は各巡の最も大きい分割の所要時間の和（規約1,000単位なら8プロセスで2巡）。検証は主分割の所要時間に、残りの分割の所要時間（1,000単位なら2巡）を加える。準備を除き、325単位で約12分、1,010単位で約23分。
 - 工程の集約記録は、全分割が完了したときだけ `status=completed`。実効モデルは和集合（各分割で実装モデルとの重複を検査する）、使用量と入力量は合算、所要時間は工程の実時間、出力形式は全分割で一致しなければ `OUTPUT_INVALID`。`output` は出力を検証できた分割の候補・要求別記録を連結し、未完了の分割があれば `output.completed=false`。
 - 検証の `consistency` は、1つでも `conflict` なら `conflict`、全分割が根拠付きで `consistent` のときだけ `consistent`、それ以外は `unverified`。根拠は分割ごとに連結する。採点は従来どおり集約した1つの検証記録を全単位について判定し、判定条件は分割で緩めない。
 - `execution.stages[].shards` に分割ごとの `index`・`status`（`completed`・`incomplete`・`not_started`）・担当ID `requirementIds`・`candidateIdPrefix`・`judgesCandidates`・`elapsedMs`・`usage`・`effectiveModels`・`input`・`cliStatus`・`problem` を残す。分割の出力は工程の `output` にだけ置く。

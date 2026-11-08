@@ -97,14 +97,17 @@ function splitReviewUnits(units: ReviewUnit[]): ReviewUnit[][] {
 }
 
 /**
- * 探索は軸ごと、検証は全単位を上限以下の分割へ分ける。検証はSpec単位を先頭の主分割に含め、主分割だけが候補の採否と原因統合を返す。
- * 同じ軸に複数分割がある探索だけ、候補IDの衝突を防ぐ接頭辞を割り当てる。
+ * 探索は軸ごとに上限以下の分割へ分ける。同じ軸に複数分割がある探索だけ、候補IDの衝突を防ぐ接頭辞を割り当てる。
+ * 検証は全単位が上限以下なら1回で実行する。上限を超えれば、候補の採否・原因統合とSpec単位の先頭区間だけを担当する主分割を先に置き、
+ * 残りのSpec単位と規約単位を、主分割の検証済み候補を受け取る分割へ分ける。
  */
 export function reviewShardPlans(units: ReviewUnit[]): { exploration: ReviewShardPlan[]; verification: ReviewShardPlan[] } {
   const plan = (phase: ReviewPhase, groups: ReviewUnit[][]) => groups.map((group, index): ReviewShardPlan => ({ phase, index, count: groups.length, requirementIds: group.map(unit => unit.id),
     ...(phase !== "verification" && groups.length > 1 ? { candidateIdPrefix: `s${index + 1}-` } : {}), ...(phase === "verification" ? { judgesCandidates: index === 0 } : {}) }));
   const spec = units.filter(unit => unit.axis === "spec"), standards = units.filter(unit => unit.axis === "standards");
-  return { exploration: [...plan("spec", splitReviewUnits(spec)), ...plan("standards", splitReviewUnits(standards))], verification: plan("verification", splitReviewUnits([...spec, ...standards])) };
+  const all = [...spec, ...standards], main = splitReviewUnits(spec)[0]!;
+  return { exploration: [...plan("spec", splitReviewUnits(spec)), ...plan("standards", splitReviewUnits(standards))],
+    verification: plan("verification", all.length <= reviewShardUnitLimit ? [all] : [main, ...splitReviewUnits(all.slice(main.length))]) };
 }
 
 interface ReviewShardRun { plan: ReviewShardPlan; stage?: ReviewStage; started?: number; ended?: number }
@@ -158,8 +161,8 @@ export function reviewStageInput(context: ReviewStageInputContext, phase: Review
   const shardInstructions = !shard ? undefined : phase !== "verification"
     ? `この工程の確認単位を${shard.count}分割した担当の1つ。requirementsはassignedRequirementIdsだけを返す。候補は担当単位の要求への違反を中心に挙げ、担当外の単位は他の分割が確認する。他の分割と同じ不具合を挙げても検証が原因を統合する。候補のidは必ずshard.candidateIdPrefixで始める。`
     : shard.judgesCandidates
-      ? `検証の確認単位を${shard.count}分割した主分割。全探索候補（candidates）の採否とcauseGroupsはこの分割だけが返す。requirementsはassignedRequirementIdsだけを返す。`
-      : `検証の確認単位を${shard.count}分割した担当の1つ。候補の採否と原因統合は主分割が担当するので、出力のcandidates=[]、causeGroups=[]とする。入力のcandidatesは参考であり、担当要求のfindingLinks・findingIdsで元のaxis・idを参照するだけで、候補を追加・判定しない。consistencyは担当単位と主要求の範囲で確認する。`;
+      ? `検証の確認単位を${shard.count}分割した主分割で、他の分割より先に単独で実行する。全探索候補（candidates）の採否とcauseGroupsはこの分割だけが返す。requirementsはassignedRequirementIds（Spec単位の先頭区間。0件なら[]）だけを返す。残りの単位は、この分割が返した検証済み候補を受け取る他の分割が確認する。`
+      : `検証の確認単位を${shard.count}分割した担当の1つ。入力のcandidates[].candidatesは主分割が検証済みの候補で、採否decision・rootCause・文面を含む。findingLinksのobservedBehaviorはその候補のfailure、obligation.candidateはその候補のexpectedBehaviorと同一の文を使い、findingIds・findingLinksでは元のaxis・idを参照する。候補を追加・判定・言い換えせず、出力のcandidates=[]、causeGroups=[]とする。candidates[].requirementsは担当単位の探索記録である。consistencyは担当単位と主要求の範囲で確認する。`;
   const reviewParagraphs = new Map<string, { id: string; source: string; startLine: number; endLine: number; content: string }>();
   const reviewUnits = context.units.filter(unit => assigned.has(unit.id) || unit.axis === "spec").map(({ id, axis, requirement, reference: { source, line }, context: paragraph }) => {
     const key = paragraph && `${source}:L${paragraph.startLine}-L${paragraph.endLine}`;
@@ -320,7 +323,7 @@ export async function runReviewPass(db: Database, input: RunReviewInput, fixed?:
     const stageInput = { preparation, units: reviewUnits(preparation.sources), sourcePaths: sourceFiles.map(file => file.path), scopePolicy: result.scopePolicy, candidatePolicy: result.candidatePolicy,
       focus: result.focus, code, baseCode, excludedSources: result.execution.excludedSources, priorConfirmedFindings: input.priorConfirmedFindings };
     let failure: ReviewStage["problem"];
-    // 分割を同時実行上限内で起動し、工程ごとに1つのReviewStageへ集約する。最初の失敗で全体を止め、巻き添えの中断で最初の理由を隠さない。
+    // 分割を同時実行上限内で起動する。最初の失敗で全体を止め、巻き添えの中断で最初の理由を隠さない。
     const runShards = async (plans: ReviewShardPlan[], candidates?: (plan: ReviewShardPlan) => unknown) => {
       const runs: ReviewShardRun[] = plans.map(plan => ({ plan }));
       let next = 0;
@@ -341,7 +344,7 @@ export async function runReviewPass(db: Database, input: RunReviewInput, fixed?:
           if (run.stage.problem) { failure ??= run.stage.problem; controller.abort(); }
         }
       }));
-      return [...new Set(plans.map(plan => plan.phase))].map(phase => aggregateReviewStage(phase, runs.filter(run => run.plan.phase === phase), failure));
+      return runs;
     };
     const stop = () => {
       // 最初の失敗理由を先頭に置き、各工程の理由は同じ記録を重ねずに続ける。
@@ -350,19 +353,27 @@ export async function runReviewPass(db: Database, input: RunReviewInput, fixed?:
     };
     const plans = reviewShardPlans(stageInput.units);
     result.execution.status = "incomplete";
-    const explored = await runShards(plans.exploration);
+    const exploredRuns = await runShards(plans.exploration);
+    // 工程ごとに1つのReviewStageへ集約し、記録は従来どおりstandards・specの順に置く。
     for (const phase of ["standards", "spec"] as const) {
-      const stage = explored.find(s => s.phase === phase)!;
+      const stage = aggregateReviewStage(phase, exploredRuns.filter(run => run.plan.phase === phase), failure);
       result.execution.stages.push(stage);
       if (stage.status === "completed") result.review[phase] = "explored";
     }
     if (result.execution.stages.some(s => s.problem)) return stop();
-    // 候補と証拠だけを渡し、探索の会話・自己評価・思考を引き継がない。全候補を各分割の参考にし、探索の要求別記録は分割の担当分に絞る。
+    // 候補と証拠だけを渡し、探索の会話・自己評価・思考を引き継がない。探索の要求別記録は分割の担当分に絞る。
     const exploration = result.execution.stages.map(s => ({ ...s.output, axis: s.phase, requirements: s.output?.requirements.map(({ id, status, contentAssessment, implementation, verification, evidence, findingIds, scopeEvidence, rationale }) => ({ id, status, contentAssessment, implementation, verification, evidence, findingIds, scopeEvidence, rationale })) }));
-    const verification = (await runShards(plans.verification, plan => {
+    const assignedExploration = (plan: ReviewShardPlan) => {
       const assigned = new Set(plan.requirementIds);
       return exploration.map(stage => ({ ...stage, requirements: stage.requirements?.filter(row => assigned.has(String(row.id))) }));
-    }))[0]!;
+    };
+    // 主分割が全探索候補の採否・原因統合を先に単独で確定する。残りの分割は主分割の検証済み候補（言い換え後の文面・採否・rootCause）を受け取り、
+    // findingLinksを最終的な候補文と同じ文で記録する。主分割が完了しなければ残りは起動前の確認で未起動として担当IDだけを残す。
+    const [main, ...rest] = plans.verification;
+    const mainRuns = await runShards([main!], assignedExploration);
+    const verified = mainRuns[0]!.stage?.status === "completed" ? mainRuns[0]!.stage.output!.candidates : [];
+    const restRuns = await runShards(rest, plan => assignedExploration(plan).map(({ axis, requirements }) => ({ axis, candidates: verified.filter(candidate => candidate.axis === axis), requirements })));
+    const verification = aggregateReviewStage("verification", [...mainRuns, ...restRuns], failure);
     result.execution.stages.push(verification);
     if (verification.problem) return stop();
     check();
