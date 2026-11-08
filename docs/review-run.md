@@ -1,6 +1,7 @@
 # 異なるモデルによる固定差分レビュー
 
 `nod review run` は、`review prepare` と同じ対象固定・要求取得から始め、Standards探索とSpec探索を並列に実行し、その終了後に別コンテキストで候補を検証する。
+各工程は確認単位を最大80単位ずつの分割へ分け、モデルCLIを同時最大8プロセスで実行し、工程ごとに1つの記録へ集約する（[分割と集約](#分割と集約)）。
 探索後、CLIが候補・要求別証拠の出典と対象版を検査し、軸別結果と点数を返す。
 `status=completed` は必要なレビュー確認の完了を表す。要対応が残ると0〜4点、両軸の確認が完了し要対応0件なら5点となる。
 途中停止や証拠不足では `status=incomplete`、`score=null`。終了コードは5点のみ0、それ以外は1。
@@ -43,17 +44,30 @@ Claudeは `--restricted` でcwd内のRead/Grep/Globだけ許可する。Bash・W
 
 期限は準備開始から最大30分。`--timeout-seconds` で短くできるが延長はできない。
 SIGINT/SIGTERM、期限、失敗ではモデルのプロセス群を止め、SIGTERMに応じない子孫へSIGKILLを送る。停止処理と保存は期限後の後処理であり、成功には読み替えない。
+1つの分割の失敗・期限・取消で全分割を止め、待機中の分割は起動しない。最初の失敗理由（`DEADLINE_EXCEEDED`・`INPUT_TOO_LARGE`・`OUTPUT_INVALID` など）を `problems` の先頭に残し、巻き添えで中断した分割の `CANCELLED` で置き換えない。完了済みの分割の出力と、未完了・未起動の分割の担当IDは保存するが、部分完了は `status=incomplete`・`score=null` のままとする。
 Windowsなどプロセス群の停止を提供できない環境は未対応として停止する。
 
 保存先はDBと同じディレクトリの `reviews/<runId>/`。`preparation.json` と `execution.json`、初回の専用記録 `initial-review.json` を別々に新規作成し、再実行で前回結果を上書きしない。初回記録は未完了時も保存する。
-`execution.stages` には各工程の実効モデル、使用量、所要時間、候補・要求別記録、失敗理由を残す。生のstderrや探索の思考過程を次工程へ渡さない。
-`execution.stages[].input` には実CLIへ渡した入力量を残す。`bodyBytes` はstdinの本文JSON、`schemaBytes` は `--json-schema` のUTF-8 byte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。モデル入力の本文自体は保存しない。入力上限の失敗時もこの記録から肥大化を確認する。
+`execution.stages` には工程（`standards`・`spec`・`verification`）ごとに1件、実効モデル、使用量、所要時間、候補・要求別記録、失敗理由を残す。生のstderrや探索の思考過程を次工程へ渡さない。
+`execution.stages[].input` には実CLIへ渡した入力量を残す。`bodyBytes` はstdinの本文JSON、`schemaBytes` は `--json-schema` のUTF-8 byte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。分割した工程では全分割の合計で、分割別の値は `shards[].input` にある。モデル入力の本文自体は保存しない。入力上限の失敗時もこの記録から肥大化を確認する。
+
+## 分割と集約
+
+1回のモデルCLIへ全単位の要求別記録を出力させると、出力生成だけで30分の期限を超える。期限は延長せず、確認単位を分けて並列に処理する。
+
+- 探索は軸ごとに、検証は全単位（Spec単位を先頭）を、資料順・行順を保った最大80単位のほぼ均等な連続区間へ分ける。上限内なら段落の途中で分けない。80単位以下の工程は従来どおり1回のCLI実行で、入力に `shard` を付けない。
+- 分割はSpecを先に、同時最大8プロセスで起動する。各分割の入力は担当単位と主要求の参考としてのSpec単位だけを持ち、出力schemaの `requirements` は担当IDだけを担当件数どおりに返させる。
+- 同じ軸に複数の探索分割があれば、入力の `shard.candidateIdPrefix`（例 `s2-`）で候補IDを始めさせる。schemaの `candidates[].id` の `pattern` とCLIの検査で接頭辞の無い候補を `OUTPUT_INVALID` として拒否し、CLIは候補IDを書き換えない。
+- 検証の全分割へ探索の全候補を参考として渡し、探索の要求別記録は分割の担当分だけを渡す。候補の採否（`candidates`）と原因統合（`causeGroups`）は先頭の主分割（`shard.judgesCandidates=true`）だけが返す。他の分割はschemaで両方を `maxItems: 0` とし、`findingLinks`・`findingIds` で候補を参照するだけにする。
+- 工程の集約記録は、全分割が完了したときだけ `status=completed`。実効モデルは和集合（各分割で実装モデルとの重複を検査する）、使用量と入力量は合算、所要時間は工程の実時間、出力形式は全分割で一致しなければ `OUTPUT_INVALID`。`output` は出力を検証できた分割の候補・要求別記録を連結し、未完了の分割があれば `output.completed=false`。
+- 検証の `consistency` は、1つでも `conflict` なら `conflict`、全分割が根拠付きで `consistent` のときだけ `consistent`、それ以外は `unverified`。根拠は分割ごとに連結する。採点は従来どおり集約した1つの検証記録を全単位について判定し、判定条件は分割で緩めない。
+- `execution.stages[].shards` に分割ごとの `index`・`status`（`completed`・`incomplete`・`not_started`）・担当ID `requirementIds`・`candidateIdPrefix`・`judgesCandidates`・`elapsedMs`・`usage`・`effectiveModels`・`input`・`cliStatus`・`problem` を残す。分割の出力は工程の `output` にだけ置く。
 
 ## 固定資料の索引と規約適用計画
 
 モデルの主入力は対象diff、確認単位、段落表、資料索引である。資料索引 `sources` は資料ごとに `source`（`type:id`）、`title`、読取専用の固定ファイル `path`、行数 `lines`、見出しの `title`/`line` を1回だけ持ち、本文・資料hash・見出しごとのhash・versionは渡さない。必要な本文は `path` から読む。規約の適用範囲と理由は `standardScope` にだけ置き、全行が参考範囲の規約は索引の `referenceOnly` だけにする。事前責務計画の分担は `sourceHash` ではなく資料ID `source` で渡す。
 
-確認単位 `reviewUnits` は `id`・`axis`・`requirement`・`reference`（`source`/`line`）・`requiredAssessmentReferences` と、複数行の段落なら `paragraph` を持つ。段落の範囲と本文は `reviewParagraphs` に段落ごと1回だけ置き、出典hashと引用は単位ごとに繰り返さない。各工程へは担当単位（Standards探索は規約、Spec探索はSpec、候補検証は全軸）と、主要求の参考としてSpec単位だけを渡し、担当外の規約単位は渡さない。CLIは固定した全単位と全source本文から出典hash・引用・段落を復元して照合する。
+確認単位 `reviewUnits` は `id`・`axis`・`requirement`・`reference`（`source`/`line`）・`requiredAssessmentReferences` と、複数行の段落なら `paragraph` を持つ。段落の範囲と本文は `reviewParagraphs` に段落ごと1回だけ置き、出典hashと引用は単位ごとに繰り返さない。各工程へは担当単位（Standards探索は規約、Spec探索はSpec、候補検証は全軸。分割した工程ではその分割の担当分）と、主要求の参考としてSpec単位だけを渡し、担当外の規約単位は渡さない。CLIは固定した全単位と全source本文から出典hash・引用・段落を復元して照合する。
 
 CLIの保存成果（`preparation.json`・`execution.json` の `sources`・`execution.sourceFiles`）には引き続き全source本文とhashを保持する。
 

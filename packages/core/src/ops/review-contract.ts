@@ -16,10 +16,10 @@ const findingLink = object({ findingAxis: { enum: ["standards", "spec"] }, findi
   operation: comparison, condition: comparison, obligation: comparison,
   effectOfFix: { enum: ["resolves_this_violation", "unchanged", "unknown"] }, rationale: text });
 
-/** 出典の全文・hashは繰り返さず、対象を1回固定し、参照先はランナーが照合する。 */
-export function reviewOutputSchema(phase: string, target: string, requirementIds: string[]) {
+/** 出典の全文・hashは繰り返さず、対象を1回固定し、参照先はランナーが照合する。分割した工程では候補IDの接頭辞と、主分割以外の採否・原因統合の禁止をschemaで示す。 */
+export function reviewOutputSchema(phase: string, target: string, requirementIds: string[], shard?: { candidateIdPrefix?: string; judgesCandidates?: boolean }) {
   const candidate = object({
-    id: text, axis: phase === "verification" ? { enum: ["standards", "spec"] } : { const: phase }, location, contract: citation,
+    id: shard?.candidateIdPrefix ? { ...text, pattern: `^${shard.candidateIdPrefix}`, description: "shard.candidateIdPrefixで始める" } : text, axis: phase === "verification" ? { enum: ["standards", "spec"] } : { const: phase }, location, contract: citation,
     condition: text, expectedBehavior: text, failure: text, impact: object({ score: { type: "integer", minimum: 0, maximum: 4 }, description: { ...text, description: "到達条件、その条件下で失う機能・状態、影響範囲と実証された回避手段を分けてscoreの根拠を説明する。発生条件が限定的という理由だけで軽微としない。機能停止だけなら一部/全入力を問わず2。0/1は重大な権限侵害・機密漏えい・回復不能な重要データ破壊等の致命的影響を先に確認し、その後で再設計の要否により区別する。局所修正で済むことだけを1の根拠にしない。" } }),
     evidence: object({ kind: { enum: ["static"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), reproduction: text, rootCause: text,
     decision: { enum: ["required", "unverified", "false_positive", "out_of_scope", "deferred", "risk_accepted", "optional"] },
@@ -29,8 +29,10 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
     responsibility: object({ owner: { enum: ["review", "automatic_check", "unresolved"] }, rationale: text, references: array(citation) }),
     scopeAssessment: nullable(object({ kind: { enum: ["unrelated_existing", "explicit_requirement"] }, rationale: text, references: array(citation) })),
   });
+  // 主分割以外の検証は候補を参照するだけで、採否・原因統合を返せない。候補の項目定義も渡さず入力量を抑える。
+  const delegated = shard?.judgesCandidates === false ? { type: "array", maxItems: 0, description: "候補の採否と原因統合は主分割が担当する" } : undefined;
   return object({ format: { const: 3 }, target: { const: target }, axis: { const: phase }, completed: { type: "boolean" },
-    candidates: array(candidate), requirements: { ...array(object({
+    candidates: delegated ?? array(candidate), requirements: { ...array(object({
       ...(phase === "verification" ? { findingLinks: array(findingLink) } : {}),
       id: requirementIds.length ? { ...text, enum: requirementIds } : text,
       status: { enum: ["satisfied", "unsatisfied", "unverified", "out_of_scope", "context"], description: "background/rationale/scope/validation_gapはcontext。説明をsatisfiedにしない。適用条件が今回の差分で成立しないと確認できた義務はsatisfied。適用条件や判定に必要な事実が不明ならunverified。実装義務が混在する場合はmixedとして義務を判定する。" },
@@ -38,7 +40,7 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
       implementation: array(citation), verification: object({ method: { enum: ["inspection"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), evidence: text,
       findingIds: { ...array(text), description: "この要求と同じ条件・時点・操作に反する軸付き候補ID（standards:id または spec:id）。語が同じだけの別操作の不具合へ対応付けない。" }, scopeEvidence: { ...nullable(reference), description: "既存課題または固定分担で対象外にする要求では、その要求idに対応するreviewUnits.referenceのsource/lineを使う。除外理由の範囲出典は候補のscopeAssessment.referencesへ。" }, rationale: text,
     })), maxItems: requirementIds.length, description: "assignedRequirementIdsの各IDを1回ずつ返す。担当IDが0件なら空配列。他軸や資料に存在しないIDを追加しない。" }, consistency: object({ status: { enum: ["consistent", "conflict", "unverified"] }, evidence: text }),
-    causeGroups: array(object({ id: text, members: array(text), rationale: text })),
+    causeGroups: delegated ?? array(object({ id: text, members: array(text), rationale: text })),
   });
 }
 
@@ -48,6 +50,15 @@ export function expandReviewOutput(output: Row, input: Row): Row {
       ["execution", "mixed"].includes(row.evidence?.kind) || ["execution", "mixed"].includes(row.verification?.method)
       || row.evidence?.recordIds?.length || row.verification?.recordIds?.length)) {
     throw new ReviewFailure("REVIEW_LAYER_VIOLATION", "レビュー出力に自動チェックの結果または実行証拠が含まれています");
+  }
+  // 分割の接頭辞は詳細形式でも検査し、CLIが候補IDを書き換えて衝突を避けることはしない。
+  const shard = input.shard as { candidateIdPrefix?: string; judgesCandidates?: boolean } | undefined;
+  if (shard?.judgesCandidates === false && ((Array.isArray(output.candidates) && output.candidates.length) || (Array.isArray(output.causeGroups) && output.causeGroups.length))) {
+    throw new ReviewFailure("OUTPUT_INVALID", "候補の採否と原因統合は検証の主分割が担当します。この分割は候補を返せません");
+  }
+  const prefix = shard?.candidateIdPrefix;
+  if (prefix && Array.isArray(output.candidates) && output.candidates.some((c: Row) => typeof c?.id !== "string" || !c.id.startsWith(prefix))) {
+    throw new ReviewFailure("OUTPUT_INVALID", `探索候補のIDが分割の接頭辞 ${prefix} で始まりません`);
   }
   if (output.format !== 2 && output.format !== 3) return output; // 既存の詳細形式も従来どおり厳密照合する。
   if (output.target !== input.target.hash) throw new ReviewFailure("STALE_EVIDENCE", "構造化出力の対象版が固定入力と一致しません");

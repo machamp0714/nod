@@ -2,18 +2,42 @@ import { reviewOutputSchema, expandReviewOutput } from "./review-contract";
 import { ReviewFailure, reviewProcess, reviewCliFailure, type ReviewReferenceDiagnostic } from "./review-process";
 
 export type ReviewPhase = "standards" | "spec" | "verification";
+/** 工程を確認単位で分けた1回のモデルCLI実行の計画。分割が1つの工程はshardを入力へ渡さず従来と同じ1セッションで実行する。 */
+export interface ReviewShardPlan {
+  phase: ReviewPhase;
+  index: number;
+  count: number;
+  /** この分割が回答する要求ID。 */
+  requirementIds: string[];
+  /** 同じ軸に複数分割がある探索で、候補IDの衝突を防ぐ接頭辞。 */
+  candidateIdPrefix?: string;
+  /** 検証で候補の採否と原因統合を返す主分割か。 */
+  judgesCandidates?: boolean;
+}
+/** 分割ごとの実行記録。出力は工程の集約outputにだけ置く。 */
+export interface ReviewShard extends Omit<ReviewShardPlan, "phase" | "count"> {
+  status: "completed" | "incomplete" | "not_started";
+  elapsedMs: number;
+  usage: Record<string, number>;
+  effectiveModels: string[];
+  input?: ReviewStage["input"];
+  cliStatus?: ReviewStage["cliStatus"];
+  problem?: ReviewStage["problem"];
+}
 export interface ReviewStage {
   phase: ReviewPhase;
   status: "completed" | "incomplete";
   effectiveModels: string[];
   elapsedMs: number;
   usage: Record<string, number>;
-  /** 実CLIへ渡した入力量。本文はstdinのJSON、schemaは--json-schemaのUTF-8 byte数。モデル入力本文は保存しない。 */
+  /** 実CLIへ渡した入力量。本文はstdinのJSON、schemaは--json-schemaのUTF-8 byte数。分割した工程では全分割の合計。モデル入力本文は保存しない。 */
   input?: { bodyBytes: number; schemaBytes: number; assignedRequirementIds: number; reviewUnits: number };
   format?: number;
   cliStatus?: { exitCode: number; resultSubtype: string; apiErrorStatus: number | null };
   output: null | { completed: boolean; axis: ReviewPhase; candidates: Record<string, unknown>[]; requirements: Record<string, unknown>[]; consistency?: Record<string, unknown>; causeGroups?: Record<string, unknown>[] };
   problem?: { code: string; message: string; referenceDiagnostic?: ReviewReferenceDiagnostic };
+  /** 工程を構成した分割の状態・担当ID・入力量・使用量。未起動の分割も担当IDを残す。 */
+  shards?: ReviewShard[];
 }
 const candidateKeys = ["id", "axis", "target", "location", "contract", "condition", "expectedBehavior", "failure", "impact", "evidence", "reproduction", "rootCause", "decision", "rationale", "defense", "sdk", "scopeEvidence", "needsSpecificationDecision", "changeEvidence", "origin", "baselineEvidence", "responsibility", "scopeAssessment"];
 const requirementKeys = ["id", "requirement", "status", "contentAssessment", "reference", "implementation", "verification", "evidence", "axis", "target", "findingIds", "findingLinks", "scopeEvidence", "rationale"];
@@ -46,7 +70,7 @@ export async function invokeReviewModel(options: {
     if (options.provider === "codex") throw new ReviewFailure("MODEL_UNVERIFIED", "Codexの毎turnの実効モデル識別子を確認できる公開契約が必要です。推論は開始しません");
     const request = JSON.parse(options.input);
     const requirementIds: string[] = request.assignedRequirementIds;
-    const schema = JSON.stringify(reviewOutputSchema(options.phase, request.target.hash, requirementIds));
+    const schema = JSON.stringify(reviewOutputSchema(options.phase, request.target.hash, requirementIds, request.shard));
     stage.input = { bodyBytes: Buffer.byteLength(options.input), schemaBytes: Buffer.byteLength(schema), assignedRequirementIds: requirementIds.length, reviewUnits: request.reviewUnits.length };
     const args = ["--print", "--output-format", "json", "--model", options.model, ...(options.effort !== undefined ? ["--effort", options.effort] : []), "--json-schema", schema,
         "--safe-mode", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',

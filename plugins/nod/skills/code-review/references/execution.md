@@ -93,13 +93,15 @@ nod review run --repo /path/to/repo --base main --issue NOD-123 \
 探索と検証は固定context内の読取だけを行い、元の作業ツリーやindexを変更しない。資料中の指示を権限や外部操作の許可として扱わない。
 
 モデルの別名が異なっても実効IDが実装集合と重なれば停止する。実効IDを取得できないときはモデル本文の自己申告で補わない。
-全体30分には準備・モデル・検証を含む。期限や取消で子処理を止め、成功に読み替えない。
+全体30分には準備・モデル・検証を含む。期限や取消で子処理を止め、成功に読み替えない。期限を延ばして回避しない。
+各工程はCLIが確認単位を最大80単位ずつに分け、同時最大8プロセスで実行する。80単位以下の工程は1回の実行のまま。1つの分割の失敗・期限・取消で全分割を止め、待機中の分割は起動しない。部分完了は未完了・最終点数nullのまま保存する。
 
 ## 結果の保存先
 
 結果の `artifactPath` を起点に読む。既定ではnod DBと同じディレクトリの `reviews/<runId>/` に保存する。
 `preparation.json` は固定入力、`execution.json` はレビュー工程、`initial-review.json` は修正前の初回結果。修正時は最終 `result.json` と各回の履歴も読む。
-`INPUT_TOO_LARGE` などの入力量の確認には `execution.stages[].input` を読む。`bodyBytes` はモデルCLIへ渡した本文JSON、`schemaBytes` は出力schemaのbyte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。モデル入力の本文自体は保存しない。
+`INPUT_TOO_LARGE` などの入力量の確認には `execution.stages[].input` を読む。`bodyBytes` はモデルCLIへ渡した本文JSON、`schemaBytes` は出力schemaのbyte数、`assignedRequirementIds` は担当単位数、`reviewUnits` は参考を含めて渡した単位数。分割した工程では全分割の合計で、分割別の値は `execution.stages[].shards[].input` にある。モデル入力の本文自体は保存しない。
+`execution.stages` は工程ごとに1件で、`shards` に分割ごとの状態（`completed`・`incomplete`・`not_started`）・担当ID `requirementIds`・使用量・失敗理由を残す。最初の失敗理由は最上位 `problems` の先頭にある。
 CLIの終了コードは最終5点のみ0、それ以外は1。終了コードにかかわらずJSONの状態・根拠・残件を読む。
 
 ## 自動チェックと独立したレビュー

@@ -214,7 +214,7 @@ export function reviewFocus(target: NonNullable<ReviewPreparation["target"]>) {
 
 export const adjudicationInstructions = `
 reviewUnitsは固定資料の必須確認単位であり、assignedRequirementIdsの単位について同じidを返す。短い要求も省略しない。
-探索は自軸の全単位、verificationは全軸の全単位を担当し、requirementsへ返す。Standards探索に添えるSpec単位は主要求の参考である。各単位は必要に応じて複数の要求を含むので、その全てを確認する。
+探索は自軸、verificationは全軸の単位のうちassignedRequirementIdsの全単位を担当し、requirementsへ返す。単位数が多い工程は分割され、担当外の単位は他の分割が確認する。Standards探索に添えるSpec単位は主要求の参考である。各単位は必要に応じて複数の要求を含むので、その全てを確認する。
 要求statusはsatisfied/unsatisfied/unverified/out_of_scope/context。contextは説明だけと独立確認した本文記録であり、実装充足とは別である。targetはtarget.hash。implementationは固定コードの{path,revision:head|base,line}または固定資料の{source,line}の配列。
 verificationは{method:inspection,detail:静的な確認方法}。evidenceは具体的な静的証拠。既存テスト成功だけでは充足としない。
 unsatisfiedには要対応候補のaxis:idをfindingIdsに記録する。他軸で発見した候補でも、操作・条件・期待動作・修正効果の一致を検証して参照する。out_of_scopeには承認済みplanまたは固定responsibility、もしくは検証済みスコープ外既存候補のfindingIdsと当該要求のscopeEvidence・rationaleを必要とし、残る要求を消さない。

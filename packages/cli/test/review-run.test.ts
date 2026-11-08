@@ -725,7 +725,8 @@ test("各工程へ担当単位と主要求だけを渡し、出典・段落・�
   const expected: Record<string, { assigned: string[]; units: string[] }> = {
     standards: { assigned: standardIds, units: [...specIds, ...standardIds] },
     spec: { assigned: specIds, units: specIds },
-    verification: { assigned: [...standardIds, ...specIds], units: [...specIds, ...standardIds] },
+    // 検証はSpec単位を先頭（主分割）に置いて担当させる。
+    verification: { assigned: [...specIds, ...standardIds], units: [...specIds, ...standardIds] },
   };
   expect(calls.map(c => c.phase).sort()).toEqual(["spec", "standards", "verification"]);
   for (const call of calls) {
@@ -755,6 +756,135 @@ test("各工程へ担当単位と主要求だけを渡し、出典・段落・�
   }
   expect(result.json.sources.find((s: any) => s.type === "standard")).toMatchObject({ hash: standard.hash, content: expect.stringContaining("参考の背景説明。"), applicability: expect.any(Array) });
   expect(result.json.execution.sourceFiles).toContainEqual(expect.objectContaining({ source: "standard:README.md", hash: standard.hash }));
+});
+
+// 必須範囲の規約行を分割上限（80単位）より多く固定し、各行を独立した確認単位にする。
+function manyStandards(repo: string, count: number) {
+  writeFileSync(join(repo, "README.md"), `# 規約\n${Array.from({ length: count }, (_, i) => `- 規約${i + 1}: 公開値${i + 1}を維持する。`).join("\n")}\n`);
+  git(repo, "add", "."); git(repo, "commit", "-qm", "大量の規約");
+  return Array.from({ length: count }, (_, i) => `standard:README.md:L${i + 2}`);
+}
+
+test("80単位を超える規約は担当を分けて同時実行上限内で並列に探索・検証し、1工程ずつ集約して完了できる", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 700), specId = `issue:${f.issue}:L1`, trace = join(f.dir, "trace.jsonl");
+  fakeClaude(f.dir, `
+    import { appendFileSync } from "node:fs";
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), schema = JSON.parse(process.argv[process.argv.indexOf("--json-schema") + 1]);
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "start", pid: process.pid, phase: input.phase, shard: input.shard ?? null, assigned: input.assignedRequirementIds,
+        candidates: input.candidates ?? null, requirementIds: schema.properties.requirements.items.properties.id.enum, maxItems: schema.properties.requirements.maxItems,
+        candidateId: schema.properties.candidates.items?.properties?.id ?? null, candidatesMax: schema.properties.candidates.maxItems ?? null, causeGroupsMax: schema.properties.causeGroups.maxItems ?? null }) + "\\n");
+      await Bun.sleep(300);
+      ${echoReviewReferences}
+      const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
+      appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ event: "end", pid: process.pid }) + "\\n");
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, usage: { output_tokens: 10 },
+        structured_output: { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "担当範囲の要求と規約を相互確認した" } } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, JSON.stringify(result.json?.problems)).toMatchObject({ status: "completed", score: 5, review: { standards: "passed", spec: "passed" } });
+  const events = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  let running = 0, peak = 0;
+  for (const event of events) { running += event.event === "start" ? 1 : -1; peak = Math.max(peak, running); }
+  expect(peak).toBeGreaterThan(1);
+  expect(peak).toBeLessThanOrEqual(8);
+  const starts = events.filter(e => e.event === "start");
+  for (const start of starts) {
+    // 各分割のschemaは担当IDだけを、担当件数どおりに返させる。
+    expect(start.requirementIds).toEqual(start.assigned);
+    expect(start.maxItems).toBe(start.assigned.length);
+    expect(start.assigned.length).toBeLessThanOrEqual(80);
+  }
+  const byPhase = (phase: string) => starts.filter(s => s.phase === phase).sort((a, b) => (a.shard?.index ?? 0) - (b.shard?.index ?? 0));
+  const standards = byPhase("standards"), spec = byPhase("spec"), verification = byPhase("verification");
+  expect(standards).toHaveLength(9);
+  expect(standards.flatMap(s => s.assigned)).toEqual(standardIds);
+  for (const [i, s] of standards.entries()) {
+    expect(s.assigned.length).toBeGreaterThanOrEqual(77);
+    expect(s.shard).toMatchObject({ index: i, count: 9, candidateIdPrefix: `s${i + 1}-` });
+    expect(s.candidateId.pattern).toBe(`^s${i + 1}-`);
+  }
+  expect(spec).toHaveLength(1);
+  expect(spec[0]).toMatchObject({ shard: null, assigned: [specId] });
+  expect(spec[0].candidateId.pattern).toBeUndefined();
+  // 検証はSpec単位を主分割に含めて全単位を分け、主分割だけが候補の採否と原因統合を返せる。
+  expect(verification).toHaveLength(9);
+  expect(verification.flatMap(s => s.assigned)).toEqual([specId, ...standardIds]);
+  for (const [i, s] of verification.entries()) {
+    expect(s.shard).toMatchObject({ index: i, count: 9, judgesCandidates: i === 0 });
+    expect(s.candidatesMax).toBe(i === 0 ? null : 0);
+    expect(s.causeGroupsMax).toBe(i === 0 ? null : 0);
+    expect(s.candidates.map((c: any) => c.axis)).toEqual(["standards", "spec"]);
+    expect(s.candidates.flatMap((c: any) => c.requirements.map((r: any) => r.id))).toEqual(s.assigned.filter((id: string) => id !== specId).concat(s.assigned.includes(specId) ? [specId] : []));
+  }
+  const stages = result.json.execution.stages;
+  expect(stages.map((s: any) => s.phase)).toEqual(["standards", "spec", "verification"]);
+  expect(stages[0].output.requirements.map((r: any) => r.id)).toEqual(standardIds);
+  expect(stages[2].output.requirements).toHaveLength(701);
+  expect(stages[0].usage.output_tokens).toBe(90);
+  expect(stages[0].shards.map((s: any) => [s.index, s.status, s.candidateIdPrefix, s.requirementIds.length > 0])).toEqual(standards.map((_, i) => [i, "completed", `s${i + 1}-`, true]));
+  expect(stages[0].shards.every((s: any) => s.input.assignedRequirementIds === s.requirementIds.length && s.output === undefined)).toBe(true);
+  expect(stages[2].shards.map((s: any) => s.judgesCandidates)).toEqual(verification.map((_, i) => i === 0));
+  expect(result.json.coverage).toHaveLength(701);
+});
+
+test("複数分割の探索で接頭辞の無い候補IDは書き換えずに拒否し、完了した分割の候補を保存する", async () => {
+  const f = await fixture();
+  manyStandards(f.repo, 100);
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text()), index = input.shard?.index ?? 0;
+      if (input.phase === "standards" && index === 1) await Bun.sleep(500);
+      const candidates = input.phase === "standards" ? [{ id: index === 0 ? input.shard.candidateIdPrefix + "dup" : "dup", axis: "standards" }] : [];
+      console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates, requirements: [] } }));
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json).toMatchObject({ status: "incomplete", score: null });
+  expect(result.json.problems[0]).toMatchObject({ code: "OUTPUT_INVALID", message: expect.stringContaining("s2-") });
+  const standards = result.json.execution.stages.find((s: any) => s.phase === "standards");
+  expect(standards.shards.map((s: any) => s.status)).toEqual(["completed", "incomplete"]);
+  expect(standards.shards[1].problem.code).toBe("OUTPUT_INVALID");
+  expect(standards.output.candidates.map((c: any) => c.id)).toEqual(["s1-dup"]);
+  expect(result.json.execution.stages.some((s: any) => s.phase === "verification")).toBe(false);
+});
+
+test("一部の分割が期限に達したら未完了・点数なしとし、完了分の出力と未完了・未起動の担当IDを保存する", async () => {
+  const f = await fixture(), standardIds = manyStandards(f.repo, 700);
+  fakeClaude(f.dir, `
+    if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
+    else {
+      const input = JSON.parse(await Bun.stdin.text());
+      if (input.phase !== "standards" || input.shard.index !== 0) setInterval(() => {}, 100);
+      else {
+        ${echoReviewReferences}
+        const requirements = input.reviewUnits.filter(u => input.assignedRequirementIds.includes(u.id)).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "照合した" }, evidence: "value.ts:1" }));
+        console.log(JSON.stringify({ type: "result", subtype: "success", modelUsage: { "claude-review-effective": {} }, structured_output: { completed: true, axis: input.phase, candidates: [], requirements } }));
+      }
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled", "--timeout-seconds", "4");
+  expect(result.exitCode).toBe(1);
+  expect(result.json).toMatchObject({ status: "incomplete", score: null, execution: { status: "incomplete" } });
+  expect(result.json.problems[0].code).toBe("DEADLINE_EXCEEDED");
+  const [standards, spec] = result.json.execution.stages;
+  expect(result.json.execution.stages).toHaveLength(2);
+  expect(standards).toMatchObject({ phase: "standards", status: "incomplete", output: { completed: false } });
+  const done = standards.shards[0];
+  expect(done.status).toBe("completed");
+  expect(standards.output.requirements.map((r: any) => r.id)).toEqual(done.requirementIds);
+  // 起動済みで中断した分割と、待機中のまま起動しなかった分割の担当を区別して残す。
+  expect(standards.shards.slice(1).every((s: any) => ["incomplete", "not_started"].includes(s.status))).toBe(true);
+  expect(standards.shards.filter((s: any) => s.status === "not_started").length).toBeGreaterThan(0);
+  expect(standards.shards.filter((s: any) => s.status === "incomplete").every((s: any) => ["DEADLINE_EXCEEDED", "CANCELLED"].includes(s.problem.code))).toBe(true);
+  expect(standards.shards.flatMap((s: any) => s.requirementIds)).toEqual(standardIds);
+  expect(spec).toMatchObject({ phase: "spec", status: "incomplete", output: null });
+  const saved = JSON.parse(readFileSync(result.json.initialReviewPath, "utf8"));
+  expect(saved.execution.stages).toEqual(result.json.execution.stages);
+  expect(saved.problems[0].code).toBe("DEADLINE_EXCEEDED");
 });
 
 for (const outside of [false, true]) {
@@ -1274,10 +1404,11 @@ for (const withStandard of [false, true]) test(`担当要求だけを出力schem
   adjudicatingClaude(f.dir, modernRequirements + `
     const schema = JSON.parse(process.argv[process.argv.indexOf("--json-schema") + 1]);
     const assigned = input.reviewUnits.filter(u => input.phase === "verification" || u.axis === input.phase);
-    if (JSON.stringify(input.assignedRequirementIds) !== JSON.stringify(assigned.map(u => u.id))) throw new Error("担当IDが一致しない");
+    // 検証はSpec単位を先頭に担当するので、担当の集合と、schemaが担当IDをそのまま列挙することを確かめる。
+    if (JSON.stringify([...input.assignedRequirementIds].sort()) !== JSON.stringify(assigned.map(u => u.id).sort())) throw new Error("担当IDが一致しない");
     const req = schema.properties.requirements;
     if (req.maxItems !== assigned.length) throw new Error("担当件数が制約されていない");
-    if (assigned.length && JSON.stringify(req.items.properties.id.enum) !== JSON.stringify(assigned.map(u => u.id))) throw new Error("他軸IDを出力可能");
+    if (assigned.length && JSON.stringify(req.items.properties.id.enum) !== JSON.stringify(input.assignedRequirementIds)) throw new Error("他軸IDを出力可能");
     const second = input.reviewUnits.find(u => u.axis === "spec" && u.reference.line === 2);
     if (!second || JSON.stringify(second.requiredAssessmentReferences.map(r => r.line)) !== "[2,1]") throw new Error("行と段落の参照がない");
     if (input.phase === "verification" && !input.assignedRequirementIds.includes(second.id)) throw new Error("検証から要求が落ちた");

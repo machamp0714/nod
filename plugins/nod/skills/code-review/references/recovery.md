@@ -8,10 +8,11 @@
 | Issue・Spec取得失敗、複数の有効要求、矛盾 | 正本を確定・取得する。Specがあるのに本文だけへ代替しない |
 | 規約参照先の取得失敗、固定sourcesから必須規約が欠落 | 必要な規約を固定できる経路を整える。Skillだけで採点して補わない |
 | `SCOPE_PLAN_INVALID`・`SCOPE_UNVERIFIED` | 固定規約の全行・hash・適用理由を確認する。Issue・Specの除外や未確認の参考扱いで通さない |
-| `INPUT_TOO_LARGE` | 必須要求を保持し、`execution.stages[].input` の本文・schemaのbyte数と担当単位数から肥大化箇所を確かめ、規約の適用判断・資料索引と出力構成を見直す。利用枠不足と混同しない |
+| `INPUT_TOO_LARGE` | 必須要求を保持し、`execution.stages[].input` と失敗した分割の `shards[].input` の本文・schemaのbyte数と担当単位数から肥大化箇所を確かめ、規約の適用判断・資料索引と出力構成を見直す。利用枠不足と混同しない |
+| `DEADLINE_EXCEEDED`・`CANCELLED`（分割の途中停止） | `problems` の先頭の最初の理由と、各工程の `shards` の状態・担当ID `requirementIds` で完了分と未完了・未起動の担当を確かめる。完了済み分割の出力を合格・部分点として扱わず、期限を延ばさずに新しい実行で全工程を確認する |
 | 実装モデル不明、同一モデル、`MODEL_UNVERIFIED` | 実効値を確認でき、実装集合と異なる利用者設定を用意する |
 | `BILLING_POLICY_UNVERIFIED` | 利用者による追加使用無効の確認を得る。設定が変わったと推測しない |
-| 未認証・利用枠不足・CLI失敗・出力不正 | 認証・利用可能性・対応CLIを確認する。工程の `cliStatus` に記録された終了コード・既知の終了種別・HTTP状態を確認し、未記録の原因を推測しない。API課金へfallbackしない |
+| 未認証・利用枠不足・CLI失敗・出力不正 | 認証・利用可能性・対応CLIを確認する。工程の `cliStatus`（分割した工程では各 `shards[].cliStatus`）に記録された終了コード・既知の終了種別・HTTP状態を確認し、未記録の原因を推測しない。API課金へfallbackしない |
 | `OUTPUT_INVALID`（`referenceDiagnostic` あり） | `reason`・`field`・`sourceForm` で出典の取り違え（型なしID・snapshotのpath・未知の資料・範囲外の行）を確かめる。出典は `sources[].source` と同じ `type:id` が必要で、結果の出典を手で直したり未知の資料を受理させたりせず、新しい実行で再確認する |
 | `REVIEW_LAYER_VIOLATION`・候補担当の根拠不正 | 自動チェック結果の混入を取り除き、候補担当の固定参照・採否を確認する。対象外にするために必須要求を変更しない |
 | `REPAIR_PREPARATION_REQUIRED`、`REPAIR_PREPARATION_INVALID` | 固定規約に対する準備計画と環境言及の適用判断を補う。引用・行番号を照合し、未確認を説明扱いにしない |
