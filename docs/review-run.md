@@ -63,7 +63,7 @@ Windowsなどプロセス群の停止を提供できない環境は未対応と�
   1. 主分割（`shard.judgesCandidates=true`）が単独で先に起動し、探索の全候補の採否（`candidates`）と原因統合（`causeGroups`）、Spec単位の先頭区間（最大80単位）の要求別記録だけを返す。
   2. 主分割の完了後、残りのSpec単位と規約単位の分割を同時最大8プロセスで起動する。入力の `candidates[].candidates` は主分割が検証した候補（採否・`rootCause`・言い換え後の `failure`・`expectedBehavior` を含む）で、`findingLinks` の `observedBehavior`・`obligation.candidate` はその文と同一にさせる。schemaで `candidates`・`causeGroups` を `maxItems: 0` とし、候補の追加・判定はさせない。主分割が失敗・中断したら残りは起動せず `not_started` として担当IDを残す。
   探索の要求別記録は各分割の担当分だけを渡す。リンクの完全一致の検査は緩めない。
-- 時間の見込み（f1b5ae09の実測、要求1単位あたり探索約3.6秒・検証約1.5秒・1回の固定費約100秒からの推定。実モデルでは未確認）：探索は各巡の最も大きい分割の所要時間の和（規約1,000単位なら8プロセスで2巡）。検証は主分割の所要時間に、残りの分割の所要時間（1,000単位なら2巡）を加える。準備を除き、325単位で約12分、1,010単位で約23分。
+- 所要時間：探索は各巡の最も大きい分割の所要時間の和（規約1,000単位なら8プロセスで2巡）。検証は主分割の所要時間に、残りの分割の所要時間（1,000単位なら2巡）を加える。claude-opus-5-5での325単位（規約313・Spec 12、探索5分割・検証5分割）の実測は全体724〜952秒（4回）で、分割前は30分の期限に達していた。1,010単位は実測値からの推定で準備を除き約23分であり、実モデルでは未確認。
 - 工程の集約記録は、全分割が完了したときだけ `status=completed`。実効モデルは和集合（各分割で実装モデルとの重複を検査する）、使用量と入力量は合算、所要時間は工程の実時間、出力形式は全分割で一致しなければ `OUTPUT_INVALID`。`output` は出力を検証できた分割の候補・要求別記録を連結し、未完了の分割があれば `output.completed=false`。
 - 検証の `consistency` は、1つでも `conflict` なら `conflict`、全分割が根拠付きで `consistent` のときだけ `consistent`、それ以外は `unverified`。根拠は分割ごとに連結する。採点は従来どおり集約した1つの検証記録を全単位について判定し、判定条件は分割で緩めない。
 - `execution.stages[].shards` に分割ごとの `index`・`status`（`completed`・`incomplete`・`not_started`）・担当ID `requirementIds`・`candidateIdPrefix`・`judgesCandidates`・`elapsedMs`・`usage`・`effectiveModels`・`input`・`cliStatus`・`problem` を残す。分割の出力は工程の `output` にだけ置く。
