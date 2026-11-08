@@ -3,7 +3,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { reviewUnits } from "./review-adjudicate";
 import type { ReviewSource } from "./review-prepare";
-import { ReviewFailure } from "./review-process";
+import { ReviewFailure } from "./review-failure";
 import { sensitiveReviewPath } from "./review-snapshot";
 
 export interface ReviewResponsibility {

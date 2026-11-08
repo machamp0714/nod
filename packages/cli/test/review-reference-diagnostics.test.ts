@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { expandReviewOutput, reviewOutputSchema } from "../../core/src/ops/review-contract";
-import { ReviewFailure } from "../../core/src/ops/review-process";
+import { ReviewFailure } from "../../core/src/ops/review-failure";
 
 function fixture() {
   const source = { type: "document", id: "fixed", content: "要求\n説明", hash: "fixed-hash" };

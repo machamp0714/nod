@@ -30,3 +30,25 @@ test("LLM はレビュー待ちを経ずに完了し、旧レビューコマン�
     expect(rejected.json.error.code).toBe("INVALID_ARGS");
   }
 });
+
+test("直接モデル起動のrunとevaluation replayを公開CLIから撤去する", async () => {
+  const cwd = makeRepo(), db = tempDb();
+  registerRepo(db, cwd);
+  for (const args of [["review", "run"], ["review", "evaluation", "replay"]]) {
+    const result = await runNod([...args, "--json"], { cwd, db });
+    expect(result.exitCode).toBe(1);
+    expect(result.json.error.code).toBe("INVALID_ARGS");
+  }
+});
+
+for (const [option, value] of [
+  ["--provider", "claude"], ["--review-model", "model"], ["--review-effort", "high"], ["--implementation-models", "model"],
+  ["--extra-usage-disabled", undefined], ["--auto-repair", undefined], ["--repair-once", undefined], ["--repair-provider", "claude"],
+  ["--repair-model", "model"], ["--repair-plan", "unused.json"], ["--timeout-seconds", "1800"], ["--evidence-plan", "unused.json"],
+] as const) test(`新しいレビュー入口は廃止引数を受け付けない（${option}）`, async () => {
+  const cwd = makeRepo(), db = tempDb();
+  registerRepo(db, cwd);
+  const result = await runNod(["review", "prepare", "--repo", cwd, "--base", "HEAD", option, ...(value ? [value] : []), "--json"], { cwd, db });
+  expect(result.exitCode).toBe(1);
+  expect(result.json.error.code).toBe("INVALID_ARGS");
+});

@@ -204,6 +204,41 @@ test("探索の2工程を形式検査して採点せずに保存し、レビュ�
   expect(f.original()).toEqual(before);
 });
 
+test("CLIの探索と独立検証の2段記録から固定版を5点で最終保存する", async () => {
+  const f = await fixture();
+  const before = f.original();
+  const { prepared, inputs } = await planned(f);
+  const dir = tempDir("review-verification-");
+  const outputs = ["standards", "spec"].map(phase => {
+    const result = explorationOutput(inputs[phase]);
+    for (const row of result.requirements) {
+      row.contentAssessment.obligations = [inputs[phase].reviewUnits.find((unit: { id: string; requirement: string }) => unit.id === row.id).requirement];
+    }
+    return result;
+  });
+  const exploration = await f.cli("review", "record", "--run", prepared.runId, "--phase", "exploration",
+    "--standards", writeJson(dir, "standards.json", outputs[0]), "--spec", writeJson(dir, "spec.json", outputs[1]), "--agent", "code-reviewer");
+  expect(exploration.exitCode, exploration.stdout + exploration.stderr).toBe(0);
+  expect(exploration.json).toMatchObject({ status: "explored", score: null, reviewCompleted: false });
+  const located = await f.cli("review", "input", "--run", prepared.runId, "--phase", "verification");
+  expect(located.exitCode, located.stdout + located.stderr).toBe(0);
+  const verification = { format: 3, target: prepared.target.hash, axis: "verification", completed: true, candidates: [],
+    requirements: outputs.flatMap(result => result.requirements.map((row: Record<string, unknown>) => ({ ...row, findingLinks: [] }))),
+    consistency: { status: "consistent", evidence: "固定要求を独立して読み直し矛盾がない" }, causeGroups: [] };
+  const recorded = await f.cli("review", "record", "--run", prepared.runId, "--phase", "verification",
+    "--output", writeJson(dir, "verification.json", verification), "--agent", "code-reviewer");
+  expect(recorded.exitCode, recorded.stdout + recorded.stderr).toBe(0);
+  expect(recorded.json).toMatchObject({ runId: prepared.runId, status: "completed", score: 5, reviewCompleted: true,
+    target: { hash: prepared.target.hash }, review: { standards: "passed", spec: "passed" },
+    agents: { exploration: { definition: "code-reviewer" }, verification: { definition: "code-reviewer",
+      modelClaim: { value: null, source: null, status: "unverified" } } } });
+  expect(recorded.json.problems).toEqual([]);
+  expect(recorded.json.artifactPath).toBe(join(prepared.artifactPath, "../execution.json"));
+  expect(JSON.parse(readFileSync(recorded.json.artifactPath, "utf8"))).toEqual(recorded.json);
+  expect((await f.cli("review", "show", "--run", prepared.runId)).json).toMatchObject({ status: "completed", score: 5, reviewCompleted: true });
+  expect(f.original()).toEqual(before);
+});
+
 const broken: [string, (inputs: Record<string, any>, out: string, issue: string) => string[], string, "standards" | "spec"][] = [
   ["Spec出力の指定なし", (i, out) => ["--standards", writeJson(out, "s.json", explorationOutput(i.standards))], "STAGE_MISSING", "spec"],
   ["存在しない出力ファイル", (i, out) => ["--standards", writeJson(out, "s.json", explorationOutput(i.standards)), "--spec", join(out, "missing.json")], "STAGE_MISSING", "spec"],

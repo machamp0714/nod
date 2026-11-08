@@ -1,13 +1,13 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import type { ReviewPreparation } from "./review-prepare";
-import { ReviewFailure } from "./review-process";
+import { ReviewFailure } from "./review-failure";
 import type { StandardRange } from "./review-scope";
 import { sensitiveReviewPath } from "./review-snapshot";
 
 /**
  * 1つの実行専用の読取専用snapshot。code・baseCode・sourceFilesのpathはすべて `path` からの相対パス。
- * 担当（モデルCLIのcwd、または担当エージェント）は元の作業ツリーではなくここだけを読む。
+ * 担当エージェントは元の作業ツリーではなくここだけを読む。
  */
 export interface ReviewContext {
   path: string;

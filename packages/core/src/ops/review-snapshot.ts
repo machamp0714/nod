@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { ReviewFailure, reviewProcess } from "./review-process";
+import { ReviewFailure } from "./review-failure";
+import { reviewGit } from "./review-git";
 
 export const sensitiveReviewPath = (path: string) => path.split("/").some(part => /^(?:\.env(?:\..*)?|\.aws|id_(?:rsa|ed25519)|credentials(?:\.[^/]*)?|[^/]*\.(?:pem|key))$/i.test(part));
 export interface LocalReviewSnapshot {
@@ -43,7 +44,7 @@ function captureFile(repo: string, path: string, required: boolean): Captured {
 }
 
 /** 元のrepoには書かず、独立したindexとobject領域だけでtreeを作る。commitは作らない。 */
-export async function captureLocalReview(input: { repo: string; directory: string; headSha: string; untracked: string[]; git: Git; deadline?: number; signal?: AbortSignal }): Promise<LocalReviewSnapshot> {
+export async function captureLocalReview(input: { repo: string; directory: string; headSha: string; untracked: string[]; git: Git }): Promise<LocalReviewSnapshot> {
   const { repo, git } = input;
   const indexPath = resolve(repo, (await git("rev-parse", "--git-path", "index")).trim());
   const indexBytes = readFileSync(indexPath);
@@ -75,9 +76,8 @@ export async function captureLocalReview(input: { repo: string; directory: strin
   const state = (files: Captured[]) => digest(JSON.stringify(files.map(({ content: _content, ...file }) => file)));
   const snapshotRepo = join(input.directory, "snapshot.git");
   mkdirSync(snapshotRepo, { recursive: true });
-  const isolated = async (args: string[], data?: string) => (await reviewProcess("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "--git-dir", snapshotRepo, ...args], {
-    cwd: repo, deadline: input.deadline ?? Date.now() + 15_000, signal: input.signal ?? new AbortController().signal, input: data, maxBytes: 20 * 1024 * 1024,
-  })).stdout;
+  const isolated = async (args: string[], data?: string) => (await reviewGit(["--no-optional-locks", "-c", "core.fsmonitor=false", "--git-dir", snapshotRepo, ...args],
+    { cwd: repo, input: data, maxBytes: 20 * 1024 * 1024 })).stdout;
   await isolated(["init", "--bare", "--template=", `--object-format=${(await git("rev-parse", "--show-object-format")).trim()}`, snapshotRepo]);
   const objects = resolve(repo, (await git("rev-parse", "--git-path", "objects")).trim());
   writeFileSync(join(snapshotRepo, "objects/info/alternates"), objects + "\n");
@@ -107,4 +107,18 @@ export async function captureLocalReview(input: { repo: string; directory: strin
   const finalHead = (await git("rev-parse", "HEAD")).trim();
   if (finalHead !== input.headSha || !readFileSync(indexPath).equals(indexBytes) || state(capture()) !== state(captured) || JSON.stringify([...finalChangedPaths].sort()) !== JSON.stringify([...changed].sort())) throw new ReviewFailure("LOCAL_TARGET_CHANGED", "対象の取得中にHEAD・index・作業ツリーが変更されました。新しい実行が必要です");
   return { repo: snapshotRepo, treeSha, indexTreeSha, indexHash: digest(indexBytes), sourceFingerprint: state(captured), stagedPatch, untracked };
+}
+
+/** 元のindex・作業ツリーを変更せず、明示したlocal対象が固定時と同じか確認する。 */
+export async function localReviewUnchanged(repo: string, snapshot: LocalReviewSnapshot, git: Git): Promise<boolean> {
+  const indexPath = resolve(repo, (await git("rev-parse", "--git-path", "index")).trim());
+  const index = readFileSync(indexPath);
+  if (digest(index) !== snapshot.indexHash) return false;
+  const tracked = (await git("ls-files", "-z")).split("\0").filter(Boolean);
+  const paths = [...new Set([...tracked, ...snapshot.untracked])].sort();
+  const state = digest(JSON.stringify(paths.map(path => {
+    const { content: _content, ...file } = captureFile(repo, path, snapshot.untracked.includes(path));
+    return file;
+  })));
+  return state === snapshot.sourceFingerprint && readFileSync(indexPath).equals(index);
 }

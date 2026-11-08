@@ -25,7 +25,7 @@ Documentは登録済みID・パス、または明示したMarkdownパスを受�
 
 `remaining` には計画の固定、Standards探索、Spec探索と要求別の充足確認、候補検証と要求同士の意味上の整合性確認が残る。準備の結果だけをレビュー結果として扱わない。
 
-探索と候補検証を1コマンドでモデルCLIに実行させる旧入口と現在の制約は[異なるモデルによる探索と候補検証](review-run.md)を参照する。
+探索記録のあとは、新しいコンテキストの検証担当が[独立した候補検証と最終記録](review-run.md)へ進む。
 
 ## 未コミット変更を明示して固定する
 
@@ -67,7 +67,9 @@ nod review plan --run <実行ID> --scope-plan /path/to/scope.json \
 nod review input --run <実行ID> --phase standards --json
 ```
 
-`--phase` は `standards` または `spec`。入力本文は大きいため標準出力へ流さず、`inputPath` と `schemaPath` だけを返す。計画の固定前は `PLAN_REQUIRED` で拒否する。
+`--phase` は `standards`、`spec`、`verification`。
+入力本文は大きいため標準出力へ流さず、`inputPath` と `schemaPath` だけを返す。
+計画の固定前は `PLAN_REQUIRED`、検証入力は探索の記録が `explored` でなければ `EXPLORATION_REQUIRED` で拒否する。
 
 ## 探索の出力を記録する
 
@@ -103,3 +105,8 @@ nod review show --run <実行ID> --json
 ```
 
 保存済みの記録を読むだけで、記録を閉じたり書き換えたりしない。`status` は最後に保存された記録の段階（`prepared`・`planned`・`explored`・`exploration_incomplete`、候補検証の記録後は `completed`・`incomplete`、準備未完了は `incomplete`）で、`score`、`reviewCompleted`、両軸の `review`、`agents`（探索担当・検証担当の申告）、`problems`、`remaining`、保存先 `directory` と最新の記録 `artifactPath` を返す。準備・計画・探索の段階では常に `score=null`・`reviewCompleted=false` で、テキスト出力にも「レビュー未完了・点数なし」と表示する。
+
+最終検証後は `fixedResult` と `currentSubmission` も返す。
+準備後に対象、要求、規約、計画が変わった場合、固定版の点数と現在版への提出可否を分け、最終状態は未完了かつ点数なしにする。
+準備時には対象の選択式と資料の識別値も保存し、計画固定までの変更も検出する。
+中間記録を完了へ読み替える操作はなく、記録済み工程のやり直しは新しい準備から始める。

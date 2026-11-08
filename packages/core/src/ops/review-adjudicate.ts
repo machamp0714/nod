@@ -3,7 +3,7 @@ import { linkedFindingKeys, requirementLinksValid } from "./review-requirement-l
 import { contentAssessmentValid } from "./review-content-assessment";
 import { exactSdkVersionQuoted } from "./review-sdk-evidence";
 import type { ReviewPreparation, ReviewSource } from "./review-prepare";
-import type { ReviewStage } from "./review-model";
+import type { ReviewRecordedStage } from "./review-record";
 
 export type ReviewAxis = "standards" | "spec";
 export interface ReviewUnit {
@@ -47,7 +47,7 @@ const object = (value: unknown): Row => value && typeof value === "object" && !A
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const axes: ReviewAxis[] = ["standards", "spec"];
 
-export function adjudicate(preparation: ReviewPreparation, stages: ReviewStage[], locations: Map<string, string[]>) {
+export function adjudicate(preparation: ReviewPreparation, stages: Pick<ReviewRecordedStage, "phase" | "format" | "output">[], locations: Map<string, string[]>) {
   const changed = changedReviewLines(preparation.target!.patch);
   const format = stages.find(s => s.phase === "verification")?.format;
   const modern = format === 3;
@@ -215,7 +215,7 @@ export function reviewFocus(target: NonNullable<ReviewPreparation["target"]>) {
 
 export const adjudicationInstructions = `
 reviewUnitsは固定資料の必須確認単位であり、assignedRequirementIdsの単位について同じidを返す。短い要求も省略しない。
-探索は自軸、verificationは全軸の単位のうちassignedRequirementIdsの全単位を担当し、requirementsへ返す。単位数が多い工程は分割され、担当外の単位は他の分割が確認する。Standards探索に添えるSpec単位は主要求の参考である。各単位は必要に応じて複数の要求を含むので、その全てを確認する。
+探索は自軸、verificationは全軸のassignedRequirementIdsの全単位を担当し、requirementsへ返す。Standards探索に添えるSpec単位は主要求の参考である。各単位は必要に応じて複数の要求を含むので、その全てを確認する。
 要求statusはsatisfied/unsatisfied/unverified/out_of_scope/context。contextは説明だけと独立確認した本文記録であり、実装充足とは別である。targetはtarget.hash。implementationは固定コードの{path,revision:head|base,line}または固定資料の{source,line}の配列。
 verificationは{method:inspection,detail:静的な確認方法}。evidenceは具体的な静的証拠。既存テスト成功だけでは充足としない。
 unsatisfiedには要対応候補のaxis:idをfindingIdsに記録する。他軸で発見した候補でも、操作・条件・期待動作・修正効果の一致を検証して参照する。out_of_scopeには承認済みplanまたは固定responsibility、もしくは検証済みスコープ外既存候補のfindingIdsと当該要求のscopeEvidence・rationaleを必要とし、残る要求を消さない。
@@ -230,7 +230,7 @@ evidenceは{kind:static,detail:到達性と破綻を裏付ける静的証拠}。
 sdkは{status:verified|not_applicable,evidence,version?,source?}。verifiedのsourceは実版を含む固定依存ファイルの行{path,revision,line}で、引用はCLIが固定コードから取得する。SDK関係があるときは固定依存ファイルの実版と契約出典を照合する。
 decisionはrequired/unverified/false_positive/out_of_scope/deferred/risk_accepted/optional。今回の必須要求の判定や確認済み要対応の修正に不可欠な仕様判断が未決ならneedsSpecificationDecision=trueかつunverifiedにし、どの要求を何が判定不能にしているかを示す。任意の設計改善に複数の選択肢があることだけでは未決仕様にしない。必須要求・具体的な不具合に必要な証拠不足は未確認のまま保持する。requiredはfalseを必要とする。
 未確認にする前に、何の必須契約または固定証拠に基づく具体的疑義を、どの不足事実が判定不能にしているかを示す。固定文脈を確認した結果、候補の前提が肯定・例示から追加した排他的制約や根拠のない可能性だけだと分かった場合は、探索では候補にせず、verificationでは元のid・axisを保持してfalse_positiveとし、成立しない前提と固定出典をrationaleへ記録する。思いついた懸念を否定し切れないことだけでunverifiedや仕様判断待ちにしない。ただし、必須契約の意味や必要資料が不明な場合、または具体的な疑義に必要な到達条件・影響を確定できない場合を、根拠のない仮説と取り違えて棄却しない。候補の棄却で必須要求の未確認を消さない。
-臭い・整理・好みだけの懸念は探索候補にしない。検証へ混入した場合だけoptionalとして監査記録に残し、通常報告・減点・停止・自動修正の対象にしない。条件付き懸念は証拠なしでrequiredにしない。out_of_scope/deferred/risk_acceptedは承認済みplanへのscopeEvidenceを必要とする。ただし固定コード・規約の根拠付きresponsibility.owner=automatic_checkの候補は、独立した担当分離によりout_of_scopeとしscopeEvidence=nullを使う。scopeAssessmentで今回と無関係と確認した既存候補も、基点証拠・固定した作業範囲の参照付きでout_of_scope、scopeEvidence=nullとする。
+臭い・整理・好みだけの懸念は探索候補にしない。検証へ混入した場合だけoptionalとして監査記録に残し、通常報告・減点・停止の対象にしない。条件付き懸念は証拠なしでrequiredにしない。out_of_scope/deferred/risk_acceptedは承認済みplanへのscopeEvidenceを必要とする。ただし固定コード・規約の根拠付きresponsibility.owner=automatic_checkの候補は、独立した担当分離によりout_of_scopeとしscopeEvidence=nullを使う。scopeAssessmentで今回と無関係と確認した既存候補も、基点証拠・固定した作業範囲の参照付きでout_of_scope、scopeEvidence=nullとする。
 同根本原因の候補はrootCauseで関連付けるが、両軸の出典・判定を消さない。
 verificationはconsistency:{status:consistent|conflict|unverified,evidence:今回取得した要求資料の内部・相互の整合性と範囲を確認した根拠}も返す。
 requirements.acquisitionは資料の取得状態であり、意味上の整合性とは別である。status=completeは、指定・解決した要求元と、その登録済み関連Issue・現行Spec・計画を必要な範囲で取得できたことを表す。sourceIdsの全資料を固定sourcesの索引と照合する。mode=document_onlyはIssueを選択・関連付けていない文書単独のレビューであり、存在しないIssue・計画との比較を追加で要求しない。mode=issue_contextでも、現行Specや計画が未設定なら欠落ではない。指定文書に紐づくIssue・現行Spec・計画がある場合はsourceIdsに含まれるため、文書単独と読み替えて無視しない。

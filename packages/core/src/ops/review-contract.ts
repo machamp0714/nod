@@ -1,4 +1,4 @@
-import { ReviewFailure, type ReviewReferenceDiagnostic } from "./review-process";
+import { ReviewFailure, type ReviewReferenceDiagnostic } from "./review-failure";
 import type { ReviewSource } from "./review-prepare";
 
 type Row = Record<string, any>;
@@ -10,7 +10,7 @@ const object = (properties: Row, required = Object.keys(properties)) => ({ type:
 const array = (items: Row) => ({ type: "array", items });
 const nullable = (item: Row) => ({ anyOf: [item, { type: "null" }] });
 const location = object({ path: text, revision: { enum: ["head", "base"] }, line: { type: "integer", minimum: 1 } });
-// 型なしID・ファイル名・snapshotのpathはschemaの検査（モデルCLIのStructuredOutput、または記録時のreviewSchemaViolation）で弾く。全資料IDのenumはschemaを肥大化させるので使わない。
+// 型なしID・ファイル名・snapshotのpathは記録時のreviewSchemaViolationで弾く。全資料IDのenumはschemaを肥大化させるので使わない。
 const sourceTypes = Object.keys({ issue: 1, document: 1, plan: 1, standard: 1 } satisfies Record<ReviewSource["type"], 1>);
 const reference = object({ source: { ...text, pattern: `^(${sourceTypes.join("|")}):.+`, description: "sources[].sourceのtype:idをそのまま使う" }, line: { type: "integer", minimum: 1 } });
 const citation = { anyOf: [reference, location] };
@@ -19,10 +19,10 @@ const findingLink = object({ findingAxis: { enum: ["standards", "spec"] }, findi
   operation: comparison, condition: comparison, obligation: comparison,
   effectOfFix: { enum: ["resolves_this_violation", "unchanged", "unknown"] }, rationale: text });
 
-/** 出典の全文・hashは繰り返さず、対象を1回固定し、参照先はランナーが照合する。分割した工程では候補IDの接頭辞と、主分割以外の採否・原因統合の禁止をschemaで示す。 */
-export function reviewOutputSchema(phase: string, target: string, requirementIds: string[], shard?: { candidateIdPrefix?: string; judgesCandidates?: boolean }) {
+/** 出典の全文・hashは繰り返さず、対象を1回固定し、記録処理が固定資料と照合する。 */
+export function reviewOutputSchema(phase: string, target: string, requirementIds: string[]) {
   const candidate = object({
-    id: shard?.candidateIdPrefix ? { ...text, pattern: `^${shard.candidateIdPrefix}`, description: "shard.candidateIdPrefixで始める" } : text, axis: phase === "verification" ? { enum: ["standards", "spec"] } : { const: phase }, location, contract: citation,
+    id: text, axis: phase === "verification" ? { enum: ["standards", "spec"] } : { const: phase }, location, contract: citation,
     condition: text, expectedBehavior: text, failure: text, impact: object({ score: { type: "integer", minimum: 0, maximum: 4 }, description: { ...text, description: "到達条件、その条件下で失う機能・状態、影響範囲と実証された回避手段を分けてscoreの根拠を説明する。発生条件が限定的という理由だけで軽微としない。機能停止だけなら一部/全入力を問わず2。0/1は重大な権限侵害・機密漏えい・回復不能な重要データ破壊等の致命的影響を先に確認し、その後で再設計の要否により区別する。局所修正で済むことだけを1の根拠にしない。" } }),
     evidence: object({ kind: { enum: ["static"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), reproduction: text, rootCause: text,
     decision: { enum: ["required", "unverified", "false_positive", "out_of_scope", "deferred", "risk_accepted", "optional"] },
@@ -32,10 +32,8 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
     responsibility: object({ owner: { enum: ["review", "automatic_check", "unresolved"] }, rationale: text, references: array(citation) }),
     scopeAssessment: nullable(object({ kind: { enum: ["unrelated_existing", "explicit_requirement"] }, rationale: text, references: array(citation) })),
   });
-  // 主分割以外の検証は候補を参照するだけで、採否・原因統合を返せない。候補の項目定義も渡さず入力量を抑える。
-  const delegated = shard?.judgesCandidates === false ? { type: "array", maxItems: 0, description: "候補の採否と原因統合は主分割が担当する" } : undefined;
   return object({ format: { const: 3 }, target: { const: target }, axis: { const: phase }, completed: { type: "boolean" },
-    candidates: delegated ?? array(candidate), requirements: { ...array(object({
+    candidates: array(candidate), requirements: { ...array(object({
       ...(phase === "verification" ? { findingLinks: array(findingLink) } : {}),
       id: requirementIds.length ? { ...text, enum: requirementIds } : text,
       status: { enum: ["satisfied", "unsatisfied", "unverified", "out_of_scope", "context"], description: "background/rationale/scope/validation_gapはcontext。説明をsatisfiedにしない。適用条件が今回の差分で成立しないと確認できた義務はsatisfied。適用条件や判定に必要な事実が不明ならunverified。実装義務が混在する場合はmixedとして義務を判定する。" },
@@ -43,7 +41,7 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
       implementation: array(citation), verification: object({ method: { enum: ["inspection"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), evidence: text,
       findingIds: { ...array(text), description: "この要求と同じ条件・時点・操作に反する軸付き候補ID（standards:id または spec:id）。語が同じだけの別操作の不具合へ対応付けない。" }, scopeEvidence: { ...nullable(reference), description: "既存課題または固定分担で対象外にする要求では、その要求idに対応するreviewUnits.referenceのsource/lineを使う。除外理由の範囲出典は候補のscopeAssessment.referencesへ。" }, rationale: { ...text, description: "responsibility.assignmentsの要求ではCLIが計画の固定した分担理由で置き換え、異なる文面はproposedRationaleとして別に保存する。" },
     })), maxItems: requirementIds.length, description: "assignedRequirementIdsの各IDを1回ずつ返す。担当IDが0件なら空配列。他軸や資料に存在しないIDを追加しない。" }, consistency: object({ status: { enum: ["consistent", "conflict", "unverified"] }, evidence: text }),
-    causeGroups: delegated ?? array(object({ id: text, members: array(text), rationale: text })),
+    causeGroups: array(object({ id: text, members: array(text), rationale: text })),
   });
 }
 
@@ -54,16 +52,7 @@ export function expandReviewOutput(output: Row, input: Row): Row {
       || row.evidence?.recordIds?.length || row.verification?.recordIds?.length)) {
     throw new ReviewFailure("REVIEW_LAYER_VIOLATION", "レビュー出力に自動チェックの結果または実行証拠が含まれています");
   }
-  // 分割の接頭辞は詳細形式でも検査し、CLIが候補IDを書き換えて衝突を避けることはしない。
-  const shard = input.shard as { candidateIdPrefix?: string; judgesCandidates?: boolean } | undefined;
-  if (shard?.judgesCandidates === false && ((Array.isArray(output.candidates) && output.candidates.length) || (Array.isArray(output.causeGroups) && output.causeGroups.length))) {
-    throw new ReviewFailure("OUTPUT_INVALID", "候補の採否と原因統合は検証の主分割が担当します。この分割は候補を返せません");
-  }
-  const prefix = shard?.candidateIdPrefix;
-  if (prefix && Array.isArray(output.candidates) && output.candidates.some((c: Row) => typeof c?.id !== "string" || !c.id.startsWith(prefix))) {
-    throw new ReviewFailure("OUTPUT_INVALID", `探索候補のIDが分割の接頭辞 ${prefix} で始まりません`);
-  }
-  if (output.format !== 2 && output.format !== 3) return output; // 既存の詳細形式も従来どおり厳密照合する。
+  if (output.format !== 2 && output.format !== 3) return output;
   if (output.target !== input.target.hash) throw new ReviewFailure("STALE_EVIDENCE", "構造化出力の対象版が固定入力と一致しません");
   if (!Array.isArray(output.requirements) || !Array.isArray(output.candidates) || !Array.isArray(output.causeGroups)) throw new ReviewFailure("OUTPUT_INVALID", "構造化出力の必要な配列がありません");
   const cite = (ref: any, field: string, requirementUnitIndex: number | null = null): any => {
@@ -179,8 +168,8 @@ function records(value: unknown, keys: string[]): Record<string, unknown>[] {
 }
 
 /**
- * 1工程の出力の工程・完了状態・配列を検査し、固定資料から出典hash・引用・要求本文・固定分担理由を復元して内部の工程記録へ変換する。
- * モデルの起動とは独立しており、担当エージェントが書いた出力の記録とモデルCLIの構造化出力の両方に使う。完了状態の扱いは呼出側が決める。
+ * 工程・完了状態・配列を検査し、固定資料から出典hash・引用・要求本文・固定分担理由を復元する。
+ * 完了状態の扱いは記録処理が決める。
  */
 export function reviewStageOutput(value: unknown, phase: ReviewPhase, input: Row): { format?: number; output: ReviewStageOutput } {
   const row = value && typeof value === "object" && !Array.isArray(value) ? value as Row : undefined;
@@ -226,7 +215,7 @@ verificationはcauseGroupsへ全候補のaxis:idを1回ずつ割り当て、同�
 検証時に任意改善が混入していたら候補IDを消さずoptionalとして監査記録へ残す。任意の設計案の選択や将来のドリフトだけでunverifiedにしない。optionalからrequired/unverifiedへ変更するときは、今回の必須要求または変更による具体的不具合への関係・影響と、その変更を支持する固定証拠をrationaleに示す。同原因というだけでは採否変更の根拠にならない。
 自動チェックとレビューは独立している。Biome・lint・型検査・ビルド・テスト・再現コードを実行せず、その成否・診断・ログ・要約・実行証拠も取得しない。候補検証はコード・契約・到達条件・影響を独立して読解する。evidence.kind=static、verification.method=inspection、recordIds=[]を使う。実行しないと確認できないレビュー対象の懸念は未確認とする。
 外部URLの現在の到達性検査、書式・lint・型エラー・既存テスト合否は自動チェック担当であり、探索で再検出しない。意味・設計上の問題、テストの期待値・検出範囲、CIの設計不備は対象とする。
-各候補にresponsibility:{owner:review|automatic_check|unresolved,rationale:担当の理由,references:固定資料またはコードの参照配列}を付け、確信度や採否より先に担当を検証する。自動チェック担当の候補が探索に混入しても、検証でid・axisと根拠を保持してowner=automatic_check、decision=out_of_scope、scopeEvidence=null、needsSpecificationDecision=falseにする。referencesは適用する検査設定・規約などの固定参照を1件以上必要とする。チェックの実行・成功・失敗を推測せず、実行しないからunverified、軽微だからoptionalとはしない。対象外の候補は監査用に残り、減点・自動修正・未完了の理由にしない。
+各候補にresponsibility:{owner:review|automatic_check|unresolved,rationale:担当の理由,references:固定資料またはコードの参照配列}を付け、確信度や採否より先に担当を検証する。自動チェック担当の候補が探索に混入しても、検証でid・axisと根拠を保持してowner=automatic_check、decision=out_of_scope、scopeEvidence=null、needsSpecificationDecision=falseにする。referencesは適用する検査設定・規約などの固定参照を1件以上必要とする。チェックの実行・成功・失敗を推測せず、実行しないからunverified、軽微だからoptionalとはしない。対象外の候補は監査用に残り、減点・未完了の理由にしない。
 例：末尾改行やインデントの違反そのものはautomatic_check。同じBiomeという語を含んでも、hookが失敗終了値を成功へ変える制御経路や検査対象を誤るCI設定はreview。書式の乱れから「hookが動かなかった」と推測して設計不備へ言い換えず、設計不備は独立したコード根拠を必要とする。担当を決める根拠が足りない場合だけowner=unresolved、decision=unverifiedとする。
 候補の担当判定は要求の担当を変更しない。automatic_check候補だけを根拠に要求をunsatisfiedやunverifiedにせず、固定要求の意味・設計部分を別に確認する。分担に未登録の要求を、自動チェック担当を理由に対象外へ移さない。
 responsibility.assignmentsは実行前に固定した自動チェック担当の要求。該当sourceとlineの要求はstatus=out_of_scope、scopeEvidence=その要求のreferenceを返す。その要求のrationaleはCLIが計画の固定した分担理由で復元するので書き写さなくてよい。異なる文面は判定に使わず、proposedRationaleとして別に保存する。要求を省略せず、合否を推測しない。未登録の要求を自動チェック担当に変更しない。複合要求の意味・設計部分はレビューで確認する。

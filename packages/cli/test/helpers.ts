@@ -9,10 +9,6 @@ setDefaultTimeout(30000);
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
 
-// 偽レビューモデルのスクリプト断片。`input` を読んだ後に置き、旧来の詳細形式で要求を返すモデルとして
-// 固定資料ファイル（sources[].path）を読み、確認単位の出典へhash・引用を補う。入力自体は索引だけを持つ。
-export const echoReviewReferences = `for (const u of input.reviewUnits ?? []) { const body = require("node:fs").readFileSync(input.sources.find(s => s.source === u.reference.source).path, "utf8"); u.reference = { ...u.reference, hash: require("node:crypto").createHash("sha256").update(body).digest("hex"), quote: body.split("\\n")[u.reference.line - 1] }; }`;
-
 // macOS の一時ディレクトリは /var が /private/var へのシンボリックリンクなので、実体のパスにそろえる
 export function tempDir(prefix = "nod-cli-"): string {
   return realpathSync(mkdtempSync(join(tmpdir(), prefix)));

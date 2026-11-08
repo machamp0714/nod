@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { changedReviewLines } from "../../core/src/ops/review-change-evidence";
-import { reviewProcess } from "../../core/src/ops/review-process";
 import { git, makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
 test("空白を含むパスの変更行を差分のTABなしで識別する", () => {
@@ -32,11 +31,4 @@ for (const [name, value] of [["diff.mnemonicPrefix", "true"], ["diff.noprefix", 
   });
 }
 
-test("正常終了した子の子孫が標準出力を保持しても全体期限まで待たない", async () => {
-  const started = Date.now();
-  const result = await reviewProcess("sh", ["-c", "sleep 30 & echo done"], { cwd: tempDir("boundary-process-"), deadline: Date.now() + 20_000, signal: new AbortController().signal });
-  expect(result.stdout).toBe("done\n");
-  expect(result.exitCode).toBe(0);
-  expect(Date.now() - started).toBeLessThan(5_000);
-});
 
