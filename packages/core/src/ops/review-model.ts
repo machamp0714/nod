@@ -40,7 +40,7 @@ export interface ReviewStage {
   shards?: ReviewShard[];
 }
 const candidateKeys = ["id", "axis", "target", "location", "contract", "condition", "expectedBehavior", "failure", "impact", "evidence", "reproduction", "rootCause", "decision", "rationale", "defense", "sdk", "scopeEvidence", "needsSpecificationDecision", "changeEvidence", "origin", "baselineEvidence", "responsibility", "scopeAssessment"];
-const requirementKeys = ["id", "requirement", "status", "contentAssessment", "reference", "implementation", "verification", "evidence", "axis", "target", "findingIds", "findingLinks", "scopeEvidence", "rationale"];
+const requirementKeys = ["id", "requirement", "status", "contentAssessment", "reference", "implementation", "verification", "evidence", "axis", "target", "findingIds", "findingLinks", "scopeEvidence", "rationale", "proposedRationale"];
 function records(value: unknown, keys: string[]): Record<string, unknown>[] {
   if (!Array.isArray(value) || value.some(v => !v || typeof v !== "object" || Array.isArray(v))) throw new ReviewFailure("OUTPUT_INVALID", "候補または要求別記録が配列ではありません");
   return value.map(v => Object.fromEntries(keys.filter(k => Object.hasOwn(v, k)).map(k => [k, v[k]])));

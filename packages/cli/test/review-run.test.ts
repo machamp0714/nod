@@ -1518,6 +1518,44 @@ for (const mixed of [false, true]) test(`URL到達性は独立検査へ分担し
   expect(result.json.coverage.find((r: any) => r.reference.line === 3).status).toBe(mixed ? "unverified" : "out_of_scope");
 });
 
+for (const mode of ["paraphrased", "satisfied", "other_line"] as const) test(`固定分担の要求理由は計画から復元し、モデルの文面は別に保存する（${mode}）`, async () => {
+  const f = await fixture();
+  await f.cli("issue", "update", f.issue, "-d", "公開名valueで値2を返す。\n\n外部URLの現在の到達性を検査する。");
+  const prepared = await f.cli("review", "prepare", "--repo", f.repo, "--base", "HEAD^", "--issue", f.issue);
+  const source = prepared.json.sources.find((s: any) => s.type === "issue");
+  const plan = join(f.dir, "responsibility.json");
+  const assignment = { sourceHash: source.hash, line: 3, owner: "automatic_check", rationale: "外部の稼働状態は独立した検査で確認する" };
+  writeFileSync(plan, JSON.stringify({ version: 1, assignments: [assignment] }));
+  // 実モデルは固定文字列を書き写さず、短縮・言い換えた理由を返す。
+  adjudicatingClaude(f.dir, modernRequirements + `
+    const row = output.requirements.find(r => r.reference.line === 3);
+    if (row) {
+      const mode = ${JSON.stringify(mode)};
+      row.status = "out_of_scope"; row.implementation = []; row.scopeEvidence = { source: row.reference.source, line: row.reference.line };
+      row.rationale = input.phase + "では稼働確認を独立検査へ委ねる";
+      row.contentAssessment.kind = "independent_check"; row.contentAssessment.obligations = [];
+      if (input.phase === "verification" && mode === "satisfied") { row.status = "satisfied"; row.scopeEvidence = null; row.implementation = [{ path: "value.ts", revision: "head", line: 1 }]; }
+      if (input.phase === "verification" && mode === "other_line") row.scopeEvidence = { source: row.reference.source, line: 1 };
+    }
+  `);
+  const result = await f.run("--extra-usage-disabled", "--responsibility-plan", plan);
+  const row = result.json.coverage.find((r: any) => r.reference.line === 3);
+  if (mode === "paraphrased") {
+    expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+    expect(row).toMatchObject({ status: "out_of_scope", rationale: assignment.rationale, proposedRationale: "verificationでは稼働確認を独立検査へ委ねる" });
+    const execution = JSON.parse(readFileSync(result.json.artifactPath, "utf8")).execution;
+    const explored = execution.stages.find((s: any) => s.phase === "spec").output.requirements.find((r: any) => r.id === row.id);
+    expect(explored).toMatchObject({ rationale: assignment.rationale, proposedRationale: "specでは稼働確認を独立検査へ委ねる" });
+    const reviewed = result.json.coverage.find((r: any) => r.reference.line === 1);
+    expect(reviewed.rationale).toBe("固定本文を確認した");
+    expect(reviewed).not.toHaveProperty("proposedRationale");
+  } else {
+    expect(result.json.score).toBeNull();
+    expect(result.json.problems).toContainEqual(expect.objectContaining({ code: "COVERAGE_INCOMPLETE" }));
+    expect(row.status).toBe("unverified");
+  }
+});
+
 for (const withStandard of [false, true]) test(`担当要求だけを出力schemaへ割り当て、本文分類の参照を行別に示す（規約=${withStandard}）`, async () => {
   const f = await fixture();
   await f.cli("issue", "update", f.issue, "-d", "利用時は、\n公開名valueで値2を返す。");

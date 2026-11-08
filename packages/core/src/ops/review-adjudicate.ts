@@ -159,6 +159,7 @@ export function adjudicate(preparation: ReviewPreparation, stages: ReviewStage[]
     const linked = linkedFindingKeys(row, unit.axis, modern);
     const required = findings.filter(f => f.decision === "required" && linked.includes(`${f.axis}:${f.id}`));
     const automatic = preparation.responsibility?.assignments.find(a => a.sourceHash === unit.reference.hash && a.line === unit.reference.line);
+    // 固定分担のrationaleは新形式の展開時にCLIが計画から復元し、モデルの文面はproposedRationaleに残る。一致の確認は復元漏れを通さないために残す。
     const automaticScope = !!automatic && row.status === "out_of_scope" && explored[0]?.status === "out_of_scope"
       && referenceValid(row.scopeEvidence) && object(row.scopeEvidence).source === unit.reference.source && object(row.scopeEvidence).line === unit.reference.line
       && row.rationale === automatic.rationale;

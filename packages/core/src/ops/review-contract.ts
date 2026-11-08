@@ -38,7 +38,7 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
       status: { enum: ["satisfied", "unsatisfied", "unverified", "out_of_scope", "context"], description: "background/rationale/scope/validation_gapはcontext。説明をsatisfiedにしない。適用条件が今回の差分で成立しないと確認できた義務はsatisfied。適用条件や判定に必要な事実が不明ならunverified。実装義務が混在する場合はmixedとして義務を判定する。" },
       contentAssessment: object({ kind: { enum: ["obligation", "mixed", "background", "rationale", "scope", "validation_gap", "independent_check", "unknown"] }, obligations: { ...array(text), description: "obligation/mixedでは当該reviewUnitのparagraphが指すreviewParagraphs[].content（paragraphが無ければrequirement）から義務を原文どおり抜き出す。要約・言い換え・文字の追加は禁止。他のkindは空配列。" }, references: { ...array(reference), minItems: 1, description: "当該reviewUnit.requiredAssessmentReferencesの全参照を含める。行自身と段落先頭を両方含める。" }, rationale: text }),
       implementation: array(citation), verification: object({ method: { enum: ["inspection"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), evidence: text,
-      findingIds: { ...array(text), description: "この要求と同じ条件・時点・操作に反する軸付き候補ID（standards:id または spec:id）。語が同じだけの別操作の不具合へ対応付けない。" }, scopeEvidence: { ...nullable(reference), description: "既存課題または固定分担で対象外にする要求では、その要求idに対応するreviewUnits.referenceのsource/lineを使う。除外理由の範囲出典は候補のscopeAssessment.referencesへ。" }, rationale: text,
+      findingIds: { ...array(text), description: "この要求と同じ条件・時点・操作に反する軸付き候補ID（standards:id または spec:id）。語が同じだけの別操作の不具合へ対応付けない。" }, scopeEvidence: { ...nullable(reference), description: "既存課題または固定分担で対象外にする要求では、その要求idに対応するreviewUnits.referenceのsource/lineを使う。除外理由の範囲出典は候補のscopeAssessment.referencesへ。" }, rationale: { ...text, description: "responsibility.assignmentsの要求ではCLIが計画の固定した分担理由で置き換え、異なる文面はproposedRationaleとして別に保存する。" },
     })), maxItems: requirementIds.length, description: "assignedRequirementIdsの各IDを1回ずつ返す。担当IDが0件なら空配列。他軸や資料に存在しないIDを追加しない。" }, consistency: object({ status: { enum: ["consistent", "conflict", "unverified"] }, evidence: text }),
     causeGroups: delegated ?? array(object({ id: text, members: array(text), rationale: text })),
   });
@@ -91,7 +91,10 @@ export function expandReviewOutput(output: Row, input: Row): Row {
     const field = `requirements[${index}]`;
     if (!unit || !assigned.has(r.id)) throw new ReviewFailure("OUTPUT_INVALID", "今回の確認対象にない要求IDです");
     if ((r.target !== undefined && r.target !== output.target) || (r.axis !== undefined && r.axis !== unit.axis)) throw new ReviewFailure("STALE_EVIDENCE", "要求レコードの対象・軸が固定入力と一致しません");
+    // 固定分担の理由は計画の固定値であり、hash・引用と同じくCLIが復元する。異なる文面は捨てずモデルの提案として残す。
+    const fixed: string | undefined = input.responsibility?.assignments.find((a: Row) => a.source === unit.reference.source && a.line === unit.reference.line)?.rationale;
     return { ...unit, ...r, context: unit.context, axis: unit.axis, target: output.target, implementation: citations(r.implementation, `${field}.implementation`, unitIndex), scopeEvidence: cite(r.scopeEvidence, `${field}.scopeEvidence`, unitIndex),
+      ...(fixed === undefined ? {} : { rationale: fixed, ...(r.rationale !== undefined && r.rationale !== fixed ? { proposedRationale: r.rationale } : {}) }),
       ...(r.contentAssessment ? { contentAssessment: { ...r.contentAssessment, references: citations(r.contentAssessment.references, `${field}.contentAssessment.references`, unitIndex) } } : {}),
       ...(Array.isArray(r.findingLinks) ? { findingLinks: r.findingLinks.map((link: Row, linkIndex: number) => ({ ...link,
         requirementEvidence: citations(link.requirementEvidence, `${field}.findingLinks[${linkIndex}].requirementEvidence`, unitIndex) })) } : {}) };
@@ -159,6 +162,6 @@ verificationはcauseGroupsへ全候補のaxis:idを1回ずつ割り当て、同�
 各候補にresponsibility:{owner:review|automatic_check|unresolved,rationale:担当の理由,references:固定資料またはコードの参照配列}を付け、確信度や採否より先に担当を検証する。自動チェック担当の候補が探索に混入しても、検証でid・axisと根拠を保持してowner=automatic_check、decision=out_of_scope、scopeEvidence=null、needsSpecificationDecision=falseにする。referencesは適用する検査設定・規約などの固定参照を1件以上必要とする。チェックの実行・成功・失敗を推測せず、実行しないからunverified、軽微だからoptionalとはしない。対象外の候補は監査用に残り、減点・自動修正・未完了の理由にしない。
 例：末尾改行やインデントの違反そのものはautomatic_check。同じBiomeという語を含んでも、hookが失敗終了値を成功へ変える制御経路や検査対象を誤るCI設定はreview。書式の乱れから「hookが動かなかった」と推測して設計不備へ言い換えず、設計不備は独立したコード根拠を必要とする。担当を決める根拠が足りない場合だけowner=unresolved、decision=unverifiedとする。
 候補の担当判定は要求の担当を変更しない。automatic_check候補だけを根拠に要求をunsatisfiedやunverifiedにせず、固定要求の意味・設計部分を別に確認する。分担に未登録の要求を、自動チェック担当を理由に対象外へ移さない。
-responsibility.assignmentsは実行前に固定した自動チェック担当の要求。該当sourceとlineの要求はstatus=out_of_scope、scopeEvidence=その要求のreference、rationale=固定した分担理由を返す。要求を省略せず、合否を推測しない。未登録の要求を自動チェック担当に変更しない。複合要求の意味・設計部分はレビューで確認する。
+responsibility.assignmentsは実行前に固定した自動チェック担当の要求。該当sourceとlineの要求はstatus=out_of_scope、scopeEvidence=その要求のreferenceを返す。その要求のrationaleはCLIが計画の固定した分担理由で復元するので書き写さなくてよい。異なる文面は判定に使わず、proposedRationaleとして別に保存する。要求を省略せず、合否を推測しない。未登録の要求を自動チェック担当に変更しない。複合要求の意味・設計部分はレビューで確認する。
 入力のsourcesは資料索引（source・title・path・lines・headings）。資料全文はpathの固定ファイルから必要時にReadする。standardScopeがあれば規約の適用範囲と理由はそこにだけ記載し、standardScopeに無い規約（referenceOnly）は全行が参考範囲である。規約適用計画がある場合は、必須範囲に抜けがないかもその根拠と参照資料を確認する。疑義があるならcompleted=falseとし、計画を根拠に必須要求を無視しない。
 `;
