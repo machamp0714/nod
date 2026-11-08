@@ -314,3 +314,24 @@ test("存在しない実行IDと準備未完了の実行には計画を固定し
   expect(plan.json.error.code).toBe("RUN_NOT_PREPARED");
   expect((await f.cli("review", "show", "--run", failed.json.runId)).json).toMatchObject({ status: "incomplete", score: null, reviewCompleted: false });
 });
+
+for (const phase of ["standards", "spec"] as const) for (const mode of ["missing", "duplicate"] as const)
+  test(`探索の担当要求IDは全件を1回ずつ返し欠落と重複を形式不正にする（${phase}/${mode}）`, async () => {
+    const f = await fixture();
+    const { prepared, inputs } = await planned(f);
+    const out = tempDir("review-coverage-");
+    const invalid = explorationOutput(inputs[phase]);
+    expect(invalid.requirements.length).toBeGreaterThanOrEqual(2);
+    invalid.requirements = mode === "missing" ? [] : [invalid.requirements[0], { ...invalid.requirements[0], evidence: "異なる証拠文でも同じ要求IDの重複" }];
+    const bad = writeJson(out, "invalid.json", invalid);
+    const checked = await f.cli("review", "record", "--run", prepared.runId, "--phase", "exploration", `--${phase}`, bad, "--agent", "code-reviewer", "--check");
+    expect(checked.exitCode).toBe(1);
+    expect(checked.json).toMatchObject({ saved: false, stages: [{ phase, status: "incomplete", problem: { code: "OUTPUT_INVALID" } }] });
+    expect(existsSync(join(prepared.artifactPath, "../exploration.json"))).toBe(false);
+    const paths = ["standards", "spec"].flatMap(axis => [`--${axis}`, axis === phase ? bad : writeJson(out, `${axis}.json`, explorationOutput(inputs[axis]))]);
+    const recorded = await f.cli("review", "record", "--run", prepared.runId, "--phase", "exploration", ...paths, "--agent", "code-reviewer");
+    expect(recorded.exitCode).toBe(1);
+    expect(recorded.json).toMatchObject({ status: "exploration_incomplete", score: null, reviewCompleted: false });
+    expect(recorded.json.stages.find((stage: { phase: string }) => stage.phase === phase)).toMatchObject({ status: "incomplete", problem: { code: "OUTPUT_INVALID" } });
+    expect(JSON.parse(readFileSync(recorded.json.artifactPath, "utf8"))).toEqual(recorded.json);
+  });

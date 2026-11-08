@@ -509,3 +509,24 @@ test("通常報告は任意提案を省き固定対象と要求対応と現在�
   expect(result.stdout).not.toContain("PRIVATE_OPTIONAL_AUDIT");
   expect(JSON.parse(readFileSync(join(run.prepared.artifactPath, "../execution.json"), "utf8")).findings[0].id).toBe("PRIVATE_OPTIONAL_AUDIT");
 });
+
+for (const mode of ["missing", "duplicate"] as const)
+  test(`検証の担当要求ID欠落と重複は採点前の形式検査で拒否し未完了保存する（${mode}）`, async () => {
+    const f = await fixture("公開名valueで値2を返す。\n\n公開名valueを維持する。"), run = await f.start();
+    expect((await run.explore()).exitCode).toBe(0);
+    const invalidate = (output: Output) => {
+      expect(output.requirements).toHaveLength(2);
+      output.requirements = mode === "missing" ? [] : [output.requirements[0]!, { ...output.requirements[0]!, evidence: "異なる証拠文でも同じ要求IDの重複" }];
+    };
+    const checked = await run.verify(invalidate, ["--check"]);
+    expect(checked.exitCode).toBe(1);
+    expect(checked.json).toMatchObject({ saved: false, stages: [{ phase: "verification", status: "incomplete", problem: { code: "OUTPUT_INVALID" } }] });
+    expect(existsSync(join(run.prepared.artifactPath, "../execution.json"))).toBe(false);
+    const recorded = await run.verify(invalidate);
+    expect(recorded.exitCode).toBe(1);
+    expect(recorded.json).toMatchObject({ status: "incomplete", score: null, reviewCompleted: false });
+    expect(recorded.json.stages[2]).toMatchObject({ phase: "verification", status: "incomplete", problem: { code: "OUTPUT_INVALID" } });
+    expect(recorded.json.coverage).toEqual([]);
+    expect(recorded.json.findings).toEqual([]);
+    expect(JSON.parse(readFileSync(recorded.json.artifactPath, "utf8"))).toEqual(recorded.json);
+  });

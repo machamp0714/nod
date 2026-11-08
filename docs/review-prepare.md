@@ -87,6 +87,9 @@ CLIは各出力を次の順に検査する。モデルの起動・認証・課�
 2. JSONとしての解析。
 3. トップレベルの `target` が固定対象の `target.hash` と一致すること（不一致は `STALE_EVIDENCE`）。
 4. 工程の `schema.json` と同じformat=3のJSON Schema相当の検査（必須項目・型・列挙値・`axis`・担当の要求IDと件数・出典の `type:id` 形式）。
+   `requirements` は担当IDの全件を各1回含める。
+   件数不足、既知IDの重複による別IDの欠落は `completed=true` でも `OUTPUT_INVALID` とし、探索未完了で保存する。
+   `--check` でも同じ検査を行う。
 5. 工程・完了状態・配列の検査と内部の工程記録への変換。固定資料に無い出典や範囲外の行は `OUTPUT_INVALID` とし、`problem.referenceDiagnostic` に取り違えの種類だけを残す。出典のhash・引用、要求本文、固定分担の理由はCLIが固定資料と計画から復元し、担当の異なる分担理由は `proposedRationale` に残す。
 6. `completed=false` は担当が必要資料・確認の不足を報告したものとして `STAGE_INCOMPLETE`。
 

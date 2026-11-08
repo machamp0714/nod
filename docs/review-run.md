@@ -41,6 +41,10 @@ nod review show --run <実行ID> --json
 5. 全探索候補に検証結果があるかを確認し、要求別対応、原因統合、整合性の記録を検査する。
 6. 既存の採点規則で固定版を採点し、要求、規約、計画、対象の変化を検出して最終結果を保存する。
 
+`requirements` は担当の全要求IDを各1回含める。
+欠落や重複は `completed=true` でも採点前の `OUTPUT_INVALID` とし、最終結果を未完了かつ点数なしで保存する。
+`--check` でも同じ形式不正として拒否し、記録は保存しない。
+
 最終記録は `reviews/<実行ID>/execution.json` に一度だけ新規作成する。
 候補と要求の原記録は `stages`、最終採否は `findings`、要求別判定は `coverage`、共通原因は `rootCauses` に残す。
 記録済み実行への再記録は `VERIFICATION_ALREADY_RECORDED` で拒否し、やり直す場合は新しい準備から始める。

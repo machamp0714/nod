@@ -40,7 +40,7 @@ export function reviewOutputSchema(phase: string, target: string, requirementIds
       contentAssessment: object({ kind: { enum: ["obligation", "mixed", "background", "rationale", "scope", "validation_gap", "independent_check", "unknown"] }, obligations: { ...array(text), description: "obligation/mixedでは当該reviewUnitのparagraphが指すreviewParagraphs[].content（paragraphが無ければrequirement）から義務を原文どおり抜き出す。要約・言い換え・文字の追加は禁止。他のkindは空配列。" }, references: { ...array(reference), minItems: 1, description: "当該reviewUnit.requiredAssessmentReferencesの全参照を含める。行自身と段落先頭を両方含める。" }, rationale: text }),
       implementation: array(citation), verification: object({ method: { enum: ["inspection"] }, detail: text, recordIds: { ...array(text), maxItems: 0 } }), evidence: text,
       findingIds: { ...array(text), description: "この要求と同じ条件・時点・操作に反する軸付き候補ID（standards:id または spec:id）。語が同じだけの別操作の不具合へ対応付けない。" }, scopeEvidence: { ...nullable(reference), description: "既存課題または固定分担で対象外にする要求では、その要求idに対応するreviewUnits.referenceのsource/lineを使う。除外理由の範囲出典は候補のscopeAssessment.referencesへ。" }, rationale: { ...text, description: "responsibility.assignmentsの要求ではCLIが計画の固定した分担理由で置き換え、異なる文面はproposedRationaleとして別に保存する。" },
-    })), maxItems: requirementIds.length, description: "assignedRequirementIdsの各IDを1回ずつ返す。担当IDが0件なら空配列。他軸や資料に存在しないIDを追加しない。" }, consistency: object({ status: { enum: ["consistent", "conflict", "unverified"] }, evidence: text }),
+    })), minItems: requirementIds.length, maxItems: requirementIds.length, description: "assignedRequirementIdsの各IDを1回ずつ返す。担当IDが0件なら空配列。他軸や資料に存在しないIDを追加しない。" }, consistency: object({ status: { enum: ["consistent", "conflict", "unverified"] }, evidence: text }),
     causeGroups: array(object({ id: text, members: array(text), rationale: text })),
   });
 }
@@ -168,12 +168,22 @@ function records(value: unknown, keys: string[]): Record<string, unknown>[] {
 }
 
 /**
- * 工程・完了状態・配列を検査し、固定資料から出典hash・引用・要求本文・固定分担理由を復元する。
+ * 工程・完了状態・配列・担当要求IDの全件一回性を検査し、固定資料から出典hash・引用・要求本文・固定分担理由を復元する。
  * 完了状態の扱いは記録処理が決める。
  */
 export function reviewStageOutput(value: unknown, phase: ReviewPhase, input: Row): { format?: number; output: ReviewStageOutput } {
   const row = value && typeof value === "object" && !Array.isArray(value) ? value as Row : undefined;
   if (!row || row.axis !== phase || typeof row.completed !== "boolean") throw new ReviewFailure("OUTPUT_INVALID", "工程の出力に工程と完了状態がありません");
+  // 要求の欠落や重複は採点の対象ではなく、探索・検証に共通する形式不正。
+  const assigned = new Set<string>(input.assignedRequirementIds);
+  if (!Array.isArray(row.requirements) || row.requirements.length !== assigned.size) throw new ReviewFailure("OUTPUT_INVALID", "担当の全要求IDを1回ずつ返す必要があります");
+  const requirements: unknown[] = row.requirements;
+  const seen = new Set<string>();
+  for (const requirement of requirements) {
+    if (!requirement || typeof requirement !== "object" || !("id" in requirement) || typeof requirement.id !== "string"
+      || !assigned.has(requirement.id) || seen.has(requirement.id)) throw new ReviewFailure("OUTPUT_INVALID", "担当要求IDに未知または重複した記録があります");
+    seen.add(requirement.id);
+  }
   const output = expandReviewOutput(row, input);
   return { format: output.format, output: { axis: output.axis, completed: output.completed, candidates: records(output.candidates, candidateKeys), requirements: records(output.requirements, requirementKeys),
     causeGroups: output.causeGroups, consistency: output.consistency && typeof output.consistency === "object" ? output.consistency : undefined } };
