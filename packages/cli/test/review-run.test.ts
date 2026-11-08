@@ -89,8 +89,8 @@ test("固定資料で2軸を並列探索し、新しい検証コンテキスト�
   expect(new Set(starts.map(e => e.pid)).size).toBe(3);
   expect(starts[2].phase).toBe("verification");
   expect(JSON.stringify(starts[2].input)).not.toContain("引き継がない探索思考");
-  expect(starts[0].input.code).toContainEqual(expect.objectContaining({ path: "value.ts" }));
-  expect(starts[0].input.code.every((entry: any) => !("content" in entry))).toBe(true);
+  expect(starts[0].input.code.paths).toContain("value.ts");
+  expect(starts[0].input.code.paths.every((path: unknown) => typeof path === "string")).toBe(true);
   expect(starts[0].snapshot).toBe("export const value = 2;\n");
   expect(starts[0].cwd).not.toBe(f.repo);
   expect(starts[0].args).toContain("Read,Grep,Glob");
@@ -281,7 +281,7 @@ function adjudicatingClaude(dir: string, mutate = "") {
   fakeClaude(dir, `
     if (process.argv.includes("status")) console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", subscriptionType: "max" }));
     else {
-      const input = JSON.parse(await Bun.stdin.text());
+      const body = await Bun.stdin.text(), input = JSON.parse(body);
       ${echoReviewReferences}
       const requirements = (input.reviewUnits ?? []).filter(u => input.phase === "verification" || u.axis === input.phase).map(u => ({ ...u, target: input.target.hash, status: "satisfied", implementation: [{ path: "value.ts", revision: "head", line: 1 }], verification: { method: "inspection", detail: "公開exportの値と要求を照合した" }, evidence: "value.ts:1 は公開名valueで2を返す" }));
       const output = { completed: true, axis: input.phase, candidates: [], requirements, consistency: { status: "consistent", evidence: "固定したIssue・Spec・計画の要求値と範囲を相互確認した" } };
@@ -436,6 +436,47 @@ test("削除した契約箇所は基点の引用を検証し、両軸の同根�
   expect(result.json.findings.map((f: any) => f.axis)).toEqual(["spec", "standards"]);
   expect(result.json.rootCauses).toHaveLength(1);
   expect(result.json.rootCauses[0].candidates).toHaveLength(2);
+});
+
+test("基点コードは場所を1回だけ示してheadと異なる・削除したファイルだけを列挙し、未変更ファイルも同じ相対パスで読める", async () => {
+  const f = await fixture(), trace = join(f.dir, "inputs.jsonl");
+  writeFileSync(join(f.repo, "same.ts"), "export const same = 1;\n");
+  writeFileSync(join(f.repo, "changed.ts"), "export const changed = 1;\n");
+  writeFileSync(join(f.repo, "deleted.ts"), "export const deleted = 1;\n");
+  writeFileSync(join(f.repo, "tool.sh"), "#!/bin/sh\necho tool\n"); chmodSync(join(f.repo, "tool.sh"), 0o755);
+  git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "基点");
+  writeFileSync(join(f.repo, "changed.ts"), "export const changed = 2;\n");
+  writeFileSync(join(f.repo, "added.ts"), "export const added = 1;\n");
+  git(f.repo, "rm", "-q", "deleted.ts"); git(f.repo, "add", "."); git(f.repo, "commit", "-qm", "変更");
+  adjudicatingClaude(f.dir, `
+    const fs = await import("node:fs"), base = input.baseCode;
+    const read = path => fs.existsSync(base.directory + "/" + path) ? fs.readFileSync(base.directory + "/" + path, "utf8") : null;
+    fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ phase: input.phase, body, code: input.code, baseCode: base,
+      listed: Object.fromEntries(base.paths.map(path => [path, read(path)])),
+      unlisted: Object.fromEntries(input.code.paths.filter(path => !base.paths.includes(path)).map(path => [path, { base: read(path), head: fs.readFileSync(path, "utf8") }])) }) + "\\n");
+  `);
+  const result = await f.run("--extra-usage-disabled");
+  expect(result.json, result.stderr).toMatchObject({ status: "completed", score: 5 });
+  const calls = readFileSync(trace, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  expect(calls.map(c => c.phase).sort()).toEqual(["spec", "standards", "verification"]);
+  for (const call of calls) {
+    expect(call.body).not.toContain("snapshotPath");
+    expect(call.body.split(".review-base-").length - 1).toBe(1);
+    expect(call.baseCode.directory).toMatch(/^\.review-base-[^/]+$/);
+    expect([...call.code.paths].sort()).toEqual(["added.ts", "changed.ts", "same.ts", "tool.sh", "value.ts"]);
+    expect(call.code.executable).toEqual(["tool.sh"]);
+    expect(call.baseCode.sameAsHead).toBe(3);
+    expect(call.listed).toEqual({ "changed.ts": "export const changed = 1;\n", "deleted.ts": "export const deleted = 1;\n" });
+    expect(call.unlisted).toEqual({
+      "added.ts": { base: null, head: "export const added = 1;\n" },
+      "same.ts": { base: "export const same = 1;\n", head: "export const same = 1;\n" },
+      "tool.sh": { base: "#!/bin/sh\necho tool\n", head: "#!/bin/sh\necho tool\n" },
+      "value.ts": { base: "export const value = 2;\n", head: "export const value = 2;\n" },
+    });
+  }
+  const { execution } = JSON.parse(readFileSync(result.json.artifactPath, "utf8"));
+  expect(execution.excludedSources).toEqual([]);
+  for (const stage of execution.stages) expect(stage.input.bodyBytes).toBe(Buffer.byteLength(calls.find(c => c.phase === stage.phase).body));
 });
 
 test("計画はTaskとStepを確認単位にし、JSONの状態や括弧を要求にしない", async () => {
@@ -1202,7 +1243,7 @@ test("独立チェックの成功・失敗・未実行をレビューへ渡さ�
   adjudicatingClaude(f.dir, `
     const { appendFileSync } = await import("node:fs");
     if (input.executionEvidence !== undefined || input.executionChecks !== undefined) throw new Error("結果が混入");
-    if (input.code.some(c => c.path.includes(".review-evidence"))) throw new Error("結果のファイルが混入");
+    if (input.code.paths.some(path => path.includes(".review-evidence"))) throw new Error("結果のファイルが混入");
     appendFileSync(${JSON.stringify(trace)}, JSON.stringify({phase: input.phase, target: input.target, units: input.reviewUnits, args: process.argv}) + "\\n");
   `);
   for (const status of ["passed", "failed", "not_run"]) {

@@ -38,6 +38,7 @@ APIキーやprovider切替の環境変数をモデル子に渡さず、API認証
 ## 対象・取消・保存
 
 コードは固定commit、または明示したlocal対象のtreeのblobから実行専用の `context/` へ読み取り専用の通常ファイルとして保存する。主入力には差分・要求資料・ファイル索引を渡し、関係コードは必要な箇所だけ読む。未コミット作業やindexをモデルに触らせない。
+ファイル索引 `code` はhead側の相対パス一覧 `paths` と、実行属性のあるファイル `executable` だけを持つ。基点（merge-base）側は読み込めた全ファイルを `.review-base-<runId>/` 配下の同じ相対パスへ置き、`baseCode` には場所 `directory`、headと内容が異なるかheadに無いファイルの `paths`、headと同じblobのファイル数 `sameAsHead` だけを渡す。同じblobのファイルも `directory` 配下にあり、Read/Glob で読める。
 Claudeは `--restricted` でcwd内のRead/Grep/Globだけ許可する。Bash・Write・Edit・Agent・Skill・MCP・hookなどは提供せず、safe-modeでcustomizationを無効化する。資料内の命令を実行させない。
 秘密情報候補のパスは本文を読まず、symlink・submoduleは辿らない。バイナリ、不正なUTF-8、1ファイル2MiB超、総量64MiB超の資料も `execution.excludedSources` に理由を残す。
 変更対象が除外されれば未完了とする。無関係な除外資料は探索を妨げないが、必要な関係コード・証拠が不足する場合はモデルに `completed=false` と不足の記録を要求する。
@@ -282,7 +283,7 @@ Biome、lint、型検査、ビルド、テスト、再現コードはレビュ�
 
 ## 変更前から存在する要求未充足
 
-`baseCode` で基点側の固定コードも読める。固定Specが明確に要求する振る舞いを基点から満たしていない場合、候補を `required`、`origin: pre_existing` とし、`baselineEvidence` にbase側の同じpath・同じ内容の行を付ける。要求別判定は `unsatisfied` のまま保持し、対応候補を `findingIds` へ記録する。行が一致することだけで同じ原因を証明したとはせず、条件と周辺の変化も照合する。
+`baseCode` で基点側の固定コードも読める（`baseCode.directory` 配下の同じ相対パス）。固定Specが明確に要求する振る舞いを基点から満たしていない場合、候補を `required`、`origin: pre_existing` とし、`baselineEvidence` にbase側の同じpath（`directory` を付けない元のpath）・同じ内容の行を付ける。要求別判定は `unsatisfied` のまま保持し、対応候補を `findingIds` へ記録する。行が一致することだけで同じ原因を証明したとはせず、条件と周辺の変化も照合する。
 
 CLIは `BASELINE_REQUIREMENT_UNSATISFIED` と点数なしを返し、自動修正を開始しない。既存の未充足を今回導入した退行として数えず、仕様や修正範囲の判断が必要な残件として報告する。合格させるためにoptional・充足・対象外へ変えない。基点の証拠が足りない場合は `unverified` のままとする。今回導入した問題は `origin: introduced` と差分行の `changeEvidence` を持つ。
 
