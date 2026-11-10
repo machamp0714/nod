@@ -9,12 +9,12 @@ description: "nod の Issue の仕様を、grilling と別モデルの独立回�
 
 nod の Issue 1 件を対象に、未決の論点を grilling で詰め、仕様書の本文を Gemini 4 Argon に書かせて Issue に添付する。
 
-引数: `<Issue id>`（必須）。任意で照会先のモデルと effort（例: `--reviewer-model gpt-6-astra --reviewer-effort high`）、執筆者 Argon の thinking（`--writer-effort low|medium|high`、既定 medium）。執筆者のモデル自体は引数で変えられない。
+引数: `<Issue id>`（必須）。任意で照会先のモデルと effort（例: `--reviewer-model gpt-6-astra --reviewer-effort high`）、執筆者 Argon の effort（`--writer-effort low|medium|high`、既定 medium）。執筆者のモデル自体は引数で変えられない。
 
 ## 0. 準備
 
 - Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
-- 仕様書の本文（新規・作り直し・追記）は、Omp 経由の Gemini 4 Argon（`google-antigravity/gemini-4-argon`、固定）が書く。主担当（このスキルを動かしているエージェント）は §4 で同梱の執筆依頼スクリプトを使って依頼する。Air（omp がある端末）で動かす前提で、omp や Argon を使えないときはスクリプトが理由付きで失敗する。別の端末へ回さない。
+- 仕様書の本文（新規・作り直し・追記）は、agy コマンド経由の Gemini 4 Argon（`gemini-4-argon-low|medium|high`、effort に対応）が書く。主担当（このスキルを動かしているエージェント）は §4 で同梱の執筆依頼スクリプトを使って依頼する。実行端末で agy のインストールとログインを済ませておく。agy や Argon を使えないときはスクリプトが理由付きで失敗する。Omp の Google Antigravity プロバイダは使わず、別の端末へも回さない。
 - 実装計画（`nod:to-plan`）、`nod:wayfinder`、一般の Document の書き手は変えない。
 - `nod issue show <id>` で説明・Documents・Activity を読む。既に kind=spec の Document があれば、作り直すのか追記するのかをユーザーに聞く。
 - リポジトリを調べる。`CONTEXT.md` があれば用語をそれに合わせ、触る領域の ADR を守る。
@@ -72,6 +72,7 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
    - `--mode` は新規 `new`（既定）、作り直し `rebuild`、追記 `append`。`rebuild`・`append` では `--target` が要る。
    - 標準出力に結果の JSON が 1 つ出る（`ok`・`code`・`message`・`attempt`・`files`・`draftSha256`・`openQuestions`・`changeProposals`）。依頼文・生ログ・原稿・実行記録は決定ログと同じディレクトリに `<id を小文字にしたもの>-argon-<NN>-{request.md,events.jsonl,draft.md,record.json}` として保存され、既存ファイルは上書きされない。
    - スクリプトは nod に書き込まない。
+   - agy の `--print` に依頼文の全文を渡し、`--output-format stream-json` の完了イベントを読む。effort はモデルIDの末尾と `--effort` の両方に指定する。空の一時ディレクトリで `--sandbox --disable-slash-commands` を使い、権限の自動承認はしない。ツール不使用は依頼文で指示するが、agy のツール自体を無効にするものではない。
 3. **失敗（非 0 終了、`ok: false`）したら**、下の「使えないとき・採用できないとき」に従う。ただし `OPEN_QUESTIONS` は 6 に従う。
 4. **成功したら原稿を照合する。** `files.draft` を決定ログと `references/spec-writing.md` に照らし、次を確かめる。
    - 決定ログのすべての決定と合意したテスト seam が反映されている
@@ -82,7 +83,7 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 5. **食い違いは差し戻す。** 本文を直さない。指摘をファイルに書き、同じ引数に `--feedback <指摘ファイル> --previous-record <前回の files.record>` を加えて再実行する。スクリプトは前回の実行記録から原稿（記録の SHA-256 と照合）を読んで依頼文に入れる。差し戻しは最大 2 回（1 つの依頼で呼び出しは合計 3 回まで）。それでも合わなければ、残った食い違いを理由に失敗として扱う。
 6. **未決の疑問（`OPEN_QUESTIONS`）が返ったら**、既決かを決定ログで確かめる。既決なら、疑問ごとに該当する決定（決定ログの問いと決定）を回答として指摘ファイルに書き、5 と同じく `--feedback <指摘ファイル> --previous-record <その試行の files.record>` で差し戻す（5 の回数に含める）。原稿は保存されていないので、スクリプトは前回の実行記録から未決の疑問を読み、回答とともに依頼文に入れる。未決なら §2 の grilling の新しいラウンドに戻り、決まってから 1 から依頼し直す。
 7. **変更提案（`changeProposals`）が返ったら**、決定ログに「変更提案（Argon）」の見出しで記録し、ユーザーに伝える。本文には反映させない（差し戻しで入れさせることもしない）。採否はユーザーが決める。
-8. **決定ログに「Argon 執筆記録」の節を追記する。** 採用した試行の実行記録（`files.record`）から、試行番号・執筆の種類・実行日時・所要時間・omp のバージョン・要求したモデルと thinking・応答したプロバイダとモデル・停止理由・セッション ID・各入力の SHA-256 とバイト数・原稿の SHA-256 と、保存したファイル名を書く。差し戻した・失敗した試行も、試行番号と理由を 1 行ずつ書く。
+8. **決定ログに「Argon 執筆記録」の節を追記する。** 採用した試行の実行記録（`files.record`）から、試行番号・執筆の種類・実行日時・所要時間・agy のバージョン（`agyVersion`）・要求したモデルと effort・agy が選択したモデルと完了状態（`responded.model`・`responded.status`）・セッション ID・各入力の SHA-256 とバイト数・原稿の SHA-256 と、保存したファイル名を書く。選択モデルは agy の init イベントの報告であり、推論先のモデルを独立に証明する情報ではない。差し戻した・失敗した試行も、試行番号と理由を 1 行ずつ書く。
 
 依頼中（差し戻しを含む）は決定ログを書き換えない。7・8 や失敗の記録は、採用か失敗が決まってから**末尾にだけ**追記する（§5 の比較で、依頼時点の部分をバイト数で切り出すため）。
 
@@ -90,11 +91,11 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 ### 使えないとき・採用できないとき
 
-スクリプトの失敗（`OMP_NOT_FOUND`・`ARGON_UNAVAILABLE`・`TIMEOUT`・`OMP_FAILED`・`MODEL_NOT_ARGON`・`STOP_REASON`・`EMPTY_BODY`・`RESPONSE_FORMAT`・`TOP_HEADING`・`SECTION_MISSING`・`INVALID_INPUT`・想定外のエラーの `UNEXPECTED_ERROR`）や、差し戻しの上限に達したとき。
+スクリプトの失敗（`AGY_NOT_FOUND`・`ARGON_UNAVAILABLE`・`TIMEOUT`・`AGY_FAILED`・`MODEL_NOT_ARGON`・`STOP_REASON`・`EMPTY_BODY`・`RESPONSE_FORMAT`・`TOP_HEADING`・`SECTION_MISSING`・`INVALID_INPUT`・想定外のエラーの `UNEXPECTED_ERROR`）や、差し戻しの上限に達したとき。`MODEL_NOT_ARGON` は agy が選択したモデルの不一致または欠落、`STOP_REASON` は完了イベントの欠落または `SUCCESS` 以外の状態を表す。
 
 - 仕様 Document を作らない（作り直し・追記では既存の仕様書を変えない）。`needs-spec` を外さず、`ready-for-agent` を付けない。
 - 理由コードと説明（`message`）と実行記録のファイル名を決定ログに記録し、ユーザーに伝える。選択肢は「時間をおいて再試行」「執筆者を名指しで変える」。
-- omp や Argon が使えない端末から、別の端末へ執筆を回さない。
+- agy や Argon が使えない端末から、別の端末へ執筆を回さない。
 - 別の執筆者で書くのは、ユーザーが執筆者を名指しで指示したときだけ。「推奨で進めてよい」のような一般的な委任は、執筆者の変更の指示とみなさない。名指しされたら、その執筆者が `references/spec-writing.md` に従って書き、実際の執筆者を仕様書の冒頭・決定ログ・作業記録に書く。Argon 執筆とは記録しない。
 
 ## 5. Issue に添付する
@@ -113,7 +114,7 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 3. **添付を確かめる。** `nod doc show <Document id>` で kind=spec と対象 Issue へのリンクを確かめる。本文の指紋は、新規・作り直しなら `tail -n +3 <仕様書のパス> | shasum -a 256`、追記なら `tail -c <原稿のバイト数> <仕様書のパス> | shasum -a 256` が `draftSha256` と一致することを確かめる。
 4. 3 を確認できたら、`nod issue update <id> --remove-label needs-spec` でラベルを外す。作成・更新・添付に失敗した場合や、仕様に未決事項が残る場合は外さない。解除に失敗したら、仕様 Document は保持し、失敗を報告してここで止める。
 5. `nod issue update <id> --add-label ready-for-agent` でラベルを付ける。ラベルの定義が無くても付けられる。
-6. `nod issue log <id> "<決定の要約と照合の経緯。執筆者（Gemini 4 Argon、thinking、試行番号。追記では追記部分の執筆者として）。決定ログの Document id>" --kind rationale` を 1 件残す。
+6. `nod issue log <id> "<決定の要約と照合の経緯。執筆者（Gemini 4 Argon、effort、試行番号。追記では追記部分の執筆者として）。決定ログの Document id>" --kind rationale` を 1 件残す。
 7. Out of Scope に別 Issue へ切り出すものがあれば、ユーザーに確認してから `nod issue create ... --discovered-from <id>` で起票する。
 8. `nod issue show <id>` で仕様 Document の添付と `needs-spec` がないことを確認し、完了を報告する。
 

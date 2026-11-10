@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { join } from "node:path";
 import { tempDir } from "./helpers";
 
-// to-spec 同梱の執筆依頼スクリプトを、omp を偽コマンド（NOD_OMP）に差し替えてプロセスとして起動する
+// to-spec 同梱の執筆依頼スクリプトを、agy を偽コマンド（NOD_AGY）に差し替えてプロセスとして起動する
 const SCRIPT = join(import.meta.dir, "../../../plugins/nod/skills/to-spec/scripts/write-spec.ts");
 const REFERENCE = readFileSync(join(import.meta.dir, "../../../plugins/nod/skills/to-spec/references/spec-writing.md"), "utf8");
 const SEP = "<<<NOD-SPEC-META>>>";
@@ -31,13 +31,14 @@ interface Fake {
   cwd: () => string;
 }
 
-// 偽 omp: 引数と @ で渡されたファイル・作業ディレクトリを記録し、テストごとに決めた応答を返す
-// blockDraft: 原稿の保存先に先にディレクトリを作り、原稿の書き込みを想定外のエラー（EEXIST）にする
-function fakeOmp(opts: { events?: string | Buffer; stderr?: string; exit?: number; hang?: boolean; versionExit?: number; blockDraft?: boolean } = {}): Fake {
-  const dir = tempDir("nod-fake-omp-");
+// 偽 agy: 引数と --print= で渡された依頼文・作業ディレクトリを記録し、テストごとに決めた応答を返す
+// argv.log には依頼文を除いた "--print=" を書き、argv() で依頼文を戻す（依頼文は複数行なので行単位の記録に混ぜない）
+// blockDraft: 本呼び出しの中で、指定した原稿の保存先に先にディレクトリを作り、原稿の書き込みを想定外のエラー（EEXIST）にする
+function fakeAgy(opts: { events?: string | Buffer; stderr?: string; exit?: number; hang?: boolean; versionExit?: number; blockDraft?: string } = {}): Fake {
+  const dir = tempDir("nod-fake-agy-");
   if (opts.events !== undefined) writeFileSync(join(dir, "events.jsonl"), opts.events);
   if (opts.stderr !== undefined) writeFileSync(join(dir, "stderr.txt"), opts.stderr);
-  const path = join(dir, "omp");
+  const path = join(dir, "agy");
   writeFileSync(
     path,
     [
@@ -45,13 +46,16 @@ function fakeOmp(opts: { events?: string | Buffer; stderr?: string; exit?: numbe
       `D="${dir}"`,
       'if [ "$1" = "--version" ]; then',
       '  echo called >> "$D/version.log"',
-      `  echo "omp 18.16.0"; exit ${opts.versionExit ?? 0}`,
+      `  echo "agy 1.5.4"; exit ${opts.versionExit ?? 0}`,
       "fi",
       'pwd > "$D/cwd.log"',
       'for a in "$@"; do',
-      '  printf "%s\\n" "$a" >> "$D/argv.log"',
-      `  case "$a" in @*) cp "\${a#@}" "$D/request.md"${opts.blockDraft ? '; R="${a#@}"; mkdir "${R%-request.md}-draft.md"' : ""} ;; esac`,
+      '  case "$a" in',
+      '    --print=*) printf "%s" "${a#--print=}" > "$D/request.md"; printf "%s\\n" "--print=" >> "$D/argv.log" ;;',
+      '    *) printf "%s\\n" "$a" >> "$D/argv.log" ;;',
+      "  esac",
       "done",
+      opts.blockDraft ? `mkdir "${opts.blockDraft}"` : "",
       // 応答しない動作: 孫プロセスの sleep が標準出力を開いたまま待つ
       opts.hang ? 'sleep 30 & echo $! > "$D/sleep.pid"; wait' : "",
       '[ -f "$D/stderr.txt" ] && cat "$D/stderr.txt" >&2',
@@ -61,38 +65,41 @@ function fakeOmp(opts: { events?: string | Buffer; stderr?: string; exit?: numbe
     ].join("\n"),
   );
   chmodSync(path, 0o755);
+  const request = () => readFileSync(join(dir, "request.md"), "utf8");
   return {
     path,
     dir,
-    argv: () => readFileSync(join(dir, "argv.log"), "utf8").trimEnd().split("\n"),
-    request: () => readFileSync(join(dir, "request.md"), "utf8"),
+    argv: () =>
+      readFileSync(join(dir, "argv.log"), "utf8")
+        .trimEnd()
+        .split("\n")
+        .map((a) => (a === "--print=" ? `--print=${request()}` : a)),
+    request,
     cwd: () => readFileSync(join(dir, "cwd.log"), "utf8").trim(),
   };
 }
 
-function assistant(text: string, over: Record<string, unknown> = {}) {
-  return {
-    role: "assistant",
-    provider: "google-antigravity",
-    model: "gemini-4-argon",
-    stopReason: "stop",
-    content: [{ type: "thinking", thinking: "考え中" }, { type: "text", text }],
-    ...over,
-  };
+interface EventOpts {
+  model?: string | null; // init が報告する選択モデル。null なら init を出さない
+  status?: string;
+  result?: boolean; // false なら result を出さない
+  deltas?: string[]; // 本文の差分。既定は本文を2つに分けたもの（連結すると response と同じ）
 }
 
-// omp v18.16.0 で観測した JSON イベントの形（決定ログ F2）
-function events(text: string, over: Record<string, unknown> = {}): string {
-  const msg = assistant(text, over);
-  return [
-    { type: "session", id: "sess-123", version: 3 },
-    { type: "message_end", message: msg },
-    "壊れた行",
-    { type: "agent_end", messages: [{ role: "user", content: [{ type: "text", text: "依頼" }] }, msg] },
-  ]
-    .map((e) => (typeof e === "string" ? e : JSON.stringify(e)))
-    .join("\n") + "\n";
+// agy 1.5.4 の stream-json で観測したイベントの形: init（選択モデル）、step_update（本文の差分）、result（終了状態と本文の全文）
+function events(text: string, o: EventOpts = {}): string {
+  const half = Math.ceil(text.length / 2);
+  const list: unknown[] = [];
+  if (o.model !== null) list.push({ event: "init", conversation_id: "sess-123", init: { model: o.model ?? "gemini-4-argon-medium" } });
+  for (const d of o.deltas ?? [text.slice(0, half), text.slice(half)]) {
+    list.push({ event: "step_update", step_update: { step_type: "agent_response", text_delta: d } });
+  }
+  list.push("壊れた行");
+  if (o.result !== false) list.push({ event: "result", result: { conversation_id: "sess-123", status: o.status ?? "SUCCESS", response: text } });
+  return list.map((e) => (typeof e === "string" ? e : JSON.stringify(e))).join("\n") + "\n";
 }
+
+const ARGON = { model: "gemini-4-argon-medium", status: "SUCCESS" };
 
 const META_EMPTY = JSON.stringify({ openQuestions: [], changeProposals: [] });
 
@@ -141,8 +148,7 @@ async function run(args: string[], fake: { path: string } | string, script = SCR
   const cmd = [process.execPath, script, ...args];
   const proc = Bun.spawn(opts.fileSizeKb === undefined ? cmd : ["/bin/sh", "-c", `ulimit -f ${opts.fileSizeKb}; exec "$0" "$@"`, ...cmd], {
     cwd: tempDir("nod-to-spec-cwd-"),
-    env: { ...process.env, NOD_OMP: typeof fake === "string" ? fake : fake.path },
-    stdout: "pipe",
+    env: { ...process.env, NOD_AGY: typeof fake === "string" ? fake : fake.path },
     stderr: "pipe",
   });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
@@ -162,18 +168,17 @@ function baseArgs(i: Inputs, extra: string[] = []): string[] {
 describe("to-spec の執筆依頼スクリプト", () => {
   test("成功: 依頼文に確定事項と参考を分けて入れ、Argon を固定指定して呼び、原稿と実行記録を保存する", async () => {
     const i = inputs();
-    const fake = fakeOmp({ events: events(answer()) });
+    const fake = fakeAgy({ events: events(answer()) });
     const r = await run(baseArgs(i, ["--related", `765=${i.related}`]), fake);
     expect(r.stderr).toBe("");
     expect(r.exitCode).toBe(0);
 
-    // 引数: プロバイダ付きのモデル固定、無効化、JSON 出力、既定の thinking（medium）
+    // 引数: effort 付きの Argon モデル固定、既定の effort（medium）、sandbox、スラッシュコマンド無効、stream-json 出力、依頼文の全文
     const argv = fake.argv();
     const requestPath = join(i.docs, "nod-60-argon-01-request.md");
     expect(argv).toEqual([
-      "-p", "--model", "google-antigravity/gemini-4-argon", "--thinking", "medium",
-      "--no-tools", "--no-session", "--no-skills", "--no-rules", "--no-context-files", "--no-extensions",
-      "--mode", "json", `@${requestPath}`, "添付した執筆依頼に従い、仕様書の本文を書いてください。",
+      "--model", "gemini-4-argon-medium", "--effort", "medium", "--sandbox", "--disable-slash-commands",
+      "--output-format", "stream-json", `--print=${readFileSync(requestPath, "utf8")}`,
     ]);
     // 作業ディレクトリは依頼ごとの空の一時ディレクトリで、終了後に消える
     expect(fake.cwd()).not.toBe(i.docs);
@@ -198,7 +203,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
     expect(request.indexOf("RELATED-BODY")).toBeGreaterThan(reference);
     expect(request).toContain("## 不採用案と未確認の情報");
 
-    // 原稿: 区切りより前の本文を、Document の本文（タイトル見出しの後）と同じ形にそろえて保存する
+    // 原稿: result の全文の区切りより前の本文を、Document の本文（タイトル見出しの後）と同じ形にそろえて保存する。差分イベントは重ねない
     const draftPath = join(i.docs, "nod-60-argon-01-draft.md");
     const draft = readFileSync(draftPath, "utf8");
     expect(draft).toBe(`${specBody()}\n`);
@@ -224,9 +229,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
       issue: "NOD-60",
       mode: "new",
       attempt: 1,
-      ompVersion: "omp 18.16.0",
-      requested: { provider: "google-antigravity", model: "gemini-4-argon", thinking: "medium", timeoutSeconds: 600 },
-      responded: { provider: "google-antigravity", model: "gemini-4-argon", stopReason: "stop" },
+      agyVersion: "agy 1.5.4",
       sessionId: "sess-123",
       request: { file: "nod-60-argon-01-request.md", sha256: sha256(request) },
       draft: { file: "nod-60-argon-01-draft.md", sha256: sha256(draft) },
@@ -241,6 +244,9 @@ describe("to-spec の執筆依頼スクリプト", () => {
         record: "nod-60-argon-01-record.json",
       },
     });
+    // init のモデルは agy が選択したモデルの報告であり、実推論モデルの独立した証明ではない
+    expect(record.requested).toEqual({ model: "gemini-4-argon-medium", effort: "medium", timeoutSeconds: 600 });
+    expect(record.responded).toEqual(ARGON);
     expect(Number.isNaN(Date.parse(record.startedAt))).toBe(false);
     expect(record.elapsedMs).toBeGreaterThanOrEqual(0);
     const issueBytes = readFileSync(i.issueJson);
@@ -256,14 +262,24 @@ describe("to-spec の執筆依頼スクリプト", () => {
     expect(sha256(docBytes.split("\n").slice(2).join("\n"))).toBe(r.json.draftSha256);
   });
 
-  test("--effort low は thinking low で呼び、実行記録に残す", async () => {
+  test("差分イベントの本文は採用せず、result の response の全文だけを原稿にする", async () => {
     const i = inputs();
-    const fake = fakeOmp({ events: events(answer()) });
-    const r = await run(baseArgs(i, ["--effort", "low"]), fake);
-    expect(r.exitCode).toBe(0);
-    const argv = fake.argv();
-    expect(argv[argv.indexOf("--thinking") + 1]).toBe("low");
-    expect(JSON.parse(readFileSync(r.json.files.record, "utf8")).requested.thinking).toBe("low");
+    const r = await run(baseArgs(i), fakeAgy({ events: events(answer(), { deltas: ["DELTA-ONLY 途中の本文", answer()] }) }));
+    expect(r.json).toMatchObject({ ok: true, code: null });
+    const draft = readFileSync(r.json.files.draft, "utf8");
+    expect(draft).toBe(`${specBody()}\n`);
+    expect(draft).not.toContain("DELTA-ONLY");
+  });
+
+  test("--effort low は low の Argon を要求し、選択モデルがそれと一致したときだけ受け入れる", async () => {
+    const ok = await run(baseArgs(inputs(), ["--effort", "low"]), fakeAgy({ events: events(answer(), { model: "gemini-4-argon-low" }) }));
+    expect(ok.json).toMatchObject({ ok: true, code: null });
+    const i = inputs();
+    const { r, record } = await expectFailure(i, fakeAgy({ events: events(answer()) }), "MODEL_NOT_ARGON", ["--effort", "low"]);
+    expect(r.json.message).toContain("gemini-4-argon-medium");
+    expect(r.json.message).toContain("gemini-4-argon-low");
+    expect(record.requested).toEqual({ model: "gemini-4-argon-low", effort: "low", timeoutSeconds: 600 });
+    expect(record.responded).toEqual(ARGON);
   });
 
   // 試行が始まった後の失敗: 理由コード付きで非0終了し、原稿は出さず、依頼文・生ログ・実行記録は残す
@@ -284,39 +300,39 @@ describe("to-spec の執筆依頼スクリプト", () => {
     return { r, record };
   }
 
-  test("omp が無ければ OMP_NOT_FOUND", async () => {
+  test("agy が無ければ AGY_NOT_FOUND", async () => {
     const i = inputs();
-    const { r } = await expectFailure(i, join(tempDir(), "no-such-omp"), "OMP_NOT_FOUND");
+    const { r } = await expectFailure(i, join(tempDir(), "no-such-agy"), "AGY_NOT_FOUND");
     expect(r.json.message).toContain("ENOENT");
   });
 
   test("モデルが見つからないなどの標準エラー付きの失敗は ARGON_UNAVAILABLE で、標準エラーを説明に含める", async () => {
     const i = inputs();
-    const stderr = 'Model "google-antigravity/gemini-4-argon" not found';
-    const { r, record } = await expectFailure(i, fakeOmp({ stderr, exit: 1 }), "ARGON_UNAVAILABLE");
+    const stderr = 'Model "gemini-4-argon-medium" not found';
+    const { r, record } = await expectFailure(i, fakeAgy({ stderr, exit: 1 }), "ARGON_UNAVAILABLE");
     expect(r.json.message).toContain(stderr);
     expect(r.json.message).toContain("終了コード 1");
     expect(record.stderr).toBe(stderr);
   });
 
-  test("omp --version が失敗すれば本呼び出しをせずに失敗する", async () => {
+  test("agy --version が失敗すれば本呼び出しをせずに失敗する", async () => {
     const i = inputs();
-    const fake = fakeOmp({ events: events(answer()), versionExit: 3 });
-    const { r } = await expectFailure(i, fake, "OMP_FAILED");
+    const fake = fakeAgy({ events: events(answer()), versionExit: 3 });
+    const { r } = await expectFailure(i, fake, "AGY_FAILED");
     expect(r.json.message).toContain("終了コード 3");
     expect(existsSync(join(fake.dir, "argv.log"))).toBe(false);
   });
 
-  test("それ以外の異常終了は OMP_FAILED", async () => {
+  test("それ以外の異常終了は AGY_FAILED", async () => {
     const i = inputs();
-    const { r } = await expectFailure(i, fakeOmp({ stderr: "panic: boom", exit: 2 }), "OMP_FAILED");
+    const { r } = await expectFailure(i, fakeAgy({ stderr: "panic: boom", exit: 2 }), "AGY_FAILED");
     expect(r.json.message).toContain("終了コード 2");
     expect(r.json.message).toContain("panic: boom");
   });
 
   test("応答しなければ時間切れで子プロセスを止め、途中の応答を採用しない", async () => {
     const i = inputs();
-    const fake = fakeOmp({ events: events(answer()), hang: true });
+    const fake = fakeAgy({ events: events(answer()), hang: true });
     const { r } = await expectFailure(i, fake, "TIMEOUT", ["--timeout", "1"]);
     expect(r.ms).toBeLessThan(10000);
     // 孫プロセスまで止まっている
@@ -324,51 +340,55 @@ describe("to-spec の執筆依頼スクリプト", () => {
     expect(() => process.kill(sleepPid, 0)).toThrow();
   });
 
-  test("応答したモデルが Argon でなければ MODEL_NOT_ARGON", async () => {
+  test("agy が選択したモデルが要求した Argon でなければ MODEL_NOT_ARGON", async () => {
     const i = inputs();
-    const other = await expectFailure(i, fakeOmp({ events: events(answer(), { provider: "anthropic", model: "claude-opus-5-5" }) }), "MODEL_NOT_ARGON");
-    expect(other.r.json.message).toContain("anthropic/claude-opus-5-5");
-    expect(other.record.responded).toEqual({ provider: "anthropic", model: "claude-opus-5-5", stopReason: "stop" });
-    // モデル名が同じでもプロバイダが違えば Argon として扱わない
-    await expectFailure(inputs(), fakeOmp({ events: events(answer(), { provider: "openrouter" }) }), "MODEL_NOT_ARGON");
-    const none = inputs();
-    await expectFailure(none, fakeOmp({ events: `${JSON.stringify({ type: "session", id: "s" })}\n` }), "MODEL_NOT_ARGON");
+    const other = await expectFailure(i, fakeAgy({ events: events(answer(), { model: "claude-opus-5-5" }) }), "MODEL_NOT_ARGON");
+    expect(other.r.json.message).toContain("claude-opus-5-5");
+    expect(other.record.responded).toEqual({ model: "claude-opus-5-5", status: "SUCCESS" });
+    // effort の付かない Argon も、要求したモデルではない
+    await expectFailure(inputs(), fakeAgy({ events: events(answer(), { model: "gemini-4-argon" }) }), "MODEL_NOT_ARGON");
+    // init が無ければ選択モデルを判定できない（result が SUCCESS でも受け入れない）
+    const none = await expectFailure(inputs(), fakeAgy({ events: events(answer(), { model: null }) }), "MODEL_NOT_ARGON");
+    expect(none.record.responded).toEqual({ model: null, status: "SUCCESS" });
   });
 
-  test("停止理由が stop でなければ STOP_REASON", async () => {
-    const i = inputs();
-    const { r } = await expectFailure(i, fakeOmp({ events: events(answer(), { stopReason: "error", errorMessage: "quota exceeded" }) }), "STOP_REASON");
-    expect(r.json.message).toContain("quota exceeded");
+  test("完了状態が SUCCESS でない、または result が無ければ STOP_REASON で、差分イベントの本文も採用しない", async () => {
+    const failed = await expectFailure(inputs(), fakeAgy({ events: events(answer(), { status: "ERROR" }) }), "STOP_REASON");
+    expect(failed.r.json.message).toContain("ERROR");
+    expect(failed.record.responded).toEqual({ model: "gemini-4-argon-medium", status: "ERROR" });
+    // 差分を連結すれば正しい応答になっていても、result が無ければ原稿にしない
+    const missing = await expectFailure(inputs(), fakeAgy({ events: events(answer(), { result: false }) }), "STOP_REASON");
+    expect(missing.record.responded).toEqual({ model: "gemini-4-argon-medium", status: null });
   });
 
   test("本文が空なら EMPTY_BODY", async () => {
-    await expectFailure(inputs(), fakeOmp({ events: events("") }), "EMPTY_BODY");
-    await expectFailure(inputs(), fakeOmp({ events: events(answer("  \n")) }), "EMPTY_BODY");
+    await expectFailure(inputs(), fakeAgy({ events: events("") }), "EMPTY_BODY");
+    await expectFailure(inputs(), fakeAgy({ events: events(answer("  \n")) }), "EMPTY_BODY");
   });
 
   test("区切りが無い、または区切りの後が決まった形の JSON でなければ RESPONSE_FORMAT", async () => {
-    await expectFailure(inputs(), fakeOmp({ events: events(specBody()) }), "RESPONSE_FORMAT");
-    await expectFailure(inputs(), fakeOmp({ events: events(answer(specBody(), "{壊れた JSON")) }), "RESPONSE_FORMAT");
-    await expectFailure(inputs(), fakeOmp({ events: events(answer(specBody(), JSON.stringify({ openQuestions: [{ question: "Q" }], changeProposals: [] }))) }), "RESPONSE_FORMAT");
+    await expectFailure(inputs(), fakeAgy({ events: events(specBody()) }), "RESPONSE_FORMAT");
+    await expectFailure(inputs(), fakeAgy({ events: events(answer(specBody(), "{壊れた JSON")) }), "RESPONSE_FORMAT");
+    await expectFailure(inputs(), fakeAgy({ events: events(answer(specBody(), JSON.stringify({ openQuestions: [{ question: "Q" }], changeProposals: [] }))) }), "RESPONSE_FORMAT");
   });
 
   test("区切りの後の JSON は ```json の囲みが1つあっても読む", async () => {
     const i = inputs();
-    const r = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody(), `\`\`\`json\n${META_EMPTY}\n\`\`\``)) }));
+    const r = await run(baseArgs(i), fakeAgy({ events: events(answer(specBody(), `\`\`\`json\n${META_EMPTY}\n\`\`\``)) }));
     expect(r.json).toMatchObject({ ok: true, code: null });
   });
 
   test("本文に最上位の見出しがあれば TOP_HEADING（コードブロックの中は除く）", async () => {
-    await expectFailure(inputs(), fakeOmp({ events: events(answer(`# NOD-60 仕様\n\n${specBody()}`)) }), "TOP_HEADING");
+    await expectFailure(inputs(), fakeAgy({ events: events(answer(`# NOD-60 仕様\n\n${specBody()}`)) }), "TOP_HEADING");
     const i = inputs();
     const fenced = `${specBody()}\n\n\`\`\`\n# コメント\n\`\`\``;
-    expect((await run(baseArgs(i), fakeOmp({ events: events(answer(fenced)) }))).json).toMatchObject({ ok: true });
+    expect((await run(baseArgs(i), fakeAgy({ events: events(answer(fenced)) }))).json).toMatchObject({ ok: true });
   });
 
   test("テンプレートの節が欠けていれば SECTION_MISSING で、欠けた節を示す", async () => {
     const i = inputs();
     const body = specBody(SECTIONS.filter((s) => s !== "Out of Scope" && s !== "Testing Decisions"));
-    const { r } = await expectFailure(i, fakeOmp({ events: events(answer(body)) }), "SECTION_MISSING");
+    const { r } = await expectFailure(i, fakeAgy({ events: events(answer(body)) }), "SECTION_MISSING");
     expect(r.json.message).toContain("Testing Decisions");
     expect(r.json.message).toContain("Out of Scope");
   });
@@ -376,7 +396,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
   test("未決の疑問が返れば OPEN_QUESTIONS で、疑問を結果と実行記録に出す", async () => {
     const i = inputs();
     const meta = { openQuestions: [{ question: "上限は何秒か", reason: "決定ログに無い" }], changeProposals: [] };
-    const { r, record } = await expectFailure(i, fakeOmp({ events: events(answer(specBody(), JSON.stringify(meta))) }), "OPEN_QUESTIONS");
+    const { r, record } = await expectFailure(i, fakeAgy({ events: events(answer(specBody(), JSON.stringify(meta))) }), "OPEN_QUESTIONS");
     expect(r.json.openQuestions).toEqual(meta.openQuestions);
     expect(record.openQuestions).toEqual(meta.openQuestions);
   });
@@ -384,7 +404,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
   test("変更提案は失敗にせず、原稿とともに結果と実行記録に返す", async () => {
     const i = inputs();
     const meta = { openQuestions: [], changeProposals: [{ decision: "上限600秒", proposal: "900秒にする", reason: "長い仕様" }] };
-    const r = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody(), JSON.stringify(meta))) }));
+    const r = await run(baseArgs(i), fakeAgy({ events: events(answer(specBody(), JSON.stringify(meta))) }));
     expect(r.exitCode).toBe(0);
     expect(r.json).toMatchObject({ ok: true, changeProposals: meta.changeProposals, openQuestions: [] });
     expect(existsSync(r.json.files.draft)).toBe(true);
@@ -393,9 +413,9 @@ describe("to-spec の執筆依頼スクリプト", () => {
 
   test("再実行では試行番号が進み、前回のファイルを上書きせず、結果は今回のファイルを指す", async () => {
     const i = inputs();
-    const first = await run(baseArgs(i), fakeOmp({ events: events(answer()) }));
+    const first = await run(baseArgs(i), fakeAgy({ events: events(answer()) }));
     const before = Object.fromEntries(readdirSync(i.docs).map((f) => [f, readFileSync(join(i.docs, f), "utf8")]));
-    const second = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody().replace("Solution の本文。", "二回目の本文。"))) }));
+    const second = await run(baseArgs(i), fakeAgy({ events: events(answer(specBody().replace("Solution の本文。", "二回目の本文。"))) }));
     expect(first.json.attempt).toBe(1);
     expect(second.json).toMatchObject({ ok: true, attempt: 2 });
     expect(second.json.files).toEqual({
@@ -415,7 +435,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const i = inputs();
     const target = join(tempDir(), "target.md");
     writeFileSync(target, "# 既存仕様\n\nTARGET-BODY\n");
-    const fake = fakeOmp({ events: events(answer("追記部分を Gemini 4 Argon が執筆した。\n\n### 追記\n\n追記の本文。")) });
+    const fake = fakeAgy({ events: events(answer("追記部分を Gemini 4 Argon が執筆した。\n\n### 追記\n\n追記の本文。")) });
     const r = await run(baseArgs(i, ["--mode", "append", "--target", `848=${target}`]), fake);
     expect(r.exitCode).toBe(0);
     const request = fake.request();
@@ -431,16 +451,16 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const i = inputs();
     const target = join(tempDir(), "target.md");
     writeFileSync(target, "# 既存仕様\n");
-    await expectFailure(i, fakeOmp({ events: events(answer("改訂の本文だけ。")) }), "SECTION_MISSING", ["--mode", "rebuild", "--target", `848=${target}`]);
+    await expectFailure(i, fakeAgy({ events: events(answer("改訂の本文だけ。")) }), "SECTION_MISSING", ["--mode", "rebuild", "--target", `848=${target}`]);
   });
 
   test("差し戻しでは前回の実行記録から原稿を読み、主担当の指摘とともに依頼文に入れる", async () => {
     const i = inputs();
-    const first = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody().replace("Solution の本文。", "PREVIOUS-DRAFT"))) }));
+    const first = await run(baseArgs(i), fakeAgy({ events: events(answer(specBody().replace("Solution の本文。", "PREVIOUS-DRAFT"))) }));
     expect(first.json.ok).toBe(true);
     const feedback = join(tempDir(), "feedback.md");
     writeFileSync(feedback, "FEEDBACK-TEXT Q1 の決定が反映されていない\n");
-    const fake = fakeOmp({ events: events(answer()) });
+    const fake = fakeAgy({ events: events(answer()) });
     const r = await run(baseArgs(i, ["--feedback", feedback, "--previous-record", first.json.files.record]), fake);
     expect(r.exitCode).toBe(0);
     expect(r.json.attempt).toBe(2);
@@ -457,11 +477,11 @@ describe("to-spec の執筆依頼スクリプト", () => {
   test("OPEN_QUESTIONS で終わった依頼は、前回の実行記録と主担当の回答で差し戻せ、疑問と回答が Argon に渡る", async () => {
     const i = inputs();
     const meta = { openQuestions: [{ question: "QUESTION-TEXT 上限は何秒か", reason: "REASON-TEXT 決定ログに無いと判断" }], changeProposals: [] };
-    const first = await run(baseArgs(i), fakeOmp({ events: events(answer(specBody(), JSON.stringify(meta))) }));
+    const first = await run(baseArgs(i), fakeAgy({ events: events(answer(specBody(), JSON.stringify(meta))) }));
     expect(first.json).toMatchObject({ ok: false, code: "OPEN_QUESTIONS", files: { draft: null } });
     const feedback = join(tempDir(), "feedback.md");
     writeFileSync(feedback, "ANSWER-TEXT 既決: 決定ログ Q8 で上限600秒と決定済み\n");
-    const fake = fakeOmp({ events: events(answer()) });
+    const fake = fakeAgy({ events: events(answer()) });
     const r = await run(baseArgs(i, ["--feedback", feedback, "--previous-record", first.json.files.record]), fake);
     expect(r.exitCode).toBe(0);
     expect(r.json).toMatchObject({ ok: true, attempt: 2 });
@@ -476,12 +496,12 @@ describe("to-spec の執筆依頼スクリプト", () => {
     expect(record.inputs).toContainEqual({ role: "previous-record", file: first.json.files.record, sha256: sha256(readFileSync(first.json.files.record)), bytes: readFileSync(first.json.files.record).length });
   });
 
-  test("差し戻しに使えない前回の実行記録は INVALID_INPUT で、omp を呼ばない", async () => {
+  test("差し戻しに使えない前回の実行記録は INVALID_INPUT で、agy を呼ばない", async () => {
     const i = inputs();
     const feedback = join(tempDir(), "feedback.md");
     writeFileSync(feedback, "指摘\n");
-    const ok = await run(baseArgs(i), fakeOmp({ events: events(answer()) }));
-    const failed = await run(baseArgs(i), fakeOmp({ events: events(answer("")) }));
+    const ok = await run(baseArgs(i), fakeAgy({ events: events(answer()) }));
+    const failed = await run(baseArgs(i), fakeAgy({ events: events(answer("")) }));
     expect(failed.json.code).toBe("EMPTY_BODY");
     const tampered = join(tempDir(), "tampered-record.json");
     const rec = JSON.parse(readFileSync(ok.json.files.record, "utf8"));
@@ -499,7 +519,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
       [["--mode", "append", "--target", `848=${i.related}`, "--feedback", feedback, "--previous-record", ok.json.files.record], "執筆の種類"],
       [["--previous-record", ok.json.files.record], "--feedback"],
     ] as const) {
-      const fake = fakeOmp({ events: events(answer()) });
+      const fake = fakeAgy({ events: events(answer()) });
       const r = await run(baseArgs(i, [...args]), fake);
       expect(r.exitCode).toBe(1);
       expect(r.json).toMatchObject({ ok: false, code: "INVALID_INPUT", files: null });
@@ -511,14 +531,14 @@ describe("to-spec の執筆依頼スクリプト", () => {
 
   test("原稿の保存が想定外のエラーで失敗すれば UNEXPECTED_ERROR で、実行記録を残し原稿を出さない", async () => {
     const i = inputs();
-    const r = await run(baseArgs(i), fakeOmp({ events: events(answer()), blockDraft: true }));
+    const r = await run(baseArgs(i), fakeAgy({ events: events(answer()), blockDraft: join(i.docs, "nod-60-argon-01-draft.md") }));
     expect(r.exitCode).toBe(1);
     expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", attempt: 1, draftSha256: null });
     expect(r.json.message).toContain("EEXIST");
     expect(r.json.files.draft).toBeNull();
     const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
     expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
-    expect(record.responded).toEqual({ provider: "google-antigravity", model: "gemini-4-argon", stopReason: "stop" });
+    expect(record.responded).toEqual(ARGON);
   });
 
   // 依頼文と実行記録が上限に収まるよう、小さな執筆ルールを置いたスキルの写しで動かす
@@ -536,16 +556,15 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const script = smallSkill();
     const i = inputs();
     // 生ログは上限の 4KB に収め、原稿だけを上限を超えさせる。不正な UTF-8 の 1 バイトは、原稿では置換文字（3 バイト）になる
+    // 差分イベントを出さず、MARK が result の response にだけ1回現れるようにする
     const MARK = "\u0000BAD\u0000";
     const body = specBody().replace("Solution の本文。", MARK);
-    const [head, tail] = Buffer.from(
-      `${JSON.stringify({ type: "session", id: "sess-short" })}\n${JSON.stringify({ type: "message_end", message: assistant(answer(body)) })}\n`,
-    )
+    const [head, tail] = Buffer.from(events(answer(body), { deltas: [] }))
       .toString("latin1")
       .split(JSON.stringify(MARK).slice(1, -1));
     const oneEvent = Buffer.concat([Buffer.from(head!, "latin1"), Buffer.alloc(2000, 0xff), Buffer.from(tail!, "latin1")]);
     expect(oneEvent.length).toBeLessThan(4096);
-    const r = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script, { fileSizeKb: 4 });
+    const r = await run(baseArgs(i), fakeAgy({ events: oneEvent }), script, { fileSizeKb: 4 });
     expect(r.exitCode).toBe(1);
     expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", attempt: 1, draftSha256: null });
     expect(r.json.message).toContain("EFBIG");
@@ -555,9 +574,9 @@ describe("to-spec の執筆依頼スクリプト", () => {
     expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
     // 生ログは全量を書けており、失敗は原稿の保存で起きている（応答は判定済み）
     expect(readFileSync(join(i.docs, "nod-60-argon-01-events.jsonl"))).toEqual(oneEvent);
-    expect(record.responded).toEqual({ provider: "google-antigravity", model: "gemini-4-argon", stopReason: "stop" });
+    expect(record.responded).toEqual(ARGON);
     // 上限なしなら同じ応答で原稿を全文保存し、指紋が一致する
-    const full = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script);
+    const full = await run(baseArgs(i), fakeAgy({ events: oneEvent }), script);
     expect(full.json.ok).toBe(true);
     expect(sha256(readFileSync(full.json.files.draft))).toBe(full.json.draftSha256);
     expect(readFileSync(full.json.files.draft, "utf8")).toContain("\ufffd".repeat(2000));
@@ -567,14 +586,8 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const script = smallSkill();
     const i = inputs();
     // 原稿は小さく、生ログだけが上限の 4KB を超える（原稿に入らないイベントで約 6KB にする）。1 回の読み取りで届く大きさにする
-    const oneEvent = [
-      { type: "session", id: "sess-events-short" },
-      { type: "padding", data: "p".repeat(6000) },
-      { type: "message_end", message: assistant(answer()) },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n";
-    const r = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script, { fileSizeKb: 4 });
+    const oneEvent = `${JSON.stringify({ event: "padding", data: "p".repeat(6000) })}\n${events(answer())}`;
+    const r = await run(baseArgs(i), fakeAgy({ events: oneEvent }), script, { fileSizeKb: 4 });
     expect(r.exitCode).toBe(1);
     expect(r.json).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", attempt: 1, draftSha256: null });
     expect(r.json.message).toContain("EFBIG");
@@ -583,14 +596,14 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const record = JSON.parse(readFileSync(r.json.files.record, "utf8"));
     expect(record).toMatchObject({ ok: false, code: "UNEXPECTED_ERROR", draft: null, files: { draft: null } });
     // 上限なしなら同じ応答で生ログを全量保存して成功する
-    const full = await run(baseArgs(i), fakeOmp({ events: oneEvent }), script);
+    const full = await run(baseArgs(i), fakeAgy({ events: oneEvent }), script);
     expect(full.json.ok).toBe(true);
     expect(readFileSync(join(i.docs, "nod-60-argon-02-events.jsonl"), "utf8")).toBe(oneEvent);
   });
 
-  test("試行のファイルを作れなければ UNEXPECTED_ERROR の結果 JSON を出し、omp を呼ばない", async () => {
+  test("試行のファイルを作れなければ UNEXPECTED_ERROR の結果 JSON を出し、agy を呼ばない", async () => {
     const i = inputs();
-    const fake = fakeOmp({ events: events(answer()) });
+    const fake = fakeAgy({ events: events(answer()) });
     chmodSync(i.docs, 0o555);
     try {
       const r = await run(baseArgs(i), fake);
@@ -604,7 +617,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
     }
   });
 
-  test("入力の不足・不正は INVALID_INPUT で、omp を呼ばずファイルも作らない", async () => {
+  test("入力の不足・不正は INVALID_INPUT で、agy を呼ばずファイルも作らない", async () => {
     const i = inputs();
     const target = join(tempDir(), "target.md");
     writeFileSync(target, "# 既存仕様\n");
@@ -631,7 +644,7 @@ describe("to-spec の執筆依頼スクリプト", () => {
       ["--issue", "NOD-60", "--issue-json", emptyDesc, "--decision-log", i.decisionLog],
     ];
     for (const args of cases) {
-      const fake = fakeOmp({ events: events(answer()) });
+      const fake = fakeAgy({ events: events(answer()) });
       const r = await run(args, fake);
       expect(r.exitCode).toBe(1);
       expect(r.json).toMatchObject({ ok: false, code: "INVALID_INPUT", files: null });
@@ -648,15 +661,15 @@ describe("to-spec の執筆依頼スクリプト", () => {
     const script = join(root, "scripts", "write-spec.ts");
     writeFileSync(script, readFileSync(SCRIPT));
     const i = inputs();
-    const missing = await run(baseArgs(i), fakeOmp({ events: events(answer()) }), script);
+    const missing = await run(baseArgs(i), fakeAgy({ events: events(answer()) }), script);
     expect(missing.json).toMatchObject({ ok: false, code: "INVALID_INPUT" });
     expect(missing.json.message).toContain("spec-writing.md");
     mkdirSync(join(root, "references"));
     writeFileSync(join(root, "references", "spec-writing.md"), "区切りの無いルール\n");
-    expect((await run(baseArgs(i), fakeOmp({ events: events(answer()) }), script)).json).toMatchObject({ ok: false, code: "INVALID_INPUT" });
+    expect((await run(baseArgs(i), fakeAgy({ events: events(answer()) }), script)).json).toMatchObject({ ok: false, code: "INVALID_INPUT" });
     expect(readdirSync(i.docs)).toEqual(["nod-60-grilling.md"]);
     writeFileSync(join(root, "references", "spec-writing.md"), `COPIED-RULES\n\n${SEP}\n`);
-    const fake = fakeOmp({ events: events(answer()) });
+    const fake = fakeAgy({ events: events(answer()) });
     expect((await run(baseArgs(i), fake, script)).json).toMatchObject({ ok: true });
     expect(fake.request()).toContain("COPIED-RULES");
   });

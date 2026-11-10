@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// nod:to-spec の仕様書本文の執筆を Gemini 4 Argon（Omp 経由）へ依頼する。
+// nod:to-spec の仕様書本文の執筆を Gemini 4 Argon（agy 経由）へ依頼する。
 // 責任は入力の検査、依頼文の組み立て、Argon の呼び出し、応答の検証、原稿と実行記録の保存まで。nod への登録は主担当が行う。
 // 使い方:
 //   bun write-spec.ts --issue <ID> --issue-json <file> --decision-log <file>
@@ -11,16 +11,14 @@ import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-const PROVIDER = "google-antigravity";
 const MODEL = "gemini-4-argon";
 const SEP = "<<<NOD-SPEC-META>>>";
 const SECTIONS = ["Problem Statement", "Solution", "User Stories", "Implementation Decisions", "Testing Decisions", "Out of Scope", "Further Notes"];
-const INSTRUCTION = "添付した執筆依頼に従い、仕様書の本文を書いてください。";
 const STDERR_CAP = 2000;
 // スクリプトの位置から解決する（リポジトリや作業ディレクトリに依存しない）
 const REFERENCE = join(import.meta.dir, "../references/spec-writing.md");
-// NOD_OMP はテスト用の口（NOD_GH と同じ）: omp の代わりに起動するコマンド。通常は設定しない
-const OMP = process.env.NOD_OMP || "omp";
+// NOD_AGY はテスト用の口（NOD_GH と同じ）: agy の代わりに起動するコマンド。通常は設定しない
+const AGY = process.env.NOD_AGY || "agy";
 
 type Mode = "new" | "rebuild" | "append";
 type Effort = "low" | "medium" | "high";
@@ -193,7 +191,7 @@ function buildRequest(o: Options): string {
   const d = o.issueData;
   const parts = [
     `# 仕様書の執筆依頼（${o.issue}）`,
-    `あなたは nod の Issue ${o.issue}「${d.title}」の仕様書（kind=spec の Document）の本文を書きます。\n下の「執筆ルールと仕様書テンプレート」に従い、この依頼に含まれる入力だけを使って書いてください。ツールは使えません。\n各入力は <input name="..."> と </input> で囲んであります。`,
+    `あなたは nod の Issue ${o.issue}「${d.title}」の仕様書（kind=spec の Document）の本文を書きます。\n下の「執筆ルールと仕様書テンプレート」に従い、この依頼に含まれる入力だけを使って書いてください。ツールは使わないでください。\n各入力は <input name="..."> と </input> で囲んであります。`,
     "## 執筆ルールと仕様書テンプレート",
     tag("spec-writing-rules", o.reference),
     "## 執筆の種類",
@@ -250,7 +248,7 @@ function nextAttempt(dir: string, issue: string): number {
   return max + 1;
 }
 
-interface OmpResult {
+interface AgyResult {
   timedOut: boolean;
   spawnError: NodeJS.ErrnoException | null;
   // 生ログの書き込みに失敗した（想定外のエラー）
@@ -262,7 +260,7 @@ interface OmpResult {
 }
 
 // 子プロセスはプロセスグループごと起動し、時間切れではグループ全体を止める
-function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: number): Promise<OmpResult> {
+function callAgy(args: string[], cwd: string, timeoutMs: number, eventsFd: number): Promise<AgyResult> {
   return new Promise((done) => {
     const out: Buffer[] = [];
     const err: Buffer[] = [];
@@ -277,7 +275,7 @@ function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: numbe
       for (const t of timers) clearTimeout(t);
       done({ timedOut, spawnError, writeError, exitCode, signal, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
     };
-    const child = spawn(OMP, args, { cwd, env: process.env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(AGY, args, { cwd, env: process.env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     const killGroup = (sig: NodeJS.Signals) => {
       try {
         if (child.pid) process.kill(-child.pid, sig);
@@ -324,32 +322,33 @@ function callOmp(args: string[], cwd: string, timeoutMs: number, eventsFd: numbe
   });
 }
 
-interface Assistant {
-  provider?: unknown;
-  model?: unknown;
-  stopReason?: unknown;
-  errorMessage?: unknown;
-  content?: unknown;
-}
-
-// omp v18.16.0 の JSON イベント（決定ログ F2）: 最後のアシスタントメッセージと最初の session イベントの id を読む
-function readEvents(stdout: string): { last: Assistant | null; sessionId: string | null } {
-  let last: Assistant | null = null;
+// agy 1.5.4 の stream-json。init は CLI が選択したモデルであり、推論先を独立に証明する情報ではない。
+// 増分イベントは本文に連結しない。完了した result の全文だけを採用する。
+function readEvents(stdout: string): { model: string | null; status: string | null; text: string; sessionId: string | null } {
+  const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+  let model: string | null = null;
+  let status: string | null = null;
+  let text = "";
   let sessionId: string | null = null;
-  const isAssistant = (m: any): m is Assistant => m && typeof m === "object" && m.role === "assistant";
   for (const line of stdout.split("\n")) {
-    let ev: any;
+    let ev: unknown;
     try {
       ev = JSON.parse(line);
     } catch {
       continue;
     }
-    if (!ev || typeof ev !== "object") continue;
-    if (sessionId === null && ev.type === "session" && typeof ev.id === "string") sessionId = ev.id;
-    if (isAssistant(ev.message)) last = ev.message;
-    if (Array.isArray(ev.messages)) for (const m of ev.messages) if (isAssistant(m)) last = m;
+    if (!object(ev)) continue;
+    if (ev.event === "init" && object(ev.init)) {
+      model = str(ev.init.model);
+      sessionId = str(ev.conversation_id);
+    }
+    if (ev.event === "result" && object(ev.result)) {
+      status = str(ev.result.status);
+      text = str(ev.result.response) ?? "";
+      sessionId = str(ev.result.conversation_id) ?? sessionId;
+    }
   }
-  return { last, sessionId };
+  return { model, status, text, sessionId };
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v : null);
@@ -416,15 +415,15 @@ function unexpected(e: unknown): Failure {
   return new Failure("UNEXPECTED_ERROR", `想定外のエラーで中断しました: ${cap(detail || String(e))}`);
 }
 
-function classify(r: OmpResult, what: string): Failure | null {
+function classify(r: AgyResult, what: string): Failure | null {
   if (r.writeError) return unexpected(r.writeError);
   if (r.timedOut) return new Failure("TIMEOUT", `${what}が時間内に終わりませんでした`);
-  if (r.spawnError) return new Failure("OMP_NOT_FOUND", `omp を起動できません: ${OMP}（${r.spawnError.code ?? r.spawnError.message}）`);
+  if (r.spawnError) return new Failure("AGY_NOT_FOUND", `agy を起動できません: ${AGY}（${r.spawnError.code ?? r.spawnError.message}）`);
   if (r.exitCode !== 0) {
     const stderr = cap(r.stderr.trim());
     const status = r.exitCode === null ? `シグナル ${r.signal}` : `終了コード ${r.exitCode}`;
     const unavailable = /not found|unknown model|no (api )?key|auth|login|unauthori[sz]ed|credential|forbidden|\b40[13]\b/i.test(stderr);
-    return new Failure(unavailable ? "ARGON_UNAVAILABLE" : "OMP_FAILED", `${what}が${status}で失敗しました: ${stderr || "（標準エラーなし）"}`);
+    return new Failure(unavailable ? "ARGON_UNAVAILABLE" : "AGY_FAILED", `${what}が${status}で失敗しました: ${stderr || "（標準エラーなし）"}`);
   }
   return null;
 }
@@ -474,8 +473,9 @@ async function main(): Promise<void> {
   const requestPath = join(dir, names.request);
   const draftPath = join(dir, names.draft);
 
-  let ompVersion: string | null = null;
-  let responded = { provider: null as string | null, model: null as string | null, stopReason: null as string | null };
+  const model = `${MODEL}-${o.effort}`;
+  let agyVersion: string | null = null;
+  let responded = { model: null as string | null, status: null as string | null };
   let sessionId: string | null = null;
   let stderr = "";
   let openQuestions: OpenQuestion[] = [];
@@ -488,7 +488,7 @@ async function main(): Promise<void> {
   try {
     eventsFd = openSync(join(dir, names.events), "wx");
     work = realpathSync(mkdtempSync(join(tmpdir(), "nod-argon-")));
-    const version = spawnSync(OMP, ["--version"], { cwd: work, env: process.env, encoding: "utf8", timeout: o.timeoutSeconds * 1000 });
+    const version = spawnSync(AGY, ["--version"], { cwd: work, env: process.env, encoding: "utf8", timeout: o.timeoutSeconds * 1000 });
     const versionFailure = classify(
       {
         timedOut: (version.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT",
@@ -499,32 +499,27 @@ async function main(): Promise<void> {
         stdout: version.stdout ?? "",
         stderr: version.stderr ?? "",
       },
-      "omp --version ",
+      "agy --version ",
     );
     if (versionFailure) throw versionFailure;
-    ompVersion = (version.stdout ?? "").trim() || null;
+    agyVersion = (version.stdout ?? "").trim() || null;
 
-    const args = ["-p", "--model", `${PROVIDER}/${MODEL}`, "--thinking", o.effort, "--no-tools", "--no-session", "--no-skills", "--no-rules", "--no-context-files", "--no-extensions", "--mode", "json", `@${requestPath}`, INSTRUCTION];
-    const r = await callOmp(args, work, o.timeoutSeconds * 1000, eventsFd);
+    const args = ["--model", model, "--effort", o.effort, "--sandbox", "--disable-slash-commands", "--output-format", "stream-json", `--print=${request}`];
+    const r = await callAgy(args, work, o.timeoutSeconds * 1000, eventsFd);
     stderr = cap(r.stderr.trim());
     const callFailure = classify(r, "Argon の呼び出し");
     if (callFailure) throw callFailure;
 
-    const { last, sessionId: sid } = readEvents(r.stdout);
-    sessionId = sid;
-    if (last) responded = { provider: str(last.provider), model: str(last.model), stopReason: str(last.stopReason) };
-    if (!last) throw new Failure("MODEL_NOT_ARGON", "応答したモデルを判定できません（アシスタントのメッセージがありません）");
-    if (responded.provider !== PROVIDER || responded.model !== MODEL) {
-      throw new Failure("MODEL_NOT_ARGON", `応答したモデルが Argon ではありません: ${responded.provider}/${responded.model}`);
+    const result = readEvents(r.stdout);
+    sessionId = result.sessionId;
+    responded = { model: result.model, status: result.status };
+    if (responded.model !== model) {
+      throw new Failure("MODEL_NOT_ARGON", `agy が選択したモデルが要求と一致しません: ${responded.model ?? "不明"}（要求: ${model}）`);
     }
-    if (responded.stopReason !== "stop") {
-      const reason = str(last.errorMessage);
-      throw new Failure("STOP_REASON", `停止理由が正常ではありません: ${responded.stopReason}${reason ? `（${reason}）` : ""}`);
+    if (responded.status !== "SUCCESS") {
+      throw new Failure("STOP_REASON", `agy の完了状態が正常ではありません: ${responded.status ?? "完了イベントなし"}`);
     }
-    const text = (Array.isArray(last.content) ? last.content : [])
-      .filter((c: any) => c && c.type === "text" && typeof c.text === "string")
-      .map((c: any) => c.text as string)
-      .join("");
+    const text = result.text;
     try {
       const v = judge(text, o.mode);
       openQuestions = v.openQuestions;
@@ -584,8 +579,8 @@ async function main(): Promise<void> {
     attempt,
     startedAt: startedAt.toISOString(),
     elapsedMs: Date.now() - startedAt.getTime(),
-    ompVersion,
-    requested: { provider: PROVIDER, model: MODEL, thinking: o.effort, timeoutSeconds: o.timeoutSeconds },
+    agyVersion,
+    requested: { model, effort: o.effort, timeoutSeconds: o.timeoutSeconds },
     responded,
     sessionId,
     inputs,
