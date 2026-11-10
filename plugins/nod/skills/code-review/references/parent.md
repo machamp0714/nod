@@ -126,6 +126,8 @@ shasum -a 256 "$T/setup.log" "$T/output.log" <lockfile>
 
 `parent/tests/record.md` には次を書く: checkout の SHA と `target.md` の head の SHA、開始時の状態と作業ディレクトリの由来、依存の固定情報（lockfile のパスと sha256）と runtime の版、`plan.md` への参照、依存の準備と実行のコマンド、それぞれの終了コード、出力の原本（`setup.log`・`output.log`）とその sha256、開始・終了時刻と所要時間、skip の件数と項目・扱い（出力に skip の表示が無ければその旨）、判定。
 
+記録と出力の sha256 を書き終えたら、clone した `$T/checkout`（依存の準備で入ったファイルを含む）を `rm -rf "$T/checkout"` で片付ける。`plan.md`・`record.md`・`setup.log`・`output.log` は残す（checkout の SHA・lockfile の指紋・ログで再現できる）。片付けたことと時刻を `record.md` に書き足す。片付けに失敗したら、その旨を `record.md` に書き、判定は変えない。
+
 テストの成否で、レビューの最終状態・点数・反証の判定・要求ごとの対応表を変えない。テスト実行の結果は8節のマージ可否にだけ使う。
 
 ## 4. 両探索を並列に委譲する
@@ -245,7 +247,7 @@ awk '/^<!-- refute-verdict:begin -->$/{f=1;next} /^<!-- refute-verdict:end -->$/
 - `未実施`: `nod issue log <Issue ID> "<要約>" --kind blocker` に、独立レビュー未実施であること・原因・受領済みの成果・取得できた担当 ID・テスト実行の判定・マージ可否（`不可`）・Document ID・runId を書く。
 - 担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
 - Issue の無い単独レビューは、`parent/report.md` とチャットでの報告だけにする。
-- 要求の写し・引き渡し用ファイル・メモ・反証の結果・テスト実行の記録（`parent/tests/`）は作業ディレクトリに残す。
+- 要求の写し・引き渡し用ファイル・メモ・反証の結果・テスト実行の記録（`parent/tests/` の `plan.md`・`record.md`・`setup.log`・`output.log`。checkout は3.4節で片付け済み）は作業ディレクトリに残す。
 
 ## 10. 後続
 
