@@ -14,7 +14,7 @@ nod の Issue 1 件を対象に、未決の論点を grilling で詰め、仕様
 ## 0. 準備
 
 - Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
-- 仕様書の本文（新規・作り直し・追記）は、agy コマンド経由の Gemini 4 Argon（`gemini-4-argon-low|medium|high`、effort に対応）が書く。主担当（このスキルを動かしているエージェント）は §4 で同梱の執筆依頼スクリプトを使って依頼する。実行端末で agy のインストールとログインを済ませておく。agy や Argon を使えないときはスクリプトが理由付きで失敗する。Omp の Google Antigravity プロバイダは使わず、別の端末へも回さない。
+- 仕様書の本文（新規・作り直し・追記）は、agy コマンド経由の Gemini 4 Argon（`gemini-4-argon-low|medium|high`、effort に対応）が書く。§4 の同梱スクリプトが執筆を依頼する。実行には agy のインストールとログインが必要。agy や Argon を使えない場合、スクリプトは理由付きで失敗する。
 - 実装計画（`nod:to-plan`）、`nod:wayfinder`、一般の Document の書き手は変えない。
 - `nod issue show <id>` で説明・Documents・Activity を読む。既に kind=spec の Document があれば、作り直すのか追記するのかをユーザーに聞く。
 - リポジトリを調べる。`CONTEXT.md` があれば用語をそれに合わせ、触る領域の ADR を守る。
@@ -95,7 +95,6 @@ Skill ツールで `grilling` を呼び、その手順（設計の木、frontier
 
 - 仕様 Document を作らない（作り直し・追記では既存の仕様書を変えない）。`needs-spec` を外さず、`ready-for-agent` を付けない。
 - 理由コードと説明（`message`）と実行記録のファイル名を決定ログに記録し、ユーザーに伝える。選択肢は「時間をおいて再試行」「執筆者を名指しで変える」。
-- agy や Argon が使えない端末から、別の端末へ執筆を回さない。
 - 別の執筆者で書くのは、ユーザーが執筆者を名指しで指示したときだけ。「推奨で進めてよい」のような一般的な委任は、執筆者の変更の指示とみなさない。名指しされたら、その執筆者が `references/spec-writing.md` に従って書き、実際の執筆者を仕様書の冒頭・決定ログ・作業記録に書く。Argon 執筆とは記録しない。
 
 ## 5. Issue に添付する
