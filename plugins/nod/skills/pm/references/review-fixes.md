@@ -12,7 +12,9 @@ startedとcompletedを区別して記録し、会話履歴や重複報告から�
 ## 初回指摘を分ける
 
 初回報告のRun、Task、active Dispatch、Issue、元実装者、terminal、worktree、実効モデルとeffort、現在commitを[実装手順](implementation.md)どおり照合する。
-StandardsとSpecの両軸、実装者と異なるreviewer identity、レビュー基点と対象commitを確認する。
+初回レビューは[実装手順の受理条件](implementation.md#初回レビューを受け取る)を満たしたものだけを使う。
+reviewer identityは全担当（Standards探索・Spec探索・反証の3担当）の組で、3担当それぞれが実装者と異なる。基点と対象commitを確認する。
+指摘は報告Documentに収録された反証担当の原文（要対応と影響度、任意）から取り、PMの要約で置き換えない。
 指摘ごとに次の区別を行い、nodへ分類と根拠を記録する。
 
 | 分類 | 修正対象にする根拠 |
@@ -25,7 +27,7 @@ StandardsとSpecの両軸、実装者と異なるreviewer identity、レビュ�
 重大度やreviewerの断定だけで必須にしない。
 根拠や対象commitが不足する指摘は不足証拠として返し、仕様変更が必要なら[質問の手順](questions.md)で人へ戻す。
 判断の余地がある設計改善を自動修正の受入条件へ追加しない。
-任意改善だけなら0巡のまま、受入条件、必要テスト、現在commitの初回レビューが揃ったことを確認して[PR作業](implementation.md#同じ実装者へpr作業を渡す)へ進む。
+任意改善だけなら0巡のまま、受入条件、必要テスト、現在commitの初回レビュー（点数と同じheadのテスト実行）が揃ったことを確認して[PR作業](implementation.md#同じ実装者へpr作業を渡す)へ進む。
 
 必須指摘の依頼には、指摘ID、分類、正本の該当箇所または再現証拠、対象commit、対象差分、期待する修正、確認可能な受入条件を添える。
 元報告の引用または参照先を残し、PMの要約だけで根拠を置き換えない。
@@ -43,10 +45,10 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、StandardsとSpec、reviewerと実装者identity、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と点数、テスト実行の判定とcheckoutのSHA、マージ可否、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
-| 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、reviewer identity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
+| 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、確認担当のidentity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
 | 第n巡の確認完了 | 完了巡n、確認TaskとDispatch、確認対象commit、指摘IDごとの解消証拠と残存、新しい不具合、現在gitとの照合、次の所有者と提出または停止判断 |
 
 例では`nod -w <Workspace> issue log <IssueID> "<上記の根拠と対応>" --kind progress`を使う。
@@ -76,6 +78,7 @@ reuseに`--agent`、`--model`、`--effort`、新しい`--on`を重ねない。
 
 確認は元実装者とは異なるidentityが行う。
 初回レビューの再実行ではなく、既存指摘IDの解消と、修正前commitから現在commitへの差分だけを対象にする。
+この確認担当は単独であり、初回の3担当の組へ加えない。初回の担当IDで修正後の確認を済ませたことにもしない。
 独立確認依頼には元の根拠と受入条件、修正報告、テスト、基点と対象commit、read-only制約を含める。
 確認担当は実装ファイルを変更せず、未解消の指摘、新しく確認した不具合、各結果の証拠を報告する。
 
@@ -94,7 +97,7 @@ ORCA orchestration worker-start --task <確認TaskID> --on <元のStudio接続�
 ORCA orchestration send --to dispatch:<確認DispatchID> --subject "独立確認開始" --body "<要求値と実効値の一致、対象commit、開始条件を満たしたこと>" --json
 ```
 
-PMは完了報告のactive Dispatchとreviewer identity、基点と対象commit、必要な指摘IDごとの結果を照合し、実行先gitのHEADと比べる。
+PMは完了報告のactive Dispatchと確認担当のidentity、基点と対象commit、必要な指摘IDごとの結果を照合し、実行先gitのHEADと比べる。
 実装者の自己申告だけ、古いレビュー、依頼のenqueueだけでは解消済みにしない。
 確認担当がsettleしたら、その現所有者のreleaseまたは次の所有者を決めてからDeliveryをackする。
 
@@ -102,7 +105,7 @@ PMは完了報告のactive Dispatchとreviewer identity、基点と対象commit�
 
 | 確認結果 | 次の動作 |
 | --- | --- |
-| 現在commitの受入と必要テストが成功し、全必須指摘の解消を独立確認 | 初回両軸レビューから修正差分の確認までの証拠を保ち、[既存のPR手順](implementation.md#同じ実装者へpr作業を渡す)へ戻す |
+| 現在commitの受入と必要テストが成功し、全必須指摘の解消を独立確認 | 初回レビューの報告Documentから修正差分の確認までの証拠を保ち、[既存のPR手順](implementation.md#同じ実装者へpr作業を渡す)へ戻す |
 | 第1巡完了で既存必須指摘が残る | 同じ元実装者へ第2巡の指摘修正を返す。根拠と受入条件を維持し、差分に対応する対象commitへ更新する |
 | 第2巡完了で必須指摘が残る | 第3巡を自動開始せず、結果と必要な判断を人へ戻す。PR作成へ進まない |
 | 新しく確認した不具合がある | 残る巡数にかかわらず人へ戻し、PR作成へ進まない。回数上限を理由に無視しない |

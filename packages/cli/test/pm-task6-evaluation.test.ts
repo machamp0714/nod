@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { createTask6Scenario } from "../../../plugins/nod/skills/pm/evals/task6-setup";
 import { readFileSync } from "node:fs";
 
+const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
+
 test("PM復元評価は既存PRへの関連回復を二重createと記録しない", async () => {
   const s = await createTask6Scenario({ variant: "pr-lost" });
   const call = (...argv: string[]) => {
@@ -25,7 +27,12 @@ test("PM復元評価は同じ完了messageの再配送と古Dispatchの古commit
   };
   const d = call("check");
   expect(d.messages.map((m: { id: string }) => m.id)).toEqual(["done-review-1", "done-review-1", "old-initial"]);
-  expect(JSON.parse(d.messages[2].body).commit).toBe("a".repeat(40));
+  const old = JSON.parse(d.messages[2].body);
+  expect(old.commit).toBe("a".repeat(40));
+  // 古い初回レビューも3担当の組と報告Documentを持つが、対象版は現在commitではない。
+  expect(old.review).toMatchObject({ status: "完了", score: 3, target: { headSha: "a".repeat(40) }, testRun: { headSha: "a".repeat(40) }, mergeReadiness: "不可（人の判断が要る）", agents: reviewAgents });
+  const document = Bun.spawnSync([s.nod, "doc", "show", String(old.review.reportDocument.id), "--json"], { env: s.env });
+  expect(JSON.parse(document.stdout.toString())).toMatchObject({ kind: "doc", issues: [{ id: "API-1" }] });
   expect(call("worker-show", "--dispatch", "dispatch-wait")).toMatchObject({ git: { head: "c".repeat(40) }, reported: false, terminalId: "term-api1" });
   expect(call("check").id).toBe(d.id);
   call("check", "--ack", d.id);
@@ -51,7 +58,11 @@ test("PM復元評価は実装中の既存試行だけを完了配信し、要求
   expect(r.exitCode).toBe(0);
   const d = JSON.parse(r.stdout.toString()).result;
   expect(d.messages).toHaveLength(1);
-  expect(JSON.parse(d.messages[0].body)).toMatchObject({ taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), model: "gpt-6.1-sol", effort: "high", review: { standards: { findings: [] }, spec: { findings: [] } } });
+  const report = JSON.parse(d.messages[0].body);
+  expect(report).toMatchObject({ taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), model: "gpt-6.1-sol", effort: "high", review: {
+    implementer: "term-api1", status: "完了", score: 5, target: { headSha: "a".repeat(40) }, agents: reviewAgents,
+    testRun: { headSha: "a".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", standards: { findings: [] }, spec: { findings: [] },
+  } });
 });
 
 test("PM復元評価は仕様未合意の質問IDと元messageを実nodから再取得し、空通知でも待機を保持する", async () => {

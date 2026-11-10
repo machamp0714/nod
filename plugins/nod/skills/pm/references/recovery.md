@@ -33,7 +33,7 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 | 工程と管理中の実行 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
-| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、元実装者と独立確認担当のidentity、現在の待機Dispatch |
+| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、3担当の組、反証原文の照合結果、点数、テスト実行のheadと判定、マージ可否）、元実装者と独立確認担当のidentity、現在の待機Dispatch |
 | 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、PR URL/branch/headとnod提出状態 |
 | 質問と次の行動 | nod質問ID、元message、選択肢、原文と実回答の出典、未回答と残る停止理由、次に照合する証拠または必要な人の判断 |
 
@@ -82,6 +82,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 
 仕様待ちは未回答質問、別モデル照合、仕様合意、テスト境界合意、正式Spec添付を個別に復元する。
 実装中は既存試行を監督し、初回レビューを追加起動しない。
+受理済みの初回レビューはcheckpointの受理記録から復元する。記録に報告Document IDや3担当の組、照合結果が欠けていれば受理済みと扱わず、報告Documentを読み直して[受理条件](implementation.md#初回レビューを受け取る)で照合する。
 修正確認中はstarted/completedと対象commit、独立担当、元実装者の待機所有者を復元し、既存確認を受け取る。
 PR提出後はPR実在とhead、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
 
