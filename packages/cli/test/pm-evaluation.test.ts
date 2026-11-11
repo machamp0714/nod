@@ -124,6 +124,29 @@ test("PM評価の受け入れ確認担当が確認済みとした初回レビュ
   expect(issue.activity.filter(item => item.logKind === "progress" && item.body?.includes(`受け入れ確認=code-reviewer-acceptance/${report.review.agents.acceptance.id}`))).toHaveLength(1);
 });
 
+test("PM評価の保存直前の再照合は判定に使った証拠を参照しない通常のActivityの追記だけでは止めず、完了・5点・マージ可のままにする", async () => {
+  const scenario = await createTask2Scenario({ variant: "acceptance-activity-appended" });
+  const orca = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.orca, ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString()).result;
+  };
+  orca("orchestration", "run-create", "--objective", "一覧の余白を調整");
+  const launch = orca("orchestration", "worker-start", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。照合完了まで実装禁止");
+  orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
+  const report = JSON.parse(orca("orchestration", "check").messages[0].body);
+  // 受け入れ確認担当がデザインの正本と配置先の観測で確認済みとした後、保存直前までに通常の作業ログが1件足された。
+  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+  expect(report.review.acceptanceRows.map((row: { judgment: string }) => row.judgment)).toEqual(["確認済み", "確認済み"]);
+  const issue = JSON.parse(Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env }).stdout.toString()) as { activity: { logKind?: string | null; body?: string }[] };
+  expect(issue.activity.filter(item => item.body === "進捗: 一覧画面のスクリーンショットを整理している")).toHaveLength(1);
+  const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+  for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 0 件", "- マージ可否: 可（人のレビューなしでマージ可）"]) expect(document.content).toContain(`\n${line}`);
+  expect(document.content).toContain("### 保存直前の受け入れ証拠の再照合");
+  expect(document.content).toContain("固定の後に足された Activity: 1 件（判定に使った証拠の出典を含まない通常の追記。止めない）");
+  expect(document.content).toContain("観測時点までの確認であり、将来の配置状態は保証しない");
+});
+
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
     // PR操作の前提となる既存実行を採択前に作る。
@@ -200,7 +223,7 @@ test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自�
   expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
 });
 
-for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-unmet", "acceptance-unverified", "acceptance-missing"] as const) {
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-unmet", "acceptance-unverified", "acceptance-missing", "acceptance-evidence-changed"] as const) {
   test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
@@ -326,6 +349,40 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 1 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
       expect(document.content).toContain(`| ${report.review.remainingChecks[0].source} | 受け入れ確認担当 | ${report.review.remainingChecks[0].reason} |`);
       expect(logs("progress").filter(item => item.body?.includes("確認が残る事項1件") && item.body?.includes(judgment))).toHaveLength(1);
+      expect(logs("blocker")).toHaveLength(0);
+    } else if (variant === "acceptance-evidence-changed") {
+      // 受け入れ確認担当がデザインの正本と配置先の観測で2行とも確認済みとした後、保存直前の再照合で、判定に使った外部の正本の変化、
+      // 根拠にした添付Documentの訂正、使った配置先を参照する後続の追記が見つかった。担当の判定本文・完了・点数は変えず、親が確認が残る事項を追記してマージ不可にする。
+      expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      const [design, deploy] = report.review.acceptanceRows as [{ source: string; judgment: string }, { source: string; judgment: string }];
+      expect([design.judgment, deploy.judgment]).toEqual(["確認済み", "確認済み"]);
+      expect(design.source).toContain("デザインの正本");
+      expect(deploy.source).toContain("配置先");
+      const owner = "受け入れ確認担当（新しい実行）";
+      expect(report.review.remainingChecks).toEqual([
+        { source: design.source, owner, reason: expect.stringContaining("外部の正本の変化") },
+        { source: deploy.source, owner, reason: expect.stringContaining("訂正") },
+        { source: deploy.source, owner, reason: expect.stringContaining("対応不明") },
+      ]);
+      // 反証は外部の正本を名指しし、受け入れ確認担当は内容の一致と更新順序、不変版と現在の配置を分けて判定した。
+      const verdict = readFileSync(report.review.verdict.path, "utf8");
+      expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
+      expect(verdict).toContain("/evaluation/design/list-spacing.md");
+      const result = readFileSync(report.review.acceptance.path, "utf8");
+      expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
+      for (const line of ["- 外部の正本との内容の一致: 確認済み", "- 更新順序: 確認済み", "- 成果物の不変版の存在: 確認済み", "- 現在の配置: 確認済み"]) expect(result).toContain(line);
+      expect(result).not.toContain("未充足");
+      expect(result).toContain("## 判定に使った証拠");
+      // 報告は担当の判定本文と結果を原文のまま収録し、再照合の結果は親が別の節と確認が残る事項に書く。
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(between(document.content, "refute-verdict")).toBe(verdict);
+      expect(between(document.content, "acceptance-result")).toBe(result);
+      for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 3 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
+      for (const check of report.review.remainingChecks) expect(document.content).toContain(`| ${check.source} | ${check.owner} | ${check.reason} |`);
+      expect(document.content).toContain("### 保存直前の受け入れ証拠の再照合");
+      expect(document.content).toContain("観測時点までの確認であり、将来の配置状態は保証しない");
+      expect(logs("progress").filter(item => item.body?.includes("確認が残る事項3件") && item.body?.includes("外部の正本の変化"))).toHaveLength(1);
       expect(logs("blocker")).toHaveLength(0);
     } else if (variant === "acceptance-missing") {
       // 反証が受け入れ確認担当の行を作ったが、受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった。必要な担当が欠けた未完了で、点数なしのblocker。

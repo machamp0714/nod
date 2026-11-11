@@ -9,8 +9,26 @@ export type ReviewAxis = { findings: ReviewFinding[]; evidence: string };
 /** 確認が残る事項。最終状態と点数を変えず、マージ可否だけを止める。 */
 export type RemainingCheck = { source: string; owner: string; reason: string };
 export type AcceptanceJudgment = "確認済み" | "未充足" | "確かめられず";
-/** 反証が対応表で「受け入れ確認担当」とした行と、受け入れ確認担当が有効な結果で返す判定。evidenceは証拠または不足理由。 */
-export type AcceptanceRow = { source: string; judgment: AcceptanceJudgment; evidence: string };
+/** 受け入れ確認担当が行ごとに分けて判定する部分。要求が求めない部分は「対象外（要求が求めていない）」になる。 */
+export type AcceptancePart = "成果物の不変版の存在" | "作業・手順の実施" | "現在の配置" | "外部の正本との内容の一致" | "更新順序";
+const acceptanceParts: AcceptancePart[] = ["成果物の不変版の存在", "作業・手順の実施", "現在の配置", "外部の正本との内容の一致", "更新順序"];
+/**
+ * 反証が対応表で「受け入れ確認担当」とした行と、受け入れ確認担当が有効な結果で返す判定。evidenceは証拠または不足理由。
+ * parts を省いた行は作業記録の行として、成果物の不変版の存在と作業・手順の実施だけを判定する。verify と canonical は反証の「受け入れ確認担当の行」の節に書く確かめることと、名指しした外部の正本。
+ */
+export type AcceptanceRow = {
+  source: string; judgment: AcceptanceJudgment; evidence: string;
+  parts?: Partial<Record<AcceptancePart, AcceptanceJudgment>>; verify?: { artifact: string; work: string }; canonical?: string;
+};
+/** records.md の項目の種類。親は配置先かどうかを判断しないので、配置先・成果物の観測は「参照された記録」に入る。 */
+export type EvidenceKind = "Activity" | "添付 Document" | "参照された記録" | "外部の正本";
+/** 受け入れ確認担当が結果の「判定に使った証拠」の節に挙げた、親の写しの項目（records.md の項目 ID・出典・固定時の指紋と、その証拠を使った行と使い方）。 */
+export type UsedEvidence = { id: string; kind: EvidenceKind; source: string; sha256: string; rows: string[]; use: AcceptancePart };
+/**
+ * 保存直前に親が判定に使った証拠を取り直した結果。changed は指紋が固定時と違った項目（null は取り直せなかった・削除された）。
+ * appended は固定の後に足された Activity の本文で、判定に使った証拠の出典を含むものだけを対応不明にする（親は撤回かどうかを判断しない）。
+ */
+export type EvidenceRecheck = { changed?: Record<string, string | null>; appended?: string[] };
 export type TestRunResult = "成功" | "失敗" | "実行できず";
 /** 有効な結果を返さなかった試行。reason は親の検査や終了通知で分かった無効の理由、ompRetries は担当のセッション内でompが行った再試行（親の再委譲とは別）。 */
 export type InvalidAttempt = { reason: string; ompRetries?: string[] };
@@ -39,6 +57,10 @@ export type InitialReviewInput = {
   unconfirmed?: RemainingCheck[];
   /** 反証担当が対応表で「受け入れ確認担当」とした行。1行以上あれば受け入れ確認担当が必要な担当になり、反証の後に起動する。 */
   acceptanceRows?: AcceptanceRow[];
+  /** 受け入れ確認担当が判定に使った証拠。受け入れ確認担当の有効な結果があるときだけ使う。 */
+  usedEvidence?: UsedEvidence[];
+  /** 保存直前の再照合で取り直した結果。変化は担当の判定本文・最終状態・点数を変えず、確認が残る事項としてマージ可否だけを止める。 */
+  recheck?: EvidenceRecheck;
   testRun: { headSha: string; result: TestRunResult; command: string };
 };
 /** 実装を進行する親がnodへ書く経路。偽CLIは実nod CLI、setupはcore APIを渡す。 */
@@ -148,15 +170,39 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const score = status === "完了" ? mustFix[0]?.impact ?? 5 : null;
   const unconfirmed = input.unconfirmed ?? [];
   const judged = agents.acceptance ? rows : [];
+  // 保存直前の再照合は、受け入れ確認担当が判定に使った証拠だけを取り直して固定時の指紋と比べる。
+  // 判定に使った証拠を含まない通常の追記・進捗・更新日時では止めず、変化・訂正・削除・取り直せないこと・証拠の出典を含む後続の追記を確認が残る事項にする。
+  const used = agents.acceptance ? input.usedEvidence ?? [] : [];
+  const changed = input.recheck?.changed ?? {};
+  const appended = agents.acceptance ? input.recheck?.appended ?? [] : [];
+  const recheckOwner = "受け入れ確認担当（新しい実行）";
+  const recheckChecks: RemainingCheck[] = [
+    ...used.filter(item => item.id in changed).flatMap(item => {
+      const now = changed[item.id];
+      const change = item.kind === "Activity" || item.kind === "添付 Document"
+        ? now === null ? "証拠の削除" : "証拠の訂正（本文の指紋の変化）"
+        : now === null ? "取り直せず（失効を含む）" : item.kind === "外部の正本" ? "外部の正本の変化" : "参照された記録（配置先・成果物を含む）の変化";
+      return item.rows.map(row => ({
+        source: row, owner: recheckOwner,
+        reason: `保存直前の再照合: ${change}（${item.id}: ${item.source}。固定時 ${item.sha256.slice(0, 12)}、保存直前 ${now?.slice(0, 12) ?? "取り直せず"}）。この実行では判定し直さない`,
+      }));
+    }),
+    ...appended.flatMap(body => used.filter(item => body.includes(item.source)).flatMap(item => item.rows.map(row => ({
+      source: row, owner: recheckOwner,
+      reason: `保存直前の再照合: 対応不明（撤回の可能性。固定の後の追記「${body}」が判定に使った証拠 ${item.id} の出典を含む。親は意味を判断しない）。この実行では判定し直さない`,
+    })))),
+  ];
+  const referencing = appended.filter(body => used.some(item => body.includes(item.source))).length;
   // 受け入れ確認の「未充足」「確かめられず」は、反証の未確認と同じく確認が残る事項としてマージ可否だけを止める。
   const remainingChecks = status === "完了" ? [
     ...unconfirmed,
     ...judged.filter(row => row.judgment !== "確認済み").map(row => ({ source: row.source, owner: "受け入れ確認担当", reason: `${row.judgment}: ${row.evidence}` })),
+    ...recheckChecks,
   ] : [];
   const specMustFix = mustFix.filter(finding => finding.axis === "Spec");
   const table = [
     { source: input.requirementSource ?? "requirements/issue.md", state: specMustFix.length ? "未充足" : "充足", evidence: input.spec?.evidence ?? "Spec 探索の結果なし", candidates: specMustFix.map(finding => finding.id).join(", ") || "-" },
-    ...rows.map(row => ({ source: row.source, state: "受け入れ確認担当", evidence: "作業記録の証拠で確かめる（受け入れ確認担当の行の節）", candidates: "-" })),
+    ...rows.map(row => ({ source: row.source, state: "受け入れ確認担当", evidence: "作業記録・成果物・配置の証拠または外部の正本で確かめる（受け入れ確認担当の行の節）", candidates: "-" })),
     ...unconfirmed.map(check => ({ source: check.source, state: "未確認", evidence: `${check.reason}（確かめる担当: ${check.owner}）`, candidates: "-" })),
   ];
   const testPassed = input.testRun.result === "成功" && input.testRun.headSha === input.headCommit;
@@ -201,8 +247,8 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...table.map(row => `| ${row.source} | ${row.state} | ${row.evidence} | ${row.candidates} |`), "",
     "## 受け入れ確認担当の行", "",
     ...(rows.length ? [
-      "| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本（出典・版。要らなければ「なし」） |", "|---|---|---|---|",
-      ...rows.map(row => `| ${row.source} | 作業ログに残した出力の記録 | 対象版で要求されたコマンドを実行したこと | なし |`),
+      "| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本（出典の場所・版・版履歴の出典。要らなければ「なし」） |", "|---|---|---|---|",
+      ...rows.map(row => `| ${row.source} | ${row.verify?.artifact ?? "作業ログに残した出力の記録"} | ${row.verify?.work ?? "対象版で要求されたコマンドを実行したこと"} | ${row.canonical ?? "なし"} |`),
     ] : ["なし"]), "",
     "## 未確認と理由", "",
     ...(unconfirmed.length ? unconfirmed.map(check => `- ${check.source}: 理由 ${check.reason}。確かめる担当: ${check.owner}`) : ["なし"]), "",
@@ -213,7 +259,8 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   ].join("\n") : null;
   if (verdict !== null) writeFileSync(verdictPath, verdict);
 
-  // 受け入れ確認担当の結果。親が写したActivity・添付Documentと参照された記録だけを証拠にし、成果物の存在と作業の実施を分けて判定する。
+  // 受け入れ確認担当の結果。親が写したActivity・添付Document・参照された記録・外部の正本・配置先の観測だけを証拠にし、
+  // 成果物の不変版の存在・作業の実施・現在の配置・外部の正本との内容の一致・更新順序を分けて判定し、判定に使った証拠を挙げる。
   const acceptancePath = join(workDirectory, "acceptance", "result.md");
   const acceptanceResult = agents.acceptance ? [
     "# 受け入れ確認の結果", "",
@@ -225,10 +272,15 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...rows.flatMap((row, index) => [
       `### 行 ${index + 1}: ${row.source}`, "",
       `- 要求の出典: ${row.source}`, `- 対象版: head の SHA ${input.headCommit}`, `- 判定: ${row.judgment}`,
-      `- 成果物の存在: ${row.judgment === "確かめられず" ? "確認済み（作業ログに出力の記録がある）" : row.judgment}`, `- 作業・手順・配置の実施: ${row.judgment}`,
+      ...acceptanceParts.map(part => `- ${part}: ${(row.parts ?? { 成果物の不変版の存在: row.judgment === "確かめられず" ? "確認済み" : row.judgment, "作業・手順の実施": row.judgment })[part] ?? "対象外（要求が求めていない）"}`),
       `- 証拠: ${row.evidence}`, `- 不足理由: ${row.judgment === "確認済み" ? "なし" : row.evidence}`,
       "- 証拠にしなかった主張: Activity の「テスト成功」の自己申告", "",
     ]),
+    "## 判定に使った証拠", "",
+    ...(used.length ? [
+      "| 項目 | 出典（`records.md` と同じ） | 使った行 | 使い方（5つの部分のどれか） |", "|---|---|---|---|",
+      ...used.map(item => `| ${item.id} | ${item.source} | ${item.rows.join("、")} | ${item.use} |`),
+    ] : ["なし"]), "",
     "## 反証の判定と矛盾する証拠", "", "なし", "",
     "## 判断を見送った事項", "", "なし", "",
   ].join("\n") : null;
@@ -249,6 +301,15 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     `- 対象版: ${target}`, "",
     "### 確認が残る事項", "",
     ...(remainingChecks.length ? ["| 要求の出典 | 確かめる担当 | 理由 |", "|---|---|---|", ...remainingChecks.map(check => `| ${check.source} | ${check.owner} | ${check.reason} |`)] : ["なし"]), "",
+    "### 保存直前の受け入れ証拠の再照合", "",
+    ...(agents.acceptance && status === "完了" ? [
+      "- 取り直した時刻: 評価用の模擬（親が保存の直前に取り直した）",
+      `- 比べた証拠: 受け入れ確認の結果の「判定に使った証拠」${used.length} 件`,
+      ...(used.length ? ["", "| 項目 | 種類 | 出典 | 固定時の sha256 | 保存直前の sha256 | 結果 |", "|---|---|---|---|---|---|",
+        ...used.map(item => `| ${item.id} | ${item.kind} | ${item.source} | ${item.sha256} | ${item.id in changed ? changed[item.id] ?? "取り直せず" : item.sha256} | ${item.id in changed ? "変化（確認が残る事項）" : "変化なし"} |`), ""] : []),
+      `- 固定の後に足された Activity: ${appended.length} 件${!appended.length ? "" : referencing ? `（うち判定に使った証拠の出典を含む ${referencing} 件を対応不明とした。ほかは通常の追記で止めない）` : "（判定に使った証拠の出典を含まない通常の追記。止めない）"}`,
+      "- この再照合は観測時点までの確認であり、将来の配置状態は保証しない。変化があっても、この実行では新しい証拠へ差し替えて判定し直さず、担当の判定本文・最終状態・点数を変えない。",
+    ] : ["対象なし（受け入れ確認担当の有効な結果なし）"]), "",
     "### テスト実行による検証", "",
     `- 判定: ${input.testRun.result}`, `- checkout の SHA: ${input.testRun.headSha}（head の SHA と${input.testRun.headSha === input.headCommit ? "一致" : "不一致"}）`,
     `- コマンド: ${input.testRun.command}`, `- 出力原本への参照: ${recordPath}`, "",

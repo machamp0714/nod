@@ -133,12 +133,20 @@ export function runTask2Cli(tool: string, argv: string[]) {
             // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
             // review-usage-limitはSpec探索が利用枠の上限（HTTP 429）で失敗し、親が再委譲せずその時点で止めた未完了。
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
-            // acceptance-*は、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
+            // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
             // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
+            // acceptance-evidence-changed・activity-appendedは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
+            // evidence-changedは保存直前の再照合で、判定に使った外部の正本の変化・添付Documentの訂正・使った配置先を参照する後続の追記が見つかった。activity-appendedは証拠を参照しない通常の追記だけがあった。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
+            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-activity-appended";
             const acceptance = state.variant.startsWith("acceptance-");
             const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
+            const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
+            const deployRow = "requirements/issue.md（対象版の spacing.json を配置先へ置き、current をその版に向ける）";
+            const appended = external ? ["進捗: 一覧画面のスクリーンショットを整理している", ...(state.variant === "acceptance-evidence-changed" ? ["配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す"] : [])] : [];
+            // 受け入れ確認への写しの後・保存の直前に、実装者が作業ログを足した。
+            for (const body of appended) nod("issue", "log", "API-1", body, "--kind", "progress");
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
               notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
@@ -161,7 +169,20 @@ export function runTask2Cli(tool: string, argv: string[]) {
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
               requirementSource: acceptance ? "requirements/issue.md（一覧の余白を12pxにする）" : undefined,
               unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（表示された一覧の余白が12pxになること）", owner: "人", reason: "要実行確認: 実際の描画結果に依存し、固定版の静的な読みでは確かめられない" }] : undefined,
-              acceptanceRows: acceptance ? [{
+              acceptanceRows: external ? [
+                {
+                  source: designRow, judgment: "確認済み", canonical: "/evaluation/design/list-spacing.md の現行版と、同じリポジトリの版履歴（git log -- list-spacing.md）",
+                  verify: { artifact: "デザインの正本の現行版と対象版の余白の値が一致すること", work: "デザインの正本の更新が実装の commit より前であること（版履歴）" },
+                  parts: { 外部の正本との内容の一致: "確認済み", 更新順序: "確認済み" },
+                  evidence: "evidence/1 の正本の余白12pxが対象版の src/spacing.json と一致し、evidence/2 の版履歴で余白12pxにした commit の時刻が実装の commit より前",
+                },
+                {
+                  source: deployRow, judgment: "確認済み",
+                  verify: { artifact: "releases/<head の SHA>/ の spacing.json と REVISION", work: "current が対象版を指し、配置先と版を作業ログに残したこと" },
+                  parts: { 成果物の不変版の存在: "確認済み", "作業・手順の実施": "確認済み", 現在の配置: "確認済み" },
+                  evidence: "evidence/3 の配置先の観測で current が releases/<head の SHA> を指し、REVISION が head の SHA、spacing.json の sha256 が対象版と一致。Document 5 が配置先と版を記録",
+                },
+              ] : acceptance ? [{
                 source: workLogRow,
                 judgment: state.variant === "acceptance-unmet" ? "未充足" : state.variant === "acceptance-unverified" ? "確かめられず" : "確認済み",
                 evidence: state.variant === "acceptance-unmet"
@@ -170,6 +191,16 @@ export function runTask2Cli(tool: string, argv: string[]) {
                     ? "Activity に「lintは成功」の自己申告だけがあり、対象版・実行内容・結果を識別できる実行記録が写しに無い"
                     : "Activity の作業ログ（ID 3）が参照する evidence/1/lint-spacing.log（sha256 付き）に対象版の SHA・コマンド・終了コード0・出力がある",
               }] : undefined,
+              usedEvidence: external ? [
+                { id: "evidence/1", kind: "外部の正本", source: "/evaluation/design/list-spacing.md", sha256: "1".repeat(64), rows: [designRow], use: "外部の正本との内容の一致" },
+                { id: "evidence/2", kind: "外部の正本", source: "/evaluation/design の版履歴（git log -- list-spacing.md）", sha256: "2".repeat(64), rows: [designRow], use: "更新順序" },
+                { id: "evidence/3", kind: "参照された記録", source: "/evaluation/deploy/list/current", sha256: "3".repeat(64), rows: [deployRow], use: "現在の配置" },
+                { id: "document:5", kind: "添付 Document", source: "Document 5（配置の記録）", sha256: "5".repeat(64), rows: [deployRow], use: "作業・手順の実施" },
+              ] : acceptance ? [
+                { id: "activity:3", kind: "Activity", source: "Activity 3（作業ログ）", sha256: "3".repeat(64), rows: [workLogRow], use: "作業・手順の実施" },
+                ...(state.variant === "acceptance-confirmed" ? [{ id: "evidence/1", kind: "参照された記録" as const, source: "/evaluation/artifacts/API-1/lint-spacing.log", sha256: "1".repeat(64), rows: [workLogRow], use: "成果物の不変版の存在" as const }] : []),
+              ] : undefined,
+              recheck: external ? { appended, changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {} } : undefined,
               testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {
