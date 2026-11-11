@@ -9,12 +9,26 @@ export type ReviewAxis = { findings: ReviewFinding[]; evidence: string };
 /** 確認が残る事項。最終状態と点数を変えず、マージ可否だけを止める。 */
 export type RemainingCheck = { source: string; owner: string; reason: string };
 export type TestRunResult = "成功" | "失敗" | "実行できず";
+/** 有効な結果を返さなかった試行。reason は親の検査や終了通知で分かった無効の理由、ompRetries は担当のセッション内でompが行った再試行（親の再委譲とは別）。 */
+export type InvalidAttempt = { reason: string; ompRetries?: string[] };
+/** 役割ごとの試行の記録。最初の無効な試行は後続へ渡さず、親専用の監査領域へ残す。 */
+export type ReviewAttempt = {
+  role: ReviewRole; attempt: 1 | 2; id: string; result: "有効" | "無効" | "利用枠の上限"; ompRetries: string[];
+  reason?: string; redelegation?: string; saved?: { path: string; sha256: string };
+};
 export type InitialReviewInput = {
   dir: string; issueId: string; implementer: string; baseCommit: string; headCommit: string;
   /** 担当を1つも起動しなかった理由（委譲できない環境・差分なし・秘密候補・限定 clone を作れない）。指定すると未実施になる。 */
   notRun?: string;
   /** 起動した担当のうち有効な結果を返した担当。必要な3担当がそろわなければ未完了になる。探索の片方が無ければ反証は起動しない。 */
   received?: ReviewRole[];
+  /**
+   * 利用枠の上限以外の、判定と関係しない理由で無効だった試行（役割ごとに試行の順）。親は同じ入力で1回だけ再委譲する。
+   * received にある役割は1件（再委譲で有効）、received に無い起動済みの役割は2件（再委譲も無効）を持つ。
+   */
+  invalid?: Partial<Record<ReviewRole, InvalidAttempt[]>>;
+  /** 利用枠の上限で失敗した役割。親は再委譲せずその時点で止め、まだ起動していない担当も起動しない。 */
+  usageLimit?: { role: ReviewRole } & InvalidAttempt;
   standards: ReviewAxis; spec?: ReviewAxis;
   /** 反証担当が要求の出典・確かめる担当・理由を示して「未確認」とした対応表の行。有効な結果であり、完了のまま確認が残る事項になる。 */
   unconfirmed?: RemainingCheck[];
@@ -30,6 +44,8 @@ export type InitialReview = {
   runId: string; workDirectory: string; status: "完了" | "未完了" | "未実施"; score: number | null;
   target: { baseSha: string; headSha: string };
   agents: Partial<Record<ReviewRole, { definition: string; id: string }>>;
+  /** 起動した役割ごとの試行（最初の試行と、親による1回限りの再委譲）。 */
+  attempts: ReviewAttempt[];
   reportDocument: { id: number; path: string };
   verdict: { path: string; sha256: string } | null;
   testRun: { headSha: string; result: TestRunResult; recordPath: string };
@@ -39,6 +55,7 @@ export type InitialReview = {
 };
 
 const roles = [["standards", "Standards 探索", "code-reviewer-standards"], ["spec", "Spec 探索", "code-reviewer-spec"], ["refute", "反証", "code-reviewer-refute"]] as const;
+const roleNames = Object.fromEntries(roles.map(([role, name]) => [role, name])) as Record<ReviewRole, string>;
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /** 偽workerの子nodを使い、実装者のnod操作として記録する。 */
@@ -58,17 +75,54 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const explored = valid.has("standards") && valid.has("spec");
   if (valid.has("refute") && !explored) throw new Error("反証は両探索の有効な結果を受け取った後にだけ起動する");
   const launched = (role: ReviewRole) => input.notRun === undefined && (role !== "refute" || explored);
+  const limited = input.usageLimit;
+  if (limited && (valid.has(limited.role) || !launched(limited.role))) throw new Error("利用枠の上限で失敗した役割は、起動したが有効な結果の無い役割だけ");
   const status = input.notRun !== undefined ? "未実施" : valid.size === roles.length ? "完了" : "未完了";
   const hex = sha256(`${input.issueId}:${input.headCommit}`);
   const runId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
   const shortRun = runId.slice(0, 8);
   const workDirectory = join(input.dir, "code-reviews", runId);
   const agents: Partial<Record<ReviewRole, { definition: string; id: string }>> = {};
-  for (const [role, , definition] of roles) if (valid.has(role)) agents[role] = { definition, id: `review-${role}-${shortRun}` };
-  const invalid = roles.filter(([role]) => launched(role) && !valid.has(role)).map(([, name]) => name);
+  const attempts: ReviewAttempt[] = [];
+  // 無効な試行の出力や終了通知は、担当が読まない親専用の監査領域 parent/attempts/<役割>-<試行> へ移して残す。
+  const save = (role: ReviewRole, attempt: 1 | 2, id: string, text: string) => {
+    const directory = join(workDirectory, "parent", "attempts", `${role}-${attempt}`);
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, role === "refute" ? "verdict.md" : "handoff.md");
+    const body = `# 無効な試行（評価用の模擬）\n\n- 担当 ID: ${id}\n- 試行: ${attempt}\n\n${text}\n`;
+    writeFileSync(path, body);
+    return { path, sha256: sha256(body) };
+  };
+  for (const [role, , definition] of roles) {
+    if (!launched(role)) continue;
+    const id = (attempt: 1 | 2) => `review-${role}-${shortRun}${attempt === 2 ? "-2" : ""}`;
+    if (limited?.role === role) {
+      attempts.push({ role, attempt: 1, id: id(1), result: "利用枠の上限", reason: limited.reason, ompRetries: limited.ompRetries ?? [], redelegation: "しない（利用枠の上限）", saved: save(role, 1, id(1), `終了通知: ${limited.reason}`) });
+      continue;
+    }
+    const failures = input.invalid?.[role] ?? [];
+    // 利用枠の上限以外の無効は、同じ入力・新しいコンテキストで1回だけ再委譲する。利用枠の上限で止めた後は再委譲しない。
+    const allowed = valid.has(role) ? [0, 1] : limited ? [1, 2] : [2];
+    if (!allowed.includes(failures.length)) throw new Error(`${role}: 無効な試行は ${allowed.join(" か ")} 件（再委譲は1回まで、利用枠の上限の後はしない）`);
+    const redelegated = valid.has(role) || failures.length === 2;
+    failures.forEach((failure, index) => {
+      const attempt = index === 0 ? 1 : 2;
+      const redelegation = attempt === 2 ? "しない（再委譲は1回まで）" : redelegated ? "した（同じ入力・同じ依頼本文で新しいコンテキストへ1回）" : "しない（利用枠の上限で止めた）";
+      attempts.push({ role, attempt, id: id(attempt), result: "無効", reason: failure.reason, ompRetries: failure.ompRetries ?? [], redelegation, saved: save(role, attempt, id(attempt), `無効の理由: ${failure.reason}`) });
+    });
+    if (valid.has(role)) {
+      const attempt = failures.length ? 2 : 1;
+      attempts.push({ role, attempt, id: id(attempt), result: "有効", ompRetries: [] });
+      agents[role] = { definition, id: id(attempt) };
+    }
+  }
+  const invalid = roles.filter(([role]) => launched(role) && !valid.has(role) && limited?.role !== role).map(([, name]) => name);
+  const stopped = explored ? "" : "。反証へ進めず、反証を起動しなかった";
   const reason = status === "未実施"
     ? `${input.notRun}。担当を1つも起動しなかった`
-    : `${invalid.join("・")}の有効な結果なし${explored ? "" : "。反証へ進めず、反証を起動しなかった"}`;
+    : limited
+      ? `利用枠の上限、有効な結果なし（${roleNames[limited.role]}。再委譲せずその時点で止めた${invalid.length ? `。${invalid.join("・")}も有効な結果なし` : ""}）${stopped}`
+      : `有効な結果なし（${invalid.join("・")}。1回の再委譲の後も）${stopped}`;
   const findings = [
     ...input.standards.findings.map(finding => ({ ...finding, axis: "Standards", finder: "Standards 探索" })),
     ...(input.spec?.findings ?? []).map(finding => ({ ...finding, axis: "Spec", finder: "Spec 探索" })),
@@ -147,6 +201,11 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "| 役割 | 定義名 | 担当 ID | 終了状態 |", "|---|---|---|---|",
     ...roles.map(([role, name, definition]) => `| ${name} | ${definition} | ${agents[role]?.id ?? "未取得"} | ${agents[role] ? "有効な結果を受領" : launched(role) ? "有効な結果なし" : "未起動"} |`),
     "", `- 実装者との対応: 実装者 ${input.implementer} と各担当は別の担当。ID の違いだけで会話を引き継いでいないことの証明とは扱わない。`, "",
+    "### 試行の記録", "",
+    "omp 内部の再試行は担当のセッション内で omp が行った retry で、親による再委譲（新しいコンテキストでの新しい担当）とは別に記録する。無効な試行の出力は後続の担当へ渡さず、親専用の監査領域に残した。", "",
+    "| 役割 | 試行 | 担当 ID | 結果 | 無効の理由 | 保存場所と sha256 | omp 内部の再試行 | 親による再委譲 |", "|---|---|---|---|---|---|---|---|",
+    ...attempts.map(attempt => `| ${roleNames[attempt.role]} | ${attempt.attempt} | ${attempt.id} | ${attempt.result} | ${attempt.reason ?? "-"} | ${attempt.saved ? `${attempt.saved.path}（${attempt.saved.sha256}）` : "-"} | ${attempt.ompRetries.join("、") || "記録なし"} | ${attempt.redelegation ?? "-"} |`),
+    "",
     "### 後続判断", "",
     status === "完了"
       ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}`
@@ -163,9 +222,13 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const document = recorder.createDocument(input.issueId, `${input.issueId.toLowerCase()}-code-review-${date}-${shortRun}.md`, `${input.issueId} コードレビュー結果（${shortRun}）`, report);
   const assignment = roles.filter(([role]) => agents[role]).map(([role, name, definition]) => `${name}=${definition}/${agents[role]?.id}`).join("、");
+  const invalidAttempts = attempts.filter(attempt => attempt.result !== "有効");
+  const attemptSummary = invalidAttempts.length
+    ? `無効な試行: ${invalidAttempts.map(attempt => `${roleNames[attempt.role]}の${attempt.attempt}回目 ${attempt.id}（${attempt.result}: ${attempt.reason}。親による再委譲${attempt.redelegation}）`).join("、")}。`
+    : "";
   recorder.log(input.issueId, status === "完了"
-    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。`
-    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。点数なし。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
+    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
+    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
     status === "完了" ? "progress" : "blocker");
 
   return {
@@ -173,6 +236,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     runId, workDirectory, status, score,
     target: { baseSha: input.baseCommit, headSha: input.headCommit },
     agents,
+    attempts,
     reportDocument: { id: document.id, path: document.path },
     verdict: verdict === null ? null : { path: verdictPath, sha256: sha256(verdict) },
     testRun: { headSha: input.testRun.headSha, result: input.testRun.result, recordPath },

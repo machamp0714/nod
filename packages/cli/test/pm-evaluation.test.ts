@@ -162,7 +162,7 @@ test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自�
   expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
 });
 
-for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run"] as const) {
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated"] as const) {
   test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
@@ -212,17 +212,60 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       expect(logs("progress").filter(item => item.body?.includes("確認が残る事項1件"))).toHaveLength(1);
       expect(logs("blocker")).toHaveLength(0);
     } else if (variant === "evidence-missing") {
-      // Spec探索を起動したが有効な結果を返さず、反証へ進めない未完了。点数なしのblockerで、古いcommitを対象にしている。
+      // Spec探索が判定と無関係な失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めない未完了。点数なしのblockerで、古いcommitを対象にしている。
       expect(report.review).toMatchObject({ status: "未完了", score: null, verdict: null, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）", agents: { standards: reviewAgents.standards } });
       expect(report.review.agents.spec).toBeUndefined();
       expect(report.review.agents.refute).toBeUndefined();
       expect(report.review.spec).toBeUndefined();
       expect(report.review.headCommit).not.toBe(report.commit);
       expect(report.review.target.headSha).not.toBe(report.commit);
+      // 再委譲は1回だけで、2回目も無効なら3回目は無い。2つの試行は別の担当IDで、どちらも監査用に残る。
+      const specAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "spec");
+      expect(specAttempts.map((attempt: { attempt: number; result: string }) => [attempt.attempt, attempt.result])).toEqual([[1, "無効"], [2, "無効"]]);
+      expect(new Set(specAttempts.map((attempt: { id: string }) => attempt.id)).size).toBe(2);
+      expect(specAttempts.every((attempt: { saved?: { path: string } }) => attempt.saved?.path.includes("/parent/attempts/spec-"))).toBe(true);
       const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
-      expect(document.content).toContain("\n- 最終状態: 未完了（理由: Spec 探索の有効な結果なし");
+      expect(document.content).toContain("\n- 最終状態: 未完了（理由: 有効な結果なし（Spec 探索。1回の再委譲の後も）");
       expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
       expect(logs("blocker")).toHaveLength(1);
+      expect(logs("progress")).toHaveLength(0);
+    } else if (variant === "review-redelegated") {
+      // Standards探索の最初の試行が禁止項目の混入（引き渡し形式違反）で無効になり、親が同じ入力で1回だけ再委譲した担当が有効な結果を返した完了。
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+      const standardsAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "standards");
+      expect(standardsAttempts).toEqual([
+        { role: "standards", attempt: 1, id: expect.any(String), result: "無効", reason: expect.stringContaining("確信度"), ompRetries: [], redelegation: "した（同じ入力・同じ依頼本文で新しいコンテキストへ1回）", saved: { path: expect.stringContaining("/parent/attempts/standards-1/"), sha256: expect.any(String) } },
+        { role: "standards", attempt: 2, id: report.review.agents.standards.id, result: "有効", ompRetries: [] },
+      ]);
+      expect(standardsAttempts[0].id).not.toBe(standardsAttempts[1].id);
+      expect(createHash("sha256").update(readFileSync(standardsAttempts[0].saved.path)).digest("hex")).toBe(standardsAttempts[0].saved.sha256);
+      // 有効だったSpec探索と反証は1回の試行のまま。最初の無効な試行は反証の判定へ渡らない。
+      expect(report.review.attempts.filter((attempt: { role: string }) => attempt.role !== "standards").map((attempt: { attempt: number; result: string }) => [attempt.attempt, attempt.result])).toEqual([[1, "有効"], [1, "有効"]]);
+      expect(readFileSync(report.review.verdict.path, "utf8")).not.toContain(standardsAttempts[0].id);
+      // 報告は両方の試行を持ち、omp内部の再試行と親による再委譲を区別する。
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(document.content).toContain("\n- 最終状態: 完了");
+      expect(document.content).toContain("### 試行の記録");
+      for (const attempt of standardsAttempts) expect(document.content).toContain(`| Standards 探索 | ${attempt.attempt} | ${attempt.id} | ${attempt.result} |`);
+      expect(document.content).toContain("| omp 内部の再試行 | 親による再委譲 |");
+      expect(logs("progress").filter(item => item.body?.includes(standardsAttempts[0].id))).toHaveLength(1);
+      expect(logs("blocker")).toHaveLength(0);
+    } else if (variant === "review-usage-limit") {
+      // Spec探索が利用枠の上限（HTTP 429）で失敗した未完了。親は再委譲せずその時点で止め、反証も起動しない。
+      expect(report.review).toMatchObject({ status: "未完了", score: null, verdict: null, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）", agents: { standards: reviewAgents.standards } });
+      expect(report.review.agents.spec).toBeUndefined();
+      expect(report.review.agents.refute).toBeUndefined();
+      // Spec探索の試行は最初の1回だけで、親による再委譲は無い。終了通知は監査用に親専用領域へ残し、担当のセッション内のomp内部の再試行は別に残る。
+      const specAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "spec");
+      expect(specAttempts).toEqual([
+        { role: "spec", attempt: 1, id: expect.any(String), result: "利用枠の上限", reason: expect.stringContaining("429"), ompRetries: [expect.stringContaining("retry.maxDelayMs")], redelegation: "しない（利用枠の上限）", saved: { path: expect.stringContaining("/parent/attempts/spec-1/"), sha256: expect.any(String) } },
+      ]);
+      expect(createHash("sha256").update(readFileSync(specAttempts[0].saved.path)).digest("hex")).toBe(specAttempts[0].saved.sha256);
+      expect(report.review.attempts.filter((attempt: { role: string }) => attempt.role === "refute")).toEqual([]);
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(document.content).toContain("\n- 最終状態: 未完了（理由: 利用枠の上限、有効な結果なし");
+      expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
+      expect(logs("blocker").filter(item => item.body?.includes("利用枠の上限"))).toHaveLength(1);
       expect(logs("progress")).toHaveLength(0);
     } else {
       // 委譲できない環境で担当を1つも起動しなかった未実施。点数なしのblocker。

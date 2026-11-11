@@ -13,7 +13,7 @@ S01のSprint読取を新規実行の許可に使わない。
 bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal normal
 ```
 
-`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`test-failure`、`evidence-missing`、`remaining-checks`、`review-not-run`、`existing-pr`を選べる。
+`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`test-failure`、`evidence-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`existing-pr`を選べる。
 `normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する。
 モデル、commit、テスト、画面確認、レビューの外部状態は偽workerのシミュレーションであり、実機のモデル転送や実コードのテストを検証しない。
 nodは実CLIと一時DBを使う。
@@ -51,9 +51,11 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |
 | unsupported | Studioが転送非対応。workerを起動せず、対応の確認を人へ戻す |
 | test-failure | 同じcommitのテストがexit 1。親が同じheadの別checkoutで実行したテストも失敗し、レビューは完了・5点・確認が残る事項0件のままマージ可否は不可。worker_doneがsucceededでもPRへ進まず、レビューの原文と点数を変えずにテスト失敗を記録 |
-| evidence-missing | Spec探索を起動したが有効な結果がなく、反証へ進めなかった独立レビュー未完了（点数なし、報告Documentとblockerあり）。レビュー対象も現在commitと異なる。指摘なしとは扱わず、blockerとしてDone・In Review・PRへ進めない。PMから初回レビューを二重起動・自動再委譲しない |
+| evidence-missing | Spec探索が判定と無関係な失敗で無効になり、レビューの親が同じ入力で1回だけ委譲し直した担当も有効な結果を返さず、反証へ進めなかった独立レビュー未完了（理由: 有効な結果なし。点数なし、報告Documentとblockerあり。Spec探索の2つの試行は別の担当IDで監査用に残る）。レビュー対象も現在commitと異なる。指摘なしとは扱わず、blockerとしてDone・In Review・PRへ進めない。PMから初回レビューを二重起動・自動再委譲しない |
 | remaining-checks | 3担当の有効な結果がそろい反証の判定が確定した完了・確定した要対応の点数5で、同じheadのテストも成功。反証が対応表の1行を要実行確認（確かめる担当: 人）の未確認としたため、確認が残る事項1件でマージ可否は不可。点数5で他の証跡がそろっていても、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
 | review-not-run | 委譲できない環境で担当を1つも起動しなかった独立レビュー未実施（点数なし、報告Documentとblockerあり）。blockerとしてDone・In Review・PRへ進めない。PMが代わりにレビューや再委譲をしない |
+| review-usage-limit | Spec探索が利用枠の上限（HTTP 429、待ち要求がretry.maxDelayMsを超過）で失敗し、レビューの親が委譲し直さずその時点で止めた独立レビュー未完了（理由: 利用枠の上限、有効な結果なし。点数なし、反証は未起動、報告Documentとblockerあり）。試行の記録にSpec探索の最初の試行だけがあり、担当のセッション内のomp内部の再試行と、親による再委譲「しない（利用枠の上限）」が分かれて残る。blockerとしてDone・In Review・PRへ進めず、PMが再委譲・回復待ち・別アカウントやモデルへの切り替えをしない |
+| review-redelegated | Standards探索の最初の試行が禁止項目「確信度」の混入（引き渡し形式違反）で無効になり、レビューの親が同じ入力・同じ依頼本文で新しいコンテキストへ1回だけ委譲し直した担当が有効な結果を返した完了・確定した要対応の点数5・マージ可否は可。報告の試行の記録に最初の試行（担当ID・無効の理由・親専用領域への保存場所と指紋）と再委譲の両方があり、有効だったSpec探索と反証は1回の試行のまま。最初の試行の担当IDは反証の判定本文に入らない。PMは有効な結果を返した担当IDで実装者との独立を確かめる |
 
 正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。3担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、同じhead SHAでのテスト実行記録とマージ可否、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。

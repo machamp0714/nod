@@ -82,6 +82,7 @@
 
 - 変更前の `未完了`・`未実施` の件数を、現在の同じ名前の件数と同じものとして並べない。比べるときは、元の値と、記録（担当ごとの有効な結果の有無と反証の判定本文）から現在の規則で数え直した値を分けて書く。
 - 数え直しでは、保存された判定本文から規則どおりに点数を計算するだけにし、判定・影響度・対応表を変えない。変更前の `未完了` だった事例の点数は、数え直した値として元の報告と区別する。
+- 変更前の実行は、無効な担当を委譲し直していない（当時は自動の再委譲をしない規則だった）。数え直しでは、起動した担当の無効・失敗を現在の `未完了` に数えるだけにし、再委譲で回復したとは扱わない。利用枠の上限による失敗は、現在の規則でも委譲し直さない `未完了`（理由: 利用枠の上限）として区別する。
 
 ## 記録
 
@@ -105,6 +106,9 @@ jq -c 'select(.type == "session_init") | {modelRole, resolvedModel, tools, mount
 # 各メッセージのモデルと、フォールバックの有無
 jq -c 'select(.type == "message" and .message.role == "assistant") | .message.model' "$S" | sort | uniq -c
 jq -c 'select(.type == "model_change") | {model, resolvedModelIsFallback}' "$S"
+# omp 内部の再試行: エラーで止まった応答と、応答したアカウントの切り替え（credential_pin は切り替えたときだけ足される）
+jq -c 'select(.type == "message" and .message.role == "assistant" and .message.stopReason == "error") | {timestamp, error: .message.errorMessage}' "$S"
+jq -c 'select(.type == "credential_pin") | {timestamp, provider, hash}' "$S"
 # 所要時間: 最初と最後の記録の時刻
 jq -r '.timestamp // empty' "$S" | sed -n '1p;$p'
 ```
@@ -113,6 +117,7 @@ jq -r '.timestamp // empty' "$S" | sed -n '1p;$p'
 - `usage.cost` は omp が記録した値で、実費として扱わない。推計として使うときは単価の出典を書く。
 - `resolvedModel`・`message.model` は設定の解決結果と申告であり、実効モデルの証明にはしない。
 - 計測の出典として、記録ファイルのパスと sha256 を書く。
+- omp 内部の再試行は担当のセッションの中の retry で、親による再委譲（新しい担当 ID のセッション記録が別にできる）とは分けて数える。親の events.jsonl では、task の進捗（`tool_execution_update`）の `retryFailure` にも出る。利用枠の上限で止まった担当は、エラーの文言（HTTP 429、`exceeds retry.maxDelayMs` など）を事例の記録に残す。
 
 ## 限界
 
