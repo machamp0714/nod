@@ -27,7 +27,7 @@ reviewer identityは全担当（Standards探索・Spec探索・反証の3担当�
 重大度やreviewerの断定だけで必須にしない。
 根拠や対象commitが不足する指摘は不足証拠として返し、仕様変更が必要なら[質問の手順](questions.md)で人へ戻す。
 判断の余地がある設計改善を自動修正の受入条件へ追加しない。
-任意改善だけなら0巡のまま、受入条件、必要テスト、現在commitの初回レビュー（点数と同じheadのテスト実行）が揃ったことを確認して[PR作業](implementation.md#同じ実装者へpr作業を渡す)へ進む。
+任意改善だけなら0巡のまま、受入条件、必要テスト、現在commitの初回レビュー（点数と同じheadのテスト実行、確認が残る事項が0件）が揃ったことを確認して[PR作業](implementation.md#同じ実装者へpr作業を渡す)へ進む。
 
 必須指摘の依頼には、指摘ID、分類、正本の該当箇所または再現証拠、対象commit、対象差分、期待する修正、確認可能な受入条件を添える。
 元報告の引用または参照先を残し、PMの要約だけで根拠を置き換えない。
@@ -45,7 +45,7 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と点数、テスト実行の判定とcheckoutのSHA、マージ可否、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、テスト実行の判定とcheckoutのSHA、マージ可否、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
 | 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、確認担当のidentity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |

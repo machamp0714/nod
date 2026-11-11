@@ -4,8 +4,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask1Scenario, type BeforeSprintAdoption } from "./setup";
 
-export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "test-failure" | "evidence-missing" | "existing-pr";
-export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "existing-pr"];
+export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "test-failure" | "evidence-missing" | "remaining-checks" | "review-not-run" | "existing-pr";
+export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "existing-pr"];
 
 /** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。 */
 export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; beforeAdoption?: BeforeSprintAdoption } = {}) {

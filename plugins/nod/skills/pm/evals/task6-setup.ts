@@ -17,7 +17,7 @@ export async function createTask6Scenario(options: { directory?: string; variant
   const pending: { id: string; type: string; taskId: string; dispatchId: string; from: string; body: string }[] = [];
   const reviews: Record<string, InitialReview> = {};
   // 受理済みの初回レビューは、PM checkpointが3担当の組と報告Documentの照合結果を残した状態として復元する。
-  const accepted = (review: InitialReview) => `初回独立レビュー受理済み: 報告Document ${review.reportDocument.id} runId=${review.runId}、3担当=${Object.values(review.agents).flatMap(agent => agent ? [`${agent.definition}/${agent.id}`] : []).join("、")}（実装者${review.implementer}と別）、反証原文sha256=${review.verdict?.sha256}を保存原本と照合一致、対象版head=${review.target.headSha}、テスト実行=${review.testRun.result}（checkout同じhead）、点数=${review.score}、マージ可否=${review.mergeReadiness}。`;
+  const accepted = (review: InitialReview) => `初回独立レビュー受理済み: 報告Document ${review.reportDocument.id} runId=${review.runId}、3担当=${Object.values(review.agents).flatMap(agent => agent ? [`${agent.definition}/${agent.id}`] : []).join("、")}（実装者${review.implementer}と別）、反証原文sha256=${review.verdict?.sha256}を保存原本と照合一致、対象版head=${review.target.headSha}、テスト実行=${review.testRun.result}（checkout同じhead）、点数=${review.score}、確認が残る事項=${review.remainingChecks.length}件、マージ可否=${review.mergeReadiness}。`;
   const s = await createTask2Scenario({ directory: options.directory, beforeAdoption(db, dir) {
     const recorder: ReviewRecorder = {
       createDocument: (issueId, path, title, body) => createDocument({ db, actor: "codex" }, { path, title, body, kind: "doc", issueRefs: [issueId], docsDir: join(dir, "documents") }),

@@ -128,14 +128,18 @@ export function runTask2Cli(tool: string, argv: string[]) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
             // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
-            // evidence-missingはSpec探索の有効な結果がなく反証を起動しなかった未実施で、対象も古いcommitのまま。
+            // evidence-missingはSpec探索を起動したが有効な結果がなく、反証へ進めなかった未完了で、対象も古いcommitのまま。
+            // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証が要実行確認の未確認を残した。
+            // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
             const missingSpec = state.variant === "evidence-missing";
             const reviewed = missingSpec ? "c".repeat(40) : head;
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
+              notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
               received: missingSpec ? ["standards"] : undefined,
               standards: { findings: [], evidence: "規約と変更差分を照合" },
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
+              unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（表示された一覧の余白が12pxになること）", owner: "人", reason: "要実行確認: 実際の描画結果に依存し、固定版の静的な読みでは確かめられない" }] : undefined,
               testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {

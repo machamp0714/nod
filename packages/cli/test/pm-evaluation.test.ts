@@ -24,7 +24,7 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const report = JSON.parse(delivery.messages[0].body);
   expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: {
     independent: true, implementer: "term-implementation", status: "完了", score: 5, target: { baseSha: "b".repeat(40), headSha: "a".repeat(40) },
-    agents: reviewAgents, testRun: { headSha: "a".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）",
+    agents: reviewAgents, testRun: { headSha: "a".repeat(40), result: "成功" }, remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）",
     standards: { findings: [] }, spec: { findings: [] },
   } });
   expect(report.review.headCommit).toBe(report.commit);
@@ -162,7 +162,7 @@ test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自�
   expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
 });
 
-for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing"] as const) {
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run"] as const) {
   test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
@@ -191,22 +191,50 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
     }
     orca("orchestration", "send", "--to", `dispatch:${worker.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
     const report = JSON.parse(orca("orchestration", "check").messages[0].body);
+    const issue = () => JSON.parse(call(scenario.nod, ["issue", "show", "API-1"]).stdout.toString()) as { status: string; activity: { logKind?: string | null; body?: string }[] };
+    const logs = (kind: string) => issue().activity.filter(item => item.logKind === kind && item.body?.includes(`報告Document ${report.review.reportDocument.id}`));
     if (variant === "test-failure") {
       expect(report.tests[0]).toMatchObject({ exitCode: 1, passed: false });
       // レビューの原文と点数はテスト失敗で変わらず、マージ可否だけが不可になる。
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "失敗" }, mergeReadiness: "不可（人の判断が要る）" });
-    } else {
-      // Spec探索の有効な結果がなく反証も起動しない未実施。点数なしで、古いcommitを対象にしている。
-      expect(report.review).toMatchObject({ status: "未実施", score: null, verdict: null, mergeReadiness: "不可（人の判断が要る）", agents: { standards: reviewAgents.standards } });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "失敗" }, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）" });
+    } else if (variant === "remaining-checks") {
+      // 3担当の有効な結果があり反証の判定が確定した完了。確定した要対応0件の5点のまま、反証が理由と担当を示した未確認が確認が残る事項になり、マージ可否だけが不可になる。
+      expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review.remainingChecks).toEqual([{ source: expect.stringContaining("requirements/issue.md"), owner: expect.any(String), reason: expect.stringContaining("要実行確認") }]);
+      const verdict = readFileSync(report.review.verdict.path, "utf8");
+      expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
+      expect(verdict).toContain(`| ${report.review.remainingChecks[0].source} | 未確認 |`);
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      // 最終状態・確定した要対応の点数・確認が残る事項・マージ可否を別項目で報告する。
+      for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 1 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
+      expect(document.content).toContain(`| ${report.review.remainingChecks[0].source} | ${report.review.remainingChecks[0].owner} | ${report.review.remainingChecks[0].reason} |`);
+      expect(logs("progress").filter(item => item.body?.includes("確認が残る事項1件"))).toHaveLength(1);
+      expect(logs("blocker")).toHaveLength(0);
+    } else if (variant === "evidence-missing") {
+      // Spec探索を起動したが有効な結果を返さず、反証へ進めない未完了。点数なしのblockerで、古いcommitを対象にしている。
+      expect(report.review).toMatchObject({ status: "未完了", score: null, verdict: null, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）", agents: { standards: reviewAgents.standards } });
       expect(report.review.agents.spec).toBeUndefined();
       expect(report.review.agents.refute).toBeUndefined();
       expect(report.review.spec).toBeUndefined();
       expect(report.review.headCommit).not.toBe(report.commit);
       expect(report.review.target.headSha).not.toBe(report.commit);
-      const activity = JSON.parse(call(scenario.nod, ["issue", "show", "API-1"]).stdout.toString()).activity as { kind: string; logKind?: string | null; body?: string }[];
-      expect(activity.filter(item => item.logKind === "blocker" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`))).toHaveLength(1);
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(document.content).toContain("\n- 最終状態: 未完了（理由: Spec 探索の有効な結果なし");
+      expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
+      expect(logs("blocker")).toHaveLength(1);
+      expect(logs("progress")).toHaveLength(0);
+    } else {
+      // 委譲できない環境で担当を1つも起動しなかった未実施。点数なしのblocker。
+      expect(report.review).toMatchObject({ status: "未実施", score: null, verdict: null, agents: {}, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）" });
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(document.content).toContain("\n- 最終状態: 未実施（理由: 委譲できない環境");
+      expect(logs("blocker")).toHaveLength(1);
+      expect(logs("progress")).toHaveLength(0);
     }
+    // 初回レビューの受領時点では、どの停止条件でもPRは作られず、In Reviewにもならない。
     expect(JSON.parse(call(scenario.gh, ["pr", "list"]).stdout.toString())).toEqual([]);
+    expect(issue().status).toBe("in_progress");
   });
 }
 
