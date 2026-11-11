@@ -11,7 +11,7 @@ export type RemainingCheck = { source: string; owner: string; reason: string };
 export type TestRunResult = "成功" | "失敗" | "実行できず";
 export type InitialReviewInput = {
   dir: string; issueId: string; implementer: string; baseCommit: string; headCommit: string;
-  /** 担当を1つも起動しなかった理由（委譲できない環境・差分なし・秘密候補）。指定すると未実施になる。 */
+  /** 担当を1つも起動しなかった理由（委譲できない環境・差分なし・秘密候補・限定 clone を作れない）。指定すると未実施になる。 */
   notRun?: string;
   /** 起動した担当のうち有効な結果を返した担当。必要な3担当がそろわなければ未完了になる。探索の片方が無ければ反証は起動しない。 */
   received?: ReviewRole[];

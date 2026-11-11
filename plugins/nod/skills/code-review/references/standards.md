@@ -6,15 +6,15 @@ SKILL.md の共通規則（権限と資料の境界、観点と判断基準、�
 ## 1. 入力を確かめる
 
 - 依頼本文の作業ディレクトリ・読んでよい入力・書いてよい場所・出力のパスを確かめる。どれかが欠けていれば、何も書かずに「入力不備: <理由>」を返して終了する。
-- `input/target.md` から対象リポジトリ・mode・merge-base・head（`mode: local` では土台の HEAD と写し）を読む。`input/manifest.md` の sha256 と `input/` の各ファイルを照合し、不一致や取得できなかった資料は不足として記録する。
+- `input/target.md` から対象リポジトリ（担当用の限定 clone）・mode・merge-base・head（`mode: local` では土台の HEAD と写し）・依存の写しの場所を読む。`input/manifest.md` の sha256 と `input/` の各ファイル（依存の写しの指紋の一覧 `deps-files.sha256` を含む）を照合し、不一致や取得できなかった資料は不足として記録する。
 - `input/requirements/` の要求の原文を読む。規約の適用と、既存の契約が今回の要求で変わるかの判断に使う。
 
 ## 2. 差分と関連コードを固定版から集める
 
 - 差分は `git -C <repo> diff --no-ext-diff --no-textconv <merge-base> <head>`（必要に応じて `--stat`・`--name-status`・`-M`）で読む。
-- `mode: local` では、さらに `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む。重ねた内容を読む必要があれば、自分の一時ディレクトリに `git -C <repo> archive <土台の HEAD> | tar -x -C <一時ディレクトリ>` で展開し、その中で `git apply <changes.diff>` を当て、未追跡の写しを置く。対象の作業ツリーは読まない。
+- `mode: local` では、さらに `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む。重ねた内容を読む必要があれば、自分の一時ディレクトリに `git -C <repo> archive <土台の HEAD> | tar -x -C <一時ディレクトリ>` で展開し、その中で `git apply <changes.diff>` を当て、未追跡の写しを置く。
 - 変更ファイルだけでなく、呼出元・呼出先・状態の保存先・防御・公開契約・テストを固定版で読む。基点から存在するかは merge-base の版（`git -C <repo> show <merge-base>:<path>`）で確かめる。
-- 依存の版は lockfile などの固定出典で確かめる。
+- 依存の版は固定版の lockfile で、依存のコードは依存の写しで確かめる（SKILL.md の3節）。写しに無いものは外部へ取りに行かず未確認とする。
 
 ## 3. 規約を集め、適用を判断する
 

@@ -29,33 +29,92 @@ git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head
 
 ## 2. 作業ディレクトリを作り、共通入力を固定する
 
-実行ごとに一意な作業ディレクトリを作る。ディレクトリの分離は担当への指示の境界であり、アクセス遮断ではない。
+実行ごとに一意な作業ディレクトリを作る。ディレクトリの分離は担当への指示の境界であり、アクセス遮断ではない。以下、依頼の対象リポジトリ（元のリポジトリ）を `<repo>`、担当用の限定 clone を `<W>/repo` と書く。担当には元のリポジトリを渡さない。
 
 ```sh
 RUN=$(uuidgen | tr 'A-Z' 'a-z')
 W="$HOME/.local/share/nod/code-reviews/$RUN"
-mkdir -p "$W/input/requirements" "$W/standards/notes" "$W/spec/notes" "$W/refute-input" "$W/refute/notes" "$W/parent"
+mkdir -p "$W/input/requirements" "$W/standards/notes" "$W/spec/notes" "$W/refute-input" "$W/refute/notes" "$W/parent/deps"
 ```
 
 | 場所 | 用途 | 書く人 | 読む人 |
 |---|---|---|---|
+| `repo/` | 担当用の限定 clone（全担当の対象リポジトリ） | 親 | 全担当 |
+| `deps/` | 依存の写し（準備できたときだけ） | 親 | 全担当 |
 | `input/` | 共通入力（全担当へ同じもの） | 親 | 両探索担当 |
 | `standards/` | Standards 探索の `handoff.md` と `notes/` | Standards 探索担当 | 親（検査） |
 | `spec/` | Spec 探索の `handoff.md` と `notes/` | Spec 探索担当 | 親（検査） |
 | `refute-input/` | 反証への入力（検査済みの引き渡し用ファイルと共通入力の写し） | 親 | 反証担当 |
 | `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親 |
-| `parent/` | 親専用領域（取得結果、検査記録、指紋、担当の対応表、テスト実行の記録 `parent/tests/`、報告の原稿） | 親 | 親だけ |
+| `parent/` | 親専用領域（取得結果、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、依存の準備の記録 `parent/deps/`、検査記録、指紋、担当の対応表、テスト実行の記録 `parent/tests/`、報告の原稿） | 親 | 親だけ |
+
+### 2.1 担当用の限定 clone を作る
+
+head（`mode: local` では土台の HEAD）とその祖先（merge-base を含む）の commit だけを持つ clone を `<W>/repo` に作り、全担当へ対象リポジトリとして渡す。他のブランチ・タグなどの ref、remote、元の object DB への参照（alternates など）、`FETCH_HEAD` のような元のリポジトリへの参照を持たせず、作業ツリーは空にする。3節のテスト用の checkout（`parent/tests/`）とは別に作る。
+
+```sh
+R="$W/repo"; H=<head の SHA（mode: local では土台の HEAD の SHA）>; MB=<merge-base の SHA>
+git init -q "$R"
+git -C "$R" -c gc.auto=0 -c maintenance.auto=false fetch -q --no-tags --no-write-fetch-head \
+  --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' <repo> "$H"
+git -C "$R" update-ref --no-deref HEAD "$H"   # ref を作らず、HEAD だけを head に向ける
+```
+
+作った後、次をすべて確かめ、コマンドと出力を元のリポジトリのパスと一緒に `parent/clone.md` に書く。
+
+```sh
+git -C "$R" for-each-ref                     # 何も出ない（ブランチ・タグなどの ref が無い）
+git -C "$R" remote -v                        # 何も出ない（remote が無い）
+test ! -e "$R/.git/objects/info/alternates" && test ! -e "$R/.git/FETCH_HEAD" && echo ok   # 元の object DB・fetch 元を参照しない
+git -C "$R" rev-parse HEAD                   # $H と一致
+git -C "$R" merge-base --is-ancestor "$MB" "$H" && echo ok   # merge-base を持ち、head の祖先である
+echo "$(git -C "$R" rev-list --count --all) $(git -C "$R" rev-list --count "$H")"   # 2つが一致（head の祖先の commit だけ）
+echo "$(git -C "$R" cat-file --batch-all-objects --batch-check='%(objectname)' | sort -u | wc -l) $(git -C "$R" rev-list --objects --all | cut -d' ' -f1 | sort -u | wc -l)"   # 2つが一致（head から辿れない object が無い）
+git -C "$R" ls-files | wc -l                 # 0（index が空）
+ls -A "$R"                                   # .git だけ（作業ツリーが空）
+grep -rlF <repo> "$R/.git" --exclude-dir=objects   # 何も出ない（元のリポジトリのパスを持たない）
+```
+
+- `target.md` の対象リポジトリには、この clone の絶対パスを書く。元のリポジトリのパスは `parent/clone.md` にだけ書き、依頼本文・`input/`・`refute-input/` に入れない。
+- clone を作れない、またはどれかの確認が通らない場合は、委譲もテスト実行もせず、`未実施`（理由: 担当用の限定 clone を作れない（<通らなかった確認>））・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。確認が通らない clone を担当に渡さない。
+
+### 2.2 依存の写しを準備する
+
+担当が固定した依存のコードを外部へ取りに行かないよう、head（`mode: local` では土台の HEAD）の版の lockfile から依存パッケージの配布物を準備し、その写しを `<W>/deps/` に置く。3節のテスト用の checkout とは別に準備し、テスト後の checkout やテストのログは渡さない。
+
+- 対象は、固定版のリポジトリのルートにある lockfile で、lockfile どおりに入れる指定とスクリプトを実行しない指定の両方を持つパッケージ管理のものだけとする（例: `bun.lock`・`bun.lockb` は `bun install --frozen-lockfile --ignore-scripts`、`package-lock.json` は `npm ci --ignore-scripts`、`pnpm-lock.yaml` は `pnpm install --frozen-lockfile --ignore-scripts`）。
+- lockfile が無い、ルート以外にしか無い、どれを使うか固定版から決められない複数の lockfile がある、対応しないパッケージ管理である、準備の終了コードが 0 以外である場合は、`deps/` を置かず、その旨と理由を `manifest.md` に書く。担当はその依存の確認を未確認に残す。
+- `mode: local` で未コミットの変更が lockfile やパッケージ定義を変えている場合も、写しは土台の HEAD の lockfile から作り、その旨を `manifest.md` に書く。
+
+```sh
+B="$W/parent/deps/build"; mkdir -p "$B"
+git -C "$R" archive "$H" | tar -x -C "$B"                     # 固定版を限定 clone から展開する（テスト用の checkout とは別）
+git -C "$R" show "$H:<lockfile>" | shasum -a 256               # lockfile の sha256
+(cd "$B" && <lockfile どおりに入れ、スクリプトを実行しないコマンド>) > "$W/parent/deps/setup.log" 2>&1; echo "deps exit=$?"
+mkdir -p "$W/deps"
+(cd "$B" && find . -type d -name node_modules -prune -print0 | tar --null -cf - -T -) | tar -xf - -C "$W/deps"   # 配布物（node_modules）だけを写す
+(cd "$W/deps" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 \
+  && find . -type l -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' l; do printf 'link %s -> %s\n' "$l" "$(readlink "$l")"; done) \
+  > "$W/input/deps-files.sha256"                               # 写しの指紋の一覧（ファイルごとの sha256 とリンク先）
+rm -rf "$B"
+```
+
+- 写しの中のリンクは、リンクのまま写す。写しの外を指すリンク（ワークスペースのパッケージなど）の中身は、担当が限定 clone の固定版で読む。
+- `parent/deps/` には、準備のコマンド・終了コード・パッケージ管理とその版・取得元（使った registry の URL）・`setup.log` の sha256・展開した作業領域を片付けたことを書く。`setup.log` は担当に渡さない。
+
+### 2.3 共通入力を写す
 
 `input/` には次だけを置く。
 
-- `target.md`: 対象リポジトリの絶対パス、基点の指定、merge-base の SHA、head の SHA、`mode: commit` または `mode: local`、Issue（ID またはなし）、計画の出典の扱い。`mode: local` では土台の HEAD の SHA、`local/changes.diff`、`local/untracked/<相対パス>` の一覧も書く。
+- `target.md`: 対象リポジトリ（担当用の限定 clone `<W>/repo` の絶対パス。元のリポジトリのパスは書かない）、依存の写しの場所（`<W>/deps/`、または「依存の写しなし（理由は manifest.md）」）、基点の指定、merge-base の SHA、head の SHA、`mode: commit` または `mode: local`、Issue（ID またはなし）、計画の出典の扱い。`mode: local` では土台の HEAD の SHA、`local/changes.diff`、`local/untracked/<相対パス>` の一覧も書く。
 - `local/`（`mode: local` のときだけ）: `changes.diff` と、指定された未追跡ファイルの写し `untracked/<相対パス>`。
+- `deps-files.sha256`（依存の写しを準備できたときだけ）: 2.2節の指紋の一覧。
 - `requirements/`: 要求の原文。丸ごと写し、選別・要約・書き換えをしない。
   - `issue.md`: Issue のタイトルと本文だけ。
   - `spec-<DocumentID>.md`: Issue に現在リンクされたすべての `kind=spec` の Document の本文。1件に絞らない。
   - `plan-<DocumentID>.md`: Issue の計画の出典（`plan.source`）が指す `kind=plan` の Document だけ。
   - `workspace-rules.md`: Git 管理外の Workspace の規約の原文（未登録ならその旨の出力）。
-- `manifest.md`: `input/` の各ファイルの sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由。
+- `manifest.md`: `input/` の各ファイルの sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由、依存の写しの節（場所 `<W>/deps/`、lockfile のパス `<lockfile>@<head の SHA>` と sha256、パッケージ管理とその版、準備のコマンド（スクリプトを実行しない指定を含む）と終了コード、取得元、指紋の一覧 `deps-files.sha256` とそのファイル数。準備しなかった・できなかった場合はその旨と理由）。
 
 ```sh
 nod --json issue show <Issue ID> > "$W/parent/issue-snapshot.json"
@@ -69,7 +128,7 @@ nod -w <repo> workspace rules show > "$W/input/requirements/workspace-rules.md"
 - 計画の出典が Document に解決できない、または本文を読めない場合は、別の計画で代用せず写さない。`target.md` と `manifest.md` に「計画の出典を解決できず不足（<plan.source>）」と書く。計画の出典が無い場合は「計画の出典なし」と書く。
 - `kind=spec` の Document の本文を読めない場合も写さず、`manifest.md` に取得できなかった Document と理由を書く。
 - Issue の無い単独レビューでは、`issue.md`・`spec-*`・`plan-*` の代わりに、利用者が明示した要求の原文（Document やファイル）だけを `requirements/request-<n>.md` に丸ごと写し、`target.md` に「Issue なし」と書く。明示された要求が無ければ「Workspace の規約以外の要求資料なし」と書く。`workspace-rules.md` はどちらの場合も写す。
-- `nod issue show` の全出力、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、親のテスト実行の出力・記録（`parent/tests/`）、計画の進捗状態は `input/` に入れない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。
+- `nod issue show` の全出力、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、親のテスト実行の出力・記録（`parent/tests/`）、依存の準備の記録（`parent/deps/`）、元のリポジトリのパス、計画の進捗状態は `input/` に入れない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。
 
 ## 3. テストを実行する（親だけ）
 
@@ -145,7 +204,7 @@ Standards 探索担当と Spec 探索担当を、それぞれ新しいコンテ�
 ```text
 役割: Standards 探索
 作業ディレクトリ: <W の絶対パス>
-読んでよい入力: <W>/input/ 配下（target.md・manifest.md・requirements/・local/）と、target.md に固定した SHA から読む対象リポジトリ
+読んでよい入力: <W>/input/ 配下（target.md・manifest.md・deps-files.sha256・requirements/・local/）、対象リポジトリ <W>/repo（target.md の担当用の限定 clone）、依存の写し <W>/deps/（準備できたときだけ）
 書いてよい場所: <W>/standards/（handoff.md と notes/）と自分の一時ファイル
 出力: <W>/standards/handoff.md
 ```
@@ -163,12 +222,12 @@ Spec 探索は `役割: Spec 探索`、書いてよい場所を `<W>/spec/`、�
 
 1. 担当が終了通知とともに返し、返答が入力不備・失敗ではない。
 2. 指定したパスに `handoff.md` がある。
-3. 役割・定義名・対象版・要求資料が書かれ、役割と定義名が委譲した担当と一致し、対象版が `target.md` と一致する。終了状態、未確認と理由、判断を見送った事項の節がある（無いことを明示していてもよい）。
+3. 役割・定義名・対象版・要求資料・依存の写しが書かれ、役割と定義名が委譲した担当と一致し、対象版が `target.md` と一致する。終了状態、未確認と理由、判断を見送った事項の節がある（無いことを明示していてもよい）。
 4. 各候補に必須項目（SKILL.md の4節）がそろい、候補 ID が役割の接頭辞を持ち重複しない。証拠を取得できなかった候補には理由と不足箇所がある。
 5. Standards 探索: 規約の一覧と今回の差分への適用判断、候補一覧または「候補0件」の明示、探索上の不足・判断を見送った事項がある。
 6. Spec 探索: 要求ごとの対応表が雛形の4列（要求の出典・状態・証拠または不足理由・候補ID）で、`requirements/` のすべてのファイルを出典に含み、状態が SKILL.md の語彙だけを使う。未充足・未確認の行に候補 ID があり、その ID が候補一覧にある。列の確認は雛形の見出しと各行の「出典・状態・候補ID」の位置で行い、セル内のコードや文字列に含まれる `|` だけを理由に列数違反としない（Markdown の表示上で列が崩れていても、出典・状態・候補ID が読み取れれば形式違反にしない）。
 7. 禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が項目名にも本文にも無い。項目名だけの検査では内容の混入まで保証できないので、本文も読んで確かめる。
-8. `input/` の各ファイルの sha256 が `manifest.md` と一致する（担当が共通入力を変えていない）。
+8. `input/` の各ファイルの sha256 が `manifest.md` と一致する（担当が共通入力を変えていない）。依存の写しの指紋の一覧を2.2節と同じ方法で作り直して `input/deps-files.sha256` と一致し（担当が写しを変えていない）、限定 clone の確認（2.1節）をやり直して委譲前の `parent/clone.md` と同じ結果になる。
 
 全確認単位を覆っているかの意味上の判断は反証担当が行う。親の検査は形式と参照の確認であり、内容の正しさの保証ではない。
 どちらかの担当に違反・欠落・失敗があれば、その結果を有効とせず、反証を起動しない。最終状態を `未完了`（理由: <担当>の有効な結果なし）とし、自動で修正を依頼したり、再委譲・担当の再開で代替したりしない（8節へ進む）。
@@ -182,13 +241,14 @@ cp "$W/standards/handoff.md" "$W/refute-input/standards-handoff.md"
 cp "$W/spec/handoff.md" "$W/refute-input/spec-handoff.md"
 cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/refute-input/"
 [ -d "$W/input/local" ] && cp -R "$W/input/local" "$W/refute-input/"
+[ -f "$W/input/deps-files.sha256" ] && cp "$W/input/deps-files.sha256" "$W/refute-input/"
 (cd "$W/refute-input" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)
 ```
 
 写した各ファイルの sha256 が、検査時に記録した引き渡し用ファイルの指紋と `input/` の指紋に一致することを確かめ、`parent/fingerprints.md` に書く。一致しなければ写し直さず、反証を起動せずに `未完了`（理由: 反証への入力を固定できず、反証の有効な結果なし）とする。
 探索のサブディレクトリ全体、`notes/`、一時ファイル、探索の返答・会話出力、親の要約は写さない。
 
-反証担当は、新しいタスクとして新しいコンテキストで1体だけ起動する。探索担当への追送や再開は使わない。探索の候補が0件でも、必要な確認の不足や判断の見送りを確かめさせるため省かない。依頼本文は次だけにする（作業ディレクトリの他の場所を示さない）。
+反証担当は、新しいタスクとして新しいコンテキストで1体だけ起動する。探索担当への追送や再開は使わない。探索の候補が0件でも、必要な確認の不足や判断の見送りを確かめさせるため省かない。依頼本文は次だけにする（作業ディレクトリのこれ以外の場所を示さない）。依存の写しは `refute-input/` へ写さず、両探索と同じ `<W>/deps/` を渡す。
 
 ```text
 役割: 反証
@@ -199,7 +259,9 @@ cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/re
 - <W>/refute-input/manifest.md
 - <W>/refute-input/requirements/<各ファイル>
 - <W>/refute-input/local/<各ファイル>（mode: local のときだけ）
-- target.md に固定した SHA から読む対象リポジトリ
+- <W>/refute-input/deps-files.sha256（依存の写しを準備できたときだけ）
+- 対象リポジトリ <W>/repo（target.md の担当用の限定 clone）
+- 依存の写し <W>/deps/（準備できたときだけ）
 書いてよい場所: <W>/refute/（verdict.md と notes/）と自分の一時ファイル
 出力: <W>/refute/verdict.md
 ```
@@ -211,18 +273,18 @@ cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/re
 `verdict.md` を書き換えずに次を確かめ、`parent/checks.md` に書く。
 
 1. 担当が終了通知とともに返し、返答が入力不備・失敗ではない。指定したパスに `verdict.md` がある。
-2. 役割・定義名・対象版・受け取った入力が書かれ、対象版が `target.md` と一致する。
+2. 役割・定義名・対象版・受け取った入力・依存の写しが書かれ、対象版が `target.md` と一致する。
 3. 両方の引き渡し用ファイルのすべての候補 ID が採否一覧にあり、判定と根拠がある。要対応には影響度 0〜4 がある。
 4. 要求ごとの対応表が雛形の4列で、Spec 探索の対応表のすべての行を確定している（列の確認は5節の6と同じく、セル内の `|` だけを理由に違反としない）。
 5. 反証で追加した発見（無ければ無いことの明示）、軸ごとの要対応と未確認の件数、未確認と理由、判断を見送った事項がある。未確認ごとに、理由と確かめる担当がある。
-6. `refute-input/` の各ファイルの sha256 が `parent/fingerprints.md` と一致する。
+6. `refute-input/` の各ファイルの sha256 が `parent/fingerprints.md` と一致する。依存の写しの指紋の一覧と限定 clone の確認を5節の8と同じくやり直し、委譲前と同じ結果になる。
 
 欠落・失敗があれば `未完了`（理由: 反証の有効な結果なし）とする（自動の再委譲はしない）。理由と確かめる担当を示した未確認は有効な結果であり、それだけでは `未完了` にしない。
 
 ## 8. 最終状態・点数・確認が残る事項・マージ可否を決める
 
 1. `mode: local` では、反証の結果を受け取った後に、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で取り直し、`input/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
-2. 保存の直前に、要求の本文・資料だけを2節と同じ方法で `parent/requirements-recheck/` へ取り直し、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約）。Activity・進捗・更新日時は比べない。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
+2. 保存の直前に、要求の本文・資料だけを2.3節と同じ方法で `parent/requirements-recheck/` へ取り直し、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約）。Activity・進捗・更新日時は比べない。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
 3. 最終状態を SKILL.md の6節で決める。必要な担当の有効な結果の有無だけで決め、判定本文の未確認や1・2の変化では `完了` を `未完了` にしない。
 4. `完了` のとき、未確認が残っていても、反証担当の判定から規則どおりに確定した要対応の点数を計算する。親は判定・影響度・対応表を変えない。計算の過程（要対応の件数、各要対応の影響度、最小値）を記録する。
 5. 確認が残る事項をまとめる。判定本文の未確認（対応表の「未確認」の行と、判定「未確認」の候補。要実行確認を含む）と要求間の矛盾を、判定本文の要求の出典（または候補 ID）・確かめる担当・理由のまま1件ずつ並べ、1・2で加えた事項と合わせる。例外を設けず、どれも最終状態と点数を変えない。
@@ -243,7 +305,7 @@ cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/re
 ## 9. 報告を作り、保存する
 
 [報告の雛形](../assets/report.md) で `parent/report.md` を作る。管理情報は親が書き、反証担当の判定本文は `refute/verdict.md` を `cat` でそのまま入れる（`未実施`・`未完了` で判定本文が無ければ「未受領」と理由を書く）。
-管理情報には「最終状態」「確定した要対応の点数」「確認が残る事項（要求の出典・確かめる担当・理由）」「マージ可否」を別項目として並べ、8節の結果と理由を書く。テスト実行による検証は `parent/tests/record.md` から書き、出力の原本は指紋と場所の参照だけにして本文を写さない。
+管理情報には「最終状態」「確定した要対応の点数」「確認が残る事項（要求の出典・確かめる担当・理由）」「マージ可否」を別項目として並べ、8節の結果と理由を書く。担当用の限定 clone の確認は `parent/clone.md` から、依存の写しは `manifest.md` の依存の写しの節から書く。テスト実行による検証は `parent/tests/record.md` から書き、出力の原本は指紋と場所の参照だけにして本文を写さない。
 モデル情報は各担当の引き渡し用ファイル・判定本文の申告と、ハーネスが示した情報だけを出典付きで書く。不明は未確認とし、実効モデルの証明として扱わない。
 
 Issue がある場合は、最終状態にかかわらず報告を `kind=doc` の Document として Issue に添付し、作業ログに残す。
@@ -260,7 +322,7 @@ awk '/^<!-- refute-verdict:begin -->$/{f=1;next} /^<!-- refute-verdict:end -->$/
 - `未実施`・`未完了`: `nod issue log <Issue ID> "<要約>" --kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当）・受領済みの成果・取得できた担当 ID・点数なし・テスト実行の判定・マージ可否（`不可`）・Document ID・runId を書く。
 - 担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
 - Issue の無い単独レビューは、`parent/report.md` とチャットでの報告だけにする。
-- 要求の写し・引き渡し用ファイル・メモ・反証の結果・テスト実行の記録（`parent/tests/` の `plan.md`・`record.md`・`setup.log`・`output.log`。checkout は3.4節で片付け済み）は作業ディレクトリに残す。
+- 要求の写し・限定 clone と `parent/clone.md`・引き渡し用ファイル・メモ・反証の結果・テスト実行の記録（`parent/tests/` の `plan.md`・`record.md`・`setup.log`・`output.log`。checkout は3.4節で片付け済み）は作業ディレクトリに残す。依存の写し（`deps/`）は保存を終えた後に片付けてよい（lockfile の sha256 と `deps-files.sha256` で同一性を確かめ直せる）。片付けたら、そのことと時刻を `parent/deps/` の記録に書き足す。
 
 ## 10. 後続
 

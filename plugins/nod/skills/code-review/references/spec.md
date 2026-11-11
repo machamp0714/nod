@@ -6,7 +6,7 @@ SKILL.md の共通規則（権限と資料の境界、観点と判断基準、�
 ## 1. 入力を確かめる
 
 - 依頼本文の作業ディレクトリ・読んでよい入力・書いてよい場所・出力のパスを確かめる。どれかが欠けていれば、何も書かずに「入力不備: <理由>」を返して終了する。
-- `input/target.md` から対象リポジトリ・mode・merge-base・head（`mode: local` では土台の HEAD と写し）・Issue・計画の出典の扱いを読む。`input/manifest.md` の sha256 と `input/` の各ファイルを照合し、不一致や取得できなかった資料は不足として記録する。
+- `input/target.md` から対象リポジトリ（担当用の限定 clone）・mode・merge-base・head（`mode: local` では土台の HEAD と写し）・依存の写しの場所・Issue・計画の出典の扱いを読む。`input/manifest.md` の sha256 と `input/` の各ファイル（依存の写しの指紋の一覧 `deps-files.sha256` を含む）を照合し、不一致や取得できなかった資料は不足として記録する。
 - 「計画の出典を解決できず不足」と書かれていれば、計画に由来する要求は確かめられないものとして対応表に未確認の行を作り、候補を書く。別の資料で計画を補わない。
 
 ## 2. 要求を確認単位に分ける
@@ -19,7 +19,7 @@ SKILL.md の共通規則（権限と資料の境界、観点と判断基準、�
 
 ## 3. 要求ごとに実装を確かめ、不具合を探す
 
-- 差分は `git -C <repo> diff --no-ext-diff --no-textconv <merge-base> <head>` で読む。`mode: local` では `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む（必要なら自分の一時ディレクトリへ `git -C <repo> archive <sha> | tar -x -C <一時ディレクトリ>` で展開し、`git apply` で差分を当てる）。対象の作業ツリーは読まない。
+- 差分は `git -C <repo> diff --no-ext-diff --no-textconv <merge-base> <head>` で読む。`mode: local` では `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む（必要なら自分の一時ディレクトリへ `git -C <repo> archive <sha> | tar -x -C <一時ディレクトリ>` で展開し、`git apply` で差分を当てる）。依存のコードは依存の写しで読み、写しに無いものは未確認とする（SKILL.md の3節）。
 - 各確認単位について、要求全体を満たす実装を固定版の証拠で確かめる。一部の証拠だけで複合要求を充足にしない。同じ語があるだけの別操作を根拠にしない。
 - 正しさ・セキュリティ・性能・並行性の4観点すべてで探す。主な出発点は次のとおり。
   - 要求ごとの実装: 要求された振る舞いが、すべての経路で実装されているか。

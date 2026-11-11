@@ -11,7 +11,9 @@
   - 不可の理由: 最終状態とその理由／確定した要対応の点数または点数なし／テスト実行の判定と、checkout の SHA が head の SHA と一致するか／確認が残る事項（すべて。下の節）
   - 対応表の「自動チェック担当」の行: 行の一覧と、マージ可否の判定でテスト実行の成功により満たしたか（対応表と点数の対象外という扱いは変えない）
   - 「完了・確定した要対応の点数 5・確認が残る事項あり・マージ不可」は正常な結果である。
-- 対象版: repo の絶対パス／基点の指定／merge-base の SHA／head の SHA／mode（mode: local なら土台の HEAD の SHA と `local/changes.diff`・未追跡の写しの sha256）
+- 対象版: 元のリポジトリの絶対パス／基点の指定／merge-base の SHA／head の SHA／mode（mode: local なら土台の HEAD の SHA と `local/changes.diff`・未追跡の写しの sha256）
+- 担当用の限定 clone: `<W>/repo`（担当へ対象リポジトリとして渡した場所）、作成の手順、確認の結果（ref・remote・alternates・`FETCH_HEAD` が無い、commit と object が head から辿れるものだけ、index と作業ツリーが空、元のリポジトリのパスを持たない）、探索・反証の検査でやり直した確認の結果（記録: `<W>/parent/clone.md`）。作れなければ未実施の理由
+- 依存の写し: `<W>/deps/`、lockfile のパスと sha256、パッケージ管理とその版、準備のコマンド（スクリプトを実行しない指定を含む）と終了コード、取得元、指紋の一覧 `input/deps-files.sha256` の sha256 とファイル数、探索・反証の検査での照合の結果。準備しなかった・できなかった場合はその理由（担当は必要な確認を未確認に残す）
 - 未コミット変更の差分確認（mode: local のとき）: 反証の結果を受け取った後に取り直した土台の HEAD と差分の指紋、変化の有無（変化があれば確認が残る事項に入れる）
 
 ### 確認が残る事項
@@ -66,6 +68,8 @@
 | 原本 | 場所 | sha256 |
 |---|---|---|
 | 共通入力の目録 | `<W>/input/manifest.md` | |
+| 限定 clone の確認の記録 | `<W>/parent/clone.md` | |
+| 依存の写しの指紋の一覧 | `<W>/input/deps-files.sha256`（準備したときだけ） | |
 | Standards 探索の引き渡し用ファイル | `<W>/standards/handoff.md`（反証への写し `<W>/refute-input/standards-handoff.md`） | |
 | Spec 探索の引き渡し用ファイル | `<W>/spec/handoff.md`（反証への写し `<W>/refute-input/spec-handoff.md`） | |
 | 反証の判定本文 | `<W>/refute/verdict.md` | |
