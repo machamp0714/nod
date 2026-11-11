@@ -6,6 +6,9 @@ import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup"
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
 
 const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
+const acceptanceAgents = { ...reviewAgents, acceptance: { definition: "code-reviewer-acceptance" } };
+/** 報告Documentの印の間の本文。 */
+const between = (content: string, name: string) => content.match(new RegExp(`<!-- ${name}:begin -->\\n([\\s\\S]*?)<!-- ${name}:end -->`))?.[1];
 
 test("PM評価の指定モデルworkerは照合待機から開始通知を経て対象commitの初回レビューを返す", async () => {
   const scenario = await createTask2Scenario();
@@ -57,7 +60,7 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   ] });
 });
 
-for (const variant of ["normal", "existing-pr"] as const) {
+for (const variant of ["normal", "existing-pr", "acceptance-confirmed"] as const) {
   test(`PM評価の同じworkerによるPR提出を実nodで確認できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => {
@@ -85,6 +88,41 @@ for (const variant of ["normal", "existing-pr"] as const) {
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
   });
 }
+
+test("PM評価の受け入れ確認担当が確認済みとした初回レビューは4担当の組で完了・5点・マージ可になる", async () => {
+  const scenario = await createTask2Scenario({ variant: "acceptance-confirmed" });
+  const orca = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.orca, ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout.toString()).result;
+  };
+  orca("orchestration", "run-create", "--objective", "一覧の余白を調整");
+  const launch = orca("orchestration", "worker-start", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。照合完了まで実装禁止");
+  orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
+  const report = JSON.parse(orca("orchestration", "check").messages[0].body);
+  // 反証が作業記録の要求を受け入れ確認担当の行にし、受け入れ確認担当が確認済みとした。4担当の有効な結果がそろった完了で、受け入れ確認の結果は点数を変えない。
+  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+  expect(report.review.acceptanceRows).toEqual([{ source: expect.stringContaining("作業ログ"), judgment: "確認済み", evidence: expect.any(String) }]);
+  const ids = Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id);
+  expect(ids).toHaveLength(4);
+  expect(new Set([...ids, report.review.implementer]).size).toBe(5);
+  // 受け入れ確認担当は反証の後に1回だけ起動され、反証の判定本文には受け入れ確認担当の行がある。
+  expect(report.review.attempts.map((attempt: { role: string; attempt: number; result: string }) => [attempt.role, attempt.attempt, attempt.result])).toEqual([["standards", 1, "有効"], ["spec", 1, "有効"], ["refute", 1, "有効"], ["acceptance", 1, "有効"]]);
+  const verdict = readFileSync(report.review.verdict.path, "utf8");
+  expect(verdict).toContain(`| ${report.review.acceptanceRows[0].source} | 受け入れ確認担当 |`);
+  const result = readFileSync(report.review.acceptance.path, "utf8");
+  expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
+  expect(result).toContain("- 判定: 確認済み");
+  // 報告Documentは反証の判定本文と受け入れ確認の結果を、それぞれ原文のまま印の間に収録する。
+  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env });
+  const document = JSON.parse(shown.stdout.toString());
+  expect(between(document.content, "refute-verdict")).toBe(verdict);
+  expect(between(document.content, "acceptance-result")).toBe(result);
+  expect(document.content).toContain("| 受け入れ確認 | code-reviewer-acceptance |");
+  for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 0 件", "- マージ可否: 可（人のレビューなしでマージ可）"]) expect(document.content).toContain(`\n${line}`);
+  const issue = JSON.parse(Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env }).stdout.toString()) as { activity: { logKind?: string | null; body?: string }[] };
+  expect(issue.activity.filter(item => item.logKind === "progress" && item.body?.includes(`受け入れ確認=code-reviewer-acceptance/${report.review.agents.acceptance.id}`))).toHaveLength(1);
+});
 
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
@@ -162,7 +200,7 @@ test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自�
   expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
 });
 
-for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated"] as const) {
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-unmet", "acceptance-unverified", "acceptance-missing"] as const) {
   test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
@@ -266,6 +304,42 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       expect(document.content).toContain("\n- 最終状態: 未完了（理由: 利用枠の上限、有効な結果なし");
       expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
       expect(logs("blocker").filter(item => item.body?.includes("利用枠の上限"))).toHaveLength(1);
+      expect(logs("progress")).toHaveLength(0);
+    } else if (variant === "acceptance-unmet" || variant === "acceptance-unverified") {
+      // 4担当の有効な結果がそろった完了・5点。受け入れ確認の「未充足」「確かめられず」は点数を変えず、確認が残る事項としてマージ可否だけを止める。
+      const judgment = variant === "acceptance-unmet" ? "未充足" : "確かめられず";
+      expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review.acceptanceRows).toEqual([{ source: expect.stringContaining("作業ログ"), judgment, evidence: expect.any(String) }]);
+      expect(report.review.remainingChecks).toEqual([{ source: report.review.acceptanceRows[0].source, owner: "受け入れ確認担当", reason: expect.stringContaining(judgment) }]);
+      expect(new Set([...Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id), report.review.implementer]).size).toBe(5);
+      const verdict = readFileSync(report.review.verdict.path, "utf8");
+      expect(verdict).toContain(`| ${report.review.acceptanceRows[0].source} | 受け入れ確認担当 |`);
+      // 複合要求のコードから判断できる部分は反証の対応表に別の行として残る。
+      expect(verdict).toContain("| requirements/issue.md（一覧の余白を12pxにする） | 充足 |");
+      const result = readFileSync(report.review.acceptance.path, "utf8");
+      expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
+      expect(result).toContain(`- 判定: ${judgment}`);
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(between(document.content, "refute-verdict")).toBe(verdict);
+      expect(between(document.content, "acceptance-result")).toBe(result);
+      for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 1 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
+      expect(document.content).toContain(`| ${report.review.remainingChecks[0].source} | 受け入れ確認担当 | ${report.review.remainingChecks[0].reason} |`);
+      expect(logs("progress").filter(item => item.body?.includes("確認が残る事項1件") && item.body?.includes(judgment))).toHaveLength(1);
+      expect(logs("blocker")).toHaveLength(0);
+    } else if (variant === "acceptance-missing") {
+      // 反証が受け入れ確認担当の行を作ったが、受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった。必要な担当が欠けた未完了で、点数なしのblocker。
+      expect(report.review).toMatchObject({ status: "未完了", score: null, acceptance: null, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）", agents: reviewAgents });
+      expect(report.review.agents.acceptance).toBeUndefined();
+      expect(report.review.verdict).not.toBeNull();
+      const acceptanceAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "acceptance");
+      expect(acceptanceAttempts.map((attempt: { attempt: number; result: string }) => [attempt.attempt, attempt.result])).toEqual([[1, "無効"], [2, "無効"]]);
+      expect(acceptanceAttempts.every((attempt: { saved?: { path: string } }) => attempt.saved?.path.includes("/parent/attempts/acceptance-"))).toBe(true);
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(document.content).toContain("\n- 最終状態: 未完了（理由: 有効な結果なし（受け入れ確認。1回の再委譲の後も）");
+      expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
+      expect(between(document.content, "acceptance-result")).toStartWith("未受領");
+      expect(logs("blocker")).toHaveLength(1);
       expect(logs("progress")).toHaveLength(0);
     } else {
       // 委譲できない環境で担当を1つも起動しなかった未実施。点数なしのblocker。

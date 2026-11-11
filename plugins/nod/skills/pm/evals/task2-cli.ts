@@ -127,23 +127,30 @@ export function runTask2Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-            // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
+            // nod:implementの親が3担当（反証が受け入れ確認担当の行を作ったときは受け入れ確認担当も）へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
             // evidence-missingはSpec探索が終了・失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めなかった未完了で、対象も古いcommitのまま。
             // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証が要実行確認の未確認を残した。
             // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
             // review-usage-limitはSpec探索が利用枠の上限（HTTP 429）で失敗し、親が再委譲せずその時点で止めた未完了。
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
+            // acceptance-*は、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
+            // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
+            const acceptance = state.variant.startsWith("acceptance-");
+            const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
               notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
-              received: missingSpec ? ["standards"] : undefined,
+              received: missingSpec ? ["standards"] : state.variant === "acceptance-missing" ? ["standards", "spec", "refute"] : undefined,
               invalid: state.variant === "evidence-missing" ? { spec: [
                 { reason: "終了・失敗: 担当が終了通知とともに失敗を返し、handoff.md が無い" },
                 { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、handoff.md が無い" },
               ] } : state.variant === "review-redelegated" ? { standards: [
                 { reason: "引き渡し形式違反: handoff.md に禁止項目「確信度」が混入（5節の7）" },
+              ] } : state.variant === "acceptance-missing" ? { acceptance: [
+                { reason: "引き渡し形式違反: result.md に担当行が無い（9節の3）" },
+                { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、result.md が無い" },
               ] } : undefined,
               usageLimit: state.variant === "review-usage-limit" ? {
                 role: "spec",
@@ -152,7 +159,17 @@ export function runTask2Cli(tool: string, argv: string[]) {
               } : undefined,
               standards: { findings: [], evidence: "規約と変更差分を照合" },
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
+              requirementSource: acceptance ? "requirements/issue.md（一覧の余白を12pxにする）" : undefined,
               unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（表示された一覧の余白が12pxになること）", owner: "人", reason: "要実行確認: 実際の描画結果に依存し、固定版の静的な読みでは確かめられない" }] : undefined,
+              acceptanceRows: acceptance ? [{
+                source: workLogRow,
+                judgment: state.variant === "acceptance-unmet" ? "未充足" : state.variant === "acceptance-unverified" ? "確かめられず" : "確認済み",
+                evidence: state.variant === "acceptance-unmet"
+                  ? "作業ログ（Activity）と添付Documentの写しに lint:spacing の出力の記録が無い"
+                  : state.variant === "acceptance-unverified"
+                    ? "Activity に「lintは成功」の自己申告だけがあり、対象版・実行内容・結果を識別できる実行記録が写しに無い"
+                    : "Activity の作業ログ（ID 3）が参照する evidence/1/lint-spacing.log（sha256 付き）に対象版の SHA・コマンド・終了コード0・出力がある",
+              }] : undefined,
               testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {

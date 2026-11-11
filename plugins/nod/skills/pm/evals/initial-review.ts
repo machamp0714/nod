@@ -2,12 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type ReviewRole = "standards" | "spec" | "refute";
+export type ReviewRole = "standards" | "spec" | "refute" | "acceptance";
 /** 反証担当が確定した結果。impactがある指摘は要対応、ない指摘は任意として扱う。 */
 export type ReviewFinding = { id: string; category: string; evidence: string; commit: string; impact?: number; acceptance?: string; suggestion?: string };
 export type ReviewAxis = { findings: ReviewFinding[]; evidence: string };
 /** 確認が残る事項。最終状態と点数を変えず、マージ可否だけを止める。 */
 export type RemainingCheck = { source: string; owner: string; reason: string };
+export type AcceptanceJudgment = "確認済み" | "未充足" | "確かめられず";
+/** 反証が対応表で「受け入れ確認担当」とした行と、受け入れ確認担当が有効な結果で返す判定。evidenceは証拠または不足理由。 */
+export type AcceptanceRow = { source: string; judgment: AcceptanceJudgment; evidence: string };
 export type TestRunResult = "成功" | "失敗" | "実行できず";
 /** 有効な結果を返さなかった試行。reason は親の検査や終了通知で分かった無効の理由、ompRetries は担当のセッション内でompが行った再試行（親の再委譲とは別）。 */
 export type InvalidAttempt = { reason: string; ompRetries?: string[] };
@@ -20,7 +23,7 @@ export type InitialReviewInput = {
   dir: string; issueId: string; implementer: string; baseCommit: string; headCommit: string;
   /** 担当を1つも起動しなかった理由（委譲できない環境・差分なし・秘密候補・限定 clone を作れない）。指定すると未実施になる。 */
   notRun?: string;
-  /** 起動した担当のうち有効な結果を返した担当。必要な3担当がそろわなければ未完了になる。探索の片方が無ければ反証は起動しない。 */
+  /** 起動した担当のうち有効な結果を返した担当。必要な担当がそろわなければ未完了になる。探索の片方が無ければ反証は、反証が無ければ受け入れ確認は起動しない。 */
   received?: ReviewRole[];
   /**
    * 利用枠の上限以外の、判定と関係しない理由で無効だった試行（役割ごとに試行の順）。親は同じ入力で1回だけ再委譲する。
@@ -30,8 +33,12 @@ export type InitialReviewInput = {
   /** 利用枠の上限で失敗した役割。親は再委譲せずその時点で止め、まだ起動していない担当も起動しない。 */
   usageLimit?: { role: ReviewRole } & InvalidAttempt;
   standards: ReviewAxis; spec?: ReviewAxis;
+  /** Spec軸の対応表のコードで判断した行の出典。複合要求を受け入れ確認担当の行と分けたときに、コードの部分を示す。 */
+  requirementSource?: string;
   /** 反証担当が要求の出典・確かめる担当・理由を示して「未確認」とした対応表の行。有効な結果であり、完了のまま確認が残る事項になる。 */
   unconfirmed?: RemainingCheck[];
+  /** 反証担当が対応表で「受け入れ確認担当」とした行。1行以上あれば受け入れ確認担当が必要な担当になり、反証の後に起動する。 */
+  acceptanceRows?: AcceptanceRow[];
   testRun: { headSha: string; result: TestRunResult; command: string };
 };
 /** 実装を進行する親がnodへ書く経路。偽CLIは実nod CLI、setupはcore APIを渡す。 */
@@ -48,13 +55,17 @@ export type InitialReview = {
   attempts: ReviewAttempt[];
   reportDocument: { id: number; path: string };
   verdict: { path: string; sha256: string } | null;
+  /** 受け入れ確認担当の結果 acceptance/result.md。起動して有効な結果を受け取ったときだけ。 */
+  acceptance: { path: string; sha256: string } | null;
+  /** 受け入れ確認担当が有効な結果で判定した行。点数には入れず、確認済み以外は確認が残る事項になる。 */
+  acceptanceRows: AcceptanceRow[];
   testRun: { headSha: string; result: TestRunResult; recordPath: string };
   remainingChecks: RemainingCheck[];
   mergeReadiness: "可（人のレビューなしでマージ可）" | "不可（人の判断が要る）";
   standards: ReviewAxis; spec?: ReviewAxis;
 };
 
-const roles = [["standards", "Standards 探索", "code-reviewer-standards"], ["spec", "Spec 探索", "code-reviewer-spec"], ["refute", "反証", "code-reviewer-refute"]] as const;
+const roles = [["standards", "Standards 探索", "code-reviewer-standards"], ["spec", "Spec 探索", "code-reviewer-spec"], ["refute", "反証", "code-reviewer-refute"], ["acceptance", "受け入れ確認", "code-reviewer-acceptance"]] as const;
 const roleNames = Object.fromEntries(roles.map(([role, name]) => [role, name])) as Record<ReviewRole, string>;
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -71,13 +82,18 @@ export function nodCliRecorder(nod: (...args: string[]) => { id: number; path: s
  * 最終状態・点数・確認が残る事項・マージ可否は親の規則どおりに書くだけで、PMの受理判断は行わない。モデルやgitの実行はしない。
  */
 export function recordInitialReview(input: InitialReviewInput, recorder: ReviewRecorder): InitialReview {
-  const valid = new Set<ReviewRole>(input.notRun === undefined ? input.received ?? ["standards", "spec", "refute"] : []);
+  const rows = input.acceptanceRows ?? [];
+  // 受け入れ確認担当は、反証が対応表に「受け入れ確認担当」の行を作ったときだけ必要な担当になる。
+  const required = roles.filter(([role]) => role !== "acceptance" || rows.length > 0).map(([role]) => role);
+  const valid = new Set<ReviewRole>(input.notRun === undefined ? input.received ?? required : []);
   const explored = valid.has("standards") && valid.has("spec");
   if (valid.has("refute") && !explored) throw new Error("反証は両探索の有効な結果を受け取った後にだけ起動する");
-  const launched = (role: ReviewRole) => input.notRun === undefined && (role !== "refute" || explored);
+  if (valid.has("acceptance") && (!valid.has("refute") || rows.length === 0)) throw new Error("受け入れ確認は、反証の有効な結果に受け入れ確認担当の行があるときだけ起動する");
+  const launched = (role: ReviewRole) => input.notRun === undefined
+    && (role === "refute" ? explored : role === "acceptance" ? valid.has("refute") && rows.length > 0 : true);
   const limited = input.usageLimit;
   if (limited && (valid.has(limited.role) || !launched(limited.role))) throw new Error("利用枠の上限で失敗した役割は、起動したが有効な結果の無い役割だけ");
-  const status = input.notRun !== undefined ? "未実施" : valid.size === roles.length ? "完了" : "未完了";
+  const status = input.notRun !== undefined ? "未実施" : required.every(role => valid.has(role)) ? "完了" : "未完了";
   const hex = sha256(`${input.issueId}:${input.headCommit}`);
   const runId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
   const shortRun = runId.slice(0, 8);
@@ -88,7 +104,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const save = (role: ReviewRole, attempt: 1 | 2, id: string, text: string) => {
     const directory = join(workDirectory, "parent", "attempts", `${role}-${attempt}`);
     mkdirSync(directory, { recursive: true });
-    const path = join(directory, role === "refute" ? "verdict.md" : "handoff.md");
+    const path = join(directory, role === "refute" ? "verdict.md" : role === "acceptance" ? "result.md" : "handoff.md");
     const body = `# 無効な試行（評価用の模擬）\n\n- 担当 ID: ${id}\n- 試行: ${attempt}\n\n${text}\n`;
     writeFileSync(path, body);
     return { path, sha256: sha256(body) };
@@ -128,16 +144,25 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...(input.spec?.findings ?? []).map(finding => ({ ...finding, axis: "Spec", finder: "Spec 探索" })),
   ];
   const mustFix = findings.filter(finding => finding.impact !== undefined).sort((a, b) => (a.impact ?? 5) - (b.impact ?? 5));
-  // 未確認が残っても、完了なら確定した要対応から点数を出す。
+  // 未確認が残っても、完了なら確定した要対応から点数を出す。受け入れ確認の結果は点数に入れない。
   const score = status === "完了" ? mustFix[0]?.impact ?? 5 : null;
-  const remainingChecks = status === "完了" ? input.unconfirmed ?? [] : [];
+  const unconfirmed = input.unconfirmed ?? [];
+  const judged = agents.acceptance ? rows : [];
+  // 受け入れ確認の「未充足」「確かめられず」は、反証の未確認と同じく確認が残る事項としてマージ可否だけを止める。
+  const remainingChecks = status === "完了" ? [
+    ...unconfirmed,
+    ...judged.filter(row => row.judgment !== "確認済み").map(row => ({ source: row.source, owner: "受け入れ確認担当", reason: `${row.judgment}: ${row.evidence}` })),
+  ] : [];
   const specMustFix = mustFix.filter(finding => finding.axis === "Spec");
   const table = [
-    { source: "requirements/issue.md", state: specMustFix.length ? "未充足" : "充足", evidence: input.spec?.evidence ?? "Spec 探索の結果なし", candidates: specMustFix.map(finding => finding.id).join(", ") || "-" },
-    ...remainingChecks.map(check => ({ source: check.source, state: "未確認", evidence: `${check.reason}（確かめる担当: ${check.owner}）`, candidates: "-" })),
+    { source: input.requirementSource ?? "requirements/issue.md", state: specMustFix.length ? "未充足" : "充足", evidence: input.spec?.evidence ?? "Spec 探索の結果なし", candidates: specMustFix.map(finding => finding.id).join(", ") || "-" },
+    ...rows.map(row => ({ source: row.source, state: "受け入れ確認担当", evidence: "作業記録の証拠で確かめる（受け入れ確認担当の行の節）", candidates: "-" })),
+    ...unconfirmed.map(check => ({ source: check.source, state: "未確認", evidence: `${check.reason}（確かめる担当: ${check.owner}）`, candidates: "-" })),
   ];
   const testPassed = input.testRun.result === "成功" && input.testRun.headSha === input.headCommit;
-  const mergeReadiness = status === "完了" && score === 5 && table.every(row => ["充足", "説明", "対象外"].includes(row.state)) && remainingChecks.length === 0 && testPassed
+  // 受け入れ確認担当の行は、受け入れ確認担当が確認済みとしたときだけマージ可否の判定で満たしたことにする。
+  const mergeReadiness = status === "完了" && score === 5 && remainingChecks.length === 0 && testPassed
+    && table.every(row => ["充足", "説明", "対象外"].includes(row.state) || (row.state === "受け入れ確認担当" && judged.some(judgedRow => judgedRow.source === row.source && judgedRow.judgment === "確認済み")))
     ? "可（人のレビューなしでマージ可）" : "不可（人の判断が要る）";
   const remainingSummary = remainingChecks.map(check => `${check.source}（${check.owner}、${check.reason}）`).join("、");
   const target = `mode: commit／merge-base の SHA ${input.baseCommit}／head の SHA ${input.headCommit}`;
@@ -161,9 +186,9 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "# 反証の判定", "",
     "## 担当と対象", "",
     "- 役割: 反証", "- 定義名: code-reviewer-refute", `- 担当 ID: ${agents.refute.id}`, "- モデル申告: 未確認",
-    `- 対象版: ${target}`, "- 受け取った入力: refute-input/ の各ファイル（manifest.md の sha256 と一致）", `- 終了状態: ${remainingChecks.length ? "未確認を含む" : "完了"}`, "",
+    `- 対象版: ${target}`, "- 受け取った入力: refute-input/ の各ファイル（manifest.md の sha256 と一致）", `- 終了状態: ${unconfirmed.length ? "未確認を含む" : "完了"}`, "",
     "## 軸ごとの結果", "",
-    ...["Standards", "Spec"].map(axis => `- ${axis}: 要対応 ${mustFix.filter(finding => finding.axis === axis).length} 件、未確認 ${axis === "Spec" ? remainingChecks.length : 0} 件`), "",
+    ...["Standards", "Spec"].map(axis => `- ${axis}: 要対応 ${mustFix.filter(finding => finding.axis === axis).length} 件、未確認 ${axis === "Spec" ? unconfirmed.length : 0} 件`), "",
     "## 要対応（影響度の重い順）", "",
     ...(mustFix.length ? mustFix.flatMap(finding => [
       `### ${finding.id}: ${finding.category}`, "",
@@ -174,14 +199,44 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "## 要求ごとの対応表（確定）", "",
     "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |", "|---|---|---|---|",
     ...table.map(row => `| ${row.source} | ${row.state} | ${row.evidence} | ${row.candidates} |`), "",
+    "## 受け入れ確認担当の行", "",
+    ...(rows.length ? [
+      "| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本（出典・版。要らなければ「なし」） |", "|---|---|---|---|",
+      ...rows.map(row => `| ${row.source} | 作業ログに残した出力の記録 | 対象版で要求されたコマンドを実行したこと | なし |`),
+    ] : ["なし"]), "",
     "## 未確認と理由", "",
-    ...(remainingChecks.length ? remainingChecks.map(check => `- ${check.source}: 理由 ${check.reason}。確かめる担当: ${check.owner}`) : ["なし"]), "",
+    ...(unconfirmed.length ? unconfirmed.map(check => `- ${check.source}: 理由 ${check.reason}。確かめる担当: ${check.owner}`) : ["なし"]), "",
     "## 判断を見送った事項", "", "なし", "",
     "## 採否一覧（監査用）", "",
     "| 候補 ID | 発見者の区分 | 判定 | 影響度 | 同一原因 | 根拠 |", "|---|---|---|---|---|---|",
     ...findings.map(finding => `| ${finding.id} | ${finding.finder} | ${finding.impact === undefined ? "任意" : "要対応"} | ${finding.impact ?? "-"} | - | ${finding.evidence} |`), "",
   ].join("\n") : null;
   if (verdict !== null) writeFileSync(verdictPath, verdict);
+
+  // 受け入れ確認担当の結果。親が写したActivity・添付Documentと参照された記録だけを証拠にし、成果物の存在と作業の実施を分けて判定する。
+  const acceptancePath = join(workDirectory, "acceptance", "result.md");
+  const acceptanceResult = agents.acceptance ? [
+    "# 受け入れ確認の結果", "",
+    "## 担当と対象", "",
+    "- 役割: 受け入れ確認", "- 定義名: code-reviewer-acceptance", `- 担当 ID: ${agents.acceptance.id}`, "- モデル申告: 未確認",
+    `- 対象版: ${target}`, "- 受け取った入力: acceptance-input/ の各ファイル（manifest.md・records.md の sha256 と一致）",
+    "- Activity・添付 Document の写し: records.md の取得時刻と指紋（評価用の模擬）", `- 終了状態: ${rows.some(row => row.judgment === "確かめられず") ? "確かめられずを含む" : "完了"}`, "",
+    "## 行ごとの判定", "",
+    ...rows.flatMap((row, index) => [
+      `### 行 ${index + 1}: ${row.source}`, "",
+      `- 要求の出典: ${row.source}`, `- 対象版: head の SHA ${input.headCommit}`, `- 判定: ${row.judgment}`,
+      `- 成果物の存在: ${row.judgment === "確かめられず" ? "確認済み（作業ログに出力の記録がある）" : row.judgment}`, `- 作業・手順・配置の実施: ${row.judgment}`,
+      `- 証拠: ${row.evidence}`, `- 不足理由: ${row.judgment === "確認済み" ? "なし" : row.evidence}`,
+      "- 証拠にしなかった主張: Activity の「テスト成功」の自己申告", "",
+    ]),
+    "## 反証の判定と矛盾する証拠", "", "なし", "",
+    "## 判断を見送った事項", "", "なし", "",
+  ].join("\n") : null;
+  if (acceptanceResult !== null) {
+    mkdirSync(join(workDirectory, "acceptance"), { recursive: true });
+    writeFileSync(acceptancePath, acceptanceResult);
+  }
+  const acceptanceBody = acceptanceResult ?? (rows.length || !agents.refute ? `未受領（${reason}）\n` : "受け入れ確認担当の行なし（起動せず）\n");
 
   const report = [
     "## 管理情報（親が記入）", "",
@@ -199,7 +254,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     `- コマンド: ${input.testRun.command}`, `- 出力原本への参照: ${recordPath}`, "",
     "### 担当", "",
     "| 役割 | 定義名 | 担当 ID | 終了状態 |", "|---|---|---|---|",
-    ...roles.map(([role, name, definition]) => `| ${name} | ${definition} | ${agents[role]?.id ?? "未取得"} | ${agents[role] ? "有効な結果を受領" : launched(role) ? "有効な結果なし" : "未起動"} |`),
+    ...roles.map(([role, name, definition]) => `| ${name} | ${definition} | ${agents[role]?.id ?? "未取得"} | ${agents[role] ? "有効な結果を受領" : launched(role) ? "有効な結果なし" : role === "acceptance" && agents.refute ? "起動せず（受け入れ確認担当の行なし）" : "未起動"} |`),
     "", `- 実装者との対応: 実装者 ${input.implementer} と各担当は別の担当。ID の違いだけで会話を引き継いでいないことの証明とは扱わない。`, "",
     "### 試行の記録", "",
     "omp 内部の再試行は担当のセッション内で omp が行った retry で、親による再委譲（新しいコンテキストでの新しい担当）とは別に記録する。無効な試行の出力は後続の担当へ渡さず、親専用の監査領域に残した。", "",
@@ -211,12 +266,16 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}`
       : `独立レビュー${status}。Done・In Review・PR へ進めない。マージ可否は不可（人の判断が要る）。`, "",
     "### 独立性の限界", "",
-    "探索と反証は別コンテキストで実行し、探索には異なるモデルを設定するが、見落としが共通する可能性は残り、設定だけで各実行の実効モデルの違いを証明するものではない。", "",
+    "探索と反証と受け入れ確認は別コンテキストで実行し、探索には異なるモデルを設定するが、見落としが共通する可能性は残り、設定だけで各実行の実効モデルの違いを証明するものではない。", "",
     "## 反証担当の判定本文（原文のまま）", "",
     `- 原本: ${verdict === null ? "未受領" : verdictPath}`, `- sha256: ${verdict === null ? "なし" : sha256(verdict)}`, `- 担当 ID: ${agents.refute?.id ?? "未取得"}`, "",
     "<!-- refute-verdict:begin -->",
-    verdict ?? `未受領（${reason}）\n`,
-  ].join("\n") + "<!-- refute-verdict:end -->\n";
+    `${verdict ?? `未受領（${reason}）\n`}<!-- refute-verdict:end -->`, "",
+    "## 受け入れ確認担当の結果（原文のまま）", "",
+    `- 原本: ${acceptanceResult === null ? "未受領" : acceptancePath}`, `- sha256: ${acceptanceResult === null ? "なし" : sha256(acceptanceResult)}`, `- 担当 ID: ${agents.acceptance?.id ?? "未取得"}`, "",
+    "<!-- acceptance-result:begin -->",
+    acceptanceBody,
+  ].join("\n") + "<!-- acceptance-result:end -->\n";
   writeFileSync(join(workDirectory, "parent", "report.md"), report);
 
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -227,7 +286,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ? `無効な試行: ${invalidAttempts.map(attempt => `${roleNames[attempt.role]}の${attempt.attempt}回目 ${attempt.id}（${attempt.result}: ${attempt.reason}。親による再委譲${attempt.redelegation}）`).join("、")}。`
     : "";
   recorder.log(input.issueId, status === "完了"
-    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
+    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
     : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
     status === "完了" ? "progress" : "blocker");
 
@@ -239,6 +298,8 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     attempts,
     reportDocument: { id: document.id, path: document.path },
     verdict: verdict === null ? null : { path: verdictPath, sha256: sha256(verdict) },
+    acceptance: acceptanceResult === null ? null : { path: acceptancePath, sha256: sha256(acceptanceResult) },
+    acceptanceRows: judged,
     testRun: { headSha: input.testRun.headSha, result: input.testRun.result, recordPath },
     remainingChecks,
     mergeReadiness,
