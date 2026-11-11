@@ -99,7 +99,8 @@ git -C "$T/checkout" status --porcelain  # 空であること
 
 - 固定した head SHA の時点の規約文書（`AGENTS.md`・`CLAUDE.md`・`CONTRIBUTING.md`・`README.md` など）やパッケージ定義（`package.json` の `scripts.test` など）に書かれたテストの入口を checkout から読み、実行するコマンドと範囲、その理由と出典（`<path>@<sha>:L<開始>-L<終了>`）を `parent/tests/plan.md` に書いてから実行する。
 - 結果を見る前に、固定版のテストコードから条件付きで実行・skip されるテスト（`test.skipIf`・`test.if`・`describe.skipIf`・`test.skip` など）を探し、それぞれの条件を読む。条件が、この checkout と実行環境では満たせない外部のもの（別途ビルドした成果物、OS の機能、明示的に有効にする環境変数など）であれば、項目（ファイルと行または名前）・条件・必須としない理由を `plan.md` に書く。依存の準備漏れなど、満たせるのに満たしていない条件のものは必須のままにする。
-- 実行後、出力の skip を `plan.md` の記録と照らす。記録に無い skip、または記録と異なる理由の skip は必須の項目の skip とし、判定を成功にしない（記録のある条件付き skip だけなら、ほかの条件を満たせば `成功`）。
+- 実行するコマンドは、skip した項目の名前が個別に残る形にする。テストランナーが項目ごとの結果を書き出す形式を持つなら、範囲を変えない出力の指定だけを足し、その指定も `plan.md` に書く（例: `bun test` には `--reporter=junit --reporter-outfile="$T/results.xml"`。`bun run test` が `bun test` を呼ぶだけなら、その後ろに付ける）。
+- 実行後、項目ごとの結果に出た skip を、ファイルと行または名前で `plan.md` の記録と照らす。記録に無い skip、記録と異なる条件の skip、どの項目か出力から分からない skip は必須の項目の skip とし、判定を成功にしない（記録のある条件付き skip だけなら、ほかの条件を満たせば `成功`）。
 - テストの入口が書かれていなければ実行せず、判定を `テストなし（未確認）` とする。親がテストの入口を推測して作らない。
 - 実行後に範囲を変えない。失敗後に範囲を狭めて成功扱いにしない。
 
@@ -113,7 +114,7 @@ date -u +%Y-%m-%dT%H:%M:%SZ                                     # 開始時刻
 (cd "$T/checkout" && <依存の準備>) > "$T/setup.log" 2>&1; echo "setup exit=$?"
 (cd "$T/checkout" && <plan.md のコマンド>) > "$T/output.log" 2>&1; echo "test exit=$?"
 date -u +%Y-%m-%dT%H:%M:%SZ                                     # 終了時刻
-shasum -a 256 "$T/setup.log" "$T/output.log" <lockfile>
+shasum -a 256 "$T/setup.log" "$T/output.log" "$T/results.xml" <lockfile>   # 項目ごとの結果のファイルがある場合はそれも
 ```
 
 - 失敗しても自動で直さない。再実行で成功を待たない（1回の実行の結果を記録する）。
@@ -131,9 +132,9 @@ shasum -a 256 "$T/setup.log" "$T/output.log" <lockfile>
 
 `成功` 以外は、どれも成功として扱わない。
 
-`parent/tests/record.md` には次を書く: checkout の SHA と `target.md` の head の SHA、開始時の状態と作業ディレクトリの由来、依存の固定情報（lockfile のパスと sha256）と runtime の版、`plan.md` への参照、依存の準備と実行のコマンド、それぞれの終了コード、出力の原本（`setup.log`・`output.log`）とその sha256、開始・終了時刻と所要時間、skip の件数と項目・扱い（出力に skip の表示が無ければその旨）、判定。
+`parent/tests/record.md` には次を書く: checkout の SHA と `target.md` の head の SHA、開始時の状態と作業ディレクトリの由来、依存の固定情報（lockfile のパスと sha256）と runtime の版、`plan.md` への参照、依存の準備と実行のコマンド、それぞれの終了コード、出力の原本（`setup.log`・`output.log`・項目ごとの結果のファイル）とその sha256、開始・終了時刻と所要時間、skip の件数と、各 skip の項目（ファイルと行または名前）・`plan.md` の記録との照合の結果・扱い（出力に skip の表示が無ければその旨）、判定。
 
-記録と出力の sha256 を書き終えたら、clone した `$T/checkout`（依存の準備で入ったファイルを含む）を `rm -rf "$T/checkout"` で片付ける。`plan.md`・`record.md`・`setup.log`・`output.log` は残す（checkout の SHA・lockfile の指紋・ログで再現できる）。片付けたことと時刻を `record.md` に書き足す。片付けに失敗したら、その旨を `record.md` に書き、判定は変えない。
+記録と出力の sha256 を書き終えたら、clone した `$T/checkout`（依存の準備で入ったファイルを含む）を `rm -rf "$T/checkout"` で片付ける。`plan.md`・`record.md`・`setup.log`・`output.log`・項目ごとの結果のファイルは残す（checkout の SHA・lockfile の指紋・ログで再現できる）。片付けたことと時刻を `record.md` に書き足す。片付けに失敗したら、その旨を `record.md` に書き、判定は変えない。
 
 テストの成否で、レビューの最終状態・点数・反証の判定・要求ごとの対応表を変えない。テスト実行の結果は8節のマージ可否にだけ使う。
 

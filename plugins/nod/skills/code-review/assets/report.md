@@ -21,10 +21,10 @@
 - 依存の固定情報と runtime: lockfile のパスと sha256、runtime と版
 - コマンド: 依存の準備／テスト
 - 終了コード: 依存の準備／テスト
-- skip: 件数と項目、扱い
+- skip: 件数と各項目（ファイルと行または名前）、`plan.md` の記録との照合の結果、扱い
 - 所要時間: 開始・終了時刻
-- 出力の指紋: `setup.log`・`output.log` の sha256
-- 出力原本への参照: `<W>/parent/tests/record.md`・`<W>/parent/tests/output.log`・`<W>/parent/tests/setup.log`
+- 出力の指紋: `setup.log`・`output.log`・項目ごとの結果のファイル（例: `results.xml`）の sha256
+- 出力原本への参照: `<W>/parent/tests/record.md`・`<W>/parent/tests/output.log`・`<W>/parent/tests/setup.log`・項目ごとの結果のファイル
 
 ### 要求の出典と写しの指紋
 
@@ -62,7 +62,7 @@
 | 反証の判定本文 | `<W>/refute/verdict.md` | |
 | 親の検査記録 | `<W>/parent/checks.md`・`<W>/parent/fingerprints.md` | |
 | テスト実行の記録 | `<W>/parent/tests/plan.md`・`<W>/parent/tests/record.md` | |
-| テスト実行の出力 | `<W>/parent/tests/setup.log`・`<W>/parent/tests/output.log` | |
+| テスト実行の出力 | `<W>/parent/tests/setup.log`・`<W>/parent/tests/output.log`・項目ごとの結果のファイル | |
 
 ### 後続判断
 

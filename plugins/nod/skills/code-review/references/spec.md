@@ -19,7 +19,7 @@ SKILL.md の共通規則（権限と資料の境界、観点と判断基準、�
 
 ## 3. 要求ごとに実装を確かめ、不具合を探す
 
-- 差分は `git -C <repo> diff <merge-base> <head>` で読む。`mode: local` では `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む（必要なら自分の一時ディレクトリへ `git -C <repo> archive <sha> | tar -x -C <一時ディレクトリ>` で展開し、`git apply` で差分を当てる）。対象の作業ツリーは読まない。
+- 差分は `git -C <repo> diff --no-ext-diff --no-textconv <merge-base> <head>` で読む。`mode: local` では `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む（必要なら自分の一時ディレクトリへ `git -C <repo> archive <sha> | tar -x -C <一時ディレクトリ>` で展開し、`git apply` で差分を当てる）。対象の作業ツリーは読まない。
 - 各確認単位について、要求全体を満たす実装を固定版の証拠で確かめる。一部の証拠だけで複合要求を充足にしない。同じ語があるだけの別操作を根拠にしない。
 - 正しさ・セキュリティ・性能・並行性の4観点すべてで探す。主な出発点は次のとおり。
   - 要求ごとの実装: 要求された振る舞いが、すべての経路で実装されているか。

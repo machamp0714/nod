@@ -69,7 +69,7 @@ modelRoles:
 | ツール | 許可する用途 |
 |---|---|
 | `read` | 依頼で指定された入力ファイル、スキルの共通規則・自分の役割の参照ファイルと雛形 |
-| `bash` | 固定 SHA の Git 読み取り（`git show <sha>:<path>`・`git diff <merge-base> <head>`・`git ls-tree`・`git grep <pattern> <sha>`・`git archive <sha>` の一時ディレクトリへの展開）、自分のサブディレクトリと一時ファイルへの保存、指紋の計算 |
+| `bash` | 固定 SHA の Git 読み取り（`git show <sha>:<path>`・`git diff --no-ext-diff --no-textconv <merge-base> <head>`・`git ls-tree`・`git grep <pattern> <sha>`・`git archive <sha>` の一時ディレクトリへの展開）、自分のサブディレクトリと一時ファイルへの保存、指紋の計算 |
 
 - 旧定義 `code-reviewer` には `tools` の指定が無く、既定の組み込みツール一式が使えた。新しい3定義は `read` と `bash` に絞る。
 - 固定 SHA の読み取りにシェルが要るため、定義だけでは担当の操作を機械的に制限しきれない。`bash` と `read` があれば、作業ツリーの現状・nod・他担当の出力や履歴・常設データセットを読むことも、指定外の場所へ書くことも技術的にはできる。これらの能力は残っており、スキルと定義本文で使用を禁止しているだけで、完全なアクセス遮断ではない。作業ディレクトリを役割別に分けるのも指示の境界であり、遮断ではない。

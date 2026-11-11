@@ -11,7 +11,7 @@ SKILL.md の共通規則（権限と資料の境界、観点と判断基準、�
 
 ## 2. 差分と関連コードを固定版から集める
 
-- 差分は `git -C <repo> diff <merge-base> <head>`（必要に応じて `--stat`・`--name-status`・`-M`）で読む。
+- 差分は `git -C <repo> diff --no-ext-diff --no-textconv <merge-base> <head>`（必要に応じて `--stat`・`--name-status`・`-M`）で読む。
 - `mode: local` では、さらに `local/changes.diff` と `local/untracked/` を土台の HEAD に重ねて読む。重ねた内容を読む必要があれば、自分の一時ディレクトリに `git -C <repo> archive <土台の HEAD> | tar -x -C <一時ディレクトリ>` で展開し、その中で `git apply <changes.diff>` を当て、未追跡の写しを置く。対象の作業ツリーは読まない。
 - 変更ファイルだけでなく、呼出元・呼出先・状態の保存先・防御・公開契約・テストを固定版で読む。基点から存在するかは merge-base の版（`git -C <repo> show <merge-base>:<path>`）で確かめる。
 - 依存の版は lockfile などの固定出典で確かめる。
