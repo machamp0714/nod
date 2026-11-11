@@ -18,7 +18,13 @@
 - 依頼や実装工程から引き継いだ対象リポジトリ・基点・対象版・Issue・Document は聞き直さない。対象リポジトリまたは基点が依頼に無いときだけ利用者に確認する。
 - PR を指定された場合は `gh` で実際のリポジトリ・基点・head を特定する。Issue をブランチ名から推測しない。
 - コミットのレビュー（`mode: commit`）: `git -C <repo> rev-parse <head>` で head の SHA、`git -C <repo> merge-base <基点> <head>` で merge-base の SHA を固定する。
-- 明示された未コミット変更のレビュー（`mode: local`）: 明示されたときだけ行い、commit や stash を作らない。土台の HEAD の SHA を固定し、merge-base は基点と土台の HEAD から求める。差分は `git -C <repo> --no-optional-locks diff --binary HEAD` で写し、未追跡ファイルは指定されたものだけを写す。
+- 明示された未コミット変更のレビュー（`mode: local`）: 明示されたときだけ行い、commit や stash を作らない。土台の HEAD の SHA を固定し、merge-base は基点と土台の HEAD から求める。差分は表示用の変換を無効にして `git -C <repo> --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD` で写し、未追跡ファイルは指定されたものだけを写す。
+- 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <head>`、`mode: local` は `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と指定された未追跡パス）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲もテスト実行もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
+
+```sh
+git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <head> \
+  | grep -iE '(^|/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(/|$)'   # 1行でも出れば秘密候補あり
+```
 - 差分が空なら委譲もテスト実行もせず、`未実施`（理由: 差分なし）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
 ## 2. 作業ディレクトリを作り、共通入力を固定する
@@ -57,7 +63,7 @@ jq -r '"# \(.title)\n\n\(.description // "")"' "$W/parent/issue-snapshot.json" >
 jq -r '.documents[] | select(.kind == "spec") | .id' "$W/parent/issue-snapshot.json"   # 各 ID を nod --json doc show <ID> の .content で spec-<ID>.md へ写す
 jq -r '.plan.source // empty' "$W/parent/issue-snapshot.json"                            # この path と一致する kind=plan の Document だけを plan-<ID>.md へ写す
 nod -w <repo> workspace rules show > "$W/input/requirements/workspace-rules.md"
-(cd "$W/input" && find . -type f ! -name manifest.md | LC_ALL=C sort | xargs shasum -a 256)   # manifest.md の指紋
+(cd "$W/input" && find . -type f ! -path ./manifest.md -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)   # manifest.md の指紋（除くのは目録自身の ./manifest.md だけ。空白を含むパスも1件として扱う）
 ```
 
 - 計画の出典が Document に解決できない、または本文を読めない場合は、別の計画で代用せず写さない。`target.md` と `manifest.md` に「計画の出典を解決できず不足（<plan.source>）」と書く。計画の出典が無い場合は「計画の出典なし」と書く。
@@ -174,7 +180,7 @@ cp "$W/standards/handoff.md" "$W/refute-input/standards-handoff.md"
 cp "$W/spec/handoff.md" "$W/refute-input/spec-handoff.md"
 cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/refute-input/"
 [ -d "$W/input/local" ] && cp -R "$W/input/local" "$W/refute-input/"
-(cd "$W/refute-input" && find . -type f | LC_ALL=C sort | xargs shasum -a 256)
+(cd "$W/refute-input" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)
 ```
 
 写した各ファイルの sha256 が、検査時に記録した引き渡し用ファイルの指紋と `input/` の指紋に一致することを確かめ、`parent/fingerprints.md` に書く。一致しなければ写し直さずに `未実施` とする。
