@@ -19,7 +19,7 @@
 - PR を指定された場合は `gh` で実際のリポジトリ・基点・head を特定する。Issue をブランチ名から推測しない。
 - コミットのレビュー（`mode: commit`）: `git -C <repo> rev-parse <head>` で head の SHA、`git -C <repo> merge-base <基点> <head>` で merge-base の SHA を固定する。
 - 明示された未コミット変更のレビュー（`mode: local`）: 明示されたときだけ行い、commit や stash を作らない。土台の HEAD の SHA を固定し、merge-base は基点と土台の HEAD から求める。差分は表示用の変換を無効にして `git -C <repo> --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD` で写し、未追跡ファイルは指定されたものだけを写す。
-- 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <head>`、`mode: local` は土台の HEAD までのコミット済みの差分 `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <土台の HEAD>` と、未コミットの差分 `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と、指定された未追跡パスの全部）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲もテスト実行もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
+- 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head>` を NUL で区切って読み、日本語などを含むパスも引用符なしの名前で調べる。`mode: local` は土台の HEAD までのコミット済みの差分 `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <土台の HEAD>` と、未コミットの差分 `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と、指定された未追跡パスの全部）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲もテスト実行もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
 ```sh
 git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head> | tr '\0' '\n' \
@@ -98,7 +98,8 @@ git -C "$T/checkout" status --porcelain  # 空であること
 ### 3.2 結果を見る前に範囲と理由を決める
 
 - 固定した head SHA の時点の規約文書（`AGENTS.md`・`CLAUDE.md`・`CONTRIBUTING.md`・`README.md` など）やパッケージ定義（`package.json` の `scripts.test` など）に書かれたテストの入口を checkout から読み、実行するコマンドと範囲、その理由と出典（`<path>@<sha>:L<開始>-L<終了>`）を `parent/tests/plan.md` に書いてから実行する。
-- 固定版のテストコードで条件付き skip になっている項目を必須としない理由がある場合だけ、実行前に `plan.md` へ項目と理由を書いてよい。書いていない skip はすべて必須の項目の skip とする。
+- 結果を見る前に、固定版のテストコードから条件付きで実行・skip されるテスト（`test.skipIf`・`test.if`・`describe.skipIf`・`test.skip` など）を探し、それぞれの条件を読む。条件が、この checkout と実行環境では満たせない外部のもの（別途ビルドした成果物、OS の機能、明示的に有効にする環境変数など）であれば、項目（ファイルと行または名前）・条件・必須としない理由を `plan.md` に書く。依存の準備漏れなど、満たせるのに満たしていない条件のものは必須のままにする。
+- 実行後、出力の skip を `plan.md` の記録と照らす。記録に無い skip、または記録と異なる理由の skip は必須の項目の skip とし、判定を成功にしない（記録のある条件付き skip だけなら、ほかの条件を満たせば `成功`）。
 - テストの入口が書かれていなければ実行せず、判定を `テストなし（未確認）` とする。親がテストの入口を推測して作らない。
 - 実行後に範囲を変えない。失敗後に範囲を狭めて成功扱いにしない。
 
