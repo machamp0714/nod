@@ -22,8 +22,8 @@
 - 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <head>`、`mode: local` は土台の HEAD までのコミット済みの差分 `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <土台の HEAD>` と、未コミットの差分 `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と、指定された未追跡パスの全部）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲もテスト実行もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
 ```sh
-git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <head> \
-  | grep -iE '(^|/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(/|$)'   # 1行でも出れば秘密候補あり
+git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head> | tr '\0' '\n' \
+  | grep -iE '(^|/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(/|$)'   # 1行でも出れば秘密候補あり。-z で取り、日本語などを含むパスも引用符なしの名前で調べる
 ```
 - 差分が空なら委譲もテスト実行もせず、`未実施`（理由: 差分なし）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
