@@ -174,7 +174,8 @@ test("CLIは通常着手の元担当と未照合占有を表示し、別採択Is
   writeFileSync(file, JSON.stringify({ sessionId: session.id, generation: 1, requestKey: "別の仕事", itemId: original.items[1]!.id,
     actor: "codex", spec: "Bを始める", placement: { agent: "codex", worktree: "path:/専用" } }));
   // 予約は保存され、この試験ではOrca接続が無いので送信の段で止まる。
-  expect(await runNod(["sprint", "execution", "request", sprint.id, "--input", file, "--json"], { cwd, db: path, actor: "codex" }))
+  // 監督端末は--fromで固定する。省くと実行環境のORCA_TERMINAL_HANDLEの有無で、接続確認より前に自己caller欠測で止まる。
+  expect(await runNod(["sprint", "execution", "request", sprint.id, "--input", file, "--from", "監督", "--json"], { cwd, db: path, actor: "codex" }))
     .toMatchObject({ exitCode: 1, json: { error: { code: "ORCA_DISABLED" } } });
   const reserved = await runNod(["sprint", "execution", "show", sprint.id, "--json"], { cwd, db: path, actor: "codex" });
   expect(reserved).toMatchObject({ exitCode: 0, json: { occupied: 2, reserved: 1,
