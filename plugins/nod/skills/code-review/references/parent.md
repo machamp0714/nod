@@ -342,28 +342,26 @@ jq -r '.documents[] | .id' "$P/issue-snapshot.json"                       # 各 
 
 | 出典の形 | 読み取り（これだけ） | 識別情報として記録するもの |
 |---|---|---|
-| 絶対パス（`~` で始まるものを含む）のファイル・ディレクトリ・リンク | 中身を `evidence/<n>/copy` へ写し、観測を `evidence/<n>/observation.txt` に書く（下のコマンド） | `observation.txt` の sha256 |
+| 絶対パス（`~` で始まるものを含む）のファイル・ディレクトリ・リンク | このスキルの `scripts/copy-evidence.ts` で、写す前に秘密候補を検査し、通れば中身を `evidence/<n>/copy` へ写し、観測を `evidence/<n>/observation.txt` に書く（下のコマンド） | `observation.txt` の sha256（結果の `observationSha256`） |
 | Git のリポジトリのパスと revision（とファイル）、またはその版履歴 | `git -C <dir> rev-parse --verify '<revision>^{commit}'` で commit を固定し（revision の指定が無ければ取得時の `HEAD`）、ファイルは `git -C <dir> --no-pager show --no-textconv <commit>:<file>` を `evidence/<n>/<file の名前>` へ、版履歴は `git -C <dir> --no-pager log --no-ext-diff --no-textconv --format='%H%x09%cI%x09%aI%x09%s' <commit> -- <file>` を `evidence/<n>/history.txt` へ写す。`fetch`・`checkout` など Git の状態を変える操作と、作業ツリーを読む操作（`status`・`diff`）はしない | 固定した commit の SHA、名前で指した revision（ブランチ・タグ）とそれが指す commit |
 | Issue にリンクされていない Document の ID | `nod --json doc show <ID>` の `.content` を `evidence/<n>/document-<ID>.md` へ写す | 本文の sha256 |
 | `https://` の URL | 認証情報・cookie・設定ファイルを使わない GET を1回だけ行う: `curl -q -fsS --proto '=https' --proto-redir '=https' --max-redirs 5 --max-time 60 --max-filesize 20000000 -D "$D/headers.txt" -o "$D/body" -w '%{http_code} %{url_effective}\n' '<URL>'` | 応答の状態と最終の URL、本文の sha256（`ETag`・`Last-Modified` があれば写す） |
 
 ```sh
-S=<出典の絶対パス（~ は展開する）>; D="$A/evidence/<n>"; mkdir -p "$D"
-cp -pRL "$S" "$D/copy"     # リンクは辿って中身を写す（元の場所を指すリンクを写しに残さない）
-find -H "$S" -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' p; do
-  if [ -L "$p" ]; then printf 'link\t%s\t%s\n' "$p" "$(readlink "$p")"
-  elif [ -d "$p" ]; then printf 'dir\t%s\n' "$p"
-  else printf 'file\t%s\t%s\n' "$p" "$(shasum -a 256 < "$p" | cut -d' ' -f1)"; fi
-done > "$D/observation.txt"   # 種類・リンク先・各ファイルの sha256（配置先が指している版はリンク先で分かる）
+# スクリプトはこのスキルのディレクトリ（SKILL.md があるディレクトリ。Claude Code では「Base directory for this skill」として示される）から解決する。リポジトリの作業ディレクトリの plugins/ を使わない
+bun <スキルのディレクトリ>/scripts/copy-evidence.ts '<出典の絶対パス>' "$A/evidence/<n>" > "$P/evidence-<n>.json"   # ~ で始まる出典はスクリプトがホームへ展開する。終了コードと結果の JSON を records.md に写す
 ```
 
-- 取得不能とするもの（写さない）: 秘密情報を含み得るパス（SKILL.md 2節の名前）と、利用者情報（`user:pass@`）や名前に `token`・`key`・`secret`・`password`・`signature`・`sig`・`credential`・`X-Amz-` を含むクエリを持つ URL（秘密候補）、このレビューの作業ディレクトリ `<W>` の中（担当へ渡さない）、存在しないもの、`https://` 以外の URL・別のホスト（`ssh` など）・認証が要るもの（HTTP 401・403・407 など）・表の外のコマンドやスクリプトの実行が要るもの（読み取り手段が無い）、名指しの Git の revision が無いもの（名指しの版との対応を示せない）。
+- 写す前に、出典自身、リンクなら途中のリンク先と解決先（realpath）、ディレクトリなら配下のすべてのパス（リンクを辿った先のディレクトリの配下を含む）とそれぞれのリンク先・解決先を、SKILL.md 2節の名前で検査する。名前だけで調べ、どれか1つでも当たれば、どのファイルの本文も読まない。
+- 終了コード 0 は写した（リンクは辿って中身を写し、元の場所を指すリンクを写しに残さない）。1 は取得不能で、写し先に何も作らない（写しも観測も無い）。理由は結果の `code` と `message`: `SECRET_CANDIDATE`（秘密候補。`secrets` に出典内のパスと当たったパス）、`NOT_FOUND`（存在しない）、`READ_FAILED`（壊れたリンク・リンクの循環・通常ファイルとディレクトリ以外（FIFO・デバイスなど。読むと止まり得る）・権限などの読み取りの失敗）、`UNEXPECTED_ERROR`（写しの途中の失敗。作りかけの写しは消す）。2 は引数の誤り（相対パス、写し先に既に写しがあるなど）で、取得不能ではなく呼び出しを直す。
+- 観測は、出典内のパスのバイト順（`LC_ALL=C` と同じ）に、リンクなら `link<TAB><パス><TAB><リンク先>`、続けてそのパスの辿った先の `dir<TAB><パス>` か `file<TAB><パス><TAB><sha256>` を1行ずつ書く。リンクを辿った先のファイル・ディレクトリの中身も、写しと同じく観測に入る（配置先が指している版はリンク先で分かる）。
+- 取得不能とするもの（写さない）: 秘密情報を含み得るパス（SKILL.md 2節の名前。絶対パスは、出典自身・リンクの解決先・ディレクトリ配下のパスのどれかが当たるもので、写す前にスクリプトが確かめる）と、利用者情報（`user:pass@`）や名前に `token`・`key`・`secret`・`password`・`signature`・`sig`・`credential`・`X-Amz-` を含むクエリを持つ URL（秘密候補）、このレビューの作業ディレクトリ `<W>` の中（担当へ渡さない）、存在しないもの、`https://` 以外の URL・別のホスト（`ssh` など）・認証が要るもの（HTTP 401・403・407 など）・表の外のコマンドやスクリプトの実行が要るもの（読み取り手段が無い）、名指しの Git の revision が無いもの（名指しの版との対応を示せない）。
 - リポジトリ内の相対パスと対象リポジトリの commit の SHA: 写さない。担当が限定 clone の固定版で読む（`records.md` にそう書く）。
-- 親は任意のスクリプトの実行、対象コードの再現、デプロイ、書き込み、認証情報の引き渡しをしない。既存の実行記録を写して読むことは、要実行確認の解消にも、3節の親のテスト実行の代わりにもならない。名指し・参照された版と写しの対応を親は判断しない。Git の revision を commit に固定できたとき以外は「親は確かめていない（出典の場所が示すのは取得時刻の内容）」と記録し、判断は担当に任せる。
+- 親は表の読み取りのほかに、任意のスクリプトの実行、対象コードの再現、デプロイ、書き込み、認証情報の引き渡しをしない。既存の実行記録を写して読むことは、要実行確認の解消にも、3節の親のテスト実行の代わりにもならない。名指し・参照された版と写しの対応を親は判断しない。Git の revision を commit に固定できたとき以外は「親は確かめていない（出典の場所が示すのは取得時刻の内容）」と記録し、判断は担当に任せる。
 - `records.md`（目録）に次を書く。10節で同じ方法で取り直すので、取り直しに要る情報を省かない。
   - `acceptance-input/` の各ファイル（`records.md` を除く）の sha256 と出典（共通入力は `manifest.md` と同じ出典、反証の判定本文は `refute/verdict.md` と担当 ID、Activity は Issue ID と取得時刻、Document は ID・kind・パス・取得時刻）。
   - 証拠の項目 ID: Activity のコメントは `activity:<コメントの id>`（コメント以外の項目は `activity@<時刻>`）、Issue にリンクされた Document は `document:<ID>`、`evidence/` の写しは `evidence/<n>`。Activity のコメントと Document には本文の sha256 を書く。
-  - `evidence/<n>` ごとに、種類（参照された記録／外部の正本）・参照元（Activity の項目 ID と時刻、Document ID と行、または反証の判定本文の「受け入れ確認担当の行」の要求の出典）・参照や名指しの原文・出典・名指しや参照元の版（原文のまま。無ければ「記載なし」）・読み取りの方法（表の行と実際のコマンド）・識別情報・取得時刻・写し先と sha256・版の対応について親が示せたこと、または取得不能と理由。
+  - `evidence/<n>` ごとに、種類（参照された記録／外部の正本）・参照元（Activity の項目 ID と時刻、Document ID と行、または反証の判定本文の「受け入れ確認担当の行」の要求の出典）・参照や名指しの原文・出典・名指しや参照元の版（原文のまま。無ければ「記載なし」）・読み取りの方法（表の行と実際のコマンド）・識別情報・取得時刻・写し先と sha256・版の対応について親が示せたこと、または取得不能と理由（絶対パスはスクリプトの `code` と `message`。秘密候補なら当たったパス（`secrets` の出典内のパスと当たったパス）を書く。本文は写さない）。
 
 ```sh
 (cd "$A" && find . -type f ! -path ./records.md -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)   # records.md に書く指紋
@@ -414,7 +412,7 @@ done > "$D/observation.txt"   # 種類・リンク先・各ファイルの sha25
 1. `mode: local` では、反証の結果（受け入れ確認担当を起動したときはその結果も）を受け取った後に、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で取り直し、`input/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
 2. 保存の直前に、要求の本文・資料だけを2.3節と同じ方法で `parent/requirements-recheck/` へ取り直し、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約）。Activity・進捗・更新日時はここでは比べない（受け入れ確認の証拠は3で扱う）。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
 3. 受け入れ確認担当の有効な結果を受け取ったときは、2と同じく保存の直前に、結果の「判定に使った証拠」の節にある項目だけを取り直し、`parent/acceptance-recheck/` に置いて固定時（`records.md`）と比べる。取り直す時刻を記録する。
-   - `evidence/<n>`: `records.md` に書いた読み取りの方法で、同じ出典から取り直す（絶対パスは写しと観測、Git は名前で指した revision の解決と同じ commit の読み取り、Document は本文、URL は GET）。写しと観測の sha256、Git の revision が指す commit、最終の URL を固定時と比べる。
+   - `evidence/<n>`: `records.md` に書いた読み取りの方法で、同じ出典から取り直す（絶対パスは同じスクリプト `scripts/copy-evidence.ts` で `parent/acceptance-recheck/evidence/<n>` へ写しと観測を取り直す。写す前の秘密候補の検査も同じで、終了コード 1 なら写しを作らず「取り直せず」とし、`SECRET_CANDIDATE` は秘密候補になったとして当たったパスを添える。Git は名前で指した revision の解決と同じ commit の読み取り、Document は本文、URL は GET）。写しと観測の sha256、Git の revision が指す commit、最終の URL を固定時と比べる。
    - `activity:<id>`・`activity@<時刻>`: `nod --json issue show` を `parent/acceptance-recheck/issue-snapshot.json` へ取り直し、同じ項目の有無、本文の sha256、返信の有無と件数、解決の状態を比べる。
    - `document:<ID>`: 取り直した Issue に同じ Document がリンクされているかと、本文の sha256 を比べる。
    - 固定の後に足された Activity（取り直した Activity のうち、固定時の `records/activity.json` に無いコメントと返信。8.1の写しの後に親自身が書いた作業ログは、書いたときに `nod --json issue log` が返した id を `parent/acceptance/own-logs.md` に記録しておき、除く）について、本文が判定に使った証拠の出典の文字列（`records.md` の出典の欄のパス・URL・`Document <ID>`、Activity の参照の原文）を含むかだけを、文字列の一致で調べる。
