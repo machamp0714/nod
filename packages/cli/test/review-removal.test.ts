@@ -20,6 +20,11 @@ test("LLM はレビュー待ちを経ずに完了し、旧レビューコマン�
     ["review", "list"],
     ["review", "approve", id],
     ["review", "reject", id, "理由"],
+    ["review", "prepare"],
+    ["review", "run"],
+    ["review", "evaluation", "freeze"],
+    ["review", "evaluation", "replay"],
+    ["review", "evaluation", "report"],
     ["git", "sync"],
     ["automation", "undo", id],
     ["automation", "set", "--pr-review", "on"],
@@ -28,5 +33,7 @@ test("LLM はレビュー待ちを経ずに完了し、旧レビューコマン�
     const rejected = await runNod([...args, "--json"], opts);
     expect(rejected.exitCode).not.toBe(0);
     expect(rejected.json.error.code).toBe("INVALID_ARGS");
+    // 必須オプションの不足による拒否ではなく、review コマンドそのものが無いことを確かめる
+    if (args[0] === "review") expect(rejected.json.error.message).toContain("コマンド review はありません");
   }
 });

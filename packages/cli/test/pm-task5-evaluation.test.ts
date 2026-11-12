@@ -32,7 +32,13 @@ test("PM並行評価は質問元と独立Issueを別Dispatchで配信し、無�
   const second = call("worker-start", "--spec", "実装。API-2。gpt-6.1-sol:high。照合完了まで変更しない。", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "export-column", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
   call("send", "--to", `dispatch:${second.dispatch.id}`, "--subject", "実装開始", "--body", "要求値と実効値を照合済み。実装を開始してください。");
   const completed = call("check");
-  expect(JSON.parse(completed.messages[0].body)).toMatchObject({ issueId: "API-2", dispatchId: second.dispatch.id, acceptance: { passed: true } });
+  const report = JSON.parse(completed.messages[0].body);
+  expect(report).toMatchObject({ issueId: "API-2", dispatchId: second.dispatch.id, acceptance: { passed: true }, review: {
+    implementer: second.terminalId, status: "完了", score: 5, target: { headSha: "c".repeat(40) },
+    agents: { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } },
+    testRun: { headSha: "c".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）",
+  } });
+  expect(Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id)).not.toContain(second.terminalId);
   expect(call("worker-show", "--dispatch", "dispatch-api1").phase).toBe("awaiting_input");
 });
 

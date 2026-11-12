@@ -1,4 +1,5 @@
 import { installWorkerStartFixture } from "./worker-fixture";
+import { type InitialReview, nodCliRecorder, recordInitialReview } from "./initial-review";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -11,7 +12,7 @@ type Worker = {
   launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } | null };
 };
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid: string; baseRefOid: string; reviewDecision: string; statusCheckRollup: unknown[]; mergedAt: null };
-type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null };
+type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null; review?: InitialReview };
 const head = "a".repeat(40);
 const base = "b".repeat(40);
 
@@ -44,10 +45,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
     worktreeId: w.worktreeId, terminalId: w.terminalId, model: "gpt-6.1-sol", effort: "high", gitEvidence: gitEvidence(w),
     acceptance: { passed: true, evidence: "一覧の余白が8pxから12pxへ変わる画面確認に成功" },
     tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: state.variant === "test-failure" ? 1 : 0, passed: state.variant !== "test-failure", commit: head }],
-    review: state.variant === "evidence-missing" ? { independent: true, headCommit: "c".repeat(40), standards: { findings: [] } } : {
-      independent: true, reviewer: "reviewer-separate-session", implementer: w.terminalId, baseCommit: base, headCommit: head,
-      standards: { findings: [], evidence: "規約と変更差分を照合" }, spec: { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
-    },
+    review: state.review,
     ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, nodStatus: nod("issue", "show", "API-1").status } : {}),
   });
   const view = (w: Worker) => ({ ...w, git: { head, base, clean: true, branch: "list-spacing" }, gitEvidence: gitEvidence(w), projection: { liveness: { verdict: w.released ? "exited" : "live" }, attention: { category: w.reported ? "settled" : "working", requiresAction: w.reported && !w.released && !w.reusedBy }, nextAction: { kind: "none" } }, terminal: { handle: w.terminalId, worktreeId: w.worktreeId }, observation: { status: w.released ? "exited" : "live" } });
@@ -127,8 +125,20 @@ export function runTask2Cli(tool: string, argv: string[]) {
       if (!state.delivery) {
         const w = state.workers.find((w) => w.phase !== "waiting" && !w.reported);
         if (w) {
-          if (w.phase === "implementation") installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-          else if (w.phase === "submission") {
+          if (w.phase === "implementation") {
+            installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
+            // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
+            // evidence-missingはSpec探索の有効な結果がなく反証を起動しなかった未実施で、対象も古いcommitのまま。
+            const missingSpec = state.variant === "evidence-missing";
+            const reviewed = missingSpec ? "c".repeat(40) : head;
+            state.review = recordInitialReview({
+              dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
+              received: missingSpec ? ["standards"] : undefined,
+              standards: { findings: [], evidence: "規約と変更差分を照合" },
+              spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
+              testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
+            }, nodCliRecorder(nod));
+          } else if (w.phase === "submission") {
             recordWorkerOperation("git", ["push", "origin", "list-spacing"]);
             recordWorkerOperation("gh", ["pr", state.pr ? "edit" : "create", "--title", "一覧の余白を調整", "--body", "一覧の余白を12pxへ変更。テストと独立レビューを確認済み。"]);
             state.pr = { number: 42, url: "https://github.com/evaluation/api/pull/42", title: "一覧の余白を調整", state: "OPEN", isDraft: false, headRefName: "list-spacing", baseRefName: "main", headRefOid: head, baseRefOid: base, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; save();

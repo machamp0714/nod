@@ -1,4 +1,5 @@
 import { installWorkerStartFixture } from "./worker-fixture";
+import { type InitialReview, nodCliRecorder, recordInitialReview } from "./initial-review";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -6,7 +7,7 @@ type Task = { id: string; spec: string };
 export type Worker = { issueId: string; task: Task; dispatch: { id: string; taskId: string; status: string; terminalId: string }; terminalId: string; worktreeId: string; worktreePath: string; commit?: string; branch?: string; role?: string; round?: number; managedByPm: boolean; phase: string; reported: boolean; released: boolean; reusedBy?: string; launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } | null } };
 type Message = { id: string; type: string; taskId: string; dispatchId: string; from: string; body: string };
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid: string; baseRefOid: string; reviewDecision: string; statusCheckRollup: unknown[]; mergedAt: null };
-type State = { variant: string; tasks: Task[]; workers: Worker[]; pending: Message[]; delivery: { id: string; messages: Message[] } | null; deliveries: number; acknowledged: string[]; sent: unknown[]; prs: Pr[]; checks: number; requests: Record<string, unknown> };
+type State = { variant: string; tasks: Task[]; workers: Worker[]; pending: Message[]; delivery: { id: string; messages: Message[] } | null; deliveries: number; acknowledged: string[]; sent: unknown[]; prs: Pr[]; checks: number; requests: Record<string, unknown>; reviews?: Record<string, InitialReview> };
 
 /** 外部workerとGitHubを再現する。PMの起動判断や依存判断は強制しない。 */
 export function runTask6Cli(tool: string, argv: string[]) {
@@ -27,7 +28,7 @@ export function runTask6Cli(tool: string, argv: string[]) {
     if (r.exitCode !== 0) fail("WORKER_NOD_FAILED", r.stdout.toString() + r.stderr.toString());
     return JSON.parse(r.stdout.toString());
   };
-  const report = (w: Worker) => w.role === "independent-confirmation" ? ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", role: w.role, round: w.round, reviewer: w.terminalId, implementer: "term-api1", commit: head(w), baseCommit: "a".repeat(40), headCommit: head(w), findings: [], resolvedFindingIds: ["F1"], standards: { findings: [], evidence: "F1の修正差分を確認" }, spec: { findings: [], evidence: "期間境界の受入条件を確認" }, gitEvidence: evidence(w) }) : ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: { independent: true, reviewer: `reviewer-${w.issueId}`, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w), standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" } }, ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w) && p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}) });
+  const report = (w: Worker) => w.role === "independent-confirmation" ? ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", role: w.role, round: w.round, reviewer: w.terminalId, implementer: "term-api1", commit: head(w), baseCommit: "a".repeat(40), headCommit: head(w), findings: [], resolvedFindingIds: ["F1"], standards: { findings: [], evidence: "F1の修正差分を確認" }, spec: { findings: [], evidence: "期間境界の受入条件を確認" }, gitEvidence: evidence(w) }) : ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: state.reviews?.[w.issueId], ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w) && p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}) });
   const submit = (w: Worker) => {
     let pr = state.prs.find(p => p.headRefName === (w.branch ?? (w.issueId === "API-2" ? "export-column" : "retention")));
     const created = !pr;
@@ -109,7 +110,15 @@ export function runTask6Cli(tool: string, argv: string[]) {
       if (!state.delivery) {
         const messages = state.pending.splice(0);
         for (const w of state.workers.filter(w => !w.reported && !w.released && ["implementation", "submission", "confirmation"].includes(w.phase))) {
-          if (w.phase === "implementation") installWorkerStartFixture(dir, w.issueId);
+          if (w.phase === "implementation") {
+            installWorkerStartFixture(dir, w.issueId);
+            // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした初回レビューを報告Documentへ残す。
+            (state.reviews ??= {})[w.issueId] = recordInitialReview({
+              dir, issueId: w.issueId, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w),
+              standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
+              testRun: { headSha: head(w), result: "成功", command: "bun test" },
+            }, nodCliRecorder(nod));
+          }
           if (w.phase === "submission") submit(w);
           w.reported = true; w.dispatch.status = "succeeded";
           messages.push({ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(report(w)) });

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { createTask4Scenario, type Task4Variant } from "../../../plugins/nod/skills/pm/evals/task4-setup";
 
+const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
+
 async function harness(variant: Task4Variant = "one-round") {
   const scenario = await createTask4Scenario({ variant });
   const raw = (...args: string[]) => Bun.spawnSync([scenario.orca, "orchestration", ...args, "--json"], { env: scenario.env });
@@ -21,9 +23,13 @@ test("PM指摘評価は初回独立レビューの根拠付き必須指摘と任
   expect(result.exitCode).toBe(0);
   const message = JSON.parse(result.stdout.toString()).result.messages[0];
   const report = JSON.parse(message.body);
-  expect(report.review).toMatchObject({ independent: true, reviewer: "reviewer-initial", implementer: "term-implementation", headCommit: "a".repeat(40) });
-  expect(report.review.spec.findings[0]).toMatchObject({ id: "F1", category: "仕様不適合", evidence: "Issue本文は12px、変更差分は10px", commit: "a".repeat(40), acceptance: "一覧余白12pxの境界テストが成功する" });
+  // 初回レビューは3担当の組で、点数は反証担当が確定した要対応F1の影響度になる。
+  expect(report.review).toMatchObject({ independent: true, implementer: "term-implementation", headCommit: "a".repeat(40), status: "完了", score: 3, target: { baseSha: "b".repeat(40), headSha: "a".repeat(40) }, agents: reviewAgents, testRun: { headSha: "a".repeat(40), result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+  expect(report.review.reviewer).toBeUndefined();
+  expect(Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id)).not.toContain("term-implementation");
+  expect(report.review.spec.findings[0]).toMatchObject({ id: "F1", category: "仕様不適合", impact: 3, evidence: "Issue本文は12px、変更差分は10px", commit: "a".repeat(40), acceptance: "一覧余白12pxの境界テストが成功する" });
   expect(report.review.standards.findings[0]).toMatchObject({ id: "O1", category: "任意改善" });
+  expect(report.review.standards.findings[0].impact).toBeUndefined();
   expect(report.gitEvidence.commands[0]).toMatchObject({ argv: ["git", "rev-parse", "HEAD"], stdout: "a".repeat(40) + "\n" });
 });
 
@@ -90,7 +96,7 @@ for (const variant of ["two-rounds", "unresolved", "stale-commit", "new-defect"]
 test("PM指摘評価は任意改善だけなら初回0巡の証拠で同じ実装者へPR作業を渡せる", async () => {
   const h = await harness("optional-only");
   const initial = h.orca("check");
-  expect(h.readReport(initial).review.spec.findings).toEqual([]);
+  expect(h.readReport(initial).review).toMatchObject({ status: "完了", score: 5, spec: { findings: [] }, testRun: { headSha: "a".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
   expect(h.readReport(initial).acceptance.passed).toBe(true);
   const submission = h.reuse("pushとPR作成。API-1 gpt-6.1-sol:high。現在commitの受入とテストと初回レビューが揃う。");
   expect(submission.round).toBe(0);

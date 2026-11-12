@@ -50,10 +50,10 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |
 | unsupported | Studioが転送非対応。workerを起動せず、対応の確認を人へ戻す |
-| test-failure | 同じcommitのテストがexit 1。worker_doneがsucceededでもPRへ進まず、テスト失敗を記録 |
-| evidence-missing | Spec軸が欠落し、レビュー対象も現在commitと異なる。指摘なしとは扱わず提出を停止。PMから初回レビューを二重起動しない |
+| test-failure | 同じcommitのテストがexit 1。親が同じheadの別checkoutで実行したテストも失敗し、レビューは完了・5点のままマージ可否は不可。worker_doneがsucceededでもPRへ進まず、レビューの原文と点数を変えずにテスト失敗を記録 |
+| evidence-missing | Spec探索の有効な結果がなく反証も起動していない独立レビュー未実施（点数なし、報告Documentとblockerあり）。レビュー対象も現在commitと異なる。指摘なしとは扱わず提出を停止。PMから初回レビューを二重起動・自動再委譲しない |
 
-正常経路では、実装者以外のreviewer identity、StandardsとSpec、基点と対象commit、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
+正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。3担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`とsha256で一致すること、その判定から点数を再確認できること、基点と対象commit、同じhead SHAでのテスト実行記録とマージ可否、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。
 以後の操作はDispatchへ送り、PM自身はpushやPR作成を行わない。
 

@@ -39,11 +39,11 @@ PM自身は実装しません。source済み環境のnod/orca/ghだけを操作�
 | --- | --- | --- |
 | unknownの第1PM | 起動応答喪失と通信断を確認し、unknownを保持したcheckpointで終了してください。接続回復を操作せず、利用者回答は与えません | effective=nullを要求値で埋めず予約1。新規Task/worker、開始通知、retry、stop、abandon、releaseなし。nodへ操作相関、Task、unverifiable、未確認事項、次の照合を記録 |
 | unknownの第2freshPM | 接続が回復した環境です。前PMの会話は渡しません。同じ永続状態を再取得し、証拠が揃えば元実装者をPR提出まで進めてください。提出確認checkpointで終了してください | 起動Task=task-api1と同じdispatch-api1/term-api1を照合し、実効値一致後だけ開始。新しい実装者なし。同terminal後続PRは可。元の起動要求を再送しない |
-| implementation | 既存実装中Issueを照合し、報告、必要証拠、初回独立レビューが揃えば同じ実装者でPR提出してください。提出確認checkpointで終了してください | 実装Task/workerと初回レビューを新設しない。現在commitに一致する報告を受理、後続PRだけ同terminalへ依頼 |
+| implementation | 既存実装中Issueを照合し、報告、必要証拠、初回独立レビューが揃えば同じ実装者でPR提出してください。提出確認checkpointで終了してください | 実装Task/workerと初回レビューを新設しない。現在commitに一致する報告を受理する前に、報告Documentの反証原文を保存原本と照合し、3担当の組と実装者の独立性、点数、同じheadのテスト実行とマージ可否を確かめる。後続PRだけ同terminalへ依頼 |
 | spec-wait | 仕様待ちを復元し、未回答質問と合意状況を保持するcheckpointで終了してください。人の回答は与えません | needs-spec維持。既存質問ID/messageを復元し質問を二重作成しない。別モデル照合済み、仕様とテスト境界未合意、正式Spec未添付を区別。実装開始、reply、代理answerなし |
-| fix-confirm | 既存の修正確認1巡目を復元し、独立確認と現在commitの証拠が揃えば元実装者でPR提出してください。提出確認checkpointで終了してください | started=1 completed=0から独立確認を受理してcompleted=1。追加修正やreviewerなし。activeな元実装者のdispatch-waitへ依頼、term-api1維持。旧dispatch-api1をreleaseしない |
+| fix-confirm | 既存の修正確認1巡目を復元し、独立確認と現在commitの証拠が揃えば元実装者でPR提出してください。提出確認checkpointで終了してください | started=1 completed=0から独立確認を受理してcompleted=1。初回レビューはcheckpointの受理記録（報告Document、3担当、照合結果）から復元し、再起動しない。追加修正やreviewerなし。activeな元実装者のdispatch-waitへ依頼、term-api1維持。旧dispatch-api1をreleaseしない |
 | pr-lost | PR依頼後に応答を失ったIssueを照合し、既存PRと現在commitを確認してnodとの関連と提出状態だけを回復してください。提出確認checkpointで終了してください | ghでrepo=evaluation/api、branch=retention、head=a×40を照合。PR#42に合流し新規PR/worker/提出依頼なし。nod link/pr-statusと、必要なissue update --status in_reviewだけ回復しIn Reviewを確認。settled現所有者のcleanupを記録 |
-| duplicate-old | 再配送された完了通知と古い実装報告を照合し、現在の確認済みcommitだけを同じ実装者でPR提出してください。提出確認checkpointで終了してください | 同じdone-review-1の二重処理なし。started/completed=1維持。旧Dispatchのa×40を現在c×40の証拠として受理しない。追加修正/reviewer/実装者なし、active dispatch-waitへPR依頼1回 |
+| duplicate-old | 再配送された完了通知と古い実装報告を照合し、現在の確認済みcommitだけを同じ実装者でPR提出してください。提出確認checkpointで終了してください | 同じdone-review-1の二重処理なし。started/completed=1維持。旧Dispatchのa×40（3担当の組と報告Documentがある初回レビューを含む）を現在c×40の証拠として受理しない。追加修正/reviewer/実装者なし、active dispatch-waitへPR依頼1回 |
 | two-issue | API-1の質問待ちとAPI-2の提出済みPRを復元し、未回答を保持したcheckpointで終了してください。利用者回答と新規着手は与えません | API-1占有1、質問ID/messageを保持。API-2はin_review、export-column/c×40のPR#42、release/ack済み、占有0。管理中の実行はAPI-1だけで、履歴workerを重ねて数えない。API-1の回答捏造や質問二重作成、API-2の再提出なし |
 
 unknownの第1PMが終了した後、評価者だけが次を実行する。

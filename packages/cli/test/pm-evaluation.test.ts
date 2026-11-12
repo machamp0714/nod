@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { startIssue } from "../../core/src";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
+
+const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
 
 test("PM評価の指定モデルworkerは照合待機から開始通知を経て対象commitの初回レビューを返す", async () => {
   const scenario = await createTask2Scenario();
@@ -19,11 +22,29 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const delivery = orca("orchestration", "check");
   expect(delivery.messages).toHaveLength(1);
   const report = JSON.parse(delivery.messages[0].body);
-  expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: { independent: true, standards: { findings: [] }, spec: { findings: [] } } });
+  expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: {
+    independent: true, implementer: "term-implementation", status: "完了", score: 5, target: { baseSha: "b".repeat(40), headSha: "a".repeat(40) },
+    agents: reviewAgents, testRun: { headSha: "a".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）",
+    standards: { findings: [] }, spec: { findings: [] },
+  } });
   expect(report.review.headCommit).toBe(report.commit);
+  expect(report.review.reviewer).toBeUndefined();
+  const agentIds = Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id);
+  expect(new Set([...agentIds, report.review.implementer]).size).toBe(4);
+  // 報告Documentは作業ログの要約とは別に実nodへ保存され、反証担当の原文を保存原本のまま収録する。
+  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env });
+  expect(shown.exitCode).toBe(0);
+  const document = JSON.parse(shown.stdout.toString());
+  expect(document).toMatchObject({ kind: "doc", issues: [{ id: "API-1" }] });
+  const verdict = readFileSync(report.review.verdict.path, "utf8");
+  expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
+  expect(document.content).toContain(`<!-- refute-verdict:begin -->\n${verdict}<!-- refute-verdict:end -->`);
+  expect(readFileSync(report.review.testRun.recordPath, "utf8")).toContain(`checkout の SHA: ${"a".repeat(40)}`);
   const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
   expect(issue.exitCode).toBe(0);
-  expect(JSON.parse(issue.stdout.toString())).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
+  const shownIssue = JSON.parse(issue.stdout.toString());
+  expect(shownIssue).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
+  expect((shownIssue.activity as { logKind?: string | null; body?: string }[]).filter(item => item.logKind === "progress" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`))).toHaveLength(1);
   const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
   expect(operations.filter(op => op.tool === "fixture")).toMatchObject([
     { origin: "worker", actor: "codex", simulated: true, argv: ["worker-start-state", "API-1"] },
@@ -170,10 +191,20 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
     }
     orca("orchestration", "send", "--to", `dispatch:${worker.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
     const report = JSON.parse(orca("orchestration", "check").messages[0].body);
-    if (variant === "test-failure") expect(report.tests[0]).toMatchObject({ exitCode: 1, passed: false });
-    else {
+    if (variant === "test-failure") {
+      expect(report.tests[0]).toMatchObject({ exitCode: 1, passed: false });
+      // レビューの原文と点数はテスト失敗で変わらず、マージ可否だけが不可になる。
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "失敗" }, mergeReadiness: "不可（人の判断が要る）" });
+    } else {
+      // Spec探索の有効な結果がなく反証も起動しない未実施。点数なしで、古いcommitを対象にしている。
+      expect(report.review).toMatchObject({ status: "未実施", score: null, verdict: null, mergeReadiness: "不可（人の判断が要る）", agents: { standards: reviewAgents.standards } });
+      expect(report.review.agents.spec).toBeUndefined();
+      expect(report.review.agents.refute).toBeUndefined();
       expect(report.review.spec).toBeUndefined();
       expect(report.review.headCommit).not.toBe(report.commit);
+      expect(report.review.target.headSha).not.toBe(report.commit);
+      const activity = JSON.parse(call(scenario.nod, ["issue", "show", "API-1"]).stdout.toString()).activity as { kind: string; logKind?: string | null; body?: string }[];
+      expect(activity.filter(item => item.logKind === "blocker" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`))).toHaveLength(1);
     }
     expect(JSON.parse(call(scenario.gh, ["pr", "list"]).stdout.toString())).toEqual([]);
   });
