@@ -124,7 +124,7 @@ Tauri側がsidecarの起動、終了、異常終了時の再起動を管理し�
 | 接続先 | 接続元と経路 | 用途と渡す情報 |
 | --- | --- | --- |
 | Claude Code / Codex / Google Antigravity | Ompでroleに割り当てたモデルへ接続 | エージェントに渡した依頼や、作業で参照する文脈をもとに推論する |
-| Google Antigravity（Gemini 4 Argon） | to-spec同梱の執筆依頼スクリプトから、Ompの非対話モードで`google-antigravity/gemini-4-argon`を固定指定して接続。roleによる割り当てとは別の経路で、ツールは無効にする | 仕様書（Spec）の本文を執筆する。対象Issueの本文と受け入れ条件、決定ログ、関連する仕様書、執筆ルールを送る |
+| Google Antigravity（Gemini 4 Argon） | to-spec同梱の執筆依頼スクリプトから、ログイン済みの`agy`コマンドの非対話モードで`gemini-4-argon-{low,medium,high}`を指定して接続。sandboxとスラッシュコマンド展開の無効化を指定し、ツール不使用を依頼する（ツール自体の無効化ではない） | 仕様書（Spec）の本文を執筆する。対象Issueの本文と受け入れ条件、決定ログ、関連する仕様書、執筆ルールを送る |
 | GitHub | nodの共通処理からGitHub CLI（`gh`）を実行 | Issueの取り込みと公開、PRの状態と差分の取得を行う。公開時はIssueのタイトルと本文を送る |
 | TypeSafe / Jev | nodの共通処理からHTTPSで接続 | 仕様要否判定が有効な場合にIssue本文を送る |
 | Toggl Track | nodの共通処理からHTTPSで接続 | 打刻の取得、開始、停止などの時間記録を操作する |
