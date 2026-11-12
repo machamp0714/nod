@@ -34,6 +34,13 @@ export function runTask2Cli(tool: string, argv: string[]) {
     if (result.exitCode !== 0) fail("WORKER_NOD_FAILED", result.stderr.toString());
     return JSON.parse(result.stdout.toString());
   };
+  // 実装者・レビューの親以外の書き手（人）としてnodへ書く。評価者の操作として記録する。
+  const human = (...args: string[]) => {
+    appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "nod", argv: args, actor: "me", origin: "evaluator", at: new Date().toISOString() }) + "\n");
+    const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, "--no-env-file", process.env.PM_EVAL_NOD_MAIN!, "-w", "API", ...args, "--json"], { env: { ...process.env, NOD_ACTOR: "me", NOD_ORCA: "0" } });
+    if (result.exitCode !== 0) fail("HUMAN_NOD_FAILED", result.stdout.toString() + result.stderr.toString());
+    return JSON.parse(result.stdout.toString());
+  };
   const recordWorkerOperation = (name: string, args: string[]) => appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: name, argv: args, actor: "codex", origin: "worker", at: new Date().toISOString() }) + "\n");
   const gitEvidence = (w: Worker) => ({ executionHost: "Studio", worktreeId: w.worktreeId, simulated: true, commands: [
     { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${head}\n` },
@@ -135,18 +142,35 @@ export function runTask2Cli(tool: string, argv: string[]) {
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
             // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
             // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
-            // acceptance-evidence-changed・activity-appendedは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
-            // evidence-changedは保存直前の再照合で、判定に使った外部の正本の変化・添付Documentの訂正・使った配置先を参照する後続の追記が見つかった。activity-appendedは証拠を参照しない通常の追記だけがあった。
+            // acceptance-evidence-changed・evidence-retracted・activity-appendedは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
+            // 実装者は写しの前に配置先を記録した作業ログ（evidence/3 の参照元）を残し、写しの後・保存の直前に実装者が経過の作業ログを足した。
+            // evidence-changedは、判定に使った外部の正本の変化・添付Documentの訂正に加え、人が配置の記録を取り消すトップレベルのコメントを書いた。
+            // evidence-retractedは、人が出典の文字列を含まない撤回を、別のトップレベルのコメントと配置先を記録した作業ログへの返信で書いた。
+            // activity-appendedは、経過の作業ログのほかに優先度の変更（Issueのイベント）とレビューの親自身のテスト実行の作業ログ（own-logs）だけが足された。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
-            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-activity-appended";
+            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-evidence-retracted" || state.variant === "acceptance-activity-appended";
             const acceptance = state.variant.startsWith("acceptance-");
             const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
             const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
             const deployRow = "requirements/issue.md（対象版の spacing.json を配置先へ置き、current をその版に向ける）";
-            const appended = external ? ["進捗: 一覧画面のスクリーンショットを整理している", ...(state.variant === "acceptance-evidence-changed" ? ["配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す"] : [])] : [];
-            // 受け入れ確認への写しの後・保存の直前に、実装者が作業ログを足した。
-            for (const body of appended) nod("issue", "log", "API-1", body, "--kind", "progress");
+            const deployLog = external ? nod("issue", "log", "API-1", "配置: /evaluation/deploy/list/current を releases/<head の SHA> に向けた", "--kind", "progress") as { id: number } : null;
+            // 親が受け入れ確認への写しで固定した Activity と、保存の直前に取り直した Activity。
+            const fixedActivity = external ? nod("issue", "show", "API-1").activity : [];
+            const ownLogs: number[] = [];
+            if (external) {
+              nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを整理している", "--kind", "progress");
+              if (state.variant === "acceptance-activity-appended") {
+                human("issue", "update", "API-1", "--priority", "high");
+                ownLogs.push(nod("issue", "log", "API-1", `独立レビューのテスト実行: bun test 成功（checkout ${head}）`, "--kind", "test").id);
+              }
+              if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
+              if (state.variant === "acceptance-evidence-retracted") {
+                human("issue", "comment", "API-1", "先ほど添付した配置記録は観測対象を取り違えたため撤回します");
+                human("issue", "comment", "API-1", "この記録は誤りでした。撤回します", "--reply-to", String(deployLog!.id));
+              }
+            }
+            const currentActivity = external ? nod("issue", "show", "API-1").activity : [];
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
               notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
@@ -194,13 +218,16 @@ export function runTask2Cli(tool: string, argv: string[]) {
               usedEvidence: external ? [
                 { id: "evidence/1", kind: "外部の正本", source: "/evaluation/design/list-spacing.md", sha256: "1".repeat(64), rows: [designRow], use: "外部の正本との内容の一致" },
                 { id: "evidence/2", kind: "外部の正本", source: "/evaluation/design の版履歴（git log -- list-spacing.md）", sha256: "2".repeat(64), rows: [designRow], use: "更新順序" },
-                { id: "evidence/3", kind: "参照された記録", source: "/evaluation/deploy/list/current", sha256: "3".repeat(64), rows: [deployRow], use: "現在の配置" },
+                { id: "evidence/3", kind: "参照された記録", source: "/evaluation/deploy/list/current", sha256: "3".repeat(64), rows: [deployRow], use: "現在の配置", origins: [`activity:${deployLog!.id}`] },
                 { id: "document:5", kind: "添付 Document", source: "Document 5（配置の記録）", sha256: "5".repeat(64), rows: [deployRow], use: "作業・手順の実施" },
               ] : acceptance ? [
                 { id: "activity:3", kind: "Activity", source: "Activity 3（作業ログ）", sha256: "3".repeat(64), rows: [workLogRow], use: "作業・手順の実施" },
                 ...(state.variant === "acceptance-confirmed" ? [{ id: "evidence/1", kind: "参照された記録" as const, source: "/evaluation/artifacts/API-1/lint-spacing.log", sha256: "1".repeat(64), rows: [workLogRow], use: "成果物の不変版の存在" as const }] : []),
               ] : undefined,
-              recheck: external ? { appended, changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {} } : undefined,
+              recheck: external ? {
+                changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {},
+                activity: { fixed: fixedActivity, current: currentActivity, ownLogs },
+              } : undefined,
               testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {
