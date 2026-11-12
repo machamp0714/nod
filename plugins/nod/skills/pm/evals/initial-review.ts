@@ -31,9 +31,9 @@ export type UsedEvidence = { id: string; kind: EvidenceKind; source: string; sha
 /**
  * 保存直前に親が判定に使った証拠を取り直した結果。
  * changed は Activity 以外の項目（Document・evidence/<n>・参照元の Document）で、指紋が固定時と違ったもの（null は取り直せなかった・削除された・リンクが外れた）。
- * activity は8.1で写した Activity（fixed）と保存直前に取り直した Activity（current）、ownLogs は写しの後に親自身が書いた作業ログの id（own-logs.md）。
- * 判定に使った Activity の項目と参照元の Activity は、この2つで有無・本文の指紋・返信・解決の状態を比べる。
- * 固定の後の追記は書き方（項目の種類・作業ログの種類・返信先）だけで扱いを決め、本文の意味や出典の文字列では選別しない。
+ * activity は8.1で写した Activity（fixed）と保存直前に取り直した Activity（current）、ownLogs は写しの後に親自身が Issue へ書いた記録（作業ログ・コメント）の id（own-logs.md）。
+ * 判定に使った Activity の項目と参照元の Activity は、この2つで有無・本文の指紋・解決の状態を比べる。
+ * 固定の後に足された Activity は、親自身の記録と Issue のイベントを除き、種類・書いた人・返信先・本文を問わず親以外の追記として扱う。親自身かどうかは actor ではなく ownLogs で決める。
  */
 export type EvidenceRecheck = { changed?: Record<string, string | null>; activity?: { fixed: ActivityItem[]; current: ActivityItem[]; ownLogs: number[] } };
 export type TestRunResult = "成功" | "失敗" | "実行できず";
@@ -178,14 +178,13 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const unconfirmed = input.unconfirmed ?? [];
   const judged = agents.acceptance ? rows : [];
   // 保存直前の再照合は、受け入れ確認担当が判定に使った証拠と、判定に使った evidence/<n> の参照元を取り直して固定時と比べる。
-  // 固定の後の追記は書き方だけで扱いを決め、本文の意味や出典の文字列では選別しない。止めないのは種類が progress・test・command・plan の作業ログ、
-  // Issue のイベント、親自身の作業ログだけで、それ以外のコメント・返信・blocker と rationale の作業ログ・確認依頼とその回答は対応不明にする。
+  // 固定の後に足された Activity のうち、親自身の記録（own-logs の id）と Issue のイベント以外は、種類・書いた人・返信先・本文を問わず親以外の追記として、
+  // 判定に使った証拠を使ったすべての行に確認が残る事項を付ける。親と実装者は同じ actor で書くことがあるので、actor では分けない。
   const used = agents.acceptance ? input.usedEvidence ?? [] : [];
   const changed = input.recheck?.changed ?? {};
   const activity = agents.acceptance ? input.recheck?.activity : undefined;
   const recheckOwner = "受け入れ確認担当（新しい実行）";
   const check = (rows: string[], reason: string): RemainingCheck[] => rows.map(row => ({ source: row, owner: recheckOwner, reason: `保存直前の再照合: ${reason}。この実行では判定し直さない` }));
-  const unknown = (what: string, scoped: boolean) => `対応不明（撤回・訂正の可能性。${what}。${scoped ? "" : "どの証拠に関するかを親は決めない。"}親は意味を判断しない）`;
   const usedRows = [...new Set(used.flatMap(item => item.rows))];
   type Comment = Extract<ActivityItem, { kind: "comment" }>;
   type Question = Extract<ActivityItem, { kind: "question" }>;
@@ -199,9 +198,9 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     if (!fixed.has(number)) throw new Error(`${id} が固定時の Activity の写しに無い`);
     return { id, number, item, label: id === item.id ? `判定に使った証拠 ${id}` : `判定に使った証拠 ${item.id} の参照元 ${id}` };
   })) : [];
-  type Appended = { id: string; at: string; order: number; actor: string; what: string; checks: RemainingCheck[]; kept?: "作業ログ（progress・test・command・plan）" | "親自身の作業ログ" | "Issue のイベント" };
+  type Appended = { id: string; at: string; order: number; actor: string; what: string; kept?: "親自身の記録" | "Issue のイベント" };
   const appended: Appended[] = [];
-  // 参照元・判定に使った Activity の変化や返信で、確認が残る事項を付けた判定に使った証拠。
+  // 判定に使った Activity・参照元の変化で、確認が残る事項を付けた判定に使った証拠。
   const affected = new Set<string>();
   if (activity) {
     const key = (item: ActivityItem) => JSON.stringify(item.kind === "question" ? [item.at, item.actor, item.question] : item.kind === "event" ? [item.at, item.actor, item.type, item.data] : [item.id]);
@@ -209,35 +208,23 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     const fixedKeys = new Set(activity.fixed.map(key));
     for (const item of activity.current) {
       if (item.kind === "event") {
-        if (!fixedKeys.has(key(item))) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: `イベント ${item.type}`, checks: [], kept: "Issue のイベント" });
+        if (!fixedKeys.has(key(item))) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: `イベント ${item.type}`, kept: "Issue のイベント" });
       } else if (item.kind === "question") {
         const before = fixedQuestions.get(key(item));
-        const what = !before ? "確認依頼" : before.answer !== item.answer ? "確認依頼の回答" : null;
-        const at = before ? item.answeredAt ?? item.at : item.at;
-        if (what) appended.push({ id: `activity@${item.at}`, at, order: 0, actor: before ? item.answeredBy ?? item.actor : item.actor, what, checks: check(usedRows, unknown(`固定の後の${what} activity@${item.at}（${before ? item.answeredBy : item.actor}、${at}）`, false)) });
+        if (!before) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: "確認依頼" });
+        else if (before.answer !== item.answer) appended.push({ id: `activity@${item.at}`, at: item.answeredAt ?? item.at, order: 0, actor: item.answeredBy ?? item.actor, what: "確認依頼の回答" });
       } else {
-        if (!fixed.has(item.id)) {
-          const normal = item.logKind !== null && ["progress", "test", "command", "plan"].includes(item.logKind);
-          const what = item.logKind ? `作業ログ（${item.logKind}）` : "コメント";
-          appended.push(own.has(item.id) ? { id: `activity:${item.id}`, at: item.at, order: item.id, actor: item.actor, what, checks: [], kept: "親自身の作業ログ" }
-            : normal ? { id: `activity:${item.id}`, at: item.at, order: item.id, actor: item.actor, what, checks: [], kept: "作業ログ（progress・test・command・plan）" }
-            : { id: `activity:${item.id}`, at: item.at, order: item.id, actor: item.actor, what, checks: check(usedRows, unknown(`固定の後の${what} activity:${item.id}（${item.actor}、${item.at}）`, false)) });
-        }
-        // 返信は、親が見張る項目へのものならその証拠を使った行に、それ以外のスレッドへのものなら判定に使った証拠を使ったすべての行に付ける。
         const before = new Set(fixed.get(item.id)?.replies.map(reply => reply.id) ?? []);
-        const watchers = watched.filter(w => w.number === item.id);
-        const replies = item.replies.filter(reply => !before.has(reply.id) && !own.has(reply.id));
-        if (replies.length) for (const w of watchers) affected.add(w.item.id);
-        for (const reply of replies) {
-          const what = `activity:${item.id} への返信`;
-          appended.push({ id: `activity:${reply.id}`, at: reply.at, order: reply.id, actor: reply.actor, what, checks: watchers.length
-            ? watchers.flatMap(w => check(w.item.rows, unknown(`${w.label} への返信 activity:${reply.id}（${reply.actor}、${reply.at}）`, true)))
-            : check(usedRows, unknown(`固定の後の ${what} activity:${reply.id}（${reply.actor}、${reply.at}）`, false)) });
-        }
+        const entries = [
+          ...fixed.has(item.id) ? [] : [{ id: item.id, at: item.at, actor: item.actor, what: item.logKind ? `作業ログ（${item.logKind}）` : "コメント" }],
+          ...item.replies.filter(reply => !before.has(reply.id)).map(reply => ({ id: reply.id, at: reply.at, actor: reply.actor, what: `activity:${item.id} への返信` })),
+        ];
+        for (const entry of entries) appended.push({ id: `activity:${entry.id}`, at: entry.at, order: entry.id, actor: entry.actor, what: entry.what, ...own.has(entry.id) ? { kept: "親自身の記録" as const } : {} });
       }
     }
     appended.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
   }
+  const others = appended.filter(entry => !entry.kept);
   const recheckChecks: RemainingCheck[] = [
     // Activity 以外の判定に使った項目は、取り直した指紋の違いで扱う。
     ...used.filter(item => !item.id.startsWith("activity:") && item.id in changed).flatMap(item => {
@@ -256,15 +243,14 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       const after = current.get(w.number);
       const found = !after ? check(w.item.rows, `証拠の削除（${w.label} が無い）`) : [
         ...sha256(after.body) !== sha256(before.body) ? check(w.item.rows, `証拠の訂正（${w.label} の本文の指紋 ${sha256(before.body).slice(0, 12)} → ${sha256(after.body).slice(0, 12)}）`) : [],
-        ...after.resolvedAt !== before.resolvedAt ? check(w.item.rows, unknown(`${w.label} の解決の状態の変化`, true)) : [],
+        ...after.resolvedAt !== before.resolvedAt ? check(w.item.rows, `対応不明（撤回・訂正の可能性。${w.label} の解決の状態の変化。親は意味を判断しない）`) : [],
       ];
       if (found.length) affected.add(w.item.id);
       return found;
     }),
-    ...appended.flatMap(entry => entry.checks),
+    // 親以外の追記は、どの証拠に関するかを親が決めないので、判定に使った証拠を使ったすべての行に付ける。
+    ...others.flatMap(entry => check(usedRows, `親以外の追記（使用した証拠の有効性を確認できない。親は意味を判断しない。${entry.id}（${entry.what}、${entry.actor}、${entry.at}））`)),
   ];
-  const stopping = appended.filter(entry => !entry.kept);
-  const kept = appended.filter(entry => entry.kept);
   const origins = used.flatMap(item => (item.origins ?? []).map(id => `${id}（${item.id} の参照元）`));
   for (const item of used) if (item.id in changed || (item.origins ?? []).some(id => id in changed)) affected.add(item.id);
   // 受け入れ確認の「未充足」「確かめられず」は、反証の未確認と同じく確認が残る事項としてマージ可否だけを止める。
@@ -382,8 +368,8 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       ...(used.length ? ["", "| 項目 | 種類 | 出典 | 固定時の sha256 | 保存直前の sha256 | 結果 |", "|---|---|---|---|---|---|",
         ...used.map(item => `| ${item.id} | ${item.kind} | ${item.source} | ${item.sha256} | ${item.id in changed ? changed[item.id] ?? "取り直せず" : item.sha256} | ${affected.has(item.id) ? "変化（確認が残る事項）" : "変化なし"} |`), ""] : []),
       `- 取り直した参照元: ${origins.join("、") || "なし"}`,
-      `- 固定の後に足された Activity: ${appended.length} 件（対応不明として確認が残る事項にした ${stopping.length} 件${stopping.length ? `: ${stopping.map(entry => `${entry.id}（${entry.what}、${entry.actor}）`).join("、")}` : ""}。止めない ${kept.length} 件${kept.length ? `: ${[...new Set(kept.map(entry => entry.kept))].map(kind => `${kind} ${kept.filter(entry => entry.kept === kind).length} 件`).join("、")}` : ""}）`,
-      "- 固定の後の追記は書き方（項目の種類・作業ログの種類・返信先）だけで扱いを決め、本文の意味や出典の文字列では選別していない。種類が progress・test・command・plan の作業ログで書かれた撤回は検出しない（既知の限界）。",
+      `- 固定の後に足された Activity: ${appended.length} 件（親以外の追記 ${others.length} 件${others.length ? `: ${others.map(entry => `${entry.id}（${entry.what}、${entry.actor}、${entry.at}）`).join("、")}` : ""}。止めなかった親自身の記録 ${appended.filter(entry => entry.kept === "親自身の記録").length} 件、Issue のイベント ${appended.filter(entry => entry.kept === "Issue のイベント").length} 件）`,
+      "- 親以外の追記は、種類・書いた人・返信先・本文を問わず、使用した証拠の有効性を確認できないものとして、判定に使った証拠を使ったすべての行の確認が残る事項にした。親自身の記録かどうかは書いた人ではなく own-logs の id で決めた。",
       "- この再照合は観測時点までの確認であり、将来の配置状態は保証しない。変化があっても、この実行では新しい証拠へ差し替えて判定し直さず、担当の判定本文・最終状態・点数を変えない。",
     ] : ["対象なし（受け入れ確認担当の有効な結果なし）"]), "",
     "### テスト実行による検証", "",

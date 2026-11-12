@@ -142,33 +142,40 @@ export function runTask2Cli(tool: string, argv: string[]) {
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
             // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
             // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
-            // acceptance-evidence-changed・evidence-retracted・activity-appendedは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
-            // 実装者は写しの前に配置先を記録した作業ログ（evidence/3 の参照元）を残し、写しの後・保存の直前に実装者が経過の作業ログを足した。
+            // acceptance-evidence-changed・others-appended・own-recordsは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
+            // 実装者は写しの前に、配置先を記録した作業ログ（evidence/3 の参照元）と経過の作業ログを残した。レビューの親と実装者は同じ actor（偽workerの子nod）で書く。
             // evidence-changedは、判定に使った外部の正本の変化・添付Documentの訂正に加え、人が配置の記録を取り消すトップレベルのコメントを書いた。
-            // evidence-retractedは、人が出典の文字列を含まない撤回を、別のトップレベルのコメントと配置先を記録した作業ログへの返信で書いた。
-            // activity-appendedは、経過の作業ログのほかに優先度の変更（Issueのイベント）とレビューの親自身のテスト実行の作業ログ（own-logs）だけが足された。
+            // others-appendedは、写しの後に親以外が、実装者の経過とテストの作業ログ、人による配置先の作業ログへの返信（出典の文字列を含まない撤回）、
+            // 人の確認依頼の追加と写しの前からあった確認依頼への回答を足した。レビューの親自身のテスト実行の作業ログ（own-logs）も足された。
+            // own-recordsは、写しの後にレビューの親自身のテスト実行の作業ログとコメント（own-logs）、人による優先度の変更（Issueのイベント）、判定に使っていない経過の作業ログの解決だけが起きた。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
-            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-evidence-retracted" || state.variant === "acceptance-activity-appended";
+            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records";
             const acceptance = state.variant.startsWith("acceptance-");
             const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
             const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
             const deployRow = "requirements/issue.md（対象版の spacing.json を配置先へ置き、current をその版に向ける）";
             const deployLog = external ? nod("issue", "log", "API-1", "配置: /evaluation/deploy/list/current を releases/<head の SHA> に向けた", "--kind", "progress") as { id: number } : null;
-            // 親が受け入れ確認への写しで固定した Activity と、保存の直前に取り直した Activity。
+            const progressLog = external ? nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを整理している", "--kind", "progress") as { id: number } : null;
+            const question = state.variant === "acceptance-others-appended" ? human("issue", "ask", "API-1", "余白の変更をモバイル表示にも適用しますか") as { question: { id: number } } : null;
+            // 親が受け入れ確認への写しで固定した Activity と、保存の直前に取り直した Activity。写しの後に親自身が書いた記録は、nodが返したidを own-logs に記録する。
             const fixedActivity = external ? nod("issue", "show", "API-1").activity : [];
             const ownLogs: number[] = [];
-            if (external) {
-              nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを整理している", "--kind", "progress");
-              if (state.variant === "acceptance-activity-appended") {
-                human("issue", "update", "API-1", "--priority", "high");
-                ownLogs.push(nod("issue", "log", "API-1", `独立レビューのテスト実行: bun test 成功（checkout ${head}）`, "--kind", "test").id);
-              }
-              if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
-              if (state.variant === "acceptance-evidence-retracted") {
-                human("issue", "comment", "API-1", "先ほど添付した配置記録は観測対象を取り違えたため撤回します");
-                human("issue", "comment", "API-1", "この記録は誤りでした。撤回します", "--reply-to", String(deployLog!.id));
-              }
+            if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
+            if (state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records") {
+              ownLogs.push(nod("issue", "log", "API-1", `独立レビューのテスト実行: bun test 成功（checkout ${head}）`, "--kind", "test").id);
+            }
+            if (state.variant === "acceptance-others-appended") {
+              nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを差し替えた", "--kind", "progress");
+              nod("issue", "log", "API-1", "bun test test/list-spacing.test.ts 成功（実装者の確認）", "--kind", "test");
+              human("issue", "comment", "API-1", "この記録は誤りでした。撤回します", "--reply-to", String(deployLog!.id));
+              human("issue", "ask", "API-1", "余白の値はデザインの確定版ですか");
+              human("answer", "API-1", "モバイル表示にも適用する", "--question", String(question!.question.id));
+            }
+            if (state.variant === "acceptance-own-records") {
+              ownLogs.push(nod("issue", "comment", "API-1", "独立レビューの途中経過: 受け入れ確認の結果を受け取り、保存直前の再照合へ進む").id);
+              human("issue", "update", "API-1", "--priority", "high");
+              human("issue", "resolve", "API-1", String(progressLog!.id));
             }
             const currentActivity = external ? nod("issue", "show", "API-1").activity : [];
             state.review = recordInitialReview({
