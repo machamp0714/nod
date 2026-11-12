@@ -6,8 +6,9 @@
 - 定義名: code-reviewer-standards
 - 担当 ID: （分かれば。分からなければ「不明」）
 - モデル申告: （自分で分かる情報と出典。分からなければ「未確認」）
-- 対象版: repo の絶対パス／mode／merge-base の SHA／head の SHA（mode: local なら土台の HEAD と `local/` の各ファイルの sha256）
+- 対象版: 対象リポジトリ（`target.md` の担当用の限定 clone）の絶対パス／mode／merge-base の SHA／head の SHA（mode: local なら土台の HEAD と `local/` の各ファイルの sha256）
 - 要求資料: 読んだ `requirements/` のファイルと、`manifest.md` の sha256 との一致
+- 依存の写し: `target.md` が示す場所、`manifest.md` の lockfile のパスと sha256、`deps-files.sha256` と `manifest.md` の sha256 との一致（準備されていなければ「依存の写しなし」と `manifest.md` の理由）
 - 終了状態: 完了／未確認を含む（未確認の内容は下の節）
 
 ## 規約の一覧と適用判断

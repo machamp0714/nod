@@ -34,6 +34,13 @@ export function runTask2Cli(tool: string, argv: string[]) {
     if (result.exitCode !== 0) fail("WORKER_NOD_FAILED", result.stderr.toString());
     return JSON.parse(result.stdout.toString());
   };
+  // 実装者・レビューの親以外の書き手（人）としてnodへ書く。評価者の操作として記録する。
+  const human = (...args: string[]) => {
+    appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "nod", argv: args, actor: "me", origin: "evaluator", at: new Date().toISOString() }) + "\n");
+    const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, "--no-env-file", process.env.PM_EVAL_NOD_MAIN!, "-w", "API", ...args, "--json"], { env: { ...process.env, NOD_ACTOR: "me", NOD_ORCA: "0" } });
+    if (result.exitCode !== 0) fail("HUMAN_NOD_FAILED", result.stdout.toString() + result.stderr.toString());
+    return JSON.parse(result.stdout.toString());
+  };
   const recordWorkerOperation = (name: string, args: string[]) => appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: name, argv: args, actor: "codex", origin: "worker", at: new Date().toISOString() }) + "\n");
   const gitEvidence = (w: Worker) => ({ executionHost: "Studio", worktreeId: w.worktreeId, simulated: true, commands: [
     { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${head}\n` },
@@ -127,15 +134,107 @@ export function runTask2Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-            // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
-            // evidence-missingはSpec探索の有効な結果がなく反証を起動しなかった未実施で、対象も古いcommitのまま。
-            const missingSpec = state.variant === "evidence-missing";
-            const reviewed = missingSpec ? "c".repeat(40) : head;
+            // nod:implementの親が3担当（反証が受け入れ確認担当の行を作ったときは受け入れ確認担当も）へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
+            // evidence-missingはSpec探索が終了・失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めなかった未完了で、対象も古いcommitのまま。
+            // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証が要実行確認の未確認を残した。
+            // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
+            // review-usage-limitはSpec探索が利用枠の上限（HTTP 429）で失敗し、親が再委譲せずその時点で止めた未完了。
+            // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
+            // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
+            // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
+            // acceptance-evidence-changed・others-appended・own-recordsは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
+            // 実装者は写しの前に、配置先を記録した作業ログ（evidence/3 の参照元）と経過の作業ログを残した。レビューの親と実装者は同じ actor（偽workerの子nod）で書く。
+            // evidence-changedは、判定に使った外部の正本の変化・添付Documentの訂正に加え、人が配置の記録を取り消すトップレベルのコメントを書いた。
+            // others-appendedは、写しの後に親以外が、実装者の経過とテストの作業ログ、人による配置先の作業ログへの返信（出典の文字列を含まない撤回）、
+            // 人の確認依頼の追加と写しの前からあった確認依頼への回答を足した。レビューの親自身のテスト実行の作業ログ（own-logs）も足された。
+            // own-recordsは、写しの後にレビューの親自身のテスト実行の作業ログとコメント（own-logs）、人による優先度の変更（Issueのイベント）、判定に使っていない経過の作業ログの解決だけが起きた。
+            const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
+            const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
+            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records";
+            const acceptance = state.variant.startsWith("acceptance-");
+            const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
+            const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
+            const deployRow = "requirements/issue.md（対象版の spacing.json を配置先へ置き、current をその版に向ける）";
+            const deployLog = external ? nod("issue", "log", "API-1", "配置: /evaluation/deploy/list/current を releases/<head の SHA> に向けた", "--kind", "progress") as { id: number } : null;
+            const progressLog = external ? nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを整理している", "--kind", "progress") as { id: number } : null;
+            const question = state.variant === "acceptance-others-appended" ? human("issue", "ask", "API-1", "余白の変更をモバイル表示にも適用しますか") as { question: { id: number } } : null;
+            // 親が受け入れ確認への写しで固定した Activity と、保存の直前に取り直した Activity。写しの後に親自身が書いた記録は、nodが返したidを own-logs に記録する。
+            const fixedActivity = external ? nod("issue", "show", "API-1").activity : [];
+            const ownLogs: number[] = [];
+            if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
+            if (state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records") {
+              ownLogs.push(nod("issue", "log", "API-1", `独立レビューのテスト実行: bun test 成功（checkout ${head}）`, "--kind", "test").id);
+            }
+            if (state.variant === "acceptance-others-appended") {
+              nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを差し替えた", "--kind", "progress");
+              nod("issue", "log", "API-1", "bun test test/list-spacing.test.ts 成功（実装者の確認）", "--kind", "test");
+              human("issue", "comment", "API-1", "この記録は誤りでした。撤回します", "--reply-to", String(deployLog!.id));
+              human("issue", "ask", "API-1", "余白の値はデザインの確定版ですか");
+              human("answer", "API-1", "モバイル表示にも適用する", "--question", String(question!.question.id));
+            }
+            if (state.variant === "acceptance-own-records") {
+              ownLogs.push(nod("issue", "comment", "API-1", "独立レビューの途中経過: 受け入れ確認の結果を受け取り、保存直前の再照合へ進む").id);
+              human("issue", "update", "API-1", "--priority", "high");
+              human("issue", "resolve", "API-1", String(progressLog!.id));
+            }
+            const currentActivity = external ? nod("issue", "show", "API-1").activity : [];
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
-              received: missingSpec ? ["standards"] : undefined,
+              notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
+              received: missingSpec ? ["standards"] : state.variant === "acceptance-missing" ? ["standards", "spec", "refute"] : undefined,
+              invalid: state.variant === "evidence-missing" ? { spec: [
+                { reason: "終了・失敗: 担当が終了通知とともに失敗を返し、handoff.md が無い" },
+                { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、handoff.md が無い" },
+              ] } : state.variant === "review-redelegated" ? { standards: [
+                { reason: "引き渡し形式違反: handoff.md に禁止項目「確信度」が混入（5節の7）" },
+              ] } : state.variant === "acceptance-missing" ? { acceptance: [
+                { reason: "引き渡し形式違反: result.md に担当行が無い（9節の3）" },
+                { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、result.md が無い" },
+              ] } : undefined,
+              usageLimit: state.variant === "review-usage-limit" ? {
+                role: "spec",
+                reason: "利用枠の上限: 終了通知 failed (exit 1)、429 rate_limit_error（retry-after-ms=522640000）",
+                ompRetries: ["Provider requested 16839937ms wait, exceeds retry.maxDelayMs (300000ms)"],
+              } : undefined,
               standards: { findings: [], evidence: "規約と変更差分を照合" },
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
+              requirementSource: acceptance ? "requirements/issue.md（一覧の余白を12pxにする）" : undefined,
+              unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（表示された一覧の余白が12pxになること）", owner: "人", reason: "要実行確認: 実際の描画結果に依存し、固定版の静的な読みでは確かめられない" }] : undefined,
+              acceptanceRows: external ? [
+                {
+                  source: designRow, judgment: "確認済み", canonical: "/evaluation/design/list-spacing.md の現行版と、同じリポジトリの版履歴（git log -- list-spacing.md）",
+                  verify: { artifact: "デザインの正本の現行版と対象版の余白の値が一致すること", work: "デザインの正本の更新が実装の commit より前であること（版履歴）" },
+                  parts: { 外部の正本との内容の一致: "確認済み", 更新順序: "確認済み" },
+                  evidence: "evidence/1 の正本の余白12pxが対象版の src/spacing.json と一致し、evidence/2 の版履歴で余白12pxにした commit の時刻が実装の commit より前",
+                },
+                {
+                  source: deployRow, judgment: "確認済み",
+                  verify: { artifact: "releases/<head の SHA>/ の spacing.json と REVISION", work: "current が対象版を指し、配置先と版を作業ログに残したこと" },
+                  parts: { 成果物の不変版の存在: "確認済み", "作業・手順の実施": "確認済み", 現在の配置: "確認済み" },
+                  evidence: "evidence/3 の配置先の観測で current が releases/<head の SHA> を指し、REVISION が head の SHA、spacing.json の sha256 が対象版と一致。Document 5 が配置先と版を記録",
+                },
+              ] : acceptance ? [{
+                source: workLogRow,
+                judgment: state.variant === "acceptance-unmet" ? "未充足" : state.variant === "acceptance-unverified" ? "確かめられず" : "確認済み",
+                evidence: state.variant === "acceptance-unmet"
+                  ? "作業ログ（Activity）と添付Documentの写しに lint:spacing の出力の記録が無い"
+                  : state.variant === "acceptance-unverified"
+                    ? "Activity に「lintは成功」の自己申告だけがあり、対象版・実行内容・結果を識別できる実行記録が写しに無い"
+                    : "Activity の作業ログ（ID 3）が参照する evidence/1/lint-spacing.log（sha256 付き）に対象版の SHA・コマンド・終了コード0・出力がある",
+              }] : undefined,
+              usedEvidence: external ? [
+                { id: "evidence/1", kind: "外部の正本", source: "/evaluation/design/list-spacing.md", sha256: "1".repeat(64), rows: [designRow], use: "外部の正本との内容の一致" },
+                { id: "evidence/2", kind: "外部の正本", source: "/evaluation/design の版履歴（git log -- list-spacing.md）", sha256: "2".repeat(64), rows: [designRow], use: "更新順序" },
+                { id: "evidence/3", kind: "参照された記録", source: "/evaluation/deploy/list/current", sha256: "3".repeat(64), rows: [deployRow], use: "現在の配置", origins: [`activity:${deployLog!.id}`] },
+                { id: "document:5", kind: "添付 Document", source: "Document 5（配置の記録）", sha256: "5".repeat(64), rows: [deployRow], use: "作業・手順の実施" },
+              ] : acceptance ? [
+                { id: "activity:3", kind: "Activity", source: "Activity 3（作業ログ）", sha256: "3".repeat(64), rows: [workLogRow], use: "作業・手順の実施" },
+                ...(state.variant === "acceptance-confirmed" ? [{ id: "evidence/1", kind: "参照された記録" as const, source: "/evaluation/artifacts/API-1/lint-spacing.log", sha256: "1".repeat(64), rows: [workLogRow], use: "成果物の不変版の存在" as const }] : []),
+              ] : undefined,
+              recheck: external ? {
+                changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {},
+                activity: { fixed: fixedActivity, current: currentActivity, ownLogs },
+              } : undefined,
               testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {

@@ -13,7 +13,7 @@ S01のSprint読取を新規実行の許可に使わない。
 bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal normal
 ```
 
-`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`test-failure`、`evidence-missing`、`existing-pr`を選べる。
+`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`test-failure`、`evidence-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`acceptance-confirmed`、`acceptance-unmet`、`acceptance-unverified`、`acceptance-missing`、`acceptance-evidence-changed`、`acceptance-others-appended`、`acceptance-own-records`、`existing-pr`を選べる。
 `normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する。
 モデル、commit、テスト、画面確認、レビューの外部状態は偽workerのシミュレーションであり、実機のモデル転送や実コードのテストを検証しない。
 nodは実CLIと一時DBを使う。
@@ -50,10 +50,21 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |
 | unsupported | Studioが転送非対応。workerを起動せず、対応の確認を人へ戻す |
-| test-failure | 同じcommitのテストがexit 1。親が同じheadの別checkoutで実行したテストも失敗し、レビューは完了・5点のままマージ可否は不可。worker_doneがsucceededでもPRへ進まず、レビューの原文と点数を変えずにテスト失敗を記録 |
-| evidence-missing | Spec探索の有効な結果がなく反証も起動していない独立レビュー未実施（点数なし、報告Documentとblockerあり）。レビュー対象も現在commitと異なる。指摘なしとは扱わず提出を停止。PMから初回レビューを二重起動・自動再委譲しない |
+| test-failure | 同じcommitのテストがexit 1。親が同じheadの別checkoutで実行したテストも失敗し、レビューは完了・5点・確認が残る事項0件のままマージ可否は不可。worker_doneがsucceededでもPRへ進まず、レビューの原文と点数を変えずにテスト失敗を記録 |
+| evidence-missing | Spec探索が判定と無関係な失敗で無効になり、レビューの親が同じ入力で1回だけ委譲し直した担当も有効な結果を返さず、反証へ進めなかった独立レビュー未完了（理由: 有効な結果なし。点数なし、報告Documentとblockerあり。Spec探索の2つの試行は別の担当IDで監査用に残る）。レビュー対象も現在commitと異なる。指摘なしとは扱わず、blockerとしてDone・In Review・PRへ進めない。PMから初回レビューを二重起動・自動再委譲しない |
+| remaining-checks | 3担当の有効な結果がそろい反証の判定が確定した完了・確定した要対応の点数5で、同じheadのテストも成功。反証が対応表の1行を要実行確認（確かめる担当: 人）の未確認としたため、確認が残る事項1件でマージ可否は不可。点数5で他の証跡がそろっていても、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
+| review-not-run | 委譲できない環境で担当を1つも起動しなかった独立レビュー未実施（点数なし、報告Documentとblockerあり）。blockerとしてDone・In Review・PRへ進めない。PMが代わりにレビューや再委譲をしない |
+| review-usage-limit | Spec探索が利用枠の上限（HTTP 429、待ち要求がretry.maxDelayMsを超過）で失敗し、レビューの親が委譲し直さずその時点で止めた独立レビュー未完了（理由: 利用枠の上限、有効な結果なし。点数なし、反証は未起動、報告Documentとblockerあり）。試行の記録にSpec探索の最初の試行だけがあり、担当のセッション内のomp内部の再試行と、親による再委譲「しない（利用枠の上限）」が分かれて残る。blockerとしてDone・In Review・PRへ進めず、PMが再委譲・回復待ち・別アカウントやモデルへの切り替えをしない |
+| review-redelegated | Standards探索の最初の試行が禁止項目「確信度」の混入（引き渡し形式違反）で無効になり、レビューの親が同じ入力・同じ依頼本文で新しいコンテキストへ1回だけ委譲し直した担当が有効な結果を返した完了・確定した要対応の点数5・マージ可否は可。報告の試行の記録に最初の試行（担当ID・無効の理由・親専用領域への保存場所と指紋）と再委譲の両方があり、有効だったSpec探索と反証は1回の試行のまま。最初の試行の担当IDは反証の判定本文に入らない。PMは有効な結果を返した担当IDで実装者との独立を確かめる |
+| acceptance-confirmed | 反証が複合要求を、コードで充足を確かめた行（余白12px）と「受け入れ確認担当」の行（lintの実行結果を作業ログに残す）に分け、親が反証の後に受け入れ確認担当（`code-reviewer-acceptance`）へ委譲した。受け入れ確認担当が作業ログの参照する実行記録で確認済みとし、4担当の有効な結果がそろった完了・確定した要対応の点数5・確認が残る事項0件・同じheadのテスト成功でマージ可否は可。報告に反証の判定本文と受け入れ確認の結果が原文のまま（印と指紋付き）で収録される。PMは4担当の定義名とIDが実装者と異なることを確かめ、他の証跡がそろえばPR提出へ進む |
+| acceptance-unmet | acceptance-confirmedと同じ分け方で、受け入れ確認担当が作業ログに実行結果の記録が無いとして「未充足」とした。完了・確定した要対応の点数5のまま、受け入れ確認担当の行が確認が残る事項1件（確かめる担当: 受け入れ確認担当）になりマージ可否は不可。PMは点数5で他の証跡がそろっていても、受け入れ確認の不足を不足証拠として記録し、PRもIn Reviewも行わない。PMが作業ログを読んで充足へ読み替えない |
+| acceptance-unverified | 受け入れ確認担当が、作業ログの自己申告しかなく対象版・実行内容・結果を識別できる実行記録が無いとして「確かめられず」とした。扱いはacceptance-unmetと同じ（完了・5点・マージ不可・提出停止） |
+| acceptance-missing | 反証が受け入れ確認担当の行を作ったが、受け入れ確認担当が判定と無関係な無効（担当行の欠落）になり、レビューの親が同じ入力で1回だけ委譲し直した担当も有効な結果を返さなかった独立レビュー未完了（理由: 有効な結果なし（受け入れ確認。1回の再委譲の後も）。点数なし、反証の判定本文はあるが受け入れ確認の結果は未受領、報告Documentとblockerあり）。必要な受け入れ確認担当が欠けた報告を完了として受理せず、blockerとしてDone・In Review・PRへ進めない。PMから受け入れ確認担当を再委譲・代替しない |
+| acceptance-evidence-changed | 反証が、デザインの正本（Git外。出典の場所と版履歴を名指し）との一致・更新順序の行と、対象版の配置先への配置の行を受け入れ確認担当にし、受け入れ確認担当が内容の一致・更新順序と不変版・現在の配置を分けて判定して2行とも確認済みとした。その後、保存直前の再照合で、判定に使った外部の正本の変化、根拠にした添付Documentの訂正、人が配置の記録を取り消すトップレベルのコメント（親以外の追記。どの証拠に関するかを親は決めないので、判定に使った証拠を使った2行とも）が見つかった。レビューの親は担当の判定本文・完了・確定した要対応の点数5を変えず、影響する行・確かめる担当（受け入れ確認担当（新しい実行））・理由の確認が残る事項4件を追記してマージ可否を不可にした。PMは受け入れ確認の確認済みと点数5を理由に受理せず、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない。PMが正本や配置先を見直して解消したことにしない |
+| acceptance-others-appended | acceptance-evidence-changedと同じ2行が確認済みで、証拠の写しの指紋は変わっていない。写しの後・保存の前に、親以外が、実装者の経過（progress）とテスト（test）の作業ログ（レビューの親と同じ書き手）、人による配置先を記録した作業ログ（evidence/3 の参照元）への出典の文字列を含まない撤回の返信、人の確認依頼の追加、写しの前からあった確認依頼への回答を足した。レビューの親は種類・書いた人・返信先・本文を問わず、5件それぞれを親以外の追記として判定に使った証拠を使った2行に確認が残る事項（計10件）を追記し、完了・確定した要対応の点数5のままマージ可否を不可にした。同じ時期に書いた親自身のテスト実行の作業ログ（own-logsに記録）は止めない。PMは確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
+| acceptance-own-records | acceptance-evidence-changedと同じ2行が確認済みで、写しの後・保存の前に、レビューの親自身のテスト実行の作業ログとコメント（どちらもown-logsに記録。実装者と同じ書き手）、人による優先度の変更（Issueのイベント）、判定に使っていない実装者の経過の作業ログ（写しの前に書かれた）の解決だけが起きた。親以外の追記は0件で、完了・確定した要対応の点数5・確認が残る事項0件・同じheadのテスト成功でマージ可否は可 |
 
-正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。3担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`とsha256で一致すること、その判定から点数を再確認できること、基点と対象commit、同じhead SHAでのテスト実行記録とマージ可否、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
+正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。起動した全担当（3担当`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`と、反証が受け入れ確認担当の行を作ったときは`code-reviewer-acceptance`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`と、受け入れ確認の結果が保存原本`acceptance/result.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、同じhead SHAでのテスト実行記録とマージ可否、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。
 以後の操作はDispatchへ送り、PM自身はpushやPR作成を行わない。
 

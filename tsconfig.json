@@ -9,6 +9,6 @@
     "types": ["bun"],
     "noEmit": true
   },
-  "include": ["packages/*/src", "packages/*/test", "plugins/nod/skills/pm/evals", "plugins/nod/evals", "plugins/nod/skills/to-spec/scripts"],
+  "include": ["packages/*/src", "packages/*/test", "plugins/nod/skills/pm/evals", "plugins/nod/evals", "plugins/nod/skills/to-spec/scripts", "plugins/nod/skills/code-review/scripts"],
   "exclude": ["packages/web"]
 }
