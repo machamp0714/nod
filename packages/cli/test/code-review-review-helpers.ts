@@ -158,4 +158,89 @@ export function tempNod(s: Sandbox): TempNod {
   return { db, docs, env, run: (args, cwd) => runNod(args, { cwd, db, env: { NOD_DOCS_DIR: docs, HOME: s.home } }) };
 }
 
+// 評価用の事例（nod を使わない固定資料）から prepare を実行し、委譲できる作業ディレクトリ W を作る。依存の写しは偽の bun で準備する
+export interface PreparedWork {
+  W: string;
+  repo: string;
+  base: string;
+  head: string;
+  clone: string;
+}
+
+export const CASE_REQUIREMENTS: Record<string, string> = {
+  "issue.md": "# 要求の Issue\n\n- a は 1 を返す\n- 失敗を記録する\n",
+  "workspace-rules.md": "# 規約\n\n- 日本語で書く\n",
+};
+
+export async function prepareCaseWork(s: Sandbox, name = "run"): Promise<PreparedWork> {
+  const repo = makeGitRepo(s, `app-${name}`);
+  const base = gitOut(repo, "rev-parse", "HEAD");
+  fakePackageManager(s, "bun");
+  const head = commit(repo, { "bun.lock": '{ "lockfileVersion": 1 }\n', "src/a.ts": "export const a = 1;\n" });
+  const dir = join(s.t, `dataset/inputs/${name}`);
+  const caseMd = ["# 対象", "", "- 対象リポジトリ: `/old/place/app`", `- 基点の指定: \`${base}\``, `- merge-base: \`${base}\``, `- head: \`${head}\``, "- mode: `commit`", "- Issue: NOD-1", "- 計画の出典: なし", ""].join("\n");
+  const files: Record<string, string> = { "case.md": caseMd };
+  for (const [p, b] of Object.entries(CASE_REQUIREMENTS)) files[`requirements/${p}`] = b;
+  for (const [p, b] of Object.entries(files)) put(join(dir, p), b);
+  const table = Object.entries(files).map(([p, b]) => `| \`${p}\` | \`${sha256(b)}\` | 出典 |`);
+  put(join(dir, "manifest.md"), ["# 入力の指紋", "", "| ファイル | sha256 | 出典 |", "|---|---|---|", ...table, "", "## 取得できなかった資料と理由", "", "- なし", ""].join("\n"));
+  const W = join(s.t, "work", name);
+  const r = await runReview<{ ready: boolean }>("prepare", ["--work", W, "--case", dir, "--repo", repo], s);
+  if (r.exitCode !== 0 || !r.json?.ready) throw new Error(`prepare が準備完了を返しません: ${r.stdout}${r.stderr}`);
+  return { W, repo, base, head, clone: join(W, "repo") };
+}
+
+// 探索の候補1件（SKILL.md 4節の必須項目）。overrides で値を変え、null の項目は書かない
+export function candidateBlock(id: string, overrides: Record<string, string | null> = {}): string {
+  const fields: Record<string, string | null> = {
+    軸: "Standards",
+    場所: "`src/a.ts@HEAD:L1-L1`",
+    起点: "今回の差分",
+    到達条件: "a() を呼ぶ",
+    期待動作: "1 を返す",
+    破綻: "呼出元が 1 以外を受け取る",
+    影響: "呼出元の集計が誤る",
+    証拠: "`src/a.ts@HEAD:L1-L1` の `x | y` の分岐",
+    契約の出典: "`requirements/issue.md:L3`",
+    "関連する要求・契約": "なし",
+    ...overrides,
+  };
+  const lines = Object.entries(fields)
+    .filter((e): e is [string, string] => e[1] !== null)
+    .map(([k, v]) => `- ${k}: ${v}`);
+  return [`### ${id}`, "", ...lines, ""].join("\n");
+}
+
+// 雛形（assets/standards-handoff.md・assets/spec-handoff.md）どおりの探索の引き渡し。検査に通る形を既定にする
+export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts: { candidates?: string[]; table?: string[] } = {}): string {
+  const std = role === "standards";
+  const candidates = opts.candidates ?? [candidateBlock(std ? "STD-1" : "SPC-1", std ? {} : { 軸: "Spec" })];
+  const table = opts.table ?? [
+    "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
+    "| `requirements/issue.md:L3` | 未確認 | `a | b` と x|y の分岐を確かめられない（要実行確認、確かめる担当: 人） | SPC-1 |",
+    "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
+    "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
+  ];
+  const head = [
+    `# ${std ? "Standards" : "Spec"} 探索の引き渡し`,
+    "",
+    "## 担当と対象",
+    "",
+    `- 役割: ${std ? "Standards" : "Spec"} 探索`,
+    `- 定義名: code-reviewer-${role}`,
+    "- 担当 ID: 不明",
+    "- モデル申告: 未確認",
+    `- 対象版: \`${p.clone}\`／commit／merge-base \`${p.base}\`／head \`${p.head}\``,
+    "- 要求資料: `requirements/issue.md`・`requirements/workspace-rules.md`（manifest.md の sha256 と一致）",
+    `- 依存の写し: \`${p.W}/deps/\`、\`bun.lock\`（manifest.md と一致）`,
+    "- 終了状態: 未確認を含む",
+    "",
+  ];
+  const middle = std
+    ? ["## 規約の一覧と適用判断", "", "| 規約の出典 | 適用 | 今回の差分への適用の理由 |", "|---|---|---|", "| `requirements/workspace-rules.md:L3` | 必須 | 差分の文書に適用 |", ""]
+    : ["## 要求資料の判別", "", "該当なし", "", "## 要求ごとの対応表", "", "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |", "|---|---|---|---|", ...table, ""];
+  const tail = ["## 候補", "", ...(candidates.length > 0 ? candidates : ["候補0件", ""]), "## 探索上の不足・未確認", "", "なし", "", "## 判断を見送った事項", "", "なし", ""];
+  return [...head, ...middle, ...tail].join("\n");
+}
+
 export { git, registerRepo };

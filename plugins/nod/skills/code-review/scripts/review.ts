@@ -5,7 +5,13 @@
 //     --repo <絶対パス> --base <基点の指定> (--mode commit --head <SHA か ref> [--pr <URL>] | --mode local [--untracked <相対パス>]...)
 //     [--issue <ID> | --request <絶対パス>... | --request-doc <Document ID>...] [--work <W（存在しないか空）> | --work-root <絶対パス>]
 //     評価用の事例: --case <常設データセットの inputs/<case-id> の絶対パス> [--repo <絶対パス>]（nod を使わず case.md と requirements/ から作る）
-//     W の既定は $HOME/.local/share/nod/code-reviews/<小文字の uuid>。後の段階は cloneChecks・depsFingerprint・inputFingerprint で同一性を確かめ直す
+//     W の既定は $HOME/.local/share/nod/code-reviews/<小文字の uuid>。後の段階は checkIdentity（段階名を受ける）で同一性を確かめ直す
+//   agent（parent.md 4節）: --work <W> --role standards|spec|refute|acceptance --event start|received [--agent-id <担当 ID>]
+//     委譲の開始（委譲の直前）と最終返答の受領の時刻・試行の番号・担当 ID を parent/agents.md（と agents.json）に記録する
+//   check-explore（5節）: --work <W> --role standards|spec。引き渡し用ファイルの形式と参照、同一性を機械的に検査し、parent/checks.md（と checks.json）に書く
+//   retire-attempt（4.1節）: --work <W> --role <役割> --failure invalid|usage-limit|aborted --reason <無効の理由> [--retries <omp 内部の再試行>]
+//     最新の試行を parent/attempts/<役割>-<n>/ へ隔離し、同じ入力を確かめて parent/attempts.md（と attempts.json）に書き、委譲し直せるかを返す
+//   refute-input（6節）: --work <W>。合格した両探索の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json に書く。
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
 // 外部コマンド: nod は NOD_CLI（無ければ nod）、git・tar とパッケージ管理（bun・npm・pnpm・yarn・node）は PATH から起動する。
@@ -22,6 +28,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   type Stats,
   symlinkSync,
@@ -130,11 +137,22 @@ function walkEntries(dir: string): Entry[] {
   return out.sort((a, b) => Buffer.compare(Buffer.from(a.rel), Buffer.from(b.rel)));
 }
 
-// parent.md の `find . -type f [! -path ./<exclude>] -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256` と同じ一覧
-export function fileFingerprint(dir: string, exclude?: string): string {
+export interface FileHash {
+  path: string;
+  sha256: string;
+}
+
+// dir の配下の通常のファイル（リンクは数えない）の相対パスと sha256 を、find . の表記のバイト順で
+export function fingerprintList(dir: string, exclude?: string): FileHash[] {
   return walkEntries(dir)
     .filter((e) => e.kind === "file" && e.rel !== `./${exclude}`)
-    .map((e) => `${sha256(readFileSync(e.path))}  ${e.rel}\n`)
+    .map((e) => ({ path: e.rel.slice(2), sha256: sha256(readFileSync(e.path)) }));
+}
+
+// parent.md の `find . -type f [! -path ./<exclude>] -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256` と同じ一覧
+export function fileFingerprint(dir: string, exclude?: string): string {
+  return fingerprintList(dir, exclude)
+    .map((f) => `${f.sha256}  ./${f.path}\n`)
     .join("");
 }
 
@@ -147,15 +165,8 @@ export function depsFingerprint(depsDir: string): string {
 }
 
 // 共通入力の指紋（manifest.md 自身を除く input/ の各ファイル）。後の段階では作り直して prepare の inputs と比べる
-export function inputFingerprint(work: string): { path: string; sha256: string }[] {
-  return fileFingerprint(join(work, "input"), "manifest.md")
-    .trimEnd()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [hash = "", rel = ""] = line.split(/ {2}\.\//);
-      return { path: rel, sha256: hash };
-    });
+export function inputFingerprint(work: string): FileHash[] {
+  return fingerprintList(join(work, "input"), "manifest.md");
 }
 
 // ---- 限定 clone ----
@@ -878,9 +889,685 @@ function prepare(args: string[]): Outcome {
   return { work, result };
 }
 
+// ---- 担当・試行・段階ごとの同一性（parent.md 4〜6節。記録は親専用領域） ----
+
+export type Role = "standards" | "spec" | "refute" | "acceptance";
+// 同一性を確かめ直す段階。反証・受け入れ確認では、その担当への入力の写しも比べる
+export type Stage = "explore" | "refute" | "acceptance";
+
+const ROLES: Record<Role, { name: string; definition: string; output: string; stage: Stage }> = {
+  standards: { name: "Standards 探索", definition: "code-reviewer-standards", output: "handoff.md", stage: "explore" },
+  spec: { name: "Spec 探索", definition: "code-reviewer-spec", output: "handoff.md", stage: "explore" },
+  refute: { name: "反証", definition: "code-reviewer-refute", output: "verdict.md", stage: "refute" },
+  acceptance: { name: "受け入れ確認", definition: "code-reviewer-acceptance", output: "result.md", stage: "acceptance" },
+};
+const STAGE_NAMES: Record<Stage, string> = { explore: "探索", refute: "反証", acceptance: "受け入れ確認" };
+// 段階ごとの担当への入力の写し。写しを作るサブコマンドは、出力（parent/<ディレクトリ名>.json）の files に写しの全ファイルの sha256 を、ready に固定できたかを書く
+const STAGE_COPIES: Partial<Record<Stage, string>> = { refute: "refute-input", acceptance: "acceptance-input" };
+
+const FAILURES = { invalid: "判定と無関係な無効", "usage-limit": "利用枠の上限", aborted: "利用者による中止" } as const;
+type Failure = keyof typeof FAILURES;
+const REFUTE_UNFIXED = "反証への入力を固定できず、反証の有効な結果なし";
+
+interface Prepared {
+  ready: boolean;
+  repo: string;
+  head: string;
+  mergeBase: string;
+  clone: { checks: CloneCheck[] } | null;
+  deps: { prepared: boolean } | null;
+  inputs: FileHash[];
+  manifestSha256: string | null;
+}
+
+export interface AgentRecord {
+  role: Role;
+  roleName: string;
+  definition: string;
+  attempt: number;
+  agentId: string | null;
+  // 委譲の開始（親が委譲する直前）と、親が次の工程へ進める最終返答を受け取った時刻（ISO 8601、UTC）
+  startedAt: string;
+  receivedAt: string | null;
+}
+
+export interface IdentityItem {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface Identity {
+  stage: Stage;
+  trigger: string;
+  at: string;
+  ok: boolean;
+  items: IdentityItem[];
+}
+
+export interface Violation {
+  // parent.md の検査の番号（探索は5節、反証は7節、受け入れ確認は9節）
+  no: number;
+  message: string;
+}
+
+export interface CheckRecord {
+  stage: Stage;
+  role: Role;
+  roleName: string;
+  definition: string;
+  attempt: number;
+  agentId: string | null;
+  file: string;
+  sha256: string | null;
+  valid: boolean;
+  items: { no: number; name: string; ok: boolean }[];
+  violations: Violation[];
+  identity: Identity;
+  // 担当のサブディレクトリの各ファイル（検査した時点）
+  files: FileHash[];
+  // 機械検査の外で親が確かめること
+  parent: string;
+  checkedAt: string;
+}
+
+export interface AttemptRecord {
+  role: Role;
+  roleName: string;
+  definition: string;
+  attempt: number;
+  agentId: string | null;
+  failure: Failure;
+  failureLabel: string;
+  reason: string;
+  retries: string;
+  movedTo: string;
+  files: FileHash[];
+  identity: Identity;
+  redelegate: boolean;
+  status: "未完了" | null;
+  finalReason: string | null;
+  retiredAt: string;
+}
+
+const cell = (s: string) => s.replaceAll("|", "\\|").replace(/\s*\n\s*/g, " ");
+
+function readPrepared(work: string): Prepared {
+  const file = join(work, "parent/prepare.json");
+  const prep = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Prepared) : null;
+  if (!prep?.ready) throw new UsageError(`prepare が準備完了を返した作業ディレクトリを --work に指定してください: ${work}`);
+  return prep;
+}
+
+function loadWork(o: Options): { work: string; prep: Prepared } {
+  const work = absolute("work", o.one.get("work"));
+  if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
+  return { work, prep: readPrepared(work) };
+}
+
+function roleOf(value: string | undefined, allowed: readonly Role[]): Role {
+  if (!allowed.includes(value as Role)) throw new UsageError(`--role は ${allowed.join("・")} のどれかにしてください: ${value ?? "なし"}`);
+  return value as Role;
+}
+
+// parent/<name>.json の記録の一覧（Markdown の parent/<name>.md はこの一覧から作り直す）
+function loadList<T>(work: string, name: string): T[] {
+  const file = join(work, "parent", `${name}.json`);
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T[]) : [];
+}
+
+function saveList<T>(work: string, name: string, list: T[], markdown: string): void {
+  writeFileSync(join(work, "parent", `${name}.json`), `${JSON.stringify(list, null, 2)}\n`);
+  writeFileSync(join(work, "parent", `${name}.md`), markdown);
+}
+
+function compareFiles(expected: FileHash[], actual: FileHash[]): string[] {
+  const got = new Map(actual.map((f) => [f.path, f.sha256]));
+  const want = new Map(expected.map((f) => [f.path, f.sha256]));
+  const out: string[] = [];
+  for (const [path, hash] of want) if (got.get(path) !== hash) out.push(`${path}（記録 ${hash}、今 ${got.get(path) ?? "無い"}）`);
+  for (const path of got.keys()) if (!want.has(path)) out.push(`${path}（記録に無いファイル）`);
+  return out;
+}
+
+// 段階の境目での同一性の確認（parent.md 4.1節の2の3、5節の8、7節の7、9節の6）。共通入力・依存の写し・限定 clone を prepare の記録と比べ、
+// 反証・受け入れ確認では担当への入力の写し（STAGE_COPIES）も、写したときの記録と比べる。結果を parent/identity.md（と identity.json）に足して返す
+export function checkIdentity(work: string, stage: Stage, trigger: string): Identity {
+  const prep = readPrepared(work);
+  const items: IdentityItem[] = [];
+  const inputs = compareFiles([...prep.inputs, { path: "manifest.md", sha256: prep.manifestSha256 ?? "" }], fingerprintList(join(work, "input")));
+  items.push({ name: "共通入力（input/ の各ファイルと manifest.md の sha256 が prepare の記録と一致）", ok: inputs.length === 0, detail: inputs.join("・") || "一致" });
+  const depsDir = join(work, "deps");
+  if (prep.deps?.prepared) {
+    const listFile = join(work, "input/deps-files.sha256");
+    const recorded = existsSync(listFile) ? readFileSync(listFile, "utf8") : "";
+    const rebuilt = depsFingerprint(depsDir);
+    const was = new Set(recorded.split("\n").filter(Boolean));
+    const now_ = new Set(rebuilt.split("\n").filter(Boolean));
+    const differ = [...[...was].filter((l) => !now_.has(l)).map((l) => `記録だけ: ${l}`), ...[...now_].filter((l) => !was.has(l)).map((l) => `今だけ: ${l}`)];
+    items.push({
+      name: "依存の写し（指紋の一覧を作り直して input/deps-files.sha256 と一致）",
+      ok: recorded !== "" && recorded === rebuilt,
+      detail: differ.length > 0 ? differ.slice(0, 10).join("・") : recorded === rebuilt ? `一致（${now_.size} 行）` : "並びが違う",
+    });
+  } else {
+    const exists = existsSync(depsDir);
+    items.push({ name: "依存の写し（準備していないので deps/ が無い）", ok: !exists, detail: exists ? "deps/ がある" : "無い" });
+  }
+  const origins = [prep.repo, ...(existsSync(prep.repo) ? [realpathSync(prep.repo)] : [])];
+  const before = new Map((prep.clone?.checks ?? []).map((c) => [c.name, c]));
+  const differ = cloneChecks(join(work, "repo"), prep.head, prep.mergeBase, origins)
+    .filter((c) => before.get(c.name)?.ok !== c.ok || before.get(c.name)?.output !== c.output)
+    .map((c) => `${c.name}（prepare: ${before.get(c.name)?.output ?? "記録なし"}、今: ${c.output}）`);
+  items.push({ name: "限定 clone（2.1節の確認をやり直して prepare の結果と一致）", ok: differ.length === 0, detail: differ.join("・") || "一致" });
+  const copy = STAGE_COPIES[stage];
+  if (copy) {
+    const file = join(work, "parent", `${copy}.json`);
+    const record = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { ready?: boolean; files?: FileHash[] }) : null;
+    const diffs = record?.ready && record.files ? compareFiles(record.files, fingerprintList(join(work, copy))) : [`写しの記録（parent/${copy}.json の準備完了）が無い`];
+    items.push({ name: `${copy}/（各ファイルの sha256 が写したときの記録と一致）`, ok: diffs.length === 0, detail: diffs.join("・") || "一致" });
+  }
+  const result: Identity = { stage, trigger, at: now(), ok: items.every((i) => i.ok), items };
+  const list = [...loadList<Identity>(work, "identity"), result];
+  const md = ["# 段階ごとの同一性の確認", ""];
+  for (const r of list) {
+    md.push(`## ${r.at} ${STAGE_NAMES[r.stage]}（${r.trigger}）: ${r.ok ? "一致" : "不一致"}`, "", "| 確認 | 結果 | 詳細 |", "|---|---|---|");
+    md.push(...r.items.map((i) => `| ${cell(i.name)} | ${i.ok ? "一致" : "不一致"} | ${cell(i.detail)} |`), "");
+  }
+  saveList(work, "identity", list, md.join("\n"));
+  return result;
+}
+
+function renderAgents(list: AgentRecord[]): string {
+  return [
+    "# 担当と試行",
+    "",
+    "委譲の開始は親が委譲する直前、最終返答の受領は親が次の工程へ進める最終返答を受け取った時点に、review.ts agent が記録した時刻（ISO 8601、UTC）。",
+    "",
+    "| 役割 | 定義名 | 試行 | 担当 ID | 委譲の開始 | 最終返答の受領 |",
+    "|---|---|---|---|---|---|",
+    ...list.map((a) => `| ${a.roleName} | ${a.definition} | ${a.attempt} | ${cell(a.agentId ?? "不明")} | ${a.startedAt} | ${a.receivedAt ?? "未受領"} |`),
+    "",
+  ].join("\n");
+}
+
+function renderAttempts(list: AttemptRecord[]): string {
+  const out = [
+    "# 無効な試行",
+    "",
+    "omp 内部の再試行は担当のセッションの中でハーネスが行った retry で、親による再委譲（試行の番号）とは別に書く。",
+    "",
+    "| 役割 | 定義名 | 試行 | 担当 ID | 失敗の種類 | 無効の理由 | omp 内部の再試行 | 隔離先 | 同じ入力 | 委譲し直し |",
+    "|---|---|---|---|---|---|---|---|---|---|",
+    ...list.map(
+      (a) =>
+        `| ${a.roleName} | ${a.definition} | ${a.attempt} | ${cell(a.agentId ?? "不明")} | ${a.failureLabel} | ${cell(a.reason)} | ${cell(a.retries)} | \`${a.movedTo}\` | ${a.identity.ok ? "一致" : "不一致"} | ${a.redelegate ? "する" : `しない（${a.status}、理由: ${a.finalReason}）`} |`,
+    ),
+    "",
+  ];
+  for (const a of list) {
+    out.push(`## ${a.roleName} 試行 ${a.attempt}（${a.retiredAt}）`, "", "### 同じ入力の確認", "");
+    out.push(...a.identity.items.map((i) => `- ${i.name}: ${i.ok ? "一致" : "不一致"}（${i.detail}）`), "", "### 隔離したファイルの sha256", "", "```text");
+    out.push(...a.files.map((f) => `${f.sha256}  ./${f.path}`), "```", "");
+  }
+  return out.join("\n");
+}
+
+function renderChecks(list: CheckRecord[]): string {
+  const out = ["# 検査の記録", "", "担当の出力を書き換えずに検査した結果。sha256 は検査した時点のもの。", ""];
+  for (const c of list) {
+    out.push(`## ${c.checkedAt} ${STAGE_NAMES[c.stage]}: ${c.roleName}（${c.definition}）試行 ${c.attempt}（${c.valid ? "合格" : "不合格"}）`, "");
+    out.push(`- 担当 ID: ${c.agentId ?? "不明"}`, `- 検査したファイル: \`${c.file}\`（sha256 \`${c.sha256 ?? "無い"}\`）`, `- 親が確かめること: ${c.parent}`, "");
+    out.push("| 番号 | 確認 | 結果 |", "|---|---|---|", ...c.items.map((i) => `| ${i.no} | ${cell(i.name)} | ${i.ok ? "合格" : "不合格"} |`), "");
+    out.push("### 違反", "", ...(c.violations.length > 0 ? c.violations.map((v) => `- ${v.no}: ${v.message}`) : ["- なし"]), "");
+    out.push("### 担当のサブディレクトリの sha256", "", "```text", ...c.files.map((f) => `${f.sha256}  ./${f.path}`), "```", "");
+  }
+  return out.join("\n");
+}
+
+// 役割の最新の試行（隔離済みなら引数の誤り）
+function currentAttempt(work: string, role: Role): AgentRecord {
+  const last = loadList<AgentRecord>(work, "agents")
+    .filter((a) => a.role === role)
+    .at(-1);
+  if (!last) throw new UsageError(`${ROLES[role].name} の委譲が記録されていません（agent --event start で記録してから）`);
+  if (loadList<AttemptRecord>(work, "attempts").some((a) => a.role === role && a.attempt === last.attempt)) {
+    throw new UsageError(`${ROLES[role].name} の試行 ${last.attempt} は無効として隔離済みです`);
+  }
+  return last;
+}
+
+function agent(args: string[]): Outcome {
+  const o = parseOptions(args, ["work", "role", "event", "agent-id"], []);
+  const { work } = loadWork(o);
+  const role = roleOf(o.one.get("role"), Object.keys(ROLES) as Role[]);
+  const r = ROLES[role];
+  const event = o.one.get("event");
+  const id = o.one.get("agent-id") ?? null;
+  const agents = loadList<AgentRecord>(work, "agents");
+  const attempts = loadList<AttemptRecord>(work, "attempts");
+  const last = agents.filter((a) => a.role === role).at(-1);
+  let record: AgentRecord;
+  if (event === "start") {
+    const stop = attempts.find((a) => a.failure !== "invalid");
+    if (stop) throw new UsageError(`${stop.failureLabel}（${stop.roleName}）で止めたので、どの担当も起動・委譲し直ししません`);
+    if (last && !attempts.find((a) => a.role === role && a.attempt === last.attempt)?.redelegate) {
+      throw new UsageError(`${r.name} を委譲し直せるのは、retire-attempt が委譲し直してよいと返した試行の後の1回だけです（最新の試行 ${last.attempt}）`);
+    }
+    if (role === "refute") {
+      const file = join(work, "parent/refute-input.json");
+      if (!existsSync(file) || !(JSON.parse(readFileSync(file, "utf8")) as { ready?: boolean }).ready) throw new UsageError("refute-input が準備完了を返していないので、反証を起動しません");
+    }
+    record = { role, roleName: r.name, definition: r.definition, attempt: (last?.attempt ?? 0) + 1, agentId: id, startedAt: now(), receivedAt: null };
+    agents.push(record);
+  } else if (event === "received") {
+    if (!last) throw new UsageError(`${r.name} の委譲の開始が記録されていません`);
+    if (last.receivedAt) throw new UsageError(`${r.name} の試行 ${last.attempt} の受領は記録済みです`);
+    if (id && last.agentId && id !== last.agentId) throw new UsageError(`担当 ID が委譲の開始の記録（${last.agentId}）と違います: ${id}`);
+    last.agentId = id ?? last.agentId;
+    last.receivedAt = now();
+    record = last;
+  } else throw new UsageError("--event は start（委譲の直前）か received（最終返答の受領）にしてください");
+  saveList(work, "agents", agents, renderAgents(agents));
+  return { work, result: { ...record } };
+}
+
+// ---- 探索の引き渡しの機械検査（parent.md 5節。本文への禁止情報の混入と担当の返答は親が確かめる） ----
+
+const STATES = new Set(["充足", "未充足", "未確認", "説明", "自動チェック担当", "受け入れ確認担当", "対象外"]);
+const TARGET_FIELDS = ["役割", "定義名", "対象版", "要求資料", "依存の写し", "終了状態"];
+const CANDIDATE_FIELDS = ["軸", "場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠"];
+const TABLE_HEADER = ["要求の出典", "状態", "証拠または不足理由", "候補ID"];
+const FORBIDDEN = ["重大度", "確信度", "要約", "推論", "総合判断", "原因の統合", "severity", "confidence", "summary"];
+const FENCE = /^\s*(```|~~~)/;
+const SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+// 箇条書きの項目名（`- 名前: 値`、`**名前**:` も）
+const FIELD = /^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*)?([^:：*]{1,40}?)(?:\*\*)?\s*[:：][ \t]*(.*)$/;
+const plain = (s: string) => s.replace(/[*`]/g, "").trim();
+
+interface Section {
+  title: string;
+  body: string[];
+}
+
+// 深さ level の見出しごとの節（コードブロックの中の # は見出しにしない）。本文にはより深い見出しを含む
+function sectionsOf(lines: string[], level: number): Section[] {
+  const out: Section[] = [];
+  let cur: Section | null = null;
+  let fence = false;
+  for (const line of lines) {
+    if (FENCE.test(line)) fence = !fence;
+    const h = fence ? null : /^(#{1,6})\s+(.*?)\s*$/.exec(line);
+    const depth = h?.[1]?.length ?? 7;
+    if (h && depth <= level) {
+      cur = depth === level ? { title: plain(h[2] ?? ""), body: [] } : null;
+      if (cur) out.push(cur);
+      continue;
+    }
+    cur?.body.push(line);
+  }
+  return out;
+}
+
+// 字下げの無い `- 名前: 値` の項目（続く字下げの行は値の続き）。同じ名前は最初のものだけ
+function fieldsOf(body: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  let key: string | null = null;
+  for (const line of body) {
+    const m = /^\S/.test(line) ? FIELD.exec(line) : null;
+    if (m) {
+      const name = plain(m[1] ?? "");
+      key = map.has(name) ? null : name;
+      if (key) map.set(key, (m[2] ?? "").trim());
+    } else if (key && /^\s+\S/.test(line)) map.set(key, `${map.get(key) ?? ""}\n${line.trim()}`.trim());
+    else key = null;
+  }
+  return map;
+}
+
+// 表の1行のセル。バッククォートのコードの中と `\|` の | は区切りにしない（コードが閉じていなければ、すべての | で区切る）
+function splitRow(line: string): string[] {
+  const parse = (code: boolean) => {
+    let s = line.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+    const cells: string[] = [];
+    let cur = "";
+    let tick = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s.charAt(i);
+      if (ch === "\\" && s.charAt(i + 1) === "|") {
+        cur += "|";
+        i++;
+      } else if (code && ch === "`") {
+        let n = 1;
+        while (s.charAt(i + n) === "`") n++;
+        tick = tick === 0 ? n : tick === n ? 0 : tick;
+        cur += "`".repeat(n);
+        i += n - 1;
+      } else if (ch === "|" && tick === 0) {
+        cells.push(cur.trim());
+        cur = "";
+      } else cur += ch;
+    }
+    cells.push(cur.trim());
+    return { cells, closed: tick === 0 };
+  };
+  const withCode = parse(true);
+  return withCode.closed ? withCode.cells : parse(false).cells;
+}
+
+// 見出しが header と同じ最初の表の、区切りの行より後の各行のセル。表が無ければ null
+function tableRows(body: string[], header: string[]): string[][] | null {
+  const norm = (cells: string[]) => cells.map((c) => plain(c).replace(/\s+/g, "")).join("|");
+  for (let i = 0; i + 1 < body.length; i++) {
+    const line = body[i] ?? "";
+    if (!line.trim().startsWith("|") || !SEPARATOR.test(body[i + 1] ?? "") || norm(splitRow(line)) !== header.join("|")) continue;
+    const rows: string[][] = [];
+    for (let j = i + 2; j < body.length && (body[j] ?? "").trim().startsWith("|"); j++) rows.push(splitRow(body[j] ?? ""));
+    return rows;
+  }
+  return null;
+}
+
+// 見出し・項目名・表の見出しに禁止項目の名前があるか（本文への混入は親が通読して確かめる）
+function forbiddenNames(lines: string[]): string[] {
+  const hits: string[] = [];
+  let fence = false;
+  lines.forEach((line, i) => {
+    if (FENCE.test(line)) {
+      fence = !fence;
+      return;
+    }
+    if (fence) return;
+    const names: string[] = [];
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
+    if (h) names.push(h[1] ?? "");
+    const f = FIELD.exec(line);
+    if (f) names.push(f[1] ?? "");
+    const b = /^\s*(?:[-*+]\s+)?\*\*([^*]{1,40})\*\*/.exec(line);
+    if (b) names.push(b[1] ?? "");
+    if (line.trim().startsWith("|") && SEPARATOR.test(lines[i + 1] ?? "")) names.push(...splitRow(line));
+    for (const n of names) if (FORBIDDEN.some((w) => n.toLowerCase().includes(w))) hits.push(`L${i + 1}「${plain(n)}」`);
+  });
+  return hits;
+}
+
+// text の中に needle がファイル名の続きなしに現れるか（requirements/spec-1.md と requirements/spec-12.md を区別する）
+function mentions(text: string, needle: string): boolean {
+  for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) if (!/[\w.-]/.test(text.charAt(i + needle.length))) return true;
+  return false;
+}
+
+function exploreViolations(text: string, role: "standards" | "spec", prep: Prepared, add: (no: number, message: string) => void): void {
+  const r = ROLES[role];
+  const lines = text.split("\n");
+  const secs = sectionsOf(lines, 2);
+  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
+  const filled = (s: Section | undefined) => s?.body.some((l) => l.trim() !== "") ?? false;
+
+  // 3: 担当と対象、対象版、終了状態・未確認・見送りの節
+  const target = section("担当と対象");
+  if (!target) add(3, "「担当と対象」の節が無い");
+  const f = fieldsOf(target?.body ?? []);
+  for (const name of TARGET_FIELDS) if (!f.get(name)) add(3, `担当と対象の「${name}」が無いか空`);
+  const roleValue = plain(f.get("役割") ?? "");
+  if (roleValue && roleValue !== r.name) add(3, `役割が委譲した「${r.name}」でない（${roleValue}）`);
+  const definition = plain(f.get("定義名") ?? "");
+  if (definition && definition !== r.definition) add(3, `定義名が委譲した ${r.definition} でない（${definition}）`);
+  const version = f.get("対象版");
+  if (version) {
+    const shas = (version.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((s) => s.toLowerCase());
+    for (const [label, sha] of [
+      ["merge-base", prep.mergeBase],
+      ["head", prep.head],
+    ] as const)
+      if (!shas.includes(sha.toLowerCase())) add(3, `対象版に target.md の ${label} ${sha} が無い`);
+    const others = [...new Set(shas.filter((s) => s !== prep.head.toLowerCase() && s !== prep.mergeBase.toLowerCase()))];
+    if (others.length > 0) add(3, `対象版に target.md と異なる SHA がある（${others.join("・")}）`);
+    for (const i of prep.inputs) if (i.path.startsWith("local/") && !version.includes(i.sha256)) add(3, `対象版に ${i.path} の sha256 が無い`);
+  }
+  const state = f.get("終了状態");
+  if (state && !/完了|未確認/.test(state)) add(3, `終了状態が「完了」「未確認を含む」のどちらでもない（${state}）`);
+  for (const name of ["探索上の不足・未確認", "判断を見送った事項"]) if (!filled(section(name))) add(3, `「${name}」の節が無いか空`);
+
+  // 4: 候補の必須項目と候補 ID
+  const prefix = role === "standards" ? "STD" : "SPC";
+  const ids = new Set<string>();
+  const candidates = section("候補");
+  if (!candidates) add(4, "「候補」の節が無い");
+  const blocks = sectionsOf(candidates?.body ?? [], 3);
+  if (candidates && blocks.length === 0 && !candidates.body.join("\n").includes("候補0件")) add(4, "候補一覧も「候補0件」の明示も無い");
+  for (const b of blocks) {
+    const id = /^([A-Za-z]+-\d+)/.exec(b.title)?.[1];
+    if (!id) {
+      add(4, `候補の見出し「${b.title}」に候補 ID が無い`);
+      continue;
+    }
+    if (ids.has(id)) add(4, `候補 ID ${id} が重複している`);
+    ids.add(id);
+    if (!id.startsWith(`${prefix}-`)) add(4, `候補 ID ${id} が役割の接頭辞 ${prefix}- を持たない`);
+    const cf = fieldsOf(b.body);
+    const missing = CANDIDATE_FIELDS.filter((n) => !cf.get(n));
+    if (missing.length > 0) add(4, `${id} の必須項目が無いか空（${missing.join("・")}）`);
+    const evidence = cf.get("証拠") ?? "";
+    if (/取得できな|取得できず/.test(evidence) && !(evidence.includes("理由") && evidence.includes("不足"))) add(4, `${id} は証拠を取得できなかった候補だが、理由と不足箇所が無い`);
+  }
+
+  // 5: 役割ごとの節
+  if (role === "standards") {
+    const rules = section("規約の一覧と適用判断");
+    const body = rules?.body ?? [];
+    const content = body.filter((l, i) => l.trim() !== "" && !SEPARATOR.test(l) && !(l.trim().startsWith("|") && SEPARATOR.test(body[i + 1] ?? "")));
+    if (content.length === 0) add(5, "「規約の一覧と適用判断」の節が無いか、規約の行が無い");
+    return forbidden(lines, add);
+  }
+  if (!filled(section("要求資料の判別"))) add(5, "「要求資料の判別」の節が無いか空");
+
+  // 6: Spec の要求ごとの対応表（列は見出しと各行の出典・状態・候補ID の位置で読む）
+  const tableSection = section("要求ごとの対応表");
+  const rows = tableRows(tableSection?.body ?? [], TABLE_HEADER);
+  if (!rows) add(6, `「要求ごとの対応表」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い`);
+  else {
+    if (rows.length === 0) add(6, "要求ごとの対応表に行が無い");
+    const sources: string[] = [];
+    rows.forEach((cells, i) => {
+      if (cells.length < 4) {
+        add(6, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
+        return;
+      }
+      const source = cells[0] ?? "";
+      const status = plain(cells[1] ?? "");
+      const label = plain(source) || `${i + 1} 行目`;
+      sources.push(source);
+      if (!STATES.has(status)) add(6, `${label} の状態「${status}」が語彙に無い`);
+      const refs = (cells[cells.length - 1] ?? "").match(/[A-Za-z]+-\d+/g) ?? [];
+      if ((status === "未充足" || status === "未確認") && refs.length === 0) add(6, `${label} は${status}だが候補 ID が無い`);
+      for (const ref of refs) if (!ids.has(ref)) add(6, `${label} が参照する候補 ${ref} が候補一覧に無い`);
+    });
+    for (const i of prep.inputs) if (i.path.startsWith("requirements/") && !sources.some((s) => mentions(s, i.path))) add(6, `${i.path} が対応表の出典に無い`);
+  }
+  forbidden(lines, add);
+}
+
+// 7: 禁止項目の見出し・項目名
+function forbidden(lines: string[], add: (no: number, message: string) => void): void {
+  for (const hit of forbiddenNames(lines)) add(7, `禁止項目の見出し・項目名 ${hit}`);
+}
+
+function checkExplore(args: string[]): Outcome {
+  const o = parseOptions(args, ["work", "role"], []);
+  const { work, prep } = loadWork(o);
+  const role = roleOf(o.one.get("role"), ["standards", "spec"]) as "standards" | "spec";
+  const r = ROLES[role];
+  const attempt = currentAttempt(work, role);
+  const file = `${role}/${r.output}`;
+  const path = join(work, file);
+  const violations: Violation[] = [];
+  const add = (no: number, message: string) => violations.push({ no, message });
+  const body = existsSync(path) && lstatSync(path).isFile() ? readFileSync(path) : null;
+  if (body === null) add(2, `${file} が無い`);
+  else exploreViolations(body.toString("utf8"), role, prep, add);
+  const identity = checkIdentity(work, "explore", `check-explore ${role} 試行 ${attempt.attempt}`);
+  for (const i of identity.items) if (!i.ok) add(8, `${i.name}: ${i.detail}`);
+  const names: [number, string][] = [
+    [2, `指定したパスに ${r.output} がある`],
+    [3, "役割・定義名・対象版・要求資料・依存の写し・終了状態と、未確認・見送りの節"],
+    [4, "候補の必須項目、候補 ID の接頭辞と重複、証拠を取得できなかった候補の理由と不足箇所"],
+    [5, role === "standards" ? "規約の一覧と適用判断" : "要求資料の判別"],
+    ...(role === "spec" ? ([[6, "要求ごとの対応表の4列・状態の語彙・候補 ID の参照・requirements/ の全ファイルの出典"]] as [number, string][]) : []),
+    [7, "禁止項目の見出し・項目名（本文は親が通読する）"],
+    [8, "共通入力・依存の写し・限定 clone の同一性"],
+  ];
+  const record: CheckRecord = {
+    stage: "explore",
+    role,
+    roleName: r.name,
+    definition: r.definition,
+    attempt: attempt.attempt,
+    agentId: attempt.agentId,
+    file,
+    sha256: body === null ? null : sha256(body),
+    valid: violations.length === 0,
+    items: names.map(([no, name]) => ({ no, name, ok: !violations.some((v) => v.no === no) })),
+    violations,
+    identity,
+    files: fingerprintList(join(work, role)),
+    parent: "1（担当の返答が入力不備・失敗でない）と、7の禁止項目の本文への混入（引き渡し本文の通読）",
+    checkedAt: now(),
+  };
+  const list = [...loadList<CheckRecord>(work, "checks"), record];
+  saveList(work, "checks", list, renderChecks(list));
+  return { work, result: { ...record } };
+}
+
+// ---- 無効な試行の隔離と再委譲の可否（parent.md 4.1節。失敗の分類と委譲は親） ----
+
+function retireAttempt(args: string[]): Outcome {
+  const o = parseOptions(args, ["work", "role", "failure", "reason", "retries"], []);
+  const { work } = loadWork(o);
+  const role = roleOf(o.one.get("role"), Object.keys(ROLES) as Role[]);
+  const r = ROLES[role];
+  const failure = o.one.get("failure") ?? "";
+  if (!Object.hasOwn(FAILURES, failure)) {
+    throw new UsageError(`--failure は ${Object.entries(FAILURES).map(([k, v]) => `${k}（${v}）`).join("・")} のどれかにしてください: ${failure || "なし"}`);
+  }
+  const kind = failure as Failure;
+  const reason = o.one.get("reason")?.trim();
+  if (!reason) throw new UsageError("--reason に無効の理由（検査の番号と違反の箇所、または終了通知の状態とエラーの文言）を書いてください");
+  const retries = o.one.get("retries")?.trim() || "記録なし";
+  const attempt = currentAttempt(work, role);
+  const from = join(work, role);
+  const movedTo = join(work, "parent/attempts", `${role}-${attempt.attempt}`);
+  if (existsSync(movedTo)) throw new UsageError(`隔離先が既にあります: ${movedTo}`);
+  mkdirSync(dirname(movedTo), { recursive: true });
+  if (existsSync(from)) renameSync(from, movedTo);
+  else mkdirSync(movedTo);
+  mkdirSync(join(from, "notes"), { recursive: true });
+  const identity = checkIdentity(work, r.stage, `retire-attempt ${role} 試行 ${attempt.attempt}`);
+  const attempts = loadList<AttemptRecord>(work, "attempts");
+  const stop = attempts.find((a) => a.failure !== "invalid");
+  let finalReason: string | null = null;
+  if (kind === "usage-limit") finalReason = `利用枠の上限、有効な結果なし（${r.name}）`;
+  else if (kind === "aborted") finalReason = "利用者による中止";
+  else if (stop) finalReason = stop.finalReason;
+  else if (attempt.attempt >= 2) finalReason = `有効な結果なし（${r.name}。1回の再委譲の後も）`;
+  else if (!identity.ok) finalReason = `有効な結果なし（${r.name}。同じ入力を固定できず委譲し直さなかった）`;
+  const record: AttemptRecord = {
+    role,
+    roleName: r.name,
+    definition: r.definition,
+    attempt: attempt.attempt,
+    agentId: attempt.agentId,
+    failure: kind,
+    failureLabel: FAILURES[kind],
+    reason,
+    retries,
+    movedTo,
+    files: fingerprintList(movedTo),
+    identity,
+    redelegate: finalReason === null,
+    status: finalReason === null ? null : "未完了",
+    finalReason,
+    retiredAt: now(),
+  };
+  attempts.push(record);
+  saveList(work, "attempts", attempts, renderAttempts(attempts));
+  const notRun = finalReason === null ? {} : { score: NOT_RUN_SCORE, merge: NOT_RUN_MERGE };
+  return { work, result: { ...record, ...notRun } };
+}
+
+// ---- 反証への入力（parent.md 6節） ----
+
+function refuteInput(args: string[]): Outcome {
+  const o = parseOptions(args, ["work"], []);
+  const { work, prep } = loadWork(o);
+  const agents = loadList<AgentRecord>(work, "agents");
+  const checks = loadList<CheckRecord>(work, "checks");
+  const attempts = loadList<AttemptRecord>(work, "attempts");
+  const passed: { role: "standards" | "spec"; check: CheckRecord }[] = [];
+  const missing: string[] = [];
+  for (const role of ["standards", "spec"] as const) {
+    const last = agents.filter((a) => a.role === role).at(-1);
+    const check = last && checks.filter((c) => c.stage === "explore" && c.role === role && c.attempt === last.attempt).at(-1);
+    const retired = last && attempts.some((a) => a.role === role && a.attempt === last.attempt);
+    if (last && check?.valid && !retired) passed.push({ role, check });
+    else missing.push(`${ROLES[role].name}: ${!last ? "委譲の記録が無い" : retired ? `試行 ${last.attempt} は無効として隔離済み` : !check ? `試行 ${last.attempt} を検査していない` : `試行 ${last.attempt} の検査が不合格`}`);
+  }
+  if (missing.length > 0) throw new UsageError(`両探索の合格した引き渡しがそろっていないので写しません（${missing.join("・")}）`);
+  const dest = join(work, "refute-input");
+  if (existsSync(dest) && readdirSync(dest).length > 0) throw new UsageError(`refute-input/ が空ではありません（写し直しません）: ${dest}`);
+  mkdirSync(dest, { recursive: true });
+  for (const { role } of passed) {
+    const src = join(work, role, "handoff.md");
+    if (existsSync(src)) copyFileSync(src, join(dest, `${role}-handoff.md`));
+  }
+  for (const name of ["target.md", "manifest.md", "requirements", "local", "deps-files.sha256"]) {
+    const src = join(work, "input", name);
+    if (existsSync(src)) copyTree(src, join(dest, name));
+  }
+  const expected = [
+    ...passed.map((p) => ({ path: `${p.role}-handoff.md`, sha256: p.check.sha256 ?? "", source: `${p.role}/handoff.md（check-explore で検査した試行 ${p.check.attempt}）` })),
+    ...prep.inputs.map((i) => ({ ...i, source: `input/${i.path}（prepare の記録）` })),
+    { path: "manifest.md", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
+  ];
+  const files = fingerprintList(dest);
+  const got = new Map(files.map((f) => [f.path, f.sha256]));
+  const comparison = [
+    ...expected.map((e) => ({ ...e, copied: got.get(e.path) ?? null, ok: got.get(e.path) === e.sha256 })),
+    ...files.filter((f) => !expected.some((e) => e.path === f.path)).map((f) => ({ path: f.path, sha256: "", source: "写すものではない", copied: f.sha256, ok: false })),
+  ];
+  const identity = checkIdentity(work, "explore", "refute-input");
+  const ready = comparison.every((c) => c.ok) && identity.ok;
+  const md = [
+    "# 反証への入力の指紋",
+    "",
+    `- 写した時刻: ${now()}`,
+    `- 結果: ${ready ? "一致（反証を起動してよい）" : `不一致（反証を起動しない。未完了（理由: ${REFUTE_UNFIXED}））`}`,
+    "",
+    "| ファイル | 写しの sha256 | 照合先 | 照合先の sha256 | 一致 |",
+    "|---|---|---|---|---|",
+    ...comparison.map((c) => `| \`${c.path}\` | \`${c.copied ?? "無い"}\` | ${cell(c.source)} | \`${c.sha256 || "なし"}\` | ${c.ok ? "一致" : "不一致"} |`),
+    "",
+    "## refute-input/ の各ファイルの sha256",
+    "",
+    "```text",
+    fileFingerprint(dest).trimEnd(),
+    "```",
+    "",
+    "## 同一性の確認（共通入力・依存の写し・限定 clone）",
+    "",
+    ...identity.items.map((i) => `- ${i.name}: ${i.ok ? "一致" : "不一致"}（${i.detail}）`),
+    "",
+  ];
+  writeFileSync(join(work, "parent/fingerprints.md"), md.join("\n"));
+  const outcome = ready ? { status: "準備完了", reason: null } : { status: "未完了", reason: REFUTE_UNFIXED, score: NOT_RUN_SCORE, merge: NOT_RUN_MERGE };
+  return { work, result: { ready, ...outcome, files, comparison, identity } };
+}
+
 // ---- 振り分け（サブコマンドはここだけで登録する） ----
 
-const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = { prepare };
+const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = { prepare, agent, "check-explore": checkExplore, "retire-attempt": retireAttempt, "refute-input": refuteInput };
 
 function emit(result: Json, exitCode: number): never {
   process.stdout.write(`${JSON.stringify(result)}\n`);
