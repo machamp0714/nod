@@ -25,8 +25,8 @@ Sprintの合意、採択、開始、実行監督が製品機能として接続�
 | 実行場所 | Studio、専用worktree、作業ブランチ。Airへの代替実行をしない |
 | 設定 | agent、`モデル:effort`、ユーザー指定または合意済み選定方針と選定理由 |
 | 開始条件 | PMが要求値と実効値を照合してDispatchへ開始を通知するまで、実装、ファイル変更、`nod issue start`を行わない |
-| 実装と検証 | 開始後に`nod:implement <IssueID>`を使い、合意済み境界の必要なテスト、commit、手順内の初回独立レビュー（役割別の担当への委譲と、固定したheadの別checkoutでのテスト実行）まで実施する |
-| 完了証拠 | Run、Task、Dispatch、worktree、terminal、現在commit、受け入れ証拠、実行コマンドとテスト結果、初回独立レビューの報告Document IDと作業ログ、起動した全担当（Standards探索・Spec探索・反証と、起動したときは受け入れ確認）の定義名と担当ID、レビューの基点と対象commit、最終状態と確定した要対応の点数、受け入れ確認の行ごとの判定、確認が残る事項（要求の出典・確かめる担当・理由）、親のテスト実行の判定とcheckoutのSHA、マージ可否 |
+| 実装と検証 | 開始後に`nod:implement <IssueID>`を使い、合意済み境界の必要なテスト、commit、手順内の初回独立レビュー（役割別の担当への委譲と、同じhead SHAのCIの結果の照合）まで実施する |
+| 完了証拠 | Run、Task、Dispatch、worktree、terminal、現在commit、受け入れ証拠、実行コマンドとテスト結果、初回独立レビューの報告Document IDと作業ログ、レビューの作業ディレクトリ`<W>`、起動した全担当（Standards探索・Spec探索・反証と、起動したときは受け入れ確認）の定義名と担当ID、レビューの基点と対象commit、最終状態と確定した要対応の点数、受け入れ確認の行ごとの判定、確認が残る事項（要求の出典・確かめる担当・理由）、同じhead SHAのCI判定（必須のチェックと出典、`parent/ci/<n>/result.json`の場所、`--kind test`の作業ログ）、マージ可否、merge-readyの状態 |
 | 終了条件 | 初回レビューの指摘を勝手に修正せず報告。PRを含む依頼なので先にDoneにせず、push、PR、nodへの提出はPMからの後続依頼を待つ。Orcaの`worker_done`後はidleにする |
 
 新たな仕様や計画を作ること自体を着手条件に増やさない。
@@ -91,9 +91,9 @@ PRへ進む条件を次の表で確認する。
 | 受け入れ | 正本の完了条件ごとの結果と根拠があり、現在commitに対応する |
 | テスト | 必要なコマンド、成否、対象commitが分かり、すべて成功。未実行や失敗を成功扱いしない |
 | 初回レビュー | 作業ログの要約だけで受理せず、報告Document（`kind=doc`）を読む。reviewer identityは起動した全担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`と、反証が対応表に「受け入れ確認担当」の行を作ったときは`code-reviewer-acceptance`の定義名と担当ID）の組で、各担当が実装者と異なる。反証の判定本文の対応表に「受け入れ確認担当」の行があるのに、受け入れ確認担当の定義名・担当ID・結果が報告に無ければ、必要な担当の欠落として完了と扱わない。レビューの親が委譲し直した役割は、有効な結果を返した担当のIDを使い、報告の試行の記録で最初の試行の担当ID・無効の理由とあわせて確かめる。収録された反証担当の判定本文が保存原本（作業ディレクトリの`refute/verdict.md`）と、収録された受け入れ確認の結果が保存原本（`acceptance/result.md`）とsha256で一致し、その判定・未確認・受け入れ確認の判定から点数と確認が残る事項を採点規則どおりに再確認できる。受け入れ確認の結果で点数が変わっていない。対象版（基点とheadのSHA）が実装者の現在commitと一致し、全担当の終了状態が有効。修正後はこの記録を残し、既存指摘と修正差分の独立確認をつなぐ |
-| テスト実行とマージ可否 | 親のテスト実行記録のcheckoutのSHAが対象commitと同じhead SHAで、判定が記録されている。マージ可否は、(1)最終状態が完了で確定した要対応の点数が5、(2)対応表の全行が充足・説明・対象外、同じheadのテスト実行が成功した自動チェック担当、受け入れ確認担当が確認済みとした行のどれか、(3)確認が残る事項が0件、(4)同じheadのテスト実行が成功、のすべてを満たすときだけ可で、それ以外は不可であることを、原文の最終状態・点数・対応表・受け入れ確認の結果・確認が残る事項とテスト実行の結果から確かめる。点数はマージ許可を意味しない |
+| CI判定とマージ可否 | 報告と`--kind test`の作業ログに、同じhead SHAのCI判定（`parent/ci/<n>/result.json`の`head`が対象commitと同じ）、必須のチェックとその出典、必須のチェックごとの結果、記録の場所が記録されている。マージ可否が[親の手順](../../code-review/references/parent.md)の10節の8の規則どおり（CI判定が`成功`でなければ不可）であることを、原文の最終状態・点数・対応表・受け入れ確認の結果・確認が残る事項とCIの記録から確かめる。merge-readyは、マージ可否が可のときだけ付き、不可なら付いていない（11節）。点数とラベルはマージ許可を意味しない |
 | 指摘 | 仕様不適合、規約違反、不具合がない。判断の余地がある改善提案と混同しない |
-| 現在commit | 受け入れと必要テストが実行先gitの現在commitに一致する。修正なしなら初回レビューの対象版とテスト実行のheadも一致し、修正ありなら初回レビューから現在commitまでの修正差分と指摘解消が独立確認でつながる |
+| 現在commit | 受け入れと必要テストが実行先gitの現在commitに一致する。修正なしなら初回レビューの対象版とCI判定のheadも一致し、修正ありなら初回レビューから現在commitまでの修正差分と指摘解消が独立確認でつながる |
 
 PMは`nod:implement`に含まれる初回独立レビューを重複起動しない。
 初回レビューの最終状態は次のように扱う。
@@ -102,11 +102,21 @@ PMは`nod:implement`に含まれる初回独立レビューを重複起動しな
 - `完了`: 照合した点数と要対応を、次の指摘の扱いへ渡す。確認が残る事項（未確認・要実行確認・受け入れ確認の「未充足」「確かめられず」・受け入れ確認の証拠と反証の判定の矛盾・要求間の矛盾・保存時の要求の変化・保存直前の受け入れ証拠の再照合で見つかった事項（外部の正本・配置先の変化、判定に使った証拠の訂正・削除・対応不明・取り直せないこと、証拠を写した後の親以外の追記）・未コミット変更の変化）があれば、点数が5でも各事項の要求の出典・確かめる担当・理由を不足証拠として記録し、提出を停止する。合格・指摘なし・確認済みへ読み替えない。受け入れ確認の不足を、PMが作業記録を読んで充足へ読み替えない。受け入れ確認が「確認済み」でも、保存直前の再照合の事項があれば、PMが正本や配置先・追記の内容を見直して解消したことにしない。
 
 証跡が不足すれば不足した項目を記録し、提出を停止する。
-有効なレビュー結果があっても、必要なテスト（実装者の報告と親のテスト実行）が失敗または実行できなければ、レビューの原文と点数を変えずに受け入れと提出を止め、原因を記録する。
+有効なレビュー結果があっても、必要なテスト（実装者の報告）が失敗または実行できなければ、レビューの原文と点数を変えずに受け入れと提出を止め、原因を記録する。
+同じhead SHAのCI判定が`成功`でないときも、レビューの原文と点数を変えずに、判定（親の手順の3.2節）ごとに次のとおり扱う。
+
+- `失敗`: 受け入れと提出を止め、失敗した必須のチェックと結論を記録して、[指摘修正と独立確認](review-fixes.md)へ渡す。その時点ではPR依頼を出さない。
+- `未確定`・`結果なし`（push前・PR前・CIの実行中）: ほかの提出証拠が揃っていれば、CIを走らせるためのPR作業へ進めてよい。In Reviewにするのは、次節の終了条件どおりCI判定が`成功`になってからにする。
+- `必須のチェックなし`・`必須のチェックを決められず`・`取得できず`: 提出を止め、原因と再開条件（必須のチェックを定める、CIを用意する、読めるようにして再照合する）を人へ戻す。
+
 テスト失敗や必須指摘があれば、[指摘修正と独立確認](review-fixes.md)へ渡し、その時点ではPR依頼を出さない。テストを実行できない場合は、原因と再開条件を人へ戻す。
 任意改善だけなら、確認が残る事項が無く他の提出証拠が揃っていることを確認し、修正巡を消費せず次節へ進む。
 未確定のDeliveryをackして結果を捨てず、受理したsettlementには次の所有者または後片付けを決めてからackする。
 不足証拠の取得、指摘対応、PR作業をPMが実装として肩代わりしない。
+
+初回レビューの報告の保存後にPMが同じIssueへ書く記録（受理、intent、checkpoint、PR作業、提出の記録など）は、`nod -w <Workspace> --json issue log`・`nod -w <Workspace> --json issue comment`で書き、返ったidを残す。
+そのidは、[親の手順](../../code-review/references/parent.md)の13節を行う者（作業ディレクトリ`<W>`を持つ実装担当、または`<W>`に届くPM自身）が13節の前に`<W>/parent/acceptance/own-logs.md`へ追記できるよう、PR作業やCIの照合の依頼に含めて渡す。
+idを記録していない書き込みは、PMや実装担当が書いたものでも親以外の追記として扱われ、マージ可否は不可になる。例外を作らない（13節）。
 
 ## 同じ実装者へPR作業を渡す
 
@@ -120,8 +130,8 @@ PMは`nod:implement`に含まれる初回独立レビューを重複起動しな
 
 ```sh
 ORCA orchestration worker-show --dispatch <実装DispatchID> --json
-ORCA orchestration task-create --spec "pushとPR提出。<同じIssue、現在commit、受け入れとテストと独立レビュー証拠、同じモデル:effort、既存PR更新またはPR作成、nodへの提出だけの依頼>" --retry-request <PR Task作成の操作相関ID> --json
-nod -w <Workspace> issue log <IssueID> "<PR作業Task ID、元実装者、対象commit、起動操作相関、intent>" --kind progress
+ORCA orchestration task-create --spec "pushとPR提出。<同じIssue、現在commit、受け入れとテストと独立レビュー証拠、レビューの作業ディレクトリ<W>、レビューの保存後にPMが書いた記録のid、同じモデル:effort、既存PR更新またはPR作成、CIの照合、nodへの提出だけの依頼>" --retry-request <PR Task作成の操作相関ID> --json
+nod -w <Workspace> --json issue log <IssueID> "<PR作業Task ID、元実装者、対象commit、起動操作相関、intent>" --kind progress
 ORCA orchestration worker-start --task <PR作業TaskID> --terminal <確認した元agentのhandle> --worktree <そのterminalの正確なworktree selector> --retry-request <PR作業起動の操作相関ID> --json
 ```
 
@@ -139,15 +149,22 @@ PR依頼には次の終了条件を明記する。
 - PRのURLと`headRefOid`、branch、base、openかつdraftではないことを確認し、pushした現在commitと照合する。
 - `nod issue link-pr <IssueID> <PR URL>`で関連づけ、`nod issue pr-status <IssueID> --refresh --json`で取得結果と状態を確認する。
 - PRの紐付けと状態取得はIssueの状態を変えない。取得失敗、別commit、draftならPR作業の完了としない。
-- 関連とPRの実在、現在commitの検証を確認したら、`nod issue update <IssueID> --status in_review`で明示的にIn Reviewへ移し、レビュー提出として報告する。提出しただけではDoneにしない。
-- GitHubのPR承認、マージ、本番反映は依頼された範囲に従う。PR URL、pushしたcommit、検証結果、nodの提出状態を報告してsettleする。
+- 関連とPRの実在、現在commitの検証を確認したら、PRの`headRefOid`に対するCI判定を取る。
+  - 対象commitが初回レビューの対象版と同じなら、[親の手順](../../code-review/references/parent.md)の13節で再照合する。13節の前に、PMから渡されたidと、自分がレビューの保存後に書いた記録のidを`<W>/parent/acceptance/own-logs.md`へ追記する。
+  - 修正ありで対象commitが初回レビューの対象版と違うなら、13節の再照合はしない（13節の2）。親の手順の3.3節のスクリプトを`headRefOid`で1回実行し（`--base`はPRの`baseRefName`、`--rules`は`nod workspace rules show`を取り直したファイル、`--out`はレビューの作業ディレクトリの外の空のディレクトリ）、CI判定・必須のチェックと出典・必須のチェックごとの結果・head SHA・記録の場所を`--kind test`に残す。修正後のheadにはmerge-readyを付けない（新しいheadのマージ可否には新しいレビューが要る）。
+- CI判定が`成功`で、その記録のheadがPRの`headRefOid`と同じときだけ、`nod issue update <IssueID> --status in_review`で明示的にIn Reviewへ移し、レビュー提出として報告する。`成功`でなければIn Reviewにせず、CI判定と理由（`未確定`・`結果なし`ならCIが完了していないこと）を報告してsettleする。CIの完了を待ってpollingしない。提出しただけではDoneにしない。
+- GitHubのPR承認、マージ、本番反映は依頼された範囲に従う。PR URL、pushしたcommit、検証結果、CI判定の記録、merge-readyの状態、nodの提出状態を報告してsettleする。
 
 ## 提出確認と終了
 
 PR作業の報告も新しいactive Dispatchと照合する。
 PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`in_review`を再確認する。
+`in_review`の前提として、PRの`headRefOid`と同じhead SHAのCI判定`成功`の記録（`--kind test`の作業ログ。必須のチェックと出典、記録の場所）を確かめる。記録が無い、headが違う、`成功`でないなら、レビュー提出済みと判断しない。
+merge-readyが付いていれば、ラベルを付けた記録（[親の手順](../../code-review/references/parent.md)の11節・13節の`--kind test`）のhead SHAが現在のPR headと同じで、報告Document ID、CI判定と必須のチェックごとの結果、記録の場所が揃うことを確かめる。違う、または揃わなければ`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（判定が古い、記録の不足）を`--kind test`に記録する。PMはラベルを付けない。ラベルを自動マージ・承認の代わりにしない。
 タイトルやURLだけ、workerの「作成済み」だけではレビュー提出済みと判断しない。
-nodへ対象commit、PR URL、初回レビューの報告Document IDとテスト実行の参照、提出状態を残す。
+nodへ対象commit、PR URL、初回レビューの報告Document IDとCI判定の記録の参照、提出状態を残す。
+PR作業がCI判定`未確定`・`結果なし`で報告した場合は、監督中に`gh pr checks <PR URL>`などの読取でCIの完了を確かめ（CIを実行・再実行しない）、完了後に同じ実装者へ、CIの照合と提出だけを依頼する（activeな待機Dispatchがあればsend、settle済みなら同じterminalへのreuse）。終了条件は上のCI判定とIn Reviewの条件と同じとし、レビューの保存後にPMが書いた記録のidを含める。
+CI判定が`失敗`なら[指摘修正と独立確認](review-fixes.md)へ渡し、`必須のチェックなし`・`必須のチェックを決められず`・`取得できず`なら原因と再開条件を人へ戻す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。
 PR作成後の応答喪失では[既存PRへの合流](recovery.md#pr結果不明から既存成果へ合流する)を先に行い、branchと現在headが一致する既存PRへの関連と提出状態だけを回復する。
 
@@ -160,7 +177,7 @@ Runの`worker-list --terminal-state reclaimable --include-remote --json`で所�
 
 ## レビュー提出後の再開と完了
 
-mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <IssueID> --summary "<完了条件と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証・完了条件を満たして直接Doneにできる。PMのPR承認・マージ・本番反映を代行しない方針は維持し、この運用によって権限を追加しない。
-指摘対応は `nod issue start <IssueID>` でIn ReviewからIn Progressへ戻し、既存の着手条件と独立レビュー等の品質条件を守る。
+mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <IssueID> --summary "<完了条件と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証・完了条件（同じhead SHAのCI判定が`成功`であることを含む）を満たして直接Doneにできる。PMのPR承認・マージ・本番反映を代行しない方針は維持し、この運用によって権限を追加しない。
+指摘対応は `nod issue start <IssueID>` でIn ReviewからIn Progressへ戻し、既存の着手条件と独立レビュー等の品質条件を守る。merge-readyが付いていれば外し、理由（追加コミットで判定が古い）と判定したhead SHAを`--kind test`に記録する（親の手順の13節の2）。
 draftは原則In Progressのまま。mergeせずcloseして継続するならIn Progress、中止なら理由付きCanceled、後回しならTodo/Backlogに明示的に移す。reopen後はレビュー再開ならIn Review、修正ならIn Progressにする。
 PRの作成・紐付け・状態取得・取得失敗・merge・close・reopenでIssue状態を自動変更しない。PRなし・draftでも明示的なIn Review設定は可能で、PRの存在・mergeをシステムの必須条件にはしない。

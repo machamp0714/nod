@@ -33,13 +33,15 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 | 工程と管理中の実行 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
-| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、起動した全担当の組（3担当と、起動したときは受け入れ確認担当）、反証原文と受け入れ確認の結果の原文の照合結果、点数、確認が残る事項、テスト実行のheadと判定、マージ可否）、元実装者と独立確認担当のidentity、現在の待機Dispatch |
-| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、PR URL/branch/headとnod提出状態 |
+| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した全担当の組（3担当と、起動したときは受け入れ確認担当）、反証原文と受け入れ確認の結果の原文の照合結果、点数、確認が残る事項、同じhead SHAのCI判定と必須のチェックと出典、マージ可否、merge-readyの状態）、元実装者と独立確認担当のidentity、現在の待機Dispatch |
+| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、CI判定の記録（`--kind test`の作業ログ）の参照、PR URL/branch/headとnod提出状態、初回レビューの保存後にPMが書いた記録のidと、親の手順の13節を行う者へ渡したかどうか |
 | 質問と次の行動 | nod質問ID、元message、選択肢、原文と実回答の出典、未回答と残る停止理由、次に照合する証拠または必要な人の判断 |
 
 ```sh
 nod -w <Workspace> issue log <IssueID> "<上記のintentまたはcheckpoint>" --kind progress
 ```
+
+初回レビューの報告の保存後は、intentとcheckpointを含め、同じIssueへの記録（質問と回答の転記を含む）を`nod -w <Workspace> --json`で書き、返ったidを[実装手順](implementation.md#初回レビューを受け取る)のとおり親の手順の13節を行う者へ渡す。
 
 修正巡のstartedは第n巡の修正依頼を行う直前に記録し、独立確認の受理後だけcompletedをnへ進める。
 started=1、completed=0なら第1巡の途中であり、第2巡を新設しない。
@@ -84,7 +86,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 実装中は既存試行を監督し、初回レビューを追加起動しない。
 受理済みの初回レビューはcheckpointの受理記録から復元する。記録に報告Document IDや担当の組、照合結果が欠けていれば受理済みと扱わず、報告Documentを読み直して[受理条件](implementation.md#初回レビューを受け取る)で照合する。
 修正確認中はstarted/completedと対象commit、独立担当、元実装者の待機所有者を復元し、既存確認を受け取る。
-PR提出後はPR実在とhead、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
+PR提出後はPR実在とhead、現在のPR headに対するCI判定`成功`の記録、merge-readyを付けた記録のhead、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
 
 ## 応答喪失と通信断
 
@@ -136,7 +138,7 @@ gh pr view <確認したURLまたはnumberまたはbranch> --repo <OWNER/REPO> -
 ```
 
 既存PRのheadが確認済み現在commitと一致し、対象branchとbase、openかつ非draftである場合は、そのPRへ合流する。
-nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
+nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証（現在のPR headに対するCI判定`成功`の記録を含む）が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
 成果が確認できても実行settlementが不明なら、PR確認済みとcleanup未確認を分けて残す。
 古いhead、複数候補、取得失敗、PR不在の読取だけでは、新PRを作る根拠にしない。
 元の依頼と実行結果を照合し、必要なら同じ元実装者へ既存PRの更新または不足証拠だけを依頼する。

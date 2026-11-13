@@ -495,5 +495,6 @@ awk '/^<!-- acceptance-result:begin -->$/{f=1;next} /^<!-- acceptance-result:end
 7. 11節と同じく merge-ready を付ける・外す。付けた／外した／付けなかったことと、判定した head SHA・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・再照合の番号 `<n>`・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）・4で加えた確認が残る事項を `nod --json issue log <Issue ID> "<記録>" --kind test` に1件残す。
 
 - この節で親（または実装を進める親・PM）が Issue へ書いた記録の id も、3節のとおり `parent/acceptance/own-logs.md` に記録する。
+- レビューの保存後から再照合までに、実装を進める親・PM が同じ Issue へ書いた記録（作業ログ・コメント・返信。PR の URL や提出・受理の記録を含む）も、`nod --json` で書いて返った id を4の前に `parent/acceptance/own-logs.md` へ記録したものだけを親自身の記録とする。それ以外は、書いた人を問わず親以外の追記とする（10節の3）。
 - Issue の無い単独レビューでも照合し直してよいが、ラベルは扱わず、結果はチャットで報告する。
 - 再照合の結果は、照合した時点の観測である。その後に追加コミット・要求や使用証拠の変化・CI の失敗や未確定で条件を満たさなくなった、または判定が古くなったと分かった時点で、merge-ready を外して理由を記録する（実装を進める親・PM の手順でも同じ）。
