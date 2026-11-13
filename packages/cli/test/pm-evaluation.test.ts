@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { startIssue } from "../../core/src";
-import { nodCliRecorder, recordInitialReview, simulatedCi } from "../../../plugins/nod/skills/pm/evals/initial-review";
+import { startIssue, type ActivityItem } from "../../core/src";
+import { nodCliRecorder, recordInitialReview, simulatedCi, withoutCiResults } from "../../../plugins/nod/skills/pm/evals/initial-review";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
 
@@ -116,7 +116,67 @@ test("初回レビューの保存時に対象の現在のheadが固定したhead
   // 比べた結果は親専用領域と報告の ci-result の印の中に残る。
   expect(readFileSync(`${review.workDirectory}/parent/head-check.md`, "utf8")).toContain(`- マージ可否を決める直前: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致。対象版が現在の head と違う（追加コミット））`);
   const document = nod("doc", "show", String(review.auditDocument.id)) as { content: string };
-  expect(between(document.content, "ci-result")).toContain(`- 現在の head の照合: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致`);
+  expect(between(document.content, "ci-result")).toContain(`- 現在の head と基点の照合: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致`);
+});
+
+test("初回レビューの保存時にheadが同じでもPRの基点がCIの照合に使った基点と違えば、CI判定成功でもマージ不可でmerge-readyを付けない", async () => {
+  const scenario = await createTask2Scenario();
+  const nod = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode, result.stdout.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  // 基点 main の必須のチェックで a の CI 判定成功を観測した後、head a のまま PR の基点が release へ変わった。
+  const review = recordInitialReview({
+    dir: scenario.dir, issueId: "API-1", implementer: "term-implementation", baseCommit: "b".repeat(40), headCommit: "a".repeat(40), currentBase: "release",
+    standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" }, ci: simulatedCi("a".repeat(40)),
+  }, nodCliRecorder(nod));
+  expect(review).toMatchObject({ status: "完了", score: 5, remainingChecks: [], ci: { headSha: "a".repeat(40), verdict: "成功", base: "main" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
+  const issue = nod("issue", "show", "API-1") as { labels: string[]; activity: { id?: number; body?: string }[] };
+  expect(issue.labels).not.toContain("merge-ready");
+  const record = issue.activity.find(item => item.id === review.mergeReadyLog)!;
+  expect(record.body).toStartWith("[ci-result] merge-ready: 付けていない（マージ可否が不可: 基点が変わった（CI の照合に使った基点 main、現在の基点 release）");
+  expect(record.body).toContain("現在の基点 release（不一致）");
+  expect(readFileSync(`${review.workDirectory}/parent/head-check.md`, "utf8")).toContain("CI の照合に使った基点 main／現在の基点 release（不一致。基点が変わった）");
+});
+
+test("受け入れ確認への写しは通常コメントへの[ci-result]の返信も除き、evidenceに写すDocumentも印だけでCIの結果を置き換える", async () => {
+  const scenario = await createTask2Scenario();
+  const nod = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode, result.stdout.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  // 印の無い通常コメントに、本文が [ci-result] で始まる返信と通常の返信が付いている。本文が [ci-result] で始まるコメントもある。
+  const comment = nod("issue", "comment", "API-1", "作業ログ: 一覧の余白を 8px に揃えた") as { id: number };
+  const ciReply = nod("issue", "comment", "API-1", "[ci-result] merge-ready: 付けた。CI 判定 成功", "--reply-to", String(comment.id)) as { id: number };
+  const reply = nod("issue", "comment", "API-1", "余白の確認ありがとう", "--reply-to", String(comment.id)) as { id: number };
+  const ciComment = nod("issue", "comment", "API-1", "[ci-result] CI 判定 失敗") as { id: number };
+  const shown = nod("issue", "show", "API-1") as { activity: ActivityItem[] };   // nod --json issue show の Activity（core の ActivityItem と同じ形）
+  const fixed = shown.activity;
+  const review = recordInitialReview({
+    dir: scenario.dir, issueId: "API-1", implementer: "term-implementation", baseCommit: "b".repeat(40), headCommit: "a".repeat(40),
+    standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" }, ci: simulatedCi("a".repeat(40)),
+    acceptanceRows: [{ source: "requirements/issue.md の作業記録", judgment: "確認済み", evidence: `activity:${comment.id}` }],
+    recheck: { activity: { fixed, current: fixed, ownLogs: [] } },
+  }, nodCliRecorder(nod));
+  // 元の写しは親専用領域に全件残り、担当への写しからは [ci-result] で始まるコメントと返信だけが消える。
+  const original = JSON.parse(readFileSync(`${review.workDirectory}/parent/acceptance/activity.json`, "utf8")) as ActivityItem[];
+  expect(original).toEqual(fixed);
+  const copied = JSON.parse(readFileSync(`${review.workDirectory}/acceptance-input/records/activity.json`, "utf8")) as ActivityItem[];
+  expect(JSON.stringify(copied)).not.toContain("[ci-result]");
+  const thread = copied.find(item => item.kind === "comment" && item.id === comment.id);
+  expect(thread?.kind === "comment" && thread.replies.map(item => item.id)).toEqual([reply.id]);
+  expect(copied.some(item => item.kind === "comment" && [ciComment.id, ciReply.id].includes(item.id))).toBe(false);
+  // Issue にリンクされていない Document や evidence に写すファイルの本文も、同じ印の規則で置き換える。
+  const auditDocument = nod("doc", "show", String(review.auditDocument.id)) as { content: string };
+  const audit = auditDocument.content;
+  const stripped = withoutCiResults(audit);
+  for (const part of ["CI 判定", "- マージ可否:", "- merge-ready:"]) expect(stripped).not.toContain(part);
+  expect(stripped).toContain("<!-- ci-result:begin -->\n（CI の結果は親だけが扱うため除いた）\n<!-- ci-result:end -->");
+  expect(stripped).toContain(`runId: ${review.runId}`);
+  expect(withoutCiResults("[ci-result] merge-ready: 付けた。CI 判定 成功")).toBe("（CI の結果は親だけが扱うため除いた）\n");
+  expect(withoutCiResults("作業ログ: 一覧の余白を 8px に揃えた")).toBe("作業ログ: 一覧の余白を 8px に揃えた");
 });
 
 for (const variant of ["normal", "existing-pr", "acceptance-confirmed"] as const) {
