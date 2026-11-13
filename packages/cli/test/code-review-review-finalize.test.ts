@@ -72,6 +72,7 @@ interface Finalize {
   recheck: { evidence: { appended: number; others: number; own: number; events: number } | null };
   reportStartedAt: string;
   savedAt: string;
+  reviewSideMerge: { autoCheckRows: string; merge: string; blockers: string[] } | null;
 }
 interface Recheck {
   n: number;
@@ -542,7 +543,7 @@ describe("code-review の仕上げ（review.ts check-acceptance・finalize・rec
     const verdictA = refuteVerdict(a);
     await reachRefute(s, a, verdictA);
     await must(s, a, "check-refute");
-    const fa = (await finalize(s, a)).json as Finalize;
+    const fa = (await finalize(s, a, ["--auto-check-rows", "block"])).json as Finalize;
     expect(fa).toMatchObject({ status: "未完了", score: "点数なし", scoreValue: null, merge: MERGE_NG, documents: null });
     expect(fa.reason).toContain("有効な結果なし（受け入れ確認。起動していない）");
     expect(fa.ci).toMatchObject({ ran: false, verdict: "照合せず（評価用の事例）", record: "parent/ci/1/not-run.md" });
@@ -566,7 +567,7 @@ describe("code-review の仕上げ（review.ts check-acceptance・finalize・rec
     });
     expect(await deliverAcceptance(s, b, result)).toMatchObject({ valid: true, conflicts: 1 });
     put(join(s.t, "dataset/inputs/case-gaps/requirements/issue.md"), "# 変えた要求\n");
-    const fb = (await finalize(s, b)).json as Finalize;
+    const fb = (await finalize(s, b, ["--auto-check-rows", "block"])).json as Finalize;
     expect(fb).toMatchObject({ status: "完了", reason: null, score: 2, merge: MERGE_NG, documents: null });
     expect(fb.remaining.map((r) => [r.ref, r.owner])).toEqual([
       ["requirements/issue.md:L2", "人"],
@@ -583,6 +584,39 @@ describe("code-review の仕上げ（review.ts check-acceptance・finalize・rec
     expect(reportB).toContain("- 確認が残る事項: 4 件");
     expect(reportB).toContain(`監査記録 ${join(b.W, "parent/audit.md")}`);
     expect(read(join(b.W, "parent/audit.md")).split("<!-- acceptance-result:begin -->\n")[1]?.split("<!-- acceptance-result:end -->")[0]).toBe(result);
+    expect(nodCalls()).toBe("");
+  });
+
+  test("評価用の事例: CI を除いたレビュー側の判定を --auto-check-rows の扱いで別に算出し、通常のマージ可否と CI の規則は変えない。評価では引数が必須", async () => {
+    const s = sandbox();
+    const nodCalls = forbiddenNod(s);
+    // 要対応0件・受け入れ確認担当の行を確認済みにし、L4 を「自動チェック担当」の行にした反証の判定本文
+    const AUTO = "| `requirements/issue.md:L4` | 自動チェック担当 | テストで確かめる | なし |";
+    const reach = async (name: string) => {
+      const p = await prepareCaseWork(s, name);
+      const verdict = refuteVerdict(p, { clean: true }).replace("| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |", AUTO);
+      expect(verdict).toContain(AUTO);
+      await reachAcceptance(s, p, verdict, null);
+      expect(await deliverAcceptance(s, p, acceptanceResult(p))).toMatchObject({ valid: true });
+      return p;
+    };
+    const a = await reach("case-pass");
+    // 評価用の事例では自動チェック担当の行の扱いを明示しないと実行しない（引数の誤り。記録も残さない）
+    expect((await finalize(s, a)).exitCode).toBe(2);
+    expect((await finalize(s, a, ["--auto-check-rows", "maybe"])).exitCode).toBe(2);
+    expect(existsSync(join(a.W, "parent/finalize.json"))).toBe(false);
+    const fa = (await finalize(s, a, ["--auto-check-rows", "pass"])).json as Finalize;
+    expect(fa).toMatchObject({ status: "完了", scoreValue: 5, remainingCount: 0, merge: MERGE_NG, reportedMerge: MERGE_NG });
+    expect(fa.blockers.join("／")).toContain("照合せず（評価用の事例）");
+    expect(fa.reviewSideMerge).toEqual({ autoCheckRows: "pass", merge: "CI を除いてマージ可", blockers: [] });
+    expect(read(join(a.W, "parent/audit.md"))).toContain("- CI を除いたレビュー側の判定（評価用）: CI を除いてマージ可");
+
+    const b = await reach("case-block");
+    const fb = (await finalize(s, b, ["--auto-check-rows", "block"])).json as Finalize;
+    expect(fb).toMatchObject({ status: "完了", scoreValue: 5, remainingCount: 0, merge: MERGE_NG });
+    expect(fb.reviewSideMerge?.autoCheckRows).toBe("block");
+    expect(fb.reviewSideMerge?.merge).toBe("CI を除いてマージ不可");
+    expect(fb.reviewSideMerge?.blockers.join("／")).toContain("requirements/issue.md:L4（自動チェック担当");
     expect(nodCalls()).toBe("");
   });
 
@@ -631,7 +665,7 @@ describe("code-review の仕上げ（review.ts check-acceptance・finalize・rec
     put(join(p.W, "acceptance/result.md"), acceptanceResult(p, { used, verdict: "未充足", parts: unmet }));
     await must(s, p, "agent", ["--role", "acceptance", "--event", "received", "--agent-id", "agent-acceptance"]);
     expect(await checkAcceptance(s, p)).toMatchObject({ valid: true });
-    const f = (await finalize(s, p)).json as Finalize;
+    const f = (await finalize(s, p, ["--auto-check-rows", "block"])).json as Finalize;
     expect(f).toMatchObject({ status: "完了", score: 2, merge: MERGE_NG });
     const row = f.remaining.find((r) => r.ref === ROW);
     expect(row).toMatchObject({ owner: "受け入れ確認担当" });

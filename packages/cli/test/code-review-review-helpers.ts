@@ -36,14 +36,14 @@ export function sandbox(): Sandbox {
   return { t, home, bin, env };
 }
 
-// review.ts <subcommand> ... を起動する。CLAUDECODE などの外の環境に左右されないよう、テストの env で上書きする
+// review.ts <subcommand> ... を起動する。CLAUDECODE や omp の PI_SESSION_FILE などの外の環境に左右されないよう、テストの env で上書きする
 export async function runReview<T>(sub: string, args: string[], s: Sandbox, extraEnv: Record<string, string> = {}): Promise<ReviewRun<T>> {
   return runReviewScript<T>(REVIEW_SCRIPT, sub, args, s, extraEnv);
 }
 
 // 別の場所に写した review.ts（同じディレクトリの ci-checks.ts などを差し替えたもの）を起動する
 export async function runReviewScript<T>(script: string, sub: string, args: string[], s: Sandbox, extraEnv: Record<string, string> = {}): Promise<ReviewRun<T>> {
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDECODE: undefined, NOD_ACTOR: undefined, ...s.env, ...extraEnv };
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDECODE: undefined, NOD_ACTOR: undefined, PI_SESSION_FILE: undefined, ...s.env, ...extraEnv };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
   const proc = Bun.spawn([process.execPath, script, sub, ...args], { cwd: s.t, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);

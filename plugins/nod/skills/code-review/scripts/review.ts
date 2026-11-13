@@ -20,13 +20,19 @@
 //     目録 acceptance-input/records.md と親専用の記録（parent/acceptance/items.json・evidence.json・fingerprints.md）を作って指紋を照合する
 //   check-acceptance（9節）: --work <W>。受け入れ確認の結果の形式・担当全行・5つの部分・不足理由・使った証拠・矛盾の表と同一性を機械的に検査して
 //     parent/checks.md に書き、合格なら読み取った構造を parent/acceptance-structure.json に書く
-//   finalize（10節・11節）: --work <W> [--own-log <記録の id>]... [--not-run-reason <担当を1つも起動しなかった理由>]。保存直前の再照合
+//   finalize（10節・11節・14節）: --work <W> [--own-log <記録の id>]... [--not-run-reason <担当を1つも起動しなかった理由>]
+//     [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）] [--skill-start <スキルの読み込みの開始の ISO 時刻>]
+//     [--auto-check-rows pass|block（評価用の事例では必須、通常のレビューでは使わない）]。保存直前の再照合
 //     （parent/local-recheck/・requirements-recheck/・acceptance-recheck/）、最終状態・点数・確認が残る事項、CI の照合（parent/ci/1/、ci-checks.ts）と
-//     現在の head の照合（parent/head-check.md）、マージ可否、監査 parent/audit.md と結果 parent/report.md の組み立てと保存（Issue があれば監査→結果の順に
-//     kind=doc の Document へ保存して照合）、作業ログ・own-logs.md・merge-ready を行う。評価用の事例では nod へ保存せずラベルも扱わない
+//     現在の head の照合（parent/head-check.md）、マージ可否（評価用の事例では別に CI を除いたレビュー側の判定）、監査 parent/audit.md と結果 parent/report.md の
+//     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・own-logs.md・merge-ready、区間の時間と使用量
+//     （parent/usage.json・usage.md）を行う。評価用の事例では nod へ保存せずラベルも扱わない
 //   recheck-ci（13節）: --work <W> [--own-log <記録の id>]...。同じ head の CI とマージ可否を parent/recheck-<n>/・parent/ci/<n>/ へ照合し直し、merge-ready を付け外しする
+//   usage（14節）: --session <親のセッション記録の絶対パス> --from <ISO 時刻> --to <ISO 時刻> --out <記録先の絶対パス> [--agent <担当 ID>]... [--agent-file <絶対パス>]...
+//     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
 // 外部コマンドとして curl（https の URL の GET）と、同じディレクトリの copy-evidence.ts（通常のファイル）・ci-checks.ts（同じ head の CI）も起動する。
-// 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json に書く。
+// 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json（usage は <out>/usage.json）に書く。作業ディレクトリのある呼び出しは、
+// 終了コード 0 で終えたときに開始と終了の時刻を parent/stages.json（と stages.md）に足す（区間の計測に使う）
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
 // 外部コマンド: nod は NOD_CLI（無ければ nod）、gh は NOD_GH（無ければ gh。PR の現在の head と基点）、git・tar とパッケージ管理（bun・npm・pnpm・yarn・node）は PATH から起動する。
 import { spawnSync } from "node:child_process";
@@ -57,7 +63,10 @@ type Json = Record<string, unknown>;
 class UsageError extends Error {}
 
 interface Outcome {
-  work: string;
+  // 作業ディレクトリ W。W の無い呼び出し（任意のセッション記録を集計する usage）は null
+  work: string | null;
+  // 結果の JSON を書く場所（既定は <W>/parent/<subcommand>.json）
+  record?: string;
   result: Json;
 }
 
@@ -950,6 +959,8 @@ interface Prepared {
   deps: Deps | null;
   inputs: FileHash[];
   manifestSha256: string | null;
+  // prepare の結果を作り始めた時刻（段階の記録 parent/stages.json が無い古い作業ディレクトリの計測の始まり）
+  startedAt?: string;
 }
 
 export interface AgentRecord {
@@ -1212,7 +1223,8 @@ const STATES = new Set(["充足", "未充足", "未確認", "説明", "自動チ
 const TARGET_FIELDS = ["役割", "定義名", "対象版", "要求資料", "依存の写し", "終了状態"];
 const CANDIDATE_FIELDS = ["軸", "場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠"];
 const TABLE_HEADER = ["要求の出典", "状態", "証拠または不足理由", "候補ID"];
-const FORBIDDEN = ["重大度", "確信度", "要約", "推論", "総合判断", "原因の統合", "severity", "confidence", "summary"];
+// 禁止項目の名前。コードスパンを除いた見出し・項目名・表の見出しの全体がこれと同じときだけ当てる（`Severity` の表示・buildSummary の呼出元 のような名前の一部には当てない）
+const FORBIDDEN = /^(?:暫定の)?(?:重大度|確信度|要約|推論|総合判断|原因の統合|severity|confidence|summary)$/i;
 const FENCE = /^\s*(```|~~~)/;
 const SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
 // 箇条書きの項目名（`- 名前: 値`、`**名前**:` も）
@@ -1311,7 +1323,7 @@ function tableRows(body: string[], header: string[]): string[][] | null {
   return null;
 }
 
-// 見出し・項目名・表の見出しに禁止項目の名前があるか（本文への混入は親が通読して確かめる）
+// 見出し・項目名・表の見出しの全体が禁止項目の名前か（本文への混入は親が通読して確かめる）
 function forbiddenNames(lines: string[]): string[] {
   const hits: string[] = [];
   let fence = false;
@@ -1329,7 +1341,7 @@ function forbiddenNames(lines: string[]): string[] {
     const b = /^\s*(?:[-*+]\s+)?\*\*([^*]{1,40})\*\*/.exec(line);
     if (b) names.push(b[1] ?? "");
     if (line.trim().startsWith("|") && SEPARATOR.test(lines[i + 1] ?? "")) names.push(...splitRow(line));
-    for (const n of names) if (FORBIDDEN.some((w) => n.toLowerCase().includes(w))) hits.push(`L${i + 1}「${plain(n)}」`);
+    for (const n of names) if (FORBIDDEN.test(plain(n.replace(/`[^`]*`/g, "")))) hits.push(`L${i + 1}「${plain(n)}」`);
   });
   return hits;
 }
@@ -3584,18 +3596,28 @@ interface MergeDecision {
   acceptanceRows: string[];
 }
 
-// 10節の8（13節の6）: 最終状態・点数・対応表・受け入れ確認の結果・確認が残る事項と、同じ head の CI・現在の head と基点から決める。どれも変えない
-function decideMerge(m: { status: Status; reason: string | null; score: number | null; refute: RefuteStructure | null; acceptance: AcceptanceStructure | null; remaining: number; ci: CiRecord; head: HeadCheck | null; prep: Prepared }): MergeDecision {
-  const ok = ciPassed(m.ci, m.prep);
+type MergeInput = { status: Status; reason: string | null; score: number | null; refute: RefuteStructure | null; acceptance: AcceptanceStructure | null; remaining: number; ci: CiRecord; head: HeadCheck | null; prep: Prepared };
+
+// 10節の8の 1〜3（CI と現在の head を除くレビューの側の条件）で満たしていない理由。自動チェック担当の行は autoOk のときだけ満たしたことにし、autoNote を理由に添える
+function reviewBlockers(m: MergeInput, autoOk: boolean, autoNote: string): string[] {
   const verdicts = new Map(m.acceptance?.judgments.map((j) => [j.source, j.verdict]) ?? []);
-  const table = m.refute?.table ?? [];
-  const satisfied = (t: TableRow) => ["充足", "説明", "対象外"].includes(t.status) || (t.status === "自動チェック担当" && ok) || (t.status === ACCEPTANCE_STATE && verdicts.get(t.source) === "確認済み");
-  const unmet = table.filter((t) => !satisfied(t)).map((t) => `${t.source}（${t.status}${t.status === ACCEPTANCE_STATE ? `: ${verdicts.get(t.source) ?? "判定なし"}` : t.status === "自動チェック担当" ? `: CI 判定 ${m.ci.verdict}` : ""}）`);
-  const blockers = [
+  const satisfied = (t: TableRow) => ["充足", "説明", "対象外"].includes(t.status) || (t.status === "自動チェック担当" && autoOk) || (t.status === ACCEPTANCE_STATE && verdicts.get(t.source) === "確認済み");
+  const unmet = (m.refute?.table ?? []).filter((t) => !satisfied(t)).map((t) => `${t.source}（${t.status}${t.status === ACCEPTANCE_STATE ? `: ${verdicts.get(t.source) ?? "判定なし"}` : t.status === "自動チェック担当" ? `: ${autoNote}` : ""}）`);
+  return [
     ...(m.status === "完了" ? [] : [`最終状態 ${m.status}（理由: ${m.reason}）`]),
     ...(m.score === 5 ? [] : [m.score === null ? "点数なし" : `確定した要対応の点数 ${m.score}`]),
     ...(m.status === "完了" && unmet.length > 0 ? [`対応表に満たしていない行がある: ${unmet.join("、")}`] : []),
     ...(m.remaining > 0 ? [`確認が残る事項 ${m.remaining} 件`] : []),
+  ];
+}
+
+// 10節の8（13節の6）: 最終状態・点数・対応表・受け入れ確認の結果・確認が残る事項と、同じ head の CI・現在の head と基点から決める。どれも変えない
+function decideMerge(m: MergeInput): MergeDecision {
+  const ok = ciPassed(m.ci, m.prep);
+  const table = m.refute?.table ?? [];
+  const verdicts = new Map(m.acceptance?.judgments.map((j) => [j.source, j.verdict]) ?? []);
+  const blockers = [
+    ...reviewBlockers(m, ok, `CI 判定 ${m.ci.verdict}`),
     ...(ok ? [] : [`CI 判定 ${m.ci.verdict}（${m.ci.reason}${m.ci.resultHead ? `。result.json の head ${m.ci.resultHead} は target.md の head と${m.ci.resultHead === m.prep.head ? "一致" : "不一致"}` : ""}）`]),
     ...(m.head ? headProblems(m.head) : []),
   ];
@@ -3605,6 +3627,19 @@ function decideMerge(m: { status: Status; reason: string | null; score: number |
     autoRows: table.filter((t) => t.status === "自動チェック担当").map((t) => `${t.source}（同じ head の CI 判定 ${m.ci.verdict} で${ok ? "満たした" : "満たしていない"}）`),
     acceptanceRows: table.filter((t) => t.status === ACCEPTANCE_STATE).map((t) => `${t.source}（受け入れ確認担当: ${verdicts.get(t.source) ?? "判定なし"}）`),
   };
+}
+
+// 評価用の事例の「CI を除いてマージ可」（docs/code-review-evaluation.md の再評価の5）。マージ可否とは別の値で、CI と現在の head は見ない。
+// 自動チェック担当の行は、実行の前に run.md で固定した扱い（pass は満たした、block は満たしていないとして数える）を finalize の --auto-check-rows で受ける
+export interface ReviewSideMerge {
+  autoCheckRows: "pass" | "block";
+  merge: string;
+  blockers: string[];
+}
+
+function reviewSideMerge(m: MergeInput, autoCheckRows: "pass" | "block"): ReviewSideMerge {
+  const blockers = reviewBlockers(m, autoCheckRows === "pass", `--auto-check-rows ${autoCheckRows}`);
+  return { autoCheckRows, merge: blockers.length === 0 ? "CI を除いてマージ可" : "CI を除いてマージ不可", blockers };
 }
 
 // ---- 報告の組み立て（parent.md 11節。結果 report.md と監査 audit.md） ----
@@ -3624,6 +3659,9 @@ interface ReportContext {
   requirements: RequirementsRecheck | null;
   local: LocalRecheck | null;
   evidence: EvidenceRecheck | null;
+  // 報告に載せる計測（prepare の開始から報告の組み立ての直前まで）と、評価用の事例の CI を除いたレビュー側の判定
+  usage: ReportUsage;
+  reviewSide: ReviewSideMerge | null;
 }
 
 const severityOf = (impact: number | null) => (impact === null ? "影響度なし" : `${SEVERITY[impact] ?? "不明"}、影響度 ${impact}`);
@@ -3752,6 +3790,11 @@ function renderAudit(c: ReportContext): string {
     "  - 「完了・確定した要対応の点数 5・確認が残る事項あり・マージ不可」は正常な結果である。可でもリポジトリの既存のマージ条件（ブランチ保護・必須のレビューなど）は省かない。",
     headLine,
     `- merge-ready: ${c.labelPlan}。報告の保存と作業ログの直後に行う操作として書く。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は、判定した head SHA・現在の head の照合・基点・CI 判定・この報告の Document ID・runId とともに、本文が [ci-result] で始まる --kind test の作業ログに記録する`,
+    ...(c.reviewSide
+      ? [
+          `- CI を除いたレビュー側の判定（評価用）: ${c.reviewSide.merge}（マージ可否とは別の値。CI と現在の head を見ず、自動チェック担当の行は --auto-check-rows ${c.reviewSide.autoCheckRows} の扱い（${c.reviewSide.autoCheckRows === "pass" ? "満たした" : "満たしていない"}として数える）${c.reviewSide.blockers.length > 0 ? `。理由: ${c.reviewSide.blockers.join("／")}` : ""}）`,
+        ]
+      : []),
     CI_END,
     `- 対象版: 元のリポジトリ \`${prep.repo}\`／基点の指定 \`${prep.base}\`／merge-base \`${prep.mergeBase}\`／head \`${prep.head}\`／mode ${prep.mode}${prep.mode === "local" ? `（土台の HEAD \`${prep.head}\`、${prep.inputs.filter((i) => i.path.startsWith("local/")).map((i) => `\`${i.path}\` ${i.sha256}`).join("・")}）` : ""}${prep.caseDir ? `／評価用の事例 ${prep.case}` : ""}`,
     `- 担当用の限定 clone: ${W("repo")}（記録: ${W("parent/clone.md")}）。prepare の確認: ${prep.clone ? (prep.clone.checks.every((x) => x.ok) ? "すべて通った" : "通らない確認がある") : "作っていない"}。段階ごとの同一性の確認 ${identities.length} 回（不一致 ${identities.filter((i) => !i.ok).length} 回。記録: ${W("parent/identity.md")}）`,
@@ -3849,6 +3892,8 @@ function renderAudit(c: ReportContext): string {
     `マージ可否は${decision.merge}。${decision.merge === MERGE_OK ? "" : "人の判断なしにマージへ進めない。"}${ci.verdict === "未確定" || ci.verdict === "結果なし" ? "CI の完了後に親の手順の13節の CI の再照合（review.ts recheck-ci）で判定し直す（レビューはやり直さない）。" : ""}`,
     CI_END,
     "",
+    ...renderAuditUsage(c.usage, work),
+    "",
     "### 独立性の限界",
     "",
     "探索と反証は別コンテキストで実行し、探索には異なるモデルを設定するが、見落としが共通する可能性は残り、設定だけで各実行の実効モデルの違いを証明するものではない。各担当のモデルは上の担当の表の申告と出典だけで、スクリプトはハーネスのロール設定を読まない（分からなければ未確認）。",
@@ -3907,6 +3952,8 @@ function renderReport(c: ReportContext, auditRef: string): string {
     "## 未確認",
     "",
     ...(c.remaining.length > 0 ? ["| 出典 | 確認する人・担当 | 不足している確認 |", "|---|---|---|", ...c.remaining.map((r) => `| ${cell(r.ref)} | ${cell(r.owner)} | ${cell(r.reason)} |`)] : ["なし"]),
+    "",
+    ...renderReportUsage(c.usage),
     "",
     "## 監査記録",
     "",
@@ -4012,8 +4059,9 @@ function applyMergeReady(work: string, prep: Prepared, issue: string, x: { merge
   return { operation, blockers, head, error: error ?? (typeof id === "number" ? null : `[ci-result] の作業ログを書けない（${failure(p)}）`), log: typeof id === "number" ? id : null };
 }
 
-// 11節の作業ログ（完了は progress、未実施・未完了は blocker）の本文。CI 判定・マージ可否・merge-ready は書かず [ci-result] の記録を参照する
-function summaryLog(c: ReportContext, reportId: number | null, auditId: number | null, saveProblems: string[]): string {
+// 11節の作業ログ（完了は progress、未実施・未完了は blocker）の本文。CI 判定・マージ可否・merge-ready は書かず [ci-result] の記録を参照する。
+// 末尾に保存までの確定値（報告には書き戻さない計測）を書く
+function summaryLog(c: ReportContext, reportId: number | null, auditId: number | null, saveProblems: string[], final: FinalUsage): string {
   const agents = loadList<AgentRecord>(c.work, "agents");
   const retired = loadList<AttemptRecord>(c.work, "attempts");
   const ids = agents.map((a) => `${a.roleName}=${a.definition}/${a.agentId ?? "不明"}（試行 ${a.attempt}${retired.some((x) => x.role === a.role && x.attempt === a.attempt) ? "、無効" : ""}）`).join("、") || "なし";
@@ -4029,6 +4077,7 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
       judged.length > 0 ? `受け入れ確認: ${judged.map((j) => `${j.source}=${j.verdict}`).join("、")}。` : "",
       `確認が残る事項 ${c.remaining.length} 件${c.remaining.length > 0 ? `（${c.remaining.map((r) => `${r.ref}（${r.owner}、${r.reason}）`).join("、")}）` : ""}。`,
       `${docs}。runId ${c.runId}。担当: ${ids}。${retries.length > 0 ? `無効な試行: ${retries.join("、")}。` : ""}${ciNote}。`,
+      finalUsageText(final, c.work),
     ].join("");
   }
   return [
@@ -4036,6 +4085,7 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
     `試行: ${ids}。${retries.length > 0 ? `無効な試行: ${retries.join("、")}。` : ""}`,
     `受領済みの成果: ${agents.filter((a) => a.receivedAt).map((a) => `${a.roleName}の試行 ${a.attempt}`).join("、") || "なし"}。点数なし。`,
     `${docs}。runId ${c.runId}。Done・In Review・PR へ進めない。${ciNote}。`,
+    finalUsageText(final, c.work),
   ].join("");
 }
 
@@ -4053,12 +4103,19 @@ interface FinalizeRecord {
 }
 
 function finalize(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "not-run-reason"], ["own-log"]);
+  const o = parseOptions(args, ["work", "not-run-reason", "session", "skill-start", "auto-check-rows"], ["own-log"]);
   const work = absolute("work", o.one.get("work"));
   if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
   const prep = prepareRecord(work);
   if (existsSync(join(work, "parent/finalize.json"))) throw new UsageError("finalize は実行済みです（報告を保存し直さない。CI の照合し直しは recheck-ci）");
   if (existsSync(join(work, "parent/ci/1")) && readdirSync(join(work, "parent/ci/1")).length > 0) throw new UsageError("parent/ci/1/ が空ではありません（CI の照合は finalize が1回だけ行う）");
+  // 評価用の事例では CI を除いたレビュー側の判定のために自動チェック担当の行の扱いが要る（通常のレビューでは使わない）
+  const autoCheckRows = o.one.get("auto-check-rows");
+  if (prep.caseDir && autoCheckRows !== "pass" && autoCheckRows !== "block") throw new UsageError("評価用の事例では --auto-check-rows pass|block（run.md で固定した自動チェック担当の行の扱い）が要ります");
+  if (!prep.caseDir && autoCheckRows !== undefined) throw new UsageError("--auto-check-rows は評価用の事例（prepare --case）だけで使います");
+  const session = parentSession(absolute("session", o.one.get("session")));
+  const skillStartArg = o.one.get("skill-start");
+  if (skillStartArg !== undefined && Number.isNaN(Date.parse(skillStartArg))) throw new UsageError(`--skill-start は ISO 8601 の時刻にしてください: ${skillStartArg}`);
   const ownLogs = recordOwnLogArgs(work, prep, o, "写しの後に親が Issue へ書いた記録");
   const runId = basename(work);
   const mode: ReportContext["mode"] = prep.caseDir ? "case" : prep.issue ? "issue" : "request";
@@ -4087,14 +4144,17 @@ function finalize(args: string[]): Outcome {
             : null;
   const ci = checkCi(work, prep, 1, base, rules, skip);
   const head = state.status !== "未実施" && prep.mode === "commit" && !prep.caseDir ? takeHead(work, prep, ci.base, "マージ可否を決める直前") : null;
-  const decision = decideMerge({ status: state.status, reason: state.reason, score, refute: state.refute, acceptance: state.acceptance, remaining: remaining.length, ci, head, prep });
+  const mergeInput: MergeInput = { status: state.status, reason: state.reason, score, refute: state.refute, acceptance: state.acceptance, remaining: remaining.length, ci, head, prep };
+  const decision = decideMerge(mergeInput);
+  const reviewSide = autoCheckRows === "pass" || autoCheckRows === "block" ? reviewSideMerge(mergeInput, autoCheckRows) : null;
   const labeled = mode === "issue" && prep.issue ? (issueLabels(prep.issue)?.includes("merge-ready") ?? false) : false;
   const labelPlan =
     mode === "case" ? "扱わない（評価用の事例）" : mode === "request" ? "扱わない（Issue なし）" : decision.merge === MERGE_OK ? "付ける予定（付ける直前に現在の head と基点を取り直す）" : labeled ? "外す予定" : "付けない";
 
-  // 報告の組み立て・保存の直前（Task 5 の計測の境目1）。報告に載せる区間の値はこの時刻までを数える
+  // 報告の組み立て・保存の直前。報告に載せる区間の値（計測の1つ目）はこの時刻までを数える
   const reportStartedAt = now();
-  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, ci, head, decision, labelPlan, requirements, local, evidence };
+  const usage = reportUsage(work, prep, session, reportStartedAt);
+  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, ci, head, decision, labelPlan, requirements, local, evidence, usage, reviewSide };
   const audit = renderAudit(ctx);
   writeFileSync(join(work, "parent/audit.md"), audit);
   const markers = [
@@ -4119,14 +4179,15 @@ function finalize(args: string[]): Outcome {
     writeFileSync(join(work, "parent/report.md"), report);
   }
   const saved = problems.length === 0;
-  // 保存と保存後の指紋照合の完了（Task 5 の計測の境目2）。保存後の作業ログの確定値はこの時刻までを数える
+  // 保存と保存後の指紋照合の完了。保存後の作業ログと親専用領域の確定値（計測の2つ目）と MIN-33 の前後比較用の値（3つ目）はこの時刻までを数える
   const savedAt = now();
+  const measured = finishUsage(work, session, usage, savedAt, skillStartArg);
 
   let summaryLogId: number | null = null;
   let label: LabelResult | null = null;
   let logProblem: string | null = null;
   if (mode === "issue" && prep.issue) {
-    const text = summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems);
+    const text = summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems, measured.final);
     const p = nod(["--json", "issue", "log", prep.issue, text, "--kind", state.status === "完了" ? "progress" : "blocker"]);
     const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
     if (typeof id === "number") {
@@ -4178,6 +4239,13 @@ function finalize(args: string[]): Outcome {
     logProblem,
     reportStartedAt,
     savedAt,
+    reviewSideMerge: reviewSide,
+    usage: {
+      record: join(work, "parent/usage.json"),
+      report: { from: usage.from, to: usage.to, seconds: usage.seconds, parentTotalTokens: usage.parent.tally?.totalTokens ?? null },
+      final: { from: measured.final.from, to: measured.final.to, seconds: measured.final.seconds, parentTotalTokens: measured.final.parent.tally?.totalTokens ?? null },
+      comparison: { from: measured.comparison.from, to: measured.comparison.to, seconds: measured.comparison.seconds, parentTotalTokens: measured.comparison.parent.tally?.totalTokens ?? null },
+    },
   };
   return { work, result: record };
 }
@@ -4285,7 +4353,524 @@ function recheckCi(args: string[]): Outcome {
   };
 }
 
-// ---- 振り分け（サブコマンドはここだけで登録する） ----
+// ---- 区間の時間と使用量（parent.md 14節。段階・委譲の時刻と omp のセッション記録から集計する） ----
+
+// 段階（サブコマンド）の記録。振り分け（main）が終了コード 0 で終えた呼び出しごとに parent/stages.json（と stages.md）へ足す
+export interface StageRecord {
+  subcommand: string;
+  startedAt: string;
+  endedAt: string | null;
+  args: string[];
+}
+
+// 今の呼び出し（main が設定する）。finalize は自分の段階の終わりより前に計測するので、実行中の段階として載せる
+let currentStage: StageRecord | null = null;
+
+const secondsBetween = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 1000;
+const duration = (s: number | null) => (s === null ? "取得できず" : `${(s / 60).toFixed(1)}分（${s.toFixed(1)}秒）`);
+const tokens = (n: number | null) => (n === null ? "取得できず" : String(n));
+
+function renderStages(list: StageRecord[]): string {
+  return [
+    "# 段階の記録",
+    "",
+    "review.ts の各サブコマンドを終了コード 0 で終えた呼び出しの開始と終了の時刻（ISO 8601、UTC）。委譲の開始と最終返答の受領は agents.md。",
+    "",
+    "| サブコマンド | 引数 | 開始 | 終了 | 時間 |",
+    "|---|---|---|---|---|",
+    ...list.map((s) => `| ${s.subcommand} | ${cell(s.args.join(" ")) || "なし"} | ${s.startedAt} | ${s.endedAt ?? "実行中"} | ${s.endedAt ? duration(secondsBetween(s.startedAt, s.endedAt)) : "実行中"} |`),
+    "",
+  ].join("\n");
+}
+
+function recordStage(work: string, stage: StageRecord): void {
+  if (!existsSync(join(work, "parent"))) return;
+  const list = [...loadList<StageRecord>(work, "stages"), stage];
+  saveList(work, "stages", list, renderStages(list));
+}
+
+// omp のセッション記録の1行（外側の timestamp を持つものだけ）
+interface SessionRecord {
+  at: number;
+  iso: string;
+  type: string;
+  role: string | null;
+  usage: Record<string, unknown> | null;
+  stop: string | null;
+  error: string | null;
+  // ツール呼び出しの引数に出る文字列（スキルの読み込みの応答を見分ける）
+  tools: string[];
+}
+
+// 計測の出典（記録ファイルのパスと sha256。取得できなければ unavailable に理由）
+export interface Source {
+  path: string | null;
+  sha256: string | null;
+  unavailable: string | null;
+  readAt?: string;
+  records?: number;
+  // 時刻の無い行（title など）と読めない行の数
+  untimed?: number;
+  sessionAt?: string | null;
+  parentSession?: string | null;
+}
+
+interface SessionFile {
+  source: Source;
+  records: SessionRecord[] | null;
+}
+
+const isResponse = (r: SessionRecord) => r.type === "message" && r.role === "assistant";
+
+function stringsIn(v: unknown): string[] {
+  if (typeof v === "string") return [v];
+  if (Array.isArray(v)) return v.flatMap(stringsIn);
+  return v !== null && typeof v === "object" ? Object.values(v).flatMap(stringsIn) : [];
+}
+
+function readSession(path: string | null, missing: string): SessionFile {
+  if (!path) return { source: { path: null, sha256: null, unavailable: missing }, records: null };
+  if (!existsSync(path)) return { source: { path, sha256: null, unavailable: `記録が無い（${path}）` }, records: null };
+  let data: Buffer;
+  try {
+    data = readFileSync(path);
+  } catch (e) {
+    return { source: { path, sha256: null, unavailable: `記録を読めない（${path}: ${e instanceof Error ? e.message : String(e)}）` }, records: null };
+  }
+  const records: SessionRecord[] = [];
+  let untimed = 0;
+  let sessionAt: string | null = null;
+  let parentSession: string | null = null;
+  for (const line of data.toString("utf8").split("\n")) {
+    if (line.trim() === "") continue;
+    let j: Json;
+    try {
+      j = JSON.parse(line) as Json;
+    } catch {
+      untimed++;
+      continue;
+    }
+    const iso = typeof j.timestamp === "string" ? j.timestamp : "";
+    const at = Date.parse(iso);
+    if (Number.isNaN(at)) {
+      untimed++;
+      continue;
+    }
+    const m = j.message !== null && typeof j.message === "object" ? (j.message as Json) : null;
+    if (j.type === "session" && sessionAt === null) {
+      sessionAt = iso;
+      parentSession = typeof j.parentSession === "string" ? j.parentSession : null;
+    }
+    records.push({
+      at,
+      iso,
+      type: String(j.type),
+      role: typeof m?.role === "string" ? m.role : null,
+      usage: m?.usage !== null && typeof m?.usage === "object" ? (m.usage as Record<string, unknown>) : null,
+      stop: typeof m?.stopReason === "string" ? m.stopReason : null,
+      error: typeof m?.errorMessage === "string" ? m.errorMessage : null,
+      tools: Array.isArray(m?.content) ? (m.content as Json[]).filter((c) => c?.type === "toolCall").flatMap((c) => stringsIn(c.arguments)) : [],
+    });
+  }
+  return { source: { path, sha256: sha256(data), unavailable: null, readAt: now(), records: records.length, untimed, sessionAt, parentSession }, records };
+}
+
+const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
+type UsageField = (typeof USAGE_FIELDS)[number];
+
+// 範囲の assistant の応答の使用量（欄の無い応答があればその欄は null = 取得できず）
+export interface Tally {
+  responses: number;
+  turns: number;
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  totalTokens: number | null;
+  maxContext: number | null;
+  missing: UsageField[];
+  // omp 内部の retry（エラーで止まった応答と credential_pin の記録）。親による再委譲とは別
+  retries: { errors: { at: string; message: string }[]; credentialPins: string[] };
+  first: string | null;
+  last: string | null;
+  // 担当の記録だけ: 委譲の開始から最終返答の受領までの外にある応答の数（使用量には入れない）
+  outside?: number;
+}
+
+function tally(records: SessionRecord[], from: number, to: number): Tally {
+  const inside = (r: SessionRecord) => r.at >= from && r.at < to;
+  const res = records.filter((r) => isResponse(r) && inside(r));
+  const num = (r: SessionRecord, f: UsageField) => (typeof r.usage?.[f] === "number" ? (r.usage[f] as number) : null);
+  const missing = USAGE_FIELDS.filter((f) => res.some((r) => num(r, f) === null));
+  const sum = (f: UsageField) => (missing.includes(f) ? null : res.reduce((a, r) => a + (num(r, f) ?? 0), 0));
+  const answered = res.filter((r) => r.stop !== "error");
+  const contexts = answered.map((r) => [num(r, "input"), num(r, "cacheRead"), num(r, "cacheWrite")]);
+  const known = contexts.every((c) => c.every((x) => x !== null));
+  return {
+    responses: res.length,
+    turns: answered.length,
+    input: sum("input"),
+    output: sum("output"),
+    cacheRead: sum("cacheRead"),
+    cacheWrite: sum("cacheWrite"),
+    totalTokens: sum("totalTokens"),
+    maxContext: answered.length > 0 && known ? Math.max(...contexts.map((c) => (c[0] ?? 0) + (c[1] ?? 0) + (c[2] ?? 0))) : null,
+    missing,
+    retries: {
+      errors: res.filter((r) => r.stop === "error").map((r) => ({ at: r.iso, message: r.error ?? "（エラーの文言なし）" })),
+      credentialPins: records.filter((r) => r.type === "credential_pin" && inside(r)).map((r) => r.iso),
+    },
+    first: res[0]?.iso ?? null,
+    last: res.at(-1)?.iso ?? null,
+  };
+}
+
+// 範囲の使用量と出典。記録が無い・読めなければ tally は null（0 にしない）
+export interface Measured {
+  source: Source;
+  tally: Tally | null;
+  unavailable: string | null;
+}
+
+function measure(file: SessionFile, from: number, to: number): Measured {
+  return file.records ? { source: file.source, tally: tally(file.records, from, to), unavailable: null } : { source: file.source, tally: null, unavailable: file.source.unavailable };
+}
+
+const totalOf = (list: Measured[]) => (list.every((m) => typeof m.tally?.totalTokens === "number") ? list.reduce((a, m) => a + (m.tally?.totalTokens ?? 0), 0) : null);
+
+const USAGE_DEFINITIONS = {
+  range: "時刻の範囲は開始を含み終了を含まない（ISO 8601、UTC）",
+  usage:
+    "使用量は omp のセッション記録の assistant の応答のうち、外側の記録の timestamp（応答の中の時刻ではない）が範囲に入るものの usage を応答単位で合計した。境界をまたぐ応答を時間で分割しない。各応答にはその時点までの文脈（キャッシュ読みを含む）が含まれる",
+  turns: "ターンは stopReason が error でない応答の数（応答の数はエラーで止まった応答を含む）",
+  maxContext: "最大文脈は、stopReason が error でない1応答の input + cacheRead + cacheWrite の最大",
+  retries: "omp 内部の retry は、セッションの中でエラー（stopReason が error）で止まった応答と credential_pin の記録で、親による再委譲（試行の番号。担当 ID ごとに別の記録）とは分ける",
+  agents:
+    "担当の時間と使用量は、委譲の開始（agent --event start）から親が最終返答を受け取った時刻（agent --event received）までで、その後のセッションの片付けを含めない。その外の応答は件数（範囲外の応答）だけ書く。担当の記録は、親の記録と同名のディレクトリの <担当 ID>.jsonl",
+  sections:
+    "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証・受け入れ確認）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
+  missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
+  report: "報告に載せる値: 最初の段階（prepare）の開始から、finalize が報告を組み立て始める直前（reportStartedAt）まで",
+  final: "保存後の確定値: prepare の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（savedAt）まで（利用者への最終説明は含めない）。保存後の作業ログと親専用領域だけに書き、報告には書き戻さない",
+  comparison: "MIN-33 の前後比較用: 親がスキルを読み込み始めた時刻（prepare の開始より前で最後に code-review の SKILL.md を読み込んだ応答の記録の時刻、または finalize の --skill-start）から savedAt まで",
+};
+
+// 親のセッション記録の場所（既定のパスを決め打ちしない）
+interface ParentSession {
+  path: string | null;
+  origin: string;
+  missing: string;
+}
+
+function parentSession(arg: string | undefined): ParentSession {
+  if (arg) return { path: arg, origin: "finalize の --session", missing: "" };
+  const env = process.env.PI_SESSION_FILE;
+  if (env && isAbsolute(env)) return { path: env, origin: "環境変数 PI_SESSION_FILE（omp が bash から起動したプロセスに渡す親のセッション記録）", missing: "" };
+  return { path: null, origin: "なし", missing: "親のセッション記録の場所が --session にも PI_SESSION_FILE にも無い" };
+}
+
+// 担当の記録: 親の記録と同名のディレクトリの <担当 ID>.jsonl
+function agentSessionPath(parent: string | null, agentId: string | null): { path: string | null; missing: string } {
+  if (!parent) return { path: null, missing: "親のセッション記録の場所が分からないので、担当の記録を引けない" };
+  if (!agentId) return { path: null, missing: "担当 ID が記録されていない（agent --agent-id）" };
+  return { path: join(dirname(parent), basename(parent, ".jsonl"), `${agentId}.jsonl`), missing: "" };
+}
+
+export interface AttemptUsage extends Measured {
+  role: Role;
+  roleName: string;
+  attempt: number;
+  agentId: string | null;
+  startedAt: string;
+  receivedAt: string | null;
+  seconds: number | null;
+  // 無効として隔離した試行の失敗の種類（有効・未検査は null）
+  failure: string | null;
+}
+
+export interface SectionUsage {
+  name: string;
+  owner: string;
+  from: string;
+  to: string;
+  seconds: number;
+  // 最終返答を受け取っていない試行があり、終わりを報告の直前にした
+  open: boolean;
+  parent: Measured;
+  agentsTotal: number | null;
+  // 担当の区間に入る試行（<役割>#<試行の番号>）
+  attempts: string[];
+}
+
+interface ReportUsage {
+  from: string;
+  to: string;
+  seconds: number;
+  session: ParentSession;
+  stages: StageRecord[];
+  sections: SectionUsage[];
+  parent: Measured;
+  attempts: AttemptUsage[];
+}
+
+const AGENT_SECTIONS: { stage: Stage; name: string; owner: string }[] = [
+  { stage: "explore", name: "探索（並列）", owner: "Standards 探索・Spec 探索" },
+  { stage: "refute", name: "反証", owner: "反証担当" },
+  { stage: "acceptance", name: "受け入れ確認", owner: "受け入れ確認担当" },
+];
+// 親の区間の名前（前の担当の段階-次の担当の段階）
+const PARENT_SECTIONS: Record<string, string> = {
+  "-explore": "準備",
+  "explore-refute": "引き渡しの検査",
+  "refute-acceptance": "反証の検査と証拠集め",
+  "-": "準備と仕上げ",
+  "explore-": "引き渡しの検査と仕上げ",
+  "refute-": "反証の検査と仕上げ",
+  "acceptance-": "受け入れ確認の検査と仕上げ",
+};
+
+// 報告に載せる値: prepare の開始から cut（報告の組み立ての直前）までの区間ごとの時間と、親・各試行の使用量
+function reportUsage(work: string, prep: Prepared, session: ParentSession, cut: string): ReportUsage {
+  const stages = [...loadList<StageRecord>(work, "stages"), ...(currentStage ? [currentStage] : [])];
+  const from = stages.find((s) => s.subcommand === "prepare")?.startedAt ?? prep.startedAt ?? cut;
+  const file = readSession(session.path, session.missing);
+  const retired = loadList<AttemptRecord>(work, "attempts");
+  const attempts: AttemptUsage[] = loadList<AgentRecord>(work, "agents")
+    .filter((a) => a.startedAt < cut)
+    .map((a) => {
+      const where = agentSessionPath(session.path, a.agentId);
+      const agentFile = readSession(where.path, where.missing);
+      const [start, end] = [Date.parse(a.startedAt), Date.parse(a.receivedAt ?? cut)];
+      const m = measure(agentFile, start, end);
+      if (m.tally && agentFile.records) m.tally.outside = agentFile.records.filter((r) => isResponse(r) && (r.at < start || r.at >= end)).length;
+      const failure = retired.find((x) => x.role === a.role && x.attempt === a.attempt)?.failureLabel ?? null;
+      return { role: a.role, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId, startedAt: a.startedAt, receivedAt: a.receivedAt, seconds: a.receivedAt ? secondsBetween(a.startedAt, a.receivedAt) : null, failure, ...m };
+    });
+  const parentPart = (name: string, a: string, b: string): SectionUsage => ({ name, owner: "親", from: a, to: b, seconds: secondsBetween(a, b), open: false, parent: measure(file, Date.parse(a), Date.parse(b)), agentsTotal: null, attempts: [] });
+  const sections: SectionUsage[] = [];
+  let prev = from;
+  let prevStage = "";
+  for (const g of AGENT_SECTIONS) {
+    const list = attempts.filter((a) => ROLES[a.role].stage === g.stage);
+    if (list.length === 0) continue;
+    const start = list.map((a) => a.startedAt).sort()[0] ?? prev;
+    const open = list.some((a) => a.receivedAt === null);
+    const end = open ? cut : (list.map((a) => a.receivedAt ?? cut).sort().at(-1) ?? cut);
+    sections.push(parentPart(PARENT_SECTIONS[`${prevStage}-${g.stage}`] ?? "親", prev, start));
+    sections.push({ name: g.name, owner: g.owner, from: start, to: end, seconds: secondsBetween(start, end), open, parent: measure(file, Date.parse(start), Date.parse(end)), agentsTotal: totalOf(list), attempts: list.map((a) => `${a.role}#${a.attempt}`) });
+    prev = end;
+    prevStage = g.stage;
+  }
+  sections.push(parentPart(PARENT_SECTIONS[`${prevStage}-`] ?? "仕上げ", prev, cut));
+  return { from, to: cut, seconds: secondsBetween(from, cut), session, stages, sections, parent: measure(file, Date.parse(from), Date.parse(cut)), attempts };
+}
+
+export interface FinalUsage {
+  from: string;
+  to: string;
+  seconds: number;
+  parent: Measured;
+}
+
+export interface ComparisonUsage {
+  from: string | null;
+  to: string;
+  seconds: number | null;
+  // 始まりの決め方（取得できなければ理由）
+  start: string;
+  parent: Measured;
+  attempts: AttemptUsage[];
+  agentsTotal: number | null;
+}
+
+// スキルの読み込み（skill://code-review、または code-review/SKILL.md のパスを引数に持つツール呼び出し）
+const SKILL_LOAD = /^skill:\/\/(?:[^/\s]*:)?code-review\/?$|(?:^|\/)code-review\/SKILL\.md$/;
+
+// 保存後の確定値と MIN-33 の前後比較用の値を求め、3つの値を parent/usage.json と usage.md に書く
+function finishUsage(work: string, session: ParentSession, report: ReportUsage, savedAt: string, skillStartArg: string | undefined): { final: FinalUsage; comparison: ComparisonUsage } {
+  const file = readSession(session.path, session.missing);
+  const final: FinalUsage = { from: report.from, to: savedAt, seconds: secondsBetween(report.from, savedAt), parent: measure(file, Date.parse(report.from), Date.parse(savedAt)) };
+  const before = Date.parse(report.from);
+  const hit = (file.records ?? [])
+    .filter((r) => isResponse(r) && r.at < before && r.tools.some((t) => SKILL_LOAD.test(t)))
+    .sort((a, b) => a.at - b.at)
+    .at(-1);
+  const start = skillStartArg
+    ? { at: skillStartArg, how: "finalize の --skill-start で指定した時刻" }
+    : !file.records
+      ? { at: null, how: `取得できず（${file.source.unavailable}）` }
+      : hit
+        ? { at: hit.iso, how: `prepare の開始より前で最後に code-review の SKILL.md を読み込んだ応答（${hit.tools.find((t) => SKILL_LOAD.test(t))}）の記録の時刻` }
+        : { at: null, how: "取得できず（prepare の開始より前に code-review の SKILL.md を読み込んだ応答が親の記録に無い。finalize の --skill-start で指定できる）" };
+  const comparison: ComparisonUsage = {
+    from: start.at,
+    to: savedAt,
+    seconds: start.at ? secondsBetween(start.at, savedAt) : null,
+    start: start.how,
+    parent: start.at ? measure(file, Date.parse(start.at), Date.parse(savedAt)) : { source: file.source, tally: null, unavailable: start.how },
+    attempts: report.attempts,
+    agentsTotal: totalOf(report.attempts),
+  };
+  const reportValue = { from: report.from, to: report.to, seconds: report.seconds, sections: report.sections, parent: report.parent, attempts: report.attempts };
+  writeFileSync(join(work, "parent/usage.json"), `${JSON.stringify({ definitions: USAGE_DEFINITIONS, session, stages: report.stages, report: reportValue, final, comparison }, null, 2)}\n`);
+  writeFileSync(join(work, "parent/usage.md"), renderUsage(work, report, final, comparison));
+  return { final, comparison };
+}
+
+function usageText(m: Measured): string {
+  const t = m.tally;
+  if (!t) return `取得できず（${m.unavailable}）`;
+  if (t.responses === 0) return "応答なし（0 件）";
+  const missing = t.missing.length > 0 ? `。usage に ${t.missing.join("・")} の無い応答があり、その欄は取得できず` : "";
+  return `合計 ${tokens(t.totalTokens)}（入力 ${tokens(t.input)}・出力 ${tokens(t.output)}・キャッシュ読み ${tokens(t.cacheRead)}・キャッシュ書き ${tokens(t.cacheWrite)}、応答 ${t.responses}・ターン ${t.turns}、最大文脈 ${tokens(t.maxContext)}${missing}）`;
+}
+
+function retryText(t: Tally | null): string {
+  if (!t) return "取得できず";
+  const errors = t.retries.errors;
+  return `エラーで止まった応答 ${errors.length} 件${errors.length > 0 ? `（${errors.map((e) => `${e.at} ${e.message}`).join("・")}）` : ""}、credential_pin ${t.retries.credentialPins.length} 件`;
+}
+
+const sourceText = (s: Source) => (s.path === null ? `なし（${s.unavailable}）` : `\`${s.path}\`（${s.sha256 ? `sha256 ${s.sha256}、読んだ時刻 ${s.readAt}` : s.unavailable}）`);
+
+function usageBody(u: ReportUsage, work: string): string[] {
+  return [
+    `- 範囲: ${u.from}（prepare の開始）から ${u.to}（報告の組み立ての直前）まで、${duration(u.seconds)}。${USAGE_DEFINITIONS.range}`,
+    `- 定義: ${USAGE_DEFINITIONS.sections}。${USAGE_DEFINITIONS.usage}。${USAGE_DEFINITIONS.maxContext}。${USAGE_DEFINITIONS.turns}。${USAGE_DEFINITIONS.agents}。${USAGE_DEFINITIONS.retries}。${USAGE_DEFINITIONS.missing}`,
+    `- 出典: 親 ${sourceText(u.parent.source)}（場所の決め方: ${u.session.origin}）。段階と委譲の時刻は \`${join(work, "parent/stages.md")}\`・\`${join(work, "parent/agents.md")}\`。担当は下の表`,
+    `- 親の使用量（範囲全体）: ${usageText(u.parent)}。omp 内部の retry: ${retryText(u.parent.tally)}`,
+    `- 保存までの確定値と MIN-33 の前後比較用の値は、保存の後に作業ログと \`${join(work, "parent/usage.md")}\` に書く（報告と監査には書き戻さない）`,
+    "",
+    "| 区間 | 担い手 | 開始 | 終了 | 時間 | 担当の使用量（合計） | 親の使用量 |",
+    "|---|---|---|---|---|---|---|",
+    ...u.sections.map((s) => `| ${s.name} | ${s.owner} | ${s.from} | ${s.to}${s.open ? "（最終返答の受領なし。報告の直前まで）" : ""} | ${duration(s.seconds)} | ${s.owner === "親" ? "対象外" : tokens(s.agentsTotal)} | ${cell(usageText(s.parent))} |`),
+    "",
+    ...(u.attempts.length > 0
+      ? [
+          "| 役割 | 試行 | 担当 ID | 委譲の開始 | 最終返答の受領 | 時間 | 無効 | 使用量 | omp 内部の retry | 範囲外の応答 | 出典 |",
+          "|---|---|---|---|---|---|---|---|---|---|---|",
+          ...u.attempts.map(
+            (a) =>
+              `| ${a.roleName} | ${a.attempt}${a.attempt > 1 ? "（再委譲）" : ""} | ${cell(a.agentId ?? "不明")} | ${a.startedAt} | ${a.receivedAt ?? "未受領"} | ${a.seconds === null ? "未受領" : duration(a.seconds)} | ${a.failure ?? "なし"} | ${cell(usageText(a))} | ${cell(retryText(a.tally))} | ${a.tally?.outside ?? "取得できず"} | ${cell(sourceText(a.source))} |`,
+          ),
+        ]
+      : ["担当の委譲なし"]),
+  ];
+}
+
+// 監査の計測の節（報告の組み立ての直前までの値と、その定義・出典・試行ごとの内訳）
+function renderAuditUsage(u: ReportUsage, work: string): string[] {
+  return ["### 計測（報告の組み立ての直前まで）", "", ...usageBody(u, work)];
+}
+
+// 結果の計測の節（短く。区間ごとの時間と合計だけ）
+function renderReportUsage(u: ReportUsage): string[] {
+  const short = (m: Measured) => (m.tally ? tokens(m.tally.totalTokens) : "取得できず");
+  return [
+    "## 計測（報告の組み立ての直前まで）",
+    "",
+    `- 範囲: ${u.from}（prepare の開始）から ${u.to}（報告の組み立ての直前）まで、${duration(u.seconds)}。担当の区間は最初の委譲の開始から最後の最終返答の受領まで（並列の探索は合算しない）。使用量は外側の記録の時刻が範囲に入る応答の合計トークン`,
+    "- 保存までの確定値は保存後の作業ログと作業ディレクトリの parent/usage.md、試行ごとの内訳・最大文脈・出典は監査記録",
+    "",
+    "| 区間 | 担い手 | 時間 | 担当の使用量 | 親の使用量 |",
+    "|---|---|---|---|---|",
+    ...u.sections.map((s) => `| ${s.name} | ${s.owner} | ${duration(s.seconds)}${s.open ? "（受領なし）" : ""} | ${s.owner === "親" ? "対象外" : tokens(s.agentsTotal)} | ${short(s.parent)} |`),
+  ];
+}
+
+// 保存後の作業ログに書く確定値
+function finalUsageText(f: FinalUsage, work: string): string {
+  return `計測（保存までの確定値。prepare の開始 ${f.from} から報告の保存と照合の完了 ${f.to} まで、開始を含み終了を含まない。利用者への説明は含まない）: ${duration(f.seconds)}、親の使用量 ${usageText(f.parent)}。区間別の値は結果 Document、MIN-33 の前後比較用の値と出典は ${join(work, "parent/usage.md")}。`;
+}
+
+function renderUsage(work: string, report: ReportUsage, final: FinalUsage, comparison: ComparisonUsage): string {
+  return [
+    "# 計測（区間別の時間と使用量）",
+    "",
+    "次の3つは範囲が違う別の値で、同じ「全体」として比べない。",
+    "",
+    `- ${USAGE_DEFINITIONS.report}`,
+    `- ${USAGE_DEFINITIONS.final}`,
+    `- ${USAGE_DEFINITIONS.comparison}`,
+    "",
+    "## 1. 報告に載せる値（報告の組み立ての直前まで）",
+    "",
+    ...usageBody(report, work),
+    "",
+    "## 2. 保存後の確定値（報告の保存と照合の完了まで）",
+    "",
+    `- 範囲: ${final.from}（prepare の開始）から ${final.to}（保存と保存後の指紋照合の完了）まで、${duration(final.seconds)}。${USAGE_DEFINITIONS.range}`,
+    `- 親の使用量: ${usageText(final.parent)}。omp 内部の retry: ${retryText(final.parent.tally)}`,
+    `- 出典: ${sourceText(final.parent.source)}`,
+    "",
+    "## 3. MIN-33 の前後比較用（スキルの読み込みから報告の保存まで）",
+    "",
+    `- 範囲: ${comparison.from ?? "取得できず"} から ${comparison.to}（保存と保存後の指紋照合の完了）まで、${duration(comparison.seconds)}。${USAGE_DEFINITIONS.range}`,
+    `- 始まりの決め方: ${comparison.start}`,
+    `- 親の使用量: ${usageText(comparison.parent)}。omp 内部の retry: ${retryText(comparison.parent.tally)}`,
+    `- 担当の使用量の合計（全試行。各試行は 1 の表）: ${tokens(comparison.agentsTotal)}`,
+    `- 出典: ${sourceText(comparison.parent.source)}`,
+    "",
+    "## 段階",
+    "",
+    "| サブコマンド | 開始 | 終了 |",
+    "|---|---|---|",
+    ...report.stages.map((s) => `| ${s.subcommand} | ${s.startedAt} | ${s.endedAt ?? "実行中（この計測の後に終わる）"} |`),
+    "",
+  ].join("\n");
+}
+
+// ---- usage（任意のセッション記録と時刻の範囲。作業ディレクトリなしで MIN-33 の前回のような長いセッションの一部を集計する） ----
+
+function usageCommand(args: string[]): Outcome {
+  const o = parseOptions(args, ["session", "from", "to", "out"], ["agent", "agent-file"]);
+  const session = absolute("session", o.one.get("session"));
+  const out = absolute("out", o.one.get("out"));
+  const from = o.one.get("from");
+  const to = o.one.get("to");
+  if (!session || !out || !from || !to) {
+    throw new UsageError("使い方: bun review.ts usage --session <親のセッション記録の絶対パス> --from <開始の ISO 時刻> --to <終了の ISO 時刻> --out <記録先のディレクトリの絶対パス> [--agent <担当 ID>]... [--agent-file <担当のセッション記録の絶対パス>]...");
+  }
+  const [a, b] = [Date.parse(from), Date.parse(to)];
+  if (Number.isNaN(a) || Number.isNaN(b) || a >= b) throw new UsageError(`--from と --to は ISO 8601 の時刻で、--from を --to より前にしてください: ${from}〜${to}`);
+  const agentFiles = o.many.map((m) =>
+    m.key === "agent" ? { agentId: m.value, ...agentSessionPath(session, m.value) } : { agentId: basename(m.value, ".jsonl"), path: absolute("agent-file", m.value) ?? null, missing: "" },
+  );
+  const agents = agentFiles.map((x) => {
+    const file = readSession(x.path, x.missing);
+    const m = measure(file, a, b);
+    // 担当の時間: 記録の始まり（session の記録。委譲で作られた時刻）から、範囲の最後の応答（最終返答）まで。片付けの記録は含めない
+    const start = file.source.sessionAt ?? m.tally?.first ?? null;
+    const end = m.tally?.last ?? null;
+    return { agentId: x.agentId, ...m, time: { from: start, to: end, seconds: start && end ? secondsBetween(start, end) : null } };
+  });
+  const parent = measure(readSession(session, ""), a, b);
+  mkdirSync(out, { recursive: true });
+  const result: Json = { definitions: USAGE_DEFINITIONS, range: { from, to }, parent, agents, agentsTotal: totalOf(agents), out };
+  writeFileSync(
+    join(out, "usage.md"),
+    [
+      "# 計測（任意のセッション記録と時刻の範囲）",
+      "",
+      `- 範囲: ${from} から ${to} まで、${duration(secondsBetween(from, to))}。${USAGE_DEFINITIONS.range}`,
+      `- 定義: ${USAGE_DEFINITIONS.usage}。${USAGE_DEFINITIONS.maxContext}。${USAGE_DEFINITIONS.turns}。${USAGE_DEFINITIONS.retries}。${USAGE_DEFINITIONS.missing}。担当の使用量も同じ範囲の応答で数え、担当の時間は記録の始まり（session の記録）から範囲の最後の応答（最終返答）まで（その後の片付けを含めない）`,
+      `- 親: ${usageText(parent)}。omp 内部の retry: ${retryText(parent.tally)}。出典: ${sourceText(parent.source)}`,
+      `- 担当の使用量の合計: ${tokens(totalOf(agents))}`,
+      "",
+      ...(agents.length > 0
+        ? [
+            "| 担当 ID | 記録の始まり | 最後の応答 | 時間 | 使用量 | omp 内部の retry | 出典 |",
+            "|---|---|---|---|---|---|---|",
+            ...agents.map((x) => `| ${cell(x.agentId)} | ${x.time.from ?? "取得できず"} | ${x.time.to ?? "取得できず"} | ${duration(x.time.seconds)} | ${cell(usageText(x))} | ${cell(retryText(x.tally))} | ${cell(sourceText(x.source))} |`),
+          ]
+        : ["担当の指定なし"]),
+      "",
+    ].join("\n"),
+  );
+  return { work: null, record: join(out, "usage.json"), result };
+}
+
+// ---- 振り分け（サブコマンドはここだけで登録する。段階の開始・終了の記録もここで足す） ----
 
 const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
   prepare,
@@ -4299,6 +4884,7 @@ const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
   "check-acceptance": checkAcceptance,
   finalize,
   "recheck-ci": recheckCi,
+  usage: usageCommand,
 };
 
 function emit(result: Json, exitCode: number): never {
@@ -4311,9 +4897,13 @@ function main(argv: string[]): void {
   const handler = SUBCOMMANDS[sub];
   if (!handler) emit({ ok: false, code: "INVALID_INPUT", message: `サブコマンドを指定してください: ${Object.keys(SUBCOMMANDS).join("・")}` }, 2);
   try {
-    const { work, result } = handler(args);
+    const stage: StageRecord = { subcommand: sub, startedAt: now(), endedAt: null, args };
+    currentStage = stage;
+    const { work, result, record } = handler(args);
     const out = { ok: true, subcommand: sub, ...result };
-    writeFileSync(join(work, "parent", `${sub}.json`), `${JSON.stringify(out, null, 2)}\n`);
+    const file = record ?? (work ? join(work, "parent", `${sub}.json`) : null);
+    if (file) writeFileSync(file, `${JSON.stringify(out, null, 2)}\n`);
+    if (work) recordStage(work, { ...stage, endedAt: now() });
     emit(out, 0);
   } catch (e) {
     if (e instanceof UsageError) emit({ ok: false, subcommand: sub, code: "INVALID_INPUT", message: e.message }, 2);

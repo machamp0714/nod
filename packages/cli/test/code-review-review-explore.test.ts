@@ -219,6 +219,36 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     expect(messages(cs.json, 4)).toContain("不足箇所");
   });
 
+  test("禁止項目は、コードスパンを除いた見出し・項目名・表の見出しの全体が禁止項目そのもののときだけにし、名前の一部に含む正当な項目名では無効にしない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const x = steps(s, p);
+    const legit = [
+      "## 判断を見送った事項",
+      "",
+      "- `Severity` の表示: 影響度から機械的に出す箇所は見送った",
+      "- buildSummary の呼出元: `src/a.ts` の外は見送った",
+      "- **confidence の閾値**: 設定の値のまま",
+      "- 要約関数の戻り値: 見送った",
+      "",
+      "| summary の列 | 推論の対象 |",
+      "|---|---|",
+      "| 合計 | 見送った |",
+      "",
+    ].join("\n");
+    const std = exploreHandoff("standards", p).replace("## 判断を見送った事項\n\nなし\n", legit);
+    await x.delegate("standards", "a1", std);
+    const ok = await x.check("standards");
+    expect(ok.json).toMatchObject({ valid: true, violations: [] });
+
+    const bad = exploreHandoff("spec", p).replace("## 判断を見送った事項\n\nなし\n", "## 判断を見送った事項\n\nなし\n\n### 暫定の重大度\n\n高\n\n- **Summary**: 短い\n");
+    await x.delegate("spec", "a2", bad);
+    const ng = await x.check("spec");
+    expect(ng.json?.valid).toBe(false);
+    expect(messages(ng.json, 7)).toContain("暫定の重大度");
+    expect(messages(ng.json, 7)).toContain("Summary");
+  });
+
   test("指紋の不一致: 担当が input/・deps/・限定 clone を変えたら検査に通らず、検査の後に引き渡しが変われば反証を起動しない", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);

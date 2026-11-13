@@ -4,6 +4,21 @@
 親は自分でレビューしない。対象と要求を固定し、レビュー担当エージェントへ委譲し、引き渡しを検査し、判定を変えずに状態・点数・報告を記録する。
 あわせて、同じ head SHA に対する CI の結果を読んで記録し、レビューの最終状態・確定した要対応の点数・確認が残る事項と CI の結果から「マージ可否」を決め、Issue があれば判定を merge-ready ラベルで示す。テストと Lint は CI で担保し、親はテストを実行しない。CI の結果は親だけが扱い、レビュー担当へ渡さない。
 
+## 親の最小操作の流れ
+
+親が呼ぶのは次のサブコマンドだけで、それ以外の定型作業（固定・写し・指紋・検査・再照合・算出・報告の組み立てと保存・計測）はスクリプトが行う。各節の詳しい規則は、スクリプトの結果を読み違えないための参照である。`<S>` はこのスキルのディレクトリ、`<W>` は `prepare` が返した作業ディレクトリ。
+
+| 順 | 親が呼ぶもの | 親に残る判断 |
+|---|---|---|
+| 1 | `bun <S>/scripts/review.ts prepare ...`（2節） | 対象・基点・Issue（または明示された要求）の特定（1節）。`ready` が false なら委譲せず 7 へ |
+| 2 | 役割ごとに `agent --role standards --event start`・`agent --role spec --event start` → 両探索を同時に委譲（4節） | 依頼本文を最小限にする |
+| 3 | 最終返答ごとに `agent ... --event received --agent-id <ID>` → `check-explore --role <役割>`（5節） | 返答が入力不備・失敗でないか、引き渡し本文に禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が無いかを通読で確かめる（探索2件だけ） |
+| 4 | 無効なら `retire-attempt`（4.1節）→ `redelegate` が true のときだけ同じ依頼で1回だけ委譲し直す | 失敗の種類（判定と無関係な無効・利用枠の上限・利用者による中止）の分類 |
+| 5 | `refute-input` → `agent --role refute --event start` → 委譲 → `received` → `check-refute`（6節・7節） | 返答が入力不備・失敗でないか（判定本文は読まない） |
+| 6 | 受け入れ確認担当の行があれば `acceptance-records` → 参照の一覧を決める → `acceptance-input --refs` → `agent --role acceptance ...` → 委譲 → `received` → `check-acceptance`（8節・9節） | `ref-candidates.md` から写す明示参照の決定。返答が入力不備・失敗でないか（結果の本文は読まない） |
+| 7 | `finalize`（10節・11節・14節） | 写しの後に自分が Issue へ書いた記録の id を `--own-log` で渡す。評価用の事例では run.md で固定した `--auto-check-rows pass` か `block` を渡す。omp 以外で `PI_SESSION_FILE` が無ければ `--session` で親のセッション記録を渡す |
+| 8 | 必要なら後で `recheck-ci`（13節） | 利用者・呼出元への短い説明（12節） |
+
 ## 0. 委譲先と前提
 
 - 委譲先は役割別の4定義だけ: Standards 探索は `code-reviewer-standards`、Spec 探索は `code-reviewer-spec`、反証は `code-reviewer-refute`、受け入れ確認は `code-reviewer-acceptance`。受け入れ確認担当は、反証が確定した対応表に「受け入れ確認担当」の行が1行以上あるときだけ委譲する（8節）。
@@ -52,7 +67,7 @@ bun <スキルのディレクトリ>/scripts/review.ts prepare --repo <元のリ
 | `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親（検査と受け入れ確認への写し） |
 | `acceptance-input/` | 受け入れ確認への入力（共通入力と反証の判定本文の写し、委譲前に写した Activity・添付 Document の原文 `records/`、それらが明示的に参照する記録と反証が名指しした外部の正本の写しと観測 `evidence/`、目録 `records.md`）。8節で必要なときだけ作る | 親 | 受け入れ確認担当 |
 | `acceptance/` | 受け入れ確認の `result.md` と `notes/` | 受け入れ確認担当 | 親 |
-| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と現在の head の照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、委譲の記録 `parent/agents.md`、検査記録 `parent/checks.md`、段階ごとの同一性の確認 `parent/identity.md`、反証への入力の指紋 `parent/fingerprints.md`（それぞれ同じ名前の `.json` も）、反証の判定本文から読み取った構造 `parent/refute-structure.json`、受け入れ確認の結果から読み取った構造 `parent/acceptance-structure.json`、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認担当の行 `parent/acceptance/rows.md`・受け入れ確認の写しの取得記録（`records.json`・`items.json`・`evidence.json`・`evidence.md`・`refs.json`・参照の候補 `ref-candidates.*`・委譲前の指紋 `fingerprints.md`）と CI の結果を除く前の元の写しと親自身の記録の id `own-logs.md`（`parent/acceptance/`）、保存直前の取り直し `parent/requirements-recheck/`・`parent/local-recheck/`・`parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿 `parent/report.md`・`parent/audit.md` と `finalize` の結果 `parent/finalize.json`、各サブコマンドの結果 `parent/<サブコマンド>.json`） | 親 | 親だけ |
+| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と現在の head の照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、委譲の記録 `parent/agents.md`、段階（サブコマンド）の開始・終了の記録 `parent/stages.md`、検査記録 `parent/checks.md`、段階ごとの同一性の確認 `parent/identity.md`、反証への入力の指紋 `parent/fingerprints.md`（それぞれ同じ名前の `.json` も）、反証の判定本文から読み取った構造 `parent/refute-structure.json`、受け入れ確認の結果から読み取った構造 `parent/acceptance-structure.json`、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認担当の行 `parent/acceptance/rows.md`・受け入れ確認の写しの取得記録（`records.json`・`items.json`・`evidence.json`・`evidence.md`・`refs.json`・参照の候補 `ref-candidates.*`・委譲前の指紋 `fingerprints.md`）と CI の結果を除く前の元の写しと親自身の記録の id `own-logs.md`（`parent/acceptance/`）、保存直前の取り直し `parent/requirements-recheck/`・`parent/local-recheck/`・`parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿 `parent/report.md`・`parent/audit.md` と `finalize` の結果 `parent/finalize.json`、区間の時間と使用量 `parent/usage.json`・`parent/usage.md`（14節）、各サブコマンドの結果 `parent/<サブコマンド>.json`） | 親 | 親だけ |
 
 ### 2.1 担当用の限定 clone
 
@@ -212,7 +227,7 @@ bun <スキルのディレクトリ>/scripts/review.ts check-explore --work <W �
 4. 各候補に必須項目（SKILL.md の4節）がそろい、候補 ID が役割の接頭辞を持ち重複しない。候補一覧または「候補0件」の明示がある。証拠を取得できなかった候補には理由と不足箇所がある。
 5. Standards 探索: 規約の一覧と今回の差分への適用判断がある。Spec 探索: 要求資料の判別の節がある。
 6. Spec 探索: 要求ごとの対応表が雛形の4列（要求の出典・状態・証拠または不足理由・候補ID）で、`requirements/` のすべてのファイルを出典に含み、状態が SKILL.md の語彙だけを使う（「受け入れ確認担当」は反証だけが付ける状態だが、Spec 探索が書いていても形式違反にしない。反証が確かめ直して確定する）。未充足・未確認の行に候補 ID があり、対応表が参照する ID がすべて候補一覧にある。列の確認は雛形の見出しと各行の「出典・状態・候補ID」の位置で行い、セル内のコードや文字列に含まれる `|` だけを理由に列数違反としない（Markdown の表示上で列が崩れていても、出典・状態・候補ID が読み取れれば形式違反にしない）。
-7. 禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が項目名にも本文にも無い。スクリプトは見出し・箇条の項目名・表の見出しだけを調べる。項目名だけの検査では内容の混入まで保証できないので、スクリプトの検査に通った引き渡しは、親が本文を通読して確かめる（探索2件だけ。反証の判定本文と受け入れ確認の結果は通読しない）。
+7. 禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が項目名にも本文にも無い。スクリプトは見出し・箇条の項目名・表の見出しだけを調べ、コードスパンを除いた名前の全体が禁止項目そのもの（`暫定の` を前に付けたもの、英語の severity・confidence・summary を含む）のときだけ違反にする（`Severity` の表示・buildSummary の呼出元 のような、名前の一部に含むだけの項目名は違反にしない）。項目名だけの検査では内容の混入まで保証できないので、スクリプトの検査に通った引き渡しは、親が本文を通読して確かめる（探索2件だけ。反証の判定本文と受け入れ確認の結果は通読しない）。
 8. 担当が共通入力・依存の写し・限定 clone を変えていない（スクリプトが4.1節の2の1と同じ同一性の確認をやり直す）。
 
 - 結果は標準出力の1行の JSON（`valid`、`violations` の検査の番号と違反の箇所、検査した `handoff.md` の `sha256`、`identity`）と、`parent/checks.md`（と `parent/checks.json`。担当のサブディレクトリの各ファイルの sha256 を含む）に書かれる。同一性の確認は `parent/identity.md` にも残る。
@@ -391,9 +406,11 @@ bun <スキルのディレクトリ>/scripts/review.ts check-acceptance --work <
 ```sh
 bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶対パス> [--own-log <写しの後に親が Issue へ書いた記録の id>]...
   # 担当を1つも起動しなかった（委譲できない環境など）ときは --not-run-reason '<理由>' を足す
+  # 評価用の事例（prepare --case）では --auto-check-rows pass|block（run.md で固定した自動チェック担当の行の扱い）が要る。通常のレビューでは渡さない
+  # 計測（14節）: 親のセッション記録は PI_SESSION_FILE から決まる。無い環境では --session <絶対パス>、スキルの読み込みの開始を記録から決められなければ --skill-start <ISO 時刻>
 ```
 
-- 終了コード 2 は引数の誤り（実行済み、`parent/ci/1/` が空でない、最終返答の受領を記録していない・検査していない最新の試行がある、`--own-log` が数字でない、など）で、判定ではない。示された記録・検査をしてから実行し直す。実行済みの作業ディレクトリでは保存し直さない（CI の完了後の判定し直しは13節）。
+- 終了コード 2 は引数の誤り（実行済み、`parent/ci/1/` が空でない、最終返答の受領を記録していない・検査していない最新の試行がある、`--own-log` が数字でない、評価用の事例で `--auto-check-rows` が無い・通常のレビューで渡した、など）で、判定ではない。示された記録・検査をしてから実行し直す。実行済みの作業ディレクトリでは保存し直さない（CI の完了後の判定し直しは13節）。
 - 結果は標準出力の1行の JSON と `parent/finalize.json` に出る（下の「finalize の結果」）。
 
 1. `mode: local` では、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で `parent/local-recheck/` へ取り直し、土台の HEAD と `input/local/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
@@ -453,6 +470,8 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 - `report`・`audit`（原稿 `parent/report.md`・`parent/audit.md` のパス）と `reportSha256`・`auditSha256`、`documents`（監査 `audit` と結果 `report` の Document ID・パス・照合の問題。Issue なし・評価用の事例は null）、`saved`・`saveProblems`
 - `logs`（要約の作業ログの id `summary`、`[ci-result]` の作業ログの id `ci`、`--own-log` で記録した id `ownLogs`）、`label`（merge-ready の `operation` と `error`。Issue なしは `扱わない（Issue なし）`、評価用の事例は `扱わない（評価用の事例）`）、`logProblem`（要約の作業ログを書けなかった理由）
 - `reportStartedAt`（報告の組み立て・保存の直前の時刻）・`savedAt`（保存と保存後の指紋照合が終わった時刻）
+- `usage`（14節の3つの値の範囲・時間・親の合計トークンと、記録 `parent/usage.json` のパス）
+- `reviewSideMerge`（評価用の事例だけ。CI を除いたレビュー側の判定 `CI を除いてマージ可`／`CI を除いてマージ不可` と理由、`--auto-check-rows` の扱い。マージ可否 `merge` とは別の値で、通常のレビューでは null）
 
 親が読むのは `status`・`reason`・`score`・`merge`・`blockers`・`remainingCount`・`documents` の ID・`saved`・`saveProblems`・`label` だけで、利用者・呼出元へは12節のとおり短い結果を返す。`saved` が false なら保存失敗として報告する（保存できた Document は保持し、再保存のためレビューを流し直さない）。
 
@@ -463,13 +482,14 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 報告は2つに分かれる。[監査の雛形](../assets/audit.md)の形で `parent/audit.md`、[結果の雛形](../assets/report.md)の形で `parent/report.md` が作業ディレクトリの記録から組み立てられ、同じ runId・対象SHAで対応付けられる。判定・採点・マージ条件は変えない。
 
 - 監査記録には、管理情報（runId・作業ディレクトリ・最終状態・点数と計算・確認が残る事項の件数・対象版・限定 clone（`parent/clone.md`）・依存の写し（`manifest.md`）・受け入れ確認への写し（`acceptance-input/records.md` と `parent/acceptance/`）・未コミット変更の差分確認）、確認が残る事項の全件、CI の結果（`parent/ci/<n>/`）、要求の出典と写しの指紋、保存時の要求変化の確認、保存直前の受け入れ証拠の再照合（`parent/acceptance-recheck/`）、担当（モデルは各担当の申告と出典だけで、不明は未確認。実効モデルの証明として扱わない）、試行の記録（`parent/agents.md`・`parent/attempts.md` から、無効だった試行と委譲し直した試行の両方を、担当 ID・無効の理由・保存場所・指紋とともに、担当のセッション内の omp 内部の再試行と親による再委譲を分けて）、原本の場所と指紋、後続判断、独立性の限界が入る。反証の `refute/verdict.md` と、起動した受け入れ確認の `acceptance/result.md` は、それぞれ印（`<!-- refute-verdict:begin -->`〜`<!-- refute-verdict:end -->`、`<!-- acceptance-result:begin -->`〜`<!-- acceptance-result:end -->`）の間へ一字も変えずに入る。本文が無ければ「未受領」と理由、担当行が無ければ「受け入れ確認担当の行なし（起動せず）」が入る。生の API 応答は場所と指紋だけになる。
-- 利用者向け結果は、結論（最終状態・点数・確認が残る事項の件数・対象 SHA と、印の中のマージ可否・理由・CI 判定・merge-ready）、Severity 付きの要対応（反証の要対応の題・影響・場所を転記し、共通規則の対応で Severity と影響度の数値を併記する。判定や影響度を再評価せず、原因の統合や省略をしない）、未確認（確認が残る事項を不具合と分け、確認する担当と不足を Severity なしで全件）、監査への参照だけになる。原文・全対応表・指紋・担当履歴は結果へ転載しない。
+- 利用者向け結果は、結論（最終状態・点数・確認が残る事項の件数・対象 SHA と、印の中のマージ可否・理由・CI 判定・merge-ready）、Severity 付きの要対応（反証の要対応の題・影響・場所を転記し、共通規則の対応で Severity と影響度の数値を併記する。判定や影響度を再評価せず、原因の統合や省略をしない）、未確認（確認が残る事項を不具合と分け、確認する担当と不足を Severity なしで全件）、計測（14節の報告に載せる値の区間ごとの時間と合計トークンの表だけ）、監査への参照だけになる。原文・全対応表・指紋・担当履歴は結果へ転載しない。
+- 監査の計測の節には、14節の報告に載せる値の範囲・定義・出典と、試行ごとの時間と使用量の内訳が入る。結果・監査とも、保存までの確定値は書き戻さない（作業ログと `parent/usage.md` だけ）。
 - 結果・監査の両方で、CI の結果を含む部分（マージ可否・理由・現在head・merge-readyを含む）は `<!-- ci-result:begin -->` と `<!-- ci-result:end -->` の間だけに書かれる。後のレビューの入力から除く境界は3節と同じで、結果を短くしても隔離を弱めない。
 
 Issue がある場合は、最終状態にかかわらず監査・結果をそれぞれ `kind=doc` の別 Document として Issue に添付する。監査を先に保存し、その ID と参照先を結果へ記入してから結果を保存する。名前は `<Issue IDの小文字>-code-review-audit-<YYYYMMDD>-<runIdの先頭8文字>.md`（タイトル `<Issue ID> コードレビュー監査（<runIdの先頭8文字>）`）と `<Issue IDの小文字>-code-review-<YYYYMMDD>-<runIdの先頭8文字>.md`（タイトル `<Issue ID> コードレビュー結果（<runIdの先頭8文字>）`）で、日付は UTC。
 
 - 保存したそれぞれを `nod --json doc show` で読み直し、kind が doc で Issue にリンクされていること、タイトル見出しを除いた本文が原稿と同じであることを確かめる。監査は、印の間の反証の判定本文・受け入れ確認の結果の sha256 を、検査（`check-refute`・`check-acceptance`）した原本の sha256 と比べる（原稿の段階でも比べる）。どれかの保存・リンク・同一性・指紋の確認が失敗したら保存失敗（`saved` が false、`saveProblems` に理由）とし、merge-ready を付けない（付いていれば外す）。保存できた Document は保持し、再保存のためレビューを流し直さない。
-- 作業ログ（保存の後に1件）: `完了` は `--kind progress` に、状態・確定した要対応の点数・要対応の要点（Severity と題）・受け入れ確認の行ごとの判定（起動したとき）・確認が残る事項の件数と要点（要求の出典・確かめる担当・理由）・結果 Document ID と監査 Document ID（保存・照合の問題があればその旨）・runId・起動した全担当の役割と定義名と ID と試行・無効な試行（担当 ID・無効の理由・委譲し直したか）を書く。`未実施`・`未完了` は `--kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当と理由。利用枠の上限ならそのこと）・試行の記録・受領済みの成果・点数なし・Document ID・runId・Done・In Review・PR へ進めないことを書く。どちらも CI 判定・マージ可否・merge-ready は書かず、下の `[ci-result]` の記録を参照する旨だけを書く（3節）。返った id は `parent/acceptance/own-logs.md` に記録される。担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
+- 作業ログ（保存の後に1件）: `完了` は `--kind progress` に、状態・確定した要対応の点数・要対応の要点（Severity と題）・受け入れ確認の行ごとの判定（起動したとき）・確認が残る事項の件数と要点（要求の出典・確かめる担当・理由）・結果 Document ID と監査 Document ID（保存・照合の問題があればその旨）・runId・起動した全担当の役割と定義名と ID と試行・無効な試行（担当 ID・無効の理由・委譲し直したか）を書く。`未実施`・`未完了` は `--kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当と理由。利用枠の上限ならそのこと）・試行の記録・受領済みの成果・点数なし・Document ID・runId・Done・In Review・PR へ進めないことを書く。どちらも末尾に14節の保存までの確定値（範囲の開始・終了時刻、時間、親の使用量）と `parent/usage.md` の場所を書く。どちらも CI 判定・マージ可否・merge-ready は書かず、下の `[ci-result]` の記録を参照する旨だけを書く（3節）。返った id は `parent/acceptance/own-logs.md` に記録される。担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
 - merge-ready ラベル（Issue があるときだけ。最終状態にかかわらず、報告の保存と上の作業ログの後に行う）: ラベルは、固定した head SHA に対する現在のマージ可否の表示であり、自動マージの指示ではない。ブランチ保護・必須のレビューなど既存のマージ条件を迂回しない。
   - マージ可否が `可` で保存に失敗していなければ、付ける直前に10節の8と同じ方法で対象の現在の head と基点を取り直し、`parent/head-check.md` に書き足す。`target.md` の head の SHA と同じで、現在の基点が CI の照合に使った基点と同じときだけ `nod issue update <Issue ID> --add-label merge-ready` で付ける。違う、取り直せない、または保存に失敗したときは付けず、付いていれば `--remove-label merge-ready` で外し、マージ可否を `不可`（理由: 対象版が現在の head と違う（追加コミット）、基点が変わった、現在の head を取り直せない、報告の保存・照合に失敗）として扱う（報告 Document は書き換えず、下の記録と `finalize` の結果の `merge`・`blockers` に書く）。`不可` で merge-ready が付いていれば外し、付いていなければ付けない。
   - 付けた／外した／付けていない（とその理由）と、判定した head SHA・現在の head と基点の照合の結果・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）を、本文を `[ci-result]` で始めて `nod --json issue log <Issue ID> "<記録>" --kind test` に1件残し、返った id を `parent/acceptance/own-logs.md` に記録する（3節）。ラベルの操作に失敗したら、その旨も同じ記録に書く（報告 Document は書き換えない）。
@@ -510,3 +530,18 @@ bun <スキルのディレクトリ>/scripts/review.ts recheck-ci --work <W の�
 - レビューの保存後から再照合までに、実装を進める親・PM が同じ Issue へ書いた記録（作業ログ・コメント・返信。PR の URL や提出・受理の記録を含む）は、`--own-log` で渡した id（または own-logs.md に記録済みの id）だけを親自身の記録とする。それ以外は、書いた人を問わず親以外の追記とする（10節の3）。
 - Issue の無い単独レビューでも照合し直してよいが、ラベルは扱わず、結果はチャットで報告する。
 - 再照合の結果は、照合した時点の観測である。その後に追加コミット・要求や使用証拠の変化・CI の失敗や未確定で条件を満たさなくなった、または判定が古くなったと分かった時点で、merge-ready を外して理由を記録する（実装を進める親・PM の手順でも同じ。照合し直すなら `recheck-ci`）。
+
+## 14. 区間の時間と使用量（計測）
+
+スクリプトが記録・集計する。親が手で時刻やトークンを数えたり、セッション記録を読んだりしない。親が行うのは、4節の `agent` の `start`（委譲の直前）と `received`（最終返答を受け取った直後）を欠かさず呼ぶことだけである。
+
+- 段階: `review.ts` の作業ディレクトリのある呼び出しは、終了コード 0 で終えたときに開始と終了の時刻を `parent/stages.md`（と `stages.json`）に足す。委譲の開始と最終返答の受領は `parent/agents.md`（4節）。
+- 区間: 担当の区間は段階（探索・反証・受け入れ確認）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は実経過時間で、2担当の時間を合算しない）、その前後と間が親の区間（準備・引き渡しの検査・反証の検査と証拠集め・受け入れ確認の検査と仕上げ。起動しなかった担当の区間は無く、前後の親の区間が続く。例: 反証の検査と仕上げ）。担当ごと・試行ごとの時間は委譲の開始から最終返答の受領までで、その後のセッションの片付けを含めない。
+- 使用量: omp のセッション記録の assistant の応答のうち、外側の記録の `timestamp` が範囲（開始を含み終了を含まない）に入るものの `usage`（入力・出力・キャッシュ読み・キャッシュ書き・合計）を応答単位で合計する（境界をまたぐ応答を時間で分割しない。各応答にはその時点までの文脈が含まれる）。ターンは `stopReason` が `error` でない応答の数、最大文脈はそのような1応答の `input + cacheRead + cacheWrite` の最大。omp 内部の retry（`stopReason` が `error` の応答とその文言、`credential_pin` の記録）は親による再委譲と分けて書く。
+- 記録の場所: 親のセッション記録は `finalize --session` か、omp が bash から起動したプロセスに渡す `PI_SESSION_FILE`（既定の場所は決め打ちしない）。担当は親の記録と同名のディレクトリの `<担当 ID>.jsonl` で、無効な試行と再委譲も担当 ID ごとに試行別に集計し、範囲（委譲の開始から最終返答の受領まで）の外の応答は件数だけ書く。記録が無い・読めない・担当 ID が無いときは 0 にせず「取得できず」と理由を書く。計測の出典として記録ファイルのパスと sha256 を残す。
+- 3つの値（同じ「全体」として混同しない）:
+  1. 報告に載せる値: `prepare` の開始から `finalize` が報告を組み立て始める直前（`reportStartedAt`）までの区間ごとの時間と、その範囲の親と各担当の使用量。結果には区間の表を短く、監査には定義・出典・試行ごとの内訳を書く。
+  2. 保存後の確定値: `prepare` の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（`savedAt`）までの時間と親の使用量（利用者への最終説明を含めない）。保存後の作業ログ（11節）と `parent/usage.md` だけに書き、報告へ書き戻さない。
+  3. MIN-33 の前後比較用: 親がスキルを読み込み始めた時刻（`prepare` の開始より前で最後に `skill://code-review`・`.../code-review/SKILL.md` を読み込んだ応答の記録の時刻。決められなければ `finalize --skill-start`）から `savedAt` までの時間と、親・各担当の使用量。`parent/usage.md` に書く。
+- 評価用の事例（`prepare --case`）でも同じ計測が `parent/usage.json`・`parent/usage.md` と報告・監査に残る（作業ログは書かない）。
+- 作業ディレクトリの無い記録（前回の MIN-33 のように、親が長い作業セッションの一部だったもの）は、範囲を明示して集計する: `bun <スキルのディレクトリ>/scripts/review.ts usage --session <親のセッション記録の絶対パス> --from <開始の ISO 時刻> --to <終了の ISO 時刻> --out <記録先のディレクトリの絶対パス> [--agent <担当 ID>]... [--agent-file <担当のセッション記録の絶対パス>]...`。親も担当も同じ範囲の応答を数え、担当の時間は記録の始まり（`session` の記録）から範囲の最後の応答（最終返答）までとする。結果は標準出力と `<out>/usage.json`・`usage.md` に出る。
