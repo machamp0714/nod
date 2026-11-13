@@ -109,7 +109,12 @@ function nod(args: string[], input?: string): Proc {
   return exec([process.env.NOD_CLI || "nod", ...args], { input });
 }
 
-const failure = (p: Proc) => `終了コード ${p.code ?? "なし"}: ${(p.error ?? p.stderr).trim().split("\n").slice(-3).join(" ") || "出力なし"}`;
+// 失敗の理由。nod の --json は失敗を標準出力の {"error": {"code", "message"}} で返すので、あればそれを、無ければ標準エラーの末尾を書く
+function failure(p: Proc): string {
+  const e = p.code !== 0 ? (parseJson(p) as { error?: { code?: unknown; message?: unknown } } | undefined)?.error : undefined;
+  const text = typeof e?.message === "string" ? `${typeof e.code === "string" ? `${e.code}: ` : ""}${e.message}` : (p.error ?? p.stderr).trim().split("\n").slice(-3).join(" ");
+  return `終了コード ${p.code ?? "なし"}: ${text || "出力なし"}`;
+}
 
 // ---- 引数 ----
 
@@ -4017,9 +4022,86 @@ interface LabelResult {
   log: number | null;
 }
 
+// ---- 作業ログ（nod issue log）の上限 ----
+
+// nod の作業ログの上限（packages/core/src/work-log.ts の WORK_LOG_MAX_LENGTH。workLogLength と同じくコードポイントで数える）。超えると nod が INVALID_ARGS で拒否する
+const WORK_LOG_MAX = 4000;
+// 収まらない項目を途中まで書くのは、この字数以上を書けるときだけ
+const WORK_LOG_MIN_CUT = 20;
+
+// 作業ログの一覧の部分（項目を「、」でつなぐ）。収まらない項目は書かず、件数と全文の場所 more を書く
+interface LogList {
+  open: string;
+  items: string[];
+  close: string;
+  more: string;
+}
+
+// 一覧が空なら empty の文にする
+function logList(open: string, items: string[], close: string, more: string, empty = ""): string | LogList {
+  return items.length > 0 ? { open, items, close, more } : empty;
+}
+
+// parent.md 11節・13節: 作業ログを nod の上限に決定的に収める。文字列の部分（必須の項目）はそのまま残し、一覧は1件ずつ順に（どれも先頭から）
+// 丸ごと入るだけ書いて、書けなかった件数と全文の場所を「ほか N 件は<場所>を参照」と書く。丸ごと入らない次の項目は残りの字数で途中まで書いて切ったことを示す。
+// 必須の項目だけで上限を超えるときは末尾を切ってその旨を書く
+function fitWorkLog(parts: (string | LogList)[]): string {
+  const lists = parts.flatMap((p) => (typeof p === "string" ? [] : [{ list: p, shown: 0, cut: null as string | null, full: false }]));
+  const render = () =>
+    parts
+      .map((p) => {
+        const s = lists.find((l) => l.list === p);
+        if (typeof p === "string" || !s) return p;
+        const rest = p.items.length - s.shown - (s.cut === null ? 0 : 1);
+        const items = [...p.items.slice(0, s.shown), ...(s.cut === null ? [] : [s.cut]), ...(rest > 0 ? [`ほか ${rest} 件は${p.more}を参照`] : [])];
+        return `${p.open}${items.join("、")}${p.close}`;
+      })
+      .join("");
+  const length = () => [...render()].length;
+  for (let added = true; added; ) {
+    added = false;
+    for (const s of lists) {
+      if (s.full || s.shown === s.list.items.length) continue;
+      s.shown += 1;
+      if (length() <= WORK_LOG_MAX) added = true;
+      else {
+        s.shown -= 1;
+        s.full = true;
+      }
+    }
+  }
+  for (const s of lists) {
+    const next = s.list.items[s.shown];
+    if (next === undefined) continue;
+    const mark = `…（途中で切った。全文は${s.list.more}を参照）`;
+    s.cut = mark;
+    const room = WORK_LOG_MAX - length();
+    s.cut = room >= WORK_LOG_MIN_CUT ? [...next].slice(0, room).join("") + mark : null;
+  }
+  const chars = [...render()];
+  if (chars.length <= WORK_LOG_MAX) return chars.join("");
+  const mark = `…（作業ログの上限 ${WORK_LOG_MAX} 字で切った）`;
+  return chars.slice(0, WORK_LOG_MAX - [...mark].length).join("") + mark;
+}
+
+// 作業ログを1件書き、返った id を own-logs.md に記録する。書けなければ終了コードと nod のエラー文を返す
+function writeWorkLog(work: string, issue: string, text: string, kind: "progress" | "blocker" | "test", what: string): { id: number | null; problem: string | null } {
+  const p = nod(["--json", "issue", "log", issue, text, "--kind", kind]);
+  const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
+  if (typeof id !== "number") return { id: null, problem: failure(p) };
+  recordOwnLog(work, id, what);
+  return { id, problem: null };
+}
+
 // 11節（13節の7）: 報告の保存と作業ログの後に merge-ready を付け外しし、本文が [ci-result] で始まる --kind test の作業ログに1件残して own-logs.md に記録する。
 // 可なら付ける直前に現在の head と基点を取り直し、違う・取り直せない・保存に失敗したときは付けない（付いていれば外す）
-function applyMergeReady(work: string, prep: Prepared, issue: string, x: { merge: string; blockers: string[]; ci: CiRecord | null; head: HeadCheck | null; reportId: number | null; runId: string; saveProblem: string | null; extra: string[] }): LabelResult {
+// 一覧（不可の理由 blockers と加えた確認が残る事項 added）が上限に収まらなければ、書けなかった件数と全文の場所 more を書く
+function applyMergeReady(
+  work: string,
+  prep: Prepared,
+  issue: string,
+  x: { merge: string; blockers: string[]; ci: CiRecord | null; head: HeadCheck | null; reportId: number | null; runId: string; saveProblem: string | null; extra: string[]; added: string[]; more: string },
+): LabelResult {
   const labels = issueLabels(issue);
   const labeled = labels?.includes("merge-ready") ?? false;
   const blockers = [...x.blockers];
@@ -4043,50 +4125,66 @@ function applyMergeReady(work: string, prep: Prepared, issue: string, x: { merge
     if (p.code !== 0) error = `ラベルを外せない（${failure(p)}）`;
   }
   const ci = x.ci;
-  const text = [
-    `${CI_LOG} merge-ready: ${operation}${blockers.length > 0 ? `（マージ可否が不可: ${blockers.join("、")}）` : ""}。`,
+  const text = fitWorkLog([
+    `${CI_LOG} merge-ready: ${operation}`,
+    logList("（マージ可否が不可: ", blockers, "）", x.more),
+    "。",
     `判定した head SHA ${prep.head}${head?.currentHead ? `、現在の head ${head.currentHead}（${head.headOk ? "一致" : "不一致"}）` : head?.problem ? `、${head.problem}` : ""}、`,
     `基点 ${ci?.base ?? prep.base}（merge-base ${prep.mergeBase}）${head ? `、現在の基点 ${head.currentBase ?? "取り直せない"}（${head.baseOk ? "一致" : "不一致"}）` : ""}、`,
     `${ci ? ciSummary(ci) : "CI は照合せず"}、マージ可否 ${blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE}、`,
-    `報告Document ${x.reportId ?? "保存できず"}、runId ${x.runId}${x.extra.length > 0 ? `、${x.extra.join("、")}` : ""}、`,
+    `報告Document ${x.reportId ?? "保存できず"}、runId ${x.runId}${x.extra.map((e) => `、${e}`).join("")}`,
+    logList(`、加えた確認が残る事項 ${x.added.length} 件（`, x.added, "）", x.more),
+    "、",
     `CI の記録 ${ci ? `${join(work, dirname(ci.record))}/（${basename(ci.record)} の sha256 ${ci.sha256}）` : "なし"}。`,
     "ラベルは現在の判定の表示で、自動マージの指示ではない。",
     ...(error ? [`ラベルの操作の問題: ${error}。`] : []),
-  ].join("");
-  const p = nod(["--json", "issue", "log", issue, text, "--kind", "test"]);
-  const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
-  if (typeof id === "number") recordOwnLog(work, id, "merge-ready の操作の記録（--kind test）");
-  return { operation, blockers, head, error: error ?? (typeof id === "number" ? null : `[ci-result] の作業ログを書けない（${failure(p)}）`), log: typeof id === "number" ? id : null };
+  ]);
+  const log = writeWorkLog(work, issue, text, "test", "merge-ready の操作の記録（--kind test）");
+  const logError = log.problem ? `[ci-result] の作業ログを書けない（${log.problem}）` : null;
+  return { operation, blockers, head, error: [error, logError].filter((e) => e !== null).join("。") || null, log: log.id };
 }
 
 // 11節の作業ログ（完了は progress、未実施・未完了は blocker）の本文。CI 判定・マージ可否・merge-ready は書かず [ci-result] の記録を参照する。
-// 末尾に保存までの確定値（報告には書き戻さない計測）を書く
+// 末尾に保存までの確定値（報告には書き戻さない計測）を書く。上限に収まらない一覧は、書けなかった件数と結果・監査の場所を書く
 function summaryLog(c: ReportContext, reportId: number | null, auditId: number | null, saveProblems: string[], final: FinalUsage): string {
   const agents = loadList<AgentRecord>(c.work, "agents");
   const retired = loadList<AttemptRecord>(c.work, "attempts");
   const ids = agents.map((a) => `${a.roleName}=${a.definition}/${a.agentId ?? "不明"}（試行 ${a.attempt}${retired.some((x) => x.role === a.role && x.attempt === a.attempt) ? "、無効" : ""}）`).join("、") || "なし";
-  const retries = retired.map((a) => `${a.roleName}の試行 ${a.attempt} ${a.agentId ?? "不明"}（${a.failureLabel}: ${a.reason}。委譲し直し${a.redelegate ? "する" : "しない"}）`);
-  const docs = `結果Document ${reportId ?? "保存できず"}、監査Document ${auditId ?? "保存できず"}${saveProblems.length > 0 ? `（保存・照合の問題: ${saveProblems.join("、")}）` : ""}`;
+  const more = `${reportId !== null ? `結果 Document ${reportId}` : `結果 ${join(c.work, "parent/report.md")}`}（監査 ${auditId ?? join(c.work, "parent/audit.md")}）`;
+  const retries = logList(
+    "無効な試行: ",
+    retired.map((a) => `${a.roleName}の試行 ${a.attempt} ${a.agentId ?? "不明"}（${a.failureLabel}: ${a.reason}。委譲し直し${a.redelegate ? "する" : "しない"}）`),
+    "。",
+    more,
+  );
+  const docs = [`結果Document ${reportId ?? "保存できず"}、監査Document ${auditId ?? "保存できず"}`, logList("（保存・照合の問題: ", saveProblems, "）", `finalize の記録（${join(c.work, "parent/finalize.json")} の saveProblems）`)];
   const ciNote = "CI 判定・マージ可否・merge-ready は [ci-result] で始まる --kind test の作業ログを参照";
   if (c.state.status === "完了") {
     const required = c.state.refute?.required ?? [];
     const judged = c.state.acceptance?.judgments ?? [];
-    return [
+    return fitWorkLog([
       `独立コードレビュー完了。確定した要対応の点数 ${c.score}。`,
-      `要対応: ${required.map((r) => `${r.heading}（${severityOf(r.impact)}: ${r.title}）`).join("、") || "なし"}。`,
-      judged.length > 0 ? `受け入れ確認: ${judged.map((j) => `${j.source}=${j.verdict}`).join("、")}。` : "",
-      `確認が残る事項 ${c.remaining.length} 件${c.remaining.length > 0 ? `（${c.remaining.map((r) => `${r.ref}（${r.owner}、${r.reason}）`).join("、")}）` : ""}。`,
-      `${docs}。runId ${c.runId}。担当: ${ids}。${retries.length > 0 ? `無効な試行: ${retries.join("、")}。` : ""}${ciNote}。`,
+      logList("要対応: ", required.map((r) => `${r.heading}（${severityOf(r.impact)}: ${r.title}）`), "。", more, "要対応: なし。"),
+      logList("受け入れ確認: ", judged.map((j) => `${j.source}=${j.verdict}`), "。", more),
+      `確認が残る事項 ${c.remaining.length} 件`,
+      logList("（", c.remaining.map((r) => `${r.ref}（${r.owner}、${r.reason}）`), "）", more),
+      "。",
+      ...docs,
+      `。runId ${c.runId}。担当: ${ids}。`,
+      retries,
+      `${ciNote}。`,
       finalUsageText(final, c.work),
-    ].join("");
+    ]);
   }
-  return [
+  return fitWorkLog([
     `独立コードレビュー${c.state.status}。原因: ${c.state.reason}。`,
-    `試行: ${ids}。${retries.length > 0 ? `無効な試行: ${retries.join("、")}。` : ""}`,
+    `試行: ${ids}。`,
+    retries,
     `受領済みの成果: ${agents.filter((a) => a.receivedAt).map((a) => `${a.roleName}の試行 ${a.attempt}`).join("、") || "なし"}。点数なし。`,
-    `${docs}。runId ${c.runId}。Done・In Review・PR へ進めない。${ciNote}。`,
+    ...docs,
+    `。runId ${c.runId}。Done・In Review・PR へ進めない。${ciNote}。`,
     finalUsageText(final, c.work),
-  ].join("");
+  ]);
 }
 
 // ---- finalize（parent.md 10節・11節） ----
@@ -4187,13 +4285,10 @@ function finalize(args: string[]): Outcome {
   let label: LabelResult | null = null;
   let logProblem: string | null = null;
   if (mode === "issue" && prep.issue) {
-    const text = summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems, measured.final);
-    const p = nod(["--json", "issue", "log", prep.issue, text, "--kind", state.status === "完了" ? "progress" : "blocker"]);
-    const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
-    if (typeof id === "number") {
-      summaryLogId = id;
-      recordOwnLog(work, id, `独立レビューの要約の作業ログ（--kind ${state.status === "完了" ? "progress" : "blocker"}）`);
-    } else logProblem = `要約の作業ログを書けない（${failure(p)}）`;
+    const kind = state.status === "完了" ? "progress" : "blocker";
+    const log = writeWorkLog(work, prep.issue, summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems, measured.final), kind, `独立レビューの要約の作業ログ（--kind ${kind}）`);
+    summaryLogId = log.id;
+    if (log.problem) logProblem = `要約の作業ログを書けない（${log.problem}）`;
     label = applyMergeReady(work, prep, prep.issue, {
       merge: decision.merge,
       blockers: decision.blockers,
@@ -4203,6 +4298,8 @@ function finalize(args: string[]): Outcome {
       runId,
       saveProblem: saved ? null : `報告の保存・照合に失敗（${problems.join("、")}）`,
       extra: [],
+      added: [],
+      more: `finalize の記録（${join(work, "parent/finalize.json")} の blockers）`,
     });
   }
   // 保存・照合の失敗や付ける直前の head・基点の変化で付けなかったときは、マージ可否を不可として扱う（報告 Document は書き換えない）
@@ -4325,7 +4422,18 @@ function recheckCi(args: string[]): Outcome {
   const merge = blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE;
   // 7: merge-ready の付け外しと [ci-result] の記録
   const label = prep.issue
-    ? applyMergeReady(work, prep, prep.issue, { merge, blockers, ci, head, reportId, runId, saveProblem: null, extra: [`CI の再照合 ${n}`, ...(reason ? [`照合せず: ${reason}`] : []), ...added.map((a) => `加えた確認が残る事項 ${a.ref}（${a.reason}）`)] })
+    ? applyMergeReady(work, prep, prep.issue, {
+        merge,
+        blockers,
+        ci,
+        head,
+        reportId,
+        runId,
+        saveProblem: null,
+        extra: [`CI の再照合 ${n}`, ...(reason ? [`照合せず: ${reason}`] : [])],
+        added: added.map((a) => `${a.ref}（${a.reason}）`),
+        more: `CI の再照合の記録（${join(dir, "record.md")}）`,
+      })
     : null;
   const finalMerge = label ? (label.operation === "付けた" ? MERGE_OK : NOT_RUN_MERGE) : merge;
   // 8: 再照合の記録

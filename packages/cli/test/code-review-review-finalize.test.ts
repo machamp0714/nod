@@ -19,6 +19,7 @@ import {
   SKILL_DIR,
   type Sandbox,
   sandbox,
+  sha256,
   type TempNod,
   tempNod,
 } from "./code-review-review-helpers";
@@ -33,6 +34,11 @@ const PR = "https://github.com/acme/app/pull/1";
 const OTHER = "0123456789abcdef0123456789abcdef01234567";
 // Workspace の規約。「必須のチェック」の節の test だけが必須のチェック
 const RULES = "# 規約\n\n- 日本語で書く\n\n## 必須のチェック\n\n- test\n";
+// nod の作業ログの上限（packages/core/src/work-log.ts の WORK_LOG_MAX_LENGTH。コードポイントで数える）
+const LOG_MAX = 4000;
+const codePoints = (text: string) => [...text].length;
+// 収まりきった確認が残る事項（親以外の追記）の数。各事項の理由の末尾で数える
+const wholeAdditions = (text: string) => text.split("この実行では判定し直さない）").length - 1;
 
 interface Remaining {
   ref: string;
@@ -69,6 +75,7 @@ interface Finalize {
   saveProblems: string[];
   logs: { summary: number | null; ci: number | null; ownLogs: number[] };
   label: { operation: string; error: string | null };
+  logProblem: string | null;
   recheck: { evidence: { appended: number; others: number; own: number; events: number } | null };
   reportStartedAt: string;
   savedAt: string;
@@ -82,7 +89,7 @@ interface Recheck {
   blockers: string[];
   ci: Ci | null;
   added: Remaining[];
-  label: { operation: string; log: number | null } | null;
+  label: { operation: string; error: string | null; log: number | null } | null;
   record: string;
 }
 interface Check {
@@ -717,6 +724,100 @@ describe("code-review の仕上げ（review.ts check-acceptance・finalize・rec
     expect(audit.content).toContain("止めなかった親自身の記録 1 件");
     expect(existsSync(join(p.W, "parent/acceptance-recheck/evidence/1/copy"))).toBe(true);
     expect(read(join(p.W, "parent/acceptance/own-logs.md"))).toContain(`- ${own}: `);
+  });
+
+  test("作業ログの上限: 確認が残る事項が多く 4000 字を超える要約も、必須の項目を残して収まらない事項の件数と参照先を書き、実際の nod に保存して id を own-logs に残す", async () => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "many", () => [usedRow("限定 clone", "成果物の不変版の存在")]);
+    // 受け入れ確認の後・保存の前に、親以外の追記を 25 件（どれも確認が残る事項になる）
+    for (let i = 1; i <= 25; i++) await comment(x, `別の人の追記 ${i}`);
+
+    const f = (await finalize(s, p)).json as Finalize;
+    expect(f).toMatchObject({ status: "完了", score: 5, remainingCount: 25, merge: MERGE_NG, saved: true, logProblem: null });
+    expect(f.logs.summary).toBeNumber();
+    expect(f.logs.ci).toBeNumber();
+    const reportId = f.documents?.report.id as number;
+    const auditId = f.documents?.audit.id as number;
+    const shown = await issueShow(x);
+    const summary = shown.activity.find((a) => a.id === f.logs.summary);
+    expect(summary?.logKind).toBe("progress");
+    const body = summary?.body ?? "";
+    expect(codePoints(body)).toBeLessThanOrEqual(LOG_MAX);
+    // 必須の項目（状態・点数・要対応・受け入れ確認・確認が残る事項の件数・Document ID・runId・担当と ID）と、CI を書かず [ci-result] を参照する規則
+    for (const part of ["独立コードレビュー完了。確定した要対応の点数 5。", "要対応: なし。", "受け入れ確認: ", "=確認済み。", "確認が残る事項 25 件（", `結果Document ${reportId}、監査Document ${auditId}`, "runId many。", "担当: ", "agent-acceptance", "[ci-result] で始まる --kind test の作業ログを参照", "計測（保存までの確定値。"]) {
+      expect(body).toContain(part);
+    }
+    expect(body.startsWith("[ci-result]")).toBe(false);
+    expect(body).not.toContain("成功");
+    // 確認が残る事項は先頭から書き、書けなかった件数と全文の場所（結果と監査の Document）を明示する
+    const first = f.remaining[0] as Remaining;
+    expect(body).toContain(`${first.ref}（${first.owner}、${first.reason}）`);
+    expect(body).not.toContain((f.remaining[24] as Remaining).reason);
+    const rest = Number(new RegExp(`ほか (\\d+) 件は結果 Document ${reportId}（監査 ${auditId}）を参照`).exec(body)?.[1] ?? Number.NaN);
+    expect(rest).toBeGreaterThan(0);
+    const cut = body.includes(`…（途中で切った。全文は結果 Document ${reportId}（監査 ${auditId}）を参照）`) ? 1 : 0;
+    expect(wholeAdditions(body)).toBeGreaterThan(0);
+    expect(wholeAdditions(body) + cut + rest).toBe(25);
+
+    // [ci-result] の記録も保存され、確認が残る事項の件数を不可の理由に書く
+    const ciLog = shown.activity.find((a) => a.id === f.logs.ci);
+    expect(ciLog?.logKind).toBe("test");
+    expect(ciLog?.body?.startsWith("[ci-result] merge-ready: 付けていない（マージ可否が不可: ")).toBe(true);
+    expect(ciLog?.body).toContain("確認が残る事項 25 件");
+    const own = read(join(p.W, "parent/acceptance/own-logs.md"));
+    expect(own).toContain(`- ${f.logs.summary}: `);
+    expect(own).toContain(`- ${f.logs.ci}: `);
+  });
+
+  test("作業ログの上限: CI の再照合で加えた確認が残る事項が多く 4000 字を超える [ci-result] の記録も、操作・head・基点・CI 判定・報告の Document ID・runId・記録の場所を残し、件数と全文の場所を書いて保存する", async () => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "many-ci", () => [usedRow("限定 clone", "成果物の不変版の存在")]);
+    const f = (await finalize(s, p)).json as Finalize;
+    expect(f.label.operation).toBe("付けた");
+    // 保存の後に親以外の追記を 25 件（CI の再照合で確認が残る事項に加わる）
+    for (let i = 1; i <= 25; i++) await comment(x, `別の人の追記 ${i}`);
+
+    const r = await recheck(s, p);
+    expect(r).toMatchObject({ n: 2, checked: true, merge: MERGE_NG });
+    expect(r?.added).toHaveLength(25);
+    expect(r?.label).toMatchObject({ operation: "外した", error: null });
+    expect(r?.label?.log).toBeNumber();
+    const log = (await issueShow(x)).activity.find((a) => a.id === r?.label?.log);
+    expect(log?.logKind).toBe("test");
+    const body = log?.body ?? "";
+    expect(codePoints(body)).toBeLessThanOrEqual(LOG_MAX);
+    expect(body.startsWith("[ci-result] merge-ready: 外した（マージ可否が不可: ")).toBe(true);
+    const ciDir = join(p.W, "parent/ci/2");
+    for (const part of [`判定した head SHA ${x.head}、現在の head ${x.head}（一致）`, "基点 main", "CI 判定 成功", "必須のチェック: test=成功", `報告Document ${f.documents?.report.id}`, "runId many-ci", "CI の再照合 2", "加えた確認が残る事項 25 件（", `CI の記録 ${ciDir}/（result.json の sha256 ${sha256(read(join(ciDir, "result.json")))}）`]) {
+      expect(body).toContain(part);
+    }
+    // 加えた事項は先頭から書き、書けなかった件数と全文の場所（再照合の記録）を明示する
+    const record = join(p.W, "parent/recheck-2/record.md");
+    const more = `CI の再照合の記録（${record}）`;
+    const first = r?.added[0] as Remaining;
+    expect(body).toContain(`${first.ref}（${first.reason}）`);
+    const rest = Number(/ほか (\d+) 件は(.+?)を参照/.exec(body.slice(body.indexOf("加えた確認が残る事項 25 件（")))?.[1] ?? Number.NaN);
+    expect(body).toContain(`ほか ${rest} 件は${more}を参照`);
+    expect(rest).toBeGreaterThan(0);
+    const cut = body.includes(`…（途中で切った。全文は${more}を参照）`) ? 1 : 0;
+    expect(wholeAdditions(body)).toBeGreaterThan(0);
+    expect(wholeAdditions(body) + cut + rest).toBe(25);
+    // 全文は再照合の記録にある
+    for (const a of r?.added ?? []) expect(read(record)).toContain(a.reason);
+    expect(read(join(p.W, "parent/acceptance/own-logs.md"))).toContain(`- ${r?.label?.log}: `);
+  });
+
+  test("nod が作業ログを拒否したら、終了コードと nod のエラー文を logProblem と label.error に残し、保存できたとは扱わない", async () => {
+    const s = sandbox();
+    failingGh(s);
+    const x = await issueRepo(s);
+    const p = await prepareIssue(s, x, "rejected", false);
+    // 既知の形の秘密値（GitHub のトークンの形）を含む理由は、nod が SECRET_DETECTED で作業ログを拒否する
+    const f = (await finalize(s, p, ["--not-run-reason", `利用者が中止した（ghp_${"A".repeat(36)}）`])).json as Finalize;
+    expect(f).toMatchObject({ status: "未実施", logs: { summary: null, ci: null } });
+    expect(f.logProblem).toContain("要約の作業ログを書けない（終了コード 1: SECRET_DETECTED: 作業ログにGitHub のトークンらしき値が含まれるため記録しませんでした");
+    expect(f.label.error).toContain("[ci-result] の作業ログを書けない（終了コード 1: SECRET_DETECTED: ");
+    expect((await issueShow(x)).activity.filter((a) => a.logKind)).toEqual([]);
   });
 
   test("Issue なしの mode: local: 未コミット変更の土台 HEAD・差分の変化を確認が残る事項にし、CI は対象外（未コミット）、報告と監査は手元に残してラベルを扱わない", async () => {
