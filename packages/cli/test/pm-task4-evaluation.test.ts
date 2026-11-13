@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { nodCliRecorder, recheckReviewCi } from "../../../plugins/nod/skills/pm/evals/initial-review";
 import { createTask4Scenario, type Task4Variant } from "../../../plugins/nod/skills/pm/evals/task4-setup";
 
 const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
@@ -122,7 +123,7 @@ test("PM指摘評価はmerge-readyの付いたIssueへ修正コミットが足�
   expect(h.readReport(repaired).commit).toBe("c".repeat(40));
   const issue = show();
   expect(issue.labels).not.toContain("merge-ready");
-  expect(issue.activity.filter(item => item.logKind === "test" && item.body?.startsWith("merge-ready: 外した") && item.body.includes("判定が古い（追加コミット）")
+  expect(issue.activity.filter(item => item.logKind === "test" && item.body?.startsWith("[ci-result] merge-ready: 外した") && item.body.includes("判定が古い（追加コミット）")
     && item.body.includes(`判定した head SHA ${"a".repeat(40)}`) && item.body.includes(`現在の head ${"c".repeat(40)}`) && item.body.includes(`報告Document ${review.reportDocument.id}`))).toHaveLength(1);
   // 13節の記録は parent/recheck-<n>/record.md に置き、照合しなかった理由とラベルの操作を書く。CIは新しく照合しない。
   const parent = join(review.workDirectory, "parent");
@@ -131,6 +132,14 @@ test("PM指摘評価はmerge-readyの付いたIssueへ修正コミットが足�
   const record = readFileSync(join(parent, "recheck-2", "record.md"), "utf8");
   for (const line of [`- 比べた head: 報告の head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致。照合しない）`, "- merge-ready: 外した", "- CI の記録: 照合しない"]) expect(record).toContain(line);
   expect(record).toContain("判定が古い（追加コミット）");
+  // 照合せずに終えた再照合（ci/2 を作らない）の後の再照合は、件数ではなく番号の最大の次で採番し、recheck-2 を上書きしない。
+  const nod = (...args: string[]) => JSON.parse(Bun.spawnSync([h.scenario.nod, "-w", "API", ...args, "--json"], { env: h.scenario.env }).stdout.toString());
+  const again = recheckReviewCi(review, { currentHead: "c".repeat(40) }, nodCliRecorder(nod));
+  expect(again).toMatchObject({ number: 3, recordPath: join(parent, "recheck-3", "record.md"), ci: null, mergeReady: "付けていない" });
+  expect(readdirSync(parent).filter(name => name.startsWith("recheck-")).sort()).toEqual(["recheck-2", "recheck-3"]);
+  expect(readdirSync(join(parent, "ci"))).toEqual(["1"]);
+  expect(readFileSync(join(parent, "recheck-2", "record.md"), "utf8")).toBe(record);
+  expect(readFileSync(again.recordPath, "utf8")).toContain("# CI の再照合 3（親の手順の13節）");
 });
 
 for (const operation of ["worker-start", "send"] as const) {

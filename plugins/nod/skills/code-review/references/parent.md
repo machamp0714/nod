@@ -20,6 +20,7 @@
 - PR を指定された場合は `gh` で実際のリポジトリ・基点・head を特定する。Issue をブランチ名から推測しない。
 - コミットのレビュー（`mode: commit`）: `git -C <repo> rev-parse <head>` で head の SHA、`git -C <repo> merge-base <基点> <head>` で merge-base の SHA を固定する。
 - 明示された未コミット変更のレビュー（`mode: local`）: 明示されたときだけ行い、commit や stash を作らない。土台の HEAD の SHA を固定し、merge-base は基点と土台の HEAD から求める。差分は表示用の変換を無効にして `git -C <repo> --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD` で写し、未追跡ファイルは指定されたものだけを写す。
+- `mode: commit` では、head を固定した元を記録する。PR なら PR の URL、ブランチ名や `HEAD` などの ref から固定したなら `<repo>` とその ref、SHA だけで指定されたなら「ref なし」とし、2節で作業ディレクトリを作った後に親専用領域の `parent/head-source.md` に書く（担当へ渡す `target.md` には書かない）。10節の8と11節では、この元から対象の現在の head を取り直す。
 - 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head>` を NUL で区切って読み、日本語などを含むパスも引用符なしの名前で調べる。`mode: local` は土台の HEAD までのコミット済みの差分 `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <土台の HEAD>` と、未コミットの差分 `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と、指定された未追跡パスの全部）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲も CI の照合もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
 ```sh
@@ -50,7 +51,7 @@ mkdir -p "$W/input/requirements" "$W/standards/notes" "$W/spec/notes" "$W/refute
 | `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親（検査と受け入れ確認への写し） |
 | `acceptance-input/` | 受け入れ確認への入力（共通入力と反証の判定本文の写し、委譲前に写した Activity・添付 Document の原文 `records/`、それらが明示的に参照する記録と反証が名指しした外部の正本の写しと観測 `evidence/`、目録 `records.md`）。8節で必要なときだけ作る | 親 | 受け入れ確認担当 |
 | `acceptance/` | 受け入れ確認の `result.md` と `notes/` | 受け入れ確認担当 | 親 |
-| `parent/` | 親専用領域（取得結果、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、依存の準備の記録 `parent/deps/`、検査記録、指紋、担当の対応表、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認の写しの取得記録 `parent/acceptance/`、保存直前の受け入れ証拠の取り直し `parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿） | 親 | 親だけ |
+| `parent/` | 親専用領域（取得結果、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と現在の head の照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、検査記録、指紋、担当の対応表、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認の写しの取得記録と CI の結果を除く前の元の写し `parent/acceptance/`、保存直前の受け入れ証拠の取り直し `parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿） | 親 | 親だけ |
 
 ### 2.1 担当用の限定 clone を作る
 
@@ -141,6 +142,7 @@ nod -w <repo> workspace rules show > "$W/input/requirements/workspace-rules.md"
 - 親は CI を実行・再実行せず、完了を待たない（polling しない）。照合した時点の結果で判定し、未確定なら不可として記録する。CI の完了後に判定し直すときは、13節の CI の再照合で行う。
 - 実装者の作業ツリーや手元のテストログ、作業ログ・PR の本文などに書かれた CI の結果で代用しない。親が GitHub から読んだ結果だけを使う。
 - CI の結果と照合の記録は `parent/ci/<n>/` にだけ置く。担当への依頼本文・共通の context・`input/`・`refute-input/`・`acceptance-input/` に入れず、担当の返答を待つ間に CI の状況や結果を担当へ送らない。受け入れ確認への写し（8節）を取り終えるまで、このレビューの CI の状況や結果を Issue の作業ログに書かない。写しの後に親が Issue へ書く記録（作業ログ・コメント・返信。CI の照合の記録に限らない）は、書いたときに `nod --json issue log`・`nod --json issue comment` が返した id をすべて `parent/acceptance/own-logs.md` に記録する（10節の3と13節の再照合で親自身の記録として止めない。記録していない項目は、親が書いたものでも親以外の追記として扱われる）。
+- 親が Issue へ書く CI の結果（CI 判定・必須のチェックごとの結果、それを理由に含むマージ可否、merge-ready の操作とその理由）は、作業ログでは本文が `[ci-result]` で始まる `--kind test` の記録（11節・13節）だけに書く。`--kind progress`・`blocker` の要約には書かず、その記録を参照する。報告 Document では `<!-- ci-result:begin -->` と `<!-- ci-result:end -->` の印の間だけに書き、印の外には「CI の結果は印の中」とだけ書く（11節）。後のレビューの受け入れ確認への写し（8.1節）は、この印だけで CI の結果を除く。
 - `mode: local` では照合しない。CI の結果は commit 済みの head に対するもので未コミット変更を含まず、変更込みの証拠に流用できないため、スクリプトを実行せず、`parent/ci/1/not-run.md` に CI 判定 `対象外（未コミット）` と理由だけを書く（提出用の CI の結果は commit と push の後に取る）。
 - CI 判定で、レビューの最終状態・点数・反証の判定・要求ごとの対応表・受け入れ確認の結果・確認が残る事項を変えない。
 
@@ -309,7 +311,7 @@ cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$W/re
 
 ### 8.1 写しを取る
 
-委譲の直前に、親が次だけを `acceptance-input/` へ写す。親は中身を選別・要約・抜粋・改変しない。探索の引き渡し用ファイル、反証の `notes/`、担当の返答、`parent/` の記録（CI の照合の記録 `parent/ci/`、依存の準備の記録 `parent/deps/`、無効な試行 `parent/attempts/` を含む）は写さない。
+委譲の直前に、親が次だけを `acceptance-input/` へ写す。親は中身を選別・要約・抜粋・改変しない（下の CI の結果の印による除外だけを例外とする）。探索の引き渡し用ファイル、反証の `notes/`、担当の返答、`parent/` の記録（CI の照合の記録 `parent/ci/`、依存の準備の記録 `parent/deps/`、無効な試行 `parent/attempts/` を含む）は写さない。
 
 ```sh
 A="$W/acceptance-input"; P="$W/parent/acceptance"
@@ -320,11 +322,17 @@ cp -R "$W/input/target.md" "$W/input/manifest.md" "$W/input/requirements" "$A/"
 cp "$W/refute/verdict.md" "$A/refute-verdict.md"                       # 反証の判定本文を丸ごと（該当行だけを抜き出さない）
 date -u +%Y-%m-%dT%H:%M:%SZ                                             # Activity と Document の取得時刻
 nod --json issue show <Issue ID> > "$P/issue-snapshot.json"
-jq '.activity' "$P/issue-snapshot.json" > "$A/records/activity.json"      # Activity の全件（作業ログ・コメント・イベント）
-jq -r '.documents[] | .id' "$P/issue-snapshot.json"                       # 各 ID を nod --json doc show <ID> の .content で records/documents/document-<ID>.md へ写す（kind を問わず全件）
+mkdir -p "$P/documents"
+jq '.activity' "$P/issue-snapshot.json" > "$P/activity.json"             # Activity の全件の元の写し（作業ログ・コメント・イベント。親専用）
+jq '[.[] | select(.kind == "comment" and (.body | startswith("[ci-result]")) | not)]' "$P/activity.json" > "$A/records/activity.json"   # 本文が [ci-result] で始まる作業ログ・コメントを返信ごと除いた写し
+jq -r '.[] | select(.kind == "comment" and (.body | startswith("[ci-result]"))) | .id' "$P/activity.json"   # 除いた項目の id（records.md に書く）
+jq -r '.documents[] | .id' "$P/issue-snapshot.json"                       # 各 ID を nod --json doc show <ID> の .content で "$P/documents/document-<ID>.md"（元の写し）へ写し、次の awk で records/documents/document-<ID>.md へ写す（kind を問わず全件）
+awk '/^<!-- ci-result:begin -->$/{print; print "（CI の結果は親だけが扱うため除いた）"; f=1; next} /^<!-- ci-result:end -->$/{f=0} !f' "$P/documents/document-<ID>.md" > "$A/records/documents/document-<ID>.md"   # ci-result の印の間だけを置き換える
 ```
 
 - 写しの元は、委譲の直前に取った Activity と、Issue に現在リンクされたすべての Document（kind を問わない）の本文とする。取得時刻・Document ID・kind・パスを記録する。
+- CI の結果（3節）は印だけで除く。除くのは、本文が `[ci-result]` で始まる Activity の作業ログ・コメント（その返信を含む）と、Document の `<!-- ci-result:begin -->` と `<!-- ci-result:end -->` の印の間（「（CI の結果は親だけが扱うため除いた）」に置き換える）だけとする。親は本文の意味で選別しない。印の無い記録に CI の結果が混ざっていても親は除かず、担当が SKILL.md 2節のとおり使わずに混入として報告する。`evidence/` に写す参照された記録には、この除外をしない。
+- 除く前の元の写し（`parent/acceptance/activity.json`・`parent/acceptance/documents/`）は親専用領域に残す。10節の3と13節の再照合は元の写しと比べ、除いた項目も親自身の記録かどうか（own-logs）の扱いを変えない。
 - Issue の無い単独レビューでは Activity と Document を写さず、利用者が証拠として明示したファイル・Document だけを、下の参照された記録と同じ条件で `evidence/` に写す。明示が無ければ `records.md` に「Issue なし、明示された証拠なし」と書く。反証が名指しした外部の正本は、Issue の有無にかかわらず下のとおり写す。
 - `evidence/` に写すのは次の2種類だけとする。証拠の要否や関連を親が判断して選ばない。親が自分で正本や証拠を探したり、作ったりしない。
   - 参照された記録: `records/` に写した Activity の本文と Document の本文が明示的に参照する成果物・実行記録・配置先（パス・URL・Document ID・Git のリポジトリと revision）。
@@ -352,7 +360,8 @@ bun <スキルのディレクトリ>/scripts/copy-evidence.ts '<出典の絶対�
 - 親は表の読み取りのほかに、任意のスクリプトの実行、対象コードの再現、デプロイ、書き込み、認証情報の引き渡しをしない。既存の実行記録を写して読むことは、要実行確認の解消にも、3節の CI の結果の代わりにもならない。名指し・参照された版と写しの対応を親は判断しない。Git の revision を commit に固定できたとき以外は「親は確かめていない（出典の場所が示すのは取得時刻の内容）」と記録し、判断は担当に任せる。
 - `records.md`（目録）に次を書く。10節で同じ方法で取り直すので、取り直しに要る情報を省かない。
   - `acceptance-input/` の各ファイル（`records.md` を除く）の sha256 と出典（共通入力は `manifest.md` と同じ出典、反証の判定本文は `refute/verdict.md` と担当 ID、Activity は Issue ID と取得時刻、Document は ID・kind・パス・取得時刻）。
-  - 証拠の項目 ID: Activity のコメントは `activity:<コメントの id>`（コメント以外の項目は `activity@<時刻>`）、Issue にリンクされた Document は `document:<ID>`、`evidence/` の写しは `evidence/<n>`。Activity のコメントと Document には本文の sha256 を書く。
+  - 証拠の項目 ID: Activity のコメントは `activity:<コメントの id>`（コメント以外の項目は `activity@<時刻>`）、Issue にリンクされた Document は `document:<ID>`、`evidence/` の写しは `evidence/<n>`。Activity のコメントと Document には本文の sha256 を書く（Document は、印の間を置き換えた写しと元の写しの両方）。
+  - CI の結果の除外: 除いた Activity の項目 ID とその本文の sha256、印の間を置き換えた Document の ID と元の本文の sha256。除いたものが無ければ「なし」。
   - `evidence/<n>` ごとに、種類（参照された記録／外部の正本）・参照元（Activity の項目 ID と時刻、Document ID と行、または反証の判定本文の「受け入れ確認担当の行」の要求の出典）・参照や名指しの原文・出典・名指しや参照元の版（原文のまま。無ければ「記載なし」）・読み取りの方法（表の行と実際のコマンド）・識別情報・取得時刻・写し先と sha256・版の対応について親が示せたこと、または取得不能と理由（絶対パスはスクリプトの `code` と `message`。秘密候補なら当たったパス（`secrets` の出典と当たったパス）を書く。本文は写さない）。
 
 ```sh
@@ -403,11 +412,11 @@ bun <スキルのディレクトリ>/scripts/copy-evidence.ts '<出典の絶対�
 
 1. `mode: local` では、反証の結果（受け入れ確認担当を起動したときはその結果も）を受け取った後に、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で取り直し、`input/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
 2. 保存の直前に、要求の本文・資料だけを2.3節と同じ方法で `parent/requirements-recheck/` へ取り直し、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約）。Activity・進捗・更新日時はここでは比べない（受け入れ確認の証拠は3で扱う）。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
-3. 受け入れ確認担当の有効な結果を受け取ったときは、2と同じく保存の直前に、結果の「判定に使った証拠」の節にある項目と、そのうち `evidence/<n>` について `records.md` に書いた参照元（Activity の項目・Document）だけを取り直し、`parent/acceptance-recheck/` に置いて固定時（`records.md`）と比べる。取り直す時刻を記録する。
+3. 受け入れ確認担当の有効な結果を受け取ったときは、2と同じく保存の直前に、結果の「判定に使った証拠」の節にある項目と、そのうち `evidence/<n>` について `records.md` に書いた参照元（Activity の項目・Document）だけを取り直し、`parent/acceptance-recheck/` に置いて固定時（`records.md`）と比べる。Activity と Document の固定時は、8.1節で CI の結果を除く前の元の写し（`parent/acceptance/activity.json`・`parent/acceptance/documents/` と、`records.md` の元の本文の sha256）とする。取り直す時刻を記録する。
    - `evidence/<n>`: `records.md` に書いた読み取りの方法で、同じ出典から取り直す（絶対パスは同じスクリプト `scripts/copy-evidence.ts` で `parent/acceptance-recheck/evidence/<n>` へ写しと観測を取り直す。8.1と同じ検査（秘密候補の名前、`.`・`..`・空の要素、レビューの作業ディレクトリ・常設データセットの配下、パスのリンク、通常のファイルか、上限サイズ）をして、終了コード 1 なら写しを作らず「取り直せず」とし、結果の `code` と `message`（`SECRET_CANDIDATE` なら秘密候補になったとして当たったパス）を添える。Git は名前で指した revision の解決と同じ commit の読み取り、Document は本文、URL は GET）。写しと観測の sha256、Git の revision が指す commit、最終の URL を固定時と比べる。
    - `activity:<id>`・`activity@<時刻>`、および `evidence/<n>` の参照元の Activity の項目: `nod --json issue show` を `parent/acceptance-recheck/issue-snapshot.json` へ取り直し、同じ項目の有無、本文の sha256、解決の状態を比べる（固定の後に足された返信は次の親以外の追記で扱う）。
    - `document:<ID>`、および `evidence/<n>` の参照元の Document: 取り直した Issue に同じ Document がリンクされているかと、本文の sha256 を比べる（Issue にリンクされていない参照元の Document は `nod --json doc show <ID>` の本文）。
-   - 固定の後に足された Activity（取り直した Activity のうち、固定時の `records/activity.json` に無いコメント・作業ログ・返信・確認依頼と、固定時の確認依頼に付いた回答）は、親自身の記録（3節で id を `parent/acceptance/own-logs.md` に記録したもの）を除いて、1件でもあれば親以外の追記とする。項目の種類・作業ログの種類・書いた人・返信先・本文を問わず、本文の意味や、本文が判定に使った証拠の出典を含むかどうかでは選別しない。親と実装者は同じ書き手（actor）で書くことがあるので、親自身の記録かどうかは書いた人ではなく own-logs の id だけで決める。親以外の追記は、どの証拠に関するかを親は決めないので、判定に使った証拠を使ったすべての行に付ける。Issue のイベント（状態・計画の進捗・ラベル・担当・優先度などの event 項目）は追記に含めない。
+   - 固定の後に足された Activity（取り直した Activity のうち、固定時の元の写し `parent/acceptance/activity.json` に無いコメント・作業ログ・返信・確認依頼と、固定時の確認依頼に付いた回答）は、親自身の記録（3節で id を `parent/acceptance/own-logs.md` に記録したもの）を除いて、1件でもあれば親以外の追記とする。項目の種類・作業ログの種類・書いた人・返信先・本文を問わず、本文の意味や、本文が判定に使った証拠の出典を含むかどうかでは選別しない。親と実装者は同じ書き手（actor）で書くことがあるので、親自身の記録かどうかは書いた人ではなく own-logs の id だけで決める。親以外の追記は、どの証拠に関するかを親は決めないので、判定に使った証拠を使ったすべての行に付ける。Issue のイベント（状態・計画の進捗・ラベル・担当・優先度などの event 項目）は追記に含めない。
    - 親は変化と追記の意味（訂正か、撤回か、無害か）を判断しない。観測ごとに次の理由で、その証拠を使った行（親以外の追記は、判定に使った証拠を使ったすべての行）の要求の出典ごとに、確かめる担当「受け入れ確認担当（新しい実行）」と、項目 ID・出典・固定時と保存直前の指紋（親以外の追記は、追記の項目 ID・時刻・書いた人と、返信先）を添えて、確認が残る事項に加える。
 
    | 保存直前の観測 | 理由 |
@@ -431,12 +440,14 @@ bun <スキルのディレクトリ>/scripts/copy-evidence.ts '<出典の絶対�
 7. CI の結果では、4〜6の最終状態・点数・確認が残る事項を変えない。反証担当が確定した対応表の行（「未確認」「自動チェック担当」「受け入れ確認担当」を含む）と受け入れ確認の結果も書き換えない。
 8. マージ可否を決める。
    - 先に、3.3節のスクリプトを1回だけ実行し、`parent/ci/1/` に記録する（1〜3の後、マージ可否を決める直前）。Workspace の規約は2で取り直した `parent/requirements-recheck/workspace-rules.md` を渡す。`mode: local`、または基点をブランチ名に解決できないときは実行せず、3節・3.1節のとおり `parent/ci/1/not-run.md` に書く。
+   - 続けて `mode: commit` では、`parent/head-source.md` の元から対象の現在の head を取り直し（PR なら `gh pr view <PR> --json headRefOid`、ref なら `git -C <repo> rev-parse <ref>`）、`target.md` の head の SHA と比べる。使ったコマンド・取得時刻・現在の head・比べた結果を `parent/head-check.md` に書く。「ref なし」やコマンドの失敗で取り直せなければ、その旨を書く。
    - `可（人のレビューなしでマージ可）`: 次のすべてを満たすときだけ。
      1. 最終状態が `完了` で、確定した要対応の点数が `5`。
      2. 対応表のすべての行が、反証で「充足」「説明」「対象外」のどれかであるか、「自動チェック担当」で同じ head SHA の CI 判定が `成功` であるか、「受け入れ確認担当」で受け入れ確認担当が「確認済み」とした行である。
      3. 確認が残る事項が、対応表の内外を問わず0件。
      4. `parent/ci/<n>/result.json` の `head` が `target.md` の head の SHA と同じで、CI 判定（`verdict`）が `成功`。
-   - `不可（人の判断が要る）`: それ以外のすべて。最終状態とその理由、確定した要対応の点数または点数なし、CI 判定とその理由（必須のチェックごとの結果、head SHA の一致）、確認が残る事項（要求の出典・確かめる担当・理由）をすべて並べる。CI 判定が `成功` 以外（`失敗`・`未確定`・`結果なし`・`取得できず`・`必須のチェックなし`・`必須のチェックを決められず`・`対象外（未コミット）`）なら、ほかの条件をすべて満たしていても不可とする。
+     5. 直前に取り直した対象の現在の head が `target.md` の head の SHA と同じ（`parent/head-check.md`）。
+   - `不可（人の判断が要る）`: それ以外のすべて。最終状態とその理由、確定した要対応の点数または点数なし、CI 判定とその理由（必須のチェックごとの結果、head SHA の一致）、現在の head の照合の結果、確認が残る事項（要求の出典・確かめる担当・理由）をすべて並べる。CI 判定が `成功` 以外（`失敗`・`未確定`・`結果なし`・`取得できず`・`必須のチェックなし`・`必須のチェックを決められず`・`対象外（未コミット）`）なら、ほかの条件をすべて満たしていても不可とする。現在の head が固定した head と違う（理由: 対象版が現在の head と違う（追加コミット））、または取り直せない（理由: 現在の head を取り直せない）ときも、ほかの条件をすべて満たしていても不可とする。
    - 対応表の「自動チェック担当」の行は、マージ可否の判定でだけ同じ head SHA の CI 判定 `成功` で満たしたことにする（点数の対象外という扱いは変えない）。CI 判定が `成功` でなければ、満たしていない理由として並べる。
    - 対応表の「受け入れ確認担当」の行は、受け入れ確認担当が「確認済み」とした行だけを、マージ可否の判定で満たしたことにする（点数の対象外という扱いは変えない）。CI の成功では満たさない。
    - 対応表の「未確認」の行と、受け入れ確認の「未充足」「確かめられず」の行は、CI の成功では消えない（確認が残る事項として残り、マージ可否は `不可`）。
@@ -448,7 +459,8 @@ bun <スキルのディレクトリ>/scripts/copy-evidence.ts '<出典の絶対�
 ## 11. 報告を作り、保存する
 
 [報告の雛形](../assets/report.md) で `parent/report.md` を作る。管理情報は親が書き、反証担当の判定本文は `refute/verdict.md` を、受け入れ確認担当を起動した場合はその結果を `acceptance/result.md` を、それぞれ `cat` でそのまま入れる（`未実施`・`未完了` で判定本文・結果が無ければ「未受領」と理由を、受け入れ確認担当の行が無ければ受け入れ確認の印の間に「受け入れ確認担当の行なし（起動せず）」を書く）。
-管理情報には「最終状態」「確定した要対応の点数」「確認が残る事項（要求の出典・確かめる担当・理由）」「マージ可否」を別項目として並べ、10節の結果と理由を書く。担当用の限定 clone の確認は `parent/clone.md` から、依存の写しは `manifest.md` の依存の写しの節から、受け入れ確認への写し（外部の正本と参照された記録の出典・版・読み取りの方法・取得時刻・指紋、取得不能と理由）は `acceptance-input/records.md` と `parent/acceptance/` から、保存直前の受け入れ証拠の再照合は `parent/acceptance-recheck/` から書く。CI の結果は `parent/ci/1/result.json`（実行しなかったときは `not-run.md`）から書き、gh の生の応答は指紋と場所の参照だけにして本文を写さない。merge-ready の項目には、Issue があれば保存の直後に行うラベルの操作（付けた／外した／付けていない）と理由を、Issue が無ければ「扱わない」と書く。
+管理情報には「最終状態」「確定した要対応の点数」「確認が残る事項（要求の出典・確かめる担当・理由）」「マージ可否」を別項目として並べ、10節の結果と理由を書く。担当用の限定 clone の確認は `parent/clone.md` から、依存の写しは `manifest.md` の依存の写しの節から、受け入れ確認への写し（外部の正本と参照された記録の出典・版・読み取りの方法・取得時刻・指紋、CI の結果の除外、取得不能と理由）は `acceptance-input/records.md` と `parent/acceptance/` から、保存直前の受け入れ証拠の再照合は `parent/acceptance-recheck/` から書く。CI の結果は `parent/ci/1/result.json`（実行しなかったときは `not-run.md`）から書き、gh の生の応答は指紋と場所の参照だけにして本文を写さない。現在の head の照合は `parent/head-check.md` から書く。merge-ready の項目には、Issue があれば保存の直後に行うラベルの操作（付けた／外した／付けていない）と理由を、Issue が無ければ「扱わない」と書く。
+CI の結果を含む部分（CI の節、マージ可否とその理由、現在の head の照合、merge-ready の項目、後続判断のうちマージ可否・CI 判定に触れる部分）は、雛形の `<!-- ci-result:begin -->` と `<!-- ci-result:end -->` の印の間だけに書く。印の外には「CI の結果は印の中」とだけ書き、CI 判定・必須のチェックの結果・マージ可否を書かない（3節。後のレビューの受け入れ確認への写しは、この印の間を除く）。
 担当の表と試行の記録は `parent/agents.md`・`parent/attempts.md` から書く。無効だった試行と委譲し直した試行の両方を、担当 ID・無効の理由・保存場所・指紋とともに載せ、担当のセッション内の omp 内部の再試行と親による再委譲を分けて書く。
 モデル情報は各担当の引き渡し用ファイル・判定本文・受け入れ確認の結果の申告と、ハーネスが示した情報だけを出典付きで書く。不明は未確認とし、実効モデルの証明として扱わない。
 
@@ -463,12 +475,12 @@ awk '/^<!-- acceptance-result:begin -->$/{f=1;next} /^<!-- acceptance-result:end
 ```
 
 - `nod doc show` で kind が doc であり Issue にリンクされたことを確かめる。収録した判定本文の sha256 が `refute/verdict.md` と、収録した受け入れ確認の結果の sha256 が `acceptance/result.md` と一致することを確かめ、一致しなければ保存失敗として報告する。指紋は同一性の確認であり、改変を機械的に防ぐものではない。
-- `完了`: `nod --json issue log <Issue ID> "<要約>" --kind progress` に、状態・確定した要対応の点数・要対応の要点・受け入れ確認の行ごとの判定（起動したとき）・確認が残る事項の件数と要点（要求の出典・確かめる担当・理由）・CI 判定・マージ可否・Document ID・runId・起動した全担当（3担当と、起動したときは受け入れ確認担当）の役割と ID・委譲し直した役割があればその試行（最初の担当 ID・無効の理由と、委譲し直した担当 ID）を書く。返った id は `parent/acceptance/own-logs.md` に記録する（3節）。
-- `未実施`・`未完了`: `nod --json issue log <Issue ID> "<要約>" --kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当と理由。利用枠の上限ならそのこと）・試行の記録（担当 ID・無効の理由・委譲し直したかどうか）・受領済みの成果・取得できた担当 ID・点数なし・CI 判定（照合しなかったときはその旨）・マージ可否（`不可`）・Document ID・runId を書く。返った id は `parent/acceptance/own-logs.md` に記録する（3節）。
+- `完了`: `nod --json issue log <Issue ID> "<要約>" --kind progress` に、状態・確定した要対応の点数・要対応の要点・受け入れ確認の行ごとの判定（起動したとき）・確認が残る事項の件数と要点（要求の出典・確かめる担当・理由）・Document ID・runId・起動した全担当（3担当と、起動したときは受け入れ確認担当）の役割と ID・委譲し直した役割があればその試行（最初の担当 ID・無効の理由と、委譲し直した担当 ID）を書く。CI 判定・マージ可否・merge-ready は書かず、下の `[ci-result]` の記録を参照する旨だけを書く（3節）。返った id は `parent/acceptance/own-logs.md` に記録する（3節）。
+- `未実施`・`未完了`: `nod --json issue log <Issue ID> "<要約>" --kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当と理由。利用枠の上限ならそのこと）・試行の記録（担当 ID・無効の理由・委譲し直したかどうか）・受領済みの成果・取得できた担当 ID・点数なし・Document ID・runId を書く。CI 判定・マージ可否は書かず、下の `[ci-result]` の記録を参照する旨だけを書く（3節）。返った id は `parent/acceptance/own-logs.md` に記録する（3節）。
 - 担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
 - merge-ready ラベル（Issue があるときだけ。最終状態にかかわらず、報告の保存と上の作業ログの後に行う）: ラベルは、固定した head SHA に対する現在のマージ可否の表示であり、自動マージの指示ではない。ブランチ保護・必須のレビューなど既存のマージ条件を迂回しない。
-  - マージ可否が `可` なら `nod issue update <Issue ID> --add-label merge-ready` で付ける。`不可` で、`nod --json issue show <Issue ID>` の `.labels` に merge-ready があれば `nod issue update <Issue ID> --remove-label merge-ready` で外す。`不可` で付いていなければ付けない。
-  - 付けた／外した／付けなかったこと（付けなかったときは、マージ可否が不可の理由）と、判定した head SHA・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）を、`nod --json issue log <Issue ID> "<記録>" --kind test` に1件残し、返った id を `parent/acceptance/own-logs.md` に記録する（3節）。ラベルの操作に失敗したら、その旨も同じ記録とチャットの報告に書く（報告 Document は書き換えない）。
+  - マージ可否が `可` なら、付ける直前に10節の8と同じ方法で対象の現在の head を取り直し、結果を `parent/head-check.md` に書き足す。`target.md` の head の SHA と同じときだけ `nod issue update <Issue ID> --add-label merge-ready` で付ける。違う、または取り直せないときは付けず、マージ可否を `不可`（理由: 対象版が現在の head と違う（追加コミット）、または現在の head を取り直せない）として扱う（報告 Document は書き換えず、下の記録とチャットの報告に書く）。`不可` で、`nod --json issue show <Issue ID>` の `.labels` に merge-ready があれば `nod issue update <Issue ID> --remove-label merge-ready` で外す。`不可` で付いていなければ付けない。
+  - 付けた／外した／付けなかったこと（付けなかったときは、マージ可否が不可の理由）と、判定した head SHA・現在の head の照合の結果（取り直した head と取得時刻）・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）を、本文を `[ci-result]` で始めて `nod --json issue log <Issue ID> "<記録>" --kind test` に1件残し、返った id を `parent/acceptance/own-logs.md` に記録する（3節）。ラベルの操作に失敗したら、その旨も同じ記録とチャットの報告に書く（報告 Document は書き換えない）。
 - Issue の無い単独レビューは、`parent/report.md` とチャットでの報告だけにする。merge-ready ラベルは扱わない。
 - 要求の写し・限定 clone と `parent/clone.md`・引き渡し用ファイル・メモ・反証の結果・受け入れ確認への写し（`acceptance-input/`・`parent/acceptance/`）と受け入れ確認の結果・保存直前の受け入れ証拠の取り直し（`parent/acceptance-recheck/`）・無効な試行の記録（`parent/attempts/`・`parent/attempts.md`）・CI の照合の記録（`parent/ci/<n>/`）は作業ディレクトリに残す（13節の CI の再照合で使う）。依存の写し（`deps/`）は保存を終えた後に片付けてよい（lockfile の sha256 と `deps-files.sha256` で同一性を確かめ直せる）。片付けたら、そのことと時刻を `parent/deps/` の記録に書き足す。
 
@@ -487,12 +499,12 @@ awk '/^<!-- acceptance-result:begin -->$/{f=1;next} /^<!-- acceptance-result:end
 保存したレビューの CI 判定が `未確定`・`結果なし`（push 前・PR 前・CI の実行中など）だった場合や、merge-ready の判定を新しくする場合に、レビューをやり直さずに、同じ head SHA の CI の結果とマージ可否を照合し直す。担当へ委譲せず、親も自分でレビューしない。実装を進める親や PM もこの節に従ってよい。CI の完了を待って polling しない（完了の後に行う）。
 
 1. 報告の Document と作業ディレクトリ `<W>`（報告の管理情報の「作業ディレクトリ」）を特定し、再照合の番号 `<n>` を決めて `parent/recheck-<n>/` を作る。`<n>` は、`parent/ci/` の番号と `parent/recheck-<n>/` の番号のうち最大のものの次とする（保存時の照合が `parent/ci/1/` なので、最初の再照合は 2）。`<W>/input/target.md` の head の SHA と、現在のブランチまたは PR の head（`gh pr view <PR> --json headRefOid,baseRefName` など）を比べる。
-2. head が違う（追加コミット）なら照合しない。merge-ready が付いていれば `nod issue update <Issue ID> --remove-label merge-ready` で外し、「判定が古い（追加コミット）」と、報告の head SHA・現在の head SHA・報告の Document ID を `nod --json issue log <Issue ID> "<記録>" --kind test` に記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。新しい head には新しいレビュー（1節から）が要る。
-3. 報告の最終状態が `完了` でない、確定した要対応の点数が `5` でない、報告の確認が残る事項が1件以上ある、`mode: local` である、または4〜6で使う作業ディレクトリの記録（`input/target.md`・`input/requirements/`・`input/manifest.md`・`parent/acceptance/own-logs.md`、受け入れ確認担当を起動したときは `acceptance-input/records.md` と `acceptance/result.md`）のどれかが無いなら、照合し直してもマージ可否は `可` にならない。照合せず、merge-ready が付いていれば外し、理由（無い記録はそのパス）を2と同じく `--kind test` に記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。
-4. head が同じなら、10節の2・3を同じ方法で `parent/recheck-<n>/`（要求は `parent/recheck-<n>/requirements/`、受け入れ証拠は `parent/recheck-<n>/acceptance/`）へやり直す。比べる相手は固定時（`input/requirements/`、`acceptance-input/records.md`）で、親自身の記録の扱い（`parent/acceptance/own-logs.md` の id）も同じとする。見つかった変化は10節と同じ理由で確認が残る事項に加える。報告 Document は書き換えず、加えた事項は8の `record.md` と7の記録に書く。
+2. head が違う（追加コミット）なら照合しない。merge-ready が付いていれば `nod issue update <Issue ID> --remove-label merge-ready` で外し、「判定が古い（追加コミット）」と、報告の head SHA・現在の head SHA・報告の Document ID を、本文を `[ci-result]` で始めて `nod --json issue log <Issue ID> "<記録>" --kind test` に記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。新しい head には新しいレビュー（1節から）が要る。
+3. 報告の最終状態が `完了` でない、確定した要対応の点数が `5` でない、報告の確認が残る事項が1件以上ある、`mode: local` である、または4〜6で使う作業ディレクトリの記録（`input/target.md`・`input/requirements/`・`input/manifest.md`、Issue があるときは `parent/acceptance/own-logs.md`、受け入れ確認担当を起動したときは `acceptance-input/records.md` と `acceptance/result.md`）のどれかが無いなら、照合し直してもマージ可否は `可` にならない。Issue の無い単独レビューでは `parent/acceptance/own-logs.md` を求めない（Issue へ記録を書かないので作られない）。照合せず、merge-ready が付いていれば外し、理由（無い記録はそのパス）を2と同じく `--kind test` に記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。
+4. head が同じなら、10節の2・3を同じ方法で `parent/recheck-<n>/`（要求は `parent/recheck-<n>/requirements/`、受け入れ証拠は `parent/recheck-<n>/acceptance/`）へやり直す。比べる相手は固定時（`input/requirements/`、`acceptance-input/records.md` と、Activity・Document は CI の結果を除く前の元の写し `parent/acceptance/activity.json`・`parent/acceptance/documents/`）で、Issue があるときは親自身の記録の扱い（`parent/acceptance/own-logs.md` の id）も同じとする。Issue の無い単独レビューでは Activity・Document を写していないので、受け入れ証拠は `evidence/<n>` だけを取り直し、own-logs は使わない。見つかった変化は10節と同じ理由で確認が残る事項に加える。報告 Document は書き換えず、加えた事項は8の `record.md` と7の記録に書く。
 5. 3.3節のスクリプトを `parent/ci/<n>/` へ1回だけ実行する（`--rules` は `parent/recheck-<n>/requirements/workspace-rules.md`、`--base` は報告の基点のブランチ名、`--head` は `target.md` の head の SHA）。PR があれば、その `baseRefName` が報告の基点と同じことを確かめ、違えば `必須のチェックを決められず` として扱う。
 6. 報告の最終状態・確定した要対応の点数・対応表・受け入れ確認の結果と、報告の確認が残る事項に4で加えた事項を合わせ、10節の8と同じ規則でマージ可否を決める（`parent/ci/<n>/result.json` の `head` が `target.md` の head の SHA と同じで、CI 判定が `成功`）。報告の判定本文・最終状態・点数・対応表は変えない。
-7. 11節と同じく merge-ready を付ける・外す。付けた／外した／付けなかったことと、判定した head SHA・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・再照合の番号 `<n>`・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）・4で加えた確認が残る事項を `nod --json issue log <Issue ID> "<記録>" --kind test` に1件残す。
+7. 11節と同じく merge-ready を付ける・外す。付けた／外した／付けなかったことと、判定した head SHA・基点・CI 判定と必須のチェックごとの結果（出典・check run の URL）・報告の Document ID・runId・再照合の番号 `<n>`・CI の記録の場所（`<W>/parent/ci/<n>/` と `result.json` の sha256）・4で加えた確認が残る事項を、本文を `[ci-result]` で始めて `nod --json issue log <Issue ID> "<記録>" --kind test` に1件残す。
 8. 再照合の記録を `parent/recheck-<n>/record.md` に書く（2・3で照合せずに終えるときも書く）。書くのは、報告の Document ID と runId、比べた head（報告の head の SHA・現在の head の SHA と基点、取得に使ったコマンドと取得時刻）、照合せずに終えたならその理由（2の追加コミット、3の条件と無い記録のパス）、要求と受け入れ証拠の再照合の結果（4。比べた資料と変化の有無、加えた確認が残る事項。照合しなかったときは「照合せず」）、CI の記録の場所 `parent/ci/<n>/` と `result.json` の sha256・CI 判定（照合しなかったときは「照合せず」）、マージ可否と理由、ラベルの操作（付けた／外した／付けなかった）、この再照合で書いた作業ログの id である。
 
 - この節で親（または実装を進める親・PM）が Issue へ書いた記録の id も、3節のとおり `parent/acceptance/own-logs.md` に記録する。

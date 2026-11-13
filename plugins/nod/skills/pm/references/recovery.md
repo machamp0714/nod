@@ -33,8 +33,8 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 | 工程と管理中の実行 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
-| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した全担当の組（3担当と、起動したときは受け入れ確認担当）、反証原文と受け入れ確認の結果の原文の照合結果、点数、確認が残る事項、同じhead SHAのCI判定と必須のチェックと出典、マージ可否、merge-readyの状態）、元実装者と独立確認担当のidentity、現在の待機Dispatch |
-| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、CI判定の記録（`--kind test`の作業ログ）の参照、PR URL/branch/headとnod提出状態、初回レビューの保存後にPMが書いた記録のidと、親の手順の13節を行う者へ渡したかどうか |
+| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した全担当の組（3担当と、起動したときは受け入れ確認担当）、反証原文と受け入れ確認の結果の原文の照合結果、点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはcheckpointに書かない））、元実装者と独立確認担当のidentity、現在の待機Dispatch |
+| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、CI判定の記録（`[ci-result]`で始まる`--kind test`の作業ログ）の参照、PR URL/branch/headとnod提出状態、初回レビューの保存後にPMが書いた記録のidと、親の手順の13節を行う者へ渡したかどうか |
 | 質問と次の行動 | nod質問ID、元message、選択肢、原文と実回答の出典、未回答と残る停止理由、次に照合する証拠または必要な人の判断 |
 
 ```sh

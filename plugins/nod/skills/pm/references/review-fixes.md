@@ -46,7 +46,7 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、起動した全担当（3担当と、起動したときは受け入れ確認担当）の役割・定義名・担当IDと実装者identity、反証原文（と受け入れ確認の結果の原文）と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、同じhead SHAのCI判定（必須のチェックと出典、記録の場所）、マージ可否、merge-readyの状態、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、起動した全担当（3担当と、起動したときは受け入れ確認担当）の役割・定義名・担当IDと実装者identity、反証原文（と受け入れ確認の結果の原文）と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはここに書かない）、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort、merge-readyを外した記録（付いていたとき） |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
 | 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、確認担当のidentity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
@@ -62,7 +62,7 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 `worker-show --dispatch`で元セッションの実効設定を再取得し、`モデル:effort`を依頼にも記載する。
 不一致、設定不明、再利用非対応なら別の実装者を起動せず人へ戻す。
 既にsettleした元実装者へ新しい修正Taskを渡し、receiptで新Dispatchへの所有権移転を確認してから元Deliveryをackする。
-修正依頼の前に、merge-readyが付いていれば`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（追加コミットで判定が古い）と初回レビューのhead SHAを`--kind test`に記録する（[親の手順](../../code-review/references/parent.md)の13節の2）。
+修正依頼の前に、merge-readyが付いていれば`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（追加コミットで判定が古い）と初回レビューのhead SHAを、本文を`[ci-result]`で始めて`--kind test`に記録する（[親の手順](../../code-review/references/parent.md)の13節の2）。
 修正後のheadにはmerge-readyを付けない。新しいheadのマージ可否には新しいレビューが要る。
 
 ```sh

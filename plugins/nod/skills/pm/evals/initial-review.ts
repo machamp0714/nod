@@ -81,6 +81,8 @@ export type InitialReviewInput = {
   recheck?: EvidenceRecheck;
   /** 10節の8の直前に、同じ head SHA の CI を照合した結果。未実施では照合せず not-run.md だけを書く。 */
   ci: CiInput;
+  /** 10節の8・11節で、head を固定した元（ref・PR）から取り直した対象の現在の head。省略すると固定した head と同じ（追加コミットなし）。違えばマージ可否は不可。 */
+  currentHead?: string;
 };
 /** 実装を進行する親がnodへ書く経路。偽CLIは実nod CLI（--json）、setupはcore APIを渡す。log は書いた記録の id を返す。 */
 export type ReviewRecorder = {
@@ -144,6 +146,8 @@ export function recordOwnLog(workDirectory: string, id: number, what: string) {
   appendFileSync(path, `- ${id}: ${what}\n`);
 }
 const readOwnLogs = (workDirectory: string) => existsSync(ownLogsPath(workDirectory)) ? [...readFileSync(ownLogsPath(workDirectory), "utf8").matchAll(/^- (\d+):/gm)].map(match => Number(match[1])) : [];
+/** 8.1節で CI の結果を除く前の Activity の元の写し（親専用領域）。10節の3と13節の再照合はこれと比べる。 */
+const fixedActivityPath = (workDirectory: string) => join(workDirectory, "parent", "acceptance", "activity.json");
 
 const ciReason = (ci: CiInput) => {
   const names = (result: CiCheck["result"]) => ci.required.filter(check => check.result === result).map(check => check.context).join("、");
@@ -360,9 +364,12 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     writeFileSync(recordPath, body);
     ci = { ...input.ci, verdict: "照合せず（未実施）", reason: "独立レビュー未実施のため照合しなかった", observedAt: new Date().toISOString(), recordPath, sha256: sha256(body) };
   } else ci = writeCi(ciDirectory, input.ci);
+  // 10節の8: CI の照合に続けて、head を固定した元から対象の現在の head を取り直し、固定した head と比べる（未実施では照合しない）。
+  const currentHead = input.currentHead ?? input.headCommit;
+  const headMoved = status !== "未実施" && currentHead !== input.headCommit;
   const tableSatisfied = table.every(row => ["充足", "説明", "対象外"].includes(row.state) || (row.state === "受け入れ確認担当" && judged.some(judgedRow => judgedRow.source === row.source && judgedRow.judgment === "確認済み")));
   // 受け入れ確認担当の行は、受け入れ確認担当が確認済みとしたときだけマージ可否の判定で満たしたことにする。CI 判定は result.json の head が対象版の head と同じで成功のときだけ満たす。
-  const mergeReadiness: MergeReadiness = status === "完了" && score === 5 && remainingChecks.length === 0 && tableSatisfied && ciPassed(ci, input.headCommit)
+  const mergeReadiness: MergeReadiness = status === "完了" && score === 5 && remainingChecks.length === 0 && tableSatisfied && ciPassed(ci, input.headCommit) && !headMoved
     ? "可（人のレビューなしでマージ可）" : "不可（人の判断が要る）";
   const blockers = [
     ...status === "完了" ? [] : [`最終状態 ${status}`],
@@ -370,7 +377,15 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...status === "完了" && !tableSatisfied ? ["対応表に満たしていない行がある"] : [],
     ...remainingChecks.length ? [`確認が残る事項 ${remainingChecks.length} 件`] : [],
     ...ciPassed(ci, input.headCommit) ? [] : [`CI 判定 ${ci.verdict}（${ci.reason}。result.json の head ${ci.headSha === input.headCommit ? "は" : "が"}対象版の head と${ci.headSha === input.headCommit ? "一致" : "不一致"}）`],
+    ...headMoved ? [`対象版が現在の head と違う（追加コミット。固定した head ${input.headCommit}、現在の head ${currentHead}）`] : [],
   ];
+  const headCheck = status === "未実施" ? "照合せず（独立レビュー未実施）" : `固定した head ${input.headCommit}／現在の head ${currentHead}（${headMoved ? "不一致。対象版が現在の head と違う（追加コミット）" : "一致"}）`;
+  if (status !== "未実施") writeFileSync(join(workDirectory, "parent", "head-check.md"), [
+    "# 現在の head の照合（親の手順の10節の8・11節）", "",
+    "- 取り直した元: 評価用の模擬（parent/head-source.md の ref）",
+    `- マージ可否を決める直前: ${headCheck}`,
+    ...mergeReadiness.startsWith("可") ? [`- merge-ready を付ける直前: ${headCheck}`] : [], "",
+  ].join("\n"));
   // ラベルは報告の保存と作業ログの後に操作するが、報告には行う操作を書く。
   const labeled = recorder.show(input.issueId).labels.includes("merge-ready");
   const mergeReady: LabelOperation = mergeReadiness.startsWith("可") ? "付けた" : labeled ? "外した" : "付けていない";
@@ -378,10 +393,13 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const target = `mode: commit／merge-base の SHA ${input.baseCommit}／head の SHA ${input.headCommit}`;
 
   mkdirSync(join(workDirectory, "refute"), { recursive: true });
-  // 受け入れ確認への写しで固定した Activity。13節の再照合で同じ方法で比べる。
+  // 受け入れ確認への写しで固定した Activity。元の写しは親専用領域に残し（10節の3・13節の再照合で比べる）、
+  // 担当への写しからは本文が [ci-result] で始まる作業ログ・コメントを返信ごと除く（8.1節。印だけで決める）。
   if (activity) {
     mkdirSync(join(workDirectory, "acceptance-input", "records"), { recursive: true });
-    writeFileSync(join(workDirectory, "acceptance-input", "records", "activity.json"), JSON.stringify(activity.fixed));
+    mkdirSync(dirname(fixedActivityPath(workDirectory)), { recursive: true });
+    writeFileSync(fixedActivityPath(workDirectory), JSON.stringify(activity.fixed));
+    writeFileSync(join(workDirectory, "acceptance-input", "records", "activity.json"), JSON.stringify(activity.fixed.filter(item => !(item.kind === "comment" && item.body.startsWith("[ci-result]")))));
   }
   for (const id of activity?.ownLogs ?? []) recordOwnLog(workDirectory, id, "写しの後・保存の前に親が書いた記録");
 
@@ -455,13 +473,19 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     `- 確定した要対応の点数: ${score ?? "点数なし"}`,
     `- 点数の計算: ${status === "完了" ? `要対応 ${mustFix.length} 件（${mustFix.map(finding => `${finding.id}: ${finding.impact}`).join("、") || "なし"}）。最も重い影響度で ${score}。` : `${status}のため点数なし。`}点数は確定した要対応の影響度だけを表し、要求の確認率やマージ許可を表さない。`,
     `- 確認が残る事項: ${remainingChecks.length} 件（下の「確認が残る事項」の節）`,
+    "- マージ可否・現在の head の照合・merge-ready: CI の結果を含むので、次の ci-result の印の中だけに書く",
+    "<!-- ci-result:begin -->",
     `- マージ可否: ${mergeReadiness}`,
     ...(mergeReadiness.startsWith("不可") ? [`  - 不可の理由: ${blockers.join("／")}`] : []),
-    `- merge-ready: ${mergeReady}${mergeReady === "付けた" ? "" : `（${mergeReady === "外した" ? "付いていたが、" : ""}マージ可否が不可）`}。報告の保存と作業ログの直後に行う操作。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は判定した head SHA・基点・CI 判定・この報告の Document ID・runId とともに --kind test の作業ログに記録する`,
+    `- 現在の head の照合: ${headCheck}（記録: ${join(workDirectory, "parent", "head-check.md")}）`,
+    `- merge-ready: ${mergeReady}${mergeReady === "付けた" ? "" : `（${mergeReady === "外した" ? "付いていたが、" : ""}マージ可否が不可）`}。報告の保存と作業ログの直後に行う操作。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は判定した head SHA・現在の head の照合・基点・CI 判定・この報告の Document ID・runId とともに、本文が [ci-result] で始まる --kind test の作業ログに記録する`,
+    "<!-- ci-result:end -->",
     `- 対象版: ${target}`, "",
     "### 確認が残る事項", "",
     ...(remainingChecks.length ? ["| 要求の出典 | 確かめる担当 | 理由 |", "|---|---|---|", ...remainingChecks.map(check => `| ${check.source} | ${check.owner} | ${check.reason} |`)] : ["なし"]), "",
     "### CI の結果（親だけが照合）", "",
+    "CI の結果は次の ci-result の印の中だけに書く。", "",
+    "<!-- ci-result:begin -->",
     "親はテストを実行せず、同じ head SHA に対する CI の結果を GitHub から読むだけにした（評価用の模擬。偽 GitHub の観測を scripts/ci-checks.ts の result.json の形で記録した）。CI の結果はレビュー担当へ渡していない。", "",
     ...(ci.verdict === "照合せず（未実施）" ? [`- CI 判定: ${ci.verdict}（${ci.reason}）`, `- 記録: ${ci.recordPath}（sha256 ${ci.sha256}）`] : [
       `- CI 判定: ${ci.verdict}（${ci.reason}）`,
@@ -470,7 +494,8 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       `- head SHA の一致: result.json の head ${ci.headSha} と target.md の head ${input.headCommit} が${ci.headSha === input.headCommit ? "一致" : "不一致"}`,
       `- 観測時刻: ${ci.observedAt}（CI の完了を待たず、この時点の結果で判定した）`,
       `- 記録: ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）`,
-    ]), "",
+    ]),
+    "<!-- ci-result:end -->", "",
     "### 保存直前の受け入れ証拠の再照合", "",
     ...(agents.acceptance && status === "完了" ? [
       "- 取り直した時刻: 評価用の模擬（親が保存の直前に取り直した）",
@@ -493,8 +518,13 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "",
     "### 後続判断", "",
     status === "完了"
-      ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件、CI 判定 ${ci.verdict}。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}${ci.verdict === "未確定" || ci.verdict === "結果なし" ? "CI の完了後に親の手順の13節の CI の再照合で判定し直す。" : ""}`
-      : `独立レビュー${status}。Done・In Review・PR へ進めない。マージ可否は不可（人の判断が要る）。`, "",
+      ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件。マージ可否と CI の結果に触れる部分は、次の ci-result の印の中だけに書く。`
+      : `独立レビュー${status}。Done・In Review・PR へ進めない。マージ可否と CI の結果に触れる部分は、次の ci-result の印の中だけに書く。`, "",
+    "<!-- ci-result:begin -->",
+    status === "完了"
+      ? `CI 判定 ${ci.verdict}。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}${ci.verdict === "未確定" || ci.verdict === "結果なし" ? "CI の完了後に親の手順の13節の CI の再照合で判定し直す。" : ""}`
+      : "マージ可否は不可（人の判断が要る）。",
+    "<!-- ci-result:end -->", "",
     "### 独立性の限界", "",
     "探索と反証と受け入れ確認は別コンテキストで実行し、探索には異なるモデルを設定するが、見落としが共通する可能性は残り、設定だけで各実行の実効モデルの違いを証明するものではない。", "",
     "## 反証担当の判定本文（原文のまま）", "",
@@ -515,16 +545,17 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const attemptSummary = invalidAttempts.length
     ? `無効な試行: ${invalidAttempts.map(attempt => `${roleNames[attempt.role]}の${attempt.attempt}回目 ${attempt.id}（${attempt.result}: ${attempt.reason}。親による再委譲${attempt.redelegation}）`).join("、")}。`
     : "";
-  const ciNote = `CI判定${ci.verdict}（head ${ci.headSha}）`;
+  // CI 判定・マージ可否・merge-ready は要約に書かず、[ci-result] で始まる --kind test の記録だけに書く（3節）。
+  const ciNote = "CI判定・マージ可否・merge-readyは[ci-result]の作業ログを参照";
   const summary = recorder.log(input.issueId, status === "完了"
-    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。${ciNote}。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
-    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。${ciNote}。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
+    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。${ciNote}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
+    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。${ciNote}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
     status === "完了" ? "progress" : "blocker");
   recordOwnLog(workDirectory, summary.id, "初回独立レビューの要約の作業ログ");
   // 11節: 報告の保存と作業ログの後に merge-ready を付ける・外し、操作と根拠を --kind test に1件残す。
   if (mergeReady === "付けた") recorder.label(input.issueId, "add", "merge-ready");
   else if (mergeReady === "外した") recorder.label(input.issueId, "remove", "merge-ready");
-  const mergeReadyLog = recorder.log(input.issueId, mergeReadyRecord({ operation: mergeReady, blockers, head: input.headCommit, base: `${ci.base}（merge-base ${input.baseCommit}）`, ci, mergeReadiness, documentId: document.id, runId }), "test").id;
+  const mergeReadyLog = recorder.log(input.issueId, mergeReadyRecord({ operation: mergeReady, blockers, head: input.headCommit, currentHead: status === "未実施" ? undefined : currentHead, base: `${ci.base}（merge-base ${input.baseCommit}）`, ci, mergeReadiness, documentId: document.id, runId }), "test").id;
   recordOwnLog(workDirectory, mergeReadyLog, "merge-ready の操作の記録（--kind test）");
 
   return {
@@ -547,12 +578,12 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   };
 }
 
-/** merge-ready の操作と判定の根拠の記録（11節・13節の --kind test）。 */
-function mergeReadyRecord(record: { operation: LabelOperation; blockers: string[]; head: string; base: string; ci: CiRecord | null; mergeReadiness: MergeReadiness; documentId: number; runId: string; recheck?: string }) {
+/** merge-ready の操作と判定の根拠の記録（11節・13節の --kind test）。本文は [ci-result] で始める（3節。後のレビューの受け入れ確認への写しから印で除く）。 */
+function mergeReadyRecord(record: { operation: LabelOperation; blockers: string[]; head: string; currentHead?: string; base: string; ci: CiRecord | null; mergeReadiness: MergeReadiness; documentId: number; runId: string; recheck?: string }) {
   const { operation, ci } = record;
   return [
-    `merge-ready: ${operation}${operation === "付けた" ? "" : `（マージ可否が不可: ${record.blockers.join("、")}）`}。`,
-    `判定した head SHA ${record.head}、基点 ${record.base}、${ci ? ciSummary(ci) : "CI は照合せず"}、マージ可否${record.mergeReadiness}、`,
+    `[ci-result] merge-ready: ${operation}${operation === "付けた" ? "" : `（マージ可否が不可: ${record.blockers.join("、")}）`}。`,
+    `判定した head SHA ${record.head}${record.currentHead ? `、現在の head ${record.currentHead}（${record.currentHead === record.head ? "一致" : "不一致"}）` : ""}、基点 ${record.base}、${ci ? ciSummary(ci) : "CI は照合せず"}、マージ可否${record.mergeReadiness}、`,
     `報告Document ${record.documentId}、runId ${record.runId}${record.recheck ? `、${record.recheck}` : ""}、`,
     `CI の記録 ${ci ? `${dirname(ci.recordPath)}/（${ci.recordPath.endsWith("result.json") ? "result.json" : "not-run.md"} の sha256 ${ci.sha256}）` : "なし"}。`,
     "ラベルは現在の判定の表示で、自動マージの指示ではない。",
@@ -571,7 +602,9 @@ export type CiRecheck = {
  */
 export function recheckReviewCi(review: InitialReview, input: { currentHead: string; ci?: CiInput; changed?: Record<string, string | null> }, recorder: ReviewRecorder): CiRecheck {
   const parent = join(review.workDirectory, "parent");
-  const number = Math.max(readdirSync(join(parent, "ci")).length, readdirSync(parent).filter(name => name.startsWith("recheck-")).length) + 1;
+  // 13節の1: 番号は parent/ci/ の番号と parent/recheck-<n>/ の番号のうち最大のものの次（照合せずに終えた再照合は ci/<n> を作らないので、件数では数えない）。
+  const numbers = [...readdirSync(join(parent, "ci")), ...readdirSync(parent).filter(name => name.startsWith("recheck-")).map(name => name.slice("recheck-".length))].map(Number).filter(Number.isInteger);
+  const number = Math.max(0, ...numbers) + 1;
   const directory = join(parent, `recheck-${number}`);
   mkdirSync(directory, { recursive: true });
   const issue = recorder.show(review.issueId);
@@ -584,7 +617,7 @@ export function recheckReviewCi(review: InitialReview, input: { currentHead: str
   if (stale) reason = `判定が古い（追加コミット）。報告の head ${review.headCommit} と現在の head ${input.currentHead} が違うので照合しない。新しい head には新しいレビューが要る`;
   else if (blocked) reason = `照合し直しても可にならない（最終状態 ${review.status}、確定した要対応の点数 ${review.score ?? "点数なし"}、報告の確認が残る事項 ${review.remainingChecks.length} 件）`;
   else {
-    const fixedPath = join(review.workDirectory, "acceptance-input", "records", "activity.json");
+    const fixedPath = fixedActivityPath(review.workDirectory);
     const activity = existsSync(fixedPath) ? { fixed: JSON.parse(readFileSync(fixedPath, "utf8")) as ActivityItem[], current: issue.activity, ownLogs: readOwnLogs(review.workDirectory) } : undefined;
     added = evidenceChecks(review.usedEvidence, input.changed ?? {}, activity, `CI の再照合 ${number} の取り直し`).checks;
     if (!input.ci) throw new Error("同じ head の再照合には CI の観測が要る");
@@ -634,6 +667,6 @@ export function checkSubmissionCi(review: InitialReview, input: { head: string; 
   if (recorder.show(review.issueId).labels.includes("merge-ready")) recheckReviewCi(review, { currentHead: input.head }, recorder);
   const parent = dirname(review.workDirectory);
   const ci = writeCi(join(parent, `ci-${input.head.slice(0, 12)}-${readdirSync(parent).filter(name => name.startsWith(`ci-${input.head.slice(0, 12)}`)).length + 1}`), input.ci);
-  recorder.log(review.issueId, `PR の head ${input.head} の CI 判定（初回レビューの対象版 ${review.headCommit} と違うので13節の再照合はしない）: ${ciSummary(ci)}。基点 ${ci.base}。CI の記録 ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）。修正後の head には merge-ready を付けない（新しい head のマージ可否には新しいレビューが要る）。`, "test");
+  recorder.log(review.issueId, `[ci-result] PR の head ${input.head} の CI 判定（初回レビューの対象版 ${review.headCommit} と違うので13節の再照合はしない）: ${ciSummary(ci)}。基点 ${ci.base}。CI の記録 ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）。修正後の head には merge-ready を付けない（新しい head のマージ可否には新しいレビューが要る）。`, "test");
   return { headSha: input.head, verdict: ci.verdict, ready: true };
 }

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { startIssue } from "../../core/src";
+import { nodCliRecorder, recordInitialReview, simulatedCi } from "../../../plugins/nod/skills/pm/evals/initial-review";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
 
@@ -48,16 +49,25 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   expect(ci).toMatchObject({ ok: true, verdict: "成功", base: "main", head: "a".repeat(40), required: [{ context: "test", sources: ["workspace-rules"], result: "成功" }] });
   expect(createHash("sha256").update(readFileSync(report.review.ci.recordPath)).digest("hex")).toBe(report.review.ci.sha256);
   for (const line of ["### CI の結果（親だけが照合）", "\n- CI 判定: 成功", `\n- head SHA の一致: result.json の head ${"a".repeat(40)} と target.md の head ${"a".repeat(40)} が一致`, "\n- merge-ready: 付けた", "\n- マージ可否: 可（人のレビューなしでマージ可）"]) expect(document.content).toContain(line);
+  // CI の結果は報告の ci-result の印の中だけにあり、印の外には CI 判定・マージ可否・merge-ready が無い（後のレビューの受け入れ確認への写しで印だけで除ける）。
+  const outside = document.content.replace(/<!-- ci-result:begin -->\n[\s\S]*?<!-- ci-result:end -->/g, "");
+  for (const part of ["CI 判定", "- マージ可否:", "- merge-ready:", "test=成功"]) expect(outside).not.toContain(part);
+  expect(between(document.content, "ci-result")).toContain("- マージ可否: 可（人のレビューなしでマージ可）");
+  expect(document.content).toMatch(/### CI の結果（親だけが照合）\n\nCI の結果は次の ci-result の印の中だけに書く。\n\n<!-- ci-result:begin -->\n[^<]*- CI 判定: 成功[^<]*<!-- ci-result:end -->/);
   const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
   expect(issue.exitCode).toBe(0);
   const shownIssue = JSON.parse(issue.stdout.toString());
   expect(shownIssue).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
-  expect((shownIssue.activity as { logKind?: string | null; body?: string }[]).filter(item => item.logKind === "progress" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`) && item.body.includes(`CI判定成功（head ${"a".repeat(40)}）`))).toHaveLength(1);
+  // 要約の作業ログ（--kind progress）には CI 判定・マージ可否を書かず、[ci-result] で始まる記録を参照する。
+  const progressLogs = (shownIssue.activity as { logKind?: string | null; body?: string }[]).filter(item => item.logKind === "progress" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`));
+  expect(progressLogs).toHaveLength(1);
+  expect(progressLogs[0]!.body).toContain("CI判定・マージ可否・merge-readyは[ci-result]の作業ログを参照");
+  for (const part of ["CI判定成功", "CI 判定", "マージ可否可"]) expect(progressLogs[0]!.body).not.toContain(part);
   // マージ可なので、報告の保存と作業ログの後に実nodのIssueへmerge-readyが付き、判定したhead SHA・CI判定・報告Document IDを --kind test に1件残す。
   expect(shownIssue.labels).toContain("merge-ready");
-  const mergeReadyLogs = (shownIssue.activity as { id: number; logKind?: string | null; body?: string }[]).filter(item => item.logKind === "test" && item.body?.startsWith("merge-ready: 付けた"));
+  const mergeReadyLogs = (shownIssue.activity as { id: number; logKind?: string | null; body?: string }[]).filter(item => item.logKind === "test" && item.body?.startsWith("[ci-result] merge-ready: 付けた"));
   expect(mergeReadyLogs.map(item => item.id)).toEqual([report.review.mergeReadyLog]);
-  for (const part of [`判定した head SHA ${"a".repeat(40)}`, "基点 main", "CI 判定 成功", "test=成功（出典 workspace-rules", `報告Document ${report.review.reportDocument.id}`, `runId ${report.review.runId}`, `${report.review.workDirectory}/parent/ci/1/`]) expect(mergeReadyLogs[0]!.body).toContain(part);
+  for (const part of [`判定した head SHA ${"a".repeat(40)}、現在の head ${"a".repeat(40)}（一致）`, "基点 main", "CI 判定 成功", "test=成功（出典 workspace-rules", `報告Document ${report.review.reportDocument.id}`, `runId ${report.review.runId}`, `${report.review.workDirectory}/parent/ci/1/`]) expect(mergeReadyLogs[0]!.body).toContain(part);
   // 保存の後に親が書いた記録の id は own-logs.md に残る。
   expect(readFileSync(`${report.review.workDirectory}/parent/acceptance/own-logs.md`, "utf8")).toContain(`- ${report.review.mergeReadyLog}:`);
   const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
@@ -70,6 +80,30 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
     { argv: ["git", "rev-parse", "HEAD"], exitCode: 0, stdout: `${"a".repeat(40)}\n` },
     { argv: ["git", "show", "--no-patch", "a".repeat(40)], exitCode: 0 },
   ] });
+});
+
+test("初回レビューの保存時に対象の現在のheadが固定したheadと違えば、CI判定成功でもマージ不可でmerge-readyを付けない", async () => {
+  const scenario = await createTask2Scenario();
+  const nod = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode, result.stdout.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  // head a を固定してレビューした間に、別の作業者が c を追加した。a については完了・5点・確認が残る事項0件・CI判定成功がそろう。
+  const review = recordInitialReview({
+    dir: scenario.dir, issueId: "API-1", implementer: "term-implementation", baseCommit: "b".repeat(40), headCommit: "a".repeat(40), currentHead: "c".repeat(40),
+    standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" }, ci: simulatedCi("a".repeat(40)),
+  }, nodCliRecorder(nod));
+  expect(review).toMatchObject({ status: "完了", score: 5, remainingChecks: [], ci: { headSha: "a".repeat(40), verdict: "成功" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
+  const issue = nod("issue", "show", "API-1") as { labels: string[]; activity: { id?: number; body?: string }[] };
+  expect(issue.labels).not.toContain("merge-ready");
+  const record = issue.activity.find(item => item.id === review.mergeReadyLog)!;
+  expect(record.body).toStartWith(`[ci-result] merge-ready: 付けていない（マージ可否が不可: 対象版が現在の head と違う（追加コミット。固定した head ${"a".repeat(40)}、現在の head ${"c".repeat(40)}）`);
+  expect(record.body).toContain(`現在の head ${"c".repeat(40)}（不一致）`);
+  // 比べた結果は親専用領域と報告の ci-result の印の中に残る。
+  expect(readFileSync(`${review.workDirectory}/parent/head-check.md`, "utf8")).toContain(`- マージ可否を決める直前: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致。対象版が現在の head と違う（追加コミット））`);
+  const document = nod("doc", "show", String(review.reportDocument.id)) as { content: string };
+  expect(between(document.content, "ci-result")).toContain(`- 現在の head の照合: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致`);
 });
 
 for (const variant of ["normal", "existing-pr", "acceptance-confirmed"] as const) {
@@ -205,7 +239,7 @@ for (const variant of ["acceptance-ci-recheck", "acceptance-ci-recheck-unrecorde
       expect(ownLogs).toContain(`- ${prLog.id}: PR作業の記録`);
       expect(submitted.ci).toMatchObject({ verdict: "成功", ready: true, recheck: { remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" } });
       expect(after).toMatchObject({ status: "in_review", labels: expect.arrayContaining(["merge-ready"]) });
-      expect(recheckLogs[0]!.body).toStartWith("merge-ready: 付けた");
+      expect(recheckLogs[0]!.body).toStartWith("[ci-result] merge-ready: 付けた");
       for (const line of ["- merge-ready: 付けた", "- マージ可否: 可（人のレビューなしでマージ可）", "受け入れ証拠は確認が残る事項を 0 件加えた"]) expect(record).toContain(line);
     } else {
       // id を記録しなかったPRの記録は、実装担当（親と同じ actor）が書いたものでも親以外の追記になり、判定に使った証拠を使った2行に確認が残る事項が付く。
@@ -219,7 +253,7 @@ for (const variant of ["acceptance-ci-recheck", "acceptance-ci-recheck-unrecorde
       ]);
       expect(after.status).toBe("in_progress");
       expect(after.labels).not.toContain("merge-ready");
-      expect(recheckLogs[0]!.body).toStartWith("merge-ready: 外した");
+      expect(recheckLogs[0]!.body).toStartWith("[ci-result] merge-ready: 外した");
       for (const line of ["- merge-ready: 外した", "- マージ可否: 不可（人の判断が要る）", "受け入れ証拠は確認が残る事項を 2 件加えた"]) expect(record).toContain(line);
     }
     // 報告Documentは書き換えない。
@@ -259,7 +293,7 @@ for (const variant of ["ci-failure", "ci-pending", "ci-no-required"] as const) {
     expect(after.labels).not.toContain("merge-ready");
     const recheckLogs = after.activity.filter(item => item.logKind === "test" && item.body?.includes("CI の再照合 2"));
     expect(recheckLogs.map(item => item.id)).toEqual([submitted.ci.recheck.log]);
-    expect(recheckLogs[0]!.body).toStartWith(`merge-ready: 付けていない（マージ可否が不可: CI 判定 ${verdict}`);
+    expect(recheckLogs[0]!.body).toStartWith(`[ci-result] merge-ready: 付けていない（マージ可否が不可: CI 判定 ${verdict}`);
     // 報告Documentは書き換えない。
     expect(JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString()).content).toBe(document.content);
     orca("worker-release", "--dispatch", submission.dispatch.id);
@@ -388,8 +422,9 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       expect(document.content).toContain(`  - 不可の理由: CI 判定 ${verdict}`);
       // ラベルは付かず、付けなかったことと理由・判定したheadを --kind test に残す。
       expect(issue().labels).not.toContain("merge-ready");
-      expect(logs("test").filter(item => item.body?.startsWith(`merge-ready: 付けていない（マージ可否が不可: CI 判定 ${verdict}`) && item.body.includes(`判定した head SHA ${report.commit}`))).toHaveLength(1);
-      expect(logs("progress").filter(item => item.body?.includes(`CI判定${verdict}`))).toHaveLength(1);
+      expect(logs("test").filter(item => item.body?.startsWith(`[ci-result] merge-ready: 付けていない（マージ可否が不可: CI 判定 ${verdict}`) && item.body.includes(`判定した head SHA ${report.commit}`))).toHaveLength(1);
+      // 要約の作業ログには CI 判定を書かず、[ci-result] の記録を参照する。
+      expect(logs("progress").filter(item => item.body?.includes("CI判定・マージ可否・merge-readyは[ci-result]の作業ログを参照") && !item.body.includes(`CI判定${verdict}`))).toHaveLength(1);
       // CI判定が成功でないことだけでは止めないので、blockerは記録されない。
       expect(logs("blocker")).toHaveLength(0);
     } else if (variant === "remaining-checks") {
