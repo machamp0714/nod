@@ -376,30 +376,46 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     expect(read(join(s.t, "work/sha/parent/head-source.md"))).toContain("ref なし");
   });
 
-  test("評価用の事例: nod を使わずに case.md と requirements/ から入力を作り、sha256 を事例の manifest.md と照合する", async () => {
+  test("評価用の事例: nod を使わずに case.md の先頭の項目と要求の写しの節と requirements/ から入力を作り、sha256 を事例の manifest.md と照合する", async () => {
     const s = sandbox();
     const repo = makeGitRepo(s);
-    const base = gitOut(repo, "rev-parse", "HEAD");
+    const mergeBase = gitOut(repo, "rev-parse", "HEAD");
+    // 基点の指定は head の祖先ではなく、merge-base は別の commit
+    const base = commit(repo, { "base.txt": "base\n" });
+    git(repo, "checkout", "-q", "-b", "topic", mergeBase);
     const head = commit(repo, { "src/a.ts": "a\n" });
     // nod を呼べば記録が残る偽の NOD_CLI
     const nodLog = join(s.t, "nod.log");
     put(join(s.bin, "fake-nod"), `#!/bin/sh\necho "$*" >> "${nodLog}"\nexit 1\n`);
     Bun.spawnSync(["chmod", "+x", join(s.bin, "fake-nod")]);
     const dir = join(s.t, "dataset/inputs/case-1");
+    const pastEval = "notebooklm-review-agent-20261025";
     const caseMd = [
       "# 対象",
       "",
       "- 対象リポジトリ: `/old/place/app`",
       `- 基点の指定: \`${base}\``,
-      `- merge-base: \`${base}\``,
+      `- merge-base: \`${mergeBase}\``,
       `- head: \`${head}\``,
       "- mode: `commit`",
       "- Issue: NOD-1",
       "- 計画の出典: なし",
       "",
+      "## commit の読み取り確認",
+      "",
+      "- 取得時の記録にあるリポジトリ `/old/place/app`: 読めない",
+      `- 同じ GitHub リポジトリの \`${repo}\`: 読める`,
+      "",
       "## 要求の写し",
       "",
-      "当時の写し。",
+      "| ファイル | 内容 |",
+      "|---|---|",
+      "| `requirements/issue.md` | 当時の Issue |",
+      "| `requirements/workspace-rules.md` | `nod -w /old/place/app workspace rules show` の出力 |",
+      "",
+      "## 当時の要求の出典と復元の限界",
+      "",
+      `- 過去の評価資料 \`${pastEval}/report.md\` で確かめた。`,
       "",
     ].join("\n");
     const files: Record<string, string> = { "case.md": caseMd, "requirements/issue.md": "# 当時の Issue\n", "requirements/workspace-rules.md": "作業規約は登録されていません\n" };
@@ -410,13 +426,41 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
 
     const r = await prepare(["--work", W, "--case", dir, "--repo", repo], s, { NOD_CLI: join(s.bin, "fake-nod") });
     expect(r.stderr).toBe("");
-    expect(r.json).toMatchObject({ ready: true, status: "準備完了", mergeBase: base, head, case: "case-1" });
+    expect(r.json).toMatchObject({ ready: true, status: "準備完了", base, mergeBase, head, case: "case-1" });
     expect(existsSync(nodLog)).toBe(false);
-    expect(read(join(W, "input/target.md"))).toBe(caseMd.replace("- 対象リポジトリ: `/old/place/app`", `- 対象リポジトリ: \`${join(W, "repo")}\`\n- 依存の写し: 依存の写しなし（理由は manifest.md）`));
+    // 先頭の項目（対象リポジトリは限定 clone、基点の指定は merge-base）と「要求の写し」の節だけ。依存の写しの場所の行を足す
+    expect(read(join(W, "input/target.md"))).toBe(
+      [
+        "# 対象",
+        "",
+        `- 対象リポジトリ: \`${join(W, "repo")}\``,
+        "- 依存の写し: 依存の写しなし（理由は manifest.md）",
+        `- 基点の指定: \`${mergeBase}\``,
+        `- merge-base: \`${mergeBase}\``,
+        `- head: \`${head}\``,
+        "- mode: `commit`",
+        "- Issue: NOD-1",
+        "- 計画の出典: なし",
+        "",
+        "## 要求の写し",
+        "",
+        "| ファイル | 内容 |",
+        "|---|---|",
+        "| `requirements/issue.md` | 当時の Issue |",
+        "| `requirements/workspace-rules.md` | `nod -w <対象リポジトリ> workspace rules show` の出力 |",
+        "",
+      ].join("\n"),
+    );
+    // 元のリポジトリのパス（case.md の対象リポジトリと --repo）・過去の評価資料・元の基点の指定は担当へ渡す入力に無い
+    for (const leak of ["/old/place/app", repo, pastEval, base]) expect(anyFileContains(join(W, "input"), leak)).toEqual([]);
+    // 置き換えた元の基点の指定と写さなかった節の見出しは親専用の記録に残る
+    const record = JSON.parse(read(join(W, "parent/prepare.json")));
+    expect(record.caseTarget).toEqual({ base, droppedSections: ["commit の読み取り確認", "当時の要求の出典と復元の限界"] });
+    expect(read(join(W, "input/manifest.md"))).toMatch(/\| `target\.md` \| `[0-9a-f]{64}` \| inputs\/case-1\/case\.md の先頭の項目と「要求の写し」の節だけを写し[^|]*merge-base/);
     expect(filesUnder(join(W, "input/requirements"))).toEqual(["issue.md", "workspace-rules.md"]);
     expect(read(join(W, "input/requirements/issue.md"))).toBe(files["requirements/issue.md"] ?? "");
     expect(read(join(W, "input/manifest.md"))).toContain("計画: 空のため写していない。");
-    expectBoundedClone(join(W, "repo"), head, base, repo);
+    expectBoundedClone(join(W, "repo"), head, mergeBase, repo);
 
     // 事例の資料が manifest.md と食い違えば、入力を固定できず未実施
     put(join(dir, "requirements/issue.md"), "# 書き換えた Issue\n");

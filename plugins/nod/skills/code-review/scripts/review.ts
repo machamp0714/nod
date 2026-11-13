@@ -630,10 +630,13 @@ function requestRequirements(dir: string, repo: string, requests: { key: string;
 interface Case {
   dir: string;
   id: string;
-  text: string;
   repo: string;
   base: string;
   head: string;
+  // target.md に写す部分: 最初の「## 」見出しより前の先頭の項目と「## 要求の写し」の節（無ければ空）。ほかの節は元のパスや過去の評価資料を含み得るので写さない
+  lead: string;
+  requirementsSection: string;
+  droppedSections: string[];
   // 事例の manifest.md の表（ファイルの相対パスごとの sha256）
   hashes: Map<string, string>;
   unavailable: string[];
@@ -644,18 +647,22 @@ function readCase(dir: string): Case {
   const manifestFile = join(dir, "manifest.md");
   if (!existsSync(caseFile) || !existsSync(manifestFile)) throw new UsageError(`--case に case.md と manifest.md がありません: ${dir}`);
   const text = readFileSync(caseFile, "utf8");
-  const field = (name: string) => new RegExp(`^- ${name}: \`([^\`]+)\``, "m").exec(text)?.[1];
+  const [lead = "", ...rest] = text.split(/^(?=## )/m);
+  const field = (name: string) => new RegExp(`^- ${name}: \`([^\`]+)\``, "m").exec(lead)?.[1];
   const repo = field("対象リポジトリ");
   const base = field("基点の指定");
   const head = field("head");
   const mode = field("mode");
-  if (!repo || !base || !head || mode !== "commit") throw new UsageError(`case.md から対象リポジトリ・基点の指定・head・mode: commit を読めません: ${caseFile}`);
+  if (!repo || !base || !head || mode !== "commit") throw new UsageError(`case.md の先頭の項目から対象リポジトリ・基点の指定・head・mode: commit を読めません: ${caseFile}`);
+  const sections = rest.map((body) => ({ name: (/^## (.*)$/m.exec(body)?.[1] ?? "").trim(), body }));
+  const requirementsSection = sections.find((s) => s.name === "要求の写し")?.body ?? "";
+  const droppedSections = sections.filter((s) => s.name !== "要求の写し").map((s) => s.name);
   const manifest = readFileSync(manifestFile, "utf8");
   const hashes = new Map<string, string>();
   for (const m of manifest.matchAll(/^\|\s*`([^`]+)`\s*\|\s*`([0-9a-f]{64})`/gm)) hashes.set(m[1] ?? "", m[2] ?? "");
   const section = /^## 取得できなかった資料と理由\s*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(manifest)?.[1] ?? "";
   const unavailable = section.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2));
-  return { dir, id: basename(dir), text, repo, base, head, hashes, unavailable };
+  return { dir, id: basename(dir), repo, base, head, lead, requirementsSection, droppedSections, hashes, unavailable };
 }
 
 // 事例の requirements/（と standards/ の中身）を dir（prepare は input/requirements/）へ写し、写した sha256 を事例の manifest.md と比べる。食い違いを返す
@@ -767,6 +774,8 @@ function prepare(args: string[]): Outcome {
     case: kase ? kase.id : null,
     // 事例の入力（inputs/<case-id>/）の絶対パス。受け入れ確認への写し（acceptance-input）が、事例の入力に固定した証拠をここから写す
     caseDir: kase ? kase.dir : null,
+    // 評価用の事例で target.md に写さなかったもの（親専用）: merge-base に置き換えた元の基点の指定と、写さなかった case.md の節の見出し
+    caseTarget: kase ? { base: kase.base, droppedSections: kase.droppedSections } : null,
     untracked,
     // 利用者が明示した要求（Issue の無い単独レビュー）。保存直前の再照合で同じ方法で取り直す
     requests,
@@ -854,7 +863,13 @@ function prepare(args: string[]): Outcome {
   const depsLine = deps.prepared ? `\`${join(work, "deps")}/\`` : "依存の写しなし（理由は manifest.md）";
   let target: string;
   if (kase) {
-    target = kase.text.replace(/^- 対象リポジトリ: `[^`]+`.*$/m, `- 対象リポジトリ: \`${clone}\`\n- 依存の写し: ${depsLine}`);
+    // case.md の先頭の項目と「要求の写し」の節だけ。元のリポジトリのパス（case.md の対象リポジトリと --repo）は担当へ渡す入力に入れない
+    const kept = `${kase.lead.trimEnd()}\n${kase.requirementsSection ? `\n${kase.requirementsSection.trimEnd()}\n` : ""}`;
+    target = [kase.repo, repo, realpathSync(repo)]
+      .sort((a, b) => b.length - a.length)
+      .reduce((text, path) => text.replaceAll(path, "<対象リポジトリ>"), kept)
+      .replace(/^- 対象リポジトリ: .*$/m, () => `- 対象リポジトリ: \`${clone}\`\n- 依存の写し: ${depsLine}`)
+      .replace(/^- 基点の指定: .*$/m, `- 基点の指定: \`${mergeBase}\``);
   } else {
     const lines = [
       "# 対象",
@@ -878,7 +893,12 @@ function prepare(args: string[]): Outcome {
 
   // manifest.md（input/ の各ファイルの sha256 と出典、取得できなかった資料、依存の写し）
   const sources = new Map<string, string>([
-    ["target.md", kase ? `inputs/${kase.id}/case.md を写し、対象リポジトリの行を限定 clone に置き換え、依存の写しの行を足した（${now()}）` : `review.ts prepare が作成（${now()}）`],
+    [
+      "target.md",
+      kase
+        ? `inputs/${kase.id}/case.md の先頭の項目と「要求の写し」の節だけを写し、対象リポジトリの行を限定 clone に、基点の指定の行を merge-base に、元のリポジトリのパスを <対象リポジトリ> に置き換え、依存の写しの行を足した。ほかの節は写していない（元の基点の指定と写さなかった節の見出しは親専用の記録）（${now()}）`
+        : `review.ts prepare が作成（${now()}）`,
+    ],
     ["deps-files.sha256", "依存の写しの指紋の一覧（ファイルごとの sha256 とリンク先）"],
     ["local/changes.diff", `git diff --binary --no-ext-diff --no-textconv HEAD（土台の HEAD ${head}）`],
     ...req.sources,
