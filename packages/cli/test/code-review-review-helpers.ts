@@ -38,9 +38,14 @@ export function sandbox(): Sandbox {
 
 // review.ts <subcommand> ... を起動する。CLAUDECODE などの外の環境に左右されないよう、テストの env で上書きする
 export async function runReview<T>(sub: string, args: string[], s: Sandbox, extraEnv: Record<string, string> = {}): Promise<ReviewRun<T>> {
+  return runReviewScript<T>(REVIEW_SCRIPT, sub, args, s, extraEnv);
+}
+
+// 別の場所に写した review.ts（同じディレクトリの ci-checks.ts などを差し替えたもの）を起動する
+export async function runReviewScript<T>(script: string, sub: string, args: string[], s: Sandbox, extraEnv: Record<string, string> = {}): Promise<ReviewRun<T>> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDECODE: undefined, NOD_ACTOR: undefined, ...s.env, ...extraEnv };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-  const proc = Bun.spawn([process.execPath, REVIEW_SCRIPT, sub, ...args], { cwd: s.t, env, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([process.execPath, script, sub, ...args], { cwd: s.t, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   let json: T | undefined;
   try {
@@ -245,16 +250,19 @@ export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts
 
 // 雛形（assets/refute-verdict.md）どおりの反証の判定本文。既定は exploreHandoff の既定の両引き渡しに対して check-refute に通る形で、
 // 複合要求 requirements/issue.md:L3 をコードの部分と受け入れ確認担当の行（記録の部分）に分け、未確認の行 requirements/issue.md:L2 を足す。
-// acceptance: false なら受け入れ確認担当の行を作らない。canon は受け入れ確認担当の行の「必要な外部の正本」の欄
+// acceptance: false なら受け入れ確認担当の行を作らない。canon は受け入れ確認担当の行の「必要な外部の正本」の欄。
+// clean: true なら要対応0件（STD-1 は棄却、反証で追加した発見なし）で、未確認は受け入れ確認担当の行で確かめる SPC-1 だけにする（受け入れ確認の行が必要）
 export interface VerdictOptions {
   acceptance?: boolean;
   canon?: string;
+  clean?: boolean;
 }
 
 export const ACCEPTANCE_ROW = "`requirements/issue.md:L3`（記録の部分）";
 
 export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): string {
   const withRow = opts.acceptance ?? true;
+  const clean = (opts.clean ?? false) && withRow;
   const table = withRow
     ? [
         "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
@@ -262,7 +270,7 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
         `| ${ACCEPTANCE_ROW} | 受け入れ確認担当 | 失敗の記録は作業記録で確かめる | SPC-1 |`,
         "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
         "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
-        "| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |",
+        ...(clean ? [] : ["| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |"]),
       ]
     : [
         "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
@@ -272,14 +280,34 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
         "| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |",
       ];
   const split = withRow
-    ? ["| `requirements/issue.md:L3`（コードの部分） | `requirements/issue.md:L3` |", `| ${ACCEPTANCE_ROW} | \`requirements/issue.md:L3\` |`, "| `requirements/issue.md:L2` | なし（追加） |"]
+    ? ["| `requirements/issue.md:L3`（コードの部分） | `requirements/issue.md:L3` |", `| ${ACCEPTANCE_ROW} | \`requirements/issue.md:L3\` |`, ...(clean ? [] : ["| `requirements/issue.md:L2` | なし（追加） |"])]
     : ["| `requirements/issue.md:L2` | なし（追加） |"];
   const unconfirmed = withRow
-    ? ["| SPC-1 | Spec | 候補 | 受け入れ確認担当の行で確かめる | 受け入れ確認担当 | 失敗の作業記録 |", "| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |"]
+    ? ["| SPC-1 | Spec | 候補 | 受け入れ確認担当の行で確かめる | 受け入れ確認担当 | 失敗の作業記録 |", ...(clean ? [] : ["| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |"])]
     : [
         "| SPC-1 | Spec | 候補 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
         "| `requirements/issue.md:L3` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
         "| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
+      ];
+  const required = clean
+    ? ["なし", "", "反証で追加した発見なし", ""]
+    : [
+        "### CAUSE-1: 集計が誤る",
+        "",
+        "- 候補 ID と発見者の区分: `STD-1`（Standards 探索）、`REF-1`（反証で追加）",
+        "- 影響度: 2",
+        "- 軸: Standards",
+        "- 起点: 今回の差分",
+        "- 契約の出典: `src/a.ts@HEAD:L1`",
+        "- 関連する要求・契約: なし",
+        "- 場所: `src/a.ts@HEAD:L1`",
+        "- 到達条件: a() を呼ぶ",
+        "- 期待動作: 1 を返す",
+        "- 破綻: 呼出元が 1 以外を受け取る",
+        "- 影響: 集計が誤る",
+        "- 証拠: `src/a.ts@HEAD:L1`",
+        "- 反証の判定理由: 固定版で確かめた",
+        "",
       ];
   return [
     "# 反証の判定",
@@ -297,27 +325,12 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
     "",
     "## 軸ごとの結果",
     "",
-    "- Standards: 要対応 1 件、未確認 0 件",
+    `- Standards: 要対応 ${clean ? 0 : 1} 件、未確認 0 件`,
     `- Spec: 要対応 0 件、未確認 ${unconfirmed.length} 件`,
     "",
     "## 要対応（影響度の重い順）",
     "",
-    "### CAUSE-1: 集計が誤る",
-    "",
-    "- 候補 ID と発見者の区分: `STD-1`（Standards 探索）、`REF-1`（反証で追加）",
-    "- 影響度: 2",
-    "- 軸: Standards",
-    "- 起点: 今回の差分",
-    "- 契約の出典: `src/a.ts@HEAD:L1`",
-    "- 関連する要求・契約: なし",
-    "- 場所: `src/a.ts@HEAD:L1`",
-    "- 到達条件: a() を呼ぶ",
-    "- 期待動作: 1 を返す",
-    "- 破綻: 呼出元が 1 以外を受け取る",
-    "- 影響: 集計が誤る",
-    "- 証拠: `src/a.ts@HEAD:L1`",
-    "- 反証の判定理由: 固定版で確かめた",
-    "",
+    ...required,
     "## 基点から存在する課題（別枠）",
     "",
     "なし",
@@ -354,9 +367,9 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
     "",
     "| 候補 ID | 発見者の区分 | 判定 | 影響度 | 同一原因 | 根拠 |",
     "|---|---|---|---|---|---|",
-    "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
+    clean ? "| STD-1 | Standards 探索 | 棄却 | なし | なし | 固定版で到達しない |" : "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
     `| SPC-1 | Spec 探索 | 未確認 | なし | なし | ${withRow ? "受け入れ確認担当の行で確かめる" : "要実行確認"} |`,
-    "| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |",
+    ...(clean ? [] : ["| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |"]),
     "",
   ].join("\n");
 }

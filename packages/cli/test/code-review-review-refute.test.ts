@@ -51,7 +51,7 @@ interface Structure {
   sha256: string;
   axes: Record<string, { required: number; unconfirmed: number }>;
   decisions: { id: string; finder: string; verdict: string; impact: number | null; cause: string | null; reason: string }[];
-  required: { heading: string; title: string; ids: string[]; impact: number | null; axis: string | null }[];
+  required: { heading: string; title: string; ids: string[]; impact: number | null; axis: string | null; location: string; effect: string }[];
   table: { source: string; status: string; evidence: string; candidates: string[]; splitFrom: string | null; added: boolean }[];
   unconfirmed: { ref: string; axis: string; kind: string; reason: string; owner: string; missing: string }[];
   acceptanceRows: { source: string; artifacts: string; work: string; canon: string; candidates: string[] }[];
@@ -204,7 +204,7 @@ describe("code-review の反証の検査と受け入れ確認への入力（revi
       ["SPC-1", "Spec 探索", "未確認", null, null],
       ["REF-1", "反証で追加", "要対応", 2, "CAUSE-1"],
     ]);
-    expect(st.required).toEqual([{ heading: "CAUSE-1", title: "集計が誤る", ids: ["STD-1", "REF-1"], impact: 2, axis: "Standards" }]);
+    expect(st.required).toEqual([{ heading: "CAUSE-1", title: "集計が誤る", ids: ["STD-1", "REF-1"], impact: 2, axis: "Standards", location: "src/a.ts@HEAD:L1", effect: "集計が誤る" }]);
     expect(st.table.map((t) => [t.source, t.status, t.candidates, t.splitFrom, t.added])).toEqual([
       ["requirements/issue.md:L1", "説明", [], null, false],
       ["requirements/issue.md:L3（コードの部分）", "充足", [], "requirements/issue.md:L3", false],
