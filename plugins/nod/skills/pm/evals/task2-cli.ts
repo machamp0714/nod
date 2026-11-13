@@ -1,5 +1,5 @@
 import { installWorkerStartFixture } from "./worker-fixture";
-import { type CiVerdict, type InitialReview, type SubmissionCi, checkSubmissionCi, nodCliRecorder, recordInitialReview, recordOwnLog, simulatedCi } from "./initial-review";
+import { type CiVerdict, type InitialReview, type SubmissionCi, checkSubmissionCi, nodCliRecorder, recordInitialReview, simulatedCi } from "./initial-review";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -32,13 +32,6 @@ export function runTask2Cli(tool: string, argv: string[]) {
   const nod = (...args: string[]) => {
     const result = Bun.spawnSync([join(process.env.PM_EVAL_DIR!, "bin/nod"), "-w", "API", ...args, "--json"], { env: { ...process.env, PM_EVAL_ORIGIN: "worker" } });
     if (result.exitCode !== 0) fail("WORKER_NOD_FAILED", result.stderr.toString());
-    return JSON.parse(result.stdout.toString());
-  };
-  // 実装者・レビューの親以外の書き手（人）としてnodへ書く。評価者の操作として記録する。
-  const human = (...args: string[]) => {
-    appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "nod", argv: args, actor: "me", origin: "evaluator", at: new Date().toISOString() }) + "\n");
-    const result = Bun.spawnSync([process.env.PM_EVAL_BUN!, "--no-env-file", process.env.PM_EVAL_NOD_MAIN!, "-w", "API", ...args, "--json"], { env: { ...process.env, NOD_ACTOR: "me", NOD_ORCA: "0" } });
-    if (result.exitCode !== 0) fail("HUMAN_NOD_FAILED", result.stdout.toString() + result.stderr.toString());
     return JSON.parse(result.stdout.toString());
   };
   const recordWorkerOperation = (name: string, args: string[]) => appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: name, argv: args, actor: "codex", origin: "worker", at: new Date().toISOString() }) + "\n");
@@ -134,64 +127,30 @@ export function runTask2Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-            // nod:implementの親が3担当（反証が受け入れ確認担当の行を作ったときは受け入れ確認担当も）へ委譲し、同じheadのCIの結果を照合して報告Documentへ残した状態を再現する。
+            // nod:implementの親が3担当（Standards探索・Spec探索・反証）へ委譲し、同じheadのCIの結果を照合して報告Documentへ残した状態を再現する。
             // ci-failure・ci-pending・ci-no-requiredは、3担当の有効な結果がそろった完了・5点・確認が残る事項0件のまま、同じheadのCI判定が失敗・未確定・必須のチェックなし。
             // evidence-missingはSpec探索が終了・失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めなかった未完了で、対象も古いcommitのまま。
-            // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証が要実行確認の未確認を残した。
+            // refute-missingは両探索が有効だが、反証が無効になり、親が1回だけ再委譲した反証も有効な結果を返さなかった未完了。
+            // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証がコードレベルで結論を出せない未確認（コード要求の中身を決める要求資料の不足）を残した。
             // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
             // review-usage-limitはSpec探索が利用枠の上限（HTTP 429）で失敗し、親が再委譲せずその時点で止めた未完了。
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
-            // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
-            // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
-            // acceptance-evidence-changed・others-appended・own-records・ci-recheck系は、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
-            // 実装者は写しの前に、配置先を記録した作業ログ（evidence/3 の参照元）と経過の作業ログを残した。レビューの親と実装者は同じ actor（偽workerの子nod）で書く。
-            // evidence-changedは、判定に使った外部の正本の変化・添付Documentの訂正に加え、人が配置の記録を取り消すトップレベルのコメントを書いた。
-            // others-appendedは、写しの後に親以外が、実装者の経過とテストの作業ログ、人による配置先の作業ログへの返信（出典の文字列を含まない撤回）、
-            // 人の確認依頼の追加と写しの前からあった確認依頼への回答を足した。レビューの親自身の経過の作業ログ（own-logs）も足された。
-            // own-recordsは、写しの後にレビューの親自身の経過の作業ログとコメント（own-logs）、人による優先度の変更（Issueのイベント）、判定に使っていない経過の作業ログの解決だけが起きた。
-            // ci-recheck系は、保存時はpush前でCI判定が結果なし。PR作業で実装担当がPRの記録を書き、13節の再照合でCI判定が成功になる（unrecordedはPRの記録のidをown-logsに記録しない）。
+            // ci-recheck系は、保存時はpush前でCI判定が結果なし。PR作業で実装担当がPRの記録を書き、13節の再照合でCI判定が成功になる
+            // （ci-recheck-requirements-changedは、保存の後に人がIssueの本文を変えている）。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
-            const external = ["acceptance-evidence-changed", "acceptance-others-appended", "acceptance-own-records", "acceptance-ci-recheck", "acceptance-ci-recheck-unrecorded"].includes(state.variant);
-            const acceptance = state.variant.startsWith("acceptance-");
-            const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
-            const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
-            const deployRow = "requirements/issue.md（対象版の spacing.json を配置先へ置き、current をその版に向ける）";
-            const deployLog = external ? nod("issue", "log", "API-1", "配置: /evaluation/deploy/list/current を releases/<head の SHA> に向けた", "--kind", "progress") as { id: number } : null;
-            const progressLog = external ? nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを整理している", "--kind", "progress") as { id: number } : null;
-            const question = state.variant === "acceptance-others-appended" ? human("issue", "ask", "API-1", "余白の変更をモバイル表示にも適用しますか") as { question: { id: number } } : null;
-            // 親が受け入れ確認への写しで固定した Activity と、保存の直前に取り直した Activity。写しの後に親自身が書いた記録は、nodが返したidを own-logs に記録する。
-            const fixedActivity = external ? nod("issue", "show", "API-1").activity : [];
-            const ownLogs: number[] = [];
-            if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
-            if (state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records") {
-              ownLogs.push(nod("issue", "log", "API-1", "独立レビューの親の記録: 受け入れ確認への写しを取り終え、受け入れ確認担当へ委譲した", "--kind", "progress").id);
-            }
-            if (state.variant === "acceptance-others-appended") {
-              nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを差し替えた", "--kind", "progress");
-              nod("issue", "log", "API-1", "bun test test/list-spacing.test.ts 成功（実装者の確認）", "--kind", "test");
-              human("issue", "comment", "API-1", "この記録は誤りでした。撤回します", "--reply-to", String(deployLog!.id));
-              human("issue", "ask", "API-1", "余白の値はデザインの確定版ですか");
-              human("answer", "API-1", "モバイル表示にも適用する", "--question", String(question!.question.id));
-            }
-            if (state.variant === "acceptance-own-records") {
-              ownLogs.push(nod("issue", "comment", "API-1", "独立レビューの途中経過: 受け入れ確認の結果を受け取り、保存直前の再照合へ進む").id);
-              human("issue", "update", "API-1", "--priority", "high");
-              human("issue", "resolve", "API-1", String(progressLog!.id));
-            }
-            const currentActivity = external ? nod("issue", "show", "API-1").activity : [];
             state.review = recordInitialReview({
               dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: w.terminalId, baseCommit: base, headCommit: reviewed,
               notRun: state.variant === "review-not-run" ? "委譲できない環境" : undefined,
-              received: missingSpec ? ["standards"] : state.variant === "acceptance-missing" ? ["standards", "spec", "refute"] : undefined,
+              received: missingSpec ? ["standards"] : state.variant === "refute-missing" ? ["standards", "spec"] : undefined,
               invalid: state.variant === "evidence-missing" ? { spec: [
                 { reason: "終了・失敗: 担当が終了通知とともに失敗を返し、handoff.md が無い" },
                 { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、handoff.md が無い" },
               ] } : state.variant === "review-redelegated" ? { standards: [
                 { reason: "引き渡し形式違反: handoff.md に禁止項目「確信度」が混入（5節の7）" },
-              ] } : state.variant === "acceptance-missing" ? { acceptance: [
-                { reason: "引き渡し形式違反: result.md に担当行が無い（9節の3）" },
-                { reason: "終了・失敗: 再委譲した担当も終了通知とともに失敗を返し、result.md が無い" },
+              ] } : state.variant === "refute-missing" ? { refute: [
+                { reason: "引き渡し形式違反: verdict.md に要求資料ごとのコード要求の表が無い（7節の4）" },
+                { reason: "終了・失敗: 再委譲した反証も終了通知とともに失敗を返し、verdict.md が無い" },
               ] } : undefined,
               usageLimit: state.variant === "review-usage-limit" ? {
                 role: "spec",
@@ -200,44 +159,8 @@ export function runTask2Cli(tool: string, argv: string[]) {
               } : undefined,
               standards: { findings: [], evidence: "規約と変更差分を照合" },
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
-              requirementSource: acceptance ? "requirements/issue.md（一覧の余白を12pxにする）" : undefined,
-              unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（表示された一覧の余白が12pxになること）", owner: "人", reason: "要実行確認: 実際の描画結果に依存し、固定版の静的な読みでは確かめられない" }] : undefined,
-              acceptanceRows: external ? [
-                {
-                  source: designRow, judgment: "確認済み", canonical: "/evaluation/design/list-spacing.md の現行版と、同じリポジトリの版履歴（git log -- list-spacing.md）",
-                  verify: { artifact: "デザインの正本の現行版と対象版の余白の値が一致すること", work: "デザインの正本の更新が実装の commit より前であること（版履歴）" },
-                  parts: { 外部の正本との内容の一致: "確認済み", 更新順序: "確認済み" },
-                  evidence: "evidence/1 の正本の余白12pxが対象版の src/spacing.json と一致し、evidence/2 の版履歴で余白12pxにした commit の時刻が実装の commit より前",
-                },
-                {
-                  source: deployRow, judgment: "確認済み",
-                  verify: { artifact: "releases/<head の SHA>/ の spacing.json と REVISION", work: "current が対象版を指し、配置先と版を作業ログに残したこと" },
-                  parts: { 成果物の不変版の存在: "確認済み", "作業・手順の実施": "確認済み", 現在の配置: "確認済み" },
-                  evidence: "evidence/3 の配置先の観測で current が releases/<head の SHA> を指し、REVISION が head の SHA、spacing.json の sha256 が対象版と一致。Document 5 が配置先と版を記録",
-                },
-              ] : acceptance ? [{
-                source: workLogRow,
-                judgment: state.variant === "acceptance-unmet" ? "未充足" : state.variant === "acceptance-unverified" ? "確かめられず" : "確認済み",
-                evidence: state.variant === "acceptance-unmet"
-                  ? "作業ログ（Activity）と添付Documentの写しに lint:spacing の出力の記録が無い"
-                  : state.variant === "acceptance-unverified"
-                    ? "Activity に「lintは成功」の自己申告だけがあり、対象版・実行内容・結果を識別できる実行記録が写しに無い"
-                    : "Activity の作業ログ（ID 3）が参照する evidence/1/lint-spacing.log（sha256 付き）に対象版の SHA・コマンド・終了コード0・出力がある",
-              }] : undefined,
-              usedEvidence: external ? [
-                { id: "evidence/1", kind: "外部の正本", source: "/evaluation/design/list-spacing.md", sha256: "1".repeat(64), rows: [designRow], use: "外部の正本との内容の一致" },
-                { id: "evidence/2", kind: "外部の正本", source: "/evaluation/design の版履歴（git log -- list-spacing.md）", sha256: "2".repeat(64), rows: [designRow], use: "更新順序" },
-                { id: "evidence/3", kind: "参照された記録", source: "/evaluation/deploy/list/current", sha256: "3".repeat(64), rows: [deployRow], use: "現在の配置", origins: [`activity:${deployLog!.id}`] },
-                { id: "document:5", kind: "添付 Document", source: "Document 5（配置の記録）", sha256: "5".repeat(64), rows: [deployRow], use: "作業・手順の実施" },
-              ] : acceptance ? [
-                { id: "activity:3", kind: "Activity", source: "Activity 3（作業ログ）", sha256: "3".repeat(64), rows: [workLogRow], use: "作業・手順の実施" },
-                ...(state.variant === "acceptance-confirmed" ? [{ id: "evidence/1", kind: "参照された記録" as const, source: "/evaluation/artifacts/API-1/lint-spacing.log", sha256: "1".repeat(64), rows: [workLogRow], use: "成果物の不変版の存在" as const }] : []),
-              ] : undefined,
-              recheck: external ? {
-                changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {},
-                activity: { fixed: fixedActivity, current: currentActivity, ownLogs },
-              } : undefined,
-              ci: simulatedCi(reviewed, ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし", "acceptance-ci-recheck": "結果なし", "acceptance-ci-recheck-unrecorded": "結果なし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant]),
+              unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（余白は共通レイアウト設定 Document 7 の spacing.list の値に従う）", owner: "人", reason: "コード要求の中身を決める要求資料の不足: Document 7 の原文が固定入力に無く、src/spacing.json が従うべき spacing.list の値を特定できない" }] : undefined,
+              ci: simulatedCi(reviewed, ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし", "ci-recheck": "結果なし", "ci-recheck-requirements-changed": "結果なし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant]),
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {
             recordWorkerOperation("git", ["push", "origin", "list-spacing"]);
@@ -246,9 +169,8 @@ export function runTask2Cli(tool: string, argv: string[]) {
             nod("issue", "link-pr", "API-1", state.pr.url);
             const prStatus = nod("issue", "pr-status", "API-1", "--refresh");
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
-            // レビューの保存後に実装担当がIssueへ書く記録は nod --json で書き、返ったidを13節の前に own-logs へ記録する（unrecordedは記録しない）。
-            const prLog = nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
-            if (state.variant !== "acceptance-ci-recheck-unrecorded") recordOwnLog(state.review!.workDirectory, prLog.id, "PR作業の記録（実装担当）");
+            // レビューの保存後に実装担当がIssueへ書く記録は通常どおり書き、idを記録・受け渡ししない（13節の再照合はそれらの記録で止めない）。
+            nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
             // PRのheadに対するCI判定を取り（記録・報告してマージ可否とmerge-readyにだけ使う）、再照合で確認が残る事項が増えていなければIn Reviewへ移す。CI判定が成功でないことだけでは止めない。
             // 偽GitHubのCIは、ci-failure・ci-pending・ci-no-requiredではPRの後も失敗・未確定・必須のチェックなしのまま、それ以外はPRの後に成功している。
             const submissionVerdict = ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant];

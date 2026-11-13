@@ -33,15 +33,15 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 | 工程と管理中の実行 | 現在工程、占有または起動予約、解放根拠、仕様準備と実装の区別 |
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
-| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（報告Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した全担当の組（3担当と、起動したときは受け入れ確認担当）、反証原文と受け入れ確認の結果の原文の照合結果、点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはcheckpointに書かない））、元実装者と独立確認担当のidentity、現在の待機Dispatch |
-| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、CI判定の記録（`[ci-result]`で始まる`--kind test`の作業ログ）の参照、PR URL/branch/headとnod提出状態、初回レビューの保存後にPMが書いた記録のidと、親の手順の13節を行う者へ渡したかどうか |
+| 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（結果Document IDと監査Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した3担当（Standards探索・Spec探索・反証）の組、反証原文と保存原本の照合結果、点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはcheckpointに書かない））、元実装者と独立確認担当のidentity、現在の待機Dispatch |
+| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、CI判定の記録（`[ci-result]`で始まる`--kind test`の作業ログ）の参照、PR URL/branch/headとnod提出状態 |
 | 質問と次の行動 | nod質問ID、元message、選択肢、原文と実回答の出典、未回答と残る停止理由、次に照合する証拠または必要な人の判断 |
 
 ```sh
 nod -w <Workspace> issue log <IssueID> "<上記のintentまたはcheckpoint>" --kind progress
 ```
 
-初回レビューの報告の保存後は、intentとcheckpointを含め、同じIssueへの記録（質問と回答の転記を含む）を`nod -w <Workspace> --json`で書き、返ったidを[実装手順](implementation.md#初回レビューを受け取る)のとおり親の手順の13節を行う者へ渡す。
+初回レビューの報告の保存後も、intentとcheckpointを含め、同じIssueへの記録（質問と回答の転記を含む）は通常どおり書く。親の手順の13節の再照合はそれらの記録では止めないので、idを13節を行う者へ渡さない。
 
 修正巡のstartedは第n巡の修正依頼を行う直前に記録し、独立確認の受理後だけcompletedをnへ進める。
 started=1、completed=0なら第1巡の途中であり、第2巡を新設しない。

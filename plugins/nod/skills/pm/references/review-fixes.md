@@ -13,8 +13,8 @@ startedとcompletedを区別して記録し、会話履歴や重複報告から�
 
 初回報告のRun、Task、active Dispatch、Issue、元実装者、terminal、worktree、実効モデルとeffort、現在commitを[実装手順](implementation.md)どおり照合する。
 初回レビューは[実装手順の受理条件](implementation.md#初回レビューを受け取る)を満たしたものだけを使う。
-reviewer identityは起動した全担当（Standards探索・Spec探索・反証の3担当と、起動したときは受け入れ確認担当）の組で、各担当が実装者と異なる。基点と対象commitを確認する。
-指摘は報告Documentに収録された反証担当の原文（要対応と影響度、任意）から取り、PMの要約で置き換えない。
+reviewer identityは起動した3担当（Standards探索・Spec探索・反証）の組で、各担当が実装者と異なる。基点と対象commitを確認する。
+指摘は監査Documentに収録された反証担当の原文（要対応と影響度、任意）から取り、PMの要約で置き換えない。
 指摘ごとに次の区別を行い、nodへ分類と根拠を記録する。
 
 | 分類 | 修正対象にする根拠 |
@@ -46,13 +46,13 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、報告Document IDとrunId、起動した全担当（3担当と、起動したときは受け入れ確認担当）の役割・定義名・担当IDと実装者identity、反証原文（と受け入れ確認の結果の原文）と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはここに書かない）、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit、結果Document ID・監査Document IDとrunId、起動した3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはここに書かない）、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort、merge-readyを外した記録（付いていたとき） |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
 | 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、確認担当のidentity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
 | 第n巡の確認完了 | 完了巡n、確認TaskとDispatch、確認対象commit、指摘IDごとの解消証拠と残存、新しい不具合、現在gitとの照合、次の所有者と提出または停止判断 |
 
-例では`nod -w <Workspace> --json issue log <IssueID> "<上記の根拠と対応>" --kind progress`を使い、返ったidを[実装手順](implementation.md#初回レビューを受け取る)のとおり親の手順の13節を行う者へ渡す。
+例では`nod -w <Workspace> issue log <IssueID> "<上記の根拠と対応>" --kind progress`を使う。
 通信断や応答喪失で未完了巡を0へ戻さず、active Dispatchとログを再取得する。
 旧Dispatchや重複通知を新しい確認として数えず、現在commitが不明なら`unverifiable`として提出を停止する。
 
