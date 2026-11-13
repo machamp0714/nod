@@ -1,5 +1,5 @@
 import { installWorkerStartFixture } from "./worker-fixture";
-import { type InitialReview, nodCliRecorder, recordInitialReview } from "./initial-review";
+import { type CiVerdict, type InitialReview, type SubmissionCi, checkSubmissionCi, nodCliRecorder, recordInitialReview, recordOwnLog, simulatedCi } from "./initial-review";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -12,7 +12,7 @@ type Worker = {
   launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } | null };
 };
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid: string; baseRefOid: string; reviewDecision: string; statusCheckRollup: unknown[]; mergedAt: null };
-type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null; review?: InitialReview };
+type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null; review?: InitialReview; submissionCi?: SubmissionCi };
 const head = "a".repeat(40);
 const base = "b".repeat(40);
 
@@ -51,9 +51,9 @@ export function runTask2Cli(tool: string, argv: string[]) {
     ...(w.phase === "followup" ? { blocker: "このfixtureは証跡補完や修正の実行を提供しないため、既存証跡を保持して停止。PR操作なし。" } : {}),
     worktreeId: w.worktreeId, terminalId: w.terminalId, model: "gpt-6.1-sol", effort: "high", gitEvidence: gitEvidence(w),
     acceptance: { passed: true, evidence: "一覧の余白が8pxから12pxへ変わる画面確認に成功" },
-    tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: state.variant === "test-failure" ? 1 : 0, passed: state.variant !== "test-failure", commit: head }],
+    tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: 0, passed: true, commit: head }],
     review: state.review,
-    ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, nodStatus: nod("issue", "show", "API-1").status } : {}),
+    ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, ci: state.submissionCi, nodStatus: nod("issue", "show", "API-1").status } : {}),
   });
   const view = (w: Worker) => ({ ...w, git: { head, base, clean: true, branch: "list-spacing" }, gitEvidence: gitEvidence(w), projection: { liveness: { verdict: w.released ? "exited" : "live" }, attention: { category: w.reported ? "settled" : "working", requiresAction: w.reported && !w.released && !w.reusedBy }, nextAction: { kind: "none" } }, terminal: { handle: w.terminalId, worktreeId: w.worktreeId }, observation: { status: w.released ? "exited" : "live" } });
 
@@ -134,7 +134,8 @@ export function runTask2Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-            // nod:implementの親が3担当（反証が受け入れ確認担当の行を作ったときは受け入れ確認担当も）へ委譲し、固定headの別checkoutでテストした結果を報告Documentへ残した状態を再現する。
+            // nod:implementの親が3担当（反証が受け入れ確認担当の行を作ったときは受け入れ確認担当も）へ委譲し、同じheadのCIの結果を照合して報告Documentへ残した状態を再現する。
+            // ci-failure・ci-pending・ci-no-requiredは、3担当の有効な結果がそろった完了・5点・確認が残る事項0件のまま、同じheadのCI判定が失敗・未確定・必須のチェックなし。
             // evidence-missingはSpec探索が終了・失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めなかった未完了で、対象も古いcommitのまま。
             // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証が要実行確認の未確認を残した。
             // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
@@ -142,15 +143,16 @@ export function runTask2Cli(tool: string, argv: string[]) {
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
             // acceptance-confirmed・unmet・unverified・missingは、反証が複合要求を「余白12px」（コードで充足）と「lintの実行結果を作業ログに残す」（受け入れ確認担当の行）に分けた。
             // confirmedは受け入れ確認担当が確認済み、unmetは未充足、unverifiedは確かめられず、missingは受け入れ確認担当が1回の再委譲の後も有効な結果を返さなかった未完了。
-            // acceptance-evidence-changed・others-appended・own-recordsは、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
+            // acceptance-evidence-changed・others-appended・own-records・ci-recheck系は、反証がデザインの正本との一致・更新順序の行（外部の正本を名指し）と配置の行を受け入れ確認担当にし、受け入れ確認担当が両方を確認済みとした。
             // 実装者は写しの前に、配置先を記録した作業ログ（evidence/3 の参照元）と経過の作業ログを残した。レビューの親と実装者は同じ actor（偽workerの子nod）で書く。
             // evidence-changedは、判定に使った外部の正本の変化・添付Documentの訂正に加え、人が配置の記録を取り消すトップレベルのコメントを書いた。
             // others-appendedは、写しの後に親以外が、実装者の経過とテストの作業ログ、人による配置先の作業ログへの返信（出典の文字列を含まない撤回）、
-            // 人の確認依頼の追加と写しの前からあった確認依頼への回答を足した。レビューの親自身のテスト実行の作業ログ（own-logs）も足された。
-            // own-recordsは、写しの後にレビューの親自身のテスト実行の作業ログとコメント（own-logs）、人による優先度の変更（Issueのイベント）、判定に使っていない経過の作業ログの解決だけが起きた。
+            // 人の確認依頼の追加と写しの前からあった確認依頼への回答を足した。レビューの親自身の経過の作業ログ（own-logs）も足された。
+            // own-recordsは、写しの後にレビューの親自身の経過の作業ログとコメント（own-logs）、人による優先度の変更（Issueのイベント）、判定に使っていない経過の作業ログの解決だけが起きた。
+            // ci-recheck系は、保存時はpush前でCI判定が結果なし。PR作業で実装担当がPRの記録を書き、13節の再照合でCI判定が成功になる（unrecordedはPRの記録のidをown-logsに記録しない）。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
-            const external = state.variant === "acceptance-evidence-changed" || state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records";
+            const external = ["acceptance-evidence-changed", "acceptance-others-appended", "acceptance-own-records", "acceptance-ci-recheck", "acceptance-ci-recheck-unrecorded"].includes(state.variant);
             const acceptance = state.variant.startsWith("acceptance-");
             const workLogRow = "requirements/issue.md（bun run lint:spacing を実行し、その出力を作業ログに残す）";
             const designRow = "requirements/issue.md（余白をデザインの正本の現行版に一致させ、デザインの更新後に実装する）";
@@ -163,7 +165,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
             const ownLogs: number[] = [];
             if (state.variant === "acceptance-evidence-changed") human("issue", "comment", "API-1", "配置の記録 /evaluation/deploy/list/current は誤りだったので取り消す");
             if (state.variant === "acceptance-others-appended" || state.variant === "acceptance-own-records") {
-              ownLogs.push(nod("issue", "log", "API-1", `独立レビューのテスト実行: bun test 成功（checkout ${head}）`, "--kind", "test").id);
+              ownLogs.push(nod("issue", "log", "API-1", "独立レビューの親の記録: 受け入れ確認への写しを取り終え、受け入れ確認担当へ委譲した", "--kind", "progress").id);
             }
             if (state.variant === "acceptance-others-appended") {
               nod("issue", "log", "API-1", "進捗: 一覧画面のスクリーンショットを差し替えた", "--kind", "progress");
@@ -235,7 +237,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
                 changed: state.variant === "acceptance-evidence-changed" ? { "evidence/1": "f".repeat(64), "document:5": "e".repeat(64) } : {},
                 activity: { fixed: fixedActivity, current: currentActivity, ownLogs },
               } : undefined,
-              testRun: { headSha: reviewed, result: state.variant === "test-failure" ? "失敗" : "成功", command: "bun test" },
+              ci: simulatedCi(reviewed, ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし", "acceptance-ci-recheck": "結果なし", "acceptance-ci-recheck-unrecorded": "結果なし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant]),
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {
             recordWorkerOperation("git", ["push", "origin", "list-spacing"]);
@@ -244,7 +246,12 @@ export function runTask2Cli(tool: string, argv: string[]) {
             nod("issue", "link-pr", "API-1", state.pr.url);
             const prStatus = nod("issue", "pr-status", "API-1", "--refresh");
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
-            nod("issue", "update", "API-1", "--status", "in_review");
+            // レビューの保存後に実装担当がIssueへ書く記録は nod --json で書き、返ったidを13節の前に own-logs へ記録する（unrecordedは記録しない）。
+            const prLog = nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
+            if (state.variant !== "acceptance-ci-recheck-unrecorded") recordOwnLog(state.review!.workDirectory, prLog.id, "PR作業の記録（実装担当）");
+            // PRのheadに対するCI判定を取り、同じheadのCI判定が成功で確認が残る事項が増えていないときだけIn Reviewへ移す。偽GitHubのCIはPRの後に成功している。
+            state.submissionCi = checkSubmissionCi(state.review!, { head, ci: simulatedCi(head) }, nodCliRecorder(nod));
+            if (state.submissionCi.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";
           state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, outcome: w.phase === "followup" ? "failed" : "succeeded", body: JSON.stringify(report(w)) }] };

@@ -27,7 +27,7 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const report = JSON.parse(delivery.messages[0].body);
   expect(report).toMatchObject({ outcome: "succeeded", commit: "a".repeat(40), acceptance: { passed: true }, tests: [{ exitCode: 0 }], review: {
     independent: true, implementer: "term-implementation", status: "完了", score: 5, target: { baseSha: "b".repeat(40), headSha: "a".repeat(40) },
-    agents: reviewAgents, testRun: { headSha: "a".repeat(40), result: "成功" }, remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）",
+    agents: reviewAgents, ci: { headSha: "a".repeat(40), verdict: "成功", base: "main" }, remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた",
     standards: { findings: [] }, spec: { findings: [] },
   } });
   expect(report.review.headCommit).toBe(report.commit);
@@ -42,12 +42,24 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const verdict = readFileSync(report.review.verdict.path, "utf8");
   expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
   expect(document.content).toContain(`<!-- refute-verdict:begin -->\n${verdict}<!-- refute-verdict:end -->`);
-  expect(readFileSync(report.review.testRun.recordPath, "utf8")).toContain(`checkout の SHA: ${"a".repeat(40)}`);
+  // 親はテストを実行せず、同じheadのCIの照合を parent/ci/1/result.json に残し、報告のCIの節に必須のチェックごとの結果を書く。
+  const ci = JSON.parse(readFileSync(report.review.ci.recordPath, "utf8"));
+  expect(report.review.ci.recordPath).toBe(`${report.review.workDirectory}/parent/ci/1/result.json`);
+  expect(ci).toMatchObject({ ok: true, verdict: "成功", base: "main", head: "a".repeat(40), required: [{ context: "test", sources: ["workspace-rules"], result: "成功" }] });
+  expect(createHash("sha256").update(readFileSync(report.review.ci.recordPath)).digest("hex")).toBe(report.review.ci.sha256);
+  for (const line of ["### CI の結果（親だけが照合）", "\n- CI 判定: 成功", `\n- head SHA の一致: result.json の head ${"a".repeat(40)} と target.md の head ${"a".repeat(40)} が一致`, "\n- merge-ready: 付けた", "\n- マージ可否: 可（人のレビューなしでマージ可）"]) expect(document.content).toContain(line);
   const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
   expect(issue.exitCode).toBe(0);
   const shownIssue = JSON.parse(issue.stdout.toString());
   expect(shownIssue).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
-  expect((shownIssue.activity as { logKind?: string | null; body?: string }[]).filter(item => item.logKind === "progress" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`))).toHaveLength(1);
+  expect((shownIssue.activity as { logKind?: string | null; body?: string }[]).filter(item => item.logKind === "progress" && item.body?.includes(`報告Document ${report.review.reportDocument.id}`) && item.body.includes(`CI判定成功（head ${"a".repeat(40)}）`))).toHaveLength(1);
+  // マージ可なので、報告の保存と作業ログの後に実nodのIssueへmerge-readyが付き、判定したhead SHA・CI判定・報告Document IDを --kind test に1件残す。
+  expect(shownIssue.labels).toContain("merge-ready");
+  const mergeReadyLogs = (shownIssue.activity as { id: number; logKind?: string | null; body?: string }[]).filter(item => item.logKind === "test" && item.body?.startsWith("merge-ready: 付けた"));
+  expect(mergeReadyLogs.map(item => item.id)).toEqual([report.review.mergeReadyLog]);
+  for (const part of [`判定した head SHA ${"a".repeat(40)}`, "基点 main", "CI 判定 成功", "test=成功（出典 workspace-rules", `報告Document ${report.review.reportDocument.id}`, `runId ${report.review.runId}`, `${report.review.workDirectory}/parent/ci/1/`]) expect(mergeReadyLogs[0]!.body).toContain(part);
+  // 保存の後に親が書いた記録の id は own-logs.md に残る。
+  expect(readFileSync(`${report.review.workDirectory}/parent/acceptance/own-logs.md`, "utf8")).toContain(`- ${report.review.mergeReadyLog}:`);
   const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
   expect(operations.filter(op => op.tool === "fixture")).toMatchObject([
     { origin: "worker", actor: "codex", simulated: true, argv: ["worker-start-state", "API-1"] },
@@ -76,10 +88,12 @@ for (const variant of ["normal", "existing-pr", "acceptance-confirmed"] as const
     const task = orca("task-create", "--spec", "API-1の現在commitの証跡を確認済み。gpt-6.1-sol:highを維持してpushとPR作成・nod提出だけを行う");
     const submission = orca("worker-start", "--task", task.id, "--terminal", implementation.terminalId, "--worktree", `id:${implementation.worktreeId}`);
     expect(submission.launch).toEqual(implementation.launch);
-    orca("check", "--ack", initial.id);
+    const submitted = JSON.parse(orca("check", "--ack", initial.id).messages[0].body);
     const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
     expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
-    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url });
+    // PRのheadは初回レビューの対象版と同じなので、13節の再照合で同じheadのCI判定成功を確かめてからIn Reviewへ移す。merge-readyは付いたまま。
+    expect(submitted.ci).toMatchObject({ headSha: "a".repeat(40), verdict: "成功", ready: true, recheck: { reviewHead: "a".repeat(40), currentHead: "a".repeat(40), remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" } });
+    expect(call(scenario.nod, ["-w", "API", "issue", "show", "API-1"])).toMatchObject({ status: "in_review", prUrl: pr.url, labels: expect.arrayContaining(["merge-ready"]) });
     orca("worker-release", "--dispatch", submission.dispatch.id);
     expect(orca("worker-list", "--run", "run-pm", "--terminal-state", "reclaimable", "--include-remote").workers).toEqual([]);
     const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -101,7 +115,7 @@ test("PM評価の受け入れ確認担当が確認済みとした初回レビュ
   orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
   const report = JSON.parse(orca("orchestration", "check").messages[0].body);
   // 反証が作業記録の要求を受け入れ確認担当の行にし、受け入れ確認担当が確認済みとした。4担当の有効な結果がそろった完了で、受け入れ確認の結果は点数を変えない。
-  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" });
   expect(report.review.acceptanceRows).toEqual([{ source: expect.stringContaining("作業ログ"), judgment: "確認済み", evidence: expect.any(String) }]);
   const ids = Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id);
   expect(ids).toHaveLength(4);
@@ -135,12 +149,12 @@ test("PM評価の保存直前の再照合は親自身の記録・Issueのイベ�
   const launch = orca("orchestration", "worker-start", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high", "--spec", "API-1。照合完了まで実装禁止");
   orca("orchestration", "send", "--to", `dispatch:${launch.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
   const report = JSON.parse(orca("orchestration", "check").messages[0].body);
-  // 受け入れ確認担当がデザインの正本と配置先の観測で確認済みとした後、保存直前までに、レビューの親自身が書いたテスト実行の作業ログとコメント（own-logs に記録。
+  // 受け入れ確認担当がデザインの正本と配置先の観測で確認済みとした後、保存直前までに、レビューの親自身が書いた経過の作業ログとコメント（own-logs に記録。
   // 実装者と同じ actor で書く）、人による優先度の変更（Issueのイベント）、判定に使っていない実装者の経過の作業ログ（写しの前に書かれた）の解決だけが起きた。
-  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+  expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" });
   expect(report.review.acceptanceRows.map((row: { judgment: string }) => row.judgment)).toEqual(["確認済み", "確認済み"]);
   const issue = JSON.parse(Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env }).stdout.toString()) as { activity: { kind: string; actor: string; type?: string; logKind?: string | null; body?: string; resolvedAt?: string | null }[] };
-  expect(issue.activity.filter(item => item.logKind === "test" && item.actor === "codex" && item.body?.startsWith("独立レビューのテスト実行"))).toHaveLength(1);
+  expect(issue.activity.filter(item => item.logKind === "progress" && item.actor === "codex" && item.body?.startsWith("独立レビューの親の記録"))).toHaveLength(1);
   expect(issue.activity.filter(item => item.kind === "comment" && item.logKind === null && item.actor === "codex" && item.body?.startsWith("独立レビューの途中経過"))).toHaveLength(1);
   expect(issue.activity.filter(item => item.body === "進捗: 一覧画面のスクリーンショットを整理している" && item.logKind === "progress" && item.resolvedAt)).toHaveLength(1);
   expect(issue.activity.filter(item => item.kind === "event" && item.type === "priority_changed" && item.actor === "me")).toHaveLength(1);
@@ -150,6 +164,69 @@ test("PM評価の保存直前の再照合は親自身の記録・Issueのイベ�
   expect(document.content).toMatch(/- 固定の後に足された Activity: \d+ 件（親以外の追記 0 件。止めなかった親自身の記録 2 件、Issue のイベント [1-9]\d* 件）/);
   expect(document.content).toContain("観測時点までの確認であり、将来の配置状態は保証しない");
 });
+
+for (const variant of ["acceptance-ci-recheck", "acceptance-ci-recheck-unrecorded"] as const) {
+  test(`PM評価の受け入れ確認担当を起動したレビューは保存時のCI結果なしで不可のまま、PR作業後の13節の再照合でmerge-readyを決める（${variant}）`, async () => {
+    const scenario = await createTask2Scenario({ variant });
+    const orca = (...args: string[]) => {
+      const result = Bun.spawnSync([scenario.orca, "orchestration", ...args, "--json"], { env: scenario.env });
+      expect(result.exitCode).toBe(0);
+      return JSON.parse(result.stdout.toString()).result;
+    };
+    type Issue = { status: string; labels: string[]; activity: { id: number; kind: string; actor: string; logKind?: string | null; body?: string }[] };
+    const issue = () => JSON.parse(Bun.spawnSync([scenario.nod, "-w", "API", "issue", "show", "API-1", "--json"], { env: scenario.env }).stdout.toString()) as Issue;
+    orca("run-create", "--objective", "一覧の余白を調整");
+    const implementation = orca("worker-start", "--spec", "API-1。照合完了まで実装禁止", "--on", "Studio", "--worktree", "new-top-level", "--repo", "id:repo-api", "--name", "list-spacing", "--agent", "codex", "--model", "gpt-6.1-sol", "--effort", "high");
+    orca("send", "--to", `dispatch:${implementation.dispatch.id}`, "--subject", "実装開始", "--body", "実装を開始してください");
+    const initial = orca("check");
+    const report = JSON.parse(initial.messages[0].body);
+    // 保存時はpush前でheadのCIに結果が無い。4担当がそろった完了・5点・確認が残る事項0件でも、CI判定結果なしでマージ不可、ラベルなし。
+    expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], ci: { headSha: "a".repeat(40), verdict: "結果なし" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
+    expect(issue().labels).not.toContain("merge-ready");
+    const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+    for (const line of ["- 確認が残る事項: 0 件", "- マージ可否: 不可（人の判断が要る）", "- CI 判定: 結果なし", "- merge-ready: 付けていない"]) expect(document.content).toContain(`\n${line}`);
+    expect(document.content).toContain("CI の完了後に親の手順の13節の CI の再照合で判定し直す。");
+    // 対照のため、PR作業の前に古い判定のmerge-readyが付いた状態にする（人の操作。Issueのイベントは追記に数えない）。
+    if (variant === "acceptance-ci-recheck-unrecorded") Bun.spawnSync([scenario.nod, "-w", "API", "issue", "update", "API-1", "--add-label", "merge-ready", "--json"], { env: scenario.env });
+    const task = orca("task-create", "--spec", "API-1の現在commitの証跡を確認済み。gpt-6.1-sol:highを維持してpushとPR作成・CIの照合・nod提出だけを行う");
+    const submission = orca("worker-start", "--task", task.id, "--terminal", implementation.terminalId, "--worktree", `id:${implementation.worktreeId}`);
+    const submitted = JSON.parse(orca("check", "--ack", initial.id).messages[0].body);
+    const after = issue();
+    const prLog = after.activity.find(item => item.logKind === "progress" && item.body?.startsWith("PR作業:"))!;
+    const ownLogs = readFileSync(`${report.review.workDirectory}/parent/acceptance/own-logs.md`, "utf8");
+    const record = readFileSync(submitted.ci.recheck.recordPath, "utf8");
+    expect(submitted.ci.recheck.recordPath).toBe(`${report.review.workDirectory}/parent/recheck-2/record.md`);
+    expect(JSON.parse(readFileSync(`${report.review.workDirectory}/parent/ci/2/result.json`, "utf8"))).toMatchObject({ verdict: "成功", head: "a".repeat(40) });
+    const recheckLogs = after.activity.filter(item => item.logKind === "test" && item.body?.includes("CI の再照合 2"));
+    expect(recheckLogs.map(item => item.id)).toEqual([submitted.ci.recheck.log]);
+    for (const part of [`判定した head SHA ${"a".repeat(40)}`, "CI 判定 成功", `報告Document ${report.review.reportDocument.id}`]) expect(recheckLogs[0]!.body).toContain(part);
+    if (variant === "acceptance-ci-recheck") {
+      // 実装担当がPRの記録を nod --json で書いて id を own-logs に記録したので親自身の記録になり、同じheadのCI判定成功でマージ可、merge-readyが付き、In Reviewへ移る。
+      expect(ownLogs).toContain(`- ${prLog.id}: PR作業の記録`);
+      expect(submitted.ci).toMatchObject({ verdict: "成功", ready: true, recheck: { remainingChecks: [], mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" } });
+      expect(after).toMatchObject({ status: "in_review", labels: expect.arrayContaining(["merge-ready"]) });
+      expect(recheckLogs[0]!.body).toStartWith("merge-ready: 付けた");
+      for (const line of ["- merge-ready: 付けた", "- マージ可否: 可（人のレビューなしでマージ可）", "受け入れ証拠は確認が残る事項を 0 件加えた"]) expect(record).toContain(line);
+    } else {
+      // id を記録しなかったPRの記録は、実装担当（親と同じ actor）が書いたものでも親以外の追記になり、判定に使った証拠を使った2行に確認が残る事項が付く。
+      // CI判定は成功でもマージ不可で、付いていたmerge-readyは外れ、In Reviewにもならない。
+      expect(ownLogs).not.toContain(`- ${prLog.id}:`);
+      expect(prLog.actor).toBe("codex");
+      expect(submitted.ci).toMatchObject({ verdict: "成功", ready: false, recheck: { mergeReadiness: "不可（人の判断が要る）", mergeReady: "外した" } });
+      expect(submitted.ci.recheck.remainingChecks).toEqual([
+        { source: expect.stringContaining("デザインの正本"), owner: "受け入れ確認担当（新しい実行）", reason: expect.stringContaining(`親以外の追記（使用した証拠の有効性を確認できない。親は意味を判断しない。activity:${prLog.id}（`) },
+        { source: expect.stringContaining("配置先"), owner: "受け入れ確認担当（新しい実行）", reason: expect.stringContaining(`activity:${prLog.id}（`) },
+      ]);
+      expect(after.status).toBe("in_progress");
+      expect(after.labels).not.toContain("merge-ready");
+      expect(recheckLogs[0]!.body).toStartWith("merge-ready: 外した");
+      for (const line of ["- merge-ready: 外した", "- マージ可否: 不可（人の判断が要る）", "受け入れ証拠は確認が残る事項を 2 件加えた"]) expect(record).toContain(line);
+    }
+    // 報告Documentは書き換えない。
+    expect(JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString()).content).toBe(document.content);
+    orca("worker-release", "--dispatch", submission.dispatch.id);
+  });
+}
 
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
@@ -227,7 +304,7 @@ test("PM評価の証跡補完依頼は同じworkerを再利用してもPRを自�
   expect(readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((op) => op.origin === "worker" && op.tool === "gh")).toEqual([]);
 });
 
-for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-unmet", "acceptance-unverified", "acceptance-missing", "acceptance-evidence-changed", "acceptance-others-appended"] as const) {
+for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-failure", "ci-pending", "ci-no-required", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-unmet", "acceptance-unverified", "acceptance-missing", "acceptance-evidence-changed", "acceptance-others-appended"] as const) {
   test(`PM評価の停止条件を偽接続先から区別できる（${variant}）`, async () => {
     const scenario = await createTask2Scenario({ variant });
     const call = (tool: string, args: string[]) => Bun.spawnSync([tool, ...args, "--json"], { env: scenario.env });
@@ -256,16 +333,30 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
     }
     orca("orchestration", "send", "--to", `dispatch:${worker.dispatch.id}`, "--subject", "実装開始", "--body", "実装開始");
     const report = JSON.parse(orca("orchestration", "check").messages[0].body);
-    const issue = () => JSON.parse(call(scenario.nod, ["issue", "show", "API-1"]).stdout.toString()) as { status: string; activity: { logKind?: string | null; body?: string }[] };
+    const issue = () => JSON.parse(call(scenario.nod, ["issue", "show", "API-1"]).stdout.toString()) as { status: string; labels: string[]; activity: { logKind?: string | null; body?: string }[] };
     const logs = (kind: string) => issue().activity.filter(item => item.logKind === kind && item.body?.includes(`報告Document ${report.review.reportDocument.id}`));
-    if (variant === "test-failure") {
-      expect(report.tests[0]).toMatchObject({ exitCode: 1, passed: false });
-      // レビューの原文と点数はテスト失敗で変わらず、マージ可否だけが不可になる。
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "失敗" }, remainingChecks: [], mergeReadiness: "不可（人の判断が要る）" });
+    if (variant === "ci-failure" || variant === "ci-pending" || variant === "ci-no-required") {
+      // 3担当の有効な結果がそろった完了・5点・確認が残る事項0件でも、同じheadのCI判定が成功でなければマージ可否だけが不可になる。レビューの原文と点数はCIで変わらない。
+      const verdict = ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし" } as const)[variant];
+      expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, remainingChecks: [], ci: { headSha: report.commit, verdict }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
+      expect(JSON.parse(readFileSync(report.review.ci.recordPath, "utf8"))).toMatchObject({ verdict, head: report.commit, required: variant === "ci-no-required" ? [] : [{ context: "test", result: verdict }] });
+      const verdictText = readFileSync(report.review.verdict.path, "utf8");
+      expect(createHash("sha256").update(verdictText).digest("hex")).toBe(report.review.verdict.sha256);
+      expect(verdictText).not.toContain("CI");
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      expect(between(document.content, "refute-verdict")).toBe(verdictText);
+      for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 0 件", "- マージ可否: 不可（人の判断が要る）", `- CI 判定: ${verdict}`, "- merge-ready: 付けていない（マージ可否が不可）"]) expect(document.content).toContain(`\n${line}`);
+      expect(document.content).toContain(`  - 不可の理由: CI 判定 ${verdict}`);
+      // ラベルは付かず、付けなかったことと理由・判定したheadを --kind test に残す。
+      expect(issue().labels).not.toContain("merge-ready");
+      expect(logs("test").filter(item => item.body?.startsWith(`merge-ready: 付けていない（マージ可否が不可: CI 判定 ${verdict}`) && item.body.includes(`判定した head SHA ${report.commit}`))).toHaveLength(1);
+      expect(logs("progress").filter(item => item.body?.includes(`CI判定${verdict}`))).toHaveLength(1);
     } else if (variant === "remaining-checks") {
       // 3担当の有効な結果があり反証の判定が確定した完了。確定した要対応0件の5点のまま、反証が理由と担当を示した未確認が確認が残る事項になり、マージ可否だけが不可になる。
       expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
+      expect(issue().labels).not.toContain("merge-ready");
       expect(report.review.remainingChecks).toEqual([{ source: expect.stringContaining("requirements/issue.md"), owner: expect.any(String), reason: expect.stringContaining("要実行確認") }]);
       const verdict = readFileSync(report.review.verdict.path, "utf8");
       expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
@@ -296,7 +387,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       expect(logs("progress")).toHaveLength(0);
     } else if (variant === "review-redelegated") {
       // Standards探索の最初の試行が禁止項目の混入（引き渡し形式違反）で無効になり、親が同じ入力で1回だけ再委譲した担当が有効な結果を返した完了。
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, remainingChecks: [], testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）" });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: reviewAgents, remainingChecks: [], ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた" });
       const standardsAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "standards");
       expect(standardsAttempts).toEqual([
         { role: "standards", attempt: 1, id: expect.any(String), result: "無効", reason: expect.stringContaining("確信度"), ompRetries: [], redelegation: "した（同じ入力・同じ依頼本文で新しいコンテキストへ1回）", saved: { path: expect.stringContaining("/parent/attempts/standards-1/"), sha256: expect.any(String) } },
@@ -336,7 +427,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       // 4担当の有効な結果がそろった完了・5点。受け入れ確認の「未充足」「確かめられず」は点数を変えず、確認が残る事項としてマージ可否だけを止める。
       const judgment = variant === "acceptance-unmet" ? "未充足" : "確かめられず";
       expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
       expect(report.review.acceptanceRows).toEqual([{ source: expect.stringContaining("作業ログ"), judgment, evidence: expect.any(String) }]);
       expect(report.review.remainingChecks).toEqual([{ source: report.review.acceptanceRows[0].source, owner: "受け入れ確認担当", reason: expect.stringContaining(judgment) }]);
       expect(new Set([...Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id), report.review.implementer]).size).toBe(5);
@@ -358,7 +449,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       // 受け入れ確認担当がデザインの正本と配置先の観測で2行とも確認済みとした後、保存直前の再照合で、判定に使った外部の正本の変化、
       // 根拠にした添付Documentの訂正、人が配置の記録を取り消すトップレベルのコメントが見つかった。担当の判定本文・完了・点数は変えず、親が確認が残る事項を追記してマージ不可にする。
       expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
       const [design, deploy] = report.review.acceptanceRows as [{ source: string; judgment: string }, { source: string; judgment: string }];
       expect([design.judgment, deploy.judgment]).toEqual(["確認済み", "確認済み"]);
       expect(design.source).toContain("デザインの正本");
@@ -394,9 +485,9 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       // 受け入れ確認担当がデザインの正本と配置先の観測で2行とも確認済みとし、証拠の写しの指紋は変わっていない。写しの後・保存の前に、親以外が次を足した:
       // 実装者（レビューの親と同じ actor）の経過（progress）とテスト（test）の作業ログ、人による配置先の作業ログ（evidence/3 の参照元）への出典の文字列を含まない撤回の返信、
       // 人の確認依頼の追加と、写しの前からあった確認依頼への回答。親は種類・書いた人・返信先・本文を問わず、判定に使った証拠を使ったすべての行に確認が残る事項を付けてマージ不可にする。
-      // 同じ時期に書いたレビューの親自身のテスト実行の作業ログ（own-logs に記録）は止めない。
+      // 同じ時期に書いたレビューの親自身の経過の作業ログ（own-logs に記録）は止めない。
       expect(report.tests[0]).toMatchObject({ exitCode: 0, passed: true });
-      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, testRun: { headSha: report.commit, result: "成功" }, mergeReadiness: "不可（人の判断が要る）" });
+      expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, ci: { headSha: report.commit, verdict: "成功" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
       const [design, deploy] = report.review.acceptanceRows as [{ source: string; judgment: string }, { source: string; judgment: string }];
       expect([design.judgment, deploy.judgment]).toEqual(["確認済み", "確認済み"]);
       type Reply = { id: number; actor: string; body: string };
@@ -404,7 +495,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "test-f
       const activity = issue().activity as unknown as Item[];
       const progress = activity.find(item => item.body === "進捗: 一覧画面のスクリーンショットを差し替えた")!;
       const testLog = activity.find(item => item.body === "bun test test/list-spacing.test.ts 成功（実装者の確認）")!;
-      const own = activity.find(item => item.logKind === "test" && item.body?.startsWith("独立レビューのテスト実行"))!;
+      const own = activity.find(item => item.logKind === "progress" && item.body?.startsWith("独立レビューの親の記録"))!;
       expect([progress.logKind, progress.actor, testLog.logKind, testLog.actor, own.actor]).toEqual(["progress", "codex", "test", "codex", "codex"]);
       const deployLog = activity.find(item => item.kind === "comment" && item.body?.includes("/evaluation/deploy/list/current"))!;
       const reply = deployLog.replies!.find(item => item.actor === "me")!;

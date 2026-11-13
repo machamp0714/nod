@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ActivityItem } from "../../../../../packages/core/src";
 
 export type ReviewRole = "standards" | "spec" | "refute" | "acceptance";
@@ -36,7 +36,18 @@ export type UsedEvidence = { id: string; kind: EvidenceKind; source: string; sha
  * 固定の後に足された Activity は、親自身の記録と Issue のイベントを除き、種類・書いた人・返信先・本文を問わず親以外の追記として扱う。親自身かどうかは actor ではなく ownLogs で決める。
  */
 export type EvidenceRecheck = { changed?: Record<string, string | null>; activity?: { fixed: ActivityItem[]; current: ActivityItem[]; ownLogs: number[] } };
-export type TestRunResult = "成功" | "失敗" | "実行できず";
+/** 親の手順3.2節の CI 判定。`成功` 以外はどれもマージ可否を不可にする。 */
+export type CiVerdict = "成功" | "失敗" | "未確定" | "結果なし" | "取得できず" | "必須のチェックなし" | "必須のチェックを決められず";
+export type CiSource = "branch-protection" | "rulesets" | "workspace-rules";
+/** 必須のチェック1件の出典と結果。url と conclusion は使った check run（偽 GitHub）のもの。 */
+export type CiCheck = { context: string; sources: CiSource[]; result: "成功" | "失敗" | "未確定" | "結果なし"; url?: string; conclusion?: string };
+/** 親が scripts/ci-checks.ts で読む偽 GitHub の観測。base は基点の GitHub ブランチ名。 */
+export type CiInput = { headSha: string; base: string; verdict: CiVerdict; required: CiCheck[] };
+/** `parent/ci/<n>/result.json`（または照合しなかったときの not-run.md）に書いた照合の記録。 */
+export type CiRecord = Omit<CiInput, "verdict"> & { verdict: CiVerdict | "照合せず（未実施）"; reason: string; observedAt: string; recordPath: string; sha256: string };
+export type MergeReadiness = "可（人のレビューなしでマージ可）" | "不可（人の判断が要る）";
+/** 報告の保存と作業ログの後に行う merge-ready の操作。 */
+export type LabelOperation = "付けた" | "外した" | "付けていない";
 /** 有効な結果を返さなかった試行。reason は親の検査や終了通知で分かった無効の理由、ompRetries は担当のセッション内でompが行った再試行（親の再委譲とは別）。 */
 export type InvalidAttempt = { reason: string; ompRetries?: string[] };
 /** 役割ごとの試行の記録。最初の無効な試行は後続へ渡さず、親専用の監査領域へ残す。 */
@@ -68,15 +79,18 @@ export type InitialReviewInput = {
   usedEvidence?: UsedEvidence[];
   /** 保存直前の再照合で取り直した結果。変化は担当の判定本文・最終状態・点数を変えず、確認が残る事項としてマージ可否だけを止める。 */
   recheck?: EvidenceRecheck;
-  testRun: { headSha: string; result: TestRunResult; command: string };
+  /** 10節の8の直前に、同じ head SHA の CI を照合した結果。未実施では照合せず not-run.md だけを書く。 */
+  ci: CiInput;
 };
-/** 実装を進行する親がnodへ書く経路。偽CLIは実nod CLI、setupはcore APIを渡す。 */
+/** 実装を進行する親がnodへ書く経路。偽CLIは実nod CLI（--json）、setupはcore APIを渡す。log は書いた記録の id を返す。 */
 export type ReviewRecorder = {
   createDocument(issueId: string, path: string, title: string, body: string): { id: number; path: string };
-  log(issueId: string, body: string, kind: "progress" | "blocker"): void;
+  log(issueId: string, body: string, kind: "progress" | "blocker" | "test"): { id: number };
+  show(issueId: string): { labels: string[]; activity: ActivityItem[] };
+  label(issueId: string, action: "add" | "remove", label: string): void;
 };
 export type InitialReview = {
-  independent: true; implementer: string; baseCommit: string; headCommit: string;
+  independent: true; issueId: string; implementer: string; baseCommit: string; headCommit: string;
   runId: string; workDirectory: string; status: "完了" | "未完了" | "未実施"; score: number | null;
   target: { baseSha: string; headSha: string };
   agents: Partial<Record<ReviewRole, { definition: string; id: string }>>;
@@ -88,9 +102,14 @@ export type InitialReview = {
   acceptance: { path: string; sha256: string } | null;
   /** 受け入れ確認担当が有効な結果で判定した行。点数には入れず、確認済み以外は確認が残る事項になる。 */
   acceptanceRows: AcceptanceRow[];
-  testRun: { headSha: string; result: TestRunResult; recordPath: string };
+  /** 受け入れ確認担当が判定に使った証拠。13節の再照合で同じ方法で取り直す。 */
+  usedEvidence: UsedEvidence[];
+  ci: CiRecord;
   remainingChecks: RemainingCheck[];
-  mergeReadiness: "可（人のレビューなしでマージ可）" | "不可（人の判断が要る）";
+  mergeReadiness: MergeReadiness;
+  /** 報告の保存と作業ログの後に行った merge-ready の操作と、それを記録した --kind test の作業ログの id。 */
+  mergeReady: LabelOperation;
+  mergeReadyLog: number;
   standards: ReviewAxis; spec?: ReviewAxis;
 };
 
@@ -98,12 +117,149 @@ const roles = [["standards", "Standards 探索", "code-reviewer-standards"], ["s
 const roleNames = Object.fromEntries(roles.map(([role, name]) => [role, name])) as Record<ReviewRole, string>;
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-/** 偽workerの子nodを使い、実装者のnod操作として記録する。 */
-export function nodCliRecorder(nod: (...args: string[]) => { id: number; path: string }): ReviewRecorder {
+/** 偽workerの子nodを使い、実装者のnod操作として記録する。nod は --json を付けて返った JSON を返す。 */
+export function nodCliRecorder(nod: (...args: string[]) => any): ReviewRecorder {
   return {
     createDocument: (issueId, path, title, body) => nod("doc", "create", path, "--title", title, "--kind", "doc", "--issue", issueId, "--body", body),
-    log: (issueId, body, kind) => { nod("issue", "log", issueId, body, "--kind", kind); },
+    log: (issueId, body, kind) => nod("issue", "log", issueId, body, "--kind", kind),
+    show: issueId => nod("issue", "show", issueId),
+    label: (issueId, action, label) => { nod("issue", "update", issueId, action === "add" ? "--add-label" : "--remove-label", label); },
   };
+}
+
+/** 偽 GitHub の CI の観測を作る。必須のチェックは Workspace の規約の `test` 1件（必須のチェックなし・決められずでは0件）。 */
+export function simulatedCi(headSha: string, verdict: CiVerdict = "成功", base = "main"): CiInput {
+  if (verdict === "必須のチェックなし" || verdict === "必須のチェックを決められず") return { headSha, base, verdict, required: [] };
+  const result = verdict === "成功" || verdict === "失敗" || verdict === "未確定" ? verdict : "結果なし";
+  const run = result === "結果なし" ? {} : { url: `https://github.com/evaluation/api/actions/runs/${headSha.slice(0, 8)}`, ...(result === "未確定" ? {} : { conclusion: result === "成功" ? "success" : "failure" }) };
+  return { headSha, base, verdict, required: [{ context: "test", sources: ["workspace-rules"], result, ...run }] };
+}
+
+const ownLogsPath = (workDirectory: string) => join(workDirectory, "parent", "acceptance", "own-logs.md");
+/** 写しの後・保存の後に親自身（や13節の前に実装を進める親・PM）が Issue へ書いた記録の id を own-logs.md に追記する。 */
+export function recordOwnLog(workDirectory: string, id: number, what: string) {
+  const path = ownLogsPath(workDirectory);
+  mkdirSync(dirname(path), { recursive: true });
+  if (!existsSync(path)) writeFileSync(path, "# 親自身の記録（Issue へ書いた記録の id）\n\n");
+  appendFileSync(path, `- ${id}: ${what}\n`);
+}
+const readOwnLogs = (workDirectory: string) => existsSync(ownLogsPath(workDirectory)) ? [...readFileSync(ownLogsPath(workDirectory), "utf8").matchAll(/^- (\d+):/gm)].map(match => Number(match[1])) : [];
+
+const ciReason = (ci: CiInput) => {
+  const names = (result: CiCheck["result"]) => ci.required.filter(check => check.result === result).map(check => check.context).join("、");
+  switch (ci.verdict) {
+    case "成功": return `必須のチェック ${ci.required.length} 件がすべて head ${ci.headSha} で成功`;
+    case "失敗": return `失敗した必須のチェックがある: ${ci.required.filter(check => check.result === "失敗").map(check => `${check.context}（${check.conclusion ?? "failure"}）`).join("、")}`;
+    case "未確定": return `完了していない必須のチェックがある: ${names("未確定")}`;
+    case "結果なし": return `head ${ci.headSha} に結果の無い必須のチェックがある（push 前・PR 前を含む）: ${names("結果なし")}`;
+    case "取得できず": return "check run・commit status を取得できない";
+    case "必須のチェックなし": return "ブランチ保護・ルールセット・Workspace の規約のどれにも必須のチェックが無い";
+    case "必須のチェックを決められず": return "必須のチェックを決められない出典がある（ブランチ保護を読めない）";
+  }
+};
+/** scripts/ci-checks.ts の result.json と同じ形で、偽 GitHub の観測を記録する。gh の生の応答は持たない（評価用の模擬）。 */
+function writeCi(directory: string, ci: CiInput): CiRecord {
+  mkdirSync(directory, { recursive: true });
+  const observedAt = new Date().toISOString();
+  const reason = ciReason(ci);
+  const workspaceChecks = ci.required.filter(check => check.sources.includes("workspace-rules")).map(check => ({ context: check.context, appId: null }));
+  const result = {
+    ok: true, verdict: ci.verdict, repository: "evaluation/api", base: ci.base, head: ci.headSha, observedAt,
+    sources: {
+      branchProtection: ci.verdict === "必須のチェックを決められず" ? { status: "undetermined", message: "評価用の模擬: protected なのに required_status_checks が見えない", checks: [] } : { status: "none", message: "評価用の模擬: 保護なし", checks: [] },
+      rulesets: { status: "none", message: "評価用の模擬: 規則なし", checks: [] },
+      workspaceRules: { status: workspaceChecks.length ? "read" : "none", checks: workspaceChecks },
+    },
+    required: ci.required.map(check => ({ context: check.context, appId: null, sources: check.sources, result: check.result,
+      runs: check.result === "結果なし" ? [] : [{ kind: "check-run", id: 1, name: check.context, status: check.result === "未確定" ? "in_progress" : "completed", conclusion: check.conclusion ?? null, appId: 15368, url: check.url ?? null, completedAt: check.result === "未確定" ? null : observedAt }] })),
+    reason, files: {},
+  };
+  const body = `${JSON.stringify(result)}\n`;
+  const recordPath = join(directory, "result.json");
+  writeFileSync(recordPath, body);
+  return { ...ci, reason, observedAt, recordPath, sha256: sha256(body) };
+}
+const ciSummary = (ci: CiRecord) => `CI 判定 ${ci.verdict}（必須のチェック: ${ci.required.map(check => `${check.context}=${check.result}（出典 ${check.sources.join("・")}${check.conclusion ? `、${check.conclusion}` : ""}${check.url ? `、${check.url}` : ""}）`).join("、") || "なし"}。${ci.reason}）`;
+const ciPassed = (ci: CiRecord, head: string) => ci.verdict === "成功" && ci.headSha === head;
+
+type Comment = Extract<ActivityItem, { kind: "comment" }>;
+type Question = Extract<ActivityItem, { kind: "question" }>;
+type Appended = { id: string; at: string; order: number; actor: string; what: string; kept?: "親自身の記録" | "Issue のイベント" };
+/**
+ * 10節の3の受け入れ証拠の再照合。受け入れ確認担当が判定に使った証拠と、判定に使った evidence/<n> の参照元を取り直して固定時と比べる。
+ * 固定の後に足された Activity のうち、親自身の記録（own-logs の id）と Issue のイベント以外は、種類・書いた人・返信先・本文を問わず親以外の追記として、
+ * 判定に使った証拠を使ったすべての行に確認が残る事項を付ける。親と実装者は同じ actor で書くことがあるので、actor では分けない。
+ * prefix は確認が残る事項の理由の頭（保存直前の再照合・13節の再照合）。
+ */
+function evidenceChecks(used: UsedEvidence[], changed: Record<string, string | null>, activity: EvidenceRecheck["activity"], prefix: string) {
+  const recheckOwner = "受け入れ確認担当（新しい実行）";
+  const check = (rows: string[], reason: string): RemainingCheck[] => rows.map(row => ({ source: row, owner: recheckOwner, reason: `${prefix}: ${reason}。この実行では判定し直さない` }));
+  const usedRows = [...new Set(used.flatMap(item => item.rows))];
+  const comments = (items: ActivityItem[]) => new Map(items.filter((item): item is Comment => item.kind === "comment").map(item => [item.id, item]));
+  const fixed = comments(activity?.fixed ?? []);
+  const current = comments(activity?.current ?? []);
+  const own = new Set(activity?.ownLogs ?? []);
+  // 親が見張る Activity: 判定に使った Activity の項目と、判定に使った evidence/<n> の参照元の Activity の項目。
+  const watched = activity ? used.flatMap(item => [item.id, ...(item.origins ?? [])].filter(id => id.startsWith("activity:")).map(id => {
+    const number = Number(id.slice("activity:".length));
+    if (!fixed.has(number)) throw new Error(`${id} が固定時の Activity の写しに無い`);
+    return { id, number, item, label: id === item.id ? `判定に使った証拠 ${id}` : `判定に使った証拠 ${item.id} の参照元 ${id}` };
+  })) : [];
+  const appended: Appended[] = [];
+  // 判定に使った Activity・参照元の変化で、確認が残る事項を付けた判定に使った証拠。
+  const affected = new Set<string>();
+  if (activity) {
+    const key = (item: ActivityItem) => JSON.stringify(item.kind === "question" ? [item.at, item.actor, item.question] : item.kind === "event" ? [item.at, item.actor, item.type, item.data] : [item.id]);
+    const fixedQuestions = new Map(activity.fixed.filter((item): item is Question => item.kind === "question").map(item => [key(item), item]));
+    const fixedKeys = new Set(activity.fixed.map(key));
+    for (const item of activity.current) {
+      if (item.kind === "event") {
+        if (!fixedKeys.has(key(item))) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: `イベント ${item.type}`, kept: "Issue のイベント" });
+      } else if (item.kind === "question") {
+        const before = fixedQuestions.get(key(item));
+        if (!before) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: "確認依頼" });
+        else if (before.answer !== item.answer) appended.push({ id: `activity@${item.at}`, at: item.answeredAt ?? item.at, order: 0, actor: item.answeredBy ?? item.actor, what: "確認依頼の回答" });
+      } else {
+        const before = new Set(fixed.get(item.id)?.replies.map(reply => reply.id) ?? []);
+        const entries = [
+          ...fixed.has(item.id) ? [] : [{ id: item.id, at: item.at, actor: item.actor, what: item.logKind ? `作業ログ（${item.logKind}）` : "コメント" }],
+          ...item.replies.filter(reply => !before.has(reply.id)).map(reply => ({ id: reply.id, at: reply.at, actor: reply.actor, what: `activity:${item.id} への返信` })),
+        ];
+        for (const entry of entries) appended.push({ id: `activity:${entry.id}`, at: entry.at, order: entry.id, actor: entry.actor, what: entry.what, ...own.has(entry.id) ? { kept: "親自身の記録" as const } : {} });
+      }
+    }
+    appended.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
+  }
+  const others = appended.filter(entry => !entry.kept);
+  const checks: RemainingCheck[] = [
+    // Activity 以外の判定に使った項目は、取り直した指紋の違いで扱う。
+    ...used.filter(item => !item.id.startsWith("activity:") && item.id in changed).flatMap(item => {
+      const now = changed[item.id];
+      const change = item.kind === "Activity" || item.kind === "添付 Document"
+        ? now === null ? "証拠の削除" : "証拠の訂正（本文の指紋の変化）"
+        : now === null ? "取り直せず（失効を含む）" : item.kind === "外部の正本" ? "外部の正本の変化" : "参照された記録（配置先・成果物を含む）の変化";
+      return check(item.rows, `${change}（${item.id}: ${item.source}。固定時 ${item.sha256.slice(0, 12)}、取り直し ${now?.slice(0, 12) ?? "取り直せず"}）`);
+    }),
+    // 参照元の Document の削除・リンク外れ・訂正。
+    ...used.flatMap(item => (item.origins ?? []).filter(id => !id.startsWith("activity:") && id in changed).flatMap(id => check(item.rows,
+      `${changed[id] === null ? "証拠の削除（無い・リンクが外れた）" : "証拠の訂正（本文の指紋の変化）"}（判定に使った証拠 ${item.id} の参照元 ${id}。取り直し ${changed[id]?.slice(0, 12) ?? "取り直せず"}）`))),
+    // 判定に使った Activity の項目と参照元の Activity の削除・訂正・解決の状態の変化。
+    ...watched.flatMap(w => {
+      const before = fixed.get(w.number)!;
+      const after = current.get(w.number);
+      const found = !after ? check(w.item.rows, `証拠の削除（${w.label} が無い）`) : [
+        ...sha256(after.body) !== sha256(before.body) ? check(w.item.rows, `証拠の訂正（${w.label} の本文の指紋 ${sha256(before.body).slice(0, 12)} → ${sha256(after.body).slice(0, 12)}）`) : [],
+        ...after.resolvedAt !== before.resolvedAt ? check(w.item.rows, `対応不明（撤回・訂正の可能性。${w.label} の解決の状態の変化。親は意味を判断しない）`) : [],
+      ];
+      if (found.length) affected.add(w.item.id);
+      return found;
+    }),
+    // 親以外の追記は、どの証拠に関するかを親が決めないので、判定に使った証拠を使ったすべての行に付ける。
+    ...others.flatMap(entry => check(usedRows, `親以外の追記（使用した証拠の有効性を確認できない。親は意味を判断しない。${entry.id}（${entry.what}、${entry.actor}、${entry.at}））`)),
+  ];
+  const origins = used.flatMap(item => (item.origins ?? []).map(id => `${id}（${item.id} の参照元）`));
+  for (const item of used) if (item.id in changed || (item.origins ?? []).some(id => id in changed)) affected.add(item.id);
+  return { checks, appended, others, affected, origins };
 }
 
 /**
@@ -177,82 +333,11 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const score = status === "完了" ? mustFix[0]?.impact ?? 5 : null;
   const unconfirmed = input.unconfirmed ?? [];
   const judged = agents.acceptance ? rows : [];
-  // 保存直前の再照合は、受け入れ確認担当が判定に使った証拠と、判定に使った evidence/<n> の参照元を取り直して固定時と比べる。
-  // 固定の後に足された Activity のうち、親自身の記録（own-logs の id）と Issue のイベント以外は、種類・書いた人・返信先・本文を問わず親以外の追記として、
-  // 判定に使った証拠を使ったすべての行に確認が残る事項を付ける。親と実装者は同じ actor で書くことがあるので、actor では分けない。
+  // 保存直前の再照合（10節の3）。受け入れ確認担当の有効な結果があるときだけ、判定に使った証拠と参照元を取り直して比べる。
   const used = agents.acceptance ? input.usedEvidence ?? [] : [];
   const changed = input.recheck?.changed ?? {};
   const activity = agents.acceptance ? input.recheck?.activity : undefined;
-  const recheckOwner = "受け入れ確認担当（新しい実行）";
-  const check = (rows: string[], reason: string): RemainingCheck[] => rows.map(row => ({ source: row, owner: recheckOwner, reason: `保存直前の再照合: ${reason}。この実行では判定し直さない` }));
-  const usedRows = [...new Set(used.flatMap(item => item.rows))];
-  type Comment = Extract<ActivityItem, { kind: "comment" }>;
-  type Question = Extract<ActivityItem, { kind: "question" }>;
-  const comments = (items: ActivityItem[]) => new Map(items.filter((item): item is Comment => item.kind === "comment").map(item => [item.id, item]));
-  const fixed = comments(activity?.fixed ?? []);
-  const current = comments(activity?.current ?? []);
-  const own = new Set(activity?.ownLogs ?? []);
-  // 親が見張る Activity: 判定に使った Activity の項目と、判定に使った evidence/<n> の参照元の Activity の項目。
-  const watched = activity ? used.flatMap(item => [item.id, ...(item.origins ?? [])].filter(id => id.startsWith("activity:")).map(id => {
-    const number = Number(id.slice("activity:".length));
-    if (!fixed.has(number)) throw new Error(`${id} が固定時の Activity の写しに無い`);
-    return { id, number, item, label: id === item.id ? `判定に使った証拠 ${id}` : `判定に使った証拠 ${item.id} の参照元 ${id}` };
-  })) : [];
-  type Appended = { id: string; at: string; order: number; actor: string; what: string; kept?: "親自身の記録" | "Issue のイベント" };
-  const appended: Appended[] = [];
-  // 判定に使った Activity・参照元の変化で、確認が残る事項を付けた判定に使った証拠。
-  const affected = new Set<string>();
-  if (activity) {
-    const key = (item: ActivityItem) => JSON.stringify(item.kind === "question" ? [item.at, item.actor, item.question] : item.kind === "event" ? [item.at, item.actor, item.type, item.data] : [item.id]);
-    const fixedQuestions = new Map(activity.fixed.filter((item): item is Question => item.kind === "question").map(item => [key(item), item]));
-    const fixedKeys = new Set(activity.fixed.map(key));
-    for (const item of activity.current) {
-      if (item.kind === "event") {
-        if (!fixedKeys.has(key(item))) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: `イベント ${item.type}`, kept: "Issue のイベント" });
-      } else if (item.kind === "question") {
-        const before = fixedQuestions.get(key(item));
-        if (!before) appended.push({ id: `activity@${item.at}`, at: item.at, order: 0, actor: item.actor, what: "確認依頼" });
-        else if (before.answer !== item.answer) appended.push({ id: `activity@${item.at}`, at: item.answeredAt ?? item.at, order: 0, actor: item.answeredBy ?? item.actor, what: "確認依頼の回答" });
-      } else {
-        const before = new Set(fixed.get(item.id)?.replies.map(reply => reply.id) ?? []);
-        const entries = [
-          ...fixed.has(item.id) ? [] : [{ id: item.id, at: item.at, actor: item.actor, what: item.logKind ? `作業ログ（${item.logKind}）` : "コメント" }],
-          ...item.replies.filter(reply => !before.has(reply.id)).map(reply => ({ id: reply.id, at: reply.at, actor: reply.actor, what: `activity:${item.id} への返信` })),
-        ];
-        for (const entry of entries) appended.push({ id: `activity:${entry.id}`, at: entry.at, order: entry.id, actor: entry.actor, what: entry.what, ...own.has(entry.id) ? { kept: "親自身の記録" as const } : {} });
-      }
-    }
-    appended.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
-  }
-  const others = appended.filter(entry => !entry.kept);
-  const recheckChecks: RemainingCheck[] = [
-    // Activity 以外の判定に使った項目は、取り直した指紋の違いで扱う。
-    ...used.filter(item => !item.id.startsWith("activity:") && item.id in changed).flatMap(item => {
-      const now = changed[item.id];
-      const change = item.kind === "Activity" || item.kind === "添付 Document"
-        ? now === null ? "証拠の削除" : "証拠の訂正（本文の指紋の変化）"
-        : now === null ? "取り直せず（失効を含む）" : item.kind === "外部の正本" ? "外部の正本の変化" : "参照された記録（配置先・成果物を含む）の変化";
-      return check(item.rows, `${change}（${item.id}: ${item.source}。固定時 ${item.sha256.slice(0, 12)}、保存直前 ${now?.slice(0, 12) ?? "取り直せず"}）`);
-    }),
-    // 参照元の Document の削除・リンク外れ・訂正。
-    ...used.flatMap(item => (item.origins ?? []).filter(id => !id.startsWith("activity:") && id in changed).flatMap(id => check(item.rows,
-      `${changed[id] === null ? "証拠の削除（無い・リンクが外れた）" : "証拠の訂正（本文の指紋の変化）"}（判定に使った証拠 ${item.id} の参照元 ${id}。保存直前 ${changed[id]?.slice(0, 12) ?? "取り直せず"}）`))),
-    // 判定に使った Activity の項目と参照元の Activity の削除・訂正・解決の状態の変化。
-    ...watched.flatMap(w => {
-      const before = fixed.get(w.number)!;
-      const after = current.get(w.number);
-      const found = !after ? check(w.item.rows, `証拠の削除（${w.label} が無い）`) : [
-        ...sha256(after.body) !== sha256(before.body) ? check(w.item.rows, `証拠の訂正（${w.label} の本文の指紋 ${sha256(before.body).slice(0, 12)} → ${sha256(after.body).slice(0, 12)}）`) : [],
-        ...after.resolvedAt !== before.resolvedAt ? check(w.item.rows, `対応不明（撤回・訂正の可能性。${w.label} の解決の状態の変化。親は意味を判断しない）`) : [],
-      ];
-      if (found.length) affected.add(w.item.id);
-      return found;
-    }),
-    // 親以外の追記は、どの証拠に関するかを親が決めないので、判定に使った証拠を使ったすべての行に付ける。
-    ...others.flatMap(entry => check(usedRows, `親以外の追記（使用した証拠の有効性を確認できない。親は意味を判断しない。${entry.id}（${entry.what}、${entry.actor}、${entry.at}））`)),
-  ];
-  const origins = used.flatMap(item => (item.origins ?? []).map(id => `${id}（${item.id} の参照元）`));
-  for (const item of used) if (item.id in changed || (item.origins ?? []).some(id => id in changed)) affected.add(item.id);
+  const { checks: recheckChecks, appended, others, affected, origins } = evidenceChecks(used, changed, activity, "保存直前の再照合");
   // 受け入れ確認の「未充足」「確かめられず」は、反証の未確認と同じく確認が残る事項としてマージ可否だけを止める。
   const remainingChecks = status === "完了" ? [
     ...unconfirmed,
@@ -265,27 +350,40 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...rows.map(row => ({ source: row.source, state: "受け入れ確認担当", evidence: "作業記録・成果物・配置の証拠または外部の正本で確かめる（受け入れ確認担当の行の節）", candidates: "-" })),
     ...unconfirmed.map(check => ({ source: check.source, state: "未確認", evidence: `${check.reason}（確かめる担当: ${check.owner}）`, candidates: "-" })),
   ];
-  const testPassed = input.testRun.result === "成功" && input.testRun.headSha === input.headCommit;
-  // 受け入れ確認担当の行は、受け入れ確認担当が確認済みとしたときだけマージ可否の判定で満たしたことにする。
-  const mergeReadiness = status === "完了" && score === 5 && remainingChecks.length === 0 && testPassed
-    && table.every(row => ["充足", "説明", "対象外"].includes(row.state) || (row.state === "受け入れ確認担当" && judged.some(judgedRow => judgedRow.source === row.source && judgedRow.judgment === "確認済み")))
+  // 10節の8の直前に CI を1回だけ照合して parent/ci/1/ に記録する。未実施では照合せず not-run.md に理由だけを書く。
+  const ciDirectory = join(workDirectory, "parent", "ci", "1");
+  let ci: CiRecord;
+  if (status === "未実施") {
+    mkdirSync(ciDirectory, { recursive: true });
+    const body = "# CI の照合をしなかった\n\n- CI 判定: 照合せず（未実施）\n- 理由: 独立レビュー未実施（担当を1つも起動しなかった）\n";
+    const recordPath = join(ciDirectory, "not-run.md");
+    writeFileSync(recordPath, body);
+    ci = { ...input.ci, verdict: "照合せず（未実施）", reason: "独立レビュー未実施のため照合しなかった", observedAt: new Date().toISOString(), recordPath, sha256: sha256(body) };
+  } else ci = writeCi(ciDirectory, input.ci);
+  const tableSatisfied = table.every(row => ["充足", "説明", "対象外"].includes(row.state) || (row.state === "受け入れ確認担当" && judged.some(judgedRow => judgedRow.source === row.source && judgedRow.judgment === "確認済み")));
+  // 受け入れ確認担当の行は、受け入れ確認担当が確認済みとしたときだけマージ可否の判定で満たしたことにする。CI 判定は result.json の head が対象版の head と同じで成功のときだけ満たす。
+  const mergeReadiness: MergeReadiness = status === "完了" && score === 5 && remainingChecks.length === 0 && tableSatisfied && ciPassed(ci, input.headCommit)
     ? "可（人のレビューなしでマージ可）" : "不可（人の判断が要る）";
+  const blockers = [
+    ...status === "完了" ? [] : [`最終状態 ${status}`],
+    ...score === 5 || score === null ? [] : [`確定した要対応の点数 ${score}`],
+    ...status === "完了" && !tableSatisfied ? ["対応表に満たしていない行がある"] : [],
+    ...remainingChecks.length ? [`確認が残る事項 ${remainingChecks.length} 件`] : [],
+    ...ciPassed(ci, input.headCommit) ? [] : [`CI 判定 ${ci.verdict}（${ci.reason}。result.json の head ${ci.headSha === input.headCommit ? "は" : "が"}対象版の head と${ci.headSha === input.headCommit ? "一致" : "不一致"}）`],
+  ];
+  // ラベルは報告の保存と作業ログの後に操作するが、報告には行う操作を書く。
+  const labeled = recorder.show(input.issueId).labels.includes("merge-ready");
+  const mergeReady: LabelOperation = mergeReadiness.startsWith("可") ? "付けた" : labeled ? "外した" : "付けていない";
   const remainingSummary = remainingChecks.map(check => `${check.source}（${check.owner}、${check.reason}）`).join("、");
   const target = `mode: commit／merge-base の SHA ${input.baseCommit}／head の SHA ${input.headCommit}`;
 
   mkdirSync(join(workDirectory, "refute"), { recursive: true });
-  mkdirSync(join(workDirectory, "parent", "tests"), { recursive: true });
-  const recordPath = join(workDirectory, "parent", "tests", "record.md");
-  writeFileSync(recordPath, [
-    "# テスト実行の記録", "",
-    `- checkout の SHA: ${input.testRun.headSha}`,
-    `- target.md の head の SHA: ${input.headCommit}`,
-    "- 作業ディレクトリの由来: 評価用の模擬記録。clone と detach checkout の手順を再現した記録で、実際の checkout とテストは実行していない",
-    `- コマンド: ${input.testRun.command}`,
-    `- 終了コード: ${input.testRun.result === "成功" ? 0 : input.testRun.result === "失敗" ? 1 : "なし（起動できず）"}`,
-    "- skip: 出力に skip の表示なし",
-    `- 判定: ${input.testRun.result}`, "",
-  ].join("\n"));
+  // 受け入れ確認への写しで固定した Activity。13節の再照合で同じ方法で比べる。
+  if (activity) {
+    mkdirSync(join(workDirectory, "acceptance-input", "records"), { recursive: true });
+    writeFileSync(join(workDirectory, "acceptance-input", "records", "activity.json"), JSON.stringify(activity.fixed));
+  }
+  for (const id of activity?.ownLogs ?? []) recordOwnLog(workDirectory, id, "写しの後・保存の前に親が書いた記録");
 
   const verdictPath = join(workDirectory, "refute", "verdict.md");
   const verdict = agents.refute ? [
@@ -358,9 +456,21 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     `- 点数の計算: ${status === "完了" ? `要対応 ${mustFix.length} 件（${mustFix.map(finding => `${finding.id}: ${finding.impact}`).join("、") || "なし"}）。最も重い影響度で ${score}。` : `${status}のため点数なし。`}点数は確定した要対応の影響度だけを表し、要求の確認率やマージ許可を表さない。`,
     `- 確認が残る事項: ${remainingChecks.length} 件（下の「確認が残る事項」の節）`,
     `- マージ可否: ${mergeReadiness}`,
+    ...(mergeReadiness.startsWith("不可") ? [`  - 不可の理由: ${blockers.join("／")}`] : []),
+    `- merge-ready: ${mergeReady}${mergeReady === "付けた" ? "" : `（${mergeReady === "外した" ? "付いていたが、" : ""}マージ可否が不可）`}。報告の保存と作業ログの直後に行う操作。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は判定した head SHA・基点・CI 判定・この報告の Document ID・runId とともに --kind test の作業ログに記録する`,
     `- 対象版: ${target}`, "",
     "### 確認が残る事項", "",
     ...(remainingChecks.length ? ["| 要求の出典 | 確かめる担当 | 理由 |", "|---|---|---|", ...remainingChecks.map(check => `| ${check.source} | ${check.owner} | ${check.reason} |`)] : ["なし"]), "",
+    "### CI の結果（親だけが照合）", "",
+    "親はテストを実行せず、同じ head SHA に対する CI の結果を GitHub から読むだけにした（評価用の模擬。偽 GitHub の観測を scripts/ci-checks.ts の result.json の形で記録した）。CI の結果はレビュー担当へ渡していない。", "",
+    ...(ci.verdict === "照合せず（未実施）" ? [`- CI 判定: ${ci.verdict}（${ci.reason}）`, `- 記録: ${ci.recordPath}（sha256 ${ci.sha256}）`] : [
+      `- CI 判定: ${ci.verdict}（${ci.reason}）`,
+      `- 必須のチェックと出典: ${ci.required.map(check => `${check.context}（app の指定なし。出典: ${check.sources.join("・")}）`).join("、") || "なし"}。ブランチ保護 ${ci.verdict === "必須のチェックを決められず" ? "決められず" : "0件（読めた）"}、ルールセット 0件（読めた）、Workspace の規約 ${ci.required.filter(check => check.sources.includes("workspace-rules")).length}件`,
+      `- 必須のチェックごとの結果: ${ci.required.map(check => `${check.context}=${check.result}${check.conclusion ? `（${check.conclusion}）` : ""}${check.url ? ` ${check.url}` : ""}`).join("、") || "なし"}`,
+      `- head SHA の一致: result.json の head ${ci.headSha} と target.md の head ${input.headCommit} が${ci.headSha === input.headCommit ? "一致" : "不一致"}`,
+      `- 観測時刻: ${ci.observedAt}（CI の完了を待たず、この時点の結果で判定した）`,
+      `- 記録: ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）`,
+    ]), "",
     "### 保存直前の受け入れ証拠の再照合", "",
     ...(agents.acceptance && status === "完了" ? [
       "- 取り直した時刻: 評価用の模擬（親が保存の直前に取り直した）",
@@ -372,9 +482,6 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       "- 親以外の追記は、種類・書いた人・返信先・本文を問わず、使用した証拠の有効性を確認できないものとして、判定に使った証拠を使ったすべての行の確認が残る事項にした。親自身の記録かどうかは書いた人ではなく own-logs の id で決めた。",
       "- この再照合は観測時点までの確認であり、将来の配置状態は保証しない。変化があっても、この実行では新しい証拠へ差し替えて判定し直さず、担当の判定本文・最終状態・点数を変えない。",
     ] : ["対象なし（受け入れ確認担当の有効な結果なし）"]), "",
-    "### テスト実行による検証", "",
-    `- 判定: ${input.testRun.result}`, `- checkout の SHA: ${input.testRun.headSha}（head の SHA と${input.testRun.headSha === input.headCommit ? "一致" : "不一致"}）`,
-    `- コマンド: ${input.testRun.command}`, `- 出力原本への参照: ${recordPath}`, "",
     "### 担当", "",
     "| 役割 | 定義名 | 担当 ID | 終了状態 |", "|---|---|---|---|",
     ...roles.map(([role, name, definition]) => `| ${name} | ${definition} | ${agents[role]?.id ?? "未取得"} | ${agents[role] ? "有効な結果を受領" : launched(role) ? "有効な結果なし" : role === "acceptance" && agents.refute ? "起動せず（受け入れ確認担当の行なし）" : "未起動"} |`),
@@ -386,7 +493,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "",
     "### 後続判断", "",
     status === "完了"
-      ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}`
+      ? `確定した要対応の点数 ${score}、要対応 ${mustFix.length} 件、確認が残る事項 ${remainingChecks.length} 件、CI 判定 ${ci.verdict}。マージ可否は${mergeReadiness}。${mergeReadiness.startsWith("不可") ? "人の判断なしにマージへ進めない。" : ""}${ci.verdict === "未確定" || ci.verdict === "結果なし" ? "CI の完了後に親の手順の13節の CI の再照合で判定し直す。" : ""}`
       : `独立レビュー${status}。Done・In Review・PR へ進めない。マージ可否は不可（人の判断が要る）。`, "",
     "### 独立性の限界", "",
     "探索と反証と受け入れ確認は別コンテキストで実行し、探索には異なるモデルを設定するが、見落としが共通する可能性は残り、設定だけで各実行の実効モデルの違いを証明するものではない。", "",
@@ -408,13 +515,20 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const attemptSummary = invalidAttempts.length
     ? `無効な試行: ${invalidAttempts.map(attempt => `${roleNames[attempt.role]}の${attempt.attempt}回目 ${attempt.id}（${attempt.result}: ${attempt.reason}。親による再委譲${attempt.redelegation}）`).join("、")}。`
     : "";
-  recorder.log(input.issueId, status === "完了"
-    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
-    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。テスト実行${input.testRun.result}（checkout ${input.testRun.headSha}）。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
+  const ciNote = `CI判定${ci.verdict}（head ${ci.headSha}）`;
+  const summary = recorder.log(input.issueId, status === "完了"
+    ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。${ciNote}。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
+    : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。${ciNote}。マージ可否${mergeReadiness}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
     status === "完了" ? "progress" : "blocker");
+  recordOwnLog(workDirectory, summary.id, "初回独立レビューの要約の作業ログ");
+  // 11節: 報告の保存と作業ログの後に merge-ready を付ける・外し、操作と根拠を --kind test に1件残す。
+  if (mergeReady === "付けた") recorder.label(input.issueId, "add", "merge-ready");
+  else if (mergeReady === "外した") recorder.label(input.issueId, "remove", "merge-ready");
+  const mergeReadyLog = recorder.log(input.issueId, mergeReadyRecord({ operation: mergeReady, blockers, head: input.headCommit, base: `${ci.base}（merge-base ${input.baseCommit}）`, ci, mergeReadiness, documentId: document.id, runId }), "test").id;
+  recordOwnLog(workDirectory, mergeReadyLog, "merge-ready の操作の記録（--kind test）");
 
   return {
-    independent: true, implementer: input.implementer, baseCommit: input.baseCommit, headCommit: input.headCommit,
+    independent: true, issueId: input.issueId, implementer: input.implementer, baseCommit: input.baseCommit, headCommit: input.headCommit,
     runId, workDirectory, status, score,
     target: { baseSha: input.baseCommit, headSha: input.headCommit },
     agents,
@@ -423,10 +537,100 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     verdict: verdict === null ? null : { path: verdictPath, sha256: sha256(verdict) },
     acceptance: acceptanceResult === null ? null : { path: acceptancePath, sha256: sha256(acceptanceResult) },
     acceptanceRows: judged,
-    testRun: { headSha: input.testRun.headSha, result: input.testRun.result, recordPath },
+    usedEvidence: used,
+    ci,
     remainingChecks,
     mergeReadiness,
+    mergeReady, mergeReadyLog,
     standards: input.standards,
     ...(input.spec ? { spec: input.spec } : {}),
   };
+}
+
+/** merge-ready の操作と判定の根拠の記録（11節・13節の --kind test）。 */
+function mergeReadyRecord(record: { operation: LabelOperation; blockers: string[]; head: string; base: string; ci: CiRecord | null; mergeReadiness: MergeReadiness; documentId: number; runId: string; recheck?: string }) {
+  const { operation, ci } = record;
+  return [
+    `merge-ready: ${operation}${operation === "付けた" ? "" : `（マージ可否が不可: ${record.blockers.join("、")}）`}。`,
+    `判定した head SHA ${record.head}、基点 ${record.base}、${ci ? ciSummary(ci) : "CI は照合せず"}、マージ可否${record.mergeReadiness}、`,
+    `報告Document ${record.documentId}、runId ${record.runId}${record.recheck ? `、${record.recheck}` : ""}、`,
+    `CI の記録 ${ci ? `${dirname(ci.recordPath)}/（${ci.recordPath.endsWith("result.json") ? "result.json" : "not-run.md"} の sha256 ${ci.sha256}）` : "なし"}。`,
+    "ラベルは現在の判定の表示で、自動マージの指示ではない。",
+  ].join("");
+}
+
+export type CiRecheck = {
+  number: number; reviewHead: string; currentHead: string; recordPath: string; reason: string;
+  ci: CiRecord | null; remainingChecks: RemainingCheck[]; mergeReadiness: MergeReadiness; mergeReady: LabelOperation; log: number;
+};
+/**
+ * 親の手順13節の CI の再照合（同じ head SHA）を、保存した初回レビューの作業ディレクトリで再現する。レビューはやり直さず、担当にも委譲しない。
+ * head が違えば照合せず、merge-ready が付いていれば外して「判定が古い（追加コミット）」を記録する。head が同じなら10節の3を同じ方法で取り直し
+ * （固定時の Activity と own-logs.md の id で比べる。要求の取り直しは評価用の模擬で変化なし）、CI を parent/ci/<n>/ に照合して10節の8と同じ規則でマージ可否を決める。
+ * 親の規則どおりに書くだけで、PMの判断は代行しない。記録は parent/recheck-<n>/record.md に置く。
+ */
+export function recheckReviewCi(review: InitialReview, input: { currentHead: string; ci?: CiInput; changed?: Record<string, string | null> }, recorder: ReviewRecorder): CiRecheck {
+  const parent = join(review.workDirectory, "parent");
+  const number = Math.max(readdirSync(join(parent, "ci")).length, readdirSync(parent).filter(name => name.startsWith("recheck-")).length) + 1;
+  const directory = join(parent, `recheck-${number}`);
+  mkdirSync(directory, { recursive: true });
+  const issue = recorder.show(review.issueId);
+  const labeled = issue.labels.includes("merge-ready");
+  const stale = input.currentHead !== review.headCommit;
+  const blocked = review.status !== "完了" || review.score !== 5 || review.remainingChecks.length > 0;
+  let ci: CiRecord | null = null;
+  let added: RemainingCheck[] = [];
+  let reason: string;
+  if (stale) reason = `判定が古い（追加コミット）。報告の head ${review.headCommit} と現在の head ${input.currentHead} が違うので照合しない。新しい head には新しいレビューが要る`;
+  else if (blocked) reason = `照合し直しても可にならない（最終状態 ${review.status}、確定した要対応の点数 ${review.score ?? "点数なし"}、報告の確認が残る事項 ${review.remainingChecks.length} 件）`;
+  else {
+    const fixedPath = join(review.workDirectory, "acceptance-input", "records", "activity.json");
+    const activity = existsSync(fixedPath) ? { fixed: JSON.parse(readFileSync(fixedPath, "utf8")) as ActivityItem[], current: issue.activity, ownLogs: readOwnLogs(review.workDirectory) } : undefined;
+    added = evidenceChecks(review.usedEvidence, input.changed ?? {}, activity, `CI の再照合 ${number} の取り直し`).checks;
+    if (!input.ci) throw new Error("同じ head の再照合には CI の観測が要る");
+    ci = writeCi(join(parent, "ci", String(number)), input.ci);
+    reason = added.length ? `確認が残る事項を ${added.length} 件加えた` : ciPassed(ci, review.headCommit) ? "報告の判定と同じ head SHA の CI 判定成功がそろった" : `CI 判定 ${ci.verdict}（${ci.reason}）`;
+  }
+  const mergeReadiness: MergeReadiness = !stale && !blocked && added.length === 0 && ci !== null && ciPassed(ci, review.headCommit) ? "可（人のレビューなしでマージ可）" : "不可（人の判断が要る）";
+  const mergeReady: LabelOperation = mergeReadiness.startsWith("可") ? "付けた" : labeled ? "外した" : "付けていない";
+  if (mergeReady === "付けた") recorder.label(review.issueId, "add", "merge-ready");
+  else if (mergeReady === "外した") recorder.label(review.issueId, "remove", "merge-ready");
+  const log = recorder.log(review.issueId, mergeReadyRecord({
+    operation: mergeReady, blockers: [reason], head: review.headCommit, base: review.ci.base, ci, mergeReadiness, documentId: review.reportDocument.id, runId: review.runId,
+    recheck: `CI の再照合 ${number}（現在の head ${input.currentHead}、記録 ${join(directory, "record.md")}、確認が残る事項の追加 ${added.length} 件${added.length ? `: ${added.map(check => `${check.source}（${check.reason}）`).join("、")}` : ""}）`,
+  }), "test").id;
+  recordOwnLog(review.workDirectory, log, `CI の再照合 ${number} の記録（--kind test）`);
+  const recordPath = join(directory, "record.md");
+  writeFileSync(recordPath, [
+    `# CI の再照合 ${number}（親の手順の13節）`, "",
+    `- 報告 Document: ${review.reportDocument.id}（runId ${review.runId}）。報告 Document は書き換えない`,
+    `- 比べた head: 報告の head ${review.headCommit}／現在の head ${input.currentHead}（${stale ? "不一致。照合しない" : "一致"}）`,
+    `- 要求・受け入れ証拠の再照合: ${stale || blocked ? "しない" : `要求は評価用の模擬で変化なし。受け入れ証拠は確認が残る事項を ${added.length} 件加えた`}`,
+    ...added.map(check => `  - ${check.source}（${check.owner}）: ${check.reason}`),
+    `- CI の記録: ${ci ? `${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）。${ciSummary(ci)}` : "照合しない"}`,
+    `- マージ可否: ${mergeReadiness}（${reason}）`,
+    `- merge-ready: ${mergeReady}`,
+    `- 書いた作業ログの id: ${log}（own-logs.md に記録）`, "",
+  ].join("\n"));
+  return { number, reviewHead: review.headCommit, currentHead: input.currentHead, recordPath, reason, ci, remainingChecks: added, mergeReadiness, mergeReady, log };
+}
+
+/** PR作業で取った CI 判定（null は照合しなかった）。ready は In Review へ移せる（同じ head の CI 判定が成功で、再照合で確認が残る事項が増えていない）こと。 */
+export type SubmissionCi = { headSha: string; verdict: CiRecord["verdict"] | null; ready: boolean; recheck?: CiRecheck };
+/**
+ * PR作業の終了条件（PMの実装手順）で、PR の head に対する CI 判定を取る。head が初回レビューの対象版と同じなら13節の再照合を行う。
+ * 違えば13節の再照合はせず（merge-ready が付いていれば13節の2で外す）、新しい head の CI をレビューの作業ディレクトリの外へ照合して --kind test に残す。
+ * 新しい head には merge-ready を付けない。
+ */
+export function checkSubmissionCi(review: InitialReview, input: { head: string; ci: CiInput }, recorder: ReviewRecorder): SubmissionCi {
+  if (input.head === review.headCommit) {
+    const recheck = recheckReviewCi(review, { currentHead: input.head, ci: input.ci }, recorder);
+    const verdict = recheck.ci?.verdict ?? null;
+    return { headSha: input.head, verdict, ready: verdict === "成功" && recheck.remainingChecks.length === 0, recheck };
+  }
+  if (recorder.show(review.issueId).labels.includes("merge-ready")) recheckReviewCi(review, { currentHead: input.head }, recorder);
+  const parent = dirname(review.workDirectory);
+  const ci = writeCi(join(parent, `ci-${input.head.slice(0, 12)}-${readdirSync(parent).filter(name => name.startsWith(`ci-${input.head.slice(0, 12)}`)).length + 1}`), input.ci);
+  recorder.log(review.issueId, `PR の head ${input.head} の CI 判定（初回レビューの対象版 ${review.headCommit} と違うので13節の再照合はしない）: ${ciSummary(ci)}。基点 ${ci.base}。CI の記録 ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）。修正後の head には merge-ready を付けない（新しい head のマージ可否には新しいレビューが要る）。`, "test");
+  return { headSha: input.head, verdict: ci.verdict, ready: ci.verdict === "成功" && ci.headSha === input.head };
 }
