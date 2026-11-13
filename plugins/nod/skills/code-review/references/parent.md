@@ -17,28 +17,29 @@
 ## 1. 対象・基点・要求を特定する
 
 - 依頼や実装工程から引き継いだ対象リポジトリ・基点・対象版・Issue・Document は聞き直さない。対象リポジトリまたは基点が依頼に無いときだけ利用者に確認する。
-- PR を指定された場合は `gh` で実際のリポジトリ・基点・head を特定する。Issue をブランチ名から推測しない。
-- コミットのレビュー（`mode: commit`）: `git -C <repo> rev-parse <head>` で head の SHA、`git -C <repo> merge-base <基点> <head>` で merge-base の SHA を固定する。
-- 明示された未コミット変更のレビュー（`mode: local`）: 明示されたときだけ行い、commit や stash を作らない。土台の HEAD の SHA を固定し、merge-base は基点と土台の HEAD から求める。差分は表示用の変換を無効にして `git -C <repo> --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD` で写し、未追跡ファイルは指定されたものだけを写す。
-- `mode: commit` では、head を固定した元を記録する。PR なら PR の URL、ブランチ名や `HEAD` などの ref から固定したなら `<repo>` とその ref、SHA だけで指定されたなら「ref なし」とし、2節で作業ディレクトリを作った後に親専用領域の `parent/head-source.md` に書く（担当へ渡す `target.md` には書かない）。10節の8と11節では、この元から対象の現在の head（PR なら基点も）を取り直す。
-- 本文を読む前に、変更されたパス（`mode: commit` は `git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head>` を NUL で区切って読み、日本語などを含むパスも引用符なしの名前で調べる。`mode: local` は土台の HEAD までのコミット済みの差分 `git -C <repo> diff --no-ext-diff --no-textconv --name-only <merge-base> <土台の HEAD>` と、未コミットの差分 `git -C <repo> --no-optional-locks diff --no-ext-diff --no-textconv --name-only HEAD` と、指定された未追跡パスの全部）に、秘密情報を含み得るファイルが無いことを確かめる。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば、差分の本文を写さず、委譲も CI の照合もせず、`未実施`（理由: 秘密情報を含み得る <パス> が差分にあり、必要な範囲を利用者が確かめる必要がある）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
+- PR を指定された場合は `gh pr view <PR> --json url,headRefOid,baseRefName` などで実際のリポジトリ・基点・head の SHA を特定する。Issue をブランチ名から推測しない。
+- コミットのレビューは `mode: commit`（head は SHA、またはブランチ名・`HEAD` などの ref）。明示された未コミット変更のレビューは、明示されたときだけ `mode: local` とし、commit や stash を作らない。未追跡ファイルは指定されたものだけを渡す。
+- Issue の無い単独レビューでは、利用者が明示した要求（ファイルか Document）だけを渡す。
+
+## 2. 対象を固定し、共通入力を作る（スクリプト）
+
+1節で決めた値で、このスキルの `scripts/review.ts prepare` を1回実行する。スクリプトが、対象の SHA の固定、秘密候補と空差分の検査、担当用の限定 clone と確認（2.1節）、依存の写しと指紋（2.2節）、共通入力と目録（2.3節）、head を固定した元の記録を行う。親はこれらを手で繰り返さず、テストを実行しない。
 
 ```sh
-git -C <repo> diff --no-ext-diff --no-textconv --name-only -z <merge-base> <head> | tr '\0' '\n' \
-  | grep -iE '(^|/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(/|$)'   # 1行でも出れば秘密候補あり。-z で取り、日本語などを含むパスも引用符なしの名前で調べる
+# スクリプトはこのスキルのディレクトリ（SKILL.md があるディレクトリ。Claude Code では「Base directory for this skill」として示される）から解決する。リポジトリの作業ディレクトリの plugins/ を使わない
+bun <スキルのディレクトリ>/scripts/review.ts prepare --repo <元のリポジトリの絶対パス> --base <基点の指定> \
+  --mode commit --head <head の SHA か ref> [--pr <PR の URL>]   # PR なら --head は gh で解決した40桁の SHA
+  # mode: local なら --mode local [--untracked <リポジトリのルートからの相対パス>]...（土台の HEAD を固定する）
+  # 要求: --issue <Issue ID>、Issue が無ければ --request <ファイルの絶対パス>... / --request-doc <Document ID>...（無ければ省く）
 ```
-- 差分が空なら委譲も CI の照合もせず、`未実施`（理由: 差分なし）・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。
 
-## 2. 作業ディレクトリを作り、共通入力を固定する
+- 作業ディレクトリ `<W>` は実行ごとに `$HOME/.local/share/nod/code-reviews/<runId>`（runId は小文字の uuid）に作られる。結果は標準出力の1行の JSON と、同じ内容の `parent/prepare.json` に出る（`work` が `<W>`、`runId`、`mergeBase`・`head`（`mode: local` では土台の HEAD）、`headSource`、`clone`、`deps`、`inputs`（`input/` の各ファイルの sha256）、`unavailable`（取得できなかった資料と理由））。
+- 終了コード 2 は引数の誤り（相対パス、解決できない ref、追跡済みのファイルを `--untracked` に渡したなど）で、判定ではない。呼び出しを直して実行し直す。それ以外の 0 以外の終了コードは予期しない失敗で、委譲しない。
+- `ready` が false なら `status` は `未実施` で、委譲も CI の照合もせず、`reason` を理由・点数なし・マージ可否 `不可（人の判断が要る）` として報告する（11節）。理由は、秘密情報を含み得る <パス> が差分にある（必要な範囲を利用者が確かめる必要がある）、差分なし、担当用の限定 clone を作れない（<通らなかった確認>）のどれか。
+- 秘密候補は、本文を写す前に変更されたパスの名前だけで調べる（`mode: commit` は merge-base から head までの差分、`mode: local` はそれに未コミットの差分と指定された未追跡パスを加えたもの。名前は NUL 区切りで読み、日本語などを含むパスも引用符なしの名前で調べる）。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば止まり、差分の本文・限定 clone・依存の写し・要求の写しを作らない。
+- `mode: commit` では、head を固定した元（PR なら URL、ref から固定したなら `<repo>` とその ref、SHA だけなら「ref なし」）が親専用領域の `parent/head-source.md` に書かれる（担当へ渡す `target.md` には書かない）。10節の8と11節では、この元から対象の現在の head（PR なら基点も）を取り直す。
 
-実行ごとに一意な作業ディレクトリを作る。ディレクトリの分離は担当への指示の境界であり、アクセス遮断ではない。以下、依頼の対象リポジトリ（元のリポジトリ）を `<repo>`、担当用の限定 clone を `<W>/repo` と書く。担当には元のリポジトリを渡さない。
-
-```sh
-RUN=$(uuidgen | tr 'A-Z' 'a-z')
-W="$HOME/.local/share/nod/code-reviews/$RUN"
-mkdir -p "$W/input/requirements" "$W/standards/notes" "$W/spec/notes" "$W/refute-input" "$W/refute/notes" "$W/parent/deps"
-# 受け入れ確認担当が必要になったときだけ、8節で "$W/acceptance-input/records" "$W/acceptance-input/evidence" "$W/acceptance/notes" を作る
-```
+ディレクトリの分離は担当への指示の境界であり、アクセス遮断ではない。以下、元のリポジトリを `<repo>`、担当用の限定 clone を `<W>/repo` と書く。担当には元のリポジトリを渡さない。
 
 | 場所 | 用途 | 書く人 | 読む人 |
 |---|---|---|---|
@@ -51,89 +52,40 @@ mkdir -p "$W/input/requirements" "$W/standards/notes" "$W/spec/notes" "$W/refute
 | `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親（検査と受け入れ確認への写し） |
 | `acceptance-input/` | 受け入れ確認への入力（共通入力と反証の判定本文の写し、委譲前に写した Activity・添付 Document の原文 `records/`、それらが明示的に参照する記録と反証が名指しした外部の正本の写しと観測 `evidence/`、目録 `records.md`）。8節で必要なときだけ作る | 親 | 受け入れ確認担当 |
 | `acceptance/` | 受け入れ確認の `result.md` と `notes/` | 受け入れ確認担当 | 親 |
-| `parent/` | 親専用領域（取得結果、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と現在の head の照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、検査記録、指紋、担当の対応表、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認の写しの取得記録と CI の結果を除く前の元の写し `parent/acceptance/`、保存直前の受け入れ証拠の取り直し `parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿） | 親 | 親だけ |
+| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と現在の head の照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、検査記録、指紋、担当の対応表、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、受け入れ確認の写しの取得記録と CI の結果を除く前の元の写し `parent/acceptance/`、保存直前の受け入れ証拠の取り直し `parent/acceptance-recheck/`、CI の照合の記録 `parent/ci/<n>/`、CI の再照合での取り直し `parent/recheck-<n>/`、報告の原稿） | 親 | 親だけ |
 
-### 2.1 担当用の限定 clone を作る
+### 2.1 担当用の限定 clone
 
-head（`mode: local` では土台の HEAD）とその祖先（merge-base を含む）の commit だけを持つ clone を `<W>/repo` に作り、全担当へ対象リポジトリとして渡す。他のブランチ・タグなどの ref、remote、元の object DB への参照（alternates など）、`FETCH_HEAD` のような元のリポジトリへの参照を持たせず、作業ツリーは空にする。
+スクリプトは、元のリポジトリを変えずに、head（`mode: local` では土台の HEAD）とその祖先（merge-base を含む）の commit だけを持つ clone を `<W>/repo` に作り、次をすべて確かめて、コマンドと出力を元のリポジトリのパスと一緒に `parent/clone.md`（結果は `parent/prepare.json` の `clone.checks`）に書く: ref・remote・alternates・`FETCH_HEAD` が無い、HEAD が head、merge-base が head の祖先、commit と object が head から辿れるものだけ、index と作業ツリーが空、`.git`（objects を除く）に元のリポジトリのパスが無い。
 
-```sh
-R="$W/repo"; H=<head の SHA（mode: local では土台の HEAD の SHA）>; MB=<merge-base の SHA>
-git init -q "$R"
-git -C "$R" -c gc.auto=0 -c maintenance.auto=false fetch -q --no-tags --no-write-fetch-head \
-  --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' <repo> "$H"
-git -C "$R" update-ref --no-deref HEAD "$H"   # ref を作らず、HEAD だけを head に向ける
-```
+- `target.md` の対象リポジトリはこの clone の絶対パスになる。元のリポジトリのパスは `parent/` にだけ置き、依頼本文・`input/`・`refute-input/` に入れない（`acceptance-input/` では、参照された記録の出典に元のリポジトリの作業ツリーのパスが出ることがある。8節）。
+- 確認が通らない clone を担当に渡さない（スクリプトは `未実施` を返す）。
 
-作った後、次をすべて確かめ、コマンドと出力を元のリポジトリのパスと一緒に `parent/clone.md` に書く。
+### 2.2 依存の写し
 
-```sh
-git -C "$R" for-each-ref                     # 何も出ない（ブランチ・タグなどの ref が無い）
-git -C "$R" remote -v                        # 何も出ない（remote が無い）
-test ! -e "$R/.git/objects/info/alternates" && test ! -e "$R/.git/FETCH_HEAD" && echo ok   # 元の object DB・fetch 元を参照しない
-git -C "$R" rev-parse HEAD                   # $H と一致
-git -C "$R" merge-base --is-ancestor "$MB" "$H" && echo ok   # merge-base を持ち、head の祖先である
-echo "$(git -C "$R" rev-list --count --all) $(git -C "$R" rev-list --count "$H")"   # 2つが一致（head の祖先の commit だけ）
-echo "$(git -C "$R" cat-file --batch-all-objects --batch-check='%(objectname)' | sort -u | wc -l) $(git -C "$R" rev-list --objects --all | cut -d' ' -f1 | sort -u | wc -l)"   # 2つが一致（head から辿れない object が無い）
-git -C "$R" ls-files | wc -l                 # 0（index が空）
-ls -A "$R"                                   # .git だけ（作業ツリーが空）
-grep -rlF <repo> "$R/.git" --exclude-dir=objects   # 何も出ない（元のリポジトリのパスを持たない）
-```
+担当が固定した依存のコードを外部へ取りに行かないよう、スクリプトは head（`mode: local` では土台の HEAD）の版のルートの lockfile から、lockfile どおりに入れる指定とスクリプトを実行しない指定の両方を持つパッケージ管理だけで配布物を準備する（`bun.lock`・`bun.lockb` は `bun install --frozen-lockfile --ignore-scripts`、`package-lock.json` は `npm ci --ignore-scripts`、`pnpm-lock.yaml` は `pnpm install --frozen-lockfile --ignore-scripts`、`yarn.lock` は v1 なら `yarn install --frozen-lockfile --ignore-scripts`、Yarn 2 以降なら `.yarnrc.yml` の `yarnPath` の Yarn で `node <yarnPath> install --immutable --mode=skip-build`）。
 
-- `target.md` の対象リポジトリには、この clone の絶対パスを書く。元のリポジトリのパスは `parent/clone.md` にだけ書き、依頼本文・`input/`・`refute-input/` に入れない（`acceptance-input/` では、参照された記録の出典に元のリポジトリの作業ツリーのパスが出ることがある。8節）。
-- clone を作れない、またはどれかの確認が通らない場合は、委譲も CI の照合もせず、`未実施`（理由: 担当用の限定 clone を作れない（<通らなかった確認>））・点数なし・マージ可否 `不可（人の判断が要る）` として報告する。確認が通らない clone を担当に渡さない。
+- 固定版を限定 clone から `parent/deps/` の作業領域へ展開して準備し、`node_modules` だけをリンクのまま `<W>/deps/` へ写し、指紋の一覧 `input/deps-files.sha256`（ファイルごとの sha256 の後にリンクごとの `link <パス> -> <リンク先>`）を作って、作業領域を片付ける。写しの外を指すリンク（ワークスペースのパッケージなど）の中身は、担当が限定 clone の固定版で読む。
+- lockfile が無い、ルート以外にしか無い、どれを使うか固定版から決められない複数の lockfile がある（`package.json` の `packageManager` で決まる場合を除く）、形式や Yarn の版を決められない、準備の終了コードが 0 以外、`node_modules` が作られない場合は、`deps/` を置かず、理由が `manifest.md` に書かれる。担当はその依存の確認を未確認に残す。
+- `mode: local` で未コミットの変更が lockfile やパッケージ定義を変えている場合も、写しは土台の HEAD の lockfile から作り、その旨が `manifest.md` に書かれる。
+- 準備のコマンド・終了コード・パッケージ管理とその版・取得元・`setup.log` の sha256・作業領域を片付けたことは `parent/deps/` に書かれる。`setup.log` は担当に渡さない。
 
-### 2.2 依存の写しを準備する
+### 2.3 共通入力
 
-担当が固定した依存のコードを外部へ取りに行かないよう、head（`mode: local` では土台の HEAD）の版の lockfile から依存パッケージの配布物を準備し、その写しを `<W>/deps/` に置く。
+`input/` には次だけが置かれる。
 
-- 対象は、固定版のリポジトリのルートにある lockfile で、lockfile どおりに入れる指定とスクリプトを実行しない指定の両方を持つパッケージ管理のものだけとする（例: `bun.lock`・`bun.lockb` は `bun install --frozen-lockfile --ignore-scripts`、`package-lock.json` は `npm ci --ignore-scripts`、`pnpm-lock.yaml` は `pnpm install --frozen-lockfile --ignore-scripts`）。
-- lockfile が無い、ルート以外にしか無い、どれを使うか固定版から決められない複数の lockfile がある、対応しないパッケージ管理である、準備の終了コードが 0 以外である場合は、`deps/` を置かず、その旨と理由を `manifest.md` に書く。担当はその依存の確認を未確認に残す。
-- `mode: local` で未コミットの変更が lockfile やパッケージ定義を変えている場合も、写しは土台の HEAD の lockfile から作り、その旨を `manifest.md` に書く。
-
-```sh
-B="$W/parent/deps/build"; mkdir -p "$B"
-git -C "$R" archive "$H" | tar -x -C "$B"                     # 固定版を限定 clone から展開する
-git -C "$R" show "$H:<lockfile>" | shasum -a 256               # lockfile の sha256
-(cd "$B" && <lockfile どおりに入れ、スクリプトを実行しないコマンド>) > "$W/parent/deps/setup.log" 2>&1; echo "deps exit=$?"
-mkdir -p "$W/deps"
-(cd "$B" && find . -type d -name node_modules -prune -print0 | tar --null -cf - -T -) | tar -xf - -C "$W/deps"   # 配布物（node_modules）だけを写す
-(cd "$W/deps" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 \
-  && find . -type l -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' l; do printf 'link %s -> %s\n' "$l" "$(readlink "$l")"; done) \
-  > "$W/input/deps-files.sha256"                               # 写しの指紋の一覧（ファイルごとの sha256 とリンク先）
-rm -rf "$B"
-```
-
-- 写しの中のリンクは、リンクのまま写す。写しの外を指すリンク（ワークスペースのパッケージなど）の中身は、担当が限定 clone の固定版で読む。
-- `parent/deps/` には、準備のコマンド・終了コード・パッケージ管理とその版・取得元（使った registry の URL）・`setup.log` の sha256・展開した作業領域を片付けたことを書く。`setup.log` は担当に渡さない。
-
-### 2.3 共通入力を写す
-
-`input/` には次だけを置く。
-
-- `target.md`: 対象リポジトリ（担当用の限定 clone `<W>/repo` の絶対パス。元のリポジトリのパスは書かない）、依存の写しの場所（`<W>/deps/`、または「依存の写しなし（理由は manifest.md）」）、基点の指定、merge-base の SHA、head の SHA、`mode: commit` または `mode: local`、Issue（ID またはなし）、計画の出典の扱い。`mode: local` では土台の HEAD の SHA、`local/changes.diff`、`local/untracked/<相対パス>` の一覧も書く。
-- `local/`（`mode: local` のときだけ）: `changes.diff` と、指定された未追跡ファイルの写し `untracked/<相対パス>`。
-- `deps-files.sha256`（依存の写しを準備できたときだけ）: 2.2節の指紋の一覧。
+- `target.md`: 対象リポジトリ（限定 clone `<W>/repo` の絶対パス）、依存の写しの場所（`<W>/deps/`、または「依存の写しなし（理由は manifest.md）」）、基点の指定、merge-base と head の SHA、`mode`、Issue（ID またはなし）、計画の出典の扱い。`mode: local` では土台の HEAD の SHA、`local/changes.diff`、`local/untracked/<相対パス>` の一覧も書く。
+- `local/`（`mode: local` のときだけ）: 表示用の変換を無効にした未コミットの差分 `changes.diff`（`git --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD`）と、指定された未追跡ファイルの写し `untracked/<相対パス>`。
+- `deps-files.sha256`（依存の写しを準備できたときだけ）。
 - `requirements/`: 要求の原文。丸ごと写し、選別・要約・書き換えをしない。
   - `issue.md`: Issue のタイトルと本文だけ。
   - `spec-<DocumentID>.md`: Issue に現在リンクされたすべての `kind=spec` の Document の本文。1件に絞らない。
-  - `plan-<DocumentID>.md`: Issue の計画の出典（`plan.source`）が指す `kind=plan` の Document だけ。
-  - `workspace-rules.md`: Git 管理外の Workspace の規約の原文（未登録ならその旨の出力）。
-- `manifest.md`: `input/` の各ファイルの sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由、依存の写しの節（場所 `<W>/deps/`、lockfile のパス `<lockfile>@<head の SHA>` と sha256、パッケージ管理とその版、準備のコマンド（スクリプトを実行しない指定を含む）と終了コード、取得元、指紋の一覧 `deps-files.sha256` とそのファイル数。準備しなかった・できなかった場合はその旨と理由）。
+  - `plan-<DocumentID>.md`: Issue の計画の出典（`plan.source`）が指す `kind=plan` の Document だけ。解決できない・読めない場合は別の計画で代用せず、「計画の出典を解決できず不足（<plan.source>）」と書かれる。出典が無ければ「計画の出典なし」。
+  - `workspace-rules.md`: Git 管理外の Workspace の規約の原文（`nod -w <repo> workspace rules show` の出力。未登録ならその旨の出力）。
+  - Issue の無い単独レビューでは、`issue.md`・`spec-*`・`plan-*` の代わりに、利用者が明示した要求の原文だけを `request-<n>.md` に丸ごと写し、`target.md` に「Issue なし」と書く（明示された要求が無ければ「Workspace の規約以外の要求資料なし」）。`workspace-rules.md` はどちらの場合も写す。
+- `manifest.md`: `input/` の各ファイル（`manifest.md` 自身を除く）の sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由（読めなかった `kind=spec` の Document など）、依存の写しの節（場所、lockfile のパス `<lockfile>@<head の SHA>` と sha256、パッケージ管理とその版、準備のコマンドと終了コード、取得元、`deps-files.sha256` の件数。準備しなかった・できなかった場合は理由）。
 
-```sh
-nod --json issue show <Issue ID> > "$W/parent/issue-snapshot.json"
-jq -r '"# \(.title)\n\n\(.description // "")"' "$W/parent/issue-snapshot.json" > "$W/input/requirements/issue.md"
-jq -r '.documents[] | select(.kind == "spec") | .id' "$W/parent/issue-snapshot.json"   # 各 ID を nod --json doc show <ID> の .content で spec-<ID>.md へ写す
-jq -r '.plan.source // empty' "$W/parent/issue-snapshot.json"                            # この path と一致する kind=plan の Document だけを plan-<ID>.md へ写す
-nod -w <repo> workspace rules show > "$W/input/requirements/workspace-rules.md"
-(cd "$W/input" && find . -type f ! -path ./manifest.md -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)   # manifest.md の指紋（除くのは目録自身の ./manifest.md だけ。空白を含むパスも1件として扱う）
-```
-
-- 計画の出典が Document に解決できない、または本文を読めない場合は、別の計画で代用せず写さない。`target.md` と `manifest.md` に「計画の出典を解決できず不足（<plan.source>）」と書く。計画の出典が無い場合は「計画の出典なし」と書く。
-- `kind=spec` の Document の本文を読めない場合も写さず、`manifest.md` に取得できなかった Document と理由を書く。
-- Issue の無い単独レビューでは、`issue.md`・`spec-*`・`plan-*` の代わりに、利用者が明示した要求の原文（Document やファイル）だけを `requirements/request-<n>.md` に丸ごと写し、`target.md` に「Issue なし」と書く。明示された要求が無ければ「Workspace の規約以外の要求資料なし」と書く。`workspace-rules.md` はどちらの場合も写す。
-- `nod issue show` の全出力、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、CI の結果と親の CI の照合の記録（`parent/ci/`）、依存の準備の記録（`parent/deps/`）、元のリポジトリのパス、計画の進捗状態は `input/` に入れない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。Activity と添付 Document の原文は、受け入れ確認担当が必要になったときだけ、8節で `acceptance-input/` へ別に写す（探索・反証の担当には渡さない）。
+`nod issue show` の全出力（`parent/issue-snapshot.json`）、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、CI の結果と親の CI の照合の記録（`parent/ci/`）、依存の準備の記録（`parent/deps/`）、元のリポジトリのパス、計画の進捗状態は `input/` に入らない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。Activity と添付 Document の原文は、受け入れ確認担当が必要になったときだけ、8節で `acceptance-input/` へ別に写す（探索・反証の担当には渡さない）。`unavailable` に資料があっても、親は別の資料で代用しない（担当が不足として扱う）。
 
 ## 3. CI の結果を扱う（親だけ）
 
