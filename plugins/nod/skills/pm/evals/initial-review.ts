@@ -99,6 +99,7 @@ export type InitialReview = {
   /** 起動した役割ごとの試行（最初の試行と、親による1回限りの再委譲）。 */
   attempts: ReviewAttempt[];
   reportDocument: { id: number; path: string };
+  auditDocument: { id: number; path: string };
   verdict: { path: string; sha256: string } | null;
   /** 受け入れ確認担当の結果 acceptance/result.md。起動して有効な結果を受け取ったときだけ。 */
   acceptance: { path: string; sha256: string } | null;
@@ -466,7 +467,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   }
   const acceptanceBody = acceptanceResult ?? (rows.length || !agents.refute ? `未受領（${reason}）\n` : "受け入れ確認担当の行なし（起動せず）\n");
 
-  const report = [
+  const audit = [
     "## 管理情報（親が記入）", "",
     `- runId: ${runId}`, `- 作業ディレクトリ: ${workDirectory}`,
     `- 最終状態: ${status === "完了" ? "完了" : `${status}（理由: ${reason}）`}`,
@@ -536,9 +537,40 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     "<!-- acceptance-result:begin -->",
     acceptanceBody,
   ].join("\n") + "<!-- acceptance-result:end -->\n";
-  writeFileSync(join(workDirectory, "parent", "report.md"), report);
+  writeFileSync(join(workDirectory, "parent", "audit.md"), audit);
 
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const auditDocument = recorder.createDocument(input.issueId, `${input.issueId.toLowerCase()}-code-review-audit-${date}-${shortRun}.md`, `${input.issueId} コードレビュー監査（${shortRun}）`, audit);
+  const cell = (text: string) => text.replaceAll("|", "\\|").replace(/\r?\n/g, " ");
+  const severity = (impact: number) => ["Critical", "Critical", "High", "Medium", "Low"][impact];
+  const report = [
+    "## 結果", "",
+    `- 最終状態: ${status === "完了" ? status : `${status}（理由: ${reason}）`}`,
+    `- 確定した要対応の点数: ${score ?? "点数なし"}`,
+    `- 確認が残る事項: ${remainingChecks.length} 件`,
+    `- 対象: ${input.headCommit}（基点 ${input.baseCommit}）`,
+    "<!-- ci-result:begin -->",
+    `- マージ可否: ${mergeReadiness}`,
+    ...(blockers.length ? [`- 理由: ${blockers.join("／")}`] : []),
+    `- CI 判定: ${ci.verdict}`,
+    `- merge-ready: ${mergeReady}`,
+    "<!-- ci-result:end -->", "",
+    "## 要対応", "",
+    ...(mustFix.length ? [
+      "| ID | Severity（影響度） | 問題 | 場所・影響の根拠 |",
+      "|---|---|---|---|",
+      ...mustFix.map(finding => `| ${cell(finding.id)} | ${severity(finding.impact!)}（${finding.impact}） | ${cell(finding.category)} | ${cell(finding.evidence)} |`),
+    ] : ["なし"]), "",
+    `## 未確認（${remainingChecks.length}件）`, "",
+    ...(remainingChecks.length ? [
+      "| 出典 | 確認する人・担当 | 不足している確認 |", "|---|---|---|",
+      ...remainingChecks.map(check => `| ${cell(check.source)} | ${cell(check.owner)} | ${cell(check.reason)} |`),
+    ] : ["なし"]), "",
+    "## 監査記録", "",
+    `- Document ${auditDocument.id}（${auditDocument.path}）`,
+    `- runId: ${runId}`, "",
+  ].join("\n");
+  writeFileSync(join(workDirectory, "parent", "report.md"), report);
   const document = recorder.createDocument(input.issueId, `${input.issueId.toLowerCase()}-code-review-${date}-${shortRun}.md`, `${input.issueId} コードレビュー結果（${shortRun}）`, report);
   const assignment = roles.filter(([role]) => agents[role]).map(([role, name, definition]) => `${name}=${definition}/${agents[role]?.id}`).join("、");
   const invalidAttempts = attempts.filter(attempt => attempt.result !== "有効");
@@ -546,7 +578,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ? `無効な試行: ${invalidAttempts.map(attempt => `${roleNames[attempt.role]}の${attempt.attempt}回目 ${attempt.id}（${attempt.result}: ${attempt.reason}。親による再委譲${attempt.redelegation}）`).join("、")}。`
     : "";
   // CI 判定・マージ可否・merge-ready は要約に書かず、[ci-result] で始まる --kind test の記録だけに書く（3節）。
-  const ciNote = "CI判定・マージ可否・merge-readyは[ci-result]の作業ログを参照";
+  const ciNote = `監査Document ${auditDocument.id}。CI判定・マージ可否・merge-readyは[ci-result]の作業ログを参照`;
   const summary = recorder.log(input.issueId, status === "完了"
     ? `初回独立レビュー完了。確定した要対応の点数${score}。要対応${mustFix.map(finding => finding.id).join("、") || "なし"}。${judged.length ? `受け入れ確認: ${judged.map(row => `${row.source}=${row.judgment}`).join("、")}。` : ""}確認が残る事項${remainingChecks.length}件${remainingSummary ? `（${remainingSummary}）` : ""}。${ciNote}。報告Document ${document.id}。runId ${runId}。担当: ${assignment}。${attemptSummary}`
     : `初回独立レビュー${status}。原因: ${reason}。取得できた担当: ${assignment || "なし"}。${attemptSummary}点数なし。${ciNote}。報告Document ${document.id}。runId ${runId}。Done・In Review・PRへ進めない。`,
@@ -565,6 +597,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     agents,
     attempts,
     reportDocument: { id: document.id, path: document.path },
+    auditDocument: { id: auditDocument.id, path: auditDocument.path },
     verdict: verdict === null ? null : { path: verdictPath, sha256: sha256(verdict) },
     acceptance: acceptanceResult === null ? null : { path: acceptancePath, sha256: sha256(acceptanceResult) },
     acceptanceRows: judged,

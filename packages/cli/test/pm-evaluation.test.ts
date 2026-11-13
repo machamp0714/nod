@@ -35,14 +35,27 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   expect(report.review.reviewer).toBeUndefined();
   const agentIds = Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id);
   expect(new Set([...agentIds, report.review.implementer]).size).toBe(4);
-  // 報告Documentは作業ログの要約とは別に実nodへ保存され、反証担当の原文を保存原本のまま収録する。
-  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env });
+  // 監査Documentに原文を保存し、利用者向け結果は別Documentから参照する。
+  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env });
   expect(shown.exitCode).toBe(0);
   const document = JSON.parse(shown.stdout.toString());
   expect(document).toMatchObject({ kind: "doc", issues: [{ id: "API-1" }] });
   const verdict = readFileSync(report.review.verdict.path, "utf8");
   expect(createHash("sha256").update(verdict).digest("hex")).toBe(report.review.verdict.sha256);
   expect(document.content).toContain(`<!-- refute-verdict:begin -->\n${verdict}<!-- refute-verdict:end -->`);
+  const resultDocument = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+  expect(resultDocument).toMatchObject({ kind: "doc", issues: [{ id: "API-1" }] });
+  expect(resultDocument.id).not.toBe(document.id);
+  expect(resultDocument.content).toContain(`Document ${document.id}（${report.review.auditDocument.path}）`);
+  expect(resultDocument.content).toContain("## 要対応\n\nなし");
+  expect(resultDocument.content).toContain("## 未確認（0件）\n\nなし");
+  expect(resultDocument.content).toContain("- マージ可否: 可（人のレビューなしでマージ可）");
+  for (const detail of ["refute-verdict:begin", "acceptance-result:begin", "### 試行の記録", "sha256", "### 担当"]) expect(resultDocument.content).not.toContain(detail);
+  for (const content of [resultDocument.content, document.content]) {
+    expect(content).toContain(`runId: ${report.review.runId}`);
+    expect(content).toContain("a".repeat(40));
+    expect(content.replace(/<!-- ci-result:begin -->\n[\s\S]*?<!-- ci-result:end -->/g, "")).not.toContain("- マージ可否:");
+  }
   // 親はテストを実行せず、同じheadのCIの照合を parent/ci/1/result.json に残し、報告のCIの節に必須のチェックごとの結果を書く。
   const ci = JSON.parse(readFileSync(report.review.ci.recordPath, "utf8"));
   expect(report.review.ci.recordPath).toBe(`${report.review.workDirectory}/parent/ci/1/result.json`);
@@ -102,7 +115,7 @@ test("初回レビューの保存時に対象の現在のheadが固定したhead
   expect(record.body).toContain(`現在の head ${"c".repeat(40)}（不一致）`);
   // 比べた結果は親専用領域と報告の ci-result の印の中に残る。
   expect(readFileSync(`${review.workDirectory}/parent/head-check.md`, "utf8")).toContain(`- マージ可否を決める直前: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致。対象版が現在の head と違う（追加コミット））`);
-  const document = nod("doc", "show", String(review.reportDocument.id)) as { content: string };
+  const document = nod("doc", "show", String(review.auditDocument.id)) as { content: string };
   expect(between(document.content, "ci-result")).toContain(`- 現在の head の照合: 固定した head ${"a".repeat(40)}／現在の head ${"c".repeat(40)}（不一致`);
 });
 
@@ -161,8 +174,8 @@ test("PM評価の受け入れ確認担当が確認済みとした初回レビュ
   const result = readFileSync(report.review.acceptance.path, "utf8");
   expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
   expect(result).toContain("- 判定: 確認済み");
-  // 報告Documentは反証の判定本文と受け入れ確認の結果を、それぞれ原文のまま印の間に収録する。
-  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env });
+  // 原文の同一性は監査Documentで確かめる。
+  const shown = Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env });
   const document = JSON.parse(shown.stdout.toString());
   expect(between(document.content, "refute-verdict")).toBe(verdict);
   expect(between(document.content, "acceptance-result")).toBe(result);
@@ -192,7 +205,7 @@ test("PM評価の保存直前の再照合は親自身の記録・Issueのイベ�
   expect(issue.activity.filter(item => item.kind === "comment" && item.logKind === null && item.actor === "codex" && item.body?.startsWith("独立レビューの途中経過"))).toHaveLength(1);
   expect(issue.activity.filter(item => item.body === "進捗: 一覧画面のスクリーンショットを整理している" && item.logKind === "progress" && item.resolvedAt)).toHaveLength(1);
   expect(issue.activity.filter(item => item.kind === "event" && item.type === "priority_changed" && item.actor === "me")).toHaveLength(1);
-  const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+  const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env }).stdout.toString());
   for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 0 件", "- マージ可否: 可（人のレビューなしでマージ可）"]) expect(document.content).toContain(`\n${line}`);
   expect(document.content).toContain("### 保存直前の受け入れ証拠の再照合");
   expect(document.content).toMatch(/- 固定の後に足された Activity: \d+ 件（親以外の追記 0 件。止めなかった親自身の記録 2 件、Issue のイベント [1-9]\d* 件）/);
@@ -217,7 +230,7 @@ for (const variant of ["acceptance-ci-recheck", "acceptance-ci-recheck-unrecorde
     // 保存時はpush前でheadのCIに結果が無い。4担当がそろった完了・5点・確認が残る事項0件でも、CI判定結果なしでマージ不可、ラベルなし。
     expect(report.review).toMatchObject({ status: "完了", score: 5, agents: acceptanceAgents, remainingChecks: [], ci: { headSha: "a".repeat(40), verdict: "結果なし" }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない" });
     expect(issue().labels).not.toContain("merge-ready");
-    const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+    const document = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env }).stdout.toString());
     for (const line of ["- 確認が残る事項: 0 件", "- マージ可否: 不可（人の判断が要る）", "- CI 判定: 結果なし", "- merge-ready: 付けていない"]) expect(document.content).toContain(`\n${line}`);
     expect(document.content).toContain("CI の完了後に親の手順の13節の CI の再照合で判定し直す。");
     // 対照のため、PR作業の前に古い判定のmerge-readyが付いた状態にする（人の操作。Issueのイベントは追記に数えない）。
@@ -257,7 +270,7 @@ for (const variant of ["acceptance-ci-recheck", "acceptance-ci-recheck-unrecorde
       for (const line of ["- merge-ready: 外した", "- マージ可否: 不可（人の判断が要る）", "受け入れ証拠は確認が残る事項を 2 件加えた"]) expect(record).toContain(line);
     }
     // 報告Documentは書き換えない。
-    expect(JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString()).content).toBe(document.content);
+    expect(JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env }).stdout.toString()).content).toBe(document.content);
     orca("worker-release", "--dispatch", submission.dispatch.id);
   });
 }
@@ -416,7 +429,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       const verdictText = readFileSync(report.review.verdict.path, "utf8");
       expect(createHash("sha256").update(verdictText).digest("hex")).toBe(report.review.verdict.sha256);
       expect(verdictText).not.toContain("CI");
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(between(document.content, "refute-verdict")).toBe(verdictText);
       for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 0 件", "- マージ可否: 不可（人の判断が要る）", `- CI 判定: ${verdict}`, "- merge-ready: 付けていない（マージ可否が不可）"]) expect(document.content).toContain(`\n${line}`);
       expect(document.content).toContain(`  - 不可の理由: CI 判定 ${verdict}`);
@@ -474,7 +487,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       expect(report.review.attempts.filter((attempt: { role: string }) => attempt.role !== "standards").map((attempt: { attempt: number; result: string }) => [attempt.attempt, attempt.result])).toEqual([[1, "有効"], [1, "有効"]]);
       expect(readFileSync(report.review.verdict.path, "utf8")).not.toContain(standardsAttempts[0].id);
       // 報告は両方の試行を持ち、omp内部の再試行と親による再委譲を区別する。
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(document.content).toContain("\n- 最終状態: 完了");
       expect(document.content).toContain("### 試行の記録");
       for (const attempt of standardsAttempts) expect(document.content).toContain(`| Standards 探索 | ${attempt.attempt} | ${attempt.id} | ${attempt.result} |`);
@@ -513,7 +526,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       const result = readFileSync(report.review.acceptance.path, "utf8");
       expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
       expect(result).toContain(`- 判定: ${judgment}`);
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(between(document.content, "refute-verdict")).toBe(verdict);
       expect(between(document.content, "acceptance-result")).toBe(result);
       for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 1 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
@@ -547,7 +560,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       expect(result).not.toContain("未充足");
       expect(result).toContain("## 判定に使った証拠");
       // 報告は担当の判定本文と結果を原文のまま収録し、再照合の結果は親が別の節と確認が残る事項に書く。
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(between(document.content, "refute-verdict")).toBe(verdict);
       expect(between(document.content, "acceptance-result")).toBe(result);
       for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 4 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
@@ -587,7 +600,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       expect(checks.filter(check => check.reason.includes(`activity:${own.id}（`))).toEqual([]);
       const result = readFileSync(report.review.acceptance.path, "utf8");
       expect(createHash("sha256").update(result).digest("hex")).toBe(report.review.acceptance.sha256);
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(between(document.content, "acceptance-result")).toBe(result);
       for (const line of ["- 最終状態: 完了", "- 確定した要対応の点数: 5", "- 確認が残る事項: 10 件", "- マージ可否: 不可（人の判断が要る）"]) expect(document.content).toContain(`\n${line}`);
       for (const check of checks) expect(document.content).toContain(`| ${check.source} | ${check.owner} | ${check.reason} |`);
@@ -602,7 +615,7 @@ for (const variant of ["model-mismatch", "model-unknown", "unsupported", "ci-fai
       const acceptanceAttempts = report.review.attempts.filter((attempt: { role: string }) => attempt.role === "acceptance");
       expect(acceptanceAttempts.map((attempt: { attempt: number; result: string }) => [attempt.attempt, attempt.result])).toEqual([[1, "無効"], [2, "無効"]]);
       expect(acceptanceAttempts.every((attempt: { saved?: { path: string } }) => attempt.saved?.path.includes("/parent/attempts/acceptance-"))).toBe(true);
-      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.reportDocument.id)]).stdout.toString());
+      const document = JSON.parse(call(scenario.nod, ["doc", "show", String(report.review.auditDocument.id)]).stdout.toString());
       expect(document.content).toContain("\n- 最終状態: 未完了（理由: 有効な結果なし（受け入れ確認。1回の再委譲の後も）");
       expect(document.content).toContain("\n- 確定した要対応の点数: 点数なし");
       expect(between(document.content, "acceptance-result")).toStartWith("未受領");

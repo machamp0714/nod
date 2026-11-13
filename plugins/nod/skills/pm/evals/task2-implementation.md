@@ -69,6 +69,9 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | acceptance-ci-recheck-unrecorded | acceptance-ci-recheckと同じだが、実装担当がPRの記録のidをown-logsに記録しなかった。13節の再照合はその記録を、実装担当（親と同じ書き手）が書いたものでも親以外の追記として判定に使った証拠を使った2行に確認が残る事項を加え、CI判定`成功`でもマージ不可にする。merge-readyは付かず、付いていれば外す（契約テストは古い判定のラベルを人が付けた状態から外れることを確かめる）。`in_review`にならないのは、確認が残る事項が加わって既存の提出条件を欠くためで、CI判定は理由ではない。PMは再照合の記録と確認が残る事項を不足証拠として記録し、提出済みと扱わない |
 
 正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。起動した全担当（3担当`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`と、反証が受け入れ確認担当の行を作ったときは`code-reviewer-acceptance`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`と、受け入れ確認の結果が保存原本`acceptance/result.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、同じhead SHAのCI判定の記録（`parent/ci/1/result.json`、必須のチェックと出典、必須のチェックごとの結果）とマージ可否、merge-readyの操作と`--kind test`の記録、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
+
+報告の保存形式は結果と監査の2Documentに分ける。上記の「報告に収録」「原文の照合」「試行の記録」は、結果から参照された同じrunId・対象SHAの監査Documentで確かめる。結果は結論・Severity付きの要対応・未確認・監査参照だけを載せ、原文や担当履歴を転載しない。fixtureも `reportDocument`（結果）と `auditDocument`（監査）を返す。
+
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。
 以後の操作はDispatchへ送り、PM自身はpushやPR作成を行わない。
 

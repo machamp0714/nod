@@ -33,6 +33,14 @@ test("PM指摘評価は初回独立レビューの根拠付き必須指摘と任
   expect(report.review.spec.findings[0]).toMatchObject({ id: "F1", category: "仕様不適合", impact: 3, evidence: "Issue本文は12px、変更差分は10px", commit: "a".repeat(40), acceptance: "一覧余白12pxの境界テストが成功する" });
   expect(report.review.standards.findings[0]).toMatchObject({ id: "O1", category: "任意改善" });
   expect(report.review.standards.findings[0].impact).toBeUndefined();
+  const resultDocument = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.reportDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+  const auditDocument = JSON.parse(Bun.spawnSync([scenario.nod, "doc", "show", String(report.review.auditDocument.id), "--json"], { env: scenario.env }).stdout.toString());
+  expect(resultDocument.content).toContain("| F1 | Medium（3） | 仕様不適合 |");
+  expect(resultDocument.content).not.toContain("| O1 |");
+  expect(resultDocument.content).not.toContain("refute-verdict:begin");
+  expect(resultDocument.content).toContain(`Document ${auditDocument.id}（${report.review.auditDocument.path}）`);
+  expect(auditDocument.content).toContain("<!-- refute-verdict:begin -->");
+  expect(auditDocument.content).toContain("| O1 |");
   expect(report.gitEvidence.commands[0]).toMatchObject({ argv: ["git", "rev-parse", "HEAD"], stdout: "a".repeat(40) + "\n" });
 });
 
