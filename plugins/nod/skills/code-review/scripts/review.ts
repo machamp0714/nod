@@ -12,6 +12,13 @@
 //   retire-attempt（4.1節）: --work <W> --role <役割> --failure invalid|usage-limit|aborted --reason <無効の理由> [--retries <omp 内部の再試行>]
 //     最新の試行を parent/attempts/<役割>-<n>/ へ隔離し、同じ入力を確かめて parent/attempts.md（と attempts.json）に書き、委譲し直せるかを返す
 //   refute-input（6節）: --work <W>。合格した両探索の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
+//   check-refute（7節・8節）: --work <W>。反証の判定本文の形式・参照・集計の一致と同一性を機械的に検査して parent/checks.md に書き、
+//     合格なら読み取った構造を parent/refute-structure.json に、受け入れ確認担当の行を parent/acceptance/rows.md に書く
+//   acceptance-records（8.1節）: --work <W>。受け入れ確認担当の行があるときだけ、共通入力・反証の判定本文・Activity・全添付 Document を
+//     acceptance-input/ へ写し（CI の結果を印で除き、元の写しは parent/acceptance/）、写す参照の候補を parent/acceptance/ref-candidates.{json,md} に挙げる
+//   acceptance-input（8.1節）: --work <W> --refs <親が決めた参照の一覧の JSON>（評価用の事例では省く）。証拠を許可された方法で evidence/ へ写し、
+//     目録 acceptance-input/records.md と親専用の記録（parent/acceptance/items.json・evidence.json・fingerprints.md）を作って指紋を照合する
+// 外部コマンドとして curl（https の URL の GET）と、同じディレクトリの copy-evidence.ts（通常のファイル）も起動する。
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json に書く。
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
 // 外部コマンド: nod は NOD_CLI（無ければ nod）、git・tar とパッケージ管理（bun・npm・pnpm・yarn・node）は PATH から起動する。
@@ -734,6 +741,8 @@ function prepare(args: string[]): Outcome {
     head,
     issue: issue ?? null,
     case: kase ? kase.id : null,
+    // 事例の入力（inputs/<case-id>/）の絶対パス。受け入れ確認への写し（acceptance-input）が、事例の入力に固定した証拠をここから写す
+    caseDir: kase ? kase.dir : null,
     untracked,
     headSource,
     startedAt,
@@ -908,12 +917,16 @@ const STAGE_COPIES: Partial<Record<Stage, string>> = { refute: "refute-input", a
 const FAILURES = { invalid: "判定と無関係な無効", "usage-limit": "利用枠の上限", aborted: "利用者による中止" } as const;
 type Failure = keyof typeof FAILURES;
 const REFUTE_UNFIXED = "反証への入力を固定できず、反証の有効な結果なし";
+const ACCEPTANCE_UNFIXED = "受け入れ確認への入力を固定できず、受け入れ確認の有効な結果なし";
 
 interface Prepared {
   ready: boolean;
   repo: string;
   head: string;
   mergeBase: string;
+  issue: string | null;
+  case: string | null;
+  caseDir?: string | null;
   clone: { checks: CloneCheck[] } | null;
   deps: { prepared: boolean } | null;
   inputs: FileHash[];
@@ -1154,9 +1167,11 @@ function agent(args: string[]): Outcome {
     if (last && !attempts.find((a) => a.role === role && a.attempt === last.attempt)?.redelegate) {
       throw new UsageError(`${r.name} を委譲し直せるのは、retire-attempt が委譲し直してよいと返した試行の後の1回だけです（最新の試行 ${last.attempt}）`);
     }
-    if (role === "refute") {
-      const file = join(work, "parent/refute-input.json");
-      if (!existsSync(file) || !(JSON.parse(readFileSync(file, "utf8")) as { ready?: boolean }).ready) throw new UsageError("refute-input が準備完了を返していないので、反証を起動しません");
+    // 反証・受け入れ確認は、その担当への入力の写し（refute-input・acceptance-input）が準備完了を返してから
+    const copy = STAGE_COPIES[r.stage];
+    if (copy) {
+      const file = join(work, "parent", `${copy}.json`);
+      if (!existsSync(file) || !(JSON.parse(readFileSync(file, "utf8")) as { ready?: boolean }).ready) throw new UsageError(`${copy} が準備完了を返していないので、${r.name}を起動しません`);
     }
     record = { role, roleName: r.name, definition: r.definition, attempt: (last?.attempt ?? 0) + 1, agentId: id, startedAt: now(), receivedAt: null };
     agents.push(record);
@@ -1257,12 +1272,19 @@ function splitRow(line: string): string[] {
   return withCode.closed ? withCode.cells : parse(false).cells;
 }
 
-// 見出しが header と同じ最初の表の、区切りの行より後の各行のセル。表が無ければ null
+// 見出しが header と同じ最初の表の、区切りの行より後の各行のセル。表が無ければ null。
+// 見出しのセルは、雛形の名前のあとに括弧の補足が続いてもよい（「判定（要対応／棄却／…）」など）
 function tableRows(body: string[], header: string[]): string[][] | null {
-  const norm = (cells: string[]) => cells.map((c) => plain(c).replace(/\s+/g, "")).join("|");
+  const same = (cells: string[]) =>
+    cells.length === header.length &&
+    cells.every((c, k) => {
+      const got = plain(c).replace(/\s+/g, "");
+      const want = header[k] ?? "";
+      return got === want || got.startsWith(`${want}（`) || got.startsWith(`${want}(`);
+    });
   for (let i = 0; i + 1 < body.length; i++) {
     const line = body[i] ?? "";
-    if (!line.trim().startsWith("|") || !SEPARATOR.test(body[i + 1] ?? "") || norm(splitRow(line)) !== header.join("|")) continue;
+    if (!line.trim().startsWith("|") || !SEPARATOR.test(body[i + 1] ?? "") || !same(splitRow(line))) continue;
     const rows: string[][] = [];
     for (let j = i + 2; j < body.length && (body[j] ?? "").trim().startsWith("|"); j++) rows.push(splitRow(body[j] ?? ""));
     return rows;
@@ -1299,22 +1321,18 @@ function mentions(text: string, needle: string): boolean {
   return false;
 }
 
-function exploreViolations(text: string, role: "standards" | "spec", prep: Prepared, add: (no: number, message: string) => void): void {
-  const r = ROLES[role];
-  const lines = text.split("\n");
-  const secs = sectionsOf(lines, 2);
-  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
-  const filled = (s: Section | undefined) => s?.body.some((l) => l.trim() !== "") ?? false;
+type Add = (no: number, message: string) => void;
 
-  // 3: 担当と対象、対象版、終了状態・未確認・見送りの節
-  const target = section("担当と対象");
-  if (!target) add(3, "「担当と対象」の節が無い");
+// 担当と対象の節（探索は5節の3、反証は7節の2）: 必須の項目、委譲した役割・定義名、target.md と一致する対象版、終了状態
+function targetViolations(target: Section | undefined, names: readonly string[], role: Role, prep: Prepared, no: number, add: Add): void {
+  const r = ROLES[role];
+  if (!target) add(no, "「担当と対象」の節が無い");
   const f = fieldsOf(target?.body ?? []);
-  for (const name of TARGET_FIELDS) if (!f.get(name)) add(3, `担当と対象の「${name}」が無いか空`);
+  for (const name of names) if (!f.get(name)) add(no, `担当と対象の「${name}」が無いか空`);
   const roleValue = plain(f.get("役割") ?? "");
-  if (roleValue && roleValue !== r.name) add(3, `役割が委譲した「${r.name}」でない（${roleValue}）`);
+  if (roleValue && roleValue !== r.name) add(no, `役割が委譲した「${r.name}」でない（${roleValue}）`);
   const definition = plain(f.get("定義名") ?? "");
-  if (definition && definition !== r.definition) add(3, `定義名が委譲した ${r.definition} でない（${definition}）`);
+  if (definition && definition !== r.definition) add(no, `定義名が委譲した ${r.definition} でない（${definition}）`);
   const version = f.get("対象版");
   if (version) {
     const shas = (version.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((s) => s.toLowerCase());
@@ -1322,13 +1340,23 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
       ["merge-base", prep.mergeBase],
       ["head", prep.head],
     ] as const)
-      if (!shas.includes(sha.toLowerCase())) add(3, `対象版に target.md の ${label} ${sha} が無い`);
+      if (!shas.includes(sha.toLowerCase())) add(no, `対象版に target.md の ${label} ${sha} が無い`);
     const others = [...new Set(shas.filter((s) => s !== prep.head.toLowerCase() && s !== prep.mergeBase.toLowerCase()))];
-    if (others.length > 0) add(3, `対象版に target.md と異なる SHA がある（${others.join("・")}）`);
-    for (const i of prep.inputs) if (i.path.startsWith("local/") && !version.includes(i.sha256)) add(3, `対象版に ${i.path} の sha256 が無い`);
+    if (others.length > 0) add(no, `対象版に target.md と異なる SHA がある（${others.join("・")}）`);
+    for (const i of prep.inputs) if (i.path.startsWith("local/") && !version.includes(i.sha256)) add(no, `対象版に ${i.path} の sha256 が無い`);
   }
   const state = f.get("終了状態");
-  if (state && !/完了|未確認/.test(state)) add(3, `終了状態が「完了」「未確認を含む」のどちらでもない（${state}）`);
+  if (state && !/完了|未確認/.test(state)) add(no, `終了状態が「完了」「未確認を含む」のどちらでもない（${state}）`);
+}
+
+function exploreViolations(text: string, role: "standards" | "spec", prep: Prepared, add: Add): void {
+  const lines = text.split("\n");
+  const secs = sectionsOf(lines, 2);
+  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
+  const filled = (s: Section | undefined) => s?.body.some((l) => l.trim() !== "") ?? false;
+
+  // 3: 担当と対象、対象版、終了状態・未確認・見送りの節
+  targetViolations(section("担当と対象"), TARGET_FIELDS, role, prep, 3, add);
   for (const name of ["探索上の不足・未確認", "判断を見送った事項"]) if (!filled(section(name))) add(3, `「${name}」の節が無いか空`);
 
   // 4: 候補の必須項目と候補 ID
@@ -1565,9 +1593,1187 @@ function refuteInput(args: string[]): Outcome {
   return { work, result: { ready, ...outcome, files, comparison, identity } };
 }
 
+// ---- 反証の判定本文の機械検査（parent.md 7節。親は判定本文を通読しない） ----
+
+const VERDICTS = new Set(["要対応", "棄却", "未確認", "基点から存在（対象外）", "任意"]);
+const AXES = ["Standards", "Spec"] as const;
+type Axis = (typeof AXES)[number];
+const REFUTE_TARGET_FIELDS = ["役割", "定義名", "対象版", "受け取った入力", "依存の写し", "終了状態"];
+const DECISION_HEADER = ["候補ID", "発見者の区分", "判定", "影響度", "同一原因", "根拠"];
+const SPLIT_HEADER = ["要求の出典", "分割元の出典"];
+const UNCONFIRMED_HEADER = ["要求の出典または候補ID", "軸", "種別", "理由", "確かめる担当", "不足箇所"];
+const UNCONFIRMED_KINDS = new Set(["候補", "要求", "要求間の矛盾"]);
+const ACCEPTANCE_HEADER = ["要求の出典", "確かめること（成果物）", "確かめること（作業・手順・配置）", "必要な外部の正本"];
+const ACCEPTANCE_STATE = "受け入れ確認担当";
+const NO_FINDING = "反証で追加した発見なし";
+const IMPACT = /^([0-4])(?!\d)/;
+// 節の「なし」の明示（行頭の「なし」。表のセルの「なし（追加）」は表の行として読む）
+const NONE = /^(?:[-*+]\s*)?なし(?:$|[\s。.、（(])/;
+// 要求の出典を比べる形（バッククォートと * を外して空白をまとめる）。parent/refute-structure.json の出典もこの形で残す
+const norm = (s: string) => plain(s).replace(/\s+/g, " ");
+// セルの候補 ID（CAUSE-<n> は同一原因の印で、候補 ID ではない）
+const candidateIds = (s: string) => (s.match(/\b[A-Za-z]+-\d+\b/g) ?? []).filter((x) => !x.startsWith("CAUSE-"));
+
+// 採否一覧の1行
+export interface Decision {
+  id: string;
+  finder: string;
+  verdict: string;
+  // 要対応の影響度 0〜4（要対応以外は null）
+  impact: number | null;
+  cause: string | null;
+  reason: string;
+}
+
+// 要対応の節の1件（同一原因は1件。ids は含まれる候補 ID）
+export interface RequiredItem {
+  heading: string;
+  title: string;
+  ids: string[];
+  impact: number | null;
+  axis: Axis | null;
+}
+
+// 要求ごとの対応表（確定）の1行。splitFrom は分割元の Spec 探索の行の出典、added は反証が足した行
+export interface TableRow {
+  source: string;
+  status: string;
+  evidence: string;
+  candidates: string[];
+  splitFrom: string | null;
+  added: boolean;
+}
+
+// 未確認と理由の表の1行（ref は要求の出典または候補 ID、kind は 候補・要求・要求間の矛盾）
+export interface UnconfirmedRow {
+  ref: string;
+  axis: string;
+  kind: string;
+  reason: string;
+  owner: string;
+  missing: string;
+}
+
+// 受け入れ確認担当の行の節の1行（candidates は対応表の同じ行の候補 ID、line は判定本文の行番号）
+export interface AcceptanceRow {
+  source: string;
+  artifacts: string;
+  work: string;
+  canon: string;
+  candidates: string[];
+  line: number;
+}
+
+interface RefuteParsed {
+  axes: Record<Axis, { required: number; unconfirmed: number }>;
+  decisions: Decision[];
+  required: RequiredItem[];
+  table: TableRow[];
+  unconfirmed: UnconfirmedRow[];
+  acceptanceRows: AcceptanceRow[];
+}
+
+// check-refute に合格した判定本文から読み取った構造（parent/refute-structure.json）。点数・確認が残る事項の算出はこれを読む
+export interface RefuteStructure extends RefuteParsed {
+  attempt: number;
+  agentId: string | null;
+  file: string;
+  sha256: string;
+  checkedAt: string;
+  acceptanceRequired: boolean;
+}
+
+// 節の中の雛形の表。表の行が無ければ、節に「なし」の明示があるか
+function sectionTable(sec: Section | undefined, header: string[]): { rows: string[][]; none: boolean } {
+  return { rows: tableRows(sec?.body ?? [], header) ?? [], none: (sec?.body ?? []).some((l) => NONE.test(plain(l))) };
+}
+
+// 探索の引き渡しの候補 ID と、Spec 探索の対応表の要求の出典
+function handoffCandidates(text: string): string[] {
+  const candidates = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("候補"));
+  return sectionsOf(candidates?.body ?? [], 3).flatMap((b) => /^([A-Za-z]+-\d+)/.exec(b.title)?.[1] ?? []);
+}
+
+function handoffSources(text: string): string[] {
+  const table = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("要求ごとの対応表"));
+  return (tableRows(table?.body ?? [], TABLE_HEADER) ?? []).map((c) => norm(c[0] ?? ""));
+}
+
+function refuteViolations(text: string, prep: Prepared, handoffs: { standards: string; spec: string }, add: Add): RefuteParsed {
+  const lines = text.split("\n");
+  const secs = sectionsOf(lines, 2);
+  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
+  // 判定本文が挙げる候補 ID（反証で追加した REF-<n> が採否一覧にあるかを確かめる）
+  const mentioned: string[] = [];
+
+  // 2: 担当と対象
+  targetViolations(section("担当と対象"), REFUTE_TARGET_FIELDS, "refute", prep, 2, add);
+
+  // 3: 採否一覧（両探索の全候補と反証で追加した発見、判定の語彙と根拠、要対応の影響度）
+  const expected = [...new Set([...handoffCandidates(handoffs.standards), ...handoffCandidates(handoffs.spec)])];
+  const decisions: Decision[] = [];
+  const decisionRows = tableRows(section("採否一覧")?.body ?? [], DECISION_HEADER);
+  if (!decisionRows) add(3, `「採否一覧」に雛形の6列（${DECISION_HEADER.join("・")}）の表が無い`);
+  (decisionRows ?? []).forEach((cells, i) => {
+    if (cells.length < DECISION_HEADER.length) return add(3, `採否一覧の ${i + 1} 行目の列が足りない`);
+    const id = /^([A-Za-z]+-\d+)$/.exec(plain(cells[0] ?? ""))?.[1];
+    if (!id) return add(3, `採否一覧の ${i + 1} 行目に候補 ID が1つだけ書かれていない（${plain(cells[0] ?? "")}）`);
+    const verdict = plain(cells[2] ?? "");
+    const impactCell = plain(cells[3] ?? "");
+    const impact = IMPACT.exec(impactCell)?.[1];
+    const reason = plain(cells[5] ?? "");
+    if (decisions.some((d) => d.id === id)) add(3, `採否一覧に ${id} が重複している`);
+    if (!expected.includes(id) && !id.startsWith("REF-")) add(3, `採否一覧の ${id} が両探索の候補にも反証で追加した発見（REF-<n>）にも無い`);
+    if (!VERDICTS.has(verdict)) add(3, `${id} の判定「${verdict}」が語彙に無い`);
+    if (verdict === "要対応" && impact === undefined) add(3, `${id} は要対応だが影響度 0〜4 が無い（${impactCell || "空"}）`);
+    if (verdict !== "要対応" && /\d/.test(impactCell)) add(3, `${id} は要対応ではないが影響度がある（${impactCell}）`);
+    if (!reason) add(3, `${id} の根拠が無い`);
+    decisions.push({ id, finder: plain(cells[1] ?? ""), verdict, impact: verdict === "要対応" && impact !== undefined ? Number(impact) : null, cause: /CAUSE-\d+/.exec(cells[4] ?? "")?.[0] ?? null, reason });
+  });
+  const decided = new Map(decisions.map((d) => [d.id, d]));
+  for (const id of expected) if (!decided.has(id)) add(3, `両探索の候補 ${id} が採否一覧に無い`);
+
+  // 3: 要対応の節と採否一覧の一致（同一候補の判定、同一原因の集約と影響度）
+  const requiredSection = section("要対応");
+  const blocks = sectionsOf(requiredSection?.body ?? [], 3);
+  if (!requiredSection) add(3, "「要対応」の節が無い");
+  else if (blocks.length === 0 && !requiredSection.body.some((l) => NONE.test(plain(l)))) add(3, "要対応の見出しも「なし」の明示も無い");
+  const required: RequiredItem[] = [];
+  const placed = new Map<string, string>();
+  for (const b of blocks) {
+    const m = /^((?:CAUSE|[A-Za-z]+)-\d+)\s*[:：]?\s*(.*)$/.exec(b.title);
+    const heading = m?.[1];
+    if (!heading) {
+      add(3, `要対応の見出し「${b.title}」に CAUSE-<n> か候補 ID が無い`);
+      continue;
+    }
+    const f = fieldsOf(b.body);
+    const ids = candidateIds(f.get("候補 ID と発見者の区分") ?? "");
+    mentioned.push(...ids);
+    const impact = IMPACT.exec(plain(f.get("影響度") ?? ""))?.[1];
+    const axis = AXES.find((a) => plain(f.get("軸") ?? "").startsWith(a)) ?? null;
+    const cause = heading.startsWith("CAUSE-");
+    if (ids.length === 0) add(3, `要対応 ${heading} に候補 ID が無い`);
+    if (impact === undefined) add(3, `要対応 ${heading} に影響度 0〜4 が無い`);
+    if (!axis) add(5, `要対応 ${heading} の軸が Standards／Spec のどちらでもない`);
+    if (!cause && !ids.includes(heading)) add(3, `要対応 ${heading} の候補 ID の欄に見出しの ${heading} が無い`);
+    for (const id of ids) {
+      const d = decided.get(id);
+      if (!d) add(3, `要対応 ${heading} の ${id} が採否一覧に無い`);
+      else if (d.verdict !== "要対応" && !(cause && d.cause === heading)) add(3, `${id} は要対応 ${heading} にあるが、採否一覧の判定は「${d.verdict}」（同一候補の判定の不一致）`);
+      if (placed.has(id)) add(3, `${id} が要対応の ${placed.get(id)} と ${heading} の両方にある`);
+      else placed.set(id, heading);
+    }
+    const impacts = ids.flatMap((id) => decided.get(id)?.impact ?? []);
+    if (impact !== undefined && impacts.length > 0 && Number(impact) !== Math.min(...impacts)) {
+      add(3, `要対応 ${heading} の影響度 ${impact} が、採否一覧の影響度の最小値 ${Math.min(...impacts)} と違う`);
+    }
+    required.push({ heading, title: plain(m?.[2] ?? ""), ids, impact: impact === undefined ? null : Number(impact), axis });
+  }
+  for (const d of decisions.filter((x) => x.verdict === "要対応")) {
+    const at = placed.get(d.id);
+    if (!at) add(3, `採否一覧で要対応の ${d.id} が要対応の節に無い`);
+    else if (d.cause && at !== d.cause) add(3, `${d.id} は採否一覧で同一原因 ${d.cause} だが、要対応の節では ${at} にある`);
+    else if (!d.cause && at.startsWith("CAUSE-")) add(3, `${d.id} は要対応の節で ${at} にあるが、採否一覧に同一原因が無い`);
+  }
+
+  // 4: 要求ごとの対応表（確定）と、分割・追加した行の分割元の出典、Spec 探索の対応表の全行の確定
+  const rows = tableRows(section("要求ごとの対応表")?.body ?? [], TABLE_HEADER);
+  const table: TableRow[] = [];
+  if (!rows) add(4, `「要求ごとの対応表（確定）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い`);
+  else if (rows.length === 0) add(4, "要求ごとの対応表に行が無い");
+  (rows ?? []).forEach((cells, i) => {
+    if (cells.length < 4) return add(4, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
+    const source = norm(cells[0] ?? "");
+    const status = plain(cells[1] ?? "");
+    const label = source || `${i + 1} 行目`;
+    const ids = candidateIds(cells[cells.length - 1] ?? "");
+    mentioned.push(...ids);
+    if (table.some((t) => t.source === source)) add(4, `対応表の要求の出典 ${label} が重複している`);
+    if (!STATES.has(status)) add(4, `${label} の状態「${status}」が語彙に無い`);
+    if (status === "未充足" && !ids.some((id) => decided.get(id)?.verdict === "要対応")) add(4, `${label} は未充足だが、採否一覧で要対応の候補 ID が無い`);
+    for (const id of ids) if (!decided.has(id)) add(4, `${label} が参照する候補 ${id} が採否一覧に無い`);
+    table.push({ source, status, evidence: norm(cells.slice(2, -1).join(" | ")), candidates: ids, splitFrom: null, added: false });
+  });
+  const specSources = handoffSources(handoffs.spec);
+  const tableSources = new Set(table.map((t) => t.source));
+  const splitSection = section("分割・追加した行");
+  const split = sectionTable(splitSection, SPLIT_HEADER);
+  if (!splitSection) add(4, "「分割・追加した行」の節が無い");
+  else if (split.rows.length === 0 && !split.none) add(4, `「分割・追加した行」に雛形の2列（${SPLIT_HEADER.join("・")}）の表も「なし」の明示も無い`);
+  const origins = new Map<string, string | null>();
+  split.rows.forEach((cells, i) => {
+    if (cells.length < 2) return add(4, `分割・追加した行の ${i + 1} 行目の列が足りない`);
+    const source = norm(cells[0] ?? "");
+    const origin = norm(cells[1] ?? "");
+    if (!tableSources.has(source)) add(4, `分割・追加した行の ${source} が対応表に無い`);
+    if (origins.has(source)) add(4, `分割・追加した行に ${source} が重複している`);
+    if (origin.startsWith("なし")) return origins.set(source, null);
+    if (!specSources.includes(origin)) add(4, `${source} の分割元の出典 ${origin || "（空）"} が Spec 探索の対応表の行に無い`);
+    origins.set(source, origin);
+  });
+  for (const t of table) {
+    if (origins.has(t.source)) {
+      t.splitFrom = origins.get(t.source) ?? null;
+      t.added = t.splitFrom === null;
+    } else if (!specSources.includes(t.source)) add(4, `対応表の ${t.source} が Spec 探索の対応表の行と同じ出典でなく、分割・追加した行にも無い（分割元の出典の欠落）`);
+  }
+  const covered = new Set([...tableSources, ...[...origins.values()].filter((o): o is string => o !== null)]);
+  for (const s of specSources) if (!covered.has(s)) add(4, `Spec 探索の対応表の行 ${s} を確定していない（対応表にも分割元の出典にも無い）`);
+
+  // 5: 未確認と理由の表（自由記述でなく、出典または候補 ID・軸・種別・理由・確かめる担当・不足箇所）
+  const bySource = new Map(table.map((t) => [t.source, t]));
+  const unconfirmedSection = section("未確認と理由");
+  const un = sectionTable(unconfirmedSection, UNCONFIRMED_HEADER);
+  if (!unconfirmedSection) add(5, "「未確認と理由」の節が無い");
+  else if (un.rows.length === 0 && !un.none) add(5, `「未確認と理由」に雛形の6列（${UNCONFIRMED_HEADER.join("・")}）の表も「なし」の明示も無い`);
+  const unconfirmed: UnconfirmedRow[] = [];
+  un.rows.forEach((raw, i) => {
+    if (raw.length < UNCONFIRMED_HEADER.length) return add(5, `未確認と理由の ${i + 1} 行目の列が足りない`);
+    const c = raw.map(norm);
+    const row: UnconfirmedRow = { ref: c[0] ?? "", axis: c[1] ?? "", kind: c[2] ?? "", reason: c[3] ?? "", owner: c[4] ?? "", missing: c[5] ?? "" };
+    const label = row.ref || `${i + 1} 行目`;
+    if (!AXES.some((a) => a === row.axis)) add(5, `未確認の ${label} の軸「${row.axis}」が Standards／Spec のどちらでもない`);
+    if (!UNCONFIRMED_KINDS.has(row.kind)) add(5, `未確認の ${label} の種別「${row.kind}」が語彙（候補・要求・要求間の矛盾）に無い`);
+    const empty = (
+      [
+        ["理由", row.reason],
+        ["確かめる担当", row.owner],
+        ["不足箇所", row.missing],
+      ] as const
+    ).flatMap(([name, value]) => (value ? [] : [name]));
+    if (empty.length > 0) add(5, `未確認の ${label} の ${empty.join("・")} が空`);
+    if (row.kind === "候補") {
+      const id = /^([A-Za-z]+-\d+)$/.exec(row.ref)?.[1];
+      const d = id ? decided.get(id) : undefined;
+      if (id) mentioned.push(id);
+      if (!id) add(5, `未確認の ${label} は種別が候補だが、候補 ID が1つだけ書かれていない`);
+      else if (!d) add(5, `未確認の ${id} が採否一覧に無い`);
+      else if (d.verdict !== "未確認") add(5, `${id} は未確認と理由の表にあるが、採否一覧の判定は「${d.verdict}」（同一候補の判定の不一致）`);
+    } else if (UNCONFIRMED_KINDS.has(row.kind)) {
+      const t = bySource.get(row.ref);
+      if (!t) add(5, `未確認の ${label} が対応表の要求の出典に無い`);
+      else if (t.status !== "未確認") add(5, `未確認の ${label} は対応表の状態が「${t.status}」（未確認ではない）`);
+    }
+    unconfirmed.push(row);
+  });
+  for (const d of decisions) if (d.verdict === "未確認" && !unconfirmed.some((u) => u.kind === "候補" && u.ref === d.id)) add(5, `採否一覧で未確認の ${d.id} が未確認と理由の表に無い`);
+  for (const t of table) if (t.status === "未確認" && !unconfirmed.some((u) => u.kind !== "候補" && u.ref === t.source)) add(5, `対応表で未確認の ${t.source} が未確認と理由の表に無い`);
+
+  // 5: 軸ごとの要対応と未確認の件数（要対応の節の軸ごとの件数、未確認と理由の表の軸ごとの行数と一致）
+  const axisFields = fieldsOf(section("軸ごとの結果")?.body ?? []);
+  const count = (a: Axis) => ({ required: required.filter((r) => r.axis === a).length, unconfirmed: unconfirmed.filter((u) => u.axis === a).length });
+  const axes = { Standards: count("Standards"), Spec: count("Spec") };
+  for (const a of AXES) {
+    const m = /要対応\s*(\d+)\s*件[\s\S]*?未確認\s*(\d+)\s*件/.exec(axisFields.get(a) ?? "");
+    if (!m) {
+      add(5, `軸ごとの結果の ${a} に「要対応 N 件、未確認 M 件」が無い`);
+      continue;
+    }
+    const counted = axes[a];
+    axes[a] = { required: Number(m[1]), unconfirmed: Number(m[2]) };
+    if (axes[a].required !== counted.required) add(5, `軸ごとの結果の ${a} の要対応 ${m[1]} 件が、要対応の節の軸 ${a} の ${counted.required} 件と違う`);
+    if (axes[a].unconfirmed !== counted.unconfirmed) add(5, `軸ごとの結果の ${a} の未確認 ${m[2]} 件が、未確認と理由の表の軸 ${a} の ${counted.unconfirmed} 件と違う`);
+  }
+  // 5: 反証で追加した発見（採否一覧にあるか、無いことの明示）と、判断を見送った事項
+  for (const id of new Set(mentioned.filter((x) => x.startsWith("REF-")))) if (!decided.has(id)) add(3, `反証で追加した ${id} が採否一覧に無い`);
+  if (!decisions.some((d) => d.id.startsWith("REF-")) && !text.includes(NO_FINDING)) add(5, `反証で追加した発見（REF-<n>）も「${NO_FINDING}」の明示も無い`);
+  if (!section("判断を見送った事項")?.body.some((l) => l.trim() !== "")) add(5, "「判断を見送った事項」の節が無いか空");
+
+  // 6: 受け入れ確認担当の行の節（対応表で状態が「受け入れ確認担当」の行と同じ要求の出典、確かめることと必要な外部の正本）
+  const acceptanceSection = section("受け入れ確認担当の行");
+  const acc = sectionTable(acceptanceSection, ACCEPTANCE_HEADER);
+  if (!acceptanceSection) add(6, "「受け入れ確認担当の行」の節が無い");
+  else if (acc.rows.length === 0 && !acc.none) add(6, `「受け入れ確認担当の行」に雛形の4列（${ACCEPTANCE_HEADER.join("・")}）の表も「なし」の明示も無い`);
+  const headingLine = lines.findIndex((l) => /^##\s+受け入れ確認担当の行/.test(l));
+  const acceptanceRows: AcceptanceRow[] = [];
+  acc.rows.forEach((raw, i) => {
+    if (raw.length < ACCEPTANCE_HEADER.length) return add(6, `受け入れ確認担当の行の ${i + 1} 行目の列が足りない`);
+    const [source = "", artifacts = "", work = "", canon = ""] = raw.map(norm);
+    const label = source || `${i + 1} 行目`;
+    const empty = ACCEPTANCE_HEADER.slice(1).filter((_, k) => ![artifacts, work, canon][k]);
+    if (empty.length > 0) add(6, `受け入れ確認担当の行 ${label} の ${empty.join("・")} が空（要らなければ「なし」と書く）`);
+    const t = bySource.get(source);
+    if (t?.status !== ACCEPTANCE_STATE) add(6, `受け入れ確認担当の行 ${label} が、対応表で状態が「受け入れ確認担当」の行に無い`);
+    if (acceptanceRows.some((r) => r.source === source)) add(6, `受け入れ確認担当の行 ${label} が重複している`);
+    const line = lines.findIndex((l, k) => k > headingLine && l.trim().startsWith("|") && norm(splitRow(l)[0] ?? "") === source) + 1;
+    acceptanceRows.push({ source, artifacts, work, canon, candidates: t?.candidates ?? [], line });
+  });
+  for (const t of table) if (t.status === ACCEPTANCE_STATE && !acceptanceRows.some((r) => r.source === t.source)) add(6, `対応表の受け入れ確認担当の行 ${t.source} が受け入れ確認担当の行の節に無い`);
+
+  return { axes, decisions, required, table, unconfirmed, acceptanceRows };
+}
+
+function renderRows(s: RefuteStructure): string {
+  const n = s.acceptanceRows.length;
+  return [
+    "# 受け入れ確認担当の行",
+    "",
+    `- 反証の判定本文: \`${s.file}\`（試行 ${s.attempt}、担当 ID ${s.agentId ?? "不明"}、sha256 \`${s.sha256}\`。check-refute に合格）`,
+    `- 件数: ${n}`,
+    `- 受け入れ確認担当: ${n > 0 ? `必要な担当（${n} 行。有効な結果を受け取るまで完了にしない）` : "受け入れ確認担当の行なし（起動せず）"}`,
+    "",
+    ...(n > 0
+      ? [
+          "| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本 | 候補ID |",
+          "|---|---|---|---|---|",
+          ...s.acceptanceRows.map((r) => `| ${cell(r.source)} | ${cell(r.artifacts)} | ${cell(r.work)} | ${cell(r.canon)} | ${r.candidates.join("・") || "なし"} |`),
+          "",
+        ]
+      : []),
+  ].join("\n");
+}
+
+function checkRefute(args: string[]): Outcome {
+  const o = parseOptions(args, ["work"], []);
+  const { work, prep } = loadWork(o);
+  if (existsSync(join(work, "parent/acceptance/records.json"))) throw new UsageError("受け入れ確認への写しを取った後は、反証の結果を検査し直しません");
+  const r = ROLES.refute;
+  const attempt = currentAttempt(work, "refute");
+  const file = `refute/${r.output}`;
+  const path = join(work, file);
+  const violations: Violation[] = [];
+  const add: Add = (no, message) => violations.push({ no, message });
+  const body = existsSync(path) && lstatSync(path).isFile() ? readFileSync(path) : null;
+  const handoff = (role: "standards" | "spec") => {
+    const f = join(work, "refute-input", `${role}-handoff.md`);
+    return existsSync(f) ? readFileSync(f, "utf8") : "";
+  };
+  const parsed = body === null ? null : refuteViolations(body.toString("utf8"), prep, { standards: handoff("standards"), spec: handoff("spec") }, add);
+  if (body === null) add(1, `${file} が無い`);
+  const identity = checkIdentity(work, "refute", `check-refute 試行 ${attempt.attempt}`);
+  for (const i of identity.items) if (!i.ok) add(7, `${i.name}: ${i.detail}`);
+  const names: [number, string][] = [
+    [1, `指定したパスに ${r.output} がある`],
+    [2, "役割・定義名・対象版・受け取った入力・依存の写し・終了状態"],
+    [3, "採否一覧に両探索の全候補 ID と反証で追加した発見、判定の語彙と根拠、要対応の影響度 0〜4、要対応の節と採否一覧（同一候補の判定・同一原因の集約と影響度）の一致"],
+    [4, "要求ごとの対応表の4列・状態の語彙・候補 ID の参照、分割・追加した行の分割元の出典、Spec 探索の対応表の全行の確定"],
+    [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表、判断を見送った事項"],
+    [6, "受け入れ確認担当の行の節と対応表の受け入れ確認担当の行の一致、確かめることと必要な外部の正本"],
+    [7, "refute-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
+  ];
+  const checkedAt = now();
+  const record: CheckRecord = {
+    stage: "refute",
+    role: "refute",
+    roleName: r.name,
+    definition: r.definition,
+    attempt: attempt.attempt,
+    agentId: attempt.agentId,
+    file,
+    sha256: body === null ? null : sha256(body),
+    valid: violations.length === 0,
+    items: names.map(([no, name]) => ({ no, name, ok: !violations.some((v) => v.no === no) })),
+    violations,
+    identity,
+    files: fingerprintList(join(work, "refute")),
+    parent: "1（担当の返答が入力不備・失敗でない）。判定本文は通読しない",
+    checkedAt,
+  };
+  const list = [...loadList<CheckRecord>(work, "checks"), record];
+  saveList(work, "checks", list, renderChecks(list));
+  // 構造と担当行は、合格した最新の判定本文からだけ残す
+  const structureFile = join(work, "parent/refute-structure.json");
+  const rowsFile = join(work, "parent/acceptance/rows.md");
+  rmSync(structureFile, { force: true });
+  rmSync(rowsFile, { force: true });
+  if (!record.valid || !parsed || body === null) return { work, result: { ...record, acceptanceRows: null, acceptanceRequired: null, structure: null } };
+  const structure: RefuteStructure = { attempt: attempt.attempt, agentId: attempt.agentId, file, sha256: sha256(body), checkedAt, ...parsed, acceptanceRequired: parsed.acceptanceRows.length > 0 };
+  writeFileSync(structureFile, `${JSON.stringify(structure, null, 2)}\n`);
+  mkdirSync(dirname(rowsFile), { recursive: true });
+  writeFileSync(rowsFile, renderRows(structure));
+  const result = { ...record, acceptanceRows: structure.acceptanceRows.length, acceptanceRequired: structure.acceptanceRequired, structure: "parent/refute-structure.json", rows: "parent/acceptance/rows.md" };
+  return { work, result };
+}
+
+// ---- 受け入れ確認への入力（parent.md 8節。写す参照の抽出は親、写し・取得・目録はスクリプト） ----
+
+const CI_LOG = "[ci-result]";
+const CI_BEGIN = "<!-- ci-result:begin -->";
+const CI_END = "<!-- ci-result:end -->";
+const CI_REMOVED = "（CI の結果は親だけが扱うため除いた）";
+// レビューの作業ディレクトリと常設データセット（copy-evidence.ts と同じ。Git のリポジトリにも当てる）
+const FORBIDDEN_AREAS = [".local/share/nod/code-reviews", ".local/share/nod/review-evaluation"];
+const REF_TYPES = ["file", "git", "document", "url"] as const;
+type RefType = (typeof REF_TYPES)[number];
+const REF_KINDS = ["参照された記録", "外部の正本", "明示された証拠"] as const;
+type RefKind = (typeof REF_KINDS)[number];
+const DOC_REF = /^(?:document[:\s]*|Document\s*)?#?(\d+)$/i;
+const SECRET_QUERY = /token|key|secret|password|signature|sig|credential|x-amz-/i;
+const UNCHECKED = "親は確かめていない（出典の場所が示すのは取得時刻の内容）";
+
+type Replaced = "本文全体" | "印の間" | null;
+
+// parent.md 8.1 の CI の結果の除去: 本文が [ci-result] で始まれば本文全体を、印の行の間だけを置き換え、印が無ければそのまま
+function ciStrip(data: Buffer): { data: Buffer; replaced: Replaced } {
+  if (data.subarray(0, CI_LOG.length).toString("latin1") === CI_LOG) return { data: Buffer.from(`${CI_REMOVED}\n`), replaced: "本文全体" };
+  const lines = data.toString("latin1").split("\n");
+  if (!lines.includes(CI_BEGIN)) return { data, replaced: null };
+  if (lines.at(-1) === "") lines.pop();
+  const out: Buffer[] = [];
+  let skip = false;
+  for (const line of lines) {
+    if (line === CI_BEGIN) {
+      out.push(Buffer.from(`${line}\n`, "latin1"), Buffer.from(`${CI_REMOVED}\n`));
+      skip = true;
+      continue;
+    }
+    if (line === CI_END) skip = false;
+    if (!skip) out.push(Buffer.from(`${line}\n`, "latin1"));
+  }
+  return { data: Buffer.concat(out), replaced: "印の間" };
+}
+
+// 親が渡す、写す参照の1件（--refs の JSON の配列の要素。acceptance-records の ref-candidates.json も同じ形）
+export interface Ref {
+  type: RefType;
+  // file: 絶対パス（~ で始まってよい）、git: リポジトリの絶対パス、document: Document ID、url: URL
+  source: string;
+  // git だけ: 名指しの revision（無ければ取得時の HEAD）、ファイル、版履歴か
+  revision?: string;
+  path?: string;
+  history?: boolean;
+  kind: RefKind;
+  // 参照元（activity:<id>・activity@<時刻>・document:<ID>・受け入れ確認担当の行 <要求の出典>・利用者の明示）と、写しの該当箇所・参照の原文
+  from: string;
+  at: string;
+  quote: string;
+  // 参照で指定された版（原文のまま。無ければ「記載なし」）
+  version: string;
+}
+
+// 目録の1項目（acceptance-input/records.md の1行。parent/acceptance/items.json に同じものを残す）
+export interface CatalogItem {
+  id: string;
+  kind: string;
+  from: string;
+  source: string;
+  version: string;
+  method: string;
+  identity: string;
+  versionMatch: string;
+  quote: string;
+  obtained: boolean;
+  // COPIED・CI_RESULT_EXCLUDED・NOT_COPIED・LINKED_DOCUMENT と、取得不能の理由（copy-evidence.ts の code、NOT_HTTPS・AUTH_REQUIRED・REVISION_NOT_FOUND・NO_LOCATION・CASE_UNAVAILABLE など）
+  code: string;
+  status: string;
+  at: string;
+  // 担当へ渡す写し（acceptance-input/ からの相対パス）と、CI の結果を除く前の元の写し（W からの相対パス）
+  copies: { path: string; sha256: string }[];
+  originals: { name: string; path: string; sha256: string }[];
+}
+
+export interface Exclusion {
+  item: string;
+  what: string;
+  sha256: string;
+}
+
+interface Command {
+  argv: string[];
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  at: string;
+}
+
+// acceptance-records の記録（parent/acceptance/records.json）
+interface RecordsState {
+  takenAt: string;
+  mode: "issue" | "request" | "case";
+  issue: string | null;
+  case: string | null;
+  verdict: { file: string; attempt: number; agentId: string | null; sha256: string };
+  items: CatalogItem[];
+  exclusions: Exclusion[];
+  linkedDocuments: string[];
+  commands: Command[];
+  // acceptance-input/records/ の各ファイルの sha256 と出典（写したとき）
+  files: (FileHash & { source: string })[];
+}
+
+interface ActivityItem {
+  kind?: string;
+  id?: number | null;
+  at?: string;
+  actor?: string;
+  body?: string;
+  logKind?: string | null;
+  type?: string | null;
+  resolvedAt?: string | null;
+  replies?: ActivityItem[];
+}
+
+// 写しの中の Git の revision らしい文字列（リポジトリが分からないので、親が確かめて参照の一覧へ足すか決める）
+interface Hint {
+  text: string;
+  from: string;
+  at: string;
+  quote: string;
+  inClone: boolean;
+}
+
+const isCiActivity = (a: ActivityItem) => (a.kind ?? "comment") === "comment" && (a.body ?? "").startsWith(CI_LOG);
+const expandHome = (p: string) => (p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
+
+// 実行したコマンドの全文と結果を親専用の記録へ残して実行する
+function run(argv: string[], log: Command[]): Proc {
+  const p = exec(argv);
+  const stdout = p.stdout.length <= 4096 ? p.stdout.toString() : `（${p.stdout.length} バイト、sha256 ${sha256(p.stdout)}）`;
+  log.push({ argv, exitCode: p.code, stdout, stderr: (p.error ?? p.stderr).trim(), at: now() });
+  return p;
+}
+
+// 反証が合格し、構造と担当行を残した最新の試行（隔離済み・未検査・不合格なら引数の誤り）
+function passedRefute(work: string): { check: CheckRecord; structure: RefuteStructure } {
+  const attempt = currentAttempt(work, "refute");
+  const check = loadList<CheckRecord>(work, "checks")
+    .filter((c) => c.stage === "refute" && c.attempt === attempt.attempt)
+    .at(-1);
+  const file = join(work, "parent/refute-structure.json");
+  const structure = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RefuteStructure) : null;
+  if (!check?.valid || !structure || structure.attempt !== attempt.attempt || structure.sha256 !== check.sha256) {
+    throw new UsageError(`反証の試行 ${attempt.attempt} が check-refute に合格していないので、受け入れ確認への入力を作りません`);
+  }
+  return { check, structure };
+}
+
+const URL_IN_TEXT = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>`"'()[\]{}|、。，（）「」]+/g;
+const PATH_IN_TEXT = /(^|[\s`'"([（「:：=・、])((?:~\/|\/)[^\s`'"()[\]{}<>|、。，（）「」]+)/g;
+const DOC_IN_TEXT = /(?:Document|ドキュメント)\s*(?:ID\s*)?[#:：]?\s*(\d+)|\bdoc\s+show\s+(\d+)|\bdocument:(\d+)/gi;
+const SHA_IN_TEXT = /\b[0-9a-f]{40}\b/g;
+const TRAILING = /[.,;:!?。、，）)」』]+$/;
+
+// 写しの本文から、絶対パス・URL・Document ID・Git の revision らしい文字列を場所付きで挙げる（親が確かめて参照の一覧を決める）
+function scanReferences(text: string, from: string, at: (line: number) => string, kind: RefKind, refs: Ref[], hints: Hint[], clone: string): void {
+  text.split("\n").forEach((line, i) => {
+    const quote = line.trim().slice(0, 300);
+    const version = line.match(SHA_IN_TEXT)?.[0] ?? "記載なし";
+    const push = (type: RefType, source: string) => {
+      if (!refs.some((r) => r.type === type && r.source === source && r.from === from)) refs.push({ type, source, kind, from, at: at(i + 1), quote, version });
+    };
+    let rest = line;
+    for (const m of line.matchAll(URL_IN_TEXT)) {
+      push("url", m[0].replace(TRAILING, ""));
+      rest = rest.replace(m[0], " ");
+    }
+    for (const m of rest.matchAll(PATH_IN_TEXT)) {
+      const path = (m[2] ?? "").replace(TRAILING, "").replace(/:L\d+(?:-L?\d+)?$/, "");
+      if (path.length > 1 && path !== "~/") push("file", path);
+    }
+    for (const m of rest.matchAll(DOC_IN_TEXT)) push("document", m[1] ?? m[2] ?? m[3] ?? "");
+    for (const sha of line.match(SHA_IN_TEXT) ?? []) {
+      if (!hints.some((h) => h.text === sha && h.from === from)) hints.push({ text: sha, from, at: at(i + 1), quote, inClone: git(clone, "cat-file", "-e", `${sha}^{commit}`).code === 0 });
+    }
+  });
+}
+
+function renderCandidates(refs: Ref[], hints: Hint[]): string {
+  return [
+    "# 受け入れ確認の証拠として写す参照の候補",
+    "",
+    "Activity・添付 Document の写し（CI の結果を除いた後）と、反証の判定本文の「受け入れ確認担当の行」の「必要な外部の正本」の欄から、絶対パス・URL・Document ID を機械的に挙げた候補（Issue にリンクされた Document は records/ に写したので挙げない）。",
+    "親は写しの該当箇所（場所の列）で確かめ、漏れた明示参照を足し、参照でないものを除いて、`ref-candidates.json` と同じ形の一覧を acceptance-input の --refs に渡す。要否や関連では選ばない。Git のリポジトリと revision の参照は type を git にし、revision と path（版履歴なら history: true）を足す。",
+    "",
+    "| # | type | 出典 | 種類 | 参照元 | 場所 | 行の原文 |",
+    "|---|---|---|---|---|---|---|",
+    ...refs.map((r, i) => `| ${i + 1} | ${r.type} | \`${cell(r.source)}\` | ${r.kind} | ${cell(r.from)} | ${cell(r.at)} | ${cell(r.quote)} |`),
+    "",
+    "## 要確認: Git の revision らしい文字列",
+    "",
+    "リポジトリが書かれていないので候補にしていない。限定 clone にある commit は対象リポジトリの commit で、写さない（担当が限定 clone の固定版で読む）。",
+    "",
+    ...(hints.length > 0
+      ? ["| 文字列 | 参照元 | 場所 | 行の原文 | 限定 clone |", "|---|---|---|---|---|", ...hints.map((h) => `| \`${h.text}\` | ${cell(h.from)} | ${cell(h.at)} | ${cell(h.quote)} | ${h.inClone ? "ある（写さない）" : "無い"} |`)]
+      : ["なし"]),
+    "",
+  ].join("\n");
+}
+
+function acceptanceRecords(args: string[]): Outcome {
+  const o = parseOptions(args, ["work"], []);
+  const { work, prep } = loadWork(o);
+  const { check, structure } = passedRefute(work);
+  if (!structure.acceptanceRequired) throw new UsageError("受け入れ確認担当の行が0行なので、受け入れ確認担当を起動せず、受け入れ確認への入力も作りません");
+  const A = join(work, "acceptance-input");
+  const P = join(work, "parent/acceptance");
+  if ((existsSync(A) && readdirSync(A).length > 0) || existsSync(join(P, "records.json"))) throw new UsageError(`受け入れ確認への写しは取り済みです（写し直しません）: ${A}`);
+  for (const d of [A, P, join(work, "acceptance/notes")]) mkdirSync(d, { recursive: true });
+  // 共通入力と反証の判定本文（丸ごと）
+  for (const name of ["target.md", "manifest.md", "requirements", "local", "deps-files.sha256"]) {
+    const src = join(work, "input", name);
+    if (existsSync(src)) copyTree(src, join(A, name));
+  }
+  copyFileSync(join(work, check.file), join(A, "refute-verdict.md"));
+
+  const takenAt = now();
+  const mode: RecordsState["mode"] = prep.caseDir ? "case" : prep.issue ? "issue" : "request";
+  const items: CatalogItem[] = [];
+  const exclusions: Exclusion[] = [];
+  const commands: Command[] = [];
+  const linked: string[] = [];
+  const files: (FileHash & { source: string })[] = [];
+  const candidates: Ref[] = [];
+  const hints: Hint[] = [];
+  const clone = join(work, "repo");
+  const issue = prep.issue;
+  if (mode === "issue" && issue) {
+    // 委譲の直前の全 Activity と、現在リンクされた全 Document（kind を問わない）。元の写しは親専用領域に残す
+    const p = run([process.env.NOD_CLI || "nod", "--json", "issue", "show", issue], commands);
+    writeFileSync(join(P, "issue-snapshot.json"), p.stdout);
+    const shown = parseJson(p) as { activity?: unknown; documents?: unknown } | undefined;
+    const rawActivity = shown?.activity;
+    const rawDocuments = shown?.documents;
+    const unavailable = (id: string, kind: string, source: string, reason: string) =>
+      items.push({ id, kind, from: `Issue ${issue}`, source, version: "対象外", method: "nod", identity: "取得できず", versionMatch: "対象外", quote: "写しなし", obtained: false, code: "READ_FAILED", status: `取得不能: ${reason}`, at: takenAt, copies: [], originals: [] });
+    if (p.code !== 0 || !Array.isArray(rawActivity)) {
+      unavailable("activity", "Activity", `nod --json issue show ${issue}`, `nod issue show が失敗（${failure(p)}）`);
+    } else {
+      const activity = rawActivity as ActivityItem[];
+      writeFileSync(join(P, "activity.json"), `${JSON.stringify(activity, null, 2)}\n`);
+      const keep = (list: ActivityItem[]): ActivityItem[] => list.filter((a) => !isCiActivity(a)).map((a) => (Array.isArray(a.replies) ? { ...a, replies: keep(a.replies) } : a));
+      mkdirSync(join(A, "records"), { recursive: true });
+      writeFileSync(join(A, "records/activity.json"), `${JSON.stringify(keep(activity), null, 2)}\n`);
+      const seen = new Map<string, number>();
+      const walk = (list: ActivityItem[], parent: number | null, removedWith: number | null) => {
+        for (const a of list) {
+          const comment = (a.kind ?? "comment") === "comment";
+          const base = comment && typeof a.id === "number" ? `activity:${a.id}` : `activity@${a.at ?? "時刻なし"}`;
+          const dup = (seen.get(base) ?? 0) + 1;
+          seen.set(base, dup);
+          const id = dup > 1 ? `${base}#${dup}` : base;
+          const body = typeof a.body === "string" ? a.body : null;
+          const ci = isCiActivity(a);
+          const excluded = ci || removedWith !== null;
+          const sha = sha256(body ?? JSON.stringify(a));
+          const where = `records/activity.json の ${id}`;
+          if (excluded && comment) {
+            const what = ci ? (parent !== null ? "本文が [ci-result] で始まる返信" : `本文が [ci-result] で始まる${a.logKind ? `作業ログ（${a.logKind}）` : "コメント"}（返信ごと）`) : `本文が [ci-result] で始まる activity:${removedWith} とともに除いた返信`;
+            exclusions.push({ item: parent !== null ? `activity:${parent} の返信 ${a.id}` : `activity:${a.id}`, what, sha256: sha });
+          }
+          const kind = !comment ? `Activity（イベント ${a.type ?? "不明"}）` : a.logKind ? `Activity（作業ログ ${a.logKind}）` : parent !== null ? "Activity（返信）" : "Activity（コメント）";
+          items.push({
+            id,
+            kind,
+            from: parent !== null ? `Issue ${issue} の activity:${parent} への返信` : `Issue ${issue}`,
+            source: `Issue ${issue} の Activity（${takenAt}）`,
+            version: "対象外（Activity の項目）",
+            method: "nod issue show（Activity）",
+            identity: `${comment ? "本文" : "項目"}の sha256 ${sha}（${a.actor ?? "書いた人不明"}、${a.at ?? "時刻なし"}${a.resolvedAt ? "、解決済み" : ""}）`,
+            versionMatch: "対象外",
+            quote: excluded ? "写しなし（CI の結果として除外）" : where,
+            obtained: !excluded,
+            code: excluded ? "CI_RESULT_EXCLUDED" : "COPIED",
+            status: excluded ? "除外: CI の結果は親だけが扱う（CI の結果の除外の節）" : "取得",
+            at: takenAt,
+            copies: excluded ? [] : [{ path: where, sha256: sha }],
+            originals: [{ name: "元の本文", path: `parent/acceptance/activity.json の ${id}`, sha256: sha }],
+          });
+          if (!excluded && body !== null) scanReferences(body, id, (n) => `${where}（本文の L${n}）`, "参照された記録", candidates, hints, clone);
+          const root = typeof a.id === "number" ? a.id : parent;
+          if (Array.isArray(a.replies)) walk(a.replies, root, excluded ? (removedWith ?? root) : null);
+        }
+      };
+      walk(activity, null, null);
+      const activitySha = sha256(readFileSync(join(A, "records/activity.json")));
+      files.push({ path: "records/activity.json", sha256: activitySha, source: `Issue ${issue} の Activity（nod --json issue show、${takenAt}）から CI の結果を印で除いた写し` });
+    }
+    const documents = Array.isArray(rawDocuments) ? (rawDocuments as DocRow[]) : [];
+    for (const d of documents) {
+      const id = String(d.id);
+      linked.push(id);
+      const name = `document-${id}.md`;
+      const dp = run([process.env.NOD_CLI || "nod", "--json", "doc", "show", id], commands);
+      const doc = parseJson(dp) as { content?: unknown; path?: unknown; kind?: unknown } | undefined;
+      if (dp.code !== 0 || typeof doc?.content !== "string") {
+        unavailable(`document:${id}`, `Document（kind=${d.kind ?? "不明"}）`, `Document ${id}（${d.path ?? ""}）`, `nod doc show が失敗（${failure(dp)}）`);
+        continue;
+      }
+      const original = Buffer.from(doc.content);
+      mkdirSync(join(P, "documents"), { recursive: true });
+      writeFileSync(join(P, "documents", name), original);
+      const stripped = ciStrip(original);
+      mkdirSync(join(A, "records/documents"), { recursive: true });
+      writeFileSync(join(A, "records/documents", name), stripped.data);
+      if (stripped.replaced) exclusions.push({ item: `document:${id}`, what: stripped.replaced, sha256: sha256(original) });
+      const source = `Document ${id}（kind=${String(doc.kind ?? d.kind ?? "")}、${String(doc.path ?? d.path ?? "")}、${takenAt}）`;
+      files.push({ path: `records/documents/${name}`, sha256: sha256(stripped.data), source });
+      items.push({
+        id: `document:${id}`,
+        kind: `Document（kind=${String(doc.kind ?? d.kind ?? "")}）`,
+        from: `Issue ${issue} にリンク`,
+        source,
+        version: "対象外（添付 Document）",
+        method: "nod doc show",
+        identity: `本文の sha256 ${sha256(original)}`,
+        versionMatch: "対象外",
+        quote: `records/documents/${name}`,
+        obtained: true,
+        code: "COPIED",
+        status: stripped.replaced ? `取得（CI の結果を${stripped.replaced}で置き換えた）` : "取得",
+        at: takenAt,
+        copies: [{ path: `records/documents/${name}`, sha256: sha256(stripped.data) }],
+        originals: [{ name: "元の本文", path: `parent/acceptance/documents/${name}`, sha256: sha256(original) }],
+      });
+      scanReferences(stripped.data.toString("utf8"), `document:${id}`, (n) => `records/documents/${name}:L${n}`, "参照された記録", candidates, hints, clone);
+    }
+  }
+  // 反証が名指しした外部の正本
+  for (const row of structure.acceptanceRows) {
+    if (!row.canon.startsWith("なし")) scanReferences(row.canon, `受け入れ確認担当の行 ${row.source}`, () => `refute-verdict.md:L${row.line}`, "外部の正本", candidates, hints, clone);
+  }
+  const refs = candidates.filter((r) => !(r.type === "document" && linked.includes(r.source)));
+  writeFileSync(join(P, "ref-candidates.json"), `${JSON.stringify(refs, null, 2)}\n`);
+  writeFileSync(join(P, "ref-candidates.md"), renderCandidates(refs, hints));
+  const state: RecordsState = {
+    takenAt,
+    mode,
+    issue,
+    case: prep.case,
+    verdict: { file: check.file, attempt: check.attempt, agentId: check.agentId, sha256: check.sha256 ?? "" },
+    items,
+    exclusions,
+    linkedDocuments: linked,
+    commands,
+    files,
+  };
+  writeFileSync(join(P, "records.json"), `${JSON.stringify(state, null, 2)}\n`);
+  const result = {
+    mode,
+    takenAt,
+    activity: items.filter((i) => i.id.startsWith("activity")).length,
+    documents: linked.length,
+    excluded: exclusions,
+    candidates: refs.length,
+    hints: hints.length,
+    candidatesFile: join(P, "ref-candidates.json"),
+    candidatesList: join(P, "ref-candidates.md"),
+  };
+  return { work, result };
+}
+
+// --refs の参照の一覧（JSON の配列）。読めない要素は引数の誤りにする（親が直して実行し直す）
+function readRefs(path: string): Ref[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new UsageError(`--refs を JSON として読めません: ${path}（${e instanceof Error ? e.message : String(e)}）`);
+  }
+  if (!Array.isArray(data)) throw new UsageError("--refs は参照の配列の JSON にしてください（写す参照が無ければ []）");
+  const problems: string[] = [];
+  const refs: Ref[] = [];
+  data.forEach((raw: unknown, i) => {
+    const o: Record<string, unknown> = raw !== null && typeof raw === "object" ? { ...raw } : {};
+    const text = (k: string) => {
+      const v = o[k];
+      return typeof v === "string" ? v.trim() : "";
+    };
+    const type = REF_TYPES.find((t) => t === text("type"));
+    const kind = REF_KINDS.find((k) => k === text("kind"));
+    const bad: string[] = [];
+    if (!type) bad.push(`type（${REF_TYPES.join("・")}）`);
+    if (!kind) bad.push(`kind（${REF_KINDS.join("・")}）`);
+    for (const k of ["source", "from", "at", "quote"]) if (!text(k)) bad.push(k);
+    for (const k of ["revision", "path", "version"]) if (o[k] !== undefined && typeof o[k] !== "string") bad.push(k);
+    if (o.history !== undefined && typeof o.history !== "boolean") bad.push("history");
+    if (type !== "git" && (o.revision !== undefined || o.path !== undefined || o.history !== undefined)) bad.push("revision・path・history は git だけ");
+    if (type === "git" && !isAbsolute(expandHome(text("source")))) bad.push("source（Git のリポジトリの絶対パス）");
+    if (type === "git" && o.history === true && !text("path")) bad.push("path（版履歴を読むファイル）");
+    if (type === "document" && !DOC_REF.test(text("source"))) bad.push("source（Document ID）");
+    if (bad.length > 0 || !type || !kind) return problems.push(`${i + 1} 件目: ${bad.join("・")}`);
+    refs.push({
+      type,
+      source: text("source"),
+      ...(text("revision") ? { revision: text("revision") } : {}),
+      ...(text("path") ? { path: text("path") } : {}),
+      ...(o.history === true ? { history: true } : {}),
+      kind,
+      from: text("from"),
+      at: text("at"),
+      quote: text("quote"),
+      version: text("version") || "記載なし",
+    });
+  });
+  if (problems.length > 0) throw new UsageError(`--refs の参照を読めません（${problems.join("。")}）`);
+  return refs;
+}
+
+// 取得の結果（ファイルは parent/acceptance/evidence/<n>/ に書いた元の写し）
+interface Fetched {
+  code: string;
+  obtained: boolean;
+  reason: string;
+  method: string;
+  identity: string;
+  versionMatch: string;
+  facts: Json;
+}
+
+// path がこのレビューの作業ディレクトリ・レビューの作業ディレクトリ・常設データセットの配下か（大文字小文字と Unicode の正規化を区別しない）
+function forbiddenArea(path: string, work: string, homeAreas: boolean): string | null {
+  const fold = (p: string) => p.normalize("NFC").toLowerCase();
+  const real = (p: string) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const homes = homeAreas ? [...new Set([homedir(), real(homedir())])] : [];
+  const roots = [...new Set([work, real(work), ...homes.flatMap((h) => FORBIDDEN_AREAS.map((a) => join(h, a)))])];
+  for (const candidate of new Set([path, real(path)])) {
+    const hit = roots.find((root) => fold(candidate) === fold(root) || fold(candidate).startsWith(`${fold(root)}/`));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// 参照1件を、出典の形に応じた1つの読み取りだけで dir（親専用領域の evidence/<n>）へ写す（parent.md 8.1 の表）
+function fetchEvidence(ref: Ref, dir: string, ctx: { work: string; prep: Prepared; linked: string[] }, log: Command[]): Fetched {
+  const fail = (code: string, reason: string, method: string, facts: Json = {}): Fetched => {
+    rmSync(dir, { recursive: true, force: true });
+    return { code, obtained: false, reason, method, identity: "取得できず", versionMatch: "取得できず", facts };
+  };
+  if (ref.type === "file") {
+    const method = "通常のファイル: copy-evidence.ts（本文を開く前に名前と各要素を検査し、ファイル1つと観測を写す）";
+    const path = expandHome(ref.source);
+    if (!isAbsolute(path)) return fail("NOT_COPIED", "リポジトリ内の相対パス（写さない。担当が限定 clone の固定版で読む）", "写さない");
+    if (forbiddenArea(path, ctx.work, false)) return fail("FORBIDDEN_AREA", "このレビューの作業ディレクトリの配下（担当へ渡さない）", method);
+    mkdirSync(dirname(dir), { recursive: true });
+    const p = run([process.execPath, join(import.meta.dir, "copy-evidence.ts"), ref.source, dir], log);
+    const j = parseJson(p) as { code?: string; message?: string; secrets?: { match?: string }[]; observationSha256?: string } | undefined;
+    if (p.code !== 0) {
+      const secrets = (j?.secrets ?? []).map((s) => s.match).filter(Boolean);
+      return fail(j?.code ?? "UNEXPECTED_ERROR", `${j?.message ?? failure(p)}${secrets.length > 0 ? `（当たったパス: ${secrets.join("・")}）` : ""}`, method, { exitCode: p.code, result: j ?? null });
+    }
+    const observation = readFileSync(join(dir, "observation.txt"), "utf8").trim().split("\t");
+    return { code: "COPIED", obtained: true, reason: "", method, identity: `observation.txt の sha256 ${j?.observationSha256 ?? ""}（${observation[2] ?? "?"} バイト、本文の sha256 ${observation[3] ?? "?"}）`, versionMatch: UNCHECKED, facts: { result: j ?? null } };
+  }
+  if (ref.type === "git") {
+    const repo = expandHome(ref.source);
+    const rev = ref.revision ?? "HEAD";
+    const method = ref.history ? "Git: rev-parse で commit に固定し、git log で版履歴を読む" : ref.path ? "Git: rev-parse で commit に固定し、git show でファイルを読む" : "Git: rev-parse で commit に固定し、git log -1 で commit を読む";
+    const secret = [repo, ...(ref.path ? [ref.path] : [])].find((n) => SECRET.test(n));
+    if (secret) return fail("SECRET_CANDIDATE", `秘密情報を含み得る名前（当たったパス: ${secret}）`, method);
+    if (repo.split("/").slice(1).some((s) => s === "" || s === "." || s === "..") || (ref.path ?? "").split("/").some((s) => s === "." || s === "..")) {
+      return fail("NON_CANONICAL_PATH", ". や .. や空の要素を含むパス", method);
+    }
+    if (forbiddenArea(repo, ctx.work, true)) return fail("FORBIDDEN_AREA", "レビューの作業ディレクトリか常設データセットの配下（担当へ渡さない）", method);
+    if (!existsSync(repo)) return fail("NOT_FOUND", "リポジトリのパスが存在しない", method);
+    if (run(["git", "-C", repo, "rev-parse", "--git-dir"], log).code !== 0) return fail("NOT_FOUND", "Git のリポジトリではない", method);
+    const c = run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`], log);
+    if (c.code !== 0) return fail("REVISION_NOT_FOUND", `名指しの Git の revision が無い（${rev}。名指しの版との対応を示せない）`, method);
+    const commit = c.stdout.toString().trim();
+    const named = SHA.test(rev) ? "" : run(["git", "-C", repo, "rev-parse", "--symbolic-full-name", rev], log).stdout.toString().trim();
+    const same = [ctx.prep.repo, ...(existsSync(ctx.prep.repo) ? [realpathSync(ctx.prep.repo)] : [])].includes(realpathSync(repo));
+    if (same && git(join(ctx.work, "repo"), "cat-file", "-e", `${commit}^{commit}`).code === 0) {
+      return fail("NOT_COPIED", `対象リポジトリの commit ${commit}（写さない。担当が限定 clone の固定版で読む）`, "写さない", { commit });
+    }
+    mkdirSync(dir, { recursive: true });
+    const read = ref.history
+      ? { argv: ["git", "-C", repo, "--no-pager", "log", "--no-ext-diff", "--no-textconv", "--format=%H%x09%cI%x09%aI%x09%s", commit, "--", ref.path ?? ""], name: "history.txt" }
+      : ref.path
+        ? { argv: ["git", "-C", repo, "--no-pager", "show", "--no-textconv", `${commit}:${ref.path}`], name: basename(ref.path) }
+        : { argv: ["git", "-C", repo, "--no-pager", "log", "-1", "--no-ext-diff", "--no-textconv", "--format=%H%x09%cI%x09%aI%x09%s", commit], name: "commit.txt" };
+    const p = run(read.argv, log);
+    if (p.code !== 0) return fail("READ_FAILED", `Git の読み取りが失敗（${failure(p)}）`, method, { commit });
+    writeFileSync(join(dir, read.name), p.stdout);
+    const pointed = named && named !== rev ? `（名前で指した revision ${rev}（${named}）が指す commit）` : rev === "HEAD" ? "（revision の指定なし。取得時の HEAD）" : "";
+    return { code: "COPIED", obtained: true, reason: "", method, identity: `commit ${commit}${pointed}`, versionMatch: `commit ${commit} に固定${pointed}`, facts: { commit, revision: rev, symbolic: named || null } };
+  }
+  if (ref.type === "document") {
+    const id = DOC_REF.exec(ref.source)?.[1] ?? ref.source;
+    const method = "Document: nod doc show の本文";
+    if (ctx.linked.includes(id)) return fail("LINKED_DOCUMENT", `Issue にリンクされた Document（document:${id} として records/ に写した）`, "写さない");
+    const p = run([process.env.NOD_CLI || "nod", "--json", "doc", "show", id], log);
+    const doc = parseJson(p) as { content?: unknown; path?: unknown; kind?: unknown } | undefined;
+    if (p.code !== 0 || typeof doc?.content !== "string") return fail("READ_FAILED", `nod doc show が失敗（${failure(p)}）`, method);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `document-${id}.md`), doc.content);
+    return { code: "COPIED", obtained: true, reason: "", method, identity: `本文の sha256 ${sha256(doc.content)}（kind=${String(doc.kind ?? "")}、${String(doc.path ?? "")}）`, versionMatch: UNCHECKED, facts: { id, path: doc.path ?? null } };
+  }
+  const method = "https の URL: 認証情報・cookie・設定ファイルを使わない GET を1回（curl）";
+  let url: URL;
+  try {
+    url = new URL(ref.source);
+  } catch {
+    return fail("NOT_URL", "URL として読めない", method);
+  }
+  if (url.username || url.password) return fail("SECRET_CANDIDATE", "利用者情報（user:pass@）を含む URL（秘密候補）", method);
+  const secretKey = [...url.searchParams.keys()].find((k) => SECRET_QUERY.test(k));
+  if (secretKey) return fail("SECRET_CANDIDATE", `名前に秘密らしい語を含むクエリ ${secretKey} を持つ URL（秘密候補）`, method);
+  if (url.protocol !== "https:") return fail("NOT_HTTPS", `https:// 以外の URL（${url.protocol}。読み取り手段が無い）`, method);
+  mkdirSync(dir, { recursive: true });
+  const argv = ["curl", "-q", "-fsS", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5", "--max-time", "60", "--max-filesize", "20000000"];
+  const p = run([...argv, "-D", join(dir, "headers.txt"), "-o", join(dir, "body"), "-w", "%{http_code} %{url_effective}\\n", ref.source], log);
+  const [status = "", finalUrl = ""] = p.stdout.toString().trim().split(" ");
+  if (p.code !== 0 || !existsSync(join(dir, "body"))) {
+    const auth = ["401", "403", "407"].includes(status);
+    return fail(auth ? "AUTH_REQUIRED" : "READ_FAILED", auth ? `認証が要る（HTTP ${status}）` : `curl が失敗（${failure(p)}${status ? `、HTTP ${status}` : ""}）`, method, { status });
+  }
+  const headers = existsSync(join(dir, "headers.txt")) ? readFileSync(join(dir, "headers.txt"), "utf8") : "";
+  const header = (name: string) => new RegExp(`^${name}:\\s*(.*?)\\s*$`, "im").exec(headers)?.[1];
+  const etag = header("etag");
+  const modified = header("last-modified");
+  const body = sha256(readFileSync(join(dir, "body")));
+  const identity = `HTTP ${status}、最終の URL ${finalUrl}、本文の sha256 ${body}${etag ? `、ETag ${etag}` : ""}${modified ? `、Last-Modified ${modified}` : ""}`;
+  return { code: "COPIED", obtained: true, reason: "", method, identity, versionMatch: UNCHECKED, facts: { status, finalUrl, etag: etag ?? null, lastModified: modified ?? null } };
+}
+
+function renderCatalog(state: RecordsState, items: CatalogItem[], files: FileHash[], sources: Map<string, string>, exclusions: Exclusion[], note: string | null, fetchedAt: string): string {
+  const target =
+    state.mode === "issue"
+      ? `Issue ${state.issue}（Activity と添付 Document は ${state.takenAt} に取得）`
+      : state.mode === "case"
+        ? `評価用の事例 ${state.case}（nod から取らず、事例の入力に固定した証拠だけを写した）`
+        : "Issue なし（Activity・添付 Document は写さない）";
+  const copies = (i: CatalogItem) => i.copies.map((c) => `\`${c.path}\` ${c.sha256}`).join("・") || "写しなし";
+  const originals = (i: CatalogItem) => i.originals.map((o) => `${o.name} ${o.sha256}`).join("・") || "なし";
+  return [
+    "# 受け入れ確認の目録",
+    "",
+    `- 対象: ${target}`,
+    `- 写した時刻: ${state.takenAt}（証拠の取得: ${fetchedAt}）`,
+    "- 読み方: 1項目1行。全文を通読せず、`grep -n` で必要な項目 ID・参照元・要求の出典の行だけを引く。判定に使った証拠の節には、この表の項目 ID を書く。",
+    ...(note ? [`- ${note}`] : []),
+    "",
+    "## 項目",
+    "",
+    "| 項目 ID | 種類 | 参照元 | 出典 | 参照で指定された版 | 取得方法 | 取得物の識別情報 | 版の対応 | 参照の原文 | 取得の可否と理由 | 取得時刻 | 写し先と sha256 | 元の写しの sha256 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ...items.map((i) =>
+      [i.id ? `\`${i.id}\`` : "", i.kind, i.from, i.source, i.version, i.method, i.identity, i.versionMatch, i.quote, i.status, i.at, copies(i), originals(i)].map((c, k) => (k === 0 ? c : cell(c || "なし"))).join(" | "),
+    ).map((row) => `| ${row} |`),
+    ...(items.length === 0 ? ["", "項目なし"] : []),
+    "",
+    "## ファイルの sha256 と出典（records.md を除く）",
+    "",
+    "| ファイル | sha256 | 出典 |",
+    "|---|---|---|",
+    ...files.map((f) => `| \`${f.path}\` | \`${f.sha256}\` | ${cell(sources.get(f.path) ?? "不明")} |`),
+    "",
+    "## CI の結果の除外",
+    "",
+    "親が印だけで除いた CI の結果。写しの「（CI の結果は親だけが扱うため除いた）」は除いた跡で、改変や不足ではない。除かれた中身を推測しない。",
+    "",
+    ...(exclusions.length > 0 ? ["| 項目 | 除いたもの | 元の sha256 |", "|---|---|---|", ...exclusions.map((e) => `| ${cell(e.item)} | ${cell(e.what)} | \`${e.sha256}\` |`)] : ["なし"]),
+    "",
+  ].join("\n");
+}
+
+function acceptanceInput(args: string[]): Outcome {
+  const o = parseOptions(args, ["work", "refs"], []);
+  const { work, prep } = loadWork(o);
+  const { check, structure } = passedRefute(work);
+  const A = join(work, "acceptance-input");
+  const P = join(work, "parent/acceptance");
+  const stateFile = join(P, "records.json");
+  if (!existsSync(stateFile)) throw new UsageError("acceptance-records で共通入力・反証の判定本文・Activity・添付 Document を写してから実行してください");
+  if (existsSync(join(work, "parent/acceptance-input.json"))) throw new UsageError("受け入れ確認への入力は作り済みです（作り直しません）");
+  const state = JSON.parse(readFileSync(stateFile, "utf8")) as RecordsState;
+  const refsPath = absolute("refs", o.one.get("refs"));
+  if (state.mode !== "case" && !refsPath) throw new UsageError("--refs <写す参照の一覧の JSON の絶対パス> が要ります（写す参照が無ければ [] のファイル）");
+  const refs = refsPath ? readRefs(refsPath) : [];
+  if (refsPath) copyFileSync(refsPath, join(P, "refs.json"));
+
+  const items = [...state.items];
+  const exclusions = [...state.exclusions];
+  const sources = new Map(state.files.map((f) => [f.path, f.source]));
+  const details: Json[] = [];
+  const caseMismatches: string[] = [];
+  const evidenceFiles: FileHash[] = [];
+  let n = 0;
+  // 元の写し（親専用領域）の各ファイルから CI の結果を印だけで除いて、担当への写しを作る
+  const publish = (no: number, base: Omit<CatalogItem, "id" | "copies" | "originals" | "at">, fetched: { obtained: boolean }, at: string) => {
+    const D = join(P, "evidence", String(no));
+    const item: CatalogItem = { id: `evidence/${no}`, ...base, at, copies: [], originals: [] };
+    if (fetched.obtained && existsSync(D)) {
+      for (const name of readdirSync(D).sort()) {
+        const original = readFileSync(join(D, name));
+        const stripped = ciStrip(original);
+        const rel = `evidence/${no}/${name}`;
+        mkdirSync(join(A, "evidence", String(no)), { recursive: true });
+        writeFileSync(join(A, rel), stripped.data);
+        if (stripped.replaced) exclusions.push({ item: rel, what: stripped.replaced, sha256: sha256(original) });
+        item.copies.push({ path: rel, sha256: sha256(stripped.data) });
+        item.originals.push({ name, path: `parent/acceptance/${rel}`, sha256: sha256(original) });
+        evidenceFiles.push({ path: rel, sha256: sha256(stripped.data) });
+        sources.set(rel, `${base.source}（${item.id}）`);
+      }
+    }
+    items.push(item);
+    return item;
+  };
+
+  // 評価用: 事例の入力に固定した証拠（inputs/<case-id>/evidence/）を写し、事例の manifest.md と照合する（copy-evidence.ts を通さない）
+  if (state.mode === "case") {
+    if (!prep.caseDir) throw new UsageError("prepare の記録に事例の入力の場所（caseDir）がありません。prepare --case からやり直してください");
+    const c = readCase(prep.caseDir);
+    for (const e of walkEntries(join(c.dir, "evidence"))) {
+      n += 1;
+      const rel = `evidence/${e.rel.slice(2)}`;
+      const at = now();
+      const D = join(P, "evidence", String(n));
+      const base = { kind: "事例の入力に固定した証拠", from: `評価用の事例 inputs/${c.id}`, source: `inputs/${c.id}/${rel}`, version: "事例の入力に固定した版", method: "事例の入力 inputs/<case-id>/evidence/ から写す（copy-evidence.ts を通さない）", quote: `inputs/${c.id}/manifest.md の ${rel} の行` };
+      if (e.kind !== "file") {
+        caseMismatches.push(`${rel}（通常のファイルではない）`);
+        publish(n, { ...base, identity: "取得できず", versionMatch: "取得できず", obtained: false, code: "NOT_REGULAR_FILE", status: "取得不能: 通常のファイルではない" }, { obtained: false }, at);
+        continue;
+      }
+      mkdirSync(D, { recursive: true });
+      const data = readFileSync(e.path);
+      writeFileSync(join(D, basename(e.path)), data);
+      const want = c.hashes.get(rel);
+      const ok = want === sha256(data);
+      if (!ok) caseMismatches.push(`${rel}（manifest.md: ${want ?? "記載なし"}、写し: ${sha256(data)}）`);
+      const versionMatch = ok ? "事例の manifest.md の sha256 と一致" : `事例の manifest.md の sha256（${want ?? "記載なし"}）と不一致`;
+      publish(n, { ...base, identity: `sha256 ${sha256(data)}（${versionMatch}）`, versionMatch, obtained: true, code: ok ? "COPIED" : "MANIFEST_MISMATCH", status: ok ? "取得" : "取得（manifest.md と不一致）" }, { obtained: true }, at);
+      details.push({ id: `evidence/${n}`, source: e.path, manifest: want ?? null, sha256: sha256(data), commands: [] });
+    }
+  }
+
+  // 親が渡した明示参照（同じ出典・版の参照は1項目にまとめる）
+  const groups: Ref[][] = [];
+  for (const r of refs) {
+    const key = (x: Ref) => [x.type, x.type === "git" || x.type === "file" ? expandHome(x.source) : x.source, x.revision ?? "", x.path ?? "", x.history ? "1" : ""].join("\0");
+    const g = groups.find((list) => list[0] && key(list[0]) === key(r));
+    if (g) g.push(r);
+    else groups.push([r]);
+  }
+  for (const g of groups) {
+    const head = g[0];
+    if (!head) continue;
+    n += 1;
+    const D = join(P, "evidence", String(n));
+    const log: Command[] = [];
+    const at = now();
+    const fetched: Fetched =
+      state.mode === "case"
+        ? { code: "CASE_UNAVAILABLE", obtained: false, reason: "当時の版を取れない（評価用。事例の入力に固定した証拠だけを写す）", method: "取りに行かない", identity: "取得できず", versionMatch: "取得できず", facts: {} }
+        : fetchEvidence(head, D, { work, prep, linked: state.linkedDocuments }, log);
+    const unique = (f: (r: Ref) => string) => [...new Set(g.map(f))].join("・");
+    const source = head.type === "git" ? `${head.source}@${head.revision ?? "HEAD"}${head.path ? `:${head.path}` : ""}${head.history ? "（版履歴）" : ""}` : head.source;
+    const notCopied = fetched.code === "NOT_COPIED" || fetched.code === "LINKED_DOCUMENT";
+    const item = publish(
+      n,
+      {
+        kind: unique((r) => r.kind),
+        from: unique((r) => r.from),
+        source,
+        version: unique((r) => r.version),
+        method: fetched.method,
+        identity: fetched.identity,
+        versionMatch: fetched.versionMatch,
+        quote: g.map((r) => `「${r.quote}」（${r.at}）`).join("・"),
+        obtained: fetched.obtained,
+        code: fetched.code,
+        status: fetched.obtained ? "取得" : `${notCopied ? "写さない" : "取得不能"}: ${fetched.code}: ${fetched.reason}`,
+      },
+      fetched,
+      at,
+    );
+    details.push({ id: item.id, refs: g, type: head.type, source: head.source, revision: head.revision ?? null, path: head.path ?? null, history: head.history ?? false, code: fetched.code, obtained: fetched.obtained, reason: fetched.reason, method: fetched.method, identity: fetched.identity, facts: fetched.facts, commands: log, fetchedAt: at, files: item.originals });
+  }
+
+  // 名指しの外部の正本のうち、写せる場所が渡されなかった行（場所を探さない）
+  for (const row of structure.acceptanceRows) {
+    if (row.canon.startsWith("なし") || refs.some((r) => r.kind === "外部の正本" && norm(r.from).includes(row.source))) continue;
+    n += 1;
+    const caseMode = state.mode === "case";
+    const reason = caseMode ? "当時の版を取れない（評価用。事例の入力に固定した証拠だけを写す）" : "出典の場所が名指しされていない（場所を探さない）";
+    const code = caseMode ? "CASE_UNAVAILABLE" : "NO_LOCATION";
+    publish(
+      n,
+      { kind: "外部の正本", from: `受け入れ確認担当の行 ${row.source}`, source: row.canon, version: "記載なし", method: "取りに行かない", identity: "取得できず", versionMatch: "取得できず", quote: `「${row.canon}」（refute-verdict.md:L${row.line}）`, obtained: false, code, status: `取得不能: ${code}: ${reason}` },
+      { obtained: false },
+      now(),
+    );
+    details.push({ id: `evidence/${n}`, row: row.source, code, reason, commands: [] });
+  }
+
+  const fetchedAt = now();
+  const explicit = refs.some((r) => r.kind !== "外部の正本");
+  const note =
+    state.mode === "request" && !explicit
+      ? "Issue なし、明示された証拠なし"
+      : state.mode === "case" && !items.some((i) => i.kind === "事例の入力に固定した証拠")
+        ? "明示された証拠なし（事例の入力に固定した証拠なし）"
+        : null;
+  for (const f of fingerprintList(A)) if (!sources.has(f.path)) sources.set(f.path, f.path === "refute-verdict.md" ? `refute/verdict.md（反証 試行 ${check.attempt}、担当 ID ${check.agentId ?? "不明"}、check-refute で検査した sha256 と照合）` : `共通入力 input/${f.path}（manifest.md と同じ出典）`);
+  const listed = fingerprintList(A).filter((f) => f.path !== "records.md");
+  writeFileSync(join(A, "records.md"), renderCatalog(state, items, listed, sources, exclusions, note, fetchedAt));
+  writeFileSync(join(P, "items.json"), `${JSON.stringify(items, null, 2)}\n`);
+  writeFileSync(join(P, "evidence.json"), `${JSON.stringify(details, null, 2)}\n`);
+  writeFileSync(
+    join(P, "evidence.md"),
+    [
+      "# 証拠の取得の記録（親専用。担当へ渡さない）",
+      "",
+      "保存直前の取り直しは、同じ出典から同じ読み取りで行う。詳細は evidence.json。",
+      "",
+      ...details.flatMap((d) => [`## ${String(d.id)}: ${String(d.code)}`, "", "```sh", ...(Array.isArray(d.commands) ? (d.commands as Command[]) : []).map((c) => `${quote(c.argv)}   # exit=${c.exitCode ?? "なし"} ${c.at}`), "```", ""]),
+    ].join("\n"),
+  );
+
+  // 写した共通入力・反証の判定本文・records/・evidence/ の sha256 を、記録と照合する
+  const files = fingerprintList(A);
+  const got = new Map(files.map((f) => [f.path, f.sha256]));
+  const expected = [
+    ...prep.inputs.map((i) => ({ ...i, source: `input/${i.path}（prepare の記録）` })),
+    { path: "manifest.md", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
+    { path: "refute-verdict.md", sha256: check.sha256 ?? "", source: `refute/verdict.md（check-refute で検査した試行 ${check.attempt}）` },
+    ...state.files.map((f) => ({ ...f, source: "acceptance-records で写したとき" })),
+    ...evidenceFiles.map((f) => ({ ...f, source: "写したとき" })),
+  ];
+  const comparison = [
+    ...expected.map((e) => ({ path: e.path, sha256: e.sha256, source: e.source, copied: got.get(e.path) ?? null, ok: got.get(e.path) === e.sha256 })),
+    ...files.filter((f) => f.path !== "records.md" && !expected.some((e) => e.path === f.path)).map((f) => ({ path: f.path, sha256: "", source: "写すものではない", copied: f.sha256, ok: false })),
+  ];
+  const identity = checkIdentity(work, "explore", "acceptance-input");
+  const ready = comparison.every((c) => c.ok) && caseMismatches.length === 0 && identity.ok;
+  writeFileSync(
+    join(P, "fingerprints.md"),
+    [
+      "# 受け入れ確認への入力の指紋",
+      "",
+      `- 写した時刻: ${state.takenAt}（証拠の取得: ${fetchedAt}）`,
+      `- 結果: ${ready ? "一致（受け入れ確認を起動してよい）" : `不一致（受け入れ確認を起動しない。未完了（理由: ${ACCEPTANCE_UNFIXED}））`}`,
+      "",
+      "| ファイル | 写しの sha256 | 照合先 | 照合先の sha256 | 一致 |",
+      "|---|---|---|---|---|",
+      ...comparison.map((c) => `| \`${c.path}\` | \`${c.copied ?? "無い"}\` | ${cell(c.source)} | \`${c.sha256 || "なし"}\` | ${c.ok ? "一致" : "不一致"} |`),
+      "",
+      ...(state.mode === "case" ? ["## 事例の入力に固定した証拠と manifest.md の照合", "", ...(caseMismatches.length > 0 ? caseMismatches.map((m) => `- 不一致: ${m}`) : ["- 一致"]), ""] : []),
+      "## acceptance-input/ の各ファイルの sha256（records.md を含む。委譲前の指紋）",
+      "",
+      "```text",
+      fileFingerprint(A).trimEnd(),
+      "```",
+      "",
+      "## 同一性の確認（共通入力・依存の写し・限定 clone）",
+      "",
+      ...identity.items.map((i) => `- ${i.name}: ${i.ok ? "一致" : "不一致"}（${i.detail}）`),
+      "",
+    ].join("\n"),
+  );
+  const outcome = ready ? { status: "準備完了", reason: null } : { status: "未完了", reason: ACCEPTANCE_UNFIXED, score: NOT_RUN_SCORE, merge: NOT_RUN_MERGE };
+  const summary = { items: items.length, evidence: n, unavailable: items.filter((i) => i.id.startsWith("evidence/") && !i.obtained).map((i) => ({ id: i.id, code: i.code })) };
+  return { work, result: { ready, ...outcome, files, comparison, caseMismatches, identity, ...summary, records: join(A, "records.md"), detail: join(P, "evidence.json") } };
+}
+
 // ---- 振り分け（サブコマンドはここだけで登録する） ----
 
-const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = { prepare, agent, "check-explore": checkExplore, "retire-attempt": retireAttempt, "refute-input": refuteInput };
+const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
+  prepare,
+  agent,
+  "check-explore": checkExplore,
+  "retire-attempt": retireAttempt,
+  "refute-input": refuteInput,
+  "check-refute": checkRefute,
+  "acceptance-records": acceptanceRecords,
+  "acceptance-input": acceptanceInput,
+};
 
 function emit(result: Json, exitCode: number): never {
   process.stdout.write(`${JSON.stringify(result)}\n`);

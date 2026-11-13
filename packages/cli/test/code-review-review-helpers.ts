@@ -243,4 +243,142 @@ export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts
   return [...head, ...middle, ...tail].join("\n");
 }
 
+// 雛形（assets/refute-verdict.md）どおりの反証の判定本文。既定は exploreHandoff の既定の両引き渡しに対して check-refute に通る形で、
+// 複合要求 requirements/issue.md:L3 をコードの部分と受け入れ確認担当の行（記録の部分）に分け、未確認の行 requirements/issue.md:L2 を足す。
+// acceptance: false なら受け入れ確認担当の行を作らない。canon は受け入れ確認担当の行の「必要な外部の正本」の欄
+export interface VerdictOptions {
+  acceptance?: boolean;
+  canon?: string;
+}
+
+export const ACCEPTANCE_ROW = "`requirements/issue.md:L3`（記録の部分）";
+
+export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): string {
+  const withRow = opts.acceptance ?? true;
+  const table = withRow
+    ? [
+        "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
+        "| `requirements/issue.md:L3`（コードの部分） | 充足 | `src/a.ts@HEAD:L1` の `a | b` | なし |",
+        `| ${ACCEPTANCE_ROW} | 受け入れ確認担当 | 失敗の記録は作業記録で確かめる | SPC-1 |`,
+        "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
+        "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
+        "| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |",
+      ]
+    : [
+        "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
+        "| `requirements/issue.md:L3` | 未確認 | 要実行確認 | SPC-1 |",
+        "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
+        "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
+        "| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |",
+      ];
+  const split = withRow
+    ? ["| `requirements/issue.md:L3`（コードの部分） | `requirements/issue.md:L3` |", `| ${ACCEPTANCE_ROW} | \`requirements/issue.md:L3\` |`, "| `requirements/issue.md:L2` | なし（追加） |"]
+    : ["| `requirements/issue.md:L2` | なし（追加） |"];
+  const unconfirmed = withRow
+    ? ["| SPC-1 | Spec | 候補 | 受け入れ確認担当の行で確かめる | 受け入れ確認担当 | 失敗の作業記録 |", "| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |"]
+    : [
+        "| SPC-1 | Spec | 候補 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
+        "| `requirements/issue.md:L3` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
+        "| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
+      ];
+  return [
+    "# 反証の判定",
+    "",
+    "## 担当と対象",
+    "",
+    "- 役割: 反証",
+    "- 定義名: code-reviewer-refute",
+    "- 担当 ID: 不明",
+    "- モデル申告: 未確認",
+    `- 対象版: \`${p.clone}\`／commit／merge-base \`${p.base}\`／head \`${p.head}\``,
+    "- 受け取った入力: `refute-input/` の各ファイル（manifest.md の sha256 と一致）",
+    "- 依存の写し: manifest.md のとおり",
+    "- 終了状態: 未確認を含む",
+    "",
+    "## 軸ごとの結果",
+    "",
+    "- Standards: 要対応 1 件、未確認 0 件",
+    `- Spec: 要対応 0 件、未確認 ${unconfirmed.length} 件`,
+    "",
+    "## 要対応（影響度の重い順）",
+    "",
+    "### CAUSE-1: 集計が誤る",
+    "",
+    "- 候補 ID と発見者の区分: `STD-1`（Standards 探索）、`REF-1`（反証で追加）",
+    "- 影響度: 2",
+    "- 軸: Standards",
+    "- 起点: 今回の差分",
+    "- 契約の出典: `src/a.ts@HEAD:L1`",
+    "- 関連する要求・契約: なし",
+    "- 場所: `src/a.ts@HEAD:L1`",
+    "- 到達条件: a() を呼ぶ",
+    "- 期待動作: 1 を返す",
+    "- 破綻: 呼出元が 1 以外を受け取る",
+    "- 影響: 集計が誤る",
+    "- 証拠: `src/a.ts@HEAD:L1`",
+    "- 反証の判定理由: 固定版で確かめた",
+    "",
+    "## 基点から存在する課題（別枠）",
+    "",
+    "なし",
+    "",
+    "## 要求ごとの対応表（確定）",
+    "",
+    "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |",
+    "|---|---|---|---|",
+    ...table,
+    "",
+    "## 分割・追加した行",
+    "",
+    "| 要求の出典 | 分割元の出典 |",
+    "|---|---|",
+    ...split,
+    "",
+    "## 受け入れ確認担当の行",
+    "",
+    ...(withRow
+      ? ["| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本 |", "|---|---|---|---|", `| ${ACCEPTANCE_ROW} | 失敗の記録 | 記録した作業 | ${opts.canon ?? "なし"} |`]
+      : ["なし"]),
+    "",
+    "## 未確認と理由",
+    "",
+    "| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |",
+    "|---|---|---|---|---|---|",
+    ...unconfirmed,
+    "",
+    "## 判断を見送った事項",
+    "",
+    "なし",
+    "",
+    "## 採否一覧（監査用）",
+    "",
+    "| 候補 ID | 発見者の区分 | 判定 | 影響度 | 同一原因 | 根拠 |",
+    "|---|---|---|---|---|---|",
+    "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
+    `| SPC-1 | Spec 探索 | 未確認 | なし | なし | ${withRow ? "受け入れ確認担当の行で確かめる" : "要実行確認"} |`,
+    "| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |",
+    "",
+  ].join("\n");
+}
+
+// 両探索を既定の引き渡しで委譲・検査し、反証への入力を写して反証を委譲し、反証の判定本文を置いて最終返答の受領まで記録する
+export async function reachRefute(s: Sandbox, p: PreparedWork, verdict: string): Promise<void> {
+  const W = p.W;
+  const must = async (sub: string, args: string[]) => {
+    const r = await runReview<{ valid?: boolean; ready?: boolean }>(sub, ["--work", W, ...args], s);
+    if (r.exitCode !== 0 || r.json?.valid === false || r.json?.ready === false) throw new Error(`${sub} ${args.join(" ")} が通りません: ${r.stdout}${r.stderr}`);
+  };
+  for (const role of ["standards", "spec"] as const) {
+    await must("agent", ["--role", role, "--event", "start"]);
+    put(join(W, role, "handoff.md"), exploreHandoff(role, p));
+    await must("agent", ["--role", role, "--event", "received", "--agent-id", `agent-${role}`]);
+    await must("check-explore", ["--role", role]);
+  }
+  await must("refute-input", []);
+  await must("agent", ["--role", "refute", "--event", "start"]);
+  put(join(W, "refute/verdict.md"), verdict);
+  put(join(W, "refute/notes/memo.md"), "反証のメモ\n");
+  await must("agent", ["--role", "refute", "--event", "received", "--agent-id", "agent-refute"]);
+}
+
 export { git, registerRepo };
