@@ -34,7 +34,7 @@ export function runTask5Cli(tool: string, argv: string[]) {
     if (!pr) { const number = 42 + state.prs.length; pr = { number, url: `https://github.com/evaluation/api/pull/${number}`, title: w.issueId === "API-2" ? "CSV列名を統一" : "保持期間の境界を確認", state: "OPEN", isDraft: false, headRefName: w.issueId === "API-2" ? "export-column" : "retention", baseRefName: "main", headRefOid: head(w), baseRefOid: "b".repeat(40), reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; state.prs.push(pr); }
     appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: ["pr", "create", "--title", pr.title], origin: "worker", issueId: w.issueId }) + "\n");
     save(); nod("issue", "link-pr", w.issueId, pr.url); nod("issue", "pr-status", w.issueId, "--refresh");
-    // PRのheadに対するCI判定を取り、成功のときだけIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
+    // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
     const review = state.reviews?.[w.issueId];
     if (review && checkSubmissionCi(review, { head: head(w), ci: simulatedCi(head(w)) }, nodCliRecorder(nod)).ready) nod("issue", "update", w.issueId, "--status", "in_review");
   };

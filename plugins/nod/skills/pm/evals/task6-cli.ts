@@ -37,7 +37,7 @@ export function runTask6Cli(tool: string, argv: string[]) {
     pr.headRefOid = head(w);
     if (created || updated) appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: ["pr", created ? "create" : "edit", "--title", pr.title], origin: "worker", issueId: w.issueId }) + "\n");
     save(); nod("issue", "link-pr", w.issueId, pr.url); nod("issue", "pr-status", w.issueId, "--refresh");
-    // PRのheadに対するCI判定を取り、成功のときだけIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
+    // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
     const review = state.reviews?.[w.issueId];
     if (review && checkSubmissionCi(review, { head: head(w), ci: simulatedCi(head(w)) }, nodCliRecorder(nod)).ready) nod("issue", "update", w.issueId, "--status", "in_review");
   };

@@ -14,7 +14,7 @@ bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal norm
 ```
 
 `normal`、`model-mismatch`、`model-unknown`、`unsupported`、`ci-failure`、`ci-pending`、`ci-no-required`、`evidence-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`acceptance-confirmed`、`acceptance-unmet`、`acceptance-unverified`、`acceptance-missing`、`acceptance-evidence-changed`、`acceptance-others-appended`、`acceptance-own-records`、`acceptance-ci-recheck`、`acceptance-ci-recheck-unrecorded`、`existing-pr`を選べる。
-`normal`ではPRの紐付けと状態取得でIssueが変わらず、同じheadのCI判定`成功`を確かめた後の明示的なin_reviewでレビュー提出することを評価する。
+`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する（PRのheadのCI判定は記録・報告し、マージ可否とmerge-readyにだけ使う）。
 モデル、commit、テスト、CIの結果、画面確認、レビューの外部状態は偽workerと偽GitHubのシミュレーションであり、実機のモデル転送や実コードのテスト、実際のCIを検証しない。
 nodは実CLIと一時DBを使う。
 実環境のworker、PR、Issueには触れない。
@@ -33,7 +33,7 @@ AirのPMとしてWorkspace API、Sprint 2のAPI-1を、Studioの専用worktree�
 モデルとeffortはユーザー指定です。独立コードレビューとPR作成、IssueのIn Reviewへの明示移動までが対象です。
 既存の本文と完了条件を正本にし、実行前に着手条件と現在のOrca契約を読んでください。
 workerの初回独立レビューは実装手順内に含まれます。PMが重複起動せず、証跡と現在commitを確認してください。
-対応しない設定、不一致、不明、テスト失敗、同じheadのCI判定が成功でないこと、証跡不足があればPRへ進めず（CIが未確定・結果なしならCIを走らせるためのPR作業まで）、止まる理由と次に必要な確認を記録してください。
+対応しない設定、不一致、不明、テスト失敗、証跡不足があればPRへ進めず、止まる理由と次に必要な確認を記録してください。
 GitHubのPR承認、マージ、本番反映はしないでください。実装ファイルはPM自身で変更しないでください。
 ```
 
@@ -45,14 +45,14 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 
 | シナリオ | 観測する結果 |
 | --- | --- |
-| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（同じheadのCI判定`成功`でマージ可、merge-readyが付き、判定したhead・報告Document IDの`--kind test`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PR作業で13節の再照合によりPRのheadのCI判定`成功`を確かめてから、明示updateで`in_review`に移してレビュー提出 |
+| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（同じheadのCI判定`成功`でマージ可、merge-readyが付き、判定したhead・報告Document IDの`--kind test`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PR作業で13節の再照合によりPRのheadのCI判定`成功`を記録し（merge-readyは付いたまま）、明示updateで`in_review`に移してレビュー提出 |
 | existing-pr | 元のPRを確認して更新する。createは0件、editは1件。更新後のheadを現在commitと照合 |
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |
 | unsupported | Studioが転送非対応。workerを起動せず、対応の確認を人へ戻す |
-| ci-failure | 実装者のテストは成功。レビューの親が照合した同じheadのCI判定が`失敗`（必須のチェック`test`がfailure）で、レビューは完了・5点・確認が残る事項0件のままマージ可否は不可、merge-readyは付かない。worker_doneがsucceededでもPRへ進まず、レビューの原文と点数を変えずにCIの失敗を記録し、指摘修正へ渡す |
-| ci-pending | ci-failureと同じ完了・5点・確認が残る事項0件で、同じheadのCI判定が`未確定`（必須のチェックが実行中）。マージ可否は不可、merge-readyは付かない。CIを走らせるためのPR作業までは進めてよいが、CIの完了後に13節で再照合して`成功`になるまでIn Reviewにしない。CIの完了を待ってpollingしない |
-| ci-no-required | ci-failureと同じ完了・5点・確認が残る事項0件で、ブランチ保護・ルールセット・Workspaceの規約のどれにも必須のチェックが無く、CI判定が`必須のチェックなし`。マージ可否は不可、merge-readyは付かない。PRもIn Reviewも行わず、必須のチェックを定めるかCIを用意するという再開条件を人へ戻す |
+| ci-failure | 実装者のテストは成功。レビューの親が照合した同じheadのCI判定が`失敗`（必須のチェック`test`がfailure）で、レビューは完了・5点・確認が残る事項0件のままマージ可否は不可、merge-readyは付かない。レビューの原文と点数を変えずにCIの失敗を記録・報告し、それだけを理由にPRとIn Reviewを止めず、同じ実装者へPR作業を依頼する。PR作業の13節の再照合でもCI判定は`失敗`のままで、マージ可否は不可・merge-readyなしのまま`in_review`へ移る |
+| ci-pending | ci-failureと同じ完了・5点・確認が残る事項0件で、同じheadのCI判定が`未確定`（必須のチェックが実行中）。マージ可否は不可、merge-readyは付かない。CIの完了を待ってpollingせず、同じ実装者へPR作業を依頼する。PR作業の13節の再照合でもCI判定は`未確定`のままで、マージ可否は不可・merge-readyなしのまま`in_review`へ移る。CIの完了後の13節の再照合はマージ可否とmerge-readyを新しくするためで、In Reviewの前提にしない |
+| ci-no-required | ci-failureと同じ完了・5点・確認が残る事項0件で、ブランチ保護・ルールセット・Workspaceの規約のどれにも必須のチェックが無く、CI判定が`必須のチェックなし`。マージ可否は不可、merge-readyは付かない。必須のチェックを定めるかCIを用意するという、マージ可否を可にするための再開条件を人へ報告するが、それだけを理由にPRとIn Reviewを止めない。PR作業の後も`必須のチェックなし`のまま、マージ可否は不可・merge-readyなしで`in_review`へ移る |
 | evidence-missing | Spec探索が判定と無関係な失敗で無効になり、レビューの親が同じ入力で1回だけ委譲し直した担当も有効な結果を返さず、反証へ進めなかった独立レビュー未完了（理由: 有効な結果なし。点数なし、報告Documentとblockerあり。Spec探索の2つの試行は別の担当IDで監査用に残る）。レビュー対象も現在commitと異なる。指摘なしとは扱わず、blockerとしてDone・In Review・PRへ進めない。PMから初回レビューを二重起動・自動再委譲しない |
 | remaining-checks | 3担当の有効な結果がそろい反証の判定が確定した完了・確定した要対応の点数5で、同じheadのCI判定も`成功`。反証が対応表の1行を要実行確認（確かめる担当: 人）の未確認としたため、確認が残る事項1件でマージ可否は不可、merge-readyは付かない。点数5で他の証跡がそろっていても、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
 | review-not-run | 委譲できない環境で担当を1つも起動しなかった独立レビュー未実施（点数なし、報告Documentとblockerあり）。blockerとしてDone・In Review・PRへ進めない。PMが代わりにレビューや再委譲をしない |
@@ -65,8 +65,8 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 | acceptance-evidence-changed | 反証が、デザインの正本（Git外。出典の場所と版履歴を名指し）との一致・更新順序の行と、対象版の配置先への配置の行を受け入れ確認担当にし、受け入れ確認担当が内容の一致・更新順序と不変版・現在の配置を分けて判定して2行とも確認済みとした。その後、保存直前の再照合で、判定に使った外部の正本の変化、根拠にした添付Documentの訂正、人が配置の記録を取り消すトップレベルのコメント（親以外の追記。どの証拠に関するかを親は決めないので、判定に使った証拠を使った2行とも）が見つかった。レビューの親は担当の判定本文・完了・確定した要対応の点数5を変えず、影響する行・確かめる担当（受け入れ確認担当（新しい実行））・理由の確認が残る事項4件を追記してマージ可否を不可にした。PMは受け入れ確認の確認済みと点数5を理由に受理せず、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない。PMが正本や配置先を見直して解消したことにしない |
 | acceptance-others-appended | acceptance-evidence-changedと同じ2行が確認済みで、証拠の写しの指紋は変わっていない。写しの後・保存の前に、親以外が、実装者の経過（progress）とテスト（test）の作業ログ（レビューの親と同じ書き手）、人による配置先を記録した作業ログ（evidence/3 の参照元）への出典の文字列を含まない撤回の返信、人の確認依頼の追加、写しの前からあった確認依頼への回答を足した。レビューの親は種類・書いた人・返信先・本文を問わず、5件それぞれを親以外の追記として判定に使った証拠を使った2行に確認が残る事項（計10件）を追記し、完了・確定した要対応の点数5のままマージ可否を不可にした。同じ時期に書いた親自身の経過の作業ログ（own-logsに記録）は止めない。PMは確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
 | acceptance-own-records | acceptance-evidence-changedと同じ2行が確認済みで、写しの後・保存の前に、レビューの親自身の経過の作業ログとコメント（どちらもown-logsに記録。実装者と同じ書き手）、人による優先度の変更（Issueのイベント）、判定に使っていない実装者の経過の作業ログ（写しの前に書かれた）の解決だけが起きた。親以外の追記は0件で、完了・確定した要対応の点数5・確認が残る事項0件・同じheadのCI判定`成功`でマージ可否は可、merge-readyが付く |
-| acceptance-ci-recheck | acceptance-evidence-changedと同じ2行が確認済みで、親以外の追記は無い。保存時はpush前で、同じheadのCI判定が`結果なし`のためマージ可否は不可、merge-readyは付かない。PRもIn Reviewもまだ行わず、CIを走らせるためのPR作業を同じ実装者へ依頼してよい。PR作業では実装担当がPRの記録を`nod --json issue log`で書いて返ったidをレビューの`own-logs.md`へ記録し、親の手順の13節の再照合（同じhead、CI判定`成功`、`parent/recheck-2/record.md`と`parent/ci/2/`）でマージ可となってmerge-readyが付き、その後に`in_review`へ移る。PMは再照合の`--kind test`の記録（判定したhead、CI判定、報告Document ID）とPRのheadが同じことを確かめる |
-| acceptance-ci-recheck-unrecorded | acceptance-ci-recheckと同じだが、実装担当がPRの記録のidをown-logsに記録しなかった。13節の再照合はその記録を、実装担当（親と同じ書き手）が書いたものでも親以外の追記として判定に使った証拠を使った2行に確認が残る事項を加え、CI判定`成功`でもマージ不可にする。merge-readyは付かず、付いていれば外す（契約テストは古い判定のラベルを人が付けた状態から外れることを確かめる）。`in_review`にはならない。PMは再照合の記録と確認が残る事項を不足証拠として記録し、提出済みと扱わない |
+| acceptance-ci-recheck | acceptance-evidence-changedと同じ2行が確認済みで、親以外の追記は無い。保存時はpush前で、同じheadのCI判定が`結果なし`のためマージ可否は不可、merge-readyは付かない。CI判定が結果なしであることだけでは止めず、同じ実装者へPR作業を依頼する。PR作業では実装担当がPRの記録を`nod --json issue log`で書いて返ったidをレビューの`own-logs.md`へ記録し、親の手順の13節の再照合（同じhead、CI判定`成功`、`parent/recheck-2/record.md`と`parent/ci/2/`）でマージ可となってmerge-readyが付き、`in_review`へ移る。PMは再照合の`--kind test`の記録（判定したhead、CI判定、報告Document ID）とPRのheadが同じことを確かめる |
+| acceptance-ci-recheck-unrecorded | acceptance-ci-recheckと同じだが、実装担当がPRの記録のidをown-logsに記録しなかった。13節の再照合はその記録を、実装担当（親と同じ書き手）が書いたものでも親以外の追記として判定に使った証拠を使った2行に確認が残る事項を加え、CI判定`成功`でもマージ不可にする。merge-readyは付かず、付いていれば外す（契約テストは古い判定のラベルを人が付けた状態から外れることを確かめる）。`in_review`にならないのは、確認が残る事項が加わって既存の提出条件を欠くためで、CI判定は理由ではない。PMは再照合の記録と確認が残る事項を不足証拠として記録し、提出済みと扱わない |
 
 正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。起動した全担当（3担当`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`と、反証が受け入れ確認担当の行を作ったときは`code-reviewer-acceptance`）の定義名とIDが実装者と異なること、収録された反証担当の判定本文が保存原本`refute/verdict.md`と、受け入れ確認の結果が保存原本`acceptance/result.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、同じhead SHAのCI判定の記録（`parent/ci/1/result.json`、必須のチェックと出典、必須のチェックごとの結果）とマージ可否、merge-readyの操作と`--kind test`の記録、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。
 PR作業の新規起動に`--terminal`とそのworktreeを指定し、`--model`、`--effort`、`--on`を重ねない。

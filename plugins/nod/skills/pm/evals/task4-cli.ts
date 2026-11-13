@@ -128,7 +128,7 @@ export function runTask4Cli(tool: string, argv: string[]) {
             state.pr = { number: 42, url: "https://github.com/evaluation/api/pull/42", title: "一覧の余白を調整", state: "OPEN", isDraft: false, headRefName: "list-spacing", baseRefName: "main", headRefOid: state.head, baseRefOid: base, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; save();
             nod("issue", "link-pr", "API-1", String(state.pr.url));
             nod("issue", "pr-status", "API-1", "--refresh");
-            // PRのheadに対するCI判定を取り、成功のときだけIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
+            // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
             if (checkSubmissionCi(state.review!, { head: state.head, ci: simulatedCi(state.head) }, nodCliRecorder(nod)).ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = "completed"; w.report = report(w); state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(w.report) }] };

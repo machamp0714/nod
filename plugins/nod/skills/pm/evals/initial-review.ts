@@ -615,7 +615,10 @@ export function recheckReviewCi(review: InitialReview, input: { currentHead: str
   return { number, reviewHead: review.headCommit, currentHead: input.currentHead, recordPath, reason, ci, remainingChecks: added, mergeReadiness, mergeReady, log };
 }
 
-/** PR作業で取った CI 判定（null は照合しなかった）。ready は In Review へ移せる（同じ head の CI 判定が成功で、再照合で確認が残る事項が増えていない）こと。 */
+/**
+ * PR作業で取った CI 判定（null は照合しなかった）。ready は In Review へ移せる（初回レビューが完了で確認が残る事項が無く、再照合で増えていない）こと。
+ * CI 判定は記録・報告してマージ可否と merge-ready にだけ使い、`成功` でなくても ready を止めない。
+ */
 export type SubmissionCi = { headSha: string; verdict: CiRecord["verdict"] | null; ready: boolean; recheck?: CiRecheck };
 /**
  * PR作業の終了条件（PMの実装手順）で、PR の head に対する CI 判定を取る。head が初回レビューの対象版と同じなら13節の再照合を行う。
@@ -626,11 +629,11 @@ export function checkSubmissionCi(review: InitialReview, input: { head: string; 
   if (input.head === review.headCommit) {
     const recheck = recheckReviewCi(review, { currentHead: input.head, ci: input.ci }, recorder);
     const verdict = recheck.ci?.verdict ?? null;
-    return { headSha: input.head, verdict, ready: verdict === "成功" && recheck.remainingChecks.length === 0, recheck };
+    return { headSha: input.head, verdict, ready: review.status === "完了" && review.remainingChecks.length === 0 && recheck.remainingChecks.length === 0, recheck };
   }
   if (recorder.show(review.issueId).labels.includes("merge-ready")) recheckReviewCi(review, { currentHead: input.head }, recorder);
   const parent = dirname(review.workDirectory);
   const ci = writeCi(join(parent, `ci-${input.head.slice(0, 12)}-${readdirSync(parent).filter(name => name.startsWith(`ci-${input.head.slice(0, 12)}`)).length + 1}`), input.ci);
   recorder.log(review.issueId, `PR の head ${input.head} の CI 判定（初回レビューの対象版 ${review.headCommit} と違うので13節の再照合はしない）: ${ciSummary(ci)}。基点 ${ci.base}。CI の記録 ${dirname(ci.recordPath)}/（result.json の sha256 ${ci.sha256}）。修正後の head には merge-ready を付けない（新しい head のマージ可否には新しいレビューが要る）。`, "test");
-  return { headSha: input.head, verdict: ci.verdict, ready: ci.verdict === "成功" && ci.headSha === input.head };
+  return { headSha: input.head, verdict: ci.verdict, ready: true };
 }

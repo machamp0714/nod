@@ -249,8 +249,10 @@ export function runTask2Cli(tool: string, argv: string[]) {
             // レビューの保存後に実装担当がIssueへ書く記録は nod --json で書き、返ったidを13節の前に own-logs へ記録する（unrecordedは記録しない）。
             const prLog = nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
             if (state.variant !== "acceptance-ci-recheck-unrecorded") recordOwnLog(state.review!.workDirectory, prLog.id, "PR作業の記録（実装担当）");
-            // PRのheadに対するCI判定を取り、同じheadのCI判定が成功で確認が残る事項が増えていないときだけIn Reviewへ移す。偽GitHubのCIはPRの後に成功している。
-            state.submissionCi = checkSubmissionCi(state.review!, { head, ci: simulatedCi(head) }, nodCliRecorder(nod));
+            // PRのheadに対するCI判定を取り（記録・報告してマージ可否とmerge-readyにだけ使う）、再照合で確認が残る事項が増えていなければIn Reviewへ移す。CI判定が成功でないことだけでは止めない。
+            // 偽GitHubのCIは、ci-failure・ci-pending・ci-no-requiredではPRの後も失敗・未確定・必須のチェックなしのまま、それ以外はPRの後に成功している。
+            const submissionVerdict = ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant];
+            state.submissionCi = checkSubmissionCi(state.review!, { head, ci: simulatedCi(head, submissionVerdict) }, nodCliRecorder(nod));
             if (state.submissionCi.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";
