@@ -6,31 +6,24 @@
 //     [--issue <ID> | --request <絶対パス>... | --request-doc <Document ID>...] [--work <W（存在しないか空）> | --work-root <絶対パス>]
 //     評価用の事例: --case <常設データセットの inputs/<case-id> の絶対パス> [--repo <絶対パス>]（nod を使わず case.md と requirements/ から作る）
 //     W の既定は $HOME/.local/share/nod/code-reviews/<小文字の uuid>。後の段階は checkIdentity（段階名を受ける）で同一性を確かめ直す
-//   agent（parent.md 4節）: --work <W> --role standards|spec|refute|acceptance --event start|received [--agent-id <担当 ID>]
+//   agent（parent.md 4節）: --work <W> --role standards|spec|refute --event start|received [--agent-id <担当 ID>]
 //     委譲の開始（委譲の直前）と最終返答の受領の時刻・試行の番号・担当 ID を parent/agents.md（と agents.json）に記録する
 //   check-explore（5節）: --work <W> --role standards|spec。引き渡し用ファイルの形式と参照、同一性を機械的に検査し、parent/checks.md（と checks.json）に書く
 //   retire-attempt（4.1節）: --work <W> --role <役割> --failure invalid|usage-limit|aborted --reason <無効の理由> [--retries <omp 内部の再試行>]
 //     最新の試行を parent/attempts/<役割>-<n>/ へ隔離し、同じ入力を確かめて parent/attempts.md（と attempts.json）に書き、委譲し直せるかを返す
 //   refute-input（6節）: --work <W>。合格した両探索の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
-//   check-refute（7節・8節）: --work <W>。反証の判定本文の形式・参照・集計の一致と同一性を機械的に検査して parent/checks.md に書き、
-//     合格なら読み取った構造を parent/refute-structure.json に、受け入れ確認担当の行を parent/acceptance/rows.md に書く
-//   acceptance-records（8.1節）: --work <W>。受け入れ確認担当の行があるときだけ、共通入力・反証の判定本文・Activity・全添付 Document を
-//     acceptance-input/ へ写し（CI の結果を印で除き、元の写しは parent/acceptance/）、写す参照の候補を parent/acceptance/ref-candidates.{json,md} に挙げる
-//   acceptance-input（8.1節）: --work <W> --refs <親が決めた参照の一覧の JSON>（評価用の事例では省く）。証拠を許可された方法で evidence/ へ写し、
-//     目録 acceptance-input/records.md と親専用の記録（parent/acceptance/items.json・evidence.json・fingerprints.md）を作って指紋を照合する
-//   check-acceptance（9節）: --work <W>。受け入れ確認の結果の形式・担当全行・5つの部分・不足理由・使った証拠・矛盾の表と同一性を機械的に検査して
-//     parent/checks.md に書き、合格なら読み取った構造を parent/acceptance-structure.json に書く
-//   finalize（10節・11節・14節）: --work <W> [--own-log <記録の id>]... [--not-run-reason <担当を1つも起動しなかった理由>]
-//     [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）] [--skill-start <スキルの読み込みの開始の ISO 時刻>]
-//     [--auto-check-rows pass|block（評価用の事例では必須、通常のレビューでは使わない）]。保存直前の再照合
-//     （parent/local-recheck/・requirements-recheck/・acceptance-recheck/）、最終状態・点数・確認が残る事項、CI の照合（parent/ci/1/、ci-checks.ts）と
+//   check-refute（7節）: --work <W>。反証の判定本文の形式・参照・集計の一致と同一性を機械的に検査して parent/checks.md に書き、
+//     合格なら読み取った構造を parent/refute-structure.json に書く
+//   finalize（10節・11節・14節）: --work <W> [--not-run-reason <担当を1つも起動しなかった理由>]
+//     [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）] [--skill-start <スキルの読み込みの開始の ISO 時刻>]。保存直前の再照合
+//     （parent/local-recheck/・requirements-recheck/）、最終状態・点数・確認が残る事項、CI の照合（parent/ci/1/、ci-checks.ts）と
 //     現在の head の照合（parent/head-check.md）、マージ可否（評価用の事例では別に CI を除いたレビュー側の判定）、監査 parent/audit.md と結果 parent/report.md の
-//     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・own-logs.md・merge-ready、区間の時間と使用量
+//     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・merge-ready、区間の時間と使用量
 //     （parent/usage.json・usage.md）を行う。評価用の事例では nod へ保存せずラベルも扱わない
-//   recheck-ci（13節）: --work <W> [--own-log <記録の id>]...。同じ head の CI とマージ可否を parent/recheck-<n>/・parent/ci/<n>/ へ照合し直し、merge-ready を付け外しする
+//   recheck-ci（13節）: --work <W>。同じ head の CI とマージ可否を parent/recheck-<n>/・parent/ci/<n>/ へ照合し直し、merge-ready を付け外しする
 //   usage（14節）: --session <親のセッション記録の絶対パス> --from <ISO 時刻> --to <ISO 時刻> --out <記録先の絶対パス> [--agent <担当 ID>]... [--agent-file <絶対パス>]...
 //     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
-// 外部コマンドとして curl（https の URL の GET）と、同じディレクトリの copy-evidence.ts（通常のファイル）・ci-checks.ts（同じ head の CI）も起動する。
+// 外部コマンドとして、同じディレクトリの ci-checks.ts（同じ head の CI）も起動する。
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json（usage は <out>/usage.json）に書く。作業ディレクトリのある呼び出しは、
 // 終了コード 0 で終えたときに開始と終了の時刻を parent/stages.json（と stages.md）に足す（区間の計測に使う）
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
@@ -70,7 +63,7 @@ interface Outcome {
   result: Json;
 }
 
-// パスのどこかの要素が秘密情報を含み得る名前に当たる（SKILL.md 2節、parent.md 1節。copy-evidence.ts と同じ規則）
+// パスのどこかの要素が秘密情報を含み得る名前に当たる（SKILL.md 2節、parent.md 1節）
 const SECRET = /(^|\/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(\/|$)/i;
 const SHA = /^[0-9a-f]{40}$/i;
 const NOT_RUN_SCORE = "点数なし";
@@ -772,7 +765,7 @@ function prepare(args: string[]): Outcome {
     head,
     issue: issue ?? null,
     case: kase ? kase.id : null,
-    // 事例の入力（inputs/<case-id>/）の絶対パス。受け入れ確認への写し（acceptance-input）が、事例の入力に固定した証拠をここから写す
+    // 事例の入力（inputs/<case-id>/）の絶対パス。保存直前の要求資料の再照合が、事例の入力から写し直す
     caseDir: kase ? kase.dir : null,
     // 評価用の事例で target.md に写さなかったもの（親専用）: merge-base に置き換えた元の基点の指定と、写さなかった case.md の節の見出し
     caseTarget: kase ? { base: kase.base, droppedSections: kase.droppedSections } : null,
@@ -946,24 +939,22 @@ function prepare(args: string[]): Outcome {
 
 // ---- 担当・試行・段階ごとの同一性（parent.md 4〜6節。記録は親専用領域） ----
 
-export type Role = "standards" | "spec" | "refute" | "acceptance";
-// 同一性を確かめ直す段階。反証・受け入れ確認では、その担当への入力の写しも比べる
-export type Stage = "explore" | "refute" | "acceptance";
+export type Role = "standards" | "spec" | "refute";
+// 同一性を確かめ直す段階。反証では、その担当への入力の写しも比べる
+export type Stage = "explore" | "refute";
 
 const ROLES: Record<Role, { name: string; definition: string; output: string; stage: Stage }> = {
   standards: { name: "Standards 探索", definition: "code-reviewer-standards", output: "handoff.md", stage: "explore" },
   spec: { name: "Spec 探索", definition: "code-reviewer-spec", output: "handoff.md", stage: "explore" },
   refute: { name: "反証", definition: "code-reviewer-refute", output: "verdict.md", stage: "refute" },
-  acceptance: { name: "受け入れ確認", definition: "code-reviewer-acceptance", output: "result.md", stage: "acceptance" },
 };
-const STAGE_NAMES: Record<Stage, string> = { explore: "探索", refute: "反証", acceptance: "受け入れ確認" };
+const STAGE_NAMES: Record<Stage, string> = { explore: "探索", refute: "反証" };
 // 段階ごとの担当への入力の写し。写しを作るサブコマンドは、出力（parent/<ディレクトリ名>.json）の files に写しの全ファイルの sha256 を、ready に固定できたかを書く
-const STAGE_COPIES: Partial<Record<Stage, string>> = { refute: "refute-input", acceptance: "acceptance-input" };
+const STAGE_COPIES: Partial<Record<Stage, string>> = { refute: "refute-input" };
 
 const FAILURES = { invalid: "判定と無関係な無効", "usage-limit": "利用枠の上限", aborted: "利用者による中止" } as const;
 type Failure = keyof typeof FAILURES;
 const REFUTE_UNFIXED = "反証への入力を固定できず、反証の有効な結果なし";
-const ACCEPTANCE_UNFIXED = "受け入れ確認への入力を固定できず、受け入れ確認の有効な結果なし";
 
 interface Prepared {
   ready: boolean;
@@ -1014,7 +1005,7 @@ export interface Identity {
 }
 
 export interface Violation {
-  // parent.md の検査の番号（探索は5節、反証は7節、受け入れ確認は9節）
+  // parent.md の検査の番号（探索は5節、反証は7節）
   no: number;
   message: string;
 }
@@ -1098,8 +1089,8 @@ function compareFiles(expected: FileHash[], actual: FileHash[]): string[] {
   return out;
 }
 
-// 段階の境目での同一性の確認（parent.md 4.1節の2の3、5節の8、7節の7、9節の6）。共通入力・依存の写し・限定 clone を prepare の記録と比べ、
-// 反証・受け入れ確認では担当への入力の写し（STAGE_COPIES）も、写したときの記録と比べる。結果を parent/identity.md（と identity.json）に足して返す
+// 段階の境目での同一性の確認（parent.md 4.1節の2の3、5節の8、7節の6）。共通入力・依存の写し・限定 clone を prepare の記録と比べ、
+// 反証では担当への入力の写し（STAGE_COPIES）も、写したときの記録と比べる。結果を parent/identity.md（と identity.json）に足して返す
 export function checkIdentity(work: string, stage: Stage, trigger: string): Identity {
   const prep = readPrepared(work);
   const items: IdentityItem[] = [];
@@ -1222,7 +1213,7 @@ function agent(args: string[]): Outcome {
     if (last && !attempts.find((a) => a.role === role && a.attempt === last.attempt)?.redelegate) {
       throw new UsageError(`${r.name} を委譲し直せるのは、retire-attempt が委譲し直してよいと返した試行の後の1回だけです（最新の試行 ${last.attempt}）`);
     }
-    // 反証・受け入れ確認は、その担当への入力の写し（refute-input・acceptance-input）が準備完了を返してから
+    // 反証は、その担当への入力の写し（refute-input）が準備完了を返してから
     const copy = STAGE_COPIES[r.stage];
     if (copy) {
       const file = join(work, "parent", `${copy}.json`);
@@ -1244,7 +1235,15 @@ function agent(args: string[]): Outcome {
 
 // ---- 探索の引き渡しの機械検査（parent.md 5節。本文への禁止情報の混入と担当の返答は親が確かめる） ----
 
-const STATES = new Set(["充足", "未充足", "未確認", "説明", "自動チェック担当", "受け入れ確認担当", "対象外"]);
+// コード要求の対応表の状態（SKILL.md 5節）
+const STATES = new Set(["充足", "未充足", "未確認"]);
+// 廃止した対応表の状態・要求資料の分類・確かめる担当。その欄の値として使ったときだけ拒否し、本文の語としては拒否しない
+// （候補の判定「基点から存在（対象外）」や CI 判定「対象外（未コミット）」は別の語彙で、ここには当てない）
+const OBSOLETE = ["受け入れ確認担当", "自動チェック担当", "説明", "対象外", "作業手順の規則", "実行しないと分からない"];
+// 廃止した未確認の理由
+const OBSOLETE_REASON = "要実行確認";
+const CODE_FILE_HEADER = ["要求資料", "コード要求"];
+const CODE_VALUES = new Set(["あり", "なし"]);
 const TARGET_FIELDS = ["役割", "定義名", "対象版", "要求資料", "依存の写し", "終了状態"];
 const CANDIDATE_FIELDS = ["軸", "場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠"];
 const TABLE_HEADER = ["要求の出典", "状態", "証拠または不足理由", "候補ID"];
@@ -1255,6 +1254,13 @@ const SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
 // 箇条書きの項目名（`- 名前: 値`、`**名前**:` も）
 const FIELD = /^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*)?([^:：*]{1,40}?)(?:\*\*)?\s*[:：][ \t]*(.*)$/;
 const plain = (s: string) => s.replace(/[*`]/g, "").trim();
+// 要求の出典を比べる形（バッククォートと * を外して空白をまとめる）。parent/refute-structure.json の出典もこの形で残す
+const norm = (s: string) => plain(s).replace(/\s+/g, " ");
+// 欄の値が廃止した語彙そのもの（末尾の句点や括弧の補足は許す）なら、その語
+const obsoleteLabel = (v: string) => {
+  const n = norm(v).replace(/[。.]+$/, "");
+  return OBSOLETE.find((w) => n === w || n.startsWith(`${w}（`) || n.startsWith(`${w}(`)) ?? null;
+};
 
 interface Section {
   title: string;
@@ -1371,13 +1377,39 @@ function forbiddenNames(lines: string[]): string[] {
   return hits;
 }
 
-// text の中に needle がファイル名の続きなしに現れるか（requirements/spec-1.md と requirements/spec-12.md を区別する）
-function mentions(text: string, needle: string): boolean {
-  for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) if (!/[\w.-]/.test(text.charAt(i + needle.length))) return true;
-  return false;
+type Add = (no: number, message: string) => void;
+
+// 要求資料ごとのコード要求（探索は5節の6、反証は7節の4）: requirements/ の各ファイルに1行ずつ、あり か なし。読み取った一覧を返す
+function codeFileViolations(sec: Section | undefined, name: string, prep: Prepared, no: number, add: Add): { path: string; code: string }[] {
+  const want = prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path);
+  const rows = tableRows(sec?.body ?? [], CODE_FILE_HEADER);
+  if (!rows) {
+    add(no, `「${name}」に雛形の2列（${CODE_FILE_HEADER.join("・")}）の表が無い`);
+    return [];
+  }
+  const files: { path: string; code: string }[] = [];
+  rows.forEach((cells, i) => {
+    const path = norm(cells[0] ?? "");
+    const code = norm(cells[1] ?? "");
+    const label = path || `${i + 1} 行目`;
+    if (!want.includes(path)) add(no, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
+    if (files.some((f) => f.path === path)) add(no, `${name}に ${label} が重複している`);
+    const old = obsoleteLabel(code);
+    if (old) add(no, `${name}の ${label} に廃止した分類「${old}」を使っている（あり／なしだけ）`);
+    else if (!CODE_VALUES.has(code)) add(no, `${name}の ${label} のコード要求「${code}」があり／なしのどちらでもない`);
+    files.push({ path, code });
+  });
+  for (const w of want) if (!files.some((f) => f.path === w)) add(no, `${w} のコード要求あり／なしが${name}に無い`);
+  return files;
 }
 
-type Add = (no: number, message: string) => void;
+// 対応表の1行の状態と不足理由（探索は5節の6、反証は7節の4）: 状態は 充足・未充足・未確認 だけ。廃止した状態と、未確認の理由「要実行確認」を拒否する
+function rowStateViolations(label: string, status: string, reason: string, no: number, add: Add): void {
+  const old = obsoleteLabel(status);
+  if (old) add(no, `${label} の状態に廃止した「${old}」を使っている（充足・未充足・未確認だけ）`);
+  else if (!STATES.has(status)) add(no, `${label} の状態「${status}」が語彙（充足・未充足・未確認）に無い`);
+  if (status === "未確認" && reason.includes(OBSOLETE_REASON)) add(no, `${label} の未確認の理由に廃止した「${OBSOLETE_REASON}」を使っている`);
+}
 
 // 担当と対象の節（探索は5節の3、反証は7節の2）: 必須の項目、委譲した役割・定義名、target.md と一致する対象版、終了状態
 function targetViolations(target: Section | undefined, names: readonly string[], role: Role, prep: Prepared, no: number, add: Add, states = /完了|未確認/): void {
@@ -1448,29 +1480,19 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
   }
   if (!filled(section("要求資料の判別"))) add(5, "「要求資料の判別」の節が無いか空");
 
-  // 6: Spec の要求ごとの対応表（列は見出しと各行の出典・状態・候補ID の位置で読む）
-  const tableSection = section("要求ごとの対応表");
-  const rows = tableRows(tableSection?.body ?? [], TABLE_HEADER);
-  if (!rows) add(6, `「要求ごとの対応表」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い`);
-  else {
-    if (rows.length === 0) add(6, "要求ごとの対応表に行が無い");
-    const sources: string[] = [];
-    rows.forEach((cells, i) => {
-      if (cells.length < 4) {
-        add(6, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
-        return;
-      }
-      const source = cells[0] ?? "";
-      const status = plain(cells[1] ?? "");
-      const label = plain(source) || `${i + 1} 行目`;
-      sources.push(source);
-      if (!STATES.has(status)) add(6, `${label} の状態「${status}」が語彙に無い`);
-      const refs = (cells[cells.length - 1] ?? "").match(/[A-Za-z]+-\d+/g) ?? [];
-      if ((status === "未充足" || status === "未確認") && refs.length === 0) add(6, `${label} は${status}だが候補 ID が無い`);
-      for (const ref of refs) if (!ids.has(ref)) add(6, `${label} が参照する候補 ${ref} が候補一覧に無い`);
-    });
-    for (const i of prep.inputs) if (i.path.startsWith("requirements/") && !sources.some((s) => mentions(s, i.path))) add(6, `${i.path} が対応表の出典に無い`);
-  }
+  // 6: 要求資料ごとのコード要求あり／なしと、コード要求の対応表（列は見出しと各行の出典・状態・候補ID の位置で読む。コード要求0件なら空の表）
+  codeFileViolations(section("要求資料ごとのコード要求"), "要求資料ごとのコード要求", prep, 6, add);
+  const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
+  if (!rows) add(6, `「コード要求の対応表」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（コード要求0件なら行の無い表）`);
+  (rows ?? []).forEach((cells, i) => {
+    if (cells.length < 4) return add(6, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
+    const status = plain(cells[1] ?? "");
+    const label = plain(cells[0] ?? "") || `${i + 1} 行目`;
+    rowStateViolations(label, status, cells.slice(2, -1).join(" | "), 6, add);
+    const refs = (cells[cells.length - 1] ?? "").match(/[A-Za-z]+-\d+/g) ?? [];
+    if ((status === "未充足" || status === "未確認") && refs.length === 0) add(6, `${label} は${status}だが候補 ID が無い`);
+    for (const ref of refs) if (!ids.has(ref)) add(6, `${label} が参照する候補 ${ref} が候補一覧に無い`);
+  });
   forbidden(lines, add);
 }
 
@@ -1499,7 +1521,7 @@ function checkExplore(args: string[]): Outcome {
     [3, "役割・定義名・対象版・要求資料・依存の写し・終了状態と、未確認・見送りの節"],
     [4, "候補の必須項目、候補 ID の接頭辞と重複、証拠を取得できなかった候補の理由と不足箇所"],
     [5, role === "standards" ? "規約の一覧と適用判断" : "要求資料の判別"],
-    ...(role === "spec" ? ([[6, "要求ごとの対応表の4列・状態の語彙・候補 ID の参照・requirements/ の全ファイルの出典"]] as [number, string][]) : []),
+    ...(role === "spec" ? ([[6, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・候補 ID の参照"]] as [number, string][]) : []),
     [7, "禁止項目の見出し・項目名（本文は親が通読する）"],
     [8, "共通入力・依存の写し・限定 clone の同一性"],
   ];
@@ -1656,17 +1678,13 @@ const AXES = ["Standards", "Spec"] as const;
 type Axis = (typeof AXES)[number];
 const REFUTE_TARGET_FIELDS = ["役割", "定義名", "対象版", "受け取った入力", "依存の写し", "終了状態"];
 const DECISION_HEADER = ["候補ID", "発見者の区分", "判定", "影響度", "同一原因", "根拠"];
-const SPLIT_HEADER = ["要求の出典", "分割元の出典"];
+const REMOVED_HEADER = ["要求の出典", "理由"];
 const UNCONFIRMED_HEADER = ["要求の出典または候補ID", "軸", "種別", "理由", "確かめる担当", "不足箇所"];
 const UNCONFIRMED_KINDS = new Set(["候補", "要求", "要求間の矛盾"]);
-const ACCEPTANCE_HEADER = ["要求の出典", "確かめること（成果物）", "確かめること（作業・手順・配置）", "必要な外部の正本"];
-const ACCEPTANCE_STATE = "受け入れ確認担当";
 const NO_FINDING = "反証で追加した発見なし";
 const IMPACT = /^([0-4])(?!\d)/;
-// 節の「なし」の明示（行頭の「なし」。表のセルの「なし（追加）」は表の行として読む）
+// 節の「なし」の明示（行頭の「なし」）
 const NONE = /^(?:[-*+]\s*)?なし(?:$|[\s。.、（(])/;
-// 要求の出典を比べる形（バッククォートと * を外して空白をまとめる）。parent/refute-structure.json の出典もこの形で残す
-const norm = (s: string) => plain(s).replace(/\s+/g, " ");
 // セルの候補 ID（CAUSE-<n> は同一原因の印で、候補 ID ではない）
 const candidateIds = (s: string) => (s.match(/\b[A-Za-z]+-\d+\b/g) ?? []).filter((x) => !x.startsWith("CAUSE-"));
 
@@ -1692,14 +1710,19 @@ export interface RequiredItem {
   effect: string;
 }
 
-// 要求ごとの対応表（確定）の1行。splitFrom は分割元の Spec 探索の行の出典、added は反証が足した行
+// コード要求の対応表（確定）の1行。added は反証が足した行（証拠または不足理由の欄の先頭の「（追加）」の印。印は検査しない）
 export interface TableRow {
   source: string;
   status: string;
   evidence: string;
   candidates: string[];
-  splitFrom: string | null;
   added: boolean;
+}
+
+// 表から除いた行の節の1行（Spec 探索の対応表から反証が外した行の出典と1行の理由）
+export interface RemovedRow {
+  source: string;
+  reason: string;
 }
 
 // 未確認と理由の表の1行（ref は要求の出典または候補 ID、kind は 候補・要求・要求間の矛盾）
@@ -1712,23 +1735,14 @@ export interface UnconfirmedRow {
   missing: string;
 }
 
-// 受け入れ確認担当の行の節の1行（candidates は対応表の同じ行の候補 ID、line は判定本文の行番号）
-export interface AcceptanceRow {
-  source: string;
-  artifacts: string;
-  work: string;
-  canon: string;
-  candidates: string[];
-  line: number;
-}
-
 interface RefuteParsed {
   axes: Record<Axis, { required: number; unconfirmed: number }>;
   decisions: Decision[];
   required: RequiredItem[];
+  files: { path: string; code: string }[];
   table: TableRow[];
+  removed: RemovedRow[];
   unconfirmed: UnconfirmedRow[];
-  acceptanceRows: AcceptanceRow[];
 }
 
 // check-refute に合格した判定本文から読み取った構造（parent/refute-structure.json）。点数・確認が残る事項の算出はこれを読む
@@ -1738,7 +1752,6 @@ export interface RefuteStructure extends RefuteParsed {
   file: string;
   sha256: string;
   checkedAt: string;
-  acceptanceRequired: boolean;
 }
 
 // 節の中の雛形の表。表の行が無ければ、節に「なし」の明示があるか
@@ -1753,7 +1766,7 @@ function handoffCandidates(text: string): string[] {
 }
 
 function handoffSources(text: string): string[] {
-  const table = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("要求ごとの対応表"));
+  const table = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("コード要求の対応表"));
   return (tableRows(table?.body ?? [], TABLE_HEADER) ?? []).map((c) => norm(c[0] ?? ""));
 }
 
@@ -1835,49 +1848,41 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     else if (!d.cause && at.startsWith("CAUSE-")) add(3, `${d.id} は要対応の節で ${at} にあるが、採否一覧に同一原因が無い`);
   }
 
-  // 4: 要求ごとの対応表（確定）と、分割・追加した行の分割元の出典、Spec 探索の対応表の全行の確定
-  const rows = tableRows(section("要求ごとの対応表")?.body ?? [], TABLE_HEADER);
+  // 4: 要求資料ごとのコード要求、コード要求の対応表（確定。コード要求0件なら空の表）、表から除いた行、Spec 探索の対応表の各行の行き先
+  const files = codeFileViolations(section("要求資料ごとのコード要求"), "要求資料ごとのコード要求（確定）", prep, 4, add);
+  const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
   const table: TableRow[] = [];
-  if (!rows) add(4, `「要求ごとの対応表（確定）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い`);
-  else if (rows.length === 0) add(4, "要求ごとの対応表に行が無い");
+  if (!rows) add(4, `「コード要求の対応表（確定）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（コード要求0件なら行の無い表）`);
   (rows ?? []).forEach((cells, i) => {
     if (cells.length < 4) return add(4, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
     const source = norm(cells[0] ?? "");
     const status = plain(cells[1] ?? "");
+    const evidence = norm(cells.slice(2, -1).join(" | "));
     const label = source || `${i + 1} 行目`;
     const ids = candidateIds(cells[cells.length - 1] ?? "");
     mentioned.push(...ids);
     if (table.some((t) => t.source === source)) add(4, `対応表の要求の出典 ${label} が重複している`);
-    if (!STATES.has(status)) add(4, `${label} の状態「${status}」が語彙に無い`);
+    rowStateViolations(label, status, evidence, 4, add);
     if (status === "未充足" && !ids.some((id) => decided.get(id)?.verdict === "要対応")) add(4, `${label} は未充足だが、採否一覧で要対応の候補 ID が無い`);
     for (const id of ids) if (!decided.has(id)) add(4, `${label} が参照する候補 ${id} が採否一覧に無い`);
-    table.push({ source, status, evidence: norm(cells.slice(2, -1).join(" | ")), candidates: ids, splitFrom: null, added: false });
+    table.push({ source, status, evidence, candidates: ids, added: evidence.startsWith("（追加）") });
   });
-  const specSources = handoffSources(handoffs.spec);
-  const tableSources = new Set(table.map((t) => t.source));
-  const splitSection = section("分割・追加した行");
-  const split = sectionTable(splitSection, SPLIT_HEADER);
-  if (!splitSection) add(4, "「分割・追加した行」の節が無い");
-  else if (split.rows.length === 0 && !split.none) add(4, `「分割・追加した行」に雛形の2列（${SPLIT_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const origins = new Map<string, string | null>();
-  split.rows.forEach((cells, i) => {
-    if (cells.length < 2) return add(4, `分割・追加した行の ${i + 1} 行目の列が足りない`);
+  const removedSection = section("表から除いた行");
+  const out = sectionTable(removedSection, REMOVED_HEADER);
+  if (!removedSection) add(4, "「表から除いた行」の節が無い");
+  else if (out.rows.length === 0 && !out.none) add(4, `「表から除いた行」に雛形の2列（${REMOVED_HEADER.join("・")}）の表も「なし」の明示も無い`);
+  const removed: RemovedRow[] = [];
+  out.rows.forEach((cells, i) => {
     const source = norm(cells[0] ?? "");
-    const origin = norm(cells[1] ?? "");
-    if (!tableSources.has(source)) add(4, `分割・追加した行の ${source} が対応表に無い`);
-    if (origins.has(source)) add(4, `分割・追加した行に ${source} が重複している`);
-    if (origin.startsWith("なし")) return origins.set(source, null);
-    if (!specSources.includes(origin)) add(4, `${source} の分割元の出典 ${origin || "（空）"} が Spec 探索の対応表の行に無い`);
-    origins.set(source, origin);
+    const reason = norm(cells.slice(1).join(" | "));
+    const label = source || `${i + 1} 行目`;
+    if (!source || !reason) add(4, `表から除いた行の ${label} に出典か理由が無い`);
+    const old = obsoleteLabel(reason);
+    if (old) add(4, `表から除いた行の ${label} の理由に廃止した分類「${old}」を使っている（1行の理由を書く）`);
+    removed.push({ source, reason });
   });
-  for (const t of table) {
-    if (origins.has(t.source)) {
-      t.splitFrom = origins.get(t.source) ?? null;
-      t.added = t.splitFrom === null;
-    } else if (!specSources.includes(t.source)) add(4, `対応表の ${t.source} が Spec 探索の対応表の行と同じ出典でなく、分割・追加した行にも無い（分割元の出典の欠落）`);
-  }
-  const covered = new Set([...tableSources, ...[...origins.values()].filter((o): o is string => o !== null)]);
-  for (const s of specSources) if (!covered.has(s)) add(4, `Spec 探索の対応表の行 ${s} を確定していない（対応表にも分割元の出典にも無い）`);
+  const confirmed = new Set([...table.map((t) => t.source), ...removed.map((r) => r.source)]);
+  for (const s of handoffSources(handoffs.spec)) if (!confirmed.has(s)) add(4, `Spec 探索の対応表の行 ${s} が、確定した対応表にも表から除いた行にも無い`);
 
   // 5: 未確認と理由の表（自由記述でなく、出典または候補 ID・軸・種別・理由・確かめる担当・不足箇所）
   const bySource = new Map(table.map((t) => [t.source, t]));
@@ -1892,6 +1897,9 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     const row: UnconfirmedRow = { ref: c[0] ?? "", axis: c[1] ?? "", kind: c[2] ?? "", reason: c[3] ?? "", owner: c[4] ?? "", missing: c[5] ?? "" };
     const label = row.ref || `${i + 1} 行目`;
     if (!AXES.some((a) => a === row.axis)) add(5, `未確認の ${label} の軸「${row.axis}」が Standards／Spec のどちらでもない`);
+    const oldOwner = obsoleteLabel(row.owner);
+    if (oldOwner) add(5, `未確認の ${label} の確かめる担当に廃止した「${oldOwner}」を使っている`);
+    if (row.reason.includes(OBSOLETE_REASON)) add(5, `未確認の ${label} の理由に廃止した「${OBSOLETE_REASON}」を使っている`);
     if (!UNCONFIRMED_KINDS.has(row.kind)) add(5, `未確認の ${label} の種別「${row.kind}」が語彙（候補・要求・要求間の矛盾）に無い`);
     const empty = (
       [
@@ -1938,54 +1946,13 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   if (!decisions.some((d) => d.id.startsWith("REF-")) && !text.includes(NO_FINDING)) add(5, `反証で追加した発見（REF-<n>）も「${NO_FINDING}」の明示も無い`);
   if (!section("判断を見送った事項")?.body.some((l) => l.trim() !== "")) add(5, "「判断を見送った事項」の節が無いか空");
 
-  // 6: 受け入れ確認担当の行の節（対応表で状態が「受け入れ確認担当」の行と同じ要求の出典、確かめることと必要な外部の正本）
-  const acceptanceSection = section("受け入れ確認担当の行");
-  const acc = sectionTable(acceptanceSection, ACCEPTANCE_HEADER);
-  if (!acceptanceSection) add(6, "「受け入れ確認担当の行」の節が無い");
-  else if (acc.rows.length === 0 && !acc.none) add(6, `「受け入れ確認担当の行」に雛形の4列（${ACCEPTANCE_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const headingLine = lines.findIndex((l) => /^##\s+受け入れ確認担当の行/.test(l));
-  const acceptanceRows: AcceptanceRow[] = [];
-  acc.rows.forEach((raw, i) => {
-    if (raw.length < ACCEPTANCE_HEADER.length) return add(6, `受け入れ確認担当の行の ${i + 1} 行目の列が足りない`);
-    const [source = "", artifacts = "", work = "", canon = ""] = raw.map(norm);
-    const label = source || `${i + 1} 行目`;
-    const empty = ACCEPTANCE_HEADER.slice(1).filter((_, k) => ![artifacts, work, canon][k]);
-    if (empty.length > 0) add(6, `受け入れ確認担当の行 ${label} の ${empty.join("・")} が空（要らなければ「なし」と書く）`);
-    const t = bySource.get(source);
-    if (t?.status !== ACCEPTANCE_STATE) add(6, `受け入れ確認担当の行 ${label} が、対応表で状態が「受け入れ確認担当」の行に無い`);
-    if (acceptanceRows.some((r) => r.source === source)) add(6, `受け入れ確認担当の行 ${label} が重複している`);
-    const line = lines.findIndex((l, k) => k > headingLine && l.trim().startsWith("|") && norm(splitRow(l)[0] ?? "") === source) + 1;
-    acceptanceRows.push({ source, artifacts, work, canon, candidates: t?.candidates ?? [], line });
-  });
-  for (const t of table) if (t.status === ACCEPTANCE_STATE && !acceptanceRows.some((r) => r.source === t.source)) add(6, `対応表の受け入れ確認担当の行 ${t.source} が受け入れ確認担当の行の節に無い`);
-
-  return { axes, decisions, required, table, unconfirmed, acceptanceRows };
-}
-
-function renderRows(s: RefuteStructure): string {
-  const n = s.acceptanceRows.length;
-  return [
-    "# 受け入れ確認担当の行",
-    "",
-    `- 反証の判定本文: \`${s.file}\`（試行 ${s.attempt}、担当 ID ${s.agentId ?? "不明"}、sha256 \`${s.sha256}\`。check-refute に合格）`,
-    `- 件数: ${n}`,
-    `- 受け入れ確認担当: ${n > 0 ? `必要な担当（${n} 行。有効な結果を受け取るまで完了にしない）` : "受け入れ確認担当の行なし（起動せず）"}`,
-    "",
-    ...(n > 0
-      ? [
-          "| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本 | 候補ID |",
-          "|---|---|---|---|---|",
-          ...s.acceptanceRows.map((r) => `| ${cell(r.source)} | ${cell(r.artifacts)} | ${cell(r.work)} | ${cell(r.canon)} | ${r.candidates.join("・") || "なし"} |`),
-          "",
-        ]
-      : []),
-  ].join("\n");
+  return { axes, decisions, required, files, table, removed, unconfirmed };
 }
 
 function checkRefute(args: string[]): Outcome {
   const o = parseOptions(args, ["work"], []);
   const { work, prep } = loadWork(o);
-  if (existsSync(join(work, "parent/acceptance/records.json"))) throw new UsageError("受け入れ確認への写しを取った後は、反証の結果を検査し直しません");
+  if (existsSync(join(work, "parent/finalize.json"))) throw new UsageError("finalize の後は、反証の結果を検査し直しません");
   const r = ROLES.refute;
   const attempt = currentAttempt(work, "refute");
   const file = `refute/${r.output}`;
@@ -2000,15 +1967,14 @@ function checkRefute(args: string[]): Outcome {
   const parsed = body === null ? null : refuteViolations(body.toString("utf8"), prep, { standards: handoff("standards"), spec: handoff("spec") }, add);
   if (body === null) add(1, `${file} が無い`);
   const identity = checkIdentity(work, "refute", `check-refute 試行 ${attempt.attempt}`);
-  for (const i of identity.items) if (!i.ok) add(7, `${i.name}: ${i.detail}`);
+  for (const i of identity.items) if (!i.ok) add(6, `${i.name}: ${i.detail}`);
   const names: [number, string][] = [
     [1, `指定したパスに ${r.output} がある`],
     [2, "役割・定義名・対象版・受け取った入力・依存の写し・終了状態"],
     [3, "採否一覧に両探索の全候補 ID と反証で追加した発見、判定の語彙と根拠、要対応の影響度 0〜4、要対応の節と採否一覧（同一候補の判定・同一原因の集約と影響度）の一致"],
-    [4, "要求ごとの対応表の4列・状態の語彙・候補 ID の参照、分割・追加した行の分割元の出典、Spec 探索の対応表の全行の確定"],
-    [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表、判断を見送った事項"],
-    [6, "受け入れ確認担当の行の節と対応表の受け入れ確認担当の行の一致、確かめることと必要な外部の正本"],
-    [7, "refute-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
+    [4, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・未充足の行の要対応・候補 ID の参照、表から除いた行の出典と理由、Spec 探索の対応表の各行が確定した対応表か表から除いた行にあること"],
+    [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表（未確認の行と候補がすべてある・廃止した担当と理由の拒否）、判断を見送った事項"],
+    [6, "refute-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
   ];
   const checkedAt = now();
   const record: CheckRecord = {
@@ -2030,1037 +1996,26 @@ function checkRefute(args: string[]): Outcome {
   };
   const list = [...loadList<CheckRecord>(work, "checks"), record];
   saveList(work, "checks", list, renderChecks(list));
-  // 構造と担当行は、合格した最新の判定本文からだけ残す
+  // 構造は、合格した最新の判定本文からだけ残す
   const structureFile = join(work, "parent/refute-structure.json");
-  const rowsFile = join(work, "parent/acceptance/rows.md");
   rmSync(structureFile, { force: true });
-  rmSync(rowsFile, { force: true });
-  if (!record.valid || !parsed || body === null) return { work, result: { ...record, acceptanceRows: null, acceptanceRequired: null, structure: null } };
-  const structure: RefuteStructure = { attempt: attempt.attempt, agentId: attempt.agentId, file, sha256: sha256(body), checkedAt, ...parsed, acceptanceRequired: parsed.acceptanceRows.length > 0 };
+  if (!record.valid || !parsed || body === null) return { work, result: { ...record, structure: null } };
+  const structure: RefuteStructure = { attempt: attempt.attempt, agentId: attempt.agentId, file, sha256: sha256(body), checkedAt, ...parsed };
   writeFileSync(structureFile, `${JSON.stringify(structure, null, 2)}\n`);
-  mkdirSync(dirname(rowsFile), { recursive: true });
-  writeFileSync(rowsFile, renderRows(structure));
-  const result = { ...record, acceptanceRows: structure.acceptanceRows.length, acceptanceRequired: structure.acceptanceRequired, structure: "parent/refute-structure.json", rows: "parent/acceptance/rows.md" };
-  return { work, result };
+  return { work, result: { ...record, structure: "parent/refute-structure.json" } };
 }
 
-// ---- 受け入れ確認への入力（parent.md 8節。写す参照の抽出は親、写し・取得・目録はスクリプト） ----
+// ---- CI の結果の印（parent.md 3節。CI の結果は作業ログでは [ci-result] で始まる記録、報告では印の間だけに書く） ----
 
 const CI_LOG = "[ci-result]";
 const CI_BEGIN = "<!-- ci-result:begin -->";
 const CI_END = "<!-- ci-result:end -->";
-const CI_REMOVED = "（CI の結果は親だけが扱うため除いた）";
-// レビューの作業ディレクトリと常設データセット（copy-evidence.ts と同じ。Git のリポジトリにも当てる）
-const FORBIDDEN_AREAS = [".local/share/nod/code-reviews", ".local/share/nod/review-evaluation"];
-const REF_TYPES = ["file", "git", "document", "url"] as const;
-type RefType = (typeof REF_TYPES)[number];
-const REF_KINDS = ["参照された記録", "外部の正本", "明示された証拠"] as const;
-type RefKind = (typeof REF_KINDS)[number];
-const DOC_REF = /^(?:document[:\s]*|Document\s*)?#?(\d+)$/i;
-const SECRET_QUERY = /token|key|secret|password|signature|sig|credential|x-amz-/i;
-const UNCHECKED = "親は確かめていない（出典の場所が示すのは取得時刻の内容）";
-
-type Replaced = "本文全体" | "印の間" | null;
-
-// parent.md 8.1 の CI の結果の除去: 本文が [ci-result] で始まれば本文全体を、印の行の間だけを置き換え、印が無ければそのまま
-function ciStrip(data: Buffer): { data: Buffer; replaced: Replaced } {
-  if (data.subarray(0, CI_LOG.length).toString("latin1") === CI_LOG) return { data: Buffer.from(`${CI_REMOVED}\n`), replaced: "本文全体" };
-  const lines = data.toString("latin1").split("\n");
-  if (!lines.includes(CI_BEGIN)) return { data, replaced: null };
-  if (lines.at(-1) === "") lines.pop();
-  const out: Buffer[] = [];
-  let skip = false;
-  for (const line of lines) {
-    if (line === CI_BEGIN) {
-      out.push(Buffer.from(`${line}\n`, "latin1"), Buffer.from(`${CI_REMOVED}\n`));
-      skip = true;
-      continue;
-    }
-    if (line === CI_END) skip = false;
-    if (!skip) out.push(Buffer.from(`${line}\n`, "latin1"));
-  }
-  return { data: Buffer.concat(out), replaced: "印の間" };
-}
-
-// 親が渡す、写す参照の1件（--refs の JSON の配列の要素。acceptance-records の ref-candidates.json も同じ形）
-export interface Ref {
-  type: RefType;
-  // file: 絶対パス（~ で始まってよい）、git: リポジトリの絶対パス、document: Document ID、url: URL
-  source: string;
-  // git だけ: 名指しの revision（無ければ取得時の HEAD）、ファイル、版履歴か
-  revision?: string;
-  path?: string;
-  history?: boolean;
-  kind: RefKind;
-  // 参照元（activity:<id>・activity@<時刻>・document:<ID>・受け入れ確認担当の行 <要求の出典>・利用者の明示）と、写しの該当箇所・参照の原文
-  from: string;
-  at: string;
-  quote: string;
-  // 参照で指定された版（原文のまま。無ければ「記載なし」）
-  version: string;
-}
-
-// 目録の1項目（acceptance-input/records.md の1行。parent/acceptance/items.json に同じものを残す）
-export interface CatalogItem {
-  id: string;
-  kind: string;
-  from: string;
-  source: string;
-  version: string;
-  method: string;
-  identity: string;
-  versionMatch: string;
-  quote: string;
-  obtained: boolean;
-  // COPIED・CI_RESULT_EXCLUDED・NOT_COPIED・LINKED_DOCUMENT と、取得不能の理由（copy-evidence.ts の code、NOT_HTTPS・AUTH_REQUIRED・REVISION_NOT_FOUND・NO_LOCATION・CASE_UNAVAILABLE など）
-  code: string;
-  status: string;
-  at: string;
-  // 担当へ渡す写し（acceptance-input/ からの相対パス）と、CI の結果を除く前の元の写し（W からの相対パス）
-  copies: { path: string; sha256: string }[];
-  originals: { name: string; path: string; sha256: string }[];
-}
-
-export interface Exclusion {
-  item: string;
-  what: string;
-  sha256: string;
-}
-
-interface Command {
-  argv: string[];
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  at: string;
-}
-
-// acceptance-records の記録（parent/acceptance/records.json）
-interface RecordsState {
-  takenAt: string;
-  mode: "issue" | "request" | "case";
-  issue: string | null;
-  case: string | null;
-  verdict: { file: string; attempt: number; agentId: string | null; sha256: string };
-  items: CatalogItem[];
-  exclusions: Exclusion[];
-  linkedDocuments: string[];
-  commands: Command[];
-  // acceptance-input/records/ の各ファイルの sha256 と出典（写したとき）
-  files: (FileHash & { source: string })[];
-}
-
-interface ActivityItem {
-  kind?: string;
-  id?: number | null;
-  at?: string;
-  actor?: string;
-  body?: string;
-  logKind?: string | null;
-  type?: string | null;
-  data?: unknown;
-  resolvedAt?: string | null;
-  replies?: ActivityItem[];
-  // 確認依頼（kind: question）
-  question?: string;
-  answer?: string | null;
-  answeredBy?: string | null;
-  answeredAt?: string | null;
-}
-
-// Activity の項目 ID（records.md と同じ。コメント・作業ログ・返信は activity:<id>、それ以外は activity@<時刻>、同じ ID の2件目からは #<n> を付ける）
-function activityId(a: ActivityItem, seen: Map<string, number>): string {
-  const base = (a.kind ?? "comment") === "comment" && typeof a.id === "number" ? `activity:${a.id}` : `activity@${a.at ?? "時刻なし"}`;
-  const dup = (seen.get(base) ?? 0) + 1;
-  seen.set(base, dup);
-  return dup > 1 ? `${base}#${dup}` : base;
-}
-
-// Activity の全項目（返信を含め、目録と同じ順）と項目 ID・返信先のコメントの id
-function flattenActivity(list: ActivityItem[]): { id: string; item: ActivityItem; parent: number | null }[] {
-  const seen = new Map<string, number>();
-  const out: { id: string; item: ActivityItem; parent: number | null }[] = [];
-  const walk = (items: ActivityItem[], parent: number | null) => {
-    for (const a of items) {
-      out.push({ id: activityId(a, seen), item: a, parent });
-      if (Array.isArray(a.replies)) walk(a.replies, typeof a.id === "number" ? a.id : parent);
-    }
-  };
-  walk(list, null);
-  return out;
-}
-
-// 項目の本文の sha256（目録と同じ。本文の無い項目は項目の JSON）
-const activitySha = (a: ActivityItem) => sha256(typeof a.body === "string" ? a.body : JSON.stringify(a));
-
-// 写しの中の Git の revision らしい文字列（リポジトリが分からないので、親が確かめて参照の一覧へ足すか決める）
-interface Hint {
-  text: string;
-  from: string;
-  at: string;
-  quote: string;
-  inClone: boolean;
-}
-
-const isCiActivity = (a: ActivityItem) => (a.kind ?? "comment") === "comment" && (a.body ?? "").startsWith(CI_LOG);
-const expandHome = (p: string) => (p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
-
-// 実行したコマンドの全文と結果を親専用の記録へ残して実行する
-function run(argv: string[], log: Command[]): Proc {
-  const p = exec(argv);
-  const stdout = p.stdout.length <= 4096 ? p.stdout.toString() : `（${p.stdout.length} バイト、sha256 ${sha256(p.stdout)}）`;
-  log.push({ argv, exitCode: p.code, stdout, stderr: (p.error ?? p.stderr).trim(), at: now() });
-  return p;
-}
-
-// 反証が合格し、構造と担当行を残した最新の試行（隔離済み・未検査・不合格なら引数の誤り）
-function passedRefute(work: string): { check: CheckRecord; structure: RefuteStructure } {
-  const attempt = currentAttempt(work, "refute");
-  const check = loadList<CheckRecord>(work, "checks")
-    .filter((c) => c.stage === "refute" && c.attempt === attempt.attempt)
-    .at(-1);
-  const file = join(work, "parent/refute-structure.json");
-  const structure = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as RefuteStructure) : null;
-  if (!check?.valid || !structure || structure.attempt !== attempt.attempt || structure.sha256 !== check.sha256) {
-    throw new UsageError(`反証の試行 ${attempt.attempt} が check-refute に合格していないので、受け入れ確認への入力を作りません`);
-  }
-  return { check, structure };
-}
-
-const URL_IN_TEXT = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>`"'()[\]{}|、。，（）「」]+/g;
-const PATH_IN_TEXT = /(^|[\s`'"([（「:：=・、])((?:~\/|\/)[^\s`'"()[\]{}<>|、。，（）「」]+)/g;
-const DOC_IN_TEXT = /(?:Document|ドキュメント)\s*(?:ID\s*)?[#:：]?\s*(\d+)|\bdoc\s+show\s+(\d+)|\bdocument:(\d+)/gi;
-const SHA_IN_TEXT = /\b[0-9a-f]{40}\b/g;
-const TRAILING = /[.,;:!?。、，）)」』]+$/;
-
-// 写しの本文から、絶対パス・URL・Document ID・Git の revision らしい文字列を場所付きで挙げる（親が確かめて参照の一覧を決める）
-function scanReferences(text: string, from: string, at: (line: number) => string, kind: RefKind, refs: Ref[], hints: Hint[], clone: string): void {
-  text.split("\n").forEach((line, i) => {
-    const quote = line.trim().slice(0, 300);
-    const version = line.match(SHA_IN_TEXT)?.[0] ?? "記載なし";
-    const push = (type: RefType, source: string) => {
-      if (!refs.some((r) => r.type === type && r.source === source && r.from === from)) refs.push({ type, source, kind, from, at: at(i + 1), quote, version });
-    };
-    let rest = line;
-    for (const m of line.matchAll(URL_IN_TEXT)) {
-      push("url", m[0].replace(TRAILING, ""));
-      rest = rest.replace(m[0], " ");
-    }
-    for (const m of rest.matchAll(PATH_IN_TEXT)) {
-      const path = (m[2] ?? "").replace(TRAILING, "").replace(/:L\d+(?:-L?\d+)?$/, "");
-      if (path.length > 1 && path !== "~/") push("file", path);
-    }
-    for (const m of rest.matchAll(DOC_IN_TEXT)) push("document", m[1] ?? m[2] ?? m[3] ?? "");
-    for (const sha of line.match(SHA_IN_TEXT) ?? []) {
-      if (!hints.some((h) => h.text === sha && h.from === from)) hints.push({ text: sha, from, at: at(i + 1), quote, inClone: git(clone, "cat-file", "-e", `${sha}^{commit}`).code === 0 });
-    }
-  });
-}
-
-function renderCandidates(refs: Ref[], hints: Hint[]): string {
-  return [
-    "# 受け入れ確認の証拠として写す参照の候補",
-    "",
-    "Activity・添付 Document の写し（CI の結果を除いた後）と、反証の判定本文の「受け入れ確認担当の行」の「必要な外部の正本」の欄から、絶対パス・URL・Document ID を機械的に挙げた候補（Issue にリンクされた Document は records/ に写したので挙げない）。",
-    "親は写しの該当箇所（場所の列）で確かめ、漏れた明示参照を足し、参照でないものを除いて、`ref-candidates.json` と同じ形の一覧を acceptance-input の --refs に渡す。要否や関連では選ばない。Git のリポジトリと revision の参照は type を git にし、revision と path（版履歴なら history: true）を足す。",
-    "",
-    "| # | type | 出典 | 種類 | 参照元 | 場所 | 行の原文 |",
-    "|---|---|---|---|---|---|---|",
-    ...refs.map((r, i) => `| ${i + 1} | ${r.type} | \`${cell(r.source)}\` | ${r.kind} | ${cell(r.from)} | ${cell(r.at)} | ${cell(r.quote)} |`),
-    "",
-    "## 要確認: Git の revision らしい文字列",
-    "",
-    "リポジトリが書かれていないので候補にしていない。限定 clone にある commit は対象リポジトリの commit で、写さない（担当が限定 clone の固定版で読む）。",
-    "",
-    ...(hints.length > 0
-      ? ["| 文字列 | 参照元 | 場所 | 行の原文 | 限定 clone |", "|---|---|---|---|---|", ...hints.map((h) => `| \`${h.text}\` | ${cell(h.from)} | ${cell(h.at)} | ${cell(h.quote)} | ${h.inClone ? "ある（写さない）" : "無い"} |`)]
-      : ["なし"]),
-    "",
-  ].join("\n");
-}
-
-function acceptanceRecords(args: string[]): Outcome {
-  const o = parseOptions(args, ["work"], []);
-  const { work, prep } = loadWork(o);
-  const { check, structure } = passedRefute(work);
-  if (!structure.acceptanceRequired) throw new UsageError("受け入れ確認担当の行が0行なので、受け入れ確認担当を起動せず、受け入れ確認への入力も作りません");
-  const A = join(work, "acceptance-input");
-  const P = join(work, "parent/acceptance");
-  if ((existsSync(A) && readdirSync(A).length > 0) || existsSync(join(P, "records.json"))) throw new UsageError(`受け入れ確認への写しは取り済みです（写し直しません）: ${A}`);
-  for (const d of [A, P, join(work, "acceptance/notes")]) mkdirSync(d, { recursive: true });
-  // 共通入力と反証の判定本文（丸ごと）
-  for (const name of ["target.md", "manifest.md", "requirements", "local", "deps-files.sha256"]) {
-    const src = join(work, "input", name);
-    if (existsSync(src)) copyTree(src, join(A, name));
-  }
-  copyFileSync(join(work, check.file), join(A, "refute-verdict.md"));
-
-  const takenAt = now();
-  const mode: RecordsState["mode"] = prep.caseDir ? "case" : prep.issue ? "issue" : "request";
-  const items: CatalogItem[] = [];
-  const exclusions: Exclusion[] = [];
-  const commands: Command[] = [];
-  const linked: string[] = [];
-  const files: (FileHash & { source: string })[] = [];
-  const candidates: Ref[] = [];
-  const hints: Hint[] = [];
-  const clone = join(work, "repo");
-  const issue = prep.issue;
-  if (mode === "issue" && issue) {
-    // 委譲の直前の全 Activity と、現在リンクされた全 Document（kind を問わない）。元の写しは親専用領域に残す
-    const p = run([process.env.NOD_CLI || "nod", "--json", "issue", "show", issue], commands);
-    writeFileSync(join(P, "issue-snapshot.json"), p.stdout);
-    const shown = parseJson(p) as { activity?: unknown; documents?: unknown } | undefined;
-    const rawActivity = shown?.activity;
-    const rawDocuments = shown?.documents;
-    const unavailable = (id: string, kind: string, source: string, reason: string) =>
-      items.push({ id, kind, from: `Issue ${issue}`, source, version: "対象外", method: "nod", identity: "取得できず", versionMatch: "対象外", quote: "写しなし", obtained: false, code: "READ_FAILED", status: `取得不能: ${reason}`, at: takenAt, copies: [], originals: [] });
-    if (p.code !== 0 || !Array.isArray(rawActivity)) {
-      unavailable("activity", "Activity", `nod --json issue show ${issue}`, `nod issue show が失敗（${failure(p)}）`);
-    } else {
-      const activity = rawActivity as ActivityItem[];
-      writeFileSync(join(P, "activity.json"), `${JSON.stringify(activity, null, 2)}\n`);
-      const keep = (list: ActivityItem[]): ActivityItem[] => list.filter((a) => !isCiActivity(a)).map((a) => (Array.isArray(a.replies) ? { ...a, replies: keep(a.replies) } : a));
-      mkdirSync(join(A, "records"), { recursive: true });
-      writeFileSync(join(A, "records/activity.json"), `${JSON.stringify(keep(activity), null, 2)}\n`);
-      const seen = new Map<string, number>();
-      const walk = (list: ActivityItem[], parent: number | null, removedWith: number | null) => {
-        for (const a of list) {
-          const comment = (a.kind ?? "comment") === "comment";
-          const id = activityId(a, seen);
-          const body = typeof a.body === "string" ? a.body : null;
-          const ci = isCiActivity(a);
-          const excluded = ci || removedWith !== null;
-          const sha = activitySha(a);
-          const where = `records/activity.json の ${id}`;
-          if (excluded && comment) {
-            const what = ci ? (parent !== null ? "本文が [ci-result] で始まる返信" : `本文が [ci-result] で始まる${a.logKind ? `作業ログ（${a.logKind}）` : "コメント"}（返信ごと）`) : `本文が [ci-result] で始まる activity:${removedWith} とともに除いた返信`;
-            exclusions.push({ item: parent !== null ? `activity:${parent} の返信 ${a.id}` : `activity:${a.id}`, what, sha256: sha });
-          }
-          const kind = !comment ? `Activity（イベント ${a.type ?? "不明"}）` : a.logKind ? `Activity（作業ログ ${a.logKind}）` : parent !== null ? "Activity（返信）" : "Activity（コメント）";
-          items.push({
-            id,
-            kind,
-            from: parent !== null ? `Issue ${issue} の activity:${parent} への返信` : `Issue ${issue}`,
-            source: `Issue ${issue} の Activity（${takenAt}）`,
-            version: "対象外（Activity の項目）",
-            method: "nod issue show（Activity）",
-            identity: `${comment ? "本文" : "項目"}の sha256 ${sha}（${a.actor ?? "書いた人不明"}、${a.at ?? "時刻なし"}${a.resolvedAt ? "、解決済み" : ""}）`,
-            versionMatch: "対象外",
-            quote: excluded ? "写しなし（CI の結果として除外）" : where,
-            obtained: !excluded,
-            code: excluded ? "CI_RESULT_EXCLUDED" : "COPIED",
-            status: excluded ? "除外: CI の結果は親だけが扱う（CI の結果の除外の節）" : "取得",
-            at: takenAt,
-            copies: excluded ? [] : [{ path: where, sha256: sha }],
-            originals: [{ name: "元の本文", path: `parent/acceptance/activity.json の ${id}`, sha256: sha }],
-          });
-          if (!excluded && body !== null) scanReferences(body, id, (n) => `${where}（本文の L${n}）`, "参照された記録", candidates, hints, clone);
-          const root = typeof a.id === "number" ? a.id : parent;
-          if (Array.isArray(a.replies)) walk(a.replies, root, excluded ? (removedWith ?? root) : null);
-        }
-      };
-      walk(activity, null, null);
-      const copiedSha = sha256(readFileSync(join(A, "records/activity.json")));
-      files.push({ path: "records/activity.json", sha256: copiedSha, source: `Issue ${issue} の Activity（nod --json issue show、${takenAt}）から CI の結果を印で除いた写し` });
-    }
-    const documents = Array.isArray(rawDocuments) ? (rawDocuments as DocRow[]) : [];
-    for (const d of documents) {
-      const id = String(d.id);
-      linked.push(id);
-      const name = `document-${id}.md`;
-      const dp = run([process.env.NOD_CLI || "nod", "--json", "doc", "show", id], commands);
-      const doc = parseJson(dp) as { content?: unknown; path?: unknown; kind?: unknown } | undefined;
-      if (dp.code !== 0 || typeof doc?.content !== "string") {
-        unavailable(`document:${id}`, `Document（kind=${d.kind ?? "不明"}）`, `Document ${id}（${d.path ?? ""}）`, `nod doc show が失敗（${failure(dp)}）`);
-        continue;
-      }
-      const original = Buffer.from(doc.content);
-      mkdirSync(join(P, "documents"), { recursive: true });
-      writeFileSync(join(P, "documents", name), original);
-      const stripped = ciStrip(original);
-      mkdirSync(join(A, "records/documents"), { recursive: true });
-      writeFileSync(join(A, "records/documents", name), stripped.data);
-      if (stripped.replaced) exclusions.push({ item: `document:${id}`, what: stripped.replaced, sha256: sha256(original) });
-      const source = `Document ${id}（kind=${String(doc.kind ?? d.kind ?? "")}、${String(doc.path ?? d.path ?? "")}、${takenAt}）`;
-      files.push({ path: `records/documents/${name}`, sha256: sha256(stripped.data), source });
-      items.push({
-        id: `document:${id}`,
-        kind: `Document（kind=${String(doc.kind ?? d.kind ?? "")}）`,
-        from: `Issue ${issue} にリンク`,
-        source,
-        version: "対象外（添付 Document）",
-        method: "nod doc show",
-        identity: `本文の sha256 ${sha256(original)}`,
-        versionMatch: "対象外",
-        quote: `records/documents/${name}`,
-        obtained: true,
-        code: "COPIED",
-        status: stripped.replaced ? `取得（CI の結果を${stripped.replaced}で置き換えた）` : "取得",
-        at: takenAt,
-        copies: [{ path: `records/documents/${name}`, sha256: sha256(stripped.data) }],
-        originals: [{ name: "元の本文", path: `parent/acceptance/documents/${name}`, sha256: sha256(original) }],
-      });
-      scanReferences(stripped.data.toString("utf8"), `document:${id}`, (n) => `records/documents/${name}:L${n}`, "参照された記録", candidates, hints, clone);
-    }
-  }
-  // 反証が名指しした外部の正本
-  for (const row of structure.acceptanceRows) {
-    if (!row.canon.startsWith("なし")) scanReferences(row.canon, `受け入れ確認担当の行 ${row.source}`, () => `refute-verdict.md:L${row.line}`, "外部の正本", candidates, hints, clone);
-  }
-  const refs = candidates.filter((r) => !(r.type === "document" && linked.includes(r.source)));
-  writeFileSync(join(P, "ref-candidates.json"), `${JSON.stringify(refs, null, 2)}\n`);
-  writeFileSync(join(P, "ref-candidates.md"), renderCandidates(refs, hints));
-  const state: RecordsState = {
-    takenAt,
-    mode,
-    issue,
-    case: prep.case,
-    verdict: { file: check.file, attempt: check.attempt, agentId: check.agentId, sha256: check.sha256 ?? "" },
-    items,
-    exclusions,
-    linkedDocuments: linked,
-    commands,
-    files,
-  };
-  writeFileSync(join(P, "records.json"), `${JSON.stringify(state, null, 2)}\n`);
-  const result = {
-    mode,
-    takenAt,
-    activity: items.filter((i) => i.id.startsWith("activity")).length,
-    documents: linked.length,
-    excluded: exclusions,
-    candidates: refs.length,
-    hints: hints.length,
-    candidatesFile: join(P, "ref-candidates.json"),
-    candidatesList: join(P, "ref-candidates.md"),
-  };
-  return { work, result };
-}
-
-// --refs の参照の一覧（JSON の配列）。読めない要素は引数の誤りにする（親が直して実行し直す）
-function readRefs(path: string): Ref[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    throw new UsageError(`--refs を JSON として読めません: ${path}（${e instanceof Error ? e.message : String(e)}）`);
-  }
-  if (!Array.isArray(data)) throw new UsageError("--refs は参照の配列の JSON にしてください（写す参照が無ければ []）");
-  const problems: string[] = [];
-  const refs: Ref[] = [];
-  data.forEach((raw: unknown, i) => {
-    const o: Record<string, unknown> = raw !== null && typeof raw === "object" ? { ...raw } : {};
-    const text = (k: string) => {
-      const v = o[k];
-      return typeof v === "string" ? v.trim() : "";
-    };
-    const type = REF_TYPES.find((t) => t === text("type"));
-    const kind = REF_KINDS.find((k) => k === text("kind"));
-    const bad: string[] = [];
-    if (!type) bad.push(`type（${REF_TYPES.join("・")}）`);
-    if (!kind) bad.push(`kind（${REF_KINDS.join("・")}）`);
-    for (const k of ["source", "from", "at", "quote"]) if (!text(k)) bad.push(k);
-    for (const k of ["revision", "path", "version"]) if (o[k] !== undefined && typeof o[k] !== "string") bad.push(k);
-    if (o.history !== undefined && typeof o.history !== "boolean") bad.push("history");
-    if (type !== "git" && (o.revision !== undefined || o.path !== undefined || o.history !== undefined)) bad.push("revision・path・history は git だけ");
-    if (type === "git" && !isAbsolute(expandHome(text("source")))) bad.push("source（Git のリポジトリの絶対パス）");
-    if (type === "git" && o.history === true && !text("path")) bad.push("path（版履歴を読むファイル）");
-    if (type === "document" && !DOC_REF.test(text("source"))) bad.push("source（Document ID）");
-    if (bad.length > 0 || !type || !kind) return problems.push(`${i + 1} 件目: ${bad.join("・")}`);
-    refs.push({
-      type,
-      source: text("source"),
-      ...(text("revision") ? { revision: text("revision") } : {}),
-      ...(text("path") ? { path: text("path") } : {}),
-      ...(o.history === true ? { history: true } : {}),
-      kind,
-      from: text("from"),
-      at: text("at"),
-      quote: text("quote"),
-      version: text("version") || "記載なし",
-    });
-  });
-  if (problems.length > 0) throw new UsageError(`--refs の参照を読めません（${problems.join("。")}）`);
-  return refs;
-}
-
-// 取得の結果（ファイルは parent/acceptance/evidence/<n>/ に書いた元の写し）
-interface Fetched {
-  code: string;
-  obtained: boolean;
-  reason: string;
-  method: string;
-  identity: string;
-  versionMatch: string;
-  facts: Json;
-}
-
-// path がこのレビューの作業ディレクトリ・レビューの作業ディレクトリ・常設データセットの配下か（大文字小文字と Unicode の正規化を区別しない）
-function forbiddenArea(path: string, work: string, homeAreas: boolean): string | null {
-  const fold = (p: string) => p.normalize("NFC").toLowerCase();
-  const real = (p: string) => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return p;
-    }
-  };
-  const homes = homeAreas ? [...new Set([homedir(), real(homedir())])] : [];
-  const roots = [...new Set([work, real(work), ...homes.flatMap((h) => FORBIDDEN_AREAS.map((a) => join(h, a)))])];
-  for (const candidate of new Set([path, real(path)])) {
-    const hit = roots.find((root) => fold(candidate) === fold(root) || fold(candidate).startsWith(`${fold(root)}/`));
-    if (hit) return hit;
-  }
-  return null;
-}
-
-// 参照1件を、出典の形に応じた1つの読み取りだけで dir（親専用領域の evidence/<n>）へ写す（parent.md 8.1 の表）
-function fetchEvidence(ref: Ref, dir: string, ctx: { work: string; prep: Prepared; linked: string[] }, log: Command[]): Fetched {
-  const fail = (code: string, reason: string, method: string, facts: Json = {}): Fetched => {
-    rmSync(dir, { recursive: true, force: true });
-    return { code, obtained: false, reason, method, identity: "取得できず", versionMatch: "取得できず", facts };
-  };
-  if (ref.type === "file") {
-    const method = "通常のファイル: copy-evidence.ts（本文を開く前に名前と各要素を検査し、ファイル1つと観測を写す）";
-    const path = expandHome(ref.source);
-    if (!isAbsolute(path)) return fail("NOT_COPIED", "リポジトリ内の相対パス（写さない。担当が限定 clone の固定版で読む）", "写さない");
-    if (forbiddenArea(path, ctx.work, false)) return fail("FORBIDDEN_AREA", "このレビューの作業ディレクトリの配下（担当へ渡さない）", method);
-    mkdirSync(dirname(dir), { recursive: true });
-    const p = run([process.execPath, join(import.meta.dir, "copy-evidence.ts"), ref.source, dir], log);
-    const j = parseJson(p) as { code?: string; message?: string; secrets?: { match?: string }[]; observationSha256?: string } | undefined;
-    if (p.code !== 0) {
-      const secrets = (j?.secrets ?? []).map((s) => s.match).filter(Boolean);
-      return fail(j?.code ?? "UNEXPECTED_ERROR", `${j?.message ?? failure(p)}${secrets.length > 0 ? `（当たったパス: ${secrets.join("・")}）` : ""}`, method, { exitCode: p.code, result: j ?? null });
-    }
-    const observation = readFileSync(join(dir, "observation.txt"), "utf8").trim().split("\t");
-    return { code: "COPIED", obtained: true, reason: "", method, identity: `observation.txt の sha256 ${j?.observationSha256 ?? ""}（${observation[2] ?? "?"} バイト、本文の sha256 ${observation[3] ?? "?"}）`, versionMatch: UNCHECKED, facts: { result: j ?? null } };
-  }
-  if (ref.type === "git") {
-    const repo = expandHome(ref.source);
-    const rev = ref.revision ?? "HEAD";
-    const method = ref.history ? "Git: rev-parse で commit に固定し、git log で版履歴を読む" : ref.path ? "Git: rev-parse で commit に固定し、git show でファイルを読む" : "Git: rev-parse で commit に固定し、git log -1 で commit を読む";
-    const secret = [repo, ...(ref.path ? [ref.path] : [])].find((n) => SECRET.test(n));
-    if (secret) return fail("SECRET_CANDIDATE", `秘密情報を含み得る名前（当たったパス: ${secret}）`, method);
-    if (repo.split("/").slice(1).some((s) => s === "" || s === "." || s === "..") || (ref.path ?? "").split("/").some((s) => s === "." || s === "..")) {
-      return fail("NON_CANONICAL_PATH", ". や .. や空の要素を含むパス", method);
-    }
-    if (forbiddenArea(repo, ctx.work, true)) return fail("FORBIDDEN_AREA", "レビューの作業ディレクトリか常設データセットの配下（担当へ渡さない）", method);
-    if (!existsSync(repo)) return fail("NOT_FOUND", "リポジトリのパスが存在しない", method);
-    if (run(["git", "-C", repo, "rev-parse", "--git-dir"], log).code !== 0) return fail("NOT_FOUND", "Git のリポジトリではない", method);
-    const c = run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`], log);
-    if (c.code !== 0) return fail("REVISION_NOT_FOUND", `名指しの Git の revision が無い（${rev}。名指しの版との対応を示せない）`, method);
-    const commit = c.stdout.toString().trim();
-    const named = SHA.test(rev) ? "" : run(["git", "-C", repo, "rev-parse", "--symbolic-full-name", rev], log).stdout.toString().trim();
-    const same = [ctx.prep.repo, ...(existsSync(ctx.prep.repo) ? [realpathSync(ctx.prep.repo)] : [])].includes(realpathSync(repo));
-    if (same && git(join(ctx.work, "repo"), "cat-file", "-e", `${commit}^{commit}`).code === 0) {
-      return fail("NOT_COPIED", `対象リポジトリの commit ${commit}（写さない。担当が限定 clone の固定版で読む）`, "写さない", { commit });
-    }
-    mkdirSync(dir, { recursive: true });
-    const read = ref.history
-      ? { argv: ["git", "-C", repo, "--no-pager", "log", "--no-ext-diff", "--no-textconv", "--format=%H%x09%cI%x09%aI%x09%s", commit, "--", ref.path ?? ""], name: "history.txt" }
-      : ref.path
-        ? { argv: ["git", "-C", repo, "--no-pager", "show", "--no-textconv", `${commit}:${ref.path}`], name: basename(ref.path) }
-        : { argv: ["git", "-C", repo, "--no-pager", "log", "-1", "--no-ext-diff", "--no-textconv", "--format=%H%x09%cI%x09%aI%x09%s", commit], name: "commit.txt" };
-    const p = run(read.argv, log);
-    if (p.code !== 0) return fail("READ_FAILED", `Git の読み取りが失敗（${failure(p)}）`, method, { commit });
-    writeFileSync(join(dir, read.name), p.stdout);
-    const pointed = named && named !== rev ? `（名前で指した revision ${rev}（${named}）が指す commit）` : rev === "HEAD" ? "（revision の指定なし。取得時の HEAD）" : "";
-    return { code: "COPIED", obtained: true, reason: "", method, identity: `commit ${commit}${pointed}`, versionMatch: `commit ${commit} に固定${pointed}`, facts: { commit, revision: rev, symbolic: named || null } };
-  }
-  if (ref.type === "document") {
-    const id = DOC_REF.exec(ref.source)?.[1] ?? ref.source;
-    const method = "Document: nod doc show の本文";
-    if (ctx.linked.includes(id)) return fail("LINKED_DOCUMENT", `Issue にリンクされた Document（document:${id} として records/ に写した）`, "写さない");
-    const p = run([process.env.NOD_CLI || "nod", "--json", "doc", "show", id], log);
-    const doc = parseJson(p) as { content?: unknown; path?: unknown; kind?: unknown } | undefined;
-    if (p.code !== 0 || typeof doc?.content !== "string") return fail("READ_FAILED", `nod doc show が失敗（${failure(p)}）`, method);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `document-${id}.md`), doc.content);
-    return { code: "COPIED", obtained: true, reason: "", method, identity: `本文の sha256 ${sha256(doc.content)}（kind=${String(doc.kind ?? "")}、${String(doc.path ?? "")}）`, versionMatch: UNCHECKED, facts: { id, path: doc.path ?? null } };
-  }
-  const method = "https の URL: 認証情報・cookie・設定ファイルを使わない GET を1回（curl）";
-  let url: URL;
-  try {
-    url = new URL(ref.source);
-  } catch {
-    return fail("NOT_URL", "URL として読めない", method);
-  }
-  if (url.username || url.password) return fail("SECRET_CANDIDATE", "利用者情報（user:pass@）を含む URL（秘密候補）", method);
-  const secretKey = [...url.searchParams.keys()].find((k) => SECRET_QUERY.test(k));
-  if (secretKey) return fail("SECRET_CANDIDATE", `名前に秘密らしい語を含むクエリ ${secretKey} を持つ URL（秘密候補）`, method);
-  if (url.protocol !== "https:") return fail("NOT_HTTPS", `https:// 以外の URL（${url.protocol}。読み取り手段が無い）`, method);
-  mkdirSync(dir, { recursive: true });
-  const argv = ["curl", "-q", "-fsS", "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5", "--max-time", "60", "--max-filesize", "20000000"];
-  const p = run([...argv, "-D", join(dir, "headers.txt"), "-o", join(dir, "body"), "-w", "%{http_code} %{url_effective}\\n", ref.source], log);
-  const [status = "", finalUrl = ""] = p.stdout.toString().trim().split(" ");
-  if (p.code !== 0 || !existsSync(join(dir, "body"))) {
-    const auth = ["401", "403", "407"].includes(status);
-    return fail(auth ? "AUTH_REQUIRED" : "READ_FAILED", auth ? `認証が要る（HTTP ${status}）` : `curl が失敗（${failure(p)}${status ? `、HTTP ${status}` : ""}）`, method, { status });
-  }
-  const headers = existsSync(join(dir, "headers.txt")) ? readFileSync(join(dir, "headers.txt"), "utf8") : "";
-  const header = (name: string) => new RegExp(`^${name}:\\s*(.*?)\\s*$`, "im").exec(headers)?.[1];
-  const etag = header("etag");
-  const modified = header("last-modified");
-  const body = sha256(readFileSync(join(dir, "body")));
-  const identity = `HTTP ${status}、最終の URL ${finalUrl}、本文の sha256 ${body}${etag ? `、ETag ${etag}` : ""}${modified ? `、Last-Modified ${modified}` : ""}`;
-  return { code: "COPIED", obtained: true, reason: "", method, identity, versionMatch: UNCHECKED, facts: { status, finalUrl, etag: etag ?? null, lastModified: modified ?? null } };
-}
-
-function renderCatalog(state: RecordsState, items: CatalogItem[], files: FileHash[], sources: Map<string, string>, exclusions: Exclusion[], note: string | null, fetchedAt: string): string {
-  const target =
-    state.mode === "issue"
-      ? `Issue ${state.issue}（Activity と添付 Document は ${state.takenAt} に取得）`
-      : state.mode === "case"
-        ? `評価用の事例 ${state.case}（nod から取らず、事例の入力に固定した証拠だけを写した）`
-        : "Issue なし（Activity・添付 Document は写さない）";
-  const copies = (i: CatalogItem) => i.copies.map((c) => `\`${c.path}\` ${c.sha256}`).join("・") || "写しなし";
-  const originals = (i: CatalogItem) => i.originals.map((o) => `${o.name} ${o.sha256}`).join("・") || "なし";
-  return [
-    "# 受け入れ確認の目録",
-    "",
-    `- 対象: ${target}`,
-    `- 写した時刻: ${state.takenAt}（証拠の取得: ${fetchedAt}）`,
-    "- 読み方: 1項目1行。全文を通読せず、`grep -n` で必要な項目 ID・参照元・要求の出典の行だけを引く。判定に使った証拠の節には、この表の項目 ID を書く。",
-    ...(note ? [`- ${note}`] : []),
-    "",
-    "## 項目",
-    "",
-    "| 項目 ID | 種類 | 参照元 | 出典 | 参照で指定された版 | 取得方法 | 取得物の識別情報 | 版の対応 | 参照の原文 | 取得の可否と理由 | 取得時刻 | 写し先と sha256 | 元の写しの sha256 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
-    ...items.map((i) =>
-      [i.id ? `\`${i.id}\`` : "", i.kind, i.from, i.source, i.version, i.method, i.identity, i.versionMatch, i.quote, i.status, i.at, copies(i), originals(i)].map((c, k) => (k === 0 ? c : cell(c || "なし"))).join(" | "),
-    ).map((row) => `| ${row} |`),
-    ...(items.length === 0 ? ["", "項目なし"] : []),
-    "",
-    "## ファイルの sha256 と出典（records.md を除く）",
-    "",
-    "| ファイル | sha256 | 出典 |",
-    "|---|---|---|",
-    ...files.map((f) => `| \`${f.path}\` | \`${f.sha256}\` | ${cell(sources.get(f.path) ?? "不明")} |`),
-    "",
-    "## CI の結果の除外",
-    "",
-    "親が印だけで除いた CI の結果。写しの「（CI の結果は親だけが扱うため除いた）」は除いた跡で、改変や不足ではない。除かれた中身を推測しない。",
-    "",
-    ...(exclusions.length > 0 ? ["| 項目 | 除いたもの | 元の sha256 |", "|---|---|---|", ...exclusions.map((e) => `| ${cell(e.item)} | ${cell(e.what)} | \`${e.sha256}\` |`)] : ["なし"]),
-    "",
-  ].join("\n");
-}
-
-function acceptanceInput(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "refs"], []);
-  const { work, prep } = loadWork(o);
-  const { check, structure } = passedRefute(work);
-  const A = join(work, "acceptance-input");
-  const P = join(work, "parent/acceptance");
-  const stateFile = join(P, "records.json");
-  if (!existsSync(stateFile)) throw new UsageError("acceptance-records で共通入力・反証の判定本文・Activity・添付 Document を写してから実行してください");
-  if (existsSync(join(work, "parent/acceptance-input.json"))) throw new UsageError("受け入れ確認への入力は作り済みです（作り直しません）");
-  const state = JSON.parse(readFileSync(stateFile, "utf8")) as RecordsState;
-  const refsPath = absolute("refs", o.one.get("refs"));
-  if (state.mode !== "case" && !refsPath) throw new UsageError("--refs <写す参照の一覧の JSON の絶対パス> が要ります（写す参照が無ければ [] のファイル）");
-  const refs = refsPath ? readRefs(refsPath) : [];
-  if (refsPath) copyFileSync(refsPath, join(P, "refs.json"));
-
-  const items = [...state.items];
-  const exclusions = [...state.exclusions];
-  const sources = new Map(state.files.map((f) => [f.path, f.source]));
-  const details: Json[] = [];
-  const caseMismatches: string[] = [];
-  const evidenceFiles: FileHash[] = [];
-  let n = 0;
-  // 元の写し（親専用領域）の各ファイルから CI の結果を印だけで除いて、担当への写しを作る
-  const publish = (no: number, base: Omit<CatalogItem, "id" | "copies" | "originals" | "at">, fetched: { obtained: boolean }, at: string) => {
-    const D = join(P, "evidence", String(no));
-    const item: CatalogItem = { id: `evidence/${no}`, ...base, at, copies: [], originals: [] };
-    if (fetched.obtained && existsSync(D)) {
-      for (const name of readdirSync(D).sort()) {
-        const original = readFileSync(join(D, name));
-        const stripped = ciStrip(original);
-        const rel = `evidence/${no}/${name}`;
-        mkdirSync(join(A, "evidence", String(no)), { recursive: true });
-        writeFileSync(join(A, rel), stripped.data);
-        if (stripped.replaced) exclusions.push({ item: rel, what: stripped.replaced, sha256: sha256(original) });
-        item.copies.push({ path: rel, sha256: sha256(stripped.data) });
-        item.originals.push({ name, path: `parent/acceptance/${rel}`, sha256: sha256(original) });
-        evidenceFiles.push({ path: rel, sha256: sha256(stripped.data) });
-        sources.set(rel, `${base.source}（${item.id}）`);
-      }
-    }
-    items.push(item);
-    return item;
-  };
-
-  // 評価用: 事例の入力に固定した証拠（inputs/<case-id>/evidence/）を写し、事例の manifest.md と照合する（copy-evidence.ts を通さない）
-  if (state.mode === "case") {
-    if (!prep.caseDir) throw new UsageError("prepare の記録に事例の入力の場所（caseDir）がありません。prepare --case からやり直してください");
-    const c = readCase(prep.caseDir);
-    for (const e of walkEntries(join(c.dir, "evidence"))) {
-      n += 1;
-      const rel = `evidence/${e.rel.slice(2)}`;
-      const at = now();
-      const D = join(P, "evidence", String(n));
-      const base = { kind: "事例の入力に固定した証拠", from: `評価用の事例 inputs/${c.id}`, source: `inputs/${c.id}/${rel}`, version: "事例の入力に固定した版", method: "事例の入力 inputs/<case-id>/evidence/ から写す（copy-evidence.ts を通さない）", quote: `inputs/${c.id}/manifest.md の ${rel} の行` };
-      if (e.kind !== "file") {
-        caseMismatches.push(`${rel}（通常のファイルではない）`);
-        publish(n, { ...base, identity: "取得できず", versionMatch: "取得できず", obtained: false, code: "NOT_REGULAR_FILE", status: "取得不能: 通常のファイルではない" }, { obtained: false }, at);
-        continue;
-      }
-      mkdirSync(D, { recursive: true });
-      const data = readFileSync(e.path);
-      writeFileSync(join(D, basename(e.path)), data);
-      const want = c.hashes.get(rel);
-      const ok = want === sha256(data);
-      if (!ok) caseMismatches.push(`${rel}（manifest.md: ${want ?? "記載なし"}、写し: ${sha256(data)}）`);
-      const versionMatch = ok ? "事例の manifest.md の sha256 と一致" : `事例の manifest.md の sha256（${want ?? "記載なし"}）と不一致`;
-      publish(n, { ...base, identity: `sha256 ${sha256(data)}（${versionMatch}）`, versionMatch, obtained: true, code: ok ? "COPIED" : "MANIFEST_MISMATCH", status: ok ? "取得" : "取得（manifest.md と不一致）" }, { obtained: true }, at);
-      details.push({ id: `evidence/${n}`, source: e.path, manifest: want ?? null, sha256: sha256(data), commands: [] });
-    }
-  }
-
-  // 親が渡した明示参照（同じ出典・版の参照は1項目にまとめる）
-  const groups: Ref[][] = [];
-  for (const r of refs) {
-    const key = (x: Ref) => [x.type, x.type === "git" || x.type === "file" ? expandHome(x.source) : x.source, x.revision ?? "", x.path ?? "", x.history ? "1" : ""].join("\0");
-    const g = groups.find((list) => list[0] && key(list[0]) === key(r));
-    if (g) g.push(r);
-    else groups.push([r]);
-  }
-  for (const g of groups) {
-    const head = g[0];
-    if (!head) continue;
-    n += 1;
-    const D = join(P, "evidence", String(n));
-    const log: Command[] = [];
-    const at = now();
-    const fetched: Fetched =
-      state.mode === "case"
-        ? { code: "CASE_UNAVAILABLE", obtained: false, reason: "当時の版を取れない（評価用。事例の入力に固定した証拠だけを写す）", method: "取りに行かない", identity: "取得できず", versionMatch: "取得できず", facts: {} }
-        : fetchEvidence(head, D, { work, prep, linked: state.linkedDocuments }, log);
-    const unique = (f: (r: Ref) => string) => [...new Set(g.map(f))].join("・");
-    const source = head.type === "git" ? `${head.source}@${head.revision ?? "HEAD"}${head.path ? `:${head.path}` : ""}${head.history ? "（版履歴）" : ""}` : head.source;
-    const notCopied = fetched.code === "NOT_COPIED" || fetched.code === "LINKED_DOCUMENT";
-    const item = publish(
-      n,
-      {
-        kind: unique((r) => r.kind),
-        from: unique((r) => r.from),
-        source,
-        version: unique((r) => r.version),
-        method: fetched.method,
-        identity: fetched.identity,
-        versionMatch: fetched.versionMatch,
-        quote: g.map((r) => `「${r.quote}」（${r.at}）`).join("・"),
-        obtained: fetched.obtained,
-        code: fetched.code,
-        status: fetched.obtained ? "取得" : `${notCopied ? "写さない" : "取得不能"}: ${fetched.code}: ${fetched.reason}`,
-      },
-      fetched,
-      at,
-    );
-    details.push({ id: item.id, refs: g, type: head.type, source: head.source, revision: head.revision ?? null, path: head.path ?? null, history: head.history ?? false, code: fetched.code, obtained: fetched.obtained, reason: fetched.reason, method: fetched.method, identity: fetched.identity, facts: fetched.facts, commands: log, fetchedAt: at, files: item.originals });
-  }
-
-  // 名指しの外部の正本のうち、写せる場所が渡されなかった行（場所を探さない）
-  for (const row of structure.acceptanceRows) {
-    if (row.canon.startsWith("なし") || refs.some((r) => r.kind === "外部の正本" && norm(r.from).includes(row.source))) continue;
-    n += 1;
-    const caseMode = state.mode === "case";
-    const reason = caseMode ? "当時の版を取れない（評価用。事例の入力に固定した証拠だけを写す）" : "出典の場所が名指しされていない（場所を探さない）";
-    const code = caseMode ? "CASE_UNAVAILABLE" : "NO_LOCATION";
-    publish(
-      n,
-      { kind: "外部の正本", from: `受け入れ確認担当の行 ${row.source}`, source: row.canon, version: "記載なし", method: "取りに行かない", identity: "取得できず", versionMatch: "取得できず", quote: `「${row.canon}」（refute-verdict.md:L${row.line}）`, obtained: false, code, status: `取得不能: ${code}: ${reason}` },
-      { obtained: false },
-      now(),
-    );
-    details.push({ id: `evidence/${n}`, row: row.source, code, reason, commands: [] });
-  }
-
-  const fetchedAt = now();
-  const explicit = refs.some((r) => r.kind !== "外部の正本");
-  const note =
-    state.mode === "request" && !explicit
-      ? "Issue なし、明示された証拠なし"
-      : state.mode === "case" && !items.some((i) => i.kind === "事例の入力に固定した証拠")
-        ? "明示された証拠なし（事例の入力に固定した証拠なし）"
-        : null;
-  for (const f of fingerprintList(A)) if (!sources.has(f.path)) sources.set(f.path, f.path === "refute-verdict.md" ? `refute/verdict.md（反証 試行 ${check.attempt}、担当 ID ${check.agentId ?? "不明"}、check-refute で検査した sha256 と照合）` : `共通入力 input/${f.path}（manifest.md と同じ出典）`);
-  const listed = fingerprintList(A).filter((f) => f.path !== "records.md");
-  writeFileSync(join(A, "records.md"), renderCatalog(state, items, listed, sources, exclusions, note, fetchedAt));
-  writeFileSync(join(P, "items.json"), `${JSON.stringify(items, null, 2)}\n`);
-  writeFileSync(join(P, "evidence.json"), `${JSON.stringify(details, null, 2)}\n`);
-  writeFileSync(
-    join(P, "evidence.md"),
-    [
-      "# 証拠の取得の記録（親専用。担当へ渡さない）",
-      "",
-      "保存直前の取り直しは、同じ出典から同じ読み取りで行う。詳細は evidence.json。",
-      "",
-      ...details.flatMap((d) => [`## ${String(d.id)}: ${String(d.code)}`, "", "```sh", ...(Array.isArray(d.commands) ? (d.commands as Command[]) : []).map((c) => `${quote(c.argv)}   # exit=${c.exitCode ?? "なし"} ${c.at}`), "```", ""]),
-    ].join("\n"),
-  );
-
-  // 写した共通入力・反証の判定本文・records/・evidence/ の sha256 を、記録と照合する
-  const files = fingerprintList(A);
-  const got = new Map(files.map((f) => [f.path, f.sha256]));
-  const expected = [
-    ...prep.inputs.map((i) => ({ ...i, source: `input/${i.path}（prepare の記録）` })),
-    { path: "manifest.md", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
-    { path: "refute-verdict.md", sha256: check.sha256 ?? "", source: `refute/verdict.md（check-refute で検査した試行 ${check.attempt}）` },
-    ...state.files.map((f) => ({ ...f, source: "acceptance-records で写したとき" })),
-    ...evidenceFiles.map((f) => ({ ...f, source: "写したとき" })),
-  ];
-  const comparison = [
-    ...expected.map((e) => ({ path: e.path, sha256: e.sha256, source: e.source, copied: got.get(e.path) ?? null, ok: got.get(e.path) === e.sha256 })),
-    ...files.filter((f) => f.path !== "records.md" && !expected.some((e) => e.path === f.path)).map((f) => ({ path: f.path, sha256: "", source: "写すものではない", copied: f.sha256, ok: false })),
-  ];
-  const identity = checkIdentity(work, "explore", "acceptance-input");
-  const ready = comparison.every((c) => c.ok) && caseMismatches.length === 0 && identity.ok;
-  writeFileSync(
-    join(P, "fingerprints.md"),
-    [
-      "# 受け入れ確認への入力の指紋",
-      "",
-      `- 写した時刻: ${state.takenAt}（証拠の取得: ${fetchedAt}）`,
-      `- 結果: ${ready ? "一致（受け入れ確認を起動してよい）" : `不一致（受け入れ確認を起動しない。未完了（理由: ${ACCEPTANCE_UNFIXED}））`}`,
-      "",
-      "| ファイル | 写しの sha256 | 照合先 | 照合先の sha256 | 一致 |",
-      "|---|---|---|---|---|",
-      ...comparison.map((c) => `| \`${c.path}\` | \`${c.copied ?? "無い"}\` | ${cell(c.source)} | \`${c.sha256 || "なし"}\` | ${c.ok ? "一致" : "不一致"} |`),
-      "",
-      ...(state.mode === "case" ? ["## 事例の入力に固定した証拠と manifest.md の照合", "", ...(caseMismatches.length > 0 ? caseMismatches.map((m) => `- 不一致: ${m}`) : ["- 一致"]), ""] : []),
-      "## acceptance-input/ の各ファイルの sha256（records.md を含む。委譲前の指紋）",
-      "",
-      "```text",
-      fileFingerprint(A).trimEnd(),
-      "```",
-      "",
-      "## 同一性の確認（共通入力・依存の写し・限定 clone）",
-      "",
-      ...identity.items.map((i) => `- ${i.name}: ${i.ok ? "一致" : "不一致"}（${i.detail}）`),
-      "",
-    ].join("\n"),
-  );
-  const outcome = ready ? { status: "準備完了", reason: null } : { status: "未完了", reason: ACCEPTANCE_UNFIXED, score: NOT_RUN_SCORE, merge: NOT_RUN_MERGE };
-  const summary = { items: items.length, evidence: n, unavailable: items.filter((i) => i.id.startsWith("evidence/") && !i.obtained).map((i) => ({ id: i.id, code: i.code })) };
-  return { work, result: { ready, ...outcome, files, comparison, caseMismatches, identity, ...summary, records: join(A, "records.md"), detail: join(P, "evidence.json") } };
-}
-
-// ---- 受け入れ確認の結果の機械検査（parent.md 9節。親は結果の本文を通読しない） ----
-
-const ACCEPTANCE_VERDICTS = ["確認済み", "未充足", "確かめられず"];
-const PARTS = ["成果物の不変版の存在", "作業・手順の実施", "現在の配置", "外部の正本との内容の一致", "更新順序"] as const;
-const OUT_OF_SCOPE = "対象外";
-const ACCEPTANCE_TARGET_FIELDS = ["役割", "定義名", "対象版", "受け取った入力"];
-const JUDGMENT_FIELDS = ["要求の出典", "対象版", "判定", ...PARTS, "証拠", "不足理由"];
-const GAP_HEADER = ["要求の出典", "判定", "不足箇所", "不足理由"];
-const USED_HEADER = ["項目", "出典", "使った行", "使い方"];
-const CONFLICT_HEADER = ["反証の判定の箇所", "矛盾する証拠", "理由"];
-const CLONE_ITEM = "限定 clone";
-
-// 行ごとの判定の1行（parts は5つの部分ごとの 確認済み・未充足・確かめられず・対象外。candidates は受け入れ確認担当の行の候補 ID）
-export interface Judgment {
-  source: string;
-  verdict: string;
-  parts: Record<string, string>;
-  evidence: string;
-  shortfall: string;
-  candidates: string[];
-}
-
-// 未充足・確かめられずの行の表の1行
-export interface Gap {
-  source: string;
-  verdict: string;
-  missing: string;
-  shortfall: string;
-}
-
-// 判定に使った証拠の表の1行（item は records.md の項目 ID か「限定 clone」、rows は使った受け入れ確認担当の行の要求の出典）
-export interface UsedEvidence {
-  item: string;
-  source: string;
-  rows: string[];
-  use: string;
-}
-
-// 反証の判定と矛盾する証拠の表の1行（有効な結果。確認が残る事項にする）
-export interface Conflict {
-  location: string;
-  evidence: string;
-  reason: string;
-}
-
-// check-acceptance に合格した結果から読み取った構造（parent/acceptance-structure.json）。確認が残る事項と保存直前の再照合はこれを読む
-export interface AcceptanceStructure {
-  attempt: number;
-  agentId: string | null;
-  file: string;
-  sha256: string;
-  checkedAt: string;
-  judgments: Judgment[];
-  gaps: Gap[];
-  used: UsedEvidence[];
-  conflicts: Conflict[];
-}
-
-function acceptanceViolations(text: string, prep: Prepared, rows: AcceptanceRow[], itemIds: Set<string>, add: Add): Pick<AcceptanceStructure, "judgments" | "gaps" | "used" | "conflicts"> {
-  const secs = sectionsOf(text.split("\n"), 2);
-  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
-
-  // 2: 担当と対象
-  targetViolations(section("担当と対象"), ACCEPTANCE_TARGET_FIELDS, "acceptance", prep, 2, add, /完了|確かめられず/);
-
-  // 3・4: 担当全行（rows.md と同じ出典）と、各行の判定・5つの部分・証拠・不足理由
-  const rowSection = section("行ごとの判定");
-  if (!rowSection) add(4, "「行ごとの判定」の節が無い");
-  const sources = new Set(rows.map((r) => r.source));
-  const judgments: Judgment[] = [];
-  for (const b of sectionsOf(rowSection?.body ?? [], 3)) {
-    const f = fieldsOf(b.body);
-    const source = norm(f.get("要求の出典") ?? "");
-    const missing = JUDGMENT_FIELDS.filter((n) => !plain(f.get(n) ?? ""));
-    if (missing.length > 0) add(4, `行「${source || b.title}」の ${missing.join("・")} が無いか空`);
-    if (!source) continue;
-    if (!sources.has(source)) add(3, `行 ${source} が受け入れ確認担当の行（parent/acceptance/rows.md）に無い`);
-    if (judgments.some((j) => j.source === source)) add(3, `行 ${source} が重複している`);
-    const verdict = plain(f.get("判定") ?? "");
-    if (!ACCEPTANCE_VERDICTS.includes(verdict)) add(4, `行 ${source} の判定「${verdict}」が語彙（${ACCEPTANCE_VERDICTS.join("・")}）に無い`);
-    const parts: Record<string, string> = {};
-    for (const part of PARTS) {
-      const value = plain(f.get(part) ?? "");
-      const word = [...ACCEPTANCE_VERDICTS, OUT_OF_SCOPE].find((w) => value.startsWith(w));
-      if (value && !word) add(4, `行 ${source} の${part}が「確認済み／未充足／確かめられず」か「対象外（要求が求めていない）」で始まらない`);
-      parts[part] = word ?? "";
-    }
-    const words = Object.values(parts);
-    if (verdict === "確認済み" && words.some((w) => w === "未充足" || w === "確かめられず")) add(4, `行 ${source} は確認済みだが、5つの部分に未充足・確かめられずがある（行の判定の不一致）`);
-    if (verdict === "未充足" && !words.includes("未充足")) add(4, `行 ${source} は未充足だが、5つの部分に未充足が無い（行の判定の不一致）`);
-    if (verdict === "確かめられず" && (words.includes("未充足") || !words.includes("確かめられず"))) add(4, `行 ${source} は確かめられずだが、5つの部分に${words.includes("未充足") ? "未充足がある" : "確かめられずが無い"}（行の判定の不一致）`);
-    const shortfall = norm(f.get("不足理由") ?? "");
-    if (verdict !== "確認済み" && ACCEPTANCE_VERDICTS.includes(verdict) && (shortfall === "" || NONE.test(shortfall))) add(4, `行 ${source} は${verdict}だが、不足理由が無いか「なし」`);
-    judgments.push({ source, verdict, parts, evidence: norm(f.get("証拠") ?? ""), shortfall, candidates: rows.find((r) => r.source === source)?.candidates ?? [] });
-  }
-  for (const r of rows) if (!judgments.some((j) => j.source === r.source)) add(3, `受け入れ確認担当の行 ${r.source} が行ごとの判定に無い（担当行の欠落）`);
-
-  // 4: 未充足・確かめられずの行の表（行ごとの判定と同じ出典・判定）
-  const gapSection = section("未充足・確かめられずの行");
-  const gapTable = sectionTable(gapSection, GAP_HEADER);
-  if (!gapSection) add(4, "「未充足・確かめられずの行」の節が無い");
-  else if (gapTable.rows.length === 0 && !gapTable.none) add(4, `「未充足・確かめられずの行」に雛形の4列（${GAP_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const gaps: Gap[] = [];
-  gapTable.rows.forEach((raw, i) => {
-    if (raw.length < GAP_HEADER.length) return add(4, `未充足・確かめられずの行の ${i + 1} 行目の列が足りない`);
-    const [source = "", verdict = "", missing = "", shortfall = ""] = raw.map(norm);
-    const j = judgments.find((x) => x.source === source);
-    if (!j) add(4, `未充足・確かめられずの行の ${source || `${i + 1} 行目`} が行ごとの判定に無い`);
-    else if (j.verdict !== verdict) add(4, `未充足・確かめられずの行の ${source} の判定「${verdict}」が行ごとの判定「${j.verdict}」と違う（同一行の判定の不一致）`);
-    if (gaps.some((g) => g.source === source)) add(4, `未充足・確かめられずの行に ${source} が重複している`);
-    if (!PARTS.some((p) => missing.includes(p))) add(4, `未充足・確かめられずの行の ${source} の不足箇所に5つの部分の名前が無い（${missing || "空"}）`);
-    if (!shortfall || NONE.test(shortfall)) add(4, `未充足・確かめられずの行の ${source} の不足理由が無いか「なし」`);
-    gaps.push({ source, verdict, missing, shortfall });
-  });
-  for (const j of judgments) if (j.verdict !== "確認済み" && ACCEPTANCE_VERDICTS.includes(j.verdict) && !gaps.some((g) => g.source === j.source)) add(4, `行 ${j.source} は${j.verdict}だが、未充足・確かめられずの行の表に無い`);
-
-  // 5: 判定に使った証拠（records.md の項目 ID か限定 clone、使った行）
-  const usedSection = section("判定に使った証拠");
-  const usedTable = sectionTable(usedSection, USED_HEADER);
-  if (!usedSection) add(5, "「判定に使った証拠」の節が無い");
-  else if (usedTable.rows.length === 0 && !usedTable.none) add(5, `「判定に使った証拠」に雛形の4列（${USED_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const used: UsedEvidence[] = [];
-  usedTable.rows.forEach((raw, i) => {
-    if (raw.length < USED_HEADER.length) return add(5, `判定に使った証拠の ${i + 1} 行目の列が足りない`);
-    const [item = "", source = "", rowsCell = "", use = ""] = raw.map(norm);
-    const label = item || `${i + 1} 行目`;
-    if (!itemIds.has(item) && !item.startsWith(CLONE_ITEM)) add(5, `判定に使った証拠 ${label} が records.md の項目 ID でも「${CLONE_ITEM}」でもない`);
-    const usedRows = [...sources].filter((s) => mentions(rowsCell, s));
-    if (usedRows.length === 0) add(5, `判定に使った証拠 ${label} の使った行が受け入れ確認担当の行の要求の出典を指していない（${rowsCell || "空"}）`);
-    if (!use) add(5, `判定に使った証拠 ${label} の使い方が空`);
-    used.push({ item, source, rows: usedRows, use });
-  });
-
-  // 5: 反証の判定と矛盾する証拠（有効な報告。形式だけを確かめる）と、判断を見送った事項
-  const conflictSection = section("反証の判定と矛盾する証拠");
-  const conflictTable = sectionTable(conflictSection, CONFLICT_HEADER);
-  if (!conflictSection) add(5, "「反証の判定と矛盾する証拠」の節が無い");
-  else if (conflictTable.rows.length === 0 && !conflictTable.none) add(5, `「反証の判定と矛盾する証拠」に雛形の3列（${CONFLICT_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const conflicts: Conflict[] = [];
-  conflictTable.rows.forEach((raw, i) => {
-    if (raw.length < CONFLICT_HEADER.length) return add(5, `反証の判定と矛盾する証拠の ${i + 1} 行目の列が足りない`);
-    const [location = "", evidence = "", reason = ""] = raw.map(norm);
-    const empty = CONFLICT_HEADER.filter((_, k) => ![location, evidence, reason][k]);
-    if (empty.length > 0) add(5, `反証の判定と矛盾する証拠の ${i + 1} 行目の ${empty.join("・")} が空`);
-    conflicts.push({ location, evidence, reason });
-  });
-  if (!section("判断を見送った事項")?.body.some((l) => l.trim() !== "")) add(5, "「判断を見送った事項」の節が無いか空");
-  return { judgments, gaps, used, conflicts };
-}
-
-function checkAcceptance(args: string[]): Outcome {
-  const o = parseOptions(args, ["work"], []);
-  const { work, prep } = loadWork(o);
-  const { structure } = passedRefute(work);
-  if (!structure.acceptanceRequired) throw new UsageError("受け入れ確認担当の行が0行なので、受け入れ確認の結果は検査しません");
-  const r = ROLES.acceptance;
-  const attempt = currentAttempt(work, "acceptance");
-  const file = `acceptance/${r.output}`;
-  const path = join(work, file);
-  const violations: Violation[] = [];
-  const add: Add = (no, message) => violations.push({ no, message });
-  const body = existsSync(path) && lstatSync(path).isFile() ? readFileSync(path) : null;
-  const itemIds = new Set((readRecord<CatalogItem[]>(join(work, "parent/acceptance/items.json")) ?? []).map((i) => i.id));
-  const parsed = body === null ? null : acceptanceViolations(body.toString("utf8"), prep, structure.acceptanceRows, itemIds, add);
-  if (body === null) add(1, `${file} が無い`);
-  const identity = checkIdentity(work, "acceptance", `check-acceptance 試行 ${attempt.attempt}`);
-  for (const i of identity.items) if (!i.ok) add(6, `${i.name}: ${i.detail}`);
-  const names: [number, string][] = [
-    [1, `指定したパスに ${r.output} がある`],
-    [2, "役割・定義名・対象版・受け取った入力"],
-    [3, "parent/acceptance/rows.md のすべての行が同じ要求の出典で行ごとの判定にある（欠落・重複・余分が無い）"],
-    [4, "各行の判定の語彙・5つの部分・証拠・不足理由と行の判定の一致、未充足・確かめられずの行の表と行ごとの判定の一致"],
-    [5, "判定に使った証拠の表（records.md の項目 ID か限定 clone、使った行）、反証の判定と矛盾する証拠の表、判断を見送った事項"],
-    [6, "acceptance-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
-  ];
-  const checkedAt = now();
-  const record: CheckRecord = {
-    stage: "acceptance",
-    role: "acceptance",
-    roleName: r.name,
-    definition: r.definition,
-    attempt: attempt.attempt,
-    agentId: attempt.agentId,
-    file,
-    sha256: body === null ? null : sha256(body),
-    valid: violations.length === 0,
-    items: names.map(([no, name]) => ({ no, name, ok: !violations.some((v) => v.no === no) })),
-    violations,
-    identity,
-    files: fingerprintList(join(work, "acceptance")),
-    parent: "1（担当の返答が入力不備・失敗でない）。結果の本文は通読しない",
-    checkedAt,
-  };
-  const list = [...loadList<CheckRecord>(work, "checks"), record];
-  saveList(work, "checks", list, renderChecks(list));
-  // 構造は、合格した最新の結果からだけ残す
-  const structureFile = join(work, "parent/acceptance-structure.json");
-  rmSync(structureFile, { force: true });
-  if (!record.valid || !parsed || body === null) return { work, result: { ...record, structure: null } };
-  const accepted: AcceptanceStructure = { attempt: attempt.attempt, agentId: attempt.agentId, file, sha256: sha256(body), checkedAt, ...parsed };
-  writeFileSync(structureFile, `${JSON.stringify(accepted, null, 2)}\n`);
-  const counts = { rows: parsed.judgments.length, gaps: parsed.gaps.length, conflicts: parsed.conflicts.length, used: parsed.used.length };
-  return { work, result: { ...record, ...counts, structure: "parent/acceptance-structure.json" } };
-}
 
 // ---- 最終状態・点数・確認が残る事項・保存直前の再照合・CI・マージ可否（parent.md 10節） ----
 
 type Status = "完了" | "未完了" | "未実施";
 const MERGE_OK = "可（人のレビューなしでマージ可）";
-const RECHECK_OWNER = "受け入れ確認担当（新しい実行）";
-const OWN_LOGS = "parent/acceptance/own-logs.md";
 const SEVERITY = ["Critical（致命的）", "Critical（致命的）", "High（高）", "Medium（中）", "Low（低）"];
-const ADDITION = "親以外の追記（使用した証拠の有効性を確認できない。親は意味を判断しない）";
 
 // 確認が残る事項の1件（ref は要求の出典または候補 ID、from はどの照合・結果から来たか）
 export interface Remaining {
@@ -3081,34 +2036,10 @@ function prepareRecord(work: string): Prepared {
   return prep;
 }
 
-// 親自身の記録（写しの後に親が Issue へ書いた記録の id。parent.md 3節）。own-logs.md の `- <id>: <内容>` の行
-function ownLogIds(work: string): Set<number> {
-  const file = join(work, OWN_LOGS);
-  return new Set(existsSync(file) ? [...readFileSync(file, "utf8").matchAll(/^- (\d+):/gm)].map((m) => Number(m[1])) : []);
-}
-
-function recordOwnLog(work: string, id: number, what: string): void {
-  const file = join(work, OWN_LOGS);
-  mkdirSync(dirname(file), { recursive: true });
-  if (!existsSync(file)) writeFileSync(file, "# 親自身の記録（Issue へ書いた記録の id）\n\n");
-  writeFileSync(file, `- ${id}: ${what}\n`, { flag: "a" });
-}
-
-// --own-log <id>: 親（や13節の前に実装を進める親・PM）が写しの後に Issue へ書いた記録の id を、照合の前に own-logs.md へ記録する
-function recordOwnLogArgs(work: string, prep: Prepared, o: Options, what: string): number[] {
-  const ids = o.many.filter((m) => m.key === "own-log").map((m) => m.value);
-  if (ids.length > 0 && !prep.issue) throw new UsageError("--own-log は Issue のあるレビューだけで使います");
-  for (const id of ids) if (!/^\d+$/.test(id)) throw new UsageError(`--own-log は記録の id（数字）にしてください: ${id}`);
-  for (const id of ids) recordOwnLog(work, Number(id), what);
-  return ids.map(Number);
-}
-
 interface ReviewState {
   status: Status;
   reason: string | null;
   refute: RefuteStructure | null;
-  acceptance: AcceptanceStructure | null;
-  acceptanceRequired: boolean;
 }
 
 // 最終状態（SKILL.md 6節、parent.md 10節の4）。必要な担当の有効な結果の有無だけで決め、判定の中身・未確認・保存前の変化では変えない
@@ -3116,7 +2047,7 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
   const agents = loadList<AgentRecord>(work, "agents");
   const retired = loadList<AttemptRecord>(work, "attempts");
   const checks = loadList<CheckRecord>(work, "checks");
-  const none: ReviewState = { status: "未実施", reason: null, refute: null, acceptance: null, acceptanceRequired: false };
+  const none: ReviewState = { status: "未実施", reason: null, refute: null };
   if (notRunReason !== undefined && agents.length > 0) throw new UsageError("--not-run-reason は担当を1つも起動しなかったときだけ使います");
   if (!prep.ready) return { ...none, reason: prep.reason ?? "準備できなかった" };
   if (agents.length === 0) return { ...none, reason: notRunReason ? `${notRunReason}（担当を1つも起動しなかった）` : "担当を1つも起動しなかった" };
@@ -3126,17 +2057,15 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
     const last = latest(role);
     if (!last || retiredOf(last)) continue;
     if (!last.receivedAt) throw new UsageError(`${last.roleName}の試行 ${last.attempt} の最終返答の受領が記録されていません（終了を待って agent --event received で記録するか、retire-attempt で隔離してから）`);
-    const command = role === "refute" ? "check-refute" : role === "acceptance" ? "check-acceptance" : `check-explore --role ${role}`;
+    const command = role === "refute" ? "check-refute" : `check-explore --role ${role}`;
     if (!checks.some((c) => c.role === role && c.attempt === last.attempt)) throw new UsageError(`${last.roleName}の試行 ${last.attempt} を検査していません（${command}）`);
   }
   const refute = readRecord<RefuteStructure>(join(work, "parent/refute-structure.json"));
-  const accepted = readRecord<AcceptanceStructure>(join(work, "parent/acceptance-structure.json"));
   const valid = (role: Role): boolean => {
     const last = latest(role);
     const check = last && !retiredOf(last) ? checks.filter((c) => c.role === role && c.attempt === last.attempt).at(-1) : undefined;
     if (!last || !check?.valid) return false;
     if (role === "refute") return refute?.attempt === last.attempt && refute.sha256 === check.sha256;
-    if (role === "acceptance") return accepted?.attempt === last.attempt && accepted.sha256 === check.sha256;
     return true;
   };
   const missing = (role: Role): string => {
@@ -3148,8 +2077,6 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
     return `有効な結果なし（${name}。試行 ${last.attempt} の検査が不合格）`;
   };
   const refuteOk = valid("refute") ? refute : null;
-  const acceptanceRequired = refuteOk?.acceptanceRequired ?? false;
-  const acceptanceOk = acceptanceRequired && valid("acceptance") ? accepted : null;
   const stop = retired.find((a) => a.failure !== "invalid");
   const explore = (["standards", "spec"] as const).filter((r) => !valid(r)).map(missing);
   const ready = (name: string) => readRecord<{ ready?: boolean }>(join(work, "parent", `${name}.json`))?.ready;
@@ -3161,33 +2088,13 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
         ? REFUTE_UNFIXED
         : !refuteOk
           ? missing("refute")
-          : acceptanceRequired && ready("acceptance-input") === false
-            ? ACCEPTANCE_UNFIXED
-            : acceptanceRequired && !acceptanceOk
-              ? missing("acceptance")
-              : null;
-  return { status: reason === null ? "完了" : "未完了", reason, refute: refuteOk, acceptance: acceptanceOk, acceptanceRequired };
+          : null;
+  return { status: reason === null ? "完了" : "未完了", reason, refute: refuteOk };
 }
 
-// 判定本文の未確認と受け入れ確認の結果からの確認が残る事項（parent.md 10節の6）。受け入れ確認担当の行の候補で、確かめる担当を受け入れ確認担当とした
-// 未確認の候補は、その行の判定で扱い2件に数えない（確認済みなら残さず、未充足・確かめられずならその行の事項に候補 ID を書き添える）
-function verdictRemaining(refute: RefuteStructure | null, acceptance: AcceptanceStructure | null): Remaining[] {
-  const out: Remaining[] = [];
-  const judged = new Set(acceptance?.judgments.map((j) => j.source) ?? []);
-  const absorbed = new Map<string, string[]>();
-  for (const u of refute?.unconfirmed ?? []) {
-    const row = u.kind === "候補" && u.owner.includes("受け入れ確認担当") ? refute?.acceptanceRows.find((r) => r.candidates.includes(u.ref) && judged.has(r.source)) : undefined;
-    if (row) absorbed.set(row.source, [...(absorbed.get(row.source) ?? []), u.ref]);
-    else out.push({ ref: u.ref, owner: u.owner, reason: `${u.reason}（${u.kind}、軸 ${u.axis}、不足箇所: ${u.missing}）`, from: "反証の未確認と理由" });
-  }
-  for (const j of acceptance?.judgments ?? []) {
-    if (j.verdict === "確認済み") continue;
-    const gap = acceptance?.gaps.find((g) => g.source === j.source);
-    const ids = absorbed.get(j.source) ?? [];
-    out.push({ ref: j.source, owner: "受け入れ確認担当", reason: `${j.verdict}（不足箇所: ${gap?.missing ?? "不明"}）: ${j.shortfall}${ids.length > 0 ? `（候補 ${ids.join("・")} を含む）` : ""}`, from: "受け入れ確認の結果" });
-  }
-  for (const c of acceptance?.conflicts ?? []) out.push({ ref: c.location, owner: "人", reason: `受け入れ確認の証拠と反証の判定の矛盾（証拠: ${c.evidence}。理由: ${c.reason}）`, from: "受け入れ確認の結果" });
-  return out;
+// 判定本文の未確認と理由の表からの確認が残る事項（parent.md 10節の6）。コードレベルで結論を出せない未確認だけが、理由と不足箇所のまま入る
+function verdictRemaining(refute: RefuteStructure | null): Remaining[] {
+  return (refute?.unconfirmed ?? []).map((u) => ({ ref: u.ref, owner: u.owner, reason: `${u.reason}（${u.kind}、軸 ${u.axis}、不足箇所: ${u.missing}）`, from: "反証の未確認と理由" }));
 }
 
 interface RequirementsRecheck {
@@ -3254,228 +2161,11 @@ function recheckLocal(work: string, prep: Prepared, dir: string): LocalRecheck {
   return { at, dir, head, changed };
 }
 
-// 固定の後に足された Activity の1件（kept は止めなかった理由）
-interface Appended {
-  id: string;
-  at: string;
-  actor: string;
-  what: string;
-  replyTo: string | null;
-  kept: "親自身の記録" | null;
-}
-
-// 保存直前の観測1件（rows はその証拠を使った受け入れ確認担当の行）
-interface Observation {
-  reason: string;
-  id: string;
-  source: string;
-  before: string;
-  after: string;
-  rows: string[];
-}
-
-interface EvidenceRecheck {
-  at: string;
-  dir: string;
-  compared: { id: string; source: string; result: string }[];
-  observations: Observation[];
-  appended: Appended[];
-  events: number;
-  usedRows: string[];
-}
-
-// 10節の3（13節の4）: 受け入れ確認が判定に使った証拠と、evidence/<n> の参照元だけを固定時と同じ方法で dir へ取り直し、CI の結果を除く前の元の写しと比べる。
-// 固定の後に足された Activity は、own-logs.md の id の親自身の記録とイベントを除き、意味で選別せずに親以外の追記として、判定に使った証拠を使ったすべての行に付ける
-function recheckEvidence(work: string, prep: Prepared, acc: AcceptanceStructure, dir: string): EvidenceRecheck {
-  mkdirSync(dir, { recursive: true });
-  const at = now();
-  const P = join(work, "parent/acceptance");
-  const items = readRecord<CatalogItem[]>(join(P, "items.json")) ?? [];
-  const details = readRecord<Json[]>(join(P, "evidence.json")) ?? [];
-  const state = readRecord<RecordsState>(join(P, "records.json"));
-  const own = ownLogIds(work);
-  const log: Command[] = [];
-  const compared: EvidenceRecheck["compared"] = [];
-  const observations: Observation[] = [];
-  const observe = (reason: string, id: string, source: string, before: string, after: string, rows: string[]) => observations.push({ reason, id, source, before, after, rows });
-  const usedBy = new Map<string, { source: string; rows: Set<string> }>();
-  for (const u of acc.used) {
-    const entry = usedBy.get(u.item) ?? { source: u.source, rows: new Set<string>() };
-    for (const r of u.rows) entry.rows.add(r);
-    usedBy.set(u.item, entry);
-  }
-  const usedRows = [...new Set(acc.used.flatMap((u) => u.rows))];
-
-  // Issue: Activity と現在リンクされた Document を取り直す
-  let current: ActivityItem[] | null = null;
-  let linked: string[] = [];
-  if (state?.mode === "issue" && prep.issue) {
-    const p = run([process.env.NOD_CLI || "nod", "--json", "issue", "show", prep.issue], log);
-    writeFileSync(join(dir, "issue-snapshot.json"), p.stdout);
-    const shown = parseJson(p) as { activity?: unknown; documents?: unknown } | undefined;
-    if (p.code === 0 && Array.isArray(shown?.activity)) {
-      current = shown.activity as ActivityItem[];
-      linked = (Array.isArray(shown.documents) ? (shown.documents as DocRow[]) : []).map((d) => String(d.id));
-    } else observe("取り直せず（失効を含む）", "activity", `Issue ${prep.issue} の Activity`, "固定時の写し", `nod issue show が失敗（${failure(p)}。親以外の追記を確かめられない）`, usedRows);
-  }
-  const fixedList = readRecord<ActivityItem[]>(join(P, "activity.json")) ?? [];
-  const fixed = new Map(flattenActivity(fixedList).map((e) => [e.id, e]));
-  const currentById = current ? new Map(flattenActivity(current).map((e) => [e.id, e])) : null;
-
-  const watchActivity = (id: string, label: string, rows: string[]) => {
-    const before = fixed.get(id);
-    const beforeSha = before ? activitySha(before.item) : "固定時の写しに無い";
-    if (!currentById || !before) {
-      if (!before) observe("取り直せず（失効を含む）", id, label, beforeSha, "固定時の元の写しに無い", rows);
-      compared.push({ id, source: label, result: "取り直せず" });
-      return;
-    }
-    const after = currentById.get(id);
-    const found: string[] = [];
-    if (!after) {
-      observe("証拠の削除", id, label, beforeSha, "無い", rows);
-      found.push("削除");
-    } else {
-      if (activitySha(after.item) !== beforeSha) {
-        observe("証拠の訂正", id, label, beforeSha, activitySha(after.item), rows);
-        found.push("本文の変化");
-      }
-      if ((after.item.resolvedAt ?? null) !== (before.item.resolvedAt ?? null)) {
-        observe("対応不明（撤回・訂正の可能性。親は意味を判断しない）", id, label, `解決 ${before.item.resolvedAt ?? "なし"}`, `解決 ${after.item.resolvedAt ?? "なし"}`, rows);
-        found.push("解決の状態の変化");
-      }
-    }
-    compared.push({ id, source: label, result: found.join("・") || "変化なし" });
-  };
-  const watchDocument = (docId: string, label: string, rows: string[]) => {
-    const id = `document:${docId}`;
-    const original = join(P, "documents", `document-${docId}.md`);
-    const beforeSha = existsSync(original) ? sha256(readFileSync(original)) : "固定時の写しなし";
-    if (state?.mode === "issue" && current && !linked.includes(docId)) {
-      observe("証拠の削除", id, label, beforeSha, "Issue からのリンクが外れた", rows);
-      compared.push({ id, source: label, result: "リンクが外れた" });
-      return;
-    }
-    const p = run([process.env.NOD_CLI || "nod", "--json", "doc", "show", docId], log);
-    const doc = parseJson(p) as { content?: unknown } | undefined;
-    if (p.code !== 0 || typeof doc?.content !== "string") {
-      observe("取り直せず（失効を含む）", id, label, beforeSha, `nod doc show が失敗（${failure(p)}）`, rows);
-      compared.push({ id, source: label, result: "取り直せず" });
-      return;
-    }
-    mkdirSync(join(dir, "documents"), { recursive: true });
-    writeFileSync(join(dir, "documents", `document-${docId}.md`), doc.content);
-    const afterSha = sha256(doc.content);
-    if (afterSha !== beforeSha) observe("証拠の訂正", id, label, beforeSha, afterSha, rows);
-    compared.push({ id, source: label, result: afterSha === beforeSha ? "変化なし" : "本文の変化" });
-  };
-  const watchEvidence = (id: string, label: string, rows: string[]) => {
-    const item = items.find((i) => i.id === id);
-    const detail = details.find((d) => d.id === id);
-    if (!item || !detail) {
-      observe("取り直せず（失効を含む）", id, label, "記録なし", "固定時の取得の記録（parent/acceptance/items.json・evidence.json）に無い", rows);
-      compared.push({ id, source: label, result: "取り直せず" });
-      return;
-    }
-    if (!item.obtained) {
-      compared.push({ id, source: label, result: `固定時に写していない（${item.code}。比べる写しなし）` });
-      return;
-    }
-    const changeReason = item.kind.includes("外部の正本") ? "外部の正本の変化" : "参照された記録（配置先・成果物を含む）の変化";
-    const D = join(dir, "evidence", id.slice("evidence/".length));
-    const before = item.originals.map((f) => `${f.name} ${f.sha256}`).join("・");
-    const diffs: string[] = [];
-    if (state?.mode === "case") {
-      const src = String(detail.source ?? "");
-      if (!existsSync(src)) {
-        observe("取り直せず（失効を含む）", id, label, before, "事例の入力に無い", rows);
-        compared.push({ id, source: label, result: "取り直せず" });
-        return;
-      }
-      mkdirSync(D, { recursive: true });
-      copyFileSync(src, join(D, basename(src)));
-    } else {
-      const head = (detail.refs as Ref[] | undefined)?.[0];
-      const fetched: Fetched = head
-        ? fetchEvidence(head, D, { work, prep, linked: state?.linkedDocuments ?? [] }, log)
-        : { code: "NO_REF", obtained: false, reason: "固定時の参照の記録が無い", method: "", identity: "", versionMatch: "", facts: {} };
-      if (!fetched.obtained) {
-        observe(fetched.code === "REVISION_NOT_FOUND" ? "対象版との対応不明" : "取り直せず（失効を含む）", id, label, before, `${fetched.code}: ${fetched.reason}`, rows);
-        compared.push({ id, source: label, result: `取り直せず（${fetched.code}）` });
-        return;
-      }
-      const facts = (detail.facts ?? {}) as Json;
-      if (head?.type === "url" && facts.finalUrl !== fetched.facts.finalUrl) {
-        observe("対象版との対応不明", id, label, `最終の URL ${String(facts.finalUrl)}`, `最終の URL ${String(fetched.facts.finalUrl)}`, rows);
-        diffs.push("最終の URL");
-      }
-      if (head?.type === "git" && facts.commit !== fetched.facts.commit) diffs.push(`revision ${head.revision ?? "HEAD"} が指す commit ${String(facts.commit)} → ${String(fetched.facts.commit)}`);
-    }
-    // HTTP の応答の見出し（Date など）だけの違いは止めない
-    const names = new Set([...item.originals.map((f) => f.name), ...(existsSync(D) ? readdirSync(D) : [])].filter((n) => n !== "headers.txt"));
-    for (const name of names) {
-      const want = item.originals.find((f) => f.name === name)?.sha256 ?? "固定時に無い";
-      const got = existsSync(join(D, name)) ? sha256(readFileSync(join(D, name))) : "無い";
-      if (want !== got) diffs.push(`${name} ${want} → ${got}`);
-    }
-    const contentDiffs = diffs.filter((d) => d !== "最終の URL");
-    if (contentDiffs.length > 0) observe(changeReason, id, label, before, contentDiffs.join("・"), rows);
-    compared.push({ id, source: label, result: diffs.length > 0 ? diffs.join("・") : "変化なし" });
-  };
-
-  for (const [item, u] of usedBy) {
-    const rows = [...u.rows];
-    const label = `判定に使った証拠 ${item}（${u.source}）`;
-    if (item.startsWith(CLONE_ITEM)) compared.push({ id: item, source: label, result: "取り直さない（限定 clone の固定版）" });
-    else if (item.startsWith("activity")) watchActivity(item, label, rows);
-    else if (item.startsWith("document:")) watchDocument(item.slice("document:".length), label, rows);
-    else if (item.startsWith("evidence/")) {
-      watchEvidence(item, label, rows);
-      // evidence/<n> の参照元（records.md に書いた Activity の項目・Document）
-      const refs = (details.find((d) => d.id === item)?.refs as Ref[] | undefined) ?? [];
-      for (const from of new Set(refs.map((r) => r.from))) {
-        const originLabel = `判定に使った証拠 ${item} の参照元 ${from}`;
-        if (/^activity[:@]/.test(from) && state?.mode === "issue") watchActivity(from, originLabel, rows);
-        else if (/^document:\d+$/.test(from)) watchDocument(from.slice("document:".length), originLabel, rows);
-      }
-    }
-  }
-
-  // 固定の後に足された Activity（コメント・作業ログ・返信・確認依頼と、固定時の確認依頼への回答）。イベントは追記に含めない
-  const appended: Appended[] = [];
-  let events = 0;
-  if (current) {
-    const fixedIds = new Set([...fixed.values()].flatMap((e) => ((e.item.kind ?? "comment") === "comment" && typeof e.item.id === "number" ? [e.item.id] : [])));
-    const key = (a: ActivityItem) => JSON.stringify([a.kind, a.at, a.actor, a.kind === "event" ? [a.type, a.data] : a.question]);
-    const fixedOthers = new Map(fixedList.filter((a) => a.kind === "event" || a.kind === "question").map((a) => [key(a), a]));
-    for (const e of flattenActivity(current)) {
-      const a = e.item;
-      if (a.kind === "event") {
-        if (!fixedOthers.has(key(a))) events += 1;
-      } else if (a.kind === "question") {
-        const before = fixedOthers.get(key(a));
-        if (!before) appended.push({ id: e.id, at: a.at ?? "", actor: a.actor ?? "不明", what: "確認依頼", replyTo: null, kept: null });
-        else if ((before.answer ?? null) !== (a.answer ?? null)) appended.push({ id: e.id, at: a.answeredAt ?? a.at ?? "", actor: a.answeredBy ?? a.actor ?? "不明", what: "確認依頼の回答", replyTo: null, kept: null });
-      } else if (typeof a.id === "number" && !fixedIds.has(a.id)) {
-        const what = a.logKind ? `作業ログ（${a.logKind}）` : e.parent !== null ? "返信" : "コメント";
-        appended.push({ id: `activity:${a.id}`, at: a.at ?? "", actor: a.actor ?? "不明", what, replyTo: e.parent !== null ? `activity:${e.parent}` : null, kept: own.has(a.id) ? "親自身の記録" : null });
-      }
-    }
-    for (const x of appended.filter((x) => !x.kept)) observe(ADDITION, x.id, `${x.what}、${x.actor}、${x.at}${x.replyTo ? `、返信先 ${x.replyTo}` : ""}`, "固定時に無い", "固定の後に足された", usedRows);
-  }
-  const result: EvidenceRecheck = { at, dir, compared, observations, appended, events, usedRows };
-  writeFileSync(join(dir, "recheck.json"), `${JSON.stringify({ ...result, commands: log }, null, 2)}\n`);
-  return result;
-}
-
-// 再照合の観測を確認が残る事項にする（親以外の追記は判定に使った証拠を使ったすべての行、それ以外はその証拠を使った行に付ける）
-function recheckRemaining(prefix: string, requirements: RequirementsRecheck | null, local: LocalRecheck | null, evidence: EvidenceRecheck | null): Remaining[] {
+// 保存直前（CI の再照合では照合の前）の再照合で見つかった変化を確認が残る事項にする
+function recheckRemaining(prefix: string, requirements: RequirementsRecheck | null, local: LocalRecheck | null): Remaining[] {
   return [
     ...(local?.changed ?? []).map((c) => ({ ref: c.path, owner: "人", reason: `${prefix}: 未コミット変更の土台 HEAD・差分の変化（固定した変更と現在の変更が異なる。${c.detail}）`, from: prefix })),
     ...(requirements?.changed ?? []).map((c) => ({ ref: c.path, owner: "人", reason: `${prefix}: 保存時の要求の変化（現在の要求への適合を確かめていない。固定時 ${c.before ?? "無い"}、取り直し ${c.after ?? "無い"}）`, from: prefix })),
-    ...(evidence?.observations ?? []).flatMap((o) =>
-      o.rows.map((row) => ({ ref: row, owner: RECHECK_OWNER, reason: `${prefix}: ${o.reason}（${o.id}: ${o.source}。固定時 ${o.before}、取り直し ${o.after}）。この実行では判定し直さない`, from: prefix })),
-    ),
   ];
 }
 
@@ -3616,55 +2306,41 @@ function headProblems(h: HeadCheck): string[] {
 interface MergeDecision {
   merge: string;
   blockers: string[];
-  // 対応表の「自動チェック担当」「受け入れ確認担当」の行と、マージ可否の判定で満たしたか
-  autoRows: string[];
-  acceptanceRows: string[];
 }
 
-type MergeInput = { status: Status; reason: string | null; score: number | null; refute: RefuteStructure | null; acceptance: AcceptanceStructure | null; remaining: number; ci: CiRecord; head: HeadCheck | null; prep: Prepared };
+type MergeInput = { status: Status; reason: string | null; score: number | null; remaining: number; ci: CiRecord; head: HeadCheck | null; prep: Prepared };
 
-// 10節の8の 1〜3（CI と現在の head を除くレビューの側の条件）で満たしていない理由。自動チェック担当の行は autoOk のときだけ満たしたことにし、autoNote を理由に添える
-function reviewBlockers(m: MergeInput, autoOk: boolean, autoNote: string): string[] {
-  const verdicts = new Map(m.acceptance?.judgments.map((j) => [j.source, j.verdict]) ?? []);
-  const satisfied = (t: TableRow) => ["充足", "説明", "対象外"].includes(t.status) || (t.status === "自動チェック担当" && autoOk) || (t.status === ACCEPTANCE_STATE && verdicts.get(t.source) === "確認済み");
-  const unmet = (m.refute?.table ?? []).filter((t) => !satisfied(t)).map((t) => `${t.source}（${t.status}${t.status === ACCEPTANCE_STATE ? `: ${verdicts.get(t.source) ?? "判定なし"}` : t.status === "自動チェック担当" ? `: ${autoNote}` : ""}）`);
+// 10節の8の 1〜3（CI と現在の head を除くレビューの側の条件）で満たしていない理由: 完了・確定した要対応0件（点数 5）・確認が残る事項0件。
+// 対応表の「未充足」と要対応、「未確認」と確認が残る事項の対応は check-refute の形式の検査で担保するので、対応表の行はここで見ない
+function reviewBlockers(m: MergeInput): string[] {
   return [
     ...(m.status === "完了" ? [] : [`最終状態 ${m.status}（理由: ${m.reason}）`]),
     ...(m.score === 5 ? [] : [m.score === null ? "点数なし" : `確定した要対応の点数 ${m.score}`]),
-    ...(m.status === "完了" && unmet.length > 0 ? [`対応表に満たしていない行がある: ${unmet.join("、")}`] : []),
     ...(m.remaining > 0 ? [`確認が残る事項 ${m.remaining} 件`] : []),
   ];
 }
 
-// 10節の8（13節の6）: 最終状態・点数・対応表・受け入れ確認の結果・確認が残る事項と、同じ head の CI・現在の head と基点から決める。どれも変えない
+// 10節の8（13節の6）: 最終状態・点数・確認が残る事項と、同じ head の CI・現在の head と基点から決める。どれも変えない
 function decideMerge(m: MergeInput): MergeDecision {
   const ok = ciPassed(m.ci, m.prep);
-  const table = m.refute?.table ?? [];
-  const verdicts = new Map(m.acceptance?.judgments.map((j) => [j.source, j.verdict]) ?? []);
   const blockers = [
-    ...reviewBlockers(m, ok, `CI 判定 ${m.ci.verdict}`),
+    ...reviewBlockers(m),
     ...(ok ? [] : [`CI 判定 ${m.ci.verdict}（${m.ci.reason}${m.ci.resultHead ? `。result.json の head ${m.ci.resultHead} は target.md の head と${m.ci.resultHead === m.prep.head ? "一致" : "不一致"}` : ""}）`]),
     ...(m.head ? headProblems(m.head) : []),
   ];
-  return {
-    merge: blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE,
-    blockers,
-    autoRows: table.filter((t) => t.status === "自動チェック担当").map((t) => `${t.source}（同じ head の CI 判定 ${m.ci.verdict} で${ok ? "満たした" : "満たしていない"}）`),
-    acceptanceRows: table.filter((t) => t.status === ACCEPTANCE_STATE).map((t) => `${t.source}（受け入れ確認担当: ${verdicts.get(t.source) ?? "判定なし"}）`),
-  };
+  return { merge: blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE, blockers };
 }
 
-// 評価用の事例の「CI を除いてマージ可」（docs/code-review-evaluation.md の再評価の5）。マージ可否とは別の値で、CI と現在の head は見ない。
-// 自動チェック担当の行は、実行の前に run.md で固定した扱い（pass は満たした、block は満たしていないとして数える）を finalize の --auto-check-rows で受ける
+// 評価用の事例の「CI を除いたレビュー側の判定」（docs/code-review-evaluation.md）。マージ可否とは別の値で、CI と現在の head は見ず、
+// 完了・確定した要対応0件・確認が残る事項0件の3条件だけで決める
 export interface ReviewSideMerge {
-  autoCheckRows: "pass" | "block";
   merge: string;
   blockers: string[];
 }
 
-function reviewSideMerge(m: MergeInput, autoCheckRows: "pass" | "block"): ReviewSideMerge {
-  const blockers = reviewBlockers(m, autoCheckRows === "pass", `--auto-check-rows ${autoCheckRows}`);
-  return { autoCheckRows, merge: blockers.length === 0 ? "CI を除いてマージ可" : "CI を除いてマージ不可", blockers };
+function reviewSideMerge(m: MergeInput): ReviewSideMerge {
+  const blockers = reviewBlockers(m);
+  return { merge: blockers.length === 0 ? "CI を除いてマージ可" : "CI を除いてマージ不可", blockers };
 }
 
 // ---- 報告の組み立て（parent.md 11節。結果 report.md と監査 audit.md） ----
@@ -3683,7 +2359,6 @@ interface ReportContext {
   labelPlan: string;
   requirements: RequirementsRecheck | null;
   local: LocalRecheck | null;
-  evidence: EvidenceRecheck | null;
   // 報告に載せる計測（prepare の開始から報告の組み立ての直前まで）と、評価用の事例の CI を除いたレビュー側の判定
   usage: ReportUsage;
   reviewSide: ReviewSideMerge | null;
@@ -3718,8 +2393,6 @@ function renderAudit(c: ReportContext): string {
   const identities = loadList<Identity>(work, "identity");
   const deps = prep.deps;
   const refute = state.refute;
-  const records = readRecord<RecordsState>(join(work, "parent/acceptance/records.json"));
-  const accInput = readRecord<{ ready?: boolean; unavailable?: { id: string; code: string }[] }>(join(work, "parent/acceptance-input.json"));
   const required = refute?.required ?? [];
   const impacts = required.map((r) => `${r.heading}（${r.ids.join("・")}）: ${r.impact}`);
   const scoreCalc =
@@ -3727,23 +2400,19 @@ function renderAudit(c: ReportContext): string {
       ? `${state.status}のため点数なし。`
       : `要対応 ${required.length} 件（${impacts.join("、") || "なし"}）。最も重い影響度（最小値）で ${c.score}${required.length === 0 ? "（要対応0件なので 5）" : ""}。`;
   const verdictFile = join(work, "refute/verdict.md");
-  const resultFile = join(work, "acceptance/result.md");
   const verdictText = refute && existsSync(verdictFile) ? readFileSync(verdictFile, "utf8") : null;
-  const resultText = state.acceptance && existsSync(resultFile) ? readFileSync(resultFile, "utf8") : null;
   const embed = (text: string) => (text.endsWith("\n") ? text : `${text}\n`);
-  const noResult = !state.acceptanceRequired && refute ? "受け入れ確認担当の行なし（起動せず）\n" : `未受領（${state.reason ?? "受け入れ確認の有効な結果なし"}）\n`;
   const manifestRows = new Map(
     [...(existsSync(join(work, "input/manifest.md")) ? readFileSync(join(work, "input/manifest.md"), "utf8") : "").matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \| (.*) \|$/gm)].map((m) => [m[1] ?? "", { sha: m[2] ?? "", source: m[3] ?? "" }]),
   );
-  const ev = c.evidence;
   const roleRow = (role: Role) => {
     const r = ROLES[role];
     const list = agents.filter((a) => a.role === role);
     const last = list.at(-1);
     const check = last ? checks.filter((x) => x.role === role && x.attempt === last.attempt).at(-1) : undefined;
-    const valid = role === "refute" ? !!refute : role === "acceptance" ? !!state.acceptance : !!check?.valid && !retired.some((a) => a.role === role && a.attempt === last?.attempt);
+    const valid = role === "refute" ? !!refute : !!check?.valid && !retired.some((a) => a.role === role && a.attempt === last?.attempt);
     const outputPath = join(work, role, r.output);
-    const end = !last ? (role === "acceptance" && refute && !state.acceptanceRequired ? "起動せず（受け入れ確認担当の行なし）" : "起動せず") : valid ? "有効な結果を受領" : "有効な結果なし";
+    const end = !last ? "起動せず" : valid ? "有効な結果を受領" : "有効な結果なし";
     return `| ${r.name} | ${r.definition} | ${cell(valid ? (last?.agentId ?? "不明") : "なし")} | ${last ? `${last.attempt}${last.attempt > 1 ? "（再委譲）" : ""}` : "なし"} | ${end} | ${check ? `${check.valid ? "合格" : "不合格"}（sha256 ${check.sha256 ?? "なし"}）` : "検査なし"} | ${cell(valid ? declaredModel(outputPath) : "未確認")} |`;
   };
   const attemptRows = agents.map((a) => {
@@ -3764,11 +2433,6 @@ function renderAudit(c: ReportContext): string {
     ["Spec 探索の引き渡し用ファイル", "spec/handoff.md"],
     ["Spec 探索の引き渡し用ファイル（反証への写し）", "refute-input/spec-handoff.md"],
     ["反証の判定本文", "refute/verdict.md"],
-    ["反証の判定本文（受け入れ確認への写し）", "acceptance-input/refute-verdict.md"],
-    ["受け入れ確認への写しの目録", "acceptance-input/records.md"],
-    ["受け入れ確認への入力の指紋", "parent/acceptance/fingerprints.md"],
-    ["受け入れ確認の結果", "acceptance/result.md"],
-    ["保存直前の受け入れ証拠の取り直し", "parent/acceptance-recheck/recheck.json"],
     ["親の検査記録", "parent/checks.md"],
     ["反証への入力の指紋", "parent/fingerprints.md"],
     ["試行の記録", "parent/agents.md"],
@@ -3806,20 +2470,15 @@ function renderAudit(c: ReportContext): string {
     `- 確定した要対応の点数: ${c.score ?? NOT_RUN_SCORE}`,
     `- 点数の計算: ${scoreCalc}未確認が残っていても完了なら計算し、軸間で平均せず、任意・棄却・基点から存在（対象外）・未確認は入れない。点数は確定した要対応の影響度だけを表し、要求の確認率もマージ許可も表さない。CI の結果では状態・点数を変えない。`,
     `- 確認が残る事項: ${c.remaining.length} 件（下の「確認が残る事項」の節）。最終状態と点数を変えず、マージ可否だけを止める。`,
-    "- マージ可否・現在の head の照合・merge-ready: CI の結果を含むので、次の ci-result の印の中だけに書く（後のレビューの受け入れ確認への写しでは、親が印の中を除く）",
+    "- マージ可否・現在の head の照合・merge-ready: CI の結果を含むので、次の ci-result の印の中だけに書く（CI の結果は親だけが扱い、レビュー担当の入力に入れない）",
     CI_BEGIN,
     `- マージ可否: ${decision.merge}`,
     ...(decision.blockers.length > 0 ? [`  - 不可の理由: ${decision.blockers.join("／")}`] : []),
-    `  - 対応表の「自動チェック担当」の行: ${decision.autoRows.join("、") || "なし"}（対応表と点数の対象外という扱いは変えない）`,
-    `  - 対応表の「受け入れ確認担当」の行: ${decision.acceptanceRows.join("、") || (refute ? "なし（受け入れ確認担当は起動せず）" : "なし（反証の有効な結果なし）")}（確認済みの行だけをマージ可否の判定で満たしたことにする）`,
+    "  - 可は、最終状態が完了・確定した要対応0件（点数 5）・確認が残る事項0件・同じ head SHA の必須の CI がすべて成功（現在の head と基点の照合を含む）のときだけ。",
     "  - 「完了・確定した要対応の点数 5・確認が残る事項あり・マージ不可」は正常な結果である。可でもリポジトリの既存のマージ条件（ブランチ保護・必須のレビューなど）は省かない。",
     headLine,
     `- merge-ready: ${c.labelPlan}。報告の保存と作業ログの直後に行う操作として書く。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は、判定した head SHA・現在の head の照合・基点・CI 判定・この報告の Document ID・runId とともに、本文が [ci-result] で始まる --kind test の作業ログに記録する`,
-    ...(c.reviewSide
-      ? [
-          `- CI を除いたレビュー側の判定（評価用）: ${c.reviewSide.merge}（マージ可否とは別の値。CI と現在の head を見ず、自動チェック担当の行は --auto-check-rows ${c.reviewSide.autoCheckRows} の扱い（${c.reviewSide.autoCheckRows === "pass" ? "満たした" : "満たしていない"}として数える）${c.reviewSide.blockers.length > 0 ? `。理由: ${c.reviewSide.blockers.join("／")}` : ""}）`,
-        ]
-      : []),
+    ...(c.reviewSide ? [`- CI を除いたレビュー側の判定（評価用）: ${c.reviewSide.merge}（マージ可否とは別の値。CI と現在の head を見ず、完了・確定した要対応0件・確認が残る事項0件だけで決める${c.reviewSide.blockers.length > 0 ? `。理由: ${c.reviewSide.blockers.join("／")}` : ""}）`] : []),
     CI_END,
     `- 対象版: 元のリポジトリ \`${prep.repo}\`／基点の指定 \`${prep.base}\`／merge-base \`${prep.mergeBase}\`／head \`${prep.head}\`／mode ${prep.mode}${prep.mode === "local" ? `（土台の HEAD \`${prep.head}\`、${prep.inputs.filter((i) => i.path.startsWith("local/")).map((i) => `\`${i.path}\` ${i.sha256}`).join("・")}）` : ""}${prep.caseDir ? `／評価用の事例 ${prep.case}` : ""}`,
     `- 担当用の限定 clone: ${W("repo")}（記録: ${W("parent/clone.md")}）。prepare の確認: ${prep.clone ? (prep.clone.checks.every((x) => x.ok) ? "すべて通った" : "通らない確認がある") : "作っていない"}。段階ごとの同一性の確認 ${identities.length} 回（不一致 ${identities.filter((i) => !i.ok).length} 回。記録: ${W("parent/identity.md")}）`,
@@ -3828,18 +2487,11 @@ function renderAudit(c: ReportContext): string {
         ? `${W("deps/")}、lockfile \`${deps.lockfile}\`（sha256 ${deps.lockfileSha256}）、${deps.manager} ${deps.version}、準備のコマンド \`${deps.command}\`（終了コード ${deps.exitCode}）、取得元 ${deps.registry}、指紋の一覧 \`input/deps-files.sha256\`（sha256 ${fileSha(join(work, "input/deps-files.sha256"))}、ファイル ${deps.files} 件・リンク ${deps.links} 件）`
         : `依存の写しなし（${deps?.reason ?? "準備していない"}）`
     }`,
-    `- 受け入れ確認への写し: ${
-      records
-        ? `${W("acceptance-input/")}、目録 records.md の sha256 ${fileSha(join(work, "acceptance-input/records.md"))}、Activity と添付 Document の取得 ${records.takenAt}、CI の結果の除外 ${records.exclusions.length} 件（目録の除外の表）、取得不能 ${(accInput?.unavailable ?? []).map((u) => `${u.id}（${u.code}）`).join("・") || "なし"}、入力の固定 ${accInput?.ready ? "一致" : "固定できず"}。元の写しと取得の記録は ${W("parent/acceptance/")}（items.json・evidence.json・records.json・fingerprints.md）。探索・反証の担当へは渡していない`
-        : refute && !state.acceptanceRequired
-          ? "受け入れ確認担当の行なし（写さず）"
-          : "写していない"
-    }`,
     `- 未コミット変更の差分確認: ${c.local ? `${c.local.at} に土台の HEAD ${c.local.head} と差分を取り直した（${W("parent/local-recheck/")}）。${c.local.changed.length > 0 ? `変化あり: ${c.local.changed.map((x) => `${x.path}（${x.detail}）`).join("・")}（確認が残る事項に入れた）` : "変化なし"}` : "対象外（mode: commit）"}`,
     "",
     "### 確認が残る事項",
     "",
-    "判定本文の未確認、受け入れ確認の未充足・確かめられず、要求間の矛盾、受け入れ確認の証拠と反証の判定の矛盾、保存時の要求の変化、保存直前の受け入れ証拠の再照合で見つかった事項、未コミット変更の土台 HEAD・差分の変化を、例外なくすべて載せる。",
+    "判定本文の未確認（コード要求の中身を決める要求資料の不足、結論に必要な依存の契約の不足、要求間の矛盾、採否を確定できない候補。どのコード上の結論に何が足りないかを理由と不足箇所に書く）、保存時の要求の変化、未コミット変更の土台 HEAD・差分の変化を、例外なくすべて載せる。",
     "",
     ...(c.remaining.length > 0 ? ["| 要求の出典（または候補 ID） | 確かめる担当 | 理由 |", "|---|---|---|", ...c.remaining.map((r) => `| ${cell(r.ref)} | ${cell(r.owner)} | ${cell(r.reason)} |`)] : ["なし"]),
     "",
@@ -3869,28 +2521,11 @@ function renderAudit(c: ReportContext): string {
         }${c.requirements.unavailable.length > 0 ? `取り直せなかった資料: ${c.requirements.unavailable.map((u) => `${u.item}: ${u.reason}`).join("・")}。` : ""}${c.requirements.note ? c.requirements.note : ""}`
       : "取り直していない（未実施）",
     "",
-    "### 保存直前の受け入れ証拠の再照合",
-    "",
-    ...(ev
-      ? [
-          `- 取り直した時刻: ${ev.at}（記録: ${W("parent/acceptance-recheck/")}）`,
-          "- 比べた証拠（結果の「判定に使った証拠」の項目と、evidence/<n> の参照元）と結果:",
-          "",
-          "| 項目 | 何と比べたか | 結果 |",
-          "|---|---|---|",
-          ...ev.compared.map((x) => `| ${cell(x.id)} | ${cell(x.source)} | ${cell(x.result)} |`),
-          "",
-          `- 固定の後に足された Activity: ${ev.appended.length} 件。親以外の追記 ${ev.appended.filter((x) => !x.kept).length} 件${ev.appended.some((x) => !x.kept) ? `（${ev.appended.filter((x) => !x.kept).map((x) => `${x.id}（${x.what}、${x.actor}、${x.at}${x.replyTo ? `、返信先 ${x.replyTo}` : ""}）`).join("、")}。どれも確認が残る事項にした）` : ""}。止めなかった親自身の記録 ${ev.appended.filter((x) => x.kept).length} 件（${OWN_LOGS} の id）、Issue のイベント ${ev.events} 件`,
-          "- 親以外の追記は種類・書いた人・返信先・本文を問わず確認が残る事項にし、本文の意味では選別していない。親自身の記録かどうかは書いた人ではなく own-logs の id で決めた。",
-          "- 変化があっても、この実行では新しい証拠へ差し替えて判定し直さず、担当の判定本文・最終状態・点数を変えていない。この再照合は観測時点までの確認であり、将来の配置状態は保証しない。",
-        ]
-      : [`対象なし（${state.acceptance ? "取り直していない" : state.acceptanceRequired ? "受け入れ確認担当の有効な結果なし" : "受け入れ確認担当を起動していない"}）`]),
-    "",
     "### 担当",
     "",
     "| 役割 | 定義名 | 担当 ID（有効な結果の担当） | 試行 | 終了状態 | 引き渡しの検査 | モデル申告と出典 |",
     "|---|---|---|---|---|---|---|",
-    ...(["standards", "spec", "refute", "acceptance"] as const).map(roleRow),
+    ...(["standards", "spec", "refute"] as const).map(roleRow),
     "",
     "- 実装者との対応: 各担当はこのレビューの委譲で起動した別の担当である。ID の違いだけで会話を引き継いでいないことの証明とは扱わない。",
     "- モデル情報は申告と出典だけで、不明は未確認とする。実効モデルの証明ではない。",
@@ -3932,19 +2567,11 @@ function renderAudit(c: ReportContext): string {
     "<!-- refute-verdict:begin -->",
     `${verdictText !== null ? embed(verdictText) : `未受領（${state.reason ?? "反証の有効な結果なし"}）\n`}<!-- refute-verdict:end -->`,
     "",
-    "## 受け入れ確認担当の結果（原文のまま）",
-    "",
-    `- 原本: ${resultText !== null ? W("acceptance/result.md") : "未受領"}`,
-    `- sha256: ${state.acceptance?.sha256 ?? "なし"}（check-acceptance で検査した指紋）`,
-    `- 担当 ID: ${state.acceptance?.agentId ?? "なし"}`,
-    "",
-    "受け入れ確認の結果は、反証の判定本文と点数を変えない。",
-    "",
-    "<!-- acceptance-result:begin -->",
-    `${resultText !== null ? embed(resultText) : noResult}<!-- acceptance-result:end -->`,
-    "",
   ].join("\n");
 }
+
+// 利用者向けの結果に載せる範囲の注記（固定の1文。CI・E2E・QA で担保したとは書かない）
+const SCOPE_NOTE = "このレビューはコードレベルの確認であり、ブラウザ検証・見た目やデザイン・実環境での動作・作業手順は確かめておらず、別のフローで扱う。";
 
 function renderReport(c: ReportContext, auditRef: string): string {
   const required = c.state.refute?.required ?? [];
@@ -3955,6 +2582,7 @@ function renderReport(c: ReportContext, auditRef: string): string {
     `- 確定した要対応の点数: ${c.score ?? NOT_RUN_SCORE}`,
     `- 確認が残る事項: ${c.remaining.length} 件`,
     `- 対象: ${c.prep.head}（基点 ${c.prep.base}、merge-base ${c.prep.mergeBase}、mode ${c.prep.mode}）`,
+    `- 範囲: ${SCOPE_NOTE}`,
     CI_BEGIN,
     `- マージ可否: ${c.decision.merge}`,
     ...(c.decision.blockers.length > 0 ? [`- 理由: ${c.decision.blockers.join("／")}`] : []),
@@ -4019,7 +2647,7 @@ function saveDocument(issue: string, name: string, title: string, text: string, 
   return { id: created.id, path: String(created.path ?? ""), title, problems };
 }
 
-// 監査の印の間（反証の判定本文・受け入れ確認の結果）の指紋を、検査した原本の指紋と比べる
+// 監査の印の間（反証の判定本文）の指紋を、検査した原本の指紋と比べる
 function markerProblems(text: string, markers: { name: string; sha256: string | null }[], where: string): string[] {
   return markers.flatMap((m) => {
     if (!m.sha256) return [];
@@ -4104,16 +2732,15 @@ function fitWorkLog(parts: (string | LogList)[]): string {
   return chars.slice(0, WORK_LOG_MAX - [...mark].length).join("") + mark;
 }
 
-// 作業ログを1件書き、返った id を own-logs.md に記録する。書けなければ終了コードと nod のエラー文を返す
-function writeWorkLog(work: string, issue: string, text: string, kind: "progress" | "blocker" | "test", what: string): { id: number | null; problem: string | null } {
+// 作業ログを1件書き、返った id を返す。書けなければ終了コードと nod のエラー文を返す
+function writeWorkLog(issue: string, text: string, kind: "progress" | "blocker" | "test"): { id: number | null; problem: string | null } {
   const p = nod(["--json", "issue", "log", issue, text, "--kind", kind]);
   const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
   if (typeof id !== "number") return { id: null, problem: failure(p) };
-  recordOwnLog(work, id, what);
   return { id, problem: null };
 }
 
-// 11節（13節の7）: 報告の保存と作業ログの後に merge-ready を付け外しし、本文が [ci-result] で始まる --kind test の作業ログに1件残して own-logs.md に記録する。
+// 11節（13節の7）: 報告の保存と作業ログの後に merge-ready を付け外しし、本文が [ci-result] で始まる --kind test の作業ログに1件残す。
 // 可なら付ける直前に現在の head と基点を取り直し、違う・取り直せない・保存に失敗したときは付けない（付いていれば外す）
 // 一覧（不可の理由 blockers と加えた確認が残る事項 added）が上限に収まらなければ、書けなかった件数と全文の場所 more を書く
 function applyMergeReady(
@@ -4159,7 +2786,7 @@ function applyMergeReady(
     "ラベルは現在の判定の表示で、自動マージの指示ではない。",
     ...(error ? [`ラベルの操作の問題: ${error}。`] : []),
   ]);
-  const log = writeWorkLog(work, issue, text, "test", "merge-ready の操作の記録（--kind test）");
+  const log = writeWorkLog(issue, text, "test");
   const logError = log.problem ? `[ci-result] の作業ログを書けない（${log.problem}）` : null;
   return { operation, blockers, head, error: [error, logError].filter((e) => e !== null).join("。") || null, log: log.id };
 }
@@ -4181,11 +2808,9 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
   const ciNote = "CI 判定・マージ可否・merge-ready は [ci-result] で始まる --kind test の作業ログを参照";
   if (c.state.status === "完了") {
     const required = c.state.refute?.required ?? [];
-    const judged = c.state.acceptance?.judgments ?? [];
     return fitWorkLog([
       `独立コードレビュー完了。確定した要対応の点数 ${c.score}。`,
       logList("要対応: ", required.map((r) => `${r.heading}（${severityOf(r.impact)}: ${r.title}）`), "。", more, "要対応: なし。"),
-      logList("受け入れ確認: ", judged.map((j) => `${j.source}=${j.verdict}`), "。", more),
       `確認が残る事項 ${c.remaining.length} 件`,
       logList("（", c.remaining.map((r) => `${r.ref}（${r.owner}、${r.reason}）`), "）", more),
       "。",
@@ -4216,36 +2841,29 @@ interface FinalizeRecord {
   scoreValue: number | null;
   remaining: Remaining[];
   ci: CiRecord;
-  acceptance: boolean;
   documents: { audit: SavedDocument; report: SavedDocument } | null;
 }
 
 function finalize(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "not-run-reason", "session", "skill-start", "auto-check-rows"], ["own-log"]);
+  const o = parseOptions(args, ["work", "not-run-reason", "session", "skill-start"], []);
   const work = absolute("work", o.one.get("work"));
   if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
   const prep = prepareRecord(work);
   if (existsSync(join(work, "parent/finalize.json"))) throw new UsageError("finalize は実行済みです（報告を保存し直さない。CI の照合し直しは recheck-ci）");
   if (existsSync(join(work, "parent/ci/1")) && readdirSync(join(work, "parent/ci/1")).length > 0) throw new UsageError("parent/ci/1/ が空ではありません（CI の照合は finalize が1回だけ行う）");
-  // 評価用の事例では CI を除いたレビュー側の判定のために自動チェック担当の行の扱いが要る（通常のレビューでは使わない）
-  const autoCheckRows = o.one.get("auto-check-rows");
-  if (prep.caseDir && autoCheckRows !== "pass" && autoCheckRows !== "block") throw new UsageError("評価用の事例では --auto-check-rows pass|block（run.md で固定した自動チェック担当の行の扱い）が要ります");
-  if (!prep.caseDir && autoCheckRows !== undefined) throw new UsageError("--auto-check-rows は評価用の事例（prepare --case）だけで使います");
   const session = parentSession(absolute("session", o.one.get("session")));
   const skillStartArg = o.one.get("skill-start");
   if (skillStartArg !== undefined && Number.isNaN(Date.parse(skillStartArg))) throw new UsageError(`--skill-start は ISO 8601 の時刻にしてください: ${skillStartArg}`);
-  const ownLogs = recordOwnLogArgs(work, prep, o, "写しの後に親が Issue へ書いた記録");
   const runId = basename(work);
   const mode: ReportContext["mode"] = prep.caseDir ? "case" : prep.issue ? "issue" : "request";
   const state = reviewStatus(work, prep, o.one.get("not-run-reason"));
   const score = state.status === "完了" && state.refute ? Math.min(5, ...state.refute.required.flatMap((r) => (r.impact === null ? [] : [r.impact]))) : null;
 
-  // 10節の1〜3: 保存直前の再照合（未コミット変更・要求・受け入れ確認が判定に使った証拠）
+  // 10節の1・2: 保存直前の再照合（未コミット変更・要求資料）
   const ready = prep.ready;
   const local = ready && prep.mode === "local" ? recheckLocal(work, prep, join(work, "parent/local-recheck")) : null;
   const requirements = ready ? recheckRequirements(work, prep, join(work, "parent/requirements-recheck")) : null;
-  const evidence = state.acceptance ? recheckEvidence(work, prep, state.acceptance, join(work, "parent/acceptance-recheck")) : null;
-  const remaining = [...verdictRemaining(state.refute, state.acceptance), ...recheckRemaining("保存直前の再照合", requirements, local, evidence)];
+  const remaining = [...verdictRemaining(state.refute), ...recheckRemaining("保存直前の再照合", requirements, local)];
 
   // 10節の8: 同じ head の CI を1回だけ照合し、現在の head と基点を取り直す
   const base = ciBranch(prep);
@@ -4262,9 +2880,10 @@ function finalize(args: string[]): Outcome {
             : null;
   const ci = checkCi(work, prep, 1, base, rules, skip);
   const head = state.status !== "未実施" && prep.mode === "commit" && !prep.caseDir ? takeHead(work, prep, ci.base, "マージ可否を決める直前") : null;
-  const mergeInput: MergeInput = { status: state.status, reason: state.reason, score, refute: state.refute, acceptance: state.acceptance, remaining: remaining.length, ci, head, prep };
+  const mergeInput: MergeInput = { status: state.status, reason: state.reason, score, remaining: remaining.length, ci, head, prep };
   const decision = decideMerge(mergeInput);
-  const reviewSide = autoCheckRows === "pass" || autoCheckRows === "block" ? reviewSideMerge(mergeInput, autoCheckRows) : null;
+  // 評価用の事例だけ、CI を除いたレビュー側の判定（完了・確定した要対応0件・確認が残る事項0件）を別に出す
+  const reviewSide = prep.caseDir ? reviewSideMerge(mergeInput) : null;
   const labeled = mode === "issue" && prep.issue ? (issueLabels(prep.issue)?.includes("merge-ready") ?? false) : false;
   const labelPlan =
     mode === "case" ? "扱わない（評価用の事例）" : mode === "request" ? "扱わない（Issue なし）" : decision.merge === MERGE_OK ? "付ける予定（付ける直前に現在の head と基点を取り直す）" : labeled ? "外す予定" : "付けない";
@@ -4272,13 +2891,10 @@ function finalize(args: string[]): Outcome {
   // 報告の組み立て・保存の直前。報告に載せる区間の値（計測の1つ目）はこの時刻までを数える
   const reportStartedAt = now();
   const usage = reportUsage(work, prep, session, reportStartedAt);
-  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, ci, head, decision, labelPlan, requirements, local, evidence, usage, reviewSide };
+  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, ci, head, decision, labelPlan, requirements, local, usage, reviewSide };
   const audit = renderAudit(ctx);
   writeFileSync(join(work, "parent/audit.md"), audit);
-  const markers = [
-    { name: "refute-verdict", sha256: state.refute?.sha256 ?? null },
-    { name: "acceptance-result", sha256: state.acceptance?.sha256 ?? null },
-  ];
+  const markers = [{ name: "refute-verdict", sha256: state.refute?.sha256 ?? null }];
   const problems = markerProblems(audit, markers, "監査の原稿 parent/audit.md");
   let documents: FinalizeRecord["documents"] = null;
   let report: string;
@@ -4306,7 +2922,7 @@ function finalize(args: string[]): Outcome {
   let logProblem: string | null = null;
   if (mode === "issue" && prep.issue) {
     const kind = state.status === "完了" ? "progress" : "blocker";
-    const log = writeWorkLog(work, prep.issue, summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems, measured.final), kind, `独立レビューの要約の作業ログ（--kind ${kind}）`);
+    const log = writeWorkLog(prep.issue, summaryLog(ctx, documents?.report.id ?? null, documents?.audit.id ?? null, problems, measured.final), kind);
     summaryLogId = log.id;
     if (log.problem) logProblem = `要約の作業ログを書けない（${log.problem}）`;
     label = applyMergeReady(work, prep, prep.issue, {
@@ -4338,11 +2954,9 @@ function finalize(args: string[]): Outcome {
     blockers,
     ci,
     head,
-    acceptance: state.acceptance !== null,
     recheck: {
       requirements: requirements && { at: requirements.at, changed: requirements.changed, unavailable: requirements.unavailable },
       local: local && { at: local.at, changed: local.changed },
-      evidence: evidence && { at: evidence.at, observations: evidence.observations.length, appended: evidence.appended.length, others: evidence.appended.filter((x) => !x.kept).length, own: evidence.appended.filter((x) => x.kept).length, events: evidence.events },
     },
     report: join(work, "parent/report.md"),
     audit: join(work, "parent/audit.md"),
@@ -4351,7 +2965,7 @@ function finalize(args: string[]): Outcome {
     documents,
     saved,
     saveProblems: problems,
-    logs: { summary: summaryLogId, ci: label?.log ?? null, ownLogs },
+    logs: { summary: summaryLogId, ci: label?.log ?? null },
     label: label ? { operation: label.operation, error: label.error } : { operation: labelPlan, error: null },
     logProblem,
     reportStartedAt,
@@ -4370,14 +2984,13 @@ function finalize(args: string[]): Outcome {
 // ---- recheck-ci（parent.md 13節。レビューをやり直さず、同じ head の CI とマージ可否を照合し直す） ----
 
 function recheckCi(args: string[]): Outcome {
-  const o = parseOptions(args, ["work"], ["own-log"]);
+  const o = parseOptions(args, ["work"], []);
   const work = absolute("work", o.one.get("work"));
   if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
   const prep = prepareRecord(work);
   const fin = readRecord<FinalizeRecord & { runId?: string; scoreValue?: number | null }>(join(work, "parent/finalize.json"));
   if (!fin) throw new UsageError("finalize の記録（parent/finalize.json）がありません。保存したレビューの作業ディレクトリ（監査の管理情報の作業ディレクトリ）を指定してください");
   if (prep.caseDir) throw new UsageError("評価用の事例では CI を照合しません");
-  const ownLogs = recordOwnLogArgs(work, prep, o, "保存の後・CI の再照合の前に親・PM が Issue へ書いた記録");
   const parent = join(work, "parent");
   const numbers = [...(existsSync(join(parent, "ci")) ? readdirSync(join(parent, "ci")) : []), ...readdirSync(parent).filter((n) => n.startsWith("recheck-")).map((n) => n.slice("recheck-".length))]
     .map(Number)
@@ -4398,19 +3011,12 @@ function recheckCi(args: string[]): Outcome {
   let ci: CiRecord | null = null;
   let added: Remaining[] = [];
   let requirements: RequirementsRecheck | null = null;
-  let evidence: EvidenceRecheck | null = null;
   if (head && (head.problem || !head.headOk)) {
     reason = head.problem ?? `判定が古い（追加コミット。報告の head ${prep.head}、現在の head ${head.currentHead}）`;
     blockers = [reason];
   } else {
-    // 3: 照合し直しても可にならない条件と、使う記録の有無
-    const records = [
-      "input/target.md",
-      "input/requirements",
-      "input/manifest.md",
-      ...(prep.issue ? [OWN_LOGS] : []),
-      ...(fin.acceptance ? ["acceptance-input/records.md", "acceptance/result.md", "parent/acceptance-structure.json", "parent/acceptance/items.json", "parent/acceptance/evidence.json", ...(prep.issue ? ["parent/acceptance/activity.json"] : [])] : []),
-    ];
+    // 3: 照合し直しても可にならない条件と、使う記録（固定した対象版と要求資料）の有無
+    const records = ["input/target.md", "input/requirements", "input/manifest.md"];
     const missing = records.filter((r) => !existsSync(join(work, r)));
     const audit = auditId !== null ? docContent(auditId) : null;
     const cond = [
@@ -4425,17 +3031,14 @@ function recheckCi(args: string[]): Outcome {
       reason = `照合し直しても可にならない: ${cond.join("・")}`;
       blockers = cond;
     } else {
-      // 4: 10節の2・3を recheck-<n>/ へやり直す
+      // 4: 10節の2（要求資料の再照合）を recheck-<n>/ へやり直す。必須の CI の規約もここで取り直した Workspace の規約から読む
       requirements = recheckRequirements(work, prep, join(dir, "requirements"));
-      const accepted = fin.acceptance ? readRecord<AcceptanceStructure>(join(work, "parent/acceptance-structure.json")) : null;
-      evidence = accepted ? recheckEvidence(work, prep, accepted, join(dir, "acceptance")) : null;
-      added = recheckRemaining(`CI の再照合 ${n}`, requirements, null, evidence);
+      added = recheckRemaining(`CI の再照合 ${n}`, requirements, null);
       // 5: CI を parent/ci/<n>/ へ1回だけ照合する
       const rules = join(dir, "requirements/workspace-rules.md");
       ci = checkCi(work, prep, n, reportBase, rules, existsSync(rules) ? null : { verdict: "必須のチェックを決められず", reason: "Workspace の規約を取り直せない" });
       // 6: 報告の判定に4で加えた事項を合わせ、10節の8と同じ規則で決める
-      const refute = readRecord<RefuteStructure>(join(work, "parent/refute-structure.json"));
-      const decision = decideMerge({ status: fin.status, reason: fin.reason, score: fin.scoreValue ?? null, refute, acceptance: accepted, remaining: fin.remaining.length + added.length, ci, head, prep });
+      const decision = decideMerge({ status: fin.status, reason: fin.reason, score: fin.scoreValue ?? null, remaining: fin.remaining.length + added.length, ci, head, prep });
       blockers = decision.blockers.map((b) => (b.startsWith("基点が変わった") ? `${b}（PR の基点が報告の基点と違うので、CI 判定は必須のチェックを決められずとして扱う）` : b));
     }
   }
@@ -4466,18 +3069,17 @@ function recheckCi(args: string[]): Outcome {
     `- 比べた head: 報告の head \`${prep.head}\`、現在の head ${head?.currentHead ? `\`${head.currentHead}\`` : "取り直せない"}、現在の基点 ${head?.currentBase ?? "取り直せない"}（\`${head?.command ?? "なし"}\`、${head?.at ?? at}）`,
     `- 照合せずに終えた理由: ${reason ?? "なし（照合した）"}`,
     `- 要求の再照合: ${requirements ? `${requirements.compared.join("・")} を比べた。${requirements.changed.length > 0 ? `変化あり: ${requirements.changed.map((c) => c.path).join("・")}` : "変化なし"}（${join(dir, "requirements")}）` : "照合せず"}`,
-    `- 受け入れ証拠の再照合: ${evidence ? `${evidence.compared.length} 件を比べ、観測 ${evidence.observations.length} 件、固定の後に足された Activity ${evidence.appended.length} 件（親以外の追記 ${evidence.appended.filter((x) => !x.kept).length} 件、親自身の記録 ${evidence.appended.filter((x) => x.kept).length} 件）、イベント ${evidence.events} 件（${join(dir, "acceptance")}）` : fin.acceptance && !reason ? "照合せず" : reason ? "照合せず" : "対象なし（受け入れ確認担当を起動していない）"}`,
     `- 加えた確認が残る事項: ${added.length > 0 ? added.map((a) => `${a.ref}（${a.owner}、${a.reason}）`).join("・") : "なし"}`,
     `- CI の記録: ${ci ? `${join(work, ci.record)}（sha256 ${ci.sha256}）、${ciSummary(ci)}` : "照合せず"}`,
     `- マージ可否: ${finalMerge}${label?.blockers.length || blockers.length ? `（理由: ${(label?.blockers ?? blockers).join("／")}）` : ""}`,
     `- ラベルの操作: ${label ? `${label.operation}${label.error ? `（${label.error}）` : ""}` : "扱わない（Issue なし）"}`,
-    `- この再照合で書いた作業ログの id: ${label?.log ?? "なし"}（${OWN_LOGS} に記録）`,
+    `- この再照合で書いた作業ログの id: ${label?.log ?? "なし"}`,
     "",
   ].join("\n");
   writeFileSync(join(dir, "record.md"), md);
   return {
     work,
-    result: { n, runId, checked: ci !== null, reason, merge: finalMerge, blockers: label?.blockers ?? blockers, ci, head, added, label: label ? { operation: label.operation, error: label.error, log: label.log } : null, ownLogs, record: join(dir, "record.md") },
+    result: { n, runId, checked: ci !== null, reason, merge: finalMerge, blockers: label?.blockers ?? blockers, ci, head, added, label: label ? { operation: label.operation, error: label.error, log: label.log } : null, record: join(dir, "record.md") },
   };
 }
 
@@ -4676,7 +3278,7 @@ const USAGE_DEFINITIONS = {
   agents:
     "担当の時間と使用量は、委譲の開始（agent --event start）から親が最終返答を受け取った時刻（agent --event received）までで、その後のセッションの片付けを含めない。その外の応答は件数（範囲外の応答）だけ書く。担当の記録は、親の記録と同名のディレクトリの <担当 ID>.jsonl",
   sections:
-    "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証・受け入れ確認）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
+    "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
   missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
   report: "報告に載せる値: 最初の段階（prepare）の開始から、finalize が報告を組み立て始める直前（reportStartedAt）まで",
   final: "保存後の確定値: prepare の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（savedAt）まで（利用者への最終説明は含めない）。保存後の作業ログと親専用領域だけに書き、報告には書き戻さない",
@@ -4744,17 +3346,14 @@ interface ReportUsage {
 const AGENT_SECTIONS: { stage: Stage; name: string; owner: string }[] = [
   { stage: "explore", name: "探索（並列）", owner: "Standards 探索・Spec 探索" },
   { stage: "refute", name: "反証", owner: "反証担当" },
-  { stage: "acceptance", name: "受け入れ確認", owner: "受け入れ確認担当" },
 ];
 // 親の区間の名前（前の担当の段階-次の担当の段階）
 const PARENT_SECTIONS: Record<string, string> = {
   "-explore": "準備",
   "explore-refute": "引き渡しの検査",
-  "refute-acceptance": "反証の検査と証拠集め",
   "-": "準備と仕上げ",
   "explore-": "引き渡しの検査と仕上げ",
   "refute-": "反証の検査と仕上げ",
-  "acceptance-": "受け入れ確認の検査と仕上げ",
 };
 
 // 報告に載せる値: prepare の開始から cut（報告の組み立ての直前）までの区間ごとの時間と、親・各試行の使用量
@@ -5007,9 +3606,6 @@ const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
   "retire-attempt": retireAttempt,
   "refute-input": refuteInput,
   "check-refute": checkRefute,
-  "acceptance-records": acceptanceRecords,
-  "acceptance-input": acceptanceInput,
-  "check-acceptance": checkAcceptance,
   finalize,
   "recheck-ci": recheckCi,
   usage: usageCommand,

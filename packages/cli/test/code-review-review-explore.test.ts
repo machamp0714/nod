@@ -165,11 +165,7 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     const p = await prepareCaseWork(s);
     const x = steps(s, p);
     await x.delegate("standards", "a1", exploreHandoff("standards", p, { candidates: [candidateBlock("STD-1"), candidateBlock("STD-1"), candidateBlock("SPC-2")] }));
-    const table = [
-      "| `requirements/issue.md:L1-L3` | 未確認 | 確かめられない | SPC-9 |",
-      "| `requirements/issue.md:L4` | 未充足 | 記録しない | なし |",
-      "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 関係しない | なし |",
-    ];
+    const table = ["| `requirements/issue.md:L1-L3` | 未確認 | 確かめられない | SPC-9 |", "| `requirements/issue.md:L4` | 未充足 | 記録しない | なし |"];
     await x.delegate("spec", "a2", exploreHandoff("spec", p, { table }));
 
     const cs = await x.check("standards");
@@ -187,12 +183,12 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     expect(readdirSync(join(p.W, "refute-input"))).toEqual([]);
   });
 
-  test("出典の欠落と形式違反（必須節・必須項目・語彙外の状態・対象版・定義名・禁止項目の見出しと項目名）を検出する", async () => {
+  test("出典の欠落と形式違反（必須節・必須項目・語彙外の状態・要求資料ごとのコード要求の欠落・対象版・定義名・禁止項目の見出しと項目名）を検出する", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
     const x = steps(s, p);
-    const table = ["| `requirements/issue.md:L1-L2` | 説明 | 見出し | なし |", "| `requirements/issue.md:L3-L4` | 済み | 確かめた | なし |"];
-    const spc = exploreHandoff("spec", p, { table, candidates: [candidateBlock("SPC-1", { 軸: "Spec", 破綻: null, 確信度: "高" })] })
+    const table = ["| `requirements/issue.md:L3-L4` | 済み | 確かめた | なし |"];
+    const spc = exploreHandoff("spec", p, { table, files: ["| `requirements/issue.md` | あり |"], candidates: [candidateBlock("SPC-1", { 軸: "Spec", 破綻: null, 確信度: "高" })] })
       .replace(`head \`${p.head}\``, `head \`${"f".repeat(40)}\``)
       .replace("## 判断を見送った事項\n\nなし\n", "## 要約\n\n短くまとめた\n");
     await x.delegate("spec", "a2", spc);
@@ -217,6 +213,39 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     expect(cs.json?.valid).toBe(false);
     expect(messages(cs.json, 3)).toContain("定義名");
     expect(messages(cs.json, 4)).toContain("不足箇所");
+  });
+
+  test("コード要求の対応表: 状態は充足・未充足・未確認だけで、要求資料ごとにコード要求あり／なしを書き、0件の空表を正常とする。廃止した状態・分類・未確認の理由の使用は拒否し、本文の語としては拒否しない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const x = steps(s, p);
+    const none = ["| `requirements/issue.md` | なし |", "| `requirements/workspace-rules.md` | なし |"];
+    // コード要求0件: 空の対応表と候補0件で合格する。証拠の欄や見送りの本文に「対象外」「説明」などの語があっても拒否しない
+    const empty = exploreHandoff("spec", p, { files: none, table: [], candidates: [] }).replace(
+      "## 判断を見送った事項\n\nなし\n",
+      "## 判断を見送った事項\n\n- 背景の説明だけの行と、CI の対象外（未コミット）を扱う記述は、コード要求でないので載せなかった\n",
+    );
+    await x.delegate("spec", "a1", empty);
+    expect((await x.check("spec")).json).toMatchObject({ valid: true, violations: [] });
+    const kept = exploreHandoff("spec", p, { table: ["| `requirements/issue.md:L3` | 未確認 | 基点から存在（対象外）の候補と同じ分岐で、依存の非公開 API の契約が入力に無い | SPC-1 |", "| `requirements/issue.md:L4` | 充足 | 説明の通り `src/a.ts@HEAD:L1` | なし |"] });
+    expect((await x.retire("spec", "invalid", "テストの入れ替え")).json?.redelegate).toBe(true);
+    await x.delegate("spec", "a2", kept);
+    expect((await x.check("spec")).json).toMatchObject({ valid: true, violations: [] });
+
+    // 廃止した状態・要求資料の分類・未確認の理由は、それぞれの欄で使えば拒否する
+    const cases: [string, string, string][] = [];
+    for (const word of ["受け入れ確認担当", "自動チェック担当", "説明", "対象外", "作業手順の規則", "実行しないと分からない"]) {
+      cases.push([`状態 ${word}`, exploreHandoff("spec", p, { table: [`| \`requirements/issue.md:L4\` | ${word} | 記録で確かめる | なし |`] }), word]);
+      cases.push([`分類 ${word}`, exploreHandoff("spec", p, { files: ["| `requirements/issue.md` | あり |", `| \`requirements/workspace-rules.md\` | ${word} |`] }), word]);
+    }
+    cases.push(["未確認の理由 要実行確認", exploreHandoff("spec", p, { table: ["| `requirements/issue.md:L3` | 未確認 | 要実行確認（確かめる担当: 人） | SPC-1 |"] }), "要実行確認"]);
+    for (const [name, text, word] of cases) {
+      put(join(p.W, "spec/handoff.md"), text);
+      const r = await x.check("spec");
+      expect(`${name}: ${r.json?.valid}`).toBe(`${name}: false`);
+      expect(`${name}: ${messages(r.json, 6)}`).toContain(`廃止した`);
+      expect(`${name}: ${messages(r.json, 6)}`).toContain(word);
+    }
   });
 
   test("禁止項目は、コードスパンを除いた見出し・項目名・表の見出しの全体が禁止項目そのもののときだけにし、名前の一部に含む正当な項目名では無効にしない", async () => {

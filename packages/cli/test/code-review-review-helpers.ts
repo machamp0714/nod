@@ -216,15 +216,15 @@ export function candidateBlock(id: string, overrides: Record<string, string | nu
   return [`### ${id}`, "", ...lines, ""].join("\n");
 }
 
-// 雛形（assets/standards-handoff.md・assets/spec-handoff.md）どおりの探索の引き渡し。検査に通る形を既定にする
-export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts: { candidates?: string[]; table?: string[] } = {}): string {
+// 雛形（assets/standards-handoff.md・assets/spec-handoff.md）どおりの探索の引き渡し。検査に通る形を既定にする。
+// Spec 探索は、要求資料ごとのコード要求あり／なし（files）と、コード要求だけの対応表（table。状態は 充足・未充足・未確認）を書く
+export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts: { candidates?: string[]; table?: string[]; files?: string[] } = {}): string {
   const std = role === "standards";
   const candidates = opts.candidates ?? [candidateBlock(std ? "STD-1" : "SPC-1", std ? {} : { 軸: "Spec" })];
+  const files = opts.files ?? ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | なし |"];
   const table = opts.table ?? [
-    "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
-    "| `requirements/issue.md:L3` | 未確認 | `a | b` と x|y の分岐を確かめられない（要実行確認、確かめる担当: 人） | SPC-1 |",
+    "| `requirements/issue.md:L3` | 未確認 | `a | b` と x|y の分岐が依存の独自パッチに従うかを決められない（独自パッチの契約が入力に無い） | SPC-1 |",
     "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
-    "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
   ];
   const head = [
     `# ${std ? "Standards" : "Spec"} 探索の引き渡し`,
@@ -243,51 +243,64 @@ export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts
   ];
   const middle = std
     ? ["## 規約の一覧と適用判断", "", "| 規約の出典 | 適用 | 今回の差分への適用の理由 |", "|---|---|---|", "| `requirements/workspace-rules.md:L3` | 必須 | 差分の文書に適用 |", ""]
-    : ["## 要求資料の判別", "", "該当なし", "", "## 要求ごとの対応表", "", "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |", "|---|---|---|---|", ...table, ""];
+    : [
+        "## 要求資料の判別",
+        "",
+        "該当なし",
+        "",
+        "## 要求資料ごとのコード要求",
+        "",
+        "| 要求資料 | コード要求 |",
+        "|---|---|",
+        ...files,
+        "",
+        "## コード要求の対応表",
+        "",
+        "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |",
+        "|---|---|---|---|",
+        ...table,
+        "",
+      ];
   const tail = ["## 候補", "", ...(candidates.length > 0 ? candidates : ["候補0件", ""]), "## 探索上の不足・未確認", "", "なし", "", "## 判断を見送った事項", "", "なし", ""];
   return [...head, ...middle, ...tail].join("\n");
 }
 
+// コード要求が0件の要求資料ごとの記載（両方の要求資料が なし）
+export const NO_CODE_FILES = ["| `requirements/issue.md` | なし |", "| `requirements/workspace-rules.md` | なし |"];
+
+// コード要求0件の探索の引き渡し（空の対応表と候補0件）
+export const emptyHandoff = (role: "standards" | "spec", p: PreparedWork) => exploreHandoff(role, p, { candidates: [], table: [], files: NO_CODE_FILES });
+
 // 雛形（assets/refute-verdict.md）どおりの反証の判定本文。既定は exploreHandoff の既定の両引き渡しに対して check-refute に通る形で、
-// 複合要求 requirements/issue.md:L3 をコードの部分と受け入れ確認担当の行（記録の部分）に分け、未確認の行 requirements/issue.md:L2 を足す。
-// acceptance: false なら受け入れ確認担当の行を作らない。canon は受け入れ確認担当の行の「必要な外部の正本」の欄。
-// clean: true なら要対応0件（STD-1 は棄却、反証で追加した発見なし）で、未確認は受け入れ確認担当の行で確かめる SPC-1 だけにする（受け入れ確認の行が必要）
+// Spec 探索の L3（未確認）と L4（充足）を確定し、未確認の行 requirements/issue.md:L2 を足す（追加の印だけを付ける）。要対応は CAUSE-1（STD-1・REF-1、影響度 2）。
+// clean: 要対応0件・確認が残る事項0件（STD-1・SPC-1 は棄却、反証で追加した発見なし、L3・L4 は充足）
+// removed: Spec 探索の L3 の行をコード要求でないとして「表から除いた行」へ移し、関連候補 SPC-1 の採否（基点から存在（対象外））は採否一覧に残す
+// empty: コード要求0件（emptyHandoff の両引き渡しに対する空の対応表）
+// files: 要求資料ごとのコード要求の行（要求資料を足したとき。reachRefute の files と同じものを渡す）
 export interface VerdictOptions {
-  acceptance?: boolean;
-  canon?: string;
   clean?: boolean;
+  removed?: boolean;
+  empty?: boolean;
+  files?: string[];
 }
 
-export const ACCEPTANCE_ROW = "`requirements/issue.md:L3`（記録の部分）";
-
 export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): string {
-  const withRow = opts.acceptance ?? true;
-  const clean = (opts.clean ?? false) && withRow;
-  const table = withRow
-    ? [
-        "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
-        "| `requirements/issue.md:L3`（コードの部分） | 充足 | `src/a.ts@HEAD:L1` の `a | b` | なし |",
-        `| ${ACCEPTANCE_ROW} | 受け入れ確認担当 | 失敗の記録は作業記録で確かめる | SPC-1 |`,
-        "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
-        "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
-        ...(clean ? [] : ["| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |"]),
-      ]
+  const empty = opts.empty ?? false;
+  const clean = (opts.clean ?? false) || empty;
+  const removed = (opts.removed ?? false) && !clean;
+  const L3_REASON = "依存の独自パッチの契約が入力に無く、分岐の結論を出せない";
+  const table = empty
+    ? []
     : [
-        "| `requirements/issue.md:L1` | 説明 | 見出し | なし |",
-        "| `requirements/issue.md:L3` | 未確認 | 要実行確認 | SPC-1 |",
-        "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
-        "| `requirements/workspace-rules.md:L1-L3` | 対象外 | 差分に関係しない | なし |",
-        "| `requirements/issue.md:L2` | 未確認 | 足した行。要実行確認 | なし |",
+        ...(removed ? [] : [clean ? "| `requirements/issue.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |" : `| \`requirements/issue.md:L3\` | 未確認 | ${L3_REASON} | SPC-1 |`]),
+        "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` の `a | b` | なし |",
+        ...(clean ? [] : ["| `requirements/issue.md:L2` | 未確認 | （追加）失敗の記録先を決める契約が要求資料に無い | なし |"]),
       ];
-  const split = withRow
-    ? ["| `requirements/issue.md:L3`（コードの部分） | `requirements/issue.md:L3` |", `| ${ACCEPTANCE_ROW} | \`requirements/issue.md:L3\` |`, ...(clean ? [] : ["| `requirements/issue.md:L2` | なし（追加） |"])]
-    : ["| `requirements/issue.md:L2` | なし（追加） |"];
-  const unconfirmed = withRow
-    ? ["| SPC-1 | Spec | 候補 | 受け入れ確認担当の行で確かめる | 受け入れ確認担当 | 失敗の作業記録 |", ...(clean ? [] : ["| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |"])]
+  const unconfirmed = clean
+    ? []
     : [
-        "| SPC-1 | Spec | 候補 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
-        "| `requirements/issue.md:L3` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
-        "| `requirements/issue.md:L2` | Spec | 要求 | 要実行確認 | 人 | 実行しないと分からない挙動 |",
+        ...(removed ? [] : ["| SPC-1 | Spec | 候補 | 依存の独自パッチの契約が入力に無い | 人 | 独自パッチの契約 |", `| \`requirements/issue.md:L3\` | Spec | 要求 | ${L3_REASON} | 人 | 独自パッチの契約 |`]),
+        "| `requirements/issue.md:L2` | Spec | 要求 | 失敗の記録先を決める要求資料が無い | 人 | 記録先の契約 |",
       ];
   const required = clean
     ? ["なし", "", "反証で追加した発見なし", ""]
@@ -308,6 +321,17 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
         "- 証拠: `src/a.ts@HEAD:L1`",
         "- 反証の判定理由: 固定版で確かめた",
         "",
+      ];
+  const decisions = empty
+    ? []
+    : [
+        clean ? "| STD-1 | Standards 探索 | 棄却 | なし | なし | 固定版で到達しない |" : "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
+        clean
+          ? "| SPC-1 | Spec 探索 | 棄却 | なし | なし | 固定版で到達しない |"
+          : removed
+            ? "| SPC-1 | Spec 探索 | 基点から存在（対象外） | なし | なし | merge-base に同じ分岐があり、今回の要求も修正を求めていない |"
+            : "| SPC-1 | Spec 探索 | 未確認 | なし | なし | 依存の独自パッチの契約が入力に無い |",
+        ...(clean ? [] : ["| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |"]),
       ];
   return [
     "# 反証の判定",
@@ -333,31 +357,27 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
     ...required,
     "## 基点から存在する課題（別枠）",
     "",
-    "なし",
+    removed ? "- SPC-1: merge-base に同じ分岐があり、今回の差分は悪化させていない" : "なし",
     "",
-    "## 要求ごとの対応表（確定）",
+    "## 要求資料ごとのコード要求（確定）",
+    "",
+    "| 要求資料 | コード要求 |",
+    "|---|---|",
+    ...(opts.files ?? (empty ? NO_CODE_FILES : ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | なし |"])),
+    "",
+    "## コード要求の対応表（確定）",
     "",
     "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |",
     "|---|---|---|---|",
     ...table,
     "",
-    "## 分割・追加した行",
+    "## 表から除いた行",
     "",
-    "| 要求の出典 | 分割元の出典 |",
-    "|---|---|",
-    ...split,
-    "",
-    "## 受け入れ確認担当の行",
-    "",
-    ...(withRow
-      ? ["| 要求の出典 | 確かめること（成果物） | 確かめること（作業・手順・配置） | 必要な外部の正本 |", "|---|---|---|---|", `| ${ACCEPTANCE_ROW} | 失敗の記録 | 記録した作業 | ${opts.canon ?? "なし"} |`]
-      : ["なし"]),
+    ...(removed ? ["| 要求の出典 | 理由 |", "|---|---|", "| `requirements/issue.md:L3` | 背景の説明で、コードが満たす要求ではない |"] : ["なし"]),
     "",
     "## 未確認と理由",
     "",
-    "| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |",
-    "|---|---|---|---|---|---|",
-    ...unconfirmed,
+    ...(unconfirmed.length > 0 ? ["| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |", "|---|---|---|---|---|---|", ...unconfirmed] : ["なし"]),
     "",
     "## 判断を見送った事項",
     "",
@@ -367,15 +387,13 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
     "",
     "| 候補 ID | 発見者の区分 | 判定 | 影響度 | 同一原因 | 根拠 |",
     "|---|---|---|---|---|---|",
-    clean ? "| STD-1 | Standards 探索 | 棄却 | なし | なし | 固定版で到達しない |" : "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
-    `| SPC-1 | Spec 探索 | 未確認 | なし | なし | ${withRow ? "受け入れ確認担当の行で確かめる" : "要実行確認"} |`,
-    ...(clean ? [] : ["| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |"]),
+    ...decisions,
     "",
   ].join("\n");
 }
 
-// 両探索を既定の引き渡しで委譲・検査し、反証への入力を写して反証を委譲し、反証の判定本文を置いて最終返答の受領まで記録する
-export async function reachRefute(s: Sandbox, p: PreparedWork, verdict: string): Promise<void> {
+// 両探索を委譲・検査し（empty なら emptyHandoff、それ以外は既定の引き渡し。files は Spec 探索の要求資料ごとのコード要求の行）、反証への入力を写して反証を委譲し、反証の判定本文を置いて最終返答の受領まで記録する
+export async function reachRefute(s: Sandbox, p: PreparedWork, verdict: string, opts: { empty?: boolean; files?: string[] } = {}): Promise<void> {
   const W = p.W;
   const must = async (sub: string, args: string[]) => {
     const r = await runReview<{ valid?: boolean; ready?: boolean }>(sub, ["--work", W, ...args], s);
@@ -383,7 +401,7 @@ export async function reachRefute(s: Sandbox, p: PreparedWork, verdict: string):
   };
   for (const role of ["standards", "spec"] as const) {
     await must("agent", ["--role", role, "--event", "start"]);
-    put(join(W, role, "handoff.md"), exploreHandoff(role, p));
+    put(join(W, role, "handoff.md"), opts.empty ? emptyHandoff(role, p) : exploreHandoff(role, p, opts.files ? { files: opts.files } : {}));
     await must("agent", ["--role", role, "--event", "received", "--agent-id", `agent-${role}`]);
     await must("check-explore", ["--role", role]);
   }

@@ -282,7 +282,7 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     // 反証（担当の記録が無い）。反証の検査の後の親の応答は最後の区間に入る
     await run("refute-input", []);
     await run("agent", ["--role", "refute", "--event", "start"]);
-    put(join(W, "refute/verdict.md"), refuteVerdict(p, { acceptance: false }));
+    put(join(W, "refute/verdict.md"), refuteVerdict(p));
     await run("agent", ["--role", "refute", "--event", "received", "--agent-id", "Ref"]);
     expect((await run("check-refute", []))?.valid).toBe(true);
     add(response(new Date().toISOString(), total(100000)));
@@ -299,8 +299,9 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
       `#!/bin/sh\ncase "$*" in\n  *"doc create"*) "${process.execPath}" "${append}" "${parentFile}" 1000000 ;;\n  *"issue log"*) "${process.execPath}" "${append}" "${parentFile}" 7000000 ;;\nesac\nexec "${nod.env.NOD_CLI}" "$@"\n`,
     );
     chmodSync(wrap, 0o755);
-    // --auto-check-rows は評価用の事例だけで使う
+    // 廃止した --auto-check-rows と --own-log は受け付けない（引数の誤り）
     expect((await runReview("finalize", ["--work", W, "--auto-check-rows", "pass"], s, env)).exitCode).toBe(2);
+    expect((await runReview("finalize", ["--work", W, "--own-log", "1"], s, env)).exitCode).toBe(2);
     const f = await runReview<{ status: string; reportStartedAt: string; savedAt: string; saved: boolean; logs: { summary: number | null }; documents: { report: { id: number } }; usage: { record: string } }>("finalize", ["--work", W], s, { ...env, NOD_CLI: wrap });
     expect(f.stderr).toBe("");
     expect(f.exitCode).toBe(0);
@@ -369,9 +370,9 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
   test("評価用の事例: セッション記録の場所が無ければ使用量を取得できずとして残し（0 にしない）、区間の時間は同じく記録する", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s, "case-usage");
-    await reachRefute(s, p, refuteVerdict(p, { acceptance: false }));
+    await reachRefute(s, p, refuteVerdict(p));
     expect((await runReview<{ valid: boolean }>("check-refute", ["--work", p.W], s)).json?.valid).toBe(true);
-    const f = await runReview<{ status: string; usage: { record: string } }>("finalize", ["--work", p.W, "--auto-check-rows", "block"], s);
+    const f = await runReview<{ status: string; usage: { record: string } }>("finalize", ["--work", p.W], s);
     expect(f.exitCode).toBe(0);
     expect(f.json?.status).toBe("完了");
     const u = JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord;
