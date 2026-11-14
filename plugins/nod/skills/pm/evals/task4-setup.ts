@@ -3,13 +3,14 @@ import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logWork, updateIssue } from "../../../../../packages/core/src";
 import { createTask2Scenario } from "./task2-setup";
+import { type RequiredChecksMode, requiredChecksModeArg } from "./required-checks";
 
 export const task4Variants = ["one-round", "two-rounds", "unresolved", "stale-commit", "new-defect", "optional-only"] as const;
 export type Task4Variant = typeof task4Variants[number];
 
 /** 初回レビュー完了後の既存実行だけを用意する。PMの提出判断は行わない。 */
-export async function createTask4Scenario(options: { directory?: string; variant?: Task4Variant } = {}) {
-  const scenario = await createTask2Scenario({ directory: options.directory, beforeAdoption(db) {
+export async function createTask4Scenario(options: { directory?: string; variant?: Task4Variant; requiredChecks?: RequiredChecksMode } = {}) {
+  const scenario = await createTask2Scenario({ directory: options.directory, requiredChecks: options.requiredChecks, beforeAdoption(db) {
     updateIssue({ db, actor: "me" }, "API-1", { status: "in_progress", assignee: "codex" });
     logWork({ db, actor: "codex" }, "API-1", "PM管理内。Run=run-pm Task=task-initial Dispatch=dispatch-initial Studio worktree=id:repo-api::/evaluation/studio/list-spacing terminal=term-implementation codex gpt-6.1-sol:high。要求値/実効値は照合済み。工程=初回独立レビュー報告待ち。初回レビューはnod:implement内で実施済み、修正確認0巡。", { kind: "progress" });
   } });
@@ -27,6 +28,6 @@ export async function createTask4Scenario(options: { directory?: string; variant
 if (import.meta.main) {
   const variant = process.argv[3] ?? "one-round";
   if (!task4Variants.includes(variant as Task4Variant)) throw new Error(`未対応の評価シナリオ: ${variant}`);
-  const scenario = await createTask4Scenario({ directory: process.argv[2], variant: variant as Task4Variant });
+  const scenario = await createTask4Scenario({ directory: process.argv[2], variant: variant as Task4Variant, requiredChecks: requiredChecksModeArg(process.argv[4]) });
   console.log(JSON.stringify({ directory: scenario.dir, source: join(scenario.dir, "env.sh"), operations: scenario.log }, null, 2));
 }

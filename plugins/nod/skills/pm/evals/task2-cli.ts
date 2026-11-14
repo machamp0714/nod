@@ -1,5 +1,6 @@
 import { installWorkerStartFixture } from "./worker-fixture";
-import { type CiVerdict, type InitialReview, type SubmissionCi, checkSubmissionCi, nodCliRecorder, recordInitialReview, simulatedCi } from "./initial-review";
+import { type InitialReview, type Submission, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
+import { answerGhApi, workerGh } from "./required-checks";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -12,7 +13,7 @@ type Worker = {
   launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } | null };
 };
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid: string; baseRefOid: string; reviewDecision: string; statusCheckRollup: unknown[]; mergedAt: null };
-type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null; review?: InitialReview; submissionCi?: SubmissionCi };
+type State = { variant: Task2Variant; run: { id: string; objective: string } | null; tasks: { id: string; spec: string }[]; workers: Worker[]; sent: unknown[]; delivery: { id: string; messages: unknown[] } | null; pr: Pr | null; review?: InitialReview; submission?: Submission };
 const head = "a".repeat(40);
 const base = "b".repeat(40);
 
@@ -46,7 +47,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
     acceptance: { passed: true, evidence: "一覧の余白が8pxから12pxへ変わる画面確認に成功" },
     tests: [{ command: "bun test test/list-spacing.test.ts", exitCode: 0, passed: true, commit: head }],
     review: state.review,
-    ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, ci: state.submissionCi, nodStatus: nod("issue", "show", "API-1").status } : {}),
+    ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: head, submission: state.submission, nodStatus: nod("issue", "show", "API-1").status } : {}),
   });
   const view = (w: Worker) => ({ ...w, git: { head, base, clean: true, branch: "list-spacing" }, gitEvidence: gitEvidence(w), projection: { liveness: { verdict: w.released ? "exited" : "live" }, attention: { category: w.reported ? "settled" : "working", requiresAction: w.reported && !w.released && !w.reusedBy }, nextAction: { kind: "none" } }, terminal: { handle: w.terminalId, worktreeId: w.worktreeId }, observation: { status: w.released ? "exited" : "live" } });
 
@@ -55,7 +56,8 @@ export function runTask2Cli(tool: string, argv: string[]) {
     return;
   }
   if (tool === "gh") {
-    if (argv[0] !== "pr") fail("UNSUPPORTED", "偽GitHubではPR操作だけを提供します");
+    if (argv[0] === "api") answerGhApi(process.env.PM_EVAL_DIR!, argv, fail);
+    if (argv[0] !== "pr") fail("UNSUPPORTED", "偽GitHubではPR操作と必須チェックの設定の読取だけを提供します");
     if (argv[1] === "list") { console.log(JSON.stringify(state.pr ? [state.pr] : [])); return; }
     if (argv[1] === "view") {
       const pr = state.pr ?? fail("PR_NOT_FOUND", "該当PRなし");
@@ -127,16 +129,13 @@ export function runTask2Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(process.env.PM_EVAL_DIR!, "API-1");
-            // nod:implementの親が3担当（Standards探索・Spec探索・反証）へ委譲し、同じheadのCIの結果を照合して報告Documentへ残した状態を再現する。
-            // ci-failure・ci-pending・ci-no-requiredは、3担当の有効な結果がそろった完了・5点・確認が残る事項0件のまま、同じheadのCI判定が失敗・未確定・必須のチェックなし。
+            // nod:implementの親が3担当（Standards探索・Spec探索・反証）へ委譲し、現在のheadと基点の照合までを報告Documentへ残した状態を再現する（CIの結果は照合しない）。
             // evidence-missingはSpec探索が終了・失敗で無効になり、親が1回だけ再委譲した担当も有効な結果を返さず、反証へ進めなかった未完了で、対象も古いcommitのまま。
             // refute-missingは両探索が有効だが、反証が無効になり、親が1回だけ再委譲した反証も有効な結果を返さなかった未完了。
             // remaining-checksは3担当の有効な結果がそろった完了・5点だが、反証がコードレベルで結論を出せない未確認（コード要求の中身を決める要求資料の不足）を残した。
             // review-not-runは委譲できない環境で担当を1つも起動しなかった未実施。
             // review-usage-limitはSpec探索が利用枠の上限（HTTP 429）で失敗し、親が再委譲せずその時点で止めた未完了。
             // review-redelegatedはStandards探索の最初の試行が禁止項目の混入で無効になり、親が1回だけ再委譲した担当が有効な結果を返した完了。
-            // ci-recheck系は、保存時はpush前でCI判定が結果なし。PR作業で実装担当がPRの記録を書き、13節の再照合でCI判定が成功になる
-            // （ci-recheck-requirements-changedは、保存の後に人がIssueの本文を変えている）。
             const missingSpec = state.variant === "evidence-missing" || state.variant === "review-usage-limit";
             const reviewed = state.variant === "evidence-missing" ? "c".repeat(40) : head;
             state.review = recordInitialReview({
@@ -160,7 +159,6 @@ export function runTask2Cli(tool: string, argv: string[]) {
               standards: { findings: [], evidence: "規約と変更差分を照合" },
               spec: missingSpec ? undefined : { findings: [], evidence: "Issue本文の要求と完了条件を照合" },
               unconfirmed: state.variant === "remaining-checks" ? [{ source: "requirements/issue.md（余白は共通レイアウト設定 Document 7 の spacing.list の値に従う）", owner: "人", reason: "コード要求の中身を決める要求資料の不足: Document 7 の原文が固定入力に無く、src/spacing.json が従うべき spacing.list の値を特定できない" }] : undefined,
-              ci: simulatedCi(reviewed, ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし", "ci-recheck": "結果なし", "ci-recheck-requirements-changed": "結果なし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant]),
             }, nodCliRecorder(nod));
           } else if (w.phase === "submission") {
             recordWorkerOperation("git", ["push", "origin", "list-spacing"]);
@@ -169,13 +167,12 @@ export function runTask2Cli(tool: string, argv: string[]) {
             nod("issue", "link-pr", "API-1", state.pr.url);
             const prStatus = nod("issue", "pr-status", "API-1", "--refresh");
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
-            // レビューの保存後に実装担当がIssueへ書く記録は通常どおり書き、idを記録・受け渡ししない（13節の再照合はそれらの記録で止めない）。
+            // レビューの保存後に実装担当がIssueへ書く記録は通常どおり書き、idを記録・受け渡ししない。
             nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
-            // PRのheadに対するCI判定を取り（記録・報告してマージ可否とmerge-readyにだけ使う）、再照合で確認が残る事項が増えていなければIn Reviewへ移す。CI判定が成功でないことだけでは止めない。
-            // 偽GitHubのCIは、ci-failure・ci-pending・ci-no-requiredではPRの後も失敗・未確定・必須のチェックなしのまま、それ以外はPRの後に成功している。
-            const submissionVerdict = ({ "ci-failure": "失敗", "ci-pending": "未確定", "ci-no-required": "必須のチェックなし" } as Partial<Record<Task2Variant, CiVerdict>>)[state.variant];
-            state.submissionCi = checkSubmissionCi(state.review!, { head, ci: simulatedCi(head, submissionVerdict) }, nodCliRecorder(nod));
-            if (state.submissionCi.ready) nod("issue", "update", "API-1", "--status", "in_review");
+            // CIの結果は待たず照合もしない。merge-readyが付いていればPRのheadと基点を初回レビューの判定と比べ、基点ブランチの必須チェックの設定を偽GitHubから読み取って報告に書く。
+            // 既存の提出条件（初回レビューが完了で確認が残る事項が無い）がそろえばIn Reviewへ移す。必須チェックの設定は条件ではなく報告事項。
+            state.submission = recordSubmission(state.review!, { head, base: state.pr.baseRefName }, nodCliRecorder(nod), workerGh(process.env.PM_EVAL_DIR!, process.env));
+            if (state.submission.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";
           state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, outcome: w.phase === "followup" ? "failed" : "succeeded", body: JSON.stringify(report(w)) }] };

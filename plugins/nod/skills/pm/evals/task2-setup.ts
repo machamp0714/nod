@@ -3,12 +3,13 @@ import { writeEvaluationEnv } from "./shell-env";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask1Scenario, type BeforeSprintAdoption } from "./setup";
+import { type RequiredChecksMode, requiredChecksModeArg, saveRequiredChecksMode } from "./required-checks";
 
-export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "ci-failure" | "ci-pending" | "ci-no-required" | "evidence-missing" | "refute-missing" | "remaining-checks" | "review-not-run" | "review-usage-limit" | "review-redelegated" | "ci-recheck" | "ci-recheck-requirements-changed" | "existing-pr";
-export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "ci-failure", "ci-pending", "ci-no-required", "evidence-missing", "refute-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "ci-recheck", "ci-recheck-requirements-changed", "existing-pr"];
+export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "evidence-missing" | "refute-missing" | "remaining-checks" | "review-not-run" | "review-usage-limit" | "review-redelegated" | "existing-pr";
+export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "evidence-missing", "refute-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "existing-pr"];
 
-/** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。 */
-export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; beforeAdoption?: BeforeSprintAdoption } = {}) {
+/** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。requiredChecks は偽GitHubの基点ブランチの必須チェックの設定の応答（省略時 unset）。 */
+export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; requiredChecks?: RequiredChecksMode; beforeAdoption?: BeforeSprintAdoption } = {}) {
   const scenario = await createTask1Scenario(options.directory, (db, dir) => {
     if (options.beforeAdoption) options.beforeAdoption(db, dir);
     else captureWorkerStartFixture(db, dir, "API-1");
@@ -21,6 +22,7 @@ export async function createTask2Scenario(options: { directory?: string; variant
       reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null,
     } : null,
   }));
+  saveRequiredChecksMode(scenario.dir, options.requiredChecks ?? "unset");
   // Orcaのdiscovery stubが実機の実行ファイルへ進まないよう、偽CLIを明示する。
   scenario.env.ORCA_CLI_COMMAND = scenario.orca;
   writeEvaluationEnv(scenario.dir, { ORCA_CLI_COMMAND: scenario.orca }, true);
@@ -30,6 +32,6 @@ export async function createTask2Scenario(options: { directory?: string; variant
 if (import.meta.main) {
   const variant = process.argv[3] ?? "normal";
   if (!task2Variants.includes(variant as Task2Variant)) throw new Error(`未対応の評価シナリオ: ${variant}`);
-  const scenario = await createTask2Scenario({ directory: process.argv[2], variant: variant as Task2Variant });
+  const scenario = await createTask2Scenario({ directory: process.argv[2], variant: variant as Task2Variant, requiredChecks: requiredChecksModeArg(process.argv[4]) });
   console.log(JSON.stringify({ directory: scenario.dir, source: join(scenario.dir, "env.sh"), operations: scenario.log }, null, 2));
 }

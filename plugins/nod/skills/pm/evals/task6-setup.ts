@@ -2,23 +2,24 @@ import { shellQuote, writeEvaluationEnv } from "./shell-env";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { archiveIssue, askQuestion, createDocument, getIssue, linkPr, logWork, updateIssue } from "../../../../../packages/core/src";
-import { type InitialReview, type ReviewFinding, type ReviewRecorder, recordInitialReview, simulatedCi } from "./initial-review";
+import { type InitialReview, type ReviewFinding, type ReviewRecorder, recordInitialReview } from "./initial-review";
 import type { Worker } from "./task6-cli";
 import { createTask2Scenario } from "./task2-setup";
+import { type RequiredChecksMode, requiredChecksModeArg } from "./required-checks";
 
 export const task6Variants = ["unknown", "pr-lost", "fix-confirm", "spec-wait", "implementation", "two-issue", "duplicate-old"] as const;
 export type Task6Variant = typeof task6Variants[number];
 
 /** 再起動前の永続状態を用意する。復元と再送の判断はPMに任せる。 */
-export async function createTask6Scenario(options: { directory?: string; variant?: Task6Variant } = {}) {
+export async function createTask6Scenario(options: { directory?: string; variant?: Task6Variant; requiredChecks?: RequiredChecksMode } = {}) {
   const variant = options.variant ?? "unknown";
   const worker: Worker = { issueId: "API-1", task: { id: "task-api1", spec: "実装。API-1。保持期間30日。gpt-6.1-sol:high。PMのモデル照合と開始通知まで変更しない。" }, dispatch: { id: "dispatch-api1", taskId: "task-api1", status: "running", terminalId: "term-api1" }, terminalId: "term-api1", worktreeId: "repo-api::/evaluation/studio/retention", worktreePath: "/evaluation/studio/retention", managedByPm: true, phase: "unverifiable", reported: false, released: false, launch: { requested: { model: "gpt-6.1-sol", effort: "high" }, effective: null } };
   const workers: Worker[] = [worker];
   const pending: { id: string; type: string; taskId: string; dispatchId: string; from: string; body: string }[] = [];
   const reviews: Record<string, InitialReview> = {};
   // 受理済みの初回レビューは、PM checkpointが3担当の組と報告Documentの照合結果を残した状態として復元する。
-  const accepted = (review: InitialReview) => `初回独立レビュー受理済み: 報告Document ${review.reportDocument.id} runId=${review.runId} 作業ディレクトリ=${review.workDirectory}、3担当=${Object.values(review.agents).flatMap(agent => agent ? [`${agent.definition}/${agent.id}`] : []).join("、")}（実装者${review.implementer}と別）、反証原文sha256=${review.verdict?.sha256}を保存原本と照合一致、対象版head=${review.target.headSha}、点数=${review.score}、確認が残る事項=${review.remainingChecks.length}件、CI判定・マージ可否・merge-readyの記録=[ci-result]の作業ログ${review.mergeReadyLog}。`;
-  const s = await createTask2Scenario({ directory: options.directory, beforeAdoption(db, dir) {
+  const accepted = (review: InitialReview) => `初回独立レビュー受理済み: 報告Document ${review.reportDocument.id} runId=${review.runId} 作業ディレクトリ=${review.workDirectory}、3担当=${Object.values(review.agents).flatMap(agent => agent ? [`${agent.definition}/${agent.id}`] : []).join("、")}（実装者${review.implementer}と別）、反証原文sha256=${review.verdict?.sha256}を保存原本と照合一致、対象版head=${review.target.headSha}、レビューした基点=${review.reviewedBase}、点数=${review.score}、確認が残る事項=${review.remainingChecks.length}件、マージ可否・merge-readyの記録=[merge-ready]の作業ログ${review.mergeReadyLog}。`;
+  const s = await createTask2Scenario({ directory: options.directory, requiredChecks: options.requiredChecks, beforeAdoption(db, dir) {
     const recorder: ReviewRecorder = {
       createDocument: (issueId, path, title, body) => createDocument({ db, actor: "codex" }, { path, title, body, kind: "doc", issueRefs: [issueId], docsDir: join(dir, "documents") }),
       log: (issueId, body, kind) => logWork({ db, actor: "codex" }, issueId, body, { kind }),
@@ -28,7 +29,6 @@ export async function createTask6Scenario(options: { directory?: string; variant
     const review = (issueId: string, implementer: string, head: string, findings: ReviewFinding[] = []) => recordInitialReview({
       dir, issueId, implementer, baseCommit: "b".repeat(40), headCommit: head,
       standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings, evidence: "Issue要求を照合" },
-      ci: simulatedCi(head),
     }, recorder);
     for (let n = 2; n <= 16; n++) if (!(variant === "two-issue" && n === 2)) archiveIssue({ db, actor: "me" }, `API-${n}`);
     updateIssue({ db, actor: "me" }, "API-1", { status: "in_progress", assignee: "codex", description: "集計APIの保持期間を合意済みの30日へ揃える。期間境界のCLIテストと初回独立レビューを行う。" });
@@ -98,6 +98,6 @@ export async function createTask6Scenario(options: { directory?: string; variant
 if (import.meta.main) {
   const variant = process.argv[3] ?? "unknown";
   if (!task6Variants.includes(variant as Task6Variant)) throw new Error(`未対応の評価シナリオ: ${variant}`);
-  const s = await createTask6Scenario({ directory: process.argv[2], variant: variant as Task6Variant });
+  const s = await createTask6Scenario({ directory: process.argv[2], variant: variant as Task6Variant, requiredChecks: requiredChecksModeArg(process.argv[4]) });
   console.log(JSON.stringify({ directory: s.dir, source: join(s.dir, "env.sh"), operations: s.log }, null, 2));
 }

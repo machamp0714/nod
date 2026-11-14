@@ -1,5 +1,6 @@
 import { installWorkerStartFixture } from "./worker-fixture";
-import { type InitialReview, checkSubmissionCi, nodCliRecorder, recordInitialReview, simulatedCi } from "./initial-review";
+import { type InitialReview, type Submission, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
+import { answerGhApi, workerGh } from "./required-checks";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -7,7 +8,7 @@ type Task = { id: string; spec: string };
 type Worker = { issueId: string; task: Task; dispatch: { id: string; taskId: string; status: string; terminalId: string }; terminalId: string; worktreeId: string; worktreePath: string; managedByPm: boolean; phase: string; reported: boolean; released: boolean; reusedBy?: string; launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } | null } };
 type Message = { id: string; type: string; taskId: string; dispatchId: string; from: string; body: string };
 type Pr = { number: number; url: string; title: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid: string; baseRefOid: string; reviewDecision: string; statusCheckRollup: unknown[]; mergedAt: null };
-type State = { variant: string; tasks: Task[]; workers: Worker[]; pending: Message[]; delivery: { id: string; messages: Message[] } | null; deliveries: number; acknowledged: string[]; sent: unknown[]; prs: Pr[]; checks: number; reviews?: Record<string, InitialReview> };
+type State = { variant: string; tasks: Task[]; workers: Worker[]; pending: Message[]; delivery: { id: string; messages: Message[] } | null; deliveries: number; acknowledged: string[]; sent: unknown[]; prs: Pr[]; checks: number; reviews?: Record<string, InitialReview>; submissions?: Record<string, Submission> };
 
 /** 外部workerとGitHubを再現する。PMの起動判断や依存判断は強制しない。 */
 export function runTask5Cli(tool: string, argv: string[]) {
@@ -28,15 +29,18 @@ export function runTask5Cli(tool: string, argv: string[]) {
     if (r.exitCode !== 0) fail("WORKER_NOD_FAILED", r.stdout.toString() + r.stderr.toString());
     return JSON.parse(r.stdout.toString());
   };
-  const report = (w: Worker) => ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: state.reviews?.[w.issueId], ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w))?.url, pushedCommit: head(w), nodStatus: nod("issue", "show", w.issueId).status } : {}) });
+  const report = (w: Worker) => ({ issueId: w.issueId, taskId: w.task.id, dispatchId: w.dispatch.id, outcome: "succeeded", commit: head(w), terminalId: w.terminalId, worktreeId: w.worktreeId, model: w.launch.effective?.model, effort: w.launch.effective?.effort, gitEvidence: evidence(w), acceptance: { passed: true, evidence: w.issueId === "API-2" ? "CSV列名sales_totalをCLIで確認" : "期間境界のCLI確認" }, tests: [{ command: w.issueId === "API-2" ? "bun test test/csv-export.test.ts" : "bun test test/retention.test.ts", passed: true, exitCode: 0, commit: head(w) }], review: state.reviews?.[w.issueId], ...(w.phase === "submission" ? { prUrl: state.prs.find(p => p.headRefOid === head(w))?.url, pushedCommit: head(w), submission: state.submissions?.[w.issueId], nodStatus: nod("issue", "show", w.issueId).status } : {}) });
   const submit = (w: Worker) => {
     let pr = state.prs.find(p => p.headRefOid === head(w));
     if (!pr) { const number = 42 + state.prs.length; pr = { number, url: `https://github.com/evaluation/api/pull/${number}`, title: w.issueId === "API-2" ? "CSV列名を統一" : "保持期間の境界を確認", state: "OPEN", isDraft: false, headRefName: w.issueId === "API-2" ? "export-column" : "retention", baseRefName: "main", headRefOid: head(w), baseRefOid: "b".repeat(40), reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; state.prs.push(pr); }
     appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: ["pr", "create", "--title", pr.title], origin: "worker", issueId: w.issueId }) + "\n");
     save(); nod("issue", "link-pr", w.issueId, pr.url); nod("issue", "pr-status", w.issueId, "--refresh");
-    // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
+    // CIの結果は待たず照合もしない。merge-readyが付いていればPRのheadと基点を初回レビューの判定と比べ、基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
     const review = state.reviews?.[w.issueId];
-    if (review && checkSubmissionCi(review, { head: head(w), ci: simulatedCi(head(w)) }, nodCliRecorder(nod)).ready) nod("issue", "update", w.issueId, "--status", "in_review");
+    if (!review) return;
+    const submission = recordSubmission(review, { head: head(w), base: pr.baseRefName }, nodCliRecorder(nod), workerGh(dir, process.env));
+    (state.submissions ??= {})[w.issueId] = submission;
+    if (submission.ready) nod("issue", "update", w.issueId, "--status", "in_review");
   };
   if (has("--help") || (tool === "orca" && argv[0] === "skills")) {
     console.log("評価用Orca。ok/result。Run=run-pm。status.servers[].capabilities.launchPreferencesが転送対応。Studio repo=id:repo-api。worker-list --run run-pm --include-remote、terminal list、worker-show/read --dispatch、task-list/create --spec、worker-start --spec|--task --run run-pm --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、send --to dispatch:<ID> --subject --body、reply --id --body、check [--ack ID] [--wait --timeout-ms]、worker-release --dispatch。reuseはworker-start --task --terminal <元handle> --worktree id:<元worktreeId>、起動用model/effort/on併用禁止。worker-readはtextにgitとtestと初回独立review証拠を返す。新規workerは開始通知まで待つ。通知enqueueは開始完了ではない。settlementの現cleanup所有者だけrelease可能。次ownerかrelease成功後にDelivery ack。worker_done後の再利用は同じ実装者を使う。質問のackは回答を作らない。複数Issueの起動判断、依存、停止判断をfakeは代行しない。gh pr list/viewのみPM読取。モデルとgitとレビューはシミュレーション。Issueの着手状態も採択前の実core操作から作った評価専用fixtureであり、S02の実行許可を表さない。通常nod startはSprint採択を理由に拒否されないが、開始通知前にstartしないのはPMの運用方針。");
@@ -44,6 +48,7 @@ export function runTask5Cli(tool: string, argv: string[]) {
     return;
   }
   if (tool === "gh") {
+    if (argv[0] === "api") answerGhApi(dir, argv, fail);
     if (argv[1] === "list") { console.log(JSON.stringify(state.prs)); return; }
     if (argv[1] === "view") { const p = state.prs.find(p => [p.url, String(p.number), p.headRefName].includes(argv[2]!)) ?? fail("PR_NOT_FOUND", "該当PRなし"); console.log(JSON.stringify(p)); return; }
     fail("PM_GITHUB_WRITE", "元の実装者へPR作業を依頼してください");
@@ -109,11 +114,10 @@ export function runTask5Cli(tool: string, argv: string[]) {
         for (const w of state.workers.filter(w => !w.reported && !w.released && ["implementation", "submission"].includes(w.phase))) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(dir, w.issueId);
-            // nod:implementの親が3担当へ委譲し、同じheadのCI判定を照合した初回レビューを報告Documentへ残す。
+            // nod:implementの親が3担当へ委譲し、現在のheadと基点を照合した初回レビューを報告Documentへ残す。
             (state.reviews ??= {})[w.issueId] = recordInitialReview({
               dir, issueId: w.issueId, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w),
               standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
-              ci: simulatedCi(head(w)),
             }, nodCliRecorder(nod));
           }
           if (w.phase === "submission") submit(w);

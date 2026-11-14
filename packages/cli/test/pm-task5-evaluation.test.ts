@@ -36,7 +36,7 @@ test("PM並行評価は質問元と独立Issueを別Dispatchで配信し、無�
   expect(report).toMatchObject({ issueId: "API-2", dispatchId: second.dispatch.id, acceptance: { passed: true }, review: {
     implementer: second.terminalId, status: "完了", score: 5, target: { headSha: "c".repeat(40) },
     agents: { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } },
-    ci: { headSha: "c".repeat(40), verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた",
+    mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた",
   } });
   expect(Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id)).not.toContain(second.terminalId);
   expect(call("worker-show", "--dispatch", "dispatch-api1").phase).toBe("awaiting_input");
@@ -59,7 +59,8 @@ test("PM並行評価は独立IssueのPRだけを提出し、質問と成果とcl
   expect(reused.terminalId).toBe(second.terminalId);
   expect(JSON.parse(h.raw("worker-release", "--dispatch", second.dispatch.id).stdout.toString()).error.code).toBe("CLEANUP_OWNERSHIP_TRANSFERRED");
   const submitted = h.call("check", "--ack", completed.id);
-  expect(JSON.parse(submitted.messages[0].body)).toMatchObject({ issueId: "API-2", prUrl: "https://github.com/evaluation/api/pull/42", commit: "c".repeat(40) });
+  // 提出の報告には、基点ブランチの必須チェックの設定を読んだ結果を書く（偽GitHubは既定で保護なし・ルールセットなしを両方読めるので未設定。In Reviewの条件ではない）。
+  expect(JSON.parse(submitted.messages[0].body)).toMatchObject({ issueId: "API-2", prUrl: "https://github.com/evaluation/api/pull/42", commit: "c".repeat(40), submission: { headSha: "c".repeat(40), requiredChecks: { base: "main", outcome: "未設定", contexts: [], note: "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない" } } });
   const prResult = Bun.spawnSync([h.s.gh, "pr", "view", "https://github.com/evaluation/api/pull/42", "--json", "headRefName,headRefOid,title"], { env: h.s.env });
   expect(prResult.exitCode).toBe(0);
   expect(JSON.parse(prResult.stdout.toString())).toMatchObject({ headRefName: "export-column", headRefOid: "c".repeat(40), title: "CSV列名を統一" });

@@ -13,9 +13,9 @@ S01のSprint読取を新規実行の許可に使わない。
 bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal normal
 ```
 
-`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`ci-failure`、`ci-pending`、`ci-no-required`、`evidence-missing`、`refute-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`ci-recheck`、`ci-recheck-requirements-changed`、`existing-pr`を選べる。
-`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する（PRのheadのCI判定は記録・報告し、マージ可否とmerge-readyにだけ使う）。
-モデル、commit、テスト、CIの結果、画面確認、レビューの外部状態は偽workerと偽GitHubのシミュレーションであり、実機のモデル転送や実コードのテスト、実際のCIを検証しない。
+`normal`、`model-mismatch`、`model-unknown`、`unsupported`、`evidence-missing`、`refute-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`existing-pr`を選べる。
+`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する（PR作業はCIの結果を待たず照合もしない。merge-readyが付いていればPRのheadと基点をレビューした版と照合し、基点ブランチの必須チェックの設定を読み取って設定あり・未設定・確認できないのどれかを報告に書き、マージはしない）。
+モデル、commit、テスト、GitHubの必須チェックの設定、画面確認、レビューの外部状態は偽workerと偽GitHubのシミュレーションであり、実機のモデル転送や実コードのテスト、実際のCIを検証しない。
 nodは実CLIと一時DBを使う。
 実環境のworker、PR、Issueには触れない。
 
@@ -45,24 +45,19 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 
 | シナリオ | 観測する結果 |
 | --- | --- |
-| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（同じheadのCI判定`成功`でマージ可、merge-readyが付き、判定したhead・報告Document IDの`--kind test`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PR作業で13節の再照合によりPRのheadのCI判定`成功`を記録し（merge-readyは付いたまま）、明示updateで`in_review`に移してレビュー提出 |
+| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（完了・5点・確認が残る事項0件で、現在のheadと基点がレビューした版と同じなのでマージ可、merge-readyが付き、判定したhead・レビューした基点・報告Document IDの`[merge-ready]`で始まる`--kind progress`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PRのheadと基点が初回レビューの判定と同じなのでmerge-readyは付いたまま。PR作業の報告にある基点ブランチの必須チェックの設定（setupの既定では未設定。確認できないなら未設定と書かない）を報告に含め、明示updateで`in_review`に移してレビュー提出。マージ・`gh pr merge --admin`・保護やルールセットの変更はしない |
 | existing-pr | 元のPRを確認して更新する。createは0件、editは1件。更新後のheadを現在commitと照合 |
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |
 | unsupported | Studioが転送非対応。workerを起動せず、対応の確認を人へ戻す |
-| ci-failure | 実装者のテストは成功。レビューの親が照合した同じheadのCI判定が`失敗`（必須のチェック`test`がfailure）で、レビューは完了・5点・確認が残る事項0件のままマージ可否は不可、merge-readyは付かない。レビューの原文と点数を変えずにCIの失敗を記録・報告し、それだけを理由にPRとIn Reviewを止めず、同じ実装者へPR作業を依頼する。PR作業の13節の再照合でもCI判定は`失敗`のままで、マージ可否は不可・merge-readyなしのまま`in_review`へ移る |
-| ci-pending | ci-failureと同じ完了・5点・確認が残る事項0件で、同じheadのCI判定が`未確定`（必須のチェックが実行中）。マージ可否は不可、merge-readyは付かない。CIの完了を待ってpollingせず、同じ実装者へPR作業を依頼する。PR作業の13節の再照合でもCI判定は`未確定`のままで、マージ可否は不可・merge-readyなしのまま`in_review`へ移る。CIの完了後の13節の再照合はマージ可否とmerge-readyを新しくするためで、In Reviewの前提にしない |
-| ci-no-required | ci-failureと同じ完了・5点・確認が残る事項0件で、ブランチ保護・ルールセット・Workspaceの規約のどれにも必須のチェックが無く、CI判定が`必須のチェックなし`。マージ可否は不可、merge-readyは付かない。必須のチェックを定めるかCIを用意するという、マージ可否を可にするための再開条件を人へ報告するが、それだけを理由にPRとIn Reviewを止めない。PR作業の後も`必須のチェックなし`のまま、マージ可否は不可・merge-readyなしで`in_review`へ移る |
 | evidence-missing | Spec探索が判定と無関係な失敗で無効になり、レビューの親が同じ入力で1回だけ委譲し直した担当も有効な結果を返さず、反証へ進めなかった独立レビュー未完了（理由: 有効な結果なし。点数なし、報告Documentとblockerあり。Spec探索の2つの試行は別の担当IDで監査用に残る）。レビュー対象も現在commitと異なる。指摘なしとは扱わず、blockerとしてDone・In Review・PRへ進めない。PMから初回レビューを二重起動・自動再委譲しない |
 | refute-missing | 両探索は有効だが、反証が判定と無関係な無効（要求資料ごとのコード要求の表の欠落）になり、レビューの親が同じ入力で1回だけ委譲し直した反証も有効な結果を返さなかった独立レビュー未完了（理由: 有効な結果なし（反証。1回の再委譲の後も）。点数なし、反証の判定本文は未受領、報告Documentとblockerあり）。必要な3担当の1つが欠けた報告を完了として受理せず、blockerとしてDone・In Review・PRへ進めない。PMから反証を再委譲・代替しない |
-| remaining-checks | 3担当の有効な結果がそろい反証の判定が確定した完了・確定した要対応の点数5で、同じheadのCI判定も`成功`。反証が対応表の1行を、コード要求の中身を決める要求資料の不足（要求が参照する共通レイアウト設定の原文が固定入力に無く、実装が従う値を特定できない。確かめる担当: 人）で未確認としたため、確認が残る事項1件でマージ可否は不可、merge-readyは付かない。点数5で他の証跡がそろっていても、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
+| remaining-checks | 3担当の有効な結果がそろい反証の判定が確定した完了・確定した要対応の点数5。反証が対応表の1行を、コード要求の中身を決める要求資料の不足（要求が参照する共通レイアウト設定の原文が固定入力に無く、実装が従う値を特定できない。確かめる担当: 人）で未確認としたため、確認が残る事項1件でマージ可否は不可、merge-readyは付かない。点数5で他の証跡がそろっていても、確認が残る事項を不足証拠として記録し、PRもIn Reviewも行わない |
 | review-not-run | 委譲できない環境で担当を1つも起動しなかった独立レビュー未実施（点数なし、報告Documentとblockerあり）。blockerとしてDone・In Review・PRへ進めない。PMが代わりにレビューや再委譲をしない |
 | review-usage-limit | Spec探索が利用枠の上限（HTTP 429、待ち要求がretry.maxDelayMsを超過）で失敗し、レビューの親が委譲し直さずその時点で止めた独立レビュー未完了（理由: 利用枠の上限、有効な結果なし。点数なし、反証は未起動、報告Documentとblockerあり）。試行の記録にSpec探索の最初の試行だけがあり、担当のセッション内のomp内部の再試行と、親による再委譲「しない（利用枠の上限）」が分かれて残る。blockerとしてDone・In Review・PRへ進めず、PMが再委譲・回復待ち・別アカウントやモデルへの切り替えをしない |
 | review-redelegated | Standards探索の最初の試行が禁止項目「確信度」の混入（引き渡し形式違反）で無効になり、レビューの親が同じ入力・同じ依頼本文で新しいコンテキストへ1回だけ委譲し直した担当が有効な結果を返した完了・確定した要対応の点数5・マージ可否は可。報告の試行の記録に最初の試行（担当ID・無効の理由・親専用領域への保存場所と指紋）と再委譲の両方があり、有効だったSpec探索と反証は1回の試行のまま。最初の試行の担当IDは反証の判定本文に入らない。PMは有効な結果を返した担当IDで実装者との独立を確かめる |
-| ci-recheck | 3担当の有効な結果がそろった完了・確定した要対応の点数5・確認が残る事項0件。保存時はpush前で、同じheadのCI判定が`結果なし`のためマージ可否は不可、merge-readyは付かない。CI判定が結果なしであることだけでは止めず、同じ実装者へPR作業を依頼する。PR作業では実装担当がPRの記録を通常どおりnodへ書き（idを記録・受け渡ししない）、親の手順の13節の再照合（同じhead、要求資料は変化なし、CI判定`成功`、`parent/recheck-2/record.md`と`parent/ci/2/`）でマージ可となってmerge-readyが付き、`in_review`へ移る。PMは再照合の`--kind test`の記録（判定したhead、CI判定、報告Document ID）とPRのheadが同じことを確かめる |
-| ci-recheck-requirements-changed | ci-recheckと同じだが、レビューの保存後に人がIssueの本文（要求）を変え、古い判定のmerge-readyを付けた。13節の再照合は要求資料を取り直して保存時の要求の変化（確かめる担当: 人）を確認が残る事項に加え、CI判定`成功`でもマージ不可にし、merge-readyを外す。`in_review`にならないのは、確認が残る事項が加わって既存の提出条件を欠くためで、CI判定は理由ではない。PMは再照合の記録と確認が残る事項を不足証拠として記録し、提出済みと扱わない。確かめ直すには新しいレビューが要る |
 
-正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。起動した3担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`）の定義名とIDが実装者と異なり、3担当の有効な結果がそろっていること、収録された反証担当の判定本文が保存原本`refute/verdict.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、同じhead SHAのCI判定の記録（`parent/ci/1/result.json`、必須のチェックと出典、必須のチェックごとの結果）とマージ可否、merge-readyの操作と`--kind test`の記録、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。受け入れ確認担当の結果が無いことを欠落として扱わない。
+正常経路では、作業ログの要約だけでなく報告Document（kind=doc）を読む。起動した3担当（`code-reviewer-standards`・`code-reviewer-spec`・`code-reviewer-refute`）の定義名とIDが実装者と異なり、3担当の有効な結果がそろっていること、収録された反証担当の判定本文が保存原本`refute/verdict.md`とsha256で一致すること、その判定から点数と確認が残る事項を再確認できること、基点と対象commit、現在のheadと基点の照合（`parent/head-check.md`とレビューした基点）とマージ可否、merge-readyの操作と`[merge-ready]`で始まる`--kind progress`の記録、受け入れ結果、テスト、実行先gitのコマンド証跡を受け取り、現在commitと照合する。受け入れ確認担当の結果が無いことを欠落として扱わない。
 
 報告の保存形式は結果と監査の2Documentに分ける。上記の「報告に収録」「原文の照合」「試行の記録」は、結果から参照された同じrunId・対象SHAの監査Documentで確かめる。結果は結論・Severity付きの要対応・未確認・監査参照だけを載せ、原文や担当履歴を転載しない。fixtureも `reportDocument`（結果）と `auditDocument`（監査）を返す。
 

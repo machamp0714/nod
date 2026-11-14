@@ -223,7 +223,7 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     // コード要求0件: 空の対応表と候補0件で合格する。証拠の欄や見送りの本文に「対象外」「説明」などの語があっても拒否しない
     const empty = exploreHandoff("spec", p, { files: none, table: [], candidates: [] }).replace(
       "## 判断を見送った事項\n\nなし\n",
-      "## 判断を見送った事項\n\n- 背景の説明だけの行と、CI の対象外（未コミット）を扱う記述は、コード要求でないので載せなかった\n",
+      "## 判断を見送った事項\n\n- 背景の説明だけの行と、未コミット変更を対象外とする記述は、コード要求でないので載せなかった\n",
     );
     await x.delegate("spec", "a1", empty);
     expect((await x.check("spec")).json).toMatchObject({ valid: true, violations: [] });

@@ -28,7 +28,7 @@ reviewer identityは起動した3担当（Standards探索・Spec探索・反証�
 根拠や対象commitが不足する指摘は不足証拠として返し、仕様変更が必要なら[質問の手順](questions.md)で人へ戻す。
 判断の余地がある設計改善を自動修正の受入条件へ追加しない。
 任意改善だけなら0巡のまま、受入条件、必要テスト、現在commitの初回レビュー（点数、確認が残る事項が0件）が揃ったことを確認して[PR作業](implementation.md#同じ実装者へpr作業を渡す)へ進む。
-同じhead SHAのCI判定は記録し、`成功`でないこと（`失敗`を含む）だけでは修正巡の対象にも提出の停止理由にもしない。マージ可否は不可で、merge-readyは付かない（[実装手順](implementation.md#初回レビューを受け取る)）。
+マージ可否はレビューの最終状態・確定した要対応・確認が残る事項・現在のheadと基点の照合だけで決まり、CIの結果は修正巡の対象にも提出の停止理由にもしない（[実装手順](implementation.md#初回レビューを受け取る)）。
 
 必須指摘の依頼には、指摘ID、分類、正本の該当箇所または再現証拠、対象commit、対象差分、期待する修正、確認可能な受入条件を添える。
 元報告の引用または参照先を残し、PMの要約だけで根拠を置き換えない。
@@ -46,7 +46,7 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 
 | 節目 | 記録するもの |
 | --- | --- |
-| 初回レビュー受理 | 初回0巡、基点と対象commit、結果Document ID・監査Document IDとrunId、起動した3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、同じhead SHAのCI判定・マージ可否・merge-readyの記録の参照（`[ci-result]`で始まる`--kind test`の作業ログのid。CI判定そのものはここに書かない）、必須指摘と任意改善 |
+| 初回レビュー受理 | 初回0巡、基点と対象commit、結果Document ID・監査Document IDとrunId、起動した3担当の役割・定義名・担当IDと実装者identity、反証原文と保存原本の照合結果、最終状態と確定した要対応の点数、確認が残る事項、マージ可否とmerge-readyの記録の参照（`[merge-ready]`で始まる`--kind progress`の作業ログのid）、必須指摘と任意改善 |
 | 第n巡の修正開始 | 完了巡n-1、進行中n、修正Taskとactive Dispatch、修正前commit、必須指摘IDと根拠と受入条件、元terminalとworktree、モデル:effort、merge-readyを外した記録（付いていたとき） |
 | 修正報告受理 | 進行中n、修正TaskとDispatch、新commit、受入証拠、必要テストのコマンドと対象commit、次の確認待機Taskとactive Dispatch |
 | 第n巡の独立確認開始 | 進行中n、確認Taskとactive Dispatch、確認担当のidentity、修正前後commit、確認する既存指摘と修正差分、実装者の現在所有者 |
@@ -62,8 +62,8 @@ nodのActivityへ、少なくとも次の節目を分けて記録する。
 `worker-show --dispatch`で元セッションの実効設定を再取得し、`モデル:effort`を依頼にも記載する。
 不一致、設定不明、再利用非対応なら別の実装者を起動せず人へ戻す。
 既にsettleした元実装者へ新しい修正Taskを渡し、receiptで新Dispatchへの所有権移転を確認してから元Deliveryをackする。
-修正依頼の前に、merge-readyが付いていれば`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（追加コミットで判定が古い）と初回レビューのhead SHAを、本文を`[ci-result]`で始めて`--kind test`に記録する（[親の手順](../../code-review/references/parent.md)の13節の2）。
-修正後のheadにはmerge-readyを付けない。新しいheadのマージ可否には新しいレビューが要る。
+修正依頼の前に、merge-readyが付いていれば`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（追加コミットで判定が古い）と初回レビューのhead SHAを、本文を`[merge-ready]`で始めて`--kind progress`に記録する。
+修正後のheadにはmerge-readyを付けない。新しいheadのマージ可否は新しいレビューでだけ決まる。
 
 ```sh
 ORCA orchestration worker-show --dispatch <元実装DispatchID> --json
@@ -119,7 +119,7 @@ PMは完了報告のactive Dispatchと確認担当のidentity、基点と対象c
 PR依頼は現在commitと確認済み証拠を含め、subjectにもpushとPR作業の目的を明示し、enqueueだけで提出完了にしない。
 settle済みなら同じterminalに新Taskをreuseし、どちらでも元の実効設定を再照合して`モデル:effort`を明記する。
 PRの実在、headRefOid、nodとの関連と`in_review`の確認は既存手順どおり行う。
-修正ありのPR条件では、古い初回レビューだけを現在commitの確認とせず、その後の全修正差分の独立確認と現在commitの必要テストを揃える。現在commitに対するCI判定は[PR作業の終了条件](implementation.md#同じ実装者へpr作業を渡す)どおり記録し、`成功`でないことだけを理由にIn Reviewを止めない。
+修正ありのPR条件では、古い初回レビューだけを現在commitの確認とせず、その後の全修正差分の独立確認と現在commitの必要テストを揃える。PR作業では[PR作業の終了条件](implementation.md#同じ実装者へpr作業を渡す)どおり基点ブランチの必須チェックの設定を読んだ結果を報告し、CIの結果は待たず照合もしない。
 
 人への相談は[質問の手順](questions.md)に従い、Issueと質問ID、番号選択肢、推奨、理由、回答後の動作を示す。
 例えば「1. 提出を止め、残存指摘と修正方針を人が確認する（推奨）」「2. 利用者が追加対応の範囲と上限を指定する」とし、PRの強行を選択肢にしない。

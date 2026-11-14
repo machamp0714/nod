@@ -4,16 +4,17 @@ import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { archiveIssue, askQuestion, logWork, relateIssue, updateIssue } from "../../../../../packages/core/src";
 import { createTask2Scenario } from "./task2-setup";
+import { type RequiredChecksMode, requiredChecksModeArg } from "./required-checks";
 
 export const task5Variants = ["waiting", "supervise", "idle", "stop", "model-pending", "launch-pending", "unverifiable"] as const;
 export type Task5Variant = typeof task5Variants[number];
 
 /** 複数Issueの外部状態を用意する。起動の選択と停止判断はPMが行う。 */
-export async function createTask5Scenario(options: { directory?: string; variant?: Task5Variant } = {}) {
+export async function createTask5Scenario(options: { directory?: string; variant?: Task5Variant; requiredChecks?: RequiredChecksMode } = {}) {
   const variant = options.variant ?? "waiting";
   const phase = variant === "supervise" ? "implementation" : variant === "model-pending" ? "model_pending" : variant === "launch-pending" ? "launching" : variant === "unverifiable" ? "unverifiable" : "awaiting_input";
   const worker = { issueId: "API-1", task: { id: "task-api1", spec: "実装。API-1。期間集計。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-api1", taskId: "task-api1", status: "running", terminalId: "term-api1" }, terminalId: "term-api1", worktreeId: "repo-api::/evaluation/studio/retention", worktreePath: "/evaluation/studio/retention", managedByPm: true, phase, reported: false, released: false, launch: { requested: { model: "gpt-6.1-sol", effort: "high" }, effective: ["model-pending", "launch-pending", "unverifiable"].includes(variant) ? null : { model: "gpt-6.1-sol", effort: "high" } } };
-  const s = await createTask2Scenario({ directory: options.directory, beforeAdoption(db, dir) {
+  const s = await createTask2Scenario({ directory: options.directory, requiredChecks: options.requiredChecks, beforeAdoption(db, dir) {
     const human = { db, actor: "me" };
     const agent = { db, actor: "codex" };
     // 評価対象を固定し、Task1の他の候補を混ぜない。
@@ -45,6 +46,6 @@ export async function createTask5Scenario(options: { directory?: string; variant
 if (import.meta.main) {
   const variant = process.argv[3] ?? "waiting";
   if (!task5Variants.includes(variant as Task5Variant)) throw new Error(`未対応の評価シナリオ: ${variant}`);
-  const s = await createTask5Scenario({ directory: process.argv[2], variant: variant as Task5Variant });
+  const s = await createTask5Scenario({ directory: process.argv[2], variant: variant as Task5Variant, requiredChecks: requiredChecksModeArg(process.argv[4]) });
   console.log(JSON.stringify({ directory: s.dir, source: join(s.dir, "env.sh"), operations: s.log }, null, 2));
 }
