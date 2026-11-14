@@ -160,20 +160,21 @@ function walkEntries(dir: string): Entry[] {
 
 export interface FileHash {
   path: string;
+  kind: Entry["kind"];
   sha256: string;
 }
 
-// 通常ファイルは本文、リンクは種別とリンク先の文字列の指紋。リンク先の実体は辿らない。
+// 本文/リンク先の指紋に加え、種別も記録・比較する。リンク先の実体は辿らない。
 export function fingerprintList(dir: string, exclude?: string): FileHash[] {
   return walkEntries(dir)
     .filter((e) => e.rel !== `./${exclude}`)
-    .map((e) => ({ path: e.rel.slice(2), sha256: sha256(e.kind === "link" ? `link\0${readlinkSync(e.path)}` : readFileSync(e.path)) }));
+    .map((e) => ({ path: e.rel.slice(2), kind: e.kind, sha256: sha256(e.kind === "link" ? `link\0${readlinkSync(e.path)}` : readFileSync(e.path)) }));
 }
 
 // 共通入力・引き渡しの指紋一覧（リンクは fingerprintList と同じ種別付きの入力をハッシュする）
 export function fileFingerprint(dir: string, exclude?: string): string {
   return fingerprintList(dir, exclude)
-    .map((f) => `${f.sha256}  ./${f.path}\n`)
+    .map((f) => `${f.kind === "link" ? "link " : ""}${f.sha256}  ./${f.path}\n`)
     .join("");
 }
 
@@ -907,7 +908,7 @@ function prepare(args: string[]): Outcome {
     "",
     "| ファイル | sha256 | 出典 |",
     "|---|---|---|",
-    ...inputs.map((i) => `| \`${i.path}\` | \`${i.sha256}\` | ${source(i.path)} |`),
+    ...inputs.map((i) => `| \`${i.path}\` | \`${i.sha256}\` | ${source(i.path)}（種別 ${i.kind}） |`),
     "",
     "## 取得できなかった資料と理由",
     "",
@@ -1081,8 +1082,8 @@ function saveList<T>(work: string, name: string, list: T[], markdown: string): v
 }
 
 function compareFiles(expected: FileHash[], actual: FileHash[]): string[] {
-  const got = new Map(actual.map((f) => [f.path, f.sha256]));
-  const want = new Map(expected.map((f) => [f.path, f.sha256]));
+  const got = new Map(actual.map((f) => [f.path, `${f.kind}:${f.sha256}`]));
+  const want = new Map(expected.map((f) => [f.path, `${f.kind}:${f.sha256}`]));
   const out: string[] = [];
   for (const [path, hash] of want) if (got.get(path) !== hash) out.push(`${path}（記録 ${hash}、今 ${got.get(path) ?? "無い"}）`);
   for (const path of got.keys()) if (!want.has(path)) out.push(`${path}（記録に無いファイル）`);
@@ -1094,7 +1095,7 @@ function compareFiles(expected: FileHash[], actual: FileHash[]): string[] {
 export function checkIdentity(work: string, stage: Stage, trigger: string): Identity {
   const prep = readPrepared(work);
   const items: IdentityItem[] = [];
-  const inputs = compareFiles([...prep.inputs, { path: "manifest.md", sha256: prep.manifestSha256 ?? "" }], fingerprintList(join(work, "input")));
+  const inputs = compareFiles([...prep.inputs, { path: "manifest.md", kind: "file", sha256: prep.manifestSha256 ?? "" }], fingerprintList(join(work, "input")));
   items.push({ name: "共通入力（input/ の各ファイルと manifest.md の sha256 が prepare の記録と一致）", ok: inputs.length === 0, detail: inputs.join("・") || "一致" });
   const depsDir = join(work, "deps");
   if (prep.deps?.prepared) {
@@ -1243,7 +1244,20 @@ const OBSOLETE = ["受け入れ確認担当", "自動チェック担当", "説�
 // 廃止した未確認の理由
 const OBSOLETE_REASON = "要実行確認";
 const CODE_FILE_HEADER = ["要求資料", "コード要求"];
-const CODE_VALUES = new Set(["あり", "なし"]);
+// 要求資料ごとのコード要求の値: あり／なし。後ろに括弧1つの注記を付けてもよい（「なし（作業規約は登録されていません）」）。注記は判定に使わない
+function codeValue(value: string): string | null {
+  const m = /^(あり|なし)(?:\s*[（(](.*)[）)])?$/.exec(value);
+  if (!m) return null;
+  let depth = 0;
+  for (const ch of m[2] ?? "") {
+    depth += "（(".includes(ch) ? 1 : "）)".includes(ch) ? -1 : 0;
+    if (depth < 0) return null;
+  }
+  return depth === 0 ? (m[1] ?? null) : null;
+}
+// 証拠を取得できなかった候補の理由・不足箇所を書いてよい、同じ候補の項目（証拠の欄のほか）
+const UNAVAILABLE_REASON_FIELD = "取得できなかった理由";
+const UNAVAILABLE_MISSING_FIELD = "不足箇所";
 const TARGET_FIELDS = ["役割", "定義名", "対象版", "要求資料", "依存の写し", "終了状態"];
 const CANDIDATE_FIELDS = ["軸", "場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠"];
 const TABLE_HEADER = ["要求の出典", "状態", "証拠または不足理由", "候補ID"];
@@ -1267,6 +1281,9 @@ interface Section {
   body: string[];
 }
 
+// 見出しの先頭の番号（`1.`・`1)`・`1．`）は表示上の差として外す。見出しの語や項目名の言い換えは読まない
+const HEADING_NUMBER = /^\d{1,3}(?:[.)]\s+|．\s*)/;
+
 // 深さ level の見出しごとの節（コードブロックの中の # は見出しにしない）。本文にはより深い見出しを含む
 function sectionsOf(lines: string[], level: number): Section[] {
   const out: Section[] = [];
@@ -1277,7 +1294,7 @@ function sectionsOf(lines: string[], level: number): Section[] {
     const h = fence ? null : /^(#{1,6})\s+(.*?)\s*$/.exec(line);
     const depth = h?.[1]?.length ?? 7;
     if (h && depth <= level) {
-      cur = depth === level ? { title: plain(h[2] ?? ""), body: [] } : null;
+      cur = depth === level ? { title: plain(h[2] ?? "").replace(HEADING_NUMBER, ""), body: [] } : null;
       if (cur) out.push(cur);
       continue;
     }
@@ -1379,7 +1396,7 @@ function forbiddenNames(lines: string[]): string[] {
 
 type Add = (no: number, message: string) => void;
 
-// 要求資料ごとのコード要求（探索は5節の6、反証は7節の4）: requirements/ の各ファイルに1行ずつ、あり か なし。読み取った一覧を返す
+// 要求資料ごとのコード要求（探索は5節の6、反証は7節の4）: requirements/ の各ファイルに1行ずつ、あり か なし（括弧1つの注記は可）。読み取った一覧（値は あり／なし）を返す
 function codeFileViolations(sec: Section | undefined, name: string, prep: Prepared, no: number, add: Add): { path: string; code: string }[] {
   const want = prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path);
   const rows = tableRows(sec?.body ?? [], CODE_FILE_HEADER);
@@ -1395,9 +1412,10 @@ function codeFileViolations(sec: Section | undefined, name: string, prep: Prepar
     if (!want.includes(path)) add(no, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
     if (files.some((f) => f.path === path)) add(no, `${name}に ${label} が重複している`);
     const old = obsoleteLabel(code);
+    const value = codeValue(code);
     if (old) add(no, `${name}の ${label} に廃止した分類「${old}」を使っている（あり／なしだけ）`);
-    else if (!CODE_VALUES.has(code)) add(no, `${name}の ${label} のコード要求「${code}」があり／なしのどちらでもない`);
-    files.push({ path, code });
+    else if (!value) add(no, `${name}の ${label} のコード要求「${code}」があり／なし（後ろに括弧1つの注記は可）のどちらでもない`);
+    files.push({ path, code: value ?? code });
   });
   for (const w of want) if (!files.some((f) => f.path === w)) add(no, `${w} のコード要求あり／なしが${name}に無い`);
   return files;
@@ -1415,6 +1433,8 @@ function rowStateViolations(label: string, status: string, reason: string, no: n
 function targetViolations(target: Section | undefined, names: readonly string[], role: Role, prep: Prepared, no: number, add: Add, states = /完了|未確認/): void {
   const r = ROLES[role];
   if (!target) add(no, "「担当と対象」の節が無い");
+  const versionFields = (target?.body ?? []).filter((line) => /^\S/.test(line) && plain(FIELD.exec(line)?.[1] ?? "") === "対象版");
+  if (versionFields.length > 1) add(no, "担当と対象の「対象版」が重複している（同じ値でも1項目だけ）");
   const f = fieldsOf(target?.body ?? []);
   for (const name of names) if (!f.get(name)) add(no, `担当と対象の「${name}」が無いか空`);
   const roleValue = plain(f.get("役割") ?? "");
@@ -1444,6 +1464,7 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
   const filled = (s: Section | undefined) => s?.body.some((l) => l.trim() !== "") ?? false;
 
   // 3: 担当と対象、対象版、終了状態・未確認・見送りの節
+  if (secs.filter((s) => s.title.startsWith("担当と対象")).length > 1) add(3, "「担当と対象」の節が重複している（同じ内容でも1節だけ）");
   targetViolations(section("担当と対象"), TARGET_FIELDS, role, prep, 3, add);
   for (const name of ["探索上の不足・未確認", "判断を見送った事項"]) if (!filled(section(name))) add(3, `「${name}」の節が無いか空`);
 
@@ -1466,8 +1487,12 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
     const cf = fieldsOf(b.body);
     const missing = CANDIDATE_FIELDS.filter((n) => !cf.get(n));
     if (missing.length > 0) add(4, `${id} の必須項目が無いか空（${missing.join("・")}）`);
+    // 理由と不足箇所は、証拠の欄か、同じ候補の明示した項目（取得できなかった理由・不足箇所）にあるものだけを数える。ほかの欄・候補・節の語は数えない
     const evidence = cf.get("証拠") ?? "";
-    if (/取得できな|取得できず/.test(evidence) && !(evidence.includes("理由") && evidence.includes("不足"))) add(4, `${id} は証拠を取得できなかった候補だが、理由と不足箇所が無い`);
+    const reason = evidence.includes("理由") || !!cf.get(UNAVAILABLE_REASON_FIELD);
+    const lack = evidence.includes("不足") || !!cf.get(UNAVAILABLE_MISSING_FIELD);
+    if (/取得できな|取得できず/.test(evidence) && !(reason && lack))
+      add(4, `${id} は証拠を取得できなかった候補だが、証拠の欄か同じ候補の「${UNAVAILABLE_REASON_FIELD}」「${UNAVAILABLE_MISSING_FIELD}」の項目に理由と不足箇所が無い`);
   }
 
   // 5: 役割ごとの節
@@ -1633,14 +1658,14 @@ function refuteInput(args: string[]): Outcome {
     if (existsSync(src)) copyTree(src, join(dest, name));
   }
   const expected = [
-    ...passed.map((p) => ({ path: `${p.role}-handoff.md`, sha256: p.check.sha256 ?? "", source: `${p.role}/handoff.md（check-explore で検査した試行 ${p.check.attempt}）` })),
+    ...passed.map((p) => ({ path: `${p.role}-handoff.md`, kind: "file", sha256: p.check.sha256 ?? "", source: `${p.role}/handoff.md（check-explore で検査した試行 ${p.check.attempt}）` })),
     ...prep.inputs.map((i) => ({ ...i, source: `input/${i.path}（prepare の記録）` })),
-    { path: "manifest.md", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
+    { path: "manifest.md", kind: "file", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
   ];
   const files = fingerprintList(dest);
-  const got = new Map(files.map((f) => [f.path, f.sha256]));
+  const got = new Map(files.map((f) => [f.path, f]));
   const comparison = [
-    ...expected.map((e) => ({ ...e, copied: got.get(e.path) ?? null, ok: got.get(e.path) === e.sha256 })),
+    ...expected.map((e) => ({ ...e, copied: got.get(e.path)?.sha256 ?? null, copiedKind: got.get(e.path)?.kind ?? null, ok: got.get(e.path)?.sha256 === e.sha256 && got.get(e.path)?.kind === e.kind })),
     ...files.filter((f) => !expected.some((e) => e.path === f.path)).map((f) => ({ path: f.path, sha256: "", source: "写すものではない", copied: f.sha256, ok: false })),
   ];
   const identity = checkIdentity(work, "explore", "refute-input");
@@ -1778,6 +1803,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   const mentioned: string[] = [];
 
   // 2: 担当と対象
+  if (secs.filter((s) => s.title.startsWith("担当と対象")).length > 1) add(2, "「担当と対象」の節が重複している（同じ内容でも1節だけ）");
   targetViolations(section("担当と対象"), REFUTE_TARGET_FIELDS, "refute", prep, 2, add);
 
   // 3: 採否一覧（両探索の全候補と反証で追加した発見、判定の語彙と根拠、要対応の影響度）
@@ -2127,13 +2153,23 @@ function recheckRequirements(work: string, prep: Prepared, dir: string): Require
   const changed = paths.filter((p) => before.get(p) !== after.get(p)).map((p) => ({ path: `requirements/${p}`, before: before.get(p) ?? null, after: after.get(p) ?? null }));
   if (prep.issue) {
     // 本文を取得できない新規specはファイル比較に現れない。Issueから観測した集合も比べる。
-    const [oldIds = [], newIds = []] = [join(work, "parent/issue-snapshot.json"), join(dir, "issue-snapshot.json")].map((path) =>
-      (readRecord<{ documents?: DocRow[] }>(path)?.documents ?? []).filter((d) => d.kind === "spec").map((d) => d.id).sort((a, b) => a - b),
-    );
-    const missingChange = [...oldIds, ...newIds].some((id) => oldIds.includes(id) !== newIds.includes(id) && !changed.some((c) => c.path === `requirements/spec-${id}.md`));
-    if (missingChange) {
-      changed.push({ path: "requirements/kind=spec", before: sha256(JSON.stringify(oldIds)), after: sha256(JSON.stringify(newIds)) });
-      paths.push("kind=spec");
+    const [oldIds, newIds] = [join(work, "parent/issue-snapshot.json"), join(dir, "issue-snapshot.json")].map((path) => {
+      try {
+        const snapshot = readRecord<{ title?: unknown; documents?: DocRow[] }>(path);
+        if (!snapshot || typeof snapshot.title !== "string") return null;
+        return (Array.isArray(snapshot.documents) ? snapshot.documents : []).filter((d) => d.kind === "spec").map((d) => d.id).sort((a, b) => a - b);
+      } catch (error) {
+        // snapshotは外部コマンドの生出力。非JSONでも取得不能を記録し、不可判定・保存・ラベル解除へ進む。
+        req.unavailable.push({ item: `kind=spec の集合（${path}）`, reason: `Issue の取得記録を解析できない（${String(error)}）` });
+        return null;
+      }
+    });
+    if (oldIds && newIds) {
+      const missingChange = [...oldIds, ...newIds].some((id) => oldIds.includes(id) !== newIds.includes(id) && !changed.some((c) => c.path === `requirements/spec-${id}.md`));
+      if (missingChange) {
+        changed.push({ path: "requirements/kind=spec", before: sha256(JSON.stringify(oldIds)), after: sha256(JSON.stringify(newIds)) });
+        paths.push("kind=spec");
+      }
     }
   }
   return { at, dir, compared: paths.map((p) => `requirements/${p}`), changed, unavailable: req.unavailable, note };
@@ -2165,8 +2201,8 @@ function recheckLocal(work: string, prep: Prepared, dir: string): LocalRecheck {
     mkdirSync(dirname(join(dir, "untracked", u)), { recursive: true });
     copyTree(src, join(dir, "untracked", u));
   }
-  const before = new Map(fingerprintList(join(work, "input/local")).map((f) => [`local/${f.path}`, f.sha256]));
-  const after = new Map(fingerprintList(dir).map((f) => [`local/${f.path}`, f.sha256]));
+  const before = new Map(fingerprintList(join(work, "input/local")).map((f) => [`local/${f.path}`, `${f.kind}:${f.sha256}`]));
+  const after = new Map(fingerprintList(dir).map((f) => [`local/${f.path}`, `${f.kind}:${f.sha256}`]));
   const changed = [...new Set([...before.keys(), ...after.keys()])]
     .sort()
     .filter((p) => before.get(p) !== after.get(p))
@@ -3114,6 +3150,8 @@ function recheckCi(args: string[]): Outcome {
     `- 比べた head: 報告の head \`${prep.head}\`、現在の head ${head?.currentHead ? `\`${head.currentHead}\`` : "取り直せない"}、現在の基点 ${head?.currentBase ?? "取り直せない"}（\`${head?.command ?? "なし"}\`、${head?.at ?? at}）`,
     `- 照合せずに終えた理由: ${reason ?? "なし（照合した）"}`,
     `- 要求の再照合: ${requirements ? `${requirements.compared.join("・")} を比べた。${requirements.changed.length > 0 ? `変化あり: ${requirements.changed.map((c) => c.path).join("・")}` : "変化なし"}（${join(dir, "requirements")}）` : "照合せず"}`,
+    `- 取り直せなかった資料と理由: ${requirements?.unavailable.length ? requirements.unavailable.map((u) => `${u.item}: ${u.reason}`).join("・") : "なし"}`,
+    `- 要求の再照合の注記: ${requirements?.note ?? "なし"}`,
     `- 加えた確認が残る事項: ${added.length > 0 ? added.map((a) => `${a.ref}（${a.owner}、${a.reason}）`).join("・") : "なし"}`,
     `- CI の記録: ${ci ? `${join(work, ci.record)}（sha256 ${ci.sha256}）、${ciSummary(ci)}` : "照合せず"}`,
     `- マージ可否: ${finalMerge}${label?.blockers.length || blockers.length ? `（理由: ${(label?.blockers ?? blockers).join("／")}）` : ""}`,

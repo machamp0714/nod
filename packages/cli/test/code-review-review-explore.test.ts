@@ -58,7 +58,7 @@ interface Retire {
   reason: string;
   retries: string;
   movedTo: string;
-  files: { path: string; sha256: string }[];
+  files: { path: string; kind: "file" | "link"; sha256: string }[];
   identity: Identity;
   redelegate: boolean;
   status: string | null;
@@ -248,6 +248,48 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     }
   });
 
+  test("表記差と実欠落: 見出しの番号・「なし（注記）」・同じ候補の理由／不足箇所の項目は受理し、項目名の言い換え・別の欄の SHA・ほかの欄／候補／節にだけある理由・値でない記載（両方・雛形のまま・注記の後ろの値）は拒否する", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const x = steps(s, p);
+    // 保存済みの実出力で誤拒否された表記: 「## 1. 担当と対象」の番号付き見出し、「なし（…）」の注記、証拠の欄の理由＋同じ候補の「不足箇所」の項目
+    let n = 0;
+    const numbered = (t: string) => t.replace(/^(#{2,3}) /gm, (_, h: string) => `${h} ${++n}. `);
+    const NOTE_FILES = ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | なし（「作業規約は登録されていません」の1行のみ） |"];
+    const spc = (candidates: string[], files = NOTE_FILES) => numbered(exploreHandoff("spec", p, { files, candidates }));
+    const unavailable = candidateBlock("SPC-1", { 軸: "Spec", 証拠: "要求の詳細契約は入力に無い。証拠を取得できなかった理由: 詳細契約が固定入力へ含まれていない", 不足箇所: "Document 889 の Q01〜Q10 の定義" });
+    const std = numbered(exploreHandoff("standards", p, { candidates: [candidateBlock("STD-1", { 証拠: "証拠を取得できなかった（不足: 依存の独自パッチの契約）", 取得できなかった理由: "固定入力に契約が無い" })] }));
+    await x.delegate("spec", "a1", spc([unavailable]));
+    await x.delegate("standards", "a2", std);
+    expect((await x.check("spec")).json).toMatchObject({ valid: true, violations: [] });
+    expect((await x.check("standards")).json).toMatchObject({ valid: true, violations: [] });
+
+    // 実際に欠けている・矛盾する出力は、表記差として補わずに拒否する
+    const noReason = { 軸: "Spec", 証拠: "原文は取得できなかった（不足: Document 889 の原文）" };
+    const cases: [string, "standards" | "spec", string, number, string][] = [
+      ["項目名の言い換え", "standards", std.replace(/- 対象版: .*\n/, `- B: \`${p.base}\`\n- H: \`${p.head}\`\n`).replace("- 要求資料:", "- 要求入力:"), 3, "要求資料"],
+      ["別の欄の SHA", "standards", std.replace(/- 対象版: .*\n/, `- 基点: \`${p.base}\`\n- 対象版: \`${p.clone}\`／commit／head \`${p.head}\`\n`), 3, `merge-base ${p.base}`],
+      ["対象版の後出誤 SHA", "standards", std.replace(/(- 対象版: .*\n)/, `$1- 対象版: ${"f".repeat(40)}\n`), 3, "対象版」が重複"],
+      ["対象版の先出誤 SHA", "spec", spc([unavailable]).replace(/(- 対象版: .*\n)/, `- 対象版: ${"f".repeat(40)}\n$1`), 3, "対象版」が重複"],
+      ["同一対象版の重複", "spec", spc([unavailable]).replace(/(- 対象版: .*\n)/, "$1$1"), 3, "対象版」が重複"],
+      ["別節の後出誤 SHA", "standards", `${std}\n## 担当と対象\n\n- 対象版: ${"f".repeat(40)}\n`, 3, "「担当と対象」の節が重複"],
+      ["番号付き別節の後出誤 SHA", "spec", `${spc([unavailable])}\n## 99. 担当と対象\n\n- 対象版: ${"f".repeat(40)}\n`, 3, "「担当と対象」の節が重複"],
+      ["別節の同一対象版", "spec", `${spc([unavailable])}\n## 担当と対象\n\n- 対象版: ${p.clone}／commit／${p.base}／${p.head}\n`, 3, "「担当と対象」の節が重複"],
+      ["ほかの欄にだけある理由", "spec", spc([candidateBlock("SPC-1", { ...noReason, 破綻: "理由: 固定入力に原文が無いので採否を決められない" })]), 4, "SPC-1"],
+      ["ほかの候補にだけある理由", "spec", spc([candidateBlock("SPC-1", noReason), candidateBlock("SPC-2", { 軸: "Spec", 取得できなかった理由: "固定入力に原文が無い" })]), 4, "SPC-1"],
+      ["ほかの節にだけある理由", "spec", spc([candidateBlock("SPC-1", noReason)]).replace(/(## \d+\. 探索上の不足・未確認\n\n)なし/, "$1SPC-1 の取得できなかった理由: 固定入力に原文が無い"), 4, "SPC-1"],
+      ["あり・なしの両方を書いた値", "spec", spc([unavailable], ["| `requirements/issue.md` | なし／あり |", NOTE_FILES[1] ?? ""]), 6, "「なし／あり」"],
+      ["雛形のままの値", "spec", spc([unavailable], ["| `requirements/issue.md` | あり／なし |", NOTE_FILES[1] ?? ""]), 6, "「あり／なし」"],
+      ["注記の後ろの値", "spec", spc([unavailable], ["| `requirements/issue.md` | なし（背景）あり |", NOTE_FILES[1] ?? ""]), 6, "「なし（背景）あり」"],
+    ];
+    for (const [name, role, text, no, needle] of cases) {
+      put(join(p.W, role, "handoff.md"), text);
+      const r = await x.check(role);
+      expect(`${name}: ${r.json?.valid}`).toBe(`${name}: false`);
+      expect(`${name}: ${messages(r.json, no)}`).toContain(needle);
+    }
+  });
+
   test("禁止項目は、コードスパンを除いた見出し・項目名・表の見出しの全体が禁止項目そのもののときだけにし、名前の一部に含む正当な項目名では無効にしない", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
@@ -336,8 +378,8 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     expect(r.json?.identity.ok).toBe(true);
     expect(read(join(moved, "handoff.md"))).toBe(bad);
     expect(r.json?.files).toEqual([
-      { path: "handoff.md", sha256: sha256(bad) },
-      { path: "notes/memo.md", sha256: sha256(`${MARK} メモ\n`) },
+      { path: "handoff.md", kind: "file", sha256: sha256(bad) },
+      { path: "notes/memo.md", kind: "file", sha256: sha256(`${MARK} メモ\n`) },
     ]);
     expect(readdirSync(join(p.W, "standards"))).toEqual(["notes"]);
     expect(readdirSync(join(p.W, "standards/notes"))).toEqual([]);

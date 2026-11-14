@@ -410,6 +410,32 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     expect((await issueShow(x)).labels).not.toContain("merge-ready");
   });
 
+  test.each(["finalize", "recheck-ci"] as const)("%s: Issue再取得が非JSONで失敗しても不可判定・ラベル解除・記録保存へ進む", async (stage) => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "issue-unavailable");
+    if (stage === "recheck-ci") expect((await finalize(s, p)).json?.merge).toBe(MERGE_OK);
+    else expect((await x.nod.run(["issue", "update", x.issue, "--add-label", "merge-ready"], x.repo)).exitCode).toBe(0);
+    const wrapper = join(s.t, "nod-issue-unavailable");
+    // この1回の取得だけを失敗させ、ラベル操作・保存など後続のnodコマンドは実物へ通す
+    const failed = join(s.t, "issue-fetch-failed");
+    put(wrapper, `#!/bin/sh\nif [ "$*" = "--json issue show ${x.issue}" ] && [ ! -f "${failed}" ]; then touch "${failed}"; printf '{"title":'; exit 1; fi\nexec "${x.nod.env.NOD_CLI}" "$@"\n`);
+    chmodSync(wrapper, 0o755);
+    s.env.NOD_CLI = wrapper;
+    const r = await runReview<Finalize | Recheck>(stage, ["--work", p.W], s);
+    expect(r.exitCode).toBe(0);
+    expect(r.json?.merge).toBe(MERGE_NG);
+    const remaining = r.json && ("remaining" in r.json ? r.json.remaining : r.json.added);
+    expect(remaining?.some((v) => v.ref === "requirements/issue.md")).toBe(true);
+    expect((await issueShow(x)).labels).not.toContain("merge-ready");
+    const record = stage === "finalize" ? "parent/audit.md" : "parent/recheck-2/record.md";
+    expect(read(join(p.W, record))).toContain("requirements/issue.md");
+    expect(read(join(p.W, record))).toContain("nod issue show が失敗");
+    expect(read(join(p.W, record))).toContain("Issue の取得記録を解析できない");
+    const snapshot = stage === "finalize" ? "parent/requirements-recheck" : "parent/recheck-2/requirements";
+    expect(read(join(p.W, snapshot, "issue-snapshot.json"))).toBe('{"title":');
+    if (stage === "finalize") expect(r.json).toMatchObject({ saved: true });
+  });
+
   test.each(["report", "audit"] as const)("保存失敗した %s があれば、CI成功でも再照合でmerge-readyを付けない", async (kind) => {
     const s = sandbox();
     const { x, p } = await cleanIssueReview(s, "savefail");
@@ -683,7 +709,7 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     expect((await issueShow(x)).activity.filter((a) => a.logKind)).toEqual([]);
   });
 
-  test.each(["unchanged", "retarget", "remove", "replace-file"] as const)("local未追跡symlink: %s をリンク先の実体を読まずに固定・再照合する", async (change) => {
+  test.each(["unchanged", "retarget", "remove", "replace-file", "replace-file-collision", "replace-link-collision", "tamper-input", "tamper-refute-input"] as const)("未追跡symlinkと写し: %s をリンク先の実体を読まずに固定・再照合する", async (change) => {
     const s = sandbox();
     const nod = tempNod(s);
     const repo = makeGitRepo(s, "local-link");
@@ -691,11 +717,12 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     const base = gitOut(repo, "rev-parse", "HEAD");
     const link = join(repo, "untracked-link");
     // 存在しないリンク先でも、リンクそのものを固定する
-    symlinkSync("missing-original", link);
+    if (change === "replace-link-collision") put(link, "link\0missing-original");
+    else symlinkSync("missing-original", link);
     const W = join(s.t, "work", "local-link");
     const r = await runReview<{ ready: boolean; inputs: { path: string; sha256: string }[] }>("prepare", ["--work", W, "--repo", repo, "--mode", "local", "--base", base, "--untracked", "untracked-link"], s);
     expect(r.json?.ready).toBe(true);
-    expect(readlinkSync(join(W, "input/local/untracked/untracked-link"))).toBe("missing-original");
+    if (change !== "replace-link-collision") expect(readlinkSync(join(W, "input/local/untracked/untracked-link"))).toBe("missing-original");
     const linkInput = r.json?.inputs.find((f) => f.path === "local/untracked/untracked-link");
     expect(linkInput?.sha256).toMatch(/^[a-f0-9]{64}$/);
     const p: PreparedWork = { W, repo, base, head: base, clone: join(W, "repo") };
@@ -708,14 +735,26 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
       await must(s, p, "check-explore", ["--role", role]);
     }
     await must(s, p, "refute-input");
-    expect(readlinkSync(join(W, "refute-input/local/untracked/untracked-link"))).toBe("missing-original");
+    if (change !== "replace-link-collision") expect(readlinkSync(join(W, "refute-input/local/untracked/untracked-link"))).toBe("missing-original");
     await must(s, p, "agent", ["--role", "refute", "--event", "start"]);
     put(join(W, "refute/verdict.md"), local(refuteVerdict(p, { empty: true, files })));
     await must(s, p, "agent", ["--role", "refute", "--event", "received", "--agent-id", "agent-refute"]);
     await must(s, p, "check-refute");
+    if (change === "tamper-input" || change === "tamper-refute-input") {
+      const copy = join(W, change === "tamper-input" ? "input" : "refute-input", "local/untracked/untracked-link");
+      rmSync(copy);
+      put(copy, "link\0missing-original");
+      const checked = await runReview<{ valid: boolean; identity: { ok: boolean; items: { ok: boolean; detail: string }[] } }>("check-refute", ["--work", W], s);
+      expect(checked.json?.valid).toBe(false);
+      expect(checked.json?.identity.ok).toBe(false);
+      expect(checked.json?.identity.items.some((i) => !i.ok && i.detail.includes("local/untracked/untracked-link"))).toBe(true);
+      return;
+    }
     if (change !== "unchanged") rmSync(link);
     if (change === "retarget") symlinkSync("missing-next", link);
     if (change === "replace-file") put(link, "missing-original");
+    if (change === "replace-file-collision") put(link, "link\0missing-original");
+    if (change === "replace-link-collision") symlinkSync("missing-original", link);
     const f = (await finalize(s, p)).json as Finalize;
     expect(f.remaining.filter((v) => v.ref === "local/untracked/untracked-link").length).toBe(change === "unchanged" ? 0 : 1);
     expect(f.status).toBe("完了");

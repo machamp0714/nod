@@ -6,7 +6,7 @@
 - 定義名: code-reviewer-refute
 - 担当 ID: （分かれば。分からなければ「不明」）
 - モデル申告: （自分で分かる情報と出典。分からなければ「未確認」）
-- 対象版: 対象リポジトリ（`target.md` の担当用の限定 clone）の絶対パス／mode／merge-base の SHA／head の SHA（mode: local なら土台の HEAD と `local/` の各ファイルの sha256）
+- 対象版: 対象リポジトリ（`target.md` の担当用の限定 clone）の絶対パス／mode／merge-base の SHA／head の SHA（mode: local なら土台の HEAD と `local/` の各ファイルの sha256）。merge-base と head の40桁の SHA は両方ともこの欄に書く（基点など別の欄に書いた SHA は数えない）
 - 受け取った入力: `refute-input/` の各ファイルと、`manifest.md` の sha256 との一致
 - 依存の写し: 依頼本文が示す場所、`manifest.md` の lockfile のパスと sha256、`deps-files.sha256` と `manifest.md` の sha256 との一致（準備されていなければ「依存の写しなし」と `manifest.md` の理由）
 - 終了状態: 完了／未確認を含む
@@ -44,7 +44,7 @@
 
 ## 要求資料ごとのコード要求（確定）
 
-`requirements/` のすべてのファイルを1行ずつ書き、確定した対応表にコード要求が1行でもあれば「あり」、無ければ「なし」とする。
+`requirements/` のすべてのファイルを1行ずつ書き、確定した対応表にコード要求が1行でもあれば「あり」、無ければ「なし」とする。補足が要るときは値の後ろに括弧1つで書く（例: `なし（作業規約の登録が無い）`）。括弧の補足は判定に使わず、補足の後ろに値や文を続けない。
 
 | 要求資料 | コード要求 |
 |---|---|

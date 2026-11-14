@@ -152,10 +152,40 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     }
   });
 
-  test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし）を正常として合格させる", async () => {
+  test("重複する対象版は順序や同一値に関係なく拒否し、有効な判定構造を残さない", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
-    const verdict = refuteVerdict(p, { empty: true });
+    const v = refuteVerdict(p);
+    await reachRefute(s, p, v);
+    expect((await checkRefute(s, p)).json?.valid).toBe(true);
+    for (const replacement of [`$1- 対象版: ${"f".repeat(40)}\n`, `- 対象版: ${"f".repeat(40)}\n$1`, "$1$1"]) {
+      put(join(p.W, "refute/verdict.md"), v.replace(/(- 対象版: .*\n)/, replacement));
+      const r = await checkRefute(s, p);
+      expect(r.json?.valid).toBe(false);
+      expect(messages(r.json, 2)).toContain("対象版」が重複");
+      expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
+    }
+  });
+
+  test("別の同名節に対象版を書いても重複を拒否し、番号付きの節も同じ名前として扱う", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const v = refuteVerdict(p);
+    await reachRefute(s, p, v);
+    expect((await checkRefute(s, p)).json?.valid).toBe(true);
+    for (const extra of [`## 担当と対象\n\n- 対象版: ${"f".repeat(40)}`, `## 99. 担当と対象\n\n- 対象版: ${"f".repeat(40)}`, `## 担当と対象\n\n- 対象版: ${p.clone}／commit／${p.base}／${p.head}`]) {
+      put(join(p.W, "refute/verdict.md"), `${v}\n${extra}\n`);
+      const r = await checkRefute(s, p);
+      expect(r.json?.valid).toBe(false);
+      expect(messages(r.json, 2)).toContain("「担当と対象」の節が重複");
+      expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
+    }
+  });
+
+  test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし。括弧1つの注記付きも可）を正常として合格させる", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const verdict = refuteVerdict(p, { empty: true, files: ["| `requirements/issue.md` | なし（背景の説明だけ） |", "| `requirements/workspace-rules.md` | なし |"] });
     await reachRefute(s, p, verdict, { empty: true });
     expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
     const st = structure(p);
@@ -178,6 +208,7 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
       ["除いた行の節の欠落", v.replace("## 表から除いた行\n\nなし\n\n", ""), 4, "表から除いた行"],
       ["除いた行の理由に廃止した分類", removedSection("| `requirements/issue.md:L4` | 作業手順の規則 |\n").replace(L4, ""), 4, "作業手順の規則"],
       ["要求資料ごとの記載の欠落", v.replace("| `requirements/workspace-rules.md` | なし |\n", ""), 4, "requirements/workspace-rules.md"],
+      ["補足の後ろに続く値", v.replace("| `requirements/issue.md` | あり |", "| `requirements/issue.md` | あり（L3・L4）なし |"), 4, "「あり（L3・L4）なし」"],
       ["未充足の行に要対応が無い", v.replace(L4, "| `requirements/issue.md:L4` | 未充足 | 記録しない | なし |\n"), 4, "要対応"],
       ["廃止した状態", v.replace(L4, "| `requirements/issue.md:L4` | 自動チェック担当 | テストで確かめる | なし |\n"), 4, "自動チェック担当"],
       ["対応表の未確認の理由に要実行確認", v.replace("（追加）失敗の記録先を決める契約が要求資料に無い", "（追加）要実行確認"), 4, "要実行確認"],
