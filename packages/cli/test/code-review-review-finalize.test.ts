@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   commit,
@@ -348,28 +348,17 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     expect(read(join(p.W, "parent/recheck-4/record.md"))).toContain("保存時の要求の変化");
   });
 
-  test("保存の失敗では merge-ready を付けず、13節で CI の未確定・成功・PR の基点の変化・result.json の head の不一致を照合し直す", async () => {
+  test("13節で CI の未確定・成功・PR の基点の変化・result.json の head の不一致を照合し直す", async () => {
     const s = sandbox();
     const { x, p, gh } = await cleanIssueReview(s, "ci");
-    // 結果 Document の保存先が既にある（保存の失敗）
-    put(join(x.nod.docs, `${x.issue.toLowerCase()}-code-review-${today()}-ci.md`), "既にある\n");
-    const f = (await finalize(s, p)).json as Finalize;
-    expect(f).toMatchObject({ status: "完了", score: 5, remainingCount: 0, reportedMerge: MERGE_OK, merge: MERGE_NG, saved: false });
-    expect(f.documents?.audit.id).toBeNumber();
-    expect(f.documents?.report.id).toBeNull();
-    expect(f.saveProblems.join("\n")).toContain("コードレビュー結果");
-    expect(f.label.operation).toBe("付けていない");
-    expect(f.blockers.join("\n")).toContain("報告の保存・照合に失敗");
-    const shown = await issueShow(x);
-    expect(shown.labels).not.toContain("merge-ready");
-    expect(shown.activity.find((a) => a.id === f.logs.ci)?.body?.startsWith("[ci-result] merge-ready: 付けていない（マージ可否が不可: ")).toBe(true);
 
+    expect((await finalize(s, p)).json).toMatchObject({ saved: true, merge: MERGE_OK });
     // CI の未確定は不可（polling しない）
     gh.set(world(x.head, "in_progress"));
     const pending = await recheck(s, p);
     expect(pending).toMatchObject({ n: 2, checked: true, merge: MERGE_NG });
     expect(pending?.ci?.verdict).toBe("未確定");
-    expect(pending?.label?.operation).toBe("付けていない");
+    expect(pending?.label?.operation).toBe("外した");
     // CI の完了後に成功なら可
     gh.set(world(x.head, "success"));
     expect((await recheck(s, p))?.label?.operation).toBe("付けた");
@@ -403,6 +392,53 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     expect(otherHead?.ci).toMatchObject({ verdict: "成功", resultHead: OTHER });
     expect(otherHead?.blockers.join("\n")).toContain(`result.json の head ${OTHER} は target.md の head と不一致`);
     expect(otherHead?.label?.operation).toBe("外した");
+  });
+
+  test.each(["finalize", "recheck-ci"] as const)("%s: 新しく紐付いたspecの本文を取得できなくても要求集合の変化を確認残にする", async (stage) => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "new-spec");
+    if (stage === "recheck-ci") expect((await finalize(s, p)).json?.saved).toBe(true);
+    const added = (await x.nod.run(["--json", "doc", "create", "new-spec.md", "--title", "追加仕様", "--kind", "spec", "--issue", x.issue, "--body", "- a は 2 を返す"], x.repo)).json as { id: number };
+    const wrapper = join(s.t, "nod-spec-unavailable");
+    put(wrapper, `#!/bin/sh\nif [ "$*" = "--json doc show ${added.id}" ]; then echo '取得できない' >&2; exit 1; fi\nexec "${x.nod.env.NOD_CLI}" "$@"\n`);
+    chmodSync(wrapper, 0o755);
+    s.env.NOD_CLI = wrapper;
+    const r = stage === "finalize" ? (await finalize(s, p)).json : await recheck(s, p);
+    const remaining = r && ("remaining" in r ? r.remaining : r.added);
+    expect(r?.merge).toBe(MERGE_NG);
+    expect(remaining?.some((v) => v.ref === "requirements/kind=spec" && v.reason.includes("要求の変化"))).toBe(true);
+    expect((await issueShow(x)).labels).not.toContain("merge-ready");
+  });
+
+  test.each(["report", "audit"] as const)("保存失敗した %s があれば、CI成功でも再照合でmerge-readyを付けない", async (kind) => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "savefail");
+    const suffix = kind === "audit" ? "-audit" : "";
+    put(join(x.nod.docs, `${x.issue.toLowerCase()}-code-review${suffix}-${today()}-savefail.md`), "既にある\n");
+    expect((await finalize(s, p)).json).toMatchObject({ saved: false, merge: MERGE_NG });
+    const r = await recheck(s, p);
+    expect(r).toMatchObject({ checked: false, merge: MERGE_NG, ci: null });
+    expect(r?.blockers.join("\n")).toContain("保存");
+    expect((await issueShow(x)).labels).not.toContain("merge-ready");
+  });
+
+  test.each(["report", "audit"] as const)("保存後の %s 本文やIssueリンクの変化をCI再照合で拒否し、復元されれば同じ原本を再利用できる", async (kind) => {
+    const s = sandbox();
+    const { x, p } = await cleanIssueReview(s, "saved-changed");
+    const f = (await finalize(s, p)).json as Finalize;
+    const doc = f.documents?.[kind] as SavedDoc;
+    const original = read(doc.path as string);
+    // runId/headと反証の印を残す追記でも、全本文の不一致を検出する
+    put(doc.path as string, `${original}\n別の本文\n`);
+    const changed = await recheck(s, p);
+    expect(changed).toMatchObject({ checked: false, merge: MERGE_NG, ci: null });
+    expect(changed?.blockers.join("\n")).toContain("指紋");
+    expect((await issueShow(x)).labels).not.toContain("merge-ready");
+    put(doc.path as string, original);
+    expect(await recheck(s, p)).toMatchObject({ checked: true, merge: MERGE_OK });
+    expect((await x.nod.run(["doc", "unlink", String(doc.id), "--issue", x.issue], x.repo)).exitCode).toBe(0);
+    expect(await recheck(s, p)).toMatchObject({ checked: false, merge: MERGE_NG });
+    expect((await issueShow(x)).labels).not.toContain("merge-ready");
   });
 
   test("13節: CI の失敗・必須のチェックの結果なし・付ける直前の head の変化・追加コミットでは付けず、追加コミットなら照合せずに外して記録する", async () => {
@@ -645,6 +681,45 @@ describe("code-review の仕上げ（review.ts finalize・recheck-ci）", () => 
     expect(f.logProblem).toContain("要約の作業ログを書けない（終了コード 1: SECRET_DETECTED: 作業ログにGitHub のトークンらしき値が含まれるため記録しませんでした");
     expect(f.label.error).toContain("[ci-result] の作業ログを書けない（終了コード 1: SECRET_DETECTED: ");
     expect((await issueShow(x)).activity.filter((a) => a.logKind)).toEqual([]);
+  });
+
+  test.each(["unchanged", "retarget", "remove", "replace-file"] as const)("local未追跡symlink: %s をリンク先の実体を読まずに固定・再照合する", async (change) => {
+    const s = sandbox();
+    const nod = tempNod(s);
+    const repo = makeGitRepo(s, "local-link");
+    registerRepo(nod.db, repo, "LINK");
+    const base = gitOut(repo, "rev-parse", "HEAD");
+    const link = join(repo, "untracked-link");
+    // 存在しないリンク先でも、リンクそのものを固定する
+    symlinkSync("missing-original", link);
+    const W = join(s.t, "work", "local-link");
+    const r = await runReview<{ ready: boolean; inputs: { path: string; sha256: string }[] }>("prepare", ["--work", W, "--repo", repo, "--mode", "local", "--base", base, "--untracked", "untracked-link"], s);
+    expect(r.json?.ready).toBe(true);
+    expect(readlinkSync(join(W, "input/local/untracked/untracked-link"))).toBe("missing-original");
+    const linkInput = r.json?.inputs.find((f) => f.path === "local/untracked/untracked-link");
+    expect(linkInput?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    const p: PreparedWork = { W, repo, base, head: base, clone: join(W, "repo") };
+    const local = (text: string) => text.replace(`head \`${base}\``, `head \`${base}\`／${r.json?.inputs.filter((f) => f.path.startsWith("local/")).map((f) => `${f.path} ${f.sha256}`).join("／")}`);
+    const files = ["| `requirements/workspace-rules.md` | なし |"];
+    for (const role of ["standards", "spec"] as const) {
+      await must(s, p, "agent", ["--role", role, "--event", "start"]);
+      put(join(W, role, "handoff.md"), local(exploreHandoff(role, p, { candidates: [], table: [], files })));
+      await must(s, p, "agent", ["--role", role, "--event", "received", "--agent-id", `agent-${role}`]);
+      await must(s, p, "check-explore", ["--role", role]);
+    }
+    await must(s, p, "refute-input");
+    expect(readlinkSync(join(W, "refute-input/local/untracked/untracked-link"))).toBe("missing-original");
+    await must(s, p, "agent", ["--role", "refute", "--event", "start"]);
+    put(join(W, "refute/verdict.md"), local(refuteVerdict(p, { empty: true, files })));
+    await must(s, p, "agent", ["--role", "refute", "--event", "received", "--agent-id", "agent-refute"]);
+    await must(s, p, "check-refute");
+    if (change !== "unchanged") rmSync(link);
+    if (change === "retarget") symlinkSync("missing-next", link);
+    if (change === "replace-file") put(link, "missing-original");
+    const f = (await finalize(s, p)).json as Finalize;
+    expect(f.remaining.filter((v) => v.ref === "local/untracked/untracked-link").length).toBe(change === "unchanged" ? 0 : 1);
+    expect(f.status).toBe("完了");
+    expect(f.ci.verdict).toBe("対象外（未コミット）");
   });
 
   test("Issue なしの mode: local: 未コミット変更の土台 HEAD・差分の変化を確認が残る事項にし、CI は対象外（未コミット）、報告と監査は手元に残してラベルを扱わない", async () => {

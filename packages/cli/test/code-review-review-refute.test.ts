@@ -120,6 +120,38 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     expect(st.decisions.find((d) => d.id === "SPC-1")?.verdict).toBe("基点から存在（対象外）");
   });
 
+  test("CAUSEに採用候補がなければ無効にし、採用された兄弟候補がある集約は許す", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const v = refuteVerdict(p);
+    const oneRejected = v.replace("| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 |", "| STD-1 | Standards 探索 | 棄却 | なし | CAUSE-1 |");
+    const allRejected = oneRejected.replace("| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 |", "| REF-1 | 反証で追加 | 棄却 | なし | CAUSE-1 |");
+    await reachRefute(s, p, allRejected);
+    const invalid = await checkRefute(s, p);
+    expect(invalid.json?.valid).toBe(false);
+    expect(messages(invalid.json, 3)).toContain("要対応の候補が無い");
+    expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
+    put(join(p.W, "refute/verdict.md"), oneRejected);
+    expect((await checkRefute(s, p)).json?.valid).toBe(true);
+    expect(structure(p).required).toMatchObject([{ heading: "CAUSE-1", impact: 2 }]);
+  });
+
+  test("要対応の必須根拠欄が欠けるか空なら有効な反証として保存しない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const v = refuteVerdict(p);
+    await reachRefute(s, p, v);
+    for (const field of ["場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠", "契約の出典", "関連する要求・契約", "反証の判定理由"]) {
+      for (const replacement of ["", `- ${field}:   \n`]) {
+        put(join(p.W, "refute/verdict.md"), v.replace(new RegExp(`^- ${field}:.*\\n`, "m"), replacement));
+        const r = await checkRefute(s, p);
+        expect(r.json?.valid).toBe(false);
+        expect(messages(r.json, 3)).toContain(field);
+        expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
+      }
+    }
+  });
+
   test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし）を正常として合格させる", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);

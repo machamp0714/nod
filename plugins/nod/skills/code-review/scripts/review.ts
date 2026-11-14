@@ -163,14 +163,14 @@ export interface FileHash {
   sha256: string;
 }
 
-// dir の配下の通常のファイル（リンクは数えない）の相対パスと sha256 を、find . の表記のバイト順で
+// 通常ファイルは本文、リンクは種別とリンク先の文字列の指紋。リンク先の実体は辿らない。
 export function fingerprintList(dir: string, exclude?: string): FileHash[] {
   return walkEntries(dir)
-    .filter((e) => e.kind === "file" && e.rel !== `./${exclude}`)
-    .map((e) => ({ path: e.rel.slice(2), sha256: sha256(readFileSync(e.path)) }));
+    .filter((e) => e.rel !== `./${exclude}`)
+    .map((e) => ({ path: e.rel.slice(2), sha256: sha256(e.kind === "link" ? `link\0${readlinkSync(e.path)}` : readFileSync(e.path)) }));
 }
 
-// parent.md の `find . -type f [! -path ./<exclude>] -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256` と同じ一覧
+// 共通入力・引き渡しの指紋一覧（リンクは fingerprintList と同じ種別付きの入力をハッシュする）
 export function fileFingerprint(dir: string, exclude?: string): string {
   return fingerprintList(dir, exclude)
     .map((f) => `${f.sha256}  ./${f.path}\n`)
@@ -182,7 +182,7 @@ export function fileFingerprint(dir: string, exclude?: string): string {
 export function depsFingerprint(depsDir: string): string {
   const entries = walkEntries(depsDir);
   const links = entries.filter((e) => e.kind === "link").map((e) => `link ${e.rel} -> ${readlinkSync(e.path)}\n`);
-  return fileFingerprint(depsDir) + links.join("");
+  return entries.filter((e) => e.kind === "file").map((e) => `${sha256(readFileSync(e.path))}  ${e.rel}\n`).join("") + links.join("");
 }
 
 // 共通入力の指紋（manifest.md 自身を除く input/ の各ファイル）。後の段階では作り直して prepare の inputs と比べる
@@ -1819,6 +1819,8 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
       continue;
     }
     const f = fieldsOf(b.body);
+    const missing = [...CANDIDATE_FIELDS, "契約の出典", "関連する要求・契約", "反証の判定理由"].filter((name) => !plain(f.get(name) ?? ""));
+    if (missing.length > 0) add(3, `要対応 ${heading} の必須項目が無いか空（${missing.join("・")}）`);
     const ids = candidateIds(f.get("候補 ID と発見者の区分") ?? "");
     mentioned.push(...ids);
     const impact = IMPACT.exec(plain(f.get("影響度") ?? ""))?.[1];
@@ -1836,6 +1838,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
       else placed.set(id, heading);
     }
     const impacts = ids.flatMap((id) => decided.get(id)?.impact ?? []);
+    if (impacts.length === 0) add(3, `要対応 ${heading} に採否一覧で要対応の候補が無い`);
     if (impact !== undefined && impacts.length > 0 && Number(impact) !== Math.min(...impacts)) {
       add(3, `要対応 ${heading} の影響度 ${impact} が、採否一覧の影響度の最小値 ${Math.min(...impacts)} と違う`);
     }
@@ -2122,6 +2125,17 @@ function recheckRequirements(work: string, prep: Prepared, dir: string): Require
   const after = new Map(fingerprintList(dir, "issue-snapshot.json").map((f) => [f.path, f.sha256]));
   const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
   const changed = paths.filter((p) => before.get(p) !== after.get(p)).map((p) => ({ path: `requirements/${p}`, before: before.get(p) ?? null, after: after.get(p) ?? null }));
+  if (prep.issue) {
+    // 本文を取得できない新規specはファイル比較に現れない。Issueから観測した集合も比べる。
+    const [oldIds = [], newIds = []] = [join(work, "parent/issue-snapshot.json"), join(dir, "issue-snapshot.json")].map((path) =>
+      (readRecord<{ documents?: DocRow[] }>(path)?.documents ?? []).filter((d) => d.kind === "spec").map((d) => d.id).sort((a, b) => a - b),
+    );
+    const missingChange = [...oldIds, ...newIds].some((id) => oldIds.includes(id) !== newIds.includes(id) && !changed.some((c) => c.path === `requirements/spec-${id}.md`));
+    if (missingChange) {
+      changed.push({ path: "requirements/kind=spec", before: sha256(JSON.stringify(oldIds)), after: sha256(JSON.stringify(newIds)) });
+      paths.push("kind=spec");
+    }
+  }
   return { at, dir, compared: paths.map((p) => `requirements/${p}`), changed, unavailable: req.unavailable, note };
 }
 
@@ -2842,6 +2856,10 @@ interface FinalizeRecord {
   remaining: Remaining[];
   ci: CiRecord;
   documents: { audit: SavedDocument; report: SavedDocument } | null;
+  saved: boolean;
+  saveProblems: string[];
+  reportSha256: string;
+  auditSha256: string;
 }
 
 function finalize(args: string[]): Outcome {
@@ -2983,6 +3001,34 @@ function finalize(args: string[]): Outcome {
 
 // ---- recheck-ci（parent.md 13節。レビューをやり直さず、同じ head の CI とマージ可否を照合し直す） ----
 
+// 初回保存の成功と、保存した結果・監査の現在の本文/所属を原稿の指紋で確かめる。
+// CI が後から成功しても、保存失敗や別の本文を有効なレビューに読み替えない。
+function savedReviewProblems(work: string, prep: Prepared, fin: FinalizeRecord): string[] {
+  const problems: string[] = [];
+  if (fin.saved !== true || fin.saveProblems?.length) problems.push(`報告の保存・照合に失敗（${fin.saveProblems?.join("、") || "保存成功の記録が無い"}）`);
+  for (const kind of ["report", "audit"] as const) {
+    const hash = kind === "report" ? fin.reportSha256 : fin.auditSha256;
+    const file = join(work, "parent", `${kind}.md`);
+    if (!hash || !existsSync(file) || sha256(readFileSync(file)) !== hash) problems.push(`${kind} の原稿の指紋が保存時と違うか原稿が無い`);
+    if (!prep.issue) continue;
+    const saved = fin.documents?.[kind];
+    if (!saved || saved.id === null || saved.problems.length > 0) {
+      problems.push(`${kind} Document の保存・照合が成功していない`);
+      continue;
+    }
+    const p = nod(["--json", "doc", "show", String(saved.id)]);
+    const doc = parseJson(p) as { kind?: string; issues?: { id: string }[]; content?: string } | undefined;
+    if (p.code !== 0 || typeof doc?.content !== "string") {
+      problems.push(`${kind} Document ${saved.id} を読み直せない（${failure(p)}）`);
+      continue;
+    }
+    if (doc.kind !== "doc" || !doc.issues?.some((i) => i.id.toUpperCase() === prep.issue?.toUpperCase())) problems.push(`${kind} Document ${saved.id} の kind・Issueリンクが保存時と違う`);
+    const heading = `# ${saved.title}\n\n`;
+    if (!doc.content.startsWith(heading) || sha256(doc.content.slice(heading.length)) !== hash) problems.push(`${kind} Document ${saved.id} の本文の指紋が保存時と違う`);
+  }
+  return problems;
+}
+
 function recheckCi(args: string[]): Outcome {
   const o = parseOptions(args, ["work"], []);
   const work = absolute("work", o.one.get("work"));
@@ -3018,14 +3064,13 @@ function recheckCi(args: string[]): Outcome {
     // 3: 照合し直しても可にならない条件と、使う記録（固定した対象版と要求資料）の有無
     const records = ["input/target.md", "input/requirements", "input/manifest.md"];
     const missing = records.filter((r) => !existsSync(join(work, r)));
-    const audit = auditId !== null ? docContent(auditId) : null;
     const cond = [
+      ...savedReviewProblems(work, prep, fin),
       ...(fin.status === "完了" ? [] : [`報告の最終状態が完了でない（${fin.status}）`]),
       ...(fin.scoreValue === 5 ? [] : [`確定した要対応の点数が 5 でない（${fin.scoreValue ?? NOT_RUN_SCORE}）`]),
       ...(fin.remaining.length > 0 ? [`報告の確認が残る事項 ${fin.remaining.length} 件`] : []),
       ...(prep.mode === "local" ? ["mode: local"] : []),
       ...(missing.length > 0 ? [`作業ディレクトリの記録が無い: ${missing.map((m) => join(work, m)).join("・")}`] : []),
-      ...(typeof audit === "string" ? [`監査 Document ${auditId} を読めない（${audit}）`] : audit && !(audit.content.includes(`- runId: ${runId}`) && audit.content.includes(prep.head)) ? [`監査 Document ${auditId} の runId・対象 SHA が作業ディレクトリと一致しない`] : []),
     ];
     if (cond.length > 0) {
       reason = `照合し直しても可にならない: ${cond.join("・")}`;
@@ -3410,8 +3455,8 @@ export interface ComparisonUsage {
   agentsTotal: number | null;
 }
 
-// スキルの読み込み（skill://code-review、または code-review/SKILL.md のパスを引数に持つツール呼び出し）
-const SKILL_LOAD = /^skill:\/\/(?:[^/\s]*:)?code-review\/?$|(?:^|\/)code-review\/SKILL\.md$/;
+// 通常の skill://nod/code-review、接頭辞なし/コロン接頭辞のURI、または code-review/SKILL.md の実パス
+const SKILL_LOAD = /^skill:\/\/(?:[^/\s]+[/:])?code-review\/?$|(?:^|\/)code-review\/SKILL\.md$/;
 
 // 保存後の確定値と MIN-33 の前後比較用の値を求め、3つの値を parent/usage.json と usage.md に書く
 function finishUsage(work: string, session: ParentSession, report: ReportUsage, savedAt: string, skillStartArg: string | undefined): { final: FinalUsage; comparison: ComparisonUsage } {

@@ -367,6 +367,25 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(read(join(W, "parent/stages.md"))).toContain("finalize");
   });
 
+  test.each([
+    ["skill://nod/code-review", true],
+    ["skill://code-review", true],
+    ["skill://nod:code-review", true],
+    ["/tmp/repo/code-review/SKILL.md", true],
+    ["skill://nod/code-review/references/parent.md", false],
+    ["skill://nod/code-review-extra", false],
+  ] as const)("比較開始時刻の自動検出: %s", async (path, recognized) => {
+    const s = sandbox();
+    const skillAt = iso(Date.now() - 60000);
+    const parent = join(s.t, "parent.jsonl");
+    put(parent, lines(response(iso(ms(skillAt) - 1000), total(100)), response(skillAt, total(10), { tool: { name: "read", arguments: { path } } })));
+    const p = await prepareCaseWork(s, "skill-uri");
+    const r = await runReview<{ usage: { comparison: { from: string | null; parentTotalTokens: number | null } } }>("finalize", ["--work", p.W, "--not-run-reason", "担当は起動しない計測契約の検証", "--session", parent], s);
+    expect(r.exitCode).toBe(0);
+    expect(r.json?.usage.comparison.from).toBe(recognized ? skillAt : null);
+    expect(r.json?.usage.comparison.parentTotalTokens).toBe(recognized ? 10 : null);
+  });
+
   test("評価用の事例: セッション記録の場所が無ければ使用量を取得できずとして残し（0 にしない）、区間の時間は同じく記録する", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s, "case-usage");

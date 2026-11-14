@@ -99,6 +99,8 @@ bun <スキルのディレクトリ>/scripts/review.ts prepare --repo <元のリ
   - Issue の無い単独レビューでは、`issue.md`・`spec-*`・`plan-*` の代わりに、利用者が明示した要求の原文だけを `request-<n>.md` に丸ごと写し、`target.md` に「Issue なし」と書く（明示された要求が無ければ「Workspace の規約以外の要求資料なし」）。`workspace-rules.md` はどちらの場合も写す。
 - `manifest.md`: `input/` の各ファイル（`manifest.md` 自身を除く）の sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由（読めなかった `kind=spec` の Document など）、依存の写しの節（場所、lockfile のパス `<lockfile>@<head の SHA>` と sha256、パッケージ管理とその版、準備のコマンドと終了コード、取得元、`deps-files.sha256` の件数。準備しなかった・できなかった場合は理由）。
 
+共通入力・引き渡しの指紋には、明示された未追跡 symlink も含める。通常ファイルは本文の sha256、リンクは `link`・NUL文字・リンク先文字列を連結した値の sha256 とし、リンク先の実体は辿らない。リンク先の変更・消失・通常ファイルへの置き換えも、同一性検査と保存直前の local 再照合で検出する。依存の写し専用の `deps-files.sha256` の形式（2.2節）は変えない。
+
 `nod issue show` の全出力（`parent/issue-snapshot.json`）、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、CI の結果と親の CI の照合の記録（`parent/ci/`）、依存の準備の記録（`parent/deps/`）、元のリポジトリのパス、計画の進捗状態は `input/` に入らない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。要求が参照する別 Document などを親が辿って足さない。`unavailable` に資料があっても、親は別の資料で代用しない（担当が不足として扱う）。
 
 ## 3. CI の結果を扱う（親だけ）
@@ -304,6 +306,7 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 
 1. `mode: local` では、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で `parent/local-recheck/` へ取り直し、土台の HEAD と `input/local/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
 2. 要求の本文・資料だけを2.3節と同じ方法で `parent/requirements-recheck/` へ取り直し（Issue の `nod issue show` の全出力は `parent/requirements-recheck/issue-snapshot.json`。評価用の事例は事例の入力 `inputs/<case-id>/` から写し直す）、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約。単独レビューでは明示された要求）。Activity・進捗・更新日時は比べない（保存の後のコメントや作業ログでは止めない）。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
+   本文を取得できない新規 spec でも、Issue の取得結果から `kind=spec` の集合の変化を比べる。本文ファイルの比較に現れない集合変更は `requirements/kind=spec` として確認が残る事項に記録し、取得不能の理由も監査へ残す。
 3. 必須の CI の規約（3.1節の Workspace の規約の「必須のチェック」）は、2で取り直した `parent/requirements-recheck/workspace-rules.md` から読む（8の CI の照合に使う）。取り直せなければ CI を照合せず、CI 判定は `必須のチェックを決められず` になる。
 4. 最終状態を SKILL.md の6節で決める。必要な担当（Standards 探索・Spec 探索・反証）の有効な結果（最新の試行が隔離されておらず、検査に合格し、反証では構造が残ったもの）の有無だけで決める。`prepare` が準備完了でなければ `未実施`（`prepare` の理由）、担当を1つも起動していなければ `未実施`、利用枠の上限・利用者による中止の試行があれば `未完了`（`retire-attempt` の理由）、それ以外で必要な担当の有効な結果が無ければ `未完了`（理由: `retire-attempt` の最終の理由、反証への入力を固定できず、起動していない、検査が不合格のどれか。探索が欠けたら、反証を起動しなかったことを書き添え、後の段階の欠落を理由に重ねない）。判定本文の未確認と1・2の変化では `完了` を `未完了` にしない。
 5. `完了` のとき、未確認が残っていても、`parent/refute-structure.json` の要対応（同一原因は1件）の影響度の最小値を確定した要対応の点数とする（要対応0件なら 5）。`未実施`・`未完了` は点数なし。スクリプトは判定・影響度・対応表を変えず、1・2の再照合で点数を変えない。計算の過程（要対応の件数、各要対応の候補 ID と影響度、最小値）は監査に書かれる。
@@ -386,9 +389,9 @@ bun <スキルのディレクトリ>/scripts/review.ts recheck-ci --work <W の�
 
 親（または実装を進める親・PM）が行うのは、結果 Document の監査参照から監査 Document を読み、その管理情報の「作業ディレクトリ」を `<W>` として渡すことと、結果を利用者に返すことだけである。保存の後に Issue へ書いた記録（作業ログ・コメント・返信）の id を渡す必要はなく、それらの記録では止めない。スクリプトが次の1〜8を行う。
 
-1. `parent/finalize.json`（保存した最終状態・点数・確認が残る事項・CI の基点・Document ID）を読み、監査 Document があれば `nod --json doc show` で、その管理情報の runId・対象版が作業ディレクトリと同じことを確かめる。再照合の番号 `<n>` は `parent/ci/` と `parent/recheck-<n>/` の番号の最大の次とし、`parent/recheck-<n>/` を作る。10節の8と同じ方法で現在の head（PR なら基点も）を取り直し、`input/target.md` の head SHA と比べる（`parent/head-check.md` に書き足す）。原判定・点数・既存の確認事項は、監査と同じ保存時の記録（`parent/finalize.json`）から読み、結果だけで代用しない。過去の Document は書き換えない。
+1. `parent/finalize.json`（保存した最終状態・点数・確認が残る事項・CI の基点・Document ID・保存成功と指紋）を読む。結果・監査の原稿が保存時の指紋と一致すること、Issue があれば両 Document を `nod --json doc show` で取り直し、kind・Issueリンク・タイトル見出しを除いた全本文の指紋が保存時と一致することを確かめる。runIdやheadの文字列の包含だけでは代替しない。再照合の番号 `<n>` は `parent/ci/` と `parent/recheck-<n>/` の番号の最大の次とし、`parent/recheck-<n>/` を作る。10節の8と同じ方法で現在の head（PR なら基点も）を取り直し、`input/target.md` の head SHA と比べる（`parent/head-check.md` に書き足す）。原判定・点数・既存の確認事項は保存時の記録から読み、過去の Document は書き換えない。
 2. head が違う（追加コミット）か取り直せないなら照合しない。merge-ready が付いていれば外し、「判定が古い（追加コミット）」（または取り直せない理由）と、報告の head SHA・現在の head SHA・報告の Document ID を、本文を `[ci-result]` で始めて `--kind test` に記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。新しい head には新しいレビュー（1節から）が要る。
-3. 報告の最終状態が `完了` でない、確定した要対応の点数が `5` でない、報告の確認が残る事項が1件以上ある、`mode: local` である、4〜6で使う作業ディレクトリの記録（`input/target.md`・`input/requirements/`・`input/manifest.md`）のどれかが無い、または監査 Document の runId・対象版が一致しないなら、照合し直してもマージ可否は `可` にならない。照合せず、merge-ready が付いていれば外し、理由（無い記録はそのパス）を2と同じく記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。
+3. 報告の最終状態が `完了` でない、確定した要対応の点数が `5` でない、報告の確認が残る事項が1件以上ある、`mode: local` である、4〜6で使う作業ディレクトリの記録（`input/target.md`・`input/requirements/`・`input/manifest.md`）のどれかが無い、初回の保存・照合が失敗している、または1の原稿・結果・監査の同一性を確かめられないなら、照合し直してもマージ可否は `可` にならない。CI が後から成功しても保存失敗を解除しない。照合せず、merge-ready が付いていれば外し、理由（無い記録はそのパス）を2と同じく記録し、8の `record.md` を書いて終える（`parent/ci/<n>/` は作らない）。
 4. head が同じなら、10節の2を同じ方法で `parent/recheck-<n>/requirements/` へやり直し、固定時の `input/requirements/` と比べる。見つかった変化は10節と同じ理由（保存時の要求の変化）で確認が残る事項に加える。報告 Document は書き換えず、加えた事項は8の `record.md` と7の記録に書く。
 5. 3.3節のとおり CI を `parent/ci/<n>/` へ1回だけ照合する（`--rules` は4で取り直した `parent/recheck-<n>/requirements/workspace-rules.md`、`--base` は報告の CI の基点、`--head` は `target.md` の head の SHA）。PR の `baseRefName` が報告の基点と違えば、CI 判定を `必須のチェックを決められず` として扱い、「基点が変わった」を不可の理由にする。
 6. 報告の最終状態・確定した要対応の点数と、報告の確認が残る事項に4で加えた事項を合わせ、10節の8と同じ規則でマージ可否を決める（`parent/ci/<n>/result.json` の `head` が `target.md` の head の SHA と同じで、CI 判定が `成功`）。報告の判定本文・最終状態・点数・対応表は変えない。
