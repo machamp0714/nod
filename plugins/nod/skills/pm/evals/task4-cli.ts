@@ -1,12 +1,12 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task4Variant } from "./task4-setup";
-import { type InitialReview, checkSubmissionCi, nodCliRecorder, recheckReviewCi, recordInitialReview, simulatedCi } from "./initial-review";
+import { type InitialReview, type Submission, dropStaleMergeReady, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
 
 type Task = { id: string; spec: string };
 type Worker = { task: Task; dispatch: { id: string; taskId: string; status: string }; terminalId: string; phase: "initial" | "repair" | "confirmation" | "waiting" | "submission" | "handoff"; reported: boolean; released: boolean; reusedBy?: string; round: number; commit: string; launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } }; report?: unknown };
 type Delivery = { id: string; messages: { id: string; type: string; taskId: string; dispatchId: string; from: string; body: string }[] };
-type State = { variant: Task4Variant; round: number; head: string; tasks: Task[]; workers: Worker[]; delivery: Delivery | null; acknowledged: string[]; sent: unknown[]; pr: Record<string, unknown> | null; review?: InitialReview };
+type State = { variant: Task4Variant; round: number; head: string; tasks: Task[]; workers: Worker[]; delivery: Delivery | null; acknowledged: string[]; sent: unknown[]; pr: Record<string, unknown> | null; review?: InitialReview; submission?: Submission };
 const base = "b".repeat(40);
 const worktreeId = "repo-api::/evaluation/studio/list-spacing";
 const launch = { requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } };
@@ -31,12 +31,11 @@ export function runTask4Cli(tool: string, argv: string[]) {
     const unresolved = state.variant !== "optional-only" && (initial || state.variant === "unresolved" || (state.variant === "two-rounds" && w.round < 2));
     const target = state.variant === "stale-commit" && !initial ? "a".repeat(40) : w.commit;
     const mandatory = { id: "F1", category: "仕様不適合", evidence: "Issue本文は12px、変更差分は10px", commit: target, acceptance: "一覧余白12pxの境界テストが成功する" };
-    // 初回はnod:implementの親が3担当へ委譲し、反証担当がF1を要対応（影響度3）、O1を任意と確定し、同じheadのCI判定を照合した報告Documentを残す。
+    // 初回はnod:implementの親が3担当へ委譲し、反証担当がF1を要対応（影響度3）、O1を任意と確定し、現在のheadと基点を照合した報告Documentを残す。
     if (initial) state.review ??= recordInitialReview({
       dir: process.env.PM_EVAL_DIR!, issueId: "API-1", implementer: "term-implementation", baseCommit: base, headCommit: target,
       standards: { findings: [{ id: "O1", category: "任意改善", evidence: "命名の好みで仕様と規約への違反はない", commit: target, suggestion: "変数名の改善を検討できる" }], evidence: "既存規約と差分を照合" },
       spec: { findings: unresolved ? [{ ...mandatory, impact: 3 }] : [], evidence: "Issue本文の受入条件と差分を照合" },
-      ci: simulatedCi(target),
     }, nodCliRecorder(nod));
     return { taskId: w.task.id, dispatchId: w.dispatch.id, issueId: "API-1", outcome: "succeeded", commit: w.commit, worktreeId, terminalId: w.terminalId, model: w.launch.effective.model, effort: w.launch.effective.effort, gitEvidence: gitEvidence(),
       acceptance: { passed: !unresolved, commit: w.commit, evidence: unresolved ? "一覧余白の不一致が残る" : "一覧余白12pxを確認" },
@@ -46,7 +45,7 @@ export function runTask4Cli(tool: string, argv: string[]) {
         scope: "既存指摘F1と修正差分のみ。変更ファイル全体の再レビューは行わない", standards: { findings: [], evidence: "既存規約と差分を照合" }, spec: { findings: unresolved ? [mandatory] : [], evidence: "Issue本文の受入条件と差分を照合" },
         resolved: unresolved || state.variant === "optional-only" ? [] : [{ id: "F1", commit: target, evidence: "一覧余白12pxの境界テストと差分で解消を確認" }],
         newFindings: !initial && state.variant === "new-defect" ? [{ id: "F2", category: "不具合", commit: target, evidence: "修正差分でモバイル表示が崩れる", acceptance: "モバイル表示の境界確認が成功する" }] : [] } } : {}),
-      ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: w.commit } : {}) };
+      ...(w.phase === "submission" ? { prUrl: state.pr?.url, pushedCommit: w.commit, submission: state.submission } : {}) };
   };
   if (!state.workers.length) {
     const task = { id: "task-initial", spec: "API-1。nod:implement内の初回独立レビュー完了。" };
@@ -118,8 +117,8 @@ export function runTask4Cli(tool: string, argv: string[]) {
         if (w) {
           if (w.phase === "repair") {
             state.round = w.round; state.head = (state.round === 1 ? "c" : "d").repeat(40); w.commit = state.head;
-            // merge-readyが付いたIssueのブランチへ新しいコミットを足した実装者は、13節の2のとおりラベルを外して「判定が古い（追加コミット）」を記録する。
-            if (state.review && nod("issue", "show", "API-1").labels.includes("merge-ready")) recheckReviewCi(state.review, { currentHead: state.head }, nodCliRecorder(nod));
+            // merge-readyが付いたIssueのブランチへ新しいコミットを足した実装者は、ラベルを外して「判定が古い（追加コミット）」と判定したhead SHAを[merge-ready]の作業ログに記録する。
+            if (state.review) dropStaleMergeReady(state.review, state.head, nodCliRecorder(nod));
           }
           if (w.phase === "submission") {
             w.commit = state.head;
@@ -128,8 +127,10 @@ export function runTask4Cli(tool: string, argv: string[]) {
             state.pr = { number: 42, url: "https://github.com/evaluation/api/pull/42", title: "一覧の余白を調整", state: "OPEN", isDraft: false, headRefName: "list-spacing", baseRefName: "main", headRefOid: state.head, baseRefOid: base, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; save();
             nod("issue", "link-pr", "API-1", String(state.pr.url));
             nod("issue", "pr-status", "API-1", "--refresh");
-            // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
-            if (checkSubmissionCi(state.review!, { head: state.head, ci: simulatedCi(state.head) }, nodCliRecorder(nod)).ready) nod("issue", "update", "API-1", "--status", "in_review");
+            // CIの結果は待たず照合もしない。基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
+            state.submission = recordSubmission(state.review!, { head: state.head, base: "main" }, nodCliRecorder(nod));
+            for (const args of state.submission.requiredChecks.commands) record("gh", args);
+            if (state.submission.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = "completed"; w.report = report(w); state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(w.report) }] };
         }

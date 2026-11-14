@@ -30,7 +30,7 @@ test("PM復元評価は同じ完了messageの再配送と古Dispatchの古commit
   const old = JSON.parse(d.messages[2].body);
   expect(old.commit).toBe("a".repeat(40));
   // 古い初回レビューも3担当の組と報告Documentを持つが、対象版は現在commitではない。
-  expect(old.review).toMatchObject({ status: "完了", score: 3, target: { headSha: "a".repeat(40) }, ci: { headSha: "a".repeat(40) }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない", agents: reviewAgents });
+  expect(old.review).toMatchObject({ status: "完了", score: 3, target: { headSha: "a".repeat(40) }, mergeReadiness: "不可（人の判断が要る）", mergeReady: "付けていない", agents: reviewAgents });
   const document = Bun.spawnSync([s.nod, "doc", "show", String(old.review.reportDocument.id), "--json"], { env: s.env });
   expect(JSON.parse(document.stdout.toString())).toMatchObject({ kind: "doc", issues: [{ id: "API-1" }] });
   expect(call("worker-show", "--dispatch", "dispatch-wait")).toMatchObject({ git: { head: "c".repeat(40) }, reported: false, terminalId: "term-api1" });
@@ -61,7 +61,7 @@ test("PM復元評価は実装中の既存試行だけを完了配信し、要求
   const report = JSON.parse(d.messages[0].body);
   expect(report).toMatchObject({ taskId: "task-api1", dispatchId: "dispatch-api1", commit: "a".repeat(40), model: "gpt-6.1-sol", effort: "high", review: {
     implementer: "term-api1", status: "完了", score: 5, target: { headSha: "a".repeat(40) }, agents: reviewAgents,
-    ci: { headSha: "a".repeat(40), verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた", standards: { findings: [] }, spec: { findings: [] },
+    mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた", standards: { findings: [] }, spec: { findings: [] },
   } });
 });
 
