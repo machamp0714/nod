@@ -3,24 +3,165 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { startIssue } from "../../core/src";
-import { nodCliRecorder, recordInitialReview } from "../../../plugins/nod/skills/pm/evals/initial-review";
+import { nodCliRecorder, recordInitialReview, recordSubmission } from "../../../plugins/nod/skills/pm/evals/initial-review";
+import { type GhResult, type RequiredChecksMode, readRequiredChecks, workerGh } from "../../../plugins/nod/skills/pm/evals/required-checks";
 import { createTask1Scenario } from "../../../plugins/nod/skills/pm/evals/setup";
 import { createTask2Scenario } from "../../../plugins/nod/skills/pm/evals/task2-setup";
+import { createTask4Scenario } from "../../../plugins/nod/skills/pm/evals/task4-setup";
+import { createTask5Scenario } from "../../../plugins/nod/skills/pm/evals/task5-setup";
+import { createTask6Scenario } from "../../../plugins/nod/skills/pm/evals/task6-setup";
 
 const reviewAgents = { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } };
 const scope = "- 範囲: このレビューはコードレベルの確認であり、ブラウザ検証・見た目やデザイン・実環境での動作・作業手順は確かめておらず、別のフローで扱う。";
 const mergeReadyNote = "マージ可否・merge-ready は [merge-ready] で始まる作業ログを参照";
 const noRequiredChecks = "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない";
+/** 偽workerが読む基点ブランチの必須チェックの設定（ブランチ保護と、全ページを1つにまとめたルールセット）。 */
+const requiredCheckReads = [["api", "repos/evaluation/api/branches/main"], ["api", "--paginate", "--slurp", "repos/evaluation/api/rules/branches/main?per_page=100"]];
 /** 報告Documentの印の間の本文。 */
 const between = (content: string, name: string) => content.match(new RegExp(`<!-- ${name}:begin -->\\n([\\s\\S]*?)<!-- ${name}:end -->`))?.[1];
 
-test("implementとPMの手順は、GitHubの必須チェックを回避せず、未設定なら報告に書くことを定める", () => {
+test("implementとPMの手順は、GitHubの必須チェックを回避せず、未設定と確認できないを区別して報告し、提出時にheadと基点の両方を照合する", () => {
   for (const path of ["plugins/nod/skills/implement/SKILL.md", "plugins/nod/skills/pm/SKILL.md", "plugins/nod/skills/pm/references/implementation.md"]) {
     const text = readFileSync(path, "utf8");
     expect(text, path).toContain("`gh pr merge --admin`");
     expect(text, path).toContain(noRequiredChecks);
+    // 読み取りの失敗は設定の不存在を示さないので、未設定の断定文と別に「確認できない」と報告する。
+    expect(text, path).toContain("設定の有無を確認できない");
+    for (const merged of ["0件・保護なし・読めない", "未設定・読めない"]) expect(text, `${path}: ${merged}`).not.toContain(merged);
+    // 提出・再確認では、merge-readyを付けた記録の判定したhead SHAとレビューした基点を、現在のPRのheadと基点の両方と照合する。
+    for (const part of ["`baseRefName`", "基点が変わった", "照合できない"]) expect(text, `${path}: ${part}`).toContain(part);
     for (const removed of ["ci-result", "recheck-ci", "ci-checks", "CI 判定", "CI判定", "13節"]) expect(text, `${path}: ${removed}`).not.toContain(removed);
   }
+});
+
+test("PM評価の偽GitHubは基点ブランチの必須チェックの設定の読取だけを、シナリオの応答（未設定・設定あり・失敗）で返し、書込みを拒否する", async () => {
+  const expected: Record<RequiredChecksMode, { exitCode: number; branch?: object; rules?: unknown[] }> = {
+    unset: { exitCode: 0, branch: { name: "main", protected: false }, rules: [] },
+    set: { exitCode: 0, branch: { name: "main", protected: true, protection: { required_status_checks: { contexts: ["test"] } } }, rules: [] },
+    error: { exitCode: 1 },
+  };
+  for (const mode of ["unset", "set", "error"] as const) {
+    const scenario = await createTask2Scenario({ requiredChecks: mode });
+    const gh = (...args: string[]) => Bun.spawnSync([scenario.gh, ...args], { env: scenario.env });
+    const branch = gh("api", "repos/evaluation/api/branches/main");
+    const rules = gh("api", "--paginate", "--slurp", "repos/evaluation/api/rules/branches/main?per_page=100");
+    const plainRules = gh("api", "/repos/evaluation/api/rules/branches/main");
+    for (const result of [branch, rules, plainRules]) expect(result.exitCode, `${mode}: ${result.stdout}`).toBe(expected[mode].exitCode);
+    if (mode === "error") {
+      for (const result of [branch, rules]) expect(result.stderr.toString()).toContain("(HTTP 403)");
+    } else {
+      expect(JSON.parse(branch.stdout.toString())).toMatchObject(expected[mode].branch!);
+      // --paginate --slurp はページの配列、そのままならページの中身を返す。
+      expect(JSON.parse(rules.stdout.toString())).toEqual([expected[mode].rules]);
+      expect(JSON.parse(plainRules.stdout.toString())).toEqual(expected[mode].rules);
+    }
+    // 書込み・他のリポジトリ・保護の変更・マージは、応答のモードに関わらず拒否する。
+    for (const write of [
+      ["api", "-X", "PUT", "repos/evaluation/api/branches/main/protection"],
+      ["api", "--method", "DELETE", "repos/evaluation/api/rulesets/1"],
+      ["api", "repos/evaluation/api/branches/main", "-f", "protected=false"],
+      ["api", "repos/other/repo/branches/main"],
+      ["pr", "merge", "42", "--admin"],
+    ]) {
+      const result = gh(...write);
+      expect(result.exitCode, write.join(" ")).toBe(1);
+      expect(result.stdout.toString(), write.join(" ")).not.toContain("protected");
+    }
+  }
+});
+
+test("PM評価のTask4から6の偽GitHubも、必須チェックの設定の読取だけを受け付け、書込みを拒否する", async () => {
+  for (const create of [createTask4Scenario, createTask5Scenario, createTask6Scenario]) {
+    const scenario = await create({ requiredChecks: "set" });
+    const gh = (...args: string[]) => Bun.spawnSync([scenario.gh, ...args], { env: scenario.env });
+    const branch = gh("api", "repos/evaluation/api/branches/main");
+    expect(branch.exitCode).toBe(0);
+    expect(JSON.parse(branch.stdout.toString())).toMatchObject({ protected: true, protection: { required_status_checks: { contexts: ["test"] } } });
+    expect(JSON.parse(gh("api", "--paginate", "--slurp", "repos/evaluation/api/rules/branches/main?per_page=100").stdout.toString())).toEqual([[]]);
+    for (const write of [["api", "-X", "PUT", "repos/evaluation/api/branches/main/protection"], ["pr", "merge", "42", "--admin"]]) expect(gh(...write).exitCode).toBe(1);
+  }
+});
+
+test("必須チェックの設定の読取結果は、設定あり・未設定・確認できないのどれか1つで、確認できないときは未設定の断定文を書かない", () => {
+  const ok = (body: unknown): GhResult => ({ exitCode: 0, stdout: JSON.stringify(body), stderr: "" });
+  const denied: GhResult = { exitCode: 1, stdout: "{\"message\":\"Resource not accessible by integration\",\"status\":\"403\"}", stderr: "gh: Resource not accessible by integration (HTTP 403)\n" };
+  const unprotected = ok({ name: "main", protected: false, protection: { enabled: false, required_status_checks: { enforcement_level: "off", contexts: [], checks: [] } } });
+  const protectedTest = ok({ name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "non_admins", contexts: ["test"], checks: [{ context: "test", app_id: 15368 }] } } });
+  const rulesetBuild = ok([[{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "build" }] } }, { type: "pull_request" }]]);
+  const cases: [string, GhResult, GhResult, "設定あり" | "未設定" | "確認できない", string[], string[]][] = [
+    ["保護なし・ルールセットなし", unprotected, ok([[]]), "未設定", [], [noRequiredChecks]],
+    ["保護ありで強制がoff", ok({ name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "off", contexts: [], checks: [] } } }), ok([[]]), "未設定", [], [noRequiredChecks]],
+    ["ブランチ保護に必須チェック", protectedTest, ok([[]]), "設定あり", ["test"], ["test（ブランチ保護）"]],
+    ["ルールセットに必須チェック", unprotected, rulesetBuild, "設定あり", ["build"], ["build（ルールセット）"]],
+    ["片方が読めず、もう片方に必須チェック", protectedTest, denied, "設定あり", ["test"], ["test（ブランチ保護）", "ルールセットを読めない", "HTTP 403"]],
+    ["両方が読めない", denied, denied, "確認できない", [], ["設定の有無を確認できない", "HTTP 403"]],
+    ["片方だけ読めず、読めた方は未設定", unprotected, denied, "確認できない", [], ["設定の有無を確認できない", "ルールセットを読めない"]],
+    ["保護ありだが必須チェックの設定が見えない", ok({ name: "main", protected: true, protection: { enabled: true } }), ok([[]]), "確認できない", [], ["設定の有無を確認できない", "見えない"]],
+    ["応答がJSONでない", { exitCode: 0, stdout: "<html>", stderr: "" }, { exitCode: 0, stdout: "<html>", stderr: "" }, "確認できない", [], ["設定の有無を確認できない", "JSON"]],
+  ];
+  for (const [name, branch, rules, outcome, contexts, parts] of cases) {
+    const calls: string[][] = [];
+    const result = readRequiredChecks("main", args => { calls.push(args); return args.some(arg => arg.includes("/rules/")) ? rules : branch; });
+    expect(calls, name).toEqual(requiredCheckReads);
+    expect(result, name).toMatchObject({ base: "main", commands: requiredCheckReads, outcome, contexts });
+    for (const part of parts) expect(result.note, name).toContain(part);
+    if (outcome !== "未設定") expect(result.note, name).not.toContain(noRequiredChecks);
+  }
+});
+
+for (const mode of ["unset", "set", "error"] as const) {
+  test(`PM評価のPR作業は、必須チェックの設定を偽GitHubから読んだ結果を報告に書く（${mode}）`, async () => {
+    const scenario = await createTask2Scenario({ requiredChecks: mode });
+    const nod = (...args: string[]) => {
+      const result = Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: scenario.env });
+      expect(result.exitCode, result.stdout.toString()).toBe(0);
+      return JSON.parse(result.stdout.toString());
+    };
+    const review = recordInitialReview({
+      dir: scenario.dir, issueId: "API-1", implementer: "term-implementation", baseCommit: "b".repeat(40), headCommit: "a".repeat(40),
+      standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
+    }, nodCliRecorder(nod));
+    const submission = recordSubmission(review, { head: "a".repeat(40), base: "main" }, nodCliRecorder(nod), workerGh(scenario.dir, scenario.env));
+    const outcome = { unset: "未設定", set: "設定あり", error: "確認できない" }[mode];
+    expect(submission.requiredChecks).toMatchObject({ base: "main", commands: requiredCheckReads, outcome, contexts: mode === "set" ? ["test"] : [] });
+    if (mode === "unset") expect(submission.requiredChecks.note).toBe(noRequiredChecks);
+    else expect(submission.requiredChecks.note).not.toContain(noRequiredChecks);
+    if (mode === "error") expect(submission.requiredChecks.note).toContain("設定の有無を確認できない");
+    // 必須チェックの設定の結果は報告事項で、提出の条件にもmerge-readyにも使わない。
+    expect(submission.ready).toBe(true);
+    expect((nod("issue", "show", "API-1") as { labels: string[] }).labels).toContain("merge-ready");
+    const ops = readFileSync(scenario.log, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(ops.filter(op => op.tool === "gh" && op.argv[0] === "api").map(op => [op.origin, op.argv])).toEqual(requiredCheckReads.map(args => ["worker", args]));
+  });
+}
+
+test("PR提出時にheadが同じでもPRの基点がレビューした基点と違えば、merge-readyを外し基点が変わったと記録する", async () => {
+  const scenario = await createTask2Scenario();
+  const nod = (...args: string[]) => {
+    const result = Bun.spawnSync([scenario.nod, "-w", "API", ...args, "--json"], { env: scenario.env });
+    expect(result.exitCode, result.stdout.toString()).toBe(0);
+    return JSON.parse(result.stdout.toString());
+  };
+  const show = () => nod("issue", "show", "API-1") as { labels: string[]; activity: { logKind?: string | null; body?: string }[] };
+  // 基点 main・head a でレビューしてマージ可になり merge-ready が付いた後、head a のまま PR の基点だけが release へ変わった。
+  const review = recordInitialReview({
+    dir: scenario.dir, issueId: "API-1", implementer: "term-implementation", baseCommit: "b".repeat(40), headCommit: "a".repeat(40),
+    standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
+  }, nodCliRecorder(nod));
+  expect(review).toMatchObject({ mergeReady: "付けた", reviewedBase: "main" });
+  const submission = recordSubmission(review, { head: "a".repeat(40), base: "release" }, nodCliRecorder(nod), workerGh(scenario.dir, scenario.env));
+  expect(submission.headSha).toBe("a".repeat(40));
+  expect(show().labels).not.toContain("merge-ready");
+  const dropped = show().activity.filter(item => item.body?.startsWith("[merge-ready] merge-ready: 外した（"));
+  expect(dropped).toHaveLength(1);
+  expect(dropped[0]!.logKind).toBe("progress");
+  expect(dropped[0]!.body).toStartWith("[merge-ready] merge-ready: 外した（基点が変わった（レビューした基点 main、現在の基点 release）");
+  for (const part of [`判定した head SHA ${"a".repeat(40)}、現在の head ${"a".repeat(40)}（一致）`, "レビューした基点 main、現在の基点 release（不一致）", `報告Document ${review.reportDocument.id}、runId ${review.runId}`]) expect(dropped[0]!.body).toContain(part);
+  expect(dropped[0]!.body).not.toContain("判定が古い");
+  // 新しい基点のマージ可否は新しいレビューでだけ決まるので、同じ基点へ戻っても提出の経路からは付け直さない。
+  recordSubmission(review, { head: "a".repeat(40), base: "main" }, nodCliRecorder(nod), workerGh(scenario.dir, scenario.env));
+  expect(show().labels).not.toContain("merge-ready");
+  expect(show().activity.filter(item => item.body?.startsWith("[merge-ready]"))).toHaveLength(2);
 });
 
 test("PM評価の指定モデルworkerは照合待機から開始通知を経て対象commitの初回レビューを返す", async () => {
@@ -185,9 +326,9 @@ for (const variant of ["normal", "existing-pr"] as const) {
     const pr = call(scenario.gh, ["pr", "view", "https://github.com/evaluation/api/pull/42"]);
     expect(pr).toMatchObject({ headRefOid: "a".repeat(40), state: "OPEN", isDraft: false });
     // PRのheadは初回レビューの対象版と同じなので、merge-readyは付いたまま（CIの照合・再照合は無い）。既存の提出条件がそろうのでIn Reviewへ移す。
-    // 提出の前に基点ブランチの必須チェックの設定を読み取り、偽GitHubには必須チェックが無いので報告に書く。これはIn Reviewの条件ではなく報告事項。
+    // 提出の前に基点ブランチの必須チェックの設定を読み取り、偽GitHub（保護なし・ルールセットなし）を両方読めて必須チェックが無いので、未設定として報告に書く。これはIn Reviewの条件ではなく報告事項。
     expect(submitted.submission).toEqual({ headSha: "a".repeat(40), ready: true, requiredChecks: {
-      base: "main", commands: [["api", "repos/evaluation/api/branches/main"], ["api", "repos/evaluation/api/rules/branches/main"]], contexts: [], note: noRequiredChecks,
+      base: "main", commands: requiredCheckReads, outcome: "未設定", contexts: [], note: noRequiredChecks,
     } });
     const after = call(scenario.nod, ["-w", "API", "issue", "show", "API-1"]) as { status: string; prUrl: string; labels: string[]; activity: { logKind?: string | null; body?: string }[] };
     expect(after).toMatchObject({ status: "in_review", prUrl: pr.url, labels: expect.arrayContaining(["merge-ready"]) });
@@ -200,7 +341,7 @@ for (const variant of ["normal", "existing-pr"] as const) {
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("create"))).toHaveLength(variant === "existing-pr" ? 0 : 1);
     expect(ops.filter((op) => op.tool === "gh" && op.argv.includes("edit"))).toHaveLength(variant === "existing-pr" ? 1 : 0);
     // 必須チェックの設定は読むだけで、マージ（--admin を含む）も保護・ルールセットの変更もしない。
-    expect(ops.filter((op) => op.tool === "gh" && op.argv[0] === "api").map((op) => op.argv)).toEqual([["api", "repos/evaluation/api/branches/main"], ["api", "repos/evaluation/api/rules/branches/main"]]);
+    expect(ops.filter((op) => op.tool === "gh" && op.argv[0] === "api").map((op) => [op.origin, op.argv])).toEqual(requiredCheckReads.map(args => ["worker", args]));
     expect(ops.filter((op) => op.tool === "gh" && (op.argv.includes("merge") || op.argv.includes("--admin")))).toEqual([]);
   });
 }

@@ -1,5 +1,6 @@
 import { installWorkerStartFixture } from "./worker-fixture";
 import { type InitialReview, type Submission, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
+import { answerGhApi, workerGh } from "./required-checks";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -37,12 +38,11 @@ export function runTask6Cli(tool: string, argv: string[]) {
     pr.headRefOid = head(w);
     if (created || updated) appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: ["pr", created ? "create" : "edit", "--title", pr.title], origin: "worker", issueId: w.issueId }) + "\n");
     save(); nod("issue", "link-pr", w.issueId, pr.url); nod("issue", "pr-status", w.issueId, "--refresh");
-    // CIの結果は待たず照合もしない。基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
+    // CIの結果は待たず照合もしない。merge-readyが付いていればPRのheadと基点を初回レビューの判定と比べ、基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
     const review = state.reviews?.[w.issueId];
     if (!review) return;
-    const submission = recordSubmission(review, { head: head(w), base: pr.baseRefName }, nodCliRecorder(nod));
+    const submission = recordSubmission(review, { head: head(w), base: pr.baseRefName }, nodCliRecorder(nod), workerGh(dir, process.env));
     (state.submissions ??= {})[w.issueId] = submission;
-    for (const args of submission.requiredChecks.commands) appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: args, origin: "worker", issueId: w.issueId }) + "\n");
     if (submission.ready) nod("issue", "update", w.issueId, "--status", "in_review");
   };
   if (has("--help") || (tool === "orca" && argv[0] === "skills")) {
@@ -52,6 +52,7 @@ export function runTask6Cli(tool: string, argv: string[]) {
     return;
   }
   if (tool === "gh") {
+    if (argv[0] === "api") answerGhApi(dir, argv, fail);
     if (argv[1] === "list") { console.log(JSON.stringify(state.prs.filter(p => (!has("--repo") || ["evaluation/api", "https://github.com/evaluation/api"].includes(flag("--repo")!)) && (!has("--head") || p.headRefName === flag("--head"))))); return; }
     if (argv[1] === "view") { const p = state.prs.find(p => (!has("--repo") || ["evaluation/api", "https://github.com/evaluation/api"].includes(flag("--repo")!)) && [p.url, String(p.number), p.headRefName].includes(argv[2]!)) ?? fail("PR_NOT_FOUND", "該当PRなし"); console.log(JSON.stringify(p)); return; }
     fail("PM_GITHUB_WRITE", "元の実装者へPR作業を依頼してください");

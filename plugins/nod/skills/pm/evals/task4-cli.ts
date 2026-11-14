@@ -2,6 +2,7 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task4Variant } from "./task4-setup";
 import { type InitialReview, type Submission, dropStaleMergeReady, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
+import { answerGhApi, workerGh } from "./required-checks";
 
 type Task = { id: string; spec: string };
 type Worker = { task: Task; dispatch: { id: string; taskId: string; status: string }; terminalId: string; phase: "initial" | "repair" | "confirmation" | "waiting" | "submission" | "handoff"; reported: boolean; released: boolean; reusedBy?: string; round: number; commit: string; launch: { requested: { model: string; effort: string }; effective: { model: string; effort: string } }; report?: unknown };
@@ -59,6 +60,7 @@ export function runTask4Cli(tool: string, argv: string[]) {
     console.log("評価用Orca契約。JSON=ok/result。既存Run=run-pm。status、terminal list、orchestration task-list、task-create --spec、worker-list --include-remote、worker-show/worker-read --dispatch、check [--ack delivery]、worker-release --dispatch。現在commitの実行先git証拠はworker-show/readで取得。元実装terminal=term-implementation、worktree=id:repo-api::/evaluation/studio/list-spacing。同terminal再利用はworker-start --task --terminal --worktree、新規起動用--model/--effort/--on不可。実効設定を再照合し次ownerを決定してからack。独立確認は新terminalをworker-start --task --on Studio --worktree <同じ正確なselector> --agent codex --model gpt-6.1-sol --effort highで起動。実装者を独立reviewerにしない。新規reviewerはPMの開始通知を受けるまで待機。新terminalのlaunch.requested/effective照合後、send --to dispatch:<id> --subject 独立確認開始 --body <開始指示>。Task specの冒頭1文（先頭の工程欄でも可）で『指摘修正』『独立確認』『確認待機』『pushとPR作成』『人へ引き継ぎ』という現在の作業意図を明示する。後段の履歴や証拠は工程の判定に使わない。sendはsubjectだけで現在意図を示す。確認待機のTaskはPMのsendで次の修正/提出/引継ぎへ継続する。worker_done後は新Dispatchへ再利用かreleaseしてack。worker-retainは利用者の明示依頼がないので使わない。gh pr list/viewで偽PRの実在を確認。実機worker、実git、GitHub書込なし。"); return;
   }
   if (tool === "gh") {
+    if (argv[0] === "api") answerGhApi(process.env.PM_EVAL_DIR!, argv, fail);
     if (argv[0] === "pr" && argv[1] === "list") { console.log(JSON.stringify(state.pr ? [state.pr] : [])); return; }
     if (argv[0] === "pr" && argv[1] === "view" && state.pr) {
       const selector = argv[2];
@@ -118,7 +120,7 @@ export function runTask4Cli(tool: string, argv: string[]) {
           if (w.phase === "repair") {
             state.round = w.round; state.head = (state.round === 1 ? "c" : "d").repeat(40); w.commit = state.head;
             // merge-readyが付いたIssueのブランチへ新しいコミットを足した実装者は、ラベルを外して「判定が古い（追加コミット）」と判定したhead SHAを[merge-ready]の作業ログに記録する。
-            if (state.review) dropStaleMergeReady(state.review, state.head, nodCliRecorder(nod));
+            if (state.review) dropStaleMergeReady(state.review, { head: state.head }, nodCliRecorder(nod));
           }
           if (w.phase === "submission") {
             w.commit = state.head;
@@ -127,9 +129,8 @@ export function runTask4Cli(tool: string, argv: string[]) {
             state.pr = { number: 42, url: "https://github.com/evaluation/api/pull/42", title: "一覧の余白を調整", state: "OPEN", isDraft: false, headRefName: "list-spacing", baseRefName: "main", headRefOid: state.head, baseRefOid: base, reviewDecision: "REVIEW_REQUIRED", statusCheckRollup: [], mergedAt: null }; save();
             nod("issue", "link-pr", "API-1", String(state.pr.url));
             nod("issue", "pr-status", "API-1", "--refresh");
-            // CIの結果は待たず照合もしない。基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
-            state.submission = recordSubmission(state.review!, { head: state.head, base: "main" }, nodCliRecorder(nod));
-            for (const args of state.submission.requiredChecks.commands) record("gh", args);
+            // CIの結果は待たず照合もしない。merge-readyが付いていればPRのheadと基点を初回レビューの判定と比べ、基点ブランチの必須チェックの設定を読み取って報告に書き、既存の提出条件がそろえばIn Reviewへ移す。
+            state.submission = recordSubmission(state.review!, { head: state.head, base: "main" }, nodCliRecorder(nod), workerGh(process.env.PM_EVAL_DIR!, process.env));
             if (state.submission.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = "completed"; w.report = report(w); state.delivery = { id: `delivery-${w.dispatch.id}`, messages: [{ id: `done-${w.dispatch.id}`, type: "worker_done", taskId: w.task.id, dispatchId: w.dispatch.id, from: `dispatch:${w.dispatch.id}`, body: JSON.stringify(w.report) }] };

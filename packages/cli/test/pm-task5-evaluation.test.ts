@@ -59,8 +59,8 @@ test("PM並行評価は独立IssueのPRだけを提出し、質問と成果とcl
   expect(reused.terminalId).toBe(second.terminalId);
   expect(JSON.parse(h.raw("worker-release", "--dispatch", second.dispatch.id).stdout.toString()).error.code).toBe("CLEANUP_OWNERSHIP_TRANSFERRED");
   const submitted = h.call("check", "--ack", completed.id);
-  // 提出の報告には、基点ブランチの必須チェックの設定を読んだ結果を書く（偽GitHubは必須チェックなし。In Reviewの条件ではない）。
-  expect(JSON.parse(submitted.messages[0].body)).toMatchObject({ issueId: "API-2", prUrl: "https://github.com/evaluation/api/pull/42", commit: "c".repeat(40), submission: { headSha: "c".repeat(40), requiredChecks: { base: "main", contexts: [], note: "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない" } } });
+  // 提出の報告には、基点ブランチの必須チェックの設定を読んだ結果を書く（偽GitHubは既定で保護なし・ルールセットなしを両方読めるので未設定。In Reviewの条件ではない）。
+  expect(JSON.parse(submitted.messages[0].body)).toMatchObject({ issueId: "API-2", prUrl: "https://github.com/evaluation/api/pull/42", commit: "c".repeat(40), submission: { headSha: "c".repeat(40), requiredChecks: { base: "main", outcome: "未設定", contexts: [], note: "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない" } } });
   const prResult = Bun.spawnSync([h.s.gh, "pr", "view", "https://github.com/evaluation/api/pull/42", "--json", "headRefName,headRefOid,title"], { env: h.s.env });
   expect(prResult.exitCode).toBe(0);
   expect(JSON.parse(prResult.stdout.toString())).toMatchObject({ headRefName: "export-column", headRefOid: "c".repeat(40), title: "CSV列名を統一" });

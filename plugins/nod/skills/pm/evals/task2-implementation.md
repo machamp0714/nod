@@ -14,7 +14,7 @@ bun plugins/nod/skills/pm/evals/task2-setup.ts /private/tmp/pm-task2-normal norm
 ```
 
 `normal`、`model-mismatch`、`model-unknown`、`unsupported`、`evidence-missing`、`refute-missing`、`remaining-checks`、`review-not-run`、`review-usage-limit`、`review-redelegated`、`existing-pr`を選べる。
-`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する（PR作業はCIの結果を待たず照合もしない。基点ブランチの必須チェックの設定を読み取り、設定されていないことを報告に書き、マージはしない）。
+`normal`ではPRの紐付けと状態取得でIssueが変わらず、明示的なin_reviewでレビュー提出することを評価する（PR作業はCIの結果を待たず照合もしない。merge-readyが付いていればPRのheadと基点をレビューした版と照合し、基点ブランチの必須チェックの設定を読み取って設定あり・未設定・確認できないのどれかを報告に書き、マージはしない）。
 モデル、commit、テスト、GitHubの必須チェックの設定、画面確認、レビューの外部状態は偽workerと偽GitHubのシミュレーションであり、実機のモデル転送や実コードのテスト、実際のCIを検証しない。
 nodは実CLIと一時DBを使う。
 実環境のworker、PR、Issueには触れない。
@@ -45,7 +45,7 @@ GitHubのPR承認、マージ、本番反映はしないでください。実装
 
 | シナリオ | 観測する結果 |
 | --- | --- |
-| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（完了・5点・確認が残る事項0件で、現在のheadと基点がレビューした版と同じなのでマージ可、merge-readyが付き、判定したhead・レビューした基点・報告Document IDの`[merge-ready]`で始まる`--kind progress`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PRのheadが初回レビューの対象版と同じなのでmerge-readyは付いたまま。PR作業の報告にある基点ブランチの必須チェックの設定（必須チェックなし）を報告に含め、明示updateで`in_review`に移してレビュー提出。マージ・`gh pr merge --admin`・保護やルールセットの変更はしない |
+| normal | Studioの能力読取後に専用worktreeで1 workerを指定モデルとeffortで起動。初期specで照合前の実装を止める。要求値と実効値の一致を読んだ後だけ開始通知。初回レビューを受領し（完了・5点・確認が残る事項0件で、現在のheadと基点がレビューした版と同じなのでマージ可、merge-readyが付き、判定したhead・レビューした基点・報告Document IDの`[merge-ready]`で始まる`--kind progress`の記録がある）、同terminalとworktreeでPR作業へ再利用。新規PR1件、対象commit一致、nodの関連とrefresh後も`in_progress`。PRのheadと基点が初回レビューの判定と同じなのでmerge-readyは付いたまま。PR作業の報告にある基点ブランチの必須チェックの設定（setupの既定では未設定。確認できないなら未設定と書かない）を報告に含め、明示updateで`in_review`に移してレビュー提出。マージ・`gh pr merge --admin`・保護やルールセットの変更はしない |
 | existing-pr | 元のPRを確認して更新する。createは0件、editは1件。更新後のheadを現在commitと照合 |
 | model-mismatch | workerの要求値は正しいが実効モデルが異なる。開始send、Issue start、PR作業へ進まない。元実行と不一致を残し、別workerやAirへ切り替えない |
 | model-unknown | launch.effectiveがnull。実効値が確認できるまで実装しない。要求値だけで適用済みと扱わない |

@@ -140,7 +140,7 @@ test("PM指摘評価はmerge-readyの付いたIssueへ修正コミットが足�
   // 修正後のheadをPRに出しても、新しいレビューが無いのでmerge-readyは付かず、外した記録も増えない。
   const submission = h.reuse("pushとPR作成。API-1 gpt-6.1-sol:high。現在commitの受入とテストが揃う。");
   const submitted = h.orca("check", "--ack", repaired.id);
-  expect(h.readReport(submitted)).toMatchObject({ pushedCommit: "c".repeat(40), submission: { headSha: "c".repeat(40), ready: true, requiredChecks: { base: "main", contexts: [], note: "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない" } } });
+  expect(h.readReport(submitted)).toMatchObject({ pushedCommit: "c".repeat(40), submission: { headSha: "c".repeat(40), ready: true, requiredChecks: { base: "main", outcome: "未設定", contexts: [], note: "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない" } } });
   expect(show().labels).not.toContain("merge-ready");
   expect(dropped()).toHaveLength(1);
   h.orca("worker-release", "--dispatch", submission.dispatch.id);

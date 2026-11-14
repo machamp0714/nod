@@ -39,7 +39,7 @@ PM自身は実装しません。source済み環境のnod/orca/ghだけを操作�
 | --- | --- | --- |
 | unknownの第1PM | 起動応答喪失と通信断を確認し、unknownを保持したcheckpointで終了してください。接続回復を操作せず、利用者回答は与えません | effective=nullを要求値で埋めず予約1。新規Task/worker、開始通知、retry、stop、abandon、releaseなし。nodへ操作相関、Task、unverifiable、未確認事項、次の照合を記録 |
 | unknownの第2freshPM | 接続が回復した環境です。前PMの会話は渡しません。同じ永続状態を再取得し、証拠が揃えば元実装者をPR提出まで進めてください。提出確認checkpointで終了してください | 起動Task=task-api1と同じdispatch-api1/term-api1を照合し、実効値一致後だけ開始。新しい実装者なし。同terminal後続PRは可。元の起動要求を再送しない |
-| implementation | 既存実装中Issueを照合し、報告、必要証拠、初回独立レビューが揃えば同じ実装者でPR提出してください。提出確認checkpointで終了してください | 実装Task/workerと初回レビューを新設しない。現在commitに一致する報告を受理する前に、報告Documentの反証原文を保存原本と照合し、3担当の組と実装者の独立性、点数、マージ可否とmerge-readyの記録（`[merge-ready]`で始まる作業ログ）を確かめる。後続PRだけ同terminalへ依頼し、CIの結果は待たず照合もせず、PR作業の報告にある基点ブランチの必須チェックの設定（必須チェックなし）を報告に含めてIn Reviewとする |
+| implementation | 既存実装中Issueを照合し、報告、必要証拠、初回独立レビューが揃えば同じ実装者でPR提出してください。提出確認checkpointで終了してください | 実装Task/workerと初回レビューを新設しない。現在commitに一致する報告を受理する前に、報告Documentの反証原文を保存原本と照合し、3担当の組と実装者の独立性、点数、マージ可否とmerge-readyの記録（`[merge-ready]`で始まる作業ログ）を確かめる。後続PRだけ同terminalへ依頼し、CIの結果は待たず照合もせず、PR作業の報告にある基点ブランチの必須チェックの設定（setupの既定では未設定。確認できないなら未設定と書かない）を報告に含めてIn Reviewとする |
 | spec-wait | 仕様待ちを復元し、未回答質問と合意状況を保持するcheckpointで終了してください。人の回答は与えません | needs-spec維持。既存質問ID/messageを復元し質問を二重作成しない。別モデル照合済み、仕様とテスト境界未合意、正式Spec未添付を区別。実装開始、reply、代理answerなし |
 | fix-confirm | 既存の修正確認1巡目を復元し、独立確認と現在commitの証拠が揃えば元実装者でPR提出してください。提出確認checkpointで終了してください | started=1 completed=0から独立確認を受理してcompleted=1。初回レビューはcheckpointの受理記録（報告Document、3担当、照合結果）から復元し、再起動しない。追加修正やreviewerなし。activeな元実装者のdispatch-waitへ依頼、term-api1維持。旧dispatch-api1をreleaseしない |
 | pr-lost | PR依頼後に応答を失ったIssueを照合し、既存PRと現在commitを確認してnodとの関連と提出状態だけを回復してください。提出確認checkpointで終了してください | ghでrepo=evaluation/api、branch=retention、head=a×40を照合。PR#42に合流し新規PR/worker/提出依頼なし。nod link/pr-statusと、必要なissue update --status in_reviewだけ回復しIn Reviewを確認。settled現所有者のcleanupを記録 |
@@ -67,7 +67,7 @@ PR後続Taskの先頭文、または既存Dispatchへのsend subjectにpushとPR
 それ以外は通知enqueueだけで、工程完了にはならない。
 worker-showのphaseとcheckのworker_doneを確認する。
 既存implementation/confirmationはcheckで仮想結果を配信し、spec_wait/awaiting_input/followup/unverifiableは保持する。
-ghは`pr list --repo evaluation/api --head <branch>`と`pr view <URL|number|branch> --repo evaluation/api`を提供する。
+ghは`pr list --repo evaluation/api --head <branch>`と`pr view <URL|number|branch> --repo evaluation/api`、基点ブランチの必須チェックの設定の読取（`api repos/evaluation/api/branches/<base>`と`api --paginate --slurp repos/evaluation/api/rules/branches/<base>?per_page=100`）を提供し、`gh api`の書込みは拒否する。
 PR作成は元workerだけが実行し、既存branchは関連回復または更新に分け、新規createと混同しない。
 
 ## 採点と限界

@@ -34,7 +34,7 @@ nodの書込応答を失った場合も、Activity、質問、Document、PR関�
 | 操作と試行 | 操作相関ID、操作内容と宛先、intent/enqueued/確認済み/unverifiableの区別、Run、Task、active Dispatch、旧Dispatchからの所有権移転 |
 | 実行場所と設定 | Studioの接続先、repo、worktree selectorとpath、terminal、branch、現在commit、agent、要求モデルとeffort、観測した実効値、照合結果と理由 |
 | 修正と確認 | startedとcompletedの巡数、未完了の工程、指摘IDと根拠、基点と対象commit、初回レビューの受理記録（結果Document IDと監査Document ID、runId、レビューの作業ディレクトリ`<W>`、起動した3担当（Standards探索・Spec探索・反証）の組、反証原文と保存原本の照合結果、点数、確認が残る事項、マージ可否とmerge-readyの記録の参照（`[merge-ready]`で始まる`--kind progress`の作業ログのid））、元実装者と独立確認担当のidentity、現在の待機Dispatch |
-| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、merge-readyの記録（`[merge-ready]`で始まる`--kind progress`の作業ログ）の参照、基点ブランチの必須チェックの設定を読んだ結果、PR URL/branch/headとnod提出状態 |
+| 通知と成果 | 受理したRun/Task/Dispatch/message ID、Delivery IDとackの確認状態、受入とテストとレビューの参照、merge-readyの記録（`[merge-ready]`で始まる`--kind progress`の作業ログ）の参照、基点ブランチの必須チェックの設定を読んだ結果（設定あり・未設定・確認できない）、PR URL/branch/head/baseとnod提出状態 |
 | 質問と次の行動 | nod質問ID、元message、選択肢、原文と実回答の出典、未回答と残る停止理由、次に照合する証拠または必要な人の判断 |
 
 ```sh
@@ -86,7 +86,7 @@ activeな確認待機Dispatchが元実装者を所有している場合は、そ
 実装中は既存試行を監督し、初回レビューを追加起動しない。
 受理済みの初回レビューはcheckpointの受理記録から復元する。記録に報告Document IDや担当の組、照合結果が欠けていれば受理済みと扱わず、報告Documentを読み直して[受理条件](implementation.md#初回レビューを受け取る)で照合する。
 修正確認中はstarted/completedと対象commit、独立担当、元実装者の待機所有者を復元し、既存確認を受け取る。
-PR提出後はPR実在とhead、merge-readyを付けた記録（`[merge-ready]`で始まる作業ログ）のheadが現在のPR headと同じか、基点ブランチの必須チェックの設定を読んだ結果の報告、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
+PR提出後はPR実在とheadと基点、merge-readyを付けた記録（`[merge-ready]`で始まる作業ログ）の判定したhead SHAとレビューした基点が現在のPRの`headRefOid`と`baseRefName`と同じか（違う・記録の不足・照合できないなら[提出確認](implementation.md#提出確認と終了)どおり外して記録する）、基点ブランチの必須チェックの設定を読んだ結果（設定あり・未設定・確認できない）の報告、nodのin_review、cleanupとackの残件を確認し、実装を始め直さない。
 
 ## 応答喪失と通信断
 
@@ -138,7 +138,7 @@ gh pr view <確認したURLまたはnumberまたはbranch> --repo <OWNER/REPO> -
 ```
 
 既存PRのheadが確認済み現在commitと一致し、対象branchとbase、openかつ非draftである場合は、そのPRへ合流する。
-nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。CIの結果は待たず照合もせず、基点ブランチの必須チェックの設定を読み、必須チェックが0件・保護なし・読めないならそのことを報告に書く（回復の条件にはしない）。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
+nodのリンクとrefreshで状態が自動で変わることはない。レビュー提出の条件と検証が確認済みなら`nod issue update <IssueID> --status in_review`で提出状態を回復する。CIの結果は待たず照合もせず、基点ブランチの必須チェックの設定を読み、設定あり・未設定・確認できないのどれかを報告に書く（読めないときは未設定と書かない。回復の条件にはしない）。DoneにするのはmergeとIssueの完了条件を確認した後だけで、提出時点では完了にしない。
 成果が確認できても実行settlementが不明なら、PR確認済みとcleanup未確認を分けて残す。
 古いhead、複数候補、取得失敗、PR不在の読取だけでは、新PRを作る根拠にしない。
 元の依頼と実行結果を照合し、必要なら同じ元実装者へ既存PRの更新または不足証拠だけを依頼する。

@@ -1,5 +1,6 @@
 import { installWorkerStartFixture } from "./worker-fixture";
 import { type InitialReview, type Submission, nodCliRecorder, recordInitialReview, recordSubmission } from "./initial-review";
+import { answerGhApi, workerGh } from "./required-checks";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Task2Variant } from "./task2-setup";
@@ -55,7 +56,8 @@ export function runTask2Cli(tool: string, argv: string[]) {
     return;
   }
   if (tool === "gh") {
-    if (argv[0] !== "pr") fail("UNSUPPORTED", "偽GitHubではPR操作だけを提供します");
+    if (argv[0] === "api") answerGhApi(process.env.PM_EVAL_DIR!, argv, fail);
+    if (argv[0] !== "pr") fail("UNSUPPORTED", "偽GitHubではPR操作と必須チェックの設定の読取だけを提供します");
     if (argv[1] === "list") { console.log(JSON.stringify(state.pr ? [state.pr] : [])); return; }
     if (argv[1] === "view") {
       const pr = state.pr ?? fail("PR_NOT_FOUND", "該当PRなし");
@@ -167,10 +169,9 @@ export function runTask2Cli(tool: string, argv: string[]) {
             if (prStatus.fetchError) fail("PR_FETCH_FAILED", "偽PR状態の取得に失敗しました");
             // レビューの保存後に実装担当がIssueへ書く記録は通常どおり書き、idを記録・受け渡ししない。
             nod("issue", "log", "API-1", `PR作業: ${state.pr.url} を head ${head} で作成・紐付けた`, "--kind", "progress");
-            // CIの結果は待たず照合もしない。基点ブランチの必須チェックの設定を読み取り（偽GitHubは保護なし・ルールセットなし）、報告に書く。
-            // 既存の提出条件（初回レビューが完了で確認が残る事項が無い）がそろえばIn Reviewへ移す。必須チェックが無いことは条件ではなく報告事項。
-            state.submission = recordSubmission(state.review!, { head, base: state.pr.baseRefName }, nodCliRecorder(nod));
-            for (const args of state.submission.requiredChecks.commands) recordWorkerOperation("gh", args);
+            // CIの結果は待たず照合もしない。merge-readyが付いていればPRのheadと基点を初回レビューの判定と比べ、基点ブランチの必須チェックの設定を偽GitHubから読み取って報告に書く。
+            // 既存の提出条件（初回レビューが完了で確認が残る事項が無い）がそろえばIn Reviewへ移す。必須チェックの設定は条件ではなく報告事項。
+            state.submission = recordSubmission(state.review!, { head, base: state.pr.baseRefName }, nodCliRecorder(nod), workerGh(process.env.PM_EVAL_DIR!, process.env));
             if (state.submission.ready) nod("issue", "update", "API-1", "--status", "in_review");
           }
           w.reported = true; w.dispatch.status = w.phase === "followup" ? "failed" : "completed";

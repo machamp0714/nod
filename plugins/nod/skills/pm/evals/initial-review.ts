@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { type Gh, type RequiredChecks, readRequiredChecks } from "./required-checks";
 
 export type ReviewRole = "standards" | "spec" | "refute";
 /** 反証担当が確定した結果。impactがある指摘は要対応、ない指摘は任意として扱う。 */
@@ -68,8 +69,6 @@ export type InitialReview = {
   mergeReadyLog: number;
   standards: ReviewAxis; spec?: ReviewAxis;
 };
-/** 提出・マージの報告に書く、基点ブランチの必須チェックの設定。マージ可否・merge-ready・In Review・Done の条件ではなく報告事項。 */
-export type RequiredChecks = { base: string; commands: string[][]; contexts: string[]; note: string };
 /** PR作業の結果。ready は既存の提出条件で In Review へ移せること。 */
 export type Submission = { headSha: string; ready: boolean; requiredChecks: RequiredChecks };
 
@@ -81,8 +80,6 @@ const MERGE_NG: MergeReadiness = "不可（人の判断が要る）";
 const MERGE_READY_LOG = "[merge-ready]";
 /** 評価用の模擬の基点の指定。ブランチ名なので、そのままレビューした基点になる。 */
 const BASE_SPEC = "main";
-/** 偽 GitHub（ブランチ保護なし・ルールセットなし）の基点ブランチから読み取った必須チェックの結果として、報告に書く文。 */
-const NO_REQUIRED_CHECKS = "このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない";
 
 /** 偽workerの子nodを使い、実装者のnod操作として記録する。nod は --json を付けて返った JSON を返す。 */
 export function nodCliRecorder(nod: (...args: string[]) => any): ReviewRecorder {
@@ -381,15 +378,24 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
 }
 
 /**
- * 追加コミット・指摘対応の再開で、merge-ready が付いていれば外し、理由と判定した head SHA を、本文を [merge-ready] で始めて --kind progress に1件残す。
- * 付いていなければ何もしない。新しい head のマージ可否は新しいレビューでだけ決まるので、付け直さない。
+ * 追加コミット・指摘対応の再開・PR作業の提出で、merge-ready が付いていれば、判定した head とレビューした基点を現在の head と基点に比べ、
+ * 違えば外して、理由（判定が古い（追加コミット）・基点が変わった）・判定した head SHA・現在の head・レビューした基点・現在の基点を、本文を [merge-ready] で始めて --kind progress に1件残す。
+ * 付いていない、または head と基点が同じなら何もしない。新しい head・基点のマージ可否は新しいレビューでだけ決まるので、付け直さない。
  */
-export function dropStaleMergeReady(review: InitialReview, currentHead: string, recorder: ReviewRecorder) {
-  if (!recorder.show(review.issueId).labels.includes("merge-ready")) return;
+export function dropStaleMergeReady(review: InitialReview, current: { head: string; base?: string }, recorder: ReviewRecorder) {
+  const base = current.base ?? review.reviewedBase;
+  const headOk = current.head === review.headCommit;
+  const baseOk = base === review.reviewedBase;
+  if ((headOk && baseOk) || !recorder.show(review.issueId).labels.includes("merge-ready")) return;
+  const reasons = [
+    ...headOk ? [] : [`判定が古い（追加コミット。判定した head ${review.headCommit}、現在の head ${current.head}）`],
+    ...baseOk ? [] : [`基点が変わった（レビューした基点 ${review.reviewedBase}、現在の基点 ${base}）`],
+  ];
   recorder.label(review.issueId, "remove", "merge-ready");
   recorder.log(review.issueId, [
-    `${MERGE_READY_LOG} merge-ready: 外した（判定が古い（追加コミット。判定した head ${review.headCommit}、現在の head ${currentHead}）。新しい head のマージ可否は新しいレビューでだけ決まる）。`,
-    `判定した head SHA ${review.headCommit}、現在の head ${currentHead}（不一致）、レビューした基点 ${review.reviewedBase}、`,
+    `${MERGE_READY_LOG} merge-ready: 外した（${reasons.join("・")}。新しい${headOk ? "基点" : baseOk ? " head " : " head と基点"}のマージ可否は新しいレビューでだけ決まる）。`,
+    `判定した head SHA ${review.headCommit}、現在の head ${current.head}（${headOk ? "一致" : "不一致"}）、`,
+    `レビューした基点 ${review.reviewedBase}、現在の基点 ${base}（${baseOk ? "一致" : "不一致"}）、`,
     `報告Document ${review.reportDocument.id}、runId ${review.runId}。`,
     "ラベルは現在の判定の表示で、自動マージの指示ではない。",
   ].join(""), "progress");
@@ -397,20 +403,12 @@ export function dropStaleMergeReady(review: InitialReview, currentHead: string, 
 
 /**
  * PR作業（push・PR作成・nodへの提出）の終了時に実装担当が行うことを再現する。CI の結果は待たず、照合も記録もしない。
- * PR の head が初回レビューの対象版と違えば（修正あり）、merge-ready が付いていれば外して [merge-ready] に記録する。
- * 基点ブランチの必須チェックの設定を偽 GitHub（ブランチ保護なし・ルールセットなし）から読み、必須チェックが無いことを報告に書く。
+ * merge-ready が付いていれば、PR の head と基点（headRefOid・baseRefName）を初回レビューの判定した head とレビューした基点に比べ、違えば外して [merge-ready] に記録する。
+ * 基点ブランチの必須チェックの設定を偽GitHubから gh で読み、設定あり・未設定・確認できないのどれかを報告に書く。報告事項で、提出の条件にも merge-ready にも使わない。
  * ready は既存の提出条件: 修正なしなら初回レビューが完了で確認が残る事項が無いこと、修正ありなら独立確認を経ていること（PMが確かめる）。
  */
-export function recordSubmission(review: InitialReview, input: { head: string; base: string }, recorder: ReviewRecorder): Submission {
+export function recordSubmission(review: InitialReview, input: { head: string; base: string }, recorder: ReviewRecorder, gh: Gh): Submission {
   const repaired = input.head !== review.headCommit;
-  if (repaired) dropStaleMergeReady(review, input.head, recorder);
-  return {
-    headSha: input.head,
-    ready: repaired || (review.status === "完了" && review.remainingChecks.length === 0),
-    requiredChecks: {
-      base: input.base,
-      commands: [["api", `repos/evaluation/api/branches/${input.base}`], ["api", `repos/evaluation/api/rules/branches/${input.base}`]],
-      contexts: [], note: NO_REQUIRED_CHECKS,
-    },
-  };
+  dropStaleMergeReady(review, input, recorder);
+  return { headSha: input.head, ready: repaired || (review.status === "完了" && review.remainingChecks.length === 0), requiredChecks: readRequiredChecks(input.base, gh) };
 }

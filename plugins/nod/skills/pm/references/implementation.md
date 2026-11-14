@@ -143,8 +143,11 @@ PR依頼には次の終了条件を明記する。
 - PRのURLと`headRefOid`、branch、base、openかつdraftではないことを確認し、pushした現在commitと照合する。
 - `nod issue link-pr <IssueID> <PR URL>`で関連づけ、`nod issue pr-status <IssueID> --refresh --json`で取得結果と状態を確認する。
 - PRの紐付けと状態取得はIssueの状態を変えない。取得失敗、別commit、draftならPR作業の完了としない。
-- 関連とPRの実在、現在commitの検証を確認したら、PRの`baseRefName`のブランチの必須チェックの設定を読み取る（例: `gh api repos/{owner}/{repo}/branches/{base}` の `.protection.required_status_checks` と `gh api repos/{owner}/{repo}/rules/branches/{base}` の `required_status_checks`）。必須チェックが0件・保護なし・読めないときは、「このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない」ことを報告に書く。これはマージ可否・merge-ready・In Review・Doneの条件ではなく報告事項で、CIの結果を待つ・照合する・記録する手順は置かない。
-- 修正ありで対象commitが初回レビューの対象版と違い、merge-readyが付いていれば外し、理由（追加コミットで判定が古い）と判定したhead SHAを、本文を`[merge-ready]`で始めて`--kind progress`に記録する。修正後のheadにはmerge-readyを付けない（新しいheadのマージ可否は新しいレビューでだけ決まる）。
+- 関連とPRの実在、現在commitの検証を確認したら、PRの`baseRefName`のブランチの必須チェックの設定を読み取る（`gh api repos/{owner}/{repo}/branches/{base}` の `.protected` と `.protection.required_status_checks`、`gh api repos/{owner}/{repo}/rules/branches/{base}` の `required_status_checks` の規則）。結果は次のどれか1つとして報告に書く。これはマージ可否・merge-ready・In Review・Doneの条件ではなく報告事項で、CIの結果を待つ・照合する・記録する手順は置かない。
+  - 設定あり（必須チェックを1件以上読めた）: チェック名と読めた出典（ブランチ保護・ルールセット）。片方を読めなかったなら、そのことも書く。
+  - 未設定（両方を読めて、保護なし、または保護の必須チェックが0件か強制がoffで、ルールセットにも必須チェックが無い）: 「このリポジトリは必須チェックが設定されておらず、CI が落ちていても GitHub はマージを止めない」。
+  - 確認できない（認証・権限・通信の失敗、JSONでない・想定外の形、保護ありで必須チェックの設定が見えない、のどれかがあり、必須チェックを1件も読めなかった）: 設定を読めず、設定の有無を確認できないことと理由。未設定の文は書かない。
+- merge-readyが付いていれば、ラベルを付けた最新の`[merge-ready]`の記録の判定したhead SHAとレビューした基点を、PRの`headRefOid`と`baseRefName`に比べる。headが違う（修正ありの追加コミットで判定が古い）、基点が違う（基点が変わった）、記録が無い・読めない・レビューした基点がブランチ名でない（記録の不足）、PRのheadか基点を読めない（照合できない）なら`nod issue update <IssueID> --remove-label merge-ready`で外し、理由・判定したhead SHA・現在のhead・レビューした基点・現在の基点を、本文を`[merge-ready]`で始めて`--kind progress`に記録する。同じなら付けたままにする。この経路ではmerge-readyを付けない（新しいheadと基点のマージ可否は新しいレビューでだけ決まる）。
 - 提出の条件が揃っていれば、`nod issue update <IssueID> --status in_review`で明示的にIn Reviewへ移し、レビュー提出として報告する。提出しただけではDoneにしない。
 - GitHubのPR承認、マージ、本番反映は依頼された範囲に従う。マージを依頼された場合も、GitHubの必須ステータスチェック・ブランチ保護・ルールセットを回避しない（`gh pr merge --admin` を使わない、保護やルールセットを一時的に外さない、必須チェックを迂回する手段を使わない）。PR URL、pushしたcommit、検証結果、必須チェックの設定を読んだ結果、merge-readyの状態、nodの提出状態を報告してsettleする。
 
@@ -152,8 +155,8 @@ PR依頼には次の終了条件を明記する。
 
 PR作業の報告も新しいactive Dispatchと照合する。
 PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`in_review`を再確認する。
-PR作業の報告にある基点ブランチの必須チェックの設定を読んだ結果を確かめて報告に含める。必須チェックが0件・保護なし・読めないなら、そのことを人への報告に書く。報告に無ければ、PMが同じ`gh api`の読取で確かめてよい（設定を変更しない）。
-merge-readyが付いていれば、ラベルを付けた記録（[親の手順](../../code-review/references/parent.md)の11節の、本文が`[merge-ready]`で始まる`--kind progress`の作業ログ）の判定したhead SHAが現在のPR headと同じかを確かめる。違う、または記録が無ければ`nod issue update <IssueID> --remove-label merge-ready`で外し、理由（判定が古い、記録の不足）と判定したhead SHAを、本文を`[merge-ready]`で始めて`--kind progress`に記録する。新しいheadのマージ可否は新しいレビューでだけ決まる。PMはラベルを付けない。ラベルを自動マージ・承認の代わりにしない。
+PR作業の報告にある基点ブランチの必須チェックの設定を読んだ結果（設定あり・未設定・確認できない）を確かめて、人への報告に含める。確認できないときは設定の有無を確認できないことと理由を書き、未設定と書かない。報告に無ければ、PMが同じ`gh api`の読取で確かめてよい（設定を変更しない）。
+merge-readyが付いていれば、ラベルを付けた最新の記録（[親の手順](../../code-review/references/parent.md)の11節の、本文が`[merge-ready]`で始まる`--kind progress`の作業ログ）の判定したhead SHAとレビューした基点が、上で読んだ現在のPRの`headRefOid`と`baseRefName`と同じかを確かめる。headが違う（判定が古い）、基点が違う（基点が変わった）、記録が無い・読めない・レビューした基点がブランチ名でない（記録の不足）、PRのheadか基点を読めない（照合できない）なら`nod issue update <IssueID> --remove-label merge-ready`で外し、理由・判定したhead SHA・現在のhead・レビューした基点・現在の基点を、本文を`[merge-ready]`で始めて`--kind progress`に記録する。新しいheadと基点のマージ可否は新しいレビューでだけ決まる。PMはラベルを付けない。ラベルを自動マージ・承認の代わりにしない。
 タイトルやURLだけ、workerの「作成済み」だけではレビュー提出済みと判断しない。
 nodへ対象commit、PR URL、初回レビューの報告Document IDとmerge-readyの記録の参照、提出状態を残す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。
@@ -168,7 +171,7 @@ Runの`worker-list --terminal-state reclaimable --include-remote --json`で所�
 
 ## レビュー提出後の再開と完了
 
-mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <IssueID> --summary "<完了条件と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証・完了条件を満たして直接Doneにできる。PMのPR承認・マージ・本番反映を代行しない方針は維持し、この運用によって権限を追加しない。マージする人・エージェントは、GitHubの必須チェックを`gh pr merge --admin`や保護・ルールセットの一時解除で回避せず、マージの前に基点ブランチの必須チェックの設定を読み取り、未設定・読めないならそのことを報告に書く。
+mergeとIssueの完了条件（検証・反映など）を確認した人または権限のあるエージェントが `nod issue done <IssueID> --summary "<完了条件と検証結果>"` で明示的にDoneにする。PR不要の依頼は必要な検証・完了条件を満たして直接Doneにできる。PMのPR承認・マージ・本番反映を代行しない方針は維持し、この運用によって権限を追加しない。マージする人・エージェントは、GitHubの必須チェックを`gh pr merge --admin`や保護・ルールセットの一時解除で回避せず、マージの前に基点ブランチの必須チェックの設定を読み取り、設定あり・未設定・確認できないのどれかを報告に書く。
 指摘対応は `nod issue start <IssueID>` でIn ReviewからIn Progressへ戻し、既存の着手条件と独立レビュー等の品質条件を守る。merge-readyが付いていれば外し、理由（追加コミットで判定が古い）と判定したhead SHAを、本文を`[merge-ready]`で始めて`--kind progress`に記録する。新しいheadのマージ可否は新しいレビューでだけ決まる。
 draftは原則In Progressのまま。mergeせずcloseして継続するならIn Progress、中止なら理由付きCanceled、後回しならTodo/Backlogに明示的に移す。reopen後はレビュー再開ならIn Review、修正ならIn Progressにする。
 PRの作成・紐付け・状態取得・取得失敗・merge・close・reopenでIssue状態を自動変更しない。PRなし・draftでも明示的なIn Review設定は可能で、PRの存在・mergeをシステムの必須条件にはしない。
