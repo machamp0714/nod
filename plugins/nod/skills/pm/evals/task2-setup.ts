@@ -4,8 +4,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask1Scenario, type BeforeSprintAdoption } from "./setup";
 
-export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "test-failure" | "evidence-missing" | "remaining-checks" | "review-not-run" | "review-usage-limit" | "review-redelegated" | "acceptance-confirmed" | "acceptance-unmet" | "acceptance-unverified" | "acceptance-missing" | "acceptance-evidence-changed" | "acceptance-others-appended" | "acceptance-own-records" | "existing-pr";
-export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "test-failure", "evidence-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "acceptance-confirmed", "acceptance-unmet", "acceptance-unverified", "acceptance-missing", "acceptance-evidence-changed", "acceptance-others-appended", "acceptance-own-records", "existing-pr"];
+export type Task2Variant = "normal" | "model-mismatch" | "model-unknown" | "unsupported" | "ci-failure" | "ci-pending" | "ci-no-required" | "evidence-missing" | "refute-missing" | "remaining-checks" | "review-not-run" | "review-usage-limit" | "review-redelegated" | "ci-recheck" | "ci-recheck-requirements-changed" | "existing-pr";
+export const task2Variants: Task2Variant[] = ["normal", "model-mismatch", "model-unknown", "unsupported", "ci-failure", "ci-pending", "ci-no-required", "evidence-missing", "refute-missing", "remaining-checks", "review-not-run", "review-usage-limit", "review-redelegated", "ci-recheck", "ci-recheck-requirements-changed", "existing-pr"];
 
 /** PMの判断を代行せず、workerとGitHubの外部状態だけを再現する。 */
 export async function createTask2Scenario(options: { directory?: string; variant?: Task2Variant; beforeAdoption?: BeforeSprintAdoption } = {}) {

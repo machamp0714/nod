@@ -1,5 +1,5 @@
 import { installWorkerStartFixture } from "./worker-fixture";
-import { type InitialReview, nodCliRecorder, recordInitialReview } from "./initial-review";
+import { type InitialReview, checkSubmissionCi, nodCliRecorder, recordInitialReview, simulatedCi } from "./initial-review";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -37,7 +37,9 @@ export function runTask6Cli(tool: string, argv: string[]) {
     pr.headRefOid = head(w);
     if (created || updated) appendFileSync(process.env.PM_EVAL_LOG!, JSON.stringify({ tool: "gh", argv: ["pr", created ? "create" : "edit", "--title", pr.title], origin: "worker", issueId: w.issueId }) + "\n");
     save(); nod("issue", "link-pr", w.issueId, pr.url); nod("issue", "pr-status", w.issueId, "--refresh");
-    nod("issue", "update", w.issueId, "--status", "in_review");
+    // PRのheadに対するCI判定を取って記録し（マージ可否とmerge-readyにだけ使う）、確認が残る事項が増えていなければIn Reviewへ移す。偽GitHubのCIはPRのheadで成功している。
+    const review = state.reviews?.[w.issueId];
+    if (review && checkSubmissionCi(review, { head: head(w), ci: simulatedCi(head(w)) }, nodCliRecorder(nod)).ready) nod("issue", "update", w.issueId, "--status", "in_review");
   };
   if (has("--help") || (tool === "orca" && argv[0] === "skills")) {
     console.log("評価用Orca。ok/result。Run=run-pm。status.servers[].capabilities.launchPreferencesが転送対応。Studio repo=id:repo-api。worker-list --run run-pm --include-remote、terminal list、worker-show/read --dispatch、task-list/create --spec、worker-start --spec|--task --run run-pm --on Studio --worktree new-top-level --repo id:repo-api --name --agent codex --model --effort、send --to dispatch:<ID> --subject --body、reply --id --body、check [--ack ID] [--wait --timeout-ms]、worker-release --dispatch。reuseはworker-start --task --terminal <元handle> --worktree id:<元worktreeId>、起動用model/effort/on併用禁止。worker-readはtextにgitとtestと初回独立review証拠を返す。新規workerは開始通知まで待つ。通知enqueueは開始完了ではない。settlementの現cleanup所有者だけrelease可能。次ownerかrelease成功後にDelivery ack。worker_done後の再利用は同じ実装者を使う。質問のackは回答を作らない。複数Issueの起動判断、依存、停止判断をfakeは代行しない。gh pr list/viewのみPM読取。モデルとgitとレビューはシミュレーション。Issueの着手状態も評価専用fixtureであり、S02の実行許可を表さない。通常nod startはSprint採択を理由に拒否されないが、開始通知前にstartしないのはPMの運用方針。");
@@ -112,11 +114,11 @@ export function runTask6Cli(tool: string, argv: string[]) {
         for (const w of state.workers.filter(w => !w.reported && !w.released && ["implementation", "submission", "confirmation"].includes(w.phase))) {
           if (w.phase === "implementation") {
             installWorkerStartFixture(dir, w.issueId);
-            // nod:implementの親が3担当へ委譲し、固定headの別checkoutでテストした初回レビューを報告Documentへ残す。
+            // nod:implementの親が3担当へ委譲し、同じheadのCI判定を照合した初回レビューを報告Documentへ残す。
             (state.reviews ??= {})[w.issueId] = recordInitialReview({
               dir, issueId: w.issueId, implementer: w.terminalId, baseCommit: "b".repeat(40), headCommit: head(w),
               standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings: [], evidence: "Issue要求を照合" },
-              testRun: { headSha: head(w), result: "成功", command: "bun test" },
+              ci: simulatedCi(head(w)),
             }, nodCliRecorder(nod));
           }
           if (w.phase === "submission") submit(w);

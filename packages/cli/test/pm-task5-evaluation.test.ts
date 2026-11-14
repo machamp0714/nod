@@ -36,7 +36,7 @@ test("PM並行評価は質問元と独立Issueを別Dispatchで配信し、無�
   expect(report).toMatchObject({ issueId: "API-2", dispatchId: second.dispatch.id, acceptance: { passed: true }, review: {
     implementer: second.terminalId, status: "完了", score: 5, target: { headSha: "c".repeat(40) },
     agents: { standards: { definition: "code-reviewer-standards" }, spec: { definition: "code-reviewer-spec" }, refute: { definition: "code-reviewer-refute" } },
-    testRun: { headSha: "c".repeat(40), result: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）",
+    ci: { headSha: "c".repeat(40), verdict: "成功" }, mergeReadiness: "可（人のレビューなしでマージ可）", mergeReady: "付けた",
   } });
   expect(Object.values(report.review.agents as Record<string, { id: string }>).map(agent => agent.id)).not.toContain(second.terminalId);
   expect(call("worker-show", "--dispatch", "dispatch-api1").phase).toBe("awaiting_input");
