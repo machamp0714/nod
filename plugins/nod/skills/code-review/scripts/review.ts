@@ -16,14 +16,12 @@
 //     合格なら読み取った構造を parent/refute-structure.json に書く
 //   finalize（10節・11節・14節）: --work <W> [--not-run-reason <担当を1つも起動しなかった理由>]
 //     [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）] [--skill-start <スキルの読み込みの開始の ISO 時刻>]。保存直前の再照合
-//     （parent/local-recheck/・requirements-recheck/）、最終状態・点数・確認が残る事項、CI の照合（parent/ci/1/、ci-checks.ts）と
-//     現在の head の照合（parent/head-check.md）、マージ可否（評価用の事例では別に CI を除いたレビュー側の判定）、監査 parent/audit.md と結果 parent/report.md の
+//     （parent/local-recheck/・requirements-recheck/）、最終状態・点数・確認が残る事項、現在の head と基点の照合（parent/head-check.md）、
+//     マージ可否（CI の結果は見ない）、監査 parent/audit.md と結果 parent/report.md の
 //     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・merge-ready、区間の時間と使用量
 //     （parent/usage.json・usage.md）を行う。評価用の事例では nod へ保存せずラベルも扱わない
-//   recheck-ci（13節）: --work <W>。同じ head の CI とマージ可否を parent/recheck-<n>/・parent/ci/<n>/ へ照合し直し、merge-ready を付け外しする
 //   usage（14節）: --session <親のセッション記録の絶対パス> --from <ISO 時刻> --to <ISO 時刻> --out <記録先の絶対パス> [--agent <担当 ID>]... [--agent-file <絶対パス>]...
 //     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
-// 外部コマンドとして、同じディレクトリの ci-checks.ts（同じ head の CI）も起動する。
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json（usage は <out>/usage.json）に書く。作業ディレクトリのある呼び出しは、
 // 終了コード 0 で終えたときに開始と終了の時刻を parent/stages.json（と stages.md）に足す（区間の計測に使う）
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
@@ -1239,7 +1237,7 @@ function agent(args: string[]): Outcome {
 // コード要求の対応表の状態（SKILL.md 5節）
 const STATES = new Set(["充足", "未充足", "未確認"]);
 // 廃止した対応表の状態・要求資料の分類・確かめる担当。その欄の値として使ったときだけ拒否し、本文の語としては拒否しない
-// （候補の判定「基点から存在（対象外）」や CI 判定「対象外（未コミット）」は別の語彙で、ここには当てない）
+// （候補の判定「基点から存在（対象外）」は別の語彙で、ここには当てない）
 const OBSOLETE = ["受け入れ確認担当", "自動チェック担当", "説明", "対象外", "作業手順の規則", "実行しないと分からない"];
 // 廃止した未確認の理由
 const OBSOLETE_REASON = "要実行確認";
@@ -2034,16 +2032,14 @@ function checkRefute(args: string[]): Outcome {
   return { work, result: { ...record, structure: "parent/refute-structure.json" } };
 }
 
-// ---- CI の結果の印（parent.md 3節。CI の結果は作業ログでは [ci-result] で始まる記録、報告では印の間だけに書く） ----
-
-const CI_LOG = "[ci-result]";
-const CI_BEGIN = "<!-- ci-result:begin -->";
-const CI_END = "<!-- ci-result:end -->";
-
-// ---- 最終状態・点数・確認が残る事項・保存直前の再照合・CI・マージ可否（parent.md 10節） ----
+// ---- 最終状態・点数・確認が残る事項・保存直前の再照合・マージ可否（parent.md 10節） ----
 
 type Status = "完了" | "未完了" | "未実施";
 const MERGE_OK = "可（人のレビューなしでマージ可）";
+// mode: local はマージ可否の対象外で、常にこの理由で不可
+const LOCAL_MERGE = "未コミット変更のレビュー（mode: local）。commit 後に新しいレビューが要る";
+// merge-ready の操作の作業ログ（--kind progress）の本文の先頭
+const MERGE_READY_LOG = "[merge-ready]";
 const SEVERITY = ["Critical（致命的）", "Critical（致命的）", "High（高）", "Medium（中）", "Low（低）"];
 
 // 確認が残る事項の1件（ref は要求の出典または候補 ID、from はどの照合・結果から来たか）
@@ -2135,7 +2131,7 @@ interface RequirementsRecheck {
   note: string | null;
 }
 
-// 10節の2（13節の4）: 要求の本文・資料だけを prepare と同じ方法で dir へ取り直し、input/requirements/ と sha256 で比べる（評価用は事例の入力から）
+// 10節の2: 要求の本文・資料だけを prepare と同じ方法で dir へ取り直し、input/requirements/ と sha256 で比べる（評価用は事例の入力から）
 function recheckRequirements(work: string, prep: Prepared, dir: string): RequirementsRecheck {
   mkdirSync(dir, { recursive: true });
   const at = now();
@@ -2211,7 +2207,7 @@ function recheckLocal(work: string, prep: Prepared, dir: string): LocalRecheck {
   return { at, dir, head, changed };
 }
 
-// 保存直前（CI の再照合では照合の前）の再照合で見つかった変化を確認が残る事項にする
+// 保存直前の再照合で見つかった変化を確認が残る事項にする
 function recheckRemaining(prefix: string, requirements: RequirementsRecheck | null, local: LocalRecheck | null): Remaining[] {
   return [
     ...(local?.changed ?? []).map((c) => ({ ref: c.path, owner: "人", reason: `${prefix}: 未コミット変更の土台 HEAD・差分の変化（固定した変更と現在の変更が異なる。${c.detail}）`, from: prefix })),
@@ -2219,75 +2215,12 @@ function recheckRemaining(prefix: string, requirements: RequirementsRecheck | nu
   ];
 }
 
-// CI の照合の記録（parent/ci/<n>/）
-interface CiRecord {
-  n: number;
-  ran: boolean;
-  verdict: string;
-  reason: string;
-  base: string | null;
-  resultHead: string | null;
-  observedAt: string | null;
-  record: string;
-  sha256: string;
-  required: { context?: string; appId?: number | null; sources?: string[]; result?: string; runs?: { url?: string | null; conclusion?: string | null }[] }[];
-}
-
-// 基点の指定を GitHub のブランチ名にする（ローカルのブランチ名、または remote 名を外した追跡ブランチ名）。解決できなければ null
-function ciBranch(prep: Prepared): string | null {
+// 基点の指定を GitHub のブランチ名にする（ローカルのブランチ名、または remote 名を外した追跡ブランチ名）。これがレビューした基点で、解決できなければ null
+function baseBranch(prep: Prepared): string | null {
   const ref = git(prep.repo, "rev-parse", "--symbolic-full-name", prep.base).stdout.toString().trim();
   if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length);
   return /^refs\/remotes\/[^/]+\/(.+)$/.exec(ref)?.[1] ?? null;
 }
-
-// 3.3節: 同じディレクトリの ci-checks.ts を1回実行して parent/ci/<n>/ に記録する。skip なら実行せず not-run.md に CI 判定と理由だけを書く
-function checkCi(work: string, prep: Prepared, n: number, base: string | null, rules: string, skip: { verdict: string; reason: string } | null): CiRecord {
-  const rel = `parent/ci/${n}`;
-  const dir = join(work, rel);
-  if (existsSync(dir) && readdirSync(dir).length > 0) throw new UsageError(`CI の記録 ${dir} が空ではありません（上書きしない）`);
-  const empty = { n, base, resultHead: null, observedAt: null, required: [] };
-  if (skip || !base) {
-    const why = skip ?? { verdict: "必須のチェックを決められず", reason: `基点の指定 ${prep.base} をブランチ名に解決できない` };
-    const body = `# CI の照合をしなかった\n\n- CI 判定: ${why.verdict}\n- 理由: ${why.reason}\n- 記録した時刻: ${now()}\n`;
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "not-run.md"), body);
-    return { ...empty, ran: false, ...why, record: `${rel}/not-run.md`, sha256: sha256(body) };
-  }
-  const p = exec([process.execPath, join(import.meta.dir, "ci-checks.ts"), "--repo", prep.repo, "--base", base, "--head", prep.head, "--rules", rules, "--out", dir]);
-  const file = join(dir, "result.json");
-  let result: (Omit<CiRecord, "resultHead"> & { head?: string }) | null = null;
-  try {
-    result = p.code === 0 && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
-  } catch {
-    result = null;
-  }
-  if (!result || typeof result.verdict !== "string") {
-    const body = `# ci-checks.ts の失敗\n\n- 終了コード: ${p.code ?? "なし"}\n\n## 標準出力\n\n\`\`\`text\n${p.stdout.toString()}\n\`\`\`\n\n## 標準エラー\n\n\`\`\`text\n${p.error ?? p.stderr}\n\`\`\`\n`;
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "ci-checks.log"), body);
-    return { ...empty, ran: true, verdict: "取得できず", reason: `ci-checks.ts が判定を返さない（${failure(p)}）`, record: `${rel}/ci-checks.log`, sha256: sha256(body) };
-  }
-  return {
-    n,
-    ran: true,
-    verdict: result.verdict,
-    reason: String(result.reason ?? ""),
-    base: typeof result.base === "string" ? result.base : base,
-    resultHead: typeof result.head === "string" ? result.head : null,
-    observedAt: typeof result.observedAt === "string" ? result.observedAt : null,
-    record: `${rel}/result.json`,
-    sha256: sha256(readFileSync(file)),
-    required: Array.isArray(result.required) ? result.required : [],
-  };
-}
-
-// 10節の8の4: result.json の head が target.md の head と同じで、CI 判定が成功
-const ciPassed = (ci: CiRecord, prep: Prepared) => ci.verdict === "成功" && ci.resultHead === prep.head;
-
-const ciSummary = (ci: CiRecord) =>
-  `CI 判定 ${ci.verdict}（${ci.reason}。必須のチェック: ${
-    ci.required.map((r) => `${r.context}=${r.result}（出典 ${(r.sources ?? []).join("・")}${(r.runs ?? []).map((x) => `、${x.conclusion ?? "未完了"} ${x.url ?? ""}`.trimEnd()).join("")}）`).join("、") || "なし"
-  }）`;
 
 // 現在の head と基点の照合（parent/head-check.md に書き足す）
 interface HeadCheck {
@@ -2296,14 +2229,16 @@ interface HeadCheck {
   command: string;
   currentHead: string | null;
   currentBase: string | null;
-  ciBase: string | null;
+  // レビューした基点（基点の指定 baseSpec をブランチ名に解決したもの）。null なら現在の基点と照合できない
+  reviewedBase: string | null;
+  baseSpec: string;
   headOk: boolean;
   baseOk: boolean;
   problem: string | null;
 }
 
-// 10節の8・11節・13節の1: head を固定した元（PR は gh pr view の headRefOid と baseRefName、ref は git rev-parse と基点の指定）から取り直して比べる
-function takeHead(work: string, prep: Prepared, ciBase: string | null, label: string): HeadCheck {
+// 10節の8・11節: head を固定した元（PR は gh pr view の headRefOid と baseRefName、ref は git rev-parse と基点の指定）から取り直し、固定した head とレビューした基点に比べる
+function takeHead(work: string, prep: Prepared, reviewedBase: string | null, label: string): HeadCheck {
   const at = now();
   const src = prep.headSource;
   let command = "なし";
@@ -2324,19 +2259,19 @@ function takeHead(work: string, prep: Prepared, ciBase: string | null, label: st
     const p = git(prep.repo, "rev-parse", "--verify", "--quiet", `${src.ref}^{commit}`);
     if (p.code !== 0) problem = `現在の head を取り直せない（${src.ref} を解決できない）`;
     else currentHead = p.stdout.toString().trim();
-    currentBase = ciBranch(prep);
+    currentBase = baseBranch(prep);
   } else problem = "現在の head を取り直せない（ref なし: head を SHA だけで固定した）";
-  const check: HeadCheck = { label, at, command, currentHead, currentBase, ciBase, headOk: currentHead === prep.head, baseOk: currentBase !== null && currentBase === ciBase, problem };
+  const check: HeadCheck = { label, at, command, currentHead, currentBase, reviewedBase, baseSpec: prep.base, headOk: currentHead === prep.head, baseOk: reviewedBase !== null && currentBase === reviewedBase, problem };
   const file = join(work, "parent/head-check.md");
-  if (!existsSync(file)) writeFileSync(file, "# 現在の head と基点の照合\n\nhead を固定した元（parent/head-source.md）から取り直した現在の head と基点を、固定した head と CI の照合に使った基点と比べた記録。\n\n");
+  if (!existsSync(file)) writeFileSync(file, "# 現在の head と基点の照合\n\nhead を固定した元（parent/head-source.md）から取り直した現在の head と基点を、固定した head とレビューした基点（基点の指定をブランチ名に解決したもの）と比べた記録。\n\n");
   const lines = [
     `## ${label}（${at}）`,
     "",
     `- コマンド: \`${command}\``,
     `- 固定した head: \`${prep.head}\``,
     `- 現在の head: ${currentHead ? `\`${currentHead}\`（${check.headOk ? "一致" : "不一致"}）` : "取り直せない"}`,
-    `- CI の照合に使った基点: ${ciBase ?? "なし（CI を照合していない）"}`,
-    `- 現在の基点: ${currentBase ?? "取り直せない"}（${check.baseOk ? "一致" : "不一致"}）`,
+    `- レビューした基点: ${reviewedBase ?? `なし（基点の指定 ${prep.base} をブランチ名に解決できない）`}`,
+    `- 現在の基点: ${currentBase ?? "取り直せない"}（${check.baseOk ? "一致" : reviewedBase === null || currentBase === null ? "照合できない" : "不一致"}）`,
     `- 結果: ${problem ?? (check.headOk && check.baseOk ? "一致" : headProblems(check).join("・"))}`,
     "",
   ];
@@ -2344,13 +2279,16 @@ function takeHead(work: string, prep: Prepared, ciBase: string | null, label: st
   return check;
 }
 
-// 現在の head と基点の照合で、マージ可否を不可にする理由
+// 現在の head と基点の照合で、マージ可否を不可にする理由。照合できないときは変わったと断定しない
 function headProblems(h: HeadCheck): string[] {
   if (h.problem) return [h.problem];
-  return [
-    ...(h.headOk ? [] : [`対象版が現在の head と違う（追加コミット。現在の head ${h.currentHead}）`]),
-    ...(h.baseOk ? [] : [`基点が変わった（CI の照合に使った基点 ${h.ciBase ?? "なし"}、現在の基点 ${h.currentBase ?? "取り直せない"}）`]),
-  ];
+  const base =
+    h.reviewedBase === null
+      ? `基点をブランチ名に解決できず、現在の基点と照合できない（基点の指定 ${h.baseSpec}）`
+      : h.currentBase === null
+        ? `現在の基点を取り直せず、レビューした基点 ${h.reviewedBase} と照合できない`
+        : `基点が変わった（レビューした基点 ${h.reviewedBase}、現在の基点 ${h.currentBase}）`;
+  return [...(h.headOk ? [] : [`対象版が現在の head と違う（追加コミット。現在の head ${h.currentHead}）`]), ...(h.baseOk ? [] : [base])];
 }
 
 interface MergeDecision {
@@ -2358,39 +2296,18 @@ interface MergeDecision {
   blockers: string[];
 }
 
-type MergeInput = { status: Status; reason: string | null; score: number | null; remaining: number; ci: CiRecord; head: HeadCheck | null; prep: Prepared };
-
-// 10節の8の 1〜3（CI と現在の head を除くレビューの側の条件）で満たしていない理由: 完了・確定した要対応0件（点数 5）・確認が残る事項0件。
+// 10節の8: 最終状態が完了・確定した要対応0件（点数 5）・確認が残る事項0件・現在の head と基点がレビューした版と同じのときだけ可。CI の結果は見ない。
+// mode: local は常に不可。評価用の事例は照合対象が無いので head を渡さず（null）、残りの条件だけで決める。
 // 対応表の「未充足」と要対応、「未確認」と確認が残る事項の対応は check-refute の形式の検査で担保するので、対応表の行はここで見ない
-function reviewBlockers(m: MergeInput): string[] {
-  return [
+function decideMerge(m: { status: Status; reason: string | null; score: number | null; remaining: number; local: boolean; head: HeadCheck | null }): MergeDecision {
+  const blockers = [
     ...(m.status === "完了" ? [] : [`最終状態 ${m.status}（理由: ${m.reason}）`]),
     ...(m.score === 5 ? [] : [m.score === null ? "点数なし" : `確定した要対応の点数 ${m.score}`]),
     ...(m.remaining > 0 ? [`確認が残る事項 ${m.remaining} 件`] : []),
-  ];
-}
-
-// 10節の8（13節の6）: 最終状態・点数・確認が残る事項と、同じ head の CI・現在の head と基点から決める。どれも変えない
-function decideMerge(m: MergeInput): MergeDecision {
-  const ok = ciPassed(m.ci, m.prep);
-  const blockers = [
-    ...reviewBlockers(m),
-    ...(ok ? [] : [`CI 判定 ${m.ci.verdict}（${m.ci.reason}${m.ci.resultHead ? `。result.json の head ${m.ci.resultHead} は target.md の head と${m.ci.resultHead === m.prep.head ? "一致" : "不一致"}` : ""}）`]),
+    ...(m.local ? [LOCAL_MERGE] : []),
     ...(m.head ? headProblems(m.head) : []),
   ];
   return { merge: blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE, blockers };
-}
-
-// 評価用の事例の「CI を除いたレビュー側の判定」（docs/code-review-evaluation.md）。マージ可否とは別の値で、CI と現在の head は見ず、
-// 完了・確定した要対応0件・確認が残る事項0件の3条件だけで決める
-export interface ReviewSideMerge {
-  merge: string;
-  blockers: string[];
-}
-
-function reviewSideMerge(m: MergeInput): ReviewSideMerge {
-  const blockers = reviewBlockers(m);
-  return { merge: blockers.length === 0 ? "CI を除いてマージ可" : "CI を除いてマージ不可", blockers };
 }
 
 // ---- 報告の組み立て（parent.md 11節。結果 report.md と監査 audit.md） ----
@@ -2403,15 +2320,13 @@ interface ReportContext {
   state: ReviewState;
   score: number | null;
   remaining: Remaining[];
-  ci: CiRecord;
   head: HeadCheck | null;
   decision: MergeDecision;
   labelPlan: string;
   requirements: RequirementsRecheck | null;
   local: LocalRecheck | null;
-  // 報告に載せる計測（prepare の開始から報告の組み立ての直前まで）と、評価用の事例の CI を除いたレビュー側の判定
+  // 報告に載せる計測（prepare の開始から報告の組み立ての直前まで）
   usage: ReportUsage;
-  reviewSide: ReviewSideMerge | null;
 }
 
 const severityOf = (impact: number | null) => (impact === null ? "影響度なし" : `${SEVERITY[impact] ?? "不明"}、影響度 ${impact}`);
@@ -2435,7 +2350,7 @@ function declaredModel(path: string): string {
 const fileSha = (path: string) => (existsSync(path) && lstatSync(path).isFile() ? sha256(readFileSync(path)) : "無い");
 
 function renderAudit(c: ReportContext): string {
-  const { work, prep, state, ci, decision } = c;
+  const { work, prep, state, decision } = c;
   const W = (rel: string) => `\`${join(work, rel)}\``;
   const agents = loadList<AgentRecord>(work, "agents");
   const retired = loadList<AttemptRecord>(work, "attempts");
@@ -2487,27 +2402,28 @@ function renderAudit(c: ReportContext): string {
     ["反証への入力の指紋", "parent/fingerprints.md"],
     ["試行の記録", "parent/agents.md"],
     ["無効な試行の記録", "parent/attempts.md"],
-    ["CI の照合の記録", ci.record],
     ["head を固定した元", "parent/head-source.md"],
     ["現在の head の照合", "parent/head-check.md"],
   ];
-  const ciBlock = ci.ran
-    ? [
-        `- CI 判定: ${ci.verdict}（${ci.reason}）${ci.verdict === "成功" ? "" : "。成功以外はマージ不可"}`,
-        `- 必須のチェックと出典: ${ci.required.map((r) => `${r.context}（app の指定 ${r.appId ?? "なし"}。出典: ${(r.sources ?? []).join("・")}）`).join("、") || "なし"}（出典ごとの読めた／0件／決められず と理由は result.json の sources）`,
-        `- 必須のチェックごとの結果: ${ci.required.map((r) => `${r.context}=${r.result}${(r.runs ?? []).map((x) => `（${x.conclusion ?? "未完了"} ${x.url ?? ""}）`).join("")}`).join("、") || "なし"}`,
-        `- head SHA の一致: result.json の head ${ci.resultHead ?? "なし"} と target.md の head ${prep.head} が${ci.resultHead === prep.head ? "一致" : "不一致"}`,
-        `- 観測時刻: ${ci.observedAt ?? "なし"}（CI の完了を待たず、この時点の結果で判定した）`,
-        `- 記録: ${W(ci.record)}（sha256 ${ci.sha256}。gh の生の応答の sha256 は result.json の files）`,
-      ]
-    : [`- CI 判定: ${ci.verdict}（照合しなかった。理由: ${ci.reason}）`, `- 記録: ${W(ci.record)}（sha256 ${ci.sha256}）`];
-  const headLine = c.head
-    ? `- 現在の head と基点の照合: ${c.head.problem ?? `現在の head ${c.head.currentHead}（${c.head.headOk ? "固定した head と一致" : "不一致。対象版が現在の head と違う（追加コミット）"}）、現在の基点 ${c.head.currentBase ?? "取り直せない"}（CI の照合に使った基点 ${c.head.ciBase ?? "なし"} と${c.head.baseOk ? "一致" : "不一致。基点が変わった"}）`}。取得: \`${c.head.command}\`（${c.head.at}）。記録: ${W("parent/head-check.md")}`
+  const h = c.head;
+  const headLine = h
+    ? `- 現在の head と基点の照合: ${
+        h.problem ??
+        `現在の head ${h.currentHead}（${h.headOk ? "固定した head と一致" : "不一致。対象版が現在の head と違う（追加コミット）"}）、現在の基点 ${h.currentBase ?? "取り直せない"}（${
+          h.baseOk
+            ? `レビューした基点 ${h.reviewedBase} と一致`
+            : h.reviewedBase === null
+              ? `基点の指定 ${h.baseSpec} をブランチ名に解決できず照合できない`
+              : h.currentBase === null
+                ? `レビューした基点 ${h.reviewedBase} と照合できない`
+                : `レビューした基点 ${h.reviewedBase} と不一致。基点が変わった`
+        }）`
+      }。取得: \`${h.command}\`（${h.at}）。記録: ${W("parent/head-check.md")}`
     : `- 現在の head と基点の照合: 照合せず（${state.status === "未実施" ? "未実施" : prep.caseDir ? "評価用の事例" : "mode: local"}）`;
   const followUp =
     state.status === "完了"
-      ? `確定した要対応の点数 ${c.score}、要対応 ${required.length} 件、確認が残る事項 ${c.remaining.length} 件。${c.remaining.length > 0 ? "完了でも確認が残る事項は、提出・完了に必要な確認の不足として既存の提出・完了条件へ委ねる。" : ""}マージ可否と CI の結果に触れる部分は、次の ci-result の印の中だけに書く。`
-      : `独立レビュー${state.status}（${state.reason}）。試行の記録と受領済みの成果は上の担当と試行の記録の節。Done・In Review・PR へ進めない（委譲し直しや利用枠の回復待ちで代替しない）。マージ可否と CI の結果に触れる部分は、次の ci-result の印の中だけに書く。`;
+      ? `確定した要対応の点数 ${c.score}、要対応 ${required.length} 件、確認が残る事項 ${c.remaining.length} 件。${c.remaining.length > 0 ? "完了でも確認が残る事項は、提出・完了に必要な確認の不足として既存の提出・完了条件へ委ねる。" : ""}`
+      : `独立レビュー${state.status}（${state.reason}）。試行の記録と受領済みの成果は上の担当と試行の記録の節。Done・In Review・PR へ進めない（委譲し直しや利用枠の回復待ちで代替しない）。`;
   const reqRows = prep.inputs.filter((i) => i.path.startsWith("requirements/"));
   return [
     "この記録は監査記録専用。利用者向けの結果は別の結果 Document にまとめ、同じ runId・対象 SHA で対応付ける。review.ts finalize が作業ディレクトリの記録から組み立てた。",
@@ -2518,18 +2434,14 @@ function renderAudit(c: ReportContext): string {
     `- 作業ディレクトリ: ${work}`,
     `- 最終状態: ${statusLine(c)}`,
     `- 確定した要対応の点数: ${c.score ?? NOT_RUN_SCORE}`,
-    `- 点数の計算: ${scoreCalc}未確認が残っていても完了なら計算し、軸間で平均せず、任意・棄却・基点から存在（対象外）・未確認は入れない。点数は確定した要対応の影響度だけを表し、要求の確認率もマージ許可も表さない。CI の結果では状態・点数を変えない。`,
+    `- 点数の計算: ${scoreCalc}未確認が残っていても完了なら計算し、軸間で平均せず、任意・棄却・基点から存在（対象外）・未確認は入れない。点数は確定した要対応の影響度だけを表し、要求の確認率もマージ許可も表さない。`,
     `- 確認が残る事項: ${c.remaining.length} 件（下の「確認が残る事項」の節）。最終状態と点数を変えず、マージ可否だけを止める。`,
-    "- マージ可否・現在の head の照合・merge-ready: CI の結果を含むので、次の ci-result の印の中だけに書く（CI の結果は親だけが扱い、レビュー担当の入力に入れない）",
-    CI_BEGIN,
     `- マージ可否: ${decision.merge}`,
     ...(decision.blockers.length > 0 ? [`  - 不可の理由: ${decision.blockers.join("／")}`] : []),
-    "  - 可は、最終状態が完了・確定した要対応0件（点数 5）・確認が残る事項0件・同じ head SHA の必須の CI がすべて成功（現在の head と基点の照合を含む）のときだけ。",
+    "  - 可は、最終状態が完了・確定した要対応0件（点数 5）・確認が残る事項0件・現在の head と基点がレビューした版と同じ（次の照合）のときだけ。mode: local は対象外で常に不可。CI の結果は見ない（CI が落ちた PR のマージを止めるのは GitHub の必須ステータスチェック）。",
     "  - 「完了・確定した要対応の点数 5・確認が残る事項あり・マージ不可」は正常な結果である。可でもリポジトリの既存のマージ条件（ブランチ保護・必須のレビューなど）は省かない。",
     headLine,
-    `- merge-ready: ${c.labelPlan}。報告の保存と作業ログの直後に行う操作として書く。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は、判定した head SHA・現在の head の照合・基点・CI 判定・この報告の Document ID・runId とともに、本文が [ci-result] で始まる --kind test の作業ログに記録する`,
-    ...(c.reviewSide ? [`- CI を除いたレビュー側の判定（評価用）: ${c.reviewSide.merge}（マージ可否とは別の値。CI と現在の head を見ず、完了・確定した要対応0件・確認が残る事項0件だけで決める${c.reviewSide.blockers.length > 0 ? `。理由: ${c.reviewSide.blockers.join("／")}` : ""}）`] : []),
-    CI_END,
+    `- merge-ready: ${c.labelPlan}。報告の保存と作業ログの直後に行う操作として書く。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は、判定した head SHA・現在の head と基点の照合・レビューした基点・マージ可否・この報告の Document ID・runId とともに、本文が ${MERGE_READY_LOG} で始まる --kind progress の作業ログに記録する`,
     `- 対象版: 元のリポジトリ \`${prep.repo}\`／基点の指定 \`${prep.base}\`／merge-base \`${prep.mergeBase}\`／head \`${prep.head}\`／mode ${prep.mode}${prep.mode === "local" ? `（土台の HEAD \`${prep.head}\`、${prep.inputs.filter((i) => i.path.startsWith("local/")).map((i) => `\`${i.path}\` ${i.sha256}`).join("・")}）` : ""}${prep.caseDir ? `／評価用の事例 ${prep.case}` : ""}`,
     `- 担当用の限定 clone: ${W("repo")}（記録: ${W("parent/clone.md")}）。prepare の確認: ${prep.clone ? (prep.clone.checks.every((x) => x.ok) ? "すべて通った" : "通らない確認がある") : "作っていない"}。段階ごとの同一性の確認 ${identities.length} 回（不一致 ${identities.filter((i) => !i.ok).length} 回。記録: ${W("parent/identity.md")}）`,
     `- 依存の写し: ${
@@ -2544,16 +2456,6 @@ function renderAudit(c: ReportContext): string {
     "判定本文の未確認（コード要求の中身を決める要求資料の不足、結論に必要な依存の契約の不足、要求間の矛盾、採否を確定できない候補。どのコード上の結論に何が足りないかを理由と不足箇所に書く）、保存時の要求の変化、未コミット変更の土台 HEAD・差分の変化を、例外なくすべて載せる。",
     "",
     ...(c.remaining.length > 0 ? ["| 要求の出典（または候補 ID） | 確かめる担当 | 理由 |", "|---|---|---|", ...c.remaining.map((r) => `| ${cell(r.ref)} | ${cell(r.owner)} | ${cell(r.reason)} |`)] : ["なし"]),
-    "",
-    "### CI の結果（親だけが照合）",
-    "",
-    "CI の結果は次の ci-result の印の中だけに書く。",
-    "",
-    CI_BEGIN,
-    "親はテストを実行せず、同じ head SHA に対する CI の結果を GitHub から読むだけにした（scripts/ci-checks.ts）。CI の結果はレビュー担当へ渡していない。",
-    "",
-    ...ciBlock,
-    CI_END,
     "",
     "### 要求の出典と写しの指紋",
     "",
@@ -2598,9 +2500,7 @@ function renderAudit(c: ReportContext): string {
     "",
     followUp,
     "",
-    CI_BEGIN,
-    `マージ可否は${decision.merge}。${decision.merge === MERGE_OK ? "" : "人の判断なしにマージへ進めない。"}${ci.verdict === "未確定" || ci.verdict === "結果なし" ? "CI の完了後に親の手順の13節の CI の再照合（review.ts recheck-ci）で判定し直す（レビューはやり直さない）。" : ""}`,
-    CI_END,
+    `マージ可否は${decision.merge}。${decision.merge === MERGE_OK ? "" : "人の判断なしにマージへ進めない。"}`,
     "",
     ...renderAuditUsage(c.usage, work),
     "",
@@ -2633,12 +2533,9 @@ function renderReport(c: ReportContext, auditRef: string): string {
     `- 確認が残る事項: ${c.remaining.length} 件`,
     `- 対象: ${c.prep.head}（基点 ${c.prep.base}、merge-base ${c.prep.mergeBase}、mode ${c.prep.mode}）`,
     `- 範囲: ${SCOPE_NOTE}`,
-    CI_BEGIN,
     `- マージ可否: ${c.decision.merge}`,
     ...(c.decision.blockers.length > 0 ? [`- 理由: ${c.decision.blockers.join("／")}`] : []),
-    `- CI 判定: ${c.ci.verdict}`,
-    `- merge-ready: ${c.labelPlan}。実際の操作結果は保存後の [ci-result] の作業ログを参照`,
-    CI_END,
+    `- merge-ready: ${c.labelPlan}。実際の操作結果は保存後の ${MERGE_READY_LOG} で始まる作業ログを参照`,
     "",
     "## 要対応",
     "",
@@ -2663,12 +2560,12 @@ function renderReport(c: ReportContext, auditRef: string): string {
     `- ${auditRef}`,
     `- runId: ${c.runId}`,
     "",
-    "全対応表・担当別の原文・指紋・取得と再照合・担当と試行の記録・CI の詳細は監査記録にある。",
+    "全対応表・担当別の原文・指紋・取得と再照合・担当と試行の記録は監査記録にある。",
     "",
   ].join("\n");
 }
 
-// ---- 保存・作業ログ・merge-ready（parent.md 11節・13節） ----
+// ---- 保存・作業ログ・merge-ready（parent.md 11節） ----
 
 interface SavedDocument {
   id: number | null;
@@ -2740,7 +2637,7 @@ function logList(open: string, items: string[], close: string, more: string, emp
   return items.length > 0 ? { open, items, close, more } : empty;
 }
 
-// parent.md 11節・13節: 作業ログを nod の上限に決定的に収める。文字列の部分（必須の項目）はそのまま残し、一覧は1件ずつ順に（どれも先頭から）
+// parent.md 11節: 作業ログを nod の上限に決定的に収める。文字列の部分（必須の項目）はそのまま残し、一覧は1件ずつ順に（どれも先頭から）
 // 丸ごと入るだけ書いて、書けなかった件数と全文の場所を「ほか N 件は<場所>を参照」と書く。丸ごと入らない次の項目は残りの字数で途中まで書いて切ったことを示す。
 // 必須の項目だけで上限を超えるときは末尾を切ってその旨を書く
 function fitWorkLog(parts: (string | LogList)[]): string {
@@ -2783,21 +2680,21 @@ function fitWorkLog(parts: (string | LogList)[]): string {
 }
 
 // 作業ログを1件書き、返った id を返す。書けなければ終了コードと nod のエラー文を返す
-function writeWorkLog(issue: string, text: string, kind: "progress" | "blocker" | "test"): { id: number | null; problem: string | null } {
+function writeWorkLog(issue: string, text: string, kind: "progress" | "blocker"): { id: number | null; problem: string | null } {
   const p = nod(["--json", "issue", "log", issue, text, "--kind", kind]);
   const id = (parseJson(p) as { id?: unknown } | undefined)?.id;
   if (typeof id !== "number") return { id: null, problem: failure(p) };
   return { id, problem: null };
 }
 
-// 11節（13節の7）: 報告の保存と作業ログの後に merge-ready を付け外しし、本文が [ci-result] で始まる --kind test の作業ログに1件残す。
+// 11節: 報告の保存と作業ログの後に merge-ready を付け外しし、本文が [merge-ready] で始まる --kind progress の作業ログに1件残す。
 // 可なら付ける直前に現在の head と基点を取り直し、違う・取り直せない・保存に失敗したときは付けない（付いていれば外す）
-// 一覧（不可の理由 blockers と加えた確認が残る事項 added）が上限に収まらなければ、書けなかった件数と全文の場所 more を書く
+// 不可の理由 blockers が上限に収まらなければ、書けなかった件数と全文の場所 more を書く
 function applyMergeReady(
   work: string,
   prep: Prepared,
   issue: string,
-  x: { merge: string; blockers: string[]; ci: CiRecord | null; head: HeadCheck | null; reportId: number | null; runId: string; saveProblem: string | null; extra: string[]; added: string[]; more: string },
+  x: { merge: string; blockers: string[]; reviewedBase: string | null; head: HeadCheck | null; reportId: number | null; runId: string; saveProblem: string | null; more: string },
 ): LabelResult {
   const labels = issueLabels(issue);
   const labeled = labels?.includes("merge-ready") ?? false;
@@ -2806,7 +2703,7 @@ function applyMergeReady(
   if (x.merge === MERGE_OK) {
     if (x.saveProblem) blockers.push(x.saveProblem);
     else {
-      head = takeHead(work, prep, x.ci?.base ?? null, "merge-ready を付ける直前");
+      head = takeHead(work, prep, x.reviewedBase, "merge-ready を付ける直前");
       blockers.push(...headProblems(head));
     }
   }
@@ -2821,27 +2718,24 @@ function applyMergeReady(
     operation = p.code === 0 ? "外した" : "外せなかった";
     if (p.code !== 0) error = `ラベルを外せない（${failure(p)}）`;
   }
-  const ci = x.ci;
   const text = fitWorkLog([
-    `${CI_LOG} merge-ready: ${operation}`,
+    `${MERGE_READY_LOG} merge-ready: ${operation}`,
     logList("（マージ可否が不可: ", blockers, "）", x.more),
     "。",
-    `判定した head SHA ${prep.head}${head?.currentHead ? `、現在の head ${head.currentHead}（${head.headOk ? "一致" : "不一致"}）` : head?.problem ? `、${head.problem}` : ""}、`,
-    `基点 ${ci?.base ?? prep.base}（merge-base ${prep.mergeBase}）${head ? `、現在の基点 ${head.currentBase ?? "取り直せない"}（${head.baseOk ? "一致" : "不一致"}）` : ""}、`,
-    `${ci ? ciSummary(ci) : "CI は照合せず"}、マージ可否 ${blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE}、`,
-    `報告Document ${x.reportId ?? "保存できず"}、runId ${x.runId}${x.extra.map((e) => `、${e}`).join("")}`,
-    logList(`、加えた確認が残る事項 ${x.added.length} 件（`, x.added, "）", x.more),
-    "、",
-    `CI の記録 ${ci ? `${join(work, dirname(ci.record))}/（${basename(ci.record)} の sha256 ${ci.sha256}）` : "なし"}。`,
+    `判定した head SHA ${prep.head}${head?.currentHead ? `、現在の head ${head.currentHead}（${head.headOk ? "一致" : "不一致"}）` : head?.problem ? `、${head.problem}` : "、現在の head と基点は照合せず"}、`,
+    `レビューした基点 ${x.reviewedBase ?? "なし（ブランチ名に解決できない）"}（基点の指定 ${prep.base}、merge-base ${prep.mergeBase}）`,
+    head ? `、現在の基点 ${head.currentBase ?? "取り直せない"}（${head.baseOk ? "一致" : head.reviewedBase === null || head.currentBase === null ? "照合できない" : "不一致"}）、` : "、",
+    `マージ可否 ${blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE}、`,
+    `報告Document ${x.reportId ?? "保存できず"}、runId ${x.runId}。`,
     "ラベルは現在の判定の表示で、自動マージの指示ではない。",
     ...(error ? [`ラベルの操作の問題: ${error}。`] : []),
   ]);
-  const log = writeWorkLog(issue, text, "test");
-  const logError = log.problem ? `[ci-result] の作業ログを書けない（${log.problem}）` : null;
+  const log = writeWorkLog(issue, text, "progress");
+  const logError = log.problem ? `${MERGE_READY_LOG} の作業ログを書けない（${log.problem}）` : null;
   return { operation, blockers, head, error: [error, logError].filter((e) => e !== null).join("。") || null, log: log.id };
 }
 
-// 11節の作業ログ（完了は progress、未実施・未完了は blocker）の本文。CI 判定・マージ可否・merge-ready は書かず [ci-result] の記録を参照する。
+// 11節の作業ログ（完了は progress、未実施・未完了は blocker）の本文。マージ可否・merge-ready は書かず [merge-ready] の記録を参照する。
 // 末尾に保存までの確定値（報告には書き戻さない計測）を書く。上限に収まらない一覧は、書けなかった件数と結果・監査の場所を書く
 function summaryLog(c: ReportContext, reportId: number | null, auditId: number | null, saveProblems: string[], final: FinalUsage): string {
   const agents = loadList<AgentRecord>(c.work, "agents");
@@ -2855,7 +2749,7 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
     more,
   );
   const docs = [`結果Document ${reportId ?? "保存できず"}、監査Document ${auditId ?? "保存できず"}`, logList("（保存・照合の問題: ", saveProblems, "）", `finalize の記録（${join(c.work, "parent/finalize.json")} の saveProblems）`)];
-  const ciNote = "CI 判定・マージ可否・merge-ready は [ci-result] で始まる --kind test の作業ログを参照";
+  const mergeNote = `マージ可否・merge-ready は ${MERGE_READY_LOG} で始まる作業ログを参照`;
   if (c.state.status === "完了") {
     const required = c.state.refute?.required ?? [];
     return fitWorkLog([
@@ -2867,7 +2761,7 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
       ...docs,
       `。runId ${c.runId}。担当: ${ids}。`,
       retries,
-      `${ciNote}。`,
+      `${mergeNote}。`,
       finalUsageText(final, c.work),
     ]);
   }
@@ -2877,34 +2771,19 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
     retries,
     `受領済みの成果: ${agents.filter((a) => a.receivedAt).map((a) => `${a.roleName}の試行 ${a.attempt}`).join("、") || "なし"}。点数なし。`,
     ...docs,
-    `。runId ${c.runId}。Done・In Review・PR へ進めない。${ciNote}。`,
+    `。runId ${c.runId}。Done・In Review・PR へ進めない。${mergeNote}。`,
     finalUsageText(final, c.work),
   ]);
 }
 
 // ---- finalize（parent.md 10節・11節） ----
 
-// parent/finalize.json の形（recheck-ci が読む部分）
-interface FinalizeRecord {
-  status: Status;
-  reason: string | null;
-  scoreValue: number | null;
-  remaining: Remaining[];
-  ci: CiRecord;
-  documents: { audit: SavedDocument; report: SavedDocument } | null;
-  saved: boolean;
-  saveProblems: string[];
-  reportSha256: string;
-  auditSha256: string;
-}
-
 function finalize(args: string[]): Outcome {
   const o = parseOptions(args, ["work", "not-run-reason", "session", "skill-start"], []);
   const work = absolute("work", o.one.get("work"));
   if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
   const prep = prepareRecord(work);
-  if (existsSync(join(work, "parent/finalize.json"))) throw new UsageError("finalize は実行済みです（報告を保存し直さない。CI の照合し直しは recheck-ci）");
-  if (existsSync(join(work, "parent/ci/1")) && readdirSync(join(work, "parent/ci/1")).length > 0) throw new UsageError("parent/ci/1/ が空ではありません（CI の照合は finalize が1回だけ行う）");
+  if (existsSync(join(work, "parent/finalize.json"))) throw new UsageError("finalize は実行済みです（報告を保存し直さない）");
   const session = parentSession(absolute("session", o.one.get("session")));
   const skillStartArg = o.one.get("skill-start");
   if (skillStartArg !== undefined && Number.isNaN(Date.parse(skillStartArg))) throw new UsageError(`--skill-start は ISO 8601 の時刻にしてください: ${skillStartArg}`);
@@ -2919,25 +2798,10 @@ function finalize(args: string[]): Outcome {
   const requirements = ready ? recheckRequirements(work, prep, join(work, "parent/requirements-recheck")) : null;
   const remaining = [...verdictRemaining(state.refute), ...recheckRemaining("保存直前の再照合", requirements, local)];
 
-  // 10節の8: 同じ head の CI を1回だけ照合し、現在の head と基点を取り直す
-  const base = ciBranch(prep);
-  const rules = join(work, "parent/requirements-recheck/workspace-rules.md");
-  const skip =
-    state.status === "未実施"
-      ? { verdict: "照合せず（未実施）", reason: "独立レビュー未実施のため照合しなかった" }
-      : prep.caseDir
-        ? { verdict: "照合せず（評価用の事例）", reason: "評価用の事例（prepare --case）では CI の照合を比較に使わないので省いた" }
-        : prep.mode === "local"
-          ? { verdict: "対象外（未コミット）", reason: "CI の結果は commit 済みの head に対するもので未コミット変更を含まない" }
-          : !existsSync(rules)
-            ? { verdict: "必須のチェックを決められず", reason: "Workspace の規約を取り直せない（parent/requirements-recheck/ の取得できなかった資料）" }
-            : null;
-  const ci = checkCi(work, prep, 1, base, rules, skip);
-  const head = state.status !== "未実施" && prep.mode === "commit" && !prep.caseDir ? takeHead(work, prep, ci.base, "マージ可否を決める直前") : null;
-  const mergeInput: MergeInput = { status: state.status, reason: state.reason, score, remaining: remaining.length, ci, head, prep };
-  const decision = decideMerge(mergeInput);
-  // 評価用の事例だけ、CI を除いたレビュー側の判定（完了・確定した要対応0件・確認が残る事項0件）を別に出す
-  const reviewSide = prep.caseDir ? reviewSideMerge(mergeInput) : null;
+  // 10節の8: 現在の head と基点を取り直してレビューした版と比べ、マージ可否を決める（CI は照合しない）
+  const reviewedBase = baseBranch(prep);
+  const head = state.status !== "未実施" && prep.mode === "commit" && !prep.caseDir ? takeHead(work, prep, reviewedBase, "マージ可否を決める直前") : null;
+  const decision = decideMerge({ status: state.status, reason: state.reason, score, remaining: remaining.length, local: prep.mode === "local", head });
   const labeled = mode === "issue" && prep.issue ? (issueLabels(prep.issue)?.includes("merge-ready") ?? false) : false;
   const labelPlan =
     mode === "case" ? "扱わない（評価用の事例）" : mode === "request" ? "扱わない（Issue なし）" : decision.merge === MERGE_OK ? "付ける予定（付ける直前に現在の head と基点を取り直す）" : labeled ? "外す予定" : "付けない";
@@ -2945,12 +2809,12 @@ function finalize(args: string[]): Outcome {
   // 報告の組み立て・保存の直前。報告に載せる区間の値（計測の1つ目）はこの時刻までを数える
   const reportStartedAt = now();
   const usage = reportUsage(work, prep, session, reportStartedAt);
-  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, ci, head, decision, labelPlan, requirements, local, usage, reviewSide };
+  const ctx: ReportContext = { work, prep, runId, mode, state, score, remaining, head, decision, labelPlan, requirements, local, usage };
   const audit = renderAudit(ctx);
   writeFileSync(join(work, "parent/audit.md"), audit);
   const markers = [{ name: "refute-verdict", sha256: state.refute?.sha256 ?? null }];
   const problems = markerProblems(audit, markers, "監査の原稿 parent/audit.md");
-  let documents: FinalizeRecord["documents"] = null;
+  let documents: { audit: SavedDocument; report: SavedDocument } | null = null;
   let report: string;
   if (mode === "issue" && prep.issue) {
     const date = now().slice(0, 10).replaceAll("-", "");
@@ -2982,19 +2846,17 @@ function finalize(args: string[]): Outcome {
     label = applyMergeReady(work, prep, prep.issue, {
       merge: decision.merge,
       blockers: decision.blockers,
-      ci,
+      reviewedBase,
       head,
       reportId: documents?.report.id ?? null,
       runId,
       saveProblem: saved ? null : `報告の保存・照合に失敗（${problems.join("、")}）`,
-      extra: [],
-      added: [],
       more: `finalize の記録（${join(work, "parent/finalize.json")} の blockers）`,
     });
   }
   // 保存・照合の失敗や付ける直前の head・基点の変化で付けなかったときは、マージ可否を不可として扱う（報告 Document は書き換えない）
   const blockers = label ? label.blockers : saved ? decision.blockers : [...decision.blockers, `報告の照合に失敗（${problems.join("、")}）`];
-  const record: FinalizeRecord & Json = {
+  const record: Json = {
     runId,
     mode,
     status: state.status,
@@ -3006,7 +2868,6 @@ function finalize(args: string[]): Outcome {
     merge: blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE,
     reportedMerge: decision.merge,
     blockers,
-    ci,
     head,
     recheck: {
       requirements: requirements && { at: requirements.at, changed: requirements.changed, unavailable: requirements.unavailable },
@@ -3019,12 +2880,11 @@ function finalize(args: string[]): Outcome {
     documents,
     saved,
     saveProblems: problems,
-    logs: { summary: summaryLogId, ci: label?.log ?? null },
+    logs: { summary: summaryLogId, mergeReady: label?.log ?? null },
     label: label ? { operation: label.operation, error: label.error } : { operation: labelPlan, error: null },
     logProblem,
     reportStartedAt,
     savedAt,
-    reviewSideMerge: reviewSide,
     usage: {
       record: join(work, "parent/usage.json"),
       report: { from: usage.from, to: usage.to, seconds: usage.seconds, parentTotalTokens: usage.parent.tally?.totalTokens ?? null },
@@ -3033,137 +2893,6 @@ function finalize(args: string[]): Outcome {
     },
   };
   return { work, result: record };
-}
-
-// ---- recheck-ci（parent.md 13節。レビューをやり直さず、同じ head の CI とマージ可否を照合し直す） ----
-
-// 初回保存の成功と、保存した結果・監査の現在の本文/所属を原稿の指紋で確かめる。
-// CI が後から成功しても、保存失敗や別の本文を有効なレビューに読み替えない。
-function savedReviewProblems(work: string, prep: Prepared, fin: FinalizeRecord): string[] {
-  const problems: string[] = [];
-  if (fin.saved !== true || fin.saveProblems?.length) problems.push(`報告の保存・照合に失敗（${fin.saveProblems?.join("、") || "保存成功の記録が無い"}）`);
-  for (const kind of ["report", "audit"] as const) {
-    const hash = kind === "report" ? fin.reportSha256 : fin.auditSha256;
-    const file = join(work, "parent", `${kind}.md`);
-    if (!hash || !existsSync(file) || sha256(readFileSync(file)) !== hash) problems.push(`${kind} の原稿の指紋が保存時と違うか原稿が無い`);
-    if (!prep.issue) continue;
-    const saved = fin.documents?.[kind];
-    if (!saved || saved.id === null || saved.problems.length > 0) {
-      problems.push(`${kind} Document の保存・照合が成功していない`);
-      continue;
-    }
-    const p = nod(["--json", "doc", "show", String(saved.id)]);
-    const doc = parseJson(p) as { kind?: string; issues?: { id: string }[]; content?: string } | undefined;
-    if (p.code !== 0 || typeof doc?.content !== "string") {
-      problems.push(`${kind} Document ${saved.id} を読み直せない（${failure(p)}）`);
-      continue;
-    }
-    if (doc.kind !== "doc" || !doc.issues?.some((i) => i.id.toUpperCase() === prep.issue?.toUpperCase())) problems.push(`${kind} Document ${saved.id} の kind・Issueリンクが保存時と違う`);
-    const heading = `# ${saved.title}\n\n`;
-    if (!doc.content.startsWith(heading) || sha256(doc.content.slice(heading.length)) !== hash) problems.push(`${kind} Document ${saved.id} の本文の指紋が保存時と違う`);
-  }
-  return problems;
-}
-
-function recheckCi(args: string[]): Outcome {
-  const o = parseOptions(args, ["work"], []);
-  const work = absolute("work", o.one.get("work"));
-  if (!work) throw new UsageError("--work <W の絶対パス> が要ります");
-  const prep = prepareRecord(work);
-  const fin = readRecord<FinalizeRecord & { runId?: string; scoreValue?: number | null }>(join(work, "parent/finalize.json"));
-  if (!fin) throw new UsageError("finalize の記録（parent/finalize.json）がありません。保存したレビューの作業ディレクトリ（監査の管理情報の作業ディレクトリ）を指定してください");
-  if (prep.caseDir) throw new UsageError("評価用の事例では CI を照合しません");
-  const parent = join(work, "parent");
-  const numbers = [...(existsSync(join(parent, "ci")) ? readdirSync(join(parent, "ci")) : []), ...readdirSync(parent).filter((n) => n.startsWith("recheck-")).map((n) => n.slice("recheck-".length))]
-    .map(Number)
-    .filter(Number.isInteger);
-  const n = Math.max(0, ...numbers) + 1;
-  const dir = join(parent, `recheck-${n}`);
-  mkdirSync(dir, { recursive: true });
-  const runId = basename(work);
-  const reportId = fin.documents?.report.id ?? null;
-  const auditId = fin.documents?.audit.id ?? null;
-  const reportBase = fin.ci.base ?? ciBranch(prep);
-  const at = now();
-
-  // 1・2: 現在の head（PR なら基点も）を取り直し、違えば照合しない
-  const head = prep.mode === "commit" ? takeHead(work, prep, reportBase, `CI の再照合 ${n}`) : null;
-  let reason: string | null = null;
-  let blockers: string[] = [];
-  let ci: CiRecord | null = null;
-  let added: Remaining[] = [];
-  let requirements: RequirementsRecheck | null = null;
-  if (head && (head.problem || !head.headOk)) {
-    reason = head.problem ?? `判定が古い（追加コミット。報告の head ${prep.head}、現在の head ${head.currentHead}）`;
-    blockers = [reason];
-  } else {
-    // 3: 照合し直しても可にならない条件と、使う記録（固定した対象版と要求資料）の有無
-    const records = ["input/target.md", "input/requirements", "input/manifest.md"];
-    const missing = records.filter((r) => !existsSync(join(work, r)));
-    const cond = [
-      ...savedReviewProblems(work, prep, fin),
-      ...(fin.status === "完了" ? [] : [`報告の最終状態が完了でない（${fin.status}）`]),
-      ...(fin.scoreValue === 5 ? [] : [`確定した要対応の点数が 5 でない（${fin.scoreValue ?? NOT_RUN_SCORE}）`]),
-      ...(fin.remaining.length > 0 ? [`報告の確認が残る事項 ${fin.remaining.length} 件`] : []),
-      ...(prep.mode === "local" ? ["mode: local"] : []),
-      ...(missing.length > 0 ? [`作業ディレクトリの記録が無い: ${missing.map((m) => join(work, m)).join("・")}`] : []),
-    ];
-    if (cond.length > 0) {
-      reason = `照合し直しても可にならない: ${cond.join("・")}`;
-      blockers = cond;
-    } else {
-      // 4: 10節の2（要求資料の再照合）を recheck-<n>/ へやり直す。必須の CI の規約もここで取り直した Workspace の規約から読む
-      requirements = recheckRequirements(work, prep, join(dir, "requirements"));
-      added = recheckRemaining(`CI の再照合 ${n}`, requirements, null);
-      // 5: CI を parent/ci/<n>/ へ1回だけ照合する
-      const rules = join(dir, "requirements/workspace-rules.md");
-      ci = checkCi(work, prep, n, reportBase, rules, existsSync(rules) ? null : { verdict: "必須のチェックを決められず", reason: "Workspace の規約を取り直せない" });
-      // 6: 報告の判定に4で加えた事項を合わせ、10節の8と同じ規則で決める
-      const decision = decideMerge({ status: fin.status, reason: fin.reason, score: fin.scoreValue ?? null, remaining: fin.remaining.length + added.length, ci, head, prep });
-      blockers = decision.blockers.map((b) => (b.startsWith("基点が変わった") ? `${b}（PR の基点が報告の基点と違うので、CI 判定は必須のチェックを決められずとして扱う）` : b));
-    }
-  }
-  const merge = blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE;
-  // 7: merge-ready の付け外しと [ci-result] の記録
-  const label = prep.issue
-    ? applyMergeReady(work, prep, prep.issue, {
-        merge,
-        blockers,
-        ci,
-        head,
-        reportId,
-        runId,
-        saveProblem: null,
-        extra: [`CI の再照合 ${n}`, ...(reason ? [`照合せず: ${reason}`] : [])],
-        added: added.map((a) => `${a.ref}（${a.reason}）`),
-        more: `CI の再照合の記録（${join(dir, "record.md")}）`,
-      })
-    : null;
-  const finalMerge = label ? (label.operation === "付けた" ? MERGE_OK : NOT_RUN_MERGE) : merge;
-  // 8: 再照合の記録
-  const md = [
-    `# CI の再照合 ${n}`,
-    "",
-    `- 報告の Document ID: 結果 ${reportId ?? "なし（Issue なし）"}、監査 ${auditId ?? "なし"}`,
-    `- runId: ${runId}`,
-    `- 照合した時刻: ${at}`,
-    `- 比べた head: 報告の head \`${prep.head}\`、現在の head ${head?.currentHead ? `\`${head.currentHead}\`` : "取り直せない"}、現在の基点 ${head?.currentBase ?? "取り直せない"}（\`${head?.command ?? "なし"}\`、${head?.at ?? at}）`,
-    `- 照合せずに終えた理由: ${reason ?? "なし（照合した）"}`,
-    `- 要求の再照合: ${requirements ? `${requirements.compared.join("・")} を比べた。${requirements.changed.length > 0 ? `変化あり: ${requirements.changed.map((c) => c.path).join("・")}` : "変化なし"}（${join(dir, "requirements")}）` : "照合せず"}`,
-    `- 取り直せなかった資料と理由: ${requirements?.unavailable.length ? requirements.unavailable.map((u) => `${u.item}: ${u.reason}`).join("・") : "なし"}`,
-    `- 要求の再照合の注記: ${requirements?.note ?? "なし"}`,
-    `- 加えた確認が残る事項: ${added.length > 0 ? added.map((a) => `${a.ref}（${a.owner}、${a.reason}）`).join("・") : "なし"}`,
-    `- CI の記録: ${ci ? `${join(work, ci.record)}（sha256 ${ci.sha256}）、${ciSummary(ci)}` : "照合せず"}`,
-    `- マージ可否: ${finalMerge}${label?.blockers.length || blockers.length ? `（理由: ${(label?.blockers ?? blockers).join("／")}）` : ""}`,
-    `- ラベルの操作: ${label ? `${label.operation}${label.error ? `（${label.error}）` : ""}` : "扱わない（Issue なし）"}`,
-    `- この再照合で書いた作業ログの id: ${label?.log ?? "なし"}`,
-    "",
-  ].join("\n");
-  writeFileSync(join(dir, "record.md"), md);
-  return {
-    work,
-    result: { n, runId, checked: ci !== null, reason, merge: finalMerge, blockers: label?.blockers ?? blockers, ci, head, added, label: label ? { operation: label.operation, error: label.error, log: label.log } : null, record: join(dir, "record.md") },
-  };
 }
 
 // ---- 区間の時間と使用量（parent.md 14節。段階・委譲の時刻と omp のセッション記録から集計する） ----
@@ -3690,7 +3419,6 @@ const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
   "refute-input": refuteInput,
   "check-refute": checkRefute,
   finalize,
-  "recheck-ci": recheckCi,
   usage: usageCommand,
 };
 
