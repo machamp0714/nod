@@ -135,3 +135,76 @@ Tauri側がsidecarの起動、終了、異常終了時の再起動を管理し�
 
 Orcaはローカル側の連携ツールとして図示しています。
 リモート実行環境を使う場合の接続は、Orca側が管理します。
+
+## CI
+
+[CIのワークフロー](.github/workflows/ci.yml)は、すべてのPR（基点ブランチで絞りません）とmainへのpushで、`test`・`typecheck`・`lint`の3つのチェックを実行します。
+PRでは、PRのheadとその時点の基点を組み合わせた合成merge commitを検査します。
+ランナーは`macos-latest`で、Bunの版は`.bun-version`で固定しています。`bun.lock`が無いと失敗し、依存は`bun install --frozen-lockfile`で入れます。
+失敗したジョブを自動で再試行することはありません。
+
+| チェック | 内容 |
+| --- | --- |
+| `test` | `cargo`と`swiftc`があることを確かめ、ルートで`bun test`を実行し、JUnit形式の結果を許可するskipの一覧と照合する。テストと照合のどちらが失敗しても失敗になる |
+| `typecheck` | ルートの`bun run typecheck`と、`packages/web`の`bun run typecheck`を実行する |
+| `lint` | `bun run lint`（oxlintの既定の規則、`--deny-warnings`）を実行する。警告も失敗になる |
+
+### 許可するskipの一覧
+
+`test`は、実際にskipされたテスト（`test.todo`を含む）が[`test/allowed-skips.json`](test/allowed-skips.json)と完全に一致するときだけ成功します。照合は`scripts/check-test-skips.ts`が行います。
+一覧の各項目は、`file`（テストファイル）、`name`（describeの名前を外側から並べ、最後にテストの名前を置いた配列）、`reason`（skipを許す理由）を持ちます。
+次のどれかがあると失敗します。
+
+- 一覧に無いskipや`test.todo`
+- `describe.skip`のフックなど、名前で特定できないskip（一覧でも許可できません）
+- 一覧にあるのに実行された項目や、結果に無い項目
+- JUnitの結果ファイルの欠落や解析の失敗
+
+失敗時の出力には`一覧に無い skip: <file> ["describeの名前","テストの名前"]`の形で項目が出ます。ファイルと配列をそのまま`file`と`name`に写し、`reason`を書き足します。
+一覧は環境の都合で実行できないテストのためのもので、不安定なテストを外す逃げ道には使いません。
+条件によってskipするときは、describeごとではなく`test.skipIf`でテストごとにskipします。
+
+### Lintの規則を無効にするとき
+
+[`.oxlintrc.json`](.oxlintrc.json)の`overrides`に項目を足し、規則の名前・理由・適用範囲をコメントで書いたうえで、`files`で適用範囲を必要なファイルだけに絞ります。
+baselineや指摘を抑止するファイルは置きません。
+
+### mainの保護とPRの運用
+
+mainには従来のブランチ保護（ルールセットではないもの）を設定しています。
+
+- `test`・`typecheck`・`lint`を必須チェックとし、GitHub Actionsのアプリに結び付けています。同じ名前のcommit statusでは満たされません。
+- 管理者にも適用しています（enforce_admins）。
+- strict（マージ前に基点の最新への追従を求める設定）は無効です。PRの実行の後に進んだmainとの組み合わせは、mainへのpushの実行が検査します。
+- PRのレビュー承認の必須化と、PRを必須にする設定はありません。
+- force pushとブランチの削除は禁止しています。
+
+mainへの変更はPR経由に統一し、管理者による迂回の運用は設けません。これは設定ではなく運用の規則です。
+必須チェックにより、チェックが成功していないcommitは管理者も含めてmainへ直接pushできませんが、成功済みのcommitの直接pushは設定上は可能です。
+保護の設定より前に開いたPRも例外にせず、最新のmainを取り込んでCIを通してからマージします。
+
+### 失敗したとき
+
+PRのChecksから失敗したジョブのログを開き、失敗したステップを確認します。`test`のJUnitの結果は、実行のartifact`bun-test-junit`から取得できます。
+次の項のコマンドで手元で再現し、原因を直してpushします。CIは自動で再試行しません。
+不安定なテストを手動の再実行で通したときは、そのことをPRに書きます。
+
+### 手元での実行
+
+```sh
+bun install --frozen-lockfile
+bun test
+bun run lint
+bun run typecheck
+cd packages/web && bun run typecheck
+```
+
+skipの照合まで手元で行うときは、JUnit形式の結果を出してから照合します。
+
+```sh
+bun test --reporter=junit --reporter-outfile=/tmp/bun-test-junit.xml
+bun scripts/check-test-skips.ts /tmp/bun-test-junit.xml test/allowed-skips.json
+```
+
+通知のテストの実行には、macOSと`cargo`・`swiftc`が必要です。無い環境では通知のテストがskipされ、照合では一覧に無いskipとして失敗します。
+また、手元に`bun run desktop:build`の成果物があると、一覧にあるデスクトップアプリの成果物の検査が実行され、照合では一覧にあるのに実行された項目として失敗します。
