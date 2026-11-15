@@ -19,9 +19,9 @@
 //     （parent/local-recheck/・requirements-recheck/）、最終状態・点数・確認が残る事項、現在の head と基点の照合（parent/head-check.md）、
 //     マージ可否（CI の結果は見ない）、監査 parent/audit.md と結果 parent/report.md の
 //     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・merge-ready、区間の時間と使用量
-//     （parent/usage.json・usage.md）を行う。評価用の事例では nod へ保存せずラベルも扱わない
+//     （parent/usage.json・usage.md。usage.json・usage.md には読み取り量と生成量も書く）を行う。評価用の事例では nod へ保存せずラベルも扱わない
 //   usage（14節）: --session <親のセッション記録の絶対パス> --from <ISO 時刻> --to <ISO 時刻> --out <記録先の絶対パス> [--agent <担当 ID>]... [--agent-file <絶対パス>]...
-//     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
+//     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量と読み取り量・生成量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json（usage は <out>/usage.json）に書く。作業ディレクトリのある呼び出しは、
 // 終了コード 0 で終えたときに開始と終了の時刻を parent/stages.json（と stages.md）に足す（区間の計測に使う）
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
@@ -2942,6 +2942,45 @@ interface SessionRecord {
   error: string | null;
   // ツール呼び出しの引数に出る文字列（スキルの読み込みの応答を見分ける）
   tools: string[];
+  // 読み取り量と生成量: 応答のツール呼び出しと出力の内訳、ツール結果、ツール以外で文脈に入った記録（user などの message と custom_message）
+  calls: RecordCall[];
+  output: RecordOutput | null;
+  result: RecordResult | null;
+  context: { kind: string; size: ContentSize } | null;
+}
+
+// 記録に残った content の大きさ（text ブロックの UTF-8 のバイト数）と、大きさを数えない text 以外のブロックの数
+interface ContentSize {
+  bytes: number;
+  nonText: number;
+}
+
+interface RecordCall {
+  id: string | null;
+  name: string;
+  argumentBytes: number;
+  // 記録の中に toolCallId の一致する結果がある
+  answered: boolean;
+}
+
+interface RecordOutput {
+  text: number;
+  thinking: number;
+  thinkingBlocks: number;
+  unreadable: number;
+  summarized: number;
+  other: number;
+}
+
+interface RecordResult {
+  callId: string | null;
+  name: string;
+  size: ContentSize;
+  error: boolean;
+  pruned: boolean;
+  // 記録の中に対応する呼び出しがある。at は振り分けの時刻（呼び出しの応答の時刻。対応する呼び出しが無ければ結果自身の時刻）
+  matched: boolean;
+  at: number;
 }
 
 // 計測の出典（記録ファイルのパスと sha256。取得できなければ unavailable に理由）
@@ -2968,6 +3007,34 @@ function stringsIn(v: unknown): string[] {
   if (typeof v === "string") return [v];
   if (Array.isArray(v)) return v.flatMap(stringsIn);
   return v !== null && typeof v === "object" ? Object.values(v).flatMap(stringsIn) : [];
+}
+
+const utf8 = (s: string) => Buffer.byteLength(s, "utf8");
+
+function contentSize(content: unknown): ContentSize {
+  if (typeof content === "string") return { bytes: utf8(content), nonText: 0 };
+  const size = { bytes: 0, nonText: 0 };
+  for (const c of Array.isArray(content) ? (content as Json[]) : []) {
+    if (c?.type === "text" && typeof c.text === "string") size.bytes += utf8(c.text);
+    else size.nonText++;
+  }
+  return size;
+}
+
+// 応答の content の内訳。読める本文の無い thinking（本文が空、暗号化・redacted の種類）は unreadable に数える
+function outputOf(content: Json[]): RecordOutput {
+  const o: RecordOutput = { text: 0, thinking: 0, thinkingBlocks: 0, unreadable: 0, summarized: 0, other: 0 };
+  for (const c of content) {
+    const type = typeof c?.type === "string" ? c.type : "";
+    if (type === "text" && typeof c.text === "string") o.text += utf8(c.text);
+    else if (/thinking/i.test(type)) {
+      o.thinkingBlocks++;
+      if (c.summary === true) o.summarized++;
+      if (type === "thinking" && typeof c.thinking === "string" && c.thinking !== "") o.thinking += utf8(c.thinking);
+      else o.unreadable++;
+    } else if (type !== "toolCall") o.other++;
+  }
+  return o;
 }
 
 function readSession(path: string | null, missing: string): SessionFile {
@@ -2999,6 +3066,8 @@ function readSession(path: string | null, missing: string): SessionFile {
       continue;
     }
     const m = j.message !== null && typeof j.message === "object" ? (j.message as Json) : null;
+    const role = j.type === "message" && typeof m?.role === "string" ? m.role : null;
+    const content = Array.isArray(m?.content) ? (m.content as Json[]) : [];
     if (j.type === "session" && sessionAt === null) {
       sessionAt = iso;
       parentSession = typeof j.parentSession === "string" ? j.parentSession : null;
@@ -3012,7 +3081,33 @@ function readSession(path: string | null, missing: string): SessionFile {
       stop: typeof m?.stopReason === "string" ? m.stopReason : null,
       error: typeof m?.errorMessage === "string" ? m.errorMessage : null,
       tools: Array.isArray(m?.content) ? (m.content as Json[]).filter((c) => c?.type === "toolCall").flatMap((c) => stringsIn(c.arguments)) : [],
+      calls:
+        role === "assistant"
+          ? content
+              .filter((c) => c?.type === "toolCall")
+              .map((c) => ({ id: typeof c.id === "string" ? c.id : null, name: typeof c.name === "string" ? c.name : "不明", argumentBytes: utf8(JSON.stringify(c.arguments) ?? ""), answered: false }))
+          : [],
+      output: role === "assistant" ? outputOf(content) : null,
+      result:
+        role === "toolResult"
+          ? { callId: typeof m?.toolCallId === "string" ? m.toolCallId : null, name: typeof m?.toolName === "string" ? m.toolName : "不明", size: contentSize(m?.content), error: m?.isError === true, pruned: m?.prunedAt !== undefined && m?.prunedAt !== null, matched: false, at }
+          : null,
+      context:
+        j.type === "custom_message"
+          ? { kind: `custom_message:${String(j.customType)}`, size: contentSize(j.content) }
+          : role !== null && role !== "assistant" && role !== "toolResult"
+            ? { kind: role, size: contentSize(m?.content) }
+            : null,
     });
+  }
+  // ツール結果は toolCallId で呼び出しに結び付け、呼び出した応答の時刻で振り分ける（呼び出しと結果を別の範囲に割らない）
+  const calls = new Map(records.flatMap((r) => r.calls.map((c) => [c.id, { at: r.at, call: c }] as const)));
+  for (const r of records) {
+    const hit = r.result?.callId ? calls.get(r.result.callId) : undefined;
+    if (!r.result || !hit) continue;
+    r.result.matched = true;
+    r.result.at = hit.at;
+    hit.call.answered = true;
   }
   return { source: { path, sha256: sha256(data), unavailable: null, readAt: now(), records: records.length, untimed, sessionAt, parentSession }, records };
 }
@@ -3037,6 +3132,101 @@ export interface Tally {
   last: string | null;
   // 担当の記録だけ: 委譲の開始から最終返答の受領までの外にある応答の数（使用量には入れない）
   outside?: number;
+  io: Io;
+}
+
+// 範囲の読み取り量と生成量（大きさは記録に残った UTF-8 のバイト数。課金される token 数とは別）
+export interface Io {
+  tools: ToolIo[];
+  generated: Generated;
+  context: ContextIo[];
+}
+
+export interface ToolIo {
+  name: string;
+  calls: number;
+  argumentBytes: number;
+  results: number;
+  // 記録に残った結果の text ブロックの合計。刈り込み済みの結果は置き換え後の大きさ、text 以外のブロックは入らない
+  resultBytes: number;
+  errors: number;
+  pruned: number;
+  nonTextBlocks: number;
+  orphanResults: number;
+  callsWithoutResult: number;
+}
+
+export interface Generated {
+  responses: number;
+  textBytes: number;
+  thinkingBlocks: number;
+  // 読める本文の無い thinking があれば null（取得できず）
+  thinkingBytes: number | null;
+  unreadableThinking: number;
+  summarizedThinking: number;
+  toolCalls: number;
+  toolCallArgumentBytes: number;
+  otherBlocks: number;
+}
+
+export interface ContextIo {
+  kind: string;
+  records: number;
+  bytes: number;
+  nonTextBlocks: number;
+}
+
+function ioOf(records: SessionRecord[], inside: (at: number) => boolean): Io {
+  const tools = new Map<string, ToolIo>();
+  const tool = (name: string) => {
+    const t = tools.get(name) ?? { name, calls: 0, argumentBytes: 0, results: 0, resultBytes: 0, errors: 0, pruned: 0, nonTextBlocks: 0, orphanResults: 0, callsWithoutResult: 0 };
+    tools.set(name, t);
+    return t;
+  };
+  const responses = records.filter((r) => isResponse(r) && inside(r.at));
+  const g: Generated = { responses: responses.length, textBytes: 0, thinkingBlocks: 0, thinkingBytes: 0, unreadableThinking: 0, summarizedThinking: 0, toolCalls: 0, toolCallArgumentBytes: 0, otherBlocks: 0 };
+  let thinking = 0;
+  for (const r of responses) {
+    for (const c of r.calls) {
+      const t = tool(c.name);
+      t.calls++;
+      t.argumentBytes += c.argumentBytes;
+      if (!c.answered) t.callsWithoutResult++;
+      g.toolCalls++;
+      g.toolCallArgumentBytes += c.argumentBytes;
+    }
+    const o = r.output;
+    if (!o) continue;
+    g.textBytes += o.text;
+    g.thinkingBlocks += o.thinkingBlocks;
+    thinking += o.thinking;
+    g.unreadableThinking += o.unreadable;
+    g.summarizedThinking += o.summarized;
+    g.otherBlocks += o.other;
+  }
+  g.thinkingBytes = g.unreadableThinking > 0 ? null : thinking;
+  const context = new Map<string, ContextIo>();
+  for (const r of records) {
+    const x = r.result;
+    if (x && inside(x.at)) {
+      const t = tool(x.name);
+      t.results++;
+      t.resultBytes += x.size.bytes;
+      t.nonTextBlocks += x.size.nonText;
+      if (x.error) t.errors++;
+      if (x.pruned) t.pruned++;
+      if (!x.matched) t.orphanResults++;
+    }
+    if (r.context && inside(r.at)) {
+      const c = context.get(r.context.kind) ?? { kind: r.context.kind, records: 0, bytes: 0, nonTextBlocks: 0 };
+      c.records++;
+      c.bytes += r.context.size.bytes;
+      c.nonTextBlocks += r.context.size.nonText;
+      context.set(c.kind, c);
+    }
+  }
+  const byName = <T>(key: (x: T) => string) => (a: T, b: T) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  return { tools: [...tools.values()].sort(byName((t) => t.name)), generated: g, context: [...context.values()].sort(byName((c) => c.kind)) };
 }
 
 function tally(records: SessionRecord[], from: number, to: number): Tally {
@@ -3064,6 +3254,7 @@ function tally(records: SessionRecord[], from: number, to: number): Tally {
     },
     first: res[0]?.iso ?? null,
     last: res.at(-1)?.iso ?? null,
+    io: ioOf(records, (at) => at >= from && at < to),
   };
 }
 
@@ -3092,6 +3283,8 @@ const USAGE_DEFINITIONS = {
   sections:
     "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
   missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
+  io:
+    "読み取り量と生成量は、使用量と同じ範囲と応答単位で数えた記録の大きさ（UTF-8 のバイト数）で、課金される token 数と同じではない（各応答の使用量にはその時点までの文脈全体が入る）。ツールの呼び出しと引数（arguments の JSON）の大きさは呼び出しを含む応答の時刻で振り分け、ツール結果は toolCallId で呼び出しに結び付けて呼び出しの応答と同じ範囲に入れる。対応する呼び出しが記録に無い結果は結果自身の時刻で振り分け、別に数える。結果の大きさは記録に残った text ブロックの合計で、刈り込み済み（prunedAt あり）の結果は置き換え後の大きさしか残らず元の大きさは取得できず、text 以外のブロックは件数だけ数えて大きさは取得できず。出力の内訳は応答の content の本文（text）、thinking、ツール呼び出しの引数の大きさで、出力 token（output）とは別の値。読める本文の無い thinking（本文が空、暗号化・redacted など）があれば thinking の大きさは取得できず、要約（summary）の thinking は要約の大きさ。ツール以外で文脈に入った記録（user などの message と custom_message）は自身の時刻で振り分け、種類（custom_message は customType）ごとに件数と大きさを数える",
   report: "報告に載せる値: 最初の段階（prepare）の開始から、finalize が報告を組み立て始める直前（reportStartedAt）まで",
   final: "保存後の確定値: prepare の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（savedAt）まで（利用者への最終説明は含めない）。保存後の作業ログと親専用領域だけに書き、報告には書き戻さない",
   comparison: "MIN-33 の前後比較用: 親がスキルを読み込み始めた時刻（prepare の開始より前で最後に code-review の SKILL.md を読み込んだ応答の記録の時刻、または finalize の --skill-start）から savedAt まで",
@@ -3350,6 +3543,14 @@ function renderUsage(work: string, report: ReportUsage, final: FinalUsage, compa
     `- 担当の使用量の合計（全試行。各試行は 1 の表）: ${tokens(comparison.agentsTotal)}`,
     `- 出典: ${sourceText(comparison.parent.source)}`,
     "",
+    "## 4. 読み取り量と生成量（区間・役割・試行ごと）",
+    "",
+    ...ioBody([
+      ...report.sections.map((s) => ({ label: `1 の区間「${s.name}」の親`, m: s.parent })),
+      ...report.attempts.map((a) => ({ label: `1 の試行: ${a.roleName} ${a.attempt}（${a.agentId ?? "担当 ID 不明"}）`, m: a })),
+      { label: "3 の前後比較用の親", m: comparison.parent },
+    ]),
+    "",
     "## 段階",
     "",
     "| サブコマンド | 開始 | 終了 |",
@@ -3357,6 +3558,58 @@ function renderUsage(work: string, report: ReportUsage, final: FinalUsage, compa
     ...report.stages.map((s) => `| ${s.subcommand} | ${s.startedAt} | ${s.endedAt ?? "実行中（この計測の後に終わる）"} |`),
     "",
   ].join("\n");
+}
+
+// 読み取り量と生成量の表（usage.md だけに書き、結果・監査 Document には書かない）
+function ioBody(rows: { label: string; m: Measured }[]): string[] {
+  const absent = (label: string, m: Measured, columns: number) => `| ${cell(label)} | ${cell(`取得できず（${m.unavailable}）`)} |${" 取得できず |".repeat(columns - 2)}`;
+  const resultSize = (t: ToolIo) => {
+    const notes = [
+      ...(t.pruned > 0 ? [`刈り込み済み ${t.pruned} 件は置き換え後の大きさで、元の大きさは取得できず`] : []),
+      ...(t.nonTextBlocks > 0 ? [`text 以外のブロック ${t.nonTextBlocks} 件の大きさは取得できず`] : []),
+    ];
+    return `${t.resultBytes}${notes.length > 0 ? `（${notes.join("。")}）` : ""}`;
+  };
+  const thinkingText = (g: Generated) =>
+    g.thinkingBytes === null
+      ? `取得できず（読める本文の無い thinking ${g.unreadableThinking} 件。全 ${g.thinkingBlocks} 件）`
+      : `${g.thinkingBytes}（${g.thinkingBlocks} 件${g.summarizedThinking > 0 ? `。うち要約 ${g.summarizedThinking} 件は要約の大きさ` : ""}）`;
+  return [
+    `- 定義: ${USAGE_DEFINITIONS.io}`,
+    "",
+    "### ツールの種類ごと",
+    "",
+    "| 範囲 | ツール | 呼び出し | 引数（バイト） | 結果 | 記録に残った結果の大きさ（バイト） | エラーの結果 | 対応する呼び出しの無い結果 | 結果の記録の無い呼び出し |",
+    "|---|---|---|---|---|---|---|---|---|",
+    ...rows.flatMap(({ label, m }) => {
+      const io = m.tally?.io;
+      if (!io) return [absent(label, m, 9)];
+      if (io.tools.length === 0) return [`| ${cell(label)} | なし | 0 | 0 | 0 | 0 | 0 | 0 | 0 |`];
+      return io.tools.map((t) => `| ${cell(label)} | ${cell(t.name)} | ${t.calls} | ${t.argumentBytes} | ${t.results} | ${resultSize(t)} | ${t.errors} | ${t.orphanResults} | ${t.callsWithoutResult} |`);
+    }),
+    "",
+    "### 出力の内訳",
+    "",
+    "| 範囲 | 応答 | 出力 token | 本文（バイト） | thinking（バイト） | ツール呼び出し（件数、引数のバイト） | その他のブロック |",
+    "|---|---|---|---|---|---|---|",
+    ...rows.map(({ label, m }) => {
+      const t = m.tally;
+      if (!t) return absent(label, m, 7);
+      const g = t.io.generated;
+      return `| ${cell(label)} | ${g.responses} | ${tokens(t.output)} | ${g.textBytes} | ${thinkingText(g)} | ${g.toolCalls} 件、${g.toolCallArgumentBytes} | ${g.otherBlocks}${g.otherBlocks > 0 ? "（大きさは取得できず）" : ""} |`;
+    }),
+    "",
+    "### ツール以外で文脈に入った記録",
+    "",
+    "| 範囲 | 種類 | 件数 | 大きさ（バイト） |",
+    "|---|---|---|---|",
+    ...rows.flatMap(({ label, m }) => {
+      const io = m.tally?.io;
+      if (!io) return [absent(label, m, 4)];
+      if (io.context.length === 0) return [`| ${cell(label)} | なし | 0 | 0 |`];
+      return io.context.map((c) => `| ${cell(label)} | ${cell(c.kind)} | ${c.records} | ${c.bytes}${c.nonTextBlocks > 0 ? `（text 以外のブロック ${c.nonTextBlocks} 件の大きさは取得できず）` : ""} |`);
+    }),
+  ];
 }
 
 // ---- usage（任意のセッション記録と時刻の範囲。作業ディレクトリなしで MIN-33 の前回のような長いセッションの一部を集計する） ----
@@ -3403,6 +3656,10 @@ function usageCommand(args: string[]): Outcome {
             ...agents.map((x) => `| ${cell(x.agentId)} | ${x.time.from ?? "取得できず"} | ${x.time.to ?? "取得できず"} | ${duration(x.time.seconds)} | ${cell(usageText(x))} | ${cell(retryText(x.tally))} | ${cell(sourceText(x.source))} |`),
           ]
         : ["担当の指定なし"]),
+      "",
+      "## 読み取り量と生成量",
+      "",
+      ...ioBody([{ label: "親", m: parent }, ...agents.map((x) => ({ label: `担当 ${x.agentId}`, m: x }))]),
       "",
     ].join("\n"),
   );
