@@ -550,6 +550,51 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(r.json?.usage.comparison.parentTotalTokens).toBe(recognized ? 10 : null);
   });
 
+  test.each([
+    [{ name: "code-review" }, true],
+    [{ name: "nod/code-review" }, true],
+    [{ name: "nod:code-review" }, true],
+    [{ path: "/tmp/plugin/skills/code-review/SKILL.md" }, true],
+    [{ name: "other-skill", path: "/tmp/plugin/skills/other-skill/SKILL.md" }, false],
+  ] as const)("skill-prompt の自動読込を比較開始として扱う: %j", async (details, recognized) => {
+    const s = sandbox();
+    const skillAt = iso(Date.now() - 60000);
+    const parent = join(s.t, "parent.jsonl");
+    put(parent, lines(
+      response(iso(ms(skillAt) - 1000), total(100)),
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: skillAt, content: "SKILL", details }),
+      JSON.stringify({ type: "custom_message", customType: "async-result", timestamp: iso(ms(skillAt) + 100), content: "別の結果", details: { name: "code-review" } }),
+      response(iso(ms(skillAt) + 1000), total(10)),
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: iso(Date.now() + 60000), content: "未来の記録", details: { name: "code-review" } }),
+    ));
+    const p = await prepareCaseWork(s, "auto-skill");
+    const r = await runReview("finalize", ["--work", p.W, "--not-run-reason", "担当は起動しない計測契約の検証", "--session", parent], s);
+    expect(r.exitCode).toBe(0);
+    const measured = JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord;
+    expect(measured.comparison.from).toBe(recognized ? skillAt : null);
+    expect(measured.comparison.parent.tally?.totalTokens ?? null).toBe(recognized ? 10 : null);
+    if (recognized) {
+      expect(measured.comparison.parent.tally?.io?.context).toContainEqual({ kind: "custom_message:skill-prompt", records: 1, bytes: 5, nonTextBlocks: 0 });
+      expect(measured.comparison.seconds).toBeGreaterThan(0);
+    }
+  });
+
+  test.each([false, true])("prepare 前の最後の読込を使い、--skill-start の指定を優先する（明示指定: %s）", async (override) => {
+    const s = sandbox();
+    const parent = join(s.t, "parent.jsonl");
+    const automaticAt = iso(Date.now() - 60000);
+    const explicitAt = iso(ms(automaticAt) + 1000);
+    put(parent, lines(
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: automaticAt, content: "SKILL", details: { name: "code-review" } }),
+      response(explicitAt, total(10), { tool: { name: "read", arguments: { path: "skill://code-review" } } }),
+    ));
+    const p = await prepareCaseWork(s, "skill-priority");
+    const args = ["--work", p.W, "--not-run-reason", "担当は起動しない計測契約の検証", "--session", parent];
+    const r = await runReview("finalize", override ? [...args, "--skill-start", automaticAt] : args, s);
+    expect(r.exitCode).toBe(0);
+    expect((JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord).comparison.from).toBe(override ? automaticAt : explicitAt);
+  });
+
   test("評価用の事例: セッション記録の場所が無ければ使用量を取得できずとして残し（0 にしない）、区間の時間は同じく記録する", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s, "case-usage");
