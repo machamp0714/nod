@@ -1,4 +1,5 @@
 [test]
+# 既定のタイムアウトの意図の記録。bun（1.4.4 でも）はこの値を読まないため、test/tmpdir-preload.ts の setDefaultTimeout で同じ値を効かせる
 timeout = 30000
 # TMPDIR を実行ごとに隔離し、一時ディレクトリを残さない（#147）
 preload = ["./test/tmpdir-preload.ts"]
