@@ -2149,7 +2149,7 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
   else {
     const content = (user.message as Json).content;
     const text = typeof content === "string" ? content : (Array.isArray(content) ? (content as Json[]) : []).map((c) => (c?.type === "text" && typeof c.text === "string" ? c.text : "")).join("");
-    const fields: { name: string; value: string }[] = [];
+    const fields: { name: string; value: string; line: number }[] = [];
     const nonTemplateLines: number[] = [];
     const expectedValues: Record<string, string> = {
       役割: ROLES[role].name,
@@ -2162,40 +2162,50 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
     const invalidValues = new Set<string>();
     const duplicateFields = new Set<string>();
     const seenFields = new Set<string>();
-    const refuteLines = new Set([
-      `- 対象リポジトリ ${work}/repo（target.md の担当用の限定 clone）`,
-      `- 依存の写し ${work}/deps/（準備できたときだけ）`,
-    ]);
-    for (const path of [...prep.inputs.map((f) => f.path), "manifest.md", "standards-handoff.md", "spec-handoff.md"]) {
-      const line = `- ${work}/refute-input/${path}`;
-      refuteLines.add(line);
-      if (path.startsWith("local/")) refuteLines.add(`${line}（mode: local のときだけ）`);
-      if (path === "deps-files.sha256") refuteLines.add(`${line}（依存の写しを準備できたときだけ）`);
+    const refuteLines = new Map<string, string>();
+    if (role === "refute") {
+      const repoLine = `- 対象リポジトリ ${work}/repo（target.md の担当用の限定 clone）`;
+      refuteLines.set(repoLine, repoLine);
+      if (prep.deps?.prepared) {
+        const depsLine = `- 依存の写し ${work}/deps/（準備できたときだけ）`;
+        refuteLines.set(depsLine, depsLine);
+      }
+      for (const path of [...prep.inputs.map((f) => f.path), "manifest.md", "standards-handoff.md", "spec-handoff.md"]) {
+        const line = `- ${work}/refute-input/${path}`;
+        refuteLines.set(line, line);
+        if (path.startsWith("local/")) refuteLines.set(`${line}（mode: local のときだけ）`, line);
+        if (path === "deps-files.sha256") refuteLines.set(`${line}（依存の写しを準備できたときだけ）`, line);
+      }
     }
+    const seenRefuteInputs = new Set<string>();
     let refuteInputs = false;
     for (const [index, line] of text.split("\n").entries()) {
       if (line.trim() === "" || (index === 0 && line === "Complete assignment thoroughly:")) continue;
       const m = REQUEST_FIELD.exec(line);
       if (m) {
-        fields.push({ name: m[1] ?? "", value: m[2] ?? "" });
+        fields.push({ name: m[1] ?? "", value: m[2] ?? "", line: index + 1 });
         const name = m[1] ?? "";
-        if (seenFields.has(name)) duplicateFields.add(name);
+        if (seenFields.has(name) && REQUEST_FIELDS[ROLES[role].stage].includes(name)) duplicateFields.add(name);
         seenFields.add(name);
         if (REQUEST_FIELDS[ROLES[role].stage].includes(name) && (m[2] ?? "").trim() !== expectedValues[name]) invalidValues.add(name);
         refuteInputs = role === "refute" && m[1] === "読んでよい入力（次のファイルだけ）";
-      } else if (!refuteInputs || !refuteLines.has(line)) {
+      } else if (refuteInputs && refuteLines.has(line)) {
+        seenRefuteInputs.add(refuteLines.get(line) as string);
+      } else {
         nonTemplateLines.push(index + 1);
       }
     }
     const template = REQUEST_FIELDS[ROLES[role].stage];
     const roleValue = fields.find((f) => f.name === "役割")?.value.trim() ?? null;
     const missing = template.filter((t) => !fields.some((f) => f.name === t));
-    const extra = [...new Set(fields.filter((f) => f.value.trim() !== "" && !template.includes(f.name)).map((f) => f.name))];
+    const extra = fields.filter((f) => !template.includes(f.name)).map((f) => f.line);
+    const missingInputs = [...new Set(refuteLines.values())].filter((line) => !seenRefuteInputs.has(line)).map((line) => line.slice(2));
     const ctx = contextMarks(text, origins);
     const marks = [
       ...(roleValue !== null && roleValue !== ROLES[role].name ? [`役割の値が委譲した役割（${ROLES[role].name}）と違う`] : []),
       ...(missing.length > 0 ? [`雛形の項目が無い: ${missing.join("・")}`] : []),
-      ...(extra.length > 0 ? [`雛形に無い項目: ${extra.join("・")}`] : []),
+      ...(extra.length > 0 ? [`雛形に無い項目の行: ${extra.join(", ")}`] : []),
+      ...(missingInputs.length > 0 ? [`反証への必須入力が無い: ${missingInputs.join("・")}`] : []),
       ...(nonTemplateLines.length > 0 ? [`雛形の項目外の行: ${nonTemplateLines.join(", ")}`] : []),
       ...(invalidValues.size > 0 ? [`雛形と値が違う項目: ${[...invalidValues].join("・")}`] : []),
       ...(duplicateFields.size > 0 ? [`重複した項目: ${[...duplicateFields].join("・")}`] : []),
@@ -2203,7 +2213,7 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
     ];
     const nonText = Array.isArray(content) ? (content as Json[]).filter((c) => c?.type !== "text").length : 0;
     items.push(
-      item("first-input", { sha256: sha256(text), bytes: utf8(text), role: roleValue === ROLES[role].name ? roleValue : null, missing, extra, nonTemplateLines, invalidValues: [...invalidValues], duplicateFields: [...duplicateFields], repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, nonTextBlocks: nonText }, marks, nonText > 0 ? [`text 以外のブロック ${nonText} 件は調べていない`] : []),
+      item("first-input", { sha256: sha256(text), bytes: utf8(text), role: roleValue === ROLES[role].name ? roleValue : null, missing, extra, missingInputs, nonTemplateLines, invalidValues: [...invalidValues], duplicateFields: [...duplicateFields], repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, nonTextBlocks: nonText }, marks, nonText > 0 ? [`text 以外のブロック ${nonText} 件は調べていない`] : []),
     );
   }
 
