@@ -14,7 +14,8 @@ const available = existsSync(join(goodApp, "Contents", "Resources", "build-info"
 if (!available) {
   console.warn(`スキップ: ${goodApp} に build-info 付きの成果物がありません。bun run desktop:build を先に実行してください`);
 }
-const maybe = available ? describe : describe.skip;
+// describe ごと skip すると、フックが名前の無い skip として報告されるため、test ごとに skip する
+const maybeTest = test.skipIf(!available);
 
 function sh(cmd: string[]): void {
   const r = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
@@ -25,7 +26,7 @@ function failed(r: VerifyResult): string[] {
   return r.checks.filter((c) => !c.ok).map((c) => c.name);
 }
 
-maybe("verifyApp", () => {
+describe("verifyApp", () => {
   let work: string;
   let n = 0;
   beforeAll(() => {
@@ -48,7 +49,7 @@ maybe("verifyApp", () => {
     "--requirements", `=designated => identifier ${JSON.stringify(identifier)}`, app,
   ]);
 
-  test("既定のcdhash DRは署名が有効でも更新互換の完成品として拒否する", async () => {
+  maybeTest("既定のcdhash DRは署名が有効でも更新互換の完成品として拒否する", async () => {
     const app = copyApp();
     sh(["codesign", "--remove-signature", app]);
     sh(["codesign", "--force", "--sign", "-", app]);
@@ -58,14 +59,14 @@ maybe("verifyApp", () => {
     expect(failed(r)).not.toContain("signature");
   }, 60000);
 
-  test("正規の成果物はすべての検査を通る", async () => {
+  maybeTest("正規の成果物はすべての検査を通る", async () => {
     const r = await verifyApp(goodApp);
     expect(failed(r)).toEqual([]);
     expect(r.ok).toBe(true);
     expect(r.checks.map((c) => c.name)).toEqual(["signature", "update-identity", "entitlements", "arch", "build-info", "version", "launch", "schema"]);
   }, 60000);
 
-  test("専用bundle IDの共通DRはresource変更した更新でも完成品検査と相互要求を通る", async () => {
+  maybeTest("専用bundle IDの共通DRはresource変更した更新でも完成品検査と相互要求を通る", async () => {
     const identifier = "io.github.machamp0714.nod.update-identity-test";
     const a = copyApp();
     sh(["/usr/libexec/PlistBuddy", "-c", `Set :CFBundleIdentifier ${identifier}`, join(a, "Contents", "Info.plist")]);
@@ -93,7 +94,7 @@ maybe("verifyApp", () => {
     sh(["codesign", "--verify", "--test-requirement", `=${after.requirement}`, a]);
   }, 60000);
 
-  test("別identifierの明示DRは署名が有効でもInfo.plistのbundle IDと一致しなければ拒否する", async () => {
+  maybeTest("別identifierの明示DRは署名が有効でもInfo.plistのbundle IDと一致しなければ拒否する", async () => {
     const app = copyApp();
     resign(app, "io.github.machamp0714.nod.wrong-identity-test");
     const r = await verifyApp(app);
@@ -101,7 +102,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).not.toContain("signature");
   }, 60000);
 
-  test("sidecar に entitlements が無ければ落ちる", async () => {
+  maybeTest("sidecar に entitlements が無ければ落ちる", async () => {
     const app = copyApp();
     sh(["codesign", "--force", "--sign", "-", "--options", "runtime", sidecarOf(app)]);
     resign(app);
@@ -110,7 +111,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("entitlements");
   }, 60000);
 
-  test("entitlements が 3 種のうち 1 つ欠けても落ちる", async () => {
+  maybeTest("entitlements が 3 種のうち 1 つ欠けても落ちる", async () => {
     const app = copyApp();
     const partial = join(work, "partial.plist");
     const text = readFileSync(entitlements, "utf8").replace(
@@ -124,7 +125,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("entitlements");
   }, 60000);
 
-  test("build-info の版と同梱バイナリの版が違えば落ちる", async () => {
+  maybeTest("build-info の版と同梱バイナリの版が違えば落ちる", async () => {
     const app = copyApp();
     const info = JSON.parse(readFileSync(buildInfoOf(app), "utf8"));
     writeFileSync(buildInfoOf(app), JSON.stringify({ ...info, version: "9.9.9" }));
@@ -135,7 +136,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).not.toContain("signature");
   }, 60000);
 
-  test("build-info の schema 版が実際の DB と違えば落ちる", async () => {
+  maybeTest("build-info の schema 版が実際の DB と違えば落ちる", async () => {
     const app = copyApp();
     const info = JSON.parse(readFileSync(buildInfoOf(app), "utf8"));
     writeFileSync(buildInfoOf(app), JSON.stringify({ ...info, schemaVersion: info.schemaVersion + 1 }));
@@ -144,7 +145,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("schema");
   }, 60000);
 
-  test("build-info が無ければ落ちる", async () => {
+  maybeTest("build-info が無ければ落ちる", async () => {
     const app = copyApp();
     rmSync(buildInfoOf(app));
     resign(app);
@@ -153,7 +154,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("build-info");
   }, 60000);
 
-  test("署名後に中身を書き換えると署名の検証で落ちる", async () => {
+  maybeTest("署名後に中身を書き換えると署名の検証で落ちる", async () => {
     const app = copyApp();
     const info = JSON.parse(readFileSync(buildInfoOf(app), "utf8"));
     writeFileSync(buildInfoOf(app), JSON.stringify({ ...info, buildTime: "2000-01-01T00:00:00Z" }));
@@ -161,7 +162,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("signature");
   }, 60000);
 
-  test("sidecar が arm64 でなければ落ちる", async () => {
+  maybeTest("sidecar が arm64 でなければ落ちる", async () => {
     const app = copyApp();
     const src = join(work, "x86.c");
     writeFileSync(src, "int main(void){return 0;}\n");
@@ -173,7 +174,7 @@ maybe("verifyApp", () => {
     expect(failed(r)).toContain("arch");
   }, 60000);
 
-  test("web が同梱されていなければ、隔離データでの起動で落ちる", async () => {
+  maybeTest("web が同梱されていなければ、隔離データでの起動で落ちる", async () => {
     const app = copyApp();
     rmSync(join(app, "Contents", "Resources", "web"), { recursive: true });
     resign(app);
