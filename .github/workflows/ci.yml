@@ -62,8 +62,9 @@ jobs:
         run: |
           cargo --version
           swiftc --version
+      # 手元と同じ package.json の test スクリプト（既定のタイムアウト 30 秒）を使う。後ろの引数はそのまま bun test に渡る。
       - name: 全体のテスト
-        run: bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/bun-test-junit.xml"
+        run: bun run test --reporter=junit --reporter-outfile="$RUNNER_TEMP/bun-test-junit.xml"
       # テストが失敗しても照合を実行し、skip の不一致もログに残す。照合の失敗も test のチェックの失敗にする。
       - name: skip の照合
         if: ${{ !cancelled() }}

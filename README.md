@@ -145,7 +145,7 @@ PRでは、PRのheadとその時点の基点を組み合わせた合成merge com
 
 | チェック | 内容 |
 | --- | --- |
-| `test` | `cargo`と`swiftc`があることを確かめ、ルートで`bun test`を実行し、JUnit形式の結果を許可するskipの一覧と照合する。テストと照合のどちらが失敗しても失敗になる |
+| `test` | `cargo`と`swiftc`があることを確かめ、ルートで`bun run test`を実行し、JUnit形式の結果を許可するskipの一覧と照合する。テストと照合のどちらが失敗しても失敗になる |
 | `typecheck` | ルートの`bun run typecheck`と、`packages/web`の`bun run typecheck`を実行する |
 | `lint` | `bun run lint`（oxlintの既定の規則、`--deny-warnings`）を実行する。警告も失敗になる |
 
@@ -193,16 +193,18 @@ PRのChecksから失敗したジョブのログを開き、失敗したステッ
 
 ```sh
 bun install --frozen-lockfile
-bun test
+bun run test
 bun run lint
 bun run typecheck
 cd packages/web && bun run typecheck
 ```
 
+`bun test`を直接使うと`--timeout`が付かず、既定のタイムアウトが5秒になるため、全体の実行には`bun run test`を使います（`bunfig.toml`の`timeout`はBunに読まれません）。
+
 skipの照合まで手元で行うときは、JUnit形式の結果を出してから照合します。
 
 ```sh
-bun test --reporter=junit --reporter-outfile=/tmp/bun-test-junit.xml
+bun run test --reporter=junit --reporter-outfile=/tmp/bun-test-junit.xml
 bun scripts/check-test-skips.ts /tmp/bun-test-junit.xml test/allowed-skips.json
 ```
 

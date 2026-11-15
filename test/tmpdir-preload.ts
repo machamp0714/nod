@@ -4,11 +4,7 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, setDefaultTimeout } from "bun:test";
-
-// bun（1.4.4 でも）は bunfig.toml の [test] timeout を読まないため、全テストで読み込まれるこの preload で既定のタイムアウトを効かせる。
-// 値は bunfig.toml の timeout と同じにする。
-setDefaultTimeout(30000);
+import { afterAll } from "bun:test";
 
 export const RUN_PREFIX = "nod-testrun-";
 
