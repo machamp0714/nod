@@ -74,7 +74,7 @@ function withPr(prUrl: string | null = PR_URL) {
 describe("parseUnifiedDiff", () => {
   test("変更・追加のファイルを分け、ハンクの中の +/- だけを数える", () => {
     const files = parseUnifiedDiff(DIFF);
-    expect(files.map(({ patch: _, ...f }) => f)).toEqual([
+    expect(files.map(({ patch: _patch, ...f }) => f)).toEqual([
       { path: "src/search.ts", oldPath: null, status: "modified", binary: false, additions: 2, deletions: 1, omitted: null },
       { path: "docs/new.md", oldPath: null, status: "added", binary: false, additions: 1, deletions: 0, omitted: null },
     ]);

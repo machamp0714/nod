@@ -12,7 +12,6 @@ import type {
   PrReviewDecision,
   PrState,
   PrStatus,
-  PrStatusError,
   PrStatusErrorCode,
   PrStatusView,
 } from "../types";

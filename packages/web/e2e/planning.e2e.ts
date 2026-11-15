@@ -1,16 +1,6 @@
 import { expect, test } from "./fixtures";
-import { chooseProperty, property, propertyMenu } from "./helpers";
-import { chooseDisplay, displaySelect } from "./support/issue-list";
 
 test.use({ dataset: "issue-list" });
-
-// ブラウザと同じローカルの暦日（e2e のブラウザは Node と同じマシンで動く）
-function localDate(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 test("Initiative を作り、Project を紐付け・外し、状態と目標日を変え、Project 詳細に所属を出す", async ({ page, nod }) => {
   await page.goto("/issues");

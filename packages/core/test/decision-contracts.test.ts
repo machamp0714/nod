@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { askQuestion, completeIssue, startIssue } from "../src/ops/agent";
+import { askQuestion } from "../src/ops/agent";
 import { acceptTriage, answerQuestion, getInbox } from "../src/ops/human";
-import { createIssue, commentIssue, getIssue, updateIssue } from "../src/ops/issues";
+import { createIssue, getIssue, updateIssue } from "../src/ops/issues";
 import { attachDocument, detachDocument } from "../src/ops/documents";
 import { addProjectRow, codeOf, eventsOf, setup } from "./helpers";
 

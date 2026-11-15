@@ -6,14 +6,6 @@ import { setLayout } from "./support/issue-list";
 
 const bar = (page: Page) => page.getByRole("toolbar", { name: "一括操作" });
 const box = (page: Page, id: string) => page.getByRole("checkbox", { name: `${id} を選択`, exact: true });
-// ブラウザと同じローカルの暦日
-function localDate(offsetDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 const selectAll = (page: Page) => page.getByRole("checkbox", { name: "表示中の Issue をすべて選択" });
 
 async function seed(nod: import("./support/nod").NodData) {
@@ -187,7 +179,7 @@ test("上限の100件を超えて選ぶと、送る前に知らせて項目を�
 });
 
 test("Milestoneの一括更新を維持し、旧Cycle直接所属を出さない", async ({ page, nod }) => {
-  const { ws, ids } = await seed(nod);
+  const { ids } = await seed(nod);
   const [b1, b2, b3] = ids as [string, string, string, string];
   const m = await nod.me.createMilestone("決済まわり", { name: "v1.0" });
   await nod.me.createMilestone("決済まわり", { name: "v1.1" });

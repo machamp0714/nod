@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as core from "../src/index";
 import { setup } from "./helpers";
-import { acceptPreparedSprint, prepareSprint, sprintTestClock } from "./fixtures/sprint-start";
+import { prepareSprint, sprintTestClock } from "./fixtures/sprint-start";
 
 test("Sprintフローは開始前の表示案と開始後の採用中計画を分け、Project横断と外部前提を読取だけで返す", () => {
   const { db, ws, me } = setup();

@@ -1,4 +1,4 @@
-import { seedSprint, associateSprint, removeSprint } from "./support/nod";
+import { seedSprint, removeSprint } from "./support/nod";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { chooseDisplay, columnChip, displaySelect, openDisplay, setColumn, setDirection, setLayout } from "./support/issue-list";
@@ -115,9 +115,7 @@ test("View の表示設定は自動保存せず、「変更を保存」を押す
   expect(await savedDisplays(page)).toEqual({});
 });
 
-test("Sprint の表示を保存したあと Sprint を消しても、エラーにならない", async ({ page, nod }) => {
-  const workspaces = (await (await page.request.get("/api/workspaces")).json()) as { id: number; key: string }[];
-  const api = workspaces.find((w) => w.key === "API")!;
+test("Sprint の表示を保存したあと Sprint を消しても、エラーにならない", async ({ page }) => {
   const sprint = (await seedSprint({ name: "Sprint 1", startDate: "2026-10-01", endDate: "2026-10-14" }));
   await page.goto(`/sprints/${sprint.id}`);
   await setLayout(page, "Board");

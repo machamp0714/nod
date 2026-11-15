@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { askQuestion, completeIssue, failIssue, startIssue } from "../src/ops/agent";
-import { acceptTriage, answerQuestion, getInbox } from "../src/ops/human";
+import { answerQuestion, getInbox } from "../src/ops/human";
 import { archiveIssue, commentIssue, createIssue, getIssue, resolveThread, updateIssue } from "../src/ops/issues";
 import {
   deleteNotifications,

@@ -54,7 +54,7 @@ export function usePageDisplay(scope: PageScope, url: IssueListSearch) {
     (prev, { display }) => ({ ...prev, [scope.key]: display }),
   );
   const remove = usePageDisplayMutation(
-    (_: void) => apiFetch<{ ok: true }>(pagePath(scope.key), { method: "DELETE" }),
+    (_vars: void) => apiFetch<{ ok: true }>(pagePath(scope.key), { method: "DELETE" }),
     (prev) => {
       const { [scope.key]: _removed, ...rest } = prev;
       return rest;

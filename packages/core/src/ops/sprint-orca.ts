@@ -1,6 +1,6 @@
 import { NodError } from "../errors";
 import { isDeepStrictEqual } from "node:util";
-import { SprintOrcaMutationError, sameSprintCaller, type SprintCallerEvidence, type SprintExecutionIdentity, type SprintExecutionOperation,
+import { SprintOrcaMutationError, sameSprintCaller, type SprintCallerEvidence, type SprintExecutionIdentity,
   type SprintExecutionReceipt, type SprintOrcaAdapter, type SprintOrcaInventory, type SprintRequestObservation } from "../sprint-execution-types";
 import type { SprintClock } from "../sprint-types";
 import { ORCA_CREATE_TIMEOUT_MS, ORCA_TIMEOUT_MS, type OrcaRunner } from "./orca";

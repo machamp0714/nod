@@ -18,7 +18,8 @@ export function createChangeFeed(db: Database): ChangeFeed {
   let version = read();
   const listeners = new Set<(version: number) => void>();
   const emit = () => {
-    for (const listener of [...listeners]) {
+    // 通知の途中で登録・解除されても、通知を始めた時点の一覧に通知する
+    for (const listener of Array.from(listeners)) {
       try {
         listener(version);
       } catch (e) {

@@ -5,7 +5,6 @@ import { createProject, getProject, listProjects, resolveProject } from "../src/
 import type { NodError } from "../src/errors";
 import { PROJECT_STATUSES } from "../src/types";
 import { updateProject } from "../src/ops/projects";
-import { initWorkspace } from "../src/ops/workspaces";
 import { linkDocument } from "../src/ops/documents";
 import { codeOf, setup } from "./helpers";
 
@@ -97,7 +96,7 @@ describe("resolveProject の候補（#176）", () => {
       error = e as NodError;
     }
     expect(error?.code).toBe("NOT_FOUND");
-    const candidates = (error?.details as { candidates: { id: number; name: string }[] }).candidates;
+    const candidates = (error!.details as { candidates: { id: number; name: string }[] }).candidates;
     expect(candidates).toHaveLength(5);
     expect(candidates.every((c) => c.name.toLowerCase().includes("api"))).toBe(true);
     expect(error?.message).toContain("近い名前: ");
@@ -117,7 +116,7 @@ describe("resolveProject の候補（#176）", () => {
     } catch (e) {
       error = e as NodError;
     }
-    const candidates = (error?.details as { candidates: { id: number; name: string }[] }).candidates;
+    const candidates = (error!.details as { candidates: { id: number; name: string }[] }).candidates;
     expect(candidates.map((c) => c.name)).toEqual(["web", "Web 2", "a web", "b web", "c web"]);
     expect(error?.message).toContain("近い名前: web（ID 6）、Web 2（ID 7）、a web（ID 1）");
   });

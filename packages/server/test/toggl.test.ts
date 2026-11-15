@@ -602,7 +602,7 @@ describe("Toggl の失敗の区別", () => {
 
   test("利用上限（402）では最後に分かっている状態と待つ期限を返し、待っている間はどの操作でも Toggl を呼ばない。期限が過ぎたら取り直す", async () => {
     let limited = false;
-    const { handler } = togglWorld(running("API-1 検索 API"), (req) =>
+    const { handler } = togglWorld(running("API-1 検索 API"), () =>
       limited ? { kind: "ok", status: 402, body: "quota", headers: { "x-toggl-quota-resets-in": "120" } } : undefined,
     );
     const { app, ref, calls, clock } = withToggl(handler);

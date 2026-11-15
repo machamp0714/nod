@@ -14,7 +14,6 @@ import {
   refuteVerdict,
   registerRepo,
   runReview,
-  type Sandbox,
   sandbox,
   sha256,
   tempNod,

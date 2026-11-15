@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createIssue, getIssue, listIssues, queryIssues, updateIssue } from "../src/ops/issues";
-import { codeOf, setup } from "./helpers";
+import { setup } from "./helpers";
 
 function family(statuses: ("done" | "canceled" | "todo" | "in_progress")[]) {
   const t = setup();

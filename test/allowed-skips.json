@@ -1,0 +1,14 @@
+[
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "既定のcdhash DRは署名が有効でも更新互換の完成品として拒否する"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "正規の成果物はすべての検査を通る"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "専用bundle IDの共通DRはresource変更した更新でも完成品検査と相互要求を通る"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "別identifierの明示DRは署名が有効でもInfo.plistのbundle IDと一致しなければ拒否する"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "sidecar に entitlements が無ければ落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "entitlements が 3 種のうち 1 つ欠けても落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "build-info の版と同梱バイナリの版が違えば落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "build-info の schema 版が実際の DB と違えば落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "build-info が無ければ落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "署名後に中身を書き換えると署名の検証で落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "sidecar が arm64 でなければ落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" },
+  { "file": "packages/desktop/test/verify-app.test.ts", "name": ["verifyApp", "web が同梱されていなければ、隔離データでの起動で落ちる"], "reason": "CI ではデスクトップアプリをビルド・署名しないため、検査する成果物（packages/desktop/dist/nod.app）が無い" }
+]

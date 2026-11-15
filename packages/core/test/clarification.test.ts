@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { NodError } from "../src/errors";
 import { askQuestion, nextIssue, startIssue } from "../src/ops/agent";
 import { bulkUpdateIssues } from "../src/ops/bulk-update";
 import { acceptTriage, answerQuestion, getInbox } from "../src/ops/human";

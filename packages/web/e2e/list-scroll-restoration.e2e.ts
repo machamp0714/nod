@@ -221,7 +221,7 @@ test("キャッシュの一覧が短いまま戻っても端に収めて目標�
   const expected = await openDetailFrom(page, await visibleIssueLink(page));
   for (const id of ids.slice(10)) await nod.me.archiveIssue(id);
   // Projects も同じ全件の一覧を読むため、そこで読み直したキャッシュは短くなる
-  const reloaded = page.waitForResponse((response) => /\/api\/issues$/.test(response.url()));
+  const reloaded = page.waitForResponse((response) => response.url().endsWith("/api/issues"));
   await nav(page).getByRole("link", { name: "Projects", exact: true }).click();
   await reloaded;
   const hold = await holdRequests(page, ISSUE_LISTS);
