@@ -7,15 +7,32 @@
 ## 親の最小操作の流れ
 
 親が呼ぶのは次のサブコマンドだけで、それ以外の定型作業（固定・写し・指紋・検査・再照合・算出・報告の組み立てと保存・計測）はスクリプトが行う。各節の詳しい規則は、スクリプトの結果を読み違えないための参照である。`<S>` はこのスキルのディレクトリ、`<W>` は `prepare` が返した作業ディレクトリ。
+スクリプトが行う処理の詳しい規則と、有効な結果が無い役割の扱い（4.1節）は、付録 [parent-details.md](parent-details.md) に同じ節の番号で分けてある。親が常に読むのはこの本体だけで、付録は下の「付録を読むとき」に当たったときに、示された節だけを読む。
 
 | 順 | 親が呼ぶもの | 親に残る判断 |
 |---|---|---|
 | 1 | `bun <S>/scripts/review.ts prepare ...`（2節） | 対象・基点・Issue（または明示された要求）の特定（1節）。`ready` が false なら委譲せず 7 へ |
-| 2 | 役割ごとに `agent --role standards --event start`・`agent --role spec --event start` → 両探索を同時に委譲（4節） | 依頼本文を最小限にする |
-| 3 | 最終返答ごとに `agent ... --event received --agent-id <ID>` → `check-explore --role <役割>`（5節） | 返答が入力不備・失敗でないか、引き渡し本文に禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が無いかを通読で確かめる（探索2件だけ） |
+| 2 | 役割ごとに `agent --role standards --event start`・`agent --role spec --event start` → 両探索を同時に委譲（4節。omp の eval で `agent()` を使えれば、2と3を1つのセルで行う） | 依頼本文を最小限にする |
+| 3 | 最終返答ごとに `agent ... --event received --agent-id <ID>` → `check-explore --role <役割>`（5節）→ 両探索の受領の後に `check-boundary`（0.1節） | 返答が入力不備・失敗でないか、引き渡し本文に禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が無いかを通読で確かめる（探索2件だけ）。`check-boundary` の目印と観測できなかった項目から、担当の入力境界を確かめる |
 | 4 | 無効なら `retire-attempt`（4.1節）→ `redelegate` が true のときだけ同じ依頼で1回だけ委譲し直す | 失敗の種類（判定と無関係な無効・利用枠の上限・利用者による中止）の分類 |
-| 5 | `refute-input` → `agent --role refute --event start` → 委譲 → `received` → `check-refute`（6節・7節） | 返答が入力不備・失敗でないか（判定本文は読まない） |
+| 5 | `refute-input` → `agent --role refute --event start` → 委譲 → `received` → `check-refute`（6節・7節）→ `check-boundary`（0.1節。omp の eval では1つのセルで行う） | 返答が入力不備・失敗でないか（判定本文は読まない）。`check-boundary` の結果から反証の担当の入力境界を確かめる |
 | 6 | `finalize`（10節・11節・14節） | omp 以外で `PI_SESSION_FILE` が無ければ `--session` で親のセッション記録を渡す。利用者・呼出元への短い説明（12節） |
+
+### 付録を読むとき
+
+次のどれかに当たったときだけ、付録の示された節を読む。
+
+| スクリプトの出力・状況 | 付録で読む節 |
+|---|---|
+| 担当の返答が入力不備・失敗、ハーネスの終了・失敗・取り消しの通知、eval の await の例外 | 4.1節（失敗の種類の分類と `retire-attempt`） |
+| `check-explore` が `valid: false` を返した | 5節（`violations` の番号の検査項目）と4.1節 |
+| `check-refute` が `valid: false` を返した | 7節（`violations` の番号の検査項目）と4.1節 |
+| `retire-attempt` を使う、または `agent --event start` が終了コード 2 を返した | 4.1節 |
+| `refute-input` が `ready: false` か終了コード 2 を返した | 6節 |
+| どれかの結果の `identity` が不一致（`ok: false`） | 2.1〜2.3節（同一性の確認でやり直す確認の中身） |
+| `prepare` の `unavailable`・依存の写しを準備しなかった理由、作業ディレクトリの場所ごとの用途を確かめる | 2節・2.2節・2.3節 |
+| `finalize` の `status`（`未実施`・`未完了`）・`merge`・`blockers`・`saved: false` の理由を利用者・呼出元へ説明する | 10節・11節 |
+| 計測の範囲や定義を説明する、`usage` で作業ディレクトリの無い記録を集計する | 14節 |
 
 ## 0. 委譲先と前提
 
@@ -42,6 +59,20 @@ env -u PI_SESSION_FILE -u PI_SESSION_ID omp -p --cwd "$empty" --no-context-files
 
 すでにこの経路で新規起動された親は、さらに親を起動せず1節以降を行う。親の起動引数・空の cwd・新しい session-dir・読んだスキルの実パスを記録する。担当の最初の入力と `session_init` の systemPrompt、`skill-prompt` の実パスで、元の作業ツリーの規約・プロジェクトのスキル一覧が混ざっていないことを確かめる。記録を調べるときは書込ペイロードを表示せず、反証本文を親へ露出させない。固定 head の規約は担当が限定 clone から読む。空 cwd やフラグだけを入力分離の証明にせず、観測できない範囲は限界として記録する。
 
+担当の最初の入力・`session_init` の systemPrompt・`skill-prompt` の実パスは、親が担当のセッション記録を自分で読まず、`check-boundary` の結果で確かめる。両探索の最終返答の受領（4節の `received`）の後と、反証の受領の後に呼ぶ（4節の eval のセルの中で呼んでもよい）。
+
+```sh
+bun <スキルのディレクトリ>/scripts/review.ts check-boundary --work <W の絶対パス> [--session <親のセッション記録の絶対パス>]   # --session が無ければ PI_SESSION_FILE
+```
+
+- スクリプトは `parent/agents.json` の各試行について、担当の記録（親の記録と同名のディレクトリの `<担当 ID>.jsonl`）の最初の応答より前の記録だけを読み、3項目（最初の入力、`session_init` の systemPrompt、`skill-prompt` の実パス）ごとに、観測できたか（`observed`。できなければ理由の `reason`）と、混入を疑う目印（`marks`）を返す。
+- 目印は、`<repo-rules>`・規約ファイル（`<file path=…>`）・元のリポジトリのパスがあること、元の作業ツリーのプロジェクトのスキル（`.omp/skills`・`.claude/skills`・`.agents/skills`・`.codex/skills`）の名前がスキル一覧にあること、担当の作業ディレクトリ（`session` の記録の cwd）が元のリポジトリの中にあること、最初の入力が4節・6節の依頼本文の雛形と違うこと（役割の値、項目の欠落、雛形に無い項目）、`skill-prompt` がこのスキルの `SKILL.md` でないか記録に無いことである。
+- 依頼本文・systemPrompt・`skill-prompt` の本文は写さず、sha256・大きさ・項目の有無と観測の限界を `parent/boundary.md`（と `boundary.json`）に書く。書込ペイロードと反証の本文は読まない。
+- 雛形の項目外にある自由文、箇条書き、コメントも行番号を目印として残す（本文は写さない）。先頭にハーネスが付ける `Complete assignment thoroughly:` の1行と、反証の入力一覧にある指定先の行は除く。
+- 既知の項目も値全体を4節と6節の雛形と照合し、不一致と項目の重複を目印にする。反証の入力一覧は、固定した入力ファイルと指定されたリポジトリと依存の写しの行だけを認め、行末への自由文の追加も目印にする。
+- 未知の項目は値が空でも行番号を目印にし、未知の項目名自体は写さない。反証の入力一覧では固定入力一式、両探索の引き渡し、対象の限定 clone、準備できた依存の写しの欠落も目印にする。
+- 目印が混入に当たるかは親が判断する。`observed` が false の項目は観測できなかった範囲として限界に記録し、目印が無いことと読み替えない。
+
 この新規親を起動できなければ、既存セッションからの直接委譲へ切り替えず、独立レビューを未実施（理由: 入力を分離した親を起動できない）として報告する。スキル同梱スクリプトはモデルを起動しない。起動は呼出元のハーネスが行い、利用者の永続設定やインストール済み plugin を変更しない。
 
 ## 1. 対象・基点・要求を特定する
@@ -66,58 +97,10 @@ bun <スキルのディレクトリ>/scripts/review.ts prepare --repo <元のリ
 - 作業ディレクトリ `<W>` は実行ごとに `$HOME/.local/share/nod/code-reviews/<runId>`（runId は小文字の uuid）に作られる。結果は標準出力の1行の JSON と、同じ内容の `parent/prepare.json` に出る（`work` が `<W>`、`runId`、`mergeBase`・`head`（`mode: local` では土台の HEAD）、`headSource`、`clone`、`deps`、`inputs`（`input/` の各ファイルの sha256）、`unavailable`（取得できなかった資料と理由））。
 - 終了コード 2 は引数の誤り（相対パス、解決できない ref、追跡済みのファイルを `--untracked` に渡したなど）で、判定ではない。呼び出しを直して実行し直す。それ以外の 0 以外の終了コードは予期しない失敗で、委譲しない。
 - `ready` が false なら `status` は `未実施` で、委譲せず、10節の `finalize` で報告する（`reason` を理由・点数なし・マージ可否 `不可（人の判断が要る）` として報告と作業ログが書かれる）。理由は、秘密情報を含み得る <パス> が差分にある（必要な範囲を利用者が確かめる必要がある）、差分なし、担当用の限定 clone を作れない（<通らなかった確認>）のどれか。
-- 秘密候補は、本文を写す前に変更されたパスの名前だけで調べる（`mode: commit` は merge-base から head までの差分、`mode: local` はそれに未コミットの差分と指定された未追跡パスを加えたもの。名前は NUL 区切りで読み、日本語などを含むパスも引用符なしの名前で調べる）。パスのどこかの要素が `.env`・`.env.*`・`.aws`・`id_rsa`・`id_ed25519`・`credentials`・`credentials.*`・`*.pem`・`*.key`（大文字小文字を区別しない）に当たれば止まり、差分の本文・限定 clone・依存の写し・要求の写しを作らない。
-- `mode: commit` では、head を固定した元（PR なら URL、ref から固定したなら `<repo>` とその ref、SHA だけなら「ref なし」）が親専用領域の `parent/head-source.md` に書かれる（担当へ渡す `target.md` には書かない）。10節の8と11節では、この元から対象の現在の head と基点を取り直す。
 
 ディレクトリの分離は担当への指示の境界であり、アクセス遮断ではない。以下、元のリポジトリを `<repo>`、担当用の限定 clone を `<W>/repo` と書く。担当には元のリポジトリを渡さない。
 
-| 場所 | 用途 | 書く人 | 読む人 |
-|---|---|---|---|
-| `repo/` | 担当用の限定 clone（全担当の対象リポジトリ） | 親 | 全担当 |
-| `deps/` | 依存の写し（準備できたときだけ） | 親 | 全担当 |
-| `input/` | 共通入力（全担当へ同じもの） | 親 | 両探索担当 |
-| `standards/` | Standards 探索の `handoff.md` と `notes/` | Standards 探索担当 | 親（検査） |
-| `spec/` | Spec 探索の `handoff.md` と `notes/` | Spec 探索担当 | 親（検査） |
-| `refute-input/` | 反証への入力（検査済みの引き渡し用ファイルと共通入力の写し） | 親 | 反証担当 |
-| `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親（検査） |
-| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と、現在の head と基点をレビューした head と基点に比べた照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、委譲の記録 `parent/agents.md`、段階（サブコマンド）の開始・終了の記録 `parent/stages.md`、検査記録 `parent/checks.md`、段階ごとの同一性の確認 `parent/identity.md`、反証への入力の指紋 `parent/fingerprints.md`（それぞれ同じ名前の `.json` も）、反証の判定本文から読み取った構造 `parent/refute-structure.json`、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、保存直前の取り直し `parent/requirements-recheck/`・`parent/local-recheck/`、報告の原稿 `parent/report.md`・`parent/audit.md` と `finalize` の結果 `parent/finalize.json`、区間の時間と使用量 `parent/usage.json`・`parent/usage.md`（14節）、各サブコマンドの結果 `parent/<サブコマンド>.json`） | 親 | 親だけ |
-
-### 2.1 担当用の限定 clone
-
-スクリプトは、元のリポジトリを変えずに、head（`mode: local` では土台の HEAD）とその祖先（merge-base を含む）の commit だけを持つ clone を `<W>/repo` に作り、次をすべて確かめて、コマンドと出力を元のリポジトリのパスと一緒に `parent/clone.md`（結果は `parent/prepare.json` の `clone.checks`）に書く: ref・remote・alternates・`FETCH_HEAD` が無い、HEAD が head、merge-base が head の祖先、commit と object が head から辿れるものだけ、index と作業ツリーが空、`.git`（objects を除く）に元のリポジトリのパスが無い。
-
-- `target.md` の対象リポジトリはこの clone の絶対パスになる。元のリポジトリのパスは `parent/` にだけ置き、依頼本文・`input/`・`refute-input/` に入れない。
-- 確認が通らない clone を担当に渡さない（スクリプトは `未実施` を返す）。
-- 後の段階（4.1節・5節・6節）では、スクリプトが同じ確認を同じ方法でやり直し、`parent/prepare.json` の `clone.checks` と比べる（`parent/identity.md`）。親は手で繰り返さない。
-
-### 2.2 依存の写し
-
-担当が固定した依存のコードを外部へ取りに行かないよう、スクリプトは head（`mode: local` では土台の HEAD）の版のルートの lockfile から、lockfile どおりに入れる指定とスクリプトを実行しない指定の両方を持つパッケージ管理だけで配布物を準備する（`bun.lock`・`bun.lockb` は `bun install --frozen-lockfile --ignore-scripts`、`package-lock.json` は `npm ci --ignore-scripts`、`pnpm-lock.yaml` は `pnpm install --frozen-lockfile --ignore-scripts`、`yarn.lock` は v1 なら `yarn install --frozen-lockfile --ignore-scripts`、Yarn 2 以降なら `.yarnrc.yml` の `yarnPath` の Yarn で `node <yarnPath> install --immutable --mode=skip-build`）。
-
-- 固定版を限定 clone から `parent/deps/` の作業領域へ展開して準備し、`node_modules` だけをリンクのまま `<W>/deps/` へ写し、指紋の一覧 `input/deps-files.sha256`（ファイルごとの sha256 の後にリンクごとの `link <パス> -> <リンク先>`）を作って、作業領域を片付ける。写しの外を指すリンク（ワークスペースのパッケージなど）の中身は、担当が限定 clone の固定版で読む。
-- lockfile が無い、ルート以外にしか無い、どれを使うか固定版から決められない複数の lockfile がある（`package.json` の `packageManager` で決まる場合を除く）、形式や Yarn の版を決められない、準備の終了コードが 0 以外、`node_modules` が作られない場合は、`deps/` を置かず、理由が `manifest.md` に書かれる。担当はその依存の確認を未確認に残す。
-- `mode: local` で未コミットの変更が lockfile やパッケージ定義を変えている場合も、写しは土台の HEAD の lockfile から作り、その旨が `manifest.md` に書かれる。
-- 準備のコマンド・終了コード・パッケージ管理とその版・取得元・`setup.log` の sha256・作業領域を片付けたことは `parent/deps/` に書かれる。`setup.log` は担当に渡さない。
-- 後の段階（4.1節・5節・6節）では、スクリプトが指紋の一覧を同じ方法で作り直し、`input/deps-files.sha256` と比べる（`parent/identity.md`）。親は手で繰り返さない。
-
-### 2.3 共通入力
-
-`input/` には次だけが置かれる。
-
-- `target.md`: 対象リポジトリ（限定 clone `<W>/repo` の絶対パス）、依存の写しの場所（`<W>/deps/`、または「依存の写しなし（理由は manifest.md）」）、基点の指定、merge-base と head の SHA、`mode`、Issue（ID またはなし）、計画の出典の扱い。`mode: local` では土台の HEAD の SHA、`local/changes.diff`、`local/untracked/<相対パス>` の一覧も書く。
-- `local/`（`mode: local` のときだけ）: 表示用の変換を無効にした未コミットの差分 `changes.diff`（`git --no-optional-locks diff --binary --no-ext-diff --no-textconv HEAD`）と、指定された未追跡ファイルの写し `untracked/<相対パス>`。
-- `deps-files.sha256`（依存の写しを準備できたときだけ）。
-- `requirements/`: 要求の原文。丸ごと写し、選別・要約・書き換えをしない。
-  - `issue.md`: Issue のタイトルと本文だけ。
-  - `spec-<DocumentID>.md`: Issue に現在リンクされたすべての `kind=spec` の Document の本文。1件に絞らない。
-  - `plan-<DocumentID>.md`: Issue の計画の出典（`plan.source`）が指す `kind=plan` の Document だけ。解決できない・読めない場合は別の計画で代用せず、「計画の出典を解決できず不足（<plan.source>）」と書かれる。出典が無ければ「計画の出典なし」。
-  - `workspace-rules.md`: Git 管理外の Workspace の規約の原文（`nod -w <repo> workspace rules show` の出力。未登録ならその旨の出力）。
-  - Issue の無い単独レビューでは、`issue.md`・`spec-*`・`plan-*` の代わりに、利用者が明示した要求の原文だけを `request-<n>.md` に丸ごと写し、`target.md` に「Issue なし」と書く（明示された要求が無ければ「Workspace の規約以外の要求資料なし」）。`workspace-rules.md` はどちらの場合も写す。
-- `manifest.md`: `input/` の各ファイル（`manifest.md` 自身を除く）の sha256 と出典（Issue ID と取得時刻、Document ID とパス、Workspace 規約、Git の SHA）、取得できなかった資料と理由（読めなかった `kind=spec` の Document など）、依存の写しの節（場所、lockfile のパス `<lockfile>@<head の SHA>` と sha256、パッケージ管理とその版、準備のコマンドと終了コード、取得元、`deps-files.sha256` の件数。準備しなかった・できなかった場合は理由）。
-
-共通入力・引き渡しの指紋には、明示された未追跡 symlink も含める。通常ファイルは本文の sha256、リンクは `link`・NUL文字・リンク先文字列を連結した値の sha256 とし、リンク先の実体は辿らない。指紋の JSON には種別 `kind`（`file` / `link`）も保存し、同一性検査・反証への写し・保存直前の local 再照合では種別と sha256 の両方を比べる。目録の出典欄にも種別を示し、テキストの指紋一覧ではリンクの行を `link ` で始める。リンク先の変更・消失・通常ファイルへの置き換え（本文がハッシュ前のリンク表現と同じ場合も）を検出する。依存の写し専用の `deps-files.sha256` の形式（2.2節）は変えない。
-
-`nod issue show` の全出力（`parent/issue-snapshot.json`）、Activity（作業ログ・コメント）、実装の完了報告、過去のレビュー、自動チェックの結果、依存の準備の記録（`parent/deps/`）、元のリポジトリのパス、計画の進捗状態は `input/` に入らない。Spec・計画に混ざった結果の節を要求から外す判断は担当に任せ、親は削らない。要求が参照する別 Document などを親が辿って足さない。`unavailable` に資料があっても、親は別の資料で代用しない（担当が不足として扱う）。
+秘密候補の調べ方、head を固定した元の記録、作業ディレクトリの場所ごとの用途、限定 clone・依存の写し・共通入力の作り方（2.1〜2.3節）は付録の2節にある。
 
 ## 4. 両探索を並列に委譲する
 
@@ -146,35 +129,66 @@ bun <スキルのディレクトリ>/scripts/review.ts agent --work <W の絶対
 - `parent/agents.md`（と `parent/agents.json`）に、役割・定義名・試行の番号・担当 ID・委譲の開始と最終返答の受領の時刻が残る。担当 ID が委譲の時点で分かれば `start` にも `--agent-id` を付けてよい。反証も `--role refute` で同じく記録する。
 - `start` は、4.1節で利用枠の上限・利用者による中止として止めた後、4.1節で委譲し直してよいと返されていない役割の2回目以降、`refute-input`（6節）が準備完了を返す前の反証では、終了コード 2 を返して記録しない。そのときは委譲しない。
 
+### omp の eval で委譲と待機を1回の呼び出しにまとめる
+
+omp の親で、eval の `agent()` と handle の await を使えるときは、両探索の起動から両方の終了までを eval の1つのセルで行い、`wait` を繰り返し呼ばない（反証は1担当で同じ）。使えないハーネスでは、上のとおりハーネスの委譲と待機を使う。
+
+- 委譲先・依頼本文・記録は上と同じにする。`agent()` の `agent` に役割の定義名を、`label` に担当名（例: `StandardsExplore`・`SpecExplore`・`RefuteReview`）を渡し、`--agent-id` には返された handle の `id` を使う。`agent()` は共通の context を持たないので、依頼本文だけを渡す。
+- 担当の終了は handle ごとに並行に待ち、それぞれの終了の直後に `received` と検査（探索は `check-explore`、反証は `check-refute`）を呼ぶ。全担当の終了を待ってから、まとめて `received` を記録しない（14節の試行の範囲が後ろへずれる）。
+- await が例外を返した（起動・実行の失敗、取り消し）担当も `received` を記録し、その役割だけを付録の4.1節で扱う。エラーの文言は `failure` に残る。
+- セルが出力するのは、親が確かめるのに要るもの（各担当の最終返答と、スクリプトの出力の JSON）だけにする。引き渡し用ファイル・判定本文・担当のセッション記録は出力しない。
+- スクリプトは同時に起動しない（`parent/` の記録を読み書きするため）。eval の `sh()` は終わるまで戻らないので、下のセルではスクリプトの呼び出しが1つずつになる。
+- eval の `sh()` には `PI_SESSION_FILE` が渡らないので、`check-boundary` には `--session` で親の記録を渡す。
+
+```python
+import asyncio, json, os, shlex
+
+S = "<スキルのディレクトリ>"
+W = "<W の絶対パス>"
+SESSION = os.environ.get("PI_SESSION_FILE")  # 親のセッション記録（eval の sh() には渡らない）
+
+def review(*args):
+    # 終了コード 0 なら出力の JSON。それ以外は終了コードと出力（2 は引数の誤り。start なら委譲しない）
+    try:
+        return json.loads(sh(shlex.join(["bun", f"{S}/scripts/review.ts", *args])))
+    except Exception as e:
+        return {"ok": False, "exitCode": getattr(e, "exit_code", None), "output": getattr(e, "output", str(e))}
+
+async def delegate(role, definition, label, prompt, check):
+    start = review("agent", "--work", W, "--role", role, "--event", "start")  # 委譲の直前
+    if not start.get("ok"):
+        return {"role": role, "start": start}
+    h = None
+    try:
+        h = agent(prompt, agent=definition, label=label)
+        reply, failure = await h, None
+    except Exception as e:  # 起動・実行の失敗、取り消し（付録の4.1節）
+        reply, failure = None, str(e)
+    received = review("agent", "--work", W, "--role", role, "--event", "received", *(["--agent-id", h.id] if h else []))  # 終了の直後
+    checked = review(*check, "--work", W) if failure is None else None
+    return {"role": role, "agentId": h.id if h else None, "reply": reply, "failure": failure, "received": received, "check": checked}
+
+def boundary():
+    return review("check-boundary", "--work", W, *(["--session", SESSION] if SESSION else []))
+
+results = await asyncio.gather(
+    delegate("standards", "code-reviewer-standards", "StandardsExplore", "<上の Standards 探索の依頼本文>", ["check-explore", "--role", "standards"]),
+    delegate("spec", "code-reviewer-spec", "SpecExplore", "<上の Spec 探索の依頼本文>", ["check-explore", "--role", "spec"]),
+)
+print(json.dumps({"results": results, "boundary": boundary()}, ensure_ascii=False))
+```
+
+反証は、引き渡しの通読（5節の7）の後に、同じ関数で次のセルを実行する。委譲し直すとき（付録の4.1節）も、その役割の `delegate` だけを最初と同じ依頼本文で呼ぶ。
+
+```python
+ready = review("refute-input", "--work", W)
+result = await delegate("refute", "code-reviewer-refute", "RefuteReview", "<6節の反証の依頼本文>", ["check-refute"]) if ready.get("ready") else None
+print(json.dumps({"refuteInput": ready, "result": result, "boundary": boundary()}, ensure_ascii=False))
+```
+
 ### 4.1 有効な結果が無い役割の扱い（全役割に共通）
 
-どの役割の担当でも、有効な結果が返らなかったときはこの節で扱う。有効かどうかは5節（探索）・7節（反証）の検査で決める。理由と不足箇所（未確認なら確かめる担当も）を示した未確認は有効な結果であり、不都合な指摘・判定・点数と同じく、委譲し直す理由にしない。親は判定の中身を見て委譲し直すかを決めない。
-
-1. 失敗の種類を、ハーネスの終了通知・担当の返答・エラーの文言・検査の結果など観測できるものだけで決める。
-   - **利用枠の上限**: HTTP 429、プロバイダの利用枠・rate limit の上限を示すエラー（`rate_limit_error`・`usage_limit_reached`・usage limit など）、またはプロバイダの待ち要求が retry の上限を超えた旨（omp では `Provider requested <N>ms wait, exceeds retry.maxDelayMs`）が出ている。
-   - **利用者による中止**: 利用者が担当またはレビューを止めた。
-   - **判定と無関係な無効**: 上の2つ以外のすべて。SKILL.md 2節の禁止規則への違反などの境界違反、引き渡し形式違反（出力ファイルが無い、必須項目の欠落、禁止項目の混入、担当行の欠落）、指定と異なる SHA・要求版の参照、入力不備（役割指定の不備・不一致）、担当の終了・失敗（認証などの実行失敗を含む）。利用枠の上限の印が無い失敗は、原因が利用枠かもしれなくてもここに入れる（観測できない原因を利用枠と推測して止めない）。
-2. 判定と無関係な無効は、その役割だけを1回だけ委譲し直す。委譲し直せるかはスクリプトが決め、親は結果を変えない。
-   1. 隔離・記録・同じ入力の確認をスクリプトで行う。
-
-      ```sh
-      bun <スキルのディレクトリ>/scripts/review.ts retire-attempt --work <W の絶対パス> --role <standards|spec|refute> \
-        --failure invalid --reason '<無効の理由>' [--retries '<omp 内部の再試行>']
-      ```
-
-      - `--reason` は無効の理由（検査の番号と違反の箇所、または終了通知の状態とエラーの文言）。`--retries` は omp 内部の再試行で、担当のセッションの中でハーネスが行った retry（終了通知や担当のセッション記録に出る retry の回数・待ち・エラーの文言。同じプロバイダの別の認証情報への切り替えを含む）であり、親による再委譲とは分けて書く。分からなければ省く（「記録なし」と書かれる）。
-      - スクリプトは、その役割の最新の試行のサブディレクトリ（`standards/`・`spec/`・`refute/`）を中身ごと `parent/attempts/<役割>-<試行の番号>/` へ移し、同じ名前の空のサブディレクトリと `notes/` を作り直し、移したファイルの sha256 を記録する。担当は `parent/` を読まない（SKILL.md 2節）ので、委譲し直した担当も後続の担当も無効な試行の出力を読まない。無効な試行の結果は後続の担当（反証）へ渡らない（6節の写しは隔離した試行を写さない）。
-      - 続けて同じ入力を確かめる: `input/` の各ファイルと `manifest.md` の sha256 が `parent/prepare.json` の記録と一致し、依存の写しの指紋の一覧を2.2節と同じ方法で作り直して `input/deps-files.sha256` と一致し、限定 clone の確認（2.1節）をやり直して `prepare` の結果と同じになること。反証では `refute-input/` の各ファイルの sha256 も写したときの記録（`parent/refute-input.json`）と比べる。
-      - 結果は `parent/attempts.md`（と `parent/attempts.json`。役割・定義名・試行の番号・担当 ID・失敗の種類・無効の理由・omp 内部の再試行・隔離先と各ファイルの sha256・同じ入力の確認・委譲し直すか）と `parent/identity.md` に書かれる。標準出力の JSON の `redelegate` が委譲し直せるか、`status`・`finalReason` が委譲し直せないときの最終状態 `未完了` とその理由を示す。
-      - 同じ入力でなければ `redelegate` は false で、`未完了`（理由: 有効な結果なし（<役割>。同じ入力を固定できず委譲し直さなかった））になる。委譲し直さない。
-   2. 委譲し直す（`redelegate` が true のときだけ）: 同じ定義へ、最初の試行と一字も違わない依頼本文（4節・6節）と同じ共通の context で、新しいタスクとして新しいコンテキストで起動する。最初の担当への追送や再開は使わない。依頼本文・context に、最初の試行があったこと・無効の理由・その出力を入れない。モデルやアカウントを指定・変更しない。委譲の前後は4節と同じく `agent` で記録する（試行の番号 2 になる）。
-   3. 検査する: 委譲し直した担当の結果を、最初と同じ検査（5節・7節）にかける。有効ならその結果を使う。無効なら、同じく `retire-attempt` で `parent/attempts/<役割>-2/` へ移して記録する。スクリプトは `redelegate` を false、`未完了`（理由: 有効な結果なし（<役割>。1回の再委譲の後も））を返し、それ以上委譲し直さない。委譲し直した担当が利用枠の上限で失敗した場合は、3と同じく `--failure usage-limit` にする。
-   - 委譲し直すのは役割ごとに1回だけ。最初の試行と委譲し直した結果を比べて選ばない。無効な出力を、修正の依頼・担当の再開・親の補筆で有効にしない。
-   - 探索の片方だけが無効なら、その役割だけを委譲し直し、有効だった役割の結果はそのまま使う。両方が無効なら、両方を同じ手順で同時に委譲し直す。他方の探索の終了を待たずに委譲し直してよい。両探索の有効な結果がそろうまで反証を起動しない。
-3. 利用枠の上限による失敗は、委譲し直さず、その時点で止める。`retire-attempt --failure usage-limit --reason '<終了通知の状態とエラーの文言>' [--retries '<omp 内部の再試行>']` で、2の1と同じく隔離して記録する。スクリプトは `redelegate` を false、`未完了`（理由: 利用枠の上限、有効な結果なし（<役割>））を返す。
-   - それ以後はどの役割も委譲し直さず、まだ起動していない担当（反証など）を起動しない（`agent --event start` も終了コード 2 を返す）。並列で実行中の担当は打ち切らずに終了を待ち、受領済みの成果として `agent --event received` で記録する（有効でも反証は起動しない）。
-   - 別アカウントへの切り替え、利用枠の回復待ち、利用枠のリセットの使用、別モデルへの切り替えをしない。
-4. 利用者による中止は委譲し直さず、`retire-attempt --failure aborted --reason '<中止の状況>'` で記録する。スクリプトは `未完了`（理由: 利用者による中止）を返し、以後の `agent --event start` は終了コード 2 を返す。
+この節の規則は付録の4.1節にある。担当の返答が入力不備・失敗のとき、ハーネスの終了・失敗・取り消しの通知や eval の await の例外を受けたとき、検査が `valid: false` を返したとき、`retire-attempt` を使うときに読む。
 
 ## 5. 探索の引き渡し用ファイルを検査する
 
@@ -185,19 +199,14 @@ bun <スキルのディレクトリ>/scripts/review.ts check-explore --work <W �
 ```
 
 1. 担当が終了通知とともに返し、返答が入力不備・失敗ではない（親が返答で確かめる。入力不備・失敗なら、検査せずに4.1節へ進む）。
-2. 指定したパスに `handoff.md` がある。
-3. 役割・定義名・対象版・要求資料・依存の写しが書かれ、役割と定義名が委譲した担当と一致し、対象版が `target.md` と一致する（対象版は1項目だけ。同じ値でも重複は拒否する。その欄に merge-base と head の40桁の SHA があり、それ以外の SHA が無い。基点など別の欄に書いた SHA は数えない。`mode: local` では `local/` の各ファイルの sha256 もある）。終了状態、未確認と理由、判断を見送った事項の節がある（無いことを明示していてもよい）。節は見出しの名前で探し、見出しの先頭の番号（`1.`・`1)`・`1．`）だけは表示上の差として読み飛ばす。項目名は雛形の名前だけを読み、言い換えた項目（`B:`・`H:`・`要求入力:` など）は欠落として扱う。
-   「担当と対象」の節も1つだけとし、同じ内容でも重複を拒否する。見出しの番号を読み飛ばした後の節名で確かめる。この規則は反証の7節2にも適用する。
-4. 各候補に必須項目（SKILL.md の4節）がそろい、候補 ID が役割の接頭辞を持ち重複しない。候補一覧または「候補0件」の明示がある。証拠を取得できなかった候補には、その候補の証拠の欄か、同じ候補の `取得できなかった理由`・`不足箇所` の項目に理由と不足箇所がある（ほかの欄・候補・節の語は数えない）。
-5. Standards 探索: 規約の一覧と今回の差分への適用判断がある。Spec 探索: 要求資料の判別の節がある。
-6. Spec 探索: `requirements/` のすべてのファイルについて、要求資料ごとのコード要求の表に「あり」か「なし」が1行ずつある（値の後ろの括弧1つの補足は可。補足は判定に使わない。「あり」と「なし」の両方を書いた値や補足の後ろに続く記載は違反）。コード要求の対応表が雛形の4列（要求の出典・状態・証拠または不足理由・候補ID）で、状態が 充足・未充足・未確認 だけを使う（コード要求が0件なら行の無い表でよい）。廃止した状態（受け入れ確認担当・自動チェック担当・説明・対象外・作業手順の規則・実行しないと分からない）を状態や要求資料の分類に使っていない。未確認の不足理由に廃止した理由「要実行確認」を使っていない（本文の語としては拒否しない）。未充足・未確認の行に候補 ID があり、対応表が参照する ID がすべて候補一覧にある。列の確認は雛形の見出しと各行の「出典・状態・候補ID」の位置で行い、セル内のコードや文字列に含まれる `|` だけを理由に列数違反としない（Markdown の表示上で列が崩れていても、出典・状態・候補ID が読み取れれば形式違反にしない）。
+
+2〜6と8（スクリプトが機械的に調べる項目）は付録の5節にある。`valid: false` のときは `violations` の番号をそこで確かめる。
+
 7. 禁止項目（暫定の重大度・確信度・要約・推論・総合判断・原因の統合）が項目名にも本文にも無い。スクリプトは見出し・箇条の項目名・表の見出しだけを調べ、コードスパンを除いた名前の全体が禁止項目そのもの（`暫定の` を前に付けたもの、英語の severity・confidence・summary を含む）のときだけ違反にする（`Severity` の表示・buildSummary の呼出元 のような、名前の一部に含むだけの項目名は違反にしない）。項目名だけの検査では内容の混入まで保証できないので、スクリプトの検査に通った引き渡しは、親が本文を通読して確かめる（探索2件だけ。反証の判定本文は通読しない）。
-8. 担当が共通入力・依存の写し・限定 clone を変えていない（スクリプトが4.1節の2の1と同じ同一性の確認をやり直す）。
 
 - 結果は標準出力の1行の JSON（`valid`、`violations` の検査の番号と違反の箇所、検査した `handoff.md` の `sha256`、`identity`）と、`parent/checks.md`（と `parent/checks.json`。担当のサブディレクトリの各ファイルの sha256 を含む）に書かれる。同一性の確認は `parent/identity.md` にも残る。
 - 有効な結果は、1を親が確かめ、スクリプトの `valid` が true で、7の本文の通読で混入が無かったものだけとする。
 
-コード要求の取り落としが無いかの意味上の判断は、Spec 探索と反証担当が要求資料の原文を読んで行う。親とスクリプトの検査は形式と参照の確認であり、取り落としが無いことや内容の正しさの保証ではない。
 どちらかの担当に違反・欠落・失敗があれば、その結果を有効とせず、4.1節で扱う（利用枠の上限ならその時点で止め、それ以外は `retire-attempt --failure invalid --reason '<5節の番号と違反の箇所>'` で隔離し、その役割だけを1回だけ委譲し直して同じ検査をする）。両探索の有効な結果がそろうまで反証を起動しない。4.1節の後もどちらかの有効な結果が無ければ、反証を起動せず、最終状態を `未完了` とする（10節へ進む）。
 
 ## 6. 反証への入力を写し、反証を委譲する
@@ -208,10 +217,8 @@ bun <スキルのディレクトリ>/scripts/review.ts check-explore --work <W �
 bun <スキルのディレクトリ>/scripts/review.ts refute-input --work <W の絶対パス>
 ```
 
-- スクリプトは、両探索の最新の試行がスクリプトの検査に合格し、隔離されていないときだけ、`standards/handoff.md` を `refute-input/standards-handoff.md`、`spec/handoff.md` を `refute-input/spec-handoff.md` へ、`input/` の `target.md`・`manifest.md`・`requirements/`・`local/`（`mode: local` のときだけ）・`deps-files.sha256`（依存の写しを準備できたときだけ）を `refute-input/` へ写す。そろっていなければ終了コード 2 を返して何も写さない（反証を起動しない）。
-- 写した各ファイルの sha256 を、検査時に記録した引き渡し用ファイルの指紋と `prepare` の `input/` の指紋に照合し、共通入力・依存の写し・限定 clone の同一性もやり直して、`parent/fingerprints.md` に書く。結果は標準出力の JSON と `parent/refute-input.json`（`ready`、写しの各ファイルの sha256 の `files`、照合の `comparison`、`identity`）に出る。
 - `ready` が false なら `status` は `未完了`、`reason` は `反証への入力を固定できず、反証の有効な結果なし` で、写し直さず、反証を起動しない（10節へ進む）。
-- 探索のサブディレクトリ全体、`notes/`、一時ファイル、探索の返答・会話出力、`parent/attempts/` の無効な試行、親の要約は写さない。
+- 写す処理と照合の詳細（写すもの・写さないもの、`parent/fingerprints.md`）は付録の6節にある。
 
 反証担当は、新しいタスクとして新しいコンテキストで1体だけ起動する（無効なら4.1節で、新しい1体へ1回だけ委譲し直す）。探索担当への追送や再開は使わない。探索の候補が0件でも、必要な確認の不足や判断の見送りを確かめさせるため省かない。依頼本文は次だけにする（作業ディレクトリのこれ以外の場所を示さない）。依存の写しは `refute-input/` へ写さず、両探索と同じ `<W>/deps/` を渡す。
 
@@ -242,15 +249,10 @@ bun <スキルのディレクトリ>/scripts/review.ts check-refute --work <W �
 ```
 
 1. 担当が終了通知とともに返し、返答が入力不備・失敗ではない（親が返答で確かめる。入力不備・失敗なら、検査せずに4.1節へ進む）。指定したパスに `verdict.md` がある。
-2. 役割・定義名・対象版・受け取った入力・依存の写し・終了状態が書かれ、役割と定義名が委譲した担当と一致し、対象版が `target.md` と一致する（見出しの番号・項目名・対象版の欄の扱いは5節の3と同じ）。
-3. 両方の引き渡し用ファイルのすべての候補 ID と反証で追加した発見（`REF-<n>`）が採否一覧に1回ずつあり、判定が語彙のどれかで、根拠がある。要対応には影響度 0〜4 があり、要対応以外には影響度が無い。要対応の節の各見出し（`CAUSE-<n>` か候補 ID）が採否一覧の要対応の候補とその同一原因に一致し（同一候補の判定の不一致が無い）、同一原因の影響度が、含まれる要対応の候補の影響度の最小値と同じ。
-4. 要求資料ごとのコード要求（確定）の表に `requirements/` のすべてのファイルが「あり」か「なし」で1行ずつある（括弧1つの補足の扱いは5節の6と同じ）。コード要求の対応表（確定）が雛形の4列で（列の確認は5節の6と同じく、セル内の `|` だけを理由に違反としない）、状態が 充足・未充足・未確認 だけを使い（0件なら行の無い表でよい）、廃止した状態や未確認の理由「要実行確認」を使っていない。未充足の行に採否一覧で要対応の候補 ID があり、参照する候補 ID がすべて採否一覧にある。「表から除いた行」の節がある（無ければ「なし」の明示）。除いた各行に出典と1行の理由があり、理由が廃止した分類の名前そのものではない。Spec 探索の対応表のすべての行が、確定した対応表か表から除いた行の節のどちらかに同じ要求の出典である。反証が足した行の「（追加）」の印は読み取るだけで検査しない。全行の網羅・分割元・双方向の移動・範囲外の件数は検査しない。
-5. 反証で追加した発見（無ければ「反証で追加した発見なし」の明示）と、判断を見送った事項がある。未確認と理由が雛形の表で、判定が未確認のすべての候補と状態が未確認の対応表のすべての行が、軸・種別・理由・確かめる担当・不足箇所とともにある。確かめる担当に廃止した担当（受け入れ確認担当・自動チェック担当など）を、理由に「要実行確認」を使っていない。軸ごとの要対応と未確認の件数が、要対応の節の軸ごとの件数と、未確認と理由の表の軸ごとの行数と一致する。
-6. `refute-input/` の各ファイルの sha256 が写したときの記録（`parent/refute-input.json`）と一致する。依存の写しの指紋の一覧と限定 clone の確認を5節の8と同じくやり直し、委譲前と同じ結果になる。
+
+2〜6（スクリプトが機械的に調べる項目）と、合格したときに書く構造（`parent/refute-structure.json`）は付録の7節にある。`valid: false` のときは `violations` の番号をそこで確かめる。
 
 - 結果は標準出力の1行の JSON（`valid`、`violations` の検査の番号と違反の箇所、検査した `verdict.md` の `sha256`、`identity`、合格なら構造の場所 `structure`）と、`parent/checks.md`（と `parent/checks.json`）に書かれる。スクリプトは読み取れない欄・食い違う欄を推測で補わず、違反として返す。`finalize` の後は検査し直さない（終了コード 2）。
-- `valid` が true のときだけ、スクリプトは読み取った構造（採否一覧、要対応の節、要求資料ごとのコード要求、対応表の全行と追加の印、表から除いた行、未確認と理由の表、軸ごとの件数）を `parent/refute-structure.json` に書く。10節の点数と確認が残る事項は、この構造から求める。
-- この検査は形式と整合だけを確かめる。コード要求の取り落としが無いことは保証しない（候補の採否一覧・Severity・点数・入力の同一性・指紋の検査は従来どおり）。
 - 有効な結果は、1を親が確かめ、スクリプトの `valid` が true のものだけとする。
 
 欠落・失敗があれば、その結果を有効とせず、4.1節で扱う（利用枠の上限ならその時点で止め、それ以外は `retire-attempt --role refute --failure invalid --reason '<7節の番号と違反の箇所>'` で隔離し、反証だけを1回だけ委譲し直して同じ検査をする。探索の結果はそのまま使う）。4.1節の後も有効な結果が無ければ `未完了` とする（10節へ進む）。理由と確かめる担当を示した未確認は有効な結果であり、それだけでは `未完了` にせず、委譲し直す理由にもしない。
@@ -267,46 +269,9 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 ```
 
 - 終了コード 2 は引数の誤り（実行済み、最終返答の受領を記録していない・検査していない最新の試行がある、知らない引数（廃止した `--own-log`・`--auto-check-rows` を含む）など）で、判定ではない。示された記録・検査をしてから実行し直す。実行済みの作業ディレクトリでは保存し直さない（判定し直すには新しいレビューを行う）。
-- 結果は標準出力の1行の JSON と `parent/finalize.json` に出る（下の「finalize の結果」）。
-
-1. `mode: local` では、土台の HEAD と差分（指定された未追跡ファイルを含む）を同じ方法で `parent/local-recheck/` へ取り直し、土台の HEAD と `input/local/` の写しの sha256 と比べる。変わっていれば、確認が残る事項に「未コミット変更の土台 HEAD・差分の変化」（出典: 変わった写し、確かめる担当: 人、理由: 固定した変更と現在の変更が異なる）を加える。
-2. 要求の本文・資料だけを2.3節と同じ方法で `parent/requirements-recheck/` へ取り直し（Issue の `nod issue show` の全出力は `parent/requirements-recheck/issue-snapshot.json`。評価用の事例は事例の入力 `inputs/<case-id>/` から写し直す）、`input/requirements/` と sha256 で比べる（Issue のタイトルと本文、現在リンクされている `kind=spec` の集合と本文、計画の出典が指す Document、Workspace の規約。単独レビューでは明示された要求）。Activity・進捗・更新日時は比べない（保存の後のコメントや作業ログでは止めない）。変わっていれば旧要求に対する結果として保存し、確認が残る事項に「保存時の要求の変化」（出典: 変わった資料、確かめる担当: 人、理由: 現在の要求への適合を確かめていない）を加える。
-   本文を取得できない新規 spec でも、Issue の取得結果から `kind=spec` の集合の変化を比べる。本文ファイルの比較に現れない集合変更は `requirements/kind=spec` として確認が残る事項に記録し、取得不能の理由も監査へ残す。
-   Issue の再取得が空・非JSONの出力で失敗しても、取得時の生出力を親専用の snapshot に残す。spec 集合を確定したものとせず、解析不能の理由と要求ファイルの欠落を記録し、不可判定・報告の保存・既存 merge-ready の解除へ進む。
-3. レビューした基点を決める。基点の指定を GitHub のブランチ名に解決したもの（`git -C <repo> rev-parse --symbolic-full-name <基点の指定>` が `refs/heads/<ブランチ>` ならそのブランチ、`refs/remotes/<remote>/<ブランチ>` なら remote 名を外したブランチ）をレビューした基点とし、8で現在の基点と比べる相手にする。ブランチ名に解決できない（SHA だけで指定されたなど）ときはレビューした基点が無く、8で現在の基点と照合できない。
-4. 最終状態を SKILL.md の6節で決める。必要な担当（Standards 探索・Spec 探索・反証）の有効な結果（最新の試行が隔離されておらず、検査に合格し、反証では構造が残ったもの）の有無だけで決める。`prepare` が準備完了でなければ `未実施`（`prepare` の理由）、担当を1つも起動していなければ `未実施`、利用枠の上限・利用者による中止の試行があれば `未完了`（`retire-attempt` の理由）、それ以外で必要な担当の有効な結果が無ければ `未完了`（理由: `retire-attempt` の最終の理由、反証への入力を固定できず、起動していない、検査が不合格のどれか。探索が欠けたら、反証を起動しなかったことを書き添え、後の段階の欠落を理由に重ねない）。判定本文の未確認と1・2の変化では `完了` を `未完了` にしない。
-5. `完了` のとき、未確認が残っていても、`parent/refute-structure.json` の要対応（同一原因は1件）の影響度の最小値を確定した要対応の点数とする（要対応0件なら 5）。`未実施`・`未完了` は点数なし。スクリプトは判定・影響度・対応表を変えず、1・2の再照合で点数を変えない。計算の過程（要対応の件数、各要対応の候補 ID と影響度、最小値）は監査に書かれる。
-6. 確認が残る事項をまとめる。判定本文の未確認と理由の表の行（対応表の「未確認」の行と、判定「未確認」の候補。コード要求の中身を決める要求資料の不足・結論に必要な依存の契約の不足・要求間の矛盾・採否を確定できない候補）を、判定本文の要求の出典（または候補 ID）・確かめる担当・理由（種別・軸・不足箇所を添える）のまま1件ずつ並べ、1・2で加えた事項と合わせる。例外を設けず、どれも最終状態と点数を変えない。
-7. マージ可否と現在の head・基点の照合では、4〜6の最終状態・点数・確認が残る事項を変えない。反証担当が確定した対応表の行も書き換えない。
-8. マージ可否を決める。
-   - `mode: commit`（未実施と評価用の事例を除く）では、1〜7の後、マージ可否を決める直前に、head を固定した元（`parent/prepare.json` の `headSource`。`parent/head-source.md` と同じ）から対象の現在の head と基点を取り直す（PR なら `gh pr view <PR> --json headRefOid,baseRefName` の `headRefOid` と `baseRefName`、ref なら `git -C <repo> rev-parse --verify --quiet <ref>^{commit}` と、基点の指定を3と同じ方法で解決し直したブランチ名）。現在の head を `target.md` の head の SHA と、現在の基点を3のレビューした基点と比べる。使ったコマンド・取得時刻・固定した head と現在の head・レビューした基点と現在の基点・比べた結果（一致／不一致／照合できない）を `parent/head-check.md` に書き足す。「ref なし」やコマンドの失敗で取り直せなければ、その旨を書く（不可の理由になる）。
-   - `可（人のレビューなしでマージ可）`: 次のすべてを満たすときだけ。
-     1. 最終状態が `完了`。
-     2. 確定した要対応が0件（点数が `5`）。
-     3. 確認が残る事項が0件。
-     4. 直前に取り直した対象の現在の head が `target.md` の head の SHA と同じ。
-     5. 現在の基点（PR なら取り直した `baseRefName`、ref から固定したなら基点の指定から解決し直したブランチ名）がレビューした基点と同じ（`parent/head-check.md`）。
-   - 対応表の「未充足」と要対応、「未確認」と確認が残る事項の対応は、7節の4・5の形式の検査で担保する（整合しない判定本文は無効な結果で、`完了` にならない）。マージ可否の判定では対応表の行を別に数えない。
-   - `不可（人の判断が要る）`: それ以外のすべて。最終状態とその理由、確定した要対応の点数または点数なし、確認が残る事項の件数、現在の head と基点の照合の結果を不可の理由としてすべて並べる（確認が残る事項の中身は報告の未確認と監査の確認が残る事項の節）。現在の head が固定した head と違う（理由: 対象版が現在の head と違う（追加コミット））、取り直せない（理由: 現在の head を取り直せない）、現在の基点がレビューした基点と違う（理由: 基点が変わった）ときは、ほかの条件をすべて満たしていても不可とする。基点の指定をブランチ名に解決できない（理由: 基点をブランチ名に解決できず、現在の基点と照合できない（基点の指定 <指定>））、現在の基点を取り直せない（理由: 現在の基点を取り直せず、レビューした基点と照合できない）ときも、基点が変わったとは断定せず、照合できないことを理由に不可とする。
-   - `mode: local` はマージ可否の対象外で、常に不可とする（理由: 未コミット変更のレビュー（mode: local）。commit 後に新しいレビューが要る）。現在の head と基点は照合しない。
-   - 評価用の事例（`prepare --case`）には現在の head・基点の照合対象が無いので照合せず、マージ可否を1〜3の条件だけで決める。
-   - CI の結果はマージ可否の条件に含めない。CI が落ちた PR のマージを止めるのは GitHub の必須ステータスチェック（ブランチ保護・ルールセット）の役割である。
-   - `可` でも、リポジトリの既存のマージ条件（ブランチ保護・ルールセットの必須ステータスチェック・必須のレビュー）を省かず、迂回しない。
+- 1〜8の規則と finalize の結果の各欄は付録の10節にある。親が読む欄は下のとおり。
 
 結果は固定した対象版と要求に対するものであり、別の commit の承認に使わない。現在の head と基点の照合は取り直した時点の観測である。点数は確定した要対応の影響度だけを表し、要求の確認率もマージ許可も表さない。「完了・確定した要対応の点数 5・確認が残る事項あり・マージ不可」は正常な結果として報告する。
-
-### finalize の結果
-
-標準出力の1行の JSON（と `parent/finalize.json`）には次が出る。
-
-- `status`・`reason`、`score`（数か `点数なし`）と `scoreValue`（数か null）、`remaining`（確認が残る事項の `ref`・`owner`・`reason`・`from`）と `remainingCount`
-- `merge`（保存・照合の失敗や付ける直前の head・基点の変化も含めた現在のマージ可否）、`reportedMerge`（報告に書いたマージ可否）、`blockers`（不可の理由）
-- `head`（マージ可否を決める直前の現在の head と基点の照合。`label`・`at`・`command`・`currentHead`・`currentBase`・`reviewedBase`（レビューした基点。ブランチ名に解決できなければ null）・`baseSpec`（基点の指定）・`headOk`・`baseOk`・`problem`。照合しないときは null）
-- `recheck`（1・2の観測の要約）
-- `report`・`audit`（原稿 `parent/report.md`・`parent/audit.md` のパス）と `reportSha256`・`auditSha256`、`documents`（監査 `audit` と結果 `report` の Document ID・パス・照合の問題。Issue なし・評価用の事例は null）、`saved`・`saveProblems`
-- `logs`（要約の作業ログの id `summary`、`[merge-ready]` で始まる作業ログの id `mergeReady`）、`label`（merge-ready の `operation` と `error`。Issue なしは `扱わない（Issue なし）`、評価用の事例は `扱わない（評価用の事例）`）、`logProblem`（要約の作業ログを書けなかった理由。終了コードと nod のエラー文）
-- `reportStartedAt`（報告の組み立て・保存の直前の時刻）・`savedAt`（保存と保存後の指紋照合が終わった時刻）
-- `usage`（14節の3つの値の範囲・時間・親の合計トークンと、記録 `parent/usage.json` のパス）
 
 親が読むのは `status`・`reason`・`score`・`merge`・`blockers`・`remainingCount`・`documents` の ID・`saved`・`saveProblems`・`label` だけで、利用者・呼出元へは12節のとおり短い結果を返す。`saved` が false なら保存失敗として報告する（保存できた Document は保持し、再保存のためレビューを流し直さない）。
 
@@ -314,23 +279,7 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 
 `finalize` が10節に続けて行う。親は報告を手で書かず、`nod doc create`・`nod issue log`・`nod issue update` を手で実行しない。
 
-報告は2つに分かれる。[監査の雛形](../assets/audit.md)の形で `parent/audit.md`、[結果の雛形](../assets/report.md)の形で `parent/report.md` が作業ディレクトリの記録から組み立てられ、同じ runId・対象SHAで対応付けられる。判定・採点・マージ条件は変えない。
-
-- 監査記録には、管理情報（runId・作業ディレクトリ・最終状態・点数と計算・確認が残る事項の件数・マージ可否と不可の理由・現在の head と基点の照合・merge-ready の予定・対象版・限定 clone（`parent/clone.md`）・依存の写し（`manifest.md`）・未コミット変更の差分確認）、確認が残る事項の全件、要求の出典と写しの指紋、保存時の要求変化の確認、担当（モデルは各担当の申告と出典だけで、不明は未確認。実効モデルの証明として扱わない）、試行の記録（`parent/agents.md`・`parent/attempts.md` から、無効だった試行と委譲し直した試行の両方を、担当 ID・無効の理由・保存場所・指紋とともに、担当のセッション内の omp 内部の再試行と親による再委譲を分けて）、原本の場所と指紋、後続判断、独立性の限界が入る。反証の `refute/verdict.md` は、印（`<!-- refute-verdict:begin -->`〜`<!-- refute-verdict:end -->`）の間へ一字も変えずに入る（「表から除いた行」の節を含む）。本文が無ければ「未受領」と理由が入る。生の API 応答は場所と指紋だけになる。要求資料全体についての範囲外の件数・内訳・一覧は書かない。
-- 利用者向け結果は、結論（最終状態・点数・確認が残る事項の件数・対象 SHA・範囲の固定の注記1文・マージ可否・不可の理由・merge-ready の予定）、Severity 付きの要対応（反証の要対応の題・影響・場所を転記し、共通規則の対応で Severity と影響度の数値を併記する。判定や影響度を再評価せず、原因の統合や省略をしない）、未確認（確認が残る事項を不具合と分け、確認する担当と不足を Severity なしで全件）、計測（14節の報告に載せる値の区間ごとの時間と合計トークンの表だけ）、監査への参照だけになる。範囲の注記は「このレビューはコードレベルの確認であり、ブラウザ検証・見た目やデザイン・実環境での動作・作業手順は確かめておらず、別のフローで扱う。」で、CI・E2E・QA で担保したとは書かない。原文・全対応表・表から除いた行・指紋・担当履歴は結果へ転載しない。
-- 監査の計測の節には、14節の報告に載せる値の範囲・定義・出典と、試行ごとの時間と使用量の内訳が入る。結果・監査とも、保存までの確定値は書き戻さない（作業ログと `parent/usage.md` だけ）。
-
-Issue がある場合は、最終状態にかかわらず監査・結果をそれぞれ `kind=doc` の別 Document として Issue に添付する。監査を先に保存し、その ID と参照先を結果へ記入してから結果を保存する。名前は `<Issue IDの小文字>-code-review-audit-<YYYYMMDD>-<runIdの先頭8文字>.md`（タイトル `<Issue ID> コードレビュー監査（<runIdの先頭8文字>）`）と `<Issue IDの小文字>-code-review-<YYYYMMDD>-<runIdの先頭8文字>.md`（タイトル `<Issue ID> コードレビュー結果（<runIdの先頭8文字>）`）で、日付は UTC。
-
-- 保存したそれぞれを `nod --json doc show` で読み直し、kind が doc で Issue にリンクされていること、タイトル見出しを除いた本文が原稿と同じであることを確かめる。監査は、印の間の反証の判定本文の sha256 を、検査（`check-refute`）した原本の sha256 と比べる（原稿の段階でも比べる）。どれかの保存・リンク・同一性・指紋の確認が失敗したら保存失敗（`saved` が false、`saveProblems` に理由）とし、merge-ready を付けない（付いていれば外す）。保存できた Document は保持し、再保存のためレビューを流し直さない。
-- 作業ログ（保存の後に1件）: `完了` は `--kind progress` に、状態・確定した要対応の点数・要対応の要点（Severity と題）・確認が残る事項の件数と要点（要求の出典・確かめる担当・理由）・結果 Document ID と監査 Document ID（保存・照合の問題があればその旨）・runId・起動した全担当の役割と定義名と ID と試行・無効な試行（担当 ID・無効の理由・委譲し直したか）を書く。`未実施`・`未完了` は `--kind blocker` に、独立レビューが未実施・未完了であること・原因（`未完了` なら有効な結果が無い担当と理由。利用枠の上限ならそのこと）・試行の記録・受領済みの成果・点数なし・Document ID・runId・Done・In Review・PR へ進めないことを書く。どちらも末尾に14節の保存までの確定値（範囲の開始・終了時刻、時間、親の使用量）と `parent/usage.md` の場所を書く。どちらもマージ可否・merge-ready は書かず、下の `[merge-ready]` で始まる作業ログを参照する旨だけを書く。担当の ID はこの作業ログでもレビューと対応付ける。ID が異なることだけで、会話を引き継いでいないことを証明したとは扱わない。
-- merge-ready ラベル（Issue があるときだけ。最終状態にかかわらず、報告の保存と上の作業ログの後に行う）: ラベルは、固定した head SHA に対する現在のマージ可否の表示であり、自動マージの指示ではない。ブランチ保護・ルールセットの必須ステータスチェック・必須のレビューなど既存のマージ条件を迂回しない。
-  - マージ可否が `可` で保存に失敗していなければ、付ける直前に10節の8と同じ方法で対象の現在の head と基点を取り直し、`parent/head-check.md` に書き足す。`target.md` の head の SHA と同じで、現在の基点がレビューした基点と同じときだけ `nod issue update <Issue ID> --add-label merge-ready` で付ける。違う、取り直せない、照合できない、または保存に失敗したときは付けず、付いていれば `--remove-label merge-ready` で外し、マージ可否を `不可`（理由: 10節の8の head と基点の照合の理由、または報告の保存・照合に失敗）として扱う（報告 Document は書き換えず、下の記録と `finalize` の結果の `merge`・`blockers` に書く）。`不可` で merge-ready が付いていれば外し、付いていなければ付けない。
-  - 付けた／外した／付けていない（とその理由）と、判定した head SHA・現在の head と基点の照合の結果・レビューした基点（基点の指定と merge-base を添える）・マージ可否・報告の Document ID・runId を、本文を `[merge-ready]` で始めて `nod --json issue log <Issue ID> "<記録>" --kind progress` に1件残す。ラベルの操作に失敗したら、その旨も同じ記録に書く（報告 Document は書き換えない）。
-- どちらの作業ログも nod の作業ログの上限（4000 字。コードポイントで数える）に収まるように書かれる。上に挙げた項目は残し、収まらない一覧（要対応・確認が残る事項・無効な試行・保存の問題・不可の理由）は先頭から収まる分だけ書いて「ほか N 件は<全文の場所>を参照」と件数を明示する（全文の場所は、要約では結果 Document と監査 Document、`[merge-ready]` では `parent/finalize.json` の `blockers`）。項目を途中で切ったときは、切ったことと全文の場所をその項目に書く。nod が作業ログを拒否したとき（上限の超過や既知の形の秘密値など）は、終了コードと nod のエラー文が `logProblem`（要約）・`label.error`（`[merge-ready]`）に残り、書けなかったものとして扱う。
-- Issue の無い単独レビューは、`parent/report.md` と `parent/audit.md` を残し、結果から監査（`parent/audit.md` の絶対パス）へ参照する。作業ログは書かず、merge-ready ラベルは扱わない。チャットでは短い結果だけを返す。
-- 評価用の事例（`prepare --case`）では nod へ保存せず、`parent/report.md`・`parent/audit.md` までにし、ラベルも扱わない（現在の head と基点を照合しなかったことは監査に「照合せず（評価用の事例）」と書かれる）。
-- 要求の写し・限定 clone と `parent/clone.md`・引き渡し用ファイル・メモ・反証の結果・保存直前の取り直し（`parent/requirements-recheck/`・`parent/local-recheck/`）・無効な試行の記録（`parent/attempts/`・`parent/attempts.md`）・現在の head と基点の照合（`parent/head-check.md`）・`parent/finalize.json` と構造（`parent/refute-structure.json`）は作業ディレクトリに残す。依存の写し（`deps/`）は保存を終えた後に片付けてよい（lockfile の sha256 と `deps-files.sha256` で同一性を確かめ直せる）。片付けたら、そのことと時刻を `parent/deps/` の記録に書き足す。
+報告の中身、Document の保存と照合、作業ログ、merge-ready ラベル、作業ディレクトリに残すものの規則は付録の11節にある。
 
 ## 12. 後続
 
@@ -345,13 +294,4 @@ Issue がある場合は、最終状態にかかわらず監査・結果をそ�
 
 スクリプトが記録・集計する。親が手で時刻やトークンを数えたり、セッション記録を読んだりしない。親が行うのは、4節の `agent` の `start`（委譲の直前）と `received`（最終返答を受け取った直後）を欠かさず呼ぶことだけである。
 
-- 段階: `review.ts` の作業ディレクトリのある呼び出しは、終了コード 0 で終えたときに開始と終了の時刻を `parent/stages.md`（と `stages.json`）に足す。委譲の開始と最終返答の受領は `parent/agents.md`（4節）。
-- 区間: 担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は実経過時間で、2担当の時間を合算しない）、その前後と間が親の区間（準備・引き渡しの検査・反証の検査と仕上げ。起動しなかった担当の区間は無く、前後の親の区間が続く。例: 引き渡しの検査と仕上げ）。担当ごと・試行ごとの時間は委譲の開始から最終返答の受領までで、その後のセッションの片付けを含めない。
-- 使用量: omp のセッション記録の assistant の応答のうち、外側の記録の `timestamp` が範囲（開始を含み終了を含まない）に入るものの `usage`（入力・出力・キャッシュ読み・キャッシュ書き・合計）を応答単位で合計する（境界をまたぐ応答を時間で分割しない。各応答にはその時点までの文脈が含まれる）。ターンは `stopReason` が `error` でない応答の数、最大文脈はそのような1応答の `input + cacheRead + cacheWrite` の最大。omp 内部の retry（`stopReason` が `error` の応答とその文言、`credential_pin` の記録）は親による再委譲と分けて書く。
-- 記録の場所: 親のセッション記録は `finalize --session` か、omp が bash から起動したプロセスに渡す `PI_SESSION_FILE`（既定の場所は決め打ちしない）。担当は親の記録と同名のディレクトリの `<担当 ID>.jsonl` で、無効な試行と再委譲も担当 ID ごとに試行別に集計し、範囲（委譲の開始から最終返答の受領まで）の外の応答は件数だけ書く。記録が無い・読めない・担当 ID が無いときは 0 にせず「取得できず」と理由を書く。計測の出典として記録ファイルのパスと sha256 を残す。
-- 3つの値（同じ「全体」として混同しない）:
-  1. 報告に載せる値: `prepare` の開始から `finalize` が報告を組み立て始める直前（`reportStartedAt`）までの区間ごとの時間と、その範囲の親と各担当の使用量。結果には区間の表を短く、監査には定義・出典・試行ごとの内訳を書く。
-  2. 保存後の確定値: `prepare` の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（`savedAt`）までの時間と親の使用量（利用者への最終説明を含めない）。保存後の作業ログ（11節）と `parent/usage.md` だけに書き、報告へ書き戻さない。
-  3. MIN-33 の前後比較用: 親がスキルを読み込み始めた時刻（`prepare` の開始より前で最後に `skill://code-review`・`.../code-review/SKILL.md` を読み込んだ応答の記録の時刻。決められなければ `finalize --skill-start`）から `savedAt` までの時間と、親・各担当の使用量。`parent/usage.md` に書く。
-- 評価用の事例（`prepare --case`）でも同じ計測が `parent/usage.json`・`parent/usage.md` と報告・監査に残る（作業ログは書かない）。
-- 作業ディレクトリの無い記録（前回の MIN-33 のように、親が長い作業セッションの一部だったもの）は、範囲を明示して集計する: `bun <スキルのディレクトリ>/scripts/review.ts usage --session <親のセッション記録の絶対パス> --from <開始の ISO 時刻> --to <終了の ISO 時刻> --out <記録先のディレクトリの絶対パス> [--agent <担当 ID>]... [--agent-file <担当のセッション記録の絶対パス>]...`。親も担当も同じ範囲の応答を数え、担当の時間は記録の始まり（`session` の記録）から範囲の最後の応答（最終返答）までとする。結果は標準出力と `<out>/usage.json`・`usage.md` に出る。
+段階・区間・使用量の定義、記録の場所、3つの値、作業ディレクトリの無い記録の集計（`usage`）は付録の14節にある。

@@ -50,7 +50,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 // 本文に置く目印。探索の入力（input/）に出れば、混ぜてはいけないものを写したことになる
 const ACTIVITY_MARK = "ACTIVITY-MARK-91c2";
 
-// 委譲してよい限定 clone の境界（parent.md 2.1節）を、スクリプトの記録ではなく clone そのものから確かめる
+// 委譲してよい限定 clone の境界（parent-details.md 2.1節）を、スクリプトの記録ではなく clone そのものから確かめる
 function expectBoundedClone(clone: string, head: string, mergeBase: string, origin: string) {
   expect(gitOut(clone, "for-each-ref")).toBe("");
   expect(gitOut(clone, "remote", "-v")).toBe("");

@@ -156,7 +156,7 @@ PR依頼には次の終了条件を明記する。
 PR作業の報告も新しいactive Dispatchと照合する。
 PMは`gh pr view <PR URL> --json url,state,isDraft,headRefOid,headRefName,baseRefName`とnodの`issue show`、`pr-status --refresh`で、実在、現在commit、対象branch、関連、`in_review`を再確認する。
 PR作業の報告にある基点ブランチの必須チェックの設定を読んだ結果（設定あり・未設定・確認できない）を確かめて、人への報告に含める。確認できないときは設定の有無を確認できないことと理由を書き、未設定と書かない。報告に無ければ、PMが同じ`gh api`の読取で確かめてよい（設定を変更しない）。
-merge-readyが付いていれば、ラベルを付けた最新の記録（[親の手順](../../code-review/references/parent.md)の11節の、本文が`[merge-ready]`で始まる`--kind progress`の作業ログ）の判定したhead SHAとレビューした基点が、上で読んだ現在のPRの`headRefOid`と`baseRefName`と同じかを確かめる。headが違う（判定が古い）、基点が違う（基点が変わった）、記録が無い・読めない・レビューした基点がブランチ名でない（記録の不足）、PRのheadか基点を読めない（照合できない）なら`nod issue update <IssueID> --remove-label merge-ready`で外し、理由・判定したhead SHA・現在のhead・レビューした基点・現在の基点を、本文を`[merge-ready]`で始めて`--kind progress`に記録する。新しいheadと基点のマージ可否は新しいレビューでだけ決まる。PMはラベルを付けない。ラベルを自動マージ・承認の代わりにしない。
+merge-readyが付いていれば、ラベルを付けた最新の記録（[親の手順の付録](../../code-review/references/parent-details.md)の11節の、本文が`[merge-ready]`で始まる`--kind progress`の作業ログ）の判定したhead SHAとレビューした基点が、上で読んだ現在のPRの`headRefOid`と`baseRefName`と同じかを確かめる。headが違う（判定が古い）、基点が違う（基点が変わった）、記録が無い・読めない・レビューした基点がブランチ名でない（記録の不足）、PRのheadか基点を読めない（照合できない）なら`nod issue update <IssueID> --remove-label merge-ready`で外し、理由・判定したhead SHA・現在のhead・レビューした基点・現在の基点を、本文を`[merge-ready]`で始めて`--kind progress`に記録する。新しいheadと基点のマージ可否は新しいレビューでだけ決まる。PMはラベルを付けない。ラベルを自動マージ・承認の代わりにしない。
 タイトルやURLだけ、workerの「作成済み」だけではレビュー提出済みと判断しない。
 nodへ対象commit、PR URL、初回レビューの報告Document IDとmerge-readyの記録の参照、提出状態を残す。
 取得が不明なら`unverifiable`として保持し、再送で新PRを作らない。

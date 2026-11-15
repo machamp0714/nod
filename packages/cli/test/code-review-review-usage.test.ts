@@ -33,6 +33,24 @@ interface Tally {
   missing: string[];
   retries: { errors: { at: string; message: string }[]; credentialPins: string[] };
   outside?: number;
+  io?: Io;
+}
+interface ToolIo {
+  name: string;
+  calls: number;
+  argumentBytes: number;
+  results: number;
+  resultBytes: number;
+  errors: number;
+  pruned: number;
+  nonTextBlocks: number;
+  orphanResults: number;
+  callsWithoutResult: number;
+}
+interface Io {
+  tools: ToolIo[];
+  generated: { responses: number; textBytes: number; thinkingBlocks: number; thinkingBytes: number | null; unreadableThinking: number; summarizedThinking: number; toolCalls: number; toolCallArgumentBytes: number; otherBlocks: number };
+  context: { kind: string; records: number; bytes: number; nonTextBlocks: number }[];
 }
 interface Source {
   path: string | null;
@@ -50,6 +68,7 @@ interface StandaloneAgent extends Measured {
 }
 interface Standalone {
   ok: boolean;
+  definitions: Record<string, string>;
   range: { from: string; to: string };
   parent: Measured;
   agents: StandaloneAgent[];
@@ -120,6 +139,16 @@ const lines = (...l: string[]) => `${l.join("\n")}\n`;
 const iso = (ms: number) => new Date(ms).toISOString();
 const ms = (at: string) => Date.parse(at);
 const total = (n: number) => usage(n, 0, 0, 0, n);
+// 読み取り量と生成量を見るための記録: content を与えた assistant の応答、ツール結果、ツール以外で文脈に入る記録
+const assistant = (at: string, content: object[], u: Record<string, number> = total(1)) =>
+  JSON.stringify({ type: "message", id: `m${++seq}`, timestamp: at, message: { role: "assistant", content, usage: u, stopReason: "toolUse", model: "model-x", timestamp: 1 } });
+const call = (id: string, name: string, args: object) => ({ type: "toolCall", id, name, arguments: args, intent: "意図" });
+const toolResult = (at: string, toolCallId: string, toolName: string, content: object[], o: { isError?: boolean; prunedAt?: number } = {}) =>
+  JSON.stringify({ type: "message", id: `r${++seq}`, timestamp: at, message: { role: "toolResult", toolCallId, toolName, content, isError: o.isError ?? false, ...(o.prunedAt ? { prunedAt: o.prunedAt, useless: true } : {}), timestamp: 1 } });
+const customMessage = (at: string, customType: string, content: string) => JSON.stringify({ type: "custom_message", id: `cm${++seq}`, timestamp: at, customType, content, display: true });
+const userText = (at: string, text: string) => JSON.stringify({ type: "message", id: `u${++seq}`, timestamp: at, message: { role: "user", content: [{ type: "text", text }] } });
+const text = (t: string) => ({ type: "text", text: t });
+const image = { type: "image", data: "aGVsbG8=", mimeType: "image/png" };
 
 describe("code-review の区間別の時間と使用量（review.ts usage・finalize の計測）", () => {
   test("任意のセッション記録と時刻の範囲: 開始を含み終了を含まない応答だけを応答単位で合計し、omp 内部の retry を分け、担当は別ファイルから集計して、取得できない値は 0 にしない", async () => {
@@ -197,6 +226,77 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(none.json?.parent.unavailable).toContain("無い");
     expect((await runReview("usage", ["--session", parent, "--from", T, "--to", F, "--out", join(s.t, "x")], s)).exitCode).toBe(2);
     expect((await runReview("usage", ["--session", parent, "--from", F, "--to", T], s)).exitCode).toBe(2);
+  });
+
+  test("任意のセッション記録と時刻の範囲: ツールの種類ごとの呼び出しと記録に残った結果の大きさ、出力の内訳、ツール以外の記録を応答単位でバイト数で数え、取得できない値は 0 にしない", async () => {
+    const s = sandbox();
+    const dir = join(s.t, "sessions");
+    const parent = join(dir, "2026-11-13T09-00-00-000Z_parent.jsonl");
+    const F = "2026-11-13T10:00:00.000Z";
+    const T = "2026-11-13T10:30:00.000Z";
+    put(
+      parent,
+      lines(
+        session("2026-11-13T09:00:00.000Z"),
+        // 開始の直前の呼び出しの結果は、結果の時刻が範囲に入っても呼び出しの応答と同じく範囲外
+        assistant("2026-11-13T09:59:59.999Z", [call("c0", "read", { path: "before" })]),
+        userText("2026-11-13T09:59:59.999Z", "前"),
+        toolResult(F, "c0", "read", [text("範囲外の結果")]),
+        // 開始ちょうどの記録は範囲に入る（「依頼あ」は UTF-8 で 9 バイト）
+        userText(F, "依頼あ"),
+        assistant(F, [{ type: "thinking", thinking: "考え", summary: true }, text("読むé"), call("c1", "read", { path: "a" }), call("c2", "bash", { command: "ls" })], usage(100, 10, 0, 0, 110)),
+        toolResult("2026-11-13T10:00:01.000Z", "c1", "read", [text("日本語"), text("abc"), image]),
+        toolResult("2026-11-13T10:00:02.000Z", "c2", "bash", [text("out")], { isError: true }),
+        customMessage("2026-11-13T10:05:00.000Z", "async-result", "完了"),
+        // 読める本文の無い thinking と、結果の記録が無い呼び出し
+        assistant("2026-11-13T10:10:00.000Z", [{ type: "thinking", thinking: "", thinkingSignature: "sig" }, call("c3", "read", { path: "b" }), call("c6", "todo", {})]),
+        toolResult("2026-11-13T10:10:01.000Z", "c3", "read", [text("[Uneventful result elided]")], { prunedAt: 1794665880611 }),
+        // 対応する呼び出しが記録に無い結果は、結果自身の時刻で範囲に入れる
+        toolResult("2026-11-13T10:15:00.000Z", "zz", "grep", [text("x")]),
+        // 終了の直前の呼び出しの結果は、結果の時刻が終了ちょうどでも呼び出しの応答と同じく範囲に入る
+        assistant("2026-11-13T10:29:59.999Z", [call("c4", "read", { path: "c" })]),
+        toolResult(T, "c4", "read", [text("1234")]),
+        // 終了ちょうどの記録は範囲に入らない
+        assistant(T, [text("後"), call("c5", "bash", { command: "x" })]),
+        toolResult("2026-11-13T10:30:01.000Z", "c5", "bash", [text("範囲外")]),
+        userText(T, "後"),
+        customMessage(T, "async-result", "後"),
+      ),
+    );
+    const agentDir = join(dir, "2026-11-13T09-00-00-000Z_parent");
+    put(join(agentDir, "AgentA.jsonl"), lines(session("2026-11-13T10:01:00.000Z", parent), userText("2026-11-13T10:01:00.000Z", "依頼"), assistant("2026-11-13T10:02:00.000Z", [call("a1", "find", { pattern: "*.ts" })]), toolResult("2026-11-13T10:02:01.000Z", "a1", "find", [text("a.ts\nb.ts")])));
+    const out = join(s.t, "measure");
+    const r = await runReview<Standalone>("usage", ["--session", parent, "--from", F, "--to", T, "--agent", "AgentA", "--agent", "Missing", "--out", out], s);
+    expect(r.stderr).toBe("");
+    expect(r.exitCode).toBe(0);
+    const j = JSON.parse(read(join(out, "usage.json"))) as Standalone;
+    expect(j.definitions.io).toContain("バイト");
+    const io = j.parent.tally?.io as Io;
+    const none = { calls: 0, argumentBytes: 0, results: 0, resultBytes: 0, errors: 0, pruned: 0, nonTextBlocks: 0, orphanResults: 0, callsWithoutResult: 0 };
+    expect(io.tools).toEqual([
+      { ...none, name: "bash", calls: 1, argumentBytes: 16, results: 1, resultBytes: 3, errors: 1 },
+      { ...none, name: "grep", results: 1, resultBytes: 1, orphanResults: 1 },
+      // 引数 {"path":"a"} などは 12 バイト、結果は「日本語」9 + 「abc」3、刈り込み済みの置き換え 26、「1234」4 バイト
+      { ...none, name: "read", calls: 3, argumentBytes: 36, results: 3, resultBytes: 42, pruned: 1, nonTextBlocks: 1 },
+      { ...none, name: "todo", calls: 1, argumentBytes: 2, callsWithoutResult: 1 },
+    ]);
+    // 本文「読むé」は 8 バイト。読める本文の無い thinking があるので thinking の大きさは取得できず
+    expect(io.generated).toEqual({ responses: 3, textBytes: 8, thinkingBlocks: 2, thinkingBytes: null, unreadableThinking: 1, summarizedThinking: 1, toolCalls: 5, toolCallArgumentBytes: 54, otherBlocks: 0 });
+    expect(io.context).toEqual([
+      { kind: "custom_message:async-result", records: 1, bytes: 6, nonTextBlocks: 0 },
+      { kind: "user", records: 1, bytes: 9, nonTextBlocks: 0 },
+    ]);
+    // 既存の使用量の値は変えない
+    expect(j.parent.tally).toMatchObject({ responses: 3, output: 10, totalTokens: 112 });
+    const [a, missing] = j.agents;
+    expect(a?.tally?.io?.tools).toEqual([{ ...none, name: "find", calls: 1, argumentBytes: 18, results: 1, resultBytes: 9 }]);
+    expect(a?.tally?.io?.generated).toMatchObject({ responses: 1, textBytes: 0, thinkingBlocks: 0, thinkingBytes: 0, toolCalls: 1 });
+    expect(a?.tally?.io?.context).toEqual([{ kind: "user", records: 1, bytes: 6, nonTextBlocks: 0 }]);
+    // 記録が無い担当は全体を取得できず（0 にしない）
+    expect(missing?.tally).toBeNull();
+    const md = read(join(out, "usage.md"));
+    expect(md).toContain("## 読み取り量と生成量");
+    for (const v of ["AgentA", "Missing", "find", "async-result", "刈り込み", "取得できず"]) expect(md).toContain(v);
   });
 
   test("レビューの作業ディレクトリ: 段階と委譲の時刻から区間を作り、並列の探索と担当別・試行別の時間と使用量を分け、報告直前の値・保存後の確定値・MIN-33 比較用の値を別々に残す", async () => {
@@ -366,6 +466,71 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(read(join(W, "parent/stages.md"))).toContain("finalize");
   });
 
+  test("レビューの作業ディレクトリ: 読み取り量と生成量を区間・役割・試行ごとと前後比較用に usage.json・usage.md へ書き、呼び出しと結果は呼び出しの応答の区間に入れ、結果・監査と標準出力には足さない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "reads");
+    await reachRefute(s, p, refuteVerdict(p));
+    expect((await runReview<{ valid: boolean }>("check-refute", ["--work", p.W], s)).json?.valid).toBe(true);
+    const t0 = (JSON.parse(read(join(p.W, "parent/stages.json"))) as Stage[])[0]?.startedAt as string;
+    const agents = JSON.parse(read(join(p.W, "parent/agents.json"))) as Agent[];
+    const of = (role: string) => agents.find((a) => a.role === role) as Agent;
+    const [std, refute] = [of("standards"), of("refute")];
+    const exploreStart = of("standards").startedAt;
+    const refuteEnd = refute.receivedAt as string;
+    const parentFile = join(s.t, "sessions/2026-11-13T00-00-00-000Z_parent.jsonl");
+    const skillAt = iso(ms(t0) - 1000);
+    put(
+      parentFile,
+      lines(
+        assistant(skillAt, [call("k1", "read", { path: "skill://nod/code-review" })]),
+        toolResult(iso(ms(skillAt) + 100), "k1", "read", [text("SKILL")]),
+        // prepare の開始ちょうどの応答は準備の区間に入る。結果の記録が無い呼び出し
+        assistant(t0, [call("p1", "read", { path: "x" })]),
+        // 探索の開始の直前の呼び出しは、結果が探索の区間の時刻でも準備の区間に入る（「ファイル」は 12 バイト）
+        assistant(iso(ms(exploreStart) - 1), [call("p2", "bash", { command: "ls" })]),
+        toolResult(exploreStart, "p2", "bash", [text("ファイル")]),
+        assistant(exploreStart, [text("待つ")]),
+        // 反証の受領ちょうどの記録は反証の区間ではなく、その後の親の区間に入る
+        customMessage(refuteEnd, "async-result", "完了"),
+      ),
+    );
+    const agentDir = join(s.t, "sessions/2026-11-13T00-00-00-000Z_parent");
+    put(join(agentDir, "agent-standards.jsonl"), lines(session(std.startedAt, parentFile), assistant(std.startedAt, [call("s1", "grep", { pattern: "a" })]), toolResult(std.startedAt, "s1", "grep", [text("一致")])));
+    put(join(agentDir, "agent-refute.jsonl"), lines(session(refute.startedAt, parentFile), assistant(refute.startedAt, [{ type: "redactedThinking", data: "x" }, text("判定")])));
+    const f = await runReview<Record<string, unknown>>("finalize", ["--work", p.W, "--session", parentFile], s);
+    expect(f.stderr).toBe("");
+    expect(f.exitCode).toBe(0);
+    expect(f.stdout).not.toContain('"io":');
+    const u = JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord & { definitions: Record<string, string> };
+    expect(u.definitions.io).toContain("バイト");
+    const none = { calls: 0, argumentBytes: 0, results: 0, resultBytes: 0, errors: 0, pruned: 0, nonTextBlocks: 0, orphanResults: 0, callsWithoutResult: 0 };
+    const sec = (name: string) => u.report.sections.find((x) => x.name === name)?.parent.tally?.io as Io;
+    expect(sec("準備").tools).toEqual([
+      { ...none, name: "bash", calls: 1, argumentBytes: 16, results: 1, resultBytes: 12 },
+      { ...none, name: "read", calls: 1, argumentBytes: 12, callsWithoutResult: 1 },
+    ]);
+    expect(sec("探索（並列）").tools).toEqual([]);
+    expect(sec("探索（並列）").generated).toMatchObject({ responses: 1, textBytes: 6, toolCalls: 0 });
+    expect(sec("反証").context).toEqual([]);
+    expect(sec("反証の検査と仕上げ").context).toEqual([{ kind: "custom_message:async-result", records: 1, bytes: 6, nonTextBlocks: 0 }]);
+    const at = (agentId: string) => u.report.attempts.find((x) => x.agentId === agentId) as Attempt;
+    expect(at("agent-standards").tally?.io?.tools).toEqual([{ ...none, name: "grep", calls: 1, argumentBytes: 15, results: 1, resultBytes: 6 }]);
+    // 読める本文の無い thinking は 0 にせず取得できず。記録の無い担当は全体を取得できず
+    expect(at("agent-refute").tally?.io?.generated).toMatchObject({ textBytes: 6, thinkingBlocks: 1, thinkingBytes: null, unreadableThinking: 1 });
+    expect(at("agent-spec").tally).toBeNull();
+    // 前後比較用の親はスキルの読み込みの応答とその結果を含む（{"path":"skill://nod/code-review"} は 34 バイト）
+    expect(u.comparison.from).toBe(skillAt);
+    expect(u.comparison.parent.tally?.io?.tools).toEqual([
+      { ...none, name: "bash", calls: 1, argumentBytes: 16, results: 1, resultBytes: 12 },
+      { ...none, name: "read", calls: 2, argumentBytes: 46, results: 1, resultBytes: 5, callsWithoutResult: 1 },
+    ]);
+    const md = read(join(p.W, "parent/usage.md"));
+    expect(md).toContain("## 4. 読み取り量と生成量");
+    for (const v of ["準備", "agent-standards", "agent-spec", "前後比較用", "取得できず"]) expect(md).toContain(v);
+    // 結果と監査には読み取り量と生成量を書かない
+    for (const doc of ["report.md", "audit.md"]) expect(read(join(p.W, "parent", doc))).not.toContain("読み取り量と生成量");
+  });
+
   test.each([
     ["skill://nod/code-review", true],
     ["skill://code-review", true],
@@ -383,6 +548,51 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(r.exitCode).toBe(0);
     expect(r.json?.usage.comparison.from).toBe(recognized ? skillAt : null);
     expect(r.json?.usage.comparison.parentTotalTokens).toBe(recognized ? 10 : null);
+  });
+
+  test.each([
+    [{ name: "code-review" }, true],
+    [{ name: "nod/code-review" }, true],
+    [{ name: "nod:code-review" }, true],
+    [{ path: "/tmp/plugin/skills/code-review/SKILL.md" }, true],
+    [{ name: "other-skill", path: "/tmp/plugin/skills/other-skill/SKILL.md" }, false],
+  ] as const)("skill-prompt の自動読込を比較開始として扱う: %j", async (details, recognized) => {
+    const s = sandbox();
+    const skillAt = iso(Date.now() - 60000);
+    const parent = join(s.t, "parent.jsonl");
+    put(parent, lines(
+      response(iso(ms(skillAt) - 1000), total(100)),
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: skillAt, content: "SKILL", details }),
+      JSON.stringify({ type: "custom_message", customType: "async-result", timestamp: iso(ms(skillAt) + 100), content: "別の結果", details: { name: "code-review" } }),
+      response(iso(ms(skillAt) + 1000), total(10)),
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: iso(Date.now() + 60000), content: "未来の記録", details: { name: "code-review" } }),
+    ));
+    const p = await prepareCaseWork(s, "auto-skill");
+    const r = await runReview("finalize", ["--work", p.W, "--not-run-reason", "担当は起動しない計測契約の検証", "--session", parent], s);
+    expect(r.exitCode).toBe(0);
+    const measured = JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord;
+    expect(measured.comparison.from).toBe(recognized ? skillAt : null);
+    expect(measured.comparison.parent.tally?.totalTokens ?? null).toBe(recognized ? 10 : null);
+    if (recognized) {
+      expect(measured.comparison.parent.tally?.io?.context).toContainEqual({ kind: "custom_message:skill-prompt", records: 1, bytes: 5, nonTextBlocks: 0 });
+      expect(measured.comparison.seconds).toBeGreaterThan(0);
+    }
+  });
+
+  test.each([false, true])("prepare 前の最後の読込を使い、--skill-start の指定を優先する（明示指定: %s）", async (override) => {
+    const s = sandbox();
+    const parent = join(s.t, "parent.jsonl");
+    const automaticAt = iso(Date.now() - 60000);
+    const explicitAt = iso(ms(automaticAt) + 1000);
+    put(parent, lines(
+      JSON.stringify({ type: "custom_message", customType: "skill-prompt", timestamp: automaticAt, content: "SKILL", details: { name: "code-review" } }),
+      response(explicitAt, total(10), { tool: { name: "read", arguments: { path: "skill://code-review" } } }),
+    ));
+    const p = await prepareCaseWork(s, "skill-priority");
+    const args = ["--work", p.W, "--not-run-reason", "担当は起動しない計測契約の検証", "--session", parent];
+    const r = await runReview("finalize", override ? [...args, "--skill-start", automaticAt] : args, s);
+    expect(r.exitCode).toBe(0);
+    expect((JSON.parse(read(join(p.W, "parent/usage.json"))) as UsageRecord).comparison.from).toBe(override ? automaticAt : explicitAt);
   });
 
   test("評価用の事例: セッション記録の場所が無ければ使用量を取得できずとして残し（0 にしない）、区間の時間は同じく記録する", async () => {

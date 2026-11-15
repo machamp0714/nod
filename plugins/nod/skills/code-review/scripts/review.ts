@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// nod:code-review の親の定型作業を、段階の境目ごとのサブコマンドで行う（parent.md）。モデルを起動せず、テスト・Lint・ビルドを実行しない。
+// nod:code-review の親の定型作業を、段階の境目ごとのサブコマンドで行う（parent.md と付録 parent-details.md）。モデルを起動せず、テスト・Lint・ビルドを実行しない。
 // 使い方: bun review.ts <subcommand> --work <作業ディレクトリ W の絶対パス> ...
 //   prepare（parent.md 1〜2節）: 対象の固定、秘密候補・空差分の検査、担当用の限定 clone と確認、依存の写しと指紋、共通入力と目録、head を固定した元。
 //     --repo <絶対パス> --base <基点の指定> (--mode commit --head <SHA か ref> [--pr <URL>] | --mode local [--untracked <相対パス>]...)
@@ -14,14 +14,17 @@
 //   refute-input（6節）: --work <W>。合格した両探索の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
 //   check-refute（7節）: --work <W>。反証の判定本文の形式・参照・集計の一致と同一性を機械的に検査して parent/checks.md に書き、
 //     合格なら読み取った構造を parent/refute-structure.json に書く
+//   check-boundary（0.1節）: --work <W> [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）]。agents.json の各試行の担当の記録
+//     （親の記録と同名のディレクトリの <担当 ID>.jsonl）の最初の応答より前から、最初の入力・session_init の systemPrompt・skill-prompt の実パスの事実と
+//     混入の目印を取り出して parent/boundary.md（と boundary.json）に書く。本文は写さず、観測できない項目は理由を書く。混入かどうかは親が決める
 //   finalize（10節・11節・14節）: --work <W> [--not-run-reason <担当を1つも起動しなかった理由>]
 //     [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）] [--skill-start <スキルの読み込みの開始の ISO 時刻>]。保存直前の再照合
 //     （parent/local-recheck/・requirements-recheck/）、最終状態・点数・確認が残る事項、現在の head と基点の照合（parent/head-check.md）、
 //     マージ可否（CI の結果は見ない）、監査 parent/audit.md と結果 parent/report.md の
 //     組み立てと保存（Issue があれば監査→結果の順に kind=doc の Document へ保存して照合）、作業ログ・merge-ready、区間の時間と使用量
-//     （parent/usage.json・usage.md）を行う。評価用の事例では nod へ保存せずラベルも扱わない
+//     （parent/usage.json・usage.md。usage.json・usage.md には読み取り量と生成量も書く）を行う。評価用の事例では nod へ保存せずラベルも扱わない
 //   usage（14節）: --session <親のセッション記録の絶対パス> --from <ISO 時刻> --to <ISO 時刻> --out <記録先の絶対パス> [--agent <担当 ID>]... [--agent-file <絶対パス>]...
-//     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
+//     作業ディレクトリなしで、任意のセッション記録の時刻の範囲（開始を含み終了を含まない）の使用量と読み取り量・生成量を集計し、<out>/usage.json・usage.md に書く（MIN-33 の前回の比較など）
 // 結果: 標準出力に JSON を1行出し、同じものを <W>/parent/<subcommand>.json（usage は <out>/usage.json）に書く。作業ディレクトリのある呼び出しは、
 // 終了コード 0 で終えたときに開始と終了の時刻を parent/stages.json（と stages.md）に足す（区間の計測に使う）
 // 終了コード 0 = 実行して結果を書いた（未実施などの否定の結果でも 0）、2 = 引数の誤り（code INVALID_INPUT。判定ではない）、それ以外 = 予期しない失敗
@@ -61,7 +64,7 @@ interface Outcome {
   result: Json;
 }
 
-// パスのどこかの要素が秘密情報を含み得る名前に当たる（SKILL.md 2節、parent.md 1節）
+// パスのどこかの要素が秘密情報を含み得る名前に当たる（SKILL.md 2節、parent-details.md 2節）
 const SECRET = /(^|\/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(\/|$)/i;
 const SHA = /^[0-9a-f]{40}$/i;
 const NOT_RUN_SCORE = "点数なし";
@@ -199,7 +202,7 @@ export interface CloneCheck {
   ok: boolean;
 }
 
-// 担当用の限定 clone の確認（parent.md 2.1節）。後の段階でもやり直し、prepare の clone.checks と同じ結果になることを確かめる
+// 担当用の限定 clone の確認（parent-details.md 2.1節）。後の段階でもやり直し、prepare の clone.checks と同じ結果になることを確かめる
 export function cloneChecks(clone: string, head: string, mergeBase: string, origins: string[]): CloneCheck[] {
   const text = (...args: string[]) => {
     const p = git(clone, ...args);
@@ -1004,7 +1007,7 @@ export interface Identity {
 }
 
 export interface Violation {
-  // parent.md の検査の番号（探索は5節、反証は7節）
+  // 親の手順の検査の番号（探索は5節、反証は7節。parent.md と parent-details.md で同じ番号）
   no: number;
   message: string;
 }
@@ -1088,7 +1091,7 @@ function compareFiles(expected: FileHash[], actual: FileHash[]): string[] {
   return out;
 }
 
-// 段階の境目での同一性の確認（parent.md 4.1節の2の3、5節の8、7節の6）。共通入力・依存の写し・限定 clone を prepare の記録と比べ、
+// 段階の境目での同一性の確認（parent-details.md 4.1節の2の3、5節の8、7節の6）。共通入力・依存の写し・限定 clone を prepare の記録と比べ、
 // 反証では担当への入力の写し（STAGE_COPIES）も、写したときの記録と比べる。結果を parent/identity.md（と identity.json）に足して返す
 export function checkIdentity(work: string, stage: Stage, trigger: string): Identity {
   const prep = readPrepared(work);
@@ -1232,7 +1235,7 @@ function agent(args: string[]): Outcome {
   return { work, result: { ...record } };
 }
 
-// ---- 探索の引き渡しの機械検査（parent.md 5節。本文への禁止情報の混入と担当の返答は親が確かめる） ----
+// ---- 探索の引き渡しの機械検査（parent-details.md 5節。本文への禁止情報の混入と担当の返答は親が確かめる（parent.md 5節）） ----
 
 // コード要求の対応表の状態（SKILL.md 5節）
 const STATES = new Set(["充足", "未充足", "未確認"]);
@@ -1570,7 +1573,7 @@ function checkExplore(args: string[]): Outcome {
   return { work, result: { ...record } };
 }
 
-// ---- 無効な試行の隔離と再委譲の可否（parent.md 4.1節。失敗の分類と委譲は親） ----
+// ---- 無効な試行の隔離と再委譲の可否（parent-details.md 4.1節。失敗の分類と委譲は親） ----
 
 function retireAttempt(args: string[]): Outcome {
   const o = parseOptions(args, ["work", "role", "failure", "reason", "retries"], []);
@@ -1626,7 +1629,7 @@ function retireAttempt(args: string[]): Outcome {
   return { work, result: { ...record, ...notRun } };
 }
 
-// ---- 反証への入力（parent.md 6節） ----
+// ---- 反証への入力（parent.md・parent-details.md 6節） ----
 
 function refuteInput(args: string[]): Outcome {
   const o = parseOptions(args, ["work"], []);
@@ -1694,7 +1697,7 @@ function refuteInput(args: string[]): Outcome {
   return { work, result: { ready, ...outcome, files, comparison, identity } };
 }
 
-// ---- 反証の判定本文の機械検査（parent.md 7節。親は判定本文を通読しない） ----
+// ---- 反証の判定本文の機械検査（parent-details.md 7節。親は判定本文を通読しない） ----
 
 const VERDICTS = new Set(["要対応", "棄却", "未確認", "基点から存在（対象外）", "任意"]);
 const AXES = ["Standards", "Spec"] as const;
@@ -2032,7 +2035,313 @@ function checkRefute(args: string[]): Outcome {
   return { work, result: { ...record, structure: "parent/refute-structure.json" } };
 }
 
-// ---- 最終状態・点数・確認が残る事項・保存直前の再照合・マージ可否（parent.md 10節） ----
+// ---- 担当の入力境界（parent.md 0.1節。担当の記録の最初の応答より前の文脈から事実だけを取り出し、混入かどうかの判断は親に残す） ----
+
+type BoundaryKey = "first-input" | "system-prompt" | "skill-prompt";
+
+// 0.1節で親が確かめる3つ（担当の最初の入力、session_init の systemPrompt、skill-prompt の実パス）と一対一に対応する
+const BOUNDARY_ITEMS: Record<BoundaryKey, string> = {
+  "first-input": "最初の入力（依頼本文）",
+  "system-prompt": "session_init の systemPrompt",
+  "skill-prompt": "skill-prompt の実パス",
+};
+
+export interface BoundaryItem {
+  key: BoundaryKey;
+  name: string;
+  // 記録から観測できた。false なら reason に理由を書き、目印が無いことと読み替えない
+  observed: boolean;
+  // 元の作業ツリーの規約・プロジェクトのスキル一覧などの混入を疑う目印（事実だけ。違反かどうかは親が決める）
+  marks: string[];
+  reason: string | null;
+  // 取り出した事実（本文は写さず、sha256・大きさ・項目の有無だけ）
+  facts: Json;
+  // 観測の限界
+  limits: string[];
+}
+
+export interface BoundaryAttempt {
+  role: Role;
+  roleName: string;
+  attempt: number;
+  agentId: string | null;
+  source: { path: string | null; sha256: string | null; unavailable: string | null };
+  items: BoundaryItem[];
+}
+
+// 依頼本文の雛形の項目（4節・6節）。行頭の「項目: 値」を項目として読み、箇条の行（「- 」で始まる）は読まない
+const REQUEST_FIELDS: Record<Stage, string[]> = {
+  explore: ["役割", "作業ディレクトリ", "読んでよい入力", "書いてよい場所", "出力"],
+  refute: ["役割", "読んでよい入力（次のファイルだけ）", "書いてよい場所", "出力"],
+};
+const REQUEST_FIELD = /^(?![-*+]\s)([^\s:：][^:：]{0,40}?)\s*[:：][ \t]*(.*)$/;
+// omp が作業ディレクトリのプロジェクトのスキルを読む場所（作業ツリーの <場所>/<名前>/SKILL.md）
+const PROJECT_SKILL_DIRS = [".omp/skills", ".claude/skills", ".agents/skills", ".codex/skills"];
+
+// 元のリポジトリのパス（そのままと実パス）が、パスの区切りの位置で現れるか
+function mentionsRepo(text: string, origins: string[]): boolean {
+  return origins.some((o) => new RegExp(`${o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w.-])`).test(text));
+}
+
+// 規約ファイルの混入の目印（omp が自動で読み込んだ規約ファイルは <repo-rules> と <file path=…> で入る）と、元のリポジトリのパス
+function contextMarks(text: string, origins: string[]): { marks: string[]; repoRules: boolean; contextFiles: string[]; repoPath: boolean } {
+  const repoRules = text.includes("<repo-rules>");
+  const contextFiles = [...text.matchAll(/<file path="([^"]+)"/g)].map((m) => m[1] ?? "");
+  const repoPath = mentionsRepo(text, origins);
+  const marks = [
+    ...(repoRules ? ["<repo-rules> がある"] : []),
+    ...(contextFiles.length > 0 ? [`規約ファイル（<file path=…>）がある: ${contextFiles.join("・")}`] : []),
+    ...(repoPath ? [`元のリポジトリのパス（${origins[0]}）がある`] : []),
+  ];
+  return { marks, repoRules, contextFiles, repoPath };
+}
+
+// 元の作業ツリーのプロジェクトのスキルの名前（frontmatter の name、無ければディレクトリ名）
+function projectSkills(repo: string): string[] {
+  const names: string[] = [];
+  for (const dir of PROJECT_SKILL_DIRS.map((d) => join(repo, d))) {
+    if (!existsSync(dir) || !lstatSync(dir).isDirectory()) continue;
+    for (const name of readdirSync(dir).sort()) {
+      const file = join(dir, name, "SKILL.md");
+      if (!existsSync(file)) continue;
+      names.push(/^name:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(readFileSync(file, "utf8").split(/^---\s*$/m)[1] ?? "")?.[1] ?? name);
+    }
+  }
+  return names;
+}
+
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+// 観測できなかった項目（目印は空のまま。目印が無いこととは読み替えない）
+function unobservedItem(key: BoundaryKey, reason: string): BoundaryItem {
+  return { key, name: BOUNDARY_ITEMS[key], observed: false, marks: [], reason, facts: {}, limits: [] };
+}
+
+// 担当の記録のうち最初の assistant の応答より前の行だけ（書込ペイロードや反証の本文は、それより後にしか現れない）
+function initialContext(lines: string[]): Json[] {
+  const out: Json[] = [];
+  for (const line of lines) {
+    let j: Json;
+    try {
+      j = JSON.parse(line) as Json;
+    } catch {
+      continue;
+    }
+    if (j.type === "message" && (j.message as Json | undefined)?.role === "assistant") break;
+    out.push(j);
+  }
+  return out;
+}
+
+function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: string, work: string): BoundaryItem[] {
+  const origins = [...new Set([prep.repo, realOrSelf(prep.repo)])];
+  const item = (key: BoundaryKey, facts: Json, marks: string[], limits: string[] = []): BoundaryItem => ({ key, name: BOUNDARY_ITEMS[key], observed: true, marks, reason: null, facts, limits });
+  const items: BoundaryItem[] = [];
+
+  const user = rows.find((j) => j.type === "message" && (j.message as Json | undefined)?.role === "user");
+  if (!user) items.push(unobservedItem("first-input", "最初の応答より前に user の入力の記録が無い"));
+  else {
+    const content = (user.message as Json).content;
+    const text = typeof content === "string" ? content : (Array.isArray(content) ? (content as Json[]) : []).map((c) => (c?.type === "text" && typeof c.text === "string" ? c.text : "")).join("");
+    const fields: { name: string; value: string; line: number }[] = [];
+    const nonTemplateLines: number[] = [];
+    const expectedValues: Record<string, string> = {
+      役割: ROLES[role].name,
+      作業ディレクトリ: work,
+      読んでよい入力: `${work}/input/ 配下（target.md・manifest.md・deps-files.sha256・requirements/・local/）、対象リポジトリ ${work}/repo（target.md の担当用の限定 clone）、依存の写し ${work}/deps/（準備できたときだけ）`,
+      "読んでよい入力（次のファイルだけ）": "",
+      書いてよい場所: `${work}/${role}/（${role === "refute" ? "verdict" : "handoff"}.md と notes/）と自分の一時ファイル`,
+      出力: `${work}/${role}/${role === "refute" ? "verdict" : "handoff"}.md`,
+    };
+    const invalidValues = new Set<string>();
+    const duplicateFields = new Set<string>();
+    const seenFields = new Set<string>();
+    const refuteLines = new Map<string, string>();
+    if (role === "refute") {
+      const repoLine = `- 対象リポジトリ ${work}/repo（target.md の担当用の限定 clone）`;
+      refuteLines.set(repoLine, repoLine);
+      if (prep.deps?.prepared) {
+        const depsLine = `- 依存の写し ${work}/deps/（準備できたときだけ）`;
+        refuteLines.set(depsLine, depsLine);
+      }
+      for (const path of [...prep.inputs.map((f) => f.path), "manifest.md", "standards-handoff.md", "spec-handoff.md"]) {
+        const line = `- ${work}/refute-input/${path}`;
+        refuteLines.set(line, line);
+        if (path.startsWith("local/")) refuteLines.set(`${line}（mode: local のときだけ）`, line);
+        if (path === "deps-files.sha256") refuteLines.set(`${line}（依存の写しを準備できたときだけ）`, line);
+      }
+    }
+    const seenRefuteInputs = new Set<string>();
+    let refuteInputs = false;
+    for (const [index, line] of text.split("\n").entries()) {
+      if (line.trim() === "" || (index === 0 && line === "Complete assignment thoroughly:")) continue;
+      const m = REQUEST_FIELD.exec(line);
+      if (m) {
+        fields.push({ name: m[1] ?? "", value: m[2] ?? "", line: index + 1 });
+        const name = m[1] ?? "";
+        if (seenFields.has(name) && REQUEST_FIELDS[ROLES[role].stage].includes(name)) duplicateFields.add(name);
+        seenFields.add(name);
+        if (REQUEST_FIELDS[ROLES[role].stage].includes(name) && (m[2] ?? "").trim() !== expectedValues[name]) invalidValues.add(name);
+        refuteInputs = role === "refute" && m[1] === "読んでよい入力（次のファイルだけ）";
+      } else if (refuteInputs && refuteLines.has(line)) {
+        seenRefuteInputs.add(refuteLines.get(line) as string);
+      } else {
+        nonTemplateLines.push(index + 1);
+      }
+    }
+    const template = REQUEST_FIELDS[ROLES[role].stage];
+    const roleValue = fields.find((f) => f.name === "役割")?.value.trim() ?? null;
+    const missing = template.filter((t) => !fields.some((f) => f.name === t));
+    const extra = fields.filter((f) => !template.includes(f.name)).map((f) => f.line);
+    const missingInputs = [...new Set(refuteLines.values())].filter((line) => !seenRefuteInputs.has(line)).map((line) => line.slice(2));
+    const ctx = contextMarks(text, origins);
+    const marks = [
+      ...(roleValue !== null && roleValue !== ROLES[role].name ? [`役割の値が委譲した役割（${ROLES[role].name}）と違う`] : []),
+      ...(missing.length > 0 ? [`雛形の項目が無い: ${missing.join("・")}`] : []),
+      ...(extra.length > 0 ? [`雛形に無い項目の行: ${extra.join(", ")}`] : []),
+      ...(missingInputs.length > 0 ? [`反証への必須入力が無い: ${missingInputs.join("・")}`] : []),
+      ...(nonTemplateLines.length > 0 ? [`雛形の項目外の行: ${nonTemplateLines.join(", ")}`] : []),
+      ...(invalidValues.size > 0 ? [`雛形と値が違う項目: ${[...invalidValues].join("・")}`] : []),
+      ...(duplicateFields.size > 0 ? [`重複した項目: ${[...duplicateFields].join("・")}`] : []),
+      ...ctx.marks,
+    ];
+    const nonText = Array.isArray(content) ? (content as Json[]).filter((c) => c?.type !== "text").length : 0;
+    items.push(
+      item("first-input", { sha256: sha256(text), bytes: utf8(text), role: roleValue === ROLES[role].name ? roleValue : null, missing, extra, missingInputs, nonTemplateLines, invalidValues: [...invalidValues], duplicateFields: [...duplicateFields], repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, nonTextBlocks: nonText }, marks, nonText > 0 ? [`text 以外のブロック ${nonText} 件は調べていない`] : []),
+    );
+  }
+
+  const init = rows.find((j) => j.type === "session_init");
+  const prompt = init?.systemPrompt;
+  const parts = typeof prompt === "string" ? [prompt] : Array.isArray(prompt) && prompt.every((p) => typeof p === "string") ? (prompt as string[]) : null;
+  if (!init) items.push(unobservedItem("system-prompt", "session_init の記録が無い"));
+  else if (!parts) items.push(unobservedItem("system-prompt", "session_init に文字列の systemPrompt が無い"));
+  else {
+    const text = parts.join("\n");
+    const ctx = contextMarks(text, origins);
+    const block = /<skills>\n([\s\S]*?)\n?<\/skills>/.exec(text)?.[1] ?? null;
+    const listed = block === null ? [] : [...block.matchAll(/^- ([^:\n]+):/gm)].map((m) => (m[1] ?? "").trim());
+    const local = projectSkills(prep.repo);
+    const shared = local.filter((n) => listed.some((l) => l === n || l.endsWith(`/${n}`) || l.endsWith(`:${n}`)));
+    const cwd = rows.find((j) => j.type === "session")?.cwd;
+    const cwdText = typeof cwd === "string" ? cwd : null;
+    const cwdInRepo = cwdText !== null && origins.some((o) => cwdText === o || cwdText.startsWith(`${o}/`));
+    const marks = [
+      ...ctx.marks,
+      ...(shared.length > 0 ? [`元の作業ツリーのプロジェクトのスキルの名前がスキル一覧にある: ${shared.join("・")}`] : []),
+      ...(cwdInRepo ? [`担当の作業ディレクトリ（session の cwd）が元のリポジトリの中: ${cwdText}`] : []),
+    ];
+    const limits = [
+      "スキル一覧は名前で照合し、同名のユーザーのスキルとは区別できない",
+      ...(local.length === 0 ? [`元の作業ツリーに ${PROJECT_SKILL_DIRS.join("・")} のスキルが無く、スキル一覧を名前で照合していない`] : []),
+      ...(block === null ? ["systemPrompt に <skills> の一覧が無い"] : []),
+      ...(cwdText === null ? ["session の記録に cwd が無い"] : []),
+    ];
+    items.push(
+      item("system-prompt", { sha256: sha256(text), bytes: utf8(text), parts: parts.length, repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, skills: block === null ? null : listed.length, projectSkills: local, listedProjectSkills: shared, cwd: cwdText, cwdInRepo }, marks, limits),
+    );
+  }
+
+  const own = realOrSelf(skillFile);
+  const prompts = rows
+    .filter((j) => j.type === "custom_message" && j.customType === "skill-prompt")
+    .map((j) => {
+      const details = j.details !== null && typeof j.details === "object" ? (j.details as Json) : {};
+      const path = typeof details.path === "string" ? details.path : null;
+      const content = typeof j.content === "string" ? j.content : "";
+      return { name: typeof details.name === "string" ? details.name : null, path, sha256: sha256(content), bytes: utf8(content), sameSkill: path !== null && realOrSelf(path) === own };
+    });
+  const marks = prompts.length === 0 ? ["skill-prompt の記録が無い"] : prompts.filter((x) => !x.sameSkill).map((x) => `このスクリプトのスキルと違う SKILL.md: ${x.path ?? "パスの記録なし"}`);
+  items.push(item("skill-prompt", { skill: skillFile, paths: prompts }, marks));
+  return items;
+}
+
+function boundaryFacts(i: BoundaryItem): string {
+  const f = i.facts;
+  const list = (v: unknown) => (Array.isArray(v) && v.length > 0 ? v.join("・") : "なし");
+  if (i.key === "first-input") return `sha256 ${f.sha256}、${f.bytes} バイト、役割 ${f.role ?? "なし"}、雛形の項目の欠落 ${list(f.missing)}、雛形に無い項目 ${list(f.extra)}、雛形の項目外の行 ${list(f.nonTemplateLines)}`;
+  if (i.key === "system-prompt") {
+    return `sha256 ${f.sha256}（${f.parts} 個の部分を改行でつないだもの）、${f.bytes} バイト、<repo-rules> ${f.repoRules ? "あり" : "なし"}、規約ファイル ${list(f.contextFiles)}、スキル一覧 ${f.skills ?? "なし"} 件、元の作業ツリーのプロジェクトのスキル ${list(f.projectSkills)}、session の cwd ${f.cwd ?? "記録なし"}`;
+  }
+  const paths = (f.paths as { path: string | null; sha256: string; bytes: number; sameSkill: boolean }[]) ?? [];
+  return paths.length === 0 ? "記録なし" : paths.map((x) => `${x.path ?? "パスの記録なし"}（本文 sha256 ${x.sha256}、${x.bytes} バイト、このスクリプトのスキル: ${x.sameSkill ? "同じ" : "違う"}）`).join("・");
+}
+
+function renderBoundary(session: ParentSession, skillFile: string, attempts: BoundaryAttempt[]): string {
+  const out = [
+    "# 担当の入力境界",
+    "",
+    "review.ts check-boundary が、各試行の担当のセッション記録（親の記録と同名のディレクトリの `<担当 ID>.jsonl`）のうち、最初の応答より前の記録だけを読んで取り出した事実（parent.md 0.1節）。",
+    "依頼本文・systemPrompt・skill-prompt の本文は写さず、sha256 と大きさ、項目の有無だけを書く。書込ペイロードと反証の本文は読まない。",
+    "目印は元の作業ツリーの規約・プロジェクトのスキル一覧などの混入を疑う事実で、混入かどうかは親が決める。観測できなかった項目は「観測できず」と理由を書き、目印が無いこととは読み替えない。",
+    "",
+    `- 親のセッション記録: ${session.path ?? `観測できず（${session.missing}）`}（${session.origin}）`,
+    `- このスクリプトのスキルの SKILL.md: ${skillFile}`,
+    "",
+  ];
+  for (const a of attempts) {
+    out.push(`## ${a.roleName} 試行 ${a.attempt}（担当 ID ${a.agentId ?? "不明"}）`, "");
+    out.push(`- 担当の記録: ${a.source.unavailable ? `観測できず（${a.source.unavailable}）` : `${a.source.path}（sha256 \`${a.source.sha256}\`）`}`, "");
+    out.push("| 項目 | 観測 | 目印 | 事実 | 観測の限界 |", "|---|---|---|---|---|");
+    out.push(
+      ...a.items.map(
+        (i) =>
+          `| ${i.name} | ${i.observed ? "観測した" : `観測できず（${cell(i.reason ?? "")}）`} | ${i.observed ? cell(i.marks.join("・") || "なし") : "観測できず"} | ${i.observed ? cell(boundaryFacts(i)) : "-"} | ${cell(i.limits.join("・") || "-")} |`,
+      ),
+      "",
+    );
+  }
+  return out.join("\n");
+}
+
+function checkBoundary(args: string[]): Outcome {
+  const o = parseOptions(args, ["work", "session"], []);
+  const { work, prep } = loadWork(o);
+  const session = parentSession(absolute("session", o.one.get("session")), "check-boundary の --session");
+  const agents = loadList<AgentRecord>(work, "agents");
+  if (agents.length === 0) throw new UsageError("委譲が記録されていません（agent --event start で記録してから）");
+  const skillFile = join(import.meta.dir, "../SKILL.md");
+  const attempts: BoundaryAttempt[] = agents.map((a) => {
+    const where = agentSessionPath(session.path, a.agentId);
+    const head = { role: a.role, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId };
+    const fail = (reason: string, path: string | null): BoundaryAttempt => ({
+      ...head,
+      source: { path, sha256: null, unavailable: reason },
+      items: (Object.keys(BOUNDARY_ITEMS) as BoundaryKey[]).map((key) => unobservedItem(key, reason)),
+    });
+    if (!where.path) return fail(session.path ? where.missing : session.missing, null);
+    if (!existsSync(where.path)) return fail(`記録が無い（${where.path}）`, where.path);
+    let data: Buffer;
+    try {
+      data = readFileSync(where.path);
+    } catch (e) {
+      return fail(`記録を読めない（${where.path}: ${e instanceof Error ? e.message : String(e)}）`, where.path);
+    }
+    const rows = initialContext(data.toString("utf8").split("\n").filter((l) => l.trim() !== ""));
+    return { ...head, source: { path: where.path, sha256: sha256(data), unavailable: null }, items: boundaryItems(rows, a.role, prep, skillFile, work) };
+  });
+  const sessionView = { path: session.path, origin: session.origin, unavailable: session.path ? null : session.missing };
+  writeFileSync(join(work, "parent/boundary.json"), `${JSON.stringify({ checkedAt: now(), session: sessionView, repo: prep.repo, skill: skillFile, attempts }, null, 2)}\n`);
+  writeFileSync(join(work, "parent/boundary.md"), renderBoundary(session, skillFile, attempts));
+  return {
+    work,
+    result: {
+      session: sessionView,
+      attempts: attempts.map((a) => ({ ...a, items: a.items.map(({ key, name, observed, marks, reason }) => ({ key, name, observed, marks, reason })) })),
+      marked: attempts.filter((a) => a.items.some((i) => i.marks.length > 0)).length,
+      unobserved: attempts.filter((a) => a.items.some((i) => !i.observed)).length,
+      record: join(work, "parent/boundary.md"),
+    },
+  };
+}
+
+// ---- 最終状態・点数・確認が残る事項・保存直前の再照合・マージ可否（parent-details.md 10節） ----
 
 type Status = "完了" | "未完了" | "未実施";
 const MERGE_OK = "可（人のレビューなしでマージ可）";
@@ -2067,7 +2376,7 @@ interface ReviewState {
   refute: RefuteStructure | null;
 }
 
-// 最終状態（SKILL.md 6節、parent.md 10節の4）。必要な担当の有効な結果の有無だけで決め、判定の中身・未確認・保存前の変化では変えない
+// 最終状態（SKILL.md 6節、parent-details.md 10節の4）。必要な担当の有効な結果の有無だけで決め、判定の中身・未確認・保存前の変化では変えない
 function reviewStatus(work: string, prep: Prepared, notRunReason: string | undefined): ReviewState {
   const agents = loadList<AgentRecord>(work, "agents");
   const retired = loadList<AttemptRecord>(work, "attempts");
@@ -2117,7 +2426,7 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
   return { status: reason === null ? "完了" : "未完了", reason, refute: refuteOk };
 }
 
-// 判定本文の未確認と理由の表からの確認が残る事項（parent.md 10節の6）。コードレベルで結論を出せない未確認だけが、理由と不足箇所のまま入る
+// 判定本文の未確認と理由の表からの確認が残る事項（parent-details.md 10節の6）。コードレベルで結論を出せない未確認だけが、理由と不足箇所のまま入る
 function verdictRemaining(refute: RefuteStructure | null): Remaining[] {
   return (refute?.unconfirmed ?? []).map((u) => ({ ref: u.ref, owner: u.owner, reason: `${u.reason}（${u.kind}、軸 ${u.axis}、不足箇所: ${u.missing}）`, from: "反証の未確認と理由" }));
 }
@@ -2310,7 +2619,7 @@ function decideMerge(m: { status: Status; reason: string | null; score: number |
   return { merge: blockers.length === 0 ? MERGE_OK : NOT_RUN_MERGE, blockers };
 }
 
-// ---- 報告の組み立て（parent.md 11節。結果 report.md と監査 audit.md） ----
+// ---- 報告の組み立て（parent-details.md 11節。結果 report.md と監査 audit.md） ----
 
 interface ReportContext {
   work: string;
@@ -2565,7 +2874,7 @@ function renderReport(c: ReportContext, auditRef: string): string {
   ].join("\n");
 }
 
-// ---- 保存・作業ログ・merge-ready（parent.md 11節） ----
+// ---- 保存・作業ログ・merge-ready（parent-details.md 11節） ----
 
 interface SavedDocument {
   id: number | null;
@@ -2637,7 +2946,7 @@ function logList(open: string, items: string[], close: string, more: string, emp
   return items.length > 0 ? { open, items, close, more } : empty;
 }
 
-// parent.md 11節: 作業ログを nod の上限に決定的に収める。文字列の部分（必須の項目）はそのまま残し、一覧は1件ずつ順に（どれも先頭から）
+// parent-details.md 11節: 作業ログを nod の上限に決定的に収める。文字列の部分（必須の項目）はそのまま残し、一覧は1件ずつ順に（どれも先頭から）
 // 丸ごと入るだけ書いて、書けなかった件数と全文の場所を「ほか N 件は<場所>を参照」と書く。丸ごと入らない次の項目は残りの字数で途中まで書いて切ったことを示す。
 // 必須の項目だけで上限を超えるときは末尾を切ってその旨を書く
 function fitWorkLog(parts: (string | LogList)[]): string {
@@ -2776,7 +3085,7 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
   ]);
 }
 
-// ---- finalize（parent.md 10節・11節） ----
+// ---- finalize（parent.md・parent-details.md 10節・11節） ----
 
 function finalize(args: string[]): Outcome {
   const o = parseOptions(args, ["work", "not-run-reason", "session", "skill-start"], []);
@@ -2895,7 +3204,7 @@ function finalize(args: string[]): Outcome {
   return { work, result: record };
 }
 
-// ---- 区間の時間と使用量（parent.md 14節。段階・委譲の時刻と omp のセッション記録から集計する） ----
+// ---- 区間の時間と使用量（parent-details.md 14節。段階・委譲の時刻と omp のセッション記録から集計する） ----
 
 // 段階（サブコマンド）の記録。振り分け（main）が終了コード 0 で終えた呼び出しごとに parent/stages.json（と stages.md）へ足す
 export interface StageRecord {
@@ -2942,6 +3251,47 @@ interface SessionRecord {
   error: string | null;
   // ツール呼び出しの引数に出る文字列（スキルの読み込みの応答を見分ける）
   tools: string[];
+  // custom_message の skill-prompt で渡されたスキル（名前または実パス）
+  skillLoad: string | null;
+  // 読み取り量と生成量: 応答のツール呼び出しと出力の内訳、ツール結果、ツール以外で文脈に入った記録（user などの message と custom_message）
+  calls: RecordCall[];
+  output: RecordOutput | null;
+  result: RecordResult | null;
+  context: { kind: string; size: ContentSize } | null;
+}
+
+// 記録に残った content の大きさ（text ブロックの UTF-8 のバイト数）と、大きさを数えない text 以外のブロックの数
+interface ContentSize {
+  bytes: number;
+  nonText: number;
+}
+
+interface RecordCall {
+  id: string | null;
+  name: string;
+  argumentBytes: number;
+  // 記録の中に toolCallId の一致する結果がある
+  answered: boolean;
+}
+
+interface RecordOutput {
+  text: number;
+  thinking: number;
+  thinkingBlocks: number;
+  unreadable: number;
+  summarized: number;
+  other: number;
+}
+
+interface RecordResult {
+  callId: string | null;
+  name: string;
+  size: ContentSize;
+  error: boolean;
+  pruned: boolean;
+  // 記録の中に対応する呼び出しがある。at は振り分けの時刻（呼び出しの応答の時刻。対応する呼び出しが無ければ結果自身の時刻）
+  matched: boolean;
+  at: number;
 }
 
 // 計測の出典（記録ファイルのパスと sha256。取得できなければ unavailable に理由）
@@ -2968,6 +3318,34 @@ function stringsIn(v: unknown): string[] {
   if (typeof v === "string") return [v];
   if (Array.isArray(v)) return v.flatMap(stringsIn);
   return v !== null && typeof v === "object" ? Object.values(v).flatMap(stringsIn) : [];
+}
+
+const utf8 = (s: string) => Buffer.byteLength(s, "utf8");
+
+function contentSize(content: unknown): ContentSize {
+  if (typeof content === "string") return { bytes: utf8(content), nonText: 0 };
+  const size = { bytes: 0, nonText: 0 };
+  for (const c of Array.isArray(content) ? (content as Json[]) : []) {
+    if (c?.type === "text" && typeof c.text === "string") size.bytes += utf8(c.text);
+    else size.nonText++;
+  }
+  return size;
+}
+
+// 応答の content の内訳。読める本文の無い thinking（本文が空、暗号化・redacted の種類）は unreadable に数える
+function outputOf(content: Json[]): RecordOutput {
+  const o: RecordOutput = { text: 0, thinking: 0, thinkingBlocks: 0, unreadable: 0, summarized: 0, other: 0 };
+  for (const c of content) {
+    const type = typeof c?.type === "string" ? c.type : "";
+    if (type === "text" && typeof c.text === "string") o.text += utf8(c.text);
+    else if (/thinking/i.test(type)) {
+      o.thinkingBlocks++;
+      if (c.summary === true) o.summarized++;
+      if (type === "thinking" && typeof c.thinking === "string" && c.thinking !== "") o.thinking += utf8(c.thinking);
+      else o.unreadable++;
+    } else if (type !== "toolCall") o.other++;
+  }
+  return o;
 }
 
 function readSession(path: string | null, missing: string): SessionFile {
@@ -2999,10 +3377,19 @@ function readSession(path: string | null, missing: string): SessionFile {
       continue;
     }
     const m = j.message !== null && typeof j.message === "object" ? (j.message as Json) : null;
+    const role = j.type === "message" && typeof m?.role === "string" ? m.role : null;
+    const content = Array.isArray(m?.content) ? (m.content as Json[]) : [];
     if (j.type === "session" && sessionAt === null) {
       sessionAt = iso;
       parentSession = typeof j.parentSession === "string" ? j.parentSession : null;
     }
+    const details = j.type === "custom_message" && j.customType === "skill-prompt" && j.details !== null && typeof j.details === "object" ? (j.details as Json) : null;
+    const skillLoad =
+      typeof details?.path === "string" && SKILL_LOAD.test(details.path)
+        ? details.path
+        : typeof details?.name === "string" && SKILL_LOAD.test(`skill://${details.name}`)
+          ? `skill://${details.name}`
+          : null;
     records.push({
       at,
       iso,
@@ -3012,7 +3399,34 @@ function readSession(path: string | null, missing: string): SessionFile {
       stop: typeof m?.stopReason === "string" ? m.stopReason : null,
       error: typeof m?.errorMessage === "string" ? m.errorMessage : null,
       tools: Array.isArray(m?.content) ? (m.content as Json[]).filter((c) => c?.type === "toolCall").flatMap((c) => stringsIn(c.arguments)) : [],
+      skillLoad,
+      calls:
+        role === "assistant"
+          ? content
+              .filter((c) => c?.type === "toolCall")
+              .map((c) => ({ id: typeof c.id === "string" ? c.id : null, name: typeof c.name === "string" ? c.name : "不明", argumentBytes: utf8(JSON.stringify(c.arguments) ?? ""), answered: false }))
+          : [],
+      output: role === "assistant" ? outputOf(content) : null,
+      result:
+        role === "toolResult"
+          ? { callId: typeof m?.toolCallId === "string" ? m.toolCallId : null, name: typeof m?.toolName === "string" ? m.toolName : "不明", size: contentSize(m?.content), error: m?.isError === true, pruned: m?.prunedAt !== undefined && m?.prunedAt !== null, matched: false, at }
+          : null,
+      context:
+        j.type === "custom_message"
+          ? { kind: `custom_message:${String(j.customType)}`, size: contentSize(j.content) }
+          : role !== null && role !== "assistant" && role !== "toolResult"
+            ? { kind: role, size: contentSize(m?.content) }
+            : null,
     });
+  }
+  // ツール結果は toolCallId で呼び出しに結び付け、呼び出した応答の時刻で振り分ける（呼び出しと結果を別の範囲に割らない）
+  const calls = new Map(records.flatMap((r) => r.calls.map((c) => [c.id, { at: r.at, call: c }] as const)));
+  for (const r of records) {
+    const hit = r.result?.callId ? calls.get(r.result.callId) : undefined;
+    if (!r.result || !hit) continue;
+    r.result.matched = true;
+    r.result.at = hit.at;
+    hit.call.answered = true;
   }
   return { source: { path, sha256: sha256(data), unavailable: null, readAt: now(), records: records.length, untimed, sessionAt, parentSession }, records };
 }
@@ -3037,6 +3451,101 @@ export interface Tally {
   last: string | null;
   // 担当の記録だけ: 委譲の開始から最終返答の受領までの外にある応答の数（使用量には入れない）
   outside?: number;
+  io: Io;
+}
+
+// 範囲の読み取り量と生成量（大きさは記録に残った UTF-8 のバイト数。課金される token 数とは別）
+export interface Io {
+  tools: ToolIo[];
+  generated: Generated;
+  context: ContextIo[];
+}
+
+export interface ToolIo {
+  name: string;
+  calls: number;
+  argumentBytes: number;
+  results: number;
+  // 記録に残った結果の text ブロックの合計。刈り込み済みの結果は置き換え後の大きさ、text 以外のブロックは入らない
+  resultBytes: number;
+  errors: number;
+  pruned: number;
+  nonTextBlocks: number;
+  orphanResults: number;
+  callsWithoutResult: number;
+}
+
+export interface Generated {
+  responses: number;
+  textBytes: number;
+  thinkingBlocks: number;
+  // 読める本文の無い thinking があれば null（取得できず）
+  thinkingBytes: number | null;
+  unreadableThinking: number;
+  summarizedThinking: number;
+  toolCalls: number;
+  toolCallArgumentBytes: number;
+  otherBlocks: number;
+}
+
+export interface ContextIo {
+  kind: string;
+  records: number;
+  bytes: number;
+  nonTextBlocks: number;
+}
+
+function ioOf(records: SessionRecord[], inside: (at: number) => boolean): Io {
+  const tools = new Map<string, ToolIo>();
+  const tool = (name: string) => {
+    const t = tools.get(name) ?? { name, calls: 0, argumentBytes: 0, results: 0, resultBytes: 0, errors: 0, pruned: 0, nonTextBlocks: 0, orphanResults: 0, callsWithoutResult: 0 };
+    tools.set(name, t);
+    return t;
+  };
+  const responses = records.filter((r) => isResponse(r) && inside(r.at));
+  const g: Generated = { responses: responses.length, textBytes: 0, thinkingBlocks: 0, thinkingBytes: 0, unreadableThinking: 0, summarizedThinking: 0, toolCalls: 0, toolCallArgumentBytes: 0, otherBlocks: 0 };
+  let thinking = 0;
+  for (const r of responses) {
+    for (const c of r.calls) {
+      const t = tool(c.name);
+      t.calls++;
+      t.argumentBytes += c.argumentBytes;
+      if (!c.answered) t.callsWithoutResult++;
+      g.toolCalls++;
+      g.toolCallArgumentBytes += c.argumentBytes;
+    }
+    const o = r.output;
+    if (!o) continue;
+    g.textBytes += o.text;
+    g.thinkingBlocks += o.thinkingBlocks;
+    thinking += o.thinking;
+    g.unreadableThinking += o.unreadable;
+    g.summarizedThinking += o.summarized;
+    g.otherBlocks += o.other;
+  }
+  g.thinkingBytes = g.unreadableThinking > 0 ? null : thinking;
+  const context = new Map<string, ContextIo>();
+  for (const r of records) {
+    const x = r.result;
+    if (x && inside(x.at)) {
+      const t = tool(x.name);
+      t.results++;
+      t.resultBytes += x.size.bytes;
+      t.nonTextBlocks += x.size.nonText;
+      if (x.error) t.errors++;
+      if (x.pruned) t.pruned++;
+      if (!x.matched) t.orphanResults++;
+    }
+    if (r.context && inside(r.at)) {
+      const c = context.get(r.context.kind) ?? { kind: r.context.kind, records: 0, bytes: 0, nonTextBlocks: 0 };
+      c.records++;
+      c.bytes += r.context.size.bytes;
+      c.nonTextBlocks += r.context.size.nonText;
+      context.set(c.kind, c);
+    }
+  }
+  const byName = <T>(key: (x: T) => string) => (a: T, b: T) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  return { tools: [...tools.values()].sort(byName((t) => t.name)), generated: g, context: [...context.values()].sort(byName((c) => c.kind)) };
 }
 
 function tally(records: SessionRecord[], from: number, to: number): Tally {
@@ -3064,6 +3573,7 @@ function tally(records: SessionRecord[], from: number, to: number): Tally {
     },
     first: res[0]?.iso ?? null,
     last: res.at(-1)?.iso ?? null,
+    io: ioOf(records, (at) => at >= from && at < to),
   };
 }
 
@@ -3092,6 +3602,8 @@ const USAGE_DEFINITIONS = {
   sections:
     "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
   missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
+  io:
+    "読み取り量と生成量は、使用量と同じ範囲と応答単位で数えた記録の大きさ（UTF-8 のバイト数）で、課金される token 数と同じではない（各応答の使用量にはその時点までの文脈全体が入る）。ツールの呼び出しと引数（arguments の JSON）の大きさは呼び出しを含む応答の時刻で振り分け、ツール結果は toolCallId で呼び出しに結び付けて呼び出しの応答と同じ範囲に入れる。対応する呼び出しが記録に無い結果は結果自身の時刻で振り分け、別に数える。結果の大きさは記録に残った text ブロックの合計で、刈り込み済み（prunedAt あり）の結果は置き換え後の大きさしか残らず元の大きさは取得できず、text 以外のブロックは件数だけ数えて大きさは取得できず。出力の内訳は応答の content の本文（text）、thinking、ツール呼び出しの引数の大きさで、出力 token（output）とは別の値。読める本文の無い thinking（本文が空、暗号化・redacted など）があれば thinking の大きさは取得できず、要約（summary）の thinking は要約の大きさ。ツール以外で文脈に入った記録（user などの message と custom_message）は自身の時刻で振り分け、種類（custom_message は customType）ごとに件数と大きさを数える",
   report: "報告に載せる値: 最初の段階（prepare）の開始から、finalize が報告を組み立て始める直前（reportStartedAt）まで",
   final: "保存後の確定値: prepare の開始から、報告 Document の保存と保存後の指紋照合が終わった時刻（savedAt）まで（利用者への最終説明は含めない）。保存後の作業ログと親専用領域だけに書き、報告には書き戻さない",
   comparison: "MIN-33 の前後比較用: 親がスキルを読み込み始めた時刻（prepare の開始より前で最後に code-review の SKILL.md を読み込んだ応答の記録の時刻、または finalize の --skill-start）から savedAt まで",
@@ -3104,8 +3616,8 @@ interface ParentSession {
   missing: string;
 }
 
-function parentSession(arg: string | undefined): ParentSession {
-  if (arg) return { path: arg, origin: "finalize の --session", missing: "" };
+function parentSession(arg: string | undefined, option = "finalize の --session"): ParentSession {
+  if (arg) return { path: arg, origin: option, missing: "" };
   const env = process.env.PI_SESSION_FILE;
   if (env && isAbsolute(env)) return { path: env, origin: "環境変数 PI_SESSION_FILE（omp が bash から起動したプロセスに渡す親のセッション記録）", missing: "" };
   return { path: null, origin: "なし", missing: "親のセッション記録の場所が --session にも PI_SESSION_FILE にも無い" };
@@ -3231,7 +3743,7 @@ function finishUsage(work: string, session: ParentSession, report: ReportUsage, 
   const final: FinalUsage = { from: report.from, to: savedAt, seconds: secondsBetween(report.from, savedAt), parent: measure(file, Date.parse(report.from), Date.parse(savedAt)) };
   const before = Date.parse(report.from);
   const hit = (file.records ?? [])
-    .filter((r) => isResponse(r) && r.at < before && r.tools.some((t) => SKILL_LOAD.test(t)))
+    .filter((r) => r.at < before && (r.skillLoad !== null || (isResponse(r) && r.tools.some((t) => SKILL_LOAD.test(t)))))
     .sort((a, b) => a.at - b.at)
     .at(-1);
   const start = skillStartArg
@@ -3239,8 +3751,8 @@ function finishUsage(work: string, session: ParentSession, report: ReportUsage, 
     : !file.records
       ? { at: null, how: `取得できず（${file.source.unavailable}）` }
       : hit
-        ? { at: hit.iso, how: `prepare の開始より前で最後に code-review の SKILL.md を読み込んだ応答（${hit.tools.find((t) => SKILL_LOAD.test(t))}）の記録の時刻` }
-        : { at: null, how: "取得できず（prepare の開始より前に code-review の SKILL.md を読み込んだ応答が親の記録に無い。finalize の --skill-start で指定できる）" };
+        ? { at: hit.iso, how: `prepare の開始より前で最後に code-review の SKILL.md を読み込んだ${hit.skillLoad ? " skill-prompt" : "応答"}（${hit.skillLoad ?? hit.tools.find((t) => SKILL_LOAD.test(t))}）の記録の時刻` }
+        : { at: null, how: "取得できず（prepare の開始より前に code-review の SKILL.md を読み込んだ応答または skill-prompt が親の記録に無い。finalize の --skill-start で指定できる）" };
   const comparison: ComparisonUsage = {
     from: start.at,
     to: savedAt,
@@ -3350,6 +3862,14 @@ function renderUsage(work: string, report: ReportUsage, final: FinalUsage, compa
     `- 担当の使用量の合計（全試行。各試行は 1 の表）: ${tokens(comparison.agentsTotal)}`,
     `- 出典: ${sourceText(comparison.parent.source)}`,
     "",
+    "## 4. 読み取り量と生成量（区間・役割・試行ごと）",
+    "",
+    ...ioBody([
+      ...report.sections.map((s) => ({ label: `1 の区間「${s.name}」の親`, m: s.parent })),
+      ...report.attempts.map((a) => ({ label: `1 の試行: ${a.roleName} ${a.attempt}（${a.agentId ?? "担当 ID 不明"}）`, m: a })),
+      { label: "3 の前後比較用の親", m: comparison.parent },
+    ]),
+    "",
     "## 段階",
     "",
     "| サブコマンド | 開始 | 終了 |",
@@ -3357,6 +3877,58 @@ function renderUsage(work: string, report: ReportUsage, final: FinalUsage, compa
     ...report.stages.map((s) => `| ${s.subcommand} | ${s.startedAt} | ${s.endedAt ?? "実行中（この計測の後に終わる）"} |`),
     "",
   ].join("\n");
+}
+
+// 読み取り量と生成量の表（usage.md だけに書き、結果・監査 Document には書かない）
+function ioBody(rows: { label: string; m: Measured }[]): string[] {
+  const absent = (label: string, m: Measured, columns: number) => `| ${cell(label)} | ${cell(`取得できず（${m.unavailable}）`)} |${" 取得できず |".repeat(columns - 2)}`;
+  const resultSize = (t: ToolIo) => {
+    const notes = [
+      ...(t.pruned > 0 ? [`刈り込み済み ${t.pruned} 件は置き換え後の大きさで、元の大きさは取得できず`] : []),
+      ...(t.nonTextBlocks > 0 ? [`text 以外のブロック ${t.nonTextBlocks} 件の大きさは取得できず`] : []),
+    ];
+    return `${t.resultBytes}${notes.length > 0 ? `（${notes.join("。")}）` : ""}`;
+  };
+  const thinkingText = (g: Generated) =>
+    g.thinkingBytes === null
+      ? `取得できず（読める本文の無い thinking ${g.unreadableThinking} 件。全 ${g.thinkingBlocks} 件）`
+      : `${g.thinkingBytes}（${g.thinkingBlocks} 件${g.summarizedThinking > 0 ? `。うち要約 ${g.summarizedThinking} 件は要約の大きさ` : ""}）`;
+  return [
+    `- 定義: ${USAGE_DEFINITIONS.io}`,
+    "",
+    "### ツールの種類ごと",
+    "",
+    "| 範囲 | ツール | 呼び出し | 引数（バイト） | 結果 | 記録に残った結果の大きさ（バイト） | エラーの結果 | 対応する呼び出しの無い結果 | 結果の記録の無い呼び出し |",
+    "|---|---|---|---|---|---|---|---|---|",
+    ...rows.flatMap(({ label, m }) => {
+      const io = m.tally?.io;
+      if (!io) return [absent(label, m, 9)];
+      if (io.tools.length === 0) return [`| ${cell(label)} | なし | 0 | 0 | 0 | 0 | 0 | 0 | 0 |`];
+      return io.tools.map((t) => `| ${cell(label)} | ${cell(t.name)} | ${t.calls} | ${t.argumentBytes} | ${t.results} | ${resultSize(t)} | ${t.errors} | ${t.orphanResults} | ${t.callsWithoutResult} |`);
+    }),
+    "",
+    "### 出力の内訳",
+    "",
+    "| 範囲 | 応答 | 出力 token | 本文（バイト） | thinking（バイト） | ツール呼び出し（件数、引数のバイト） | その他のブロック |",
+    "|---|---|---|---|---|---|---|",
+    ...rows.map(({ label, m }) => {
+      const t = m.tally;
+      if (!t) return absent(label, m, 7);
+      const g = t.io.generated;
+      return `| ${cell(label)} | ${g.responses} | ${tokens(t.output)} | ${g.textBytes} | ${thinkingText(g)} | ${g.toolCalls} 件、${g.toolCallArgumentBytes} | ${g.otherBlocks}${g.otherBlocks > 0 ? "（大きさは取得できず）" : ""} |`;
+    }),
+    "",
+    "### ツール以外で文脈に入った記録",
+    "",
+    "| 範囲 | 種類 | 件数 | 大きさ（バイト） |",
+    "|---|---|---|---|",
+    ...rows.flatMap(({ label, m }) => {
+      const io = m.tally?.io;
+      if (!io) return [absent(label, m, 4)];
+      if (io.context.length === 0) return [`| ${cell(label)} | なし | 0 | 0 |`];
+      return io.context.map((c) => `| ${cell(label)} | ${cell(c.kind)} | ${c.records} | ${c.bytes}${c.nonTextBlocks > 0 ? `（text 以外のブロック ${c.nonTextBlocks} 件の大きさは取得できず）` : ""} |`);
+    }),
+  ];
 }
 
 // ---- usage（任意のセッション記録と時刻の範囲。作業ディレクトリなしで MIN-33 の前回のような長いセッションの一部を集計する） ----
@@ -3404,6 +3976,10 @@ function usageCommand(args: string[]): Outcome {
           ]
         : ["担当の指定なし"]),
       "",
+      "## 読み取り量と生成量",
+      "",
+      ...ioBody([{ label: "親", m: parent }, ...agents.map((x) => ({ label: `担当 ${x.agentId}`, m: x }))]),
+      "",
     ].join("\n"),
   );
   return { work: null, record: join(out, "usage.json"), result };
@@ -3418,6 +3994,7 @@ const SUBCOMMANDS: Record<string, (args: string[]) => Outcome> = {
   "retire-attempt": retireAttempt,
   "refute-input": refuteInput,
   "check-refute": checkRefute,
+  "check-boundary": checkBoundary,
   finalize,
   usage: usageCommand,
 };
