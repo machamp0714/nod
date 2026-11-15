@@ -84,7 +84,7 @@ async function run(paths: { results: string; allowed: string }): Promise<Run> {
 const item = (file: string, name: string[]) => `${file} ${JSON.stringify(name)}`;
 
 describe("skip の照合の道具", () => {
-  test("成功: 実際の skip（todo を含む）と一覧が完全に一致すれば、件数を出して 0 で終わる", async () => {
+  test("成功: 実際の skip（todo を含む）と一覧が完全に一致すれば、件数と一致した項目を出して 0 で終わる", async () => {
     const results = junit(
       { file: A, body: NESTED },
       { file: B, body: [ran("b走る", "", B), todo("あとで書く", "", B)].join("\n") },
@@ -93,6 +93,9 @@ describe("skip の照合の道具", () => {
     expect(r.stderr).toBe("");
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("2 件");
+    // ログで実際の skip と一覧の完全一致を確かめられるよう、一致した項目をファイルと完全な名前で出す
+    expect(r.stdout).toContain(item(A, NESTED_SKIP.name));
+    expect(r.stdout).toContain(item(B, ["あとで書く"]));
   });
 
   test("一覧に無い skip があれば、その項目を出して失敗する", async () => {

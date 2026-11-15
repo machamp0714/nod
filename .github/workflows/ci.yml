@@ -35,3 +35,42 @@ jobs:
       - name: Web のパッケージの型検査
         working-directory: packages/web
         run: bun run typecheck
+
+  test:
+    name: test
+    runs-on: macos-latest
+    # 手元の全体の実行は約 385 秒。ランナーの遅さと Rust・Swift のコンパイルの分の余裕を持たせる。
+    timeout-minutes: 30
+    steps:
+      # ref を明示しない。pull_request では GitHub 既定の合成 merge commit（PR の head と基点の組み合わせ）を検査する。
+      - uses: actions/checkout@v7
+      # Bun の版は .bun-version の 1 か所で固定する。
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: bun.lock の確認
+        run: |
+          if [ ! -f bun.lock ]; then
+            echo "::error::bun.lock がありません。依存は lockfile から固定して入れます。"
+            exit 1
+          fi
+      - name: 依存の導入
+        run: bun install --frozen-lockfile
+      # 通知のテストは cargo（Rust の harness）と swiftc（Swift の probe）が無いと黙って skip するため、
+      # 先に道具があることを確かめる（無ければここで失敗する）。どちらも macOS ランナーの標準の構成に入っている。
+      - name: Rust・Swift の道具の確認
+        run: |
+          cargo --version
+          swiftc --version
+      - name: 全体のテスト
+        run: bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/bun-test-junit.xml"
+      # テストが失敗しても照合を実行し、skip の不一致もログに残す。照合の失敗も test のチェックの失敗にする。
+      - name: skip の照合
+        if: ${{ !cancelled() }}
+        run: bun scripts/check-test-skips.ts "$RUNNER_TEMP/bun-test-junit.xml" test/allowed-skips.json
+      - name: JUnit の結果の保存
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bun-test-junit
+          path: ${{ runner.temp }}/bun-test-junit.xml

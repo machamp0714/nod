@@ -1,6 +1,6 @@
 // bun test の JUnit の結果（--reporter=junit）と、許可する skip の一覧（test/allowed-skips.json）を照合する。
 // 使い方: bun scripts/check-test-skips.ts <JUnit の結果ファイル> <許可する skip の一覧>
-// 実際に skip されたテスト（test.todo を含む）の集合と一覧が完全に一致するときだけ 0 で終わる。
+// 実際に skip されたテスト（test.todo を含む）の集合と一覧が完全に一致するときだけ、件数と一致した項目を標準出力に出して 0 で終わる。
 // 一致しないとき・入力を読めないときは、原因の項目を標準エラーに全部出して 1 で終わる。引数の誤りは 2。
 //
 // 一覧は { file, name, reason } の配列。file は bun test を実行したディレクトリ（リポジトリのルート）からのパス、
@@ -202,7 +202,8 @@ function item(file: string, name: unknown[]): string {
   return `${file} ${JSON.stringify(name)}`;
 }
 
-function check(cases: TestCase[], allowed: AllowedSkip[]): { matched: number; errors: string[] } {
+// 一覧と一致した skip は、ログで確かめられるよう種類（skip・todo）と項目の書き方で matched に返す
+function check(cases: TestCase[], allowed: AllowedSkip[]): { matched: string[]; errors: string[] } {
   const errors: string[] = [];
   const groups = new Map<string, TestCase[]>();
   for (const c of cases) {
@@ -210,7 +211,7 @@ function check(cases: TestCase[], allowed: AllowedSkip[]): { matched: number; er
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const allowedKeys = new Set(allowed.map((a) => JSON.stringify([a.file, ...a.name])));
-  let matched = 0;
+  const matched: string[] = [];
   for (const [key, group] of groups) {
     const skips = group.filter((c) => c.status !== "ran");
     const first = skips[0];
@@ -223,7 +224,7 @@ function check(cases: TestCase[], allowed: AllowedSkip[]): { matched: number; er
     } else if (!allowedKeys.has(key)) {
       errors.push(`一覧に無い ${kind}: ${item(first.file, first.name)}`);
     } else {
-      matched++;
+      matched.push(`${kind}: ${item(first.file, first.name)}`);
     }
   }
   for (const a of allowed) {
@@ -247,7 +248,8 @@ if (cases && allowed) {
   const result = check(cases, allowed);
   errors.push(...result.errors);
   if (errors.length === 0) {
-    console.log(`skip の照合: 実際の skip（todo を含む）と一覧が一致しました（${result.matched} 件）`);
+    console.log(`skip の照合: 実際の skip（todo を含む）と一覧が一致しました（${result.matched.length} 件）`);
+    for (const m of result.matched) console.log(`  ${m}`);
     process.exit(0);
   }
 }
