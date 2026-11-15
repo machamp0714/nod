@@ -2139,7 +2139,7 @@ function initialContext(lines: string[]): Json[] {
   return out;
 }
 
-function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: string): BoundaryItem[] {
+function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: string, work: string): BoundaryItem[] {
   const origins = [...new Set([prep.repo, realOrSelf(prep.repo)])];
   const item = (key: BoundaryKey, facts: Json, marks: string[], limits: string[] = []): BoundaryItem => ({ key, name: BOUNDARY_ITEMS[key], observed: true, marks, reason: null, facts, limits });
   const items: BoundaryItem[] = [];
@@ -2149,10 +2149,26 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
   else {
     const content = (user.message as Json).content;
     const text = typeof content === "string" ? content : (Array.isArray(content) ? (content as Json[]) : []).map((c) => (c?.type === "text" && typeof c.text === "string" ? c.text : "")).join("");
-    const fields = text.split("\n").flatMap((l) => {
-      const m = REQUEST_FIELD.exec(l);
-      return m ? [{ name: m[1] ?? "", value: m[2] ?? "" }] : [];
-    });
+    const fields: { name: string; value: string }[] = [];
+    const nonTemplateLines: number[] = [];
+    let refuteInputs = false;
+    for (const [index, line] of text.split("\n").entries()) {
+      if (line.trim() === "" || (index === 0 && line === "Complete assignment thoroughly:")) continue;
+      const m = REQUEST_FIELD.exec(line);
+      if (m) {
+        fields.push({ name: m[1] ?? "", value: m[2] ?? "" });
+        refuteInputs = role === "refute" && m[1] === "読んでよい入力（次のファイルだけ）";
+      } else if (
+        !refuteInputs ||
+        !(
+          line.startsWith(`- ${join(work, "refute-input")}/`) ||
+          line === `- 対象リポジトリ ${join(work, "repo")}（target.md の担当用の限定 clone）` ||
+          line === `- 依存の写し ${join(work, "deps")}/（準備できたときだけ）`
+        )
+      ) {
+        nonTemplateLines.push(index + 1);
+      }
+    }
     const template = REQUEST_FIELDS[ROLES[role].stage];
     const roleValue = fields.find((f) => f.name === "役割")?.value.trim() ?? null;
     const missing = template.filter((t) => !fields.some((f) => f.name === t));
@@ -2162,11 +2178,12 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
       ...(roleValue !== null && roleValue !== ROLES[role].name ? [`役割の値が委譲した役割（${ROLES[role].name}）と違う: ${roleValue}`] : []),
       ...(missing.length > 0 ? [`雛形の項目が無い: ${missing.join("・")}`] : []),
       ...(extra.length > 0 ? [`雛形に無い項目: ${extra.join("・")}`] : []),
+      ...(nonTemplateLines.length > 0 ? [`雛形の項目外の行: ${nonTemplateLines.join(", ")}`] : []),
       ...ctx.marks,
     ];
     const nonText = Array.isArray(content) ? (content as Json[]).filter((c) => c?.type !== "text").length : 0;
     items.push(
-      item("first-input", { sha256: sha256(text), bytes: utf8(text), role: roleValue, missing, extra, repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, nonTextBlocks: nonText }, marks, nonText > 0 ? [`text 以外のブロック ${nonText} 件は調べていない`] : []),
+      item("first-input", { sha256: sha256(text), bytes: utf8(text), role: roleValue, missing, extra, nonTemplateLines, repoRules: ctx.repoRules, contextFiles: ctx.contextFiles, repoPath: ctx.repoPath, nonTextBlocks: nonText }, marks, nonText > 0 ? [`text 以外のブロック ${nonText} 件は調べていない`] : []),
     );
   }
 
@@ -2218,7 +2235,7 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
 function boundaryFacts(i: BoundaryItem): string {
   const f = i.facts;
   const list = (v: unknown) => (Array.isArray(v) && v.length > 0 ? v.join("・") : "なし");
-  if (i.key === "first-input") return `sha256 ${f.sha256}、${f.bytes} バイト、役割 ${f.role ?? "なし"}、雛形の項目の欠落 ${list(f.missing)}、雛形に無い項目 ${list(f.extra)}`;
+  if (i.key === "first-input") return `sha256 ${f.sha256}、${f.bytes} バイト、役割 ${f.role ?? "なし"}、雛形の項目の欠落 ${list(f.missing)}、雛形に無い項目 ${list(f.extra)}、雛形の項目外の行 ${list(f.nonTemplateLines)}`;
   if (i.key === "system-prompt") {
     return `sha256 ${f.sha256}（${f.parts} 個の部分を改行でつないだもの）、${f.bytes} バイト、<repo-rules> ${f.repoRules ? "あり" : "なし"}、規約ファイル ${list(f.contextFiles)}、スキル一覧 ${f.skills ?? "なし"} 件、元の作業ツリーのプロジェクトのスキル ${list(f.projectSkills)}、session の cwd ${f.cwd ?? "記録なし"}`;
   }
@@ -2277,7 +2294,7 @@ function checkBoundary(args: string[]): Outcome {
       return fail(`記録を読めない（${where.path}: ${e instanceof Error ? e.message : String(e)}）`, where.path);
     }
     const rows = initialContext(data.toString("utf8").split("\n").filter((l) => l.trim() !== ""));
-    return { ...head, source: { path: where.path, sha256: sha256(data), unavailable: null }, items: boundaryItems(rows, a.role, prep, skillFile) };
+    return { ...head, source: { path: where.path, sha256: sha256(data), unavailable: null }, items: boundaryItems(rows, a.role, prep, skillFile, work) };
   });
   const sessionView = { path: session.path, origin: session.origin, unavailable: session.path ? null : session.missing };
   writeFileSync(join(work, "parent/boundary.json"), `${JSON.stringify({ checkedAt: now(), session: sessionView, repo: prep.repo, skill: skillFile, attempts }, null, 2)}\n`);
