@@ -8,7 +8,6 @@ import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, labelMenu, milestone
 import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Button, Icon, type IconName, MenuItem } from "../ui";
-import d from "../planning/planning.module.css";
 import s from "./issue-list.module.css";
 
 // 一括編集で選べる状態。needs_clarification は手で変えられず、Triage は Triage 画面で判断するため出さない

@@ -105,7 +105,7 @@ describe("遷移ルールの適用", () => {
   });
 
   test("禁止した組の遷移は TRANSITION_NOT_ALLOWED で、どのルールかを示し、何も変えない", () => {
-    const { db, ws, me } = setup();
+    const { ws, me } = setup();
     const issue = createIssue(me, { workspaceId: ws.id, title: "a" });
     updateIssue(me, issue.id, { status: "backlog" });
     setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "done" }] });

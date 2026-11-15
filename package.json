@@ -7,12 +7,14 @@
     "server": "bun run packages/server/src/main.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
+    "lint": "oxlint --deny-warnings",
     "build": "bun build packages/cli/src/main.ts --compile --outfile dist/nod",
     "desktop:build": "bun run packages/desktop/scripts/build.ts",
     "desktop:deploy": "bun run packages/desktop/scripts/deploy.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "oxlint": "1.93.0",
     "typescript": "^5.6.0"
   }
 }

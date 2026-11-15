@@ -528,7 +528,6 @@ export function formatPrStatus(v: PrStatusView): string {
 // PR の差分（#55）。パス・差分は GitHub から来た信頼できない文字列なので、端末の制御文字は置き換えて出す。
 // 双方向の制御文字（Trojan Source）は見た目の並びを変えるので、⟪U+202E⟫ のように符号を見せる
 const BIDI_RE = /[\u202a-\u202e\u2066-\u2069]/;
-// eslint-disable-next-line no-control-regex
 const safe = (text: string, keep = "") =>
   text
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => (keep.includes(c) ? c : "\ufffd"))

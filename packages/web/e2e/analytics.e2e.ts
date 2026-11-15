@@ -1,4 +1,4 @@
-import { seedSprint, associateSprint, removeSprint } from "./support/nod";
+import { seedSprint, associateSprint } from "./support/nod";
 import { seedApiWorkspace } from "./decision-data";
 import { expect, test } from "./fixtures";
 import { measureFilterBar } from "./layout-measure";
@@ -267,7 +267,7 @@ const LONG_MILESTONE = "第3四半期の終わりまでに出す、名前の長�
 const LONG_CYCLE = "10月前半の、名前の長い Sprint（検索と決済の改修）";
 
 test("フィルタは Header の下の高さ 43 の行に置き、select は高さ 28 の円形で、Main に横スクロールを出さない", async ({ page, nod }) => {
-  const { apiId } = await seed(nod);
+  await seed(nod);
   await nod.me.createProject({ name: LONG_PROJECT });
   await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
   await seedSprint({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
@@ -294,7 +294,7 @@ test("フィルタは Header の下の高さ 43 の行に置き、select は高�
 });
 
 test("長い名前の Project・Milestone・Sprint を選ぶと、フィルタは折り返し、Main に横スクロールを出さない", async ({ page, nod }) => {
-  const { apiId } = await seed(nod);
+  await seed(nod);
   const project = await nod.me.createProject({ name: LONG_PROJECT });
   const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
   const sprint = await seedSprint({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
@@ -325,7 +325,7 @@ test("長い名前の Project・Milestone・Sprint を選ぶと、フィルタ�
 
 // #177：幅が狭くても、select のラベル（範囲 など）は1文字ずつ縦に折り返さない
 test("幅が狭くても、フィルタのラベルは1行のままで、枠の中で折り返さない", async ({ page, nod }) => {
-  const { apiId } = await seed(nod);
+  await seed(nod);
   const project = await nod.me.createProject({ name: LONG_PROJECT });
   const milestone = await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
   const sprint = await seedSprint({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });
@@ -349,7 +349,7 @@ test("幅が狭くても、フィルタのラベルは1行のままで、枠の�
 
 // field-sizing のないブラウザ（Firefox、Safari）の代わりの検証。select は最も長い選択肢の幅になるが、240 で止まり、行は折り返す
 test("field-sizing が効かなくても、/analytics と /summary の Main に横スクロールを出さない", async ({ page, nod }) => {
-  const { apiId } = await seed(nod);
+  await seed(nod);
   await nod.me.createProject({ name: LONG_PROJECT });
   await nod.me.createMilestone(LONG_PROJECT, { name: LONG_MILESTONE });
   await seedSprint({ name: LONG_CYCLE, startDate: "2026-10-01", endDate: "2026-10-14" });

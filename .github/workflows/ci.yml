@@ -74,3 +74,25 @@ jobs:
         with:
           name: bun-test-junit
           path: ${{ runner.temp }}/bun-test-junit.xml
+
+  lint:
+    name: lint
+    runs-on: macos-latest
+    steps:
+      # ref を明示しない。pull_request では GitHub 既定の合成 merge commit（PR の head と基点の組み合わせ）を検査する。
+      - uses: actions/checkout@v7
+      # Bun の版は .bun-version の 1 か所で固定する。
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: bun.lock の確認
+        run: |
+          if [ ! -f bun.lock ]; then
+            echo "::error::bun.lock がありません。依存は lockfile から固定して入れます。"
+            exit 1
+          fi
+      - name: 依存の導入
+        run: bun install --frozen-lockfile
+      # oxlint の既定の規則（correctness）で検査し、警告の扱いの診断も失敗にする（--deny-warnings）。
+      - name: Lint
+        run: bun run lint

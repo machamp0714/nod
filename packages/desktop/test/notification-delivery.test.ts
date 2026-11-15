@@ -47,7 +47,7 @@ for (const introducedHour of [8, 15]) test.skipIf(!supported)(`実ネイティ�
   const f = fixture(new Date(2026, 9, 15, introducedHour, 59, 58).toISOString(), path => {
     const old = new Database(path, { create: true });
     try {
-      for (const steps of MIGRATIONS.slice(0, 40)) for (const step of steps) typeof step === "string" ? old.exec(step) : step(old);
+      for (const steps of MIGRATIONS.slice(0, 40)) for (const step of steps) if (typeof step === "string") old.exec(step); else step(old);
       old.exec("PRAGMA user_version = 40");
       old.query("INSERT INTO workspaces (key, name, path, created_at, color) VALUES ('OLD', '旧Workspace', '/tmp/legacy-due', ?, '#7C5CFF')").run(new Date(2026, 9, 1).toISOString());
       for (const [number, dueDate] of [[1, "2026-10-14"], [2, "2026-10-15"], [3, "2026-10-16"]] as const) {

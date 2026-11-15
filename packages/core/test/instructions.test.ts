@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { completeIssue, startIssue } from "../src/ops/agent";
+import { startIssue } from "../src/ops/agent";
 import {
   getAgentTargets,
   instructionMessage,
@@ -13,7 +13,7 @@ import {
 import { archiveIssue, createIssue, getIssue } from "../src/ops/issues";
 import type { OrcaRunner } from "../src/ops/orca";
 import type { GhRunResult } from "../src/ops/pr-status";
-import { codeOf, eventsOf, setup } from "./helpers";
+import { codeOf, setup } from "./helpers";
 
 const WT = "/tmp/orca/workspaces/api/feat-search";
 const ok = (result: unknown): GhRunResult => ({ kind: "exited", exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: "" });
@@ -297,7 +297,7 @@ describe("追加指示の送信", () => {
   });
 
   test("定型文から \\r と制御文字を除く", () => {
-    const { me, db, llm, ref } = working();
+    const { me, db, ref } = working();
     recordInstruction(me, ref, "テスト\r\x1b[2Jが\x07落ちる\x7f");
     const message = instructionMessage(listInstructions(db, ref).at(-1) as ReturnType<typeof listInstructions>[number]);
     expect(message).not.toContain("テスト");

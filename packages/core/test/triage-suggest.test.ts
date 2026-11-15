@@ -41,7 +41,7 @@ describe("similarity", () => {
 
 function seed() {
   const s = setup();
-  const { me, llm, ws } = s;
+  const { me, ws } = s;
   const create = (ctx: typeof me, title: string, description?: string) => createIssue(ctx, { workspaceId: ws.id, title, description });
   return { ...s, create };
 }
@@ -163,7 +163,7 @@ describe("suggestTriage", () => {
   });
 
   test("ラベル候補: 類似Issueの付与実績と本文中のラベル名を根拠にし、付与済みを除いて上位3件", () => {
-    const { me, llm, ws, create } = seed();
+    const { me, llm, ws } = seed();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索結果のページングがずれる", labels: ["api", "search"] });
     const b = createIssue(me, { workspaceId: ws.id, title: "検索結果のページングが重複する", labels: ["search"] });
     createIssue(me, { workspaceId: ws.id, title: "無関係なログ", labels: ["perf", "bug"] });

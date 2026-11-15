@@ -258,9 +258,7 @@ function registerStatusNameCommands(ws: Command): void {
 
 function formatTransitionRules(r: WorkspaceTransitionRules): string {
   if (r.forbidden.length === 0 && r.presets.length === 0) return "遷移ルールはありません（すべての遷移を許可）";
-  return [
-    ...r.forbidden.map((p) => `禁止 ${p.from} → ${p.to}`),
-  ].join("\n");
+  return r.forbidden.map((p) => `禁止 ${p.from} → ${p.to}`).join("\n");
 }
 
 // from:to の形の指定を読む

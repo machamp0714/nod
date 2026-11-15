@@ -192,7 +192,7 @@ const httpStatusOf = (stderr: string): number | null => {
   return m ? Number(m[1]) : null;
 };
 
-export function classifyCreate(result: GhRunResult, repo: string): CreateOutcome {
+export function classifyCreate(result: GhRunResult): CreateOutcome {
   if (result.kind === "not_found") return { kind: "failed", code: "GH_NOT_INSTALLED", message: "gh が見つかりません。GitHub CLI を導入してください" };
   if (result.kind === "spawn_failed") return { kind: "failed", code: "GH_FAILED", message: `gh を起動できませんでした: ${result.detail}` };
   if (result.kind === "timeout") return { kind: "unknown", message: "gh が時間内に終わりませんでした" };
@@ -350,7 +350,7 @@ export async function publishGithubIssue(ctx: OpCtx, ref: string, input: GithubP
       timeoutMs: GITHUB_CREATE_TIMEOUT_MS,
       maxStdoutBytes: 1024 * 1024,
     });
-    outcome = classifyCreate(result, repo);
+    outcome = classifyCreate(result);
   } catch (e) {
     outcome = { kind: "unknown", message: `gh の実行中に想定外のエラー: ${e instanceof Error ? e.message : String(e)}` };
   } finally {

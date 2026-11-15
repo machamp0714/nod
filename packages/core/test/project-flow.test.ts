@@ -88,7 +88,7 @@ describe("Project の依存フロー", () => {
     const open = issue("open");
     const waiting = issue("waiting");
     const asked = issue("asked");
-    const snoozed = issue("snoozed");
+    issue("snoozed");
     const woke = issue("woke");
     const started = issue("started");
     updateIssue(me, done.id, { status: "done" });

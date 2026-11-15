@@ -25,7 +25,7 @@ export async function plannedSprint(page: Page, workspaceKey: string, refs: stri
   const sprint = await sprintApi<Sprint>(page, "POST", "/sprints", { expectedVersion: 0, requestKey: crypto.randomUUID(), workspaceKey,
     name: options.name ?? `${workspaceKey}の計画`, startDate: options.startDate ?? todayUtc(), endDate: options.endDate ?? todayUtc(1), timezone: "UTC", ...(options.replansSprintId ? { replansSprintId: options.replansSprintId } : {}) });
   const items = [];
-  for (const ref of [...new Set([...refs, ...options.unplanned ?? []])]) {
+  for (const ref of new Set([...refs, ...options.unplanned ?? []])) {
     const result = await sprintApi<{ sprint: Sprint; item: { id: string; sourceIssueKey: string } }>(page, "POST", `/sprints/${sprint.id}/issues`, { issueRef: ref });
     if (refs.includes(ref)) items.push({ itemId: result.item.id, contribution: `${ref}で判断を確認できる`, executionPlan: "要求を確認し実装と検証を進める" });
   }

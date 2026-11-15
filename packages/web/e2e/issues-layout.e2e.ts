@@ -1,4 +1,4 @@
-import { seedSprint, associateSprint, removeSprint } from "./support/nod";
+import { seedSprint, associateSprint } from "./support/nod";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { chooseDisplay, columnChip, displaySelect, displaySwitch, openDisplay, searchBox } from "./support/issue-list";
@@ -39,8 +39,7 @@ const rowMisalignment = (page: Page, rowSelector: string, itemSelector: string) 
     [rowSelector, itemSelector],
   );
 
-async function sprintDetailPath(nod: NodData): Promise<string> {
-  const [api] = (await nod.me.listWorkspaces()).filter((w) => w.key === "API");
+async function sprintDetailPath(): Promise<string> {
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString("sv-SE");
   const sprint = await seedSprint({ name: "Sprint 12", startDate: day(-3), endDate: day(3) });
   for (const id of ["API-12", "API-8", "API-4"]) await associateSprint(sprint.id, id);
@@ -455,7 +454,7 @@ test("グループのない Board で1列に 15 枚を超えるカードがあ�
 });
 
 test("Project 詳細と Sprint 詳細の Board は内容の高さまで伸び、縦のスクロールは Main だけで二重にならない", async ({ page, nod }) => {
-  const sprint = await sprintDetailPath(nod);
+  const sprint = await sprintDetailPath();
   await addIssues(nod, 15, { projectRef: "1", sprintRef: sprint.split("/").pop() });
   for (const path of ["/projects/1", sprint]) {
     await page.goto(`${path}?layout=board`);
@@ -645,7 +644,7 @@ test("一括編集のメニューで、長い Project 名は枠からはみ出�
 test("My issues、View、Project 詳細、Sprint 詳細も同じ型で、List と Board のどちらでも横スクロールが出ない", async ({ page, nod }) => {
   await nod.me.updateIssue("API-4", { assignee: "me" });
   await nod.me.updateIssue("NOD-5", { assignee: "me" });
-  const sprint = await sprintDetailPath(nod);
+  const sprint = await sprintDetailPath();
   for (const path of ["/my-issues", "/views/1", "/projects/1", sprint]) {
     await page.goto(path);
     const rows = page.locator("main tbody tr[data-issue-row]");

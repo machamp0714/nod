@@ -49,7 +49,7 @@ describe("テンプレート", () => {
 
 describe("createIssue の template", () => {
   test("本文を説明の初期値にし、description と同時なら INVALID_ARGS、ないテンプレートなら NOT_FOUND で連番を進めない", () => {
-    const { db, ws, me } = setup();
+    const { ws, me } = setup();
     saveTemplate(me, { name: "bug", body: "## 再現手順\n" });
     expect(createIssue(me, { workspaceId: ws.id, title: "t", template: "bug" }).description).toBe("## 再現手順\n");
     expect(codeOf(() => createIssue(me, { workspaceId: ws.id, title: "t", template: "bug", description: "x" }))).toBe(

@@ -155,7 +155,7 @@ describe("Workspace のラベル定義", () => {
     const raw = new Database(path, { create: true });
     raw.exec("PRAGMA foreign_keys = ON");
     for (const steps of MIGRATIONS.slice(0, version)) {
-      for (const step of steps) typeof step === "string" ? raw.exec(step) : step(raw);
+      for (const step of steps) if (typeof step === "string") raw.exec(step); else step(raw);
     }
     raw.exec(`PRAGMA user_version = ${version}`);
     raw.close();
@@ -179,7 +179,7 @@ describe("Workspace のラベル定義", () => {
     const raw = new Database(path, { create: true });
     raw.exec("PRAGMA foreign_keys = ON");
     for (const steps of MIGRATIONS.slice(0, version)) {
-      for (const step of steps) typeof step === "string" ? raw.exec(step) : step(raw);
+      for (const step of steps) if (typeof step === "string") raw.exec(step); else step(raw);
     }
     raw.exec(`PRAGMA user_version = ${version}`);
     const at = "2026-09-01T00:00:00.000Z";

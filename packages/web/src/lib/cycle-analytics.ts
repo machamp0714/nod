@@ -1,4 +1,4 @@
-import type { Cycle, SprintAnalytics } from "../api/types";
+import type { Cycle } from "../api/types";
 
 export function formatRate(rate: number | null): string {
   return rate === null ? "—" : `${Math.round(rate * 100)}%`;

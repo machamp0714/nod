@@ -41,7 +41,7 @@ test("本番の版40から通知を導入し、既存データと版40のバッ�
   const preserved=retainedTables.filter(table=>table!=="cycles" && table!=="cycle_cadence");
   expect(preserved.map(table=>db.query(`SELECT * FROM ${table}`).all())).toEqual(preserved.map(table=>{
     const rows=before[retainedTables.indexOf(table)]!;
-    return table==="issues" ? rows.map(row=>{const {cycle_id,...kept}=row as Record<string,unknown>;return kept;}) : rows;
+    return table==="issues" ? rows.map(row=>{const {cycle_id:_cycleId,...kept}=row as Record<string,unknown>;return kept;}) : rows;
   }));
   expect(getIssue(db, "NOD-1")).toMatchObject({ status: "done", closedAt: "2026-10-19" });
   expect(listNotifications(db)).toMatchObject([{ kind: "reminder", data: { note: "既存の通知" } }]);

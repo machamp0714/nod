@@ -77,5 +77,5 @@ test("guide に追加指示の受け取り方と、記録・送信は人だけ�
   expect(GUIDE).toContain("pendingInstructions");
   expect(GUIDE).toContain("nod issue instructions <id>");
   expect(GUIDE).toContain("LLM は FORBIDDEN_FOR_LLM");
-  expect(GUIDE).toContain("担当の LLM が \`nod issue show\` で読むと確認済みになり");
+  expect(GUIDE).toContain("担当の LLM が `nod issue show` で読むと確認済みになり");
 });

@@ -3,9 +3,8 @@ import { enterClarification, leaveClarification, openQuestionCount } from "../cl
 import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
-import { addComment, recordEvent } from "../events";
+import { recordEvent } from "../events";
 import {
-  findIssueRow,
   findWritableIssueRow,
   formatIssueId,
   type IssueRow,

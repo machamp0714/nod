@@ -441,7 +441,7 @@ describe("下見の案", () => {
     const p = await previewGithubPublish(me, id, deps(fakeGh()));
     expect(p).toMatchObject({ body: description, changes: [] });
     const original = checkGithubPublishText(db, p.original, deps(fakeGh()));
-    expect(p.findings.map(({ reason: _, ...f }) => f)).toEqual(original.map(({ reason: _, ...f }) => f));
+    expect(p.findings.map(({ reason: _reason, ...f }) => f)).toEqual(original.map(({ reason: _reason, ...f }) => f));
     expect(p.findings.length).toBeGreaterThan(0);
     for (const f of p.findings) expect(f.reason).toContain("解析できなかったため");
   }, 30000);
@@ -840,6 +840,6 @@ describe("結果の分類", () => {
     [exited("HTTP/2.0 201 Created\r\n\r\n{\"number\":0,\"html_url\":\"x\"}"), "unknown"],
     [exited("HTTP/2.0 201 Created\r\n\r\n{\"number\":1,\"html_url\":\"https://github.com/example/api-server/issues/2\"}"), "unknown"],
   ])("%j → %s", (result, kind) => {
-    expect(classifyCreate(result, "example/api-server").kind).toBe(kind);
+    expect(classifyCreate(result).kind).toBe(kind);
   });
 });

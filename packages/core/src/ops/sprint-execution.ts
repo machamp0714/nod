@@ -717,7 +717,7 @@ export async function recoverSprintExecution(ctx: OpCtx, ref: string, input: Spr
   try {
     const receipt = await adapter.send(started, started.requestId!);
     return recordSprintExecutionReceipt(ctx, state.sprintId, { ...context, operationId: started.id, receipt }, clock);
-  } catch (error) {
+  } catch {
     tx(ctx.db, () => unknown(ctx.db, operationById(ctx.db, state.sprintId, started.id), "RESPONSE_UNKNOWN", "同じ既知requestの回復応答を確認できません。元要求を再照合してください"));
     return getSprintExecutionState(ctx.db, state.sprintId, clock);
   }
@@ -920,7 +920,7 @@ async function recordObservationNotification(ctx: OpCtx, ref: string, message: S
     if (result && result.inputHash !== hash) notificationConflict("同じ業務キーの内容が異なります", logicalKey, result.id, hash);
     if (!result) {
       const applied = apply!(), attempt = applied.attempts.find(a => a.id === payload.attemptId)!;
-      const observation = attempt.observationHistory?.find(o => o.messageId === message.id)!;
+      const observation = attempt.observationHistory?.find(o => o.messageId === message.id);
       result = { id: crypto.randomUUID(), logicalKey, inputHash: hash, kind: "observation", attemptId: attempt.id, observation, savedAt: timestamp(clock) };
       ctx.db.query("INSERT INTO sprint_notification_results VALUES(?,?,?,?)").run(result.id, sprintId, logicalKey, JSON.stringify(result));
     }

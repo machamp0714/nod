@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { configureScrumWorkspace, createSprint, initWorkspace, listSprints, openDb, resolveSprint } from "../src/index";
+import { configureScrumWorkspace, initWorkspace, listSprints, openDb, resolveSprint } from "../src/index";
 import { tempDbPath } from "./helpers";
 
 async function race(path:string,operation:string,ref:string,inputs:unknown[]) {

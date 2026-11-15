@@ -288,7 +288,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
   });
 
   test.each([
-    { name: "追加コミット", prs: (_: string) => [pr(OTHER)], blocker: `対象版が現在の head と違う（追加コミット。現在の head ${OTHER}）`, reported: MERGE_NG, at: "マージ可否を決める直前" },
+    { name: "追加コミット", prs: (_h: string) => [pr(OTHER)], blocker: `対象版が現在の head と違う（追加コミット。現在の head ${OTHER}）`, reported: MERGE_NG, at: "マージ可否を決める直前" },
     { name: "PR の基点の変化", prs: (h: string) => [pr(h, "develop")], blocker: "基点が変わった（レビューした基点 main、現在の基点 develop）", reported: MERGE_NG, at: "マージ可否を決める直前" },
     { name: "付ける直前の追加コミット", prs: (h: string) => [pr(h), pr(OTHER)], blocker: `対象版が現在の head と違う（追加コミット。現在の head ${OTHER}）`, reported: MERGE_OK, at: "merge-ready を付ける直前" },
     { name: "付ける直前の基点の変化", prs: (h: string) => [pr(h), pr(h, "develop")], blocker: "基点が変わった（レビューした基点 main、現在の基点 develop）", reported: MERGE_OK, at: "merge-ready を付ける直前" },

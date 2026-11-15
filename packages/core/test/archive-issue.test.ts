@@ -167,7 +167,7 @@ test("アーカイブ済みはブロッカーとして数えず、復元する�
 });
 
 test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARCHIVED で拒否する", () => {
-  const { me, llm, ws, db } = setup();
+  const { me, llm, ws } = setup();
   const other = createIssue(me, { workspaceId: ws.id, title: "別" });
   const issue = createIssue(me, { workspaceId: ws.id, title: "x" });
   startIssue(llm, issue.id);

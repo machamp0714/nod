@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // 既定の規則（correctness）をそのまま使う。規則を無効にするときは、規則の名前・理由・適用範囲を
+  // overrides の項目ごとにコメントで書き、files で適用範囲を必要なファイルだけに絞る。
+  "overrides": [
+    {
+      // 規則: no-control-regex
+      // 理由: 端末に出す・送る文字列の制御文字を除く・見える形にする処理（とそのテスト）と、ASCII の範囲（\x00-\x7f）の判定で、
+      //       意図して制御文字を正規表現に書いている
+      // 範囲: その正規表現を持つファイルだけ
+      "files": [
+        "packages/cli/src/commands/github.ts",
+        "packages/cli/src/output.ts",
+        "packages/core/src/github-draft.ts",
+        "packages/core/src/ops/instructions.ts",
+        "packages/core/test/instructions.test.ts"
+      ],
+      "rules": {
+        "no-control-regex": "off"
+      }
+    },
+    {
+      // 規則: no-empty-pattern
+      // 理由: Playwright の fixture は第1引数をオブジェクトの分割代入で書く決まりで、依存する fixture が無いときは {} と書く
+      // 範囲: Web の e2e テスト
+      "files": ["packages/web/e2e/**"],
+      "rules": {
+        "no-empty-pattern": "off"
+      }
+    }
+  ]
+}

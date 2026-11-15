@@ -36,7 +36,7 @@ describe("ダミーデータの整合", () => {
   });
 
   test("Document の添付先が存在する", () => {
-    for (const ids of [...Object.values(ISSUE_DOCUMENTS)]) {
+    for (const ids of Object.values(ISSUE_DOCUMENTS)) {
       for (const id of ids) expect(documentIds.has(id)).toBe(true);
     }
     for (const issueId of Object.keys(ISSUE_DOCUMENTS)) expect(issueIds.has(issueId)).toBe(true);

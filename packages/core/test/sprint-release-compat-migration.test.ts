@@ -32,7 +32,7 @@ test("本番系の版43をレビュー状態と関連原本と旧所属を保っ
   let db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before.map((rows, index) =>
-    tables[index] === "issues" ? rows.map(row => { const { cycle_id, ...kept } = row as Record<string, unknown>; return kept; }) : rows));
+    tables[index] === "issues" ? rows.map(row => { const { cycle_id: _cycleId, ...kept } = row as Record<string, unknown>; return kept; }) : rows));
   expect(getIssue(db, "AAA-1")).toMatchObject({ status: "in_review", questions: [{ question: "移行前の質問" }], documents: [{ title: "移行前の仕様" }] });
   expect(listSprints(db).map(sprint => [sprint.number, sprint.phase])).toEqual([[1, "imported"], [2, "imported"], [3, "imported"], [4, "imported"]]);
   const history = getSprint(db, "1");

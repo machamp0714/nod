@@ -13,7 +13,6 @@ import {
 import type { Hono } from "hono";
 import {
   type Body,
-  invalid,
   optBool,
   optInt,
   optNullableInt,
