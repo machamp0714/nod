@@ -431,6 +431,7 @@ describe("下見の案", () => {
     expect(p.findings.filter((f) => f.rule === "issue_id").map((f) => f.text)).toEqual(expect.arrayContaining(keys));
   });
 
+  // 2万段の入れ子を何度も解析・検出するため重く、遅いランナーでは既定の 5 秒を超える。bun は bunfig.toml の [test] timeout を読まないため、ここで明示する
   test("Markdown として解析できない深い入れ子でも下見は返し、自動では書き換えず、元の検出を理由つきで残す", async () => {
     const { db, me, id, deps } = fixture();
     const description = `${"> ".repeat(20_000)}${id} の続き`;
@@ -443,7 +444,7 @@ describe("下見の案", () => {
     expect(p.findings.map(({ reason: _, ...f }) => f)).toEqual(original.map(({ reason: _, ...f }) => f));
     expect(p.findings.length).toBeGreaterThan(0);
     for (const f of p.findings) expect(f.reason).toContain("解析できなかったため");
-  });
+  }, 30000);
 
   test("「..」で Workspace の外に出るパスは相対パスにせず、検出を残す。Workspace の中に戻るパスは解決して相対パスにする", async () => {
     const { db, me, id, deps } = fixture();
