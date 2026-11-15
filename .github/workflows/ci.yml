@@ -1,0 +1,37 @@
+name: CI
+
+# 基点ブランチと paths で絞らない。絞ると必須チェックが出ないまま PR が待ち続けるため。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# 自動の再試行（retry 系の action、continue-on-error）は入れない。不安定なテストを隠さないため。
+# ジョブの名前は main の必須チェックの名前なので変えない（job id と name をそろえる）。
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: macos-latest
+    steps:
+      # ref を明示しない。pull_request では GitHub 既定の合成 merge commit（PR の head と基点の組み合わせ）を検査する。
+      - uses: actions/checkout@v7
+      # Bun の版は .bun-version の 1 か所で固定する。
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: bun.lock の確認
+        run: |
+          if [ ! -f bun.lock ]; then
+            echo "::error::bun.lock がありません。依存は lockfile から固定して入れます。"
+            exit 1
+          fi
+      - name: 依存の導入
+        run: bun install --frozen-lockfile
+      - name: ルートの型検査
+        run: bun run typecheck
+      - name: Web のパッケージの型検査
+        working-directory: packages/web
+        run: bun run typecheck
