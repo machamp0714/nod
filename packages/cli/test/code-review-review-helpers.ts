@@ -101,7 +101,7 @@ export function anyFileContains(dir: string, needle: string): string[] {
   });
 }
 
-// parent.md の指紋の取り方をそのままシェルで行う（スクリプトの実装とは独立の正解）
+// parent-details.md の指紋の取り方をそのままシェルで行う（スクリプトの実装とは独立の正解）
 export function shellFingerprint(dir: string, opts: { exclude?: string; links?: boolean } = {}): string {
   const exclude = opts.exclude ? ` ! -path ./${opts.exclude}` : "";
   const files = `find . -type f${exclude} -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256`;
