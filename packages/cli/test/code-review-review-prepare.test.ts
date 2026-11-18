@@ -36,7 +36,6 @@ interface Prepare {
   head: string;
   issue: string | null;
   headSource: { kind: string; pr?: string; ref?: string } | null;
-  secrets: string[];
   clone: { ok: boolean; failed: string[]; checks: { name: string; ok: boolean }[] } | null;
   deps: { prepared: boolean; reason: string | null; manager?: string; lockfile?: string; command?: string; exitCode?: number | null; files?: number } | null;
   inputs: { path: string; sha256: string }[];
@@ -230,38 +229,31 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     expect(j.inputs.map((i) => `${i.sha256}  ./${i.path}`)).toEqual(shellFingerprint(join(W, "input"), { exclude: "manifest.md" }).trimEnd().split("\n"));
   });
 
-  test("秘密候補: 変更されたパスの名前（日本語・大文字小文字を問わない）で止め、本文を写さず未実施にする", async () => {
-    const SECRET_MARK = "SECRET-BODY-7d3a";
+  test("秘密情報を含み得る名前（.env.example など）が差分にあっても止めず、担当用の限定 clone まで進む", async () => {
     const s = sandbox();
     const nod = tempNod(s);
     const repo = makeGitRepo(s);
     registerRepo(nod.db, repo, "APP");
-    const issue = await nod.run(["--json", "issue", "create", "秘密", "--description", "ISSUE-BODY"], repo);
+    const issue = await nod.run(["--json", "issue", "create", "雛形", "--description", "ISSUE-BODY"], repo);
     const base = gitOut(repo, "rev-parse", "HEAD");
-    const bun = fakePackageManager(s, "bun");
-    const head = commit(repo, { "bun.lock": "{}\n", "設定/.ENV.本番": `TOKEN=${SECRET_MARK}\n`, "src/ok.ts": "ok\n" });
-    const W = join(s.t, "work", "secret");
+    const head = commit(repo, { ".env.example": "TOKEN=\n", "設定/.env.local.example": "TOKEN=\n", "src/ok.ts": "ok\n" });
+    const W = join(s.t, "work", "env-example");
 
     const r = await prepare(["--work", W, "--repo", repo, "--mode", "commit", "--base", base, "--head", head, "--issue", issue.json.id], s);
+    expect(r.stderr).toBe("");
     expect(r.exitCode).toBe(0);
     const j = r.json as Prepare;
-    expect(j).toMatchObject({ ready: false, status: "未実施", score: "点数なし", merge: "不可（人の判断が要る）", secrets: ["設定/.ENV.本番"], clone: null, deps: null });
-    expect(j.reason).toContain("設定/.ENV.本番");
-    expect(JSON.parse(read(join(W, "parent/prepare.json")))).toEqual(j);
-    expect(existsSync(join(W, "repo"))).toBe(false);
-    expect(existsSync(join(W, "deps"))).toBe(false);
-    expect(filesUnder(join(W, "input"))).toEqual([]);
-    expect(bun.log()).toEqual([]);
-    expect(anyFileContains(W, SECRET_MARK)).toEqual([]);
-    expect(r.stdout).not.toContain(SECRET_MARK);
+    expect(j).toMatchObject({ ready: true, status: "準備完了", reason: null, head, mergeBase: base });
+    expect(j.clone?.ok).toBe(true);
+    expect(Object.keys(j)).not.toContain("secrets");
+    expectBoundedClone(join(W, "repo"), head, base, repo);
 
-    // mode: local の指定された未追跡ファイル
-    put(join(repo, "鍵/server.PEM"), `${SECRET_MARK}\n`);
-    const W2 = join(s.t, "work", "secret-local");
+    // mode: local の指定された未追跡ファイルも同じく止めない
+    put(join(repo, "鍵/server.PEM"), "PEM\n");
+    const W2 = join(s.t, "work", "env-example-local");
     const local = await prepare(["--work", W2, "--repo", repo, "--mode", "local", "--base", base, "--untracked", "鍵/server.PEM"], s);
-    expect(local.json).toMatchObject({ ready: false, status: "未実施", secrets: ["設定/.ENV.本番", "鍵/server.PEM"] });
-    expect(anyFileContains(W2, SECRET_MARK)).toEqual([]);
-    expect(existsSync(join(W2, "input/local"))).toBe(false);
+    expect(local.json).toMatchObject({ ready: true, status: "準備完了" });
+    expect(filesUnder(join(W2, "input/local"))).toContain("untracked/鍵/server.PEM");
   });
 
   test("空差分: 委譲できない状態（未実施、理由: 差分なし）として記録する", async () => {
