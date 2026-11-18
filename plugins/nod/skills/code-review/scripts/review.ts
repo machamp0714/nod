@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // nod:code-review の親の定型作業を、段階の境目ごとのサブコマンドで行う（parent.md と付録 parent-details.md）。モデルを起動せず、テスト・Lint・ビルドを実行しない。
 // 使い方: bun review.ts <subcommand> --work <作業ディレクトリ W の絶対パス> ...
-//   prepare（parent.md 1〜2節）: 対象の固定、秘密候補・空差分の検査、担当用の限定 clone と確認、依存の写しと指紋、共通入力と目録、head を固定した元。
+//   prepare（parent.md 1〜2節）: 対象の固定、空差分の検査、担当用の限定 clone と確認、依存の写しと指紋、共通入力と目録、head を固定した元。
 //     --repo <絶対パス> --base <基点の指定> (--mode commit --head <SHA か ref> [--pr <URL>] | --mode local [--untracked <相対パス>]...)
 //     [--issue <ID> | --request <絶対パス>... | --request-doc <Document ID>...] [--work <W（存在しないか空）> | --work-root <絶対パス>]
 //     評価用の事例: --case <常設データセットの inputs/<case-id> の絶対パス> [--repo <絶対パス>]（nod を使わず case.md と requirements/ から作る）
@@ -64,8 +64,6 @@ interface Outcome {
   result: Json;
 }
 
-// パスのどこかの要素が秘密情報を含み得る名前に当たる（SKILL.md 2節、parent-details.md 2節）
-const SECRET = /(^|\/)(\.env(\.[^/]*)?|\.aws|id_(rsa|ed25519)|credentials(\.[^/]*)?|[^/]*\.(pem|key))(\/|$)/i;
 const SHA = /^[0-9a-f]{40}$/i;
 const NOT_RUN_SCORE = "点数なし";
 const NOT_RUN_MERGE = "不可（人の判断が要る）";
@@ -776,7 +774,6 @@ function prepare(args: string[]): Outcome {
     requests,
     headSource,
     startedAt,
-    secrets: [],
     changedPaths: 0,
     clone: null,
     deps: null,
@@ -808,7 +805,7 @@ function prepare(args: string[]): Outcome {
     req = c.req;
   }
 
-  // 本文を写す前に、変更されたパスの名前だけで秘密候補と空差分を調べる
+  // 変更されたパスの名前で空差分を調べる
   const names = (...args: string[]) =>
     git(repo, ...args)
       .stdout.toString()
@@ -817,10 +814,7 @@ function prepare(args: string[]): Outcome {
   const committed = names("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", mergeBase, head);
   const uncommitted = mode === "local" ? names("--no-optional-locks", "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", "HEAD") : [];
   const changed = [...new Set([...committed, ...uncommitted, ...untracked])];
-  const secrets = changed.filter((p) => SECRET.test(p));
   result.changedPaths = changed.length;
-  result.secrets = secrets;
-  if (secrets.length > 0) return notRun(`秘密情報を含み得る ${secrets.join("・")} が差分にあり、必要な範囲を利用者が確かめる必要がある`);
   if (changed.length === 0) return notRun("差分なし");
 
   // 担当用の限定 clone
