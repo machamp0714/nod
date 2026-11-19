@@ -168,11 +168,18 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const unconfirmed = input.unconfirmed ?? [];
   // 確認が残る事項は、反証の未確認（コードレベルで結論を出せないもの）と保存直前の再照合の変化だけ。評価用の模擬では保存直前の要求資料は固定時と同じ。
   const remainingChecks = status === "完了" ? [...unconfirmed] : [];
+  // 2.3節の要求の写し。10節の2（保存直前）はこれと比べる。
+  const requirement = issueRequirement(recorder.show(input.issueId));
+  mkdirSync(join(workDirectory, "input", "requirements"), { recursive: true });
+  writeFileSync(join(workDirectory, "input", "requirements", "issue.md"), requirement);
   const specMustFix = mustFix.filter(finding => finding.axis === "Spec");
+  // Spec 探索の対応表。要求の出典は行範囲で書く。
   const table = [
-    { source: "requirements/issue.md", state: specMustFix.length ? "未充足" : "充足", evidence: input.spec?.evidence ?? "Spec 探索の結果なし", candidates: specMustFix.map(finding => finding.id).join(", ") || "-" },
+    { source: `requirements/issue.md:L1-L${requirement.split("\n").length - 1}`, state: specMustFix.length ? "未充足" : "充足", evidence: input.spec?.evidence ?? "Spec 探索の結果なし", candidates: specMustFix.map(finding => finding.id).join(", ") || "-" },
     ...unconfirmed.map(check => ({ source: check.source, state: "未確認", evidence: `${check.reason}（確かめる担当: ${check.owner}）`, candidates: "-" })),
   ];
+  // 反証は充足の行を確かめ直さず、未充足・未確認の行だけを確定して判定本文に書く（評価用の模擬では Spec 探索の状態のまま確定する）。
+  const refuted = table.filter(row => row.state !== "充足");
   // 10節の8: head を固定した元（PR の headRefOid と baseRefName）から対象の現在の head と基点を取り直し、固定した head とレビューした基点と比べる（未実施では照合しない）。
   const reviewedBase = BASE_SPEC;
   const head = status === "未実施" ? null : (() => {
@@ -220,11 +227,6 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const target = `mode: commit／merge-base の SHA ${input.baseCommit}／head の SHA ${input.headCommit}`;
 
   mkdirSync(join(workDirectory, "refute"), { recursive: true });
-  // 2.3節の要求の写し。10節の2（保存直前）はこれと比べる。
-  const requirement = issueRequirement(recorder.show(input.issueId));
-  mkdirSync(join(workDirectory, "input", "requirements"), { recursive: true });
-  writeFileSync(join(workDirectory, "input", "requirements", "issue.md"), requirement);
-
   const verdictPath = join(workDirectory, "refute", "verdict.md");
   const verdict = agents.refute ? [
     "# 反証の判定", "",
@@ -240,13 +242,9 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
       `- 場所と証拠: ${finding.evidence}（${finding.commit}）`, `- 期待動作: ${finding.acceptance ?? "要求どおりに動く"}`, "- 反証の判定理由: 固定版の差分と要求の原文で再現できる", "",
     ]) : ["なし", ""]),
     "## 基点から存在する課題（別枠）", "", "なし", "",
-    "## 要求資料ごとのコード要求（確定）", "",
-    "| 要求資料 | コード要求 |", "|---|---|",
-    "| requirements/issue.md | あり |", "",
-    "## コード要求の対応表（確定）", "",
+    "## コード要求の対応表（反証で確定した行）", "",
     "| 要求の出典 | 状態 | 証拠または不足理由 | 候補ID |", "|---|---|---|---|",
-    ...table.map(row => `| ${row.source} | ${row.state} | ${row.evidence} | ${row.candidates} |`), "",
-    "## 表から除いた行", "", "なし", "",
+    ...refuted.map(row => `| ${row.source} | ${row.state} | ${row.evidence} | ${row.candidates} |`), "",
     "## 未確認と理由", "",
     ...(unconfirmed.length ? [
       "| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |", "|---|---|---|---|---|---|",
@@ -262,6 +260,7 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
   const headLine = head
     ? `- 現在の head と基点の照合: 現在の head ${head.currentHead}（${head.headOk ? "固定した head と一致" : "不一致。対象版が現在の head と違う（追加コミット）"}）、現在の基点 ${head.currentBase}（${head.baseOk ? `レビューした基点 ${reviewedBase} と一致` : `レビューした基点 ${reviewedBase} と不一致。基点が変わった`}）。取得: \`${head.command}\`（${head.at}）。記録: \`${join(workDirectory, "parent", "head-check.md")}\``
     : "- 現在の head と基点の照合: 照合せず（未実施）";
+  const cell = (text: string) => text.replaceAll("|", "\\|").replace(/\r?\n/g, " ");
   const audit = [
     "## 管理情報（親が記入）", "",
     `- runId: ${runId}`, `- 作業ディレクトリ: ${workDirectory}`,
@@ -280,6 +279,13 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
     ...(remainingChecks.length ? ["| 要求の出典 | 確かめる担当 | 理由 |", "|---|---|---|", ...remainingChecks.map(check => `| ${check.source} | ${check.owner} | ${check.reason} |`)] : ["なし"]), "",
     "### 保存時の要求変化の確認", "",
     `- requirements/issue.md: 固定時と保存直前の sha256 ${sha256(requirement)} が一致（変化なし。評価用の模擬）`, "",
+    "### コード要求の対応表（確定）", "",
+    `Spec 探索の対応表に、反証が判定本文に書いた行（Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行）を重ねた表（記録: \`${join(workDirectory, "parent", "refute-structure.json")}\`）。確定した担当が「Spec 探索」の行は、反証が確かめ直さず Spec 探索の判定をそのまま使った充足の行。`, "",
+    ...(verdict === null ? ["なし（反証の有効な結果なし）"] : [
+      "要求資料ごとのコード要求（Spec 探索の引き渡し）: `requirements/issue.md` あり", "",
+      "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |", "|---|---|---|---|---|---|",
+      ...table.map(row => `| ${cell(row.source)} | ${row.state} | ${refuted.includes(row) ? "反証" : "Spec 探索"} | ${row.state} | ${cell(row.evidence)} | ${row.candidates === "-" ? "なし" : cell(row.candidates)} |`),
+    ]), "",
     "### 担当", "",
     "| 役割 | 定義名 | 担当 ID | 終了状態 |", "|---|---|---|---|",
     ...roles.map(([role, name, definition]) => `| ${name} | ${definition} | ${agents[role]?.id ?? "未取得"} | ${agents[role] ? "有効な結果を受領" : launched(role) ? "有効な結果なし" : "未起動"} |`),
@@ -306,7 +312,6 @@ export function recordInitialReview(input: InitialReviewInput, recorder: ReviewR
 
   const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const auditDocument = recorder.createDocument(input.issueId, `${input.issueId.toLowerCase()}-code-review-audit-${date}-${shortRun}.md`, `${input.issueId} コードレビュー監査（${shortRun}）`, audit);
-  const cell = (text: string) => text.replaceAll("|", "\\|").replace(/\r?\n/g, " ");
   const report = [
     "## 結果", "",
     `- 最終状態: ${statusLine}`,
