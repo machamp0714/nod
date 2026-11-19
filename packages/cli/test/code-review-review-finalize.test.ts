@@ -16,6 +16,7 @@ import {
   runReview,
   type Sandbox,
   sandbox,
+  sha256,
   type TempNod,
   tempNod,
 } from "./code-review-review-helpers";
@@ -34,11 +35,15 @@ const LOCAL = "未コミット変更のレビュー（mode: local）。commit �
 const NO_CI = /ci-(?:result|checks)|CI 判定|parent\/ci\b/;
 // 廃止した CI の再照合のサブコマンド名
 const OLD_RECHECK = ["recheck", "ci"].join("-");
-// finalize の結果の JSON の項目（CI の照合の記録と評価用の別の判定は無い）
-const FINALIZE_KEYS = ["audit", "auditSha256", "blockers", "documents", "head", "label", "logProblem", "logs", "merge", "mode", "ok", "reason", "recheck", "remaining", "remainingCount", "report", "reportSha256", "reportStartedAt", "reportedMerge", "runId", "saveProblems", "saved", "savedAt", "score", "scoreValue", "status", "subcommand", "usage"];
+// finalize の結果の JSON の項目（CI の照合の記録と評価用の別の判定は無い。保存後の片付けの結果 cleanup がある）
+const FINALIZE_KEYS = ["audit", "auditSha256", "blockers", "cleanup", "documents", "head", "label", "logProblem", "logs", "merge", "mode", "ok", "reason", "recheck", "remaining", "remainingCount", "report", "reportSha256", "reportStartedAt", "reportedMerge", "runId", "saveProblems", "saved", "savedAt", "score", "scoreValue", "status", "subcommand", "usage"];
 // nod の作業ログの上限（packages/core/src/work-log.ts の WORK_LOG_MAX_LENGTH。コードポイントで数える）
 const LOG_MAX = 4000;
 const codePoints = (text: string) => [...text].length;
+// prepareCaseWork が commit する lockfile の本文（片付けの記録に書く sha256 の独立の正解）
+const CASE_LOCKFILE = '{ "lockfileVersion": 1 }\n';
+// prepare が書いた限定 clone・依存の準備の記録の sha256（保存後の片付けでは変えない）
+const preparedRecords = (W: string) => ["parent/clone.md", "parent/deps/record.md"].map((rel) => `${rel}: ${sha256(readFileSync(join(W, rel)))}`);
 
 interface Remaining {
   ref: string;
@@ -69,6 +74,7 @@ interface Finalize {
   logProblem: string | null;
   reportStartedAt: string;
   savedAt: string;
+  cleanup: { at: string; removed: string[]; absent: string[]; problems: string[] };
 }
 interface Activity {
   kind: string;
@@ -203,6 +209,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
   test("正常保存: CI を照合せず、完了・点数5・確認が残る事項0・現在の head と基点がレビューした版と同じなら可にし、監査→結果の順に2つの Document を保存して照合し、要約の作業ログ・merge-ready・[merge-ready] で始まる progress の作業ログ1件を残す", async () => {
     const s = sandbox();
     const { x, p, gh, verdict } = await cleanIssueReview(s, "ok");
+    const records = preparedRecords(p.W);
 
     const r = await finalize(s, p);
     expect(r.stderr).toBe("");
@@ -219,6 +226,26 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(gh.calls().length).toBeGreaterThan(0);
     expect(gh.calls().filter((c) => c.join(" ") !== `pr view ${PR} --json headRefOid,baseRefName`)).toEqual([]);
     expect(existsSync(join(p.W, "parent/ci"))).toBe(false);
+
+    // 保存の後に限定 clone を片付け（このリポジトリは lockfile が無く依存の写しを準備していない）、結果と消す前の head・merge-base を parent/cleanup.md に書く。prepare の記録は変えない
+    expect(f.cleanup).toMatchObject({ removed: ["repo"], absent: ["deps"], problems: [] });
+    expect(f.savedAt <= f.cleanup.at).toBe(true);
+    expect(existsSync(p.clone)).toBe(false);
+    expect(existsSync(join(p.W, "deps"))).toBe(false);
+    const cleanup = read(join(p.W, "parent/cleanup.md"));
+    expect(cleanup).toContain(`- 限定 clone \`${p.clone}\`: 片付けた（${f.cleanup.at}）`);
+    expect(cleanup).toContain(`- 依存の写し \`${join(p.W, "deps")}/\`: 無かった（準備していない）`);
+    expect(cleanup).toContain("- lockfile: なし");
+    expect(cleanup).toContain("- 指紋の一覧 `input/deps-files.sha256` の sha256: なし");
+    expect(cleanup).toContain(`- head: \`${x.head}\``);
+    expect(cleanup).toContain(`- merge-base: \`${x.base}\``);
+    expect(cleanup).toContain(`- 元のリポジトリ: \`${x.repo}\``);
+    expect(preparedRecords(p.W)).toEqual(records);
+    // 監査・結果の原稿と記録、担当の入力と反証の判定本文は残す
+    for (const rel of ["parent/report.md", "parent/audit.md", "parent/finalize.json", "parent/prepare.json", "input/target.md", "input/manifest.md", "refute-input/target.md", "refute/verdict.md"]) {
+      expect(`${rel}: ${existsSync(join(p.W, rel))}`).toBe(`${rel}: true`);
+    }
+    expect(read(join(p.W, "refute/verdict.md"))).toBe(verdict);
 
     // 2つの Document: kind=doc で Issue にリンクし、タイトル見出しを除いた本文が原稿と同じ。監査の印の間は反証の判定本文の原文のまま
     const auditId = f.documents?.audit.id as number;
@@ -480,6 +507,89 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     const fe = (await finalize(s, e)).json as Finalize;
     expect(fe).toMatchObject({ status: "完了", scoreValue: 5, remainingCount: 0, merge: MERGE_OK, blockers: [] });
     expect(nodCalls()).toBe("");
+  });
+
+  test("保存後の片付け: 評価用の事例の完了・未完了（反証を無効にした）・未実施のどれでも、保存を終えた後に依存の写し deps/ と限定 clone repo/ を消し、結果と消す前の lockfile・指紋の一覧・head の識別情報を parent/cleanup.md に書く。prepare の記録・監査・結果の原稿は変えずに残し、nod を使わない", async () => {
+    const s = sandbox();
+    const nodCalls = forbiddenNod(s);
+    const done = await prepareCaseWork(s, "cleanup-done");
+    const records = new Map([[done.W, preparedRecords(done.W)]]);
+    await reachRefute(s, done, refuteVerdict(done, { clean: true }));
+    await must(s, done, "check-refute");
+    const stopped = await prepareCaseWork(s, "cleanup-stopped");
+    records.set(stopped.W, preparedRecords(stopped.W));
+    await reachRefute(s, stopped, refuteVerdict(stopped));
+    await must(s, stopped, "retire-attempt", ["--role", "refute", "--failure", "invalid", "--reason", "7節の4: 形式違反"]);
+    const notRun = await prepareCaseWork(s, "cleanup-not-run");
+    records.set(notRun.W, preparedRecords(notRun.W));
+    const runs: [PreparedWork, string[], string][] = [
+      [done, [], "完了"],
+      [stopped, [], "未完了"],
+      [notRun, ["--not-run-reason", "利用者が中止した"], "未実施"],
+    ];
+    for (const [p, args, status] of runs) {
+      // 保存の前（担当が読む間）は写しと clone がある
+      expect(existsSync(join(p.W, "deps/node_modules/left-pad/index.js"))).toBe(true);
+      expect(existsSync(join(p.clone, ".git"))).toBe(true);
+      const listSha = sha256(readFileSync(join(p.W, "input/deps-files.sha256")));
+      const r = await finalize(s, p, args);
+      expect(r.exitCode).toBe(0);
+      const f = r.json as Finalize;
+      expect(f.status).toBe(status);
+      expect(f.cleanup).toMatchObject({ removed: ["deps", "repo"], absent: [], problems: [] });
+      expect(f.savedAt <= f.cleanup.at).toBe(true);
+      expect(JSON.parse(read(join(p.W, "parent/finalize.json"))).cleanup).toEqual(f.cleanup);
+      expect(existsSync(join(p.W, "deps"))).toBe(false);
+      expect(existsSync(p.clone)).toBe(false);
+      const cleanup = read(join(p.W, "parent/cleanup.md"));
+      expect(cleanup).toContain(`- 依存の写し \`${join(p.W, "deps")}/\`: 片付けた（${f.cleanup.at}）`);
+      expect(cleanup).toContain(`- 限定 clone \`${p.clone}\`: 片付けた（${f.cleanup.at}）`);
+      expect(cleanup).toContain(`- lockfile: \`bun.lock@${p.head}\`（sha256 \`${sha256(CASE_LOCKFILE)}\`）`);
+      expect(cleanup).toContain(`- 指紋の一覧 \`input/deps-files.sha256\` の sha256: \`${listSha}\``);
+      expect(cleanup).toContain(`- head: \`${p.head}\``);
+      expect(cleanup).toContain(`- merge-base: \`${p.base}\``);
+      expect(cleanup).toContain(`- 元のリポジトリ: \`${p.repo}\``);
+      expect(preparedRecords(p.W)).toEqual(records.get(p.W) ?? []);
+      // 監査・結果の原稿と記録、担当の入力は残す。監査は片付けることと結果の場所を書く（限定 clone と依存の写しの2行）
+      for (const rel of ["parent/report.md", "parent/audit.md", "parent/prepare.json", "parent/deps/setup.log", "input/target.md", "input/manifest.md", "input/deps-files.sha256"]) {
+        expect(`${rel}: ${existsSync(join(p.W, rel))}`).toBe(`${rel}: true`);
+      }
+      expect(sha256(readFileSync(join(p.W, "input/deps-files.sha256")))).toBe(listSha);
+      const audit = read(join(p.W, "parent/audit.md"));
+      expect(audit.split(`保存の後に片付け、結果を \`${join(p.W, "parent/cleanup.md")}\` と finalize の結果の cleanup に書く`)).toHaveLength(3);
+    }
+    expect(nodCalls()).toBe("");
+  });
+
+  test("保存後の片付けに失敗しても、終了コード・最終状態・保存・マージ可否を変えず、失敗の理由を cleanup.problems と parent/cleanup.md に残す", async () => {
+    const s = sandbox();
+    forbiddenNod(s);
+    const p = await prepareCaseWork(s, "cleanup-fail");
+    const records = preparedRecords(p.W);
+    await reachRefute(s, p, refuteVerdict(p, { clean: true }));
+    await must(s, p, "check-refute");
+    // 書き込めないディレクトリの中は消せない
+    const locked = join(p.W, "deps/node_modules");
+    chmodSync(locked, 0o555);
+    try {
+      const r = await finalize(s, p);
+      expect(r.exitCode).toBe(0);
+      const f = r.json as Finalize;
+      expect(f).toMatchObject({ status: "完了", saved: true, saveProblems: [], merge: MERGE_OK, blockers: [] });
+      expect(f.cleanup.removed).toEqual(["repo"]);
+      expect(f.cleanup.absent).toEqual([]);
+      expect(f.cleanup.problems).toHaveLength(1);
+      expect(f.cleanup.problems[0]?.startsWith("deps/ を片付けられない（")).toBe(true);
+      expect(JSON.parse(read(join(p.W, "parent/finalize.json"))).cleanup).toEqual(f.cleanup);
+      expect(existsSync(locked)).toBe(true);
+      expect(existsSync(p.clone)).toBe(false);
+      const cleanup = read(join(p.W, "parent/cleanup.md"));
+      expect(cleanup).toContain(`- 依存の写し \`${join(p.W, "deps")}/\`: 片付けられなかった（${f.cleanup.at}。`);
+      expect(cleanup).toContain(`- 限定 clone \`${p.clone}\`: 片付けた（${f.cleanup.at}）`);
+      expect(preparedRecords(p.W)).toEqual(records);
+    } finally {
+      chmodSync(locked, 0o755);
+    }
   });
 
   test("作業ログの上限: 確認が残る事項が多く 4000 字を超える要約も、必須の項目を残して収まらない事項の件数と参照先を書き、実際の nod に保存する", async () => {

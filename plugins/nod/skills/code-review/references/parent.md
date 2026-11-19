@@ -279,7 +279,7 @@ bun <スキルのディレクトリ>/scripts/review.ts finalize --work <W の絶
 
 `finalize` が10節に続けて行う。親は報告を手で書かず、`nod doc create`・`nod issue log`・`nod issue update` を手で実行しない。
 
-報告の中身、Document の保存と照合、作業ログ、merge-ready ラベル、作業ディレクトリに残すものの規則は付録の11節にある。
+報告の中身、Document の保存と照合、作業ログ、merge-ready ラベル、作業ディレクトリに残すものと保存の後に片付けるもの（依存の写しと限定 clone）の規則は付録の11節にある。
 
 ## 12. 後続
 

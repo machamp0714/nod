@@ -2746,10 +2746,10 @@ function renderAudit(c: ReportContext): string {
     headLine,
     `- merge-ready: ${c.labelPlan}。報告の保存と作業ログの直後に行う操作として書く。ラベルは現在の判定の表示で、自動マージの指示ではない。操作の結果は、判定した head SHA・現在の head と基点の照合・レビューした基点・マージ可否・この報告の Document ID・runId とともに、本文が ${MERGE_READY_LOG} で始まる --kind progress の作業ログに記録する`,
     `- 対象版: 元のリポジトリ \`${prep.repo}\`／基点の指定 \`${prep.base}\`／merge-base \`${prep.mergeBase}\`／head \`${prep.head}\`／mode ${prep.mode}${prep.mode === "local" ? `（土台の HEAD \`${prep.head}\`、${prep.inputs.filter((i) => i.path.startsWith("local/")).map((i) => `\`${i.path}\` ${i.sha256}`).join("・")}）` : ""}${prep.caseDir ? `／評価用の事例 ${prep.case}` : ""}`,
-    `- 担当用の限定 clone: ${W("repo")}（記録: ${W("parent/clone.md")}）。prepare の確認: ${prep.clone ? (prep.clone.checks.every((x) => x.ok) ? "すべて通った" : "通らない確認がある") : "作っていない"}。段階ごとの同一性の確認 ${identities.length} 回（不一致 ${identities.filter((i) => !i.ok).length} 回。記録: ${W("parent/identity.md")}）`,
+    `- 担当用の限定 clone: ${W("repo")}（記録: ${W("parent/clone.md")}）。prepare の確認: ${prep.clone ? (prep.clone.checks.every((x) => x.ok) ? "すべて通った" : "通らない確認がある") : "作っていない"}。段階ごとの同一性の確認 ${identities.length} 回（不一致 ${identities.filter((i) => !i.ok).length} 回。記録: ${W("parent/identity.md")}）。保存の後に片付け、結果を ${W("parent/cleanup.md")} と finalize の結果の cleanup に書く`,
     `- 依存の写し: ${
       deps?.prepared
-        ? `${W("deps/")}、lockfile \`${deps.lockfile}\`（sha256 ${deps.lockfileSha256}）、${deps.manager} ${deps.version}、準備のコマンド \`${deps.command}\`（終了コード ${deps.exitCode}）、取得元 ${deps.registry}、指紋の一覧 \`input/deps-files.sha256\`（sha256 ${fileSha(join(work, "input/deps-files.sha256"))}、ファイル ${deps.files} 件・リンク ${deps.links} 件）`
+        ? `${W("deps/")}、lockfile \`${deps.lockfile}\`（sha256 ${deps.lockfileSha256}）、${deps.manager} ${deps.version}、準備のコマンド \`${deps.command}\`（終了コード ${deps.exitCode}）、取得元 ${deps.registry}、指紋の一覧 \`input/deps-files.sha256\`（sha256 ${fileSha(join(work, "input/deps-files.sha256"))}、ファイル ${deps.files} 件・リンク ${deps.links} 件）。保存の後に片付け、結果を ${W("parent/cleanup.md")} と finalize の結果の cleanup に書く`
         : `依存の写しなし（${deps?.reason ?? "準備していない"}）`
     }`,
     `- 未コミット変更の差分確認: ${c.local ? `${c.local.at} に土台の HEAD ${c.local.head} と差分を取り直した（${W("parent/local-recheck/")}）。${c.local.changed.length > 0 ? `変化あり: ${c.local.changed.map((x) => `${x.path}（${x.detail}）`).join("・")}（確認が残る事項に入れた）` : "変化なし"}` : "対象外（mode: commit）"}`,
@@ -3079,6 +3079,67 @@ function summaryLog(c: ReportContext, reportId: number | null, auditId: number |
   ]);
 }
 
+// ---- 保存後の片付け（parent-details.md 11節） ----
+
+interface Cleanup {
+  at: string;
+  // 存在して消せたもの・最初から無かったもの・片付けと記録の書き出しの失敗の理由
+  removed: ("deps" | "repo")[];
+  absent: ("deps" | "repo")[];
+  problems: string[];
+}
+
+// 保存を終えた後に依存の写し <W>/deps と限定 clone <W>/repo を消し、結果と消す前の識別情報を新しい記録 parent/cleanup.md に書く
+// （parent/clone.md・parent/deps/ の既存の記録は変えない）。失敗しても例外を投げず理由を problems に入れ、レビューの結果・保存・マージ可否は変えない
+function cleanupWork(work: string, prep: Prepared): Cleanup {
+  const cleanup: Cleanup = { at: now(), removed: [], absent: [], problems: [] };
+  const states = { deps: "", repo: "" };
+  const missing = { deps: "無かった（準備していない）", repo: "無かった（作っていない）" };
+  for (const name of ["deps", "repo"] as const) {
+    const path = join(work, name);
+    if (!existsSync(path)) {
+      cleanup.absent.push(name);
+      states[name] = missing[name];
+      continue;
+    }
+    try {
+      rmSync(path, { recursive: true, force: true });
+      if (existsSync(path)) throw new Error("消した後も残っている");
+      cleanup.removed.push(name);
+      states[name] = `片付けた（${cleanup.at}）`;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      cleanup.problems.push(`${name}/ を片付けられない（${message}）`);
+      states[name] = `片付けられなかった（${cleanup.at}。${message}）`;
+    }
+  }
+  const deps = prep.deps;
+  const list = join(work, "input/deps-files.sha256");
+  const text = [
+    "# 保存後の片付け",
+    "",
+    `- 依存の写し \`${join(work, "deps")}/\`: ${states.deps}`,
+    `- 限定 clone \`${join(work, "repo")}\`: ${states.repo}`,
+    "",
+    "## 片付ける前の識別情報",
+    "",
+    `- lockfile: ${deps?.lockfile ? `\`${deps.lockfile}@${prep.head}\`（sha256 \`${deps.lockfileSha256}\`）` : "なし"}`,
+    `- 指紋の一覧 \`input/deps-files.sha256\` の sha256: ${existsSync(list) ? `\`${sha256(readFileSync(list))}\`` : "なし"}`,
+    `- head: \`${prep.head}\``,
+    `- merge-base: \`${prep.mergeBase}\``,
+    `- 元のリポジトリ: \`${prep.repo}\``,
+    `- 限定 clone は元のリポジトリから \`parent/clone.md\` の「作成」の手順で作り直せる（<clone> は \`${join(work, "repo")}\`、<head> は上の head）`,
+    "- 依存の写しの同一性は lockfile の sha256 と `input/deps-files.sha256` で確かめ直せる",
+    "",
+  ].join("\n");
+  try {
+    writeFileSync(join(work, "parent/cleanup.md"), text);
+  } catch (e) {
+    cleanup.problems.push(`parent/cleanup.md を書けない（${e instanceof Error ? e.message : String(e)}）`);
+  }
+  return cleanup;
+}
+
 // ---- finalize（parent.md・parent-details.md 10節・11節） ----
 
 function finalize(args: string[]): Outcome {
@@ -3159,6 +3220,8 @@ function finalize(args: string[]): Outcome {
   }
   // 保存・照合の失敗や付ける直前の head・基点の変化で付けなかったときは、マージ可否を不可として扱う（報告 Document は書き換えない）
   const blockers = label ? label.blockers : saved ? decision.blockers : [...decision.blockers, `報告の照合に失敗（${problems.join("、")}）`];
+  // 11節: 保存・作業ログ・merge-ready を終えた後に、最終状態にかかわらず依存の写しと限定 clone を片付ける（担当が読む前・保存の照合の前には消さない）
+  const cleanup = cleanupWork(work, prep);
   const record: Json = {
     runId,
     mode,
@@ -3194,6 +3257,7 @@ function finalize(args: string[]): Outcome {
       final: { from: measured.final.from, to: measured.final.to, seconds: measured.final.seconds, parentTotalTokens: measured.final.parent.tally?.totalTokens ?? null },
       comparison: { from: measured.comparison.from, to: measured.comparison.to, seconds: measured.comparison.seconds, parentTotalTokens: measured.comparison.parent.tally?.totalTokens ?? null },
     },
+    cleanup,
   };
   return { work, result: record };
 }

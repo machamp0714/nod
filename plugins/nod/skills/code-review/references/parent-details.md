@@ -25,14 +25,14 @@
 
 | 場所 | 用途 | 書く人 | 読む人 |
 |---|---|---|---|
-| `repo/` | 担当用の限定 clone（全担当の対象リポジトリ） | 親 | 全担当 |
-| `deps/` | 依存の写し（準備できたときだけ） | 親 | 全担当 |
+| `repo/` | 担当用の限定 clone（全担当の対象リポジトリ。`finalize` が保存の後に片付ける） | 親 | 全担当 |
+| `deps/` | 依存の写し（準備できたときだけ。`finalize` が保存の後に片付ける） | 親 | 全担当 |
 | `input/` | 共通入力（全担当へ同じもの） | 親 | 両探索担当 |
 | `standards/` | Standards 探索の `handoff.md` と `notes/` | Standards 探索担当 | 親（検査） |
 | `spec/` | Spec 探索の `handoff.md` と `notes/` | Spec 探索担当 | 親（検査） |
 | `refute-input/` | 反証への入力（検査済みの引き渡し用ファイルと共通入力の写し） | 親 | 反証担当 |
 | `refute/` | 反証の `verdict.md` と `notes/` | 反証担当 | 親（検査） |
-| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と、現在の head と基点をレビューした head と基点に比べた照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、委譲の記録 `parent/agents.md`、段階（サブコマンド）の開始・終了の記録 `parent/stages.md`、検査記録 `parent/checks.md`、段階ごとの同一性の確認 `parent/identity.md`、反証への入力の指紋 `parent/fingerprints.md`、担当の入力境界の事実 `parent/boundary.md`（0.1節）（それぞれ同じ名前の `.json` も）、反証の判定本文から読み取った構造 `parent/refute-structure.json`、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、保存直前の取り直し `parent/requirements-recheck/`・`parent/local-recheck/`、報告の原稿 `parent/report.md`・`parent/audit.md` と `finalize` の結果 `parent/finalize.json`、区間の時間と使用量 `parent/usage.json`・`parent/usage.md`（14節）、各サブコマンドの結果 `parent/<サブコマンド>.json`） | 親 | 親だけ |
+| `parent/` | 親専用領域（準備の結果 `parent/prepare.json`、Issue の取得結果 `parent/issue-snapshot.json`、元のリポジトリのパスと限定 clone の確認の記録 `parent/clone.md`、head を固定した元 `parent/head-source.md` と、現在の head と基点をレビューした head と基点に比べた照合 `parent/head-check.md`、依存の準備の記録 `parent/deps/`、委譲の記録 `parent/agents.md`、段階（サブコマンド）の開始・終了の記録 `parent/stages.md`、検査記録 `parent/checks.md`、段階ごとの同一性の確認 `parent/identity.md`、反証への入力の指紋 `parent/fingerprints.md`、担当の入力境界の事実 `parent/boundary.md`（0.1節）（それぞれ同じ名前の `.json` も）、反証の判定本文から読み取った構造 `parent/refute-structure.json`、無効な試行の出力と記録 `parent/attempts/`・`parent/attempts.md`、保存直前の取り直し `parent/requirements-recheck/`・`parent/local-recheck/`、報告の原稿 `parent/report.md`・`parent/audit.md` と `finalize` の結果 `parent/finalize.json`、保存後の片付けの記録 `parent/cleanup.md`（11節）、区間の時間と使用量 `parent/usage.json`・`parent/usage.md`（14節）、各サブコマンドの結果 `parent/<サブコマンド>.json`） | 親 | 親だけ |
 
 ### 2.1 担当用の限定 clone
 
@@ -175,6 +175,7 @@
 - `logs`（要約の作業ログの id `summary`、`[merge-ready]` で始まる作業ログの id `mergeReady`）、`label`（merge-ready の `operation` と `error`。Issue なしは `扱わない（Issue なし）`、評価用の事例は `扱わない（評価用の事例）`）、`logProblem`（要約の作業ログを書けなかった理由。終了コードと nod のエラー文）
 - `reportStartedAt`（報告の組み立て・保存の直前の時刻）・`savedAt`（保存と保存後の指紋照合が終わった時刻）
 - `usage`（14節の3つの値の範囲・時間・親の合計トークンと、記録 `parent/usage.json` のパス）
+- `cleanup`（11節の保存後の片付け。`at`（時刻）・`removed`（片付けた `deps`・`repo`）・`absent`（初めから無かったもの）・`problems`（片付けられなかった理由と、`parent/cleanup.md` を書けなかった理由）。片付けに失敗しても他の欄は変えない）
 
 ## 11. 報告を作り、保存する（スクリプト）
 
@@ -194,7 +195,10 @@ Issue がある場合は、最終状態にかかわらず監査・結果をそ�
 - どちらの作業ログも nod の作業ログの上限（4000 字。コードポイントで数える）に収まるように書かれる。上に挙げた項目は残し、収まらない一覧（要対応・確認が残る事項・無効な試行・保存の問題・不可の理由）は先頭から収まる分だけ書いて「ほか N 件は<全文の場所>を参照」と件数を明示する（全文の場所は、要約では結果 Document と監査 Document、`[merge-ready]` では `parent/finalize.json` の `blockers`）。項目を途中で切ったときは、切ったことと全文の場所をその項目に書く。nod が作業ログを拒否したとき（上限の超過や既知の形の秘密値など）は、終了コードと nod のエラー文が `logProblem`（要約）・`label.error`（`[merge-ready]`）に残り、書けなかったものとして扱う。
 - Issue の無い単独レビューは、`parent/report.md` と `parent/audit.md` を残し、結果から監査（`parent/audit.md` の絶対パス）へ参照する。作業ログは書かず、merge-ready ラベルは扱わない。チャットでは短い結果だけを返す。
 - 評価用の事例（`prepare --case`）では nod へ保存せず、`parent/report.md`・`parent/audit.md` までにし、ラベルも扱わない（現在の head と基点を照合しなかったことは監査に「照合せず（評価用の事例）」と書かれる）。
-- 要求の写し・限定 clone と `parent/clone.md`・引き渡し用ファイル・メモ・反証の結果・保存直前の取り直し（`parent/requirements-recheck/`・`parent/local-recheck/`）・無効な試行の記録（`parent/attempts/`・`parent/attempts.md`）・現在の head と基点の照合（`parent/head-check.md`）・`parent/finalize.json` と構造（`parent/refute-structure.json`）は作業ディレクトリに残す。依存の写し（`deps/`）は保存を終えた後に片付けてよい（lockfile の sha256 と `deps-files.sha256` で同一性を確かめ直せる）。片付けたら、そのことと時刻を `parent/deps/` の記録に書き足す。
+- 要求の写し・`parent/clone.md`・引き渡し用ファイル・メモ・反証の結果・保存直前の取り直し（`parent/requirements-recheck/`・`parent/local-recheck/`）・無効な試行の記録（`parent/attempts/`・`parent/attempts.md`）・現在の head と基点の照合（`parent/head-check.md`）・`parent/finalize.json` と構造（`parent/refute-structure.json`）・保存後の片付けの記録（`parent/cleanup.md`）は作業ディレクトリに残す。
+- 依存の写し（`deps/`）と担当用の限定 clone（`repo/`）は、`finalize` が報告の保存・作業ログ・merge-ready の処理を終えた後に、最終状態にかかわらず片付ける（Issue なし・評価用の事例では `parent/report.md`・`parent/audit.md` の書き出しの後）。担当が読む段階（探索・反証）や保存の照合の前には片付けない。`finalize` が途中で例外になり `parent/finalize.json` が書かれなかったとき（実行し直せるとき）も片付けない。親は手で消さない。
+- 片付けの結果は `parent/cleanup.md` と `finalize` の結果の `cleanup`（10節）に書かれる。`parent/cleanup.md` には、依存の写しと限定 clone のそれぞれについて「片付けた（時刻）」「無かった（準備していない／作っていない）」「片付けられなかった（時刻。エラー文）」と、片付ける前の識別情報（lockfile `<パス>@<head>` とその sha256、`input/deps-files.sha256` の sha256、head と merge-base、元のリポジトリ）が入る。限定 clone は元のリポジトリから `parent/clone.md` の「作成」の手順で作り直せ、依存の写しの同一性は lockfile の sha256 と `deps-files.sha256` で確かめ直せる。`parent/clone.md`・`parent/deps/` の既存の記録は書き換えない（監査の原本の表に載せた `parent/clone.md` の指紋が合うままにする）。
+- 片付けに失敗しても、最終状態・報告の保存・マージ可否・終了コードは変えず、理由を `cleanup.problems` と `parent/cleanup.md` に残す。
 
 ## 14. 区間の時間と使用量（計測）
 
