@@ -248,6 +248,36 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     }
   });
 
+  test("要求の出典の行範囲: 充足の行は同じ要求資料の複数範囲をまとめ、証拠を場所だけにしてよい。行範囲の無い出典・別の要求資料の混在・requirements/ に無い要求資料・未充足と未確認の行の複数範囲・出典の重複は形式違反にする", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const x = steps(s, p);
+    const L3 = "| `requirements/issue.md:L3` | 未確認 | 依存の独自パッチの契約が入力に無い | SPC-1 |";
+    const files = ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | あり |"];
+    const merged = exploreHandoff("spec", p, {
+      files,
+      table: [L3, "| `requirements/issue.md:L1-L2`、`requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1`、`src/a.ts@HEAD:L1-L1` | なし |", "| `requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"],
+    });
+    await x.delegate("spec", "a1", merged);
+    expect((await x.check("spec")).json).toMatchObject({ valid: true, violations: [] });
+
+    const cases: [string, string[], string][] = [
+      ["行範囲の無い出典", ["| `requirements/issue.md` | 充足 | `src/a.ts@HEAD:L1` | なし |"], "requirements/issue.md"],
+      ["行番号の無い要求の名前", ["| a は 1 を返す | 充足 | `src/a.ts@HEAD:L1` | なし |"], "a は 1 を返す"],
+      ["別の要求資料の範囲の混在", ["| `requirements/issue.md:L4`、`requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"], "requirements/workspace-rules.md:L3"],
+      ["requirements/ に無い要求資料", ["| `requirements/spec-9.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"], "requirements/spec-9.md"],
+      ["未確認の行の複数範囲", ["| `requirements/issue.md:L3`、`requirements/issue.md:L4` | 未確認 | 依存の独自パッチの契約が入力に無い | SPC-1 |"], "requirements/issue.md:L3、requirements/issue.md:L4"],
+      ["未充足の行の複数範囲", ["| `requirements/issue.md:L1-L2`、`requirements/issue.md:L4` | 未充足 | 失敗を記録しない（`src/a.ts@HEAD:L1`） | SPC-1 |"], "requirements/issue.md:L1-L2、requirements/issue.md:L4"],
+      ["出典の重複（表記差だけ）", ["| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |", "| requirements/issue.md:L4 | 充足 | `src/a.ts@HEAD:L1` | なし |"], "requirements/issue.md:L4"],
+    ];
+    for (const [name, rows, needle] of cases) {
+      put(join(p.W, "spec/handoff.md"), exploreHandoff("spec", p, { files, table: [L3, ...rows] }));
+      const r = await x.check("spec");
+      expect(`${name}: ${r.json?.valid}`).toBe(`${name}: false`);
+      expect(`${name}: ${messages(r.json, 6)}`).toContain(needle);
+    }
+  });
+
   test("表記差と実欠落: 見出しの番号・「なし（注記）」・同じ候補の理由／不足箇所の項目は受理し、項目名の言い換え・別の欄の SHA・ほかの欄／候補／節にだけある理由・値でない記載（両方・雛形のまま・注記の後ろの値）は拒否する", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type PreparedWork, prepareCaseWork, put, reachRefute, refuteVerdict, runReview, type Sandbox, sandbox, sha256 } from "./code-review-review-helpers";
+import { type PreparedWork, prepareCaseWork, put, reachRefute, refuteVerdict, runReview, SPEC_TABLE, type Sandbox, sandbox, sha256 } from "./code-review-review-helpers";
 
 interface Identity {
   stage: string;
@@ -23,7 +23,8 @@ interface CheckRefute {
   structure: string | null;
 }
 
-// check-refute が親専用領域に残す反証の判定本文の構造（後の段階が点数・確認が残る事項を算出する）
+// check-refute が親専用領域に残す反証の判定本文の構造（後の段階が点数・確認が残る事項を算出する）。
+// files は Spec 探索の引き渡しの要求資料ごとのコード要求、table は Spec 探索の対応表に判定本文の行を重ねた確定した対応表
 interface Structure {
   attempt: number;
   sha256: string;
@@ -31,8 +32,7 @@ interface Structure {
   decisions: { id: string; finder: string; verdict: string; impact: number | null; cause: string | null; reason: string }[];
   required: { heading: string; title: string; ids: string[]; impact: number | null; axis: string | null; location: string; effect: string }[];
   files: { path: string; code: string }[];
-  table: { source: string; status: string; evidence: string; candidates: string[]; added: boolean }[];
-  removed: { source: string; reason: string }[];
+  table: { source: string; status: string; evidence: string; candidates: string[]; by: string; specStatus: string }[];
   unconfirmed: { ref: string; axis: string; kind: string; reason: string; owner: string; missing: string }[];
 }
 
@@ -47,7 +47,7 @@ const messages = (r: CheckRefute | undefined, no: number) =>
     .join("\n");
 
 describe("code-review の反証の検査（review.ts check-refute）", () => {
-  test("反証の判定本文を機械検査し、コード要求の対応表・要求資料ごとのコード要求・追加の印・未確認と理由を読み取った構造を親専用領域に残す。受け入れ確認の役割とサブコマンドは無い", async () => {
+  test("反証の判定本文を機械検査し、判定本文の対応表の行を Spec 探索の対応表に重ねた確定した対応表（確定した担当と Spec 探索の状態付き）・Spec 探索の要求資料ごとのコード要求・未確認と理由を読み取った構造を親専用領域に残す。受け入れ確認の役割とサブコマンドは無い", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
     const verdict = refuteVerdict(p);
@@ -68,29 +68,29 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     const st = structure(p);
     expect(st).toMatchObject({ attempt: 1, sha256: sha256(verdict) });
     expect(Object.keys(st)).not.toContain("acceptanceRows");
-    expect(st.axes).toEqual({ Standards: { required: 1, unconfirmed: 0 }, Spec: { required: 0, unconfirmed: 3 } });
+    expect(st.axes).toEqual({ Standards: { required: 1, unconfirmed: 0 }, Spec: { required: 0, unconfirmed: 2 } });
     expect(st.decisions.map((d) => [d.id, d.finder, d.verdict, d.impact, d.cause])).toEqual([
       ["STD-1", "Standards 探索", "要対応", 3, "CAUSE-1"],
       ["SPC-1", "Spec 探索", "未確認", null, null],
       ["REF-1", "反証で追加", "要対応", 2, "CAUSE-1"],
     ]);
     expect(st.required).toEqual([{ heading: "CAUSE-1", title: "集計が誤る", ids: ["STD-1", "REF-1"], impact: 2, axis: "Standards", location: "src/a.ts@HEAD:L1", effect: "集計が誤る" }]);
+    // 要求資料ごとのコード要求は Spec 探索の引き渡しのもの（判定本文には書かない）
     expect(st.files).toEqual([
       { path: "requirements/issue.md", code: "あり" },
       { path: "requirements/workspace-rules.md", code: "なし" },
     ]);
-    expect(st.table.map((t) => [t.source, t.status, t.candidates, t.added])).toEqual([
-      ["requirements/issue.md:L3", "未確認", ["SPC-1"], false],
-      ["requirements/issue.md:L4", "充足", [], false],
-      ["requirements/issue.md:L2", "未確認", [], true],
+    // Spec 探索の表の順で、判定本文に書いた L3 は反証が確定し、書いていない充足の L4 は Spec 探索の判定のまま。セル内のコードの | は区切りにしない
+    expect(st.table).toEqual([
+      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認" },
+      { source: "requirements/issue.md:L4", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足" },
     ]);
-    // セル内のコードの | は区切りにしない
-    expect(st.table[1]?.evidence).toBe("src/a.ts@HEAD:L1 の a | b");
-    expect(st.removed).toEqual([]);
+    // 表から除いた行と追加の印は無い
+    expect(Object.keys(st)).not.toContain("removed");
+    expect(Object.keys(st)).not.toContain("added");
     expect(st.unconfirmed.map((u) => [u.ref, u.kind, u.owner])).toEqual([
       ["SPC-1", "候補", "人"],
       ["requirements/issue.md:L3", "要求", "人"],
-      ["requirements/issue.md:L2", "要求", "人"],
     ]);
 
     // 受け入れ確認の役割と、受け入れ確認専用のサブコマンドは無い（引数の誤り）
@@ -108,16 +108,57 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     expect(existsSync(join(p.W, "parent/acceptance"))).toBe(false);
   });
 
-  test("表から除いた行: Spec 探索の行を確定表から外すときは出典と1行の理由を記録すれば有効で、関連候補の採否は採否一覧に残る。候補の判定「基点から存在（対象外）」や本文の「説明」は拒否しない", async () => {
+  test("充足から未充足: 要対応の契約の出典と行範囲で重なる充足の行（同じ要求資料の複数範囲をまとめた行も）が充足のまま残れば無効にし、行全体を未充足にして候補 ID を書けば反証の行として重ねる。重ならない範囲・別の要求資料・充足でない行は無効にしない", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
-    const verdict = refuteVerdict(p, { removed: true });
+    const MERGED = "`requirements/issue.md:L2`、`requirements/issue.md:L4-L5`";
+    const table = [SPEC_TABLE[0] ?? "", `| ${MERGED} | 充足 | \`src/a.ts@HEAD:L1\`、\`src/a.ts@HEAD:L1-L1\` | なし |`, "| `requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"];
+    await reachRefute(s, p, refuteVerdict(p), { table, files: ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | あり |"] });
+    expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
+
+    // 重なる契約の出典（範囲の中の1行・まとめた行の別の範囲・範囲の一部にまたがる範囲・終わりの L を省いた範囲・場所と並べた範囲）: まとめた充足の行が充足のまま残れば無効
+    for (const contract of ["`requirements/issue.md:L4`", "`requirements/issue.md:L2`", "`requirements/issue.md:L5-L7`", "`requirements/issue.md:L3-9`", "`src/a.ts@HEAD:L1`、`requirements/issue.md:L1-L2`"]) {
+      put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract }));
+      const r = await checkRefute(s, p);
+      expect(`${contract}: ${r.json?.valid}`).toBe(`${contract}: false`);
+      expect(`${contract}: ${messages(r.json, 4)}`).toContain("CAUSE-1");
+      expect(`${contract}: ${messages(r.json, 4)}`).toContain("requirements/issue.md:L2、requirements/issue.md:L4-L5");
+      expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
+    }
+    // 重ならない範囲、別の要求資料の同じ行番号、反証が未確認のまま確定した行に当たる契約の出典は無効にしない
+    for (const contract of ["`requirements/issue.md:L6-L9`", "`requirements/workspace-rules.md:L4-L5`", "`requirements/issue.md:L3`"]) {
+      put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract }));
+      expect(`${contract}: ${(await checkRefute(s, p)).json?.valid}`).toBe(`${contract}: true`);
+    }
+
+    // まとめた行の一部が当たるので、行全体を未充足にして要対応の候補 ID を書いた。重ねた表では反証が確定した行になる
+    put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract: "`requirements/issue.md:L4`", unmet: [MERGED] }));
+    expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
+    expect(structure(p).table).toEqual([
+      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認" },
+      { source: "requirements/issue.md:L2、requirements/issue.md:L4-L5", status: "未充足", evidence: "失敗を記録しない（src/a.ts@HEAD:L1）", candidates: ["STD-1"], by: "反証", specStatus: "充足" },
+      { source: "requirements/workspace-rules.md:L3", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足" },
+    ]);
+    expect(structure(p).files.map((f) => f.code)).toEqual(["あり", "あり"]);
+
+    // まとめた行を分けて一部だけを未充足にした行は、Spec 探索の対応表に無い行として無効
+    put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract: "`requirements/issue.md:L4`", unmet: ["`requirements/issue.md:L4-L5`"] }));
+    const split = await checkRefute(s, p);
+    expect(split.json?.valid).toBe(false);
+    expect(messages(split.json, 4)).toContain("requirements/issue.md:L4-L5");
+  });
+
+  test("候補の判定「基点から存在（対象外）」と別枠の課題の記載は拒否しない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s);
+    const verdict = refuteVerdict(p)
+      .replace("| SPC-1 | Spec 探索 | 未確認 | なし | なし | 依存の独自パッチの契約が入力に無い |", "| SPC-1 | Spec 探索 | 基点から存在（対象外） | なし | なし | merge-base に同じ分岐があり、今回の要求も修正を求めていない |")
+      .replace("| SPC-1 | Spec | 候補 | 依存の独自パッチの契約が入力に無い | 人 | 独自パッチの契約 |\n", "")
+      .replace("- Spec: 要対応 0 件、未確認 2 件", "- Spec: 要対応 0 件、未確認 1 件")
+      .replace("## 基点から存在する課題（別枠）\n\nなし\n", "## 基点から存在する課題（別枠）\n\n- SPC-1: merge-base に同じ分岐があり、今回の差分は悪化させていない\n");
     await reachRefute(s, p, verdict);
     expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
-    const st = structure(p);
-    expect(st.table.map((t) => t.source)).toEqual(["requirements/issue.md:L4", "requirements/issue.md:L2"]);
-    expect(st.removed).toEqual([{ source: "requirements/issue.md:L3", reason: "背景の説明で、コードが満たす要求ではない" }]);
-    expect(st.decisions.find((d) => d.id === "SPC-1")?.verdict).toBe("基点から存在（対象外）");
+    expect(structure(p).decisions.find((d) => d.id === "SPC-1")?.verdict).toBe("基点から存在（対象外）");
   });
 
   test("CAUSEに採用候補がなければ無効にし、採用された兄弟候補がある集約は許す", async () => {
@@ -182,41 +223,47 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     }
   });
 
-  test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし。括弧1つの注記付きも可）を正常として合格させる", async () => {
+  test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし。括弧1つの注記付きも可）を正常として合格させ、要求資料ごとのコード要求は Spec 探索の引き渡しから読む", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
-    const verdict = refuteVerdict(p, { empty: true, files: ["| `requirements/issue.md` | なし（背景の説明だけ） |", "| `requirements/workspace-rules.md` | なし |"] });
-    await reachRefute(s, p, verdict, { empty: true });
+    const verdict = refuteVerdict(p, { empty: true });
+    await reachRefute(s, p, verdict, { empty: true, files: ["| `requirements/issue.md` | なし（背景の説明だけ） |", "| `requirements/workspace-rules.md` | なし |"] });
     expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
     const st = structure(p);
     expect(st.table).toEqual([]);
     expect(st.decisions).toEqual([]);
-    expect(st.files.map((f) => f.code)).toEqual(["なし", "なし"]);
+    expect(st.files).toEqual([
+      { path: "requirements/issue.md", code: "なし" },
+      { path: "requirements/workspace-rules.md", code: "なし" },
+    ]);
   });
 
-  test("形式違反（探索の行の確定漏れ・除いた行の理由の欠落・要求資料ごとの記載の欠落・状態と結論の不整合・廃止した状態・担当・分類・理由・軸ごとの集計の不一致・採否一覧の候補漏れ・影響度の欠落・同一候補の判定の不一致・未確認の表の欠落）を無効にする", async () => {
+  test("形式違反（Spec 探索の未充足・未確認の行の確定漏れ・Spec 探索に無い行・充足の行を未充足以外で書いた行・出典の重複・要対応の契約の出典と重なる充足の行・状態と結論の不整合・廃止した状態・担当・理由・軸ごとの集計の不一致・採否一覧の候補漏れ・影響度の欠落・同一候補の判定の不一致・未確認の表の欠落）を無効にする", async () => {
     const s = sandbox();
     const p = await prepareCaseWork(s);
-    const v = refuteVerdict(p);
-    await reachRefute(s, p, v);
-    const L4 = "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` の `a | b` | なし |\n";
-    const L2_UNCONFIRMED = "| `requirements/issue.md:L2` | Spec | 要求 | 失敗の記録先を決める要求資料が無い | 人 | 記録先の契約 |\n";
-    const removedSection = (rows: string) => v.replace("## 表から除いた行\n\nなし\n", `## 表から除いた行\n\n| 要求の出典 | 理由 |\n|---|---|\n${rows}`);
+    // Spec 探索の L3 は未確認、L4 は充足、L2 は未充足。反証は L3 を未確認、L2 を未充足のまま確定して書く
+    const v = refuteVerdict(p, { unmet: ["`requirements/issue.md:L2`"] });
+    await reachRefute(s, p, v, { table: [...SPEC_TABLE, "| `requirements/issue.md:L2` | 未充足 | 失敗を記録しない（`src/a.ts@HEAD:L1`） | SPC-1 |"] });
+    const L3 = "| `requirements/issue.md:L3` | 未確認 | 依存の独自パッチの契約が入力に無く、`a | b` の分岐の結論を出せない | SPC-1 |\n";
+    const L2 = "| `requirements/issue.md:L2` | 未充足 | 失敗を記録しない（`src/a.ts@HEAD:L1`） | STD-1 |\n";
+    const L3_UNCONFIRMED = "| `requirements/issue.md:L3` | Spec | 要求 | 依存の独自パッチの契約が入力に無く、分岐の結論を出せない | 人 | 独自パッチの契約 |\n";
     const cases: [string, string, number, string][] = [
-      ["Spec 探索の行の確定漏れ", v.replace(L4, ""), 4, "requirements/issue.md:L4"],
-      ["除いた行の理由の欠落", removedSection("| `requirements/issue.md:L4` |  |\n").replace(L4, ""), 4, "理由"],
-      ["除いた行の節の欠落", v.replace("## 表から除いた行\n\nなし\n\n", ""), 4, "表から除いた行"],
-      ["除いた行の理由に廃止した分類", removedSection("| `requirements/issue.md:L4` | 作業手順の規則 |\n").replace(L4, ""), 4, "作業手順の規則"],
-      ["要求資料ごとの記載の欠落", v.replace("| `requirements/workspace-rules.md` | なし |\n", ""), 4, "requirements/workspace-rules.md"],
-      ["補足の後ろに続く値", v.replace("| `requirements/issue.md` | あり |", "| `requirements/issue.md` | あり（L3・L4）なし |"), 4, "「あり（L3・L4）なし」"],
-      ["未充足の行に要対応が無い", v.replace(L4, "| `requirements/issue.md:L4` | 未充足 | 記録しない | なし |\n"), 4, "要対応"],
-      ["廃止した状態", v.replace(L4, "| `requirements/issue.md:L4` | 自動チェック担当 | テストで確かめる | なし |\n"), 4, "自動チェック担当"],
-      ["対応表の未確認の理由に要実行確認", v.replace("（追加）失敗の記録先を決める契約が要求資料に無い", "（追加）要実行確認"), 4, "要実行確認"],
-      ["廃止した確かめる担当", v.replace(L2_UNCONFIRMED, L2_UNCONFIRMED.replace("| 人 |", "| 受け入れ確認担当 |")), 5, "受け入れ確認担当"],
-      ["未確認の理由に要実行確認", v.replace(L2_UNCONFIRMED, L2_UNCONFIRMED.replace("失敗の記録先を決める要求資料が無い", "要実行確認")), 5, "要実行確認"],
-      ["未確認の行が未確認の表に無い", v.replace(L2_UNCONFIRMED, "").replace("未確認 3 件", "未確認 2 件"), 5, "requirements/issue.md:L2"],
+      ["Spec 探索の未確認の行の確定漏れ", v.replace(L3, ""), 4, "requirements/issue.md:L3"],
+      ["Spec 探索の未充足の行の確定漏れ", v.replace(L2, ""), 4, "requirements/issue.md:L2"],
+      ["Spec 探索に無い行（反証が足した行）", v.replace(L3, `${L3}| \`requirements/issue.md:L1\` | 未確認 | 失敗の記録先を決める契約が要求資料に無い | なし |\n`), 4, "requirements/issue.md:L1"],
+      ["Spec 探索で充足の行を充足のまま書いた", v.replace(L3, `${L3}| \`requirements/issue.md:L4\` | 充足 | \`src/a.ts@HEAD:L1\` | なし |\n`), 4, "requirements/issue.md:L4"],
+      ["Spec 探索で充足の行を未確認に変えた", v.replace(L3, `${L3}| \`requirements/issue.md:L4\` | 未確認 | 記録先の契約が入力に無い | なし |\n`), 4, "requirements/issue.md:L4"],
+      ["判定本文の表の出典の重複", v.replace(L3, `${L3}${L3}`), 4, "重複"],
+      ["対応表の節の欠落", v.replace(/## コード要求の対応表（反証で確定した行）\n[\s\S]*?\n## 未確認と理由/, "## 未確認と理由"), 4, "コード要求の対応表"],
+      ["要対応の契約の出典と重なる充足の行が残る", v.replace("- 契約の出典: `src/a.ts@HEAD:L1`", "- 契約の出典: `requirements/issue.md:L4`"), 4, "requirements/issue.md:L4"],
+      ["未充足の行に要対応が無い", v.replace(L2, "| `requirements/issue.md:L2` | 未充足 | 失敗を記録しない | なし |\n"), 4, "要対応"],
+      ["廃止した状態", v.replace(L3, "| `requirements/issue.md:L3` | 自動チェック担当 | テストで確かめる | SPC-1 |\n"), 4, "自動チェック担当"],
+      ["対応表の未確認の理由に要実行確認", v.replace(L3, "| `requirements/issue.md:L3` | 未確認 | 要実行確認 | SPC-1 |\n"), 4, "要実行確認"],
+      ["廃止した確かめる担当", v.replace(L3_UNCONFIRMED, L3_UNCONFIRMED.replace("| 人 |", "| 受け入れ確認担当 |")), 5, "受け入れ確認担当"],
+      ["未確認の理由に要実行確認", v.replace(L3_UNCONFIRMED, L3_UNCONFIRMED.replace("分岐の結論を出せない", "要実行確認")), 5, "要実行確認"],
+      ["重ねた表の未確認の行が未確認の表に無い", v.replace(L3_UNCONFIRMED, "").replace("未確認 2 件", "未確認 1 件"), 5, "requirements/issue.md:L3"],
       ["軸ごとの要対応の件数の不一致", v.replace("- Standards: 要対応 1 件", "- Standards: 要対応 2 件"), 5, "Standards"],
-      ["軸ごとの未確認の件数の不一致", v.replace("- Spec: 要対応 0 件、未確認 3 件", "- Spec: 要対応 0 件、未確認 1 件"), 5, "Spec"],
+      ["軸ごとの未確認の件数の不一致", v.replace("- Spec: 要対応 0 件、未確認 2 件", "- Spec: 要対応 0 件、未確認 1 件"), 5, "Spec"],
       ["採否一覧の候補漏れ", v.replace("| SPC-1 | Spec 探索 | 未確認 | なし | なし | 依存の独自パッチの契約が入力に無い |\n", ""), 3, "SPC-1"],
       ["反証で追加した発見の採否漏れ", v.replace("| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |\n", ""), 3, "REF-1"],
       ["要対応の影響度の欠落", v.replace("| STD-1 | Standards 探索 | 要対応 | 3 |", "| STD-1 | Standards 探索 | 要対応 |  |"), 3, "STD-1"],

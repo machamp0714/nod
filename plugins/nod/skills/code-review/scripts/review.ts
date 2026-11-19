@@ -1271,6 +1271,21 @@ const obsoleteLabel = (v: string) => {
   return OBSOLETE.find((w) => n === w || n.startsWith(`${w}（`) || n.startsWith(`${w}(`)) ?? null;
 };
 
+// 要求の出典の行範囲（`requirements/<file>:L<n>` か `requirements/<file>:L<n>-L<m>`。終わりの L を省いた `-<m>` も読む。1つの欄に並べた範囲をすべて読む）。
+// check-explore の出典の形式の検査と、check-refute の要対応の契約の出典と充足の行の重なりの検査で使う
+interface LineRange {
+  file: string;
+  start: number;
+  end: number;
+}
+function lineRanges(s: string): LineRange[] {
+  return [...s.matchAll(/(requirements\/[^\s`:]+?):L(\d+)(?:-L?(\d+))?/g)].map((m) => {
+    const a = Number(m[2]);
+    const b = m[3] === undefined ? a : Number(m[3]);
+    return { file: m[1] ?? "", start: Math.min(a, b), end: Math.max(a, b) };
+  });
+}
+
 interface Section {
   title: string;
   body: string[];
@@ -1391,29 +1406,31 @@ function forbiddenNames(lines: string[]): string[] {
 
 type Add = (no: number, message: string) => void;
 
-// 要求資料ごとのコード要求（探索は5節の6、反証は7節の4）: requirements/ の各ファイルに1行ずつ、あり か なし（括弧1つの注記は可）。読み取った一覧（値は あり／なし）を返す
-function codeFileViolations(sec: Section | undefined, name: string, prep: Prepared, no: number, add: Add): { path: string; code: string }[] {
+// 要求資料ごとのコード要求の表の各行（code は欄の値、value は あり／なし。値でなければ null）。表が無ければ null
+function codeFileRows(sec: Section | undefined): { path: string; code: string; value: string | null }[] | null {
+  return (
+    tableRows(sec?.body ?? [], CODE_FILE_HEADER)?.map((cells) => {
+      const code = norm(cells[1] ?? "");
+      return { path: norm(cells[0] ?? ""), code, value: codeValue(code) };
+    }) ?? null
+  );
+}
+
+// 要求資料ごとのコード要求（5節の6）: requirements/ の各ファイルに1行ずつ、あり か なし（括弧1つの注記は可）
+function codeFileViolations(sec: Section | undefined, prep: Prepared, add: Add): void {
+  const name = "要求資料ごとのコード要求";
   const want = prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path);
-  const rows = tableRows(sec?.body ?? [], CODE_FILE_HEADER);
-  if (!rows) {
-    add(no, `「${name}」に雛形の2列（${CODE_FILE_HEADER.join("・")}）の表が無い`);
-    return [];
-  }
-  const files: { path: string; code: string }[] = [];
-  rows.forEach((cells, i) => {
-    const path = norm(cells[0] ?? "");
-    const code = norm(cells[1] ?? "");
+  const rows = codeFileRows(sec);
+  if (!rows) return add(6, `「${name}」に雛形の2列（${CODE_FILE_HEADER.join("・")}）の表が無い`);
+  rows.forEach(({ path, code, value }, i) => {
     const label = path || `${i + 1} 行目`;
-    if (!want.includes(path)) add(no, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
-    if (files.some((f) => f.path === path)) add(no, `${name}に ${label} が重複している`);
+    if (!want.includes(path)) add(6, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
+    if (rows.findIndex((r) => r.path === path) < i) add(6, `${name}に ${label} が重複している`);
     const old = obsoleteLabel(code);
-    const value = codeValue(code);
-    if (old) add(no, `${name}の ${label} に廃止した分類「${old}」を使っている（あり／なしだけ）`);
-    else if (!value) add(no, `${name}の ${label} のコード要求「${code}」があり／なし（後ろに括弧1つの注記は可）のどちらでもない`);
-    files.push({ path, code: value ?? code });
+    if (old) add(6, `${name}の ${label} に廃止した分類「${old}」を使っている（あり／なしだけ）`);
+    else if (!value) add(6, `${name}の ${label} のコード要求「${code}」があり／なし（後ろに括弧1つの注記は可）のどちらでもない`);
   });
-  for (const w of want) if (!files.some((f) => f.path === w)) add(no, `${w} のコード要求あり／なしが${name}に無い`);
-  return files;
+  for (const w of want) if (!rows.some((r) => r.path === w)) add(6, `${w} のコード要求あり／なしが${name}に無い`);
 }
 
 // 対応表の1行の状態と不足理由（探索は5節の6、反証は7節の4）: 状態は 充足・未充足・未確認 だけ。廃止した状態と、未確認の理由「要実行確認」を拒否する
@@ -1500,15 +1517,27 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
   }
   if (!filled(section("要求資料の判別"))) add(5, "「要求資料の判別」の節が無いか空");
 
-  // 6: 要求資料ごとのコード要求あり／なしと、コード要求の対応表（列は見出しと各行の出典・状態・候補ID の位置で読む。コード要求0件なら空の表）
-  codeFileViolations(section("要求資料ごとのコード要求"), "要求資料ごとのコード要求", prep, 6, add);
+  // 6: 要求資料ごとのコード要求あり／なしと、コード要求の対応表（列は見出しと各行の出典・状態・候補ID の位置で読む。コード要求0件なら空の表）。
+  // 要求の出典は requirements/ の要求資料の行範囲で、1行の範囲はすべて同じ要求資料。充足の行は範囲をまとめてよく、未充足・未確認の行は範囲1つ。出典は行の間で重複させない
+  codeFileViolations(section("要求資料ごとのコード要求"), prep, add);
+  const docs = new Set(prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path));
+  const sources = new Set<string>();
   const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
   if (!rows) add(6, `「コード要求の対応表」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（コード要求0件なら行の無い表）`);
   (rows ?? []).forEach((cells, i) => {
     if (cells.length < 4) return add(6, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
     const status = plain(cells[1] ?? "");
-    const label = plain(cells[0] ?? "") || `${i + 1} 行目`;
+    const source = norm(cells[0] ?? "");
+    const label = source || `${i + 1} 行目`;
     rowStateViolations(label, status, cells.slice(2, -1).join(" | "), 6, add);
+    const ranges = lineRanges(source);
+    const files = [...new Set(ranges.map((r) => r.file))];
+    if (ranges.length === 0) add(6, `${label} の要求の出典に行範囲（requirements/<file>:L<n> か requirements/<file>:L<n>-L<m>）が無い`);
+    if (files.length > 1) add(6, `${label} の要求の出典に別の要求資料の行範囲が混ざっている（${files.join("・")}。1行の範囲は同じ要求資料）`);
+    for (const f of files) if (!docs.has(f)) add(6, `${label} の ${f} が要求資料（requirements/ のファイル）に無い`);
+    if ((status === "未充足" || status === "未確認") && ranges.length > 1) add(6, `${label} は${status}だが行範囲が ${ranges.length} 個ある（未充足・未確認の行は1要求1行で、行範囲は1つ）`);
+    if (sources.has(source)) add(6, `対応表の要求の出典 ${label} が重複している（同じ範囲の要求は1行にまとめる）`);
+    sources.add(source);
     const refs = (cells[cells.length - 1] ?? "").match(/[A-Za-z]+-\d+/g) ?? [];
     if ((status === "未充足" || status === "未確認") && refs.length === 0) add(6, `${label} は${status}だが候補 ID が無い`);
     for (const ref of refs) if (!ids.has(ref)) add(6, `${label} が参照する候補 ${ref} が候補一覧に無い`);
@@ -1541,7 +1570,7 @@ function checkExplore(args: string[]): Outcome {
     [3, "役割・定義名・対象版・要求資料・依存の写し・終了状態と、未確認・見送りの節"],
     [4, "候補の必須項目、候補 ID の接頭辞と重複、証拠を取得できなかった候補の理由と不足箇所"],
     [5, role === "standards" ? "規約の一覧と適用判断" : "要求資料の判別"],
-    ...(role === "spec" ? ([[6, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・候補 ID の参照"]] as [number, string][]) : []),
+    ...(role === "spec" ? ([[6, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・候補 ID の参照・要求の出典の行範囲（requirements/ の同じ要求資料、未充足と未確認は範囲1つ、行の間で重複なし）"]] as [number, string][]) : []),
     [7, "禁止項目の見出し・項目名（本文は親が通読する）"],
     [8, "共通入力・依存の写し・限定 clone の同一性"],
   ];
@@ -1698,7 +1727,6 @@ const AXES = ["Standards", "Spec"] as const;
 type Axis = (typeof AXES)[number];
 const REFUTE_TARGET_FIELDS = ["役割", "定義名", "対象版", "受け取った入力", "依存の写し", "終了状態"];
 const DECISION_HEADER = ["候補ID", "発見者の区分", "判定", "影響度", "同一原因", "根拠"];
-const REMOVED_HEADER = ["要求の出典", "理由"];
 const UNCONFIRMED_HEADER = ["要求の出典または候補ID", "軸", "種別", "理由", "確かめる担当", "不足箇所"];
 const UNCONFIRMED_KINDS = new Set(["候補", "要求", "要求間の矛盾"]);
 const NO_FINDING = "反証で追加した発見なし";
@@ -1730,19 +1758,19 @@ export interface RequiredItem {
   effect: string;
 }
 
-// コード要求の対応表（確定）の1行。added は反証が足した行（証拠または不足理由の欄の先頭の「（追加）」の印。印は検査しない）
-export interface TableRow {
+// コード要求の対応表の1行（Spec 探索の引き渡しか、反証の判定本文の表）。source は norm した要求の出典
+interface CodeRow {
   source: string;
   status: string;
   evidence: string;
   candidates: string[];
-  added: boolean;
 }
 
-// 表から除いた行の節の1行（Spec 探索の対応表から反証が外した行の出典と1行の理由）
-export interface RemovedRow {
-  source: string;
-  reason: string;
+// 確定したコード要求の対応表の1行（Spec 探索の対応表に、反証が判定本文に書いた行を出典の一致で重ねたもの）。
+// by は状態を確定した担当（判定本文に行があれば反証、無ければ Spec 探索）、specStatus は Spec 探索の状態
+export interface TableRow extends CodeRow {
+  by: "反証" | "Spec 探索";
+  specStatus: string;
 }
 
 // 未確認と理由の表の1行（ref は要求の出典または候補 ID、kind は 候補・要求・要求間の矛盾）
@@ -1761,7 +1789,6 @@ interface RefuteParsed {
   required: RequiredItem[];
   files: { path: string; code: string }[];
   table: TableRow[];
-  removed: RemovedRow[];
   unconfirmed: UnconfirmedRow[];
 }
 
@@ -1779,15 +1806,23 @@ function sectionTable(sec: Section | undefined, header: string[]): { rows: strin
   return { rows: tableRows(sec?.body ?? [], header) ?? [], none: (sec?.body ?? []).some((l) => NONE.test(plain(l))) };
 }
 
-// 探索の引き渡しの候補 ID と、Spec 探索の対応表の要求の出典
+// 探索の引き渡しの候補 ID
 function handoffCandidates(text: string): string[] {
   const candidates = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("候補"));
   return sectionsOf(candidates?.body ?? [], 3).flatMap((b) => /^([A-Za-z]+-\d+)/.exec(b.title)?.[1] ?? []);
 }
 
-function handoffSources(text: string): string[] {
-  const table = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("コード要求の対応表"));
-  return (tableRows(table?.body ?? [], TABLE_HEADER) ?? []).map((c) => norm(c[0] ?? ""));
+// 対応表の1行のセル（4列。セル内の | で分かれた証拠の欄はつなぎ直す）
+const codeRow = (cells: string[]): CodeRow => ({ source: norm(cells[0] ?? ""), status: plain(cells[1] ?? ""), evidence: norm(cells.slice(2, -1).join(" | ")), candidates: candidateIds(cells[cells.length - 1] ?? "") });
+
+// Spec 探索の引き渡し（check-explore に合格した反証への写し）の、要求資料ごとのコード要求（値は あり／なし）とコード要求の対応表の各行
+function specHandoff(text: string): { files: { path: string; code: string }[]; rows: CodeRow[] } {
+  const secs = sectionsOf(text.split("\n"), 2);
+  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
+  return {
+    files: (codeFileRows(section("要求資料ごとのコード要求")) ?? []).map((r) => ({ path: r.path, code: r.value ?? r.code })),
+    rows: (tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER) ?? []).filter((cells) => cells.length >= 4).map(codeRow),
+  };
 }
 
 function refuteViolations(text: string, prep: Prepared, handoffs: { standards: string; spec: string }, add: Add): RefuteParsed {
@@ -1832,6 +1867,8 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   else if (blocks.length === 0 && !requiredSection.body.some((l) => NONE.test(plain(l)))) add(3, "要対応の見出しも「なし」の明示も無い");
   const required: RequiredItem[] = [];
   const placed = new Map<string, string>();
+  // 要対応の各見出しの契約の出典にある要求の行範囲（4で、重なる充足の行が残っていないかを確かめる）
+  const contracts: { heading: string; source: string; ranges: LineRange[] }[] = [];
   for (const b of blocks) {
     const m = /^((?:CAUSE|[A-Za-z]+)-\d+)\s*[:：]?\s*(.*)$/.exec(b.title);
     const heading = m?.[1];
@@ -1864,6 +1901,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
       add(3, `要対応 ${heading} の影響度 ${impact} が、採否一覧の影響度の最小値 ${Math.min(...impacts)} と違う`);
     }
     required.push({ heading, title: plain(m?.[2] ?? ""), ids, impact: impact === undefined ? null : Number(impact), axis, location: norm(f.get("場所") ?? ""), effect: norm(f.get("影響") ?? "") });
+    contracts.push({ heading, source: norm(f.get("契約の出典") ?? ""), ranges: lineRanges(f.get("契約の出典") ?? "") });
   }
   for (const d of decisions.filter((x) => x.verdict === "要対応")) {
     const at = placed.get(d.id);
@@ -1872,41 +1910,40 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     else if (!d.cause && at.startsWith("CAUSE-")) add(3, `${d.id} は要対応の節で ${at} にあるが、採否一覧に同一原因が無い`);
   }
 
-  // 4: 要求資料ごとのコード要求、コード要求の対応表（確定。コード要求0件なら空の表）、表から除いた行、Spec 探索の対応表の各行の行き先
-  const files = codeFileViolations(section("要求資料ごとのコード要求"), "要求資料ごとのコード要求（確定）", prep, 4, add);
+  // 4: コード要求の対応表（反証で確定した行）を、Spec 探索の対応表に要求の出典の一致で重ねて確定した対応表にする。
+  // 反証が書くのは Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行だけで、行を足さず除かない（書く行が無ければ行の無い表）
+  const spec = specHandoff(handoffs.spec);
   const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
-  const table: TableRow[] = [];
-  if (!rows) add(4, `「コード要求の対応表（確定）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（コード要求0件なら行の無い表）`);
+  if (!rows) add(4, `「コード要求の対応表（反証で確定した行）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（書く行が無ければ行の無い表）`);
+  const written = new Map<string, CodeRow>();
   (rows ?? []).forEach((cells, i) => {
     if (cells.length < 4) return add(4, `対応表の ${i + 1} 行目の列が足りない（出典・状態・候補ID を読み取れない）`);
-    const source = norm(cells[0] ?? "");
-    const status = plain(cells[1] ?? "");
-    const evidence = norm(cells.slice(2, -1).join(" | "));
-    const label = source || `${i + 1} 行目`;
-    const ids = candidateIds(cells[cells.length - 1] ?? "");
-    mentioned.push(...ids);
-    if (table.some((t) => t.source === source)) add(4, `対応表の要求の出典 ${label} が重複している`);
-    rowStateViolations(label, status, evidence, 4, add);
-    if (status === "未充足" && !ids.some((id) => decided.get(id)?.verdict === "要対応")) add(4, `${label} は未充足だが、採否一覧で要対応の候補 ID が無い`);
-    for (const id of ids) if (!decided.has(id)) add(4, `${label} が参照する候補 ${id} が採否一覧に無い`);
-    table.push({ source, status, evidence, candidates: ids, added: evidence.startsWith("（追加）") });
+    const row = codeRow(cells);
+    const label = row.source || `${i + 1} 行目`;
+    mentioned.push(...row.candidates);
+    if (written.has(row.source)) add(4, `対応表の要求の出典 ${label} が重複している`);
+    else written.set(row.source, row);
+    rowStateViolations(label, row.status, row.evidence, 4, add);
+    const before = spec.rows.find((r) => r.source === row.source);
+    if (!before) add(4, `対応表の ${label} が Spec 探索の対応表の要求の出典に無い（反証は行を足さず、Spec 探索の行の出典をそのまま写す）`);
+    else if (before.status === "充足" && row.status !== "未充足") add(4, `${label} は Spec 探索で充足の行だが、状態が「${row.status}」（充足の行を書くのは未充足に変えるときだけ）`);
   });
-  const removedSection = section("表から除いた行");
-  const out = sectionTable(removedSection, REMOVED_HEADER);
-  if (!removedSection) add(4, "「表から除いた行」の節が無い");
-  else if (out.rows.length === 0 && !out.none) add(4, `「表から除いた行」に雛形の2列（${REMOVED_HEADER.join("・")}）の表も「なし」の明示も無い`);
-  const removed: RemovedRow[] = [];
-  out.rows.forEach((cells, i) => {
-    const source = norm(cells[0] ?? "");
-    const reason = norm(cells.slice(1).join(" | "));
-    const label = source || `${i + 1} 行目`;
-    if (!source || !reason) add(4, `表から除いた行の ${label} に出典か理由が無い`);
-    const old = obsoleteLabel(reason);
-    if (old) add(4, `表から除いた行の ${label} の理由に廃止した分類「${old}」を使っている（1行の理由を書く）`);
-    removed.push({ source, reason });
+  for (const r of spec.rows) if (r.status !== "充足" && !written.has(r.source)) add(4, `Spec 探索で${r.status}の行 ${r.source} が、反証で確定した行に無い（確定漏れ）`);
+  const table = spec.rows.map((r): TableRow => {
+    const w = written.get(r.source);
+    return { ...(w ?? r), by: w ? "反証" : "Spec 探索", specStatus: r.status };
   });
-  const confirmed = new Set([...table.map((t) => t.source), ...removed.map((r) => r.source)]);
-  for (const s of handoffSources(handoffs.spec)) if (!confirmed.has(s)) add(4, `Spec 探索の対応表の行 ${s} が、確定した対応表にも表から除いた行にも無い`);
+  // 4: 重ねた後の表の整合（未充足の行の要対応、候補 ID の参照、要対応の契約の出典と行範囲で重なる充足の行が残っていないこと）
+  for (const t of table) {
+    if (t.status === "未充足" && !t.candidates.some((id) => decided.get(id)?.verdict === "要対応")) add(4, `${t.source} は未充足だが、採否一覧で要対応の候補 ID が無い`);
+    for (const id of t.candidates) if (!decided.has(id)) add(4, `${t.source} が参照する候補 ${id} が採否一覧に無い`);
+    if (t.status !== "充足") continue;
+    const ranges = lineRanges(t.source);
+    for (const c of contracts) {
+      const hit = ranges.some((a) => c.ranges.some((b) => a.file === b.file && a.start <= b.end && b.start <= a.end));
+      if (hit) add(4, `要対応 ${c.heading} の契約の出典（${c.source}）と行範囲で重なる ${t.source} が充足のまま残っている（行全体を未充足にして候補 ID を書く）`);
+    }
+  }
 
   // 5: 未確認と理由の表（自由記述でなく、出典または候補 ID・軸・種別・理由・確かめる担当・不足箇所）
   const bySource = new Map(table.map((t) => [t.source, t]));
@@ -1970,7 +2007,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   if (!decisions.some((d) => d.id.startsWith("REF-")) && !text.includes(NO_FINDING)) add(5, `反証で追加した発見（REF-<n>）も「${NO_FINDING}」の明示も無い`);
   if (!section("判断を見送った事項")?.body.some((l) => l.trim() !== "")) add(5, "「判断を見送った事項」の節が無いか空");
 
-  return { axes, decisions, required, files, table, removed, unconfirmed };
+  return { axes, decisions, required, files: spec.files, table, unconfirmed };
 }
 
 function checkRefute(args: string[]): Outcome {
@@ -1996,8 +2033,8 @@ function checkRefute(args: string[]): Outcome {
     [1, `指定したパスに ${r.output} がある`],
     [2, "役割・定義名・対象版・受け取った入力・依存の写し・終了状態"],
     [3, "採否一覧に両探索の全候補 ID と反証で追加した発見、判定の語彙と根拠、要対応の影響度 0〜4、要対応の節と採否一覧（同一候補の判定・同一原因の集約と影響度）の一致"],
-    [4, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・未充足の行の要対応・候補 ID の参照、表から除いた行の出典と理由、Spec 探索の対応表の各行が確定した対応表か表から除いた行にあること"],
-    [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表（未確認の行と候補がすべてある・廃止した担当と理由の拒否）、判断を見送った事項"],
+    [4, "コード要求の対応表（反証で確定した行）の4列・出典の重複・状態の語彙（充足・未充足・未確認）・廃止した状態と理由の拒否、Spec 探索の対応表への重ね合わせ（未充足・未確認の行の確定漏れ・Spec 探索に無い行・充足の行を未充足以外で書いた行が無い）、重ねた後の表の未充足の行の要対応・候補 ID の参照・要対応の契約の出典と行範囲で重なる充足の行が残っていないこと"],
+    [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表（重ねた後の表の未確認の行と未確認の候補がすべてある・廃止した担当と理由の拒否）、判断を見送った事項"],
     [6, "refute-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
   ];
   const checkedAt = now();
@@ -2775,6 +2812,24 @@ function renderAudit(c: ReportContext): string {
           c.requirements.changed.length > 0 ? `変化あり: ${c.requirements.changed.map((x) => `${x.path}（固定時 ${x.before ?? "無い"}、取り直し ${x.after ?? "無い"}）`).join("・")}。この結果は旧要求に対するもので、現在の要求への適合は確かめていない（確認が残る事項に入れた）。` : "変化なし。"
         }${c.requirements.unavailable.length > 0 ? `取り直せなかった資料: ${c.requirements.unavailable.map((u) => `${u.item}: ${u.reason}`).join("・")}。` : ""}${c.requirements.note ? c.requirements.note : ""}`
       : "取り直していない（未実施）",
+    "",
+    "### コード要求の対応表（確定）",
+    "",
+    `Spec 探索の対応表に、反証が判定本文に書いた行（Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行）を重ねた表（記録: ${W("parent/refute-structure.json")}）。確定した担当が「Spec 探索」の行は、反証が確かめ直さず Spec 探索の判定をそのまま使った充足の行。`,
+    "",
+    ...(!refute
+      ? ["なし（反証の有効な結果なし）"]
+      : [
+          `要求資料ごとのコード要求（Spec 探索の引き渡し）: ${refute.files.map((f) => `\`${f.path}\` ${f.code}`).join("・") || "なし"}`,
+          "",
+          ...(refute.table.length === 0
+            ? ["コード要求0件（行の無い表）"]
+            : [
+                "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
+                "|---|---|---|---|---|---|",
+                ...refute.table.map((t) => `| ${cell(`\`${t.source}\``)} | ${cell(t.status)} | ${t.by} | ${cell(t.specStatus)} | ${cell(t.evidence)} | ${cell(t.candidates.join("・") || "なし")} |`),
+              ]),
+        ]),
     "",
     "### 担当",
     "",

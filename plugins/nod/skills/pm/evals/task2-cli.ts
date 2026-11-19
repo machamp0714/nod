@@ -148,7 +148,7 @@ export function runTask2Cli(tool: string, argv: string[]) {
               ] } : state.variant === "review-redelegated" ? { standards: [
                 { reason: "引き渡し形式違反: handoff.md に禁止項目「確信度」が混入（5節の7）" },
               ] } : state.variant === "refute-missing" ? { refute: [
-                { reason: "引き渡し形式違反: verdict.md に要求資料ごとのコード要求の表が無い（7節の4）" },
+                { reason: "引き渡し形式違反: verdict.md のコード要求の対応表に Spec 探索の未確認の行の確定が無い（7節の4）" },
                 { reason: "終了・失敗: 再委譲した反証も終了通知とともに失敗を返し、verdict.md が無い" },
               ] } : undefined,
               usageLimit: state.variant === "review-usage-limit" ? {
