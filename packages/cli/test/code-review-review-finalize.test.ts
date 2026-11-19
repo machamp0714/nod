@@ -14,6 +14,7 @@ import {
   refuteVerdict,
   registerRepo,
   runReview,
+  SPEC_TABLE,
   type Sandbox,
   sandbox,
   sha256,
@@ -271,6 +272,15 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(report.content).not.toMatch(/E2E|QA/);
     expect(report.content).toContain(`- マージ可否: ${MERGE_OK}`);
     expect(report.content).not.toContain("## 採否一覧");
+    expect(report.content).not.toContain("コード要求の対応表");
+    expect(report.content).not.toContain("requirements/issue.md:L4");
+    // 監査には、Spec 探索の対応表に反証の行を重ねた確定した対応表（反証が充足に確定した L3 と、Spec 探索の充足のままの L4）が載る
+    expect(audit.content).toContain(
+      [
+        "| `requirements/issue.md:L3` | 充足 | 反証 | 未確認 | src/a.ts@HEAD:L1 | なし |",
+        "| `requirements/issue.md:L4` | 充足 | Spec 探索 | 充足 | src/a.ts@HEAD:L1 | なし |",
+      ].join("\n"),
+    );
     expect(audit.content).toContain(`- マージ可否: ${MERGE_OK}`);
     expect(audit.content).toContain(`- 現在の head と基点の照合: 現在の head ${x.head}（固定した head と一致）、現在の基点 main（レビューした基点 main と一致）`);
     expect(audit.content).not.toContain("### CI の結果");
@@ -435,7 +445,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect((await issueShow(x)).labels).not.toContain("merge-ready");
   });
 
-  test("評価用の事例: 反証の有効な結果が無ければ未完了・点数なし。完了なら未確認と要求の変化を確認が残る事項にし、表から除いた行は監査の原文だけに残して結果へ転載しない。nod へ保存せずラベルも扱わない", async () => {
+  test("評価用の事例: 反証の有効な結果が無ければ未完了・点数なしで確定した対応表も無い。完了なら未確認と要求の変化を確認が残る事項にし、Spec 探索の対応表に反証の行を重ねた確定した対応表は監査記録だけに載せて結果へ転載しない。nod へ保存せずラベルも扱わない", async () => {
     const s = sandbox();
     const nodCalls = forbiddenNod(s);
     // 反証の試行を無効として隔離し、委譲し直していない
@@ -451,33 +461,61 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     const reportA = read(join(a.W, "parent/report.md"));
     expect(reportA).toContain("- 最終状態: 未完了（理由: ");
     expect(reportA).toContain("- 確定した要対応の点数: 点数なし");
-    expect(read(join(a.W, "parent/audit.md"))).toContain("<!-- refute-verdict:begin -->\n未受領（");
+    const auditA = read(join(a.W, "parent/audit.md"));
+    expect(auditA).toContain("<!-- refute-verdict:begin -->\n未受領（");
+    const confirmedA = auditA.slice(auditA.indexOf("### コード要求の対応表（確定）"), auditA.indexOf("### 担当"));
+    expect(confirmedA).toContain("なし（反証の有効な結果なし）");
+    expect(confirmedA).not.toContain("| 確定した担当 |");
 
-    // 反証が Spec 探索の L3 を表から除き、L2 を未確認として足した。事例の要求も保存の前に変わった
+    // 反証が Spec 探索で未確認の L3 を未確認のまま確定し、要対応 CAUSE-1 の契約の出典に当たる充足の L4 を未充足に変えた。
+    // Spec 探索で充足の規約の L3 は反証が書かず、Spec 探索の判定のまま。事例の要求も保存の前に変わった
     const b = await prepareCaseWork(s, "case-gaps");
-    const verdictB = refuteVerdict(b, { removed: true });
-    await reachRefute(s, b, verdictB);
+    const verdictB = refuteVerdict(b, { contract: "`requirements/issue.md:L4`", unmet: ["`requirements/issue.md:L4`"] });
+    await reachRefute(s, b, verdictB, {
+      files: ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | あり |"],
+      table: [...SPEC_TABLE, "| `requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"],
+    });
     await must(s, b, "check-refute");
     put(join(s.t, "dataset/inputs/case-gaps/requirements/issue.md"), "# 変えた要求\n");
     const fb = (await finalize(s, b)).json as Finalize;
     expect(fb).toMatchObject({ status: "完了", reason: null, score: 2, merge: MERGE_NG, documents: null });
     expect(fb.remaining.map((r) => [r.ref, r.owner])).toEqual([
-      ["requirements/issue.md:L2", "人"],
+      ["SPC-1", "人"],
+      ["requirements/issue.md:L3", "人"],
       ["requirements/issue.md", "人"],
     ]);
-    expect(fb.remaining[0]?.reason).toContain("記録先の契約");
-    expect(fb.remaining[1]?.reason).toContain("保存時の要求の変化");
-    expect(fb.blockers).toEqual(["確定した要対応の点数 2", "確認が残る事項 2 件"]);
+    expect(fb.remaining[1]?.reason).toContain("独自パッチの契約");
+    expect(fb.remaining[2]?.reason).toContain("保存時の要求の変化");
+    expect(fb.blockers).toEqual(["確定した要対応の点数 2", "確認が残る事項 3 件"]);
     const reportB = read(join(b.W, "parent/report.md"));
     expect(reportB).toContain("| CAUSE-1（STD-1・REF-1） | High（高）、影響度 2 | 集計が誤る | 集計が誤る | src/a.ts@HEAD:L1 |");
-    expect(reportB).toContain("- 確認が残る事項: 2 件");
+    expect(reportB).toContain("- 確認が残る事項: 3 件");
     expect(reportB).toContain(`監査記録 ${join(b.W, "parent/audit.md")}`);
     expect(reportB).toContain(SCOPE);
-    expect(reportB).not.toContain("表から除いた行");
-    expect(reportB).not.toContain("背景の説明で、コードが満たす要求ではない");
+    expect(reportB).not.toContain("コード要求の対応表");
+    expect(reportB).not.toContain("requirements/workspace-rules.md:L3");
     const auditB = read(join(b.W, "parent/audit.md"));
     expect(embeddedVerdict(auditB)).toBe(verdictB);
-    expect(auditB.replace(verdictB, "")).not.toContain("表から除いた行");
+    // 確定した対応表の節は保存時の要求変化の確認の後、担当の前。各行に状態・確定した担当・Spec 探索の状態・証拠・候補ID が載る
+    const ownB = auditB.replace(verdictB, "");
+    const at = (heading: string) => ownB.indexOf(heading);
+    expect(at("### 保存時の要求変化の確認")).toBeGreaterThan(-1);
+    expect(at("### コード要求の対応表（確定）")).toBeGreaterThan(at("### 保存時の要求変化の確認"));
+    expect(at("### 担当")).toBeGreaterThan(at("### コード要求の対応表（確定）"));
+    expect(ownB).toContain(`記録: \`${join(b.W, "parent/refute-structure.json")}\``);
+    expect(ownB).toContain(
+      [
+        "要求資料ごとのコード要求（Spec 探索の引き渡し）: `requirements/issue.md` あり・`requirements/workspace-rules.md` あり",
+        "",
+        "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
+        "|---|---|---|---|---|---|",
+        "| `requirements/issue.md:L3` | 未確認 | 反証 | 未確認 | 依存の独自パッチの契約が入力に無く、a \\| b の分岐の結論を出せない | SPC-1 |",
+        "| `requirements/issue.md:L4` | 未充足 | 反証 | 充足 | 失敗を記録しない（src/a.ts@HEAD:L1） | STD-1 |",
+        "| `requirements/workspace-rules.md:L3` | 充足 | Spec 探索 | 充足 | src/a.ts@HEAD:L1 | なし |",
+        "",
+        "### 担当",
+      ].join("\n"),
+    );
     expect(nodCalls()).toBe("");
   });
 
@@ -506,6 +544,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     await must(s, e, "check-refute");
     const fe = (await finalize(s, e)).json as Finalize;
     expect(fe).toMatchObject({ status: "完了", scoreValue: 5, remainingCount: 0, merge: MERGE_OK, blockers: [] });
+    expect(read(join(e.W, "parent/audit.md"))).toContain("要求資料ごとのコード要求（Spec 探索の引き渡し）: `requirements/issue.md` なし・`requirements/workspace-rules.md` なし\n\nコード要求0件（行の無い表）\n\n### 担当");
     expect(nodCalls()).toBe("");
   });
 
@@ -598,13 +637,13 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     const x = await issueRepo(s);
     gh.set([pr(x.head)]);
     const p = await prepareIssue(s, x, "many", true);
-    // 反証が要求資料の不足による未確認の行を 25 行足した（どれも確認が残る事項になる）
+    // Spec 探索が要求資料の不足による未確認の行を 25 行書き、反証もどれも未確認のまま確定した（どれも確認が残る事項になる）
     const lines = Array.from({ length: 25 }, (_, i) => i + 10);
     const verdict = refuteVerdict(p, { clean: true })
-      .replace("| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` の `a | b` | なし |\n", (row) => `${row}${lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | （追加）記録先の契約 ${n} が要求資料に無い | なし |\n`).join("")}`)
+      .replace("| `requirements/issue.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |\n", (row) => `${row}${lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | 記録先の契約 ${n} が要求資料に無い | なし |\n`).join("")}`)
       .replace("## 未確認と理由\n\nなし\n", `## 未確認と理由\n\n| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |\n|---|---|---|---|---|---|\n${lines.map((n) => `| \`requirements/issue.md:L${n}\` | Spec | 要求 | 記録先を決める要求資料が無い。${"失敗を記録する経路の保存先とキーの形をコードから決められない。".repeat(3)} | 人 | 記録先の契約 ${n} |\n`).join("")}`)
       .replace("- Spec: 要対応 0 件、未確認 0 件", "- Spec: 要対応 0 件、未確認 25 件");
-    await reachRefute(s, p, verdict);
+    await reachRefute(s, p, verdict, { table: [...SPEC_TABLE, ...lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | 記録先の契約 ${n} が要求資料に無い | SPC-1 |`)] });
     await must(s, p, "check-refute");
 
     const f = (await finalize(s, p)).json as Finalize;
@@ -683,7 +722,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     await must(s, p, "refute-input");
     if (change !== "replace-link-collision") expect(readlinkSync(join(W, "refute-input/local/untracked/untracked-link"))).toBe("missing-original");
     await must(s, p, "agent", ["--role", "refute", "--event", "start"]);
-    put(join(W, "refute/verdict.md"), local(refuteVerdict(p, { empty: true, files })));
+    put(join(W, "refute/verdict.md"), local(refuteVerdict(p, { empty: true })));
     await must(s, p, "agent", ["--role", "refute", "--event", "received", "--agent-id", "agent-refute"]);
     await must(s, p, "check-refute");
     if (change === "tamper-input" || change === "tamper-refute-input") {
@@ -723,8 +762,8 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(prepared.json?.ready).toBe(true);
     const p: PreparedWork = { W, repo, base, head: base, clone: join(W, "repo") };
     const diff = prepared.json?.inputs.find((i) => i.path === "local/changes.diff")?.sha256 ?? "";
-    const local = (text: string) => text.replace(`head \`${p.head}\``, `head \`${p.head}\`／local/changes.diff ${diff}`);
-    // 明示された要求が無い単独レビューの要求資料は Workspace の規約だけ
+    // 要求資料の出典は Workspace の規約の行範囲にする（明示された要求が無い単独レビューの要求資料は Workspace の規約だけ）
+    const local = (text: string) => text.replace(`head \`${p.head}\``, `head \`${p.head}\`／local/changes.diff ${diff}`).replaceAll("requirements/issue.md:", "requirements/workspace-rules.md:");
     const files = ["| `requirements/workspace-rules.md` | あり |"];
     for (const role of ["standards", "spec"] as const) {
       await must(s, p, "agent", ["--role", role, "--event", "start"]);
@@ -734,7 +773,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     }
     await must(s, p, "refute-input");
     await must(s, p, "agent", ["--role", "refute", "--event", "start"]);
-    put(join(W, "refute/verdict.md"), local(refuteVerdict(p, { files })));
+    put(join(W, "refute/verdict.md"), local(refuteVerdict(p)));
     await must(s, p, "agent", ["--role", "refute", "--event", "received", "--agent-id", "agent-refute"]);
     await must(s, p, "check-refute");
     // 反証の後に未コミット変更が変わった
