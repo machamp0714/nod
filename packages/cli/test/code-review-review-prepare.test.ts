@@ -637,6 +637,59 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     });
   });
 
+  test("要求の範囲: Setext 見出し（= と - の下線行）は段落の最初の行の直前を、行頭の空白0〜3個の後の ATX 見出しはその行の直前を切れ目にする。区切り線・インデントのコード・コードフェンスの中・リスト項目と引用の後の下線行は切れ目にしない", async () => {
+    const s = sandbox();
+    // Workspace の規約は0行にして、要求資料の境目（全行の末尾）を切れ目にしない
+    const planOf = async (name: string, issue: string) => {
+      const w = await prepareCaseWork(s, name, { "issue.md": issue, "workspace-rules.md": "" });
+      const p = (JSON.parse(read(join(w.W, "parent/prepare.json"))) as Prepare).spec;
+      return { split: p?.split, lines: p?.lines, cut: p?.cut, ranges: p?.assignees.map((a) => [a.id, a.files, a.range]) };
+    };
+    const issueAndRules = ["requirements/issue.md", "requirements/workspace-rules.md"];
+
+    // = の下線行の Setext 見出し（2行の段落「節の / 見出し」）の切れ目は段落の最初の行 L4（位置 3）。半分（位置 5）にある下線行 L6 は候補にしない
+    expect(await planOf("setext-equals", "本文1\n本文2\n\n節の\n見出し\n===\n本文3\n本文4\n本文5\n本文6\n")).toEqual({
+      split: true,
+      lines: 10,
+      cut: 3,
+      ranges: [
+        ["spec1", ["requirements/issue.md"], "requirements/issue.md:L1-L3"],
+        ["spec2", issueAndRules, "requirements/issue.md:L4-L10"],
+      ],
+    });
+
+    // - の下線行の Setext 見出し「節」の切れ目は L3（位置 2）。下線行 L4（位置 3）と、空行の後の --- の区切り線 L7（位置 6。半分に近い）は候補にしない
+    expect(await planOf("setext-dash", "本文1\n\n節\n---\n本文2\n\n---\n本文3\n本文4\n本文5\n")).toEqual({
+      split: true,
+      lines: 10,
+      cut: 2,
+      ranges: [
+        ["spec1", ["requirements/issue.md"], "requirements/issue.md:L1-L2"],
+        ["spec2", issueAndRules, "requirements/issue.md:L3-L10"],
+      ],
+    });
+
+    // 行頭に空白3個の ATX 見出し L4（位置 3）は候補にする。空白4個のインデントのコードの # 行 L6（位置 5。ちょうど半分）は候補にしない
+    expect(await planOf("atx-indent", "本文1\n本文2\n本文3\n   ## 節\n\n    # コード\n\n本文4\n本文5\n本文6\n")).toEqual({
+      split: true,
+      lines: 10,
+      cut: 3,
+      ranges: [
+        ["spec1", ["requirements/issue.md"], "requirements/issue.md:L1-L3"],
+        ["spec2", issueAndRules, "requirements/issue.md:L4-L10"],
+      ],
+    });
+
+    // 1行目の見出しのほかは、フェンスの中の「本文2 / ---」、フェンスの閉じの後の ---（フェンスの前の段落「本文1」の下線行にしない）、
+    // リスト項目（続きの行を含む）の後の ---、引用の後の === だけで、見出しの切れ目が無いので分けず、今の1体のまま
+    expect(await planOf("pseudo", "# 課題\n本文1\n```text\n本文2\n---\n```\n---\n- 項目\n  続き\n---\n> 引用\n===\n")).toEqual({
+      split: false,
+      lines: 12,
+      cut: null,
+      ranges: [["spec", issueAndRules, null]],
+    });
+  });
+
   test("引数の誤りは終了コード 2 で、作業ディレクトリを作らない", async () => {
     const s = sandbox();
     const repo = makeGitRepo(s);

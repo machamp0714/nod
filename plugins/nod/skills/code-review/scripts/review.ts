@@ -726,7 +726,17 @@ export interface SpecPlan {
 }
 
 const NO_SPLIT = "要求資料の境目も見出しも無く、2つの空でない範囲に分けられない";
-const HEADING_LINE = /^#{1,6}\s/;
+// 切れ目の候補にする CommonMark の見出し。ATX 見出しは行頭の空白0〜3個の後に # が1〜6個と、空白か行末。
+// Setext 見出しは段落の次の下線行（行頭の空白0〜3個の後に = か - の並び）で、候補は下線行ではなく段落の最初の行
+const ATX_HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+// 段落を終える行（空行と区切り線。段落の中の --- は区切り線より Setext 見出しの下線行を優先）
+const BLANK_LINE = /^[ \t]*$/;
+const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+// リスト項目・引用の行（コンテナ。その行と、空行などまでの続きの行は段落を始めないので、直後の下線行を見出しにしない）
+const CONTAINER_LINE = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)|^ {0,3}>/;
+// 段落の外で空白4個以上（タブを含む）で始まる行はインデントのコードで、段落を始めない
+const INDENTED_CODE = /^(?: {4}| {0,3}\t)/;
 // CommonMark のフェンス。開きは行頭の空白0〜3個の後に同じ文字（` か ~）が3個以上（バッククォートのフェンスの info 文字列はバッククォートを含まない）。
 // 閉じは開きと同じ文字で開き以上の長さ、後ろは空白だけ
 const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
@@ -738,8 +748,8 @@ const closesFence = (line: string, open: string) => {
 
 const rangeText = (segments: SpecSegment[]) => segments.map((s) => `${s.file}:L${s.start}${s.end === s.start ? "" : `-L${s.end}`}`).join("、");
 
-// 要求資料（input/requirements/ の各ファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出し（コードブロックの外）の直前で2つに分ける。
-// 切れ目の候補が無ければ分けない（今の1体のまま）
+// 要求資料（input/requirements/ の各ファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出しの最初の行（ATX 見出しの行と
+// Setext 見出しの段落の最初の行。コードブロックとリスト項目・引用の中を除く）の直前で2つに分ける。切れ目の候補が無ければ分けない（今の1体のまま）
 function planSpec(work: string): SpecPlan {
   const docs = fingerprintList(join(work, "input/requirements"))
     .map((f) => `requirements/${f.path}`)
@@ -757,14 +767,26 @@ function planSpec(work: string): SpecPlan {
     if (i > 0) cuts.add(total);
     // 開いているフェンスの記号の並び（フェンスの外は null）。フェンスの中では、閉じ以外の行（短いフェンス・info 付きのフェンス・別の文字のフェンス）を見ない
     let fence: string | null = null;
+    // フェンスの外の今の段落の最初の行の位置（段落の外は null）と、リスト項目・引用の行から続くブロックの中か
+    let para: number | null = null;
+    let container = false;
     d.lines.forEach((line, k) => {
       if (fence !== null) {
         if (closesFence(line, fence)) fence = null;
-      } else {
-        const open = FENCE_OPEN.exec(line)?.[1];
-        if (open !== undefined) fence = open;
-        else if (HEADING_LINE.test(line)) cuts.add(total + k);
+        return;
       }
+      const open = FENCE_OPEN.exec(line)?.[1];
+      const heading = ATX_HEADING.test(line) ? k : para !== null && SETEXT_UNDERLINE.test(line) ? para : null;
+      if (heading !== null) cuts.add(total + heading);
+      if (open !== undefined) fence = open;
+      // 見出し・フェンスの開き・空行・区切り線で段落とコンテナが終わる。それ以外の行は段落を始めるか、今の段落・コンテナ・インデントのコードの続き
+      if (heading !== null || open !== undefined || BLANK_LINE.test(line) || THEMATIC_BREAK.test(line)) {
+        para = null;
+        container = false;
+      } else if (CONTAINER_LINE.test(line)) {
+        para = null;
+        container = true;
+      } else if (para === null && !container && !INDENTED_CODE.test(line)) para = k;
     });
     total += d.lines.length;
   });
