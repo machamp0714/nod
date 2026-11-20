@@ -9,6 +9,7 @@ import {
   git,
   gitOut,
   makeGitRepo,
+  prepareCaseWork,
   put,
   registerRepo,
   runReview,
@@ -41,6 +42,16 @@ interface Prepare {
   inputs: { path: string; sha256: string }[];
   manifestSha256: string | null;
   unavailable: { item: string; reason: string }[];
+  spec: SpecPlan | null;
+}
+
+// prepare が決めた要求の範囲（Spec 探索の担当ごとの要求資料・区間・依頼本文の担当範囲）
+interface SpecPlan {
+  split: boolean;
+  reason: string | null;
+  lines: number;
+  cut: number | null;
+  assignees: { id: string; dir: string; prefix: string; files: string[]; segments: { file: string; start: number; end: number }[]; range: string | null; request: string | null }[];
 }
 
 const prepare = (args: string[], s: Sandbox, env: Record<string, string> = {}) => runReview<Prepare>("prepare", args, s, env);
@@ -160,6 +171,18 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     // target.md と manifest.md（input/ の各ファイルの sha256 と出典、依存の写しの節）
     const target = read(join(W, "input/target.md"));
     for (const v of [join(W, "repo"), join(W, "deps"), head, base, "`commit`", id]) expect(target).toContain(v);
+    // 要求資料が複数あるので Spec 探索を要求の範囲で2つに分け、担当範囲を target.md に書き、担当ごとの作業ディレクトリを作る
+    expect(j.spec?.split).toBe(true);
+    expect(j.spec?.assignees.map((a) => [a.id, a.prefix])).toEqual([
+      ["spec1", "SPC1"],
+      ["spec2", "SPC2"],
+    ]);
+    expect(target).toContain("## Spec 探索の担当範囲");
+    for (const a of j.spec?.assignees ?? []) {
+      expect(a.request).toBe(`${a.id}（${a.range}。候補 ID は ${a.prefix}-<n>）`);
+      expect(existsSync(join(W, a.id, "notes"))).toBe(true);
+    }
+    expect(existsSync(join(W, "spec"))).toBe(false);
     const manifest = read(join(W, "input/manifest.md"));
     const lines = shellFingerprint(join(W, "input"), { exclude: "manifest.md" }).trimEnd().split("\n");
     expect(lines.length).toBe(7);
@@ -226,6 +249,10 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
 
     const target = read(join(W, "input/target.md"));
     for (const v of ["`local`", "local/changes.diff", "local/untracked/メモ/追加 ファイル.ts", baseHead, "Issue: なし"]) expect(target).toContain(v);
+    // 要求資料は見出しが1行目だけの1ファイルなので分けない（今の1体のまま）
+    expect(j.spec).toMatchObject({ split: false, cut: null, assignees: [{ id: "spec", files: ["requirements/request-1.md"], range: null, request: null }] });
+    expect(target).not.toContain("担当範囲");
+    expect(existsSync(join(W, "spec/notes"))).toBe(true);
     expect(j.inputs.map((i) => `${i.sha256}  ./${i.path}`)).toEqual(shellFingerprint(join(W, "input"), { exclude: "manifest.md" }).trimEnd().split("\n"));
   });
 
@@ -420,7 +447,8 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     expect(r.stderr).toBe("");
     expect(r.json).toMatchObject({ ready: true, status: "準備完了", base, mergeBase, head, case: "case-1" });
     expect(existsSync(nodLog)).toBe(false);
-    // 先頭の項目（対象リポジトリは限定 clone、基点の指定は merge-base）と「要求の写し」の節だけ。依存の写しの場所の行を足す
+    // 先頭の項目（対象リポジトリは限定 clone、基点の指定は merge-base）と「要求の写し」の節だけ。依存の写しの場所の行を足す。
+    // 要求資料は1行ずつで、要求資料の境目で Spec 探索を2つの範囲に分けるので、末尾に担当範囲の節を足す
     expect(read(join(W, "input/target.md"))).toBe(
       [
         "# 対象",
@@ -441,6 +469,15 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
         "| `requirements/issue.md` | 当時の Issue |",
         "| `requirements/workspace-rules.md` | `nod -w <対象リポジトリ> workspace rules show` の出力 |",
         "",
+        "## Spec 探索の担当範囲",
+        "",
+        "要求資料（requirements/ のファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出しの直前で2つに分けた範囲。Spec 探索の担当は、依頼本文の「担当範囲」の担当の範囲について、コード要求の対応表の行と要求資料ごとのコード要求を書く。要求資料はすべて読んでよい。",
+        "",
+        "| 担当 | 範囲 | 候補 ID |",
+        "|---|---|---|",
+        "| spec1 | `requirements/issue.md:L1` | `SPC1-<n>` |",
+        "| spec2 | `requirements/workspace-rules.md:L1` | `SPC2-<n>` |",
+        "",
       ].join("\n"),
     );
     // 元のリポジトリのパス（case.md の対象リポジトリと --repo）・過去の評価資料・元の基点の指定は担当へ渡す入力に無い
@@ -460,6 +497,99 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     expect(bad.json).toMatchObject({ ready: false, status: "未実施" });
     expect(bad.json?.reason).toContain("requirements/issue.md");
     expect(existsSync(join(s.t, "work/case-bad/repo"))).toBe(false);
+  });
+
+  test("要求の範囲: 要求資料をパスの順に並べた全行を、行数がほぼ半分になる要求資料の境目か見出し（コードブロックの中を除く）の直前で2つに分け、同じ近さなら前の位置を選び、0行の要求資料は位置で担当を決める。prepare.json と標準出力の spec、target.md の担当範囲の節、担当ごとの作業ディレクトリを作る", async () => {
+    const s = sandbox();
+    // 全17行。切れ目の候補: 見出し issue.md:L4（位置 3）、spec-1.md の先頭（位置 6）、見出し spec-1.md:L6（位置 11）・L9（位置 14）、workspace-rules.md の先頭（位置 16）。
+    // コードブロックの中の spec-1.md:L4（位置 9）は候補にしない。|2p−17| は位置 6 と 11 が 5 で同じなので、前の位置 6 を選ぶ
+    const p = await prepareCaseWork(s, "split", {
+      "issue.md": "# 課題\n\n本文1\n## 詳細\n本文2\n本文3\n",
+      "spec-1.md": "# 仕様\n\n```\n# コード内の見出し\n```\n## 節A\na\nb\n## 節B\nc\n",
+      "workspace-rules.md": "規約\n",
+    });
+    const r = JSON.parse(read(join(p.W, "parent/prepare.json"))) as Prepare;
+    expect(r.spec).toEqual({
+      split: true,
+      reason: null,
+      lines: 17,
+      cut: 6,
+      assignees: [
+        {
+          id: "spec1",
+          dir: join(p.W, "spec1"),
+          prefix: "SPC1",
+          files: ["requirements/issue.md"],
+          segments: [{ file: "requirements/issue.md", start: 1, end: 6 }],
+          range: "requirements/issue.md:L1-L6",
+          request: "spec1（requirements/issue.md:L1-L6。候補 ID は SPC1-<n>）",
+        },
+        {
+          id: "spec2",
+          dir: join(p.W, "spec2"),
+          prefix: "SPC2",
+          files: ["requirements/spec-1.md", "requirements/workspace-rules.md"],
+          segments: [
+            { file: "requirements/spec-1.md", start: 1, end: 10 },
+            { file: "requirements/workspace-rules.md", start: 1, end: 1 },
+          ],
+          range: "requirements/spec-1.md:L1-L10、requirements/workspace-rules.md:L1",
+          request: "spec2（requirements/spec-1.md:L1-L10、requirements/workspace-rules.md:L1。候補 ID は SPC2-<n>）",
+        },
+      ],
+    });
+    expect(read(join(p.W, "input/target.md")).endsWith(
+      [
+        "",
+        "## Spec 探索の担当範囲",
+        "",
+        "要求資料（requirements/ のファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出しの直前で2つに分けた範囲。Spec 探索の担当は、依頼本文の「担当範囲」の担当の範囲について、コード要求の対応表の行と要求資料ごとのコード要求を書く。要求資料はすべて読んでよい。",
+        "",
+        "| 担当 | 範囲 | 候補 ID |",
+        "|---|---|---|",
+        "| spec1 | `requirements/issue.md:L1-L6` | `SPC1-<n>` |",
+        "| spec2 | `requirements/spec-1.md:L1-L10`、`requirements/workspace-rules.md:L1` | `SPC2-<n>` |",
+        "",
+      ].join("\n"),
+    )).toBe(true);
+    for (const d of ["spec1/notes", "spec2/notes", "standards/notes", "refute/notes"]) expect(`${d}: ${existsSync(join(p.W, d))}`).toBe(`${d}: true`);
+    expect(existsSync(join(p.W, "spec"))).toBe(false);
+
+    // 見出しの切れ目が同じ近さで2つ（位置 3 と 5、全8行）なら前の位置。先頭の0行の要求資料（位置 0）は範囲1の担当の要求資料に入れ、区間は持たない
+    const tie = await prepareCaseWork(s, "tie", { "a-empty.md": "", "issue.md": "# 課題\nx\ny\n## A\nz\n## B\nw\nv\n" });
+    const t = (JSON.parse(read(join(tie.W, "parent/prepare.json"))) as Prepare).spec;
+    expect({ lines: t?.lines, cut: t?.cut, ranges: t?.assignees.map((a) => [a.id, a.files, a.range]) }).toEqual({
+      lines: 8,
+      cut: 3,
+      ranges: [
+        ["spec1", ["requirements/a-empty.md", "requirements/issue.md"], "requirements/issue.md:L1-L3"],
+        ["spec2", ["requirements/issue.md"], "requirements/issue.md:L4-L8"],
+      ],
+    });
+
+    // 要求資料の境目も見出し（1行目は位置 0 で切れ目にしない）も無ければ分けず、今の1体のまま（担当範囲の節を足さない）
+    const one = await prepareCaseWork(s, "one");
+    const o = JSON.parse(read(join(one.W, "parent/prepare.json"))) as Prepare;
+    expect(o.spec).toEqual({
+      split: false,
+      reason: "要求資料の境目も見出しも無く、2つの空でない範囲に分けられない",
+      lines: 4,
+      cut: null,
+      assignees: [
+        {
+          id: "spec",
+          dir: join(one.W, "spec"),
+          prefix: "SPC",
+          files: ["requirements/issue.md", "requirements/workspace-rules.md"],
+          segments: [{ file: "requirements/issue.md", start: 1, end: 4 }],
+          range: null,
+          request: null,
+        },
+      ],
+    });
+    expect(read(join(one.W, "input/target.md"))).not.toContain("担当範囲");
+    expect(existsSync(join(one.W, "spec/notes"))).toBe(true);
+    expect(existsSync(join(one.W, "spec1"))).toBe(false);
   });
 
   test("引数の誤りは終了コード 2 で、作業ディレクトリを作らない", async () => {

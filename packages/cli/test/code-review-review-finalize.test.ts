@@ -13,11 +13,14 @@ import {
   reachRefute,
   refuteVerdict,
   registerRepo,
+  roleArgs,
   runReview,
   SPEC_TABLE,
+  SPLIT_REQUIREMENTS,
   type Sandbox,
   sandbox,
   sha256,
+  specPlan,
   type TempNod,
   tempNod,
 } from "./code-review-review-helpers";
@@ -274,13 +277,21 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(report.content).not.toContain("## 採否一覧");
     expect(report.content).not.toContain("コード要求の対応表");
     expect(report.content).not.toContain("requirements/issue.md:L4");
-    // 監査には、Spec 探索の対応表に反証の行を重ねた確定した対応表（反証が充足に確定した L3 と、Spec 探索の充足のままの L4）が載る
+    // 監査には、Spec 探索の対応表に反証の行を重ねた確定した対応表（反証が充足に確定した L3 と、Spec 探索の充足のままの L4）が載る。
+    // Issue と Workspace の規約の2つの要求資料なので Spec 探索は2体に分かれ、L3・L4 は spec1（requirements/issue.md:L1-L4）が書いた行
     expect(audit.content).toContain(
       [
-        "| `requirements/issue.md:L3` | 充足 | 反証 | 未確認 | src/a.ts@HEAD:L1 | なし |",
-        "| `requirements/issue.md:L4` | 充足 | Spec 探索 | 充足 | src/a.ts@HEAD:L1 | なし |",
+        "| `requirements/issue.md:L3` | 充足 | 反証 | spec1 | 未確認 | src/a.ts@HEAD:L1 | なし |",
+        "| `requirements/issue.md:L4` | 充足 | Spec 探索 | spec1 | 充足 | src/a.ts@HEAD:L1 | なし |",
       ].join("\n"),
     );
+    // 担当・試行・原本の表は担当ごとの行（Spec 探索の2担当は表示名で分ける）
+    for (const who of ["spec1", "spec2"]) {
+      expect(audit.content).toContain(`| Spec 探索（${who}） | code-reviewer-spec | agent-${who} | 1 | 有効な結果を受領 | 合格（sha256 ${sha256(read(join(p.W, who, "handoff.md")))}） |`);
+      expect(audit.content).toContain(`| Spec 探索（${who}） | 1 | agent-${who} | 有効 |`);
+      expect(audit.content).toContain(`| Spec 探索（${who}）の引き渡し用ファイル（反証への写し） | \`${join(p.W, `refute-input/${who}-handoff.md`)}\` |`);
+    }
+    expect(audit.content).not.toContain("| Spec 探索 | code-reviewer-spec |");
     expect(audit.content).toContain(`- マージ可否: ${MERGE_OK}`);
     expect(audit.content).toContain(`- 現在の head と基点の照合: 現在の head ${x.head}（固定した head と一致）、現在の基点 main（レビューした基点 main と一致）`);
     expect(audit.content).not.toContain("### CI の結果");
@@ -301,6 +312,7 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(summary).toMatchObject({ logKind: "progress" });
     expect(summary?.body).toContain(`結果Document ${reportId}`);
     expect(summary?.body).toContain(`監査Document ${auditId}`);
+    expect(summary?.body).toContain("Spec 探索（spec1）=code-reviewer-spec/agent-spec1（試行 1）、Spec 探索（spec2）=code-reviewer-spec/agent-spec2（試行 1）");
     expect(summary?.body).toContain("マージ可否・merge-ready は [merge-ready] で始まる作業ログを参照");
     expect(summary?.body?.startsWith("[merge-ready]")).toBe(false);
     const mergeReady = logs.filter((a) => a.body?.startsWith("[merge-ready]"));
@@ -507,11 +519,11 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
       [
         "要求資料ごとのコード要求（Spec 探索の引き渡し）: `requirements/issue.md` あり・`requirements/workspace-rules.md` あり",
         "",
-        "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
-        "|---|---|---|---|---|---|",
-        "| `requirements/issue.md:L3` | 未確認 | 反証 | 未確認 | 依存の独自パッチの契約が入力に無く、a \\| b の分岐の結論を出せない | SPC-1 |",
-        "| `requirements/issue.md:L4` | 未充足 | 反証 | 充足 | 失敗を記録しない（src/a.ts@HEAD:L1） | STD-1 |",
-        "| `requirements/workspace-rules.md:L3` | 充足 | Spec 探索 | 充足 | src/a.ts@HEAD:L1 | なし |",
+        "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
+        "|---|---|---|---|---|---|---|",
+        "| `requirements/issue.md:L3` | 未確認 | 反証 | spec | 未確認 | 依存の独自パッチの契約が入力に無く、a \\| b の分岐の結論を出せない | SPC-1 |",
+        "| `requirements/issue.md:L4` | 未充足 | 反証 | spec | 充足 | 失敗を記録しない（src/a.ts@HEAD:L1） | STD-1 |",
+        "| `requirements/workspace-rules.md:L3` | 充足 | Spec 探索 | spec | 充足 | src/a.ts@HEAD:L1 | なし |",
         "",
         "### 担当",
       ].join("\n"),
@@ -546,6 +558,33 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     expect(fe).toMatchObject({ status: "完了", scoreValue: 5, remainingCount: 0, merge: MERGE_OK, blockers: [] });
     expect(read(join(e.W, "parent/audit.md"))).toContain("要求資料ごとのコード要求（Spec 探索の引き渡し）: `requirements/issue.md` なし・`requirements/workspace-rules.md` なし\n\nコード要求0件（行の無い表）\n\n### 担当");
     expect(nodCalls()).toBe("");
+  });
+
+  test("分けた要求: Spec 探索のどちらかの担当に有効な結果が無ければ、もう一方が合格していても反証へ進まず未完了にし、理由と監査の担当・試行の表を担当ごとに書く", async () => {
+    const s = sandbox();
+    forbiddenNod(s);
+    const p = await prepareCaseWork(s, "split-missing", SPLIT_REQUIREMENTS);
+    const step = async (sub: string, args: string[]) => must(s, p, sub, args);
+    for (const who of ["standards", "spec1", "spec2"] as const) {
+      await step("agent", [...roleArgs(who), "--event", "start"]);
+      put(join(p.W, who, "handoff.md"), who === "spec2" ? "壊れた出力\n" : exploreHandoff(who, p));
+      await step("agent", [...roleArgs(who), "--event", "received", "--agent-id", `agent-${who}`]);
+    }
+    await step("check-explore", roleArgs("standards"));
+    await step("check-explore", roleArgs("spec1"));
+    // spec2 の試行は検査に通らず、隔離して委譲し直していない
+    expect((await runReview<{ valid: boolean }>("check-explore", ["--work", p.W, ...roleArgs("spec2")], s)).json?.valid).toBe(false);
+    await step("retire-attempt", [...roleArgs("spec2"), "--failure", "invalid", "--reason", "5節の3: 必須節が無い"]);
+    expect((await runReview("refute-input", ["--work", p.W], s)).exitCode).toBe(2);
+
+    const f = (await finalize(s, p)).json as Finalize;
+    expect(f).toMatchObject({ status: "未完了", score: "点数なし", merge: MERGE_NG });
+    expect(f.reason).toBe("有効な結果なし（Spec 探索（spec2）。試行 1 を無効として隔離し、委譲し直していない）。反証へ進めず、反証を起動しなかった");
+    const audit = read(join(p.W, "parent/audit.md"));
+    expect(audit).toContain("| Spec 探索（spec1） | code-reviewer-spec | agent-spec1 | 1 | 有効な結果を受領 |");
+    expect(audit).toContain("| Spec 探索（spec2） | code-reviewer-spec | なし | 1 | 有効な結果なし |");
+    expect(audit).toContain(`| Spec 探索（spec2） | 1 | agent-spec2 | 無効 | 5節の3: 必須節が無い | \`${join(p.W, "parent/attempts/spec2-1")}\``);
+    expect(audit).toContain("| 反証 | code-reviewer-refute | なし | なし | 起動せず |");
   });
 
   test("保存後の片付け: 評価用の事例の完了・未完了（反証を無効にした）・未実施のどれでも、保存を終えた後に依存の写し deps/ と限定 clone repo/ を消し、結果と消す前の lockfile・指紋の一覧・head の識別情報を parent/cleanup.md に書く。prepare の記録・監査・結果の原稿は変えずに残し、nod を使わない", async () => {
@@ -636,14 +675,18 @@ describe("code-review の仕上げ（review.ts finalize）", () => {
     const gh = fakeGh(s);
     const x = await issueRepo(s);
     gh.set([pr(x.head)]);
+    // Issue の本文を 33 行にして、要求資料の境目で分けた spec1 の範囲（requirements/issue.md:L1-L35）に L3・L4・L10〜L34 を収める
+    expect((await x.nod.run(["issue", "update", x.issue, "--description", Array.from({ length: 33 }, (_, i) => `- 要求 ${i + 3}`).join("\n")], x.repo)).exitCode).toBe(0);
     const p = await prepareIssue(s, x, "many", true);
-    // Spec 探索が要求資料の不足による未確認の行を 25 行書き、反証もどれも未確認のまま確定した（どれも確認が残る事項になる）
+    expect(specPlan(p).assignees[0]?.range).toBe("requirements/issue.md:L1-L35");
+    // Spec 探索（spec1）が要求資料の不足による未確認の行を 25 行書き、反証もどれも未確認のまま確定した（どれも確認が残る事項になる）
     const lines = Array.from({ length: 25 }, (_, i) => i + 10);
     const verdict = refuteVerdict(p, { clean: true })
       .replace("| `requirements/issue.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |\n", (row) => `${row}${lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | 記録先の契約 ${n} が要求資料に無い | なし |\n`).join("")}`)
       .replace("## 未確認と理由\n\nなし\n", `## 未確認と理由\n\n| 要求の出典または候補ID | 軸 | 種別 | 理由 | 確かめる担当 | 不足箇所 |\n|---|---|---|---|---|---|\n${lines.map((n) => `| \`requirements/issue.md:L${n}\` | Spec | 要求 | 記録先を決める要求資料が無い。${"失敗を記録する経路の保存先とキーの形をコードから決められない。".repeat(3)} | 人 | 記録先の契約 ${n} |\n`).join("")}`)
       .replace("- Spec: 要対応 0 件、未確認 0 件", "- Spec: 要対応 0 件、未確認 25 件");
-    await reachRefute(s, p, verdict, { table: [...SPEC_TABLE, ...lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | 記録先の契約 ${n} が要求資料に無い | SPC-1 |`)] });
+    const table = [...SPEC_TABLE, ...lines.map((n) => `| \`requirements/issue.md:L${n}\` | 未確認 | 記録先の契約 ${n} が要求資料に無い | SPC-1 |`)].map((r) => r.replace("SPC-1", "SPC1-1"));
+    await reachRefute(s, p, verdict, { table });
     await must(s, p, "check-refute");
 
     const f = (await finalize(s, p)).json as Finalize;

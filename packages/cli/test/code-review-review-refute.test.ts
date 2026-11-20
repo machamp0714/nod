@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type PreparedWork, prepareCaseWork, put, reachRefute, refuteVerdict, runReview, SPEC_TABLE, type Sandbox, sandbox, sha256 } from "./code-review-review-helpers";
+import { type PreparedWork, prepareCaseWork, put, reachRefute, refuteVerdict, runReview, SPEC_TABLE, SPLIT_REQUIREMENTS, type Sandbox, sandbox, sha256 } from "./code-review-review-helpers";
 
 interface Identity {
   stage: string;
@@ -32,7 +32,7 @@ interface Structure {
   decisions: { id: string; finder: string; verdict: string; impact: number | null; cause: string | null; reason: string }[];
   required: { heading: string; title: string; ids: string[]; impact: number | null; axis: string | null; location: string; effect: string }[];
   files: { path: string; code: string }[];
-  table: { source: string; status: string; evidence: string; candidates: string[]; by: string; specStatus: string }[];
+  table: { source: string; status: string; evidence: string; candidates: string[]; by: string; specStatus: string; specAssignee: string }[];
   unconfirmed: { ref: string; axis: string; kind: string; reason: string; owner: string; missing: string }[];
 }
 
@@ -82,8 +82,8 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     ]);
     // Spec 探索の表の順で、判定本文に書いた L3 は反証が確定し、書いていない充足の L4 は Spec 探索の判定のまま。セル内のコードの | は区切りにしない
     expect(st.table).toEqual([
-      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認" },
-      { source: "requirements/issue.md:L4", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足" },
+      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認", specAssignee: "spec" },
+      { source: "requirements/issue.md:L4", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足", specAssignee: "spec" },
     ]);
     // 表から除いた行と追加の印は無い
     expect(Object.keys(st)).not.toContain("removed");
@@ -135,9 +135,9 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
     put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract: "`requirements/issue.md:L4`", unmet: [MERGED] }));
     expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
     expect(structure(p).table).toEqual([
-      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認" },
-      { source: "requirements/issue.md:L2、requirements/issue.md:L4-L5", status: "未充足", evidence: "失敗を記録しない（src/a.ts@HEAD:L1）", candidates: ["STD-1"], by: "反証", specStatus: "充足" },
-      { source: "requirements/workspace-rules.md:L3", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足" },
+      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC-1"], by: "反証", specStatus: "未確認", specAssignee: "spec" },
+      { source: "requirements/issue.md:L2、requirements/issue.md:L4-L5", status: "未充足", evidence: "失敗を記録しない（src/a.ts@HEAD:L1）", candidates: ["STD-1"], by: "反証", specStatus: "充足", specAssignee: "spec" },
+      { source: "requirements/workspace-rules.md:L3", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足", specAssignee: "spec" },
     ]);
     expect(structure(p).files.map((f) => f.code)).toEqual(["あり", "あり"]);
 
@@ -221,6 +221,63 @@ describe("code-review の反証の検査（review.ts check-refute）", () => {
       expect(messages(r.json, 2)).toContain("「担当と対象」の節が重複");
       expect(existsSync(join(p.W, "parent/refute-structure.json"))).toBe(false);
     }
+  });
+
+  test("分けた要求: 2体の引き渡しの対応表を担当の順（spec1 → spec2）につないだ表を Spec 探索の対応表として、両方の候補と判定本文の行を今と同じ規則で検査し、確定した対応表の各行にその行を書いた担当を残す。要対応の契約の出典と重なる充足の行の規則はつないだ表の全体に当てる", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "split", SPLIT_REQUIREMENTS);
+    const RULE = "| `requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |";
+    // spec1 は既定の L3（未確認、SPC1-1）と L4（充足）、spec2 は規約の L3（充足）と候補 SPC2-1。判定本文は SPC1-1 を未確認、SPC2-1 を棄却にする
+    const verdict = refuteVerdict(p);
+    await reachRefute(s, p, verdict, { handoffs: { spec2: { files: ["| `requirements/workspace-rules.md` | あり |"], table: [RULE] } } });
+    const r = await checkRefute(s, p);
+    expect(r.json).toMatchObject({ valid: true, violations: [] });
+    const st = structure(p);
+    expect(st.decisions.map((d) => [d.id, d.verdict])).toEqual([
+      ["STD-1", "要対応"],
+      ["SPC1-1", "未確認"],
+      ["SPC2-1", "棄却"],
+      ["REF-1", "要対応"],
+    ]);
+    expect(st.files).toEqual([
+      { path: "requirements/issue.md", code: "あり" },
+      { path: "requirements/workspace-rules.md", code: "あり" },
+    ]);
+    expect(st.table).toEqual([
+      { source: "requirements/issue.md:L3", status: "未確認", evidence: "依存の独自パッチの契約が入力に無く、a | b の分岐の結論を出せない", candidates: ["SPC1-1"], by: "反証", specStatus: "未確認", specAssignee: "spec1" },
+      { source: "requirements/issue.md:L4", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足", specAssignee: "spec1" },
+      { source: "requirements/workspace-rules.md:L3", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足", specAssignee: "spec2" },
+    ]);
+    // 反証への写しは2体の引き渡しの原文のまま
+    expect(read(join(p.W, "refute-input/spec2-handoff.md"))).toBe(read(join(p.W, "spec2/handoff.md")));
+
+    const cases: [string, string, number, string][] = [
+      ["spec2 の候補の採否漏れ", verdict.replace("| SPC2-1 | Spec 探索 | 棄却 | なし | なし | 固定版で到達しない |\n", ""), 3, "SPC2-1"],
+      ["spec1 の未確認の行の確定漏れ", verdict.replace(/^\| `requirements\/issue\.md:L3` \| 未確認 .*\n/m, ""), 4, "requirements/issue.md:L3"],
+      ["spec2 の範囲の充足の行が要対応の契約の出典と重なる", refuteVerdict(p, { contract: "`requirements/workspace-rules.md:L3`" }), 4, "requirements/workspace-rules.md:L3"],
+    ];
+    for (const [name, text, no, needle] of cases) {
+      put(join(p.W, "refute/verdict.md"), text);
+      const x = await checkRefute(s, p);
+      expect(`${name}: ${x.json?.valid}`).toBe(`${name}: false`);
+      expect(`${name}: ${messages(x.json, no)}`).toContain(needle);
+    }
+    // spec2 の行全体を未充足にして要対応の候補 ID を書けば、反証が確定した spec2 の行になる
+    put(join(p.W, "refute/verdict.md"), refuteVerdict(p, { contract: "`requirements/workspace-rules.md:L3`", unmet: ["`requirements/workspace-rules.md:L3`"] }));
+    expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
+    expect(structure(p).table.at(-1)).toMatchObject({ source: "requirements/workspace-rules.md:L3", status: "未充足", by: "反証", specStatus: "充足", specAssignee: "spec2" });
+  });
+
+  test("分けた要求: 1つの要求資料が2つの範囲にまたがるとき、要求資料ごとのコード要求はどちらかの担当が「あり」なら「あり」にまとめる", async () => {
+    const s = sandbox();
+    // 全4行を見出しの直前（位置 2）で分ける: spec1 = requirements/issue.md:L1-L2、spec2 = requirements/issue.md:L3-L4
+    const p = await prepareCaseWork(s, "split-file", { "issue.md": "# 課題\n背景\n## 要求\n- a は 1 を返す\n" });
+    await reachRefute(s, p, refuteVerdict(p, { empty: true }), { empty: true, handoffs: { spec2: { files: ["| `requirements/issue.md` | あり |"], table: ["| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |"] } } });
+    expect(read(join(p.W, "refute-input/spec1-handoff.md"))).toContain("| `requirements/issue.md` | なし |");
+    expect((await checkRefute(s, p)).json).toMatchObject({ valid: true, violations: [] });
+    const st = structure(p);
+    expect(st.files).toEqual([{ path: "requirements/issue.md", code: "あり" }]);
+    expect(st.table).toEqual([{ source: "requirements/issue.md:L4", status: "充足", evidence: "src/a.ts@HEAD:L1", candidates: [], by: "Spec 探索", specStatus: "充足", specAssignee: "spec2" }]);
   });
 
   test("コード要求0件: 両探索と反証の空の対応表（要求資料はどれもコード要求なし。括弧1つの注記付きも可）を正常として合格させ、要求資料ごとのコード要求は Spec 探索の引き渡しから読む", async () => {

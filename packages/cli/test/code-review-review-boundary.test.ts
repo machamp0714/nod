@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type PreparedWork, prepareCaseWork, put, REVIEW_SCRIPT, reachRefute, refuteVerdict, runReview, type Sandbox, sandbox, sha256 } from "./code-review-review-helpers";
+import { type PreparedWork, prepareCaseWork, put, REVIEW_SCRIPT, reachRefute, refuteVerdict, runReview, SPLIT_REQUIREMENTS, type Sandbox, sandbox, sha256, specPlan } from "./code-review-review-helpers";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
@@ -15,6 +15,7 @@ interface Item {
 }
 interface Attempt {
   role: string;
+  assignee: string;
   attempt: number;
   agentId: string | null;
   source: { path: string | null; sha256: string | null; unavailable: string | null };
@@ -39,19 +40,31 @@ interface DetailAttempt extends Omit<Attempt, "items"> {
 const SKILL_MD = join(dirname(REVIEW_SCRIPT), "../SKILL.md");
 const ROLE_NAMES = { standards: "Standards 探索", spec: "Spec 探索", refute: "反証" } as const;
 type Role = keyof typeof ROLE_NAMES;
+// 担当（分けた Spec 探索は spec1・spec2）
+type Who = Role | "spec1" | "spec2";
 // 書込ペイロードと反証の本文に固有の文字列（出力と記録に出てはならない）
 const PAYLOAD = "書込ペイロードの固有の文字列-7f3a";
 const VERDICT = "反証の判定本文の固有の文字列-91c2";
 
-// 4節・6節の依頼本文の雛形どおりの最初の入力（omp は先頭に指示の1行を足す）
-function request(role: Role, p: PreparedWork, extra: string[] = []): string {
+// 4節・6節の依頼本文の雛形どおりの最初の入力（omp は先頭に指示の1行を足す）。分けた Spec 探索は「担当範囲」の項目を足し、反証の入力一覧は2体の引き渡しの写し
+function request(who: Who, p: PreparedWork, extra: string[] = []): string {
   const W = p.W;
+  const role: Role = who === "spec1" || who === "spec2" ? "spec" : who;
+  const plan = specPlan(p);
+  const range = plan.assignees.find((a) => a.id === who)?.request;
   const prepared = role === "refute" ? JSON.parse(read(join(W, "parent/prepare.json"))) as { inputs: { path: string }[]; deps: { prepared: boolean } | null } : null;
-  const refuteFiles = prepared ? [...new Set(["standards-handoff.md", "spec-handoff.md", "manifest.md", ...prepared.inputs.map((f) => f.path)])] : [];
+  const refuteFiles = prepared ? [...new Set(["standards-handoff.md", ...plan.assignees.map((a) => `${a.id}-handoff.md`), "manifest.md", ...prepared.inputs.map((f) => f.path)])] : [];
   const body =
     role === "refute"
       ? [`役割: ${ROLE_NAMES[role]}`, "読んでよい入力（次のファイルだけ）:", ...refuteFiles.map((path) => `- ${W}/refute-input/${path}`), `- 対象リポジトリ ${W}/repo（target.md の担当用の限定 clone）`, ...(prepared?.deps?.prepared ? [`- 依存の写し ${W}/deps/（準備できたときだけ）`] : []), `書いてよい場所: ${W}/refute/（verdict.md と notes/）と自分の一時ファイル`, `出力: ${W}/refute/verdict.md`]
-      : [`役割: ${ROLE_NAMES[role]}`, `作業ディレクトリ: ${W}`, `読んでよい入力: ${W}/input/ 配下（target.md・manifest.md・deps-files.sha256・requirements/・local/）、対象リポジトリ ${W}/repo（target.md の担当用の限定 clone）、依存の写し ${W}/deps/（準備できたときだけ）`, `書いてよい場所: ${W}/${role}/（handoff.md と notes/）と自分の一時ファイル`, `出力: ${W}/${role}/handoff.md`];
+      : [
+          `役割: ${ROLE_NAMES[role]}`,
+          `作業ディレクトリ: ${W}`,
+          `読んでよい入力: ${W}/input/ 配下（target.md・manifest.md・deps-files.sha256・requirements/・local/）、対象リポジトリ ${W}/repo（target.md の担当用の限定 clone）、依存の写し ${W}/deps/（準備できたときだけ）`,
+          ...(range ? [`担当範囲: ${range}`] : []),
+          `書いてよい場所: ${W}/${who}/（handoff.md と notes/）と自分の一時ファイル`,
+          `出力: ${W}/${who}/handoff.md`,
+        ];
   return ["Complete assignment thoroughly:", "", ...body, ...extra].join("\n");
 }
 
@@ -285,6 +298,52 @@ describe("code-review の入力境界の確認（review.ts check-boundary）", (
     expect(itemOf(refute, "system-prompt").reason).toContain("session_init");
     expect(itemOf(refute, "first-input").observed).toBe(true);
     expect(r.json?.unobserved).toBe(2);
+  });
+
+  test("分けた要求: Spec 探索の2担当の依頼本文を、担当範囲（prepare の値）・書いてよい場所・出力が担当ごとの雛形どおりかで照合し、反証の入力一覧には2体の引き渡しの写しを求める", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "boundary-split", SPLIT_REQUIREMENTS);
+    await reachRefute(s, p, refuteVerdict(p));
+    const parentFile = join(s.t, "sessions", "2026-11-15T09-59-00-000Z_parent.jsonl");
+    put(parentFile, `${JSON.stringify({ type: "session", version: 3, id: "parent", timestamp: at(-60), cwd: "/tmp/empty-cwd" })}\n`);
+    const log = (who: Who, firstInput: string) => put(join(s.t, "sessions", "2026-11-15T09-59-00-000Z_parent", `agent-${who}.jsonl`), agentLog(parentFile, {}, firstInput));
+    for (const who of ["standards", "spec1", "spec2", "refute"] as const) log(who, request(who, p));
+    const run = async () => (await runReview<Boundary>("check-boundary", ["--work", p.W, "--session", parentFile], s)).json as Boundary;
+    const ok = await run();
+    expect(ok.attempts.map((a) => [a.role, a.assignee, a.attempt, a.agentId])).toEqual([
+      ["standards", "standards", 1, "agent-standards"],
+      ["spec", "spec1", 1, "agent-spec1"],
+      ["spec", "spec2", 1, "agent-spec2"],
+      ["refute", "refute", 1, "agent-refute"],
+    ]);
+    expect(ok.marked).toBe(0);
+    expect(request("spec1", p)).toContain("担当範囲: spec1（requirements/issue.md:L1-L4。候補 ID は SPC1-<n>）");
+    expect(request("refute", p)).toContain(`- ${p.W}/refute-input/spec2-handoff.md`);
+    expect(read(join(p.W, "parent/boundary.md"))).toContain("## Spec 探索（spec2） 試行 1（担当 ID agent-spec2）");
+
+    const detail = async (who: Who) => {
+      const r = await run();
+      expect(`${who}: ${r.marked}`).toBe(`${who}: 1`);
+      const attempts = (JSON.parse(read(join(p.W, "parent/boundary.json"))) as { attempts: (DetailAttempt & { assignee: string })[] }).attempts;
+      return itemOf(attempts.find((a) => a.assignee === who) as DetailAttempt, "first-input").facts;
+    };
+    // 担当範囲の欠落、ほかの担当の範囲、分けないときの書く場所と出力、Standards 探索への担当範囲
+    const cases: [Who, string, Record<string, unknown>][] = [
+      ["spec1", request("spec1", p).replace(/\n担当範囲: .*/, ""), { missing: ["担当範囲"] }],
+      ["spec2", request("spec2", p).replace(/担当範囲: .*/, `担当範囲: ${specPlan(p).assignees[0]?.request}`), { invalidValues: ["担当範囲"] }],
+      ["spec1", request("spec1", p).replaceAll(`${p.W}/spec1/`, `${p.W}/spec/`), { invalidValues: ["書いてよい場所", "出力"] }],
+      ["standards", request("standards", p, [`担当範囲: ${specPlan(p).assignees[0]?.request}`]), { extra: [8] }],
+    ];
+    for (const [who, text, facts] of cases) {
+      log(who, text);
+      expect(await detail(who)).toMatchObject(facts);
+      log(who, request(who, p));
+    }
+    // 反証の入力一覧に分けないときの写し（spec-handoff.md）を書き、2体の写しが無い
+    log("refute", request("refute", p).replace(`- ${p.W}/refute-input/spec1-handoff.md\n- ${p.W}/refute-input/spec2-handoff.md`, `- ${p.W}/refute-input/spec-handoff.md`));
+    const refute = await detail("refute");
+    expect(refute.missingInputs).toEqual([`${p.W}/refute-input/spec1-handoff.md`, `${p.W}/refute-input/spec2-handoff.md`]);
+    expect((refute.nonTemplateLines as number[]).length).toBe(1);
   });
 
   test("担当 ID を記録していない試行は観測できずとする", async () => {

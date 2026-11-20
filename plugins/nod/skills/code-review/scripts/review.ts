@@ -6,12 +6,16 @@
 //     [--issue <ID> | --request <絶対パス>... | --request-doc <Document ID>...] [--work <W（存在しないか空）> | --work-root <絶対パス>]
 //     評価用の事例: --case <常設データセットの inputs/<case-id> の絶対パス> [--repo <絶対パス>]（nod を使わず case.md と requirements/ から作る）
 //     W の既定は $HOME/.local/share/nod/code-reviews/<小文字の uuid>。後の段階は checkIdentity（段階名を受ける）で同一性を確かめ直す
-//   agent（parent.md 4節）: --work <W> --role standards|spec|refute --event start|received [--agent-id <担当 ID>]
-//     委譲の開始（委譲の直前）と最終返答の受領の時刻・試行の番号・担当 ID を parent/agents.md（と agents.json）に記録する
-//   check-explore（5節）: --work <W> --role standards|spec。引き渡し用ファイルの形式と参照、同一性を機械的に検査し、parent/checks.md（と checks.json）に書く
-//   retire-attempt（4.1節）: --work <W> --role <役割> --failure invalid|usage-limit|aborted --reason <無効の理由> [--retries <omp 内部の再試行>]
-//     最新の試行を parent/attempts/<役割>-<n>/ へ隔離し、同じ入力を確かめて parent/attempts.md（と attempts.json）に書き、委譲し直せるかを返す
-//   refute-input（6節）: --work <W>。合格した両探索の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
+//     要求資料の全行を行数がほぼ半分になる要求資料の境目か見出しの直前で2つに分け、Spec 探索の担当 spec1・spec2 の範囲を結果の spec と target.md に書く
+//     （切れ目が無ければ分けず、担当は spec 1体）
+//   agent（parent.md 4節）: --work <W> --role standards|spec|refute [--assignee spec1|spec2] --event start|received [--agent-id <担当 ID>]
+//     委譲の開始（委譲の直前）と最終返答の受領の時刻・試行の番号・担当 ID を担当ごとに parent/agents.md（と agents.json）に記録する。
+//     --assignee は Spec 探索を分けた作業ディレクトリの --role spec でだけ必須で、ほかでは付けない（check-explore・retire-attempt も同じ）
+//   check-explore（5節）: --work <W> --role standards|spec [--assignee spec1|spec2]。引き渡し用ファイルの形式と参照（分けたときは担当範囲）、
+//     同一性を機械的に検査し、parent/checks.md（と checks.json）に書く
+//   retire-attempt（4.1節）: --work <W> --role <役割> [--assignee spec1|spec2] --failure invalid|usage-limit|aborted --reason <無効の理由> [--retries <omp 内部の再試行>]
+//     最新の試行を parent/attempts/<担当>-<n>/ へ隔離し、同じ入力を確かめて parent/attempts.md（と attempts.json）に書き、委譲し直せるかを返す
+//   refute-input（6節）: --work <W>。合格した探索の全担当の引き渡しと共通入力を refute-input/ へ写し、検査時の指紋と照合して parent/fingerprints.md に書く
 //   check-refute（7節）: --work <W>。反証の判定本文の形式・参照・集計の一致と同一性を機械的に検査して parent/checks.md に書き、
 //     合格なら読み取った構造を parent/refute-structure.json に書く
 //   check-boundary（0.1節）: --work <W> [--session <親のセッション記録の絶対パス>（無ければ PI_SESSION_FILE）]。agents.json の各試行の担当の記録
@@ -685,7 +689,107 @@ function caseRequirements(dir: string, c: Case): { req: Requirements; mismatches
   return { req, mismatches };
 }
 
-// ---- prepare ----
+// ---- 要求の範囲（Spec 探索を要求の範囲で2体に分ける。parent.md 1節） ----
+
+// Spec 探索の担当（分けたときは spec1・spec2、分けないときは spec。書く場所・出力のディレクトリ名と同じ）
+export type SpecAssignee = "spec" | "spec1" | "spec2";
+
+// 担当の範囲のうち1つの要求資料の区間（1始まり、両端を含む）
+export interface SpecSegment {
+  file: string;
+  start: number;
+  end: number;
+}
+
+export interface SpecAssignment {
+  id: SpecAssignee;
+  // 書いてよい場所（<W>/<担当>）
+  dir: string;
+  // 候補 ID の接頭辞
+  prefix: string;
+  // 担当の要求資料（範囲に一部でも含まれる要求資料と、範囲に入れた0行の要求資料。パスの順）
+  files: string[];
+  segments: SpecSegment[];
+  // 分けたときの範囲の表記（区間を「、」でつなぐ）と、依頼本文の「担当範囲」の値。分けないときは null
+  range: string | null;
+  request: string | null;
+}
+
+export interface SpecPlan {
+  split: boolean;
+  // 分けなかった理由（分けたときは null）
+  reason: string | null;
+  // 要求資料の全行の数と、第2範囲の最初の行の通し位置（0始まり。分けないときは null）
+  lines: number;
+  cut: number | null;
+  assignees: SpecAssignment[];
+}
+
+const NO_SPLIT = "要求資料の境目も見出しも無く、2つの空でない範囲に分けられない";
+const HEADING_LINE = /^#{1,6}\s/;
+
+const rangeText = (segments: SpecSegment[]) => segments.map((s) => `${s.file}:L${s.start}${s.end === s.start ? "" : `-L${s.end}`}`).join("、");
+
+// 要求資料（input/requirements/ の各ファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出し（コードブロックの外）の直前で2つに分ける。
+// 切れ目の候補が無ければ分けない（今の1体のまま）
+function planSpec(work: string): SpecPlan {
+  const docs = fingerprintList(join(work, "input/requirements"))
+    .map((f) => `requirements/${f.path}`)
+    .sort()
+    .map((file) => {
+      const text = readFileSync(join(work, "input", file), "utf8");
+      const lines = text === "" ? [] : text.split("\n");
+      if (text.endsWith("\n")) lines.pop();
+      return { file, lines, at: 0 };
+    });
+  let total = 0;
+  const cuts = new Set<number>();
+  docs.forEach((d, i) => {
+    d.at = total;
+    if (i > 0) cuts.add(total);
+    let fence = false;
+    d.lines.forEach((line, k) => {
+      if (FENCE.test(line)) fence = !fence;
+      else if (!fence && HEADING_LINE.test(line)) cuts.add(total + k);
+    });
+    total += d.lines.length;
+  });
+  const cut = [...cuts].filter((p) => p > 0 && p < total).sort((a, b) => Math.abs(2 * a - total) - Math.abs(2 * b - total) || a - b)[0];
+  const whole = docs.filter((d) => d.lines.length > 0).map((d) => ({ file: d.file, start: 1, end: d.lines.length }));
+  if (cut === undefined) {
+    const assignment: SpecAssignment = { id: "spec", dir: join(work, "spec"), prefix: "SPC", files: docs.map((d) => d.file), segments: whole, range: null, request: null };
+    return { split: false, reason: NO_SPLIT, lines: total, cut: null, assignees: [assignment] };
+  }
+  const part = (id: "spec1" | "spec2", first: boolean): SpecAssignment => {
+    const segments: SpecSegment[] = [];
+    const files: string[] = [];
+    for (const d of docs) {
+      const n = d.lines.length;
+      const seg = first ? { start: 1, end: Math.min(n, cut - d.at) } : { start: Math.max(1, cut - d.at + 1), end: n };
+      if (n > 0 && seg.start <= seg.end) segments.push({ file: d.file, ...seg });
+      if ((n > 0 && seg.start <= seg.end) || (n === 0 && d.at < cut === first)) files.push(d.file);
+    }
+    const prefix = id === "spec1" ? "SPC1" : "SPC2";
+    const range = rangeText(segments);
+    return { id, dir: join(work, id), prefix, files, segments, range, request: `${id}（${range}。候補 ID は ${prefix}-<n>）` };
+  };
+  return { split: true, reason: null, lines: total, cut, assignees: [part("spec1", true), part("spec2", false)] };
+}
+
+// 分けたときだけ target.md の末尾に足す、Spec 探索の担当範囲の節
+function specRangeSection(plan: SpecPlan): string {
+  return [
+    "",
+    "## Spec 探索の担当範囲",
+    "",
+    "要求資料（requirements/ のファイルをパスの順に並べた全行）を、行数がほぼ半分になる要求資料の境目か見出しの直前で2つに分けた範囲。Spec 探索の担当は、依頼本文の「担当範囲」の担当の範囲について、コード要求の対応表の行と要求資料ごとのコード要求を書く。要求資料はすべて読んでよい。",
+    "",
+    "| 担当 | 範囲 | 候補 ID |",
+    "|---|---|---|",
+    ...plan.assignees.map((a) => `| ${a.id} | ${a.segments.map((s) => `\`${rangeText([s])}\``).join("、")} | \`${a.prefix}-<n>\` |`),
+    "",
+  ].join("\n");
+}
 
 function prepare(args: string[]): Outcome {
   const o = parseOptions(args, ["work", "work-root", "repo", "mode", "base", "head", "pr", "issue", "case"], ["untracked", "request", "request-doc"]);
@@ -747,7 +851,7 @@ function prepare(args: string[]): Outcome {
   const workArg = absolute("work", o.one.get("work"));
   const work = workArg ?? join(absolute("work-root", o.one.get("work-root")) ?? join(homedir(), ".local/share/nod/code-reviews"), randomUUID());
   if (existsSync(work) && readdirSync(work).length > 0) throw new UsageError(`--work は存在しないか空のディレクトリにしてください: ${work}`);
-  for (const d of ["input/requirements", "standards/notes", "spec/notes", "refute-input", "refute/notes", "parent/deps"]) mkdirSync(join(work, d), { recursive: true });
+  for (const d of ["input/requirements", "standards/notes", "refute-input", "refute/notes", "parent/deps"]) mkdirSync(join(work, d), { recursive: true });
   const clone = join(work, "repo");
   const startedAt = now();
   const result: Json = {
@@ -780,6 +884,8 @@ function prepare(args: string[]): Outcome {
     inputs: [],
     manifestSha256: null,
     unavailable: [],
+    // 要求の範囲（Spec 探索を分けるか、担当ごとの要求資料と区間）。準備できなかったときは null
+    spec: null,
   };
   const notRun = (reason: string): Outcome => {
     Object.assign(result, { ready: false, status: "未実施", reason, score: NOT_RUN_SCORE, merge: NOT_RUN_MERGE });
@@ -848,6 +954,11 @@ function prepare(args: string[]): Outcome {
   if (!req) req = issue ? issueRequirements(join(work, "input/requirements"), join(work, "parent/issue-snapshot.json"), repo, issue) : requestRequirements(join(work, "input/requirements"), repo, requests);
   result.unavailable = req.unavailable;
 
+  // 要求の範囲と、Spec 探索の担当ごとの作業ディレクトリ
+  const plan = planSpec(work);
+  result.spec = plan;
+  for (const a of plan.assignees) mkdirSync(join(a.dir, "notes"), { recursive: true });
+
   // target.md
   const depsLine = deps.prepared ? `\`${join(work, "deps")}/\`` : "依存の写しなし（理由は manifest.md）";
   let target: string;
@@ -878,6 +989,7 @@ function prepare(args: string[]): Outcome {
     }
     target = `${lines.join("\n")}\n`;
   }
+  if (plan.split) target += specRangeSection(plan);
   writeFileSync(join(work, "input/target.md"), target);
 
   // manifest.md（input/ の各ファイルの sha256 と出典、取得できなかった資料、依存の写し）
@@ -948,6 +1060,18 @@ const STAGE_NAMES: Record<Stage, string> = { explore: "探索", refute: "反証"
 // 段階ごとの担当への入力の写し。写しを作るサブコマンドは、出力（parent/<ディレクトリ名>.json）の files に写しの全ファイルの sha256 を、ready に固定できたかを書く
 const STAGE_COPIES: Partial<Record<Stage, string>> = { refute: "refute-input" };
 
+// 担当（parent.md 4節）。役割とは別に、Spec 探索を要求の範囲で分けたときの spec1・spec2 を区別する。書く場所は <W>/<担当>/、試行の番号・再委譲・隔離・検査・計測は担当ごと
+export type Assignee = "standards" | "refute" | SpecAssignee;
+type ExploreAssignee = "standards" | SpecAssignee;
+const roleOfAssignee = (a: Assignee): Role => (a === "standards" || a === "refute" ? a : "spec");
+// 表示名（分けたときの Spec 探索の担当は「Spec 探索（spec1）」、ほかは役割名）
+const assigneeName = (a: Assignee) => (a === "spec1" || a === "spec2" ? `${ROLES.spec.name}（${a}）` : ROLES[roleOfAssignee(a)].name);
+// Spec 探索の担当（分けたときは spec1・spec2、分けないときは spec）と、探索の全担当
+const specAssignees = (prep: Prepared): SpecAssignee[] => prep.spec?.assignees.map((a) => a.id) ?? ["spec"];
+const exploreAssignees = (prep: Prepared): ExploreAssignee[] => ["standards", ...specAssignees(prep)];
+// 分けたときの Spec 探索の担当の範囲（分けないとき・Spec 探索以外は null）
+const splitAssignment = (prep: Prepared, a: Assignee): SpecAssignment | null => (prep.spec?.split ? (prep.spec.assignees.find((x) => x.id === a) ?? null) : null);
+
 const FAILURES = { invalid: "判定と無関係な無効", "usage-limit": "利用枠の上限", aborted: "利用者による中止" } as const;
 type Failure = keyof typeof FAILURES;
 const REFUTE_UNFIXED = "反証への入力を固定できず、反証の有効な結果なし";
@@ -971,12 +1095,16 @@ interface Prepared {
   deps: Deps | null;
   inputs: FileHash[];
   manifestSha256: string | null;
+  // 要求の範囲（Spec 探索を分けるか、担当ごとの要求資料と区間）。準備できなかったときは null
+  spec: SpecPlan | null;
   // prepare の結果を作り始めた時刻（段階の記録 parent/stages.json が無い古い作業ディレクトリの計測の始まり）
   startedAt?: string;
 }
 
 export interface AgentRecord {
   role: Role;
+  assignee: Assignee;
+  // 担当の表示名
   roleName: string;
   definition: string;
   attempt: number;
@@ -1009,6 +1137,7 @@ export interface Violation {
 export interface CheckRecord {
   stage: Stage;
   role: Role;
+  assignee: Assignee;
   roleName: string;
   definition: string;
   attempt: number;
@@ -1028,6 +1157,7 @@ export interface CheckRecord {
 
 export interface AttemptRecord {
   role: Role;
+  assignee: Assignee;
   roleName: string;
   definition: string;
   attempt: number;
@@ -1063,6 +1193,18 @@ function loadWork(o: Options): { work: string; prep: Prepared } {
 function roleOf(value: string | undefined, allowed: readonly Role[]): Role {
   if (!allowed.includes(value as Role)) throw new UsageError(`--role は ${allowed.join("・")} のどれかにしてください: ${value ?? "なし"}`);
   return value as Role;
+}
+
+// --role と --assignee から担当を決める（parent.md 4節）。Spec 探索を分けた作業ディレクトリの --role spec は --assignee spec1|spec2 が必須で、ほかでは付けない
+function assigneeOf(prep: Prepared, role: Role, value: string | undefined): Assignee {
+  if (role !== "spec" || !prep.spec?.split) {
+    if (value !== undefined) throw new UsageError(`--assignee は Spec 探索を要求の範囲で分けた作業ディレクトリの --role spec だけに付けます: ${value}`);
+    return role;
+  }
+  const allowed = specAssignees(prep);
+  const found = allowed.find((a) => a === value);
+  if (!found) throw new UsageError(`Spec 探索を要求の範囲で分けた作業ディレクトリでは --assignee を ${allowed.join("・")} のどちらかにしてください: ${value ?? "なし"}`);
+  return found;
 }
 
 // parent/<name>.json の記録の一覧（Markdown の parent/<name>.md はこの一覧から作り直す）
@@ -1180,34 +1322,37 @@ function renderChecks(list: CheckRecord[]): string {
   return out.join("\n");
 }
 
-// 役割の最新の試行（隔離済みなら引数の誤り）
-function currentAttempt(work: string, role: Role): AgentRecord {
+// 担当の最新の試行（隔離済みなら引数の誤り）
+function currentAttempt(work: string, assignee: Assignee): AgentRecord {
+  const name = assigneeName(assignee);
   const last = loadList<AgentRecord>(work, "agents")
-    .filter((a) => a.role === role)
+    .filter((a) => a.assignee === assignee)
     .at(-1);
-  if (!last) throw new UsageError(`${ROLES[role].name} の委譲が記録されていません（agent --event start で記録してから）`);
-  if (loadList<AttemptRecord>(work, "attempts").some((a) => a.role === role && a.attempt === last.attempt)) {
-    throw new UsageError(`${ROLES[role].name} の試行 ${last.attempt} は無効として隔離済みです`);
+  if (!last) throw new UsageError(`${name} の委譲が記録されていません（agent --event start で記録してから）`);
+  if (loadList<AttemptRecord>(work, "attempts").some((a) => a.assignee === assignee && a.attempt === last.attempt)) {
+    throw new UsageError(`${name} の試行 ${last.attempt} は無効として隔離済みです`);
   }
   return last;
 }
 
 function agent(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "role", "event", "agent-id"], []);
-  const { work } = loadWork(o);
+  const o = parseOptions(args, ["work", "role", "assignee", "event", "agent-id"], []);
+  const { work, prep } = loadWork(o);
   const role = roleOf(o.one.get("role"), Object.keys(ROLES) as Role[]);
+  const assignee = assigneeOf(prep, role, o.one.get("assignee"));
   const r = ROLES[role];
+  const name = assigneeName(assignee);
   const event = o.one.get("event");
   const id = o.one.get("agent-id") ?? null;
   const agents = loadList<AgentRecord>(work, "agents");
   const attempts = loadList<AttemptRecord>(work, "attempts");
-  const last = agents.filter((a) => a.role === role).at(-1);
+  const last = agents.filter((a) => a.assignee === assignee).at(-1);
   let record: AgentRecord;
   if (event === "start") {
     const stop = attempts.find((a) => a.failure !== "invalid");
     if (stop) throw new UsageError(`${stop.failureLabel}（${stop.roleName}）で止めたので、どの担当も起動・委譲し直ししません`);
-    if (last && !attempts.find((a) => a.role === role && a.attempt === last.attempt)?.redelegate) {
-      throw new UsageError(`${r.name} を委譲し直せるのは、retire-attempt が委譲し直してよいと返した試行の後の1回だけです（最新の試行 ${last.attempt}）`);
+    if (last && !attempts.find((a) => a.assignee === assignee && a.attempt === last.attempt)?.redelegate) {
+      throw new UsageError(`${name} を委譲し直せるのは、retire-attempt が委譲し直してよいと返した試行の後の1回だけです（最新の試行 ${last.attempt}）`);
     }
     // 反証は、その担当への入力の写し（refute-input）が準備完了を返してから
     const copy = STAGE_COPIES[r.stage];
@@ -1215,11 +1360,11 @@ function agent(args: string[]): Outcome {
       const file = join(work, "parent", `${copy}.json`);
       if (!existsSync(file) || !(JSON.parse(readFileSync(file, "utf8")) as { ready?: boolean }).ready) throw new UsageError(`${copy} が準備完了を返していないので、${r.name}を起動しません`);
     }
-    record = { role, roleName: r.name, definition: r.definition, attempt: (last?.attempt ?? 0) + 1, agentId: id, startedAt: now(), receivedAt: null };
+    record = { role, assignee, roleName: name, definition: r.definition, attempt: (last?.attempt ?? 0) + 1, agentId: id, startedAt: now(), receivedAt: null };
     agents.push(record);
   } else if (event === "received") {
-    if (!last) throw new UsageError(`${r.name} の委譲の開始が記録されていません`);
-    if (last.receivedAt) throw new UsageError(`${r.name} の試行 ${last.attempt} の受領は記録済みです`);
+    if (!last) throw new UsageError(`${name} の委譲の開始が記録されていません`);
+    if (last.receivedAt) throw new UsageError(`${name} の試行 ${last.attempt} の受領は記録済みです`);
     if (id && last.agentId && id !== last.agentId) throw new UsageError(`担当 ID が委譲の開始の記録（${last.agentId}）と違います: ${id}`);
     last.agentId = id ?? last.agentId;
     last.receivedAt = now();
@@ -1256,6 +1401,14 @@ const UNAVAILABLE_MISSING_FIELD = "不足箇所";
 const TARGET_FIELDS = ["役割", "定義名", "対象版", "要求資料", "依存の写し", "終了状態"];
 const CANDIDATE_FIELDS = ["軸", "場所", "起点", "到達条件", "期待動作", "破綻", "影響", "証拠"];
 const TABLE_HEADER = ["要求の出典", "状態", "証拠または不足理由", "候補ID"];
+// 候補 ID（英字の接頭辞の後に数字1桁を許す。Spec 探索を分けたときの SPC1-<n>・SPC2-<n>）。見出しの先頭・セルの全体・セルの中の並びで読む
+const CANDIDATE_ID = String.raw`[A-Za-z]+\d?-\d+`;
+const LEADING_ID = new RegExp(`^(${CANDIDATE_ID})`);
+const WHOLE_ID = new RegExp(`^(${CANDIDATE_ID})$`);
+const IDS = new RegExp(CANDIDATE_ID, "g");
+const BOUNDED_IDS = new RegExp(String.raw`\b${CANDIDATE_ID}\b`, "g");
+// 要対応の見出し（CAUSE-<n> か候補 ID と、続く題）
+const REQUIRED_HEADING = new RegExp(String.raw`^((?:CAUSE|[A-Za-z]+\d?)-\d+)\s*[:：]?\s*(.*)$`);
 // 禁止項目の名前。コードスパンを除いた見出し・項目名・表の見出しの全体がこれと同じときだけ当てる（`Severity` の表示・buildSummary の呼出元 のような名前の一部には当てない）
 const FORBIDDEN = /^(?:暫定の)?(?:重大度|確信度|要約|推論|総合判断|原因の統合|severity|confidence|summary)$/i;
 const FENCE = /^\s*(```|~~~)/;
@@ -1416,15 +1569,18 @@ function codeFileRows(sec: Section | undefined): { path: string; code: string; v
   );
 }
 
-// 要求資料ごとのコード要求（5節の6）: requirements/ の各ファイルに1行ずつ、あり か なし（括弧1つの注記は可）
-function codeFileViolations(sec: Section | undefined, prep: Prepared, add: Add): void {
+// 要求資料ごとのコード要求（5節の6）: requirements/ の各ファイルに1行ずつ、あり か なし（括弧1つの注記は可）。
+// Spec 探索を分けたときは担当の要求資料（範囲に一部でも含まれる要求資料と範囲に入れた0行の要求資料）だけを1行ずつ持つ
+function codeFileViolations(sec: Section | undefined, prep: Prepared, assignment: SpecAssignment | null, add: Add): void {
   const name = "要求資料ごとのコード要求";
-  const want = prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path);
+  const docs = prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path);
+  const want = assignment ? assignment.files : docs;
   const rows = codeFileRows(sec);
   if (!rows) return add(6, `「${name}」に雛形の2列（${CODE_FILE_HEADER.join("・")}）の表が無い`);
   rows.forEach(({ path, code, value }, i) => {
     const label = path || `${i + 1} 行目`;
-    if (!want.includes(path)) add(6, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
+    if (!docs.includes(path)) add(6, `${name}の ${label} が要求資料（requirements/ のファイル）に無い`);
+    else if (!want.includes(path)) add(6, `${name}の ${label} が担当範囲（${assignment?.range}）の要求資料に無い（ほかの担当の要求資料の行は書かない）`);
     if (rows.findIndex((r) => r.path === path) < i) add(6, `${name}に ${label} が重複している`);
     const old = obsoleteLabel(code);
     if (old) add(6, `${name}の ${label} に廃止した分類「${old}」を使っている（あり／なしだけ）`);
@@ -1469,7 +1625,9 @@ function targetViolations(target: Section | undefined, names: readonly string[],
   if (state && !states.test(state)) add(no, `終了状態が雛形の語彙（${states.source.replaceAll("|", "・")}）のどれでもない（${state}）`);
 }
 
-function exploreViolations(text: string, role: "standards" | "spec", prep: Prepared, add: Add): void {
+function exploreViolations(text: string, assignee: ExploreAssignee, prep: Prepared, add: Add): void {
+  const role = roleOfAssignee(assignee);
+  const assignment = splitAssignment(prep, assignee);
   const lines = text.split("\n");
   const secs = sectionsOf(lines, 2);
   const section = (name: string) => secs.find((s) => s.title.startsWith(name));
@@ -1480,22 +1638,22 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
   targetViolations(section("担当と対象"), TARGET_FIELDS, role, prep, 3, add);
   for (const name of ["探索上の不足・未確認", "判断を見送った事項"]) if (!filled(section(name))) add(3, `「${name}」の節が無いか空`);
 
-  // 4: 候補の必須項目と候補 ID
-  const prefix = role === "standards" ? "STD" : "SPC";
+  // 4: 候補の必須項目と候補 ID（接頭辞は担当のもの。Spec 探索を分けたときは SPC1-・SPC2-）
+  const prefix = role === "standards" ? "STD" : (assignment?.prefix ?? "SPC");
   const ids = new Set<string>();
   const candidates = section("候補");
   if (!candidates) add(4, "「候補」の節が無い");
   const blocks = sectionsOf(candidates?.body ?? [], 3);
   if (candidates && blocks.length === 0 && !candidates.body.join("\n").includes("候補0件")) add(4, "候補一覧も「候補0件」の明示も無い");
   for (const b of blocks) {
-    const id = /^([A-Za-z]+-\d+)/.exec(b.title)?.[1];
+    const id = LEADING_ID.exec(b.title)?.[1];
     if (!id) {
       add(4, `候補の見出し「${b.title}」に候補 ID が無い`);
       continue;
     }
     if (ids.has(id)) add(4, `候補 ID ${id} が重複している`);
     ids.add(id);
-    if (!id.startsWith(`${prefix}-`)) add(4, `候補 ID ${id} が役割の接頭辞 ${prefix}- を持たない`);
+    if (!id.startsWith(`${prefix}-`)) add(4, `候補 ID ${id} が担当の接頭辞 ${prefix}- を持たない`);
     const cf = fieldsOf(b.body);
     const missing = CANDIDATE_FIELDS.filter((n) => !cf.get(n));
     if (missing.length > 0) add(4, `${id} の必須項目が無いか空（${missing.join("・")}）`);
@@ -1518,8 +1676,9 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
   if (!filled(section("要求資料の判別"))) add(5, "「要求資料の判別」の節が無いか空");
 
   // 6: 要求資料ごとのコード要求あり／なしと、コード要求の対応表（列は見出しと各行の出典・状態・候補ID の位置で読む。コード要求0件なら空の表）。
-  // 要求の出典は requirements/ の要求資料の行範囲で、1行の範囲はすべて同じ要求資料。充足の行は範囲をまとめてよく、未充足・未確認の行は範囲1つ。出典は行の間で重複させない
-  codeFileViolations(section("要求資料ごとのコード要求"), prep, add);
+  // 要求の出典は requirements/ の要求資料の行範囲で、1行の範囲はすべて同じ要求資料。充足の行は範囲をまとめてよく、未充足・未確認の行は範囲1つ。出典は行の間で重複させない。
+  // Spec 探索を分けたときは、出典の行範囲がすべて担当の区間の中にある（候補の契約の出典・関連する要求は範囲外を参照してよく、検査しない）
+  codeFileViolations(section("要求資料ごとのコード要求"), prep, assignment, add);
   const docs = new Set(prep.inputs.filter((i) => i.path.startsWith("requirements/")).map((i) => i.path));
   const sources = new Set<string>();
   const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
@@ -1535,10 +1694,15 @@ function exploreViolations(text: string, role: "standards" | "spec", prep: Prepa
     if (ranges.length === 0) add(6, `${label} の要求の出典に行範囲（requirements/<file>:L<n> か requirements/<file>:L<n>-L<m>）が無い`);
     if (files.length > 1) add(6, `${label} の要求の出典に別の要求資料の行範囲が混ざっている（${files.join("・")}。1行の範囲は同じ要求資料）`);
     for (const f of files) if (!docs.has(f)) add(6, `${label} の ${f} が要求資料（requirements/ のファイル）に無い`);
+    if (assignment) {
+      for (const r of ranges.filter((x) => docs.has(x.file) && !assignment.segments.some((s) => s.file === x.file && x.start >= s.start && x.end <= s.end))) {
+        add(6, `${label} の ${rangeText([r])} が担当範囲（${assignment.range}）の外にある`);
+      }
+    }
     if ((status === "未充足" || status === "未確認") && ranges.length > 1) add(6, `${label} は${status}だが行範囲が ${ranges.length} 個ある（未充足・未確認の行は1要求1行で、行範囲は1つ）`);
     if (sources.has(source)) add(6, `対応表の要求の出典 ${label} が重複している（同じ範囲の要求は1行にまとめる）`);
     sources.add(source);
-    const refs = (cells[cells.length - 1] ?? "").match(/[A-Za-z]+-\d+/g) ?? [];
+    const refs = (cells[cells.length - 1] ?? "").match(IDS) ?? [];
     if ((status === "未充足" || status === "未確認") && refs.length === 0) add(6, `${label} は${status}だが候補 ID が無い`);
     for (const ref of refs) if (!ids.has(ref)) add(6, `${label} が参照する候補 ${ref} が候補一覧に無い`);
   });
@@ -1551,33 +1715,37 @@ function forbidden(lines: string[], add: (no: number, message: string) => void):
 }
 
 function checkExplore(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "role"], []);
+  const o = parseOptions(args, ["work", "role", "assignee"], []);
   const { work, prep } = loadWork(o);
   const role = roleOf(o.one.get("role"), ["standards", "spec"]) as "standards" | "spec";
+  const assignee = assigneeOf(prep, role, o.one.get("assignee")) as ExploreAssignee;
   const r = ROLES[role];
-  const attempt = currentAttempt(work, role);
-  const file = `${role}/${r.output}`;
+  const split = splitAssignment(prep, assignee) !== null;
+  const attempt = currentAttempt(work, assignee);
+  const file = `${assignee}/${r.output}`;
   const path = join(work, file);
   const violations: Violation[] = [];
   const add = (no: number, message: string) => violations.push({ no, message });
   const body = existsSync(path) && lstatSync(path).isFile() ? readFileSync(path) : null;
   if (body === null) add(2, `${file} が無い`);
-  else exploreViolations(body.toString("utf8"), role, prep, add);
-  const identity = checkIdentity(work, "explore", `check-explore ${role} 試行 ${attempt.attempt}`);
+  else exploreViolations(body.toString("utf8"), assignee, prep, add);
+  const identity = checkIdentity(work, "explore", `check-explore ${assignee} 試行 ${attempt.attempt}`);
   for (const i of identity.items) if (!i.ok) add(8, `${i.name}: ${i.detail}`);
+  const spec = "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・候補 ID の参照・要求の出典の行範囲（requirements/ の同じ要求資料、未充足と未確認は範囲1つ、行の間で重複なし）";
   const names: [number, string][] = [
     [2, `指定したパスに ${r.output} がある`],
     [3, "役割・定義名・対象版・要求資料・依存の写し・終了状態と、未確認・見送りの節"],
-    [4, "候補の必須項目、候補 ID の接頭辞と重複、証拠を取得できなかった候補の理由と不足箇所"],
+    [4, `候補の必須項目、候補 ID の接頭辞${split ? "（担当の接頭辞）" : ""}と重複、証拠を取得できなかった候補の理由と不足箇所`],
     [5, role === "standards" ? "規約の一覧と適用判断" : "要求資料の判別"],
-    ...(role === "spec" ? ([[6, "要求資料ごとのコード要求あり／なし、コード要求の対応表の4列・状態の語彙（充足・未充足・未確認。0件なら空の表）・廃止した状態と理由の拒否・候補 ID の参照・要求の出典の行範囲（requirements/ の同じ要求資料、未充足と未確認は範囲1つ、行の間で重複なし）"]] as [number, string][]) : []),
+    ...(role === "spec" ? ([[6, split ? `${spec}、担当範囲（要求資料ごとのコード要求は担当の要求資料だけ、対応表の出典は担当の区間の中）` : spec]] as [number, string][]) : []),
     [7, "禁止項目の見出し・項目名（本文は親が通読する）"],
     [8, "共通入力・依存の写し・限定 clone の同一性"],
   ];
   const record: CheckRecord = {
     stage: "explore",
     role,
-    roleName: r.name,
+    assignee,
+    roleName: assigneeName(assignee),
     definition: r.definition,
     attempt: attempt.attempt,
     agentId: attempt.agentId,
@@ -1587,7 +1755,7 @@ function checkExplore(args: string[]): Outcome {
     items: names.map(([no, name]) => ({ no, name, ok: !violations.some((v) => v.no === no) })),
     violations,
     identity,
-    files: fingerprintList(join(work, role)),
+    files: fingerprintList(join(work, assignee)),
     parent: "1（担当の返答が入力不備・失敗でない）と、7の禁止項目の本文への混入（引き渡し本文の通読）",
     checkedAt: now(),
   };
@@ -1599,10 +1767,12 @@ function checkExplore(args: string[]): Outcome {
 // ---- 無効な試行の隔離と再委譲の可否（parent-details.md 4.1節。失敗の分類と委譲は親） ----
 
 function retireAttempt(args: string[]): Outcome {
-  const o = parseOptions(args, ["work", "role", "failure", "reason", "retries"], []);
-  const { work } = loadWork(o);
+  const o = parseOptions(args, ["work", "role", "assignee", "failure", "reason", "retries"], []);
+  const { work, prep } = loadWork(o);
   const role = roleOf(o.one.get("role"), Object.keys(ROLES) as Role[]);
+  const assignee = assigneeOf(prep, role, o.one.get("assignee"));
   const r = ROLES[role];
+  const name = assigneeName(assignee);
   const failure = o.one.get("failure") ?? "";
   if (!Object.hasOwn(FAILURES, failure)) {
     throw new UsageError(`--failure は ${Object.entries(FAILURES).map(([k, v]) => `${k}（${v}）`).join("・")} のどれかにしてください: ${failure || "なし"}`);
@@ -1611,26 +1781,27 @@ function retireAttempt(args: string[]): Outcome {
   const reason = o.one.get("reason")?.trim();
   if (!reason) throw new UsageError("--reason に無効の理由（検査の番号と違反の箇所、または終了通知の状態とエラーの文言）を書いてください");
   const retries = o.one.get("retries")?.trim() || "記録なし";
-  const attempt = currentAttempt(work, role);
-  const from = join(work, role);
-  const movedTo = join(work, "parent/attempts", `${role}-${attempt.attempt}`);
+  const attempt = currentAttempt(work, assignee);
+  const from = join(work, assignee);
+  const movedTo = join(work, "parent/attempts", `${assignee}-${attempt.attempt}`);
   if (existsSync(movedTo)) throw new UsageError(`隔離先が既にあります: ${movedTo}`);
   mkdirSync(dirname(movedTo), { recursive: true });
   if (existsSync(from)) renameSync(from, movedTo);
   else mkdirSync(movedTo);
   mkdirSync(join(from, "notes"), { recursive: true });
-  const identity = checkIdentity(work, r.stage, `retire-attempt ${role} 試行 ${attempt.attempt}`);
+  const identity = checkIdentity(work, r.stage, `retire-attempt ${assignee} 試行 ${attempt.attempt}`);
   const attempts = loadList<AttemptRecord>(work, "attempts");
   const stop = attempts.find((a) => a.failure !== "invalid");
   let finalReason: string | null = null;
-  if (kind === "usage-limit") finalReason = `利用枠の上限、有効な結果なし（${r.name}）`;
+  if (kind === "usage-limit") finalReason = `利用枠の上限、有効な結果なし（${name}）`;
   else if (kind === "aborted") finalReason = "利用者による中止";
   else if (stop) finalReason = stop.finalReason;
-  else if (attempt.attempt >= 2) finalReason = `有効な結果なし（${r.name}。1回の再委譲の後も）`;
-  else if (!identity.ok) finalReason = `有効な結果なし（${r.name}。同じ入力を固定できず委譲し直さなかった）`;
+  else if (attempt.attempt >= 2) finalReason = `有効な結果なし（${name}。1回の再委譲の後も）`;
+  else if (!identity.ok) finalReason = `有効な結果なし（${name}。同じ入力を固定できず委譲し直さなかった）`;
   const record: AttemptRecord = {
     role,
-    roleName: r.name,
+    assignee,
+    roleName: name,
     definition: r.definition,
     attempt: attempt.attempt,
     agentId: attempt.agentId,
@@ -1654,35 +1825,36 @@ function retireAttempt(args: string[]): Outcome {
 
 // ---- 反証への入力（parent.md・parent-details.md 6節） ----
 
+// Standards 探索と Spec 探索の全担当（分けたときは spec1・spec2 の2体とも）の最新の試行が合格し隔離されていないときだけ、引き渡しを書き換えずに <担当>-handoff.md へ写す
 function refuteInput(args: string[]): Outcome {
   const o = parseOptions(args, ["work"], []);
   const { work, prep } = loadWork(o);
   const agents = loadList<AgentRecord>(work, "agents");
   const checks = loadList<CheckRecord>(work, "checks");
   const attempts = loadList<AttemptRecord>(work, "attempts");
-  const passed: { role: "standards" | "spec"; check: CheckRecord }[] = [];
+  const passed: { assignee: ExploreAssignee; check: CheckRecord }[] = [];
   const missing: string[] = [];
-  for (const role of ["standards", "spec"] as const) {
-    const last = agents.filter((a) => a.role === role).at(-1);
-    const check = last && checks.filter((c) => c.stage === "explore" && c.role === role && c.attempt === last.attempt).at(-1);
-    const retired = last && attempts.some((a) => a.role === role && a.attempt === last.attempt);
-    if (last && check?.valid && !retired) passed.push({ role, check });
-    else missing.push(`${ROLES[role].name}: ${!last ? "委譲の記録が無い" : retired ? `試行 ${last.attempt} は無効として隔離済み` : !check ? `試行 ${last.attempt} を検査していない` : `試行 ${last.attempt} の検査が不合格`}`);
+  for (const assignee of exploreAssignees(prep)) {
+    const last = agents.filter((a) => a.assignee === assignee).at(-1);
+    const check = last && checks.filter((c) => c.stage === "explore" && c.assignee === assignee && c.attempt === last.attempt).at(-1);
+    const retired = last && attempts.some((a) => a.assignee === assignee && a.attempt === last.attempt);
+    if (last && check?.valid && !retired) passed.push({ assignee, check });
+    else missing.push(`${assigneeName(assignee)}: ${!last ? "委譲の記録が無い" : retired ? `試行 ${last.attempt} は無効として隔離済み` : !check ? `試行 ${last.attempt} を検査していない` : `試行 ${last.attempt} の検査が不合格`}`);
   }
-  if (missing.length > 0) throw new UsageError(`両探索の合格した引き渡しがそろっていないので写しません（${missing.join("・")}）`);
+  if (missing.length > 0) throw new UsageError(`探索の全担当の合格した引き渡しがそろっていないので写しません（${missing.join("・")}）`);
   const dest = join(work, "refute-input");
   if (existsSync(dest) && readdirSync(dest).length > 0) throw new UsageError(`refute-input/ が空ではありません（写し直しません）: ${dest}`);
   mkdirSync(dest, { recursive: true });
-  for (const { role } of passed) {
-    const src = join(work, role, "handoff.md");
-    if (existsSync(src)) copyFileSync(src, join(dest, `${role}-handoff.md`));
+  for (const { assignee } of passed) {
+    const src = join(work, assignee, "handoff.md");
+    if (existsSync(src)) copyFileSync(src, join(dest, `${assignee}-handoff.md`));
   }
   for (const name of ["target.md", "manifest.md", "requirements", "local", "deps-files.sha256"]) {
     const src = join(work, "input", name);
     if (existsSync(src)) copyTree(src, join(dest, name));
   }
   const expected = [
-    ...passed.map((p) => ({ path: `${p.role}-handoff.md`, kind: "file", sha256: p.check.sha256 ?? "", source: `${p.role}/handoff.md（check-explore で検査した試行 ${p.check.attempt}）` })),
+    ...passed.map((p) => ({ path: `${p.assignee}-handoff.md`, kind: "file", sha256: p.check.sha256 ?? "", source: `${p.assignee}/handoff.md（check-explore で検査した試行 ${p.check.attempt}）` })),
     ...prep.inputs.map((i) => ({ ...i, source: `input/${i.path}（prepare の記録）` })),
     { path: "manifest.md", kind: "file", sha256: prep.manifestSha256 ?? "", source: "input/manifest.md（prepare の記録）" },
   ];
@@ -1734,7 +1906,7 @@ const IMPACT = /^([0-4])(?!\d)/;
 // 節の「なし」の明示（行頭の「なし」）
 const NONE = /^(?:[-*+]\s*)?なし(?:$|[\s。.、（(])/;
 // セルの候補 ID（CAUSE-<n> は同一原因の印で、候補 ID ではない）
-const candidateIds = (s: string) => (s.match(/\b[A-Za-z]+-\d+\b/g) ?? []).filter((x) => !x.startsWith("CAUSE-"));
+const candidateIds = (s: string) => (s.match(BOUNDED_IDS) ?? []).filter((x) => !x.startsWith("CAUSE-"));
 
 // 採否一覧の1行
 export interface Decision {
@@ -1767,10 +1939,11 @@ interface CodeRow {
 }
 
 // 確定したコード要求の対応表の1行（Spec 探索の対応表に、反証が判定本文に書いた行を出典の一致で重ねたもの）。
-// by は状態を確定した担当（判定本文に行があれば反証、無ければ Spec 探索）、specStatus は Spec 探索の状態
+// by は状態を確定した担当（判定本文に行があれば反証、無ければ Spec 探索）、specStatus は Spec 探索の状態、specAssignee はその行を書いた Spec 探索の担当
 export interface TableRow extends CodeRow {
   by: "反証" | "Spec 探索";
   specStatus: string;
+  specAssignee: SpecAssignee;
 }
 
 // 未確認と理由の表の1行（ref は要求の出典または候補 ID、kind は 候補・要求・要求間の矛盾）
@@ -1809,23 +1982,32 @@ function sectionTable(sec: Section | undefined, header: string[]): { rows: strin
 // 探索の引き渡しの候補 ID
 function handoffCandidates(text: string): string[] {
   const candidates = sectionsOf(text.split("\n"), 2).find((s) => s.title.startsWith("候補"));
-  return sectionsOf(candidates?.body ?? [], 3).flatMap((b) => /^([A-Za-z]+-\d+)/.exec(b.title)?.[1] ?? []);
+  return sectionsOf(candidates?.body ?? [], 3).flatMap((b) => LEADING_ID.exec(b.title)?.[1] ?? []);
 }
 
 // 対応表の1行のセル（4列。セル内の | で分かれた証拠の欄はつなぎ直す）
 const codeRow = (cells: string[]): CodeRow => ({ source: norm(cells[0] ?? ""), status: plain(cells[1] ?? ""), evidence: norm(cells.slice(2, -1).join(" | ")), candidates: candidateIds(cells[cells.length - 1] ?? "") });
 
-// Spec 探索の引き渡し（check-explore に合格した反証への写し）の、要求資料ごとのコード要求（値は あり／なし）とコード要求の対応表の各行
-function specHandoff(text: string): { files: { path: string; code: string }[]; rows: CodeRow[] } {
-  const secs = sectionsOf(text.split("\n"), 2);
-  const section = (name: string) => secs.find((s) => s.title.startsWith(name));
-  return {
-    files: (codeFileRows(section("要求資料ごとのコード要求")) ?? []).map((r) => ({ path: r.path, code: r.value ?? r.code })),
-    rows: (tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER) ?? []).filter((cells) => cells.length >= 4).map(codeRow),
-  };
+// Spec 探索の引き渡し（check-explore に合格した反証への写し）の、要求資料ごとのコード要求（値は あり／なし）とコード要求の対応表の各行。
+// Spec 探索を分けたときは、担当の順（spec1 → spec2）に各引き渡しの対応表をつないで1つの表にし、要求資料ごとのコード要求は要求資料ごとにどちらかの担当が「あり」なら「あり」（現れた順、重複なし）
+function specHandoff(handoffs: { assignee: SpecAssignee; text: string }[]): { files: { path: string; code: string }[]; rows: (CodeRow & { specAssignee: SpecAssignee })[] } {
+  const files: { path: string; code: string }[] = [];
+  const rows: (CodeRow & { specAssignee: SpecAssignee })[] = [];
+  for (const h of handoffs) {
+    const secs = sectionsOf(h.text.split("\n"), 2);
+    const section = (name: string) => secs.find((s) => s.title.startsWith(name));
+    for (const r of codeFileRows(section("要求資料ごとのコード要求")) ?? []) {
+      const code = r.value ?? r.code;
+      const seen = files.find((f) => f.path === r.path);
+      if (!seen) files.push({ path: r.path, code });
+      else if (code === "あり") seen.code = code;
+    }
+    for (const cells of (tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER) ?? []).filter((c) => c.length >= 4)) rows.push({ ...codeRow(cells), specAssignee: h.assignee });
+  }
+  return { files, rows };
 }
 
-function refuteViolations(text: string, prep: Prepared, handoffs: { standards: string; spec: string }, add: Add): RefuteParsed {
+function refuteViolations(text: string, prep: Prepared, handoffs: { standards: string; specs: { assignee: SpecAssignee; text: string }[] }, add: Add): RefuteParsed {
   const lines = text.split("\n");
   const secs = sectionsOf(lines, 2);
   const section = (name: string) => secs.find((s) => s.title.startsWith(name));
@@ -1836,14 +2018,14 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   if (secs.filter((s) => s.title.startsWith("担当と対象")).length > 1) add(2, "「担当と対象」の節が重複している（同じ内容でも1節だけ）");
   targetViolations(section("担当と対象"), REFUTE_TARGET_FIELDS, "refute", prep, 2, add);
 
-  // 3: 採否一覧（両探索の全候補と反証で追加した発見、判定の語彙と根拠、要対応の影響度）
-  const expected = [...new Set([...handoffCandidates(handoffs.standards), ...handoffCandidates(handoffs.spec)])];
+  // 3: 採否一覧（Standards 探索と Spec 探索の全担当の全候補と反証で追加した発見、判定の語彙と根拠、要対応の影響度）
+  const expected = [...new Set([...handoffCandidates(handoffs.standards), ...handoffs.specs.flatMap((h) => handoffCandidates(h.text))])];
   const decisions: Decision[] = [];
   const decisionRows = tableRows(section("採否一覧")?.body ?? [], DECISION_HEADER);
   if (!decisionRows) add(3, `「採否一覧」に雛形の6列（${DECISION_HEADER.join("・")}）の表が無い`);
   (decisionRows ?? []).forEach((cells, i) => {
     if (cells.length < DECISION_HEADER.length) return add(3, `採否一覧の ${i + 1} 行目の列が足りない`);
-    const id = /^([A-Za-z]+-\d+)$/.exec(plain(cells[0] ?? ""))?.[1];
+    const id = WHOLE_ID.exec(plain(cells[0] ?? ""))?.[1];
     if (!id) return add(3, `採否一覧の ${i + 1} 行目に候補 ID が1つだけ書かれていない（${plain(cells[0] ?? "")}）`);
     const verdict = plain(cells[2] ?? "");
     const impactCell = plain(cells[3] ?? "");
@@ -1870,7 +2052,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
   // 要対応の各見出しの契約の出典にある要求の行範囲（4で、重なる充足の行が残っていないかを確かめる）
   const contracts: { heading: string; source: string; ranges: LineRange[] }[] = [];
   for (const b of blocks) {
-    const m = /^((?:CAUSE|[A-Za-z]+)-\d+)\s*[:：]?\s*(.*)$/.exec(b.title);
+    const m = REQUIRED_HEADING.exec(b.title);
     const heading = m?.[1];
     if (!heading) {
       add(3, `要対応の見出し「${b.title}」に CAUSE-<n> か候補 ID が無い`);
@@ -1910,9 +2092,9 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     else if (!d.cause && at.startsWith("CAUSE-")) add(3, `${d.id} は要対応の節で ${at} にあるが、採否一覧に同一原因が無い`);
   }
 
-  // 4: コード要求の対応表（反証で確定した行）を、Spec 探索の対応表に要求の出典の一致で重ねて確定した対応表にする。
+  // 4: コード要求の対応表（反証で確定した行）を、Spec 探索の対応表（分けたときは担当の順につないだ表）に要求の出典の一致で重ねて確定した対応表にする。
   // 反証が書くのは Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行だけで、行を足さず除かない（書く行が無ければ行の無い表）
-  const spec = specHandoff(handoffs.spec);
+  const spec = specHandoff(handoffs.specs);
   const rows = tableRows(section("コード要求の対応表")?.body ?? [], TABLE_HEADER);
   if (!rows) add(4, `「コード要求の対応表（反証で確定した行）」に雛形の4列（${TABLE_HEADER.join("・")}）の表が無い（書く行が無ければ行の無い表）`);
   const written = new Map<string, CodeRow>();
@@ -1929,9 +2111,9 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     else if (before.status === "充足" && row.status !== "未充足") add(4, `${label} は Spec 探索で充足の行だが、状態が「${row.status}」（充足の行を書くのは未充足に変えるときだけ）`);
   });
   for (const r of spec.rows) if (r.status !== "充足" && !written.has(r.source)) add(4, `Spec 探索で${r.status}の行 ${r.source} が、反証で確定した行に無い（確定漏れ）`);
-  const table = spec.rows.map((r): TableRow => {
+  const table = spec.rows.map(({ specAssignee, ...r }): TableRow => {
     const w = written.get(r.source);
-    return { ...(w ?? r), by: w ? "反証" : "Spec 探索", specStatus: r.status };
+    return { ...(w ?? r), by: w ? "反証" : "Spec 探索", specStatus: r.status, specAssignee };
   });
   // 4: 重ねた後の表の整合（未充足の行の要対応、候補 ID の参照、要対応の契約の出典と行範囲で重なる充足の行が残っていないこと）
   for (const t of table) {
@@ -1971,7 +2153,7 @@ function refuteViolations(text: string, prep: Prepared, handoffs: { standards: s
     ).flatMap(([name, value]) => (value ? [] : [name]));
     if (empty.length > 0) add(5, `未確認の ${label} の ${empty.join("・")} が空`);
     if (row.kind === "候補") {
-      const id = /^([A-Za-z]+-\d+)$/.exec(row.ref)?.[1];
+      const id = WHOLE_ID.exec(row.ref)?.[1];
       const d = id ? decided.get(id) : undefined;
       if (id) mentioned.push(id);
       if (!id) add(5, `未確認の ${label} は種別が候補だが、候補 ID が1つだけ書かれていない`);
@@ -2021,19 +2203,23 @@ function checkRefute(args: string[]): Outcome {
   const violations: Violation[] = [];
   const add: Add = (no, message) => violations.push({ no, message });
   const body = existsSync(path) && lstatSync(path).isFile() ? readFileSync(path) : null;
-  const handoff = (role: "standards" | "spec") => {
-    const f = join(work, "refute-input", `${role}-handoff.md`);
+  const handoff = (assignee: ExploreAssignee) => {
+    const f = join(work, "refute-input", `${assignee}-handoff.md`);
     return existsSync(f) ? readFileSync(f, "utf8") : "";
   };
-  const parsed = body === null ? null : refuteViolations(body.toString("utf8"), prep, { standards: handoff("standards"), spec: handoff("spec") }, add);
+  const specs = specAssignees(prep).map((assignee) => ({ assignee, text: handoff(assignee) }));
+  const parsed = body === null ? null : refuteViolations(body.toString("utf8"), prep, { standards: handoff("standards"), specs }, add);
   if (body === null) add(1, `${file} が無い`);
   const identity = checkIdentity(work, "refute", `check-refute 試行 ${attempt.attempt}`);
   for (const i of identity.items) if (!i.ok) add(6, `${i.name}: ${i.detail}`);
   const names: [number, string][] = [
     [1, `指定したパスに ${r.output} がある`],
     [2, "役割・定義名・対象版・受け取った入力・依存の写し・終了状態"],
-    [3, "採否一覧に両探索の全候補 ID と反証で追加した発見、判定の語彙と根拠、要対応の影響度 0〜4、要対応の節と採否一覧（同一候補の判定・同一原因の集約と影響度）の一致"],
-    [4, "コード要求の対応表（反証で確定した行）の4列・出典の重複・状態の語彙（充足・未充足・未確認）・廃止した状態と理由の拒否、Spec 探索の対応表への重ね合わせ（未充足・未確認の行の確定漏れ・Spec 探索に無い行・充足の行を未充足以外で書いた行が無い）、重ねた後の表の未充足の行の要対応・候補 ID の参照・要対応の契約の出典と行範囲で重なる充足の行が残っていないこと"],
+    [3, "採否一覧に Standards 探索と Spec 探索の全担当の全候補 ID と反証で追加した発見、判定の語彙と根拠、要対応の影響度 0〜4、要対応の節と採否一覧（同一候補の判定・同一原因の集約と影響度）の一致"],
+    [
+      4,
+      `コード要求の対応表（反証で確定した行）の4列・出典の重複・状態の語彙（充足・未充足・未確認）・廃止した状態と理由の拒否、Spec 探索の対応表${specs.length > 1 ? "（担当の順につないだ表）" : ""}への重ね合わせ（未充足・未確認の行の確定漏れ・Spec 探索に無い行・充足の行を未充足以外で書いた行が無い）、重ねた後の表の未充足の行の要対応・候補 ID の参照・要対応の契約の出典と行範囲で重なる充足の行が残っていないこと`,
+    ],
     [5, "反証で追加した発見の明示、軸ごとの要対応と未確認の件数と個別の判定の一致、未確認と理由の表（重ねた後の表の未確認の行と未確認の候補がすべてある・廃止した担当と理由の拒否）、判断を見送った事項"],
     [6, "refute-input/ の写し・共通入力・依存の写し・限定 clone の同一性"],
   ];
@@ -2041,6 +2227,7 @@ function checkRefute(args: string[]): Outcome {
   const record: CheckRecord = {
     stage: "refute",
     role: "refute",
+    assignee: "refute",
     roleName: r.name,
     definition: r.definition,
     attempt: attempt.attempt,
@@ -2093,6 +2280,7 @@ export interface BoundaryItem {
 
 export interface BoundaryAttempt {
   role: Role;
+  assignee: Assignee;
   roleName: string;
   attempt: number;
   agentId: string | null;
@@ -2100,11 +2288,13 @@ export interface BoundaryAttempt {
   items: BoundaryItem[];
 }
 
-// 依頼本文の雛形の項目（4節・6節）。行頭の「項目: 値」を項目として読み、箇条の行（「- 」で始まる）は読まない
+// 依頼本文の雛形の項目（4節・6節）。行頭の「項目: 値」を項目として読み、箇条の行（「- 」で始まる）は読まない。
+// Spec 探索を分けたときの Spec 探索の担当は「担当範囲」の項目を足す（分けないときと Standards 探索は書かない）
 const REQUEST_FIELDS: Record<Stage, string[]> = {
   explore: ["役割", "作業ディレクトリ", "読んでよい入力", "書いてよい場所", "出力"],
   refute: ["役割", "読んでよい入力（次のファイルだけ）", "書いてよい場所", "出力"],
 };
+const SPLIT_REQUEST_FIELDS = ["役割", "作業ディレクトリ", "読んでよい入力", "担当範囲", "書いてよい場所", "出力"];
 const REQUEST_FIELD = /^(?![-*+]\s)([^\s:：][^:：]{0,40}?)\s*[:：][ \t]*(.*)$/;
 // omp が作業ディレクトリのプロジェクトのスキルを読む場所（作業ツリーの <場所>/<名前>/SKILL.md）
 const PROJECT_SKILL_DIRS = [".omp/skills", ".claude/skills", ".agents/skills", ".codex/skills"];
@@ -2170,7 +2360,10 @@ function initialContext(lines: string[]): Json[] {
   return out;
 }
 
-function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: string, work: string): BoundaryItem[] {
+function boundaryItems(rows: Json[], assignee: Assignee, prep: Prepared, skillFile: string, work: string): BoundaryItem[] {
+  const role = roleOfAssignee(assignee);
+  const assignment = splitAssignment(prep, assignee);
+  const template = assignment ? SPLIT_REQUEST_FIELDS : REQUEST_FIELDS[ROLES[role].stage];
   const origins = [...new Set([prep.repo, realOrSelf(prep.repo)])];
   const item = (key: BoundaryKey, facts: Json, marks: string[], limits: string[] = []): BoundaryItem => ({ key, name: BOUNDARY_ITEMS[key], observed: true, marks, reason: null, facts, limits });
   const items: BoundaryItem[] = [];
@@ -2187,8 +2380,9 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
       作業ディレクトリ: work,
       読んでよい入力: `${work}/input/ 配下（target.md・manifest.md・deps-files.sha256・requirements/・local/）、対象リポジトリ ${work}/repo（target.md の担当用の限定 clone）、依存の写し ${work}/deps/（準備できたときだけ）`,
       "読んでよい入力（次のファイルだけ）": "",
-      書いてよい場所: `${work}/${role}/（${role === "refute" ? "verdict" : "handoff"}.md と notes/）と自分の一時ファイル`,
-      出力: `${work}/${role}/${role === "refute" ? "verdict" : "handoff"}.md`,
+      担当範囲: assignment?.request ?? "",
+      書いてよい場所: `${work}/${assignee}/（${role === "refute" ? "verdict" : "handoff"}.md と notes/）と自分の一時ファイル`,
+      出力: `${work}/${assignee}/${role === "refute" ? "verdict" : "handoff"}.md`,
     };
     const invalidValues = new Set<string>();
     const duplicateFields = new Set<string>();
@@ -2201,7 +2395,7 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
         const depsLine = `- 依存の写し ${work}/deps/（準備できたときだけ）`;
         refuteLines.set(depsLine, depsLine);
       }
-      for (const path of [...prep.inputs.map((f) => f.path), "manifest.md", "standards-handoff.md", "spec-handoff.md"]) {
+      for (const path of [...prep.inputs.map((f) => f.path), "manifest.md", "standards-handoff.md", ...specAssignees(prep).map((a) => `${a}-handoff.md`)]) {
         const line = `- ${work}/refute-input/${path}`;
         refuteLines.set(line, line);
         if (path.startsWith("local/")) refuteLines.set(`${line}（mode: local のときだけ）`, line);
@@ -2216,9 +2410,9 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
       if (m) {
         fields.push({ name: m[1] ?? "", value: m[2] ?? "", line: index + 1 });
         const name = m[1] ?? "";
-        if (seenFields.has(name) && REQUEST_FIELDS[ROLES[role].stage].includes(name)) duplicateFields.add(name);
+        if (seenFields.has(name) && template.includes(name)) duplicateFields.add(name);
         seenFields.add(name);
-        if (REQUEST_FIELDS[ROLES[role].stage].includes(name) && (m[2] ?? "").trim() !== expectedValues[name]) invalidValues.add(name);
+        if (template.includes(name) && (m[2] ?? "").trim() !== expectedValues[name]) invalidValues.add(name);
         refuteInputs = role === "refute" && m[1] === "読んでよい入力（次のファイルだけ）";
       } else if (refuteInputs && refuteLines.has(line)) {
         seenRefuteInputs.add(refuteLines.get(line) as string);
@@ -2226,7 +2420,6 @@ function boundaryItems(rows: Json[], role: Role, prep: Prepared, skillFile: stri
         nonTemplateLines.push(index + 1);
       }
     }
-    const template = REQUEST_FIELDS[ROLES[role].stage];
     const roleValue = fields.find((f) => f.name === "役割")?.value.trim() ?? null;
     const missing = template.filter((t) => !fields.some((f) => f.name === t));
     const extra = fields.filter((f) => !template.includes(f.name)).map((f) => f.line);
@@ -2340,7 +2533,7 @@ function checkBoundary(args: string[]): Outcome {
   const skillFile = join(import.meta.dir, "../SKILL.md");
   const attempts: BoundaryAttempt[] = agents.map((a) => {
     const where = agentSessionPath(session.path, a.agentId);
-    const head = { role: a.role, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId };
+    const head = { role: a.role, assignee: a.assignee, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId };
     const fail = (reason: string, path: string | null): BoundaryAttempt => ({
       ...head,
       source: { path, sha256: null, unavailable: reason },
@@ -2355,7 +2548,7 @@ function checkBoundary(args: string[]): Outcome {
       return fail(`記録を読めない（${where.path}: ${e instanceof Error ? e.message : String(e)}）`, where.path);
     }
     const rows = initialContext(data.toString("utf8").split("\n").filter((l) => l.trim() !== ""));
-    return { ...head, source: { path: where.path, sha256: sha256(data), unavailable: null }, items: boundaryItems(rows, a.role, prep, skillFile, work) };
+    return { ...head, source: { path: where.path, sha256: sha256(data), unavailable: null }, items: boundaryItems(rows, a.assignee, prep, skillFile, work) };
   });
   const sessionView = { path: session.path, origin: session.origin, unavailable: session.path ? null : session.missing };
   writeFileSync(join(work, "parent/boundary.json"), `${JSON.stringify({ checkedAt: now(), session: sessionView, repo: prep.repo, skill: skillFile, attempts }, null, 2)}\n`);
@@ -2407,7 +2600,7 @@ interface ReviewState {
   refute: RefuteStructure | null;
 }
 
-// 最終状態（SKILL.md 6節、parent-details.md 10節の4）。必要な担当の有効な結果の有無だけで決め、判定の中身・未確認・保存前の変化では変えない
+// 最終状態（SKILL.md 6節、parent-details.md 10節の4）。必要な担当（Standards 探索、Spec 探索の全担当、反証）の有効な結果の有無だけで決め、判定の中身・未確認・保存前の変化では変えない
 function reviewStatus(work: string, prep: Prepared, notRunReason: string | undefined): ReviewState {
   const agents = loadList<AgentRecord>(work, "agents");
   const retired = loadList<AttemptRecord>(work, "attempts");
@@ -2416,26 +2609,27 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
   if (notRunReason !== undefined && agents.length > 0) throw new UsageError("--not-run-reason は担当を1つも起動しなかったときだけ使います");
   if (!prep.ready) return { ...none, reason: prep.reason ?? "準備できなかった" };
   if (agents.length === 0) return { ...none, reason: notRunReason ? `${notRunReason}（担当を1つも起動しなかった）` : "担当を1つも起動しなかった" };
-  const retiredOf = (a: AgentRecord) => retired.find((x) => x.role === a.role && x.attempt === a.attempt);
-  const latest = (role: Role) => agents.filter((a) => a.role === role).at(-1);
-  for (const role of Object.keys(ROLES) as Role[]) {
-    const last = latest(role);
+  const retiredOf = (a: AgentRecord) => retired.find((x) => x.assignee === a.assignee && x.attempt === a.attempt);
+  const latest = (assignee: Assignee) => agents.filter((a) => a.assignee === assignee).at(-1);
+  const required: Assignee[] = [...exploreAssignees(prep), "refute"];
+  for (const assignee of required) {
+    const last = latest(assignee);
     if (!last || retiredOf(last)) continue;
     if (!last.receivedAt) throw new UsageError(`${last.roleName}の試行 ${last.attempt} の最終返答の受領が記録されていません（終了を待って agent --event received で記録するか、retire-attempt で隔離してから）`);
-    const command = role === "refute" ? "check-refute" : `check-explore --role ${role}`;
-    if (!checks.some((c) => c.role === role && c.attempt === last.attempt)) throw new UsageError(`${last.roleName}の試行 ${last.attempt} を検査していません（${command}）`);
+    const command = assignee === "refute" ? "check-refute" : `check-explore --role ${last.role}${assignee === last.role ? "" : ` --assignee ${assignee}`}`;
+    if (!checks.some((c) => c.assignee === assignee && c.attempt === last.attempt)) throw new UsageError(`${last.roleName}の試行 ${last.attempt} を検査していません（${command}）`);
   }
   const refute = readRecord<RefuteStructure>(join(work, "parent/refute-structure.json"));
-  const valid = (role: Role): boolean => {
-    const last = latest(role);
-    const check = last && !retiredOf(last) ? checks.filter((c) => c.role === role && c.attempt === last.attempt).at(-1) : undefined;
+  const valid = (assignee: Assignee): boolean => {
+    const last = latest(assignee);
+    const check = last && !retiredOf(last) ? checks.filter((c) => c.assignee === assignee && c.attempt === last.attempt).at(-1) : undefined;
     if (!last || !check?.valid) return false;
-    if (role === "refute") return refute?.attempt === last.attempt && refute.sha256 === check.sha256;
+    if (assignee === "refute") return refute?.attempt === last.attempt && refute.sha256 === check.sha256;
     return true;
   };
-  const missing = (role: Role): string => {
-    const name = ROLES[role].name;
-    const last = latest(role);
+  const missing = (assignee: Assignee): string => {
+    const name = assigneeName(assignee);
+    const last = latest(assignee);
     if (!last) return `有効な結果なし（${name}。起動していない）`;
     const gone = retiredOf(last);
     if (gone) return gone.finalReason ?? `有効な結果なし（${name}。試行 ${last.attempt} を無効として隔離し、委譲し直していない）`;
@@ -2443,7 +2637,9 @@ function reviewStatus(work: string, prep: Prepared, notRunReason: string | undef
   };
   const refuteOk = valid("refute") ? refute : null;
   const stop = retired.find((a) => a.failure !== "invalid");
-  const explore = (["standards", "spec"] as const).filter((r) => !valid(r)).map(missing);
+  const explore = exploreAssignees(prep)
+    .filter((a) => !valid(a))
+    .map(missing);
   const ready = (name: string) => readRecord<{ ready?: boolean }>(join(work, "parent", `${name}.json`))?.ready;
   const reason = stop
     ? (stop.finalReason ?? FAILURES[stop.failure])
@@ -2710,21 +2906,21 @@ function renderAudit(c: ReportContext): string {
   const manifestRows = new Map(
     [...(existsSync(join(work, "input/manifest.md")) ? readFileSync(join(work, "input/manifest.md"), "utf8") : "").matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \| (.*) \|$/gm)].map((m) => [m[1] ?? "", { sha: m[2] ?? "", source: m[3] ?? "" }]),
   );
-  const roleRow = (role: Role) => {
-    const r = ROLES[role];
-    const list = agents.filter((a) => a.role === role);
+  const assigneeRow = (assignee: Assignee) => {
+    const r = ROLES[roleOfAssignee(assignee)];
+    const list = agents.filter((a) => a.assignee === assignee);
     const last = list.at(-1);
-    const check = last ? checks.filter((x) => x.role === role && x.attempt === last.attempt).at(-1) : undefined;
-    const valid = role === "refute" ? !!refute : !!check?.valid && !retired.some((a) => a.role === role && a.attempt === last?.attempt);
-    const outputPath = join(work, role, r.output);
+    const check = last ? checks.filter((x) => x.assignee === assignee && x.attempt === last.attempt).at(-1) : undefined;
+    const valid = assignee === "refute" ? !!refute : !!check?.valid && !retired.some((a) => a.assignee === assignee && a.attempt === last?.attempt);
+    const outputPath = join(work, assignee, r.output);
     const end = !last ? "起動せず" : valid ? "有効な結果を受領" : "有効な結果なし";
-    return `| ${r.name} | ${r.definition} | ${cell(valid ? (last?.agentId ?? "不明") : "なし")} | ${last ? `${last.attempt}${last.attempt > 1 ? "（再委譲）" : ""}` : "なし"} | ${end} | ${check ? `${check.valid ? "合格" : "不合格"}（sha256 ${check.sha256 ?? "なし"}）` : "検査なし"} | ${cell(valid ? declaredModel(outputPath) : "未確認")} |`;
+    return `| ${assigneeName(assignee)} | ${r.definition} | ${cell(valid ? (last?.agentId ?? "不明") : "なし")} | ${last ? `${last.attempt}${last.attempt > 1 ? "（再委譲）" : ""}` : "なし"} | ${end} | ${check ? `${check.valid ? "合格" : "不合格"}（sha256 ${check.sha256 ?? "なし"}）` : "検査なし"} | ${cell(valid ? declaredModel(outputPath) : "未確認")} |`;
   };
   const attemptRows = agents.map((a) => {
-    const gone = retired.find((x) => x.role === a.role && x.attempt === a.attempt);
-    const check = checks.filter((x) => x.role === a.role && x.attempt === a.attempt).at(-1);
+    const gone = retired.find((x) => x.assignee === a.assignee && x.attempt === a.attempt);
+    const check = checks.filter((x) => x.assignee === a.assignee && x.attempt === a.attempt).at(-1);
     const result = gone ? (gone.failure === "invalid" ? "無効" : gone.failureLabel) : check?.valid ? "有効" : check ? "不合格（隔離していない）" : "未検査";
-    const saved = gone ? `\`${gone.movedTo}\`（${gone.files.map((f) => `${f.path} ${f.sha256}`).join("・") || "ファイルなし"}）` : `\`${join(work, a.role)}\``;
+    const saved = gone ? `\`${gone.movedTo}\`（${gone.files.map((f) => `${f.path} ${f.sha256}`).join("・") || "ファイルなし"}）` : `\`${join(work, a.assignee)}\``;
     const redelegate = gone ? (gone.redelegate ? "した／してよい（同じ入力・新しいコンテキストへ1回）" : `しない（${gone.finalReason}）`) : "なし";
     const same = gone ? (gone.identity.ok ? "一致" : `不一致（${gone.identity.items.filter((i) => !i.ok).map((i) => i.detail).join("・")}）`) : "対象外";
     return `| ${a.roleName} | ${a.attempt} | ${cell(a.agentId ?? "不明")} | ${result} | ${cell(gone?.reason ?? "なし")} | ${cell(saved)} | ${cell(gone?.retries ?? "記録なし")} | ${cell(redelegate)} | ${cell(same)} |`;
@@ -2733,10 +2929,10 @@ function renderAudit(c: ReportContext): string {
     ["共通入力の目録", "input/manifest.md"],
     ["限定 clone の確認の記録", "parent/clone.md"],
     ["依存の写しの指紋の一覧", "input/deps-files.sha256"],
-    ["Standards 探索の引き渡し用ファイル", "standards/handoff.md"],
-    ["Standards 探索の引き渡し用ファイル（反証への写し）", "refute-input/standards-handoff.md"],
-    ["Spec 探索の引き渡し用ファイル", "spec/handoff.md"],
-    ["Spec 探索の引き渡し用ファイル（反証への写し）", "refute-input/spec-handoff.md"],
+    ...exploreAssignees(prep).flatMap((a): [string, string][] => [
+      [`${assigneeName(a)}の引き渡し用ファイル`, `${a}/handoff.md`],
+      [`${assigneeName(a)}の引き渡し用ファイル（反証への写し）`, `refute-input/${a}-handoff.md`],
+    ]),
     ["反証の判定本文", "refute/verdict.md"],
     ["親の検査記録", "parent/checks.md"],
     ["反証への入力の指紋", "parent/fingerprints.md"],
@@ -2815,19 +3011,19 @@ function renderAudit(c: ReportContext): string {
     "",
     "### コード要求の対応表（確定）",
     "",
-    `Spec 探索の対応表に、反証が判定本文に書いた行（Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行）を重ねた表（記録: ${W("parent/refute-structure.json")}）。確定した担当が「Spec 探索」の行は、反証が確かめ直さず Spec 探索の判定をそのまま使った充足の行。`,
+    `Spec 探索の対応表${prep.spec?.split ? "（担当の順に spec1・spec2 の対応表をつないだ表）" : ""}に、反証が判定本文に書いた行（Spec 探索の未充足・未確認の行の確定した状態と、充足から未充足に変えた行）を重ねた表（記録: ${W("parent/refute-structure.json")}）。確定した担当が「Spec 探索」の行は、反証が確かめ直さず Spec 探索の判定をそのまま使った充足の行。Spec 探索の担当はその行を書いた Spec 探索の担当。`,
     "",
     ...(!refute
       ? ["なし（反証の有効な結果なし）"]
       : [
-          `要求資料ごとのコード要求（Spec 探索の引き渡し）: ${refute.files.map((f) => `\`${f.path}\` ${f.code}`).join("・") || "なし"}`,
+          `要求資料ごとのコード要求（Spec 探索の引き渡し${prep.spec?.split ? "。要求資料ごとに、どちらかの担当が「あり」なら「あり」" : ""}）: ${refute.files.map((f) => `\`${f.path}\` ${f.code}`).join("・") || "なし"}`,
           "",
           ...(refute.table.length === 0
             ? ["コード要求0件（行の無い表）"]
             : [
-                "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
-                "|---|---|---|---|---|---|",
-                ...refute.table.map((t) => `| ${cell(`\`${t.source}\``)} | ${cell(t.status)} | ${t.by} | ${cell(t.specStatus)} | ${cell(t.evidence)} | ${cell(t.candidates.join("・") || "なし")} |`),
+                "| 要求の出典 | 状態 | 確定した担当 | Spec 探索の担当 | Spec 探索の状態 | 証拠または不足理由 | 候補ID |",
+                "|---|---|---|---|---|---|---|",
+                ...refute.table.map((t) => `| ${cell(`\`${t.source}\``)} | ${cell(t.status)} | ${t.by} | ${t.specAssignee} | ${cell(t.specStatus)} | ${cell(t.evidence)} | ${cell(t.candidates.join("・") || "なし")} |`),
               ]),
         ]),
     "",
@@ -2835,7 +3031,7 @@ function renderAudit(c: ReportContext): string {
     "",
     "| 役割 | 定義名 | 担当 ID（有効な結果の担当） | 試行 | 終了状態 | 引き渡しの検査 | モデル申告と出典 |",
     "|---|---|---|---|---|---|---|",
-    ...(["standards", "spec", "refute"] as const).map(roleRow),
+    ...[...exploreAssignees(prep), "refute" as const].map(assigneeRow),
     "",
     "- 実装者との対応: 各担当はこのレビューの委譲で起動した別の担当である。ID の違いだけで会話を引き継いでいないことの証明とは扱わない。",
     "- モデル情報は申告と出典だけで、不明は未確認とする。実効モデルの証明ではない。",
@@ -3098,7 +3294,7 @@ function applyMergeReady(
 function summaryLog(c: ReportContext, reportId: number | null, auditId: number | null, saveProblems: string[], final: FinalUsage): string {
   const agents = loadList<AgentRecord>(c.work, "agents");
   const retired = loadList<AttemptRecord>(c.work, "attempts");
-  const ids = agents.map((a) => `${a.roleName}=${a.definition}/${a.agentId ?? "不明"}（試行 ${a.attempt}${retired.some((x) => x.role === a.role && x.attempt === a.attempt) ? "、無効" : ""}）`).join("、") || "なし";
+  const ids = agents.map((a) => `${a.roleName}=${a.definition}/${a.agentId ?? "不明"}（試行 ${a.attempt}${retired.some((x) => x.assignee === a.assignee && x.attempt === a.attempt) ? "、無効" : ""}）`).join("、") || "なし";
   const more = `${reportId !== null ? `結果 Document ${reportId}` : `結果 ${join(c.work, "parent/report.md")}`}（監査 ${auditId ?? join(c.work, "parent/audit.md")}）`;
   const retries = logList(
     "無効な試行: ",
@@ -3714,6 +3910,8 @@ const USAGE_DEFINITIONS = {
     "担当の時間と使用量は、委譲の開始（agent --event start）から親が最終返答を受け取った時刻（agent --event received）までで、その後のセッションの片付けを含めない。その外の応答は件数（範囲外の応答）だけ書く。担当の記録は、親の記録と同名のディレクトリの <担当 ID>.jsonl",
   sections:
     "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
+  spec:
+    "Spec 探索の時間は、Spec 探索の全担当（分けたときは spec1・spec2）の全試行（再委譲を含む）のうち最初の委譲の開始から最後の最終返答の受領まで（担当の時間は足さない。受領の無い試行があれば報告の直前まで）。Spec 担当全試行の合計使用量は、全試行（無効・再委譲を含む）の入力・出力・キャッシュ読み・キャッシュ書き・合計を項目ごとに足したもので、どれかの試行で取得できない項目は取得できず",
   missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
   io:
     "読み取り量と生成量は、使用量と同じ範囲と応答単位で数えた記録の大きさ（UTF-8 のバイト数）で、課金される token 数と同じではない（各応答の使用量にはその時点までの文脈全体が入る）。ツールの呼び出しと引数（arguments の JSON）の大きさは呼び出しを含む応答の時刻で振り分け、ツール結果は toolCallId で呼び出しに結び付けて呼び出しの応答と同じ範囲に入れる。対応する呼び出しが記録に無い結果は結果自身の時刻で振り分け、別に数える。結果の大きさは記録に残った text ブロックの合計で、刈り込み済み（prunedAt あり）の結果は置き換え後の大きさしか残らず元の大きさは取得できず、text 以外のブロックは件数だけ数えて大きさは取得できず。出力の内訳は応答の content の本文（text）、thinking、ツール呼び出しの引数の大きさで、出力 token（output）とは別の値。読める本文の無い thinking（本文が空、暗号化・redacted など）があれば thinking の大きさは取得できず、要約（summary）の thinking は要約の大きさ。ツール以外で文脈に入った記録（user などの message と custom_message）は自身の時刻で振り分け、種類（custom_message は customType）ごとに件数と大きさを数える",
@@ -3745,6 +3943,7 @@ function agentSessionPath(parent: string | null, agentId: string | null): { path
 
 export interface AttemptUsage extends Measured {
   role: Role;
+  assignee: Assignee;
   roleName: string;
   attempt: number;
   agentId: string | null;
@@ -3765,8 +3964,20 @@ export interface SectionUsage {
   open: boolean;
   parent: Measured;
   agentsTotal: number | null;
-  // 担当の区間に入る試行（<役割>#<試行の番号>）
+  // 担当の区間に入る試行（<担当>#<試行の番号>）
   attempts: string[];
+}
+
+// Spec 探索の時間（Spec の全担当の全試行のうち最初の委譲の開始から最後の最終返答の受領まで。担当の時間は足さない）と、
+// Spec 担当全試行（無効・再委譲を含む）の合計使用量（項目ごとに足し、どれかの試行で取得できない項目は null）
+export interface SpecUsage {
+  from: string;
+  to: string;
+  seconds: number;
+  // 最終返答を受け取っていない試行があり、終わりを報告の直前にした
+  open: boolean;
+  attempts: string[];
+  usage: Record<UsageField, number | null>;
 }
 
 interface ReportUsage {
@@ -3778,6 +3989,8 @@ interface ReportUsage {
   sections: SectionUsage[];
   parent: Measured;
   attempts: AttemptUsage[];
+  // Spec 探索の試行が無ければ null
+  spec: SpecUsage | null;
 }
 
 const AGENT_SECTIONS: { stage: Stage; name: string; owner: string }[] = [
@@ -3807,26 +4020,42 @@ function reportUsage(work: string, prep: Prepared, session: ParentSession, cut: 
       const [start, end] = [Date.parse(a.startedAt), Date.parse(a.receivedAt ?? cut)];
       const m = measure(agentFile, start, end);
       if (m.tally && agentFile.records) m.tally.outside = agentFile.records.filter((r) => isResponse(r) && (r.at < start || r.at >= end)).length;
-      const failure = retired.find((x) => x.role === a.role && x.attempt === a.attempt)?.failureLabel ?? null;
-      return { role: a.role, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId, startedAt: a.startedAt, receivedAt: a.receivedAt, seconds: a.receivedAt ? secondsBetween(a.startedAt, a.receivedAt) : null, failure, ...m };
+      const failure = retired.find((x) => x.assignee === a.assignee && x.attempt === a.attempt)?.failureLabel ?? null;
+      return { role: a.role, assignee: a.assignee, roleName: a.roleName, attempt: a.attempt, agentId: a.agentId, startedAt: a.startedAt, receivedAt: a.receivedAt, seconds: a.receivedAt ? secondsBetween(a.startedAt, a.receivedAt) : null, failure, ...m };
     });
   const parentPart = (name: string, a: string, b: string): SectionUsage => ({ name, owner: "親", from: a, to: b, seconds: secondsBetween(a, b), open: false, parent: measure(file, Date.parse(a), Date.parse(b)), agentsTotal: null, attempts: [] });
   const sections: SectionUsage[] = [];
   let prev = from;
   let prevStage = "";
+  // 区間の始まりと終わり（最初の委譲の開始から最後の最終返答の受領まで。受領の無い試行があれば報告の直前まで）
+  const span = (list: AttemptUsage[], fallback: string) => {
+    const start = list.map((a) => a.startedAt).sort()[0] ?? fallback;
+    const open = list.some((a) => a.receivedAt === null);
+    const end = open ? cut : (list.map((a) => a.receivedAt ?? cut).sort().at(-1) ?? cut);
+    return { start, end, open };
+  };
   for (const g of AGENT_SECTIONS) {
     const list = attempts.filter((a) => ROLES[a.role].stage === g.stage);
     if (list.length === 0) continue;
-    const start = list.map((a) => a.startedAt).sort()[0] ?? prev;
-    const open = list.some((a) => a.receivedAt === null);
-    const end = open ? cut : (list.map((a) => a.receivedAt ?? cut).sort().at(-1) ?? cut);
+    const { start, end, open } = span(list, prev);
     sections.push(parentPart(PARENT_SECTIONS[`${prevStage}-${g.stage}`] ?? "親", prev, start));
-    sections.push({ name: g.name, owner: g.owner, from: start, to: end, seconds: secondsBetween(start, end), open, parent: measure(file, Date.parse(start), Date.parse(end)), agentsTotal: totalOf(list), attempts: list.map((a) => `${a.role}#${a.attempt}`) });
+    sections.push({ name: g.name, owner: g.owner, from: start, to: end, seconds: secondsBetween(start, end), open, parent: measure(file, Date.parse(start), Date.parse(end)), agentsTotal: totalOf(list), attempts: list.map((a) => `${a.assignee}#${a.attempt}`) });
     prev = end;
     prevStage = g.stage;
   }
   sections.push(parentPart(PARENT_SECTIONS[`${prevStage}-`] ?? "仕上げ", prev, cut));
-  return { from, to: cut, seconds: secondsBetween(from, cut), session, stages, sections, parent: measure(file, Date.parse(from), Date.parse(cut)), attempts };
+  const specs = attempts.filter((a) => a.role === "spec");
+  let spec: SpecUsage | null = null;
+  if (specs.length > 0) {
+    const { start, end, open } = span(specs, cut);
+    const sum = (f: UsageField) => {
+      const values = specs.map((a) => a.tally?.[f] ?? null);
+      return values.every((v) => v !== null) ? values.reduce((x, v) => x + (v ?? 0), 0) : null;
+    };
+    const usage = { input: sum("input"), output: sum("output"), cacheRead: sum("cacheRead"), cacheWrite: sum("cacheWrite"), totalTokens: sum("totalTokens") };
+    spec = { from: start, to: end, seconds: secondsBetween(start, end), open, attempts: specs.map((a) => `${a.assignee}#${a.attempt}`), usage };
+  }
+  return { from, to: cut, seconds: secondsBetween(from, cut), session, stages, sections, parent: measure(file, Date.parse(from), Date.parse(cut)), attempts, spec };
 }
 
 export interface FinalUsage {
@@ -3875,7 +4104,7 @@ function finishUsage(work: string, session: ParentSession, report: ReportUsage, 
     attempts: report.attempts,
     agentsTotal: totalOf(report.attempts),
   };
-  const reportValue = { from: report.from, to: report.to, seconds: report.seconds, sections: report.sections, parent: report.parent, attempts: report.attempts };
+  const reportValue = { from: report.from, to: report.to, seconds: report.seconds, sections: report.sections, parent: report.parent, attempts: report.attempts, spec: report.spec };
   writeFileSync(join(work, "parent/usage.json"), `${JSON.stringify({ definitions: USAGE_DEFINITIONS, session, stages: report.stages, report: reportValue, final, comparison }, null, 2)}\n`);
   writeFileSync(join(work, "parent/usage.md"), renderUsage(work, report, final, comparison));
   return { final, comparison };
@@ -3897,12 +4126,20 @@ function retryText(t: Tally | null): string {
 
 const sourceText = (s: Source) => (s.path === null ? `なし（${s.unavailable}）` : `\`${s.path}\`（${s.sha256 ? `sha256 ${s.sha256}、読んだ時刻 ${s.readAt}` : s.unavailable}）`);
 
+// Spec 探索の時間と Spec 担当全試行の合計使用量の1行（監査・usage.md・結果の計測の節）
+function specUsageLine(s: SpecUsage | null): string {
+  if (!s) return "- Spec 探索: 委譲なし";
+  const u = s.usage;
+  return `- Spec 探索: ${duration(s.seconds)}（${s.from} から ${s.to}${s.open ? "（最終返答の受領なし。報告の直前まで）" : ""}、Spec 担当の全試行 ${s.attempts.join("・")} の最初の委譲の開始から最後の最終返答の受領まで。担当の時間は足さない）。Spec 担当全試行の合計使用量 ${tokens(u.totalTokens)}（入力 ${tokens(u.input)}・出力 ${tokens(u.output)}・キャッシュ読み ${tokens(u.cacheRead)}・キャッシュ書き ${tokens(u.cacheWrite)}。無効・再委譲の試行を含む）`;
+}
+
 function usageBody(u: ReportUsage, work: string): string[] {
   return [
     `- 範囲: ${u.from}（prepare の開始）から ${u.to}（報告の組み立ての直前）まで、${duration(u.seconds)}。${USAGE_DEFINITIONS.range}`,
-    `- 定義: ${USAGE_DEFINITIONS.sections}。${USAGE_DEFINITIONS.usage}。${USAGE_DEFINITIONS.maxContext}。${USAGE_DEFINITIONS.turns}。${USAGE_DEFINITIONS.agents}。${USAGE_DEFINITIONS.retries}。${USAGE_DEFINITIONS.missing}`,
+    `- 定義: ${USAGE_DEFINITIONS.sections}。${USAGE_DEFINITIONS.usage}。${USAGE_DEFINITIONS.maxContext}。${USAGE_DEFINITIONS.turns}。${USAGE_DEFINITIONS.agents}。${USAGE_DEFINITIONS.retries}。${USAGE_DEFINITIONS.spec}。${USAGE_DEFINITIONS.missing}`,
     `- 出典: 親 ${sourceText(u.parent.source)}（場所の決め方: ${u.session.origin}）。段階と委譲の時刻は \`${join(work, "parent/stages.md")}\`・\`${join(work, "parent/agents.md")}\`。担当は下の表`,
     `- 親の使用量（範囲全体）: ${usageText(u.parent)}。omp 内部の retry: ${retryText(u.parent.tally)}`,
+    specUsageLine(u.spec),
     `- 保存までの確定値と MIN-33 の前後比較用の値は、保存の後に作業ログと \`${join(work, "parent/usage.md")}\` に書く（報告と監査には書き戻さない）`,
     "",
     "| 区間 | 担い手 | 開始 | 終了 | 時間 | 担当の使用量（合計） | 親の使用量 |",
@@ -3934,6 +4171,7 @@ function renderReportUsage(u: ReportUsage): string[] {
     "## 計測（報告の組み立ての直前まで）",
     "",
     `- 範囲: ${u.from}（prepare の開始）から ${u.to}（報告の組み立ての直前）まで、${duration(u.seconds)}。担当の区間は最初の委譲の開始から最後の最終返答の受領まで（並列の探索は合算しない）。使用量は外側の記録の時刻が範囲に入る応答の合計トークン`,
+    specUsageLine(u.spec),
     "- 保存までの確定値は保存後の作業ログと作業ディレクトリの parent/usage.md、試行ごとの内訳・最大文脈・出典は監査記録",
     "",
     "| 区間 | 担い手 | 時間 | 担当の使用量 | 親の使用量 |",

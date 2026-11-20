@@ -4,13 +4,18 @@ import { join } from "node:path";
 import {
   anyFileContains,
   candidateBlock,
+  type Explorer,
   exploreHandoff,
   filesUnder,
+  firstId,
   gitOut,
   type PreparedWork,
   prepareCaseWork,
   put,
+  roleArgs,
   runReview,
+  SPEC_TABLE,
+  SPLIT_REQUIREMENTS,
   type Sandbox,
   sandbox,
   sha256,
@@ -27,6 +32,7 @@ interface Identity {
 interface Agent {
   ok: boolean;
   role: string;
+  assignee: string;
   roleName: string;
   definition: string;
   attempt: number;
@@ -39,6 +45,7 @@ interface CheckExplore {
   ok: boolean;
   stage: string;
   role: string;
+  assignee: string;
   attempt: number;
   agentId: string | null;
   valid: boolean;
@@ -52,6 +59,7 @@ interface CheckExplore {
 interface Retire {
   ok: boolean;
   role: string;
+  assignee: string;
   attempt: number;
   agentId: string | null;
   failure: string;
@@ -80,18 +88,18 @@ const UNFIXED = "反証への入力を固定できず、反証の有効な結果
 function steps(s: Sandbox, p: PreparedWork) {
   const W = p.W;
   return {
-    start: (role: string, id?: string) => runReview<Agent>("agent", ["--work", W, "--role", role, "--event", "start", ...(id ? ["--agent-id", id] : [])], s),
-    received: (role: string, id: string) => runReview<Agent>("agent", ["--work", W, "--role", role, "--event", "received", "--agent-id", id], s),
-    check: (role: string) => runReview<CheckExplore>("check-explore", ["--work", W, "--role", role], s),
-    retire: (role: string, failure: string, reason: string, retries?: string) =>
-      runReview<Retire>("retire-attempt", ["--work", W, "--role", role, "--failure", failure, "--reason", reason, ...(retries ? ["--retries", retries] : [])], s),
+    start: (who: Explorer | "refute", id?: string) => runReview<Agent>("agent", ["--work", W, ...roleArgs(who), "--event", "start", ...(id ? ["--agent-id", id] : [])], s),
+    received: (who: Explorer | "refute", id: string) => runReview<Agent>("agent", ["--work", W, ...roleArgs(who), "--event", "received", "--agent-id", id], s),
+    check: (who: Explorer) => runReview<CheckExplore>("check-explore", ["--work", W, ...roleArgs(who)], s),
+    retire: (who: Explorer | "refute", failure: string, reason: string, retries?: string) =>
+      runReview<Retire>("retire-attempt", ["--work", W, ...roleArgs(who), "--failure", failure, "--reason", reason, ...(retries ? ["--retries", retries] : [])], s),
     refuteInput: () => runReview<RefuteInput>("refute-input", ["--work", W], s),
     // 委譲の開始と最終返答の受領を記録し、担当が書いたことにする引き渡し用ファイルを置く
-    async delegate(role: "standards" | "spec", id: string, handoff: string, notes = "メモ\n") {
-      expect((await this.start(role)).exitCode).toBe(0);
-      put(join(W, role, "handoff.md"), handoff);
-      put(join(W, role, "notes/memo.md"), notes);
-      expect((await this.received(role, id)).exitCode).toBe(0);
+    async delegate(who: Explorer, id: string, handoff: string, notes = "メモ\n") {
+      expect((await this.start(who)).exitCode).toBe(0);
+      put(join(W, who, "handoff.md"), handoff);
+      put(join(W, who, "notes/memo.md"), notes);
+      expect((await this.received(who, id)).exitCode).toBe(0);
     },
   };
 }
@@ -141,11 +149,11 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
     expect(read(join(p.W, "parent/fingerprints.md"))).toContain(shellFingerprint(dest));
     expect(ri.json?.files).toHaveLength(7);
 
-    // 委譲の記録（役割・定義名・試行・担当 ID・開始と受領の時刻）
+    // 委譲の記録（役割・担当・定義名・試行・担当 ID・開始と受領の時刻）。分けない要求の Spec 探索の担当は spec
     const agents = JSON.parse(read(join(p.W, "parent/agents.json"))) as Agent[];
-    expect(agents.map((a) => [a.role, a.definition, a.attempt, a.agentId])).toEqual([
-      ["standards", "code-reviewer-standards", 1, "agent-std-1"],
-      ["spec", "code-reviewer-spec", 1, "agent-spc-1"],
+    expect(agents.map((a) => [a.role, a.assignee, a.roleName, a.definition, a.attempt, a.agentId])).toEqual([
+      ["standards", "standards", "Standards 探索", "code-reviewer-standards", 1, "agent-std-1"],
+      ["spec", "spec", "Spec 探索", "code-reviewer-spec", 1, "agent-spc-1"],
     ]);
     for (const a of agents) expect(Date.parse(a.receivedAt ?? "")).toBeGreaterThanOrEqual(Date.parse(a.startedAt));
     const agentsMd = read(join(p.W, "parent/agents.md"));
@@ -493,9 +501,157 @@ describe("code-review の探索の検査と反証への引き渡し（review.ts 
       await runReview<RefuteInput>("refute-input", ["--work", "relative/path"], s),
       await runReview<RefuteInput>("refute-input", ["--work", join(s.t, "no-such-work")], s),
       await x.refuteInput(),
+      // 分けない要求の作業ディレクトリでは --assignee を付けない
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "spec", "--assignee", "spec1", "--event", "start"], s),
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "spec", "--assignee", "spec", "--event", "start"], s),
     ];
     for (const r of runs) expect({ exitCode: r.exitCode, code: (r.json as { code?: string } | undefined)?.code }).toEqual({ exitCode: 2, code: "INVALID_INPUT" });
     expect(existsSync(join(p.W, "parent/agents.json"))).toBe(false);
     expect(readdirSync(join(p.W, "refute-input"))).toEqual([]);
+  });
+
+  test("分けた要求: Spec 探索の2担当を --assignee で別々に委譲・検査し、2体とも合格したときだけ両方の引き渡しを書き換えずに担当ごとの名前で反証への入力へ写す。候補の契約の出典は担当範囲の外でもよい", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "split", SPLIT_REQUIREMENTS);
+    const x = steps(s, p);
+    const std = exploreHandoff("standards", p);
+    // spec1（requirements/issue.md:L1-L4）は既定の L3・L4 の行と SPC1-1。spec2（requirements/workspace-rules.md:L1-L3）は規約の L3 の行と、契約の出典が範囲外の issue.md を指す SPC2-1
+    const spc1 = exploreHandoff("spec1", p);
+    const spc2 = exploreHandoff("spec2", p, {
+      files: ["| `requirements/workspace-rules.md` | あり |"],
+      table: ["| `requirements/workspace-rules.md:L3` | 未充足 | 日本語で書いていない（`src/a.ts@HEAD:L1`） | SPC2-1 |"],
+      candidates: [candidateBlock("SPC2-1", { 軸: "Spec", 契約の出典: "`requirements/issue.md:L3`", "関連する要求・契約": "`requirements/workspace-rules.md:L3`" })],
+    });
+    await x.delegate("standards", "agent-std-1", std);
+    await x.delegate("spec1", "agent-spc1-1", spc1);
+    await x.delegate("spec2", "agent-spc2-1", spc2);
+
+    expect((await x.check("standards")).json).toMatchObject({ valid: true, assignee: "standards" });
+    const c1 = await x.check("spec1");
+    expect(c1.stderr).toBe("");
+    expect(c1.json).toMatchObject({ ok: true, role: "spec", assignee: "spec1", attempt: 1, agentId: "agent-spc1-1", valid: true, violations: [], file: "spec1/handoff.md", sha256: sha256(spc1) });
+    expect(c1.json?.files.map((f) => f.path)).toEqual(["handoff.md", "notes/memo.md"]);
+    // spec2 を検査する前は写さない
+    const early = await x.refuteInput();
+    expect(early.exitCode).toBe(2);
+    expect((early.json as { message?: string } | undefined)?.message).toContain("Spec 探索（spec2）");
+    expect(readdirSync(join(p.W, "refute-input"))).toEqual([]);
+    expect((await x.check("spec2")).json).toMatchObject({ assignee: "spec2", valid: true, violations: [], file: "spec2/handoff.md", sha256: sha256(spc2) });
+
+    const ri = await x.refuteInput();
+    expect(ri.json).toMatchObject({ ready: true, status: "準備完了" });
+    const dest = join(p.W, "refute-input");
+    expect(filesUnder(dest)).toEqual(
+      ["deps-files.sha256", "manifest.md", "requirements/issue.md", "requirements/workspace-rules.md", "spec1-handoff.md", "spec2-handoff.md", "standards-handoff.md", "target.md"].sort(),
+    );
+    expect(read(join(dest, "spec1-handoff.md"))).toBe(spc1);
+    expect(read(join(dest, "spec2-handoff.md"))).toBe(spc2);
+    expect(read(join(dest, "standards-handoff.md"))).toBe(std);
+
+    // 委譲の記録は担当ごと（試行の番号も担当ごと）。表示名は「Spec 探索（spec1）」
+    const agents = JSON.parse(read(join(p.W, "parent/agents.json"))) as Agent[];
+    expect(agents.map((a) => [a.role, a.assignee, a.roleName, a.definition, a.attempt, a.agentId])).toEqual([
+      ["standards", "standards", "Standards 探索", "code-reviewer-standards", 1, "agent-std-1"],
+      ["spec", "spec1", "Spec 探索（spec1）", "code-reviewer-spec", 1, "agent-spc1-1"],
+      ["spec", "spec2", "Spec 探索（spec2）", "code-reviewer-spec", 1, "agent-spc2-1"],
+    ]);
+    expect(read(join(p.W, "parent/agents.md"))).toContain("| Spec 探索（spec2） | code-reviewer-spec | 1 | agent-spc2-1 |");
+    const checks = read(join(p.W, "parent/checks.md"));
+    expect(checks).toContain("探索: Spec 探索（spec1）（code-reviewer-spec）試行 1（合格）");
+    expect(checks).toContain("探索: Spec 探索（spec2）（code-reviewer-spec）試行 1（合格）");
+  });
+
+  test("分けた要求: 担当ごとに候補 ID の接頭辞と担当範囲（要求資料ごとのコード要求は担当の要求資料だけ、対応表の出典は担当の区間の中）を検査する", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "split-range", SPLIT_REQUIREMENTS);
+    const x = steps(s, p);
+    await x.delegate("spec1", "a1", exploreHandoff("spec1", p));
+    await x.delegate("spec2", "a2", exploreHandoff("spec2", p));
+    expect((await x.check("spec1")).json).toMatchObject({ valid: true, violations: [] });
+    expect((await x.check("spec2")).json).toMatchObject({ valid: true, violations: [] });
+
+    const L3 = (SPEC_TABLE[0] ?? "").replace("SPC-1", "SPC1-1");
+    const ISSUE = "| `requirements/issue.md` | あり |";
+    const cases: [string, Explorer, string, number, string][] = [
+      ["ほかの担当の要求資料の行", "spec1", exploreHandoff("spec1", p, { files: [ISSUE, "| `requirements/workspace-rules.md` | なし |"] }), 6, "requirements/workspace-rules.md"],
+      ["担当の要求資料の行の欠落", "spec2", exploreHandoff("spec2", p, { files: [] }), 6, "requirements/workspace-rules.md"],
+      ["担当範囲の外の要求資料の出典", "spec1", exploreHandoff("spec1", p, { table: [L3, "| `requirements/workspace-rules.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |"] }), 6, "requirements/workspace-rules.md:L3"],
+      ["区間の終わりを越える出典", "spec1", exploreHandoff("spec1", p, { table: [L3, "| `requirements/issue.md:L4-L5` | 充足 | `src/a.ts@HEAD:L1` | なし |"] }), 6, "requirements/issue.md:L4-L5"],
+      ["ほかの担当の範囲の出典", "spec2", exploreHandoff("spec2", p, { files: ["| `requirements/workspace-rules.md` | なし |"], table: ["| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |"] }), 6, "requirements/issue.md:L4"],
+      ["ほかの担当の接頭辞", "spec1", exploreHandoff("spec1", p, { candidates: [candidateBlock(firstId("spec2"), { 軸: "Spec" })], table: [] }), 4, "SPC2-1"],
+      ["分けないときの接頭辞", "spec2", exploreHandoff("spec2", p, { candidates: [candidateBlock("SPC-1", { 軸: "Spec" })] }), 4, "SPC-1"],
+    ];
+    for (const [name, who, text, no, needle] of cases) {
+      put(join(p.W, who, "handoff.md"), text);
+      const r = await x.check(who);
+      expect(`${name}: ${r.json?.valid}`).toBe(`${name}: false`);
+      expect(`${name}: ${messages(r.json, no)}`).toContain(needle);
+      // 合否は担当ごと。もう一方の担当の検査の記録は変えない
+      put(join(p.W, who, "handoff.md"), exploreHandoff(who, p));
+      expect(`${name}: ${(await x.check(who)).json?.valid}`).toBe(`${name}: true`);
+    }
+  });
+
+  test("分けた要求: 無効な担当だけを隔離して1回委譲し直し、有効な担当はやり直さない。2回目の無効は担当の表示名で未完了にし、利用枠の上限はどの担当で起きても全体を止める", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "split-retire", SPLIT_REQUIREMENTS);
+    const x = steps(s, p);
+    await x.delegate("standards", "s1", exploreHandoff("standards", p));
+    const bad = exploreHandoff("spec1", p).replace("## 判断を見送った事項", "## 総合判断\n\n高い\n\n## 判断を見送った事項");
+    await x.delegate("spec1", "p1", bad);
+    await x.delegate("spec2", "q1", exploreHandoff("spec2", p));
+    expect((await x.check("spec1")).json?.valid).toBe(false);
+    expect((await x.check("spec2")).json?.valid).toBe(true);
+
+    const r = await x.retire("spec1", "invalid", "5節の7: 禁止項目の見出し「総合判断」");
+    const moved = join(p.W, "parent/attempts/spec1-1");
+    expect(r.json).toMatchObject({ role: "spec", assignee: "spec1", attempt: 1, agentId: "p1", redelegate: true, movedTo: moved });
+    expect(read(join(moved, "handoff.md"))).toBe(bad);
+    expect(readdirSync(join(p.W, "spec1"))).toEqual(["notes"]);
+    expect(read(join(p.W, "spec2/handoff.md"))).toBe(exploreHandoff("spec2", p));
+    expect(read(join(p.W, "parent/attempts.md"))).toContain("| Spec 探索（spec1） | code-reviewer-spec | 1 | p1 |");
+    // 有効な spec2 は委譲し直さない（retire-attempt が委譲し直してよいと返した担当だけ）
+    expect((await x.start("spec2")).exitCode).toBe(2);
+    expect((await x.start("spec1")).json).toMatchObject({ assignee: "spec1", attempt: 2 });
+    put(join(p.W, "spec1/handoff.md"), "壊れた出力\n");
+    expect((await x.received("spec1", "p2")).exitCode).toBe(0);
+    const second = await x.retire("spec1", "invalid", "5節の3: 必須節が無い");
+    expect(second.json).toMatchObject({ assignee: "spec1", attempt: 2, redelegate: false, status: "未完了", finalReason: "有効な結果なし（Spec 探索（spec1）。1回の再委譲の後も）" });
+    expect(existsSync(join(p.W, "parent/attempts/spec1-2/handoff.md"))).toBe(true);
+    expect((await x.start("spec1")).exitCode).toBe(2);
+    const ri = await x.refuteInput();
+    expect(ri.exitCode).toBe(2);
+    expect((ri.json as { message?: string } | undefined)?.message).toContain("Spec 探索（spec1）: 試行 2 は無効として隔離済み");
+
+    // 利用枠の上限は、どの担当で起きてもその時点で止め、どの担当も起動・委譲し直さない
+    const s2 = sandbox();
+    const q = await prepareCaseWork(s2, "split-limit", SPLIT_REQUIREMENTS);
+    const y = steps(s2, q);
+    await y.delegate("spec1", "p1", exploreHandoff("spec1", q));
+    expect((await y.start("spec2", "q1")).exitCode).toBe(0);
+    const limit = await y.retire("spec2", "usage-limit", "HTTP 429 usage_limit_reached");
+    expect(limit.json).toMatchObject({ assignee: "spec2", redelegate: false, status: "未完了", finalReason: "利用枠の上限、有効な結果なし（Spec 探索（spec2））" });
+    expect(existsSync(join(q.W, "parent/attempts/spec2-1"))).toBe(true);
+    for (const who of ["standards", "spec1", "spec2", "refute"] as const) expect(`${who}: ${(await y.start(who)).exitCode}`).toBe(`${who}: 2`);
+  });
+
+  test("分けた要求: Spec 探索の担当の指定の誤り（--assignee の欠落・分けた担当以外・Standards 探索と反証への指定）は終了コード 2 で、記録を変えない", async () => {
+    const s = sandbox();
+    const p = await prepareCaseWork(s, "split-args", SPLIT_REQUIREMENTS);
+    const x = steps(s, p);
+    const runs = [
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "spec", "--event", "start"], s),
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "spec", "--assignee", "spec", "--event", "start"], s),
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "spec", "--assignee", "spec3", "--event", "start"], s),
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "standards", "--assignee", "spec1", "--event", "start"], s),
+      await runReview<Agent>("agent", ["--work", p.W, "--role", "refute", "--assignee", "spec1", "--event", "start"], s),
+      await runReview<CheckExplore>("check-explore", ["--work", p.W, "--role", "spec"], s),
+      await runReview<Retire>("retire-attempt", ["--work", p.W, "--role", "spec", "--failure", "invalid", "--reason", "x"], s),
+      await x.check("spec1"),
+      await x.retire("spec2", "invalid", "まだ委譲していない"),
+    ];
+    for (const r of runs) expect({ exitCode: r.exitCode, code: (r.json as { code?: string } | undefined)?.code }).toEqual({ exitCode: 2, code: "INVALID_INPUT" });
+    expect(existsSync(join(p.W, "parent/agents.json"))).toBe(false);
+    expect(existsSync(join(p.W, "parent/checks.json"))).toBe(false);
   });
 });

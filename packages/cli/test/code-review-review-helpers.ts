@@ -166,12 +166,19 @@ export interface PreparedWork {
   clone: string;
 }
 
+// 分けない要求: Workspace の規約が空（0行）で、要求資料の境目は全行の末尾、見出しは1行目だけなので、Spec 探索を要求の範囲で2つに分けられない（今の1体のまま）
 export const CASE_REQUIREMENTS: Record<string, string> = {
+  "issue.md": "# 要求の Issue\n\n- a は 1 を返す\n- 失敗を記録する\n",
+  "workspace-rules.md": "",
+};
+
+// 分ける要求: 全7行を要求資料の境目（workspace-rules.md の先頭）で、spec1 = requirements/issue.md:L1-L4 と spec2 = requirements/workspace-rules.md:L1-L3 に分ける
+export const SPLIT_REQUIREMENTS: Record<string, string> = {
   "issue.md": "# 要求の Issue\n\n- a は 1 を返す\n- 失敗を記録する\n",
   "workspace-rules.md": "# 規約\n\n- 日本語で書く\n",
 };
 
-export async function prepareCaseWork(s: Sandbox, name = "run"): Promise<PreparedWork> {
+export async function prepareCaseWork(s: Sandbox, name = "run", requirements = CASE_REQUIREMENTS): Promise<PreparedWork> {
   const repo = makeGitRepo(s, `app-${name}`);
   const base = gitOut(repo, "rev-parse", "HEAD");
   fakePackageManager(s, "bun");
@@ -179,7 +186,7 @@ export async function prepareCaseWork(s: Sandbox, name = "run"): Promise<Prepare
   const dir = join(s.t, `dataset/inputs/${name}`);
   const caseMd = ["# 対象", "", "- 対象リポジトリ: `/old/place/app`", `- 基点の指定: \`${base}\``, `- merge-base: \`${base}\``, `- head: \`${head}\``, "- mode: `commit`", "- Issue: NOD-1", "- 計画の出典: なし", ""].join("\n");
   const files: Record<string, string> = { "case.md": caseMd };
-  for (const [p, b] of Object.entries(CASE_REQUIREMENTS)) files[`requirements/${p}`] = b;
+  for (const [p, b] of Object.entries(requirements)) files[`requirements/${p}`] = b;
   for (const [p, b] of Object.entries(files)) put(join(dir, p), b);
   const table = Object.entries(files).map(([p, b]) => `| \`${p}\` | \`${sha256(b)}\` | 出典 |`);
   put(join(dir, "manifest.md"), ["# 入力の指紋", "", "| ファイル | sha256 | 出典 |", "|---|---|---|", ...table, "", "## 取得できなかった資料と理由", "", "- なし", ""].join("\n"));
@@ -216,20 +223,51 @@ export const SPEC_TABLE = [
   "| `requirements/issue.md:L4` | 充足 | `src/a.ts@HEAD:L1` | なし |",
 ];
 
+// 探索の担当。Spec 探索は、要求の範囲で分けたとき spec1・spec2、分けないとき spec。<W>/<担当>/ に書く
+export type Explorer = "standards" | "spec" | "spec1" | "spec2";
+const PREFIXES: Record<Explorer, string> = { standards: "STD", spec: "SPC", spec1: "SPC1", spec2: "SPC2" };
+// 担当の最初の候補 ID（STD-1・SPC-1・SPC1-1・SPC2-1）
+export const firstId = (who: Explorer) => `${PREFIXES[who]}-1`;
+// agent・check-explore・retire-attempt の担当の指定（分けた Spec 探索は --role spec --assignee <担当>）
+export const roleArgs = (who: Explorer | "refute") => (who === "spec1" || who === "spec2" ? ["--role", "spec", "--assignee", who] : ["--role", who]);
+
+// prepare が決めた要求の範囲（parent/prepare.json の spec）
+export interface SpecPlan {
+  split: boolean;
+  reason: string | null;
+  lines: number;
+  cut: number | null;
+  assignees: { id: "spec" | "spec1" | "spec2"; dir: string; prefix: string; files: string[]; segments: { file: string; start: number; end: number }[]; range: string | null; request: string | null }[];
+}
+
+export function specPlan(p: PreparedWork): SpecPlan {
+  const prepared: { spec: SpecPlan } = JSON.parse(readFileSync(join(p.W, "parent/prepare.json"), "utf8"));
+  return prepared.spec;
+}
+
+export interface HandoffOptions {
+  candidates?: string[];
+  table?: string[];
+  files?: string[];
+}
+
 // 雛形（assets/standards-handoff.md・assets/spec-handoff.md）どおりの探索の引き渡し。検査に通る形を既定にする。
-// Spec 探索は、要求資料ごとのコード要求あり／なし（files）と、コード要求だけの対応表（table。出典は requirements/ の行範囲、状態は 充足・未充足・未確認）を書く
-export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts: { candidates?: string[]; table?: string[]; files?: string[] } = {}): string {
+// Spec 探索は、要求資料ごとのコード要求あり／なし（files）と、コード要求だけの対応表（table。出典は requirements/ の行範囲、状態は 充足・未充足・未確認）を書く。
+// 分けた Spec 探索（spec1・spec2）の既定は、SPEC_TABLE のうち担当の要求資料の行（候補 ID は担当の接頭辞）と、担当の要求資料ごとに対応表の行があれば あり・無ければ なし
+export function exploreHandoff(role: Explorer, p: PreparedWork, opts: HandoffOptions = {}): string {
   const std = role === "standards";
-  const candidates = opts.candidates ?? [candidateBlock(std ? "STD-1" : "SPC-1", std ? {} : { 軸: "Spec" })];
-  const files = opts.files ?? ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | なし |"];
-  const table = opts.table ?? SPEC_TABLE;
+  const assigned = role === "spec1" || role === "spec2" ? specPlan(p).assignees.find((a) => a.id === role) : undefined;
+  const candidates = opts.candidates ?? [candidateBlock(firstId(role), std ? {} : { 軸: "Spec" })];
+  const of = (file: string) => (row: string) => row.startsWith(`| \`${file}:`);
+  const table = opts.table ?? (assigned ? SPEC_TABLE.map((r) => r.replace("SPC-1", firstId(role))).filter((r) => assigned.files.some((f) => of(f)(r))) : SPEC_TABLE);
+  const files = opts.files ?? (assigned ? assigned.files.map((f) => `| \`${f}\` | ${table.some(of(f)) ? "あり" : "なし"} |`) : ["| `requirements/issue.md` | あり |", "| `requirements/workspace-rules.md` | なし |"]);
   const head = [
     `# ${std ? "Standards" : "Spec"} 探索の引き渡し`,
     "",
     "## 担当と対象",
     "",
     `- 役割: ${std ? "Standards" : "Spec"} 探索`,
-    `- 定義名: code-reviewer-${role}`,
+    `- 定義名: code-reviewer-${std ? "standards" : "spec"}`,
     "- 担当 ID: 不明",
     "- モデル申告: 未確認",
     `- 対象版: \`${p.clone}\`／commit／merge-base \`${p.base}\`／head \`${p.head}\``,
@@ -265,10 +303,11 @@ export function exploreHandoff(role: "standards" | "spec", p: PreparedWork, opts
 // コード要求が0件の要求資料ごとの記載（両方の要求資料が なし）
 export const NO_CODE_FILES = ["| `requirements/issue.md` | なし |", "| `requirements/workspace-rules.md` | なし |"];
 
-// 雛形（assets/refute-verdict.md）どおりの反証の判定本文。既定は exploreHandoff の既定の両引き渡しに対して check-refute に通る形で、
+// 雛形（assets/refute-verdict.md）どおりの反証の判定本文。既定は exploreHandoff の既定の引き渡しに対して check-refute に通る形で、
 // 「コード要求の対応表（反証で確定した行）」には Spec 探索で未確認の L3 だけを未確認のまま確定して書き、Spec 探索で充足の L4 は書かない。要対応は CAUSE-1（STD-1・REF-1、影響度 2）。
-// clean: 要対応0件・確認が残る事項0件（STD-1・SPC-1 は棄却、反証で追加した発見なし、L3 は充足に確定）
-// empty: コード要求0件（両探索の空の対応表に対する行の無い表）
+// Spec 探索の L3 の候補は、分けないとき SPC-1、分けたとき spec1 の SPC1-1。分けたときの spec2 の既定の候補 SPC2-1 は棄却する
+// clean: 要対応0件・確認が残る事項0件（STD-1・Spec 探索の候補は棄却、反証で追加した発見なし、L3 は充足に確定）
+// empty: コード要求0件（探索の空の対応表に対する行の無い表）
 // contract: CAUSE-1 の契約の出典（既定は `src/a.ts@HEAD:L1` で、要求の行範囲を含まない）
 // unmet: Spec 探索で充足の行のうち、未充足に変えて要対応の STD-1 を書く行の要求の出典（Spec 探索の引き渡しの出典をそのまま写す）
 export interface VerdictOptions {
@@ -282,14 +321,16 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
   const empty = opts.empty ?? false;
   const clean = (opts.clean ?? false) || empty;
   const unmet = clean ? [] : (opts.unmet ?? []);
+  const [first, ...others] = specPlan(p).assignees.map((a) => firstId(a.id));
+  const spc = first ?? "SPC-1";
   const L3_REASON = "依存の独自パッチの契約が入力に無く、分岐の結論を出せない";
   const table = empty
     ? []
     : [
-        clean ? "| `requirements/issue.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |" : "| `requirements/issue.md:L3` | 未確認 | 依存の独自パッチの契約が入力に無く、`a | b` の分岐の結論を出せない | SPC-1 |",
+        clean ? "| `requirements/issue.md:L3` | 充足 | `src/a.ts@HEAD:L1` | なし |" : `| \`requirements/issue.md:L3\` | 未確認 | 依存の独自パッチの契約が入力に無く、\`a | b\` の分岐の結論を出せない | ${spc} |`,
         ...unmet.map((source) => `| ${source} | 未充足 | 失敗を記録しない（\`src/a.ts@HEAD:L1\`） | STD-1 |`),
       ];
-  const unconfirmed = clean ? [] : ["| SPC-1 | Spec | 候補 | 依存の独自パッチの契約が入力に無い | 人 | 独自パッチの契約 |", `| \`requirements/issue.md:L3\` | Spec | 要求 | ${L3_REASON} | 人 | 独自パッチの契約 |`];
+  const unconfirmed = clean ? [] : [`| ${spc} | Spec | 候補 | 依存の独自パッチの契約が入力に無い | 人 | 独自パッチの契約 |`, `| \`requirements/issue.md:L3\` | Spec | 要求 | ${L3_REASON} | 人 | 独自パッチの契約 |`];
   const required = clean
     ? ["なし", "", "反証で追加した発見なし", ""]
     : [
@@ -314,7 +355,8 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
     ? []
     : [
         clean ? "| STD-1 | Standards 探索 | 棄却 | なし | なし | 固定版で到達しない |" : "| STD-1 | Standards 探索 | 要対応 | 3 | CAUSE-1 | 固定版で確かめた |",
-        clean ? "| SPC-1 | Spec 探索 | 棄却 | なし | なし | 固定版で到達しない |" : "| SPC-1 | Spec 探索 | 未確認 | なし | なし | 依存の独自パッチの契約が入力に無い |",
+        clean ? `| ${spc} | Spec 探索 | 棄却 | なし | なし | 固定版で到達しない |` : `| ${spc} | Spec 探索 | 未確認 | なし | なし | 依存の独自パッチの契約が入力に無い |`,
+        ...others.map((id) => `| ${id} | Spec 探索 | 棄却 | なし | なし | 固定版で到達しない |`),
         ...(clean ? [] : ["| REF-1 | 反証で追加 | 要対応 | 2 | CAUSE-1 | 固定版で確かめた |"]),
       ];
   return [
@@ -366,20 +408,28 @@ export function refuteVerdict(p: PreparedWork, opts: VerdictOptions = {}): strin
   ].join("\n");
 }
 
-// 両探索を委譲・検査し、反証への入力を写して反証を委譲し、反証の判定本文を置いて最終返答の受領まで記録する。
-// 両探索の引き渡しは既定のもの（empty ならコード要求0件の空の対応表と候補0件）。files・table は Spec 探索の要求資料ごとのコード要求とコード要求の対応表の行
-export async function reachRefute(s: Sandbox, p: PreparedWork, verdict: string, opts: { empty?: boolean; files?: string[]; table?: string[] } = {}): Promise<void> {
+// 探索の全担当（Standards 探索と、分けたときは spec1・spec2、分けないときは spec）を委譲・検査し、反証への入力を写して反証を委譲し、反証の判定本文を置いて最終返答の受領まで記録する。
+// 引き渡しは既定のもの（empty ならコード要求0件の空の対応表と候補0件）。files・table は最初の Spec 探索の担当（spec か spec1）の要求資料ごとのコード要求とコード要求の対応表の行、
+// handoffs は担当ごとの引き渡しの指定（files・table より優先）
+export async function reachRefute(
+  s: Sandbox,
+  p: PreparedWork,
+  verdict: string,
+  opts: { empty?: boolean; files?: string[]; table?: string[]; handoffs?: Partial<Record<Explorer, HandoffOptions>> } = {},
+): Promise<void> {
   const W = p.W;
   const must = async (sub: string, args: string[]) => {
     const r = await runReview<{ valid?: boolean; ready?: boolean }>(sub, ["--work", W, ...args], s);
     if (r.exitCode !== 0 || r.json?.valid === false || r.json?.ready === false) throw new Error(`${sub} ${args.join(" ")} が通りません: ${r.stdout}${r.stderr}`);
   };
-  const handoff = opts.empty ? { candidates: [], table: [], files: opts.files ?? NO_CODE_FILES } : { files: opts.files, table: opts.table };
-  for (const role of ["standards", "spec"] as const) {
-    await must("agent", ["--role", role, "--event", "start"]);
-    put(join(W, role, "handoff.md"), exploreHandoff(role, p, handoff));
-    await must("agent", ["--role", role, "--event", "received", "--agent-id", `agent-${role}`]);
-    await must("check-explore", ["--role", role]);
+  const specs = specPlan(p).assignees.map((a) => a.id);
+  for (const who of ["standards", ...specs] as const) {
+    const empty: HandoffOptions = opts.empty ? { candidates: [], table: [], ...(who === "spec" ? { files: NO_CODE_FILES } : {}) } : {};
+    const given: HandoffOptions = who === specs[0] ? { ...(opts.files ? { files: opts.files } : {}), ...(opts.table ? { table: opts.table } : {}) } : {};
+    await must("agent", [...roleArgs(who), "--event", "start"]);
+    put(join(W, who, "handoff.md"), exploreHandoff(who, p, { ...empty, ...given, ...opts.handoffs?.[who] }));
+    await must("agent", [...roleArgs(who), "--event", "received", "--agent-id", `agent-${who}`]);
+    await must("check-explore", roleArgs(who));
   }
   await must("refute-input", []);
   await must("agent", ["--role", "refute", "--event", "start"]);

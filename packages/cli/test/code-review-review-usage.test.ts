@@ -13,6 +13,7 @@ import {
   reachRefute,
   refuteVerdict,
   registerRepo,
+  roleArgs,
   runReview,
   sandbox,
   sha256,
@@ -76,6 +77,7 @@ interface Standalone {
 }
 interface Attempt extends Measured {
   role: string;
+  assignee: string;
   attempt: number;
   agentId: string | null;
   startedAt: string;
@@ -93,8 +95,17 @@ interface Section {
   parent: Measured;
   attempts: string[];
 }
+// Spec 探索の時間と Spec 担当全試行の合計使用量
+interface SpecUsage {
+  from: string;
+  to: string;
+  seconds: number;
+  open: boolean;
+  attempts: string[];
+  usage: { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; totalTokens: number | null };
+}
 interface UsageRecord {
-  report: { from: string; to: string; seconds: number; sections: Section[]; parent: Measured; attempts: Attempt[] };
+  report: { from: string; to: string; seconds: number; sections: Section[]; parent: Measured; attempts: Attempt[]; spec: SpecUsage | null };
   final: { from: string; to: string; seconds: number; parent: Measured };
   comparison: { from: string | null; to: string; seconds: number | null; start: string; parent: Measured; attempts: Attempt[]; agentsTotal: number | null };
 }
@@ -105,6 +116,7 @@ interface Stage {
 }
 interface Agent {
   role: string;
+  assignee: string;
   attempt: number;
   agentId: string | null;
   startedAt: string;
@@ -344,26 +356,36 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
       return r.json;
     };
     const agents = () => JSON.parse(read(join(W, "parent/agents.json"))) as Agent[];
-    const last = (role: string) => agents().filter((a) => a.role === role).at(-1) as Agent;
+    const last = (who: string) => agents().filter((a) => a.assignee === who).at(-1) as Agent;
 
-    // 探索: Standards の試行1は無効で隔離し、試行2へ委譲し直す。Spec は omp 内部の retry を含む
-    await run("agent", ["--role", "standards", "--event", "start"]);
+    // 探索: Issue と Workspace の規約の2つの要求資料なので Spec 探索は spec1・spec2 に分かれる。
+    // Standards と spec2 の試行1は無効で隔離し、試行2へ委譲し直す。spec1 は omp 内部の retry を含む
+    await run("agent", [...roleArgs("standards"), "--event", "start"]);
     const exploreStart = last("standards").startedAt;
     add(response(exploreStart, total(10000)));
-    await run("agent", ["--role", "spec", "--event", "start"]);
+    await run("agent", [...roleArgs("spec1"), "--event", "start"]);
+    await run("agent", [...roleArgs("spec2"), "--event", "start"]);
     put(join(W, "standards/handoff.md"), exploreHandoff("standards", p).replace("定義名: code-reviewer-standards", "定義名: code-reviewer"));
-    await run("agent", ["--role", "standards", "--event", "received", "--agent-id", "StdA"]);
-    expect((await run("check-explore", ["--role", "standards"]))?.valid).toBe(false);
-    await run("retire-attempt", ["--role", "standards", "--failure", "invalid", "--reason", "5節の3: 定義名"]);
-    await run("agent", ["--role", "standards", "--event", "start"]);
-    put(join(W, "spec/handoff.md"), exploreHandoff("spec", p));
-    await run("agent", ["--role", "spec", "--event", "received", "--agent-id", "Spc"]);
+    await run("agent", [...roleArgs("standards"), "--event", "received", "--agent-id", "StdA"]);
+    expect((await run("check-explore", roleArgs("standards")))?.valid).toBe(false);
+    await run("retire-attempt", [...roleArgs("standards"), "--failure", "invalid", "--reason", "5節の3: 定義名"]);
+    await run("agent", [...roleArgs("standards"), "--event", "start"]);
+    put(join(W, "spec1/handoff.md"), exploreHandoff("spec1", p));
+    await run("agent", [...roleArgs("spec1"), "--event", "received", "--agent-id", "Spc"]);
+    put(join(W, "spec2/handoff.md"), "壊れた出力\n");
+    await run("agent", [...roleArgs("spec2"), "--event", "received", "--agent-id", "Spc2A"]);
+    expect((await run("check-explore", roleArgs("spec2")))?.valid).toBe(false);
+    await run("retire-attempt", [...roleArgs("spec2"), "--failure", "invalid", "--reason", "5節の3: 必須節が無い"]);
+    await run("agent", [...roleArgs("spec2"), "--event", "start"]);
+    put(join(W, "spec2/handoff.md"), exploreHandoff("spec2", p));
+    await run("agent", [...roleArgs("spec2"), "--event", "received", "--agent-id", "Spc2B"]);
     put(join(W, "standards/handoff.md"), exploreHandoff("standards", p));
-    await run("agent", ["--role", "standards", "--event", "received", "--agent-id", "StdB"]);
-    expect((await run("check-explore", ["--role", "standards"]))?.valid).toBe(true);
-    expect((await run("check-explore", ["--role", "spec"]))?.valid).toBe(true);
+    await run("agent", [...roleArgs("standards"), "--event", "received", "--agent-id", "StdB"]);
+    expect((await run("check-explore", roleArgs("standards")))?.valid).toBe(true);
+    expect((await run("check-explore", roleArgs("spec1")))?.valid).toBe(true);
+    expect((await run("check-explore", roleArgs("spec2")))?.valid).toBe(true);
     const byId = (id: string) => agents().find((a) => a.agentId === id) as Agent;
-    const [std1, spc, std2] = [byId("StdA"), byId("Spc"), byId("StdB")];
+    const [std1, spc, spc2a, std2, spc2b] = [byId("StdA"), byId("Spc"), byId("Spc2A"), byId("StdB"), byId("Spc2B")];
     put(join(agentDir, "StdA.jsonl"), lines(session(std1.startedAt, parentFile), response(std1.startedAt, total(1000), { stop: "stop" })));
     // 担当の時間の終わり（受領）ちょうどの応答と、その後の片付けの記録は担当の値に入れない
     put(join(agentDir, "StdB.jsonl"), lines(session(std2.startedAt, parentFile), response(std2.startedAt, total(2000), { stop: "stop" }), response(std2.receivedAt as string, total(50)), custom(iso(ms(std2.receivedAt as string) + 60000))));
@@ -377,12 +399,15 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
         response(spc.startedAt, usage(100, 0, 2900, 0, 3000), { stop: "stop" }),
       ),
     );
+    put(join(agentDir, "Spc2A.jsonl"), lines(session(spc2a.startedAt, parentFile), response(spc2a.startedAt, usage(10, 5, 0, 0, 15), { stop: "stop" })));
+    // cacheWrite の欄が無い応答がある試行（Spec 担当全試行の合計の cacheWrite は取得できず）
+    put(join(agentDir, "Spc2B.jsonl"), lines(session(spc2b.startedAt, parentFile), response(spc2b.startedAt, { input: 1, output: 1, cacheRead: 1, totalTokens: 3 }, { stop: "stop" })));
 
     // 反証（担当の記録が無い）。反証の検査の後の親の応答は最後の区間に入る
     await run("refute-input", []);
-    await run("agent", ["--role", "refute", "--event", "start"]);
+    await run("agent", [...roleArgs("refute"), "--event", "start"]);
     put(join(W, "refute/verdict.md"), refuteVerdict(p));
-    await run("agent", ["--role", "refute", "--event", "received", "--agent-id", "Ref"]);
+    await run("agent", [...roleArgs("refute"), "--event", "received", "--agent-id", "Ref"]);
     expect((await run("check-refute", []))?.valid).toBe(true);
     add(response(new Date().toISOString(), total(100000)));
 
@@ -417,24 +442,42 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(u.report.sections.map((x) => x.name)).toEqual(["準備", "探索（並列）", "引き渡しの検査", "反証", "反証の検査と仕上げ"]);
     expect(sec("準備")).toMatchObject({ owner: "親", from: t0, to: exploreStart });
     expect(sec("準備").parent.tally?.totalTokens).toBe(1000);
-    // 探索は最初の委譲の開始から両方の最終返答まで（2担当の時間を合算しない）
-    const exploreEnd = [std1, spc, std2].map((a) => a.receivedAt as string).sort().at(-1) as string;
+    // 探索は最初の委譲の開始から全担当の最終返答まで（並列の担当の時間を合算しない）
+    const exploreEnd = [std1, spc, spc2a, std2, spc2b].map((a) => a.receivedAt as string).sort().at(-1) as string;
     expect(sec("探索（並列）")).toMatchObject({ from: exploreStart, to: exploreEnd, seconds: (ms(exploreEnd) - ms(exploreStart)) / 1000, open: false });
     expect(sec("探索（並列）").parent.tally?.totalTokens).toBe(10000);
-    expect(sec("探索（並列）").attempts).toEqual(["standards#1", "spec#1", "standards#2"]);
+    expect(sec("探索（並列）").attempts).toEqual(["standards#1", "spec1#1", "spec2#1", "standards#2", "spec2#2"]);
     expect(sec("引き渡しの検査").parent.tally).toMatchObject({ responses: 0, totalTokens: 0 });
     expect(sec("反証の検査と仕上げ")).toMatchObject({ to: fin.reportStartedAt });
     expect(sec("反証の検査と仕上げ").parent.tally?.totalTokens).toBe(100000);
     const at = (agentId: string) => u.report.attempts.find((x) => x.agentId === agentId) as Attempt;
-    expect(at("StdA")).toMatchObject({ role: "standards", attempt: 1, failure: "判定と無関係な無効", seconds: (ms(std1.receivedAt as string) - ms(std1.startedAt)) / 1000 });
+    expect(at("StdA")).toMatchObject({ role: "standards", assignee: "standards", attempt: 1, failure: "判定と無関係な無効", seconds: (ms(std1.receivedAt as string) - ms(std1.startedAt)) / 1000 });
     expect(at("StdA").tally?.totalTokens).toBe(1000);
     expect(at("StdB")).toMatchObject({ attempt: 2, failure: null });
     expect(at("StdB").tally).toMatchObject({ totalTokens: 2000, responses: 1, outside: 1 });
     expect(at("StdB").source.path).toBe(join(agentDir, "StdB.jsonl"));
+    expect(at("Spc")).toMatchObject({ role: "spec", assignee: "spec1", attempt: 1, failure: null });
     expect(at("Spc").tally).toMatchObject({ responses: 2, turns: 1, totalTokens: 3000, maxContext: 3000, retries: { errors: [{ message: "529 overloaded" }] } });
     expect(at("Spc").tally?.retries.credentialPins).toHaveLength(2);
+    expect(at("Spc2A")).toMatchObject({ assignee: "spec2", attempt: 1, failure: "判定と無関係な無効" });
+    expect(at("Spc2B")).toMatchObject({ assignee: "spec2", attempt: 2, failure: null });
     expect(at("Ref").tally).toBeNull();
     expect(at("Ref").unavailable).toContain("無い");
+    // Spec 探索の時間は Spec の全担当の全試行（再委譲を含む）の最初の委譲の開始から最後の最終返答の受領まで（担当の時間は足さない）。
+    // 使用量は全試行（無効を含む）を項目ごとに足し、どれかの試行で取得できない項目（cacheWrite）は 0 で補わない
+    const specEnd = [spc, spc2a, spc2b].map((a) => a.receivedAt as string).sort().at(-1) as string;
+    expect(u.report.spec).toEqual({
+      from: spc.startedAt,
+      to: specEnd,
+      seconds: (ms(specEnd) - ms(spc.startedAt)) / 1000,
+      open: false,
+      attempts: ["spec1#1", "spec2#1", "spec2#2"],
+      usage: { input: 111, output: 6, cacheRead: 2901, cacheWrite: null, totalTokens: 3018 },
+    });
+    for (const doc of ["parent/audit.md", "parent/report.md", "parent/usage.md"]) {
+      expect(read(join(W, doc))).toContain(`- Spec 探索: ${((ms(specEnd) - ms(spc.startedAt)) / 60000).toFixed(1)}分`);
+      expect(read(join(W, doc))).toContain("Spec 担当全試行の合計使用量 3018（入力 111・出力 6・キャッシュ読み 2901・キャッシュ書き 取得できず。無効・再委譲の試行を含む）");
+    }
 
     // (2) 保存後の確定値: 報告 Document の保存と照合の完了まで（保存の後の作業ログの応答は入れない）
     expect(u.final).toMatchObject({ from: t0, to: fin.savedAt });
@@ -610,11 +653,22 @@ describe("code-review の区間別の時間と使用量（review.ts usage・fina
     expect(u.comparison.from).toBeNull();
     expect(u.comparison.seconds).toBeNull();
     for (const a of u.report.attempts) expect(a.tally).toBeNull();
+    // 分けない要求の Spec 探索（spec 1体）も同じ定義で時間を出し、担当の記録が無ければ使用量の各項目は取得できず（0 にしない）
+    const spec = (JSON.parse(read(join(p.W, "parent/agents.json"))) as Agent[]).find((a) => a.assignee === "spec") as Agent;
+    expect(u.report.spec).toEqual({
+      from: spec.startedAt,
+      to: spec.receivedAt as string,
+      seconds: (ms(spec.receivedAt as string) - ms(spec.startedAt)) / 1000,
+      open: false,
+      attempts: ["spec#1"],
+      usage: { input: null, output: null, cacheRead: null, cacheWrite: null, totalTokens: null },
+    });
     expect(u.report.sections.map((x) => x.name)).toEqual(["準備", "探索（並列）", "引き渡しの検査", "反証", "反証の検査と仕上げ"]);
     expect(u.report.sections.every((x) => x.seconds >= 0)).toBe(true);
     const report = read(join(p.W, "parent/report.md"));
     expect(report).toContain("## 計測");
     expect(report).toContain("取得できず");
+    expect(report).toContain("Spec 担当全試行の合計使用量 取得できず（入力 取得できず・出力 取得できず・キャッシュ読み 取得できず・キャッシュ書き 取得できず。");
     expect(existsSync(join(p.W, "parent/usage.md"))).toBe(true);
   });
 });
