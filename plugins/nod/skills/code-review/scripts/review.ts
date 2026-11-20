@@ -3909,7 +3909,7 @@ const USAGE_DEFINITIONS = {
   agents:
     "担当の時間と使用量は、委譲の開始（agent --event start）から親が最終返答を受け取った時刻（agent --event received）までで、その後のセッションの片付けを含めない。その外の応答は件数（範囲外の応答）だけ書く。担当の記録は、親の記録と同名のディレクトリの <担当 ID>.jsonl",
   sections:
-    "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は2担当の時間を合算しない）、その前後と間を親の区間とする",
+    "区間は委譲の時刻で分ける。担当の区間は段階（探索・反証）ごとの最初の委譲の開始から最後の最終返答の受領まで（並列の探索は担当の時間を合算しない）、その前後と間を親の区間とする",
   spec:
     "Spec 探索の時間は、Spec 探索の全担当（分けたときは spec1・spec2）の全試行（再委譲を含む）のうち最初の委譲の開始から最後の最終返答の受領まで（担当の時間は足さない。受領の無い試行があれば報告の直前まで）。Spec 担当全試行の合計使用量は、全試行（無効・再委譲を含む）の入力・出力・キャッシュ読み・キャッシュ書き・合計を項目ごとに足したもので、どれかの試行で取得できない項目は取得できず",
   missing: "取得できない値は 0 にせず「取得できず」（JSON では null）と理由を書く",
@@ -4139,7 +4139,7 @@ function usageBody(u: ReportUsage, work: string): string[] {
     `- 定義: ${USAGE_DEFINITIONS.sections}。${USAGE_DEFINITIONS.usage}。${USAGE_DEFINITIONS.maxContext}。${USAGE_DEFINITIONS.turns}。${USAGE_DEFINITIONS.agents}。${USAGE_DEFINITIONS.retries}。${USAGE_DEFINITIONS.spec}。${USAGE_DEFINITIONS.missing}`,
     `- 出典: 親 ${sourceText(u.parent.source)}（場所の決め方: ${u.session.origin}）。段階と委譲の時刻は \`${join(work, "parent/stages.md")}\`・\`${join(work, "parent/agents.md")}\`。担当は下の表`,
     `- 親の使用量（範囲全体）: ${usageText(u.parent)}。omp 内部の retry: ${retryText(u.parent.tally)}`,
-    specUsageLine(u.spec),
+    `${specUsageLine(u.spec)}。記録: \`${join(work, "parent/usage.json")}\` の report.spec`,
     `- 保存までの確定値と MIN-33 の前後比較用の値は、保存の後に作業ログと \`${join(work, "parent/usage.md")}\` に書く（報告と監査には書き戻さない）`,
     "",
     "| 区間 | 担い手 | 開始 | 終了 | 時間 | 担当の使用量（合計） | 親の使用量 |",
