@@ -727,6 +727,14 @@ export interface SpecPlan {
 
 const NO_SPLIT = "要求資料の境目も見出しも無く、2つの空でない範囲に分けられない";
 const HEADING_LINE = /^#{1,6}\s/;
+// CommonMark のフェンス。開きは行頭の空白0〜3個の後に同じ文字（` か ~）が3個以上（バッククォートのフェンスの info 文字列はバッククォートを含まない）。
+// 閉じは開きと同じ文字で開き以上の長さ、後ろは空白だけ
+const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+const closesFence = (line: string, open: string) => {
+  const m = FENCE_CLOSE.exec(line)?.[1];
+  return m !== undefined && m[0] === open[0] && m.length >= open.length;
+};
 
 const rangeText = (segments: SpecSegment[]) => segments.map((s) => `${s.file}:L${s.start}${s.end === s.start ? "" : `-L${s.end}`}`).join("、");
 
@@ -747,10 +755,16 @@ function planSpec(work: string): SpecPlan {
   docs.forEach((d, i) => {
     d.at = total;
     if (i > 0) cuts.add(total);
-    let fence = false;
+    // 開いているフェンスの記号の並び（フェンスの外は null）。フェンスの中では、閉じ以外の行（短いフェンス・info 付きのフェンス・別の文字のフェンス）を見ない
+    let fence: string | null = null;
     d.lines.forEach((line, k) => {
-      if (FENCE.test(line)) fence = !fence;
-      else if (!fence && HEADING_LINE.test(line)) cuts.add(total + k);
+      if (fence !== null) {
+        if (closesFence(line, fence)) fence = null;
+      } else {
+        const open = FENCE_OPEN.exec(line)?.[1];
+        if (open !== undefined) fence = open;
+        else if (HEADING_LINE.test(line)) cuts.add(total + k);
+      }
     });
     total += d.lines.length;
   });

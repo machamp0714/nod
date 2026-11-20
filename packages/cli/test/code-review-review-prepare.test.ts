@@ -592,6 +592,51 @@ describe("code-review の対象の固定と入力の準備（review.ts prepare�
     expect(existsSync(join(one.W, "spec1"))).toBe(false);
   });
 
+  test("要求の範囲: 入れ子のコードフェンス（外側より短いフェンス・別の文字のフェンス）では外側のフェンスが閉じず、その中の # 行を切れ目にしない。外側のフェンスが閉じた後の見出しは切れ目にする", async () => {
+    const s = sandbox();
+    // 1行目だけが見出しで、4連バッククォートのフェンスの中に ```sh・# コメント・``` の入れ子がある全7行の要求は分けず、今の1体のまま
+    const nested = await prepareCaseWork(s, "nested", {
+      "issue.md": "# 課題\n````markdown\n```sh\n# コメント\n```\n````\n本文\n",
+      "workspace-rules.md": "",
+    });
+    const n = JSON.parse(read(join(nested.W, "parent/prepare.json"))) as Prepare;
+    expect(n.spec).toEqual({
+      split: false,
+      reason: "要求資料の境目も見出しも無く、2つの空でない範囲に分けられない",
+      lines: 7,
+      cut: null,
+      assignees: [
+        {
+          id: "spec",
+          dir: join(nested.W, "spec"),
+          prefix: "SPC",
+          files: ["requirements/issue.md", "requirements/workspace-rules.md"],
+          segments: [{ file: "requirements/issue.md", start: 1, end: 7 }],
+          range: null,
+          request: null,
+        },
+      ],
+    });
+    expect(read(join(nested.W, "input/target.md"))).not.toContain("担当範囲");
+    expect(existsSync(join(nested.W, "spec1"))).toBe(false);
+
+    // ~~~ のフェンスの中の ``` は閉じない。切れ目の候補は外側のフェンスが閉じた後の見出し issue.md:L7（位置 6）だけ（中の # コメント の位置 3 は候補にしない）
+    const tilde = await prepareCaseWork(s, "tilde", {
+      "issue.md": "# 課題\n~~~markdown\n```sh\n# コメント\n```\n~~~\n## 節\n本文\n",
+      "workspace-rules.md": "",
+    });
+    const t = (JSON.parse(read(join(tilde.W, "parent/prepare.json"))) as Prepare).spec;
+    expect({ split: t?.split, lines: t?.lines, cut: t?.cut, ranges: t?.assignees.map((a) => [a.id, a.files, a.range]) }).toEqual({
+      split: true,
+      lines: 8,
+      cut: 6,
+      ranges: [
+        ["spec1", ["requirements/issue.md"], "requirements/issue.md:L1-L6"],
+        ["spec2", ["requirements/issue.md", "requirements/workspace-rules.md"], "requirements/issue.md:L7-L8"],
+      ],
+    });
+  });
+
   test("引数の誤りは終了コード 2 で、作業ディレクトリを作らない", async () => {
     const s = sandbox();
     const repo = makeGitRepo(s);
