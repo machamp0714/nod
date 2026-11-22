@@ -31,7 +31,7 @@ pstack のスキルは Cursor の名前で書かれている。OMP では、psta
 | `subagent_type` | `tasks` の項目の `agent`。値は下の行で読み替える。 |
 | `generalPurpose`（`subagent_type: generalPurpose`） | `agent` を省く。既定の `task` エージェントで動く。 |
 | poteto-agent（`subagent_type: "poteto-agent"`） | `agent: "poteto-agent"`。nod の OMP 向けのディレクトリにある定義で、モデルは役割 `task` で決まり、この表を自動で読む。上流の定義の「`~/.cursor/plugins/` を探す」手順は使わない。スキルが「このスキルの絶対パスを渡す」と書くところは、bash で `realpath skill://poteto-mode` が出すパスを渡す。 |
-| comment-sicko（`subagent_type: "comment-sicko"`） | OMP にこの名前の定義は無い。`agent` を省いて起動し、`task` の1行目に、上流の定義ファイルを読んでその本文に従うよう書く。定義ファイルは、`realpath skill://poteto-mode` が出す `<X>/generated/pstack/skills/poteto-mode` の `<X>` を使った `<X>/upstream/pstack/agents/comment-sicko.md` である。定義の規則を brief に書き写さない。 |
+| comment-sicko（`subagent_type: "comment-sicko"`） | OMP にこの名前の定義は無い。`agent` を省いて起動し、`task` の1行目に、上流の定義ファイルを読んでその本文に従うよう書く。定義ファイルは、`realpath skill://poteto-mode` が出す `<X>/generated/pstack/skills/poteto-mode` の `<X>` を使った `<X>/generated/pstack/agents/comment-sicko.md` である。定義の規則を brief に書き写さない。 |
 | `readonly: true`、`readonly: false`、readonly/Ask | OMP の子に readonly の項目は無い。`readonly: true` の子は `agent` を省いて起動し、brief に「ファイルを書き換えない」と書く。子が終わったら `git status` で変更が無いことを確かめる。`readonly: false` は省く。OMP の子は readonly かどうかによらず、親の MCP を使える。 |
 | `run_in_background: true` | 省く。OMP の `task` の子は既定でバックグラウンドのジョブになり、終わると結果が自動で届く。ほかにすることが無く結果を待つときだけ `wait` を使う。 |
 | `resume` | `write` で `agent://<id>` に続きの指示を送る。`<id>` は起動の結果に出る子の名前で、parked の子も起き上がる。 |

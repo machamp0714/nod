@@ -104,6 +104,26 @@ describe("Cursor の名前を使うスキルに案内の1行を入れ、ほか�
     );
   });
 
+  // 案内の1行は H1 の後の最初の空行の後に置き、上流の空行はすべて残す。足す空行は、案内の1行を独立した段落にするのに要る分だけ
+  test.each([
+    { blank: 0, upstream: "# How\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\nSpawn one \`Task\`.\n` },
+    { blank: 1, upstream: "# How\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\nSpawn one \`Task\`.\n` },
+    { blank: 3, upstream: "# How\n\n\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\n\nSpawn one \`Task\`.\n` },
+    { blank: 5, upstream: "# How\n\n\n\n\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\n\n\n\nSpawn one \`Task\`.\n` },
+  ])("H1 の後の空行が $blank 行でも上流の空行を削らない", async ({ upstream, expected }) => {
+    const sb = sandbox();
+    const front = "---\nname: how\n---\n\n";
+    sb.commit("0.15.46", { "pstack/skills/how/SKILL.md": front + upstream });
+    sb.pin();
+    sb.table(table(["`Task`"]));
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/how/SKILL.md")).toBe(front + expected);
+  });
+
   test("用語のないスキルは、付属のファイルの実行属性とリンクも含めて上流と完全に同じになる", async () => {
     const sb = sandbox();
     const files = {
@@ -140,6 +160,8 @@ describe("Cursor の名前を使うスキルに案内の1行を入れ、ほか�
       "pstack/assets/logo.png": "png",
     });
     sb.pin();
+    // リンクの先の定義が用語 poteto-agent を使う
+    sb.table(table(["poteto-agent"]));
 
     const run = await sb.sync();
 
@@ -153,6 +175,37 @@ describe("Cursor の名前を使うスキルに案内の1行を入れ、ほか�
     expect(generated.has("pstack/assets/logo.png")).toBe(false);
     // 上流の定義は、スキルとして読まれる置き場の外にある
     expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-help", "poteto-mode"]);
+  });
+
+  test("スキルの外のリンク先（リンク先を経た先も）だけに用語があっても検出し、対応行が無ければ失敗し、あればそのスキルに案内の1行を入れる", async () => {
+    const sb = sandbox();
+    const caller = skillMd("caller", "Then follow [help](../help/SKILL.md).");
+    sb.commit("0.15.46", {
+      "pstack/skills/help/SKILL.md": skillMd("help", "Read [the README](../../README.md)."),
+      "pstack/README.md": "# pstack\n\nSee [the guide](./docs/guide/05-build.md).\n",
+      "pstack/docs/guide/05-build.md": "# Build\n\nSpawn one `Task` per worker.\n",
+      // 別の生成するスキルへのリンクは辿らない（そのスキルは自分の案内の1行を持つ）
+      "pstack/skills/caller/SKILL.md": caller,
+    });
+    sb.pin();
+
+    const failed = await sb.sync();
+    expect(failed.exitCode).toBe(1);
+    expect(missingRows(failed)).toEqual(new Map([["`Task`", ["pstack/help"]]]));
+    expect(existsSync(sb.generated)).toBe(false);
+
+    sb.table(table(["`Task`"]));
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("  `Task`（使うスキル: pstack/help）\n");
+    expect(readGenerated(sb, "pstack/skills/help/SKILL.md")).toBe(
+      `---\nname: help\ndescription: test\n---\n\n# help\n\n${GUIDE_LINE}\n\nRead [the README](../../README.md).\n`,
+    );
+    expect(readGenerated(sb, "pstack/skills/caller/SKILL.md")).toBe(caller);
+    expect(readGenerated(sb, "pstack/docs/guide/05-build.md")).toBe("# Build\n\nSpawn one `Task` per worker.\n");
+    expect(JSON.parse(readGenerated(sb, "manifest.json")).guided).toEqual({ pstack: ["help"], "cursor-team-kit": [] });
   });
 
   test("生成物の中で解決できない相対リンクがあると、どのファイルのどのリンクかを報告して失敗する", async () => {
@@ -307,6 +360,34 @@ describe("読み替え表の対応行", () => {
     expect(missingRows(run)).toEqual(new Map([["`Task`", ["pstack/user"]]]));
     expect(snapshot(sb.generated)).toEqual(before);
     expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
+  });
+
+  test("表が示す写しの中のパス（<X>/generated/...）が生成物に無い、または生成物の外を指すと、そのパスを報告して失敗する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn the reviewer.") });
+    sb.pin();
+    const paths =
+      "\n定義は `<X>/generated/pstack/agents/comment-sicko.md`、版は `<X>/generated/manifest.json`、" +
+      "スキルは `<X>/generated/pstack/skills/poteto-mode` にある（`<X>` は写しの根）。\n";
+    sb.table(table(["comment-sicko"]) + paths + "古い定義は `<X>/upstream/pstack/agents/comment-sicko.md` にある。\n");
+
+    const failed = await sb.sync();
+    expect(failed.exitCode).toBe(1);
+    const reported = failed.stderr.split("\n").filter((line) => line.startsWith("  "));
+    expect(reported).toEqual(["  <X>/generated/pstack/agents/comment-sicko.md", "  <X>/upstream/pstack/agents/comment-sicko.md"]);
+    expect(existsSync(sb.generated)).toBe(false);
+
+    sb.commit("0.15.47", {
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn [the reviewer](../../agents/comment-sicko.md)."),
+      "pstack/agents/comment-sicko.md": "---\nname: comment-sicko\n---\n\nReview comments.\n",
+    });
+    sb.pin();
+    sb.table(table(["comment-sicko"]) + paths);
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(existsSync(join(sb.generated, "pstack/agents/comment-sicko.md"))).toBe(true);
   });
 });
 

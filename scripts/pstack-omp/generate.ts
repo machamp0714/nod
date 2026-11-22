@@ -3,8 +3,11 @@
 // OMP の skills.customDirectories に generated/pstack/skills と generated/cursor-team-kit/skills を登録すれば、それぞれの */SKILL.md が読まれる。
 // スキルの .md の相対リンクの先（スキルの外の文書や画像）も、上流と同じ相対位置に入れ、その先の .md のリンクも同じく辿る。
 // 読み込まない cursor-team-kit のスキルはリンクの先でも入れない（スキルとして読まれてしまうため）。
-// 本文は書き換えない。Cursor の用語（terms.ts）を使うスキルの SKILL.md だけ、最初の H1 の直後に案内の1行を入れる。リンクも書き換えない。
-// 次のどれかがあれば、何も書かずに止める: 読み替え表に対応行のない用語、用語を使うのに H1 の無い SKILL.md、生成物の中で解決できない相対リンク。
+// 本文は書き換えない。Cursor の用語（terms.ts）を使うスキルの SKILL.md だけ、最初の H1 の後に案内の1行を入れる。リンクも書き換えない。
+// スキルが用語を使うかは、スキルのディレクトリの中の .md と、そこから相対リンクで（リンク先の .md を経ても）辿れるスキルの外の .md で決める。
+// 別の生成するスキルの中へは辿らない（そのスキルは自分の範囲で決まり、自分の案内の1行を持つ）。
+// 次のどれかがあれば、何も書かずに止める: 読み替え表に対応行のない用語、用語を使うのに H1 の無い SKILL.md、生成物の中で解決できない相対リンク、
+// 読み替え表が示す写しの中のパス（`<X>/generated/...`）が生成物に無いこと。
 // 書くときは同じ階層の一時ディレクトリに作り終えてから置き換える。失敗したら前回の生成物はそのまま残す
 // （適用した OMP の設定が指している置き場なので、失敗で消すと、使えていたスキルが次のセッションから読まれなくなる）。
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -21,6 +24,8 @@ const GUIDE_LINE =
   "In OMP, read the `pstack-omp` skill (`skill://pstack-omp`) once per session before you follow this skill. It maps the Cursor names in pstack skills to OMP.";
 // Markdown の相対リンクとして扱う形（上流の道具と同じ）
 const LINK = /\]\(([^)\s]+)\)/g;
+// 読み替え表が示す写しの中のパス（`<X>/<相対パス>`。<X> は写しの根で、写しの generated/ は生成物を丸ごと写したもの）
+const COPY_PATH = /<X>\/([^`\s）)、。]+)/g;
 
 interface Source {
   bytes: Buffer;
@@ -46,19 +51,31 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   }
   const skills = findSkills(upstreamDir);
 
+  // 生成するスキルのディレクトリ（root/skills/名前）と、その中のファイル。リンクの先が生成物に在るかを決めるため、先に全スキルを入れる
   const files = new Map<string, Source>();
-  const terms = new Map<string, string[]>();
-  const guided: Record<Root, string[]> = { pstack: [], "cursor-team-kit": [] };
-  const noH1: string[] = [];
+  const skillDirs = new Map<string, string[]>();
   for (const root of ROOTS) {
     for (const skill of skills[root]) {
       const dir = `${root}/skills/${skill}`;
+      const own = walk(upstreamDir, dir);
+      for (const path of own) files.set(path, read(upstreamDir, path));
+      skillDirs.set(dir, own);
+    }
+  }
+
+  const terms = new Map<string, string[]>();
+  const guided: Record<Root, string[]> = { pstack: [], "cursor-team-kit": [] };
+  const noH1: string[] = [];
+  const dangling = new Set<string>();
+  for (const root of ROOTS) {
+    for (const skill of skills[root]) {
+      const dir = `${root}/skills/${skill}`;
+      const own = skillDirs.get(dir)!;
+      const linked = addLinkedFiles(upstreamDir, files, [...skillDirs.keys()], own, dangling);
       const used = new Set<string>();
-      for (const path of walk(upstreamDir, dir)) {
-        const source = read(upstreamDir, path);
-        files.set(path, source);
+      for (const path of [...own, ...linked]) {
         if (!path.endsWith(".md")) continue;
-        const text = source.bytes.toString("utf8");
+        const text = files.get(path)!.bytes.toString("utf8");
         for (const term of TERMS) if (term.re.test(text)) used.add(term.key);
       }
       if (used.size === 0) continue;
@@ -70,7 +87,10 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
       guided[root].push(skill);
     }
   }
-  const dangling = addLinkedFiles(upstreamDir, files);
+
+  // skills と guided のキーは ROOTS の順に作ってあるので、manifest の順序は入力によらず同じ
+  const manifest = { pin: ctx.pin, skills, guided };
+  files.set("manifest.json", { bytes: Buffer.from(JSON.stringify(manifest, null, 2) + "\n"), executable: false });
 
   const rows = firstCells(table);
   const missing = TERMS.filter(({ key }) => terms.has(key) && !rows.some((cell) => cell.includes(key))).map(
@@ -79,16 +99,17 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   const problems = [
     [`読み替え表 ${tablePath} に対応行のない用語があります（表の行の最初のセルに用語をそのまま書いてください）`, missing],
     ["用語を使うのに SKILL.md に H1 が無く、案内の1行を入れられないスキルがあります", noH1],
-    ["生成物の中で解決できない相対リンクがあります", dangling],
+    ["生成物の中で解決できない相対リンクがあります", [...dangling]],
+    [
+      `読み替え表 ${tablePath} が示す写しの中のパスが生成物にありません（写しの根 <X> の generated/ の下の、生成物に在るパスを書いてください）`,
+      missingCopyPaths(table, files),
+    ],
   ] as const;
   if (problems.some(([, list]) => list.length > 0)) {
     const report = problems.filter(([, list]) => list.length > 0).flatMap(([title, list]) => [`${title}:`, ...list.map((item) => `  ${item}`)]);
     throw new PstackOmpError(["OMP 向けのコピーを生成できません。", ...report].join("\n"));
   }
 
-  // skills と guided のキーは ROOTS の順に作ってあるので、manifest の順序は入力によらず同じ
-  const manifest = { pin: ctx.pin, skills, guided };
-  files.set("manifest.json", { bytes: Buffer.from(JSON.stringify(manifest, null, 2) + "\n"), executable: false });
   const dir = join(ctx.workDir, "generated");
   replaceDir(ctx.workDir, dir, files);
   return { dir, skills, guided, terms: new Map(TERMS.filter(({ key }) => terms.has(key)).map(({ key }) => [key, terms.get(key)!])) };
@@ -124,17 +145,23 @@ function read(upstreamDir: string, rel: string): Source {
   return { bytes: readFileSync(path), executable: (lstatSync(path).mode & 0o111) !== 0 };
 }
 
-// 最初の H1（フロントマターとコードブロックの中を除く）の直後に案内の1行を入れる。H1 の後の空行は1つにまとめる（上流の道具と同じ）。
-// H1 が無ければ undefined
+// 最初の H1（フロントマターとコードブロックの中を除く）の後に、案内の1行を独立した段落として入れる。上流のバイトは削らない。
+// H1 の後の空行が2行以上なら、1行目と2行目の空行の間に案内の1行だけを入れる。1行なら、その空行の後に案内の1行と空行を入れる。
+// 0行なら、H1 の直後に空行・案内の1行・空行を入れる。案内の後の空行は、後に本文が続くときだけ足す。H1 が無ければ undefined
 function insertGuide(text: string): string | undefined {
   const lines = text.split("\n");
+  // 末尾の改行の後の空の要素は行に数えない
+  const end = text.endsWith("\n") ? lines.length - 1 : lines.length;
   const frontmatterEnd = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
   const code = codeLines(lines);
   const h1 = lines.findIndex((line, i) => i > frontmatterEnd && !code[i] && line.startsWith("# "));
   if (h1 < 0) return undefined;
-  let rest = h1 + 1;
-  while (lines[rest] === "") rest++;
-  return `${lines.slice(0, h1 + 1).join("\n")}\n\n${GUIDE_LINE}\n\n${lines.slice(rest).join("\n")}`;
+  let blank = 0;
+  while (h1 + 1 + blank < end && lines[h1 + 1 + blank] === "") blank++;
+  const insert = blank === 0 ? ["", GUIDE_LINE] : [GUIDE_LINE];
+  if (blank < 2 && h1 + 1 + blank < end) insert.push("");
+  lines.splice(h1 + 1 + Math.min(blank, 1), 0, ...insert);
+  return lines.join("\n");
 }
 
 // 各行がコードブロック（開きと閉じの行を含む）の中かどうか
@@ -163,11 +190,12 @@ function firstCells(table: string): string[] {
   });
 }
 
-// files の .md の相対リンクの先を、上流と同じ相対位置に足す（足した .md のリンクも辿る）。
-// 生成物の中で解決できないリンク（上流には先があるのに入れられない、上流のルートの外を指す）を返す
-function addLinkedFiles(upstreamDir: string, files: Map<string, Source>): string[] {
-  const dangling: string[] = [];
-  const queue = [...files.keys()];
+// start（あるスキルのディレクトリの中のファイル）の .md の相対リンクの先のうち、生成するスキルのディレクトリ（skillDirs）の外のファイルを、
+// 上流と同じ相対位置で files に足し、辿った先のファイルを返す。辿った先の .md のリンクも辿る。別の生成するスキルの中へは辿らない。
+// 生成物の中で解決できないリンク（上流には先があるのに入れられない、上流のルートの外を指す）は dangling に足す
+function addLinkedFiles(upstreamDir: string, files: Map<string, Source>, skillDirs: string[], start: string[], dangling: Set<string>): string[] {
+  const linked = new Set<string>();
+  const queue = [...start];
   for (let path = queue.shift(); path !== undefined; path = queue.shift()) {
     if (!path.endsWith(".md")) continue;
     for (const [, href] of files.get(path)!.bytes.toString("utf8").matchAll(LINK)) {
@@ -175,21 +203,33 @@ function addLinkedFiles(upstreamDir: string, files: Map<string, Source>): string
       if (target === "" || target.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
       const resolved = posix.normalize(posix.join(posix.dirname(path), target)).replace(/\/$/, "");
       if (resolved === "." || resolved === ".." || resolved.startsWith("../")) {
-        dangling.push(`${path} → ${href}（上流のルートの外を指す）`);
+        dangling.add(`${path} → ${href}（上流のルートの外を指す）`);
         continue;
       }
       if (!existsSync(join(upstreamDir, resolved))) continue;
       for (const file of walk(upstreamDir, resolved)) {
-        if (files.has(file) || isOtherTeamKitSkill(file)) continue;
-        files.set(file, read(upstreamDir, file));
+        if (linked.has(file) || isOtherTeamKitSkill(file) || skillDirs.some((dir) => file.startsWith(`${dir}/`))) continue;
+        if (!files.has(file)) files.set(file, read(upstreamDir, file));
+        linked.add(file);
         queue.push(file);
       }
-      if (!files.has(resolved) && ![...files.keys()].some((file) => file.startsWith(`${resolved}/`))) {
-        dangling.push(`${path} → ${href}（読み込まない cursor-team-kit のスキルを指す）`);
-      }
+      if (!inFiles(files, resolved)) dangling.add(`${path} → ${href}（読み込まない cursor-team-kit のスキルを指す）`);
     }
   }
-  return dangling;
+  return [...linked];
+}
+
+// path が files のファイルか、files のファイルを含むディレクトリか
+function inFiles(files: Map<string, Source>, path: string): boolean {
+  return files.has(path) || [...files.keys()].some((file) => file.startsWith(`${path}/`));
+}
+
+// 読み替え表が示す写しの中のパスのうち、生成物に無いもの（generated/ の外を指すものを含む）。表に出てくる順
+function missingCopyPaths(table: string, files: Map<string, Source>): string[] {
+  const paths = new Set([...table.matchAll(COPY_PATH)].map(([, rel]) => rel!.replace(/\/$/, "")));
+  return [...paths]
+    .filter((rel) => !rel.startsWith("generated/") || !inFiles(files, rel.slice("generated/".length)))
+    .map((rel) => `<X>/${rel}`);
 }
 
 function isOtherTeamKitSkill(path: string): boolean {

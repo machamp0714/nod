@@ -1,4 +1,5 @@
-// 生成の対象のスキルから検出する Cursor の用語の一覧。スキルのディレクトリ以下のどの .md にでも当たれば、そのスキルは用語を使う。
+// 生成の対象のスキルから検出する Cursor の用語の一覧。スキルのディレクトリ以下の .md と、そこから相対リンクで辿れるスキルの外の .md の
+// どれかに当たれば、そのスキルは用語を使う（generate.ts）。
 // key は読み替え表（OMP 向けのディレクトリの skills/pstack-omp/SKILL.md）の対応行の最初のセルに、そのまま入っていなければならない文字列。
 // 先頭の22種類は上流の道具（cursor/plugins の scripts/generate-pstack-harness-trees.mjs の TERMS）の key と正規表現をそのまま写したもの。
 // 上流の ROUTE_KEY（Run another pstack skill）は入れない。
