@@ -6,9 +6,9 @@
 // サンドボックスの信頼境界は、写しの起動の入口（bin/omp）を実際に実行し、その中からの書き込みが拒否されることで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, SUB, synced } from "./helpers";
+import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -388,6 +388,82 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(join(sb.home, ".omp")).sort()).toEqual(ompDir);
   });
 
+  test("同じ利用者が書き込みの権限を外した親（OMP の設定の置き場）の下のまだ無い守る置き場（hooks）を拒否しない弱いプロファイルでは、作成の EACCES を閉じ込めとみなさず遮断する", async () => {
+    const sb = await applied();
+    const hooks = join(realpathSync(sb.agentDir), "hooks");
+    const weak = join(sb.root, "weak.sb");
+    const lines = readFileSync(profile(sb), "utf8").split("\n");
+    expect(lines.some((line) => line.includes(`"${hooks}"`))).toBe(true);
+    writeFileSync(weak, lines.filter((line) => !line.includes(`"${hooks}"`)).join("\n"));
+    const mode = statSync(sb.agentDir).mode & 0o7777;
+    chmodSync(sb.agentDir, 0o555);
+    let result: ExtensionResult;
+    try {
+      result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }] }, { profile: weak });
+    } finally {
+      chmodSync(sb.agentDir, mode);
+    }
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain(hooks);
+    expect(existsSync(hooks)).toBe(false);
+  });
+
+  test("在るプロジェクトの .omp の中に書ける弱いプロファイル（.omp そのものだけを拒否する）では遮断し、試しで作ったものを残さない", async () => {
+    const sb = await applied();
+    const omp = join(realpathSync(sb.project), ".omp");
+    mkdirSync(omp);
+    const tmp = join(sb.root, "tmp");
+    mkdirSync(tmp);
+    const whole = String.raw`(regex #"/\.omp(/|$)")`;
+    const weak = join(sb.root, "weak.sb");
+    const lines = readFileSync(profile(sb), "utf8").split("\n");
+    expect(lines.some((line) => line.includes(whole))).toBe(true);
+    writeFileSync(weak, lines.map((line) => line.replace(whole, String.raw`(regex #"/\.omp$")`)).join("\n"));
+
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }], env: { TMPDIR: tmp } }, { profile: weak });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain(omp);
+    expect(readdirSync(omp)).toEqual([]);
+    expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  test(".claude が無いプロジェクトでも、.claude の設定とコードの置き場を拒否しない弱いプロファイルでは遮断し、正しいプロファイルでは通す。どちらもプロジェクトと一時ディレクトリに試しのものを残さない", async () => {
+    const sb = await applied();
+    const tmp = join(sb.root, "tmp");
+    mkdirSync(tmp);
+    const claude = (line: string) => line.includes(String.raw`/\.claude/`);
+    const weak = join(sb.root, "weak.sb");
+    const lines = readFileSync(profile(sb), "utf8").split("\n");
+    expect(lines.some(claude)).toBe(true);
+    writeFileSync(weak, lines.filter((line) => !claude(line)).join("\n"));
+    const scenario = { sessions: [{ agent: MAIN, toolCalls: 1 }], env: { TMPDIR: tmp } };
+
+    const loose = await run(sb, scenario, { profile: weak });
+    const strict = await run(sb, scenario);
+
+    expect(loose.overrides).toEqual([]);
+    expect(loose.toolCalls[0]![0]?.block).toBe(true);
+    expect(loose.toolCalls[0]![0]?.reason).toContain(join(realpathSync(sb.project), ".claude", "settings.json"));
+    expect(strict.toolCalls[0]![0]).toBeNull();
+    expect(readdirSync(sb.project)).toEqual([]);
+    expect(readdirSync(tmp)).toEqual([]);
+  });
+
+  test("試しの作業用ディレクトリを一時ディレクトリに作れない（一時ディレクトリが守る集合の中にある）なら、正しいプロファイルでも遮断する", async () => {
+    const sb = await applied();
+
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }], env: { TMPDIR: work(sb) } });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain("試しの作業用ディレクトリを作れません");
+    expect(readdirSync(work(sb)).sort()).toEqual(["generated", "omp", "upstream"]);
+  });
+
   test("起動の入口の中からは、OMP の設定・写し・OMP の設定の置き場・omp の実行ファイルを書き換えられず、解除もできない。守る集合の外には書ける", async () => {
     const sb = await applied();
     const config = readFileSync(sb.configPath);
@@ -458,6 +534,37 @@ describe("サンドボックスの信頼境界", () => {
     expect(readFileSync(join(sb.agentDir, "sessions", "p", "s.jsonl"), "utf8")).toBe("x");
     expect(readdirSync(project).sort()).toEqual([".claude", ".omplike", "README.md"]);
     expect(readdirSync(join(project, ".claude"))).toEqual(["CLAUDE.md"]);
+  });
+
+  test("起動の入口の中からは、プロジェクトの .omp を、別名で作ってからの rename、書ける置き場へのリンク、.omp を含むブランチの git checkout でも作れない", async () => {
+    const sb = await applied();
+    const project = join(sb.root, "repo");
+    const outside = join(sb.root, "outside");
+    mkdirSync(project);
+    mkdirSync(outside);
+    git(sb.root, project, "init", "-q", "-b", "main");
+    put(join(project, "README.md"), "x");
+    git(sb.root, project, "add", "-A");
+    git(sb.root, project, "commit", "-q", "-m", "main");
+    git(sb.root, project, "checkout", "-q", "-b", "other");
+    put(join(project, ".omp", "config.yml"), "disabledExtensions:\n  - extension-module:control\n");
+    git(sb.root, project, "add", "-A");
+    git(sb.root, project, "commit", "-q", "-m", "other");
+    git(sb.root, project, "checkout", "-q", "main");
+    expect(existsSync(join(project, ".omp"))).toBe(false);
+
+    const attempts = [
+      await sb.launch("cd \"$1\" && mkdir x && printf 'disabledExtensions:\\n  - extension-module:control\\n' > x/config.yml && mv x .omp", project),
+      await sb.launch('cd "$1" && ln -s "$2" .omp', project, outside),
+      await sb.launch('cd "$1" && git checkout -q other', project),
+    ];
+
+    for (const attempt of attempts) {
+      expect(attempt.exitCode).not.toBe(0);
+      expect(attempt.stderr).toContain("Operation not permitted");
+    }
+    expect(readdirSync(project)).not.toContain(".omp");
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   test("起動の入口の中で読み込むと、規則の上書きが入り、メインでも子でも規則どおりに検査する", async () => {

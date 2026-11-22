@@ -12,9 +12,9 @@
 // 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。
 //
 // - 組の記録と規則を検証する（読める、形が正しい、指すディレクトリが写しの中にある、組の各ファイルの sha256 が記録と同じ、files に規則が
-//   入っている、規則の形が正しい）。続けて、このプロセスが守る集合と作業ディレクトリの下の projectPaths に書けないこと（サンドボックスに
-//   閉じ込められていること）を試して確かめる（writable）。最後に OMP の設定のモジュールを読む。どれかが通らなければ、メインでも子でも
-//   全ツールと子の起動を遮断し、理由を返す。
+//   入っている、規則の形が正しい）。続けて、このプロセスが守る集合と projectPaths（作業ディレクトリの下と、一時ディレクトリの下の作業用
+//   ディレクトリで試す）に書けないこと（サンドボックスに閉じ込められていること）を試して確かめる（writable）。最後に OMP の設定のモジュールを
+//   読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。
 //   読み込みの設定も規則も入れない（新しい構成のまま、読み込み先や規則が壊れた・書き換えられる状態でツールを使わせない）。
 // - 正しければ、拡張の読み込み（factory）で、config.yml と同じ読み込みの設定と規則の上書きを同じ処理で実行時の層（永続しない。global・
 //   project・--config より強く、OMP の運用者の層にも入るのでプロジェクトの設定では緩められない）にも書く。固定するキーは extensions・
@@ -37,8 +37,8 @@
 //   たまたま読んでも、利用者や親のセッションのツールを止めない。適用の時刻は、組が壊れていても決められる方法で求める（applyTime）。
 // 検証はプロセス（worker thread ではスレッド）で1度だけ行い、同じプロセスの全セッション（メイン・子・孫）で同じ結果を使う。
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, type Stats, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Settings, ToolCallEvent, ToolCallEventResult } from "@oh-my-pi/pi-coding-agent";
 import type { Setting } from "@oh-my-pi/pi-coding-agent/config/registry";
@@ -215,17 +215,24 @@ async function judge(mirror: boolean): Promise<Verdict> {
   };
 }
 
-// 守る集合と、作業ディレクトリ（cwd、実パス）の下のどのプロジェクトでも書かせないパスのうち、このプロセスが書けてしまう置き場
-// （閉じ込められていれば空）。FFI は使わず、拒否されるかを試す。
+// 守る集合と、どのプロジェクトでも書かせないパスのうち、このプロセスが書けてしまう置き場（閉じ込められていれば空）。
+// FFI は使わず、拒否されるかを試す。
 // - 在るファイルは、書き込みで開くこと（開けたら書かずに閉じる）と同じ mode への chmod。在るディレクトリは、同じ mode への chmod と、
-//   守る集合ならその中への mkdir（作れたら消す）。祖先は、同じ mode への chmod。どれも EPERM（サンドボックスの拒否）で失敗しなければ
-//   書けるとみなす。EACCES などの mode の拒否は、同じ利用者の chmod で戻せるので閉じ込めとみなさない。
-// - 無いパス（祖先を除く）は、親が在れば作ってみる（ディレクトリは mkdir、ファイルは O_CREAT|O_EXCL で開く）。EPERM か EACCES で失敗し、
-//   無いままなら書けない。作れてしまったら消して書けるとみなす。ほかの失敗も書けるとみなす。親が無ければ試さない。
+//   その中への mkdir（作れたら消す）。祖先は、同じ mode への chmod。chmod と書き込みで開くことは EPERM（サンドボックスの拒否）で
+//   失敗しなければ書けるとみなす。
+// - 無いパス（祖先を除く）は、親が在れば作ってみる（ディレクトリは mkdir、ファイルは O_CREAT|O_EXCL で開く）。親が無ければ試さない。
+// - 作成（無いパスと在るディレクトリの中の mkdir）は、拒否され、無いままなら書けない。作れてしまったら消して書けるとみなす。
+//   拒否は EPERM か、親が自分の持ち物で所有者の書き込みビットが立つときの EACCES（mode は許すので、拒否はサンドボックスによる）だけ。
+//   ほかの失敗（同じ利用者が書き込みの権限を外した親の EACCES は、同じ利用者の chmod で戻せる）は書けるとみなす。
+// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwd、実パス）の下で試し、さらに親の無いパス（.claude の無いリポジトリの
+//   .claude/settings.json など）も試すため、一時ディレクトリの下の作業用ディレクトリで、守られていない親を作ってから作成を試す
+//   （利用者のリポジトリには作らない）。作業用ディレクトリは終わったら中身ごと消す。作れない・消せないときは確かめられないので書けるとみなす。
+//   作業用ディレクトリで書けたら、作業ディレクトリの下の同じ相対パスを書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
 // 試しで作るものは、この拡張のディレクトリの中には作らない（適用の時刻 applyTime を変えないため）
 function writable({ paths, ancestors, projects }: Guarded, cwd: string): string[] {
   const here = real(HERE);
   const inHere = (path: string) => path === here || path.startsWith(`${here}/`);
+  const uid = process.getuid?.();
   const denied = (attempt: () => void): boolean => {
     try {
       attempt();
@@ -234,44 +241,82 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string): string[
       return (e as NodeJS.ErrnoException).code === "EPERM";
     }
   };
+  // 親 parent の下への作成の失敗 e が、サンドボックスの拒否か
+  const refused = (e: unknown, parent: string): boolean => {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EPERM") return true;
+    if (code !== "EACCES") return false;
+    try {
+      const stat = statSync(parent);
+      return stat.uid === uid && (stat.mode & 0o200) !== 0;
+    } catch {
+      return false;
+    }
+  };
   const create = (path: string, directory: boolean): boolean => {
-    if (!existsSync(dirname(path)) || inHere(dirname(path))) return false;
+    const parent = dirname(path);
+    if (!existsSync(parent) || inHere(parent)) return false;
     try {
       if (directory) mkdirSync(path);
       else closeSync(openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600));
     } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      return !((code === "EPERM" || code === "EACCES") && !existsSync(path));
+      return !(refused(e, parent) && !existsSync(path));
     }
-    rmSync(path, { recursive: true, force: true });
+    try {
+      rmSync(path, { recursive: true, force: true });
+    } catch {
+      // 消せなくても、書けたことに変わりはない
+    }
     return true;
   };
-  const probe = (path: string, directory: boolean, kind: "guard" | "project" | "ancestor"): boolean => {
-    let mode: number;
-    let isDirectory: boolean;
+  const probe = (path: string, directory: boolean, ancestor = false): boolean => {
+    let stat: Stats;
     try {
-      const stat = statSync(path);
-      mode = stat.mode & 0o7777;
-      isDirectory = stat.isDirectory();
+      stat = statSync(path);
     } catch (e) {
-      return kind !== "ancestor" && (e as NodeJS.ErrnoException).code === "ENOENT" && create(path, directory);
+      return !ancestor && (e as NodeJS.ErrnoException).code === "ENOENT" && create(path, directory);
     }
-    const chmod = () => chmodSync(path, mode);
-    if (kind === "ancestor") return !denied(chmod);
-    if (!isDirectory) return !denied(() => closeSync(openSync(path, constants.O_WRONLY | constants.O_APPEND))) || !denied(chmod);
-    if (!denied(chmod)) return true;
-    if (kind === "project" || inHere(path)) return false;
-    return !denied(() => {
-      const dir = join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`);
-      mkdirSync(dir);
-      rmSync(dir, { recursive: true, force: true });
-    });
+    const chmod = () => chmodSync(path, stat.mode & 0o7777);
+    if (ancestor) return !denied(chmod);
+    if (!stat.isDirectory()) return !denied(() => closeSync(openSync(path, constants.O_WRONLY | constants.O_APPEND))) || !denied(chmod);
+    return !denied(chmod) || create(join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`), true);
   };
-  return [
-    ...paths.filter(({ path, directory }) => probe(path, directory, "guard")).map(({ path }) => path),
-    ...ancestors.filter((path) => probe(path, true, "ancestor")),
-    ...projects.map(({ path, directory }) => ({ path: join(cwd, path), directory })).filter(({ path, directory }) => probe(path, directory, "project")).map(({ path }) => path),
+  const scratch = (): string[] => {
+    let work: string;
+    try {
+      work = mkdtempSync(join(tmpdir(), "pstack-omp-probe-"));
+    } catch (e) {
+      return [`${tmpdir()}（試しの作業用ディレクトリを作れません: ${(e as Error).message}）`];
+    }
+    const open: string[] = [];
+    try {
+      for (const { path, directory } of projects) {
+        const target = join(work, path);
+        try {
+          mkdirSync(dirname(target), { recursive: true });
+        } catch (e) {
+          // 親も拒否されるなら、その下は作れない
+          if ((e as NodeJS.ErrnoException).code !== "EPERM") open.push(join(cwd, path));
+          continue;
+        }
+        if (create(target, directory)) open.push(join(cwd, path));
+      }
+    } finally {
+      try {
+        rmSync(work, { recursive: true, force: true });
+      } catch (e) {
+        open.push(`${work}（試しの作業用ディレクトリを消せません: ${(e as Error).message}）`);
+      }
+    }
+    return open;
+  };
+  const open = [
+    ...paths.filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
+    ...ancestors.filter((path) => probe(path, true, true)),
+    ...projects.map(({ path, directory }) => ({ path: join(cwd, path), directory })).filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
+    ...scratch(),
   ];
+  return [...new Set(open)];
 }
 
 // 適用の時刻（ミリ秒）。組の検証より前に、組が壊れていても決められる方法で求める。組の記録の appliedAt が時刻として読めればそれ。

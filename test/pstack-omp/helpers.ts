@@ -45,7 +45,7 @@ function gitEnv(root: string): Record<string, string> {
   };
 }
 
-function git(root: string, cwd: string, ...args: string[]): string {
+export function git(root: string, cwd: string, ...args: string[]): string {
   const proc = Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env, ...gitEnv(root) }, stdout: "pipe", stderr: "pipe" });
   if (proc.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${proc.stderr.toString()}`);
   return proc.stdout.toString().trim();
