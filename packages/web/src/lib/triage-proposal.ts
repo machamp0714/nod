@@ -7,7 +7,6 @@ export interface AcceptForm {
   projectRef: string;
   priority: number;
   labels: string[];
-  assignee: string;
 }
 
 export function proposalBadge(p: TriageProposal): { icon: IconName; text: string; tone: "ready" | "gate" | "fail" } {
@@ -32,16 +31,14 @@ export function applyAcceptProposal(form: AcceptForm, p: TriageProposal): Accept
     projectRef: p.project ? String(p.project.id) : form.projectRef,
     priority: p.priority ?? form.priority,
     labels: [...form.labels, ...p.labels.filter((l) => !form.labels.includes(l))],
-    assignee: p.assignee ?? form.assignee,
   };
 }
 
-// 提案に指定のある受け入れ時の属性だけを、受け入れ設定と同じ順（Project・Priority・Labels・Assignee）で返す
+// 提案に指定のある受け入れ時の属性だけを、受け入れ設定と同じ順（Project・Priority・Labels）で返す
 export function proposalAttributes(p: TriageProposal): { key: string; icon: IconName; label: string; value: string }[] {
   const out: { key: string; icon: IconName; label: string; value: string }[] = [];
   if (p.project) out.push({ key: "project", icon: "box", label: "Project", value: p.project.name });
   if (p.priority !== null) out.push({ key: "priority", icon: priorityMeta(p.priority).icon, label: "Priority", value: priorityMeta(p.priority).label });
   if (p.labels.length > 0) out.push({ key: "labels", icon: "tag", label: "Labels", value: p.labels.join(", ") });
-  if (p.assignee) out.push({ key: "assignee", icon: "circle-user", label: "Assignee", value: p.assignee });
   return out;
 }

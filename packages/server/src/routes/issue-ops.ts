@@ -107,11 +107,10 @@ const OPS: Record<string, Op> = {
     run: (me, ref, b) => answerQuestion(me, ref, reqString(b, "answer"), { questionId: optInt(b, "questionId") }),
   },
   accept: {
-    keys: ["projectRef", "priority", "cycleRef", "addLabels", "removeLabels", "assignee"],
+    keys: ["projectRef", "priority", "cycleRef", "addLabels", "removeLabels"],
     run: (me, ref, b) => acceptTriage(me, ref, {
       projectRef: optNullableString(b, "projectRef"), priority: optInt(b, "priority"), cycleRef: optNullableString(b, "cycleRef"),
       addLabels: optStringArray(b, "addLabels"), removeLabels: optStringArray(b, "removeLabels"),
-      assignee: optNullableString(b, "assignee"),
     }),
   },
   "doc-add": {
@@ -168,6 +167,14 @@ const BULK_UPDATE_KEYS = ["ids", "status", "priority", "projectRef", "milestoneR
 
 // web からの Issue の操作。書き手は me
 export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void {
+  // 提案への書き込みは CLI 専用。旧入力には担当の廃止を知らせる。
+  app.post("/api/triage/:id/proposals", async (c, next) => {
+    const body: unknown = await c.req.json().catch(() => undefined);
+    if (body && typeof body === "object" && Object.hasOwn(body, "assignee")) {
+      throw invalid("担当は廃止されました。assignee は使えません");
+    }
+    await next();
+  });
   // 一覧で選んだ複数 Issue の一括編集。/api/issues/:id/:op とは段数が違うので衝突しない
   app.post("/api/issues/bulk-update", async (c) => {
     const body = await readBody(c, BULK_UPDATE_KEYS, { rejectAssignee: true });

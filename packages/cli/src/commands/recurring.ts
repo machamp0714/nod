@@ -12,7 +12,7 @@ import {
   runRecurringIssuesWithAssessment,
   updateRecurringIssue,
 } from "@nod/core";
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 import { collect, orNull, parsePositiveInt, parsePriority, PRIORITY_HELP } from "../args";
 import { act, actAsync, currentWorkspace } from "../context";
 import { print } from "../output";
@@ -65,7 +65,6 @@ function describeDetail(r: RecurringIssue): string {
   if (r.project) lines.push(`  Project: ${r.project}`);
   if (r.labels.length) lines.push(`  ラベル: ${r.labels.join(", ")}`);
   if (r.priority) lines.push(`  優先度: ${r.priority}`);
-  if (r.assignee) lines.push(`  担当: ${r.assignee}`);
   if (r.description) lines.push("", r.description);
   return lines.join("\n");
 }
@@ -89,7 +88,7 @@ interface Options {
   project?: string;
   label?: string[];
   priority?: number;
-  assignee?: string;
+  assignee?: string | true;
   every?: RecurrenceCadence;
   weekday?: number;
   day?: number;
@@ -112,7 +111,7 @@ function withRuleOptions(cmd: Command, update: boolean): Command {
     .option("--project <name>", `Project${clear}`)
     .option("-l, --label <label>", update ? "ラベル（繰り返し可。指定したもので置き換える）" : "ラベル（繰り返し可）", collect)
     .option("--priority <priority>", PRIORITY_HELP, parsePriority)
-    .option("--assignee <name>", `担当${clear}`);
+    .addOption(new Option("--assignee [name]").hideHelp());
 }
 
 function patchOf(o: Options): RecurringIssuePatch {
@@ -124,7 +123,6 @@ function patchOf(o: Options): RecurringIssuePatch {
     projectRef: orNull(o.project),
     labels: o.label,
     priority: o.priority,
-    assignee: orNull(o.assignee),
     cadence: o.every,
     weekday: o.weekday,
     monthDay: o.day,
@@ -152,6 +150,7 @@ export function registerRecurringCommands(program: Command): void {
     .option("--disabled", "停止した状態で登録する")
     .action(
       act((cli, cmd, title: string, o: Options & { disabled?: boolean }) => {
+        if (o.assignee !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
         if (!o.every) throw new NodError("INVALID_ARGS", "--every で周期（daily / weekly / monthly）を指定してください");
         if (!o.start) throw new NodError("INVALID_ARGS", "--start で開始日（YYYY-MM-DD）を指定してください");
         const r = addRecurringIssue(cli.ctx, currentWorkspace(cli, cmd).key, {
@@ -161,7 +160,6 @@ export function registerRecurringCommands(program: Command): void {
           projectRef: o.project,
           labels: o.label,
           priority: o.priority,
-          assignee: o.assignee,
           cadence: o.every,
           weekday: o.weekday,
           monthDay: o.day,
@@ -199,6 +197,7 @@ export function registerRecurringCommands(program: Command): void {
     .option("--disable", "停止する（停止中は起票しない）")
     .action(
       act((cli, cmd, id: string, o: Options) => {
+        if (o.assignee !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
         const patch = patchOf(o);
         if (Object.values(patch).every((v) => v === undefined)) {
           throw new NodError("INVALID_ARGS", "変更する項目を指定してください（nod recurring update --help）");

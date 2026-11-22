@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useDecision, useTriage, useTriageProposalCounts, useTriageProposals, useTriageSuggestions, useWorkspaceName } from "../api/hooks/decision";
 import { useProjectChoicesQuery } from "../api/hooks/issue-detail";
 import { useIssueDetail } from "../api/hooks/shared";
-import { assigneeChoices, parseLabels } from "../lib/issue-edit";
+import { parseLabels } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import type { DuplicateSuggestion, Issue, SuggestionReason, TriageProposal, TriageSuggestions } from "../api/types";
 import { Markdown } from "../components/markdown/Markdown";
@@ -77,7 +77,6 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   const [priority, setPriority] = useState(issue.priority);
 
   const [labels, setLabels] = useState(issue.labels.join(", "));
-  const [assignee, setAssignee] = useState(issue.assignee ?? "");
   const choices = projects.data ?? [];
   const [mode, setMode] = useState<Mode | null>(null);
   const [value, setValue] = useState("");
@@ -95,11 +94,10 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
   const applyProposal = (p: TriageProposal) => {
     if (p.decision === "duplicate") return open("duplicate", p.duplicateOf ?? "");
     if (p.decision === "decline") return open("decline", p.reason ?? "");
-    const next = applyAcceptProposal({ projectRef, priority, labels: parseLabels(labels, []), assignee }, p);
+    const next = applyAcceptProposal({ projectRef, priority, labels: parseLabels(labels, []) }, p);
     setProjectRef(next.projectRef);
     setPriority(next.priority);
     setLabels(next.labels.join(", "));
-    setAssignee(next.assignee);
     setMode(null);
     decision.reset();
   };
@@ -134,13 +132,9 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
             {[0, 1, 2, 3, 4].map(p => <option key={p} value={p}>{priorityMeta(p).label}</option>)}
           </select></label>
           <label>Labels<input aria-label="受け入れ時のLabels" value={labels} onChange={e => setLabels(e.target.value)} placeholder="bug, perf" /></label>
-          <label>Assignee<select aria-label="受け入れ時のAssignee" value={assignee} onChange={e => setAssignee(e.target.value)}>
-            <option value="">担当者を選択</option>
-            {assigneeChoices(assignee || null).map(a => <option key={a} value={a}>{a}</option>)}
-          </select></label>
           <ActionError error={projects.error} />
-          <Candidates suggestions={suggestions.data} workspace={issue.workspace} labels={parseLabels(labels, [])} assignee={assignee}
-            onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} onAssignee={setAssignee} />
+          <Candidates suggestions={suggestions.data} workspace={issue.workspace} labels={parseLabels(labels, [])}
+            onLabel={l => setLabels(parseLabels(labels, []).concat(l).join(", "))} />
         </fieldset>
       </div>
       {suggestions.isError ? <ActionError error={suggestions.error} /> :
@@ -149,8 +143,7 @@ function TriageDetail({ issue, workspaceName }: { issue: Issue; workspaceName: s
         <Button variant="primary" icon="check" disabled={busy || projects.isPending || projects.isError} onClick={() => {
           const selected = parseLabels(labels, []);
           decision.mutate({ op: "accept", issueId: issue.id, input: { projectRef: projectRef || null, priority,
-            addLabels: selected.filter(l => !issue.labels.includes(l)), removeLabels: issue.labels.filter(l => !selected.includes(l)),
-            ...(assignee !== (issue.assignee ?? "") ? { assignee: assignee || null } : {}) } });
+            addLabels: selected.filter(l => !issue.labels.includes(l)), removeLabels: issue.labels.filter(l => !selected.includes(l)) } });
         }}>
           受け入れる
         </Button>
@@ -288,29 +281,24 @@ function Proposals({ proposals, workspace, disabled, onApply }: {
   );
 }
 
-function reasonText(r: SuggestionReason, label?: string): string {
+function reasonText(r: SuggestionReason, label: string): string {
   switch (r.kind) {
     case "similar":
-      return `類似Issue ${r.issues.length}件${label === undefined ? "の担当" : "に付与"}（${r.issues[0]}${r.issues.length > 1 ? " 他" : ""}）`;
+      return `類似Issue ${r.issues.length}件に付与（${r.issues[0]}${r.issues.length > 1 ? " 他" : ""}）`;
     case "text":
       return `${r.field === "title" ? "タイトル" : "本文"}に“${label}”を含む`;
-    case "source":
-      return `起票元 ${r.issue} の担当`;
   }
 }
 
-// ラベル・担当の候補（#41）。クリックで受け入れフォームに入れるだけで、確定は「受け入れる」で人が行う
-function Candidates({ suggestions, workspace, labels, assignee, onLabel, onAssignee }: {
+// ラベルの候補（#41）。クリックで受け入れフォームに入れるだけで、確定は「受け入れる」で人が行う
+function Candidates({ suggestions, workspace, labels, onLabel }: {
   suggestions: TriageSuggestions | undefined;
   workspace: string;
   labels: string[];
-  assignee: string;
   onLabel: (label: string) => void;
-  onAssignee: (assignee: string) => void;
 }) {
   const labelItems = (suggestions?.labels ?? []).filter(l => !labels.includes(l.label));
-  const assigneeItems = (suggestions?.assignees ?? []).filter(a => a.assignee !== assignee);
-  if (labelItems.length === 0 && assigneeItems.length === 0) return null;
+  if (labelItems.length === 0) return null;
   return (
     <div className={d.candidates} role="group" aria-label="候補">
       <span className={d.candidatesLabel}>候補:</span>
@@ -318,12 +306,6 @@ function Candidates({ suggestions, workspace, labels, assignee, onLabel, onAssig
         <div key={`label:${l.label}`} className={d.candidate}>
           <button type="button" className={d.chip} aria-label={`ラベル ${l.label} を追加`} onClick={() => onLabel(l.label)}>+ <LabelDot workspace={workspace} name={l.label} />{l.label}</button>
           <span className={d.reason}>{l.reasons.map(r => reasonText(r, l.label)).join(" / ")}</span>
-        </div>
-      ))}
-      {assigneeItems.map(a => (
-        <div key={`assignee:${a.assignee}`} className={d.candidate}>
-          <button type="button" className={d.chip} aria-label={`担当を ${a.assignee} にする`} onClick={() => onAssignee(a.assignee)}>→ {a.assignee}</button>
-          <span className={d.reason}>{a.reasons.map(r => reasonText(r)).join(" / ")}</span>
         </div>
       ))}
     </div>

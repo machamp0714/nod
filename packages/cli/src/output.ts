@@ -406,14 +406,12 @@ export function formatNotification(n: Notification): string {
   return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}${snoozed}\n    ${describeNotification(n)}`;
 }
 
-function describeReason(r: SuggestionReason, what: "付与" | "担当"): string {
+function describeReason(r: SuggestionReason): string {
   switch (r.kind) {
     case "similar":
-      return `類似 Issue ${r.issues.length} 件に${what}（${r.issues.join(", ")}）`;
+      return `類似 Issue ${r.issues.length} 件に付与（${r.issues.join(", ")}）`;
     case "text":
       return r.field === "title" ? "タイトルにラベル名を含む" : "本文にラベル名を含む";
-    case "source":
-      return `起票元 ${r.issue} の担当`;
   }
 }
 
@@ -430,9 +428,7 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
         )
       : [none]),
     "ラベル候補",
-    ...(s.labels.length ? s.labels.map((l) => `  ${l.label}  ${l.reasons.map((r) => describeReason(r, "付与")).join(" / ")}`) : [none]),
-    "担当候補",
-    ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
+    ...(s.labels.length ? s.labels.map((l) => `  ${l.label}  ${l.reasons.map((r) => describeReason(r)).join(" / ")}`) : [none]),
   ].join("\n");
 }
 
@@ -444,7 +440,6 @@ export function formatTriageProposal(p: TriageProposal): string {
     p.project && `Project: ${p.project.name}`,
     p.priority !== null && `Priority: ${p.priority}`,
     p.labels.length > 0 && `Labels: ${p.labels.join(", ")}`,
-    p.assignee && `Assignee: ${p.assignee}`,
   ].filter(Boolean);
   return [`${p.issueId}  ${p.actor}  ${DECISION_LABEL[p.decision]}${attrs.length ? `  ${attrs.join("  ")}` : ""}  ${localMinute(p.updatedAt)}`, ...(p.reason ? [`  理由: ${p.reason}`] : [])].join("\n");
 }

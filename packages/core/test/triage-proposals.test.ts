@@ -23,11 +23,11 @@ describe("proposeTriage", () => {
     const issue = create(llm, "検索結果のページングがずれる");
     const before = snapshot();
     const p = proposeTriage(llm, issue.id, {
-      decision: "accept", labels: [" bug ", "perf", "bug"], assignee: " codex ", priority: 2, projectRef: "検索改善", reason: "再現手順が明確",
+      decision: "accept", labels: [" bug ", "perf", "bug"], priority: 2, projectRef: "検索改善", reason: "再現手順が明確",
     });
     expect(snapshot()).toEqual(before);
     expect(p).toMatchObject({
-      issueId: issue.id, actor: "claude-code", decision: "accept", duplicateOf: null, labels: ["bug", "perf"], assignee: "codex",
+      issueId: issue.id, actor: "claude-code", decision: "accept", duplicateOf: null, labels: ["bug", "perf"], assignee: null,
       priority: 2, project: { name: "検索改善" }, reason: "再現手順が明確",
     });
     expect(listTriageProposals(me.db, issue.id)).toEqual([p]);
@@ -72,13 +72,9 @@ describe("proposeTriage", () => {
     // Web の「フォームに反映」はラベルを ", " で連結して空白と読点で分け直すので、それらを含む名前は拒否する
     for (const label of ["a b", "a,b", "a、b", "a，b"]) expect(bad({ decision: "accept", labels: [label] })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", assignee: " " })).toBe("INVALID_ARGS");
-    expect(bad({ decision: "accept", assignee: "x".repeat(101) })).toBe("INVALID_ARGS");
-    // none は絞り込みで未割り当てを指す値なので、担当の名前にできない
-    for (const name of ["none", " None "]) expect(bad({ decision: "accept", assignee: name })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", projectRef: "ない" })).toBe("NOT_FOUND");
     expect(bad({ decision: "accept", reason: "x".repeat(2001) })).toBe("INVALID_ARGS");
     expect(listTriageProposals(me.db, issue.id)).toEqual([]);
-    expect(proposeTriage(llm, issue.id, { decision: "accept", assignee: "x".repeat(100) }).assignee).toHaveLength(100);
   });
 
   test("Triage にない Issue・アーカイブ済みの Issue には提案できない。Snooze 中は提案できる", () => {
@@ -121,13 +117,13 @@ describe("proposeTriage", () => {
     const original = create(me, "元の Issue");
     const issue = create(llm, "判断待ち");
     proposeTriage(llm, issue.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ内容" });
-    proposeTriage(codex, issue.id, { decision: "accept", labels: ["bug"], assignee: "alice", priority: 1, projectRef: "検索改善", reason: "直すべき" });
+    proposeTriage(codex, issue.id, { decision: "accept", labels: ["bug"], priority: 1, projectRef: "検索改善", reason: "直すべき" });
     archiveIssue(me, original.id);
     deleteIssue(me, original.id);
     const byActor = listTriageProposals(db, issue.id).sort((a, b) => a.actor.localeCompare(b.actor));
     expect(byActor).toMatchObject([
       { actor: "claude-code", decision: "duplicate", duplicateOf: null, reason: "同じ内容" },
-      { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug"], assignee: "alice", priority: 1, project: { name: "検索改善" }, reason: "直すべき" },
+      { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug"], assignee: null, priority: 1, project: { name: "検索改善" }, reason: "直すべき" },
     ]);
     // 書き込み時は、これまでどおり duplicate に重複先を必須にする
     expect(codeOf(() => proposeTriage(llm, issue.id, { decision: "duplicate" } as any))).toBe("INVALID_ARGS");

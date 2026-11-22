@@ -12,7 +12,7 @@ test("GET /api/triage/:id/suggestions は根拠つきの候補を返し、DBを�
   expect(r.json.issueId).toBe(triage.id);
   expect(r.json.duplicates.map((d: { id: string }) => d.id)).toEqual([original.id]);
   expect(r.json.labels).toEqual([{ label: "search", reasons: [{ kind: "similar", issues: [original.id] }] }]);
-  expect(r.json.assignees).toEqual([]);
+  expect(r.json).not.toHaveProperty("assignees");
   expect(db.serialize()).toEqual(before);
   const notTriage = await call(app, "GET", `/api/triage/${original.id}/suggestions`);
   expect(notTriage.json.error.code).toBe("NOT_IN_TRIAGE");
@@ -20,16 +20,16 @@ test("GET /api/triage/:id/suggestions は根拠つきの候補を返し、DBを�
   db.close();
 });
 
-test("accept は assignee を受け取り、受け入れと同時に担当を設定する", async () => {
+test("accept は assignee キーを値にかかわらず拒み、Triage の状態を保つ", async () => {
   const { db, app, ws, llm } = setup();
   const i = createIssue(llm, { workspaceId: ws.id, title: "判断" });
-  expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: 5 })).status).toBe(400);
-  expect(getIssue(db, i.id)).toMatchObject({ status: "triage", assignee: null });
-  const empty = await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: " " });
-  expect(empty.status).toBe(400);
-  expect(empty.json.error.code).toBe("INVALID_ARGS");
-  expect(getIssue(db, i.id)).toMatchObject({ status: "triage", assignee: null });
-  const r = await call(app, "POST", `/api/issues/${i.id}/accept`, { assignee: "codex" });
-  expect(r.json).toMatchObject({ status: "todo", assignee: "codex" });
+  const url = `/api/issues/${i.id}/accept`;
+  for (const assignee of ["codex", null, 5]) {
+    const r = await call(app, "POST", url, { assignee });
+    expect(r.status).toBe(400);
+    expect(r.json.error).toMatchObject({ code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました") });
+  }
+  expect(getIssue(db, i.id).status).toBe("triage");
+  expect((await call(app, "POST", url, { addLabels: ["bug"] })).json).toMatchObject({ status: "todo", labels: ["bug"] });
   db.close();
 });

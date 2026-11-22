@@ -4,7 +4,6 @@ import { tx } from "../db";
 import { NodError } from "../errors";
 import { clearUnreadTriageProposal, notifyTriageProposal } from "../notify";
 import { findIssueRow, findWritableIssueRow, formatIssueId, type IssueRow } from "../issue-query";
-import { validateAssignee } from "../none-ref";
 import { TRIAGE_DECISIONS, type TriageProposal, type TriageProposalInput } from "../types";
 import { requireText, validatePriority } from "./issues";
 import { resolveProject } from "./projects";
@@ -14,7 +13,6 @@ import { normalizeLabelName } from "./workspace-labels";
 // LLM の提案と取り下げは me 宛ての提案通知（#125）だけを作る・消す
 // 受け入れ・却下・重複の確定は人だけが accept / decline / duplicate で行う（FORBIDDEN_FOR_LLM は human.ts のまま）
 export const PROPOSAL_REASON_MAX_LENGTH = 2000;
-export const PROPOSAL_ASSIGNEE_MAX_LENGTH = 100;
 
 interface ProposalRow {
   issue_id: number;
@@ -66,15 +64,16 @@ function normalizeLabels(labels: string[]): string[] {
 }
 
 function validateInput(input: TriageProposalInput): void {
+  if (Object.hasOwn(input, "assignee")) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
   if (!(TRIAGE_DECISIONS as readonly string[]).includes(input.decision)) {
     throw new NodError("INVALID_ARGS", "提案は accept・decline・duplicate のいずれかで指定してください");
   }
   if ((input.decision === "duplicate") !== (input.duplicateOf !== undefined)) {
     throw new NodError("INVALID_ARGS", "重複の提案には元の Issue の ID が必要で、それ以外の提案には指定できません");
   }
-  const acceptOnly = [input.labels, input.assignee, input.priority, input.projectRef].some((v) => v !== undefined);
+  const acceptOnly = [input.labels, input.priority, input.projectRef].some((v) => v !== undefined);
   if (input.decision !== "accept" && acceptOnly) {
-    throw new NodError("INVALID_ARGS", "ラベル・担当・優先度・Project は受け入れの提案にだけ指定できます");
+    throw new NodError("INVALID_ARGS", "ラベル・優先度・Project は受け入れの提案にだけ指定できます");
   }
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.reason !== undefined && input.reason.length > PROPOSAL_REASON_MAX_LENGTH) {
@@ -92,11 +91,6 @@ function requireTriage(row: IssueRow, ref: string): void {
 export function proposeTriage(ctx: OpCtx, ref: string, input: TriageProposalInput): TriageProposal {
   validateInput(input);
   const labels = normalizeLabels(input.labels ?? []);
-  const assignee = input.assignee === undefined ? null : requireText(input.assignee, "担当").trim();
-  validateAssignee(assignee);
-  if (assignee !== null && assignee.length > PROPOSAL_ASSIGNEE_MAX_LENGTH) {
-    throw new NodError("INVALID_ARGS", `担当は ${PROPOSAL_ASSIGNEE_MAX_LENGTH} 文字までです`);
-  }
   const reason = input.reason?.trim() ? input.reason.trim() : null;
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
@@ -111,13 +105,13 @@ export function proposeTriage(ctx: OpCtx, ref: string, input: TriageProposalInpu
     const ts = now();
     ctx.db
       .query(
-        `INSERT INTO triage_proposals (issue_id, actor, decision, duplicate_of_id, labels, assignee, priority, project_id, reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO triage_proposals (issue_id, actor, decision, duplicate_of_id, labels, priority, project_id, reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (issue_id, actor) DO UPDATE SET decision = excluded.decision, duplicate_of_id = excluded.duplicate_of_id,
-           labels = excluded.labels, assignee = excluded.assignee, priority = excluded.priority, project_id = excluded.project_id,
+           labels = excluded.labels, priority = excluded.priority, project_id = excluded.project_id,
            reason = excluded.reason, updated_at = excluded.updated_at`,
       )
-      .run(row.id, ctx.actor, input.decision, duplicateOfId, JSON.stringify(labels), assignee, input.priority ?? null, project?.id ?? null, reason, ts, ts);
+      .run(row.id, ctx.actor, input.decision, duplicateOfId, JSON.stringify(labels), input.priority ?? null, project?.id ?? null, reason, ts, ts);
     const proposal = toProposal(ctx.db.query(`${SELECT} WHERE p.issue_id = ? AND p.actor = ?`).get(row.id, ctx.actor) as ProposalRow);
     notifyTriageProposal(ctx.db, row.id, ctx.actor, { decision: proposal.decision, duplicateOf: proposal.duplicateOf });
     return proposal;

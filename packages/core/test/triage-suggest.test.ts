@@ -181,24 +181,6 @@ describe("suggestTriage", () => {
     expect(suggestTriage(me, triage.id).labels).toEqual([{ label: "db", reasons: [{ kind: "text", field: "description" }] }]);
   });
 
-  test("担当候補: 起票元Issueの担当と類似Issueの担当実績を根拠にし、未割当を除いて上位2件", () => {
-    const { me, llm, ws, create } = seed();
-    const source = create(me, "検索 API の N+1 を解消");
-    updateIssue(me, source.id, { assignee: "claude-code" });
-    const a = create(me, "検索結果のページングがずれる");
-    updateIssue(me, a.id, { assignee: "codex" });
-    const b = create(me, "検索結果のページングが重複する");
-    updateIssue(me, b.id, { assignee: "codex" });
-    const c = create(me, "検索結果のページングが遅い");
-    updateIssue(me, c.id, { assignee: "gemini" });
-    create(me, "検索結果のページング");
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "検索結果のページングが壊れた", discoveredFromRef: source.id });
-    const s = suggestTriage(me, triage.id);
-    expect(s.assignees.map((x) => x.assignee)).toEqual(["codex", "claude-code"]);
-    expect(s.assignees[0]!.reasons).toEqual([{ kind: "similar", issues: [a.id, b.id] }]);
-    expect(s.assignees[1]!.reasons).toEqual([{ kind: "source", issue: source.id }]);
-  });
-
   test("Triage以外はNOT_IN_TRIAGE、存在しないIssueはNOT_FOUND", () => {
     const { me, create } = seed();
     const todo = create(me, "受け入れ済み");
@@ -227,23 +209,12 @@ describe("suggestTriage", () => {
   });
 });
 
-describe("acceptTriage の assignee", () => {
-  test("受け入れと同時に担当を設定する。LLM の受け入れでも設定できる", () => {
-    const { me, llm, create } = seed();
-    const triage = create(llm, "検索結果のページングがずれる");
-    const accepted = acceptTriage(me, triage.id, { assignee: "codex" });
-    expect(accepted.assignee).toBe("codex");
-    expect(accepted.status).toBe("todo");
-    const byLlm = acceptTriage(llm, create(llm, "一覧が崩れる").id, { assignee: "codex" });
-    expect(byLlm).toMatchObject({ status: "todo", assignee: "codex" });
-  });
-
-  test("assignee の空文字・空白だけはINVALID_ARGSで何も変えず、前後の空白は除いて設定する", () => {
-    const { me, llm, create } = seed();
-    const triage = create(llm, "検索結果のページングがずれる");
-    expect(codeOf(() => acceptTriage(me, triage.id, { assignee: "" }))).toBe("INVALID_ARGS");
-    expect(codeOf(() => acceptTriage(me, triage.id, { assignee: "  " }))).toBe("INVALID_ARGS");
-    expect(eventsOf(me.db, triage.id).map((e) => e.type)).toEqual(["created"]);
-    expect(acceptTriage(me, triage.id, { assignee: " codex " }).assignee).toBe("codex");
-  });
+test("受け入れで assignee を指定すると INVALID_ARGS になり、状態を変えない", () => {
+  const { me, llm, create } = seed();
+  const triage = create(llm, "検索結果のページングがずれる");
+  for (const assignee of ["codex", null]) {
+    expect(codeOf(() => acceptTriage(me, triage.id, { assignee }))).toBe("INVALID_ARGS");
+  }
+  expect(eventsOf(me.db, triage.id).map((e) => e.type)).toEqual(["created"]);
+  expect(acceptTriage(llm, triage.id).status).toBe("todo");
 });

@@ -24,7 +24,6 @@ export type {
   TriageDecision,
   DuplicateSuggestion,
   LabelSuggestion,
-  AssigneeSuggestion,
   SuggestionReason,
   IssueDocumentRef,
   ActivityItem,
@@ -167,7 +166,6 @@ export interface RecurringIssueInput {
   project: string | null;
   labels: string[];
   priority: number;
-  assignee: string | null;
   cadence: import("@nod/core").RecurrenceCadence;
   weekday: number | null;
   monthDay: number | null;

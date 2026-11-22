@@ -11,7 +11,6 @@ const base: RecurringIssue = {
   project: "運用",
   labels: ["review"],
   priority: 3,
-  assignee: "me",
   cadence: "weekly",
   weekday: 1,
   monthDay: null,
@@ -99,7 +98,6 @@ describe("定期Issueのフォーム", () => {
       project: "運用",
       labels: ["review"],
       priority: 3,
-      assignee: "me",
       cadence: "weekly",
       weekday: 1,
       monthDay: null,
@@ -109,8 +107,8 @@ describe("定期Issueのフォーム", () => {
   });
 
   test("本文モードは空の本文を null にし、毎日は曜日と日を送らない", () => {
-    const f = { ...newRecurringForm("2026-09-30", "UTC"), title: "a", cadence: "daily" as const, description: " ", project: "", assignee: "" };
-    expect(inputFromForm(f)).toMatchObject({ description: null, template: null, project: null, assignee: null, weekday: null, monthDay: null });
+    const f = { ...newRecurringForm("2026-09-30", "UTC"), title: "a", cadence: "daily" as const, description: " ", project: "" };
+    expect(inputFromForm(f)).toMatchObject({ description: null, template: null, project: null, weekday: null, monthDay: null });
   });
 
   test("タイトル・テンプレート・開始日の未入力を検出する", () => {

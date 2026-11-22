@@ -2,7 +2,6 @@ import type { OpCtx } from "../ctx";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow } from "../issue-query";
 import type {
-  AssigneeSuggestion,
   DuplicateSuggestion,
   LabelSuggestion,
   Status,
@@ -15,10 +14,9 @@ const BODY_LIMIT = 2000; // 本文は先頭だけを見る
 const TITLE_WEIGHT = 0.7;
 const DUPLICATE_THRESHOLD = 0.25;
 const DUPLICATE_LIMIT = 5;
-const SIMILAR_THRESHOLD = 0.15; // ラベル・担当の根拠にする類似 Issue
+const SIMILAR_THRESHOLD = 0.15; // ラベルの根拠にする類似 Issue
 const SIMILAR_LIMIT = 10;
 const LABEL_LIMIT = 3;
-const ASSIGNEE_LIMIT = 2;
 const SHARED_TERM_LIMIT = 5;
 const STOPWORDS = new Set([
   "the", "and", "for", "to", "of", "in", "on", "is", "are", "be", "it", "with", "as", "at", "by", "or", "an", "this", "that", "from", "not",
@@ -155,7 +153,6 @@ interface CandidateRow {
   title: string;
   body: string | null;
   status: Status;
-  assignee: string | null;
   created_at: string;
   labels: string | null;
   duplicate_of: number | null;
@@ -207,7 +204,7 @@ export function suggestTriage(ctx: OpCtx, ref: string): TriageSuggestions {
   const mine = tokensOf(target.title, target.description);
   const rows = ctx.db
     .query(
-      `SELECT i.id, i.number, i.title, substr(i.description, 1, ${BODY_LIMIT}) AS body, i.status, i.assignee, i.created_at, i.archived_at,
+      `SELECT i.id, i.number, i.title, substr(i.description, 1, ${BODY_LIMIT}) AS body, i.status, i.created_at, i.archived_at,
          (SELECT group_concat(l.label, char(10)) FROM issue_labels l WHERE l.issue_id = i.id) AS labels,
          (SELECT min(r.to_id) FROM relations r WHERE r.from_id = i.id AND r.type = 'duplicate') AS duplicate_of
        FROM issues i WHERE i.workspace_id = ? AND i.id <> ?`,
@@ -226,7 +223,6 @@ export function suggestTriage(ctx: OpCtx, ref: string): TriageSuggestions {
     issueId,
     duplicates: duplicates(target, scored, rows),
     labels: labels(ctx, target, scored),
-    assignees: assignees(ctx, target, scored),
   };
 }
 
@@ -240,7 +236,7 @@ function duplicates(target: IssueRow, scored: Scored[], rows: CandidateRow[]): D
     // 元の Issue が別 Workspace なら寄せずに、重複側の Issue をそのまま候補にする
     const original = s.row.duplicate_of === null ? undefined : byId.get(s.row.duplicate_of);
     const row = original ?? s.row;
-    if (row.archived_at !== null) continue; // アーカイブ済みは重複元にできない。ラベル・担当の根拠には使う
+    if (row.archived_at !== null) continue; // アーカイブ済みは重複元にできない。ラベルの根拠には使う
     if (best.has(row.id)) continue; // 降順なので先に入ったものが最大
     best.set(row.id, { score: s.score, row, tokens: s.tokens, via: original ? s.ref : null });
   }
@@ -315,37 +311,4 @@ function labels(ctx: OpCtx, target: IssueRow, scored: Scored[]): LabelSuggestion
     if (field) add(weights, label, TEXT_WEIGHT[field], { kind: "text", field });
   }
   return rank(weights, LABEL_LIMIT).map(({ key, reasons }) => ({ label: key, reasons }));
-}
-
-const SOURCE_WEIGHT = 1;
-
-function assignees(ctx: OpCtx, target: IssueRow, scored: Scored[]): AssigneeSuggestion[] {
-  const weights = new Map<string, { weight: number; reasons: SuggestionReason[] }>();
-  const support = new Map<string, { weight: number; issues: string[] }>();
-  for (const s of similarIssues(scored)) {
-    const a = s.row.assignee;
-    if (!a || a === target.assignee) continue;
-    const cur = support.get(a) ?? { weight: 0, issues: [] };
-    cur.weight += s.score;
-    cur.issues.push(s.ref);
-    support.set(a, cur);
-  }
-  for (const [a, s] of support) add(weights, a, s.weight, { kind: "similar", issues: s.issues });
-  const source = discoveredFrom(ctx, target.id);
-  if (source) {
-    const row = ctx.db
-      .query("SELECT i.assignee FROM issues i JOIN workspaces w ON w.id = i.workspace_id WHERE w.key || '-' || i.number = ?")
-      .get(source) as { assignee: string | null } | null;
-    if (row?.assignee && row.assignee !== target.assignee) add(weights, row.assignee, SOURCE_WEIGHT, { kind: "source", issue: source });
-  }
-  return rank(weights, ASSIGNEE_LIMIT).map(({ key, reasons }) => ({ assignee: key, reasons }));
-}
-
-// created の event に記録した起票元（discovered_from）
-function discoveredFrom(ctx: OpCtx, issueId: number): string | null {
-  const row = ctx.db.query("SELECT data FROM events WHERE issue_id = ? AND type = 'created' ORDER BY id LIMIT 1").get(issueId) as {
-    data: string;
-  } | null;
-  const value = row ? (JSON.parse(row.data) as { discovered_from?: unknown }).discovered_from : undefined;
-  return typeof value === "string" ? value : null;
 }

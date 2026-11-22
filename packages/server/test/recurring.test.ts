@@ -19,6 +19,23 @@ describe("定期Issue API", () => {
     expect(listRecurringIssues(db, ws.key)).toEqual([]);
   });
 
+  test("追加と変更は assignee キーを null でも拒む", async () => {
+    const { app, db, ws, me } = setup();
+    const id = addRecurringIssue(me, ws.key, { ...RULE, cadence: "daily" }).id;
+    const url = `/api/workspaces/${ws.key}/recurring`;
+    const before = db.serialize();
+    for (const assignee of ["codex", null]) {
+      for (const r of [
+        await call(app, "POST", url, { ...RULE, assignee }),
+        await call(app, "PUT", `${url}/${id}`, { title: "変更", assignee }),
+      ]) {
+        expect(r.status).toBe(400);
+        expect(r.json.error).toMatchObject({ code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました") });
+      }
+    }
+    expect(db.serialize()).toEqual(before);
+  });
+
   test("run は dryRun なら書かず、実行すると起票して、再実行では作らない", async () => {
     const { app, db, ws, me } = setup();
     addRecurringIssue(me, ws.key, { title: "日次チェック", cadence: "daily", startDate: "2026-01-01", timeZone: "UTC" });

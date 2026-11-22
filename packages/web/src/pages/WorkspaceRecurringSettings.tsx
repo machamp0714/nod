@@ -12,7 +12,6 @@ import {
 import { useTemplates } from "../api/hooks/templates";
 import type { RecurringIssue, RecurringRun, Workspace } from "../api/types";
 import { Icon } from "../components/ui";
-import { KNOWN_ASSIGNEES } from "../lib/issue-edit";
 import { priorityMeta } from "../lib/meta";
 import {
   CADENCE_CHOICES,
@@ -296,7 +295,7 @@ function RecurringFormPanel({
   onDone: (message: string) => void;
   onCancel: () => void;
 }) {
-  const ids = { title: useId(), body: useId(), project: useId(), labels: useId(), priority: useId(), assignee: useId(), cadence: useId(), start: useId(), tz: useId() };
+  const ids = { title: useId(), body: useId(), project: useId(), labels: useId(), priority: useId(), cadence: useId(), start: useId(), tz: useId() };
   const [form, setForm] = useState<RecurringForm>(() =>
     editing.mode === "edit" ? formFromRecurring(editing.target) : newRecurringForm(todayIn(browserTimeZone()), browserTimeZone()),
   );
@@ -447,24 +446,6 @@ function RecurringFormPanel({
             </option>
           ))}
         </select>
-      </div>
-      <div className={r.field}>
-        <label htmlFor={ids.assignee} className={r.fieldLabel}>
-          担当
-        </label>
-        <input
-          id={ids.assignee}
-          className={`${s.input} ${r.narrow}`}
-          list={`${ids.assignee}-list`}
-          placeholder="なし"
-          value={form.assignee}
-          onChange={(e) => set({ assignee: e.target.value })}
-        />
-        <datalist id={`${ids.assignee}-list`}>
-          {KNOWN_ASSIGNEES.map((a) => (
-            <option key={a} value={a} />
-          ))}
-        </datalist>
       </div>
       <div className={r.field}>
         <span id={ids.cadence} className={r.fieldLabel}>

@@ -13,6 +13,12 @@ test("GET /api/triage/:id/proposals は記録された提案を新しい順に�
   expect(r.status).toBe(200);
   expect(r.json).toEqual([expect.objectContaining({ issueId: triage.id, actor: llm.actor, decision: "duplicate", duplicateOf: original.id, reason: "同じ症状" })]);
   expect(db.serialize()).toEqual(before);
+  for (const assignee of ["codex", null]) {
+    const rejected = await call(app, "POST", `/api/triage/${triage.id}/proposals`, { decision: "accept", assignee });
+    expect(rejected.status).toBe(400);
+    expect(rejected.json.error).toMatchObject({ code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました") });
+  }
+  expect(db.serialize()).toEqual(before);
   expect((await call(app, "POST", `/api/triage/${triage.id}/proposals`, { decision: "accept" })).status).toBe(404);
   expect((await call(app, "GET", "/api/triage/API-999/proposals")).status).toBe(404);
   db.close();

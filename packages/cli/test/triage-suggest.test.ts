@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDBを変えない。LLM も accept --assignee を使える", async () => {
+test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDBを変えない。accept は廃止した担当を拒む", async () => {
   const db = tempDb();
   const cwd = makeRepo();
   registerRepo(db, cwd);
@@ -14,15 +14,20 @@ test("triage suggest は根拠つき候補を返し、LLMも閲覧できるがDB
   expect(json.exitCode).toBe(0);
   expect(json.json.duplicates[0]).toMatchObject({ id: original.json.id, via: null });
   expect(json.json.labels.map((l: { label: string }) => l.label)).toEqual(["search"]);
+  expect(json.json).not.toHaveProperty("assignees");
   const human = await runNod(["triage", "suggest", triage.json.id], { cwd, db });
   expect(human.stdout).toContain("重複候補");
+  expect(human.stdout).not.toContain("担当候補");
   expect(human.stdout).toContain(original.json.id);
   expect(human.stdout).toContain("類似 Issue 1 件に付与");
   expect(human.stdout).toContain("採用は人が行います");
   expect(connection.serialize()).toEqual(before);
   connection.close();
-  const accepted = await runNod(["triage", "accept", triage.json.id, "--assignee", "codex", "--json"], { cwd, db, actor: "codex" });
-  expect(accepted.json).toMatchObject({ status: "todo", assignee: "codex" });
+  const rejected = await runNod(["triage", "accept", triage.json.id, "--assignee", "null", "--json"], { cwd, db, actor: "codex" });
+  expect(rejected.json.error).toMatchObject({ code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました") });
+  expect((await runNod(["issue", "show", triage.json.id, "--json"], { cwd, db })).json.status).toBe("triage");
+  const accepted = await runNod(["triage", "accept", triage.json.id, "--json"], { cwd, db, actor: "codex" });
+  expect(accepted.json).toMatchObject({ status: "todo" });
   const notTriage = await runNod(["triage", "suggest", triage.json.id, "--json"], { cwd, db });
   expect(notTriage.json.error.code).toBe("NOT_IN_TRIAGE");
 });

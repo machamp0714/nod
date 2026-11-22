@@ -3,7 +3,6 @@ import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { formatIssueId } from "../issue-query";
-import { validateAssignee } from "../none-ref";
 import {
   RECURRENCE_CADENCES,
   type RecurrenceCadence,
@@ -30,7 +29,6 @@ export interface RecurringIssueInput {
   projectRef?: string | null;
   labels?: string[];
   priority?: number;
-  assignee?: string | null;
   cadence: RecurrenceCadence;
   weekday?: number | null;
   monthDay?: number | null;
@@ -51,7 +49,6 @@ interface RecurringRow {
   project_name: string | null;
   labels: string;
   priority: number;
-  assignee: string | null;
   cadence: RecurrenceCadence;
   weekday: number | null;
   month_day: number | null;
@@ -154,7 +151,6 @@ function toRecurring(workspace: Workspace, row: RecurringRow, at: Date): Recurri
     project: row.project_name,
     labels: JSON.parse(row.labels) as string[],
     priority: row.priority,
-    assignee: row.assignee,
     cadence: row.cadence,
     weekday: row.weekday,
     monthDay: row.month_day,
@@ -198,7 +194,6 @@ interface Normalized {
   projectId: number | null;
   labels: string[];
   priority: number;
-  assignee: string | null;
   cadence: RecurrenceCadence;
   weekday: number | null;
   monthDay: number | null;
@@ -239,13 +234,12 @@ function normalize(db: Database, input: Normalized, checkTemplate: boolean): Nor
   if (checkTemplate && input.template !== null) getTemplate(db, input.template);
   const labels = [...new Set(input.labels.map((l) => l.trim()))];
   if (labels.some((l) => !l)) throw invalid("空のラベルは指定できません");
-  const assignee = input.assignee === null ? null : input.assignee.trim() || null;
-  return { ...input, labels, assignee };
+  return { ...input, labels };
 }
 
 export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: RecurringIssueInput, opts: { now?: Date } = {}): RecurringIssue {
   requireHuman(ctx, "登録");
-  validateAssignee(input.assignee);
+  if (Object.hasOwn(input, "assignee")) throw invalid("担当は廃止されました。assignee は使えません");
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
@@ -256,7 +250,6 @@ export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: Recurrin
       projectId: project?.id ?? null,
       labels: input.labels ?? [],
       priority: input.priority ?? 0,
-      assignee: input.assignee ?? null,
       cadence: input.cadence,
       weekday: input.weekday ?? null,
       monthDay: input.monthDay ?? null,
@@ -267,12 +260,12 @@ export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: Recurrin
     const ts = now();
     const { lastInsertRowid } = ctx.db
       .query(
-        `INSERT INTO recurring_issues (workspace_id, title, description, template, project_id, labels, priority, assignee,
+        `INSERT INTO recurring_issues (workspace_id, title, description, template, project_id, labels, priority,
            cadence, weekday, month_day, start_date, time_zone, enabled, created_by, created_at, updated_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        workspace.id, v.title, v.description, v.template, v.projectId, JSON.stringify(v.labels), v.priority, v.assignee,
+        workspace.id, v.title, v.description, v.template, v.projectId, JSON.stringify(v.labels), v.priority,
         v.cadence, v.weekday, v.monthDay, v.startDate, v.timeZone, v.enabled ? 1 : 0, ctx.actor, ts, ctx.actor, ts,
       );
     return toRecurring(workspace, requireRow(ctx.db, workspace, Number(lastInsertRowid)), opts.now ?? new Date());
@@ -288,8 +281,7 @@ export function updateRecurringIssue(
   opts: { now?: Date } = {},
 ): RecurringIssue {
   requireHuman(ctx, "変更");
-  // 担当は渡されたときだけ確かめる（none が保存済みの定義も停止・編集できるように）
-  validateAssignee(patch.assignee);
+  if (Object.hasOwn(patch, "assignee")) throw invalid("担当は廃止されました。assignee は使えません");
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const row = requireRow(ctx.db, workspace, id);
@@ -308,7 +300,6 @@ export function updateRecurringIssue(
       projectId,
       labels: patch.labels ?? (JSON.parse(row.labels) as string[]),
       priority: patch.priority ?? row.priority,
-      assignee: patch.assignee !== undefined ? patch.assignee : row.assignee,
       cadence,
       weekday: patch.weekday !== undefined ? patch.weekday : cadenceChanged ? null : row.weekday,
       monthDay: patch.monthDay !== undefined ? patch.monthDay : cadenceChanged ? null : row.month_day,
@@ -318,12 +309,12 @@ export function updateRecurringIssue(
     }, template !== null && template !== row.template);
     ctx.db
       .query(
-        `UPDATE recurring_issues SET title = ?, description = ?, template = ?, project_id = ?, labels = ?, priority = ?, assignee = ?,
+        `UPDATE recurring_issues SET title = ?, description = ?, template = ?, project_id = ?, labels = ?, priority = ?,
            cadence = ?, weekday = ?, month_day = ?, start_date = ?, time_zone = ?, enabled = ?, updated_by = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
-        v.title, v.description, v.template, v.projectId, JSON.stringify(v.labels), v.priority, v.assignee,
+        v.title, v.description, v.template, v.projectId, JSON.stringify(v.labels), v.priority,
         v.cadence, v.weekday, v.monthDay, v.startDate, v.timeZone, v.enabled ? 1 : 0, ctx.actor, now(), row.id,
       );
     return toRecurring(workspace, requireRow(ctx.db, workspace, row.id), opts.now ?? new Date());
@@ -413,7 +404,6 @@ export function runRecurringIssuesOnly(
           parentId: null,
           projectId: row.project_id,
           labels: JSON.parse(row.labels) as string[],
-          assignee: row.assignee,
           origin: { recurring_id: row.id, occurrence },
         });
         const { id: issueRowId } = ctx.db

@@ -11,7 +11,7 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
   await expect(sec.getByText("周期ごとに Issue を起票します。起票は『今すぐ実行』か nod recurring run のときだけ行います。LLM は変更できません。")).toBeVisible();
   await expect(sec.getByText("定期Issue はまだありません")).toBeVisible();
 
-  // 追加：テンプレート・Project・ラベル・優先度・担当・毎週月曜・開始日・TZ
+  // 追加：テンプレート・Project・ラベル・優先度・毎週月曜・開始日・TZ
   await sec.getByRole("button", { name: "定期Issue を追加" }).click();
   const form = sec.getByRole("form", { name: "定期Issue を追加" });
   await form.getByRole("button", { name: "保存" }).click();
@@ -24,7 +24,7 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
   await form.getByLabel("ラベルを追加").press("Enter");
   await expect(form.getByRole("group", { name: "ラベル" }).getByText("review", { exact: true })).toBeVisible();
   await form.getByLabel("優先度").selectOption({ label: "Medium" });
-  await form.getByLabel("担当").fill("me");
+  await expect(form.getByLabel("担当", { exact: true })).toHaveCount(0);
   await form.getByRole("radio", { name: "毎週" }).click();
   await form.getByRole("radio", { name: "月曜" }).click();
   await form.getByLabel("開始日").fill("2026-01-01");
@@ -42,7 +42,6 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
     project: "nod Web UI",
     labels: ["review"],
     priority: 3,
-    assignee: "me",
     cadence: "weekly",
     weekday: 1,
     startDate: "2026-01-01",
@@ -72,7 +71,6 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
     description: "## 振り返り",
     status: "todo",
     priority: 3,
-    assignee: "me",
     labels: ["review"],
     project: { name: "nod Web UI" },
   });
@@ -150,21 +148,4 @@ test("テンプレートが見つからない定期Issueは、確認でエラー
   const preview = section(page).getByRole("region", { name: "対象の確認結果" });
   await expect(preview).toContainText("起票する · 1件");
   await expect(preview).toContainText("日次チェック");
-});
-
-test("担当の候補に LLM（claude-code・codex）が出て、LLM を担当にした定期Issueを保存できる（#64）", async ({ page, nod }) => {
-  await page.goto("/workspaces/API/settings");
-  const sec = section(page);
-  await sec.getByRole("button", { name: "定期Issue を追加" }).click();
-  const form = sec.getByRole("form", { name: "定期Issue を追加" });
-  const assignee = form.getByLabel("担当");
-  const listId = await assignee.getAttribute("list");
-  const options = await page.locator(`datalist[id="${listId}"] option`).evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value));
-  expect(options).toEqual(["me", "claude-code", "codex"]);
-  await form.getByLabel("タイトル").fill("依存更新チェック");
-  await assignee.fill("claude-code");
-  await form.getByLabel("開始日").fill("2026-01-01");
-  await form.getByRole("button", { name: "保存" }).click();
-  await expect(page.getByRole("status")).toHaveText("追加しました");
-  expect(await nod.me.listRecurringIssues("API")).toMatchObject([{ title: "依存更新チェック", assignee: "claude-code" }]);
 });

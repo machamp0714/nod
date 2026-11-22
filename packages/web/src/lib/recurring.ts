@@ -60,7 +60,6 @@ export interface RecurringForm {
   project: string; // 空文字は Project なし
   labels: string[];
   priority: number;
-  assignee: string; // 空文字は担当なし
   cadence: RecurrenceCadence;
   weekday: number;
   monthDay: number;
@@ -77,7 +76,6 @@ export function newRecurringForm(today: string, timeZone: string): RecurringForm
     project: "",
     labels: [],
     priority: 0,
-    assignee: "",
     cadence: "weekly",
     weekday: 1,
     monthDay: 1,
@@ -95,7 +93,6 @@ export function formFromRecurring(r: RecurringIssue): RecurringForm {
     project: r.project ?? "",
     labels: r.labels,
     priority: r.priority,
-    assignee: r.assignee ?? "",
     cadence: r.cadence,
     weekday: r.weekday ?? 1,
     monthDay: r.monthDay ?? 1,
@@ -113,7 +110,6 @@ export function inputFromForm(f: RecurringForm): RecurringIssueInput {
     project: f.project || null,
     labels: f.labels,
     priority: f.priority,
-    assignee: f.assignee.trim() || null,
     cadence: f.cadence,
     weekday: f.cadence === "weekly" ? f.weekday : null,
     monthDay: f.cadence === "monthly" ? f.monthDay : null,

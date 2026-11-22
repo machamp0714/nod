@@ -171,27 +171,24 @@ test("重複にするは元の Issue の ID を入れた入力欄を開くだけ
   expect((await api.show(dup.id)).relations.duplicateOf).toEqual([original.id]);
 });
 
-test("ラベル・担当の候補を根拠つきで出し、クリックでフォームに入れて受け入れると確定する", async ({ page, nod }) => {
+test("ラベルの候補を根拠つきで出し、クリックでフォームに入れて受け入れると確定する", async ({ page, nod }) => {
   const api = await seedApiWorkspace(nod);
   const similar = await nod.me.createIssue({ workspaceId: api.workspace.id, title: "検索結果のページングが 1 件ずれる", labels: ["search"] });
-  await nod.me.updateIssue(similar.id, { assignee: "codex" });
   const i = await api.triageIssue("検索結果のページングがずれる bug");
   await nod.me.createIssue({ workspaceId: api.workspace.id, title: "無関係", labels: ["bug"] });
   await page.goto("/triage");
   const candidates = detail(page).getByRole("group", { name: "候補" });
   await expect(candidates).toContainText(`類似Issue 1件に付与（${similar.id}）`);
   await expect(candidates).toContainText("タイトルに“bug”を含む");
-  await expect(candidates).toContainText(`類似Issue 1件の担当（${similar.id}）`);
   await candidates.getByRole("button", { name: "ラベル search を追加" }).click();
   await candidates.getByRole("button", { name: "ラベル bug を追加" }).click();
-  await candidates.getByRole("button", { name: "担当を codex にする" }).click();
   await expect(detail(page).getByRole("textbox", { name: "受け入れ時のLabels" })).toHaveValue("search, bug");
-  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveValue("codex");
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveCount(0);
   await expect(candidates).toHaveCount(0);
-  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [] });
   await detail(page).getByRole("button", { name: "受け入れる" }).click();
   await expect(empty(page)).toBeVisible();
-  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug", "search"], assignee: "codex" });
+  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug", "search"] });
 });
 
 test("似た Issue も候補もなければ出さない", async ({ page, nod }) => {
@@ -213,7 +210,7 @@ test("LLM の提案を新しい順に出し、受け入れの提案をフォー�
   const i = await api.triageIssue("検索結果のページングがずれる");
   await nod.codex.proposeTriage(i.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ原因の可能性" });
   await nod.claude.proposeTriage(i.id, {
-    decision: "accept", labels: ["bug"], assignee: "codex", priority: 3, projectRef: String(project.id), reason: "再現を確認済み",
+    decision: "accept", labels: ["bug"], priority: 3, projectRef: String(project.id), reason: "再現を確認済み",
   });
   await page.goto("/triage");
   const proposals = detail(page).getByRole("region", { name: "LLM の提案" });
@@ -225,17 +222,17 @@ test("LLM の提案を新しい順に出し、受け入れの提案をフォー�
   await expect(accept).toContainText("Medium");
   await expect(accept).toContainText("再現を確認済み");
   await expect(proposals.getByRole("article", { name: "codex の提案" })).toContainText(`重複 ${original.id}`);
-  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [] });
 
   await accept.getByRole("button", { name: "claude-code の提案をフォームに反映" }).click();
   await expect(detail(page).getByRole("combobox", { name: "受け入れ時のProject" })).toHaveValue(String(project.id));
   await expect(detail(page).getByRole("combobox", { name: "受け入れ時のPriority" })).toHaveValue("3");
   await expect(detail(page).getByRole("textbox", { name: "受け入れ時のLabels" })).toHaveValue("bug");
-  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveValue("codex");
-  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [], assignee: null });
+  await expect(detail(page).getByRole("combobox", { name: "受け入れ時のAssignee" })).toHaveCount(0);
+  expect(await api.show(i.id)).toMatchObject({ status: "triage", labels: [] });
   await detail(page).getByRole("button", { name: "受け入れる" }).click();
   await expect(empty(page)).toBeVisible();
-  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug"], assignee: "codex", priority: 3 });
+  expect(await api.show(i.id)).toMatchObject({ status: "todo", labels: ["bug"], priority: 3 });
 });
 
 test("重複・却下の提案を反映すると既存の入力欄が開き、確定するまで Triage のまま", async ({ page, nod }) => {

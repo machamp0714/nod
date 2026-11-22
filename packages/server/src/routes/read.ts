@@ -33,7 +33,7 @@ export function registerReadRoutes(app: Hono, db: Database, docsDir?: string, cl
   // 未回答の未決事項の Issue 横断の一覧（#173）。人が付けたものも含む。Inbox の質問（LLM からのものだけ）とは別に返す
   app.get("/api/open-questions", (c) => c.json(listOpenQuestions(db, openQuestionsQueryFromParams(new URL(c.req.url).searchParams))));
   app.get("/api/triage", (c) => c.json(listTriage(db)));
-  // 重複・ラベル・担当の候補（#41）。読み取りだけで、採用は既存の accept / duplicate で人が行う
+  // 重複・ラベルの候補（#41）。読み取りだけで、採用は既存の accept / duplicate で人が行う
   app.get("/api/triage/:id/suggestions", (c) => c.json(suggestTriage({ db, actor: HUMAN_ACTOR }, c.req.param("id"))));
   // LLM の提案（#62）。記録は CLI の nod triage propose だけで行い、web は読むだけ。確定は既存の accept / decline / duplicate で人が行う
   // Triage 一覧のバッジ（#125）。Triage 中の Issue ごとの提案者の数
