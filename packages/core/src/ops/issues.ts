@@ -699,14 +699,21 @@ export function addRelation(ctx: OpCtx, from: IssueRow, to: IssueRow, type: Rela
 }
 
 export function relateIssue(ctx: OpCtx, ref: string, rel: RelateInput): IssueDetail {
+  if (rel.blocks === "" || rel.related === "" || rel.duplicateOf === "") {
+    throw new NodError("INVALID_ARGS", "--blocks、--related、--duplicate-of に空文字は指定できません");
+  }
   const picked: [RelationType, string][] = [];
   if (rel.blocks) picked.push(["blocks", rel.blocks]);
   if (rel.related) picked.push(["related", rel.related]);
   if (rel.duplicateOf) picked.push(["duplicate", rel.duplicateOf]);
-  const [only] = picked;
-  if (picked.length !== 1 || !only) {
-    throw new NodError("INVALID_ARGS", "--blocks、--related、--duplicate-of のどれか1つを指定してください");
+  if (picked.length === 0 || (rel.duplicateOf && picked.length !== 1)) {
+    throw new NodError("INVALID_ARGS", "--blocks または --related（併用可）、もしくは --duplicate-of 単独を指定してください");
   }
-  tx(ctx.db, () => addRelation(ctx, findWritableIssueRow(ctx.db, ref), findWritableIssueRow(ctx.db, only[1]), only[0]));
+  tx(ctx.db, () => {
+    const from = findWritableIssueRow(ctx.db, ref);
+    for (const [type, target] of picked) {
+      addRelation(ctx, from, findWritableIssueRow(ctx.db, target), type);
+    }
+  });
   return getIssue(ctx.db, ref);
 }

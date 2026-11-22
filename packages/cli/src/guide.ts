@@ -170,7 +170,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする
-- \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
+- \`nod issue relate <id> [--blocks <id>] [--related <id>]\` または \`nod issue relate <id> --duplicate-of <id>\`：\`--blocks\` と \`--related\` は同じ相手にも別の相手にも併用できる。少なくとも1つ指定し、空文字は渡さない。\`--duplicate-of\` は単独で指定する。関係の検証・登録または Activity の記録に失敗した場合、この実行による関係と Activity は残らない。同じ向き、種類、相手の既存関係は再追加せず、不足分とその Activity だけを追加する
 - \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
 - \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する（人だけ。LLM は --dry-run だけ。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS）。送るのはタイトルと本文だけ。--title・--body-file を指定しない項目は、nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）を決まった規則で整えた案を既定にし、確認画面と --dry-run に書き換えた箇所（前 → 後）を示す（nod の本文は変えない。指定した文面は書き換えない）。整えられずに残った箇所があれば行番号と必要な対応を示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か --clear-unknown で解除する
