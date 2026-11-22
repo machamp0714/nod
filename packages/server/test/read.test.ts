@@ -47,13 +47,14 @@ describe("GET /api/issues", () => {
     expect(other.json).toEqual({ issues: [], counts: { ready: 0, needsClarification: 0 } });
   });
 
-  test("delegated=true は担当が LLM で done/canceled 以外の Issue だけを返す", async () => {
+  test("廃止されたdelegated条件は値に関係なくINVALID_ARGSで拒否する", async () => {
     const s = seed();
-    startIssue(s.llm, "API-1");
-    const r = await call(s.app, "GET", "/api/issues?delegated=true");
-    expect(r.status).toBe(200);
-    expect(r.json.issues.map((i: { id: string; assignee: string }) => [i.id, i.assignee])).toEqual([["API-1", "claude-code"]]);
-    expect((await call(s.app, "GET", "/api/issues?delegated=yes")).status).toBe(400);
+    for (const value of ["true", "false", "yes", ""]) {
+      const result = await call(s.app, "GET", `/api/issues?delegated=${value}`);
+      expect(result.status).toBe(400);
+      expect(result.json.error.code).toBe("INVALID_ARGS");
+      expect(result.json.error.message).toContain("担当は廃止");
+    }
   });
 
   test("assignee は担当で絞り込み、none は未割り当て、件数もその範囲で数える", async () => {
@@ -67,7 +68,6 @@ describe("GET /api/issues", () => {
     expect(await ids("assignee=me,claude-code")).toEqual(["API-1", "API-4"]);
     expect(await ids("assignee=none")).toEqual(["API-2", "API-3"]);
     expect(await ids("assignee=nobody")).toEqual([]);
-    expect(await ids("assignee=me&delegated=true")).toEqual([]);
     const mine = await call(s.app, "GET", "/api/issues?assignee=me");
     expect(mine.status).toBe(200);
     expect(mine.json.counts).toEqual({ ready: 1, needsClarification: 0 });

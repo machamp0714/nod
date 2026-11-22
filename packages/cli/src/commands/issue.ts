@@ -75,7 +75,6 @@ import { registerGithubIssueCommands } from "./github";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
   formatAttachment,
-  formatDelegations,
   formatIssueDetail,
   formatSpecAssessment,
   formatIssueLine,
@@ -88,7 +87,6 @@ import {
   formatPrDiffFile,
   formatPrStatusLine,
   print,
-  sortByAssignee,
   statusColumnWidth,
   statusText,
 } from "../output";
@@ -230,7 +228,7 @@ export function registerIssueCommands(program: Command): void {
     .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
     .option("--archived", "アーカイブ済みの Issue だけを出す（--status を省くとすべてのステータス）")
     .option("--ready", "着手できる Issue だけを出す（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）")
-    .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
+    .option("--delegated", "廃止済み（指定するとエラー）")
     .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
     .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
     .option("--priority <priorities>", "優先度で絞る（0〜4、P0〜P4、urgent・high・medium・low・none のどれか。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
@@ -243,8 +241,9 @@ export function registerIssueCommands(program: Command): void {
           cmd,
           o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
+          if (o.delegated !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--delegated は使えません");
           // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
-          const allWorkspaces = o.allWorkspaces || ((o.delegated || o.mine) && !globalOpts(cmd).workspace);
+          const allWorkspaces = o.allWorkspaces || (o.mine && !globalOpts(cmd).workspace);
           const assignees = [...(o.assignee ? parseAssignees(o.assignee) : []), ...(o.mine ? [cli.ctx.actor] : [])];
           const priorities = o.priority ? parsePriorityRefs(o.priority) : undefined;
           if (o.priority && !priorities) {
@@ -261,7 +260,6 @@ export function registerIssueCommands(program: Command): void {
             sprintRef: o.sprint,
             labels: o.label,
             ready: o.ready,
-            delegated: o.delegated,
             assignees: assignees.length ? assignees : undefined,
             completionCandidate: o.completionCandidates,
             archived: o.archived,
@@ -271,11 +269,6 @@ export function registerIssueCommands(program: Command): void {
           // 検索語が ID と完全一致する Issue は、並び順に関係なく先頭に置く（TS-6 の検索で TS-60 より後ろに埋もれないように。#176）
           const exactId = o.query?.trim().toLowerCase() ?? "";
           const issues = exactId ? [...sorted.filter((i) => i.id.toLowerCase() === exactId), ...sorted.filter((i) => i.id.toLowerCase() !== exactId)] : sorted;
-          if (o.delegated) {
-            const byAssignee = sortByAssignee(issues);
-            print(cli, byAssignee, () => formatDelegations(byAssignee));
-            return;
-          }
           print(cli, issues, () => (issues.length ? formatIssueListLines(issues).join("\n") : "Issue はありません"));
         },
       ),

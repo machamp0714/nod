@@ -7,7 +7,6 @@ import { InboxPage } from "./pages/InboxPage";
 import { OpenQuestionsPage } from "./pages/OpenQuestionsPage";
 import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
-import { MyIssuesPage } from "./pages/MyIssuesPage";
 import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { CycleDetailPage } from "./pages/CycleDetailPage";
@@ -50,7 +49,7 @@ const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox"
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
 const openQuestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/open-questions", validateSearch: parseOpenQuestionsSearch, component: OpenQuestionsPage });
 const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });
-const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", validateSearch: parseIssueListSearch, component: MyIssuesPage });
+const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", beforeLoad: () => { throw redirect({ to: "/issues" }); } });
 const issueDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues/$issueId", component: IssueDetailPage });
 const viewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/views/$viewId", validateSearch: parseIssueListSearch, component: ViewPage });
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/projects", validateSearch: parseProjectsSearch, component: ProjectsPage });

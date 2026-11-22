@@ -38,7 +38,6 @@ export function issueQueryToParams(query: IssueQuery): string {
   for (const label of query.label ?? []) params.append("label", label);
   for (const assignee of query.assignee ?? []) params.append("assignee", assignee);
   if (query.ready) params.set("ready", "true");
-  if (query.delegated) params.set("delegated", "true");
   if (query.q) params.set("q", query.q);
   if (query.blocked !== undefined) params.set("blocked", String(query.blocked));
   if (query.archived) params.set("archived", "true");
@@ -59,7 +58,6 @@ function normalize(query: IssueQuery) {
     label: sorted(query.label),
     assignee: sorted(query.assignee),
     ready: query.ready === true,
-    delegated: query.delegated === true,
     q: query.q ?? "",
     blocked: query.blocked,
     archived: query.archived === true,
@@ -72,7 +70,7 @@ export function sameFilter(a: IssueQuery, b: IssueQuery): boolean {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-export type FilterKey = "workspace" | "status" | "project" | "milestone" | "sprint" | "label" | "assignee" | "ready" | "delegated" | "q" | "blocked" | "archived" | "priority";
+export type FilterKey = "workspace" | "status" | "project" | "milestone" | "sprint" | "label" | "assignee" | "ready" | "q" | "blocked" | "archived" | "priority";
 
 export interface FilterChip {
   key: FilterKey;
@@ -182,8 +180,6 @@ export function describeFilter(
   }
   // ready は絞り込みのバーでは足せないが、API で作った View の filter に入りうるため、外せるように出す
   if (filter.ready) chips.push({ key: "ready", name: "Ready", values: "のみ" });
-  // 委任中も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す
-  if (filter.delegated) chips.push({ key: "delegated", name: "委任中", values: "のみ" });
   // 優先度も同じく、API や CLI で作った View の filter に入りうるため、外せるように出す（#174。絞り込みのバーでは足せない）
   if (filter.priority?.length) chips.push({ key: "priority", name: "優先度", values: filter.priority.map((p) => priorityMeta(p).label).join(", ") });
   if (filter.q) chips.push({ key: "q", name: "検索", values: filter.q });

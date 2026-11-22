@@ -14,13 +14,12 @@ export interface IssueQuery {
   cycle?: string; // Cycle の ID・名前・current か、Cycle のない Issue だけにする "none"
   label?: string[]; // すべてを持つもの
   ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
-  delegated?: boolean; // true なら、担当が LLM で done/canceled 以外の Issue（委任中）だけ
   assignee?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て。大文字小文字は区別する
   archived?: boolean; // true ならアーカイブ済みの Issue だけ。省くとアーカイブ済みを除く
   priority?: number[]; // 優先度（0 = なし、1 = Urgent 〜 4 = Low）。どれかに合うもの
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "sprint", "label", "ready", "q", "blocked", "delegated", "assignee", "archived", "priority"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "sprint", "label", "ready", "q", "blocked", "assignee", "archived", "priority"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -71,6 +70,7 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     throw invalid('絞り込み条件はオブジェクトで指定してください（例: {"status": ["todo"], "ready": true}）');
   }
   const raw = value as Record<string, unknown>;
+  if ("delegated" in raw) throw invalid("担当は廃止されました。委任中の条件 delegated は使えません");
   const unknownKeys = Object.keys(raw).filter((k) => !QUERY_KEYS.includes(k));
   if (unknownKeys.length) {
     throw invalid(`絞り込み条件に ${unknownKeys.join(", ")} は使えません（使えるもの: ${QUERY_KEYS.join(", ")}）`);
@@ -118,10 +118,6 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     if (typeof raw.ready !== "boolean") throw invalid("ready は true か false で指定してください");
     if (raw.ready) q.ready = true;
   }
-  if (raw.delegated !== undefined) {
-    if (typeof raw.delegated !== "boolean") throw invalid("delegated は true か false で指定してください");
-    if (raw.delegated) q.delegated = true;
-  }
   const assignee = stringList(raw.assignee, "assignee", true);
   if (assignee) q.assignee = [...new Set(assignee.map((name) => (isNoneRef(name) ? NONE_REF : name)))];
   if (raw.archived !== undefined) {
@@ -134,13 +130,14 @@ export function validateIssueQuery(value: unknown): IssueQuery {
 }
 
 export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
+  if (params.has("delegated")) throw invalid("担当は廃止されました。委任中の条件 delegated は使えません");
   const raw: Record<string, unknown> = Object.create(null);
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     const last = values[values.length - 1] ?? "";
     if (key === "project" || key === "milestone" || key === "cycle" || key === "sprint" || key === "q") {
       raw[key] = last;
-    } else if (key === "ready" || key === "blocked" || key === "delegated" || key === "archived") {
+    } else if (key === "ready" || key === "blocked" || key === "archived") {
       if (!["true", "1", "false", "0"].includes(last)) {
         throw invalid(`${key} は true か false で指定してください（受け取った値: ${last}）`);
       }

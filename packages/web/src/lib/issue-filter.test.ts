@@ -40,8 +40,6 @@ describe("issueQueryToParams", () => {
     expect(issueQueryToParams({ sprint: "7" })).toBe("?sprint=7");
     expect(issueQueryToParams({ sprint: "none" })).toBe("?sprint=none");
     expect(issueQueryToParams({ ready: false })).toBe("");
-    expect(issueQueryToParams({ delegated: true })).toBe("?delegated=true");
-    expect(issueQueryToParams({ delegated: false })).toBe("");
     expect(issueQueryToParams({})).toBe("");
   });
 
@@ -61,7 +59,6 @@ describe("sameFilter", () => {
     expect(sameFilter({ status: ["todo"] }, {})).toBe(false);
     expect(sameFilter({ project: "1" }, { project: "2" })).toBe(false);
     expect(sameFilter({ ready: true }, {})).toBe(false);
-    expect(sameFilter({ delegated: true }, {})).toBe(false);
   });
 });
 
@@ -136,8 +133,6 @@ describe("describeFilter", () => {
       { key: "ready", name: "Ready", values: "のみ" },
     ]);
     expect(describeFilter({}, labelOf)).toEqual([]);
-    // 委任中は API や CLI で作った View の filter に入りうるため、外せるようにチップを出す
-    expect(describeFilter({ delegated: true }, labelOf)).toEqual([{ key: "delegated", name: "委任中", values: "のみ" }]);
     // 優先度も API や CLI で作った View の filter に入りうるため、名前で出す（0 は No priority）
     expect(describeFilter({ priority: [1, 2] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "Urgent, High" }]);
     expect(describeFilter({ priority: [0] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "No priority" }]);

@@ -234,7 +234,6 @@ export interface ListIssuesFilter {
   ready?: boolean;
   query?: string;
   blocked?: boolean;
-  delegated?: boolean;
   assignees?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て
   priorities?: number[]; // 優先度（0 = なし）。どれかに合うもの
   completionCandidate?: boolean; // true で親の完了候補だけにする
@@ -309,9 +308,6 @@ function matchesQuery(issue: Issue, query: string | undefined): boolean {
   return !needle || [issue.id, issue.title, issue.description ?? ""].some((text) => text.toLowerCase().includes(needle));
 }
 
-// 委任中：担当が LLM（私以外）で、done と canceled 以外。agent_state は問わない。? には HUMAN_ACTOR を渡す
-const DELEGATED_WHERE = "(i.assignee IS NOT NULL AND i.assignee <> ? AND i.status NOT IN ('done', 'canceled'))";
-
 export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
   const { where, params } = scopeWhere(db, filter);
   // アーカイブ一覧は閉じた Issue が主なので、ステータスを省くとすべてのステータスを出す
@@ -325,10 +321,6 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
   if (filter.ready) {
     where.push(READY_WHERE);
     params.push(now());
-  }
-  if (filter.delegated) {
-    where.push(DELEGATED_WHERE);
-    params.push(HUMAN_ACTOR);
   }
   if (filter.completionCandidate) where.push(COMPLETION_CANDIDATE_SQL);
   return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params)
@@ -360,7 +352,6 @@ export function queryIssues(db: Database, query: IssueQuery, clock: SprintClock 
     ready: q.ready,
     query: q.q,
     blocked: q.blocked,
-    delegated: q.delegated,
     assignees: q.assignee,
     priorities: q.priority,
     archived: q.archived,

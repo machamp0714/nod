@@ -47,46 +47,9 @@ describe("filterRows", () => {
   });
 
   test("件数を数える", () => {
-    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1, delegated: 0, mine: 0 });
+    expect(countRows(rows)).toEqual({ all: 3, ready: 1, needsClarification: 1 });
   });
 
-  test("委任中タブは担当が LLM で done/canceled 以外の Issue だけを出し、件数を数える", () => {
-    const delegated = [
-      row("API-1", "in_progress", { assignee: "claude-code" }),
-      row("API-2", "todo", { assignee: "codex" }),
-      row("API-3", "todo", { assignee: "me" }),
-      row("API-4", "todo"),
-      row("API-5", "done", { assignee: "codex" }),
-      row("API-6", "canceled", { assignee: "codex" }),
-    ];
-    expect(ids(filterRows(delegated, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
-    expect(countRows(delegated).delegated).toBe(2);
-  });
-
-  test("My issues の担当タブは担当が me か LLM の Issue を出し、未割り当ては出さない。完了済みは表示設定に従う", () => {
-    const rows = [
-      row("API-1", "in_progress", { assignee: "me" }),
-      row("API-2", "todo", { assignee: "claude-code" }),
-      row("API-3", "todo"),
-      row("API-4", "done", { assignee: "me" }),
-      row("API-5", "todo", { assignee: "ME" }),
-    ];
-    expect(ids(filterRows(rows, { tab: "mine", q: "" }))).toEqual(["API-1", "API-2", "API-4", "API-5"]);
-    expect(ids(filterRows(rows, { tab: "mine", q: "", showCompleted: false }))).toEqual(["API-1", "API-2", "API-5"]);
-    expect(ids(filterRows(rows, { tab: "mine", q: "api-4" }))).toEqual(["API-4"]);
-    expect(countRows(rows)).toMatchObject({ mine: 4, delegated: 2 });
-  });
-
-  test("Triage と Backlog でも担当が LLM なら委任中に含める", () => {
-    const rows = [
-      row("API-1", "triage", { assignee: "claude-code" }),
-      row("API-2", "backlog", { assignee: "codex" }),
-      row("API-3", "triage"),
-      row("API-4", "backlog", { assignee: "me" }),
-    ];
-    expect(ids(filterRows(rows, { tab: "delegated", q: "" }))).toEqual(["API-1", "API-2"]);
-    expect(countRows(rows).delegated).toBe(2);
-  });
 });
 
 describe("groupForBoard", () => {

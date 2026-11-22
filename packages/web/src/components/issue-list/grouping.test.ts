@@ -91,24 +91,10 @@ describe("effectiveGrouping", () => {
     expect(effectiveGrouping({ groupBy: "label", subGroupBy: "label" }, "list")).toEqual({ groupBy: "label" });
   });
 
-  test("委任中タブでグループ化が未指定なら担当でまとめ、明示した「なし」や他のグループ化はそのまま", () => {
-    expect(effectiveGrouping({ tab: "delegated" }, "list")).toEqual({ groupBy: "assignee" });
-    expect(effectiveGrouping({ tab: "delegated", subGroupBy: "status" }, "list")).toEqual({ groupBy: "assignee", subGroupBy: "status" });
-    expect(effectiveGrouping({ tab: "delegated" }, "board")).toEqual({ groupBy: "assignee" });
-    expect(effectiveGrouping({ tab: "delegated", groupBy: "none" }, "list")).toEqual({});
-    expect(effectiveGrouping({ tab: "delegated", groupBy: "workspace" }, "list")).toEqual({ groupBy: "workspace" });
+  test("タブが違っても、指定しない限りグループ化しない", () => {
     for (const tab of ["all", "ready", "needs_clarification", undefined] as const) {
       expect(effectiveGrouping({ tab }, "list")).toEqual({});
     }
-  });
-
-  test("My issues は Status でまとめ、Board では列が Status なのでまとめない。URL に残った委任中タブは使わない", () => {
-    expect(effectiveGrouping({}, "list", true)).toEqual({ groupBy: "status" });
-    expect(effectiveGrouping({ subGroupBy: "priority" }, "list", true)).toEqual({ groupBy: "status", subGroupBy: "priority" });
-    expect(effectiveGrouping({}, "board", true)).toEqual({});
-    expect(effectiveGrouping({ groupBy: "none" }, "list", true)).toEqual({});
-    expect(effectiveGrouping({ groupBy: "project" }, "list", true)).toEqual({ groupBy: "project" });
-    expect(effectiveGrouping({ tab: "delegated" }, "list", true)).toEqual({ groupBy: "status" });
   });
 });
 
@@ -123,18 +109,9 @@ describe("URL", () => {
     expect(cleanIssueListSearch(parseIssueListSearch({ groupBy: "bad", subGroupBy: "bad" }))).toEqual({});
   });
 
-  test("委任中タブでは明示した「なし」を URL に残し、タブを離れると消す", () => {
-    expect(cleanIssueListSearch(parseIssueListSearch({ tab: "delegated", groupBy: "none" }))).toEqual({ tab: "delegated", groupBy: "none" });
-    expect(cleanIssueListSearch(parseIssueListSearch({ tab: "delegated" }))).toEqual({ tab: "delegated" });
-    expect(cleanIssueListSearch({ tab: "all", groupBy: "none" })).toEqual({});
-    expect(cleanIssueListSearch({ tab: "ready", groupBy: "none" })).toEqual({ tab: "ready" });
-  });
-
-  test("委任中タブの担当のグループに付けたサブグループは残し、タブを離れると消す", () => {
-    expect(cleanIssueListSearch({ tab: "delegated", subGroupBy: "status" })).toEqual({ tab: "delegated", subGroupBy: "status" });
-    expect(cleanIssueListSearch({ tab: "delegated", subGroupBy: "assignee" })).toEqual({ tab: "delegated" });
-    expect(cleanIssueListSearch({ tab: "delegated", groupBy: "none", subGroupBy: "status" })).toEqual({ tab: "delegated", groupBy: "none" });
-    expect(cleanIssueListSearch({ tab: "all", subGroupBy: "status" })).toEqual({});
+  test("廃止した委任中タブを指定すると担当の廃止を伝える", () => {
+    expect(() => parseIssueListSearch({ tab: "delegated" })).toThrow("担当は廃止");
+    expect(() => parseIssueListSearch({ delegated: false })).toThrow("担当は廃止");
   });
 
   test("グループ化はViewの条件に入らない", () => {

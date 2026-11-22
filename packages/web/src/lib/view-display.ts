@@ -1,18 +1,17 @@
 import type { ViewDisplay } from "../api/types";
-import { cleanIssueListSearch, defaultIssueColumns, defaultGroupBy, ISSUE_COLUMNS, type IssueColumn, type IssueListSearch } from "../routes/search";
+import { cleanIssueListSearch, defaultIssueColumns, ISSUE_COLUMNS, type IssueColumn, type IssueListSearch } from "../routes/search";
 import { COLUMN_NAMES, GROUP_NAMES, SORT_OPTIONS } from "./display-names";
 
 // View に保存する一覧の表示設定（#175）。core の ViewDisplay と同じく、既定と違う値だけを持つ。
 // 絞り込み条件は View の filter、検索欄の入力（q）とプレビューは保存しない
 
 // URL のクエリから、View に保存する表示設定を取り出す。
-// 委任中タブは filter の delegated で保存するため tab には入れず、そのタブの既定のグループ化（担当）を保存する
 export function displayFromSearch(search: IssueListSearch, currentSprint = search.sprint === "current"): ViewDisplay {
-  const s = cleanIssueListSearch(search, false, undefined, currentSprint);
+  const s = cleanIssueListSearch(search, undefined, currentSprint);
   const d: ViewDisplay = {};
   if (s.tab === "ready" || s.tab === "needs_clarification") d.tab = s.tab;
   if (s.layout === "board") d.layout = "board";
-  const groupBy = s.groupBy ?? defaultGroupBy(s.tab);
+  const groupBy = s.groupBy;
   if (groupBy && groupBy !== "none") {
     d.groupBy = groupBy;
     if (s.subGroupBy && s.subGroupBy !== groupBy) d.subGroupBy = s.subGroupBy;
@@ -39,7 +38,7 @@ export function viewSearch(display: ViewDisplay, url: IssueListSearch, currentSp
     columns: url.columns ?? display.columns,
     showCompleted: url.showCompleted ?? display.showCompleted,
     showChildren: url.showChildren ?? display.showChildren,
-  }, false, undefined, currentSprint);
+  }, undefined, currentSprint);
 }
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
@@ -50,7 +49,7 @@ function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): bool
 // View の表示設定を既定に戻したときは、既定の値を明示する（tab=all、groupBy=none、sort=default など）。
 // サブグループを外したときは、subGroupBy に表示中の groupBy と同じ値を書く
 export function cleanViewSearch(search: IssueListSearch, display: ViewDisplay, currentSprint = false): IssueListSearch {
-  const current = cleanIssueListSearch(search, false, undefined, currentSprint);
+  const current = cleanIssueListSearch(search, undefined, currentSprint);
   const saved = viewSearch(display, {}, currentSprint);
   const defaultColumns = defaultIssueColumns(undefined, currentSprint);
   const out: IssueListSearch = { ...current };
@@ -58,10 +57,9 @@ export function cleanViewSearch(search: IssueListSearch, display: ViewDisplay, c
   if ((current.tab ?? "all") !== (saved.tab ?? "all")) out.tab = current.tab ?? "all";
   delete out.layout;
   if ((current.layout ?? "list") !== (saved.layout ?? "list")) out.layout = current.layout ?? "list";
-  // グループ化は、タブの既定（委任中は担当）を解決した値で比べる
-  const groupBy = current.groupBy ?? defaultGroupBy(current.tab) ?? "none";
+  const groupBy = current.groupBy ?? "none";
   delete out.groupBy;
-  if (groupBy !== (display.groupBy ?? defaultGroupBy(current.tab) ?? "none")) out.groupBy = groupBy;
+  if (groupBy !== (display.groupBy ?? "none")) out.groupBy = groupBy;
   delete out.subGroupBy;
   if (current.subGroupBy !== saved.subGroupBy) {
     if (current.subGroupBy) out.subGroupBy = current.subGroupBy;

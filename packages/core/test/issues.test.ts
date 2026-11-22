@@ -340,45 +340,6 @@ describe("queryIssues", () => {
     expect(queryIssues(db, {}).counts).toEqual({ ready: 2, needsClarification: 1 });
   });
 
-  test("delegated は Triage と Backlog の Issue も、担当が LLM なら含める", () => {
-    const { db, ws, me, llm } = setup();
-    const triaged = createIssue(llm, { workspaceId: ws.id, title: "triage" });
-    updateIssue(me, triaged.id, { assignee: "claude-code" });
-    const backlog = createIssue(me, { workspaceId: ws.id, title: "backlog" });
-    updateIssue(me, backlog.id, { assignee: "codex", status: "backlog" });
-    createIssue(llm, { workspaceId: ws.id, title: "triage unassigned" });
-    const mine = createIssue(me, { workspaceId: ws.id, title: "backlog mine" });
-    updateIssue(me, mine.id, { assignee: "me", status: "backlog" });
-    expect(getIssue(db, triaged.id).status).toBe("triage");
-    expect(queryIssues(db, { delegated: true }).issues.map((i) => i.id)).toEqual([triaged.id, backlog.id]);
-  });
-
-  test("delegated は担当が LLM で done/canceled 以外の Issue だけを返し、agent_state は問わない", () => {
-    const { db, ws, me, llm } = setup();
-    const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
-    const working = createIssue(me, { workspaceId: ws.id, title: "working" });
-    startIssue(llm, working.id);
-    const assigned = createIssue(me, { workspaceId: web.id, title: "assigned" });
-    updateIssue(me, assigned.id, { assignee: "codex" });
-    const review = createIssue(me, { workspaceId: ws.id, title: "review" });
-    updateIssue(me, review.id, { assignee: "codex", status: "in_progress" });
-    const mine = createIssue(me, { workspaceId: ws.id, title: "mine" });
-    updateIssue(me, mine.id, { assignee: "me" });
-    createIssue(me, { workspaceId: ws.id, title: "unassigned" });
-    const finished = createIssue(me, { workspaceId: ws.id, title: "finished" });
-    updateIssue(me, finished.id, { assignee: "codex", status: "done" });
-    const dropped = createIssue(me, { workspaceId: ws.id, title: "dropped" });
-    updateIssue(me, dropped.id, { assignee: "codex", status: "canceled" });
-    const ids = (q: IssueQuery) => queryIssues(db, q).issues.map((i) => i.id);
-    expect(ids({ delegated: true })).toEqual([working.id, review.id, assigned.id]);
-    expect(ids({ delegated: true, status: ["done", "in_progress"] })).toEqual([working.id, review.id]);
-    expect(ids({ delegated: true, workspace: ["WEB"] })).toEqual([assigned.id]);
-    expect(listIssues(db, { delegated: true, statuses: ["done", "canceled", "todo", "in_progress"] }).map((i) => i.id)).toEqual([
-      working.id,
-      review.id,
-      assigned.id,
-    ]);
-  });
 
   test("assignee はどれかの担当に合う Issue を返し、none は未割り当てを指す", () => {
     const { db, ws, me, llm } = setup();
@@ -402,9 +363,6 @@ describe("queryIssues", () => {
     // 担当はマスタのない自由な文字列なので、だれも持たない名前は 0 件（エラーにしない）。大文字小文字は区別する
     expect(ids({ assignee: ["nobody"] })).toEqual([]);
     expect(ids({ assignee: ["ME"] })).toEqual([]);
-    // 委任中（担当が LLM）とは独立の条件で、私の担当と重ねると 0 件
-    expect(ids({ assignee: ["me"], delegated: true })).toEqual([]);
-    expect(ids({ assignee: ["codex", "me"], delegated: true })).toEqual([codex.id]);
     // listIssues（CLI）は既定で done と canceled を除く
     expect(listIssues(db, { assignees: ["me"] }).map((i) => i.id)).toEqual([mine.id]);
   });

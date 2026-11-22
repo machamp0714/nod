@@ -1,7 +1,8 @@
 import type { DocKind, Status } from "../api/types";
+import { NodError } from "@nod/core/src/errors";
 import { STATUS_ORDER } from "../lib/meta";
 
-export type IssueTab = "all" | "ready" | "needs_clarification" | "delegated";
+export type IssueTab = "all" | "ready" | "needs_clarification";
 export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "assignee", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
@@ -35,7 +36,7 @@ export interface ProjectsSearch {
   workspace?: string;
 }
 
-const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification", "delegated"];
+const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification"];
 const ISSUE_LAYOUTS: readonly IssueLayout[] = ["list", "board"];
 const PROJECT_TABS: readonly ProjectTab[] = ["active", "completed", "all"];
 
@@ -89,6 +90,7 @@ function stringList(value: unknown, splitComma = false): string[] | undefined {
 
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
+  if ("delegated" in raw || raw.tab === "delegated") throw new NodError("INVALID_ARGS", "担当は廃止されました。委任中の条件は使えません");
   const out: IssueListSearch = {};
   for (const key of ["showCompleted", "showChildren"] as const) {
     if (key in raw) out[key] = raw[key] !== false && raw[key] !== "false";
@@ -128,32 +130,21 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   return out;
 }
 
-// タブの既定のグループ化。委任中タブは LLM ごとに見られるよう、グループ化が未指定なら担当でまとめる。
-// URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す。
-// My issues（mine）はタブを持たず、Status でまとめる（Pencil「My issues｜担当タブ（#162）」）
-export function defaultGroupBy(tab: IssueTab | undefined, mine = false): IssueGroupKey | undefined {
-  if (mine) return "status";
-  return tab === "delegated" ? "assignee" : undefined;
-}
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
   return a.length === b.length && b.every((column) => a.includes(column));
 }
 
-// mine は My issues の URL。タブを持たず（担当が me と LLM の Issue をまとめて出す）、担当の条件は固定のため URL に持たない。
 // sameValueColumn はその画面で既定から外す列（defaultIssueColumns）。列がその画面の既定と同じなら URL に書かない
-export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn, currentSprint = search.sprint === "current"): IssueListSearch {
-  if (mine) search = { ...search, tab: undefined, assignee: undefined };
+export function cleanIssueListSearch(search: IssueListSearch, sameValueColumn?: IssueColumn, currentSprint = search.sprint === "current"): IssueListSearch {
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
   if (search.columns && !sameColumns(search.columns, defaultIssueColumns(sameValueColumn, currentSprint))) out.columns = search.columns;
-  const fallback = defaultGroupBy(search.tab, mine);
   if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
-  else if (search.groupBy === "none" && fallback) out.groupBy = "none";
-  const groupBy = search.groupBy ?? fallback;
+  const groupBy = search.groupBy;
   // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ
   if (groupBy && groupBy !== "none" && search.subGroupBy && search.subGroupBy !== groupBy) out.subGroupBy = search.subGroupBy;
   if (search.preview) out.preview = search.preview;
@@ -172,9 +163,6 @@ export function cleanIssueListSearch(search: IssueListSearch, mine = false, same
   return out;
 }
 
-export function cleanMyIssuesSearch(search: IssueListSearch): IssueListSearch {
-  return cleanIssueListSearch(search, true);
-}
 
 // Project 詳細の URL。一覧の設定に加え、一覧とフローの切り替え（view）を持つ。
 // view は URL だけに置き、ページの表示設定には保存しない
@@ -190,7 +178,7 @@ export function parseProjectDetailSearch(raw: Record<string, unknown>): ProjectD
 
 // 全行が同じ Project になるため、Project の列を既定から外す。一覧の設定を変えても view は残す
 export function cleanProjectIssuesSearch(search: ProjectDetailSearch): ProjectDetailSearch {
-  const out: ProjectDetailSearch = cleanIssueListSearch(search, false, "project");
+  const out: ProjectDetailSearch = cleanIssueListSearch(search, "project");
   if (search.view === "flow") out.view = "flow";
   return out;
 }

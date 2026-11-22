@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   cleanIssueListSearch,
-  cleanMyIssuesSearch,
   cleanProjectIssuesSearch,
   parseProjectDetailSearch,
-  defaultGroupBy,
   defaultIssueColumns,
   type IssueListSearch,
   DEFAULT_ISSUE_COLUMNS, ISSUE_COLUMNS,
@@ -28,7 +26,6 @@ describe("parseIssueListSearch", () => {
   test("指定のないキーは追加しない", () => {
     expect(parseIssueListSearch({})).toEqual({});
     expect(parseIssueListSearch({ tab: "ready" })).toEqual({ tab: "ready" });
-    expect(parseIssueListSearch({ tab: "delegated" })).toEqual({ tab: "delegated" });
   });
 
   test("数字だけの検索語（ルーターが数値にしたもの）は文字列に戻す", () => {
@@ -151,32 +148,17 @@ describe("担当の絞り込みと My issues（#162）", () => {
   });
 
   test("assignee のない既存の URL はそのまま復元する", () => {
-    const search = { tab: "delegated", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", sprint: "none", blocked: false } as const;
+    const search = { tab: "ready", groupBy: "workspace", workspace: ["API"], status: ["todo"], project: "3", sprint: "none", blocked: false } as const;
     expect(cleanIssueListSearch(parseIssueListSearch({ ...search }))).toEqual({ ...search, workspace: ["API"], status: ["todo"] });
   });
 
-  test("My issues の URL はタブと担当の条件を持たない", () => {
-    expect(cleanMyIssuesSearch({ tab: "all" })).toEqual({});
-    expect(cleanMyIssuesSearch({ tab: "ready" })).toEqual({});
-    expect(cleanMyIssuesSearch({ tab: "delegated", workspace: ["API"] })).toEqual({ workspace: ["API"] });
-    expect(cleanMyIssuesSearch({ assignee: ["codex"], label: ["bug"] })).toEqual({ label: ["bug"] });
-  });
-
-  test("My issues は Status でまとめるのが既定で、明示した「なし」は URL に残す", () => {
-    expect(defaultGroupBy(undefined, true)).toBe("status");
-    expect(defaultGroupBy("delegated", true)).toBe("status");
-    expect(defaultGroupBy("delegated")).toBe("assignee");
-    expect(defaultGroupBy(undefined)).toBeUndefined();
-    expect(cleanMyIssuesSearch({ groupBy: "none" })).toEqual({ groupBy: "none" });
-    expect(cleanMyIssuesSearch({ groupBy: "none", tab: "delegated" })).toEqual({ groupBy: "none" });
-    expect(cleanMyIssuesSearch({ subGroupBy: "priority" })).toEqual({ subGroupBy: "priority" });
-    expect(cleanMyIssuesSearch({ subGroupBy: "status" })).toEqual({});
-    expect(cleanIssueListSearch({ groupBy: "none" })).toEqual({});
+  test("廃止された委任中のURL条件はエラーにする", () => {
+    expect(() => parseIssueListSearch({ tab: "delegated" })).toThrow("担当は廃止");
   });
 });
 
 describe("画面ごとの既定の列（#174）", () => {
-  test("Project 詳細は Project を既定から外す。My issues は担当が me と LLM に分かれるため外さない", () => {
+  test("Project 詳細は Project を既定から外す", () => {
     expect(defaultIssueColumns()).toEqual([...DEFAULT_ISSUE_COLUMNS]);
     expect(defaultIssueColumns("project")).toEqual(["priority", "status", "workspace", "assignee"]);
   });
@@ -185,8 +167,6 @@ describe("画面ごとの既定の列（#174）", () => {
     const all = [...DEFAULT_ISSUE_COLUMNS];
     expect(cleanProjectIssuesSearch({ columns: all })).toEqual({ columns: all });
     expect(cleanProjectIssuesSearch({ columns: defaultIssueColumns("project") })).toEqual({});
-    expect(cleanMyIssuesSearch({ columns: all })).toEqual({});
-    expect(cleanMyIssuesSearch({ columns: defaultIssueColumns("assignee") })).toEqual({ columns: defaultIssueColumns("assignee") });
     // Issues・View・Cycle 詳細は変えない
     expect(cleanIssueListSearch({ columns: all })).toEqual({});
     expect(cleanIssueListSearch({ columns: defaultIssueColumns("project") })).toEqual({ columns: defaultIssueColumns("project") });

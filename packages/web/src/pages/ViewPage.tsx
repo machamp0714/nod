@@ -45,8 +45,7 @@ function ViewIssues({ view, views }: { view: View; views: View[] }) {
   const saveFilter = useUpdateView();
   const rename = useUpdateView();
   const remove = useDeleteView();
-  // 委任中タブは表示設定ではなく絞り込み条件（delegated）として保存する（Issues の「View として保存」と同じ）
-  const nextFilter = search.tab === "delegated" ? { ...draft, delegated: true } : draft;
+  const nextFilter = draft;
   const nextDisplay = displayFromSearch(search, currentSprint);
   const dirty = !sameFilter(nextFilter, view.filter) || !sameDisplay(nextDisplay, savedDisplay(view.display, currentSprint));
 

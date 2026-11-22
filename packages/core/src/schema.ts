@@ -743,4 +743,9 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE sprints ADD COLUMN activated_by TEXT`,
     `ALTER TABLE sprint_items ADD COLUMN rollover_from_item_id TEXT REFERENCES sprint_items(id) ON DELETE RESTRICT`,
   ],
+  // 版53: 担当の廃止に伴い委任中の条件とMy Issuesの表示設定を撤去する。
+  [
+    `UPDATE views SET filter = json_remove(filter, '$.delegated')`,
+    `DELETE FROM page_displays WHERE page = 'my-issues'`,
+  ],
 ];

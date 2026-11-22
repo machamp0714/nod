@@ -29,10 +29,6 @@ describe("pageDisplayFromSearch", () => {
     expect(pageDisplayFromSearch({ layout: "list", groupBy: "none", sort: "default", direction: "asc", columns: [...DEFAULT_ISSUE_COLUMNS] }, { key: "issues" })).toEqual({});
   });
 
-  test("My Issues の「なし」は groupBy: none として残す（既定が Status のため）", () => {
-    expect(pageDisplayFromSearch({ groupBy: "none" }, { key: "my-issues", mine: true })).toEqual({ groupBy: "none" });
-    expect(pageDisplayFromSearch({}, { key: "my-issues", mine: true })).toEqual({});
-  });
 
   test("Project 詳細の既定の列（Project を除く）は保存しない", () => {
     const scope = { key: "project:1", sameValueColumn: "project" } as const;

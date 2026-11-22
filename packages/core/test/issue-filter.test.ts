@@ -46,13 +46,13 @@ describe("issueQueryFromParams", () => {
 });
 
 describe("delegated", () => {
-  test("true だけを残し、false は省き、真偽以外は INVALID_ARGS", () => {
-    expect(validateIssueQuery({ delegated: true })).toEqual({ delegated: true });
-    expect(validateIssueQuery({ delegated: false })).toEqual({});
-    expect(codeOf(() => validateIssueQuery({ delegated: "yes" }))).toBe("INVALID_ARGS");
-    expect(issueQueryFromParams(new URLSearchParams("delegated=1"))).toEqual({ delegated: true });
-    expect(issueQueryFromParams(new URLSearchParams("delegated=false"))).toEqual({});
-    expect(codeOf(() => issueQueryFromParams(new URLSearchParams("delegated=yes")))).toBe("INVALID_ARGS");
+  test("値にかかわらず担当の廃止を伝えて拒否する", () => {
+    for (const delegated of [true, false, "yes", null]) {
+      expect(() => validateIssueQuery({ delegated })).toThrow("担当は廃止");
+    }
+    for (const value of ["1", "false", "yes", ""]) {
+      expect(() => issueQueryFromParams(new URLSearchParams({ delegated: value }))).toThrow("担当は廃止");
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ViewDisplay } from "../api/types";
-import { DEFAULT_ISSUE_COLUMNS, defaultGroupBy, type IssueListSearch, parseIssueListSearch } from "../routes/search";
+import { DEFAULT_ISSUE_COLUMNS, type IssueListSearch, parseIssueListSearch } from "../routes/search";
 import { cleanViewSearch, describeDisplay, displayFromSearch, displaySummary, sameDisplay, savedDisplay, unsavedNote, viewSearch, withoutDisplay } from "./view-display";
 
 describe("displayFromSearch", () => {
@@ -25,11 +25,6 @@ describe("displayFromSearch", () => {
     expect(displayFromSearch({ subGroupBy: "status" })).toEqual({});
   });
 
-  test("委任中タブは保存せず（filter の delegated で持つ）、そのタブの既定のグループ化（担当）を保存する", () => {
-    expect(displayFromSearch({ tab: "delegated" })).toEqual({ groupBy: "assignee" });
-    expect(displayFromSearch({ tab: "delegated", groupBy: "none" })).toEqual({});
-    expect(displayFromSearch({ tab: "delegated", groupBy: "project" })).toEqual({ groupBy: "project" });
-  });
 });
 
 describe("viewSearch", () => {
@@ -83,8 +78,6 @@ describe("cleanViewSearch", () => {
     const searches: IssueListSearch[] = [
       {},
       { tab: "ready" },
-      { tab: "delegated" },
-      { tab: "delegated", groupBy: "none" },
       { groupBy: "status" },
       { groupBy: "project" },
       { groupBy: "project", subGroupBy: "label" },
@@ -98,9 +91,7 @@ describe("cleanViewSearch", () => {
     for (const d of displays) {
       for (const search of searches) {
         const url = parseIssueListSearch({ ...cleanViewSearch(search, d) });
-        // 委任中タブの既定のグループ化（担当）は、URL に明示されることがあるため解決してから比べる
-        const resolved = (x: IssueListSearch) => ({ ...x, groupBy: x.groupBy ?? defaultGroupBy(x.tab) });
-        expect(resolved(viewSearch(d, url))).toEqual(resolved(viewSearch({}, search)));
+        expect(viewSearch(d, url)).toEqual(viewSearch({}, search));
       }
     }
   });

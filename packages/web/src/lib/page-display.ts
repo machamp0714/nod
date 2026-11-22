@@ -3,12 +3,11 @@ import { cleanIssueListSearch, type IssueColumn, type IssueListSearch } from "..
 
 // Issue 一覧のページごとに DB へ保存する表示設定（#218）。View（view-display.ts）と違い、ポップオーバーで変えるたびに自動で保存する。
 // タブ・絞り込み・検索・プレビューは保存しない
-export type PageKey = "issues" | "my-issues" | `project:${string}` | `sprint:${string}`;
+export type PageKey = "issues" | `project:${string}` | `sprint:${string}`;
 
-// mine と sameValueColumn は、その画面の既定（グループ化・列）を決める。cleanIssueListSearch に渡すものと同じ
+// sameValueColumn は、その画面の既定の列を決める。
 export interface PageScope {
   key: PageKey;
-  mine?: boolean;
   sameValueColumn?: IssueColumn;
 }
 
@@ -30,9 +29,9 @@ export function pageSearch(display: PageDisplay, url: IssueListSearch): IssueLis
   return out;
 }
 
-// 保存する表示設定。その画面の既定と同じ値は持たない（My Issues の「なし」は既定と違うので groupBy: none で持つ）
+// 保存する表示設定。その画面の既定と同じ値は持たない。
 export function pageDisplayFromSearch(search: IssueListSearch, scope: PageScope): PageDisplay {
-  const s = cleanIssueListSearch(search, scope.mine ?? false, scope.sameValueColumn);
+  const s = cleanIssueListSearch(search, scope.sameValueColumn);
   const d: PageDisplay = {};
   if (s.layout === "board") d.layout = "board";
   if (s.groupBy) d.groupBy = s.groupBy;
