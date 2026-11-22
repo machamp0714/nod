@@ -115,7 +115,7 @@ test("Inbox回答後のActivityは回答者と作業者を区別する", async (
   await expect(page.getByRole("region", { name: "確認依頼の一覧" }).getByText("確認依頼はありません", { exact: true })).toBeVisible();
   await page.goto(`/issues/${issue.id}`);
   const activity = page.getByRole("region", { name: "Activity", exact: true });
-  await expect(activity).toContainText("me の回答で codex の作業状況が 作業中 になった");
+  await expect(activity).toContainText("me の回答で作業状況が 作業中 になった");
   await expect(activity).not.toContainText("me の作業状況が 作業中");
 });
 
@@ -225,8 +225,8 @@ test("手動でTodoへ戻した作業状況の解除をActivityで説明する",
   await page.goto(`/issues/${issue.id}`);
   await chooseProperty(page, "Status", "Todo");
   const activity = page.getByRole("region", { name: "Activity", exact: true });
-  await expect(activity).toContainText("me が codex の作業状況を解除した");
+  await expect(activity).toContainText("me が作業状況を解除した");
   await expect(activity).not.toContainText("null");
   const event = (await api.show(issue.id)).activity.filter((a) => a.kind === "event" && a.type === "agent_state_changed").at(-1);
-  expect(event).toMatchObject({ actor: "me", data: { from: "working", to: null, agent: "codex" } });
+  expect(event).toMatchObject({ actor: "me", data: { from: "working", to: null, agent: "me" } });
 });

@@ -65,7 +65,7 @@ describe("describeEvent（#198）", () => {
     expect(event("agent_state_changed", { from: "awaiting_input", to: "working", agent: "codex", trigger: "answer" })?.text).toBe(
       "me の回答で codex の作業状況が A:working になった",
     );
-    expect(event("agent_state_changed", { from: "done", to: null, agent: "codex" })?.text).toBe("me が codex の作業状況を解除した");
+    expect(event("agent_state_changed", { from: "done", to: null, agent: "codex" })?.text).toBe("me が作業状況を解除した");
   });
 
   test("変更の中身は補足に残し、説明は全文を出さない", () => {
