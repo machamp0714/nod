@@ -3,6 +3,7 @@
 //   NOD_PSTACK_OMP_PIN     固定の記録のパス（既定はこのディレクトリの pin.json）
 //   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
 //   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）
+//   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリ（既定は nod のリポジトリ直下の omp/）。読み替え表は <package>/skills/pstack-omp/SKILL.md
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,12 +24,20 @@ export interface Context {
   // データ置き場の下の pstack-omp/
   workDir: string;
   ompBin: string;
+  // OMP 向けのディレクトリ（読み替え表のスキルとエージェント定義を置く）
+  packageDir: string;
 }
 
 export function loadContext(env: Record<string, string | undefined> = process.env): Context {
   const pinPath = env.NOD_PSTACK_OMP_PIN || join(import.meta.dir, "pin.json");
   const dataDir = env.NOD_DATA_DIR || join(homedir(), ".local", "share", "nod");
-  return { pinPath, pin: loadPin(pinPath), workDir: join(dataDir, "pstack-omp"), ompBin: env.NOD_PSTACK_OMP_OMP_BIN || "omp" };
+  return {
+    pinPath,
+    pin: loadPin(pinPath),
+    workDir: join(dataDir, "pstack-omp"),
+    ompBin: env.NOD_PSTACK_OMP_OMP_BIN || "omp",
+    packageDir: env.NOD_PSTACK_OMP_PACKAGE || join(import.meta.dir, "..", "..", "omp"),
+  };
 }
 
 function loadPin(path: string): Pin {
