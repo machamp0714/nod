@@ -129,6 +129,36 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(all.stdout).toContain("→ 適用が壊れています");
   });
 
+  test("写しの中の生成したスキルの SKILL.md やプロジェクトの置き場の定義のファイルが、在るのに読めなくても、例外で終わらずに、読めないファイル・適用が壊れていること・名前を読めなかった置き場を表示し、ほかの節も最後まで出す", async () => {
+    const sb = await withAgent();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nproject\n");
+    put(join(project, ".omp", "agents", "locked.md"), "---\nname: locked\n---\n");
+    put(join(project, ".omp", "skills", "locked", "SKILL.md"), skillMd("locked", "project"));
+    mkdirSync(join(project, ".claude", "skills", "folder", "SKILL.md"), { recursive: true });
+    chmodSync(join(project, ".omp", "agents", "locked.md"), 0o000);
+    chmodSync(join(project, ".omp", "skills", "locked", "SKILL.md"), 0o000);
+    chmodSync(join(sb.copy, "generated", "pstack", "skills", "tdd", "SKILL.md"), 0o000);
+    const real = realpathSync(project);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("generated/pstack/skills/tdd/SKILL.md（読めない）");
+    expect(run.stdout).toContain("→ 適用が壊れています");
+    expect(run.stdout).toContain("どの tdd が使われるか:\n");
+    const section = run.stdout.slice(run.stdout.indexOf(`プロジェクト（${real}）`));
+    expect(section.trim().split("\n").slice(1)).toEqual([
+      `  ${real}/.omp/agents/poteto-agent.md: エージェント poteto-agent。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません`,
+      `  ${real}/.omp/agents/locked.md: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`,
+      `  ${real}/.omp/skills/locked/SKILL.md: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`,
+      `  ${real}/.claude/skills/folder/SKILL.md: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`,
+    ]);
+  });
+
   test("config.yml に以前の配置の読み込みの設定が残っていれば、そう表示して apply か remove を案内する", async () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);

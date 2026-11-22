@@ -4,8 +4,9 @@
 // スキルの .md の相対リンクの先（スキルの外の文書や画像）も、上流と同じ相対位置に入れ、その先の .md のリンクも同じく辿る。
 // 読み込まない cursor-team-kit のスキルはリンクの先でも入れない（スキルとして読まれてしまうため）。
 // 本文は書き換えない。Cursor の用語（terms.ts）を使うスキルの SKILL.md だけ、最初の H1 の後に案内の1行を入れる。リンクも書き換えない。
-// スキルが用語を使うかは、スキルのディレクトリの中の .md と、そこから相対リンクで（リンク先の .md を経ても）辿れるスキルの外の .md で決める。
-// 別の生成するスキルの中へは辿らない（そのスキルは自分の範囲で決まり、自分の案内の1行を持つ）。
+// スキルが用語を使うかは、スキルのディレクトリの中の .md と、そこから相対リンクで（リンク先の .md を経ても）辿れる .md で決める。
+// 辿れる .md には、スキルの外の文書と、別の生成するスキルのディレクトリの中の SKILL.md 以外の文書（付属の参考の文書など）が入る。
+// 別の生成するスキルの SKILL.md とディレクトリそのものへのリンクでは止まる（そのスキルの入口で、自分の範囲で決まる案内の1行を持つ）。
 // 次のどれかがあれば、何も書かずに止める: 読み替え表に対応行のない用語、用語を使うのに H1 の無い SKILL.md、生成物の中で解決できない相対リンク、
 // 読み替え表が示す写しの中のパス（`<X>/generated/...`）が生成物に無いこと。
 // 書くときは同じ階層の一時ディレクトリに作り終えてから置き換える。失敗したら前回の生成物はそのまま残す
@@ -71,7 +72,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
     for (const skill of skills[root]) {
       const dir = `${root}/skills/${skill}`;
       const own = skillDirs.get(dir)!;
-      const linked = addLinkedFiles(upstreamDir, files, [...skillDirs.keys()], own, dangling);
+      const linked = addLinkedFiles(upstreamDir, files, [...skillDirs.keys()], dir, own, dangling);
       const used = new Set<string>();
       for (const path of [...own, ...linked]) {
         if (!path.endsWith(".md")) continue;
@@ -190,10 +191,12 @@ function firstCells(table: string): string[] {
   });
 }
 
-// start（あるスキルのディレクトリの中のファイル）の .md の相対リンクの先のうち、生成するスキルのディレクトリ（skillDirs）の外のファイルを、
-// 上流と同じ相対位置で files に足し、辿った先のファイルを返す。辿った先の .md のリンクも辿る。別の生成するスキルの中へは辿らない。
+// start（スキルのディレクトリ own の中のファイル）の .md の相対リンクの先を辿り、辿った先のファイル（own の外）を返す。辿った先の .md のリンクも辿る。
+// 生成するスキルのディレクトリ（skillDirs）の外のファイルは、上流と同じ相対位置で files に足す。別の生成するスキルのディレクトリの中は、
+// その中を指すリンクの先の、SKILL.md 以外のファイルだけを辿る（files に入っている。スキルの SKILL.md とディレクトリそのものへのリンクでは止まる）。
+// 辿ったファイルは二度辿らないので、リンクが循環していても終わる。
 // 生成物の中で解決できないリンク（上流には先があるのに入れられない、上流のルートの外を指す）は dangling に足す
-function addLinkedFiles(upstreamDir: string, files: Map<string, Source>, skillDirs: string[], start: string[], dangling: Set<string>): string[] {
+function addLinkedFiles(upstreamDir: string, files: Map<string, Source>, skillDirs: string[], own: string, start: string[], dangling: Set<string>): string[] {
   const linked = new Set<string>();
   const queue = [...start];
   for (let path = queue.shift(); path !== undefined; path = queue.shift()) {
@@ -208,7 +211,9 @@ function addLinkedFiles(upstreamDir: string, files: Map<string, Source>, skillDi
       }
       if (!existsSync(join(upstreamDir, resolved))) continue;
       for (const file of walk(upstreamDir, resolved)) {
-        if (linked.has(file) || isOtherTeamKitSkill(file) || skillDirs.some((dir) => file.startsWith(`${dir}/`))) continue;
+        if (linked.has(file) || isOtherTeamKitSkill(file) || file.startsWith(`${own}/`)) continue;
+        const skill = skillDirs.find((dir) => file.startsWith(`${dir}/`));
+        if (skill !== undefined && (file === `${skill}/SKILL.md` || !resolved.startsWith(`${skill}/`))) continue;
         if (!files.has(file)) files.set(file, read(upstreamDir, file));
         linked.add(file);
         queue.push(file);

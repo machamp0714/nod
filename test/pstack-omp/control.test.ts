@@ -7,7 +7,7 @@
 // その中からの書き込みが拒否されるかで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
@@ -457,6 +457,79 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(tmp)).toEqual([]);
   });
 
+  test("作業ディレクトリの祖先のプロジェクトの .omp が閉じ込めの外の書ける置き場へのリンクなら、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのパスを出し、試しのものを残さない。本物の .omp なら起動する", async () => {
+    const sb = await applied();
+    const repo = join(sb.root, "repo");
+    const sub = join(repo, "src", "deep");
+    const outside = join(sb.root, "outside");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(sub, { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, join(repo, ".omp"));
+    const omp = join(realpathSync(repo), ".omp");
+    const scenario = { sessions: [{ agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] }] };
+
+    const linked = await sb.launchWith({ cwd: sub }, "printf started");
+    const linkedResult = await run(sb, scenario, { profile: profile(sb), cwd: sub });
+    const leftovers = readdirSync(outside);
+    rmSync(join(repo, ".omp"));
+    mkdirSync(join(repo, ".omp"));
+    const real = await sb.launchWith({ cwd: sub }, "printf started");
+    const realResult = await run(sb, scenario, { profile: profile(sb), cwd: sub });
+
+    expect(linked.exitCode).not.toBe(0);
+    expect(linked.stdout).toBe("");
+    expect(linked.stderr).toContain("サンドボックスに閉じ込められていません");
+    expect(linked.stderr).toContain(omp);
+    expect(linked.stderr).toContain("omp を起動しません");
+    expect(linkedResult.overrides).toEqual([]);
+    for (const call of [...linkedResult.toolCalls.flat(), ...linkedResult.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(omp);
+    }
+    expect(leftovers).toEqual([]);
+    expect(real.stderr).toBe("");
+    expect(real.stdout).toBe("started");
+    expect(realResult.toolCalls).toEqual([[null]]);
+    expect(realResult.spawns).toEqual([[null]]);
+    expect(readdirSync(join(repo, ".omp"))).toEqual([]);
+    expect(readdirSync(sub)).toEqual([]);
+  });
+
+  test("祖先のプロジェクトの .omp や .claude が、規則の allowPaths の下（ホームの ~/.omp の下）へのリンクでも、書いたままのパスで試すので、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのパスを出し、試しのものを残さない", async () => {
+    const sb = await applied();
+    const repo = join(sb.root, "repo");
+    const sub = join(repo, "src");
+    const ompTarget = join(sb.home, ".omp", "project-omp");
+    const claudeTarget = join(sb.home, ".omp", "project-claude");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(sub);
+    mkdirSync(ompTarget);
+    mkdirSync(claudeTarget);
+    symlinkSync(ompTarget, join(repo, ".omp"));
+    symlinkSync(claudeTarget, join(repo, ".claude"));
+    const real = realpathSync(repo);
+    const homeOmp = readdirSync(join(sb.home, ".omp")).sort();
+
+    const launched = await sb.launchWith({ cwd: sub }, "printf started");
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] }] }, { profile: profile(sb), cwd: sub });
+
+    expect(launched.exitCode).not.toBe(0);
+    expect(launched.stdout).toBe("");
+    expect(launched.stderr).toContain("サンドボックスに閉じ込められていません");
+    expect(launched.stderr).toContain(join(real, ".omp"));
+    expect(launched.stderr).toContain(join(real, ".claude", "settings.json"));
+    expect(launched.stderr).toContain("omp を起動しません");
+    expect(result.overrides).toEqual([]);
+    for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(join(real, ".omp"));
+    }
+    expect(readdirSync(ompTarget)).toEqual([]);
+    expect(readdirSync(claudeTarget)).toEqual([]);
+    expect(readdirSync(join(sb.home, ".omp")).sort()).toEqual(homeOmp);
+  });
+
   test("試しの作業用ディレクトリを一時ディレクトリに作れない（一時ディレクトリが守る集合の中にある）なら、正しいプロファイルでも遮断する", async () => {
     const sb = await applied();
 
@@ -518,6 +591,7 @@ describe("サンドボックスの信頼境界", () => {
       await sb.launch('mkdir "$1"', join(sb.agentDir, "hooks")),
       await sb.launch('mkdir "$1"', join(sb.agentDir, "tools")),
       await sb.launch('mkdir "$1"', join(sb.home, ".omp", "plugins")),
+      await sb.launch('mkdir -p "$1" && printf x > "$1/x.md"', join(sb.home, ".omp", "agents")),
     ];
     const allowed = await sb.launch(
       'mkdir -p "$1/sessions/p" && printf x > "$1/sessions/p/s.jsonl" && printf x > "$2/README.md" && mkdir -p "$2/.claude" && printf x > "$2/.claude/CLAUDE.md" && printf x > "$2/.omplike"',
@@ -535,6 +609,7 @@ describe("サンドボックスの信頼境界", () => {
     expect(existsSync(join(sb.agentDir, "hooks"))).toBe(false);
     expect(existsSync(join(sb.agentDir, "tools"))).toBe(false);
     expect(existsSync(join(sb.home, ".omp", "plugins"))).toBe(false);
+    expect(existsSync(join(sb.home, ".omp", "agents"))).toBe(false);
     expect(allowed.stderr).toBe("");
     expect(allowed.exitCode).toBe(0);
     expect(readFileSync(join(sb.agentDir, "sessions", "p", "s.jsonl"), "utf8")).toBe("x");

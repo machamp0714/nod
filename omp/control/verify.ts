@@ -9,7 +9,8 @@
 //   記録の sha256 と一致し、記録に無いファイルが無い
 // - 規則（control/rules.json）の形が正しい
 // - いまの OMP の設定の置き場（PI_CODING_AGENT_DIR。無ければ ~/.omp/agent）の実パスが、記録の agentDir と同じ
-// - このプロセスが、守る集合とどのプロジェクトでも書かせないパスに書けない（サンドボックスに閉じ込められている。writable）
+// - このプロセスが、守る集合と、作業ディレクトリとその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスに書けない
+//   （サンドボックスに閉じ込められている。writable）
 // 適用の時刻では何も省かない（どのプロセスでも、組を検証してから使う）。
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -31,8 +32,8 @@ import {
   unlinkSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, type Rules } from "./rules";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { type Guard, guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, resolvePlaces, type Rules } from "./rules";
 
 // 写しの根からの、組の記録・規則・専用ランチャー・サンドボックスのプロファイル・制御の拡張・組の検証の入口
 export const HARNESS_FILE = "control/harness.json";
@@ -74,7 +75,7 @@ export type Verdict =
   | { kind: "ok"; harness: Harness; rules: Rules; harnessSha: string; places: Places; guard: Guarded }
   | { kind: "blocked"; reason: string; confinement: boolean };
 
-// 写しの control（controlDir）の組を検証する。cwd はどのプロジェクトでも書かせないパスを試す作業ディレクトリ（実パス）
+// 写しの control（controlDir）の組を検証する。cwd はどのプロジェクトでも書かせないパスを試す作業ディレクトリ（実パス。その祖先でも試す）
 export function verify(controlDir: string, cwd: string, env: Record<string, string | undefined> = process.env): Verdict {
   const root = dirname(controlDir);
   const refuse = (reason: string, confinement = false): Verdict => ({ kind: "blocked", reason, confinement });
@@ -99,7 +100,12 @@ export function verify(controlDir: string, cwd: string, env: Record<string, stri
   }
   const places: Places = { agentDir: harness.agentDir, workDir: realAncestor(dirname(root)), ompBin: harness.ompBin, bunBin: harness.bunBin, home: homedir() };
   const guard = guarded(rules, places);
-  const open = writable(guard, cwd);
+  // 規則の allowPaths の、書いたままの形（親までの実パスと最後の要素。最後の要素のリンクは解かない）
+  const allowed = rules.allowPaths.map((entry) => {
+    const path = resolvePlaces(entry.replace(/\/+$/u, ""), places);
+    return { path: join(realAncestor(dirname(path)), basename(path)), directory: entry.endsWith("/") };
+  });
+  const open = writable(guard, cwd, allowed);
   if (open.length > 0) return refuse(`サンドボックスに閉じ込められていません（このプロセスから書けてしまう置き場: ${open.join(", ")}）`, true);
   return { kind: "ok", harness, rules, harnessSha: sha256(bytes), places, guard };
 }
@@ -216,37 +222,43 @@ function scan(root: string, tolerant: boolean): Record<string, string | null> {
 // 守る集合と、どのプロジェクトでも書かせないパスのうち、このプロセスが書けてしまう置き場（閉じ込められていれば空）。
 // FFI は使わず、拒否されるかを試す。
 // - 在るファイルと祖先は、同じ mode への chmod。在るディレクトリは、同じ mode への chmod と、その中への mkdir（作れたら消す）。
-//   chmod は EPERM（サンドボックスの拒否）で失敗しなければ書けるとみなす。在るファイルを書き込みで開いては試さない
+//   chmod は EPERM（サンドボックスの拒否）か EROFS（読み取り専用のボリューム）で失敗しなければ書けるとみなす。在るファイルを書き込みで開いては試さない
 //   （macOS では、実行中の実行ファイル（守る集合の omp と bun）を書き込みで開くと、書かなくても以後の起動がコード署名で止められる）。
 // - 無いパス（祖先を除く）は、親が在れば作ってみる（ディレクトリは mkdir、ファイルは O_CREAT|O_EXCL で開く）。親が無ければ試さない。
 // - 作成（無いパスと在るディレクトリの中の mkdir）は、拒否され、無いままなら書けない。作れてしまったら、作ったものだけを消して
 //   （ディレクトリは rmdir、ファイルは unlink。再帰では消さないので、その間に別のプロセスが中に書いたものは消さない）書けるとみなす。
-//   拒否は EPERM か、親が自分の持ち物で所有者の書き込みビットが立つときの EACCES（mode は許すので、拒否はサンドボックスによる）だけ。
-//   ほかの失敗（同じ利用者が書き込みの権限を外した親の EACCES は、同じ利用者の chmod で戻せる）は書けるとみなす。
-// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwd、実パス）の下で試す。ただし規則の allowPaths の下に入るもの
-//   （ホームを作業ディレクトリにしたときの ~/.omp など）は、プロファイルでもその照合から外れ、守る集合に入る部分は守る集合として
-//   試すので、ここでは試さない。さらに親の無いパス（.claude の無いリポジトリの .claude/settings.json など）も試すため、
+//   拒否は EPERM、EROFS、親が他の利用者の持ち物のときの EACCES（この利用者は権限を戻せない）、親が自分の持ち物で所有者の書き込みビットが
+//   立つときの EACCES（mode は許すので、拒否はサンドボックスによる）。ほかの失敗（同じ利用者が書き込みの権限を外した自分の持ち物の親の
+//   EACCES は、同じ利用者の chmod で戻せる）は書けるとみなす。
+// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwd、実パス）とその祖先（ファイルシステムの根まで）の下で試す
+//   （OMP の task のエージェント定義の探索は、作業ディレクトリから根まで遡って最も近い .omp/agents をプロジェクトの定義として読む。
+//   プロファイルはどのディレクトリの下でも拒否するが、実体が別の場所にあるリンクは実パスで照合されて拒否されないので、試して見つける）。
+//   ただし書いたままのパス（祖先の実パスと相対パス。途中と最後の要素のリンクは解かない）が規則の allowPaths の書いたままの形の下に
+//   入るもの（ホームを作業ディレクトリにしたときの ~/.omp など）は、プロファイルでもその照合から外れ、守る集合に入る部分
+//   （~/.omp/agents など）は守る集合として試すので、ここでは試さない。リンクの先だけが allowPaths の下に入るもの（~/.omp の下へのリンクの
+//   プロジェクトの .omp など）は、プロファイルが許してしまうので試す。さらに親の無いパス（.claude の無いリポジトリの .claude/settings.json など）も試すため、
 //   一時ディレクトリの下の自分の乱数名の作業用ディレクトリで、守られていない親を作ってから作成を試す（利用者のリポジトリには作らない）。
 //   作業用ディレクトリは終わったら中身ごと消す。作れない・消せないときは確かめられないので書けるとみなす。
 //   作業用ディレクトリで書けたら、作業ディレクトリの下の同じ相対パスを書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
-function writable({ paths, ancestors, projects, allows }: Guarded, cwd: string): string[] {
+function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed: Guard[]): string[] {
   const uid = process.getuid?.();
   const denied = (attempt: () => void): boolean => {
     try {
       attempt();
       return false;
     } catch (e) {
-      return (e as NodeJS.ErrnoException).code === "EPERM";
+      const code = (e as NodeJS.ErrnoException).code;
+      return code === "EPERM" || code === "EROFS";
     }
   };
-  // 親 parent の下への作成の失敗 e が、サンドボックスの拒否か
+  // 親 parent の下への作成の失敗 e が、サンドボックスの拒否か、この利用者が権限を戻せない失敗か
   const refused = (e: unknown, parent: string): boolean => {
     const code = (e as NodeJS.ErrnoException).code;
-    if (code === "EPERM") return true;
+    if (code === "EPERM" || code === "EROFS") return true;
     if (code !== "EACCES") return false;
     try {
       const stat = statSync(parent);
-      return stat.uid === uid && (stat.mode & 0o200) !== 0;
+      return stat.uid !== uid || (stat.mode & 0o200) !== 0;
     } catch {
       return false;
     }
@@ -308,13 +320,16 @@ function writable({ paths, ancestors, projects, allows }: Guarded, cwd: string):
     }
     return open;
   };
+  // 作業ディレクトリとその祖先（ファイルシステムの根まで）
+  const dirs = [cwd];
+  for (let at = cwd; dirname(at) !== at; at = dirname(at)) dirs.push(dirname(at));
   const open = [
     ...paths.filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
     ...ancestors.filter((path) => probe(path, true, true)),
-    ...projects
-      .map(({ path, directory }) => ({ path: join(cwd, path), target: realAncestor(join(cwd, path)), directory }))
-      // 規則の allowPaths の下は、プロファイルでもどのプロジェクトでも書かせないパスの照合から外れる
-      .filter(({ target }) => !allows.some((allow) => (allow.directory ? within(target, allow.path) : target === allow.path)))
+    ...dirs
+      .flatMap((dir) => projects.map(({ path, directory }) => ({ path: join(dir, path), directory })))
+      // 書いたままのパスが規則の allowPaths の下なら、プロファイルでもどのプロジェクトでも書かせないパスの照合から外れる
+      .filter(({ path }) => !allowed.some((allow) => (allow.directory ? within(path, allow.path) : path === allow.path)))
       .filter(({ path, directory }) => probe(path, directory))
       .map(({ path }) => path),
     ...scratch(),

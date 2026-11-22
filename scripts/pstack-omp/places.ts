@@ -1,6 +1,8 @@
 // OMP がエージェント定義とスキルを読む置き場から、名前を集める（名前のぶつかりの検査と状態の表示のため）。
 // エージェントの名前は <dir>/*.md の frontmatter の name（無ければファイル名）、スキルの名前は <dir>/*/SKILL.md の frontmatter の name
 // （無ければディレクトリ名）。OMP と同じく非再帰で読む。置き場が無ければ何も無いとみなす。
+// 定義のファイルが在るのに読めない（権限が無い、SKILL.md という名前のディレクトリなど）なら、名前を確かめられないので例外にせず、
+// unreadable に入れて呼び出し側に返す（適用は止まり、状態の表示はそのファイルを表示する）。
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import type { OmpConfig } from "./config";
@@ -13,29 +15,32 @@ export interface Definition {
   path: string;
 }
 
-export function skillsIn(dir: string): Definition[] {
-  return entries(dir).flatMap((entry) => {
-    const path = join(dir, entry, "SKILL.md");
-    return existsSync(path) ? [{ kind: "skill" as const, name: frontmatterName(path) ?? entry, path }] : [];
-  });
+// 置き場から集めた定義と、在るのに読めないので名前を確かめられない定義のファイル
+export interface Found {
+  definitions: Definition[];
+  unreadable: string[];
 }
 
-export function agentsIn(dir: string): Definition[] {
-  return entries(dir).flatMap((entry) => {
-    const path = join(dir, entry);
-    return entry.endsWith(".md") && isFile(path) ? [{ kind: "agent" as const, name: frontmatterName(path) ?? basename(entry, ".md"), path }] : [];
-  });
+export function skillsIn(dir: string): Found {
+  return collect(entries(dir).map((entry) => ({ kind: "skill", path: join(dir, entry, "SKILL.md"), fallback: entry })));
+}
+
+export function agentsIn(dir: string): Found {
+  return collect(
+    entries(dir)
+      .filter((entry) => entry.endsWith(".md") && isFile(join(dir, entry)))
+      .map((entry) => ({ kind: "agent", path: join(dir, entry), fallback: basename(entry, ".md") })),
+  );
 }
 
 // OMP 向けのディレクトリ（拡張のパッケージ）の skills/ と agents/
-export function packageDefinitions(dir: string): Definition[] {
-  return [...skillsIn(join(dir, "skills")), ...agentsIn(join(dir, "agents"))];
+export function packageDefinitions(dir: string): Found {
+  return merge([skillsIn(join(dir, "skills")), agentsIn(join(dir, "agents"))]);
 }
 
-export interface UserPlaces {
+export interface UserPlaces extends Found {
   // 検査した置き場（報告のため）
   dirs: string[];
-  definitions: Definition[];
 }
 
 // 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agents/skills、config.yml の skills.customDirectories と
@@ -46,14 +51,13 @@ export function userPlaces(agentDir: string, home: string, config: OmpConfig, ou
   const packages = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
   return {
     dirs: [join(agentDir, "agents"), ...skillDirs, ...packages],
-    definitions: [...agentsIn(join(agentDir, "agents")), ...skillDirs.flatMap(skillsIn), ...packages.flatMap(packageDefinitions)],
+    ...merge([agentsIn(join(agentDir, "agents")), ...skillDirs.map(skillsIn), ...packages.map(packageDefinitions)]),
   };
 }
 
-export interface ProjectPlaces {
+export interface ProjectPlaces extends Found {
   // プロジェクトの根（git の作業ツリーの根。git の外なら実行したディレクトリ）
   root: string;
-  definitions: Definition[];
 }
 
 // 実行したディレクトリのプロジェクトの置き場: 実行したディレクトリから git の作業ツリーの根まで遡った各ディレクトリの
@@ -73,10 +77,7 @@ export function projectPlaces(cwd: string, home: string): ProjectPlaces {
   const dirs = root === undefined ? chain.slice(0, 1) : chain;
   return {
     root: root ?? real(cwd),
-    definitions: dirs.flatMap((dir) => [
-      ...agentsIn(join(dir, ".omp", "agents")),
-      ...[".omp", ".agents", ".agent", ".claude"].flatMap((name) => skillsIn(join(dir, name, "skills"))),
-    ]),
+    ...merge(dirs.flatMap((dir) => [agentsIn(join(dir, ".omp", "agents")), ...[".omp", ".agents", ".agent", ".claude"].map((name) => skillsIn(join(dir, name, "skills")))])),
   };
 }
 
@@ -116,9 +117,30 @@ function isFile(path: string): boolean {
   }
 }
 
-// frontmatter（先頭の --- から --- まで）の name。読めなければ undefined
-function frontmatterName(path: string): string | undefined {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync(path, "utf8"));
+// 在る定義のファイル（path）を読んで名前を集める。frontmatter の name が無ければ fallback。在るのに読めなければ unreadable に入れる
+function collect(candidates: { kind: Definition["kind"]; path: string; fallback: string }[]): Found {
+  const found: Found = { definitions: [], unreadable: [] };
+  for (const { kind, path, fallback } of candidates) {
+    if (!existsSync(path)) continue;
+    let text: string;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch {
+      found.unreadable.push(path);
+      continue;
+    }
+    found.definitions.push({ kind, name: frontmatterName(text) ?? fallback, path });
+  }
+  return found;
+}
+
+function merge(list: Found[]): Found {
+  return { definitions: list.flatMap((f) => f.definitions), unreadable: list.flatMap((f) => f.unreadable) };
+}
+
+// frontmatter（先頭の --- から --- まで）の name。無い・読めない frontmatter なら undefined
+function frontmatterName(text: string): string | undefined {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (match === null) return undefined;
   try {
     const data = Bun.YAML.parse(match[1]!);

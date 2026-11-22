@@ -55,7 +55,8 @@ export interface Guard {
 
 // 守る集合: 規則の protectedPaths を解決した実パスと、その祖先（"/" を除く。親の rename で迂回させないため、祖先はそのパスだけを守る）。
 // 書いたパスの途中や末尾がリンクなら、リンク自身とその祖先も祖先として守る（リンクを入れ替えると、読む先が変わるため）。
-// projects は、どのプロジェクトでも書かせない相対パス（path は相対パス）。allows は、projects の照合から外す置き場（実パス）
+// projects は、どのプロジェクトでも書かせない相対パス（path は相対パス）。allows は、プロファイルで projects の照合から外す置き場（実パス。
+// 組の検証は、書いたままのパスで試しから外すかを決めるので、これは使わない）
 export interface Guarded {
   paths: Guard[];
   ancestors: string[];

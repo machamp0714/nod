@@ -147,7 +147,7 @@ export function apply(ctx: Context): ApplyResult {
   }
   const missingDirs = generated.dirs.filter((dir) => !existsSync(dir));
   if (missingDirs.length > 0) throw new PstackOmpError(`生成物にスキルの置き場 ${missingDirs.join(", ")} がありません。bun scripts/pstack-omp/cli.ts sync をやり直してください`);
-  const content = packageDefinitions(ctx.packageDir);
+  const content = packageDefinitions(ctx.packageDir).definitions;
   const contentSkills = content.filter((d) => d.kind === "skill").map((d) => d.name);
   if (contentSkills.length === 0) throw new PstackOmpError(`OMP 向けのディレクトリ ${ctx.packageDir} にスキルがありません`);
   for (const rel of [CONTROL_ENTRY, PREFLIGHT_ENTRY]) {
@@ -224,10 +224,21 @@ function checkSamePlace(previous: Record<string, unknown> | undefined, ctx: Cont
 }
 
 // 今回置く定義（OMP 向けのディレクトリのエージェント定義とスキル）と生成したスキルの、どれかと同じ名前のものが利用者の置き場にあるか。
-// 写し（再適用のときの今回置いたもの）は除く。tdd も返す（呼び出し側が、止めずに報告する）
+// 写し（再適用のときの今回置いたもの）は除く。tdd も返す（呼び出し側が、止めずに報告する）。
+// 在るのに読めない定義やスキルのファイルがあれば、同じ名前かを確かめられないので止める
 function findCollisions(ctx: Context, config: OmpConfig, root: string, content: Definition[], generated: string[]): Definition[] {
   const names = new Set([...content.map((d) => `${d.kind}:${d.name}`), ...generated.map((name) => `skill:${name}`)]);
-  return userPlaces(ctx.agentDir, ctx.home, config, root).definitions.filter((d) => names.has(`${d.kind}:${d.name}`));
+  const places = userPlaces(ctx.agentDir, ctx.home, config, root);
+  if (places.unreadable.length > 0) {
+    throw new PstackOmpError(
+      [
+        "利用者の置き場に、読めない定義やスキルのファイルがあり、今回置く定義やスキルと同じ名前かを確かめられません。適用を止めます（何も変えていません）。",
+        ...places.unreadable.map((path) => `  ${path}`),
+        "読めるようにするか退かしてから、もう一度適用してください。",
+      ].join("\n"),
+    );
+  }
+  return places.definitions.filter((d) => names.has(`${d.kind}:${d.name}`));
 }
 
 // 読み込みの設定の形を確かめる（skills がマッピング、3つが文字列の配列）。正しくなければ止める
@@ -335,7 +346,8 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
 
 // サンドボックスのプロファイル: 既定は許し、どのプロジェクトでも書かせないパスへの書き込みを拒否し、その照合から外す置き場を許し、
 // 守る集合への書き込み（作成・書き換え・削除・rename・chmod など）を拒否する（Seatbelt は後の規則が勝つ）。
-// どのプロジェクトでも書かせないパスは、どのディレクトリの下でも当たる正規表現（ディレクトリならその下も）。
+// どのプロジェクトでも書かせないパスは、どのディレクトリの下でも当たる正規表現（ディレクトリならその下も）。Seatbelt は実パスで照合するので、
+// 実体が別の場所にあるリンクの先には当たらない（組の検証が、作業ディレクトリとその祖先で書けないことを試して、書ければ拒否する）。
 // 守る置き場は規則の種類で（ディレクトリならその下も）、祖先はそのパスだけを拒否する
 function profile({ paths, ancestors, projects, allows }: Guarded): string {
   const quote = (path: string) => `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
@@ -395,7 +407,7 @@ export function remove(ctx: Context): RemoveResult {
       ...(Array.isArray(previous?.manualSkills) ? previous.manualSkills.filter((name): name is string => typeof name === "string") : []),
       ...(readGenerated(p.generated)?.names ?? []),
       ...packageDefinitions(ctx.packageDir)
-        .filter((d) => d.kind === "skill")
+        .definitions.filter((d) => d.kind === "skill")
         .map((d) => d.name),
     ];
     const cleanup = cleanLegacy(config, legacyRecord(previous, path), p.root, names);

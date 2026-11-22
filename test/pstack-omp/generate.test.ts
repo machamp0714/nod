@@ -184,7 +184,7 @@ describe("Cursor の名前を使うスキルに案内の1行を入れ、ほか�
       "pstack/skills/help/SKILL.md": skillMd("help", "Read [the README](../../README.md)."),
       "pstack/README.md": "# pstack\n\nSee [the guide](./docs/guide/05-build.md).\n",
       "pstack/docs/guide/05-build.md": "# Build\n\nSpawn one `Task` per worker.\n",
-      // 別の生成するスキルへのリンクは辿らない（そのスキルは自分の案内の1行を持つ）
+      // 別の生成するスキルの SKILL.md（そのスキルの入口で、自分の案内の1行を持つ）へのリンクは、このスキルの用語に数えない
       "pstack/skills/caller/SKILL.md": caller,
     });
     sb.pin();
@@ -206,6 +206,53 @@ describe("Cursor の名前を使うスキルに案内の1行を入れ、ほか�
     expect(readGenerated(sb, "pstack/skills/caller/SKILL.md")).toBe(caller);
     expect(readGenerated(sb, "pstack/docs/guide/05-build.md")).toBe("# Build\n\nSpawn one `Task` per worker.\n");
     expect(JSON.parse(readGenerated(sb, "manifest.json")).guided).toEqual({ pstack: ["help"], "cursor-team-kit": [] });
+  });
+
+  test("別の生成するスキルの中の SKILL.md 以外の文書を、直接かスキルの外の文書を経てリンクすると、その文書の用語もリンクしたスキルの用語として検出する。SKILL.md やディレクトリそのものへのリンクは数えず、リンクが循環しても終わり、同じ出力になる", async () => {
+    const sb = sandbox();
+    const entry = skillMd("entry", "Use [help](../help/SKILL.md), [its folder](../help/) and [again](../help).");
+    const files = {
+      "pstack/skills/help/SKILL.md": skillMd("help", "Plain."),
+      "pstack/skills/help/references/steps.md": "# Steps\n\nSpawn one `Task` per worker. See [caller notes](../../caller/references/notes.md) and [help](../SKILL.md).\n",
+      // 直接のリンクと、リンクの循環（caller の文書と help の文書が互いをリンクする）
+      "pstack/skills/caller/SKILL.md": skillMd("caller", "Follow [the steps](../help/references/steps.md#run)."),
+      "pstack/skills/caller/references/notes.md": "# Notes\n\nBack to [steps](../../help/references/steps.md).\n",
+      // スキルの外の文書を経たリンク
+      "pstack/skills/viadoc/SKILL.md": skillMd("viadoc", "Read [the README](../../README.md)."),
+      "pstack/README.md": "# pstack\n\nSee [steps](./skills/help/references/steps.md).\n",
+      "pstack/skills/entry/SKILL.md": entry,
+    };
+    sb.commit("0.15.46", files);
+    sb.pin();
+
+    const failed = await sb.sync();
+    expect(failed.exitCode).toBe(1);
+    expect(missingRows(failed)).toEqual(new Map([["`Task`", ["pstack/caller", "pstack/help", "pstack/viadoc"]]]));
+    expect(existsSync(sb.generated)).toBe(false);
+
+    sb.table(table(["`Task`"]));
+    const run = await sb.sync();
+    const first = snapshot(sb.generated);
+    const again = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/caller/SKILL.md")).toBe(
+      `---\nname: caller\ndescription: test\n---\n\n# caller\n\n${GUIDE_LINE}\n\nFollow [the steps](../help/references/steps.md#run).\n`,
+    );
+    expect(readGenerated(sb, "pstack/skills/viadoc/SKILL.md")).toBe(
+      `---\nname: viadoc\ndescription: test\n---\n\n# viadoc\n\n${GUIDE_LINE}\n\nRead [the README](../../README.md).\n`,
+    );
+    expect(readGenerated(sb, "pstack/skills/entry/SKILL.md")).toBe(entry);
+    // help の SKILL.md は自分の付属の文書の用語で案内の1行を持つ。リンクされた文書と外の文書は上流のまま
+    expect(readGenerated(sb, "pstack/skills/help/SKILL.md")).toContain(GUIDE_LINE);
+    const upstream = snapshot(sb.clone);
+    for (const path of ["pstack/skills/help/references/steps.md", "pstack/skills/caller/references/notes.md", "pstack/README.md"]) {
+      expect(first.get(path)).toEqual(upstream.get(path)!);
+    }
+    expect(JSON.parse(readGenerated(sb, "manifest.json")).guided).toEqual({ pstack: ["caller", "help", "viadoc"], "cursor-team-kit": [] });
+    expect(again.exitCode).toBe(0);
+    expect(snapshot(sb.generated)).toEqual(first);
   });
 
   test("生成物の中で解決できない相対リンクがあると、どのファイルのどのリンクかを報告して失敗する", async () => {

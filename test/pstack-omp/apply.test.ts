@@ -4,7 +4,7 @@
 // 適用の後に始めるプロセスは、写しの専用ランチャーの中か、写しのサンドボックスのプロファイルで閉じ込めて起動する
 // （閉じ込めずに起動すると全ツールを遮断するため）。
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { MAIN, put, type Sandbox, sandbox, skillMd, snapshot, SUB, synced } from "./helpers";
 
@@ -538,6 +538,25 @@ describe("名前のぶつかり", () => {
     expect(run.stderr).toContain(path);
     expect(run.stderr).toContain("上書きしない");
     expect(existsSync(sb.configPath) ? readFileSync(sb.configPath, "utf8") : undefined).toBe(config);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("利用者の置き場の定義やスキルのファイルが在るのに読めないと、同じ名前かを確かめられないので、そのファイルを報告して止まり、設定と写しは何も変わらない", async () => {
+    const sb = await synced();
+    put(sb.configPath, "theme: dark\n");
+    const locked = join(sb.home, ".agents", "skills", "locked", "SKILL.md");
+    put(locked, skillMd("locked", "mine"));
+    chmodSync(locked, 0o000);
+    const folder = join(sb.agentDir, "skills", "folder", "SKILL.md");
+    mkdirSync(folder, { recursive: true });
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("止めました: 利用者の置き場に、読めない定義やスキルのファイルがあり");
+    expect(run.stderr).toContain(locked);
+    expect(run.stderr).toContain(folder);
+    expect(readFileSync(sb.configPath, "utf8")).toBe("theme: dark\n");
     expect(existsSync(sb.copy)).toBe(false);
   });
 

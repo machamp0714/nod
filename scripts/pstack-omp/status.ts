@@ -1,7 +1,8 @@
 // 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても・読めなくても、例外で終わらずに表示する。
 // 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
 // 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp）、実行したディレクトリの
-// プロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。
+// プロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
+// 名前を確かめられないことをそのファイルごとに出す（写しの中のファイルは、写しの照合が読めないファイルとして出す）。
 // 「適用しています」は、写しの全ファイル（専用ランチャー bin/omp とサンドボックスのプロファイル control/sandbox.sb を含む）が組の記録の
 // sha256 と一致し（記録に無いファイルも無い）、写しの中の生成したスキルの置き場が在るときだけ出す（制御の拡張と専用ランチャーの
 // 組の検証と同じ照合。omp/control/verify.ts の copyProblems）。pstack は専用ランチャーから起動したセッションだけに読み込まれ、
@@ -11,7 +12,7 @@ import { join } from "node:path";
 import { configPath, type OmpConfig, readConfig, sha256 } from "./config";
 import { type Context, readOmpVersion } from "./context";
 import { entryGuide, legacyItems, paths, readGenerated, readRecord, samePin } from "./harness";
-import { type Definition, packageDefinitions, projectPlaces, skillsIn, userPlaces } from "./places";
+import { type Definition, type Found, packageDefinitions, projectPlaces, skillsIn, userPlaces } from "./places";
 import { copyProblems, type Harness, parseHarness, readRules, RULES_FILE } from "../../omp/control/verify";
 
 export function status(ctx: Context, cwd: string): string[] {
@@ -108,16 +109,16 @@ export function status(ctx: Context, cwd: string): string[] {
     lines.push("  → 適用していません");
   }
 
-  let userDefinitions: Definition[] = [];
+  let user: Found = { definitions: [], unreadable: [] };
   try {
-    if (config !== undefined) userDefinitions = userPlaces(ctx.agentDir, ctx.home, config, p.root).definitions;
+    if (config !== undefined) user = userPlaces(ctx.agentDir, ctx.home, config, p.root);
   } catch {
     // 設定の値の形が正しくなければ、利用者の置き場は上の「OMP の設定」の行で報告している
   }
   lines.push("どの tdd が使われるか:");
   // 写しの中の pstack の tdd（専用ランチャーのセッションで skills.customDirectories の先頭に入る置き場）
   const pstackTdd = join(p.skills[0]!, "tdd", "SKILL.md");
-  const userTdd = userDefinitions.find((d) => d.kind === "skill" && d.name === "tdd");
+  const userTdd = user.definitions.find((d) => d.kind === "skill" && d.name === "tdd");
   if (applied && existsSync(pstackTdd)) {
     lines.push(`  専用ランチャーから起動したセッション: pstack の tdd（${pstackTdd}）が使われます（写しの中の生成したスキルの置き場が skills.customDirectories の先頭に入るため）`);
     if (userTdd !== undefined) lines.push(`    利用者の置き場の tdd（${userTdd.path}）は、名前空間つきの <名前空間>/tdd の名前になります`);
@@ -131,16 +132,18 @@ export function status(ctx: Context, cwd: string): string[] {
   } else {
     lines.push("  適用していないので、pstack の tdd は使われません（利用者の置き場にも tdd はありません）");
   }
+  for (const path of user.unreadable) lines.push(`  利用者の置き場の ${path} は読めないので、名前（tdd か）を確かめられません`);
 
   const project = projectPlaces(cwd, ctx.home);
-  const content = packageDefinitions(ctx.packageDir);
+  const content = packageDefinitions(ctx.packageDir).definitions;
   const contentNames = new Set(content.map((d) => `${d.kind}:${d.name}`));
   // 生成したスキルの名前（データ置き場の生成物と、写しの中の生成したスキル）
-  const generatedNames = new Set([...(generated?.names ?? []), ...p.skills.flatMap(skillsIn).map((d) => d.name)]);
+  const generatedNames = new Set([...(generated?.names ?? []), ...p.skills.flatMap((dir) => skillsIn(dir).definitions).map((d) => d.name)]);
   const clashes = project.definitions.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedNames.has(d.name)));
   lines.push(`プロジェクト（${project.root}）の置き場にある、今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:`);
-  if (clashes.length === 0) lines.push("  ありません");
+  if (clashes.length === 0 && project.unreadable.length === 0) lines.push("  ありません");
   for (const d of clashes) lines.push(`  ${d.path}: ${explain(d, generatedNames)}`);
+  for (const path of project.unreadable) lines.push(`  ${path}: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`);
   return lines;
 }
 

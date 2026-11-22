@@ -112,6 +112,7 @@
     "{agentDir}/tools/",
     "{agentDir}/hooks/",
     "{home}/.omp/plugins/",
+    "{home}/.omp/agents/",
     "{home}/.bunfig.toml",
     "{ompBin}",
     "{bunBin}"
