@@ -75,8 +75,10 @@ describe("適用", () => {
       disabledExtensions: ["skill:foo"],
     };
     // メインの task ツールがエージェント定義を探す時点（session_start の前）に、OMP 向けのディレクトリが extensions に入っている
-    expect(result.effectiveAtStart).toEqual([expected]);
-    expect(result.effective).toEqual(expected);
+    // （規則の上書き tools.approval と bash.patterns は control.test.ts で確かめる）
+    expect(result.effectiveAtStart).toHaveLength(1);
+    expect(result.effectiveAtStart[0]).toMatchObject(expected);
+    expect(result.effective).toMatchObject(expected);
     expect(result.toolCalls).toEqual([[null]]);
   });
 
@@ -109,7 +111,8 @@ describe("適用", () => {
     });
 
     expect(new Set(result.overrides.map(({ session, phase }) => `${session}:${phase}`))).toEqual(new Set(["0:factory"]));
-    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["extensions", "skills.customDirectories", "skills.manualSkills"]);
+    // 固定する全キーを、値が変わらなくても実行時の層に入れる（メインの1度だけ）
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["bash.patterns", "disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills", "tools.approval"]);
     expect(result.effectiveAtStart[1]).toEqual(result.effectiveAtStart[0]);
     expect(result.effectiveAtStart[2]).toEqual(result.effectiveAtStart[0]);
     expect(result.toolCalls).toEqual([[], [null], [null]]);
@@ -538,7 +541,7 @@ describe("写し", () => {
     visit(sb.copy);
 
     expect(writableEntries).toEqual([]);
-    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts"]);
+    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts", "rules.json", "rules.ts"]);
     expect(readFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "utf8")).toBe(readFileSync(join(sb.packageDir, "skills", "pstack-omp", "SKILL.md"), "utf8"));
   });
 

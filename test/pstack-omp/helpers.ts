@@ -1,14 +1,19 @@
 // pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）のテストの共通の部品。
 // 上流は一時ディレクトリに作った git リポジトリ、固定の記録・データ置き場・omp の実行ファイル（版を出すだけの偽物）・
-// OMP 向けのディレクトリの中身（読み替え表を置く）・利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・ホーム（HOME）も
-// 一時のものを環境変数で渡す。ネットワークとモデルの呼び出しはしない。
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+// OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・
+// ホーム（HOME）も一時のものを環境変数で渡す。ネットワークとモデルの呼び出しはしない。
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CLI = join(import.meta.dir, "../../scripts/pstack-omp/cli.ts");
 // nod のリポジトリの OMP 向けのディレクトリの中身と、その中の読み替え表の位置
 export const REPO_CONTENT = join(import.meta.dir, "../../omp/content");
+// nod のリポジトリの制御の拡張と、その規則
+export const REPO_CONTROL = join(import.meta.dir, "../../omp/control");
+export const REPO_RULES = join(REPO_CONTROL, "rules.json");
+// メインのスレッドの制御の拡張が、検証した組の記録の sha256 を worker thread の子に渡す環境変数
+export const HARNESS_ENV = "NOD_PSTACK_OMP_HARNESS_SHA256";
 const TABLE = "skills/pstack-omp/SKILL.md";
 
 export interface Run {
@@ -155,6 +160,8 @@ export interface Sandbox {
   table(content: string | null): void;
   // OMP 向けのディレクトリの中身にファイルを書く（エージェント定義など）。repoTable の sandbox では使えない
   content(path: string, text: string): void;
+  // 制御の拡張を、リポジトリの omp/control を写したものに差し替え、その規則（rules.json）を書く（NOD_PSTACK_OMP_CONTROL）
+  rules(text: string): void;
   // 道具のサブコマンドを起動する。cwd は実行するディレクトリ（既定は一時ディレクトリの root）
   run(command: string, options?: { cwd?: string; dataDir?: string }): Promise<Run>;
   // 同期を起動する。dataDir を渡すとそのデータ置き場を使う
@@ -174,6 +181,7 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
   const packageDir = repoTable ? REPO_CONTENT : join(root, "omp-package");
   const agentDir = join(root, "omp-agent");
   const home = join(root, "home");
+  const controlDir = join(root, "omp-control");
   mkdirSync(upstream);
   mkdirSync(home);
   git(root, upstream, "init", "-q", "-b", "main");
@@ -222,6 +230,10 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
       mkdirSync(join(packageDir, path, ".."), { recursive: true });
       writeFileSync(join(packageDir, path), text);
     },
+    rules(text) {
+      if (!existsSync(controlDir)) cpSync(REPO_CONTROL, controlDir, { recursive: true });
+      writeFileSync(join(controlDir, "rules.json"), text);
+    },
     async run(command, { cwd = root, dataDir: dir = dataDir } = {}) {
       const env: Record<string, string | undefined> = {
         ...process.env,
@@ -234,6 +246,7 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
         HOME: home,
       };
       if (repoTable) delete env.NOD_PSTACK_OMP_PACKAGE;
+      if (existsSync(controlDir)) env.NOD_PSTACK_OMP_CONTROL = controlDir;
       const proc = Bun.spawn([process.execPath, CLI, command], { cwd, env, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       return { exitCode, stdout, stderr };
@@ -312,27 +325,45 @@ export function unlockSandboxes(): void {
   for (const root of created.splice(0)) if (existsSync(root)) visit(root);
 }
 
+export interface ToolCall {
+  toolName: string;
+  input: unknown;
+}
+
 export interface ExtensionScenario {
   // 拡張が読む設定のいまの実効値（global・project・--config を合わせたもの）
-  settings: Record<string, string[]>;
+  settings: Record<string, unknown>;
+  // settings の値がどの層から来たか（既定は global）。実行時の上書きをした値は runtime になる
+  provenance?: string;
   // true なら、設定が worker thread の子のもの（メインのスレッドの設定の写しの上に重なった層）になる
   mirror?: boolean;
-  // 順に始めるセッション。agent は ctx.agent（null なら無い）、toolCalls はそのセッションで呼ぶツールの数
-  sessions: { agent: { kind: "main" | "sub"; name: string; depth: number } | null; toolCalls: number }[];
+  // 拡張を読み込む前に足す環境変数（worker thread の子がメインのスレッドから受け継ぐもの）
+  env?: Record<string, string>;
+  // ctx.cwd（既定はこのプロセスの cwd）
+  cwd?: string;
+  // 順に始めるセッション。agent は ctx.agent（null なら無い）。toolCalls はそのセッションで呼ぶツール（数なら bash の ls をその回数）。
+  // spawns は、そのセッションが起動しようとする子のエージェントの名前（before_subagent_spawn に渡す）
+  sessions: { agent: { kind: "main" | "sub"; name: string; depth: number } | null; toolCalls: number | ToolCall[]; spawns?: string[] }[];
 }
+
+export type Blocked = { block: boolean; reason: string } | null;
 
 export interface ExtensionResult {
   // 拡張がした実行時の上書き（順に）。session は何番目のセッションか、phase はそのセッションのどの時点か
-  overrides: { id: string; value: string[]; session: number; phase: "factory" | "session_start" | "tool_call" }[];
+  overrides: { id: string; value: unknown; session: number; phase: "factory" | "session_start" | "tool_call" }[];
   // 全セッションの後の実効値
-  effective: Record<string, string[]>;
+  effective: Record<string, unknown>;
   // セッションごとの、factory の後で session_start の前の実効値（OMP がメインの task ツールを作り、エージェント定義を探す時点）
-  effectiveAtStart: Record<string, string[]>[];
+  effectiveAtStart: Record<string, unknown>[];
   // セッションごとに、拡張が message renderer を登録した customType
   renderers: string[][];
   // セッションごとの tool_call の戻り値（遮断しなければ null）
-  toolCalls: ({ block: boolean; reason: string } | null)[][];
+  toolCalls: Blocked[][];
+  // セッションごとの before_subagent_spawn の戻り値（拒否しなければ null）
+  spawns: Blocked[][];
   notices: string[];
+  // 全セッションの後の、worker thread の子に渡る環境変数（HARNESS_ENV）の値
+  harnessEnv: string | null;
 }
 
 export const MAIN = { kind: "main", name: "main", depth: 0 } as const;

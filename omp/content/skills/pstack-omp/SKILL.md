@@ -86,3 +86,5 @@ OMP では、子のモデルと思考の水準を OMP の設定で決める。�
 | origin pr（Origin の CLI。`origin pr view`、`origin pr create` など） | OMP での読み替えは無い。手順のとおり `command -v origin` で確かめ、無ければ `gh` を使う。どちらを使っても、push、PR の作成、マージはこの段ではしない。PR を読むだけの操作（`gh pr view` など）は使える。 |
 
 この段では、PR を開く手前で止まる。push と PR の作成はしない。後の段で専用の処理を用意する。Opening a PR の手順は、コミットの整理と `/deslop`（`skill://deslop`）、PR のタイトルと本文の作成までを行い、そこで止まる。報告には、作業した枝、先頭のコミット、PR のタイトルと本文を書く。
+
+この段では、これらの操作は仕組みでも拒否される。bash の `git push`、`gh` と `origin` の PR・Issue などへの書き込み（`gh pr create`、`gh api` の `-X` や `-f` など）、`github` ツールの `pr_create` と `pr_push`、`eval`、`task` の `isolated: true`、子と孫からの `poteto-agent` と既定の `task` 以外の起動、OMP の設定と組の置き場への書き込みである。拒否されたら、別の書き方や別の道具で迂回しない。止まって、拒否された操作と理由を報告する。

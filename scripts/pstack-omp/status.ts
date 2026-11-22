@@ -1,10 +1,11 @@
 // 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても表示する。
-// 出すのは、適用の状態（config.yml の登録、写しと組の記録の sha256、生成物の pin、OMP の版）、どの tdd が使われるか、
-// 実行したディレクトリのプロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。
+// 出すのは、適用の状態（config.yml の登録、写しと組の記録の sha256、制御の規則の版と sha256 とリポジトリの規則との一致、生成物の pin、
+// OMP の版）、どの tdd が使われるか、実行したディレクトリのプロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { configPath, type OmpConfig, readConfig, stringList } from "./config";
+import { configPath, type OmpConfig, readConfig, sha256, stringList } from "./config";
 import { type Context, readOmpVersion } from "./context";
-import { hashFiles, paths, readGenerated, readHarness, samePin } from "./harness";
+import { hashFiles, paths, readGenerated, readHarness, readRules, RULES_FILE, samePin } from "./harness";
 import { type Definition, packageDefinitions, projectPlaces, real, userPlaces } from "./places";
 
 export function status(ctx: Context, cwd: string): string[] {
@@ -43,6 +44,26 @@ export function status(ctx: Context, cwd: string): string[] {
     copyOk = problems.length === 0;
     lines.push(`  写し ${p.root}: 適用 ${harness.appliedAt}、pin ${harness.pin?.commit}`);
     lines.push(copyOk ? "    組のファイルは記録の sha256 と一致しています" : `    組のファイルが記録と違います: ${problems.join(", ")}`);
+  }
+
+  const rulesPath = join(p.control, RULES_FILE);
+  const repoRules = join(ctx.controlDir, RULES_FILE);
+  if (existsSync(rulesPath)) {
+    const rules = readRules(p.control);
+    const sha = sha256(readFileSync(rulesPath));
+    if (typeof rules === "string") {
+      lines.push(`  制御の規則 ${rulesPath}: 正しくありません（${rules}）`);
+    } else {
+      lines.push(
+        `  制御の規則 ${rulesPath}: 版 ${rules.version}、sha256 ${sha}（拒否するツール ${Object.keys(rules.toolApproval).join(", ")}、` +
+          `bash の拒否のパターン ${rules.bashDeny.length} 個、github の拒否 ${rules.github.denyOps.join(", ")}、子と孫が起動できるエージェント ${rules.task.subAgents.join(", ")}、` +
+          `書き込めない置き場 ${rules.protectedPaths.join(", ")}）`,
+      );
+    }
+    const repoSha = existsSync(repoRules) ? sha256(readFileSync(repoRules)) : undefined;
+    lines.push(repoSha === sha ? `    リポジトリの規則と一致しています（${repoRules}）` : `    リポジトリの規則と違います（${repoRules}）。apply し直すとリポジトリの規則に入れ替わります`);
+  } else if (harness !== undefined) {
+    lines.push(`  制御の規則 ${rulesPath}: ありません（制御の拡張は全ツールを遮断します）`);
   }
 
   const generated = readGenerated(p.generated);

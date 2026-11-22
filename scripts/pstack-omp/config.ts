@@ -22,14 +22,18 @@ export interface OmpConfig {
 // config.yml のパス。リンクを解き、置き場がまだ無くても、在る祖先の別名（macOS の /var と /private/var など）を解いた形にする
 // （適用の記録と解除で同じパスになるように）
 export function configPath(agentDir: string): string {
-  let path = join(agentDir, "config.yml");
-  for (let rest = ""; ; ) {
+  return realAncestor(join(agentDir, "config.yml"));
+}
+
+// path のリンクと別名を解いた形。path がまだ無ければ、在る祖先まで解いて残りをつなぐ
+export function realAncestor(path: string): string {
+  for (let at = path, rest = ""; ; ) {
     try {
-      return join(realpathSync(path), rest);
+      return join(realpathSync(at), rest);
     } catch {
-      if (dirname(path) === path) return join(agentDir, "config.yml");
-      rest = join(basename(path), rest);
-      path = dirname(path);
+      if (dirname(at) === at) return path;
+      rest = join(basename(at), rest);
+      at = dirname(at);
     }
   }
 }

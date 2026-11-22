@@ -36,6 +36,12 @@ declare module "@oh-my-pi/pi-coding-agent" {
     reason?: string;
   }
 
+  // 子を起動する直前（task・eval の agent()・workpool）。親のセッションに1子ごとに1度届く。agent は起動する子のエージェントの名前
+  export interface BeforeSubagentSpawnEvent {
+    agent?: string;
+    invocationKind?: string;
+  }
+
   // custom message（customType が同じもの）の TUI での描き方。render は幅を受けて行の配列を返す
   export interface MessageComponent {
     render(width: number): string[];
@@ -45,6 +51,10 @@ declare module "@oh-my-pi/pi-coding-agent" {
   export interface ExtensionAPI {
     on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
     on(event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => ToolCallEventResult | undefined | Promise<ToolCallEventResult | undefined>): void;
+    on(
+      event: "before_subagent_spawn",
+      handler: (event: BeforeSubagentSpawnEvent, ctx: ExtensionContext) => ToolCallEventResult | undefined | Promise<ToolCallEventResult | undefined>,
+    ): void;
     registerMessageRenderer(customType: string, renderer: (message: { content: unknown }) => MessageComponent): void;
     readonly pi: { readonly settings: Settings };
   }
@@ -56,8 +66,10 @@ declare module "@oh-my-pi/pi-coding-agent/config/registry" {
   export interface Setting {
     // 全部の層（実行時の上書き・--config・project・global・既定）を合わせた実効値
     get(scope: Settings): unknown;
-    // 実行時の層に書く（永続しない。配列は置き換え）
+    // 実行時の層に書く（永続しない。配列と record の値は置き換え）
     override(scope: Settings, value: unknown): void;
+    // 実効値がどの層から来たか（実行時の上書きなら "runtime"。ほかに "overlay"（--config）・"project"・"global"・"default" など）
+    provenance(scope: Settings): string;
   }
 
   export function lookup(id: string): Setting | undefined;

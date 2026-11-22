@@ -4,6 +4,7 @@
 //   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
 //   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）
 //   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
+//   NOD_PSTACK_OMP_CONTROL 制御の拡張とその規則 rules.json（既定は nod のリポジトリの omp/control）
 //   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml
 //   HOME                   利用者のホーム（~/.agents/skills を名前のぶつかりとして検査する）
 import { readFileSync } from "node:fs";
@@ -46,7 +47,7 @@ export function loadContext(env: Record<string, string | undefined> = process.en
     workDir: resolve(dataDir, "pstack-omp"),
     ompBin: env.NOD_PSTACK_OMP_OMP_BIN || "omp",
     packageDir: resolve(env.NOD_PSTACK_OMP_PACKAGE || join(ompDir, "content")),
-    controlDir: resolve(ompDir, "control"),
+    controlDir: resolve(env.NOD_PSTACK_OMP_CONTROL || join(ompDir, "control")),
     agentDir: resolve(env.PI_CODING_AGENT_DIR || join(home, ".omp", "agent")),
     home,
   };

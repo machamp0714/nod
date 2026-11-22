@@ -2,16 +2,18 @@
 // 適用は、OMP 向けのディレクトリの中身（content）と制御の拡張（control）を、データ置き場の下の pstack-omp/omp に写し
 // （nod のリポジトリや worktree が消えても動くように。書き込み権限は外す）、同じ写しの control/harness.json に組の記録を書き、
 // 利用者の config.yml の extensions に写しの control を1項目だけ足す。スキルの読み込み先・OMP 向けのディレクトリの登録・
-// 一覧から外すスキルの指定は、制御の拡張が組の記録を読んで、セッションごとに実行時の層に入れる（omp/control/index.ts）。
+// 一覧から外すスキルの指定と、禁止操作を止める規則（control/rules.json）の上書きは、制御の拡張が組の記録と規則を検証してから、
+// セッションごとに同じ処理で実行時の層に入れる（omp/control/index.ts）。規則が不正なら、適用は何も変えずに止まる。
 // 写しは同じ階層の一時ディレクトリに作り終えてから置き換え、config.yml は一時ファイルから rename する。途中で失敗したら、
 // config.yml と写しを適用の前のままにして止める。
 // 解除は config.yml から自分の項目を外し（適用の後に config.yml が変わっていなければ、適用の前のバイトに戻す）、写しを消す。
 import { randomBytes } from "node:crypto";
 import { chmodSync, cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { configPath, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
+import { configPath, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
 import { checkOmpVersion, type Context, type Pin, PstackOmpError } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces } from "./places";
+import { parseRules, type Rules } from "../../omp/control/rules";
 
 // 組の記録（写しの control/harness.json）。制御の拡張が読む部分の形は omp/control/index.ts と揃える
 export interface Harness {
@@ -24,6 +26,8 @@ export interface Harness {
   // 写しの中の OMP 向けのディレクトリと制御の拡張
   content: string;
   control: string;
+  // 適用した OMP の設定の置き場（規則の {agentDir}）
+  agentDir: string;
   // skills.customDirectories の先頭に足すスキルの置き場（生成した pstack と cursor-team-kit）
   skillDirectories: string[];
   // 一覧から外すスキル（生成した全スキルと、OMP 向けのディレクトリのスキル）
@@ -43,6 +47,17 @@ export interface Harness {
 }
 
 const HARNESS_FILE = "harness.json";
+export const RULES_FILE = "rules.json";
+
+// 制御の拡張のディレクトリの規則。無い・読めない・不正なら理由
+export function readRules(controlDir: string): Rules | string {
+  try {
+    return parseRules(JSON.parse(readFileSync(join(controlDir, RULES_FILE), "utf8")));
+  } catch (e) {
+    return `読めません: ${(e as Error).message}`;
+  }
+}
+
 const GENERATED_ROOTS = ["pstack", "cursor-team-kit"] as const;
 
 export interface Paths {
@@ -135,6 +150,8 @@ export function apply(ctx: Context): ApplyResult {
   const contentSkills = content.filter((d) => d.kind === "skill").map((d) => d.name);
   if (contentSkills.length === 0) throw new PstackOmpError(`OMP 向けのディレクトリ ${ctx.packageDir} にスキルがありません`);
   if (!existsSync(join(ctx.controlDir, "index.ts"))) throw new PstackOmpError(`制御の拡張 ${join(ctx.controlDir, "index.ts")} がありません`);
+  const rules = readRules(ctx.controlDir);
+  if (typeof rules === "string") throw new PstackOmpError(`制御の規則 ${join(ctx.controlDir, RULES_FILE)} が正しくありません（${rules}）。何も変えずに止めます`);
 
   const path = configPath(ctx.agentDir);
   return withConfigLock(path, () => {
@@ -160,6 +177,7 @@ export function apply(ctx: Context): ApplyResult {
       ompVersion,
       content: p.content,
       control: p.control,
+      agentDir: realAncestor(ctx.agentDir),
       skillDirectories: generated.dirs,
       manualSkills: [...generated.names, ...contentSkills.filter((name) => !generated.names.includes(name))],
       files: {},
