@@ -123,10 +123,10 @@ describe("自動クローズ（#71）", () => {
     expect(ids(dry().rules[0]!)).toEqual(expected);
   });
 
-  test("委任中・スヌーズ中・未完了の子を持つ親・アーカイブ済み・他 Workspace を除く", () => {
+  test("スヌーズ中・未完了の子を持つ親・アーカイブ済み・他 Workspace を除き、担当だけでは除外しない", () => {
     const { db, me, make, enable, dry } = fixture();
     enable(10, null);
-    make("todo", old, { assignee: "claude-code" });
+    const unstarted = make("todo", old, { assignee: "claude-code" });
     const mine = make("todo", old, { assignee: "me" });
     make("todo", old, { snoozedUntil: "2026-10-01T00:00:00.000Z" });
     const snoozeEnded = make("todo", old, { snoozedUntil: "2026-09-20T00:00:00.000Z" });
@@ -140,7 +140,7 @@ describe("自動クローズ（#71）", () => {
     const other = initWorkspace(db, { path: "/tmp/automation-other", key: "OTHER" }).workspace;
     make("todo", old, { workspaceId: other.id });
     expect(openChild).toBeString();
-    expect(ids(dry().rules[0]!)).toEqual([mine, snoozeEnded, parent]);
+    expect(ids(dry().rules[0]!)).toEqual([unstarted, mine, snoozeEnded, parent, openChild]);
   });
 
   test("未完了の Issue をブロックしている Issue と、未完了のブロッカー待ちの Issue を除く", () => {
@@ -158,13 +158,14 @@ describe("自動クローズ（#71）", () => {
     archiveIssue(me, archived);
     block(blocksArchived, archived); // アーカイブ済みは未完了として数えない
     const related = make("todo");
-    block(related, make("in_progress", old, {assignee:"codex"}), "related"); // blocks 以外の関係は問わない
-    expect(ids(dry().rules[0]!).sort()).toEqual([blocksDone, blockedByCanceled, blocksArchived, related].sort());
+    const relatedTarget = make("in_progress", old, { assignee: "codex" });
+    block(related, relatedTarget, "related"); // blocks 以外の関係は問わない
+    expect(ids(dry().rules[0]!).sort()).toEqual([blocksDone, blockedByCanceled, blocksArchived, related, relatedTarget].sort());
     expect(ids(dry().rules[0]!)).not.toContain(blocker);
     expect(ids(dry().rules[0]!)).not.toContain(waiting);
   });
 
-  test("実行時にも担当・子・ブロック関係・状態を確かめ、外れたものはスキップする", () => {
+  test("実行時にも作業状況・子・ブロック関係・状態を確かめ、外れたものはスキップする", () => {
     const { db, make, enable, run } = fixture();
     enable(10, null);
     const first = make("todo", "2026-09-01T00:00:00.000Z");
@@ -177,7 +178,7 @@ describe("自動クローズ（#71）", () => {
     const id = (ref: string) => findIssueRow(db, ref).id;
     // 候補を探したあと、1件目を処理した時点でほかの Issue が変わる（ほかの操作との競合）
     db.exec(`CREATE TRIGGER race AFTER UPDATE OF close_reason ON issues WHEN NEW.id = ${id(first)} BEGIN
-      UPDATE issues SET assignee = 'claude-code' WHERE id = ${id(delegated)};
+      UPDATE issues SET agent_state = 'working' WHERE id = ${id(delegated)};
       UPDATE issues SET parent_id = ${id(gotChild)} WHERE id = ${id(openChild)};
       INSERT INTO relations(from_id, to_id, type, created_at) VALUES (${id(openBlocker)}, ${id(gotBlocker)}, 'blocks', '${old}');
       UPDATE issues SET status = 'done' WHERE id = ${id(reviewed)};
@@ -226,7 +227,7 @@ describe("自動クローズ（#71）", () => {
     const { db, make, enable, run } = fixture();
     enable(10, null);
     const ref = make("in_progress", old, { assignee: "me" });
-    db.query("UPDATE issues SET agent_state='working' WHERE id=?").run(findIssueRow(db, ref).id);
+    db.query("UPDATE issues SET agent_state='done' WHERE id=?").run(findIssueRow(db, ref).id);
     const r = run();
     expect(r.dryRun).toBe(false);
     expect(r.rules[0]).toMatchObject({ total: 1, processed: [ref], failed: [], remaining: 0 });
@@ -382,8 +383,8 @@ describe("自動アーカイブ（#72）", () => {
     const notListed = make("todo", "2026-09-03T00:00:00.000Z");
     const archiveA = make("done");
     const reopened = make("done", "2026-09-01T00:00:00.000Z");
-    // 確認のあとで closeB は委任され、reopened は再開された
-    db.query("UPDATE issues SET assignee='claude-code' WHERE id=?").run(findIssueRow(db, closeB).id);
+    // 確認のあとで closeB は作業開始され、reopened は再開された
+    db.query("UPDATE issues SET agent_state='working' WHERE id=?").run(findIssueRow(db, closeB).id);
     db.query("UPDATE issues SET status='todo', closed_at=NULL WHERE id=?").run(findIssueRow(db, reopened).id);
     const r = runAutomation(me, ws.key, {
       evaluatedAt: at,
