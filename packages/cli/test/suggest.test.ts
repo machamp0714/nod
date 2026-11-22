@@ -28,5 +28,5 @@ test("suggestはJSONと人向け候補を返し、DBを変更せず、nextは着
   expect(help.stdout).toContain("着手・予約・通知はしない");
   expect(help.stdout).toContain("--project");
   const claimed = await runNod(["issue", "next", "--json"], opts);
-  expect(claimed.json).toMatchObject({ id: created.json.id, status: "in_progress", assignee: "codex" });
+  expect(claimed.json).toMatchObject({ id: created.json.id, status: "in_progress", previousAgentState: null });
 });

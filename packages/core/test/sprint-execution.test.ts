@@ -174,9 +174,9 @@ test("中止後も未解決の予約を保持し、通常start・suggest・next�
   const before = ledger();
   expect(before).toMatchObject({ occupied: 1, reserved: 1, unreconciledOwnership: [] });
   expect(core.suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(issue.id);
-  expect(core.nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: issue.id, status: "in_progress", assignee: llm.actor });
+  expect(core.nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: issue.id, status: "in_progress" });
   expect(ledger()).toEqual(before);
-  expect(core.startIssue(llm, issue.id)).toMatchObject({ status: "in_progress", assignee: llm.actor });
+  expect(core.startIssue(llm, issue.id)).toMatchObject({ status: "in_progress" });
   expect(ledger()).toEqual(before);
   core.updateIssue(me, issue.id, { status: "todo" });
   expect(core.updateIssue(me, issue.id, { status: "in_progress" }).status).toBe("in_progress");
@@ -507,7 +507,7 @@ test("合意前の通常着手を未照合の占有として保持し、別採�
   const sprint = core.activateSprint(state.me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   const session = await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
   expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ occupied: 1, reserved: 0,
-    unreconciledOwnership: [{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id, assignee: state.llm.actor, status: "in_progress" }] });
+    unreconciledOwnership: [{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id, status: "in_progress" }] });
   const b予約 = core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: "B予約", itemId: proposal.items[1]!.id,
     actor: state.llm.actor, spec: "別の仕事を開始する", placement: { agent: "codex", worktree: "path:/専用" } }, sprintTestClock);
   expect(b予約).toMatchObject({ itemId: proposal.items[1]!.id, sourceIssueKey: b.id, phase: "reserved", occupied: true });
@@ -519,7 +519,7 @@ test("合意前の通常着手を未照合の占有として保持し、別採�
   expect(observed).toMatchObject({ occupied: 2, reserved: 1,
     unreconciledOwnership: [{ itemId: proposal.items[0]!.id, sourceIssueKey: a.id }] });
   expect(observed.attempts.map(x => x.id)).toEqual([b予約.id]);
-  expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "in_progress", assignee: state.llm.actor });
+  expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "in_progress" });
   state.db.close();
 });
 
@@ -591,10 +591,10 @@ test("通常経路の実行場所を占有として保存し、中止後の元�
   const sprint = core.activateSprint(state.me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
   const before = core.getSprintExecutionState(state.db, sprint.id, sprintTestClock);
-  expect(before).toMatchObject({ occupied: 1, reserved: 0, unreconciledOwnership: [{ sourceIssueKey: a.id, assignee: "元の担当", worktree: "/既存の作業場所" }] });
+  expect(before).toMatchObject({ occupied: 1, reserved: 0, unreconciledOwnership: [{ sourceIssueKey: a.id, worktree: "/既存の作業場所" }] });
   core.cancelSprint(state.me, sprint.id, { expectedVersion: sprint.version, requestKey: "中止", reason: "元担当を確認する" });
-  expect(codeOf(() => core.startIssue(state.llm, a.id))).toBe("ASSIGNED_TO_OTHER");
-  expect(core.startIssue(original, a.id)).toMatchObject({ status: "in_progress", assignee: "元の担当" });
+  expect(core.startIssue(state.llm, a.id)).toMatchObject({ status: "in_progress" });
+  expect(core.startIssue(original, a.id)).toMatchObject({ status: "in_progress" });
   core.updateIssue(state.me, a.id, { status: "done", assignee: null });
   expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ occupied: 1, reserved: 0, unreconciledOwnership: before.unreconciledOwnership });
   state.db.close();
@@ -606,11 +606,11 @@ test("採択後に通常経路で着手したIssueへのSprintの新規主試行
   const proposal = prepareSprint(state.me, state.ws.key, [a.id]), ready = acceptPreparedSprint(state.me, proposal);
   const sprint = core.activateSprint(state.me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   const session = await core.beginSprintSession(state.llm, sprint.id, { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" }, { authority: async () => authority() }, sprintTestClock);
-  expect(core.startIssue(state.llm, a.id)).toMatchObject({ status: "in_progress", assignee: state.llm.actor });
+  expect(core.startIssue(state.llm, a.id)).toMatchObject({ status: "in_progress" });
   expect(codeOf(() => core.prepareSprintExecution(state.llm, sprint.id, { sessionId: session.id, generation: 1, requestKey: "A予約", itemId: proposal.items[0]!.id,
     actor: state.llm.actor, spec: "通常着手済みの仕事を開始する", placement: { agent: "codex", worktree: "path:/専用" } }, sprintTestClock))).toBe("EXECUTION_OWNED");
   expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ reserved: 0, attempts: [], operations: [] });
-  expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "in_progress", assignee: state.llm.actor });
+  expect(core.getIssue(state.db, a.id)).toMatchObject({ status: "in_progress" });
   state.db.close();
 });
 

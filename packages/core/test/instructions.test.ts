@@ -5,7 +5,6 @@ import {
   instructionMessage,
   listInstructions,
   recordInstruction,
-  acknowledgeShownInstructions,
   SENDING_STALE_MS,
   sendInstruction,
   takePendingInstructions,
@@ -83,19 +82,6 @@ describe("LLM の受け取り", () => {
     expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: "claude-code" });
   });
 
-  test("担当の LLM が show で読んだ指示だけを確認済みにし、次の start では渡さない。人・担当でない LLM では変えない", () => {
-    const { me, llm, db, ref } = working();
-    const first = recordInstruction(me, ref, "テストも追加して");
-    const shown = getIssue(db, ref).pendingInstructions;
-    expect(acknowledgeShownInstructions(me, ref, shown)).toBe(0);
-    expect(acknowledgeShownInstructions({ db, actor: "codex" }, ref, shown)).toBe(0);
-    expect(getIssue(db, ref).pendingInstructions.map((i) => i.id)).toEqual([first.id]);
-    // 読んだあとに記録された指示は未確認のまま残る
-    const later = recordInstruction(me, ref, "README も直して");
-    expect(acknowledgeShownInstructions(llm, ref, shown)).toBe(1);
-    expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: "claude-code" });
-    expect(takePendingInstructions(llm, ref).map((i) => i.id)).toEqual([later.id]);
-  });
 });
 
 describe("送信先の候補", () => {

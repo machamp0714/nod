@@ -59,7 +59,6 @@ export function getSprintIssueEligibility(ctx: OpCtx, ref: string, itemId: strin
     if (issue.status === "triage") return blocked("NOT_ACCEPTED", "IssueはTriageにあります");
     if (issue.status === "needs_clarification") return blocked("NEEDS_CLARIFICATION", "Issueの未決事項が残っています");
     if (issue.status === "done" || issue.status === "canceled") return blocked("ISSUE_CLOSED", "Issueは終了しています");
-    if (issue.assignee && issue.assignee !== ctx.actor) return blocked("ASSIGNED_TO_OTHER", "別の担当者が所有しています");
     if (ctx.db.query("SELECT 1 FROM questions WHERE issue_id=? AND answer IS NULL").get(issue.id)) return blocked("AWAITING_ANSWER", "未回答の確認依頼があります");
     if (ctx.db.query(`SELECT 1 FROM relations r JOIN issues b ON b.id=r.from_id WHERE r.to_id=? AND r.type='blocks' AND ${OPEN_BLOCKER}`).get(issue.id)) {
       return blocked("BLOCKED", "未解決の依存関係があります");

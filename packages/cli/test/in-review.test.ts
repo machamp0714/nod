@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
+import { git, makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 test("CLIからレビュー中へ移し、表示・検索・表示名・遷移ルールを往復できる", async () => {
   const cwd = makeRepo("api-server");
@@ -74,4 +74,28 @@ test("CLIの進捗・統計・候補でレビュー中を未完了として扱�
   expect((await run(stats)).json.llms[0].totals).toMatchObject({ submitted: 1, completed: 1 });
   expect((await run(["stats", "--by", "day", "--from", today, "--to", today, "--tz", "UTC"])).json.totals.completed).toBe(1);
   expect((await run(["issue", "next"])).json.id).toBe(blocked.id);
+});
+
+test("別の書き手から作業中でも開始でき、前の状態と場所を結果と Activity に残す", async () => {
+  const cwd = makeRepo("api-server");
+  const db = tempDb();
+  registerRepo(db, cwd, "API");
+  const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
+  const issue = (await run(["issue", "create", "引き継ぎ"])).json;
+  await run(["issue", "update", issue.id, "--assignee", "me"]);
+  const first = await run(["issue", "start", issue.id], "claude-code");
+  expect(first.exitCode).toBe(0);
+  expect(first.json.previousAgentState).toBeNull();
+  git(cwd, "switch", "-c", "resume");
+  const second = await run(["issue", "start", issue.id], "codex");
+  expect(second.exitCode).toBe(0);
+  expect(second.json).toMatchObject({ agentState: "working", previousAgentState: "working", previousLocation: { branch: "main", worktree: cwd } });
+  const detail = (await run(["issue", "show", issue.id])).json;
+  expect(detail.activity.filter((a: { type?: string }) => a.type === "work_started"))
+    .toMatchObject([
+      { actor: "claude-code", data: { previousAgentState: null, to: { branch: "main", worktree: cwd } } },
+      { actor: "codex", data: { previousAgentState: "working", from: { branch: "main", worktree: cwd }, to: { branch: "resume", worktree: cwd } } },
+    ]);
+  const text = await runNod(["issue", "start", issue.id], { cwd, db, actor: "codex" });
+  expect(text.stdout).toContain("開始前の作業状況: working");
 });

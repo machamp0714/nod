@@ -95,10 +95,12 @@ test("レビュー提出で稼働状態をクリアし、startで最初の着手
     const started = startIssue(llm, issue.id);
     const review = await call(app, "POST", `/api/issues/${issue.id}/update`, { status: "in_review" });
     expect(review.json).toMatchObject({ status: "in_review", agentState: null, closedAt: null });
-    await call(app, "POST", `/api/issues/${issue.id}/update`, { assignee: "me" });
     const resumed = await call(app, "POST", `/api/issues/${issue.id}/start`, {});
     expect(resumed.status).toBe(200);
-    expect(resumed.json).toMatchObject({ status: "in_progress", startedAt: started.startedAt, closedAt: null, agentState: "working" });
+    expect(resumed.json).toMatchObject({ status: "in_progress", startedAt: started.startedAt, closedAt: null, agentState: "working", previousAgentState: null });
+    const activity = (await call(app, "GET", `/api/issues/${issue.id}`)).json.activity;
+    expect(activity.filter((a: { type?: string }) => a.type === "work_started").at(-1))
+      .toMatchObject({ actor: "me", data: { previousAgentState: null } });
     expect((await call(app, "POST", `/api/issues/${issue.id}/done`, { summary: "PR不要の作業を完了しました" })).json.status).toBe("done");
   } finally {
     db.close();
@@ -119,9 +121,6 @@ test("レビュー中の再開・完了も既存の保護と入力検証を守�
       expect(after).toMatchObject({ status: before.status, agentState: before.agentState, startedAt: before.startedAt, closedAt: before.closedAt, activity: before.activity });
     };
     await review();
-    await call(app, "POST", `${path}/update`, { assignee: "codex" });
-    await expectRejected("start", "ASSIGNED_TO_OTHER");
-    await call(app, "POST", `${path}/update`, { assignee: null });
     const question = await call(app, "POST", `${path}/ask`, { question: "修正方針を確認したい" });
     await review();
     await expectRejected("start", "AWAITING_ANSWER");

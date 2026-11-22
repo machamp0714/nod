@@ -291,15 +291,3 @@ export function takePendingInstructions(ctx: OpCtx, ref: string): AgentInstructi
   });
 }
 
-// 担当の LLM が nod issue show で読んだ未確認の追加指示を確認済みにする（作業中に読んだ指示を次の start で渡し直さないため）。
-// 人や担当でない LLM の show では変えない。確認済みにした数を返す
-export function acknowledgeShownInstructions(ctx: OpCtx, ref: string, shown: AgentInstruction[]): number {
-  if (!isLlm(ctx) || shown.length === 0) return 0;
-  return tx(ctx.db, () => {
-    const row = findIssueRow(ctx.db, ref);
-    if (row.assignee !== ctx.actor) return 0;
-    const before = pendingInstructionsOfIssue(ctx.db, row.id).length;
-    acknowledge(ctx, row.id, shown);
-    return before - pendingInstructionsOfIssue(ctx.db, row.id).length;
-  });
-}

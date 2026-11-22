@@ -16,14 +16,14 @@ describe("nextIssue", () => {
     expect(picked).toEqual([urgent.id, medium.id, none.id, null]);
   });
 
-  test("着手し、担当を自分、作業状況を working にして、作業場所を記録する", () => {
+  test("着手し、作業状況を working にして、作業場所を記録する", () => {
     const { db, ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     const picked = nextIssue(llm, { workspaceId: ws.id, location: { branch: "feat-x", worktree: "/wt/x" } });
     expect(picked).toMatchObject({
       id: i.id,
       status: "in_progress",
-      assignee: "claude-code",
+      assignee: null,
       agentState: "working",
       branch: "feat-x",
       worktree: "/wt/x",
@@ -32,12 +32,12 @@ describe("nextIssue", () => {
     expect(eventsOf(db, i.id).map((e) => e.type)).toEqual([
       "created",
       "status_changed",
-      "assignee_changed",
       "agent_state_changed",
+      "work_started",
     ]);
   });
 
-  test("Triage、後回し中、未回答の確認依頼あり、ブロック中、他人の担当は取らない", () => {
+  test("Triage、後回し中、未回答の確認依頼あり、ブロック中は取らず、他人の担当は取る", () => {
     const { db, ws, me, llm } = setup();
     createIssue(llm, { workspaceId: ws.id, title: "triage" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "snoozed" });
@@ -51,7 +51,7 @@ describe("nextIssue", () => {
     const others = createIssue(me, { workspaceId: ws.id, title: "others" });
     updateIssue(me, others.id, { assignee: "codex" });
 
-    expect(nextIssue(llm, { workspaceId: ws.id })).toBeNull();
+    expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(others.id);
     updateIssue(me, blocker.id, { status: "canceled" });
     expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(blocked.id);
   });
@@ -80,7 +80,7 @@ describe("nextIssue", () => {
     const b = openDb(path);
     const first = nextIssue({ db: a, actor: "claude-code" }, { workspaceId: ws.id });
     const second = nextIssue({ db: b, actor: "codex" }, { workspaceId: ws.id });
-    expect(first?.assignee).toBe("claude-code");
+    expect(first?.id).toBeDefined();
     expect(second).toBeNull();
   });
 });
@@ -90,7 +90,7 @@ describe("startIssue", () => {
     const { ws, me, llm } = setup();
     const backlog = createIssue(me, { workspaceId: ws.id, title: "b" });
     updateIssue(me, backlog.id, { status: "backlog" });
-    expect(startIssue(llm, backlog.id)).toMatchObject({ status: "in_progress", assignee: "claude-code", agentState: "working" });
+    expect(startIssue(llm, backlog.id)).toMatchObject({ status: "in_progress", agentState: "working" });
     const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
     expect(codeOf(() => startIssue(llm, triage.id))).toBe("NOT_ACCEPTED");
     const canceled = createIssue(me, { workspaceId: ws.id, title: "c" });
@@ -98,20 +98,12 @@ describe("startIssue", () => {
     expect(codeOf(() => startIssue(llm, canceled.id))).toBe("ISSUE_CLOSED");
   });
 
-  test("他人の担当なら ASSIGNED_TO_OTHER、未回答の確認依頼があれば AWAITING_ANSWER、ブロック中なら BLOCKED", () => {
+  test("他の書き手から再開でき、未回答は AWAITING_ANSWER、ブロック中は BLOCKED", () => {
     const { ws, me, llm } = setup();
     const codex: typeof llm = { db: llm.db, actor: "codex" };
     const others = createIssue(me, { workspaceId: ws.id, title: "others" });
     startIssue(codex, others.id);
-    let err: unknown;
-    try {
-      startIssue(llm, others.id);
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toMatchObject({ code: "ASSIGNED_TO_OTHER" });
-    expect((err as Error).message).toContain("codex");
-    expect(getIssue(llm.db, others.id).assignee).toBe("codex");
+    expect(startIssue(llm, others.id)).toMatchObject({ agentState: "working", previousAgentState: "working" });
 
     const asked = createIssue(me, { workspaceId: ws.id, title: "asked" });
     startIssue(llm, asked.id);
@@ -138,11 +130,11 @@ describe("startIssue", () => {
     expect(startIssue(llm, blocked.id).status).toBe("in_progress");
   });
 
-  test("自分が担当している Issue には再び着手できる（差し戻し後の再開）", () => {
+  test("同じ書き手からも再び着手できる", () => {
     const { ws, me, llm } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     startIssue(llm, i.id);
-    expect(startIssue(llm, i.id)).toMatchObject({ status: "in_progress", assignee: "claude-code" });
+    expect(startIssue(llm, i.id)).toMatchObject({ status: "in_progress", previousAgentState: "working" });
   });
 });
 

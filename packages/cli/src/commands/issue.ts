@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import {
-  acknowledgeShownInstructions,
   addFileAttachment,
   addLinkAttachment,
   archiveIssue,
@@ -97,6 +96,14 @@ import {
 // Orca のカードは LLM 向けのコマンドで LLM が操作したときだけ更新する
 async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
   if (isLlm(cli.ctx)) await notifyOrca(update);
+}
+
+function formatStartContext(result: { previousAgentState: Issue["agentState"]; previousLocation: { branch: string | null; worktree: string | null } | null }): string {
+  const lines = [`開始前の作業状況: ${result.previousAgentState ?? "なし"}`];
+  if (result.previousLocation) {
+    lines.push(`前の branch: ${result.previousLocation.branch ?? "なし"}`, `前の worktree: ${result.previousLocation.worktree ?? "なし"}`);
+  }
+  return lines.join("\n");
 }
 
 // 更新後の状態が todo・backlog の Issue に残る未回答の確認依頼の件数（状態を変えたかは問わない）。残る間は着手できないので、成功表示に添える（#170）
@@ -280,8 +287,6 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
-        // 担当の LLM が読んだ未確認の追加指示は確認済みにする（表示は読んだ時点の「未確認」のまま）
-        acknowledgeShownInstructions(cli.ctx, detail.id, detail.pendingInstructions);
         const rules = workspaceGuidance(cli.db, detail.workspace);
         const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
         print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));
@@ -611,7 +616,7 @@ export function registerIssueCommands(program: Command): void {
         if (picked) await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${picked.id} ${picked.title}` });
         const rules = picked ? workspaceGuidance(cli.db, picked.workspace) : null;
         print(cli, picked && withRules(picked, rules), () =>
-          picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}`, rules) : "着手できる Issue はありません",
+          picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}\n${formatStartContext(picked)}`, rules) : "着手できる Issue はありません",
         );
       }),
     );
@@ -628,6 +633,7 @@ export function registerIssueCommands(program: Command): void {
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
         const text = [
           `着手しました: ${formatIssueLine(started)}`,
+          formatStartContext(started),
           ...(pendingInstructions.length ? ["", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)] : []),
         ].join("\n");
         print(cli, { ...withRules(started, rules), pendingInstructions }, () => withRulesText(text, rules));
