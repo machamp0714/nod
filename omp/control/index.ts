@@ -3,8 +3,14 @@
 //
 // - 組の記録を検証する（読める、形が正しい、指すディレクトリがある、組の各ファイルの sha256 が記録と同じ）。
 //   正しくなければ、メインでも子でも全ツールを遮断し、理由を返す（新しい構成のまま、読み込み先が壊れた状態でツールを使わせない）。
-// - 正しければ、メインのセッションの開始で実行時の層（永続しない。global・project・--config より強い）に読み込みの設定を書く。
-//   子と孫は親の実行時の層を引き継ぐので、子では書かない（書くと全体の値を書き換えてしまう）。
+// - 正しければ、拡張の読み込み（factory）で実行時の層（永続しない。global・project・--config より強い）に読み込みの設定を書く。
+//   セッションの開始（session_start）より前に書くのは、メインの task ツールが作られるときにエージェント定義を探すので、
+//   そのときまでに OMP 向けのディレクトリ（content）が extensions に入っていないと、メインの task の一覧に poteto-agent が出ないため。
+//   factory はセッションごと（子と孫も）に呼ばれ、同じプロセスの子と孫は親と同じ設定を使うので、同じ値を書き直すだけになる。
+//   worker thread の写し（mirror）の設定には書かない（親の設定を写したもので、親が既に書いている）。
+// - TUI は、providers・shortcuts・renderer などを何も登録しない拡張の読み込みを、入力欄の表示の後に回すことがある
+//   （OMP の extensibility/extensions/startup-deferral.ts）。そうなると task ツールが作られた後に書くことになるので、
+//   後回しにさせないため、customType が pstack-omp の message renderer を登録する（この拡張はその種類のメッセージを送らない）。
 // - このプロセスが適用より前に始まっていたら（適用より前のセッションに、後から読み込まれたとき）、何もしない。新しいセッションから効く。
 // 検証はプロセスで1度だけ行い、同じプロセスの全セッション（メイン・子・孫）で同じ結果を使う。
 import { createHash } from "node:crypto";
@@ -38,6 +44,15 @@ let verdict: Verdict | undefined;
 
 export default function control(pi: ExtensionAPI): void {
   verdict ??= judge();
+  pi.registerMessageRenderer(NAME, (message) => ({ render: () => [String(message.content)], invalidate: () => {} }));
+  const current = verdict;
+  if (current.kind === "ok" && !isMirror(pi.pi.settings)) {
+    try {
+      overrideSettings(pi.pi.settings, current.harness);
+    } catch (e) {
+      verdict = blocked(`読み込みの設定を書けませんでした: ${(e as Error).message}`);
+    }
+  }
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx.agent?.kind !== "main") return;
@@ -48,14 +63,6 @@ export default function control(pi: ExtensionAPI): void {
     }
     if (current.kind === "blocked") {
       report(ctx, `${NAME}: ${current.reason}`, "error");
-      return;
-    }
-    try {
-      overrideSettings(pi.pi.settings, current.harness);
-    } catch (e) {
-      const failure = blocked(`読み込みの設定を書けませんでした: ${(e as Error).message}`);
-      verdict = failure;
-      report(ctx, `${NAME}: ${failure.reason}`, "error");
       return;
     }
     const { harness } = current;
@@ -126,14 +133,18 @@ function parseHarness(raw: unknown): Harness | string {
   return raw as Harness;
 }
 
-// 実行時の層に読み込みの設定を書く。どれも、いまの実効値（global・project・--config を合わせたもの）を土台にする
+// 実行時の層に読み込みの設定を書く。どれも、いまの実効値（global・project・--config を合わせたもの）を土台にする。
+// 値が既に同じなら書かない（子と孫の factory で呼ばれたとき、設定の変更を知らせる仕組みを無駄に動かさない）
 function overrideSettings(settings: Settings, harness: Harness): void {
   const handle = (id: string) => {
     const setting = lookup(id);
     if (setting === undefined) throw new Error(`OMP の設定 ${id} がありません`);
     const value = setting.get(settings);
     const current = Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : [];
-    return { current, override: (next: string[]) => setting.override(settings, next) };
+    const override = (next: string[]) => {
+      if (next.length !== current.length || next.some((entry, i) => entry !== current[i])) setting.override(settings, next);
+    };
+    return { current, override };
   };
   const extensions = handle("extensions");
   const customDirectories = handle("skills.customDirectories");
@@ -155,6 +166,14 @@ function overrideSettings(settings: Settings, harness: Harness): void {
   manualSkills.override([...manualSkills.current, ...harness.manualSkills.filter((name) => !manualSkills.current.includes(name))]);
   // 組の置き場と、読み込むスキル（skill:<名前>）を無効にする指定を外す
   disabledExtensions.override(disabledExtensions.current.filter((entry) => !ours.has(real(entry)) && !skillIds.has(entry)));
+}
+
+// worker thread の子の設定は、親（メインのスレッド）の設定の写し（mirror）か、その上に重ねた層である
+function isMirror(settings: Settings): boolean {
+  for (let scope: Settings | undefined = settings; scope !== undefined; scope = scope.overlayParent?.()) {
+    if (scope.isMirror === true) return true;
+  }
+  return false;
 }
 
 // 同じディレクトリの別名（macOS の /tmp と /private/tmp、~ など）を同じとみなすための形

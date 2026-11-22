@@ -315,15 +315,21 @@ export function unlockSandboxes(): void {
 export interface ExtensionScenario {
   // 拡張が読む設定のいまの実効値（global・project・--config を合わせたもの）
   settings: Record<string, string[]>;
+  // true なら、設定が worker thread の子のもの（メインのスレッドの設定の写しの上に重なった層）になる
+  mirror?: boolean;
   // 順に始めるセッション。agent は ctx.agent（null なら無い）、toolCalls はそのセッションで呼ぶツールの数
   sessions: { agent: { kind: "main" | "sub"; name: string; depth: number } | null; toolCalls: number }[];
 }
 
 export interface ExtensionResult {
-  // 拡張がした実行時の上書き（順に）
-  overrides: { id: string; value: string[] }[];
+  // 拡張がした実行時の上書き（順に）。session は何番目のセッションか、phase はそのセッションのどの時点か
+  overrides: { id: string; value: string[]; session: number; phase: "factory" | "session_start" | "tool_call" }[];
   // 全セッションの後の実効値
   effective: Record<string, string[]>;
+  // セッションごとの、factory の後で session_start の前の実効値（OMP がメインの task ツールを作り、エージェント定義を探す時点）
+  effectiveAtStart: Record<string, string[]>[];
+  // セッションごとに、拡張が message renderer を登録した customType
+  renderers: string[][];
   // セッションごとの tool_call の戻り値（遮断しなければ null）
   toolCalls: ({ block: boolean; reason: string } | null)[][];
   notices: string[];

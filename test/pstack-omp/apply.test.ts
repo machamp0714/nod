@@ -49,7 +49,7 @@ describe("適用", () => {
     });
   });
 
-  test("適用の後に始めたセッションのメインで、スキルの読み込み先・OMP 向けのディレクトリ・一覧から外す全スキルが実行時に足され、既にある値は保たれる", async () => {
+  test("適用の後に始めたセッションで、メインの session_start より前（拡張の読み込み）に、スキルの読み込み先・OMP 向けのディレクトリ・一覧から外す全スキルが実行時に足され、既にある値は保たれる", async () => {
     const sb = await synced();
     writeConfig(sb, USER_CONFIG);
     expect((await sb.run("apply")).exitCode).toBe(0);
@@ -65,7 +65,7 @@ describe("適用", () => {
       sessions: [{ agent: MAIN, toolCalls: 1 }],
     });
 
-    expect(result.effective).toEqual({
+    const expected = {
       extensions: ["/somewhere/ext-a", control, copyPath(sb, "omp/content")],
       // 生成した pstack と cursor-team-kit を先頭に置き、pstack の tdd を利用者の置き場の tdd より優先させる
       "skills.customDirectories": [copyPath(sb, "generated/pstack/skills"), copyPath(sb, "generated/cursor-team-kit/skills"), "/somewhere/skills"],
@@ -73,11 +73,29 @@ describe("適用", () => {
       "skills.manualSkills": ["private-*", "poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"],
       // 読み込むスキルを無効にする指定は外す
       disabledExtensions: ["skill:foo"],
-    });
+    };
+    // メインの task ツールがエージェント定義を探す時点（session_start の前）に、OMP 向けのディレクトリが extensions に入っている
+    expect(result.effectiveAtStart).toEqual([expected]);
+    expect(result.effective).toEqual(expected);
     expect(result.toolCalls).toEqual([[null]]);
   });
 
-  test("子のセッションでは上書きせず（メインの実行時の層を引き継ぐ）、ツールも遮断しない", async () => {
+  test("TUI に読み込みを後回しにされないよう、どのセッションでも message renderer を登録する", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+      settings: { extensions: [copyPath(sb, "omp/control")] },
+      sessions: [
+        { agent: MAIN, toolCalls: 0 },
+        { agent: SUB, toolCalls: 0 },
+      ],
+    });
+
+    expect(result.renderers).toEqual([["pstack-omp"], ["pstack-omp"]]);
+  });
+
+  test("同じプロセスの子と孫の読み込みでは、メインが書いた値を書き直さず、値も変わらず、ツールも遮断しない", async () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
@@ -86,17 +104,29 @@ describe("適用", () => {
       sessions: [
         { agent: MAIN, toolCalls: 0 },
         { agent: SUB, toolCalls: 1 },
+        { agent: { kind: "sub", name: "poteto-agent", depth: 2 }, toolCalls: 1 },
       ],
     });
-    const onlySub = await startExtension(join(sb.copy, "control", "index.ts")).run({
+
+    expect(new Set(result.overrides.map(({ session, phase }) => `${session}:${phase}`))).toEqual(new Set(["0:factory"]));
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["extensions", "skills.customDirectories", "skills.manualSkills"]);
+    expect(result.effectiveAtStart[1]).toEqual(result.effectiveAtStart[0]);
+    expect(result.effectiveAtStart[2]).toEqual(result.effectiveAtStart[0]);
+    expect(result.toolCalls).toEqual([[], [null], [null]]);
+  });
+
+  test("worker thread の子（設定がメインのスレッドの設定の写し）では上書きせず、ツールも遮断しない", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
+      mirror: true,
       sessions: [{ agent: SUB, toolCalls: 1 }],
     });
 
-    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills"]);
-    expect(result.toolCalls).toEqual([[], [null]]);
-    expect(onlySub.overrides).toEqual([]);
-    expect(onlySub.toolCalls).toEqual([[null]]);
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls).toEqual([[null]]);
   });
 
   test("適用より前に始まったプロセスに後から読み込まれても、上書きも遮断もしない", async () => {
@@ -346,6 +376,20 @@ describe("名前のぶつかり", () => {
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
   });
+
+  test("リポジトリの実際の poteto-agent の定義でも、利用者のエージェント定義の poteto-agent とぶつかると止まり、設定と写しは何も変わらない", async () => {
+    const sb = await repoSynced();
+    const mine = join(sb.agentDir, "agents", "poteto-agent.md");
+    put(mine, "---\nname: poteto-agent\ndescription: mine\n---\n\nMine.\n");
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(mine);
+    expect(run.stderr).toContain("上書きしない");
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
 });
 
 describe("OMP の版", () => {
@@ -497,7 +541,28 @@ describe("写し", () => {
     expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts"]);
     expect(readFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "utf8")).toBe(readFileSync(join(sb.packageDir, "skills", "pstack-omp", "SKILL.md"), "utf8"));
   });
+
+  test("写しに、リポジトリの poteto-agent の定義（役割 task のモデルで、読み替え表を自動で読み、既定の task と poteto-agent を起動できる）が入る", async () => {
+    const sb = await repoSynced();
+
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const text = readFileSync(join(sb.copy, "content", "agents", "poteto-agent.md"), "utf8");
+    const frontmatter = Bun.YAML.parse(/^---\n([\s\S]*?)\n---\n/.exec(text)![1]!) as Record<string, unknown>;
+    expect(frontmatter).toMatchObject({ name: "poteto-agent", model: "@task", spawns: ["task", "poteto-agent"], "autoload-skills": "pstack-omp" });
+    expect(text).toBe(readFileSync(join(sb.packageDir, "agents", "poteto-agent.md"), "utf8"));
+  });
 });
+
+// OMP 向けのディレクトリを差し替えず、nod のリポジトリの omp/content（実際の読み替え表とエージェント定義）で同期した sandbox
+async function repoSynced(): Promise<Sandbox> {
+  const sb = sandbox({ repoTable: true });
+  sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+  sb.pin();
+  const run = await sb.sync();
+  if (run.exitCode !== 0) throw new Error(`同期に失敗: ${run.stderr}`);
+  return sb;
+}
 
 // Claude Code と Codex 向けのプラグインの内容（nod のリポジトリの plugins/、.claude-plugin/、.agents/plugins/）のハッシュ
 function pluginHash(): string {

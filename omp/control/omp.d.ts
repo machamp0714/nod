@@ -1,9 +1,13 @@
 // 制御の拡張（index.ts）が使う OMP のモジュールの、使う部分だけの型宣言（型検査のため）。
 // @oh-my-pi/pi-coding-agent は nod のリポジトリの依存に無い。実行時は OMP（固定の記録の版）が自分のモジュールを渡す。
 declare module "@oh-my-pi/pi-coding-agent" {
-  // OMP の設定のインスタンス（中身は使わない。registry の handle に渡すだけ）
+  // OMP の設定のインスタンス（中身は registry の handle に渡すだけ。worker thread の写しかどうかだけを見る）
   export interface Settings {
     readonly __ompSettings: unique symbol;
+    // worker thread で、メインのスレッドの設定を写したもの
+    readonly isMirror?: boolean;
+    // この設定が重なっている下の設定（無ければ undefined）
+    overlayParent?(): Settings | undefined;
   }
 
   export interface ExtensionAgentIdentity {
@@ -32,9 +36,16 @@ declare module "@oh-my-pi/pi-coding-agent" {
     reason?: string;
   }
 
+  // custom message（customType が同じもの）の TUI での描き方。render は幅を受けて行の配列を返す
+  export interface MessageComponent {
+    render(width: number): string[];
+    invalidate(): void;
+  }
+
   export interface ExtensionAPI {
     on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
     on(event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => ToolCallEventResult | undefined | Promise<ToolCallEventResult | undefined>): void;
+    registerMessageRenderer(customType: string, renderer: (message: { content: unknown }) => MessageComponent): void;
     readonly pi: { readonly settings: Settings };
   }
 }
