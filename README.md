@@ -118,6 +118,28 @@ CLIの基本的な操作手引きは[`skills/nod`](skills/nod/SKILL.md)に、開
 エージェントからnodのCLIを実行する際は、環境変数`NOD_ACTOR`で書き手を明示します。
 Ompのagentに対応する書き手名を設定し、誰がどの判断や作業を行ったかを記録します。
 
+SSHラッパーなどから別のマシンのCLIを呼ぶ場合は、転送元で取得した`git rev-parse --show-toplevel`を`NOD_WORKTREE`、`git rev-parse --abbrev-ref HEAD`を`NOD_BRANCH`として転送先のnodプロセスに渡します。
+`issue start`と`issue next`はこの場所をIssueに記録します。
+`NOD_WORKTREE`が空または未指定なら従来どおりCLIのcwdからgitで検出し、`NOD_BRANCH`だけの指定は使いません。
+`NOD_WORKTREE`だけを指定した場合と`NOD_BRANCH=HEAD`の場合は、ブランチを未記録（null）にします。
+転送元のパスを転送先のファイルシステムで検証しないため、信頼できるラッパーから取得した値を渡してください。
+
+この指定は実行場所の記録用で、Workspaceの判定やCLIのcwdは変えません。
+リポジトリ内のラッパー候補は`scripts/nod-ssh-wrapper.sh`です。
+CLIを先に更新してからラッパーを差し替えてください。
+候補のラッパーは`NOD_ORCA=0`を強制し、転送先のOrcaカードや端末を誤って操作しないようにします。
+そのため、転送先Orcaを必要とするSprintの実行操作も利用できません。
+Sprintの読み取りは可能ですが、実行操作は元Runのマシンから直接行ってください。
+
+候補のラッパーはファイルを自動転送しません。
+ファイル入力として指定されたローカルの相対パスと絶対パスは拒否します。
+標準入力に対応する`doc create --body -`やSprintの`--input -`などを利用してください。
+`doc add`や添付ファイルの追加など、ローカルファイルが必要な操作はそのファイルを持つnodのマシンで直接行ってください。
+Airの`nod doc create`が返す`$HOME/.local/share/nod/documents/`以下の絶対パスはそのまま通すため、`issue plan --from`などで利用できます。
+ファイル入力でないタイトルや本文は、ローカルファイル名と一致しても変換も拒否もしません。
+Workspaceの相対パス指定も拒否するため、登録済みのキーかAir上の絶対パスを使ってください。
+転送先のCLIは`NOD_WORKTREE`が設定されている場合、未登録のキーをcwd基準のパスとして探し直しません。
+
 ## 技術アーキテクチャ
 
 [技術アーキテクチャ図（draw.io形式）](docs/images/nod-architecture.drawio)

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { findWorkspace, listAllStatusNames, NodError, type OpCtx, openDb, syncSprintRollover, type Workspace } from "@nod/core";
 import type { Command } from "commander";
 import { detectActor } from "./actor";
@@ -59,7 +59,10 @@ function findByDir(db: Database, dir: string): Workspace | null {
 
 // -w の値（キー、登録したパス、リポジトリの中のパス）から Workspace を探す。見つからなければ null
 export function findWorkspaceOpt(db: Database, w: string): Workspace | null {
-  return findWorkspace(db, w) ?? findByDir(db, resolve(w));
+  const found = findWorkspace(db, w);
+  // 転送元の相対パスを受信側の cwd で解決しない。キーは登録済みのものだけ使う。
+  if (found || (process.env.NOD_WORKTREE !== undefined && !isAbsolute(w))) return found;
+  return findByDir(db, resolve(w));
 }
 
 export function currentWorkspace(cli: Cli, cmd: Command): Workspace {

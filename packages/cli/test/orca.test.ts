@@ -61,6 +61,41 @@ describe("nod issue と Orca", () => {
     expect(shown).toMatchObject({ branch: "feat-search", worktree: wt });
   });
 
+  test.each(["start", "next"])("%s は転送元の worktree とブランチを記録する", async (command) => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const created = (await runNod(["issue", "create", "forwarded", "--json"], { cwd: repo, db })).json;
+    const result = await runNod(["issue", command, ...(command === "start" ? [created.id] : [])], {
+      cwd: repo, db, actor: "codex",
+      env: { NOD_WORKTREE: "/studio/work tree/project", NOD_BRANCH: "feature/studio" },
+    });
+    expect(result.exitCode).toBe(0);
+    const shown = (await runNod(["issue", "show", created.id, "--json"], { cwd: repo, db })).json;
+    expect(shown).toMatchObject({ worktree: "/studio/work tree/project", branch: "feature/studio" });
+  });
+
+  test.each([
+    { worktree: "/studio/project", branch: "", expectedWorktree: "/studio/project", expectedBranch: null },
+    { worktree: "/studio/project", branch: "HEAD", expectedWorktree: "/studio/project", expectedBranch: null },
+    { worktree: "", branch: "feature/studio", expectedWorktree: null, expectedBranch: "main" },
+  ])("転送元が部分指定なら受信側のブランチと混ぜない: %j", async (location) => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const created = (await runNod(["issue", "create", "partial", "--json"], { cwd: repo, db })).json;
+    const result = await runNod(["issue", "start", created.id], {
+      cwd: repo, db, actor: "codex",
+      env: { NOD_WORKTREE: location.worktree, NOD_BRANCH: location.branch },
+    });
+    expect(result.exitCode).toBe(0);
+    const shown = (await runNod(["issue", "show", created.id, "--json"], { cwd: repo, db })).json;
+    expect(shown).toMatchObject({
+      worktree: location.expectedWorktree ?? repo,
+      branch: location.expectedBranch,
+    });
+  });
+
   test("suggest は LLM でも Orca に通知しない", async () => {
     const db = tempDb();
     const repo = makeRepo();
