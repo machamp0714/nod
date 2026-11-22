@@ -2,7 +2,7 @@
 // 上流は一時ディレクトリに作った git リポジトリ、固定の記録・データ置き場・omp の実行ファイル（版を出すだけの偽物）・
 // OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・
 // ホーム（HOME）も一時のものを環境変数で渡す。ネットワークとモデルの呼び出しはしない。
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -173,7 +173,6 @@ export interface Sandbox {
 // repoTable: OMP 向けのディレクトリを差し替えず、既定（nod のリポジトリの omp/content）の実際の読み替え表で生成する
 export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sandbox {
   const root = mkdtempSync(join(tmpdir(), "nod-pstack-omp-"));
-  created.push(root);
   const upstream = join(root, "upstream-src");
   const dataDir = join(root, "data");
   const pinPath = join(root, "pin.json");
@@ -302,27 +301,6 @@ export async function synced(): Promise<Sandbox> {
   const run = await sb.sync();
   if (run.exitCode !== 0) throw new Error(`同期に失敗: ${run.stderr}`);
   return sb;
-}
-
-// 書き込み権限を外した写しを、テストで壊すために書けるようにする（パスと、その親のディレクトリ）
-export function writable(path: string): void {
-  chmodSync(join(path, ".."), 0o755);
-  if (existsSync(path)) chmodSync(path, statSync(path).isDirectory() ? 0o755 : 0o644);
-}
-
-const created: string[] = [];
-
-// 作った sandbox の中の全ディレクトリを書けるようにする（適用の写しは書き込み権限を外すので、そのままでは実行の後に一時ディレクトリを消せない）。
-// 適用するテストのファイルは afterAll でこれを呼ぶ
-export function unlockSandboxes(): void {
-  const visit = (dir: string): void => {
-    chmodSync(dir, 0o755);
-    for (const name of readdirSync(dir)) {
-      const path = join(dir, name);
-      if (lstatSync(path).isDirectory()) visit(path);
-    }
-  };
-  for (const root of created.splice(0)) if (existsSync(root)) visit(root);
 }
 
 export interface ToolCall {

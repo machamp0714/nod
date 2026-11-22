@@ -41,30 +41,44 @@ export function realAncestor(path: string): string {
 // 読めなければ（YAML として不正、全体がマッピングでない）止める
 export function readConfig(path: string): OmpConfig {
   const bytes = existsSync(path) ? readFileSync(path) : undefined;
-  if (bytes === undefined) return { path, bytes, data: {} };
+  return { path, bytes, data: bytes === undefined ? {} : parseConfig(path, bytes) };
+}
+
+// config.yml のバイトの値（空なら {}）。読めなければ（YAML として不正、全体がマッピングでない）止める
+export function parseConfig(path: string, bytes: Buffer): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = Bun.YAML.parse(bytes.toString("utf8"));
   } catch (e) {
     throw new PstackOmpError(`OMP の設定 ${path} を YAML として読めません: ${(e as Error).message}。直してから、もう一度実行してください`);
   }
-  if (parsed === null || parsed === undefined) return { path, bytes, data: {} };
+  if (parsed === null || parsed === undefined) return {};
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new PstackOmpError(`OMP の設定 ${path} の全体がマッピングではありません。直してから、もう一度実行してください`);
   }
-  return { path, bytes, data: parsed as Record<string, unknown> };
+  return parsed as Record<string, unknown>;
 }
 
 export function stringifyConfig(data: Record<string, unknown>): string {
   return Bun.YAML.stringify(data, null, 2).replace(/: +$/gm, ":");
 }
 
-// 設定の値（skills.customDirectories のような . 区切りの id）。文字列の配列でなければ止める。無ければ undefined
-export function stringList(config: OmpConfig, id: string): string[] | undefined {
-  let value: unknown = config.data;
+// 設定の値（skills.customDirectories のような . 区切りの id）。途中がマッピングでなければ undefined
+export function valueAt(data: Record<string, unknown>, id: string): unknown {
+  let value: unknown = data;
   for (const key of id.split(".")) {
-    value = typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+    value = isMapping(value) ? value[key] : undefined;
   }
+  return value;
+}
+
+export function isMapping(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// 設定の値のうち文字列の配列のもの。文字列の配列でなければ止める。無ければ undefined
+export function stringList(config: Pick<OmpConfig, "path" | "data">, id: string): string[] | undefined {
+  const value = valueAt(config.data, id);
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || !value.every((x) => typeof x === "string")) {
     throw new PstackOmpError(`OMP の設定 ${config.path} の ${id} が文字列の配列ではありません。直してから、もう一度実行してください`);

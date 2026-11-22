@@ -1,14 +1,16 @@
 // pstack を OMP で使う組の制御の拡張。適用（scripts/pstack-omp/cli.ts apply）が nod のデータ置き場の pstack-omp/omp/control に写し、
-// 利用者の OMP の設定の extensions にこのディレクトリだけを登録する。読み込みの設定は同じ写しの harness.json（適用が書く組の記録）から、
-// 禁止操作を止める規則は同じ写しの rules.json（nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。
-// 写しは書き込み権限を外した、作業中のリポジトリや clone の外の置き場で、規則も組の記録の sha256 で確かめる。
+// 利用者の OMP の設定（config.yml）に3つの読み込みの設定（extensions にこのディレクトリと OMP 向けのディレクトリ content、
+// skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）を入れる。
+// 読み込みの設定は同じ写しの harness.json（適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json
+// （nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。写しは作業中のリポジトリや clone の外の置き場で、
+// 生成したスキル・規則を含む写しの全ファイルを組の記録の sha256 で確かめる（写しは読み取り専用にしない）。
 //
-// - 組の記録と規則を検証する（読める、形が正しい、指すディレクトリがある、組の各ファイルの sha256 が記録と同じ、files に規則が入っている、
-//   規則の形が正しい）。正しくなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。読み込みの設定も規則も入れない
+// - 組の記録と規則を検証する（読める、形が正しい、指すディレクトリが写しの中にある、組の各ファイルの sha256 が記録と同じ、files に規則が
+//   入っている、規則の形が正しい）。正しくなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。読み込みの設定も規則も入れない
 //   （新しい構成のまま、読み込み先や規則が壊れた状態でツールを使わせない）。
-// - 正しければ、拡張の読み込み（factory）で、読み込みの設定と規則の上書きを同じ処理で実行時の層（永続しない。global・project・--config
-//   より強く、OMP の運用者の層にも入るのでプロジェクトの設定では緩められない）に書く。固定するキーは extensions・disabledExtensions・
-//   skills.customDirectories・skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く
+// - 正しければ、拡張の読み込み（factory）で、config.yml と同じ読み込みの設定と規則の上書きを同じ処理で実行時の層（永続しない。global・
+//   project・--config より強く、OMP の運用者の層にも入るのでプロジェクトの設定では緩められない）にも書く。固定するキーは extensions・
+//   disabledExtensions・skills.customDirectories・skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く
 //   （config.yml の書き換えや --config・プロジェクトの層で、実行中に変わらないように）。
 //   セッションの開始（session_start）より前に書くのは、メインの task ツールが作られるときにエージェント定義を探すので、
 //   そのときまでに OMP 向けのディレクトリ（content）が extensions に入っていないと、メインの task の一覧に poteto-agent が出ないため。
@@ -144,6 +146,8 @@ function judge(mirror: boolean): Verdict {
   if (real(harness.control) !== real(HERE)) return blocked(`組の記録の control（${harness.control}）がこの拡張の置き場（${HERE}）と違います`);
   for (const dir of [harness.content, ...harness.skillDirectories]) {
     if (!isDirectory(dir)) return blocked(`組の記録が指すディレクトリ ${dir} がありません`);
+    // 読み込む中身は写しの中だけ（各ファイルを files の sha256 で確かめる）
+    if (!real(dir).startsWith(`${real(ROOT)}/`)) return blocked(`組の記録が指すディレクトリ ${dir} が写し（${ROOT}）の外です`);
   }
   if (!(RULES in harness.files)) return blocked(`組の記録の files に規則 ${RULES} がありません`);
   const mismatched = Object.entries(harness.files).filter(([rel, sha]) => {

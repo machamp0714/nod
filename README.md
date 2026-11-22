@@ -63,12 +63,14 @@ agentからroleを参照する仕組みになっているため、作業手順�
 
 ```sh
 bun scripts/pstack-omp/cli.ts sync    # scripts/pstack-omp/pin.json のコミットを取得し、OMP 向けのコピーを生成する
-bun scripts/pstack-omp/cli.ts apply   # omp/ を nod のデータ置き場へ写し、~/.omp/agent/config.yml に制御の拡張を登録する
+bun scripts/pstack-omp/cli.ts apply   # omp/ と生成したスキルを nod のデータ置き場へ写し、~/.omp/agent/config.yml に3つの読み込みの設定を入れる
 bun scripts/pstack-omp/cli.ts status  # 適用の状態、使われる tdd、いまのプロジェクトの名前のぶつかりを表示する
-bun scripts/pstack-omp/cli.ts remove  # 登録と写しを外し、設定を適用の前に戻す
+bun scripts/pstack-omp/cli.ts remove  # 写しを消し、設定を適用の前に戻す（適用の後に設定を変えていれば、入れた項目だけを外す）
 ```
 
-適用の後に始めたセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使えます。同じ組の禁止操作の規則（`omp/control/rules.json`）が、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などを止めます。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
+`apply` は `config.yml` に、`extensions`（写しの `control` と `content`）、`skills.customDirectories`（先頭に写しの中の生成したスキルの置き場）、`skills.manualSkills`（読み込む全スキル）を入れます。既にある値は保ちます。写しは読み取り専用にしません（中身は写しの全ファイルの sha256 で確かめます）。
+
+適用の後に始めたセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使えます。同じ組の禁止操作の規則（`omp/control/rules.json`）が、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などを止めます。写しが記録と違えば、制御の拡張が全ツールを止めます。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
 
 ## 使い始める
 

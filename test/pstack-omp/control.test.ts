@@ -2,13 +2,11 @@
 // 適用・解除・状態の表示はプロセスとして起動し（helpers.ts の一時の置き場）、適用した写しの制御の拡張は OMP の代わりに
 // extension-driver.ts で読み込んで、実行時の上書きと tool_call・before_subagent_spawn の戻り値を見る。
 // bash.patterns の照合そのものは OMP の実装なので、ここではパターンが実行時の層に入ることまでを確かめる（当たり方は実際の OMP で確かめる）。
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, startExtension, SUB, synced, unlockSandboxes, writable } from "./helpers";
-
-afterAll(unlockSandboxes);
+import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, startExtension, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -209,17 +207,11 @@ describe("規則が欠けている、読めない、不正なとき", () => {
   const damages: { name: string; damage(sb: Sandbox): void }[] = [
     {
       name: "写しの規則が消えた",
-      damage: (sb) => {
-        writable(join(sb.copy, "control", "rules.json"));
-        rmSync(join(sb.copy, "control", "rules.json"));
-      },
+      damage: (sb) => rmSync(join(sb.copy, "control", "rules.json")),
     },
     {
       name: "写しの規則が書き換えられた（sha256 が記録と違う）",
-      damage: (sb) => {
-        writable(join(sb.copy, "control", "rules.json"));
-        writeFileSync(join(sb.copy, "control", "rules.json"), JSON.stringify({ ...JSON.parse(readFileSync(REPO_RULES, "utf8")), toolApproval: { eval: "deny", bash: "deny" } }));
-      },
+      damage: (sb) => writeFileSync(join(sb.copy, "control", "rules.json"), JSON.stringify({ ...JSON.parse(readFileSync(REPO_RULES, "utf8")), toolApproval: { eval: "deny", bash: "deny" } })),
     },
     {
       name: "組の記録の files に規則が無い",
@@ -227,7 +219,6 @@ describe("規則が欠けている、読めない、不正なとき", () => {
         const path = join(sb.copy, "control", "harness.json");
         const harness = JSON.parse(readFileSync(path, "utf8"));
         delete harness.files["control/rules.json"];
-        writable(path);
         writeFileSync(path, JSON.stringify(harness));
       },
     },
@@ -235,12 +226,10 @@ describe("規則が欠けている、読めない、不正なとき", () => {
       name: "写しの規則が不正で、組の記録の sha256 もそれに合わせて書き換えられた",
       damage: (sb) => {
         const rules = join(sb.copy, "control", "rules.json");
-        writable(rules);
         writeFileSync(rules, JSON.stringify({ version: 1 }));
         const path = join(sb.copy, "control", "harness.json");
         const harness = JSON.parse(readFileSync(path, "utf8"));
         harness.files["control/rules.json"] = sha256(rules);
-        writable(path);
         writeFileSync(path, JSON.stringify(harness));
       },
     },

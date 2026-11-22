@@ -32,11 +32,11 @@ function sync(): void {
 
 function applyCommand(): void {
   const result = apply(loadContext());
-  console.log(`写しを置きました: ${result.root}（書き込み権限を外しています）`);
+  console.log(`写しを置きました: ${result.root}（OMP 向けのディレクトリ・制御の拡張・生成したスキル）`);
   console.log(
     result.configChanged
-      ? `OMP の設定 ${result.configPath} の extensions に ${result.control} を足しました`
-      : `OMP の設定 ${result.configPath} の extensions には ${result.control} が既にあります（変えていません）`,
+      ? `OMP の設定 ${result.configPath} に、extensions（${result.control} と ${result.content}）・skills.customDirectories（写しの中の生成したスキルの置き場）・skills.manualSkills を入れました`
+      : `OMP の設定 ${result.configPath} には、extensions・skills.customDirectories・skills.manualSkills の項目が既にあります（変えていません）`,
   );
   console.log(`新しく始めたセッションから、生成したスキルと OMP 向けのディレクトリが読み込まれ、${result.manualSkills} 個のスキルがスキルの一覧から外れます`);
 }
@@ -51,7 +51,7 @@ function removeCommand(): void {
     console.log(
       result.restoredBytes
         ? `OMP の設定 ${result.configPath} を適用の前に戻しました`
-        : `OMP の設定 ${result.configPath} の extensions から制御の拡張を外しました（適用の後に変わったほかの値は保っています）`,
+        : `OMP の設定 ${result.configPath} から自分の項目（extensions・skills.customDirectories・skills.manualSkills）を外しました（適用の後に変わったほかの値は保っています）`,
     );
   }
   if (result.removedCopy) console.log("写しを消しました（生成物と上流の clone は残しています）");

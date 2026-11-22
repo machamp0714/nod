@@ -39,9 +39,10 @@ export interface UserPlaces {
 }
 
 // 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agents/skills、config.yml の skills.customDirectories と
-// extensions のパッケージ（skills/ と agents/）。ours の下（適用した写し）は除く
+// extensions のパッケージ（skills/ と agents/）。ours の下（適用した写しの生成したスキルと OMP 向けのディレクトリ）は除く
 export function userPlaces(agentDir: string, home: string, config: OmpConfig, ours: string): UserPlaces {
-  const skillDirs = [join(agentDir, "skills"), join(home, ".agents", "skills"), ...(stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home))];
+  const custom = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
+  const skillDirs = [join(agentDir, "skills"), join(home, ".agents", "skills"), ...custom];
   const packages = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
   return {
     dirs: [join(agentDir, "agents"), ...skillDirs, ...packages],
