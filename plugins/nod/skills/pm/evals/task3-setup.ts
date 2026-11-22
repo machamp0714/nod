@@ -14,7 +14,7 @@ export async function createTask3Scenario(options: { directory?: string; variant
     const docsDir = join(dir, "documents");
     const human = { db, actor: "me" };
     const agent = { db, actor: "codex" };
-    updateIssue(human, "API-1", { status: "in_progress", assignee: "codex" });
+    updateIssue(human, "API-1", { status: "in_progress" });
     updateIssue(human, "API-2", { description: "一覧の売上を営業日別に集計する。営業日の区切りを午前0時か午前5時か、利用者が決める。決まった区切りで集計し、日付境界の合意済みCLIテストで確認する。" });
     logWork(agent, "API-1", "PM管理内。Run=run-existing Task=task-existing Dispatch=dispatch-existing Studio worktree=id:existing-api terminal=term-existing codex gpt-6.1-sol:high。要求値と実効値の照合済み。工程=実装中。", { kind: "progress" });
     const decided = variant === "spec-ready";

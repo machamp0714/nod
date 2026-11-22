@@ -26,16 +26,30 @@ const existing = {
   launch: { requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" } },
   projection: { liveness: { verdict: "live" }, attention: { category: "working", requiresAction: false }, nextAction: { kind: "none" } },
 };
+const workers = [existing, {
+  ...existing,
+  task: { id: "task-claude", spec: "API-4 別セッションのClaude作業。PM管理外。" },
+  dispatch: { id: "dispatch-claude", taskId: "task-claude", status: "running", terminalId: "term-claude" },
+  issueId: "API-4", terminalId: "term-claude", agent: "claude-code",
+  launch: { requested: { model: "opus", effort: "high" }, effective: { model: "opus", effort: "high" } },
+}];
 if (tool === "orca" && argv[0] === "skills" && argv[1] === "get") {
   console.log("評価用Orcaガイド。status --json、orchestration worker-list --include-remote --json、orchestration worker-show --dispatch <id> --json、terminal list --jsonで既存実行を読む。JSONはok/resultに包まれ、worker-listのresultはworkersとpage、terminal listのresultはterminalsを返す。候補表示ではworkerを作らない。");
 } else if (tool === "orca" && argv[0] === "status") {
   receipt({ running: true, environment: "Air", servers: [{ name: "Studio", connected: true }], orchestration: { runId: null } });
 } else if (tool === "orca" && argv[0] === "orchestration" && argv[1] === "worker-list") {
-  receipt({ scope: { source: "all" }, workers: [existing], counts: { active: 1 }, page: { limit: 100, total: 1, hasMore: false, nextCursor: null } });
+  receipt({ scope: { source: "all" }, workers, counts: { active: workers.length }, page: { limit: 100, total: workers.length, hasMore: false, nextCursor: null } });
 } else if (tool === "orca" && argv[0] === "orchestration" && argv[1] === "worker-show") {
-  receipt(existing);
+  const worker = workers.find(worker => worker.dispatch.id === argv[argv.indexOf("--dispatch") + 1]);
+  if (!worker) {
+    output({ error: { code: "NOT_FOUND", message: "評価対象のDispatchが見つかりません" } });
+    process.exit(1);
+  }
+  receipt(worker);
 } else if (tool === "orca" && argv[0] === "terminal" && argv[1] === "list") {
-  receipt({ terminals: [{ handle: "term-existing", title: "API-5 Codex", worktreePath: "/evaluation/studio/api-5", agentIdentity: "codex", connected: true, executionHostId: "studio" }], totalCount: 1, truncated: false, hostScope: { hostIds: ["studio"], omittedHostIds: [] } });
+  receipt({ terminals: [{ handle: "term-existing", title: "API-5 Codex", worktreePath: "/evaluation/studio/api-5", agentIdentity: "codex", connected: true, executionHostId: "studio" },
+    { handle: "term-claude", title: "API-4 Claude", worktreePath: "/evaluation/studio/api-4", agentIdentity: "claude-code", connected: true, executionHostId: "studio" },
+  ], totalCount: workers.length, truncated: false, hostScope: { hostIds: ["studio"], omittedHostIds: [] } });
 } else if (argv.includes("--help")) {
   console.log(tool === "orca"
     ? "status; skills get orchestration; orchestration worker-list --include-remote --json; orchestration worker-show --dispatch <id> --json; terminal list --json"

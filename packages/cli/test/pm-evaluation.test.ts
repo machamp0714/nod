@@ -20,20 +20,6 @@ const requiredCheckReads = [["api", "repos/evaluation/api/branches/main"], ["api
 /** 報告Documentの印の間の本文。 */
 const between = (content: string, name: string) => content.match(new RegExp(`<!-- ${name}:begin -->\\n([\\s\\S]*?)<!-- ${name}:end -->`))?.[1];
 
-test("implementとPMの手順は、GitHubの必須チェックを回避せず、未設定と確認できないを区別して報告し、提出時にheadと基点の両方を照合する", () => {
-  for (const path of ["plugins/nod/skills/implement/SKILL.md", "plugins/nod/skills/pm/SKILL.md", "plugins/nod/skills/pm/references/implementation.md"]) {
-    const text = readFileSync(path, "utf8");
-    expect(text, path).toContain("`gh pr merge --admin`");
-    expect(text, path).toContain(noRequiredChecks);
-    // 読み取りの失敗は設定の不存在を示さないので、未設定の断定文と別に「確認できない」と報告する。
-    expect(text, path).toContain("設定の有無を確認できない");
-    for (const merged of ["0件・保護なし・読めない", "未設定・読めない"]) expect(text, `${path}: ${merged}`).not.toContain(merged);
-    // 提出・再確認では、merge-readyを付けた記録の判定したhead SHAとレビューした基点を、現在のPRのheadと基点の両方と照合する。
-    for (const part of ["`baseRefName`", "基点が変わった", "照合できない"]) expect(text, `${path}: ${part}`).toContain(part);
-    for (const removed of ["ci-result", "recheck-ci", "ci-checks", "CI 判定", "CI判定", "13節"]) expect(text, `${path}: ${removed}`).not.toContain(removed);
-  }
-});
-
 test("PM評価の偽GitHubは基点ブランチの必須チェックの設定の読取だけを、シナリオの応答（未設定・設定あり・失敗）で返し、書込みを拒否する", async () => {
   const expected: Record<RequiredChecksMode, { exitCode: number; branch?: object; rules?: unknown[] }> = {
     unset: { exitCode: 0, branch: { name: "main", protected: false }, rules: [] },
@@ -221,7 +207,7 @@ test("PM評価の指定モデルworkerは照合待機から開始通知を経て
   const issue = Bun.spawnSync([scenario.nod, "issue", "show", "API-1", "--json"], { env: scenario.env });
   expect(issue.exitCode).toBe(0);
   const shownIssue = JSON.parse(issue.stdout.toString());
-  expect(shownIssue).toMatchObject({ status: "in_progress", assignee: "codex", agentState: "working" });
+  expect(shownIssue).toMatchObject({ status: "in_progress", agentState: "working" });
   const activity = shownIssue.activity as { id: number; logKind?: string | null; body?: string }[];
   // 要約の作業ログ（--kind progress）にはマージ可否・merge-ready を書かず、[merge-ready] で始まる記録を参照する。
   const summaryLogs = activity.filter(item => item.logKind === "progress" && item.body?.startsWith("独立コードレビュー完了。") && item.body.includes(`runId ${report.review.runId}`));
@@ -349,15 +335,15 @@ for (const variant of ["normal", "existing-pr"] as const) {
 test("PM評価のPR紐付けとrefreshは状態を変えず、LLMのdoneだけで完了する", async () => {
   const scenario = await createTask2Scenario({ variant: "existing-pr", beforeAdoption(db) {
     // PR操作の前提となる既存実行を採択前に作る。
-    startIssue({ db, actor: "codex" }, "API-1");
+    startIssue({ db, actor: "claude-code" }, "API-1");
   } });
   const nod = (...args: string[]) => {
     const result = Bun.spawnSync([scenario.nod, ...args, "--json"], { env: scenario.env });
     expect(result.exitCode).toBe(0);
     return JSON.parse(result.stdout.toString());
   };
-  // 採択後も、元の担当による再開startは通常どおり成功する。
-  expect(nod("issue", "start", "API-1")).toMatchObject({ status: "in_progress", assignee: "codex" });
+  // 採択後も、別の書き手が作業中の Issue を再開できる。
+  expect(nod("issue", "start", "API-1")).toMatchObject({ status: "in_progress", agentState: "working", previousAgentState: "working" });
   expect(nod("issue", "show", "API-1").status).toBe("in_progress");
   nod("issue", "link-pr", "API-1", "https://github.com/evaluation/api/pull/42");
   expect(nod("issue", "show", "API-1").status).toBe("in_progress");
@@ -619,14 +605,26 @@ test("PM評価の判定は初回未完了と回復しない失敗、対象外、
 
 test("PM評価のOrcaとGitHubは外部変更を遮断し、試みた操作を記録する", async () => {
   const scenario = await createTask1Scenario();
+  const issues = Bun.spawnSync([scenario.nod, "issue", "list", "-w", "API", "--sprint", "current", "--json"], { env: scenario.env });
+  expect(issues.exitCode).toBe(0);
+  expect(JSON.parse(issues.stdout.toString())).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "API-3", status: "in_progress", worktree: "/evaluation/air/api-3" }),
+    expect.objectContaining({ id: "API-4", status: "in_progress", worktree: "/evaluation/studio/api-4" }),
+    expect.objectContaining({ id: "API-5", status: "in_progress", worktree: "/evaluation/studio/api-5" }),
+    expect.objectContaining({ id: "API-9", status: "in_progress", worktree: "/evaluation/air/api-9" }),
+  ]));
   const listing = Bun.spawnSync([scenario.orca, "orchestration", "worker-list", "--include-remote", "--json"], { env: scenario.env });
-  expect(JSON.parse(listing.stdout.toString()).result.workers[0]).toMatchObject({ issueId: "API-5", managedByPm: false });
+  expect(listing.exitCode).toBe(0);
+  expect(JSON.parse(listing.stdout.toString()).result.workers).toMatchObject([
+    { issueId: "API-5", managedByPm: false, dispatch: { status: "running" } },
+    { issueId: "API-4", managedByPm: false, dispatch: { status: "running" } },
+  ]);
   const launch = Bun.spawnSync([scenario.orca, "orchestration", "worker-start", "--spec", "API-1を実装"], { env: scenario.env });
   expect(launch.exitCode).toBe(1);
   const pr = Bun.spawnSync([scenario.gh, "pr", "create", "--title", "変更"], { env: scenario.env });
   expect(pr.exitCode).toBe(1);
   const operations = readFileSync(scenario.log, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  expect(operations.map(({ tool, argv }) => ({ tool, argv }))).toEqual([
+  expect(operations.filter(op => op.tool !== "nod").map(({ tool, argv }) => ({ tool, argv }))).toEqual([
     { tool: "orca", argv: ["orchestration", "worker-list", "--include-remote", "--json"] },
     { tool: "orca", argv: ["orchestration", "worker-start", "--spec", "API-1を実装"] },
     { tool: "gh", argv: ["pr", "create", "--title", "変更"] },

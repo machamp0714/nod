@@ -29,13 +29,14 @@ currentは完了済みを含む全状態の所属を読むが、旧データの�
 S01では以下の分類や仕様判定の回復を新規自律実行の許可に使わない。
 既存実行は検索集合から消えても、管理記録のIssue IDとRun、Task、Dispatchから別に照合する。
 必要なら`--status`で状態を明示し、既存の管理記録にあるIssueは`show`で別に確認する。
-`--ready`は補助的な絞り込みであり、担当、needs-spec、通常のコード実装か、管理外セッションの保護を置き換えない。
+`--ready`で絞り込んだ後も、needs-specの有無、通常のコード実装かどうか、管理外の既存セッションの有無を確認する。
 
 OrcaのJSONは`ok`と`result`を確認する。
 worker一覧は通常`result.workers`にあり、`scope`でRunに限定されていないか確認する。
 Runに限定されていて管理外実行を照合できない場合は、現行手引きに沿って対象Runや接続先も読む。
 `page.hasMore`の間は、その`page.nextCursor`を変えずに`--cursor`へ渡す。
-通常terminalも確認し、タイトルだけで担当や生存を確定せず、IssueのActivity、記録済みworktreeとterminal、Taskの依頼内容を照合する。
+通常terminalも確認する。
+実行とIssueの対応や稼働状況は、IssueのActivity、記録済みの作業場所、terminal、Taskの依頼内容を照合して判断する。
 terminal一覧の`truncated`や`hostScope.omittedHostIds`がある場合は、手引きの読取操作で不足分を確認する。
 読み取り不足や通信断を「既存実行なし」に変えない。
 管理外のセッションへ指示を送り、停止、引き取り、追加worker起動を行わない。
@@ -48,23 +49,24 @@ terminal一覧の`truncated`や`hostScope.omittedHostIds`がある場合は、�
 nod -w <Workspace> issue show <IssueID> --json
 ```
 
-`status`、`assignee`、`snoozedUntil`、`archivedAt`、`blockedBy`、`questions`または`openQuestions`、`labels`、`specAssessment`、Documents、Activityと既存実行を確認する。
+`status`、`snoozedUntil`、`archivedAt`、`blockedBy`、`questions`または`openQuestions`、`labels`、`specAssessment`、Documentsを確認する。
+Activityと作業場所を既存実行と照合する。
 必要なkind=specやplanがあれば内容を読む。
 specやplanがなければ、本文の要求と完了条件を正本にする。
 短文であることや文書がないことだけでは、新たな仕様化、計画化、承認を増やさない。
 
 | 分類 | 条件と保護 |
 | --- | --- |
-| 管理外 | 指定範囲外、未受理Triage、人担当、選定した実装担当と異なる担当、管理外の既存セッション、完了やアーカイブ済みなど。未割当または選定担当と一致するtodoだけを新規候補にする。同じ担当名でも別セッションの仕事を奪わない |
+| 管理外 | 指定範囲外、未受理Triage、完了やアーカイブ済み、照合で確認した人の進行中の作業や管理外の既存セッションなど |
 | 人への確認待ち | 未回答の人の質問、未決の利用者判断、実効的な仕様判定失敗、スヌーズや遷移制限など。質問には人の実回答が必要。LLMが書き手やDBを変えて回答、受理、制限回避を行わない |
 | 依存待ち | 未完了のブロック元がある。依存先を外したり、完了条件を満たさないまま完了扱いしたりしない |
 | 仕様準備 | 他の着手条件を満たし、現在のラベルにneeds-specがある。既存specがあっても正式な`nod:to-spec`の仕様作成と添付確認前に解除しない |
-| 実装可能 | 範囲内のtodo、未割当または選定した実装担当、未回答質問や未完了依存なし、管理外実行なし、仕様判定の着手制限なし、needs-specなし。本文または既存specからコード実装と検証が可能 |
+| 実装可能 | 範囲内のtodoで、未回答質問や未完了依存がない。照合で進行中の作業や管理外の既存セッションがないことを確認済み。仕様判定の着手制限やneeds-specがなく、本文または既存specからコード実装と検証が可能 |
 
 本番操作、有料の予想生成などコード実装以外の仕事は、通常の実装候補から外して人へ戻す。
 人への相談は[質問の手順](questions.md)で番号選択肢、推奨、理由、決定後の動作を添える。
 needs-spec付きの進行を任されている場合は[仕様準備の手順](specification.md)へ渡す。
-管理外や人待ちと確定したIssueへ、副作用のある再判定や担当変更を使って着手条件を作らない。
+管理外や人待ちと確定したIssueへ、副作用のある再判定を使って着手条件を作らない。
 S01の読取では判定状態を報告する。
 次の回復手順は既存の個別委任で必要な場合だけ使い、新規Sprintからの着手条件を作らない。
 

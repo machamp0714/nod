@@ -13,6 +13,10 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 1. \`nod issue next --json\` で着手する Issue を1件取る。null なら着手できる Issue はない。
    指定された Issue があるときは、先に \`nod issue show <id> --json\` で本文・ラベル・仕様要否判定を読み、下の「仕様要否判定と実装」を確認してから \`nod issue start <id>\` を使う。
+   着手条件を満たしていれば、どの書き手でも作業状況が working の Issue を \`nod issue start <id>\` で再開できる。
+   開始の結果には開始前の作業状況が含まれ、作業場所を上書きしたときは前のブランチと worktree も返る。
+   開始するたびに、書き手と前後の作業場所を Activity に記録する。
+   PM は Orca の既存セッションと作業場所を照合し、管理外のセッションを引き取らない。
 2. \`nod issue show <id>\` で説明、計画、Documents、Sub-issue、Activity を読む。
 3. writing-plans などで実装計画書を書いたときは \`nod issue plan <id> --from <計画書のパス>\` で取り込む。
    計画書の「### Task N」と「- [ ] **Step N**」が Issue の計画になり、計画書は Document として添付される。
@@ -49,7 +53,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
    PR を含む依頼では、必要な実装・検証・独立レビューを済ませ、レビュー依頼時に \`nod issue update <id> --status in_review\` で In Review に移す。提出しただけでは Done にしない。
    merge と Issue の完了条件（検証・反映など）を確認した人または権限のあるエージェントが \`nod issue done <id> --summary "<やったことと検証結果>" [--pr <URL>]\` で完了報告する。in_progress と in_review から使える。
    PR が不要なら、必要な検証と完了条件を満たした時点で LLM も直接 done にできる。完了後に別途 PR 作成を頼まれた場合は、そのレビュー依頼時に明示的に In Review へ戻す。
-   指摘対応は \`nod issue start <id>\` で In Review から In Progress へ再開する。最初の着手日時を保ち、担当者・未回答・依存関係・仕様判定・遷移ルールを守る。
+   指摘対応は \`nod issue start <id>\` で In Review から In Progress へ再開する。最初の着手日時を保ち、未回答の確認依頼、依存関係、仕様判定、遷移ルールを確認する。
    GitHub の PR の承認・マージは GitHub 側で別に行う。nod は \`gh pr review\` も \`gh pr merge\` も実行しない。PR の作成・承認・merge・本番反映の権限は依頼と既存運用に従い、この手順では追加しない。
 
 ## PR と状態の運用
@@ -76,28 +80,30 @@ code-review は仕様書がなくても本文で Spec 軸を必ず実行する�
 人は作業中の Issue に「追加指示」を残すことがある。追加指示は Issue のコメントとして残り、\`nod issue show <id>\` の Activity に [追加指示] と出る。
 人が確認画面で送ると、Orca の端末に \`nod: <id> に追加指示があります（#<番号>）。nod issue show <id> で読んでください\` という短い通知が届く。
 端末に届くのは通知だけで、指示の本文は nod にある。通知を受けたら \`nod issue show <id>\` で全文を読み、作業に反映する。
-稼働中のセッションが無いときは送られない。次に \`nod issue start <id>\` したときに \`pendingInstructions\` で受け取る（LLM が受け取ると確認済みになる）。
-\`nod issue show <id>\` の「未確認の追加指示」にも出る。担当の LLM が \`nod issue show\` で読むと確認済みになり、次の \`nod issue start\` では渡されない（人や担当でない LLM の show では変わらない）。\`nod issue instructions <id>\` で、これまでの指示と送信・確認の状態を一覧できる。
+送信先は、最後に保存された worktree の稼働中のセッションから探す。次に \`nod issue start <id>\` したときに \`pendingInstructions\` で受け取る。
+\`nod issue show <id>\` の「未確認の追加指示」でも本文を読める。
+確認済みになるのは、LLM が \`nod issue start <id>\` で指示を受け取ったときだけである。
+\`nod issue instructions <id>\` で、これまでの指示と送信、確認の状態を一覧できる。
 追加指示の記録（\`nod issue instruct\`）と端末への送信は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。LLM は読むだけにする。
 
 ## 着手前に候補だけ確認する
 
-\`nod issue suggest [--project <名前>] --json\` は、現在の Workspace と自分の担当条件に合う候補を1件返す。候補がなければ null を返す。
-\`next\` と同じ着手条件と優先度順で選ぶが、Issue・担当・作業場所・時刻・履歴を変更せず、Orca にも通知しない。
-着手できる Issue を一覧で見るときは \`nod issue list --ready\` を使う（担当を問わないので、ほかの人や LLM が担当の Issue も出る）。
+\`nod issue suggest [--project <名前>] --json\` は、現在の Workspace で着手条件を満たす候補を1件返す。候補がなければ null を返す。
+\`next\` と同じ着手条件と優先度順で選ぶが、Issue の状態、作業場所、時刻、履歴を変更せず、Orca にも通知しない。
+着手できる Issue を一覧で見るときは \`nod issue list --ready\` を使う。
 提案は予約ではない。着手するときは \`nod issue next\` または \`nod issue start <id>\` を使う。その時点の条件を再確認するため、同じ候補に着手できるとは限らない。
 
 ## 定期Issueで起票された定型作業の扱い
 
-人は定型作業（依存更新チェック、週次レポートなど）を、担当に LLM の名前（claude-code、codex など）を指定した定期Issueとして登録する。
+人は定型作業（依存更新チェック、週次レポートなど）を定期 Issue として登録する。
 起票するのは人の実行（\`nod recurring run\`、\`nod automation run\`、Web の「今すぐ実行」）だけで、nod が自動で起票することはない。
-人の起票なので Triage を通らず todo で入り、担当の LLM の \`nod issue next\` に出る。ほかの LLM や担当なしの作業より先に取るわけではなく、優先度順に並ぶ。
+人の起票なので Triage を通らず todo で入り、着手条件を満たせば \`nod issue next\` の候補に入る。通常の Issue と同じ優先度順で選ばれる。
 遷移ルールで todo → in_progress が禁止されている Workspace では、\`nod issue next\` は TRANSITION_NOT_ALLOWED になる。ルールは変えられないので人に伝える。
 \`nod issue show <id>\` の Activity の最初の行が「定期Issue #<定期Issueの id>（<発生日> 分）から起票した」なら、定期Issueで起票された Issue である（\`--json\` では created の event の \`recurring_id\` と \`occurrence\`）。
 進め方は通常の Issue と同じで、説明（テンプレートの手順と空欄）に従って作業し、空欄は \`nod issue update <id> -d "<説明>"\` で埋め、\`nod issue done <id> --summary "<要約>"\` で完了にする。
 前回の発生日の Issue が残っていても、今回の Issue はそれとは別の作業として扱い、まとめて閉じない。前回分が不要そうなら人に伝える。
 手順に書かれていない作業（依存のメジャー更新など）が見つかったら、自分で着手せずに \`--discovered-from <id>\` を付けて起票する。
-周期・担当・テンプレートなど定期Issueの定義は変えられない（FORBIDDEN_FOR_LLM）。変えたほうがよいと思ったら \`nod recurring list\` で定義を確かめ、人に依頼する。
+周期やテンプレートなど定期Issueの定義は変えられない（FORBIDDEN_FOR_LLM）。変えたほうがよいと思ったら \`nod recurring list\` で定義を確かめ、人に依頼する。
 テンプレートの手順が古いときも、テンプレートは書き換えず、人に伝える（\`nod template add\` / \`remove\` は FORBIDDEN_FOR_LLM。\`nod template show\` で読むのはできる）。
 
 ## Issue 用のブランチ名を取得する
@@ -111,7 +117,7 @@ hash は Workspace のキーと番号から決まるので、同じ Issue なら
 ## Issue を複製する
 
 \`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度・見積もりだけで、元の Issue は変えない。
-期限・担当・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
+期限・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
 
 ## Issue のアーカイブ
 
@@ -147,8 +153,8 @@ me に起票を頼まれたときだけ \`--requested\` を付ける。自分で
 Triage にある Issue は \`nod issue update --status\` で Triage から出せる（LLM も同じ）。\`nod issue bulk-update -s\` では誰も Triage から出せない（TRIAGE_DECISION_REQUIRED）。状態以外の項目はどちらでも変えられる。
 needs_clarification は確認依頼に応じて自動で切り替わるため、\`nod issue update --status\` では設定できない（INVALID_ARGS）。
 人が \`nod issue update -s todo\` などで needs_clarification から出した Issue は、未回答が残る間は着手できない（成功表示の次の行に「未回答の確認依頼が N 件残っています」と出る）。同じ文面の \`nod issue ask\` の再実行は質問を増やさず、状態も変えない。
-\`nod triage suggest <id>\` は重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人に依頼し、LLM は候補を根拠に人へ伝える。
-LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [--assignee <名前>] [-p <優先度>] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
+\`nod triage suggest <id>\` は重複とラベルの候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人に依頼し、LLM は候補を根拠に人へ伝える。
+LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [-p <優先度>] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
 Sub-issue がすべて完了した親は「完了候補」になる（\`nod issue list --completion-candidates\` で一覧できる）。
 完了候補の親も、要求と完了条件を確認して完了にできる。
@@ -159,15 +165,15 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 
 \`nod summary [--since 24h|7d|<ISO日時>] [--project <名前>] [--all-workspaces] [--limit <n>] [--include-archived] --json\` は、期間内の動きを種類別に返す読み取り専用のコマンドである（既定は現在の Workspace の直近24時間、最長 90 日）。
 種類は 完了・着手・ブロッカー（\`blocker\` の作業ログと \`nod issue fail\`）・質問・回答・新規起票・キャンセル・アーカイブで、各項目の \`actorKind\` が \`human\`（me）か \`llm\` かを示す。種類ごとに新しい順で \`--limit\` 件（既定20）まで並べ、残りは \`more\` に数える。アーカイブ済み Issue の動きは既定で除く。
-数えるのは期間内に起きた動き（event）の数である。完了は done への遷移ごとに数えるため、いま done の Issue を closed_at で数える Analytics とは、再オープンや同じ Issue の再完了があると一致しない。完了の \`actor\` は、完了より前で最後に担当だった LLM（いなければ確定した人）になる。
+数えるのは期間内に起きた動き（event）の数である。完了は done への遷移ごとに数えるため、いま done の Issue を closed_at で数える Analytics とは、再オープンや同じ Issue の再完了があると一致しない。完了の \`actor\` は、完了を記録した書き手である。
 これは材料であり、nod は文章の要約を作らない。自分の言葉でまとめを残すときは、関係する Issue へ \`nod issue comment\` で書くか、\`nod doc create\` で Document にする。
 
 ## そのほかのコマンド
 
-- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--ready] [--delegated] [--assignee <名前>] [--mine] [--priority <優先度>] [--sort <キー>] [--desc] [--query <語>]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。状態の後ろの \`[working]\`・\`[awaiting_input]\`・\`[error]\`・\`[done]\` は LLM の作業状況で、Issue の状態ではない（done・canceled の Issue には \`[done]\` を出さない）。\`--query\` は ID・タイトル・説明の部分一致で絞り、ID が検索語と完全一致する Issue を並び順に関係なく先頭に置く。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--ready\` は着手できる Issue（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）だけを出し、ほかの絞り込みとは AND で効く（\`--status backlog\` などと併せると0件）。\`--delegated\` は LLM に委任中の Issue を LLM ごとに出す。\`--assignee\` は担当で絞り（繰り返し可、\`none\` は未割り当て）、\`--mine\` は自分が担当の Issue だけをすべての Workspace から出す
+- \`nod issue list [--status todo,in_progress] [--project <名前>] [-l <label>] [--all-workspaces] [--ready] [--priority <優先度>] [--sort <キー>] [--desc] [--query <語>]\`：行は ID・状態・優先度・Project・タイトルの順（優先度なしと Project なしは \`-\`。未決事項があれば行末に \`[未決 決定数/総数]\`）。状態の後ろの \`[working]\`・\`[awaiting_input]\`・\`[error]\`・\`[done]\` は LLM の作業状況で、Issue の状態ではない（done・canceled の Issue には \`[done]\` を出さない）。\`--query\` は ID・タイトル・説明の部分一致で絞り、ID が検索語と完全一致する Issue を並び順に関係なく先頭に置く。\`--priority\` は 0〜4、P0〜P4、urgent・high・medium・low・none のどれかで絞り（繰り返し可・カンマ区切り可）、\`--sort\` は id（既定）・default（状態 → 優先度 → ID）・priority・created・updated・title・estimate・due で並べる（\`--desc\` で降順）。\`--ready\` は着手できる Issue（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。Web の Ready と同じ条件）だけを出し、ほかの絞り込みとは AND で効く（\`--status backlog\` などと併せると0件）
 - \`nod questions [--asked-by me|llm] [--project <名前>] [-s <status>] [--query <text>] [--limit <n>]\`：未回答の未決事項（確認依頼）を、人が付けたものも含めて Issue 横断で一覧する読み取り専用のコマンド（既定ですべての Workspace、\`-w\` で絞る）。質問の \`#番号\` は \`nod answer <id> <text> --question <番号>\` に渡す id。人が付けた未決事項は人が決めるもので、LLM は回答しない。\`nod issue list\` の行末の \`[未決 1/3]\` はその Issue の決定数 / 総数
 - \`nod issue update <id> [--title] [-d] [-p] [--estimate] [--due] [--add-label] [--remove-label] [--parent] [--project]\`：優先度（\`-p\`。create・bulk-update・triage propose・recurring の \`--priority\` も同じ）は 0〜4、P0〜P4、urgent・high・medium・low・none のどれか（0 と none は優先度なし）。見積もりはポイント（1〜100 の整数）、期限は時刻なしの日付（1900-01-01 以降）。空文字で外す
-- \`nod issue bulk-update <id...> [-s] [-p] [--assignee] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
+- \`nod issue bulk-update <id...> [-s] [-p] [--project] [--estimate] [--due] [--add-label] [--remove-label]\`：複数の Issue に同じ変更を加える（1回100件まで）。1件でも失敗したら何も変えず、失敗した Issue と理由を返す。Triage の Issue の状態は変えられない
 - \`nod issue comment <id> "<text>" [--reply-to <コメントID>]\`：コメントを書く。\`--reply-to\` でそのスレッドに返信する（コメントIDは \`nod issue show\` の \`#番号\`）
 - \`nod issue resolve <id> <コメントID> [--reopen]\`：スレッドを解決済み・未解決にする
 - \`nod issue relate <id> --blocks <id> | --related <id> | --duplicate-of <id>\`
@@ -191,7 +197,7 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue list|stats|summary --sprint <sprint>\`：Sprint の所属（移行・採択・追加）を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの現在Sprintの所属で、Issue一覧は完了済みを含む。旧データの候補だけのitemは所属に数えない（追加し直すと所属になる）。
 - 期限到来時の自動引継ぎ：Sprint 運用が有効で自動引継ぎの設定が有効な Workspace では、期間を過ぎた active の Sprint を nod が自動で終了する。後継は、既にある draft・ready の Sprint（前の Sprint の終了以降に始まるもの）か、無ければ前の Sprint と同じ長さ・timezone・稼働曜日で今日を含む期間の \`Sprint {番号}\` を1件作る（ゴール・完成の定義・計画は写さない）。前の Sprint の所属 Issue のうち done・canceled でないもの（アーカイブ済みを除く）を後継の所属として引き継ぐ。後継は期間が始まれば自動で開始し、人の合意は作らない。契機はサーバーの起動時と1分ごと、DB を開く CLI コマンドの実行前。記録上の actor は \`nod-automation\`。旧\`nod cycle\`・\`--cycle\` は廃止済みのままで、Sprint への追加は \`nod sprint add <sprint> <issue>\` で行う。
 - \`nod scrum show\`：Workspace の方向設定と自動引継ぎの状態（設定の値・次に処理する時刻・後継の予定・止まっている理由。\`--json\` は \`autoRollover\` と \`rollover\`）を読む。\`nod scrum rollover on|off\` で自動引継ぎを有効・無効にするのは人だけ（LLM は FORBIDDEN_FOR_LLM）
-- Sprintへの採択・Sprint実行の記録は、通常の状態更新・\`nod issue start\`・\`next\`・\`suggest\` を止めない。状態変更は Sprint 実行の予約・占有・未照合所有を解放しない（実行の占有は \`nod sprint execution show\` で別に確認する）。
+- Sprintへの採択・Sprint実行の記録は、通常の状態更新・\`nod issue start\`・\`next\`・\`suggest\` を止めない。状態変更は Sprint 実行の予約・占有・未照合所有を解放しない（実行の占有は \`nod sprint execution show\` で確認する）。既存の所有があるときに新しい主試行を予約すると EXECUTION_OWNED になる。
 - \`nod template list\`、\`nod template show <名前>\`
 - \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる
@@ -211,7 +217,6 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - NOT_ACCEPTED：その Issue はまだ Triage にある。着手せず、別の Issue を取る。
 - FORBIDDEN_FOR_LLM：人だけが行える操作である。書き手を変えて回避せず、人に判断を依頼する。
 - NEEDS_CLARIFICATION：その Issue には、人が決めていない未決事項が残っている。着手せず、別の Issue を取る。
-- ASSIGNED_TO_OTHER：その Issue はほかの書き手が担当している。着手せず、別の Issue を取る。
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。
 - ISSUE_ARCHIVED：その Issue はアーカイブ済みで、変更できない。必要なら \`nod issue unarchive <id>\` で復元し、そうでなければ別の Issue を取る。
@@ -226,8 +231,8 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 \`nod issue diagnose --stale-days 7 [--project <名前/ID>] --json\` は現在のWorkspaceを診断する。日数は正の整数で必ず指定する。
 未完了の直接blocksと、in_progress / needs_clarificationで指定日数以上活動記録がない候補を返す。実際の作業停止を断定しない。
 最終活動はIssue作成・更新、event、コメント、質問作成・回答の有効日時の最大値。日時はUTCの経過時間で比較し、閾値一致を含む。未来日時は停滞としない。
-done / canceledは対象外。未来までsnoozeされたIssueは停滞判定から除くが、ブロッカー情報は残す。担当者による制限はない。
+done / canceledは対象外。未来までsnoozeされたIssueは停滞判定から除くが、ブロッカー情報は残す。
 ブロック元は別Workspace・ProjectでもIDを示し、完了・中止済みと推移的な関係は含めない。
-JSONはevaluatedAt、staleDays、findingsを返し、空結果はfindings: []となる。診断で状態・担当・eventを変更せず、claim・Orca通知を行わない。通常のCLI起動時のDB初期化・migrationは既存通り。
+JSONはevaluatedAt、staleDays、findingsを返し、空結果はfindings: []となる。診断で状態や履歴を変更せず、Orca にも通知しない。通常のCLI起動時のDB初期化・migrationは既存通り。
 この出力を根拠に人へ状況を伝え、診断だけを根拠にTriage判断やdoneへの変更は行わない。
 `;

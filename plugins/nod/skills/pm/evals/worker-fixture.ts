@@ -33,15 +33,15 @@ export function installWorkerStartFixture(directory: string, ref: string): void 
   try {
     db.transaction(() => {
       const row = issueRow(db, ref);
-      // 既存実行はそのまま保持し、同actorの通常startへ戻さない。
-      if (row.status === "in_progress" && row.assignee === "codex") return;
+      // 進行中の既存実行の状態と開始履歴は保持する。
+      if (row.status === "in_progress") return;
       const fixture: StartFixture = JSON.parse(readFileSync(join(directory, `${ref}-worker-fixture.json`), "utf8"));
       if (!fixture.evaluationOnly || JSON.stringify(row) !== JSON.stringify(fixture.before)) {
         throw new Error("採択前の評価fixtureと現在のIssueが一致しません");
       }
       const after = fixture.after;
-      db.query(`UPDATE issues SET status=?,assignee=?,agent_state=?,started_at=?,closed_at=?,updated_at=? WHERE id=?`)
-        .run(after.status!, after.assignee!, after.agent_state!, after.started_at!, after.closed_at!, after.updated_at!, row.id!);
+      db.query(`UPDATE issues SET status=?,agent_state=?,started_at=?,closed_at=?,updated_at=? WHERE id=?`)
+        .run(after.status!, after.agent_state!, after.started_at!, after.closed_at!, after.updated_at!, row.id!);
       for (const event of fixture.events) db.query("INSERT INTO events(issue_id,actor,type,data,created_at) VALUES(?,?,?,?,?)")
         .run(event.issue_id!, event.actor!, event.type!, event.data!, event.created_at!);
       appendFileSync(join(directory, "operations.jsonl"), JSON.stringify({

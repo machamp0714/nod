@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   askQuestion, createIssue, getIssue, initWorkspace,
-  openDb, relateIssue, retryIssueAssessment, setWorkspaceSpecAssessment, updateIssue,
+  openDb, relateIssue, retryIssueAssessment, setWorkspaceSpecAssessment, startIssue,
 } from "../../../../../packages/core/src";
 import { addActiveSprint } from "../../../../../packages/core/test/fixtures/sprint";
 
@@ -29,7 +29,7 @@ export async function createTask1Scenario(directory?: string, beforeAdoption?: B
   const other = initWorkspace(db, { path: otherPath, key: "OTH" }).workspace;
 
   const names = [
-    "一覧の余白を調整", "未確定の集計仕様", "人が担当する変更", "Claudeが担当する変更",
+    "一覧の余白を調整", "未確定の集計仕様", "人が進めている一覧の変更", "別セッションのClaude作業",
     "別セッションのCodex作業", "未受け入れの提案", "保持期間の確認", "前提の整備待ち",
     "人が進めている前提の整備", "初回判定が未完了", "初回判定が失敗 [再試行も失敗]",
     "自動判定導入前の変更", "判定制限が解除された変更", "任意再評価だけが失敗した変更", "本番DBの更新",
@@ -56,15 +56,20 @@ export async function createTask1Scenario(directory?: string, beforeAdoption?: B
   await retryIssueAssessment(human, "API-11", failure);
   // 判定サービスから応答が返らない境界を再現する。初回pendingの保存までは同期的に進む。
   void retryIssueAssessment(human, "API-10", () => new Promise<never>(() => {}));
-  for (const [id, assignee] of [["API-3", "me"], ["API-4", "claude-code"], ["API-5", "codex"], ["API-9", "me"]]) {
-    updateIssue(human, id!, { assignee });
-  }
   askQuestion(human, "API-7", "保持期間を30日か90日か、人が決めてください。");
   relateIssue(human, "API-9", { blocks: "API-8" });
   const next = createIssue(human, { workspaceId: api.id, title: "次Sprintの候補" });
   const outside = createIssue(human, { workspaceId: other.id, title: "別Workspaceの変更" });
   // 既存実行や質問待ちの準備は採択前に行う。採択後の通常着手はSprint採択を理由に拒否されないが、評価の状態再現には使わない。
-  beforeAdoption?.(db, dir);
+  if (beforeAdoption) {
+    beforeAdoption(db, dir);
+  } else {
+    // 混在候補評価では、既存作業を開始履歴と作業場所で照合できるようにする。
+    startIssue(human, "API-3", { location: { branch: "manual-layout", worktree: "/evaluation/air/api-3" } });
+    startIssue({ db, actor: "claude-code" }, "API-4", { location: { branch: "claude-layout", worktree: "/evaluation/studio/api-4" } });
+    startIssue(agent, "API-5", { location: { branch: "codex-layout", worktree: "/evaluation/studio/api-5" } });
+    startIssue(human, "API-9", { location: { branch: "manual-prerequisite", worktree: "/evaluation/air/api-9" } });
+  }
   // Sprintの外部状態は評価専用の内部fixture。本番の合意・開始許可を表さない。
   const imported = crypto.randomUUID();
   db.query(`INSERT INTO sprints(id,number,name,phase,start_date,end_date,created_at,updated_at)
