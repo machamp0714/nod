@@ -22,7 +22,9 @@
 // - TUI は、providers・shortcuts・renderer などを何も登録しない拡張の読み込みを、入力欄の表示の後に回すことがある
 //   （OMP の extensibility/extensions/startup-deferral.ts）。そうなると task ツールが作られた後に書くことになるので、
 //   後回しにさせないため、customType が pstack-omp の message renderer を登録する（この拡張はその種類のメッセージを送らない）。
-// - このプロセスが適用より前に始まっていたら（適用より前のセッションに、後から読み込まれたとき）、何もしない。新しいセッションから効く。
+// - このプロセスが適用より前に始まっていたら（適用より前のセッションに、後から読み込まれたとき）、組を検証せず何もしない（上書きも遮断もしない）。
+//   新しいセッションから効く。適用より前のプロセスは新しい構成を読まないので、config.yml の読み直しなどで壊れた・入れ替え中の組を
+//   たまたま読んでも、利用者や親のセッションのツールを止めない。適用の時刻は、組が壊れていても決められる方法で求める（applyTime）。
 // 検証はプロセス（worker thread ではスレッド）で1度だけ行い、同じプロセスの全セッション（メイン・子・孫）で同じ結果を使う。
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
@@ -127,6 +129,8 @@ function blocked(reason: string): Extract<Verdict, { kind: "blocked" }> {
 }
 
 function judge(mirror: boolean): Verdict {
+  const appliedAt = applyTime();
+  if (appliedAt !== undefined && performance.timeOrigin < appliedAt) return { kind: "stale", appliedAt: new Date(appliedAt).toISOString() };
   let bytes: Buffer;
   let raw: unknown;
   try {
@@ -162,6 +166,7 @@ function judge(mirror: boolean): Verdict {
   if (mirror && expected !== undefined && expected !== harnessSha) {
     return blocked(`組の記録 ${HARNESS} が、メインのスレッドが検証したものと違います（実行中に組が変わった）`);
   }
+  // 検証の前に適用の時刻を求められず（入れ替え中）、その後に組が読めたとき
   if (performance.timeOrigin < Date.parse(harness.appliedAt)) return { kind: "stale", appliedAt: harness.appliedAt };
   const places = { agentDir: harness.agentDir, workDir: dirname(ROOT) };
   return {
@@ -174,6 +179,26 @@ function judge(mirror: boolean): Verdict {
       protectedPaths: rules.protectedPaths.map((path) => realAncestor(resolvePlaces(path, places))),
     },
   };
+}
+
+// 適用の時刻（ミリ秒）。組の検証より前に、組が壊れていても決められる方法で求める。組の記録の appliedAt が時刻として読めればそれ。
+// 読めなければ、この拡張のディレクトリ（HERE）の作られた時刻と最後に変わった時刻の新しい方。適用は appliedAt を決めてから、
+// このディレクトリを一時ディレクトリの中に作って harness.json を書き、置き換えるので、どちらの時刻も適用の時刻以上になる。
+// ディレクトリも無ければ（入れ替え中）undefined
+function applyTime(): number | undefined {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(HARNESS, "utf8"));
+    const recorded = isRecord(raw) && typeof raw.appliedAt === "string" ? Date.parse(raw.appliedAt) : Number.NaN;
+    if (!Number.isNaN(recorded)) return recorded;
+  } catch {
+    // 組の記録が無い・読めない。ディレクトリの時刻を使う
+  }
+  try {
+    const stat = statSync(HERE);
+    return Math.max(stat.birthtimeMs, stat.mtimeMs);
+  } catch {
+    return undefined;
+  }
 }
 
 // 形が正しければ記録を、正しくなければ理由を返す

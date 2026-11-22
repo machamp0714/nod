@@ -196,6 +196,39 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
     expect(result.toolCalls.flat()).toHaveLength(3);
     expect(result.notices.join("\n")).toContain("ツールを実行しません");
   });
+
+  // 適用より前から動いている OMP のプロセス（利用者や親のセッション）が、config.yml の読み直しなどで、壊れた・入れ替え中の組を後から読み込む場面
+  const beforeApply = [
+    ...cases,
+    {
+      name: "写しの規則が書き換えられた（sha256 が記録と違う）",
+      damage: (sb: Sandbox) => {
+        writable(join(sb.copy, "control", "rules.json"));
+        writeFileSync(join(sb.copy, "control", "rules.json"), "{}");
+      },
+    },
+  ];
+
+  test.each(beforeApply)("$name: 適用より前に始まったプロセスに後から読み込まれたら、組を検証せず、上書きも遮断もしない", async ({ damage }) => {
+    const sb = await synced();
+    const before = startExtension(join(sb.copy, "control", "index.ts"));
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    damage(sb);
+
+    const result = await before.run({
+      settings: { extensions: [copyPath(sb, "omp/control")] },
+      sessions: [
+        { agent: MAIN, toolCalls: 2, spawns: ["scout"] },
+        { agent: SUB, toolCalls: 1, spawns: ["scout"] },
+      ],
+    });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls).toEqual([[null, null], [null]]);
+    expect(result.spawns).toEqual([[null], [null]]);
+    expect(result.harnessEnv).toBeNull();
+    expect(result.notices.join("\n")).toContain("より前に始まったプロセス");
+  });
 });
 
 // 写しの中身。harness.json は適用の時刻を除いた形で比べる
