@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import {
   addWorkspaceLabel,
   clearWorkspaceRules,
@@ -73,7 +73,8 @@ export function registerWorkspaceCommands(program: Command): void {
     .option("--yes", "確認なしで解除する")
     .action(
       act((cli, _cmd, keyOrPath: string, o: { yes?: boolean }) => {
-        const target = findWorkspace(cli.db, keyOrPath) ?? findWorkspace(cli.db, resolve(keyOrPath));
+        const target = findWorkspace(cli.db, keyOrPath) ??
+          (process.env.NOD_WORKTREE !== undefined && !isAbsolute(keyOrPath) ? null : findWorkspace(cli.db, resolve(keyOrPath)));
         if (!target) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
         if (!o.yes) {
           throw new NodError(

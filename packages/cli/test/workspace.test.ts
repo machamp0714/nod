@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { symlinkSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { addWorktree, makeRepo, runNod, tempDb, tempDir } from "./helpers";
 
 describe("nod init と workspace", () => {
@@ -54,6 +54,21 @@ describe("nod init と workspace", () => {
     for (const name of ["toString", "constructor", "__proto__"]) {
       expect((await runNod(["skills", "get", name, "--json"], { cwd, db })).json.error.code).toBe("UNKNOWN_SKILL");
     }
+  });
+
+  test("転送時のキーらしい値が未登録なら、Air の同名パスへフォールバックしない", async () => {
+    const db = tempDb();
+    const repo = makeRepo("OTHER");
+    await runNod(["init", "--key", "ACTUAL"], { cwd: repo, db });
+    const opts = { cwd: dirname(repo), db, env: { NOD_WORKTREE: "/studio/worktree" } };
+    const created = await runNod(["-w", "OTHER", "issue", "create", "誤登録しない", "--json"], opts);
+    expect(created).toMatchObject({ exitCode: 1, json: { error: { code: "NOT_INITIALIZED" } } });
+    const removed = await runNod(["workspace", "remove", "OTHER", "--yes", "--json"], opts);
+    expect(removed).toMatchObject({ exitCode: 1, json: { error: { code: "NOT_FOUND" } } });
+    const listed = await runNod(["workspace", "list", "--json"], opts);
+    expect(listed.json).toMatchObject([{ key: "ACTUAL", path: repo }]);
+    const issues = await runNod(["-w", "ACTUAL", "issue", "list", "--json"], opts);
+    expect(issues.json).toEqual([]);
   });
 });
 

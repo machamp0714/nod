@@ -58,6 +58,12 @@ export async function notifyOrca(
 }
 
 export function currentWorkLocation(cwd: string = process.cwd()): WorkLocation | null {
+  // SSH ラッパーが渡す実行元を使い、受信側の checkout と混ぜない。
+  const worktree = process.env.NOD_WORKTREE;
+  if (worktree) {
+    const branch = process.env.NOD_BRANCH;
+    return { worktree, branch: branch && branch !== "HEAD" ? branch : null };
+  }
   try {
     const top = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd, stdout: "pipe", stderr: "ignore" });
     if (top.exitCode !== 0) return null;
