@@ -279,13 +279,23 @@ describe("relateIssue", () => {
     ]);
   });
 
-  test("自分自身との関係や、指定が1つでないものは INVALID_ARGS", () => {
+  test("同じ相手に blocks と related を同時に追加できる", () => {
+    const { ws, me } = setup();
+    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
+    const b = createIssue(me, { workspaceId: ws.id, title: "b" });
+    expect(relateIssue(me, a.id, { blocks: b.id, related: b.id }).relations).toMatchObject({
+      blocks: [b.id],
+      related: [b.id],
+    });
+  });
+
+  test("自分自身との関係、指定なし、duplicate-of との混在は INVALID_ARGS", () => {
     const { ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
     expect(codeOf(() => relateIssue(me, a.id, { related: a.id }))).toBe("INVALID_ARGS");
     expect(codeOf(() => relateIssue(me, a.id, {}))).toBe("INVALID_ARGS");
-    expect(codeOf(() => relateIssue(me, a.id, { blocks: b.id, related: b.id }))).toBe("INVALID_ARGS");
+    expect(codeOf(() => relateIssue(me, a.id, { blocks: b.id, duplicateOf: b.id }))).toBe("INVALID_ARGS");
   });
 });
 

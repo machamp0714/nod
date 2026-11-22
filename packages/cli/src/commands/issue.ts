@@ -553,6 +553,10 @@ export function registerIssueCommands(program: Command): void {
     .option("--blocks <id>", "この Issue が指定した Issue をブロックする")
     .option("--related <id>", "関連する Issue")
     .option("--duplicate-of <id>", "この Issue は指定した Issue の重複である")
+    .addHelpText(
+      "after",
+      "\n--blocks と --related は同じ相手にも別の相手にも併用できます。--duplicate-of は単独で指定してください。\n少なくとも1つ指定し、空文字は渡さないでください。関係の検証・登録または Activity の記録に失敗した場合、この実行による関係と Activity は残りません。",
+    )
     .action(
       act((cli, _cmd, id: string, o: { blocks?: string; related?: string; duplicateOf?: string }) => {
         const detail = relateIssue(cli.ctx, id, o);
