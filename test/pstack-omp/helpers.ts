@@ -47,6 +47,73 @@ export const GUIDE_LINE =
 // 用語のない読み替え表（表の見出しだけ）
 export const EMPTY_TABLE = "# pstack-omp\n\n| Cursor | OMP |\n| --- | --- |\n";
 
+// 検出する用語の一覧（仕様: 上流の道具の22種類と、足した4種類）。key は読み替え表の対応行の最初のセルに入れる文字列
+export const TERM_KEYS = [
+  "`Task`",
+  "`AskQuestion`",
+  "todolist",
+  "generalPurpose",
+  "poteto-agent",
+  "comment-sicko",
+  "`readonly: true`",
+  '`environment: "cloud"`',
+  "cloud_base_branch",
+  "`run_in_background: true`",
+  "`resume`",
+  "`file_attachments`",
+  "claude-",
+  "grok-",
+  "gpt-",
+  "inherit-parent",
+  "pstack-models.mdc",
+  ".cursor/skills/",
+  "~/.cursor/plugins/",
+  ".cursor/rules/",
+  "agent-transcripts",
+  "Cursor-only features",
+  "/loop",
+  "origin pr",
+  "subagent_type",
+  "Project worker",
+];
+
+// 各用語の、上流の本文に実際にある書き方の例
+export const SAMPLES: { key: string; text: string }[] = [
+  { key: "`Task`", text: "Spawn one `Task` per reviewer." },
+  { key: "`Task`", text: "Use the Task tool to fan out." },
+  { key: "`AskQuestion`", text: "Ask the user with AskQuestion." },
+  { key: "todolist", text: "Keep a todo list of the steps." },
+  { key: "generalPurpose", text: "Spawn a generalPurpose worker." },
+  { key: "poteto-agent", text: "Spawn it as a poteto-agent." },
+  { key: "comment-sicko", text: "Hand the diff to comment-sicko." },
+  { key: "`readonly: true`", text: "Explore with readonly: true." },
+  { key: '`environment: "cloud"`', text: 'Run it with environment: "cloud".' },
+  { key: "cloud_base_branch", text: "Set cloud_base_branch to trunk." },
+  { key: "`run_in_background: true`", text: "Pass run_in_background: true." },
+  { key: "`resume`", text: "Continue it with `resume`." },
+  { key: "`file_attachments`", text: "Attach the log with file_attachments." },
+  { key: "claude-", text: "Pick claude-opus-4 for the judge." },
+  { key: "grok-", text: "Pick grok-4 for the second opinion." },
+  { key: "gpt-", text: "Pick gpt-5 for the reviewer." },
+  { key: "inherit-parent", text: "A line of inherit-parent keeps the parent model." },
+  { key: "pstack-models.mdc", text: "Read pstack-models.mdc first." },
+  { key: ".cursor/skills/", text: "Install it under .cursor/skills in the repo." },
+  { key: "~/.cursor/plugins/", text: "The plugin lives in ~/.cursor/plugins/pstack." },
+  { key: ".cursor/rules/", text: "Write the rule to ~/.cursor/rules." },
+  { key: "agent-transcripts", text: "Read the agent-transcripts folder." },
+  { key: "Cursor-only features", text: "Triage Bugbot skeptically." },
+  { key: "/loop", text: "`/loop` is Cursor's built-in wake mechanism." },
+  { key: "/loop", text: "Run the watcher /loop until done." },
+  { key: "origin pr", text: "Read it back with `origin pr view <pr>`." },
+  { key: "subagent_type", text: "Spawn it with `subagent_type: generalPurpose`." },
+  { key: "Project worker", text: "Starting a Task subagent or a Project worker." },
+  { key: "Project worker", text: "An explicit model per role, Project workers included." },
+];
+
+export function skillMd(name: string, body: string): string {
+  return `---\nname: ${name}\ndescription: test\n---\n\n# ${name}\n\n${body}\n`;
+}
+
 // 上流のコミットにいつも入れるファイル。cursor-team-kit は読み込む3つと、読み込まない1つ
 function defaultFiles(version: string): Record<string, string> {
   return {
@@ -71,7 +138,7 @@ export interface Sandbox {
   pin(over?: Partial<Pin>): void;
   // omp --version が出す版を決める。null なら omp を失敗させる
   omp(version: string | null): void;
-  // 読み替え表（OMP 向けのディレクトリの skills/pstack-omp/SKILL.md）を書く。null なら消す
+  // 読み替え表（OMP 向けのディレクトリの skills/pstack-omp/SKILL.md）を書く。null なら消す。repoTable の sandbox では使えない
   table(content: string | null): void;
   // 同期を起動する。dataDir を渡すとそのデータ置き場を使う
   sync(dataDir?: string): Promise<Run>;
@@ -79,7 +146,8 @@ export interface Sandbox {
   cloneStatus(): string;
 }
 
-export function sandbox(): Sandbox {
+// repoTable: OMP 向けのディレクトリを差し替えず、既定（nod のリポジトリの omp/）の実際の読み替え表で生成する
+export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sandbox {
   const root = mkdtempSync(join(tmpdir(), "nod-pstack-omp-"));
   const upstream = join(root, "upstream-src");
   const dataDir = join(root, "data");
@@ -117,6 +185,7 @@ export function sandbox(): Sandbox {
       chmodSync(ompBin, 0o755);
     },
     table(content) {
+      if (repoTable) throw new Error("repoTable の sandbox ではリポジトリの読み替え表を使うので、表を書き換えない");
       if (content === null) {
         rmSync(tablePath, { force: true });
         return;
@@ -125,19 +194,16 @@ export function sandbox(): Sandbox {
       writeFileSync(tablePath, content);
     },
     async sync(dir = dataDir) {
-      const proc = Bun.spawn([process.execPath, CLI, "sync"], {
-        cwd: root,
-        env: {
-          ...process.env,
-          ...gitEnv(root),
-          NOD_DATA_DIR: dir,
-          NOD_PSTACK_OMP_PIN: pinPath,
-          NOD_PSTACK_OMP_OMP_BIN: ompBin,
-          NOD_PSTACK_OMP_PACKAGE: packageDir,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        ...gitEnv(root),
+        NOD_DATA_DIR: dir,
+        NOD_PSTACK_OMP_PIN: pinPath,
+        NOD_PSTACK_OMP_OMP_BIN: ompBin,
+        NOD_PSTACK_OMP_PACKAGE: packageDir,
+      };
+      if (repoTable) delete env.NOD_PSTACK_OMP_PACKAGE;
+      const proc = Bun.spawn([process.execPath, CLI, "sync"], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
       return { exitCode, stdout, stderr };
     },
@@ -145,7 +211,7 @@ export function sandbox(): Sandbox {
     cloneStatus: () => git(root, sb.clone, "status", "--porcelain", "--ignored"),
   };
   sb.omp("19.1.0");
-  sb.table(EMPTY_TABLE);
+  if (!repoTable) sb.table(EMPTY_TABLE);
   return sb;
 }
 

@@ -3,70 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { EMPTY_TABLE, GUIDE_LINE, type Run, sandbox, skillNames, snapshot } from "./helpers";
-
-// 検出する用語の一覧（仕様: 上流の道具の22種類と、足した4種類）。key は読み替え表の対応行の最初のセルに入れる文字列
-const TERM_KEYS = [
-  "`Task`",
-  "`AskQuestion`",
-  "todolist",
-  "generalPurpose",
-  "poteto-agent",
-  "comment-sicko",
-  "`readonly: true`",
-  '`environment: "cloud"`',
-  "cloud_base_branch",
-  "`run_in_background: true`",
-  "`resume`",
-  "`file_attachments`",
-  "claude-",
-  "grok-",
-  "gpt-",
-  "inherit-parent",
-  "pstack-models.mdc",
-  ".cursor/skills/",
-  "~/.cursor/plugins/",
-  ".cursor/rules/",
-  "agent-transcripts",
-  "Cursor-only features",
-  "/loop",
-  "origin pr",
-  "subagent_type",
-  "Project worker",
-];
-
-// 各用語の、上流の本文に実際にある書き方の例
-const SAMPLES: { key: string; text: string }[] = [
-  { key: "`Task`", text: "Spawn one `Task` per reviewer." },
-  { key: "`Task`", text: "Use the Task tool to fan out." },
-  { key: "`AskQuestion`", text: "Ask the user with AskQuestion." },
-  { key: "todolist", text: "Keep a todo list of the steps." },
-  { key: "generalPurpose", text: "Spawn a generalPurpose worker." },
-  { key: "poteto-agent", text: "Spawn it as a poteto-agent." },
-  { key: "comment-sicko", text: "Hand the diff to comment-sicko." },
-  { key: "`readonly: true`", text: "Explore with readonly: true." },
-  { key: '`environment: "cloud"`', text: 'Run it with environment: "cloud".' },
-  { key: "cloud_base_branch", text: "Set cloud_base_branch to trunk." },
-  { key: "`run_in_background: true`", text: "Pass run_in_background: true." },
-  { key: "`resume`", text: "Continue it with `resume`." },
-  { key: "`file_attachments`", text: "Attach the log with file_attachments." },
-  { key: "claude-", text: "Pick claude-opus-4 for the judge." },
-  { key: "grok-", text: "Pick grok-4 for the second opinion." },
-  { key: "gpt-", text: "Pick gpt-5 for the reviewer." },
-  { key: "inherit-parent", text: "A line of inherit-parent keeps the parent model." },
-  { key: "pstack-models.mdc", text: "Read pstack-models.mdc first." },
-  { key: ".cursor/skills/", text: "Install it under .cursor/skills in the repo." },
-  { key: "~/.cursor/plugins/", text: "The plugin lives in ~/.cursor/plugins/pstack." },
-  { key: ".cursor/rules/", text: "Write the rule to ~/.cursor/rules." },
-  { key: "agent-transcripts", text: "Read the agent-transcripts folder." },
-  { key: "Cursor-only features", text: "Triage Bugbot skeptically." },
-  { key: "/loop", text: "`/loop` is Cursor's built-in wake mechanism." },
-  { key: "/loop", text: "Run the watcher /loop until done." },
-  { key: "origin pr", text: "Read it back with `origin pr view <pr>`." },
-  { key: "subagent_type", text: "Spawn it with `subagent_type: generalPurpose`." },
-  { key: "Project worker", text: "Starting a Task subagent or a Project worker." },
-  { key: "Project worker", text: "An explicit model per role, Project workers included." },
-];
+import { EMPTY_TABLE, GUIDE_LINE, type Run, SAMPLES, sandbox, skillMd, skillNames, snapshot, TERM_KEYS } from "./helpers";
 
 // 用語が当たらない、似た書き方
 const LOOKALIKES = [
@@ -89,10 +26,6 @@ function missingRows(run: Run): Map<string, string[]> {
     if (match?.[1] !== undefined && match[2] !== undefined) rows.set(match[1], match[2].split(", "));
   }
   return rows;
-}
-
-function skillMd(name: string, body: string): string {
-  return `---\nname: ${name}\ndescription: test\n---\n\n# ${name}\n\n${body}\n`;
 }
 
 function readGenerated(sb: { generated: string }, path: string): string {
