@@ -422,12 +422,12 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
 
   });
 
-  test("別の LLM が操作しても、通知には作業の担当（data.agent）を残す", () => {
+  test("別の LLM が操作したら、通知には操作した書き手を残す", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     startIssue(llm, a.id);
     failIssue({ db, actor: "codex" }, a.id, "落ちた");
-    expect(agentOf(db).map((n) => [n.actor, n.data.agent, n.data.to])).toEqual([["codex", "claude-code", "error"]]);
+    expect(agentOf(db).map((n) => [n.actor, n.data.agent, n.data.to])).toEqual([["codex", "codex", "error"]]);
   });
 
   test("回答で既読にするのは入力待ちが解けたときだけで、me 自身の質問への回答や未回答が残る回答では既読にしない", () => {

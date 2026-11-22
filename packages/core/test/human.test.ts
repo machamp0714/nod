@@ -167,7 +167,7 @@ for (const actor of ["codex", "claude-code", "other-agent"]) {
   }
 }
 
-test("回答eventの書き手と再開する作業主体を分け、後の担当変更でも履歴を保つ", () => {
+test("回答で作業状況を戻しても、人が作業を始めたとは記録しない", () => {
   const { db, ws, me, llm } = setup();
   const codex = { ...llm, actor: "codex" };
   const issue = createIssue(me, { workspaceId: ws.id, title: "回答待ち" });
@@ -181,7 +181,7 @@ test("回答eventの書き手と再開する作業主体を分け、後の担当
   answerQuestion(me, issue.id, "明日", { questionId: second.question.id });
   expect(count()).toBe(before + 1);
   const resumed = eventsOf(db, issue.id).at(-1);
-  expect(resumed).toMatchObject({ actor: "me", type: "agent_state_changed", data: { from: "awaiting_input", to: "working", agent: "codex", trigger: "answer" } });
+  expect(resumed).toMatchObject({ actor: "me", type: "agent_state_changed", data: { from: "awaiting_input", to: "working", agent: null, trigger: "answer" } });
   updateIssue(me, issue.id, { assignee: "claude-code" });
   expect(eventsOf(db, issue.id).filter((e) => e.type === "agent_state_changed").at(-1)).toEqual(resumed);
   expect(eventsOf(db, issue.id).find((e) => e.type === "status_changed")?.data).toEqual({ from: "todo", to: "in_progress" });

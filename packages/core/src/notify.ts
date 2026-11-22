@@ -65,7 +65,7 @@ export function releaseSnoozeOnArrival(db: Database, issueId: number, ts: string
 // LLM に任せた Issue で、me が気づくべき作業の区切り。着手・再開（working）や外れ（null）は通知しない
 const AGENT_NOTIFY_STATES = ["done", "awaiting_input", "error"];
 
-// 担当が LLM の Issue で LLM の作業が完了・入力待ち・エラーになったら、購読していなくても me に届ける。
+// LLM の操作で作業が完了・入力待ち・エラーになったら、購読していなくても me に届ける。
 // 購読の通知とは kind で分け、同じイベントから重ねて作らない（UNIQUE (recipient, event_id)）
 export function notifyDelegator(
   db: Database,
@@ -77,7 +77,6 @@ export function notifyDelegator(
 ): void {
   if (type !== "agent_state_changed" || actor === HUMAN_ACTOR) return;
   if (typeof data.to !== "string" || !AGENT_NOTIFY_STATES.includes(data.to)) return;
-  if (typeof data.agent !== "string" || data.agent === HUMAN_ACTOR) return;
   const ts = now();
   const inserted = db
     .query(
