@@ -57,6 +57,19 @@ agentからroleを参照する仕組みになっているため、作業手順�
 その分析をもとに、Omp上のagentの指示、nodのスキルや開発手順、roleへのモデル割り当てを見直します。
 改定した設定を次のスプリントで試し、人とエージェントの協働の仕方を継続的に改善していきます。
 
+### pstack を OMP で使う（移行中）
+
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) のスキルを、上流の本文を保ったまま OMP で使えます。Claude Code・Codex 向けのプラグインには入りません。
+
+```sh
+bun scripts/pstack-omp/cli.ts sync    # scripts/pstack-omp/pin.json のコミットを取得し、OMP 向けのコピーを生成する
+bun scripts/pstack-omp/cli.ts apply   # omp/ を nod のデータ置き場へ写し、~/.omp/agent/config.yml に制御の拡張を登録する
+bun scripts/pstack-omp/cli.ts status  # 適用の状態、使われる tdd、いまのプロジェクトの名前のぶつかりを表示する
+bun scripts/pstack-omp/cli.ts remove  # 登録と写しを外し、設定を適用の前に戻す
+```
+
+適用の後に始めたセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使えます。同じ組の禁止操作の規則（`omp/control/rules.json`）が、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などを止めます。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
+
 ## 使い始める
 
 ### 必要なもの
