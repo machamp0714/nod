@@ -1,6 +1,7 @@
 // pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の適用（apply）・解除（remove）を、プロセスとして起動して外から確かめる。
 // 利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・ホーム（HOME）・データ置き場（NOD_DATA_DIR）は一時ディレクトリ（helpers.ts）。
 // 適用した組の制御の拡張は、OMP の代わりに extension-driver.ts で読み込み、実行時の上書きと tool_call の戻り値を外から確かめる。
+// 適用の後に始めるプロセスは、写しのサンドボックスのプロファイルで閉じ込めて起動する（閉じ込めずに起動すると全ツールを遮断するため）。
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,6 +29,11 @@ function writeConfig(sb: Sandbox, text: string): void {
 // 写しの中の位置（データ置き場は macOS の /var と /private/var のような別名を解いた形で書かれる）
 function copyPath(sb: Sandbox, rel: string): string {
   return join(realpathSync(sb.dataDir), "pstack-omp", rel);
+}
+
+// 適用した写しの制御の拡張を、写しのサンドボックスのプロファイル（control/sandbox.sb）で閉じ込めて読み込むプロセスを起動する
+function confined(sb: Sandbox) {
+  return startExtension(join(sb.copy, "control", "index.ts"), { profile: join(sb.copy, "control", "sandbox.sb") });
 }
 
 describe("適用", () => {
@@ -83,7 +89,7 @@ describe("適用", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
     const control = copyPath(sb, "omp/control");
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: {
         extensions: ["/somewhere/ext-a", control],
         "skills.customDirectories": ["/somewhere/skills"],
@@ -114,7 +120,7 @@ describe("適用", () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
       sessions: [
         { agent: MAIN, toolCalls: 0 },
@@ -129,7 +135,7 @@ describe("適用", () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
       sessions: [
         { agent: MAIN, toolCalls: 0 },
@@ -150,7 +156,7 @@ describe("適用", () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
       mirror: true,
       sessions: [{ agent: SUB, toolCalls: 1 }],
@@ -211,7 +217,7 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
     damage(sb);
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
       sessions: [
         { agent: MAIN, toolCalls: 2 },
@@ -233,7 +239,7 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
     rmSync(sb.generated, { recursive: true });
 
-    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+    const result = await confined(sb).run({
       settings: { extensions: [copyPath(sb, "omp/control")] },
       sessions: [{ agent: MAIN, toolCalls: 1 }],
     });
@@ -635,10 +641,28 @@ describe("写し", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     expect(statSync(join(sb.copy, "control", "harness.json")).mode & 0o777).toBe(0o600);
-    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts", "rules.json", "rules.ts"]);
+    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts", "rules.json", "rules.ts", "sandbox.sb"]);
     expect(readFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "utf8")).toBe(readFileSync(join(sb.packageDir, "skills", "pstack-omp", "SKILL.md"), "utf8"));
     rmSync(sb.copy, { recursive: true });
     expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("写しに起動の入口（bin/omp、実行できる）とサンドボックスのプロファイルを置いて組の記録の sha256 に入れ、omp の実行ファイルの実パスを記録し、起動の入口からの起動を案内する", async () => {
+    const sb = await synced();
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(0);
+    const harness = JSON.parse(readFileSync(join(sb.copy, "control", "harness.json"), "utf8")) as { ompBin: string; files: Record<string, string> };
+    expect(harness.ompBin).toBe(realpathSync(sb.ompBin));
+    expect(Object.keys(harness.files)).toEqual(expect.arrayContaining(["bin/omp", "control/sandbox.sb"]));
+    expect(statSync(sb.launcher).mode & 0o111).toBe(0o111);
+    expect(run.stdout).toContain(`${copyPath(sb, "omp/bin/omp")} から起動してください`);
+    expect(run.stdout).toContain("全ツールを遮断");
+    expect(run.stdout).toContain("config.yml を保存できません");
+    // 起動の入口は、引数をそのまま omp の実行ファイルへ渡す
+    const echoed = await sb.launch('printf "%s|" "$@"', "a b", "it's", "c");
+    expect(echoed.stdout).toBe("a b|it's|c|");
   });
 
   test("写しに、リポジトリの poteto-agent の定義（役割 task のモデルで、読み替え表を自動で読み、既定の task と poteto-agent を起動できる）が入る", async () => {

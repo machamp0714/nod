@@ -3,11 +3,15 @@
 // skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）を入れる。
 // 読み込みの設定は同じ写しの harness.json（適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json
 // （nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。写しは作業中のリポジトリや clone の外の置き場で、
-// 生成したスキル・規則を含む写しの全ファイルを組の記録の sha256 で確かめる（写しは読み取り専用にしない）。
+// 生成したスキル・規則・起動の入口（bin/omp）・サンドボックスのプロファイル（control/sandbox.sb）を含む写しの全ファイルを組の記録の sha256 で確かめる。
+// 信頼境界は macOS のサンドボックス（Seatbelt）。写しの起動の入口から起動した OMP とその子孫は、規則の守る集合（写し・生成物・clone、
+// OMP の設定、利用者のエージェント定義と拡張の置き場、omp の実行ファイルと、それらの祖先）に書けない（カーネルが拒否し、中から外せない）。
+// 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。
 //
 // - 組の記録と規則を検証する（読める、形が正しい、指すディレクトリが写しの中にある、組の各ファイルの sha256 が記録と同じ、files に規則が
-//   入っている、規則の形が正しい）。正しくなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。読み込みの設定も規則も入れない
-//   （新しい構成のまま、読み込み先や規則が壊れた状態でツールを使わせない）。
+//   入っている、規則の形が正しい）。続けて、このプロセスが守る集合に書けないこと（サンドボックスに閉じ込められていること）を、書かずに確かめる
+//   （writable）。最後に OMP の設定のモジュールを読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。
+//   読み込みの設定も規則も入れない（新しい構成のまま、読み込み先や規則が壊れた・書き換えられる状態でツールを使わせない）。
 // - 正しければ、拡張の読み込み（factory）で、config.yml と同じ読み込みの設定と規則の上書きを同じ処理で実行時の層（永続しない。global・
 //   project・--config より強く、OMP の運用者の層にも入るのでプロジェクトの設定では緩められない）にも書く。固定するキーは extensions・
 //   disabledExtensions・skills.customDirectories・skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く
@@ -28,13 +32,16 @@
 //   新しいセッションから効く。適用より前のプロセスは新しい構成を読まないので、config.yml の読み直しなどで壊れた・入れ替え中の組を
 //   たまたま読んでも、利用者や親のセッションのツールを止めない。適用の時刻は、組が壊れていても決められる方法で求める（applyTime）。
 // 検証はプロセス（worker thread ではスレッド）で1度だけ行い、同じプロセスの全セッション（メイン・子・孫）で同じ結果を使う。
-import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, closeSync, constants, mkdirSync, openSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Settings, ToolCallEvent, ToolCallEventResult } from "@oh-my-pi/pi-coding-agent";
-import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
-import { isRecord, parseRules, resolvePlaces, type Rules } from "./rules";
+import type { Setting } from "@oh-my-pi/pi-coding-agent/config/registry";
+import { guarded, type Guarded, isRecord, parseRules, realAncestor, resolvePlaces, type Rules } from "./rules";
+
+// OMP の設定を引く関数（OMP の config/registry の lookup）
+type Lookup = (id: string) => Setting | undefined;
 
 const HERE = import.meta.dir;
 // 写しの根（content/ と control/ を持つ）
@@ -54,6 +61,7 @@ interface Harness {
   content: string;
   control: string;
   agentDir: string;
+  ompBin: string;
   skillDirectories: string[];
   manualSkills: string[];
   // 写しの根からの相対パス → sha256
@@ -66,17 +74,18 @@ interface Control {
   rules: Rules;
   harnessSha: string;
   bashDeny: string[];
-  // 別名を解いた形
+  // 書き込みのツールで書けない置き場（守る集合の実パス）
   protectedPaths: string[];
+  lookup: Lookup;
 }
 
 type Verdict = { kind: "ok"; control: Control } | { kind: "blocked"; reason: string } | { kind: "stale"; appliedAt: string };
 
 let verdict: Verdict | undefined;
 
-export default function control(pi: ExtensionAPI): void {
+export default async function control(pi: ExtensionAPI): Promise<void> {
   const mirror = isMirror(pi.pi.settings);
-  verdict ??= judge(mirror);
+  verdict ??= await judge(mirror);
   pi.registerMessageRenderer(NAME, (message) => ({ render: () => [String(message.content)], invalidate: () => {} }));
   const current = verdict;
   if (current.kind === "ok" && !mirror) {
@@ -123,14 +132,11 @@ export default function control(pi: ExtensionAPI): void {
   });
 }
 
-function blocked(reason: string): Extract<Verdict, { kind: "blocked" }> {
-  return {
-    kind: "blocked",
-    reason: `${reason}。組（${ROOT}）が正しくないので、ツールを実行しません。bun scripts/pstack-omp/cli.ts status で確かめ、apply し直すか remove してください`,
-  };
+function blocked(reason: string, advice = `組（${ROOT}）が正しくないので、ツールを実行しません。bun scripts/pstack-omp/cli.ts status で確かめ、apply し直すか remove してください`): Extract<Verdict, { kind: "blocked" }> {
+  return { kind: "blocked", reason: `${reason}。${advice}` };
 }
 
-function judge(mirror: boolean): Verdict {
+async function judge(mirror: boolean): Promise<Verdict> {
   const appliedAt = applyTime();
   if (appliedAt !== undefined && performance.timeOrigin < appliedAt) return { kind: "stale", appliedAt: new Date(appliedAt).toISOString() };
   let bytes: Buffer;
@@ -172,7 +178,26 @@ function judge(mirror: boolean): Verdict {
   }
   // 検証の前に適用の時刻を求められず（入れ替え中）、その後に組が読めたとき
   if (performance.timeOrigin < Date.parse(harness.appliedAt)) return { kind: "stale", appliedAt: harness.appliedAt };
-  const places = { agentDir: harness.agentDir, workDir: dirname(ROOT) };
+  const places = { agentDir: harness.agentDir, workDir: realAncestor(dirname(ROOT)), ompBin: harness.ompBin };
+  const guard = guarded(rules, places);
+  const open = writable(guard);
+  if (open.length > 0) {
+    return blocked(
+      `サンドボックスの外で起動しています（このプロセスから書けてしまう置き場: ${open.join(", ")}）`,
+      `${join(realAncestor(ROOT), "bin", "omp")} から起動してください。閉じ込められていないので、ツールを実行しません`,
+    );
+  }
+  let lookup: Lookup;
+  try {
+    // OMP の非公開のモジュール。静的に読むと、OMP の更新で無くなったときに拡張ごと読み込みに失敗し、制御だけが欠けた構成が残るので、ここで読む
+    ({ lookup } = await import("@oh-my-pi/pi-coding-agent/config/registry"));
+    if (typeof lookup !== "function") throw new Error("lookup がありません");
+  } catch (e) {
+    return blocked(
+      `OMP の設定のモジュール（@oh-my-pi/pi-coding-agent/config/registry）を読めません: ${(e as Error).message}`,
+      "OMP の版が固定の記録と違う可能性があるので、ツールを実行しません。bun scripts/pstack-omp/cli.ts status で確かめてください",
+    );
+  }
   return {
     kind: "ok",
     control: {
@@ -180,9 +205,48 @@ function judge(mirror: boolean): Verdict {
       rules,
       harnessSha,
       bashDeny: rules.bashDeny.map((match) => resolvePlaces(match, places)),
-      protectedPaths: rules.protectedPaths.map((path) => realAncestor(resolvePlaces(path, places))),
+      protectedPaths: guard.paths.map(({ path }) => path),
+      lookup,
     },
   };
+}
+
+// 守る集合のうち、このプロセスが書けてしまう置き場（閉じ込められていれば空）。何も書かずに、拒否されるかだけを確かめる（FFI は使わない）。
+// 在るファイルは、書き込みで開くこと（開けたら書かずに閉じる）と同じ mode への chmod。在るディレクトリは、同じ mode への chmod と、その中への
+// mkdir（作れたら消す。この拡張のディレクトリの中には作らない）。祖先は、同じ mode への chmod。どれも EPERM（サンドボックスの拒否）で
+// 失敗しなければ書けるとみなす。EACCES などの mode の拒否は、同じ利用者の chmod で戻せるので閉じ込めとみなさない。無いパスは試さない
+// （プロファイルが作ることも拒否する）
+function writable({ paths, ancestors }: Guarded): string[] {
+  const denied = (attempt: () => void): boolean => {
+    try {
+      attempt();
+      return false;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "EPERM";
+    }
+  };
+  const probe = (path: string, ancestor: boolean): boolean => {
+    let mode: number;
+    let directory: boolean;
+    try {
+      const stat = statSync(path);
+      mode = stat.mode & 0o7777;
+      directory = stat.isDirectory();
+    } catch {
+      return false;
+    }
+    const chmod = () => chmodSync(path, mode);
+    if (ancestor) return !denied(chmod);
+    if (!directory) return !denied(() => closeSync(openSync(path, constants.O_WRONLY | constants.O_APPEND))) || !denied(chmod);
+    if (!denied(chmod)) return true;
+    if (real(path) === real(HERE)) return false;
+    return !denied(() => {
+      const dir = join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`);
+      mkdirSync(dir);
+      rmSync(dir, { recursive: true, force: true });
+    });
+  };
+  return [...paths.filter(({ path }) => probe(path, false)).map(({ path }) => path), ...ancestors.filter((path) => probe(path, true))];
 }
 
 // 適用の時刻（ミリ秒）。組の検証より前に、組が壊れていても決められる方法で求める。組の記録の appliedAt が時刻として読めればそれ。
@@ -214,7 +278,7 @@ function parseHarness(raw: unknown): Harness | string {
   if (typeof r.appliedAt !== "string" || Number.isNaN(Date.parse(r.appliedAt))) return "appliedAt が時刻ではありません";
   const pin = r.pin as Record<string, unknown> | null | undefined;
   if (typeof pin?.commit !== "string") return "pin.commit がありません";
-  for (const key of ["content", "control", "agentDir"] as const) {
+  for (const key of ["content", "control", "agentDir", "ompBin"] as const) {
     if (typeof r[key] !== "string" || !isAbsolute(r[key])) return `${key} が絶対パスではありません`;
   }
   if (!strings(r.skillDirectories) || r.skillDirectories.length === 0 || !r.skillDirectories.every((dir) => isAbsolute(dir))) {
@@ -234,7 +298,7 @@ function parseHarness(raw: unknown): Harness | string {
 // 実行時の層に、読み込みの設定と規則の上書きを同じ処理で書く。どれも、いまの実効値（global・project・--config と、前に書いた実行時の層を
 // 合わせたもの）を土台にし、何度計算しても同じ値になるようにする。全部の設定を見つけてから書く（片方だけが入る経路を作らない）。
 // 値が同じで、既に実行時の層から来ていれば書かない（子と孫の factory で呼ばれたとき、設定の変更を知らせる仕組みを無駄に動かさない）
-function overrideSettings(settings: Settings, { harness, rules, bashDeny }: Control): void {
+function overrideSettings(settings: Settings, { harness, rules, bashDeny, lookup }: Control): void {
   const handle = (id: string) => {
     const setting = lookup(id);
     if (setting === undefined) throw new Error(`OMP の設定 ${id} がありません`);
@@ -374,19 +438,6 @@ function real(path: string): string {
     return realpathSync(expanded);
   } catch {
     return resolve(expanded);
-  }
-}
-
-// まだ無いパスでも、在る祖先まで別名を解いた形
-function realAncestor(path: string): string {
-  for (let at = path, rest = ""; ; ) {
-    try {
-      return join(realpathSync(at), rest);
-    } catch {
-      if (dirname(at) === at) return path;
-      rest = join(basename(at), rest);
-      at = dirname(at);
-    }
   }
 }
 

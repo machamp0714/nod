@@ -1,5 +1,5 @@
 // 制御の拡張（適用した写しの control/index.ts）を、OMP の代わりに読み込んで動かすテスト用のプロセス。
-// OMP と同じく、拡張はプロセスごとに1度読み込まれ、セッションごとに factory が呼ばれ、その後に session_start が届く。
+// OMP と同じく、拡張はプロセスごとに1度読み込まれ、セッションごとに factory が呼ばれて待たれ、その後に session_start が届く。
 // 子のセッションは親の実行時の層を引き継ぐので、全セッションで1つの偽の設定を共有する。
 // 拡張の外から見える結果（実行時の上書きとその時点、session_start の前の実効値、登録した renderer、tool_call と before_subagent_spawn の戻り値、
 // 知らせ、worker thread の子に渡る環境変数）だけを JSON で標準出力に出す。
@@ -61,7 +61,7 @@ baseProvenance = scenario.provenance ?? "global";
 if (scenario.mirror === true) settings.overlayParent = () => ({ isMirror: true });
 for (const [key, value] of Object.entries(scenario.env ?? {})) process.env[key] = value;
 // 拡張のパスは実行時に渡される（適用した写しの中）。偽のモジュールを登録した後に読み込む必要もある
-const extension = (await import(process.argv[2]!)).default as (pi: unknown) => void;
+const extension = (await import(process.argv[2]!)).default as (pi: unknown) => void | Promise<void>;
 const effectiveNow = () => Object.fromEntries(Object.keys(DEFAULTS).map((id) => [id, id in settings.override ? settings.override[id] : (settings.base[id] ?? DEFAULTS[id])]));
 const toolCalls: unknown[][] = [];
 const spawns: unknown[][] = [];
@@ -71,7 +71,7 @@ for (const [index, session] of scenario.sessions.entries()) {
   const handlers = new Map<string, Handler[]>();
   const registered: string[] = [];
   current = { session: index, phase: "factory" };
-  extension({
+  await extension({
     on: (event: string, handler: Handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     registerMessageRenderer: (customType: string) => registered.push(customType),
     pi: { settings },

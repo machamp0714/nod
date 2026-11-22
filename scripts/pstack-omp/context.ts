@@ -2,12 +2,12 @@
 // 置き場と実行ファイルは環境変数で差し替えられる（テストと別の Mac への可搬性のため）。
 //   NOD_PSTACK_OMP_PIN     固定の記録のパス（既定はこのディレクトリの pin.json）
 //   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
-//   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）
+//   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）。適用はその実パスを、写しの起動の入口がサンドボックスの中で起動するものとして記録する
 //   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
 //   NOD_PSTACK_OMP_CONTROL 制御の拡張とその規則 rules.json（既定は nod のリポジトリの omp/control）
 //   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml
 //   HOME                   利用者のホーム（~/.agents/skills を名前のぶつかりとして検査する）
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -99,6 +99,17 @@ export function checkOmpVersion(ctx: Context): string {
     );
   }
   return version;
+}
+
+// omp の実行ファイルの実パス（名前だけなら PATH から探し、リンクと別名を解く）。見つからなければ止める
+export function ompRealPath(ctx: Context): string {
+  const found = ctx.ompBin.includes("/") ? resolve(ctx.ompBin) : Bun.which(ctx.ompBin);
+  try {
+    if (found === null) throw new Error("PATH にありません");
+    return realpathSync(found);
+  } catch (e) {
+    throw new PstackOmpError(`omp の実行ファイル ${ctx.ompBin} の実パスを求められません: ${(e as Error).message}`);
+  }
 }
 
 export interface GitResult {

@@ -46,6 +46,8 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain("→ 適用しています");
     expect(run.stdout).toContain(`pstack の tdd（${work}/omp/generated/pstack/skills/tdd/SKILL.md）が使われます`);
     expect(run.stdout).toContain(`利用者の置き場の tdd（${userTdd}）は、名前空間つきの <名前空間>/tdd の名前になります`);
+    expect(run.stdout).toContain(`起動の入口: ${work}/omp/bin/omp から起動してください`);
+    expect(run.stdout).toContain("全ツールを遮断");
   });
 
   const damages: { name: string; damage(sb: Sandbox): void; shows: string }[] = [
@@ -73,6 +75,16 @@ describe("適用の状態とどの tdd が使われるか", () => {
       name: "config.yml の extensions から OMP 向けのディレクトリが消えた",
       damage: (sb) => writeFileSync(sb.configPath, readFileSync(sb.configPath, "utf8").replace(/^ +- .*\/omp\/content\n/m, "")),
       shows: "読み込みの設定が欠けています: extensions の ",
+    },
+    {
+      name: "写しの起動の入口（bin/omp）が無い",
+      damage: (sb) => rmSync(sb.launcher),
+      shows: "bin/omp（無い）",
+    },
+    {
+      name: "写しのサンドボックスのプロファイルが記録と違う",
+      damage: (sb) => writeFileSync(join(sb.copy, "control", "sandbox.sb"), "(version 1)\n(allow default)\n"),
+      shows: "control/sandbox.sb（sha256 が違う）",
     },
   ];
 

@@ -102,5 +102,15 @@
     "denyIsolated": true,
     "subAgents": ["task", "poteto-agent"]
   },
-  "protectedPaths": ["{agentDir}/config.yml", "{agentDir}/config.yaml", "{agentDir}/agents", "{workDir}"]
+  "protectedPaths": [
+    "{workDir}/",
+    "{agentDir}/config.yml",
+    "{agentDir}/config.yaml",
+    "{agentDir}/settings.json",
+    "{agentDir}/agents/",
+    "{agentDir}/extensions/",
+    "{agentDir}/tools/",
+    "{agentDir}/hooks/",
+    "{ompBin}"
+  ]
 }

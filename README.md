@@ -63,14 +63,19 @@ agentからroleを参照する仕組みになっているため、作業手順�
 
 ```sh
 bun scripts/pstack-omp/cli.ts sync    # scripts/pstack-omp/pin.json のコミットを取得し、OMP 向けのコピーを生成する
-bun scripts/pstack-omp/cli.ts apply   # omp/ と生成したスキルを nod のデータ置き場へ写し、~/.omp/agent/config.yml に3つの読み込みの設定を入れる
+bun scripts/pstack-omp/cli.ts apply   # omp/ と生成したスキルを nod のデータ置き場へ写し、~/.omp/agent/config.yml に3つの読み込みの設定を入れ、起動の入口を置く
 bun scripts/pstack-omp/cli.ts status  # 適用の状態、使われる tdd、いまのプロジェクトの名前のぶつかりを表示する
 bun scripts/pstack-omp/cli.ts remove  # 写しを消し、設定を適用の前に戻す（適用の後に設定を変えていれば、入れた項目だけを外す）
+~/.local/share/nod/pstack-omp/omp/bin/omp  # 適用した OMP の起動の入口（<データ置き場>/pstack-omp/omp/bin/omp。引数は omp と同じ）
 ```
 
 `apply` は `config.yml` に、`extensions`（写しの `control` と `content`）、`skills.customDirectories`（先頭に写しの中の生成したスキルの置き場）、`skills.manualSkills`（読み込む全スキル）を入れます。既にある値は保ちます。写しは読み取り専用にしません（中身は写しの全ファイルの sha256 で確かめます）。
 
 適用の後に始めたセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使えます。同じ組の禁止操作の規則（`omp/control/rules.json`）が、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などを止めます。写しが記録と違えば、制御の拡張が全ツールを止めます。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
+
+OMP は起動の入口 `<データ置き場>/pstack-omp/omp/bin/omp` から起動します。入口は macOS のサンドボックス（`/usr/bin/sandbox-exec` の Seatbelt）で omp を閉じ込め、その中のセッションと子孫のプロセスは、規則の守る集合（`rules.json` の `protectedPaths`: データ置き場の `pstack-omp`、OMP の設定 `config.yml`・`config.yaml`・`settings.json`、`agents`・`extensions`・`tools`・`hooks` の置き場、omp の実行ファイルと、それらの祖先）に書けません。カーネルが拒否するので、シェルからも、`apply`・`remove` でも、規則と読み込み先を変えられません。入口を使わずに起動したセッションでは、制御の拡張が閉じ込めを確かめられないので全ツールと子の起動を止めます。`/usr/bin/sandbox-exec` が無ければ `apply` は止まります。
+
+残る危険: 起動の経路（シェルの alias、Orca の起動コマンドなど）を書き換えて弱いプロファイルで起動させること、作業中のプロジェクトの `.omp/` や `~/.claude`・`~/.codex` の置き場から同じプロセスで動くコード、適用より前から動いているセッション（制御は新しいセッションから効きます）。適用中のセッションからは `config.yml` を保存できず（OMP の設定の変更・`apply`・`remove` はサンドボックスの外の端末で行います）、サンドボックスは入れ子にできないので、適用中のセッションの中から入口を使うテストは失敗します。
 
 ## 使い始める
 

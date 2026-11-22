@@ -1,12 +1,14 @@
 // 禁止操作を止める制御（nod のリポジトリの omp/control/rules.json と、それを読む制御の拡張）を、外から確かめる。
 // 適用・解除・状態の表示はプロセスとして起動し（helpers.ts の一時の置き場）、適用した写しの制御の拡張は OMP の代わりに
-// extension-driver.ts で読み込んで、実行時の上書きと tool_call・before_subagent_spawn の戻り値を見る。
+// extension-driver.ts で読み込んで、実行時の上書きと tool_call・before_subagent_spawn の戻り値を見る。拡張を読み込むプロセスは、
+// 写しのサンドボックスのプロファイル（control/sandbox.sb）で閉じ込めて起動する（閉じ込めずに起動すると全ツールを遮断するため）。
 // bash.patterns の照合そのものは OMP の実装なので、ここではパターンが実行時の層に入ることまでを確かめる（当たり方は実際の OMP で確かめる）。
+// サンドボックスの信頼境界は、写しの起動の入口（bin/omp）を実際に実行し、その中からの書き込みが拒否されることで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, startExtension, SUB, synced } from "./helpers";
+import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, startExtension, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -26,8 +28,13 @@ async function applied(): Promise<Sandbox> {
   return sb;
 }
 
-function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">) {
-  return startExtension(join(sb.copy, "control", "index.ts")).run({ settings: { extensions: [join(work(sb), "omp", "control")] }, ...scenario });
+function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string } = { profile: profile(sb) }) {
+  return startExtension(join(sb.copy, "control", "index.ts"), confine).run({ settings: { extensions: [join(work(sb), "omp", "control")] }, ...scenario });
+}
+
+// 写しのサンドボックスのプロファイル
+function profile(sb: Sandbox): string {
+  return join(sb.copy, "control", "sandbox.sb");
 }
 
 // 利用者が既に持っている承認の設定と bash のパターン（allow が先にあっても、規則の deny が勝つように先頭に入ること）
@@ -296,5 +303,112 @@ describe("解除", () => {
 
     expect(existsSync(join(sb.copy, "control", "rules.json"))).toBe(false);
     expect(existsSync(sb.configPath)).toBe(false);
+  });
+});
+
+describe("サンドボックスの信頼境界", () => {
+  test("閉じ込めずに起動したプロセスでは、メインでも子でも全ツールと子の起動を遮断し、理由に写しの起動の入口と書けてしまう置き場を出す", async () => {
+    const sb = await applied();
+
+    const result = await run(
+      sb,
+      {
+        sessions: [
+          { agent: MAIN, toolCalls: 2, spawns: ["poteto-agent"] },
+          { agent: SUB, toolCalls: 1, spawns: ["task"] },
+        ],
+      },
+      {},
+    );
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls.flat()).toHaveLength(3);
+    for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(`${work(sb)}/omp/bin/omp から起動してください`);
+      expect(call?.reason).toContain(realpathSync(sb.configPath));
+    }
+    expect(result.notices.join("\n")).toContain("サンドボックスの外で起動しています");
+    expect(result.harnessEnv).toBeNull();
+  });
+
+  test("守る集合の一部（config.yml）を拒否しない弱いプロファイルで閉じ込めても、遮断し、理由にその置き場を出す", async () => {
+    const sb = await applied();
+    const config = realpathSync(sb.configPath);
+    const weak = join(sb.root, "weak.sb");
+    const lines = readFileSync(profile(sb), "utf8").split("\n");
+    writeFileSync(weak, lines.filter((line) => !line.includes(`"${config}"`)).join("\n"));
+    expect(lines.some((line) => line.includes(`"${config}"`))).toBe(true);
+
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }] }, { profile: weak });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain(config);
+  });
+
+  test("起動の入口の中からは、OMP の設定・写し・OMP の設定の置き場・omp の実行ファイルを書き換えられず、解除もできない。守る集合の外には書ける", async () => {
+    const sb = await applied();
+    const config = readFileSync(sb.configPath);
+    const copy = snapshot(sb.copy);
+    const omp = readFileSync(sb.ompBin);
+    const outside = join(sb.root, "work");
+    mkdirSync(outside);
+
+    const attempts = [
+      await sb.launch('printf x >> "$1"', sb.configPath),
+      await sb.launch("printf '{}' > \"$1\"", join(sb.copy, "control", "rules.json")),
+      await sb.launch('mv "$1" "$1.moved"', sb.copy),
+      await sb.launch('mv "$1" "$1.moved"', sb.agentDir),
+      await sb.launch('mkdir -p "$1" && printf x > "$1/x.ts"', join(sb.agentDir, "extensions")),
+      await sb.launch('printf x > "$1"', sb.ompBin),
+    ];
+    const remove = await sb.run("remove", { launcher: true });
+    const allowed = await sb.launch('printf ok > "$1/a.txt" && mkdir "$1/d" && mv "$1/a.txt" "$1/d/b.txt"', outside);
+
+    for (const attempt of attempts) {
+      expect(attempt.exitCode).not.toBe(0);
+      expect(attempt.stderr).toContain("Operation not permitted");
+    }
+    expect(remove.exitCode).toBe(1);
+    expect(remove.stderr).toContain("operation not permitted");
+    expect(readFileSync(sb.configPath)).toEqual(config);
+    expect(snapshot(sb.copy)).toEqual(copy);
+    expect(existsSync(`${sb.copy}.moved`)).toBe(false);
+    expect(existsSync(`${sb.agentDir}.moved`)).toBe(false);
+    expect(existsSync(join(sb.agentDir, "extensions"))).toBe(false);
+    expect(readFileSync(sb.ompBin)).toEqual(omp);
+    expect(allowed.stderr).toBe("");
+    expect(allowed.exitCode).toBe(0);
+    expect(readFileSync(join(outside, "d", "b.txt"), "utf8")).toBe("ok");
+  });
+
+  test("起動の入口の中で読み込むと、規則の上書きが入り、メインでも子でも規則どおりに検査する", async () => {
+    const sb = await applied();
+    const calls = [
+      { toolName: "github", input: { op: "pr_create", title: "x" } },
+      { toolName: "github", input: { op: "repo_view" } },
+      { toolName: "write", input: { path: sb.configPath, content: "x" } },
+      { toolName: "bash", input: { command: "ls" } },
+    ];
+
+    const result = await run(
+      sb,
+      {
+        sessions: [
+          { agent: MAIN, toolCalls: calls, spawns: ["scout"] },
+          { agent: SUB, toolCalls: calls, spawns: ["scout", "poteto-agent"] },
+        ],
+      },
+      { launcher: sb.launcher },
+    );
+
+    expect(result.effective["tools.approval"]).toEqual({ eval: "deny" });
+    expect(result.toolCalls.map((session) => session.map((r) => r?.block ?? false))).toEqual([
+      [true, false, true, false],
+      [true, false, true, false],
+    ]);
+    expect(result.spawns.map((session) => session.map((r) => r?.block ?? false))).toEqual([[false], [true, false]]);
+    expect(result.harnessEnv).toBe(sha256(join(sb.copy, "control", "harness.json")));
   });
 });

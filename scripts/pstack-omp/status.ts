@@ -2,13 +2,14 @@
 // 出すのは、適用の状態（config.yml の3つの読み込みの設定の登録、写しと組の記録の sha256、写しの中の生成したスキルの置き場、制御の規則の版と
 // sha256 とリポジトリの規則との一致、生成物の pin、OMP の版）、どの tdd が使われるか、実行したディレクトリのプロジェクトの置き場にある、
 // 今回の定義やスキルと同じ名前のもの。「適用しています」は、config.yml に4つ（extensions の control と content、skills.customDirectories の
-// 生成したスキルの置き場、skills.manualSkills の読み込む全スキル）が揃い、写しの全ファイルが記録の sha256 と一致し、写しの中の生成したスキルの
-// 置き場が在るときだけ出す。欠けていれば、何が欠けたかの行と、適用が壊れていることを出す。
+// 生成したスキルの置き場、skills.manualSkills の読み込む全スキル）が揃い、写しの全ファイル（起動の入口 bin/omp とサンドボックスのプロファイル
+// control/sandbox.sb を含む）が記録の sha256 と一致し、写しの中の生成したスキルの置き場が在るときだけ出し、起動の入口からの起動を案内する。
+// 欠けていれば、何が欠けたかの行と、適用が壊れていることを出す。
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { configPath, type OmpConfig, readConfig, sha256, stringList } from "./config";
 import { type Context, readOmpVersion } from "./context";
-import { hashFiles, paths, readGenerated, readHarness, readRules, RULES_FILE, samePin } from "./harness";
+import { entryGuide, hashFiles, LAUNCHER_FILE, paths, PROFILE_FILE, readGenerated, readHarness, readRules, RULES_FILE, samePin } from "./harness";
 import { type Definition, packageDefinitions, projectPlaces, real, skillsIn, userPlaces } from "./places";
 
 export function status(ctx: Context, cwd: string): string[] {
@@ -66,6 +67,8 @@ export function status(ctx: Context, cwd: string): string[] {
       ...Object.keys(recorded)
         .filter((rel) => rel in actual && actual[rel] !== recorded[rel])
         .map((rel) => `${rel}（sha256 が違う）`),
+      // 起動の入口とプロファイルは、記録に無くても（前の版の適用）、無ければ欠けている
+      ...[LAUNCHER_FILE, PROFILE_FILE].filter((rel) => !(rel in recorded) && !(rel in actual)).map((rel) => `${rel}（無い）`),
     ];
     const missingSkills = p.skills.filter((dir) => !isDirectory(dir));
     copyOk = problems.length === 0 && missingSkills.length === 0;
@@ -116,10 +119,16 @@ export function status(ctx: Context, cwd: string): string[] {
   lines.push(`  OMP の版: ${version}（固定の記録 ${ctx.pin.ompVersion}${recorded}）${versionOk ? "" : "。版が違います（apply と sync は止まります。remove と status は行えます）"}`);
 
   const applied = complete && copyOk;
-  if (applied) lines.push("  → 適用しています（新しく始めたセッションから効きます）");
-  else if (registered) lines.push("  → 適用が壊れています（欠けているもの・違うものは上の行のとおり）。apply し直すか remove してください");
-  else if (harness !== undefined) lines.push("  → 写しは残っていますが、OMP の設定に登録していないので読み込まれません。apply し直すか remove してください");
-  else lines.push("  → 適用していません");
+  if (applied) {
+    lines.push("  → 適用しています（新しく始めたセッションから効きます）");
+    for (const line of entryGuide(p.launcher)) lines.push(`  ${line}`);
+  } else if (registered) {
+    lines.push("  → 適用が壊れています（欠けているもの・違うものは上の行のとおり）。apply し直すか remove してください");
+  } else if (harness !== undefined) {
+    lines.push("  → 写しは残っていますが、OMP の設定に登録していないので読み込まれません。apply し直すか remove してください");
+  } else {
+    lines.push("  → 適用していません");
+  }
 
   let userDefinitions: Definition[] = [];
   try {

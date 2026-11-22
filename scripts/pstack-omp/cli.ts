@@ -8,7 +8,7 @@
 // 置き場と実行ファイルを差し替える環境変数は context.ts を参照。
 import { checkOmpVersion, loadContext, PstackOmpError } from "./context";
 import { generate } from "./generate";
-import { apply, remove } from "./harness";
+import { apply, entryGuide, remove } from "./harness";
 import { status } from "./status";
 import { fetchUpstream } from "./upstream";
 
@@ -39,6 +39,7 @@ function applyCommand(): void {
       : `OMP の設定 ${result.configPath} には、extensions・skills.customDirectories・skills.manualSkills の項目が既にあります（変えていません）`,
   );
   console.log(`新しく始めたセッションから、生成したスキルと OMP 向けのディレクトリが読み込まれ、${result.manualSkills} 個のスキルがスキルの一覧から外れます`);
+  for (const line of entryGuide(result.launcher)) console.log(line);
 }
 
 function removeCommand(): void {
