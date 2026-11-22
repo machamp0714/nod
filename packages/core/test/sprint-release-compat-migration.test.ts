@@ -32,7 +32,7 @@ test("本番系の版43をレビュー状態と関連原本と旧所属を保っ
   let db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before.map((rows, index) =>
-    tables[index] === "issues" ? rows.map(row => { const { cycle_id: _cycleId, ...kept } = row as Record<string, unknown>; return kept; }) : rows));
+    tables[index] === "issues" ? rows.map(row => { const { cycle_id: _cycleId, assignee: _assignee, ...kept } = row as Record<string, unknown>; return kept; }) : rows));
   expect(getIssue(db, "AAA-1")).toMatchObject({ status: "in_review", questions: [{ question: "移行前の質問" }], documents: [{ title: "移行前の仕様" }] });
   expect(listSprints(db).map(sprint => [sprint.number, sprint.phase])).toEqual([[1, "imported"], [2, "imported"], [3, "imported"], [4, "imported"]]);
   const history = getSprint(db, "1");
@@ -68,9 +68,15 @@ test.each([43, 44, 45, 46, 47, 48, 49, 50])("Sprint導入済みの版%iは履歴
   let db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
   expect(db.query("SELECT id,number,legacy_cycle_id,legacy_data FROM sprints ORDER BY number").all()).toEqual(identities);
-  // 版51で足した追加の記録の列と、版52で足した引継ぎ元の列は、既存itemでは空のまま（推定で埋めない）。
-  expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(before.map((rows, index) =>
-    tables[index] === "sprint_items" ? rows.map(row => ({ ...(row as Record<string, unknown>), added_by: null, added_at: null, rollover_from_item_id: null })) : rows));
+  // 追加の記録は既存itemで推定せず、版55で撤去した担当以外の写しを保持する。
+  const retained = before.map((rows, index) => rows.map(row => {
+    const kept = { ...(row as Record<string, unknown>) };
+    if (["sprint_migration_source", "sprint_items", "sprint_legacy_issue_evidence"].includes(tables[index]!)) {
+      kept.snapshot = JSON.stringify(JSON.parse(kept.snapshot as string, (key, value) => key === "assignee" ? undefined : value));
+    }
+    return tables[index] === "sprint_items" ? { ...kept, added_by: null, added_at: null, rollover_from_item_id: null } : kept;
+  }));
+  expect(tables.map(table => db.query(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(retained);
   const history = getSprint(db, "1");
   updateIssue({ db, actor: "me" }, "AAA-1", { status: "in_review" });
   expect(getIssue(db, "AAA-1")).toMatchObject({ status: "in_review", questions: [{ question: "Sprint導入済みの質問" }] });

@@ -9,7 +9,6 @@ import {
   markNotificationsRead,
   markNotificationsUnread,
   NOTIFICATION_READ_LIMIT,
-  NOTIFY_EVENT_TYPES,
   restoreNotifications,
   snoozeNotifications,
   subscribeIssue,
@@ -44,33 +43,15 @@ describe("購読の開始と解除", () => {
 });
 
 describe("購読中の Issue の変化の通知", () => {
-  test("対象の種別を明示している", () => {
-    expect([...NOTIFY_EVENT_TYPES].sort() as string[]).toEqual(
-      [
-        "assignee_changed",
-        "comment_added",
-        "due_date_changed",
-        "estimate_changed",
-        "labels_changed",
-        "priority_changed",
-        "project_changed",
-                        "status_changed",
-        "title_changed",
-        "triage_accepted",
-        "triage_declined",
-      ].sort(),
-    );
-  });
-
-  test("LLM の状態・担当・コメントの変化が通知になり、新しい順に並ぶ", () => {
+  test("LLM の優先度・ラベル・コメントの変化が通知になり、新しい順に並ぶ", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     subscribeIssue(me, a.id);
-    updateIssue(llm, a.id, { assignee: "claude-code", priority: 2, addLabels: ["bug"] });
+    updateIssue(llm, a.id, { priority: 2, addLabels: ["bug"] });
     commentIssue(llm, a.id, "原因がわかった");
 
     const list = listNotifications(db);
-    expect(list.map((n) => n.eventType).sort()).toEqual(["assignee_changed", "comment_added", "labels_changed", "priority_changed"]);
+    expect(list.map((n) => n.eventType).sort()).toEqual(["comment_added", "labels_changed", "priority_changed"]);
     expect(list[0]).toEqual(
       expect.objectContaining({
         kind: "issue_change",
@@ -83,8 +64,7 @@ describe("購読中の Issue の変化の通知", () => {
         readAt: null,
       }),
     );
-    const assignee = list.find((n) => n.eventType === "assignee_changed");
-    expect(assignee?.data).toEqual({ from: null, to: "claude-code" });
+    expect(list.find((n) => n.eventType === "priority_changed")).toMatchObject({ actor: llm.actor, data: { from: 0, to: 2 } });
   });
 
   test("見積もり・期限の変化も優先度と同じく通知になる", () => {
@@ -117,9 +97,10 @@ describe("購読中の Issue の変化の通知", () => {
     subscribeIssue(me, a.id);
     commentIssue(llm, b.id, "他の Issue");
     startIssue(llm, a.id);
-    const afterStart = listNotifications(db).map((n) => n.eventType).sort();
-    // 着手で起きる agent_state_changed は対象外。状態と担当の変化だけが届く
-    expect(afterStart).toEqual(["assignee_changed", "status_changed"]);
+    const started = listNotifications(db);
+    // 着手で起きる agent_state_changed は購読通知の対象外。
+    expect(started.map((n) => [n.eventType, n.actor])).toEqual([["status_changed", llm.actor]]);
+    const afterStart = started.map((n) => n.eventType);
     askQuestion(llm, a.id, "進めてよいか");
     // 確認依頼（question_asked）は既存の Inbox の確認依頼で届くので、購読の通知にしない。
     // 入力待ちになったことは LLM の作業の通知（#54）で1件だけ届く
@@ -356,7 +337,7 @@ describe("LLM に任せた Issue の作業の通知（#54）", () => {
     expect(list.every((n) => n.issueId === a.id && n.issueTitle === "検索")).toBe(true);
   });
 
-  test("担当が LLM でない Issue や、me 自身の操作では届かない", () => {
+  test("me 自身の作業操作では届かず、着手前の質問は確認依頼にだけ届く", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     startIssue(me, a.id);

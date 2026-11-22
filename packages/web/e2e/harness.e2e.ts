@@ -10,7 +10,7 @@ test.describe("データセットを入れたとき", () => {
     // 私の DB ではなく、e2e の一時ディレクトリの DB を使っている
     expect(workspaces[0]?.path).toBe(nod.repo("api-server"));
     const issue = await (await request.get("/api/issues/API-1")).json();
-    expect(issue).toMatchObject({ title: "土台の確認に使う Issue", status: "in_progress", assignee: "claude-code" });
+    expect(issue).toMatchObject({ title: "土台の確認に使う Issue", status: "in_progress" });
   });
 
   test("データを入れ直すたびに追加データが消え、各 ID が同じ値から始まる", async ({ nod }) => {

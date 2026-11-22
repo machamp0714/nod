@@ -158,7 +158,7 @@ describe("importGithubIssues", () => {
     expect(open.title).toBe("ログインが遅い");
     expect(open.status).toBe("triage");
     expect(open.labels).toEqual(["bug", "p1"]);
-    expect(open.assignee).toBeNull(); // GitHub の担当は写さず、本文末尾に記録する
+    expect(open).not.toHaveProperty("assignee");
     expect(open.project?.name).toBe("移行");
     expect(open.createdBy).toBe("me");
     expect(open.description).toStartWith("再現手順あり\n\n---\n");

@@ -1,4 +1,3 @@
-import { openDb } from "@nod/core";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,8 +22,6 @@ describe("nod recurring", () => {
     expect(add.json).toMatchObject({ title: "日次チェック", cadence: "daily", timeZone: "UTC", labels: ["ops"], priority: 3, enabled: true });
     const id = String(add.json.id);
     expect((await me(["recurring", "list"])).json.map((r: { id: number }) => r.id)).toEqual([add.json.id]);
-    const conn = openDb(db);
-    conn.query("UPDATE recurring_issues SET assignee = 'legacy' WHERE id = ?").run(add.json.id);
     const shown = await runNod(["recurring", "show", id], { cwd: repo, db });
     expect(shown.stdout).toContain("周期: 毎日（2026-01-01 から、UTC）");
     expect(shown.stdout).not.toContain("担当");
@@ -46,9 +43,9 @@ describe("nod recurring", () => {
     const run = await me(["recurring", "run"]);
     expect(run.json.items).toHaveLength(1);
     const issueId = run.json.items[0].issueId as string;
-    expect((await me(["issue", "show", issueId])).json).toMatchObject({ title: "日次チェック", status: "todo", labels: ["ops"] });
-    expect(conn.query("SELECT assignee FROM issues WHERE title = ?").get("日次チェック")).toEqual({ assignee: null });
-    conn.close();
+    const generated = (await me(["issue", "show", issueId])).json;
+    expect(generated).toMatchObject({ title: "日次チェック", status: "todo", labels: ["ops"] });
+    expect(generated).not.toHaveProperty("assignee");
     expect((await me(["recurring", "run"])).json.items).toEqual([]);
     expect((await me(["recurring", "show", id])).json).toMatchObject({ lastIssueId: issueId });
 

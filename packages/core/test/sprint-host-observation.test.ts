@@ -188,12 +188,13 @@ test("開始直前のidentity・設定変化とIssue条件変更は通知せず�
     let reads = 0;
     const adapter = { ...s.adapter, host: async () => {
       reads++;
-      if (reads === 2 && variation === "issue") core.updateIssue(s.me, s.issue.id, { assignee: "別担当" });
+      if (reads === 2 && variation === "issue") core.updateIssue(s.me, s.issue.id, { status: "canceled" });
       return reads === 2 && variation === "last_host" ? { ...host, identity: { ...identity, incarnationId: "送信直前の再利用" } } : host;
     } };
     const state = await core.requestSprintExecutionStart(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id, messageId: "直前", confirmationId: confirmation.id }, adapter, clock);
     expect(state.canStart).toBe(false); expect(state.occupied).toBe(1); expect(state.reserved).toBe(1);
     expect(state.attempts[0]?.reason.code).not.toBe("START_AUTHORIZED");
+    if (variation === "issue") expect(state.attempts[0]?.reason.code).toBe("ISSUE_CLOSED");
     expect(state.nextActions.length).toBeGreaterThan(0); expect(s.sends).toHaveLength(2); s.db.close();
   }
 });
@@ -295,16 +296,16 @@ test("同条件の新合意を引き継いだ後は要求の版を更新し、�
   expect(result.state.attempts[0]?.id).toBe(s.attempt.id); expect(s.sends).toHaveLength(2); s.db.close();
 });
 
-test("開始報告の確定も現在のIssue着手条件を通し、担当変更後は実装中へ更新しない", async () => {
+test("開始報告の確定も現在のIssue着手条件を通し、人が中止したIssueは実装中へ更新しない", async () => {
   const s = await worker(); s.message("初観測");
   await core.receiveSprintHostObservation(s.llm, s.sprint.id, { messageId: "初観測" }, s.adapter, clock);
   const confirmation = core.prepareSprintStartConfirmation(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id }, clock);
   s.message("直前", { confirmationId: confirmation.id });
   const state = await core.requestSprintExecutionStart(s.llm, s.sprint.id, { ...s.context, attemptId: s.attempt.id, messageId: "直前", confirmationId: confirmation.id }, s.adapter, clock);
-  core.updateIssue(s.me, s.issue.id, { assignee: "人が変更した担当" });
+  core.updateIssue(s.me, s.issue.id, { status: "canceled" });
   s.message("変更後報告", { kind: "nod.sprint.worker-started", authorizationId: state.attempts[0]!.startAuthorization!.id });
   const rejected = await core.receiveSprintHostObservation(s.llm, s.sprint.id, { messageId: "変更後報告" }, s.adapter, clock);
-  expect(rejected.attempts[0]?.phase).not.toBe("implementing");
+  expect(rejected.attempts[0]).toMatchObject({ phase: "unknown", reason: { code: "START_REPORT_MISMATCH" } });
   expect(rejected.attempts[0]?.startedReport).toBeUndefined(); expect(rejected.occupied).toBe(1); s.db.close();
 });
 

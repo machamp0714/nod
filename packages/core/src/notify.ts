@@ -6,7 +6,6 @@ import { HUMAN_ACTOR, now } from "./ctx";
 // question_asked は既存の Inbox の「確認依頼」で届くので、重ねて通知しない
 export const NOTIFY_EVENT_TYPES = [
   "status_changed",
-  "assignee_changed",
   "priority_changed",
   "estimate_changed",
   "due_date_changed",

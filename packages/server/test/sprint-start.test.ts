@@ -8,7 +8,7 @@ test("HTTPの一般更新と一括更新は採択Issueもin_progressにでき、
   const adopted = core.createIssue(me, { workspaceId: ws.id, title: "採択" });
   const ordinary = core.createIssue(me, { workspaceId: ws.id, title: "通常" });
   const ready = acceptPreparedSprint(me, prepareSprint(me, ws.key, [adopted.id]));
-  expect(await call(app, "POST", `/api/issues/${adopted.id}/update`, { status: "in_progress", assignee: "me" })).toMatchObject({ status: 200, json: { status: "in_progress", assignee: "me" } });
+  expect(await call(app, "POST", `/api/issues/${adopted.id}/update`, { status: "in_progress" })).toMatchObject({ status: 200, json: { status: "in_progress" } });
   expect(await call(app, "POST", `/api/issues/${adopted.id}/update`, { status: "todo" })).toMatchObject({ status: 200, json: { status: "todo" } });
   core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   expect(await call(app, "POST", "/api/issues/bulk-update", { ids: [ordinary.id, adopted.id], status: "in_progress", priority: 1 })).toMatchObject({ status: 200 });

@@ -82,7 +82,6 @@ test("別の書き手から作業中でも開始でき、前の状態と場所�
   registerRepo(db, cwd, "API");
   const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
   const issue = (await run(["issue", "create", "引き継ぎ"])).json;
-  await run(["issue", "update", issue.id, "--assignee", "me"]);
   const first = await run(["issue", "start", issue.id], "claude-code");
   expect(first.exitCode).toBe(0);
   expect(first.json.previousAgentState).toBeNull();

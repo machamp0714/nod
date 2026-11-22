@@ -23,7 +23,6 @@ describe("nextIssue", () => {
     expect(picked).toMatchObject({
       id: i.id,
       status: "in_progress",
-      assignee: null,
       agentState: "working",
       branch: "feat-x",
       worktree: "/wt/x",
@@ -37,7 +36,7 @@ describe("nextIssue", () => {
     ]);
   });
 
-  test("Triage、後回し中、未回答の確認依頼あり、ブロック中は取らず、他人の担当は取る", () => {
+  test("Triage、後回し中、未回答の確認依頼あり、ブロック中を除き、着手可能なIssueを取る", () => {
     const { db, ws, me, llm } = setup();
     createIssue(llm, { workspaceId: ws.id, title: "triage" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "snoozed" });
@@ -48,10 +47,9 @@ describe("nextIssue", () => {
     updateIssue(me, blocker.id, { status: "backlog" });
     const blocked = createIssue(me, { workspaceId: ws.id, title: "blocked" });
     relateIssue(me, blocker.id, { blocks: blocked.id });
-    const others = createIssue(me, { workspaceId: ws.id, title: "others" });
-    updateIssue(me, others.id, { assignee: "codex" });
+    const ready = createIssue(me, { workspaceId: ws.id, title: "ready" });
 
-    expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(others.id);
+    expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(ready.id);
     updateIssue(me, blocker.id, { status: "canceled" });
     expect(nextIssue(llm, { workspaceId: ws.id })?.id).toBe(blocked.id);
   });

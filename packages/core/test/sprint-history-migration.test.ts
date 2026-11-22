@@ -223,8 +223,8 @@ test('質問・通知・購読・Document・Project・配送・期限通知の�
   old.close();
   openDb(path).close();
   const db=openDb(path);
-  // 撤去した単一所属以外の全行・全列を比較する。
-  expect(tables.map((t)=>db.query(`SELECT * FROM ${t}`).all())).toEqual(before.map((rows,index)=>tables[index]==='issues' ? rows.map(row=>{const {cycle_id:_cycleId,...kept}=row as Record<string,unknown>;return kept;}) : rows));
+  // 撤去した単一所属と担当以外の全行・全列を比較する。
+  expect(tables.map((t)=>db.query(`SELECT * FROM ${t}`).all())).toEqual(before.map((rows,index)=>tables[index]==='issues' ? rows.map(row=>{const {cycle_id:_cycleId,assignee:_assignee,...kept}=row as Record<string,unknown>;return kept;}) : rows));
   expect(getIssue(db,'BBB-1')).toMatchObject({questions:[{id:1,question:'元の質問'}],documents:[{id:1,title:'元仕様'}]});
   expect(getProject(db,'1')).toMatchObject({name:'元Project',documents:[{id:1,title:'元仕様'}]});
   expect(isSubscribed(db,'BBB-1')).toBe(true);

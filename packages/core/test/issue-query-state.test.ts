@@ -26,7 +26,7 @@ describe("手動遷移の作業状況", () => {
         expect(result.agentState).toBeNull();
         // 未回答の確認依頼が残っていても、手動の移動では needs_clarification にしない（#170）
         expect(result.status).toBe(status);
-        expect([result.assignee, result.branch, result.worktree, result.startedAt]).toEqual([before.assignee, before.branch, before.worktree, before.startedAt]);
+        expect([result.branch, result.worktree, result.startedAt]).toEqual([before.branch, before.worktree, before.startedAt]);
         expect(eventsOf(db, id).filter(e => e.type === "agent_state_changed").at(-1)?.data).toMatchObject({ from: state, to: null });
         db.close();
       });

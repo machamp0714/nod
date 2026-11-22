@@ -149,8 +149,6 @@ describe("recentSummary（期間の要約）", () => {
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "実装しました" });
-    updateIssue(me, a.id, { assignee: "me" });
-    updateIssue(me, b.id, { assignee: "me" });
     updateIssue(me, b.id, { status: "in_progress" });
     updateIssue(me, b.id, { status: "done" });
     backdate(db, "2026-09-30T10:00:00.000Z");

@@ -1,4 +1,4 @@
-import type { Issue, Status } from "../../api/types";
+import type { Status } from "../../api/types";
 import { BOARD_STATUSES, priorityMeta, STATUS_META, STATUS_ORDER } from "../../lib/meta";
 import { type IssueGroupBy, type IssueGroupKey, type IssueLayout, type IssueTab, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";

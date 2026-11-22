@@ -18,7 +18,7 @@ test("承認v3のSidebar・現在View・保存・共通一覧をブラウザで�
   await page.getByRole("button", { name: "元A を開閉" }).click();
   await page.screenshot({ path: join(output, "sidebar-collapsed.png"), fullPage: true });
 
-  await page.goto('/issues?sprint=current&groupBy=status&columns=["priority","status","workspace","sprint","project","assignee"]');
+  await page.goto('/issues?sprint=current&groupBy=status&columns=["priority","status","workspace","sprint","project"]');
   await page.getByRole("button", { name: "View として保存", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "名前" }).fill("現行Sprintの全タスク");

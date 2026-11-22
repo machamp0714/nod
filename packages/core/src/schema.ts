@@ -27,6 +27,30 @@ function removeAssigneeViewDisplay(db: Database, table: "views" | "page_displays
   }
 }
 
+function removeAssigneeSprintCopies(db: Database): void {
+  const copies = [
+    ["sprint_items", "snapshot"],
+    ["sprint_legacy_issue_evidence", "snapshot"],
+    ["sprint_migration_source", "snapshot"],
+    ["sprint_sessions", "payload"],
+    ["sprint_mutation_receipts", "result"],
+  ] as const;
+  for (const [table, column] of copies) {
+    const rows = db.query(`SELECT rowid AS row_id, ${column} AS json FROM ${table}`).all() as { row_id: number; json: string }[];
+    const update = db.query(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+    for (const row of rows) {
+      let changed = false;
+      // JSONオブジェクトのキーだけを消し、本文や履歴の文字列を再解釈しない。
+      const value: unknown = JSON.parse(row.json, (key, value: unknown) => {
+        if (key !== "assignee") return value;
+        changed = true;
+        return undefined;
+      });
+      if (changed) update.run(JSON.stringify(value), row.row_id);
+    }
+  }
+}
+
 // MIGRATIONS[n] は、スキーマの版 n から n + 1 に上げる SQL・移行関数の並び
 export const MIGRATIONS: MigrationStep[][] = [
   [
@@ -769,5 +793,12 @@ export const MIGRATIONS: MigrationStep[][] = [
       removeAssigneeViewDisplay(db, "views");
       removeAssigneeViewDisplay(db, "page_displays");
     },
+  ],
+  // 版55: Issue・定期Issue・Triage提案と、Sprintの保存済みの写しから担当を撤去する。
+  [
+    `ALTER TABLE issues DROP COLUMN assignee`,
+    `ALTER TABLE recurring_issues DROP COLUMN assignee`,
+    `ALTER TABLE triage_proposals DROP COLUMN assignee`,
+    removeAssigneeSprintCopies,
   ],
 ];

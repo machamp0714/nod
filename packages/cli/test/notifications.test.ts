@@ -206,7 +206,7 @@ test("購読していなくても、LLM に任せた Issue の完了・入力待
   expect(list.json.map((n: { kind: string; data: { to: string } }) => [n.kind, n.data.to])).toEqual([["agent", "done"]]);
 });
 
-test("作業状況と通知は担当ではなく操作した書き手を記録する", async () => {
+test("別の書き手が始めたIssueでも作業状況と通知は操作した書き手を記録する", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");

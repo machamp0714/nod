@@ -56,7 +56,7 @@ export interface SprintSession {
 }
 export interface SprintExistingOwnership {
   itemId: string; sourceIssueKey: string; issueId: number;
-  assignee: string | null; status: string; worktree: string | null; branch: string | null;
+  status: string; worktree: string | null; branch: string | null;
   observedAt: string; source: string; reason: { code: string; message: string };
 }
 export interface PrepareSprintExecutionInput {

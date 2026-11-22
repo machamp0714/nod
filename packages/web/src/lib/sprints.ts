@@ -63,7 +63,7 @@ export function sprintSnapshotRows(sprint: SprintDetail): IssueListRow[] {
       title: raw.title, description: raw.description, status: raw.status as Issue["status"],
       priority: typeof raw.priority === "number" ? raw.priority : 0,
       estimate: typeof raw.estimate === "number" ? raw.estimate : null,
-      dueDate: text("due_date"), assignee: text("assignee"), agentState: null,
+      dueDate: text("due_date"), agentState: null,
       parentId: typeof raw.parent_id === "number" ? sourceKeys.get(raw.parent_id) ?? null : null,
       project: snapshot.project && typeof snapshot.project.id === "number" && typeof snapshot.project.name === "string" ? { id: snapshot.project.id, name: snapshot.project.name } : null,
       milestone: null, sprints: [{ id: sprint.id, number: sprint.number, name: sprint.name, workspaceId: sprint.workspaceId, phase: "imported", association: "imported", inAdoptedPlan: false }],

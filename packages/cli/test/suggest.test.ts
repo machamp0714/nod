@@ -15,7 +15,7 @@ test("suggestはJSONと人向け候補を返し、DBを変更せず、nextは着
   const before = connection.serialize();
   const suggested = await runNod(["issue", "suggest", "--json"], opts);
   expect(suggested.exitCode).toBe(0);
-  expect(suggested.json).toMatchObject({ id: created.json.id, status: "todo", assignee: null, startedAt: null, worktree: null });
+  expect(suggested.json).toMatchObject({ id: created.json.id, status: "todo", startedAt: null, worktree: null });
   const human = await runNod(["issue", "suggest"], opts);
   expect(human.stdout).toContain("候補:");
   expect(human.stdout).toContain("着手・予約はしていません");

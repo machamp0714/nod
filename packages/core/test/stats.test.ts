@@ -308,10 +308,10 @@ describe("llmStats（LLM ごとの作業量）", () => {
     startIssue(codex, b.id);
     stampEvents(db, b.id, "work_started", "2026-09-02T05:00:00.000Z");
     const c = createIssue(me, { workspaceId: ws.id, title: "c" });
-    updateIssue(me, c.id, { assignee: "me" });
     updateIssue(me, c.id, { status: "done" });
     stamp(db, c.id, { closed: "2026-09-01T01:00:00.000Z" });
-    stampEvents(db, c.id, "assignee_changed", "2026-09-01T00:00:00.000Z");
+    db.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(findIssueRow(db, c.id).id, "old-agent", "assignee_changed", JSON.stringify({ from: null, to: "old-agent" }), "2026-09-01T00:00:00.000Z");
 
     const s = llmStats(db, Q);
     expect(s.buckets).toEqual([{ start: "2026-09-01", end: "2026-09-01" }, { start: "2026-09-02", end: "2026-09-02" }]);

@@ -90,7 +90,6 @@ test.skipIf(!supported)("実ネイティブ配信：全Workspaceの人・LLM・W
     setDesktopNotificationSettings(f.db, true);
     const other = initWorkspace(f.db, { path: "/tmp/due-other", key: "OTHER" }).workspace;
     const a = createIssue(f.me, { workspaceId: f.ws.id, title: "人が起票", dueDate: "2026-10-15" });
-    updateIssue(f.me, a.id, { assignee: "claude-code" });
     const b = createIssue({ db: f.db, actor: "claude-code" }, { workspaceId: other.id, title: "LLMが起票", dueDate: "2026-10-15" });
     const c = createIssue(f.me, { workspaceId: other.id, title: "Webで設定" });
     const d = createIssue(f.me, { workspaceId: other.id, title: "一括で設定" });

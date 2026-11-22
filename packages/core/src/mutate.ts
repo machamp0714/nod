@@ -13,7 +13,6 @@ export type Column =
   | "priority"
   | "estimate"
   | "due_date"
-  | "assignee"
   | "agent_state"
   | "title"
   | "description"
@@ -33,7 +32,6 @@ const EVENT_OF: Partial<Record<Column, string>> = {
   priority: "priority_changed",
   estimate: "estimate_changed",
   due_date: "due_date_changed",
-  assignee: "assignee_changed",
   agent_state: "agent_state_changed",
   title: "title_changed",
   description: "description_changed",

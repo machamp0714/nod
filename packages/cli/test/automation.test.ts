@@ -35,7 +35,7 @@ test("show・set で設定し、off で無効にし、JSON でも返す", async 
   expect(shown.stdout).toContain("自動アーカイブ: 無効");
 });
 
-test("自動クローズは作業中・入力待ち・エラーを除外し、未着手の担当付きIssueは閉じる", async () => {
+test("自動クローズは作業中・入力待ち・エラーを除外し、未着手のIssueは閉じる", async () => {
   const { db, opts } = fixture();
   await runNod(["automation", "set", "--close-after-days", "1"], opts);
   const create = async (title: string) => (await runNod(["issue", "create", title, "--json"], opts)).json.id as string;
@@ -48,7 +48,6 @@ test("自動クローズは作業中・入力待ち・エラーを除外し、�
   }
   await runNod(["issue", "ask", waiting, "方針を確認"], { ...opts, actor: "codex" });
   await runNod(["issue", "fail", failed, "検証失敗"], { ...opts, actor: "codex" });
-  await runNod(["issue", "update", unstarted, "--assignee", "codex"], opts);
   for (const id of [working, waiting, failed, unstarted]) age(db, id, id === unstarted ? "todo" : "in_progress");
   const preview = await runNod(["automation", "run", "--dry-run", "--json"], opts);
   expect(preview.json.rules[0].candidates.map((i: { id: string }) => i.id)).toEqual([unstarted]);

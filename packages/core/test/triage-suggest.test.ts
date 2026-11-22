@@ -213,7 +213,8 @@ test("受け入れで assignee を指定すると INVALID_ARGS になり、状�
   const { me, llm, create } = seed();
   const triage = create(llm, "検索結果のページングがずれる");
   for (const assignee of ["codex", null]) {
-    expect(codeOf(() => acceptTriage(me, triage.id, { assignee }))).toBe("INVALID_ARGS");
+    const legacyInput = { assignee, priority: 1 };
+    expect(codeOf(() => acceptTriage(me, triage.id, legacyInput))).toBe("INVALID_ARGS");
   }
   expect(eventsOf(me.db, triage.id).map((e) => e.type)).toEqual(["created"]);
   expect(acceptTriage(llm, triage.id).status).toBe("todo");

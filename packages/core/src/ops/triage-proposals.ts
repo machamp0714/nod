@@ -19,7 +19,6 @@ interface ProposalRow {
   actor: string;
   decision: TriageProposal["decision"];
   labels: string;
-  assignee: string | null;
   priority: number | null;
   reason: string | null;
   created_at: string;
@@ -45,7 +44,6 @@ function toProposal(r: ProposalRow): TriageProposal {
     decision: r.decision,
     duplicateOf: r.dup_key && r.dup_number !== null ? formatIssueId(r.dup_key, r.dup_number) : null,
     labels: JSON.parse(r.labels) as string[],
-    assignee: r.assignee,
     priority: r.priority,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,
     reason: r.reason,

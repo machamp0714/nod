@@ -19,7 +19,7 @@ test("版43のSprint移行履歴を版44へ欠落なく移し、対応IDと共�
     expect(getSprint(db,original.id).legacy).toEqual(JSON.parse(original.legacy_data));
     expect(resolveLegacyCycle(db,original.legacy_cycle_id)).toEqual({kind:"imported",sprintId:original.id});
   }
-  expect(getSprint(db,originals[0]!.id).items.map(i=>i.snapshot)).toEqual(snapshots.map(r=>JSON.parse(r.snapshot)));
+  expect(getSprint(db,originals[0]!.id).items.map(i=>i.snapshot)).toEqual(snapshots.map(r=>JSON.parse(r.snapshot,(key,value)=>key==="assignee"?undefined:value)));
   expect(nextSprintNumber(db)).toBe(5);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.query("PRAGMA integrity_check").get()).toEqual({integrity_check:"ok"});

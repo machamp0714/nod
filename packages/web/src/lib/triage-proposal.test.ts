@@ -5,7 +5,7 @@ import { applyAcceptProposal, proposalAttributes, proposalBadge, proposalsHeadin
 
 function proposal(over: Partial<TriageProposal>): TriageProposal {
   return {
-    issueId: "API-3", actor: "claude-code", decision: "accept", duplicateOf: null, labels: [], assignee: null, priority: null,
+    issueId: "API-3", actor: "claude-code", decision: "accept", duplicateOf: null, labels: [], priority: null,
     project: null, reason: null, createdAt: "2026-09-30T00:00:00Z", updatedAt: "2026-09-30T00:00:00Z", ...over,
   };
 }
@@ -21,7 +21,7 @@ describe("proposalBadge", () => {
 describe("applyAcceptProposal", () => {
   const form = { projectRef: "", priority: 0, labels: ["search"] };
   test("指定のある項目だけ置き換え、ラベルは重ねずに足す", () => {
-    const p = proposal({ project: { id: 7, name: "検索" }, priority: 3, labels: ["bug", "search"], assignee: "codex" });
+    const p = proposal({ project: { id: 7, name: "検索" }, priority: 3, labels: ["bug", "search"] });
     expect(applyAcceptProposal(form, p)).toEqual({ projectRef: "7", priority: 3, labels: ["search", "bug"] });
   });
   test("反映したラベルは入力欄に連結して分け直しても分割されない（空白・読点を含む名前は core が記録時に拒否する）", () => {
@@ -36,7 +36,7 @@ describe("applyAcceptProposal", () => {
 
 describe("proposalAttributes", () => {
   test("指定のある属性だけを受け入れ設定と同じ順で返す", () => {
-    const p = proposal({ assignee: "codex", labels: ["bug", "perf"], priority: 3, project: { id: 1, name: "検索" } });
+    const p = proposal({ labels: ["bug", "perf"], priority: 3, project: { id: 1, name: "検索" } });
     expect(proposalAttributes(p).map((a) => [a.label, a.value])).toEqual([
       ["Project", "検索"], ["Priority", "Medium"], ["Labels", "bug, perf"],
     ]);

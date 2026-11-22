@@ -64,7 +64,6 @@ export interface Issue {
   priority: number;
   estimate: number | null; // 見積もり（ポイント 1〜100）。未設定は null
   dueDate: string | null; // 期限（時刻なしの暦日 YYYY-MM-DD）。未設定は null
-  assignee: string | null;
   agentState: AgentState | null;
   parentId: string | null;
   project: { id: number; name: string } | null;
@@ -395,7 +394,6 @@ export interface AcceptTriageInput {
   cycleRef?: string | null; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   addLabels?: string[];
   removeLabels?: string[];
-  assignee?: string | null;
 }
 export interface IssueDocumentRef extends DocumentRef {
   attachedBy: string | null;
@@ -521,7 +519,6 @@ export interface TriageProposalInput {
   duplicateOf?: string; // decision が duplicate のときだけ
   // 以下は decision が accept のときだけ
   labels?: string[]; // 付与を推奨するラベル
-  assignee?: string;
   priority?: number;
   projectRef?: string;
   reason?: string;
@@ -533,7 +530,6 @@ export interface TriageProposal {
   decision: TriageDecision;
   duplicateOf: string | null;
   labels: string[];
-  assignee: string | null;
   priority: number | null;
   project: { id: number; name: string } | null;
   reason: string | null;

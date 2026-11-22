@@ -237,16 +237,10 @@ describe("updateIssue", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     for (const assignee of ["codex", null]) {
-      expect(codeOf(() => updateIssue(me, i.id, { assignee, priority: 1 }))).toBe("INVALID_ARGS");
+      const legacyInput = { assignee, priority: 1 };
+      expect(codeOf(() => updateIssue(me, i.id, legacyInput))).toBe("INVALID_ARGS");
     }
     expect(getIssue(db, i.id).priority).toBe(0);
-  });
-
-  test("旧データで担当が保存済みでも他の項目を更新できる", () => {
-    const { db, ws, me } = setup();
-    const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    db.query("UPDATE issues SET assignee = 'none' WHERE workspace_id = ? AND number = ?").run(ws.id, i.number);
-    expect(updateIssue(me, i.id, { priority: 2 })).toMatchObject({ assignee: "none", priority: 2 });
   });
 });
 
@@ -304,11 +298,10 @@ describe("queryIssues", () => {
     expect(ids({ workspace: ["NONE"] })).toEqual([]);
   });
 
-  test("ready は担当者に関係なく着手できる Issue だけを返す", () => {
+  test("ready は着手できる Issue だけを返す", () => {
     const { db, ws, me, llm } = setup();
     const free = createIssue(me, { workspaceId: ws.id, title: "free" });
     const others = createIssue(me, { workspaceId: ws.id, title: "others" });
-    updateIssue(me, others.id, { assignee: "codex" });
     const blocker = createIssue(me, { workspaceId: ws.id, title: "blocker" });
     updateIssue(me, blocker.id, { status: "backlog" });
     const blocked = createIssue(me, { workspaceId: ws.id, title: "blocked" });

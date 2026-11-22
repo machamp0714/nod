@@ -185,7 +185,7 @@ test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) 
 test("LLM 別に完了・開始・完了報告の操作回数の表と積み上げ棒を出す", async ({ page, nod }) => {
   await seed(nod);
   const api = (await nod.me.listWorkspaces()).find((w) => w.key === "API")!;
-  const other = await nod.me.createIssue({ workspaceId: api.id, title: "codex が担当して止まった作業" });
+  const other = await nod.me.createIssue({ workspaceId: api.id, title: "codex が開始した作業" });
   await nod.codex.startIssue(other.id);
   await page.goto("/analytics");
   const section = page.getByRole("region", { name: "LLM 別" });

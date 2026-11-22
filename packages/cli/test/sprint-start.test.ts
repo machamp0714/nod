@@ -15,16 +15,20 @@ test("CLIのsuggest/next/start/update/bulk-updateは採択Issueにも通常ど�
   core.setSprintRollover(me, ws.key, { enabled: false });
   const run = (args: string[], actor = "codex") => runNod(["issue", ...args, "--json"], { cwd, db: path, actor });
   expect((await run(["suggest"])).json.id).toBe(adopted.id);
-  expect((await run(["next"])).json).toMatchObject({ id: adopted.id, status: "in_progress", assignee: "codex" });
-  // 先の操作で担当が決まると別actorのstartは一般条件で拒否されるので、actorごとにIssueを分ける。
-  for (const [actor, issue] of [["codex", adopted], ["me", adoptedForHuman]] as const) {
-    expect(await run(["start", issue.id], actor)).toMatchObject({ exitCode: 0, json: { id: issue.id, status: "in_progress", assignee: actor } });
-    expect(await run(["update", issue.id, "--status", "in_progress", "--assignee", actor], actor)).toMatchObject({ exitCode: 0, json: { status: "in_progress", assignee: actor } });
-  }
+  expect(await run(["next"])).toMatchObject({ exitCode: 0, json: { id: adopted.id, status: "in_progress" } });
+  expect(await run(["start", adopted.id], "me")).toMatchObject({ exitCode: 0, json: { id: adopted.id, status: "in_progress" } });
+  expect(await run(["start", adoptedForHuman.id], "me")).toMatchObject({ exitCode: 0, json: { id: adoptedForHuman.id, status: "in_progress" } });
+  expect(await run(["update", adopted.id, "--status", "in_progress"], "codex")).toMatchObject({ exitCode: 0, json: { status: "in_progress" } });
+  expect(await run(["update", adoptedForHuman.id, "--status", "in_progress"], "me")).toMatchObject({ exitCode: 0, json: { status: "in_progress" } });
+  const started = (await run(["show", adopted.id])).json;
+  expect(started).not.toHaveProperty("assignee");
+  expect(started.activity.filter((event: { type: string }) => event.type === "work_started")).toMatchObject([
+    { actor: "codex" }, { actor: "me" },
+  ]);
   core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
   expect(await run(["bulk-update", untouched.id, adopted.id, "--status", "in_progress", "--priority", "1"], "me")).toMatchObject({ exitCode: 0 });
   expect((await run(["show", untouched.id])).json).toMatchObject({ status: "in_progress", priority: 1 });
-  expect((await run(["show", adopted.id])).json).toMatchObject({ status: "in_progress", assignee: "codex", priority: 1 });
+  expect((await run(["show", adopted.id])).json).toMatchObject({ status: "in_progress", priority: 1 });
   expect((await run(["next"])).json.id).toBe(ordinary.id);
   expect((await run(["start", untouched.id])).json.status).toBe("in_progress");
   db.close();

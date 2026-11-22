@@ -69,16 +69,16 @@ test("画面からレビュー後の修正を再開し、再提出後に完了�
 
 test.describe("レビュー中の操作の拒否", () => {
   test.use({ allowedConsoleErrors: [/status of 409/] });
-  test("担当者と遷移ルールの拒否を表示し、完了報告の入力を保持する", async ({ page, nod }) => {
+  test("再開と完了の遷移ルールによる拒否を表示し、完了報告の入力を保持する", async ({ page, nod }) => {
     const api = await seedApiWorkspace(nod);
-    const issue = await api.startedIssue("担当と禁止ルールを尊重する");
+    const issue = await api.startedIssue("再開・完了を禁止した作業");
     await nod.me.updateIssue(issue.id, { status: "in_review" });
+    const response = await page.request.put("/api/workspaces/API/transitions", { data: { forbidden: [{ from: "in_review", to: "in_progress" }, { from: "in_review", to: "done" }] } });
+    expect(response.ok()).toBe(true);
     await page.goto(`/issues/${issue.id}`);
     await page.getByRole("button", { name: "修正を再開" }).click();
-    await expect(page.getByRole("alert")).toContainText("claude-code が担当しています");
+    await expect(page.getByRole("alert")).toContainText("再開できませんでした");
     await expect(page.getByRole("group", { name: "状態" })).toContainText("In Review");
-    const response = await page.request.put("/api/workspaces/API/transitions", { data: { forbidden: [{ from: "in_review", to: "done" }] } });
-    expect(response.ok()).toBe(true);
     await page.getByRole("textbox", { name: "完了報告", exact: true }).fill("完了条件を確認しました");
     await page.getByRole("button", { name: "報告して完了" }).click();
     await expect(page.getByRole("alert")).toContainText("完了できませんでした");

@@ -27,9 +27,10 @@ describe("proposeTriage", () => {
     });
     expect(snapshot()).toEqual(before);
     expect(p).toMatchObject({
-      issueId: issue.id, actor: "claude-code", decision: "accept", duplicateOf: null, labels: ["bug", "perf"], assignee: null,
+      issueId: issue.id, actor: "claude-code", decision: "accept", duplicateOf: null, labels: ["bug", "perf"],
       priority: 2, project: { name: "検索改善" }, reason: "再現手順が明確",
     });
+    expect(p).not.toHaveProperty("assignee");
     expect(listTriageProposals(me.db, issue.id)).toEqual([p]);
   });
 
@@ -71,7 +72,7 @@ describe("proposeTriage", () => {
     expect(bad({ decision: "accept", labels: ["x".repeat(51)] })).toBe("INVALID_ARGS");
     // Web の「フォームに反映」はラベルを ", " で連結して空白と読点で分け直すので、それらを含む名前は拒否する
     for (const label of ["a b", "a,b", "a、b", "a，b"]) expect(bad({ decision: "accept", labels: [label] })).toBe("INVALID_ARGS");
-    expect(bad({ decision: "accept", assignee: " " })).toBe("INVALID_ARGS");
+    for (const assignee of [" ", null]) expect(bad({ decision: "accept", assignee })).toBe("INVALID_ARGS");
     expect(bad({ decision: "accept", projectRef: "ない" })).toBe("NOT_FOUND");
     expect(bad({ decision: "accept", reason: "x".repeat(2001) })).toBe("INVALID_ARGS");
     expect(listTriageProposals(me.db, issue.id)).toEqual([]);
@@ -123,7 +124,7 @@ describe("proposeTriage", () => {
     const byActor = listTriageProposals(db, issue.id).sort((a, b) => a.actor.localeCompare(b.actor));
     expect(byActor).toMatchObject([
       { actor: "claude-code", decision: "duplicate", duplicateOf: null, reason: "同じ内容" },
-      { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug"], assignee: null, priority: 1, project: { name: "検索改善" }, reason: "直すべき" },
+      { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug"], priority: 1, project: { name: "検索改善" }, reason: "直すべき" },
     ]);
     // 書き込み時は、これまでどおり duplicate に重複先を必須にする
     expect(codeOf(() => proposeTriage(llm, issue.id, { decision: "duplicate" } as any))).toBe("INVALID_ARGS");

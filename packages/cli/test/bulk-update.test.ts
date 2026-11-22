@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { createIssue, listWorkspaces, openDb } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
 let db: string;
@@ -10,28 +9,21 @@ beforeAll(() => {
   registerRepo(db, repo);
 });
 
-test("保存済みの担当があっても詳細と一覧のテキストに表示しない", async () => {
-  const legacyDb = tempDb();
-  const legacyRepo = makeRepo();
-  registerRepo(legacyDb, legacyRepo);
-  const legacy = openDb(legacyDb);
-  const workspace = listWorkspaces(legacy)[0]!;
-  const issue = createIssue({ db: legacy, actor: "me" }, {
-    workspaceId: workspace.id, title: "旧データの表示",
-  });
-  legacy.query("UPDATE issues SET assignee = ? WHERE workspace_id = ? AND number = ?").run("legacy-agent", workspace.id, issue.number);
-  legacy.close();
-  for (const args of [["show", issue.id], ["list"]]) {
-    const r = await runNod(["issue", ...args], { cwd: legacyRepo, db: legacyDb });
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain(issue.title);
-    expect(r.stdout).not.toContain("legacy-agent");
-  }
-});
-
 const llm = (args: string[]) => runNod(args, { cwd: repo, db, actor: "claude-code" });
 const me = (args: string[]) => runNod(args, { cwd: repo, db });
 const create = async (title: string, run = me) => (await run(["issue", "create", "--json", title])).json.id as string;
+
+test("Issue の詳細と一覧に担当フィールドを表示しない", async () => {
+  const title = "詳細と一覧で確認する Issue";
+  const id = await create(title);
+  for (const args of [["show", id], ["list"]]) {
+    const result = await me(["issue", ...args]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(title);
+    expect(result.stdout).not.toContain("担当");
+  }
+  expect((await me(["issue", "show", id, "--json"])).json).not.toHaveProperty("assignee");
+});
 
 describe("nod issue bulk-update", () => {
   test("単体と一括の更新で廃止済みの --assignee を拒否し、他の項目も変えない", async () => {

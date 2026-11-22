@@ -27,13 +27,12 @@ describe("suggestIssue", () => {
     expect(suggestIssue(llm, { workspaceId: ws.id })).toBeNull();
   });
 
-  test("別Workspace・Triage・snooze・未回答・未完了ブロッカーを除外し、担当では除外しない", () => {
+  test("別Workspace・Triage・snooze・未回答・未完了ブロッカーを除外する", () => {
     const { db, ws, me, llm } = setup();
     const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
     createIssue(me, { workspaceId: other.id, title: "別Workspace", priority: 1 });
     createIssue(llm, { workspaceId: ws.id, title: "Triage" });
-    const assigned = createIssue(me, { workspaceId: ws.id, title: "他担当" });
-    updateIssue(me, assigned.id, { assignee: "codex" });
+    const ready = createIssue(me, { workspaceId: ws.id, title: "着手可能" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "後回し" });
     db.query("UPDATE issues SET snoozed_until = '2999-01-01T00:00:00.000Z' WHERE number = ? AND workspace_id = ?").run(snoozed.number, ws.id);
     const asked = createIssue(me, { workspaceId: ws.id, title: "未回答" });
@@ -44,7 +43,7 @@ describe("suggestIssue", () => {
     updateIssue(me, blocker.id, { status: "backlog" });
     const blocked = createIssue(me, { workspaceId: ws.id, title: "ブロック中" });
     relateIssue(me, blocker.id, { blocks: blocked.id });
-    expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(assigned.id);
+    expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(ready.id);
     nextIssue(llm, { workspaceId: ws.id });
     updateIssue(me, blocker.id, { status: "done" });
     expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(blocked.id);
@@ -58,7 +57,6 @@ describe("suggestIssue", () => {
     addProjectRow(db, "検索");
     createIssue(me, { workspaceId: ws.id, title: "外", priority: 1 });
     const inside = createIssue(me, { workspaceId: ws.id, title: "中", projectRef: "検索" });
-    updateIssue(me, inside.id, { assignee: llm.actor });
     expect(suggestIssue(llm, { workspaceId: ws.id, projectRef: "検索" })?.id).toBe(inside.id);
     expect(codeOf(() => suggestIssue(llm, { workspaceId: ws.id, projectRef: "不存在" }))).toBe("NOT_FOUND");
   });

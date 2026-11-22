@@ -23,14 +23,14 @@ function fixture() {
   const make = (
     status = "todo",
     stamp = old,
-    extra: { assignee?: string | null; closedAt?: string | null; parent?: string; workspaceId?: number; snoozedUntil?: string } = {},
+    extra: { closedAt?: string | null; parent?: string; workspaceId?: number; snoozedUntil?: string } = {},
   ) => {
     const issue = createIssue(s.me, { workspaceId: extra.workspaceId ?? s.ws.id, title: status, parentRef: extra.parent });
     const id = findIssueRow(s.db, issue.id).id;
     const closedAt = extra.closedAt !== undefined ? extra.closedAt : status === "done" || status === "canceled" ? stamp : null;
     s.db
-      .query("UPDATE issues SET status=?, created_at=?, updated_at=?, assignee=?, closed_at=?, snoozed_until=? WHERE id=?")
-      .run(status, stamp, stamp, extra.assignee ?? null, closedAt, extra.snoozedUntil ?? null, id);
+      .query("UPDATE issues SET status=?, created_at=?, updated_at=?, closed_at=?, snoozed_until=? WHERE id=?")
+      .run(status, stamp, stamp, closedAt, extra.snoozedUntil ?? null, id);
     s.db.query("UPDATE events SET created_at=? WHERE issue_id=?").run(stamp, id);
     return issue.id;
   };
@@ -123,24 +123,23 @@ describe("自動クローズ（#71）", () => {
     expect(ids(dry().rules[0]!)).toEqual(expected);
   });
 
-  test("スヌーズ中・未完了の子を持つ親・アーカイブ済み・他 Workspace を除き、担当だけでは除外しない", () => {
+  test("スヌーズ中・未完了の子を持つ親・アーカイブ済み・他 Workspace を除く", () => {
     const { db, me, make, enable, dry } = fixture();
     enable(10, null);
-    const unstarted = make("todo", old, { assignee: "claude-code" });
-    const mine = make("todo", old, { assignee: "me" });
+    const unstarted = make("todo");
     make("todo", old, { snoozedUntil: "2026-10-01T00:00:00.000Z" });
     const snoozeEnded = make("todo", old, { snoozedUntil: "2026-09-20T00:00:00.000Z" });
     const parent = make("todo");
     make("done", old, { parent }); // 閉じた子は親を止めない
     const parent2 = make("todo");
-    const openChild = make("in_progress", old, { parent: parent2, assignee: "codex" }); // 開いた子は親を止める
+    const openChild = make("in_progress", old, { parent: parent2 }); // 開いた子は親を止める
     const archived = make("todo");
     archiveIssue(me, archived);
     db.query("UPDATE issues SET updated_at=? WHERE id=?").run(old, findIssueRow(db, archived).id);
     const other = initWorkspace(db, { path: "/tmp/automation-other", key: "OTHER" }).workspace;
     make("todo", old, { workspaceId: other.id });
     expect(openChild).toBeString();
-    expect(ids(dry().rules[0]!)).toEqual([unstarted, mine, snoozeEnded, parent, openChild]);
+    expect(ids(dry().rules[0]!)).toEqual([unstarted, snoozeEnded, parent, openChild]);
   });
 
   test("未完了の Issue をブロックしている Issue と、未完了のブロッカー待ちの Issue を除く", () => {
@@ -158,7 +157,7 @@ describe("自動クローズ（#71）", () => {
     archiveIssue(me, archived);
     block(blocksArchived, archived); // アーカイブ済みは未完了として数えない
     const related = make("todo");
-    const relatedTarget = make("in_progress", old, { assignee: "codex" });
+    const relatedTarget = make("in_progress");
     block(related, relatedTarget, "related"); // blocks 以外の関係は問わない
     expect(ids(dry().rules[0]!).sort()).toEqual([blocksDone, blockedByCanceled, blocksArchived, related, relatedTarget].sort());
     expect(ids(dry().rules[0]!)).not.toContain(blocker);
@@ -226,7 +225,7 @@ describe("自動クローズ（#71）", () => {
   test("実行すると canceled にし、close_reason と自動化の印つきの event を me で残す", () => {
     const { db, make, enable, run } = fixture();
     enable(10, null);
-    const ref = make("in_progress", old, { assignee: "me" });
+    const ref = make("in_progress");
     db.query("UPDATE issues SET agent_state='done' WHERE id=?").run(findIssueRow(db, ref).id);
     const r = run();
     expect(r.dryRun).toBe(false);

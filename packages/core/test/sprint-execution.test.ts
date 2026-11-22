@@ -593,9 +593,10 @@ test("通常経路の実行場所を占有として保存し、中止後の元�
   const before = core.getSprintExecutionState(state.db, sprint.id, sprintTestClock);
   expect(before).toMatchObject({ occupied: 1, reserved: 0, unreconciledOwnership: [{ sourceIssueKey: a.id, worktree: "/既存の作業場所" }] });
   core.cancelSprint(state.me, sprint.id, { expectedVersion: sprint.version, requestKey: "中止", reason: "元担当を確認する" });
-  expect(core.startIssue(state.llm, a.id)).toMatchObject({ status: "in_progress" });
-  expect(core.startIssue(original, a.id)).toMatchObject({ status: "in_progress" });
-  core.updateIssue(state.me, a.id, { status: "done", assignee: null });
+  const moved = { branch: "移動後のbranch", worktree: "/移動後の作業場所" };
+  expect(core.startIssue(state.llm, a.id, { location: moved })).toMatchObject({ status: "in_progress", ...moved });
+  expect(core.startIssue(original, a.id)).toMatchObject({ status: "in_progress", ...moved });
+  core.updateIssue(state.me, a.id, { status: "done" });
   expect(core.getSprintExecutionState(state.db, sprint.id, sprintTestClock)).toMatchObject({ occupied: 1, reserved: 0, unreconciledOwnership: before.unreconciledOwnership });
   state.db.close();
 });

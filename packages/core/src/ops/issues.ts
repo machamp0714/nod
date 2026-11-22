@@ -37,7 +37,7 @@ import { type ActivityItem, type AgentInstruction, type Comment, type Issue, typ
 import { resolveMilestone } from "./milestones";
 import { sprintIssueScope } from "./sprints";
 import type { SprintClock } from "../sprint-types";
-import { isNoneRef, validateAssignee } from "../none-ref";
+import { isNoneRef } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -141,7 +141,6 @@ export interface NewIssueRow {
   milestoneId?: number | null;
   cycleId?: number | null;
   labels: string[];
-  assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
   status?: Status; // 初期ステータス。省略時は LLM が Triage、人が todo（取り込みでは取り込み元の状態から決める）
   closeReason?: string | null; // done・canceled で作るときの完了・キャンセルの理由（取り込みだけが使う）
   origin: Record<string, string | number>; // created の event に残す由来（発見元、複製元、定期Issue）
@@ -155,7 +154,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
     next_number: number;
   } | null;
   if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
-  validateAssignee(input.assignee);
   const status: Status = input.status ?? (isLlm(ctx) ? "triage" : "todo");
   // 最初から閉じた状態で作る（取り込み）ときは、状態の遷移を経ずに closed_at を作成時刻にする
   const closed = status === "done" || status === "canceled";
@@ -163,8 +161,8 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, close_reason, closed_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -178,7 +176,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.parentId,
       input.projectId,
       input.milestoneId ?? null,
-      input.assignee ?? null,
       closed ? (input.closeReason ?? null) : null,
       closed ? ts : null,
       ctx.actor,
@@ -442,7 +439,6 @@ export interface UpdateIssueInput {
   estimate?: number | null; // null で解除
   dueDate?: string | null; // null で解除
   status?: Status;
-  assignee?: string | null;
   parentRef?: string | null;
   projectRef?: string | null;
   milestoneRef?: string | null; // Milestone の ID か、Issue の Project の中の名前。null で外す

@@ -87,7 +87,7 @@ describe("LLM 向け出力に作業規約を含める", () => {
     expect(next.json).not.toHaveProperty("workspaceRules");
     const start = await runNod(["issue", "start", "API-2"], { cwd: repo, db, actor: "codex" });
     expect(start.stdout).toStartWith("着手しました: API-2");
-    expect(start.stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(start.stdout).not.toContain("作業規約");
   });
 
   test("未登録なら issue show・next のテキストは規約を登録したときから規約の節を除いたものと一致する", async () => {

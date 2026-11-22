@@ -116,9 +116,6 @@ test("採択は依存・未回答・triage・仕様判定・needs-spec・snooze�
   expect(check()).toMatchObject({ eligible: false, reason: { code: "NEEDS_SPEC" } });
   core.updateIssue(me, adopted.id, { removeLabels: ["needs-spec"] });
   expect(check().eligible).toBe(true);
-  core.updateIssue(me, adopted.id, { assignee: "other" });
-  expect(check().eligible).toBe(true);
-  core.updateIssue(me, adopted.id, { assignee: null });
   const blocker = core.createIssue(me, { workspaceId: ws.id, title: "前提" });
   core.relateIssue(me, blocker.id, { blocks: adopted.id });
   expect(check()).toMatchObject({ eligible: false, reason: { code: "BLOCKED" } });

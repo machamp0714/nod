@@ -130,13 +130,17 @@ describe("nod stats llm", () => {
     registerRepo(db, cwd);
     const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
     const issue = (await run(["issue", "create", "共同作業"])).json;
-    await run(["issue", "update", issue.id, "--assignee", "old-agent"]);
-    await run(["issue", "start", issue.id], "claude-code");
-    await run(["issue", "start", issue.id], "codex");
-    await run(["issue", "start", issue.id], "codex");
-    await run(["issue", "done", issue.id, "--summary", "完了"], "codex");
+    const historicalAt = new Date().toISOString();
+    const history = openDb(db);
+    history.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(findIssueRow(history, issue.id).id, "old-agent", "assignee_changed", JSON.stringify({ from: null, to: "old-agent" }), historicalAt);
+    history.close();
+    for (const actor of ["claude-code", "codex", "codex"]) {
+      expect(await run(["issue", "start", issue.id], actor)).toMatchObject({ exitCode: 0, json: { status: "in_progress" } });
+    }
+    expect(await run(["issue", "done", issue.id, "--summary", "完了"], "codex")).toMatchObject({ exitCode: 0, json: { status: "done" } });
     const today = new Date().toISOString().slice(0, 10);
-    const result = await run(["stats", "llm", "--by", "day", "--from", today, "--to", today, "--tz", "UTC"]);
+    const result = await run(["stats", "llm", "--by", "day", "--from", historicalAt.slice(0, 10), "--to", today, "--tz", "UTC"]);
     expect(result.json.llms.map((l: { name: string; totals: unknown }) => ({ name: l.name, totals: l.totals })))
       .toEqual([
         { name: "codex", totals: { started: 2, submitted: 1, completed: 1 } },
