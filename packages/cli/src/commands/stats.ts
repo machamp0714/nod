@@ -86,7 +86,7 @@ export function registerStatsCommands(program: Command): void {
     program.command("stats").description("完了数と作業時間（着手から完了まで）の推移を集計する"),
   );
   withStatsOptions(
-    stats.command("llm").description("LLM ごとの作業量（完了・担当開始・完了報告・作業時間）の推移を集計する"),
+    stats.command("llm").description("LLM ごとの開始・提出・完了の回数の推移を集計する"),
   ).action(
     act((cli, cmd) => {
       const result = llmStats(cli.db, statsQuery(cli, cmd));
