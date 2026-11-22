@@ -323,38 +323,14 @@ test.describe("View の表示設定（#175）", () => {
   });
 
   test("API で既定と同じ列（順だけ違うものも）を保存した View は、開いても「変更あり」にならない", async ({ page }) => {
-    const columns = ["pr", "assignee", "project", "workspace", "questions", "status", "priority"];
+    const columns = ["pr", "project", "workspace", "questions", "status", "priority"];
     const created = await page.request.post("/api/views", { data: { name: "既定の列", display: { columns, groupBy: "workspace" } } });
     const { id } = (await created.json()) as { id: number };
-    expect(((await (await page.request.get(`/api/views/${id}`)).json()) as { display: { columns?: string[] } }).display.columns).toHaveLength(7);
+    expect(((await (await page.request.get(`/api/views/${id}`)).json()) as { display: { columns?: string[] } }).display.columns).toHaveLength(6);
     await page.goto(`/views/${id}`);
     await expect(region(page, "Workspace API")).toBeVisible();
     await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "変更を保存" })).toHaveCount(0);
-  });
-
-  test("View の画面で委任中タブのまま保存すると、filter の delegated と担当のグループ化で保存し、URL から tab が消える", async ({ page }) => {
-    await page.goto("/views/1");
-    await page.getByRole("tab", { name: /^委任中 / }).click();
-    await expect(page).toHaveURL(/tab=delegated/);
-    await expect(page.getByText("変更あり", { exact: true })).toBeVisible();
-    await expect(region(page, "担当 claude-code")).toBeVisible();
-    const delegatedRows = await tableRows(page).count();
-    expect(delegatedRows).toBeGreaterThan(0);
-    await page.getByRole("button", { name: "変更を保存" }).click();
-    await expect(page.getByRole("button", { name: "変更を保存" })).toHaveCount(0);
-    await expect(page).toHaveURL(/\/views\/1$/);
-    const saved = (await (await page.request.get("/api/views/1")).json()) as { filter: Record<string, unknown>; display: unknown };
-    expect(saved.filter).toMatchObject({ delegated: true });
-    expect(saved.display).toEqual({ groupBy: "assignee" });
-    // 保存後は All タブで、委任中だけを担当でまとめて出す（表示される Issue は同じ）
-    await expect(page.getByRole("tab", { name: /^All / })).toHaveAttribute("aria-selected", "true");
-    await expect(tableRows(page)).toHaveCount(delegatedRows);
-    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
-    await page.reload();
-    await expect(page).toHaveURL(/\/views\/1$/);
-    await expect(tableRows(page)).toHaveCount(delegatedRows);
-    await expect(page.getByText("変更あり", { exact: true })).toHaveCount(0);
   });
 
   test("表示設定を保存したあと、ブラウザの戻る・進むでも保存した表示で開き「変更あり」にならない", async ({ page }) => {

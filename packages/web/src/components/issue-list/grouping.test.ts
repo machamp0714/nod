@@ -7,7 +7,7 @@ import type { IssueListRow } from "./types";
 
 function row(id: string, opts: Partial<Issue> = {}): IssueListRow {
   return {
-    issue: { id, title: id, workspace: id.split("-")[0], status: "todo" as Status, priority: 0, assignee: null, project: null, sprints: [], labels: [], ...opts } as Issue,
+    issue: { id, title: id, workspace: id.split("-")[0], status: "todo" as Status, priority: 0, project: null, sprints: [], labels: [], ...opts } as Issue,
     questions: { decided: 0, total: 0 },
     ready: false,
     workspaceName: `${id.split("-")[0]} name`,
@@ -50,11 +50,6 @@ describe("groupRows", () => {
     expect(parseIssueListSearch({ sprint: "未解決" })).toEqual({ sprint: "未解決" });
     expect(parseIssueListSearch({ sprint: "none" })).toEqual({ sprint: "none" });
     expect(filterFromSearch({ sprint: "none" })).toEqual({ sprint: "none" });
-  });
-
-  test("担当は名前順で、未割り当てを最後にする", () => {
-    const rows = [row("A-1"), row("A-2", { assignee: "codex" }), row("A-3", { assignee: "claude" })];
-    expect(shape(groupRows(rows, "assignee"))).toEqual([["claude", "claude", ["A-3"]], ["codex", "codex", ["A-2"]], ["", "未割り当て", ["A-1"]]]);
   });
 
   test("複数ラベルのIssueは各ラベルに重複して入り、ラベルなしは最後", () => {
@@ -100,7 +95,7 @@ describe("effectiveGrouping", () => {
 
 describe("URL", () => {
   test("グループ化とサブグループをURL往復で保持し、不正値と重複は捨てる", () => {
-    for (const groupBy of ["workspace", "status", "priority", "project", "assignee", "label"] as const) {
+    for (const groupBy of ["workspace", "status", "priority", "project", "label"] as const) {
       expect(cleanIssueListSearch(parseIssueListSearch({ groupBy }))).toEqual({ groupBy });
     }
     expect(cleanIssueListSearch(parseIssueListSearch({ groupBy: "status", subGroupBy: "label" }))).toEqual({ groupBy: "status", subGroupBy: "label" });

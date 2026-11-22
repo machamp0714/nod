@@ -1,9 +1,10 @@
 import type { DocKind, Status } from "../api/types";
+import { rejectAssigneeDisplay } from "@nod/core/src/view-display";
 import { NodError } from "@nod/core/src/errors";
 import { STATUS_ORDER } from "../lib/meta";
 
 export type IssueTab = "all" | "ready" | "needs_clarification";
-export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "assignee", "label"] as const;
+export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
 export type IssueLayout = "list" | "board";
@@ -11,12 +12,12 @@ export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "ti
 const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
 // 表示設定のチップの順（design/nod.pen「Display Popover｜表示列（行見本に合わせる）」U6jFNg）
-export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"] as const;
+export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
 // 既定の列は design/nod.pen「11 Issues」（O7KCp3）の行に合わせる（#196）。未決事項・PR・見積もり・期限は表示設定のチップで出す。
 // 列を明示した既存の URL（columns=...）と View（display.columns）はそのまま復元する。
 // ID・タイトル・ラベル・更新日時は列のキーを持たず、常に出す
-export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project", "assignee"];
+export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project"];
 
 // 画面の既定の列。全行が同じ値になる列（Project 詳細の Project）は既定から外す。
 // 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
@@ -69,20 +70,15 @@ export interface IssueListSearch {
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
   sprint?: string; // current、none、固定参照、未解決条件を保持する
   label?: string[];
-  assignee?: string[]; // 担当の名前。"none" は未割り当て
 }
 
-// 担当の絞り込みで未割り当てを指す値（GET /api/issues の assignee=none）
-export const NO_ASSIGNEE = "none";
 
 // TanStack Router は search params を JSON として読むため、配列は配列で、数字だけの値は数値で届く
-// splitComma は値をカンマでも分ける（assignee で使う。label は core と同じく分けない）
-function stringList(value: unknown, splitComma = false): string[] | undefined {
+function stringList(value: unknown): string[] | undefined {
   const list: unknown[] = Array.isArray(value) ? value : [value];
   const items = list
     .map((v) => (typeof v === "number" ? String(v) : v))
     .filter((v): v is string => typeof v === "string")
-    .flatMap((v) => (splitComma ? v.split(",") : [v]))
     .map((v) => v.trim())
     .filter((v) => v !== "");
   return items.length ? [...new Set(items)] : undefined;
@@ -90,6 +86,8 @@ function stringList(value: unknown, splitComma = false): string[] | undefined {
 
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
+  if ("assignee" in raw) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
+  rejectAssigneeDisplay(raw);
   if ("delegated" in raw || raw.tab === "delegated") throw new NodError("INVALID_ARGS", "担当は廃止されました。委任中の条件は使えません");
   const out: IssueListSearch = {};
   for (const key of ["showCompleted", "showChildren"] as const) {
@@ -124,9 +122,6 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof sprint === "string" && sprint.trim()) out.sprint = sprint.trim();
   const label = stringList(raw.label);
   if (label) out.label = label;
-  // API は assignee をカンマでも分けるため、手で書いた assignee=me,codex もチップとパネルが API の結果と合うように分ける
-  const assignee = stringList(raw.assignee, true)?.map((name) => (name.toLowerCase() === NO_ASSIGNEE ? NO_ASSIGNEE : name));
-  if (assignee) out.assignee = [...new Set(assignee)];
   return out;
 }
 
@@ -159,7 +154,6 @@ export function cleanIssueListSearch(search: IssueListSearch, sameValueColumn?: 
   if (search.milestone) out.milestone = search.milestone;
   if (search.sprint) out.sprint = search.sprint;
   if (search.label?.length) out.label = search.label;
-  if (search.assignee?.length) out.assignee = search.assignee;
   return out;
 }
 

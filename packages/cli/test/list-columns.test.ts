@@ -73,21 +73,6 @@ describe("nod issue list の列（#174）", () => {
     expect(idsOf({ json })).toEqual(["API-1", "API-2", "API-3", "API-4", "API-5", "API-6"]);
   });
 
-  test("--delegated の行にも優先度と Project を出す", async () => {
-    const { me } = await seed();
-    const lines = (await me(["issue", "list", "--delegated"])).stdout.trimEnd().split("\n");
-    expect(lines).toEqual(["claude-code（1件: 作業中 1）", "  API-4  In Progress [working]  High    とても長い名前の Pr…  b"]);
-  });
-
-  test("--delegated の行にも [未決 決定数/総数] を付ける（#173）", async () => {
-    const { me } = await seed();
-    await me(["issue", "update", "API-1", "--assignee", "claude-code"]);
-    await me(["issue", "ask", "API-1", "色はどうするか"]);
-    const lines = (await me(["issue", "list", "--delegated"])).stdout.trimEnd().split("\n");
-    expect(lines[0]).toMatch(/^claude-code（2件: /);
-    expect(lines.find((l) => l.includes("API-1"))).toMatch(/^  API-1  .+  e  \[未決 0\/1\]$/);
-    expect(lines.find((l) => l.includes("API-4"))).toMatch(/  b$/);
-  });
 });
 
 describe("nod issue list --priority", () => {
@@ -128,17 +113,6 @@ describe("nod issue list --sort", () => {
     expect(idsOf(await me(["issue", "list", "--desc", "--json"]))).toEqual(["API-5", "API-4", "API-3", "API-2", "API-1"]);
     const text = (await me(["issue", "list", "--sort", "priority"])).stdout.trimEnd().split("\n").map((line) => line.slice(0, 5));
     expect(text).toEqual(["API-2", "API-5", "API-4", "API-1", "API-3"]);
-  });
-
-  test("--delegated では担当ごとの見出しの中で並べる", async () => {
-    const { me } = await seed();
-    await me(["issue", "update", "API-1", "--assignee", "claude-code"]);
-    await me(["issue", "update", "API-5", "--assignee", "codex"]);
-    expect((await me(["issue", "list", "--delegated", "--sort", "priority", "--json"])).json.map((i: { id: string; assignee: string }) => [i.assignee, i.id])).toEqual([
-      ["claude-code", "API-4"],
-      ["claude-code", "API-1"],
-      ["codex", "API-5"],
-    ]);
   });
 
   test("知らない並び順は INVALID_ARGS", async () => {

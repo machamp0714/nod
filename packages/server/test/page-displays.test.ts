@@ -19,6 +19,21 @@ describe("ページの表示設定の API", () => {
     expect(Object.keys((await call(app, "GET", "/api/page-displays")).json)).toEqual(["project:1", "project:2"]);
   });
 
+  test("担当の列とグループを保存できない", async () => {
+    const { app } = setup();
+    for (const display of [
+      { columns: ["status", "assignee"] },
+      { groupBy: "assignee" },
+      { groupBy: "status", subGroupBy: "assignee" },
+    ]) {
+      const response = await call(app, "PUT", "/api/page-displays/issues", { display });
+      expect(response.status).toBe(400);
+      expect(response.json.error.code).toBe("INVALID_ARGS");
+      expect(response.json.error.message).toContain("担当は廃止");
+    }
+    expect((await call(app, "GET", "/api/page-displays")).json).toEqual({});
+  });
+
   test("不正なページ・本文・tab は 400", async () => {
     const { app } = setup();
     for (const [path, body] of [

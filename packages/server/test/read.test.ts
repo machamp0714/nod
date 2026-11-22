@@ -9,7 +9,6 @@ import {
   createProject,
   snoozeTriage,
   startIssue,
-  updateIssue,
 } from "@nod/core";
 import { call, setup, tempDir } from "./helpers";
 
@@ -57,20 +56,19 @@ describe("GET /api/issues", () => {
     }
   });
 
-  test("assignee は担当で絞り込み、none は未割り当て、件数もその範囲で数える", async () => {
-    const s = seed();
-    startIssue(s.llm, "API-1");
-    const d = createIssue(s.me, { workspaceId: s.ws.id, title: "d" });
-    updateIssue(s.me, d.id, { assignee: "me" });
-    const ids = async (query: string) => (await call(s.app, "GET", `/api/issues?${query}`)).json.issues.map((i: { id: string }) => i.id);
-    expect(await ids("assignee=me")).toEqual(["API-4"]);
-    expect(await ids("assignee=me&assignee=claude-code")).toEqual(["API-1", "API-4"]);
-    expect(await ids("assignee=me,claude-code")).toEqual(["API-1", "API-4"]);
-    expect(await ids("assignee=none")).toEqual(["API-2", "API-3"]);
-    expect(await ids("assignee=nobody")).toEqual([]);
-    const mine = await call(s.app, "GET", "/api/issues?assignee=me");
-    expect(mine.status).toBe(200);
-    expect(mine.json.counts).toEqual({ ready: 1, needsClarification: 0 });
+  test("担当の条件・列・主グループ・副グループは INVALID_ARGS で拒否する", async () => {
+    const { app } = seed();
+    for (const query of [
+      "assignee", "assignee=", "assignee=me&assignee=none",
+      "columns=assignee", "columns=status&columns=assignee", "columns=status,assignee",
+      `columns=${encodeURIComponent(JSON.stringify(["status", "assignee"]))}`,
+      "groupBy=assignee", "groupBy=status&subGroupBy=assignee",
+    ]) {
+      const result = await call(app, "GET", `/api/issues?${query}`);
+      expect(result.status).toBe(400);
+      expect(result.json.error.code).toBe("INVALID_ARGS");
+      expect(result.json.error.message).toContain("担当は廃止");
+    }
   });
 
   test("誤った条件は 400、ない Project は 404", async () => {

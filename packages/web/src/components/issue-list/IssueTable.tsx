@@ -9,7 +9,7 @@ import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { priorityMeta, TONE_COLORS } from "../../lib/meta";
 import { sprintAssociationLabel } from "../../lib/sprints";
 import { statusName } from "../../lib/workspace-labels";
-import { AgentAvatar, Button, Icon, LabelChip, QuestionProgress, StatusIcon, WorkspaceBadge } from "../ui";
+import { Button, Icon, LabelChip, QuestionProgress, StatusIcon, WorkspaceBadge } from "../ui";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
 
@@ -99,7 +99,6 @@ export function IssueTable({
         {columns.includes("pr") && <col className={s.colPr} />}
         {columns.includes("estimate") && <col className={s.colEstimate} />}
         {columns.includes("dueDate") && <col className={s.colDue} />}
-        {columns.includes("assignee") && <col className={s.colAssignee} />}
         <col className={s.colUpdated} />
       </colgroup>
       {/* design/nod.pen「11 Issues」に列見出しの行はない。画面に出さず、支援技術には残す */}
@@ -118,7 +117,6 @@ export function IssueTable({
           {columns.includes("pr") && <th>PR</th>}
           {columns.includes("estimate") && <th>見積もり</th>}
           {columns.includes("dueDate") && <th>期限</th>}
-          {columns.includes("assignee") && <th>担当</th>}
           <th>更新日時</th>
         </tr>
       </thead>
@@ -247,15 +245,6 @@ export function IssueTable({
               {columns.includes("dueDate") && (
                 <td>
                   <DueDateCell issue={issue} today={today} />
-                </td>
-              )}
-              {columns.includes("assignee") && (
-                <td>
-                  <span className={s.assigneeCell}>
-                    {/* アバターの頭文字を担当の名前に混ぜない。支援技術には名前だけを出す */}
-                    {issue.assignee ? <span className={s.avatarWrap} aria-hidden="true"><AgentAvatar actor={issue.assignee} /></span> : <span className={s.unassigned} title="未割り当て" />}
-                    <span className={s.visuallyHidden}>{issue.assignee ?? "未割り当て"}</span>
-                  </span>
                 </td>
               )}
               <td className={s.updated} title={formatDateTime(issue.updatedAt)}>

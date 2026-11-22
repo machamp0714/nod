@@ -3,9 +3,9 @@ import type { Issue, Status } from "../../api/types";
 import { canDropOnStatus, countRows, filterRows, groupForBoard, groupRowsByWorkspace, sortRows } from "./issue-list";
 import type { IssueListRow } from "./types";
 
-function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; assignee?: string; estimate?: number | null; dueDate?: string | null } = {}): IssueListRow {
+function row(id: string, status: Status, opts: { priority?: number; ready?: boolean; title?: string; estimate?: number | null; dueDate?: string | null } = {}): IssueListRow {
   return {
-    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0, assignee: opts.assignee ?? null, estimate: opts.estimate ?? null, dueDate: opts.dueDate ?? null } as Issue,
+    issue: { id, title: opts.title ?? id, status, priority: opts.priority ?? 0, estimate: opts.estimate ?? null, dueDate: opts.dueDate ?? null } as Issue,
     questions: { decided: 0, total: 0 },
     ready: opts.ready ?? false,
     workspaceName: "api-server",

@@ -112,8 +112,6 @@ function groupEntries(
         return { key: sprint.id, label: info?.label ?? sprint.name, rank: info?.rank ?? sprint.name, current: info?.current };
       });
     }
-    case "assignee":
-      return [issue.assignee ? { key: issue.assignee, label: issue.assignee, rank: issue.assignee } : { key: "", label: "未割り当て", rank: "" }];
     case "label":
       return issue.labels.length ? issue.labels.map((label) => ({ key: label, label, rank: label })) : [{ key: "", label: "ラベルなし", rank: "" }];
   }

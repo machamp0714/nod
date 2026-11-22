@@ -9,13 +9,13 @@ const nav = (page: Page) => page.getByRole("navigation", { name: "メイン" });
 const layoutTab = async (page: Page, name: "List" | "Board") => (await openDisplay(page)).getByRole("tab", { name, exact: true });
 const savedDisplays = async (page: Page) => (await (await page.request.get("/api/page-displays")).json()) as Record<string, unknown>;
 
-test("Issues で Board・グループ化 Project にすると、別ページから Sidebar で開き直しても同じ表示。My issues には漏れない", async ({ page }) => {
+test("Issues で Board・グループ化 Project にすると、別ページから Sidebar で開き直しても同じ表示", async ({ page }) => {
   await page.goto("/issues");
   await setLayout(page, "Board");
   await chooseDisplay(page, "グループ化", "Project");
   await expect.poll(() => savedDisplays(page)).toEqual({ issues: { layout: "board", groupBy: "project" } });
 
-  await nav(page).getByRole("link", { name: "My issues", exact: true }).click();
+  await page.goto("/projects/1");
   await expect(await layoutTab(page, "List")).toHaveAttribute("aria-selected", "true");
   await nav(page).getByRole("link", { name: "Issues", exact: true }).click();
   await expect(page).toHaveURL(/\/issues$/);
@@ -43,7 +43,7 @@ test("並び順・昇降順・完了済み・子 Issue・表示列も保存し�
   const popover = await openDisplay(page);
   await popover.getByRole("switch", { name: "完了済み Issue を表示" }).click();
   await popover.getByRole("switch", { name: "子 Issue を表示" }).click();
-  await setColumn(page, "担当", false);
+  await setColumn(page, "優先度", false);
   await expect.poll(async () => (await savedDisplays(page)).issues).toMatchObject({ sort: "title", direction: "desc", showCompleted: false, showChildren: false });
 
   await page.goto("/issues");
@@ -52,15 +52,7 @@ test("並び順・昇降順・完了済み・子 Issue・表示列も保存し�
   await expect(reopened.getByRole("button", { name: "並び順の方向", exact: true })).toHaveAttribute("data-value", "desc");
   await expect(reopened.getByRole("switch", { name: "完了済み Issue を表示" })).toHaveAttribute("aria-checked", "false");
   await expect(reopened.getByRole("switch", { name: "子 Issue を表示" })).toHaveAttribute("aria-checked", "false");
-  await expect(await columnChip(page, "担当")).toHaveAttribute("aria-pressed", "false");
-});
-
-test("My issues で「なし」を選ぶと、開き直してもフラットのまま", async ({ page }) => {
-  await page.goto("/my-issues");
-  await chooseDisplay(page, "グループ化", "なし");
-  await expect.poll(async () => (await savedDisplays(page))["my-issues"]).toEqual({ groupBy: "none" });
-  await page.goto("/my-issues");
-  await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
+  await expect(await columnChip(page, "優先度")).toHaveAttribute("aria-pressed", "false");
 });
 
 test("URL で明示すると URL が優先され、保存は変わらない", async ({ page }) => {

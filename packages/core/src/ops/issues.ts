@@ -234,7 +234,6 @@ export interface ListIssuesFilter {
   ready?: boolean;
   query?: string;
   blocked?: boolean;
-  assignees?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て
   priorities?: number[]; // 優先度（0 = なし）。どれかに合うもの
   completionCandidate?: boolean; // true で親の完了候補だけにする
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
@@ -279,15 +278,6 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
   for (const label of filter.labels ?? []) {
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
     params.push(label);
-  }
-  if (filter.assignees?.length) {
-    const names = filter.assignees.filter((name) => !isNoneRef(name));
-    const conditions = [
-      ...(names.length ? [`i.assignee IN (${names.map(() => "?").join(", ")})`] : []),
-      ...(names.length < filter.assignees.length ? ["i.assignee IS NULL"] : []),
-    ];
-    where.push(`(${conditions.join(" OR ")})`);
-    params.push(...names);
   }
   if (filter.priorities?.length) {
     where.push(`i.priority IN (${filter.priorities.map(() => "?").join(", ")})`);
@@ -352,7 +342,6 @@ export function queryIssues(db: Database, query: IssueQuery, clock: SprintClock 
     ready: q.ready,
     query: q.q,
     blocked: q.blocked,
-    assignees: q.assignee,
     priorities: q.priority,
     archived: q.archived,
   };

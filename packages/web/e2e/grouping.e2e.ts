@@ -61,9 +61,6 @@ test("BoardではStatusのグループ化を選べず、URLにあってもグル
   await expect(await displaySelect(page, "グループ化")).toHaveAttribute("data-value", "none");
   await setLayout(page, "List");
   await expect(page.getByRole("region", { name: /^Status / })).toHaveCount(0);
-  await page.goto("/issues?layout=board&groupBy=assignee");
-  await expect(region(page, "担当 claude-code")).toBeVisible();
-  await expect(region(page, "担当 未割り当て")).toBeVisible();
 });
 
 test("サブグループはグループ内を分け、URLで復元し、Boardでは選べない", async ({ page }) => {

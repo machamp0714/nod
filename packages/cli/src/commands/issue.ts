@@ -69,8 +69,8 @@ import {
   type WorkspaceTransitionRules,
 } from "@nod/core";
 import { type Command, Option } from "commander";
-import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
-import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
+import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
+import { act, actAsync, type Cli, currentWorkspace } from "../context";
 import { registerGithubIssueCommands } from "./github";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
@@ -231,10 +231,14 @@ export function registerIssueCommands(program: Command): void {
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
     .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
     .option("--archived", "アーカイブ済みの Issue だけを出す（--status を省くとすべてのステータス）")
-    .option("--ready", "着手できる Issue だけを出す（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）")
+    .option("--ready", "着手できる Issue だけを出す（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。Web の Ready と同じ条件）")
     .option("--delegated", "廃止済み（指定するとエラー）")
-    .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
-    .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
+    .addOption(new Option("--mine [value]").hideHelp())
+    .on("option:mine", () => {
+      throw new NodError("INVALID_ARGS", "担当は廃止されました。--mine は使えません");
+    })
     .option("--priority <priorities>", "優先度で絞る（0〜4、P0〜P4、urgent・high・medium・low・none のどれか。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
     .option("--sort <key>", `並び順（${ISSUE_SORT_KEYS.join("|")}。既定は id。default は 状態 → 優先度 → ID）`)
     .option("--desc", "降順にする（同順位は ID の昇順。見積もり・期限の未設定は末尾のまま）")
@@ -243,12 +247,9 @@ export function registerIssueCommands(program: Command): void {
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
+          o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
           if (o.delegated !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--delegated は使えません");
-          // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
-          const allWorkspaces = o.allWorkspaces || (o.mine && !globalOpts(cmd).workspace);
-          const assignees = [...(o.assignee ? parseAssignees(o.assignee) : []), ...(o.mine ? [cli.ctx.actor] : [])];
           const priorities = o.priority ? parsePriorityRefs(o.priority) : undefined;
           if (o.priority && !priorities) {
             throw new NodError("INVALID_ARGS", "--priority には 0〜4、P0〜P4、urgent・high・medium・low・none のどれかを指定してください");
@@ -257,14 +258,13 @@ export function registerIssueCommands(program: Command): void {
           const listed = listIssues(cli.db, {
             priorities,
             query: o.query,
-            workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
+            workspaceId: o.allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
             statuses: o.status ? parseStatuses(o.status) : o.sprint?.trim().toLowerCase() === "current" ? [...STATUSES] : undefined,
             projectRef: o.project,
             milestone: o.milestone,
             sprintRef: o.sprint,
             labels: o.label,
             ready: o.ready,
-            assignees: assignees.length ? assignees : undefined,
             completionCandidate: o.completionCandidates,
             archived: o.archived,
           });

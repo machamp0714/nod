@@ -103,7 +103,7 @@ test("移行した固定View、相対条件、全ページの表示設定を再�
     expect(updateView(db,view.id,{filter:view.filter,display:view.display})).toEqual(view);
   }
   const pages=listPageDisplays(db);
-  expect(Object.keys(pages).sort()).toEqual(['issues','my-issues','project:1',`sprint:${id}`,'cycle:99'].sort());
+  expect(Object.keys(pages).sort()).toEqual(['issues','project:1',`sprint:${id}`,'cycle:99'].sort());
   for (const [page,display] of Object.entries(pages)) {
     expect(display).toEqual({groupBy:'workspace',subGroupBy:'sprint',showChildren:false});
     expect(setPageDisplay(db,page,display)).toEqual(display);

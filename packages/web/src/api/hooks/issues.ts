@@ -104,7 +104,6 @@ export function useFilterOptions(sprintRef?: string): FilterOptions {
     milestoneRefs: milestones.data,
     sprints: sprintOptions(sprints.data ?? [], sprintRef),
     labels: [...new Set((all.data?.issues ?? []).flatMap((i) => i.labels))].sort(),
-    assignees: [...new Set((all.data?.issues ?? []).flatMap((i) => (i.assignee ? [i.assignee] : [])))].sort(),
   };
 }
 

@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-// Issue 一覧（Issues、My issues、View、Project 詳細、Cycle 詳細）の View Bar と Display のポップオーバーの操作。
+// Issue 一覧（Issues、View、Project 詳細、Sprint 詳細）の View Bar と Display のポップオーバーの操作。
 // design/nod.pen「11 Issues」（O7KCp3）と「Display Popover」（EMZdB）
 
 const displayButton = (page: Page) => page.getByRole("button", { name: "表示設定", exact: true });

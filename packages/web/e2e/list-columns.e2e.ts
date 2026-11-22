@@ -3,14 +3,14 @@ import { closeDisplay, columnChip, openDisplay, setColumn } from "./support/issu
 
 test.use({ dataset: "issue-list" });
 
-const DEFAULT_HEADERS = ["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"];
+const DEFAULT_HEADERS = ["優先度", "ID", "Status", "Title", "Project", "Workspace", "更新日時"];
 
 // #196：一覧の行を design/nod.pen「11 Issues」（O7KCp3）の行に合わせる。
-// 優先度（アイコン 14）、ID（幅 72）、Status（アイコン 14 だけ）、題名、Project（幅 132）、Workspace（幅 96）、担当（18 の丸）、更新日時（幅 56）。
+// 優先度（アイコン 14）、ID（幅 72）、Status（アイコン 14 だけ）、題名、Project（幅 132）、Workspace（幅 96）、更新日時（幅 56）。
 // 表示設定のチップは「Display Popover｜表示列（行見本に合わせる）」（U6jFNg）の順（#174・#196）
-test("行は 優先度・ID・Status のアイコン・題名・Project・Workspace・担当・更新日時 の順で、Pencil の位置と幅に並ぶ", async ({ page, nod }) => {
-  await nod.me.updateIssue("API-4", { priority: 1, assignee: "codex", projectRef: "1" });
-  await nod.me.updateIssue("API-7", { priority: 0, assignee: null, projectRef: null });
+test("行は 優先度・ID・Status のアイコン・題名・Project・Workspace・更新日時 の順で、Pencil の位置と幅に並ぶ", async ({ page, nod }) => {
+  await nod.me.updateIssue("API-4", { priority: 1, projectRef: "1" });
+  await nod.me.updateIssue("API-7", { priority: 0, projectRef: null });
   await page.goto("/issues");
   await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
   await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS);
@@ -39,30 +39,18 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
     return { size: `${svg.getBoundingClientRect().width}x${svg.getBoundingClientRect().height}`, textWidth: text.getBoundingClientRect().width };
   });
   expect(statusIcon).toEqual({ size: "14x14", textWidth: 1 });
-  // Project は箱のアイコン 12 と名前、担当は 18 の丸（未割り当ては枠だけ）
+  // Project は箱のアイコン 12 と名前
   const project = cells("API-4").nth(5);
   await expect(project).toHaveText("検索 API の高速化");
   expect(await project.locator("svg").evaluate((svg) => svg.getBoundingClientRect().width)).toBe(12);
   await expect(cells("API-7").nth(5)).toHaveText("");
   await expect(cells("API-4").nth(6)).toHaveText("api-server");
-  const assignee = cells("API-4").nth(7);
-  await expect(assignee).toHaveText(/codex$/);
-  // アバターの頭文字は支援技術に出さず、セルの名前は担当の名前だけにする
-  await expect(page.locator('tr[data-issue-row="API-4"]').getByRole("cell", { name: "codex", exact: true })).toHaveCount(1);
-  await expect(assignee.locator("[title='codex']")).toHaveText("X");
-  await expect(assignee.locator("[aria-hidden='true']").filter({ has: page.locator("[title='codex']") })).toHaveCount(1);
-  const avatar = await assignee.locator("[title='codex']").evaluate((el) => {
-    const box = el.getBoundingClientRect();
-    return `${box.width}x${box.height} ${getComputedStyle(el).borderTopLeftRadius}`;
-  });
-  expect(avatar).toBe("18x18 50%");
-  await expect(cells("API-7").nth(7).locator("[title='未割り当て']")).toHaveCount(1);
   // 右端は更新日時。更新したばかりの行は相対表記、ツールチップに日時を出す
-  const updated = cells("API-4").nth(8);
+  const updated = cells("API-4").nth(7);
   await expect(updated).toHaveText(/^(たった今|\d+分前)$/);
   await expect(updated).toHaveAttribute("title", /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   await expect(updated).toHaveCSS("font-size", "11.5px");
-  await expect(cells("API-4")).toHaveCount(9);
+  await expect(cells("API-4")).toHaveCount(8);
 
   // 行の中の位置と幅（行の左端から。一括編集のチェックがあるので「Issues｜一括編集」AZzPu と同じ：チェック 12、優先度 36、ID 60、Status 142、題名 166）
   const m = await page.evaluate(() => {
@@ -101,8 +89,8 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
         status: x(tds[3]!.querySelector("svg") as Element),
         title: x(tds[4]!.querySelector("a") as Element),
       },
-      // 行の右端から（Pencil の行 幅 1172：Project 828、Workspace 970、担当 1076、更新日時 1104）
-      right: { project: fromRight(tds[5]!), workspace: fromRight(tds[6]!), assignee: Math.round(r.right - (tds[7]!.querySelector("[title]") as Element).getBoundingClientRect().x), updated: fromRight(tds[8]!) },
+      // 行の右端からの位置と列幅
+      right: { project: fromRight(tds[5]!), workspace: fromRight(tds[6]!), updated: fromRight(tds[7]!) },
     };
   });
   console.log(`[list-columns] row ${JSON.stringify(m)}`);
@@ -110,26 +98,24 @@ test("行は 優先度・ID・Status のアイコン・題名・Project・Worksp
   expect(m.drift).toBeLessThanOrEqual(2.5);
   expect(m.overflow).toEqual({ page: 0, main: 0 });
   expect(m.left).toEqual({ checkbox: 12, priority: 36, id: 60, idWidth: 72, status: 142, title: 166 });
-  expect(m.right).toEqual({ project: { right: 344, width: 132 }, workspace: { right: 202, width: 96 }, assignee: 96, updated: { right: 68, width: 56 } });
+  expect(m.right).toEqual({ project: { right: 316, width: 132 }, workspace: { right: 174, width: 96 }, updated: { right: 68, width: 56 } });
 
-  // チップは 優先度・Status・未決事項・Workspace・Sprint・Project・担当・PR・見積もり・期限 の順。未決事項・Sprint・PR・見積もり・期限は既定で出さない
+  // チップは 優先度・Status・未決事項・Workspace・Sprint・Project・PR・見積もり・期限 の順。未決事項・Sprint・PR・見積もり・期限は既定で出さない
   const chips = (await openDisplay(page)).getByRole("group", { name: "リストの表示列" }).getByRole("button");
-  await expect(chips).toHaveText(["優先度", "Status", "未決事項", "Workspace", "Sprint", "Project", "担当", "PR", "見積もり", "期限"]);
-  for (const name of ["優先度", "Status", "Workspace", "Project", "担当"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "true");
+  await expect(chips).toHaveText(["優先度", "Status", "未決事項", "Workspace", "Sprint", "Project", "PR", "見積もり", "期限"]);
+  for (const name of ["優先度", "Status", "Workspace", "Project"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "true");
   for (const name of ["未決事項", "Sprint", "PR", "見積もり", "期限"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "false");
   await setColumn(page, "優先度", false);
-  await setColumn(page, "担当", false);
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
   await expect(page).toHaveURL(/columns=/);
   await page.reload();
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
   // 履歴に戻ると当時の表示へ戻す。自動保存した列は書き換えず、Sidebarからの再訪では保存した列を使う
   await page.goBack();
-  await page.goBack();
   await expect(page.getByRole("columnheader")).toHaveText(DEFAULT_HEADERS);
   expect((await (await page.request.get("/api/page-displays")).json()).issues).toEqual({ columns: ["status", "workspace", "project"] });
   const navigation = page.getByRole("navigation", { name: "メイン" });
-  await navigation.getByRole("link", { name: "My issues", exact: true }).click();
+  await page.goto("/projects/1");
   await navigation.getByRole("link", { name: "Issues", exact: true }).click();
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
 });
@@ -148,12 +134,12 @@ test("優先度の列を外すと、ID がチェックの次（36）に来る", 
   expect(m).toEqual({ checkbox: 12, id: 36, idWidth: 72 });
 });
 
-test("未決事項・PR・見積もり・期限は既定で出さず、チップで出すと Workspace と担当の間に並ぶ", async ({ page }) => {
+test("未決事項・PR・見積もり・期限は既定で出さず、チップで出すと Workspace の後ろに並ぶ", async ({ page }) => {
   await page.goto("/issues");
   await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
   await expect(page.locator('tr[data-issue-row="API-9"]')).not.toContainText("2 / 6");
   for (const name of ["未決事項", "PR", "見積もり", "期限"]) await setColumn(page, name, true);
-  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "見積もり", "期限", "担当", "更新日時"]);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "見積もり", "期限", "更新日時"]);
   await expect(page.locator('tr[data-issue-row="API-9"] td').nth(7)).toHaveText("2 / 6");
   // 未決事項を列で出しているときは、題名の横の未決ピルを重ねて出さない（w4l2KK）
   await expect(page.locator('tr[data-issue-row="API-9"]').getByText(/^未決 /)).toHaveCount(0);
@@ -211,20 +197,20 @@ test("列を明示した #174・#196 より前の URL は、その列のまま�
   await page.goto(`/issues?columns=${encodeURIComponent(JSON.stringify(["status", "questions", "workspace", "pr"]))}`);
   await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Workspace", "未決事項", "PR", "更新日時"]);
-  for (const name of ["優先度", "Project", "担当"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "false");
+  for (const name of ["優先度", "Project"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "false");
   await setColumn(page, "Project", true);
   await expect(page.getByRole("columnheader")).toHaveText(["ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "更新日時"]);
-  // #196 より前の既定（未決事項・PR を含む7列）を明示した URL も、その列のまま出して URL に残す
-  await page.goto(`/issues?columns=${encodeURIComponent(JSON.stringify(["priority", "status", "questions", "workspace", "project", "assignee", "pr"]))}`);
-  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "担当", "更新日時"]);
+  // #196 より前の既定（未決事項・PR を含む6列）を明示した URL も、その列のまま出して URL に残す
+  await page.goto(`/issues?columns=${encodeURIComponent(JSON.stringify(["priority", "status", "questions", "workspace", "project", "pr"]))}`);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "更新日時"]);
   await expect(page).toHaveURL(/columns=/);
 });
 
 test("#196 より前の既定の列を明示して保存した View は、その列のまま開き「変更あり」にならない", async ({ page, nod }) => {
-  const view = await nod.me.createView({ name: "旧既定の列", filter: {}, display: { columns: ["priority", "status", "questions", "workspace", "project", "assignee", "pr"] } });
+  const view = await nod.me.createView({ name: "旧既定の列", filter: {}, display: { columns: ["priority", "status", "questions", "workspace", "project", "pr"] } });
   await page.goto(`/views/${view.id}`);
   await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
-  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "担当", "更新日時"]);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "更新日時"]);
   await expect(page.getByRole("button", { name: "変更を保存", exact: true })).toHaveCount(0);
   await expect(page).not.toHaveURL(/columns=/);
 });
@@ -243,12 +229,12 @@ test("狭い幅（1280）でも、ページと Main に横スクロールが出�
   expect(m.titleWidth).toBeGreaterThanOrEqual(200);
 });
 
-// プレビューを開くと一覧の幅が狭くなる。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・担当・更新日時を残す。
+// プレビューを開くと一覧の幅が狭くなる。design/nod.pen「Issues｜プレビュー」（A3zK7）は Project と Workspace を外し、優先度・更新日時を残す。
 // 表示設定で足した 未決事項・PR・見積もり・期限 も、題名の幅を保つため外す（表示設定のチップはそのまま）
 for (const width of [1280, 1440]) {
   test(`幅 ${width} でプレビューを開くと Project・Workspace と足した列を外し、題名の列の幅を保つ`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
-    await page.goto(`/issues?preview=API-12&columns=${encodeURIComponent(JSON.stringify(["priority", "status", "questions", "workspace", "project", "assignee", "pr", "estimate", "dueDate"]))}`);
+    await page.goto(`/issues?preview=API-12&columns=${encodeURIComponent(JSON.stringify(["priority", "status", "questions", "workspace", "project", "pr", "estimate", "dueDate"]))}`);
     await expect(page.getByRole("complementary", { name: "API-12 のプレビュー", exact: true })).toBeVisible();
     await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(13);
     const m = await page.evaluate(() => {
@@ -262,14 +248,14 @@ for (const width of [1280, 1440]) {
       };
     });
     console.log(`[list-columns] preview ${width} ${JSON.stringify(m)}`);
-    expect(m.headers).toEqual(["優先度", "ID", "Status", "Title", "担当", "更新日時"]);
+    expect(m.headers).toEqual(["優先度", "ID", "Status", "Title", "更新日時"]);
     expect(m.page).toBe(0);
     expect(m.titleWidth).toBeGreaterThanOrEqual(200);
     // 表示設定のチップは変えず、プレビューを閉じると列が戻る
-    for (const name of ["優先度", "Workspace", "Project", "担当", "未決事項", "PR"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "true");
+    for (const name of ["優先度", "Workspace", "Project", "未決事項", "PR"]) await expect(await columnChip(page, name)).toHaveAttribute("aria-pressed", "true");
     await closeDisplay(page);
     await page.getByRole("button", { name: "プレビューを閉じる", exact: true }).click();
-    await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "見積もり", "期限", "担当", "更新日時"]);
+    await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "見積もり", "期限", "更新日時"]);
   });
 }
 
@@ -290,21 +276,7 @@ test("Project 詳細では Project の列を既定で出さず、チップで出
   await expect(page).not.toHaveURL(/columns=/);
 });
 
-test("My issues は担当が me と LLM に分かれるため、担当の列を既定で出す", async ({ page, nod }) => {
-  await nod.me.updateIssue("API-4", { assignee: "me" });
-  await page.goto("/my-issues");
-  await expect(page.locator("main tbody tr[data-issue-row]").first()).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "担当", exact: true }).first()).toBeVisible();
-  await expect(await columnChip(page, "担当")).toHaveAttribute("aria-pressed", "true");
-  await setColumn(page, "担当", false);
-  await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(0);
-  await expect(page).toHaveURL(/columns=/);
-  await page.reload();
-  await expect(page.locator("main tbody tr[data-issue-row]").first()).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "担当", exact: true })).toHaveCount(0);
-});
-
-// priority の条件は CLI・API で作った View だけが持つ。Web では ready・委任中と同じく、チップに出して外すことだけできる
+// priority の条件は CLI・API で作った View だけが持つ。Web では ready と同じく、チップに出して外すことだけできる
 test("View の優先度の条件をチップに出し、外して保存できる。絞り込みのパネルからは足せない", async ({ page, nod }) => {
   await nod.me.updateIssue("API-4", { priority: 1 });
   const view = await nod.me.createView({ name: "急ぎ", filter: { priority: [1, 2] } });

@@ -2,12 +2,11 @@ import { NodError } from "./errors";
 
 // View に保存する Issue 一覧の表示設定（#175）。キーと値は Web の Issue 一覧の URL のクエリ（packages/web/src/routes/search.ts）と同じ。
 // 既定と同じ値は持たない（省いたキーは画面の既定で表示する）。
-// 委任中タブは filter の delegated で持つため、tab は取得した行を画面で絞るタブだけを持つ
 export const VIEW_TABS = ["ready", "needs_clarification"] as const;
 // cycleは旧保存設定の読取互換。利用者の新規選択肢はsprintに一本化する。
-export const VIEW_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "sprint", "assignee", "label"] as const;
+export const VIEW_GROUP_KEYS = ["workspace", "status", "priority", "project", "cycle", "sprint", "label"] as const;
 export const VIEW_SORTS = ["priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"] as const;
-export const VIEW_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"] as const;
+export const VIEW_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "pr", "estimate", "dueDate"] as const;
 
 export type ViewGroupKey = (typeof VIEW_GROUP_KEYS)[number];
 
@@ -42,11 +41,21 @@ function shown(value: unknown, key: string): false | undefined {
   throw invalid(`display の ${key} は true か false で指定してください`);
 }
 
+export function rejectAssigneeDisplay(raw: Record<string, unknown>): void {
+  const columns = Array.isArray(raw.columns) ? raw.columns : [raw.columns];
+  const assigneeColumn = columns.some((value) => typeof value === "string" && value.split(",").some((column) => column.trim() === "assignee"));
+  const groups = [raw.groupBy, raw.subGroupBy].flat();
+  if (groups.includes("assignee") || assigneeColumn) {
+    throw invalid("担当は廃止されました。列やグループに assignee は使えません");
+  }
+}
+
 export function validateViewDisplay(value: unknown): ViewDisplay {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw invalid('表示設定はオブジェクトで指定してください（例: {"groupBy": "project", "sort": "priority"}）');
   }
   const raw = value as Record<string, unknown>;
+  rejectAssigneeDisplay(raw);
   const unknownKeys = Object.keys(raw).filter((k) => !DISPLAY_KEYS.includes(k));
   if (unknownKeys.length) {
     throw invalid(`表示設定に ${unknownKeys.join(", ")} は使えません（使えるもの: ${DISPLAY_KEYS.join(", ")}）`);

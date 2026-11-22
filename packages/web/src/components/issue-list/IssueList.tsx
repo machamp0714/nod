@@ -412,7 +412,6 @@ function GroupHeading({ by, group, level = 2, select }: { by: IssueGroupKey; gro
           {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
           {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
           {by === "sprint" && <Icon name={empty ? "circle-dashed" : "calendar-range"} size={14} color={group.current ? "var(--accent)" : "var(--ink3)"} />}
-          {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
           {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
           <span className={s.groupLabel}>{group.label}</span>
         </>

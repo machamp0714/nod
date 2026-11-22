@@ -1,5 +1,6 @@
 import { NodError } from "./errors";
 import { isNoneRef, NONE_REF } from "./none-ref";
+import { rejectAssigneeDisplay } from "./view-display";
 import { STATUSES, type Status } from "./types";
 
 // GET /api/issues のクエリパラメータと View の filter に共通する絞り込み条件。キーの名前はクエリパラメータの名前と同じ
@@ -13,13 +14,12 @@ export interface IssueQuery {
   sprint?: string; // UUID・共通番号・current・none。未解決の旧参照も条件として保持する
   cycle?: string; // Cycle の ID・名前・current か、Cycle のない Issue だけにする "none"
   label?: string[]; // すべてを持つもの
-  ready?: boolean; // true なら、担当者を問わず着手できる Issue だけ
-  assignee?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て。大文字小文字は区別する
+  ready?: boolean; // true なら、着手できる Issue だけ
   archived?: boolean; // true ならアーカイブ済みの Issue だけ。省くとアーカイブ済みを除く
   priority?: number[]; // 優先度（0 = なし、1 = Urgent 〜 4 = Low）。どれかに合うもの
 }
 
-const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "sprint", "label", "ready", "q", "blocked", "assignee", "archived", "priority"];
+const QUERY_KEYS = ["workspace", "status", "project", "milestone", "cycle", "sprint", "label", "ready", "q", "blocked", "archived", "priority"];
 
 function invalid(message: string): NodError {
   return new NodError("INVALID_ARGS", message);
@@ -70,6 +70,7 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     throw invalid('絞り込み条件はオブジェクトで指定してください（例: {"status": ["todo"], "ready": true}）');
   }
   const raw = value as Record<string, unknown>;
+  if ("assignee" in raw) throw invalid("担当は廃止されました。assignee は使えません");
   if ("delegated" in raw) throw invalid("担当は廃止されました。委任中の条件 delegated は使えません");
   const unknownKeys = Object.keys(raw).filter((k) => !QUERY_KEYS.includes(k));
   if (unknownKeys.length) {
@@ -118,8 +119,6 @@ export function validateIssueQuery(value: unknown): IssueQuery {
     if (typeof raw.ready !== "boolean") throw invalid("ready は true か false で指定してください");
     if (raw.ready) q.ready = true;
   }
-  const assignee = stringList(raw.assignee, "assignee", true);
-  if (assignee) q.assignee = [...new Set(assignee.map((name) => (isNoneRef(name) ? NONE_REF : name)))];
   if (raw.archived !== undefined) {
     if (typeof raw.archived !== "boolean") throw invalid("archived は true か false で指定してください");
     if (raw.archived) q.archived = true;
@@ -130,6 +129,16 @@ export function validateIssueQuery(value: unknown): IssueQuery {
 }
 
 export function issueQueryFromParams(params: URLSearchParams): IssueQuery {
+  if (params.has("assignee")) throw invalid("担当は廃止されました。assignee は使えません");
+  const columns = params.getAll("columns").flatMap((value): unknown[] => {
+    try {
+      const decoded: unknown = JSON.parse(value);
+      return Array.isArray(decoded) ? decoded : [decoded];
+    } catch {
+      return [value];
+    }
+  });
+  rejectAssigneeDisplay({ columns, groupBy: params.getAll("groupBy"), subGroupBy: params.getAll("subGroupBy") });
   if (params.has("delegated")) throw invalid("担当は廃止されました。委任中の条件 delegated は使えません");
   const raw: Record<string, unknown> = Object.create(null);
   for (const key of new Set(params.keys())) {
