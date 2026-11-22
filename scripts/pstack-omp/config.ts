@@ -1,6 +1,7 @@
-// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml）の読み書き。
+// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml）の読み書き。適用は読み込みの設定を書かない。書くのは、以前の配置
+// （config.yml に読み込みの設定を入れた適用）の項目を取り除くときだけ（harness.ts）。
 // - 読み書きは Bun の YAML。書くときは OMP と同じ形（Bun.YAML.stringify の2字字下げで、マッピングの見出しの行末の空白を除く）にする。
-//   YAML として書き直すとコメントは残らないので、解除は、適用の後に config.yml が変わっていなければ適用の前のバイトに戻す（harness.ts）。
+//   YAML として書き直すとコメントは残らないので、以前の配置の記録があり、その適用の後に config.yml が変わっていなければ、適用の前のバイトに戻す。
 // - config.yml がシンボリックリンクなら、OMP と同じくリンクの先に書く。書くときは同じディレクトリの一時ファイルに書いてから rename する。
 // - OMP は config.yml を書くとき、`<config.yml の実体>.lock` に flock(2) の排他ロックを取る（macOS。Linux では別の仕組み）。
 //   macOS では同じロックを取ってから読み、書き終えるまで持つ。実行中の OMP が設定を保存するときに、こちらの変更を上書きしないため。
@@ -112,9 +113,10 @@ const LOCK_NB = 4;
 const LOCK_RETRIES = 50;
 const LOCK_DELAY_MS = 100;
 
-// config.yml の書き込みのロックを持って fn を実行する（macOS だけ。ほかでは持たずに実行する）
+// config.yml の書き込みのロックを持って fn を実行する（macOS だけ。ほかでは持たずに実行する）。config.yml が無ければ持たずに実行する
+// （適用と解除は無い config.yml を書かないので、利用者の OMP の設定の置き場にロックのファイルを作らない）
 export function withConfigLock<T>(path: string, fn: () => T): T {
-  if (process.platform !== "darwin") return fn();
+  if (process.platform !== "darwin" || !existsSync(path)) return fn();
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
   let fd: number;

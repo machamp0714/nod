@@ -1,9 +1,10 @@
-// 禁止操作を止める制御（nod のリポジトリの omp/control/rules.json と、それを読む制御の拡張）を、外から確かめる。
+// 禁止操作を止める制御（nod のリポジトリの omp/control/rules.json と、それを読む制御の拡張・専用ランチャー）を、外から確かめる。
 // 適用・解除・状態の表示はプロセスとして起動し（helpers.ts の一時の置き場）、適用した写しの制御の拡張は OMP の代わりに
 // extension-driver.ts で読み込んで、実行時の上書きと tool_call・before_subagent_spawn の戻り値を見る。拡張を読み込むプロセスは、
 // 写しのサンドボックスのプロファイル（control/sandbox.sb）で閉じ込めて起動する（閉じ込めずに起動すると全ツールを遮断するため）。
 // bash.patterns の照合そのものは OMP の実装なので、ここではパターンが実行時の層に入ることまでを確かめる（当たり方は実際の OMP で確かめる）。
-// サンドボックスの信頼境界は、写しの起動の入口（bin/omp）を実際に実行し、その中からの書き込みが拒否されることで確かめる。
+// サンドボックスの信頼境界と、omp を起動する前の組の検証は、写しの専用ランチャー（bin/omp）を実際に実行し、偽の omp が起動されたか、
+// その中からの書き込みが拒否されるかで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -21,18 +22,20 @@ function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+// 利用者の config.yml が在る状態で適用した sandbox（適用は config.yml を書かない）
 async function applied(): Promise<Sandbox> {
   const sb = await synced();
+  put(sb.configPath, "theme: dark\n");
   const run = await sb.run("apply");
   if (run.exitCode !== 0) throw new Error(`適用に失敗: ${run.stderr}`);
   return sb;
 }
 
-function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string } = { profile: profile(sb) }) {
-  return sb.extension(confine).run({ settings: { extensions: [entry(sb)] }, ...scenario });
+function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string; cwd?: string } = { profile: profile(sb) }) {
+  return sb.extension(confine).run({ settings: {}, ...scenario });
 }
 
-// config.yml の extensions に入る、写しの制御の拡張のファイル
+// 制御の拡張が実行時の層の extensions に入れる、写しの制御の拡張のファイル
 function entry(sb: Sandbox): string {
   return join(work(sb), "omp", "control", "index.ts");
 }
@@ -304,18 +307,19 @@ describe("状態の表示", () => {
 });
 
 describe("解除", () => {
-  test("解除すると、制御の規則も写しと一緒に消え、OMP の設定に制御の項目が残らない", async () => {
+  test("解除すると、制御の規則と専用ランチャーも写しと一緒に消え、OMP の設定は変わらない", async () => {
     const sb = await applied();
 
     expect((await sb.run("remove")).exitCode).toBe(0);
 
     expect(existsSync(join(sb.copy, "control", "rules.json"))).toBe(false);
-    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.launcher)).toBe(false);
+    expect(readFileSync(sb.configPath, "utf8")).toBe("theme: dark\n");
   });
 });
 
 describe("サンドボックスの信頼境界", () => {
-  test("閉じ込めずに起動したプロセスでは、メインでも子でも全ツールと子の起動を遮断し、理由に写しの起動の入口と書けてしまう置き場を出す", async () => {
+  test("閉じ込めずに起動したプロセスでは、メインでも子でも全ツールと子の起動を遮断し、理由に写しの専用ランチャーと書けてしまう置き場を出す", async () => {
     const sb = await applied();
 
     const result = await run(
@@ -336,7 +340,7 @@ describe("サンドボックスの信頼境界", () => {
       expect(call?.reason).toContain(`${work(sb)}/omp/bin/omp から起動してください`);
       expect(call?.reason).toContain(realpathSync(sb.configPath));
     }
-    expect(result.notices.join("\n")).toContain("サンドボックスの外で起動しています");
+    expect(result.notices.join("\n")).toContain("サンドボックスに閉じ込められていません");
     expect(result.harnessEnv).toBeNull();
   });
 
@@ -464,7 +468,7 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(work(sb)).sort()).toEqual(["generated", "omp", "upstream"]);
   });
 
-  test("起動の入口の中からは、OMP の設定・写し・OMP の設定の置き場・omp の実行ファイルを書き換えられず、解除もできない。守る集合の外には書ける", async () => {
+  test("専用ランチャーの中からは、OMP の設定・写し・OMP の設定の置き場・omp の実行ファイル・bun の全体の設定を書き換えられず、解除もできない。守る集合の外には書ける", async () => {
     const sb = await applied();
     const config = readFileSync(sb.configPath);
     const copy = snapshot(sb.copy);
@@ -479,6 +483,7 @@ describe("サンドボックスの信頼境界", () => {
       await sb.launch('mv "$1" "$1.moved"', sb.agentDir),
       await sb.launch('mkdir -p "$1" && printf x > "$1/x.ts"', join(sb.agentDir, "extensions")),
       await sb.launch('printf x > "$1"', sb.ompBin),
+      await sb.launch("printf 'preload = []' > \"$1\"", join(sb.home, ".bunfig.toml")),
     ];
     const remove = await sb.run("remove", { launcher: true });
     const allowed = await sb.launch('printf ok > "$1/a.txt" && mkdir "$1/d" && mv "$1/a.txt" "$1/d/b.txt"', outside);
@@ -495,12 +500,13 @@ describe("サンドボックスの信頼境界", () => {
     expect(existsSync(`${sb.agentDir}.moved`)).toBe(false);
     expect(existsSync(join(sb.agentDir, "extensions"))).toBe(false);
     expect(readFileSync(sb.ompBin)).toEqual(omp);
+    expect(existsSync(join(sb.home, ".bunfig.toml"))).toBe(false);
     expect(allowed.stderr).toBe("");
     expect(allowed.exitCode).toBe(0);
     expect(readFileSync(join(outside, "d", "b.txt"), "utf8")).toBe("ok");
   });
 
-  test("起動の入口の中からは、どのプロジェクトでも OMP と Claude Code の設定・同じプロセスで動くコードの置き場を作れず、OMP の設定の置き場の hooks・tools とプラグインの置き場も作れない。利用者の ~/.omp の下の実行時の書き込みと、プロジェクトの普通のファイルには書ける", async () => {
+  test("専用ランチャーの中からは、どのプロジェクトでも OMP と Claude Code の設定・同じプロセスで動くコードの置き場を作れず、OMP の設定の置き場の hooks・tools とプラグインの置き場も作れない。利用者の ~/.omp の下の実行時の書き込みと、プロジェクトの普通のファイルには書ける", async () => {
     const sb = await applied();
     const project = sb.project;
 
@@ -536,7 +542,7 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(join(project, ".claude"))).toEqual(["CLAUDE.md"]);
   });
 
-  test("起動の入口の中からは、プロジェクトの .omp を、別名で作ってからの rename、書ける置き場へのリンク、.omp を含むブランチの git checkout でも作れない", async () => {
+  test("専用ランチャーの中からは、プロジェクトの .omp を、別名で作ってからの rename、書ける置き場へのリンク、.omp を含むブランチの git checkout でも作れない", async () => {
     const sb = await applied();
     const project = join(sb.root, "repo");
     const outside = join(sb.root, "outside");
@@ -567,7 +573,7 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 
-  test("起動の入口の中で読み込むと、規則の上書きが入り、メインでも子でも規則どおりに検査する", async () => {
+  test("専用ランチャーの中で読み込むと、規則の上書きが入り、メインでも子でも規則どおりに検査する", async () => {
     const sb = await applied();
     const calls = [
       { toolName: "github", input: { op: "pr_create", title: "x" } },
@@ -594,5 +600,145 @@ describe("サンドボックスの信頼境界", () => {
     ]);
     expect(result.spawns.map((session) => session.map((r) => r?.block ?? false))).toEqual([[false], [true, false]]);
     expect(result.harnessEnv).toBe(sha256(join(sb.copy, "control", "harness.json")));
+  });
+});
+
+describe("専用ランチャーが omp を起動する前の検証", () => {
+  // 組の記録の files の sha256 を、いまの写しのファイルに合わせて書き換える（sha256 の照合を通した上で、ほかの検証で拒否されることを確かめる）
+  const rehash = (sb: Sandbox, rel: string): void => {
+    const path = join(sb.copy, "control", "harness.json");
+    const harness = JSON.parse(readFileSync(path, "utf8"));
+    harness.files[rel] = sha256(join(sb.copy, rel));
+    writeFileSync(path, JSON.stringify(harness));
+  };
+  const editHarness = (sb: Sandbox, edit: (harness: Record<string, unknown> & { files: Record<string, string> }) => void): void => {
+    const path = join(sb.copy, "control", "harness.json");
+    const harness = JSON.parse(readFileSync(path, "utf8"));
+    edit(harness);
+    writeFileSync(path, JSON.stringify(harness));
+  };
+  const cases: { name: string; damage?(sb: Sandbox): void; env?(sb: Sandbox): Record<string, string>; shows(sb: Sandbox): string }[] = [
+    { name: "写しの規則が消えた", damage: (sb) => rmSync(join(sb.copy, "control", "rules.json")), shows: () => "control/rules.json（無い）" },
+    {
+      name: "写しの規則が不正で、組の記録の sha256 もそれに合わせて書き換えられた",
+      damage: (sb) => {
+        writeFileSync(join(sb.copy, "control", "rules.json"), JSON.stringify({ version: 1 }));
+        rehash(sb, "control/rules.json");
+      },
+      shows: (sb) => `規則 ${work(sb)}/omp/control/rules.json が正しくありません`,
+    },
+    { name: "組の記録が無い", damage: (sb) => rmSync(join(sb.copy, "control", "harness.json")), shows: () => "control/harness.json を読めません" },
+    { name: "組の記録が JSON として読めない", damage: (sb) => writeFileSync(join(sb.copy, "control", "harness.json"), "{"), shows: () => "control/harness.json を読めません" },
+    { name: "組の記録の形が正しくない", damage: (sb) => editHarness(sb, (harness) => delete harness.bunBin), shows: () => "bunBin が絶対パスではありません" },
+    { name: "制御の拡張（control/index.ts）が消えた", damage: (sb) => rmSync(join(sb.copy, "control", "index.ts")), shows: () => "control/index.ts（無い）" },
+    {
+      name: "写しの読み替え表が書き換えられた",
+      damage: (sb) => writeFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "書き換えた\n"),
+      shows: () => "content/skills/pstack-omp/SKILL.md（sha256 が違う）",
+    },
+    {
+      name: "写しに記録に無いスキルが足された",
+      damage: (sb) => put(join(sb.copy, "generated", "pstack", "skills", "extra", "SKILL.md"), "---\nname: extra\n---\n"),
+      shows: () => "generated/pstack/skills/extra/SKILL.md（記録に無い）",
+    },
+    {
+      name: "写しのファイルが読めない",
+      damage: (sb) => chmodSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), 0o000),
+      shows: () => "content/skills/pstack-omp/SKILL.md（読めない）",
+    },
+    {
+      name: "組の記録の files から専用ランチャーが外された",
+      damage: (sb) => editHarness(sb, (harness) => delete harness.files["bin/omp"]),
+      shows: () => "組の記録の files に bin/omp がありません",
+    },
+    { name: "サンドボックスのプロファイルが消えた", damage: (sb) => rmSync(join(sb.copy, "control", "sandbox.sb")), shows: () => "組を確かめられないので、omp を起動しません" },
+    { name: "組の検証の入口（preflight.ts）が消えた", damage: (sb) => rmSync(join(sb.copy, "control", "preflight.ts")), shows: () => "組を確かめられないので、omp を起動しません" },
+    {
+      name: "組の検証を実行する bun が無い",
+      damage: (sb) => writeFileSync(sb.launcher, readFileSync(sb.launcher, "utf8").replaceAll(`'${realpathSync(process.execPath)}'`, `'${join(sb.root, "no-bun")}'`)),
+      shows: () => "組を確かめられないので、omp を起動しません",
+    },
+    {
+      name: "プロファイルが守る集合の一部（config.yml）を拒否しないものに書き換えられ、組の記録の sha256 もそれに合わせて書き換えられた",
+      damage: (sb) => {
+        const config = realpathSync(sb.configPath);
+        const lines = readFileSync(profile(sb), "utf8").split("\n");
+        writeFileSync(profile(sb), lines.filter((line) => !line.includes(`"${config}"`)).join("\n"));
+        rehash(sb, "control/sandbox.sb");
+      },
+      shows: (sb) => `サンドボックスに閉じ込められていません（このプロセスから書けてしまう置き場: ${realpathSync(sb.configPath)}`,
+    },
+    { name: "試しの作業用ディレクトリを一時ディレクトリに作れない", env: (sb) => ({ TMPDIR: work(sb) }), shows: () => "試しの作業用ディレクトリを作れません" },
+    { name: "OMP の設定の置き場（PI_CODING_AGENT_DIR）が組の記録と違う", env: (sb) => ({ PI_CODING_AGENT_DIR: join(sb.root, "other-agent") }), shows: () => "いまの置き場" },
+  ];
+
+  test.each(cases)("$name: 理由を出して非0で終わり、omp を起動しない", async ({ damage, env, shows }) => {
+    const sb = await applied();
+    damage?.(sb);
+
+    const run = await sb.launchWith({ env: env?.(sb) }, "printf started");
+
+    expect(run.exitCode).not.toBe(0);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain(shows(sb));
+    expect(run.stderr).toContain("omp を起動しません");
+  });
+
+  // 組の検証の入口（preflight.ts）を差し替えようとする bun の設定。preload は無害なフィクスチャで、印のファイルを書いて、検証の前に 0 で終わる
+  const preloads: { name: string; place(sb: Sandbox, preload: string): { cwd?: string; env?: Record<string, string> } }[] = [
+    { name: "環境変数 BUN_OPTIONS に preload を指定した", place: (_, preload) => ({ env: { BUN_OPTIONS: `--preload ${preload}` } }) },
+    {
+      name: "ホームの .bunfig.toml に preload を書いた",
+      place: (sb, preload) => {
+        writeFileSync(join(sb.home, ".bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+        return {};
+      },
+    },
+    {
+      name: "作業中のプロジェクトの bunfig.toml に preload を書き、.env で BUN_OPTIONS を指定した",
+      place: (sb, preload) => {
+        writeFileSync(join(sb.project, "bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+        writeFileSync(join(sb.project, ".env"), `BUN_OPTIONS="--preload ${preload}"\n`);
+        return { cwd: sb.project };
+      },
+    },
+  ];
+
+  test.each(preloads)("$name 環境でも、壊れた写しなら preload を読まずに組を確かめ、omp を起動しない", async ({ place }) => {
+    const sb = await applied();
+    const mark = join(sb.root, "preloaded");
+    const preload = join(sb.root, "preload.js");
+    writeFileSync(preload, `require("node:fs").writeFileSync(${JSON.stringify(mark)}, "x");\nprocess.exit(0);\n`);
+    rmSync(join(sb.copy, "control", "rules.json"));
+
+    const run = await sb.launchWith(place(sb, preload), "printf started");
+
+    expect(run.exitCode).not.toBe(0);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain("control/rules.json（無い）");
+    expect(existsSync(mark)).toBe(false);
+  });
+
+  test("正しい組では、偽の omp を制御の拡張のファイルの -e 付きで起動する", async () => {
+    const sb = await applied();
+
+    const run = await sb.launch('printf "%s" "$FAKE_OMP_EXTENSION"');
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toBe(entry(sb));
+  });
+
+  test("ホームを作業ディレクトリにしても、閉じ込められていれば omp を起動し、制御の拡張もツールを遮断しない（~/.omp の下は規則の allowPaths で書ける）", async () => {
+    const sb = await applied();
+    const ompDir = readdirSync(join(sb.home, ".omp")).sort();
+
+    const launched = await sb.launchWith({ cwd: sb.home }, "printf started");
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }] }, { profile: profile(sb), cwd: sb.home });
+
+    expect(launched.stderr).toBe("");
+    expect(launched.stdout).toBe("started");
+    expect(result.toolCalls).toEqual([[null]]);
+    expect(readdirSync(join(sb.home, ".omp")).sort()).toEqual(ompDir);
   });
 });

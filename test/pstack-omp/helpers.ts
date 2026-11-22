@@ -3,7 +3,7 @@
 // OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・ホーム（HOME）と、その下の利用者の OMP の設定の置き場
 // （PI_CODING_AGENT_DIR。既定と同じ <home>/.omp/agent）・作業中のプロジェクトも一時のものを環境変数と作業ディレクトリで渡す。
 // ネットワークとモデルの呼び出しはしない。
-// 適用した写しの起動の入口（bin/omp）は、偽の omp を写しのサンドボックスのプロファイルで閉じ込めて起動する。
+// 適用した写しの専用ランチャー（bin/omp）は、写しの組を確かめてから、偽の omp を写しのサンドボックスのプロファイルで閉じ込めて起動する。
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -152,7 +152,7 @@ export interface Sandbox {
   configPath: string;
   // 作業中のプロジェクト（制御の拡張を読み込むプロセスの作業ディレクトリ）
   project: string;
-  // 適用で作る写し（データ置き場の下の pstack-omp/omp）と、その起動の入口
+  // 適用で作る写し（データ置き場の下の pstack-omp/omp）と、その専用ランチャー
   copy: string;
   launcher: string;
   // omp の実行ファイル（NOD_PSTACK_OMP_OMP_BIN）
@@ -170,14 +170,18 @@ export interface Sandbox {
   content(path: string, text: string): void;
   // 制御の拡張を、リポジトリの omp/control を写したものに差し替え、その規則（rules.json）を書く（NOD_PSTACK_OMP_CONTROL）
   rules(text: string): void;
-  // 道具のサブコマンドを起動する。cwd は実行するディレクトリ（既定は一時ディレクトリの root）。launcher なら写しの起動の入口の中で起動する
-  run(command: string, options?: { cwd?: string; dataDir?: string; launcher?: boolean }): Promise<Run>;
-  // 写しの起動の入口の中で、sh のスクリプトを引数 args（$1 から）で実行する（環境変数は run と同じ）
+  // 道具のサブコマンドを起動する。cwd は実行するディレクトリ（既定は一時ディレクトリの root）。launcher なら写しの専用ランチャーの中で起動する。
+  // env は環境変数を足す（undefined なら消す）
+  run(command: string, options?: { cwd?: string; dataDir?: string; launcher?: boolean; env?: Record<string, string | undefined> }): Promise<Run>;
+  // 写しの専用ランチャーの中で、sh のスクリプトを引数 args（$1 から）で実行する（環境変数は run と同じ）
   launch(script: string, ...args: string[]): Promise<Run>;
-  // 写しの制御の拡張を OMP の代わりに読み込むプロセスを、作業中のプロジェクトで HOME を一時のホームにして起動する（extension-driver.ts）。
+  // launch と同じく、作業ディレクトリ（既定は root）と足す環境変数を決めて実行する
+  launchWith(options: { cwd?: string; env?: Record<string, string | undefined> }, script: string, ...args: string[]): Promise<Run>;
+  // 写しの制御の拡張を OMP の代わりに読み込むプロセスを、作業中のプロジェクト（cwd で変えられる）で HOME を一時のホーム、
+  // PI_CODING_AGENT_DIR を一時の OMP の設定の置き場にして起動する（extension-driver.ts）。
   // プロセスの開始はここで決まり、run でシナリオを渡したときに拡張を読み込む。profile ならそのサンドボックスのプロファイルで閉じ込めて
-  // （/usr/bin/sandbox-exec -f）、launcher なら写しの起動の入口（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する
-  extension(confine?: { profile?: string; launcher?: string }): { run(scenario: ExtensionScenario): Promise<ExtensionResult> };
+  // （/usr/bin/sandbox-exec -f）、launcher なら写しの専用ランチャー（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する
+  extension(confine?: { profile?: string; launcher?: string; cwd?: string }): { run(scenario: ExtensionScenario): Promise<ExtensionResult> };
   // 同期を起動する。dataDir を渡すとそのデータ置き場を使う
   sync(dataDir?: string): Promise<Run>;
   cloneHead(): string;
@@ -257,15 +261,16 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
       if (!existsSync(controlDir)) cpSync(REPO_CONTROL, controlDir, { recursive: true });
       writeFileSync(join(controlDir, "rules.json"), text);
     },
-    async run(command, { cwd = root, dataDir: dir = dataDir, launcher = false } = {}) {
+    async run(command, { cwd = root, dataDir: dir = dataDir, launcher = false, env = {} } = {}) {
       const argv = [process.execPath, CLI, command];
-      return spawn(launcher ? [sb.launcher, "-c", 'exec "$0" "$@"', ...argv] : argv, cwd, dir);
+      return spawn(launcher ? [sb.launcher, "-c", 'exec "$0" "$@"', ...argv] : argv, cwd, dir, env);
     },
-    launch: (script, ...args) => spawn([sb.launcher, "-c", script, "sh", ...args], root, dataDir),
-    extension({ profile, launcher } = {}) {
+    launch: (script, ...args) => sb.launchWith({}, script, ...args),
+    launchWith: ({ cwd = root, env = {} }, script, ...args) => spawn([sb.launcher, "-c", script, "sh", ...args], cwd, dataDir, env),
+    extension({ profile, launcher, cwd = project } = {}) {
       const driver = [process.execPath, join(import.meta.dir, "extension-driver.ts"), join(sb.copy, "control", "index.ts")];
       const argv = profile !== undefined ? ["/usr/bin/sandbox-exec", "-f", profile, ...driver] : launcher !== undefined ? [launcher, "-c", 'exec "$0" "$@"', ...driver] : driver;
-      const proc = Bun.spawn(argv, { cwd: project, env: { ...process.env, HOME: home }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn(argv, { cwd, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
       return {
         async run(scenario) {
           proc.stdin.write(JSON.stringify(scenario));
@@ -280,7 +285,7 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     cloneHead: () => git(root, sb.clone, "rev-parse", "HEAD"),
     cloneStatus: () => git(root, sb.clone, "status", "--porcelain", "--ignored"),
   };
-  async function spawn(argv: string[], cwd: string, dir: string): Promise<Run> {
+  async function spawn(argv: string[], cwd: string, dir: string, extra: Record<string, string | undefined>): Promise<Run> {
     const env: Record<string, string | undefined> = {
       ...process.env,
       ...gitEnv(root),
@@ -293,6 +298,10 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     };
     if (repoTable) delete env.NOD_PSTACK_OMP_PACKAGE;
     if (existsSync(controlDir)) env.NOD_PSTACK_OMP_CONTROL = controlDir;
+    for (const [key, value] of Object.entries(extra)) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
     const proc = Bun.spawn(argv, { cwd, env, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     return { exitCode, stdout, stderr };
@@ -342,7 +351,7 @@ export async function synced(): Promise<Sandbox> {
   sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
   sb.pin();
   const run = await sb.sync();
-  if (run.exitCode !== 0) throw new Error(`同期に失敗: ${run.stderr}`);
+  if (run.exitCode !== 0) throw new Error(`同期に失敗（${run.exitCode}）: ${run.stderr}${run.stdout}`);
   return sb;
 }
 

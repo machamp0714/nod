@@ -1,4 +1,5 @@
-// 禁止操作を止める規則（同じディレクトリの rules.json）の形と検証、守る集合の解決。制御の拡張（index.ts）と、適用（scripts/pstack-omp/harness.ts）が使う。
+// 禁止操作を止める規則（同じディレクトリの rules.json）の形と検証、守る集合の解決。組の検証（verify.ts）・制御の拡張（index.ts）と、
+// 適用（scripts/pstack-omp/harness.ts）が使う。
 // OMP のモジュールには依存しない（適用は OMP の外で動くため）。
 //
 // rules.json の形（未知のキー・型違い・空の一覧は不正）:
@@ -10,18 +11,19 @@
 //   task            denyIsolated: task の isolated: true を拒否するか。subAgents: 子と孫（ctx.agent.kind が sub）が起動できるエージェント
 //   protectedPaths  守る集合（適用したセッションから書けない置き場）。末尾が / ならディレクトリでその下も含み、そうでなければそのパスだけ。
 //                   在るかどうかに関わらず、ここに書いた種類で守る（まだ無い置き場も、後から作られた中身も守るため）。
-//                   適用はこれと祖先をサンドボックスのプロファイルに書き、制御の拡張は閉じ込めを確かめ、書き込みのツールの引数も検査する
+//                   適用はこれと祖先をサンドボックスのプロファイルに書き、組の検証は閉じ込めを確かめ、制御の拡張は書き込みのツールの引数も検査する
 //   projectPaths    どのプロジェクトでも書かせない相対パス（OMP・Claude Code・Codex のプロジェクトの設定と、同じプロセスで動くコードの置き場）。
 //                   末尾が / ならディレクトリでその下も含む。どのディレクトリの下でも当たる（作業中のプロジェクトがどこかを問わない）。
 //                   使える文字は英数字と . _ - / だけで、. と .. の区切りは書けない
 //   allowPaths      projectPaths の照合から外す置き場（OMP が実行時に書く利用者の ~/.omp/ など）。書き方は protectedPaths と同じ。
 //                   守る集合はこれより強い（allowPaths の下でも書けない）
 // サンドボックスのプロファイルは、既定で許し、projectPaths を拒否し、allowPaths を許し、守る集合を拒否する順に書く（後の規則が勝つ）。
-// bashDeny・protectedPaths・allowPaths には、制御の拡張と適用が解決するプレースホルダを書ける:
+// bashDeny・protectedPaths・allowPaths には、組の検証と適用が解決するプレースホルダを書ける:
 //   {agentDir}  適用した OMP の設定の置き場（PI_CODING_AGENT_DIR。既定は ~/.omp/agent）
 //   {workDir}   nod のデータ置き場の下の pstack-omp（写し・生成物・上流の clone）
 //   {ompBin}    適用したときの omp の実行ファイルの実パス
-//   {home}      利用者のホーム（適用は道具のホーム、制御の拡張はそのプロセスのホーム）
+//   {bunBin}    適用したときの bun の実行ファイルの実パス（専用ランチャーが組の検証 preflight.ts を実行する解釈系）
+//   {home}      利用者のホーム（適用は道具のホーム、組の検証はそのプロセスのホーム）
 // 資格情報は書かない。
 import { realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -41,6 +43,7 @@ export interface Places {
   agentDir: string;
   workDir: string;
   ompBin: string;
+  bunBin: string;
   home: string;
 }
 
@@ -61,7 +64,7 @@ export interface Guarded {
 }
 
 const KEYS = ["version", "toolApproval", "bashDeny", "github", "task", "protectedPaths", "projectPaths", "allowPaths"];
-const PLACEHOLDERS = ["{agentDir}", "{workDir}", "{ompBin}", "{home}"];
+const PLACEHOLDERS = ["{agentDir}", "{workDir}", "{ompBin}", "{bunBin}", "{home}"];
 
 // 形が正しければ規則を、正しくなければ理由を返す
 export function parseRules(record: unknown): Rules | string {
@@ -129,10 +132,11 @@ export function resolvePlaces(text: string, places: Places): string {
     .replaceAll("{agentDir}", places.agentDir)
     .replaceAll("{workDir}", places.workDir)
     .replaceAll("{ompBin}", places.ompBin)
+    .replaceAll("{bunBin}", places.bunBin)
     .replaceAll("{home}", places.home);
 }
 
-// 守る集合を解決する。適用（サンドボックスのプロファイル）と制御の拡張（閉じ込めの確かめ）が同じものを使う
+// 守る集合を解決する。適用（サンドボックスのプロファイル）と組の検証（閉じ込めの確かめ）が同じものを使う
 export function guarded(rules: Pick<Rules, "protectedPaths" | "projectPaths" | "allowPaths">, places: Places): Guarded {
   const resolve = (entry: string): Guard => ({ path: realAncestor(resolvePlaces(entry.replace(/\/+$/u, ""), places)), directory: entry.endsWith("/") });
   const paths = rules.protectedPaths.map(resolve);
@@ -170,7 +174,7 @@ export function realAncestor(path: string): string {
   }
 }
 
-// 配列でないオブジェクトか（制御の拡張の中で共有する唯一の型の判定。写しは nod のリポジトリのモジュールを読めないため、ここに置く）
+// 配列でないオブジェクトか（写しの中で共有する唯一の型の判定。写しは nod のリポジトリのモジュールを読めないため、ここに置く）
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

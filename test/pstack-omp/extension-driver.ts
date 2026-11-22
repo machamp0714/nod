@@ -4,7 +4,7 @@
 // 拡張の外から見える結果（実行時の上書きとその時点、session_start の前の実効値、登録した renderer、tool_call と before_subagent_spawn の戻り値、
 // 知らせ、worker thread の子に渡る環境変数）だけを JSON で標準出力に出す。
 // 使い方: bun extension-driver.ts <拡張の index.ts>。標準入力にシナリオの JSON を書いて閉じると動き出す
-// （プロセスの開始を適用の前にしたいテストが、起動してから適用できるように）。
+// （プロセスの開始を再適用の前にしたいテストが、起動してから再適用できるように）。
 // シナリオの形は helpers.ts の ExtensionScenario、出す結果の形は ExtensionResult。
 import { HARNESS_ENV, type ExtensionScenario } from "./helpers";
 

@@ -112,7 +112,9 @@
     "{agentDir}/tools/",
     "{agentDir}/hooks/",
     "{home}/.omp/plugins/",
-    "{ompBin}"
+    "{home}/.bunfig.toml",
+    "{ompBin}",
+    "{bunBin}"
   ],
   "projectPaths": [
     ".omp/",

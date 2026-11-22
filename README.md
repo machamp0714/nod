@@ -59,23 +59,25 @@ agentからroleを参照する仕組みになっているため、作業手順�
 
 ### pstack を OMP で使う（移行中）
 
-[pstack](https://github.com/cursor/plugins/tree/main/pstack) のスキルを、上流の本文を保ったまま OMP で使えます。Claude Code・Codex 向けのプラグインには入りません。
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) のスキルを、上流の本文を保ったまま OMP で使えます。Claude Code・Codex 向けのプラグインには入りません。pstack は専用ランチャーから起動したセッションだけに読み込まれ、通常の `omp` には読み込まれません。
 
 ```sh
 bun scripts/pstack-omp/cli.ts sync    # scripts/pstack-omp/pin.json のコミットを取得し、OMP 向けのコピーを生成する
-bun scripts/pstack-omp/cli.ts apply   # omp/ と生成したスキルを nod のデータ置き場へ写し、~/.omp/agent/config.yml に3つの読み込みの設定を入れ、起動の入口を置く
-bun scripts/pstack-omp/cli.ts status  # 適用の状態、使われる tdd、いまのプロジェクトの名前のぶつかりを表示する
-bun scripts/pstack-omp/cli.ts remove  # 写しを消し、設定を適用の前に戻す（適用の後に設定を変えていれば、入れた項目だけを外す）
-~/.local/share/nod/pstack-omp/omp/bin/omp  # 適用した OMP の起動の入口（<データ置き場>/pstack-omp/omp/bin/omp。引数は omp と同じ）
+bun scripts/pstack-omp/cli.ts apply   # omp/ と生成物を nod のデータ置き場へ写し、専用ランチャーを置く（~/.omp/agent/config.yml には書かない）
+bun scripts/pstack-omp/cli.ts status  # 適用の状態、使われる tdd（ランチャーと通常の omp）、いまのプロジェクトの名前のぶつかりを表示する
+bun scripts/pstack-omp/cli.ts remove  # 写しと専用ランチャーを消す
+~/.local/share/nod/pstack-omp/omp/bin/omp  # 専用ランチャー（<データ置き場>/pstack-omp/omp/bin/omp。引数は omp と同じ）
 ```
 
-`apply` は `config.yml` に、`extensions`（写しの制御の拡張のファイル `control/index.ts` と `content`）、`skills.customDirectories`（先頭に写しの中の生成したスキルの置き場）、`skills.manualSkills`（読み込む全スキル）を入れます。既にある値は保ちます。制御の拡張をディレクトリではなくファイルで書くのは、OMP が設定に書いたファイルの拡張を `disabledExtensions` で外さないためです。写しは読み取り専用にしません（中身は写しの全ファイルの sha256 で確かめます）。
+`apply` は、`omp/content`（読み替え表 `pstack-omp` と `poteto-agent`）・`omp/control`（制御の拡張と規則）・生成物（`manifest.json` とスキルの外のリンク先の文書を含む）を写しに置き、サンドボックスのプロファイルと専用ランチャーを足して、写しの全ファイルの sha256 を組の記録に書きます。利用者の `config.yml` には読み込みの設定を書きません。利用者の置き場に、今回置く定義や生成したスキルと同じ名前のものがあれば止まります（`tdd` だけは止めず、ランチャーのセッションでは pstack の `tdd` が優先されると知らせます）。写しは読み取り専用にしません（中身は写しの全ファイルの sha256 で確かめます）。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
 
-適用の後に始めたセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使えます。同じ組の禁止操作の規則（`omp/control/rules.json`）が、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などを止めます。写しが記録と違えば、制御の拡張が全ツールを止めます。OMP の版が固定の記録と違うと `sync` と `apply` は止まります。
+専用ランチャーは、omp を起動する前に、同じサンドボックスの中で組を確かめます（組の記録の形、写しの全ファイルの sha256 と記録に無いファイル、規則の形、OMP の設定の置き場、閉じ込め）。確かめる bun には利用者の環境変数を引き継がず（`HOME`・`TMPDIR`・`PATH` と、在れば `PI_CODING_AGENT_DIR` だけを渡します）、作業中のプロジェクトの `.env`・`bunfig.toml` も読ませないので、`BUN_OPTIONS` の `--preload` などで確かめを差し替えられません。どれかが欠けている・読めない・不正なら、理由を出して omp を起動しません。通れば、omp に制御の拡張のファイルを `-e` で渡し、macOS のサンドボックス（`/usr/bin/sandbox-exec` の Seatbelt）で omp を閉じ込めて起動します（omp の環境変数は変えません）。制御の拡張は組をもう一度確かめてから、利用者の設定を土台に、3つの読み込みの設定（`extensions` に `content`、`skills.customDirectories` の先頭に写しの中の生成したスキルの置き場、`skills.manualSkills` に読み込む全スキル）と禁止操作の規則（`omp/control/rules.json`）を実行時の層に入れます。そのセッションでは、pstack のスキルを一覧に出さずに名前（`skill://poteto-mode`、`/skill:poteto-mode`）で呼べ、読み替え表 `pstack-omp` と委譲先の `poteto-agent`（`@task`）が使え、メイン・子・孫で `eval`、シェルからの `git push`・`gh pr create` などが止まります。起動した後に組が壊れたら、制御の拡張が全ツールと子の起動を止め、読み込みの設定を入れません。適用の時刻では何も省かず、再適用の前後に始まったセッションも組を確かめてから使います。
 
-OMP は起動の入口 `<データ置き場>/pstack-omp/omp/bin/omp` から起動します。入口は omp に制御の拡張のファイルを `-e` で渡し（プロジェクトの設定が `extensions` を置き換えても制御が読まれます）、macOS のサンドボックス（`/usr/bin/sandbox-exec` の Seatbelt）で omp を閉じ込めます。その中のセッションと子孫のプロセスは、規則の守る集合（`rules.json` の `protectedPaths`: データ置き場の `pstack-omp`、OMP の設定 `config.yml`・`config.yaml`・`settings.json`、`agents`・`extensions`・`tools`・`hooks` の置き場、`~/.omp/plugins`、omp の実行ファイルと、それらの祖先）に書けません。どのプロジェクトでも、プロジェクトの設定と同じプロセスで動くコードの置き場（`projectPaths`: `.omp/`・`.pi/`・`.claude/settings.*`・`.claude/tools/`・`.codex/tools/` など。`~/.omp/` の下の OMP の実行時の書き込みは除く）も作れず、書けません。カーネルが拒否するので、シェルからも、`apply`・`remove` でも、規則と読み込み先を変えられず、プロジェクトの設定で制御を外すこともできません。入口を使わずに起動したセッションや、守る置き場を作れる弱いプロファイルで起動したセッションでは、制御の拡張が閉じ込めを確かめられないので全ツールと子の起動を止めます。`/usr/bin/sandbox-exec` が無ければ `apply` は止まります。
+ランチャーから起動したセッションと子孫のプロセスは、規則の守る集合（`rules.json` の `protectedPaths`: データ置き場の `pstack-omp`、OMP の設定 `config.yml`・`config.yaml`・`settings.json`、`agents`・`extensions`・`tools`・`hooks` の置き場、`~/.omp/plugins`、bun の全体の設定 `~/.bunfig.toml`、omp と bun の実行ファイルと、それらの祖先）に書けません。どのプロジェクトでも、プロジェクトの設定と同じプロセスで動くコードの置き場（`projectPaths`: `.omp/`・`.pi/`・`.claude/settings.*`・`.claude/tools/`・`.codex/tools/` など。`~/.omp/` の下の OMP の実行時の書き込みは除く）も作れず、書けません。カーネルが拒否するので、シェルからも、`apply`・`remove` でも、規則と読み込み先を変えられず、プロジェクトの設定で制御を外すこともできません。守る置き場を作れる弱いプロファイルで起動したセッションでは、閉じ込めを確かめられないので、ランチャーは omp を起動せず、制御の拡張も全ツールと子の起動を止めます。`/usr/bin/sandbox-exec` が無ければ `apply` は止まります。
 
-残る危険: 起動の経路（シェルの alias、Orca の起動コマンドなど）を書き換えて弱いプロファイルで起動させること（制御の拡張の試しが触れる場所だけを狙って拒否する弱いプロファイルは、試しでは見抜けません）、入口を使わず素の omp で、プロジェクトの設定が `extensions` を置き換えるリポジトリで始めたセッション（制御が読まれません）、セッションを始める前から在るプロジェクトの `.omp/extensions` などから同じプロセスで動くコード、`~/.claude`・`~/.codex` の利用者の置き場から同じプロセスで動くコード、適用より前から動いているセッション（制御は新しいセッションから効きます）。セッションを始める前から在るプロジェクトの `.omp` が書ける場所へのシンボリックリンクなら、そのリポジトリでは制御の拡張が全ツールと子の起動を止めます。適用中のセッションからは `config.yml` を保存できず（OMP の設定の変更・`apply`・`remove` はサンドボックスの外の端末で行います）、サンドボックスは入れ子にできないので、適用中のセッションの中から入口を使うテストは失敗します。
+以前の配置（`config.yml` に読み込みの設定を入れた適用）から `apply` か `remove` を実行すると、`config.yml` から管理対象の項目（写しを指す `extensions`・`skills.customDirectories` と、以前の記録が足した `skills.manualSkills` の名前）だけを取り除き、ほかの値を残します。以前の記録があり、その後 `config.yml` が変わっていなければ、以前の適用の前のバイトに戻します。記録が無くて `skills.manualSkills` の名前を外せないときは外さず、残った名前を知らせます。写しが別の OMP の設定の置き場（`PI_CODING_AGENT_DIR`）に適用したものなら、`apply` と `remove` は写しを消さずに止まります。
+
+残る危険: 起動の経路（シェルの alias、Orca の起動コマンドなど）を書き換えて弱いプロファイルで起動させること（制御の拡張の試しが触れる場所だけを狙って拒否する弱いプロファイルは、試しでは見抜けません）、セッションを始める前から在るプロジェクトの `.omp/extensions` などから同じプロセスで動くコード、`~/.claude`・`~/.codex` の利用者の置き場から同じプロセスで動くコード。セッションを始める前から在るプロジェクトの `.omp` が書ける場所へのシンボリックリンクなら、そのリポジトリではランチャーが omp を起動しません（閉じ込めを確かめられないため）。ランチャーから起動したセッションからは `config.yml` を保存できず（OMP の設定の変更・`apply`・`remove` はランチャーの外の端末で行います）、サンドボックスは入れ子にできないので、ランチャーのセッションの中からランチャーを使うテストは失敗します。
 
 ## 使い始める
 

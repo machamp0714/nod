@@ -1,25 +1,22 @@
-// pstack を OMP で使う組の制御の拡張。適用（scripts/pstack-omp/cli.ts apply）が nod のデータ置き場の pstack-omp/omp/control に写し、
-// 利用者の OMP の設定（config.yml）に3つの読み込みの設定（extensions にこのファイル（control/index.ts）と OMP 向けのディレクトリ content、
-// skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）を入れる。
-// このファイルをディレクトリではなくファイルのパスで書くのは、OMP が設定に書いたファイルの拡張を disabledExtensions で外さないため。
-// 写しの起動の入口（bin/omp）も omp に -e でこのファイルを渡す（プロジェクトの設定が extensions を置き換えても読まれるように）。
-// 読み込みの設定は同じ写しの harness.json（適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json
-// （nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。写しは作業中のリポジトリや clone の外の置き場で、
-// 生成したスキル・規則・起動の入口（bin/omp）・サンドボックスのプロファイル（control/sandbox.sb）を含む写しの全ファイルを組の記録の sha256 で確かめる。
-// 信頼境界は macOS のサンドボックス（Seatbelt）。写しの起動の入口から起動した OMP とその子孫は、規則の守る集合（写し・生成物・clone、
-// OMP の設定、利用者のエージェント定義と拡張とプラグインの置き場、omp の実行ファイルと、それらの祖先）と、どのプロジェクトでも
+// pstack を OMP で使う組の制御の拡張。適用（scripts/pstack-omp/cli.ts apply）が nod のデータ置き場の pstack-omp/omp/control に写す。
+// 利用者の OMP の設定（config.yml）には何も書かない。写しの専用ランチャー（bin/omp）だけが、omp に -e でこのファイルを渡す
+// （ランチャーを使わない通常の omp のセッションは、この拡張も pstack も読まない）。読み込みの設定は同じ写しの harness.json
+// （適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json（nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。
+// 信頼境界は macOS のサンドボックス（Seatbelt）。ランチャーから起動した OMP とその子孫は、規則の守る集合（写し・生成物・clone、
+// OMP の設定、利用者のエージェント定義と拡張とプラグインの置き場、omp と bun の実行ファイルと、それらの祖先）と、どのプロジェクトでも
 // プロジェクトの設定と同じプロセスで動くコードの置き場（規則の projectPaths。.omp/ など）に書けない（カーネルが拒否し、中から外せない）。
 // 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。
 //
-// - 組の記録と規則を検証する（読める、形が正しい、指すディレクトリが写しの中にある、組の各ファイルの sha256 が記録と同じ、files に規則が
-//   入っている、規則の形が正しい）。続けて、このプロセスが守る集合と projectPaths（作業ディレクトリの下と、一時ディレクトリの下の作業用
-//   ディレクトリで試す）に書けないこと（サンドボックスに閉じ込められていること）を試して確かめる（writable）。最後に OMP の設定のモジュールを
-//   読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。
-//   読み込みの設定も規則も入れない（新しい構成のまま、読み込み先や規則が壊れた・書き換えられる状態でツールを使わせない）。
-// - 正しければ、拡張の読み込み（factory）で、config.yml と同じ読み込みの設定と規則の上書きを同じ処理で実行時の層（永続しない。global・
-//   project・--config より強く、OMP の運用者の層にも入るのでプロジェクトの設定では緩められない）にも書く。固定するキーは extensions・
-//   disabledExtensions・skills.customDirectories・skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く
-//   （config.yml の書き換えや --config・プロジェクトの層で、実行中に変わらないように）。
+// - 組を検証する（verify.ts。ランチャーが omp を起動する前に preflight.ts で行うものと同じ: 組の記録と写しの全ファイルの照合、規則の形、
+//   OMP の設定の置き場、閉じ込めの試し）。続けて OMP の設定のモジュールを読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を
+//   遮断し、理由を返す。読み込みの設定も規則も入れない（読み込み先や規則が壊れた・書き換えられる状態で pstack を使わせない）。
+//   適用の時刻では何も省かない（再適用の前後に始まったプロセスも、検証してから使う）。
+// - 正しければ、拡張の読み込み（factory）で、3つの読み込みの設定（extensions にこのファイルと OMP 向けのディレクトリ content、
+//   skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）と規則の上書きを、
+//   利用者の設定の実効値を土台に、同じ処理で実行時の層（永続しない。global・project・--config より強く、OMP の運用者の層にも入るので
+//   プロジェクトの設定では緩められない）に書く。固定するキーは extensions・disabledExtensions・skills.customDirectories・
+//   skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く（config.yml の書き換えや --config・
+//   プロジェクトの層で、実行中に変わらないように）。
 //   セッションの開始（session_start）より前に書くのは、メインの task ツールが作られるときにエージェント定義を探すので、
 //   そのときまでに OMP 向けのディレクトリ（content）が extensions に入っていないと、メインの task の一覧に poteto-agent が出ないため。
 //   factory はセッションごと（子と孫も）に呼ばれ、同じプロセスの子と孫は親と同じ設定を使うので、同じ値なら書き直さない。
@@ -32,17 +29,13 @@
 // - TUI は、providers・shortcuts・renderer などを何も登録しない拡張の読み込みを、入力欄の表示の後に回すことがある
 //   （OMP の extensibility/extensions/startup-deferral.ts）。そうなると task ツールが作られた後に書くことになるので、
 //   後回しにさせないため、customType が pstack-omp の message renderer を登録する（この拡張はその種類のメッセージを送らない）。
-// - このプロセスが適用より前に始まっていたら（適用より前のセッションに、後から読み込まれたとき）、組を検証せず何もしない（上書きも遮断もしない）。
-//   新しいセッションから効く。適用より前のプロセスは新しい構成を読まないので、config.yml の読み直しなどで壊れた・入れ替え中の組を
-//   たまたま読んでも、利用者や親のセッションのツールを止めない。適用の時刻は、組が壊れていても決められる方法で求める（applyTime）。
 // 検証はプロセス（worker thread ではスレッド）で1度だけ行い、同じプロセスの全セッション（メイン・子・孫）で同じ結果を使う。
-import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, type Stats, statSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Settings, ToolCallEvent, ToolCallEventResult } from "@oh-my-pi/pi-coding-agent";
 import type { Setting } from "@oh-my-pi/pi-coding-agent/config/registry";
-import { guarded, type Guarded, isRecord, parseRules, realAncestor, resolvePlaces, type Rules } from "./rules";
+import { isRecord, realAncestor, resolvePlaces, type Rules } from "./rules";
+import { CONTROL_ENTRY, type Harness, LAUNCHER_FILE, real, verify } from "./verify";
 
 // OMP の設定を引く関数（OMP の config/registry の lookup）
 type Lookup = (id: string) => Setting | undefined;
@@ -50,27 +43,11 @@ type Lookup = (id: string) => Setting | undefined;
 const HERE = import.meta.dir;
 // 写しの根（content/ と control/ を持つ）
 const ROOT = dirname(HERE);
-const HARNESS = join(HERE, "harness.json");
-const RULES = "control/rules.json";
 const NAME = "pstack-omp";
 // メインのスレッドが検証した組の記録の sha256 を、worker thread の子に渡す環境変数
 const HARNESS_ENV = "NOD_PSTACK_OMP_HARNESS_SHA256";
 // パスを引数に持つ書き込みのツール
 const WRITE_TOOLS = ["write", "edit", "apply_patch", "ast_edit"];
-
-// 組の記録のうち、この拡張が使う部分
-interface Harness {
-  appliedAt: string;
-  pin: { commit: string };
-  content: string;
-  control: string;
-  agentDir: string;
-  ompBin: string;
-  skillDirectories: string[];
-  manualSkills: string[];
-  // 写しの根からの相対パス → sha256
-  files: Record<string, string>;
-}
 
 // 検証した組と規則。置き場のプレースホルダは解決済み
 interface Control {
@@ -83,7 +60,7 @@ interface Control {
   lookup: Lookup;
 }
 
-type Verdict = { kind: "ok"; control: Control } | { kind: "blocked"; reason: string } | { kind: "stale"; appliedAt: string };
+type Verdict = { kind: "ok"; control: Control } | { kind: "blocked"; reason: string };
 
 let verdict: Verdict | undefined;
 
@@ -104,10 +81,6 @@ export default async function control(pi: ExtensionAPI): Promise<void> {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.agent?.kind !== "main") return;
     const current = verdict!;
-    if (current.kind === "stale") {
-      report(ctx, `${NAME}: 適用（${current.appliedAt}）より前に始まったプロセスなので、このセッションには読み込みません。新しいセッションから効きます`, "info");
-      return;
-    }
     if (current.kind === "blocked") {
       report(ctx, `${NAME}: ${current.reason}`, "error");
       return;
@@ -124,14 +97,12 @@ export default async function control(pi: ExtensionAPI): Promise<void> {
   pi.on("tool_call", (event, ctx) => {
     const current = verdict!;
     if (current.kind === "blocked") return { block: true, reason: `${NAME}: ${current.reason}` };
-    if (current.kind === "stale") return undefined;
     return inspect(event, ctx, current.control);
   });
 
   pi.on("before_subagent_spawn", (event, ctx) => {
     const current = verdict!;
     if (current.kind === "blocked") return { block: true, reason: `${NAME}: ${current.reason}` };
-    if (current.kind === "stale") return undefined;
     return checkAgent(typeof event.agent === "string" ? event.agent : undefined, ctx, current.control.rules);
   });
 }
@@ -141,59 +112,19 @@ function blocked(reason: string, advice = `組（${ROOT}）が正しくないの
 }
 
 async function judge(mirror: boolean): Promise<Verdict> {
-  const appliedAt = applyTime();
-  if (appliedAt !== undefined && performance.timeOrigin < appliedAt) return { kind: "stale", appliedAt: new Date(appliedAt).toISOString() };
-  let bytes: Buffer;
-  let raw: unknown;
-  try {
-    bytes = readFileSync(HARNESS);
-    raw = JSON.parse(bytes.toString("utf8"));
-  } catch (e) {
-    return blocked(`組の記録 ${HARNESS} を読めません: ${(e as Error).message}`);
+  const checked = verify(HERE, real(process.cwd()));
+  if (checked.kind === "blocked") {
+    return checked.confinement
+      ? blocked(checked.reason, `${join(realAncestor(ROOT), LAUNCHER_FILE)} から起動してください。閉じ込められていないので、ツールを実行しません`)
+      : blocked(checked.reason);
   }
-  const harness = parseHarness(raw);
-  if (typeof harness === "string") return blocked(`組の記録 ${HARNESS} の形が正しくありません: ${harness}`);
-  if (real(harness.control) !== real(HERE)) return blocked(`組の記録の control（${harness.control}）がこの拡張の置き場（${HERE}）と違います`);
-  for (const dir of [harness.content, ...harness.skillDirectories]) {
-    if (!isDirectory(dir)) return blocked(`組の記録が指すディレクトリ ${dir} がありません`);
-    // 読み込む中身は写しの中だけ（各ファイルを files の sha256 で確かめる）
-    if (!real(dir).startsWith(`${real(ROOT)}/`)) return blocked(`組の記録が指すディレクトリ ${dir} が写し（${ROOT}）の外です`);
-  }
-  if (!(RULES in harness.files)) return blocked(`組の記録の files に規則 ${RULES} がありません`);
-  const mismatched = Object.entries(harness.files).filter(([rel, sha]) => {
-    try {
-      return sha256(readFileSync(join(ROOT, rel))) !== sha;
-    } catch {
-      return true;
-    }
-  });
-  if (mismatched.length > 0) return blocked(`組のファイルが記録と違います（無い、または sha256 が違う）: ${mismatched.map(([rel]) => rel).join(", ")}`);
-  let rules: Rules | string;
-  try {
-    rules = parseRules(JSON.parse(readFileSync(join(ROOT, RULES), "utf8")));
-  } catch (e) {
-    rules = `読めません: ${(e as Error).message}`;
-  }
-  if (typeof rules === "string") return blocked(`規則 ${join(ROOT, RULES)} が正しくありません: ${rules}`);
-  const harnessSha = sha256(bytes);
   const expected = process.env[HARNESS_ENV];
-  if (mirror && expected !== undefined && expected !== harnessSha) {
-    return blocked(`組の記録 ${HARNESS} が、メインのスレッドが検証したものと違います（実行中に組が変わった）`);
-  }
-  // 検証の前に適用の時刻を求められず（入れ替え中）、その後に組が読めたとき
-  if (performance.timeOrigin < Date.parse(harness.appliedAt)) return { kind: "stale", appliedAt: harness.appliedAt };
-  const places = { agentDir: harness.agentDir, workDir: realAncestor(dirname(ROOT)), ompBin: harness.ompBin, home: homedir() };
-  const guard = guarded(rules, places);
-  const open = writable(guard, real(process.cwd()));
-  if (open.length > 0) {
-    return blocked(
-      `サンドボックスの外で起動しています（このプロセスから書けてしまう置き場: ${open.join(", ")}）`,
-      `${join(realAncestor(ROOT), "bin", "omp")} から起動してください。閉じ込められていないので、ツールを実行しません`,
-    );
+  if (mirror && expected !== undefined && expected !== checked.harnessSha) {
+    return blocked(`組の記録 ${join(HERE, "harness.json")} が、メインのスレッドが検証したものと違います（実行中に組が変わった）`);
   }
   let lookup: Lookup;
   try {
-    // OMP の非公開のモジュール。静的に読むと、OMP の更新で無くなったときに拡張ごと読み込みに失敗し、制御だけが欠けた構成が残るので、ここで読む
+    // OMP の非公開のモジュール。静的に読むと、OMP の更新で無くなったときに拡張ごと読み込みに失敗するので、ここで読む
     ({ lookup } = await import("@oh-my-pi/pi-coding-agent/config/registry"));
     if (typeof lookup !== "function") throw new Error("lookup がありません");
   } catch (e) {
@@ -202,6 +133,7 @@ async function judge(mirror: boolean): Promise<Verdict> {
       "OMP の版が固定の記録と違う可能性があるので、ツールを実行しません。bun scripts/pstack-omp/cli.ts status で確かめてください",
     );
   }
+  const { harness, rules, harnessSha, places, guard } = checked;
   return {
     kind: "ok",
     control: {
@@ -213,156 +145,6 @@ async function judge(mirror: boolean): Promise<Verdict> {
       lookup,
     },
   };
-}
-
-// 守る集合と、どのプロジェクトでも書かせないパスのうち、このプロセスが書けてしまう置き場（閉じ込められていれば空）。
-// FFI は使わず、拒否されるかを試す。
-// - 在るファイルは、書き込みで開くこと（開けたら書かずに閉じる）と同じ mode への chmod。在るディレクトリは、同じ mode への chmod と、
-//   その中への mkdir（作れたら消す）。祖先は、同じ mode への chmod。chmod と書き込みで開くことは EPERM（サンドボックスの拒否）で
-//   失敗しなければ書けるとみなす。
-// - 無いパス（祖先を除く）は、親が在れば作ってみる（ディレクトリは mkdir、ファイルは O_CREAT|O_EXCL で開く）。親が無ければ試さない。
-// - 作成（無いパスと在るディレクトリの中の mkdir）は、拒否され、無いままなら書けない。作れてしまったら消して書けるとみなす。
-//   拒否は EPERM か、親が自分の持ち物で所有者の書き込みビットが立つときの EACCES（mode は許すので、拒否はサンドボックスによる）だけ。
-//   ほかの失敗（同じ利用者が書き込みの権限を外した親の EACCES は、同じ利用者の chmod で戻せる）は書けるとみなす。
-// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwd、実パス）の下で試し、さらに親の無いパス（.claude の無いリポジトリの
-//   .claude/settings.json など）も試すため、一時ディレクトリの下の作業用ディレクトリで、守られていない親を作ってから作成を試す
-//   （利用者のリポジトリには作らない）。作業用ディレクトリは終わったら中身ごと消す。作れない・消せないときは確かめられないので書けるとみなす。
-//   作業用ディレクトリで書けたら、作業ディレクトリの下の同じ相対パスを書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
-// 試しで作るものは、この拡張のディレクトリの中には作らない（適用の時刻 applyTime を変えないため）
-function writable({ paths, ancestors, projects }: Guarded, cwd: string): string[] {
-  const here = real(HERE);
-  const inHere = (path: string) => path === here || path.startsWith(`${here}/`);
-  const uid = process.getuid?.();
-  const denied = (attempt: () => void): boolean => {
-    try {
-      attempt();
-      return false;
-    } catch (e) {
-      return (e as NodeJS.ErrnoException).code === "EPERM";
-    }
-  };
-  // 親 parent の下への作成の失敗 e が、サンドボックスの拒否か
-  const refused = (e: unknown, parent: string): boolean => {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === "EPERM") return true;
-    if (code !== "EACCES") return false;
-    try {
-      const stat = statSync(parent);
-      return stat.uid === uid && (stat.mode & 0o200) !== 0;
-    } catch {
-      return false;
-    }
-  };
-  const create = (path: string, directory: boolean): boolean => {
-    const parent = dirname(path);
-    if (!existsSync(parent) || inHere(parent)) return false;
-    try {
-      if (directory) mkdirSync(path);
-      else closeSync(openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600));
-    } catch (e) {
-      return !(refused(e, parent) && !existsSync(path));
-    }
-    try {
-      rmSync(path, { recursive: true, force: true });
-    } catch {
-      // 消せなくても、書けたことに変わりはない
-    }
-    return true;
-  };
-  const probe = (path: string, directory: boolean, ancestor = false): boolean => {
-    let stat: Stats;
-    try {
-      stat = statSync(path);
-    } catch (e) {
-      return !ancestor && (e as NodeJS.ErrnoException).code === "ENOENT" && create(path, directory);
-    }
-    const chmod = () => chmodSync(path, stat.mode & 0o7777);
-    if (ancestor) return !denied(chmod);
-    if (!stat.isDirectory()) return !denied(() => closeSync(openSync(path, constants.O_WRONLY | constants.O_APPEND))) || !denied(chmod);
-    return !denied(chmod) || create(join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`), true);
-  };
-  const scratch = (): string[] => {
-    let work: string;
-    try {
-      work = mkdtempSync(join(tmpdir(), "pstack-omp-probe-"));
-    } catch (e) {
-      return [`${tmpdir()}（試しの作業用ディレクトリを作れません: ${(e as Error).message}）`];
-    }
-    const open: string[] = [];
-    try {
-      for (const { path, directory } of projects) {
-        const target = join(work, path);
-        try {
-          mkdirSync(dirname(target), { recursive: true });
-        } catch (e) {
-          // 親も拒否されるなら、その下は作れない
-          if ((e as NodeJS.ErrnoException).code !== "EPERM") open.push(join(cwd, path));
-          continue;
-        }
-        if (create(target, directory)) open.push(join(cwd, path));
-      }
-    } finally {
-      try {
-        rmSync(work, { recursive: true, force: true });
-      } catch (e) {
-        open.push(`${work}（試しの作業用ディレクトリを消せません: ${(e as Error).message}）`);
-      }
-    }
-    return open;
-  };
-  const open = [
-    ...paths.filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
-    ...ancestors.filter((path) => probe(path, true, true)),
-    ...projects.map(({ path, directory }) => ({ path: join(cwd, path), directory })).filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
-    ...scratch(),
-  ];
-  return [...new Set(open)];
-}
-
-// 適用の時刻（ミリ秒）。組の検証より前に、組が壊れていても決められる方法で求める。組の記録の appliedAt が時刻として読めればそれ。
-// 読めなければ、この拡張のディレクトリ（HERE）の作られた時刻と最後に変わった時刻の新しい方。適用は appliedAt を決めてから、
-// このディレクトリを一時ディレクトリの中に作って harness.json を書き、置き換えるので、どちらの時刻も適用の時刻以上になる。
-// ディレクトリも無ければ（入れ替え中）undefined
-function applyTime(): number | undefined {
-  try {
-    const raw: unknown = JSON.parse(readFileSync(HARNESS, "utf8"));
-    const recorded = isRecord(raw) && typeof raw.appliedAt === "string" ? Date.parse(raw.appliedAt) : Number.NaN;
-    if (!Number.isNaN(recorded)) return recorded;
-  } catch {
-    // 組の記録が無い・読めない。ディレクトリの時刻を使う
-  }
-  try {
-    const stat = statSync(HERE);
-    return Math.max(stat.birthtimeMs, stat.mtimeMs);
-  } catch {
-    return undefined;
-  }
-}
-
-// 形が正しければ記録を、正しくなければ理由を返す
-function parseHarness(raw: unknown): Harness | string {
-  if (typeof raw !== "object" || raw === null) return "オブジェクトではありません";
-  const r = raw as Record<string, unknown>;
-  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string" && x !== "");
-  if (r.version !== 1) return `version が 1 ではありません: ${String(r.version)}`;
-  if (typeof r.appliedAt !== "string" || Number.isNaN(Date.parse(r.appliedAt))) return "appliedAt が時刻ではありません";
-  const pin = r.pin as Record<string, unknown> | null | undefined;
-  if (typeof pin?.commit !== "string") return "pin.commit がありません";
-  for (const key of ["content", "control", "agentDir", "ompBin"] as const) {
-    if (typeof r[key] !== "string" || !isAbsolute(r[key])) return `${key} が絶対パスではありません`;
-  }
-  if (!strings(r.skillDirectories) || r.skillDirectories.length === 0 || !r.skillDirectories.every((dir) => isAbsolute(dir))) {
-    return "skillDirectories が絶対パスの配列ではありません";
-  }
-  if (!strings(r.manualSkills) || r.manualSkills.length === 0) return "manualSkills が名前の配列ではありません";
-  const files = r.files as Record<string, unknown> | null | undefined;
-  if (typeof files !== "object" || files === null || Object.keys(files).length === 0) return "files がありません";
-  for (const [rel, sha] of Object.entries(files)) {
-    if (isAbsolute(rel) || normalize(rel).startsWith("..") || typeof sha !== "string" || !/^[0-9a-f]{64}$/.test(sha)) {
-      return `files の項目 ${rel} が写しの中の相対パスと sha256 ではありません`;
-    }
-  }
-  return raw as Harness;
 }
 
 // 実行時の層に、読み込みの設定と規則の上書きを同じ処理で書く。どれも、いまの実効値（global・project・--config と、前に書いた実行時の層を
@@ -391,9 +173,9 @@ function overrideSettings(settings: Settings, { harness, rules, bashDeny, lookup
   const manual = strings(manualSkills.value);
   const denies = new Set(bashDeny.map(collapse));
 
-  // OMP 向けのディレクトリ（content）を足す。この拡張のファイル（config.yml と同じく、ディレクトリではなくファイルのパス）も残す
+  // OMP 向けのディレクトリ（content）と、この拡張のファイル（子と孫のセッションも同じ拡張を読むように）を足す
   const nextExtensions = strings(extensions.value);
-  for (const entry of [join(harness.control, "index.ts"), harness.content]) {
+  for (const entry of [join(ROOT, CONTROL_ENTRY), harness.content]) {
     if (!nextExtensions.some((existing) => real(existing) === real(entry))) nextExtensions.push(entry);
   }
   const writes: [typeof extensions, unknown][] = [
@@ -501,16 +283,6 @@ function isMirror(settings: Settings): boolean {
   return false;
 }
 
-// 同じディレクトリの別名（macOS の /tmp と /private/tmp、~ など）を同じとみなすための形
-function real(path: string): string {
-  const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
-  try {
-    return realpathSync(expanded);
-  } catch {
-    return resolve(expanded);
-  }
-}
-
 // macOS のファイルシステムは既定で大文字と小文字を区別しないので、比べるときは小文字にそろえる
 function fold(path: string): string {
   return process.platform === "darwin" ? path.toLowerCase() : path;
@@ -519,18 +291,6 @@ function fold(path: string): string {
 // OMP の bash.patterns と同じく、前後の空白を除き、空白の並びを1つにする
 function collapse(match: string): string {
   return match.trim().replace(/\s+/gu, " ");
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function report(ctx: ExtensionContext, message: string, type: "info" | "error"): void {

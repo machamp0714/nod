@@ -1,88 +1,48 @@
-// 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても表示する。
-// 出すのは、適用の状態（config.yml の3つの読み込みの設定の登録、写しと組の記録の sha256、写しの中の生成したスキルの置き場、制御の規則の版と
-// sha256 とリポジトリの規則との一致、生成物の pin、OMP の版）、どの tdd が使われるか、実行したディレクトリのプロジェクトの置き場にある、
-// 今回の定義やスキルと同じ名前のもの。「適用しています」は、config.yml に4つ（extensions の制御の拡張のファイル control/index.ts と content、
-// skills.customDirectories の生成したスキルの置き場、skills.manualSkills の読み込む全スキル）が揃い、写しの全ファイル（起動の入口 bin/omp と
-// サンドボックスのプロファイル control/sandbox.sb を含む）が記録の sha256 と一致し、写しの中の生成したスキルの置き場が在るときだけ出し、
-// 起動の入口からの起動を案内する。制御の拡張をディレクトリで書いたもの（disabledExtensions で外せる）は登録とみなさない。
-// 欠けていれば、何が欠けたかの行と、適用が壊れていることを出す。
-import { existsSync, readFileSync, statSync } from "node:fs";
+// 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても・読めなくても、例外で終わらずに表示する。
+// 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
+// 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp）、実行したディレクトリの
+// プロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。
+// 「適用しています」は、写しの全ファイル（専用ランチャー bin/omp とサンドボックスのプロファイル control/sandbox.sb を含む）が組の記録の
+// sha256 と一致し（記録に無いファイルも無い）、写しの中の生成したスキルの置き場が在るときだけ出す（制御の拡張と専用ランチャーの
+// 組の検証と同じ照合。omp/control/verify.ts の copyProblems）。pstack は専用ランチャーから起動したセッションだけに読み込まれ、
+// 通常の omp には読み込まれないことと、ランチャーのパスを案内する。違っていれば、何が違うかの行と、適用が壊れていることを出す。
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { configPath, type OmpConfig, readConfig, sha256, stringList } from "./config";
+import { configPath, type OmpConfig, readConfig, sha256 } from "./config";
 import { type Context, readOmpVersion } from "./context";
-import { entryGuide, hashFiles, LAUNCHER_FILE, paths, PROFILE_FILE, readGenerated, readHarness, readRules, RULES_FILE, samePin } from "./harness";
-import { type Definition, packageDefinitions, projectPlaces, real, skillsIn, userPlaces } from "./places";
+import { entryGuide, legacyItems, paths, readGenerated, readRecord, samePin } from "./harness";
+import { type Definition, packageDefinitions, projectPlaces, skillsIn, userPlaces } from "./places";
+import { copyProblems, type Harness, parseHarness, readRules, RULES_FILE } from "../../omp/control/verify";
 
 export function status(ctx: Context, cwd: string): string[] {
   const p = paths(ctx);
   const path = configPath(ctx.agentDir);
-  const harness = readHarness(p.harness);
   const lines: string[] = ["適用の状態:"];
 
-  let config: OmpConfig | undefined;
-  // 何かを登録しているか（一部でも）と、4つが揃っているか
-  let registered = false;
-  let complete = false;
-  try {
-    const loaded = readConfig(path);
-    config = loaded;
-    const has = (id: string, dir: string) => (stringList(loaded, id) ?? []).some((entry) => real(entry) === dir);
-    const manual = stringList(loaded, "skills.manualSkills") ?? [];
-    const names = Array.isArray(harness?.manualSkills) ? harness.manualSkills : undefined;
-    const items = [
-      ...[p.controlEntry, p.content].map((dir) => ({ label: `extensions の ${dir}`, ok: has("extensions", dir) })),
-      ...p.skills.map((dir) => ({ label: `skills.customDirectories の ${dir}`, ok: has("skills.customDirectories", dir) })),
-      ...(names ?? []).map((name) => ({ label: `skills.manualSkills の ${name}`, ok: manual.includes(name) })),
-    ];
-    registered = items.some((item) => item.ok);
-    const missing = items.filter((item) => !item.ok).map((item) => item.label);
-    if (registered && names === undefined) missing.push("skills.manualSkills の読み込む全スキル（組の記録が無いか読めないので確かめられません）");
-    complete = registered && missing.length === 0;
-    if (complete) {
-      lines.push(
-        `  OMP の設定 ${path}: 3つの読み込みの設定を登録しています（extensions に ${p.controlEntry} と ${p.content}、` +
-          `skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む ${names!.length} 個のスキル）`,
-      );
-    } else if (registered) {
-      lines.push(`  OMP の設定 ${path}: 読み込みの設定が欠けています: ${missing.join("、")}`);
-    } else {
-      lines.push(`  OMP の設定 ${path}: 写しの読み込みの設定（extensions・skills.customDirectories・skills.manualSkills）を登録していません`);
-    }
-  } catch (e) {
-    lines.push(`  OMP の設定 ${path}: 読めません（${(e as Error).message}）`);
-  }
-
-  let copyOk = false;
-  if (harness === undefined) {
-    lines.push(`  写し ${p.root}: ${registered ? "組の記録（control/harness.json）が無いか読めません" : "ありません"}`);
+  const record = readRecord(p.harness);
+  let harness: Harness | undefined;
+  let applied = false;
+  if (!existsSync(p.root)) {
+    lines.push(`  写し ${p.root}: ありません`);
   } else {
-    const actual = hashFiles(p.root);
-    const recorded = harness.files ?? {};
-    const problems = [
-      ...Object.keys(recorded)
-        .filter((rel) => !(rel in actual))
-        .map((rel) => `${rel}（無い）`),
-      ...Object.keys(actual)
-        .filter((rel) => !(rel in recorded))
-        .map((rel) => `${rel}（記録に無い）`),
-      ...Object.keys(recorded)
-        .filter((rel) => rel in actual && actual[rel] !== recorded[rel])
-        .map((rel) => `${rel}（sha256 が違う）`),
-      // 起動の入口とプロファイルは、記録に無くても（前の版の適用）、無ければ欠けている
-      ...[LAUNCHER_FILE, PROFILE_FILE].filter((rel) => !(rel in recorded) && !(rel in actual)).map((rel) => `${rel}（無い）`),
-    ];
-    const missingSkills = p.skills.filter((dir) => !isDirectory(dir));
-    copyOk = problems.length === 0 && missingSkills.length === 0;
-    lines.push(`  写し ${p.root}: 適用 ${harness.appliedAt}、pin ${harness.pin?.commit}`);
-    lines.push(problems.length === 0 ? "    組のファイルは記録の sha256 と一致しています" : `    組のファイルが記録と違います: ${problems.join(", ")}`);
-    for (const dir of missingSkills) lines.push(`    生成したスキルの置き場 ${dir} がありません`);
+    const parsed = record === undefined ? "無いか、読めません" : parseHarness(record);
+    if (typeof parsed === "string") {
+      lines.push(`  写し ${p.root}: 組の記録（${p.harness}）が正しくありません（${parsed}）`);
+    } else {
+      harness = parsed;
+      const problems = copyProblems(p.root, harness);
+      applied = problems.length === 0;
+      lines.push(`  写し ${p.root}: 適用 ${harness.appliedAt}、pin ${harness.pin.commit}`);
+      if (applied) lines.push("    組のファイルは記録の sha256 と一致しています");
+      for (const problem of problems) lines.push(`    ${problem}`);
+    }
   }
 
-  const rulesPath = join(p.control, RULES_FILE);
-  const repoRules = join(ctx.controlDir, RULES_FILE);
+  const rulesPath = join(p.root, RULES_FILE);
+  const repoRules = join(ctx.controlDir, "rules.json");
   if (existsSync(rulesPath)) {
-    const rules = readRules(p.control);
-    const sha = sha256(readFileSync(rulesPath));
+    const rules = readRules(rulesPath);
+    const sha = fileSha(rulesPath);
     if (typeof rules === "string") {
       lines.push(`  制御の規則 ${rulesPath}: 正しくありません（${rules}）`);
     } else {
@@ -92,10 +52,28 @@ export function status(ctx: Context, cwd: string): string[] {
           `書き込めない置き場 ${rules.protectedPaths.join(", ")}、どのプロジェクトでも書き込めないパス ${rules.projectPaths.join(", ")}（${rules.allowPaths.join(", ")} の下を除く））`,
       );
     }
-    const repoSha = existsSync(repoRules) ? sha256(readFileSync(repoRules)) : undefined;
-    lines.push(repoSha === sha ? `    リポジトリの規則と一致しています（${repoRules}）` : `    リポジトリの規則と違います（${repoRules}）。apply し直すとリポジトリの規則に入れ替わります`);
-  } else if (harness !== undefined) {
-    lines.push(`  制御の規則 ${rulesPath}: ありません（制御の拡張は全ツールを遮断します）`);
+    const repoSha = fileSha(repoRules);
+    lines.push(
+      sha !== undefined && repoSha === sha
+        ? `    リポジトリの規則と一致しています（${repoRules}）`
+        : `    リポジトリの規則と違います（${repoRules}）。apply し直すとリポジトリの規則に入れ替わります`,
+    );
+  } else if (existsSync(p.root)) {
+    lines.push(`  制御の規則 ${rulesPath}: ありません（専用ランチャーは omp を起動しません）`);
+  }
+
+  let config: OmpConfig | undefined;
+  let legacy: string[] = [];
+  try {
+    config = readConfig(path);
+    legacy = legacyItems(config, record, p.root);
+    lines.push(
+      legacy.length === 0
+        ? `  OMP の設定 ${path}: 読み込みの設定はありません（pstack は専用ランチャーだけが読み込みます）`
+        : `  OMP の設定 ${path}: 以前の配置の読み込みの設定が残っています（${legacy.join("、")}）。bun scripts/pstack-omp/cli.ts apply か remove で取り除いてください`,
+    );
+  } catch (e) {
+    lines.push(`  OMP の設定 ${path}: 読めません（${(e as Error).message}）`);
   }
 
   const generated = readGenerated(p.generated);
@@ -103,8 +81,8 @@ export function status(ctx: Context, cwd: string): string[] {
     lines.push(`  生成物 ${p.generated}: ありません（bun scripts/pstack-omp/cli.ts sync で作ります）`);
   } else if (!samePin(generated.pin, ctx.pin)) {
     lines.push(`  生成物 ${p.generated}: 元にした pin（${generated.pin.commit}）が固定の記録（${ctx.pin.commit}）と違います。sync と apply をやり直してください`);
-  } else if (harness !== undefined && harness.pin?.commit !== generated.pin.commit) {
-    lines.push(`  生成物 ${p.generated}: 元にした pin（${generated.pin.commit}）が、適用したときの pin（${harness.pin?.commit}）と違います。apply をやり直してください`);
+  } else if (harness !== undefined && harness.pin.commit !== generated.pin.commit) {
+    lines.push(`  生成物 ${p.generated}: 元にした pin（${generated.pin.commit}）が、適用したときの pin（${harness.pin.commit}）と違います。apply をやり直してください`);
   } else {
     lines.push(`  生成物 ${p.generated}: 元にした pin は固定の記録と一致しています（${ctx.pin.commit}）`);
   }
@@ -119,14 +97,13 @@ export function status(ctx: Context, cwd: string): string[] {
   const versionOk = version === ctx.pin.ompVersion && (harness === undefined || harness.ompVersion === version);
   lines.push(`  OMP の版: ${version}（固定の記録 ${ctx.pin.ompVersion}${recorded}）${versionOk ? "" : "。版が違います（apply と sync は止まります。remove と status は行えます）"}`);
 
-  const applied = complete && copyOk;
   if (applied) {
-    lines.push("  → 適用しています（新しく始めたセッションから効きます）");
+    lines.push(`  → 適用しています。pstack は専用ランチャー ${p.launcher} から起動したセッションだけに読み込まれます（通常の omp には読み込まれません）`);
     for (const line of entryGuide(p.launcher)) lines.push(`  ${line}`);
-  } else if (registered) {
-    lines.push("  → 適用が壊れています（欠けているもの・違うものは上の行のとおり）。apply し直すか remove してください");
-  } else if (harness !== undefined) {
-    lines.push("  → 写しは残っていますが、OMP の設定に登録していないので読み込まれません。apply し直すか remove してください");
+  } else if (existsSync(p.root)) {
+    lines.push("  → 適用が壊れています（欠けているもの・違うものは上の行のとおり）。専用ランチャーは omp を起動しません。apply し直すか remove してください");
+  } else if (legacy.length > 0) {
+    lines.push("  → 以前の配置の読み込みの設定だけが残っています。apply か remove で取り除いてください");
   } else {
     lines.push("  → 適用していません");
   }
@@ -138,14 +115,19 @@ export function status(ctx: Context, cwd: string): string[] {
     // 設定の値の形が正しくなければ、利用者の置き場は上の「OMP の設定」の行で報告している
   }
   lines.push("どの tdd が使われるか:");
-  // 写しの中の pstack の tdd（skills.customDirectories の先頭の置き場）
+  // 写しの中の pstack の tdd（専用ランチャーのセッションで skills.customDirectories の先頭に入る置き場）
   const pstackTdd = join(p.skills[0]!, "tdd", "SKILL.md");
-  const userTdd = userDefinitions.filter((d) => d.kind === "skill" && d.name === "tdd");
+  const userTdd = userDefinitions.find((d) => d.kind === "skill" && d.name === "tdd");
   if (applied && existsSync(pstackTdd)) {
-    lines.push(`  pstack の tdd（${pstackTdd}）が使われます（写しの中の生成したスキルの置き場が skills.customDirectories の先頭に入るため）`);
-    for (const d of userTdd) lines.push(`  利用者の置き場の tdd（${d.path}）は、名前空間つきの <名前空間>/tdd の名前になります`);
-  } else if (userTdd.length > 0) {
-    lines.push(`  適用していないので、利用者の置き場の tdd（${userTdd[0]!.path}）が使われます`);
+    lines.push(`  専用ランチャーから起動したセッション: pstack の tdd（${pstackTdd}）が使われます（写しの中の生成したスキルの置き場が skills.customDirectories の先頭に入るため）`);
+    if (userTdd !== undefined) lines.push(`    利用者の置き場の tdd（${userTdd.path}）は、名前空間つきの <名前空間>/tdd の名前になります`);
+    lines.push(
+      userTdd === undefined
+        ? "  通常の omp のセッション: pstack の tdd は読み込まれません（利用者の置き場にも tdd はありません）"
+        : `  通常の omp のセッション: 利用者の置き場の tdd（${userTdd.path}）が使われます`,
+    );
+  } else if (userTdd !== undefined) {
+    lines.push(`  適用していないので、利用者の置き場の tdd（${userTdd.path}）が使われます`);
   } else {
     lines.push("  適用していないので、pstack の tdd は使われません（利用者の置き場にも tdd はありません）");
   }
@@ -156,7 +138,7 @@ export function status(ctx: Context, cwd: string): string[] {
   // 生成したスキルの名前（データ置き場の生成物と、写しの中の生成したスキル）
   const generatedNames = new Set([...(generated?.names ?? []), ...p.skills.flatMap(skillsIn).map((d) => d.name)]);
   const clashes = project.definitions.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedNames.has(d.name)));
-  lines.push(`プロジェクト（${project.root}）の置き場にある、今回の定義やスキルと同じ名前のもの:`);
+  lines.push(`プロジェクト（${project.root}）の置き場にある、今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:`);
   if (clashes.length === 0) lines.push("  ありません");
   for (const d of clashes) lines.push(`  ${d.path}: ${explain(d, generatedNames)}`);
   return lines;
@@ -168,10 +150,11 @@ function explain(d: Definition, generatedNames: Set<string>): string {
   return `スキル ${d.name}。今回の読み替え表のスキルと同じ名前なので、どちらかが <名前空間>/${d.name} の名前になり、skill://${d.name} で今回の表を読めないことがあります`;
 }
 
-function isDirectory(path: string): boolean {
+// ファイルの sha256。無い・読めなければ undefined
+function fileSha(path: string): string | undefined {
   try {
-    return statSync(path).isDirectory();
+    return sha256(readFileSync(path));
   } catch {
-    return false;
+    return undefined;
   }
 }
