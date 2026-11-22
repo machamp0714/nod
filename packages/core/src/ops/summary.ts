@@ -4,7 +4,7 @@ import { NodError } from "../errors";
 import { formatIssueId } from "../issue-query";
 import { recordedTimestamp } from "../recorded-time";
 import type { Status } from "../types";
-import { issueScope, llmAssignee } from "./stats";
+import { issueScope } from "./stats";
 
 // 期間の要約（#63・#76）。LLM の推論は使わず、events と作業ログから決定的に組み立てる。読み取り専用
 export const SUMMARY_KINDS = [
@@ -58,9 +58,8 @@ export interface SummaryItem {
   issueId: string;
   title: string;
   status: Status;
-  assignee: string | null;
   archived: boolean;
-  // 動きの主体。完了は人がレビューで確定するため、担当の LLM がいればその LLM に帰属させる
+  // 動きの主体は操作した書き手。
   actor: string;
   actorKind: ActorKind;
   recordedBy: string; // 記録した書き手（完了では確定した人）
@@ -161,9 +160,7 @@ interface Row {
   number: number;
   title: string;
   status: Status;
-  assignee: string | null;
   archived_at: string | null;
-  worker: string | null;
   rejected_after: number | null;
 }
 
@@ -204,16 +201,12 @@ export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace"
   // アーカイブ操作そのものは、アーカイブ済みを除くときも「アーカイブ」に出す
   const archivedEvents = includeArchived ? "" : " AND (i.archived_at IS NULL OR e.type = 'archived')";
   const archivedLogs = includeArchived ? "" : " AND i.archived_at IS NULL";
-  const issueCols = "w.key AS ws_key, i.number, i.title, i.status, i.assignee, i.archived_at";
+  const issueCols = "w.key AS ws_key, i.number, i.title, i.status, i.archived_at";
 
-  // 完了は llmStats と同じく、完了より前で最後に LLM を担当にした記録へ帰属させる（LLM がいなければ書き手）。
   // 差し戻しは同じ Issue で次に続く status_changed / review_rejected が review_rejected かで見分ける。
   // 質問と回答の本文は questions にあるため、event の question_id から引く
   const sql = `SELECT * FROM (
       SELECT 'event' AS src, e.id AS sort_id, e.type, e.actor, e.created_at, ${issueCols},
-        CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.to') = 'done' THEN
-          (SELECT json_extract(a.data, '$.to') FROM events a WHERE a.issue_id = e.issue_id AND a.type = 'assignee_changed'
-            AND ${llmAssignee("a")} AND a.id < e.id ORDER BY a.id DESC LIMIT 1) END AS worker,
         CASE WHEN e.type = 'status_changed' AND json_extract(e.data, '$.from') = 'in_review' AND json_extract(e.data, '$.to') = 'in_progress' THEN
           (SELECT r.type = 'review_rejected' FROM events r WHERE r.issue_id = e.issue_id AND r.id > e.id
             AND r.type IN ('status_changed', 'review_rejected') ORDER BY r.id LIMIT 1) END AS rejected_after,
@@ -227,7 +220,7 @@ export function summaryStatement(db: Database, q: Pick<SummaryQuery, "workspace"
       FROM events e JOIN issues i ON i.id = e.issue_id JOIN workspaces w ON w.id = i.workspace_id
       WHERE e.type IN (${EVENT_TYPES.map(() => "?").join(",")}) AND e.created_at >= ? AND e.created_at <= ?${scope.where}${archivedEvents}
       UNION ALL
-      SELECT 'log', c.id, 'work_log', c.author, c.created_at, ${issueCols}, NULL, NULL, NULL, c.body
+      SELECT 'log', c.id, 'work_log', c.author, c.created_at, ${issueCols}, NULL, NULL, c.body
       FROM comments c JOIN issues i ON i.id = c.issue_id JOIN workspaces w ON w.id = i.workspace_id
       WHERE c.log_kind = 'blocker' AND c.created_at >= ? AND c.created_at <= ?${scope.where}${archivedLogs}
     ) ORDER BY created_at DESC, sort_id DESC`;
@@ -255,7 +248,7 @@ export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
     const found = classify(row);
     if (!found) continue;
     const section = sections.get(found.kind)!;
-    const actor = row.worker && actorKind(row.worker) === "llm" ? row.worker : row.actor;
+    const actor = row.actor;
     const kind = actorKind(actor);
     const transition = row.type === "status_changed" ? (JSON.parse(row.data ?? "{}") as { from?: Status; to?: Status }) : null;
     section.total++;
@@ -267,7 +260,6 @@ export function recentSummary(db: Database, q: SummaryQuery = {}): Summary {
         issueId: formatIssueId(row.ws_key, row.number),
         title: row.title,
         status: row.status,
-        assignee: row.assignee,
         archived: row.archived_at !== null,
         actor,
         actorKind: kind,

@@ -114,14 +114,33 @@ describe("nod stats llm", () => {
     expect(text.stdout).toBe([
       "2026-09-01〜2026-09-02（日ごと、UTC）",
       "",
-      "codex  完了 1  担当開始 1  完了報告 1  作業時間 中央値 1分未満  合計 1分未満  記録なし 0",
-      "  2026-09-01  完了 1  担当開始 1  完了報告 1  作業時間 中央値 1分未満  合計 1分未満  記録なし 0",
-      "  2026-09-02  完了 0  担当開始 0  完了報告 0  作業時間 中央値 -  合計 -  記録なし 0",
+      "codex  完了 1  開始 1  完了報告 1",
+      "  2026-09-01  完了 1  開始 1  完了報告 1",
+      "  2026-09-02  完了 0  開始 0  完了報告 0",
       "",
     ].join("\n"));
     const empty = await runNod(["stats", "llm", "--by", "day", "--from", "2026-08-01", "--to", "2026-08-02", "--tz", "UTC"], { cwd: repo, db });
     expect(empty.stdout).toContain("この期間に LLM の作業はありません");
     const bad = await runNod(["stats", "llm", "--by", "month", "--json"], { cwd: repo, db });
     expect(bad.json.error.code).toBe("INVALID_ARGS");
+  });
+
+  test("同じIssueの開始と完了は操作した書き手へ帰属し、過去の担当変更を数えない", async () => {
+    const db = tempDb(), cwd = makeRepo();
+    registerRepo(db, cwd);
+    const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
+    const issue = (await run(["issue", "create", "共同作業"])).json;
+    await run(["issue", "update", issue.id, "--assignee", "old-agent"]);
+    await run(["issue", "start", issue.id], "claude-code");
+    await run(["issue", "start", issue.id], "codex");
+    await run(["issue", "start", issue.id], "codex");
+    await run(["issue", "done", issue.id, "--summary", "完了"], "codex");
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await run(["stats", "llm", "--by", "day", "--from", today, "--to", today, "--tz", "UTC"]);
+    expect(result.json.llms.map((l: { name: string; totals: unknown }) => ({ name: l.name, totals: l.totals })))
+      .toEqual([
+        { name: "codex", totals: { started: 2, submitted: 1, completed: 1 } },
+        { name: "claude-code", totals: { started: 1, submitted: 0, completed: 0 } },
+      ]);
   });
 });

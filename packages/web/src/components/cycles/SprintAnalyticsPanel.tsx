@@ -3,12 +3,11 @@ import { useSprintAnalytics } from "../../api/hooks/sprints";
 import type { SprintAnalytics, CycleBreakdownRow, SprintDetail } from "../../api/types";
 import { breakdownLabel, formatRate, formatScopeAdded } from "../../lib/cycle-analytics";
 import { statusLabel } from "../../lib/meta";
-import { AgentAvatar, ErrorMessage, Icon, IconButton, LabelDot, LoadingMessage, ProgressBar, StatusIcon, WorkspaceBadge } from "../ui";
+import { ErrorMessage, Icon, IconButton, LabelDot, LoadingMessage, ProgressBar, StatusIcon, WorkspaceBadge } from "../ui";
 import { CYCLE_COLORS, CycleGraph } from "./CycleGraph";
 import s from "./cycle-analytics.module.css";
 
 const TABS = [
-  { key: "assignees", label: "Assignees" },
   { key: "labels", label: "Labels" },
   { key: "projects", label: "Projects" },
   { key: "workspaces", label: "Workspaces" },
@@ -79,7 +78,7 @@ function Metric({ label, color, value, sub }: { label: string; color: string; va
 
 // 内訳のタブ。←→・Home・End でタブを移る（WAI-ARIA の Tabs と同じ）
 function Breakdown({ analytics }: { analytics: SprintAnalytics }) {
-  const [tab, setTab] = useState<TabKey>("assignees");
+  const [tab, setTab] = useState<TabKey>("labels");
   const id = useId();
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -142,7 +141,6 @@ function BreakdownRows({ kind, rows }: { kind: Exclude<TabKey, "status">; rows: 
             <WorkspaceBadge workspaceKey={row.key} name={row.label} />
           ) : (
             <>
-              {kind === "assignees" && row.key !== "" && <AgentAvatar actor={row.key} />}
               {kind === "labels" && <LabelDot workspace={null} name={row.key} />}
               <span className={s.name}>{row.label}</span>
             </>

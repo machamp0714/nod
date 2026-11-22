@@ -263,7 +263,7 @@ export interface CycleAnalytics {
   completedRate: number | null;
   scopeAdded: number;
   burnup: { date: string; scope: number; started: number; completed: number }[];
-  breakdown: { assignees: CycleBreakdownRow[]; labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
+  breakdown: { labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
   statuses: { status: Status; count: number }[];
 }
 

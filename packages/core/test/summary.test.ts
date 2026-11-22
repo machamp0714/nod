@@ -79,9 +79,8 @@ describe("recentSummary（期間の要約）", () => {
       created: [2, 1, 1],
     });
     expect(section(s, "asked").items[0]).toMatchObject({ actor: "claude-code", actorKind: "llm", detail: "どちらの API を使う？" });
-    // 完了は人が確定するが、担当の LLM に帰属させる。キャンセルは担当がいなければ書き手のまま
     expect(section(s, "completed").items[0]).toMatchObject({
-      issueId: a.id, title: "a", assignee: "claude-code", status: "done",
+      issueId: a.id, title: "a", status: "done",
       actor: "claude-code", actorKind: "llm", recordedBy: "claude-code", from: "in_progress", to: "done",
     });
     expect(section(s, "canceled").items[0]).toMatchObject({ actor: "me", actorKind: "human", recordedBy: "me" });
@@ -144,7 +143,7 @@ describe("recentSummary（期間の要約）", () => {
     expect(codeOf(() => recentSummary(db, { now: NOW, workspace: ["NOPE"] }))).toBe("NOT_FOUND");
   });
 
-  test("完了は、担当を me に付け替えた後でも直前の LLM に帰属させる。LLM がいなければ書き手", () => {
+  test("完了は操作した書き手へ帰属させる", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
@@ -156,9 +155,9 @@ describe("recentSummary（期間の要約）", () => {
     updateIssue(me, b.id, { status: "done" });
     backdate(db, "2026-09-30T10:00:00.000Z");
     const items = section(recentSummary(db, { now: NOW }), "completed").items;
-    expect(items.map((x) => [x.issueId, x.assignee, x.actor, x.actorKind, x.recordedBy])).toEqual([
-      [b.id, "me", "me", "human", "me"],
-      [a.id, "me", "claude-code", "llm", "claude-code"],
+    expect(items.map((x) => [x.issueId, x.actor, x.actorKind, x.recordedBy])).toEqual([
+      [b.id, "me", "human", "me"],
+      [a.id, "claude-code", "llm", "claude-code"],
     ]);
   });
 
@@ -192,7 +191,6 @@ describe("recentSummary（期間の要約）", () => {
         .map((r) => r.detail).join("\n");
       expect(plan).toContain("events_type_created");
       expect(plan).toContain("comments_log_kind");
-      expect(plan).toContain("SEARCH a USING INDEX events_issue");
       expect(plan).toContain("SEARCH r USING INDEX events_issue");
       expect(plan).not.toMatch(/^SCAN [a-z]+$/m); // 表の全走査がない（外側の副問合せの走査だけ）
     }

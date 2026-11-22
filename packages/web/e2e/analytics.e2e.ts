@@ -182,7 +182,7 @@ test("URL の知らない値は既定の条件に戻す", async ({ page, nod }) 
   await expect(kpi(page, "完了数")).toContainText("3");
 });
 
-test("LLM 別に完了数・作業時間・担当開始・完了報告の表と積み上げ棒を出す", async ({ page, nod }) => {
+test("LLM 別に完了・開始・完了報告の操作回数の表と積み上げ棒を出す", async ({ page, nod }) => {
   await seed(nod);
   const api = (await nod.me.listWorkspaces()).find((w) => w.key === "API")!;
   const other = await nod.me.createIssue({ workspaceId: api.id, title: "codex が担当して止まった作業" });
@@ -190,10 +190,9 @@ test("LLM 別に完了数・作業時間・担当開始・完了報告の表と�
   await page.goto("/analytics");
   const section = page.getByRole("region", { name: "LLM 別" });
   const totals = section.getByRole("table", { name: "LLM ごとの合計" });
-  await expect(totals.getByRole("columnheader")).toHaveText(["LLM", "完了数", "時間 中央値", "時間 合計", "担当開始", "完了報告"]);
-  await expect(totals.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "0.0h", "0.0h", "1", "1"]);
-  await expect(totals.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "—", "—", "1", "0"]);
-  await expect(section.getByText("記録なしの 0 件は時間の集計から除く")).toBeVisible();
+  await expect(totals.getByRole("columnheader")).toHaveText(["LLM", "完了数", "開始", "完了報告"]);
+  await expect(totals.getByRole("row", { name: /claude-code/ }).getByRole("cell")).toHaveText(["Cclaude-code", "1", "1", "1"]);
+  await expect(totals.getByRole("row", { name: /codex/ }).getByRole("cell")).toHaveText(["Xcodex", "0", "1", "0"]);
   const chart = section.getByRole("img", { name: "週ごとの完了数（LLM 別）" });
   await expect(chart.locator('[data-series="claude-code"]')).toHaveCount(1);
   await expect(chart.locator('[data-series="codex"]')).toHaveCount(0);

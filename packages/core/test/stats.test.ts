@@ -295,18 +295,18 @@ describe("llmStats（LLM ごとの作業量）", () => {
   }
   const Q = { ...UTC, by: "day" as const, from: "2026-09-01", to: "2026-09-02" };
 
-  test("担当開始・完了報告・完了・作業時間を LLM ごと期間ごとに数え、人（me）は含めない", () => {
+  test("開始・完了報告・完了の操作を LLM ごと期間ごとに数え、人（me）は含めない", () => {
     const { db, ws, me, llm } = setup();
     const codex = { db, actor: "codex" };
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     startIssue(llm, a.id);
     completeIssue(llm, a.id, { summary: "済" });
     updateIssue(me, a.id, { status: "done" });
-    stampEvents(db, a.id, "assignee_changed", "2026-09-01T00:00:00.000Z");
+    stampEvents(db, a.id, "work_started", "2026-09-01T00:00:00.000Z");
     stamp(db, a.id, { started: "2026-09-01T00:00:00.000Z", submitted: "2026-09-01T03:00:00.000Z", closed: "2026-09-02T01:00:00.000Z" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
     startIssue(codex, b.id);
-    stampEvents(db, b.id, "assignee_changed", "2026-09-02T05:00:00.000Z");
+    stampEvents(db, b.id, "work_started", "2026-09-02T05:00:00.000Z");
     const c = createIssue(me, { workspaceId: ws.id, title: "c" });
     updateIssue(me, c.id, { assignee: "me" });
     updateIssue(me, c.id, { status: "done" });
@@ -317,48 +317,25 @@ describe("llmStats（LLM ごとの作業量）", () => {
     expect(s.buckets).toEqual([{ start: "2026-09-01", end: "2026-09-01" }, { start: "2026-09-02", end: "2026-09-02" }]);
     expect(s.llms.map((l) => l.name)).toEqual(["claude-code", "codex"]);
     const [claude, cx] = s.llms;
-    expect(claude!.buckets.map((x) => [x.assigned, x.submitted, x.completed])).toEqual([[1, 1, 0], [0, 0, 1]]);
-    expect(claude!.buckets[1]!.work).toMatchObject({ measured: 1, medianMinutes: 180 });
-    expect(claude!.totals).toMatchObject({ assigned: 1, submitted: 1, completed: 1, work: { totalMinutes: 180 } });
-    expect(cx!.buckets.map((x) => [x.assigned, x.submitted, x.completed])).toEqual([[0, 0, 0], [1, 0, 0]]);
+    expect(claude!.buckets.map((x) => [x.started, x.submitted, x.completed])).toEqual([[1, 1, 1], [0, 0, 0]]);
+    expect(claude!.totals).toEqual({ started: 1, submitted: 1, completed: 1 });
+    expect(cx!.buckets.map((x) => [x.started, x.submitted, x.completed])).toEqual([[0, 0, 0], [1, 0, 0]]);
   });
 
-  test("完了は closed_at 以前で最後に LLM を担当にした記録へ帰属し、現在の担当者で解釈し直さない", () => {
+  test("同時刻の開始も書き手別に数え、完了と再完了を操作した書き手へ帰属させる", () => {
     const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id); // claude-code が担当
-    updateIssue(me, a.id, { assignee: "codex" }); // codex へ付け替え
-    updateIssue(me, a.id, { assignee: "me" }); // 最後は人が引き取って完了
-    updateIssue(me, a.id, { status: "done" });
-    stamp(db, a.id, { closed: "2026-09-01T12:00:00.000Z" });
-    updateIssue(me, a.id, { assignee: "gemini" }); // 完了後の付け替えは帰属に使わない
-    const b = createIssue(me, { workspaceId: ws.id, title: "b" }); // LLM の担当記録がない完了
-    updateIssue(me, b.id, { status: "done" });
-    stamp(db, b.id, { closed: "2026-09-01T12:00:00.000Z" });
-    db.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z' WHERE type = 'assignee_changed' AND json_extract(data, '$.to') <> 'gemini'").run();
-    db.query("UPDATE events SET created_at = '2026-09-01T13:00:00.000Z' WHERE json_extract(data, '$.to') = 'gemini'").run();
-
-    const s = llmStats(db, Q);
-    expect(s.llms.map((l) => [l.name, l.totals.completed, l.totals.assigned])).toEqual([
-      ["codex", 1, 1],
-      ["claude-code", 0, 1],
-      ["gemini", 0, 1],
-    ]);
-  });
-
-  test("同じ時刻の担当変更は後に記録したものへ帰属し、完了と同時刻の担当変更も含める", () => {
-    const { db, ws, me, llm } = setup();
-    const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    startIssue(llm, a.id); // claude-code
-    updateIssue(me, a.id, { assignee: "codex" }); // 同じ時刻に codex へ
-    updateIssue(me, a.id, { status: "done" });
-    stampEvents(db, a.id, "assignee_changed", "2026-09-01T12:00:00.000Z");
-    stamp(db, a.id, { closed: "2026-09-01T12:00:00.000Z" });
-
-    const s = llmStats(db, Q);
-    expect(s.llms.map((l) => [l.name, l.totals.completed, l.totals.assigned])).toEqual([
-      ["codex", 1, 1],
-      ["claude-code", 0, 1],
+    const codex = { db, actor: "codex" };
+    const issue = createIssue(me, { workspaceId: ws.id, title: "共同作業" });
+    startIssue(llm, issue.id);
+    startIssue(codex, issue.id);
+    completeIssue(codex, issue.id, { summary: "完了" });
+    updateIssue(me, issue.id, { status: "todo" });
+    startIssue(llm, issue.id);
+    completeIssue(llm, issue.id, { summary: "再完了" });
+    db.query("UPDATE events SET created_at = '2026-09-01T12:00:00.000Z'").run();
+    expect(llmStats(db, Q).llms.map(l => ({ name: l.name, ...l.totals }))).toEqual([
+      { name: "claude-code", started: 2, submitted: 1, completed: 1 },
+      { name: "codex", started: 1, submitted: 1, completed: 1 },
     ]);
   });
 
@@ -370,16 +347,16 @@ describe("llmStats（LLM ごとの作業量）", () => {
     const b = createIssue(me, { workspaceId: other.id, title: "b" });
     const c = createIssue(me, { workspaceId: ws.id, title: "c" });
     for (const i of [a, b, c]) startIssue(llm, i.id);
-    updateIssue(me, a.id, { status: "done" });
-    updateIssue(me, b.id, { status: "done" });
+    updateIssue(llm, a.id, { status: "done" });
+    updateIssue(llm, b.id, { status: "done" });
     updateIssue(me, c.id, { status: "canceled" });
     for (const i of [a, b, c]) stamp(db, i.id, { closed: "2026-09-01T12:00:00.000Z" });
     db.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z'").run();
 
     const total = (q: Partial<Parameters<typeof llmStats>[1]>) => llmStats(db, { ...Q, ...q }).llms[0]?.totals;
-    expect(total({})).toMatchObject({ assigned: 3, completed: 2 });
-    expect(total({ workspace: [ws.key] })).toMatchObject({ assigned: 2, completed: 1 });
-    expect(total({ project: "検索" })).toMatchObject({ assigned: 1, completed: 1 });
+    expect(total({})).toMatchObject({ started: 3, completed: 2 });
+    expect(total({ workspace: [ws.key] })).toMatchObject({ started: 2, completed: 1 });
+    expect(total({ project: "検索" })).toMatchObject({ started: 1, completed: 1 });
     expect(llmStats(db, { ...Q, from: "2026-09-02" }).llms).toEqual([]);
   });
 
@@ -392,14 +369,14 @@ describe("llmStats（LLM ごとの作業量）", () => {
     updateIssue(me, a.id, { milestoneRef: "α" });
     for (const i of [a, b]) {
       startIssue(llm, i.id);
-      updateIssue(me, i.id, { status: "done" });
+      updateIssue(llm, i.id, { status: "done" });
       stamp(db, i.id, { closed: "2026-09-01T12:00:00.000Z" });
     }
     db.query("UPDATE events SET created_at = '2026-09-01T00:00:00.000Z'").run();
-    expect(llmStats(db, Q).llms[0]?.totals).toMatchObject({ assigned: 2, completed: 2 });
-    expect(llmStats(db, { ...Q, milestone: String(alpha.id) }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
-    expect(llmStats(db, { ...Q, project: "検索", milestone: "α" }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
-    expect(llmStats(db, { ...Q, milestone: "none" }).llms[0]?.totals).toMatchObject({ assigned: 1, completed: 1 });
+    expect(llmStats(db, Q).llms[0]?.totals).toMatchObject({ started: 2, completed: 2 });
+    expect(llmStats(db, { ...Q, milestone: String(alpha.id) }).llms[0]?.totals).toMatchObject({ started: 1, completed: 1 });
+    expect(llmStats(db, { ...Q, project: "検索", milestone: "α" }).llms[0]?.totals).toMatchObject({ started: 1, completed: 1 });
+    expect(llmStats(db, { ...Q, milestone: "none" }).llms[0]?.totals).toMatchObject({ started: 1, completed: 1 });
   });
 
   test("不正な指定は completionStats と同じく INVALID_ARGS・NOT_FOUND", () => {

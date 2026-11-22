@@ -75,8 +75,8 @@ function formatLlm(s: LlmStats): string {
     head,
     ...s.llms.flatMap((l) => [
       "",
-      `${l.name}  完了 ${l.totals.completed}  担当開始 ${l.totals.assigned}  完了報告 ${l.totals.submitted}  作業時間 ${formatWork(l.totals.work)}`,
-      ...l.buckets.map((b) => `  ${period(b.start, b.end)}  完了 ${b.completed}  担当開始 ${b.assigned}  完了報告 ${b.submitted}  作業時間 ${formatWork(b.work)}`),
+      `${l.name}  完了 ${l.totals.completed}  開始 ${l.totals.started}  完了報告 ${l.totals.submitted}`,
+      ...l.buckets.map((b) => `  ${period(b.start, b.end)}  完了 ${b.completed}  開始 ${b.started}  完了報告 ${b.submitted}`),
     ]),
   ].join("\n");
 }

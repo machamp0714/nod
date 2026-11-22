@@ -37,7 +37,7 @@ export function SprintSupervision({ sprint }: { sprint: SprintDetail }) {
     <p>実装開始：{state.canStart ? "許可あり。実開始報告は別に確認してください。" : "許可なし。各担当の理由と着手条件を確認してください。"}</p>
     {state.attempts.length === 0 && <p>担当の試行記録はありません。実際に担当がいないという証明ではありません。</p>}
     {state.attempts.map(a => <p key={a.id}>{a.sourceIssueKey} / {a.parentAttemptId ? "補助担当" : "主担当"} {a.actor} / 工程：{phase[a.phase]} / {a.reason.code}：{a.reason.message}{a.executionLiveness?.verdict === "unverifiable" ? "。実行を確認できません。所有と枠を保持しています。" : ""}</p>)}
-    {state.unreconciledOwnership.map(a => <p key={a.itemId}>{a.sourceIssueKey} / 元担当：{a.assignee ?? "未確認"} / {a.reason.code}：{a.reason.message}</p>)}
+    {state.unreconciledOwnership.map(a => <p key={a.itemId}>{a.sourceIssueKey} / {a.reason.code}：{a.reason.message}</p>)}
     <p>通知：受理結果 {saved.results.length}、競合 {saved.conflicts.length}、隔離 {saved.quarantined.length + state.quarantined.length}、ack未確定 {saved.deliveries.filter(d => !d.acknowledged).length}</p>
     {saved.results.filter(r => r.completion).map(r => <p key={r.id}>完了通知受理：{r.completion!.outcome === "succeeded" ? "担当の成功報告" : "担当の失敗報告"} / {r.completion!.state === "settled" ? "正規の終了確認あり" : "終了の照合不明"} / {ownership[r.completion!.ownership.state]} / 物理解放：{r.completion!.releaseOperation?.state === "unknown" ? "結果不明" : r.completion!.ownership.receipt?.state ?? "未確認"}。成果の検証とIssue完了・ゴール達成は別に確認してください。</p>)}
     <p>次の行動：{session ? "現在の監督と元の担当を、保存した再照合手順で確認する。" : "計画を確認し、元Run・現在の監督と既存担当を確かめて監督記録を登録する。"}{sprint.phase === "canceled" ? " 中止理由と未解決の所有を確認してください。" : sprint.phase === "ended" ? " 期間終了後の残件と未解決の所有を確認してください。" : ""}</p>
