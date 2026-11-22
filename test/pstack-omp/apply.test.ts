@@ -1,0 +1,531 @@
+// pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の適用（apply）・解除（remove）を、プロセスとして起動して外から確かめる。
+// 利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・ホーム（HOME）・データ置き場（NOD_DATA_DIR）は一時ディレクトリ（helpers.ts）。
+// 適用した組の制御の拡張は、OMP の代わりに extension-driver.ts で読み込み、実行時の上書きと tool_call の戻り値を外から確かめる。
+import { afterAll, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { MAIN, put, type Sandbox, sandbox, skillMd, snapshot, startExtension, SUB, synced, unlockSandboxes, writable } from "./helpers";
+
+afterAll(unlockSandboxes);
+
+// 利用者が既に書いている config.yml（コメントと、制御の拡張が触る設定とほかの設定を含む）
+const USER_CONFIG = `# 利用者のコメント
+modelRoles:
+  task: anthropic/claude-opus-5-5:high
+extensions:
+  - /somewhere/ext-a
+skills:
+  customDirectories:
+    - /somewhere/skills
+  manualSkills:
+    - private-*
+disabledExtensions:
+  - skill:foo
+`;
+
+function writeConfig(sb: Sandbox, text: string): void {
+  put(sb.configPath, text);
+}
+
+// 写しの中の位置（データ置き場は macOS の /var と /private/var のような別名を解いた形で書かれる）
+function copyPath(sb: Sandbox, rel: string): string {
+  return join(realpathSync(sb.dataDir), "pstack-omp", rel);
+}
+
+describe("適用", () => {
+  test("config.yml の extensions に写しの制御の拡張が1項目だけ足され、ほかの値とキーはそのまま保たれる", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+
+    const run = await sb.run("apply");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({
+      modelRoles: { task: "anthropic/claude-opus-5-5:high" },
+      extensions: ["/somewhere/ext-a", copyPath(sb, "omp/control")],
+      skills: { customDirectories: ["/somewhere/skills"], manualSkills: ["private-*"] },
+      disabledExtensions: ["skill:foo"],
+    });
+  });
+
+  test("適用の後に始めたセッションのメインで、スキルの読み込み先・OMP 向けのディレクトリ・一覧から外す全スキルが実行時に足され、既にある値は保たれる", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const control = copyPath(sb, "omp/control");
+
+    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+      settings: {
+        extensions: ["/somewhere/ext-a", control],
+        "skills.customDirectories": ["/somewhere/skills"],
+        "skills.manualSkills": ["private-*"],
+        disabledExtensions: ["skill:foo", "skill:tdd"],
+      },
+      sessions: [{ agent: MAIN, toolCalls: 1 }],
+    });
+
+    expect(result.effective).toEqual({
+      extensions: ["/somewhere/ext-a", control, copyPath(sb, "omp/content")],
+      // 生成した pstack と cursor-team-kit を先頭に置き、pstack の tdd を利用者の置き場の tdd より優先させる
+      "skills.customDirectories": [copyPath(sb, "generated/pstack/skills"), copyPath(sb, "generated/cursor-team-kit/skills"), "/somewhere/skills"],
+      // 生成した全スキルと読み替え表のスキル
+      "skills.manualSkills": ["private-*", "poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"],
+      // 読み込むスキルを無効にする指定は外す
+      disabledExtensions: ["skill:foo"],
+    });
+    expect(result.toolCalls).toEqual([[null]]);
+  });
+
+  test("子のセッションでは上書きせず（メインの実行時の層を引き継ぐ）、ツールも遮断しない", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+      settings: { extensions: [copyPath(sb, "omp/control")] },
+      sessions: [
+        { agent: MAIN, toolCalls: 0 },
+        { agent: SUB, toolCalls: 1 },
+      ],
+    });
+    const onlySub = await startExtension(join(sb.copy, "control", "index.ts")).run({
+      settings: { extensions: [copyPath(sb, "omp/control")] },
+      sessions: [{ agent: SUB, toolCalls: 1 }],
+    });
+
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills"]);
+    expect(result.toolCalls).toEqual([[], [null]]);
+    expect(onlySub.overrides).toEqual([]);
+    expect(onlySub.toolCalls).toEqual([[null]]);
+  });
+
+  test("適用より前に始まったプロセスに後から読み込まれても、上書きも遮断もしない", async () => {
+    const sb = await synced();
+    // 拡張を読み込むプロセスを先に始めておく（開始が適用の時刻より前になる）
+    const before = startExtension(join(sb.copy, "control", "index.ts"));
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const result = await before.run({ settings: {}, sessions: [{ agent: MAIN, toolCalls: 1 }] });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls).toEqual([[null]]);
+  });
+});
+
+describe("制御の拡張が読む組の記録が正しくないとき", () => {
+  const cases: { name: string; damage(sb: Sandbox): void }[] = [
+    {
+      name: "組の記録（harness.json）が無い",
+      damage: (sb) => {
+        writable(join(sb.copy, "control", "harness.json"));
+        rmSync(join(sb.copy, "control", "harness.json"));
+      },
+    },
+    {
+      name: "組の記録が JSON として読めない",
+      damage: (sb) => {
+        writable(join(sb.copy, "control", "harness.json"));
+        writeFileSync(join(sb.copy, "control", "harness.json"), "{");
+      },
+    },
+    {
+      name: "組のファイル（読み替え表）が記録の sha256 と違う",
+      damage: (sb) => {
+        const table = join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md");
+        writable(table);
+        writeFileSync(table, "書き換えた\n");
+      },
+    },
+    {
+      name: "記録が指す生成物のスキルの置き場が無い",
+      damage: (sb) => renameSync(sb.generated, `${sb.generated}-moved`),
+    },
+  ];
+
+  test.each(cases)("$name: メインでも子でも上書きせず、全ツールを理由つきで遮断する", async ({ damage }) => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    damage(sb);
+
+    const result = await startExtension(join(sb.copy, "control", "index.ts")).run({
+      settings: { extensions: [copyPath(sb, "omp/control")] },
+      sessions: [
+        { agent: MAIN, toolCalls: 2 },
+        { agent: SUB, toolCalls: 1 },
+      ],
+    });
+
+    expect(result.overrides).toEqual([]);
+    for (const call of result.toolCalls.flat()) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain("ツールを実行しません");
+    }
+    expect(result.toolCalls.flat()).toHaveLength(3);
+    expect(result.notices.join("\n")).toContain("ツールを実行しません");
+  });
+});
+
+// 写しの中身。harness.json は適用の時刻を除いた形で比べる
+function copyContents(sb: Sandbox): unknown {
+  const files = Object.fromEntries(snapshot(sb.copy));
+  const harness = JSON.parse(readFileSync(join(sb.copy, "control", "harness.json"), "utf8"));
+  delete harness.appliedAt;
+  delete files["control/harness.json"];
+  return { files, harness };
+}
+
+describe("解除", () => {
+  test("適用の後に解除すると、config.yml が適用の前のバイト（コメントも）に戻り、写しが消える。生成物と上流の clone は残る", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("remove");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+    expect(existsSync(join(sb.generated, "manifest.json"))).toBe(true);
+    expect(existsSync(sb.clone)).toBe(true);
+  });
+
+  test("config.yml が無い状態から適用して解除すると、config.yml が無い状態に戻る", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({ extensions: [copyPath(sb, "omp/control")] });
+
+    expect((await sb.run("remove")).exitCode).toBe(0);
+
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("適用を繰り返しても config.yml と写しの中身は変わらず、その後の解除で最初の適用の前に戻る", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const config = readFileSync(sb.configPath, "utf8");
+    const copy = copyContents(sb);
+
+    const again = await sb.run("apply");
+
+    expect(again.stderr).toBe("");
+    expect(again.exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(config);
+    expect(copyContents(sb)).toEqual(copy);
+    expect((await sb.run("remove")).exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+  });
+
+  test("解除を繰り返しても結果が変わらず、適用と解除を繰り返しても同じ結果になる", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const applied = readFileSync(sb.configPath, "utf8");
+    expect((await sb.run("remove")).exitCode).toBe(0);
+
+    const again = await sb.run("remove");
+
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).toContain("適用していません");
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(applied);
+    expect((await sb.run("remove")).exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+  });
+
+  test("適用の後に利用者が config.yml を変えていたら、自分の項目だけを外し、利用者が変えた値と元の値は保つ", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const edited = Bun.YAML.parse(readFileSync(sb.configPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(sb.configPath, Bun.YAML.stringify({ ...edited, theme: "dark", extensions: [...(edited.extensions as string[]), "/somewhere/ext-b"] }, null, 2));
+
+    expect((await sb.run("remove")).exitCode).toBe(0);
+
+    expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({
+      ...(Bun.YAML.parse(USER_CONFIG) as Record<string, unknown>),
+      theme: "dark",
+      extensions: ["/somewhere/ext-a", "/somewhere/ext-b"],
+    });
+  });
+
+  test("適用の後に利用者が config.yml を変えてから再適用しても、解除で利用者の変更は保たれ、自分の項目だけが外れる", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const edited = Bun.YAML.parse(readFileSync(sb.configPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(sb.configPath, Bun.YAML.stringify({ ...edited, theme: "dark" }, null, 2));
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    expect((await sb.run("remove")).exitCode).toBe(0);
+
+    // 適用の前に extensions のキーは無かったので、外した後に空の配列を残さない
+    expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({ theme: "dark" });
+  });
+});
+
+// 今回置くエージェント定義（OMP 向けのディレクトリの agents/poteto-agent.md）
+const POTETO_AGENT = "---\nname: poteto-agent\ndescription: test\n---\n\nYou are poteto.\n";
+
+describe("名前のぶつかり", () => {
+  const cases: { name: string; place(sb: Sandbox): string }[] = [
+    {
+      name: "利用者のエージェント定義に poteto-agent がある（frontmatter の name）",
+      place: (sb) => {
+        put(join(sb.agentDir, "agents", "reviewer.md"), POTETO_AGENT);
+        return join(sb.agentDir, "agents", "reviewer.md");
+      },
+    },
+    {
+      name: "利用者の OMP のスキルの置き場に pstack-omp がある（frontmatter の name）",
+      place: (sb) => {
+        put(join(sb.agentDir, "skills", "table", "SKILL.md"), skillMd("pstack-omp", "mine"));
+        return join(sb.agentDir, "skills", "table", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.agents/skills に pstack-omp がある（frontmatter に name が無ければディレクトリ名）",
+      place: (sb) => {
+        put(join(sb.home, ".agents", "skills", "pstack-omp", "SKILL.md"), "# mine\n");
+        return join(sb.home, ".agents", "skills", "pstack-omp", "SKILL.md");
+      },
+    },
+    {
+      name: "config.yml の skills.customDirectories の置き場に pstack-omp がある",
+      place: (sb) => {
+        put(join(sb.root, "my-skills", "pstack-omp", "SKILL.md"), skillMd("pstack-omp", "mine"));
+        writeConfig(sb, `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+        return join(sb.root, "my-skills", "pstack-omp", "SKILL.md");
+      },
+    },
+    {
+      name: "config.yml の extensions のパッケージに poteto-agent がある",
+      place: (sb) => {
+        put(join(sb.root, "my-ext", "agents", "poteto-agent.md"), POTETO_AGENT);
+        writeConfig(sb, `extensions:\n  - ${join(sb.root, "my-ext")}\n`);
+        return join(sb.root, "my-ext", "agents", "poteto-agent.md");
+      },
+    },
+  ];
+
+  test.each(cases)("$name: 上書きせずに止まって報告し、設定と写しは何も変わらない", async ({ place }) => {
+    const sb = await synced();
+    sb.content("agents/poteto-agent.md", POTETO_AGENT);
+    const path = place(sb);
+    const config = existsSync(sb.configPath) ? readFileSync(sb.configPath, "utf8") : undefined;
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(path);
+    expect(run.stderr).toContain("上書きしない");
+    expect(existsSync(sb.configPath) ? readFileSync(sb.configPath, "utf8") : undefined).toBe(config);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("再適用では、今回置いた定義とスキルをぶつかりとして扱わない", async () => {
+    const sb = await synced();
+    sb.content("agents/poteto-agent.md", POTETO_AGENT);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const again = await sb.run("apply");
+
+    expect(again.stderr).toBe("");
+    expect(again.exitCode).toBe(0);
+  });
+
+  test("利用者の置き場に tdd があっても止めない（生成した pstack の tdd が優先される）", async () => {
+    const sb = await synced();
+    put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "mine"));
+
+    const run = await sb.run("apply");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+  });
+});
+
+describe("OMP の版", () => {
+  test("OMP の版が固定の記録と違うと適用が止まり、設定と写しは何も変わらない", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    sb.omp("19.2.0");
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("19.2.0");
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test.each([
+    ["違う版", "19.2.0"],
+    ["版を確かめられない omp", null],
+  ] as const)("適用の後に OMP が%sになっても、状態の表示と解除は行える", async (_, version) => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    sb.omp(version);
+
+    const status = await sb.run("status");
+    const remove = await sb.run("remove");
+
+    expect(status.exitCode).toBe(0);
+    expect(status.stdout).toContain(version === null ? "OMP の版: 確かめられません" : "OMP の版: 19.2.0（固定の記録 19.1.0、適用したときの記録 19.1.0）。版が違います");
+    expect(remove.exitCode).toBe(0);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+});
+
+describe("途中の失敗", () => {
+  test("config.yml が YAML として読めないと止まり、config.yml も写しも変わらない", async () => {
+    const sb = await synced();
+    writeConfig(sb, "extensions: [unclosed\n");
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("YAML として読めません");
+    expect(readFileSync(sb.configPath, "utf8")).toBe("extensions: [unclosed\n");
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("生成物が無ければ（同期していない）、sync を案内して止まり、config.yml を作らない", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin();
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("sync");
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("生成物の元にした固定の記録が、いまの固定の記録と違えば、sync を案内して止まる", async () => {
+    const sb = await synced();
+    sb.commit("0.15.47");
+    sb.pin();
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("sync");
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("OMP の設定の置き場に書き込めなければ止まり、config.yml も写しも変わらない", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    chmodSync(sb.agentDir, 0o555);
+
+    const run = await sb.run("apply");
+
+    chmodSync(sb.agentDir, 0o755);
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(realpathSync(sb.agentDir));
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("前の適用がある状態で、写しの置き場に書き込めず止まっても、前の写しと config.yml はそのまま残る", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const config = readFileSync(sb.configPath, "utf8");
+    const copy = snapshot(sb.copy);
+    sb.content("agents/poteto-agent.md", POTETO_AGENT);
+    chmodSync(join(sb.dataDir, "pstack-omp"), 0o555);
+
+    const run = await sb.run("apply");
+
+    chmodSync(join(sb.dataDir, "pstack-omp"), 0o755);
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("設定と写しは適用の前のまま");
+    expect(readFileSync(sb.configPath, "utf8")).toBe(config);
+    expect(snapshot(sb.copy)).toEqual(copy);
+  });
+
+  test("実行中の OMP が config.yml のロックを持ち続けていると、待った後に止まり、何も変わらない", async () => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    const lock = `${realpathSync(sb.configPath)}.lock`;
+    const holder = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `const { dlopen, FFIType } = require("bun:ffi"); const fs = require("node:fs");
+         const fd = fs.openSync(${JSON.stringify(lock)}, fs.constants.O_RDONLY | fs.constants.O_CREAT, 0o600);
+         dlopen("libc.dylib", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock(fd, 2);
+         console.log("locked"); setInterval(() => {}, 1000);`,
+      ],
+      { stdout: "pipe" },
+    );
+    const reader = holder.stdout.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("locked");
+
+    const run = await sb.run("apply");
+
+    holder.kill();
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("ロック");
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+});
+
+describe("写し", () => {
+  test("写しのファイルとディレクトリからは書き込み権限が外れている", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const writableEntries: string[] = [];
+    const visit = (path: string): void => {
+      if ((statSync(path).mode & 0o222) !== 0) writableEntries.push(path);
+      if (statSync(path).isDirectory()) for (const name of readdirSync(path)) visit(join(path, name));
+    };
+    visit(sb.copy);
+
+    expect(writableEntries).toEqual([]);
+    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts"]);
+    expect(readFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "utf8")).toBe(readFileSync(join(sb.packageDir, "skills", "pstack-omp", "SKILL.md"), "utf8"));
+  });
+});
+
+// Claude Code と Codex 向けのプラグインの内容（nod のリポジトリの plugins/、.claude-plugin/、.agents/plugins/）のハッシュ
+function pluginHash(): string {
+  const repo = join(import.meta.dir, "..", "..");
+  const hasher = new Bun.CryptoHasher("sha256");
+  for (const dir of ["plugins", ".claude-plugin", ".agents/plugins"]) {
+    for (const [path, entry] of snapshot(join(repo, dir))) hasher.update(`${dir}/${path}\0${entry.executable}\0${entry.content}\0`);
+  }
+  return hasher.digest("hex");
+}
+
+describe("プラグインと nod の CLI", () => {
+  test("同期・適用・状態の表示・解除を実行しても、Claude Code と Codex 向けのプラグインの内容が変わらない", async () => {
+    const before = pluginHash();
+    const sb = sandbox({ repoTable: true });
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+    sb.pin();
+
+    const runs = [await sb.sync(), await sb.run("apply"), await sb.run("status"), await sb.run("remove")];
+
+    expect(runs.map((run) => run.exitCode)).toEqual([0, 0, 0, 0]);
+    expect(pluginHash()).toBe(before);
+  });
+
+  test("nod の CLI（packages/cli）に pstack のコマンドが無い", () => {
+    const cli = join(import.meta.dir, "..", "..", "packages", "cli", "src");
+    const mentions = [...snapshot(cli)].filter(([, entry]) => Buffer.from(entry.content, "base64").toString("utf8").includes("pstack")).map(([path]) => path);
+
+    expect(mentions).toEqual([]);
+  });
+});

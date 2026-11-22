@@ -1,4 +1,4 @@
-// nod のリポジトリの読み替え表（omp/skills/pstack-omp/SKILL.md）の実物で生成できることを、同期をプロセスとして起動して外から確かめる。
+// nod のリポジトリの読み替え表（omp/content/skills/pstack-omp/SKILL.md）の実物で生成できることを、同期をプロセスとして起動して外から確かめる。
 // OMP 向けのディレクトリは差し替えず既定のまま使うので、表から用語の行が落ちると失敗する（上流の更新で用語が増えたときの見落としも、一覧に足せばここで分かる）。
 import { describe, expect, test } from "bun:test";
 import { SAMPLES, sandbox, skillMd, TERM_KEYS } from "./helpers";

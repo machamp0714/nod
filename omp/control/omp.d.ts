@@ -1,0 +1,53 @@
+// 制御の拡張（index.ts）が使う OMP のモジュールの、使う部分だけの型宣言（型検査のため）。
+// @oh-my-pi/pi-coding-agent は nod のリポジトリの依存に無い。実行時は OMP（固定の記録の版）が自分のモジュールを渡す。
+declare module "@oh-my-pi/pi-coding-agent" {
+  // OMP の設定のインスタンス（中身は使わない。registry の handle に渡すだけ）
+  export interface Settings {
+    readonly __ompSettings: unique symbol;
+  }
+
+  export interface ExtensionAgentIdentity {
+    // トップレベルのセッションは main、起動された子と孫は sub
+    kind: "main" | "sub";
+    id: string;
+    name: string;
+    depth: number;
+    parentId?: string;
+  }
+
+  export interface ExtensionContext {
+    hasUI: boolean;
+    cwd: string;
+    agent?: ExtensionAgentIdentity;
+    ui: { notify(message: string, type?: "info" | "warning" | "error"): void };
+  }
+
+  export interface ToolCallEvent {
+    toolName: string;
+    input: unknown;
+  }
+
+  export interface ToolCallEventResult {
+    block?: boolean;
+    reason?: string;
+  }
+
+  export interface ExtensionAPI {
+    on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void | Promise<void>): void;
+    on(event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => ToolCallEventResult | undefined | Promise<ToolCallEventResult | undefined>): void;
+    readonly pi: { readonly settings: Settings };
+  }
+}
+
+declare module "@oh-my-pi/pi-coding-agent/config/registry" {
+  import type { Settings } from "@oh-my-pi/pi-coding-agent";
+
+  export interface Setting {
+    // 全部の層（実行時の上書き・--config・project・global・既定）を合わせた実効値
+    get(scope: Settings): unknown;
+    // 実行時の層に書く（永続しない。配列は置き換え）
+    override(scope: Settings, value: unknown): void;
+  }
+
+  export function lookup(id: string): Setting | undefined;
+}

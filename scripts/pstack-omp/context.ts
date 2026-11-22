@@ -1,12 +1,14 @@
-// pstack を OMP 向けに使う道具の共通の部品: 固定の記録、データ置き場、OMP の版の確認、git の実行。
+// pstack を OMP 向けに使う道具の共通の部品: 固定の記録、置き場、OMP の版の確認、git の実行。
 // 置き場と実行ファイルは環境変数で差し替えられる（テストと別の Mac への可搬性のため）。
 //   NOD_PSTACK_OMP_PIN     固定の記録のパス（既定はこのディレクトリの pin.json）
 //   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
 //   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）
-//   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリ（既定は nod のリポジトリ直下の omp/）。読み替え表は <package>/skills/pstack-omp/SKILL.md
+//   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
+//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml
+//   HOME                   利用者のホーム（~/.agents/skills を名前のぶつかりとして検査する）
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // 道具が止まる理由。cli.ts が標準エラーに出して 1 で終わる
 export class PstackOmpError extends Error {}
@@ -24,19 +26,29 @@ export interface Context {
   // データ置き場の下の pstack-omp/
   workDir: string;
   ompBin: string;
-  // OMP 向けのディレクトリ（読み替え表のスキルとエージェント定義を置く）
+  // OMP 向けのディレクトリの中身（読み替え表のスキルとエージェント定義を置く）。適用で写しの content/ になる
   packageDir: string;
+  // 制御の拡張（nod のリポジトリの omp/control）。適用で写しの control/ になる
+  controlDir: string;
+  // 利用者の OMP の設定の置き場
+  agentDir: string;
+  home: string;
 }
 
 export function loadContext(env: Record<string, string | undefined> = process.env): Context {
   const pinPath = env.NOD_PSTACK_OMP_PIN || join(import.meta.dir, "pin.json");
-  const dataDir = env.NOD_DATA_DIR || join(homedir(), ".local", "share", "nod");
+  const home = homedir();
+  const dataDir = env.NOD_DATA_DIR || join(home, ".local", "share", "nod");
+  const ompDir = join(import.meta.dir, "..", "..", "omp");
   return {
     pinPath,
     pin: loadPin(pinPath),
-    workDir: join(dataDir, "pstack-omp"),
+    workDir: resolve(dataDir, "pstack-omp"),
     ompBin: env.NOD_PSTACK_OMP_OMP_BIN || "omp",
-    packageDir: env.NOD_PSTACK_OMP_PACKAGE || join(import.meta.dir, "..", "..", "omp"),
+    packageDir: resolve(env.NOD_PSTACK_OMP_PACKAGE || join(ompDir, "content")),
+    controlDir: resolve(ompDir, "control"),
+    agentDir: resolve(env.PI_CODING_AGENT_DIR || join(home, ".omp", "agent")),
+    home,
   };
 }
 
@@ -58,8 +70,8 @@ function loadPin(path: string): Pin {
   return pin;
 }
 
-// omp --version（omp/19.1.0 の形）が固定の記録の OMP の版と同じでなければ止める
-export function checkOmpVersion(ctx: Context): void {
+// omp --version（omp/19.1.0 の形）の版。確かめられなければ止める
+export function readOmpVersion(ctx: Context): string {
   const proc = (() => {
     try {
       return Bun.spawnSync([ctx.ompBin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -73,12 +85,19 @@ export function checkOmpVersion(ctx: Context): void {
   }
   const version = /^omp\/(\S+)$/.exec(stdout)?.[1];
   if (version === undefined) throw new PstackOmpError(`OMP の版を読めません（${ctx.ompBin} --version の出力: ${stdout}）`);
+  return version;
+}
+
+// OMP の版が固定の記録の OMP の版と同じでなければ止める。同じなら版を返す
+export function checkOmpVersion(ctx: Context): string {
+  const version = readOmpVersion(ctx);
   if (version !== ctx.pin.ompVersion) {
     throw new PstackOmpError(
       `OMP の版 ${version} が固定の記録（${ctx.pinPath}）の ${ctx.pin.ompVersion} と違います。確かめていない組み合わせなので止めます。` +
         `OMP の版を合わせるか、確かめた上で固定の記録を更新してください`,
     );
   }
+  return version;
 }
 
 export interface GitResult {
