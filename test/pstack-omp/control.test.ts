@@ -6,9 +6,9 @@
 // サンドボックスの信頼境界は、写しの起動の入口（bin/omp）を実際に実行し、その中からの書き込みが拒否されることで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, startExtension, SUB, synced } from "./helpers";
+import { type ExtensionScenario, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -29,7 +29,12 @@ async function applied(): Promise<Sandbox> {
 }
 
 function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string } = { profile: profile(sb) }) {
-  return startExtension(join(sb.copy, "control", "index.ts"), confine).run({ settings: { extensions: [join(work(sb), "omp", "control")] }, ...scenario });
+  return sb.extension(confine).run({ settings: { extensions: [entry(sb)] }, ...scenario });
+}
+
+// config.yml の extensions に入る、写しの制御の拡張のファイル
+function entry(sb: Sandbox): string {
+  return join(work(sb), "omp", "control", "index.ts");
 }
 
 // 写しのサンドボックスのプロファイル
@@ -50,7 +55,7 @@ describe("規則の上書きを、読み込みの設定と同じ処理で入れ�
     const agentDir = realpathSync(sb.agentDir);
 
     const result = await run(sb, {
-      settings: { extensions: [join(work(sb), "omp", "control")], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
+      settings: { extensions: [entry(sb)], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
       sessions: [{ agent: MAIN, toolCalls: 0 }],
     });
 
@@ -72,7 +77,7 @@ describe("規則の上書きを、読み込みの設定と同じ処理で入れ�
   test("値が既に同じでも、実行時の層から来ていなければ、固定する全キーを実行時の層に書く。実行時の層の同じ値なら書き直さず、何度計算しても同じ値になる", async () => {
     const sb = await applied();
     const first = await run(sb, {
-      settings: { extensions: [join(work(sb), "omp", "control")], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
+      settings: { extensions: [entry(sb)], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
       sessions: [{ agent: MAIN, toolCalls: 0 }],
     });
 
@@ -166,9 +171,9 @@ describe("tool_call で構造化された引数を検査する", () => {
       { toolName: "write", input: { path: join(sb.copy, "control", "rules.json"), content: "{}" } },
       { toolName: "write", input: { path: `[${join(sb.generated, "pstack", "skills", "tdd", "SKILL.md")}#ABCD]`, content: "x" } },
       // cwd からの相対パス
-      { toolName: "write", input: { path: "../omp-agent/config.yml", content: "x" } },
+      { toolName: "write", input: { path: "../home/.omp/agent/config.yml", content: "x" } },
       { toolName: "edit", input: { input: `[a.ts#ABCD]\nPUT 1.=1:\n+b\n[${join(sb.agentDir, "agents", "x.md")}#1234]\nPUT 1.=1:\n+x\n` } },
-      { toolName: "edit", input: { input: `[a.ts#ABCD]\nMV ../omp-agent/config.yml\n` } },
+      { toolName: "edit", input: { input: `[a.ts#ABCD]\nMV ../home/.omp/agent/config.yml\n` } },
       { toolName: "edit", input: { input: `*** Begin Patch\n*** Add File: ${join(sb.copy, "x.md")}\n+x\n*** End Patch\n` } },
       { toolName: "edit", input: { path: sb.configPath, old_text: "a", new_text: "b" } },
       { toolName: "ast_edit", input: { ops: [{ pat: "a", out: "b" }], paths: ["a.ts", join(sb.generated, "pstack")] } },
@@ -194,7 +199,10 @@ describe("規則が欠けている、読めない、不正なとき", () => {
     { name: "eval が deny ではない", rules: (base) => ({ ...base, toolApproval: { eval: "allow" } }) },
     { name: "bash の拒否が空", rules: (base) => ({ ...base, bashDeny: [] }) },
     { name: "書き込めない置き場が無い", rules: (base) => ({ ...base, protectedPaths: undefined }) },
-    { name: "知らないプレースホルダがある", rules: (base) => ({ ...base, protectedPaths: ["{home}/x"] }) },
+    { name: "知らないプレースホルダがある", rules: (base) => ({ ...base, protectedPaths: ["{user}/x"] }) },
+    { name: "どのプロジェクトでも書かせないパスが絶対パス", rules: (base) => ({ ...base, projectPaths: ["/etc/x"] }) },
+    { name: "どのプロジェクトでも書かせないパスがプロジェクトの外を指す", rules: (base) => ({ ...base, projectPaths: ["../x"] }) },
+    { name: "照合から外す置き場が無い", rules: (base) => ({ ...base, allowPaths: undefined }) },
     { name: "子が起動できるエージェントの型が違う", rules: (base) => ({ ...base, task: { denyIsolated: true, subAgents: "task" } }) },
   ];
 
@@ -347,6 +355,39 @@ describe("サンドボックスの信頼境界", () => {
     expect(result.toolCalls[0]![0]?.reason).toContain(config);
   });
 
+  const weakProfiles: { name: string; drops(sb: Sandbox, line: string): boolean; place(sb: Sandbox): string }[] = [
+    {
+      name: "まだ無い守る置き場（OMP の設定の置き場の hooks）",
+      drops: (sb, line) => line.includes(`"${join(realpathSync(sb.agentDir), "hooks")}"`),
+      place: (sb) => join(realpathSync(sb.agentDir), "hooks"),
+    },
+    {
+      name: "どのプロジェクトでも書かせないパス（.omp/ など）",
+      drops: (_, line) => line.includes("(regex "),
+      place: (sb) => join(realpathSync(sb.project), ".omp"),
+    },
+  ];
+
+  test.each(weakProfiles)("$name を拒否しない弱いプロファイルで閉じ込めても、遮断し、理由にその置き場を出し、試しで作ったものを残さない", async ({ drops, place }) => {
+    const sb = await applied();
+    const weak = join(sb.root, "weak.sb");
+    const lines = readFileSync(profile(sb), "utf8").split("\n");
+    expect(lines.some((line) => drops(sb, line))).toBe(true);
+    writeFileSync(weak, lines.filter((line) => !drops(sb, line)).join("\n"));
+    const agentDir = snapshot(sb.agentDir);
+    const ompDir = readdirSync(join(sb.home, ".omp")).sort();
+
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }] }, { profile: weak });
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain(place(sb));
+    expect(readdirSync(sb.project)).toEqual([]);
+    expect(existsSync(join(sb.agentDir, "hooks"))).toBe(false);
+    expect(snapshot(sb.agentDir)).toEqual(agentDir);
+    expect(readdirSync(join(sb.home, ".omp")).sort()).toEqual(ompDir);
+  });
+
   test("起動の入口の中からは、OMP の設定・写し・OMP の設定の置き場・omp の実行ファイルを書き換えられず、解除もできない。守る集合の外には書ける", async () => {
     const sb = await applied();
     const config = readFileSync(sb.configPath);
@@ -381,6 +422,42 @@ describe("サンドボックスの信頼境界", () => {
     expect(allowed.stderr).toBe("");
     expect(allowed.exitCode).toBe(0);
     expect(readFileSync(join(outside, "d", "b.txt"), "utf8")).toBe("ok");
+  });
+
+  test("起動の入口の中からは、どのプロジェクトでも OMP と Claude Code の設定・同じプロセスで動くコードの置き場を作れず、OMP の設定の置き場の hooks・tools とプラグインの置き場も作れない。利用者の ~/.omp の下の実行時の書き込みと、プロジェクトの普通のファイルには書ける", async () => {
+    const sb = await applied();
+    const project = sb.project;
+
+    const attempts = [
+      await sb.launch("mkdir -p \"$1/.omp\" && printf 'disabledExtensions:\\n  - extension-module:control\\n' > \"$1/.omp/config.yml\"", project),
+      await sb.launch('mkdir -p "$1/.omp/extensions" && printf x > "$1/.omp/extensions/x.ts"', project),
+      await sb.launch('mkdir -p "$1/.claude" && printf "{}" > "$1/.claude/settings.json"', project),
+      await sb.launch('mkdir -p "$1/.claude/tools" && printf x > "$1/.claude/tools/x.ts"', project),
+      await sb.launch('mkdir "$1"', join(sb.agentDir, "hooks")),
+      await sb.launch('mkdir "$1"', join(sb.agentDir, "tools")),
+      await sb.launch('mkdir "$1"', join(sb.home, ".omp", "plugins")),
+    ];
+    const allowed = await sb.launch(
+      'mkdir -p "$1/sessions/p" && printf x > "$1/sessions/p/s.jsonl" && printf x > "$2/README.md" && mkdir -p "$2/.claude" && printf x > "$2/.claude/CLAUDE.md" && printf x > "$2/.omplike"',
+      sb.agentDir,
+      project,
+    );
+
+    for (const attempt of attempts) {
+      expect(attempt.exitCode).not.toBe(0);
+      expect(attempt.stderr).toContain("Operation not permitted");
+    }
+    expect(existsSync(join(project, ".omp"))).toBe(false);
+    expect(existsSync(join(project, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(project, ".claude", "tools"))).toBe(false);
+    expect(existsSync(join(sb.agentDir, "hooks"))).toBe(false);
+    expect(existsSync(join(sb.agentDir, "tools"))).toBe(false);
+    expect(existsSync(join(sb.home, ".omp", "plugins"))).toBe(false);
+    expect(allowed.stderr).toBe("");
+    expect(allowed.exitCode).toBe(0);
+    expect(readFileSync(join(sb.agentDir, "sessions", "p", "s.jsonl"), "utf8")).toBe("x");
+    expect(readdirSync(project).sort()).toEqual([".claude", ".omplike", "README.md"]);
+    expect(readdirSync(join(project, ".claude"))).toEqual(["CLAUDE.md"]);
   });
 
   test("起動の入口の中で読み込むと、規則の上書きが入り、メインでも子でも規則どおりに検査する", async () => {

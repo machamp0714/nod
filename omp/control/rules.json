@@ -111,6 +111,20 @@
     "{agentDir}/extensions/",
     "{agentDir}/tools/",
     "{agentDir}/hooks/",
+    "{home}/.omp/plugins/",
     "{ompBin}"
-  ]
+  ],
+  "projectPaths": [
+    ".omp/",
+    ".pi/",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/settings.yml",
+    ".claude/settings.yaml",
+    ".claude/tools/",
+    ".claude/extensions/",
+    ".codex/tools/",
+    ".codex/extensions/"
+  ],
+  "allowPaths": ["{home}/.omp/"]
 }

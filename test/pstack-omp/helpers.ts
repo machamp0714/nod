@@ -1,7 +1,8 @@
 // pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）のテストの共通の部品。
 // 上流は一時ディレクトリに作った git リポジトリ、固定の記録・データ置き場・omp の実行ファイル（版を出し、ほかの引数は sh に渡して実行する偽物）・
-// OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）・
-// ホーム（HOME）も一時のものを環境変数で渡す。ネットワークとモデルの呼び出しはしない。
+// OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・ホーム（HOME）と、その下の利用者の OMP の設定の置き場
+// （PI_CODING_AGENT_DIR。既定と同じ <home>/.omp/agent）・作業中のプロジェクトも一時のものを環境変数と作業ディレクトリで渡す。
+// ネットワークとモデルの呼び出しはしない。
 // 適用した写しの起動の入口（bin/omp）は、偽の omp を写しのサンドボックスのプロファイルで閉じ込めて起動する。
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -144,11 +145,13 @@ export interface Sandbox {
   generated: string;
   // OMP 向けのディレクトリの中身（NOD_PSTACK_OMP_PACKAGE）。repoTable の sandbox ではリポジトリの omp/content
   packageDir: string;
-  // 利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR）と、その config.yml
-  agentDir: string;
-  configPath: string;
   // 利用者のホーム（HOME）
   home: string;
+  // 利用者の OMP の設定の置き場（PI_CODING_AGENT_DIR。<home>/.omp/agent）と、その config.yml
+  agentDir: string;
+  configPath: string;
+  // 作業中のプロジェクト（制御の拡張を読み込むプロセスの作業ディレクトリ）
+  project: string;
   // 適用で作る写し（データ置き場の下の pstack-omp/omp）と、その起動の入口
   copy: string;
   launcher: string;
@@ -158,7 +161,8 @@ export interface Sandbox {
   commit(version: string, files?: Record<string, string>, executables?: string[]): string;
   // 固定の記録を書く。省いた項目は既定（一時の上流・最後のコミット・その版・OMP 19.1.0）
   pin(over?: Partial<Pin>): void;
-  // omp --version が出す版を決める（ほかの引数で起動すると、引数を sh に渡して実行する）。null なら omp を失敗させる
+  // omp --version が出す版を決める（ほかの引数で起動すると、引数を sh に渡して実行する。先頭の -e <ファイル> は sh に渡さず、
+  // 受け取った拡張のファイルとして環境変数 FAKE_OMP_EXTENSION に入れる）。null なら omp を失敗させる
   omp(version: string | null): void;
   // 読み替え表（OMP 向けのディレクトリの skills/pstack-omp/SKILL.md）を書く。null なら消す。repoTable の sandbox では使えない
   table(content: string | null): void;
@@ -170,6 +174,10 @@ export interface Sandbox {
   run(command: string, options?: { cwd?: string; dataDir?: string; launcher?: boolean }): Promise<Run>;
   // 写しの起動の入口の中で、sh のスクリプトを引数 args（$1 から）で実行する（環境変数は run と同じ）
   launch(script: string, ...args: string[]): Promise<Run>;
+  // 写しの制御の拡張を OMP の代わりに読み込むプロセスを、作業中のプロジェクトで HOME を一時のホームにして起動する（extension-driver.ts）。
+  // プロセスの開始はここで決まり、run でシナリオを渡したときに拡張を読み込む。profile ならそのサンドボックスのプロファイルで閉じ込めて
+  // （/usr/bin/sandbox-exec -f）、launcher なら写しの起動の入口（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する
+  extension(confine?: { profile?: string; launcher?: string }): { run(scenario: ExtensionScenario): Promise<ExtensionResult> };
   // 同期を起動する。dataDir を渡すとそのデータ置き場を使う
   sync(dataDir?: string): Promise<Run>;
   cloneHead(): string;
@@ -184,11 +192,13 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
   const pinPath = join(root, "pin.json");
   const ompBin = join(root, "omp");
   const packageDir = repoTable ? REPO_CONTENT : join(root, "omp-package");
-  const agentDir = join(root, "omp-agent");
   const home = join(root, "home");
+  const agentDir = join(home, ".omp", "agent");
+  const project = join(root, "project");
   const controlDir = join(root, "omp-control");
   mkdirSync(upstream);
   mkdirSync(home);
+  mkdirSync(project);
   git(root, upstream, "init", "-q", "-b", "main");
   let last = { commit: "", version: "" };
 
@@ -199,9 +209,10 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     clone: join(dataDir, "pstack-omp", "upstream"),
     generated: join(dataDir, "pstack-omp", "generated"),
     packageDir,
+    home,
     agentDir,
     configPath: join(agentDir, "config.yml"),
-    home,
+    project,
     copy: join(dataDir, "pstack-omp", "omp"),
     launcher: join(dataDir, "pstack-omp", "omp", "bin", "omp"),
     ompBin,
@@ -223,7 +234,9 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     omp(version) {
       writeFileSync(
         ompBin,
-        version === null ? "#!/bin/sh\necho 'omp: 壊れている' >&2\nexit 3\n" : `#!/bin/sh\nif [ "$1" = --version ]; then echo 'omp/${version}'; exit 0; fi\nexec /bin/sh "$@"\n`,
+        version === null
+          ? "#!/bin/sh\necho 'omp: 壊れている' >&2\nexit 3\n"
+          : `#!/bin/sh\nif [ "$1" = --version ]; then echo 'omp/${version}'; exit 0; fi\nif [ "$1" = -e ]; then FAKE_OMP_EXTENSION=$2; export FAKE_OMP_EXTENSION; shift 2; fi\nexec /bin/sh "$@"\n`,
       );
       chmodSync(ompBin, 0o755);
     },
@@ -249,6 +262,20 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
       return spawn(launcher ? [sb.launcher, "-c", 'exec "$0" "$@"', ...argv] : argv, cwd, dir);
     },
     launch: (script, ...args) => spawn([sb.launcher, "-c", script, "sh", ...args], root, dataDir),
+    extension({ profile, launcher } = {}) {
+      const driver = [process.execPath, join(import.meta.dir, "extension-driver.ts"), join(sb.copy, "control", "index.ts")];
+      const argv = profile !== undefined ? ["/usr/bin/sandbox-exec", "-f", profile, ...driver] : launcher !== undefined ? [launcher, "-c", 'exec "$0" "$@"', ...driver] : driver;
+      const proc = Bun.spawn(argv, { cwd: project, env: { ...process.env, HOME: home }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      return {
+        async run(scenario) {
+          proc.stdin.write(JSON.stringify(scenario));
+          await proc.stdin.end();
+          const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+          if (exitCode !== 0) throw new Error(`拡張を動かすプロセスが ${exitCode} で終了: ${stderr}`);
+          return JSON.parse(stdout) as ExtensionResult;
+        },
+      };
+    },
     sync: (dir = dataDir) => sb.run("sync", { dataDir: dir }),
     cloneHead: () => git(root, sb.clone, "rev-parse", "HEAD"),
     cloneStatus: () => git(root, sb.clone, "status", "--porcelain", "--ignored"),
@@ -362,21 +389,3 @@ export interface ExtensionResult {
 
 export const MAIN = { kind: "main", name: "main", depth: 0 } as const;
 export const SUB = { kind: "sub", name: "poteto-agent", depth: 1 } as const;
-
-// 制御の拡張を OMP の代わりに読み込むプロセスを起動する（extension-driver.ts）。プロセスの開始はここで決まり、
-// run でシナリオを渡したときに拡張を読み込む。profile ならそのサンドボックスのプロファイルで閉じ込めて（/usr/bin/sandbox-exec -f）、
-// launcher なら写しの起動の入口（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する
-export function startExtension(index: string, { profile, launcher }: { profile?: string; launcher?: string } = {}): { run(scenario: ExtensionScenario): Promise<ExtensionResult> } {
-  const driver = [process.execPath, join(import.meta.dir, "extension-driver.ts"), index];
-  const argv = profile !== undefined ? ["/usr/bin/sandbox-exec", "-f", profile, ...driver] : launcher !== undefined ? [launcher, "-c", 'exec "$0" "$@"', ...driver] : driver;
-  const proc = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  return {
-    async run(scenario) {
-      proc.stdin.write(JSON.stringify(scenario));
-      await proc.stdin.end();
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      if (exitCode !== 0) throw new Error(`拡張を動かすプロセスが ${exitCode} で終了: ${stderr}`);
-      return JSON.parse(stdout) as ExtensionResult;
-    },
-  };
-}

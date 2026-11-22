@@ -1,9 +1,10 @@
 // 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても表示する。
 // 出すのは、適用の状態（config.yml の3つの読み込みの設定の登録、写しと組の記録の sha256、写しの中の生成したスキルの置き場、制御の規則の版と
 // sha256 とリポジトリの規則との一致、生成物の pin、OMP の版）、どの tdd が使われるか、実行したディレクトリのプロジェクトの置き場にある、
-// 今回の定義やスキルと同じ名前のもの。「適用しています」は、config.yml に4つ（extensions の control と content、skills.customDirectories の
-// 生成したスキルの置き場、skills.manualSkills の読み込む全スキル）が揃い、写しの全ファイル（起動の入口 bin/omp とサンドボックスのプロファイル
-// control/sandbox.sb を含む）が記録の sha256 と一致し、写しの中の生成したスキルの置き場が在るときだけ出し、起動の入口からの起動を案内する。
+// 今回の定義やスキルと同じ名前のもの。「適用しています」は、config.yml に4つ（extensions の制御の拡張のファイル control/index.ts と content、
+// skills.customDirectories の生成したスキルの置き場、skills.manualSkills の読み込む全スキル）が揃い、写しの全ファイル（起動の入口 bin/omp と
+// サンドボックスのプロファイル control/sandbox.sb を含む）が記録の sha256 と一致し、写しの中の生成したスキルの置き場が在るときだけ出し、
+// 起動の入口からの起動を案内する。制御の拡張をディレクトリで書いたもの（disabledExtensions で外せる）は登録とみなさない。
 // 欠けていれば、何が欠けたかの行と、適用が壊れていることを出す。
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ export function status(ctx: Context, cwd: string): string[] {
     const manual = stringList(loaded, "skills.manualSkills") ?? [];
     const names = Array.isArray(harness?.manualSkills) ? harness.manualSkills : undefined;
     const items = [
-      ...[p.control, p.content].map((dir) => ({ label: `extensions の ${dir}`, ok: has("extensions", dir) })),
+      ...[p.controlEntry, p.content].map((dir) => ({ label: `extensions の ${dir}`, ok: has("extensions", dir) })),
       ...p.skills.map((dir) => ({ label: `skills.customDirectories の ${dir}`, ok: has("skills.customDirectories", dir) })),
       ...(names ?? []).map((name) => ({ label: `skills.manualSkills の ${name}`, ok: manual.includes(name) })),
     ];
@@ -39,7 +40,7 @@ export function status(ctx: Context, cwd: string): string[] {
     complete = registered && missing.length === 0;
     if (complete) {
       lines.push(
-        `  OMP の設定 ${path}: 3つの読み込みの設定を登録しています（extensions に ${p.control} と ${p.content}、` +
+        `  OMP の設定 ${path}: 3つの読み込みの設定を登録しています（extensions に ${p.controlEntry} と ${p.content}、` +
           `skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む ${names!.length} 個のスキル）`,
       );
     } else if (registered) {
@@ -88,7 +89,7 @@ export function status(ctx: Context, cwd: string): string[] {
       lines.push(
         `  制御の規則 ${rulesPath}: 版 ${rules.version}、sha256 ${sha}（拒否するツール ${Object.keys(rules.toolApproval).join(", ")}、` +
           `bash の拒否のパターン ${rules.bashDeny.length} 個、github の拒否 ${rules.github.denyOps.join(", ")}、子と孫が起動できるエージェント ${rules.task.subAgents.join(", ")}、` +
-          `書き込めない置き場 ${rules.protectedPaths.join(", ")}）`,
+          `書き込めない置き場 ${rules.protectedPaths.join(", ")}、どのプロジェクトでも書き込めないパス ${rules.projectPaths.join(", ")}（${rules.allowPaths.join(", ")} の下を除く））`,
       );
     }
     const repoSha = existsSync(repoRules) ? sha256(readFileSync(repoRules)) : undefined;

@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MAIN, put, type Sandbox, sandbox, skillMd, snapshot, startExtension, SUB, synced } from "./helpers";
+import { MAIN, put, type Sandbox, sandbox, skillMd, snapshot, SUB, synced } from "./helpers";
 
 // 利用者が既に書いている config.yml（コメントと、制御の拡張が触る設定とほかの設定を含む）
 const USER_CONFIG = `# 利用者のコメント
@@ -33,7 +33,7 @@ function copyPath(sb: Sandbox, rel: string): string {
 
 // 適用した写しの制御の拡張を、写しのサンドボックスのプロファイル（control/sandbox.sb）で閉じ込めて読み込むプロセスを起動する
 function confined(sb: Sandbox) {
-  return startExtension(join(sb.copy, "control", "index.ts"), { profile: join(sb.copy, "control", "sandbox.sb") });
+  return sb.extension({ profile: join(sb.copy, "control", "sandbox.sb") });
 }
 
 describe("適用", () => {
@@ -47,7 +47,7 @@ describe("適用", () => {
     expect(run.exitCode).toBe(0);
     expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({
       modelRoles: { task: "anthropic/claude-opus-5-5:high" },
-      extensions: ["/somewhere/ext-a", copyPath(sb, "omp/control"), copyPath(sb, "omp/content")],
+      extensions: ["/somewhere/ext-a", copyPath(sb, "omp/control/index.ts"), copyPath(sb, "omp/content")],
       skills: {
         // 写しの中の生成した pstack と cursor-team-kit を先頭に置き、pstack の tdd を利用者の置き場の tdd より優先させる
         customDirectories: [copyPath(sb, "omp/generated/pstack/skills"), copyPath(sb, "omp/generated/cursor-team-kit/skills"), "/somewhere/skills"],
@@ -64,7 +64,7 @@ describe("適用", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     expect(Bun.YAML.parse(readFileSync(sb.configPath, "utf8"))).toEqual({
-      extensions: [copyPath(sb, "omp/control"), copyPath(sb, "omp/content")],
+      extensions: [copyPath(sb, "omp/control/index.ts"), copyPath(sb, "omp/content")],
       skills: {
         customDirectories: [copyPath(sb, "omp/generated/pstack/skills"), copyPath(sb, "omp/generated/cursor-team-kit/skills")],
         manualSkills: ["poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"],
@@ -87,7 +87,7 @@ describe("適用", () => {
     const sb = await synced();
     writeConfig(sb, USER_CONFIG);
     expect((await sb.run("apply")).exitCode).toBe(0);
-    const control = copyPath(sb, "omp/control");
+    const control = copyPath(sb, "omp/control/index.ts");
 
     const result = await confined(sb).run({
       settings: {
@@ -121,7 +121,7 @@ describe("適用", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     const result = await confined(sb).run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       sessions: [
         { agent: MAIN, toolCalls: 0 },
         { agent: SUB, toolCalls: 0 },
@@ -136,7 +136,7 @@ describe("適用", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     const result = await confined(sb).run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       sessions: [
         { agent: MAIN, toolCalls: 0 },
         { agent: SUB, toolCalls: 1 },
@@ -157,7 +157,7 @@ describe("適用", () => {
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     const result = await confined(sb).run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       mirror: true,
       sessions: [{ agent: SUB, toolCalls: 1 }],
     });
@@ -169,7 +169,7 @@ describe("適用", () => {
   test("適用より前に始まったプロセスに後から読み込まれても、上書きも遮断もしない", async () => {
     const sb = await synced();
     // 拡張を読み込むプロセスを先に始めておく（開始が適用の時刻より前になる）
-    const before = startExtension(join(sb.copy, "control", "index.ts"));
+    const before = sb.extension();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     const result = await before.run({ settings: {}, sessions: [{ agent: MAIN, toolCalls: 1 }] });
@@ -218,7 +218,7 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
     damage(sb);
 
     const result = await confined(sb).run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       sessions: [
         { agent: MAIN, toolCalls: 2 },
         { agent: SUB, toolCalls: 1 },
@@ -240,7 +240,7 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
     rmSync(sb.generated, { recursive: true });
 
     const result = await confined(sb).run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       sessions: [{ agent: MAIN, toolCalls: 1 }],
     });
 
@@ -259,12 +259,12 @@ describe("制御の拡張が読む組の記録が正しくないとき", () => {
 
   test.each(beforeApply)("$name: 適用より前に始まったプロセスに後から読み込まれたら、組を検証せず、上書きも遮断もしない", async ({ damage }) => {
     const sb = await synced();
-    const before = startExtension(join(sb.copy, "control", "index.ts"));
+    const before = sb.extension();
     expect((await sb.run("apply")).exitCode).toBe(0);
     damage(sb);
 
     const result = await before.run({
-      settings: { extensions: [copyPath(sb, "omp/control")] },
+      settings: { extensions: [copyPath(sb, "omp/control/index.ts")] },
       sessions: [
         { agent: MAIN, toolCalls: 2, spawns: ["scout"] },
         { agent: SUB, toolCalls: 1, spawns: ["scout"] },
@@ -660,9 +660,9 @@ describe("写し", () => {
     expect(run.stdout).toContain(`${copyPath(sb, "omp/bin/omp")} から起動してください`);
     expect(run.stdout).toContain("全ツールを遮断");
     expect(run.stdout).toContain("config.yml を保存できません");
-    // 起動の入口は、引数をそのまま omp の実行ファイルへ渡す
-    const echoed = await sb.launch('printf "%s|" "$@"', "a b", "it's", "c");
-    expect(echoed.stdout).toBe("a b|it's|c|");
+    // 起動の入口は、制御の拡張のファイルを -e で渡し（プロジェクトの設定が extensions を置き換えても読まれる）、続けて引数をそのまま omp の実行ファイルへ渡す
+    const echoed = await sb.launch('printf "%s|" "$FAKE_OMP_EXTENSION" "$@"', "a b", "it's", "c");
+    expect(echoed.stdout).toBe(`${copyPath(sb, "omp/control/index.ts")}|a b|it's|c|`);
   });
 
   test("写しに、リポジトリの poteto-agent の定義（役割 task のモデルで、読み替え表を自動で読み、既定の task と poteto-agent を起動できる）が入る", async () => {

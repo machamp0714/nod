@@ -11,10 +11,17 @@
 //   protectedPaths  守る集合（適用したセッションから書けない置き場）。末尾が / ならディレクトリでその下も含み、そうでなければそのパスだけ。
 //                   在るかどうかに関わらず、ここに書いた種類で守る（まだ無い置き場も、後から作られた中身も守るため）。
 //                   適用はこれと祖先をサンドボックスのプロファイルに書き、制御の拡張は閉じ込めを確かめ、書き込みのツールの引数も検査する
-// bashDeny と protectedPaths には、制御の拡張と適用が解決するプレースホルダを書ける:
+//   projectPaths    どのプロジェクトでも書かせない相対パス（OMP・Claude Code・Codex のプロジェクトの設定と、同じプロセスで動くコードの置き場）。
+//                   末尾が / ならディレクトリでその下も含む。どのディレクトリの下でも当たる（作業中のプロジェクトがどこかを問わない）。
+//                   使える文字は英数字と . _ - / だけで、. と .. の区切りは書けない
+//   allowPaths      projectPaths の照合から外す置き場（OMP が実行時に書く利用者の ~/.omp/ など）。書き方は protectedPaths と同じ。
+//                   守る集合はこれより強い（allowPaths の下でも書けない）
+// サンドボックスのプロファイルは、既定で許し、projectPaths を拒否し、allowPaths を許し、守る集合を拒否する順に書く（後の規則が勝つ）。
+// bashDeny・protectedPaths・allowPaths には、制御の拡張と適用が解決するプレースホルダを書ける:
 //   {agentDir}  適用した OMP の設定の置き場（PI_CODING_AGENT_DIR。既定は ~/.omp/agent）
 //   {workDir}   nod のデータ置き場の下の pstack-omp（写し・生成物・上流の clone）
 //   {ompBin}    適用したときの omp の実行ファイルの実パス
+//   {home}      利用者のホーム（適用は道具のホーム、制御の拡張はそのプロセスのホーム）
 // 資格情報は書かない。
 import { realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -26,12 +33,15 @@ export interface Rules {
   github: { denyOps: string[] };
   task: { denyIsolated: boolean; subAgents: string[] };
   protectedPaths: string[];
+  projectPaths: string[];
+  allowPaths: string[];
 }
 
 export interface Places {
   agentDir: string;
   workDir: string;
   ompBin: string;
+  home: string;
 }
 
 // 守る置き場（実パス）。directory ならその下も含む（Seatbelt の subpath）、そうでなければそのパスだけ（literal）
@@ -41,14 +51,17 @@ export interface Guard {
 }
 
 // 守る集合: 規則の protectedPaths を解決した実パスと、その祖先（"/" を除く。親の rename で迂回させないため、祖先はそのパスだけを守る）。
-// 書いたパスの途中や末尾がリンクなら、リンク自身とその祖先も祖先として守る（リンクを入れ替えると、読む先が変わるため）
+// 書いたパスの途中や末尾がリンクなら、リンク自身とその祖先も祖先として守る（リンクを入れ替えると、読む先が変わるため）。
+// projects は、どのプロジェクトでも書かせない相対パス（path は相対パス）。allows は、projects の照合から外す置き場（実パス）
 export interface Guarded {
   paths: Guard[];
   ancestors: string[];
+  projects: Guard[];
+  allows: Guard[];
 }
 
-const KEYS = ["version", "toolApproval", "bashDeny", "github", "task", "protectedPaths"];
-const PLACEHOLDERS = ["{agentDir}", "{workDir}", "{ompBin}"];
+const KEYS = ["version", "toolApproval", "bashDeny", "github", "task", "protectedPaths", "projectPaths", "allowPaths"];
+const PLACEHOLDERS = ["{agentDir}", "{workDir}", "{ompBin}", "{home}"];
 
 // 形が正しければ規則を、正しくなければ理由を返す
 export function parseRules(record: unknown): Rules | string {
@@ -84,28 +97,48 @@ export function parseRules(record: unknown): Rules | string {
   const subAgents = names(task.subAgents, "task.subAgents");
   if (typeof subAgents === "string") return subAgents;
 
-  const protectedPaths = names(record.protectedPaths, "protectedPaths");
+  const protectedPaths = placeList(record.protectedPaths, "protectedPaths");
   if (typeof protectedPaths === "string") return protectedPaths;
-  for (const path of protectedPaths) {
-    if (unknownPlaceholder(path)) return `protectedPaths の ${path} に知らないプレースホルダがあります`;
-    if (!PLACEHOLDERS.some((p) => path.startsWith(p)) && !path.startsWith("/")) return `protectedPaths の ${path} が絶対パスかプレースホルダで始まっていません`;
-    if (/^\/+$/u.test(path)) return `protectedPaths の ${path} が / だけです`;
+
+  const projectPaths = names(record.projectPaths, "projectPaths");
+  if (typeof projectPaths === "string") return projectPaths;
+  for (const path of projectPaths) {
+    const segments = path.replace(/\/$/u, "").split("/");
+    if (!/^[A-Za-z0-9._/-]+$/u.test(path) || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+      return `projectPaths の ${path} がプロジェクトの中の相対パスではありません（英数字と . _ - / だけで、. と .. の区切りは書けません）`;
+    }
   }
-  return { version: 1, toolApproval: approval as Record<string, "deny">, bashDeny, github: { denyOps }, task: { denyIsolated: task.denyIsolated, subAgents }, protectedPaths };
+
+  const allowPaths = placeList(record.allowPaths, "allowPaths");
+  if (typeof allowPaths === "string") return allowPaths;
+  return {
+    version: 1,
+    toolApproval: approval as Record<string, "deny">,
+    bashDeny,
+    github: { denyOps },
+    task: { denyIsolated: task.denyIsolated, subAgents },
+    protectedPaths,
+    projectPaths,
+    allowPaths,
+  };
 }
 
 // プレースホルダを置き場に置き換える
 export function resolvePlaces(text: string, places: Places): string {
-  return text.replaceAll("{agentDir}", places.agentDir).replaceAll("{workDir}", places.workDir).replaceAll("{ompBin}", places.ompBin);
+  return text
+    .replaceAll("{agentDir}", places.agentDir)
+    .replaceAll("{workDir}", places.workDir)
+    .replaceAll("{ompBin}", places.ompBin)
+    .replaceAll("{home}", places.home);
 }
 
 // 守る集合を解決する。適用（サンドボックスのプロファイル）と制御の拡張（閉じ込めの確かめ）が同じものを使う
-export function guarded(rules: Pick<Rules, "protectedPaths">, places: Places): Guarded {
-  const paths: Guard[] = [];
+export function guarded(rules: Pick<Rules, "protectedPaths" | "projectPaths" | "allowPaths">, places: Places): Guarded {
+  const resolve = (entry: string): Guard => ({ path: realAncestor(resolvePlaces(entry.replace(/\/+$/u, ""), places)), directory: entry.endsWith("/") });
+  const paths = rules.protectedPaths.map(resolve);
   const links = new Set<string>();
   for (const entry of rules.protectedPaths) {
     const written = resolvePlaces(entry.replace(/\/+$/u, ""), places);
-    paths.push({ path: realAncestor(written), directory: entry.endsWith("/") });
     for (let at = written; at !== dirname(at); at = dirname(at)) {
       const link = join(realAncestor(dirname(at)), basename(at));
       if (link !== realAncestor(at)) links.add(link);
@@ -116,7 +149,12 @@ export function guarded(rules: Pick<Rules, "protectedPaths">, places: Places): G
   for (const path of [...own, ...links]) {
     for (let at = dirname(path); at !== dirname(at); at = dirname(at)) if (!own.has(at)) ancestors.add(at);
   }
-  return { paths, ancestors: [...ancestors] };
+  return {
+    paths,
+    ancestors: [...ancestors],
+    projects: rules.projectPaths.map((entry) => ({ path: entry.replace(/\/$/u, ""), directory: entry.endsWith("/") })),
+    allows: rules.allowPaths.map(resolve),
+  };
 }
 
 // まだ無いパスでも、在る祖先まで別名（macOS の /tmp と /private/tmp など）とリンクを解いた形。Seatbelt は実パスで照合する
@@ -152,6 +190,18 @@ function names(value: unknown, name: string): string[] | string {
   const duplicated = value.find((x, i) => value.indexOf(x) !== i);
   if (duplicated !== undefined) return `${name} に ${String(duplicated)} が重複しています`;
   return value as string[];
+}
+
+// 置き場の一覧（protectedPaths・allowPaths）: 知っているプレースホルダか絶対パスで始まり、/ だけではない
+function placeList(value: unknown, name: string): string[] | string {
+  const paths = names(value, name);
+  if (typeof paths === "string") return paths;
+  for (const path of paths) {
+    if (unknownPlaceholder(path)) return `${name} の ${path} に知らないプレースホルダがあります`;
+    if (!PLACEHOLDERS.some((p) => path.startsWith(p)) && !path.startsWith("/")) return `${name} の ${path} が絶対パスかプレースホルダで始まっていません`;
+    if (/^\/+$/u.test(path)) return `${name} の ${path} が / だけです`;
+  }
+  return paths;
 }
 
 function unknownPlaceholder(text: string): boolean {

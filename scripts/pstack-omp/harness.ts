@@ -2,14 +2,18 @@
 // 適用は、OMP 向けのディレクトリの中身（content）・制御の拡張（control）・生成したスキル（generated/pstack/skills と
 // generated/cursor-team-kit/skills）を、データ置き場の下の pstack-omp/omp に写し（nod のリポジトリや worktree、生成物が消えても動き、
 // 読み込む中身を組で固定するように）、同じ写しの control/harness.json に組の記録（写しの全ファイルの sha256 を含む）を書き、
-// 利用者の config.yml に3つの読み込みの設定を入れる: OMP 向けのディレクトリの登録（extensions に写しの control と content）、
-// スキルの読み込み先（skills.customDirectories の先頭に写しの中の生成したスキルの置き場）、一覧から外すスキルの指定
-// （skills.manualSkills に読み込む全スキル）。既にある値は保ち、自分の項目が既にあれば重ねない。
+// 利用者の config.yml に3つの読み込みの設定を入れる: OMP 向けのディレクトリの登録（extensions に写しの制御の拡張のファイル control/index.ts と
+// content）、スキルの読み込み先（skills.customDirectories の先頭に写しの中の生成したスキルの置き場）、一覧から外すスキルの指定
+// （skills.manualSkills に読み込む全スキル）。既にある値は保ち、自分の項目が既にあれば重ねない。制御の拡張をディレクトリではなくファイルで
+// 書くのは、OMP が設定に書いたファイルの拡張を disabledExtensions で外さないため（プロジェクトの設定で制御だけを外させない）。
 // 制御の拡張は、組の記録と規則を検証してから、同じ値と禁止操作を止める規則（control/rules.json）の上書きを、セッションごとに
 // 同じ処理で実行時の層にも入れる（omp/control/index.ts）。規則が不正なら、適用は何も変えずに止まる。
-// 信頼境界は macOS のサンドボックス（Seatbelt）。適用は写しに、規則の守る集合（rules.ts の guarded）への書き込みを拒否するプロファイル
-// （control/sandbox.sb）と、omp の実行ファイルをそのプロファイルで閉じ込めて起動する入口（bin/omp）を置く。どちらも組の記録の sha256 に入る。
-// 入口から起動した OMP とその子孫は、規則・読み込み先・OMP の設定・omp の実行ファイルを書き換えられない（カーネルが拒否し、中から外せない）。
+// 信頼境界は macOS のサンドボックス（Seatbelt）。適用は写しに、規則の守る集合（rules.ts の guarded）とどのプロジェクトでも書かせない
+// パス（projectPaths）への書き込みを拒否するプロファイル（control/sandbox.sb）と、omp の実行ファイルをそのプロファイルで閉じ込めて
+// 起動する入口（bin/omp）を置く。どちらも組の記録の sha256 に入る。入口から起動した OMP とその子孫は、規則・読み込み先・OMP の設定・
+// omp の実行ファイル・プロジェクトの設定と同じプロセスで動くコードの置き場を書き換えられない（カーネルが拒否し、中から外せない）。
+// 入口は omp に制御の拡張のファイルを -e でも渡す（OMP の extensions は層の間で配列を置き換えるので、適用より前から在るプロジェクトの
+// 設定が extensions を置き換えても、制御の拡張は読まれる。同じ実ファイルは1度だけ読まれる）。
 // 制御の拡張は、閉じ込められていなければ全ツールを遮断する。/usr/bin/sandbox-exec が無ければ、適用は何も変えずに止まる。
 // 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。harness.json は適用の前の config.yml を持つので、利用者だけが読み書きできる。
 // 写しは同じ階層の一時ディレクトリに作り終えてから置き換え、config.yml は一時ファイルから rename する。途中で失敗したら、
@@ -36,7 +40,7 @@ import {
 } from "./config";
 import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
-import { guarded, type Guarded, parseRules, type Rules } from "../../omp/control/rules";
+import { type Guard, guarded, type Guarded, parseRules, type Rules } from "../../omp/control/rules";
 
 // 組の記録（写しの control/harness.json）。制御の拡張が読む部分の形は omp/control/index.ts と揃える
 export interface Harness {
@@ -80,9 +84,10 @@ const LOADING_KEYS = ["extensions", "skills", "skills.customDirectories", "skill
 
 const HARNESS_FILE = "harness.json";
 export const RULES_FILE = "rules.json";
-// 写しの根からの、起動の入口とサンドボックスのプロファイル
+// 写しの根からの、起動の入口とサンドボックスのプロファイルと、config.yml の extensions に書く（入口が -e で渡す）制御の拡張のファイル
 export const LAUNCHER_FILE = "bin/omp";
 export const PROFILE_FILE = "control/sandbox.sb";
+export const CONTROL_ENTRY = "control/index.ts";
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 
 // 制御の拡張のディレクトリの規則。無い・読めない・不正なら理由
@@ -101,6 +106,8 @@ export interface Paths {
   root: string;
   content: string;
   control: string;
+  // config.yml の extensions に書き、起動の入口が -e で渡す制御の拡張のファイル
+  controlEntry: string;
   harness: string;
   // 起動の入口
   launcher: string;
@@ -117,6 +124,7 @@ export function paths(ctx: Context): Paths {
     root,
     content: join(root, "content"),
     control: join(root, "control"),
+    controlEntry: join(root, CONTROL_ENTRY),
     harness: join(root, "control", HARNESS_FILE),
     launcher: join(root, LAUNCHER_FILE),
     skills: GENERATED_ROOTS.map((name) => join(root, "generated", name, "skills")),
@@ -174,7 +182,8 @@ export function hashFiles(root: string): Record<string, string> {
 
 export interface ApplyResult {
   root: string;
-  control: string;
+  // config.yml の extensions に入れた制御の拡張のファイル
+  controlEntry: string;
   content: string;
   launcher: string;
   configPath: string;
@@ -260,7 +269,7 @@ export function apply(ctx: Context): ApplyResult {
       if (e instanceof PstackOmpError) throw e;
       throw new PstackOmpError(`適用の途中で失敗しました（設定と写しは適用の前のままです）: ${(e as Error).message}`);
     }
-    return { root: p.root, control: p.control, content: p.content, launcher: p.launcher, configPath: path, configChanged: changed, manualSkills: manualSkills.length };
+    return { root: p.root, controlEntry: p.controlEntry, content: p.content, launcher: p.launcher, configPath: path, configChanged: changed, manualSkills: manualSkills.length };
   });
 }
 
@@ -288,8 +297,8 @@ function withEntries(config: Pick<OmpConfig, "path" | "data">, loading: Pick<Har
   const manual = stringList(config, "skills.manualSkills") ?? [];
   return {
     ...config.data,
-    // 末尾に写しの control と content
-    extensions: [...extensions, loading.control, loading.content],
+    // 末尾に写しの制御の拡張のファイルと content
+    extensions: [...extensions, join(root, CONTROL_ENTRY), loading.content],
     skills: {
       ...(isMapping(config.data.skills) ? config.data.skills : {}),
       // 生成したスキルの置き場を先頭に置く（custom 同士は先が勝つので、pstack の tdd が利用者の置き場の tdd より優先される）
@@ -356,10 +365,10 @@ function replaceCopy(ctx: Context, p: Paths, skillSources: string[], harness: Ha
     cpSync(ctx.controlDir, join(staging, "control"), { recursive: true, dereference: false, filter: (src) => relative(ctx.controlDir, src) !== HARNESS_FILE });
     skillSources.forEach((dir, i) => cpSync(dir, join(staging, relative(p.root, p.skills[i]!)), { recursive: true, dereference: false }));
     // 守る集合は置き換えた後の写しの置き場で解決する（写しの根は {workDir} の下）
-    const guard = guarded(rules, { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin });
+    const guard = guarded(rules, { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin, home: ctx.home });
     writeFileSync(join(staging, PROFILE_FILE), profile(guard));
     mkdirSync(join(staging, dirname(LAUNCHER_FILE)));
-    writeFileSync(join(staging, LAUNCHER_FILE), launcher(join(p.root, PROFILE_FILE), harness.ompBin), { mode: 0o755 });
+    writeFileSync(join(staging, LAUNCHER_FILE), launcher(join(p.root, PROFILE_FILE), harness.ompBin, p.controlEntry), { mode: 0o755 });
     harness.files = hashFiles(staging);
     // 適用の前の config.yml を持つので、利用者だけが読み書きできる
     writeFileSync(join(staging, "control", HARNESS_FILE), JSON.stringify(harness, null, 2) + "\n", { mode: 0o600 });
@@ -382,24 +391,31 @@ function replaceCopy(ctx: Context, p: Paths, skillSources: string[], harness: Ha
   if (aside !== undefined) rmSync(aside, { recursive: true, force: true });
 }
 
-// サンドボックスのプロファイル: 既定は許し、守る集合への書き込み（作成・書き換え・削除・rename・chmod など）を拒否する。
+// サンドボックスのプロファイル: 既定は許し、どのプロジェクトでも書かせないパスへの書き込みを拒否し、その照合から外す置き場を許し、
+// 守る集合への書き込み（作成・書き換え・削除・rename・chmod など）を拒否する（Seatbelt は後の規則が勝つ）。
+// どのプロジェクトでも書かせないパスは、どのディレクトリの下でも当たる正規表現（ディレクトリならその下も）。
 // 守る置き場は規則の種類で（ディレクトリならその下も）、祖先はそのパスだけを拒否する
-function profile({ paths, ancestors }: Guarded): string {
+function profile({ paths, ancestors, projects, allows }: Guarded): string {
   const quote = (path: string) => `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const filter = ({ path, directory }: Guard) => `(${directory ? "subpath" : "literal"} ${quote(path)})`;
+  const regex = ({ path, directory }: Guard) => `(regex #"/${path.replace(/[\\^$.|?*+()[\]{}]/gu, "\\$&")}${directory ? "(/|$)" : "$"}")`;
   return [
     "(version 1)",
     "(allow default)",
-    ...paths.map(({ path, directory }) => `(deny file-write* (${directory ? "subpath" : "literal"} ${quote(path)}))`),
+    ...projects.map((project) => `(deny file-write* ${regex(project)})`),
+    ...allows.map((allow) => `(allow file-write* ${filter(allow)})`),
+    ...paths.map((path) => `(deny file-write* ${filter(path)})`),
     ...ancestors.map((path) => `(deny file-write* (literal ${quote(path)}))`),
   ]
     .map((line) => `${line}\n`)
     .join("");
 }
 
-// 起動の入口: omp の実行ファイルを、写しのプロファイルで閉じ込めて起動する。引数はそのまま渡し、環境変数は変えない
-function launcher(profilePath: string, ompBin: string): string {
+// 起動の入口: omp の実行ファイルを、写しのプロファイルで閉じ込めて起動する。制御の拡張のファイルを -e で渡し、続けて引数をそのまま渡す。
+// 環境変数は変えない
+function launcher(profilePath: string, ompBin: string, controlEntry: string): string {
   const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
-  return `#!/bin/sh\n# pstack-omp の起動の入口（bun scripts/pstack-omp/cli.ts apply が書く）\nexec ${SANDBOX_EXEC} -f ${quote(profilePath)} ${quote(ompBin)} "$@"\n`;
+  return `#!/bin/sh\n# pstack-omp の起動の入口（bun scripts/pstack-omp/cli.ts apply が書く）\nexec ${SANDBOX_EXEC} -f ${quote(profilePath)} ${quote(ompBin)} -e ${quote(controlEntry)} "$@"\n`;
 }
 
 export interface RemoveResult {

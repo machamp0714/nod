@@ -35,7 +35,7 @@ function applyCommand(): void {
   console.log(`写しを置きました: ${result.root}（OMP 向けのディレクトリ・制御の拡張・生成したスキル）`);
   console.log(
     result.configChanged
-      ? `OMP の設定 ${result.configPath} に、extensions（${result.control} と ${result.content}）・skills.customDirectories（写しの中の生成したスキルの置き場）・skills.manualSkills を入れました`
+      ? `OMP の設定 ${result.configPath} に、extensions（${result.controlEntry} と ${result.content}）・skills.customDirectories（写しの中の生成したスキルの置き場）・skills.manualSkills を入れました`
       : `OMP の設定 ${result.configPath} には、extensions・skills.customDirectories・skills.manualSkills の項目が既にあります（変えていません）`,
   );
   console.log(`新しく始めたセッションから、生成したスキルと OMP 向けのディレクトリが読み込まれ、${result.manualSkills} 個のスキルがスキルの一覧から外れます`);

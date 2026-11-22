@@ -38,7 +38,7 @@ describe("適用の状態とどの tdd が使われるか", () => {
 
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain(
-      `3つの読み込みの設定を登録しています（extensions に ${work}/omp/control と ${work}/omp/content、skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む 6 個のスキル）`,
+      `3つの読み込みの設定を登録しています（extensions に ${work}/omp/control/index.ts と ${work}/omp/content、skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む 6 個のスキル）`,
     );
     expect(run.stdout).toContain("組のファイルは記録の sha256 と一致しています");
     expect(run.stdout).toContain("元にした pin は固定の記録と一致しています");
@@ -74,6 +74,11 @@ describe("適用の状態とどの tdd が使われるか", () => {
     {
       name: "config.yml の extensions から OMP 向けのディレクトリが消えた",
       damage: (sb) => writeFileSync(sb.configPath, readFileSync(sb.configPath, "utf8").replace(/^ +- .*\/omp\/content\n/m, "")),
+      shows: "読み込みの設定が欠けています: extensions の ",
+    },
+    {
+      name: "config.yml の extensions の制御の拡張がファイルではなくディレクトリ（disabledExtensions で外せる形）に書き換えられた",
+      damage: (sb) => writeFileSync(sb.configPath, readFileSync(sb.configPath, "utf8").replace("/omp/control/index.ts\n", "/omp/control\n")),
       shows: "読み込みの設定が欠けています: extensions の ",
     },
     {
