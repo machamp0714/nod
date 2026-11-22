@@ -111,7 +111,7 @@ export function useFilterOptions(sprintRef?: string): FilterOptions {
 // 一覧で選んだ複数 Issue の一括編集。1件でも失敗したら何も変わらず、ApiError の details に失敗一覧が入る
 export type BulkUpdateInput = Pick<
   UpdateIssueInput,
-  "status" | "priority" | "assignee" | "projectRef" | "milestoneRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels"
+  "status" | "priority" | "projectRef" | "milestoneRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels"
 >;
 
 export function useBulkUpdateIssues() {

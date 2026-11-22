@@ -43,7 +43,7 @@ test("プロパティと関連 Issue を出す", async ({ page }) => {
   await expect(property(props, "Status")).toHaveAttribute("data-value", "in_progress");
   await expect(property(props, "Priority")).toHaveAttribute("data-value", "2");
   await expect(property(props, "Project")).toHaveAttribute("data-value", "1");
-  await expect(property(props, "Assignee")).toHaveAttribute("data-value", "claude-code");
+  await expect(props.getByText("Assignee", { exact: true })).toHaveCount(0);
   await expect(props.getByRole("button", { name: "ラベル perf を外す" })).toBeVisible();
   for (const text of ["api-server", "入力待ち", "feat-search-n1"]) {
     await expect(props).toContainText(text);

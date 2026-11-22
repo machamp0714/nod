@@ -68,7 +68,7 @@ import {
   type WorkspaceRules,
   type WorkspaceTransitionRules,
 } from "@nod/core";
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
 import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
 import { registerGithubIssueCommands } from "./github";
@@ -108,6 +108,10 @@ function formatStartContext(result: { previousAgentState: Issue["agentState"]; p
 function heldQuestionCount(i: Issue): number {
   if (i.status !== "todo" && i.status !== "backlog") return 0;
   return i.questionCount.total - i.questionCount.answered;
+}
+
+function rejectAssigneeOption(): never {
+  throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
 }
 
 export function registerIssueCommands(program: Command): void {
@@ -354,7 +358,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス")
-    .option("--assignee <name>", "担当（空文字で外す。none は未割り当ての絞り込み用の予約語で使えない）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
     .option("--parent <id>", "親 Issue")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（Issue の Project のもの。Project を変えると外れる）")
@@ -375,7 +380,6 @@ export function registerIssueCommands(program: Command): void {
             estimate?: string;
             due?: string;
             status?: string;
-            assignee?: string;
             parent?: string;
             project?: string;
             addLabel?: string[];
@@ -390,7 +394,6 @@ export function registerIssueCommands(program: Command): void {
             estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
             dueDate: orNull(o.due),
             status: o.status === undefined ? undefined : parseStatus(o.status),
-            assignee: orNull(o.assignee),
             parentRef: orNull(o.parent),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
@@ -414,7 +417,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス（Triage の Issue は変えられない）")
-    .option("--assignee <name>", "担当（空文字で外す。none は未割り当ての絞り込み用の予約語で使えない）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（各 Issue の Project のもの。空文字で外す）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
@@ -431,7 +435,6 @@ export function registerIssueCommands(program: Command): void {
             estimate?: string;
             due?: string;
             status?: string;
-            assignee?: string;
             project?: string;
             milestone?: string;
             addLabel?: string[];
@@ -444,7 +447,6 @@ export function registerIssueCommands(program: Command): void {
             estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
             dueDate: orNull(o.due),
             status: o.status === undefined ? undefined : parseStatus(o.status),
-            assignee: orNull(o.assignee),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
             addLabels: o.addLabel,

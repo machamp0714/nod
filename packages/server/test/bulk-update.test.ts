@@ -8,7 +8,7 @@ describe("POST /api/issues/bulk-update", () => {
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
     const r = await call(app, "POST", "/api/issues/bulk-update", {
-      ids: [a.id, b.id], status: "in_progress", priority: 2, assignee: null, estimate: 5, dueDate: "2026-10-01", addLabels: ["x"],
+      ids: [a.id, b.id], status: "in_progress", priority: 2, estimate: 5, dueDate: "2026-10-01", addLabels: ["x"],
     });
     expect(r.status).toBe(200);
     expect(r.json.map((i: { id: string }) => i.id)).toEqual([a.id, b.id]);
@@ -36,25 +36,19 @@ describe("POST /api/issues/bulk-update", () => {
     expect(getIssue(db, a.id).milestone).toBeNull();
   });
 
-  test("担当の名前 none は 400 INVALID_ARGS で、更新（update）・一括更新・受け入れのどれも何も書かない（#166）", async () => {
-    const { app, db, me, llm, ws } = setup();
+  test("単体と一括の更新で廃止済みの assignee キーを拒否し、他の項目も変えない", async () => {
+    const { app, db, me, ws } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
-    const calls: [string, Record<string, unknown>][] = [
-      ["/api/issues/bulk-update", { ids: [a.id], assignee: "none", priority: 1 }],
-      [`/api/issues/${a.id}/update`, { assignee: " None ", priority: 1 }],
-      [`/api/issues/${t.id}/accept`, { assignee: "NONE", priority: 1 }],
-    ];
-    for (const [path, body] of calls) {
-      const r = await call(app, "POST", path, body);
-      expect(r.status).toBe(400);
-      expect(r.json.error.code).toBe("INVALID_ARGS");
-      expect(r.json.error.message).toContain("none");
+    for (const assignee of ["codex", null]) {
+      const change = { assignee, priority: 1 };
+      const single = await call(app, "POST", `/api/issues/${a.id}/update`, change);
+      const bulk = await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id], ...change });
+      for (const r of [single, bulk]) {
+        expect(r.status).toBe(400);
+        expect(r.json.error).toMatchObject({ code: "INVALID_ARGS", message: "担当は廃止されました。assignee は使えません" });
+      }
     }
-    expect(getIssue(db, a.id)).toMatchObject({ assignee: null, priority: 0 });
-    expect(getIssue(db, t.id)).toMatchObject({ status: "triage", assignee: null, priority: 0 });
-    // 絞り込みの assignee=none（未割り当て）は変わらず使える
-    expect((await call(app, "GET", "/api/issues?assignee=none")).json.issues.map((i: { id: string }) => i.id)).toEqual([a.id, t.id]);
+    expect(getIssue(db, a.id).priority).toBe(0);
   });
 
   test("一部が失敗したら 409 BULK_UPDATE_FAILED で失敗一覧を返し、何も書かない", async () => {

@@ -233,24 +233,20 @@ describe("updateIssue", () => {
     ]);
   });
 
-  test("担当の名前に none は使えない（絞り込みで未割り当てを指す値。大文字小文字・前後の空白は問わない）", () => {
+  test("更新で廃止済みの assignee キーを拒否し、他の項目も変えない", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
-    for (const name of ["none", "NONE", " None "]) {
-      expect(codeOf(() => updateIssue(me, i.id, { assignee: name, priority: 1 }))).toBe("INVALID_ARGS");
+    for (const assignee of ["codex", null]) {
+      expect(codeOf(() => updateIssue(me, i.id, { assignee, priority: 1 }))).toBe("INVALID_ARGS");
     }
-    expect(getIssue(db, i.id)).toMatchObject({ assignee: null, priority: 0 });
-    expect(updateIssue(me, i.id, { assignee: "none-bot" }).assignee).toBe("none-bot");
-    expect(updateIssue(me, i.id, { assignee: null }).assignee).toBeNull();
+    expect(getIssue(db, i.id).priority).toBe(0);
   });
 
-  test("none が担当として保存済みの Issue も、ほかの項目は変えられ、担当は外すか別の名前にできる", () => {
+  test("旧データで担当が保存済みでも他の項目を更新できる", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "t" });
     db.query("UPDATE issues SET assignee = 'none' WHERE workspace_id = ? AND number = ?").run(ws.id, i.number);
     expect(updateIssue(me, i.id, { priority: 2 })).toMatchObject({ assignee: "none", priority: 2 });
-    expect(updateIssue(me, i.id, { assignee: null }).assignee).toBeNull();
-    expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "assignee_changed", data: { from: "none", to: null } });
   });
 });
 

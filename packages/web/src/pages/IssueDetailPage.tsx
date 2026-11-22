@@ -190,7 +190,6 @@ function IssueDetailView({ issue }: { issue: IssueDetail }) {
             onResolve={(commentId, resolved) => resolveThread.mutateAsync({ commentId, resolved })}
             instructionTarget={{
               issueId: issue.id,
-              agent: issue.assignee && issue.assignee !== "me" ? issue.assignee : "LLM",
               location: executionLocation(issue.branch, issue.worktree)?.branchLabel ?? null,
             }}
           />

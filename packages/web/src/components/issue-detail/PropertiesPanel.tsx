@@ -6,7 +6,7 @@ import { PrStatusSection } from "./PrStatusSection";
 import { prLabel } from "../../lib/format";
 import { formatDueDate, formatEstimate, isOverdue, isValidDueDateInput, localToday, MIN_DUE_DATE, parseEstimateInput } from "../../lib/due-date";
 import { executionLocation } from "../../lib/execution-location";
-import { assigneeChoices, hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
+import { hasText, parseLabels, statusChoices } from "../../lib/issue-edit";
 import { statusName } from "../../lib/workspace-labels";
 import { useStatusNames } from "../../api/hooks/workspace-labels";
 import { useMilestones } from "../../api/hooks/projects";
@@ -17,7 +17,7 @@ import { priorityMeta, STATUS_META, TONE_COLORS } from "../../lib/meta";
 import { relationMark } from "../../lib/relation-state";
 import { SPRINT_PHASE_LABEL, sprintAssociationLabel, sprintPicker } from "../../lib/sprints";
 import { formatReminderAt, parseReminderInput, reminderInputs } from "../../lib/reminder";
-import { AgentAvatar, AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
+import { AgentStatePill, Button, Icon, type IconName, LabelChip, Pill, WorkspaceBadge } from "../ui";
 import s from "./issue-detail.module.css";
 import { GithubLinkRow } from "./GithubLinkRow";
 import { OpenInOrcaButton } from "./OpenInOrcaButton";
@@ -282,7 +282,7 @@ function LabelAdder({ labels, locked, busy, change }: { labels: readonly string[
   );
 }
 
-// spec：ステータス、優先度、Workspace、Project、ラベル、担当者、作業状況、実行場所、PR。
+// spec：ステータス、優先度、Workspace、Project、ラベル、作業状況、実行場所、PR。
 // Workspace、作業状況、実行場所、PR は、変える API がないため表示だけにする。
 // variant="inbox" は Inbox の通知詳細の右カラム（nod.pen『Inbox｜通知からの編集（#46）』）で、変えられる行とリマインダーだけを出す
 export function PropertiesPanel({
@@ -359,10 +359,6 @@ export function PropertiesPanel({
     })),
   ];
   const sprintHint = picker.blockedBy.length ? `計画で採択されているため外せません（${picker.blockedBy.join("、")}）` : null;
-  const assigneeMenu: PropertyOption[] = [
-    none("circle-user"),
-    ...assigneeChoices(issue.assignee).map((assignee) => ({ value: assignee, label: assignee, icon: <span className={s.propIcon} aria-hidden="true"><AgentAvatar actor={assignee} /></span> })),
-  ];
 
   return (
     <section className={`${full ? s.panel : s.inboxProps} ${readOnly ? s.propsLocked : ""}`} aria-label="プロパティ">
@@ -431,10 +427,6 @@ export function PropertiesPanel({
             ))}
             <LabelAdder labels={issue.labels} locked={readOnly} busy={action.busy} change={change} />
           </span>
-        </Prop>
-        <Prop label="Assignee">
-          <PropertyMenu label="Assignee" value={issue.assignee ?? ""} options={assigneeMenu} disabled={locked}
-            onChange={(value) => void change({ assignee: value === "" ? null : value })} />
         </Prop>
         {full && <Prop label="作業状況"><Static>{issue.agentState ? <AgentStatePill state={issue.agentState} /> : <Empty />}</Static></Prop>}
         {full && (

@@ -92,7 +92,7 @@ export function ActivitySection({
           disabled={action.busy}
           className={s.commentInput}
           aria-label={instructing ? "追加指示" : "コメント"}
-          placeholder={instructing ? `${instructionTarget.agent} への追加指示を書く…` : "コメントを書く…"}
+          placeholder={instructing ? "LLM への追加指示を書く…" : "コメントを書く…"}
           value={body}
           onChange={(e) => setBody(e.target.value)}
         />
@@ -105,7 +105,7 @@ export function ActivitySection({
           {instructing ? (
             <>
               <span className={s.instructionHint}>
-                宛先: {instructionTarget.agent}{instructionTarget.location ? `（Orca · ${instructionTarget.location}）` : "（実行場所未記録）"}
+                宛先: LLM{instructionTarget.location ? `（Orca · ${instructionTarget.location}）` : "（実行場所未記録）"}
               </span>
               {notice && <span role="status" className={s.copyNotice}>{notice}</span>}
               <Button variant="primary" onClick={() => { setNotice(""); setConfirming(true); }} disabled={!hasText(body)}>
@@ -122,7 +122,6 @@ export function ActivitySection({
       {confirming && instructionTarget && (
         <SendInstructionDialog
           issueId={instructionTarget.issueId}
-          agent={instructionTarget.agent}
           target={{ kind: "new", body: body.trim() }}
           onClose={() => setConfirming(false)}
           onDone={({ sent, sendFailed }) => {

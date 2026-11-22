@@ -59,7 +59,6 @@ const UPDATE_KEYS = [
   "estimate",
   "dueDate",
   "status",
-  "assignee",
   "parentRef",
   "projectRef",
   "milestoneRef",
@@ -88,7 +87,6 @@ function toUpdateInput(b: Body): UpdateIssueInput {
     estimate: optNullableInt(b, "estimate"),
     dueDate: optNullableString(b, "dueDate"),
     status: status as Status | undefined,
-    assignee: optNullableString(b, "assignee"),
     parentRef: optNullableString(b, "parentRef"),
     projectRef: optNullableString(b, "projectRef"),
     milestoneRef: b.milestoneRef === "" ? null : optNullableString(b, "milestoneRef"), // 空文字も CLI の --milestone "" と同じく外す
@@ -166,13 +164,13 @@ const OPS: Record<string, Op> = {
   unremind: { keys: [], run: (me, ref) => clearReminder(me, ref) },
 };
 
-const BULK_UPDATE_KEYS = ["ids", "status", "priority", "assignee", "projectRef", "milestoneRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
+const BULK_UPDATE_KEYS = ["ids", "status", "priority", "projectRef", "milestoneRef", "cycleRef", "estimate", "dueDate", "addLabels", "removeLabels", "reason"] as const;
 
 // web からの Issue の操作。書き手は me
 export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void {
   // 一覧で選んだ複数 Issue の一括編集。/api/issues/:id/:op とは段数が違うので衝突しない
   app.post("/api/issues/bulk-update", async (c) => {
-    const body = await readBody(c, BULK_UPDATE_KEYS);
+    const body = await readBody(c, BULK_UPDATE_KEYS, { rejectAssignee: true });
     const ids = optStringArray(body, "ids");
     if (ids === undefined) throw invalid("ids に Issue の ID の配列を指定してください");
     const { title: _t, description: _d, parentRef: _p, ...input } = toUpdateInput(body);
@@ -185,7 +183,7 @@ export function registerIssueOps(app: Hono, me: OpCtx, client?: JevClient): void
     if (!op) {
       throw new NodError("NOT_FOUND", `操作 ${name} はありません（使えるもの: ${Object.keys(OPS).join(", ")}）`);
     }
-    const body = await readBody(c, op.keys);
+    const body = await readBody(c, op.keys, { rejectAssignee: name === "accept" || name === "update" });
     rejectCycleInput(body);
     return c.json(await op.run(me, c.req.param("id"), body, client), op.created ? 201 : 200);
   });

@@ -5,10 +5,9 @@ import type { AgentInstruction, OrcaTerminal } from "../../api/types";
 import { Button, Icon } from "../ui";
 import s from "./issue-detail.module.css";
 
-// 追加指示（#51）の宛先の表示。agent は担当の LLM、location は記録済みの実行場所（無ければ null）
+// 追加指示（#51）の宛先の表示。location は記録済みの実行場所（無ければ null）
 export interface InstructionTarget {
   issueId: string;
-  agent: string;
   location: string | null;
 }
 
@@ -19,14 +18,12 @@ export type SendTarget = { kind: "new"; body: string } | { kind: "existing"; ins
 // 宛先が1件なら内容の確認、複数なら選択、0件なら記録のみを示す。送信はこの画面の「送信」からだけ行う
 export function SendInstructionDialog({
   issueId,
-  agent,
   target,
   title,
   onClose,
   onDone,
 }: {
   issueId: string;
-  agent: string; // 宛先の名前（担当の LLM。未設定なら端末の agentIdentity）
   target: SendTarget;
   title?: string; // 送信するかを尋ねる見出しを差し替える（差し戻しの対応依頼など）
   onClose: () => void;
@@ -86,7 +83,7 @@ export function SendInstructionDialog({
       ? existing ? "送信先の端末がありません" : "追加指示を記録しますか？"
       : terminals.length > 1
         ? "送信先を選んでください"
-        : (title ?? `${agent} に追加指示を送信しますか？`);
+        : (title ?? "LLM に追加指示を送信しますか？");
 
   return (
     <dialog
@@ -109,7 +106,7 @@ export function SendInstructionDialog({
                 : `送信先の端末がありません${reason}。記録のみ行い、LLM は次の start/show で読みます`}
             </p>
           )}
-          {!loading && terminals.length === 1 && selected && <Destination agent={agent} terminal={selected} worktree={targets.data?.worktree ?? null} />}
+          {!loading && terminals.length === 1 && selected && <Destination terminal={selected} worktree={targets.data?.worktree ?? null} />}
           {terminals.length > 1 && (
             <div role="radiogroup" aria-label="送信先" className={s.sendDestinations}>
               {terminals.map((t) => (
@@ -164,9 +161,9 @@ export function SendInstructionDialog({
   );
 }
 
-function Destination({ agent, terminal, worktree }: { agent: string; terminal: OrcaTerminal; worktree: string | null }) {
+function Destination({ terminal, worktree }: { terminal: OrcaTerminal; worktree: string | null }) {
   const rows: [string, string][] = [
-    ["宛先", agent],
+    ["宛先", "LLM"],
     ["端末", `${terminal.agentIdentity} · ${terminal.title || terminal.handle}`],
     ["handle", terminal.handle],
     ["worktree", terminal.worktreePath ?? worktree ?? ""],

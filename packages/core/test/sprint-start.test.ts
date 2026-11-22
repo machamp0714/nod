@@ -52,16 +52,16 @@ test("一般更新と一括更新で採択Issueをin_progressにでき、採択�
   const ordinary = core.createIssue(me, { workspaceId: ws.id, title: "通常" });
   const ready = acceptPreparedSprint(me, prepareSprint(me, ws.key, [adopted.id]));
   for (const ctx of [me, llm]) {
-    expect(core.updateIssue(ctx, adopted.id, { status: "in_progress", assignee: ctx.actor })).toMatchObject({ status: "in_progress", assignee: ctx.actor });
-    core.updateIssue(me, adopted.id, { status: "todo", assignee: null });
+    expect(core.updateIssue(ctx, adopted.id, { status: "in_progress" }).status).toBe("in_progress");
+    core.updateIssue(me, adopted.id, { status: "todo" });
   }
-  // 採択外の手動更新は、未回答・他担当があっても従来の移動の意味を維持する。
+  // 採択外の手動更新は、未回答の質問があってもステータスを変更できる。
   core.askQuestion(llm, ordinary.id, "仕様を選んでください");
-  expect(core.updateIssue(me, ordinary.id, { status: "in_progress", assignee: "other" })).toMatchObject({ status: "in_progress", assignee: "other", agentState: null });
+  expect(core.updateIssue(me, ordinary.id, { status: "in_progress" })).toMatchObject({ status: "in_progress", agentState: null });
   core.activateSprint(me, ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, sprintTestClock);
-  expect(core.bulkUpdateIssues(me, [ordinary.id, adopted.id], { status: "in_progress", assignee: "me", priority: 1 }))
-    .toMatchObject([{ id: ordinary.id, status: "in_progress", assignee: "me", priority: 1 }, { id: adopted.id, status: "in_progress", assignee: "me", priority: 1 }]);
-  expect(core.updateIssue(me, adopted.id, { priority: 2, assignee: "me" })).toMatchObject({ priority: 2, assignee: "me", status: "in_progress" });
+  expect(core.bulkUpdateIssues(me, [ordinary.id, adopted.id], { status: "in_progress", priority: 1 }))
+    .toMatchObject([{ id: ordinary.id, status: "in_progress", priority: 1 }, { id: adopted.id, status: "in_progress", priority: 1 }]);
+  expect(core.updateIssue(me, adopted.id, { priority: 2 })).toMatchObject({ priority: 2, status: "in_progress" });
   db.close();
 });
 

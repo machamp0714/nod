@@ -528,6 +528,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
+  if (Object.hasOwn(input, "assignee")) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
   if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   if (input.status === "needs_clarification") {
     throw new NodError(
@@ -539,7 +540,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
-  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
@@ -550,7 +550,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
     if (input.estimate !== undefined) setColumn(ctx, row, "estimate", input.estimate);
     if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);
-    if (input.assignee !== undefined) setColumn(ctx, row, "assignee", input.assignee);
     if (input.parentRef !== undefined) {
       const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
       if (parent?.id === row.id) throw new NodError("INVALID_ARGS", "Issue 自身を親にはできません");

@@ -5,7 +5,6 @@ import { useMilestones } from "../../api/hooks/projects";
 import { type BulkUpdateInput, useBulkUpdateIssues } from "../../api/hooks/issues";
 import type { Issue, Status } from "../../api/types";
 import { BULK_SELECT_LIMIT, type BulkFailure, bulkFailures, labelMenu, milestoneMenu } from "../../lib/bulk-selection";
-import { KNOWN_ASSIGNEES } from "../../lib/issue-edit";
 import { priorityMeta, STATUS_ORDER } from "../../lib/meta";
 import { Button, Icon, type IconName, MenuItem } from "../ui";
 import s from "./issue-list.module.css";
@@ -14,7 +13,7 @@ import s from "./issue-list.module.css";
 const BULK_STATUSES = STATUS_ORDER.filter((status) => status !== "needs_clarification" && status !== "triage");
 const PRIORITIES = [1, 2, 3, 4, 0];
 
-type MenuKey = "status" | "priority" | "assignee" | "project" | "labels" | "estimate" | "dueDate" | "milestone";
+type MenuKey = "status" | "priority" | "project" | "labels" | "estimate" | "dueDate" | "milestone";
 
 // design/nod.pen「Issues｜一括編集（#31）」の一括操作バー。項目を選ぶとすぐに選択中の全 Issue へ適用する。
 // 1件でも失敗したら何も変わらないため、失敗した Issue と理由をバーの上に出し、選択はそのまま残す
@@ -125,15 +124,6 @@ export function BulkActionBar({
         </Dropdown>
         <Dropdown icon="signal-high" label="優先度" disabled={disabled} {...menu("priority")}>
           <Menu label="優先度を変更" items={PRIORITIES.map((priority) => ({ key: String(priority), label: priorityMeta(priority).label, run: () => apply({ priority }) }))} />
-        </Dropdown>
-        <Dropdown icon="circle-user" label="担当" disabled={disabled} {...menu("assignee")}>
-          <Menu
-            label="担当を変更"
-            items={[
-              ...KNOWN_ASSIGNEES.map((assignee) => ({ key: assignee, label: assignee, run: () => apply({ assignee }) })),
-              { key: "", label: "担当なし", run: () => apply({ assignee: null }) },
-            ]}
-          />
         </Dropdown>
         <Dropdown icon="box" label="Project" disabled={disabled} {...menu("project")}>
           <Menu
