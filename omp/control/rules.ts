@@ -162,11 +162,12 @@ export function guarded(rules: Pick<Rules, "protectedPaths" | "projectPaths" | "
   };
 }
 
-// まだ無いパスでも、在る祖先まで別名（macOS の /tmp と /private/tmp など）とリンクを解いた形。Seatbelt は実パスで照合する
+// まだ無いパスでも、在る祖先まで別名（macOS の /tmp と /private/tmp など）とリンクを解いた形。Seatbelt は実パスで照合する。
+// リンクの参照先の .. をカーネルと同じに辿るため、OS の realpath(3)（realpathSync.native）で解く（JS の realpathSync は参照先を字面でつなぐ）
 export function realAncestor(path: string): string {
   for (let at = path, rest = ""; ; ) {
     try {
-      return join(realpathSync(at), rest);
+      return join(realpathSync.native(at), rest);
     } catch {
       if (dirname(at) === at) return path;
       rest = join(basename(at), rest);

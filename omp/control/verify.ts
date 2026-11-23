@@ -25,7 +25,6 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   rmdirSync,
   rmSync,
@@ -258,10 +257,10 @@ const OUTSIDE_LIMIT = 10_000;
 //   1つずつ試す（書けたものは出し、その下へは降りない）。書いたままのパスがリンクを通る守る置き場も、根の外の木として歩く。
 //   歩いたディレクトリの実パスは二度歩かない（参照先から元へ戻るリンク、自分自身や互いを指すリンクでも終わる）。根の外の木で調べた項目が
 //   OUTSIDE_LIMIT を超えたら、確かめきれないので書けるとみなす（覆う置き場の中の歩きには上限を置かない）。
-//   参照先が無いリンクは、1段の参照先（リンクの在るディレクトリの実パスから解いたもの）が覆う置き場の中なら試さない。外なら、1段の参照先が
-//   リンクとして在れば（解けない連鎖）書けるとみなし、無ければ在る最も近い祖先がその親ならそこに作成を試し、もっと上ならその祖先を
-//   ディレクトリとして試す（祖先がディレクトリでなければ、消して作り直せるかをその親で試す）。解けないリンク（循環など）は、
-//   1段の参照先が覆う置き場の中でなければ書けるとみなす。読めないディレクトリやリンクも、確かめられないので書けるとみなす。
+//   OS が参照先を解決できないリンク（参照先が無い、循環する、たどる権限が無いなど。realpath(3) の失敗）は、参照先を自前で解いたり
+//   作ってみたりせず、どこを指していても確かめられないとして書けるとみなす（このリンクと、守る置き場そのものやその途中の要素
+//   （.claude/settings.json の .claude など）の解決できないリンクも同じ。守る置き場そのものやその途中の要素が在るかを、無い（ENOENT・
+//   ENOTDIR）以外の失敗で確かめられないときも同じ）。読めないディレクトリやリンクも、確かめられないので書けるとみなす。
 //   歩いている間に消えたものは飛ばす。
 function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed: Guard[]): string[] {
   const uid = process.getuid?.();
@@ -316,6 +315,28 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
     if (!stat.isDirectory()) return !denied(chmod) || !denied(() => accessSync(path, constants.W_OK), true);
     return !denied(chmod) || create(join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`), true);
   };
+  // OS が参照先を解決できないリンク link（error は realpath の失敗）を、確かめられない置き場として出す形
+  const unresolvable = (link: string, error: unknown) => `${link}（確かめられません: 参照先を解決できません（${(error as Error).message}））`;
+  // path の途中か最後の要素のうち、OS が参照先を解決できない最初のリンクか、在るかを確かめられない要素（どちらも無ければ undefined）。
+  // 要素が無い（ENOENT）か、途中がディレクトリでない（ENOTDIR）なら、その先は無いので見ない
+  const broken = (path: string): string | undefined => {
+    for (let at = "/", rest = path.split("/").filter(Boolean); rest.length > 0; ) {
+      at = join(at, rest.shift()!);
+      try {
+        if (!lstatSync(at).isSymbolicLink()) continue;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+        return `${at}（確かめられません: パスを解決できません（${(e as Error).message}））`;
+      }
+      try {
+        realpathSync.native(at);
+      } catch (e) {
+        return unresolvable(at, e);
+      }
+    }
+    return undefined;
+  };
   const scratch = (): string[] => {
     let work: string;
     try {
@@ -360,39 +381,13 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
       walked.add(at);
       pending.push({ dir, at, inside });
     };
-    // 参照先が無いか解けないリンク link（dir はそれが在るディレクトリの実パス、error は参照先を解いたときの失敗）
-    const unresolved = (link: string, dir: string, error: unknown) => {
-      let next: string;
-      try {
-        next = resolve(dir, readlinkSync(link));
-      } catch (e) {
-        if (!missing(e)) unsure(link, `リンクを読めません（${(e as Error).message}）`);
-        return;
-      }
-      if (covers(realAncestor(next))) return;
-      if (!missing(error)) {
-        unsure(link, `参照先 ${next} を解けません（${(error as Error).message}）`);
-        return;
-      }
-      try {
-        lstatSync(next);
-        unsure(link, `参照先 ${next} が解けないリンクです`);
-        return;
-      } catch {
-        // 参照先は無い
-      }
-      let at = dirname(next);
-      while (!existsSync(at)) at = dirname(at);
-      if (!isDirectory(at)) at = dirname(at);
-      if (at === dirname(next) ? create(next, false) : probe(at, true)) found.push(`${link}（参照先 ${next}）`);
-    };
-    // リンク link（dir はそれが在るディレクトリの実パス）の参照先を試し、書けないディレクトリなら根の外の木として歩く
-    const follow = (link: string, dir: string) => {
+    // リンク link の参照先を試し、書けないディレクトリなら根の外の木として歩く
+    const follow = (link: string) => {
       let target: string;
       try {
-        target = realpathSync(link);
+        target = realpathSync.native(link);
       } catch (e) {
-        unresolved(link, dir, e);
+        found.push(unresolvable(link, e));
         return;
       }
       if (covers(target)) return;
@@ -432,7 +427,7 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
           if (!missing(e)) unsure(path, (e as Error).message);
           continue;
         }
-        if (stat.isSymbolicLink()) follow(path, at);
+        if (stat.isSymbolicLink()) follow(path);
         else if (inside) {
           if (stat.isDirectory()) enter(path, sub, true);
         } else if (probe(path, stat.isDirectory())) found.push(path);
@@ -445,7 +440,9 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
   // 書けなかった、在るディレクトリの守る置き場（下を歩く）
   const roots: string[] = [];
   const check = ({ path, directory }: Guard) => {
-    if (probe(path, directory)) open.push(path);
+    const link = broken(path);
+    if (link !== undefined) open.push(link);
+    else if (probe(path, directory)) open.push(path);
     else if (directory && isDirectory(path)) roots.push(path);
   };
   for (const guard of paths) check(guard);
@@ -464,11 +461,11 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
   return [...new Set(open)];
 }
 
-// 同じディレクトリの別名（macOS の /tmp と /private/tmp、~ など）を同じとみなすための形
+// 同じディレクトリの別名（macOS の /tmp と /private/tmp、~ など）を同じとみなすための形（OS の realpath(3) で解く）
 export function real(path: string): string {
   const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
   try {
-    return realpathSync(expanded);
+    return realpathSync.native(expanded);
   } catch {
     return resolve(expanded);
   }

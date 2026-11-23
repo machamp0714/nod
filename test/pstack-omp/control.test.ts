@@ -600,20 +600,22 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(sub)).toEqual([]);
   });
 
-  test("プロジェクトの .omp の下のリンクが .omp の中（自分自身や互いを指すもの、まだ無いものを含む）か、閉じ込めで書けない守る集合の中を指すなら、専用ランチャーは omp を起動し、制御の拡張もツールと子の起動を遮断しない", async () => {
+  test("プロジェクトの .omp の下のリンクが、OS が解決でき .omp の中（自分自身の祖先を指すもの、ディレクトリへのリンクの後に .. を通るものを含む）か、閉じ込めで書けない守る集合の中を指すなら、専用ランチャーは omp を起動し、制御の拡張もツールと子の起動を遮断しない", async () => {
     const sb = await applied();
     const { sub, omp } = repository(sb);
     const extensions = join(realpathSync(sb.agentDir), "extensions");
     mkdirSync(extensions, { recursive: true });
-    mkdirSync(join(omp, "agents"));
+    mkdirSync(join(omp, "agents", "nested"), { recursive: true });
     writeFileSync(join(omp, "agents", "poteto-agent.md"), "# 利用者の定義\n");
     symlinkSync(join(omp, "agents", "poteto-agent.md"), join(omp, "agents", "alias.md"));
     symlinkSync(omp, join(omp, "loop"));
-    symlinkSync(join(omp, "b"), join(omp, "a"));
+    symlinkSync(join(omp, "agents"), join(omp, "a"));
     symlinkSync(join(omp, "a"), join(omp, "b"));
-    symlinkSync(join(omp, "nothing"), join(omp, "missing"));
     symlinkSync(extensions, join(omp, "extensions"));
     symlinkSync(realpathSync(sb.configPath), join(omp, "agents", "config.md"));
+    // OS は d を .omp/agents/nested に解いてから .. を辿るので、参照先は .omp/agents/poteto-agent.md（在る）
+    symlinkSync(join(omp, "agents", "nested"), join(omp, "d"));
+    symlinkSync("d/../poteto-agent.md", join(omp, "via"));
     const config = sha256(sb.configPath);
 
     const launched = await sb.launchWith({ cwd: sub }, "printf started");
@@ -623,8 +625,9 @@ describe("サンドボックスの信頼境界", () => {
     expect(launched.stdout).toBe("started");
     expect(result.toolCalls).toEqual([[null]]);
     expect(result.spawns).toEqual([[null]]);
-    expect(readdirSync(omp).sort()).toEqual(["a", "agents", "b", "extensions", "loop", "missing"]);
-    expect(readdirSync(join(omp, "agents")).sort()).toEqual(["alias.md", "config.md", "poteto-agent.md"]);
+    expect(readdirSync(omp).sort()).toEqual(["a", "agents", "b", "d", "extensions", "loop", "via"]);
+    expect(readdirSync(join(omp, "agents")).sort()).toEqual(["alias.md", "config.md", "nested", "poteto-agent.md"]);
+    expect(readdirSync(join(omp, "agents", "nested"))).toEqual([]);
     expect(readdirSync(extensions)).toEqual([]);
     expect(sha256(sb.configPath)).toBe(config);
   });
@@ -719,24 +722,114 @@ describe("サンドボックスの信頼境界", () => {
     expect(readOnlyAfter).toEqual(readOnlyBefore);
   });
 
-  const missingTargets: { name: string; target(root: string): string }[] = [
-    { name: "親が書ける", target: (root) => join(root, "missing.md") },
-    { name: "在る最も近い祖先が書ける", target: (root) => join(root, "none", "deeper", "agents") },
+  // OS が参照先を解決できないリンク（参照先が無い、循環する、たどる権限が無い）か、在るかを確かめられない要素を置き、そのパスを返す。
+  // lock は、ディレクトリをたどれない mode にし、テストの後に戻す
+  type Fixture = { root: string; repo: string; omp: string; agentDir: string; lock(dir: string): void };
+  const unresolvableLinks: { name: string; reason?: string; link(fx: Fixture): string }[] = [
+    {
+      name: ".omp の下の参照先が .omp の中で無いリンク",
+      link: ({ omp }) => {
+        symlinkSync(join(omp, "nothing"), join(omp, "missing"));
+        return join(omp, "missing");
+      },
+    },
+    {
+      name: ".omp の下の参照先が書ける置き場の中で無いリンク",
+      link: ({ root, omp }) => {
+        symlinkSync(join(root, "none", "deeper", "agents"), join(omp, "agents"));
+        return join(omp, "agents");
+      },
+    },
+    {
+      name: ".omp の下の参照先が閉じ込めで書けない守る集合の中で無いリンク",
+      link: ({ agentDir, omp }) => {
+        mkdirSync(join(agentDir, "extensions"), { recursive: true });
+        symlinkSync(join(agentDir, "extensions", "nothing.md"), join(omp, "agents"));
+        return join(omp, "agents");
+      },
+    },
+    {
+      name: ".omp の下の、ディレクトリへのリンクの後に .. を通り、OS が辿ると参照先が無いリンク（字面で解くと .omp の中の在るファイルになる）",
+      link: ({ agentDir, omp }) => {
+        mkdirSync(join(agentDir, "extensions"), { recursive: true });
+        writeFileSync(join(omp, "lexical.md"), "# 利用者の定義\n");
+        symlinkSync(join(agentDir, "extensions"), join(omp, "d"));
+        symlinkSync("d/../lexical.md", join(omp, "via"));
+        return join(omp, "via");
+      },
+    },
+    {
+      name: ".omp の下の互いを指すリンク",
+      link: ({ omp }) => {
+        symlinkSync(join(omp, "b"), join(omp, "a"));
+        symlinkSync(join(omp, "a"), join(omp, "b"));
+        return join(omp, "a");
+      },
+    },
+    {
+      name: ".omp の下の自分自身を指すリンク",
+      link: ({ omp }) => {
+        symlinkSync(join(omp, "self"), join(omp, "self"));
+        return join(omp, "self");
+      },
+    },
+    {
+      name: ".omp の下の、たどる権限の無いディレクトリの中を指すリンク",
+      link: ({ root, omp, lock }) => {
+        mkdirSync(join(root, "locked", "agents"), { recursive: true });
+        lock(join(root, "locked"));
+        symlinkSync(join(root, "locked", "agents"), join(omp, "agents"));
+        return join(omp, "agents");
+      },
+    },
+    {
+      name: "プロジェクトの .claude が参照先の無いリンク（.claude/settings.json の途中）",
+      link: ({ root, repo }) => {
+        symlinkSync(join(root, "none"), join(repo, ".claude"));
+        return join(repo, ".claude");
+      },
+    },
+    {
+      name: "プロジェクトの .claude がたどる権限の無いディレクトリ（.claude/settings.json が在るかを確かめられない）",
+      reason: "パスを解決できません",
+      link: ({ repo, lock }) => {
+        mkdirSync(join(repo, ".claude"));
+        lock(join(repo, ".claude"));
+        return join(repo, ".claude", "settings.json");
+      },
+    },
   ];
 
-  test.each(missingTargets)("プロジェクトの .omp の下のリンクの参照先が無く、その$nameなら、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのリンクのパスを出し、参照先を作ったまま残さない", async ({ target }) => {
+  test.each(unresolvableLinks)("$name は、OS がパスを解決できないので、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのパスと解決できないことを出し、参照先を作らず利用者のファイルを変えない", async ({ link, reason = "参照先を解決できません" }) => {
     const sb = await applied();
-    const { sub, omp } = repository(sb);
-    const missing = target(sb.root);
-    symlinkSync(missing, join(omp, "agents"));
-    const root = readdirSync(sb.root).sort();
+    const { repo, sub, omp } = repository(sb);
+    const root = realpathSync(sb.root);
+    const agentDir = realpathSync(sb.agentDir);
+    const locked: string[] = [];
+    const lock = (dir: string) => {
+      chmodSync(dir, 0o000);
+      locked.push(dir);
+    };
+    try {
+      const place = link({ root, repo, omp, agentDir, lock });
+      const state = () => ({ root: readdirSync(root).sort(), omp: readdirSync(omp).sort(), agentDir: readdirSync(agentDir).sort(), modes: locked.map((dir) => statSync(dir).mode) });
+      const before = state();
 
-    const launched = await sb.launchWith({ cwd: sub }, "printf started");
-    const result = await run(sb, SCENARIO, { profile: profile(sb), cwd: sub });
+      const launched = await sb.launchWith({ cwd: sub }, "printf started");
+      const result = await run(sb, SCENARIO, { profile: profile(sb), cwd: sub });
 
-    expectRefused(launched, result, join(omp, "agents"));
-    expect(existsSync(missing)).toBe(false);
-    expect(readdirSync(sb.root).sort()).toEqual(root);
+      expectRefused(launched, result, place);
+      expect(launched.stderr).toContain(reason);
+      for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) expect(call?.reason).toContain(reason);
+      expect(state()).toEqual(before);
+      expect(existsSync(join(root, "none"))).toBe(false);
+      expect(existsSync(join(omp, "nothing"))).toBe(false);
+      expect(existsSync(join(agentDir, "lexical.md"))).toBe(false);
+      expect(existsSync(join(agentDir, "extensions", "nothing.md"))).toBe(false);
+      expect(readdirSync(sub)).toEqual([]);
+    } finally {
+      for (const dir of locked) chmodSync(dir, 0o700);
+    }
   });
 
   test("試しの作業用ディレクトリを一時ディレクトリに作れない（一時ディレクトリが守る集合の中にある）なら、正しいプロファイルでも遮断する", async () => {
