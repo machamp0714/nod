@@ -163,7 +163,7 @@ export function guarded(rules: Pick<Rules, "protectedPaths" | "projectPaths" | "
 }
 
 // まだ無いパスでも、在る祖先まで別名（macOS の /tmp と /private/tmp など）とリンクを解いた形。Seatbelt は実パスで照合する。
-// リンクの参照先の .. をカーネルと同じに辿るため、OS の realpath(3)（realpathSync.native）で解く（JS の realpathSync は参照先を字面でつなぐ）
+// リンクの参照先（その中の .. を含む）は自前で解かず、OS の realpath(3)（realpathSync.native）の結果を使う
 export function realAncestor(path: string): string {
   for (let at = path, rest = ""; ; ) {
     try {
