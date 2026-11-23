@@ -61,7 +61,7 @@ test.describe("Issue 検索", () => {
     await box(page).fill("api-1");
     await expect(options(page).first()).toContainText("API-1");
     // デバウンス前と、問い合わせ後の初回取得中を別々に止める。
-    await page.clock.install();
+    // pauseAt 自体が時計を導入する。先に install すると停止までに時刻が進む。
     await page.clock.pauseAt(new Date());
     try {
       await box(page).press("6");
@@ -97,7 +97,7 @@ test.describe("Issue 検索", () => {
       await gate;
       await route.continue();
     });
-    await page.clock.install();
+    // pauseAt 自体が時計を導入する。先に install すると停止までに時刻が進む。
     await page.clock.pauseAt(new Date());
     try {
       const requested = page.waitForRequest(/\/api\/issues\?q=api-16$/);
