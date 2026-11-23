@@ -1,4 +1,5 @@
-// 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても・読めなくても、例外で終わらずに表示する。
+// 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても・読めなくても、例外で終わらずに表示する
+// （OMP の設定の置き場を決められないとき（context.ts の userAgentDir）だけは、理由を出して止まる）。
 // 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
 // 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp）、実行したディレクトリの
 // プロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
@@ -10,14 +11,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { configPath, type OmpConfig, readConfig, sha256 } from "./config";
-import { type Context, readOmpVersion } from "./context";
+import { type Context, readOmpVersion, userAgentDir } from "./context";
 import { entryGuide, legacyItems, paths, readGenerated, readRecord, samePin } from "./harness";
 import { type Definition, type Found, packageDefinitions, projectPlaces, skillsIn, userPlaces } from "./places";
 import { copyProblems, type Harness, parseHarness, readRules, RULES_FILE } from "../../omp/control/verify";
 
 export function status(ctx: Context, cwd: string): string[] {
+  const agentDir = userAgentDir(ctx);
   const p = paths(ctx);
-  const path = configPath(ctx.agentDir);
+  const path = configPath(agentDir);
   const lines: string[] = ["適用の状態:"];
 
   const record = readRecord(p.harness);
@@ -111,7 +113,7 @@ export function status(ctx: Context, cwd: string): string[] {
 
   let user: Found = { definitions: [], unreadable: [] };
   try {
-    if (config !== undefined) user = userPlaces(ctx.agentDir, ctx.home, config, p.root);
+    if (config !== undefined) user = userPlaces(agentDir, ctx.home, config, p.root);
   } catch {
     // 設定の値の形が正しくなければ、利用者の置き場は上の「OMP の設定」の行で報告している
   }

@@ -6,12 +6,16 @@
 //                          サンドボックスの中で起動するものとして記録する。写しの中を指していれば止める
 //   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
 //   NOD_PSTACK_OMP_CONTROL 制御の拡張とその規則 rules.json（既定は nod のリポジトリの omp/control）
-//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml
+//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml。
+//   PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE
+//                          OMP が設定の根と profile を選ぶ環境変数。置き場は OMP と同じ決め方（omp/control/verify.ts の ompAgentDir）で決め、
+//                          決められなければ（名前つきの profile、~/.omp でない設定の根）、置き場を使う apply・remove・status は止まる
 //   HOME                   利用者のホーム（~/.agents/skills を名前のぶつかりとして検査する）
 //   PATH                   omp の実行ファイルを探す置き場
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { ompAgentDir } from "../../omp/control/verify";
 
 // 道具が止まる理由。cli.ts が標準エラーに出して 1 で終わる
 export class PstackOmpError extends Error {}
@@ -35,8 +39,8 @@ export interface Context {
   packageDir: string;
   // 制御の拡張（nod のリポジトリの omp/control）。適用で写しの control/ になる
   controlDir: string;
-  // 利用者の OMP の設定の置き場
-  agentDir: string;
+  // 利用者の OMP の設定の置き場（実パス）と決めた環境変数。決められなければ理由（置き場を使うときは userAgentDir で取る）
+  agentDir: { path: string; source: string } | string;
   home: string;
 }
 
@@ -53,9 +57,15 @@ export function loadContext(env: Record<string, string | undefined> = process.en
     searchPath: (env.PATH ?? "").split(":"),
     packageDir: resolve(env.NOD_PSTACK_OMP_PACKAGE || join(ompDir, "content")),
     controlDir: resolve(env.NOD_PSTACK_OMP_CONTROL || join(ompDir, "control")),
-    agentDir: resolve(env.PI_CODING_AGENT_DIR || join(home, ".omp", "agent")),
+    agentDir: ompAgentDir(env, []),
     home,
   };
+}
+
+// 利用者の OMP の設定の置き場（実パス）。決められなければ止める
+export function userAgentDir(ctx: Context): string {
+  if (typeof ctx.agentDir === "string") throw new PstackOmpError(`OMP の設定の置き場を決められません: ${ctx.agentDir}。何も変えずに止めます`);
+  return ctx.agentDir.path;
 }
 
 function loadPin(path: string): Pin {

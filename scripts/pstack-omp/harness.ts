@@ -21,9 +21,9 @@ import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { configPath, isMapping, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
-import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError } from "./context";
+import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError, userAgentDir } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
-import { type Guard, guarded, type Guarded, isRecord, type Rules } from "../../omp/control/rules";
+import { guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
 import { CONTROL_ENTRY, HARNESS_FILE, type Harness, hashFiles, LAUNCHER_FILE, PREFLIGHT_ENTRY, PROFILE_FILE, readRules, RULES_FILE } from "../../omp/control/verify";
 
 // 以前の配置の組の記録（control/harness.json の config）。config.yml に読み込みの設定を入れた適用が、解除で戻すために書いたもの
@@ -40,6 +40,8 @@ interface LegacyRecord {
 }
 
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
+// 専用ランチャーが、在れば（空でも）組の検証（preflight.ts）に渡す、OMP が設定の置き場を決める環境変数
+const PREFLIGHT_ENV = ["PI_CODING_AGENT_DIR", "PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE"];
 const GENERATED_ROOTS = ["pstack", "cursor-team-kit"] as const;
 
 export interface Paths {
@@ -134,6 +136,7 @@ export function entryGuide(launcher: string): string[] {
 }
 
 export function apply(ctx: Context): ApplyResult {
+  const agentDir = userAgentDir(ctx);
   const ompVersion = checkOmpVersion(ctx);
   const p = paths(ctx);
   const generated = readGenerated(p.generated);
@@ -160,13 +163,13 @@ export function apply(ctx: Context): ApplyResult {
   if (!existsSync(SANDBOX_EXEC)) throw new PstackOmpError(`${SANDBOX_EXEC} がありません（macOS のサンドボックスで閉じ込められない）。何も変えずに止めます`);
   const ompBin = ompRealPath(ctx);
   const previous = readRecord(p.harness);
-  checkSamePlace(previous, ctx, p);
+  checkSamePlace(previous, agentDir, p);
 
-  const path = configPath(ctx.agentDir);
+  const path = configPath(agentDir);
   return withConfigLock(path, () => {
     const config = readConfig(path);
     checkLoadingSettings(config);
-    const collisions = findCollisions(ctx, config, p.root, content, generated.names);
+    const collisions = findCollisions(ctx, agentDir, config, p.root, content, generated.names);
     const blocking = collisions.filter((d) => !(d.kind === "skill" && d.name === "tdd"));
     if (blocking.length > 0) {
       throw new PstackOmpError(
@@ -187,7 +190,7 @@ export function apply(ctx: Context): ApplyResult {
       ompVersion,
       content: p.content,
       control: p.control,
-      agentDir: realAncestor(ctx.agentDir),
+      agentDir,
       ompBin,
       bunBin: realpathSync(process.execPath),
       skillDirectories: p.skills,
@@ -211,14 +214,13 @@ export function apply(ctx: Context): ApplyResult {
   });
 }
 
-// 既に在る写しの組の記録が、別の OMP の設定の置き場に適用したものなら止める（ほかの設定が使っている写しを消さない）
-function checkSamePlace(previous: Record<string, unknown> | undefined, ctx: Context, p: Paths): void {
+// 既に在る写しの組の記録が、別の OMP の設定の置き場に適用したものなら止める（ほかの設定が使っている写しを消さない）。agentDir はいまの置き場（実パス）
+function checkSamePlace(previous: Record<string, unknown> | undefined, agentDir: string, p: Paths): void {
   if (typeof previous?.agentDir !== "string") return;
   const recorded = realAncestor(previous.agentDir);
-  const current = realAncestor(ctx.agentDir);
-  if (recorded === current) return;
+  if (recorded === agentDir) return;
   throw new PstackOmpError(
-    `写し ${p.root} は、別の OMP の設定の置き場 ${recorded} に適用したものです（いまの置き場は ${current}）。写しを消さずに、何も変えずに止めます。` +
+    `写し ${p.root} は、別の OMP の設定の置き場 ${recorded} に適用したものです（いまの置き場は ${agentDir}）。写しを消さずに、何も変えずに止めます。` +
       `その置き場を PI_CODING_AGENT_DIR に指定して remove してから、もう一度実行してください`,
   );
 }
@@ -226,9 +228,9 @@ function checkSamePlace(previous: Record<string, unknown> | undefined, ctx: Cont
 // 今回置く定義（OMP 向けのディレクトリのエージェント定義とスキル）と生成したスキルの、どれかと同じ名前のものが利用者の置き場にあるか。
 // 写し（再適用のときの今回置いたもの）は除く。tdd も返す（呼び出し側が、止めずに報告する）。
 // 在るのに読めない定義やスキルのファイルがあれば、同じ名前かを確かめられないので止める
-function findCollisions(ctx: Context, config: OmpConfig, root: string, content: Definition[], generated: string[]): Definition[] {
+function findCollisions(ctx: Context, agentDir: string, config: OmpConfig, root: string, content: Definition[], generated: string[]): Definition[] {
   const names = new Set([...content.map((d) => `${d.kind}:${d.name}`), ...generated.map((name) => `skill:${name}`)]);
-  const places = userPlaces(ctx.agentDir, ctx.home, config, root);
+  const places = userPlaces(agentDir, ctx.home, config, root);
   if (places.unreadable.length > 0) {
     throw new PstackOmpError(
       [
@@ -320,7 +322,7 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
     cpSync(p.generated, join(staging, "generated"), { recursive: true, dereference: false });
     // 守る集合は置き換えた後の写しの置き場で解決する（写しの根は {workDir} の下）
     const guard = guarded(rules, { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin, bunBin: harness.bunBin, home: ctx.home });
-    writeFileSync(join(staging, PROFILE_FILE), profile(guard));
+    writeFileSync(join(staging, PROFILE_FILE), sandboxProfile(guard));
     mkdirSync(join(staging, dirname(LAUNCHER_FILE)));
     writeFileSync(join(staging, LAUNCHER_FILE), launcher(p.root, harness), { mode: 0o755 });
     harness.files = hashFiles(staging);
@@ -344,33 +346,13 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
   if (aside !== undefined) rmSync(aside, { recursive: true, force: true });
 }
 
-// サンドボックスのプロファイル: 既定は許し、どのプロジェクトでも書かせないパスへの書き込みを拒否し、その照合から外す置き場を許し、
-// 守る集合への書き込み（作成・書き換え・削除・rename・chmod など）を拒否する（Seatbelt は後の規則が勝つ）。
-// どのプロジェクトでも書かせないパスは、どのディレクトリの下でも当たる正規表現（ディレクトリならその下も）。Seatbelt は実パスで照合するので、
-// 実体が別の場所にあるリンクの先には当たらない（組の検証が、作業ディレクトリとその祖先のそれらと、守る置き場とそれらのディレクトリの下の
-// リンクの参照先に書けないことを試して、書ければ拒否する）。
-// 守る置き場は規則の種類で（ディレクトリならその下も）、祖先はそのパスだけを拒否する
-function profile({ paths, ancestors, projects, allows }: Guarded): string {
-  const quote = (path: string) => `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
-  const filter = ({ path, directory }: Guard) => `(${directory ? "subpath" : "literal"} ${quote(path)})`;
-  const regex = ({ path, directory }: Guard) => `(regex #"/${path.replace(/[\\^$.|?*+()[\]{}]/gu, "\\$&")}${directory ? "(/|$)" : "$"}")`;
-  return [
-    "(version 1)",
-    "(allow default)",
-    ...projects.map((project) => `(deny file-write* ${regex(project)})`),
-    ...allows.map((allow) => `(allow file-write* ${filter(allow)})`),
-    ...paths.map((path) => `(deny file-write* ${filter(path)})`),
-    ...ancestors.map((path) => `(deny file-write* (literal ${quote(path)}))`),
-  ]
-    .map((line) => `${line}\n`)
-    .join("");
-}
-
 // 専用ランチャー: まず同じプロファイルのサンドボックスの中で、適用したときの bun で組を確かめる（control/preflight.ts）。
 // bun の動きを変えるもの（BUN_OPTIONS の --preload など）を検証に持ち込ませないため、preflight は利用者の環境変数を引き継がず、
-// HOME・TMPDIR・PATH と、在れば PI_CODING_AGENT_DIR だけを渡して起動する（XDG_CONFIG_HOME も渡さないので、bun の全体の設定は
-// 規則で守る {home}/.bunfig.toml だけになる）。作業中のプロジェクトの .env と bunfig.toml を読ませないため、写しの control を
-// 作業ディレクトリにし、.env の自動の読み込みを止め、omp を起動する作業ディレクトリを引数で渡す。プロファイル・bun・preflight.ts の
+// HOME・TMPDIR・PATH と、在れば（空でも）PI_CODING_AGENT_DIR・PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE（OMP が設定の置き場を決める環境変数）
+// だけを渡して起動する（XDG_CONFIG_HOME も渡さないので、bun の全体の設定は規則で守る {home}/.bunfig.toml だけになる）。
+// 作業中のプロジェクトの .env と bunfig.toml を読ませないため、写しの control を作業ディレクトリにし、.env の自動の読み込みを止め、
+// 呼んだディレクトリと、続けて omp に渡す引数をそのまま渡す（preflight は、引数の --profile と環境変数で OMP の設定の置き場を決め、
+// 呼んだディレクトリと引数の --cwd の全部の値を作業ディレクトリとして試す）。プロファイル・bun・preflight.ts の
 // どれかが無い、または組が正しくなければ、理由を出して非0で終わり、omp を起動しない。通れば、omp の実行ファイルをそのプロファイルで
 // 閉じ込め、制御の拡張のファイルを -e で渡し、続けて引数をそのまま渡して起動する。omp の起動の環境変数は変えない
 function launcher(root: string, harness: Harness): string {
@@ -380,7 +362,7 @@ function launcher(root: string, harness: Harness): string {
     "#!/bin/sh",
     "# pstack-omp の専用ランチャー（bun scripts/pstack-omp/cli.ts apply が書く）",
     'cwd=$(pwd) || exit 1',
-    `if ! (cd ${quote(join(root, "control"))} && exec /usr/bin/env -i HOME="$HOME" TMPDIR="\${TMPDIR:-/tmp}" PATH="$PATH" \${PI_CODING_AGENT_DIR+"PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR"} ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.bunBin)} --no-env-file ${quote(join(root, PREFLIGHT_ENTRY))} "$cwd"); then`,
+    `if ! (cd ${quote(join(root, "control"))} && exec /usr/bin/env -i HOME="$HOME" TMPDIR="\${TMPDIR:-/tmp}" PATH="$PATH" ${PREFLIGHT_ENV.map((name) => `\${${name}+"${name}=$${name}"}`).join(" ")} ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.bunBin)} --no-env-file ${quote(join(root, PREFLIGHT_ENTRY))} "$cwd" "$@"); then`,
     `  echo ${quote(`pstack-omp: 組を確かめられないので、omp を起動しません（${join(root, LAUNCHER_FILE)}。bun scripts/pstack-omp/cli.ts status で確かめてください）`)} >&2`,
     "  exit 1",
     "fi",
@@ -397,10 +379,11 @@ export interface RemoveResult {
 
 // 解除。OMP の版は確かめない（版が違っても外せるように）
 export function remove(ctx: Context): RemoveResult {
+  const agentDir = userAgentDir(ctx);
   const p = paths(ctx);
   const previous = readRecord(p.harness);
-  checkSamePlace(previous, ctx, p);
-  const path = configPath(ctx.agentDir);
+  checkSamePlace(previous, agentDir, p);
+  const path = configPath(agentDir);
   return withConfigLock(path, () => {
     const config = readConfig(path);
     // 記録が無いときに skills.manualSkills に残る名前を知らせるための、適用が足す名前

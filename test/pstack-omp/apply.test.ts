@@ -364,6 +364,32 @@ describe("解除", () => {
     expect(snapshot(sb.copy)).toEqual(copy);
     expect(readFileSync(join(other, "config.yml"), "utf8")).toBe(USER_CONFIG);
   });
+
+  const unresolvable: { name: string; env: Record<string, string>; shows: string }[] = [
+    { name: "環境変数 OMP_PROFILE で名前つきの profile を選んだ", env: { OMP_PROFILE: "work" }, shows: "名前つきの profile（work）" },
+    { name: "環境変数 PI_PROFILE で名前つきの profile を選んだ", env: { PI_PROFILE: "work" }, shows: "名前つきの profile（work）" },
+    { name: "環境変数 PI_CONFIG_DIR で OMP の設定の根を変えた", env: { PI_CONFIG_DIR: ".omp-work" }, shows: "PI_CONFIG_DIR" },
+  ];
+
+  test.each(unresolvable)("$name: 同期は行えるが、適用・解除・状態の表示は理由を出して止まり、写しも設定も変わらない", async ({ env, shows }) => {
+    const sb = await synced();
+    writeConfig(sb, USER_CONFIG);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const copy = snapshot(sb.copy);
+
+    const resynced = await sb.run("sync", { env });
+    const runs = [await sb.run("apply", { env }), await sb.run("remove", { env }), await sb.run("status", { env })];
+
+    expect(resynced.exitCode).toBe(0);
+    for (const run of runs) {
+      expect(run.exitCode).toBe(1);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain("OMP の設定の置き場を決められません");
+      expect(run.stderr).toContain(shows);
+    }
+    expect(snapshot(sb.copy)).toEqual(copy);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(USER_CONFIG);
+  });
 });
 
 // 以前の配置（config.yml に読み込みの設定を入れた適用）が残した config.yml。USER_CONFIG に、写しを指す項目と読み込む全スキルの名前を足した形

@@ -17,9 +17,10 @@
 //                   使える文字は英数字と . _ - / だけで、. と .. の区切りは書けない
 //   allowPaths      projectPaths の照合から外す置き場（OMP が実行時に書く利用者の ~/.omp/ など）。書き方は protectedPaths と同じ。
 //                   守る集合はこれより強い（allowPaths の下でも書けない）
-// サンドボックスのプロファイルは、既定で許し、projectPaths を拒否し、allowPaths を許し、守る集合を拒否する順に書く（後の規則が勝つ）。
+// サンドボックスのプロファイル（sandboxProfile）は、既定で許し、projectPaths を拒否し、allowPaths を許し、守る集合を拒否する順に書く（後の規則が勝つ）。
+// 適用はこれを写しの control/sandbox.sb に書き、組の検証は、写しのものが、いま解決した守る集合から作るものと同じかを確かめる。
 // bashDeny・protectedPaths・allowPaths には、組の検証と適用が解決するプレースホルダを書ける:
-//   {agentDir}  適用した OMP の設定の置き場（PI_CODING_AGENT_DIR。既定は ~/.omp/agent）
+//   {agentDir}  適用した OMP の設定の置き場（verify.ts の ompAgentDir。既定の profile の PI_CODING_AGENT_DIR、無ければ ~/.omp/agent）
 //   {workDir}   nod のデータ置き場の下の pstack-omp（写し・生成物・上流の clone）
 //   {ompBin}    適用したときの omp の実行ファイルの実パス
 //   {bunBin}    適用したときの bun の実行ファイルの実パス（専用ランチャーが組の検証 preflight.ts を実行する解釈系）
@@ -160,6 +161,30 @@ export function guarded(rules: Pick<Rules, "protectedPaths" | "projectPaths" | "
     projects: rules.projectPaths.map((entry) => ({ path: entry.replace(/\/$/u, ""), directory: entry.endsWith("/") })),
     allows: rules.allowPaths.map(resolve),
   };
+}
+
+// サンドボックスのプロファイル: 既定は許し、どのプロジェクトでも書かせないパスへの書き込みを拒否し、その照合から外す置き場を許し、
+// 守る集合への書き込み（作成・書き換え・削除・rename・chmod など）を拒否する（Seatbelt は後の規則が勝つ）。
+// どのプロジェクトでも書かせないパスは、どのディレクトリの下でも当たる正規表現（ディレクトリならその下も）。Seatbelt は実パスで照合するので、
+// 実体が別の場所にあるリンクの先には当たらない（組の検証が、作業ディレクトリとその祖先のそれらと、守る置き場とそれらのディレクトリの下の
+// リンクの参照先に書けないことを試して、書ければ拒否する）。
+// 守る置き場は規則の種類で（ディレクトリならその下も）、祖先はそのパスだけを拒否する。
+// 守る置き場は解決した実パスで書くので、適用の後に守る置き場やその途中のリンクの実体が変わると、いまの守る集合から作るものと違う
+// （組の検証がそれを確かめる）
+export function sandboxProfile({ paths, ancestors, projects, allows }: Guarded): string {
+  const quote = (path: string) => `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const filter = ({ path, directory }: Guard) => `(${directory ? "subpath" : "literal"} ${quote(path)})`;
+  const regex = ({ path, directory }: Guard) => `(regex #"/${path.replace(/[\\^$.|?*+()[\]{}]/gu, "\\$&")}${directory ? "(/|$)" : "$"}")`;
+  return [
+    "(version 1)",
+    "(allow default)",
+    ...projects.map((project) => `(deny file-write* ${regex(project)})`),
+    ...allows.map((allow) => `(allow file-write* ${filter(allow)})`),
+    ...paths.map((path) => `(deny file-write* ${filter(path)})`),
+    ...ancestors.map((path) => `(deny file-write* (literal ${quote(path)}))`),
+  ]
+    .map((line) => `${line}\n`)
+    .join("");
 }
 
 // まだ無いパスでも、在る祖先まで別名（macOS の /tmp と /private/tmp など）とリンクを解いた形。Seatbelt は実パスで照合する。

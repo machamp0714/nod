@@ -17,6 +17,8 @@ export const REPO_RULES = join(REPO_CONTROL, "rules.json");
 // メインのスレッドの制御の拡張が、検証した組の記録の sha256 を worker thread の子に渡す環境変数
 export const HARNESS_ENV = "NOD_PSTACK_OMP_HARNESS_SHA256";
 const TABLE = "skills/pstack-omp/SKILL.md";
+// OMP の設定の根と profile を選ぶ環境変数。テストを動かす端末の値を引き継がない（テストが足すときだけ使う）
+const SELECTORS = ["PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE"];
 
 export interface Run {
   exitCode: number;
@@ -270,7 +272,9 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     extension({ profile, launcher, cwd = project } = {}) {
       const driver = [process.execPath, join(import.meta.dir, "extension-driver.ts"), join(sb.copy, "control", "index.ts")];
       const argv = profile !== undefined ? ["/usr/bin/sandbox-exec", "-f", profile, ...driver] : launcher !== undefined ? [launcher, "-c", 'exec "$0" "$@"', ...driver] : driver;
-      const proc = Bun.spawn(argv, { cwd, env: { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const env: Record<string, string | undefined> = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir };
+      for (const key of SELECTORS) delete env[key];
+      const proc = Bun.spawn(argv, { cwd, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
       return {
         async run(scenario) {
           proc.stdin.write(JSON.stringify(scenario));
@@ -297,6 +301,7 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
       HOME: home,
     };
     if (repoTable) delete env.NOD_PSTACK_OMP_PACKAGE;
+    for (const key of SELECTORS) delete env[key];
     if (existsSync(controlDir)) env.NOD_PSTACK_OMP_CONTROL = controlDir;
     for (const [key, value] of Object.entries(extra)) {
       if (value === undefined) delete env[key];

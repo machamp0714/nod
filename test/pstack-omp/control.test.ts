@@ -994,7 +994,7 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
     edit(harness);
     writeFileSync(path, JSON.stringify(harness));
   };
-  const cases: { name: string; damage?(sb: Sandbox): void; env?(sb: Sandbox): Record<string, string>; shows(sb: Sandbox): string }[] = [
+  const cases: { name: string; damage?(sb: Sandbox): void; env?(sb: Sandbox): Record<string, string>; args?(sb: Sandbox): string[]; shows(sb: Sandbox): string }[] = [
     { name: "写しの規則が消えた", damage: (sb) => rmSync(join(sb.copy, "control", "rules.json")), shows: () => "control/rules.json（無い）" },
     {
       name: "写しの規則が不正で、組の記録の sha256 もそれに合わせて書き換えられた",
@@ -1043,22 +1043,138 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
         writeFileSync(profile(sb), lines.filter((line) => !line.includes(`"${config}"`)).join("\n"));
         rehash(sb, "control/sandbox.sb");
       },
-      shows: (sb) => `サンドボックスに閉じ込められていません（このプロセスから書けてしまう置き場: ${realpathSync(sb.configPath)}`,
+      shows: (sb) => `(deny file-write* (literal "${realpathSync(sb.configPath)}"))`,
     },
     { name: "試しの作業用ディレクトリを一時ディレクトリに作れない", env: (sb) => ({ TMPDIR: work(sb) }), shows: () => "試しの作業用ディレクトリを作れません" },
     { name: "OMP の設定の置き場（PI_CODING_AGENT_DIR）が組の記録と違う", env: (sb) => ({ PI_CODING_AGENT_DIR: join(sb.root, "other-agent") }), shows: () => "いまの置き場" },
+    { name: "環境変数 PI_CONFIG_DIR で OMP の設定の根を変えた", env: () => ({ PI_CONFIG_DIR: ".omp-work" }), shows: () => "PI_CONFIG_DIR" },
+    { name: "環境変数 OMP_PROFILE で名前つきの profile を選んだ", env: () => ({ OMP_PROFILE: "work" }), shows: () => "名前つきの profile（work）" },
+    { name: "環境変数 PI_PROFILE で名前つきの profile を選んだ", env: () => ({ PI_PROFILE: "work" }), shows: () => "名前つきの profile（work）" },
+    { name: "引数 --profile <名前> で名前つきの profile を選んだ", args: () => ["--profile", "work"], shows: () => "名前つきの profile（work）" },
+    { name: "引数 --profile=<名前> で名前つきの profile を選んだ", args: () => ["--profile=Work.1"], shows: () => "名前つきの profile（Work.1）" },
+    { name: "引数 --profile に値が無い", args: () => ["--profile"], shows: () => "--profile" },
+    { name: "引数 --profile が複数あり値が違う", args: () => ["--profile", "default", "--profile=  "], shows: () => "--profile" },
+    {
+      name: "引数 --profile default で既定を選んだが、環境変数が名前つきの profile を選んでいる",
+      env: () => ({ OMP_PROFILE: "work" }),
+      args: () => ["--profile", "default"],
+      shows: () => "OMP_PROFILE",
+    },
+    {
+      name: "既定の profile で、PI_PROFILE が置き場を決められない値で、PI_CODING_AGENT_DIR がある",
+      env: (sb) => ({ OMP_PROFILE: "", PI_PROFILE: "Work/1", PI_CODING_AGENT_DIR: join(sb.home, ".omp", "profiles", "Work/1", "agent") }),
+      shows: () => "PI_PROFILE",
+    },
+    { name: "引数 --cwd の置き場が無い", args: (sb) => ["--cwd", join(sb.root, "nowhere")], shows: (sb) => join(sb.root, "nowhere") },
+    { name: "引数 --cwd の置き場がディレクトリでない", args: (sb) => [`--cwd=${join(sb.root, "pin.json")}`], shows: (sb) => join(sb.root, "pin.json") },
+    { name: "引数 --cwd に値が無い", args: () => ["--cwd"], shows: () => "--cwd" },
+    { name: "引数 --cwd= の値が空", args: () => ["--cwd="], shows: () => "--cwd" },
   ];
 
-  test.each(cases)("$name: 理由を出して非0で終わり、omp を起動しない", async ({ damage, env, shows }) => {
+  test.each(cases)("$name: 理由を出して非0で終わり、omp を起動しない", async ({ damage, env, args, shows }) => {
     const sb = await applied();
     damage?.(sb);
 
-    const run = await sb.launchWith({ env: env?.(sb) }, "printf started");
+    const run = await sb.launchWith({ env: env?.(sb) }, "printf started", ...(args?.(sb) ?? []));
 
     expect(run.exitCode).not.toBe(0);
     expect(run.stdout).toBe("");
     expect(run.stderr).toContain(shows(sb));
     expect(run.stderr).toContain("omp を起動しません");
+  });
+
+  // 既定の profile を選ぶ環境変数と引数、OMP の既定の設定の根。どれも組の記録の置き場（<home>/.omp/agent）になる
+  const defaults: { name: string; env?(sb: Sandbox): Record<string, string>; args?: string[] }[] = [
+    { name: "OMP_PROFILE が default", env: () => ({ OMP_PROFILE: "default" }) },
+    { name: "OMP_PROFILE が空白だけ（PI_PROFILE の名前つきより優先する）", env: () => ({ OMP_PROFILE: "  ", PI_PROFILE: "work" }) },
+    { name: "引数 --profile default と --profile=default", args: ["--profile", "default", "--profile=default"] },
+    { name: "PI_CONFIG_DIR が空", env: () => ({ PI_CONFIG_DIR: "" }) },
+    { name: "PI_CONFIG_DIR が .omp", env: () => ({ PI_CONFIG_DIR: ".omp" }) },
+    {
+      name: "OMP_PROFILE が空で、PI_CODING_AGENT_DIR が PI_PROFILE の名前つきの profile から引き継いだ置き場（上書きとして使わない）",
+      env: (sb) => ({ OMP_PROFILE: "", PI_PROFILE: "work", PI_CODING_AGENT_DIR: join(sb.home, ".omp", "profiles", "work", "agent") }),
+    },
+  ];
+
+  test.each(defaults)("$name なら、既定の置き場として確かめて omp を起動する", async ({ env, args = [] }) => {
+    const sb = await applied();
+
+    const run = await sb.launchWith({ env: env?.(sb) }, "printf started", ...args);
+
+    expect(run.stderr).toBe("");
+    expect(run.stdout).toBe("started");
+  });
+
+  test("名前つきの profile や PI_CONFIG_DIR を環境変数で選んだプロセスでは、制御の拡張もツールと子の起動を遮断し、理由を出す", async () => {
+    const sb = await applied();
+    const scenario = (env: Record<string, string>) => ({ env, sessions: [{ agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] }] });
+
+    const results = [await run(sb, scenario({ OMP_PROFILE: "work" })), await run(sb, scenario({ PI_CONFIG_DIR: ".omp-work" }))];
+
+    for (const [result, shows] of [
+      [results[0]!, "名前つきの profile（work）"],
+      [results[1]!, "PI_CONFIG_DIR"],
+    ] as const) {
+      expect(result.overrides).toEqual([]);
+      for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+        expect(call?.block).toBe(true);
+        expect(call?.reason).toContain(shows);
+      }
+    }
+  });
+
+  test("引数 --cwd で渡したプロジェクト（呼んだディレクトリから相対でも）の .omp が閉じ込めの外の書ける置き場へのリンクなら、omp を起動せず、理由にそのパスを出し、試しのものを残さない。本物の .omp なら起動する", async () => {
+    const sb = await applied();
+    const repo = join(sb.root, "repo");
+    const outside = join(sb.root, "outside");
+    mkdirSync(repo);
+    mkdirSync(outside);
+    symlinkSync(outside, join(repo, ".omp"));
+    const omp = join(realpathSync(repo), ".omp");
+    const forms = [["--cwd", repo], [`--cwd=${repo}`], ["--cwd", "repo"]];
+
+    const linked = [];
+    for (const args of forms) linked.push(await sb.launchWith({ cwd: sb.root }, "printf started", ...args));
+    const leftovers = readdirSync(outside);
+    rmSync(join(repo, ".omp"));
+    mkdirSync(join(repo, ".omp"));
+    const real = [];
+    for (const args of forms) real.push(await sb.launchWith({ cwd: sb.project }, "printf started", ...args.map((arg) => (arg === "repo" ? "../repo" : arg))));
+
+    for (const run of linked) {
+      expect(run.exitCode).not.toBe(0);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toContain("サンドボックスに閉じ込められていません");
+      expect(run.stderr).toContain(omp);
+      expect(run.stderr).toContain("omp を起動しません");
+    }
+    expect(leftovers).toEqual([]);
+    for (const run of real) {
+      expect(run.stderr).toBe("");
+      expect(run.stdout).toBe("started");
+    }
+    expect(readdirSync(join(repo, ".omp"))).toEqual([]);
+    expect(readdirSync(sb.project)).toEqual([]);
+  });
+
+  test("適用の後に守る集合の置き場（OMP の設定の置き場の agents）が別の実体へのリンクになったら、プロファイルがその実体を覆わないので、omp を起動せず、制御の拡張も遮断し、違う規則の行と apply し直す案内を出す", async () => {
+    const sb = await applied();
+    const other = join(sb.root, "other-agents");
+    mkdirSync(other);
+    symlinkSync(other, join(sb.agentDir, "agents"));
+
+    const launched = await sb.launch("printf started");
+    const result = await run(sb, { sessions: [{ agent: MAIN, toolCalls: 1 }] });
+
+    expect(launched.exitCode).not.toBe(0);
+    expect(launched.stdout).toBe("");
+    expect(launched.stderr).toContain(`(deny file-write* (subpath "${realpathSync(other)}"))`);
+    expect(launched.stderr).toContain("apply し直して");
+    expect(launched.stderr).toContain("omp を起動しません");
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls[0]![0]?.block).toBe(true);
+    expect(result.toolCalls[0]![0]?.reason).toContain(realpathSync(other));
+    expect(readdirSync(other)).toEqual([]);
   });
 
   // 組の検証の入口（preflight.ts）を差し替えようとする bun の設定。preload は無害なフィクスチャで、印のファイルを書いて、検証の前に 0 で終わる

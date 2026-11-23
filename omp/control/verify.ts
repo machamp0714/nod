@@ -8,8 +8,11 @@
 //   files に規則・専用ランチャー・サンドボックスのプロファイル・制御の拡張・preflight.ts が入り、写しの全ファイル（harness.json を除く）が
 //   記録の sha256 と一致し、記録に無いファイルが無い
 // - 規則（control/rules.json）の形が正しい
-// - いまの OMP の設定の置き場（PI_CODING_AGENT_DIR。無ければ ~/.omp/agent）の実パスが、記録の agentDir と同じ
-// - このプロセスが、守る集合と、作業ディレクトリとその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスと、
+// - いまの OMP の設定の置き場（ompAgentDir。環境変数と omp の引数で OMP と同じく決める）の実パスが、記録の agentDir と同じ。
+//   名前つきの profile や ~/.omp でない設定の根（PI_CONFIG_DIR）なら、守る集合が実際の置き場に当たるかを決められないので通さない
+// - 写しのサンドボックスのプロファイル（control/sandbox.sb）が、いま解決した守る集合から作るもの（rules.ts の sandboxProfile）と同じ
+//   （適用の後に守る置き場やその途中のリンクの実体が変わると、プロファイルはその実体を覆わない）
+// - このプロセスが、守る集合と、作業ディレクトリ（どれも）とその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスと、
 //   それらのディレクトリの下（何段下でも）のリンクの参照先に書けない（サンドボックスに閉じ込められている。writable）
 // 適用の時刻では何も省かない（どのプロセスでも、組を検証してから使う）。
 import { createHash, randomBytes } from "node:crypto";
@@ -27,14 +30,13 @@ import {
   readFileSync,
   realpathSync,
   rmdirSync,
-  rmSync,
   type Stats,
   statSync,
   unlinkSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { type Guard, guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, resolvePlaces, type Rules } from "./rules";
+import { type Guard, guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, resolvePlaces, type Rules, sandboxProfile } from "./rules";
 
 // 写しの根からの、組の記録・規則・専用ランチャー・サンドボックスのプロファイル・制御の拡張・組の検証の入口
 export const HARNESS_FILE = "control/harness.json";
@@ -76,8 +78,9 @@ export type Verdict =
   | { kind: "ok"; harness: Harness; rules: Rules; harnessSha: string; places: Places; guard: Guarded }
   | { kind: "blocked"; reason: string; confinement: boolean };
 
-// 写しの control（controlDir）の組を検証する。cwd はどのプロジェクトでも書かせないパスを試す作業ディレクトリ（実パス。その祖先でも試す）
-export function verify(controlDir: string, cwd: string, env: Record<string, string | undefined> = process.env): Verdict {
+// 写しの control（controlDir）の組を検証する。cwds はどのプロジェクトでも書かせないパスを試す作業ディレクトリ（実パス。どれもその祖先でも試す）、
+// args は omp に渡す引数（--profile で設定の置き場を決める。制御の拡張は引数を知らないので空）、env は設定の置き場を決める環境変数
+export function verify(controlDir: string, cwds: string[], args: readonly string[] = [], env: Record<string, string | undefined> = process.env): Verdict {
   const root = dirname(controlDir);
   const refuse = (reason: string, confinement = false): Verdict => ({ kind: "blocked", reason, confinement });
   const path = join(root, HARNESS_FILE);
@@ -95,18 +98,38 @@ export function verify(controlDir: string, cwd: string, env: Record<string, stri
   if (problems.length > 0) return refuse(`写し（${root}）が組の記録と違います: ${problems.join("。")}`);
   const rules = readRules(join(root, RULES_FILE));
   if (typeof rules === "string") return refuse(`規則 ${join(root, RULES_FILE)} が正しくありません: ${rules}`);
-  const agentDir = currentAgentDir(env);
-  if (realAncestor(harness.agentDir) !== agentDir) {
-    return refuse(`組は OMP の設定の置き場 ${harness.agentDir} に適用したもので、いまの置き場（${agentDir}。PI_CODING_AGENT_DIR）と違います`);
+  const current = ompAgentDir(env, args);
+  if (typeof current === "string") return refuse(`OMP の設定の置き場を決められません: ${current}`);
+  if (realAncestor(harness.agentDir) !== current.path) {
+    return refuse(`組は OMP の設定の置き場 ${harness.agentDir} に適用したもので、いまの置き場（${current.path}。${current.source}）と違います`);
   }
   const places: Places = { agentDir: harness.agentDir, workDir: realAncestor(dirname(root)), ompBin: harness.ompBin, bunBin: harness.bunBin, home: homedir() };
   const guard = guarded(rules, places);
+  // 写しのプロファイルが、いまの守る集合から作るものと同じときだけ、プロファイルが守る置き場を下まで覆うとみなせる（writable の覆う置き場）
+  const profilePath = join(root, PROFILE_FILE);
+  let written: string;
+  try {
+    written = readFileSync(profilePath, "utf8");
+  } catch (e) {
+    return refuse(`サンドボックスのプロファイル ${profilePath} を読めません: ${(e as Error).message}`);
+  }
+  const expected = sandboxProfile(guard);
+  if (written !== expected) {
+    const only = (a: string, b: string) => {
+      const lines = a.split("\n").filter((line) => line !== "" && !b.split("\n").includes(line));
+      return lines.length === 0 ? "なし" : lines.join(" ");
+    };
+    return refuse(
+      `写しのサンドボックスのプロファイル ${profilePath} が、いまの守る集合から作るものと違います（適用の後に、守る置き場かその途中のリンクの実体が変わり、` +
+        `プロファイルがいまの実体を覆いません。プロファイルにだけある規則: ${only(written, expected)}。いまの守る集合にだけある規則: ${only(expected, written)}）。apply し直してください`,
+    );
+  }
   // 規則の allowPaths の、書いたままの形（親までの実パスと最後の要素。最後の要素のリンクは解かない）
   const allowed = rules.allowPaths.map((entry) => {
     const path = resolvePlaces(entry.replace(/\/+$/u, ""), places);
     return { path: join(realAncestor(dirname(path)), basename(path)), directory: entry.endsWith("/") };
   });
-  const open = writable(guard, cwd, allowed);
+  const open = writable(guard, cwds, allowed);
   if (open.length > 0) return refuse(`サンドボックスに閉じ込められていません（このプロセスから書けてしまう置き場: ${open.join(", ")}）`, true);
   return { kind: "ok", harness, rules, harnessSha: sha256(bytes), places, guard };
 }
@@ -120,9 +143,81 @@ export function readRules(path: string): Rules | string {
   }
 }
 
-// いまの OMP の設定の置き場の実パス（OMP と同じく PI_CODING_AGENT_DIR、無ければ ~/.omp/agent）
-export function currentAgentDir(env: Record<string, string | undefined>): string {
-  return realAncestor(resolve(env.PI_CODING_AGENT_DIR || join(homedir(), ".omp", "agent")));
+// OMP の名前つきの profile の名前の形（これに合わない名前は、OMP がどう扱うかを固定版の契約から決められない）
+const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]*$/u;
+
+// いまの OMP の設定の置き場の実パスと、それを決めた環境変数や引数（source）。OMP 19.1.0 の契約（Document 1683 の論点 12、settings.md、
+// config-usage.md）から決まる範囲だけで決め、決められなければ理由を返す。args は omp に渡す引数（分からなければ空）。
+// - PI_CONFIG_DIR が空でも .omp でもなければ決めない（OMP の設定の根が ~/.omp から変わり、規則の守る集合 {home}/.omp/plugins/・
+//   {home}/.omp/agents/ と allowPaths {home}/.omp/ が実際の根に当たるかを確かめられない）。
+// - profile は、引数の --profile <値>・--profile=<値>（複数あれば同じ値でなければならず、値が無ければ決めない）、無ければ定義された
+//   （空でも）OMP_PROFILE、無ければ PI_PROFILE で選ぶ。空・空白だけ・default は既定の profile。ほかは名前つきの profile で、決めない
+//   （名前つきの profile は OMP の利用者の根を移すが、agent の外の plugins・agents などの置き場を契約から決められず、守れない）。
+// - 既定の profile では、空でない PI_CODING_AGENT_DIR（OMP と同じく resolve する）、無ければ ~/.omp/agent。ただし、引数の --profile で
+//   既定を選び、環境変数が名前つきの profile を選んでいれば決めない（切り替えの戻し方が契約に無い）。PI_PROFILE が名前つきの P なら、
+//   P が名前の形に合わなければ決めず、PI_CODING_AGENT_DIR が ~/.omp/profiles/P/agent と同じなら、profile から引き継いだ値として使わない。
+export function ompAgentDir(env: Record<string, string | undefined>, args: readonly string[]): { path: string; source: string } | string {
+  const home = homedir();
+  const root = env.PI_CONFIG_DIR;
+  if (root !== undefined && root !== "" && root !== ".omp") {
+    return `環境変数 PI_CONFIG_DIR（${root}）で OMP の設定の根が ~/.omp から変わっています。規則の守る集合と allowPaths（~/.omp の下）が実際の設定の根に当たるかを確かめられず、守れません`;
+  }
+  const flags = flagValues(args, "--profile");
+  if (typeof flags === "string") return flags;
+  if (new Set(flags).size > 1) return `引数 --profile が複数あり、値が違います（${flags.map((flag) => JSON.stringify(flag)).join(", ")}）`;
+  const named = (value: string) => value.trim() !== "" && value !== "default";
+  const variable = env.OMP_PROFILE !== undefined ? "OMP_PROFILE" : env.PI_PROFILE !== undefined ? "PI_PROFILE" : undefined;
+  const chosen = variable === undefined ? undefined : env[variable]!;
+  const selected = flags.length > 0 ? { source: `引数 --profile ${flags[0]}`, value: flags[0]! } : chosen === undefined ? undefined : { source: `環境変数 ${variable}`, value: chosen };
+  if (selected !== undefined && named(selected.value)) {
+    return `${selected.source} で名前つきの profile（${selected.value}）が選ばれています。名前つきの profile では、OMP の利用者の根の plugins・agents などの置き場を固定版の契約から決められず、守れません`;
+  }
+  if (flags.length > 0 && chosen !== undefined && named(chosen)) {
+    return `引数 --profile ${flags[0]} で既定の profile を選んでいますが、環境変数 ${variable} が名前つきの profile（${chosen}）を選んでいます。既定へ切り替えたときの置き場を固定版の契約から決められません`;
+  }
+  const override = env.PI_CODING_AGENT_DIR;
+  if (!override) return { path: realAncestor(join(home, ".omp", "agent")), source: "既定の置き場 ~/.omp/agent（PI_CODING_AGENT_DIR が無い）" };
+  const legacy = env.PI_PROFILE;
+  if (legacy !== undefined && named(legacy)) {
+    if (!PROFILE_NAME.test(legacy)) {
+      return `環境変数 PI_PROFILE（${legacy}）が置き場を決められない profile の名前なので、PI_CODING_AGENT_DIR（${override}）がその profile から引き継いだ値かを確かめられません`;
+    }
+    if (override === join(home, ".omp", "profiles", legacy, "agent")) {
+      return { path: realAncestor(join(home, ".omp", "agent")), source: `既定の置き場 ~/.omp/agent（PI_CODING_AGENT_DIR は PI_PROFILE の profile（${legacy}）から引き継いだ値なので使わない）` };
+    }
+  }
+  return { path: realAncestor(resolve(override)), source: "環境変数 PI_CODING_AGENT_DIR" };
+}
+
+// omp を起動する作業ディレクトリ（実パス）: 呼んだディレクトリ cwd（実パス）と、omp の引数の --cwd <値>・--cwd=<値> の全部の値
+// （cwd を基準に解いた実パス）。どれが使われても試しから漏れないように全部を返す。値が無い・在るディレクトリでなければ理由
+export function launchDirs(cwd: string, args: readonly string[]): string[] | string {
+  const values = flagValues(args, "--cwd");
+  if (typeof values === "string") return values;
+  const dirs = [cwd];
+  for (const value of values) {
+    if (value === "") return "引数 --cwd の値が空です";
+    const dir = resolve(cwd, value);
+    if (!isDirectory(dir)) return `引数 --cwd の ${value}（${dir}）が在るディレクトリではありません`;
+    dirs.push(real(dir));
+  }
+  return [...new Set(dirs)];
+}
+
+// 引数の name <値>・name=<値> の全部の値。name の後に値が無ければ理由
+function flagValues(args: readonly string[], name: string): string[] | string {
+  const values: string[] = [];
+  for (let at = 0; at < args.length; at += 1) {
+    const arg = args[at]!;
+    if (arg === name) {
+      if (at + 1 === args.length) return `引数 ${name} に値がありません`;
+      at += 1;
+      values.push(args[at]!);
+    } else if (arg.startsWith(`${name}=`)) {
+      values.push(arg.slice(name.length + 1));
+    }
+  }
+  return values;
 }
 
 // 形が正しければ記録を、正しくなければ理由を返す
@@ -239,19 +334,21 @@ const OUTSIDE_LIMIT = 10_000;
 //   拒否は EPERM、EROFS、親が他の利用者の持ち物のときの EACCES（この利用者は権限を戻せない）、親が自分の持ち物で所有者の書き込みビットが
 //   立つときの EACCES（mode は許すので、拒否はサンドボックスによる）。ほかの失敗（同じ利用者が書き込みの権限を外した自分の持ち物の親の
 //   EACCES は、同じ利用者の chmod で戻せる）は書けるとみなす。
-// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwd、実パス）とその祖先（ファイルシステムの根まで）の下で試す
+// - どのプロジェクトでも書かせないパスは、作業ディレクトリ（cwds、実パス。どれも）とその祖先（ファイルシステムの根まで）の下で試す
 //   （OMP の task のエージェント定義の探索は、作業ディレクトリから根まで遡って最も近い .omp/agents をプロジェクトの定義として読む。
 //   プロファイルはどのディレクトリの下でも拒否するが、実体が別の場所にあるリンクは実パスで照合されて拒否されないので、試して見つける）。
 //   ただし書いたままのパス（祖先の実パスと相対パス。途中と最後の要素のリンクは解かない）が規則の allowPaths の書いたままの形の下に
 //   入るもの（ホームを作業ディレクトリにしたときの ~/.omp など）は、プロファイルでもその照合から外れ、守る集合に入る部分
 //   （~/.omp/agents など）は守る集合として試すので、ここでは試さない。リンクの先だけが allowPaths の下に入るもの（~/.omp の下へのリンクの
 //   プロジェクトの .omp など）は、プロファイルが許してしまうので試す。さらに親の無いパス（.claude の無いリポジトリの .claude/settings.json など）も試すため、
-//   一時ディレクトリの下の自分の乱数名の作業用ディレクトリで、守られていない親を作ってから作成を試す（利用者のリポジトリには作らない）。
-//   作業用ディレクトリは終わったら中身ごと消す。作れない・消せないときは確かめられないので書けるとみなす。
-//   作業用ディレクトリで書けたら、作業ディレクトリの下の同じ相対パスを書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
+//   一時ディレクトリの下の自分の乱数名の作業用ディレクトリで、守られていない親を1段ずつ作ってから作成を試す（利用者のリポジトリには作らない）。
+//   終わったら、自分が作った親（mkdir が EEXIST なら自分のものではないので記録しない）を逆順に rmdir し、最後に作業用ディレクトリを rmdir する
+//   （再帰では消さないので、その間に別のプロセスが中に書いたものは消さずに残す）。作れない・消せないときは確かめられないので書けるとみなす。
+//   作業用ディレクトリで書けたら、どの作業ディレクトリの下の同じ相対パスも書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
 // - 上で書けなかった、在るディレクトリの守る置き場（守る集合のディレクトリと、試したどのプロジェクトでも書かせないパスのディレクトリ）の下は、
 //   何段下でも歩いてシンボリックリンクを探す（.omp/agents や .omp/agents/poteto-agent.md が閉じ込めの外を指すリンクなら、Seatbelt は
-//   実パスで照合するので、その先には拒否が当たらない）。書いたままのパスが実パスの置き場は、プロファイルが下まで覆うので（覆う置き場）、
+//   実パスで照合するので、その先には拒否が当たらない）。書いたままのパスが実パスの置き場は、プロファイルが下まで覆うので（覆う置き場。
+//   写しのプロファイルが、いまの守る集合から作るものと同じことを verify が先に確かめている）、
 //   その中のファイルとディレクトリは試さず、参照先が覆う置き場のどれかの中のリンクも試さない。ほかのリンクは参照先を上と同じに試し、
 //   書けたらリンクのパス（と参照先）を出す。参照先が書けないディレクトリなら、その下（根の外の木）も歩き、ファイル・ディレクトリ・リンクを
 //   1つずつ試す（書けたものは出し、その下へは降りない）。書いたままのパスがリンクを通る守る置き場も、根の外の木として歩く。
@@ -262,7 +359,7 @@ const OUTSIDE_LIMIT = 10_000;
 //   （.claude/settings.json の .claude など）の解決できないリンクも同じ。守る置き場そのものやその途中の要素が在るかを、無い（ENOENT・
 //   ENOTDIR）以外の失敗で確かめられないときも同じ）。読めないディレクトリやリンクも、確かめられないので書けるとみなす。
 //   歩いている間に消えたものは飛ばす。
-function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed: Guard[]): string[] {
+function writable({ paths, ancestors, projects }: Guarded, cwds: string[], allowed: Guard[]): string[] {
   const uid = process.getuid?.();
   // attempt が拒否されたか。permission なら、この利用者に権限が無いこと（EACCES）も拒否とみなす
   const denied = (attempt: () => void, permission = false): boolean => {
@@ -345,23 +442,36 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
       return [`${tmpdir()}（試しの作業用ディレクトリを作れません: ${(e as Error).message}）`];
     }
     const open: string[] = [];
+    const everywhere = (path: string) => open.push(...cwds.map((cwd) => join(cwd, path)));
+    // 自分が作った親（作った順）
+    const made: string[] = [];
     try {
       for (const { path, directory } of projects) {
-        const target = join(work, path);
-        try {
-          mkdirSync(dirname(target), { recursive: true });
-        } catch (e) {
-          // 親も拒否されるなら、その下は作れない
-          if ((e as NodeJS.ErrnoException).code !== "EPERM") open.push(join(cwd, path));
-          continue;
+        let parent = work;
+        let ready = true;
+        for (const name of dirname(path).split("/").filter((name) => name !== ".")) {
+          parent = join(parent, name);
+          try {
+            mkdirSync(parent);
+            made.push(parent);
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code === "EEXIST") continue;
+            // 親も拒否されるなら、その下は作れない
+            if (code !== "EPERM") everywhere(path);
+            ready = false;
+            break;
+          }
         }
-        if (create(target, directory)) open.push(join(cwd, path));
+        if (ready && create(join(work, path), directory)) everywhere(path);
       }
     } finally {
-      try {
-        rmSync(work, { recursive: true, force: true });
-      } catch (e) {
-        open.push(`${work}（試しの作業用ディレクトリを消せません: ${(e as Error).message}）`);
+      for (const dir of [...made.reverse(), work]) {
+        try {
+          rmdirSync(dir);
+        } catch (e) {
+          open.push(`${dir}（試しの作業用ディレクトリを消せません: ${(e as Error).message}）`);
+        }
       }
     }
     return open;
@@ -447,9 +557,14 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
   };
   for (const guard of paths) check(guard);
   open.push(...ancestors.filter((path) => probe(path, true, true)));
-  // 作業ディレクトリとその祖先（ファイルシステムの根まで）
-  const dirs = [cwd];
-  for (let at = cwd; dirname(at) !== at; at = dirname(at)) dirs.push(dirname(at));
+  // 作業ディレクトリ（どれも）とその祖先（ファイルシステムの根まで）
+  const dirs = new Set<string>();
+  for (const cwd of cwds) {
+    for (let at = cwd; ; at = dirname(at)) {
+      dirs.add(at);
+      if (dirname(at) === at) break;
+    }
+  }
   for (const dir of dirs) {
     for (const { path, directory } of projects) {
       const at = join(dir, path);

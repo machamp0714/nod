@@ -8,8 +8,10 @@
 // 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。
 //
 // - 組を検証する（verify.ts。ランチャーが omp を起動する前に preflight.ts で行うものと同じ: 組の記録と写しの全ファイルの照合、規則の形、
-//   OMP の設定の置き場、閉じ込めの試し）。続けて OMP の設定のモジュールを読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を
-//   遮断し、理由を返す。読み込みの設定も規則も入れない（読み込み先や規則が壊れた・書き換えられる状態で pstack を使わせない）。
+//   OMP の設定の置き場（omp の引数は分からないので、このプロセスの環境変数だけで決める。OMP は profile を選ぶと環境変数を子へ引き継ぐ）、
+//   写しのプロファイルといまの守る集合の照合、閉じ込めの試し（作業ディレクトリはこのプロセスの作業ディレクトリ））。続けて OMP の設定の
+//   モジュールを読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。読み込みの設定も規則も入れない
+//   （読み込み先や規則が壊れた・書き換えられる状態で pstack を使わせない）。
 //   適用の時刻では何も省かない（再適用の前後に始まったプロセスも、検証してから使う）。
 // - 正しければ、拡張の読み込み（factory）で、3つの読み込みの設定（extensions にこのファイルと OMP 向けのディレクトリ content、
 //   skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）と規則の上書きを、
@@ -112,7 +114,7 @@ function blocked(reason: string, advice = `組（${ROOT}）が正しくないの
 }
 
 async function judge(mirror: boolean): Promise<Verdict> {
-  const checked = verify(HERE, real(process.cwd()));
+  const checked = verify(HERE, [real(process.cwd())], [], process.env);
   if (checked.kind === "blocked") {
     return checked.confinement
       ? blocked(checked.reason, `${join(realAncestor(ROOT), LAUNCHER_FILE)} から起動してください。閉じ込められていないので、ツールを実行しません`)
