@@ -9,10 +9,11 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await chooseDisplay(page, "並び順", "タイトル");
     await setDirection(page, "desc");
     // ID・タイトル・更新日時は列のキーを持たず、常に出す（#196）
-    for (const name of ["優先度", "Status", "Workspace", "Project", "担当"]) await setColumn(page, name, false);
+    for (const name of ["優先度", "Status", "Workspace", "Project"]) await setColumn(page, name, false);
     await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "更新日時"]);
     await page.goBack();
-    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "担当", "更新日時"]);
+    const restoredColumn = path === "/projects/1" ? "Workspace" : "Project";
+    await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", restoredColumn, "更新日時"]);
     await page.goForward();
     await expect(page.getByRole("columnheader")).toHaveText(["ID", "Title", "更新日時"]);
     await page.reload();
@@ -39,9 +40,9 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
     await expect(group.getByRole("table").locator("tbody tr").getByRole("link")).toHaveText(["ZZZ 表示設定", "AAA 表示設定"]);
     await setLayout(page, "Board");
     await expect(group.getByRole("region", { name: "In Progress", exact: true }).getByRole("link")).toHaveText(["ZZZ 表示設定", "AAA 表示設定"]);
-    // Issue のある列は In Progress だけで、残りの4列は Hidden columns にまとまる
+    // Issue のある列は In Progress だけで、残りの5列は Hidden columns にまとまる
     await expect(group.getByRole("region")).toHaveCount(2);
-    await expect(group.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(4);
+    await expect(group.getByRole("region", { name: "Hidden columns", exact: true }).getByRole("listitem")).toHaveCount(5);
     await expect(await columnChip(page, "Status")).toBeDisabled();
   });
 }
@@ -49,7 +50,7 @@ for (const path of ["/issues", "/views/1", "/projects/1"]) {
 test("壊れたURLは既定値へ戻り狭い幅でも表示設定を操作できる", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 });
   await page.goto('/issues?sort=bad&direction=bad&columns=%22bad%22');
-  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"]);
+  await expect(page.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
   const sort = await displaySelect(page, "並び順");
   await expect(sort).toHaveAttribute("data-value", "default");
   // キーボードだけで選ぶ：下キーで開くと選択中の「既定」にフォーカスがあり、下キーで「優先度」へ移って Enter で決める

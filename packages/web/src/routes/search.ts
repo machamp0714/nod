@@ -1,8 +1,10 @@
 import type { DocKind, Status } from "../api/types";
+import { rejectAssigneeDisplay } from "@nod/core/src/view-display";
+import { NodError } from "@nod/core/src/errors";
 import { STATUS_ORDER } from "../lib/meta";
 
-export type IssueTab = "all" | "ready" | "needs_clarification" | "delegated";
-export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "assignee", "label"] as const;
+export type IssueTab = "all" | "ready" | "needs_clarification";
+export const ISSUE_GROUP_KEYS = ["workspace", "status", "priority", "project", "sprint", "label"] as const;
 export type IssueGroupKey = typeof ISSUE_GROUP_KEYS[number];
 export type IssueGroupBy = "none" | IssueGroupKey;
 export type IssueLayout = "list" | "board";
@@ -10,12 +12,12 @@ export type IssueSort = "default" | "priority" | "createdAt" | "updatedAt" | "ti
 const ISSUE_SORTS: readonly IssueSort[] = ["default", "priority", "createdAt", "updatedAt", "title", "estimate", "dueDate"];
 export type SortDirection = "asc" | "desc";
 // 表示設定のチップの順（design/nod.pen「Display Popover｜表示列（行見本に合わせる）」U6jFNg）
-export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "assignee", "pr", "estimate", "dueDate"] as const;
+export const ISSUE_COLUMNS = ["priority", "status", "questions", "workspace", "sprint", "project", "pr", "estimate", "dueDate"] as const;
 export type IssueColumn = typeof ISSUE_COLUMNS[number];
 // 既定の列は design/nod.pen「11 Issues」（O7KCp3）の行に合わせる（#196）。未決事項・PR・見積もり・期限は表示設定のチップで出す。
 // 列を明示した既存の URL（columns=...）と View（display.columns）はそのまま復元する。
 // ID・タイトル・ラベル・更新日時は列のキーを持たず、常に出す
-export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project", "assignee"];
+export const DEFAULT_ISSUE_COLUMNS: readonly IssueColumn[] = ["priority", "status", "workspace", "project"];
 
 // 画面の既定の列。全行が同じ値になる列（Project 詳細の Project）は既定から外す。
 // 外した列も表示設定のチップで出せ、そのときは列を URL に明示する（columns=...）
@@ -35,7 +37,7 @@ export interface ProjectsSearch {
   workspace?: string;
 }
 
-const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification", "delegated"];
+const ISSUE_TABS: readonly IssueTab[] = ["all", "ready", "needs_clarification"];
 const ISSUE_LAYOUTS: readonly IssueLayout[] = ["list", "board"];
 const PROJECT_TABS: readonly ProjectTab[] = ["active", "completed", "all"];
 
@@ -68,20 +70,15 @@ export interface IssueListSearch {
   milestone?: string; // Milestone の数字の ID か "none"（Milestone のない Issue）
   sprint?: string; // current、none、固定参照、未解決条件を保持する
   label?: string[];
-  assignee?: string[]; // 担当の名前。"none" は未割り当て
 }
 
-// 担当の絞り込みで未割り当てを指す値（GET /api/issues の assignee=none）
-export const NO_ASSIGNEE = "none";
 
 // TanStack Router は search params を JSON として読むため、配列は配列で、数字だけの値は数値で届く
-// splitComma は値をカンマでも分ける（assignee で使う。label は core と同じく分けない）
-function stringList(value: unknown, splitComma = false): string[] | undefined {
+function stringList(value: unknown): string[] | undefined {
   const list: unknown[] = Array.isArray(value) ? value : [value];
   const items = list
     .map((v) => (typeof v === "number" ? String(v) : v))
     .filter((v): v is string => typeof v === "string")
-    .flatMap((v) => (splitComma ? v.split(",") : [v]))
     .map((v) => v.trim())
     .filter((v) => v !== "");
   return items.length ? [...new Set(items)] : undefined;
@@ -89,6 +86,9 @@ function stringList(value: unknown, splitComma = false): string[] | undefined {
 
 // URL を手で書き換えられても既定の表示に戻れるよう、知らない値は捨てる。
 export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSearch {
+  if ("assignee" in raw) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
+  rejectAssigneeDisplay(raw);
+  if ("delegated" in raw || raw.tab === "delegated") throw new NodError("INVALID_ARGS", "担当は廃止されました。委任中の条件は使えません");
   const out: IssueListSearch = {};
   for (const key of ["showCompleted", "showChildren"] as const) {
     if (key in raw) out[key] = raw[key] !== false && raw[key] !== "false";
@@ -122,38 +122,24 @@ export function parseIssueListSearch(raw: Record<string, unknown>): IssueListSea
   if (typeof sprint === "string" && sprint.trim()) out.sprint = sprint.trim();
   const label = stringList(raw.label);
   if (label) out.label = label;
-  // API は assignee をカンマでも分けるため、手で書いた assignee=me,codex もチップとパネルが API の結果と合うように分ける
-  const assignee = stringList(raw.assignee, true)?.map((name) => (name.toLowerCase() === NO_ASSIGNEE ? NO_ASSIGNEE : name));
-  if (assignee) out.assignee = [...new Set(assignee)];
   return out;
 }
 
-// タブの既定のグループ化。委任中タブは LLM ごとに見られるよう、グループ化が未指定なら担当でまとめる。
-// URL には書かないため、タブを離れると元の表示に戻る。委任中タブで明示した「なし」は groupBy=none として URL に残す。
-// My issues（mine）はタブを持たず、Status でまとめる（Pencil「My issues｜担当タブ（#162）」）
-export function defaultGroupBy(tab: IssueTab | undefined, mine = false): IssueGroupKey | undefined {
-  if (mine) return "status";
-  return tab === "delegated" ? "assignee" : undefined;
-}
 
 function sameColumns(a: readonly IssueColumn[], b: readonly IssueColumn[]): boolean {
   return a.length === b.length && b.every((column) => a.includes(column));
 }
 
-// mine は My issues の URL。タブを持たず（担当が me と LLM の Issue をまとめて出す）、担当の条件は固定のため URL に持たない。
 // sameValueColumn はその画面で既定から外す列（defaultIssueColumns）。列がその画面の既定と同じなら URL に書かない
-export function cleanIssueListSearch(search: IssueListSearch, mine = false, sameValueColumn?: IssueColumn, currentSprint = search.sprint === "current"): IssueListSearch {
-  if (mine) search = { ...search, tab: undefined, assignee: undefined };
+export function cleanIssueListSearch(search: IssueListSearch, sameValueColumn?: IssueColumn, currentSprint = search.sprint === "current"): IssueListSearch {
   const out: IssueListSearch = {};
   if (search.showCompleted === false) out.showCompleted = false;
   if (search.showChildren === false) out.showChildren = false;
   if (search.sort && search.sort !== "default") out.sort = search.sort;
   if (search.direction === "desc") out.direction = search.direction;
   if (search.columns && !sameColumns(search.columns, defaultIssueColumns(sameValueColumn, currentSprint))) out.columns = search.columns;
-  const fallback = defaultGroupBy(search.tab, mine);
   if (search.groupBy && search.groupBy !== "none") out.groupBy = search.groupBy;
-  else if (search.groupBy === "none" && fallback) out.groupBy = "none";
-  const groupBy = search.groupBy ?? fallback;
+  const groupBy = search.groupBy;
   // サブグループはグループ化があり、グループと別のプロパティのときだけ意味を持つ
   if (groupBy && groupBy !== "none" && search.subGroupBy && search.subGroupBy !== groupBy) out.subGroupBy = search.subGroupBy;
   if (search.preview) out.preview = search.preview;
@@ -168,13 +154,9 @@ export function cleanIssueListSearch(search: IssueListSearch, mine = false, same
   if (search.milestone) out.milestone = search.milestone;
   if (search.sprint) out.sprint = search.sprint;
   if (search.label?.length) out.label = search.label;
-  if (search.assignee?.length) out.assignee = search.assignee;
   return out;
 }
 
-export function cleanMyIssuesSearch(search: IssueListSearch): IssueListSearch {
-  return cleanIssueListSearch(search, true);
-}
 
 // Project 詳細の URL。一覧の設定に加え、一覧とフローの切り替え（view）を持つ。
 // view は URL だけに置き、ページの表示設定には保存しない
@@ -190,7 +172,7 @@ export function parseProjectDetailSearch(raw: Record<string, unknown>): ProjectD
 
 // 全行が同じ Project になるため、Project の列を既定から外す。一覧の設定を変えても view は残す
 export function cleanProjectIssuesSearch(search: ProjectDetailSearch): ProjectDetailSearch {
-  const out: ProjectDetailSearch = cleanIssueListSearch(search, false, "project");
+  const out: ProjectDetailSearch = cleanIssueListSearch(search, "project");
   if (search.view === "flow") out.view = "flow";
   return out;
 }

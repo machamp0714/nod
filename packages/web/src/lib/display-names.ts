@@ -7,7 +7,6 @@ export const GROUP_NAMES: Record<IssueGroupKey, string> = {
   priority: "Priority",
   project: "Project",
   sprint: "Sprint",
-  assignee: "担当",
   label: "ラベル",
 };
 // short はコンボボックス（幅 100）に出す短い名前
@@ -21,4 +20,4 @@ export const SORT_OPTIONS: { value: IssueSort; label: string; short?: string }[]
   { value: "dueDate", label: "期限" },
 ];
 
-export const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", sprint: "Sprint", project: "Project", assignee: "担当", pr: "PR", estimate: "見積もり", dueDate: "期限" };
+export const COLUMN_NAMES: Record<IssueColumn, string> = { priority: "優先度", status: "Status", questions: "未決事項", workspace: "Workspace", sprint: "Sprint", project: "Project", pr: "PR", estimate: "見積もり", dueDate: "期限" };

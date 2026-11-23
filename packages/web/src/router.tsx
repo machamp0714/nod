@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, ErrorComponent, redirect, SearchParamError } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { DocumentPage } from "./pages/DocumentPage";
@@ -7,7 +7,6 @@ import { InboxPage } from "./pages/InboxPage";
 import { OpenQuestionsPage } from "./pages/OpenQuestionsPage";
 import { IssueDetailPage } from "./pages/IssueDetailPage";
 import { IssuesPage } from "./pages/IssuesPage";
-import { MyIssuesPage } from "./pages/MyIssuesPage";
 import { NewDocumentPage } from "./pages/NewDocumentPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { CycleDetailPage } from "./pages/CycleDetailPage";
@@ -49,15 +48,21 @@ const indexRoute = createRoute({
 const inboxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/inbox", validateSearch: parseInboxSearch, component: InboxPage });
 const triageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/triage", validateSearch: parseSelectedSearch, component: TriagePage });
 const openQuestionsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/open-questions", validateSearch: parseOpenQuestionsSearch, component: OpenQuestionsPage });
-const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, component: IssuesPage });
-const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", validateSearch: parseIssueListSearch, component: MyIssuesPage });
+function IssueListRouteError({ error }: { error: unknown }) {
+  if (error instanceof SearchParamError) return <p role="alert">{error.message}</p>;
+  return <ErrorComponent error={error} />;
+}
+
+const issuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues", validateSearch: parseIssueListSearch, errorComponent: IssueListRouteError, component: IssuesPage });
+const myIssuesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/my-issues", beforeLoad: () => { throw redirect({ to: "/issues" }); } });
 const issueDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/issues/$issueId", component: IssueDetailPage });
-const viewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/views/$viewId", validateSearch: parseIssueListSearch, component: ViewPage });
+const viewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/views/$viewId", validateSearch: parseIssueListSearch, errorComponent: IssueListRouteError, component: ViewPage });
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/projects", validateSearch: parseProjectsSearch, component: ProjectsPage });
 const projectDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
   validateSearch: parseProjectDetailSearch,
+  errorComponent: IssueListRouteError,
   component: ProjectDetailPage,
 });
 const initiativesRoute = createRoute({ getParentRoute: () => rootRoute, path: "/initiatives", validateSearch: parseProjectsSearch, component: InitiativesPage });
@@ -67,10 +72,11 @@ const cycleDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/cycles/$cycleId",
   validateSearch: parseIssueListSearch,
+  errorComponent: IssueListRouteError,
   component: CycleDetailPage,
 });
 const sprintsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints", component: SprintsPage });
-const sprintDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints/$sprintId", validateSearch: parseSprintDetailSearch, component: SprintDetailPage });
+const sprintDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/sprints/$sprintId", validateSearch: parseSprintDetailSearch, errorComponent: IssueListRouteError, component: SprintDetailPage });
 const documentsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/documents", validateSearch: parseDocumentsSearch, component: DocumentsPage });
 const newDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,

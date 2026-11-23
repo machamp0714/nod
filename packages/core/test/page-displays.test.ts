@@ -25,13 +25,13 @@ describe("ページの表示設定", () => {
 
   test("DB を開き直しても残る（サーバーの再起動）", () => {
     const path = tempDbPath();
-    setPageDisplay(openDb(path), "my-issues", { groupBy: "none", columns: ["status"] });
-    expect(listPageDisplays(openDb(path))).toEqual({ "my-issues": { groupBy: "none", columns: ["status"] } });
+    setPageDisplay(openDb(path), "issues", { groupBy: "none", columns: ["status"] });
+    expect(listPageDisplays(openDb(path))).toEqual({ issues: { groupBy: "none", columns: ["status"] } });
   });
 
   test("使えないページのキーは INVALID_ARGS", () => {
     const { db } = setup();
-    for (const page of ["", "views", "view:1", "project:", "project:0", "project:abc", "cycle:-1", "issues "]) {
+    for (const page of ["", "my-issues", "views", "view:1", "project:", "project:0", "project:abc", "cycle:-1", "issues "]) {
       expect(codeOf(() => setPageDisplay(db, page, {}))).toBe("INVALID_ARGS");
       expect(codeOf(() => deletePageDisplay(db, page))).toBe("INVALID_ARGS");
     }
@@ -45,7 +45,7 @@ describe("ページの表示設定", () => {
 });
 
 describe("validatePageDisplay", () => {
-  test("View と同じく既定の値は省き、groupBy の none は残す（My Issues の既定は Status のため）", () => {
+  test("View と同じく既定の値は省き、groupBy の none は残す", () => {
     expect(validatePageDisplay({ layout: "list", sort: "default", direction: "asc", showCompleted: true })).toEqual({});
     expect(validatePageDisplay({ groupBy: "none", subGroupBy: "status" })).toEqual({ groupBy: "none" });
     expect(validatePageDisplay({ groupBy: "project", subGroupBy: "status", columns: ["pr", "status"] })).toEqual({

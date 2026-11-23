@@ -26,7 +26,6 @@ function richSource() {
     dueDate: "2026-10-01",
     labels: ["backend", "perf"],
   });
-  updateIssue(me, source.id, { assignee: "claude-code" });
   relateIssue(me, source.id, { blocks: other.id });
   relateIssue(me, other.id, { related: source.id });
   setPlanTasks(me, source.id, ["調べる", "直す"]);
@@ -66,7 +65,6 @@ test("タイトル・説明・Project・ラベル・優先度・見積もりだ�
     dueDate: null, // 期限は複製しない（元の期限が複製にも付くと期限超過を誤って増やすため）
     labels: ["backend", "perf"],
     status: "todo",
-    assignee: null,
     agentState: null,
     parentId: null,
     prUrl: null,

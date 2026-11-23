@@ -142,10 +142,6 @@
   --col: 142px;
 }
 
-.colAssignee {
-  --col: 28px;
-}
-
 .colUpdated {
   --col: 73px;
 }
@@ -156,16 +152,11 @@
 }
 
 .priorityCell,
-.statusCell,
-.assigneeCell {
+.statusCell {
   position: relative;
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-}
-
-.avatarWrap {
-  display: inline-flex;
 }
 
 .projectCell {
@@ -291,10 +282,6 @@
   color: var(--ink3);
 }
 
-.spacer {
-  flex: 1;
-}
-
 /* nod.pen のボード（Cjq7Z）：列は幅 340 固定、間隔 8。あふれた分は Board の中で横にスクロールし、Main には出さない */
 .board {
   display: flex;
@@ -396,14 +383,6 @@
 
 .boardCardId {
   white-space: nowrap;
-}
-
-.unassigned {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--line);
-  border-radius: 50%;
 }
 
 .boardCardTitleRow {

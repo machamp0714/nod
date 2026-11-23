@@ -1,6 +1,6 @@
-import type { Issue, Status } from "../../api/types";
+import type { Status } from "../../api/types";
 import { BOARD_STATUSES, priorityMeta, STATUS_META, STATUS_ORDER } from "../../lib/meta";
-import { defaultGroupBy, type IssueGroupBy, type IssueGroupKey, type IssueLayout, type IssueTab, type IssueSort, type SortDirection } from "../../routes/search";
+import { type IssueGroupBy, type IssueGroupKey, type IssueLayout, type IssueTab, type IssueSort, type SortDirection } from "../../routes/search";
 import type { IssueListRow } from "./types";
 
 function priorityRank(priority: number): number {
@@ -34,18 +34,7 @@ export function sortRows(rows: readonly IssueListRow[], sort: IssueSort = "defau
   });
 }
 
-// 委任中：担当が LLM（me 以外）で、done と canceled 以外（core の delegated と同じ条件）。agent_state は問わない
-export function isDelegated(issue: Pick<Issue, "assignee" | "status">): boolean {
-  return issue.assignee != null && issue.assignee !== "me" && issue.status !== "done" && issue.status !== "canceled";
-}
-
-// My issues の担当タブ：担当が私（me）か LLM（claude-code・codex など）の Issue。ステータスは問わず、完了済みは表示設定に従う
-export function isMine(issue: Pick<Issue, "assignee">): boolean {
-  return issue.assignee != null;
-}
-
-// 一覧のタブ。mine は My issues だけにあり、URL には書かない（My issues の既定のタブ）
-export type ListTab = IssueTab | "mine";
+export type ListTab = IssueTab;
 
 export function filterRows(rows: readonly IssueListRow[], filter: { tab: ListTab; q: string; showCompleted?: boolean; showChildren?: boolean }): IssueListRow[] {
   const needle = filter.q.trim().toLowerCase();
@@ -54,21 +43,17 @@ export function filterRows(rows: readonly IssueListRow[], filter: { tab: ListTab
     if (filter.showChildren === false && (row.hasParent || row.issue.parentId != null)) return false;
     if (filter.tab === "ready" && !row.ready) return false;
     if (filter.tab === "needs_clarification" && row.issue.status !== "needs_clarification") return false;
-    if (filter.tab === "delegated" && !isDelegated(row.issue)) return false;
-    if (filter.tab === "mine" && !isMine(row.issue)) return false;
     if (needle === "") return true;
     return [row.issue.id, row.issue.title, row.issue.description ?? ""]
       .some((text) => text.toLowerCase().includes(needle));
   });
 }
 
-export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number; delegated: number; mine: number } {
+export function countRows(rows: readonly IssueListRow[]): { all: number; ready: number; needsClarification: number } {
   return {
     all: rows.length,
     ready: rows.filter((r) => r.ready).length,
     needsClarification: rows.filter((r) => r.issue.status === "needs_clarification").length,
-    delegated: rows.filter((r) => isDelegated(r.issue)).length,
-    mine: rows.filter((r) => isMine(r.issue)).length,
   };
 }
 
@@ -127,8 +112,6 @@ function groupEntries(
         return { key: sprint.id, label: info?.label ?? sprint.name, rank: info?.rank ?? sprint.name, current: info?.current };
       });
     }
-    case "assignee":
-      return [issue.assignee ? { key: issue.assignee, label: issue.assignee, rank: issue.assignee } : { key: "", label: "未割り当て", rank: "" }];
     case "label":
       return issue.labels.length ? issue.labels.map((label) => ({ key: label, label, rank: label })) : [{ key: "", label: "ラベルなし", rank: "" }];
   }
@@ -170,9 +153,8 @@ export function groupRows(
 export function effectiveGrouping(
   search: { groupBy?: IssueGroupBy; subGroupBy?: IssueGroupKey; tab?: IssueTab },
   layout: IssueLayout,
-  mine = false,
 ): { groupBy?: IssueGroupKey; subGroupBy?: IssueGroupKey } {
-  const groupBy = search.groupBy ?? defaultGroupBy(search.tab, mine);
+  const groupBy = search.groupBy;
   if (!groupBy || groupBy === "none" || (layout === "board" && groupBy === "status")) return {};
   if (layout === "board" || !search.subGroupBy || search.subGroupBy === groupBy) return { groupBy };
   return { groupBy, subGroupBy: search.subGroupBy };

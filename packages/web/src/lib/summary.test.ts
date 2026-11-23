@@ -14,7 +14,7 @@ import {
 
 function item(kind: SummaryKind, at: string, extra: Partial<SummaryItem> = {}): SummaryItem {
   return {
-    kind, at, issueId: "API-1", title: "t", status: "in_progress", assignee: null, archived: false,
+    kind, at, issueId: "API-1", title: "t", status: "in_progress", archived: false,
     actor: "me", actorKind: "human", recordedBy: "me", from: null, to: null, detail: null, ...extra,
   };
 }

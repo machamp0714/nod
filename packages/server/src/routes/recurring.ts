@@ -31,7 +31,6 @@ const KEYS = [
   "project",
   "labels",
   "priority",
-  "assignee",
   "cadence",
   "weekday",
   "monthDay",
@@ -49,7 +48,6 @@ function patchOf(body: Body): RecurringIssuePatch {
     projectRef: optNullableString(body, "project"),
     labels: optStringArray(body, "labels"),
     priority: optInt(body, "priority"),
-    assignee: optNullableString(body, "assignee"),
     cadence: optString(body, "cadence") as RecurrenceCadence | undefined,
     weekday: optNullableInt(body, "weekday"),
     monthDay: optNullableInt(body, "monthDay"),
@@ -64,7 +62,7 @@ export function registerRecurringRoutes(app: Hono, me: OpCtx, client?: JevClient
   const id = (value: string) => paramInt(value, "定期Issueの ID ");
   app.get("/api/workspaces/:key/recurring", (c) => c.json(listRecurringIssues(me.db, c.req.param("key"))));
   app.post("/api/workspaces/:key/recurring", async (c) => {
-    const body = await readBody(c, KEYS);
+    const body = await readBody(c, KEYS, { rejectAssignee: true });
     const patch = patchOf(body);
     const created = addRecurringIssue(me, c.req.param("key"), {
       ...patch,
@@ -82,7 +80,7 @@ export function registerRecurringRoutes(app: Hono, me: OpCtx, client?: JevClient
     c.json(getRecurringIssue(me.db, c.req.param("key"), id(c.req.param("id")))),
   );
   app.put("/api/workspaces/:key/recurring/:id", async (c) => {
-    const body = await readBody(c, KEYS);
+    const body = await readBody(c, KEYS, { rejectAssignee: true });
     return c.json(updateRecurringIssue(me, c.req.param("key"), id(c.req.param("id")), patchOf(body)));
   });
   app.delete("/api/workspaces/:key/recurring/:id", (c) =>

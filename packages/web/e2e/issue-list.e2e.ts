@@ -8,14 +8,14 @@ const tableRows = (page: import("@playwright/test").Page) => page.getByRole("tab
 test("Issues は spec の列でリストを出す", async ({ page }) => {
   await page.goto("/issues");
   const table = page.getByRole("table");
-  await expect(table.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"]);
+  await expect(table.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "更新日時"]);
   await expect(tableRows(page)).toHaveCount(13);
-  // 未決事項と PR は既定で出さず、表示設定のチップで Workspace と担当の間に出す（#196）
+  // 未決事項と PR は既定で出さず、表示設定のチップで Workspace の後ろに出す（#196）
   await expect(table.getByRole("row", { name: /API-9/ })).not.toContainText("2 / 6");
   await setColumn(page, "未決事項", true);
   await setColumn(page, "PR", true);
   await closeDisplay(page);
-  await expect(table.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "担当", "更新日時"]);
+  await expect(table.getByRole("columnheader")).toHaveText(["優先度", "ID", "Status", "Title", "Project", "Workspace", "未決事項", "PR", "更新日時"]);
   await expect(table.getByRole("row", { name: /API-9/ })).toContainText("2 / 6");
   await expect(table.getByRole("row", { name: /API-7/ }).getByRole("link", { name: "#128" })).toBeVisible();
 });
@@ -23,7 +23,7 @@ test("Issues は spec の列でリストを出す", async ({ page }) => {
 test("件数はタブに出し、Ready のタブで絞り込み、All のタブで戻す（件数カードは出さない）", async ({ page }) => {
   await page.goto("/issues");
   const tabs = page.getByRole("tablist", { name: "絞り込み" });
-  await expect(tabs.getByRole("tab")).toHaveText(["All 13", "Ready 2", "Needs Clarification 1", "委任中 3"]);
+  await expect(tabs.getByRole("tab")).toHaveText(["All 13", "Ready 2", "Needs Clarification 1"]);
   // 件数カード（タブと同じ件数を示すボタン）は置かない
   await expect(page.getByRole("button", { name: /^Ready/ })).toHaveCount(0);
   const ready = tabs.getByRole("tab", { name: "Ready 2", exact: true });

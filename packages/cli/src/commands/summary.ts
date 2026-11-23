@@ -21,7 +21,6 @@ function oneLine(text: string, max = 80): string {
 function formatItem(i: SummaryItem): string {
   const who = i.actorKind === "human" ? "人" : `LLM ${i.actor}`;
   const parts = [localMinute(i.at), i.issueId, i.title, `[${statusText(i.status, i.issueId)}]`, who];
-  if (i.assignee && i.assignee !== i.actor) parts.push(`担当 ${i.assignee}`);
   if (i.archived) parts.push("アーカイブ済み");
   const line = `  ${parts.join("  ")}`;
   return i.detail && i.kind !== "started" ? `${line}\n    ${oneLine(i.detail)}` : line;

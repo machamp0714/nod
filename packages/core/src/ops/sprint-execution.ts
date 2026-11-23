@@ -64,9 +64,9 @@ function existingOwnership(db: Database, sprint: SprintDetail, attempts: SprintA
     const issue = findIssueRow(db, item.sourceIssueKey);
     if (issue.id !== item.issueId || !(issue.status === "in_progress" || issue.agent_state || issue.worktree || issue.branch)) continue;
     result.push({ itemId: item.id, sourceIssueKey: item.sourceIssueKey, issueId: item.issueId,
-      assignee: issue.assignee, status: issue.status, worktree: issue.worktree, branch: issue.branch,
+      status: issue.status, worktree: issue.worktree, branch: issue.branch,
       observedAt: timestamp(clock), source: "採択Issueに保存された通常着手と実行場所",
-      reason: { code: "EXISTING_EXECUTION_UNRECONCILED", message: "通常経路の所有と実行が未照合です。元の担当とTask・Dispatchを確認してください" } });
+      reason: { code: "EXISTING_EXECUTION_UNRECONCILED", message: "通常経路の所有と実行が未照合です。作業場所とTask・Dispatchを確認してください" } });
   }
   return result;
 }
@@ -232,7 +232,7 @@ export function getSprintExecutionState(db: Database, ref: string, clock: Sprint
       { description: "新PM本人で元Runへ接続し、保存した計画・Task・Dispatch・requestを照合して監督を再開する（照合不能なら所有と枠を保持）",
         argv: ["nod", "sprint", "session", "resume", sprintId, "--input", "-"],
         input: { sessionId: current.id, generation: current.generation, requestKey: current.handover?.requestKey ?? `resume:${current.generation}:${sprint.adoptedPlanId}` } },
-      ...unreconciledOwnership.map(a => ({ description: "元の担当と保存された通常着手・実行場所を確認する", argv: ["nod", "issue", "show", a.sourceIssueKey, "--json"] })),
+      ...unreconciledOwnership.map(a => ({ description: "保存された通常着手・実行場所を確認する", argv: ["nod", "issue", "show", a.sourceIssueKey, "--json"] })),
       { description: "保存した主試行と元Runの要求・Task・Dispatchを照合する", argv: ["nod", "sprint", "execution", "reconcile", sprintId, "--input", "-"],
         input: { sessionId: current.id, generation: current.generation } }]
       : [{ description: "Sprintの計画と保存した実行対象を確認する", argv: ["nod", "sprint", "show", sprintId] }];
@@ -360,7 +360,7 @@ export async function observeSprintSession(ctx: OpCtx, ref: string, input: Sprin
       ? planReconciliationReason(ctx, sprint, plan, state.attempts, clock) : null;
     let reason: SprintExecutionSnapshot["reason"] = null;
     if (!authority || (authority.runtimeId !== current.runtimeId && !runtimeConfirmed) || !inventory?.complete) reason = { code: "AUTHORITY_UNKNOWN", message: "元Runの権限または全実行一覧を確認できません" };
-    else if (state.unreconciledOwnership.length) reason = { code: "EXISTING_EXECUTION_UNRECONCILED", message: "通常経路の既存所有が未照合です。所有と実行枠を保持して元の担当を確認してください" };
+    else if (state.unreconciledOwnership.length) reason = { code: "EXISTING_EXECUTION_UNRECONCILED", message: "通常経路の既存所有が未照合です。所有と実行枠を保持して作業場所を確認してください" };
     else if (changedPlanReason) reason = changedPlanReason;
     else if (!runtimeConfirmed && state.operations.some(o => o.state === "sending" || o.state === "unknown" || o.state === "failed")) reason = { code: "OPERATION_UNRESOLVED", message: "未確定の操作があります。所有と予約を保持して再照合してください" };
     else if (!runtimeConfirmed && state.attempts.some(a => a.phase === "unknown" || (a.taskId !== null && !inventory!.tasks.some(t => t.runId === a.runId && t.taskId === a.taskId))

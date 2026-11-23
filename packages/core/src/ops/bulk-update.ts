@@ -2,7 +2,6 @@ import type { OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { canonicalIssueRef, findIssueRow } from "../issue-query";
-import { validateAssignee } from "../none-ref";
 import type { Issue, Status } from "../types";
 import { type UpdateIssueInput, updateIssue, validateDueDate, validateEstimate, validatePriority } from "./issues";
 
@@ -11,7 +10,7 @@ export const BULK_UPDATE_LIMIT = 100;
 
 export type BulkUpdateInput = Pick<
   UpdateIssueInput,
-  "status" | "priority" | "assignee" | "projectRef" | "milestoneRef" | "cycleRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels" | "reason"
+  "status" | "priority" | "projectRef" | "milestoneRef" | "cycleRef" | "estimate" | "dueDate" | "addLabels" | "removeLabels" | "reason"
 >;
 
 export interface BulkUpdateFailure {
@@ -53,6 +52,7 @@ function uniqueRefs(refs: string[]): string[] {
 // 複数 Issue に同じ変更を加える。各 Issue に updateIssue の保護を1件ずつ通し、全件を1トランザクションで書く。
 // 1件でも失敗したら何も書かず、失敗した全 Issue の理由を BULK_UPDATE_FAILED の details.failures で返す。
 export function bulkUpdateIssues(ctx: OpCtx, refs: string[], input: BulkUpdateInput): Issue[] {
+  if (Object.hasOwn(input, "assignee")) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
   const ids = uniqueRefs(refs);
   if (ids.length === 0) throw new NodError("INVALID_ARGS", "一括編集する Issue を1件以上指定してください");
   if (ids.length > BULK_UPDATE_LIMIT) {
@@ -66,7 +66,6 @@ export function bulkUpdateIssues(ctx: OpCtx, refs: string[], input: BulkUpdateIn
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
-  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const updated: Issue[] = [];
     const failures: BulkUpdateFailure[] = [];

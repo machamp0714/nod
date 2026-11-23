@@ -113,8 +113,6 @@ test("一覧は Header 44 の下に View Bar 43 を置き、件数カードと�
 
 test("ラベル、完了候補、ブロック元、プレビューのボタンがあっても行は 44 のまま", async ({ page, nod }) => {
   await nod.me.updateIssue("API-13", { addLabels: ["bug", "perf", "とても長いラベルの名前"] });
-  await page.goto("/issues?tab=delegated");
-  await expect(page.locator("main tbody tr[data-issue-row]")).toHaveCount(3);
   await page.goto("/issues");
   const rows = page.locator("main tbody tr[data-issue-row]");
   await expect(rows).toHaveCount(13);
@@ -289,7 +287,6 @@ test("ボードは列の幅 340 と間隔 8 で、あふれた分は Board の�
     const title = card.querySelector('a[href^="/issues/"]') as HTMLElement;
     const meta = card.firstElementChild?.firstElementChild as HTMLElement;
     const id = meta.children[1] as HTMLElement;
-    const avatar = meta.lastElementChild as HTMLElement;
     const chip = main.querySelector("article > div:last-child > span") as HTMLElement;
     return {
       columns: columns.length,
@@ -305,7 +302,6 @@ test("ボードは列の幅 340 と間隔 8 で、あふれた分は Board の�
       card: { width: box(card).width, padding: css(card).padding, radius: css(card).borderTopLeftRadius, gap: box(cards[1] as Element).y - box(cards[0] as Element).bottom },
       id: `${css(id).fontSize} ${css(id).fontFamily.includes("Mono")}`,
       title: `${css(title).fontSize} ${css(title).fontWeight} ${css(title).lineHeight}`,
-      avatar: { size: `${box(avatar).width}x${box(avatar).height}`, right: Math.round(box(card).right - box(avatar).right), top: Math.round(box(avatar).y - box(card).y) },
       chip: `${box(chip).height} ${css(chip).borderTopLeftRadius}`,
       boardScroll: board.scrollWidth - board.clientWidth,
       boardInsideMain: box(board).right <= box(main).right,
@@ -327,8 +323,6 @@ test("ボードは列の幅 340 と間隔 8 で、あふれた分は Board の�
   expect(m.card).toEqual({ width: 324, padding: "12px", radius: "8px", gap: 8 });
   expect(m.id).toBe("12px true");
   expect(m.title).toBe("13px 500 16px");
-  // 担当は 18 の円で、カードの右上（枠線 1 と余白 12 の内側）
-  expect(m.avatar).toEqual({ size: "18x18", right: 13, top: 13 });
   expect(m.chip).toBe(`24 ${PILL}`);
   // 6列（2080 と間隔）は Main（幅 1188）に収まらないので、Board の中だけで横にスクロールする
   expect(m.boardScroll).toBeGreaterThan(0);
@@ -371,7 +365,7 @@ test("Issue が 0 件の列は Hidden columns（幅 338、行の高さ 38、間�
     };
   });
   console.log(`[issues-layout] hidden columns ${JSON.stringify(m)}`);
-  expect(m.columns + m.rows).toBe(5);
+  expect(m.columns + m.rows).toBe(6);
   expect(m.rows).toBeGreaterThan(1);
   expect(m.width).toBe(338);
   expect(m.left).toBe(8);
@@ -500,25 +494,25 @@ test("視覚的に隠した列見出しは、ブラウザのアクセシビリ�
     headerParents: [...new Set(headers.map((node) => role(byId.get(node.parentId ?? ""))))],
     headerRowParent: role(byId.get(headerRow?.parentId ?? "")),
     rows: rows.length,
-    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 9）
+    // 列見出しの行のセルの数は、本体の行のセルの数と同じ（選択の列を含めて 8）
     headerRowCells: headerRow?.childIds?.map((id) => role(byId.get(id))),
     bodyRowCells: [...new Set(rows.filter((row) => row !== headerRow).map((row) => row.childIds?.length))],
   };
   console.log(`[issues-layout] accessibility tree ${JSON.stringify(m)}`);
   expect(m).toEqual({
-    headers: ["優先度", "ID", "Status", "Title", "Project", "Workspace", "担当", "更新日時"],
+    headers: ["優先度", "ID", "Status", "Title", "Project", "Workspace", "更新日時"],
     headerParents: ["row"],
     headerRowParent: "rowgroup",
     rows: 14,
-    headerRowCells: ["cell", ...Array.from({ length: 8 }, () => "columnheader")],
-    bodyRowCells: [9],
+    headerRowCells: ["cell", ...Array.from({ length: 7 }, () => "columnheader")],
+    bodyRowCells: [8],
   });
   // 画面では列見出しを隠したまま
   expect((await page.locator("main thead").boundingBox())?.height ?? 0).toBeLessThanOrEqual(1);
   await expect(page.getByRole("table")).toMatchAriaSnapshot(`
     - table:
       - rowgroup:
-        - row "優先度 ID Status Title Project Workspace 担当 更新日時":
+        - row "優先度 ID Status Title Project Workspace 更新日時":
           - cell
           - columnheader "優先度"
           - columnheader "ID"
@@ -526,7 +520,6 @@ test("視覚的に隠した列見出しは、ブラウザのアクセシビリ�
           - columnheader "Title"
           - columnheader "Project"
           - columnheader "Workspace"
-          - columnheader "担当"
           - columnheader "更新日時"
       - rowgroup
   `);
@@ -641,11 +634,9 @@ test("一括編集のメニューで、長い Project 名は枠からはみ出�
   expect(await overflow(page)).toEqual({ page: 0, pageY: 0, main: 0 });
 });
 
-test("My issues、View、Project 詳細、Sprint 詳細も同じ型で、List と Board のどちらでも横スクロールが出ない", async ({ page, nod }) => {
-  await nod.me.updateIssue("API-4", { assignee: "me" });
-  await nod.me.updateIssue("NOD-5", { assignee: "me" });
+test("Issues、View、Project 詳細、Sprint 詳細も同じ型で、List と Board のどちらでも横スクロールが出ない", async ({ page }) => {
   const sprint = await sprintDetailPath();
-  for (const path of ["/my-issues", "/views/1", "/projects/1", sprint]) {
+  for (const path of ["/issues", "/views/1", "/projects/1", sprint]) {
     await page.goto(path);
     const rows = page.locator("main tbody tr[data-issue-row]");
     await expect(rows.first()).toBeVisible();
@@ -678,8 +669,6 @@ test("My issues、View、Project 詳細、Sprint 詳細も同じ型で、List �
     expect(list.header).toBe(44);
     expect(list.viewBar).toBe(43);
     expect(list.rowHeights).toEqual([44]);
-    // My issues は Status でまとめるのが既定
-    if (path === "/my-issues") expect(list.groupHeadings).toEqual([36]);
     expect(list.selects).toBe(0);
     expect(board.widths).toEqual([340]);
     expect(board.headHeights).toEqual([68]);

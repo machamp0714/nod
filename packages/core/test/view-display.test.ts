@@ -44,7 +44,7 @@ describe("View の表示設定（display）", () => {
     expect(validateViewDisplay({ groupBy: "status", subGroupBy: "status" })).toEqual({ groupBy: "status" });
   });
 
-  test("知らないキーと値は INVALID_ARGS。委任中タブは filter の delegated で持つため受け付けない", () => {
+  test("知らないキーと値は INVALID_ARGS。廃止した委任中タブも受け付けない", () => {
     for (const bad of [
       [],
       "x",

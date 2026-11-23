@@ -49,7 +49,8 @@ test("v1を作成日時/id順で一度だけ移行し、子データ・連番・
     ["API", "#C36B04"], ["BLOG", "#DB2777"], ["NOD", "#0D9768"], ["WEB", "#7C5CFF"],
   ]);
   expect(db.query("SELECT id,key,name,path,next_number,created_at FROM workspaces ORDER BY id").all()).toEqual(workspaces);
-  expect(legacyColumns(snapshot(db), children)).toEqual(children);
+  const retained = { ...children, issues: children.issues!.map(({ assignee: _assignee, ...issue }) => issue) };
+  expect(legacyColumns(snapshot(db), retained)).toEqual(retained);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   const colors = listWorkspaces(db);
   db.close();

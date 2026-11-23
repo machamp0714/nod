@@ -17,13 +17,6 @@ export function statusChoices(current: Status, nameOf: (status: Status) => strin
   }));
 }
 
-export const KNOWN_ASSIGNEES = ["me", "claude-code", "codex"] as const;
-
-export function assigneeChoices(current: string | null): string[] {
-  const known: string[] = [...KNOWN_ASSIGNEES];
-  return current && !known.includes(current) ? [...known, current] : known;
-}
-
 export function parseLabels(text: string, existing: readonly string[]): string[] {
   const seen = new Set(existing);
   const labels: string[] = [];

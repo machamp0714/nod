@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ViewDisplay } from "../api/types";
-import { DEFAULT_ISSUE_COLUMNS, defaultGroupBy, type IssueListSearch, parseIssueListSearch } from "../routes/search";
+import { DEFAULT_ISSUE_COLUMNS, type IssueListSearch, parseIssueListSearch } from "../routes/search";
 import { cleanViewSearch, describeDisplay, displayFromSearch, displaySummary, sameDisplay, savedDisplay, unsavedNote, viewSearch, withoutDisplay } from "./view-display";
 
 describe("displayFromSearch", () => {
@@ -25,11 +25,6 @@ describe("displayFromSearch", () => {
     expect(displayFromSearch({ subGroupBy: "status" })).toEqual({});
   });
 
-  test("委任中タブは保存せず（filter の delegated で持つ）、そのタブの既定のグループ化（担当）を保存する", () => {
-    expect(displayFromSearch({ tab: "delegated" })).toEqual({ groupBy: "assignee" });
-    expect(displayFromSearch({ tab: "delegated", groupBy: "none" })).toEqual({});
-    expect(displayFromSearch({ tab: "delegated", groupBy: "project" })).toEqual({ groupBy: "project" });
-  });
 });
 
 describe("viewSearch", () => {
@@ -83,8 +78,6 @@ describe("cleanViewSearch", () => {
     const searches: IssueListSearch[] = [
       {},
       { tab: "ready" },
-      { tab: "delegated" },
-      { tab: "delegated", groupBy: "none" },
       { groupBy: "status" },
       { groupBy: "project" },
       { groupBy: "project", subGroupBy: "label" },
@@ -98,9 +91,7 @@ describe("cleanViewSearch", () => {
     for (const d of displays) {
       for (const search of searches) {
         const url = parseIssueListSearch({ ...cleanViewSearch(search, d) });
-        // 委任中タブの既定のグループ化（担当）は、URL に明示されることがあるため解決してから比べる
-        const resolved = (x: IssueListSearch) => ({ ...x, groupBy: x.groupBy ?? defaultGroupBy(x.tab) });
-        expect(resolved(viewSearch(d, url))).toEqual(resolved(viewSearch({}, search)));
+        expect(viewSearch(d, url)).toEqual(viewSearch({}, search));
       }
     }
   });
@@ -114,14 +105,14 @@ describe("sameDisplay・withoutDisplay", () => {
   });
 
   test("API で保存した既定と同じ列（順だけ違うものも）は、変更として扱わない", () => {
-    const display = { groupBy: "project", columns: ["assignee", "project", "workspace", "status", "priority"] } as const;
+    const display = { groupBy: "project", columns: ["project", "workspace", "status", "priority"] } as const;
     expect(savedDisplay({ ...display, columns: [...display.columns] })).toEqual({ groupBy: "project" });
     expect(sameDisplay(displayFromSearch(viewSearch({ ...display, columns: [...display.columns] }, {})), savedDisplay({ ...display, columns: [...display.columns] }))).toBe(true);
     // 既定と違う列と、列以外の表示設定はそのまま
     expect(savedDisplay({ tab: "ready", columns: ["status"], showChildren: false })).toEqual({ tab: "ready", columns: ["status"], showChildren: false });
     expect(savedDisplay({ columns: [] })).toEqual({ columns: [] });
     // #196 より前の既定（未決事項・PR を含む7列）を明示して保存した View は、その列のまま出す
-    const before = { columns: ["priority", "status", "questions", "workspace", "project", "assignee", "pr"] } satisfies ViewDisplay;
+    const before = { columns: ["priority", "status", "questions", "workspace", "project", "pr"] } satisfies ViewDisplay;
     expect(savedDisplay(before)).toEqual(before);
     expect(viewSearch(before, {}).columns).toEqual(before.columns);
   });

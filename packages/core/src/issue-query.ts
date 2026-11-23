@@ -27,7 +27,6 @@ export interface IssueRow {
   priority: number;
   estimate: number | null;
   due_date: string | null;
-  assignee: string | null;
   agent_state: AgentState | null;
   parent_id: number | null;
   project_id: number | null;
@@ -97,7 +96,7 @@ LEFT JOIN workspaces pw ON pw.id = pi.workspace_id
 LEFT JOIN projects pr ON pr.id = i.project_id
 LEFT JOIN milestones ms ON ms.id = i.milestone_id`;
 
-// 着手できる Issue の条件のうち、担当者とブロック元に関係しないもの。? には現在時刻を渡す。
+// 着手できる Issue の条件のうち、ブロック元に関係しないもの。? には現在時刻を渡す。
 // ブロック元を別に1回で読む画面（Project のフロー）は、これとまだ止めているブロック元がないことを合わせて Ready とする
 export const READY_UNLESS_BLOCKED_WHERE = `(i.status = 'todo'
   AND i.archived_at IS NULL
@@ -105,7 +104,7 @@ export const READY_UNLESS_BLOCKED_WHERE = `(i.status = 'todo'
   AND (i.snoozed_until IS NULL OR i.snoozed_until <= ?)
   AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.issue_id = i.id AND q.answer IS NULL))`;
 
-// 着手できる Issue の条件のうち、担当者に関係しないもの（web の Ready）。? には現在時刻を渡す
+// 着手できる Issue の条件（web の Ready）。? には現在時刻を渡す。
 export const READY_WHERE = `(${READY_UNLESS_BLOCKED_WHERE}
   AND NOT EXISTS (
     SELECT 1 FROM relations r JOIN issues b ON b.id = r.from_id
@@ -165,7 +164,6 @@ export function toIssue(r: IssueRow): Issue {
     priority: r.priority,
     estimate: r.estimate,
     dueDate: r.due_date,
-    assignee: r.assignee,
     agentState: r.agent_state,
     parentId: r.parent_key && r.parent_number !== null ? formatIssueId(r.parent_key, r.parent_number) : null,
     project: r.project_id !== null && r.project_name !== null ? { id: r.project_id, name: r.project_name } : null,

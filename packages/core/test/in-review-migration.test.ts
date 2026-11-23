@@ -34,7 +34,7 @@ test("版42からの更新はDone・open PR・旧履歴・保存ビュー・関�
       return { ...view, filter: JSON.stringify(JSON.parse(view.filter as string)) };
     }
     if (table !== "issues") return row;
-    const { cycle_id: _cycleId, ...kept } = row as Record<string, unknown>;
+    const { cycle_id: _cycleId, assignee: _assignee, ...kept } = row as Record<string, unknown>;
     return kept;
   }));
   old.close();

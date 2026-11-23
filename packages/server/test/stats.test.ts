@@ -79,7 +79,7 @@ describe("GET /api/stats/llm", () => {
     const r = await call(app, "GET", `/api/stats/llm?${RANGE}&workspace=${ws.key}`);
     expect(r.status).toBe(200);
     expect(r.json).toEqual(llmStats(db, { by: "day", from: "2026-09-01", to: "2026-09-02", tz: "UTC", workspace: [ws.key] }));
-    expect(r.json.llms.map((l: { name: string; totals: { assigned: number } }) => [l.name, l.totals.assigned])).toEqual([["claude-code", 1]]);
+    expect(r.json.llms.map((l: { name: string; totals: { started: number } }) => [l.name, l.totals.started])).toEqual([["claude-code", 1]]);
     const bad = await call(app, "GET", "/api/stats/llm?by=month");
     expect([bad.status, bad.json.error.code]).toEqual([400, "INVALID_ARGS"]);
   });
@@ -108,7 +108,7 @@ test("旧レビュー提出を保ち、新しいレビュー提出と再開は�
   db.query("UPDATE events SET created_at = '2026-09-01T02:00:00.000Z' WHERE issue_id = ? AND json_extract(data, '$.report_comment_id') IS NOT NULL")
     .run(findIssueRow(db, fresh.id).id);
   db.query("UPDATE issues SET started_at = '2026-09-01T00:00:00.000Z', closed_at = '2026-09-01T03:00:00.000Z'").run();
-  expect((await call(app, "GET", query)).json.llms[0].totals).toMatchObject({ submitted: 2, completed: 2, work: { measured: 2, totalMinutes: 180 } });
+  expect((await call(app, "GET", query)).json.llms[0].totals).toEqual({ started: 4, submitted: 2, completed: 1 });
   expect((await call(app, "GET", `/api/stats?${RANGE}`)).json.totals).toMatchObject({ completed: 2, work: { totalMinutes: 180 } });
   expect((await call(app, "GET", `/api/issues/${old.id}`)).json.activity).toContainEqual(expect.objectContaining({
     type: "status_changed", data: { from: "in_progress", to: "in_review" },
@@ -120,7 +120,7 @@ test("旧レビュー提出を保ち、新しいレビュー提出と再開は�
   completeIssue(llm, fresh.id, { summary: "追加修正を完了" });
   db.query("UPDATE events SET created_at = '2026-09-01T04:00:00.000Z' WHERE created_at > '2026-09-02'").run();
   db.query("UPDATE issues SET closed_at = '2026-09-01T04:00:00.000Z' WHERE id = ?").run(findIssueRow(db, fresh.id).id);
-  expect((await call(app, "GET", query)).json.llms[0].totals).toMatchObject({ submitted: 3, completed: 2, work: { totalMinutes: 300 } });
+  expect((await call(app, "GET", query)).json.llms[0].totals).toEqual({ started: 5, submitted: 3, completed: 2 });
 });
 
 
@@ -133,5 +133,5 @@ test("新しいレビュー入りを作業時間の終点にせず、報告な�
   db.query("UPDATE events SET created_at = '2026-09-01T01:00:00.000Z'").run();
   db.query("UPDATE issues SET started_at = '2026-09-01T00:00:00.000Z', closed_at = '2026-09-01T03:00:00.000Z'").run();
   expect((await call(app, "GET", `/api/stats?${RANGE}`)).json.totals).toMatchObject({ completed: 1, work: { measured: 1, totalMinutes: 180 } });
-  expect((await call(app, "GET", `/api/stats/llm?${RANGE}`)).json.llms[0].totals).toMatchObject({ submitted: 0, completed: 1, work: { totalMinutes: 180 } });
+  expect((await call(app, "GET", `/api/stats/llm?${RANGE}`)).json.llms[0].totals).toEqual({ started: 1, submitted: 0, completed: 0 });
 });

@@ -86,7 +86,7 @@ describe("nod issue", () => {
     registerRepo(db, flow, "FLO");
     const created = (await me(["issue", "create", "--json", "流れ"], flow)).json;
     const picked = (await llm(["issue", "next", "--json"], flow)).json;
-    expect(picked).toMatchObject({ id: created.id, status: "in_progress", agentState: "working", assignee: "claude-code" });
+    expect(picked).toMatchObject({ id: created.id, status: "in_progress", agentState: "working" });
     expect((await llm(["issue", "log", created.id, "調べ始めた"], flow)).exitCode).toBe(0);
     expect((await llm(["issue", "fail", created.id, "テストが落ちる", "--json"], flow)).json.agentState).toBe("error");
     const done = (

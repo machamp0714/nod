@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import {
-  acknowledgeShownInstructions,
   addFileAttachment,
   addLinkAttachment,
   archiveIssue,
@@ -69,14 +68,13 @@ import {
   type WorkspaceRules,
   type WorkspaceTransitionRules,
 } from "@nod/core";
-import type { Command } from "commander";
-import { collect, orNull, parseAssignees, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
-import { act, actAsync, type Cli, currentWorkspace, globalOpts } from "../context";
+import { type Command, Option } from "commander";
+import { collect, orNull, parseDocKind, parseEstimate, parsePositiveInt, parsePriority, PRIORITY_HELP, parseStatus, parseStatuses, parseStepStatus } from "../args";
+import { act, actAsync, type Cli, currentWorkspace } from "../context";
 import { registerGithubIssueCommands } from "./github";
 import { currentWorkLocation, notifyOrca, type OrcaUpdate } from "../orca";
 import {
   formatAttachment,
-  formatDelegations,
   formatIssueDetail,
   formatSpecAssessment,
   formatIssueLine,
@@ -89,7 +87,6 @@ import {
   formatPrDiffFile,
   formatPrStatusLine,
   print,
-  sortByAssignee,
   statusColumnWidth,
   statusText,
 } from "../output";
@@ -99,10 +96,22 @@ async function notifyIfLlm(cli: Cli, update: OrcaUpdate): Promise<void> {
   if (isLlm(cli.ctx)) await notifyOrca(update);
 }
 
+function formatStartContext(result: { previousAgentState: Issue["agentState"]; previousLocation: { branch: string | null; worktree: string | null } | null }): string {
+  const lines = [`開始前の作業状況: ${result.previousAgentState ?? "なし"}`];
+  if (result.previousLocation) {
+    lines.push(`前の branch: ${result.previousLocation.branch ?? "なし"}`, `前の worktree: ${result.previousLocation.worktree ?? "なし"}`);
+  }
+  return lines.join("\n");
+}
+
 // 更新後の状態が todo・backlog の Issue に残る未回答の確認依頼の件数（状態を変えたかは問わない）。残る間は着手できないので、成功表示に添える（#170）
 function heldQuestionCount(i: Issue): number {
   if (i.status !== "todo" && i.status !== "backlog") return 0;
   return i.questionCount.total - i.questionCount.answered;
+}
+
+function rejectAssigneeOption(): never {
+  throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
 }
 
 export function registerIssueCommands(program: Command): void {
@@ -222,10 +231,14 @@ export function registerIssueCommands(program: Command): void {
     .option("--all-workspaces", "すべての Workspace の Issue を出す")
     .option("--completion-candidates", "Sub-issue がすべて完了した親（完了候補）だけを出す")
     .option("--archived", "アーカイブ済みの Issue だけを出す（--status を省くとすべてのステータス）")
-    .option("--ready", "着手できる Issue だけを出す（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。担当は問わない。Web の Ready と同じ条件）")
-    .option("--delegated", "LLM に委任中（担当が LLM で done/canceled 以外）の Issue を LLM ごとに出す（既定ですべての Workspace、-w で絞る）")
-    .option("--assignee <name>", "担当で絞る（繰り返し可・カンマ区切り可、どれかに合うもの。none は未割り当て）", collect)
-    .option("--mine", "自分が担当の Issue だけを出す（人なら me、LLM なら自分の名前。既定ですべての Workspace、-w で絞る）")
+    .option("--ready", "着手できる Issue だけを出す（todo で、スヌーズ中でなく、未回答の確認依頼も未完了のブロック元もないもの。Web の Ready と同じ条件）")
+    .option("--delegated", "廃止済み（指定するとエラー）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
+    .addOption(new Option("--mine [value]").hideHelp())
+    .on("option:mine", () => {
+      throw new NodError("INVALID_ARGS", "担当は廃止されました。--mine は使えません");
+    })
     .option("--priority <priorities>", "優先度で絞る（0〜4、P0〜P4、urgent・high・medium・low・none のどれか。繰り返し可・カンマ区切り可、どれかに合うもの。0 と none は優先度なし）", collect)
     .option("--sort <key>", `並び順（${ISSUE_SORT_KEYS.join("|")}。既定は id。default は 状態 → 優先度 → ID）`)
     .option("--desc", "降順にする（同順位は ID の昇順。見積もり・期限の未設定は末尾のまま）")
@@ -234,11 +247,9 @@ export function registerIssueCommands(program: Command): void {
         (
           cli,
           cmd,
-          o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; assignee?: string[]; mine?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
+          o: { status?: string; project?: string; milestone?: string; sprint?: string; label?: string[]; allWorkspaces?: boolean; query?: string; ready?: boolean; delegated?: boolean; completionCandidates?: boolean; archived?: boolean; priority?: string[]; sort?: string; desc?: boolean },
         ) => {
-          // 委任中と自分の担当の一覧はどこからでも見られるよう、-w がなければ Workspace で絞らない
-          const allWorkspaces = o.allWorkspaces || ((o.delegated || o.mine) && !globalOpts(cmd).workspace);
-          const assignees = [...(o.assignee ? parseAssignees(o.assignee) : []), ...(o.mine ? [cli.ctx.actor] : [])];
+          if (o.delegated !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--delegated は使えません");
           const priorities = o.priority ? parsePriorityRefs(o.priority) : undefined;
           if (o.priority && !priorities) {
             throw new NodError("INVALID_ARGS", "--priority には 0〜4、P0〜P4、urgent・high・medium・low・none のどれかを指定してください");
@@ -247,15 +258,13 @@ export function registerIssueCommands(program: Command): void {
           const listed = listIssues(cli.db, {
             priorities,
             query: o.query,
-            workspaceId: allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
+            workspaceId: o.allWorkspaces ? undefined : currentWorkspace(cli, cmd).id,
             statuses: o.status ? parseStatuses(o.status) : o.sprint?.trim().toLowerCase() === "current" ? [...STATUSES] : undefined,
             projectRef: o.project,
             milestone: o.milestone,
             sprintRef: o.sprint,
             labels: o.label,
             ready: o.ready,
-            delegated: o.delegated,
-            assignees: assignees.length ? assignees : undefined,
             completionCandidate: o.completionCandidates,
             archived: o.archived,
           });
@@ -264,11 +273,6 @@ export function registerIssueCommands(program: Command): void {
           // 検索語が ID と完全一致する Issue は、並び順に関係なく先頭に置く（TS-6 の検索で TS-60 より後ろに埋もれないように。#176）
           const exactId = o.query?.trim().toLowerCase() ?? "";
           const issues = exactId ? [...sorted.filter((i) => i.id.toLowerCase() === exactId), ...sorted.filter((i) => i.id.toLowerCase() !== exactId)] : sorted;
-          if (o.delegated) {
-            const byAssignee = sortByAssignee(issues);
-            print(cli, byAssignee, () => formatDelegations(byAssignee));
-            return;
-          }
           print(cli, issues, () => (issues.length ? formatIssueListLines(issues).join("\n") : "Issue はありません"));
         },
       ),
@@ -280,8 +284,6 @@ export function registerIssueCommands(program: Command): void {
     .action(
       act((cli, _cmd, id: string) => {
         const detail = getIssue(cli.db, id);
-        // 担当の LLM が読んだ未確認の追加指示は確認済みにする（表示は読んだ時点の「未確認」のまま）
-        acknowledgeShownInstructions(cli.ctx, detail.id, detail.pendingInstructions);
         const rules = workspaceGuidance(cli.db, detail.workspace);
         const pr = formatPrStatusLine(getPrStatus(cli.db, detail.id));
         print(cli, withRules(detail, rules), () => withRulesText(formatIssueDetail(detail, pr), rules));
@@ -356,7 +358,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス")
-    .option("--assignee <name>", "担当（空文字で外す。none は未割り当ての絞り込み用の予約語で使えない）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
     .option("--parent <id>", "親 Issue")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（Issue の Project のもの。Project を変えると外れる）")
@@ -377,7 +380,6 @@ export function registerIssueCommands(program: Command): void {
             estimate?: string;
             due?: string;
             status?: string;
-            assignee?: string;
             parent?: string;
             project?: string;
             addLabel?: string[];
@@ -392,7 +394,6 @@ export function registerIssueCommands(program: Command): void {
             estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
             dueDate: orNull(o.due),
             status: o.status === undefined ? undefined : parseStatus(o.status),
-            assignee: orNull(o.assignee),
             parentRef: orNull(o.parent),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
@@ -416,7 +417,8 @@ export function registerIssueCommands(program: Command): void {
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
     .option("-s, --status <status>", "ステータス（Triage の Issue は変えられない）")
-    .option("--assignee <name>", "担当（空文字で外す。none は未割り当ての絞り込み用の予約語で使えない）")
+    .addOption(new Option("--assignee [name]").hideHelp())
+    .on("option:assignee", rejectAssigneeOption)
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（各 Issue の Project のもの。空文字で外す）")
     .option("--add-label <label>", "ラベルを足す（繰り返し可）", collect)
@@ -433,7 +435,6 @@ export function registerIssueCommands(program: Command): void {
             estimate?: string;
             due?: string;
             status?: string;
-            assignee?: string;
             project?: string;
             milestone?: string;
             addLabel?: string[];
@@ -446,7 +447,6 @@ export function registerIssueCommands(program: Command): void {
             estimate: o.estimate === undefined ? undefined : o.estimate === "" ? null : parseEstimate(o.estimate),
             dueDate: orNull(o.due),
             status: o.status === undefined ? undefined : parseStatus(o.status),
-            assignee: orNull(o.assignee),
             projectRef: orNull(o.project),
             milestoneRef: orNull(o.milestone),
             addLabels: o.addLabel,
@@ -615,7 +615,7 @@ export function registerIssueCommands(program: Command): void {
         if (picked) await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${picked.id} ${picked.title}` });
         const rules = picked ? workspaceGuidance(cli.db, picked.workspace) : null;
         print(cli, picked && withRules(picked, rules), () =>
-          picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}`, rules) : "着手できる Issue はありません",
+          picked ? withRulesText(`着手しました: ${formatIssueLine(picked)}\n${formatStartContext(picked)}`, rules) : "着手できる Issue はありません",
         );
       }),
     );
@@ -632,6 +632,7 @@ export function registerIssueCommands(program: Command): void {
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
         const text = [
           `着手しました: ${formatIssueLine(started)}`,
+          formatStartContext(started),
           ...(pendingInstructions.length ? ["", "追加指示（先に読んで対応する）:", ...formatInstructions(pendingInstructions)] : []),
         ].join("\n");
         print(cli, { ...withRules(started, rules), pendingInstructions }, () => withRulesText(text, rules));

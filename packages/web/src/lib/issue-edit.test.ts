@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assigneeChoices, descriptionInput, hasText, parseLabels, statusChoices } from "./issue-edit";
+import { descriptionInput, hasText, parseLabels, statusChoices } from "./issue-edit";
 
 describe("statusChoices", () => {
   test("Needs Clarification は選べない。今の値のときだけ、選べない項目として出す", () => {
@@ -12,14 +12,6 @@ describe("statusChoices", () => {
       label: "Needs Clarification",
       disabled: true,
     });
-  });
-});
-
-describe("assigneeChoices", () => {
-  test("既知の担当者に、それ以外の今の担当者を足す", () => {
-    expect(assigneeChoices(null)).toEqual(["me", "claude-code", "codex"]);
-    expect(assigneeChoices("codex")).toEqual(["me", "claude-code", "codex"]);
-    expect(assigneeChoices("gemini")).toEqual(["me", "claude-code", "codex", "gemini"]);
   });
 });
 

@@ -17,16 +17,26 @@ export interface WorkLocation {
   worktree: string;
 }
 
+export interface StartIssueResult extends Issue {
+  previousAgentState: Issue["agentState"];
+  previousLocation: { branch: string | null; worktree: string | null } | null;
+}
+
 function recordLocation(ctx: OpCtx, row: IssueRow, location: WorkLocation | null | undefined): void {
   if (!location) return;
   setColumn(ctx, row, "branch", location.branch);
   setColumn(ctx, row, "worktree", location.worktree);
 }
 
-function beginWork(ctx: OpCtx, row: IssueRow, location: WorkLocation | null | undefined): void {
-  setColumn(ctx, row, "assignee", ctx.actor);
+function beginWork(ctx: OpCtx, row: IssueRow, location: WorkLocation | null | undefined): StartIssueResult {
+  const previousAgentState = row.agent_state;
+  const from = { branch: row.branch, worktree: row.worktree };
   setColumn(ctx, row, "agent_state", "working");
   recordLocation(ctx, row, location);
+  const to = { branch: row.branch, worktree: row.worktree };
+  recordEvent(ctx.db, row.id, ctx.actor, "work_started", { previousAgentState, from, to });
+  const changedLocation = from.branch !== to.branch || from.worktree !== to.worktree;
+  return { ...toIssue(issueRowById(ctx.db, row.id)), previousAgentState, previousLocation: changedLocation ? from : null };
 }
 
 // 指定した Issue への着手を妨げる未回答の確認依頼とブロッカーを調べる
@@ -42,7 +52,6 @@ function openBlockersOf(issueId: string): string {
 const NEXT_SQL = `SELECT i.id FROM issues i
 WHERE i.workspace_id = ?
   AND ${READY_WHERE}
-  AND (i.assignee IS NULL OR i.assignee = ?)
   AND (? IS NULL OR i.project_id = ?)
 ORDER BY CASE i.priority WHEN 0 THEN 5 ELSE i.priority END, i.created_at, i.id`;
 
@@ -52,7 +61,7 @@ export function suggestIssue(
 ): Issue | null {
   const projectId = opts.projectRef ? resolveProject(ctx.db, opts.projectRef).id : null;
   const candidate = ctx.db.query(`${NEXT_SQL} LIMIT 1`).get(
-    opts.workspaceId, now(), ctx.actor, projectId, projectId,
+    opts.workspaceId, now(), projectId, projectId,
   ) as { id: number } | null;
   return candidate ? toIssue(issueRowById(ctx.db, candidate.id)) : null;
 }
@@ -60,11 +69,11 @@ export function suggestIssue(
 export function nextIssue(
   ctx: OpCtx,
   opts: { workspaceId: number; projectRef?: string; location?: WorkLocation | null },
-): Issue | null {
+): StartIssueResult | null {
   return tx(ctx.db, () => {
     const projectId = opts.projectRef ? resolveProject(ctx.db, opts.projectRef).id : null;
     const ts = now();
-    const candidates = ctx.db.query(NEXT_SQL).all(opts.workspaceId, ts, ctx.actor, projectId, projectId) as { id: number }[];
+    const candidates = ctx.db.query(NEXT_SQL).all(opts.workspaceId, ts, projectId, projectId) as { id: number }[];
     if (candidates.length > 0) {
       // 取る操作は todo → in_progress の遷移なので、遷移ルール（#73）で禁止されていれば取らずに理由を返す
       const ws = ctx.db.query("SELECT key FROM workspaces WHERE id = ?").get(opts.workspaceId) as { key: string };
@@ -80,14 +89,13 @@ export function nextIssue(
       if (claimed.changes === 0) continue;
       recordEvent(ctx.db, c.id, ctx.actor, "status_changed", { from: "todo", to: "in_progress" });
       const row = issueRowById(ctx.db, c.id);
-      beginWork(ctx, row, opts.location);
-      return toIssue(issueRowById(ctx.db, c.id));
+      return beginWork(ctx, row, opts.location);
     }
     return null;
   });
 }
 
-export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocation | null } = {}): Issue {
+export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocation | null } = {}): StartIssueResult {
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     const assessment = toIssue(row).specAssessment;
@@ -106,9 +114,6 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
     if (row.status === "done" || row.status === "canceled") {
       throw new NodError("ISSUE_CLOSED", `${ref} はすでに ${row.status} です`);
     }
-    if (row.assignee && row.assignee !== ctx.actor) {
-      throw new NodError("ASSIGNED_TO_OTHER", `${ref} は ${row.assignee} が担当しています。別の Issue を取ってください`);
-    }
     if (ctx.db.query(`SELECT 1 ${openQuestionsOf("?")}`).get(row.id)) {
       throw new NodError("AWAITING_ANSWER", `${ref} には未回答の確認依頼があります。回答を待ってください`);
     }
@@ -120,8 +125,7 @@ export function startIssue(ctx: OpCtx, ref: string, opts: { location?: WorkLocat
       throw new NodError("BLOCKED", `${ref} は ${ids} にブロックされています。先にそちらが終わるのを待ってください`);
     }
     setColumn(ctx, row, "status", "in_progress");
-    beginWork(ctx, row, opts.location);
-    return toIssue(issueRowById(ctx.db, row.id));
+    return beginWork(ctx, row, opts.location);
   });
 }
 

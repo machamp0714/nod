@@ -8,7 +8,7 @@ description: "人が指定したWorkspaceとSprintをAirから読み、既存Orc
 指定したWorkspaceとSprintを読み、既存の個別委任とOrca実行を照合する。
 PMは要求の確認、依頼、結果の照合、人への相談を担当し、実装ファイルは実装担当が変更する。
 要求と判断の正本はnod、実行の権限と状態の正本はOrcaのRun、Task、Dispatchである。
-以前の会話だけに依存して担当や工程を決めない。
+実装担当と現在の工程は、既存の委任記録と実行を照合して確認する。
 起動直後と副作用の前後は[永続記録と再開の手順](references/recovery.md)を使う。
 nodへ操作前のintentと操作後のcheckpointを残し、起動Taskを先に作ってIDを保存してからworkerを起動する。
 既存Run、Task、active Dispatch、実行場所、現在commit、要求値と観測した実効値、予約と占有、修正巡、受理通知、PRと質問を照合する。
@@ -56,7 +56,7 @@ nod:pm API --sprint current --on Studio --agent codex --model gpt-6.1-sol --effo
 | Workspace | 登録済みのキーとパス。複数Workspaceへ広げない |
 | Sprint | UUID、全Workspace共通番号、または相対指定`current`。旧Cycle IDや名前で代用しない。`current`は再取得時も相対条件を保持する |
 | 実行先 | Studioの接続先と対象リポジトリ。PMの入口はAir。Airへ黙って切り替えない |
-| 実装担当 | CodexまたはClaude Codeと、nodで使う担当名（`codex`または`claude-code`） |
+| 実装担当 | CodexまたはClaude Codeと、nodへの操作を記録するactor（`codex`または`claude-code`） |
 | モデルとeffort | 個別のユーザー指定、または起動時に合意した許可組み合わせと選定方針 |
 
 モデルは個別指定を最優先にする。
@@ -76,8 +76,8 @@ Orcaの実行ファイルから`skills get orchestration`で現行の手引き�
 ## 2. 候補と既存実行を照合する
 
 最初の選定と新規着手直前に、[候補の確認手順](references/candidates.md)を使う。
-一覧の`--ready`だけで実装可能と判断せず、本文、担当、依存、質問、仕様判定、既存実行を照合する。
-人や他担当の作業、管理外の既存セッション、未受理のTriageを引き取らない。
+一覧の`--ready`だけで実装可能と判断せず、本文、依存、質問、仕様判定を確認し、Activityと作業場所を既存実行と照合する。
+照合で確認した人の進行中の作業、管理外の既存セッション、未受理のTriageを引き取らない。
 通信断や読み取り失敗は`unverifiable`として扱い、生存不明のworkerを失敗や終了と推定しない。
 
 管理中の実行は、このPMが管理する実装Issueごとに記録する。

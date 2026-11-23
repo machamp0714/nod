@@ -34,14 +34,15 @@ test("既存の提案を保ったまま duplicate_of_id を ON DELETE SET NULL �
       (2,'codex','accept',NULL,'["bug","api"]','alice',1,7,'直すべき','2026-01-04','2026-01-05'),
       (3,'claude-code','accept',NULL,'["docs"]',NULL,3,NULL,NULL,'2026-01-06','2026-01-06')`,
   );
-  const rows = () => old.query("SELECT * FROM triage_proposals ORDER BY issue_id, actor").all();
-  const saved = rows();
+  const saved = old.query("SELECT * FROM triage_proposals ORDER BY issue_id, actor").all() as ({ assignee: string | null } & Record<string, unknown>)[];
   expect(saved).toHaveLength(3);
   old.close();
 
   const db = openDb(path);
   expect(schemaVersion(db)).toBe(SCHEMA_VERSION);
-  expect(db.query("SELECT * FROM triage_proposals ORDER BY issue_id, actor").all()).toEqual(saved);
+  expect(db.query("SELECT * FROM triage_proposals ORDER BY issue_id, actor").all()).toEqual(
+    saved.map(({ assignee: _legacyAssignee, ...proposal }) => proposal),
+  );
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   const fk = db.query("PRAGMA foreign_key_list(triage_proposals)").all() as { from: string; on_delete: string }[];
   expect(Object.fromEntries(fk.map((f) => [f.from, f.on_delete]))).toEqual({
@@ -50,10 +51,10 @@ test("既存の提案を保ったまま duplicate_of_id を ON DELETE SET NULL �
     project_id: "SET NULL",
   });
 
-  // 重複先を永久削除しても、提案（ラベル・担当・優先度・Project・理由）は残り、重複先だけが外れる
+  // 重複先を永久削除しても、提案（ラベル・優先度・Project・理由）は残り、重複先だけが外れる
   deleteIssue({ db, actor: "me" }, "API-1");
   expect(listTriageProposals(db, "API-2")).toMatchObject([
-    { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug", "api"], assignee: "alice", priority: 1, project: { id: 7, name: "基盤" }, reason: "直すべき" },
+    { actor: "codex", decision: "accept", duplicateOf: null, labels: ["bug", "api"], priority: 1, project: { id: 7, name: "基盤" }, reason: "直すべき" },
     { actor: "claude-code", decision: "duplicate", duplicateOf: null, reason: "同じ内容" },
   ]);
   expect(listTriageProposals(db, "API-3")).toMatchObject([{ decision: "accept", labels: ["docs"], priority: 3 }]);

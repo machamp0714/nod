@@ -46,36 +46,21 @@ describe("issueQueryFromParams", () => {
 });
 
 describe("delegated", () => {
-  test("true だけを残し、false は省き、真偽以外は INVALID_ARGS", () => {
-    expect(validateIssueQuery({ delegated: true })).toEqual({ delegated: true });
-    expect(validateIssueQuery({ delegated: false })).toEqual({});
-    expect(codeOf(() => validateIssueQuery({ delegated: "yes" }))).toBe("INVALID_ARGS");
-    expect(issueQueryFromParams(new URLSearchParams("delegated=1"))).toEqual({ delegated: true });
-    expect(issueQueryFromParams(new URLSearchParams("delegated=false"))).toEqual({});
-    expect(codeOf(() => issueQueryFromParams(new URLSearchParams("delegated=yes")))).toBe("INVALID_ARGS");
+  test("値にかかわらず担当の廃止を伝えて拒否する", () => {
+    for (const delegated of [true, false, "yes", null]) {
+      expect(() => validateIssueQuery({ delegated })).toThrow("担当は廃止");
+    }
+    for (const value of ["1", "false", "yes", ""]) {
+      expect(() => issueQueryFromParams(new URLSearchParams({ delegated: value }))).toThrow("担当は廃止");
+    }
   });
 });
 
-describe("assignee", () => {
-  test("文字列か配列を受け付け、前後の空白・空・重複を除き、none は未割り当てを指す", () => {
-    expect(validateIssueQuery({ assignee: "me" })).toEqual({ assignee: ["me"] });
-    expect(validateIssueQuery({ assignee: [" codex ", "me", "codex", ""] })).toEqual({ assignee: ["codex", "me"] });
-    expect(validateIssueQuery({ assignee: ["NONE", " none "] })).toEqual({ assignee: ["none"] });
-    expect(validateIssueQuery({ assignee: [] })).toEqual({});
-    expect(validateIssueQuery({ assignee: "  " })).toEqual({});
-  });
-
-  test("担当の名前は大文字小文字を変えず、文字列以外は INVALID_ARGS", () => {
-    expect(validateIssueQuery({ assignee: ["Claude-Code"] })).toEqual({ assignee: ["Claude-Code"] });
-    expect(codeOf(() => validateIssueQuery({ assignee: [1] }))).toBe("INVALID_ARGS");
-    expect(codeOf(() => validateIssueQuery({ assignee: true }))).toBe("INVALID_ARGS");
-  });
-
-  test("クエリパラメータは繰り返しとカンマ区切りを受け付ける", () => {
-    expect(issueQueryFromParams(new URLSearchParams("assignee=me&assignee=claude-code"))).toEqual({ assignee: ["me", "claude-code"] });
-    expect(issueQueryFromParams(new URLSearchParams("assignee=me,none"))).toEqual({ assignee: ["me", "none"] });
-    expect(issueQueryFromParams(new URLSearchParams("assignee="))).toEqual({});
-  });
+test("廃止した担当条件は空や不正な値でも拒否する", () => {
+  for (const assignee of [null, undefined, "", [], true, ["me"]]) {
+    expect(codeOf(() => validateIssueQuery({ assignee }))).toBe("INVALID_ARGS");
+    expect(() => validateIssueQuery({ assignee })).toThrow("担当は廃止");
+  }
 });
 
 describe("priority", () => {

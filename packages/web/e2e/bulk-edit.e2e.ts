@@ -133,10 +133,11 @@ test("キーボードで選び（Space・Shift+Space）、グループの全選�
   await box(page, b4).click();
   await expect(group).toHaveJSProperty("indeterminate", true);
   // メニューの Escape はメニューだけを閉じ、選択は残す
-  await bar(page).getByRole("button", { name: "担当" }).click();
-  await expect(page.getByRole("menu", { name: "担当を変更" })).toBeVisible();
+  await expect(bar(page).getByRole("button", { name: "担当" })).toHaveCount(0);
+  await bar(page).getByRole("button", { name: "優先度" }).click();
+  await expect(page.getByRole("menu", { name: "優先度を変更" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("menu", { name: "担当を変更" })).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: "優先度を変更" })).toHaveCount(0);
   await expect(bar(page)).toContainText("3 件選択");
 
   await setLayout(page, "Board");
@@ -167,7 +168,7 @@ test("上限の100件を超えて選ぶと、送る前に知らせて項目を�
   await selectAll(page).click();
   await expect(bar(page)).toContainText("101 件選択");
   await expect(page.getByRole("alert")).toContainText("選択が一括編集の上限 100 件を超えています（101 件）。100 件以下にしてください");
-  for (const name of ["Status", "優先度", "担当", "Project", "ラベル", "見積もり", "期限"]) {
+  for (const name of ["Status", "優先度", "Project", "ラベル", "見積もり", "期限"]) {
     await expect(bar(page).getByRole("button", { name, exact: true })).toBeDisabled();
   }
   await expect(bar(page).getByRole("button", { name: "選択解除" })).toBeEnabled();

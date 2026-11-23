@@ -18,19 +18,21 @@ test("LLM は triage propose で提案だけを記録でき、Triage の状態�
   const original = await runNod(["issue", "create", "元の Issue", "--json"], { cwd, db });
   const issue = await runNod(["issue", "create", "判断待ち", "--json"], { cwd, db, actor: "codex" });
   const before = snapshot(db);
+  const rejected = await runNod(["triage", "propose", issue.json.id, "--accept", "--assignee=null", "--json"], { cwd, db, actor: "codex" });
+  expect(rejected.json.error).toMatchObject({ code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました") });
   const accept = await runNod(
-    ["triage", "propose", issue.json.id, "--accept", "-l", "bug", "-l", "perf", "--assignee", "codex", "-p", "2", "--reason", "再現できた", "--json"],
+    ["triage", "propose", issue.json.id, "--accept", "-l", "bug", "-l", "perf", "-p", "2", "--reason", "再現できた", "--json"],
     { cwd, db, actor: "codex" },
   );
   expect(accept.exitCode).toBe(0);
-  expect(accept.json).toMatchObject({ actor: "codex", decision: "accept", labels: ["bug", "perf"], assignee: "codex", priority: 2, reason: "再現できた" });
+  expect(accept.json).toMatchObject({ actor: "codex", decision: "accept", labels: ["bug", "perf"], priority: 2, reason: "再現できた" });
   const dup = await runNod(["triage", "propose", issue.json.id, "--duplicate-of", original.json.id, "--json"], { cwd, db, actor: "claude-code" });
   expect(dup.json).toMatchObject({ decision: "duplicate", duplicateOf: original.json.id });
   expect(snapshot(db)).toEqual(before);
 
   const text = await runNod(["triage", "proposals", issue.json.id], { cwd, db, actor: "codex" });
   expect(text.stdout).toContain("確定は人が行います");
-  expect(text.stdout).toMatch(/Assignee: codex  \d{4}-\d{2}-\d{2} \d{2}:\d{2}\n/);
+  expect(text.stdout).not.toContain("Assignee");
   expect(text.stdout).toContain("理由: 再現できた");
   expect(text.stdout).toContain(`元: ${original.json.id}`);
 

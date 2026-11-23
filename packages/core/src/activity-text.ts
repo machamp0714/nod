@@ -48,6 +48,18 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
   const { actor, data } = item;
   const line = (sentence: string, detail: string[] = []): EventText => ({ text: sentence, detail });
   switch (item.type) {
+    case "work_started": {
+      const location = (value: unknown): string => {
+        if (!value || typeof value !== "object") return "なし";
+        const branch = "branch" in value ? orNone(value.branch) : "なし";
+        const worktree = "worktree" in value ? orNone(value.worktree) : "なし";
+        return `${branch} / ${worktree}`;
+      };
+      return line(`${actor} が作業を開始した`, [
+        `開始前の作業状況: ${labels.agentState(data.previousAgentState)}`,
+        `作業場所: ${location(data.from)} → ${location(data.to)}`,
+      ]);
+    }
     case "created": {
       const detail = data.status === undefined ? [] : [`状態: ${labels.status(data.status)}`];
       const source = text(data.discovered_from);
@@ -128,7 +140,7 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
     }
     case "agent_state_changed": {
       const agent = text(data.agent);
-      if (data.to === null) return line(agent ? `${actor} が ${agent} の作業状況を解除した` : `${actor} が作業状況を解除した`);
+      if (data.to === null) return line(agent && agent !== actor ? `${actor} が ${agent} の作業状況を解除した` : `${actor} が作業状況を解除した`);
       const state = labels.agentState(data.to);
       // 入力待ちの理由は質問文で、同じ質問の行と重なるので出さない
       const reason = data.to === "awaiting_input" ? null : text(data.reason);

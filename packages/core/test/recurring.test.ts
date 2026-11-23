@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextIssue, suggestIssue } from "../src/ops/agent";
+import { nextIssue } from "../src/ops/agent";
 import { deleteIssue } from "../src/ops/issue-deletions";
 import { archiveIssue, getIssue, listIssues } from "../src/ops/issues";
 import {
@@ -33,7 +33,6 @@ describe("定期Issueの登録", () => {
       projectRef: "運用",
       labels: ["ops", "ops", "review"],
       priority: 2,
-      assignee: "me",
       cadence: "weekly",
       weekday: 1,
       startDate: "2026-09-01",
@@ -47,7 +46,6 @@ describe("定期Issueの登録", () => {
       project: "運用",
       labels: ["ops", "review"],
       priority: 2,
-      assignee: "me",
       cadence: "weekly",
       weekday: 1,
       monthDay: null,
@@ -101,28 +99,13 @@ describe("定期Issueの登録", () => {
     expect(codeOf(() => addRecurringIssue(me, "NOPE", daily()))).toBe("NOT_FOUND");
   });
 
-  test("担当の名前に none は使えない。none が保存済みの定義も停止・編集でき、実行ではその定義だけ失敗する", () => {
-    const { db, ws, me } = setup();
-    for (const name of ["none", " NONE "]) expect(codeOf(() => addRecurringIssue(me, ws.key, daily({ assignee: name })))).toBe("INVALID_ARGS");
-    const r = addRecurringIssue(me, ws.key, daily({ title: "旧", assignee: "codex" }));
-    const ok = addRecurringIssue(me, ws.key, daily({ title: "他" }));
-    expect(codeOf(() => updateRecurringIssue(me, ws.key, r.id, { assignee: "None" }))).toBe("INVALID_ARGS");
-    db.query("UPDATE recurring_issues SET assignee = 'none' WHERE id = ?").run(r.id);
-    expect(updateRecurringIssue(me, ws.key, r.id, { title: "改名" })).toMatchObject({ title: "改名", assignee: "none" });
-    const run = runRecurringIssues(me, ws.key, { now: WED });
-    expect(run.items.map((i) => i.recurringId)).toEqual([ok.id]);
-    expect(run.failed).toEqual([{ recurringId: r.id, title: "改名", occurrence: "2026-09-30", message: expect.stringContaining("none") }]);
-    expect(updateRecurringIssue(me, ws.key, r.id, { assignee: null }).assignee).toBeNull();
-    expect(runRecurringIssues(me, ws.key, { now: WED }).items.map((i) => i.recurringId)).toEqual([r.id]);
-  });
-
   test("変更は渡した項目だけを変え、周期を変えると使わない指定を消す", () => {
     const { db, ws, me } = setup();
     const r = addRecurringIssue(me, ws.key, { ...daily(), cadence: "weekly", weekday: 3, labels: ["a"] });
     const u = updateRecurringIssue(me, ws.key, r.id, { cadence: "monthly", monthDay: 31, enabled: false }, { now: WED });
     expect(u).toMatchObject({ title: "日次チェック", labels: ["a"], cadence: "monthly", weekday: null, monthDay: 31, enabled: false });
     expect(u.nextOccurrence).toBeNull(); // 停止中は次回なし
-    const v = updateRecurringIssue(me, ws.key, r.id, { description: "本文", projectRef: null, assignee: null, enabled: true }, { now: WED });
+    const v = updateRecurringIssue(me, ws.key, r.id, { description: "本文", projectRef: null, enabled: true }, { now: WED });
     expect(v).toMatchObject({ description: "本文", enabled: true, nextOccurrence: "2026-09-30" });
     expect(codeOf(() => updateRecurringIssue(me, ws.key, 999, { title: "x" }))).toBe("NOT_FOUND");
     expect(getRecurringIssue(db, ws.key, r.id).description).toBe("本文");
@@ -158,7 +141,7 @@ describe("定期Issueの実行", () => {
   test("到来した発生日の Issue を通常の起票と同じ状態で作り、created event に作成元を残す", () => {
     const { db, ws, me } = setup();
     addProjectRow(db, "運用");
-    const r = addRecurringIssue(me, ws.key, daily({ description: "手順", projectRef: "運用", labels: ["ops"], priority: 3, assignee: "claude-code" }));
+    const r = addRecurringIssue(me, ws.key, daily({ description: "手順", projectRef: "運用", labels: ["ops"], priority: 3 }));
     const run = runRecurringIssues(me, ws.key, { now: WED });
     expect(run).toMatchObject({ workspaceKey: ws.key, dryRun: false, failed: [] });
     expect(run.items).toHaveLength(1);
@@ -170,7 +153,6 @@ describe("定期Issueの実行", () => {
       description: "手順",
       status: "todo",
       priority: 3,
-      assignee: "claude-code",
       project: { name: "運用" },
       labels: ["ops"],
       createdBy: "me",
@@ -383,19 +365,12 @@ describe("定期Issueの修正（#135 レビュー）", () => {
 });
 
 describe("LLM に定型作業を定期実行させる（#64）", () => {
-  test("担当に LLM を指定した定期Issueは、人の実行で todo として起票され、その LLM の next で拾われる", () => {
+  test("テンプレートから起票した Issue を LLM が next で取得できる", () => {
     const { db, ws, me, llm } = setup();
-    const codex = { db, actor: "codex" };
     saveTemplate(me, { name: "依存更新チェック", body: "## 手順\n- [ ] bun outdated" });
-    const r = addRecurringIssue(me, ws.key, daily({ title: "依存更新チェック", template: "依存更新チェック", assignee: "claude-code" }));
+    const r = addRecurringIssue(me, ws.key, daily({ title: "依存更新チェック", template: "依存更新チェック" }));
     const created = runRecurringIssues(me, ws.key, { now: WED }).items[0]!.issueId!;
-    // LLM が担当でも、起票したのは人なので Triage を通らない
     expect(eventsOf(db, created)[0]).toMatchObject({ type: "created", actor: "me", data: { status: "todo", recurring_id: r.id } });
-    expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(created);
-    // 担当でない LLM には出ない
-    expect(suggestIssue(codex, { workspaceId: ws.id })).toBeNull();
-    expect(nextIssue(codex, { workspaceId: ws.id })).toBeNull();
-    const taken = nextIssue(llm, { workspaceId: ws.id });
-    expect(taken).toMatchObject({ id: created, status: "in_progress", assignee: "claude-code", description: "## 手順\n- [ ] bun outdated" });
+    expect(nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: created, status: "in_progress", description: "## 手順\n- [ ] bun outdated" });
   });
 });

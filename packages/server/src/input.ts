@@ -20,7 +20,7 @@ export function queryFlag(value: string | undefined, key: string): boolean {
 export type Body = Record<string, unknown>;
 
 // JSON のオブジェクトの本文を読む。空の本文は {} とし、keys にないキーは受け付けない
-export async function readBody(c: Context, keys: readonly string[]): Promise<Body> {
+export async function readBody(c: Context, keys: readonly string[], opts: { rejectAssignee?: boolean } = {}): Promise<Body> {
   const text = await c.req.text();
   let value: unknown = {};
   if (text.trim()) {
@@ -33,6 +33,7 @@ export async function readBody(c: Context, keys: readonly string[]): Promise<Bod
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw invalid("リクエストの本文は JSON のオブジェクトで送ってください");
   }
+  if (opts.rejectAssignee && Object.hasOwn(value, "assignee")) throw invalid("担当は廃止されました。assignee は使えません");
   const unknownKeys = Object.keys(value).filter((k) => !keys.includes(k));
   if (unknownKeys.length) {
     throw invalid(`${unknownKeys.join(", ")} は受け付けません（使えるもの: ${keys.length ? keys.join(", ") : "なし"}）`);

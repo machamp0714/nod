@@ -8,7 +8,6 @@ test("nod issue copy は新しい ID の Issue を作り、元の Issue を変�
   registerRepo(db, cwd, "API");
   const me = (args: string[]) => runNod(args, { cwd, db });
   const src = (await me(["issue", "create", "元の Issue", "-d", "説明", "-p", "2", "-l", "a", "-l", "b", "--json"])).json;
-  await me(["issue", "update", src.id, "--assignee", "codex"]);
   const before = (await me(["issue", "show", src.id, "--json"])).json;
 
   const human = await me(["issue", "copy", src.id]);
@@ -17,7 +16,7 @@ test("nod issue copy は新しい ID の Issue を作り、元の Issue を変�
 
   const json = await me(["issue", "copy", src.id.toLowerCase(), "--title", "別名", "--json"]);
   expect(json.exitCode).toBe(0);
-  expect(json.json).toMatchObject({ id: "API-3", title: "別名", description: "説明", priority: 2, labels: ["a", "b"], status: "todo", assignee: null });
+  expect(json.json).toMatchObject({ id: "API-3", title: "別名", description: "説明", priority: 2, labels: ["a", "b"], status: "todo" });
 
   const byLlm = await runNod(["issue", "copy", src.id, "--json"], { cwd, db, actor: "claude-code" });
   expect(byLlm.json).toMatchObject({ id: "API-4", status: "triage", createdBy: "claude-code" });

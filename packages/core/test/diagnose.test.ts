@@ -70,13 +70,13 @@ test("直接ブロッカーは範囲外も理由に残し、終端・推移的�
   expect(ws.id).not.toBe(other.id);
 });
 
-test("snoozeは未来だけ停滞を抑制し、複数理由・Project・他担当を維持する", () => {
+test("snoozeは未来だけ停滞を抑制し、複数理由とProjectを維持する", () => {
   const { db, ws, me, make, diagnose } = fixture();
   addProjectRow(db, "対象");
   const outside = make();
   const both = make("in_progress", old, ws.id, "対象");
   const snoozed = make();
-  db.query("UPDATE issues SET assignee='other-agent', snoozed_until=? WHERE id=?").run(at, both.rowId);
+  db.query("UPDATE issues SET snoozed_until=? WHERE id=?").run(at, both.rowId);
   db.query("UPDATE issues SET snoozed_until='2026-09-29T00:00:00.001Z' WHERE id=?").run(snoozed.rowId);
   relateIssue(me, outside.id, { blocks: both.id });
   relateIssue(me, outside.id, { blocks: snoozed.id });

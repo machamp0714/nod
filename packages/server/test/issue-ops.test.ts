@@ -153,7 +153,6 @@ describe("update と comment", () => {
       priority: 2,
       status: "backlog",
       addLabels: ["bug"],
-      assignee: null,
     });
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ title: "新しい題", priority: 2, status: "backlog", labels: ["bug"], description: "説明" });

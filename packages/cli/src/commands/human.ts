@@ -25,7 +25,7 @@ import {
   suggestTriage,
   unsnoozeNotifications,
 } from "@nod/core";
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
 import { formatIssueLine, formatIssueLines, formatNotification, formatOpenQuestions, formatTriageProposal, formatTriageProposals, formatTriageSuggestions, print } from "../output";
 
@@ -218,10 +218,11 @@ export function registerHumanCommands(program: Command): void {
   triage
     .command("accept <id>")
     .description("受け入れて Todo にする")
-    .option("--assignee <name>", "受け入れと同時に担当を設定する")
+    .addOption(new Option("--assignee [name]").hideHelp())
     .action(
-      act((cli, _cmd, id: string, o: { assignee?: string }) => {
-        const issue = acceptTriage(cli.ctx, id, { assignee: o.assignee });
+      act((cli, _cmd, id: string, o: { assignee?: string | true }) => {
+        if (o.assignee !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
+        const issue = acceptTriage(cli.ctx, id);
         print(cli, issue, () => `受け入れました: ${formatIssueLine(issue)}`);
       }),
     );
@@ -246,7 +247,7 @@ export function registerHumanCommands(program: Command): void {
     );
   triage
     .command("suggest <id>")
-    .description("重複・ラベル・担当の候補を根拠つきで出す（読み取りのみ。採用は人が accept / duplicate で行う）")
+    .description("重複・ラベルの候補を根拠つきで出す（読み取りのみ。採用は人が accept / duplicate で行う）")
     .action(
       act((cli, _cmd, id: string) => {
         const s = suggestTriage(cli.ctx, id);
@@ -260,7 +261,7 @@ export function registerHumanCommands(program: Command): void {
     .option("--decline", "却下を推奨する")
     .option("--duplicate-of <originalId>", "元の Issue の重複として閉じることを推奨する")
     .option("-l, --label <label>", "受け入れ時に付けるラベル（繰り返し可。--accept のときだけ）", collect)
-    .option("--assignee <name>", "受け入れ時の担当（--accept のときだけ）")
+    .addOption(new Option("--assignee [name]").hideHelp())
     .option("-p, --priority <priority>", "受け入れ時の優先度（--accept のときだけ。0〜4、P0〜P4、urgent・high・medium・low・none のどれか）")
     .option("--project <project>", "受け入れ時の Project の名前か ID（--accept のときだけ）")
     .option("--reason <text>", "判断の理由")
@@ -276,13 +277,14 @@ export function registerHumanCommands(program: Command): void {
             decline?: boolean;
             duplicateOf?: string;
             label?: string[];
-            assignee?: string;
+            assignee?: string | true;
             priority?: string;
             project?: string;
             reason?: string;
             withdraw?: boolean;
           },
         ) => {
+          if (o.assignee !== undefined) throw new NodError("INVALID_ARGS", "担当は廃止されました。--assignee は使えません");
           if (o.withdraw) {
             const { withdraw: _, ...rest } = o;
             if (Object.values(rest).some((v) => v !== undefined)) throw new NodError("INVALID_ARGS", "--withdraw はほかのオプションと併用できません");
@@ -296,7 +298,6 @@ export function registerHumanCommands(program: Command): void {
             decision: picked[0] as "accept" | "decline" | "duplicate",
             duplicateOf: o.duplicateOf,
             labels: o.label,
-            assignee: o.assignee,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
             projectRef: o.project,
             reason: o.reason,

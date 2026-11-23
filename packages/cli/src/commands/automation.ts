@@ -132,7 +132,7 @@ export function registerAutomationCommands(program: Command): void {
         "定期Issueの起票（nod recurring で登録）を最初に行い、自動クローズ・自動アーカイブの順に続ける。",
         "  発生日が来ている有効な定期Issueを起票する（nod recurring run と同じ）。同じ回に起票した Issue はほかのルールの対象にしない。",
         "自動クローズの対象: backlog / todo / in_progress / needs_clarification で、最後の活動（更新・event・コメント・質問）から指定日数たったもの。",
-        "  triage・委任中（担当が me 以外）・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
+        "  triage・作業状況が working / awaiting_input / error の Issue・スヌーズ中・未完了の子を持つ親・ブロック関係のある Issue",
         "  （未完了の Issue をブロックしている、または未完了のブロッカーを待っている）は対象外。done にはしない。",
         "自動アーカイブの対象: done / canceled になってから指定日数たったもの。未完了の子を持つ親は対象外。",
         "同じ回で自動クローズした Issue はアーカイブしない。もう一度実行しても同じ Issue は対象にならない。",

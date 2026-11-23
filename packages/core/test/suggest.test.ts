@@ -27,13 +27,12 @@ describe("suggestIssue", () => {
     expect(suggestIssue(llm, { workspaceId: ws.id })).toBeNull();
   });
 
-  test("別Workspace・他担当・Triage・snooze・未回答・未完了ブロッカーを除外する", () => {
+  test("別Workspace・Triage・snooze・未回答・未完了ブロッカーを除外する", () => {
     const { db, ws, me, llm } = setup();
     const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
     createIssue(me, { workspaceId: other.id, title: "別Workspace", priority: 1 });
     createIssue(llm, { workspaceId: ws.id, title: "Triage" });
-    const assigned = createIssue(me, { workspaceId: ws.id, title: "他担当" });
-    updateIssue(me, assigned.id, { assignee: "codex" });
+    const ready = createIssue(me, { workspaceId: ws.id, title: "着手可能" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "後回し" });
     db.query("UPDATE issues SET snoozed_until = '2999-01-01T00:00:00.000Z' WHERE number = ? AND workspace_id = ?").run(snoozed.number, ws.id);
     const asked = createIssue(me, { workspaceId: ws.id, title: "未回答" });
@@ -44,7 +43,8 @@ describe("suggestIssue", () => {
     updateIssue(me, blocker.id, { status: "backlog" });
     const blocked = createIssue(me, { workspaceId: ws.id, title: "ブロック中" });
     relateIssue(me, blocker.id, { blocks: blocked.id });
-    expect(suggestIssue(llm, { workspaceId: ws.id })).toBeNull();
+    expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(ready.id);
+    nextIssue(llm, { workspaceId: ws.id });
     updateIssue(me, blocker.id, { status: "done" });
     expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(blocked.id);
     nextIssue(llm, { workspaceId: ws.id });
@@ -52,23 +52,22 @@ describe("suggestIssue", () => {
     expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(snoozed.id);
   });
 
-  test("Project・自分の担当で絞り込み、不正Projectを拒否する", () => {
+  test("Projectで絞り込み、不正Projectを拒否する", () => {
     const { db, ws, me, llm } = setup();
     addProjectRow(db, "検索");
     createIssue(me, { workspaceId: ws.id, title: "外", priority: 1 });
     const inside = createIssue(me, { workspaceId: ws.id, title: "中", projectRef: "検索" });
-    updateIssue(me, inside.id, { assignee: llm.actor });
     expect(suggestIssue(llm, { workspaceId: ws.id, projectRef: "検索" })?.id).toBe(inside.id);
     expect(codeOf(() => suggestIssue(llm, { workspaceId: ws.id, projectRef: "不存在" }))).toBe("NOT_FOUND");
   });
 
-  test("提案は予約せず、他actorのclaim後はstartが拒否しnextは次候補を取得する", () => {
+  test("提案は予約せず、他actorの開始後でもstartでき、nextは次候補を取得する", () => {
     const { ws, me, llm } = setup();
     const first = createIssue(me, { workspaceId: ws.id, title: "先", priority: 1 });
     const second = createIssue(me, { workspaceId: ws.id, title: "次" });
     expect(suggestIssue(llm, { workspaceId: ws.id })?.id).toBe(first.id);
     nextIssue({ ...llm, actor: "codex" }, { workspaceId: ws.id });
-    expect(codeOf(() => startIssue(llm, first.id))).toBe("ASSIGNED_TO_OTHER");
+    expect(startIssue(llm, first.id)).toMatchObject({ status: "in_progress", previousAgentState: "working" });
     expect(nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: second.id, status: "in_progress" });
   });
 });

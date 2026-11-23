@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { IssueQuery } from "../api/types";
 import {
-  assigneeFilterOptions,
   describeFilter,
   filterFromSearch,
   filterToSearch,
@@ -23,7 +22,6 @@ describe("filterFromSearch と filterToSearch", () => {
 
   test("条件にないキーは undefined にして、URL から消せるようにする", () => {
     expect(filterToSearch({ label: ["bug"] })).toEqual({
-      assignee: undefined,
       workspace: undefined,
       status: undefined,
       project: undefined,
@@ -40,8 +38,6 @@ describe("issueQueryToParams", () => {
     expect(issueQueryToParams({ sprint: "7" })).toBe("?sprint=7");
     expect(issueQueryToParams({ sprint: "none" })).toBe("?sprint=none");
     expect(issueQueryToParams({ ready: false })).toBe("");
-    expect(issueQueryToParams({ delegated: true })).toBe("?delegated=true");
-    expect(issueQueryToParams({ delegated: false })).toBe("");
     expect(issueQueryToParams({})).toBe("");
   });
 
@@ -61,7 +57,6 @@ describe("sameFilter", () => {
     expect(sameFilter({ status: ["todo"] }, {})).toBe(false);
     expect(sameFilter({ project: "1" }, { project: "2" })).toBe(false);
     expect(sameFilter({ ready: true }, {})).toBe(false);
-    expect(sameFilter({ delegated: true }, {})).toBe(false);
   });
 });
 
@@ -136,8 +131,6 @@ describe("describeFilter", () => {
       { key: "ready", name: "Ready", values: "のみ" },
     ]);
     expect(describeFilter({}, labelOf)).toEqual([]);
-    // 委任中は API や CLI で作った View の filter に入りうるため、外せるようにチップを出す
-    expect(describeFilter({ delegated: true }, labelOf)).toEqual([{ key: "delegated", name: "委任中", values: "のみ" }]);
     // 優先度も API や CLI で作った View の filter に入りうるため、名前で出す（0 は No priority）
     expect(describeFilter({ priority: [1, 2] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "Urgent, High" }]);
     expect(describeFilter({ priority: [0] }, labelOf)).toEqual([{ key: "priority", name: "優先度", values: "No priority" }]);
@@ -177,30 +170,4 @@ test("archived は true のときだけ URL・API・チップ・比較に出し�
   const labelOf = { workspace: (k: string) => k, project: (p: string) => p, status: (s: string) => s };
   expect(describeFilter({ archived: true }, labelOf)).toEqual([{ key: "archived", name: "アーカイブ", values: "アーカイブ済みのみ" }]);
   expect(withoutKey({ archived: true, label: ["a"] }, "archived")).toEqual({ label: ["a"] });
-});
-
-describe("担当の条件（#162）", () => {
-  const labelOf = { workspace: (k: string) => k, project: (p: string) => p, status: (s: string) => s };
-
-  test("search params・API のクエリ・比較・チップに担当を通し、none は未割り当てと出す", () => {
-    expect(filterFromSearch({ assignee: ["me", "none"], tab: "ready" })).toEqual({ assignee: ["me", "none"] });
-    expect(filterToSearch({ assignee: ["me"] }).assignee).toEqual(["me"]);
-    expect(filterToSearch({}).assignee).toBeUndefined();
-    expect(issueQueryToParams({ assignee: ["me", "claude-code"], status: ["todo"] })).toBe("?status=todo&assignee=me&assignee=claude-code");
-    expect(sameFilter({ assignee: ["me", "codex"] }, { assignee: ["codex", "me"] })).toBe(true);
-    expect(sameFilter({ assignee: ["me"] }, {})).toBe(false);
-    expect(sameFilter({ assignee: [] }, {})).toBe(true);
-    expect(describeFilter({ assignee: ["me", "claude-code"] }, labelOf)).toEqual([{ key: "assignee", name: "担当", values: "me, claude-code" }]);
-    expect(describeFilter({ assignee: ["none"] }, labelOf)).toEqual([{ key: "assignee", name: "担当", values: "未割り当て" }]);
-    expect(withoutKey({ assignee: ["me"], label: ["a"] }, "assignee")).toEqual({ label: ["a"] });
-  });
-
-  test("選択肢は me・claude-code・codex を先頭に、Issue に現れるほかの担当を名前順で足す", () => {
-    expect(assigneeFilterOptions([])).toEqual(["me", "claude-code", "codex"]);
-    expect(assigneeFilterOptions(["codex", null, "gemini", "aider", "gemini", "me"])).toEqual(["me", "claude-code", "codex", "aider", "gemini"]);
-  });
-
-  test("条件にあって選択肢にない担当（消えた担当など）も、外せるよう選択肢に出す", () => {
-    expect(assigneeFilterOptions(["codex"], ["old-bot", "none", "me"])).toEqual(["me", "claude-code", "codex", "old-bot"]);
-  });
 });

@@ -151,12 +151,13 @@ else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state))
   expect(replanned.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
 });
 
-test("CLIは通常着手の元担当と未照合占有を表示し、別採択Issueの予約を同じcoreで件数により拒否しない", async () => {
+test("CLIは通常着手の実行場所と未照合占有を表示し、別採択Issueの予約を同じcoreで件数により拒否しない", async () => {
   const cwd = makeRepo(), path = tempDb(), db = core.openDb(path), dir = tempDir();
   const me = { db, actor: "me" }, llm = { db, actor: "codex" }, ws = core.initWorkspace(db, { path: cwd }).workspace;
   const a = core.createIssue(me, { workspaceId: ws.id, title: "先に着手した仕事" });
   const b = core.createIssue(me, { workspaceId: ws.id, title: "次の採択仕事" });
-  core.startIssue(llm, a.id);
+  const location = { branch: "already-started", worktree: cwd };
+  core.startIssue(llm, a.id, { location });
   const original = prepareSprint(me, ws.key, [a.id, b.id]);
   const period = core.updateSprint(me, original.sprint.id, { expectedVersion: original.sprint.version, requestKey: "試験期間", startDate: "2000-01-01", endDate: "2999-01-01" });
   const proposed = core.proposeSprintPlan(me, period.id, { ...original.input, expectedVersion: period.version, requestKey: "現在の計画" });
@@ -167,9 +168,12 @@ test("CLIは通常着手の元担当と未照合占有を表示し、別採択Is
   });
   db.close();
   const observed = await runNod(["sprint", "execution", "show", sprint.id, "--json"], { cwd, db: path, actor: "codex" });
-  expect(observed).toMatchObject({ exitCode: 0, json: { occupied: 1, reserved: 0, attempts: [], unreconciledOwnership: [{ sourceIssueKey: a.id, assignee: "codex", status: "in_progress" }] } });
+  expect(observed).toMatchObject({ exitCode: 0, json: { occupied: 1, reserved: 0, attempts: [], unreconciledOwnership: [{ sourceIssueKey: a.id, ...location, status: "in_progress" }] } });
   const human = await runNod(["sprint", "execution", "show", sprint.id], { cwd, db: path, actor: "codex" });
-  expect(human.stdout).toContain("通常経路の既存所有: codex"); expect(human.stdout).toContain("EXISTING_EXECUTION_UNRECONCILED");
+  expect(human.stdout).toContain("通常経路の既存所有（in_progress）");
+  expect(human.stdout).toContain("実行場所: " + cwd);
+  expect(human.stdout).toContain("EXISTING_EXECUTION_UNRECONCILED");
+  expect(observed.json.unreconciledOwnership[0]).not.toHaveProperty("assignee");
   const file = join(dir, "予約.json");
   writeFileSync(file, JSON.stringify({ sessionId: session.id, generation: 1, requestKey: "別の仕事", itemId: original.items[1]!.id,
     actor: "codex", spec: "Bを始める", placement: { agent: "codex", worktree: "path:/専用" } }));
@@ -180,7 +184,7 @@ test("CLIは通常着手の元担当と未照合占有を表示し、別採択Is
   const reserved = await runNod(["sprint", "execution", "show", sprint.id, "--json"], { cwd, db: path, actor: "codex" });
   expect(reserved).toMatchObject({ exitCode: 0, json: { occupied: 2, reserved: 1,
     attempts: [{ sourceIssueKey: b.id, itemId: original.items[1]!.id, parentAttemptId: null, occupied: true }],
-    unreconciledOwnership: [{ sourceIssueKey: a.id, assignee: "codex", status: "in_progress" }] } });
+    unreconciledOwnership: [{ sourceIssueKey: a.id, ...location, status: "in_progress" }] } });
 });
 
 test("表示した完全な再照合手順をactor補充なしで実行し、保存した同世代の予約と拒否理由を読む", async () => {

@@ -13,20 +13,44 @@ const llm = (args: string[]) => runNod(args, { cwd: repo, db, actor: "claude-cod
 const me = (args: string[]) => runNod(args, { cwd: repo, db });
 const create = async (title: string, run = me) => (await run(["issue", "create", "--json", title])).json.id as string;
 
+test("Issue の詳細と一覧に担当フィールドを表示しない", async () => {
+  const title = "詳細と一覧で確認する Issue";
+  const id = await create(title);
+  for (const args of [["show", id], ["list"]]) {
+    const result = await me(["issue", ...args]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(title);
+    expect(result.stdout).not.toContain("担当");
+  }
+  expect((await me(["issue", "show", id, "--json"])).json).not.toHaveProperty("assignee");
+});
+
 describe("nod issue bulk-update", () => {
-  test("複数 Issue の状態・優先度・担当・ラベル・見積もり・期限をまとめて変える", async () => {
+  test("単体と一括の更新で廃止済みの --assignee を拒否し、他の項目も変えない", async () => {
+    const id = await create("担当の指定を拒否");
+    for (const command of ["update", "bulk-update"]) {
+      for (const option of [["--assignee", "codex"], ["--assignee="], ["--assignee"]]) {
+        const r = await me(["issue", command, id, "--json", "-p", "1", ...option]);
+        expect(r.exitCode).toBe(1);
+        expect(r.json.error).toMatchObject({ code: "INVALID_ARGS", message: "担当は廃止されました。--assignee は使えません" });
+      }
+    }
+    expect((await me(["issue", "show", id, "--json"])).json.priority).toBe(0);
+  });
+
+  test("複数 Issue の状態・優先度・ラベル・見積もり・期限をまとめて変える", async () => {
     const a = await create("一括A");
     const b = await create("一括B");
-    const r = await me(["issue", "bulk-update", a, b, "--json", "-s", "in_progress", "-p", "2", "--assignee", "codex", "--estimate", "3", "--due", "2026-10-01", "--add-label", "bulk"]);
+    const r = await me(["issue", "bulk-update", a, b, "--json", "-s", "in_progress", "-p", "2", "--estimate", "3", "--due", "2026-10-01", "--add-label", "bulk"]);
     expect(r.exitCode).toBe(0);
     expect(r.json).toHaveLength(2);
     for (const issue of r.json) {
-      expect(issue).toMatchObject({ status: "in_progress", priority: 2, assignee: "codex", estimate: 3, dueDate: "2026-10-01", labels: ["bulk"] });
+      expect(issue).toMatchObject({ status: "in_progress", priority: 2, estimate: 3, dueDate: "2026-10-01", labels: ["bulk"] });
     }
-    const text = await me(["issue", "bulk-update", a, b, "--assignee", "", "--estimate", ""]);
+    const text = await me(["issue", "bulk-update", a, b, "--estimate", ""]);
     expect(text.exitCode).toBe(0);
     expect(text.stdout).toContain("2 件を更新しました");
-    expect((await me(["issue", "show", a, "--json"])).json).toMatchObject({ assignee: null, estimate: null });
+    expect((await me(["issue", "show", a, "--json"])).json.estimate).toBeNull();
   });
 
   test("LLM も一括で done にできる", async () => {

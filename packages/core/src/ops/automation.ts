@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { latestActivity } from "../activity";
-import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { isLlm, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow, OPEN_BLOCKER } from "../issue-query";
@@ -162,17 +162,17 @@ function candidateOf(
 
 const CANDIDATE_SELECT = "SELECT i.id, i.number, i.title, i.status, i.created_at, i.updated_at, i.closed_at, i.snoozed_until FROM issues i";
 
-// 最後の活動から days 日以上たった未完了の Issue。委任中（担当が me 以外）・スヌーズ中・ブロック関係のあるものは除く。
+// 最後の活動から days 日以上たった未完了の Issue。作業中・入力待ち・エラー・スヌーズ中・ブロック関係のあるものは除く。
 // issueId を渡すとその1件だけを確かめる（実行時の再確認）
 function closeCandidates(db: Database, workspace: Workspace, days: number, current: number, issueId?: number): Found[] {
   const rows = db
     .query(`${CANDIDATE_SELECT}
       WHERE i.workspace_id = ? AND i.archived_at IS NULL ${issueId === undefined ? "" : "AND i.id = ?"}
         AND i.status IN (${CLOSE_STATUSES.map(() => "?").join(", ")})
-        AND (i.assignee IS NULL OR i.assignee = ?)
+        AND (i.agent_state IS NULL OR i.agent_state NOT IN ('working', 'awaiting_input', 'error'))
         AND ${NO_OPEN_CHILD}
         AND ${NO_BLOCK_RELATION}`)
-    .all(workspace.id, ...(issueId === undefined ? [] : [issueId]), ...CLOSE_STATUSES, HUMAN_ACTOR) as CandidateRow[];
+    .all(workspace.id, ...(issueId === undefined ? [] : [issueId]), ...CLOSE_STATUSES) as CandidateRow[];
   const found: Found[] = [];
   for (const row of rows) {
     const snoozedUntil = recordedTimestamp(row.snoozed_until);
@@ -210,7 +210,7 @@ function ruleSkip(ctx: OpCtx, row: IssueRow, to: Status): string | null {
 }
 
 // 自動クローズ1件。候補を探してから処理するまでにほかの操作で変わりうるので、書き込む transaction の中で
-// 同じ条件（状態・担当・子・ブロック関係・スヌーズ・経過日数）を確かめ直し、外れていれば何もしない（スキップ）
+// 同じ条件（状態・作業状況・子・ブロック関係・スヌーズ・経過日数）を確かめ直し、外れていれば何もしない（スキップ）
 function closeOne(ctx: OpCtx, find: Finder, ref: string, days: number): ActResult {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);

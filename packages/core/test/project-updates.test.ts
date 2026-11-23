@@ -68,7 +68,7 @@ describe("Project の進捗報告", () => {
     expect(getProject(db, "古い").updates.map((u) => u.body)).toEqual(["中止の経緯"]);
   });
 
-  test("Project の状態・updated_at と所属 Issue の状態・担当・event・Triage を変えない", () => {
+  test("Project の状態・updated_at と所属 Issue の状態・event・Triage を変えない", () => {
     const { db, ws, me, llm } = setup();
     const p = createProject(me, { name: "検索" });
     updateProject(me, "検索", { status: "started" });

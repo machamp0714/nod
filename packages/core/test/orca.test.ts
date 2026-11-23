@@ -162,7 +162,7 @@ describe("createOrcaWorktree（#210）", () => {
     return { ...s, ref: issue.id };
   }
 
-  test("orca worktree create を1回呼び、結果の worktree とブランチを Issue に記録する。ステータスと担当は変えない", async () => {
+  test("orca worktree create を1回呼び、結果の worktree とブランチを Issue に記録する。ステータスと作業状況は変えない", async () => {
     const { db, me, ref } = unstarted();
     const before = getIssue(db, ref);
     const { run, calls } = stubOrca({ "worktree create": created, "worktree set": ok({}) });
@@ -175,7 +175,7 @@ describe("createOrcaWorktree（#210）", () => {
       ["terminal", "send", "--terminal", "term_new", "--text", "API-1", "--json"],
     ]);
     const after = getIssue(db, ref);
-    expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee, agentState: before.agentState });
+    expect(after).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, agentState: before.agentState });
   });
 
   test("入力待ちを確認し、Issue IDをEnterなしで入力する", async () => {
@@ -346,7 +346,7 @@ describe("createOrcaWorktree（#210）", () => {
       const res = await createOrcaWorktree(me, ref, { feature: "search-n1" }, run);
       expect(res).toMatchObject({ issueId: "API-1", created: false, worktree: null, branch: null, failure: { code } });
       expect(res.failure?.message).toContain(text);
-      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, assignee: before.assignee, agentState: before.agentState });
+      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, agentState: before.agentState });
     }
   });
 

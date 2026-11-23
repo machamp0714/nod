@@ -1,11 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentState, Status } from "../../api/types";
-import { AGENT_STATE_META, BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
+import type { Status } from "../../api/types";
+import { BOARD_STATUSES, priorityMeta, TONE_COLORS } from "../../lib/meta";
 import { defaultIssueColumns } from "../../routes/search";
 import type { IssueColumn, IssueGroupKey, IssueListSearch } from "../../routes/search";
-import { AgentAvatar, Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, type StatusTones, StatusTonesProvider, ViewBar, WorkspaceBadge } from "../ui";
+import { Icon, IconButton, PageHeader, PageTitle, Segmented, Spacer, StatusIcon, type StatusTones, StatusTonesProvider, ViewBar, WorkspaceBadge } from "../ui";
 import { pruneSelection, type Selection, selectAllState, toggleAll, toggleSelection } from "../../lib/bulk-selection";
-import { AgentStateDot } from "./AgentStateDot";
 import { BulkActionBar } from "./BulkActionBar";
 import { DisplayPopover, GROUP_NAMES } from "./DisplayPopover";
 import { IssueBoard } from "./IssueBoard";
@@ -42,8 +41,6 @@ export interface IssueListProps {
   onSearchChange: (patch: IssueListSearch) => void;
   // Status の見出しに表示名を使う Workspace。省略時は Workspace の絞り込みが1つのときだけ使う
   statusWorkspace?: string | null;
-  // My issues：タブは担当（me と LLM の担当）だけにする。Status でまとめるのが既定
-  mine?: boolean;
   // 全行が同じ値になるため既定から外す列（Project 詳細の Project）。URL で列を明示したときは出す
   sameValueColumn?: IssueColumn;
   // ページごとに保存した表示設定を消す（#218）。View では渡さない
@@ -82,7 +79,6 @@ export function IssueList({
   search,
   onSearchChange,
   statusWorkspace,
-  mine = false,
   sameValueColumn,
   onResetDisplay,
   resetDisplayDisabled,
@@ -100,7 +96,7 @@ export function IssueList({
     const cycle = cycles.data?.find((c) => c.id === id);
     return cycle && { label: cycle.name, rank: `${cycle.startDate}:${cycle.number}`, current: cycle.phase === "active" };
   };
-  const tab: ListTab = mine ? "mine" : (search.tab ?? "all");
+  const tab: ListTab = search.tab ?? "all";
   const layout = search.layout ?? "list";
   const q = search.q ?? "";
   const counts = countRows(rows);
@@ -110,7 +106,7 @@ export function IssueList({
   // 表示設定の列はユーザーの設定のまま扱い、表に渡す列だけを減らす
   const columns = search.columns ?? defaultIssueColumns(sameValueColumn, sprintIds !== undefined);
   const tableColumns = preview ? columns.filter((column) => !PREVIEW_HIDDEN_COLUMNS.includes(column)) : columns;
-  const { groupBy, subGroupBy } = effectiveGrouping(search, layout, mine);
+  const { groupBy, subGroupBy } = effectiveGrouping(search, layout);
   const groups = groupBy
     ? groupRows(layout === "board" ? visible.filter((r) => BOARD_STATUSES.includes(r.issue.status)) : visible, groupBy, subGroupBy, nameOfStatus, cycleInfo)
     : [];
@@ -133,7 +129,6 @@ export function IssueList({
   const closePreview = useCallback(() => onSearchChange({ preview: undefined }), [onSearchChange]);
   const titles = useMemo(() => new Map(rows.map((r) => [r.issue.id, r.issue.title])), [rows]);
   const workspaceNames = useMemo(() => new Map(rows.map((r) => [r.issue.workspace, r.workspaceName])), [rows]);
-  const delegated = tab === "delegated";
   // ラベルのグループでは同じ行が何度も出るため、描画順で最初の表だけに現在のプレビューを示させる
   let currentShown = false;
   // 表は positions と同じ順に描くので、描いた行数を数えて各表の先頭行の表示位置にする
@@ -143,7 +138,7 @@ export function IssueList({
     if (markCurrent) currentShown = true;
     const selection = rowSelection && { ...rowSelection, offset };
     offset += tableRows.length;
-    return <IssueTable unknownQuestions={readOnly} rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} showAgentState={delegated || tab === "mine"} selection={selection} scrollRegion={region} />;
+    return <IssueTable unknownQuestions={readOnly} rows={tableRows} columns={tableColumns} previewId={preview} markCurrent={markCurrent} onPreview={onPreview} selection={selection} scrollRegion={region} />;
   };
   // 一括編集の選択。URL には残さず、List 表示で見えている Issue だけを選べる
   const [selection, setSelection] = useState<Selection>({ ids: NO_SELECTION, anchor: null });
@@ -171,8 +166,7 @@ export function IssueList({
   const toggleMany = (ids: string[]) => setSelection((prev) => ({ ...prev, ids: toggleAll(prev.ids, ids) }));
   const clearSelection = () => setSelection({ ids: NO_SELECTION, anchor: null });
   const rowSelection = selectable ? { ids: selectedIds, onToggle: onToggleRow } : undefined;
-  // 委任中タブの担当でのまとめは effectiveGrouping が表示時に決める（URL には書かない）
-  const selectTab = (next: ListTab) => onSearchChange({ tab: next === "mine" ? "all" : next });
+  const selectTab = (next: ListTab) => onSearchChange({ tab: next });
   // 検索欄は View Bar のアイコンボタンから開く。検索語があるあいだは開いたままにする
   const [searching, setSearching] = useState(false);
   const searchText = useDraftText(q, (next) => onSearchChange({ q: next }));
@@ -251,13 +245,10 @@ export function IssueList({
           label="絞り込み"
           value={tab}
           onChange={selectTab}
-          items={mine ? [
-            { value: "mine", label: `担当 ${counts.mine}` },
-          ] : [
+          items={[
             { value: "all", label: `All ${counts.all}` },
             { value: "ready", label: readOnly ? "Ready 不明" : `Ready ${counts.ready}` },
             { value: "needs_clarification", label: `${nameOfStatus("needs_clarification")} ${counts.needsClarification}` },
-            { value: "delegated", label: `委任中 ${counts.delegated}` },
           ]}
         />
         <Spacer />
@@ -310,31 +301,19 @@ export function IssueList({
           <p role="status" className={s.message}>
             読み込み中…
           </p>
-        ) : readOnly && tab === "ready" ? <p role="status" className={s.message}>移行時のReady判定は未記録です</p> : emptyMessage && rows.length === 0 ? <p role="status" className={s.message}>{emptyMessage}</p> : delegated && counts.delegated === 0 ? (
-          <div className={s.emptyDelegated}>
-            <Icon name="bot" size={24} color="var(--ink3)" />
-            LLM に委任中の Issue はありません
-          </div>
-        ) : tab === "mine" && counts.mine === 0 ? (
-          // Pencil「My issues｜担当 空状態（#162）」
-          <div className={s.emptyDelegated}>
-            <Icon name="circle-user" size={24} color="var(--ink3)" />
-            担当している Issue はありません
-          </div>
-        ) : groupBy ? (
+        ) : readOnly && tab === "ready" ? <p role="status" className={s.message}>移行時のReady判定は未記録です</p> : emptyMessage && rows.length === 0 ? <p role="status" className={s.message}>{emptyMessage}</p> : groupBy ? (
           groups.length === 0 ? <p className={s.message}>該当する Issue はありません</p> : (
             groups.map((group) => (
               <section key={group.key} className={s.workspaceGroup} aria-label={`${GROUP_NAMES[groupBy]} ${group.label}`}>
                 <GroupHeading
                   by={groupBy}
                   group={group}
-                  delegated={delegated}
                   select={selectable ? <SelectAllBox ids={idsOf(rowsOf(group))} label={`${GROUP_NAMES[groupBy]} ${group.label} の Issue をすべて選択`} selected={selectedIds} onChange={toggleMany} /> : undefined}
                 />
                 {layout === "board" ? <IssueBoard readOnly={readOnly} rows={group.rows} nameOfStatus={nameOfStatus} scrollRegion={scrollRegionKey("board", [group.key])} /> : group.subgroups && subGroupBy ? (
                   group.subgroups.map((subgroup) => (
                     <section key={subgroup.key} className={s.subgroup} aria-label={`${GROUP_NAMES[subGroupBy]} ${subgroup.label}`}>
-                      <GroupHeading by={subGroupBy} group={subgroup} level={3} delegated={delegated} />
+                      <GroupHeading by={subGroupBy} group={subgroup} level={3} />
                       {table(subgroup.rows, scrollRegionKey("table", [group.key, subgroup.key]))}
                     </section>
                   ))
@@ -384,7 +363,6 @@ export function IssueList({
   );
 }
 
-const AGENT_STATES = Object.keys(AGENT_STATE_META) as AgentState[];
 const NO_SELECTION: ReadonlySet<string> = new Set();
 const NO_STATUS_TONES: StatusTones = {};
 
@@ -420,29 +398,9 @@ function SelectAllBox({ ids, label, selected, onChange, inputRef }: { ids: strin
 
 // design/nod.pen「11 Issues」のグループ行（高さ 36、角丸 8）：アイコン、名前、件数
 // サブグループの見出しは「Issues｜サブグループ」の行（高さ 32、白地）
-// 委任中タブの担当の見出しは「Issues｜委任中タブ（#53）」：アバター、LLM 名、件数、作業状況の内訳（0件は出さない）
-function GroupHeading({ by, group, level = 2, delegated = false, select }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; delegated?: boolean; select?: ReactNode }) {
+function GroupHeading({ by, group, level = 2, select }: { by: IssueGroupKey; group: RowGroup; level?: 2 | 3; select?: ReactNode }) {
   const empty = group.key === "";
   const Heading = level === 2 ? "h2" : "h3";
-  if (delegated && by === "assignee" && !empty) {
-    const breakdown = AGENT_STATES.map((state) => [state, group.rows.filter((r) => r.issue.agentState === state).length] as const)
-      .filter(([, n]) => n > 0);
-    return (
-      <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
-        {select}
-        <AgentAvatar actor={group.key} />
-        <span className={`${s.groupLabel} ${s.agentName}`}>{group.label}</span>
-        <span className={s.groupCount} aria-label={`${group.rows.length} 件`}>{group.rows.length}</span>
-        {breakdown.length > 0 && (
-          <span className={s.breakdown} aria-label="作業状況の内訳">
-            {breakdown.map(([state, n]) => (
-              <AgentStateDot key={state} state={state}>{`${AGENT_STATE_META[state].label} ${n}`}</AgentStateDot>
-            ))}
-          </span>
-        )}
-      </Heading>
-    );
-  }
   return (
     <Heading className={level === 2 ? s.groupHeading : s.subgroupHeading}>
       {select}
@@ -454,7 +412,6 @@ function GroupHeading({ by, group, level = 2, delegated = false, select }: { by:
           {by === "priority" && <Icon name={priorityMeta(Number(group.key)).icon} size={14} color={TONE_COLORS[priorityMeta(Number(group.key)).tone].fg} />}
           {by === "project" && <Icon name={empty ? "minus" : "box"} size={14} color="var(--ink3)" />}
           {by === "sprint" && <Icon name={empty ? "circle-dashed" : "calendar-range"} size={14} color={group.current ? "var(--accent)" : "var(--ink3)"} />}
-          {by === "assignee" && <Icon name={empty ? "minus" : "circle-user"} size={14} color="var(--ink3)" />}
           {by === "label" && <Icon name={empty ? "minus" : "tag"} size={14} color="var(--ink3)" />}
           <span className={s.groupLabel}>{group.label}</span>
         </>

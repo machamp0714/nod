@@ -25,7 +25,7 @@ test("通知の詳細のメニューは右カラムの内側に開き、横に�
   await page.evaluate(() => document.fonts.ready);
 
   const measured: Record<string, unknown> = {};
-  for (const name of ["Status", "Project", "Assignee"]) {
+  for (const name of ["Status", "Project", "Priority"]) {
     await property(props(page), name).click();
     const layout = await propertyMenu(props(page), name).evaluate((menu) => {
       const popover = menu.parentElement!.getBoundingClientRect();
@@ -62,7 +62,7 @@ test.describe("通知からの編集（#46）", () => {
     await page.goto(`/inbox?tab=notifications&selected=${a.id}`);
     await expect(props(page).getByRole("heading", { name: "プロパティ" })).toBeVisible();
     // Inbox では変えられる行とリマインダーだけを出す
-    for (const label of ["Status", "Priority", "Project", "Assignee"]) await expect(property(props(page), label)).toBeVisible();
+    for (const label of ["Status", "Priority", "Project"]) await expect(property(props(page), label)).toBeVisible();
     for (const label of ["Estimate を編集", "Due date を編集", "Reminder を編集"]) await expect(props(page).getByRole("button", { name: label })).toBeVisible();
     await expect(props(page).getByText("作業状況")).toHaveCount(0);
     await expect(props(page).getByText("Workspace")).toHaveCount(0);
@@ -86,9 +86,6 @@ test.describe("通知からの編集（#46）", () => {
     await props(page).getByLabel("Due date", { exact: true }).fill(dayAfter(3));
     await props(page).getByLabel("Due date", { exact: true }).press("Enter");
     await expect.poll(async () => (await nod.me.getIssue(a.id)).dueDate).toBe(dayAfter(3));
-    await chooseProperty(props(page), "Assignee", "なし");
-    await expect.poll(async () => (await nod.me.getIssue(a.id)).assignee).toBeNull();
-
     // ほかの場所（CLI の LLM）での変更は後から読み直して表示する（Issue 詳細と同じく後勝ち）
     await nod.claude.updateIssue(a.id, { priority: 1 });
     await expect(property(props(page), "Priority")).toHaveAttribute("data-value", "1");

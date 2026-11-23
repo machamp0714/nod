@@ -13,7 +13,6 @@ const LINKS = [
   { name: /^Triage/, url: /\/triage$/, heading: "Triage" },
   { name: /^Open questions/, url: /\/open-questions$/, heading: "Open questions" },
   { name: "Issues", url: /\/issues$/, heading: "Issues" },
-  { name: "My issues", url: /\/my-issues$/, heading: "My issues" },
   { name: "Projects", url: /\/projects$/, heading: "Projects" },
   { name: "Documents", url: /\/documents$/, heading: "Documents" },
   { name: "仕事", url: /\/views\/1$/, heading: "仕事" },
@@ -29,6 +28,15 @@ for (const link of LINKS) {
     await expect(nav.getByRole("link", { name: link.name, exact: true })).toHaveAttribute("aria-current", "page");
   });
 }
+
+test("旧 My Issues URL は Issues に移り、サイドバーに My Issues はない", async ({ page }) => {
+  await page.goto("/my-issues");
+  await expect(page).toHaveURL(/\/issues$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Issues" })).toBeVisible();
+  const nav = page.getByRole("navigation", { name: "メイン" });
+  await expect(nav.getByRole("link", { name: "My issues", exact: true })).toHaveCount(0);
+  await expect(nav.getByRole("link", { name: "Issues", exact: true })).toHaveAttribute("aria-current", "page");
+});
 
 // 件数を正確に数えるため、このテストだけ空の DB から始める。
 test.describe("件数", () => {
@@ -66,7 +74,7 @@ test.describe("Issue 詳細", () => {
     await page.goto("/issues/API-12");
     const nav = page.getByRole("navigation", { name: "メイン" });
     await expect(nav.getByRole("link", { name: "Issues", exact: true })).toHaveAttribute("aria-current", "page");
-    await expect(nav.getByRole("link", { name: "My issues" })).not.toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "My issues", exact: true })).toHaveCount(0);
   });
 });
 

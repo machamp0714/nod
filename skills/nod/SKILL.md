@@ -24,6 +24,13 @@ description: >-
 `needs-spec` があれば `nod:to-spec` へ進み、実装を始めない。初回判定後のラベルは原則として人間が管理する。`nod:to-spec` は仕様書の作成・添付の完了を確認して `nod issue update <id> --remove-label needs-spec` で解除する。本文変更や仕様 Document の添付だけではシステムによる自動更新・解除は行わない。
 needs-spec がなく判定完了済みか対象外・制限解除済みなら、独立した spec・plan がなくても本文の要求と完了条件を正本として実装できる。既存の spec・plan があれば使い、レビューでは本文を根拠に Spec 軸を必ず実行する。
 
+## Issue の開始と再開
+
+着手条件を満たしていれば、どの書き手でも `nod issue start <id>` で開始または再開できる。
+開始するたびに Activity に記録され、開始前の作業状況と、作業場所が変わった場合の前のブランチと worktree が返る。
+追加指示は `nod issue show <id>` で参照できる。
+確認済みになるのは、LLM が `nod issue start <id>` で受け取ったときだけである。
+
 ## レビュー提出と作業の完了
 
 PR を含む依頼では、必要な実装・検証・独立レビューを済ませ、PR を作成して `nod issue link-pr <id> <URL>` で紐付ける。レビュー依頼時に `nod issue update <id> --status in_review` で In Review に移し、提出として報告する。提出しただけでは Done にしない。

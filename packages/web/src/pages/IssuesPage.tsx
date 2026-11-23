@@ -28,9 +28,8 @@ export function IssuesPage() {
   const views = useViews();
   const createView = useCreateView();
   const [saving, setSaving] = useState(false);
-  // View に保存する内容（#175）。委任中タブは、開いたときも委任中だけが出るように絞り込み条件へ含める。
   // Ready・Needs Clarification のタブ、グループ化、並び順、列などは表示設定として保存する。検索欄の入力とプレビューは保存しない
-  const savedFilter = search.tab === "delegated" ? { ...filter, delegated: true } : filter;
+  const savedFilter = filter;
   const savedDisplay = displayFromSearch(search);
   const savedChips = useFilterChips(savedFilter, options);
   const change = (patch: IssueListSearch) => {

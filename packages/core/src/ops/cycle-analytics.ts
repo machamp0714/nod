@@ -13,7 +13,6 @@ export interface SprintAnalyticsOptions { clock?: SprintClock; timezone?: string
 
 interface AnalysisIssue {
   status: string;
-  assignee: string | null;
   labels: string[];
   project: {id: unknown; name: unknown} | null;
   workspace: string;
@@ -43,7 +42,7 @@ export function sprintAnalytics(db: Database, ref: string, options: SprintAnalyt
   const burnup=imported && timezone ? historyDays(sprint,timezone,options.clock ?? {}) : [];
   const issues: AnalysisIssue[] = imported
     ? sprint.items.filter(item=>!item.snapshot.issue.archived_at).map(item=>({
-      status:item.snapshot.issue.status, assignee:typeof item.snapshot.issue.assignee === "string" ? item.snapshot.issue.assignee : null,
+      status:item.snapshot.issue.status,
       labels:item.snapshot.labels, project:item.snapshot.project as AnalysisIssue["project"], workspace:item.snapshot.workspace.key,
     }))
     : queryIssues(db,{sprint:sprint.id}).issues.map(issue=>({...issue,workspace:issue.workspace}));
@@ -57,7 +56,6 @@ export function sprintAnalytics(db: Database, ref: string, options: SprintAnalyt
     scopeAdded:burnup.length && burnup[0]!.scope !== null && burnup.at(-1)!.scope !== null
       ? burnup.at(-1)!.scope! - burnup[0]!.scope! : null,burnup,statuses,
     breakdown:{
-      assignees:breakdown(issues,i=>[[i.assignee ?? "",i.assignee ?? "担当なし"]]),
       labels:breakdown(issues,i=>i.labels.map(label=>[label,label])),
       projects:breakdown(issues,i=>[[String(i.project?.id ?? ""),String(i.project?.name ?? "Project なし")]]),
       workspaces:breakdown(issues,i=>[[i.workspace,i.workspace]]),

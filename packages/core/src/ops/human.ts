@@ -139,14 +139,13 @@ function requireStatus(row: IssueRow, ref: string, status: Status, code: string)
 }
 
 export function acceptTriage(ctx: OpCtx, ref: string, input: AcceptTriageInput = {}): Issue {
+  if (Object.hasOwn(input, "assignee")) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     requireStatus(row, ref, "triage", "NOT_IN_TRIAGE");
-    // 担当は null で未割当、文字列なら前後の空白を除いて空でないこと
-    const assignee = typeof input.assignee === "string" ? requireText(input.assignee, "担当").trim() : input.assignee;
     const since = lastNotificationId(ctx.db);
     updateIssue(ctx, ref, {
-      projectRef: input.projectRef, priority: input.priority, cycleRef: input.cycleRef, addLabels: input.addLabels, removeLabels: input.removeLabels, assignee,
+      projectRef: input.projectRef, priority: input.priority, cycleRef: input.cycleRef, addLabels: input.addLabels, removeLabels: input.removeLabels,
     });
     Object.assign(row, issueRowById(ctx.db, row.id));
     setColumn(ctx, row, "status", "todo");

@@ -13,7 +13,6 @@ export type Column =
   | "priority"
   | "estimate"
   | "due_date"
-  | "assignee"
   | "agent_state"
   | "title"
   | "description"
@@ -33,7 +32,6 @@ const EVENT_OF: Partial<Record<Column, string>> = {
   priority: "priority_changed",
   estimate: "estimate_changed",
   due_date: "due_date_changed",
-  assignee: "assignee_changed",
   agent_state: "agent_state_changed",
   title: "title_changed",
   description: "description_changed",
@@ -101,9 +99,9 @@ export function setColumn(
     if (type === "status_changed" && to === "done" && extra.report_comment_id !== undefined) {
       data.report_comment_id = extra.report_comment_id;
     }
-    // 書き手と作業主体は別。過去の履歴を現在の担当者で解釈し直さないよう記録する。
+    // 過去の履歴を現在の値で解釈し直さず、操作した書き手を記録する。
     if (type === "agent_state_changed") {
-      data.agent = row.assignee;
+      data.agent = extra.trigger === "answer" ? null : ctx.actor;
       if (extra.trigger) data.trigger = extra.trigger;
     }
     recordEvent(ctx.db, row.id, ctx.actor, type, data);

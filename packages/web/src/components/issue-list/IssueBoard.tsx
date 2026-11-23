@@ -9,7 +9,7 @@ import { bulkFailures } from "../../lib/bulk-selection";
 import { formatQuestionCount, prLabel } from "../../lib/format";
 import { AGENT_STATE_META, STATUS_META, type Tone, TONE_COLORS } from "../../lib/meta";
 import { workspaceColorOf } from "../../lib/workspace-color";
-import { AgentAvatar, Icon, type IconName, StatusIcon } from "../ui";
+import { Icon, type IconName, StatusIcon } from "../ui";
 import { canDropOnStatus, groupForBoard } from "./issue-list";
 import s from "./issue-list.module.css";
 import type { IssueListRow } from "./types";
@@ -195,8 +195,6 @@ function BoardCard({ row, readOnly, saving, onDragStart, onDragEnd }: { row: Iss
           <WorkspaceSwatch workspaceKey={issue.workspace} name={workspaceName} />
           <span className={s.boardCardId}>{issue.id}</span>
           {issue.prUrl && <span className={s.prLink}>{prLabel(issue.prUrl)}</span>}
-          <span className={s.spacer} />
-          {issue.assignee ? <AgentAvatar actor={issue.assignee} /> : <span className={s.unassigned} title="未割り当て" />}
         </div>
         <div className={s.boardCardTitleRow}>
           <span className={s.boardCardStatus}>

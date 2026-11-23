@@ -64,7 +64,6 @@ export interface Issue {
   priority: number;
   estimate: number | null; // 見積もり（ポイント 1〜100）。未設定は null
   dueDate: string | null; // 期限（時刻なしの暦日 YYYY-MM-DD）。未設定は null
-  assignee: string | null;
   agentState: AgentState | null;
   parentId: string | null;
   project: { id: number; name: string } | null;
@@ -263,7 +262,7 @@ export interface CycleAnalytics {
   completedRate: number | null;
   scopeAdded: number;
   burnup: { date: string; scope: number; started: number; completed: number }[];
-  breakdown: { assignees: CycleBreakdownRow[]; labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
+  breakdown: { labels: CycleBreakdownRow[]; projects: CycleBreakdownRow[]; workspaces: CycleBreakdownRow[] };
   statuses: { status: Status; count: number }[];
 }
 
@@ -395,7 +394,6 @@ export interface AcceptTriageInput {
   cycleRef?: string | null; // 廃止済み入力の拒否用。指定するとCYCLE_RETIREDを返す
   addLabels?: string[];
   removeLabels?: string[];
-  assignee?: string | null;
 }
 export interface IssueDocumentRef extends DocumentRef {
   attachedBy: string | null;
@@ -488,9 +486,8 @@ export interface WorkspaceRules {
 
 // Triage の提案（#41）。決定的な規則で計算し、採用は人が既存の操作で行う
 export type SuggestionReason =
-  | { kind: "similar"; issues: string[] } // 類似 Issue の付与・担当の実績
-  | { kind: "text"; field: "title" | "description" } // タイトル・本文にラベル名を含む
-  | { kind: "source"; issue: string }; // 起票元 Issue の担当
+  | { kind: "similar"; issues: string[] } // 類似 Issue のラベル付与の実績
+  | { kind: "text"; field: "title" | "description" }; // タイトル・本文にラベル名を含む
 
 export interface DuplicateSuggestion {
   id: string;
@@ -507,16 +504,10 @@ export interface LabelSuggestion {
   reasons: SuggestionReason[];
 }
 
-export interface AssigneeSuggestion {
-  assignee: string;
-  reasons: SuggestionReason[];
-}
-
 export interface TriageSuggestions {
   issueId: string;
   duplicates: DuplicateSuggestion[];
   labels: LabelSuggestion[];
-  assignees: AssigneeSuggestion[];
 }
 
 // LLM の Triage 提案（#62）。記録だけで Triage の状態は変えず、確定は完了報告または状態変更で行う
@@ -528,7 +519,6 @@ export interface TriageProposalInput {
   duplicateOf?: string; // decision が duplicate のときだけ
   // 以下は decision が accept のときだけ
   labels?: string[]; // 付与を推奨するラベル
-  assignee?: string;
   priority?: number;
   projectRef?: string;
   reason?: string;
@@ -540,7 +530,6 @@ export interface TriageProposal {
   decision: TriageDecision;
   duplicateOf: string | null;
   labels: string[];
-  assignee: string | null;
   priority: number | null;
   project: { id: number; name: string } | null;
   reason: string | null;
@@ -740,7 +729,6 @@ export interface RecurringIssue {
   project: string | null;
   labels: string[];
   priority: number;
-  assignee: string | null;
   cadence: RecurrenceCadence;
   weekday: number | null;
   monthDay: number | null;

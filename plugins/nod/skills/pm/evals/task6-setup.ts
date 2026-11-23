@@ -31,7 +31,7 @@ export async function createTask6Scenario(options: { directory?: string; variant
       standards: { findings: [], evidence: "既存規約を確認" }, spec: { findings, evidence: "Issue要求を照合" },
     }, recorder);
     for (let n = 2; n <= 16; n++) if (!(variant === "two-issue" && n === 2)) archiveIssue({ db, actor: "me" }, `API-${n}`);
-    updateIssue({ db, actor: "me" }, "API-1", { status: "in_progress", assignee: "codex", description: "集計APIの保持期間を合意済みの30日へ揃える。期間境界のCLIテストと初回独立レビューを行う。" });
+    updateIssue({ db, actor: "me" }, "API-1", { status: "in_progress", description: "集計APIの保持期間を合意済みの30日へ揃える。期間境界のCLIテストと初回独立レビューを行う。" });
     if (["fix-confirm", "duplicate-old"].includes(variant)) {
       const initial = review("API-1", "term-api1", "a".repeat(40), [{ id: "F1", category: "仕様不適合", impact: 3, evidence: "期間境界が29日で切れ、合意済みの30日と異なる", commit: "a".repeat(40), acceptance: "期間境界のCLIテストで30日を確認する" }]);
       reviews["API-1"] = initial;
@@ -69,7 +69,7 @@ export async function createTask6Scenario(options: { directory?: string; variant
       logWork({ db, actor: "codex" }, "API-1", `PM checkpoint。Workspace=API Sprint=2。Run=run-pm Task=task-api1 activeDispatch=dispatch-api1 terminal=term-api1 Studio worktree=id:repo-api::/evaluation/studio/retention。requested/effective=gpt-6.1-sol:high照合済み。工程=人回答待ち。占有=1。質問#${q.id} message=ask-api1、利用者の回答なし、質問は記録済み、無回答で再開しない。修正巡started=0 completed=0。`, { kind: "blocker" });
       const api2 = review("API-2", "term-api2", "c".repeat(40));
       reviews["API-2"] = api2;
-      updateIssue({ db, actor: "me" }, "API-2", { status: "in_review", assignee: "codex", removeLabels: ["needs-spec"], description: "CSV serializerの列名をsales_totalに統一。集計APIと独立した変更。" });
+      updateIssue({ db, actor: "me" }, "API-2", { status: "in_review", removeLabels: ["needs-spec"], description: "CSV serializerの列名をsales_totalに統一。集計APIと独立した変更。" });
       linkPr({ db, actor: "codex" }, "API-2", "https://github.com/evaluation/api/pull/42");
       const submitted: Worker = { ...worker, issueId: "API-2", task: { id: "task-api2-pr", spec: "pushとPR提出。API-2。gpt-6.1-sol:high。" }, dispatch: { id: "dispatch-api2-pr", taskId: "task-api2-pr", status: "succeeded", terminalId: "term-api2" }, terminalId: "term-api2", worktreeId: "repo-api::/evaluation/studio/export-column", worktreePath: "/evaluation/studio/export-column", phase: "submission", reported: true, released: true, commit: "c".repeat(40), branch: "export-column" };
       workers.push(submitted);

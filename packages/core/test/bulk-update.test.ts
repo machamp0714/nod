@@ -16,7 +16,7 @@ function errorOf(fn: () => unknown): NodError {
 }
 
 describe("bulkUpdateIssues", () => {
-  test("複数 Issue の状態・優先度・担当・Project・ラベル・見積もり・期限をまとめて変え、各 Issue に event を残す", () => {
+  test("複数 Issue の状態・優先度・Project・ラベル・見積もり・期限をまとめて変え、各 Issue に event を残す", () => {
     const { db, ws, me } = setup();
     createProject(me, { name: "Alpha" });
     const a = createIssue(me, { workspaceId: ws.id, title: "a", labels: ["old"] });
@@ -24,7 +24,6 @@ describe("bulkUpdateIssues", () => {
     const updated = bulkUpdateIssues(me, [a.id, b.id], {
       status: "in_progress",
       priority: 2,
-      assignee: "claude-code",
       projectRef: "Alpha",
       estimate: 3,
       dueDate: "2026-10-01",
@@ -34,21 +33,21 @@ describe("bulkUpdateIssues", () => {
     expect(updated.map((i) => i.id)).toEqual([a.id, b.id]);
     for (const id of [a.id, b.id]) {
       const i = getIssue(db, id);
-      expect(i).toMatchObject({ status: "in_progress", priority: 2, assignee: "claude-code", project: { name: "Alpha" }, estimate: 3, dueDate: "2026-10-01" });
+      expect(i).toMatchObject({ status: "in_progress", priority: 2, project: { name: "Alpha" }, estimate: 3, dueDate: "2026-10-01" });
       expect(i.labels).toEqual(["bulk"]);
       const types = eventsOf(db, id).map((e) => e.type);
-      for (const t of ["status_changed", "priority_changed", "assignee_changed", "project_changed", "estimate_changed", "due_date_changed"]) {
+      for (const t of ["status_changed", "priority_changed", "project_changed", "estimate_changed", "due_date_changed"]) {
         expect(types.filter((x) => x === t)).toHaveLength(1);
       }
     }
   });
 
-  test("null で担当・Project・見積もり・期限を解除できる", () => {
+  test("null で Project・見積もり・期限を解除できる", () => {
     const { db, ws, me } = setup();
     createProject(me, { name: "Alpha" });
     const a = createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "Alpha", estimate: 2, dueDate: "2026-10-01" });
-    bulkUpdateIssues(me, [a.id], { assignee: null, projectRef: null, estimate: null, dueDate: null });
-    expect(getIssue(db, a.id)).toMatchObject({ assignee: null, project: null, estimate: null, dueDate: null });
+    bulkUpdateIssues(me, [a.id], { projectRef: null, estimate: null, dueDate: null });
+    expect(getIssue(db, a.id)).toMatchObject({ project: null, estimate: null, dueDate: null });
   });
 
   test("重複した ID は1件として扱う", () => {
@@ -170,12 +169,14 @@ describe("bulkUpdateIssues", () => {
     expect(codeOf(() => bulkUpdateIssues(me, [a.id], { status: "needs_clarification" }))).toBe("INVALID_ARGS");
   });
 
-  test("担当の名前 none は失敗一覧にせず INVALID_ARGS をそのまま返し、何も変えない", () => {
+  test("廃止済みの assignee キーは失敗一覧にせず INVALID_ARGS をそのまま返し、何も変えない", () => {
     const { db, ws, me } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
     const b = createIssue(me, { workspaceId: ws.id, title: "b" });
-    expect(codeOf(() => bulkUpdateIssues(me, [a.id, b.id], { assignee: " None ", priority: 1 }))).toBe("INVALID_ARGS");
-    expect(getIssue(db, a.id)).toMatchObject({ assignee: null, priority: 0 });
-    expect(bulkUpdateIssues(me, [a.id, b.id], { assignee: null, priority: 1 }).map((i) => i.assignee)).toEqual([null, null]);
+    for (const assignee of ["codex", null]) {
+      const input = { assignee, priority: 1 };
+      expect(codeOf(() => bulkUpdateIssues(me, [a.id, b.id], input))).toBe("INVALID_ARGS");
+    }
+    expect([getIssue(db, a.id).priority, getIssue(db, b.id).priority]).toEqual([0, 0]);
   });
 });

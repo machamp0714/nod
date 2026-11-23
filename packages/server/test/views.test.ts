@@ -52,6 +52,27 @@ describe("View の API", () => {
     expect((await call(app, "POST", "/api/views", { name: "b", filter: { priority: [9] } })).status).toBe(400);
   });
 
+  test("担当の条件と表示設定を作成・更新時に拒否する", async () => {
+    const { app } = setup();
+    const { json: view } = await call(app, "POST", "/api/views", { name: "保存済み", filter: { status: ["todo"] } });
+    for (const settings of [
+      { filter: { assignee: null } },
+      { display: { columns: ["status", "assignee"] } },
+      { display: { groupBy: "assignee" } },
+      { display: { groupBy: "status", subGroupBy: "assignee" } },
+    ]) {
+      for (const response of [
+        await call(app, "POST", "/api/views", { name: "新規", ...settings }),
+        await call(app, "PUT", `/api/views/${view.id}`, settings),
+      ]) {
+        expect(response.status).toBe(400);
+        expect(response.json.error.code).toBe("INVALID_ARGS");
+        expect(response.json.error.message).toContain("担当は廃止");
+      }
+    }
+    expect((await call(app, "GET", "/api/views")).json).toEqual([view]);
+  });
+
   test("名前の重複は 409、不正な filter や本文は 400、数字でない id は 400", async () => {
     const { app } = setup();
     const a = (await call(app, "POST", "/api/views", { name: "a" })).json;

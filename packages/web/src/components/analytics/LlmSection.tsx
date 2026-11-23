@@ -1,20 +1,20 @@
 import { useLlmStats } from "../../api/hooks/analytics";
 import type { LlmStats } from "../../api/types";
 import { agentInitial } from "../../lib/color";
-import { formatHours, llmColors } from "../../lib/analytics";
+import { llmColors } from "../../lib/analytics";
 import { Card, slotsOf } from "./parts";
 import s from "../../pages/analytics.module.css";
 import { ErrorMessage, LoadingMessage } from "../ui";
 import { Legend, StackedBars } from "./charts";
 
-// LLM 別の作業量（#75）。完了は、完了前に最後に LLM が担当した記録へ帰属させた集計
+// LLM 別の操作回数。
 export function LlmSection({ query }: { query: string }) {
   const stats = useLlmStats(query);
   return (
     <section className={s.llmSection} aria-label="LLM 別">
       <div className={s.sectionHeader}>
         <h2 className={s.sectionTitle}>LLM 別</h2>
-        <span className={s.sectionNote}>assignee が LLM の Issue を集計</span>
+        <span className={s.sectionNote}>操作した書き手ごとの回数を集計</span>
       </div>
       {stats.error ? (
         <ErrorMessage error={stats.error} />
@@ -32,7 +32,6 @@ export function LlmSection({ query }: { query: string }) {
 function LlmBody({ stats }: { stats: LlmStats }) {
   const colors = llmColors(stats.llms.map((l) => l.name));
   const unit = stats.by === "day" ? "日" : "週";
-  const unrecorded = stats.llms.reduce((sum, l) => sum + l.totals.work.unrecorded, 0);
   const slots = slotsOf(stats.buckets, stats.by);
   return (
     <div className={s.row}>
@@ -42,9 +41,7 @@ function LlmBody({ stats }: { stats: LlmStats }) {
             <tr>
               <th>LLM</th>
               <th>完了数</th>
-              <th>時間 中央値</th>
-              <th>時間 合計</th>
-              <th>担当開始</th>
+              <th>開始</th>
               <th>完了報告</th>
             </tr>
           </thead>
@@ -60,17 +57,12 @@ function LlmBody({ stats }: { stats: LlmStats }) {
                   </span>
                 </td>
                 <td>{l.totals.completed}</td>
-                <td>{formatHours(l.totals.work.medianMinutes)}</td>
-                <td>{l.totals.work.measured ? formatHours(l.totals.work.totalMinutes) : "—"}</td>
-                <td>{l.totals.assigned}</td>
+                <td>{l.totals.started}</td>
                 <td>{l.totals.submitted}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className={s.footnote}>
-          作業時間 = 着手から完了まで。記録なしの {unrecorded} 件は時間の集計から除く。
-        </p>
       </div>
       <Card
         title={`${unit}ごとの完了数（LLM 別）`}

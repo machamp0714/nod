@@ -18,7 +18,7 @@ test("現在を選ぶと既定でSprintを識別でき、明示した列設定�
   await expect(page.locator('tr[data-issue-row="AAA-1"]')).toContainText("実行 12");
   await page.goto("/issues?sprint=current&columns=[]");
   await expect(page.getByRole("columnheader", { name: "Sprint", exact: true })).toHaveCount(0);
-  await page.goto('/issues?sprint=current&columns=["priority","status","workspace","project","assignee"]');
+  await page.goto('/issues?sprint=current&columns=["priority","status","workspace","project"]');
   await expect(page.getByRole("columnheader", { name: "Sprint", exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("columnheader", { name: "Sprint", exact: true })).toHaveCount(0);

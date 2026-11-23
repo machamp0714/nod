@@ -37,7 +37,7 @@ import { type ActivityItem, type AgentInstruction, type Comment, type Issue, typ
 import { resolveMilestone } from "./milestones";
 import { sprintIssueScope } from "./sprints";
 import type { SprintClock } from "../sprint-types";
-import { isNoneRef, validateAssignee } from "../none-ref";
+import { isNoneRef } from "../none-ref";
 import { resolveProject } from "./projects";
 import { DEFAULT_WORK_LOG_KIND, detectSecret, isWorkLogKind, WORK_LOG_KINDS, WORK_LOG_MAX_LENGTH, workLogLength } from "../work-log";
 
@@ -141,7 +141,6 @@ export interface NewIssueRow {
   milestoneId?: number | null;
   cycleId?: number | null;
   labels: string[];
-  assignee?: string | null; // 起票時の担当。後から変えたときと違い assignee_changed の event は残さない
   status?: Status; // 初期ステータス。省略時は LLM が Triage、人が todo（取り込みでは取り込み元の状態から決める）
   closeReason?: string | null; // done・canceled で作るときの完了・キャンセルの理由（取り込みだけが使う）
   origin: Record<string, string | number>; // created の event に残す由来（発見元、複製元、定期Issue）
@@ -155,7 +154,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
     next_number: number;
   } | null;
   if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
-  validateAssignee(input.assignee);
   const status: Status = input.status ?? (isLlm(ctx) ? "triage" : "todo");
   // 最初から閉じた状態で作る（取り込み）ときは、状態の遷移を経ずに closed_at を作成時刻にする
   const closed = status === "done" || status === "canceled";
@@ -163,8 +161,8 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   ctx.db.query("UPDATE workspaces SET next_number = next_number + 1 WHERE id = ?").run(ws.id);
   const { lastInsertRowid } = ctx.db
     .query(
-      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, assignee, close_reason, closed_at, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO issues (workspace_id, number, title, description, status, priority, estimate, due_date, parent_id, project_id, milestone_id, close_reason, closed_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ws.id,
@@ -178,7 +176,6 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
       input.parentId,
       input.projectId,
       input.milestoneId ?? null,
-      input.assignee ?? null,
       closed ? (input.closeReason ?? null) : null,
       closed ? ts : null,
       ctx.actor,
@@ -234,8 +231,6 @@ export interface ListIssuesFilter {
   ready?: boolean;
   query?: string;
   blocked?: boolean;
-  delegated?: boolean;
-  assignees?: string[]; // 担当の名前。どれかに合うもの。"none" は未割り当て
   priorities?: number[]; // 優先度（0 = なし）。どれかに合うもの
   completionCandidate?: boolean; // true で親の完了候補だけにする
   archived?: boolean; // true ならアーカイブ済みだけ。省くとアーカイブ済みを除く
@@ -281,15 +276,6 @@ function scopeWhere(db: Database, filter: ListIssuesFilter): { where: string[]; 
     where.push("EXISTS (SELECT 1 FROM issue_labels l WHERE l.issue_id = i.id AND l.label = ?)");
     params.push(label);
   }
-  if (filter.assignees?.length) {
-    const names = filter.assignees.filter((name) => !isNoneRef(name));
-    const conditions = [
-      ...(names.length ? [`i.assignee IN (${names.map(() => "?").join(", ")})`] : []),
-      ...(names.length < filter.assignees.length ? ["i.assignee IS NULL"] : []),
-    ];
-    where.push(`(${conditions.join(" OR ")})`);
-    params.push(...names);
-  }
   if (filter.priorities?.length) {
     where.push(`i.priority IN (${filter.priorities.map(() => "?").join(", ")})`);
     params.push(...filter.priorities);
@@ -309,9 +295,6 @@ function matchesQuery(issue: Issue, query: string | undefined): boolean {
   return !needle || [issue.id, issue.title, issue.description ?? ""].some((text) => text.toLowerCase().includes(needle));
 }
 
-// 委任中：担当が LLM（私以外）で、done と canceled 以外。agent_state は問わない。? には HUMAN_ACTOR を渡す
-const DELEGATED_WHERE = "(i.assignee IS NOT NULL AND i.assignee <> ? AND i.status NOT IN ('done', 'canceled'))";
-
 export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[] {
   const { where, params } = scopeWhere(db, filter);
   // アーカイブ一覧は閉じた Issue が主なので、ステータスを省くとすべてのステータスを出す
@@ -325,10 +308,6 @@ export function listIssues(db: Database, filter: ListIssuesFilter = {}): Issue[]
   if (filter.ready) {
     where.push(READY_WHERE);
     params.push(now());
-  }
-  if (filter.delegated) {
-    where.push(DELEGATED_WHERE);
-    params.push(HUMAN_ACTOR);
   }
   if (filter.completionCandidate) where.push(COMPLETION_CANDIDATE_SQL);
   return selectIssues(db, `WHERE ${where.join(" AND ")} ORDER BY w.key, i.number`, params)
@@ -360,8 +339,6 @@ export function queryIssues(db: Database, query: IssueQuery, clock: SprintClock 
     ready: q.ready,
     query: q.q,
     blocked: q.blocked,
-    delegated: q.delegated,
-    assignees: q.assignee,
     priorities: q.priority,
     archived: q.archived,
   };
@@ -462,7 +439,6 @@ export interface UpdateIssueInput {
   estimate?: number | null; // null で解除
   dueDate?: string | null; // null で解除
   status?: Status;
-  assignee?: string | null;
   parentRef?: string | null;
   projectRef?: string | null;
   milestoneRef?: string | null; // Milestone の ID か、Issue の Project の中の名前。null で外す
@@ -537,6 +513,7 @@ function setMilestone(ctx: OpCtx, row: IssueRow, ref: string | null | undefined)
 }
 
 export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): Issue {
+  if (Object.hasOwn(input, "assignee")) throw new NodError("INVALID_ARGS", "担当は廃止されました。assignee は使えません");
   if (input.cycleRef !== undefined) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   if (input.status === "needs_clarification") {
     throw new NodError(
@@ -548,7 +525,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
   if (input.priority !== undefined) validatePriority(input.priority);
   if (input.estimate != null) validateEstimate(input.estimate);
   if (input.dueDate != null) validateDueDate(input.dueDate);
-  validateAssignee(input.assignee);
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);
     if (input.title !== undefined) setColumn(ctx, row, "title", input.title);
@@ -559,7 +535,6 @@ export function updateIssue(ctx: OpCtx, ref: string, input: UpdateIssueInput): I
     if (input.priority !== undefined) setColumn(ctx, row, "priority", input.priority);
     if (input.estimate !== undefined) setColumn(ctx, row, "estimate", input.estimate);
     if (input.dueDate !== undefined) setColumn(ctx, row, "due_date", input.dueDate);
-    if (input.assignee !== undefined) setColumn(ctx, row, "assignee", input.assignee);
     if (input.parentRef !== undefined) {
       const parent = input.parentRef ? findWritableIssueRow(ctx.db, input.parentRef) : null;
       if (parent?.id === row.id) throw new NodError("INVALID_ARGS", "Issue 自身を親にはできません");

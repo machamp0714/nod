@@ -272,10 +272,9 @@ export function completionStats(db: Database, q: StatsQuery = {}): CompletionSta
 export interface LlmBucket {
   start: string;
   end: string;
-  assigned: number; // その LLM が担当になった回数（自分で取った・人が割り当てたの両方）
-  submitted: number; // その LLM が完了報告した回数（旧レビュー提出を含む）
-  completed: number; // その LLM に帰属する done の件数
-  work: WorkTime;
+  started: number;
+  submitted: number; // 完了報告の回数（旧レビュー提出を含む）
+  completed: number; // done への遷移の回数
 }
 
 export interface LlmWorkload {
@@ -289,76 +288,45 @@ export interface LlmStats extends StatsRange {
   llms: LlmWorkload[];
 }
 
-// LLM が担当になった assignee_changed の to。人（me）と担当なしは除く。alias は events の別名
-export function llmAssignee(alias: string): string {
-  return `json_extract(${alias}.data, '$.to') IS NOT NULL AND json_extract(${alias}.data, '$.to') <> '${HUMAN_ACTOR}'`;
-}
-const LLM_ASSIGNEE = llmAssignee("e");
-
-// LLM ごとの作業量。完了は closed_at 以前で最後に LLM を担当にした記録へ帰属させる
+// LLM ごとの操作回数。過去の担当変更は作業の開始に読み替えない。
 export function llmStats(db: Database, q: StatsQuery = {}): LlmStats {
   const frame = statsFrame(q);
   const scope = issueScope(db, q);
-  type Acc = { assigned: number; submitted: number; completed: number; minutes: (number | null)[] };
-  const perLlm = new Map<string, Acc[]>();
-  const accOf = (name: string) => {
-    let acc = perLlm.get(name);
-    if (!acc) perLlm.set(name, (acc = frame.buckets.map(() => ({ assigned: 0, submitted: 0, completed: 0, minutes: [] }))));
-    return acc;
-  };
-  const bucketAt = (at: string) => {
-    const t = recordedTimestamp(at);
-    return t === null ? -1 : frame.bucketOf(t);
-  };
-
-  const events = db.query(`SELECT e.type, e.actor, json_extract(e.data, '$.to') AS "to", e.created_at
+  type Counts = Omit<LlmBucket, "start" | "end">;
+  const perLlm = new Map<string, Counts[]>();
+  const events = db.query(`SELECT e.type, e.actor, e.data, e.created_at
     FROM events e JOIN issues i ON i.id = e.issue_id
-    WHERE ((e.type = 'assignee_changed' AND ${LLM_ASSIGNEE})
-      OR (e.type = 'status_changed' AND e.actor <> ? AND ((json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL) OR (json_extract(e.data, '$.to') = 'done' AND json_extract(e.data, '$.report_comment_id') IS NOT NULL))))
+    WHERE e.actor <> ? AND (e.type = 'work_started' OR
+      (e.type = 'status_changed' AND (json_extract(e.data, '$.to') = 'done' OR
+        (json_extract(e.data, '$.to') = 'in_review' AND json_extract(e.data, '$.review_semantics') IS NULL))))
       AND e.created_at >= ? AND e.created_at < ?${scope.where}`)
     .all(HUMAN_ACTOR, frame.since, frame.until, ...scope.params) as
-    { type: string; actor: string; to: string; created_at: string }[];
-  for (const e of events) {
-    const n = bucketAt(e.created_at);
-    if (n < 0) continue;
-    if (e.type === "assignee_changed") accOf(e.to)[n]!.assigned++;
-    else accOf(e.actor)[n]!.submitted++;
+    { type: string; actor: string; data: string; created_at: string }[];
+  for (const event of events) {
+    const timestamp = recordedTimestamp(event.created_at);
+    const index = timestamp === null ? -1 : frame.bucketOf(timestamp);
+    if (index < 0) continue;
+    let counts = perLlm.get(event.actor);
+    if (!counts) {
+      counts = frame.buckets.map(() => ({ started: 0, submitted: 0, completed: 0 }));
+      perLlm.set(event.actor, counts);
+    }
+    const bucket = counts[index]!;
+    if (event.type === "work_started") {
+      bucket.started++;
+    } else {
+      const data = JSON.parse(event.data) as Record<string, unknown>;
+      if (data.to === "done") bucket.completed++;
+      if (data.to === "in_review" || data.report_comment_id !== undefined) bucket.submitted++;
+    }
   }
-
-  const done = db.query(`SELECT i.started_at, i.closed_at, ${WORK_END_SQL} AS work_end,
-      (SELECT json_extract(e.data, '$.to') FROM events e WHERE e.issue_id = i.id AND e.type = 'assignee_changed'
-        AND ${LLM_ASSIGNEE} AND e.created_at <= i.closed_at ORDER BY e.id DESC LIMIT 1) AS llm
-    FROM issues i
-    WHERE i.status = 'done' AND i.closed_at >= ? AND i.closed_at < ?${scope.where}`)
-    .all(frame.since, frame.until, ...scope.params) as
-    { started_at: string | null; closed_at: string; work_end: string | null; llm: string | null }[];
-  for (const row of done) {
-    if (row.llm === null) continue;
-    const n = bucketAt(row.closed_at);
-    if (n < 0) continue;
-    const bucket = accOf(row.llm)[n]!;
-    bucket.completed++;
-    bucket.minutes.push(workMinutes(row.started_at, row.work_end));
-  }
-
-  const sum = (acc: Acc[], key: "assigned" | "submitted" | "completed") => acc.reduce((s, b) => s + b[key], 0);
-  const llms = [...perLlm].map(([name, acc]): LlmWorkload => ({
+  const sum = (counts: Counts[], key: keyof Counts) => counts.reduce((total, bucket) => total + bucket[key], 0);
+  const llms = [...perLlm].map(([name, counts]): LlmWorkload => ({
     name,
-    buckets: frame.buckets.map((b, n) => ({
-      ...b,
-      assigned: acc[n]!.assigned,
-      submitted: acc[n]!.submitted,
-      completed: acc[n]!.completed,
-      work: summarizeWork(acc[n]!.minutes),
-    })),
-    totals: {
-      assigned: sum(acc, "assigned"),
-      submitted: sum(acc, "submitted"),
-      completed: sum(acc, "completed"),
-      work: summarizeWork(acc.flatMap((b) => b.minutes)),
-    },
+    buckets: frame.buckets.map((bucket, index) => ({ ...bucket, ...counts[index]! })),
+    totals: { started: sum(counts, "started"), submitted: sum(counts, "submitted"), completed: sum(counts, "completed") },
   }));
-  llms.sort((a, b) => b.totals.completed - a.totals.completed || b.totals.assigned - a.totals.assigned
+  llms.sort((a, b) => b.totals.completed - a.totals.completed || b.totals.started - a.totals.started
     || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return { by: frame.by, from: frame.from, to: frame.to, tz: frame.tz, buckets: frame.buckets, llms };
 }

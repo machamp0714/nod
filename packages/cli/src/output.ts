@@ -169,35 +169,6 @@ export function formatIssueListLines(issues: Issue[]): string[] {
   });
 }
 
-// 委任中の一覧は担当の LLM 順に並べる。同じ担当の中では元の順（--sort の順。既定は Workspace、番号）を保つ
-export function sortByAssignee(issues: Issue[]): Issue[] {
-  return [...issues].sort((a, b) => (a.assignee ?? "").localeCompare(b.assignee ?? ""));
-}
-
-const AGENT_STATE_LABEL: [AgentState | null, string][] = [
-  ["working", "作業中"],
-  ["awaiting_input", "入力待ち"],
-  ["error", "エラー"],
-  ["done", "完了"],
-  [null, "未着手"],
-];
-
-// LLM ごとの見出しに件数と作業状況の内訳を付け、その下に Issue を並べる
-export function formatDelegations(issues: Issue[]): string {
-  if (!issues.length) return "LLM に委任中の Issue はありません";
-  const groups = new Map<string, Issue[]>();
-  for (const i of issues) groups.set(i.assignee ?? "", [...(groups.get(i.assignee ?? "") ?? []), i]);
-  return [...groups]
-    .map(([agent, rows]) => {
-      const breakdown = AGENT_STATE_LABEL.map(([state, label]) => [label, rows.filter((r) => r.agentState === state).length] as const)
-        .filter(([, n]) => n > 0)
-        .map(([label, n]) => `${label} ${n}`)
-        .join("・");
-      return [`${agent}（${rows.length}件: ${breakdown}）`, ...formatIssueListLines(rows).map((line) => `  ${line}`)].join("\n");
-    })
-    .join("\n\n");
-}
-
 export function formatPlan(plan: Plan): string[] {
   const lines: string[] = [];
   plan.tasks.forEach((t, i) => {
@@ -215,6 +186,14 @@ function visibleActivity(items: ActivityItem[]): ActivityItem[] {
 }
 
 const isStatus = (v: unknown): v is Status => (STATUSES as readonly unknown[]).includes(v);
+
+const AGENT_STATE_LABEL: [AgentState | null, string][] = [
+  ["working", "作業中"],
+  ["awaiting_input", "入力待ち"],
+  ["error", "エラー"],
+  ["done", "完了"],
+  [null, "未着手"],
+];
 
 // event の文（Web と同じ core の文）の後ろに、data に残る補足（起票元、自動化のルールなど）を（）で添える（#198）。
 // 知らない種類は data を落とさないよう、種類の名前と JSON のまま出す
@@ -311,7 +290,7 @@ export function formatIssueDetail(d: IssueDetail, prStatusLine: string | null = 
   const lines = [
     `${d.id}  ${d.title}`,
     `ステータス: ${statusText(d.status, d.id)}${shownAgentState(d) ? `（作業状況: ${shownAgentState(d)}）` : ""}`,
-    `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.assignee ? `  担当: ${d.assignee}` : ""}${d.parentId ? `  親: ${d.parentId}` : ""}`,
+    `優先度: ${PRIORITY_LABEL[d.priority] ?? d.priority}${d.parentId ? `  親: ${d.parentId}` : ""}`,
   ];
   lines.push(formatSpecAssessment(d));
   if (d.completionCandidate) lines.push(formatCompletionCandidate(d));
@@ -427,14 +406,12 @@ export function formatNotification(n: Notification): string {
   return `  #${n.id}${n.readAt ? "" : " *"}  ${n.issueId}  ${n.issueTitle}${snoozed}\n    ${describeNotification(n)}`;
 }
 
-function describeReason(r: SuggestionReason, what: "付与" | "担当"): string {
+function describeReason(r: SuggestionReason): string {
   switch (r.kind) {
     case "similar":
-      return `類似 Issue ${r.issues.length} 件に${what}（${r.issues.join(", ")}）`;
+      return `類似 Issue ${r.issues.length} 件に付与（${r.issues.join(", ")}）`;
     case "text":
       return r.field === "title" ? "タイトルにラベル名を含む" : "本文にラベル名を含む";
-    case "source":
-      return `起票元 ${r.issue} の担当`;
   }
 }
 
@@ -451,9 +428,7 @@ export function formatTriageSuggestions(s: TriageSuggestions): string {
         )
       : [none]),
     "ラベル候補",
-    ...(s.labels.length ? s.labels.map((l) => `  ${l.label}  ${l.reasons.map((r) => describeReason(r, "付与")).join(" / ")}`) : [none]),
-    "担当候補",
-    ...(s.assignees.length ? s.assignees.map((a) => `  ${a.assignee}  ${a.reasons.map((r) => describeReason(r, "担当")).join(" / ")}`) : [none]),
+    ...(s.labels.length ? s.labels.map((l) => `  ${l.label}  ${l.reasons.map((r) => describeReason(r)).join(" / ")}`) : [none]),
   ].join("\n");
 }
 
@@ -465,7 +440,6 @@ export function formatTriageProposal(p: TriageProposal): string {
     p.project && `Project: ${p.project.name}`,
     p.priority !== null && `Priority: ${p.priority}`,
     p.labels.length > 0 && `Labels: ${p.labels.join(", ")}`,
-    p.assignee && `Assignee: ${p.assignee}`,
   ].filter(Boolean);
   return [`${p.issueId}  ${p.actor}  ${DECISION_LABEL[p.decision]}${attrs.length ? `  ${attrs.join("  ")}` : ""}  ${localMinute(p.updatedAt)}`, ...(p.reason ? [`  理由: ${p.reason}`] : [])].join("\n");
 }

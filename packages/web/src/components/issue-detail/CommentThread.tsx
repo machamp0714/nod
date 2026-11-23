@@ -110,7 +110,6 @@ function InstructionStatus({ instruction, target, readOnly }: { instruction: Age
       {open && target && (
         <SendInstructionDialog
           issueId={target.issueId}
-          agent={target.agent}
           target={{ kind: "existing", instruction }}
           onClose={() => setOpen(false)}
           onDone={() => setOpen(false)}

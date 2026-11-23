@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { openDb, queryIssues } from "@nod/core";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-// 着手できる（Ready）: API-1 Low、API-3 回答済みの未決事項あり、API-5 Urgent（API-4 のブロック元）、API-10 High・担当 claude-code、API-11 スヌーズの期限が過去、WEB-1
+// 着手できる（Ready）: API-1 Low、API-3 回答済みの未決事項あり、API-5 Urgent（API-4 のブロック元）、API-10 High、API-11 スヌーズの期限が過去、WEB-1
 // 着手できない: API-2 未回答ありを手で todo に出した、API-4 ブロックされている、API-6 backlog、API-7 in_progress、API-8 スヌーズ中、API-9 アーカイブ済み
 async function seed() {
   const db = tempDb();
@@ -36,7 +36,6 @@ async function seed() {
   d.run("UPDATE issues SET snoozed_until = '2000-01-01T00:00:00.000Z' WHERE title = 'snooze-past'");
   d.close();
   await me(["issue", "archive", "API-9"]);
-  await me(["issue", "update", "API-10", "--assignee", "claude-code"]);
   return { db, api, web, me };
 }
 
@@ -49,7 +48,7 @@ describe("nod issue list --ready（#169）", () => {
     expect(idsOf(await me(["issue", "list", "--status", "todo", "--json"]))).toEqual(["API-1", "API-2", "API-3", "API-4", "API-5", "API-8", "API-10", "API-11"]);
   });
 
-  test("着手できる Issue だけを、担当を問わず ID の順に出す", async () => {
+  test("着手できる Issue だけを、ID の順に出す", async () => {
     const { me } = await seed();
     expect(idsOf(await me(["issue", "list", "--ready", "--json"]))).toEqual(READY);
     const r = await me(["issue", "list", "--ready"]);
@@ -95,23 +94,6 @@ describe("nod issue list --ready（#169）", () => {
     expect(idsOf(await me(["issue", "list", "--ready", "--priority", "urgent,high", "--json"]))).toEqual(["API-5", "API-10"]);
     expect(idsOf(await me(["issue", "list", "--ready", "--sort", "priority", "--json"]))).toEqual(["API-5", "API-10", "API-1", "API-3", "API-11"]);
     expect(idsOf(await me(["issue", "list", "--ready", "--sort", "priority", "--desc", "--json"]))).toEqual(["API-3", "API-11", "API-1", "API-10", "API-5"]);
-  });
-
-  test("--mine・--assignee・--delegated は担当でさらに絞り、-w がなければすべての Workspace を見る", async () => {
-    const { db, api, me } = await seed();
-    expect(idsOf(await me(["issue", "list", "--ready", "--assignee", "none", "--json"]))).toEqual(["API-1", "API-3", "API-5", "API-11"]);
-    expect((await me(["issue", "list", "--ready", "--mine", "--json"])).json).toEqual([]);
-    await me(["issue", "update", "WEB-1", "--assignee", "claude-code"]);
-    const llm = (args: string[]) => runNod(args, { cwd: api, db, actor: "claude-code" });
-    // 着手中の API-7 は自分の担当でも出ない
-    expect(idsOf(await llm(["issue", "list", "--ready", "--mine", "--json"]))).toEqual(["API-10", "WEB-1"]);
-    expect(idsOf(await llm(["issue", "list", "--ready", "--mine", "-w", "API", "--json"]))).toEqual(["API-10"]);
-    expect(idsOf(await me(["issue", "list", "--ready", "--delegated", "--json"]))).toEqual(["API-10", "WEB-1"]);
-    const text = await me(["issue", "list", "--ready", "--delegated"]);
-    expect(text.exitCode).toBe(0);
-    expect(text.stdout).toContain("API-10");
-    expect(text.stdout).toContain("WEB-1");
-    expect(text.stdout).not.toContain("API-7");
   });
 
   test("-w でほかの Workspace の着手できる Issue を出す", async () => {

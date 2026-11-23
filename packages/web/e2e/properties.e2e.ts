@@ -21,7 +21,6 @@ test("プロパティを変えると保存され、再読み込みしても残�
   await chooseProperty(props, "Priority", "Urgent");
   await chooseProperty(props, "Project", PROJECT_NAME);
   await expect(page.getByRole("navigation", { name: "パンくず" }).getByRole("link", { name: PROJECT_NAME })).toBeVisible();
-  await chooseProperty(props, "Assignee", "codex");
 
   await props.getByRole("button", { name: "ラベルを追加", exact: true }).click();
   await props.getByRole("textbox", { name: "ラベルを追加" }).fill("api, docs");
@@ -38,7 +37,6 @@ test("プロパティを変えると保存され、再読み込みしても残�
   await expect(property(after, "Priority")).toHaveText("Urgent");
   await expect(property(after, "Project")).toHaveAttribute("data-value", "1");
   await expect(property(after, "Project")).toHaveText(PROJECT_NAME);
-  await expect(property(after, "Assignee")).toHaveAttribute("data-value", "codex");
   await expect(after.getByRole("button", { name: "ラベル docs を外す" })).toBeVisible();
 });
 
@@ -160,7 +158,7 @@ test("メニューを開いてすぐ Enter を押しても値は変わらず、�
   });
   await page.goto(`/issues/${ISSUE.main}`);
   const props = region(page, "プロパティ");
-  const before = [["Status", "in_progress"], ["Priority", "2"], ["Project", "1"], ["Assignee", "claude-code"]] as const;
+  const before = [["Status", "in_progress"], ["Priority", "2"], ["Project", "1"]] as const;
   for (const [name, value] of before) {
     const pill = property(props, name);
     await expect(pill).toHaveAttribute("data-value", value);
@@ -251,14 +249,14 @@ test("Tab で抜けるとメニューとラベルの入力欄は閉じ、ほか�
   await expect(dialog).toHaveCount(0);
   await expect(add).toHaveAttribute("aria-expanded", "false");
 
-  // 続けてほかの項目を保存すると、フォーカスはそのピルへ戻る（ラベルの入力欄は開かない）
-  const assignee = property(props, "Assignee");
-  await assignee.focus();
+  // ほかの項目を保存すると、そのピルへフォーカスが戻る。
+  const priority = property(props, "Priority");
+  await priority.focus();
   await page.keyboard.press("Enter");
-  await props.getByRole("textbox", { name: "Assignee を検索" }).fill("codex");
+  await props.getByRole("textbox", { name: "Priority を検索" }).fill("Urgent");
   await page.keyboard.press("Enter");
-  await expect(assignee).toHaveAttribute("data-value", "codex");
-  await expect(assignee).toBeFocused();
+  await expect(priority).toHaveAttribute("data-value", "1");
+  await expect(priority).toBeFocused();
   await expect(dialog).toHaveCount(0);
 
   // ラベルを足したあとは、続けて足せるよう入力欄へ戻る
@@ -333,7 +331,7 @@ test("プロパティの行は高さ 28 で中心が揃い、長い Project 名�
   // Sprint はピルと所属の一覧（所属が無ければ「なし」）の2段（NOD-56）
   const multiline = new Set(["Labels", "PR", "Sprint"]);
   const single = layout.rows.filter((row) => !multiline.has(row.label ?? ""));
-  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "Assignee", "作業状況", "実行場所", "Reminder", "Created"]);
+  expect(single.map((row) => row.label)).toEqual(["Status", "Priority", "Estimate", "Due date", "Workspace", "Project", "Milestone", "作業状況", "実行場所", "Reminder", "Created"]);
   for (const row of single) expect(row, row.label ?? "").toMatchObject({ height: 28, pillHeight: 28, overflow: 0 });
   expect(layout.rows.find((row) => row.label === "Sprint")).toMatchObject({ height: 56, pillHeight: 28, overflow: 0 });
   for (const row of layout.rows) expect(row.spread, `${row.label} の中心の差`).toBeLessThanOrEqual(2.5);

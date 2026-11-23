@@ -89,7 +89,7 @@ describe("Omp で作業を始める API（#210、NOD-61）", () => {
       expect(res.json.displayNameWarning.message).toContain("表示名を設定できませんでした");
       expect(res.json.displayNameWarning.recoveryCommand).toBe(`orca worktree set --worktree 'path:${NEW_WT}' --display-name 'API-1 検索' --json`);
       expect(res.json.draftWarning).toContain("IDの入力を確認できませんでした");
-      expect(getIssue(s.db, s.ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
+      expect(getIssue(s.db, s.ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status });
       expect((await call(s.app, "POST", `/api/issues/${s.ref}/orca-worktree`, {})).json.failure.code).toBe("WORKTREE_ALREADY_RECORDED");
       expect(calls.map((args) => args.slice(0, 2).join(" "))).toEqual(["worktree create", "worktree set", "terminal wait"]);
       expect(calls[0]?.slice(7, 11)).toEqual(["--agent", "omp", "--surface", "terminal"]);
@@ -191,7 +191,7 @@ describe("Omp で作業を始める API（#210、NOD-61）", () => {
       ["terminal", "wait", "--terminal", "term_new", "--for", "tui-idle", "--timeout-ms", "30000", "--json"],
       ["terminal", "send", "--terminal", "term_new", "--text", ref, "--json"],
     ]);
-    expect(getIssue(db, ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status, assignee: before.assignee });
+    expect(getIssue(db, ref)).toMatchObject({ worktree: NEW_WT, branch: "machamp0714/API-1-search-n1", status: before.status });
   });
 
   test("既定のエージェントを変える PUT default-agent はもう無い", async () => {
@@ -246,7 +246,7 @@ describe("Omp で作業を始める API（#210、NOD-61）", () => {
       const res = await call(app, "POST", `/api/issues/${ref}/orca-worktree`, { feature: "search-n1" });
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({ created: false, worktree: null, branch: null, failure: { code } });
-      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status, assignee: before.assignee });
+      expect(getIssue(db, ref)).toMatchObject({ worktree: null, branch: null, status: before.status });
     }
   });
 

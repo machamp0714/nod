@@ -141,7 +141,7 @@ function AutomationEditor({ workspace, saved, onToast }: { workspace: Workspace;
           invalid={state.closeInvalid}
           onChange={setRule("close")}
           suffix="日間更新のない未完了 Issue を canceled にする"
-          note="対象外: triage・LLM に委任中の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue"
+          note="対象外: triage・作業中（working）・入力待ち（awaiting_input）・エラー（error）の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue"
         />
         <RuleRow
           label="自動アーカイブ"

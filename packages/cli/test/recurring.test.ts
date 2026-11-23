@@ -17,12 +17,24 @@ const llm = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db, act
 
 describe("nod recurring", () => {
   test("登録・一覧・表示・変更・実行・削除ができ、同じ発生日は二度作らない", async () => {
-    const add = await me(["recurring", "add", "日次チェック", "--every", "daily", "--start", "2026-01-01", "--tz", "UTC", "-l", "ops", "--priority", "3", "--assignee", "claude-code"]);
+    const add = await me(["recurring", "add", "日次チェック", "--every", "daily", "--start", "2026-01-01", "--tz", "UTC", "-l", "ops", "--priority", "3"]);
     expect(add.exitCode).toBe(0);
     expect(add.json).toMatchObject({ title: "日次チェック", cadence: "daily", timeZone: "UTC", labels: ["ops"], priority: 3, enabled: true });
     const id = String(add.json.id);
     expect((await me(["recurring", "list"])).json.map((r: { id: number }) => r.id)).toEqual([add.json.id]);
-    expect((await runNod(["recurring", "show", id], { cwd: repo, db })).stdout).toContain("周期: 毎日（2026-01-01 から、UTC）");
+    const shown = await runNod(["recurring", "show", id], { cwd: repo, db });
+    expect(shown.stdout).toContain("周期: 毎日（2026-01-01 から、UTC）");
+    expect(shown.stdout).not.toContain("担当");
+    expect((await me(["recurring", "show", id])).json).not.toHaveProperty("assignee");
+    for (const args of [
+      ["add", "x", "--every", "daily", "--start", "2026-01-01", "--assignee", "null"],
+      ["update", id, "--assignee", ""],
+      ["update", id, "--assignee"],
+    ]) {
+      expect((await me(["recurring", ...args])).json.error).toMatchObject({
+        code: "INVALID_ARGS", message: expect.stringContaining("担当は廃止されました"),
+      });
+    }
 
     const dry = await llm(["recurring", "run", "--dry-run"]);
     expect(dry.json).toMatchObject({ dryRun: true, items: [{ recurringId: add.json.id, issueId: null }] });
@@ -31,7 +43,9 @@ describe("nod recurring", () => {
     const run = await me(["recurring", "run"]);
     expect(run.json.items).toHaveLength(1);
     const issueId = run.json.items[0].issueId as string;
-    expect((await me(["issue", "show", issueId])).json).toMatchObject({ title: "日次チェック", status: "todo", assignee: "claude-code", labels: ["ops"] });
+    const generated = (await me(["issue", "show", issueId])).json;
+    expect(generated).toMatchObject({ title: "日次チェック", status: "todo", labels: ["ops"] });
+    expect(generated).not.toHaveProperty("assignee");
     expect((await me(["recurring", "run"])).json.items).toEqual([]);
     expect((await me(["recurring", "show", id])).json).toMatchObject({ lastIssueId: issueId });
 
@@ -69,7 +83,7 @@ describe("nod recurring", () => {
 });
 
 describe("LLM に定型作業を定期実行させる（#64）", () => {
-  test("README の定型作業テンプレートを登録し、担当に LLM を指定した定期Issueを人が実行すると、その LLM の next で拾われる", async () => {
+  test("README の定型作業テンプレートを登録し、定期Issueを人が実行すると、LLM の next で拾われる", async () => {
     const ownDb = tempDb();
     const ownRepo = makeRepo();
     registerRepo(ownDb, ownRepo);
@@ -78,19 +92,17 @@ describe("LLM に定型作業を定期実行させる（#64）", () => {
     for (const [name, file] of [["依存更新チェック", "dependency-update-check.md"], ["週次レポート", "weekly-report.md"]] as const) {
       expect((await as(undefined, ["template", "add", name, "--from", join(templates, file)])).exitCode).toBe(0);
     }
-    const add = await as(undefined, ["recurring", "add", "依存更新チェック", "--template", "依存更新チェック", "--every", "daily", "--start", "2026-01-01", "--tz", "UTC", "--assignee", "claude-code"]);
+    const add = await as(undefined, ["recurring", "add", "依存更新チェック", "--template", "依存更新チェック", "--every", "daily", "--start", "2026-01-01", "--tz", "UTC"]);
     expect(add.exitCode).toBe(0);
-    // 担当の LLM も、実行前は起票されていないので拾えない
+    // 実行前は起票されていないので拾えない
     expect((await as("claude-code", ["issue", "next"])).json).toBeNull();
 
     const run = await as(undefined, ["recurring", "run"]);
     const issueId = run.json.items[0].issueId as string;
-    expect((await as("codex", ["issue", "next"])).json).toBeNull();
     const next = await as("claude-code", ["issue", "next"]);
     expect(next.json).toMatchObject({
       id: issueId,
       status: "in_progress",
-      assignee: "claude-code",
       description: readFileSync(join(templates, "dependency-update-check.md"), "utf8"),
     });
   });

@@ -1,94 +1,16 @@
-import { describe, expect, test } from "bun:test";
-import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
+import { expect, test } from "bun:test";
+import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-// API: API-1 を claude-code が着手、API-2 を codex に割り当て、API-3 は私の担当、API-4 は担当なし、API-5 は私の担当で done
-// WEB: WEB-1 は私の担当、WEB-2 は claude-code に割り当て
-async function seed() {
-  const db = tempDb();
-  const api = makeRepo("api-server");
-  const web = makeRepo("web");
-  registerRepo(db, api, "API");
-  registerRepo(db, web, "WEB");
-  const me = (args: string[], cwd = api) => runNod(args, { cwd, db });
-  const claude = (args: string[], cwd = api) => runNod(args, { cwd, db, actor: "claude-code" });
-  for (const title of ["着手済み", "割り当てだけ", "私の担当", "担当なし", "完了"]) await me(["issue", "create", title]);
-  for (const title of ["別 Workspace の私の担当", "別 Workspace の委任"]) await me(["issue", "create", title], web);
-  await claude(["issue", "start", "API-1"]);
-  await me(["issue", "update", "API-2", "--assignee", "codex"]);
-  await me(["issue", "update", "API-3", "--assignee", "me"]);
-  await me(["issue", "update", "API-5", "--assignee", "me", "--status", "done"]);
-  await me(["issue", "update", "WEB-1", "--assignee", "me"], web);
-  await me(["issue", "update", "WEB-2", "--assignee", "claude-code"], web);
-  return { db, api, web, me, claude };
-}
-
-const idsOf = (r: { json: { id: string }[] }) => r.json.map((i) => i.id);
-
-describe("nod issue list --assignee", () => {
-  test("今の Workspace の Issue を担当で絞り、繰り返しとカンマ区切りはどれかに合うものを返す", async () => {
-    const { me } = await seed();
-    expect(idsOf(await me(["issue", "list", "--assignee", "me", "--json"]))).toEqual(["API-3"]);
-    expect(idsOf(await me(["issue", "list", "--assignee", "codex", "--assignee", "claude-code", "--json"]))).toEqual(["API-1", "API-2"]);
-    expect(idsOf(await me(["issue", "list", "--assignee", "codex,me", "--json"]))).toEqual(["API-2", "API-3"]);
-    expect(idsOf(await me(["issue", "list", "--assignee", "me", "--all-workspaces", "--json"]))).toEqual(["API-3", "WEB-1"]);
-  });
-
-  test("none は未割り当てを指し、ほかの条件と組み合わせられる", async () => {
-    const { me } = await seed();
-    expect(idsOf(await me(["issue", "list", "--assignee", "none", "--json"]))).toEqual(["API-4"]);
-    expect(idsOf(await me(["issue", "list", "--assignee", "me", "--status", "done,todo", "--json"]))).toEqual(["API-3", "API-5"]);
-    const none = await me(["issue", "list", "--assignee", "nobody"]);
-    expect(none.exitCode).toBe(0);
-    expect(none.stdout.trim()).toBe("Issue はありません");
-  });
-
-  test("空の --assignee は INVALID_ARGS", async () => {
-    const { me } = await seed();
-    const r = await me(["issue", "list", "--assignee", " , ", "--json"]);
-    expect(r.exitCode).not.toBe(0);
-    expect(r.json.error.code).toBe("INVALID_ARGS");
-  });
-});
-
-describe("nod issue list --mine", () => {
-  test("人は既定で全 Workspace の自分（me）の担当を返し、-w で絞れる", async () => {
-    const { db, me } = await seed();
-    expect(idsOf(await me(["issue", "list", "--mine", "--json"], tempDir()))).toEqual(["API-3", "WEB-1"]);
-    const scoped = await runNod(["-w", "WEB", "issue", "list", "--mine", "--json"], { cwd: tempDir(), db });
-    expect(idsOf(scoped)).toEqual(["WEB-1"]);
-    expect(idsOf(await me(["issue", "list", "--mine", "--status", "done", "--json"]))).toEqual(["API-5"]);
-  });
-
-  test("LLM は自分の名前の担当を返す", async () => {
-    const { claude } = await seed();
-    const r = await claude(["issue", "list", "--mine", "--json"]);
-    expect(r.exitCode).toBe(0);
-    expect(r.json.map((i: { id: string; assignee: string }) => [i.id, i.assignee])).toEqual([
-      ["API-1", "claude-code"],
-      ["WEB-2", "claude-code"],
-    ]);
-  });
-
-  test("--assignee と併せると、どちらかに合うものを返す", async () => {
-    const { me } = await seed();
-    expect(idsOf(await me(["issue", "list", "--mine", "--assignee", "codex", "--json"]))).toEqual(["API-2", "API-3", "WEB-1"]);
-  });
-});
-
-describe("担当の名前 none の予約（#166）", () => {
-  test("issue update・bulk-update の --assignee none は INVALID_ARGS で何も変えず、絞り込みの none は未割り当てのまま", async () => {
-    const { me } = await seed();
-    for (const args of [
-      ["issue", "update", "API-4", "--assignee", "none", "-p", "1"],
-      ["issue", "update", "API-4", "--assignee", " None "],
-      ["issue", "bulk-update", "API-4", "API-2", "--assignee", "NONE"],
-    ]) {
-      const r = await me([...args, "--json"]);
-      expect(r.exitCode).not.toBe(0);
-      expect(r.json.error.code).toBe("INVALID_ARGS");
+test("一覧の --assignee と --mine は値に関係なく担当の廃止を伝える", async () => {
+  const db = tempDb(), cwd = makeRepo();
+  registerRepo(db, cwd);
+  await runNod(["issue", "create", "対象"], { cwd, db });
+  for (const flag of ["--assignee", "--mine"]) {
+    for (const option of [[flag], [flag, ""], [flag, "none"], [flag, "false"], [`${flag}=false`], [`${flag}=`]]) {
+      const result = await runNod(["issue", "list", ...option, "--json"], { cwd, db });
+      expect(result.exitCode).toBe(1);
+      expect(result.json.error).toMatchObject({ code: "INVALID_ARGS" });
+      expect(result.json.error.message).toContain("担当は廃止");
     }
-    expect((await me(["issue", "show", "API-4", "--json"])).json).toMatchObject({ assignee: null, priority: 0 });
-    expect((await me(["issue", "show", "API-2", "--json"])).json).toMatchObject({ assignee: "codex" });
-    expect(idsOf(await me(["issue", "list", "--assignee", "none", "--json"]))).toEqual(["API-4"]);
-  });
+  }
 });

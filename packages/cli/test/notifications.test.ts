@@ -205,3 +205,38 @@ test("購読していなくても、LLM に任せた Issue の完了・入力待
   const list = await nod(["notification", "list", "--json"]);
   expect(list.json.map((n: { kind: string; data: { to: string } }) => [n.kind, n.data.to])).toEqual([["agent", "done"]]);
 });
+
+test("別の書き手が始めたIssueでも作業状況と通知は操作した書き手を記録する", async () => {
+  const db = tempDb();
+  const repo = makeRepo();
+  registerRepo(db, repo, "API");
+  const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
+  await nod(["issue", "create", "引き継ぐ作業", "--json"]);
+  await nod(["issue", "start", "API-1"], "claude-code");
+
+  const failed = await nod(["issue", "fail", "API-1", "検証が失敗", "--json"], "codex");
+  expect(failed.exitCode).toBe(0);
+  let shown = await nod(["issue", "show", "API-1", "--json"]);
+  expect(shown.json.activity.filter((a: { type?: string }) => a.type === "agent_state_changed").at(-1))
+    .toMatchObject({ actor: "codex", data: { to: "error", agent: "codex" } });
+  expect((await nod(["notification", "list"])).stdout).toContain("codex がエラーで停止");
+
+  await nod(["issue", "ask", "API-1", "続けてよいか"], "codex");
+  shown = await nod(["issue", "show", "API-1", "--json"]);
+  expect(shown.json.activity.filter((a: { type?: string }) => a.type === "agent_state_changed").at(-1))
+    .toMatchObject({ actor: "codex", data: { to: "awaiting_input", agent: "codex" } });
+  expect((await nod(["notification", "list"])).stdout).toContain("codex が確認を求めた");
+
+  await nod(["answer", "API-1", "よい"]);
+  shown = await nod(["issue", "show", "API-1", "--json"]);
+  const resumed = shown.json.activity.filter((a: { type?: string }) => a.type === "agent_state_changed").at(-1);
+  expect(resumed).toMatchObject({ actor: "me", data: { to: "working", trigger: "answer" } });
+  expect(resumed.data.agent).toBeNull();
+  expect((await nod(["issue", "show", "API-1"])).stdout).toContain("me の回答で作業状況が 作業中 になった");
+
+  await nod(["issue", "done", "API-1", "--summary", "完了", "--json"], "codex");
+  shown = await nod(["issue", "show", "API-1", "--json"]);
+  expect(shown.json.activity.filter((a: { type?: string }) => a.type === "agent_state_changed").at(-1))
+    .toMatchObject({ actor: "codex", data: { to: "done", agent: "codex" } });
+  expect((await nod(["notification", "list"])).stdout).toContain("codex が作業を完了");
+});

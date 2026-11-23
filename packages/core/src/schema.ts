@@ -13,6 +13,44 @@ import { dueDateAtNine } from "./due-date-time";
 
 export type MigrationStep = string | ((db: Database) => void);
 
+function removeAssigneeViewDisplay(db: Database, table: "views" | "page_displays"): void {
+  const rows = db.query(`SELECT rowid AS row_id, display FROM ${table}`).all() as { row_id: number; display: string }[];
+  const update = db.query(`UPDATE ${table} SET display = ? WHERE rowid = ?`);
+  for (const row of rows) {
+    const display = JSON.parse(row.display) as Record<string, unknown>;
+    const hasColumn = Array.isArray(display.columns) && display.columns.includes("assignee");
+    if (!hasColumn && display.groupBy !== "assignee" && display.subGroupBy !== "assignee") continue;
+    if (Array.isArray(display.columns)) display.columns = display.columns.filter((column) => column !== "assignee");
+    if (display.groupBy === "assignee") delete display.groupBy;
+    if (display.subGroupBy === "assignee") delete display.subGroupBy;
+    update.run(JSON.stringify(display), row.row_id);
+  }
+}
+
+function removeAssigneeSprintCopies(db: Database): void {
+  const copies = [
+    ["sprint_items", "snapshot"],
+    ["sprint_legacy_issue_evidence", "snapshot"],
+    ["sprint_migration_source", "snapshot"],
+    ["sprint_sessions", "payload"],
+    ["sprint_mutation_receipts", "result"],
+  ] as const;
+  for (const [table, column] of copies) {
+    const rows = db.query(`SELECT rowid AS row_id, ${column} AS json FROM ${table}`).all() as { row_id: number; json: string }[];
+    const update = db.query(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+    for (const row of rows) {
+      let changed = false;
+      // JSONオブジェクトのキーだけを消し、本文や履歴の文字列を再解釈しない。
+      const value: unknown = JSON.parse(row.json, (key, value: unknown) => {
+        if (key !== "assignee") return value;
+        changed = true;
+        return undefined;
+      });
+      if (changed) update.run(JSON.stringify(value), row.row_id);
+    }
+  }
+}
+
 // MIGRATIONS[n] は、スキーマの版 n から n + 1 に上げる SQL・移行関数の並び
 export const MIGRATIONS: MigrationStep[][] = [
   [
@@ -742,5 +780,25 @@ export const MIGRATIONS: MigrationStep[][] = [
     `CREATE UNIQUE INDEX sprints_rollover_from ON sprints(rollover_from_sprint_id) WHERE rollover_from_sprint_id IS NOT NULL`,
     `ALTER TABLE sprints ADD COLUMN activated_by TEXT`,
     `ALTER TABLE sprint_items ADD COLUMN rollover_from_item_id TEXT REFERENCES sprint_items(id) ON DELETE RESTRICT`,
+  ],
+  // 版53: 担当の廃止に伴い委任中の条件とMy Issuesの表示設定を撤去する。
+  [
+    `UPDATE views SET filter = json_remove(filter, '$.delegated')`,
+    `DELETE FROM page_displays WHERE page = 'my-issues'`,
+  ],
+  // 版54: 保存済みの一覧から担当の条件・列・グループだけを撤去する。
+  [
+    `UPDATE views SET filter = json_remove(filter, '$.assignee') WHERE json_type(filter, '$.assignee') IS NOT NULL`,
+    (db) => {
+      removeAssigneeViewDisplay(db, "views");
+      removeAssigneeViewDisplay(db, "page_displays");
+    },
+  ],
+  // 版55: Issue・定期Issue・Triage提案と、Sprintの保存済みの写しから担当を撤去する。
+  [
+    `ALTER TABLE issues DROP COLUMN assignee`,
+    `ALTER TABLE recurring_issues DROP COLUMN assignee`,
+    `ALTER TABLE triage_proposals DROP COLUMN assignee`,
+    removeAssigneeSprintCopies,
   ],
 ];

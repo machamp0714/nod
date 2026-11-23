@@ -35,6 +35,30 @@ test("show・set で設定し、off で無効にし、JSON でも返す", async 
   expect(shown.stdout).toContain("自動アーカイブ: 無効");
 });
 
+test("自動クローズは作業中・入力待ち・エラーを除外し、未着手のIssueは閉じる", async () => {
+  const { db, opts } = fixture();
+  await runNod(["automation", "set", "--close-after-days", "1"], opts);
+  const create = async (title: string) => (await runNod(["issue", "create", title, "--json"], opts)).json.id as string;
+  const working = await create("作業中");
+  const waiting = await create("入力待ち");
+  const failed = await create("エラー");
+  const unstarted = await create("未着手");
+  for (const id of [working, waiting, failed]) {
+    await runNod(["issue", "start", id], { ...opts, actor: "codex" });
+  }
+  await runNod(["issue", "ask", waiting, "方針を確認"], { ...opts, actor: "codex" });
+  await runNod(["issue", "fail", failed, "検証失敗"], { ...opts, actor: "codex" });
+  for (const id of [working, waiting, failed, unstarted]) age(db, id, id === unstarted ? "todo" : "in_progress");
+  const preview = await runNod(["automation", "run", "--dry-run", "--json"], opts);
+  expect(preview.json.rules[0].candidates.map((i: { id: string }) => i.id)).toEqual([unstarted]);
+  const applied = await runNod(["automation", "run", "--json"], opts);
+  expect(applied.exitCode).toBe(0);
+  expect((await runNod(["issue", "show", unstarted, "--json"], opts)).json.status).toBe("canceled");
+  for (const id of [working, waiting, failed]) {
+    expect((await runNod(["issue", "show", id, "--json"], opts)).json.status).toBe("in_progress");
+  }
+});
+
 test("set は日数の不正・未指定を拒み、LLM からの変更を拒む", async () => {
   const { opts } = fixture();
   for (const args of [[], ["--close-after-days", "0"], ["--close-after-days", "abc"], ["--archive-after-days", "3651"], ["--close-after-days", "1.5"]]) {

@@ -18,7 +18,7 @@ test("未設定から自動クローズ・自動アーカイブを有効にし�
   await expect(auto.getByRole("button", { name: "対象を確認" })).toBeDisabled();
   await expect(auto.getByRole("button", { name: "今すぐ実行" })).toBeDisabled();
   await expect(auto.getByRole("button", { name: "保存" })).toBeDisabled();
-  await expect(auto.getByText("対象外: triage・LLM に委任中の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue")).toBeVisible();
+  await expect(auto.getByText("対象外: triage・作業中（working）・入力待ち（awaiting_input）・エラー（error）の Issue、未完了の子を持つ親 Issue、ブロック関係のある Issue")).toBeVisible();
 
   await close.click();
   await expect(close).toHaveAttribute("aria-checked", "true");

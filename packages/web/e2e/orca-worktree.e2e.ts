@@ -109,8 +109,8 @@ test("実行場所が未記録の Issue で「Omp で作業を始める」から
     ["terminal", "send", "--terminal", "term_new", "--text", created.id, "--json"],
   ]);
   const issue = await api.show(created.id);
-  expect({ worktree: issue.worktree, branch: issue.branch, status: issue.status, assignee: issue.assignee }).toEqual({
-    worktree, branch: "machamp0714/API-1-search-n1", status: created.status, assignee: created.assignee,
+  expect({ worktree: issue.worktree, branch: issue.branch, status: issue.status }).toEqual({
+    worktree, branch: "machamp0714/API-1-search-n1", status: created.status,
   });
 });
 
