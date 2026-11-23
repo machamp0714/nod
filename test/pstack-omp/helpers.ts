@@ -3,7 +3,8 @@
 // OMP 向けのディレクトリの中身（読み替え表を置く）・制御の拡張（規則を差し替えるとき）・ホーム（HOME）と、その下の利用者の OMP の設定の置き場
 // （PI_CODING_AGENT_DIR。既定と同じ <home>/.omp/agent）・作業中のプロジェクトも一時のものを環境変数と作業ディレクトリで渡す。
 // ネットワークとモデルの呼び出しはしない。
-// 適用した写しの専用ランチャー（bin/omp）は、写しの組を確かめてから、偽の omp を写しのサンドボックスのプロファイルで閉じ込めて起動する。
+// 適用した写しの専用ランチャー（bin/omp）は、写しの組を確かめてから、偽の omp を写しのサンドボックスのプロファイルで閉じ込めて起動する
+// （偽の omp は、ランチャーが渡す -e の制御の拡張と --config の設定の重ねを、環境変数 FAKE_OMP_EXTENSION と FAKE_OMP_CONFIG に入れる）。
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,8 +18,10 @@ export const REPO_RULES = join(REPO_CONTROL, "rules.json");
 // メインのスレッドの制御の拡張が、検証した組の記録の sha256 を worker thread の子に渡す環境変数
 export const HARNESS_ENV = "NOD_PSTACK_OMP_HARNESS_SHA256";
 const TABLE = "skills/pstack-omp/SKILL.md";
-// OMP の設定の根と profile を選ぶ環境変数。テストを動かす端末の値を引き継がない（テストが足すときだけ使う）
-const SELECTORS = ["PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE"];
+// OMP の設定の根・profile・設定の重ねを選ぶ環境変数。テストを動かす端末の値を引き継がない（テストが足すときだけ使う）
+const SELECTORS = ["PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE", "PI_CONFIG_FILES"];
+// 適用した写しの中の、専用ランチャーが omp に --config で渡す設定の重ね（rules.ts の bashOverlay）
+export const OVERLAY = "control/bash-patterns.yml";
 
 export interface Run {
   exitCode: number;
@@ -163,8 +166,8 @@ export interface Sandbox {
   commit(version: string, files?: Record<string, string>, executables?: string[]): string;
   // 固定の記録を書く。省いた項目は既定（一時の上流・最後のコミット・その版・OMP 19.1.0）
   pin(over?: Partial<Pin>): void;
-  // omp --version が出す版を決める（ほかの引数で起動すると、引数を sh に渡して実行する。先頭の -e <ファイル> は sh に渡さず、
-  // 受け取った拡張のファイルとして環境変数 FAKE_OMP_EXTENSION に入れる）。null なら omp を失敗させる
+  // omp --version が出す版を決める（ほかの引数で起動すると、引数を sh に渡して実行する。先頭の -e <ファイル> と、それに続く --config <ファイル> は
+  // sh に渡さず、受け取った拡張のファイルと設定の重ねのファイルとして環境変数 FAKE_OMP_EXTENSION と FAKE_OMP_CONFIG に入れる）。null なら omp を失敗させる
   omp(version: string | null): void;
   // 読み替え表（OMP 向けのディレクトリの skills/pstack-omp/SKILL.md）を書く。null なら消す。repoTable の sandbox では使えない
   table(content: string | null): void;
@@ -182,8 +185,10 @@ export interface Sandbox {
   // 写しの制御の拡張を OMP の代わりに読み込むプロセスを、作業中のプロジェクト（cwd で変えられる）で HOME を一時のホーム、
   // PI_CODING_AGENT_DIR を一時の OMP の設定の置き場にして起動する（extension-driver.ts）。
   // プロセスの開始はここで決まり、run でシナリオを渡したときに拡張を読み込む。profile ならそのサンドボックスのプロファイルで閉じ込めて
-  // （/usr/bin/sandbox-exec -f）、launcher なら写しの専用ランチャー（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する
-  extension(confine?: { profile?: string; launcher?: string; cwd?: string }): { run(scenario: ExtensionScenario): Promise<ExtensionResult> };
+  // （/usr/bin/sandbox-exec -f）、launcher なら写しの専用ランチャー（偽の omp が sh で実行する）の中で起動する。どちらも無ければ閉じ込めずに起動する。
+  // launcher でなければ、専用ランチャーが --config で渡す写しの設定の重ねを、偽の omp と同じく FAKE_OMP_CONFIG で渡す（config が null なら渡さない。
+  // ランチャーを通らずに起動した OMP の代わり）
+  extension(confine?: { profile?: string; launcher?: string; cwd?: string; config?: null }): { run(scenario: ExtensionScenario): Promise<ExtensionResult> };
   // 同期を起動する。dataDir を渡すとそのデータ置き場を使う
   sync(dataDir?: string): Promise<Run>;
   cloneHead(): string;
@@ -242,7 +247,7 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
         ompBin,
         version === null
           ? "#!/bin/sh\necho 'omp: 壊れている' >&2\nexit 3\n"
-          : `#!/bin/sh\nif [ "$1" = --version ]; then echo 'omp/${version}'; exit 0; fi\nif [ "$1" = -e ]; then FAKE_OMP_EXTENSION=$2; export FAKE_OMP_EXTENSION; shift 2; fi\nexec /bin/sh "$@"\n`,
+          : `#!/bin/sh\nif [ "$1" = --version ]; then echo 'omp/${version}'; exit 0; fi\nif [ "$1" = -e ]; then FAKE_OMP_EXTENSION=$2; export FAKE_OMP_EXTENSION; shift 2; fi\nif [ "$1" = --config ]; then FAKE_OMP_CONFIG=$2; export FAKE_OMP_CONFIG; shift 2; fi\nexec /bin/sh "$@"\n`,
       );
       chmodSync(ompBin, 0o755);
     },
@@ -269,11 +274,12 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     },
     launch: (script, ...args) => sb.launchWith({}, script, ...args),
     launchWith: ({ cwd = root, env = {} }, script, ...args) => spawn([sb.launcher, "-c", script, "sh", ...args], cwd, dataDir, env),
-    extension({ profile, launcher, cwd = project } = {}) {
+    extension({ profile, launcher, cwd = project, config } = {}) {
       const driver = [process.execPath, join(import.meta.dir, "extension-driver.ts"), join(sb.copy, "control", "index.ts")];
       const argv = profile !== undefined ? ["/usr/bin/sandbox-exec", "-f", profile, ...driver] : launcher !== undefined ? [launcher, "-c", 'exec "$0" "$@"', ...driver] : driver;
       const env: Record<string, string | undefined> = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: agentDir };
-      for (const key of SELECTORS) delete env[key];
+      for (const key of [...SELECTORS, "FAKE_OMP_EXTENSION", "FAKE_OMP_CONFIG"]) delete env[key];
+      if (launcher === undefined && config !== null) env.FAKE_OMP_CONFIG = join(sb.copy, OVERLAY);
       const proc = Bun.spawn(argv, { cwd, env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
       return {
         async run(scenario) {
@@ -366,10 +372,19 @@ export interface ToolCall {
 }
 
 export interface ExtensionScenario {
-  // 拡張が読む設定のいまの実効値（global・project・--config を合わせたもの）
+  // 拡張が読む設定の、project・設定の重ね・実行時の層の下の値（global の層）。OMP と同じく上の層と合わせたものが実効値になる
+  // （extension-driver.ts の冒頭）
   settings: Record<string, unknown>;
   // settings の値がどの層から来たか（既定は global）。実行時の上書きをした値は runtime になる
   provenance?: string;
+  // project の層（プロジェクトの .omp/config.yml など。運用者の見え方には入らない）
+  project?: Record<string, unknown>;
+  // 拡張を読み込む前から実行時の層にある値（拡張の外の上書き。記録しない）
+  runtime?: Record<string, unknown>;
+  // 専用ランチャーが渡す設定の重ねの後に、利用者が --config で渡した設定の重ねのファイル（YAML）。環境変数 PI_CONFIG_FILES の重ねは env で渡す
+  configFiles?: string[];
+  // false なら、設定に運用者の見え方（grantAuthority）が無い
+  authority?: false;
   // true なら、設定が worker thread の子のもの（メインのスレッドの設定の写しの上に重なった層）になる
   mirror?: boolean;
   // 拡張を読み込む前に足す環境変数（worker thread の子がメインのスレッドから受け継ぐもの）
@@ -377,8 +392,9 @@ export interface ExtensionScenario {
   // ctx.cwd（既定はこのプロセスの cwd）
   cwd?: string;
   // 順に始めるセッション。agent は ctx.agent（null なら無い）。toolCalls はそのセッションで呼ぶツール（数なら bash の ls をその回数）。
-  // spawns は、そのセッションが起動しようとする子のエージェントの名前（before_subagent_spawn に渡す）
-  sessions: { agent: { kind: "main" | "sub"; name: string; depth: number } | null; toolCalls: number | ToolCall[]; spawns?: string[] }[];
+  // spawns は、そのセッションが起動しようとする子のエージェントの名前（before_subagent_spawn に渡す）。
+  // runtime は、session_start の後、ツールを呼ぶ前に、拡張の外から実行時の層に書く値（設定の読み直しや別の上書きの代わり。記録しない）
+  sessions: { agent: { kind: "main" | "sub"; name: string; depth: number } | null; toolCalls: number | ToolCall[]; spawns?: string[]; runtime?: Record<string, unknown> }[];
 }
 
 export type Blocked = { block: boolean; reason: string } | null;
@@ -386,8 +402,10 @@ export type Blocked = { block: boolean; reason: string } | null;
 export interface ExtensionResult {
   // 拡張がした実行時の上書き（順に）。session は何番目のセッションか、phase はそのセッションのどの時点か
   overrides: { id: string; value: unknown; session: number; phase: "factory" | "session_start" | "tool_call" }[];
-  // 全セッションの後の実効値
+  // 全セッションの後の実効値（セッションの見え方）
   effective: Record<string, unknown>;
+  // 全セッションの後の bash.patterns の、セッションの見え方と運用者の見え方（grantAuthority。無ければ null）
+  patterns: { session: unknown; authority: unknown };
   // セッションごとの、factory の後で session_start の前の実効値（OMP がメインの task ツールを作り、エージェント定義を探す時点）
   effectiveAtStart: Record<string, unknown>[];
   // セッションごとに、拡張が message renderer を登録した customType

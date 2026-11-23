@@ -1,7 +1,8 @@
 // pstack を OMP で使う組の制御の拡張。適用（scripts/pstack-omp/cli.ts apply）が nod のデータ置き場の pstack-omp/omp/control に写す。
-// 利用者の OMP の設定（config.yml）には何も書かない。写しの専用ランチャー（bin/omp）だけが、omp に -e でこのファイルを渡す
-// （ランチャーを使わない通常の omp のセッションは、この拡張も pstack も読まない）。読み込みの設定は同じ写しの harness.json
-// （適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json（nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。
+// 利用者の OMP の設定（config.yml）には何も書かない。写しの専用ランチャー（bin/omp）だけが、omp に -e でこのファイルを、--config で写しの
+// 設定の重ね（control/bash-patterns.yml。規則の bash の拒否）を渡す（ランチャーを使わない通常の omp のセッションは、この拡張も pstack も読まない）。
+// 読み込みの設定は同じ写しの harness.json（適用が書く組の記録）から、禁止操作を止める規則は同じ写しの rules.json
+// （nod のリポジトリの omp/control/rules.json。形は rules.ts）から読む。
 // 信頼境界は macOS のサンドボックス（Seatbelt）。ランチャーから起動した OMP とその子孫は、規則の守る集合（写し・生成物・clone、
 // OMP の設定、利用者のエージェント定義と拡張とプラグインの置き場、omp と bun の実行ファイルと、それらの祖先）と、どのプロジェクトでも
 // プロジェクトの設定と同じプロセスで動くコードの置き場（規則の projectPaths。.omp/ など）に書けない（カーネルが拒否し、中から外せない）。
@@ -13,18 +14,27 @@
 //   モジュールを読む。どれかが通らなければ、メインでも子でも全ツールと子の起動を遮断し、理由を返す。読み込みの設定も規則も入れない
 //   （読み込み先や規則が壊れた・書き換えられる状態で pstack を使わせない）。
 //   適用の時刻では何も省かない（再適用の前後に始まったプロセスも、検証してから使う）。
+// - 規則の bash の拒否は、実行時の層には書かず、専用ランチャーが渡す設定の重ねで入る。OMP 19.1.0 では重ねは運用者の層で、重ねの bash.patterns の
+//   要素は、セッションの見え方（global ← project ← 重ね）でも運用者の見え方（grantAuthority。global ← 重ね。project を除く）でも下の層の前に
+//   足される（merge: prepend）。プロジェクトの設定は project 以下を変えるだけなので、規則の deny は両方の見え方の先頭に残る
+//   （実行時の層の配列は丸ごと置き換え、運用者の見え方にも入るので、そこに書くとプロジェクトの [] や allow が運用者の見え方に入ってしまう）。
+//   検証が通ったら、(1) 設定の根（overlayParent をたどった先。子と worker thread の写しの設定は重ねを読まない）の重ねのファイル
+//   （getConfigFiles。OMP は設定の読み直しのたびに全部を読み直す）が写しの重ねだけで、(2) bash.patterns の2つの見え方の先頭が規則の deny
+//   （重ねのファイルと同じ要素、同じ順）であることを確かめる。どちらかでなければ（PI_CONFIG_FILES や利用者の --config の重ねがある、
+//   ランチャーを通らずに起動した、実行時の上書きが置き換えた、grantAuthority が無いなど）、全ツールと子の起動を遮断し、理由を返す
+//   （読み込みの設定も規則も書かない）。(2) は毎回の tool_call と before_subagent_spawn でも確かめ、満たさなければそのツールと子の起動を遮断する
+//   （実行中の設定の読み直しや実行時の上書きで先頭が変わることがあるため）。
 // - 正しければ、拡張の読み込み（factory）で、3つの読み込みの設定（extensions にこのファイルと OMP 向けのディレクトリ content、
-//   skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）と規則の上書きを、
-//   利用者の設定の実効値を土台に、同じ処理で実行時の層（永続しない。global・project・--config より強く、OMP の運用者の層にも入るので
-//   プロジェクトの設定では緩められない）に書く。固定するキーは extensions・disabledExtensions・skills.customDirectories・
-//   skills.manualSkills・tools.approval・bash.patterns。値が同じでも実行時の層から来ていなければ書く（config.yml の書き換えや --config・
-//   プロジェクトの層で、実行中に変わらないように）。
+//   skills.customDirectories の先頭に写しの中の生成したスキルの置き場、skills.manualSkills に読み込む全スキル）と規則のツールの拒否を、
+//   利用者の設定の実効値を土台に、同じ処理で実行時の層（永続しない。global・project・--config より強い）に書く。固定するキーは
+//   extensions・disabledExtensions・skills.customDirectories・skills.manualSkills・tools.approval。値が同じでも実行時の層から来ていなければ書く
+//   （config.yml の書き換えや --config・プロジェクトの層で、実行中に変わらないように）。
 //   セッションの開始（session_start）より前に書くのは、メインの task ツールが作られるときにエージェント定義を探すので、
 //   そのときまでに OMP 向けのディレクトリ（content）が extensions に入っていないと、メインの task の一覧に poteto-agent が出ないため。
 //   factory はセッションごと（子と孫も）に呼ばれ、同じプロセスの子と孫は親と同じ設定を使うので、同じ値なら書き直さない。
 // - worker thread の写し（mirror）の設定には書かない（親の設定を写したもので、親が既に書いている）。worker thread はこの拡張を
-//   ディスクから読み直すので、同じ検証をし直し、さらにメインのスレッドが検証した組の記録の sha256（環境変数で渡す）と同じかを確かめる。
-//   実行中にディスクの組や規則が変わっていれば遮断する。
+//   ディスクから読み直すので、同じ検証と bash.patterns の確かめをし直し、さらにメインのスレッドが検証した組の記録の sha256（環境変数で渡す）と
+//   同じかを確かめる。実行中にディスクの組や規則が変わっていれば遮断する。
 // - tool_call では、規則のうち構造化された引数だけを検査する（github の op、task の isolated と子と孫が起動するエージェント、
 //   書き込みのツールのパス）。シェルの中身は解釈しない（bash は OMP の bash.patterns の deny が止める）。子と孫かどうかは、
 //   モデルが渡す引数ではなく実行基盤の ctx.agent で見分ける。子の起動は before_subagent_spawn でも同じく検査する。
@@ -36,8 +46,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext, Settings, ToolCallEvent, ToolCallEventResult } from "@oh-my-pi/pi-coding-agent";
 import type { Setting } from "@oh-my-pi/pi-coding-agent/config/registry";
-import { isRecord, realAncestor, resolvePlaces, type Rules } from "./rules";
-import { CONTROL_ENTRY, type Harness, LAUNCHER_FILE, real, verify } from "./verify";
+import { type BashPattern, bashDenyPatterns, isRecord, realAncestor, type Rules } from "./rules";
+import { CONTROL_ENTRY, type Harness, LAUNCHER_FILE, OVERLAY_FILE, real, verify } from "./verify";
 
 // OMP の設定を引く関数（OMP の config/registry の lookup）
 type Lookup = (id: string) => Setting | undefined;
@@ -56,7 +66,8 @@ interface Control {
   harness: Harness;
   rules: Rules;
   harnessSha: string;
-  bashDeny: string[];
+  // 規則の bash の拒否（置き場を解決済み。写しの設定の重ねの bash.patterns と同じ）
+  bashDeny: BashPattern[];
   // 書き込みのツールで書けない置き場（守る集合の実パス）
   protectedPaths: string[];
   lookup: Lookup;
@@ -67,16 +78,22 @@ type Verdict = { kind: "ok"; control: Control } | { kind: "blocked"; reason: str
 let verdict: Verdict | undefined;
 
 export default async function control(pi: ExtensionAPI): Promise<void> {
-  const mirror = isMirror(pi.pi.settings);
+  const settings = pi.pi.settings;
+  const mirror = isMirror(settings);
   verdict ??= await judge(mirror);
   pi.registerMessageRenderer(NAME, (message) => ({ render: () => [String(message.content)], invalidate: () => {} }));
   const current = verdict;
-  if (current.kind === "ok" && !mirror) {
-    try {
-      overrideSettings(pi.pi.settings, current.control);
-      process.env[HARNESS_ENV] = current.control.harnessSha;
-    } catch (e) {
-      verdict = blocked(`読み込みの設定と規則を書けませんでした: ${(e as Error).message}`);
+  if (current.kind === "ok") {
+    const problem = overlayProblem(settings) ?? patternProblem(settings, current.control);
+    if (problem !== undefined) {
+      verdict = blocked(problem, `${join(realAncestor(ROOT), LAUNCHER_FILE)} から、--config と PI_CONFIG_FILES を足さずに起動してください。規則の bash の拒否が効かないので、ツールを実行しません`);
+    } else if (!mirror) {
+      try {
+        overrideSettings(settings, current.control);
+        process.env[HARNESS_ENV] = current.control.harnessSha;
+      } catch (e) {
+        verdict = blocked(`読み込みの設定と規則を書けませんでした: ${(e as Error).message}`);
+      }
     }
   }
 
@@ -96,16 +113,23 @@ export default async function control(pi: ExtensionAPI): Promise<void> {
     );
   });
 
+  // 実行中の設定の読み直しや実行時の上書きで、bash.patterns の先頭が規則の deny でなくなっていれば、そのツールと子の起動を遮断する
+  const guard = (control: Control): ToolCallEventResult | undefined => {
+    const problem = patternProblem(settings, control);
+    if (problem === undefined) return undefined;
+    return { block: true, reason: `${NAME}: ${problem}。実行中に bash.patterns が変わった（設定の読み直しや実行時の上書き）ので、ツールを実行しません` };
+  };
+
   pi.on("tool_call", (event, ctx) => {
     const current = verdict!;
     if (current.kind === "blocked") return { block: true, reason: `${NAME}: ${current.reason}` };
-    return inspect(event, ctx, current.control);
+    return guard(current.control) ?? inspect(event, ctx, current.control);
   });
 
   pi.on("before_subagent_spawn", (event, ctx) => {
     const current = verdict!;
     if (current.kind === "blocked") return { block: true, reason: `${NAME}: ${current.reason}` };
-    return checkAgent(typeof event.agent === "string" ? event.agent : undefined, ctx, current.control.rules);
+    return guard(current.control) ?? checkAgent(typeof event.agent === "string" ? event.agent : undefined, ctx, current.control.rules);
   });
 }
 
@@ -142,17 +166,50 @@ async function judge(mirror: boolean): Promise<Verdict> {
       harness,
       rules,
       harnessSha,
-      bashDeny: rules.bashDeny.map((match) => resolvePlaces(match, places)),
+      bashDeny: bashDenyPatterns(rules, places),
       protectedPaths: guard.paths.map(({ path }) => path),
       lookup,
     },
   };
 }
 
-// 実行時の層に、読み込みの設定と規則の上書きを同じ処理で書く。どれも、いまの実効値（global・project・--config と、前に書いた実行時の層を
+// 設定の根（overlayParent をたどった先）の設定の重ねのファイルが、専用ランチャーが渡す写しの重ねだけでなければ理由を返す。
+// OMP 19.1.0 では、重ねのファイルは設定の根だけが読み（子の設定と grantAuthority の見え方は永続しない重ねで、ディスクを読まない。
+// worker thread の写しは、メインのスレッドの一覧を写す）、設定の読み直し（reloadFromDisk。子の起動ごとにも呼ばれる）のたびに全部を読み直す。
+// ほかの重ね（PI_CONFIG_FILES、利用者の --config）があると、読み直しで規則の deny の前に要素を足したり [] で消したりできる
+function overlayProblem(settings: Settings): string | undefined {
+  let root = settings;
+  for (let parent = root.overlayParent?.(); parent !== undefined; parent = root.overlayParent?.()) root = parent;
+  if (typeof root.getConfigFiles !== "function") return "OMP の設定に、設定の重ねのファイルの一覧（getConfigFiles）がありません";
+  const files = root.getConfigFiles();
+  const ours = join(ROOT, OVERLAY_FILE);
+  if (files.length === 1 && real(files[0]!) === real(ours)) return undefined;
+  return `OMP の設定の重ね（--config と PI_CONFIG_FILES）が、専用ランチャーが渡す ${ours} だけではありません（いま: ${files.length === 0 ? "なし" : files.join(", ")}）`;
+}
+
+// 規則の deny（写しの設定の重ねと同じ要素、同じ順）が、OMP の bash.patterns の2つの見え方（bash ツールが判定に使う、セッションの設定と
+// 運用者の見え方 grantAuthority()）の先頭になければ理由を返す
+function patternProblem(settings: Settings, { bashDeny, lookup }: Control): string | undefined {
+  const patterns = lookup("bash.patterns");
+  if (patterns === undefined) return "OMP の設定 bash.patterns がありません";
+  if (typeof settings.grantAuthority !== "function") return "OMP の設定に運用者の見え方（grantAuthority）がありません";
+  const views: [string, Settings][] = [
+    ["セッションの見え方", settings],
+    ["運用者の見え方（grantAuthority。プロジェクトの層を除く）", settings.grantAuthority()],
+  ];
+  for (const [name, scope] of views) {
+    const value = patterns.get(scope);
+    const leads = Array.isArray(value) && bashDeny.every(({ match, approval }, i) => isRecord(value[i]) && value[i].match === match && value[i].approval === approval);
+    if (!leads) return `OMP の bash.patterns の${name}の先頭が、規則の bash の拒否（${join(ROOT, OVERLAY_FILE)}）ではありません`;
+  }
+  return undefined;
+}
+
+// 実行時の層に、読み込みの設定と規則のツールの拒否を同じ処理で書く。どれも、いまの実効値（global・project・--config と、前に書いた実行時の層を
 // 合わせたもの）を土台にし、何度計算しても同じ値になるようにする。全部の設定を見つけてから書く（片方だけが入る経路を作らない）。
-// 値が同じで、既に実行時の層から来ていれば書かない（子と孫の factory で呼ばれたとき、設定の変更を知らせる仕組みを無駄に動かさない）
-function overrideSettings(settings: Settings, { harness, rules, bashDeny, lookup }: Control): void {
+// 値が同じで、既に実行時の層から来ていれば書かない（子と孫の factory で呼ばれたとき、設定の変更を知らせる仕組みを無駄に動かさない）。
+// bash.patterns は書かない（規則の bash の拒否は、専用ランチャーが渡す設定の重ねで入る）
+function overrideSettings(settings: Settings, { harness, rules, lookup }: Control): void {
   const handle = (id: string) => {
     const setting = lookup(id);
     if (setting === undefined) throw new Error(`OMP の設定 ${id} がありません`);
@@ -168,12 +225,10 @@ function overrideSettings(settings: Settings, { harness, rules, bashDeny, lookup
   const manualSkills = handle("skills.manualSkills");
   const disabledExtensions = handle("disabledExtensions");
   const approval = handle("tools.approval");
-  const patterns = handle("bash.patterns");
   const ours = new Set([real(harness.content), real(harness.control)]);
   const skillDirs = new Set(harness.skillDirectories.map(real));
   const skillIds = new Set(harness.manualSkills.map((name) => `skill:${name}`));
   const manual = strings(manualSkills.value);
-  const denies = new Set(bashDeny.map(collapse));
 
   // OMP 向けのディレクトリ（content）と、この拡張のファイル（子と孫のセッションも同じ拡張を読むように）を足す
   const nextExtensions = strings(extensions.value);
@@ -190,15 +245,6 @@ function overrideSettings(settings: Settings, { harness, rules, bashDeny, lookup
     [disabledExtensions, strings(disabledExtensions.value).filter((entry) => !ours.has(real(entry)) && !skillIds.has(entry))],
     // 規則のツールの拒否で、同じキーを上書きする（ほかのキーは保つ）
     [approval, { ...(isRecord(approval.value) ? approval.value : {}), ...rules.toolApproval }],
-    // 規則の deny を先頭に置く（OMP はパターンを先から照合し、最初に当たったものを使うことがあるので、利用者の allow より先にする）。
-    // いまの実効値からは、規則と同じ deny を除いて後ろに残す
-    [
-      patterns,
-      [
-        ...bashDeny.map((match) => ({ match, approval: "deny" })),
-        ...(Array.isArray(patterns.value) ? patterns.value : []).filter((p) => !(isRecord(p) && p.approval === "deny" && typeof p.match === "string" && denies.has(collapse(p.match)))),
-      ],
-    ],
   ];
   for (const [setting, next] of writes) setting.write(next);
 }
@@ -288,11 +334,6 @@ function isMirror(settings: Settings): boolean {
 // macOS のファイルシステムは既定で大文字と小文字を区別しないので、比べるときは小文字にそろえる
 function fold(path: string): string {
   return process.platform === "darwin" ? path.toLowerCase() : path;
-}
-
-// OMP の bash.patterns と同じく、前後の空白を除き、空白の並びを1つにする
-function collapse(match: string): string {
-  return match.trim().replace(/\s+/gu, " ");
 }
 
 function report(ctx: ExtensionContext, message: string, type: "info" | "error"): void {

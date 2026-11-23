@@ -5,8 +5,8 @@
 // rules.json の形（未知のキー・型違い・空の一覧は不正）:
 //   version         1
 //   toolApproval    ツールの名前 → "deny"。OMP の tools.approval の同じキーを実行時の層で上書きする（eval の deny を必ず含む）
-//   bashDeny        OMP の bash.patterns に deny で先頭に入れるパターン（* だけのワイルドカード。OMP が照合する）。
-//                   設定は子と孫と共有なので、役割では分けず全員に効く
+//   bashDeny        OMP の bash.patterns に deny で先頭に入れるパターン（* だけのワイルドカード。OMP が照合する）。適用はこれを写しの設定の重ね
+//                   （bashOverlay。専用ランチャーが omp に --config で渡す）に書く。設定は子と孫と共有なので、役割では分けず全員に効く
 //   github          denyOps: github ツールで拒否する op
 //   task            denyIsolated: task の isolated: true を拒否するか。subAgents: 子と孫（ctx.agent.kind が sub）が起動できるエージェント
 //   protectedPaths  守る集合（適用したセッションから書けない置き場）。末尾が / ならディレクトリでその下も含み、そうでなければそのパスだけ。
@@ -136,6 +136,26 @@ export function resolvePlaces(text: string, places: Places): string {
     .replaceAll("{ompBin}", places.ompBin)
     .replaceAll("{bunBin}", places.bunBin)
     .replaceAll("{home}", places.home);
+}
+
+// OMP の bash.patterns の1項目（規則の bash の拒否）
+export interface BashPattern {
+  match: string;
+  approval: "deny";
+}
+
+// 規則の bashDeny を置き場で解決した、bash.patterns の deny の並び（規則と同じ順）
+export function bashDenyPatterns(rules: Pick<Rules, "bashDeny">, places: Places): BashPattern[] {
+  return rules.bashDeny.map((match) => ({ match: resolvePlaces(match, places), approval: "deny" }));
+}
+
+// 専用ランチャーが omp に --config で渡す設定の重ね（OMP の --config の overlay）の中身。bash.patterns に規則の deny だけを持つ。
+// OMP 19.1.0 では、重ねは運用者の層で、重ねの bash.patterns の要素は、セッションの見え方（global・project の上）でも運用者の見え方
+// （global の上。project を除く）でも下の層の前に足される（merge: prepend）ので、規則の deny が両方の見え方の先頭に来る
+// （プロジェクトの [] は project 以下を消すだけで、重ねはその上に足される）。
+// JSON で書く（YAML として読める）。同じ入力から同じバイトになる（組の検証が写しのものと比べる）
+export function bashOverlay(rules: Pick<Rules, "bashDeny">, places: Places): string {
+  return `${JSON.stringify({ bash: { patterns: bashDenyPatterns(rules, places) } }, null, 2)}\n`;
 }
 
 // 守る集合を解決する。適用（サンドボックスのプロファイル）と組の検証（閉じ込めの確かめ）が同じものを使う

@@ -2,14 +2,15 @@
 // 適用・解除・状態の表示はプロセスとして起動し（helpers.ts の一時の置き場）、適用した写しの制御の拡張は OMP の代わりに
 // extension-driver.ts で読み込んで、実行時の上書きと tool_call・before_subagent_spawn の戻り値を見る。拡張を読み込むプロセスは、
 // 写しのサンドボックスのプロファイル（control/sandbox.sb）で閉じ込めて起動する（閉じ込めずに起動すると全ツールを遮断するため）。
-// bash.patterns の照合そのものは OMP の実装なので、ここではパターンが実行時の層に入ることまでを確かめる（当たり方は実際の OMP で確かめる）。
+// bash.patterns の照合そのものは OMP の実装なので、ここでは規則の deny が、専用ランチャーが --config で渡す設定の重ねから、bash.patterns の
+// 2つの見え方（セッションと運用者）の先頭に入ることまでを確かめる（層の合わせ方は OMP 19.1.0 を写した偽の設定。当たり方は実際の OMP で確かめる）。
 // サンドボックスの信頼境界と、omp を起動する前の組の検証は、写しの専用ランチャー（bin/omp）を実際に実行し、偽の omp が起動されたか、
 // その中からの書き込みが拒否されるかで確かめる。
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, put, REPO_RULES, type Run, type Sandbox, snapshot, SUB, synced } from "./helpers";
+import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, OVERLAY, put, REPO_RULES, type Run, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -31,7 +32,7 @@ async function applied(): Promise<Sandbox> {
   return sb;
 }
 
-function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string; cwd?: string } = { profile: profile(sb) }) {
+function run(sb: Sandbox, scenario: Partial<ExtensionScenario> & Pick<ExtensionScenario, "sessions">, confine: { profile?: string; launcher?: string; cwd?: string; config?: null } = { profile: profile(sb) }) {
   return sb.extension(confine).run({ settings: {}, ...scenario });
 }
 
@@ -45,36 +46,55 @@ function profile(sb: Sandbox): string {
   return join(sb.copy, "control", "sandbox.sb");
 }
 
+// 適用した写しの設定の重ね（専用ランチャーが omp に --config で渡す）の bash.patterns
+function overlayPatterns(sb: Sandbox): { match: string; approval: string }[] {
+  return (Bun.YAML.parse(readFileSync(join(sb.copy, OVERLAY), "utf8")) as { bash: { patterns: { match: string; approval: string }[] } }).bash.patterns;
+}
+
 // 利用者が既に持っている承認の設定と bash のパターン（allow が先にあっても、規則の deny が勝つように先頭に入ること）
 const USER_APPROVAL = { read: "allow", eval: "allow" };
 const USER_PATTERNS = [
   { match: "git *", approval: "allow" },
   { match: "rm *", approval: "prompt" },
 ];
+// 制御の拡張が実行時の層に書くキー（bash.patterns は書かない）
+const FIXED = ["disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills", "tools.approval"];
 
 describe("規則の上書きを、読み込みの設定と同じ処理で入れる", () => {
-  test("適用の後のメインのセッションで、読み込みの設定と同じ時点（factory）に、eval の拒否と bash の拒否のパターンが実行時の層に入り、利用者の値は後ろに保たれる", async () => {
+  test("適用は写しに設定の重ね（control/bash-patterns.yml）を書き、その bash.patterns は規則の bash の拒否のパターンを置き場で解決した deny だけ", async () => {
     const sb = await applied();
     const agentDir = realpathSync(sb.agentDir);
 
+    const overlay = Bun.YAML.parse(readFileSync(join(sb.copy, OVERLAY), "utf8")) as Record<string, Record<string, unknown>>;
+
+    expect(Object.keys(overlay)).toEqual(["bash"]);
+    expect(Object.keys(overlay.bash!)).toEqual(["patterns"]);
+    const patterns = overlayPatterns(sb);
+    expect(patterns).toHaveLength((JSON.parse(readFileSync(REPO_RULES, "utf8")) as { bashDeny: string[] }).bashDeny.length);
+    expect(patterns.every((p) => p.approval === "deny" && Object.keys(p).sort().join(",") === "approval,match")).toBe(true);
+    expect(patterns.map((p) => p.match)).toEqual(expect.arrayContaining(["*git push", "*git push *", "*git -* push *", "*gh pr create*", "*gh api* --method*", "*origin pr merge*", "*omp config set*", "*pstack-omp/omp*"]));
+    // 置き場のプレースホルダは、組の記録の OMP の設定の置き場に解決される
+    expect(patterns.map((p) => p.match)).toContain(`*${agentDir}/config.yml*`);
+    expect(patterns.some((p) => p.match.includes("{"))).toBe(false);
+  });
+
+  test("適用の後のメインのセッションで、読み込みの設定と同じ時点（factory）に eval の拒否が実行時の層に入る。bash.patterns は実行時の層に書かず、設定の重ねの deny が先頭に、利用者の値が後ろに来る", async () => {
+    const sb = await applied();
+
     const result = await run(sb, {
       settings: { extensions: [entry(sb)], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
-      sessions: [{ agent: MAIN, toolCalls: 0 }],
+      sessions: [{ agent: MAIN, toolCalls: 1 }],
     });
 
     expect(new Set(result.overrides.map(({ session, phase }) => `${session}:${phase}`))).toEqual(new Set(["0:factory"]));
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(FIXED);
     const atStart = result.effectiveAtStart[0]!;
     expect(atStart["tools.approval"]).toEqual({ read: "allow", eval: "deny" });
-    const patterns = atStart["bash.patterns"] as { match: string; approval: string }[];
-    expect(patterns.slice(-2)).toEqual(USER_PATTERNS);
-    const denies = patterns.slice(0, -2);
-    expect(denies.every((p) => p.approval === "deny")).toBe(true);
-    expect(denies.map((p) => p.match)).toEqual(expect.arrayContaining(["*git push", "*git push *", "*git -* push *", "*gh pr create*", "*gh api* --method*", "*origin pr merge*", "*omp config set*", "*pstack-omp/omp*"]));
-    // 置き場のプレースホルダは、組の記録の OMP の設定の置き場に解決される
-    expect(denies.map((p) => p.match)).toContain(`*${agentDir}/config.yml*`);
-    expect(denies.some((p) => p.match.includes("{"))).toBe(false);
+    expect(atStart["bash.patterns"]).toEqual([...overlayPatterns(sb), ...USER_PATTERNS]);
+    expect(result.patterns.authority).toEqual([...overlayPatterns(sb), ...USER_PATTERNS]);
     // 読み込みの設定も同じ時点に入っている
     expect(atStart.extensions).toContain(join(work(sb), "omp", "content"));
+    expect(result.toolCalls).toEqual([[null]]);
   });
 
   test("値が既に同じでも、実行時の層から来ていなければ、固定する全キーを実行時の層に書く。実行時の層の同じ値なら書き直さず、何度計算しても同じ値になる", async () => {
@@ -83,17 +103,119 @@ describe("規則の上書きを、読み込みの設定と同じ処理で入れ�
       settings: { extensions: [entry(sb)], "tools.approval": USER_APPROVAL, "bash.patterns": USER_PATTERNS },
       sessions: [{ agent: MAIN, toolCalls: 0 }],
     });
+    const settings = { ...first.effective, "bash.patterns": USER_PATTERNS };
 
-    const fromOverlay = await run(sb, { settings: first.effective, provenance: "overlay", sessions: [{ agent: MAIN, toolCalls: 0 }] });
-    const fromRuntime = await run(sb, { settings: first.effective, provenance: "runtime", sessions: [{ agent: MAIN, toolCalls: 0 }] });
+    const fromOverlay = await run(sb, { settings, provenance: "overlay", sessions: [{ agent: MAIN, toolCalls: 0 }] });
+    const fromRuntime = await run(sb, { settings, provenance: "runtime", sessions: [{ agent: MAIN, toolCalls: 0 }] });
 
-    const all = ["bash.patterns", "disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills", "tools.approval"];
-    expect(fromOverlay.overrides.map(({ id }) => id).sort()).toEqual(all);
+    expect(fromOverlay.overrides.map(({ id }) => id).sort()).toEqual(FIXED);
     expect(fromOverlay.effective).toEqual(first.effective);
     expect(fromRuntime.overrides).toEqual([]);
     expect(fromRuntime.effective).toEqual(first.effective);
   });
 });
+
+describe("bash.patterns の2つの見え方（セッションと運用者）", () => {
+  // 利用者の global の bash.patterns。git status だけを許す例外を、git * の deny の前に置く
+  const GLOBAL = [
+    { match: "git status", approval: "allow" },
+    { match: "git *", approval: "deny" },
+    { match: "rm *", approval: "prompt" },
+  ];
+  const projects: { name: string; project?: unknown[]; session(ours: unknown[]): unknown[] }[] = [
+    { name: "プロジェクトの層が bash.patterns を持たない", session: (ours) => [...ours, ...GLOBAL] },
+    { name: "プロジェクトの層が bash.patterns を [] にした", project: [], session: (ours) => ours },
+    { name: "プロジェクトの層が allow を前に足した", project: [{ match: "*", approval: "allow" }], session: (ours) => [...ours, { match: "*", approval: "allow" }, ...GLOBAL] },
+  ];
+
+  test.each(projects)("$name: 遮断せず、両方の見え方の先頭が規則の deny で、運用者の見え方には利用者の global の並びがそのまま残る", async ({ project, session }) => {
+    const sb = await applied();
+
+    const result = await run(sb, {
+      settings: { "bash.patterns": GLOBAL },
+      project: project === undefined ? {} : { "bash.patterns": project },
+      sessions: [
+        { agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] },
+        { agent: SUB, toolCalls: 1, spawns: ["poteto-agent"] },
+      ],
+    });
+
+    const ours = overlayPatterns(sb);
+    expect(result.toolCalls).toEqual([[null], [null]]);
+    expect(result.spawns).toEqual([[null], [null]]);
+    expect(result.overrides.map(({ id }) => id)).not.toContain("bash.patterns");
+    expect(result.patterns.session).toEqual(session(ours));
+    expect(result.patterns.authority).toEqual([...ours, ...GLOBAL]);
+  });
+
+  // 規則の deny が先頭に来ない、または来ることを確かめられない設定
+  const broken: { name: string; scenario(sb: Sandbox): Partial<ExtensionScenario>; config?: null; shows: string }[] = [
+    {
+      name: "利用者が --config で、bash.patterns の前に allow を足す設定の重ねを渡した",
+      scenario: (sb) => ({ configFiles: [overlayFile(sb, "allow.yml", [{ match: "*", approval: "allow" }])] }),
+      shows: "--config と PI_CONFIG_FILES",
+    },
+    { name: "利用者が --config で、bash.patterns を [] にする設定の重ねを渡した", scenario: (sb) => ({ configFiles: [overlayFile(sb, "empty.yml", [])] }), shows: "--config と PI_CONFIG_FILES" },
+    { name: "環境変数 PI_CONFIG_FILES に設定の重ねがある", scenario: (sb) => ({ env: { PI_CONFIG_FILES: overlayFile(sb, "env.yml", [{ match: "rm *", approval: "prompt" }]) } }), shows: "--config と PI_CONFIG_FILES" },
+    { name: "専用ランチャーを通らずに起動した（設定の重ねが無い）", scenario: () => ({}), config: null, shows: "（いま: なし）" },
+    { name: "拡張の読み込みの前に、実行時の上書きが bash.patterns を置き換えた", scenario: () => ({ runtime: { "bash.patterns": USER_PATTERNS } }), shows: "セッションの見え方" },
+    { name: "設定に運用者の見え方（grantAuthority）が無い", scenario: () => ({ authority: false }), shows: "grantAuthority" },
+  ];
+
+  test.each(broken)("$name: 読み込みの設定も規則も書かず、メインでも子でも全ツールと子の起動を理由つきで遮断する", async ({ scenario, config, shows }) => {
+    const sb = await applied();
+
+    const result = await run(
+      sb,
+      {
+        settings: { "bash.patterns": USER_PATTERNS },
+        ...scenario(sb),
+        sessions: [
+          { agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] },
+          { agent: SUB, toolCalls: 1, spawns: ["poteto-agent"] },
+        ],
+      },
+      { profile: profile(sb), ...(config === null ? { config } : {}) },
+    );
+
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls.flat()).toHaveLength(2);
+    for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(shows);
+      expect(call?.reason).toContain("ツールを実行しません");
+    }
+    expect(result.notices.join("\n")).toContain(shows);
+    expect(result.harnessEnv).toBeNull();
+  });
+
+  const changes: { name: string; runtime(ours: unknown[]): unknown[] }[] = [
+    { name: "実行時の上書きが bash.patterns を利用者の値に置き換えた", runtime: () => USER_PATTERNS },
+    { name: "規則の deny の前に allow が入った", runtime: (ours) => [{ match: "git push", approval: "allow" }, ...ours] },
+  ];
+
+  test.each(changes)("factory の後に$name: 次の tool_call と子の起動を理由つきで遮断する", async ({ runtime }) => {
+    const sb = await applied();
+
+    const result = await run(sb, {
+      settings: { "bash.patterns": USER_PATTERNS },
+      sessions: [{ agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"], runtime: { "bash.patterns": runtime(overlayPatterns(sb)) } }],
+    });
+
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(FIXED);
+    for (const call of [result.toolCalls[0]![0], result.spawns[0]![0]]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain("セッションの見え方");
+    }
+  });
+});
+
+// 一時の置き場に、bash.patterns だけを持つ設定の重ねのファイルを書いてそのパスを返す
+function overlayFile(sb: Sandbox, name: string, patterns: unknown[]): string {
+  const path = join(sb.root, name);
+  writeFileSync(path, JSON.stringify({ bash: { patterns } }));
+  return path;
+}
 
 describe("tool_call で構造化された引数を検査する", () => {
   test("github ツールの pr_create と pr_push は、メインでも子でも拒否し、読む操作は通す", async () => {
@@ -1028,6 +1150,21 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
       damage: (sb) => editHarness(sb, (harness) => delete harness.files["bin/omp"]),
       shows: () => "組の記録の files に bin/omp がありません",
     },
+    { name: "写しの設定の重ね（bash の拒否のパターン）が消えた", damage: (sb) => rmSync(join(sb.copy, OVERLAY)), shows: () => `${OVERLAY}（無い）` },
+    { name: "写しの設定の重ねが読めない", damage: (sb) => chmodSync(join(sb.copy, OVERLAY), 0o000), shows: () => `${OVERLAY}（読めない）` },
+    {
+      name: "組の記録の files から設定の重ねが外された",
+      damage: (sb) => editHarness(sb, (harness) => delete harness.files[OVERLAY]),
+      shows: () => `組の記録の files に ${OVERLAY} がありません`,
+    },
+    {
+      name: "写しの設定の重ねが規則の deny を外したものに書き換えられ、組の記録の sha256 もそれに合わせて書き換えられた",
+      damage: (sb) => {
+        writeFileSync(join(sb.copy, OVERLAY), `${JSON.stringify({ bash: { patterns: [] } })}\n`);
+        rehash(sb, OVERLAY);
+      },
+      shows: (sb) => `写しの設定の重ね ${work(sb)}/omp/${OVERLAY} が、いまの規則と置き場から作るものと違います`,
+    },
     { name: "サンドボックスのプロファイルが消えた", damage: (sb) => rmSync(join(sb.copy, "control", "sandbox.sb")), shows: () => "組を確かめられないので、omp を起動しません" },
     { name: "組の検証の入口（preflight.ts）が消えた", damage: (sb) => rmSync(join(sb.copy, "control", "preflight.ts")), shows: () => "組を確かめられないので、omp を起動しません" },
     {
@@ -1069,6 +1206,8 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
     { name: "引数 --cwd の置き場がディレクトリでない", args: (sb) => [`--cwd=${join(sb.root, "pin.json")}`], shows: (sb) => join(sb.root, "pin.json") },
     { name: "引数 --cwd に値が無い", args: () => ["--cwd"], shows: () => "--cwd" },
     { name: "引数 --cwd= の値が空", args: () => ["--cwd="], shows: () => "--cwd" },
+    { name: "引数 --config で設定の重ねを渡した", args: (sb) => ["--config", join(sb.root, "pin.json")], shows: () => "--config" },
+    { name: "引数 --config=<ファイル> で設定の重ねを渡した", args: () => ["--config=extra.yml"], shows: () => "--config=extra.yml" },
   ];
 
   test.each(cases)("$name: 理由を出して非0で終わり、omp を起動しない", async ({ damage, env, args, shows }) => {
@@ -1212,14 +1351,14 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
     expect(existsSync(mark)).toBe(false);
   });
 
-  test("正しい組では、偽の omp を制御の拡張のファイルの -e 付きで起動する", async () => {
+  test("正しい組では、偽の omp を、制御の拡張のファイルの -e と、写しの設定の重ねの --config を付け、その後に引数を続けて起動する", async () => {
     const sb = await applied();
 
-    const run = await sb.launch('printf "%s" "$FAKE_OMP_EXTENSION"');
+    const run = await sb.launch('printf "%s|%s|%s" "$FAKE_OMP_EXTENSION" "$FAKE_OMP_CONFIG" "$1"', "--model");
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toBe(entry(sb));
+    expect(run.stdout).toBe(`${entry(sb)}|${join(work(sb), "omp", OVERLAY)}|--model`);
   });
 
   test("ホームを作業ディレクトリにしても、閉じ込められていれば omp を起動し、制御の拡張もツールを遮断しない（~/.omp の下は規則の allowPaths で書ける）", async () => {

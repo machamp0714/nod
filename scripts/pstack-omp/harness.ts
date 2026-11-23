@@ -1,12 +1,13 @@
 // 適用と解除。
 // 適用は、OMP 向けのディレクトリの中身（content）・制御の拡張（control）・生成物（generated。manifest.json とスキルの外のリンク先の文書を含む）を、
 // データ置き場の下の pstack-omp/omp に写し（nod のリポジトリや worktree、生成物が消えても動き、読み込む中身を組で固定するように）、
-// サンドボックスのプロファイル（control/sandbox.sb）と専用ランチャー（bin/omp）を置き、同じ写しの control/harness.json に組の記録
+// サンドボックスのプロファイル（control/sandbox.sb）と設定の重ね（control/bash-patterns.yml）と専用ランチャー（bin/omp）を置き、同じ写しの control/harness.json に組の記録
 // （写しの全ファイルの sha256 を含む。形は omp/control/verify.ts）を書く。利用者の OMP の設定（config.yml）には読み込みの設定を書かない。
 // pstack（生成したスキル・読み替え表・poteto-agent）と禁止操作の制御は、専用ランチャーから起動したセッションだけに入る:
 // ランチャーは omp を起動する前に、同じプロファイルのサンドボックスの中で組を確かめ（control/preflight.ts を、適用したときの bun で実行する）、
-// 通らなければ理由を出して omp を起動しない。通れば omp をそのプロファイルで閉じ込め、制御の拡張のファイルを -e で渡して起動する。
-// 制御の拡張は、組をもう一度確かめてから、利用者の設定の実効値を土台に、3つの読み込みの設定と規則の上書きを実行時の層に書く
+// 通らなければ理由を出して omp を起動しない。通れば omp をそのプロファイルで閉じ込め、制御の拡張のファイルを -e で、規則の bash の拒否を
+// bash.patterns に持つ設定の重ねを --config で渡して起動する。制御の拡張は、組をもう一度確かめ、規則の bash の拒否が bash.patterns の
+// 2つの見え方の先頭にあることを確かめてから、利用者の設定の実効値を土台に、3つの読み込みの設定と規則のツールの拒否を実行時の層に書く
 // （omp/control/index.ts）。通常の omp のセッションは制御の拡張も読み込みの設定も読まないので、pstack は入らない。
 // 信頼境界は macOS のサンドボックス（Seatbelt）。プロファイルは、規則の守る集合（rules.ts の guarded）とどのプロジェクトでも書かせない
 // パス（projectPaths）への書き込みを拒否する。ランチャーから起動した OMP とその子孫は、規則・読み込み先・OMP の設定・omp と bun の
@@ -23,8 +24,8 @@ import { dirname, join, relative } from "node:path";
 import { configPath, globalConfigPath, isMapping, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
 import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError, userAgentDir } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
-import { guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
-import { CONTROL_ENTRY, HARNESS_FILE, type Harness, hashFiles, LAUNCHER_FILE, PREFLIGHT_ENTRY, PROFILE_FILE, readRules, RULES_FILE } from "../../omp/control/verify";
+import { bashOverlay, guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
+import { CONTROL_ENTRY, HARNESS_FILE, type Harness, hashFiles, LAUNCHER_FILE, OVERLAY_FILE, PREFLIGHT_ENTRY, PROFILE_FILE, readRules, RULES_FILE } from "../../omp/control/verify";
 
 // 以前の配置の組の記録（control/harness.json の config）。config.yml に読み込みの設定を入れた適用が、解除で戻すために書いたもの
 interface LegacyRecord {
@@ -324,9 +325,10 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
     cpSync(ctx.controlDir, join(staging, "control"), { recursive: true, dereference: false, filter: (src) => join("control", relative(ctx.controlDir, src)) !== HARNESS_FILE });
     // 生成物を丸ごと（manifest.json とスキルの外のリンク先の文書も）写す。読み替え表が示す <写しの根>/generated/... が写しの中で解決する
     cpSync(p.generated, join(staging, "generated"), { recursive: true, dereference: false });
-    // 守る集合は置き換えた後の写しの置き場で解決する（写しの根は {workDir} の下）
-    const guard = guarded(rules, { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin, bunBin: harness.bunBin, home: ctx.home });
-    writeFileSync(join(staging, PROFILE_FILE), sandboxProfile(guard));
+    // 守る集合と設定の重ねは置き換えた後の写しの置き場で解決する（写しの根は {workDir} の下。組の検証が解決するものと同じ置き場）
+    const places = { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin, bunBin: harness.bunBin, home: ctx.home };
+    writeFileSync(join(staging, PROFILE_FILE), sandboxProfile(guarded(rules, places)));
+    writeFileSync(join(staging, OVERLAY_FILE), bashOverlay(rules, places));
     mkdirSync(join(staging, dirname(LAUNCHER_FILE)));
     writeFileSync(join(staging, LAUNCHER_FILE), launcher(p.root, harness), { mode: 0o755 });
     harness.files = hashFiles(staging);
@@ -356,9 +358,11 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
 // だけを渡して起動する（XDG_CONFIG_HOME も渡さないので、bun の全体の設定は規則で守る {home}/.bunfig.toml だけになる）。
 // 作業中のプロジェクトの .env と bunfig.toml を読ませないため、写しの control を作業ディレクトリにし、.env の自動の読み込みを止め、
 // 呼んだディレクトリと、続けて omp に渡す引数をそのまま渡す（preflight は、引数の --profile と環境変数で OMP の設定の置き場を決め、
-// 呼んだディレクトリと引数の --cwd の全部の値を作業ディレクトリとして試す）。プロファイル・bun・preflight.ts の
+// 呼んだディレクトリと引数の --cwd の全部の値を作業ディレクトリとして試し、引数の --config を拒否する）。プロファイル・bun・preflight.ts の
 // どれかが無い、または組が正しくなければ、理由を出して非0で終わり、omp を起動しない。通れば、omp の実行ファイルをそのプロファイルで
-// 閉じ込め、制御の拡張のファイルを -e で渡し、続けて引数をそのまま渡して起動する。omp の起動の環境変数は変えない
+// 閉じ込め、制御の拡張のファイルを -e で、写しの設定の重ね（規則の bash の拒否）を --config で渡し、続けて引数をそのまま渡して起動する
+// （OMP は PI_CONFIG_FILES の重ねの後に --config の重ねを順に合わせるので、写しの重ねは PI_CONFIG_FILES より後、利用者の --config より前になる。
+// 制御の拡張は、写しの重ねのほかに重ねがあれば遮断する）。omp の起動の環境変数は変えない
 function launcher(root: string, harness: Harness): string {
   const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
   const profilePath = quote(join(root, PROFILE_FILE));
@@ -370,7 +374,7 @@ function launcher(root: string, harness: Harness): string {
     `  echo ${quote(`pstack-omp: 組を確かめられないので、omp を起動しません（${join(root, LAUNCHER_FILE)}。bun scripts/pstack-omp/cli.ts status で確かめてください）`)} >&2`,
     "  exit 1",
     "fi",
-    `exec ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.ompBin)} -e ${quote(join(root, CONTROL_ENTRY))} "$@"`,
+    `exec ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.ompBin)} -e ${quote(join(root, CONTROL_ENTRY))} --config ${quote(join(root, OVERLAY_FILE))} "$@"`,
     "",
   ].join("\n");
 }

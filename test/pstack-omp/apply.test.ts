@@ -145,8 +145,8 @@ describe("適用", () => {
     });
 
     expect(new Set(result.overrides.map(({ session, phase }) => `${session}:${phase}`))).toEqual(new Set(["0:factory"]));
-    // 固定する全キーを、値が変わらなくても実行時の層に入れる（メインの1度だけ）
-    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["bash.patterns", "disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills", "tools.approval"]);
+    // 固定する全キーを、値が変わらなくても実行時の層に入れる（メインの1度だけ。bash.patterns は専用ランチャーの設定の重ねで入るので書かない）
+    expect(result.overrides.map(({ id }) => id).sort()).toEqual(["disabledExtensions", "extensions", "skills.customDirectories", "skills.manualSkills", "tools.approval"]);
     expect(result.effectiveAtStart[1]).toEqual(result.effectiveAtStart[0]);
     expect(result.effectiveAtStart[2]).toEqual(result.effectiveAtStart[0]);
     expect(result.toolCalls).toEqual([[], [null], [null]]);
@@ -880,7 +880,7 @@ describe("写し", () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
-    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["harness.json", "index.ts", "omp.d.ts", "preflight.ts", "rules.json", "rules.ts", "sandbox.sb", "verify.ts"]);
+    expect(readdirSync(join(sb.copy, "control")).sort()).toEqual(["bash-patterns.yml", "harness.json", "index.ts", "omp.d.ts", "preflight.ts", "rules.json", "rules.ts", "sandbox.sb", "verify.ts"]);
     expect(readFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "utf8")).toBe(readFileSync(join(sb.packageDir, "skills", "pstack-omp", "SKILL.md"), "utf8"));
     rmSync(sb.copy, { recursive: true });
     expect(existsSync(sb.copy)).toBe(false);

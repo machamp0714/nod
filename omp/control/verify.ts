@@ -5,13 +5,15 @@
 // 検証すること（どれかが通らなければ理由を返す）:
 // - 組の記録（control/harness.json）が読め、形が正しい
 // - 写しが記録と一致する（copyProblems）: 記録の control が写しの control で、content と生成したスキルの置き場が写しの中に在り、
-//   files に規則・専用ランチャー・サンドボックスのプロファイル・制御の拡張・preflight.ts が入り、写しの全ファイル（harness.json を除く）が
+//   files に規則・専用ランチャー・サンドボックスのプロファイル・設定の重ね・制御の拡張・preflight.ts が入り、写しの全ファイル（harness.json を除く）が
 //   記録の sha256 と一致し、記録に無いファイルが無い
 // - 規則（control/rules.json）の形が正しい
 // - いまの OMP の設定の置き場（ompAgentDir。環境変数と omp の引数で OMP と同じく決める）の実パスが、記録の agentDir と同じ。
 //   名前つきの profile や ~/.omp でない設定の根（PI_CONFIG_DIR）なら、守る集合が実際の置き場に当たるかを決められないので通さない
 // - 写しのサンドボックスのプロファイル（control/sandbox.sb）が、いま解決した守る集合から作るもの（rules.ts の sandboxProfile）と同じ
 //   （適用の後に守る置き場やその途中のリンクの実体が変わると、プロファイルはその実体を覆わない）
+// - 写しの設定の重ね（control/bash-patterns.yml。専用ランチャーが omp に --config で渡す）が、いまの規則と置き場から作るもの
+//   （rules.ts の bashOverlay。bash.patterns に規則の deny）と同じ（読めない・違えば、規則の bash の拒否が効くかを決められない）
 // - このプロセスが、守る集合と、作業ディレクトリ（どれも）とその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスと、
 //   それらのディレクトリの下（何段下でも）のリンクの参照先に書けない（サンドボックスに閉じ込められている。writable）
 // 適用の時刻では何も省かない（どのプロセスでも、組を検証してから使う）。
@@ -36,17 +38,18 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { type Guard, guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, resolvePlaces, type Rules, sandboxProfile } from "./rules";
+import { bashOverlay, type Guard, guarded, type Guarded, isRecord, parseRules, type Places, realAncestor, resolvePlaces, type Rules, sandboxProfile } from "./rules";
 
-// 写しの根からの、組の記録・規則・専用ランチャー・サンドボックスのプロファイル・制御の拡張・組の検証の入口
+// 写しの根からの、組の記録・規則・専用ランチャー・サンドボックスのプロファイル・設定の重ね・制御の拡張・組の検証の入口
 export const HARNESS_FILE = "control/harness.json";
 export const RULES_FILE = "control/rules.json";
 export const LAUNCHER_FILE = "bin/omp";
 export const PROFILE_FILE = "control/sandbox.sb";
+export const OVERLAY_FILE = "control/bash-patterns.yml";
 export const CONTROL_ENTRY = "control/index.ts";
 export const PREFLIGHT_ENTRY = "control/preflight.ts";
 // 組の記録の files に必ず入るファイル（無ければ、写しから消しても記録との照合で気づけない）
-const REQUIRED = [RULES_FILE, LAUNCHER_FILE, PROFILE_FILE, CONTROL_ENTRY, PREFLIGHT_ENTRY];
+const REQUIRED = [RULES_FILE, LAUNCHER_FILE, PROFILE_FILE, OVERLAY_FILE, CONTROL_ENTRY, PREFLIGHT_ENTRY];
 
 // 組の記録（写しの control/harness.json）。適用（harness.ts）が書く
 export interface Harness {
@@ -123,6 +126,16 @@ export function verify(controlDir: string, cwds: string[], args: readonly string
       `写しのサンドボックスのプロファイル ${profilePath} が、いまの守る集合から作るものと違います（適用の後に、守る置き場かその途中のリンクの実体が変わり、` +
         `プロファイルがいまの実体を覆いません。プロファイルにだけある規則: ${only(written, expected)}。いまの守る集合にだけある規則: ${only(expected, written)}）。apply し直してください`,
     );
+  }
+  const overlayPath = join(root, OVERLAY_FILE);
+  let overlay: string;
+  try {
+    overlay = readFileSync(overlayPath, "utf8");
+  } catch (e) {
+    return refuse(`写しの設定の重ね ${overlayPath} を読めません: ${(e as Error).message}`);
+  }
+  if (overlay !== bashOverlay(rules, places)) {
+    return refuse(`写しの設定の重ね ${overlayPath} が、いまの規則と置き場から作るものと違います（bash.patterns の先頭に入れる規則の bash の拒否が違う）。apply し直してください`);
   }
   // 規則の allowPaths の、書いたままの形（親までの実パスと最後の要素。最後の要素のリンクは解かない）
   const allowed = rules.allowPaths.map((entry) => {
