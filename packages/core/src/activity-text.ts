@@ -140,7 +140,7 @@ export function describeEvent(item: ActivityEvent, labels: ActivityLabels): Even
     }
     case "agent_state_changed": {
       const agent = text(data.agent);
-      if (data.to === null) return line(`${actor} が作業状況を解除した`);
+      if (data.to === null) return line(agent && agent !== actor ? `${actor} が ${agent} の作業状況を解除した` : `${actor} が作業状況を解除した`);
       const state = labels.agentState(data.to);
       // 入力待ちの理由は質問文で、同じ質問の行と重なるので出さない
       const reason = data.to === "awaiting_input" ? null : text(data.reason);

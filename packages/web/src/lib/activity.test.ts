@@ -106,9 +106,10 @@ test("作業主体の記録を使い、旧eventのmeを作業者とみなさな�
   expect(line("codex", { agent: null })).toBe("codex が作業状況を 作業中 に変えた");
 });
 
-test("作業状況のnullは、作業者に帰属させず解除した書き手を表示する", () => {
+test("作業状況のnullは解除した書き手を表示し、異なる作業主体の履歴も残す", () => {
   const line = (actor: string, data: Record<string, unknown>) => describeActivity({ kind: "event", at, actor, type: "agent_state_changed", data: { from: "working", to: null, ...data } }).text;
-  expect(line("me", { agent: "codex" })).toBe("me が作業状況を解除した");
+  expect(line("me", { agent: "codex" })).toBe("me が codex の作業状況を解除した");
+  expect(line("me", { agent: "me" })).toBe("me が作業状況を解除した");
   expect(line("codex", { agent: "codex" })).toBe("codex が作業状況を解除した");
   expect(line("me", { agent: null })).toBe("me が作業状況を解除した");
   expect(line("me", {})).toBe("me が作業状況を解除した");
