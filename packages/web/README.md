@@ -35,3 +35,9 @@ Playwright のテストは `e2e/*.e2e.ts` に置く。
 Sprint終了のE2Eでは名前付きdialog内の終了理由を `getByRole("textbox", { name: "終了理由", exact: true })` で指定する。
 Playwright 1.63 の `getByLabel` は入れ子のtextareaの初期値もラベルのテキストに含めるため、`exact: true` では「終了理由」と一致しないことをブラウザで確認した。
 dialog名とtextboxのアクセシブルな名前は保ち、初期値とは異なる理由を入力して終了記録への保存を検証する。
+
+### 検索の Enter 操作
+
+Issue 検索は入力のデバウンス中と、その検索語の結果を初めて取得している間は Enter で遷移しない。
+同じ検索語の結果を表示したまま SSE 通知で再取得している間は、表示中の Issue を Enter で開ける。
+`bun run test:e2e e2e/issue-search.e2e.ts` は、時計と API 応答を制御してこれらの境界を検証する。
