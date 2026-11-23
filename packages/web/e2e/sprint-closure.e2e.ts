@@ -14,11 +14,11 @@ test("期限超過のSprintを理由付きで終了し、終了時の記録と�
   await expect(page.getByRole("region", { name: "Sprint の概要" })).toContainText("UTC");
   await page.getByRole("button", { name: "Sprintを終了", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Sprintを終了", exact: true });
-  await dialog.getByLabel("終了理由", { exact: true }).fill("予定期間の終了");
+  await dialog.getByRole("textbox", { name: "終了理由", exact: true }).fill("予定期間が終了し、残件を確認したため");
   await dialog.getByRole("button", { name: "終了を記録する", exact: true }).click();
   await expect(dialog).toBeHidden();
   const record = page.getByRole("region", { name: "終了時の記録", exact: true });
-  await expect(record).toContainText("予定期間の終了");
+  await expect(record).toContainText("予定期間が終了し、残件を確認したため");
   await expect(record.getByRole("link", { name: `${issue.id}の現在のIssue`, exact: true })).toBeVisible();
   await nod.me.updateIssue(issue.id, { status: "done" });
   await page.reload();
