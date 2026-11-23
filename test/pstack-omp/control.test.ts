@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, put, REPO_RULES, type Sandbox, snapshot, SUB, synced } from "./helpers";
+import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, put, REPO_RULES, type Run, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
 
@@ -528,6 +528,215 @@ describe("サンドボックスの信頼境界", () => {
     expect(readdirSync(ompTarget)).toEqual([]);
     expect(readdirSync(claudeTarget)).toEqual([]);
     expect(readdirSync(join(sb.home, ".omp")).sort()).toEqual(homeOmp);
+  });
+
+  // sb.root の下の一時のリポジトリ（作業ディレクトリは repo/src、実体がディレクトリの .omp を持つ）。omp は .omp の実パス
+  function repository(sb: Sandbox): { repo: string; sub: string; omp: string } {
+    const repo = join(sb.root, "repo");
+    const sub = join(repo, "src");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(sub);
+    mkdirSync(join(repo, ".omp"));
+    return { repo: realpathSync(repo), sub, omp: join(realpathSync(repo), ".omp") };
+  }
+
+  // 写しのプロファイルに規則を1行足した検査用のプロファイル
+  function profileWith(sb: Sandbox, rule: string): string {
+    const path = join(sb.root, "probe.sb");
+    writeFileSync(path, `${readFileSync(profile(sb), "utf8")}${rule}\n`);
+    return path;
+  }
+
+  // 専用ランチャーが omp を起動せず、制御の拡張がツールと子の起動を遮断し、どちらも理由に place を出した
+  function expectRefused(launched: Run, result: ExtensionResult, place: string): void {
+    expect(launched.exitCode).not.toBe(0);
+    expect(launched.stdout).toBe("");
+    expect(launched.stderr).toContain("サンドボックスに閉じ込められていません");
+    expect(launched.stderr).toContain(place);
+    expect(launched.stderr).toContain("omp を起動しません");
+    expect(result.overrides).toEqual([]);
+    expect(result.toolCalls.flat()).toHaveLength(1);
+    expect(result.spawns.flat()).toHaveLength(1);
+    for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(place);
+    }
+  }
+
+  const SCENARIO = { sessions: [{ agent: MAIN, toolCalls: 1, spawns: ["poteto-agent"] }] };
+
+  const outsideLinks: { name: string; link(omp: string, outside: string): string }[] = [
+    {
+      name: "agents（ディレクトリのリンク）",
+      link: (omp, outside) => {
+        symlinkSync(outside, join(omp, "agents"));
+        return join(omp, "agents");
+      },
+    },
+    {
+      name: "agents/poteto-agent.md（ファイルのリンク）",
+      link: (omp, outside) => {
+        mkdirSync(join(omp, "agents"));
+        symlinkSync(join(outside, "poteto-agent.md"), join(omp, "agents", "poteto-agent.md"));
+        return join(omp, "agents", "poteto-agent.md");
+      },
+    },
+  ];
+
+  test.each(outsideLinks)("実体のディレクトリのプロジェクトの .omp の下の $name が閉じ込めの外の書ける置き場を指すなら、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのリンクのパスを出し、参照先の中身と一覧を変えず試しのものを残さない", async ({ link }) => {
+    const sb = await applied();
+    const { sub, omp } = repository(sb);
+    const outside = join(sb.root, "outside");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "poteto-agent.md"), "# 利用者の定義\n");
+    const place = link(omp, outside);
+    const before = { files: snapshot(outside), mode: statSync(outside).mode, fileMode: statSync(join(outside, "poteto-agent.md")).mode };
+
+    const launched = await sb.launchWith({ cwd: sub }, "printf started");
+    const result = await run(sb, SCENARIO, { profile: profile(sb), cwd: sub });
+
+    expectRefused(launched, result, place);
+    expect({ files: snapshot(outside), mode: statSync(outside).mode, fileMode: statSync(join(outside, "poteto-agent.md")).mode }).toEqual(before);
+    expect(readdirSync(sub)).toEqual([]);
+  });
+
+  test("プロジェクトの .omp の下のリンクが .omp の中（自分自身や互いを指すもの、まだ無いものを含む）か、閉じ込めで書けない守る集合の中を指すなら、専用ランチャーは omp を起動し、制御の拡張もツールと子の起動を遮断しない", async () => {
+    const sb = await applied();
+    const { sub, omp } = repository(sb);
+    const extensions = join(realpathSync(sb.agentDir), "extensions");
+    mkdirSync(extensions, { recursive: true });
+    mkdirSync(join(omp, "agents"));
+    writeFileSync(join(omp, "agents", "poteto-agent.md"), "# 利用者の定義\n");
+    symlinkSync(join(omp, "agents", "poteto-agent.md"), join(omp, "agents", "alias.md"));
+    symlinkSync(omp, join(omp, "loop"));
+    symlinkSync(join(omp, "b"), join(omp, "a"));
+    symlinkSync(join(omp, "a"), join(omp, "b"));
+    symlinkSync(join(omp, "nothing"), join(omp, "missing"));
+    symlinkSync(extensions, join(omp, "extensions"));
+    symlinkSync(realpathSync(sb.configPath), join(omp, "agents", "config.md"));
+    const config = sha256(sb.configPath);
+
+    const launched = await sb.launchWith({ cwd: sub }, "printf started");
+    const result = await run(sb, SCENARIO, { profile: profile(sb), cwd: sub });
+
+    expect(launched.stderr).toBe("");
+    expect(launched.stdout).toBe("started");
+    expect(result.toolCalls).toEqual([[null]]);
+    expect(result.spawns).toEqual([[null]]);
+    expect(readdirSync(omp).sort()).toEqual(["a", "agents", "b", "extensions", "loop", "missing"]);
+    expect(readdirSync(join(omp, "agents")).sort()).toEqual(["alias.md", "config.md", "poteto-agent.md"]);
+    expect(readdirSync(extensions)).toEqual([]);
+    expect(sha256(sb.configPath)).toBe(config);
+  });
+
+  test("リンクの参照先が閉じ込めで書けないディレクトリなら、その下の元へ戻るリンクや自分自身を指すリンクで循環しても試しが終わって遮断せず、その下に解けない互いを指すリンクや書ける置き場へのリンクがあれば遮断し、理由にそのパスを出す", async () => {
+    const sb = await applied();
+    const { sub, omp } = repository(sb);
+    const outside = join(sb.root, "outside");
+    const open = join(sb.root, "open");
+    mkdirSync(join(outside, "sub"), { recursive: true });
+    mkdirSync(open);
+    writeFileSync(join(outside, "sub", "poteto-agent.md"), "# 利用者の定義\n");
+    symlinkSync(outside, join(omp, "agents"));
+    symlinkSync(omp, join(outside, "back"));
+    symlinkSync(outside, join(outside, "self"));
+    symlinkSync(outside, join(outside, "sub", "up"));
+    const strict = profileWith(sb, `(deny file-write* (subpath "${realpathSync(outside)}"))`);
+    const confine = { profile: strict, cwd: sub };
+    const agents = join(omp, "agents");
+
+    const cyclic = await run(sb, SCENARIO, confine);
+    symlinkSync(join(outside, "sub", "b"), join(outside, "sub", "a"));
+    symlinkSync(join(outside, "sub", "a"), join(outside, "sub", "b"));
+    const mutual = await run(sb, SCENARIO, confine);
+    rmSync(join(outside, "sub", "a"));
+    rmSync(join(outside, "sub", "b"));
+    symlinkSync(open, join(outside, "sub", "open"));
+    const writable = await run(sb, SCENARIO, confine);
+
+    expect(cyclic.toolCalls).toEqual([[null]]);
+    expect(cyclic.spawns).toEqual([[null]]);
+    for (const call of [...mutual.toolCalls.flat(), ...mutual.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(join(agents, "sub", "a"));
+    }
+    for (const call of [...writable.toolCalls.flat(), ...writable.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(join(agents, "sub", "open"));
+    }
+    expect(mutual.overrides).toEqual([]);
+    expect(writable.overrides).toEqual([]);
+    expect(readdirSync(outside).sort()).toEqual(["back", "self", "sub"]);
+    expect(readdirSync(join(outside, "sub")).sort()).toEqual(["open", "poteto-agent.md", "up"]);
+    expect(readdirSync(open)).toEqual([]);
+  });
+
+  test("リンクの参照先の閉じ込めで書けないディレクトリの下が多すぎて確かめきれないなら、制御の拡張はツールと子の起動を遮断し、理由に確かめきれないことを出す", async () => {
+    const sb = await applied();
+    const { sub, omp } = repository(sb);
+    const outside = join(sb.root, "outside");
+    mkdirSync(outside);
+    for (let i = 0; i <= 10_000; i += 1) writeFileSync(join(outside, `f${i}.md`), "");
+    symlinkSync(outside, join(omp, "agents"));
+    const strict = profileWith(sb, `(deny file-write* (subpath "${realpathSync(outside)}"))`);
+
+    const result = await run(sb, SCENARIO, { profile: strict, cwd: sub });
+
+    expect(result.overrides).toEqual([]);
+    for (const call of [...result.toolCalls.flat(), ...result.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain("確かめきれません");
+    }
+    expect(readdirSync(outside)).toHaveLength(10_001);
+  });
+
+  test("プロジェクトの .claude/settings.json が、chmod は拒否されるが中身は書けるファイル（他の利用者の持ち物の代わり）へのリンクなら、制御の拡張はツールと子の起動を遮断し、書き込みの権限の無いファイルへのリンクなら遮断しない。どちらも参照先の中身・mode・mtime は変わらない", async () => {
+    const sb = await applied();
+    const { repo, sub } = repository(sb);
+    const target = join(sb.root, "shared", "settings.json");
+    put(target, '{ "permissions": {} }\n');
+    mkdirSync(join(repo, ".claude"));
+    symlinkSync(target, join(repo, ".claude", "settings.json"));
+    const modeDenied = profileWith(sb, `(deny file-write-mode (literal "${realpathSync(target)}"))`);
+    const state = () => ({ sha: sha256(target), mode: statSync(target).mode, mtime: statSync(target).mtimeMs });
+
+    const writableBefore = state();
+    const writable = await run(sb, SCENARIO, { profile: modeDenied, cwd: sub });
+    const writableAfter = state();
+    chmodSync(target, 0o444);
+    const readOnlyBefore = state();
+    const readOnly = await run(sb, SCENARIO, { profile: modeDenied, cwd: sub });
+    const readOnlyAfter = state();
+
+    expect(writable.overrides).toEqual([]);
+    for (const call of [...writable.toolCalls.flat(), ...writable.spawns.flat()]) {
+      expect(call?.block).toBe(true);
+      expect(call?.reason).toContain(join(repo, ".claude", "settings.json"));
+    }
+    expect(readOnly.toolCalls).toEqual([[null]]);
+    expect(readOnly.spawns).toEqual([[null]]);
+    expect(writableAfter).toEqual(writableBefore);
+    expect(readOnlyAfter).toEqual(readOnlyBefore);
+  });
+
+  const missingTargets: { name: string; target(root: string): string }[] = [
+    { name: "親が書ける", target: (root) => join(root, "missing.md") },
+    { name: "在る最も近い祖先が書ける", target: (root) => join(root, "none", "deeper", "agents") },
+  ];
+
+  test.each(missingTargets)("プロジェクトの .omp の下のリンクの参照先が無く、その$nameなら、専用ランチャーは omp を起動せず、制御の拡張もツールと子の起動を遮断し、理由にそのリンクのパスを出し、参照先を作ったまま残さない", async ({ target }) => {
+    const sb = await applied();
+    const { sub, omp } = repository(sb);
+    const missing = target(sb.root);
+    symlinkSync(missing, join(omp, "agents"));
+    const root = readdirSync(sb.root).sort();
+
+    const launched = await sb.launchWith({ cwd: sub }, "printf started");
+    const result = await run(sb, SCENARIO, { profile: profile(sb), cwd: sub });
+
+    expectRefused(launched, result, join(omp, "agents"));
+    expect(existsSync(missing)).toBe(false);
+    expect(readdirSync(sb.root).sort()).toEqual(root);
   });
 
   test("試しの作業用ディレクトリを一時ディレクトリに作れない（一時ディレクトリが守る集合の中にある）なら、正しいプロファイルでも遮断する", async () => {

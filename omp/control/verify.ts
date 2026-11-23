@@ -9,11 +9,12 @@
 //   記録の sha256 と一致し、記録に無いファイルが無い
 // - 規則（control/rules.json）の形が正しい
 // - いまの OMP の設定の置き場（PI_CODING_AGENT_DIR。無ければ ~/.omp/agent）の実パスが、記録の agentDir と同じ
-// - このプロセスが、守る集合と、作業ディレクトリとその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスに書けない
-//   （サンドボックスに閉じ込められている。writable）
+// - このプロセスが、守る集合と、作業ディレクトリとその祖先（ファイルシステムの根まで）のどのプロジェクトでも書かせないパスと、
+//   それらのディレクトリの下（何段下でも）のリンクの参照先に書けない（サンドボックスに閉じ込められている。writable）
 // 適用の時刻では何も省かない（どのプロセスでも、組を検証してから使う）。
 import { createHash, randomBytes } from "node:crypto";
 import {
+  accessSync,
   chmodSync,
   closeSync,
   constants,
@@ -24,6 +25,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmdirSync,
   rmSync,
@@ -219,11 +221,19 @@ function scan(root: string, tolerant: boolean): Record<string, string | null> {
   return files;
 }
 
+// 根の外の木（守る置き場の下のリンクの参照先の下）で調べる項目の数の上限。超えたら確かめきれないので書けるとみなす
+const OUTSIDE_LIMIT = 10_000;
+
 // 守る集合と、どのプロジェクトでも書かせないパスのうち、このプロセスが書けてしまう置き場（閉じ込められていれば空）。
 // FFI は使わず、拒否されるかを試す。
-// - 在るファイルと祖先は、同じ mode への chmod。在るディレクトリは、同じ mode への chmod と、その中への mkdir（作れたら消す）。
-//   chmod は EPERM（サンドボックスの拒否）か EROFS（読み取り専用のボリューム）で失敗しなければ書けるとみなす。在るファイルを書き込みで開いては試さない
-//   （macOS では、実行中の実行ファイル（守る集合の omp と bun）を書き込みで開くと、書かなくても以後の起動がコード署名で止められる）。
+// - 祖先は、同じ mode への chmod。EPERM（サンドボックスの拒否）か EROFS（読み取り専用のボリューム）で失敗しなければ書けるとみなす。
+// - 在るファイルは、同じ mode への chmod が拒否されても、それだけでは書けないとみなさない（他の利用者の持ち物は、グループの書き込みビットや
+//   ACL で書けても、chmod は所有者にしか許されず EPERM になる）。chmod が拒否されたら access(2) の W_OK を試し、EPERM・EROFS
+//   （Seatbelt は access の W_OK にも書き込みの拒否を当てる）か EACCES（この利用者に書き込みの権限が無い）なら書けない、ほかの失敗と成功は
+//   書けるとみなす（access は実の uid で判定するが、ランチャーは setuid しないので、このプロセスの uid と同じ）。
+//   在るファイルを書き込みで開いては試さない（macOS では、実行中の実行ファイル（守る集合の omp と bun）を書き込みで開くと、
+//   書かなくても以後の起動がコード署名で止められる）。
+// - 在るディレクトリは、同じ mode への chmod と、その中への mkdir（作れたら消す）。chmod は EPERM か EROFS で失敗しなければ書けるとみなす。
 // - 無いパス（祖先を除く）は、親が在れば作ってみる（ディレクトリは mkdir、ファイルは O_CREAT|O_EXCL で開く）。親が無ければ試さない。
 // - 作成（無いパスと在るディレクトリの中の mkdir）は、拒否され、無いままなら書けない。作れてしまったら、作ったものだけを消して
 //   （ディレクトリは rmdir、ファイルは unlink。再帰では消さないので、その間に別のプロセスが中に書いたものは消さない）書けるとみなす。
@@ -240,15 +250,29 @@ function scan(root: string, tolerant: boolean): Record<string, string | null> {
 //   一時ディレクトリの下の自分の乱数名の作業用ディレクトリで、守られていない親を作ってから作成を試す（利用者のリポジトリには作らない）。
 //   作業用ディレクトリは終わったら中身ごと消す。作れない・消せないときは確かめられないので書けるとみなす。
 //   作業用ディレクトリで書けたら、作業ディレクトリの下の同じ相対パスを書けてしまう置き場として出す（プロファイルはどのディレクトリの下でも当てる）。
+// - 上で書けなかった、在るディレクトリの守る置き場（守る集合のディレクトリと、試したどのプロジェクトでも書かせないパスのディレクトリ）の下は、
+//   何段下でも歩いてシンボリックリンクを探す（.omp/agents や .omp/agents/poteto-agent.md が閉じ込めの外を指すリンクなら、Seatbelt は
+//   実パスで照合するので、その先には拒否が当たらない）。書いたままのパスが実パスの置き場は、プロファイルが下まで覆うので（覆う置き場）、
+//   その中のファイルとディレクトリは試さず、参照先が覆う置き場のどれかの中のリンクも試さない。ほかのリンクは参照先を上と同じに試し、
+//   書けたらリンクのパス（と参照先）を出す。参照先が書けないディレクトリなら、その下（根の外の木）も歩き、ファイル・ディレクトリ・リンクを
+//   1つずつ試す（書けたものは出し、その下へは降りない）。書いたままのパスがリンクを通る守る置き場も、根の外の木として歩く。
+//   歩いたディレクトリの実パスは二度歩かない（参照先から元へ戻るリンク、自分自身や互いを指すリンクでも終わる）。根の外の木で調べた項目が
+//   OUTSIDE_LIMIT を超えたら、確かめきれないので書けるとみなす（覆う置き場の中の歩きには上限を置かない）。
+//   参照先が無いリンクは、1段の参照先（リンクの在るディレクトリの実パスから解いたもの）が覆う置き場の中なら試さない。外なら、1段の参照先が
+//   リンクとして在れば（解けない連鎖）書けるとみなし、無ければ在る最も近い祖先がその親ならそこに作成を試し、もっと上ならその祖先を
+//   ディレクトリとして試す（祖先がディレクトリでなければ、消して作り直せるかをその親で試す）。解けないリンク（循環など）は、
+//   1段の参照先が覆う置き場の中でなければ書けるとみなす。読めないディレクトリやリンクも、確かめられないので書けるとみなす。
+//   歩いている間に消えたものは飛ばす。
 function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed: Guard[]): string[] {
   const uid = process.getuid?.();
-  const denied = (attempt: () => void): boolean => {
+  // attempt が拒否されたか。permission なら、この利用者に権限が無いこと（EACCES）も拒否とみなす
+  const denied = (attempt: () => void, permission = false): boolean => {
     try {
       attempt();
       return false;
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
-      return code === "EPERM" || code === "EROFS";
+      return code === "EPERM" || code === "EROFS" || (permission && code === "EACCES");
     }
   };
   // 親 parent の下への作成の失敗 e が、サンドボックスの拒否か、この利用者が権限を戻せない失敗か
@@ -288,7 +312,8 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
       return !ancestor && (e as NodeJS.ErrnoException).code === "ENOENT" && create(path, directory);
     }
     const chmod = () => chmodSync(path, stat.mode & 0o7777);
-    if (ancestor || !stat.isDirectory()) return !denied(chmod);
+    if (ancestor) return !denied(chmod);
+    if (!stat.isDirectory()) return !denied(chmod) || !denied(() => accessSync(path, constants.W_OK), true);
     return !denied(chmod) || create(join(path, `.pstack-omp-probe-${randomBytes(6).toString("hex")}`), true);
   };
   const scratch = (): string[] => {
@@ -320,20 +345,122 @@ function writable({ paths, ancestors, projects }: Guarded, cwd: string, allowed:
     }
     return open;
   };
+  // 書けなかった、在るディレクトリの守る置き場（roots）の下のリンクのうち、参照先に書けてしまうもの
+  const beneath = (roots: string[]): string[] => {
+    const found: string[] = [];
+    const unsure = (path: string, why: string) => found.push(`${path}（確かめられません: ${why}）`);
+    const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
+    const covered = roots.filter((root) => real(root) === root);
+    const covers = (path: string) => covered.some((root) => within(path, root));
+    const walked = new Set<string>();
+    // 歩くディレクトリ（dir は辿ってきたパス、at はその実パス、inside は覆う置き場の中か）
+    const pending: { dir: string; at: string; inside: boolean }[] = [];
+    const enter = (dir: string, at: string, inside: boolean) => {
+      if (walked.has(at)) return;
+      walked.add(at);
+      pending.push({ dir, at, inside });
+    };
+    // 参照先が無いか解けないリンク link（dir はそれが在るディレクトリの実パス、error は参照先を解いたときの失敗）
+    const unresolved = (link: string, dir: string, error: unknown) => {
+      let next: string;
+      try {
+        next = resolve(dir, readlinkSync(link));
+      } catch (e) {
+        if (!missing(e)) unsure(link, `リンクを読めません（${(e as Error).message}）`);
+        return;
+      }
+      if (covers(realAncestor(next))) return;
+      if (!missing(error)) {
+        unsure(link, `参照先 ${next} を解けません（${(error as Error).message}）`);
+        return;
+      }
+      try {
+        lstatSync(next);
+        unsure(link, `参照先 ${next} が解けないリンクです`);
+        return;
+      } catch {
+        // 参照先は無い
+      }
+      let at = dirname(next);
+      while (!existsSync(at)) at = dirname(at);
+      if (!isDirectory(at)) at = dirname(at);
+      if (at === dirname(next) ? create(next, false) : probe(at, true)) found.push(`${link}（参照先 ${next}）`);
+    };
+    // リンク link（dir はそれが在るディレクトリの実パス）の参照先を試し、書けないディレクトリなら根の外の木として歩く
+    const follow = (link: string, dir: string) => {
+      let target: string;
+      try {
+        target = realpathSync(link);
+      } catch (e) {
+        unresolved(link, dir, e);
+        return;
+      }
+      if (covers(target)) return;
+      if (probe(target, true)) found.push(`${link}（参照先 ${target}）`);
+      else if (isDirectory(target)) enter(link, target, false);
+    };
+    for (const root of roots) {
+      const at = real(root);
+      if (at === root) enter(root, at, true);
+      else if (!covers(at)) enter(root, at, false);
+    }
+    let budget = OUTSIDE_LIMIT;
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      const { dir, at, inside } = next;
+      let names: string[];
+      try {
+        names = readdirSync(dir);
+      } catch (e) {
+        if (!missing(e)) unsure(dir, `中を読めません（${(e as Error).message}）`);
+        continue;
+      }
+      for (const name of names) {
+        const path = join(dir, name);
+        const sub = join(at, name);
+        if (!inside) {
+          if (covers(sub)) continue;
+          budget -= 1;
+          if (budget < 0) {
+            found.push(`${dir}（確かめきれません: リンクの参照先の下の項目が ${OUTSIDE_LIMIT} を超えます）`);
+            return found;
+          }
+        }
+        let stat: Stats;
+        try {
+          stat = lstatSync(path);
+        } catch (e) {
+          if (!missing(e)) unsure(path, (e as Error).message);
+          continue;
+        }
+        if (stat.isSymbolicLink()) follow(path, at);
+        else if (inside) {
+          if (stat.isDirectory()) enter(path, sub, true);
+        } else if (probe(path, stat.isDirectory())) found.push(path);
+        else if (stat.isDirectory()) enter(path, sub, false);
+      }
+    }
+    return found;
+  };
+  const open: string[] = [];
+  // 書けなかった、在るディレクトリの守る置き場（下を歩く）
+  const roots: string[] = [];
+  const check = ({ path, directory }: Guard) => {
+    if (probe(path, directory)) open.push(path);
+    else if (directory && isDirectory(path)) roots.push(path);
+  };
+  for (const guard of paths) check(guard);
+  open.push(...ancestors.filter((path) => probe(path, true, true)));
   // 作業ディレクトリとその祖先（ファイルシステムの根まで）
   const dirs = [cwd];
   for (let at = cwd; dirname(at) !== at; at = dirname(at)) dirs.push(dirname(at));
-  const open = [
-    ...paths.filter(({ path, directory }) => probe(path, directory)).map(({ path }) => path),
-    ...ancestors.filter((path) => probe(path, true, true)),
-    ...dirs
-      .flatMap((dir) => projects.map(({ path, directory }) => ({ path: join(dir, path), directory })))
+  for (const dir of dirs) {
+    for (const { path, directory } of projects) {
+      const at = join(dir, path);
       // 書いたままのパスが規則の allowPaths の下なら、プロファイルでもどのプロジェクトでも書かせないパスの照合から外れる
-      .filter(({ path }) => !allowed.some((allow) => (allow.directory ? within(path, allow.path) : path === allow.path)))
-      .filter(({ path, directory }) => probe(path, directory))
-      .map(({ path }) => path),
-    ...scratch(),
-  ];
+      if (!allowed.some((allow) => (allow.directory ? within(at, allow.path) : at === allow.path))) check({ path: at, directory });
+    }
+  }
+  open.push(...beneath(roots), ...scratch());
   return [...new Set(open)];
 }
 
