@@ -16,6 +16,13 @@ function work(sb: Sandbox): string {
   return join(realpathSync(sb.dataDir), "pstack-omp");
 }
 
+// プロジェクトの置き場の名前のぶつかりの節（見出しの次の行から）
+function projectSection(stdout: string, root: string): string[] {
+  return stdout.slice(stdout.indexOf(`プロジェクト（${root}）`)).trim().split("\n").slice(1);
+}
+
+const AGENT_CLASH = "エージェント poteto-agent。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません";
+
 describe("適用の状態とどの tdd が使われるか", () => {
   test("適用していなければ、そう表示し、利用者の置き場の tdd が使われると表示する", async () => {
     const sb = await synced();
@@ -184,6 +191,34 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain("→ 適用しています");
     expect(run.stdout).toContain("/omp/generated/pstack/skills/tdd/SKILL.md）が使われます");
   });
+
+  test("config.yml が在れば（空でも）、OMP は config.yaml を読まないので、config.yaml の skills.customDirectories の tdd を利用者の置き場の tdd としない", async () => {
+    const sb = await synced();
+    put(sb.configPath, "");
+    put(join(sb.root, "my-skills", "tdd", "SKILL.md"), skillMd("tdd", "mine"));
+    put(join(sb.agentDir, "config.yaml"), `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("適用していないので、pstack の tdd は使われません（利用者の置き場にも tdd はありません）");
+  });
+
+  test.each([
+    ["YAML として不正", "extensions: [unclosed\n"],
+    ["skills.customDirectories が文字列の配列でない", "skills:\n  customDirectories: /somewhere\n"],
+  ])("config.yml が無く、OMP が読む config.yaml が%sでも、例外で終わらずに読めないことを表示する", async (_, text) => {
+    const sb = await synced();
+    put(join(sb.agentDir, "config.yaml"), text);
+    const yaml = realpathSync(join(sb.agentDir, "config.yaml"));
+
+    const run = await sb.run("status");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`OMP の設定 ${yaml}: 読めません`);
+    expect(run.stdout).toContain("どの tdd が使われるか:\n");
+  });
 });
 
 describe("プロジェクトの置き場の名前のぶつかり", () => {
@@ -195,7 +230,7 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
     put(join(project, ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "project"));
     put(join(project, ".omp", "skills", "other", "SKILL.md"), skillMd("other", "project"));
-    // git の作業ツリーの外（根の親）は、このプロジェクトの置き場ではない
+    // OMP は実行したディレクトリから最も近い .omp/agents だけを読むので、遠い方（根の親）は報告しない
     put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\noutside\n");
     mkdirSync(join(project, "src"));
     const real = realpathSync(project);
@@ -219,6 +254,49 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const run = await sb.run("status", { cwd: project });
 
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(`プロジェクト（${realpathSync(project)}）の置き場にある、今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:\n  ありません\n`);
+    expect(run.stdout).toContain(
+      `プロジェクト（${realpathSync(project)}）の置き場（エージェント定義は、実行したディレクトリから遡って最も近い .omp/agents。根の外やホームにあっても OMP が読む）にある、` +
+        "今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:\n  ありません\n",
+    );
+  });
+
+  test("git の作業ツリーの根までに .omp/agents が無ければ、根より上の祖先の最も近い .omp/agents（OMP が読む）にある同じ名前を報告する", async () => {
+    const sb = await withAgent();
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    mkdirSync(join(project, "src"));
+    put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\noutside\n");
+
+    const run = await sb.run("status", { cwd: join(project, "src") });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, realpathSync(project))).toEqual([`  ${realpathSync(sb.root)}/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`]);
+  });
+
+  test("実行したディレクトリがホームの下で、それより近い .omp/agents が無ければ、ホームの .omp/agents（~/.omp/agent/agents とは別）にある同じ名前を報告する", async () => {
+    const sb = await withAgent();
+    const dir = join(sb.home, "work");
+    mkdirSync(dir);
+    put(join(sb.home, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nhome\n");
+
+    const run = await sb.run("status", { cwd: dir });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, realpathSync(dir))).toEqual([`  ${realpathSync(sb.home)}/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`]);
+  });
+
+  test("近い .omp/agents と遠い .omp/agents の両方に同じ名前があれば、OMP が読む近い方だけを報告する", async () => {
+    const sb = await withAgent();
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nfar\n");
+    put(join(project, "pkg", ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nnear\n");
+    mkdirSync(join(project, "pkg", "src"));
+    const real = realpathSync(project);
+
+    const run = await sb.run("status", { cwd: join(project, "pkg", "src") });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, real)).toEqual([`  ${real}/pkg/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`]);
   });
 });

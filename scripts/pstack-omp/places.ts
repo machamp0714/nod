@@ -43,8 +43,9 @@ export interface UserPlaces extends Found {
   dirs: string[];
 }
 
-// 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agents/skills、config.yml の skills.customDirectories と
-// extensions のパッケージ（skills/ と agents/）。ours の下（適用した写しの生成したスキル・OMP 向けのディレクトリ・制御の拡張のファイル）は除く
+// 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agents/skills、config（OMP がいま global の設定として読むファイル。
+// config.yml が無ければ config.yaml）の skills.customDirectories と extensions のパッケージ（skills/ と agents/）。
+// ours の下（適用した写しの生成したスキル・OMP 向けのディレクトリ・制御の拡張のファイル）は除く
 export function userPlaces(agentDir: string, home: string, config: OmpConfig, ours: string): UserPlaces {
   const custom = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
   const skillDirs = [join(agentDir, "skills"), join(home, ".agents", "skills"), ...custom];
@@ -60,13 +61,18 @@ export interface ProjectPlaces extends Found {
   root: string;
 }
 
-// 実行したディレクトリのプロジェクトの置き場: 実行したディレクトリから git の作業ツリーの根まで遡った各ディレクトリの
-// .omp/agents と、.omp/skills・.agents/skills・.agent/skills・.claude/skills。ホームは利用者の置き場なので含めない
+// 実行したディレクトリのプロジェクトの置き場。
+// - スキル: 実行したディレクトリから git の作業ツリーの根まで遡った各ディレクトリの .omp/skills・.agents/skills・.agent/skills・.claude/skills。
+//   ホームは利用者の置き場なので含めない
+// - エージェント定義: OMP 19.1.0 の task の探索（findAllNearestProjectConfigDirs）と同じく、実行したディレクトリからファイルシステムの根まで
+//   遡って最初に在る .omp/agents（ディレクトリ）の1つだけ。git の根やホームで止まらない（ホームの ~/.omp/agents も、より近いものが無ければ入る）。
+//   OMP はそれより遠い .omp/agents を読まないので、含めない
 export function projectPlaces(cwd: string, home: string): ProjectPlaces {
   const realHome = real(home);
+  const start = real(cwd);
   const chain: string[] = [];
   let root: string | undefined;
-  for (let dir = real(cwd); dir !== realHome; dir = dirname(dir)) {
+  for (let dir = start; dir !== realHome; dir = dirname(dir)) {
     chain.push(dir);
     if (existsSync(join(dir, ".git"))) {
       root = dir;
@@ -75,9 +81,17 @@ export function projectPlaces(cwd: string, home: string): ProjectPlaces {
     if (dirname(dir) === dir) break;
   }
   const dirs = root === undefined ? chain.slice(0, 1) : chain;
+  let agents: string | undefined;
+  for (let dir = start; agents === undefined; dir = dirname(dir)) {
+    if (isDirectory(join(dir, ".omp", "agents"))) agents = join(dir, ".omp", "agents");
+    else if (dirname(dir) === dir) break;
+  }
   return {
-    root: root ?? real(cwd),
-    ...merge(dirs.flatMap((dir) => [agentsIn(join(dir, ".omp", "agents")), ...[".omp", ".agents", ".agent", ".claude"].map((name) => skillsIn(join(dir, name, "skills")))])),
+    root: root ?? start,
+    ...merge([
+      ...(agents === undefined ? [] : [agentsIn(agents)]),
+      ...dirs.flatMap((dir) => [".omp", ".agents", ".agent", ".claude"].map((name) => skillsIn(join(dir, name, "skills")))),
+    ]),
   };
 }
 
@@ -112,6 +126,14 @@ function entries(dir: string): string[] {
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }

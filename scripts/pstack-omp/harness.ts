@@ -20,7 +20,7 @@
 import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { configPath, isMapping, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
+import { configPath, globalConfigPath, isMapping, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
 import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError, userAgentDir } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
 import { guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
@@ -168,8 +168,12 @@ export function apply(ctx: Context): ApplyResult {
   const path = configPath(agentDir);
   return withConfigLock(path, () => {
     const config = readConfig(path);
-    checkLoadingSettings(config);
-    const collisions = findCollisions(ctx, agentDir, config, p.root, content, generated.names);
+    // 利用者の置き場は、OMP がいま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める。
+    // config.yml が在ればそれ自身なので、以前の配置の取り除き（config.yml）の前の形の確認も兼ねる
+    const settingsPath = globalConfigPath(agentDir);
+    const settings = settingsPath === path ? config : readConfig(settingsPath);
+    checkLoadingSettings(settings);
+    const collisions = findCollisions(ctx, agentDir, settings, p.root, content, generated.names);
     const blocking = collisions.filter((d) => !(d.kind === "skill" && d.name === "tdd"));
     if (blocking.length > 0) {
       throw new PstackOmpError(

@@ -1,8 +1,10 @@
 // 状態の表示。読むだけで何も書かない。OMP の版が違っても、写しや設定が壊れていても・読めなくても、例外で終わらずに表示する
 // （OMP の設定の置き場を決められないとき（context.ts の userAgentDir）だけは、理由を出して止まる）。
 // 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
-// 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp）、実行したディレクトリの
-// プロジェクトの置き場にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
+// 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp。利用者の置き場は、OMP が
+// いま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める）、実行したディレクトリのプロジェクトの置き場
+// （スキルは実行したディレクトリから git の作業ツリーの根まで、エージェント定義は OMP と同じく実行したディレクトリから遡って最も近い
+// .omp/agents。places.ts の projectPlaces）にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
 // 名前を確かめられないことをそのファイルごとに出す（写しの中のファイルは、写しの照合が読めないファイルとして出す）。
 // 「適用しています」は、写しの全ファイル（専用ランチャー bin/omp とサンドボックスのプロファイル control/sandbox.sb を含む）が組の記録の
 // sha256 と一致し（記録に無いファイルも無い）、写しの中の生成したスキルの置き場が在るときだけ出す（制御の拡張と専用ランチャーの
@@ -10,7 +12,7 @@
 // 通常の omp には読み込まれないことと、ランチャーのパスを案内する。違っていれば、何が違うかの行と、適用が壊れていることを出す。
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { configPath, type OmpConfig, readConfig, sha256 } from "./config";
+import { configPath, globalConfigPath, type OmpConfig, readConfig, sha256, stringList } from "./config";
 import { type Context, readOmpVersion, userAgentDir } from "./context";
 import { entryGuide, legacyItems, paths, readGenerated, readRecord, samePin } from "./harness";
 import { type Definition, type Found, packageDefinitions, projectPlaces, skillsIn, userPlaces } from "./places";
@@ -78,6 +80,19 @@ export function status(ctx: Context, cwd: string): string[] {
   } catch (e) {
     lines.push(`  OMP の設定 ${path}: 読めません（${(e as Error).message}）`);
   }
+  // OMP がいま global の設定として読むファイル。config.yml が在ればそれ自身（形は legacyItems が上で確かめている）
+  const settingsPath = globalConfigPath(agentDir);
+  let settings = config;
+  if (settingsPath !== path) {
+    try {
+      settings = readConfig(settingsPath);
+      for (const id of ["extensions", "skills.customDirectories"]) stringList(settings, id);
+      lines.push(`  OMP の設定 ${settingsPath}: config.yml が無いので、OMP はこのファイルを読みます（利用者の置き場はこのファイルの値で決めます）`);
+    } catch (e) {
+      settings = undefined;
+      lines.push(`  OMP の設定 ${settingsPath}: 読めません（${(e as Error).message}）`);
+    }
+  }
 
   const generated = readGenerated(p.generated);
   if (generated === undefined) {
@@ -113,7 +128,7 @@ export function status(ctx: Context, cwd: string): string[] {
 
   let user: Found = { definitions: [], unreadable: [] };
   try {
-    if (config !== undefined) user = userPlaces(agentDir, ctx.home, config, p.root);
+    if (settings !== undefined) user = userPlaces(agentDir, ctx.home, settings, p.root);
   } catch {
     // 設定の値の形が正しくなければ、利用者の置き場は上の「OMP の設定」の行で報告している
   }
@@ -142,7 +157,10 @@ export function status(ctx: Context, cwd: string): string[] {
   // 生成したスキルの名前（データ置き場の生成物と、写しの中の生成したスキル）
   const generatedNames = new Set([...(generated?.names ?? []), ...p.skills.flatMap((dir) => skillsIn(dir).definitions).map((d) => d.name)]);
   const clashes = project.definitions.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedNames.has(d.name)));
-  lines.push(`プロジェクト（${project.root}）の置き場にある、今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:`);
+  lines.push(
+    `プロジェクト（${project.root}）の置き場（エージェント定義は、実行したディレクトリから遡って最も近い .omp/agents。根の外やホームにあっても OMP が読む）にある、` +
+      "今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:",
+  );
   if (clashes.length === 0 && project.unreadable.length === 0) lines.push("  ありません");
   for (const d of clashes) lines.push(`  ${d.path}: ${explain(d, generatedNames)}`);
   for (const path of project.unreadable) lines.push(`  ${path}: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`);

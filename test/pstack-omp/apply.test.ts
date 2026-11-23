@@ -609,6 +609,74 @@ describe("名前のぶつかり", () => {
     expect(run.stdout).toContain(`利用者の置き場の tdd（${mine}）より、専用ランチャーから起動したセッションでは pstack の tdd が優先されます`);
   });
 
+  const yamlCases: { name: string; place(sb: Sandbox): { yaml: string; path: string } }[] = [
+    {
+      name: "skills.customDirectories の置き場に pstack-omp がある",
+      place: (sb) => {
+        put(join(sb.root, "my-skills", "pstack-omp", "SKILL.md"), skillMd("pstack-omp", "mine"));
+        return { yaml: `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`, path: join(sb.root, "my-skills", "pstack-omp", "SKILL.md") };
+      },
+    },
+    {
+      name: "skills.customDirectories の置き場に生成したスキル（cursor-team-kit の deslop）と同じ名前がある",
+      place: (sb) => {
+        put(join(sb.root, "my-skills", "deslop", "SKILL.md"), skillMd("deslop", "mine"));
+        return { yaml: `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`, path: join(sb.root, "my-skills", "deslop", "SKILL.md") };
+      },
+    },
+    {
+      name: "extensions のパッケージに poteto-agent がある",
+      place: (sb) => {
+        put(join(sb.root, "my-ext", "agents", "poteto-agent.md"), POTETO_AGENT);
+        return { yaml: `extensions:\n  - ${join(sb.root, "my-ext")}\n`, path: join(sb.root, "my-ext", "agents", "poteto-agent.md") };
+      },
+    },
+  ];
+
+  test.each(yamlCases)("config.yml が無く、OMP が読む config.yaml の $name: 上書きせずに止まって報告し、設定と写しは何も変わらない", async ({ place }) => {
+    const sb = await synced();
+    sb.content("agents/poteto-agent.md", POTETO_AGENT);
+    const { yaml, path } = place(sb);
+    put(join(sb.agentDir, "config.yaml"), yaml);
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(path);
+    expect(run.stderr).toContain("上書きしない");
+    expect(readFileSync(join(sb.agentDir, "config.yaml"), "utf8")).toBe(yaml);
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test("config.yml が在れば（空でも）、OMP は config.yaml を読まないので、config.yaml の置き場の同じ名前では止めない", async () => {
+    const sb = await synced();
+    put(sb.configPath, "");
+    put(join(sb.root, "my-skills", "pstack-omp", "SKILL.md"), skillMd("pstack-omp", "mine"));
+    put(join(sb.agentDir, "config.yaml"), `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+
+    const run = await sb.run("apply");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+  });
+
+  test("config.yml が無く、OMP が読む config.yaml の置き場にだけ tdd があれば、止めずに報告し、状態の表示も利用者の置き場の tdd としてそれを出す", async () => {
+    const sb = await synced();
+    const mine = join(sb.root, "my-skills", "tdd", "SKILL.md");
+    put(mine, skillMd("tdd", "mine"));
+    put(join(sb.agentDir, "config.yaml"), `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+
+    const run = await sb.run("apply");
+    const status = await sb.run("status");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`利用者の置き場の tdd（${mine}）より、専用ランチャーから起動したセッションでは pstack の tdd が優先されます`);
+    expect(status.exitCode).toBe(0);
+    expect(status.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${mine}）が使われます`);
+  });
+
   test("リポジトリの実際の poteto-agent の定義でも、利用者のエージェント定義の poteto-agent とぶつかると止まり、設定と写しは何も変わらない", async () => {
     const sb = await repoSynced();
     const mine = join(sb.agentDir, "agents", "poteto-agent.md");
@@ -696,6 +764,24 @@ describe("途中の失敗", () => {
     expect(run.exitCode).toBe(1);
     expect(run.stderr).toContain("YAML として読めません");
     expect(readFileSync(sb.configPath, "utf8")).toBe("extensions: [unclosed\n");
+    expect(existsSync(sb.copy)).toBe(false);
+  });
+
+  test.each([
+    ["YAML として読めない", "extensions: [unclosed\n", "YAML として読めません"],
+    ["skills.customDirectories が文字列の配列でない", "skills:\n  customDirectories: /somewhere\n", "skills.customDirectories が文字列の配列ではありません"],
+  ])("config.yml が無く、OMP が読む config.yaml が%sと止まり、config.yaml も写しも変わらない", async (_, text, shows) => {
+    const sb = await synced();
+    const yaml = join(sb.agentDir, "config.yaml");
+    put(yaml, text);
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`OMP の設定 ${realpathSync(yaml)}`);
+    expect(run.stderr).toContain(shows);
+    expect(readFileSync(yaml, "utf8")).toBe(text);
+    expect(existsSync(sb.configPath)).toBe(false);
     expect(existsSync(sb.copy)).toBe(false);
   });
 

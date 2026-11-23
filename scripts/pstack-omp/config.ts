@@ -1,5 +1,6 @@
 // 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml）の読み書き。適用は読み込みの設定を書かない。書くのは、以前の配置
 // （config.yml に読み込みの設定を入れた適用）の項目を取り除くときだけ（harness.ts）。
+// 利用者の置き場（skills.customDirectories と extensions）を読むときは、OMP がいま global の設定として読むファイル（globalConfigPath）を読む。
 // - 読み書きは Bun の YAML。書くときは OMP と同じ形（Bun.YAML.stringify の2字字下げで、マッピングの見出しの行末の空白を除く）にする。
 //   YAML として書き直すとコメントは残らないので、以前の配置の記録があり、その適用の後に config.yml が変わっていなければ、適用の前のバイトに戻す。
 // - config.yml がシンボリックリンクなら、OMP と同じくリンクの先に書く。書くときは同じディレクトリの一時ファイルに書いてから rename する。
@@ -12,7 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { PstackOmpError } from "./context";
 
 export interface OmpConfig {
-  // config.yml のパス（リンクなら先）
+  // 設定ファイル（config.yml か config.yaml）のパス（リンクなら先）
   path: string;
   // いまのバイト。無ければ undefined
   bytes: Buffer | undefined;
@@ -24,6 +25,15 @@ export interface OmpConfig {
 // （適用の記録と解除で同じパスになるように）
 export function configPath(agentDir: string): string {
   return realAncestor(join(agentDir, "config.yml"));
+}
+
+// OMP がいま global の設定として読むファイルのパス。OMP 19.1.0 と同じく config.yml を読み、無いときだけ config.yaml を読む
+// （config.yml が在れば、空でも config.yaml は読まない）。どちらも無ければ config.yml
+export function globalConfigPath(agentDir: string): string {
+  const yml = configPath(agentDir);
+  if (existsSync(yml)) return yml;
+  const yaml = realAncestor(join(agentDir, "config.yaml"));
+  return existsSync(yaml) ? yaml : yml;
 }
 
 // path のリンクと別名を解いた形。path がまだ無ければ、在る祖先まで解いて残りをつなぐ
