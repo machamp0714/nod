@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test, waitForServerEvents } from "./fixtures";
+import { restartApiServer } from "./support/nod";
 
 // issue-list：API-13「workspace の取得をまとめる」はタイトルに workspace を含み、API-12 は説明にだけ含む。NOD-3 は done
 test.use({ dataset: "issue-list" });
@@ -48,18 +49,69 @@ test.describe("Issue 検索", () => {
   });
 
   test("入力が問い合わせに届く前の Enter では、前の語の結果に移らない", async ({ page }) => {
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    await page.route(/\/api\/issues\?q=api-16$/, async (route) => {
+      await gate;
+      await route.continue();
+    });
     await page.goto("/inbox");
     await page.getByRole("heading", { level: 1 }).waitFor();
     await waitForServerEvents(page);
     await page.keyboard.press("Meta+Shift+F");
     await box(page).fill("api-1");
     await expect(options(page).first()).toContainText("API-1");
-    await box(page).press("6");
-    await box(page).press("Enter");
+    // デバウンス前と、問い合わせ後の初回取得中を別々に止める。
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    try {
+      await box(page).press("6");
+      await box(page).press("Enter");
+      await expect(page).toHaveURL(/\/inbox$/);
+      await expect(options(page)).not.toHaveText([/API-16/]);
+      const requested = page.waitForRequest(/\/api\/issues\?q=api-16$/);
+      await page.clock.runFor(200);
+      await page.clock.resume();
+      await requested;
+      await expect(dialog(page).getByRole("status")).toHaveText("検索中…");
+      await box(page).press("Enter");
+      await expect(page).toHaveURL(/\/inbox$/);
+    } finally {
+      release();
+      await page.clock.resume();
+    }
     await expect(options(page)).toHaveText([/API-16/]);
-    await expect(page).toHaveURL(/\/inbox/);
     await box(page).press("Enter");
     await expect(page).toHaveURL(/\/issues\/API-16$/);
+  });
+
+  test("SSE による再取得中も、表示中の検索結果を Enter で開く", async ({ page, nod }) => {
+    await restartApiServer();
+    await page.goto("/inbox");
+    await waitForServerEvents(page);
+    await page.keyboard.press("Meta+Shift+F");
+    await box(page).fill("api-16");
+    await expect(options(page)).toHaveText([/API-16/]);
+
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+    await page.route(/\/api\/issues\?q=api-16$/, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    try {
+      const requested = page.waitForRequest(/\/api\/issues\?q=api-16$/);
+      await nod.me.updateIssue("API-13", { title: "workspace の取得を一括にする" });
+      await requested;
+      // Query の通知タイマーを進め、再取得開始を React に反映してから押す。
+      await page.clock.runFor(1);
+      await expect(options(page)).toHaveText([/API-16/]);
+      await box(page).press("Enter");
+      await expect(page).toHaveURL(/\/issues\/API-16$/);
+    } finally {
+      release();
+      await page.clock.resume();
+    }
   });
 
   test("Sidebar の検索ボタンから開いて Escape で閉じると、ボタンにフォーカスが戻る", async ({ page }) => {

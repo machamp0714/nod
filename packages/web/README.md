@@ -31,3 +31,9 @@ Vite は 5199 で起動し、`/api` を 4798 に転送する。
 
 Playwright のテストは `e2e/*.e2e.ts` に置く。
 `*.spec.ts` にすると、ルートの `bun test` が拾ってしまう。
+
+### 検索の Enter 操作
+
+Issue 検索は入力のデバウンス中と、その検索語の結果を初めて取得している間は Enter で遷移しない。
+同じ検索語の結果を表示したまま SSE 通知で再取得している間は、表示中の Issue を Enter で開ける。
+`bun run test:e2e e2e/issue-search.e2e.ts` は、時計と API 応答を制御してこれらの境界を検証する。

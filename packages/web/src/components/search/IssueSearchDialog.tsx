@@ -57,8 +57,8 @@ export function IssueSearchDialog({ onClose }: { onClose: () => void }) {
       setActive((current + step + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      // 入力が問い合わせに届くまでは、前の語の結果に移らないよう何もしない
-      if (query !== text.trim() || list.isFetching) return;
+      // 入力が問い合わせに届くまでは前の語の結果を開かない。同じ語の再取得中は、表示済みの結果を開ける
+      if (query !== text.trim() || list.isPending) return;
       const issue = results[current];
       if (issue) open(issue.id);
     }
