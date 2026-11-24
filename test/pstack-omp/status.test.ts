@@ -67,6 +67,70 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain("通常の omp のセッション: pstack の tdd は読み込まれません（利用者の置き場にも tdd はありません）");
   });
 
+  // 利用者の置き場の2か所以上に内容の違う tdd があるとき、通常の omp で裸の名前 tdd を取るもの（OMP 19.1.0 の skills.ts の resolveCollision と
+  // provider の priority: skills.customDirectories の配列の順 > <agentDir>/skills（native 100）> extensions のパッケージの skills/（omp-plugins 90）
+  // > ~/.agents/skills（agents 70））
+  const precedence: { name: string; place(sb: Sandbox): string }[] = [
+    {
+      name: "<agentDir>/skills と skills.customDirectories の置き場の両方にあれば、custom directory の tdd",
+      place: (sb) => {
+        put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), skillMd("tdd", "native"));
+        put(join(sb.root, "my-skills", "tdd", "SKILL.md"), skillMd("tdd", "custom"));
+        put(sb.configPath, `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+        return join(sb.root, "my-skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.agents/skills と extensions のパッケージの skills/ の両方にあれば、パッケージの tdd",
+      place: (sb) => {
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(join(sb.root, "my-ext", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ext"));
+        put(sb.configPath, `extensions:\n  - ${join(sb.root, "my-ext")}\n`);
+        return join(sb.root, "my-ext", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "skills.customDirectories の2つの置き場にあれば、配列の最初の置き場の tdd",
+      place: (sb) => {
+        put(join(sb.root, "skills-a", "tdd", "SKILL.md"), skillMd("tdd", "a"));
+        put(join(sb.root, "skills-b", "tdd", "SKILL.md"), skillMd("tdd", "b"));
+        put(sb.configPath, `skills:\n  customDirectories:\n    - ${join(sb.root, "skills-b")}\n    - ${join(sb.root, "skills-a")}\n`);
+        return join(sb.root, "skills-b", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "<agentDir>/skills と ~/.agents/skills の両方にあれば、<agentDir>/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), skillMd("tdd", "native"));
+        return realpathSync(join(sb.agentDir, "skills", "tdd", "SKILL.md"));
+      },
+    },
+  ];
+
+  test.each(precedence)("適用していなければ、$name が使われると表示する", async ({ place }) => {
+    const sb = await synced();
+    const used = place(sb);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、利用者の置き場の tdd（${used}）が使われます`);
+  });
+
+  test.each(precedence)("適用していれば、通常の omp のセッションでは $name が使われ、ランチャーではそれが名前空間つきになると表示する", async ({ place }) => {
+    const sb = await synced();
+    const used = place(sb);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`専用ランチャーから起動したセッション: pstack の tdd（${work(sb)}/omp/generated/pstack/skills/tdd/SKILL.md）が使われます`);
+    expect(run.stdout).toContain(`利用者の置き場の tdd（${used}）は、名前空間つきの <名前空間>/tdd の名前になります`);
+    expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${used}）が使われます`);
+  });
+
   const damages: { name: string; damage(sb: Sandbox): void; shows: string }[] = [
     {
       name: "写しの読み替え表が記録と違う",

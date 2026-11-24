@@ -45,14 +45,19 @@ export interface UserPlaces extends Found {
 
 // 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agents/skills、config（OMP がいま global の設定として読むファイル。
 // config.yml が無ければ config.yaml）の skills.customDirectories と extensions のパッケージ（skills/ と agents/）。
-// ours の下（適用した写しの生成したスキル・OMP 向けのディレクトリ・制御の拡張のファイル）は除く
+// ours の下（適用した写しの生成したスキル・OMP 向けのディレクトリ・制御の拡張のファイル）は除く。
+// スキルは、通常の omp で同じ名前がぶつかったときに裸の名前を取る順に並べる（呼び出し側は最初のものを裸の名前のものとして使える）:
+// skills.customDirectories の配列の順 > <agentDir>/skills（native、priority 100）> extensions のパッケージの skills/（omp-plugins、90。
+// extensions の配列の順）> ~/.agents/skills（agents、70）。出典: OMP 19.1.0 の src/extensibility/skills.ts の resolveCollision
+// （custom directory のスキルは provider のスキルより優先、それ以外は先に admit されたもの）と、skills.md の provider の priority
 export function userPlaces(agentDir: string, home: string, config: OmpConfig, ours: string): UserPlaces {
   const custom = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
-  const skillDirs = [join(agentDir, "skills"), join(home, ".agents", "skills"), ...custom];
+  const native = join(agentDir, "skills");
+  const agents = join(home, ".agents", "skills");
   const packages = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
   return {
-    dirs: [join(agentDir, "agents"), ...skillDirs, ...packages],
-    ...merge([agentsIn(join(agentDir, "agents")), ...skillDirs.map(skillsIn), ...packages.map(packageDefinitions)]),
+    dirs: [join(agentDir, "agents"), ...custom, native, ...packages, agents],
+    ...merge([agentsIn(join(agentDir, "agents")), ...custom.map(skillsIn), skillsIn(native), ...packages.map(packageDefinitions), skillsIn(agents)]),
   };
 }
 

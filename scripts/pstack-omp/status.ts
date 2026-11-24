@@ -2,7 +2,9 @@
 // （OMP の設定の置き場を決められないとき（context.ts の userAgentDir）だけは、理由を出して止まる）。
 // 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
 // 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp。利用者の置き場は、OMP が
-// いま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める）、実行したディレクトリのプロジェクトの置き場
+// いま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める。利用者の置き場の2か所以上に tdd があれば、
+// 通常の omp で裸の名前 tdd を取るもの（places.ts の userPlaces の並び。OMP 19.1.0 の resolveCollision と provider の priority）を出す）、
+// 実行したディレクトリのプロジェクトの置き場
 // （スキルは実行したディレクトリから git の作業ツリーの根まで、エージェント定義は OMP と同じく実行したディレクトリから遡って最も近い
 // .omp/agents。places.ts の projectPlaces）にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
 // 名前を確かめられないことをそのファイルごとに出す（写しの中のファイルは、写しの照合が読めないファイルとして出す）。
@@ -135,6 +137,7 @@ export function status(ctx: Context, cwd: string): string[] {
   lines.push("どの tdd が使われるか:");
   // 写しの中の pstack の tdd（専用ランチャーのセッションで skills.customDirectories の先頭に入る置き場）
   const pstackTdd = join(p.skills[0]!, "tdd", "SKILL.md");
+  // 利用者の置き場の tdd のうち、通常の omp で裸の名前 tdd を取るもの（userPlaces はスキルを OMP の優先の順に並べる）
   const userTdd = user.definitions.find((d) => d.kind === "skill" && d.name === "tdd");
   if (applied && existsSync(pstackTdd)) {
     lines.push(`  専用ランチャーから起動したセッション: pstack の tdd（${pstackTdd}）が使われます（写しの中の生成したスキルの置き場が skills.customDirectories の先頭に入るため）`);
