@@ -198,12 +198,13 @@ describe("OMP の版が記録と違うと、取得せずに止まって理由を
     expect(existsSync(sb.dataDir)).toBe(false);
   });
 
-  test("既存の clone を変えない", async () => {
+  test("既存の clone と前回の生成物と利用者の設定を変えない", async () => {
     const sb = sandbox();
     const pinned = sb.commit("0.15.46");
     sb.pin();
     expect((await sb.sync()).exitCode).toBe(0);
-    sb.commit("0.15.47");
+    const before = snapshot(sb.generated);
+    sb.commit("0.15.47", { "pstack/skills/newer/SKILL.md": skillMd("newer", "Newer.") });
     sb.pin();
     sb.omp("19.0.1");
 
@@ -212,6 +213,8 @@ describe("OMP の版が記録と違うと、取得せずに止まって理由を
     expect(run.exitCode).toBe(1);
     expect(sb.cloneHead()).toBe(pinned);
     expect(sb.cloneStatus()).toBe("");
+    expect(snapshot(sb.generated)).toEqual(before);
+    expect(existsSync(sb.agentDir)).toBe(false);
   });
 
   test("omp の版を確かめられないときも止まる", async () => {
@@ -252,12 +255,13 @@ describe("取得の途中で失敗すると、止まって報告し、壊れた 
     { label: "上流に記録のコミットが無い", over: (): Partial<Pin> => ({ commit: MISSING }), reason: MISSING },
     { label: "コミットの pstack の版が記録と違う", over: (): Partial<Pin> => ({ pstackVersion: "0.15.45" }), reason: "0.15.45" },
     { label: "origin が記録のリポジトリと違う", over: (): Partial<Pin> => ({ repository: "https://example.com/other.git" }), reason: "origin" },
-  ])("既存の clone があるとき: $label。clone を変えない", async ({ over, reason }) => {
+  ])("既存の clone があるとき: $label。clone と前回の生成物と利用者の設定を変えない", async ({ over, reason }) => {
     const sb = sandbox();
     const pinned = sb.commit("0.15.46");
     sb.pin();
     expect((await sb.sync()).exitCode).toBe(0);
-    sb.commit("0.15.47");
+    const before = snapshot(sb.generated);
+    sb.commit("0.15.47", { "pstack/skills/newer/SKILL.md": skillMd("newer", "Newer.") });
     sb.pin(over());
 
     const run = await sb.sync();
@@ -267,6 +271,8 @@ describe("取得の途中で失敗すると、止まって報告し、壊れた 
     expect(sb.cloneHead()).toBe(pinned);
     expect(sb.cloneStatus()).toBe("");
     expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
+    expect(snapshot(sb.generated)).toEqual(before);
+    expect(existsSync(sb.agentDir)).toBe(false);
   });
 
   test("置き場に clone でないものがあれば、触らずに止まる", async () => {
@@ -341,7 +347,7 @@ function pluginHash(): string {
 describe("サブコマンド・プラグイン・nod の CLI", () => {
   test("同期と状態の表示を実行しても、Claude Code と Codex 向けのプラグインの内容が変わらない", async () => {
     const before = pluginHash();
-    const sb = sandbox({ repoTable: true });
+    const sb = sandbox({ repoContent: true });
     sb.commit("0.15.46", {
       "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green."),
       "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn [the reviewer](../../agents/comment-sicko.md)."),

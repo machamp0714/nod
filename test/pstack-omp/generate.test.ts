@@ -1,440 +1,572 @@
-// pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の同期（sync）のうち、取得に続く OMP 向けのコピーの生成を、
-// プロセスとして起動して外から確かめる。一時の上流・置き場・読み替え表の作り方は helpers.ts を参照。
+// pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の同期（sync）のうち、取得に続く OMP 向けのコピーの生成（変換）を、
+// プロセスとして起動して外から確かめる。一時の上流・置き場・変換の入力のディレクトリの作り方は helpers.ts を参照。
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { EMPTY_TABLE, GUIDE_LINE, type Run, SAMPLES, sandbox, skillMd, skillNames, snapshot, TERM_KEYS } from "./helpers";
-
-// 用語が当たらない、似た書き方
-const LOOKALIKES = [
-  "Edit src/foo/loop.ts and run the loop.",
-  "Run the `/loop-on-ci` skill.",
-  "Push with git push origin pr-123.",
-  "A project worker in lower case.",
-  "The task list and the subagent type.",
-];
-
-function table(keys: string[]): string {
-  return EMPTY_TABLE + keys.map((key) => `| ${key} | 読み替え |\n`).join("");
-}
-
-// 失敗の報告から、対応行のない用語と、それを使うスキルを読み取る
-function missingRows(run: Run): Map<string, string[]> {
-  const rows = new Map<string, string[]>();
-  for (const line of run.stderr.split("\n")) {
-    const match = /^ {2}(.+)（使うスキル: (.+)）$/.exec(line);
-    if (match?.[1] !== undefined && match[2] !== undefined) rows.set(match[1], match[2].split(", "));
-  }
-  return rows;
-}
+import { REPO_TRANSFORM, type Run, type Sandbox, sandbox, sha256, skillMd, skillNames, snapshot } from "./helpers";
 
 function readGenerated(sb: { generated: string }, path: string): string {
   return readFileSync(join(sb.generated, path), "utf8");
 }
 
-describe("同期に続けて OMP 向けのコピーを生成する", () => {
-  test("pstack の全スキルと cursor-team-kit の3つだけが、データ置き場にスキルとして読まれる形で生成される", async () => {
+// rules.yml の rules を書く（include は includes に YAML の行で渡す）
+function rules(sb: Sandbox, items: Record<string, string>[], includes: string[] = []): void {
+  const lines = ["rules:", ...(items.length === 0 ? ["  []"] : items.flatMap(yamlItem))];
+  if (includes.length > 0) lines.push("include:", ...includes);
+  sb.transform("rules.yml", `${lines.join("\n")}\n`);
+}
+
+function forks(sb: Sandbox, items: Record<string, string>[]): void {
+  sb.transform("forks.yml", `${["forks:", ...(items.length === 0 ? ["  []"] : items.flatMap(yamlItem))].join("\n")}\n`);
+}
+
+// 1項目を YAML の行に（値は JSON の文字列。YAML の flow scalar として読める）
+function yamlItem(item: Record<string, string>): string[] {
+  return Object.entries(item).map(([key, value], i) => `${i === 0 ? "  - " : "    "}${key}: ${JSON.stringify(value)}`);
+}
+
+// 失敗の報告の、拒否リストの当たりの行（パス:行: 語）
+function hits(run: Run): string[] {
+  return run.stderr.split("\n").flatMap((line) => /^ {2}(\S+:\d+: .+)（一致: .*）$/.exec(line)?.[1] ?? []);
+}
+
+const SETUP = "pstack/skills/setup-pstack/SKILL.md";
+const SETUP_UPSTREAM = skillMd("setup-pstack", "Write `claude-opus-5-5-high` into `~/.cursor/rules/pstack-models.mdc`.");
+const SETUP_BODY = "---\nname: setup-pstack\ndescription: Not used in OMP.\n---\n\n# setup-pstack\n\nNot used in OMP. Spawn one worker only if asked.\n";
+
+describe("生成の対象", () => {
+  test("pstack の全スキルと cursor-team-kit の3つだけが、スキルとして読まれる形で生成され、スキルの外の文書はリンクされていても入れない", async () => {
     const sb = sandbox();
     sb.commit("0.15.46", {
       "pstack/skills/setup-pstack/SKILL.md": skillMd("setup-pstack", "Set up."),
-      "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green."),
+      "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green. See [the README](../../README.md) and [the agent](../../agents/poteto-agent.md)."),
+      "pstack/README.md": "# pstack\n",
+      "pstack/agents/poteto-agent.md": "---\nname: poteto-agent\n---\n\nAgent.\n",
+      "pstack/docs/guide/README.md": "# Guide\n",
+    });
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`OMP 向けのコピーを生成しました: ${sb.generated}（pstack 3 個、cursor-team-kit 3 個）\n`);
+    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-mode", "setup-pstack", "tdd"]);
+    expect(readdirSync(join(sb.generated, "cursor-team-kit/skills")).sort()).toEqual(["control-cli", "control-ui", "deslop"]);
+    expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);
+    expect(readdirSync(sb.generated).sort()).toEqual(["cursor-team-kit", "manifest.json", "pstack"]);
+  });
+});
+
+describe("置換規則", () => {
+  test("規則は上から順に、前の規則の出力に当たり、成功すると規則ごとの一致数が出る", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/swarm/SKILL.md": skillMd("swarm", "Spawn one worker per slice.\nThen spawn one judge."),
+      "pstack/skills/swarm/references/notes.md": "# Notes\n\nSpawn one worker per slice.\n",
+    });
+    sb.pin();
+    rules(sb, [
+      { id: "worker", reason: "子の起動を OMP の task に書き換える", literal: "Spawn one worker", replace: "Start one `task` worker" },
+      { id: "task-worker", reason: "前の規則の出力に当たる", literal: "one `task` worker per slice", replace: "one `task` item per slice" },
+    ]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/swarm/SKILL.md")).toBe(skillMd("swarm", "Start one `task` item per slice.\nThen spawn one judge."));
+    expect(readGenerated(sb, "pstack/skills/swarm/references/notes.md")).toBe("# Notes\n\nStart one `task` item per slice.\n");
+    expect(run.stdout).toContain("規則ごとの一致数:\n  worker: 2 か所\n  task-worker: 2 か所\n");
+  });
+
+  test("files で当てる生成物を限定でき、.md 以外のファイルには当てない", async () => {
+    const sb = sandbox();
+    const other = skillMd("b", "Spawn one worker.");
+    const script = "#!/bin/sh\necho 'Spawn one worker.'\n";
+    sb.commit(
+      "0.15.46",
+      {
+        "pstack/skills/a/SKILL.md": skillMd("a", "Spawn one worker."),
+        "pstack/skills/a/scripts/run.sh": script,
+        "pstack/skills/b/SKILL.md": other,
+      },
+      ["pstack/skills/a/scripts/run.sh"],
+    );
+    sb.pin();
+    rules(sb, [{ id: "only-a", reason: "a だけ", files: "^pstack/skills/a/", literal: "Spawn one worker", replace: "Start one task" }]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/a/SKILL.md")).toBe(skillMd("a", "Start one task."));
+    expect(readGenerated(sb, "pstack/skills/b/SKILL.md")).toBe(other);
+    expect(snapshot(sb.generated).get("pstack/skills/a/scripts/run.sh")).toEqual({ content: Buffer.from(script).toString("base64"), executable: true });
+    expect(run.stdout).toContain("  only-a: 1 か所\n");
+  });
+
+  test("regex には flags と $1 などの置換記法を使え、literal の置換文はそのままの文字列になる", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/a/SKILL.md": skillMd("a", "Open A Ledger first.\nopen a ledger later.") });
+    sb.pin();
+    rules(sb, [
+      { id: "ledger", reason: "正規表現", regex: "open a (\\w+)", flags: "i", replace: "start the $1" },
+      { id: "later", reason: "literal の $1 は置換記法にしない", literal: "later", replace: "at $1" },
+    ]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/a/SKILL.md")).toBe(skillMd("a", "start the Ledger first.\nstart the ledger at $1."));
+    expect(run.stdout).toContain("  ledger: 2 か所\n  later: 1 か所\n");
+  });
+
+  test("規則も全文差し替えも当たらないファイルは、付属のファイルの実行属性と UTF-8 でないバイトも含めて上流と完全に同じになる", async () => {
+    const sb = sandbox();
+    const files = {
+      "pstack/skills/plain/SKILL.md": skillMd("plain", "See [the guide](../../docs/guide/01-setup.md) and [notes](references/notes.md#top)."),
+      "pstack/skills/plain/references/notes.md": "# Notes\n\n[back](../SKILL.md)\n",
+      "pstack/skills/plain/references/latin1.md": Buffer.from([0x23, 0x20, 0x43, 0x61, 0x66, 0xe9, 0x0a]),
+      "pstack/skills/plain/scripts/run.sh": "#!/bin/sh\necho run\n",
+      "pstack/skills/plain/data/table.tsv": "a\tb\n",
+      "pstack/skills/other/SKILL.md": skillMd("other", "Spawn one worker."),
+    };
+    sb.commit("0.15.46", files, ["pstack/skills/plain/scripts/run.sh"]);
+    sb.pin();
+    rules(sb, [{ id: "worker", reason: "ほかのスキルにだけ当たる", literal: "Spawn one worker", replace: "Start one task" }]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    const generated = snapshot(sb.generated);
+    const upstream = snapshot(sb.clone);
+    for (const path of Object.keys(files).filter((path) => !path.startsWith("pstack/skills/other/"))) expect(generated.get(path)).toEqual(upstream.get(path)!);
+    expect(generated.get("pstack/skills/plain/scripts/run.sh")?.executable).toBe(true);
+    expect(generated.get("pstack/skills/plain/SKILL.md")?.executable).toBe(false);
+    expect(generated.has("pstack/.cursor-plugin/plugin.json")).toBe(false);
+  });
+
+  test("どこにも一致しない規則があると、id と理由を報告して失敗し、生成先を作らない。対象の外でだけ一致する規則も一致しないとみなす", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/a/SKILL.md": skillMd("a", "Spawn one worker.") });
+    sb.pin();
+    rules(sb, [
+      { id: "hit", reason: "当たる", literal: "Spawn one worker", replace: "Start one task" },
+      { id: "gone", reason: "上流から消えた文", literal: "Pick the judge", replace: "Choose the judge" },
+      { id: "elsewhere", reason: "対象の外", files: "^cursor-team-kit/", literal: "Start one task", replace: "x" },
+    ]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("どこにも一致しない規則があります");
+    expect(run.stderr).toContain("  gone（上流から消えた文）\n  elsewhere（対象の外）\n");
+    expect(run.stderr).not.toContain("  hit（");
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+});
+
+// リポジトリの denylist.yml の各項目の、上流の実際の書き方の例（固定のコミットのスキルと、Claude Code 向けの adapter・上流の poteto-agent の定義から）。
+// grok- と gpt- は固定のコミットの本文に無く、上流の道具の用語の一覧（generate-pstack-harness-trees.mjs の TERMS）の slug の形で書く
+const DENIED: { term: string; text: string }[] = [
+  { term: "`Task`", text: "If the Task tool rejects a slug, use the nearest valid slug." },
+  { term: "`Task`", text: "**Defaults for every `Task` call.**" },
+  { term: "AskQuestion", text: "If one exists, confirm intent with `AskQuestion`." },
+  { term: "todolist", text: "Open a todolist with one entry per phase before launching anything." },
+  { term: "todolist", text: "Copy its steps into the todolist tool first." },
+  { term: "generalPurpose", text: "The entry is the parent model, so omit `model` and spawn `generalPurpose`." },
+  { term: "`readonly: true`", text: "Spawn one subagent with `readonly: true` that explores and explains in one pass." },
+  { term: '`environment: "cloud"`', text: 'Spawn all N workers in one message with `environment: "cloud"`.' },
+  { term: '`environment: "cloud"`', text: 'Use `environment: "local"` only when the worker needs access to local state.' },
+  { term: "cloud_base_branch", text: "When a worker must start from a non-default pushed branch, pass `cloud_base_branch`." },
+  { term: "`run_in_background: true`", text: "Spawn all N subagents in one message with `run_in_background: true`." },
+  { term: "`resume`", text: "| `resume` | Spawn a new agent and paste the earlier context. |" },
+  { term: "`file_attachments`", text: "| `file_attachments` | List the paths in the brief. |" },
+  { term: "claude-", text: "Pick the runners, by default `claude-fable-5-2-high`." },
+  { term: "grok-", text: "Pick `grok-4-fast` for the second opinion." },
+  { term: "gpt-", text: "Pick `gpt-5-5-xhigh` for the reviewer." },
+  { term: "gemini-", text: "One runner each on `gemini-4-neon-xhigh`." },
+  { term: "inherit-parent", text: "A role set to `auto` or `inherit-parent` runs on the chat's model." },
+  { term: "pstack-models.mdc", text: "Pick the runners from the `arena runners` line in `pstack-models.mdc`." },
+  { term: ".cursor/skills/", text: "Write `.cursor/skills/verify-<app>/SKILL.md` with YAML frontmatter." },
+  { term: "~/.cursor/plugins/", text: "Search `~/.cursor/plugins/` for a file whose path ends in the skill." },
+  { term: "~/.cursor/plugins/", text: "Use the copy whose `.cursor-plugin/plugin.json` has the highest `version`." },
+  { term: ".cursor/rules/", text: "| `.cursor/rules/*.mdc`, always-applied rules | `AGENTS.md` |" },
+  { term: "agent-transcripts", text: "The system prompt names the workspace's `agent-transcripts/` directory." },
+  { term: "agent-transcripts", text: "Don't glob across `~/.cursor/projects/*/`." },
+  { term: "/loop", text: "Pick the wake mechanism using Cursor's `/loop` command." },
+  { term: "/loop", text: "Keep a decision log. /loop until done." },
+  { term: "subagent_type", text: '**Use `subagent_type: "poteto-agent"` for any subagent you spawn directly.**' },
+  { term: "Project worker", text: "Starting any agent, whether a subagent or a Project worker." },
+  { term: "Project worker", text: "An explicit model per role, Project workers included." },
+  { term: "cloud agent", text: "One verifier per PR, each a Cursor cloud agent, runs the change." },
+  { term: "cloud agent", text: "Locate a local transcript, a cloud-agent URL, or a pushed branch." },
+  { term: "Cursor Automations", text: "Benny needs external configuration and two live Cursor automations." },
+  { term: "Cursor Automations", text: "The URL looks like `https://api2.cursor.sh/automations/webhook/<id>` with no query string." },
+  { term: "Cursor Automations", text: "Call `update_state` with target `routine` and action `create`." },
+  { term: "Cursor Automations", text: "SendToUser" },
+  { term: "built-in PR tool", text: "Open PRs ready, through the run's PR tool with `draft: false`." },
+  { term: "built-in PR tool", text: "Claude Code has no built-in PR tool." },
+  { term: "create-skill", text: "Use Cursor's built-in `create-skill` skill to author the skill." },
+  { term: "create-skill", text: "Drafts or revises a personal -mode skill via create-skill + unslop." },
+];
+
+// 拒否リストから外した語（OMP でも同じ意味で正しい）と、当たらない似た書き方。上流の実際の書き方の例
+const ALLOWED = [
+  "Spawn it as a `poteto-agent`, which defaults to Opus 5.5.",
+  "Read the comment-sicko notes before reviewing.",
+  "Use `origin pr create --status open` when Origin's CLI resolves the repository.",
+  "Triage Bugbot skeptically: fix real findings, dismiss noise with a concrete disproof.",
+  "Use this reference when the Babysit playbook handles Bugbot or review-automation comments.",
+  "`/poteto-mode` copies the playbook's steps into the todo list.",
+  "Edit src/foo/loop.ts and run the loop.",
+  "Run the `/loop-on-ci` skill.",
+  "Push with git push origin pr-123.",
+  "A project worker in lower case.",
+  "The task list and the subagent type.",
+  "Use local browser automation to verify UI behavior.",
+];
+
+describe("拒否リスト", () => {
+  test("リポジトリの denylist.yml の全項目に、上流の書き方の例がある", () => {
+    const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "denylist.yml"), "utf8")) as { terms: { term: string; reason: string }[] };
+    expect([...new Set(DENIED.map(({ term }) => term))].sort()).toEqual(repo.terms.map(({ term }) => term).sort());
+    expect(repo.terms.every(({ reason }) => reason.length > 0)).toBe(true);
+  });
+
+  test.each(DENIED)("$term が「$text」のまま残ると、ファイル・行・語を報告して失敗する", async ({ term, text }) => {
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/user/SKILL.md": skillMd("user", "Plain."),
+      "pstack/skills/user/references/notes.md": `# Notes\n\n${text}\n`,
+    });
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect([...new Set(hits(run))]).toEqual([`pstack/skills/user/references/notes.md:3: ${term}`]);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("外した語（poteto-agent、comment-sicko、origin pr、Bugbot の名前だけ）と、一般の todo list・似た書き方では失敗しない", async () => {
+    const sb = sandbox();
+    const body = skillMd("allowed", ALLOWED.join("\n"));
+    sb.commit("0.15.46", { "pstack/skills/allowed/SKILL.md": body });
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/allowed/SKILL.md")).toBe(body);
+  });
+
+  test("規則の後の文で検査するので、規則で書き換えた語では失敗しない。すべての当たりをファイル・行の順にまとめて報告する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/b/SKILL.md": skillMd("b", "Spawn one `Task` per worker.\nPick `gpt-5-5-xhigh`."),
+      "pstack/skills/a/references/notes.md": "# Notes\n\nOpen a todolist.\n",
+      "pstack/skills/a/SKILL.md": skillMd("a", "Spawn `generalPurpose` and `claude-opus-5-5-high`."),
+    });
+    sb.pin();
+    rules(sb, [{ id: "task", reason: "Task を task に", literal: "Spawn one `Task` per worker.", replace: "Start one `task` item per worker." }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(hits(run)).toEqual([
+      "pstack/skills/a/SKILL.md:8: generalPurpose",
+      "pstack/skills/a/SKILL.md:8: claude-",
+      "pstack/skills/a/references/notes.md:3: todolist",
+      "pstack/skills/b/SKILL.md:9: gpt-",
+    ]);
+    expect(run.stderr).toContain("変換の後に拒否リストの語が残っています（4 か所。");
+    expect(run.stderr).toContain("pstack/skills/b/SKILL.md:9: gpt-（一致: gpt-5）");
+  });
+});
+
+describe("全文差し替え", () => {
+  test("指紋が合えば宣言した本文に差し替え（本文には規則を当てない）、成功の出力に一覧が出る", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM, "pstack/skills/a/SKILL.md": skillMd("a", "Spawn one worker.") });
+    sb.pin();
+    sb.transform("forks/pstack/skills/setup-pstack/SKILL.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/pstack/skills/setup-pstack/SKILL.md", reason: "OMP では使わない" }]);
+    rules(sb, [{ id: "worker", reason: "差し替えの本文には当てない", literal: "Spawn one worker", replace: "Start one task" }]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, SETUP)).toBe(SETUP_BODY);
+    expect(readGenerated(sb, "pstack/skills/a/SKILL.md")).toBe(skillMd("a", "Start one task."));
+    expect(run.stdout).toContain(`  worker: 1 か所\n全文差し替え:\n  ${SETUP}（本文 forks/pstack/skills/setup-pstack/SKILL.md）\n`);
+  });
+
+  test("上流のファイルの指紋が宣言と違うと、両方の指紋を報告して失敗する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM });
+    sb.pin();
+    sb.transform("forks/setup.md", SETUP_BODY);
+    const declared = sha256("older upstream\n");
+    forks(sb, [{ path: SETUP, upstreamSha256: declared, body: "forks/setup.md", reason: "OMP では使わない" }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`  ${SETUP}: 上流のファイルの指紋 ${sha256(SETUP_UPSTREAM)} が宣言の upstreamSha256 ${declared} と違います。`);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("上流に元のファイルが無いと失敗する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM });
+    sb.remove(SETUP);
+    sb.pin();
+    sb.transform("forks/setup.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`  ${SETUP}: 上流に元のファイルがありません。`);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("差し替えた本文も拒否リストで検査する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM });
+    sb.pin();
+    sb.transform("forks/setup.md", `${SETUP_BODY}Pick \`gpt-5-5-xhigh\`.\n`);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(hits(run)).toEqual([`${SETUP}:9: gpt-`]);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+});
+
+describe("include", () => {
+  test("宣言した上流の文書を生成物の宣言した位置に入れ、規則と拒否リストを当てる", async () => {
+    const sb = sandbox();
+    const sicko = "---\nname: comment-sicko\n---\n\nSpawn one `Task` per file.\n";
+    sb.commit("0.15.46", {
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Review comments."),
+      "pstack/agents/comment-sicko.md": sicko,
       "pstack/agents/poteto-agent.md": "---\nname: poteto-agent\n---\n\nAgent.\n",
     });
     sb.pin();
+    const include = ["  - from: pstack/agents/comment-sicko.md", "    to: pstack/skills/no-comments/references/comment-sicko.md", "    reason: no-comments の付属文書"];
+    rules(sb, [], include);
 
+    const failed = await sb.sync();
+    expect(failed.exitCode).toBe(1);
+    expect(hits(failed)).toEqual(["pstack/skills/no-comments/references/comment-sicko.md:5: `Task`"]);
+
+    rules(
+      sb,
+      [{ id: "sicko", reason: "付属文書の子の起動", files: "^pstack/skills/no-comments/references/", literal: "Spawn one `Task`", replace: "Start one `task` item" }],
+      include,
+    );
     const run = await sb.sync();
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(sb.generated);
-    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-mode", "setup-pstack", "tdd"]);
-    expect(skillNames(join(sb.generated, "cursor-team-kit/skills"))).toEqual(["control-cli", "control-ui", "deslop"]);
-    expect(readdirSync(join(sb.generated, "cursor-team-kit/skills")).sort()).toEqual(["control-cli", "control-ui", "deslop"]);
-    // スキルから辿られない上流の定義は入れない
+    expect(readGenerated(sb, "pstack/skills/no-comments/references/comment-sicko.md")).toBe("---\nname: comment-sicko\n---\n\nStart one `task` item per file.\n");
     expect(existsSync(join(sb.generated, "pstack/agents"))).toBe(false);
-    expect(readdirSync(sb.generated).sort()).toEqual(["cursor-team-kit", "manifest.json", "pstack"]);
   });
 
-  test("manifest に、生成したスキル・案内の1行を入れたスキル・元にした固定の記録が安定した順に書かれる", async () => {
+  test("上流に無い文書、既にある生成物と重なる位置は報告して失敗する", async () => {
     const sb = sandbox();
-    const commit = sb.commit("0.15.46", {
-      "pstack/skills/swarm/SKILL.md": skillMd("swarm", "Spawn one `Task` per worker."),
-      "pstack/skills/arena/SKILL.md": skillMd("arena", "Pick gpt-5."),
-      "cursor-team-kit/skills/control-ui/SKILL.md": skillMd("control-ui", "Read agent-transcripts."),
-    });
+    sb.commit("0.15.46", { "pstack/agents/comment-sicko.md": "Review.\n" });
     sb.pin();
-    sb.table(table(["`Task`", "gpt-", "agent-transcripts"]));
+    rules(
+      sb,
+      [],
+      [
+        "  - from: pstack/agents/gone.md",
+        "    to: pstack/skills/poteto-mode/references/gone.md",
+        "    reason: 消えた",
+        "  - from: pstack/agents/comment-sicko.md",
+        "    to: pstack/skills/poteto-mode/SKILL.md",
+        "    reason: 重なる",
+      ],
+    );
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain("  pstack/agents/gone.md → pstack/skills/poteto-mode/references/gone.md: 上流に pstack/agents/gone.md がありません\n");
+    expect(run.stderr).toContain("  pstack/agents/comment-sicko.md → pstack/skills/poteto-mode/SKILL.md: 生成物の pstack/skills/poteto-mode/SKILL.md が既にあります\n");
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+});
+
+describe("失敗の報告と前回の生成物", () => {
+  test("複数の失敗の理由をまとめて報告し、0 でない終了コードで終わり、前回の生成物と利用者の設定を変えず、途中の生成物を残さない", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM, "pstack/skills/a/SKILL.md": skillMd("a", "Plain.") });
+    sb.pin();
+    sb.transform("forks/setup.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+    expect((await sb.sync()).exitCode).toBe(0);
+    const before = snapshot(sb.generated);
+    sb.commit("0.15.47", { [SETUP]: `${SETUP_UPSTREAM}Changed.\n`, "pstack/skills/a/SKILL.md": skillMd("a", "Open a todolist.") });
+    sb.pin();
+    rules(sb, [{ id: "gone", reason: "消えた文", literal: "Pick the judge", replace: "Choose the judge" }], ["  - from: pstack/gone.md", "    to: pstack/skills/a/gone.md", "    reason: 消えた"]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stdout).not.toContain("生成しました");
+    expect(run.stderr).toStartWith(`止めました: OMP 向けのコピーを生成できません。生成先 ${sb.generated} と利用者の OMP の設定は変えていません。\n`);
+    for (const title of [
+      "上流から入れる文書（rules.yml の include）に問題があります:\n  pstack/gone.md → pstack/skills/a/gone.md: 上流に pstack/gone.md がありません\n",
+      `全文差し替え（forks.yml）に問題があります:\n  ${SETUP}: 上流のファイルの指紋 `,
+      "どこにも一致しない規則があります（上流の文が変わっていないか確かめ、規則を直してください）:\n  gone（消えた文）\n",
+      "変換の後に拒否リストの語が残っています（1 か所。規則で書き換えてください）:\n  pstack/skills/a/SKILL.md:8: todolist（一致: todolist）\n",
+      "検査できなかった範囲:\n  入れられなかった include の文書には、規則と拒否リストを当てていません\n",
+    ]) {
+      expect(run.stderr).toContain(title);
+    }
+    expect(snapshot(sb.generated)).toEqual(before);
+    expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
+    expect(existsSync(sb.agentDir)).toBe(false);
+  });
+
+  // 変換の入力が正しくないとき。報告する理由と、そのために検査できなかった範囲
+  test.each([
+    { label: "rules.yml が YAML として読めない", file: "rules.yml", text: "rules: [\n", reports: ["rules.yml: YAML として読めません", "rules.yml を読めないので、規則を当てず"] },
+    { label: "rules.yml が無い", file: "rules.yml", text: null, reports: ["rules.yml: 読めません", "rules.yml を読めないので、include の文書を生成物に入れていません"] },
+    {
+      label: "規則に必須の項目が無い",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    literal: "x"\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 1 番目（id: a）: reason がありません", "rules.yml の規則が正しくないので、規則を当てず"],
+    },
+    {
+      label: "literal と regex の両方がある",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    reason: r\n    literal: "x"\n    regex: "x"\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 1 番目（id: a）: literal と regex のどちらか1つだけを書いてください"],
+    },
+    {
+      label: "literal も regex も無い",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    reason: r\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 1 番目（id: a）: literal と regex のどちらか1つだけを書いてください"],
+    },
+    {
+      label: "正規表現が正しくない",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    reason: r\n    regex: "("\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 1 番目（id: a）: regex が正規表現として正しくありません"],
+    },
+    {
+      label: "id が重複している",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    reason: r\n    literal: "x"\n    replace: "y"\n  - id: a\n    reason: r\n    literal: "z"\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 2 番目（id: a）: id a が重複しています"],
+    },
+    {
+      label: "知らない項目がある",
+      file: "rules.yml",
+      text: 'rules:\n  - id: a\n    reason: r\n    regexp: "x"\n    replace: "y"\n',
+      reports: ["rules.yml の rules の 1 番目（id: a）: 知らない項目 regexp があります"],
+    },
+    {
+      label: "拒否リストの正規表現が正しくない",
+      file: "denylist.yml",
+      text: 'terms:\n  - term: bad\n    regex: "["\n    reason: r\n',
+      reports: ["denylist.yml の terms の 1 番目（term: bad）: regex が正規表現として正しくありません", "denylist.yml の正しくない項目（bad）の語は検査していません"],
+    },
+    {
+      label: "拒否リストの terms が無い",
+      file: "denylist.yml",
+      text: "words: []\n",
+      reports: ["denylist.yml: 知らない項目 words があります", "denylist.yml: terms がありません", "denylist.yml を読めないので、変換の後の拒否リストの検査はしていません"],
+    },
+    {
+      label: "全文差し替えの本文が読めない",
+      file: "forks.yml",
+      text: `forks:\n  - path: ${SETUP}\n    upstreamSha256: ${sha256(SETUP_UPSTREAM)}\n    body: forks/missing.md\n    reason: r\n`,
+      reports: [`forks.yml の forks の 1 番目（path: ${SETUP}）: 本文 forks/missing.md を読めません`, `${SETUP}: 全文差し替えの本文を使えないので、このファイルの拒否リストの検査はしていません`],
+    },
+    {
+      label: "全文差し替えの path が無い",
+      file: "forks.yml",
+      text: "forks:\n  - body: forks/setup.md\n    reason: r\n",
+      reports: ["forks.yml の forks の 1 番目: path がありません", "forks.yml の path が正しくない項目: 全文差し替えの宣言を読めないので"],
+    },
+  ])("$label: 理由と検査できなかった範囲を報告して失敗し、前回の生成物を変えない", async ({ file, text, reports }) => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM });
+    sb.pin();
+    sb.transform("forks/setup.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+    expect((await sb.sync()).exitCode).toBe(0);
+    const before = snapshot(sb.generated);
+    sb.transform(file, text);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`変換の入力（${sb.transformDir}）が正しくありません:\n`);
+    for (const report of reports) expect(run.stderr).toContain(report);
+    expect(snapshot(sb.generated)).toEqual(before);
+  });
+});
+
+describe("成功したときの生成先と manifest", () => {
+  test("生成先を丸ごと入れ替え、manifest に固定の記録・生成したスキル・変換の入力の指紋・規則ごとの一致数・全文差し替えを書く", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/old/SKILL.md": skillMd("old", "Old.") });
+    sb.pin();
+    expect((await sb.sync()).exitCode).toBe(0);
+    sb.remove("pstack/skills/old/SKILL.md");
+    const commit = sb.commit("0.15.47", { [SETUP]: SETUP_UPSTREAM, "pstack/skills/a/SKILL.md": skillMd("a", "Spawn one worker.") });
+    sb.pin();
+    sb.transform("forks/setup.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+    rules(sb, [{ id: "worker", reason: "子の起動", literal: "Spawn one worker", replace: "Start one task" }]);
 
     const run = await sb.sync();
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
+    expect(existsSync(join(sb.generated, "pstack/skills/old"))).toBe(false);
+    expect(run.stdout).toContain("規則ごとの一致数:\n  worker: 1 か所\n全文差し替え:\n  pstack/skills/setup-pstack/SKILL.md（本文 forks/setup.md）\n");
+    const input = (path: string) => sha256(readFileSync(join(sb.transformDir, path)));
     expect(readGenerated(sb, "manifest.json")).toBe(
       JSON.stringify(
         {
-          pin: { repository: sb.upstream, commit, pstackVersion: "0.15.46", ompVersion: "19.1.0" },
-          skills: { pstack: ["arena", "poteto-mode", "swarm"], "cursor-team-kit": ["control-cli", "control-ui", "deslop"] },
-          guided: { pstack: ["arena", "swarm"], "cursor-team-kit": ["control-ui"] },
+          pin: { repository: sb.upstream, commit, pstackVersion: "0.15.47", ompVersion: "19.1.0" },
+          skills: { pstack: ["a", "poteto-mode", "setup-pstack"], "cursor-team-kit": ["control-cli", "control-ui", "deslop"] },
+          transform: { "rules.yml": input("rules.yml"), "denylist.yml": input("denylist.yml"), "forks.yml": input("forks.yml") },
+          rules: [{ id: "worker", matches: 1 }],
+          forks: [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", bodySha256: sha256(SETUP_BODY) }],
         },
         null,
         2,
       ) + "\n",
     );
   });
-});
 
-describe("Cursor の名前を使うスキルに案内の1行を入れ、ほかは上流のまま保つ", () => {
-  test("最初の H1 の直後に案内の1行が入り、ほかの部分は上流と同じバイトになる", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", {
-      "pstack/skills/how/SKILL.md":
-        "---\nname: how\n# not a heading in frontmatter\n---\n\n```sh\n# not a heading in code\n```\n\n# How\n\n\nSpawn one `Task` subagent.\n\n# Second H1\n",
-    });
-    sb.pin();
-    sb.table(table(["`Task`"]));
-
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(readGenerated(sb, "pstack/skills/how/SKILL.md")).toBe(
-      "---\nname: how\n# not a heading in frontmatter\n---\n\n```sh\n# not a heading in code\n```\n\n# How\n\n" +
-        GUIDE_LINE +
-        "\n\nSpawn one `Task` subagent.\n\n# Second H1\n",
-    );
-  });
-
-  // 案内の1行は H1 の後の最初の空行の後に置き、上流の空行はすべて残す。足す空行は、案内の1行を独立した段落にするのに要る分だけ
-  test.each([
-    { blank: 0, upstream: "# How\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\nSpawn one \`Task\`.\n` },
-    { blank: 1, upstream: "# How\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\nSpawn one \`Task\`.\n` },
-    { blank: 3, upstream: "# How\n\n\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\n\nSpawn one \`Task\`.\n` },
-    { blank: 5, upstream: "# How\n\n\n\n\n\nSpawn one `Task`.\n", expected: `# How\n\n${GUIDE_LINE}\n\n\n\n\nSpawn one \`Task\`.\n` },
-  ])("H1 の後の空行が $blank 行でも上流の空行を削らない", async ({ upstream, expected }) => {
-    const sb = sandbox();
-    const front = "---\nname: how\n---\n\n";
-    sb.commit("0.15.46", { "pstack/skills/how/SKILL.md": front + upstream });
-    sb.pin();
-    sb.table(table(["`Task`"]));
-
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(readGenerated(sb, "pstack/skills/how/SKILL.md")).toBe(front + expected);
-  });
-
-  test("用語のないスキルは、付属のファイルの実行属性とリンクも含めて上流と完全に同じになる", async () => {
-    const sb = sandbox();
-    const files = {
-      "pstack/skills/plain/SKILL.md": skillMd("plain", "See [the guide](../../docs/guide/01-setup.md) and [notes](references/notes.md#top)."),
-      "pstack/skills/plain/references/notes.md": "# Notes\n\n[back](../SKILL.md)\n",
-      "pstack/skills/plain/scripts/run.sh": "#!/bin/sh\necho run\n",
-      "pstack/skills/plain/data/table.tsv": "a\tb\n",
-      "pstack/docs/guide/01-setup.md": "# Setup\n\n![shot](images/setup.jpg)\n",
-      "pstack/docs/guide/images/setup.jpg": "jpeg",
-    };
-    sb.commit("0.15.46", files, ["pstack/skills/plain/scripts/run.sh"]);
-    sb.pin();
-
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    const generated = snapshot(sb.generated);
-    const upstream = snapshot(sb.clone);
-    for (const path of Object.keys(files)) expect(generated.get(path)).toEqual(upstream.get(path)!);
-    expect(generated.get("pstack/skills/plain/scripts/run.sh")?.executable).toBe(true);
-    expect(generated.get("pstack/skills/plain/SKILL.md")?.executable).toBe(false);
-    // 上流の pstack/ のほかのファイル（plugin.json など）は入れない
-    expect(generated.has("pstack/.cursor-plugin/plugin.json")).toBe(false);
-  });
-
-  test("スキルの外へのリンクの先を同じ相対位置に保ち、その先の文書のリンクの先も保つ", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", {
-      "pstack/skills/poteto-help/SKILL.md": skillMd("poteto-help", "Read [the README](../../README.md)."),
-      "pstack/README.md": "# pstack\n\nSee [the agent](./agents/poteto-agent.md) and [guide](./docs/guide/).\n",
-      "pstack/agents/poteto-agent.md": "---\nname: poteto-agent\n---\n\nAgent.\n",
-      "pstack/docs/guide/README.md": "# Guide\n",
-      "pstack/assets/logo.png": "png",
-    });
-    sb.pin();
-    // リンクの先の定義が用語 poteto-agent を使う
-    sb.table(table(["poteto-agent"]));
-
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    const generated = snapshot(sb.generated);
-    const upstream = snapshot(sb.clone);
-    for (const path of ["pstack/README.md", "pstack/agents/poteto-agent.md", "pstack/docs/guide/README.md"]) {
-      expect(generated.get(path)).toEqual(upstream.get(path)!);
-    }
-    expect(generated.has("pstack/assets/logo.png")).toBe(false);
-    // 上流の定義は、スキルとして読まれる置き場の外にある
-    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-help", "poteto-mode"]);
-  });
-
-  test("スキルの外のリンク先（リンク先を経た先も）だけに用語があっても検出し、対応行が無ければ失敗し、あればそのスキルに案内の1行を入れる", async () => {
-    const sb = sandbox();
-    const caller = skillMd("caller", "Then follow [help](../help/SKILL.md).");
-    sb.commit("0.15.46", {
-      "pstack/skills/help/SKILL.md": skillMd("help", "Read [the README](../../README.md)."),
-      "pstack/README.md": "# pstack\n\nSee [the guide](./docs/guide/05-build.md).\n",
-      "pstack/docs/guide/05-build.md": "# Build\n\nSpawn one `Task` per worker.\n",
-      // 別の生成するスキルの SKILL.md（そのスキルの入口で、自分の案内の1行を持つ）へのリンクは、このスキルの用語に数えない
-      "pstack/skills/caller/SKILL.md": caller,
-    });
-    sb.pin();
-
-    const failed = await sb.sync();
-    expect(failed.exitCode).toBe(1);
-    expect(missingRows(failed)).toEqual(new Map([["`Task`", ["pstack/help"]]]));
-    expect(existsSync(sb.generated)).toBe(false);
-
-    sb.table(table(["`Task`"]));
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("  `Task`（使うスキル: pstack/help）\n");
-    expect(readGenerated(sb, "pstack/skills/help/SKILL.md")).toBe(
-      `---\nname: help\ndescription: test\n---\n\n# help\n\n${GUIDE_LINE}\n\nRead [the README](../../README.md).\n`,
-    );
-    expect(readGenerated(sb, "pstack/skills/caller/SKILL.md")).toBe(caller);
-    expect(readGenerated(sb, "pstack/docs/guide/05-build.md")).toBe("# Build\n\nSpawn one `Task` per worker.\n");
-    expect(JSON.parse(readGenerated(sb, "manifest.json")).guided).toEqual({ pstack: ["help"], "cursor-team-kit": [] });
-  });
-
-  test("別の生成するスキルの中の SKILL.md 以外の文書を、直接かスキルの外の文書を経てリンクすると、その文書の用語もリンクしたスキルの用語として検出する。SKILL.md やディレクトリそのものへのリンクは数えず、リンクが循環しても終わり、同じ出力になる", async () => {
-    const sb = sandbox();
-    const entry = skillMd("entry", "Use [help](../help/SKILL.md), [its folder](../help/) and [again](../help).");
-    const files = {
-      "pstack/skills/help/SKILL.md": skillMd("help", "Plain."),
-      "pstack/skills/help/references/steps.md": "# Steps\n\nSpawn one `Task` per worker. See [caller notes](../../caller/references/notes.md) and [help](../SKILL.md).\n",
-      // 直接のリンクと、リンクの循環（caller の文書と help の文書が互いをリンクする）
-      "pstack/skills/caller/SKILL.md": skillMd("caller", "Follow [the steps](../help/references/steps.md#run)."),
-      "pstack/skills/caller/references/notes.md": "# Notes\n\nBack to [steps](../../help/references/steps.md).\n",
-      // スキルの外の文書を経たリンク
-      "pstack/skills/viadoc/SKILL.md": skillMd("viadoc", "Read [the README](../../README.md)."),
-      "pstack/README.md": "# pstack\n\nSee [steps](./skills/help/references/steps.md).\n",
-      "pstack/skills/entry/SKILL.md": entry,
-    };
-    sb.commit("0.15.46", files);
-    sb.pin();
-
-    const failed = await sb.sync();
-    expect(failed.exitCode).toBe(1);
-    expect(missingRows(failed)).toEqual(new Map([["`Task`", ["pstack/caller", "pstack/help", "pstack/viadoc"]]]));
-    expect(existsSync(sb.generated)).toBe(false);
-
-    sb.table(table(["`Task`"]));
-    const run = await sb.sync();
-    const first = snapshot(sb.generated);
-    const again = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(readGenerated(sb, "pstack/skills/caller/SKILL.md")).toBe(
-      `---\nname: caller\ndescription: test\n---\n\n# caller\n\n${GUIDE_LINE}\n\nFollow [the steps](../help/references/steps.md#run).\n`,
-    );
-    expect(readGenerated(sb, "pstack/skills/viadoc/SKILL.md")).toBe(
-      `---\nname: viadoc\ndescription: test\n---\n\n# viadoc\n\n${GUIDE_LINE}\n\nRead [the README](../../README.md).\n`,
-    );
-    expect(readGenerated(sb, "pstack/skills/entry/SKILL.md")).toBe(entry);
-    // help の SKILL.md は自分の付属の文書の用語で案内の1行を持つ。リンクされた文書と外の文書は上流のまま
-    expect(readGenerated(sb, "pstack/skills/help/SKILL.md")).toContain(GUIDE_LINE);
-    const upstream = snapshot(sb.clone);
-    for (const path of ["pstack/skills/help/references/steps.md", "pstack/skills/caller/references/notes.md", "pstack/README.md"]) {
-      expect(first.get(path)).toEqual(upstream.get(path)!);
-    }
-    expect(JSON.parse(readGenerated(sb, "manifest.json")).guided).toEqual({ pstack: ["caller", "help", "viadoc"], "cursor-team-kit": [] });
-    expect(again.exitCode).toBe(0);
-    expect(snapshot(sb.generated)).toEqual(first);
-  });
-
-  test("生成物の中で解決できない相対リンクがあると、どのファイルのどのリンクかを報告して失敗する", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", {
-      // 読み込まない cursor-team-kit のスキルを指すリンク
-      "cursor-team-kit/skills/deslop/SKILL.md": skillMd("deslop", "Then run [fix-ci](../fix-ci/SKILL.md)."),
-      // 上流に無い先を指すリンクは、上流でも解決しないので問題にしない
-      "pstack/skills/broken/SKILL.md": skillMd("broken", "See [gone](../../docs/gone.md)."),
-    });
-    sb.pin();
-
-    const run = await sb.sync();
-
-    expect(run.exitCode).toBe(1);
-    expect(run.stderr).toContain("cursor-team-kit/skills/deslop/SKILL.md");
-    expect(run.stderr).toContain("../fix-ci/SKILL.md");
-    expect(run.stderr).not.toContain("gone.md");
-    expect(existsSync(sb.generated)).toBe(false);
-  });
-
-  test("用語を使うスキルの SKILL.md に H1 が無いと、そのスキルを報告して失敗する", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", { "pstack/skills/noh1/SKILL.md": "---\nname: noh1\n---\n\n## Only H2\n\nSpawn one `Task`.\n" });
-    sb.pin();
-    sb.table(table(["`Task`"]));
-
-    const run = await sb.sync();
-
-    expect(run.exitCode).toBe(1);
-    expect(run.stderr).toContain("pstack/skills/noh1/SKILL.md");
-    expect(run.stderr).toContain("H1");
-    expect(existsSync(sb.generated)).toBe(false);
-  });
-});
-
-describe("検出する用語の一覧", () => {
-  test("26項目あり、各項目を使うスキルが、表が空なら対応行のない用語として報告される", async () => {
-    const sb = sandbox();
-    const files: Record<string, string> = {};
-    SAMPLES.forEach(({ text }, i) => {
-      files[`pstack/skills/s${String(i).padStart(2, "0")}/SKILL.md`] = skillMd(`s${i}`, text);
-    });
-    sb.commit("0.15.46", files);
-    sb.pin();
-
-    const run = await sb.sync();
-
-    expect(run.exitCode).toBe(1);
-    const missing = missingRows(run);
-    expect([...missing.keys()]).toEqual(TERM_KEYS);
-    expect(missing.get("/loop")).toEqual(["pstack/s23", "pstack/s24"]);
-    expect(existsSync(sb.generated)).toBe(false);
-  });
-
-  test.each(SAMPLES)("$key を「$text」から検出し、表にその行だけ欠けると失敗する", async ({ key, text }) => {
-    const sb = sandbox();
-    sb.commit("0.15.46", { "pstack/skills/user/SKILL.md": skillMd("user", text) });
-    sb.pin();
-    sb.table(table(TERM_KEYS.filter((k) => k !== key)));
-
-    const run = await sb.sync();
-
-    expect(run.exitCode).toBe(1);
-    expect(missingRows(run)).toEqual(new Map([[key, ["pstack/user"]]]));
-  });
-
-  test("似た書き方では検出せず、案内の1行も入れない", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", { "pstack/skills/lookalike/SKILL.md": skillMd("lookalike", LOOKALIKES.join("\n")) });
-    sb.pin();
-
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(readGenerated(sb, "pstack/skills/lookalike/SKILL.md")).toBe(skillMd("lookalike", LOOKALIKES.join("\n")));
-  });
-
-  test("参考の文書だけに用語があっても検出し、そのスキルの SKILL.md に案内の1行を入れる。参考の文書は上流のまま", async () => {
-    const sb = sandbox();
-    const playbook = "# Feature\n\nOpen it with `origin pr create`.\n";
-    sb.commit("0.15.46", {
-      "pstack/skills/mode/SKILL.md": skillMd("mode", "Pick a playbook."),
-      "pstack/skills/mode/playbooks/feature.md": playbook,
-    });
-    sb.pin();
-
-    const failed = await sb.sync();
-    expect(failed.exitCode).toBe(1);
-    expect(missingRows(failed)).toEqual(new Map([["origin pr", ["pstack/mode"]]]));
-
-    sb.table(table(["origin pr"]));
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(readGenerated(sb, "pstack/skills/mode/SKILL.md")).toBe(
-      `---\nname: mode\ndescription: test\n---\n\n# mode\n\n${GUIDE_LINE}\n\nPick a playbook.\n`,
-    );
-    expect(readGenerated(sb, "pstack/skills/mode/playbooks/feature.md")).toBe(playbook);
-  });
-});
-
-describe("読み替え表の対応行", () => {
-  test("用語が表の本文・ほかのセル・コードブロックに出てくるだけでは対応行とみなさない", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", { "pstack/skills/user/SKILL.md": skillMd("user", "Use generalPurpose here.") });
-    sb.pin();
-    sb.table(
-      EMPTY_TABLE +
-        "| `Task` | generalPurpose の代わりに task |\n" +
-        "\nThe generalPurpose agent maps to task.\n\n" +
-        "```md\n| generalPurpose | task |\n```\n",
-    );
-
-    const failed = await sb.sync();
-    expect(failed.exitCode).toBe(1);
-    expect(missingRows(failed)).toEqual(new Map([["generalPurpose", ["pstack/user"]]]));
-
-    sb.table(EMPTY_TABLE + "| 子の種類 `generalPurpose` | task |\n");
-    const run = await sb.sync();
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-  });
-
-  test("表のファイルが無いと失敗する", async () => {
+  test("規則も全文差し替えも無ければ、そう表示する", async () => {
     const sb = sandbox();
     sb.commit("0.15.46");
     sb.pin();
-    sb.table(null);
 
     const run = await sb.sync();
 
-    expect(run.exitCode).toBe(1);
-    expect(run.stderr).toContain("skills/pstack-omp/SKILL.md");
-    expect(existsSync(sb.generated)).toBe(false);
-  });
-
-  test("失敗しても前回の生成物を変えず、途中の生成物を残さない", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46");
-    sb.pin();
-    expect((await sb.sync()).exitCode).toBe(0);
-    const before = snapshot(sb.generated);
-    sb.commit("0.15.47", { "pstack/skills/user/SKILL.md": skillMd("user", "Spawn one `Task`.") });
-    sb.pin();
-
-    const run = await sb.sync();
-
-    expect(run.exitCode).toBe(1);
-    expect(missingRows(run)).toEqual(new Map([["`Task`", ["pstack/user"]]]));
-    expect(snapshot(sb.generated)).toEqual(before);
-    expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
-  });
-
-  test("表が示す生成先の中のパス（<X>/generated/...）が生成物に無い、または生成物の外を指すと、そのパスを報告して失敗する", async () => {
-    const sb = sandbox();
-    sb.commit("0.15.46", { "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn the reviewer.") });
-    sb.pin();
-    const paths =
-      "\n定義は `<X>/generated/pstack/agents/comment-sicko.md`、版は `<X>/generated/manifest.json`、" +
-      "スキルは `<X>/generated/pstack/skills/poteto-mode` にある（`<X>` は生成先の親）。\n";
-    sb.table(table(["comment-sicko"]) + paths + "古い定義は `<X>/upstream/pstack/agents/comment-sicko.md` にある。\n");
-
-    const failed = await sb.sync();
-    expect(failed.exitCode).toBe(1);
-    const reported = failed.stderr.split("\n").filter((line) => line.startsWith("  "));
-    expect(reported).toEqual(["  <X>/generated/pstack/agents/comment-sicko.md", "  <X>/upstream/pstack/agents/comment-sicko.md"]);
-    expect(existsSync(sb.generated)).toBe(false);
-
-    sb.commit("0.15.47", {
-      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn [the reviewer](../../agents/comment-sicko.md)."),
-      "pstack/agents/comment-sicko.md": "---\nname: comment-sicko\n---\n\nReview comments.\n",
-    });
-    sb.pin();
-    sb.table(table(["comment-sicko"]) + paths);
-    const run = await sb.sync();
-
-    expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(existsSync(join(sb.generated, "pstack/agents/comment-sicko.md"))).toBe(true);
+    expect(run.stdout).toContain("規則ごとの一致数: 規則はありません\n全文差し替え: ありません\n");
   });
 });
 
@@ -444,15 +576,22 @@ describe("同じ入力から同じ出力になる", () => {
     sb.commit(
       "0.15.46",
       {
-        "pstack/skills/zeta/SKILL.md": skillMd("zeta", "Spawn one `Task`."),
-        "pstack/skills/alpha/SKILL.md": skillMd("alpha", "Read [guide](../../docs/guide/README.md)."),
+        [SETUP]: SETUP_UPSTREAM,
+        "pstack/skills/zeta/SKILL.md": skillMd("zeta", "Spawn one worker."),
+        "pstack/skills/alpha/SKILL.md": skillMd("alpha", "Read the notes."),
         "pstack/skills/alpha/scripts/go.sh": "#!/bin/sh\n",
-        "pstack/docs/guide/README.md": "# Guide\n",
+        "pstack/agents/comment-sicko.md": "Spawn one worker per file.\n",
       },
       ["pstack/skills/alpha/scripts/go.sh"],
     );
     sb.pin();
-    sb.table(table(["`Task`"]));
+    sb.transform("forks/setup.md", SETUP_BODY);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+    rules(
+      sb,
+      [{ id: "worker", reason: "子の起動", regex: "Spawn one (\\w+)", replace: "Start one $1" }],
+      ["  - from: pstack/agents/comment-sicko.md", "    to: pstack/skills/alpha/references/comment-sicko.md", "    reason: 付属文書"],
+    );
     const other = join(sb.root, "data-2");
 
     expect((await sb.sync()).exitCode).toBe(0);
@@ -463,5 +602,6 @@ describe("同じ入力から同じ出力になる", () => {
     expect(snapshot(sb.generated)).toEqual(first);
     expect(snapshot(join(other, "pstack-omp", "generated"))).toEqual(first);
     expect(first.get("pstack/skills/alpha/scripts/go.sh")?.executable).toBe(true);
+    expect(readGenerated(sb, "pstack/skills/alpha/references/comment-sicko.md")).toBe("Start one worker per file.\n");
   });
 });
