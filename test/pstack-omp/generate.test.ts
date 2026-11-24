@@ -67,6 +67,32 @@ describe("生成の対象", () => {
       ),
     );
   });
+
+  test("生成物には以前の読み替え表のスキル pstack-omp も、それを読ませる案内の1行も無く、規則の無いスキルは上流のまま。manifest の生成したスキルにも pstack-omp は無い", async () => {
+    const sb = sandbox({ repoContent: true });
+    const tdd = skillMd("tdd", "Red, green.");
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": tdd });
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(0);
+    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-mode", "tdd"]);
+    expect(skillNames(join(sb.generated, "cursor-team-kit/skills"))).toEqual(["control-cli", "control-ui", "deslop"]);
+    expect(readGenerated(sb, "pstack/skills/tdd/SKILL.md")).toBe(tdd);
+    const markdown = [...snapshot(sb.generated)].filter(([path]) => path.endsWith(".md"));
+    expect(markdown.length).toBe(5);
+    expect(markdown.filter(([, entry]) => Buffer.from(entry.content, "base64").toString("utf8").includes("pstack-omp")).map(([path]) => path)).toEqual([]);
+    expect(JSON.parse(readGenerated(sb, "manifest.json")).skills).toEqual({ pstack: ["poteto-mode", "tdd"], "cursor-team-kit": ["control-cli", "control-ui", "deslop"] });
+  });
+
+  test("リポジトリの変換の入力（規則の置換文・全文差し替えの本文）は、読み替え表のスキル pstack-omp を読ませる文を生成物に入れない", () => {
+    const texts = [...snapshot(REPO_TRANSFORM)].map(([path, entry]) => [path, Buffer.from(entry.content, "base64").toString("utf8")] as const);
+    const offending = texts.filter(([, text]) => /skill:\/\/pstack-omp|\/skill:pstack-omp|`pstack-omp`/.test(text)).map(([path]) => path);
+
+    expect(texts.map(([path]) => path)).toContain("rules.yml");
+    expect(offending).toEqual([]);
+  });
 });
 
 describe("置換規則", () => {

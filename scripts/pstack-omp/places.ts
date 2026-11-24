@@ -1,12 +1,9 @@
-// OMP がエージェント定義とスキルを読む置き場から、名前を集める（状態の表示の、プロジェクトの置き場の名前のぶつかりと、読み込む全スキルの名前のため）。
-// エージェントの名前は <dir>/*.md の frontmatter の name（無いか空ならファイル名）、スキルの名前は <dir>/*/SKILL.md の frontmatter の name の
-// 前後の空白（改行を含む）を除いたもの（無いか、除いて空ならディレクトリ名。OMP 19.1.0 の scanSkillsFromDir と同じ。エージェントの名前は
-// OMP も除かない）。OMP と同じく非再帰で読む。置き場が無ければ何も無いとみなす。
-// OMP は description の無いスキルや enabled: false のスキルを読まないが、ここではそれを見分けず、在るスキルはすべて名前を集める。
-// 通常の omp が実際に読むスキルは omp-skills.ts が OMP と同じ条件で集める。
-// 定義のファイルが在るのに読めない（権限が無い、SKILL.md という名前のディレクトリなど）なら、名前を確かめられないので例外にせず、
+// OMP がエージェント定義を読む置き場から、名前を集める（状態の表示の、プロジェクトの置き場の名前のぶつかりのため）。
+// エージェントの名前は <dir>/*.md の frontmatter の name（無いか空ならファイル名。OMP と同じく前後の空白は除かない）。OMP と同じく非再帰で読む。
+// 置き場が無ければ何も無いとみなす。プロジェクトのスキルは omp-skills.ts が OMP と同じ条件で集める。
+// 定義のファイルが在るのに読めない（権限が無いなど）なら、名前を確かめられないので例外にせず、
 // unreadable に入れて呼び出し側に返す（状態の表示はそのファイルを表示する）。
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 export interface Definition {
@@ -22,21 +19,26 @@ export interface Found {
   unreadable: string[];
 }
 
-function skillsIn(dir: string): Found {
-  return collect(entries(dir).map((entry) => ({ kind: "skill", path: join(dir, entry, "SKILL.md"), fallback: entry })));
-}
-
+// <dir>/*.md のエージェント定義。在るのに読めなければ unreadable に入れる
 function agentsIn(dir: string): Found {
-  return collect(
-    entries(dir)
-      .filter((entry) => entry.endsWith(".md") && isFile(join(dir, entry)))
-      .map((entry) => ({ kind: "agent", path: join(dir, entry), fallback: basename(entry, ".md") })),
-  );
+  const found: Found = { definitions: [], unreadable: [] };
+  for (const entry of entries(dir).filter((e) => e.endsWith(".md") && isFile(join(dir, e)))) {
+    const path = join(dir, entry);
+    let text: string;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch {
+      found.unreadable.push(path);
+      continue;
+    }
+    found.definitions.push({ kind: "agent", name: frontmatterName(text) || basename(entry, ".md"), path });
+  }
+  return found;
 }
 
-// OMP 向けのディレクトリ（拡張のパッケージ）の skills/ と agents/
-export function packageDefinitions(dir: string): Found {
-  return merge([skillsIn(join(dir, "skills")), agentsIn(join(dir, "agents"))]);
+// OMP 向けのディレクトリ（拡張のパッケージ）の agents/
+export function packageAgents(dir: string): Found {
+  return agentsIn(join(dir, "agents"));
 }
 
 // 実行したディレクトリのプロジェクトのエージェント定義: OMP 19.1.0 の task の探索（findAllNearestProjectConfigDirs）と同じく、
@@ -94,28 +96,6 @@ function isDirectory(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-// 在る定義のファイル（path）を読んで名前を集める（名前の決め方は冒頭のとおり）。在るのに読めなければ unreadable に入れる
-function collect(candidates: { kind: Definition["kind"]; path: string; fallback: string }[]): Found {
-  const found: Found = { definitions: [], unreadable: [] };
-  for (const { kind, path, fallback } of candidates) {
-    if (!existsSync(path)) continue;
-    let text: string;
-    try {
-      text = readFileSync(path, "utf8");
-    } catch {
-      found.unreadable.push(path);
-      continue;
-    }
-    const raw = frontmatterName(text);
-    found.definitions.push({ kind, name: (kind === "skill" ? raw?.trim() : raw) || fallback, path });
-  }
-  return found;
-}
-
-function merge(list: Found[]): Found {
-  return { definitions: list.flatMap((f) => f.definitions), unreadable: list.flatMap((f) => f.unreadable) };
 }
 
 // frontmatter（先頭の --- から --- まで）の name（文字列のときだけ。そのままの形）。無い・読めない frontmatter なら undefined

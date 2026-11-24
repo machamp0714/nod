@@ -1,7 +1,7 @@
 // README の一度だけ登録する値が、status が既定の置き場で表示する値と同じで、固定の記録のコミットのものであることと、
-// リポジトリの poteto-agent の定義を確かめる（どちらも Task 4 で新しい方式に合わせて直す）。
+// リポジトリの OMP 向けのディレクトリ（poteto-agent だけで、以前の読み替え表のスキルは無い）を確かめる。
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { REPO_CONTENT, sandbox } from "./helpers";
 
@@ -14,15 +14,15 @@ const CURSOR_TEAM_KIT = ["control-cli", "control-ui", "deslop"];
 
 describe("README の一度だけ登録する値", () => {
   test("固定の記録のコミットのものと書かれている", () => {
-    expect(README).toContain(`のコミット \`${PIN.commit}\` から生成した全スキルと \`pstack-omp\``);
+    expect(README).toContain(`のコミット \`${PIN.commit}\` から生成した全スキルです。`);
   });
 
   test("既定の置き場（~/.local/share/nod）の生成物で status が表示する値と、キー・パス・名前・順まで同じである", async () => {
     expect(REGISTRATION).toBeDefined();
     // README の yaml の形（上の正規表現で取り出した、extensions・skills.customDirectories・skills.manualSkills の3つ）
     const parsed = Bun.YAML.parse(REGISTRATION!) as { skills: { manualSkills: string[] } };
-    const names = parsed.skills.manualSkills;
-    const generated = names.filter((name) => name !== "pstack-omp");
+    const generated = parsed.skills.manualSkills;
+    expect(generated).not.toContain("pstack-omp");
     const sb = sandbox({ repoContent: true });
     sb.commit("0.15.46");
     sb.pin();
@@ -42,10 +42,23 @@ describe("README の一度だけ登録する値", () => {
 });
 
 describe("リポジトリの OMP 向けのディレクトリ（poteto-agent）", () => {
-  test("リポジトリの poteto-agent の定義は、役割 task のモデルで、読み替え表を自動で読み、既定の task と poteto-agent を起動できる", () => {
-    const text = readFileSync(join(REPO_CONTENT, "agents", "poteto-agent.md"), "utf8");
-    const frontmatter = Bun.YAML.parse(/^---\n([\s\S]*?)\n---\n/.exec(text)![1]!) as Record<string, unknown>;
+  test("エージェント定義 poteto-agent だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
+    expect(readdirSync(REPO_CONTENT)).toEqual(["agents"]);
+    expect(readdirSync(join(REPO_CONTENT, "agents"))).toEqual(["poteto-agent.md"]);
+    expect(existsSync(join(REPO_CONTENT, "skills"))).toBe(false);
+  });
 
-    expect(frontmatter).toMatchObject({ name: "poteto-agent", model: "@task", spawns: ["task", "poteto-agent"], "autoload-skills": "pstack-omp" });
+  test("poteto-agent は役割 task のモデルで既定の task と poteto-agent を起動でき、読み替え表を自動で読まず、poteto-mode を読んでから生成済みの手順に従う", () => {
+    const text = readFileSync(join(REPO_CONTENT, "agents", "poteto-agent.md"), "utf8");
+    const [, head, body] = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text)!;
+    const frontmatter = Bun.YAML.parse(head!) as Record<string, unknown>;
+
+    expect(Object.keys(frontmatter).sort()).toEqual(["description", "model", "name", "spawns"]);
+    expect(frontmatter).toMatchObject({ name: "poteto-agent", model: "@task", spawns: ["task", "poteto-agent"] });
+    expect(frontmatter.description).toContain("/skill:poteto-mode");
+    expect(text).not.toContain("pstack-omp");
+    expect(body).toContain("skill://poteto-mode");
+    expect(body).toContain("skill://principle-<name>");
+    expect(body).toContain("stop and tell your parent");
   });
 });

@@ -13,9 +13,6 @@ const CLI = join(import.meta.dir, "../../scripts/pstack-omp/cli.ts");
 export const REPO_CONTENT = join(import.meta.dir, "../../omp/content");
 // nod のリポジトリの変換の入力のディレクトリ
 export const REPO_TRANSFORM = join(import.meta.dir, "../../scripts/pstack-omp/transform");
-// OMP 向けのディレクトリの中身に既定で置く旧方式の読み替え表のスキル（status の表示が読む。Task 4 で外す）
-const TABLE = "skills/pstack-omp/SKILL.md";
-const TABLE_CONTENT = "# pstack-omp\n\n| Cursor | OMP |\n| --- | --- |\n";
 // OMP の設定の根・profile・設定の重ねを選ぶ環境変数。テストを動かす端末の値を引き継がない（テストが足すときだけ使う）
 const SELECTORS = ["PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE", "PI_CONFIG_FILES"];
 
@@ -222,7 +219,6 @@ export function sandbox({ repoContent = false }: { repoContent?: boolean } = {})
   copyFileSync(join(REPO_TRANSFORM, "denylist.yml"), join(transformDir, "denylist.yml"));
   sb.transform("rules.yml", "rules: []\n");
   sb.transform("forks.yml", "forks: []\n");
-  if (!repoContent) sb.content(TABLE, TABLE_CONTENT);
   return sb;
 }
 
@@ -260,9 +256,9 @@ export function put(path: string, text: string): void {
   writeFileSync(path, text);
 }
 
-// 上流に pstack の tdd と poteto-mode、cursor-team-kit の3つを置き、固定の記録どおりに同期した sandbox
-export async function synced(): Promise<Sandbox> {
-  const sb = sandbox();
+// 上流に pstack の tdd と poteto-mode、cursor-team-kit の3つを置き、固定の記録どおりに同期した sandbox（repoContent は sandbox と同じ）
+export async function synced({ repoContent = false }: { repoContent?: boolean } = {}): Promise<Sandbox> {
+  const sb = sandbox({ repoContent });
   sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
   sb.pin();
   const run = await sb.sync();

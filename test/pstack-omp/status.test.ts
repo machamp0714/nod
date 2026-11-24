@@ -13,8 +13,8 @@ async function withAgent(): Promise<Sandbox> {
   return sb;
 }
 
-// 読み込む全スキル（synced の生成したスキルと、OMP 向けのディレクトリの読み替え表のスキル）
-const MANUAL = ["poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"];
+// 読み込む全スキル（synced の生成したスキル。生成物の manifest の名前だけ）
+const MANUAL = ["poteto-mode", "tdd", "control-cli", "control-ui", "deslop"];
 
 // 生成先の中の、skills.customDirectories に登録するスキルの置き場
 function skillDirs(sb: Sandbox): string[] {
@@ -62,7 +62,7 @@ function registration(sb: Sandbox, names = MANUAL): string {
   ].join("\n");
 }
 
-const REGISTERED = "→ 揃っています。通常の omp の新しく始めるセッションが pstack の生成したスキル・読み替え表・poteto-agent を読み込みます";
+const REGISTERED = "→ 揃っています。通常の omp の新しく始めるセッションが pstack の生成したスキルと poteto-agent を読み込みます";
 const HOW_TO_REGISTER =
   "一度だけ、次の3つを手で登録してください。既にある値は残し、skills.customDirectories の2つは先頭に置きます（pstack の tdd を優先するため）。status は設定を書き換えません";
 
@@ -97,9 +97,9 @@ describe("生成物・OMP の版・読み込みの設定", () => {
     expect(run.stdout).toContain(
       `  OMP の設定 ${config}: 読み込みの設定が欠けています（extensions に ${sb.packageDir} がありません、` +
         `skills.customDirectories に ${sb.generated}/pstack/skills がありません、skills.customDirectories に ${sb.generated}/cursor-team-kit/skills がありません、` +
-        "skills.manualSkills に poteto-mode, tdd, control-cli, control-ui, deslop, pstack-omp がありません）\n",
+        "skills.manualSkills に poteto-mode, tdd, control-cli, control-ui, deslop がありません）\n",
     );
-    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb)}`);
+    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb)}どの tdd が使われるか:\n`);
     expect(run.stdout).not.toContain(REGISTERED);
     expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${userTdd}）が使われます`);
   });
@@ -202,7 +202,25 @@ describe("生成物・OMP の版・読み込みの設定", () => {
 
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain(`OMP の設定 ${realpathSync(sb.configPath)}: 読み込みの設定が欠けています（skills.manualSkills に added がありません）\n`);
-    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb, ["added", "poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"])}`);
+    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb, ["added", ...MANUAL])}どの tdd が使われるか:\n`);
+  });
+
+  test("リポジトリの omp/content を使っても、一度だけ登録する値の skills.manualSkills は生成したスキルの名前だけで、以前の読み替え表 pstack-omp を含まず、それだけで揃う", async () => {
+    const sb = sandbox({ repoContent: true });
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+    sb.pin();
+    expect((await sb.sync()).exitCode).toBe(0);
+
+    const before = await sb.run("status");
+    register(sb);
+    const after = await sb.run("status");
+
+    expect(before.exitCode).toBe(0);
+    expect(before.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb)}どの tdd が使われるか:\n`);
+    expect(before.stdout).not.toContain("- pstack-omp");
+    expect(after.exitCode).toBe(0);
+    expect(after.stdout).toContain(`  ${REGISTERED}\n`);
+    expect(after.stdout).not.toContain("読み替え表");
   });
 
   test("config.yml が無く config.yaml に登録していれば、OMP が読むのは config.yaml であることと、揃っていることを表示する", async () => {
@@ -230,7 +248,8 @@ describe("生成物・OMP の版・読み込みの設定", () => {
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain(`  生成物 ${sb.generated}: ありません（bun scripts/pstack-omp/cli.ts sync で作ります）\n`);
     expect(run.stdout).toContain(
-      `  → ${HOW_TO_REGISTER}（生成物がまだ無いので、skills.manualSkills の生成したスキルの名前は bun scripts/pstack-omp/cli.ts sync の後に出ます）\n${registration(sb, ["pstack-omp"])}`,
+      `  → ${HOW_TO_REGISTER}（生成物がまだ無いので、skills.manualSkills の生成したスキルの名前は bun scripts/pstack-omp/cli.ts sync の後に出ます）\n` +
+        `${registration(sb, []).replace("  manualSkills:\n", "  manualSkills: []\n")}どの tdd が使われるか:\n`,
     );
   });
 
@@ -816,8 +835,8 @@ describe("生成物・OMP の版・読み込みの設定", () => {
 });
 
 describe("プロジェクトの置き場の名前のぶつかり", () => {
-  test("実行したディレクトリから git の作業ツリーの根までの置き場にある、今回の定義・読み替え表・生成したスキルと同じ名前を報告する", async () => {
-    const sb = await withAgent();
+  test("実行したディレクトリから git の作業ツリーの根までの置き場にある、今回の定義（リポジトリの poteto-agent）・生成したスキルと同じ名前を報告し、以前の読み替え表 pstack-omp と同じ名前は報告しない", async () => {
+    const sb = await synced({ repoContent: true });
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
     put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nproject\n");
@@ -834,9 +853,8 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     expect(run.exitCode).toBe(0);
     const section = run.stdout.slice(run.stdout.indexOf(`プロジェクト（${real}）`));
     expect(section.trim().split("\n").slice(1)).toEqual([
-      `  ${real}/.omp/agents/poteto-agent.md: エージェント poteto-agent。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません`,
+      `  ${real}/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`,
       `  ${real}/.omp/skills/tdd/SKILL.md: スキル tdd。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/tdd の名前になります`,
-      `  ${real}/.agents/skills/table/SKILL.md: スキル pstack-omp。今回の読み替え表のスキルと同じ名前なので、どちらかが <名前空間>/pstack-omp の名前になり、skill://pstack-omp で今回の表を読めないことがあります`,
     ]);
   });
 
@@ -895,7 +913,7 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
   });
 
   const TDD_CLASH = "スキル tdd。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/tdd の名前になります";
-  const TABLE_CLASH = "スキル pstack-omp。今回の読み替え表のスキルと同じ名前なので、どちらかが <名前空間>/pstack-omp の名前になり、skill://pstack-omp で今回の表を読めないことがあります";
+  const MODE_CLASH = "スキル poteto-mode。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/poteto-mode の名前になります";
 
   test("git の作業ツリーの外のホームの下では、OMP と同じくホームの手前までの祖先のプロジェクトの置き場にある同じ名前を報告し、ホームの置き場（利用者の置き場）は報告しない", async () => {
     const sb = await withAgent();
@@ -903,13 +921,13 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const dir = join(home, "work", "sub");
     mkdirSync(dir, { recursive: true });
     put(join(home, "work", ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
-    put(join(home, "work", ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "ancestor"));
-    put(join(home, ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "user"));
+    put(join(home, "work", ".agents", "skills", "mode", "SKILL.md"), skillMd("poteto-mode", "ancestor"));
+    put(join(home, ".agents", "skills", "mode", "SKILL.md"), skillMd("poteto-mode", "user"));
 
     const run = await sb.run("status", { cwd: dir, env });
 
     expect(run.exitCode).toBe(0);
-    expect(projectSection(run.stdout, dir)).toEqual([`  ${home}/work/.omp/skills/tdd/SKILL.md: ${TDD_CLASH}`, `  ${home}/work/.agents/skills/table/SKILL.md: ${TABLE_CLASH}`]);
+    expect(projectSection(run.stdout, dir)).toEqual([`  ${home}/work/.omp/skills/tdd/SKILL.md: ${TDD_CLASH}`, `  ${home}/work/.agents/skills/mode/SKILL.md: ${MODE_CLASH}`]);
   });
 
   test("git の作業ツリーの外のホームの外でも、祖先のプロジェクトの .claude/skills にある同じ名前を報告する", async () => {
@@ -930,7 +948,7 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
     put(join(project, ".omp", "skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\nproject\n");
-    put(join(project, ".claude", "skills", "table", "SKILL.md"), "---\nname: pstack-omp\ndescription: test\nenabled: false\n---\n");
+    put(join(project, ".claude", "skills", "mode", "SKILL.md"), "---\nname: poteto-mode\ndescription: test\nenabled: false\n---\n");
     put(join(project, ".agents", "skills", "t", "SKILL.md"), "---\nname: tdd\n---\n\nagents\n");
     put(sb.configPath, "disabledExtensions:\n  - skill:tdd\n");
     const real = realpathSync(project);

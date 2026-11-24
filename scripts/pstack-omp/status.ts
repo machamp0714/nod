@@ -3,7 +3,7 @@
 // - 生成物（固定の生成先 <データ置き場>/pstack-omp/generated の manifest.json）の元にした pin が固定の記録と一致するかと、OMP の版。
 // - OMP が global の設定として読むファイル（config.yml、無ければ config.yaml）に、利用者が一度だけ手で登録する3つの読み込みの設定が揃っているか:
 //   extensions に OMP 向けのディレクトリ（既定は nod のリポジトリの omp/content）、skills.customDirectories に生成先の pstack/skills と
-//   cursor-team-kit/skills、skills.manualSkills に読み込む全スキルの名前（生成物の manifest の名前と、OMP 向けのディレクトリのスキル）。
+//   cursor-team-kit/skills、skills.manualSkills に読み込む全スキルの名前（生成物の manifest の、生成したスキルの名前だけ）。
 //   パスは ~ を展開し別名を解いて比べ、名前は OMP 19.1.0 と同じく skills.manualSkills の各項目を Bun.Glob のパターンとして当てる。
 //   欠けていれば、欠けているものと、一度だけ登録する値（そのまま貼れる YAML）を出す。
 // - 通常の omp でどの tdd が使われるか（通常の omp が実行したディレクトリで実際に読むスキル（omp-skills.ts の normalOmpSkills: OMP 19.1.0 と
@@ -13,13 +13,14 @@
 //   プロジェクトの設定の層は見ない。プラグインの登録などの中を調べない読み込み元が、選んだものより先に tdd を取りうるなら、そのことを添える）。
 // - 実行したディレクトリのプロジェクトの置き場（スキルは通常の omp がプロジェクトの置き場として読むもの（omp-skills.ts。git の外ではホームの
 //   手前までの祖先も読む）、エージェント定義は OMP と同じく実行したディレクトリから遡って最も近い .omp/agents（places.ts の projectAgents））
-//   にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、名前を確かめられないことをそのファイルごとに出す。
+//   にある、OMP 向けのディレクトリのエージェント定義（poteto-agent）や生成したスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに
+//   読めなければ、名前を確かめられないことをそのファイルごとに出す。
 import { resolve } from "node:path";
 import { globalConfigPath, type OmpConfig, readConfig, stringList, yamlConfigPath } from "./config";
 import { type Context, readOmpVersion, userAgentDir } from "./context";
 import { generatedDir, readManifest, samePin, skillDirs } from "./generate";
 import { bareSkill, findRepoRoot, normalOmpSkills, type OmpSkills } from "./omp-skills";
-import { type Definition, expand, packageDefinitions, projectAgents, real, within } from "./places";
+import { type Definition, expand, packageAgents, projectAgents, real, within } from "./places";
 
 const SYNC = "bun scripts/pstack-omp/cli.ts sync";
 
@@ -52,11 +53,9 @@ export function status(ctx: Context, cwd: string): string[] {
   }
   lines.push(`  OMP の版: ${version}（固定の記録 ${ctx.pin.ompVersion}）${version === ctx.pin.ompVersion ? "" : "。版が違います（sync は止まります）"}`);
 
-  // 読み込む全スキルの名前: 生成したスキル（生成物の manifest）と、OMP 向けのディレクトリのスキル（読み替え表 pstack-omp）
-  const content = packageDefinitions(ctx.packageDir).definitions;
+  // 読み込む全スキルの名前は、生成したスキル（生成物の manifest）の名前だけ
   const generatedNames = manifest?.names ?? [];
-  const contentSkills = content.filter((d) => d.kind === "skill" && !generatedNames.includes(d.name)).map((d) => d.name);
-  const loading: Loading = { extensions: [ctx.packageDir], customDirectories: skillDirs(generated), manualSkills: [...generatedNames, ...contentSkills] };
+  const loading: Loading = { extensions: [ctx.packageDir], customDirectories: skillDirs(generated), manualSkills: generatedNames };
 
   lines.push("読み込みの設定:");
   // OMP がいま global の設定として読むファイル
@@ -84,7 +83,7 @@ export function status(ctx: Context, cwd: string): string[] {
         `${loading.customDirectories.join(", ")}、skills.manualSkills に ${loading.manualSkills.length} 個のスキル）`,
       manifest === undefined
         ? `  → 読み込みの設定は揃っていますが、生成物が無いので、${SYNC} するまで pstack の生成したスキルは読み込まれません`
-        : "  → 揃っています。通常の omp の新しく始めるセッションが pstack の生成したスキル・読み替え表・poteto-agent を読み込みます",
+        : "  → 揃っています。通常の omp の新しく始めるセッションが pstack の生成したスキルと poteto-agent を読み込みます",
     );
   }
 
@@ -128,15 +127,15 @@ export function status(ctx: Context, cwd: string): string[] {
   const agents = projectAgents(cwd);
   const project: Definition[] = [...agents.definitions, ...user.skills.filter((s) => s.project).map((s): Definition => ({ kind: "skill", name: s.name, path: s.path }))];
   const unreadable = [...agents.unreadable, ...user.unreadable.filter((u) => u.project).map((u) => u.path)];
-  const contentNames = new Set(content.map((d) => `${d.kind}:${d.name}`));
+  const agentNames = new Set(packageAgents(ctx.packageDir).definitions.map((d) => d.name));
   const generatedSet = new Set(generatedNames);
-  const clashes = project.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedSet.has(d.name)));
+  const clashes = project.filter((d) => (d.kind === "agent" ? agentNames : generatedSet).has(d.name));
   lines.push(
     `プロジェクト（${root}）の置き場（エージェント定義は、実行したディレクトリから遡って最も近い .omp/agents。根の外やホームにあっても OMP が読む）にある、` +
       "今回の定義やスキルと同じ名前のもの（通常の omp で効く）:",
   );
   if (clashes.length === 0 && unreadable.length === 0) lines.push("  ありません");
-  for (const d of clashes) lines.push(`  ${d.path}: ${explain(d, generatedSet)}`);
+  for (const d of clashes) lines.push(`  ${d.path}: ${explain(d)}`);
   for (const path of unreadable) lines.push(`  ${path}: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`);
   return lines;
 }
@@ -165,8 +164,7 @@ function registration(loading: Loading): string[] {
   return yaml.replace(/: +$/gm, ":").replace(/\n$/, "").split("\n");
 }
 
-function explain(d: Definition, generatedNames: Set<string>): string {
+function explain(d: Definition): string {
   if (d.kind === "agent") return `エージェント ${d.name}。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません`;
-  if (generatedNames.has(d.name)) return `スキル ${d.name}。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/${d.name} の名前になります`;
-  return `スキル ${d.name}。今回の読み替え表のスキルと同じ名前なので、どちらかが <名前空間>/${d.name} の名前になり、skill://${d.name} で今回の表を読めないことがあります`;
+  return `スキル ${d.name}。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/${d.name} の名前になります`;
 }
