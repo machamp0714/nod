@@ -14,7 +14,6 @@ pstack のスキルは Cursor の名前で書かれている。OMP では、psta
 - 「使わない。行き当たったら止まって報告する」と書いた項目に当たったら、その手順を始めずに止まる。どのスキルのどの手順の、どの項目で止まったかを報告する。子なら、親への最終の返答に書く。黙って飛ばさない。代わりの仕組みを自分で組まない。
 - 別の pstack のスキル（`/name`、「the **name** skill」、`../<name>/SKILL.md`）は、`read` で `skill://<name>` を読んで従う。スキルの中のファイルは `skill://<name>/<path>` で読む。cursor-team-kit の `deslop`（`/deslop`）、`control-ui`、`control-cli` も同じで、`skill://deslop` のように読む。利用者に入力してもらうときは `/skill:<name>` と書く。
 - 子に pstack のスキルを読ませるときは、brief の初めに、先に `skill://pstack-omp` を読むよう書く。`poteto-agent` で起動した子は、この表を自動で読む。
-- この段では push、PR の作成、マージをしない。PR を開く手前で止まる（「PR と push」の節）。
 
 ## ツール
 
@@ -76,15 +75,11 @@ OMP では、子のモデルと思考の水準を OMP の設定で決める。�
 | Cursor-only features: Cursor cloud agents（autopilot-full の PR ごとの owner、shipping の PR ごとの verifier、cloud-agent の URL など） | 使わない。行き当たったら止まって報告する。 |
 | Cursor-only features: Cursor Automations（routines、`update_state`、`api2.cursor.sh/automations` の webhook、routine の起床、`SendToUser`） | 使わない。行き当たったら止まって報告する。 |
 | Cursor-only features: Bugbot | PR に既にある Bugbot のコメントは、ほかの review thread と同じに仕分ける。Bugbot を起動する、待つ、設定する手順は、使わない。行き当たったら止まって報告する。 |
-| Cursor-only features: 組み込みの PR ツール（`draft: false`） | 「PR と push」の節のとおり、この段では PR を作らない。 |
 | /loop（Cursor の組み込みの `/loop` で、自分を後から起こす仕組み。autonomous-run の step 2、autopilot-full の `/loop 1h`、autopilot-stack の tick、shipping の step 5、visual-parity の step 4、bug-fix の step 2、「/loop until done」） | 使わない。行き当たったら止まって報告する。OMP にも `/loop` という名前のコマンドがあるが、別の仕組みとして扱い、置き換えに使わない。 |
 
-## PR と push
+## PR
 
 | Cursor | OMP |
 | --- | --- |
-| origin pr（Origin の CLI。`origin pr view`、`origin pr create` など） | OMP での読み替えは無い。手順のとおり `command -v origin` で確かめ、無ければ `gh` を使う。どちらを使っても、push、PR の作成、マージはこの段ではしない。PR を読むだけの操作（`gh pr view` など）は使える。 |
-
-この段では、PR を開く手前で止まる。push と PR の作成はしない。後の段で専用の処理を用意する。Opening a PR の手順は、コミットの整理と `/deslop`（`skill://deslop`）、PR のタイトルと本文の作成までを行い、そこで止まる。報告には、作業した枝、先頭のコミット、PR のタイトルと本文を書く。
-
-この段では、これらの操作は仕組みでも拒否される。bash の `git push`、`gh` と `origin` の PR・Issue などへの書き込み（`gh pr create`、`gh api` の `-X` や `-f` など）、`github` ツールの `pr_create` と `pr_push`、`eval`、`task` の `isolated: true`、子と孫からの `poteto-agent` と既定の `task` 以外の起動、OMP の設定と組の置き場への書き込みである。拒否されたら、別の書き方や別の道具で迂回しない。止まって、拒否された操作と理由を報告する。
+| origin pr（Origin の CLI。`origin pr view`、`origin pr create` など） | OMP での読み替えは無い。手順のとおり `command -v origin` で確かめ、無ければ `gh` を使う。 |
+| Cursor-only features: 組み込みの PR ツール（`draft: false`） | OMP にこの PR ツールは無い。手順の、PR ツールが無いときの書き方（「Without one」）のとおりに PR を作る。`command -v origin` で Origin の CLI が使え、リポジトリを解決できれば `origin pr create --status open`、そうでなければ `gh pr create` を `--draft` を付けずに使う（ready の PR になる）。 |

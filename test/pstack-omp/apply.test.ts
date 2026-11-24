@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { put, type Sandbox, sandbox, skillMd, snapshot, synced } from "./helpers";
+import { put, type Run, type Sandbox, sandbox, skillMd, snapshot, synced } from "./helpers";
 
 // 利用者が既に書いている config.yml（コメントと、読み込みの設定とほかの設定を含む）
 const USER_CONFIG = `# 利用者のコメント
@@ -607,6 +607,72 @@ describe("旧管理配置からの切替", () => {
     expect(readFileSync(join(sb.agentDir, "config.yaml"), "utf8")).toBe(yaml);
     expect(existsSync(sb.configPath)).toBe(false);
   });
+
+  // path を置き換え（rename）できなくして（macOS の不変フラグ。読み取りと、同じディレクトリへの一時ファイルの作成は通る）command を実行し、
+  // 終わったらフラグを外す
+  async function runImmutable(sb: Sandbox, path: string, command: string): Promise<Run> {
+    const chflags = (flag: string): void => {
+      const run = Bun.spawnSync(["chflags", flag, path]);
+      if (run.exitCode !== 0) throw new Error(`chflags ${flag} に失敗: ${run.stderr.toString()}`);
+    };
+    chflags("uchg");
+    try {
+      return await sb.run(command);
+    } finally {
+      chflags("nouchg");
+    }
+  }
+
+  test.skipIf(process.platform !== "darwin")(
+    "旧の適用が作った config.yml を消して config.yaml に書く適用で、config.yaml の置き換えに失敗したら、消した config.yml を元のバイトに戻し、写しも前のままにして止まり、続く適用で移行する",
+    async () => {
+      const sb = await synced();
+      const { yaml } = legacyCreated(sb, false);
+      const yamlPath = join(sb.agentDir, "config.yaml");
+      const copy = snapshot(sb.copy);
+
+      const run = await runImmutable(sb, yamlPath, "apply");
+
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr).toContain("設定と写しは適用の前のまま");
+      expect(readFileSync(sb.configPath, "utf8")).toBe(legacyConfig(sb));
+      expect(readFileSync(yamlPath, "utf8")).toBe(yaml);
+      expect(snapshot(sb.copy)).toEqual(copy);
+      const retry = await sb.run("apply");
+      expect(retry.stderr).toBe("");
+      expect(retry.exitCode).toBe(0);
+      expect(existsSync(sb.configPath)).toBe(false);
+      expect(readYaml(yamlPath)).toEqual({
+        extensions: [copyPath(sb, "omp/content")],
+        skills: { customDirectories: [...skillDirs(sb), join(sb.root, "yaml-skills")], manualSkills: MANUAL },
+      });
+    },
+  );
+
+  test.skipIf(process.platform !== "darwin")(
+    "旧の適用が作った config.yml を消し、config.yaml から写しの中を指す項目を外す解除で、config.yaml の置き換えに失敗したら、config.yml・config.yaml・写しを前のままにして止まり、続く解除で外れる",
+    async () => {
+      const sb = await synced();
+      const { yaml } = legacyCreated(sb, false);
+      const yamlPath = join(sb.agentDir, "config.yaml");
+      const withCopy = `${yaml}extensions:\n  - /somewhere/ext-a\n  - ${copyPath(sb, "omp/content")}\n`;
+      put(yamlPath, withCopy);
+      const copy = snapshot(sb.copy);
+
+      const run = await runImmutable(sb, yamlPath, "remove");
+
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr).toContain("設定と写しは解除の前のまま");
+      expect(readFileSync(sb.configPath, "utf8")).toBe(legacyConfig(sb));
+      expect(readFileSync(yamlPath, "utf8")).toBe(withCopy);
+      expect(snapshot(sb.copy)).toEqual(copy);
+      const retry = await sb.run("remove");
+      expect(retry.exitCode).toBe(0);
+      expect(existsSync(sb.configPath)).toBe(false);
+      expect(readYaml(yamlPath)).toEqual({ skills: { customDirectories: [join(sb.root, "yaml-skills")] }, extensions: ["/somewhere/ext-a"] });
+      expect(existsSync(sb.copy)).toBe(false);
+    },
+  );
 });
 
 // 今回置くエージェント定義（OMP 向けのディレクトリの agents/poteto-agent.md）

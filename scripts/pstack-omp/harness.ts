@@ -8,7 +8,7 @@
 // 既にある値とほかのキーは保ち、自分の項目（写しの中を指すもの）が既にあれば重ねず、設定がそのとおりなら書き換えない。
 // pstack は、通常の omp の新しく始めるセッションに入る。pstack 専用の制限は置かない（何を制限するかは別に決める）。
 // 写しは読み取り専用にしない。写しは同じ階層の一時ディレクトリに作り終えてから置き換え、設定ファイルは一時ファイルから rename する。
-// 途中で失敗したら、写しと設定ファイルを前のままにして止める。
+// 途中で失敗したら、写しと設定ファイルを前のままにして止める（確定済みの設定ファイルも元に戻す。戻せなければ、戻せなかったファイルを知らせる）。
 // 解除は、適用の後に設定ファイルが変わっていなければ適用の前のバイトに戻し、変わっていれば管理対象の項目（写しの中を指す extensions・
 // skills.customDirectories の項目と、適用が skills.manualSkills に足した名前）だけを外して、適用が作ったキーは空になれば消す。続けて写しを消す。
 // 適用と解除は、どちらも初めに config.yml と config.yaml の在るものから前の適用の項目を同じ戻し方で取り除く（tidy）。前の適用の記録は
@@ -22,6 +22,7 @@ import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import {
+  commitAll,
   configPath,
   isMapping,
   type OmpConfig,
@@ -526,6 +527,7 @@ function prepareAll(writes: { path: string; bytes: Buffer | undefined }[]): Prep
 }
 
 // 写しを一時ディレクトリに作り終えてから置き換え、続けて設定ファイルを置き換える。どこで失敗しても、写しと設定ファイルを前のままにする
+// （確定済みの設定ファイルは元に戻す。戻せなければ、commitAll が戻せなかったファイルを知らせる）
 function replaceCopy(ctx: Context, p: Paths, harness: Harness, writes: { path: string; bytes: Buffer | undefined }[]): void {
   const workDir = join(p.root, "..");
   const staging = mkdtempSync(join(workDir, ".omp-"));
@@ -548,7 +550,7 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, writes: { path: s
     }
     renameSync(staging, p.root);
     swapped = true;
-    for (const write of prepared) write.commit();
+    commitAll(prepared);
   } catch (e) {
     for (const write of prepared) write.discard();
     rmSync(swapped ? p.root : staging, { recursive: true, force: true });
@@ -595,10 +597,12 @@ export function remove(ctx: Context): RemoveResult {
           renameSync(p.root, old);
           aside = old;
         }
-        for (const write of writes) write.commit();
+        commitAll(writes);
       } catch (e) {
         for (const write of writes) write.discard();
         if (aside !== undefined) renameSync(aside, p.root);
+        // 設定ファイルを元に戻せなかったとき（commitAll）は、前のままとは知らせない
+        if (e instanceof PstackOmpError) throw e;
         throw new PstackOmpError(`解除の途中で失敗しました（設定と写しは解除の前のままです）: ${(e as Error).message}`);
       }
       if (aside !== undefined) rmSync(aside, { recursive: true, force: true });

@@ -105,20 +105,71 @@ export function sha256(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-// 書き換えの準備（一時ファイルまで書く）。commit で置き換え、discard で一時ファイルを消す。
+// 書き換えの準備（一時ファイルまで書き、準備の時点の元のバイトと存在と mode を持つ）。commit で置き換え、discard で一時ファイルを消し、
+// revert で commit の後に元へ戻す（元が無ければ消し、在れば同じディレクトリの一時ファイルから rename で元のバイトに戻す）。
 // bytes が undefined なら commit で設定ファイルを消す
 export interface PreparedWrite {
+  path: string;
   commit(): void;
   discard(): void;
+  revert(): void;
 }
 
 export function prepareWrite(path: string, bytes: Buffer | string | undefined): PreparedWrite {
-  if (bytes === undefined) return { commit: () => rmSync(path, { force: true }), discard: () => {} };
+  const original = existsSync(path) ? { bytes: readFileSync(path), mode: statSync(path).mode & 0o777 } : undefined;
+  const revert = (): void => {
+    if (original === undefined) rmSync(path, { force: true });
+    else replaceFile(path, original.bytes, original.mode);
+  };
+  if (bytes === undefined) return { path, commit: () => rmSync(path, { force: true }), discard: () => {}, revert };
   mkdirSync(dirname(path), { recursive: true });
-  const temp = join(dirname(path), `.${basename(path)}.pstack-omp-${randomBytes(6).toString("hex")}`);
-  const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o644;
-  writeFileSync(temp, bytes, { mode });
-  return { commit: () => renameSync(temp, path), discard: () => rmSync(temp, { force: true }) };
+  const temp = tempPath(path);
+  writeFileSync(temp, bytes, { mode: original?.mode ?? 0o644 });
+  return { path, commit: () => renameSync(temp, path), discard: () => rmSync(temp, { force: true }), revert };
+}
+
+// 準備した書き換えを順に確定する。途中で失敗したら、確定済みのものを後ろから元に戻して投げ直す（一時ファイルは呼び出し側が discard で消す）。
+// 戻せないものがあれば、設定ファイルは前のままではないので、戻せなかったファイルと理由を知らせて止める
+export function commitAll(writes: PreparedWrite[]): void {
+  let committed = 0;
+  try {
+    for (const write of writes) {
+      write.commit();
+      committed++;
+    }
+  } catch (e) {
+    const unreverted: string[] = [];
+    for (const write of writes.slice(0, committed).reverse()) {
+      try {
+        write.revert();
+      } catch (r) {
+        unreverted.push(`  ${write.path}: ${(r as Error).message}`);
+      }
+    }
+    if (unreverted.length === 0) throw e;
+    throw new PstackOmpError(
+      [
+        `OMP の設定ファイルの書き換えの途中で失敗し（${(e as Error).message}）、書き換えた次の設定ファイルを元に戻せませんでした。中身を確かめて直してください:`,
+        ...unreverted,
+      ].join("\n"),
+    );
+  }
+}
+
+function tempPath(path: string): string {
+  return join(dirname(path), `.${basename(path)}.pstack-omp-${randomBytes(6).toString("hex")}`);
+}
+
+// 同じディレクトリの一時ファイルに書いてから rename で置き換える。失敗したら一時ファイルを消す
+function replaceFile(path: string, bytes: Buffer, mode: number): void {
+  const temp = tempPath(path);
+  try {
+    writeFileSync(temp, bytes, { mode });
+    renameSync(temp, path);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
 }
 
 const LOCK_EX = 2;

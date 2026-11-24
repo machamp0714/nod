@@ -1,6 +1,7 @@
 // 取得した上流から、OMP 向けのコピーをデータ置き場の下の pstack-omp/generated に生成する（nod のリポジトリの外）。
 // 入れるのは pstack の全スキルと cursor-team-kit の CURSOR_TEAM_KIT_SKILLS だけ。上流のルートの配置（pstack/、cursor-team-kit/）を保つので、
-// OMP の skills.customDirectories に generated/pstack/skills と generated/cursor-team-kit/skills を登録すれば、それぞれの */SKILL.md が読まれる。
+// apply がこの生成物を写しの generated へ丸ごと写し、OMP の skills.customDirectories に写しの中の generated/pstack/skills と
+// generated/cursor-team-kit/skills を登録すれば、それぞれの */SKILL.md が読まれる（OMP の設定が指すのは写しの中で、この生成物ではない）。
 // スキルの .md の相対リンクの先（スキルの外の文書や画像）も、上流と同じ相対位置に入れ、その先の .md のリンクも同じく辿る。
 // 読み込まない cursor-team-kit のスキルはリンクの先でも入れない（スキルとして読まれてしまうため）。
 // 本文は書き換えない。Cursor の用語（terms.ts）を使うスキルの SKILL.md だけ、最初の H1 の後に案内の1行を入れる。リンクも書き換えない。
@@ -10,7 +11,7 @@
 // 次のどれかがあれば、何も書かずに止める: 読み替え表に対応行のない用語、用語を使うのに H1 の無い SKILL.md、生成物の中で解決できない相対リンク、
 // 読み替え表が示す写しの中のパス（`<X>/generated/...`）が生成物に無いこと。
 // 書くときは同じ階層の一時ディレクトリに作り終えてから置き換える。失敗したら前回の生成物はそのまま残す
-// （適用した OMP の設定が指している置き場なので、失敗で消すと、使えていたスキルが次のセッションから読まれなくなる）。
+// （次の apply が写しへ写す元で、status なども読むので、失敗で消すと、やり直すまで apply できず status も生成物を見失う）。
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
 import { type Context, PstackOmpError } from "./context";
