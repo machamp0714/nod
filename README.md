@@ -68,7 +68,7 @@ bun scripts/pstack-omp/cli.ts status  # 生成物の pin と OMP の版、3つ�
 
 `sync` は、固定の記録の上流を `~/.local/share/nod/pstack-omp/upstream` に取得し、OMP 向けのコピーを固定の生成先 `~/.local/share/nod/pstack-omp/generated` に生成します（nod のデータ置き場を `NOD_DATA_DIR` で変えると、その下の `pstack-omp/generated` になります）。生成先には、pstack の全スキルと cursor-team-kit の `control-cli`・`control-ui`・`deslop`、スキルの外のリンク先の文書、`manifest.json` が入ります。OMP の版が固定の記録と違うと止まります。`sync` は OMP の設定を書き換えません。
 
-初回だけ、OMP が global の設定として読むファイル `~/.omp/agent/config.yml`（無くて `config.yaml` が在ればそれ）に、次の3つを手で登録します。既にある値は残し、`skills.customDirectories` の2つは先頭に置きます（custom directory 同士は先が勝つので、pstack の `tdd` が利用者の置き場の `tdd` より優先されます）。
+初回だけ、OMP が global の設定として読むファイル `~/.omp/agent/config.yml`（無くて `config.yaml` が在ればそれ）に、次の3つを手で登録します。既にある値は残し、`skills.customDirectories` の2つは先頭に置きます（custom directory 同士は先が勝つので、pstack の `tdd` が利用者の置き場の `tdd` より優先されます）。`<nod のリポジトリの絶対パス>` は、この README のあるリポジトリの絶対パスに置き換えます。`skills.manualSkills` の名前は、固定の記録（`scripts/pstack-omp/pin.json`）のコミット `792440e8a560a4a3f63748cdee70491ecd412982` から生成した全スキルと `pstack-omp` です。
 
 ```yaml
 extensions:
@@ -78,12 +78,73 @@ skills:
     - ~/.local/share/nod/pstack-omp/generated/pstack/skills
     - ~/.local/share/nod/pstack-omp/generated/cursor-team-kit/skills
   manualSkills:
-    - <status が出す、読み込む全スキルの名前（生成したスキルと pstack-omp）>
+    - architect
+    - arena
+    - automate-me
+    - benchmark-checklist
+    - blast-radius
+    - bro
+    - correct
+    - create-formal-verification-skill
+    - create-verification-skill
+    - figure-it-out
+    - how
+    - in-your-own-words
+    - interrogate
+    - ketchup
+    - ketchup-video
+    - maintain-formal-verification-skill
+    - maintain-verification-skill
+    - make-bot-ui
+    - no-comments
+    - poteto-help
+    - poteto-mode
+    - principle-attack-the-premise
+    - principle-boundary-discipline
+    - principle-build-the-lever
+    - principle-encode-lessons-in-structure
+    - principle-exhaust-the-design-space
+    - principle-experience-first
+    - principle-explain-the-number
+    - principle-fix-root-causes
+    - principle-foundational-thinking
+    - principle-guard-the-context-window
+    - principle-laziness-protocol
+    - principle-make-operations-idempotent
+    - principle-migrate-callers-then-delete-legacy-apis
+    - principle-minimize-reader-load
+    - principle-model-the-domain
+    - principle-never-block-on-the-human
+    - principle-outcome-oriented-execution
+    - principle-prove-it-works
+    - principle-redesign-from-first-principles
+    - principle-separate-before-serializing-shared-state
+    - principle-sequence-verifiable-units
+    - principle-subtract-before-you-add
+    - principle-test-behavior-not-implementation
+    - principle-type-system-discipline
+    - recall
+    - reflect
+    - setup-pstack
+    - sharpen
+    - show-me-your-work
+    - statechart
+    - swarm
+    - tdd
+    - teach
+    - technical-writing
+    - typescript-best-practices
+    - unslop
+    - why
+    - control-cli
+    - control-ui
+    - deslop
+    - pstack-omp
 ```
 
 `omp/content` には読み替え表 `pstack-omp` と `poteto-agent` があります。`skills.manualSkills` に入れたスキルはスキルの一覧から外れ、`skill://poteto-mode`・`/skill:poteto-mode` のように名前で呼べば使えます。`status` は、欠けているものと、パスと名前を書き込んだ、そのまま貼れる値を表示します。新しく始める `omp` のセッションから効きます（実行中のセッションには入りません）。
 
-登録は一度だけです。以後は `sync` し直せば、同じ生成先が更新されます。固定の記録を変えてスキルの名前が増減したときは、`status` が欠けた名前を表示します。登録を手で外せば、次に始める `omp` のセッションから pstack は読み込まれません（生成先と上流の clone は残ります。要らなければ `~/.local/share/nod/pstack-omp` を手で消してください）。
+登録は一度だけです。以後は `sync` し直せば、同じ生成先が更新されます。固定の記録を変えてスキルの名前が増減したときは、`status` が欠けた名前を表示します（上の一覧も、`status` が表示する名前とコミットに合わせて更新します）。登録を手で外せば、次に始める `omp` のセッションから pstack は読み込まれません（生成先と上流の clone は残ります。要らなければ `~/.local/share/nod/pstack-omp` を手で消してください）。
 
 以前 `apply` を使っていた場合、道具は以前の登録と写しを扱わないので、手で外してください: `extensions`・`skills.customDirectories` のうち `~/.local/share/nod/pstack-omp/omp` を指す項目と、`apply` が `skills.manualSkills` に足した名前（上の登録でも同じ名前を使うので、続けて登録するなら残せます）を外し、写し `~/.local/share/nod/pstack-omp/omp` を消します。
 
