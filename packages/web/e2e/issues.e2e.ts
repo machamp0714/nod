@@ -34,7 +34,7 @@ test("Issues は API から全 Workspace の Issue を読み、nod で起票し�
   await expect(page.getByRole("row", { name: /API-9/ })).toContainText("2 / 6");
   // ready の前に書くと、ready による読み直しで出てしまい、change の経路を試せない
   await waitForServerEvents(page);
-  await nod.claude.createIssue({ workspaceId: 1, title: "LLM が起票した Issue" });
+  await nod.claude.createIssue({ status: "triage", workspaceId: 1, title: "LLM が起票した Issue" });
   await expect(page.getByRole("row", { name: /LLM が起票した Issue/ })).toBeVisible();
   await expect(tableRows(page)).toHaveCount(14);
 });

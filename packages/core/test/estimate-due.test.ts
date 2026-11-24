@@ -19,7 +19,7 @@ describe("見積もり（estimate）", () => {
 
   test("LLM も設定・変更・解除でき、estimate_changed を記録する", () => {
     const { db, ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "a" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
     updateIssue(llm, i.id, { estimate: 5 });
     updateIssue(llm, i.id, { estimate: 8 });
     expect(updateIssue(llm, i.id, { estimate: null }).estimate).toBeNull();
@@ -65,7 +65,7 @@ describe("期限（dueDate）", () => {
 
   test("LLM も期限を設定できる", () => {
     const { ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "a" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
     expect(updateIssue(llm, i.id, { dueDate: "2026-12-31" }).dueDate).toBe("2026-12-31");
   });
 

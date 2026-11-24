@@ -7,7 +7,7 @@ describe("nod issue instruct / instructions", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
 
     const recorded = await runNod(["issue", "instruct", created.id, "テストも追加して", "--json"], { cwd: repo, db });
@@ -32,7 +32,7 @@ describe("nod issue instruct / instructions", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
     await runNod(["issue", "instruct", created.id, "テストも追加して"], { cwd: repo, db });
 
@@ -53,7 +53,7 @@ describe("nod issue instruct / instructions", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "instruct", created.id, "1行目\n2行目"], { cwd: repo, db });
     const started = await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
     expect(started.stdout).toContain("追加指示（先に読んで対応する）:");
@@ -64,7 +64,7 @@ describe("nod issue instruct / instructions", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     const res = await runNod(["issue", "instruct", created.id, "x", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(res.exitCode).toBe(1);
     expect(res.json.error.code).toBe("FORBIDDEN_FOR_LLM");

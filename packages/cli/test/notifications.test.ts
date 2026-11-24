@@ -190,7 +190,7 @@ test("購読していなくても、LLM に任せた Issue の完了・入力待
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
 
-  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "create", "--requested", "検索", "--json"]);
   await nod(["issue", "start", "API-1"], "claude-code");
   await nod(["issue", "ask", "API-1", "進めてよいか"], "claude-code");
   // inbox は同じ質問を確認依頼に出すので、入力待ちの通知は通知一覧にだけ出す（#176）
@@ -211,7 +211,7 @@ test("別の書き手が始めたIssueでも作業状況と通知は操作した
   const repo = makeRepo();
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
-  await nod(["issue", "create", "引き継ぐ作業", "--json"]);
+  await nod(["issue", "create", "--requested", "引き継ぐ作業", "--json"]);
   await nod(["issue", "start", "API-1"], "claude-code");
 
   const failed = await nod(["issue", "fail", "API-1", "検証が失敗", "--json"], "codex");

@@ -119,14 +119,14 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("create <title>")
-    .description("Issue を起票する（LLM の起票は Triage に入る。me に頼まれた起票は --requested で Todo）")
+    .description("Issue を起票する（既定は Triage。me に頼まれた起票は --requested で Todo）")
     .option("-d, --description <text>", "説明")
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（--project の Project のもの）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
-    .option("--requested", "me に頼まれて起票する（LLM の起票を Triage ではなく Todo にする）")
+    .option("--requested", "me に頼まれて起票する（Triage ではなく Todo にする）")
     .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
@@ -148,6 +148,7 @@ export function registerIssueCommands(program: Command): void {
             milestoneRef: o.milestone,
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
+            status: "triage",
             requested: o.requested,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
             estimate: o.estimate === undefined ? undefined : parseEstimate(o.estimate),

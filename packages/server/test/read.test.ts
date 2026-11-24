@@ -17,7 +17,7 @@ describe("GET /api/issues", () => {
   function seed() {
     const s = setup();
     createIssue(s.me, { workspaceId: s.ws.id, title: "a" });
-    createIssue(s.llm, { workspaceId: s.ws.id, title: "b" });
+    createIssue(s.llm, { status: "triage", workspaceId: s.ws.id, title: "b" });
     const c = createIssue(s.me, { workspaceId: s.ws.id, title: "c", labels: ["bug"] });
     askQuestion(s.me, c.id, "対象はどれか");
     return s;
@@ -124,8 +124,8 @@ describe("GET /api/inbox と GET /api/triage", () => {
 
   test("Triage は Snooze の期限が来ていない Issue を除く", async () => {
     const { app, me, llm, ws } = setup();
-    createIssue(llm, { workspaceId: ws.id, title: "a" });
-    const later = createIssue(llm, { workspaceId: ws.id, title: "b" });
+    createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
+    const later = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b" });
     snoozeTriage(me, later.id, "2999-01-01");
     const r = await call(app, "GET", "/api/triage");
     expect(r.status).toBe(200);

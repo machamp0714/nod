@@ -48,7 +48,7 @@ describe("nod inbox の Triage の件数と triage list（#177）", () => {
     const s = setup();
     await s.llm(["issue", "create", "llm-1"]); // API-1 triage
     await s.llm(["issue", "create", "llm-2"]); // API-2 triage（スヌーズ中）
-    await s.me(["issue", "create", "mine"]); // API-3 todo
+    await s.me(["issue", "create", "--requested", "mine"]); // API-3 todo
     await s.llm(["issue", "start", "API-3"]);
     await s.llm(["issue", "done", "API-3", "--summary", "終えた"]);
     await s.me(["triage", "snooze", "API-2", "2099-01-01"]);
@@ -95,7 +95,7 @@ describe("nod project list の LLM の状況（#177）", () => {
     const { me, llm } = setup();
     await me(["project", "create", "空"]);
     await me(["project", "create", "動く"]);
-    for (const title of ["w", "ask", "review", "fail"]) await me(["issue", "create", title, "--project", "動く"]);
+    for (const title of ["w", "ask", "review", "fail"]) await me(["issue", "create", "--requested", title, "--project", "動く"]);
     await llm(["issue", "start", "API-1"]);
     await llm(["issue", "start", "API-2"]);
     await llm(["issue", "ask", "API-2", "進めてよいか"]);

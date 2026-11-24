@@ -26,32 +26,32 @@ describe("createIssue", () => {
     expect(createIssue(me, { workspaceId: web.id, title: "x" }).id).toBe("WEB-1");
   });
 
-  test("LLM の起票は triage から始まり、created を記録する", () => {
+  test("明示した初期ステータスで作り、created を記録する", () => {
     const { db, ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "t", status: "triage" });
     expect(i).toMatchObject({ status: "triage", createdBy: "claude-code" });
     expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "triage" } }]);
   });
 
   test("LLM が requested を付けると todo で作られ、created の event に requested_by: me が残る", () => {
     const { db, ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", requested: true });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", status: "triage", requested: true });
     expect(i).toMatchObject({ status: "todo", createdBy: "claude-code" });
     expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "todo", requested_by: "me" } }]);
   });
 
-  test("LLM が requested を付けなければ Triage", () => {
+  test("requested を付けなければ明示した Triage を保つ", () => {
     const { db, ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "見つけた", requested: false });
+    const i = createIssue(llm, { workspaceId: ws.id, title: "見つけた", status: "triage", requested: false });
     expect(i.status).toBe("triage");
     expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "claude-code", data: { status: "triage" } }]);
   });
 
-  test("me が requested を付けても todo で、requested_by は残らない", () => {
+  test("me も requested を付けると todo で、requested_by: me が残る", () => {
     const { db, ws, me } = setup();
     const i = createIssue(me, { workspaceId: ws.id, title: "自分で", requested: true });
     expect(i.status).toBe("todo");
-    expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "me", data: { status: "todo" } }]);
+    expect(eventsOf(db, i.id)).toEqual([{ type: "created", actor: "me", data: { status: "todo", requested_by: "me" } }]);
   });
 
   test("requested と discoveredFromRef を併せると両方が event に残る", () => {
@@ -63,10 +63,10 @@ describe("createIssue", () => {
     ]);
   });
 
-  test("LLM の copyIssue は依頼起票の Issue からでも Triage", () => {
+  test("LLM の copyIssue も依頼起票の Issue から Todo を作る", () => {
     const { ws, llm } = setup();
     const i = createIssue(llm, { workspaceId: ws.id, title: "頼まれた", requested: true });
-    expect(copyIssue(llm, i.id).status).toBe("triage");
+    expect(copyIssue(llm, i.id).status).toBe("todo");
   });
 
   test("Sub-issue は同じ連番を使い、親の children に出る", () => {
@@ -112,7 +112,7 @@ describe("listIssues", () => {
   test("既定では done と canceled を除き、ステータス、ラベル、Workspace で絞り込める", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a", labels: ["bug", "ui"] });
-    const b = createIssue(llm, { workspaceId: ws.id, title: "b", labels: ["bug"] });
+    const b = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b", labels: ["bug"] });
     const c = createIssue(me, { workspaceId: ws.id, title: "c" });
     updateIssue(me, c.id, { status: "done" });
     const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
@@ -164,7 +164,7 @@ describe("updateIssue", () => {
   test("LLM も Triage の Issue の状態を変えて Triage から出せ、event の書き手に残る", () => {
     const { db, ws, llm } = setup();
     for (const status of ["todo", "backlog", "in_progress", "canceled"] as const) {
-      const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+      const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
       expect(updateIssue(llm, i.id, { status }).status).toBe(status);
       expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "status_changed", actor: "claude-code", data: { from: "triage", to: status } });
     }
@@ -172,14 +172,14 @@ describe("updateIssue", () => {
 
   test("LLM も Triage の Issue の状態以外は変えられ、状態を triage のまま指定しても拒まない", () => {
     const { db, ws, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect(updateIssue(llm, i.id, { priority: 1, status: "triage" })).toMatchObject({ status: "triage", priority: 1 });
     expect(eventsOf(db, i.id).map((e) => e.type)).toEqual(["created", "priority_changed"]);
   });
 
   test("人は Triage の Issue の状態を変えられ、LLM は Triage を出た Issue の状態を変えられる", () => {
     const { ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect(updateIssue(me, i.id, { status: "backlog" }).status).toBe("backlog");
     expect(updateIssue(llm, i.id, { status: "todo" }).status).toBe("todo");
   });

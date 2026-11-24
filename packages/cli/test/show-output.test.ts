@@ -48,7 +48,7 @@ describe("issue show の Activity（#168）", () => {
     expect(answered).not.toContain("question_answered");
     expect(answered).not.toContain("question_id");
     // ほかの event は文で出る（#198）
-    expect(answered).toContain("me が起票した（状態: Todo）");
+    expect(answered).toContain("me が起票した（状態: Triage）");
   });
 
   test("質問の行は依頼した時刻の位置のまま、回答の行に回答した時刻をローカル時刻で付ける", async () => {
@@ -80,7 +80,7 @@ describe("issue show の Activity（#168）", () => {
   });
 
   test("LLM の確認依頼も1行だけ", async () => {
-    const id = (await me(["issue", "create", "検索を速くする"])).json.id;
+    const id = (await me(["issue", "create", "--requested", "検索を速くする"])).json.id;
     await llm(["issue", "start", id]);
     await llm(["issue", "ask", id, "対象の画面はどれか"]);
     const text = await show(id, "UTC");
@@ -120,7 +120,7 @@ describe("CLI の時刻はローカル時刻（#171）", () => {
   });
 
   test("issue show と summary の時刻が同じになる", async () => {
-    const id = (await me(["issue", "create", "着手を確かめる"])).json.id;
+    const id = (await me(["issue", "create", "--requested", "着手を確かめる"])).json.id;
     await llm(["issue", "start", id]);
     const env = { TZ: "Asia/Tokyo" };
     const detail = (await runNod(["issue", "show", id, "--json"], { cwd: repo, db, env })).json;
@@ -171,7 +171,7 @@ describe("CLI の時刻はローカル時刻（#171）", () => {
   });
 
   test("issue instructions の追加指示", async () => {
-    const id = (await me(["issue", "create", "指示の時刻"])).json.id;
+    const id = (await me(["issue", "create", "--requested", "指示の時刻"])).json.id;
     await llm(["issue", "start", id]);
     const i = (await me(["issue", "instruct", id, "テストも追加して"])).json;
     const { utc, tokyo } = await texts(["issue", "instructions", id]);

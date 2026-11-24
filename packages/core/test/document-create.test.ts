@@ -30,7 +30,7 @@ describe("createDocument", () => {
   test("許可ルートの下に # 見出しつきの Markdown を作り、Issue にリンクする", () => {
     const { db, ws, llm } = setup();
     const root = docsDir();
-    const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
+    const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
     const doc = createDocument(llm, {
       docsDir: root,
       path: "design/search.md",

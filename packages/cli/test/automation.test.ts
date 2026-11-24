@@ -38,7 +38,7 @@ test("show・set で設定し、off で無効にし、JSON でも返す", async 
 test("自動クローズは作業中・入力待ち・エラーを除外し、未着手のIssueは閉じる", async () => {
   const { db, opts } = fixture();
   await runNod(["automation", "set", "--close-after-days", "1"], opts);
-  const create = async (title: string) => (await runNod(["issue", "create", title, "--json"], opts)).json.id as string;
+  const create = async (title: string) => (await runNod(["issue", "create", "--requested", title, "--json"], opts)).json.id as string;
   const working = await create("作業中");
   const waiting = await create("入力待ち");
   const failed = await create("エラー");
@@ -74,8 +74,8 @@ test("set は日数の不正・未指定を拒み、LLM も設定できる", asy
 test("run --dry-run は対象を表示するだけ、run で canceled・アーカイブし、2回目は0件", async () => {
   const { db, opts } = fixture();
   await runNod(["automation", "set", "--close-after-days", "30", "--archive-after-days", "30"], opts);
-  const open = (await runNod(["issue", "create", "放置", "--json"], opts)).json.id;
-  const done = (await runNod(["issue", "create", "完了済み", "--json"], opts)).json.id;
+  const open = (await runNod(["issue", "create", "--requested", "放置", "--json"], opts)).json.id;
+  const done = (await runNod(["issue", "create", "--requested", "完了済み", "--json"], opts)).json.id;
   age(db, open, "todo");
   age(db, done, "done");
   const dry = await runNod(["automation", "run", "--dry-run"], opts);
@@ -134,7 +134,7 @@ function fakeGh(state: string, isDraft = false): string {
 
 test("issue link-pr で作業中の Issue に PR を紐付け（LLM も可）、不正な URL を拒む", async () => {
   const { opts } = fixture();
-  const id = (await runNod(["issue", "create", "draft PR", "--json"], opts)).json.id;
+  const id = (await runNod(["issue", "create", "--requested", "draft PR", "--json"], opts)).json.id;
   const llm = { ...opts, actor: "claude-code" };
   await runNod(["issue", "start", id], llm);
   const linked = await runNod(["issue", "link-pr", id, PR_URL], llm);

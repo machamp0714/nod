@@ -119,10 +119,11 @@ const dataset: Dataset = ({ db, dir, repo, writeFile }) => {
 
   issue(me, "API-4", { title: "OpenAPI の説明文を更新する", priority: 4 });
   issue(claude, "API-15", {
+    status: "triage",
     title: "検索結果のページングが 1 件ずれる",
     description: "page=2&per_page=20 のとき、21 件目ではなく 22 件目から返る。offset の計算で 1 を足している可能性がある。",
   });
-  issue(codex, "API-16", { title: "レート制限の残り回数をヘッダーで返す" });
+  issue(codex, "API-16", { title: "レート制限の残り回数をヘッダーで返す", status: "triage" });
 
   issue(me, "NOD-3", { title: "nod issue next の取り合いを防ぐ", priority: 2, projectRef: "4" });
   startIssue(claude, "NOD-3");

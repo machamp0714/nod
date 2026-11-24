@@ -394,6 +394,7 @@ export function runRecurringIssuesOnly(
           parentId: null,
           projectId: row.project_id,
           labels: JSON.parse(row.labels) as string[],
+          status: "todo",
           origin: { recurring_id: row.id, occurrence },
         });
         const { id: issueRowId } = ctx.db

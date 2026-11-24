@@ -13,7 +13,7 @@ for (const decision of ["decline", "duplicate"] as const) {
     const { db, ws, me, llm } = setup();
     const original = createIssue(me, { workspaceId: ws.id, title: "元のIssue" });
     setWorkspaceSpecAssessment(me, ws.key, true);
-    const issue = createIssue(llm, { workspaceId: ws.id, title: "判定中のIssue" });
+    const issue = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判定中のIssue" });
     let resolve!: (result: JevResult) => void;
     const pending = assessCreatedIssue(me, issue.id, () => new Promise(r => { resolve = r; }));
     if (decision === "decline") declineTriage(me, issue.id);

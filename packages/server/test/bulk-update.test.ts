@@ -54,7 +54,7 @@ describe("POST /api/issues/bulk-update", () => {
   test("一部が失敗したら 409 BULK_UPDATE_FAILED で失敗一覧を返し、何も書かない", async () => {
     const { app, db, me, llm, ws } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const t = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     const r = await call(app, "POST", "/api/issues/bulk-update", { ids: [a.id, t.id], status: "todo", priority: 1 });
     expect(r.status).toBe(409);
     expect(r.json.error).toMatchObject({

@@ -81,7 +81,7 @@ test.describe("失敗したとき", () => {
 
   test("Triage の Issue を含めると何も変えず、失敗した Issue と理由を出して選択を残す。Escape で選択を解く", async ({ page, nod }) => {
     const { ws, ids } = await seed(nod);
-    const triage = (await nod.claude.createIssue({ workspaceId: ws.id, title: "B5 Triage" })).id;
+    const triage = (await nod.claude.createIssue({ status: "triage", workspaceId: ws.id, title: "B5 Triage" })).id;
     await page.goto("/issues?sort=title");
     await box(page, ids[0] as string).click();
     await box(page, triage).click();

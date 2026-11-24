@@ -38,7 +38,7 @@ describe("nextIssue", () => {
 
   test("Triage、後回し中、未回答の確認依頼あり、ブロック中を除き、着手可能なIssueを取る", () => {
     const { db, ws, me, llm } = setup();
-    createIssue(llm, { workspaceId: ws.id, title: "triage" });
+    createIssue(llm, { status: "triage", workspaceId: ws.id, title: "triage" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "snoozed" });
     db.query("UPDATE issues SET snoozed_until = '2999-01-01T00:00:00.000Z' WHERE number = ?").run(snoozed.number);
     const asked = createIssue(me, { workspaceId: ws.id, title: "asked" });
@@ -89,7 +89,7 @@ describe("startIssue", () => {
     const backlog = createIssue(me, { workspaceId: ws.id, title: "b" });
     updateIssue(me, backlog.id, { status: "backlog" });
     expect(startIssue(llm, backlog.id)).toMatchObject({ status: "in_progress", agentState: "working" });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect(codeOf(() => startIssue(llm, triage.id))).toBe("NOT_ACCEPTED");
     const canceled = createIssue(me, { workspaceId: ws.id, title: "c" });
     updateIssue(me, canceled.id, { status: "canceled" });

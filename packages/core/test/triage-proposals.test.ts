@@ -9,7 +9,7 @@ import { addProjectRow, codeOf, setup } from "./helpers";
 
 function seed() {
   const s = setup();
-  const create = (ctx: OpCtx, title: string) => createIssue(ctx, { workspaceId: s.ws.id, title });
+  const create = (ctx: OpCtx, title: string, status: "todo" | "triage" = "todo") => createIssue(ctx, { workspaceId: s.ws.id, title, status });
   const tables = s.db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT IN ('triage_proposals', 'notifications') ORDER BY name").all() as { name: string }[];
   // 提案と通知以外のすべての表の中身。提案が Triage の状態を変えないことを確かめる（通知は #125 で me に届ける）
   const snapshot = () => tables.map(({ name }) => s.db.query(`SELECT * FROM "${name}" ORDER BY rowid`).all());
@@ -20,7 +20,7 @@ describe("proposeTriage", () => {
   test("LLM の受け入れ提案を記録し、提案と通知以外の表（Issue・ラベル・関係・event）を変えない", () => {
     const { db, me, llm, create, snapshot } = seed();
     addProjectRow(db, "検索改善");
-    const issue = create(llm, "検索結果のページングがずれる");
+    const issue = create(llm, "検索結果のページングがずれる", "triage");
     const before = snapshot();
     const p = proposeTriage(llm, issue.id, {
       decision: "accept", labels: [" bug ", "perf", "bug"], priority: 2, projectRef: "検索改善", reason: "再現手順が明確",
@@ -37,8 +37,8 @@ describe("proposeTriage", () => {
   test("却下・重複の提案を記録できる", () => {
     const { me, llm, create } = seed();
     const original = create(me, "元の Issue");
-    const a = create(llm, "重複かも");
-    const b = create(llm, "不要かも");
+    const a = create(llm, "重複かも", "triage");
+    const b = create(llm, "不要かも", "triage");
     expect(proposeTriage(llm, a.id, { decision: "duplicate", duplicateOf: original.id.toLowerCase() }).duplicateOf).toBe(original.id);
     expect(proposeTriage(llm, b.id, { decision: "decline", reason: "対応済み" })).toMatchObject({ decision: "decline", reason: "対応済み" });
   });
@@ -46,7 +46,7 @@ describe("proposeTriage", () => {
   test("同じ書き手の再提案は上書きし、別の書き手の提案は並べて残す（更新の新しい順）", () => {
     const { db, llm, create } = seed();
     const codex: OpCtx = { db, actor: "codex" };
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     const first = proposeTriage(llm, issue.id, { decision: "decline", reason: "古い" });
     proposeTriage(codex, issue.id, { decision: "accept" });
     const again = proposeTriage(llm, issue.id, { decision: "accept", priority: 1 });
@@ -58,7 +58,7 @@ describe("proposeTriage", () => {
 
   test("決定の種類と組み合わせを検証する", () => {
     const { me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     const bad = (input: any) => codeOf(() => proposeTriage(llm, issue.id, input));
     expect(bad({ decision: "done" })).toBe("INVALID_ARGS");
     expect(bad({ decision: "duplicate" })).toBe("INVALID_ARGS");
@@ -82,17 +82,17 @@ describe("proposeTriage", () => {
     const { me, llm, create } = seed();
     const todo = create(me, "人が起票");
     expect(codeOf(() => proposeTriage(llm, todo.id, { decision: "accept" }))).toBe("NOT_IN_TRIAGE");
-    const snoozed = create(llm, "後回し");
+    const snoozed = create(llm, "後回し", "triage");
     snoozeTriage(me, snoozed.id, "2099-01-01");
     expect(proposeTriage(llm, snoozed.id, { decision: "accept" }).decision).toBe("accept");
-    const archived = create(llm, "アーカイブ");
+    const archived = create(llm, "アーカイブ", "triage");
     archiveIssue(me, archived.id);
     expect(codeOf(() => proposeTriage(llm, archived.id, { decision: "accept" }))).toBe("ISSUE_ARCHIVED");
   });
 
   test("人の確定後も提案は残り、確定後の提案は NOT_IN_TRIAGE で拒否する", () => {
     const { me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "accept" });
     acceptTriage(me, issue.id);
     expect(listTriageProposals(me.db, issue.id)).toHaveLength(1);
@@ -102,12 +102,12 @@ describe("proposeTriage", () => {
   test("提案した LLM も accept / decline / duplicate で確定できる", () => {
     const { me, llm, create } = seed();
     const original = create(me, "元の Issue");
-    const accepted = create(llm, "受け入れる");
+    const accepted = create(llm, "受け入れる", "triage");
     proposeTriage(llm, accepted.id, { decision: "accept", labels: ["bug"] });
     expect(acceptTriage(llm, accepted.id, { addLabels: ["bug"] })).toMatchObject({ status: "todo", labels: ["bug"] });
-    const declined = create(llm, "却下する");
+    const declined = create(llm, "却下する", "triage");
     expect(declineTriage(llm, declined.id).status).toBe("canceled");
-    const duplicate = create(llm, "重複");
+    const duplicate = create(llm, "重複", "triage");
     expect(duplicateTriage(llm, duplicate.id, original.id).status).toBe("canceled");
   });
 
@@ -116,7 +116,7 @@ describe("proposeTriage", () => {
     const codex: OpCtx = { db, actor: "codex" };
     addProjectRow(db, "検索改善");
     const original = create(me, "元の Issue");
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ内容" });
     proposeTriage(codex, issue.id, { decision: "accept", labels: ["bug"], priority: 1, projectRef: "検索改善", reason: "直すべき" });
     archiveIssue(me, original.id);
@@ -142,12 +142,12 @@ describe("Triage 提案の通知（#125）", () => {
   test("LLM が提案したら me に1件届ける（kind=triage_proposal）。人の提案は通知しない", () => {
     const { db, me, llm, create } = seed();
     const original = create(me, "元の Issue");
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ内容" });
     expect(proposalNotifications(db)).toMatchObject([
       { kind: "triage_proposal", eventType: "triage_proposed", issueId: issue.id, actor: "claude-code", readAt: null, data: { decision: "duplicate", duplicateOf: original.id } },
     ]);
-    const other = create(llm, "人が提案");
+    const other = create(llm, "人が提案", "triage");
     proposeTriage(me, other.id, { decision: "accept" });
     expect(proposalNotifications(db).map((n) => n.issueId)).toEqual([issue.id]);
   });
@@ -155,7 +155,7 @@ describe("Triage 提案の通知（#125）", () => {
   test("同じ LLM の再提案は未読の通知を置き換え、既読なら新しく1件届ける。別の LLM の提案は別に届ける", () => {
     const { db, me, llm, create } = seed();
     const codex: OpCtx = { db, actor: "codex" };
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     const first = proposalNotifications(db)[0]!;
     proposeTriage(llm, issue.id, { decision: "accept" });
@@ -175,7 +175,7 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("スヌーズ中の Issue に提案が届いたらスヌーズを解く", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     snoozeNotifications(me, { issueRef: issue.id, until: "2099-01-01" });
     expect(proposalNotifications(db)).toEqual([]);
@@ -186,10 +186,10 @@ describe("Triage 提案の通知（#125）", () => {
   test("人が受け入れ・却下・重複を確定したら、その Issue の未読の提案通知を既読にする", () => {
     const { db, me, llm, create } = seed();
     const original = create(me, "元の Issue");
-    const a = create(llm, "受け入れる");
-    const b = create(llm, "却下する");
-    const c = create(llm, "重複にする");
-    const d = create(llm, "まだ判断しない");
+    const a = create(llm, "受け入れる", "triage");
+    const b = create(llm, "却下する", "triage");
+    const c = create(llm, "重複にする", "triage");
+    const d = create(llm, "まだ判断しない", "triage");
     for (const issue of [a, b, c, d]) proposeTriage(llm, issue.id, { decision: "accept" });
     acceptTriage(me, a.id);
     declineTriage(me, b.id);
@@ -204,9 +204,9 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("状態の変更・アーカイブで Triage を出ても、その Issue の未読の提案通知を既読にする（#132）", () => {
     const { db, me, llm, create } = seed();
-    const moved = create(llm, "状態を変える");
-    const archived = create(llm, "アーカイブする");
-    const stays = create(llm, "Triage に残す");
+    const moved = create(llm, "状態を変える", "triage");
+    const archived = create(llm, "アーカイブする", "triage");
+    const stays = create(llm, "Triage に残す", "triage");
     for (const issue of [moved, archived, stays]) proposeTriage(llm, issue.id, { decision: "accept" });
     updateIssue(me, moved.id, { status: "backlog" });
     archiveIssue(me, archived.id);
@@ -222,7 +222,7 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("削除した未読の提案通知も、Triage を出たら既読にする。削除を取り消しても未読で戻らない（#132）", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "accept" });
     const [n] = proposalNotifications(db);
     deleteNotifications(me, { ids: [n!.id] });
@@ -233,7 +233,7 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("削除した未読の提案通知は再提案で置き換え、削除を取り消しても未読が2件にならない（#132）", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     const [first] = proposalNotifications(db);
     deleteNotifications(me, { ids: [first!.id] });
@@ -247,9 +247,9 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("人でも LLM でも、状態を変えて Triage を出すと提案通知を既読にする（#134）", () => {
     const { db, me, llm, create } = seed();
-    const byMe = create(llm, "人が出す");
+    const byMe = create(llm, "人が出す", "triage");
     proposeTriage(llm, byMe.id, { decision: "accept" });
-    const byLlm = create(llm, "LLM が出す");
+    const byLlm = create(llm, "LLM が出す", "triage");
     proposeTriage(llm, byLlm.id, { decision: "accept" });
     const read = () => Object.fromEntries(proposalNotifications(db).map((n) => [n.issueId, n.readAt !== null]));
     expect(read()).toEqual({ [byMe.id]: false, [byLlm.id]: false });
@@ -260,7 +260,7 @@ describe("Triage 提案の通知（#125）", () => {
 
   test("同じ Issue の削除をまとめて取り消すと、置き換えで消えた通知だけを読み飛ばして残りを戻す（#134）", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     commentIssue(llm, issue.id, "補足");
     const { ids } = deleteNotifications(me, { issueRef: issue.id });
@@ -276,7 +276,7 @@ describe("withdrawTriageProposal（#125）", () => {
   test("自分の提案だけを取り下げ、未読の提案通知を消す。別の LLM の提案と通知は残す", () => {
     const { db, llm, create } = seed();
     const codex: OpCtx = { db, actor: "codex" };
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     proposeTriage(codex, issue.id, { decision: "accept" });
     expect(withdrawTriageProposal(llm, issue.id)).toEqual({ issueId: issue.id, actor: "claude-code", withdrawn: true });
@@ -286,7 +286,7 @@ describe("withdrawTriageProposal（#125）", () => {
 
   test("削除済みの未読の提案通知も取り下げで消え、削除を取り消しても読み飛ばす（#134）", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     const { ids } = deleteNotifications(me, { issueRef: issue.id });
     withdrawTriageProposal(llm, issue.id);
@@ -297,7 +297,7 @@ describe("withdrawTriageProposal（#125）", () => {
 
   test("既読の提案通知は履歴として残す", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage(llm, issue.id, { decision: "decline" });
     markNotificationsRead(me, { all: true });
     withdrawTriageProposal(llm, issue.id);
@@ -306,14 +306,14 @@ describe("withdrawTriageProposal（#125）", () => {
 
   test("自分の提案が無ければ NOT_FOUND。Triage にない・アーカイブ済みの Issue は拒否し、何も消さない", () => {
     const { db, me, llm, create } = seed();
-    const issue = create(llm, "判断待ち");
+    const issue = create(llm, "判断待ち", "triage");
     proposeTriage({ db, actor: "codex" }, issue.id, { decision: "accept" });
     expect(codeOf(() => withdrawTriageProposal(llm, issue.id))).toBe("NOT_FOUND");
-    const decided = create(llm, "確定済み");
+    const decided = create(llm, "確定済み", "triage");
     proposeTriage(llm, decided.id, { decision: "accept" });
     acceptTriage(me, decided.id);
     expect(codeOf(() => withdrawTriageProposal(llm, decided.id))).toBe("NOT_IN_TRIAGE");
-    const archived = create(llm, "アーカイブ");
+    const archived = create(llm, "アーカイブ", "triage");
     proposeTriage(llm, archived.id, { decision: "accept" });
     archiveIssue(me, archived.id);
     expect(codeOf(() => withdrawTriageProposal(llm, archived.id))).toBe("ISSUE_ARCHIVED");
@@ -325,10 +325,10 @@ describe("withdrawTriageProposal（#125）", () => {
 describe("listTriageProposalCounts（#125）", () => {
   test("Triage の Issue ごとに提案者の数を返す。提案の無い Issue と Triage を出た Issue は含めない", () => {
     const { db, me, llm, create } = seed();
-    const a = create(llm, "2人が提案");
-    const b = create(llm, "1人が提案");
-    create(llm, "提案なし");
-    const done = create(llm, "確定済み");
+    const a = create(llm, "2人が提案", "triage");
+    const b = create(llm, "1人が提案", "triage");
+    create(llm, "提案なし", "triage");
+    const done = create(llm, "確定済み", "triage");
     proposeTriage(llm, a.id, { decision: "accept" });
     proposeTriage({ db, actor: "codex" }, a.id, { decision: "decline" });
     proposeTriage(llm, b.id, { decision: "accept" });
@@ -339,8 +339,8 @@ describe("listTriageProposalCounts（#125）", () => {
 
   test("数えるのは LLM の提案だけ。me の提案は数えない（通知と揃える、#132）", () => {
     const { db, me, llm, create } = seed();
-    const mixed = create(llm, "LLM と me が提案");
-    const mine = create(llm, "me だけが提案");
+    const mixed = create(llm, "LLM と me が提案", "triage");
+    const mine = create(llm, "me だけが提案", "triage");
     proposeTriage(llm, mixed.id, { decision: "accept" });
     proposeTriage(me, mixed.id, { decision: "decline" });
     proposeTriage(me, mine.id, { decision: "accept" });

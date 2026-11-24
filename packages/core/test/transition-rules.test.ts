@@ -149,10 +149,10 @@ describe("遷移ルールの適用", () => {
 
   test("Triage の判断はルールがあっても塞がれない", () => {
     const { ws, me, llm } = setup();
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const t = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: [] });
     expect(acceptTriage(me, t.id).status).toBe("todo");
-    const t2 = createIssue(llm, { workspaceId: ws.id, title: "t2" });
+    const t2 = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t2" });
     expect(declineTriage(me, t2.id).status).toBe("canceled");
     updateIssue(me, t.id, { status: "todo" });
 

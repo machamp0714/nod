@@ -72,7 +72,7 @@ describe("nod issue", () => {
   test("2つの LLM が同時に next を実行しても、1件は片方だけが取る", async () => {
     const race = makeRepo("race");
     registerRepo(db, race, "RAC");
-    await me(["issue", "create", "--json", "取り合い"], race);
+    await me(["issue", "create", "--requested", "--json", "取り合い"], race);
     const [a, b] = await Promise.all([
       runNod(["issue", "next", "--json"], { cwd: race, db, actor: "claude-code" }),
       runNod(["issue", "next", "--json"], { cwd: race, db, actor: "codex" }),
@@ -84,7 +84,7 @@ describe("nod issue", () => {
   test("LLM の作業の流れ（next、log、fail、done）", async () => {
     const flow = makeRepo("flow");
     registerRepo(db, flow, "FLO");
-    const created = (await me(["issue", "create", "--json", "流れ"], flow)).json;
+    const created = (await me(["issue", "create", "--requested", "--json", "流れ"], flow)).json;
     const picked = (await llm(["issue", "next", "--json"], flow)).json;
     expect(picked).toMatchObject({ id: created.id, status: "in_progress", agentState: "working" });
     expect((await llm(["issue", "log", created.id, "調べ始めた"], flow)).exitCode).toBe(0);

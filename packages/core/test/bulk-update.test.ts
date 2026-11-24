@@ -84,7 +84,7 @@ describe("bulkUpdateIssues", () => {
   test("1件でも失敗したら何も書かず、失敗した全 Issue の理由を BULK_UPDATE_FAILED で返す", () => {
     const { db, ws, me, llm } = setup();
     const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "triage" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "triage" });
     const e = errorOf(() => bulkUpdateIssues(me, [ok.id, triage.id, "API-999"], { status: "todo", priority: 1 }));
     expect(e.code).toBe("BULK_UPDATE_FAILED");
     expect(e.details).toEqual({
@@ -107,7 +107,7 @@ describe("bulkUpdateIssues", () => {
 
   test("Triage の Issue の状態変更と、状態を triage にする変更は拒否する（人でも）", () => {
     const { db, ws, me, llm } = setup();
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     const todo = createIssue(me, { workspaceId: ws.id, title: "u" });
     const e = errorOf(() => bulkUpdateIssues(me, [todo.id], { status: "triage" }));
     expect((e.details as { failures: { code: string }[] }).failures.map((f) => f.code)).toEqual(["TRIAGE_DECISION_REQUIRED"]);
@@ -121,7 +121,7 @@ describe("bulkUpdateIssues", () => {
   test("LLM が Triage の Issue の状態を変えようとすると、人と同じ TRIAGE_DECISION_REQUIRED で失敗一覧に入り、1件も書かない", () => {
     const { db, ws, me, llm } = setup();
     const ok = createIssue(me, { workspaceId: ws.id, title: "ok" });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "triage" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "triage" });
     const snapshot = () => ({
       issues: [getIssue(db, ok.id), getIssue(db, triage.id)],
       events: db.query("SELECT * FROM events ORDER BY id").all(),

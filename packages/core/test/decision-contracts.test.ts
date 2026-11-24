@@ -11,7 +11,7 @@ import { addProjectRow, codeOf, eventsOf, setup } from "./helpers";
 test("acceptは属性と状態を原子的に保存し、失敗・再実行・LLMに部分更新を残さない", () => {
   const { db, ws, me, llm } = setup();
   const projectId = addProjectRow(db, "検索");
-  const issue = createIssue(llm, { workspaceId: ws.id, title: "発見", labels: ["old"] });
+  const issue = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "発見", labels: ["old"] });
   const before = getIssue(db, issue.id);
   const eventCount = eventsOf(db, issue.id).length;
   expect(codeOf(() => acceptTriage(me, issue.id, { priority: 1, projectRef: "不明" }))).toBe("NOT_FOUND");

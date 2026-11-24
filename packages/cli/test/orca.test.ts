@@ -55,7 +55,7 @@ describe("nod issue と Orca", () => {
     const repo = makeRepo();
     registerRepo(db, repo);
     const wt = addWorktree(repo, "feat-search");
-    const created = (await runNod(["issue", "create", "t", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "t", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "start", created.id], { cwd: wt, db, actor: "claude-code" });
     const shown = (await runNod(["issue", "show", created.id, "--json"], { cwd: repo, db })).json;
     expect(shown).toMatchObject({ branch: "feat-search", worktree: wt });
@@ -65,7 +65,7 @@ describe("nod issue と Orca", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "forwarded", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "forwarded", "--json"], { cwd: repo, db })).json;
     const result = await runNod(["issue", command, ...(command === "start" ? [created.id] : [])], {
       cwd: repo, db, actor: "codex",
       env: { NOD_WORKTREE: "/studio/work tree/project", NOD_BRANCH: "feature/studio" },
@@ -83,7 +83,7 @@ describe("nod issue と Orca", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "partial", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "partial", "--json"], { cwd: repo, db })).json;
     const result = await runNod(["issue", "start", created.id], {
       cwd: repo, db, actor: "codex",
       env: { NOD_WORKTREE: location.worktree, NOD_BRANCH: location.branch },
@@ -100,7 +100,7 @@ describe("nod issue と Orca", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "候補", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "候補", "--json"], { cwd: repo, db })).json;
     const { bin, log } = fakeOrca('{"ok":true}');
     const result = await runNod(["issue", "suggest", "--json"], {
       cwd: repo, db, actor: "claude-code",
@@ -131,7 +131,7 @@ describe("nod issue と Orca", () => {
     const env = { ORCA_CLI_COMMAND: bin, NOD_ORCA: "1" };
     const llm = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db, actor: "claude-code", env });
 
-    const created = (await runNod(["issue", "create", "検索を直す", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索を直す", "--json"], { cwd: repo, db })).json;
     await llm(["issue", "start", created.id]);
     await llm(["issue", "ask", created.id, "複合インデックスでよいか"]);
     await llm(["issue", "done", created.id, "--summary", "直した"]);
@@ -149,7 +149,7 @@ describe("nod issue と Orca", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "t", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "t", "--json"], { cwd: repo, db })).json;
     const r = await runNod(["issue", "start", created.id, "--json"], {
       cwd: repo,
       db,
@@ -170,7 +170,7 @@ describe("Orca の更新は LLM だけ", () => {
     const wt = addWorktree(repo, "feat-human");
     const { bin, log } = fakeOrca('{"ok":true}');
     const env = { ORCA_CLI_COMMAND: bin, NOD_ORCA: "1" };
-    const created = (await runNod(["issue", "create", "t", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "t", "--json"], { cwd: repo, db })).json;
     const r = await runNod(["issue", "start", created.id, "--json"], { cwd: wt, db, env });
     expect(r.exitCode).toBe(0);
     expect(existsSync(log)).toBe(false);
@@ -184,7 +184,7 @@ describe("Orca の更新は LLM だけ", () => {
     registerRepo(db, repo);
     const { bin, log } = fakeOrca('{"ok":true}');
     const env = { ORCA_CLI_COMMAND: bin, NOD_ORCA: "1" };
-    const created = (await runNod(["issue", "create", "索引を張る", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "索引を張る", "--json"], { cwd: repo, db })).json;
     const picked = await runNod(["issue", "next", "--json"], { cwd: repo, db, actor: "claude-code", env });
     expect(picked.json.id).toBe(created.id);
     await runNod(["issue", "fail", created.id, "DB に接続できない", "--json"], { cwd: repo, db, actor: "claude-code", env });
@@ -216,7 +216,7 @@ describe("orca が応答しないとき", () => {
     const bin = join(dir, "orca");
     writeFileSync(bin, `#!/bin/sh\nsleep 20\necho '{"ok":true}'\n`);
     chmodSync(bin, 0o755);
-    const created = (await runNod(["issue", "create", "t", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "t", "--json"], { cwd: repo, db })).json;
     const started = Date.now();
     const r = await runNod(["issue", "start", created.id, "--json"], {
       cwd: repo,

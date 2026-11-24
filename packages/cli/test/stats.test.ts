@@ -129,7 +129,7 @@ describe("nod stats llm", () => {
     const db = tempDb(), cwd = makeRepo();
     registerRepo(db, cwd);
     const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
-    const issue = (await run(["issue", "create", "共同作業"])).json;
+    const issue = (await run(["issue", "create", "--requested", "共同作業"])).json;
     const historicalAt = new Date().toISOString();
     const history = openDb(db);
     history.query("INSERT INTO events (issue_id, actor, type, data, created_at) VALUES (?, ?, ?, ?, ?)")

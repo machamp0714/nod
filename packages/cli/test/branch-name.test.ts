@@ -10,7 +10,7 @@ test("人とLLMがコピー可能な名前とJSONを取得でき、DB・git refs
   registerRepo(db, cwd, "API");
   const other = makeRepo("other");
   registerRepo(db, other, "OTHER");
-  const created = (await runNod(["issue", "create", "日本語🚀 / .. @{ [ ~ ^ : ? *", "--json"], { cwd, db })).json;
+  const created = (await runNod(["issue", "create", "--requested", "日本語🚀 / .. @{ [ ~ ^ : ? *", "--json"], { cwd, db })).json;
   const elsewhere = (await runNod(["issue", "create", "別Workspace", "--json"], { cwd: other, db })).json;
   await runNod(["issue", "start", created.id], { cwd, db });
   const dir = tempDir();

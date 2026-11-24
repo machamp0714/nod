@@ -120,7 +120,7 @@ describe("Workspace のラベル定義", () => {
   test("未定義のラベルも従来どおり Issue に付けられる", () => {
     const { db, ws, me, llm } = setup();
     addWorkspaceLabel(me, ws.key, { name: "bug", color: "#DB2777" });
-    const a = createIssue(llm, { workspaceId: ws.id, title: "a", labels: ["unknown"] });
+    const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a", labels: ["unknown"] });
     updateIssue(llm, a.id, { addLabels: ["other"] });
     expect(labelsOf(db, a.id)).toEqual(["other", "unknown"]);
   });

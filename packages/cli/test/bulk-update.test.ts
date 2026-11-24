@@ -11,7 +11,7 @@ beforeAll(() => {
 
 const llm = (args: string[]) => runNod(args, { cwd: repo, db, actor: "claude-code" });
 const me = (args: string[]) => runNod(args, { cwd: repo, db });
-const create = async (title: string, run = me) => (await run(["issue", "create", "--json", title])).json.id as string;
+const create = async (title: string) => (await me(["issue", "create", "--requested", "--json", title])).json.id as string;
 
 test("Issue の詳細と一覧に担当フィールドを表示しない", async () => {
   const title = "詳細と一覧で確認する Issue";
@@ -62,7 +62,7 @@ describe("nod issue bulk-update", () => {
   });
 
   test("Triage の Issue の状態は変えられず、理由をテキストでも示す", async () => {
-    const t = await create("Triage一括", llm);
+    const t = (await llm(["issue", "create", "Triage一括", "--json"])).json.id;
     const r = await me(["issue", "bulk-update", t, "-s", "todo"]);
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("BULK_UPDATE_FAILED");

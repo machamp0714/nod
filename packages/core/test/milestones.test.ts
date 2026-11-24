@@ -195,7 +195,7 @@ describe("Milestone の入口（#154）", () => {
     const m = createMilestone(me, "検索", { name: "α" });
     const foreign = createMilestone(me, "認証", { name: "別" });
     expect(createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索", milestoneRef: "α" }).milestone).toEqual({ id: m.id, name: "α" });
-    expect(createIssue(llm, { workspaceId: ws.id, title: "b", projectRef: "検索", milestoneRef: String(m.id) })).toMatchObject({
+    expect(createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b", projectRef: "検索", milestoneRef: String(m.id) })).toMatchObject({
       status: "triage",
       milestone: { id: m.id },
     });

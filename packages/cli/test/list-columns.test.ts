@@ -14,12 +14,12 @@ async function seed() {
   const me = (args: string[], cwd = api) => runNod(args, { cwd, db });
   await me(["project", "create", "検索"]);
   await me(["project", "create", LONG_PROJECT]);
-  await me(["issue", "create", "e", "--priority", "4", "--project", "検索", "--estimate", "5"]);
-  await me(["issue", "create", "d", "--priority", "1"]);
-  await me(["issue", "create", "c"]);
-  await me(["issue", "create", "b", "--priority", "2", "--project", LONG_PROJECT]);
-  await me(["issue", "create", "a", "--priority", "1", "--estimate", "2"]);
-  await me(["issue", "create", "w", "--priority", "3"], web);
+  await me(["issue", "create", "--requested", "e", "--priority", "4", "--project", "検索", "--estimate", "5"]);
+  await me(["issue", "create", "--requested", "d", "--priority", "1"]);
+  await me(["issue", "create", "--requested", "c"]);
+  await me(["issue", "create", "--requested", "b", "--priority", "2", "--project", LONG_PROJECT]);
+  await me(["issue", "create", "--requested", "a", "--priority", "1", "--estimate", "2"]);
+  await me(["issue", "create", "--requested", "w", "--priority", "3"], web);
   await me(["issue", "update", "API-2", "--status", "backlog"]);
   await runNod(["issue", "start", "API-4"], { cwd: api, db, actor: "claude-code" });
   return { db, api, web, me };
@@ -66,7 +66,7 @@ describe("nod issue list の列（#174）", () => {
 
   test("1行表示（起票など）と --json の形は変えない", async () => {
     const { me } = await seed();
-    const created = await me(["issue", "create", "新規", "--priority", "2"]);
+    const created = await me(["issue", "create", "--requested", "新規", "--priority", "2"]);
     expect(created.stdout.trimEnd()).toBe("起票しました: API-6  Todo         新規");
     const json = (await me(["issue", "list", "--json"])).json;
     expect(json[0]).toMatchObject({ id: "API-1", priority: 4, project: { name: "検索" } });

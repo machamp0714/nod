@@ -21,10 +21,10 @@ beforeAll(async () => {
   registerRepo(db, api, "API");
   registerRepo(db, web, "WEB");
   await me(["project", "create", "調査票"]);
-  ids.survey = (await me(["issue", "create", "設問を決める", "--project", "調査票", "-p", "2"])).json.id;
-  ids.search = (await me(["issue", "create", "検索を速くする"])).json.id;
-  ids.plain = (await me(["issue", "create", "未決事項なし"])).json.id;
-  ids.screen = (await me(["issue", "create", "画面の配色"], web)).json.id;
+  ids.survey = (await me(["issue", "create", "--requested", "設問を決める", "--project", "調査票", "-p", "2"])).json.id;
+  ids.search = (await me(["issue", "create", "--requested", "検索を速くする"])).json.id;
+  ids.plain = (await me(["issue", "create", "--requested", "未決事項なし"])).json.id;
+  ids.screen = (await me(["issue", "create", "--requested", "画面の配色"], web)).json.id;
   questions.required = (await me(["issue", "ask", ids.survey!, "Q3 は必須にするか"])).json.question.id;
   questions.due = (await me(["issue", "ask", ids.survey!, "回答期限はいつか"])).json.question.id;
   await llm(["issue", "start", ids.search!]);

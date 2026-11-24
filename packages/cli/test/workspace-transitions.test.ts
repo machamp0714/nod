@@ -59,7 +59,7 @@ describe("nod workspace transitions（#73）", () => {
 
   test("違反する状態変更は TRANSITION_NOT_ALLOWED で、どのルールかを示す", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["issue", "create", "a"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "a"], { cwd: repo, db });
     await runNod(["workspace", "transitions", "set", "--forbid", "todo:done"], { cwd: repo, db });
     const json = await runNod(["issue", "update", "API-1", "--status", "done", "--json"], { cwd: repo, db });
     expect(json.exitCode).not.toBe(0);

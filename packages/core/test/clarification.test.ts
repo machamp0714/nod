@@ -51,7 +51,7 @@ describe("Needs Clarification への自動の切り替え", () => {
 
   test("未決事項のある Triage の Issue は Triage のままで、受け入れると needs_clarification、決めると todo になる", () => {
     const { db, ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     const asked = askQuestion(me, i.id, "本当に要るか");
     expect(asked.issue.status).toBe("triage");
     expect(acceptTriage(me, i.id).status).toBe("needs_clarification");

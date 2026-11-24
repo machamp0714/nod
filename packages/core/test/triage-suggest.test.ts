@@ -42,7 +42,7 @@ describe("similarity", () => {
 function seed() {
   const s = setup();
   const { me, ws } = s;
-  const create = (ctx: typeof me, title: string, description?: string) => createIssue(ctx, { workspaceId: ws.id, title, description });
+  const create = (ctx: typeof me, title: string, description?: string, status: "todo" | "triage" = "todo") => createIssue(ctx, { workspaceId: ws.id, title, description, status });
   return { ...s, create };
 }
 
@@ -51,7 +51,7 @@ describe("suggestTriage", () => {
     const { db, me, llm, create } = seed();
     const original = create(me, "検索結果のページングが1件ずれる", "offset の計算が誤っている");
     create(me, "ログのタイムゾーンをUTCに統一");
-    const triage = create(llm, "検索結果のページングがずれる", "offset がおかしい");
+    const triage = create(llm, "検索結果のページングがずれる", "offset がおかしい", "triage");
     const tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[];
     const snapshot = () => tables.map(({ name }) => db.query(`SELECT * FROM "${name}" ORDER BY rowid`).all());
     const before = snapshot();
@@ -75,8 +75,8 @@ describe("suggestTriage", () => {
     const ids = Array.from({ length: 6 }, () => create(me, "検索結果のページングがずれる").id);
     updateIssue(me, ids[0]!, { status: "done" });
     updateIssue(me, ids[1]!, { status: "canceled" });
-    const otherTriage = create(llm, "検索結果のページングがずれる");
-    const triage = create(llm, "検索結果のページングがずれる");
+    const otherTriage = create(llm, "検索結果のページングがずれる", undefined, "triage");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     const s = suggestTriage(me, triage.id);
     expect(s.duplicates.map((d) => d.id)).toEqual(ids.slice(0, 5));
     expect(s.duplicates.map((d) => d.status).slice(0, 2)).toEqual(["done", "canceled"]);
@@ -87,16 +87,16 @@ describe("suggestTriage", () => {
   test("閾値0.25未満は出さない", () => {
     const { me, llm, create } = seed();
     create(me, "ログの時刻を直す");
-    const triage = create(llm, "検索結果のページングがずれる");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     expect(suggestTriage(me, triage.id).duplicates).toEqual([]);
   });
 
   test("既に重複になっているIssueは除外し、元のIssueに寄せる", () => {
     const { me, llm, create } = seed();
     const original = create(me, "通知の既読が戻らない");
-    const dup = create(llm, "検索結果のページングがずれる");
+    const dup = create(llm, "検索結果のページングがずれる", undefined, "triage");
     duplicateTriage(me, dup.id, original.id);
-    const triage = create(llm, "検索結果のページングがずれる");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     const s = suggestTriage(me, triage.id);
     expect(s.duplicates.map((d) => d.id)).toEqual([original.id]);
     expect(s.duplicates[0]!.via).toBe(dup.id);
@@ -107,9 +107,9 @@ describe("suggestTriage", () => {
     const { db, me, llm, create } = seed();
     const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
     const original = createIssue(me, { workspaceId: other.id, title: "通知の既読が戻らない" });
-    const dup = create(llm, "検索結果のページングがずれる");
+    const dup = create(llm, "検索結果のページングがずれる", undefined, "triage");
     duplicateTriage(me, dup.id, original.id);
-    const triage = create(llm, "検索結果のページングがずれる");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     const s = suggestTriage(me, triage.id);
     expect(s.duplicates.map((d) => d.id)).toEqual([dup.id]);
     expect(s.duplicates[0]!.workspace).toBe("API");
@@ -119,18 +119,18 @@ describe("suggestTriage", () => {
   test("重複の寄せは1段だけで、寄せ先がさらに重複でも辿らない", () => {
     const { me, llm, create } = seed();
     const root = create(me, "ログの時刻を直す");
-    const middle = create(llm, "通知の既読が戻らない");
+    const middle = create(llm, "通知の既読が戻らない", undefined, "triage");
     duplicateTriage(me, middle.id, root.id);
-    const dup = create(llm, "検索結果のページングがずれる");
+    const dup = create(llm, "検索結果のページングがずれる", undefined, "triage");
     duplicateTriage(me, dup.id, middle.id);
-    const triage = create(llm, "検索結果のページングがずれる");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([middle.id]);
   });
 
   test("タイトル・本文を編集すると次の提案に反映する（トークンのキャッシュを作り直す）", () => {
     const { me, llm, create } = seed();
     const a = create(me, "ログの時刻を直す");
-    const triage = create(llm, "検索結果のページングがずれる");
+    const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
     expect(suggestTriage(me, triage.id).duplicates).toEqual([]);
     updateIssue(me, a.id, { title: "検索結果のページングがずれる" });
     expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([a.id]);
@@ -144,13 +144,13 @@ describe("suggestTriage", () => {
   test("ハイフン・記号入りのラベルがあっても失敗せず、ハイフン入りは語の境界、記号入りは部分文字列で一致させる", () => {
     const { me, llm, ws } = seed();
     createIssue(me, { workspaceId: ws.id, title: "x", labels: ["good-first-issue", "c++", "a.b", "needs review"] });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "good-first-issue の c++ 対応", description: "needs review" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "good-first-issue の c++ 対応", description: "needs review" });
     expect(suggestTriage(me, triage.id).labels).toEqual([
       { label: "c++", reasons: [{ kind: "text", field: "title" }] },
       { label: "good-first-issue", reasons: [{ kind: "text", field: "title" }] },
       { label: "needs review", reasons: [{ kind: "text", field: "description" }] },
     ]);
-    const other = createIssue(llm, { workspaceId: ws.id, title: "good-first-issues と axb" });
+    const other = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "good-first-issues と axb" });
     expect(suggestTriage(me, other.id).labels).toEqual([]);
   });
 
@@ -158,7 +158,7 @@ describe("suggestTriage", () => {
     const { db, me, llm, ws } = seed();
     const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
     createIssue(me, { workspaceId: other.id, title: "x", labels: ["search"] });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "search が遅い" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "search が遅い" });
     expect(suggestTriage(me, triage.id).labels).toEqual([]);
   });
 
@@ -167,7 +167,7 @@ describe("suggestTriage", () => {
     const a = createIssue(me, { workspaceId: ws.id, title: "検索結果のページングがずれる", labels: ["api", "search"] });
     const b = createIssue(me, { workspaceId: ws.id, title: "検索結果のページングが重複する", labels: ["search"] });
     createIssue(me, { workspaceId: ws.id, title: "無関係なログ", labels: ["perf", "bug"] });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "検索結果のページングが壊れた bug", labels: ["api"] });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "検索結果のページングが壊れた bug", labels: ["api"] });
     const s = suggestTriage(me, triage.id);
     expect(s.labels.map((l) => l.label)).toEqual(["search", "bug"]);
     expect(s.labels[0]!.reasons).toEqual([{ kind: "similar", issues: [a.id, b.id] }]);
@@ -177,7 +177,7 @@ describe("suggestTriage", () => {
   test("ラベル名は語の境界で一致させ、本文中なら field=description", () => {
     const { me, llm, ws } = seed();
     createIssue(me, { workspaceId: ws.id, title: "x", labels: ["ui", "db"] });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "画面が遅い", description: "guide を読む。DB が重い" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "画面が遅い", description: "guide を読む。DB が重い" });
     expect(suggestTriage(me, triage.id).labels).toEqual([{ label: "db", reasons: [{ kind: "text", field: "description" }] }]);
   });
 
@@ -200,7 +200,7 @@ describe("suggestTriage", () => {
         insert.run(ws.id, 10000 + n, `${words[n % 12]}の${words[(n * 7) % 12]}が${words[(n * 5) % 12]} ${n}`, body);
       }
     })();
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "検索のページングがずれる", description: body });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "検索のページングがずれる", description: body });
     const started = performance.now();
     const s = suggestTriage(me, triage.id);
     const elapsed = performance.now() - started;
@@ -211,7 +211,7 @@ describe("suggestTriage", () => {
 
 test("受け入れで assignee を指定すると INVALID_ARGS になり、状態を変えない", () => {
   const { me, llm, create } = seed();
-  const triage = create(llm, "検索結果のページングがずれる");
+  const triage = create(llm, "検索結果のページングがずれる", undefined, "triage");
   for (const assignee of ["codex", null]) {
     const legacyInput = { assignee, priority: 1 };
     expect(codeOf(() => acceptTriage(me, triage.id, legacyInput))).toBe("INVALID_ARGS");
