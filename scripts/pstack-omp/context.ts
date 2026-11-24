@@ -161,9 +161,32 @@ export interface GitResult {
   stderr: string;
 }
 
-// git を実行する。認証の問い合わせで止まらないよう、端末からの入力は求めさせない
+// 呼び出し元のリポジトリを指す環境変数。git が別のリポジトリでコマンドを動かすとき（run-command.c の prepare_other_repo_env）と同じく、
+// git rev-parse --local-env-vars のうち、環境変数で渡した設定（GIT_CONFIG_PARAMETERS、GIT_CONFIG_COUNT とその GIT_CONFIG_KEY_n・GIT_CONFIG_VALUE_n）は除く
+const KEPT_ENV_VARS = ["GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"];
+let localEnvVars: string[] | undefined;
+
+function gitLocalEnvVars(): string[] {
+  if (localEnvVars) return localEnvVars;
+  const proc = Bun.spawnSync(["git", "rev-parse", "--local-env-vars"], { cwd: "/", stdout: "pipe", stderr: "pipe" });
+  if (proc.exitCode !== 0) {
+    throw new PstackOmpError(`git の環境変数の一覧（git rev-parse --local-env-vars）を得られません: ${proc.stderr.toString().trim() || `終了コード ${proc.exitCode}`}`);
+  }
+  localEnvVars = proc.stdout
+    .toString()
+    .split("\n")
+    .filter((key) => key !== "" && !KEPT_ENV_VARS.includes(key));
+  return localEnvVars;
+}
+
+// git を実行する。認証の問い合わせで止まらないよう、端末からの入力は求めさせない。
+// 呼び出し元のリポジトリを指す環境変数（GIT_DIR・GIT_WORK_TREE・GIT_INDEX_FILE など）は渡さないので、フックの中などから同期しても
+// cwd の clone だけに触る。利用者のほかの git の設定（環境変数で渡した設定、GIT_CONFIG_GLOBAL・GIT_SSH_COMMAND など）は取得のために残す
+// （packages/core/src/ops/git-runner.ts のように GIT_ で始まるものを全部は消さない）
 export function git(cwd: string, ...args: string[]): GitResult {
-  const proc = Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, stdout: "pipe", stderr: "pipe" });
+  const env: Record<string, string | undefined> = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  for (const key of gitLocalEnvVars()) delete env[key];
+  const proc = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
   return { ok: proc.exitCode === 0, stdout: proc.stdout.toString().trim(), stderr: proc.stderr.toString().trim() };
 }
 

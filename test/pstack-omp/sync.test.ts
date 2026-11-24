@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Pin, sandbox } from "./helpers";
+import { git, type Pin, type Sandbox, sandbox } from "./helpers";
 
 const PIN = join(import.meta.dir, "../../scripts/pstack-omp/pin.json");
 
@@ -71,7 +71,117 @@ describe("同期", () => {
     expect(sb.cloneHead()).toBe(newer);
     expect(sb.cloneStatus()).toBe("");
   });
+
+  test("呼び出し元のリポジトリを指す git の環境変数（フックの中など）があっても、置き場の clone だけを揃え、呼び出し元のリポジトリに触らない", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin();
+    const { env, state } = callerRepo(sb);
+    const before = state();
+
+    // 新しく clone するとき
+    const first = await sb.run("sync", { env });
+    expect(first.stderr).toBe("");
+    expect(first.exitCode).toBe(0);
+    // 既存の clone に、上流から取り寄せて揃えるとき（手で変えた作業ツリーも揃える）
+    const newer = sb.commit("0.15.47");
+    sb.pin();
+    writeFileSync(join(sb.clone, "untracked.txt"), "足した\n");
+    const second = await sb.run("sync", { env });
+
+    expect(second.stderr).toBe("");
+    expect(second.exitCode).toBe(0);
+    expect(sb.cloneHead()).toBe(newer);
+    expect(sb.cloneStatus()).toBe("");
+    expect(state()).toEqual(before);
+    expect(before.fetched).toBe(false);
+    expect(before.remotes).toBe("");
+  });
+
+  test("利用者の git の設定（global の設定ファイルの URL の読み替えなど）は同期の git にも効く", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    const repository = "https://example.invalid/pstack-upstream.git";
+    sb.pin({ repository });
+    // 記録の URL を一時の上流に読み替える設定。ネットワークには出ない
+    const config = join(sb.root, "gitconfig-insteadof");
+    writeFileSync(config, `[url "${sb.upstream}"]\n\tinsteadOf = ${repository}\n`);
+    const env = { GIT_CONFIG_GLOBAL: config };
+
+    const first = await sb.run("sync", { env });
+    expect(first.stderr).toBe("");
+    expect(first.exitCode).toBe(0);
+    // 既存の clone に、読み替えた URL から取り寄せる
+    const newer = sb.commit("0.15.47");
+    sb.pin({ repository });
+    const second = await sb.run("sync", { env });
+
+    expect(second.stderr).toBe("");
+    expect(second.exitCode).toBe(0);
+    expect(sb.cloneHead()).toBe(newer);
+    expect(sb.cloneStatus()).toBe("");
+    expect(git(sb.root, sb.clone, "config", "--get", "remote.origin.url")).toBe(repository);
+  });
+
+  const REPOSITORY = "https://example.invalid/pstack-upstream.git";
+  test.each([
+    {
+      label: "GIT_CONFIG_COUNT と GIT_CONFIG_KEY_n・GIT_CONFIG_VALUE_n",
+      config: (upstream: string) => ({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.${upstream}.insteadOf`, GIT_CONFIG_VALUE_0: REPOSITORY }),
+    },
+    { label: "GIT_CONFIG_PARAMETERS（git -c）", config: (upstream: string) => ({ GIT_CONFIG_PARAMETERS: `'url.${upstream}.insteadof'='${REPOSITORY}'` }) },
+  ])("環境変数で渡した git の設定は、呼び出し元のリポジトリを指す環境変数と一緒でも同期の git に効く: $label", async ({ config }) => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin({ repository: REPOSITORY });
+    const caller = callerRepo(sb);
+    const before = caller.state();
+    // 記録の URL を一時の上流に読み替える設定。ネットワークには出ない
+    const env = { ...caller.env, ...config(sb.upstream) };
+
+    const first = await sb.run("sync", { env });
+    expect(first.stderr).toBe("");
+    expect(first.exitCode).toBe(0);
+    const newer = sb.commit("0.15.47");
+    sb.pin({ repository: REPOSITORY });
+    const second = await sb.run("sync", { env });
+
+    expect(second.stderr).toBe("");
+    expect(second.exitCode).toBe(0);
+    expect(sb.cloneHead()).toBe(newer);
+    expect(sb.cloneStatus()).toBe("");
+    expect(caller.state()).toEqual(before);
+  });
 });
+
+// 一時の呼び出し元のリポジトリ（コミットに、索引に載せた変更と、索引に載せていないファイルを重ねる）と、それを指す git の環境変数、
+// その状態（索引・参照・作業ツリー・取得の跡）
+function callerRepo(sb: Sandbox) {
+  const caller = join(sb.root, "caller");
+  mkdirSync(caller);
+  git(sb.root, caller, "init", "-q", "-b", "main");
+  writeFileSync(join(caller, "a.txt"), "最初\n");
+  git(sb.root, caller, "add", "a.txt");
+  git(sb.root, caller, "commit", "-q", "-m", "caller");
+  writeFileSync(join(caller, "a.txt"), "索引に載せた\n");
+  writeFileSync(join(caller, "b.txt"), "足した\n");
+  git(sb.root, caller, "add", "a.txt", "b.txt");
+  writeFileSync(join(caller, "untracked.txt"), "索引に載せていない\n");
+  return {
+    env: { GIT_DIR: join(caller, ".git"), GIT_WORK_TREE: caller, GIT_INDEX_FILE: join(caller, ".git", "index") },
+    state: () => ({
+      index: readFileSync(join(caller, ".git", "index")),
+      stage: git(sb.root, caller, "ls-files", "--stage"),
+      cached: git(sb.root, caller, "diff", "--cached", "--name-status"),
+      refs: git(sb.root, caller, "for-each-ref"),
+      head: git(sb.root, caller, "symbolic-ref", "HEAD"),
+      remotes: git(sb.root, caller, "remote"),
+      files: readdirSync(caller).sort(),
+      untracked: readFileSync(join(caller, "untracked.txt"), "utf8"),
+      fetched: existsSync(join(caller, ".git", "FETCH_HEAD")),
+    }),
+  };
+}
 
 describe("OMP の版が記録と違うと、取得せずに止まって理由を報告する", () => {
   test("置き場に何も作らない", async () => {
