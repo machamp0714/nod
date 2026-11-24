@@ -33,11 +33,11 @@ describe("購読の開始と解除", () => {
     expect(getIssue(db, a.id).subscribed).toBe(false);
   });
 
-  test("LLM は購読を操作できず、存在しない Issue は NOT_FOUND", () => {
+  test("LLM も購読を操作でき、存在しない Issue は NOT_FOUND", () => {
     const { ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
-    expect(codeOf(() => subscribeIssue(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => unsubscribeIssue(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
+    expect(subscribeIssue(llm, a.id).subscribed).toBe(true);
+    expect(unsubscribeIssue(llm, a.id).subscribed).toBe(false);
     expect(codeOf(() => subscribeIssue(me, "API-999"))).toBe("NOT_FOUND");
   });
 });
@@ -178,10 +178,10 @@ describe("通知の既読", () => {
     expect(listNotifications(db)).toEqual([]);
   });
 
-  test("LLM は通知を既読にできない", () => {
+  test("LLM も me の通知を既読にできる", () => {
     const { db, llm } = seeded();
-    expect(codeOf(() => markNotificationsRead(llm, { all: true }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(listNotifications(db)).toHaveLength(3);
+    expect(markNotificationsRead(llm, { all: true })).toEqual({ updated: 3 });
+    expect(listNotifications(db)).toEqual([]);
   });
 
   test("指定がない・存在しない id・複数指定は INVALID_ARGS か NOT_FOUND", () => {
@@ -587,11 +587,9 @@ describe("通知のスヌーズ（#43）", () => {
     expect(listNotifications(db)).toEqual([]);
   });
 
-  test("LLM は操作できず、過去の日時・不正な日時・通知のない Issue・指定の誤りはエラー", () => {
+  test("過去の日時・不正な日時・通知のない Issue・指定の誤りはエラー", () => {
     const { db, ws, me, llm, a } = seeded();
     const other = createIssue(me, { workspaceId: ws.id, title: "通知なし" });
-    expect(codeOf(() => snoozeNotifications(llm, { issueRef: a.id, until: FUTURE }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => unsnoozeNotifications(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "2000-01-01" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "あした" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => snoozeNotifications(me, { until: FUTURE }))).toBe("INVALID_ARGS");
@@ -669,12 +667,12 @@ describe("通知の削除（#44）", () => {
     expect(restoreNotifications(me, { ids: [9999] })).toEqual({ updated: 0, missing: 1 });
   });
 
-  test("LLM は削除も取り消しもできない", () => {
+  test("LLM も me の通知を削除して取り消せる", () => {
     const { db, me, llm, a } = seeded();
-    expect(codeOf(() => deleteNotifications(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
-    const { ids } = deleteNotifications(me, { issueRef: a.id });
-    expect(codeOf(() => restoreNotifications(llm, { ids }))).toBe("FORBIDDEN_FOR_LLM");
+    const { ids } = deleteNotifications(llm, { issueRef: a.id });
     expect(listNotifications(db)).toHaveLength(1);
+    expect(restoreNotifications(llm, { ids }).updated).toBe(2);
+    expect(listNotifications(db)).toHaveLength(3);
   });
 
   test("削除した通知は既読の操作の対象にならない", () => {
@@ -738,10 +736,10 @@ describe("通知を未読に戻す（#161）", () => {
     expect(bodies(db)).toEqual(["a1"]);
   });
 
-  test("LLM は通知を未読に戻せない", () => {
+  test("LLM も me の通知を未読に戻せる", () => {
     const { db, llm, a } = seeded();
-    expect(codeOf(() => markNotificationsUnread(llm, { issueRef: a.id }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(listNotifications(db)).toEqual([]);
+    expect(markNotificationsUnread(llm, { issueRef: a.id })).toEqual({ updated: 1 });
+    expect(listNotifications(db)).toHaveLength(1);
   });
 
   test("指定がない・両方の指定・空や不正な id は INVALID_ARGS、存在しない id・Issue・通知のない Issue は NOT_FOUND で、何も変えない", () => {

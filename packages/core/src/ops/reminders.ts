@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
-import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { HUMAN_ACTOR, now, type OpCtx } from "../ctx";
 import { tx } from "../db";
+import { inboxOperation } from "./inbox-operations";
 import { NodError } from "../errors";
 import { findIssueRow, findWritableIssueRow, formatIssueId } from "../issue-query";
 import { releaseSnoozeOnArrival } from "../notify";
@@ -8,12 +9,8 @@ import type { IssueReminder, Reminder } from "../types";
 import { parseDateTime } from "./human";
 
 // Issue のリマインダー（#47）。常駐ジョブは持たず、通知一覧を読むとき（listNotifications）に期限が来たものを通知に変える。
-// 1 Issue・1受け手に1件で、設定し直すと上書きする。設定・解除は人だけが行う。
+// 1 Issue・1受け手に1件で、設定し直すと上書きする。設定・解除は書き手によらず me の分を操作する。
 // アーカイブ済みの Issue に届いた通知は、ほかの通知と同じく復元するまで一覧に出ない
-
-function requireHuman(ctx: OpCtx, what: string): void {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", `LLM はリマインダーを${what}できません。me が行います`);
-}
 
 export interface SetReminderInput {
   at: string; // 日時。日付だけならローカルの 0 時（スヌーズと同じ解釈）
@@ -21,11 +18,10 @@ export interface SetReminderInput {
 }
 
 export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): Reminder {
-  requireHuman(ctx, "設定");
   const at = parseDateTime(input.at);
   if (at <= now()) throw new NodError("INVALID_ARGS", `${input.at} は過去の日時です。これから先の日時を指定してください`);
   const note = input.note?.trim() || null;
-  return tx(ctx.db, () => {
+  return inboxOperation(ctx, "reminder_set", { issueRef: ref, ...input }, () => {
     // 期限が来てまだ届けていないものを先に届ける。上書きで消すと、届くはずの通知が失われる
     deliverDueReminders(ctx.db);
     // アーカイブ済みの Issue には設定できない（#30）。解除は後片付けとして許す
@@ -36,7 +32,7 @@ export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): R
         `INSERT INTO reminders (issue_id, recipient, remind_at, note, created_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT (issue_id, recipient) DO UPDATE SET remind_at = excluded.remind_at, note = excluded.note, created_at = excluded.created_at`,
       )
-      .run(row.id, ctx.actor, at, note, ts);
+      .run(row.id, HUMAN_ACTOR, at, note, ts);
     return {
       issueId: formatIssueId(row.ws_key, row.number),
       issueTitle: row.title,
@@ -50,12 +46,11 @@ export function setReminder(ctx: OpCtx, ref: string, input: SetReminderInput): R
 
 // 設定していなくてもエラーにしない。cleared は今回消したか
 export function clearReminder(ctx: OpCtx, ref: string): { issueId: string; cleared: boolean } {
-  requireHuman(ctx, "解除");
-  return tx(ctx.db, () => {
+  return inboxOperation(ctx, "reminder_clear", { issueRef: ref }, () => {
     // 期限が来ていた分は解除せず通知として届ける（設定と同じ理由）
     deliverDueReminders(ctx.db);
     const row = findIssueRow(ctx.db, ref);
-    const changes = ctx.db.query("DELETE FROM reminders WHERE issue_id = ? AND recipient = ?").run(row.id, ctx.actor).changes;
+    const changes = ctx.db.query("DELETE FROM reminders WHERE issue_id = ? AND recipient = ?").run(row.id, HUMAN_ACTOR).changes;
     return { issueId: formatIssueId(row.ws_key, row.number), cleared: changes > 0 };
   });
 }

@@ -37,6 +37,7 @@ describe("openDb", () => {
       "due_date_occurrences",
       "events",
       "github_publishes",
+      "inbox_operations",
       "initiative_projects",
       "initiatives",
       "issue_attachments",

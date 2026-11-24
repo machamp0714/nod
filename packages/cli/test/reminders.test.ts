@@ -2,15 +2,15 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
 
-test("リマインダーを CLI で設定・一覧・解除でき、期限が来ると通知に出る。LLM は設定できない", async () => {
+test("リマインダーを CLI で設定・一覧・解除でき、期限が来ると通知に出る。LLM も me の分を設定できる", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
   await nod(["issue", "create", "検索", "--json"]);
 
-  const denied = await nod(["issue", "remind", "API-1", "--at", "2999-01-01", "--json"], "claude-code");
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  const allowed = await nod(["issue", "remind", "API-1", "--at", "2999-01-01", "--json"], "claude-code");
+  expect(allowed.exitCode).toBe(0);
   const past = await nod(["issue", "remind", "API-1", "--at", "2000-01-01", "--json"]);
   expect(past.json.error.code).toBe("INVALID_ARGS");
   const noAt = await nod(["issue", "remind", "API-1", "--json"]);
