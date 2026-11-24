@@ -56,7 +56,7 @@ export function SprintRecordsLayout({ sprint, title, onBack, onPlan, onOutcomes,
 export function SprintOutcomes({ sprint, onBack, onPlan, onRetrospective, readError, onRetry }: { sprint: SprintDetail; onBack: () => void; onPlan: () => void; onRetrospective: () => void; readError?: unknown; onRetry: () => void }) {
   const records = useSprintRecords(sprint.id);
   const outcomes = records.data?.filter(record => record.kind === "outcome") ?? [];
-  const feedback = records.data?.filter((record): record is SprintFeedbackRecord => record.kind === "feedback" && record.recordedBy === "me");
+  const feedback = records.data?.filter((record): record is SprintFeedbackRecord => record.kind === "feedback");
   return <SprintRecordsLayout sprint={sprint} title="成果と評価" onBack={onBack} onPlan={onPlan} onOutcomes={() => {}} onRetrospective={onRetrospective} aside={<>
     <section className={s.section}><h2>利用者の感想</h2><p>成果を試して感じたことを、本人の感想として残せます。</p>
       {records.isPending && <p role="status">感想の記録を読み込み中…</p>}

@@ -5,6 +5,7 @@
 export const CTX_OPS = [
   "activateSprint",
   "acceptSprintPlan",
+  "addSprintRecord",
   "createIssue",
   "updateIssue",
   "commentIssue",

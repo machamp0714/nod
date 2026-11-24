@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintText } from "../sprint-validation";
@@ -79,7 +79,6 @@ export function addSprintRecord(ctx: OpCtx, ref: string, input: AddSprintRecordI
   sprintObject(input, ["requestKey", "kind", "content", "correctsRecordId"]);
   const requestKey = sprintText(input.requestKey, "requestKey");
   if (input.kind !== "outcome" && input.kind !== "feedback" && input.kind !== "retrospective") return invalidSprint("記録の種類が不正です");
-  if (input.kind === "feedback" && isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "利用者の感想は本人だけが記録できます");
   const content = input.kind === "outcome" ? outcomeContent(input.content) : input.kind === "feedback" ? feedbackContent(input.content) : retrospectiveContent(input.content);
   const correctsRecordId = input.correctsRecordId === undefined ? null : sprintText(input.correctsRecordId, "訂正元の記録");
   const inputHash = sprintHash({ kind: input.kind, content, correctsRecordId });
