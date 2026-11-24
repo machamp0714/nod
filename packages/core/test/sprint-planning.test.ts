@@ -108,7 +108,7 @@ test("中止期間に前後で隣接する更新と通常の非重複更新を�
 });
 
 test("Workspaceの問題・目標・優先順位を版付きで設定し、同じ要求を再送できる", () => {
-  const { db, ws, me, llm } = setup();
+  const { db, ws, me } = setup();
   expect(core.getScrumWorkspace(db, ws.key)).toMatchObject({ enabled: false, version: 0 });
   const input = { expectedVersion: 0, requestKey: "方向1", enabled: true, problem: "判断待ちで停滞する", productGoal: "迷わず開発を進める", priorityRationale: "回答から再開までを優先" };
   const configured = core.configureScrumWorkspace(me, ws.key, input);

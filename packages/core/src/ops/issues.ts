@@ -7,7 +7,7 @@ import { recordDueDateSetting } from "./due-date-notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { HUMAN_ACTOR, now, type OpCtx } from "../ctx";
 import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
 import { tx } from "../db";
 import { NodError } from "../errors";
@@ -599,7 +599,7 @@ export function logWork(ctx: OpCtx, ref: string, body: string, opts: { kind?: st
   return tx(ctx.db, () => addComment(ctx, findWritableIssueRow(ctx.db, ref), body, null, kind));
 }
 
-// スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
+// スレッドを解決済み・未解決に切り替える。状態が変わったときだけ event を残す
 export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);

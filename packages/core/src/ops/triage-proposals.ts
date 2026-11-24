@@ -11,7 +11,7 @@ import { normalizeLabelName } from "./workspace-labels";
 
 // LLM の Triage 提案（#62）。提案は triage_proposals だけに書き、Issue・ラベル・関係・event は変えない。
 // LLM の提案と取り下げは me 宛ての提案通知（#125）だけを作る・消す
-// 受け入れ・却下・重複の確定は人だけが accept / decline / duplicate で行う（FORBIDDEN_FOR_LLM は human.ts のまま）
+// 受け入れ・却下・重複の確定は書き手によらず accept / decline / duplicate で行う
 export const PROPOSAL_REASON_MAX_LENGTH = 2000;
 
 interface ProposalRow {

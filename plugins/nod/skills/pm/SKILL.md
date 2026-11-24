@@ -67,7 +67,7 @@ nod:pm API --sprint current --on Studio --agent codex --model gpt-6.1-sol --effo
 依頼ごとに`モデル:effort`と、複雑さ、影響範囲、検証の難しさを根拠とした選定理由を提示する。
 要求値を書いただけでは適用確認とせず、新規依頼時は実行先の対応とOrcaの`launch.requested`、`launch.effective`を確認してから実装を始める。
 
-Codexではnodへ書き込む前に`export NOD_ACTOR=codex`を設定する。
+書き手は環境から自動判定される。明示指定が必要なら`NOD_ACTOR`を使う。書き手は記録用で、操作の許可や人の承認の証明ではない。
 `nod skills get nod`と、この環境の`orchestration`スキルを読み、そこで解決したOrca実行ファイルを以後も使う。
 Orcaの実行ファイルから`skills get orchestration`で現行の手引きを取得する。
 未対応の操作やflagを推測しない。

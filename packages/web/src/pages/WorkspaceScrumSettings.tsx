@@ -22,7 +22,7 @@ export function WorkspaceScrumSettings({ workspaceKey }: { workspaceKey: string 
   </>;
 }
 
-// 期限到来時の自動引継ぎ。方向設定とは別の、値だけを変える操作（人だけ。LLM は変更できない）。
+// 期限到来時の自動引継ぎ。方向設定とは別の、値だけを変える操作。
 // 状態は読取専用で、設定値・次に処理する時刻・後継の予定・止まっている理由を出す
 function RolloverSettings({ workspaceKey, saved }: { workspaceKey: string; saved: ScrumWorkspace | undefined }) {
   const status = useSprintRolloverStatus(workspaceKey);

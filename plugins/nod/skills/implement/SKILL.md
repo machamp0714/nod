@@ -13,7 +13,7 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 
 ## 0. 準備
 
-- Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
+- 書き手は `NOD_ACTOR` → `OMPCODE=1`（omp）→ `CLAUDECODE=1`（claude-code）→ `CODEX_THREAD_ID`（codex）→ me の順で自動判定される。明示指定が必要なら `NOD_ACTOR` を使う。書き手は記録用で、操作の許可や人の承認の証明ではない。
 - **デフォルトブランチ（main / develop など）の上なら、何もせずに止めて**、作業ブランチを作るよう伝える（`nod issue branch-name <id>` で候補が得られる。GitHub に出るブランチ名・コミット・PR には nod の Issue ID を書かない）。判定状態や needs-spec による停止は以下に従う。
 - 作業ツリーに、この Issue と関係のない未コミットの変更があれば触らない（stash もしない）。コミットには自分の変更だけを入れる。
 - **start より先に** `nod issue show <id> --json` で本文、ラベル、`specAssessment`、計画（Task・Step の状態）、Documents、Activity（作業ログ）を読む。kind=spec の Document があれば全文読む。
@@ -23,7 +23,7 @@ Issue の要求を最後まで実装する。既存の計画（`nod:to-plan` で
 - 現在のラベルに `needs-spec` があれば、`nod:to-spec <id>` へ案内して実装を始めずに止める。仕様書があっても同じ。`nod:to-spec` は仕様書の作成・添付の完了を確認して解除する。`nod:implement` 自身は解除しない。
 - 再開時は Activity と作業場所から途中成果を確認する。
 - `needs-spec` がなく判定完了済み（任意再評価中も含む）または対象外・制限解除済みなら `nod issue start <id>` を実行する。
-  追加指示は `show` で読める。確認済みになるのは LLM が `start` で受け取ったときである。
+  追加指示は `show` で読める。確認済みになるのは書き手によらず `start` で受け取ったときである。
   `start` の出力に追加指示があれば先に読んで作業に反映する。
 - spec・plan・事前の `nod:to-plan` は必須にしない。既存 spec と計画は引き続き使う。spec がなければ Issue 本文の要求と完了条件を正本にする。見出しやチェックボックスの有無、短文であることだけで仕様不足と決めない。
 - 計画がなければ本文から実装・検証できる範囲の軽い Task・Step を作業追跡用に記録する（例: `nod issue plan <id> --step "本文の要求を実装・検証する"`）。計画 Document の作成や別工程の承認を増やさない。重要な利用者向け仕様を決めないと進められない場合だけ、未決事項を `nod issue ask` に記録して止める。

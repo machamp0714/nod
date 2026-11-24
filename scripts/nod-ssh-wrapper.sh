@@ -177,7 +177,7 @@ describe_node() {
   NODE_POS=""
   case $1 in
     issue | "issue doc" | "issue attach" | project | "project doc" | scrum | sprint | "sprint session" | \
-      "sprint execution" | "sprint plan" | workspace | "workspace rules" | template)
+      "sprint execution" | "sprint plan" | "sprint record" | workspace | "workspace rules" | template)
       NODE_LEAF=0
       NODE_OPTS=""
       ;;
@@ -188,9 +188,9 @@ describe_node() {
     "issue doc remove" | "project doc remove") NODE_POS="r:<id> f:<path>" ;;
     "issue plan") NODE_OPTS="--from:f --step:r --cycle:o" ;;
     "issue attach add") NODE_OPTS="--url:r --file:f --title:r --cycle:o" ;;
-    "issue publish") NODE_OPTS="--title:r --body-file:f --dry-run:b --clear-unknown:b --cycle:o" ;;
+    "issue publish") NODE_OPTS="--title:r --body-file:f --dry-run:b --clear-unknown:b --yes:b --cycle:o" ;;
     "scrum configure" | "sprint create" | "sprint update" | "sprint plan propose" | "sprint plan accept" | \
-      "sprint activate" | "sprint cancel")
+      "sprint activate" | "sprint cancel" | "sprint end" | "sprint record add")
       NODE_OPTS="--input:i --cycle:o"
       ;;
     "sprint session begin" | "sprint session resume" | "sprint session observe" | "sprint execution receive" | \
@@ -248,7 +248,12 @@ fi
 target_dir=${repo_root:-$HOME}
 
 actor=${NOD_ACTOR:-}
-if [[ -z $actor && ${CLAUDECODE:-} == 1 ]]; then actor=claude-code; fi
+if [[ -z $actor ]]; then
+  if [[ ${OMPCODE:-} == 1 ]]; then actor=omp
+  elif [[ ${CLAUDECODE:-} == 1 ]]; then actor=claude-code
+  elif [[ -n ${CODEX_THREAD_ID:-} ]]; then actor=codex
+  fi
+fi
 
 envs="NOD_ORCA=0 NOD_WORKTREE=$(printf %q "$wt_root") NOD_BRANCH=$(printf %q "$branch")"
 if [[ -n $actor ]]; then envs+=" NOD_ACTOR=$(printf %q "$actor")"; fi

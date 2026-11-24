@@ -312,7 +312,7 @@ function registerTransitionCommands(ws: Command): void {
 
 // nod issue publish で GitHub Issue を作る公開先。未設定なら origin から推定した候補を示す
 function registerGithubRepoCommands(ws: Command): void {
-  const github = ws.command("github").description("GitHub の公開先（nod issue publish で Issue を作る repo）を管理する。変更は人だけが行える");
+  const github = ws.command("github").description("GitHub の公開先（nod issue publish で Issue を作る repo）を管理する");
   github
     .command("show")
     .description("現在の Workspace の公開先を表示する。未設定なら origin から推定した候補を示す")

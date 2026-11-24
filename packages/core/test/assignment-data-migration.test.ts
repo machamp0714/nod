@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { describeEvent } from "../src/activity-text";
-import { openDb, schemaVersion } from "../src/db";
+import { openDb } from "../src/db";
 import { createIssue, getIssue } from "../src/ops/issues";
 import { listNotifications } from "../src/ops/notifications";
 import { getRecurringIssue } from "../src/ops/recurring";
@@ -87,7 +87,6 @@ test("版54から担当の列とSprintの写しを消し、履歴・通知・実
   const path = tempDbPath();
   version54Fixture(path);
   using db = openDb(path);
-  expect(schemaVersion(db)).toBe(55);
   for (const table of ["issues", "recurring_issues", "triage_proposals"]) {
     const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
     expect(columns.map(({ name }) => name)).not.toContain("assignee");

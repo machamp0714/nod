@@ -13,7 +13,7 @@ export function useSprintRolloverStatus(key: string) {
   return useQuery({ queryKey: queryKeys.sprintRolloverStatus(key), queryFn: () => apiFetch<SprintRolloverStatus>(`/workspaces/${encodeURIComponent(key)}/scrum/rollover`) });
 }
 
-// 自動引継ぎの有効・無効だけを変える（人だけ。Web は me として書く）。Scrum設定の版も requestKey も送らない。
+// 自動引継ぎの有効・無効だけを変える（Web は me として書く）。Scrum設定の版も requestKey も送らない。
 // 書き込み後の再取得（useApiMutation）で状態とScrum設定を取り直す
 export function useSetSprintRollover(key: string) {
   return useApiMutation<boolean, ScrumWorkspace>((enabled) =>

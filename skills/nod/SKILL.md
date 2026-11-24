@@ -18,6 +18,14 @@ description: >-
 
 `nod` が見つからない場合は、人に nod のインストールを依頼する。
 
+## 書き手と操作
+
+書き手は `NOD_ACTOR` → `OMPCODE=1`（omp）→ `CLAUDECODE=1`（claude-code）→ `CODEX_THREAD_ID`（codex）→ me の順で決まる。
+明示指定が必要なら `NOD_ACTOR` を使う。未設定でも書き込みは止まらず、書き手は記録用で操作の許可や人の承認の証明には使わない。
+CLI 起票は既定 Triage、利用者の依頼に `--requested` を付けると Todo。Web 起票、複製、定期 Issue は Todo に入る。
+戻せない CLI 削除と公開の結果不明の解除には `--yes` が必要。公開は `--yes` があれば非対話でも送れ、なければ TTY で [y/N]、非対話では NOT_INTERACTIVE で止まる。
+通知、購読、リマインダーは me の分を対象にし、操作者を別に記録する。`nod notification history` で操作履歴を読む。
+
 ## 実装前の仕様要否判定
 
 `nod:implement` は start より先に Issue の判定状態を確認する。初回判定が未完了・失敗なら同じ Issue を `nod issue assess <id>` で一度再試行し、回復しなければ止める。対象外や Workspace 無効化による制限解除と、未判定を混同しない。
@@ -29,7 +37,7 @@ needs-spec がなく判定完了済みか対象外・制限解除済みなら、
 着手条件を満たしていれば、どの書き手でも `nod issue start <id>` で開始または再開できる。
 開始するたびに Activity に記録され、開始前の作業状況と、作業場所が変わった場合の前のブランチと worktree が返る。
 追加指示は `nod issue show <id>` で参照できる。
-確認済みになるのは、LLM が `nod issue start <id>` で受け取ったときだけである。
+確認済みになるのは、書き手によらず `nod issue start <id>` で受け取ったときだけである。
 
 ## レビュー提出と作業の完了
 

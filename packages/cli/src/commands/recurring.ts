@@ -135,7 +135,7 @@ function patchOf(o: Options): RecurringIssuePatch {
 export function registerRecurringCommands(program: Command): void {
   const recurring = program
     .command("recurring")
-    .description("定期Issue（毎日・毎週・毎月に起票する Issue）を管理・実行する。登録・変更・実行は人だけ（--dry-run は誰でも）")
+    .description("定期Issue（毎日・毎週・毎月に起票する Issue）を管理・実行する。--dry-run で起票予定を確認する")
     .addHelpText(
       "after",
       [

@@ -588,7 +588,7 @@ describe("通知のスヌーズ（#43）", () => {
   });
 
   test("過去の日時・不正な日時・通知のない Issue・指定の誤りはエラー", () => {
-    const { db, ws, me, llm, a } = seeded();
+    const { db, ws, me, a } = seeded();
     const other = createIssue(me, { workspaceId: ws.id, title: "通知なし" });
     expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "2000-01-01" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => snoozeNotifications(me, { issueRef: a.id, until: "あした" }))).toBe("INVALID_ARGS");
@@ -668,7 +668,7 @@ describe("通知の削除（#44）", () => {
   });
 
   test("LLM も me の通知を削除して取り消せる", () => {
-    const { db, me, llm, a } = seeded();
+    const { db, llm, a } = seeded();
     const { ids } = deleteNotifications(llm, { issueRef: a.id });
     expect(listNotifications(db)).toHaveLength(1);
     expect(restoreNotifications(llm, { ids }).updated).toBe(2);

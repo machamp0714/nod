@@ -13,7 +13,7 @@ Issue の仕様を **Task** に分け、`nod issue plan` で Issue の計画に�
 
 ## 1. 材料を集める
 
-- Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
+- 書き手は環境から自動判定される。明示指定が必要なら `NOD_ACTOR` を使う。書き手は記録用で、操作の許可や人の承認の証明ではない。
 - `nod issue show <id>` を読み、kind=spec の Document（`nod doc show <Document id>`）を全文読む。仕様が無ければ、会話の内容を材料にするか、先に `nod:to-spec` を勧める。
 - 既に計画があれば、作り直すのかをユーザーに聞く。
 
