@@ -23,7 +23,7 @@ export function getSprintFlow(ctx: OpCtx, ref: string, planId?: string, clock: S
     const targetId = started ? sprint.adoptedPlanId : planId ?? sprint.plans.at(-1)?.id;
     const target = sprint.plans.find(p => p.id === targetId);
     if (!started && planId && !target) throw new NodError("NOT_FOUND", "対象Sprintに計画がありません");
-    const plan = target && (!started || (target.agreedBy === "me" && target.agreedAt && target.agreedHash === target.contentHash)) ? target : undefined;
+    const plan = target && (!started || (target.agreedAt && target.agreedHash === target.contentHash)) ? target : undefined;
     const selectedIds = new Set(plan?.content.items.map(item => item.itemId) ?? []);
     const selected = sprint.items.filter(item => selectedIds.has(item.id));
     const ids = selected.flatMap(item => item.issueId === null ? [] : [item.issueId]);

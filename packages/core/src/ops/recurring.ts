@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { formatIssueId } from "../issue-query";
@@ -74,12 +74,6 @@ function requireWorkspace(db: Database, keyOrPath: string): Workspace {
   const workspace = findWorkspace(db, keyOrPath);
   if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
   return workspace;
-}
-
-function requireHuman(ctx: OpCtx, what: string): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", `LLM は定期Issueを${what}できません。me に依頼してください（--dry-run での確認はできます）`);
-  }
 }
 
 function invalid(message: string): NodError {
@@ -238,7 +232,6 @@ function normalize(db: Database, input: Normalized, checkTemplate: boolean): Nor
 }
 
 export function addRecurringIssue(ctx: OpCtx, keyOrPath: string, input: RecurringIssueInput, opts: { now?: Date } = {}): RecurringIssue {
-  requireHuman(ctx, "登録");
   if (Object.hasOwn(input, "assignee")) throw invalid("担当は廃止されました。assignee は使えません");
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
@@ -280,7 +273,6 @@ export function updateRecurringIssue(
   patch: RecurringIssuePatch,
   opts: { now?: Date } = {},
 ): RecurringIssue {
-  requireHuman(ctx, "変更");
   if (Object.hasOwn(patch, "assignee")) throw invalid("担当は廃止されました。assignee は使えません");
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
@@ -323,7 +315,6 @@ export function updateRecurringIssue(
 
 // 定義だけを消す。起票済みの Issue と、その created event の recurring_id は残す
 export function removeRecurringIssue(ctx: OpCtx, keyOrPath: string, id: number): RecurringIssue {
-  requireHuman(ctx, "削除");
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const removed = toRecurring(workspace, requireRow(ctx.db, workspace, id), new Date());
@@ -347,7 +338,7 @@ export function countEnabledRecurringIssues(db: Database, workspaceId: number): 
 }
 
 // 有効な定期Issueのうち、発生日が来ているものを1件ずつ起票する。
-// 起票は通常の起票と同じ経路（人なら todo）で行い、created event に recurring_id と発生日を残す。
+// 起票は通常の起票と同じ経路で行い、created event に recurring_id と発生日を残す。
 // テンプレートが消えている・途中でルールが消されたなどで起票できないものは failed に入れて、他の定期Issueは続ける
 export function runRecurringIssues(ctx: OpCtx, keyOrPath: string, opts: { dryRun?: boolean; now?: Date } = {}): RecurringRun {
   const { changed: _changed, ...result } = runRecurringIssuesOnly(ctx, keyOrPath, opts);
@@ -367,7 +358,6 @@ export function runRecurringIssuesOnly(
   opts: { dryRun?: boolean; now?: Date; only?: Map<number, string> } = {},
 ): RecurringRun & { changed: number[] } {
   const dryRun = opts.dryRun ?? false;
-  if (!dryRun) requireHuman(ctx, "実行");
   const at = opts.now ?? new Date();
   const workspace = requireWorkspace(ctx.db, keyOrPath);
   const result: RecurringRun & { changed: number[] } = {
@@ -404,6 +394,7 @@ export function runRecurringIssuesOnly(
           parentId: null,
           projectId: row.project_id,
           labels: JSON.parse(row.labels) as string[],
+          status: "todo",
           origin: { recurring_id: row.id, occurrence },
         });
         const { id: issueRowId } = ctx.db

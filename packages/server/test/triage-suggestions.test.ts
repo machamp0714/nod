@@ -5,7 +5,7 @@ import { call, setup } from "./helpers";
 test("GET /api/triage/:id/suggestions は根拠つきの候補を返し、DBを変えない。Triage以外は409相当のエラー", async () => {
   const { db, app, ws, me, llm } = setup();
   const original = createIssue(me, { workspaceId: ws.id, title: "検索結果のページングがずれる", labels: ["search"] });
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "検索結果のページングがずれる" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "検索結果のページングがずれる" });
   const before = db.serialize();
   const r = await call(app, "GET", `/api/triage/${triage.id}/suggestions`);
   expect(r.status).toBe(200);
@@ -22,7 +22,7 @@ test("GET /api/triage/:id/suggestions は根拠つきの候補を返し、DBを�
 
 test("accept は assignee キーを値にかかわらず拒み、Triage の状態を保つ", async () => {
   const { db, app, ws, llm } = setup();
-  const i = createIssue(llm, { workspaceId: ws.id, title: "判断" });
+  const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判断" });
   const url = `/api/issues/${i.id}/accept`;
   for (const assignee of ["codex", null, 5]) {
     const r = await call(app, "POST", url, { assignee });

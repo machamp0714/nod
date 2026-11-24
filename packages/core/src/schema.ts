@@ -801,4 +801,9 @@ export const MIGRATIONS: MigrationStep[][] = [
     `ALTER TABLE triage_proposals DROP COLUMN assignee`,
     removeAssigneeSprintCopies,
   ],
+  // 版56: Inbox操作の記録。既存の通知・購読・リマインダーの行は変えない。
+  [`CREATE TABLE inbox_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, actor TEXT NOT NULL, recipient TEXT NOT NULL,
+    input TEXT NOT NULL, result TEXT NOT NULL, recorded_at TEXT NOT NULL
+  )`],
 ];

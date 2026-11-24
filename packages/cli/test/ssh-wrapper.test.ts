@@ -84,7 +84,7 @@ async function runWrapper(
   // 呼び出し元の nod・git の設定を持ち込まない。HOME は偽の nod と Documents を置いた一時ディレクトリにする
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !k.startsWith("NOD_") && !k.startsWith("GIT_") && k !== "CLAUDECODE") env[k] = v;
+    if (v !== undefined && !k.startsWith("NOD_") && !k.startsWith("GIT_") && !["CLAUDECODE", "OMPCODE", "CODEX_THREAD_ID"].includes(k)) env[k] = v;
   }
   Object.assign(env, { HOME: sb.home, PATH: `${sb.bin}:${process.env.PATH}` }, opts.env);
   const proc = Bun.spawn(["/bin/bash", WRAPPER, ...args], {
@@ -187,14 +187,19 @@ describe("実行元の受け渡し", () => {
     expect(r.nod?.orca).toBe("0");
   });
 
-  test("Claude Code から呼ぶと書き手を claude-code にする", async () => {
+  const actorCases: { env: Record<string, string>; actor: string | undefined }[] = [
+    { env: { NOD_ACTOR: "me", OMPCODE: "1", CLAUDECODE: "1", CODEX_THREAD_ID: "thread" }, actor: "me" },
+    { env: { OMPCODE: "1", CLAUDECODE: "1", CODEX_THREAD_ID: "thread" }, actor: "omp" },
+    { env: { CLAUDECODE: "1", CODEX_THREAD_ID: "thread" }, actor: "claude-code" },
+    { env: { CODEX_THREAD_ID: "thread" }, actor: "codex" },
+    { env: {}, actor: undefined },
+  ];
+  for (const { env, actor } of actorCases) test(`実行元の書き手を優先順で判定して渡す: ${actor ?? "未指定"}`, async () => {
     const sb = sandbox();
     const repo = makeRepo();
-
-    const r = await runWrapper(sb, ["issue", "list"], { cwd: repo, env: { CLAUDECODE: "1" } });
-
+    const r = await runWrapper(sb, ["issue", "list"], { cwd: repo, env });
     expectPassedThrough(r, ["issue", "list"]);
-    expect(r.nod?.actor).toBe("claude-code");
+    expect(r.nod?.actor).toBe(actor);
   });
 });
 

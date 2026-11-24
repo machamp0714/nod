@@ -15,7 +15,7 @@ nod の Issue 1 件を対象に、未決の論点を grilling で詰め、仕様
 
 - 書き込みや grilling の前に、`command -v` で `nod`・`jq`・`cp`・`cmp`・`shasum`・`head`・`tail`・`cat` と、§2 で使う照会先の CLI（Claude Code からは `codex`、Codex からは `claude`）を確認する。`set -o pipefail` が使えるシェルで実行する。`grilling` スキルと、常設指示で必要になる執筆・推敲スキルも読み込めることを確認する。不足があれば名前を報告して止め、導入や認証設定を勝手に変更しない。照会先の CLI が見つかっても、実行時に認証などで失敗した場合は独立回答を省略せず、失敗を報告して止める。
 
-- Codex で動いているときは、nod に書き込む前に `export NOD_ACTOR=codex` を実行する。
+- 書き手は環境から自動判定される。明示指定が必要なら `NOD_ACTOR` を使う。書き手は記録用で、操作の許可や人の承認の証明ではない。
 - `nod issue show <id>` で説明・Documents・Activity を読む。既に kind=spec の Document があれば、作り直すのか追記するのかをユーザーに聞く。
 - リポジトリを調べる。`CONTEXT.md` があれば用語をそれに合わせ、触る領域の ADR を守る。
 

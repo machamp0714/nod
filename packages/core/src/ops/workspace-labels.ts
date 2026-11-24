@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Workspace, WorkspaceLabel } from "../types";
@@ -34,13 +34,6 @@ function requireWorkspace(db: Database, keyOrPath: string): Workspace {
   const workspace = findWorkspace(db, keyOrPath);
   if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
   return workspace;
-}
-
-// 追加と変更は LLM にも許す。削除だけは人に限る
-function requireHuman(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はラベルの定義を削除できません。削除は me に依頼してください");
-  }
 }
 
 // Web のラベル入力は空白と読点で区切るので、それらを含む名前は定義できない。LLM の Triage 提案（#62）のラベルも同じ規則で検証する
@@ -178,7 +171,6 @@ export function removeWorkspaceLabel(
   keyOrPath: string,
   name: string,
 ): { workspaceKey: string; name: string; removed: true } {
-  requireHuman(ctx);
   return tx(ctx.db, () => {
     const workspace = requireWorkspace(ctx.db, keyOrPath);
     const label = requireLabel(ctx.db, workspace, name);

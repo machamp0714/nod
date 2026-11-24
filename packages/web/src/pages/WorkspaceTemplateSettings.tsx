@@ -37,7 +37,7 @@ export function TemplatesSection({ onSaved }: { onSaved: (message: string) => vo
 
   return (
     <section className={s.section} aria-labelledby={titleId}>
-      <SectionHeader id={titleId} title="テンプレート" description="Issue の説明の雛形。すべての Workspace で共通です。LLM は編集できません。" />
+      <SectionHeader id={titleId} title="テンプレート" description="Issue の説明の雛形。すべての Workspace で共通です。" />
       {templates.error ? (
         <ErrorLine message={errorMessage(templates.error)} />
       ) : (

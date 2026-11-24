@@ -19,7 +19,7 @@ test("nod issue copy は新しい ID の Issue を作り、元の Issue を変�
   expect(json.json).toMatchObject({ id: "API-3", title: "別名", description: "説明", priority: 2, labels: ["a", "b"], status: "todo" });
 
   const byLlm = await runNod(["issue", "copy", src.id, "--json"], { cwd, db, actor: "claude-code" });
-  expect(byLlm.json).toMatchObject({ id: "API-4", status: "triage", createdBy: "claude-code" });
+  expect(byLlm.json).toMatchObject({ id: "API-4", status: "todo", createdBy: "claude-code" });
 
   expect((await me(["issue", "show", src.id, "--json"])).json).toEqual(before);
 });

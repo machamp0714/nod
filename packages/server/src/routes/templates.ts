@@ -2,7 +2,7 @@ import { listTemplates, type OpCtx, removeTemplate, saveTemplate } from "@nod/co
 import type { Hono } from "hono";
 import { readBody, reqString } from "../input";
 
-// テンプレートは全 Workspace 共通。登録・本文の置き換え・削除は web（書き手 me）と CLI の人だけが行う（#150・#160）。
+// テンプレートは全 Workspace 共通。Web の操作は書き手 me として記録する（#150・#160）。
 // 名前には / なども入りうるので、パスではなく本文で渡す
 export function registerTemplateRoutes(app: Hono, me: OpCtx): void {
   app.get("/api/templates", (c) => c.json(listTemplates(me.db)));

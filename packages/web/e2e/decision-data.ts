@@ -39,7 +39,7 @@ export async function seedApiWorkspace(nod: NodData): Promise<ApiWorkspace> {
       return issue;
     },
     triageIssue: async (title, description, actor = nod.claude) => {
-      const created = await actor.createIssue({ workspaceId: workspace.id, title, description });
+      const created = await actor.createIssue({ status: "triage", workspaceId: workspace.id, title, description });
       return { id: created.id, title };
     },
     show: (id) => nod.me.getIssue(id),

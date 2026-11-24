@@ -10,7 +10,7 @@ test("suggestはJSONと人向け候補を返し、DBを変更せず、nextは着
   const empty = await runNod(["issue", "suggest", "--json"], opts);
   expect(empty.exitCode).toBe(0);
   expect(empty.json).toBeNull();
-  const created = await runNod(["issue", "create", "提案候補", "--json"], { cwd, db });
+  const created = await runNod(["issue", "create", "--requested", "提案候補", "--json"], { cwd, db });
   const connection = openDb(db);
   const before = connection.serialize();
   const suggested = await runNod(["issue", "suggest", "--json"], opts);

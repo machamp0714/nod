@@ -54,7 +54,7 @@ const LIST = [
   },
 ];
 
-test("nod import github: --dry-run は対応を示し（LLM も可）、実行は人だけ・再実行では重複しない（#77）", async () => {
+test("nod import github: LLMも取り込め、dry-runは無変更・再実行では重複しない（#77）", async () => {
   const db = tempDb(), cwd = makeRepo();
   registerRepo(db, cwd);
   const gh = fakeGh(LIST, { 3: [{ author: { login: "carol" }, body: "再現しました", createdAt: "2026-03-02T00:00:00Z" }] });
@@ -68,10 +68,7 @@ test("nod import github: --dry-run は対応を示し（LLM も可）、実行�
   expect(dry.stdout).toContain("dry-run のため変更していません");
   expect(readFileSync(gh.log, "utf8").trim().split("\n")).toHaveLength(1);
 
-  const llm = await runNod(["import", "github", "example/api-server", "--json"], { ...opts, actor: "claude-code" });
-  expect(llm.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-
-  const run = await runNod(["import", "github", "example/api-server", "--state", "all"], opts);
+  const run = await runNod(["import", "github", "example/api-server", "--state", "all"], { ...opts, actor: "claude-code" });
   expect(run.exitCode).toBe(0);
   expect(run.stdout).toContain("取り込みました: 2 件（API-1, API-2）");
   const issue = (await runNod(["issue", "show", "API-2", "--json"], opts)).json;

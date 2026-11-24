@@ -72,7 +72,7 @@ describe("Project の進捗報告", () => {
     const { db, ws, me, llm } = setup();
     const p = createProject(me, { name: "検索" });
     updateProject(me, "検索", { status: "started" });
-    const triage = createIssue(llm, { workspaceId: ws.id, title: "未判断", projectRef: "検索" });
+    const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "未判断", projectRef: "検索" });
     const working = createIssue(me, { workspaceId: ws.id, title: "作業中", projectRef: "検索" });
     startIssue(llm, working.id);
     askQuestion(llm, working.id, "どちらにするか");

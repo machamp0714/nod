@@ -151,7 +151,7 @@ test("利用者本人の役立った点・困った点・次の要望を記録�
   } finally { db.close(); }
 });
 
-test("エージェントの報告は成果として残せるが本人の感想としては保存できない", async () => {
+test("エージェントは成果・利用者の感想・振り返りを実際の記録者付きで保存できる", async () => {
   const { db, app, sprint, llm, clock } = await recordSprint();
   try {
     const agentApp = new Hono();
@@ -159,10 +159,12 @@ test("エージェントの報告は成果として残せるが本人の感想�
     registerSprintRoutes(agentApp, llm, clock);
     const path = `/api/sprints/${sprint.id}/records`;
     expect((await call(agentApp, "POST", path, { requestKey: "エージェントの報告", kind: "outcome", content: { summary: "感想を要約した報告" } })).json.recordedBy).toBe("claude-code");
-    expect(await call(agentApp, "POST", path, { requestKey: "本人評価の代筆", kind: "feedback", content: { helpful: "便利だったと推測" } })).toMatchObject({ status: 403, json: { error: { code: "FORBIDDEN_FOR_LLM" } } });
+    const feedback = await call(agentApp, "POST", path, { requestKey: "利用者から聞いた感想", kind: "feedback", content: { helpful: "試し方が分かりやすかった" } });
+    expect(feedback).toMatchObject({ status: 201, json: { kind: "feedback", recordedBy: "claude-code", content: { helpful: "試し方が分かりやすかった", difficulties: "", requests: "" } } });
     expect((await call(agentApp, "POST", path, { requestKey: "エージェントの振り返り", kind: "retrospective", content: { wentWell: "確認できた事実を残す" } })).json.recordedBy).toBe("claude-code");
     const records = (await call(app, "GET", path)).json;
-    expect(records.map((record: any) => record.kind)).toEqual(["outcome", "retrospective"]);
+    expect(records.map((record: { kind: string }) => record.kind)).toEqual(["outcome", "feedback", "retrospective"]);
+    expect(records[1]).toEqual(feedback.json);
   } finally { db.close(); }
 });
 

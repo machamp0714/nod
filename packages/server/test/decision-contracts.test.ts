@@ -7,20 +7,20 @@ import { call, setup } from "./helpers";
 
 test("acceptは許可属性だけ受け取り、失敗は原子的で空本文も互換", async () => {
   const { db, app, ws, llm } = setup();
-  const i = createIssue(llm, { workspaceId: ws.id, title: "判断" });
+  const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判断" });
   expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { priority: 1, projectRef: "存在しない" })).status).toBe(404);
   expect(getIssue(db, i.id)).toMatchObject({ status: "triage", priority: 0 });
   for (const body of [{ status: "done" }, { priority: 9 }, { addLabels: [5] }, { projectRef: 1 }]) {
     expect((await call(app, "POST", `/api/issues/${i.id}/accept`, body)).status).toBe(400);
   }
   expect((await call(app, "POST", `/api/issues/${i.id}/accept`, { priority: 2, addLabels: ["bug"] })).json).toMatchObject({ status: "todo", priority: 2, labels: ["bug"] });
-  const second = createIssue(llm, { workspaceId: ws.id, title: "空" });
+  const second = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "空" });
   expect((await call(app, "POST", `/api/issues/${second.id}/accept`)).status).toBe(200);
   db.close();
 });
 test("acceptの旧Cycle指定は値によらず廃止案内で無変更にし、通常受け入れは維持する", async () => {
   const { db, app, ws, llm } = setup();
-  const issue = createIssue(llm, { workspaceId: ws.id, title: "判断" });
+  const issue = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判断" });
   const before = getIssue(db,issue.id);
   for(const cycleRef of [1,"存在しない","1",null]) {
     const response=await call(app,"POST",`/api/issues/${issue.id}/accept`,{cycleRef,priority:1});

@@ -1,13 +1,13 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, type OpCtx } from "./ctx";
+import type { OpCtx } from "./ctx";
 import { tx } from "./db";
 import { NodError } from "./errors";
 import { findWorkspace } from "./ops/workspaces";
 import { getStatusNames, statusDisplayName } from "./status-names";
 import { STATUSES, type Status, type Workspace } from "./types";
 
-// ステータスの遷移ルール（#73）。状態は固定のまま、Workspace ごとに許可しない遷移を人が設定する。未設定なら制限なし。
-// ルールは制限を足すだけで、既存の保護（Triage の判断は人のみ）を緩めない
+// ステータスの遷移ルール（#73）。状態は固定のまま、Workspace ごとに許可しない遷移を設定する。未設定なら制限なし。
+// ルールは制限を足すだけで、既存の保護を緩めない
 
 // needs_clarification は確認依頼に応じて core が切り替えるため、ルールの from・to に指定できない
 export const RULE_STATUSES: Status[] = STATUSES.filter((s) => s !== "needs_clarification");
@@ -78,11 +78,8 @@ function ruleStatus(value: unknown, what: string): Status {
   return value as Status;
 }
 
-// 禁止する遷移の組とプリセットを全体で置き換える（人だけ）。重複は1件にまとめる
+// 禁止する遷移の組とプリセットを全体で置き換える。重複は1件にまとめる
 export function setTransitionRules(ctx: OpCtx, keyOrPath: string, input: TransitionRulesInput): WorkspaceTransitionRules {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はステータスの遷移ルールを変更できません。変更は me に依頼してください");
-  }
   const forbidden = new Map<string, TransitionPair>();
   for (const raw of input.forbidden ?? []) {
     if (raw === null || typeof raw !== "object") {
@@ -160,5 +157,5 @@ export function formatTransitionRulesSection(rules: WorkspaceTransitionRules): s
     ...rules.presets.map((p) => `- ${TRANSITION_PRESET_LABELS[p]}`),
     ...rules.forbidden.map((p) => `- ${p.from} → ${p.to} は禁止`),
   ];
-  return `## この Workspace のステータス遷移ルール（${rules.workspaceKey}）\n\n人が設定したルールである。違反する遷移は TRANSITION_NOT_ALLOWED で拒否される。LLM はルールを変更できない。\n\n${lines.join("\n")}\n`;
+  return `## この Workspace のステータス遷移ルール（${rules.workspaceKey}）\n\n違反する遷移は TRANSITION_NOT_ALLOWED で拒否される。\n\n${lines.join("\n")}\n`;
 }

@@ -320,11 +320,10 @@ test("自動処理が結んだ後継を人が中止したら連鎖を止め、�
   }
 });
 
-test("自動引継ぎの設定は人だけが変えられ、無効やSprint運用の無効では何も変わらず、有効に戻すと期限切れのactiveだけを処理する", () => {
+test("自動引継ぎが無効やSprint運用の無効では何も変わらず、有効に戻すと期限切れのactiveだけを処理する", () => {
   const f = configured();
   try {
     expect(core.getScrumWorkspace(f.db, f.ws.key)).toMatchObject({ autoRollover: true, version: 1 });
-    expect(codeOf(() => core.setSprintRollover(f.llm, f.ws.key, { enabled: false }))).toBe("FORBIDDEN_FOR_LLM");
     expect(codeOf(() => core.setSprintRollover(f.me, f.ws.key, { enabled: "no" } as any))).toBe("INVALID_ARGS");
     // 設定の値だけを変え、Scrum設定の版は上げない。
     expect(core.setSprintRollover(f.me, f.ws.key, { enabled: false })).toMatchObject({ autoRollover: false, version: 1, enabled: true });

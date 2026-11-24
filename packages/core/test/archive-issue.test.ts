@@ -111,7 +111,7 @@ test("アーカイブ済みは next・suggest・Triage・Inbox・Project の件�
   const { me, llm, ws, db } = setup();
   addProjectRow(db, "P");
   const ready = createIssue(me, { workspaceId: ws.id, title: "着手できる", projectRef: "P", priority: 1 });
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "トリアージ" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "トリアージ" });
   const asked = createIssue(me, { workspaceId: ws.id, title: "質問あり" });
   startIssue(llm, asked.id);
   askQuestion(llm, asked.id, "どうする？");
@@ -211,7 +211,7 @@ test("アーカイブ済みの Issue は復元以外の書き込みを ISSUE_ARC
   for (const [name, run] of attempts) expect([name, codeOf(run)]).toEqual([name, "ISSUE_ARCHIVED"]);
   expect(codeOf(() => startIssue(llm, other.id))).toBeUndefined();
 
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
   archiveIssue(me, triage.id);
   const triageAttempts: [string, () => unknown][] = [
     ["accept", () => acceptTriage(me, triage.id)],
@@ -226,7 +226,7 @@ test("アーカイブ済みの Issue を Triage の重複元にはできない",
   const { me, llm, ws, db } = setup();
   const original = createIssue(me, { workspaceId: ws.id, title: "元" });
   archiveIssue(me, original.id);
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "t" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
   expect(codeOf(() => duplicateTriage(me, triage.id, original.id))).toBe("ISSUE_ARCHIVED");
   expect(getIssue(db, triage.id).status).toBe("triage");
   expect(getIssue(db, original.id).relations.duplicates).toEqual([]);
@@ -301,6 +301,6 @@ test("Triage の重複候補にアーカイブ済みの Issue を出さない（
   const live = createIssue(me, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す" });
   const gone = createIssue(me, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す（旧）" });
   archiveIssue(me, gone.id);
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "検索 API のタイムアウトを直す" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "検索 API のタイムアウトを直す" });
   expect(suggestTriage(me, triage.id).duplicates.map((d) => d.id)).toEqual([live.id]);
 });

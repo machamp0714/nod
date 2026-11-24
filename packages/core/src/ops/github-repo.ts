@@ -1,6 +1,6 @@
 // packages/core/src/ops/github-repo.ts
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { NodError } from "../errors";
 import type { GhRunner } from "./pr-status";
 import { findWorkspace } from "./workspaces";
@@ -80,9 +80,6 @@ export function githubRepoOfWorkspace(db: Database, workspaceId: number): string
 }
 
 function writeRepo(ctx: OpCtx, keyOrPath: string, repo: string | null): WorkspaceGithubRepo {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub の公開先を変えられません。変更は me に依頼してください");
-  }
   const workspace = workspaceOrThrow(ctx.db, keyOrPath);
   ctx.db
     .query("UPDATE workspaces SET github_repo = ?, github_repo_updated_at = ?, github_repo_updated_by = ? WHERE id = ?")

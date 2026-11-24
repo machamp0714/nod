@@ -5,7 +5,7 @@ import { call, setup } from "./helpers";
 test("GET /api/triage/:id/proposals は記録された提案を新しい順に返し、DBを変えない。提案を書く API は無い", async () => {
   const { db, app, ws, me, llm } = setup();
   const original = createIssue(me, { workspaceId: ws.id, title: "元" });
-  const triage = createIssue(llm, { workspaceId: ws.id, title: "判断待ち" });
+  const triage = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判断待ち" });
   expect((await call(app, "GET", `/api/triage/${triage.id}/proposals`)).json).toEqual([]);
   proposeTriage(llm, triage.id, { decision: "duplicate", duplicateOf: original.id, reason: "同じ症状" });
   const before = db.serialize();
@@ -26,9 +26,9 @@ test("GET /api/triage/:id/proposals は記録された提案を新しい順に�
 
 test("GET /api/triage/proposal-counts は Triage 中の Issue ごとの提案者の数を返す（#125）", async () => {
   const { db, app, ws, me, llm } = setup();
-  const a = createIssue(llm, { workspaceId: ws.id, title: "2人が提案" });
-  const b = createIssue(llm, { workspaceId: ws.id, title: "確定済み" });
-  createIssue(llm, { workspaceId: ws.id, title: "提案なし" });
+  const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "2人が提案" });
+  const b = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "確定済み" });
+  createIssue(llm, { status: "triage", workspaceId: ws.id, title: "提案なし" });
   expect((await call(app, "GET", "/api/triage/proposal-counts")).json).toEqual({});
   proposeTriage(llm, a.id, { decision: "accept" });
   proposeTriage({ db, actor: "codex" }, a.id, { decision: "decline" });

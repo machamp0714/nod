@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Workspace, WorkspaceRules } from "../types";
@@ -20,12 +20,6 @@ function requireWorkspace(db: Database, keyOrPath: string): Workspace {
   return workspace;
 }
 
-function requireHuman(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は作業規約を登録・更新・削除できません。変更は me に依頼してください");
-  }
-}
-
 function readRules(db: Database, workspace: Workspace): WorkspaceRules | null {
   const row = db
     .query("SELECT rules, rules_updated_at, rules_updated_by FROM workspaces WHERE id = ?")
@@ -40,7 +34,6 @@ export function getWorkspaceRules(db: Database, keyOrPath: string): WorkspaceRul
 
 // 前後の空白を落として保存する。空になれば削除として扱い null を返す
 export function setWorkspaceRules(ctx: OpCtx, keyOrPath: string, body: string): WorkspaceRules | null {
-  requireHuman(ctx);
   const trimmed = body.trim();
   const length = [...trimmed].length;
   if (length > RULES_MAX_LENGTH) {
@@ -70,5 +63,5 @@ export function clearWorkspaceRules(ctx: OpCtx, keyOrPath: string): { workspaceK
 // LLM 向けの出力に添える作業規約の節。未登録なら空文字
 export function formatWorkspaceRulesSection(rules: WorkspaceRules | null): string {
   if (!rules) return "";
-  return `## この Workspace の作業規約（${rules.workspaceKey}）\n\n人が登録した規約である。作業中は必ず守る。LLM は規約を変更できない。\n\n${rules.body}\n`;
+  return `## この Workspace の作業規約（${rules.workspaceKey}）\n\n作業中は必ず守る。\n\n${rules.body}\n`;
 }

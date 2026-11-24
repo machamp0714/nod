@@ -25,13 +25,13 @@ test("起票元と親は別に記録し、不正参照なら採番もeventも増
   const source = createIssue(me, { workspaceId: ws.id, title: "起票元" });
   const before = db.query("SELECT next_number FROM workspaces WHERE id = ?").get(ws.id);
   const count = db.query("SELECT count(*) AS n FROM events").get();
-  expect(codeOf(() => createIssue(llm, { workspaceId: ws.id, title: "失敗", discoveredFromRef: "API-999" }))).toBe("NOT_FOUND");
+  expect(codeOf(() => createIssue(llm, { status: "triage", workspaceId: ws.id, title: "失敗", discoveredFromRef: "API-999" }))).toBe("NOT_FOUND");
   expect(db.query("SELECT next_number FROM workspaces WHERE id = ?").get(ws.id)).toEqual(before);
   expect(db.query("SELECT count(*) AS n FROM events").get()).toEqual(count);
-  const child = createIssue(llm, { workspaceId: ws.id, title: "発見", parentRef: parent.id, discoveredFromRef: source.id.toLowerCase() });
+  const child = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "発見", parentRef: parent.id, discoveredFromRef: source.id.toLowerCase() });
   expect(getIssue(db, child.id).parentId).toBe(parent.id);
   expect(eventsOf(db, child.id)[0]!.data).toEqual({ status: "triage", discovered_from: source.id });
   expect(eventsOf(db, parent.id)[0]!.data).toEqual({ status: "todo" });
-  expect(codeOf(() => createIssue(llm, { workspaceId: ws.id, title: "空", discoveredFromRef: " " }))).toBe("INVALID_ARGS");
+  expect(codeOf(() => createIssue(llm, { status: "triage", workspaceId: ws.id, title: "空", discoveredFromRef: " " }))).toBe("INVALID_ARGS");
   db.close();
 });

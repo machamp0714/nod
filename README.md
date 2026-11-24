@@ -117,11 +117,35 @@ CLIの基本的な操作手引きは[`skills/nod`](skills/nod/SKILL.md)に、開
 
 プラグイン0.10.5では、Issueの担当を廃止した手順に合わせました。
 開始や再開の前にActivityと作業場所を既存セッションと照合し、`start`の成功を作業の排他として扱いません。
-追加指示は`show`では確認済みにならず、LLMが`start`で受け取ったときに確認済みになります。
+追加指示は`show`では確認済みにならず、書き手によらず`start`で受け取ったときに確認済みになります。
 CLIとアプリの更新時には、担当を保存していた列とSprintの写しを移行するため、旧版と同じDBを併用せず、各ハーネスのスキルの写しも更新してください。
 
-エージェントからnodのCLIを実行する際は、環境変数`NOD_ACTOR`で書き手を明示します。
-Ompのagentに対応する書き手名を設定し、誰がどの判断や作業を行ったかを記録します。
+プラグイン0.10.6では、書き手による操作の拒否をなくしたCLIと同梱スキルの説明を揃えました。
+書き手は`NOD_ACTOR`、`OMPCODE=1`（omp）、`CLAUDECODE=1`（claude-code）、`CODEX_THREAD_ID`（codex）、meの順に決まり、明示指定を優先します。
+未設定でも書き込みは止まらず、Webからの操作はmeとして記録します。
+書き手、`--yes`、Webの確認画面は、人の承認を証明しません。
+
+CLIの`issue create`は書き手によらず既定Triage、利用者の依頼に`--requested`を付けるとTodoになります。
+Web起票、複製、定期IssueはTodoです。
+Milestone、テンプレート、定期Issue、ラベル定義の削除と、公開の結果不明の解除には`--yes`が必要で、なければ`CONFIRM_REQUIRED`で止まります。
+GitHub公開は`--yes`で非対話でも送れます。省略した場合はTTYで`[y/N]`を確認し、非対話では`NOT_INTERACTIVE`で止まります。
+Webの確認画面とAPIの動作は変更していません。
+
+Sprintの合意は合意の存在と対象hashの一致で判定し、実際の合意者を記録します。
+`nod sprint end <sprint> --input <file|->`はreason、expectedVersion、requestKeyを受け取り、期限切れのSprintを終了します。
+`nod sprint record add <sprint> --input <file|->`はkind（outcome、feedback、retrospective）、content、requestKeyを受け取り、成果、感想、振り返りを追記します。
+たとえば感想の入力は`{"kind":"feedback","content":{"helpful":"役立った点","difficulties":"困った点","requests":"要望"},"requestKey":"feedback-1"}`です。
+Webはすべての感想を記録者つきで表示します。
+
+`nod issue instruct <id> "<本文>"`で追加指示を記録し、`nod issue send-instruction <id> <instructionId> --terminal <handle>`で保存されたworktreeの稼働中のLLM端末へ送信できます。
+別worktreeには送れず、送信者も記録します。
+`show`で読むだけでは確認済みにならず、どの書き手も`start`で受け取ると確認済みになります。
+通知、購読、リマインダーはmeの分を操作し、`nod notification history`で操作者と対象宛先を含むInbox操作履歴を参照できます。
+質問の機構と代理回答のルールは変更していません。
+
+版はmarketplaceとClaude Code用、Codex用のmanifestで揃えます。
+各ハーネスへのスキルの写しの更新は、マージとnodのデプロイ後にGitHub main参照のmarketplaceから行います。
+`desktop:deploy`にスキルのコピー更新処理はありません。
 
 SSHラッパーなどから別のマシンのCLIを呼ぶ場合は、転送元で取得した`git rev-parse --show-toplevel`を`NOD_WORKTREE`、`git rev-parse --abbrev-ref HEAD`を`NOD_BRANCH`として転送先のnodプロセスに渡します。
 `issue start`と`issue next`はこの場所をIssueに記録します。

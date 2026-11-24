@@ -58,7 +58,7 @@ export function SprintDetailPage() {
   if (!found) return <NotFoundMessage title="Sprint が見つかりません" />;
   if (!detail.data || !page.ready) return <PageLoading />;
   const sprint = detail.data;
-  const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
+  const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedAt && p.agreedHash === p.contentHash);
   const shownPlan = sprint.activatedAt ? adopted : sprint.plans.at(-1);
   const changeSearch = (patch: import("../routes/search").IssueListSearch) => { const pageDisplay = page.save(patch); void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); };
   const openRetrospective = () => void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, section: "retrospective", view: undefined }) });

@@ -36,7 +36,7 @@ export async function createTask1Scenario(directory?: string, beforeAdoption?: B
   ];
   // 12は設定を有効にする前に起票し、既存Issueへの遡及なしを再現する。
   const issues = names.map((title, index) => createIssue(index === 5 ? agent : human, {
-    workspaceId: api.id, title, labels: index === 1 ? ["needs-spec"] : [],
+    workspaceId: api.id, title, status: index === 5 ? "triage" : "todo", labels: index === 1 ? ["needs-spec"] : [],
     description: index === 14
       ? "本番DBへ接続して既存データを更新する運用作業。コード変更は不要。実行の可否を人に確認する。"
       : `${title}。対象は一覧画面。余白を8pxから12pxへ変更し、画面で反映を確認する。`,

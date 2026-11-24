@@ -65,6 +65,8 @@ test("LLM は triage propose --withdraw で自分の提案だけを取り下げ�
   const withdrawn = await runNod(["triage", "propose", issue.json.id, "--withdraw", "--json"], { cwd, db, actor: "codex" });
   expect(withdrawn.exitCode).toBe(0);
   expect(withdrawn.json).toEqual({ issueId: issue.json.id, actor: "codex", withdrawn: true });
+  const remaining = await runNod(["triage", "proposals", issue.json.id, "--json"], { cwd, db });
+  expect(remaining.json.map((p: { actor: string }) => p.actor)).toEqual(["claude-code"]);
   const text = await runNod(["triage", "propose", issue.json.id, "--withdraw"], { cwd, db, actor: "claude-code" });
   expect(text.stdout).toContain(`${issue.json.id} の claude-code の提案を取り下げました`);
   const again = await runNod(["triage", "propose", issue.json.id, "--withdraw", "--json"], { cwd, db, actor: "codex" });

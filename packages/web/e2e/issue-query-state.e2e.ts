@@ -91,7 +91,7 @@ test("Projectの固定条件はURLで解除できず、カンバンはTriageだ�
   await expect(page.getByRole("table")).toContainText("API-13");
   await expect(page.getByRole("table")).not.toContainText("NOD-5");
   const { workspace }=await nod.me.initWorkspace({path:nod.repo("triage-only"),key:"TRI",name:"Triage専用"});
-  await nod.codex.createIssue({workspaceId:workspace.id,title:"未受入"});
+  await nod.codex.createIssue({ status: "triage",workspaceId:workspace.id,title:"未受入"});
   const canceled = await nod.me.createIssue({workspaceId:workspace.id,title:"中止済み"});
   await nod.me.updateIssue(canceled.id, { status: "canceled", reason: "表示対象外の検証" });
   await page.goto("/issues?groupBy=workspace");

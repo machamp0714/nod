@@ -9,7 +9,7 @@ const dataset: Dataset = ({ db, repo }) => {
     const workspace = initWorkspace(db, { path: repo(key), key, name: `${key}のリポジトリ` }).workspace;
     const input = { workspaceId: workspace.id, projectRef: String(project.id) };
     createIssue(me, { ...input, title: `${key} 通常課題` });
-    createIssue(codex, { ...input, title: `${key} Triage課題` });
+    createIssue(codex, { status: "triage", ...input, title: `${key} Triage課題` });
     const question = createIssue(me, { ...input, title: `${key} 回答待ち課題` });
     startIssue(codex, question.id);
     askQuestion(codex, question.id, "どの方式を使いますか");

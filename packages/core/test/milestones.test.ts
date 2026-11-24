@@ -68,12 +68,12 @@ describe("Milestone の作成・編集・削除", () => {
     expect(codeOf(() => deleteMilestone(me, m.id))).toBe("NOT_FOUND");
   });
 
-  test("LLM は Milestone を作成・編集できるが、削除はできない（FORBIDDEN_FOR_LLM）", () => {
+  test("LLM も Milestone を作成・編集・削除できる", () => {
     const { db, llm } = withProjects();
     const m = createMilestone(llm, "検索", { name: "α" });
     expect(updateMilestone(llm, m.id, { name: "α2" }).name).toBe("α2");
-    expect(codeOf(() => deleteMilestone(llm, m.id))).toBe("FORBIDDEN_FOR_LLM");
-    expect(listMilestones(db, "検索").map((x) => x.id)).toEqual([m.id]);
+    expect(deleteMilestone(llm, m.id)).toEqual({ id: m.id });
+    expect(listMilestones(db, "検索")).toEqual([]);
   });
 
   test("名前の前後の空白は取り除いて保存し、重複判定もそれで行う", () => {
@@ -195,7 +195,7 @@ describe("Milestone の入口（#154）", () => {
     const m = createMilestone(me, "検索", { name: "α" });
     const foreign = createMilestone(me, "認証", { name: "別" });
     expect(createIssue(me, { workspaceId: ws.id, title: "a", projectRef: "検索", milestoneRef: "α" }).milestone).toEqual({ id: m.id, name: "α" });
-    expect(createIssue(llm, { workspaceId: ws.id, title: "b", projectRef: "検索", milestoneRef: String(m.id) })).toMatchObject({
+    expect(createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b", projectRef: "検索", milestoneRef: String(m.id) })).toMatchObject({
       status: "triage",
       milestone: { id: m.id },
     });

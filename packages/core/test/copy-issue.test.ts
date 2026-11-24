@@ -100,12 +100,12 @@ test("PR 付きで完了した Issue や別 Workspace の Issue も複製でき�
   expect(copyIssue(me, elsewhere.id.toLowerCase()).id).toBe("OTHER-2");
 });
 
-test("タイトルを上書きでき、LLM の複製は通常の起票と同じく Triage に入る", () => {
+test("タイトルを上書きでき、書き手によらず複製は Todo に入る", () => {
   const { me, llm, ws } = setup();
   const src = createIssue(me, { workspaceId: ws.id, title: "元" });
   expect(copyIssue(me, src.id, { title: "  新しい名前  " }).title).toBe("  新しい名前  ");
   const byLlm = copyIssue(llm, src.id);
-  expect(byLlm).toMatchObject({ status: "triage", title: "元", createdBy: "claude-code" });
+  expect(byLlm).toMatchObject({ status: "todo", title: "元", createdBy: "claude-code" });
 });
 
 test("存在しない ID・不正な ID・空のタイトルでは何も作らず、番号も進めない", () => {

@@ -7,7 +7,7 @@ import { recordDueDateSetting } from "./due-date-notifications";
 import { type IssueQuery, validateIssueQuery } from "../issue-filter";
 import { getTemplate } from "./templates";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { HUMAN_ACTOR, now, type OpCtx } from "../ctx";
 import { isValidDueDateInput, MIN_DUE_DATE } from "../due-date";
 import { tx } from "../db";
 import { NodError } from "../errors";
@@ -84,7 +84,8 @@ export interface CreateIssueInput {
   estimate?: number;
   dueDate?: string;
   labels?: string[];
-  requested?: boolean; // me に頼まれた起票（LLM の申告）。LLM のときだけ Triage ではなく todo で作り、由来を残す
+  status?: Status; // 経路が選ぶ初期状態。省略時は Todo（CLI は Triage を明示）
+  requested?: boolean; // me の依頼による起票。status より優先して Todo にし、依頼者を記録する
 }
 
 export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
@@ -108,7 +109,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
     const project = input.projectRef ? resolveProject(ctx.db, input.projectRef) : null;
     const milestone = input.milestoneRef ? projectMilestone(ctx.db, project?.id ?? null, input.milestoneRef) : null;
     const description = input.template !== undefined ? getTemplate(ctx.db, input.template).body : (input.description ?? null);
-    const requested = isLlm(ctx) && input.requested === true;
+    const requested = input.requested === true;
     return insertIssue(ctx, {
       workspaceId: input.workspaceId,
       title: input.title,
@@ -120,7 +121,7 @@ export function createIssue(ctx: OpCtx, input: CreateIssueInput): Issue {
       projectId: project?.id ?? null,
       milestoneId: milestone?.id ?? null,
       labels: input.labels ?? [],
-      ...(requested ? { status: "todo" as const } : {}),
+      status: requested ? "todo" : (input.status ?? "todo"),
       origin: {
         ...(requested ? { requested_by: HUMAN_ACTOR } : {}),
         ...(source ? { discovered_from: formatIssueId(source.ws_key, source.number) } : {}),
@@ -141,12 +142,12 @@ export interface NewIssueRow {
   milestoneId?: number | null;
   cycleId?: number | null;
   labels: string[];
-  status?: Status; // 初期ステータス。省略時は LLM が Triage、人が todo（取り込みでは取り込み元の状態から決める）
+  status: Status; // 呼び出し経路が選ぶ初期状態（取り込みでは取り込み元の状態）
   closeReason?: string | null; // done・canceled で作るときの完了・キャンセルの理由（取り込みだけが使う）
   origin: Record<string, string | number>; // created の event に残す由来（発見元、複製元、定期Issue）
 }
 
-// 起票・複製・定期Issueで共通の行の追加。番号の発行と初期ステータス（LLM は Triage）をここで決める。呼び出し側の tx の中で使う
+// 起票・複製・定期Issueで共通の行の追加。初期ステータスは呼び出し側が決め、呼び出し側の tx の中で使う
 export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
   if (input.cycleId != null) throw new NodError("CYCLE_RETIRED", "Cycleへの直接所属は廃止されました。Sprint履歴を参照してください。SprintへのIssueの追加は nod sprint add <sprint> <issue> で行います");
   const ws = ctx.db.query("SELECT id, next_number FROM workspaces WHERE id = ?").get(input.workspaceId) as {
@@ -154,7 +155,7 @@ export function insertIssue(ctx: OpCtx, input: NewIssueRow): Issue {
     next_number: number;
   } | null;
   if (!ws) throw new NodError("NOT_FOUND", "Workspace がありません");
-  const status: Status = input.status ?? (isLlm(ctx) ? "triage" : "todo");
+  const status = input.status;
   // 最初から閉じた状態で作る（取り込み）ときは、状態の遷移を経ずに closed_at を作成時刻にする
   const closed = status === "done" || status === "canceled";
   const ts = now();
@@ -213,6 +214,7 @@ export function copyIssue(ctx: OpCtx, ref: string, opts: { title?: string } = {}
       parentId: null,
       projectId: row.project_id,
       labels,
+      status: "todo",
       origin: { copied_from: formatIssueId(row.ws_key, row.number) },
     });
   });
@@ -597,7 +599,7 @@ export function logWork(ctx: OpCtx, ref: string, body: string, opts: { kind?: st
   return tx(ctx.db, () => addComment(ctx, findWritableIssueRow(ctx.db, ref), body, null, kind));
 }
 
-// スレッドを解決済み・未解決に切り替える。人だけが行え、状態が変わったときだけ event を残す
+// スレッドを解決済み・未解決に切り替える。状態が変わったときだけ event を残す
 export function resolveThread(ctx: OpCtx, ref: string, commentId: number, resolved: boolean): Comment {
   return tx(ctx.db, () => {
     const row = findWritableIssueRow(ctx.db, ref);

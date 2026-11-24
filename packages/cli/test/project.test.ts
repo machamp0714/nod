@@ -194,10 +194,9 @@ describe("Milestone CLI", () => {
     expect(cli(path, cwd, ["issue", "update", a.id, "--milestone", "", "--json"]).json.milestone).toBeNull();
     cli(path, cwd, ["issue", "update", a.id, "--milestone", "β"]);
     expect(cli(path, cwd, ["issue", "show", a.id]).stdout).toContain("Milestone: β");
-    // 削除は人だけ（LLM は FORBIDDEN_FOR_LLM）
     const forbidden = cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"]);
-    expect([forbidden.code, forbidden.json.error.code]).toEqual([1, "FORBIDDEN_FOR_LLM"]);
-    expect(cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--json"], "me").json).toEqual({ id: created.json.id });
+    expect([forbidden.code, forbidden.json.error.code]).toEqual([1, "CONFIRM_REQUIRED"]);
+    expect(cli(path, cwd, ["project", "milestone", "remove", "検索", "β", "--yes", "--json"]).json).toEqual({ id: created.json.id });
     expect(cli(path, cwd, ["issue", "show", a.id]).stdout).not.toContain("Milestone:");
     expect(cli(path, cwd, ["project", "milestone", "list", "検索", "--json"]).json.map((m: { name: string }) => m.name)).toEqual(["α"]);
   });
@@ -225,7 +224,7 @@ describe("Milestone CLI", () => {
       expect(result.code).toBe(1);
       expect(result.json.error.code).toBe(code);
     }
-    const notHere = cli(path, cwd, ["project", "milestone", "remove", "検索", String(foreign.id), "--json"], "me");
+    const notHere = cli(path, cwd, ["project", "milestone", "remove", "検索", String(foreign.id), "--yes", "--json"], "me");
     expect([notHere.code, notHere.json.error.code]).toEqual([1, "NOT_FOUND"]);
     expect(cli(path, cwd, ["project", "milestone", "list", "認証", "--json"]).json).toHaveLength(1);
   });

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { isNoneRef, NONE_REF } from "../none-ref";
@@ -169,9 +169,7 @@ export function updateMilestone(ctx: OpCtx, ref: string | number, input: UpdateM
 }
 
 // 消すと紐付いた Issue は Milestone から外れるだけで、Issue の状態や event は変えない。
-// 紐付けがまとめて外れて戻せないため、削除は人だけ（作成・編集・紐付けは LLM もできる）
 export function deleteMilestone(ctx: OpCtx, ref: string | number, projectId?: number): { id: number } {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は Milestone を削除できません。削除は me に依頼してください");
   return tx(ctx.db, () => {
     const row = resolveMilestone(ctx.db, ref, projectId);
     if (projectId !== undefined && row.project_id !== projectId) throw new NodError("NOT_FOUND", `Milestone ${ref} はこの Project にありません`);

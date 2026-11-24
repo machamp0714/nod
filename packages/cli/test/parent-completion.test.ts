@@ -7,7 +7,7 @@ test("子がすべて完了した親を完了候補として show・list で示�
   registerRepo(db, cwd, "API");
   const me = (args: string[]) => runNod(args, { cwd, db });
   const llm = (args: string[]) => runNod(args, { cwd, db, actor: "claude-code" });
-  const parent = (await me(["issue", "create", "親", "--json"])).json;
+  const parent = (await me(["issue", "create", "親", "--requested", "--json"])).json;
   const a = (await me(["issue", "create", "子A", "--parent", parent.id, "--json"])).json;
   const b = (await me(["issue", "create", "子B", "--parent", parent.id, "--json"])).json;
   await me(["issue", "create", "無関係", "--json"]);

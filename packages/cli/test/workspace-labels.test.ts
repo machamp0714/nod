@@ -31,7 +31,7 @@ describe("nod workspace labels", () => {
     expect(renamed.stdout).toContain("defect");
     expect((await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db })).json.labels).toEqual(["defect"]);
 
-    const removed = await runNod(["workspace", "labels", "remove", "defect", "--json"], { cwd: repo, db });
+    const removed = await runNod(["workspace", "labels", "remove", "defect", "--yes", "--json"], { cwd: repo, db });
     expect(removed.json).toEqual({ workspaceKey: "API", name: "defect", removed: true });
     expect((await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db })).json.labels).toEqual(["defect"]);
   });
@@ -44,14 +44,14 @@ describe("nod workspace labels", () => {
     expect(r.json.error.code).toBe("INVALID_ARGS");
   });
 
-  test("LLM は add・update・list ができ、remove は FORBIDDEN_FOR_LLM", async () => {
+  test("LLM は add・update・list ができ、remove には --yes が要る", async () => {
     const { db, repo } = await setupRepo();
     const add = await runNod(["workspace", "labels", "add", "bug", "--color", "#DB2777", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(add.exitCode).toBe(0);
     const update = await runNod(["workspace", "labels", "update", "bug", "--color", "#2563EB", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(update.exitCode).toBe(0);
     const remove = await runNod(["workspace", "labels", "remove", "bug", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(remove.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    expect(remove.json.error.code).toBe("CONFIRM_REQUIRED");
     const list = await runNod(["workspace", "labels", "list", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(list.json.map((l: { color: string }) => l.color)).toEqual(["#2563EB"]);
   });
@@ -79,7 +79,7 @@ describe("nod workspace status-names", () => {
   test("テキスト出力は「表示名 (内部値)」、--json と --status は内部値のまま", async () => {
     const { db, repo } = await setupRepo();
     await runNod(["workspace", "status-names", "set", "todo", "着手可"], { cwd: repo, db });
-    const created = await runNod(["issue", "create", "a"], { cwd: repo, db });
+    const created = await runNod(["issue", "create", "--requested", "a"], { cwd: repo, db });
     expect(created.stdout).toContain("着手可 (todo)");
     expect((await runNod(["issue", "show", "API-1"], { cwd: repo, db })).stdout).toContain("ステータス: 着手可 (todo)");
     expect((await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db })).json.status).toBe("todo");
@@ -93,7 +93,7 @@ describe("nod workspace status-names", () => {
   test("確認依頼で Needs Clarification になった旨も表示名で出す", async () => {
     const { db, repo } = await setupRepo();
     await runNod(["workspace", "status-names", "set", "needs_clarification", "確認待ち"], { cwd: repo, db });
-    await runNod(["issue", "create", "a"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "a"], { cwd: repo, db });
     const asked = await runNod(["issue", "ask", "API-1", "対象はどれか"], { cwd: repo, db });
     expect(asked.stdout).toContain("API-1 は 確認待ち (needs_clarification) です");
   });
@@ -101,8 +101,8 @@ describe("nod workspace status-names", () => {
   test("一覧は表示名の長さ・全角幅が違ってもタイトルの列をそろえる", async () => {
     const { db, repo } = await setupRepo();
     await runNod(["workspace", "status-names", "set", "todo", "すぐ着手できるもの"], { cwd: repo, db });
-    await runNod(["issue", "create", "first"], { cwd: repo, db });
-    await runNod(["issue", "create", "second"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "first"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "second"], { cwd: repo, db });
     await runNod(["issue", "update", "API-2", "--status", "backlog"], { cwd: repo, db });
     const lines = (await runNod(["issue", "list"], { cwd: repo, db })).stdout.trim().split("\n");
     const width = (s: string) => [...s].reduce((n, c) => n + (/[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(c) ? 2 : 1), 0);
@@ -111,13 +111,13 @@ describe("nod workspace status-names", () => {
     expect(new Set(starts).size).toBe(1);
   });
 
-  test("未知のステータスは INVALID_ARGS、LLM は set・reset できず FORBIDDEN_FOR_LLM", async () => {
+  test("未知のステータスは INVALID_ARGS、LLM も表示名を set・reset できる", async () => {
     const { db, repo } = await setupRepo();
-    expect((await runNod(["workspace", "status-names", "set", "ready", "x", "--json"], { cwd: repo, db })).json.error.code).toBe("INVALID_ARGS");
-    for (const args of [["set", "todo", "x"], ["reset"]]) {
-      const r = await runNod(["workspace", "status-names", ...args, "--json"], { cwd: repo, db, actor: "claude-code" });
-      expect(r.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    }
-    expect((await runNod(["workspace", "status-names", "show", "--json"], { cwd: repo, db, actor: "claude-code" })).exitCode).toBe(0);
+    const opts = { cwd: repo, db, actor: "codex" };
+    expect((await runNod(["workspace", "status-names", "set", "ready", "x", "--json"], opts)).json.error.code).toBe("INVALID_ARGS");
+    expect((await runNod(["workspace", "status-names", "set", "todo", "着手可", "--json"], opts)).exitCode).toBe(0);
+    expect((await runNod(["workspace", "status-names", "show", "--json"], opts)).json.names).toEqual({ todo: "着手可" });
+    expect((await runNod(["workspace", "status-names", "reset", "--json"], opts)).exitCode).toBe(0);
+    expect((await runNod(["workspace", "status-names", "show", "--json"], opts)).json.names).toEqual({});
   });
 });

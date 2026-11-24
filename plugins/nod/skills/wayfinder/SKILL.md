@@ -18,7 +18,7 @@ description: "複数セッションにまたがる構想を nod の親子 Issue 
 - 子 Issue だけを指定された場合は `parentId` からマップを確認する。マップでない親を勝手に作り変えない。
 - 別モデルの指定は `nod:to-spec` と同じく `--reviewer-model`、`--reviewer-effort` を受け付ける。これらはスキルへの指示であり、nod CLI のオプションではない。
 
-Codex では nod を書き換える前に `export NOD_ACTOR=codex` を設定する。
+書き手は環境から自動判定される。明示指定が必要なら `NOD_ACTOR` を使う。書き手は記録用で、操作の許可や人の承認の証明ではない。
 `nod skills get nod` と [nod での記録・状態管理](references/nod-operations.md) を読む。
 既存の本文・合意・Documents を前提にし、変更したい場合は変更提案として人に示す。
 用語は `CONTEXT.md` や既存の用語集に合わせる。

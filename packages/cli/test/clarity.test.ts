@@ -14,7 +14,7 @@ beforeAll(() => {
 const me = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db });
 const llm = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db, actor: "claude-code" });
 const text = async (args: string[]) => (await runNod(args, { cwd: repo, db, env: { TZ: "UTC" } })).stdout;
-const create = async (title: string, extra: string[] = []) => (await me(["issue", "create", title, ...extra])).json.id as string;
+const create = async (title: string, extra: string[] = []) => (await me(["issue", "create", "--requested", title, ...extra])).json.id as string;
 
 describe("Project の指定（#176 項目1）", () => {
   test("名前の一部では解決せず、近い名前の候補を名前と ID で出す", async () => {
@@ -70,7 +70,7 @@ describe("関係の相手の印（#176 項目2）", () => {
     const repo2 = makeRepo();
     registerRepo(db2, repo2, "RN");
     const run = (args: string[]) => runNod(args, { cwd: repo2, db: db2 });
-    for (const title of ["ブロックされる", "完了するブロック元", "キャンセルするブロック元", "アーカイブするブロック元"]) await run(["issue", "create", title]);
+    for (const title of ["ブロックされる", "完了するブロック元", "キャンセルするブロック元", "アーカイブするブロック元"]) await run(["issue", "create", "--requested", title]);
     for (const b of ["RN-2", "RN-3", "RN-4"]) await run(["issue", "relate", b, "--blocks", "RN-1"]);
     await run(["issue", "update", "RN-2", "--status", "done"]);
     await run(["issue", "update", "RN-3", "--status", "canceled"]);

@@ -13,7 +13,7 @@ beforeAll(() => {
 
 const json = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db });
 const create = async (title: string) => {
-  const result = await json(["issue", "create", title]);
+  const result = await json(["issue", "create", "--requested", title]);
   expect(result.exitCode).toBe(0);
   return result.json.id as string;
 };

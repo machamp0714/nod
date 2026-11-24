@@ -31,7 +31,7 @@ describe("suggestIssue", () => {
     const { db, ws, me, llm } = setup();
     const other = initWorkspace(db, { path: "/tmp/repos/other", key: "OTHER" }).workspace;
     createIssue(me, { workspaceId: other.id, title: "別Workspace", priority: 1 });
-    createIssue(llm, { workspaceId: ws.id, title: "Triage" });
+    createIssue(llm, { status: "triage", workspaceId: ws.id, title: "Triage" });
     const ready = createIssue(me, { workspaceId: ws.id, title: "着手可能" });
     const snoozed = createIssue(me, { workspaceId: ws.id, title: "後回し" });
     db.query("UPDATE issues SET snoozed_until = '2999-01-01T00:00:00.000Z' WHERE number = ? AND workspace_id = ?").run(snoozed.number, ws.id);

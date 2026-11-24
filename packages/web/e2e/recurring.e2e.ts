@@ -8,7 +8,7 @@ test("定期Issueを追加・確認・実行・停止・編集・削除でき、
   await nod.me.saveTemplate({ name: "review", body: "## 振り返り" });
   await page.goto("/workspaces/API/settings");
   const sec = section(page);
-  await expect(sec.getByText("周期ごとに Issue を起票します。起票は『今すぐ実行』か nod recurring run のときだけ行います。LLM は変更できません。")).toBeVisible();
+  await expect(sec.getByText("周期ごとに Issue を起票します。起票は『今すぐ実行』か nod recurring run のときだけ行います。")).toBeVisible();
   await expect(sec.getByText("定期Issue はまだありません")).toBeVisible();
 
   // 追加：テンプレート・Project・ラベル・優先度・毎週月曜・開始日・TZ

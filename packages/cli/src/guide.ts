@@ -6,8 +6,9 @@ Issue を読み書きするときは nod を使う。
 
 ## 書き手
 
-Claude Code の中では、自動で claude-code として記録される。
-Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
+CLI の書き手は、\`NOD_ACTOR\` → \`OMPCODE=1\`（omp）→ \`CLAUDECODE=1\`（claude-code）→ \`CODEX_THREAD_ID\`（codex）→ me の順で決まる。
+明示した \`NOD_ACTOR\` が最優先で、未設定でも書き込みは止めない。Web からの操作は me と記録する。
+書き手は操作の記録に使い、操作の許可や人の承認の証明には使わない。どの書き手も同じ条件で操作できる。
 
 ## 作業の流れ
 
@@ -66,7 +67,7 @@ Codex では、最初に \`export NOD_ACTOR=codex\` を実行する。
 
 ## 仕様要否判定と実装
 
-Workspace の自動判定は既定 OFF で、人間が設定する。有効時の新規未完了 Issue は本文だけで判定され、必要な場合に needs-spec が付く。
+Workspace の自動判定は既定 OFF で、\`nod workspace spec-assessment\` で設定する。有効時の新規未完了 Issue は本文だけで判定され、必要な場合に needs-spec が付く。
 \`nod issue show <id> --json\` の \`specAssessment\` で状態を確認する。null または省略なら対象外である。
 初回判定が \`pending\` または \`failed\` なら Ready・next・suggest から除外され、start は拒否される。
 \`nod:implement\` は start より先に \`nod issue assess <id>\` で同じ Issue の判定を1回だけ再試行し、再確認しても解消しなければ、安全な失敗種別を報告して止める。Issue を再作成しない。
@@ -77,14 +78,15 @@ code-review は仕様書がなくても本文で Spec 軸を必ず実行する�
 
 ## 追加指示を受け取る
 
-人は作業中の Issue に「追加指示」を残すことがある。追加指示は Issue のコメントとして残り、\`nod issue show <id>\` の Activity に [追加指示] と出る。
-人が確認画面で送ると、Orca の端末に \`nod: <id> に追加指示があります（#<番号>）。nod issue show <id> で読んでください\` という短い通知が届く。
+利用者やエージェントは、作業中の Issue に「追加指示」を残せる。追加指示は Issue のコメントとして残り、\`nod issue show <id>\` の Activity に [追加指示] と出る。
+Web の確認画面や CLI から送ると、Orca の端末に \`nod: <id> に追加指示があります（#<番号>）。nod issue show <id> で読んでください\` という短い通知が届く。
 端末に届くのは通知だけで、指示の本文は nod にある。通知を受けたら \`nod issue show <id>\` で全文を読み、作業に反映する。
 送信先は、最後に保存された worktree の稼働中のセッションから探す。次に \`nod issue start <id>\` したときに \`pendingInstructions\` で受け取る。
 \`nod issue show <id>\` の「未確認の追加指示」でも本文を読める。
-確認済みになるのは、LLM が \`nod issue start <id>\` で指示を受け取ったときだけである。
+確認済みになるのは、書き手によらず \`nod issue start <id>\` で指示を受け取ったときである。\`show\` で読むだけでは確認済みにならない。
 \`nod issue instructions <id>\` で、これまでの指示と送信、確認の状態を一覧できる。
-追加指示の記録（\`nod issue instruct\`）と端末への送信は人だけが行える（LLM は FORBIDDEN_FOR_LLM）。LLM は読むだけにする。
+\`nod issue instruct <id> "<本文>"\` は指示を記録するだけで、送信しない。
+\`nod issue send-instruction <id> <instructionId> --terminal <handle> [--confirm-resend]\` は記録済みの指示を明示した稼働中の LLM 端末へ送り、送信者を記録する。保存された worktree と別の worktree の端末には送れない。結果不明で受付 ID がない場合、未着を確認してから \`--confirm-resend\` で再送する。
 
 ## 着手前に候補だけ確認する
 
@@ -95,16 +97,16 @@ code-review は仕様書がなくても本文で Spec 軸を必ず実行する�
 
 ## 定期Issueで起票された定型作業の扱い
 
-人は定型作業（依存更新チェック、週次レポートなど）を定期 Issue として登録する。
-起票するのは人の実行（\`nod recurring run\`、\`nod automation run\`、Web の「今すぐ実行」）だけで、nod が自動で起票することはない。
-人の起票なので Triage を通らず todo で入り、着手条件を満たせば \`nod issue next\` の候補に入る。通常の Issue と同じ優先度順で選ばれる。
-遷移ルールで todo → in_progress が禁止されている Workspace では、\`nod issue next\` は TRANSITION_NOT_ALLOWED になる。ルールは変えられないので人に伝える。
+定型作業（依存更新チェック、週次レポートなど）は定期 Issue として登録できる。
+起票の契機は \`nod recurring run\`、\`nod automation run\`、Web の「今すぐ実行」で、nod が自動で起票することはない。
+定期 Issue は書き手によらず Todo に入り、着手条件を満たせば \`nod issue next\` の候補に入る。通常の Issue と同じ優先度順で選ばれる。
+遷移ルールで todo → in_progress が禁止されている Workspace では、\`nod issue next\` は TRANSITION_NOT_ALLOWED になる。ルールを迂回せず、必要な変更を判断する。
 \`nod issue show <id>\` の Activity の最初の行が「定期Issue #<定期Issueの id>（<発生日> 分）から起票した」なら、定期Issueで起票された Issue である（\`--json\` では created の event の \`recurring_id\` と \`occurrence\`）。
 進め方は通常の Issue と同じで、説明（テンプレートの手順と空欄）に従って作業し、空欄は \`nod issue update <id> -d "<説明>"\` で埋め、\`nod issue done <id> --summary "<要約>"\` で完了にする。
 前回の発生日の Issue が残っていても、今回の Issue はそれとは別の作業として扱い、まとめて閉じない。前回分が不要そうなら人に伝える。
 手順に書かれていない作業（依存のメジャー更新など）が見つかったら、自分で着手せずに \`--discovered-from <id>\` を付けて起票する。
-周期やテンプレートなど定期Issueの定義は変えられない（FORBIDDEN_FOR_LLM）。変えたほうがよいと思ったら \`nod recurring list\` で定義を確かめ、人に依頼する。
-テンプレートの手順が古いときも、テンプレートは書き換えず、人に伝える（\`nod template add\` / \`remove\` は FORBIDDEN_FOR_LLM。\`nod template show\` で読むのはできる）。
+周期などの定義は \`nod recurring list\` で確認し、\`nod recurring add|update|remove\` で変更できる。削除は \`nod recurring remove <id> --yes\` で行う。
+テンプレートは \`nod template show <名前>\` で確認し、\`nod template add\` で登録または置き換え、\`nod template remove <名前> --yes\` で削除できる。
 
 ## Issue 用のブランチ名を取得する
 
@@ -117,16 +119,16 @@ hash は Workspace のキーと番号から決まるので、同じ Issue なら
 ## Issue を複製する
 
 \`nod issue copy <id> [--title <text>]\` は同じ Workspace に新しい ID の Issue を作る。引き継ぐのはタイトル・説明・Project・ラベル・優先度・見積もりだけで、元の Issue は変えない。
-期限・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。LLM の複製は通常の起票と同じく Triage に入る。
+期限・作業状況・親子・関係・PR・実行場所・計画・Documents・質問・コメントは引き継がない。複製は書き手によらず Todo に入る。
 
 ## Issue のアーカイブ
 
 \`nod issue archive <id> [--reason <text>]\` でアーカイブし、\`nod issue unarchive <id>\` で復元する。ステータスは変えない。
 アーカイブ済みの Issue は既定の一覧・Inbox・Triage・\`nod issue next\` から外れ、ブロック元としても数えない。\`nod issue list --archived\` で確認できる。
 アーカイブ済みの Issue の完全な削除（\`nod issue delete <id> --yes\`）は元に戻せず、記録は \`nod workspace audit\` で確認できる。
-Workspace の自動化（\`nod automation set\` と \`nod automation run\`）の設定・実行は人だけが行える。\`nod automation run\` は定期Issueの起票も同じ回に行う。LLM は \`nod automation run --dry-run\` で対象（起票する定期Issueを含む）を確かめ、人に伝えるだけにする。
+Workspace の自動化は \`nod automation set\` で設定し、\`nod automation run\` で実行できる。\`run\` は定期 Issue の起票も同じ回に行う。\`--dry-run\` で変更前に対象を確認できる。
 GitHub に送るブランチ名・コミット・PR に nod の Issue ID を書かない。対応する GitHub Issue があり、コードと同じ repo のときだけ、作業が済んだコミットに \`Fixes #<GitHub の番号>\` を付ける（途中のコミットには付けない）。未公開なら closing reference を付けない。
-\`nod import github <owner/repo>\`（GitHub Issues の取り込み）の実行は人だけが行える。LLM は \`nod import github <owner/repo> --dry-run\` で取り込む内容と状態の対応を確かめ、人に伝えるだけにする。
+\`nod import github <owner/repo>\` で GitHub Issues を取り込める。\`--dry-run\` で取り込む内容と状態の対応を確認できる。
 
 ## 引数の書き方
 
@@ -146,15 +148,15 @@ nod issue create "<タイトル>" [-d "<説明>" | --template <名前>] [--proje
 
 別のIssueの作業中に発見した場合は \`--discovered-from <id>\` で起票元を明示する。親子関係の \`--parent\` とは別に記録され、未指定の起票元は推測されない。
 
-LLM が起票した Issue は Triage に入り、人が受け入れるまで \`nod issue next\` に出ない。
-me に起票を頼まれたときだけ \`--requested\` を付ける。自分で見つけた作業には付けない（Triage で me が判断する）。\`--requested\` を付けた Issue は Todo で作られ、Activity に「me の依頼で起票した」と出る。
+CLI の \`nod issue create\` は状態を指定しなければ、書き手によらず Triage に入る。Triage のままでは \`nod issue next\` に出ない。
+me に起票を頼まれたときだけ \`--requested\` を付ける。自分で見つけた作業には付けない。\`--requested\` は書き手によらず Todo で作り、依頼者 me を記録する。Web からの起票、複製、定期 Issue も Todo に入る。
 \`nod triage accept\`、\`nod triage decline\`、\`nod triage duplicate\` は LLM も実行できる。
-受け入れ・却下・重複の判断が必要なときは、人に判断を依頼する。
+受け入れ・却下・重複の判断を人に委ねた場合は、その判断を依頼する。
 Triage にある Issue は \`nod issue update --status\` で Triage から出せる（LLM も同じ）。\`nod issue bulk-update -s\` では誰も Triage から出せない（TRIAGE_DECISION_REQUIRED）。状態以外の項目はどちらでも変えられる。
 needs_clarification は確認依頼に応じて自動で切り替わるため、\`nod issue update --status\` では設定できない（INVALID_ARGS）。
 人が \`nod issue update -s todo\` などで needs_clarification から出した Issue は、未回答が残る間は着手できない（成功表示の次の行に「未回答の確認依頼が N 件残っています」と出る）。同じ文面の \`nod issue ask\` の再実行は質問を増やさず、状態も変えない。
-\`nod triage suggest <id>\` は重複とラベルの候補を根拠つきで出す（読み取りのみ）。候補の採用も Triage の判断なので人に依頼し、LLM は候補を根拠に人へ伝える。
-LLM の判断は \`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [-p <優先度>] [--project <名前>] [--reason <理由>]\` で「提案」として記録する。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は人が Triage 画面か accept / decline / duplicate で行う。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。提案すると me の Inbox に通知が届く。
+\`nod triage suggest <id>\` は重複とラベルの候補を根拠つきで出す（読み取りのみ）。候補を確認して採用を判断する。
+\`nod triage propose <id> --accept|--decline|--duplicate-of <元の id> [-l <label>] [-p <優先度>] [--project <名前>] [--reason <理由>]\` で判断を「提案」として記録できる。提案は Triage の状態を変えず、同じ書き手の再提案は上書きされる。確定は Triage 画面か accept / decline / duplicate で行い、書き手による制限はない。記録済みの提案は \`nod triage proposals <id>\` で確かめ、自分の提案は \`nod triage propose <id> --withdraw\` で取り下げる。他の書き手の提案は取り下げられない。提案すると me の Inbox に通知が届く。
 1つの Issue を分担できる単位に分けるときは \`--parent <元の id>\` で Sub-issue にする。
 Sub-issue がすべて完了した親は「完了候補」になる（\`nod issue list --completion-candidates\` で一覧できる）。
 完了候補の親も、要求と完了条件を確認して完了にできる。
@@ -179,43 +181,51 @@ Sub-issue がすべて完了した親は「完了候補」になる（\`nod issu
 - \`nod issue relate <id> [--blocks <id>] [--related <id>]\` または \`nod issue relate <id> --duplicate-of <id>\`：\`--blocks\` と \`--related\` は同じ相手にも別の相手にも併用できる。少なくとも1つ指定し、空文字は渡さない。\`--duplicate-of\` は単独で指定する。関係の検証・登録または Activity の記録に失敗した場合、この実行による関係と Activity は残らない。同じ向き、種類、相手の既存関係は再追加せず、不足分とその Activity だけを追加する
 - \`nod issue link-pr <id> <url>\`：作業中の Issue に GitHub の PR を紐付ける（ステータスは変えない。LLM も実行できる）
 - \`nod issue pr-status <id> [--refresh]\`：PR のレビュー・CI・マージの状態を表示する。\`--refresh\` で gh から取得して保存する（GitHub へは読み取りのみ。LLM も実行できる）。取得に失敗しても終了コードは0で、\`fetchError\` に理由（GH_NOT_INSTALLED、GH_AUTH、PR_NOT_FOUND、NETWORK、TIMEOUT など）が入る
-- \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する（人だけ。LLM は --dry-run だけ。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS）。送るのはタイトルと本文だけ。--title・--body-file を指定しない項目は、nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）を決まった規則で整えた案を既定にし、確認画面と --dry-run に書き換えた箇所（前 → 後）を示す（nod の本文は変えない。指定した文面は書き換えない）。整えられずに残った箇所があれば行番号と必要な対応を示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か --clear-unknown で解除する
-- \`nod issue link-github <id> <URL>\` / \`nod issue unlink-github <id>\`：既存の GitHub Issue を紐付ける・外す（人だけ）。外した GitHub Issue は import で取り込み直さない
-- \`nod workspace github show|set <owner/repo>|clear\`：GitHub の公開先（人だけが変えられる）。未設定なら show が origin の候補を示す
+- \`nod issue publish <id> [--title <text>] [--body-file <path>] [--dry-run] [--clear-unknown] [--yes] [--json]\`：nod の Issue を GitHub Issue として1回だけ作成する。\`--yes\` で確認を省き、非対話でも公開できる。なければ TTY で送る内容を表示して [y/N] で確認し、非対話では NOT_INTERACTIVE で止まる。--json は --dry-run のときだけ使え、--clear-unknown との併用は INVALID_ARGS。送るのはタイトルと本文だけ。--title・--body-file を指定しない項目は、nod の情報（Issue ID・番号だけの参照・nod の URL とコマンド・手元のパス・nod でしか開けないリンク）を決まった規則で整えた案を既定にし、確認画面と --dry-run に書き換えた箇所（前 → 後）を示す（nod の本文は変えない。指定した文面は書き換えない）。整えられずに残った箇所があれば行番号と必要な対応を示して送らない。分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。結果不明なら再送せず、GitHub を確かめて link-github か \`--clear-unknown --yes\` で解除する
+- \`nod issue link-github <id> <URL>\` / \`nod issue unlink-github <id>\`：既存の GitHub Issue を紐付ける・外す。外した GitHub Issue は import で取り込み直さない
+- \`nod workspace github show|set <owner/repo>|clear\`：GitHub の公開先を確認・変更する。未設定なら show が origin の候補を示す
 - \`nod issue pr-diff <id> [--refresh] [--file <パス>]\`：PR の変更ファイル（パス・状態・+/-行数）を表示し、\`--file\` でそのファイルの unified diff を出す。\`--refresh\` で gh から PR の HEAD に固定した差分を取得して保存する（GitHub へは読み取りのみ。LLM も実行できる。gh の呼び出しごとに15秒で時間切れ）。上限はファイル 300 件・全体 5 MB（超えると DIFF_TOO_LARGE）、1ファイル 200 KB か 5,000 行を超えるものとバイナリは本文を保存しない。PR 状態の取得で別の HEAD を知ると古い差分は出さず \`stale\` に両方の HEAD が入る。\`--json\` の一覧は patch を含まないので、本文は \`--file\` で読む。双方向の制御文字は ⟪U+202E⟫ のように符号で表示する
 - \`nod project list\`、\`nod project show <名前>\`：list の行末は LLM の状況で、正の件数だけを 入力待ち・エラー・作業中 の順に出す（すべて0なら \`—\`）
-- \`nod triage list\`：全 Workspace の Triage の Issue（スヌーズ中を除く）を一覧する読み取り専用のコマンド（LLM も実行できる。受け入れ・却下の判断は人が行う）。\`nod inbox\` は末尾に Triage の件数を出す
+- \`nod triage list\`：全 Workspace の Triage の Issue（スヌーズ中を除く）を一覧する読み取り専用のコマンド。\`nod inbox\` は末尾に Triage の件数を出す
 - \`nod project update <名前かID> --status planned|started|completed|canceled\`：Project の状態を変更する（所属 Issue の状態は変えない）
 - \`nod project report add <名前かID> [--health on_track|at_risk|off_track] -- "<本文>"\`：Project に進捗報告を書く（10000 文字以内。本文は \`-\` で始まってもよいよう \`--\` の後ろに置く。Issue や Project の状態は変えない）。\`--health\` を添えると、その値が Project の現在の健全性になる（添えない報告は現在の健全性を変えない。\`--health none\` で未設定に戻す）。\`nod project report list <名前かID>\` で新しい順に読む
-- \`nod project milestone add <Project> <名前> [--target YYYY-MM-DD] [-d <説明>]\`：Project に中間目標（Milestone）を作る。\`update <Project> <Milestone> [--name] [--target] [-d]\`（空文字で外す）、\`list\`（完了数/総数つき）も使える。\`remove\`（削除）は人だけが行える（LLM は FORBIDDEN_FOR_LLM）
+- \`nod project milestone add <Project> <名前> [--target YYYY-MM-DD] [-d <説明>]\`：Project に中間目標（Milestone）を作る。\`update <Project> <Milestone> [--name] [--target] [-d]\`（空文字で外す）、\`list\`（完了数/総数つき）も使える。削除は \`remove <Project> <Milestone> --yes\` で行う
 - \`nod issue update <id> --milestone <名前かID>\`：Issue を同じ Project の Milestone に紐付ける（空文字で外す。Project を変えると外れる）。\`nod issue create --project <Project> --milestone <名前かID>\` で起票時に、\`nod issue bulk-update <ids...> --milestone\` でまとめて付けられる。\`nod issue list --milestone <ID|none>\` で絞る（名前は \`--project\` と一緒に）。\`nod stats|stats llm --milestone <ID|none>\`（名前は \`--project\` と一緒に指定）で完了数・作業時間を Milestone に絞る。\`none\`（Milestone のない Issue）は大文字小文字を問わず、Milestone の名前には使えない
 - \`nod initiative list [--all]\`、\`nod initiative show <名前かID>\`：複数の Project を束ねる上位目標と、配下 Project の Issue を合算した進捗（done/total）を見る
 - \`nod initiative create <名前> [-d] [--target YYYY-MM-DD]\`、\`nod initiative update <名前かID> [--name] [-d] [--target] [--status planned|started|completed|canceled]\`、\`nod initiative add-project|remove-project <名前かID> <Project>\`：1つの Project を複数の Initiative に紐付けられる。Project・Issue の状態は変えない
 - \`nod sprint list|show <sprint>\`：Sprintと移行履歴を読む。参照はUUIDまたは全Workspace共通の番号。移行した履歴はimportedで、未記録のゴール・合意・timezone・達成結果は不明のまま。移行時の状態は過去終了時点の成果ではない。
-- \`nod sprint add <sprint> <issue>\`：Issue を Sprint に追加し、追加した時点でその Sprint の所属になる（LLM も実行できる。LLM は CLI で追加する）。人の合意・計画の再承認・合意原文は要らない。Sprint の版も requestKey も要らない。Sprint はUUIDか共通番号で、draft・ready・active で Workspace があるものに追加できる（imported・ended・canceled と Workspace 削除済みは INVALID_STATE）。Issue は Sprint と同じ Workspace にあり、アーカイブ済みでなければ、どのステータスでも追加できる。同じ追加を再実行しても重複しない（\`--json\` は \`{ sprint, item, added }\` で、added は追加の記録を今回新しく付けたら true（計画で採択済みの Issue への初回の追加も true）、既に追加の記録があれば false）。他の Sprint の所属は変わらない。計画の提案・合意・開始・終了・中止とは別の操作で、それらの人だけが行える制約は残る。計画にない追加の Issue は Sprint 実行（PM の監督・予約・自動の着手）の対象にならない
-- \`nod sprint remove <sprint> <issue>\`：Issue を Sprint の所属から外す（LLM も実行できる。LLM は CLI で外す）。追加の記録だけを外すので、item・写し・計画は残る。計画で採択された所属は外せず、外すには計画の変更と人の合意が要る（追加と採択が重なっても同じ。INVALID_STATE）。外す前に \`nod issue show <id> --json\` の \`sprints\` の \`inAdoptedPlan\` で採択を確かめられる。閉じた Sprint（imported・ended・canceled）と Workspace 削除済みは INVALID_STATE で、所属は履歴として残る。Issue の条件は追加と同じ（同じ Workspace で、アーカイブ済みでない）。所属でなければ何もしない（\`--json\` は \`{ sprint, item, removed }\` で、removed は false）。Sprint の版も requestKey も要らない。add と remove は指定した Sprint だけを変え、続けて実行しても原子的な移動にはならない
+- \`nod sprint add <sprint> <issue>\`：Issue を Sprint に追加し、その時点で所属にする。計画の再承認・合意原文・版・requestKey は要らない。draft・ready・active で Workspace がある Sprint に、同じ Workspace のアーカイブ済みでない Issue を状態によらず追加できる。閉じた Sprint と Workspace 削除済みは INVALID_STATE。同じ追加は重複せず、他の Sprint の所属は変えない。\`--json\` は \`{ sprint, item, added }\` で、今回初めて追加を記録したら added が true（計画で採択済みでも同じ）。計画の提案・合意・開始・終了・中止とは別の操作で、計画にない追加の Issue は Sprint 実行（PM の監督・予約・自動の着手）の対象にならない
+- \`nod sprint remove <sprint> <issue>\`：Issue の追加の記録だけを外す。item・写し・計画は残る。計画で採択された所属は外せず、計画の変更と合意が要る（追加と採択が重なっても INVALID_STATE）。事前に \`nod issue show <id> --json\` の \`sprints.inAdoptedPlan\` で採択を確かめる。閉じた Sprint と Workspace 削除済みは INVALID_STATE。Issue は同じ Workspace でアーカイブ済みでないこと。所属でなければ何もしない。\`--json\` は \`{ sprint, item, removed }\` で、所属でなければ removed は false。版も requestKey も要らない。add と remove は指定した Sprint だけを変え、連続実行も原子的な移動にはならない
+- \`nod sprint plan accept <sprint> <plan> --input <file|->\`：contentHash・expectedVersion・requestKey を渡して計画に合意する。合意の有効性は合意の存在と版（hash）の一致で決まり、合意者の種類は問わない。実際の合意者を記録する
+- \`nod sprint end <sprint> --input <file|->\`：reason・expectedVersion・requestKey を渡して期限切れの Sprint を終了する
+- \`nod sprint record add <sprint> --input <file|->\`：kind（outcome・feedback・retrospective）・content・requestKey を渡して成果・感想・振り返りを追記する。感想の content は helpful・difficulties・requests を持つ。利用者の感想も書き手によらず記録でき、Web はすべての感想を記録者つきで表示する
 - \`nod issue list|stats|summary --sprint <sprint>\`：Sprint の所属（移行・採択・追加）を検索する。UUID・共通番号・相対指定のcurrent・未所属のnoneを使える。currentは有効な各Workspaceの現在Sprintの所属で、Issue一覧は完了済みを含む。旧データの候補だけのitemは所属に数えない（追加し直すと所属になる）。
 - 期限到来時の自動引継ぎ：Sprint 運用が有効で自動引継ぎの設定が有効な Workspace では、期間を過ぎた active の Sprint を nod が自動で終了する。後継は、既にある draft・ready の Sprint（前の Sprint の終了以降に始まるもの）か、無ければ前の Sprint と同じ長さ・timezone・稼働曜日で今日を含む期間の \`Sprint {番号}\` を1件作る（ゴール・完成の定義・計画は写さない）。前の Sprint の所属 Issue のうち done・canceled でないもの（アーカイブ済みを除く）を後継の所属として引き継ぐ。後継は期間が始まれば自動で開始し、人の合意は作らない。契機はサーバーの起動時と1分ごと、DB を開く CLI コマンドの実行前。記録上の actor は \`nod-automation\`。旧\`nod cycle\`・\`--cycle\` は廃止済みのままで、Sprint への追加は \`nod sprint add <sprint> <issue>\` で行う。
-- \`nod scrum show\`：Workspace の方向設定と自動引継ぎの状態（設定の値・次に処理する時刻・後継の予定・止まっている理由。\`--json\` は \`autoRollover\` と \`rollover\`）を読む。\`nod scrum rollover on|off\` で自動引継ぎを有効・無効にするのは人だけ（LLM は FORBIDDEN_FOR_LLM）
+- \`nod scrum show\`：Workspace の方向設定と自動引継ぎの状態（設定値・次の処理時刻・後継予定・停止理由。\`--json\` は \`autoRollover\` と \`rollover\`）を読む。\`nod scrum rollover on|off\` で自動引継ぎを切り替える
 - Sprintへの採択・Sprint実行の記録は、通常の状態更新・\`nod issue start\`・\`next\`・\`suggest\` を止めない。状態変更は Sprint 実行の予約・占有・未照合所有を解放しない（実行の占有は \`nod sprint execution show\` で確認する）。既存の所有があるときに新しい主試行を予約すると EXECUTION_OWNED になる。
-- \`nod template list\`、\`nod template show <名前>\`
-- \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期Issue（毎日・毎週・毎月に起票する Issue）と、次に起票する予定を見る。登録・変更・削除と実際の起票（--dry-run なし）は人だけが行える
+- \`nod template list\`、\`nod template show <名前>\`：テンプレートを読む。\`add\` で登録・置き換え、\`remove <名前> --yes\` で削除する
+- \`nod recurring list\`、\`nod recurring run --dry-run\`（\`nod automation run --dry-run\` にも含まれる）：定期 Issue と起票予定を見る。\`add|update|remove\` で定義を変更し、\`run\` で実際に起票する。削除は \`remove <id> --yes\` で行う
 - \`nod workspace labels list\`：この Workspace のラベル定義（名前・色・説明）を見る。定義のないラベルも付けられる
-- \`nod workspace labels add <name> --color <#RRGGBB> [-d <説明>]\`：ラベルを定義する。\`nod workspace labels update <name> [--name <新しい名前>] [--color <#RRGGBB>] [-d <説明>]\` で定義を変える（改名するとこの Workspace の Issue のラベルも置き換わる）。定義の削除は人だけが行える
-- \`nod workspace status-names show\`：ステータスの表示名を見る。表示名を変えたステータスはテキスト出力で「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値（todo など）を使う。表示名の変更は人だけが行える
-- \`nod workspace transitions show\`：この Workspace のステータス遷移ルール（許可しない遷移）を見る。LLM の操作も自動化もルールに従う。ルールの変更は人だけが行える
+- \`nod workspace labels add <name> --color <#RRGGBB> [-d <説明>]\`：ラベルを定義する。\`update <name> [--name <新しい名前>] [--color <#RRGGBB>] [-d <説明>]\` で変更し、改名時は Issue のラベルも置き換わる。\`remove <name> --yes\` で定義を削除する
+- \`nod workspace status-names show\`：ステータスの表示名を見る。\`set|reset\` で変更する。変更した名前はテキストで「表示名 (内部値)」と出る。\`--status\` と \`--json\` は常に内部値を使う
+- \`nod workspace transitions show\`：許可しない遷移を見る。\`set|reset\` で変更する。すべての書き手と自動化がルールに従う
 - \`nod issue show <id>\` の Activity は「誰が何をしたか」の文で出る。event に残る補足は文の後ろの（）に付く：起票は（状態: <起票時の状態>、起票元: <ID>、取り込み元: <URL>）、自動化による変更は（自動化: auto_close|auto_archive）。起票元は本体にも「起票元: <ID>」と出る。「関係」の相手がアーカイブ済みなら（アーカイブ済み）、ブロック元が done・canceled なら（Done）（Canceled）のようにその状態が付き（表示名を変えた Workspace では「表示名 (内部値)」）、これらは着手を妨げない。event の data をそのまま読むときは \`--json\` の \`activity\` を使う
 - \`--project\` は名前の全体か ID で指定する。名前の一部では解決せず、近い名前の候補（名前と ID）がエラーに出る
+- \`nod notification history\`：通知・購読・リマインダーの操作履歴を公開参照する。どの書き手からも me の通知を既読・未読・スヌーズ・削除・復元でき、購読者とリマインダーの宛先も me になる。履歴には操作した actor と対象 recipient を別々に残す
 
 どのコマンドも \`--json\` を付けると JSON で出力する。
 テキスト出力の日時（Activity ほか）はこのマシンのローカル時刻（YYYY-MM-DD HH:mm。日付だけの箇所は YYYY-MM-DD）で出し、表示された日時はそのまま \`--at\`・\`--until\` に渡せる。\`--json\` の日時は UTC の ISO のまま返す。
 失敗すると終了コードが1になり、\`--json\` のときは \`{"error": {"code", "message"}}\` を返す。
 
+## 戻せない操作の確認
+
+CLI の Issue 完全削除、Milestone・テンプレート・定期 Issue・ラベル定義の削除、公開の結果不明の解除には \`--yes\` が必要で、なければ CONFIRM_REQUIRED で止まる。
+GitHub 公開は上記の TTY 確認か \`--yes\` を使う。\`--yes\` は操作意図の確認で、人の承認の証明ではない。Web の確認画面と API の動作は変わらない。
+
 ## エラーへの対処
 
 - NOT_INITIALIZED：このリポジトリは nod に登録されていない。人に \`nod init\` を依頼する。
 - NOT_ACCEPTED：その Issue はまだ Triage にある。着手せず、別の Issue を取る。
-- FORBIDDEN_FOR_LLM：人だけが行える操作である。書き手を変えて回避せず、人に判断を依頼する。
 - NEEDS_CLARIFICATION：その Issue には、人が決めていない未決事項が残っている。着手せず、別の Issue を取る。
 - AWAITING_ANSWER：その Issue には未回答の確認依頼がある。回答が来るまで着手せず、別の Issue を取る。
 - BLOCKED：その Issue は message に挙がった Issue にブロックされている。それらが終わるまで着手せず、別の Issue を取る。

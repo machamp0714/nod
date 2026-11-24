@@ -58,12 +58,12 @@ describe("ステータスの遷移ルールの設定", () => {
     expect(getTransitionRules(db, ws.key).forbidden).toEqual([]);
   });
 
-  test("LLM は設定・解除できないが、読める", () => {
-    const { ws, me, llm } = setup();
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "done" }] });
-    expect(codeOf(() => setTransitionRules(llm, ws.key, { forbidden: [] }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => resetTransitionRules(llm, ws.key))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も遷移ルールを設定・解除できる", () => {
+    const { ws, llm } = setup();
+    setTransitionRules(llm, ws.key, { forbidden: [{ from: "backlog", to: "done" }] });
     expect(getTransitionRules(llm.db, ws.key).forbidden).toEqual([{ from: "backlog", to: "done" }]);
+    resetTransitionRules(llm, ws.key);
+    expect(getTransitionRules(llm.db, ws.key).forbidden).toEqual([]);
   });
 
   test("不正な指定は INVALID_ARGS", () => {
@@ -149,10 +149,10 @@ describe("遷移ルールの適用", () => {
 
   test("Triage の判断はルールがあっても塞がれない", () => {
     const { ws, me, llm } = setup();
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const t = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "todo" }], presets: [] });
     expect(acceptTriage(me, t.id).status).toBe("todo");
-    const t2 = createIssue(llm, { workspaceId: ws.id, title: "t2" });
+    const t2 = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t2" });
     expect(declineTriage(me, t2.id).status).toBe("canceled");
     updateIssue(me, t.id, { status: "todo" });
 

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError, toNodError } from "../errors";
 import { recordEvent } from "../events";
@@ -12,7 +12,7 @@ import { getScrumWorkspace, type ScrumWorkspace } from "./sprint-planning";
 import { nextSprintNumber, readSprintItems, resolveSprint } from "./sprints";
 import { findWorkspace } from "./workspaces";
 
-// 期限到来時の自動引継ぎ。人専用の公開操作を通らず、自動処理専用の状態遷移で行う。
+// 期限到来時の自動引継ぎ。公開操作を通らず、自動処理専用の状態遷移で行う。
 // 記録上の主体は固定の自動処理actorにし、me や契機を起こした呼出し元の名前で記録しない。
 export const SPRINT_ROLLOVER_ACTOR = "nod-automation";
 export const SPRINT_ROLLOVER_AUTOMATION = "sprint-rollover" as const;
@@ -163,7 +163,7 @@ function endAutomatically(db: Database, sprint: Sprint, instant: Date): void {
   saveSprintClosure(db, sprint.id, "ended", `自動処理による終了（期間の終了時刻: ${sprint.endsAt}）`, instant.toISOString(), SPRINT_ROLLOVER_AUTOMATION);
 }
 
-// 人の合意済み計画を要求も作成もせずに開始する。合意済み計画を持つreadyなら計画と採択はそのまま残る。
+// 合意済み計画を要求も作成もせずに開始する。合意済み計画を持つreadyなら計画と採択はそのまま残る。
 function startAutomatically(db: Database, sprint: Sprint, instant: Date): void {
   db.query("UPDATE sprints SET phase='active',activated_at=?,activated_by=?,version=version+1,updated_at=? WHERE id=?")
     .run(instant.toISOString(), SPRINT_ROLLOVER_ACTOR, now(), sprint.id);
@@ -219,7 +219,7 @@ export function syncSprintRollover(db: Database, clock: SprintClock = {}): Sprin
   });
 }
 
-// 人が期限後に手で終了したSprintから、自動処理と同じ後継決定・引継ぎ・開始を行う。
+// 期限後に手で終了したSprintから、自動処理と同じ後継決定・引継ぎ・開始を行う。
 // 手動終了と同じtransactionで呼び、失敗は例外のまま返して終了も確定させない。
 export function rolloverAfterManualEnd(db: Database, ended: Sprint, instant: Date): void {
   if (ended.workspaceId === null || !rolloverEnabled(db, ended.workspaceId)) return;
@@ -289,10 +289,9 @@ export function getSprintRolloverStatus(db: Database, workspaceKey: string, cloc
 }
 
 export interface SetSprintRolloverInput { enabled: boolean }
-// 自動引継ぎの有効・無効だけを変える。人だけが行え、Scrum設定の版・要求キーは使わない（問題・目標・根拠の再入力を求めない）。
+// 自動引継ぎの有効・無効だけを変える。Scrum設定の版・要求キーは使わない（問題・目標・根拠の再入力を求めない）。
 // 無効から有効に戻すと、次の契機でその時点の処理対象だけを処理する（それより前に終了・中止したSprintは遡らない）。
 export function setSprintRollover(ctx: OpCtx, workspaceKey: string, input: SetSprintRolloverInput): ScrumWorkspace {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "このSprint操作は人だけが行えます");
   sprintObject(input, ["enabled"]);
   if (typeof input.enabled !== "boolean") invalidSprint("enabledは真偽値で指定してください");
   return tx(ctx.db, () => {

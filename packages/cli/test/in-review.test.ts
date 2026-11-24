@@ -7,7 +7,7 @@ test("CLIからレビュー中へ移し、表示・検索・表示名・遷移�
   registerRepo(db, cwd);
   const opts = { cwd, db };
   const run = (args: string[]) => runNod(args, opts);
-  const issue = (await run(["issue", "create", "レビューに提出", "--json"])).json;
+  const issue = (await run(["issue", "create", "レビューに提出", "--requested", "--json"])).json;
   await run(["issue", "start", issue.id]);
   const update = await run(["issue", "update", issue.id, "--status", "in_review", "--json"]);
   expect(update.exitCode).toBe(0);
@@ -25,8 +25,10 @@ test("CLIからレビュー中へ移し、表示・検索・表示名・遷移�
     ["workspace", "status-names", "set", "in_review", "レビュー"],
     ["workspace", "transitions", "set", "--forbid", "todo:in_review"],
   ]) {
-    expect((await runNod([...args, "--json"], { ...opts, actor: "codex" })).json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    expect((await runNod([...args, "--json"], { ...opts, actor: "codex" })).exitCode).toBe(0);
   }
+  expect((await run(["workspace", "status-names", "show", "--json"])).json.names.in_review).toBe("レビュー");
+  expect((await run(["workspace", "transitions", "show", "--json"])).json.forbidden).toEqual([{ from: "todo", to: "in_review" }]);
 });
 
 test("エージェントがレビュー提出・修正再開・再提出・完了報告を行える", async () => {
@@ -81,7 +83,7 @@ test("別の書き手から作業中でも開始でき、前の状態と場所�
   const db = tempDb();
   registerRepo(db, cwd, "API");
   const run = (args: string[], actor = "me") => runNod([...args, "--json"], { cwd, db, actor });
-  const issue = (await run(["issue", "create", "引き継ぎ"])).json;
+  const issue = (await run(["issue", "create", "引き継ぎ", "--requested"])).json;
   const first = await run(["issue", "start", issue.id], "claude-code");
   expect(first.exitCode).toBe(0);
   expect(first.json.previousAgentState).toBeNull();

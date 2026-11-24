@@ -85,7 +85,7 @@ export function LabelsSection({ workspace, onSaved }: { workspace: Workspace; on
 
   return (
     <section className={s.section} aria-labelledby={titleId}>
-      <SectionHeader id={titleId} title="ラベル" description="この Workspace の Issue に付けるラベルの色と説明。LLM は編集できません。" />
+      <SectionHeader id={titleId} title="ラベル" description="この Workspace の Issue に付けるラベルの色と説明。" />
       {labels.error ? (
         <ErrorLine message={errorMessage(labels.error)} />
       ) : (

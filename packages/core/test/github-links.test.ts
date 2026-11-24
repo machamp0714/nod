@@ -59,13 +59,13 @@ describe("紐付け", () => {
     expect(eventsOf(db, a).filter((e) => e.type === "github_linked")).toHaveLength(1);
   });
 
-  test("宛先が違う・PR・実在しない・LLM は拒否する", async () => {
+  test("宛先が違う・PR・実在しない場合は拒否し、LLMも紐付けられる", async () => {
     const { me, llm, a, gh } = fixture();
     expect(await rejects(linkGithubIssue(me, a, "https://github.com/other/repo/issues/7", gh))).toBe("INVALID_ARGS");
     expect(await rejects(linkGithubIssue(me, a, "https://github.com/example/api-server/issues/99", gh))).toBe("NOT_FOUND");
     const pr = fakeGh({ "repos/example/api-server/issues/9": exited(issueJson(9, "example/api-server", { pull_request: {} })) });
     expect(await rejects(linkGithubIssue(me, a, "https://github.com/example/api-server/issues/9", pr))).toBe("INVALID_ARGS");
-    expect(await rejects(linkGithubIssue(llm, a, "https://github.com/example/api-server/issues/7", gh))).toBe("FORBIDDEN_FOR_LLM");
+    expect((await linkGithubIssue(llm, a, "https://github.com/example/api-server/issues/7", gh)).link?.number).toBe(7);
   });
 
   test("移管などで応答の repo が違えば、新しい URL を示して拒否する", async () => {
@@ -107,11 +107,10 @@ describe("紐付け", () => {
 });
 
 describe("解除", () => {
-  test("行を残して issue_id を外し、別の Issue に付け直せる。LLM は外せない", async () => {
+  test("LLMも行を残してissue_idを外し、別のIssueに付け直せる", async () => {
     const { db, me, llm, a, b, gh } = fixture();
     await linkGithubIssue(me, a, "https://github.com/example/api-server/issues/7", gh);
-    expect(codeOf(() => unlinkGithubIssue(llm, a))).toBe("FORBIDDEN_FOR_LLM");
-    expect(unlinkGithubIssue(me, a).link).toBeNull();
+    expect(unlinkGithubIssue(llm, a).link).toBeNull();
     expect(db.query("SELECT count(*) AS n FROM issue_imports").get()).toEqual({ n: 1 });
     expect(codeOf(() => unlinkGithubIssue(me, a))).toBe("NOT_FOUND");
     expect((await linkGithubIssue(me, b, "https://github.com/example/api-server/issues/7", gh)).link?.origin).toBe("link");

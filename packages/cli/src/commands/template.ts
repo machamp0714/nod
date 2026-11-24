@@ -1,4 +1,4 @@
-import { getTemplate, listTemplates, localDate, readDocumentFile, removeTemplate, saveTemplate } from "@nod/core";
+import { getTemplate, listTemplates, localDate, NodError, readDocumentFile, removeTemplate, saveTemplate } from "@nod/core";
 import type { Command } from "commander";
 import { act } from "../context";
 import { print } from "../output";
@@ -42,8 +42,10 @@ export function registerTemplateCommands(program: Command): void {
   template
     .command("remove <name>")
     .description("テンプレートを消す")
+    .option("--yes", "削除を確認する")
     .action(
-      act((cli, _cmd, name: string) => {
+      act((cli, _cmd, name: string, o: { yes?: boolean }) => {
+        if (!o.yes) throw new NodError("CONFIRM_REQUIRED", "テンプレートの削除は元に戻せません。よければ --yes を付けて再実行してください");
         const t = removeTemplate(cli.ctx, name);
         print(cli, { removed: t.name }, () => `消しました: ${t.name}`);
       }),

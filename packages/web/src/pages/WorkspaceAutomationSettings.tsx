@@ -34,7 +34,7 @@ export function AutomationSection({ workspace, onToast }: { workspace: Workspace
         <h2 id={titleId} className={s.sectionTitle}>
           自動化
         </h2>
-        <p className={s.description}>日数を過ぎた Issue を自動でクローズ・アーカイブします。LLM は設定を変更できません。</p>
+        <p className={s.description}>日数を過ぎた Issue を自動でクローズ・アーカイブします。</p>
       </div>
       {settings.error ? (
         <ErrorLine message={errorMessage(settings.error)} />

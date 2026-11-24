@@ -43,13 +43,13 @@ describe("リマインダーの設定・変更・解除", () => {
     expect(listNotifications(db, { includeRead: true })).toEqual([]);
   });
 
-  test("過去の日時・解釈できない日時・LLM・存在しない Issue は拒む", () => {
+  test("過去の日時・解釈できない日時・存在しない Issue は拒む", () => {
     const { ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "検索" });
     expect(codeOf(() => setReminder(me, a.id, { at: "2000-01-01T00:00:00Z" }))).toBe("INVALID_ARGS");
     expect(codeOf(() => setReminder(me, a.id, { at: "あした" }))).toBe("INVALID_ARGS");
-    expect(codeOf(() => setReminder(llm, a.id, { at: FUTURE }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => clearReminder(llm, a.id))).toBe("FORBIDDEN_FOR_LLM");
+    expect(setReminder(llm, a.id, { at: FUTURE }).issueId).toBe(a.id);
+    expect(clearReminder(llm, a.id).cleared).toBe(true);
     expect(codeOf(() => setReminder(me, "API-999", { at: FUTURE }))).toBe("NOT_FOUND");
   });
 });

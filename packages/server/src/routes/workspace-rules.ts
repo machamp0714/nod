@@ -2,7 +2,7 @@ import { setWorkspaceSpecAssessment, clearWorkspaceRules, getWorkspaceRules, typ
 import type { Hono } from "hono";
 import { invalid, readBody, reqString } from "../input";
 
-// 作業規約は web（書き手 me）からだけ変更する。LLM は CLI で読むだけ
+// Web からの作業規約の変更は、書き手 me として記録する。
 export function registerWorkspaceRuleRoutes(app: Hono, me: OpCtx): void {
   app.put("/api/workspaces/:key/spec-assessment", async (c) => {
     const body = await readBody(c, ["enabled"]);

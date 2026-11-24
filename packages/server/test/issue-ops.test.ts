@@ -113,10 +113,10 @@ describe("未決事項が残る Issue の手動の状態変更（#170）", () =>
 describe("Triage", () => {
   test("accept、decline、duplicate、snooze は書き手 me で記録する", async () => {
     const { app, db, llm, ws } = setup();
-    const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
-    const b = createIssue(llm, { workspaceId: ws.id, title: "b" });
-    const c = createIssue(llm, { workspaceId: ws.id, title: "c" });
-    const d = createIssue(llm, { workspaceId: ws.id, title: "d" });
+    const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
+    const b = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b" });
+    const c = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "c" });
+    const d = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "d" });
     expect((await call(app, "POST", `/api/issues/${a.id}/accept`)).json.status).toBe("todo");
     expect((await call(app, "POST", `/api/issues/${b.id}/decline`, { reason: "不要" })).json).toMatchObject({
       status: "canceled",
@@ -137,7 +137,7 @@ describe("Triage", () => {
     expect(r.status).toBe(409);
     expect(r.json.error.code).toBe("NOT_IN_TRIAGE");
     expect(r.json.error.message).toContain("todo");
-    const t = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const t = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect((await call(app, "POST", `/api/issues/${t.id}/snooze`, { until: "来週" })).status).toBe(400);
   });
 

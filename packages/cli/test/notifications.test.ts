@@ -6,7 +6,7 @@ test("期日到来をCLIのInboxに日付付きで表示し、同じ期日を再
   const repo = makeRepo();
   registerRepo(db, repo, "API");
   const nod = (args: string[]) => runNod(args, { cwd: repo, db });
-  expect((await nod(["issue", "create", "過去の期日の作業", "--due", "2026-10-01", "--json"])).exitCode).toBe(0);
+  expect((await nod(["issue", "create", "過去の期日の作業", "--requested", "--due", "2026-10-01", "--json"])).exitCode).toBe(0);
   const inbox = await nod(["inbox"]);
   expect(inbox.stdout).toContain("期日が到来しました（2026-10-01）");
   expect(inbox.stdout).toContain("過去の期日の作業");
@@ -15,18 +15,15 @@ test("期日到来をCLIのInboxに日付付きで表示し、同じ期日を再
   expect(list.json[0]).toMatchObject({ kind: "due_date", eventType: "due_date_arrived", data: { dueDate: "2026-10-01" } });
 });
 
-test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購読を操作できない", async () => {
+test("購読・解除・通知の一覧・既読を CLI で行え、LLM も me の購読を操作できる", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
 
   await nod(["issue", "create", "検索", "--json"]);
-  const denied = await nod(["issue", "subscribe", "API-1", "--json"], "claude-code");
-  expect(denied.exitCode).toBe(1);
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
 
-  const on = await nod(["issue", "subscribe", "API-1"]);
+  const on = await nod(["issue", "subscribe", "API-1"], "claude-code");
   expect(on.exitCode).toBe(0);
   expect(on.stdout.trim()).toBe("API-1 を購読しました");
   expect((await nod(["issue", "show", "API-1"])).stdout).toContain("購読: 購読中");
@@ -67,7 +64,7 @@ test("購読・解除・通知の一覧・既読を CLI で行え、LLM は購�
   expect((await nod(["issue", "show", "API-1"])).stdout).not.toContain("購読: 購読中");
 });
 
-test("既読の通知を未読に戻せ、LLM は戻せない（#161）", async () => {
+test("既読の通知を未読に戻せ、LLM も戻せる（#161）", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
@@ -81,13 +78,10 @@ test("既読の通知を未読に戻せ、LLM は戻せない（#161）", async 
   const all = (await nod(["notification", "list", "--include-read", "--json"])).json as { id: number; body: string }[];
   const first = all.find((n) => n.body === "原因がわかった")!;
 
-  const denied = await nod(["notification", "unread", "--issue", "API-1", "--json"], "claude-code");
-  expect(denied.exitCode).toBe(1);
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
   expect((await nod(["notification", "list", "--json"])).json).toEqual([]);
 
   // --issue は最新の1件だけ、id は指定したものを戻す
-  const byIssue = await nod(["notification", "unread", "--issue", "API-1"]);
+  const byIssue = await nod(["notification", "unread", "--issue", "API-1"], "claude-code");
   expect(byIssue.exitCode).toBe(0);
   expect(byIssue.stdout.trim()).toBe("1 件を未読に戻しました");
   expect((await nod(["notification", "list", "--json"])).json.map((n: { body: string }) => n.body)).toEqual(["直した"]);
@@ -106,7 +100,7 @@ test("既読の通知を未読に戻せ、LLM は戻せない（#161）", async 
   expect((await nod(["notification", "unread", "--issue", "API-9", "--json"])).json.error.code).toBe("NOT_FOUND");
 });
 
-test("通知をスヌーズ・解除でき、LLM は操作できない（#43）", async () => {
+test("通知をスヌーズ・解除でき、LLM も操作できる（#43）", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
@@ -116,8 +110,6 @@ test("通知をスヌーズ・解除でき、LLM は操作できない（#43）"
   await nod(["issue", "subscribe", "API-1"]);
   await nod(["issue", "comment", "API-1", "原因がわかった"], "claude-code");
 
-  const denied = await nod(["notification", "snooze", "--issue", "API-1", "--until", "2999-01-01", "--json"], "claude-code");
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
 
   // テキストの日時はローカル時刻（#171）
   const tokyo = (args: string[]) => runNod(args, { cwd: repo, db, actor: "me", env: { TZ: "Asia/Tokyo" } });
@@ -139,7 +131,7 @@ test("通知をスヌーズ・解除でき、LLM は操作できない（#43）"
   expect((await nod(["notification", "list", "--json"])).json).toHaveLength(1);
 });
 
-test("通知を削除・取り消しでき、LLM は削除できない（#44）", async () => {
+test("通知を削除・取り消しでき、LLM も削除できる（#44）", async () => {
   const db = tempDb();
   const repo = makeRepo();
   registerRepo(db, repo, "API");
@@ -149,10 +141,8 @@ test("通知を削除・取り消しでき、LLM は削除できない（#44）"
   await nod(["issue", "subscribe", "API-1"]);
   await nod(["issue", "comment", "API-1", "原因がわかった"], "claude-code");
 
-  const denied = await nod(["notification", "delete", "--issue", "API-1", "--json"], "claude-code");
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
 
-  const del = await nod(["notification", "delete", "--issue", "API-1"]);
+  const del = await nod(["notification", "delete", "--issue", "API-1"], "claude-code");
   expect(del.exitCode).toBe(0);
   const [, id] = /取り消すには nod notification restore (\d+)/.exec(del.stdout) ?? [];
   expect(del.stdout).toContain("1 件を削除しました");
@@ -190,7 +180,7 @@ test("購読していなくても、LLM に任せた Issue の完了・入力待
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
 
-  await nod(["issue", "create", "検索", "--json"]);
+  await nod(["issue", "create", "--requested", "検索", "--json"]);
   await nod(["issue", "start", "API-1"], "claude-code");
   await nod(["issue", "ask", "API-1", "進めてよいか"], "claude-code");
   // inbox は同じ質問を確認依頼に出すので、入力待ちの通知は通知一覧にだけ出す（#176）
@@ -211,7 +201,7 @@ test("別の書き手が始めたIssueでも作業状況と通知は操作した
   const repo = makeRepo();
   registerRepo(db, repo, "API");
   const nod = (args: string[], actor = "me") => runNod(args, { cwd: repo, db, actor });
-  await nod(["issue", "create", "引き継ぐ作業", "--json"]);
+  await nod(["issue", "create", "--requested", "引き継ぐ作業", "--json"]);
   await nod(["issue", "start", "API-1"], "claude-code");
 
   const failed = await nod(["issue", "fail", "API-1", "検証が失敗", "--json"], "codex");

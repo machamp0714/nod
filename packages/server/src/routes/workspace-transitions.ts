@@ -2,7 +2,7 @@ import { getTransitionRules, type OpCtx, resetTransitionRules, setTransitionRule
 import type { Hono } from "hono";
 import { invalid, optStringArray, readBody } from "../input";
 
-// ステータスの遷移ルール（#73）。変更は web（書き手 me）と CLI の人だけ。LLM は読むだけ
+// ステータスの遷移ルール（#73）。Web の操作は書き手 me として記録する
 export function registerWorkspaceTransitionRoutes(app: Hono, me: OpCtx): void {
   app.get("/api/workspaces/:key/transitions", (c) => c.json(getTransitionRules(me.db, c.req.param("key"))));
   app.put("/api/workspaces/:key/transitions", async (c) => {

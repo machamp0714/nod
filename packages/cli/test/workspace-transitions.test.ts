@@ -47,20 +47,19 @@ describe("nod workspace transitions（#73）", () => {
     }
   });
 
-  test("LLM は set・reset できず FORBIDDEN_FOR_LLM、show はできる", async () => {
+  test("LLM も set・show・reset で遷移ルールを変更できる", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["workspace", "transitions", "set", "--forbid", "backlog:done"], { cwd: repo, db });
-    const set = await runNod(["workspace", "transitions", "set", "--forbid", "todo:done", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(set.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    const reset = await runNod(["workspace", "transitions", "reset", "--json"], { cwd: repo, db, actor: "codex" });
-    expect(reset.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    const shown = await runNod(["workspace", "transitions", "show", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(shown.json.forbidden).toEqual([{ from: "backlog", to: "done" }]);
+    const opts = { cwd: repo, db, actor: "codex" };
+    const set = await runNod(["workspace", "transitions", "set", "--forbid", "todo:done", "--json"], opts);
+    expect(set.exitCode).toBe(0);
+    expect((await runNod(["workspace", "transitions", "show", "--json"], opts)).json.forbidden).toEqual([{ from: "todo", to: "done" }]);
+    expect((await runNod(["workspace", "transitions", "reset", "--json"], opts)).exitCode).toBe(0);
+    expect((await runNod(["workspace", "transitions", "show", "--json"], opts)).json.forbidden).toEqual([]);
   });
 
   test("違反する状態変更は TRANSITION_NOT_ALLOWED で、どのルールかを示す", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["issue", "create", "a"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "a"], { cwd: repo, db });
     await runNod(["workspace", "transitions", "set", "--forbid", "todo:done"], { cwd: repo, db });
     const json = await runNod(["issue", "update", "API-1", "--status", "done", "--json"], { cwd: repo, db });
     expect(json.exitCode).not.toBe(0);

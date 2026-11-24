@@ -92,11 +92,10 @@ test("--title と --body-file で差し替え、確認のあとにファイル�
   expect(io.out.join("")).toContain("差し替えた本文");
 });
 
-test("非対話・LLM・検出あり・公開先未設定では送らない", async () => {
+test("非対話・検出あり・公開先未設定では送らない", async () => {
   const { cli, id } = fixture();
   const gh = fakeGh();
   expect(await codeOf(runPublishCommand(cli, id, {}, fakeIo({ interactive: false }), { gh: gh.run }))).toBe("NOT_INTERACTIVE");
-  expect(await codeOf(runPublishCommand({ ...cli, ctx: { db: cli.db, actor: "codex" } }, id, {}, fakeIo(), { gh: gh.run }))).toBe("FORBIDDEN_FOR_LLM");
   expect(await codeOf(runPublishCommand(cli, id, { title: "API-1 の続き" }, fakeIo(), { gh: gh.run }))).toBe("LEAK_DETECTED");
   const unset = fixture(null);
   const git: GhRunner = async () => exited("git@github.com:Example/API-Server.git\n");

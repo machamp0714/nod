@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { HUMAN_ACTOR, isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { invalidSprint, sprintHash, sprintObject, sprintPeriod, sprintText, sprintVersion } from "../sprint-validation";
@@ -94,9 +94,6 @@ export interface ConfigureScrumWorkspaceInput extends SprintMutation {
   enabled: boolean; problem: string; productGoal: string; priorityRationale: string;
 }
 const MUTATION_KEYS = ["expectedVersion", "requestKey"];
-function human(ctx: OpCtx): void {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "このSprint操作は人だけが行えます");
-}
 function workspace(db: Database, key: string) {
   const ws = findWorkspace(db, key);
   if (!ws) throw new NodError("NOT_FOUND", `Workspace ${key} は登録されていません`);
@@ -132,7 +129,6 @@ export function getScrumWorkspace(db: Database, key: string): ScrumWorkspace {
     autoRollover: row ? row.auto_rollover === 1 : true };
 }
 export function configureScrumWorkspace(ctx: OpCtx, key: string, input: ConfigureScrumWorkspaceInput): ScrumWorkspace {
-  human(ctx);
   sprintObject(input, [...MUTATION_KEYS, "enabled", "problem", "productGoal", "priorityRationale"]);
   if (typeof input.enabled !== "boolean") invalidSprint("enabledは真偽値で指定してください");
   const problem = sprintText(input.problem, "問題"), goal = sprintText(input.productGoal, "プロダクト目標"), rationale = sprintText(input.priorityRationale, "優先順位の根拠");
@@ -197,7 +193,7 @@ function addTo(ctx: OpCtx, { sprint, issue, existing }: SprintTarget): AddIssueT
 export interface RemoveIssueFromSprintInput { issueRef: string }
 export interface RemoveIssueFromSprintResult { sprint: Sprint; item: SprintItem | null; removed: boolean }
 // 追加の記録だけを外す。item・写し・計画からの参照は残し、計画・合意・Sprintの版には書かない。人とLLMで条件を変えない。
-// 採用中の合意済み計画が採択したitemは、追加の記録が重なっていても外さない（計画を変えて人が合意する）。
+// 採用中の合意済み計画が採択したitemは、追加の記録が重なっていても外さない（計画を変えて合意する）。
 export function removeIssueFromSprint(ctx: OpCtx, ref: string, input: RemoveIssueFromSprintInput): RemoveIssueFromSprintResult {
   sprintObject(input, ["issueRef"]);
   const issueRef = sprintText(input.issueRef, "Issue");
@@ -317,8 +313,8 @@ export function proposeSprintPlan(ctx: OpCtx, ref: string, input: ProposeSprintP
       .run(planId,previous?.id ?? null,JSON.stringify(content),changeReason,ctx.actor,now());
     for (const item of items) ctx.db.query("INSERT INTO sprint_plan_items VALUES(?,?)").run(planId,item.itemId);
     if (sprint.phase !== "active") ctx.db.query("UPDATE sprints SET phase='draft' WHERE id=?").run(id);
-    const priorAgreement = plans.find(p => p.contentHash === hash && p.agreedBy === HUMAN_ACTOR && p.agreedAt && p.agreedHash === hash);
-    if (priorAgreement) adoptPlan(ctx, sprint, getSprintPlan(ctx.db,id,planId), priorAgreement.agreedAt!, priorAgreement.agreementSource);
+    const priorAgreement = plans.find(p => p.contentHash === hash && p.agreedAt && p.agreedHash === hash);
+    if (priorAgreement) adoptPlan(ctx, sprint, getSprintPlan(ctx.db,id,planId), priorAgreement.agreedBy!, priorAgreement.agreedAt!, priorAgreement.agreementSource);
     return { sprint: touchSprint(ctx.db,id), plan:getSprintPlan(ctx.db,id,planId) };
   });
 }
@@ -341,13 +337,13 @@ function checkPlanTarget(db: Database, sprint: Sprint, plan: SprintPlan): void {
     }
   }
 }
-function adoptPlan(ctx: OpCtx, sprint: Sprint, plan: SprintPlan, agreedAt: string, source: SprintPlan["agreementSource"]): void {
+function adoptPlan(ctx: OpCtx, sprint: Sprint, plan: SprintPlan, agreedBy: string, agreedAt: string, source: SprintPlan["agreementSource"]): void {
   checkPlanTarget(ctx.db, sprint, plan);
   const occupied = ctx.db.query("SELECT item_id FROM sprint_attempts WHERE sprint_id=? AND occupied=1 AND parent_attempt_id IS NULL").all(sprint.id) as { item_id: string }[];
   if (occupied.some(a => !plan.content.items.some(item => item.itemId === a.item_id))) {
     throw new NodError("EXECUTION_OWNED", "未解決の試行を採択から除外できません。元Task・Dispatchと引継ぎを照合してください");
   }
-  ctx.db.query("UPDATE sprint_plans SET agreed_by=?,agreed_at=?,agreed_hash=? WHERE id=?").run(HUMAN_ACTOR,agreedAt,plan.contentHash,plan.id);
+  ctx.db.query("UPDATE sprint_plans SET agreed_by=?,agreed_at=?,agreed_hash=? WHERE id=?").run(agreedBy,agreedAt,plan.contentHash,plan.id);
   ctx.db.query("UPDATE sprint_plan_contents SET agreement_source=? WHERE plan_id=?").run(source ? JSON.stringify(source) : null,plan.id);
   ctx.db.query("UPDATE sprints SET adopted_plan_id=?,goal=?,definition_of_done=?,phase=? WHERE id=?").run(plan.id,plan.content.goal,JSON.stringify(plan.content.definitionOfDone),sprint.phase === "active" ? "active" : "ready",sprint.id);
 }
@@ -355,7 +351,6 @@ export interface AcceptSprintPlanInput extends SprintMutation {
   contentHash: string; agreementSource?: { source: string; quote: string };
 }
 export function acceptSprintPlan(ctx: OpCtx, ref: string, planId: string, input: AcceptSprintPlanInput): SprintPlanResult {
-  human(ctx);
   sprintObject(input, [...MUTATION_KEYS,"contentHash","agreementSource"]);
   sprintText(input.contentHash,"計画hash");
   let source: SprintPlan["agreementSource"] = null;
@@ -370,8 +365,8 @@ export function acceptSprintPlan(ctx: OpCtx, ref: string, planId: string, input:
     const plan = getSprintPlan(ctx.db,id,planId);
     if (plan.contentHash !== input.contentHash || listSprintPlans(ctx.db,id).at(-1)?.id !== planId) throw new NodError("STALE_REVISION","対象の計画版とhashが最新の提案に一致しません");
     checkPlanTarget(ctx.db,sprint,plan);
-    if (sprint.adoptedPlanId === plan.id && plan.agreedBy === HUMAN_ACTOR && plan.agreedHash === plan.contentHash) return {sprint,plan};
-    adoptPlan(ctx,sprint,plan,now(),source);
+    if (sprint.adoptedPlanId === plan.id && plan.agreedAt && plan.agreedHash === plan.contentHash) return {sprint,plan};
+    adoptPlan(ctx,sprint,plan,ctx.actor,now(),source);
     return {sprint:touchSprint(ctx.db,id),plan:getSprintPlan(ctx.db,id,plan.id)};
   });
 }
@@ -394,7 +389,7 @@ export function getSprintPlanningStatus(db: Database, ref: string, clock: Sprint
 function assertSprintCanActivate(db: Database, sprint: Sprint, clock: SprintClock): Date {
   if (sprint.phase !== "ready" || !sprint.adoptedPlanId) throw new NodError("NOT_ACCEPTED","合意済みの計画を確認してから開始してください");
   const plan = getSprintPlan(db,sprint.id,sprint.adoptedPlanId);
-  if (plan.agreedBy !== HUMAN_ACTOR || !plan.agreedAt || plan.agreedHash !== plan.contentHash) throw new NodError("NOT_ACCEPTED","対象の版とhashへの人の合意がありません");
+  if (!plan.agreedAt || plan.agreedHash !== plan.contentHash) throw new NodError("NOT_ACCEPTED","対象の版とhashへの合意がありません");
   checkPlanTarget(db,sprint,plan);
   const config = db.query("SELECT enabled FROM scrum_workspaces WHERE workspace_id=?").get(sprint.workspaceId!) as {enabled:number}|null;
   if (!config?.enabled) throw new NodError("SCRUM_DISABLED","WorkspaceのSprint運用が無効です");
@@ -407,7 +402,6 @@ function assertSprintCanActivate(db: Database, sprint: Sprint, clock: SprintCloc
 }
 
 export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, clock: SprintClock = {}): Sprint {
-  human(ctx);
   sprintObject(input,MUTATION_KEYS);
   const id = resolveSprint(ctx.db,ref).id;
   return mutate(ctx,id,"activate",input,() => {
@@ -421,7 +415,6 @@ export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, c
 export interface CancelSprintInput extends SprintMutation { reason: string }
 export interface EndSprintInput extends SprintMutation { reason: string }
 export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock: SprintClock = {}): Sprint {
-  human(ctx);
   sprintObject(input,[...MUTATION_KEYS,"reason"]);
   const reason = sprintText(input.reason,"終了理由");
   const id = resolveSprint(ctx.db,ref).id;
@@ -443,7 +436,6 @@ export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock:
   });
 }
 export function cancelSprint(ctx: OpCtx, ref: string, input: CancelSprintInput, clock: SprintClock = {}): Sprint {
-  human(ctx);
   sprintObject(input,[...MUTATION_KEYS,"reason"]);
   const reason = sprintText(input.reason,"中止理由"), id = resolveSprint(ctx.db,ref).id;
   return mutate(ctx,id,"cancel",input,() => {

@@ -37,7 +37,7 @@ beforeAll(() => {
 });
 
 async function issueWithPr(prUrl = PR_URL): Promise<string> {
-  const created = (await runNod(["issue", "create", "--json", "PR つき"], { cwd: repo, db })).json;
+  const created = (await runNod(["issue", "create", "--requested", "--json", "PR つき"], { cwd: repo, db })).json;
   const llm = { cwd: repo, db, actor: "claude-code" };
   await runNod(["issue", "start", created.id], llm);
   await runNod(["issue", "done", created.id, "--summary", "直した", "--pr", prUrl], llm);

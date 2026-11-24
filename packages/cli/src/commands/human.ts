@@ -10,6 +10,7 @@ import {
   listTriage,
   listTriageProposals,
   listNotifications,
+  listInboxOperations,
   localMinute,
   NOTIFICATION_READ_LIMIT,
   listReminders,
@@ -119,6 +120,17 @@ export function registerHumanCommands(program: Command): void {
           readLimit: o.limit === undefined ? undefined : parsePositiveInt(o.limit, "--limit"),
         });
         print(cli, list, () => (list.length ? list.map(formatNotification).join("\n") : "通知はありません"));
+      }),
+    );
+  notification
+    .command("history")
+    .description("通知・購読・リマインダーの操作履歴を操作者つきで新しい順に表示する")
+    .action(
+      act((cli) => {
+        const list = listInboxOperations(cli.db);
+        print(cli, list, () => list.length
+          ? list.map(r => `${localMinute(r.recordedAt)}  ${r.actor}  ${r.operation}  ${r.recipient}  ${JSON.stringify(r.input)}  ${JSON.stringify(r.result)}`).join("\n")
+          : "Inbox の操作履歴はありません");
       }),
     );
   notification

@@ -20,6 +20,7 @@ import {
   formatTransitionRulesSection,
   formatWorkspaceRulesSection,
   deleteIssue,
+  defaultOrcaRunner,
   findDeletableIssueRow,
   formatIssueId,
   getIssue,
@@ -52,6 +53,7 @@ import {
   relateIssue,
   removeAttachment,
   resolveThread,
+  sendInstruction,
   setPlanTasks,
   setReminder,
   setStep,
@@ -119,14 +121,14 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("create <title>")
-    .description("Issue を起票する（LLM の起票は Triage に入る。me に頼まれた起票は --requested で Todo）")
+    .description("Issue を起票する（既定は Triage。me に頼まれた起票は --requested で Todo）")
     .option("-d, --description <text>", "説明")
     .option("--template <name>", "テンプレートの本文を説明の初期値にする（-d とは同時に使えない）")
     .option("--project <project>", "Project の名前か ID")
     .option("--milestone <milestone>", "Milestone の名前か ID（--project の Project のもの）")
     .option("--parent <id>", "親 Issue（Sub-issue として作る）")
     .option("--discovered-from <id>", "発見元の Issue")
-    .option("--requested", "me に頼まれて起票する（LLM の起票を Triage ではなく Todo にする）")
+    .option("--requested", "me に頼まれて起票する（Triage ではなく Todo にする）")
     .option("-p, --priority <priority>", PRIORITY_HELP)
     .option("--estimate <1-100>", "見積もり（ポイント）")
     .option("--due <YYYY-MM-DD>", "期限（日付。1900-01-01 以降）")
@@ -148,6 +150,7 @@ export function registerIssueCommands(program: Command): void {
             milestoneRef: o.milestone,
             parentRef: o.parent,
             discoveredFromRef: o.discoveredFrom,
+            status: "triage",
             requested: o.requested,
             priority: o.priority === undefined ? undefined : parsePriority(o.priority),
             estimate: o.estimate === undefined ? undefined : parseEstimate(o.estimate),
@@ -477,11 +480,29 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("instruct <id> <text>")
-    .description("LLM への追加指示を記録する（人だけが行える。送信はしない。Orca の端末への送信は web の確認画面から行う）")
+    .description("LLM への追加指示を記録する（送信はしない。送信には send-instruction を使う）")
     .action(
       act((cli, _cmd, id: string, text: string) => {
         const recorded = recordInstruction(cli.ctx, id, text);
-        print(cli, recorded, () => `追加指示を記録しました（#${recorded.id}）。LLM は nod issue start / show で読みます`);
+        print(cli, recorded, () => `追加指示を記録しました（#${recorded.id}）。nod issue start / show で読めます`);
+      }),
+    );
+
+  issue
+    .command("send-instruction <id> <instructionId>")
+    .description("記録済みの追加指示を、明示的に選んだ Orca の端末に送る")
+    .requiredOption("--terminal <handle>", "送信先の稼働中の LLM 端末")
+    .option("--confirm-resend", "受付 ID のない結果不明の指示が届いていないと確認して再送する")
+    .action(
+      actAsync(async (cli, cmd, id: string, instructionId: string) => {
+        const input = cmd.opts<{ terminal: string; confirmResend?: boolean }>();
+        const sent = await sendInstruction(cli.ctx, id, parsePositiveInt(instructionId, "追加指示ID"), input, defaultOrcaRunner());
+        print(cli, sent, () => {
+          const lines = formatInstructions([sent]);
+          if (sent.sendError) lines.push(`    ${sent.sendError.code}: ${sent.sendError.message}`);
+          return lines.join("\n");
+        });
+        if (sent.sendState !== "sent") process.exitCode = 1;
       }),
     );
 
@@ -509,7 +530,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("subscribe <id>")
-    .description("Issue を購読し、変化を Inbox の通知で受け取る（me だけが使える）")
+    .description("Issue を購読し、変化を Inbox の通知で受け取る")
     .action(
       act((cli, _cmd, id: string) => {
         const r = subscribeIssue(cli.ctx, id);
@@ -529,7 +550,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("remind <id>")
-    .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く（me だけが使える）")
+    .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く")
     .option("--at <日時>", "通知する日時（例: 2026-10-01 09:00、2026-10-01T09:00:00+09:00。日付だけならその日の 0 時）")
     .option("--note <メモ>", "通知に添えるメモ")
     .option("--clear", "リマインダーを解除する")
@@ -628,7 +649,7 @@ export function registerIssueCommands(program: Command): void {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
         const rules = workspaceGuidance(cli.db, started.workspace);
-        // 追加指示。LLM が受け取ると確認済みになる
+        // 追加指示は書き手によらず start で受け取ると確認済みになる
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
         const text = [
           `着手しました: ${formatIssueLine(started)}`,

@@ -750,12 +750,11 @@ describe("作成", () => {
     expect(getGithubState(db, id)).toMatchObject({ pending: null, published: true, link: null });
   });
 
-  test("done・canceled・アーカイブ済み・LLM は送らない", async () => {
+  test("done・canceled・アーカイブ済みはLLMも送らない", async () => {
     const { db, me, llm, id, deps, input } = fixture();
     const gh = fakeGh();
-    expect(await codeOfAsync(publishGithubIssue(llm, id, input, deps(gh)))).toBe("FORBIDDEN_FOR_LLM");
     db.query("UPDATE issues SET status = 'done'").run();
-    expect(await codeOfAsync(publishGithubIssue(me, id, input, deps(gh)))).toBe("ISSUE_CLOSED");
+    expect(await codeOfAsync(publishGithubIssue(llm, id, input, deps(gh)))).toBe("ISSUE_CLOSED");
     db.query("UPDATE issues SET status = 'todo'").run();
     archiveIssue(me, id);
     expect(await codeOfAsync(publishGithubIssue(me, id, input, deps(gh)))).toBe("ISSUE_ARCHIVED");
@@ -781,12 +780,11 @@ describe("作成", () => {
 });
 
 describe("結果不明の解除", () => {
-  test("人が解除すると cleared になり、送らない。そのあと改めて公開できる", async () => {
+  test("LLMも解除するとclearedになり、送らない。そのあと改めて公開できる", async () => {
     const { db, me, llm, id, deps, input } = fixture();
     await codeOfAsync(publishGithubIssue(me, id, input, deps(fakeGh({ create: () => ({ kind: "timeout" }) }))));
-    expect(codeOf(() => clearUnknownGithubPublish(llm, id))).toBe("FORBIDDEN_FOR_LLM");
     const gh = fakeGh();
-    expect(clearUnknownGithubPublish(me, id).pending).toBeNull();
+    expect(clearUnknownGithubPublish(llm, id).pending).toBeNull();
     expect(posts(gh)).toBe(0);
     expect(eventsOf(db, id).some((e) => e.type === "github_publish_cleared")).toBe(true);
     expect(codeOf(() => clearUnknownGithubPublish(me, id))).toBe("INVALID_STATE");

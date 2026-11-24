@@ -135,7 +135,7 @@ function patchOf(o: Options): RecurringIssuePatch {
 export function registerRecurringCommands(program: Command): void {
   const recurring = program
     .command("recurring")
-    .description("定期Issue（毎日・毎週・毎月に起票する Issue）を管理・実行する。登録・変更・実行は人だけ（--dry-run は誰でも）")
+    .description("定期Issue（毎日・毎週・毎月に起票する Issue）を管理・実行する。--dry-run で起票予定を確認する")
     .addHelpText(
       "after",
       [
@@ -210,8 +210,10 @@ export function registerRecurringCommands(program: Command): void {
   recurring
     .command("remove <id>")
     .description("定期Issueを削除する（起票済みの Issue は残る）")
+    .option("--yes", "削除を確認する")
     .action(
-      act((cli, cmd, id: string) => {
+      act((cli, cmd, id: string, o: { yes?: boolean }) => {
+        if (!o.yes) throw new NodError("CONFIRM_REQUIRED", "定期Issueの削除は元に戻せません。よければ --yes を付けて再実行してください");
         const r = removeRecurringIssue(cli.ctx, currentWorkspace(cli, cmd).key, parseId(id));
         print(cli, r, () => `定期Issueを削除しました: #${r.id} ${r.title}`);
       }),
@@ -219,7 +221,7 @@ export function registerRecurringCommands(program: Command): void {
 
   recurring
     .command("run")
-    .description("発生日が来ている定期Issueを今すぐ起票する（実行は人だけ。--dry-run は起票する予定を表示するだけ）")
+    .description("発生日が来ている定期Issueを今すぐ起票する（--dry-run は起票する予定を表示するだけ）")
     .option("--dry-run", "起票する予定を表示するだけで変更しない")
     .action(
       actAsync(async (cli, cmd, o: { dryRun?: boolean }) => {

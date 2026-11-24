@@ -58,7 +58,7 @@ describe("recentSummary（期間の要約）", () => {
   test("種類ごとに分け、人と LLM を actor で区別する", () => {
     const { db, ws, me, llm } = setup();
     const a = createIssue(me, { workspaceId: ws.id, title: "a" });
-    const b = createIssue(llm, { workspaceId: ws.id, title: "b" });
+    const b = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "b" });
     startIssue(llm, a.id);
     askQuestion(llm, a.id, "どちらの API を使う？");
     answerQuestion(me, a.id, "新しい方");

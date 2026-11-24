@@ -65,7 +65,7 @@ describe("getInbox と answerQuestion", () => {
 describe("Triage", () => {
   test("accept は todo にし、Triage にない Issue は NOT_IN_TRIAGE", () => {
     const { db, ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect(acceptTriage(me, i.id).status).toBe("todo");
     expect(eventsOf(db, i.id).at(-1)?.type).toBe("triage_accepted");
     expect(codeOf(() => acceptTriage(me, i.id))).toBe("NOT_IN_TRIAGE");
@@ -73,7 +73,7 @@ describe("Triage", () => {
 
   test("acceptの旧Cycle直接所属は固定値も解除も相対指定も拒否し、Triageと履歴を変えない", () => {
     const {db,ws,me,llm}=setup();
-    const issue=createIssue(llm,{workspaceId:ws.id,title:"元のTriage"});
+    const issue=createIssue(llm,{ status: "triage",workspaceId:ws.id,title:"元のTriage"});
     const before=getIssue(db,issue.id);
     const events=eventsOf(db,issue.id);
     for (const cycleRef of ["1","旧名","current",null]) {
@@ -86,7 +86,7 @@ describe("Triage", () => {
 
   test("decline は理由つきで canceled にする", () => {
     const { db, ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     expect(declineTriage(me, i.id, "不要")).toMatchObject({ status: "canceled", closeReason: "不要" });
     expect(eventsOf(db, i.id).at(-1)).toMatchObject({ type: "triage_declined", data: { reason: "不要" } });
   });
@@ -94,7 +94,7 @@ describe("Triage", () => {
   test("duplicate は canceled にして duplicate の関係を足す", () => {
     const { db, ws, me, llm } = setup();
     const original = createIssue(me, { workspaceId: ws.id, title: "元" });
-    const dup = createIssue(llm, { workspaceId: ws.id, title: "重複" });
+    const dup = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "重複" });
     expect(duplicateTriage(me, dup.id, original.id).status).toBe("canceled");
     expect(getIssue(db, dup.id).relations.duplicateOf).toEqual([original.id]);
     expect(getIssue(db, original.id).relations.duplicates).toEqual([dup.id]);
@@ -103,7 +103,7 @@ describe("Triage", () => {
 
   test("snooze は triage のまま後回しの期限を入れ、accept で消える", () => {
     const { ws, me, llm } = setup();
-    const i = createIssue(llm, { workspaceId: ws.id, title: "t" });
+    const i = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "t" });
     const snoozed = snoozeTriage(me, i.id, "2099-01-01");
     expect(snoozed.status).toBe("triage");
     expect(snoozed.snoozedUntil).toBe(new Date(2099, 0, 1).toISOString());
@@ -138,11 +138,11 @@ describe("listTriage", () => {
   test("全 Workspace の Triage を作成順に返し、Snooze の期限が来ていないものは除く", () => {
     const { db, ws, me, llm } = setup();
     const web = initWorkspace(db, { path: "/tmp/repos/web" }).workspace;
-    const a = createIssue(llm, { workspaceId: ws.id, title: "a" });
-    const b = createIssue(llm, { workspaceId: web.id, title: "b" });
-    const later = createIssue(llm, { workspaceId: ws.id, title: "later" });
-    const expired = createIssue(llm, { workspaceId: ws.id, title: "expired" });
-    const accepted = createIssue(llm, { workspaceId: ws.id, title: "accepted" });
+    const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a" });
+    const b = createIssue(llm, { status: "triage", workspaceId: web.id, title: "b" });
+    const later = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "later" });
+    const expired = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "expired" });
+    const accepted = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "accepted" });
     snoozeTriage(me, later.id, "2099-01-01");
     snoozeTriage(me, expired.id, "2000-01-01");
     acceptTriage(me, accepted.id);
@@ -155,7 +155,7 @@ for (const actor of ["codex", "claude-code", "other-agent"]) {
     test(`${actor} も triage ${op} で判断でき、event の書き手に残る`, () => {
       const { db, ws, me, llm } = setup();
       const original = createIssue(me, { workspaceId: ws.id, title: "元の Issue" });
-      const issue = createIssue(llm, { workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
+      const issue = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "判断待ち", labels: ["bug"] });
       const ctx = { ...llm, actor };
       const decided =
         op === "accept" ? acceptTriage(ctx, issue.id)

@@ -15,7 +15,7 @@ const llm = (args: string[]) => runNod([...args, "--json"], { cwd: repo, db, act
 
 describe("未決事項と Needs Clarification", () => {
   test("私が足した未決事項で Needs Clarification になり、Inbox には出ず、LLM は着手できない", async () => {
-    const created = (await me(["issue", "create", "検索を速くする"])).json;
+    const created = (await me(["issue", "create", "--requested", "検索を速くする"])).json;
     const asked = await me(["issue", "ask", created.id, "対象の画面はどれか"]);
     expect(asked.exitCode).toBe(0);
     expect(asked.json.issue).toMatchObject({ status: "needs_clarification", agentState: null });
@@ -31,7 +31,7 @@ describe("未決事項と Needs Clarification", () => {
   });
 
   test("answer は既定で LLM の質問だけに答え、--question で未決事項を1つずつ決める", async () => {
-    const created = (await me(["issue", "create", "一覧を直す"])).json;
+    const created = (await me(["issue", "create", "--requested", "一覧を直す"])).json;
     const mine = (await me(["issue", "ask", created.id, "列の順は"])).json.question;
     const noLlm = await me(["answer", created.id, "ステータスを先に"]);
     expect(noLlm.exitCode).toBe(1);
@@ -47,7 +47,7 @@ describe("未決事項と Needs Clarification", () => {
   });
 
   test("LLM も me が付けた未決事項に --question で回答でき、Todo に戻る（#172）", async () => {
-    const created = (await me(["issue", "create", "絞り込みを足す"])).json;
+    const created = (await me(["issue", "create", "--requested", "絞り込みを足す"])).json;
     const mine = (await me(["issue", "ask", created.id, "対象の列は"])).json.question;
     const bulk = await llm(["answer", created.id, "全部"]);
     expect(bulk.json.error.code).toBe("NO_OPEN_QUESTION");
@@ -69,14 +69,14 @@ describe("未決事項と Needs Clarification", () => {
   });
 
   test("手で needs_clarification に変えようとすると INVALID_ARGS", async () => {
-    const created = (await me(["issue", "create", "t"])).json;
+    const created = (await me(["issue", "create", "--requested", "t"])).json;
     expect((await me(["issue", "update", created.id, "--status", "needs_clarification"])).json.error.code).toBe(
       "INVALID_ARGS",
     );
   });
 
   test("人が needs_clarification から todo に移すと、そのまま todo になる（#170）", async () => {
-    const created = (await me(["issue", "create", "t"])).json;
+    const created = (await me(["issue", "create", "--requested", "t"])).json;
     await me(["issue", "ask", created.id, "対象はどれか"]);
     const updated = await me(["issue", "update", created.id, "--status", "todo"]);
     expect(updated.exitCode).toBe(0);
@@ -93,7 +93,7 @@ describe("未決事項と Needs Clarification", () => {
   test("update は、結果が todo・backlog で未回答が残るときだけ、次の行に注記を添える（#170）", async () => {
     const text = (args: string[]) => runNod(args, { cwd: repo, db });
     const note = (n: number) => `未回答の確認依頼が ${n} 件残っています（すべて回答されるまで着手できません）`;
-    const created = (await me(["issue", "create", "注記を確かめる"])).json;
+    const created = (await me(["issue", "create", "--requested", "注記を確かめる"])).json;
     const first = (await me(["issue", "ask", created.id, "対象はどれか"])).json.question;
     const second = (await me(["issue", "ask", created.id, "期限はいつか"])).json.question;
     for (const status of ["todo", "backlog"]) {
@@ -117,9 +117,9 @@ describe("未決事項と Needs Clarification", () => {
 
   test("bulk-update は、未回答が残る todo・backlog の件数を1行で添える（#170）", async () => {
     const text = (args: string[]) => runNod(args, { cwd: repo, db });
-    const a = (await me(["issue", "create", "a"])).json;
-    const b = (await me(["issue", "create", "b"])).json;
-    const c = (await me(["issue", "create", "c"])).json;
+    const a = (await me(["issue", "create", "--requested", "a"])).json;
+    const b = (await me(["issue", "create", "--requested", "b"])).json;
+    const c = (await me(["issue", "create", "--requested", "c"])).json;
     await me(["issue", "ask", a.id, "対象はどれか"]);
     await me(["issue", "ask", a.id, "期限はいつか"]);
     await me(["issue", "ask", b.id, "対象はどれか"]);
@@ -135,14 +135,14 @@ describe("未決事項と Needs Clarification", () => {
   });
 
   test("LLM も canceled を経由して、me の未決事項が残る Issue を着手の状態にできる", async () => {
-    const created = (await me(["issue", "create", "t"])).json;
+    const created = (await me(["issue", "create", "--requested", "t"])).json;
     await me(["issue", "ask", created.id, "対象はどれか"]);
     expect((await llm(["issue", "update", created.id, "--status", "canceled"])).json.status).toBe("canceled");
     expect((await llm(["issue", "update", created.id, "--status", "in_progress"])).json.status).toBe("in_progress");
   });
 
   test("同じ文面の ask の再実行は、人が todo に出した Issue を needs_clarification に戻さない（#170）", async () => {
-    const created = (await me(["issue", "create", "t"])).json;
+    const created = (await me(["issue", "create", "--requested", "t"])).json;
     await llm(["issue", "ask", created.id, "どちらの方式にするか"]);
     await me(["issue", "update", created.id, "--status", "todo"]);
     const again = (await llm(["issue", "ask", created.id, "どちらの方式にするか"])).json;
@@ -151,12 +151,12 @@ describe("未決事項と Needs Clarification", () => {
   });
 
   test("LLM も me の未決事項が未回答の間、update でも bulk-update でも needs_clarification から出せる", async () => {
-    const updated = (await me(["issue", "create", "t"])).json;
+    const updated = (await me(["issue", "create", "--requested", "t"])).json;
     await me(["issue", "ask", updated.id, "対象はどれか"]);
     const r = await llm(["issue", "update", updated.id, "--status", "todo"]);
     expect(r.exitCode).toBe(0);
     expect(r.json.status).toBe("todo");
-    const bulked = (await me(["issue", "create", "u"])).json;
+    const bulked = (await me(["issue", "create", "--requested", "u"])).json;
     await me(["issue", "ask", bulked.id, "対象はどれか"]);
     const bulk = await llm(["issue", "bulk-update", bulked.id, "--status", "in_progress"]);
     expect(bulk.exitCode).toBe(0);
@@ -169,7 +169,7 @@ describe("未決事項と Needs Clarification", () => {
 });
 
 test("安全な整数を超える --question を INVALID_ARGS にする", async () => {
-  const created = (await me(["issue", "create", "質問 ID の検証"])).json;
+  const created = (await me(["issue", "create", "--requested", "質問 ID の検証"])).json;
   const result = await me(["answer", created.id, "回答", "--question", "9007199254740993"]);
   expect(result.json.error.code).toBe("INVALID_ARGS");
 });

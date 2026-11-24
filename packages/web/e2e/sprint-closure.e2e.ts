@@ -26,3 +26,30 @@ test("期限超過のSprintを理由付きで終了し、終了時の記録と�
   await record.getByRole("link", { name: `${issue.id}の現在のIssue`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/issues/${issue.id}$`));
 });
+
+test("成果と評価に利用者本人とLLMが記録した感想を記録者付きで並べる", async ({ page, nod }) => {
+  const ws = (await nod.me.initWorkspace({ key: "FDB", name: "感想の記録", path: nod.repo("feedback") })).workspace;
+  const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "感想を確認する成果" });
+  const planned = await plannedSprint(page, ws.key, [issue.id]);
+  const ready = await sprintApi<SprintPlanResult>(page, "POST", `/sprints/${planned.sprint.id}/plans/${planned.plan.id}/accept`, { expectedVersion: planned.sprint.version, requestKey: "感想用の合意", contentHash: planned.plan.contentHash });
+  await nod.me.activateSprint(ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "感想用の開始" });
+  await nod.codex.addSprintRecord(ready.sprint.id, { requestKey: "聞き取った感想", kind: "feedback", content: { helpful: "利用者から聞いた、試し方が分かりやすいという感想", difficulties: "記録を探しにくい", requests: "検索したい" } });
+  await page.goto(`/sprints/${ready.sprint.id}?section=outcomes`);
+  const agent = page.getByRole("region", { name: "利用者の感想の記録", exact: true }).filter({ hasText: "利用者から聞いた、試し方が分かりやすいという感想" });
+  await expect(agent).toContainText("記録者：エージェント（codex）");
+  await expect(agent).toContainText("記録を探しにくい");
+  await expect(agent).toContainText("検索したい");
+  const form = page.getByRole("form", { name: "感想を追記" });
+  await form.getByRole("textbox", { name: "役立った点" }).fill("自分で試して再確認しやすかった");
+  await form.getByRole("button", { name: "感想を記録する", exact: true }).click();
+  await expect(form.getByRole("status")).toHaveText("感想を記録しました。");
+  const records = page.getByRole("region", { name: "利用者の感想の記録", exact: true });
+  await expect(records).toHaveCount(2);
+  await expect(records.filter({ hasText: "自分で試して再確認しやすかった" })).toContainText("記録者：利用者本人（me）");
+  await expect(agent).toBeVisible();
+  await page.reload();
+  await expect(records).toHaveCount(2);
+  await expect(agent).toContainText("記録者：エージェント（codex）");
+  await expect(records.filter({ hasText: "自分で試して再確認しやすかった" })).toContainText("記録者：利用者本人（me）");
+  await page.screenshot({ path: test.info().outputPath("feedback-recorders.png"), fullPage: true });
+});

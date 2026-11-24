@@ -167,9 +167,11 @@ export function registerProjectCommands(program: Command): void {
     );
   milestone
     .command("remove <project> <milestone>")
-    .description("Milestone を消す（紐付いた Issue は Milestone から外れるだけで残る。人だけが行える）")
+    .description("Milestone を消す（紐付いた Issue は Milestone から外れるだけで残る）")
+    .option("--yes", "削除を確認する")
     .action(
-      act((cli, _cmd, ref: string, target: string) => {
+      act((cli, _cmd, ref: string, target: string, o: { yes?: boolean }) => {
+        if (!o.yes) throw new NodError("CONFIRM_REQUIRED", "Milestone の削除は元に戻せません。よければ --yes を付けて再実行してください");
         const removed = deleteMilestone(cli.ctx, target, resolveProject(cli.db, ref).id);
         print(cli, removed, () => `Milestone を消しました: ${removed.id}`);
       }),

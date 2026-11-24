@@ -34,7 +34,7 @@ describe("親の完了候補", () => {
       expect(candidate(t)).toBe(false);
     }
     const t = setup();
-    const triaged = createIssue(t.llm, { workspaceId: t.ws.id, title: "LLM の起票" });
+    const triaged = createIssue(t.llm, { status: "triage", workspaceId: t.ws.id, title: "LLM の起票" });
     const child = createIssue(t.me, { workspaceId: t.ws.id, title: "子", parentRef: triaged.id });
     updateIssue(t.me, child.id, { status: "done" });
     expect(getIssue(t.db, triaged.id)).toMatchObject({ status: "triage", completionCandidate: false });

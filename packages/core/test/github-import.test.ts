@@ -133,11 +133,11 @@ describe("importGithubIssues", () => {
     expect((db.query("SELECT count(*) AS n FROM issue_imports").get() as { n: number }).n).toBe(0);
   });
 
-  test("実行は人だけ。LLM は gh を起動する前に FORBIDDEN_FOR_LLM で止まる", async () => {
+  test("LLMもGitHubのIssueを取り込める", async () => {
     const { llm } = fixture();
     const gh = fakeGh(SAMPLE);
-    expect(await rejects(importGithubIssues(llm, "API", "example/api-server", {}, gh))).toBe("FORBIDDEN_FOR_LLM");
-    expect(gh.calls).toHaveLength(0);
+    const result = await importGithubIssues(llm, "API", "example/api-server", {}, gh);
+    expect(result.imported.map((item) => item.sourceKey)).toEqual(["example/api-server#5", "example/api-server#7", "example/api-server#12"]);
   });
 
   test("タイトル・本文・ラベル・状態・コメント（作者名付き）・作成日時を取り込み、対応表に残す", async () => {

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
@@ -129,7 +129,6 @@ async function verifyGithubIssue(run: GhRunner, repo: string, number: number): P
 }
 
 export async function linkGithubIssue(ctx: OpCtx, ref: string, url: string, run: GhRunner = ghRunner): Promise<GithubIssueState> {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub Issue を紐付けられません。紐付けは me に依頼してください");
   const target = parseGithubIssueUrl(url);
   const row = findIssueRow(ctx.db, ref);
   const id = formatIssueId(row.ws_key, row.number);
@@ -184,7 +183,6 @@ export async function linkGithubIssue(ctx: OpCtx, ref: string, url: string, run:
 }
 
 export function unlinkGithubIssue(ctx: OpCtx, ref: string): GithubIssueState {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub Issue の紐付けを外せません。解除は me に依頼してください");
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const id = formatIssueId(row.ws_key, row.number);

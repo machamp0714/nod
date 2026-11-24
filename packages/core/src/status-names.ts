@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, type OpCtx } from "./ctx";
+import type { OpCtx } from "./ctx";
 import { tx } from "./db";
 import { NodError } from "./errors";
 import { findWorkspace } from "./ops/workspaces";
@@ -62,9 +62,6 @@ export function listAllStatusNames(db: Database): Record<string, StatusNames> {
 
 // 表示名だけを全体で置き換える。空の値と既定名と同じ値は既定に戻す。内部の状態値・遷移は変えない
 export function setStatusNames(ctx: OpCtx, keyOrPath: string, input: Record<string, string | null | undefined>): WorkspaceStatusNames {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はステータスの表示名を変更できません。変更は me に依頼してください");
-  }
   const names: StatusNames = {};
   for (const [status, raw] of Object.entries(input)) {
     if (!(STATUSES as readonly string[]).includes(status)) {

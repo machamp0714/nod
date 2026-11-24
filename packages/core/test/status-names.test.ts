@@ -61,10 +61,9 @@ describe("ステータスの表示名", () => {
     expect(codeOf(() => setStatusNames(me, ws.key, { todo: "Backlog" }))).toBe("INVALID_ARGS");
   });
 
-  test("LLM は変更できず FORBIDDEN_FOR_LLM、読むことはできる", () => {
-    const { db, ws, me, llm } = setup();
-    expect(codeOf(() => setStatusNames(llm, ws.key, { todo: "x" }))).toBe("FORBIDDEN_FOR_LLM");
-    setStatusNames(me, ws.key, { todo: "x" });
+  test("LLM も表示名を変更できる", () => {
+    const { db, ws, llm } = setup();
+    setStatusNames(llm, ws.key, { todo: "x" });
     expect(getStatusNames(db, ws.key).names).toEqual({ todo: "x" });
   });
 

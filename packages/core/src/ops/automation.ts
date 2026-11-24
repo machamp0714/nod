@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { latestActivity } from "../activity";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, formatIssueId, type IssueRow, OPEN_BLOCKER } from "../issue-query";
@@ -23,7 +23,7 @@ import { archiveIssue } from "./issues";
 import { countEnabledRecurringIssues, isRecurringDay, runRecurringIssuesOnly } from "./recurring";
 import { findWorkspace } from "./workspaces";
 
-// 常駐はしない。人が CLI・Web から明示的に1回ずつ実行する（dry-run は誰でも、実行と設定変更は me だけ）
+// 常駐はしない。CLI・Web から明示的に1回ずつ実行する
 export const AUTOMATION_DAYS_MAX = 3650;
 export const AUTOMATION_LIMIT_DEFAULT = 50;
 export const AUTOMATION_LIMIT_MAX = 500;
@@ -99,9 +99,6 @@ export function setAutomationSettings(
   keyOrPath: string,
   input: { closeAfterDays?: number | null; archiveAfterDays?: number | null },
 ): AutomationSettings {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動化の設定を変えられません。変更は me に依頼してください");
-  }
   validateDays(input.closeAfterDays, "自動クローズの日数");
   validateDays(input.archiveAfterDays, "自動アーカイブの日数");
   return tx(ctx.db, () => {
@@ -351,9 +348,6 @@ export function runAutomation(
   opts: { dryRun?: boolean; limit?: number; evaluatedAt?: string; targets?: AutomationTargets } = {},
 ): AutomationRun {
   const dryRun = opts.dryRun ?? false;
-  if (!dryRun && isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は自動化を実行できません（--dry-run での確認はできます）。実行は me に依頼してください");
-  }
   const limit = opts.limit ?? AUTOMATION_LIMIT_DEFAULT;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > AUTOMATION_LIMIT_MAX) {
     throw new NodError("INVALID_ARGS", `--limit は 1〜${AUTOMATION_LIMIT_MAX} の整数で指定してください`);

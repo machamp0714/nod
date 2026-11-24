@@ -6,7 +6,7 @@ test("Triage属性と起票元を表示し一回のacceptで保存する", async
   const api = await seedApiWorkspace(nod);
   const source = await api.startedIssue("起票の元");
   const project = await nod.me.createProject({ name: "受け入れ先" });
-  const issue = await nod.codex.createIssue({ workspaceId: api.workspace.id, title: "発見した問題", discoveredFromRef: source.id, labels: ["old"] });
+  const issue = await nod.codex.createIssue({ status: "triage", workspaceId: api.workspace.id, title: "発見した問題", discoveredFromRef: source.id, labels: ["old"] });
   const writes: string[] = [];
   page.on("request", r => { if (r.method() === "POST" && r.url().includes(`/issues/${issue.id}/`)) writes.push(r.url()); });
   await page.goto("/triage");

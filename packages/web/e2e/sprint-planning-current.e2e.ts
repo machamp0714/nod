@@ -10,7 +10,7 @@ test("公開作成・提案・合意・開始した2WSの全状態を同じ保�
   const statuses: Status[] = ["todo", "in_progress", "needs_clarification", "triage", "backlog", "done", "canceled"];
   const aRefs: string[] = [], bRefs: string[] = [];
   for (const ws of [a, b]) for (const status of statuses) {
-    const issue = await (status === "triage" ? nod.codex : nod.me).createIssue({ workspaceId: ws.id, title: `${ws.key}採択 ${status}` });
+    const issue = await (status === "triage" ? nod.codex : nod.me).createIssue({ workspaceId: ws.id, title: `${ws.key}採択 ${status}`, status: status === "triage" ? "triage" : "todo" });
     if (status === "needs_clarification") await nod.me.askQuestion(issue.id, "判断を確認してください");
     else if (status !== "todo" && status !== "triage") await nod.me.updateIssue(issue.id, { status, ...(status === "canceled" ? { reason: "不要になった" } : {}) });
     (ws.id === a.id ? aRefs : bRefs).push(issue.id);

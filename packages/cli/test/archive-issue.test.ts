@@ -7,7 +7,7 @@ test("nod issue archive / unarchive で既定の一覧から外し、--archived 
   registerRepo(db, cwd, "API");
   const me = (args: string[]) => runNod(args, { cwd, db });
   const keep = (await me(["issue", "create", "残す", "--json"])).json;
-  const gone = (await me(["issue", "create", "消す", "--json"])).json;
+  const gone = (await me(["issue", "create", "--requested", "消す", "--json"])).json;
 
   const archived = await me(["issue", "archive", gone.id, "--reason", "不要"]);
   expect(archived.exitCode).toBe(0);

@@ -23,7 +23,7 @@ const dataset: Dataset = ({ db, repo }) => {
   const released = createIssue(me, { workspaceId: api.id, title: "リリース済みの修正" }); // API-4
   updateIssue(me, released.id, { status: "done" });
   age(released.id, "done", 20);
-  age(createIssue(codex, { workspaceId: api.id, title: "LLM が起票した古い Triage" }).id, "triage", 60); // API-5
+  age(createIssue(codex, { status: "triage", workspaceId: api.id, title: "LLM が起票した古い Triage" }).id, "triage", 60); // API-5
   age(createIssue(me, { workspaceId: nod.id, title: "別 Workspace の放置" }).id, "todo", 90); // NOD-1
 };
 export default dataset;

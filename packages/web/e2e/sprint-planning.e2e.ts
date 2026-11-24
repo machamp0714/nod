@@ -35,12 +35,39 @@ test("方向設定とSprint作成の公開フォームから、公開HTTPで提�
   await captureSprint(page, "plan-before-start-list", info);
   await page.getByRole("button", { name: "この計画に合意する", exact: true }).click();
   await expect(page.getByRole("region", { name: "表示中の計画" }).getByText("第1版に合意済み", { exact: false })).toBeVisible();
+  expect((await sprintDetail(page, sprintId)).plans).toEqual([expect.objectContaining({ agreedBy: "me" })]);
   await page.getByRole("button", { name: "Sprintを開始する", exact: true }).click();
   await expect(page.getByText("Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "タスク一覧", exact: true }).click();
   await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
   await expect(page.getByRole("region", { name: "Sprint の記録" })).toContainText("判断できない");
   await captureSprint(page, "sprint-home-overview", info);
+});
+
+test("LLMが合意した計画を合意済みと表示し、Webで開始して計画と詳細の根拠を読む", async ({ page, nod }, info) => {
+  const ws = (await nod.me.initWorkspace({ key: "AAA", name: "製品A", path: nod.repo("a") })).workspace;
+  const issue = await nod.me.createIssue({ workspaceId: ws.id, title: "LLM合意の採択" });
+  const proposed = await plannedSprint(page, ws.key, [issue.id]);
+  const ready = await nod.codex.acceptSprintPlan(proposed.sprint.id, proposed.plan.id, {
+    expectedVersion: proposed.sprint.version, requestKey: "LLM合意", contentHash: proposed.plan.contentHash,
+  });
+  expect(ready.plan.agreedBy).toBe("codex");
+  await page.goto(`/sprints/${proposed.sprint.id}?section=plan`);
+  await expect(page.getByRole("region", { name: "開始条件" })).toContainText("第1版に合意済み");
+  await expect(page.getByRole("button", { name: "この計画に合意する", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "表示中の計画" })).toContainText("codex");
+  await captureSprint(page, "llm-agreement-ready", info);
+  await page.getByRole("button", { name: "Sprintを開始する", exact: true }).click();
+  await expect(page.getByRole("region", { name: "表示中の計画" })).toContainText("判断の発見から回答まで一巡する");
+  await expect(page.getByRole("region", { name: "未合意の変更案" })).toHaveCount(0);
+  await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
+  const flow = await sprintApi<{ planId: string; eligibility: { eligible: boolean }[] }>(page, "GET", `/sprints/${proposed.sprint.id}/flow`);
+  expect(flow.planId).toBe(proposed.plan.id);
+  expect(flow.eligibility).toEqual([expect.objectContaining({ eligible: true })]);
+  await captureSprint(page, "llm-agreement-active-plan", info);
+  await page.getByRole("button", { name: "タスク一覧", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Sprint の記録" })).toContainText("達成の確認：判断の発見から回答まで一巡する");
+  await captureSprint(page, "llm-agreement-detail", info);
 });
 
 import type { Sprint, SprintPlanResult } from "@nod/core";

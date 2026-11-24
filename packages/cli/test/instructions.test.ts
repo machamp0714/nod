@@ -1,38 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import { makeRepo, registerRepo, runNod, tempDb } from "./helpers";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { makeRepo, registerRepo, runNod, tempDb, tempDir } from "./helpers";
 
-// 追加指示（#51）の CLI。orca は使わない（記録と一覧だけで、送信は web の確認画面から行う）
+// 実 CLI と一時 DB、偽 Orca で追加指示の記録・送信・受け取りを確かめる。
 describe("nod issue instruct / instructions", () => {
-  test("人が記録し、LLM は start で受け取って確認済みになる。人の show では確認済みにしない", async () => {
+  test.each(["me", "codex"])("%s の start で受け取って確認済みになる。show では確認済みにしない", async (actor) => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
 
     const recorded = await runNod(["issue", "instruct", created.id, "テストも追加して", "--json"], { cwd: repo, db });
     expect(recorded.exitCode).toBe(0);
     expect(recorded.json).toMatchObject({ kind: "instruction", body: "テストも追加して", createdBy: "me", sendState: "unsent" });
 
-    const shown = await runNod(["issue", "show", created.id], { cwd: repo, db });
+    const shown = await runNod(["issue", "show", created.id], { cwd: repo, db, actor });
     expect(shown.stdout).toContain("未確認の追加指示:");
     expect(shown.stdout).toContain("[追加指示・未送信]");
     expect(shown.stdout).toContain("[追加指示・未確認]: テストも追加して");
 
-    const started = await runNod(["issue", "start", created.id, "--json"], { cwd: repo, db, actor: "claude-code" });
+    const started = await runNod(["issue", "start", created.id, "--json"], { cwd: repo, db, actor });
     expect(started.json.pendingInstructions).toMatchObject([{ id: recorded.json.id, body: "テストも追加して" }]);
-    const again = await runNod(["issue", "start", created.id, "--json"], { cwd: repo, db, actor: "claude-code" });
+    const again = await runNod(["issue", "start", created.id, "--json"], { cwd: repo, db, actor });
     expect(again.json.pendingInstructions).toEqual([]);
 
     const list = await runNod(["issue", "instructions", created.id], { cwd: repo, db, actor: "claude-code" });
-    expect(list.stdout).toContain("claude-code が確認済み");
+    expect(list.stdout).toContain(`${actor} が確認済み`);
   });
 
   test("どの LLM の show でも指示は未確認のままで、開始した LLM に渡す", async () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
     await runNod(["issue", "instruct", created.id, "テストも追加して"], { cwd: repo, db });
 
@@ -53,21 +55,141 @@ describe("nod issue instruct / instructions", () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
     await runNod(["issue", "instruct", created.id, "1行目\n2行目"], { cwd: repo, db });
     const started = await runNod(["issue", "start", created.id], { cwd: repo, db, actor: "claude-code" });
     expect(started.stdout).toContain("追加指示（先に読んで対応する）:");
     expect(started.stdout).toContain("    1行目\n    2行目");
   });
 
-  test("LLM は追加指示を記録できない", async () => {
+  test("LLM が追加指示を記録でき、記録者と本文が残る", async () => {
     const db = tempDb();
     const repo = makeRepo();
     registerRepo(db, repo);
-    const created = (await runNod(["issue", "create", "検索", "--json"], { cwd: repo, db })).json;
-    const res = await runNod(["issue", "instruct", created.id, "x", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(res.exitCode).toBe(1);
-    expect(res.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], { cwd: repo, db })).json;
+    const res = await runNod(["issue", "instruct", created.id, "テストも追加して", "--json"], { cwd: repo, db, actor: "codex" });
+    expect(res.exitCode).toBe(0);
+    expect(res.json).toMatchObject({ body: "テストも追加して", createdBy: "codex", sendState: "unsent", acknowledgedAt: null });
+    const shown = await runNod(["issue", "show", created.id, "--json"], { cwd: repo, db });
+    expect(shown.json.pendingInstructions).toMatchObject([{ id: res.json.id, body: "テストも追加して", createdBy: "codex" }]);
+  });
+
+  test("LLM が選んだ端末へ定型文を送り、重複送信・宛先違い・結果不明の再試行を既存規則で扱う", async () => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const opts = { cwd: repo, db, actor: "codex" };
+    const created = (await runNod(["issue", "create", "--requested", "検索", "--json"], opts)).json;
+    await runNod(["issue", "start", created.id], opts);
+    const dir = tempDir();
+    const fake = join(dir, "orca.ts");
+    const log = join(dir, "calls.jsonl");
+    writeFileSync(fake, `
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
+if (args[0] === "terminal" && args[1] === "list") {
+  console.log(JSON.stringify({ ok: true, result: { terminals: [
+    { handle: "term_agent", worktreePath: ${JSON.stringify(repo)}, connected: true, writable: true, agentIdentity: "codex" },
+    { handle: "term_shell", worktreePath: ${JSON.stringify(repo)}, connected: true, writable: true, agentIdentity: null },
+    { handle: "term_other_worktree", worktreePath: ${JSON.stringify(join(tempDir(), "other-worktree"))}, connected: true, writable: true, agentIdentity: "codex" }
+  ] } }));
+} else if (args[0] === "terminal" && args[1] === "send") {
+  if (process.env.NOD_TEST_SEND_UNKNOWN === "1" && !args.includes("--retry-request")) {
+    console.log(JSON.stringify({ ok: false, error: { code: "unknown", message: "結果不明" }, requestId: "req_saved" }));
+    process.exitCode = 1;
+  } else console.log(JSON.stringify({ ok: true, result: { accepted: true, requestId: "req_saved" } }));
+} else process.exitCode = 2;
+`);
+    const env = { NOD_ORCA: "1", ORCA_CLI_COMMAND: `bun ${fake}` };
+    const recorded = (await runNod(["issue", "instruct", created.id, "本文は端末へ送らない", "--json"], opts)).json;
+    const sendArgs = ["issue", "send-instruction", created.id, String(recorded.id), "--terminal", "term_agent", "--json"];
+    const sent = await runNod(sendArgs, { ...opts, env });
+    expect(sent.exitCode).toBe(0);
+    expect(sent.json).toMatchObject({ sendState: "sent", sentBy: "codex", sentTerminal: "term_agent", acknowledgedAt: null });
+    const calls = () => readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+    expect(calls()).toEqual([
+      ["terminal", "list", "--worktree", `path:${repo}`, "--json"],
+      ["terminal", "send", "--terminal", "term_agent", "--text",
+        `nod: ${created.id} に追加指示があります（#${recorded.id}）。nod issue show ${created.id} で読んでください`, "--enter", "--json"],
+    ]);
+    const duplicate = await runNod(sendArgs, { ...opts, env });
+    expect(duplicate.json.error.code).toBe("INSTRUCTION_ALREADY_SENT");
+    expect(calls()).toHaveLength(2);
+
+    const second = (await runNod(["issue", "instruct", created.id, "次の指示", "--json"], opts)).json;
+    const secondArgs = ["issue", "send-instruction", created.id, String(second.id), "--terminal", "term_shell", "--json"];
+    const wrongTarget = await runNod(secondArgs, { ...opts, env });
+    expect(wrongTarget.json).toMatchObject({ sendState: "failed", sendError: { code: "TERMINAL_NOT_FOUND" } });
+    expect(calls().filter((args) => args[1] === "send")).toHaveLength(1);
+    secondArgs[5] = "term_other_worktree";
+    const otherWorktree = await runNod(secondArgs, { ...opts, env });
+    expect(otherWorktree.json).toMatchObject({ sendState: "failed", sendError: { code: "TERMINAL_NOT_FOUND" } });
+    expect(calls().filter((args) => args[1] === "send")).toHaveLength(1);
+    secondArgs[5] = "term_agent";
+    const unknown = await runNod(secondArgs, { ...opts, env: { ...env, NOD_TEST_SEND_UNKNOWN: "1" } });
+    expect(unknown.json).toMatchObject({ sendState: "unconfirmed" });
+    const retry = await runNod(secondArgs, { ...opts, env });
+    expect(retry.json).toMatchObject({ sendState: "sent", sentBy: "codex" });
+    expect(calls().at(-1)).toEqual([
+      "terminal", "send", "--terminal", "term_agent", "--text",
+      `nod: ${created.id} に追加指示があります（#${second.id}）。nod issue show ${created.id} で読んでください`,
+      "--enter", "--json", "--retry-request", "req_saved",
+    ]);
+    const listed = await runNod(["issue", "instructions", created.id, "--json"], opts);
+    expect(listed.json).toMatchObject([{ id: recorded.id, sentBy: "codex" }, { id: second.id, sentBy: "codex" }]);
+    const third = await runNod(["issue", "instruct", created.id, "成功のテキスト表示", "--json"], opts);
+    const textSent = await runNod(["issue", "send-instruction", created.id, String(third.json.id), "--terminal", "term_agent"], { ...opts, env });
+    expect(textSent.exitCode).toBe(0);
+    expect(textSent.stdout).toContain("送信済み");
+  });
+
+  test.each([
+    { name: "端末なし", terminal: "term_missing", enabled: "1", state: "failed", code: "TERMINAL_NOT_FOUND", message: "指定した端末はこの worktree にありません。宛先を選び直してください" },
+    { name: "別の worktree", terminal: "term_other", enabled: "1", state: "failed", code: "TERMINAL_NOT_FOUND", message: "指定した端末はこの worktree にありません。宛先を選び直してください" },
+    { name: "Orca 無効", terminal: "term_agent", enabled: "0", state: "failed", code: "DISABLED", message: "Orca との連携が無効です（NOD_ORCA=0）" },
+    { name: "結果不明", terminal: "term_agent", enabled: "1", state: "unconfirmed", code: "ORCA_ERROR", message: "結果不明" },
+  ])("$name は非0で終了し、理由と記録を返す", async ({ terminal, enabled, state, code, message }) => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const opts = { cwd: repo, db, actor: "codex" };
+    const created = await runNod(["issue", "create", "--requested", "送信の確認", "--json"], opts);
+    expect(created.exitCode).toBe(0);
+    const started = await runNod(["issue", "start", created.json.id], opts);
+    expect(started.exitCode).toBe(0);
+    const fake = join(tempDir(), "orca.ts");
+    writeFileSync(fake, `
+const args = process.argv.slice(2);
+if (args[1] === "list") {
+  console.log(JSON.stringify({ ok: true, result: { terminals: [
+    { handle: "term_agent", worktreePath: ${JSON.stringify(repo)}, connected: true, writable: true, agentIdentity: "codex" },
+    { handle: "term_other", worktreePath: ${JSON.stringify(join(tempDir(), "other-worktree"))}, connected: true, writable: true, agentIdentity: "codex" }
+  ] } }));
+} else if (args[1] === "send") {
+  console.log(JSON.stringify({ ok: false, error: { code: "unknown", message: "結果不明" }, requestId: "req_unknown" }));
+  process.exitCode = 1;
+} else process.exitCode = 2;
+`);
+    for (const json of [false, true]) {
+      const recorded = await runNod(["issue", "instruct", created.json.id, "送信する指示", "--json"], opts);
+      expect(recorded.exitCode).toBe(0);
+      const sent = await runNod([
+        "issue", "send-instruction", created.json.id, String(recorded.json.id), "--terminal", terminal,
+        ...(json ? ["--json"] : []),
+      ], { ...opts, env: { NOD_ORCA: enabled, ORCA_CLI_COMMAND: `bun ${fake}` } });
+      expect(sent.exitCode).not.toBe(0);
+      if (json) {
+        expect(sent.json).toMatchObject({ id: recorded.json.id, body: "送信する指示", sendState: state, sendError: { code, message: expect.stringContaining(message) } });
+      } else {
+        expect(sent.stdout).toContain(state === "failed" ? "送信失敗" : "送信結果不明");
+        expect(sent.stdout).toContain(code);
+        expect(sent.stdout).toContain(message);
+      }
+      const listed = await runNod(["issue", "instructions", created.json.id, "--json"], opts);
+      expect(listed.exitCode).toBe(0);
+      expect(listed.json).toContainEqual(expect.objectContaining({ id: recorded.json.id, sendState: state, sendError: { code, message: expect.stringContaining(message) } }));
+    }
   });
 });
 

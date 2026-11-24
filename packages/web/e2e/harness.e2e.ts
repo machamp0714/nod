@@ -50,7 +50,7 @@ test("既定では空の DB から始まる", async ({ request }) => {
 
 test("書き手を選んで core の操作を呼べ、失敗は code 付きの例外になる", async ({ nod }) => {
   const { workspace } = await nod.me.initWorkspace({ path: nod.repo("blog"), key: "BLOG", name: "blog" });
-  const issue = await nod.claude.createIssue({ workspaceId: workspace.id, title: "LLM が起票した Issue" });
+  const issue = await nod.claude.createIssue({ status: "triage", workspaceId: workspace.id, title: "LLM が起票した Issue" });
   expect(issue).toMatchObject({ id: "BLOG-1", status: "triage", createdBy: "claude-code" });
   await expect(nod.me.startIssue(issue.id)).rejects.toThrow(/^NOT_ACCEPTED: /);
 });

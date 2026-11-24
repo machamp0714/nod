@@ -57,7 +57,7 @@ function patchOf(body: Body): RecurringIssuePatch {
   };
 }
 
-// 定期Issueの登録・変更・実行は web（書き手 me）から行う。LLM は CLI の list / run --dry-run で読むだけ
+// Web からの定期Issueの登録・変更・実行は、書き手 me として記録する。
 export function registerRecurringRoutes(app: Hono, me: OpCtx, client?: JevClient): void {
   const id = (value: string) => paramInt(value, "定期Issueの ID ");
   app.get("/api/workspaces/:key/recurring", (c) => c.json(listRecurringIssues(me.db, c.req.param("key"))));

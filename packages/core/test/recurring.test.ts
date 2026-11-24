@@ -69,12 +69,13 @@ describe("定期Issueの登録", () => {
     expect(r.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
-  test("LLM は登録・変更・削除できない", () => {
-    const { ws, me, llm } = setup();
-    expect(codeOf(() => addRecurringIssue(llm, ws.key, daily()))).toBe("FORBIDDEN_FOR_LLM");
-    const r = addRecurringIssue(me, ws.key, daily());
-    expect(codeOf(() => updateRecurringIssue(llm, ws.key, r.id, { title: "b" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => removeRecurringIssue(llm, ws.key, r.id))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も定期Issueを登録・変更できる", () => {
+    const { db, ws, llm } = setup();
+    const r = addRecurringIssue(llm, ws.key, daily());
+    expect(updateRecurringIssue(llm, ws.key, r.id, { title: "b" })).toMatchObject({ title: "b", updatedBy: llm.actor });
+    expect(getRecurringIssue(db, ws.key, r.id).title).toBe("b");
+    removeRecurringIssue(llm, ws.key, r.id);
+    expect(listRecurringIssues(db, ws.key)).toEqual([]);
   });
 
   test("入力を検証する", () => {
@@ -200,10 +201,12 @@ describe("定期Issueの実行", () => {
     expect(getRecurringIssue(db, ws.key, r.id).lastOccurrence).toBeNull();
   });
 
-  test("LLM は実行できない", () => {
-    const { ws, me, llm } = setup();
-    addRecurringIssue(me, ws.key, daily());
-    expect(codeOf(() => runRecurringIssues(llm, ws.key, { now: WED }))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も実行でき、起票したIssueと発生日を返す", () => {
+    const { db, ws, me, llm } = setup();
+    const r = addRecurringIssue(me, ws.key, daily());
+    const run = runRecurringIssues(llm, ws.key, { now: WED });
+    expect(run.items[0]).toMatchObject({ recurringId: r.id, occurrence: "2026-09-30" });
+    expect(listIssues(db, { workspaceId: ws.id }).map((i) => i.id)).toEqual([run.items[0]!.issueId!]);
   });
 
   test("開始日より前・停止中は作らない", () => {

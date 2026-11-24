@@ -59,15 +59,15 @@ describe("nod workspace rules", () => {
     expect(long.json.error.code).toBe("INVALID_ARGS");
   });
 
-  test("LLM は set・clear できず FORBIDDEN_FOR_LLM、show はできる", async () => {
+  test("LLM も set・show・clear で規約を変更でき、書き手を記録する", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["workspace", "rules", "set", "--text", "a"], { cwd: repo, db });
-    const set = await runNod(["workspace", "rules", "set", "--text", "b", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(set.exitCode).toBe(1);
-    expect(set.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    const clear = await runNod(["workspace", "rules", "clear", "--json"], { cwd: repo, db, actor: "codex" });
-    expect(clear.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    expect((await runNod(["workspace", "rules", "show", "--json"], { cwd: repo, db, actor: "codex" })).json.body).toBe("a");
+    const opts = { cwd: repo, db, actor: "codex" };
+    expect((await runNod(["workspace", "rules", "set", "--text", "a", "--json"], opts)).exitCode).toBe(0);
+    const set = await runNod(["workspace", "rules", "set", "--text", "b", "--json"], opts);
+    expect(set.json).toMatchObject({ body: "b", updatedBy: "codex" });
+    expect((await runNod(["workspace", "rules", "show", "--json"], opts)).json.body).toBe("b");
+    expect((await runNod(["workspace", "rules", "clear", "--json"], opts)).exitCode).toBe(0);
+    expect((await runNod(["workspace", "rules", "show", "--json"], opts)).json).toBeNull();
   });
 });
 
@@ -78,8 +78,8 @@ describe("LLM 向け出力に作業規約を含める", () => {
     expect(guide.stdout).toBe(`${GUIDE}\n`);
     expect((await runNod(["skills", "get", "nod", "--json"], { cwd: repo, db })).json).toEqual({ name: "nod", guide: GUIDE });
 
-    await runNod(["issue", "create", "t1"], { cwd: repo, db });
-    await runNod(["issue", "create", "t2"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t1"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t2"], { cwd: repo, db });
     const show = await runNod(["issue", "show", "API-1", "--json"], { cwd: repo, db });
     expect(show.json).not.toHaveProperty("workspaceRules");
     expect((await runNod(["issue", "show", "API-1"], { cwd: repo, db })).stdout).not.toContain("作業規約");
@@ -93,8 +93,8 @@ describe("LLM 向け出力に作業規約を含める", () => {
   test("未登録なら issue show・next のテキストは規約を登録したときから規約の節を除いたものと一致する", async () => {
     const { db, repo } = await setupRepo();
     // 同じタイトルの Issue を2件作り、next は規約の登録前に API-1、登録後に API-2 を取る
-    await runNod(["issue", "create", "t"], { cwd: repo, db });
-    await runNod(["issue", "create", "t"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t"], { cwd: repo, db });
     const plainShow = (await runNod(["issue", "show", "API-2"], { cwd: repo, db })).stdout;
     const plainNext = (await runNod(["issue", "next"], { cwd: repo, db, actor: "claude-code" })).stdout;
     await runNod(["workspace", "rules", "set", "--text", "- PR は draft で作る"], { cwd: repo, db });
@@ -188,7 +188,7 @@ describe("LLM 向け出力に作業規約を含める", () => {
 
   test("登録済みなら issue show に Issue の Workspace の規約を含める", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["issue", "create", "t"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t"], { cwd: repo, db });
     await runNod(["workspace", "rules", "set", "--text", "- PR は draft で作る"], { cwd: repo, db });
     const text = (await runNod(["issue", "show", "API-1"], { cwd: tempDir(), db })).stdout;
     expect(text).toContain(HEADING);
@@ -203,8 +203,8 @@ describe("LLM 向け出力に作業規約を含める", () => {
     await runNod(["workspace", "rules", "set", "--text", "- PR は draft で作る"], { cwd: repo, db });
     expect((await runNod(["issue", "next", "--json"], { cwd: repo, db, actor: "claude-code" })).json).toBeNull();
 
-    await runNod(["issue", "create", "t1"], { cwd: repo, db });
-    await runNod(["issue", "create", "t2"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t1"], { cwd: repo, db });
+    await runNod(["issue", "create", "--requested", "t2"], { cwd: repo, db });
     const next = await runNod(["issue", "next", "--json"], { cwd: repo, db, actor: "claude-code" });
     expect(next.json.id).toBe("API-1");
     expect(next.json.workspaceRules.body).toBe("- PR は draft で作る");

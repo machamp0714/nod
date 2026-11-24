@@ -120,17 +120,17 @@ describe("Workspace のラベル定義", () => {
   test("未定義のラベルも従来どおり Issue に付けられる", () => {
     const { db, ws, me, llm } = setup();
     addWorkspaceLabel(me, ws.key, { name: "bug", color: "#DB2777" });
-    const a = createIssue(llm, { workspaceId: ws.id, title: "a", labels: ["unknown"] });
+    const a = createIssue(llm, { status: "triage", workspaceId: ws.id, title: "a", labels: ["unknown"] });
     updateIssue(llm, a.id, { addLabels: ["other"] });
     expect(labelsOf(db, a.id)).toEqual(["other", "unknown"]);
   });
 
-  test("LLM は追加・変更ができ、削除は FORBIDDEN_FOR_LLM", () => {
+  test("LLM もラベルの定義を追加・変更・削除できる", () => {
     const { db, ws, llm } = setup();
     expect(addWorkspaceLabel(llm, ws.key, { name: "bug", color: "#DB2777" })).toMatchObject({ name: "bug", color: "#DB2777" });
     expect(updateWorkspaceLabel(llm, ws.key, "bug", { name: "defect", color: "#2563EB" })).toMatchObject({ name: "defect", color: "#2563EB" });
-    expect(codeOf(() => removeWorkspaceLabel(llm, ws.key, "defect"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(listWorkspaceLabels(db, ws.key).map((l) => l.name)).toEqual(["defect"]);
+    expect(removeWorkspaceLabel(llm, ws.key, "defect")).toMatchObject({ removed: true, name: "defect" });
+    expect(listWorkspaceLabels(db, ws.key)).toEqual([]);
   });
 
   test("未登録の Workspace は NOT_FOUND", () => {
