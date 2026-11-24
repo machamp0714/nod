@@ -12,7 +12,7 @@ import {
 import type { Hono } from "hono";
 import { invalid, optString, readBody, reqString } from "../input";
 
-// ラベル定義とステータスの表示名は web（書き手 me）からだけ変更する。LLM は CLI で読むだけ。
+// Web からのラベル定義とステータスの表示名の変更は、書き手 me として記録する。
 // ラベル名には / なども入りうるので、パスではなく本文で渡す
 export function registerWorkspaceLabelRoutes(app: Hono, me: OpCtx): void {
   app.get("/api/labels", (c) => c.json(listAllWorkspaceLabels(me.db)));

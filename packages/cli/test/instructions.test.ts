@@ -138,6 +138,58 @@ if (args[0] === "terminal" && args[1] === "list") {
     ]);
     const listed = await runNod(["issue", "instructions", created.id, "--json"], opts);
     expect(listed.json).toMatchObject([{ id: recorded.id, sentBy: "codex" }, { id: second.id, sentBy: "codex" }]);
+    const third = await runNod(["issue", "instruct", created.id, "成功のテキスト表示", "--json"], opts);
+    const textSent = await runNod(["issue", "send-instruction", created.id, String(third.json.id), "--terminal", "term_agent"], { ...opts, env });
+    expect(textSent.exitCode).toBe(0);
+    expect(textSent.stdout).toContain("送信済み");
+  });
+
+  test.each([
+    { name: "端末なし", terminal: "term_missing", enabled: "1", state: "failed", code: "TERMINAL_NOT_FOUND", message: "指定した端末はこの worktree にありません。宛先を選び直してください" },
+    { name: "別の worktree", terminal: "term_other", enabled: "1", state: "failed", code: "TERMINAL_NOT_FOUND", message: "指定した端末はこの worktree にありません。宛先を選び直してください" },
+    { name: "Orca 無効", terminal: "term_agent", enabled: "0", state: "failed", code: "DISABLED", message: "Orca との連携が無効です（NOD_ORCA=0）" },
+    { name: "結果不明", terminal: "term_agent", enabled: "1", state: "unconfirmed", code: "ORCA_ERROR", message: "結果不明" },
+  ])("$name は非0で終了し、理由と記録を返す", async ({ terminal, enabled, state, code, message }) => {
+    const db = tempDb();
+    const repo = makeRepo();
+    registerRepo(db, repo);
+    const opts = { cwd: repo, db, actor: "codex" };
+    const created = await runNod(["issue", "create", "--requested", "送信の確認", "--json"], opts);
+    expect(created.exitCode).toBe(0);
+    const started = await runNod(["issue", "start", created.json.id], opts);
+    expect(started.exitCode).toBe(0);
+    const fake = join(tempDir(), "orca.ts");
+    writeFileSync(fake, `
+const args = process.argv.slice(2);
+if (args[1] === "list") {
+  console.log(JSON.stringify({ ok: true, result: { terminals: [
+    { handle: "term_agent", worktreePath: ${JSON.stringify(repo)}, connected: true, writable: true, agentIdentity: "codex" },
+    { handle: "term_other", worktreePath: ${JSON.stringify(join(tempDir(), "other-worktree"))}, connected: true, writable: true, agentIdentity: "codex" }
+  ] } }));
+} else if (args[1] === "send") {
+  console.log(JSON.stringify({ ok: false, error: { code: "unknown", message: "結果不明" }, requestId: "req_unknown" }));
+  process.exitCode = 1;
+} else process.exitCode = 2;
+`);
+    for (const json of [false, true]) {
+      const recorded = await runNod(["issue", "instruct", created.json.id, "送信する指示", "--json"], opts);
+      expect(recorded.exitCode).toBe(0);
+      const sent = await runNod([
+        "issue", "send-instruction", created.json.id, String(recorded.json.id), "--terminal", terminal,
+        ...(json ? ["--json"] : []),
+      ], { ...opts, env: { NOD_ORCA: enabled, ORCA_CLI_COMMAND: `bun ${fake}` } });
+      expect(sent.exitCode).not.toBe(0);
+      if (json) {
+        expect(sent.json).toMatchObject({ id: recorded.json.id, body: "送信する指示", sendState: state, sendError: { code, message: expect.stringContaining(message) } });
+      } else {
+        expect(sent.stdout).toContain(state === "failed" ? "送信失敗" : "送信結果不明");
+        expect(sent.stdout).toContain(code);
+        expect(sent.stdout).toContain(message);
+      }
+      const listed = await runNod(["issue", "instructions", created.json.id, "--json"], opts);
+      expect(listed.exitCode).toBe(0);
+      expect(listed.json).toContainEqual(expect.objectContaining({ id: recorded.json.id, sendState: state, sendError: { code, message: expect.stringContaining(message) } }));
+    }
   });
 });
 

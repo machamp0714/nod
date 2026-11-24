@@ -106,7 +106,7 @@ export async function run(argv: string[]): Promise<number> {
   const json = (sep === -1 ? argv : argv.slice(0, sep)).includes("--json");
   try {
     await buildProgram().parseAsync(argv);
-    return 0;
+    return process.exitCode === undefined ? 0 : Number(process.exitCode);
   } catch (err) {
     if (err instanceof CommanderError) {
       // --help と --version を明示したときだけ 0。サブコマンドを省いたときのヘルプ（commander.help）は 1 で返る

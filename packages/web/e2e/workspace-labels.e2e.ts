@@ -9,7 +9,7 @@ test("ラベル定義を追加・改名・削除でき、改名は Issue のラ�
   await page.goto("/workspaces/API/settings");
   const section = labelsSection(page);
   await expect(section.getByText("ラベルの定義はありません")).toBeVisible();
-  await expect(section.getByText("この Workspace の Issue に付けるラベルの色と説明。LLM は編集できません。")).toBeVisible();
+  await expect(section.getByText("この Workspace の Issue に付けるラベルの色と説明。")).toBeVisible();
 
   const add = section.getByRole("form", { name: "ラベルを追加" });
   await expect(add.getByRole("button", { name: "追加" })).toBeDisabled();

@@ -126,7 +126,7 @@ export function RecurringSection({ workspace, onSaved }: { workspace: Workspace;
         <h2 id={titleId} className={s.sectionTitle}>
           定期Issue
         </h2>
-        <p className={s.description}>周期ごとに Issue を起票します。起票は『今すぐ実行』か nod recurring run のときだけ行います。LLM は変更できません。</p>
+        <p className={s.description}>周期ごとに Issue を起票します。起票は『今すぐ実行』か nod recurring run のときだけ行います。</p>
       </div>
       {list.error ? (
         <ErrorLine message={errorMessage(list.error)} />

@@ -122,7 +122,7 @@ function RulesSection({ workspace, saved, onSaved }: { workspace: Workspace; sav
           LLM に守らせる作業規約
         </h2>
         <p id={descriptionId} className={s.description}>
-          nod skills get / issue show / next / start の出力に含まれます。LLM は編集できません。
+          nod skills get / issue show / next / start の出力に含まれます。
         </p>
       </div>
       <div className={`${s.editor} ${state.over ? s.editorOver : ""}`}>

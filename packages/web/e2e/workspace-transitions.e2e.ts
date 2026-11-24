@@ -10,7 +10,7 @@ test.describe("設定画面", () => {
   test("許可しない遷移を保存し、禁止できない遷移は理由を示して保存させない", async ({ page, nod }) => {
     await page.goto("/workspaces/API/settings");
     const rules = section(page);
-    await expect(rules.getByText("許可しない遷移を設定します。LLM・自動化も従います。LLM は編集できません。")).toBeVisible();
+    await expect(rules.getByText("許可しない遷移を設定します。LLM・自動化も従います。")).toBeVisible();
     await expect(rules.getByText("制限はありません。すべての遷移を許可しています。")).toBeVisible();
     await expect(rules.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
 

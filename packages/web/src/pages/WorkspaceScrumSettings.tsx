@@ -34,7 +34,7 @@ function RolloverSettings({ workspaceKey, saved }: { workspaceKey: string; saved
   const enabled = requested ?? status.data?.enabled ?? saved?.autoRollover ?? false;
   return <section className={s.section} aria-label="期限到来時の自動引継ぎ">
     <h2 className={s.sectionTitle}>期限到来時の自動引継ぎ</h2>
-    <p className={s.description}>Sprintの期間が終わったら自動で終了し、後継のSprintへ未完了の所属を引き継いで、期間が始まっていれば合意なしで開始します。LLM は設定を変更できません。</p>
+    <p className={s.description}>Sprintの期間が終わったら自動で終了し、後継のSprintへ未完了の所属を引き継いで、期間が始まっていれば合意なしで開始します。</p>
     <label><input type="checkbox" checked={enabled} disabled={!saved || unsaved || requested !== null}
       onChange={e => {
         const next = e.target.checked;

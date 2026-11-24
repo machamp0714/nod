@@ -51,7 +51,7 @@ function Header({ id }: { id: string }) {
       <h2 id={id} className={s.sectionTitle}>
         ステータス遷移
       </h2>
-      <p className={s.description}>許可しない遷移を設定します。LLM・自動化も従います。LLM は編集できません。</p>
+      <p className={s.description}>許可しない遷移を設定します。LLM・自動化も従います。</p>
     </div>
   );
 }

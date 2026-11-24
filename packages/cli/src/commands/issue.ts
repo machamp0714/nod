@@ -497,7 +497,12 @@ export function registerIssueCommands(program: Command): void {
       actAsync(async (cli, cmd, id: string, instructionId: string) => {
         const input = cmd.opts<{ terminal: string; confirmResend?: boolean }>();
         const sent = await sendInstruction(cli.ctx, id, parsePositiveInt(instructionId, "追加指示ID"), input, defaultOrcaRunner());
-        print(cli, sent, () => formatInstructions([sent]).join("\n"));
+        print(cli, sent, () => {
+          const lines = formatInstructions([sent]);
+          if (sent.sendError) lines.push(`    ${sent.sendError.code}: ${sent.sendError.message}`);
+          return lines.join("\n");
+        });
+        if (sent.sendState !== "sent") process.exitCode = 1;
       }),
     );
 
@@ -525,7 +530,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("subscribe <id>")
-    .description("Issue を購読し、変化を Inbox の通知で受け取る（me だけが使える）")
+    .description("Issue を購読し、変化を Inbox の通知で受け取る")
     .action(
       act((cli, _cmd, id: string) => {
         const r = subscribeIssue(cli.ctx, id);
@@ -545,7 +550,7 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("remind <id>")
-    .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く（me だけが使える）")
+    .description("Issue にリマインダーを設定する（1 Issue に1件。設定し直すと上書き）。期限が来ると Inbox に通知が届く")
     .option("--at <日時>", "通知する日時（例: 2026-10-01 09:00、2026-10-01T09:00:00+09:00。日付だけならその日の 0 時）")
     .option("--note <メモ>", "通知に添えるメモ")
     .option("--clear", "リマインダーを解除する")

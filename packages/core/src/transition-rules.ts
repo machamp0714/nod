@@ -157,5 +157,5 @@ export function formatTransitionRulesSection(rules: WorkspaceTransitionRules): s
     ...rules.presets.map((p) => `- ${TRANSITION_PRESET_LABELS[p]}`),
     ...rules.forbidden.map((p) => `- ${p.from} → ${p.to} は禁止`),
   ];
-  return `## この Workspace のステータス遷移ルール（${rules.workspaceKey}）\n\n人が設定したルールである。違反する遷移は TRANSITION_NOT_ALLOWED で拒否される。LLM はルールを変更できない。\n\n${lines.join("\n")}\n`;
+  return `## この Workspace のステータス遷移ルール（${rules.workspaceKey}）\n\n違反する遷移は TRANSITION_NOT_ALLOWED で拒否される。\n\n${lines.join("\n")}\n`;
 }

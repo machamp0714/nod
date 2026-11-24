@@ -8,7 +8,7 @@ const templatesSection = (page: import("@playwright/test").Page) => page.getByRo
 test("テンプレートを追加・本文の編集・削除でき、どの Workspace の設定にも同じ一覧を出す", async ({ page, nod }) => {
   await page.goto("/workspaces/API/settings");
   const section = templatesSection(page);
-  await expect(section.getByText("Issue の説明の雛形。すべての Workspace で共通です。LLM は編集できません。")).toBeVisible();
+  await expect(section.getByText("Issue の説明の雛形。すべての Workspace で共通です。")).toBeVisible();
   await expect(section.getByText("テンプレートはありません")).toBeVisible();
 
   // 追加：名前と本文がそろうまで押せず、名前は前後の空白を除く
