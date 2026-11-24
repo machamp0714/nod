@@ -62,24 +62,24 @@ describe("追加指示の記録（#51）", () => {
     expect(getIssue(db, ref).activity.every((a) => a.kind !== "comment" || !("instruction" in a))).toBe(true);
   });
 
-  test("LLM は記録できず、空の本文・アーカイブ済みの Issue も拒否する", () => {
+  test("LLM も記録でき、空の本文・アーカイブ済みの Issue は拒否する", () => {
     const { me, llm, ref } = working();
-    expect(codeOf(() => recordInstruction(llm, ref, "x"))).toBe("FORBIDDEN_FOR_LLM");
+    expect(recordInstruction(llm, ref, "x")).toMatchObject({ body: "x", createdBy: "claude-code" });
     expect(codeOf(() => recordInstruction(me, ref, "  "))).toBe("INVALID_ARGS");
     archiveIssue(me, ref);
     expect(codeOf(() => recordInstruction(me, ref, "x"))).toBe("ISSUE_ARCHIVED");
   });
 });
 
-describe("LLM の受け取り", () => {
-  test("LLM の takePendingInstructions で確認済みになり、次からは返さない。人では確認済みにしない", () => {
-    const { me, llm, db, ref } = working();
+describe("追加指示の受け取り", () => {
+  test.each(["me", "claude-code"])("%s が受け取ると確認済みになり、次からは返さない", (actor) => {
+    const { me, db, ref } = working();
+    const receiver = { ...me, actor };
     const recorded = recordInstruction(me, ref, "テストも追加して");
-    expect(takePendingInstructions(me, ref).map((i) => i.id)).toEqual([recorded.id]);
-    expect(takePendingInstructions(llm, ref).map((i) => i.id)).toEqual([recorded.id]);
-    expect(takePendingInstructions(llm, ref)).toEqual([]);
+    expect(takePendingInstructions(receiver, ref).map((i) => i.id)).toEqual([recorded.id]);
+    expect(takePendingInstructions(receiver, ref)).toEqual([]);
     expect(getIssue(db, ref).pendingInstructions).toEqual([]);
-    expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: "claude-code" });
+    expect(listInstructions(db, ref)[0]).toMatchObject({ acknowledgedBy: actor });
   });
 
 });
@@ -148,14 +148,12 @@ describe("追加指示の送信", () => {
     expect(sends).toBe(1);
   });
 
-  test("LLM は送信できない", async () => {
+  test("LLM も送信でき、送信者を記録する", async () => {
     const { me, llm, ref } = working();
     const recorded = recordInstruction(me, ref, "x");
-    const { run, calls } = stubOrca({ "terminal list": LIST_ONE });
-    let code: string | undefined;
-    await sendInstruction(llm, ref, recorded.id, { terminal: "term_a" }, run).catch((e) => (code = e.code));
-    expect(code).toBe("FORBIDDEN_FOR_LLM");
-    expect(calls).toEqual([]);
+    const { run } = stubOrca({ "terminal list": LIST_ONE, "terminal send": ok({ accepted: true }) });
+    const sent = await sendInstruction(llm, ref, recorded.id, { terminal: "term_a" }, run);
+    expect(sent).toMatchObject({ sendState: "sent", sentBy: "claude-code", sentTerminal: "term_a" });
   });
 
   test("選んだ端末が一覧に無ければ送らずに失敗にし、送り直せる", async () => {

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment } from "../events";
@@ -14,7 +14,7 @@ import {
 } from "../types";
 import { agentTerminals, listOrcaTerminals, ORCA_TIMEOUT_MS, orcaFailure, type OrcaRunner, readOrcaEnvelope } from "./orca";
 
-// LLM への追加指示（#51）。記録と送信は人だけが行い、送信は人の明示操作でだけ行う（自動送信はしない）。
+// LLM への追加指示（#51）。送信は書き手によらず明示操作でだけ行う（自動送信はしない）。
 // 端末には本文ではなく、nod で読むよう促す短い定型文を送る。本文の正本は nod のコメントである
 
 export const INSTRUCTION_KIND_LABEL: Record<AgentInstructionKind, string> = {
@@ -110,10 +110,6 @@ function requireText(value: string | undefined, what: string): string {
   return value;
 }
 
-function requireHuman(ctx: OpCtx, what: string): void {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", `LLM は${what}できません。追加指示の記録と送信は me が行います`);
-}
-
 // 追加指示を記録する（送信はしない）。
 function addInstruction(ctx: OpCtx, row: IssueRow, body: string): AgentInstruction {
   const comment = addComment(ctx, row, body);
@@ -124,7 +120,6 @@ function addInstruction(ctx: OpCtx, row: IssueRow, body: string): AgentInstructi
 }
 
 export function recordInstruction(ctx: OpCtx, ref: string, body: string): AgentInstruction {
-  requireHuman(ctx, "追加指示を記録");
   requireText(body, "追加指示の本文");
   return tx(ctx.db, () => addInstruction(ctx, findWritableIssueRow(ctx.db, ref), body));
 }
@@ -177,11 +172,11 @@ function requestIdOf(stdout: string): string | null {
 }
 
 export interface SendInstructionInput {
-  terminal: string; // 確認画面で選んだ端末の handle
-  confirmResend?: boolean; // 結果不明（受付 ID なし）のものを、人が届いていないと確かめて送り直すとき
+  terminal: string; // 明示的に選んだ端末の handle
+  confirmResend?: boolean; // 結果不明（受付 ID なし）のものを、届いていないと確かめて送り直すとき
 }
 
-// 記録済みの追加指示を、選ばれた端末に1回だけ送る（#51）。人だけが行える。
+// 記録済みの追加指示を、選ばれた端末に1回だけ送る（#51）。
 // 送信前に端末を一覧し直し、選ばれた端末がその worktree で稼働中の LLM の端末のときだけ送る。
 // 送信済みは送り直さない。結果不明は受付 ID で orca の再試行（--retry-request）を使い、新しく送らない
 export async function sendInstruction(
@@ -191,7 +186,6 @@ export async function sendInstruction(
   input: SendInstructionInput,
   run: OrcaRunner | null,
 ): Promise<AgentInstruction> {
-  requireHuman(ctx, "追加指示を送信");
   requireText(input.terminal, "送信先の端末");
   const issue = findWritableIssueRow(ctx.db, ref);
   const current = instructionRow(ctx.db, instructionId);
@@ -281,12 +275,12 @@ function acknowledge(ctx: OpCtx, issueRowId: number, instructions: AgentInstruct
   for (const i of instructions) query.run(ts, ctx.actor, i.id, issueRowId);
 }
 
-// LLM が nod issue start で受け取る、未確認の追加指示・対応依頼。LLM が受け取ったら確認済みにする（人の start では確認済みにしない）
+// nod issue start で受け取る未確認の追加指示・対応依頼。書き手によらず受け取ったら確認済みにする
 export function takePendingInstructions(ctx: OpCtx, ref: string): AgentInstruction[] {
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const pending = pendingInstructionsOfIssue(ctx.db, row.id);
-    if (isLlm(ctx) && pending.length > 0) acknowledge(ctx, row.id, pending);
+    if (pending.length > 0) acknowledge(ctx, row.id, pending);
     return pending;
   });
 }

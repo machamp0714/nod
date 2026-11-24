@@ -20,6 +20,7 @@ import {
   formatTransitionRulesSection,
   formatWorkspaceRulesSection,
   deleteIssue,
+  defaultOrcaRunner,
   findDeletableIssueRow,
   formatIssueId,
   getIssue,
@@ -52,6 +53,7 @@ import {
   relateIssue,
   removeAttachment,
   resolveThread,
+  sendInstruction,
   setPlanTasks,
   setReminder,
   setStep,
@@ -478,11 +480,24 @@ export function registerIssueCommands(program: Command): void {
 
   issue
     .command("instruct <id> <text>")
-    .description("LLM への追加指示を記録する（人だけが行える。送信はしない。Orca の端末への送信は web の確認画面から行う）")
+    .description("LLM への追加指示を記録する（送信はしない。送信には send-instruction を使う）")
     .action(
       act((cli, _cmd, id: string, text: string) => {
         const recorded = recordInstruction(cli.ctx, id, text);
-        print(cli, recorded, () => `追加指示を記録しました（#${recorded.id}）。LLM は nod issue start / show で読みます`);
+        print(cli, recorded, () => `追加指示を記録しました（#${recorded.id}）。nod issue start / show で読めます`);
+      }),
+    );
+
+  issue
+    .command("send-instruction <id> <instructionId>")
+    .description("記録済みの追加指示を、明示的に選んだ Orca の端末に送る")
+    .requiredOption("--terminal <handle>", "送信先の稼働中の LLM 端末")
+    .option("--confirm-resend", "受付 ID のない結果不明の指示が届いていないと確認して再送する")
+    .action(
+      actAsync(async (cli, cmd, id: string, instructionId: string) => {
+        const input = cmd.opts<{ terminal: string; confirmResend?: boolean }>();
+        const sent = await sendInstruction(cli.ctx, id, parsePositiveInt(instructionId, "追加指示ID"), input, defaultOrcaRunner());
+        print(cli, sent, () => formatInstructions([sent]).join("\n"));
       }),
     );
 
@@ -629,7 +644,7 @@ export function registerIssueCommands(program: Command): void {
         const started = startIssue(cli.ctx, id, { location: currentWorkLocation() });
         await notifyIfLlm(cli, { status: "in-progress", comment: `作業中: ${started.id} ${started.title}` });
         const rules = workspaceGuidance(cli.db, started.workspace);
-        // 追加指示。LLM が受け取ると確認済みになる
+        // 追加指示は書き手によらず start で受け取ると確認済みになる
         const pendingInstructions = takePendingInstructions(cli.ctx, started.id);
         const text = [
           `着手しました: ${formatIssueLine(started)}`,
