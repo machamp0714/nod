@@ -58,13 +58,34 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`専用ランチャー: ${work(sb)}/omp/bin/omp から起動してください`);
   });
 
-  test("利用者の置き場に tdd が無ければ、通常の omp のセッションでは tdd が読み込まれないと表示する", async () => {
+  test("組を別の OMP の設定の置き場に適用していれば、適用しているとも専用ランチャーで pstack の tdd が使われるとも表示せず、置き場が違うことと専用ランチャーが起動しないことを表示する", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const other = join(sb.root, "other-agent");
+    mkdirSync(other);
+
+    const run = await sb.run("status", { env: { PI_CODING_AGENT_DIR: other } });
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    // 組の記録の置き場（まだ無ければ、在る祖先の別名を解いた形）
+    const applied = join(realpathSync(sb.home), ".omp", "agent");
+    const current = realpathSync(other);
+    expect(run.stdout).toContain(`組は別の OMP の設定の置き場 ${applied} に適用したもので、いまの置き場 ${current} と違います。このままでは専用ランチャーは omp を起動しません`);
+    expect(run.stdout).toContain(`→ この置き場（${current}）には適用していません（写しは別の置き場 ${applied} に適用したものです）`);
+    expect(run.stdout).not.toContain("→ 適用しています");
+    expect(run.stdout).not.toContain("→ 適用が壊れています");
+    expect(run.stdout).not.toContain("専用ランチャーから起動したセッション: pstack の tdd");
+    expect(run.stdout).toContain("適用していないので、pstack の tdd は使われません");
+  });
+
+  test("利用者の置き場にも実行したディレクトリのプロジェクトの置き場にも tdd が無ければ、通常の omp のセッションでは tdd が読み込まれないと表示する", async () => {
     const sb = await synced();
     expect((await sb.run("apply")).exitCode).toBe(0);
 
     const run = await sb.run("status");
 
-    expect(run.stdout).toContain("通常の omp のセッション: pstack の tdd は読み込まれません（利用者の置き場にも tdd はありません）");
+    expect(run.stdout).toContain("通常の omp のセッション: pstack の tdd は読み込まれません（利用者の置き場にも、実行したディレクトリのプロジェクトの置き場にも tdd はありません）");
   });
 
   // 利用者の置き場の2か所以上に内容の違う tdd があるとき、通常の omp で裸の名前 tdd を取るもの（OMP 19.1.0 の skills.ts の resolveCollision と
@@ -106,6 +127,14 @@ describe("適用の状態とどの tdd が使われるか", () => {
         return realpathSync(join(sb.agentDir, "skills", "tdd", "SKILL.md"));
       },
     },
+    {
+      name: "~/.agents/skills と ~/.agent/skills の両方にあれば、~/.agent/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(join(sb.home, ".agent", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agent"));
+        return join(sb.home, ".agent", "skills", "tdd", "SKILL.md");
+      },
+    },
   ];
 
   test.each(precedence)("適用していなければ、$name が使われると表示する", async ({ place }) => {
@@ -129,6 +158,116 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`専用ランチャーから起動したセッション: pstack の tdd（${work(sb)}/omp/generated/pstack/skills/tdd/SKILL.md）が使われます`);
     expect(run.stdout).toContain(`利用者の置き場の tdd（${used}）は、名前空間つきの <名前空間>/tdd の名前になります`);
     expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${used}）が使われます`);
+  });
+
+  // 利用者の置き場と、実行したディレクトリのプロジェクトの置き場の両方に tdd があるとき、通常の omp で裸の名前 tdd を取るもの（OMP 19.1.0:
+  // custom directory は provider より優先。native（100）はプロジェクトの .omp/skills の後に <agentDir>/skills、claude（80）はプロジェクトの
+  // .claude/skills、agents（70）はプロジェクトの .agent/skills・.agents/skills の後に ~/.agent/skills・~/.agents/skills。OMP が global の設定として
+  // 読むファイルの disabledProviders（実行したディレクトリで解いた値）の provider は読まない）。where は表示する置き場の種類
+  const projectPrecedence: { name: string; place(sb: Sandbox, project: string): { used: string; where: string } }[] = [
+    {
+      name: "<agentDir>/skills とプロジェクトの .omp/skills の両方にあれば、プロジェクトの tdd",
+      place: (sb, project) => {
+        put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), skillMd("tdd", "native"));
+        put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        return { used: join(project, ".omp", "skills", "tdd", "SKILL.md"), where: "プロジェクトの置き場" };
+      },
+    },
+    {
+      name: "~/.agents/skills とプロジェクトの .omp/skills の両方にあれば、プロジェクトの tdd",
+      place: (sb, project) => {
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        return { used: join(project, ".omp", "skills", "tdd", "SKILL.md"), where: "プロジェクトの置き場" };
+      },
+    },
+    {
+      name: "プロジェクトの .agents/skills と <agentDir>/skills の両方にあれば、<agentDir>/skills の tdd",
+      place: (sb, project) => {
+        put(join(project, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), skillMd("tdd", "native"));
+        return { used: realpathSync(join(sb.agentDir, "skills", "tdd", "SKILL.md")), where: "利用者の置き場" };
+      },
+    },
+    {
+      name: "skills.customDirectories の置き場とプロジェクトの .omp/skills の両方にあれば、custom directory の tdd",
+      place: (sb, project) => {
+        put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        put(join(sb.root, "my-skills", "tdd", "SKILL.md"), skillMd("tdd", "custom"));
+        put(sb.configPath, `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+        return { used: join(sb.root, "my-skills", "tdd", "SKILL.md"), where: "利用者の置き場" };
+      },
+    },
+    {
+      name: "disabledProviders に native があれば、プロジェクトの .omp/skills と ~/.agents/skills のうち ~/.agents/skills の tdd",
+      place: (sb, project) => {
+        put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, "disabledProviders:\n  - native\n");
+        return { used: join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), where: "利用者の置き場" };
+      },
+    },
+    {
+      name: "disabledProviders の path が実行したディレクトリの祖先を指すオブジェクトに claude があれば、プロジェクトの .claude/skills と ~/.agents/skills のうち ~/.agents/skills の tdd",
+      place: (sb, project) => {
+        put(join(project, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, `disabledProviders:\n  - path: ${realpathSync(sb.root)}\n    providers:\n      - claude\n`);
+        return { used: join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), where: "利用者の置き場" };
+      },
+    },
+    {
+      name: "disabledProviders の path が実行したディレクトリを覆わないオブジェクトに claude があっても、プロジェクトの .claude/skills の tdd",
+      place: (sb, project) => {
+        put(join(project, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, `disabledProviders:\n  - path: ${join(realpathSync(sb.root), "elsewhere")}\n    providers:\n      - claude\n`);
+        return { used: join(project, ".claude", "skills", "tdd", "SKILL.md"), where: "プロジェクトの置き場" };
+      },
+    },
+  ];
+
+  // git の作業ツリーの根にした作業中のプロジェクト（実パス）
+  function gitProject(sb: Sandbox): string {
+    mkdirSync(join(sb.project, ".git"));
+    return realpathSync(sb.project);
+  }
+
+  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、適用していなければ、$name が使われると表示する", async ({ place }) => {
+    const sb = await synced();
+    const project = gitProject(sb);
+    const { used, where } = place(sb, project);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、${where}の tdd（${used}）が使われます`);
+  });
+
+  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、適用していれば、通常の omp のセッションでは $name が使われ、ランチャーではそれが名前空間つきになると表示する", async ({ place }) => {
+    const sb = await synced();
+    const project = gitProject(sb);
+    const { used, where } = place(sb, project);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`専用ランチャーから起動したセッション: pstack の tdd（${work(sb)}/omp/generated/pstack/skills/tdd/SKILL.md）が使われます`);
+    expect(run.stdout).toContain(`${where}の tdd（${used}）は、名前空間つきの <名前空間>/tdd の名前になります`);
+    expect(run.stdout).toContain(`通常の omp のセッション: ${where}の tdd（${used}）が使われます`);
+  });
+
+  test("利用者の置き場に tdd が無くても、実行したディレクトリのプロジェクトの置き場にあれば、通常の omp のセッションではそれが使われると表示する", async () => {
+    const sb = await synced();
+    const project = gitProject(sb);
+    put(join(project, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`通常の omp のセッション: プロジェクトの置き場の tdd（${project}/.claude/skills/tdd/SKILL.md）が使われます`);
   });
 
   const damages: { name: string; damage(sb: Sandbox): void; shows: string }[] = [
@@ -265,7 +404,7 @@ describe("適用の状態とどの tdd が使われるか", () => {
     const run = await sb.run("status");
 
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("適用していないので、pstack の tdd は使われません（利用者の置き場にも tdd はありません）");
+    expect(run.stdout).toContain("適用していないので、pstack の tdd は使われません（利用者の置き場にも、実行したディレクトリのプロジェクトの置き場にも tdd はありません）");
   });
 
   test.each([

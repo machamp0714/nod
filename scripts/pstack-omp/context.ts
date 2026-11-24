@@ -10,7 +10,7 @@
 //   PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE
 //                          OMP が設定の根と profile を選ぶ環境変数。置き場は OMP と同じ決め方（omp/control/verify.ts の ompAgentDir）で決め、
 //                          決められなければ（名前つきの profile、~/.omp でない設定の根）、置き場を使う apply・remove・status は止まる
-//   HOME                   利用者のホーム（~/.agents/skills を名前のぶつかりとして検査する）
+//   HOME                   利用者のホーム（~/.agent/skills と ~/.agents/skills を名前のぶつかりとして検査する）
 //   PATH                   omp の実行ファイルを探す置き場
 import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";

@@ -32,8 +32,13 @@ export function configPath(agentDir: string): string {
 export function globalConfigPath(agentDir: string): string {
   const yml = configPath(agentDir);
   if (existsSync(yml)) return yml;
-  const yaml = realAncestor(join(agentDir, "config.yaml"));
+  const yaml = yamlConfigPath(agentDir);
   return existsSync(yaml) ? yaml : yml;
+}
+
+// config.yml が無いときに OMP が読む config.yaml のパス（configPath と同じく、在る祖先の別名を解いた形）
+export function yamlConfigPath(agentDir: string): string {
+  return realAncestor(join(agentDir, "config.yaml"));
 }
 
 // path のリンクと別名を解いた形。path がまだ無ければ、在る祖先まで解いて残りをつなぐ

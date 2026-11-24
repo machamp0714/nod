@@ -15,13 +15,14 @@
 // 規則が不正なとき、/usr/bin/sandbox-exec が無いときは、適用は何も変えずに止まる。
 // 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。写しは同じ階層の一時ディレクトリに作り終えてから置き換える。
 // 以前の配置（config.yml に読み込みの設定を入れた適用）の項目が config.yml に残っていれば、適用と解除はそれだけを取り除く（cleanLegacy）。
+// 適用の名前のぶつかりの検査は、取り除いた後に OMP が global の設定として読むファイル（config.yml を消すなら config.yaml）の値で行う。
 // config.yml は一時ファイルから rename し、途中で失敗したら、config.yml と写しを前のままにして止める。
 // 写しが別の OMP の設定の置き場に適用したものなら、適用と解除は何も変えずに止まる（ほかの設定が使っている写しを消さない）。
 // 解除は、写し（専用ランチャー・制御の拡張・生成物の写し）を消す。
 import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { configPath, globalConfigPath, isMapping, type OmpConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock } from "./config";
+import { configPath, globalConfigPath, isMapping, type OmpConfig, parseConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock, yamlConfigPath } from "./config";
 import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError, userAgentDir } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
 import { bashOverlay, guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
@@ -169,10 +170,21 @@ export function apply(ctx: Context): ApplyResult {
   const path = configPath(agentDir);
   return withConfigLock(path, () => {
     const config = readConfig(path);
-    // 利用者の置き場は、OMP がいま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める。
-    // config.yml が在ればそれ自身なので、以前の配置の取り除き（config.yml）の前の形の確認も兼ねる
+    const manualSkills = [...generated.names, ...contentSkills.filter((name) => !generated.names.includes(name))];
+    // 以前の配置の取り除き（書くのは後の replaceCopy）
+    const cleanup = cleanLegacy(config, legacyRecord(previous, path), p.root, manualSkills);
+    // 利用者の置き場は、適用の後に OMP が global の設定として読むファイルの値で決める。取り除きが config.yml を書き換えるなら書き換えた後の値、
+    // config.yml を消すなら同じ置き場の config.yaml（無ければ空の設定）。取り除かなければ、いま読むファイル（config.yml が無ければ config.yaml）
+    const write = cleanup.write;
     const settingsPath = globalConfigPath(agentDir);
-    const settings = settingsPath === path ? config : readConfig(settingsPath);
+    const settings =
+      write === undefined
+        ? settingsPath === path
+          ? config
+          : readConfig(settingsPath)
+        : write.bytes === undefined
+          ? readConfig(yamlConfigPath(agentDir))
+          : { path, bytes: write.bytes, data: parseConfig(path, write.bytes) };
     checkLoadingSettings(settings);
     const collisions = findCollisions(ctx, agentDir, settings, p.root, content, generated.names);
     const blocking = collisions.filter((d) => !(d.kind === "skill" && d.name === "tdd"));
@@ -186,8 +198,6 @@ export function apply(ctx: Context): ApplyResult {
       );
     }
 
-    const manualSkills = [...generated.names, ...contentSkills.filter((name) => !generated.names.includes(name))];
-    const cleanup = cleanLegacy(config, legacyRecord(previous, path), p.root, manualSkills);
     const harness: Harness = {
       version: 2,
       appliedAt: new Date().toISOString(),
@@ -279,7 +289,7 @@ export function legacyItems(config: OmpConfig, harness: Record<string, unknown> 
 // 以前の配置の項目を config.yml から取り除く。以前の配置の記録があり、config.yml がその直後のままなら、以前の適用の前のバイトに戻す。
 // そうでなければ、管理対象の項目（extensions と skills.customDirectories のうち写しの中を指すもの、記録の名前）だけを外し、ほかの値は保つ
 // （記録が作ったキーは、外して空になれば消す）。記録が無ければ、skills.manualSkills のうち names（適用が足す名前）は外さず kept で返す。
-// write は書き換える後のバイト（undefined なら config.yml を消す）。取り除くものが無ければ write は undefined
+// write は書き換える後のバイト（undefined なら config.yml を消す）。取り除くものが無ければ write は undefined。書くのは呼び出し側（ここでは書かない）
 function cleanLegacy(config: OmpConfig, record: LegacyRecord | undefined, root: string, names: string[]): { result: Cleanup; write: { path: string; bytes: Buffer | undefined } | undefined } {
   if (record !== undefined && config.bytes !== undefined && sha256(config.bytes) === record.after) {
     const before = record.before === null ? undefined : Buffer.from(record.before, "base64");

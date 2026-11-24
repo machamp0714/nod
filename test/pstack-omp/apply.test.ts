@@ -410,8 +410,8 @@ function legacyConfig(sb: Sandbox): string {
 }
 
 // 適用した写しを、以前の配置のものにする: config.yml に読み込みの設定を入れ、record なら組の記録に config.yml を戻す記録（適用の前は
-// USER_CONFIG）を入れる。record でなければ組の記録を消す
-function legacy(sb: Sandbox, record: boolean, after: string): void {
+// before。null なら以前の適用が config.yml を作った）を入れる。record でなければ組の記録を消す
+function legacy(sb: Sandbox, record: boolean, after: string, before: string | null = USER_CONFIG): void {
   writeConfig(sb, after);
   if (!record) {
     rmSync(join(sb.copy, "control", "harness.json"));
@@ -422,7 +422,7 @@ function legacy(sb: Sandbox, record: boolean, after: string): void {
     version: 1,
     config: {
       path: realpathSync(sb.configPath),
-      before: Buffer.from(USER_CONFIG).toString("base64"),
+      before: before === null ? null : Buffer.from(before).toString("base64"),
       after: new Bun.CryptoHasher("sha256").update(legacyConfig(sb)).digest("hex"),
       addedKeys: [],
       addedManualSkills: MANUAL,
@@ -492,6 +492,46 @@ describe("以前の配置からの切替", () => {
       disabledExtensions: ["skill:foo"],
     });
   });
+
+  // 以前の適用が config.yml を作っていて（記録の before が null）、config.yml がその直後のままなら、取り除きで config.yml が消え、
+  // その後の OMP は同じ置き場の config.yaml を global の設定として読む
+  function legacyCreated(sb: Sandbox, clash: boolean): { yaml: string; path: string } {
+    legacy(sb, true, legacyConfig(sb), null);
+    const path = join(sb.root, "yaml-skills", "pstack-omp", "SKILL.md");
+    put(path, skillMd(clash ? "pstack-omp" : "mine", "mine"));
+    const yaml = `skills:\n  customDirectories:\n    - ${join(sb.root, "yaml-skills")}\n`;
+    put(join(sb.agentDir, "config.yaml"), yaml);
+    return { yaml, path };
+  }
+
+  test("以前の配置が作った config.yml を消すとき、その後に OMP が読む config.yaml の置き場に同じ名前があれば、止まって報告し、config.yml・config.yaml・写しは何も変わらない", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const { yaml, path } = legacyCreated(sb, true);
+    const copy = snapshot(sb.copy);
+
+    const run = await sb.run("apply");
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(path);
+    expect(run.stderr).toContain("上書きしない");
+    expect(readFileSync(sb.configPath, "utf8")).toBe(legacyConfig(sb));
+    expect(readFileSync(join(sb.agentDir, "config.yaml"), "utf8")).toBe(yaml);
+    expect(snapshot(sb.copy)).toEqual(copy);
+  });
+
+  test("以前の配置が作った config.yml を消すとき、その後に OMP が読む config.yaml の置き場に同じ名前が無ければ、適用して config.yml が消える", async () => {
+    const sb = await synced();
+    expect((await sb.run("apply")).exitCode).toBe(0);
+    const { yaml } = legacyCreated(sb, false);
+
+    const run = await sb.run("apply");
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(existsSync(sb.configPath)).toBe(false);
+    expect(readFileSync(join(sb.agentDir, "config.yaml"), "utf8")).toBe(yaml);
+  });
 });
 
 // 今回置くエージェント定義（OMP 向けのディレクトリの agents/poteto-agent.md）
@@ -548,6 +588,27 @@ describe("名前のぶつかり", () => {
       place: (sb) => {
         put(join(sb.agentDir, "skills", "mode", "SKILL.md"), skillMd("poteto-mode", "mine"));
         return join(sb.agentDir, "skills", "mode", "SKILL.md");
+      },
+    },
+    {
+      name: "利用者の OMP のスキルの置き場の name が、引用符つきの前後の空白（改行を含む）を除くと生成したスキル（pstack の poteto-mode）と同じ（OMP は前後の空白を除く）",
+      place: (sb) => {
+        put(join(sb.agentDir, "skills", "mode", "SKILL.md"), '---\nname: " poteto-mode\\n"\ndescription: test\n---\n\n# mine\n');
+        return join(sb.agentDir, "skills", "mode", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.agents/skills の name が空白だけで、ディレクトリ名が pstack-omp（OMP は空になった名前をディレクトリ名にする）",
+      place: (sb) => {
+        put(join(sb.home, ".agents", "skills", "pstack-omp", "SKILL.md"), '---\nname: "   "\ndescription: test\n---\n\n# mine\n');
+        return join(sb.home, ".agents", "skills", "pstack-omp", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.agent/skills に生成したスキル（cursor-team-kit の deslop）と同じ名前がある",
+      place: (sb) => {
+        put(join(sb.home, ".agent", "skills", "deslop", "SKILL.md"), skillMd("deslop", "mine"));
+        return join(sb.home, ".agent", "skills", "deslop", "SKILL.md");
       },
     },
   ];
