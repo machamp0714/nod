@@ -77,7 +77,7 @@ test("CLIは同じ公開coreの監督・予約・不明理由と再照合操作�
   expect(unknown).toMatchObject({ exitCode: 0, json: { occupied: 1, canStart: false } });
 });
 
-test("CLIのbegin・request・observe・resumeが同じ元Runの担当へ合流し、旧世代の依頼を拒否する", async () => {
+test("CLIは別actorの監督操作と結果を受理し、再送同一性・本人照合・ID世代・引継ぎの拒否を保つ", async () => {
   const cwd = makeRepo(), path = tempDb(), db = core.openDb(path), dir = tempDir();
   const me = { db, actor: "me" }, ws = core.initWorkspace(db, { path: cwd }).workspace;
   const issue = core.createIssue(me, { workspaceId: ws.id, title: "引き継ぐ仕事" });
@@ -92,29 +92,48 @@ test("CLIのbegin・request・observe・resumeが同じ元Runの担当へ合流�
 const args=process.argv.slice(2),file=process.env.NOD_TEST_ORCA_STATE!;
 const state=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):{commands:[],spec:null,started:false};state.commands.push(args);
 const coordinator=process.env.NOD_TEST_COORDINATOR??'監督A';let result;
-if(args[0]==='status')result={runtime:{runtimeId:'home-runtime',state:'ready',reachable:true,connectionState:'connected'},...(process.env.NOD_TEST_MISSING_CALLER?'':{caller:{orcaSessionId:'orca_session_id:'+coordinator,live:true}})};
+if(args[0]==='status')result={runtime:{runtimeId:process.env.NOD_TEST_RUNTIME??'home-runtime',state:'ready',reachable:true,connectionState:'connected'},...(process.env.NOD_TEST_MISSING_CALLER?'':{caller:{orcaSessionId:process.env.NOD_TEST_IDENTITY??'orca_session_id:'+coordinator,live:true}})};
 else if(args[1]==='run-use'){if(args.includes('--from'))throw Error('旧callerの借用禁止');state.bound=coordinator;result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:8}};}
-else if(['run-current','run-show'].includes(args[1]!))result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:coordinator==='監督A'?7:8}};
+else if(['run-current','run-show'].includes(args[1]!))result={run:{id:'元Run',coordinator_handle:coordinator,consumer_generation:Number(process.env.NOD_TEST_CONSUMER??(coordinator==='監督A'?7:8))}};
 else if(args[1]==='task-create'){state.spec=args[args.indexOf('--spec')+1];result={task:{id:'元Task',run_id:'元Run'},mutation:{requestId:'Task要求'}};}
 else if(args[1]==='worker-start'){state.started=true;result={runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',mutation:{requestId:'起動要求'}};}
 else if(args[1]==='task-list')result={tasks:[{id:'元Task',run_id:'元Run',spec:state.spec,parent_id:null}]};
 else if(args[1]==='worker-list')result={workers:state.started?[{runId:'元Run',taskId:'元Task',dispatchId:'元Dispatch',identity:{runtimeId:'host',incarnationId:'incarnation',terminal:'端末',remoteRuntimeEpoch:'epoch'},projection:{liveness:{verdict:'live',observedAt:Date.now()}}}]:[],page:{hasMore:false,nextCursor:null}};
 else if(args[1]==='request-show'){const id=args[args.indexOf('--request')+1];result={requestId:id,state:'completed',receipt:{runId:'元Run',taskId:'元Task',dispatchId:id==='起動要求'?'元Dispatch':null,mutation:{requestId:id}}};}
-else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result,_meta:{runtimeId:'home-runtime'}})+'\\n');
+else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state));process.stdout.write(JSON.stringify({ok:true,result,_meta:{runtimeId:process.env.NOD_TEST_RUNTIME??'home-runtime'}})+'\\n');
 `);
   const env = { NOD_ORCA: "1", ORCA_CLI_COMMAND: `bun ${fake}`, NOD_TEST_ORCA_STATE: saved };
   let sequence = 0;
-  const run = async (route: string[], body: unknown, caller = "監督A") => {
+  const run = async (route: string[], body: unknown, caller = "監督A", actor = "omp", extraEnv: Record<string, string> = {}) => {
     const file = join(dir, `${++sequence}.json`); writeFileSync(file, JSON.stringify(body));
-    return runNod(["sprint", ...route, sprint.id, "--input", file, "--from", caller, "--json"], { cwd, db: path, actor: "codex", env: { ...env, NOD_TEST_COORDINATOR: caller } });
+    return runNod(["sprint", ...route, sprint.id, "--input", file, "--from", caller, "--json"], { cwd, db: path, actor, env: { ...env, NOD_TEST_COORDINATOR: caller, ...extraEnv } });
   };
-  const begin = await run(["session", "begin"], { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" });
-  expect(begin).toMatchObject({ exitCode: 0, json: { generation: 1, consumerGeneration: 7 } });
+  const beginInput = { expectedVersion: sprint.version, requestKey: "監督", runId: "元Run" };
+  const begin = await run(["session", "begin"], beginInput, "監督A", "codex");
+  expect(begin).toMatchObject({ exitCode: 0, json: { actor: "codex", generation: 1, consumerGeneration: 7 } });
+  expect(await run(["session", "begin"], beginInput, "監督A", "codex")).toMatchObject({ exitCode: 0, json: { id: begin.json.id, actor: "codex" } });
+  expect(await run(["session", "begin"], beginInput)).toMatchObject({ exitCode: 1, json: { error: { code: "IDEMPOTENCY_CONFLICT" } } });
   const context = { sessionId: begin.json.id, generation: 1 };
-  const request = await run(["execution", "request"], { ...context, requestKey: "担当", itemId: original.items[0]!.id, actor: "codex", spec: "合意した仕事", placement: { agent: "codex", worktree: "path:/専用" } });
-  expect(request).toMatchObject({ exitCode: 0, json: { occupied: 1, canStart: false } });
+  const requestInput = { ...context, requestKey: "担当", itemId: original.items[0]!.id, actor: "codex", spec: "合意した仕事", placement: { agent: "codex", worktree: "path:/専用" } };
+  const request = await run(["execution", "request"], requestInput);
+  expect(request).toMatchObject({ exitCode: 0, json: { occupied: 1, canStart: false, quarantined: [], session: { actor: "codex" },
+    operations: [{ state: "confirmed" }, { state: "confirmed" }] } });
   expect(request.json.attempts[0]).toMatchObject({ taskId: "元Task", dispatchId: "元Dispatch" });
-  const observed = await run(["session", "observe"], context);
+  const attemptContext = { ...context, attemptId: request.json.attempts[0].id };
+  const replay = await run(["execution", "request"], requestInput, "監督A", "claude-code");
+  expect(replay).toMatchObject({ exitCode: 0, json: { attempts: [{ id: attemptContext.attemptId }], quarantined: [] } });
+  expect(await run(["execution", "request"], { ...requestInput, actor: "omp" })).toMatchObject({ exitCode: 1, json: { error: { code: "IDEMPOTENCY_CONFLICT" } } });
+  expect(await run(["execution", "request"], { ...attemptContext, sessionId: "古い監督" })).toMatchObject({ exitCode: 1, json: { error: { code: "STALE_GENERATION" } } });
+  expect(await run(["execution", "request"], { ...attemptContext, generation: 0 })).toMatchObject({ exitCode: 1, json: { error: { code: "STALE_GENERATION" } } });
+  expect(await run(["execution", "request"], attemptContext, "監督B")).toMatchObject({ exitCode: 1, json: { error: { code: "AUTHORITY_CHANGED" } } });
+  const changedAuthorities: Record<string, string>[] = [{ NOD_TEST_RUNTIME: "別runtime" }, { NOD_TEST_CONSUMER: "99" }, { NOD_TEST_IDENTITY: "orca_session_id:別本人" }];
+  for (const extraEnv of changedAuthorities) {
+    expect(await run(["execution", "request"], attemptContext, "監督A", "omp", extraEnv)).toMatchObject({ exitCode: 1, json: { error: { code: "AUTHORITY_CHANGED" } } });
+  }
+  const commands = JSON.parse(readFileSync(saved, "utf8")).commands as string[][];
+  expect(commands.filter(a => ["task-create", "worker-start"].includes(a[1]!)).map(a => a[1])).toEqual(["task-create", "worker-start"]);
+  expect(await run(["execution", "confirm-start"], attemptContext)).toMatchObject({ exitCode: 1, json: { error: { code: "HOST_OBSERVATION_REQUIRED" } } });
+  const observed = await run(["session", "observe"], context, "監督A", "claude-code");
   expect(observed.json.snapshot).toMatchObject({ resolved: true, planId: ready.plan.id, planHash: ready.plan.contentHash });
   expect(observed.json.state.nextActions).toContainEqual(expect.objectContaining({ argv: ["nod", "sprint", "session", "resume", sprint.id, "--input", "-"] }));
   const action = observed.json.state.nextActions.find((a: any) => a.argv.includes("resume"));
@@ -131,8 +150,10 @@ else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state))
   };
   const unavailable = await copied(true);
   expect(unavailable).toMatchObject({ exitCode: 0, json: { snapshot: { resolved: false }, state: { session: { generation: 1, state: "handover", caller: "監督A" }, occupied: 1 } } });
+  expect(await run(["execution", "request"], attemptContext)).toMatchObject({ exitCode: 1, json: { error: { code: "HANDOVER_PENDING" } } });
+  expect(await run(["execution", "confirm-start"], attemptContext)).toMatchObject({ exitCode: 1, json: { error: { code: "HANDOVER_PENDING" } } });
   const resumed = await copied(false);
-  expect(resumed).toMatchObject({ exitCode: 0, json: { state: { session: { generation: 2, caller: "監督B", consumerGeneration: 8, planId: ready.plan.id, planHash: ready.plan.contentHash }, occupied: 1 } } });
+  expect(resumed).toMatchObject({ exitCode: 0, json: { state: { session: { actor: "codex", generation: 2, caller: "監督B", consumerGeneration: 8, planId: ready.plan.id, planHash: ready.plan.contentHash }, occupied: 1 } } });
   expect(resumed.json.state.attempts[0]).toMatchObject({ id: request.json.attempts[0].id, taskId: "元Task", dispatchId: "元Dispatch", canStart: false });
   expect(resumed.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
   expect(await run(["execution", "request"], { ...context, attemptId: request.json.attempts[0].id }, "監督A")).toMatchObject({ exitCode: 1, json: { error: { code: "STALE_GENERATION" } } });
@@ -147,6 +168,7 @@ else throw Error('想定外の操作');writeFileSync(file,JSON.stringify(state))
   expect(replannedObservation.json.snapshot).toMatchObject({ resolved: true, planId: revised.plan.id, planHash: revised.plan.contentHash });
   const replanned = await run(["session", "resume"], { ...current, requestKey: "新合意の引継ぎ" }, "監督C");
   expect(replanned).toMatchObject({ exitCode: 0, json: { state: { session: { generation: 3, caller: "監督C", planId: revised.plan.id, planHash: revised.plan.contentHash }, occupied: 1 } } });
+  expect(replanned.json.state.session.actor).toBe("omp");
   expect(replanned.json.state.attempts[0]).toMatchObject({ id: request.json.attempts[0].id, taskId: "元Task", dispatchId: "元Dispatch", canStart: false });
   expect(replanned.json.state.operations.map((o: core.SprintExecutionOperation) => o.requestId)).toEqual(["Task要求", "起動要求"]);
 });

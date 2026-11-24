@@ -41,7 +41,7 @@ test("同じ予約要求は保存した主試行へ合流し、設定未観測�
   const input = { sessionId: session.id, generation: 1, requestKey: "主担当", itemId,
     actor: llm.actor, spec: "合意した仕事を行う", placement: { worktree: "path:/専用作業場所", agent: "codex" } };
   const first = core.prepareSprintExecution(llm, sprint.id, input, sprintTestClock);
-  const replay = core.prepareSprintExecution(llm, sprint.id, input, sprintTestClock);
+  const replay = core.prepareSprintExecution({ ...llm, actor: "omp" }, sprint.id, input, sprintTestClock);
   expect(replay.id).toBe(first.id);
   const state = core.getSprintExecutionState(db, sprint.id, sprintTestClock);
   expect(state).toMatchObject({ occupied: 1, reserved: 1, canStart: false, session: { generation: 1, consumerGeneration: 7 } });
@@ -52,6 +52,33 @@ test("同じ予約要求は保存した主試行へ合流し、設定未観測�
   expect(codeOf(() => core.prepareSprintExecution(llm, sprint.id, { ...input, spec: "別の仕事" }, sprintTestClock))).toBe("IDEMPOTENCY_CONFLICT");
   expect(core.getIssue(db, issue.id).status).toBe("todo");
   db.close();
+});
+
+test("別actorの同世代receiptを受理し、古いID・世代・操作世代と引継ぎ中のreceiptは隔離する", async () => {
+  const state = await reserved();
+  const ctx = { db: state.db, actor: "omp" }, context = { sessionId: state.session.id, generation: 1 };
+  const operationId = core.getSprintExecutionState(state.db, state.sprint.id).operations[0]!.id;
+  const input = { ...context, operationId, receipt: receipt("Task要求", "元Task") };
+  const accepted = core.recordSprintExecutionReceipt(ctx, state.sprint.id, input, sprintTestClock);
+  expect(accepted).toMatchObject({ session: { actor: state.llm.actor }, quarantined: [],
+    attempts: [{ taskId: "元Task" }], operations: [{ state: "confirmed" }, { state: "prepared" }] });
+  for (const stale of [{ ...input, sessionId: "旧監督" }, { ...input, generation: 0 }]) {
+    const result = core.recordSprintExecutionReceipt(ctx, state.sprint.id, stale, sprintTestClock);
+    expect(result.quarantined.at(-1)).toMatchObject({ operationId, generation: stale.generation });
+  }
+  core.beginSprintHandover(ctx, state.sprint.id, { ...context, requestKey: "引継ぎ" });
+  const pending = core.recordSprintExecutionReceipt(ctx, state.sprint.id, input, sprintTestClock);
+  expect(pending.quarantined).toHaveLength(3);
+  const next = { authority: async () => ({ ...authority(), caller: "監督B", coordinator: "監督B", consumerGeneration: 8 }),
+    inventory: async () => ({ tasks: [{ runId: "元Run", taskId: "元Task", spec: "", parentTaskId: null }], workers: [], complete: true }),
+    request: async () => ({ requestId: "Task要求", state: "completed" as const, receipt: input.receipt, source: "Orcaの元要求", observedAt: sprintTestClock.now.toISOString() }) };
+  const snapshot = await core.observeSprintSession(ctx, state.sprint.id, context, next, sprintTestClock);
+  const resumed = core.completeSprintHandover(ctx, state.sprint.id, { ...context, snapshotId: snapshot.id }, sprintTestClock);
+  expect(resumed.session).toMatchObject({ actor: "omp", generation: 2, state: "active" });
+  const oldOperation = core.recordSprintExecutionReceipt(ctx, state.sprint.id, { ...input, generation: 2 }, sprintTestClock);
+  expect(oldOperation.quarantined).toHaveLength(4);
+  expect(oldOperation.operations[0]).toMatchObject({ generation: 1, state: "confirmed" });
+  state.db.close();
 });
 
 test("Task作成と起動の送信前に予約を保存し、応答喪失後も同じ操作とTaskへ合流する", async () => {

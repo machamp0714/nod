@@ -41,7 +41,7 @@ function rows<T>(db: Database, table: string, sprintId: string): T[] {
 }
 function owned(ctx: OpCtx, sprintId: string, input: SprintSessionContext, allowHandover = false): SprintSession {
   const current = session(ctx.db, sprintId);
-  if (!current || current.id !== input.sessionId || current.generation !== input.generation || current.actor !== ctx.actor) fail("STALE_GENERATION", "現在の監督世代と一致しません。元Runを再照合してください");
+  if (!current || current.id !== input.sessionId || current.generation !== input.generation) fail("STALE_GENERATION", "現在の監督世代と一致しません。元Runを再照合してください");
   if (!allowHandover && current.state === "handover") fail("HANDOVER_PENDING", "監督の引継ぎ中です。元の操作と予約を再照合してください");
   return current;
 }
@@ -281,7 +281,7 @@ export function recordSprintExecutionReceipt(ctx: OpCtx, ref: string,
   return tx(ctx.db, () => {
     const sprintId = getSprint(ctx.db, ref).id, operation = operationById(ctx.db, sprintId, input.operationId);
     const current = session(ctx.db, sprintId);
-    if (!current || current.id !== input.sessionId || current.generation !== input.generation || current.actor !== ctx.actor
+    if (!current || current.id !== input.sessionId || current.generation !== input.generation
       || current.state !== "active" || operation.generation !== input.generation) {
       ctx.db.query("INSERT INTO sprint_execution_quarantine VALUES(?,?,?)").run(crypto.randomUUID(), sprintId,
         JSON.stringify({ operationId: operation.id, generation: input.generation, reason: "旧監督の応答は外部照合が必要です", receipt: input.receipt }));
