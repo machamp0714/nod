@@ -27,7 +27,7 @@ describe("nod template", () => {
     expect((await me(["template", "list"])).json.map((t: { name: string }) => t.name)).toEqual(["bug"]);
     expect((await runNod(["template", "show", "bug"], { cwd: repo, db })).stdout).toContain("## 期待する動作");
     expect((await me(["template", "add", "x", "--from", "none.md"], dir)).json.error.code).toBe("FILE_NOT_FOUND");
-    expect((await me(["template", "remove", "bug"])).exitCode).toBe(0);
+    expect((await me(["template", "remove", "bug", "--yes"])).exitCode).toBe(0);
     expect((await me(["template", "show", "bug"])).json.error.code).toBe("NOT_FOUND");
   });
 
@@ -38,6 +38,19 @@ describe("nod template", () => {
     expect((await me(["issue", "create", "検索を足す", "--template", "feature"])).json.description).toBe("## 目的\n");
     expect((await me(["issue", "create", "t", "--template", "feature", "-d", "x"])).json.error.code).toBe("INVALID_ARGS");
     expect((await me(["issue", "create", "t", "--template", "none"])).json.error.code).toBe("NOT_FOUND");
+  });
+
+  test("LLM もテンプレートを登録・置き換えできる", async () => {
+    const ownDb = tempDb();
+    const cwd = makeRepo();
+    registerRepo(ownDb, cwd);
+    const file = join(cwd, "template.md");
+    const opts = { cwd, db: ownDb, actor: "codex" };
+    writeFileSync(file, "初版");
+    expect((await runNod(["template", "add", "review", "--from", file, "--json"], opts)).json.created).toBe(true);
+    writeFileSync(file, "更新版");
+    expect((await runNod(["template", "add", "review", "--from", file, "--json"], opts)).json.created).toBe(false);
+    expect((await runNod(["template", "show", "review", "--json"], opts)).json.body).toBe("更新版");
   });
 
   test("手引きに --template の使い方がある", async () => {

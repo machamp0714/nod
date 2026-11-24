@@ -58,13 +58,14 @@ describe("Workspace の作業規約", () => {
     clearWorkspaceRules(me, ws.key);
   });
 
-  test("LLM は登録・更新・削除できず FORBIDDEN_FOR_LLM、読むことはできる", () => {
-    const { db, ws, me, llm } = setup();
-    expect(codeOf(() => setWorkspaceRules(llm, ws.key, "a"))).toBe("FORBIDDEN_FOR_LLM");
-    setWorkspaceRules(me, ws.key, "a");
-    expect(codeOf(() => setWorkspaceRules(llm, ws.key, "b"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => clearWorkspaceRules(llm, ws.key))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getWorkspaceRules(db, ws.key)?.body).toBe("a");
+  test("LLM も作業規約を登録・更新・削除でき、書き手を記録する", () => {
+    const { db, ws, llm } = setup();
+    setWorkspaceRules(llm, ws.key, "a");
+    expect(getWorkspaceRules(db, ws.key)).toMatchObject({ body: "a", updatedBy: llm.actor });
+    setWorkspaceRules(llm, ws.key, "b");
+    expect(getWorkspaceRules(db, ws.key)?.body).toBe("b");
+    clearWorkspaceRules(llm, ws.key);
+    expect(getWorkspaceRules(db, ws.key)).toBeNull();
   });
 
   test("未登録の Workspace は NOT_FOUND", () => {

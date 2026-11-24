@@ -59,15 +59,15 @@ describe("nod workspace rules", () => {
     expect(long.json.error.code).toBe("INVALID_ARGS");
   });
 
-  test("LLM は set・clear できず FORBIDDEN_FOR_LLM、show はできる", async () => {
+  test("LLM も set・show・clear で規約を変更でき、書き手を記録する", async () => {
     const { db, repo } = await setupRepo();
-    await runNod(["workspace", "rules", "set", "--text", "a"], { cwd: repo, db });
-    const set = await runNod(["workspace", "rules", "set", "--text", "b", "--json"], { cwd: repo, db, actor: "claude-code" });
-    expect(set.exitCode).toBe(1);
-    expect(set.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    const clear = await runNod(["workspace", "rules", "clear", "--json"], { cwd: repo, db, actor: "codex" });
-    expect(clear.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    expect((await runNod(["workspace", "rules", "show", "--json"], { cwd: repo, db, actor: "codex" })).json.body).toBe("a");
+    const opts = { cwd: repo, db, actor: "codex" };
+    expect((await runNod(["workspace", "rules", "set", "--text", "a", "--json"], opts)).exitCode).toBe(0);
+    const set = await runNod(["workspace", "rules", "set", "--text", "b", "--json"], opts);
+    expect(set.json).toMatchObject({ body: "b", updatedBy: "codex" });
+    expect((await runNod(["workspace", "rules", "show", "--json"], opts)).json.body).toBe("b");
+    expect((await runNod(["workspace", "rules", "clear", "--json"], opts)).exitCode).toBe(0);
+    expect((await runNod(["workspace", "rules", "show", "--json"], opts)).json).toBeNull();
   });
 });
 

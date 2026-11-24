@@ -100,7 +100,7 @@ export function registerWorkspaceCommands(program: Command): void {
       }),
     );
 
-  const rules = ws.command("rules").description("LLM に守らせる作業規約（Markdown）を管理する。変更は人だけが行える");
+  const rules = ws.command("rules").description("LLM に守らせる作業規約（Markdown）を管理する");
   rules
     .command("show")
     .description("現在の Workspace の作業規約を表示する")
@@ -150,7 +150,7 @@ export function registerWorkspaceCommands(program: Command): void {
     const result = { workspaceKey: w.key, enabled: w.specAssessmentEnabled === true };
     print(cli, result, () => `自動仕様判定: ${result.enabled ? "ON" : "OFF"}`);
   }));
-  assessment.command("set <state>").description("人間がON/OFFを変更する（on または off）").action(act((cli, cmd, state: string) => {
+  assessment.command("set <state>").description("ON/OFFを変更する（on または off）").action(act((cli, cmd, state: string) => {
     if (state !== "on" && state !== "off") throw new NodError("INVALID_ARGS", "on または off を指定してください");
     const w = setWorkspaceSpecAssessment(cli.ctx, currentWorkspace(cli, cmd).key, state === "on");
     print(cli, { workspaceKey: w.key, enabled: w.specAssessmentEnabled }, () => `自動仕様判定を${state === "on" ? "ON" : "OFF"}にしました`);
@@ -164,7 +164,7 @@ export function registerWorkspaceCommands(program: Command): void {
 function registerLabelCommands(ws: Command): void {
   const labels = ws
     .command("labels")
-    .description("Workspace のラベル定義（名前・色・説明）を管理する。削除は人だけが行える。未定義のラベルも Issue に付けられる");
+    .description("Workspace のラベル定義（名前・色・説明）を管理する。未定義のラベルも Issue に付けられる");
   labels
     .command("list")
     .description("現在の Workspace のラベル定義を一覧する")
@@ -207,8 +207,10 @@ function registerLabelCommands(ws: Command): void {
   labels
     .command("remove <name>")
     .description("ラベルの定義を削除する。Issue に付いたラベルは未定義のラベルとして残る")
+    .option("--yes", "削除を確認する")
     .action(
-      act((cli, cmd, name: string) => {
+      act((cli, cmd, name: string, o: { yes?: boolean }) => {
+        if (!o.yes) throw new NodError("CONFIRM_REQUIRED", "ラベルの定義の削除は元に戻せません。よければ --yes を付けて再実行してください");
         const r = removeWorkspaceLabel(cli.ctx, currentWorkspace(cli, cmd).key, name);
         print(cli, r, () => `ラベル ${r.name} の定義を削除しました（Issue のラベルは残ります）`);
       }),
@@ -218,7 +220,7 @@ function registerLabelCommands(ws: Command): void {
 function registerStatusNameCommands(ws: Command): void {
   const names = ws
     .command("status-names")
-    .description("ステータスの表示名を管理する。内部値と状態の意味は変わらない。変更は人だけが行える");
+    .description("ステータスの表示名を管理する。内部値と状態の意味は変わらない");
   names
     .command("show")
     .description("現在の Workspace のステータスの表示名を表示する")
@@ -272,7 +274,7 @@ function parsePair(value: string): { from: string; to: string } {
 function registerTransitionCommands(ws: Command): void {
   const transitions = ws
     .command("transitions")
-    .description("ステータスの遷移ルール（許可しない遷移）を管理する。LLM・自動化も従う。変更は人だけが行える");
+    .description("ステータスの遷移ルール（許可しない遷移）を管理する。LLM・自動化も従う");
   transitions
     .command("show")
     .description("現在の Workspace の遷移ルールを表示する")

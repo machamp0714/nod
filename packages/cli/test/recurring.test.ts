@@ -51,15 +51,28 @@ describe("nod recurring", () => {
 
     const updated = await me(["recurring", "update", id, "--every", "weekly", "--weekday", "月", "--disable"]);
     expect(updated.json).toMatchObject({ cadence: "weekly", weekday: 1, enabled: false, nextOccurrence: null });
-    expect((await me(["recurring", "remove", id])).exitCode).toBe(0);
+    expect((await me(["recurring", "remove", id, "--yes"])).exitCode).toBe(0);
     expect((await me(["recurring", "list"])).json).toEqual([]);
     expect((await me(["issue", "show", issueId])).exitCode).toBe(0);
   });
 
-  test("LLM は登録・実行できず、dry-run はできる", async () => {
-    expect((await llm(["recurring", "add", "x", "--every", "daily", "--start", "2026-01-01"])).json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    expect((await llm(["recurring", "run"])).json.error.code).toBe("FORBIDDEN_FOR_LLM");
-    expect((await llm(["recurring", "run", "--dry-run"])).exitCode).toBe(0);
+  test("LLM も登録・変更・実行でき、dry-run は変更しない", async () => {
+    const ownDb = tempDb();
+    const cwd = makeRepo();
+    registerRepo(ownDb, cwd);
+    const opts = { cwd, db: ownDb, actor: "codex" };
+    const run = (args: string[]) => runNod([...args, "--json"], opts);
+    const added = await run(["recurring", "add", "初版", "--every", "daily", "--start", "2020-01-01", "--tz", "UTC"]);
+    expect(added.exitCode).toBe(0);
+    const id = String(added.json.id);
+    expect((await run(["recurring", "update", id, "--title", "更新版"])).json).toMatchObject({ title: "更新版", updatedBy: "codex" });
+    expect((await run(["recurring", "run", "--dry-run"])).json.items).toMatchObject([{ recurringId: added.json.id, issueId: null }]);
+    expect((await run(["issue", "list"])).json).toEqual([]);
+    expect((await run(["recurring", "show", id])).json.lastOccurrence).toBeNull();
+    const applied = await run(["recurring", "run"]);
+    expect(applied.exitCode).toBe(0);
+    expect((await run(["issue", "show", applied.json.items[0].issueId])).json.title).toBe("更新版");
+    expect((await run(["recurring", "run"])).json.items).toEqual([]);
   });
 
   test("引数の誤りは INVALID_ARGS", async () => {

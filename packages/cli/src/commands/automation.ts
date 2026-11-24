@@ -101,7 +101,7 @@ export function registerAutomationCommands(program: Command): void {
     );
   automation
     .command("set")
-    .description("自動化のルールを有効にする・日数を変える・無効にする（人だけが行える）")
+    .description("自動化のルールを有効にする・日数を変える・無効にする")
     .option("--close-after-days <days|off>", "この日数だけ更新のない未完了の Issue を canceled にする（1〜3650、off で無効）", parseDays("--close-after-days"))
     .option("--archive-after-days <days|off>", "done / canceled からこの日数たった Issue をアーカイブする（1〜3650、off で無効）", parseDays("--archive-after-days"))
     .action(
@@ -122,7 +122,7 @@ export function registerAutomationCommands(program: Command): void {
     );
   automation
     .command("run")
-    .description("定期Issueの起票と有効な自動化ルールを今すぐ1回実行する（実行は人だけ。--dry-run は対象を表示するだけ）")
+    .description("定期Issueの起票と有効な自動化ルールを今すぐ1回実行する（--dry-run は対象を表示するだけ）")
     .option("--dry-run", "対象を表示するだけで変更しない")
     .option("--limit <n>", `ルールごとに扱う上限（既定 50、最大 ${AUTOMATION_LIMIT_MAX}）。古い順に扱う`, parseLimit)
     .addHelpText(

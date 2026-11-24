@@ -1,7 +1,7 @@
 import { invalidateIssueAssessment } from "./spec-assessment";
 import type { Database } from "bun:sqlite";
 import { basename } from "node:path";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Workspace } from "../types";
@@ -101,7 +101,6 @@ export function removeWorkspace(
 }
 
 export function setWorkspaceSpecAssessment(ctx: OpCtx, keyOrPath: string, enabled: boolean): Workspace {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "自動仕様判定の設定は人間だけが変更できます");
   return tx(ctx.db, () => {
     const workspace = findWorkspace(ctx.db, keyOrPath);
     if (!workspace) throw new NodError("NOT_FOUND", "Workspace がありません");

@@ -28,12 +28,12 @@ for (const decision of ["decline", "duplicate"] as const) {
   });
 }
 
-test("設定は既定OFFで人間だけが変更でき、既存Issueへ遡及しない", () => {
+test("設定は既定OFFでLLMも変更でき、既存Issueへ遡及しない", () => {
   const { db, ws, me, llm } = setup();
   expect(findWorkspace(db, ws.key)?.specAssessmentEnabled).toBe(false);
   const old = createIssue(me, { workspaceId: ws.id, title: "既存" });
-  expect(codeOf(() => setWorkspaceSpecAssessment(llm, ws.key, true))).toBe("FORBIDDEN_FOR_LLM");
-  setWorkspaceSpecAssessment(me, ws.key, true);
+  setWorkspaceSpecAssessment(llm, ws.key, true);
+  expect(findWorkspace(db, ws.key)?.specAssessmentEnabled).toBe(true);
   expect(getIssue(db, old.id).specAssessment).toBeNull();
   expect(startIssue(me, old.id).status).toBe("in_progress");
 });

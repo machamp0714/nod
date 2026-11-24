@@ -58,12 +58,12 @@ describe("ステータスの遷移ルールの設定", () => {
     expect(getTransitionRules(db, ws.key).forbidden).toEqual([]);
   });
 
-  test("LLM は設定・解除できないが、読める", () => {
-    const { ws, me, llm } = setup();
-    setTransitionRules(me, ws.key, { forbidden: [{ from: "backlog", to: "done" }] });
-    expect(codeOf(() => setTransitionRules(llm, ws.key, { forbidden: [] }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => resetTransitionRules(llm, ws.key))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も遷移ルールを設定・解除できる", () => {
+    const { ws, llm } = setup();
+    setTransitionRules(llm, ws.key, { forbidden: [{ from: "backlog", to: "done" }] });
     expect(getTransitionRules(llm.db, ws.key).forbidden).toEqual([{ from: "backlog", to: "done" }]);
+    resetTransitionRules(llm, ws.key);
+    expect(getTransitionRules(llm.db, ws.key).forbidden).toEqual([]);
   });
 
   test("不正な指定は INVALID_ARGS", () => {

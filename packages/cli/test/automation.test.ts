@@ -59,7 +59,7 @@ test("自動クローズは作業中・入力待ち・エラーを除外し、�
   }
 });
 
-test("set は日数の不正・未指定を拒み、LLM からの変更を拒む", async () => {
+test("set は日数の不正・未指定を拒み、LLM も設定できる", async () => {
   const { opts } = fixture();
   for (const args of [[], ["--close-after-days", "0"], ["--close-after-days", "abc"], ["--archive-after-days", "3651"], ["--close-after-days", "1.5"]]) {
     const r = await runNod(["automation", "set", ...args, "--json"], opts);
@@ -67,7 +67,8 @@ test("set は日数の不正・未指定を拒み、LLM からの変更を拒む
     expect(r.json.error.code).toBe("INVALID_ARGS");
   }
   const llm = await runNod(["automation", "set", "--close-after-days", "30", "--json"], { ...opts, actor: "codex" });
-  expect(llm.json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  expect(llm.exitCode).toBe(0);
+  expect((await runNod(["automation", "show", "--json"], opts)).json).toMatchObject({ closeAfterDays: 30, updatedBy: "codex" });
 });
 
 test("run --dry-run は対象を表示するだけ、run で canceled・アーカイブし、2回目は0件", async () => {
@@ -86,10 +87,7 @@ test("run --dry-run は対象を表示するだけ、run で canceled・アー�
   expect(dryJson.json).toMatchObject({ dryRun: true, rules: [{ kind: "auto_close", total: 1 }, { kind: "auto_archive", total: 1 }] });
   expect((await runNod(["issue", "show", open, "--json"], opts)).json.status).toBe("todo");
 
-  const llm = await runNod(["automation", "run", "--json"], { ...opts, actor: "codex" });
-  expect(llm.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-
-  const run = await runNod(["automation", "run"], opts);
+  const run = await runNod(["automation", "run"], { ...opts, actor: "codex" });
   expect(run.exitCode).toBe(0);
   expect(run.stdout).toContain(`canceled にしました: 1 件（${open}）`);
   expect(run.stdout).toContain(`アーカイブしました: 1 件（${done}）`);
@@ -107,7 +105,7 @@ test("run は定期Issue（#32）の起票を同じ回に行い、--dry-run で�
   expect(added.exitCode).toBe(0);
   const dry = await runNod(["automation", "run", "--dry-run"], { ...opts, actor: "codex" });
   expect(dry.stdout).toContain(`起票する（定期Issue）: 1 件\n  -  ${today} 分  #${added.json.id} 日次チェック`);
-  const run = await runNod(["automation", "run", "--json"], opts);
+  const run = await runNod(["automation", "run", "--json"], { ...opts, actor: "codex" });
   expect(run.json.recurring).toMatchObject({ enabled: 1, items: [{ recurringId: added.json.id, occurrence: today }], notRun: [], failed: [] });
   const issueId = run.json.recurring.items[0].issueId;
   expect((await runNod(["issue", "show", issueId, "--json"], opts)).json.title).toBe("日次チェック");

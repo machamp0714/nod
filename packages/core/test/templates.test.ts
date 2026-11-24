@@ -34,16 +34,17 @@ describe("テンプレート", () => {
     expect(listTemplates(db).map((t) => t.name)).toEqual(["bug"]);
   });
 
-  test("LLM は登録・置き換え・削除できず FORBIDDEN_FOR_LLM で何も変えない。一覧と本文は読める", () => {
-    const { db, me, llm } = setup();
-    saveTemplate(me, { name: "bug", body: "## 再現手順\n" });
-    expect(codeOf(() => saveTemplate(llm, { name: "new", body: "x" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => saveTemplate(llm, { name: "bug", body: "x" }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => saveTemplate(llm, { name: "new", body: "x" }, "create"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => saveTemplate(llm, { name: "bug", body: "x" }, "replace"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => removeTemplate(llm, "bug"))).toBe("FORBIDDEN_FOR_LLM");
+  test("LLM も登録と置き換えができ、create・replace の衝突検査は残る", () => {
+    const { db, llm } = setup();
+    expect(saveTemplate(llm, { name: "bug", body: "v1" }, "create").created).toBe(true);
+    expect(codeOf(() => saveTemplate(llm, { name: "bug", body: "v2" }, "create"))).toBe("TEMPLATE_EXISTS");
+    expect(saveTemplate(llm, { name: "bug", body: "v3" }, "replace").created).toBe(false);
+    expect(codeOf(() => saveTemplate(llm, { name: "none", body: "x" }, "replace"))).toBe("NOT_FOUND");
+    expect(saveTemplate(llm, { name: "bug", body: "v4" }).created).toBe(false);
     expect(listTemplates(db).map((t) => t.name)).toEqual(["bug"]);
-    expect(getTemplate(db, "bug").body).toBe("## 再現手順\n");
+    expect(getTemplate(db, "bug").body).toBe("v4");
+    expect(removeTemplate(llm, "bug").name).toBe("bug");
+    expect(listTemplates(db)).toEqual([]);
   });
 });
 

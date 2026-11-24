@@ -80,10 +80,10 @@ describe("自動化の設定", () => {
     expect(getAutomationSettings(db, ws.key)).toMatchObject({ closeAfterDays: 1, archiveAfterDays: 3650 });
   });
 
-  test("LLM は設定を変えられない", () => {
+  test("LLM も設定を変更でき、書き手を記録する", () => {
     const { db, ws, llm } = setup();
-    expect(codeOf(() => setAutomationSettings(llm, ws.key, { closeAfterDays: 30 }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(getAutomationSettings(db, ws.key).closeAfterDays).toBeNull();
+    setAutomationSettings(llm, ws.key, { closeAfterDays: 30 });
+    expect(getAutomationSettings(db, ws.key)).toMatchObject({ closeAfterDays: 30, updatedBy: llm.actor });
   });
 
   test("質問を Issue ごとに引く索引がある", () => {
@@ -305,13 +305,14 @@ describe("自動クローズ（#71）", () => {
     expect(codeOf(() => runAutomation(me, ws.key, { dryRun: true, evaluatedAt: "yesterday" }))).toBe("INVALID_ARGS");
   });
 
-  test("LLM は dry-run だけでき、実行は FORBIDDEN_FOR_LLM", () => {
+  test("LLM も dry-run と実行ができる", () => {
     const { db, llm, ws, make, enable } = fixture();
     enable(10, 10);
     const ref = make();
     expect(runAutomation(llm, ws.key, { dryRun: true, evaluatedAt: at }).rules[0]!.total).toBe(1);
-    expect(codeOf(() => runAutomation(llm, ws.key, { evaluatedAt: at }))).toBe("FORBIDDEN_FOR_LLM");
     expect(getIssue(db, ref).status).toBe("todo");
+    expect(runAutomation(llm, ws.key, { evaluatedAt: at }).rules[0]!.processed).toEqual([ref]);
+    expect(getIssue(db, ref).status).toBe("canceled");
   });
 });
 
@@ -462,11 +463,11 @@ describe("定期Issueの起票（#32）", () => {
     expect(nextIssue(llm, { workspaceId: ws.id })).toMatchObject({ id: created, status: "in_progress" });
   });
 
-  test("LLM は起票を含めて実行できない", () => {
+  test("LLM も自動化から定期Issueを起票できる", () => {
     const { db, llm, me, ws } = fixture();
     addRecurringIssue(me, ws.key, daily());
-    expect(codeOf(() => runAutomation(llm, ws.key, { evaluatedAt: at }))).toBe("FORBIDDEN_FOR_LLM");
-    expect(recurringIssues(db)).toEqual([]);
+    const run = runAutomation(llm, ws.key, { evaluatedAt: at });
+    expect(getIssue(db, run.recurring.items[0]!.issueId!).title).toBe("日次チェック");
   });
 
   test("targets の recurring（確認時点の一覧）だけを起票し、確認のあとで起票済み・停止したものは notRun で返す", () => {

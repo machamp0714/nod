@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import type { Template } from "../types";
@@ -28,13 +28,6 @@ export function getTemplate(db: Database, name: string): Template {
   return toTemplate(row);
 }
 
-// テンプレートは定期Issueで LLM が実行する手順にもなるため、書き換え・削除は人だけ（#150）。読むのは LLM もできる
-function requireHuman(ctx: OpCtx): void {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM はテンプレートを登録・置き換え・削除できません。変更は me に依頼してください");
-  }
-}
-
 // upsert は CLI の nod template add（同じ名前があれば置き換える）。
 // Web は誤って上書き・復活させないよう、追加を create（同じ名前があれば拒む）、本文の編集を replace（なければ拒む）で呼ぶ（#160）
 export type TemplateSaveMode = "upsert" | "create" | "replace";
@@ -44,7 +37,6 @@ export function saveTemplate(
   input: { name: string; body: string },
   mode: TemplateSaveMode = "upsert",
 ): { template: Template; created: boolean } {
-  requireHuman(ctx);
   const { db } = ctx;
   if (!input.name.trim()) throw new NodError("INVALID_ARGS", "テンプレートの名前を指定してください");
   if (!input.body.trim()) throw new NodError("INVALID_ARGS", "テンプレートの本文が空です");
@@ -70,7 +62,6 @@ export function saveTemplate(
 }
 
 export function removeTemplate(ctx: OpCtx, name: string): Template {
-  requireHuman(ctx);
   const { db } = ctx;
   return tx(db, () => {
     const template = getTemplate(db, name);
