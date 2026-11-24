@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import * as core from "@nod/core";
-import { makeRepo, runNod, tempDb } from "./helpers";
+import { makeRepo, runNod, tempDb, tempDir } from "./helpers";
 
 // 分岐の網羅は core の sprint-rollover.test.ts にある。ここでは CLI の共通入口の配線だけを確かめる。
 // 期間は過去の日付で作り、実時計で処理させる。
@@ -49,7 +51,7 @@ test("DBを開くコマンドの実行前に期限切れのSprintを引き継ぎ
   expect(successorText).toContain(`引継ぎ（Sprint ${sprint.number}「過去のSprint」（ended）から）`);
 });
 
-test("nod scrum rollover は人だけが変えられ、nod scrum show に設定と状態が出る", async () => {
+test("nod scrum rollover はLLMも切り替えられ、nod scrum show に設定と状態が出る", async () => {
   const cwd = makeRepo(), db = tempDb();
   const { sprint } = expiredActiveSprint(cwd, db);
 
@@ -60,11 +62,7 @@ test("nod scrum rollover は人だけが変えられ、nod scrum show に設定�
   const successor = (await runNod(["sprint", "show", String(sprint.number + 1), "--json"], { cwd, db })).json;
   expect(shown.json.rollover.nextRunAt).toBe(successor.endsAt);
 
-  const denied = await runNod(["scrum", "rollover", "off", "--json"], { cwd, db, actor: "codex" });
-  expect(denied.json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  expect((await runNod(["scrum", "show", "--json"], { cwd, db })).json.autoRollover).toBe(true);
-
-  const off = await runNod(["scrum", "rollover", "off", "--json"], { cwd, db });
+  const off = await runNod(["scrum", "rollover", "off", "--json"], { cwd, db, actor: "codex" });
   expect(off.exitCode).toBe(0);
   expect(off.json.autoRollover).toBe(false);
   const after = await runNod(["scrum", "show", "--json"], { cwd, db, actor: "codex" });
@@ -72,5 +70,19 @@ test("nod scrum rollover は人だけが変えられ、nod scrum show に設定�
   const text = (await runNod(["scrum", "show"], { cwd, db })).stdout;
   expect(text).toContain("自動引継ぎ: 無効");
   expect(text).toContain("止まっている理由: 期限到来時の自動引継ぎは無効に設定されています");
-  expect((await runNod(["scrum", "rollover", "on"], { cwd, db })).stdout).toContain("期限到来時の自動引継ぎを有効にしました");
+  expect((await runNod(["scrum", "rollover", "on"], { cwd, db, actor: "codex" })).stdout).toContain("期限到来時の自動引継ぎを有効にしました");
+});
+
+test("LLMは自動引継ぎを無効にした期限切れSprintをCLIで終了できる", async () => {
+  const cwd = makeRepo(), db = tempDb();
+  const { sprint, ws } = expiredActiveSprint(cwd, db);
+  const d = core.openDb(db);
+  core.setSprintRollover({ db: d, actor: "me" }, ws.key, { enabled: false });
+  d.close();
+  const input = join(tempDir(), "end.json");
+  writeFileSync(input, JSON.stringify({ expectedVersion: sprint.version, requestKey: "終了", reason: "期限に到達" }));
+  const ended = await runNod(["sprint", "end", sprint.id, "--input", input, "--json"], { cwd, db, actor: "codex" });
+  expect(ended).toMatchObject({ exitCode: 0, json: { phase: "ended" } });
+  const shown = await runNod(["sprint", "show", sprint.id, "--json"], { cwd, db, actor: "codex" });
+  expect(shown.json.closureRecord).toMatchObject({ reason: "期限に到達", kind: "ended" });
 });

@@ -107,11 +107,10 @@ test("中止期間に前後で隣接する更新と通常の非重複更新を�
   }
 });
 
-test("人がWorkspaceの問題・目標・優先順位を版付きで設定し、同じ要求を再送できる", () => {
+test("Workspaceの問題・目標・優先順位を版付きで設定し、同じ要求を再送できる", () => {
   const { db, ws, me, llm } = setup();
   expect(core.getScrumWorkspace(db, ws.key)).toMatchObject({ enabled: false, version: 0 });
   const input = { expectedVersion: 0, requestKey: "方向1", enabled: true, problem: "判断待ちで停滞する", productGoal: "迷わず開発を進める", priorityRationale: "回答から再開までを優先" };
-  expect(codeOf(() => core.configureScrumWorkspace(llm, ws.key, input))).toBe("FORBIDDEN_FOR_LLM");
   const configured = core.configureScrumWorkspace(me, ws.key, input);
   expect(configured).toMatchObject({ enabled: true, problem: input.problem, productGoal: input.productGoal, priorityRationale: input.priorityRationale, version: 1, workspaceId: ws.id });
   expect(core.getScrumWorkspace(db, ws.key)).toEqual(configured);
@@ -121,10 +120,9 @@ test("人がWorkspaceの問題・目標・優先順位を版付きで設定し�
   db.close();
 });
 
-test("人の合意を版とhashに固定し、同内容の合意を再利用して期間内だけ開始・中止できる", () => {
+test("合意を版とhashに固定し、同内容の合意を再利用して期間内だけ開始・中止できる", () => {
   const { db, ws, me, llm, sprint, plan, item } = proposal();
   const agreement = { expectedVersion: sprint.version, requestKey: "合意", contentHash: plan.contentHash, agreementSource: { source: "chat:合意", quote: "このゴールと範囲で進める" } };
-  expect(codeOf(() => core.acceptSprintPlan(llm, sprint.id, plan.id, agreement))).toBe("FORBIDDEN_FOR_LLM");
   expect(codeOf(() => core.acceptSprintPlan(me, sprint.id, plan.id, { ...agreement, contentHash: "別hash" }))).toBe("STALE_REVISION");
   const ready = core.acceptSprintPlan(me, sprint.id, plan.id, agreement);
   expect(ready).toMatchObject({ sprint: { phase: "ready", adoptedPlanId: plan.id }, plan: { agreedBy: "me", agreedHash: plan.contentHash, agreementSource: agreement.agreementSource } });
@@ -136,7 +134,6 @@ test("人の合意を版とhashに固定し、同内容の合意を再利用し�
   const same = core.proposeSprintPlan(llm, sprint.id, { ...planInput(item.id, changed.sprint.version), requestKey: "同内容再提案" });
   expect(same).toMatchObject({ sprint: { phase: "ready", adoptedPlanId: same.plan.id }, plan: { agreedAt: ready.plan.agreedAt, agreedHash: plan.contentHash, agreementSource: agreement.agreementSource } });
   const activation = { expectedVersion: same.sprint.version, requestKey: "開始" };
-  expect(codeOf(() => core.activateSprint(llm, sprint.id, activation, clock))).toBe("FORBIDDEN_FOR_LLM");
   expect(codeOf(() => core.activateSprint(me, sprint.id, activation, { now: new Date("2026-03-08T04:59:59.999Z") }))).toBe("SPRINT_NOT_ACTIVE");
   expect(codeOf(() => core.activateSprint(me, sprint.id, activation, { now: new Date("2026-03-09T04:00:00.000Z") }))).toBe("SPRINT_EXPIRED");
   const active = core.activateSprint(me, sprint.id, activation, clock);
@@ -144,7 +141,6 @@ test("人の合意を版とhashに固定し、同内容の合意を再利用し�
   expect(core.activateSprint(me, sprint.id, activation, clock)).toEqual(active);
   expect(codeOf(() => core.updateSprint(me, sprint.id, { expectedVersion: active.version, requestKey: "延長", endDate: "2026-03-09" }))).toBe("INVALID_STATE");
   expect(core.resolveCurrentSprints(db, { clock }).sprints.map(s => s.id)).toEqual([sprint.id]);
-  expect(codeOf(() => core.cancelSprint(llm, sprint.id, { expectedVersion: active.version, requestKey: "中止", reason: "優先順位変更" }))).toBe("FORBIDDEN_FOR_LLM");
   const canceled = core.cancelSprint(me, sprint.id, { expectedVersion: active.version, requestKey: "中止", reason: "優先順位変更" }, clock);
   expect(canceled).toMatchObject({ phase: "canceled", cancelReason: "優先順位変更" });
   expect(core.resolveCurrentSprints(db, { clock }).issues).toEqual([]);

@@ -4,6 +4,7 @@
 // 第1引数に OpCtx（{ db, actor }）を取る操作。書き手はテストが選ぶ
 export const CTX_OPS = [
   "activateSprint",
+  "acceptSprintPlan",
   "createIssue",
   "updateIssue",
   "commentIssue",

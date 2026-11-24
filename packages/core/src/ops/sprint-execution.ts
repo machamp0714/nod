@@ -48,7 +48,7 @@ function owned(ctx: OpCtx, sprintId: string, input: SprintSessionContext, allowH
 function agreed(db: Database, ref: string) {
   const sprint = getSprint(db, ref);
   const plan = sprint.plans.find(p => p.id === sprint.adoptedPlanId);
-  if (!plan || plan.agreedBy !== "me" || !plan.agreedAt || plan.contentHash !== plan.agreedHash) return fail("NOT_ACCEPTED", "採用中の合意済み計画を確認してください");
+  if (!plan || !plan.agreedAt || plan.contentHash !== plan.agreedHash) return fail("NOT_ACCEPTED", "採用中の合意済み計画を確認してください");
   return { sprint, plan };
 }
 // 通常経路の既存所有は試行として捏造しない。肯定的な対応を得るまで占有の写しを保つ。
@@ -56,7 +56,7 @@ function existingOwnership(db: Database, sprint: SprintDetail, attempts: SprintA
   retained: SprintExistingOwnership[] = [], clock: SprintClock = {}): SprintExistingOwnership[] {
   const result = [...retained];
   const plan = sprint.plans.find(p => p.id === sprint.adoptedPlanId);
-  if (!plan || plan.agreedBy !== "me" || !plan.agreedAt || plan.agreedHash !== plan.contentHash) return result;
+  if (!plan || !plan.agreedAt || plan.agreedHash !== plan.contentHash) return result;
   for (const selected of plan.content.items) {
     const item = sprint.items.find(i => i.id === selected.itemId);
     if (!item || item.issueId === null || attempts.some(a => a.itemId === item.id && !a.parentAttemptId)
@@ -801,7 +801,7 @@ function startReportSettingsMatch(db: Database, attempt: SprintAttempt, authoriz
   // 版番号を無視せず、保存した引継ぎ履歴の全区間でゴール以外が同じ正式合意だけに限る。
   for (let i = 0; i < history.length; i++) {
     const chain = history.slice(i).map(h => sprint.plans.find(p => p.id === h.planId && p.contentHash === h.planHash));
-    if (chain.some(p => !p || p.agreedBy !== "me" || !p.agreedAt || p.agreedHash !== p.contentHash || scope(p.content) !== currentScope)) continue;
+    if (chain.some(p => !p || !p.agreedAt || p.agreedHash !== p.contentHash || scope(p.content) !== currentScope)) continue;
     const original = chain[0]!;
     const requirement = settingsRequirement(original, operation.input.placement);
     if (sprintHash({ requirement: requirement.fingerprint, model: observation.metadata.model, effort: observation.metadata.effort,
@@ -842,7 +842,7 @@ async function prepareObservationApplication(ctx: OpCtx, ref: string, message: S
     // Task1で保存済みの同試行は作り直さず、元の合意済みplanから要求設定だけを対応付ける。
     if (!current.settingsRequirement) {
       const sprint = getSprint(ctx.db, before.sprintId), original = sprint.plans.find(p => p.id === current.planId && p.contentHash === current.planHash
-        && p.agreedHash === p.contentHash && p.agreedBy === "me" && p.agreedAt);
+        && p.agreedHash === p.contentHash && p.agreedAt);
       if (original) current.settingsRequirement = settingsRequirement(original, current.placement);
     }
     const prior = current.observationHistory?.find(o => o.messageId === message.id);

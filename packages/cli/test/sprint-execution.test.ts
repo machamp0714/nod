@@ -12,7 +12,7 @@ test("CLIの通常PMは既定自己collectorで開始し、借用fromの実行�
   const p = prepareSprint(me, ws.key, [issue.id]);
   const period = core.updateSprint(me, p.sprint.id, { expectedVersion: p.sprint.version, requestKey: "期間", startDate: "2000-01-01", endDate: "2999-01-01" });
   const proposed = core.proposeSprintPlan(me, period.id, { ...p.input, expectedVersion: period.version, requestKey: "通常PM計画" });
-  const ready = core.acceptSprintPlan(me, period.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
+  const ready = core.acceptSprintPlan({ ...me, actor: "claude-code" }, period.id, proposed.plan.id, { expectedVersion: proposed.sprint.version, requestKey: "合意", contentHash: proposed.plan.contentHash });
   const sprint = core.activateSprint(me, period.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }); db.close();
   const terminal = "term_22222222-2222-4222-8222-222222222222", thread = "11111111-1111-4111-8111-111111111111";
   const metadataDir = join(dir, "sessions/2026/10/29"); mkdirSync(metadataDir, { recursive: true });

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createIssue, initWorkspace, openDb } from "@nod/core";
 import { makeRepo, runNod, tempDb, tempDir } from "./helpers";
 
-test("LLMはnod sprint addで合意の前にIssueを所属にし、別プロセスの詳細・Issue・絞り込みで読め、人専用操作は拒否のまま", async () => {
+test("LLMは合意の前後にIssueを所属にし、別プロセスの詳細・Issue・絞り込みで読める", async () => {
   const cwd = makeRepo(), db = tempDb(), inputDir = tempDir();
   const d = openDb(db); const ws = initWorkspace(d,{path:cwd}).workspace;
   const prepared = createIssue({db:d,actor:"me"},{workspaceId:ws.id,title:"準備中に足す"});
@@ -42,16 +42,14 @@ test("LLMはnod sprint addで合意の前にIssueを所属にし、別プロセ�
   expect(issueText).toContain(`codex が Sprint ${sprint.number}「差し込みSprint」に追加した`);
   expect((await runNod(["issue","list","--sprint",String(sprint.number),"--json"],me)).json.map((i:any)=>i.id)).toEqual([prepared.id]);
 
-  // 計画・合意・開始・中止の人専用の制約は残る
+  // LLMの合意と開始を経ても、直接追加と採択の所属を区別する
   expect((await runNod(["sprint","add",sprint.id,planned.id,"--json"],codex)).json.added).toBe(true);
   const plannedItem = (await runNod(["sprint","show",sprint.id,"--json"],me)).json.items.find((i:any)=>i.sourceIssueKey===planned.id);
   const proposed = (await run(["sprint","plan","propose",sprint.id],{expectedVersion:sprint.version,requestKey:"計画",goal:"差し込みを進める",verificationMethod:"一巡する",items:[{itemId:plannedItem.id,contribution:"計画の作業",executionPlan:"実装する"}],definitionOfDone:[{id:"確認",text:"動く"}],constraints:{executionScope:"Workspace",notes:"既存権限"},changeReason:"最初の計画"},"codex")).json;
   const agree = {expectedVersion:proposed.sprint.version,requestKey:"合意",contentHash:proposed.plan.contentHash};
-  expect((await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree,"codex")).json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  const ready = (await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree)).json;
+  const ready = (await run(["sprint","plan","accept",sprint.id,proposed.plan.id],agree,"codex")).json;
   const activation = {expectedVersion:ready.sprint.version,requestKey:"開始"};
-  expect((await run(["sprint","activate",sprint.id],activation,"codex")).json.error.code).toBe("FORBIDDEN_FOR_LLM");
-  const active = (await run(["sprint","activate",sprint.id],activation)).json;
+  const active = (await run(["sprint","activate",sprint.id],activation,"codex")).json;
   expect(active.phase).toBe("active");
 
   // 実行中のSprintへの差し込みも、再承認なしで current の所属になる
@@ -63,5 +61,5 @@ test("LLMはnod sprint addで合意の前にIssueを所属にし、別プロセ�
   expect(current).not.toContain(outside.id);
   expect((await runNod(["issue","list","--sprint","none","--json"],me)).json.map((i:any)=>i.id)).toEqual([outside.id]);
   expect((await runNod(["issue","show",inserted.id,"--json"],me)).json.sprints).toEqual([expect.objectContaining({id:sprint.id,association:"added"})]);
-  expect((await run(["sprint","cancel",sprint.id],{expectedVersion:active.version,requestKey:"中止",reason:"優先順位変更"},"codex")).json.error.code).toBe("FORBIDDEN_FOR_LLM");
+  expect((await run(["sprint","cancel",sprint.id],{expectedVersion:active.version,requestKey:"中止",reason:"優先順位変更"},"codex")).json.phase).toBe("canceled");
 });

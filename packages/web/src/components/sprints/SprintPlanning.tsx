@@ -45,7 +45,7 @@ export function SprintPlanning({ sprint, search, onSearchChange, onBack, onOutco
   const sprints = useSprints();
   const availability = useSprintPlanningStatus(sprint.id);
   const latest = sprint.plans.at(-1);
-  const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedBy === "me" && p.agreedAt && p.agreedHash === p.contentHash);
+  const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedAt && p.agreedHash === p.contentHash);
   const started = sprint.activatedAt !== null;
   const plan = started ? adopted : sprint.plans.find(p => p.id === viewedId) ?? latest;
   const flow = useSprintFlow(sprint.id, plan?.id ?? null, view === "flow");

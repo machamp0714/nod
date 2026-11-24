@@ -1,4 +1,4 @@
-import { HUMAN_ACTOR, type OpCtx } from "../ctx";
+import type { OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { findIssueRow, OPEN_BLOCKER, toIssue } from "../issue-query";
@@ -31,7 +31,7 @@ export function getSprintIssueEligibility(ctx: OpCtx, ref: string, itemId: strin
       planHash: plan?.contentHash ?? null, itemId, issueId: candidate.issueId === null ? null : candidate.sourceIssueKey };
     const blocked = (code: string, message: string): SprintIssueEligibility => ({ ...result, eligible: false, reason: { code, message } });
     const selected = plan?.content.items.find(item => item.itemId === itemId);
-    if (!plan || plan.agreedBy !== HUMAN_ACTOR || !plan.agreedAt || !plan.contentHash || plan.agreedHash !== plan.contentHash || !selected) {
+    if (!plan || !plan.agreedAt || !plan.contentHash || plan.agreedHash !== plan.contentHash || !selected) {
       return blocked("NOT_ACCEPTED", "採用中の合意済み計画に採択されていません");
     }
     if (sprint.phase !== "active") return blocked("SPRINT_NOT_ACTIVE", "Sprintは実行中ではありません");
