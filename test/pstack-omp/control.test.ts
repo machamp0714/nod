@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { type ExtensionResult, type ExtensionScenario, git, HARNESS_ENV, MAIN, OVERLAY, put, REPO_RULES, type Run, type Sandbox, snapshot, SUB, synced } from "./helpers";
 
 const GRANDCHILD = { kind: "sub", name: "poteto-agent", depth: 2 } as const;
@@ -28,6 +28,15 @@ async function applied(): Promise<Sandbox> {
   const sb = await synced();
   put(sb.configPath, "theme: dark\n");
   const run = await sb.run("apply");
+  if (run.exitCode !== 0) throw new Error(`適用に失敗: ${run.stderr}`);
+  return sb;
+}
+
+// applied と同じく、ただし PI_CODING_AGENT_DIR を root を基準にした相対（home/.omp/agent）で渡し、root で適用した sandbox
+async function appliedRelative(): Promise<Sandbox> {
+  const sb = await synced();
+  put(sb.configPath, "theme: dark\n");
+  const run = await sb.run("apply", { cwd: sb.root, env: { PI_CODING_AGENT_DIR: "home/.omp/agent" } });
   if (run.exitCode !== 0) throw new Error(`適用に失敗: ${run.stderr}`);
   return sb;
 }
@@ -1242,6 +1251,64 @@ describe("専用ランチャーが omp を起動する前の検証", () => {
 
     expect(run.stderr).toBe("");
     expect(run.stdout).toBe("started");
+  });
+
+  test("PI_CODING_AGENT_DIR が相対なら、OMP と同じく呼んだディレクトリを基準に解いて確かめ、omp には絶対パスにして渡す（引数 --cwd があっても）", async () => {
+    const sb = await appliedRelative();
+    const elsewhere = join(sb.root, "elsewhere");
+    mkdirSync(elsewhere);
+    const show = `printf '%s' "$PI_CODING_AGENT_DIR"`;
+
+    const runs = [
+      await sb.launchWith({ cwd: sb.root, env: { PI_CODING_AGENT_DIR: "home/.omp/agent" } }, show),
+      await sb.launchWith({ cwd: sb.project, env: { PI_CODING_AGENT_DIR: "../home/.omp/agent" } }, show),
+      await sb.launchWith({ cwd: sb.project, env: { PI_CODING_AGENT_DIR: "../home/.omp/agent" } }, show, "--cwd", elsewhere),
+    ];
+
+    for (const run of runs) {
+      expect(run.stderr).toBe("");
+      expect(run.exitCode).toBe(0);
+      expect(isAbsolute(run.stdout)).toBe(true);
+      expect(realpathSync(run.stdout)).toBe(realpathSync(sb.agentDir));
+    }
+  });
+
+  test("PI_CODING_AGENT_DIR が相対なら、呼んだディレクトリを OMP と同じく実パスにして（PWD のリンクの名前でなく）解く", async () => {
+    const sb = await appliedRelative();
+    const link = join(sb.root, "a", "b", "link");
+    mkdirSync(join(sb.root, "a", "b"), { recursive: true });
+    symlinkSync(sb.project, link);
+
+    const run = await sb.launchWith({ cwd: link, env: { PWD: link, PI_CODING_AGENT_DIR: "../home/.omp/agent" } }, `printf '%s' "$PI_CODING_AGENT_DIR"`);
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(realpathSync(run.stdout)).toBe(realpathSync(sb.agentDir));
+  });
+
+  test("PI_CODING_AGENT_DIR が相対で、呼んだディレクトリを基準に解いた置き場が組の記録と違えば、理由を出して非0で終わり、omp を起動しない", async () => {
+    const sb = await appliedRelative();
+
+    const run = await sb.launchWith({ cwd: sb.project, env: { PI_CODING_AGENT_DIR: "home/.omp/agent" } }, "printf started");
+
+    expect(run.exitCode).not.toBe(0);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain(`いまの置き場（${join(realpathSync(sb.project), "home", ".omp", "agent")}`);
+    expect(run.stderr).toContain("omp を起動しません");
+  });
+
+  test("PI_CODING_AGENT_DIR が絶対パスか空なら、そのまま omp に渡す", async () => {
+    const sb = await applied();
+    const show = `printf '%s' "$PI_CODING_AGENT_DIR"`;
+
+    const absolute = await sb.launch(show);
+    const empty = await sb.launchWith({ env: { PI_CODING_AGENT_DIR: "" } }, show);
+
+    expect(absolute.stderr).toBe("");
+    expect(absolute.stdout).toBe(sb.agentDir);
+    expect(empty.stderr).toBe("");
+    expect(empty.exitCode).toBe(0);
+    expect(empty.stdout).toBe("");
   });
 
   test("名前つきの profile や PI_CONFIG_DIR を環境変数で選んだプロセスでは、制御の拡張もツールと子の起動を遮断し、理由を出す", async () => {

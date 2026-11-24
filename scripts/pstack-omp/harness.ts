@@ -362,14 +362,22 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
 // どれかが無い、または組が正しくなければ、理由を出して非0で終わり、omp を起動しない。通れば、omp の実行ファイルをそのプロファイルで
 // 閉じ込め、制御の拡張のファイルを -e で、写しの設定の重ね（規則の bash の拒否）を --config で渡し、続けて引数をそのまま渡して起動する
 // （OMP は PI_CONFIG_FILES の重ねの後に --config の重ねを順に合わせるので、写しの重ねは PI_CONFIG_FILES より後、利用者の --config より前になる。
-// 制御の拡張は、写しの重ねのほかに重ねがあれば遮断する）。omp の起動の環境変数は変えない
+// 制御の拡張は、写しの重ねのほかに重ねがあれば遮断する）。omp の起動の環境変数は、相対の PI_CODING_AGENT_DIR を絶対パスにするほかは変えない
+// （OMP は相対の値を、--cwd へ移る前・ホームから移る前に起動したディレクトリを基準に解くが、preflight は写しの control で、
+// 制御の拡張と worker thread・子のプロセスは移った後に動くので、呼んだディレクトリ（OMP の process.cwd() と同じく実パス）を基準に絶対パスにする。
+// つなぎ目の /./ で、元の相対の値と同じく、名前つきの profile の置き場と書いたままの値で一致することがないので、OMP と組の検証の
+// profile から引き継いだ値かの比べ方は変わらない。/./ と .. は path.resolve が同じく正規化する。絶対パス・空・無い値はそのまま渡す）
 function launcher(root: string, harness: Harness): string {
   const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
   const profilePath = quote(join(root, PROFILE_FILE));
   return [
     "#!/bin/sh",
     "# pstack-omp の専用ランチャー（bun scripts/pstack-omp/cli.ts apply が書く）",
-    'cwd=$(pwd) || exit 1',
+    'cwd=$(pwd -P) || exit 1',
+    'case ${PI_CODING_AGENT_DIR-} in',
+    "  ''|/*) ;;",
+    '  *) PI_CODING_AGENT_DIR="$cwd/./$PI_CODING_AGENT_DIR"; export PI_CODING_AGENT_DIR ;;',
+    "esac",
     `if ! (cd ${quote(join(root, "control"))} && exec /usr/bin/env -i HOME="$HOME" TMPDIR="\${TMPDIR:-/tmp}" PATH="$PATH" ${PREFLIGHT_ENV.map((name) => `\${${name}+"${name}=$${name}"}`).join(" ")} ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.bunBin)} --no-env-file ${quote(join(root, PREFLIGHT_ENTRY))} "$cwd" "$@"); then`,
     `  echo ${quote(`pstack-omp: 組を確かめられないので、omp を起動しません（${join(root, LAUNCHER_FILE)}。bun scripts/pstack-omp/cli.ts status で確かめてください）`)} >&2`,
     "  exit 1",
