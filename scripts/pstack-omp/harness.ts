@@ -1,59 +1,97 @@
 // 適用と解除。
-// 適用は、OMP 向けのディレクトリの中身（content）・制御の拡張（control）・生成物（generated。manifest.json とスキルの外のリンク先の文書を含む）を、
-// データ置き場の下の pstack-omp/omp に写し（nod のリポジトリや worktree、生成物が消えても動き、読み込む中身を組で固定するように）、
-// サンドボックスのプロファイル（control/sandbox.sb）と設定の重ね（control/bash-patterns.yml）と専用ランチャー（bin/omp）を置き、同じ写しの control/harness.json に組の記録
-// （写しの全ファイルの sha256 を含む。形は omp/control/verify.ts）を書く。利用者の OMP の設定（config.yml）には読み込みの設定を書かない。
-// pstack（生成したスキル・読み替え表・poteto-agent）と禁止操作の制御は、専用ランチャーから起動したセッションだけに入る:
-// ランチャーは omp を起動する前に、同じプロファイルのサンドボックスの中で組を確かめ（control/preflight.ts を、適用したときの bun で実行する）、
-// 通らなければ理由を出して omp を起動しない。通れば omp をそのプロファイルで閉じ込め、制御の拡張のファイルを -e で、規則の bash の拒否を
-// bash.patterns に持つ設定の重ねを --config で渡して起動する。制御の拡張は、組をもう一度確かめ、規則の bash の拒否が bash.patterns の
-// 2つの見え方の先頭にあることを確かめてから、利用者の設定の実効値を土台に、3つの読み込みの設定と規則のツールの拒否を実行時の層に書く
-// （omp/control/index.ts）。通常の omp のセッションは制御の拡張も読み込みの設定も読まないので、pstack は入らない。
-// 信頼境界は macOS のサンドボックス（Seatbelt）。プロファイルは、規則の守る集合（rules.ts の guarded）とどのプロジェクトでも書かせない
-// パス（projectPaths）への書き込みを拒否する。ランチャーから起動した OMP とその子孫は、規則・読み込み先・OMP の設定・omp と bun の
-// 実行ファイル・プロジェクトの設定と同じプロセスで動くコードの置き場を書き換えられない（カーネルが拒否し、中から外せない）。
-// 規則が不正なとき、/usr/bin/sandbox-exec が無いときは、適用は何も変えずに止まる。
-// 写しは読み取り専用にしない（同じ利用者の chmod で戻せるので守りにならない）。写しは同じ階層の一時ディレクトリに作り終えてから置き換える。
-// 以前の配置（config.yml に読み込みの設定を入れた適用）の項目が config.yml に残っていれば、適用と解除はそれだけを取り除く（cleanLegacy）。
-// 適用の名前のぶつかりの検査は、取り除いた後に OMP が global の設定として読むファイル（config.yml を消すなら config.yaml）の値で行う。
-// config.yml は一時ファイルから rename し、途中で失敗したら、config.yml と写しを前のままにして止める。
+// 適用は、OMP 向けのディレクトリの中身（content）と生成物（generated。manifest.json とスキルの外のリンク先の文書を含む）を、データ置き場の下の
+// pstack-omp/omp に写し（nod のリポジトリや worktree、生成物が消えても動き、読み込む中身を組で固定するように）、写しの harness.json に組の記録
+// （写しの全ファイルの sha256 と、設定ファイルを戻すための記録。適用の前の設定ファイルを持つので、利用者だけが読み書きできる）を書き、
+// OMP が global の設定として読むファイル（config.yml、無ければ config.yaml。どちらも無ければ config.yml を作る）に3つの読み込みの設定を入れる:
+// extensions の末尾に写しの content、skills.customDirectories の先頭に写しの中の生成したスキルの置き場（custom 同士は先が勝つので、pstack の
+// tdd が利用者の置き場の tdd より優先される）、skills.manualSkills に読み込む全スキル（一覧から外す。名前で呼べば使える）。
+// 既にある値とほかのキーは保ち、自分の項目（写しの中を指すもの）が既にあれば重ねず、設定がそのとおりなら書き換えない。
+// pstack は、通常の omp の新しく始めるセッションに入る。pstack 専用の制限は置かない（何を制限するかは別に決める）。
+// 写しは読み取り専用にしない。写しは同じ階層の一時ディレクトリに作り終えてから置き換え、設定ファイルは一時ファイルから rename する。
+// 途中で失敗したら、写しと設定ファイルを前のままにして止める。
+// 解除は、適用の後に設定ファイルが変わっていなければ適用の前のバイトに戻し、変わっていれば管理対象の項目（写しの中を指す extensions・
+// skills.customDirectories の項目と、適用が skills.manualSkills に足した名前）だけを外して、適用が作ったキーは空になれば消す。続けて写しを消す。
+// 適用と解除は、どちらも初めに config.yml と config.yaml の在るものから前の適用の項目を同じ戻し方で取り除く（tidy）。前の適用の記録は
+// 写しの harness.json、無ければ旧管理配置の control/harness.json（version 1 は config.yml に制御の拡張と読み込みの設定を入れた配置で、
+// 戻すための記録を持つ。version 2 は専用ランチャーの配置で持たない）。旧管理配置の専用ランチャー（bin/omp）と制御の置き場（control/。
+// 制御の拡張・規則・サンドボックスのプロファイル）は、写しの置き換えか削除で消える。記録が無いのに写しの中を指す項目があれば、それは外し、
+// skills.manualSkills の名前は外さずに残ったことを知らせる。
+// 適用の名前のぶつかりの検査は、取り除いた後に OMP が読むファイルの値で行う。
 // 写しが別の OMP の設定の置き場に適用したものなら、適用と解除は何も変えずに止まる（ほかの設定が使っている写しを消さない）。
-// 解除は、写し（専用ランチャー・制御の拡張・生成物の写し）を消す。
 import { randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { configPath, globalConfigPath, isMapping, type OmpConfig, parseConfig, type PreparedWrite, prepareWrite, readConfig, realAncestor, sha256, stringifyConfig, stringList, withConfigLock, yamlConfigPath } from "./config";
-import { checkOmpVersion, type Context, ompRealPath, type Pin, PstackOmpError, userAgentDir } from "./context";
+import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, normalize } from "node:path";
+import {
+  configPath,
+  isMapping,
+  type OmpConfig,
+  parseConfig,
+  type PreparedWrite,
+  prepareWrite,
+  readConfig,
+  realAncestor,
+  sha256,
+  stringifyConfig,
+  stringList,
+  valueAt,
+  withConfigLock,
+  yamlConfigPath,
+} from "./config";
+import { checkOmpVersion, type Context, type Pin, PstackOmpError, userAgentDir } from "./context";
 import { type Definition, packageDefinitions, real, userPlaces, within } from "./places";
-import { bashOverlay, guarded, isRecord, type Rules, sandboxProfile } from "../../omp/control/rules";
-import { CONTROL_ENTRY, HARNESS_FILE, type Harness, hashFiles, LAUNCHER_FILE, OVERLAY_FILE, PREFLIGHT_ENTRY, PROFILE_FILE, readRules, RULES_FILE } from "../../omp/control/verify";
 
-// 以前の配置の組の記録（control/harness.json の config）。config.yml に読み込みの設定を入れた適用が、解除で戻すために書いたもの
-interface LegacyRecord {
+// 組の記録（写しの harness.json）
+export interface Harness {
+  version: 3;
+  // 適用した時刻（ISO 8601。表示だけに使う）
+  appliedAt: string;
+  // 元にした固定の記録と、適用したときの OMP の版
+  pin: Pin;
+  ompVersion: string;
+  // 適用した OMP の設定の置き場（実パス）
+  agentDir: string;
+  // extensions に入れる写しの OMP 向けのディレクトリ
+  content: string;
+  // skills.customDirectories の先頭に入れるスキルの置き場（写しの中の生成した pstack と cursor-team-kit）
+  skillDirectories: string[];
+  // skills.manualSkills に入れるスキル（生成した全スキルと、OMP 向けのディレクトリのスキル）
+  manualSkills: string[];
+  // 写しの根からの相対パス → sha256（harness.json を除く写しの全ファイル）
+  files: Record<string, string>;
+  // 解除で設定ファイルを戻すための記録
+  config: ConfigRecord;
+}
+
+export interface ConfigRecord {
+  // 読み込みの設定を書いた設定ファイル（config.yml か config.yaml。リンクなら先）
   path: string;
   // 適用の前のバイト（base64）。無かったら null
   before: string | null;
-  // 適用の直後のバイトの sha256
+  // 適用の直後のバイトの sha256。解除のときに同じなら before に戻す
   after: string;
-  // 適用の前に無く、適用が作ったキー。自分の項目を外して空になれば消す
+  // 適用の前に無く、適用が作ったキー（LOADING_KEYS のうち）。解除で自分の項目を外して空になれば消す
   addedKeys: string[];
-  // 適用が skills.manualSkills に足した名前
+  // 適用が skills.manualSkills に足した名前（適用の前から在った名前は、解除で残す）
   addedManualSkills: string[];
 }
 
-const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
-// 専用ランチャーが、在れば（空でも）組の検証（preflight.ts）に渡す、OMP が設定の置き場を決める環境変数
-const PREFLIGHT_ENV = ["PI_CODING_AGENT_DIR", "PI_CONFIG_DIR", "OMP_PROFILE", "PI_PROFILE"];
+// 適用が設定ファイルに入れる読み込みの設定のキー（skills は2つの親）
+const LOADING_KEYS = ["extensions", "skills", "skills.customDirectories", "skills.manualSkills"];
+const HARNESS_FILE = "harness.json";
+// 旧管理配置の組の記録と、写しの中の専用ランチャーと制御の置き場
+const LEGACY_HARNESS = "control/harness.json";
+const LEGACY_ENTRIES = ["bin", "control"];
 const GENERATED_ROOTS = ["pstack", "cursor-team-kit"] as const;
 
 export interface Paths {
   // 写しの根（データ置き場の下の pstack-omp/omp）
   root: string;
   content: string;
-  control: string;
   harness: string;
-  // 専用ランチャー
-  launcher: string;
+  // 旧管理配置の組の記録
+  legacyHarness: string;
+  // 旧管理配置の専用ランチャーと制御の置き場
+  legacyEntries: string[];
   // 写しの中の生成したスキルの置き場（GENERATED_ROOTS の順）
   skills: string[];
   // データ置き場の生成物（sync が作る。適用はここを丸ごと写しの generated へ写す）
@@ -66,9 +104,9 @@ export function paths(ctx: Context): Paths {
   return {
     root,
     content: join(root, "content"),
-    control: join(root, "control"),
     harness: join(root, HARNESS_FILE),
-    launcher: join(root, LAUNCHER_FILE),
+    legacyHarness: join(root, LEGACY_HARNESS),
+    legacyEntries: LEGACY_ENTRIES.map((name) => join(root, name)),
     skills: GENERATED_ROOTS.map((name) => join(root, "generated", name, "skills")),
     generated: join(workDir, "generated"),
   };
@@ -98,43 +136,138 @@ export function samePin(a: Pin, b: Pin): boolean {
   return a.repository === b.repository && a.commit === b.commit && a.pstackVersion === b.pstackVersion && a.ompVersion === b.ompVersion;
 }
 
-// 写しの組の記録（形は確かめない。以前の配置の記録も読む）。無い・読めなければ undefined
+// 組の記録（形は確かめない。旧管理配置の記録も読む）。無い・読めなければ undefined
 export function readRecord(path: string): Record<string, unknown> | undefined {
   try {
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return isRecord(raw) ? raw : undefined;
+    return isMapping(raw) ? raw : undefined;
   } catch {
     return undefined;
   }
 }
 
-// 以前の配置から取り除いた結果
+// 形が正しければ記録を、正しくなければ理由を返す
+export function parseHarness(raw: unknown): Harness | string {
+  if (!isMapping(raw)) return "オブジェクトではありません";
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string" && x !== "");
+  if (raw.version !== 3) return `version が 3 ではありません: ${String(raw.version)}`;
+  if (typeof raw.appliedAt !== "string" || Number.isNaN(Date.parse(raw.appliedAt))) return "appliedAt が時刻ではありません";
+  const pin = raw.pin;
+  if (!isMapping(pin) || !["repository", "commit", "pstackVersion", "ompVersion"].every((key) => typeof pin[key] === "string")) return "pin がありません";
+  if (typeof raw.ompVersion !== "string") return "ompVersion がありません";
+  for (const key of ["content", "agentDir"] as const) {
+    const value = raw[key];
+    if (typeof value !== "string" || !isAbsolute(value)) return `${key} が絶対パスではありません`;
+  }
+  if (!strings(raw.skillDirectories) || raw.skillDirectories.length === 0 || !raw.skillDirectories.every((dir) => isAbsolute(dir))) {
+    return "skillDirectories が絶対パスの配列ではありません";
+  }
+  if (!strings(raw.manualSkills) || raw.manualSkills.length === 0) return "manualSkills が名前の配列ではありません";
+  const files = raw.files;
+  if (!isMapping(files) || Object.keys(files).length === 0) return "files がありません";
+  for (const [rel, sha] of Object.entries(files)) {
+    if (isAbsolute(rel) || normalize(rel).startsWith("..") || typeof sha !== "string" || !/^[0-9a-f]{64}$/.test(sha)) {
+      return `files の項目 ${rel} が写しの中の相対パスと sha256 ではありません`;
+    }
+  }
+  if (configRecord(raw, undefined) === undefined) return "config が設定ファイルを戻すための記録ではありません";
+  return raw as unknown as Harness;
+}
+
+// 写しが組の記録と違うところ（一致すれば空）。読めないファイルやディレクトリも違うところとして返す（例外にしない）
+export function copyProblems(root: string, harness: Harness): string[] {
+  const problems: string[] = [];
+  const realRoot = real(root);
+  for (const dir of [harness.content, ...harness.skillDirectories]) {
+    // 読み込む中身は写しの中だけ（各ファイルを files の sha256 で確かめる）
+    if (!within(dir, realRoot)) problems.push(`組の記録が指すディレクトリ ${dir} が写し（${root}）の外です`);
+    else if (!isDirectory(dir)) problems.push(`組の記録が指すディレクトリ ${dir} がありません`);
+  }
+  const actual = scan(root, true);
+  const recorded = harness.files;
+  const files = [
+    ...Object.keys(recorded)
+      .filter((rel) => !(rel in actual))
+      .map((rel) => `${rel}（無い）`),
+    ...Object.keys(actual)
+      .filter((rel) => !(rel in recorded) && actual[rel] !== null)
+      .map((rel) => `${rel}（記録に無い）`),
+    ...Object.keys(actual)
+      .filter((rel) => actual[rel] === null)
+      .map((rel) => `${rel}（読めない）`),
+    ...Object.keys(recorded)
+      .filter((rel) => typeof actual[rel] === "string" && actual[rel] !== recorded[rel])
+      .map((rel) => `${rel}（sha256 が違う）`),
+  ];
+  if (files.length > 0) problems.push(`組のファイルが記録と違います: ${files.join(", ")}`);
+  return problems;
+}
+
+// 写しの全ファイル（harness.json を除く）の、根からの相対パス → sha256。tolerant なら、読めないファイルとディレクトリを null にする
+// （tolerant でなければ例外。適用が組の記録を作るとき）
+function scan(root: string, tolerant: boolean): Record<string, string | null> {
+  const files: Record<string, string | null> = {};
+  const visit = (rel: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(join(root, rel)).sort();
+    } catch (e) {
+      if (!tolerant || rel === "") throw e;
+      files[rel] = null;
+      return;
+    }
+    for (const name of names) {
+      const path = rel === "" ? name : `${rel}/${name}`;
+      try {
+        if (lstatSync(join(root, path)).isDirectory()) visit(path);
+        else if (path !== HARNESS_FILE) files[path] = sha256(readFileSync(join(root, path)));
+      } catch (e) {
+        if (!tolerant) throw e;
+        files[path] = null;
+      }
+    }
+  };
+  try {
+    visit("");
+  } catch (e) {
+    if (!tolerant) throw e;
+  }
+  return files;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// 前の適用の項目を設定ファイルから取り除いた結果
 export interface Cleanup {
-  // config.yml を書き換えたか（以前の配置の項目が残っていたときだけ）
-  changed: boolean;
-  // 以前の配置の記録どおりに、以前の適用の前のバイトに戻したか（false なら管理対象の項目だけを外した）
-  restoredBytes: boolean;
-  // 以前の配置の記録が無いので外さず、skills.manualSkills に残した名前
-  kept: string[];
+  // 旧管理配置（旧の記録か、記録の無い写し）からの取り除きか
+  legacy: boolean;
+  // 書き換えた設定ファイルと書き換え方: restored は記録どおりに前の適用の前のバイトに戻した、recorded は記録の管理対象の項目だけを外した、
+  // unrecorded は記録が無いので写しの中を指す項目だけを外した
+  changed: { path: string; how: Tidied["how"] }[];
+  // 記録が無いので外さず、skills.manualSkills に残した名前（設定ファイルごと）
+  kept: { path: string; names: string[] }[];
+  // 写しに旧管理配置の専用ランチャーか制御の置き場があったか（写しの置き換えか削除で消える）
+  legacyCopy: boolean;
 }
 
 export interface ApplyResult {
   root: string;
-  launcher: string;
+  // 読み込みの設定を書いた設定ファイル
   configPath: string;
-  legacy: Cleanup;
+  content: string;
+  skillDirectories: string[];
+  // 設定ファイルを書き換えたか（3つの読み込みの設定が既にそのとおりなら書き換えない）
+  configChanged: boolean;
+  cleanup: Cleanup;
   manualSkills: number;
-  // 利用者の置き場の tdd（専用ランチャーから起動したセッションでは pstack の tdd が優先される）
+  // 利用者の置き場の tdd（pstack の tdd が優先される）
   userTdd: string[];
-}
-
-// 専用ランチャーの案内（適用と状態の表示で同じ文面）
-export function entryGuide(launcher: string): string[] {
-  return [
-    `専用ランチャー: ${launcher} から起動してください（pstack の生成したスキル・読み替え表・poteto-agent と禁止操作の制御は、このランチャーから起動したセッションだけに読み込まれます。通常の omp には読み込まれません）`,
-    "  ランチャーは omp を起動する前に組を確かめ、壊れていれば理由を出して起動しません。起動した omp はサンドボックスに閉じ込め、組の規則・読み込み先・OMP の設定・omp の実行ファイルを書き換えられないようにします",
-    "  ランチャーから起動したセッションからは config.yml を保存できません（OMP の設定の変更・apply・remove は、ランチャーの外の端末で行ってください）",
-  ];
 }
 
 export function apply(ctx: Context): ApplyResult {
@@ -155,78 +288,89 @@ export function apply(ctx: Context): ApplyResult {
   const content = packageDefinitions(ctx.packageDir).definitions;
   const contentSkills = content.filter((d) => d.kind === "skill").map((d) => d.name);
   if (contentSkills.length === 0) throw new PstackOmpError(`OMP 向けのディレクトリ ${ctx.packageDir} にスキルがありません`);
-  for (const rel of [CONTROL_ENTRY, PREFLIGHT_ENTRY]) {
-    const file = join(ctx.controlDir, relative("control", rel));
-    if (!existsSync(file)) throw new PstackOmpError(`制御の拡張の ${file} がありません`);
-  }
-  const rulesPath = join(ctx.controlDir, relative("control", RULES_FILE));
-  const rules = readRules(rulesPath);
-  if (typeof rules === "string") throw new PstackOmpError(`制御の規則 ${rulesPath} が正しくありません（${rules}）。何も変えずに止めます`);
-  if (!existsSync(SANDBOX_EXEC)) throw new PstackOmpError(`${SANDBOX_EXEC} がありません（macOS のサンドボックスで閉じ込められない）。何も変えずに止めます`);
-  const ompBin = ompRealPath(ctx);
-  const previous = readRecord(p.harness);
-  checkSamePlace(previous, agentDir, p);
+  const prior = priorRecord(p);
+  checkSamePlace(prior.record, agentDir, p);
+  const manualSkills = [...generated.names, ...contentSkills.filter((name) => !generated.names.includes(name))];
+  const yml = configPath(agentDir);
+  const yaml = yamlConfigPath(agentDir);
 
-  const path = configPath(agentDir);
-  return withConfigLock(path, () => {
-    const config = readConfig(path);
-    const manualSkills = [...generated.names, ...contentSkills.filter((name) => !generated.names.includes(name))];
-    // 以前の配置の取り除き（書くのは後の replaceCopy）
-    const cleanup = cleanLegacy(config, legacyRecord(previous, path), p.root, manualSkills);
-    // 利用者の置き場は、適用の後に OMP が global の設定として読むファイルの値で決める。取り除きが config.yml を書き換えるなら書き換えた後の値、
-    // config.yml を消すなら同じ置き場の config.yaml（無ければ空の設定）。取り除かなければ、いま読むファイル（config.yml が無ければ config.yaml）
-    const write = cleanup.write;
-    const settingsPath = globalConfigPath(agentDir);
-    const settings =
-      write === undefined
-        ? settingsPath === path
-          ? config
-          : readConfig(settingsPath)
-        : write.bytes === undefined
-          ? readConfig(yamlConfigPath(agentDir))
-          : { path, bytes: write.bytes, data: parseConfig(path, write.bytes) };
-    checkLoadingSettings(settings);
-    const collisions = findCollisions(ctx, agentDir, settings, p.root, content, generated.names);
-    const blocking = collisions.filter((d) => !(d.kind === "skill" && d.name === "tdd"));
-    if (blocking.length > 0) {
-      throw new PstackOmpError(
-        [
-          "利用者の置き場に、今回置く定義やスキル（生成したスキルを含む）と同じ名前のものがあります。上書きしないので、適用を止めます（何も変えていません）。",
-          ...blocking.map((d) => `  ${d.kind === "agent" ? "エージェント" : "スキル"} ${d.name}: ${d.path}`),
-          "名前を変えるか退かしてから、もう一度適用してください。",
-        ].join("\n"),
-      );
-    }
+  // config.yml は、どちらも無ければ作るのでロックを取る
+  return withConfigLock(
+    yml,
+    () =>
+      withConfigLock(yaml, () => {
+        const tidied = [yml, yaml].map((path) => tidy(readConfig(path), configRecord(prior.record, path), p.root, manualSkills));
+        // 書く対象: 取り除いた後に OMP が global の設定として読むファイル（config.yml が在ればそれ、無くて config.yaml が在ればそれ、どちらも無ければ config.yml）
+        const target = tidied.find((t) => t.bytes !== undefined) ?? tidied[0]!;
+        const settings: OmpConfig = { path: target.config.path, bytes: target.bytes, data: target.data };
+        checkLoadingSettings(settings);
+        const collisions = findCollisions(ctx, agentDir, settings, p.root, content, generated.names);
+        const blocking = collisions.filter((d) => !(d.kind === "skill" && d.name === "tdd"));
+        if (blocking.length > 0) {
+          throw new PstackOmpError(
+            [
+              "利用者の置き場に、今回置く定義やスキル（生成したスキルを含む）と同じ名前のものがあります。上書きしないので、適用を止めます（何も変えていません）。",
+              ...blocking.map((d) => `  ${d.kind === "agent" ? "エージェント" : "スキル"} ${d.name}: ${d.path}`),
+              "名前を変えるか退かしてから、もう一度適用してください。",
+            ].join("\n"),
+          );
+        }
 
-    const harness: Harness = {
-      version: 2,
-      appliedAt: new Date().toISOString(),
-      pin: ctx.pin,
-      ompVersion,
-      content: p.content,
-      control: p.control,
-      agentDir,
-      ompBin,
-      bunBin: realpathSync(process.execPath),
-      skillDirectories: p.skills,
-      manualSkills,
-      files: {},
-    };
-    try {
-      replaceCopy(ctx, p, harness, rules, cleanup.write);
-    } catch (e) {
-      if (e instanceof PstackOmpError) throw e;
-      throw new PstackOmpError(`適用の途中で失敗しました（設定と写しは適用の前のままです）: ${(e as Error).message}`);
-    }
-    return {
-      root: p.root,
-      launcher: p.launcher,
-      configPath: path,
-      legacy: cleanup.result,
-      manualSkills: manualSkills.length,
-      userTdd: collisions.filter((d) => d.kind === "skill" && d.name === "tdd").map((d) => d.path),
-    };
-  });
+        const loading = { content: p.content, skillDirectories: p.skills, manualSkills };
+        const nextData = withEntries(settings, p.root, loading);
+        const configChanged = target.config.bytes === undefined || !Bun.deepEquals(nextData, target.config.data, true);
+        const next = configChanged ? Buffer.from(stringifyConfig(nextData)) : target.config.bytes!;
+        const beforeManual = stringList(settings, "skills.manualSkills") ?? [];
+        const harness: Harness = {
+          version: 3,
+          appliedAt: new Date().toISOString(),
+          pin: ctx.pin,
+          ompVersion,
+          agentDir,
+          ...loading,
+          files: {},
+          config: {
+            path: target.config.path,
+            before: target.bytes === undefined ? null : target.bytes.toString("base64"),
+            after: sha256(next),
+            addedKeys: LOADING_KEYS.filter((id) => valueAt(settings.data, id) === undefined || valueAt(settings.data, id) === null),
+            addedManualSkills: manualSkills.filter((name) => !beforeManual.includes(name)),
+          },
+        };
+        // 書く対象のほかに取り除きで変わる設定ファイルと、書く対象（変わるときだけ）
+        const writes = [
+          ...tidied.filter((t) => t !== target && t.changed).map((t) => ({ path: t.config.path, bytes: t.bytes })),
+          ...(configChanged ? [{ path: target.config.path, bytes: next }] : []),
+        ];
+        const legacyCopy = prior.legacy && p.legacyEntries.some((path) => existsSync(path));
+        try {
+          replaceCopy(ctx, p, harness, writes);
+        } catch (e) {
+          if (e instanceof PstackOmpError) throw e;
+          throw new PstackOmpError(`適用の途中で失敗しました（設定と写しは適用の前のままです）: ${(e as Error).message}`);
+        }
+        const cleanup = cleanupOf(tidied, prior.legacy, legacyCopy);
+        return {
+          root: p.root,
+          configPath: target.config.path,
+          content: p.content,
+          skillDirectories: p.skills,
+          configChanged,
+          // 前の適用（いまの配置）の項目の取り除きは再適用の一部なので、旧管理配置からのときだけ書き換えたことを知らせる
+          cleanup: prior.legacy ? cleanup : { ...cleanup, changed: [] },
+          manualSkills: manualSkills.length,
+          userTdd: collisions.filter((d) => d.kind === "skill" && d.name === "tdd").map((d) => d.path),
+        };
+      }),
+    !existsSync(yaml),
+  );
+}
+
+// 前の適用の組の記録: 写しの harness.json、無ければ旧管理配置の control/harness.json。legacy は、いまの配置の記録が無いこと（旧の記録も無いときを含む）
+function priorRecord(p: Paths): { record: Record<string, unknown> | undefined; legacy: boolean } {
+  const current = readRecord(p.harness);
+  if (current !== undefined) return { record: current, legacy: false };
+  return { record: readRecord(p.legacyHarness), legacy: true };
 }
 
 // 既に在る写しの組の記録が、別の OMP の設定の置き場に適用したものなら止める（ほかの設定が使っている写しを消さない）。agentDir はいまの置き場（実パス）
@@ -267,44 +411,91 @@ function checkLoadingSettings(config: OmpConfig): void {
   for (const id of ["extensions", "skills.customDirectories", "skills.manualSkills"]) stringList(config, id);
 }
 
-// 以前の配置の組の記録のうち、path の config.yml を戻すためのもの。無い・形が違えば undefined
-function legacyRecord(harness: Record<string, unknown> | undefined, path: string): LegacyRecord | undefined {
+// 組の記録のうち、path の設定ファイルを戻すためのもの（path が undefined なら、どの設定ファイルのものでも）。無い・形が違えば undefined
+function configRecord(harness: Record<string, unknown> | undefined, path: string | undefined): ConfigRecord | undefined {
   const record = harness?.config;
-  if (!isRecord(record) || record.path !== path || typeof record.after !== "string" || !Array.isArray(record.addedKeys) || !Array.isArray(record.addedManualSkills)) {
+  const names = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
+  if (
+    !isMapping(record) ||
+    typeof record.path !== "string" ||
+    (path !== undefined && record.path !== path) ||
+    (record.before !== null && typeof record.before !== "string") ||
+    typeof record.after !== "string" ||
+    !names(record.addedKeys) ||
+    !names(record.addedManualSkills)
+  ) {
     return undefined;
   }
-  return record as unknown as LegacyRecord;
+  return record as unknown as ConfigRecord;
 }
 
-// config.yml に残る以前の配置の項目（表示のため）: extensions と skills.customDirectories のうち写しの中を指すもの、
-// 以前の配置の記録が skills.manualSkills に足した名前
-export function legacyItems(config: OmpConfig, harness: Record<string, unknown> | undefined, root: string): string[] {
-  const record = legacyRecord(harness, config.path);
-  return [
-    ...["extensions", "skills.customDirectories"].flatMap((id) => (stringList(config, id) ?? []).filter((entry) => within(entry, root)).map((entry) => `${id} の ${entry}`)),
-    ...(stringList(config, "skills.manualSkills") ?? []).filter((name) => record?.addedManualSkills.includes(name)).map((name) => `skills.manualSkills の ${name}`),
-  ];
+// 写しの中を指す extensions・skills.customDirectories の項目（形が正しくなければ例外）
+export function entriesWithin(config: Pick<OmpConfig, "path" | "data">, root: string): { id: string; entry: string }[] {
+  return ["extensions", "skills.customDirectories"].flatMap((id) =>
+    (stringList(config, id) ?? []).filter((entry) => within(entry, root)).map((entry) => ({ id, entry })),
+  );
 }
 
-// 以前の配置の項目を config.yml から取り除く。以前の配置の記録があり、config.yml がその直後のままなら、以前の適用の前のバイトに戻す。
-// そうでなければ、管理対象の項目（extensions と skills.customDirectories のうち写しの中を指すもの、記録の名前）だけを外し、ほかの値は保つ
-// （記録が作ったキーは、外して空になれば消す）。記録が無ければ、skills.manualSkills のうち names（適用が足す名前）は外さず kept で返す。
-// write は書き換える後のバイト（undefined なら config.yml を消す）。取り除くものが無ければ write は undefined。書くのは呼び出し側（ここでは書かない）
-function cleanLegacy(config: OmpConfig, record: LegacyRecord | undefined, root: string, names: string[]): { result: Cleanup; write: { path: string; bytes: Buffer | undefined } | undefined } {
-  if (record !== undefined && config.bytes !== undefined && sha256(config.bytes) === record.after) {
-    const before = record.before === null ? undefined : Buffer.from(record.before, "base64");
-    return { result: { changed: true, restoredBytes: true, kept: [] }, write: { path: config.path, bytes: before } };
+// 前の適用の項目を取り除いた設定ファイル。bytes と data は取り除いた後（bytes が undefined ならファイルが無い）。how は Cleanup の changed のとおり
+interface Tidied {
+  config: OmpConfig;
+  bytes: Buffer | undefined;
+  data: Record<string, unknown>;
+  changed: boolean;
+  how: "restored" | "recorded" | "unrecorded";
+  kept: string[];
+}
+
+// 前の適用の項目を設定ファイルから取り除く（ここでは書かない）。記録があり、設定ファイルがその直後のままなら、前の適用の前のバイトに戻す。
+// そうでなければ、管理対象の項目（写しの中を指す extensions・skills.customDirectories の項目、記録の足した名前）だけを外し、ほかの値は保つ
+// （記録が作ったキーは、外して空になれば消す）。記録が無いのに写しの中を指す項目があれば、skills.manualSkills のうち names（適用が足す名前）は
+// 外さず kept で返す
+function tidy(config: OmpConfig, record: ConfigRecord | undefined, root: string, names: string[]): Tidied {
+  const how = record === undefined ? "unrecorded" : "recorded";
+  if (config.bytes === undefined) return { config, bytes: undefined, data: {}, changed: false, how, kept: [] };
+  if (record !== undefined && sha256(config.bytes) === record.after) {
+    const bytes = record.before === null ? undefined : Buffer.from(record.before, "base64");
+    const data = bytes === undefined ? {} : parseConfig(config.path, bytes);
+    return { config, bytes, data, changed: bytes === undefined || !bytes.equals(config.bytes), how: "restored", kept: [] };
   }
-  const entries = ["extensions", "skills.customDirectories"].some((id) => (stringList(config, id) ?? []).some((entry) => within(entry, root)));
+  const entries = entriesWithin(config, root).length > 0;
   const data = withoutEntries(config, root, record ?? { addedKeys: [], addedManualSkills: [] });
   const changed = !Bun.deepEquals(data, config.data, true);
   const kept = record === undefined && entries ? (stringList(config, "skills.manualSkills") ?? []).filter((name) => names.includes(name)) : [];
-  return { result: { changed, restoredBytes: false, kept }, write: changed ? { path: config.path, bytes: Buffer.from(stringifyConfig(data)) } : undefined };
+  return { config, bytes: changed ? Buffer.from(stringifyConfig(data)) : config.bytes, data, changed, how, kept };
 }
 
-// config.yml から管理対象の項目を外した形: extensions と skills.customDirectories のうち写しの中を指す項目、skills.manualSkills のうち
-// 以前の配置の記録が足した名前。記録が作ったキーは、外して空になれば消す
-function withoutEntries(config: Pick<OmpConfig, "path" | "data">, root: string, record: Pick<LegacyRecord, "addedKeys" | "addedManualSkills">): Record<string, unknown> {
+function cleanupOf(tidied: Tidied[], legacy: boolean, legacyCopy: boolean): Cleanup {
+  return {
+    legacy,
+    changed: tidied.filter((t) => t.changed).map((t) => ({ path: t.config.path, how: t.how })),
+    kept: tidied.filter((t) => t.kept.length > 0).map((t) => ({ path: t.config.path, names: t.kept })),
+    legacyCopy,
+  };
+}
+
+// 設定ファイルに3つの読み込みの設定を入れた形。自分の項目（写しの中を指すもの、足りている名前）が既にあれば重ねない
+function withEntries(config: Pick<OmpConfig, "path" | "data">, root: string, loading: Pick<Harness, "content" | "skillDirectories" | "manualSkills">): Record<string, unknown> {
+  const extensions = (stringList(config, "extensions") ?? []).filter((entry) => !within(entry, root));
+  const customDirectories = (stringList(config, "skills.customDirectories") ?? []).filter((entry) => !within(entry, root));
+  const manual = stringList(config, "skills.manualSkills") ?? [];
+  return {
+    ...config.data,
+    // 末尾に写しの OMP 向けのディレクトリ
+    extensions: [...extensions, loading.content],
+    skills: {
+      ...(isMapping(config.data.skills) ? config.data.skills : {}),
+      // 生成したスキルの置き場を先頭に置く（custom 同士は先が勝つので、pstack の tdd が利用者の置き場の tdd より優先される）
+      customDirectories: [...loading.skillDirectories, ...customDirectories],
+      // 読み込むスキルをすべて一覧から外す（名前で呼べば使える）
+      manualSkills: [...manual, ...loading.manualSkills.filter((name) => !manual.includes(name))],
+    },
+  };
+}
+
+// 設定ファイルから管理対象の項目を外した形: extensions と skills.customDirectories のうち写しの中を指す項目、skills.manualSkills のうち
+// 記録の足した名前。記録が作ったキーは、外して空になれば消す
+function withoutEntries(config: Pick<OmpConfig, "path" | "data">, root: string, record: Pick<ConfigRecord, "addedKeys" | "addedManualSkills">): Record<string, unknown> {
   const data = { ...config.data };
   const skills = isMapping(data.skills) ? { ...data.skills } : undefined;
   const set = (target: Record<string, unknown>, key: string, id: string, list: string[] | undefined): void => {
@@ -322,28 +513,33 @@ function withoutEntries(config: Pick<OmpConfig, "path" | "data">, root: string, 
   return data;
 }
 
-// 写しを一時ディレクトリに作り終えてから置き換え、続けて config.yml を置き換える（config が undefined なら変えない）。
-// どこで失敗しても、写しと config.yml を前のままにする
-function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, config: { path: string; bytes: Buffer | undefined } | undefined): void {
+// 設定ファイルの書き換えをすべて準備する（一時ファイルまで）。途中で失敗したら、準備したものを捨てて例外を投げ直す
+function prepareAll(writes: { path: string; bytes: Buffer | undefined }[]): PreparedWrite[] {
+  const prepared: PreparedWrite[] = [];
+  try {
+    for (const { path, bytes } of writes) prepared.push(prepareWrite(path, bytes));
+  } catch (e) {
+    for (const write of prepared) write.discard();
+    throw e;
+  }
+  return prepared;
+}
+
+// 写しを一時ディレクトリに作り終えてから置き換え、続けて設定ファイルを置き換える。どこで失敗しても、写しと設定ファイルを前のままにする
+function replaceCopy(ctx: Context, p: Paths, harness: Harness, writes: { path: string; bytes: Buffer | undefined }[]): void {
   const workDir = join(p.root, "..");
   const staging = mkdtempSync(join(workDir, ".omp-"));
-  let write: PreparedWrite | undefined;
+  let prepared: PreparedWrite[] = [];
   let aside: string | undefined;
   let swapped = false;
   try {
     cpSync(ctx.packageDir, join(staging, "content"), { recursive: true, dereference: false });
-    cpSync(ctx.controlDir, join(staging, "control"), { recursive: true, dereference: false, filter: (src) => join("control", relative(ctx.controlDir, src)) !== HARNESS_FILE });
     // 生成物を丸ごと（manifest.json とスキルの外のリンク先の文書も）写す。読み替え表が示す <写しの根>/generated/... が写しの中で解決する
     cpSync(p.generated, join(staging, "generated"), { recursive: true, dereference: false });
-    // 守る集合と設定の重ねは置き換えた後の写しの置き場で解決する（写しの根は {workDir} の下。組の検証が解決するものと同じ置き場）
-    const places = { agentDir: harness.agentDir, workDir, ompBin: harness.ompBin, bunBin: harness.bunBin, home: ctx.home };
-    writeFileSync(join(staging, PROFILE_FILE), sandboxProfile(guarded(rules, places)));
-    writeFileSync(join(staging, OVERLAY_FILE), bashOverlay(rules, places));
-    mkdirSync(join(staging, dirname(LAUNCHER_FILE)));
-    writeFileSync(join(staging, LAUNCHER_FILE), launcher(p.root, harness), { mode: 0o755 });
-    harness.files = hashFiles(staging);
-    writeFileSync(join(staging, HARNESS_FILE), JSON.stringify(harness, null, 2) + "\n");
-    if (config !== undefined) write = prepareWrite(config.path, config.bytes);
+    harness.files = scan(staging, false) as Record<string, string>;
+    // 適用の前の設定ファイルを持つので、利用者だけが読み書きできる
+    writeFileSync(join(staging, HARNESS_FILE), JSON.stringify(harness, null, 2) + "\n", { mode: 0o600 });
+    prepared = prepareAll(writes);
     if (existsSync(p.root)) {
       // 退かせてから記録する（退かせられなければ、戻すものは無い）
       const old = join(workDir, `.omp-old-${randomBytes(6).toString("hex")}`);
@@ -352,9 +548,9 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
     }
     renameSync(staging, p.root);
     swapped = true;
-    write?.commit();
+    for (const write of prepared) write.commit();
   } catch (e) {
-    write?.discard();
+    for (const write of prepared) write.discard();
     rmSync(swapped ? p.root : staging, { recursive: true, force: true });
     if (aside !== undefined) renameSync(aside, p.root);
     throw e;
@@ -362,44 +558,9 @@ function replaceCopy(ctx: Context, p: Paths, harness: Harness, rules: Rules, con
   if (aside !== undefined) rmSync(aside, { recursive: true, force: true });
 }
 
-// 専用ランチャー: まず同じプロファイルのサンドボックスの中で、適用したときの bun で組を確かめる（control/preflight.ts）。
-// bun の動きを変えるもの（BUN_OPTIONS の --preload など）を検証に持ち込ませないため、preflight は利用者の環境変数を引き継がず、
-// HOME・TMPDIR・PATH と、在れば（空でも）PI_CODING_AGENT_DIR・PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE（OMP が設定の置き場を決める環境変数）
-// だけを渡して起動する（XDG_CONFIG_HOME も渡さないので、bun の全体の設定は規則で守る {home}/.bunfig.toml だけになる）。
-// 作業中のプロジェクトの .env と bunfig.toml を読ませないため、写しの control を作業ディレクトリにし、.env の自動の読み込みを止め、
-// 呼んだディレクトリと、続けて omp に渡す引数をそのまま渡す（preflight は、引数の --profile と環境変数で OMP の設定の置き場を決め、
-// 呼んだディレクトリと引数の --cwd の全部の値を作業ディレクトリとして試し、引数の --config を拒否する）。プロファイル・bun・preflight.ts の
-// どれかが無い、または組が正しくなければ、理由を出して非0で終わり、omp を起動しない。通れば、omp の実行ファイルをそのプロファイルで
-// 閉じ込め、制御の拡張のファイルを -e で、写しの設定の重ね（規則の bash の拒否）を --config で渡し、続けて引数をそのまま渡して起動する
-// （OMP は PI_CONFIG_FILES の重ねの後に --config の重ねを順に合わせるので、写しの重ねは PI_CONFIG_FILES より後、利用者の --config より前になる。
-// 制御の拡張は、写しの重ねのほかに重ねがあれば遮断する）。omp の起動の環境変数は、相対の PI_CODING_AGENT_DIR を絶対パスにするほかは変えない
-// （OMP は相対の値を、--cwd へ移る前・ホームから移る前に起動したディレクトリを基準に解くが、preflight は写しの control で、
-// 制御の拡張と worker thread・子のプロセスは移った後に動くので、呼んだディレクトリ（OMP の process.cwd() と同じく実パス）を基準に絶対パスにする。
-// つなぎ目の /./ で、元の相対の値と同じく、名前つきの profile の置き場と書いたままの値で一致することがないので、OMP と組の検証の
-// profile から引き継いだ値かの比べ方は変わらない。/./ と .. は path.resolve が同じく正規化する。絶対パス・空・無い値はそのまま渡す）
-function launcher(root: string, harness: Harness): string {
-  const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
-  const profilePath = quote(join(root, PROFILE_FILE));
-  return [
-    "#!/bin/sh",
-    "# pstack-omp の専用ランチャー（bun scripts/pstack-omp/cli.ts apply が書く）",
-    'cwd=$(pwd -P) || exit 1',
-    'case ${PI_CODING_AGENT_DIR-} in',
-    "  ''|/*) ;;",
-    '  *) PI_CODING_AGENT_DIR="$cwd/./$PI_CODING_AGENT_DIR"; export PI_CODING_AGENT_DIR ;;',
-    "esac",
-    `if ! (cd ${quote(join(root, "control"))} && exec /usr/bin/env -i HOME="$HOME" TMPDIR="\${TMPDIR:-/tmp}" PATH="$PATH" ${PREFLIGHT_ENV.map((name) => `\${${name}+"${name}=$${name}"}`).join(" ")} ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.bunBin)} --no-env-file ${quote(join(root, PREFLIGHT_ENTRY))} "$cwd" "$@"); then`,
-    `  echo ${quote(`pstack-omp: 組を確かめられないので、omp を起動しません（${join(root, LAUNCHER_FILE)}。bun scripts/pstack-omp/cli.ts status で確かめてください）`)} >&2`,
-    "  exit 1",
-    "fi",
-    `exec ${SANDBOX_EXEC} -f ${profilePath} ${quote(harness.ompBin)} -e ${quote(join(root, CONTROL_ENTRY))} --config ${quote(join(root, OVERLAY_FILE))} "$@"`,
-    "",
-  ].join("\n");
-}
-
 export interface RemoveResult {
-  configPath: string;
-  legacy: Cleanup;
+  root: string;
+  cleanup: Cleanup;
   removedCopy: boolean;
 }
 
@@ -407,37 +568,41 @@ export interface RemoveResult {
 export function remove(ctx: Context): RemoveResult {
   const agentDir = userAgentDir(ctx);
   const p = paths(ctx);
-  const previous = readRecord(p.harness);
-  checkSamePlace(previous, agentDir, p);
-  const path = configPath(agentDir);
-  return withConfigLock(path, () => {
-    const config = readConfig(path);
-    // 記録が無いときに skills.manualSkills に残る名前を知らせるための、適用が足す名前
-    const names = [
-      ...(Array.isArray(previous?.manualSkills) ? previous.manualSkills.filter((name): name is string => typeof name === "string") : []),
-      ...(readGenerated(p.generated)?.names ?? []),
-      ...packageDefinitions(ctx.packageDir)
-        .definitions.filter((d) => d.kind === "skill")
-        .map((d) => d.name),
-    ];
-    const cleanup = cleanLegacy(config, legacyRecord(previous, path), p.root, names);
-    const write = cleanup.write === undefined ? undefined : prepareWrite(cleanup.write.path, cleanup.write.bytes);
-    const removedCopy = existsSync(p.root);
-    let aside: string | undefined;
-    try {
-      if (removedCopy) {
-        // 退かせてから記録する（退かせられなければ、戻すものは無い）
-        const old = join(p.root, "..", `.omp-old-${randomBytes(6).toString("hex")}`);
-        renameSync(p.root, old);
-        aside = old;
+  const prior = priorRecord(p);
+  checkSamePlace(prior.record, agentDir, p);
+  // 記録が無いときに skills.manualSkills に残る名前を知らせるための、適用が足す名前
+  const names = [
+    ...(Array.isArray(prior.record?.manualSkills) ? prior.record.manualSkills.filter((name): name is string => typeof name === "string") : []),
+    ...(readGenerated(p.generated)?.names ?? []),
+    ...packageDefinitions(ctx.packageDir)
+      .definitions.filter((d) => d.kind === "skill")
+      .map((d) => d.name),
+  ];
+  const yml = configPath(agentDir);
+  const yaml = yamlConfigPath(agentDir);
+  return withConfigLock(yml, () =>
+    withConfigLock(yaml, () => {
+      const tidied = [yml, yaml].map((path) => tidy(readConfig(path), configRecord(prior.record, path), p.root, names));
+      const removedCopy = existsSync(p.root);
+      const legacyCopy = prior.legacy && p.legacyEntries.some((path) => existsSync(path));
+      let writes: PreparedWrite[] = [];
+      let aside: string | undefined;
+      try {
+        writes = prepareAll(tidied.filter((t) => t.changed).map((t) => ({ path: t.config.path, bytes: t.bytes })));
+        if (removedCopy) {
+          // 退かせてから記録する（退かせられなければ、戻すものは無い）
+          const old = join(p.root, "..", `.omp-old-${randomBytes(6).toString("hex")}`);
+          renameSync(p.root, old);
+          aside = old;
+        }
+        for (const write of writes) write.commit();
+      } catch (e) {
+        for (const write of writes) write.discard();
+        if (aside !== undefined) renameSync(aside, p.root);
+        throw new PstackOmpError(`解除の途中で失敗しました（設定と写しは解除の前のままです）: ${(e as Error).message}`);
       }
-      write?.commit();
-    } catch (e) {
-      write?.discard();
-      if (aside !== undefined) renameSync(aside, p.root);
-      throw new PstackOmpError(`解除の途中で失敗しました（設定と写しは解除の前のままです）: ${(e as Error).message}`);
-    }
-    if (aside !== undefined) rmSync(aside, { recursive: true, force: true });
-    return { configPath: path, legacy: cleanup.result, removedCopy };
-  });
+      if (aside !== undefined) rmSync(aside, { recursive: true, force: true });
+      return { root: p.root, cleanup: cleanupOf(tidied, prior.legacy, legacyCopy), removedCopy };
+    }),
+  );
 }

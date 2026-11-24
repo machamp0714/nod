@@ -1,9 +1,8 @@
-// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml）の読み書き。適用は読み込みの設定を書かない。書くのは、以前の配置
-// （config.yml に読み込みの設定を入れた適用）の項目を取り除くときだけ（harness.ts）。
-// 利用者の置き場（skills.customDirectories と extensions）を読むときは、OMP がいま global の設定として読むファイル（globalConfigPath）を読む。
+// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml、無ければ config.yaml）の読み書き。適用は OMP が global の設定として読むファイルに
+// 3つの読み込みの設定を書き、解除はそれを戻す（harness.ts）。利用者の置き場（skills.customDirectories と extensions）も同じファイルの値で決める。
 // - 読み書きは Bun の YAML。書くときは OMP と同じ形（Bun.YAML.stringify の2字字下げで、マッピングの見出しの行末の空白を除く）にする。
-//   YAML として書き直すとコメントは残らないので、以前の配置の記録があり、その適用の後に config.yml が変わっていなければ、適用の前のバイトに戻す。
-// - config.yml がシンボリックリンクなら、OMP と同じくリンクの先に書く。書くときは同じディレクトリの一時ファイルに書いてから rename する。
+//   YAML として書き直すとコメントは残らないので、解除は、適用の後に設定ファイルが変わっていなければ適用の前のバイトに戻す。
+// - 設定ファイルがシンボリックリンクなら、OMP と同じくリンクの先に書く。書くときは同じディレクトリの一時ファイルに書いてから rename する。
 // - OMP は config.yml を書くとき、`<config.yml の実体>.lock` に flock(2) の排他ロックを取る（macOS。Linux では別の仕組み）。
 //   macOS では同じロックを取ってから読み、書き終えるまで持つ。実行中の OMP が設定を保存するときに、こちらの変更を上書きしないため。
 import { dlopen, FFIType } from "bun:ffi";
@@ -107,7 +106,7 @@ export function sha256(bytes: Buffer | string): string {
 }
 
 // 書き換えの準備（一時ファイルまで書く）。commit で置き換え、discard で一時ファイルを消す。
-// bytes が undefined なら commit で config.yml を消す
+// bytes が undefined なら commit で設定ファイルを消す
 export interface PreparedWrite {
   commit(): void;
   discard(): void;
@@ -116,7 +115,7 @@ export interface PreparedWrite {
 export function prepareWrite(path: string, bytes: Buffer | string | undefined): PreparedWrite {
   if (bytes === undefined) return { commit: () => rmSync(path, { force: true }), discard: () => {} };
   mkdirSync(dirname(path), { recursive: true });
-  const temp = join(dirname(path), `.config.yml.pstack-omp-${randomBytes(6).toString("hex")}`);
+  const temp = join(dirname(path), `.${basename(path)}.pstack-omp-${randomBytes(6).toString("hex")}`);
   const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o644;
   writeFileSync(temp, bytes, { mode });
   return { commit: () => renameSync(temp, path), discard: () => rmSync(temp, { force: true }) };
@@ -128,10 +127,10 @@ const LOCK_NB = 4;
 const LOCK_RETRIES = 50;
 const LOCK_DELAY_MS = 100;
 
-// config.yml の書き込みのロックを持って fn を実行する（macOS だけ。ほかでは持たずに実行する）。config.yml が無ければ持たずに実行する
-// （適用と解除は無い config.yml を書かないので、利用者の OMP の設定の置き場にロックのファイルを作らない）
-export function withConfigLock<T>(path: string, fn: () => T): T {
-  if (process.platform !== "darwin" || !existsSync(path)) return fn();
+// 設定ファイルの書き込みのロックを持って fn を実行する（macOS だけ。ほかでは持たずに実行する）。ファイルが無ければ、create（適用がそのファイルを
+// 作るかもしれない）のときだけ持ち、そうでなければ持たずに実行する（作らないファイルのために、利用者の OMP の設定の置き場にロックのファイルを作らない）
+export function withConfigLock<T>(path: string, fn: () => T, create = false): T {
+  if (process.platform !== "darwin" || (!create && !existsSync(path))) return fn();
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
   let fd: number;

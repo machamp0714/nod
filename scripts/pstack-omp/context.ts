@@ -2,20 +2,18 @@
 // 置き場と実行ファイルは環境変数で差し替えられる（テストと別の Mac への可搬性のため）。
 //   NOD_PSTACK_OMP_PIN     固定の記録のパス（既定はこのディレクトリの pin.json）
 //   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
-//   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp。写しの中の専用ランチャーは飛ばす）。適用はその実パスを、写しの専用ランチャーが
-//                          サンドボックスの中で起動するものとして記録する。写しの中を指していれば止める
+//   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）。版の確認だけに使う
 //   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
-//   NOD_PSTACK_OMP_CONTROL 制御の拡張とその規則 rules.json（既定は nod のリポジトリの omp/control）
-//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml。
+//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml（無ければ config.yaml）
 //   PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE
-//                          OMP が設定の根と profile を選ぶ環境変数。置き場は OMP と同じ決め方（omp/control/verify.ts の ompAgentDir）で決め、
-//                          決められなければ（名前つきの profile、~/.omp でない設定の根）、置き場を使う apply・remove・status は止まる
+//                          OMP が設定の根と profile を選ぶ環境変数。置き場は ompAgentDir で決め、決められなければ（名前つきの profile、
+//                          ~/.omp でない設定の根）、置き場を使う apply・remove・status は止まる
 //   HOME                   利用者のホーム（~/.agent/skills と ~/.agents/skills を名前のぶつかりとして検査する）
 //   PATH                   omp の実行ファイルを探す置き場
-import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { ompAgentDir } from "../../omp/control/verify";
+import { realAncestor } from "./config";
 
 // 道具が止まる理由。cli.ts が標準エラーに出して 1 で終わる
 export class PstackOmpError extends Error {}
@@ -32,15 +30,12 @@ export interface Context {
   pin: Pin;
   // データ置き場の下の pstack-omp/
   workDir: string;
+  // omp の実行ファイル（パスか、PATH から探す名前）
   ompBin: string;
-  // omp の実行ファイルを名前で探す置き場（PATH を : で分けたもの）
-  searchPath: string[];
   // OMP 向けのディレクトリの中身（読み替え表のスキルとエージェント定義を置く）。適用で写しの content/ になる
   packageDir: string;
-  // 制御の拡張（nod のリポジトリの omp/control）。適用で写しの control/ になる
-  controlDir: string;
-  // 利用者の OMP の設定の置き場（実パス）と決めた環境変数。決められなければ理由（置き場を使うときは userAgentDir で取る）
-  agentDir: { path: string; source: string } | string;
+  // 利用者の OMP の設定の置き場（実パス）。決められなければ理由（置き場を使うときは userAgentDir で取る）
+  agentDir: { path: string } | string;
   home: string;
 }
 
@@ -48,16 +43,13 @@ export function loadContext(env: Record<string, string | undefined> = process.en
   const pinPath = env.NOD_PSTACK_OMP_PIN || join(import.meta.dir, "pin.json");
   const home = homedir();
   const dataDir = env.NOD_DATA_DIR || join(home, ".local", "share", "nod");
-  const ompDir = join(import.meta.dir, "..", "..", "omp");
   return {
     pinPath,
     pin: loadPin(pinPath),
     workDir: resolve(dataDir, "pstack-omp"),
     ompBin: env.NOD_PSTACK_OMP_OMP_BIN || "omp",
-    searchPath: (env.PATH ?? "").split(":"),
-    packageDir: resolve(env.NOD_PSTACK_OMP_PACKAGE || join(ompDir, "content")),
-    controlDir: resolve(env.NOD_PSTACK_OMP_CONTROL || join(ompDir, "control")),
-    agentDir: ompAgentDir(env, []),
+    packageDir: resolve(env.NOD_PSTACK_OMP_PACKAGE || join(import.meta.dir, "..", "..", "omp", "content")),
+    agentDir: ompAgentDir(env, home),
     home,
   };
 }
@@ -66,6 +58,40 @@ export function loadContext(env: Record<string, string | undefined> = process.en
 export function userAgentDir(ctx: Context): string {
   if (typeof ctx.agentDir === "string") throw new PstackOmpError(`OMP の設定の置き場を決められません: ${ctx.agentDir}。何も変えずに止めます`);
   return ctx.agentDir.path;
+}
+
+// OMP の名前つきの profile の名前の形（これに合わない名前は、OMP がどう扱うかを固定版の契約から決められない）
+const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]*$/u;
+
+// いまの OMP の設定の置き場の実パス。OMP 19.1.0 の契約（Document 1683 の論点 12、settings.md、
+// config-usage.md）から決まる範囲だけで決め、決められなければ理由を返す。
+// - PI_CONFIG_DIR が空でも .omp でもなければ決めない（OMP の設定の根が ~/.omp から変わる）。
+// - profile は、定義された（空でも）OMP_PROFILE、無ければ PI_PROFILE で選ぶ。空・空白だけ・default は既定の profile。ほかは名前つきの
+//   profile で、決めない（名前つきの profile は OMP の利用者の根を移し、その置き場を契約から決められない）。
+// - 既定の profile では、空でない PI_CODING_AGENT_DIR（OMP と同じく resolve する）、無ければ ~/.omp/agent。ただし PI_PROFILE が名前つきの P なら、
+//   P が名前の形に合わなければ決めず、PI_CODING_AGENT_DIR が ~/.omp/profiles/P/agent と同じなら、profile から引き継いだ値として使わない。
+function ompAgentDir(env: Record<string, string | undefined>, home: string): { path: string } | string {
+  const root = env.PI_CONFIG_DIR;
+  if (root !== undefined && root !== "" && root !== ".omp") {
+    return `環境変数 PI_CONFIG_DIR（${root}）で OMP の設定の根が ~/.omp から変わっています。OMP がどの置き場の設定を読むかを固定版の契約から決められません`;
+  }
+  const named = (value: string) => value.trim() !== "" && value !== "default";
+  const variable = env.OMP_PROFILE !== undefined ? "OMP_PROFILE" : env.PI_PROFILE !== undefined ? "PI_PROFILE" : undefined;
+  const chosen = variable === undefined ? undefined : env[variable]!;
+  if (chosen !== undefined && named(chosen)) {
+    return `環境変数 ${variable} で名前つきの profile（${chosen}）が選ばれています。名前つきの profile では、OMP がどの置き場の設定を読むかを固定版の契約から決められません`;
+  }
+  const override = env.PI_CODING_AGENT_DIR;
+  if (!override) return { path: realAncestor(join(home, ".omp", "agent")) };
+  const legacy = env.PI_PROFILE;
+  if (legacy !== undefined && named(legacy)) {
+    if (!PROFILE_NAME.test(legacy)) {
+      return `環境変数 PI_PROFILE（${legacy}）が置き場を決められない profile の名前なので、PI_CODING_AGENT_DIR（${override}）がその profile から引き継いだ値かを確かめられません`;
+    }
+    // PI_CODING_AGENT_DIR が PI_PROFILE の profile から引き継いだ値なら使わない
+    if (override === join(home, ".omp", "profiles", legacy, "agent")) return { path: realAncestor(join(home, ".omp", "agent")) };
+  }
+  return { path: realAncestor(resolve(override)) };
 }
 
 function loadPin(path: string): Pin {
@@ -88,7 +114,7 @@ function loadPin(path: string): Pin {
 
 // omp --version（omp/19.1.0 の形）の版。確かめられなければ止める
 export function readOmpVersion(ctx: Context): string {
-  const bin = ompRealPath(ctx);
+  const bin = ctx.ompBin;
   const proc = (() => {
     try {
       return Bun.spawnSync([bin, "--version"], { stdout: "pipe", stderr: "pipe" });
@@ -115,44 +141,6 @@ export function checkOmpVersion(ctx: Context): string {
     );
   }
   return version;
-}
-
-// omp の実行ファイルの実パス。名前だけなら PATH から探し、実パスが写し（<workDir>/omp）の中になる候補（専用ランチャー）は飛ばして
-// 次の候補を使う（写しの bin を PATH の先頭に置いた端末から適用しても、ランチャーが自分自身を起動しないように）。
-// パスで指定したものが写しの中なら止める。見つからなければ止める
-export function ompRealPath(ctx: Context): string {
-  const copy = (() => {
-    try {
-      return realpathSync(join(ctx.workDir, "omp"));
-    } catch {
-      return resolve(ctx.workDir, "omp");
-    }
-  })();
-  const inCopy = (path: string) => path === copy || path.startsWith(`${copy}/`);
-  if (ctx.ompBin.includes("/")) {
-    let path: string;
-    try {
-      path = realpathSync(resolve(ctx.ompBin));
-    } catch (e) {
-      throw new PstackOmpError(`omp の実行ファイル ${ctx.ompBin} の実パスを求められません: ${(e as Error).message}`);
-    }
-    if (inCopy(path)) {
-      throw new PstackOmpError(`omp の実行ファイル ${ctx.ompBin} が写し（${copy}）の中を指しています。専用ランチャーではなく、omp の実行ファイルを指定してください`);
-    }
-    return path;
-  }
-  for (const dir of ctx.searchPath) {
-    const candidate = resolve(dir || ".", ctx.ompBin);
-    try {
-      accessSync(candidate, constants.X_OK);
-      if (!statSync(candidate).isFile()) continue;
-      const path = realpathSync(candidate);
-      if (!inCopy(path)) return path;
-    } catch {
-      // 無い・実行できない候補は飛ばす
-    }
-  }
-  throw new PstackOmpError(`omp の実行ファイル ${ctx.ompBin} が PATH にありません（写しの中の専用ランチャーを除く）`);
 }
 
 export interface GitResult {

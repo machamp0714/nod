@@ -45,7 +45,7 @@ export interface OmpSkills {
   enabled: boolean;
   // skills.includeSkills（空でなければ、合う名前のスキルだけが一覧に残る）
   includeSkills: string[];
-  // disabledExtensions の skill:<名前> の名前（その名前のスキルは読まない。専用ランチャーは今回のスキルの名前をここから外すので、skills には残す）
+  // disabledExtensions の skill:<名前> の名前（その名前のスキルは読まない。bareSkill が理由として返すので、skills には残す）
   disabledSkills: string[];
   // 読むスキル（skills.ignoredSkills に合うものを除く）を、同じ名前がぶつかったときに裸の名前を取る順に並べたもの
   // （custom の配列の順、provider の順、omp-managed は最後）
@@ -56,14 +56,14 @@ export interface OmpSkills {
   unexamined: { path: string; provider: Provider }[];
 }
 
-// 通常の omp のセッションが cwd（実行したディレクトリ）で読むスキル。config は OMP がいま global の設定として読むファイル、ours（写し）の下の
-// skills.customDirectories・extensions は数えない（通常の omp の設定に以前の配置が残っていても、それは状態の表示の別の行で知らせる）。
+// 通常の omp のセッションが cwd（実行したディレクトリ）で読むスキル。config は OMP がいま global の設定として読むファイル。ours（写し）を渡せば、
+// その下の skills.customDirectories・extensions は数えない（写しを除いた利用者の置き場を選ぶとき。省けば、写しの項目も OMP と同じく数える）。
 // env は OMP と同じ環境変数（CLAUDE_CONFIG_DIR）。値の形が正しくない skills.customDirectories・extensions は例外にする（呼び出し側が報告する）
 export function normalOmpSkills(
   agentDir: string,
   home: string,
   config: OmpConfig,
-  ours: string,
+  ours: string | undefined,
   cwd: string,
   env: Record<string, string | undefined>,
 ): OmpSkills {
@@ -71,8 +71,9 @@ export function normalOmpSkills(
     const value = valueAt(config.data, `skills.${key}`);
     return typeof value === "boolean" ? value : fallback;
   };
-  const customDirectories = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
-  const extensions = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
+  const mine = (dir: string) => ours === undefined || !within(dir, ours);
+  const customDirectories = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter(mine);
+  const extensions = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter(mine);
   const result: OmpSkills = {
     enabled: flag("enabled", true),
     includeSkills: strings(valueAt(config.data, "skills.includeSkills")),

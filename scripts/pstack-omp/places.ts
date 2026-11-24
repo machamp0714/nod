@@ -48,7 +48,7 @@ export interface UserPlaces extends Found {
 
 // 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agent/skills、~/.agents/skills、config（OMP がいま global の設定として読むファイル。
 // config.yml が無ければ config.yaml）の skills.customDirectories と extensions のパッケージ（skills/ と agents/）。
-// ours の下（適用した写しの生成したスキル・OMP 向けのディレクトリ・制御の拡張のファイル）は除く。disabledProviders では外さない
+// ours の下（適用した写しの生成したスキルの置き場と OMP 向けのディレクトリ）は除く。disabledProviders では外さない
 // （名前のぶつかりの検査を、止める向きに保つため）。
 // スキルは、通常の omp で同じ名前がぶつかったときに裸の名前を取る順（omp-skills.ts の並びのうち、これらの置き場のもの）に並べる:
 // skills.customDirectories の配列の順 > <agentDir>/skills > extensions のパッケージの skills/（extensions の配列の順）> ~/.agent/skills > ~/.agents/skills
