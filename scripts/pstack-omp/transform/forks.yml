@@ -5,4 +5,8 @@
 #   upstreamSha256  固定の記録のコミットの上流の、そのファイルのバイトの sha256（小文字の16進64桁）
 #   body            このディレクトリからの相対パスの本文（例: forks/pstack/skills/setup-pstack/SKILL.md）
 #   reason          差し替える理由（日本語）
-forks: []
+forks:
+  - path: pstack/skills/setup-pstack/SKILL.md
+    upstreamSha256: 9347e6a17d41c92fd9d57e689c63d81defbd63df18dbcd5e9858ab03de5994ea
+    body: forks/pstack/skills/setup-pstack/SKILL.md
+    reason: Cursor の利用できるモデルを調べて ~/.cursor/rules/pstack-models.mdc に役割ごとのモデルを書く手順で、文を置き換えても OMP で通る手順にならない。OMP では役割ごとのモデルをエージェント定義と modelRoles で決めるので、OMP では使わないこと・実行を求められたら実行せずそう答えることを示す短い本文にする（スキルの一覧から外して生成には残す）

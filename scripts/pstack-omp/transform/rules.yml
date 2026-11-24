@@ -421,3 +421,441 @@ rules:
     files: '^pstack/skills/create-verification-skill/SKILL\.md$'
     literal: 'Follow the shape in [`references/feature-map-example/`](references/feature-map-example/), with'
     replace: 'Follow the shape of the example in `skill://create-verification-skill/references/feature-map-example/README.md` and the feature files it links (read them with `read`), with'
+
+  # ==== Cursor 固有の作業手順の変換 ====
+  # 参照の変換（ref-）の後に当てる（literal は ref- の出力に当たるように書く）。文の単位で OMP の手順に書き換える。接頭辞は、task- が子の起動（task ツール）、
+  # ask- が利用者への質問（ask ツール）、todo- が作業の一覧（todo ツール）、model- がモデルと推論の水準（OMP のエージェント定義と modelRoles）、
+  # setup- が setup-pstack の案内（OMP の設定の案内）、path- がスキルの置き場、record- がセッションの記録の置き場、authoring- がスキルの作成
+  # （Cursor の組み込みの create-skill の置き換え）、stop- が使わない範囲の止まる文、pr- が PR の作り方、help- と cursor- がそのほかの Cursor の機能の案内。
+  # 止まる文は、この OMP 向けの構成では対象外であること、その手順を始めずに止まること、どのスキルのどの手順で何の理由で止まったかの報告、
+  # 子なら親への最終の返答に書くことを入れる（OMP に無いとは断言しない）。setup-pstack は全文差し替え（forks.yml）なので規則を当てない。
+  - id: task-poteto-mode-kickoff
+    reason: "Task の子と Project worker の両方に当てる決まりを、OMP の task ツールで起動する子に当てる決まりにする（Project worker は名前だけで、起動する手順は上流に無い）"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "- Starting any agent, whether a Task subagent or a Project worker → the first line of its kickoff is"
+    replace: "- Starting any agent with the `task` tool → the first line of its kickoff is"
+  - id: cursor-poteto-mode-babysit
+    reason: "Cursor の組み込みの babysit スキルを名指す箇所。OMP ではほかの babysit のスキルと取り違えないよう書く（Babysit のプレイブックはそのまま使う）"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "(`read` `skill://poteto-mode/playbooks/babysit.md`), not Cursor's built-in babysit skill."
+    replace: "(`read` `skill://poteto-mode/playbooks/babysit.md`), not any other skill that babysits PRs."
+  - id: todo-poteto-mode-playbook
+    reason: "プレイブックの手順を Cursor の todolist に写す箇所を、OMP の todo ツールの op で書く（子には todo が無い）"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "Copy its steps into the todolist tool first."
+    replace: "Copy its steps into the `todo` tool first, with `op: \"init\"` and a `list` whose `items` are the steps, then mark each with `op: \"start\"` and `op: \"done\"` as you go. A subagent has no `todo` tool, so it keeps the list in its reply."
+  - id: task-poteto-mode-agent
+    reason: "プレイブックの手順で起動する子の subagent_type を、OMP の task の項目の agent にする"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "**Use `subagent_type: \"poteto-agent\"` for any subagent you spawn directly inside a playbook step.**"
+    replace: "**Start any subagent you spawn directly inside a playbook step with the `task` tool and `agent: \"poteto-agent\"` in its item.**"
+  - id: task-poteto-mode-routed
+    reason: "ルーティング先のスキルが決める subagent_type を、OMP の task の項目の agent にする"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "Routed workflow skills (`interrogate`, `swarm`) set their own `subagent_type`. Respect it."
+    replace: "Routed workflow skills (`interrogate`, `swarm`) set their own `agent`. Respect it."
+  - id: task-poteto-mode-defaults
+    reason: "Task の既定（run_in_background・readonly・役割ごとのモデルの slug・pstack-models.mdc・inherit-parent・Fable の例外・水準の選び方・/setup-pstack）を、OMP の task の呼び出しの形と、モデルを OMP のエージェント定義と modelRoles で決める文にする"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "**Defaults for every `Task` call.** `run_in_background: true`, agent mode (readonly strips MCP), file pointers not inlined context, and an explicit model per role, Project workers included. `/setup-pstack` writes `~/.cursor/rules/pstack-models.mdc`, whose per-role lines override the defaults below and the role models in the routed skills (`arena`, `swarm`, `interrogate`). A role with no line keeps its default. A line of `inherit-parent` or `auto` runs the role on the parent model, so omit `model` and spawn `generalPurpose`, because `poteto-agent` defaults to Opus 5.5. Each code playbook reads its own line (`feature, refactoring`, `bug-fix`, `perf-issue`, or `hillclimb`), prose and judgment read `judgment and prose`, and trivial mechanical edits read `swarm workers`. If the rule has no `# defaults: 3` line, an older setup wrote it. Keep honoring its lines, and tell the user once per session to rerun `/setup-pstack`.\n\n- Code, prose, and judgment: `claude-opus-5-5-xhigh-fast`.\n- Trivial mechanical edits: `claude-opus-5-5-high-fast`.\n- Diverse review and design panels: one runner each on `claude-fable-5-2-high`, `claude-opus-5-5-high-fast`, and `gemini-4-neon-xhigh`.\n\n**Fable 5.2 is an exception.** It runs outside a panel only when the user named it for this task or two Opus 5.5 xhigh runs of the same brief failed its check. Say which. Difficulty alone never qualifies.\n\n**Match the model to the job.** Start from the role's line or default, keep its family, and set the level the job needs. The `/setup-pstack` budget sets each role's starting level. Panel seats keep their listed level. Raise any other role one step, up to xhigh, for the hardest or subtlest work, lower it one step for judgment, and two or more steps for routine work. No role runs above xhigh. Opus 5.5 always runs its `-fast` slug. Verification always runs on the `swarm workers` model, `claude-opus-5-5-high-fast` by default. A Gemini seat runs at `gemini-4-neon-xhigh` unless its line names another level. If the Task tool rejects a slug, never pass it again. Fall back to the role's line or default, then the calling skill's fallback, then the closest valid slug of the same family, then omit `model`. Say so."
+    replace: "**Defaults for every `task` call.** Call the `task` tool once with `{ context, tasks: [...] }`. `context` is the background every subagent shares, and it cannot be left out. Each item in `tasks` starts one subagent and holds only the fields the tool's schema has, such as `name`, `agent`, `task`, and `solutionSpace`. To start N subagents in one message, put N items in `tasks` of one call. Subagents run in the background, and their results arrive on their own, so call `wait` only when nothing else is left to do. Point at files by path in `task` or `context` instead of inlining them. A subagent can use the parent's MCP tools.\n\n**Models come from OMP's settings.** Never pass `model` or `effort` in a `task` item. The `task` tool accepts `model` only when the `task.perCallModel` setting is on, and this setup leaves models to the settings. Each subagent runs on the model and reasoning level of its agent definition and the user's `modelRoles` (`poteto-agent` uses the `task` role), and the routed skills (`arena`, `swarm`, `interrogate`) follow the same rule. This OMP setup does not use `/skill:setup-pstack` or its model rule. When the user wants other models or levels, tell them to change `modelRoles` in `~/.omp/agent/config.yml` or the Roles in `/model`. Do not edit their settings yourself.\n\n**Nesting stops at grandchildren.** A subagent can start subagents of its own, but a grandchild has no `task` tool, so it does the work itself."
+  - id: model-poteto-mode-second-opinion
+    reason: "別のベンダーのモデルで同じ依頼を出す箇所。OMP では子のモデルを選べないので、新しい子に出し、ベンダーの確認が走らなかったことを返答に書く"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "A second opinion is the same prompt on another vendor's model."
+    replace: "A second opinion is the same prompt in a fresh subagent. It runs on the model OMP's settings give it, so say in your reply that no vendor check ran."
+  - id: task-poteto-mode-resume
+    reason: "Cursor の子の再開（resume）を、OMP で agent://<id> に続きの指示を送る文にする"
+    files: "^pstack/skills/poteto-mode/SKILL\\.md$"
+    literal: "Resume an existing subagent only when the work needs state that lives in it"
+    replace: "Send more work to an existing subagent, with `write` to `agent://<id>`, only when the work needs state that lives in it"
+  - id: todo-arena-phases
+    reason: "Cursor の todolist を OMP の todo ツールの op で書く（子には todo が無い）"
+    files: "^pstack/skills/arena/SKILL\\.md$"
+    literal: "Open a todolist with one entry per phase (Frame, Fan out, Cross-judge, Pick, Graft, Verify) before launching anything."
+    replace: "Before launching anything, call the `todo` tool with `op: \"init\"` and a `list` of one phase per arena phase (Frame, Fan out, Cross-judge, Pick, Graft, Verify), then mark each with `op: \"start\"` and `op: \"done\"`. A subagent has no `todo` tool, so it keeps the list in its reply."
+  - id: model-arena-runners
+    reason: "runners を pstack-models.mdc の行と Cursor のモデルの slug で選ぶ手順を、座席の数はそのままに、どの座席も OMP の設定のモデルで動くと返答に書く手順にする"
+    files: "^pstack/skills/arena/SKILL\\.md$"
+    literal: "3. Pick the runners from the `arena runners` line in `~/.cursor/rules/pstack-models.mdc`, by default `claude-fable-5-2-high`, `claude-opus-5-5-high-fast`, and `gemini-4-neon-xhigh`. An `auto` or `inherit-parent` entry is the parent model, so omit `model` and spawn `generalPurpose`. If the Task tool rejects a slug, use the nearest valid slug of the same family or drop the seat, keep at least two runners, and say so. Families go by prefix, and the longest match wins: `claude-fable-*`, `claude-*`, and `gemini-*`, after dropping a leading `cursor-`. Any other slug's family is its text before the first hyphen. Spawn more for multiple design directions, and repeat one model when the work is generation-bound, not judgment-sensitive. Pick each subagent's reasoning level per the Subagents section of the **poteto-mode** skill (`read` `skill://poteto-mode`)."
+    replace: "3. Start three runners, one for each seat of the upstream default panel, and more for multiple design directions. Pass no `model` or `effort`. Every runner runs on the model and reasoning level of its agent definition and the user's `modelRoles` in OMP's settings, so say in the synthesis note that every seat ran on the model OMP's settings gave it. This OMP setup does not use pstack's model rule or its `arena runners` line."
+  - id: task-arena-fan-out
+    reason: "run_in_background で N 個の子を1つのメッセージで起動する箇所を、OMP の task の1回の呼び出しに N 項目を並べる文にする（子は既定でバックグラウンド）"
+    files: "^pstack/skills/arena/SKILL\\.md$"
+    literal: "Spawn all N subagents in one message with `run_in_background: true`, each with"
+    replace: "Start all N subagents in one `task` call with N items in `tasks` and `agent` omitted (they run in the background by default), each with"
+  - id: model-arena-judge
+    reason: "readonly の審査役を pstack-models.mdc の行と slug・ベンダーの確認で選ぶ手順を、agent を省いて書き換えないよう頼み git status で確かめ、OMP の設定のモデルで動きベンダーの確認は走らなかったと書く手順にする"
+    files: "^pstack/skills/arena/SKILL\\.md$"
+    literal: "spawn one readonly judge from the `arena cross-judge pool` line in `~/.cursor/rules/pstack-models.mdc`, by default `claude-opus-5-5-high-fast`, `gemini-4-neon-xhigh`. The judge is never from the parent's vendor, and Fable counts as Claude for that check, so use the first entry from another vendor. An `auto` or `inherit-parent` entry is the parent model. If you do not know the parent's model, use the first real slug and say that the vendor check did not run. If the Task tool rejects a slug, use the nearest valid slug of the same family, then the next such entry, or skip the judge, and say so."
+    replace: "start one judge with the `task` tool and `agent` omitted. Tell it not to change any file, and check with `git status` after it finishes that nothing changed. Pass no `model` or `effort`. The judge runs on the model OMP's settings give it, so it may share the parent's vendor, and the synthesis note says that the vendor check did not run. This OMP setup does not use pstack's model rule or its `arena cross-judge pool` line."
+  - id: todo-swarm-phases
+    reason: "Cursor の todolist を OMP の todo ツールの op で書く（子には todo が無い）"
+    files: "^pstack/skills/swarm/SKILL\\.md$"
+    literal: "Open a todolist with one entry per phase before launching anything."
+    replace: "Before launching anything, call the `todo` tool with `op: \"init\"` and a `list` of one phase per phase below, then mark each with `op: \"start\"` and `op: \"done\"`. A subagent has no `todo` tool, so it keeps the list in its reply."
+  - id: model-swarm-workers
+    reason: "workers のモデルを pstack-models.mdc の行と slug で選ぶ手順を、OMP の設定のモデルで動くと書く手順にする（モデルの競争の腕も数はそのまま）"
+    files: "^pstack/skills/swarm/SKILL\\.md$"
+    literal: "3. Pick the worker model from the `swarm workers` line in `~/.cursor/rules/pstack-models.mdc`. If the rule or that line is missing, use `claude-opus-5-5-high-fast`. For `auto` or `inherit-parent`, omit `model` so the workers run on the parent model. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message. For a model race, name each arm's model up front. Pick each subagent's reasoning level for the job, per the Subagents section of the **poteto-mode** skill (`read` `skill://poteto-mode`)."
+    replace: "3. Pass no `model` or `effort`. Every worker runs on the model and reasoning level of its agent definition and the user's `modelRoles` in OMP's settings. This OMP setup does not use pstack's model rule or its `swarm workers` line. For a model race, start each arm as planned and say in the report that every arm ran on the model OMP's settings gave it."
+  - id: stop-swarm-cloud
+    reason: "クラウドの VM で動かす子（environment: \"cloud\"）と cloud_base_branch は使わない範囲。子は手元で起動し（上流の local の扱い）、クラウドの VM が要る実行は前提と引数ごと止まる文にする"
+    files: "^pstack/skills/swarm/SKILL\\.md$"
+    literal: "Spawn all N workers in one message with `subagent_type: generalPurpose`, `environment: \"cloud\"`, `run_in_background: true`, and the step 3 model, left unset for `auto` or `inherit-parent`. Use `environment: \"local\"` only when the worker needs access to something on the user's computer.\n\nWhen a worker must start from a non-default pushed branch, pass `cloud_base_branch`."
+    replace: "Start all N workers in one `task` call with N items in `tasks` and `agent` omitted. They run on this computer, in the background by default, each in its own worktree when it writes (step 4). A worker that must start from a non-default pushed branch starts in a worktree checked out at that branch. Running workers on Cursor's cloud VMs, as the upstream does by default, or starting one there from a pushed branch, is out of scope for this OMP setup. Do not start the fan-out when the run needs that. Stop, and report that the swarm skill stopped at Phase B because its workers needed Cursor's cloud VMs. If you are a subagent, put that report in your final reply to your parent."
+  - id: model-interrogate-reviewers
+    reason: "reviewers を pstack-models.mdc の行で選び generalPurpose で起動する箇所を、座席の数はそのままに OMP の設定のモデルで動き、ベンダーの確認が走らなかったと書く文にする"
+    files: "^pstack/skills/interrogate/SKILL\\.md$"
+    literal: "Read the `interrogate reviewers` line in place of `arena runners`. Copy the scope's uncommitted changes into each worktree. Spawn each adversary as `generalPurpose`."
+    replace: "Start as many adversaries as arena starts runners. This OMP setup does not use pstack's model rule or its `interrogate reviewers` line, so every adversary runs on the model OMP's settings give it, and the output says so and says that no vendor check ran. Copy the scope's uncommitted changes into each worktree. Start each adversary with `agent` omitted."
+  - id: task-how-explain
+    reason: "generalPurpose・readonly: true の Task の子を、agent を省いた OMP の task の子にし、ファイルを書き換えないよう頼んで git status で確かめる文にする"
+    files: "^pstack/skills/how/SKILL\\.md$"
+    literal: "Spawn one Task subagent with `subagent_type: generalPurpose` and `readonly: true` that explores and explains in one pass. Give it the user's question and this brief:"
+    replace: "Start one subagent with the `task` tool and `agent` omitted that explores and explains in one pass. Tell it not to change any file, and check with `git status` after it finishes that nothing changed. Give it the user's question and this brief:"
+  - id: authoring-automate-me-description
+    reason: "description の create-skill（Cursor の組み込み）と transcripts を、OMP の SKILL.md を書くことと OMP のセッションの記録にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "Drafts or revises a personal -mode skill via create-skill + unslop, optionally pulling fresh evidence from recent transcripts."
+    replace: "Drafts or revises a personal -mode skill as an OMP SKILL.md, polished with unslop, optionally pulling fresh evidence from recent OMP session records."
+  - id: authoring-automate-me-intro
+    reason: "導入の Cursor の組み込みの create-skill を、OMP で SKILL.md を直接書く step 4 にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "This skill orchestrates three others: an inline mining pass (see step 1), Cursor's built-in `create-skill` (authoring), and"
+    replace: "This skill orchestrates three parts: an inline mining pass (see step 1), writing the SKILL.md for OMP yourself (step 4), and"
+  - id: path-automate-me-existing
+    reason: "既存の mode スキルを Cursor の置き場で探し AskQuestion で確かめる箇所を、OMP の置き場（一段の探索）と ask ツール（UI の無いセッションと子では既定を採って返答に書く）にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "Look recursively for `.cursor/skills/**/*-mode/SKILL.md` and `~/.cursor/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.cursor/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `AskQuestion` (unless they already said \"update my skill\" or similar):"
+    replace: "Look for `.omp/skills/*-mode/SKILL.md` in the target repository and `~/.omp/agent/skills/*-mode/SKILL.md` matching the user's handle. OMP reads skills one level below a skills directory, so a mode skill lives directly there. If one exists, confirm intent with the `ask` tool, as one `<form>` in its `html` with the choices as `type=\"radio\"` inputs (unless they already said \"update my skill\" or similar). In a session without a UI, or as a subagent, `ask` is not available, so take the default and say so in your final reply:"
+  - id: record-automate-me-transcripts
+    reason: "Cursor の agent-transcripts の置き場を、OMP のセッションの記録の置き場にする（ほかのワークスペースの記録は読まない）"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "Locate the active workspace's transcripts before fanning out. The system prompt names the workspace's `agent-transcripts/` directory. Use only that path. Don't glob across `~/.cursor/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects."
+    replace: "Locate the active workspace's OMP session records before fanning out. OMP keeps them at `~/.omp/agent/sessions/<encoded-cwd>/`, where `<encoded-cwd>` is the workspace path under your home with each `/` turned into `-` and a leading `-` (`~/work/proj` is `-work-proj`). Each session is a `<ts>_<id>.jsonl` file there, and a subagent's record is `<ts>_<id>/<subagent id>.jsonl`. Use only that directory. Don't glob across `~/.omp/agent/sessions/*/`. That crosses workspace boundaries and reads private chats from unrelated projects."
+  - id: ask-automate-me-interview
+    reason: "AskQuestion を OMP の ask ツール（html の1つの form、選択肢は checkbox か radio）にし、UI の無いセッションと子では未決の問いを最終の返答に書く"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "Use the `AskQuestion` tool (structured multi-choice) rather than asking the user to type from scratch."
+    replace: "Use the `ask` tool rather than asking the user to type from scratch: one `<form>` in its `html`, with the options as `type=\"checkbox\"` inputs for category questions and `type=\"radio\"` inputs otherwise. In a session without a UI, or as a subagent, `ask` is not available, so write the open questions in your final reply instead."
+  - id: ask-automate-me-multiple
+    reason: "AskQuestion の allow_multiple を、ask の form の checkbox にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "4-6 options each, `allow_multiple: true` for category questions."
+    replace: "4-6 options each, as checkboxes for category questions."
+  - id: authoring-automate-me-draft
+    reason: "step 4 の Cursor の組み込みの create-skill と Cursor の置き場を、OMP で SKILL.md を直接書く手順（置き場・<handle>-mode・frontmatter・disable-model-invocation・書いた後の確認）にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "Use Cursor's built-in `create-skill` skill to author the skill. Placement:\n\n- Path: preserve an existing mode skill's category. For a new mode, use `.cursor/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.cursor/skills/<handle>-mode/SKILL.md` in the project (or `~/.cursor/skills/<handle>-mode/` if the user prefers a personal skill).\n- Handle: the user's first name or chosen identifier.\n- Frontmatter `description`: trigger on their name + `/<handle>-mode` + \"work in their style\", not on generic keywords like \"write code\" or \"review PR\".\n- Frontmatter formatting: follow `create-skill`'s YAML rules. Keep `description` as one YAML scalar. Quote it or use `description: >-` with indented continuation lines when punctuation or wrapping requires it.\n- Frontmatter `disable-model-invocation: true` by default. Opt out only if the user explicitly wants their mode to apply on every turn."
+    replace: "Write the SKILL.md yourself in OMP's skill format. Do not count on a built-in skill-authoring skill. Placement:\n\n- Path: OMP reads skills one level below a skills directory, so the skill is `<skills dir>/<handle>-mode/SKILL.md`. For a new mode, use `.omp/skills/<handle>-mode/SKILL.md` in the target repository, or `~/.omp/agent/skills/<handle>-mode/SKILL.md` when the user prefers a personal skill. When step 0 found an existing mode skill where OMP reads it, edit that file in place. Never save into pstack's generated copy (where `skill://poteto-mode` resolves), because the next sync rewrites it.\n- Handle: the user's first name or chosen identifier. The skill's name is `<handle>-mode`.\n- Frontmatter `name`: `<handle>-mode`, the same as the directory name, with no `/` or `\\`.\n- Frontmatter `description`: one non-empty YAML string. Trigger on their name, `/skill:<handle>-mode`, and a request to work in their style, not on generic keywords like \"write code\" or \"review PR\" or on a general request to implement something. Quote it, or use `description: >-` with indented continuation lines when punctuation or wrapping requires it.\n- Frontmatter `disable-model-invocation: true` by default. It hides the skill from the model's skill list, so the skill is used only when loaded explicitly, with `/skill:<handle>-mode` or `read` on `skill://<handle>-mode`. Leave it out only if the user explicitly wants the skill listed to the model.\n- After writing, check the file: the frontmatter parses as YAML, `name` and `description` hold the values you meant, every file it references exists, and every reference to another skill (`skill://<name>`, `/skill:<name>`) resolves. Then run `omp skill list --json` in the target repository and confirm that the skill appears with the intended `name`, the `filePath` of the file you wrote, and `hide: true` (or `hide: false` when the user had `disable-model-invocation` left out)."
+  - id: authoring-automate-me-prose
+    reason: "推敲の create-skill の執筆指針を、上流のプレイブックの指針（判断や行動を変える指示だけ、具体的な命令、理由は要る場合だけ、根拠を参照、別のスキルの本文を重ねない）として明文化する"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "and `create-skill`'s writing guidelines to every line."
+    replace: "and these writing rules to every line: keep only instructions that change a decision or an action, write each as a concrete imperative, give a reason only when the rule is confusing without one, point at the source (a file, a type, or a skill) instead of restating it, and never repeat another skill's body; refer to it by `skill://<name>`."
+  - id: authoring-automate-me-evaluation
+    reason: "評価の create-skill 流の評価のループを、Cursor の組み込みを名指さない文にする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "A `create-skill`-style test/iterate benchmark loop isn't useful here."
+    replace: "A test-and-iterate benchmark loop isn't useful here."
+  - id: authoring-automate-me-not-mode
+    reason: "案内の create-skill だけを使う場合を、poteto-mode の Authoring a skill のプレイブックにする"
+    files: "^pstack/skills/automate-me/SKILL\\.md$"
+    literal: "`create-skill` alone, no mining required."
+    replace: "run the Authoring a skill playbook (`read` `skill://poteto-mode/playbooks/authoring-a-skill.md`), no mining required."
+  - id: authoring-playbook-steps
+    reason: "Cursor の組み込みの create-skill に頼る step 1 と検証を、OMP で SKILL.md を直接書く手順（置き場・frontmatter・書いた後の確認と omp skill list --json）にする"
+    files: "^pstack/skills/poteto-mode/playbooks/authoring-a-skill\\.md$"
+    literal: "1. Use the **create-skill** skill (Cursor's built-in for authoring SKILL.md files).\n2. Validate the skill: frontmatter has `name` and `description`, referenced files exist, cross-skill links resolve."
+    replace: "1. Write the SKILL.md yourself in OMP's skill format, by the writing rules below. Do not count on a built-in skill-authoring skill. Put a new skill at `.omp/skills/<name>/SKILL.md` in the target repository, or at `~/.omp/agent/skills/<name>/SKILL.md` when the user asks for a personal skill. When the skill you change already lives where OMP reads skills, edit that file in place. Never save into pstack's generated copy (where `skill://poteto-mode` resolves), because the next sync rewrites it. Start the file with YAML frontmatter: `name`, the same as the directory name, with no `/` or `\\`, and `description`, one non-empty YAML string that says what the skill does and when to use it.\n2. Validate the skill. After writing, check the file: the frontmatter parses as YAML, `name` and `description` hold the values you meant, every file it references exists, and every reference to another skill (`skill://<name>`, `/skill:<name>`) resolves. Then run `omp skill list --json` in the target repository and confirm that the skill appears with the intended `name`, the `filePath` of the file you wrote, and the intended `hide` value (`true` when the frontmatter has `disable-model-invocation: true`)."
+  - id: record-eval-transcripts
+    reason: "Cursor の agent-transcripts から候補の記録を読む箇所を、OMP のセッションの記録（history://<id> か子の .jsonl）にする"
+    files: "^pstack/skills/poteto-mode/playbooks/eval\\.md$"
+    literal: "Read each candidate's local transcript under the active workspace's `agent-transcripts/` directory (the system prompt names this path). Do not glob across `~/.cursor/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects."
+    replace: "Read each candidate's OMP session record: `history://<id>` for a subagent you started, or its `<ts>_<id>/<subagent id>.jsonl` under this session's record in `~/.omp/agent/sessions/<encoded-cwd>/`, where `<encoded-cwd>` is the workspace path under your home with each `/` turned into `-` and a leading `-` (`~/work/proj` is `-work-proj`). Do not glob across `~/.omp/agent/sessions/*/`. That crosses workspace boundaries and reads private chats from unrelated projects."
+  - id: model-eval-candidates
+    reason: "候補を別々のモデルで起動し、取りまとめ役を Cursor の slug で動かす箇所を、座席の数はそのままに OMP の設定のモデルで動くと書く文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/eval\\.md$"
+    literal: "4. **Spawn N parallel candidates** on different models per Phase B of the **arena** skill (`read` `skill://arena`). Each works in its own sanitized dir. Same prompt to each. Pick each subagent's reasoning level for the job, per the Subagents section. An agent that only dispatches, polls, or packs results runs on `claude-opus-5-5-medium-fast`."
+    replace: "4. **Spawn N parallel candidates** per Phase B of the **arena** skill (`read` `skill://arena`). Each works in its own sanitized dir. Same prompt to each. Pass no `model` or `effort`. Every candidate, and any agent that only dispatches, polls, or packs results, runs on the model OMP's settings give it, so say in the reply that every seat ran on that model."
+  - id: model-eval-judge
+    reason: "別のモデルの系統の審査役を、OMP の設定のモデルで動き系統の確認が走らなかったと書く文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/eval\\.md$"
+    literal: "**Spawn one blinded judge** on a different model family per Phase C of the **arena** skill (`read` `skill://arena`)."
+    replace: "**Spawn one blinded judge** per Phase C of the **arena** skill (`read` `skill://arena`). It runs on the model OMP's settings give it, so say in the reply that no model-family check ran."
+  - id: stop-session-pickup-cloud
+    reason: "前の記録の置き場を OMP のセッションの記録にし、クラウドエージェントの URL にしか無い記録は使わない範囲として止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/session-pickup\\.md$"
+    literal: "A local transcript under the active workspace's `agent-transcripts/` directory (the system prompt names the path. Do not glob across `~/.cursor/projects/*/`, that crosses workspace boundaries and reads private chats from unrelated projects), a cloud-agent URL, or a pushed branch."
+    replace: "An OMP session record of this workspace under `~/.omp/agent/sessions/<encoded-cwd>/` (`<encoded-cwd>` is the workspace path under your home with each `/` turned into `-` and a leading `-`; do not glob across `~/.omp/agent/sessions/*/`, that crosses workspace boundaries and reads private chats from unrelated projects), or a pushed branch. A trail that lives only in an agent on Cursor's cloud VMs is out of scope for this OMP setup. Do not start the pickup from it. Stop, and report that the Session pickup playbook of poteto-mode stopped at step 1 because the prior trail was on Cursor's cloud VMs. If you are a subagent, put that report in your final reply to your parent."
+  - id: record-show-me-your-work-transcript
+    reason: "Cursor の agent-transcripts からこの実行の記録を読む箇所を、OMP のセッションの記録にする"
+    files: "^pstack/skills/show-me-your-work/SKILL\\.md$"
+    literal: "Read this run's transcript under the active workspace's `agent-transcripts/` directory (the system prompt names the path). Don't glob across `~/.cursor/projects/*/`. That reads unrelated private chats."
+    replace: "Read this run's OMP session record under `~/.omp/agent/sessions/<encoded-cwd>/`, where `<encoded-cwd>` is the workspace path under your home with each `/` turned into `-` and a leading `-` (`~/work/proj` is `-work-proj`). This session is the newest `.jsonl` there, unless another session runs in parallel, so confirm it by your own messages. A subagent's record is `<ts>_<id>/<subagent id>.jsonl`, also readable as `history://<id>`. Don't glob across `~/.omp/agent/sessions/*/`. That reads unrelated private chats."
+  - id: model-show-me-your-work-review
+    reason: "別のベンダーのモデルの子に見直させる箇所を、新しい子が OMP の設定のモデルで動きベンダーの確認が走らなかったと書く文にする"
+    files: "^pstack/skills/show-me-your-work/SKILL\\.md$"
+    literal: "spawn a subagent on another vendor's model than the one that did the work."
+    replace: "start a fresh subagent with the `task` tool. It runs on the model OMP's settings give it, which may come from the same vendor as the one that did the work, so say in your reply that no vendor check ran."
+  - id: record-recall-transcripts
+    reason: "Cursor の記録の置き場と形を、OMP のセッションの記録の置き場と形にする"
+    files: "^pstack/skills/recall/SKILL\\.md$"
+    literal: "Transcripts live at `~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl`, where `<slug>` is the workspace path with the leading slash dropped and each \"/\" turned into \"-\" (so `/Users/you/proj` becomes `Users-you-proj`). Every line is one chat message."
+    replace: "OMP keeps session records at `~/.omp/agent/sessions/<encoded-cwd>/<ts>_<id>.jsonl`, where `<encoded-cwd>` is the workspace path under your home with each \"/\" turned into \"-\" and a leading \"-\" (so `~/work/proj` becomes `-work-proj`). A subagent's record is `<ts>_<id>/<subagent id>.jsonl`. Every line is one JSON entry of the session."
+  - id: model-recall-mining
+    reason: "速く安いモデルで子を起動する箇所を、OMP の task の1回の呼び出しで起動し、モデルは OMP の設定で決まる文にする"
+    files: "^pstack/skills/recall/SKILL\\.md$"
+    literal: "Spawn parallel subagents on a fast, cheap model, each taking a slice of the corpus."
+    replace: "Start parallel subagents in one `task` call, each taking a slice of the corpus. They run on the model OMP's settings give them, so pass no `model`."
+  - id: task-recall-investigators
+    reason: "readonly が MCP を外すので agent mode で起動するという Cursor の事情を、OMP の子は親の MCP を使えるという文にする"
+    files: "^pstack/skills/recall/SKILL\\.md$"
+    literal: "Spawn one investigator subagent per source, in agent mode because readonly strips MCP access, and ask each"
+    replace: "Start one investigator subagent per source (subagents can use the parent's MCP tools), and ask each"
+  - id: path-reflect-destination
+    reason: "Cursor のプラグインの写しと Cursor のスキルの置き場を、同期で作り直される pstack の生成物と OMP のスキルの置き場にする"
+    files: "^pstack/skills/reflect/SKILL\\.md$"
+    literal: "Never edit a skill under `plugins/cache/`. Before approval, show its destination, `.cursor/skills/<skill>/` or `~/.cursor/skills/<skill>/`."
+    replace: "Never edit a pstack skill in its generated copy (where `skill://<skill>` resolves), because the next sync rewrites it. Before approval, show its destination, `.omp/skills/<skill>/` in the repository or `~/.omp/agent/skills/<skill>/`."
+  - id: path-create-verification-intro
+    reason: "作る検証のスキルの置き場を、Cursor のスキルの置き場から OMP のプロジェクトのスキルの置き場にする"
+    files: "^pstack/skills/create-verification-skill/SKILL\\.md$"
+    literal: "as a project-local skill (`.cursor/skills/verify-<app>/`) tailored to the repo."
+    replace: "as a project-local OMP skill (`.omp/skills/verify-<app>/`) tailored to the repo."
+  - id: path-create-verification-skill-md
+    reason: "作る検証のスキルの SKILL.md の置き場を、OMP のプロジェクトのスキルの置き場にする"
+    files: "^pstack/skills/create-verification-skill/SKILL\\.md$"
+    literal: "Write `.cursor/skills/verify-<app>/SKILL.md` with YAML frontmatter"
+    replace: "Write `.omp/skills/verify-<app>/SKILL.md` with YAML frontmatter"
+  - id: path-create-verification-features
+    reason: "作る検証のスキルの機能の地図の置き場を、OMP のプロジェクトのスキルの置き場にする"
+    files: "^pstack/skills/create-verification-skill/SKILL\\.md$"
+    literal: "Create `.cursor/skills/verify-<app>/features/README.md`"
+    replace: "Create `.omp/skills/verify-<app>/features/README.md`"
+  - id: path-maintain-verification-target
+    reason: "保守する検証のスキルを探す置き場を、OMP のプロジェクトのスキルの置き場にする"
+    files: "^pstack/skills/maintain-verification-skill/SKILL\\.md$"
+    literal: "(usually `.cursor/skills/verify-*/`)"
+    replace: "(usually `.omp/skills/verify-*/`)"
+  - id: record-worktree-cleanup-audit
+    reason: "監査の道具のチャットの列は Cursor の記録を読むので OMP では空になることと、OMP のセッションの記録で worktree の最新のセッションを見る方法を書く"
+    files: "^pstack/skills/poteto-mode/playbooks/worktree-cleanup\\.md$"
+    literal: "It classifies each worktree by size, age, merge state, uncommitted work, PR state, and the newest chat that touched it, then suggests a bucket. The transcript scan is slow, so background it."
+    replace: "It classifies each worktree by size, age, merge state, uncommitted work, PR state, and the newest chat that touched it, then suggests a bucket. Its chat scan reads Cursor's chat records, not OMP's, so in OMP its `LAST_CHAT` column stays empty and no row is `verify-recent-chat`. The newest OMP session started in a worktree is the newest `.jsonl` in `~/.omp/agent/sessions/<encoded path>/`, where `<encoded path>` is the worktree's path under your home with each `/` turned into `-` and a leading `-`."
+  - id: record-worktree-cleanup-sidebar
+    reason: "Cursor のサイドバーのチャットの一覧を指す箇所を、利用者に聞く文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/worktree-cleanup\\.md$"
+    literal: "Get that set from the user or sidebar and cross-check every candidate."
+    replace: "Get that set from the user and cross-check every candidate."
+  - id: record-worktree-cleanup-verify
+    reason: "verify-recent-chat の行を Cursor の記録で確かめる箇所を、OMP のセッションの記録で確かめる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/worktree-cleanup\\.md$"
+    literal: "For every `verify-recent-chat` row, or anything you doubt, fan subagents out to read the transcripts and report whether the chat is pinned or ongoing and which worktrees it touches"
+    replace: "For every worktree with a recent OMP session (step 1), or anything you doubt, fan subagents out to read those session records and report whether the session is pinned or ongoing and which worktrees it touches"
+  - id: stop-autonomous-run-wake
+    reason: "Cursor の /loop で自分を後から起こす仕組み（使わない範囲）を選ぶ step 2 を、前提ごと止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/autonomous-run\\.md$"
+    literal: "2. Pick the wake mechanism using Cursor's `/loop` command (a built-in, not a pstack skill). An event to watch (CI, a merge, a ref advancing) gets a watcher subagent that wakes you on the event, with a long time-based heartbeat as fallback. No event gets a fixed-interval heartbeat sized to when the result is worth re-checking. Pick each subagent's reasoning level for the job, per the Subagents section."
+    replace: "2. This step picks a wake mechanism through Cursor's loop command: a watcher subagent that wakes you on an event, or a timed heartbeat. Waking the run later that way is out of scope for this OMP setup. Do not start this step or any later step. Stop, and report that the Autonomous run playbook of poteto-mode stopped at step 2 because it needs Cursor's loop command to wake the run. If you are a subagent, put that report in your final reply to your parent."
+  - id: ask-autonomous-run
+    reason: "AskQuestion を OMP の ask ツールにする"
+    files: "^pstack/skills/poteto-mode/playbooks/autonomous-run\\.md$"
+    literal: "Do not park reversible work for the human or use `AskQuestion`."
+    replace: "Do not park reversible work for the human or use the `ask` tool."
+  - id: stop-autopilot-full-owners
+    reason: "PR ごとの owner を Cursor のクラウドエージェントで動かす step 2（owner の作業・VM が死ぬ前提の続きの段落を含む）は使わない範囲。前提と引数ごと止まる文にし、後に続く起動の指示を残さない"
+    files: "^pstack/skills/poteto-mode/playbooks/autopilot-full\\.md$"
+    regex: "2\\. \\*\\*Spawn one owner per PR, and keep its work where a replacement can find it\\.\\*\\*[^\\n]*Each owner is a Cursor cloud agent that[^\\n]*\\n\\n   Open the PR early so CI and bots run alongside the work\\.[^\\n]*\\n\\n   Assume the VM dies\\.[^\\n]*"
+    replace: "2. **Spawn one owner per PR.** Each owner here is an agent on Cursor's cloud VMs that builds, opens, babysits, and merges its PR on a machine of its own. Running owners on Cursor's cloud VMs is out of scope for this OMP setup. Do not start this step or any later step of this playbook. Stop, and report that the Autopilot-full playbook of poteto-mode stopped at step 2 because its PR owners need Cursor's cloud VMs. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-autopilot-full-audit
+    reason: "operator の go で /loop 1h の監査を始める段落（Cursor の /loop による起床。使わない範囲）を止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/autopilot-full\\.md$"
+    regex: "   On the operator's go, arm `/loop 1h` to audit until no delegated work is left,[^\\n]*"
+    replace: "   The audit that starts on the operator's go wakes the run every hour through Cursor's loop command. That wake is out of scope for this OMP setup. Do not start the audit. Stop, and report that the Autopilot-full playbook of poteto-mode stopped at step 6 because its audit needs Cursor's loop command. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-autopilot-stack-full
+    reason: "Autopilot-full が step 2 で止まるので、それを走らせる Autopilot-stack もそこで止まることを書く"
+    files: "^pstack/skills/poteto-mode/playbooks/autopilot-stack\\.md$"
+    literal: "Run the Autopilot-full playbook, but do not merge."
+    replace: "Run the Autopilot-full playbook, but do not merge. In this OMP setup that playbook stops at its step 2, before any owner starts, so this one stops there too and reports as that step says."
+  - id: stop-autopilot-stack-tick
+    reason: "/loop の tick（Cursor の起床）を前提にした文を、起動する子への依頼の文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/autopilot-stack\\.md$"
+    literal: "Every loop tick prompt names this file, so each tick sees the no-merge rule."
+    replace: "Every brief you write names this file, so each agent sees the no-merge rule."
+  - id: stop-shipping-verifiers
+    reason: "PR ごとの verifier を Cursor のクラウドエージェントで動かす step 1 は使わない範囲。前提と引数ごと止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/shipping\\.md$"
+    literal: "One verifier per PR, each a Cursor cloud agent, runs the change the way a user would with the matching control skill (such as `control-ui` or `control-cli` from `cursor-team-kit`), parent against head, and posts `PASS`, `PASS+NOTES`, or `FAIL` on that PR."
+    replace: "This step runs one verifier per PR, each an agent on Cursor's cloud VMs, that runs the change the way a user would and posts `PASS`, `PASS+NOTES`, or `FAIL` on that PR. Running verifiers on Cursor's cloud VMs is out of scope for this OMP setup. Do not start this step or any later step of this playbook. Stop, and report that the Shipping playbook of poteto-mode stopped at step 1 because its verifiers need Cursor's cloud VMs. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-shipping-watch
+    reason: "GitHub の着地を /loop の下で見張る手順（Cursor の /loop による起床。使わない範囲）を、見張りの引数ごと止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/shipping\\.md$"
+    literal: "On GitHub, watch the run with `\"$(realpath skill://poteto-mode)/scripts/watch-pr/watch-pr\" --queued-stack` under `/loop` until it reports `COMPLETE` at the ceiling. Pass the run's PR numbers, bottom-to-top, in `--stack-prs`, and pass the same list each time you restart the watcher."
+    replace: "On GitHub, the upstream watches the landing with the watcher under Cursor's loop command. That wake is out of scope for this OMP setup. Do not start the watch. Stop, and report that the Shipping playbook of poteto-mode stopped at step 5 because watching the landing needs Cursor's loop command. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-bug-fix-loop
+    reason: "長い原因の探索を Cursor の /loop で続ける文（使わない範囲）を止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/bug-fix\\.md$"
+    literal: "Drive a long or stubborn hunt with Cursor's `/loop` command."
+    replace: "A long or stubborn hunt that needs Cursor's loop command to wake you later is out of scope for this OMP setup. Do not start that wake. Stop, and report that the Bug fix playbook of poteto-mode stopped at step 2 because the hunt needed Cursor's loop command. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-visual-parity-loop
+    reason: "部品ごとに /loop で差分が 0 になるまで続ける文（Cursor の /loop による起床。使わない範囲）を止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/visual-parity\\.md$"
+    literal: "`/loop` per component until the diff is zero."
+    replace: "Repeat per component until the diff is zero. Waking yourself later between attempts through Cursor's loop command is out of scope for this OMP setup. Do not start that wake. Stop, and report that the Visual parity playbook of poteto-mode stopped at step 4 because it needed Cursor's loop command. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-hillclimb-unattended
+    reason: "無人の実行で Autonomous run の起床の仕組み（Cursor の /loop）を借りる文を止まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/hillclimb\\.md$"
+    literal: "If the run is unattended, borrow only the wake mechanism from the Autonomous run playbook (`skill://poteto-mode/playbooks/autonomous-run.md` (read it with `read`)), not its stop rule."
+    replace: "If the run is unattended, it needs the wake mechanism of the Autonomous run playbook (`skill://poteto-mode/playbooks/autonomous-run.md` (read it with `read`)), which uses Cursor's loop command. That wake is out of scope for this OMP setup. Do not start the next iteration. Stop, and report that the Hillclimb playbook of poteto-mode stopped at step 5 because the unattended run needed Cursor's loop command. If you are a subagent, put that report in your final reply to your parent."
+  - id: stop-make-bot-ui
+    reason: "Cursor Automations の routine（update_state・webhook・SendToUser）を作って起こす手順は使わない範囲。スキルは生成に残し、本文を前提と引数ごと止まる文にする（後に続くページの公開と tailnet の手順も残さない）"
+    files: "^pstack/skills/make-bot-ui/SKILL\\.md$"
+    regex: "(# How to make a bot UI\\n\\n)Build a page the user clicks\\.[\\s\\S]*$"
+    replace: "$1This skill wakes a Grok Bot through a webhook routine that it creates with Cursor's routine tools, and it asks for the sender key with Cursor's secret-request card. Both need Cursor's routines. Using Cursor's routines is out of scope for this OMP setup. Do not start any step: do not create a routine, ask for a key, host the page, or put it on the tailnet. Stop, and report that the make-bot-ui skill stopped before its first step because it needs Cursor's routines. If you are a subagent, put that report in your final reply to your parent.\n"
+  - id: todo-figure-it-out-open
+    reason: "Cursor の todolist を OMP の todo ツールの op で書く（子には todo が無い）"
+    files: "^pstack/skills/figure-it-out/SKILL\\.md$"
+    literal: "Open a todolist whose first item is to read the Principles section of the **poteto-mode** skill (`read` `skill://poteto-mode`). Then add the phases below as todos."
+    replace: "Call the `todo` tool with `op: \"init\"` and a `list` whose first item is to read the Principles section of the **poteto-mode** skill (`read` `skill://poteto-mode`). Then add the phases below as items with `op: \"append\"`, and mark each with `op: \"start\"` and `op: \"done\"` as you go. A subagent has no `todo` tool, so it keeps the list in its reply."
+  - id: todo-figure-it-out-steps
+    reason: "Cursor の todolist に項目を足す箇所を、OMP の todo ツールの append にする"
+    files: "^pstack/skills/figure-it-out/SKILL\\.md$"
+    literal: "Add its steps to the todolist as concrete items between the Phase C and Phase D entries."
+    replace: "Add its steps to the `todo` list as concrete items with `op: \"append\"`, and work them between the Phase C and Phase D entries."
+  - id: pr-opening-a-pr-ready
+    reason: "Cursor の組み込みの PR ツール（draft: false）を、上流の Without one の書き方（Origin の CLI が使えれば origin pr create --status open、無ければ --draft なしの gh pr create）にする"
+    files: "^pstack/skills/poteto-mode/playbooks/opening-a-pr\\.md$"
+    literal: "Open PRs ready, through the run's PR tool with `draft: false`. Without one, use `gh pr create` without `--draft`, or `origin pr create --status open` when Origin's CLI resolves the repository."
+    replace: "Open PRs ready. Use `origin pr create --status open` when `command -v origin` succeeds and Origin's CLI resolves the repository, and otherwise `gh pr create` without `--draft`."
+  - id: help-work-request
+    reason: "Custom Mode（Cursor の機能）で mode を保つ案内を、タスクごとに /skill:poteto-mode で始める案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "do the work under it, and mention once that a Custom Mode keeps it on."
+    replace: "do the work under it, and mention once that starting each task with `/skill:poteto-mode` keeps it on."
+  - id: setup-help-state
+    reason: "pstack-models.mdc の有無で setup-pstack を勧める状態の確認を、モデルが OMP のエージェント定義と modelRoles で決まることの確認にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "- No `~/.cursor/rules/pstack-models.mdc` means `/skill:setup-pstack` hasn't run for this user, so every role uses its default model."
+    replace: "- Subagents run on the models of OMP's agent definitions and the user's `modelRoles` in `~/.omp/agent/config.yml`, because this OMP setup does not use `/skill:setup-pstack`. Read that file when the answer depends on which models run."
+  - id: setup-help-model-question
+    reason: "モデルの規則が無いときに setup-pstack を勧める問いを、利用者が OMP の modelRoles を変える案内にする（利用者の設定は書き換えない）"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "When the model rule is missing and it matters, ask whether the user wants to pick a model for each role and a reasoning budget now. It matters when the user is new, the question is about setup or cost, or the answer depends on which models run. Ask at most once per chat. If the need is also unclear, ask both questions together. Offer two choices:\n\n- Now: give them `/skill:setup-pstack` to type, and answer their question too.\n- Later: answer their question, and add one line saying every role keeps its default model until they run `/skill:setup-pstack`."
+    replace: "When the answer depends on which models run, or the user wants other models or a smaller reasoning budget, tell them that OMP picks each subagent's model and level from its agent definition and their `modelRoles`, and that they change it with `modelRoles` in `~/.omp/agent/config.yml` or the Roles in `/model`. Do not edit their settings yourself."
+  - id: setup-help-get-set-up
+    reason: "Cursor のプラグインの導入と setup-pstack の手順を、nod の同期と一度だけの登録と、モデルを OMP の設定で決める案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "1. Install with `/add-plugin pstack` in chat, or from Customize in the sidebar.\n2. Run `/skill:setup-pstack` (`read` `skill://setup-pstack`). It asks for a reasoning budget, maps a model to each role, and writes a rule. The rule applies to new chats. Then it offers once each to generate a verification skill and a formal verification skill for the project, unless the project already has one."
+    replace: "1. In this OMP setup, nod generates pstack. Running `bun scripts/pstack-omp/cli.ts sync` in the nod repository writes the OMP copy, and the user registers it once in `~/.omp/agent/config.yml` as nod's README says. `bun scripts/pstack-omp/cli.ts status` there shows whether the registration is complete.\n2. Models need no pstack setup. `poteto-agent` runs on the `task` role, and the user picks models in `modelRoles` in `~/.omp/agent/config.yml` or the Roles in `/model`. `/skill:setup-pstack` only says so. When the project has no verification skill or formal verification skill, offer once each to generate one with `/skill:create-verification-skill` or `/skill:create-formal-verification-skill`."
+  - id: setup-help-installing
+    reason: "setup-pstack だけが利用者の言葉で読み込まれるという Cursor の導入の説明を、この構成ではどのスキルもモデル向けの一覧から外れ名前で呼べば読み込まれる説明にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Installing changes nothing until the user invokes a skill. Only `/skill:setup-pstack` loads from the user's words. The [README]({{upstream:pstack/README.md}}) and [guide page 1]({{upstream:pstack/docs/guide/01-setup.md}}) have the details."
+    replace: "Registering changes nothing until the user invokes a skill. The registration keeps every pstack skill out of the model's skill list, so a skill loads only when the user types `/skill:<name>` or a running skill reads it. The [README]({{upstream:pstack/README.md}}) and [guide page 1]({{upstream:pstack/docs/guide/01-setup.md}}) describe the Cursor setup that this OMP copy replaces."
+  - id: setup-help-cost
+    reason: "setup-pstack で予算やモデルを選び直す案内と inherit-parent・auto の役割の値を、利用者が OMP の modelRoles を変える案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Rerun `/skill:setup-pstack` and pick a smaller budget or cheaper models. A role set to `auto` or `inherit-parent` runs on the chat's model, which saves tokens when the chat runs on Auto or a cheaper model. A shorter panel list runs fewer subagents, one for each entry."
+    replace: "To spend fewer, the user points the roles in `modelRoles` (`task` for `poteto-agent`) at cheaper models or lower levels, in `~/.omp/agent/config.yml` or through the Roles in `/model`."
+  - id: help-cursor-only-steps
+    reason: "Cursor だけの機能に当たる手順の扱いを、この OMP 向けの写しでは使わない範囲として止まって報告すると書く（Bugbot の起動・待機を含む）"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "such as Bugbot or Automations, is skipped with a one-line note."
+    replace: "such as Bugbot or Automations, is skipped with a one-line note. This OMP copy was converted when nod generated it: a step that needs a feature outside its scope, such as Cursor's cloud VMs, Cursor's routines, starting or waiting for Bugbot, or Cursor's loop command, stops and reports instead."
+  - id: help-other-tools
+    reason: "Cursor の子とモデル・Custom Modes・/loop の説明を、この写しでは OMP の task ツールで子を起動し OMP の設定のモデルで動くという説明にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "But most workflow skills, including `/skill:poteto-mode`, `/skill:how`, and `/skill:teach`, spawn Cursor subagents, some with per-role models, and Custom Modes and `/loop` are Cursor features, so those parts may not work there."
+    replace: "In this OMP copy, the workflow skills, including `/skill:poteto-mode`, `/skill:how`, and `/skill:teach`, start subagents with OMP's `task` tool, on the models that OMP's settings give them."
+  - id: help-custom-mode
+    reason: "Cursor の Enter・Custom Mode・Agents Window の説明を、OMP で /skill:poteto-mode をタスクごとに読み込む案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Whether `/skill:poteto-mode` stays on depends on how the user starts it:\n\n- Enter on `/skill:poteto-mode` attaches the skill to one message. It fades as the chat moves on.\n- Option+Enter on Mac or Alt+Enter on Windows, or Use as Mode from the skill entry, makes it a Custom Mode. It stays in context every turn until the user exits the mode, and it stays out of casual turns.\n- Cursor's docs list Custom Modes in the Agents Window and the CLI. Elsewhere, start each new task with `/skill:poteto-mode`."
+    replace: "In OMP, `/skill:poteto-mode` loads the skill into the chat with the user's message. This setup keeps it off the model's skill list, so start each new task with `/skill:poteto-mode`."
+  - id: help-skills-docs
+    reason: "Cursor のスキルの文書へのリンクは OMP では案内しない"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Link [Cursor's skills docs](https://cursor.com/docs/skills) when this comes up. "
+    replace: ""
+  - id: task-help-poteto-agent
+    reason: "subagent_type で poteto-agent を起動する案内を、OMP の task の agent にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "To get the same style from a subagent of your own, spawn it with `subagent_type: \"poteto-agent\"`."
+    replace: "To get the same style from a subagent of your own, start it with the `task` tool and `agent: \"poteto-agent\"`."
+  - id: help-swarm-row
+    reason: "swarm の子をクラウドエージェントとして説明する行を、手元の子にする（swarm の子は手元で起動する）"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| Run parallel checks over slices, or race workers, as cloud agents |"
+    replace: "| Run parallel checks over slices, or race workers, as local subagents |"
+  - id: setup-help-table
+    reason: "モデルと予算を選ぶ表の行を、利用者が OMP の modelRoles を変える案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| Pick a model for each role and a reasoning budget | `/skill:setup-pstack` (`read` `skill://setup-pstack`) |"
+    replace: "| Pick a model for each role and a reasoning budget | Not a skill in this OMP setup: change `modelRoles` in `~/.omp/agent/config.yml` or the Roles in `/model` (`/skill:setup-pstack` only says so) |"
+  - id: stop-help-make-bot-ui
+    reason: "make-bot-ui は Cursor の routine を使う（使わない範囲）ので、表で止まって報告することを書く"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| Build a page whose buttons wake a Grok Bot over a webhook |"
+    replace: "| Build a page whose buttons wake a Grok Bot over a webhook (it needs Cursor's routines, so in this OMP setup it stops and reports) |"
+  - id: help-not-in-pstack
+    reason: "Cursor の組み込みの /loop と /create-skill の案内を、この構成では使わないことと、スキルは authoring のプレイブックで OMP の置き場に書く案内にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "- `/loop` and `/create-skill` are Cursor built-ins."
+    replace: "- Cursor's loop command and its built-in skill-authoring command are Cursor features that this OMP setup does not use. To write a skill, `/skill:poteto-mode write a skill for <workflow>` runs the authoring playbook, which writes the SKILL.md where OMP reads it."
+  - id: help-babysit-phrase
+    reason: "Cursor の同じ役目のスキルが始まる説明を、この構成ではスキルがモデル向けの一覧から外れるのでプレイブックが始まらないという説明にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "a phrase such as \"babysit this pr\" can start Cursor's own skill for the same job instead."
+    replace: "a phrase such as \"babysit this pr\" does not start the playbook, because this setup keeps the pstack skills off the model's skill list."
+  - id: help-plan-mode
+    reason: "Cursor の Plan Mode の案内は OMP では使わない"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "pstack has no planning skill. Cursor's Plan Mode works alongside it."
+    replace: "pstack has no planning skill."
+  - id: help-fix-mode
+    reason: "Custom Mode で始める直し方を、タスクごとに /skill:poteto-mode で始める直し方にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| It was started with Enter. Start it as a Custom Mode, or start each task with `/skill:poteto-mode`. |"
+    replace: "| Start each task with `/skill:poteto-mode`. |"
+  - id: setup-help-fix-model
+    reason: "setup-pstack の規則が新しいチャットに効くという直し方を、OMP の modelRoles とエージェント定義を確かめる直し方にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| The rule from `/skill:setup-pstack` applies to new chats. Start one. |"
+    replace: "| Models come from the agent definition and `modelRoles` in `~/.omp/agent/config.yml`, not from `/skill:setup-pstack`. Check both, and start a new session after editing the file. |"
+  - id: setup-help-fix-load
+    reason: "setup-pstack だけが利用者の言葉で読み込まれるという説明を、この構成ではどのスキルも自分では読み込まれない説明にする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Only `/skill:setup-pstack` loads from the user's words. The others load when the user types them or when `/skill:poteto-mode` runs them, and it doesn't run every skill."
+    replace: "In this OMP setup no pstack skill loads on its own. Each loads when the user types it or when `/skill:poteto-mode` runs it, and `/skill:poteto-mode` doesn't run every skill."
+  - id: help-fix-parallel
+    reason: "クラウドエージェントで別のマシンに分ける直し方（使わない範囲）を外す"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "Give each agent its own worktree, or run them as cloud agents, which each get their own machine."
+    replace: "Give each agent its own worktree."
+  - id: stop-help-overnight
+    reason: "夜通しの実行を /loop で起こす直し方（使わない範囲）を、この構成では止まって報告することにする"
+    files: "^pstack/skills/poteto-help/SKILL\\.md$"
+    literal: "| `/loop` needs a check that can pass or fail, not a duration."
+    replace: "| Waking a run later through Cursor's loop command is out of scope for this OMP setup, so such a run stops and reports. A long run still needs a check that can pass or fail, not a duration."
+  - id: stop-prompting-loop
+    reason: "利用者のプロンプトの案内の /loop（使わない範囲）を、この構成では止まって報告することにする"
+    files: "^pstack/skills/poteto-help/references/prompting\\.md$"
+    literal: "- Write done as checks every iteration can run, and give `/loop` that predicate."
+    replace: "- Write done as checks every iteration can run. Waking the run later through Cursor's loop command is out of scope for this OMP setup, so the run keeps going in its session or stops and reports."
+  - id: stop-recipes-loop
+    reason: "例のプロンプトの /loop until done（使わない範囲）を、セッションの中で続ける指示にする"
+    files: "^pstack/skills/poteto-help/references/recipes\\.md$"
+    literal: "don't ask me before committing. /loop until done. if you're"
+    replace: "don't ask me before committing. keep going until done. if you're"
+  - id: model-reasoning-level
+    reason: "子ごとに推論の水準を選ぶ手順を、子はエージェント定義と役割の水準で動き effort を渡さないという文にする（Task 3 の個別の規則の後に、残りの箇所すべてに当てる）"
+    files: "^pstack/skills/"
+    regex: "Pick each subagent's reasoning level (?:for the job, )?per the Subagents section(?: of the \\*\\*poteto-mode\\*\\* skill \\(`read` `skill://poteto-mode`\\))?\\."
+    replace: "Do not pick a reasoning level per subagent or pass `effort`: each subagent runs at the level of its agent definition and role in OMP's settings."
+  - id: model-configured-role
+    reason: "役割ごとの設定のモデルと既定の slug で子に委譲する文を、poteto-agent で起動しモデルは OMP の設定で決まる文にする"
+    files: "^pstack/skills/poteto-mode/playbooks/"
+    regex: "using your configured [a-z-]+ model \\(default `claude-opus-5-5-xhigh-fast`\\)"
+    replace: "(started with `agent: \"poteto-agent\"` and no `model`, so OMP's settings pick its model)"

@@ -190,6 +190,8 @@ const DENIED: { term: string; text: string }[] = [
   { term: "todolist", text: "Copy its steps into the todolist tool first." },
   { term: "generalPurpose", text: "The entry is the parent model, so omit `model` and spawn `generalPurpose`." },
   { term: "`readonly: true`", text: "Spawn one subagent with `readonly: true` that explores and explains in one pass." },
+  { term: "`readonly: true`", text: "After all Phase B candidates complete, spawn one readonly judge from the pool." },
+  { term: "`readonly: true`", text: "Defaults: agent mode (readonly strips MCP), file pointers not inlined context." },
   { term: '`environment: "cloud"`', text: 'Spawn all N workers in one message with `environment: "cloud"`.' },
   { term: '`environment: "cloud"`', text: 'Use `environment: "local"` only when the worker needs access to local state.' },
   { term: "cloud_base_branch", text: "When a worker must start from a non-default pushed branch, pass `cloud_base_branch`." },
@@ -223,6 +225,10 @@ const DENIED: { term: string; text: string }[] = [
   { term: "built-in PR tool", text: "Claude Code has no built-in PR tool." },
   { term: "create-skill", text: "Use Cursor's built-in `create-skill` skill to author the skill." },
   { term: "create-skill", text: "Drafts or revises a personal -mode skill via create-skill + unslop." },
+  { term: "Custom Mode", text: "Do the work under it, and mention once that a Custom Mode keeps it on." },
+  { term: "Custom Mode", text: "Option+Enter on Mac or Alt+Enter on Windows, or Use as Mode from the skill entry, keeps it on." },
+  { term: "Cursor's built-in skill", text: "PR status → the **Babysit** playbook, not Cursor's built-in babysit skill." },
+  { term: "Cursor's built-in skill", text: 'A phrase such as "babysit this pr" can start Cursor\'s own skill for the same job instead.' },
 ];
 
 // 拒否リストから外した語（OMP でも同じ意味で正しい）と、当たらない似た書き方。上流の実際の書き方の例
@@ -617,6 +623,202 @@ describe("リポジトリの rules.yml の参照の規則", () => {
     expect(readGenerated(sb, "pstack/skills/ketchup-video/SKILL.md")).toContain("Read `skill://ketchup` with `read` and follow it");
     expect(readGenerated(sb, "pstack/skills/typescript-best-practices/SKILL.md")).toContain("`read` `skill://typescript-best-practices/references/patterns.md`");
     expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);
+  });
+});
+
+describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () => {
+  // 上流の babysit の、1回だけ状態を見るモードと既存の Bugbot のコメントの仕分けの行（固定のコミットの書き方）。どの規則も当てない
+  const BABYSIT = [
+    "### Babysit",
+    "",
+    "- Declare the mode in your first line, before any poll. Modes: `drive` loops to merge-ready, `threads-only` touches only review threads, `check` is one status pass and a report.",
+    "- Triage Bugbot skeptically: fix real findings, dismiss noise with a concrete disproof, escalate billing, data, auth, and security.",
+    "",
+  ].join("\n");
+  // 止まる文の4要素（対象外であること、始めずに止まること、どのスキルのどの手順で何の理由で止まったかの報告、子なら親への最終の返答）
+  const STOP = [/is out of scope for this OMP setup/, /Do not start /, /Stop, and report that the .+ stopped at .+ because /, /If you are a subagent, put that report in your final reply to your parent\./];
+
+  test("代表的な規則を写した一時の変換で、OMP の task・ask・todo の書き方、model を渡さない文、止まる文、OMP でスキルを作る置き場・名前・frontmatter・書いた後の確認、OMP の置き場になり、リポジトリの拒否リストと参照の検査を通る。babysit の1回だけのモードと Bugbot の仕分けは残る", async () => {
+    const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "rules.yml"), "utf8")) as { rules: Record<string, string>[] };
+    // 代表的な literal の規則の id と、その文を置く生成物のパス（規則の files に当たること）
+    const picked: [string, string][] = [
+      ["task-how-explain", "pstack/skills/how/SKILL.md"],
+      ["task-poteto-mode-defaults", "pstack/skills/poteto-mode/SKILL.md"],
+      ["cursor-poteto-mode-babysit", "pstack/skills/poteto-mode/SKILL.md"],
+      ["ask-automate-me-interview", "pstack/skills/automate-me/SKILL.md"],
+      ["record-automate-me-transcripts", "pstack/skills/automate-me/SKILL.md"],
+      ["authoring-automate-me-draft", "pstack/skills/automate-me/SKILL.md"],
+      ["todo-arena-phases", "pstack/skills/arena/SKILL.md"],
+      ["model-arena-runners", "pstack/skills/arena/SKILL.md"],
+      ["stop-swarm-cloud", "pstack/skills/swarm/SKILL.md"],
+      ["stop-shipping-verifiers", "pstack/skills/poteto-mode/playbooks/shipping.md"],
+      ["stop-bug-fix-loop", "pstack/skills/poteto-mode/playbooks/bug-fix.md"],
+      ["authoring-playbook-steps", "pstack/skills/poteto-mode/playbooks/authoring-a-skill.md"],
+      ["help-cursor-only-steps", "pstack/skills/poteto-help/SKILL.md"],
+      ["path-reflect-destination", "pstack/skills/reflect/SKILL.md"],
+    ];
+    const items = picked.map(([id, path]) => {
+      const item = repo.rules.find((rule) => rule.id === id);
+      expect(item?.literal).toBeString();
+      expect(new RegExp(item!.files!).test(path)).toBe(true);
+      return item!;
+    });
+    // 生成物のパスごとに、規則の literal を段落にして置く（SKILL.md は frontmatter つき）
+    const bodies = new Map<string, string[]>();
+    picked.forEach(([, path], i) => bodies.set(path, [...(bodies.get(path) ?? []), items[i]!.literal!]));
+    // babysit と、置換文が名指す setup-pstack（/skill:setup-pstack の先）
+    const files: Record<string, string> = {
+      "pstack/skills/poteto-mode/playbooks/babysit.md": BABYSIT,
+      [SETUP]: skillMd("setup-pstack", "Set up."),
+    };
+    for (const [path, literals] of bodies) {
+      const name = /^pstack\/skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
+      files[path] = name === undefined ? `${literals.join("\n\n")}\n` : skillMd(name, literals.join("\n\n"));
+    }
+    const sb = sandbox();
+    sb.commit("0.15.46", files);
+    sb.pin();
+    rules(sb, items);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    const out = (path: string) => readGenerated(sb, path);
+    // task: { context, tasks } の1回の呼び出し、readonly は agent を省いて書き換えないよう頼み git status で確かめる、model と effort を渡さない
+    const how = out("pstack/skills/how/SKILL.md");
+    expect(how).toContain("`task` tool");
+    expect(how).toContain("`agent` omitted");
+    expect(how).toContain("`git status`");
+    const potetoMode = out("pstack/skills/poteto-mode/SKILL.md");
+    expect(potetoMode).toContain("`{ context, tasks: [...] }`");
+    expect(potetoMode).toContain("Never pass `model` or `effort`");
+    expect(potetoMode).toContain("`modelRoles`");
+    expect(potetoMode).toContain("`~/.omp/agent/config.yml`");
+    expect(potetoMode).toContain("Roles in `/model`");
+    expect(potetoMode).toContain("a grandchild has no `task` tool");
+    // PR の状態は babysit のプレイブックで見て、Cursor の組み込みの babysit を名指さない
+    expect(potetoMode).toContain("`skill://poteto-mode/playbooks/babysit.md`");
+    expect(potetoMode).not.toContain("Cursor's built-in babysit");
+    // ask: html の1つの form、UI の無いセッションと子では最終の返答に書く
+    const automateMe = out("pstack/skills/automate-me/SKILL.md");
+    expect(automateMe).toContain("`ask` tool");
+    expect(automateMe).toContain("`<form>`");
+    expect(automateMe).toContain("final reply");
+    // 記録の置き場: OMP のセッションの記録
+    expect(automateMe).toContain("`~/.omp/agent/sessions/<encoded-cwd>/`");
+    // スキルの作成: 置き場・名前・frontmatter・書いた後の確認
+    for (const text of [
+      "`.omp/skills/<handle>-mode/SKILL.md`",
+      "`~/.omp/agent/skills/<handle>-mode/SKILL.md`",
+      "Never save into pstack's generated copy",
+      "the same as the directory name",
+      "one non-empty YAML string",
+      "`/skill:<handle>-mode`",
+      "`disable-model-invocation: true`",
+      "hides the skill from the model's skill list",
+      "`omp skill list --json`",
+      "`filePath`",
+      "`hide: true`",
+    ]) {
+      expect(automateMe).toContain(text);
+    }
+    expect(automateMe).not.toContain("every turn");
+    const authoring = out("pstack/skills/poteto-mode/playbooks/authoring-a-skill.md");
+    for (const text of [
+      "`.omp/skills/<name>/SKILL.md`",
+      "`~/.omp/agent/skills/<name>/SKILL.md`",
+      "Never save into pstack's generated copy",
+      "the same as the directory name",
+      "one non-empty YAML string",
+      "parses as YAML",
+      "`omp skill list --json`",
+      "`filePath`",
+      "`hide`",
+    ]) {
+      expect(authoring).toContain(text);
+    }
+    // todo: init と list、子には todo が無い
+    const arena = out("pstack/skills/arena/SKILL.md");
+    expect(arena).toContain('`todo` tool with `op: "init"`');
+    expect(arena).toContain("A subagent has no `todo` tool");
+    // 座席はスキルの数のまま、どの座席も OMP の設定のモデルで動くと返答に書く
+    expect(arena).toContain("every seat ran on the model OMP's settings gave it");
+    // 使わない範囲: 止まる文の4要素。OMP に無いとは断言しない
+    for (const path of ["pstack/skills/swarm/SKILL.md", "pstack/skills/poteto-mode/playbooks/shipping.md", "pstack/skills/poteto-mode/playbooks/bug-fix.md"]) {
+      for (const element of STOP) expect(out(path)).toMatch(element);
+      expect(out(path)).not.toMatch(/OMP (?:has no|does not have|lacks)/);
+    }
+    expect(out("pstack/skills/poteto-help/SKILL.md")).toContain("starting or waiting for Bugbot");
+    expect(out("pstack/skills/reflect/SKILL.md")).toContain("`.omp/skills/<skill>/`");
+    expect(out("pstack/skills/reflect/SKILL.md")).toContain("`~/.omp/agent/skills/<skill>/`");
+    // 規則の当たらない babysit は上流のまま
+    expect(out("pstack/skills/poteto-mode/playbooks/babysit.md")).toBe(BABYSIT);
+  });
+});
+
+describe("リポジトリの forks.yml の setup-pstack", () => {
+  // リポジトリの forks.yml の setup-pstack の宣言（path・upstreamSha256・body・reason）
+  function declared(): Record<string, string> {
+    const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "forks.yml"), "utf8")) as { forks: Record<string, string>[] };
+    const fork = repo.forks.find((item) => item.path === SETUP);
+    expect(fork).toBeDefined();
+    expect(fork!.upstreamSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(fork!.reason).toBeString();
+    return fork!;
+  }
+
+  // 一時の上流に files を置き、リポジトリの全文差し替えの本文を写した sandbox。宣言は over で差し替える
+  function forked(files: Record<string, string>, over: Record<string, string> = {}): Sandbox {
+    const fork = declared();
+    const sb = sandbox();
+    sb.commit("0.15.46", files);
+    sb.pin();
+    sb.transform(fork.body!, readFileSync(join(REPO_TRANSFORM, fork.body!)));
+    forks(sb, [{ ...fork, ...over }]);
+    return sb;
+  }
+
+  test("宣言した本文に差し替え、リポジトリの拒否リストと参照の検査を通り、一覧に出る。本文は OMP では使わないこと・モデルは OMP の設定で決まること・実行を求められたら実行せずそう答えることを示す", async () => {
+    const fork = declared();
+    const sb = forked({ [SETUP]: SETUP_UPSTREAM }, { upstreamSha256: sha256(SETUP_UPSTREAM) });
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`全文差し替え:\n  ${SETUP}（本文 ${fork.body}）\n`);
+    const body = readGenerated(sb, SETUP);
+    expect(body).toBe(readFileSync(join(REPO_TRANSFORM, fork.body!), "utf8"));
+    // OMP がスキルとして読む frontmatter（name と、OMP では使わないことが分かる description）
+    const front = Bun.YAML.parse(/^---\n([\s\S]*?)\n---\n/.exec(body)![1]!) as Record<string, unknown>;
+    expect(front.name).toBe("setup-pstack");
+    expect(front.description).toContain("Not used in this OMP setup");
+    expect(body).toContain("`modelRoles`");
+    expect(body).toContain("agent definition");
+    expect(body).toContain("Do not run any setup step");
+    expect(body).toContain("`~/.omp/agent/config.yml`");
+  });
+
+  test("上流の setup-pstack の指紋が宣言と違うと、宣言の指紋を報告して失敗する", async () => {
+    const fork = declared();
+    const sb = forked({ [SETUP]: SETUP_UPSTREAM });
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`  ${SETUP}: 上流のファイルの指紋 ${sha256(SETUP_UPSTREAM)} が宣言の upstreamSha256 ${fork.upstreamSha256} と違います。`);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("上流に setup-pstack が無いと失敗する", async () => {
+    const sb = forked({}, { upstreamSha256: sha256(SETUP_UPSTREAM) });
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`  ${SETUP}: 上流に元のファイルがありません。`);
+    expect(existsSync(sb.generated)).toBe(false);
   });
 });
 
