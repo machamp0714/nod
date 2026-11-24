@@ -1,9 +1,9 @@
 import { getSprint, listSprints, sprintAnalytics, type Sprint, type SprintLink } from "@nod/core";
 import { getSprintRolloverStatus, setSprintRollover, SPRINT_ROLLOVER_ACTOR, type SprintRolloverStatus } from "@nod/core";
 import { configureScrumWorkspace, getScrumWorkspace, createSprint, updateSprint, addIssueToSprint, removeIssueFromSprint,
-  proposeSprintPlan, listSprintPlans, acceptSprintPlan, activateSprint, cancelSprint, endSprint, NodError,
+  proposeSprintPlan, listSprintPlans, acceptSprintPlan, activateSprint, cancelSprint, endSprint, addSprintRecord, NodError,
   type ConfigureScrumWorkspaceInput, type CreateSprintInput, type UpdateSprintInput,
-  type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput, type EndSprintInput } from "@nod/core";
+  type ProposeSprintPlanInput, type AcceptSprintPlanInput, type SprintMutation, type CancelSprintInput, type EndSprintInput, type AddSprintRecordInput } from "@nod/core";
 import { readFileSync } from "node:fs";
 import type { Command } from "commander";
 import { act, currentWorkspace, globalOpts } from "../context";
@@ -26,7 +26,7 @@ function successorText(successor: SprintRolloverStatus["successor"]): string {
   return `${successor.kind === "start" ? "開始待ちの" : "既存の"}${linkText(successor.sprint)}`;
 }
 
-// 全書込みで版とrequestKeyをJSONに含める。- はstdin。
+// 書込みのJSONを読む。版が必要な操作はexpectedVersionも含める。- はstdin。
 function input<T>(cmd: Command): T {
   const file = (cmd.opts() as {input:string}).input;
   let text: string;
@@ -97,6 +97,10 @@ export function registerSprintCommands(program: Command): void {
   sprint.command("end <sprint>").description("期限切れのSprintを理由を残して終了する")
     .requiredOption("--input <file>","JSONファイルまたは -（stdin）。reason/expectedVersion/requestKey必須")
     .action(act((cli,cmd,ref:string) => { const value=endSprint(cli.ctx,ref,input<EndSprintInput>(cmd)); print(cli,value,()=>`${line(value)}\nSprintを終了しました。`); }));
+  const record = sprint.command("record").description("Sprintの成果・感想・振り返りを記録する");
+  record.command("add <sprint>").description("実際の書き手を残して記録を追記する")
+    .requiredOption("--input <file>","JSONファイルまたは -（stdin）。kind/content/requestKey必須")
+    .action(act((cli,cmd,ref:string) => { const value=addSprintRecord(cli.ctx,ref,input<AddSprintRecordInput>(cmd)); print(cli,value,()=>`${value.kind} ${value.id}（記録者: ${value.recordedBy}）`); }));
   sprint.command("list").description("全Sprintを共通番号順に表示する")
     .action(act((cli,cmd) => {
       const workspaceId = globalOpts(cmd).workspace ? currentWorkspace(cli,cmd).id : undefined;
