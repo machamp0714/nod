@@ -72,7 +72,9 @@ export async function runNod(
 ): Promise<RunResult> {
   const env: Record<string, string | undefined> = {
     ...process.env,
+    OMPCODE: undefined,
     CLAUDECODE: undefined,
+    CODEX_THREAD_ID: undefined,
     NOD_ACTOR: opts.actor,
     NOD_DB: opts.db,
     NOD_ORCA: "0",
