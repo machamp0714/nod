@@ -6,19 +6,27 @@
 // 変換（入力は transform.ts が読む）:
 // 1. forks.yml で宣言したファイルを、上流のファイルの指紋を確かめて、宣言した本文に丸ごと差し替える（本文には規則を当てない）。
 // 2. ほかの .md に rules.yml の規則を上から順に、前の規則の出力に対して全箇所を置換する。どの規則も1回以上一致しなければ失敗。
-// 3. 生成物のすべての .md（差し替えた本文と include を含む）を denylist.yml の語で行ごとに検査し、当たれば失敗。
+// 3. 生成物のすべての .md（差し替えた本文と include を含む）の上流の印 {{upstream:<上流の相対パス>}} を、固定の記録のリポジトリ（末尾の .git を除く）と
+//    コミットの上流の URL（ファイルは blob、ディレクトリは tree）にする。そのパスが固定のコミットの上流に無ければ、解決できない参照として失敗。
+//    規則に commit を直書きすると固定の記録と食い違うので、上流の URL は印で書く。
+// 4. 同じ .md の静的な参照を検査し、先が無ければ解決できない参照として失敗（checkReferences）。
+// 5. 同じ .md を denylist.yml の語で行ごとに検査し、当たれば失敗。
 // 規則も差し替えも当たらないファイルは、上流と同じバイトと実行属性になる。
-// 失敗の理由（読めない入力、include の誤り、指紋の違う・元の無い差し替え、一致しない規則、拒否リストの当たり）は全部集め、検査できなかった範囲と
+// 失敗の理由（読めない入力、include の誤り、指紋の違う・元の無い差し替え、一致しない規則、拒否リストの当たり、解決できない参照）は全部集め、検査できなかった範囲と
 // 一緒に報告して止める。そのときは生成先に何も書かない。成功したら同じ階層の一時ディレクトリに作り終えてから生成先を丸ごと置き換える
 // （通常の omp が生成先を直接読み、status も読むので、失敗で消すと、やり直すまで pstack のスキルが読まれず status も生成物を見失う）。
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
 import { type Context, type Pin, PstackOmpError } from "./context";
-import { INPUT_FILES, readTransform, sha256 } from "./transform";
+import { INPUT_FILES, isRelativePath, readTransform, sha256 } from "./transform";
 
 const ROOTS = ["pstack", "cursor-team-kit"] as const;
 type Root = (typeof ROOTS)[number];
 const CURSOR_TEAM_KIT_SKILLS = ["control-cli", "control-ui", "deslop"];
+// 置換文に書く上流の印。中身は上流の相対パス
+const UPSTREAM_MARK = /\{\{upstream:([^}]*)\}\}/g;
+// 利用者のプロジェクトで決まる部分（verify-<app>、{name}、*.md、$NAME など）を含む動的な参照。生成物に無いことを理由に失敗させない
+const DYNAMIC = /[<>{}*$]/;
 
 interface Source {
   bytes: Buffer;
@@ -156,6 +164,24 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   }
   const unmatched = (transform.rules ?? []).filter((_, i) => counts[i]!.matches === 0).map((rule) => `${rule.id}（${rule.reason}）`);
 
+  // 上流の印と静的な参照。生成するファイルだけ（全文差し替えの元が無い本文は生成しないので、そこは拒否リストだけ）
+  const unresolved: string[] = [];
+  // 生成物のファイルとディレクトリの相対パス
+  const present = new Set([...files.keys()].flatMap((path) => path.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
+  const skillRoots = new Map(ROOTS.flatMap((root) => skills[root].map((name) => [name, `${root}/skills/${name}`] as const)));
+  for (const path of [...checked.keys()].sort()) {
+    if (!files.has(path)) continue;
+    const found: { line: number; message: string }[] = [];
+    const expanded = expandUpstream(ctx, upstreamDir, checked.get(path)!, found);
+    if (expanded !== checked.get(path)) {
+      checked.set(path, expanded);
+      files.get(path)!.bytes = Buffer.from(expanded);
+    }
+    found.push(...checkReferences(path, expanded, skillRoots, present));
+    // 行の順に（同じ行では、上流の印、skill://、/skill:、相対リンクの順）
+    unresolved.push(...found.sort((a, b) => a.line - b.line).map(({ line, message }) => `${path}:${line}: ${message}`));
+  }
+
   // 拒否リスト
   const hits: string[] = [];
   for (const path of [...checked.keys()].sort()) {
@@ -175,6 +201,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
     ["全文差し替え（forks.yml）に問題があります", forkProblems],
     ["どこにも一致しない規則があります（上流の文が変わっていないか確かめ、規則を直してください）", unmatched],
     [`変換の後に拒否リストの語が残っています（${hits.length} か所。規則で書き換えてください）`, hits],
+    [`解決できない参照があります（${unresolved.length} か所。規則か全文差し替えの本文を直してください）`, unresolved],
   ];
   if (sections.some(([, list]) => list.length > 0)) {
     const report = [...sections, ["検査できなかった範囲", limits] as [string, string[]]]
@@ -195,6 +222,79 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   const dir = generatedDir(ctx);
   replaceDir(ctx.workDir, dir, files);
   return { dir, skills, rules: counts, forks };
+}
+
+interface Finding {
+  line: number;
+  message: string;
+}
+
+// text の上流の印を、固定の記録のリポジトリ（末尾の .git と / を除く）とコミットの上流の URL にする。パスが正規の形でない、または
+// 固定のコミットの上流（取得した clone の作業ツリー）に無い印は、そのまま残して found に足す
+function expandUpstream(ctx: Context, upstreamDir: string, text: string, found: Finding[]): string {
+  const base = ctx.pin.repository.replace(/\.git$/, "").replace(/\/+$/, "");
+  return text.replace(UPSTREAM_MARK, (mark: string, rel: string, offset: number) => {
+    const line = text.slice(0, offset).split("\n").length;
+    if (!isRelativePath(rel) || rel.split("/")[0] === ".git") {
+      found.push({ line, message: `${mark}（上流の相対パスの正規の形ではありません）` });
+      return mark;
+    }
+    const path = join(upstreamDir, rel);
+    if (!existsSync(path)) {
+      found.push({ line, message: `${mark}（固定のコミットの上流にありません）` });
+      return mark;
+    }
+    return `${base}/${lstatSync(path).isDirectory() ? "tree" : "blob"}/${ctx.pin.commit}/${rel}`;
+  });
+}
+
+// 生成物の path の text の静的な参照のうち、先が生成物に無いもの。skillRoots は生成するスキルの名前 → 生成物のディレクトリ、
+// present は生成物のファイルとディレクトリ。利用者のプロジェクトで決まる部分を含む動的な参照（DYNAMIC）は検査しない。
+// - skill://<name>[/<path>] と /skill:<name>: 生成するスキルとその中にあること。OMP は skill:// の .. を辿らないので、パスは正規の形に限る。
+//   コードブロックの中も検査する（モデルはコードブロックの中の URI もそのまま使う）。
+// - 相対の Markdown リンク（[text](target) と [label]: target）: 生成物にあり、含むスキルのディレクトリの外（.. で出る）を指さないこと。
+//   フェンスとインラインのコードの中は、リンクとして描かれず利用者のプロジェクトに書く例なので検査しない。
+function checkReferences(path: string, text: string, skillRoots: Map<string, string>, present: Set<string>): Finding[] {
+  const found: Finding[] = [];
+  const boundary = /^[^/]+\/skills\/[^/]+(?=\/)/.exec(path)?.[0] ?? posix.dirname(path);
+  let fence = false;
+  text.split("\n").forEach((line, i) => {
+    for (const match of line.matchAll(/skill:\/\/([^\s`'"()[\]]*)/g)) {
+      const ref = match[1]!.replace(/[.,;:!?]+$/, "");
+      if (ref === "" || DYNAMIC.test(ref)) continue;
+      const [name, ...rest] = ref.split("/");
+      const rel = rest.join("/").replace(/\/$/, "");
+      const root = skillRoots.get(name!);
+      let reason: string | undefined;
+      if (root === undefined) reason = "生成するスキルにありません";
+      else if (rel !== "" && !isRelativePath(rel)) reason = "skill:// のパスが正規の形ではありません。OMP は skill:// の .. を辿りません";
+      else if (rel !== "" && !present.has(`${root}/${rel}`)) reason = `スキル ${name} の中にありません`;
+      if (reason !== undefined) found.push({ line: i + 1, message: `skill://${ref}（${reason}）` });
+    }
+    for (const match of line.matchAll(/\/skill:([^\s`'"()[\]]*)/g)) {
+      const name = match[1]!.replace(/[.,;:!?]+$/, "");
+      if (name !== "" && !DYNAMIC.test(name) && !skillRoots.has(name)) found.push({ line: i + 1, message: `/skill:${name}（生成するスキルにありません）` });
+    }
+    if (/^\s*(?:```|~~~)/.test(line)) fence = !fence;
+    if (fence) return;
+    const prose = line.replace(/`[^`]*`/g, "");
+    const targets = [...prose.matchAll(/\]\(([^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\)/g)].map((match) => match[1]!);
+    const definition = /^ {0,3}\[[^\]]+\]:\s*(\S+)/.exec(prose)?.[1];
+    if (definition !== undefined) targets.push(definition);
+    for (const target of targets) {
+      // 外部（スキームつき）、ページ内（#）、絶対パスは相対の参照ではない
+      if (DYNAMIC.test(target) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target) || /^[#/]/.test(target)) continue;
+      const rel = target.replace(/[#?].*$/, "");
+      if (rel === "") continue;
+      const resolved = posix.normalize(posix.join(posix.dirname(path), rel)).replace(/\/$/, "");
+      if (resolved !== boundary && !resolved.startsWith(`${boundary}/`)) {
+        found.push({ line: i + 1, message: `${target}（スキルのディレクトリ ${boundary} の外を指しています。OMP は skill:// の .. を辿りません）` });
+      } else if (!present.has(resolved)) {
+        found.push({ line: i + 1, message: `${target}（生成物にありません）` });
+      }
+    }
+  });
+  return found;
 }
 
 // pstack のスキル（pstack/skills/*/SKILL.md のあるディレクトリ）と、cursor-team-kit の読み込む3つ。名前の順

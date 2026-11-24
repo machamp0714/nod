@@ -1,14 +1,423 @@
 # 順序付きの置換規則。generate.ts が、生成の対象の .md（全文差し替えのファイルを除く。include した文書を含む）に、上から順に、
 # 前の規則の出力に対して全箇所を置換する。どの規則も生成の対象全体で1回以上一致しなければ生成は失敗する。
 # rules の各項目:
-#   id       一意の名前（報告と manifest.json の一致数に出る）
+#   id       一意の名前（報告と manifest.json の一致数に出る）。節ごとに接頭辞を付ける（参照の変換は ref-）
 #   reason   規則の理由（日本語）
 #   files    任意。生成物の相対パス（pstack/skills/... など）に当てる正規表現。当たるファイルだけに置換する
 #   literal  一致させる文字列（literal か regex のどちらか1つ）
 #   regex    一致させる正規表現（JavaScript）。任意の flags を付けられる（g は常に付く）
-#   replace  置換文（英語）。regex では $1 などの置換記法を使える。literal ではそのままの文字列
+#   replace  置換文（英語）。regex では $1 などの置換記法を使える。literal ではそのままの文字列。
+#            上流の文書は {{upstream:<上流の相対パス>}} と書く。generate.ts が固定の記録のリポジトリとコミットの上流の URL にし、
+#            固定のコミットの上流にそのパスが無ければ生成を失敗させる（commit を直書きすると固定の記録と食い違うため）
 # include の各項目: スキルのディレクトリの外から生成物に入れる文書。
 #   from     上流の相対パス（ファイル）
 #   to       生成物の相対パス（既存の生成物と重ならないこと）
 #   reason   入れる理由（日本語）
-rules: []
+#
+# 変換の後、生成物のすべての .md の静的な参照（skill://<name>[/<path>]、/skill:<name>、相対の Markdown リンク）は、先が生成物にあり、
+# 相対リンクは含むスキルのディレクトリの外を指さないことを generate.ts が検査する（OMP は skill:// の .. を辿らない）。
+include:
+  - from: pstack/agents/comment-sicko.md
+    to: pstack/skills/no-comments/references/comment-sicko.md
+    reason: no-comments がコメントの確認を委譲するときの定義。新しいレビュー担当の定義は作らず、既定の task エージェントが読む no-comments の付属文書にする
+
+rules:
+  # ==== 参照の変換（ref-）====
+  # 用途の分かる箇所だけを変換する。モデルが別のスキルを実行する箇所は read で skill://<name> を読んで従う文に、モデルが付属ファイルを読む箇所
+  # （同じスキルの中のものを含む）は read で skill://<name>/<path> を読む文に、利用者への入力の案内は /skill:<name> に、上流の参考資料
+  # （README・guide・Claude Code 向けの adapter）へのリンクは固定のコミットの上流の URL にする。文脈の分からない /<名前> は一律に置き換えない。
+
+  # ---- comment-sicko（no-comments の付属文書）と no-comments の委譲 ----
+  - id: ref-comment-sicko-frontmatter
+    reason: 上流のエージェント定義の frontmatter は付属文書には要らない（同じ名前の OMP のエージェントがあるように読めるので外す）
+    files: '^pstack/skills/no-comments/references/comment-sicko\.md$'
+    literal: "---\nname: comment-sicko\ndescription: A deranged comment-hater that savors deletion and condemns workaround code.\n---\n\n"
+    replace: ""
+  - id: ref-comment-sicko-why
+    reason: comment-sicko がモデルとして why のスキルを実行する箇所
+    files: '^pstack/skills/no-comments/references/comment-sicko\.md$'
+    literal: 'run `/why` from the **why** skill on it, or both.'
+    replace: 'read `skill://why` with `read` and follow it on that symbol or call, or both.'
+  - id: ref-no-comments-description
+    reason: 'Comment Sicko という名前のエージェントを起動するように読める説明を、既定の task エージェントに付属文書で確認させる形にする'
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: 'description: "Spawn Comment Sicko, fix accepted findings, and offer encodings for claimed constraints."'
+    replace: 'description: "Have the default task agent review comments as Comment Sicko, fix accepted findings, and offer encodings for claimed constraints."'
+  - id: ref-no-comments-intro
+    reason: no-comments の冒頭の委譲を、既定の task エージェントが付属文書を読んで確認する形にする
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: 'Spawn Comment Sicko. Act on accepted findings.'
+    replace: 'Have the default `task` agent review the comments as Comment Sicko, the reviewer that `skill://no-comments/references/comment-sicko.md` describes. Act on accepted findings.'
+  - id: ref-no-comments-delegate
+    reason: comment-sicko への委譲を、agent を省いた OMP の task（既定の task エージェント）に付属文書を read で読んで従うよう依頼する文にする
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: '1. Spawn `Task` with `subagent_type: "comment-sicko"`. Pass the scope.'
+    replace: '1. Call the `task` tool with `agent` omitted, so the default task agent does the review. Start its assignment with "Use `read` on `skill://no-comments/references/comment-sicko.md` and follow that document." Pass the scope.'
+  - id: ref-no-comments-why
+    reason: モデルが why のスキルを実行する箇所
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: 'trace their symbol or run `/why` on it.'
+    replace: 'trace their symbol or `read` `skill://why` and follow it on that symbol.'
+  - id: ref-no-comments-architect
+    reason: モデルが architect のスキルを実行する箇所
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: 'run `/architect` once for the accepted set and surrounding code.'
+    replace: '`read` `skill://architect` and follow it once for the accepted set and surrounding code.'
+  - id: ref-no-comments-principles
+    reason: 2つの原則のスキルを並べて読む箇所（skills の複数形なので一般の規則に当たらない）
+    files: '^pstack/skills/no-comments/SKILL\.md$'
+    literal: 'The **principle-fix-root-causes** and **principle-redesign-from-first-principles** skills guide intent only.'
+    replace: 'The **principle-fix-root-causes** and **principle-redesign-from-first-principles** skills (`read` `skill://principle-fix-root-causes` and `skill://principle-redesign-from-first-principles`) guide intent only.'
+
+  # ---- 上流の参考資料（poteto-help）→ 固定のコミットの上流の URL ----
+  - id: ref-poteto-help-readme
+    reason: 上流の README は生成物に入れないので、固定のコミットの上流の URL にする
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: '[README](../../README.md)'
+    replace: '[README]({{upstream:pstack/README.md}})'
+  - id: ref-poteto-help-guide
+    reason: 上流の guide のページは生成物に入れないので、固定のコミットの上流の URL にする（どれも poteto-help から人に案内するリンク）
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    regex: '\]\(\.\./\.\./(docs/guide/[^)\s]+)\)'
+    replace: ']({{upstream:pstack/$1}})'
+  - id: ref-poteto-help-adapter
+    reason: Claude Code 向けの adapter は生成物に入れないので、固定のコミットの上流の URL にする
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: '[Claude Code adapter](../../docs/harness/claude-code.md)'
+    replace: '[Claude Code adapter]({{upstream:pstack/docs/harness/claude-code.md}})'
+  - id: ref-poteto-help-public-copy
+    reason: 利用者に渡す公開の写しを、main ではなく固定のコミットの上流の URL にし、skill:// の参照はモデルが読むものと書く
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: "The links here point into the installed plugin, which the user may not be able to open, so give the user the file's public copy: `https://github.com/cursor/plugins/blob/main/pstack/` followed by its path."
+    replace: "The `skill://` references here are for you to `read`. The user may not be able to open them, so give the user the file's public copy at the pinned upstream commit: a link of the form `{{upstream:pstack/README.md}}`, with the file's path under `pstack/` in place of `README.md`."
+
+  # ---- poteto-help の中のほかのスキルと付属ファイル ----
+  - id: ref-poteto-help-read-poteto-mode
+    reason: 作業の依頼のとき、モデルが poteto-mode を読んでその下で作業する箇所
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: 'Read [`poteto-mode`](../poteto-mode/SKILL.md), do the work under it'
+    replace: 'Read `skill://poteto-mode` with `read`, do the work under it'
+  - id: ref-poteto-help-playbooks-section
+    reason: モデルが poteto-mode の Playbooks の節を読む箇所
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: 'The Playbooks section of [`poteto-mode`](../poteto-mode/SKILL.md) lists every playbook.'
+    replace: 'The Playbooks section of `skill://poteto-mode` lists every playbook.'
+  - id: ref-poteto-help-multi-phase-plan
+    reason: poteto-mode の付属ファイル（プレイブック）へのリンク
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: '[Multi-phase plan playbook](../poteto-mode/playbooks/multi-phase-plan.md)'
+    replace: 'Multi-phase plan playbook (`skill://poteto-mode/playbooks/multi-phase-plan.md`)'
+  - id: ref-poteto-help-prompting
+    reason: 同じスキルの付属ファイルをモデルが読む箇所（3か所とも、利用者のプロンプトを一緒に考える前に読む）
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: '[`references/prompting.md`](references/prompting.md)'
+    replace: '`skill://poteto-help/references/prompting.md` (read it with `read`)'
+  - id: ref-poteto-help-recipes
+    reason: 同じスキルの付属ファイルをモデルが読み、利用者にはその公開の写しを渡す箇所
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: 'adapted from [`references/recipes.md`](references/recipes.md) when one fits, then the link to that file.'
+    replace: "adapted from `skill://poteto-help/references/recipes.md` (read it with `read`) when one fits, then the link to that file's public copy."
+  - id: ref-poteto-help-skill-links
+    reason: '利用者に案内するスキルへのリンク（表と箇条）。利用者が入力する名前として残し、モデルが推す前に読む skill:// を添える（/skill: への書き換えは ref-poteto-help-slash がする）'
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    regex: '\[(`/([a-z][a-z-]*)`)\]\(\.\./\2/SKILL\.md\)'
+    replace: '$1 (`read` `skill://$2`)'
+  - id: ref-poteto-help-principle-typing
+    reason: 利用者が原則のスキルを入力する案内（名前は利用者が選ぶ）
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: 'Typing `/principle-<name>` still loads one on demand.'
+    replace: 'Typing `/skill:principle-<name>` still loads one on demand.'
+  - id: ref-poteto-help-slash
+    reason: poteto-help は利用者の質問に答えるスキルで、コードの中の /<生成するスキルの名前> はどれも利用者が入力するコマンドの案内（/loop・/create-skill・/orchestrate・/plugin などの生成しない名前には当てない）
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    regex: '(?<=`)/(poteto-mode|poteto-help|setup-pstack|in-your-own-words|sharpen|how|why|teach|recall|ketchup-video|ketchup|blast-radius|architect|arena|swarm|interrogate|tdd|typescript-best-practices|no-comments|unslop|technical-writing|bro|create-verification-skill|maintain-verification-skill|create-formal-verification-skill|maintain-formal-verification-skill|statechart|benchmark-checklist|figure-it-out|show-me-your-work|automate-me|reflect|correct|make-bot-ui|deslop)(?=[` ])'
+    replace: '/skill:$1'
+  - id: ref-poteto-help-description
+    reason: poteto-help の説明の、利用者が入力するコマンドの案内
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: 'Guides users through pstack setup, /poteto-mode, and picking the skill, playbook, or principle for a task. Type /poteto-help with a question.'
+    replace: 'Guides users through pstack setup, /skill:poteto-mode, and picking the skill, playbook, or principle for a task. Type /skill:poteto-help with a question.'
+  - id: ref-poteto-help-prompts
+    reason: poteto-help の付属文書 recipes.md と prompting.md は利用者が送るプロンプトの例と案内だけの文書で、/<生成するスキルの名前> はどれも利用者の入力（/loop などの生成しない名前には当てない）
+    files: '^pstack/skills/poteto-help/references/(?:recipes|prompting)\.md$'
+    regex: '(?<![\w/.:-])/(poteto-mode|in-your-own-words|sharpen|how|why|teach|recall|ketchup|tdd|architect|arena|interrogate|create-formal-verification-skill|maintain-formal-verification-skill|swarm|show-me-your-work|reflect|bro)(?![\w-])'
+    replace: '/skill:$1'
+  - id: ref-poteto-help-verify-app
+    reason: 利用者のプロジェクトの verify-<app> のスキルを利用者が入力する例（動的な参照なので生成物に無くてよい）
+    files: '^pstack/skills/poteto-help/references/recipes\.md$'
+    literal: '/verify-<app>'
+    replace: '/skill:verify-<app>'
+
+  # ---- 説明（description）の利用者への入力の案内 ----
+  - id: ref-description-use-for
+    reason: 'スキルの説明の「Use for /<name>」は利用者が入力するコマンドの案内'
+    files: '^pstack/skills/[^/]+/SKILL\.md$'
+    regex: '(?<=^description: .*\bUse for (?:poteto, )?)/(?=[a-z])'
+    flags: m
+    replace: '/skill:'
+  - id: ref-ketchup-video-description
+    reason: ketchup-video の説明の、利用者が入力する ketchup のコマンドとの比較
+    files: '^pstack/skills/ketchup-video/SKILL\.md$'
+    literal: 'Catch the user up like /ketchup, with'
+    replace: 'Catch the user up like /skill:ketchup, with'
+
+  # ---- 本文の利用者への入力の案内 ----
+  - id: ref-create-verification-point-at-maintain
+    reason: 利用者に maintain-verification-skill の入力を勧める箇所
+    files: '^pstack/skills/create-verification-skill/SKILL\.md$'
+    literal: 'Point the user at `/maintain-verification-skill`'
+    replace: 'Point the user at `/skill:maintain-verification-skill`'
+  - id: ref-create-formal-point-at-maintain
+    reason: 利用者に maintain-formal-verification-skill の入力を勧める箇所
+    files: '^pstack/skills/create-formal-verification-skill/SKILL\.md$'
+    literal: 'Point the user at `/maintain-formal-verification-skill`'
+    replace: 'Point the user at `/skill:maintain-formal-verification-skill`'
+  - id: ref-maintain-formal-generated-by
+    reason: 利用者が入力して検証のスキルを作ったコマンドを名指す箇所
+    files: '^pstack/skills/maintain-formal-verification-skill/SKILL\.md$'
+    literal: 'a verify skill that `/create-formal-verification-skill` generated'
+    replace: 'a verify skill that `/skill:create-formal-verification-skill` generated'
+  - id: ref-maintain-formal-point-at-create
+    reason: 利用者に create-formal-verification-skill の入力を勧める箇所
+    files: '^pstack/skills/maintain-formal-verification-skill/SKILL\.md$'
+    literal: 'stop and point at `/create-formal-verification-skill`.'
+    replace: 'stop and point at `/skill:create-formal-verification-skill`.'
+  - id: ref-maintain-verification-generated-by
+    reason: 利用者が入力して検証のスキルを作ったコマンドを名指す箇所
+    files: '^pstack/skills/maintain-verification-skill/SKILL\.md$'
+    literal: 'a skill generated by `/create-verification-skill`'
+    replace: 'a skill generated by `/skill:create-verification-skill`'
+  - id: ref-maintain-verification-point-at-create
+    reason: 利用者に create-verification-skill の入力を勧める箇所
+    files: '^pstack/skills/maintain-verification-skill/SKILL\.md$'
+    literal: 'stop and point at `/create-verification-skill` instead'
+    replace: 'stop and point at `/skill:create-verification-skill` instead'
+  - id: ref-ketchup-window
+    reason: 利用者が ketchup を入力したメッセージを指す箇所
+    files: '^pstack/skills/ketchup/SKILL\.md$'
+    literal: 'the last message they wrote before `/ketchup`,'
+    replace: 'the last message they wrote before `/skill:ketchup`,'
+  - id: ref-ketchup-video-window
+    reason: 利用者が ketchup-video・ketchup を入力したメッセージを指す箇所
+    files: '^pstack/skills/ketchup-video/SKILL\.md$'
+    literal: 'before `/ketchup-video`, not before any earlier `/ketchup`.'
+    replace: 'before `/skill:ketchup-video`, not before any earlier `/skill:ketchup`.'
+  - id: ref-poteto-mode-receives
+    reason: 利用者が poteto-mode を入力したチャットを指す箇所
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'The chat that receives `/poteto-mode` runs the playbook itself.'
+    replace: 'The chat that receives `/skill:poteto-mode` runs the playbook itself.'
+
+  # ---- モデルが別のスキルを実行する・読む箇所（リンクと / の書き方）----
+  - id: ref-ketchup-video-follow-ketchup
+    reason: ketchup-video がモデルとして ketchup の手順に従う箇所（../ketchup/SKILL.md へのリンク）
+    files: '^pstack/skills/ketchup-video/SKILL\.md$'
+    literal: 'Follow [`/ketchup`](../ketchup/SKILL.md), but'
+    replace: 'Read `skill://ketchup` with `read` and follow it, but'
+  - id: ref-ketchup-bro-voice
+    reason: ketchup がモデルとして bro の文体を読む箇所（../bro/SKILL.md へのリンク）
+    files: '^pstack/skills/ketchup/SKILL\.md$'
+    literal: "Use [`/bro`](../bro/SKILL.md)'s voice, not its task:"
+    replace: 'Use the voice of the `bro` skill (`read` `skill://bro`), not its task:'
+  - id: ref-create-formal-statechart
+    reason: 作った検証のスキルを使う次のエージェントが statechart のスキルを読む箇所（../statechart/SKILL.md へのリンク）
+    files: '^pstack/skills/create-formal-verification-skill/SKILL\.md$'
+    literal: 'tell the next agent to read every result with the pstack [`/statechart`](../statechart/SKILL.md) skill.'
+    replace: 'tell the next agent to read every result with the pstack `statechart` skill, which it reads with `read` at `skill://statechart` and follows.'
+  - id: ref-create-formal-statechart-draws
+    reason: statechart のスキルを名指す箇所（利用者の入力ではない）
+    files: '^pstack/skills/create-formal-verification-skill/SKILL\.md$'
+    literal: 'When the check passes, `/statechart` draws a chart'
+    replace: 'When the check passes, the `statechart` skill draws a chart'
+  - id: ref-create-formal-statechart-name
+    reason: 作るスキルに書く statechart の呼び方を、次のエージェントが読める名前と URI にする
+    files: '^pstack/skills/create-formal-verification-skill/SKILL\.md$'
+    literal: 'Refer to `/statechart` by name.'
+    replace: 'Refer to it by its name, `statechart`, and its URI, `skill://statechart`.'
+  - id: ref-explain-the-number-benchmark
+    reason: モデルが benchmark-checklist のスキルを実行する箇所（../benchmark-checklist/SKILL.md へのリンク）
+    files: '^pstack/skills/principle-explain-the-number/SKILL\.md$'
+    literal: 'run the [benchmark-checklist](../benchmark-checklist/SKILL.md) skill.'
+    replace: 'run the benchmark-checklist skill (`read` `skill://benchmark-checklist` and follow it).'
+  - id: ref-teach-how-why
+    reason: teach がモデルとして how と why のスキルを実行する箇所
+    files: '^pstack/skills/teach/SKILL\.md$'
+    literal: 'Those are real skill invocations that do their own digging.'
+    replace: 'Those are real skill invocations that do their own digging: `read` `skill://how` and `skill://why` and follow each.'
+  - id: ref-blast-radius-arena
+    reason: モデルが arena のスキルを実行する箇所
+    files: '^pstack/skills/blast-radius/SKILL\.md$'
+    literal: 'run it as an `arena`.'
+    replace: 'run it as an `arena` (`read` `skill://arena` and follow it).'
+  - id: ref-blast-radius-unslop
+    reason: モデルが unslop のスキルを実行する箇所
+    files: '^pstack/skills/blast-radius/SKILL\.md$'
+    literal: 'Write it through `unslop`,'
+    replace: 'Write it through `unslop` (`read` `skill://unslop` and follow it),'
+  - id: ref-poteto-mode-bundled-skills
+    reason: 同梱のスキルを ../<name>/SKILL.md と絶対パスで探す手順を、skill:// で読む手順にする（OMP は skill:// の .. を辿らない）。プレイブックの **name** や `name` の書き方もこの手順で読む
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: "Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `poteto-agent` prompt."
+    replace: 'Bundled skills, which this file and its playbooks name in bold or in code (such as **architect** or `interrogate`), are read with `read` at `skill://<name>` and followed. Name them by `skill://<name>` in every `poteto-agent` prompt instead of a file path.'
+  - id: ref-poteto-mode-worker-kickoff
+    reason: 子の依頼の1行目で付属ファイル worker.md を読ませる箇所を、絶対パスではなく skill:// にする
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: "the first line of its kickoff is `Read <path>/worker.md before anything else.`, with `<path>` the absolute path of this skill's folder."
+    replace: 'the first line of its kickoff is `Read skill://poteto-mode/worker.md with the read tool before anything else.`'
+  - id: ref-poteto-mode-kickoff-path
+    reason: poteto-agent への依頼に渡す poteto-mode の場所を、絶対パスではなく skill:// にする
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: "plus this file's absolute path for a `poteto-agent`."
+    replace: 'plus `skill://poteto-mode` for a `poteto-agent`.'
+  - id: ref-worker-kickoff
+    reason: worker.md の、子の依頼の1行目で worker.md を読ませる箇所を skill:// にする
+    files: '^pstack/skills/poteto-mode/worker\.md$'
+    literal: 'the first line of its kickoff is `Read <path>/worker.md before anything else.`, with `<path>` the absolute path of the folder that holds this file.'
+    replace: 'the first line of its kickoff is `Read skill://poteto-mode/worker.md with the read tool before anything else.`'
+  - id: ref-poteto-mode-routes
+    reason: poteto-mode の契機の一覧の「→ **name**」は、モデルがそのスキルを実行する指示
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    regex: '→ \*\*([a-z][a-z-]*)\*\*'
+    replace: '→ **$1** (`read` `skill://$1` and follow it)'
+  - id: ref-poteto-mode-deslop
+    reason: モデルが cursor-team-kit の deslop を実行する箇所
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'Before commit → `/deslop` from the `cursor-team-kit` plugin.'
+    replace: 'Before commit → the `deslop` skill from `cursor-team-kit` (`read` `skill://deslop` and follow it).'
+  - id: ref-poteto-mode-control
+    reason: モデルが cursor-team-kit の control-ui・control-cli を実行する箇所
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'Shipping UI / IDE / CLI → `control-ui` or `control-cli` from `cursor-team-kit`.'
+    replace: 'Shipping UI / IDE / CLI → `control-ui` or `control-cli` from `cursor-team-kit` (`read` `skill://control-ui` or `skill://control-cli` and follow it).'
+  - id: ref-autopilot-full-deslop-no-comments
+    reason: モデルが deslop と no-comments を実行する箇所
+    files: '^pstack/skills/poteto-mode/playbooks/autopilot-full\.md$'
+    literal: '(the `deslop` skill from the `cursor-team-kit` plugin (`/deslop`)) and the `/no-comments` pass'
+    replace: '(the `deslop` skill from `cursor-team-kit`: `read` `skill://deslop` and follow it) and the `no-comments` pass (`read` `skill://no-comments` and follow it)'
+  - id: ref-opening-a-pr-deslop
+    reason: モデルが deslop を実行する箇所
+    files: '^pstack/skills/poteto-mode/playbooks/opening-a-pr\.md$'
+    literal: 'Run `/deslop` from `cursor-team-kit` over the diff before commit.'
+    replace: 'Before commit, `read` `skill://deslop` (from `cursor-team-kit`) and follow it over the diff.'
+  - id: ref-automate-me-poteto-mode-shape
+    reason: モデルが poteto-mode を形の手本として読む箇所（実行はしない）
+    files: '^pstack/skills/automate-me/SKILL\.md$'
+    literal: 'The **poteto-mode** skill shows the shape. Read it for granularity.'
+    replace: 'The **poteto-mode** skill (`read` `skill://poteto-mode`) shows the shape. Read it for granularity.'
+  - id: ref-eval-arena-phase-b
+    reason: モデルが arena のスキルの Phase B を読む箇所。所有格を「Phase B of the ...」の形にし、read の指示は ref-section-of-skill が足す
+    files: '^pstack/skills/poteto-mode/playbooks/eval\.md$'
+    literal: "per the **arena** skill's Phase B."
+    replace: 'per Phase B of the **arena** skill.'
+  - id: ref-eval-arena-phase-c
+    reason: モデルが arena のスキルの Phase C を読む箇所。所有格を「Phase C of the ...」の形にし、read の指示は ref-section-of-skill が足す
+    files: '^pstack/skills/poteto-mode/playbooks/eval\.md$'
+    literal: "per the **arena** skill's Phase C."
+    replace: 'per Phase C of the **arena** skill.'
+  - id: ref-ts-patterns-principles
+    reason: 2つの原則のスキルを並べて読む箇所（skills の複数形なので一般の規則に当たらない）
+    files: '^pstack/skills/typescript-best-practices/references/patterns\.md$'
+    literal: 'See the **type-system-discipline** and **boundary-discipline** principle skills.'
+    replace: 'See the **type-system-discipline** and **boundary-discipline** principle skills (`read` `skill://principle-type-system-discipline` and `skill://principle-boundary-discipline`).'
+  - id: ref-worktree-cleanup-principles
+    reason: worktree-cleanup が名前だけで原則のスキルを挙げる箇所
+    files: '^pstack/skills/poteto-mode/playbooks/worktree-cleanup\.md$'
+    regex: '\((principle-(?:build-the-lever|encode-lessons-in-structure))\)'
+    replace: '(`read` `skill://$1`)'
+  - id: ref-section-of-skill
+    reason: '「... of the **name** skill」はモデルがそのスキルの一部（節・Phase）を読む箇所'
+    files: '^pstack/skills/'
+    regex: '(?<= of )the \*\*([a-z][a-z-]*)\*\* skill\b(?![s''])'
+    replace: 'the **$1** skill (`read` `skill://$1`)'
+  - id: ref-principle-skill
+    reason: '「**name** principle skill」はモデルがその原則のスキル（principle-<name>）を読んで従う箇所'
+    files: '^pstack/skills/'
+    regex: '\*\*([a-z][a-z-]*)\*\* principle skill\b(?![s''])'
+    replace: '**$1** principle skill (`read` `skill://principle-$1` and follow it)'
+  - id: ref-bold-skill
+    reason: '「the **name** skill」はモデルがそのスキルを読んで従う箇所（Cursor の組み込みの create-skill は Task 3 の規則が書き換えるので当てない）'
+    files: '^pstack/skills/'
+    regex: '\*\*(?!create-skill\*\*)([a-z][a-z-]*)\*\* skill\b(?![s''])(?! \(`read`)'
+    replace: '**$1** skill (`read` `skill://$1` and follow it)'
+  - id: ref-poteto-mode-principle-names
+    reason: poteto-mode とプレイブックで「**principle-<name>**」とだけ書いた原則のスキルの参照
+    files: '^pstack/skills/poteto-mode/'
+    regex: '\*\*(principle-[a-z][a-z-]*)\*\*(?! skill)'
+    replace: '**$1** (`read` `skill://$1`)'
+  - id: ref-poteto-mode-principles-leaf
+    reason: 原則のスキル（principle-<title>）の読み方
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'Each leaf is the **principle-<title>** skill, with the title in kebab case'
+    replace: 'Each leaf is the **principle-<title>** skill, read with `read` at `skill://principle-<title>`, with the title in kebab case'
+  - id: ref-authoring-delegate-by-path
+    reason: スキルを書くときに別のスキルへパスで委譲する指針を、OMP で読める skill:// の URI にする
+    files: '^pstack/skills/poteto-mode/playbooks/authoring-a-skill\.md$'
+    literal: 'Delegate to other skills by path.'
+    replace: 'Delegate to other skills by their `skill://<name>` URI.'
+
+  # ---- モデルが付属ファイルを読む・使う箇所 ----
+  - id: ref-poteto-mode-playbook-open
+    reason: モデルがプレイブック（poteto-mode の付属ファイル）を開く箇所
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'Match the task to a playbook and open its steps at `playbooks/<title>.md`, with the title in kebab case.'
+    replace: 'Match the task to a playbook and `read` its steps at `skill://poteto-mode/playbooks/<title>.md`, with the title in kebab case.'
+  - id: ref-poteto-mode-file-paths
+    reason: poteto-mode とその付属ファイルの、同じスキルのプレイブックと参考文書のパス（../ を含む）はモデルが読む付属ファイル
+    files: '^pstack/skills/poteto-mode/'
+    regex: '`(?:\.\./)?((?:playbooks|references)/[a-z][a-z-]*\.md)`'
+    replace: '`skill://poteto-mode/$1` (read it with `read`)'
+  - id: ref-poteto-mode-babysit-playbook
+    reason: poteto-mode の契機の一覧が名前で挙げるプレイブック（付属ファイル）
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'the **Babysit** playbook,'
+    replace: 'the **Babysit** playbook (`read` `skill://poteto-mode/playbooks/babysit.md`),'
+  - id: ref-poteto-mode-shipping-playbook
+    reason: poteto-mode の契機の一覧が名前で挙げるプレイブック（付属ファイル）
+    files: '^pstack/skills/poteto-mode/SKILL\.md$'
+    literal: 'the **Shipping** playbook.'
+    replace: 'the **Shipping** playbook (`read` `skill://poteto-mode/playbooks/shipping.md`).'
+  - id: ref-refactoring-opening-a-pr
+    reason: プレイブックの名前だけで別のプレイブック（付属ファイル）を実行する箇所
+    files: '^pstack/skills/poteto-mode/playbooks/refactoring\.md$'
+    literal: 'Run **Opening a PR**.'
+    replace: 'Run the **Opening a PR** playbook (`read` `skill://poteto-mode/playbooks/opening-a-pr.md`).'
+  - id: ref-poteto-mode-scripts
+    reason: プレイブックが実行する poteto-mode の付属スクリプト。スキルのディレクトリからの相対パスを、OMP のシェルが skill:// から解決する実際のパスにする
+    files: '^pstack/skills/poteto-mode/playbooks/'
+    regex: '`scripts/([\w./-]+)'
+    replace: '`"$(realpath skill://poteto-mode)/scripts/$1"'
+  - id: ref-show-me-your-work-template
+    reason: 同じスキルの付属ファイル（記録の雛形）を読む・写す箇所
+    files: '^pstack/skills/show-me-your-work/SKILL\.md$'
+    literal: 'Copy `references/decision-log-template.tsv` (the header row) to start a clean log.'
+    replace: 'Copy `skill://show-me-your-work/references/decision-log-template.tsv` (the header row; `read` it, or `cp` it in bash) to start a clean log.'
+  - id: ref-show-me-your-work-log-helper
+    reason: 同じスキルの付属スクリプトを実行する箇所。OMP のシェルが skill:// から解決する実際のパスにする
+    files: '^pstack/skills/show-me-your-work/SKILL\.md$'
+    literal: 'Use the helper `scripts/log.sh <logfile>'
+    replace: 'Use the helper `"$(realpath skill://show-me-your-work)/scripts/log.sh" <logfile>'
+  - id: ref-statechart-skill-dir
+    reason: statechart の付属スクリプトの置き場 <skill dir> を、OMP のシェルが skill:// から解決する実際のパスにする
+    files: '^pstack/skills/statechart/SKILL\.md$'
+    literal: '<skill dir>'
+    replace: '"$(realpath skill://statechart)"'
+  - id: ref-statechart-render
+    reason: 同じスキルの付属ファイルをモデルが読んで従う箇所
+    files: '^pstack/skills/statechart/SKILL\.md$'
+    literal: 'follow `references/render.md`.'
+    replace: '`read` `skill://statechart/references/render.md` and follow it.'
+  - id: ref-typescript-patterns
+    reason: 同じスキルの付属ファイル（例）をモデルが読む箇所
+    files: '^pstack/skills/typescript-best-practices/SKILL\.md$'
+    literal: 'Examples: `references/patterns.md`.'
+    replace: 'Examples: `read` `skill://typescript-best-practices/references/patterns.md`.'
+  - id: ref-typescript-patterns-back
+    reason: 付属ファイルから同じスキルの SKILL.md を指す箇所
+    files: '^pstack/skills/typescript-best-practices/references/patterns\.md$'
+    literal: 'Code examples for each rule in `SKILL.md`.'
+    replace: 'Code examples for each rule in `skill://typescript-best-practices`.'
+  - id: ref-create-verification-example
+    reason: 同じスキルの付属ファイル（地図の例）をモデルが読む箇所（ディレクトリへのリンク）
+    files: '^pstack/skills/create-verification-skill/SKILL\.md$'
+    literal: 'Follow the shape in [`references/feature-map-example/`](references/feature-map-example/), with'
+    replace: 'Follow the shape of the example in `skill://create-verification-skill/references/feature-map-example/README.md` and the feature files it links (read them with `read`), with'

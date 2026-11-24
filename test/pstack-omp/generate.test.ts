@@ -35,16 +35,20 @@ const SETUP_UPSTREAM = skillMd("setup-pstack", "Write `claude-opus-5-5-high` int
 const SETUP_BODY = "---\nname: setup-pstack\ndescription: Not used in OMP.\n---\n\n# setup-pstack\n\nNot used in OMP. Spawn one worker only if asked.\n";
 
 describe("生成の対象", () => {
-  test("pstack の全スキルと cursor-team-kit の3つだけが、スキルとして読まれる形で生成され、スキルの外の文書はリンクされていても入れない", async () => {
+  test("pstack の全スキルと cursor-team-kit の3つだけが、スキルとして読まれる形で生成され、上流の案内・ガイド・アダプター・自動化・上流の poteto-agent の定義は入れず、そこへのリンクは固定のコミットの上流の URL になる", async () => {
     const sb = sandbox();
-    sb.commit("0.15.46", {
+    const links = "See [the README](../../README.md), [the guide](../../docs/guide/README.md), [the adapter](../../docs/harness/claude-code.md), [benny](../../automations/benny), and [the agent](../../agents/poteto-agent.md).";
+    const commit = sb.commit("0.15.46", {
       "pstack/skills/setup-pstack/SKILL.md": skillMd("setup-pstack", "Set up."),
-      "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green. See [the README](../../README.md) and [the agent](../../agents/poteto-agent.md)."),
+      "pstack/skills/tdd/SKILL.md": skillMd("tdd", `Red, green. ${links}`),
       "pstack/README.md": "# pstack\n",
       "pstack/agents/poteto-agent.md": "---\nname: poteto-agent\n---\n\nAgent.\n",
       "pstack/docs/guide/README.md": "# Guide\n",
+      "pstack/docs/harness/claude-code.md": "# Claude Code\n",
+      "pstack/automations/benny/README.md": "# Benny\n",
     });
     sb.pin();
+    rules(sb, [{ id: "ref-upstream", reason: "上流の文書へのリンク", regex: "\\]\\(\\.\\./\\.\\./([^)]+)\\)", replace: "]({{upstream:pstack/$1}})" }]);
 
     const run = await sb.sync();
 
@@ -55,6 +59,13 @@ describe("生成の対象", () => {
     expect(readdirSync(join(sb.generated, "cursor-team-kit/skills")).sort()).toEqual(["control-cli", "control-ui", "deslop"]);
     expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);
     expect(readdirSync(sb.generated).sort()).toEqual(["cursor-team-kit", "manifest.json", "pstack"]);
+    const url = (kind: string, path: string) => `${sb.upstream}/${kind}/${commit}/pstack/${path}`;
+    expect(readGenerated(sb, "pstack/skills/tdd/SKILL.md")).toBe(
+      skillMd(
+        "tdd",
+        `Red, green. See [the README](${url("blob", "README.md")}), [the guide](${url("blob", "docs/guide/README.md")}), [the adapter](${url("blob", "docs/harness/claude-code.md")}), [benny](${url("tree", "automations/benny")}), and [the agent](${url("blob", "agents/poteto-agent.md")}).`,
+      ),
+    );
   });
 });
 
@@ -126,7 +137,7 @@ describe("置換規則", () => {
   test("規則も全文差し替えも当たらないファイルは、付属のファイルの実行属性と UTF-8 でないバイトも含めて上流と完全に同じになる", async () => {
     const sb = sandbox();
     const files = {
-      "pstack/skills/plain/SKILL.md": skillMd("plain", "See [the guide](../../docs/guide/01-setup.md) and [notes](references/notes.md#top)."),
+      "pstack/skills/plain/SKILL.md": skillMd("plain", "See [the guide](https://example.com/guide) and [notes](references/notes.md#top)."),
       "pstack/skills/plain/references/notes.md": "# Notes\n\n[back](../SKILL.md)\n",
       "pstack/skills/plain/references/latin1.md": Buffer.from([0x23, 0x20, 0x43, 0x61, 0x66, 0xe9, 0x0a]),
       "pstack/skills/plain/scripts/run.sh": "#!/bin/sh\necho run\n",
@@ -408,6 +419,207 @@ describe("include", () => {
   });
 });
 
+describe("参照の変換と検査", () => {
+  test("置換文の {{upstream:<上流のパス>}} は、固定の記録のリポジトリ（末尾の .git と / を除く）とコミットの上流の URL になり、ファイルは blob、ディレクトリは tree になる", async () => {
+    const sb = sandbox();
+    const commit = sb.commit("0.15.46", {
+      "pstack/skills/help/SKILL.md": skillMd("help", "The [README](../../README.md) and [the guide](../../docs/guide/) have the details."),
+      "pstack/README.md": "# pstack\n",
+      "pstack/docs/guide/01-setup.md": "# Setup\n",
+    });
+    sb.pin({ repository: join(sb.upstream, ".git") });
+    rules(sb, [
+      { id: "ref-readme", reason: "上流の案内", literal: "[README](../../README.md)", replace: "[README]({{upstream:pstack/README.md}})" },
+      { id: "ref-guide", reason: "上流のガイド", literal: "[the guide](../../docs/guide/)", replace: "[the guide]({{upstream:pstack/docs/guide}})" },
+    ]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/help/SKILL.md")).toBe(
+      skillMd("help", `The [README](${sb.upstream}/blob/${commit}/pstack/README.md) and [the guide](${sb.upstream}/tree/${commit}/pstack/docs/guide) have the details.`),
+    );
+  });
+
+  test("全文差し替えの本文の {{upstream:<上流のパス>}} も上流の URL になる", async () => {
+    const sb = sandbox();
+    const commit = sb.commit("0.15.46", { [SETUP]: SETUP_UPSTREAM, "pstack/README.md": "# pstack\n" });
+    sb.pin();
+    sb.transform("forks/setup.md", `${SETUP_BODY}See {{upstream:pstack/README.md}}.\n`);
+    forks(sb, [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", reason: "OMP では使わない" }]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, SETUP)).toBe(`${SETUP_BODY}See ${sb.upstream}/blob/${commit}/pstack/README.md.\n`);
+  });
+
+  test("固定のコミットの上流に無いパスや正規の形でないパスの {{upstream:...}} は、解決できない参照として報告して失敗し、前回の生成物を残す", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/a/SKILL.md": skillMd("a", "Plain.") });
+    sb.pin();
+    expect((await sb.sync()).exitCode).toBe(0);
+    const before = snapshot(sb.generated);
+    rules(sb, [{ id: "ref-gone", reason: "上流に無い文書", literal: "Plain.", replace: "See {{upstream:pstack/docs/gone.md}} and {{upstream:../outside.md}}." }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(
+      "解決できない参照があります（2 か所。規則か全文差し替えの本文を直してください）:\n" +
+        "  pstack/skills/a/SKILL.md:8: {{upstream:pstack/docs/gone.md}}（固定のコミットの上流にありません）\n" +
+        "  pstack/skills/a/SKILL.md:8: {{upstream:../outside.md}}（上流の相対パスの正規の形ではありません）\n",
+    );
+    expect(snapshot(sb.generated)).toEqual(before);
+  });
+
+  // 静的な参照の先が生成物に無い書き方と、報告の理由。pstack/skills/a/SKILL.md の本文（8 行目から）に書く
+  test.each([
+    { label: "skill:// の名前が生成するスキルに無い", text: "Read `skill://nope` and follow it.", report: "8: skill://nope（生成するスキルにありません）" },
+    { label: "skill:// のパスがそのスキルに無い", text: "Read `skill://b/references/gone.md`.", report: "8: skill://b/references/gone.md（スキル b の中にありません）" },
+    {
+      label: "skill:// のパスが .. を含む",
+      text: "Read `skill://b/../a/SKILL.md`.",
+      report: "8: skill://b/../a/SKILL.md（skill:// のパスが正規の形ではありません。OMP は skill:// の .. を辿りません）",
+    },
+    { label: "コードブロックの中の skill://", text: "```sh\ncat skill://nope/notes.md\n```", report: "9: skill://nope/notes.md（生成するスキルにありません）" },
+    { label: "/skill: の名前が生成するスキルに無い", text: "Type `/skill:nope <ask>`.", report: "8: /skill:nope（生成するスキルにありません）" },
+    {
+      label: "相対リンクがスキルのディレクトリの外を指す",
+      text: "Follow [b](../b/SKILL.md).",
+      report: "8: ../b/SKILL.md（スキルのディレクトリ pstack/skills/a の外を指しています。OMP は skill:// の .. を辿りません）",
+    },
+    { label: "相対リンクの先が生成物に無い", text: "See [notes](references/gone.md#top).", report: "8: references/gone.md#top（生成物にありません）" },
+  ])("$label と、解決できない参照として報告して失敗する", async ({ text, report }) => {
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/a/SKILL.md": skillMd("a", text),
+      "pstack/skills/b/SKILL.md": skillMd("b", "B."),
+      "pstack/skills/b/references/notes.md": "# Notes\n",
+    });
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(`解決できない参照があります（1 か所。規則か全文差し替えの本文を直してください）:\n  pstack/skills/a/SKILL.md:${report}\n`);
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("先が生成物にある静的な参照、利用者のプロジェクトで決まる動的な参照、外部へのリンク、コードの中の相対リンクでは失敗しない", async () => {
+    const sb = sandbox();
+    const body = [
+      "Read `skill://b` and follow it. Read `skill://b/references/notes.md`, `skill://b/references/`, and `skill://deslop`.",
+      'Run `"$(realpath skill://b)/scripts/run.sh"`.',
+      "Type `/skill:b <ask>` or `/skill:deslop`.",
+      "See [notes](references/notes.md#top), [the folder](references/), [self](./SKILL.md), and [top](#top).",
+      "Write `skill://verify-<app>`, `/skill:verify-<app>`, `/skill:<handle>-mode`, `skill://{name}`, and [a feature](features/<feature>.md) in the project.",
+      "See [the docs](https://example.com/docs) and [mail](mailto:a@example.com).",
+      "Write `[parent](../../README.md)` in the project README.",
+      "```md\n[parent](../../README.md)\n```",
+      "Use /b when stuck.",
+    ].join("\n");
+    sb.commit(
+      "0.15.46",
+      {
+        "pstack/skills/a/SKILL.md": skillMd("a", body),
+        "pstack/skills/a/references/notes.md": "# Notes\n\n[back](../SKILL.md)\n",
+        "pstack/skills/b/SKILL.md": skillMd("b", "B."),
+        "pstack/skills/b/references/notes.md": "# Notes\n",
+        "pstack/skills/b/scripts/run.sh": "#!/bin/sh\n",
+      },
+      ["pstack/skills/b/scripts/run.sh"],
+    );
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, "pstack/skills/a/SKILL.md")).toBe(skillMd("a", body));
+  });
+
+  test("include した文書の参照も検査する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Review comments."),
+      "pstack/agents/comment-sicko.md": "# Comment Sicko\n\nRun `/why` from the [why skill](../../why/SKILL.md).\n",
+    });
+    sb.pin();
+    rules(sb, [], ["  - from: pstack/agents/comment-sicko.md", "    to: pstack/skills/no-comments/references/comment-sicko.md", "    reason: no-comments の付属文書"]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(
+      "  pstack/skills/no-comments/references/comment-sicko.md:3: ../../why/SKILL.md（スキルのディレクトリ pstack/skills/no-comments の外を指しています。OMP は skill:// の .. を辿りません）\n",
+    );
+  });
+});
+
+describe("リポジトリの rules.yml の参照の規則", () => {
+  test("代表的な規則と include を写した一時の変換で、仕様の形（read と skill://、/skill:、固定のコミットの上流の URL）になり、リポジトリの拒否リストと参照の検査を通る。文脈の分からない /<名前> と上流の案内は入らない", async () => {
+    const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "rules.yml"), "utf8")) as {
+      rules: Record<string, string>[];
+      include: { from: string; to: string; reason: string }[];
+    };
+    // 代表的な literal の規則の id と、その文を置く生成物のパス（規則の files に当たること）
+    const picked: Record<string, string> = {
+      "ref-comment-sicko-frontmatter": "pstack/skills/no-comments/references/comment-sicko.md",
+      "ref-no-comments-delegate": "pstack/skills/no-comments/SKILL.md",
+      "ref-poteto-help-readme": "pstack/skills/poteto-help/SKILL.md",
+      "ref-create-verification-point-at-maintain": "pstack/skills/create-verification-skill/SKILL.md",
+      "ref-ketchup-video-follow-ketchup": "pstack/skills/ketchup-video/SKILL.md",
+      "ref-typescript-patterns": "pstack/skills/typescript-best-practices/SKILL.md",
+    };
+    const items = Object.entries(picked).map(([id, path]) => {
+      const item = repo.rules.find((rule) => rule.id === id);
+      expect(item?.literal).toBeString();
+      expect(new RegExp(item!.files!).test(path)).toBe(true);
+      return item!;
+    });
+    const literal = (id: string) => items.find((item) => item.id === id)!.literal!;
+    const sicko = repo.include.find((item) => item.to === "pstack/skills/no-comments/references/comment-sicko.md")!;
+    expect(sicko.from).toBe("pstack/agents/comment-sicko.md");
+    const sb = sandbox();
+    const commit = sb.commit("0.15.46", {
+      [sicko.from]: `${literal("ref-comment-sicko-frontmatter")}# Comment Sicko\n\nReport only.\n`,
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", `${literal("ref-no-comments-delegate")}\nAsk /poteto-mode later.`),
+      "pstack/skills/poteto-help/SKILL.md": skillMd("poteto-help", `The ${literal("ref-poteto-help-readme")} has the details.`),
+      "pstack/skills/create-verification-skill/SKILL.md": skillMd("create-verification-skill", `${literal("ref-create-verification-point-at-maintain")} for upkeep.`),
+      "pstack/skills/maintain-verification-skill/SKILL.md": skillMd("maintain-verification-skill", "Keep the map honest."),
+      "pstack/skills/ketchup-video/SKILL.md": skillMd("ketchup-video", `${literal("ref-ketchup-video-follow-ketchup")} show a video.`),
+      "pstack/skills/ketchup/SKILL.md": skillMd("ketchup", "Catch up."),
+      "pstack/skills/typescript-best-practices/SKILL.md": skillMd("typescript-best-practices", literal("ref-typescript-patterns")),
+      "pstack/skills/typescript-best-practices/references/patterns.md": "# Patterns\n",
+      "pstack/README.md": "# pstack\n",
+      "pstack/docs/guide/README.md": "# Guide\n",
+      "pstack/docs/harness/claude-code.md": "# Claude Code\n",
+      "pstack/automations/benny/README.md": "# Benny\n",
+      "pstack/agents/poteto-agent.md": "---\nname: poteto-agent\n---\n\nAgent.\n",
+    });
+    sb.pin();
+    rules(sb, items, [`  - from: ${JSON.stringify(sicko.from)}`, `    to: ${JSON.stringify(sicko.to)}`, `    reason: ${JSON.stringify(sicko.reason)}`]);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(readGenerated(sb, sicko.to)).toBe("# Comment Sicko\n\nReport only.\n");
+    const noComments = readGenerated(sb, "pstack/skills/no-comments/SKILL.md");
+    expect(noComments).toContain("Call the `task` tool with `agent` omitted");
+    expect(noComments).toContain("`read` on `skill://no-comments/references/comment-sicko.md`");
+    expect(noComments).toContain("\nAsk /poteto-mode later.\n");
+    expect(readGenerated(sb, "pstack/skills/poteto-help/SKILL.md")).toContain(`The [README](${sb.upstream}/blob/${commit}/pstack/README.md) has the details.`);
+    expect(readGenerated(sb, "pstack/skills/create-verification-skill/SKILL.md")).toContain("Point the user at `/skill:maintain-verification-skill` for upkeep.");
+    expect(readGenerated(sb, "pstack/skills/ketchup-video/SKILL.md")).toContain("Read `skill://ketchup` with `read` and follow it");
+    expect(readGenerated(sb, "pstack/skills/typescript-best-practices/SKILL.md")).toContain("`read` `skill://typescript-best-practices/references/patterns.md`");
+    expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);
+  });
+});
+
 describe("失敗の報告と前回の生成物", () => {
   test("複数の失敗の理由をまとめて報告し、0 でない終了コードで終わり、前回の生成物と利用者の設定を変えず、途中の生成物を残さない", async () => {
     const sb = sandbox();
@@ -496,7 +708,7 @@ describe("失敗の報告と前回の生成物", () => {
       label: "全文差し替えの本文が読めない",
       file: "forks.yml",
       text: `forks:\n  - path: ${SETUP}\n    upstreamSha256: ${sha256(SETUP_UPSTREAM)}\n    body: forks/missing.md\n    reason: r\n`,
-      reports: [`forks.yml の forks の 1 番目（path: ${SETUP}）: 本文 forks/missing.md を読めません`, `${SETUP}: 全文差し替えの本文を使えないので、このファイルの拒否リストの検査はしていません`],
+      reports: [`forks.yml の forks の 1 番目（path: ${SETUP}）: 本文 forks/missing.md を読めません`, `${SETUP}: 全文差し替えの本文を使えないので、このファイルの拒否リストと参照の検査はしていません`],
     },
     {
       label: "全文差し替えの path が無い",

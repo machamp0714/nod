@@ -104,7 +104,7 @@ export function readTransform(dir: string): Transform {
   let rules: Rule[] | undefined;
   const include: Include[] = [];
   if (rulesFile === undefined) {
-    limits.push("rules.yml を読めないので、規則を当てず、規則の一致の検査と、規則を当てる .md（全文差し替えを除く）の拒否リストの検査はしていません");
+    limits.push("rules.yml を読めないので、規則を当てず、規則の一致の検査と、規則を当てる .md（全文差し替えを除く）の拒否リストと参照の検査はしていません");
     limits.push("rules.yml を読めないので、include の文書を生成物に入れていません");
   } else {
     const items = list("rules.yml", rulesFile, "rules");
@@ -127,7 +127,7 @@ export function readTransform(dir: string): Transform {
       return { id: f.id!, reason: f.reason!, files, match, replace: f.replace! };
     });
     if (items !== undefined && problems.length === before) rules = parsed as Rule[];
-    else limits.push("rules.yml の規則が正しくないので、規則を当てず、規則の一致の検査と、規則を当てる .md（全文差し替えを除く）の拒否リストの検査はしていません");
+    else limits.push("rules.yml の規則が正しくないので、規則を当てず、規則の一致の検査と、規則を当てる .md（全文差し替えを除く）の拒否リストと参照の検査はしていません");
 
     const includeItems = list("rules.yml", rulesFile, "include", true);
     let skipped = includeItems === undefined;
@@ -139,7 +139,7 @@ export function readTransform(dir: string): Transform {
       if (f === undefined || bad.length > 0) skipped = true;
       else include.push({ from: f.from!, to: f.to! });
     });
-    if (skipped) limits.push("rules.yml の include の正しくない項目の文書は生成物に入れていないので、その文書に規則と拒否リストを当てていません");
+    if (skipped) limits.push("rules.yml の include の正しくない項目の文書は生成物に入れていないので、その文書に規則と拒否リストと参照の検査を当てていません");
   }
 
   // denylist.yml
@@ -208,7 +208,7 @@ export function readTransform(dir: string): Transform {
           problems.push(`${where}: 本文 ${entry.body} を読めません: ${(e as Error).message}`);
         }
       }
-      if (body === undefined) limits.push(`${path}: 全文差し替えの本文を使えないので、このファイルの拒否リストの検査はしていません`);
+      if (body === undefined) limits.push(`${path}: 全文差し替えの本文を使えないので、このファイルの拒否リストと参照の検査はしていません`);
       return [{ path, upstreamSha256: declared, body }];
     });
     if (unknown) limits.push(`forks.yml の path が正しくない項目: ${unknownForks}`);

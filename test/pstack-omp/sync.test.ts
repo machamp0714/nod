@@ -350,7 +350,7 @@ describe("サブコマンド・プラグイン・nod の CLI", () => {
     const sb = sandbox({ repoContent: true });
     sb.commit("0.15.46", {
       "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green."),
-      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn [the reviewer](../../agents/comment-sicko.md)."),
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn Comment Sicko."),
       "pstack/agents/comment-sicko.md": "---\nname: comment-sicko\n---\n\nReview comments.\n",
     });
     sb.pin();
