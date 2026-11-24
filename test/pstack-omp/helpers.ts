@@ -308,6 +308,8 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     };
     if (repoTable) delete env.NOD_PSTACK_OMP_PACKAGE;
     for (const key of SELECTORS) delete env[key];
+    // OMP が Claude Code の利用者の置き場（~/.claude）を差し替えて読む環境変数。テストを動かす端末の値を引き継がない（テストが足すときだけ使う）
+    delete env.CLAUDE_CONFIG_DIR;
     if (existsSync(controlDir)) env.NOD_PSTACK_OMP_CONTROL = controlDir;
     for (const [key, value] of Object.entries(extra)) {
       if (value === undefined) delete env[key];

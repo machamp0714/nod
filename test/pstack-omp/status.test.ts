@@ -21,6 +21,13 @@ function projectSection(stdout: string, root: string): string[] {
   return stdout.slice(stdout.indexOf(`プロジェクト（${root}）`)).trim().split("\n").slice(1);
 }
 
+// ホームを実パスにした環境。OMP 19.1.0 は claude・agents のプロジェクトの置き場を、実行したディレクトリ（実パス）とホームを書いたままの形で
+// 比べて遡るので、ホームの下で実行するテストはホームを実パスにする
+function realHome(sb: Sandbox): { home: string; env: Record<string, string> } {
+  const home = realpathSync(sb.home);
+  return { home, env: { HOME: home, PI_CODING_AGENT_DIR: join(home, ".omp", "agent") } };
+}
+
 const AGENT_CLASH = "エージェント poteto-agent。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません";
 
 describe("適用の状態とどの tdd が使われるか", () => {
@@ -225,6 +232,22 @@ describe("適用の状態とどの tdd が使われるか", () => {
         return { used: join(project, ".claude", "skills", "tdd", "SKILL.md"), where: "プロジェクトの置き場" };
       },
     },
+    {
+      name: "プロジェクトの .github/skills と .opencode/skills の両方にあれば、.opencode/skills の tdd（opencode 55 は github 30 より先）",
+      place: (_, project) => {
+        put(join(project, ".github", "skills", "tdd", "SKILL.md"), skillMd("tdd", "github"));
+        put(join(project, ".opencode", "skills", "tdd", "SKILL.md"), skillMd("tdd", "opencode"));
+        return { used: join(project, ".opencode", "skills", "tdd", "SKILL.md"), where: "プロジェクトの置き場" };
+      },
+    },
+    {
+      name: "プロジェクトの .codex/skills と ~/.agents/skills の両方にあれば、~/.agents/skills の tdd（同じ priority 70 の agents は codex より先に登録）",
+      place: (sb, project) => {
+        put(join(project, ".codex", "skills", "tdd", "SKILL.md"), skillMd("tdd", "codex"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        return { used: join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), where: "利用者の置き場" };
+      },
+    },
   ];
 
   // git の作業ツリーの根にした作業中のプロジェクト（実パス）
@@ -268,6 +291,205 @@ describe("適用の状態とどの tdd が使われるか", () => {
 
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain(`通常の omp のセッション: プロジェクトの置き場の tdd（${project}/.claude/skills/tdd/SKILL.md）が使われます`);
+  });
+
+  // git の作業ツリーの外では、OMP 19.1.0 はプロジェクトのスキルを、実行したディレクトリからホームの手前まで（ホームの外ならファイルシステムの根まで。
+  // native の .omp/skills は os.tmpdir() などの手前まで）の祖先から読む
+  test("git の作業ツリーの外のホームの下では、祖先のプロジェクトの .agents/skills の tdd を数え、~/.agents/skills の tdd より先に使われると表示する", async () => {
+    const sb = await synced();
+    const { home, env } = realHome(sb);
+    const dir = join(home, "work", "sub");
+    mkdirSync(dir, { recursive: true });
+    put(join(home, "work", ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
+    put(join(home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "user"));
+
+    const run = await sb.run("status", { cwd: dir, env });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、プロジェクトの置き場の tdd（${home}/work/.agents/skills/tdd/SKILL.md）が使われます\n`);
+  });
+
+  test("git の作業ツリーの外のホームの外でも、祖先のプロジェクトの .claude/skills の tdd を数える", async () => {
+    const sb = await synced();
+    const dir = join(realpathSync(sb.root), "outside", "a", "b");
+    mkdirSync(dir, { recursive: true });
+    put(join(sb.root, "outside", ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
+    put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "user"));
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("status", { cwd: dir });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`通常の omp のセッション: プロジェクトの置き場の tdd（${realpathSync(sb.root)}/outside/.claude/skills/tdd/SKILL.md）が使われます\n`);
+  });
+
+  // OMP 19.1.0 が読まないスキル（enabled: false。native・custom directory・omp-plugins は description の無いものも）は、通常の omp の tdd に
+  // 数えない（agents は description が無くても読む）
+  const notRead: { name: string; place(sb: Sandbox): void }[] = [
+    {
+      name: "<agentDir>/skills の tdd に enabled: false がある",
+      place: (sb) => put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), "---\nname: tdd\ndescription: test\nenabled: false\n---\n\nnative\n"),
+    },
+    {
+      name: "<agentDir>/skills の tdd に description が無い",
+      place: (sb) => put(join(sb.agentDir, "skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\nnative\n"),
+    },
+    {
+      name: "skills.customDirectories の置き場の tdd に description が無い",
+      place: (sb) => {
+        put(join(sb.root, "my-skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\ncustom\n");
+        put(sb.configPath, `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+      },
+    },
+    {
+      name: "extensions のパッケージの skills/ の tdd に description が無い",
+      place: (sb) => {
+        put(join(sb.root, "my-ext", "skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\next\n");
+        put(sb.configPath, `extensions:\n  - ${join(sb.root, "my-ext")}\n`);
+      },
+    },
+  ];
+
+  test.each(notRead)("$name なら、OMP はそれを読まないので、~/.agents/skills の tdd（description が無くても読む）が使われると表示する", async ({ place }) => {
+    const sb = await synced();
+    const userTdd = join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
+    put(userTdd, "---\nname: tdd\n---\n\nagents\n");
+    place(sb);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、利用者の置き場の tdd（${userTdd}）が使われます\n`);
+  });
+
+  // OMP 19.1.0 が読む、ほかの provider の利用者の置き場（claude 80 > agents 70 > codex 70（同じ priority は登録の順）> omp-managed 5）。
+  // ~/.claude・~/.codex は enabledProviders（* を含む）や skills.enableClaudeUser・CLAUDE_CONFIG_DIR で有効にしたときだけ読む
+  const providers: { name: string; env?(sb: Sandbox): Record<string, string>; place(sb: Sandbox): string }[] = [
+    {
+      name: "~/.claude/skills と ~/.agents/skills の両方にあり、有効にしていなければ、~/.agents/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "claude"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        return join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.claude/skills と ~/.agents/skills の両方にあり、enabledProviders に claude があれば、~/.claude/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "claude"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, "enabledProviders:\n  - claude\n");
+        return join(sb.home, ".claude", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.claude/skills と ~/.agents/skills の両方にあり、skills.enableClaudeUser が true なら、~/.claude/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".claude", "skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\nclaude\n");
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, "skills:\n  enableClaudeUser: true\n");
+        return join(sb.home, ".claude", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "CLAUDE_CONFIG_DIR の置き場の skills/ と ~/.agents/skills の両方にあれば、CLAUDE_CONFIG_DIR の置き場の tdd",
+      env: (sb) => ({ CLAUDE_CONFIG_DIR: join(sb.root, "claude-config") }),
+      place: (sb) => {
+        put(join(sb.root, "claude-config", "skills", "tdd", "SKILL.md"), skillMd("tdd", "claude"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        return join(sb.root, "claude-config", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.codex/skills と ~/.agents/skills の両方にあれば、enabledProviders が * でも ~/.agents/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".codex", "skills", "tdd", "SKILL.md"), skillMd("tdd", "codex"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        put(sb.configPath, "enabledProviders:\n  - '*'\n");
+        return join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "~/.codex/skills だけにあり、enabledProviders に codex があれば、~/.codex/skills の tdd",
+      place: (sb) => {
+        put(join(sb.home, ".codex", "skills", "tdd", "SKILL.md"), skillMd("tdd", "codex"));
+        put(sb.configPath, "enabledProviders:\n  - codex\n");
+        return join(sb.home, ".codex", "skills", "tdd", "SKILL.md");
+      },
+    },
+    {
+      name: "<agentDir>/managed-skills だけにあれば、managed の tdd",
+      place: (sb) => {
+        put(join(sb.agentDir, "managed-skills", "tdd", "SKILL.md"), skillMd("tdd", "managed"));
+        return realpathSync(join(sb.agentDir, "managed-skills", "tdd", "SKILL.md"));
+      },
+    },
+    {
+      name: "<agentDir>/managed-skills と ~/.agents/skills の両方にあれば、~/.agents/skills の tdd",
+      place: (sb) => {
+        put(join(sb.agentDir, "managed-skills", "tdd", "SKILL.md"), skillMd("tdd", "managed"));
+        put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+        return join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
+      },
+    },
+  ];
+
+  test.each(providers)("適用していなければ、$name が使われると表示する", async ({ place, env }) => {
+    const sb = await synced();
+    const used = place(sb);
+
+    const run = await sb.run("status", { env: env?.(sb) });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、利用者の置き場の tdd（${used}）が使われます\n`);
+  });
+
+  test.each([
+    ["skills.enabled が false", "skills:\n  enabled: false\n", "OMP の設定の skills.enabled が false なので、通常の omp はスキルを読み込みません"],
+    ["disabledExtensions に skill:tdd がある", "disabledExtensions:\n  - skill:tdd\n", "OMP の設定の disabledExtensions に skill:tdd があるので、通常の omp は tdd を読み込みません"],
+    ["skills.includeSkills に tdd が合わない", "skills:\n  includeSkills:\n    - git-*\n", "OMP の設定の skills.includeSkills に tdd が合わないので、通常の omp の一覧に tdd は残りません"],
+    ["skills.ignoredSkills に tdd が合う", "skills:\n  ignoredSkills:\n    - t*\n", "利用者の置き場にも、実行したディレクトリのプロジェクトの置き場にも tdd はありません"],
+  ])("OMP の設定の %s なら、~/.agents/skills に tdd があっても、通常の omp では使われないと表示する", async (_, config, reason) => {
+    const sb = await synced();
+    put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+    put(sb.configPath, config);
+    expect((await sb.run("apply")).exitCode).toBe(0);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`通常の omp のセッション: pstack の tdd は読み込まれません（${reason}）\n`);
+  });
+
+  test("入れたプラグインの置き場やプラグインの登録があり、選んだ tdd より先に読まれうるなら、その中は調べていないので、そこに tdd があればそちらが使われることを添える", async () => {
+    const sb = await synced();
+    const userTdd = join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
+    put(userTdd, skillMd("tdd", "agents"));
+    const modules = join(sb.home, ".omp", "plugins", "node_modules");
+    const registry = join(sb.home, ".omp", "plugins", "installed_plugins.json");
+    put(join(modules, "some-plugin", "package.json"), "{}\n");
+    put(registry, '{"version":2,"plugins":{}}\n');
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(
+      `適用していないので、利用者の置き場の tdd（${userTdd}）が使われます。ただし、OMP は ${modules}、${registry} からもスキルを読み、その中は調べていないので、そこに tdd があればそちらが使われます\n`,
+    );
+  });
+
+  test("選んだ tdd が skills.customDirectories のものなら、プラグインや skillshare のスキルは裸の名前を取らないので、調べていないことを添えない", async () => {
+    const sb = await synced();
+    const customTdd = join(sb.root, "my-skills", "tdd", "SKILL.md");
+    put(customTdd, skillMd("tdd", "custom"));
+    put(sb.configPath, `skills:\n  customDirectories:\n    - ${join(sb.root, "my-skills")}\n`);
+    put(join(sb.home, ".omp", "plugins", "node_modules", "some-plugin", "package.json"), "{}\n");
+    put(join(sb.agentDir, "skills.lock.json"), "{}\n");
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`適用していないので、利用者の置き場の tdd（${customTdd}）が使われます\n`);
   });
 
   const damages: { name: string; damage(sb: Sandbox): void; shows: string }[] = [
@@ -501,5 +723,52 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
 
     expect(run.exitCode).toBe(0);
     expect(projectSection(run.stdout, real)).toEqual([`  ${real}/pkg/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`]);
+  });
+
+  const TDD_CLASH = "スキル tdd。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/tdd の名前になります";
+  const TABLE_CLASH = "スキル pstack-omp。今回の読み替え表のスキルと同じ名前なので、どちらかが <名前空間>/pstack-omp の名前になり、skill://pstack-omp で今回の表を読めないことがあります";
+
+  test("git の作業ツリーの外のホームの下では、OMP と同じくホームの手前までの祖先のプロジェクトの置き場にある同じ名前を報告し、ホームの置き場（利用者の置き場）は報告しない", async () => {
+    const sb = await withAgent();
+    const { home, env } = realHome(sb);
+    const dir = join(home, "work", "sub");
+    mkdirSync(dir, { recursive: true });
+    put(join(home, "work", ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
+    put(join(home, "work", ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "ancestor"));
+    put(join(home, ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "user"));
+
+    const run = await sb.run("status", { cwd: dir, env });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, dir)).toEqual([`  ${home}/work/.omp/skills/tdd/SKILL.md: ${TDD_CLASH}`, `  ${home}/work/.agents/skills/table/SKILL.md: ${TABLE_CLASH}`]);
+  });
+
+  test("git の作業ツリーの外のホームの外でも、祖先のプロジェクトの .claude/skills にある同じ名前を報告する", async () => {
+    const sb = await withAgent();
+    const root = realpathSync(sb.root);
+    const dir = join(root, "outside", "a");
+    mkdirSync(dir, { recursive: true });
+    put(join(root, "outside", ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
+
+    const run = await sb.run("status", { cwd: dir });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, dir)).toEqual([`  ${root}/outside/.claude/skills/tdd/SKILL.md: ${TDD_CLASH}`]);
+  });
+
+  test("OMP が読まないプロジェクトのスキル（description の無い .omp/skills、enabled: false）は報告せず、disabledExtensions で外した名前は、専用ランチャーがその指定を外すので報告する", async () => {
+    const sb = await withAgent();
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    put(join(project, ".omp", "skills", "tdd", "SKILL.md"), "---\nname: tdd\n---\n\nproject\n");
+    put(join(project, ".claude", "skills", "table", "SKILL.md"), "---\nname: pstack-omp\ndescription: test\nenabled: false\n---\n");
+    put(join(project, ".agents", "skills", "t", "SKILL.md"), "---\nname: tdd\n---\n\nagents\n");
+    put(sb.configPath, "disabledExtensions:\n  - skill:tdd\n");
+    const real = realpathSync(project);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, real)).toEqual([`  ${real}/.agents/skills/t/SKILL.md: ${TDD_CLASH}`]);
   });
 });

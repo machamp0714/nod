@@ -2,14 +2,14 @@
 // （OMP の設定の置き場を決められないとき（context.ts の userAgentDir）だけは、理由を出して止まる）。
 // 出すのは、適用の状態（写しと組の記録の照合、制御の規則の版と sha256 とリポジトリの規則との一致、config.yml に以前の配置の
 // 読み込みの設定が残っているか、生成物の pin、OMP の版）、どの tdd が使われるか（専用ランチャーと通常の omp。通常の omp で裸の名前 tdd を
-// 取るものを、利用者の置き場と実行したディレクトリのプロジェクトの置き場から、OMP 19.1.0 の順（places.ts の normalOmpSkills の並び。
-// resolveCollision と provider の priority）で選ぶ。利用者の置き場と disabledProviders（実行したディレクトリで解いた値。その provider の置き場は
-// 数えない）は、OMP がいま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で決める。プロジェクトの設定の
-// disabledProviders・skills.enabled・ignoredSkills などは見ず、OMP が読まないスキル（description が無い、enabled: false）も見分けずに、
-// 在る SKILL.md を候補にする）、
+// 取るものを、通常の omp が実行したディレクトリで実際に読むスキル（omp-skills.ts の normalOmpSkills: OMP 19.1.0 と同じ provider の置き場・
+// 読み込みの条件・同じ名前の優先の順）から選ぶ。設定は OMP がいま global の設定として読むファイル（config.yml が無ければ config.yaml）の値で
+// 決め、そのファイルを読めないか値の形が正しくなければ、OMP の既定の設定で選んだことを添える。プロジェクトの設定の層は見ない。
+// プラグインの登録などの中を調べない読み込み元が、選んだものより先に tdd を取りうるなら、そのことを添える）、
 // 実行したディレクトリのプロジェクトの置き場
-// （スキルは実行したディレクトリから git の作業ツリーの根まで、エージェント定義は OMP と同じく実行したディレクトリから遡って最も近い
-// .omp/agents。places.ts の projectPlaces）にある、今回の定義やスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに読めなければ、
+// （スキルは通常の omp がプロジェクトの置き場として読むもの（omp-skills.ts。git の外ではホームの手前までの祖先も読む）、エージェント定義は
+// OMP と同じく実行したディレクトリから遡って最も近い .omp/agents（places.ts の projectAgents））にある、今回の定義やスキルと同じ名前のもの。
+// 置き場の定義やスキルのファイルが在るのに読めなければ、
 // 名前を確かめられないことをそのファイルごとに出す（写しの中のファイルは、写しの照合が読めないファイルとして出す）。
 // 「適用しています」は、写しの全ファイル（専用ランチャー bin/omp とサンドボックスのプロファイル control/sandbox.sb を含む）が組の記録の
 // sha256 と一致し（記録に無いファイルも無い）、写しの中の生成したスキルの置き場が在り、組の記録の OMP の設定の置き場がいまの置き場と同じときだけ
@@ -17,11 +17,12 @@
 // 起動したセッションだけに読み込まれ、通常の omp には読み込まれないことと、ランチャーのパスを案内する。写しが違っていれば、何が違うかの行と、
 // 適用が壊れていることを出す。組が別の置き場に適用したものなら、そのことと、この置き場には適用していないこと（その置き場での status と remove）を出す。
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { configPath, globalConfigPath, type OmpConfig, readConfig, realAncestor, sha256, stringList } from "./config";
 import { type Context, readOmpVersion, userAgentDir } from "./context";
 import { entryGuide, legacyItems, paths, readGenerated, readRecord, samePin } from "./harness";
-import { type Definition, normalOmpSkills, type OmpSkills, packageDefinitions, projectPlaces, skillsIn } from "./places";
+import { bareSkill, findRepoRoot, normalOmpSkills, type OmpSkills } from "./omp-skills";
+import { type Definition, packageDefinitions, projectAgents, real, skillsIn } from "./places";
 import { copyProblems, type Harness, parseHarness, readRules, RULES_FILE } from "../../omp/control/verify";
 
 export function status(ctx: Context, cwd: string): string[] {
@@ -144,45 +145,58 @@ export function status(ctx: Context, cwd: string): string[] {
     lines.push("  → 適用していません");
   }
 
-  let normal: OmpSkills = { skills: [], unreadable: [] };
+  // 通常の omp のセッションが実行したディレクトリで読むスキル。OMP がいま global の設定として読むファイルを読めないか値の形が正しくなければ、
+  // OMP の既定の設定で集め（読めないことは上の「OMP の設定」の行で報告している）、tdd の行にそのことを添える
+  let normal: OmpSkills;
+  let assumed = "";
   try {
-    if (settings !== undefined) normal = normalOmpSkills(agentDir, ctx.home, settings, p.root, cwd);
+    if (settings === undefined) throw new Error("OMP の設定を読めません");
+    normal = normalOmpSkills(agentDir, ctx.home, settings, p.root, cwd, process.env);
   } catch {
-    // 設定の値の形が正しくなければ、利用者の置き場は上の「OMP の設定」の行で報告している
+    normal = normalOmpSkills(agentDir, ctx.home, { path: settingsPath, bytes: undefined, data: {} }, p.root, cwd, process.env);
+    assumed = "（OMP の設定を読めないので、OMP の既定の設定で選びました）";
   }
   lines.push("どの tdd が使われるか:");
   // 写しの中の pstack の tdd（専用ランチャーのセッションで skills.customDirectories の先頭に入る置き場）
   const pstackTdd = join(p.skills[0]!, "tdd", "SKILL.md");
-  // 利用者の置き場と実行したディレクトリのプロジェクトの置き場の tdd のうち、通常の omp で裸の名前 tdd を取るもの
-  // （normalOmpSkills はスキルを OMP の優先の順に並べる）
-  const normalTdd = normal.skills.find((d) => d.name === "tdd");
-  const used = normalTdd === undefined ? undefined : `${normalTdd.project ? "プロジェクトの置き場" : "利用者の置き場"}の tdd（${normalTdd.path}）`;
-  const none = "利用者の置き場にも、実行したディレクトリのプロジェクトの置き場にも tdd はありません";
+  // 通常の omp で裸の名前 tdd を取るもの
+  const bare = bareSkill(normal, "tdd");
+  const used = bare.skill === undefined ? undefined : `${bare.skill.project ? "プロジェクトの置き場" : "利用者の置き場"}の tdd（${bare.skill.path}）`;
+  const none = bare.reason ?? "利用者の置き場にも、実行したディレクトリのプロジェクトの置き場にも tdd はありません";
+  // 中を調べない読み込み元が、選んだものより先に tdd を取りうるなら、そのことを添える
+  const caveat =
+    (bare.unexamined.length === 0 ? "" : `。ただし、OMP は ${bare.unexamined.join("、")} からもスキルを読み、その中は調べていないので、そこに tdd があればそちらが使われます`) +
+    assumed;
   if (applied && existsSync(pstackTdd)) {
     lines.push(`  専用ランチャーから起動したセッション: pstack の tdd（${pstackTdd}）が使われます（写しの中の生成したスキルの置き場が skills.customDirectories の先頭に入るため）`);
     if (used !== undefined) lines.push(`    ${used}は、名前空間つきの <名前空間>/tdd の名前になります`);
-    lines.push(used === undefined ? `  通常の omp のセッション: pstack の tdd は読み込まれません（${none}）` : `  通常の omp のセッション: ${used}が使われます`);
+    lines.push(used === undefined ? `  通常の omp のセッション: pstack の tdd は読み込まれません（${none}）${caveat}` : `  通常の omp のセッション: ${used}が使われます${caveat}`);
   } else if (used !== undefined) {
-    lines.push(`  適用していないので、${used}が使われます`);
+    lines.push(`  適用していないので、${used}が使われます${caveat}`);
   } else {
-    lines.push(`  適用していないので、pstack の tdd は使われません（${none}）`);
+    lines.push(`  適用していないので、pstack の tdd は使われません（${none}）${caveat}`);
   }
   // プロジェクトの置き場の読めないファイルは、下のプロジェクトの節で出す
   for (const { path } of normal.unreadable.filter((u) => !u.project)) lines.push(`  利用者の置き場の ${path} は読めないので、名前（tdd か）を確かめられません`);
 
-  const project = projectPlaces(cwd, ctx.home);
+  // プロジェクトの根（git の作業ツリーの根。git の外なら実行したディレクトリ）と、そのエージェント定義と、通常の omp がプロジェクトの置き場として読むスキル
+  // （専用ランチャーのセッションも、同じ設定を土台にするので同じものを読む）
+  const root = real(findRepoRoot(resolve(cwd)) ?? cwd);
+  const agents = projectAgents(cwd);
+  const project: Definition[] = [...agents.definitions, ...normal.skills.filter((s) => s.project).map((s): Definition => ({ kind: "skill", name: s.name, path: s.path }))];
+  const unreadable = [...agents.unreadable, ...normal.unreadable.filter((u) => u.project).map((u) => u.path)];
   const content = packageDefinitions(ctx.packageDir).definitions;
   const contentNames = new Set(content.map((d) => `${d.kind}:${d.name}`));
   // 生成したスキルの名前（データ置き場の生成物と、写しの中の生成したスキル）
   const generatedNames = new Set([...(generated?.names ?? []), ...p.skills.flatMap((dir) => skillsIn(dir).definitions).map((d) => d.name)]);
-  const clashes = project.definitions.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedNames.has(d.name)));
+  const clashes = project.filter((d) => contentNames.has(`${d.kind}:${d.name}`) || (d.kind === "skill" && generatedNames.has(d.name)));
   lines.push(
-    `プロジェクト（${project.root}）の置き場（エージェント定義は、実行したディレクトリから遡って最も近い .omp/agents。根の外やホームにあっても OMP が読む）にある、` +
+    `プロジェクト（${root}）の置き場（エージェント定義は、実行したディレクトリから遡って最も近い .omp/agents。根の外やホームにあっても OMP が読む）にある、` +
       "今回の定義やスキルと同じ名前のもの（専用ランチャーから起動したセッションで効く）:",
   );
-  if (clashes.length === 0 && project.unreadable.length === 0) lines.push("  ありません");
+  if (clashes.length === 0 && unreadable.length === 0) lines.push("  ありません");
   for (const d of clashes) lines.push(`  ${d.path}: ${explain(d, generatedNames)}`);
-  for (const path of project.unreadable) lines.push(`  ${path}: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`);
+  for (const path of unreadable) lines.push(`  ${path}: 読めないので、今回の定義やスキルと同じ名前かを確かめられません`);
   return lines;
 }
 
