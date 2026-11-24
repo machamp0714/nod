@@ -1,7 +1,7 @@
 import { assessCreatedIssues } from "./assessed-creation";
 import { jevClient, type JevClient } from "./jev-client";
 import type { Database } from "bun:sqlite";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { addComment } from "../events";
@@ -244,7 +244,7 @@ function writeOne(
   });
 }
 
-// gh issue list で読み、dry-run なら対応の提案だけを返す。実行は人だけで、1件ずつ gh issue view でコメントを読んでから書く
+// gh issue list で読み、dry-run なら対応の提案だけを返す。1件ずつ gh issue view でコメントを読んでから書く
 export async function importGithubIssues(
   ctx: OpCtx,
   keyOrPath: string,
@@ -261,9 +261,6 @@ export async function importGithubIssues(
   const workspace = findWorkspace(ctx.db, keyOrPath);
   if (!workspace) throw new NodError("NOT_FOUND", `Workspace ${keyOrPath} は登録されていません`);
   const project = opts.projectRef ? resolveProject(ctx.db, opts.projectRef) : null;
-  if (!dryRun && isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は nod import github を実行できません（--dry-run での確認はできます）。実行は me に依頼してください");
-  }
   const args = ["issue", "list", "-R", repo, "--state", state, "--limit", String(limit), "--json", LIST_FIELDS];
   // ラベル名が - で始まっても gh のオプションと取り違えないよう = でつなぐ
   for (const label of opts.labels ?? []) args.push(`--label=${label}`);

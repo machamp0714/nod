@@ -50,14 +50,14 @@ describe("origin の URL を owner/repo にする", () => {
 });
 
 describe("Workspace の公開先", () => {
-  test("人は設定・解除でき、値は小文字の owner/repo。LLM は変えられない", () => {
+  test("書き手によらず設定・解除でき、値は小文字の owner/repo", () => {
     const { db, me, llm } = setup();
     expect(getWorkspaceGithubRepo(db, "API")).toEqual({ workspaceKey: "API", repo: null, updatedAt: null, updatedBy: null });
     const set = setWorkspaceGithubRepo(me, "API", "Example/API-Server");
     expect(set.repo).toBe("example/api-server");
     expect(set.updatedBy).toBe("me");
-    expect(codeOf(() => setWorkspaceGithubRepo(llm, "API", "example/other"))).toBe("FORBIDDEN_FOR_LLM");
-    expect(codeOf(() => clearWorkspaceGithubRepo(llm, "API"))).toBe("FORBIDDEN_FOR_LLM");
+    expect(setWorkspaceGithubRepo(llm, "API", "example/other")).toMatchObject({ repo: "example/other", updatedBy: llm.actor });
+    expect(clearWorkspaceGithubRepo(llm, "API").repo).toBeNull();
     expect(codeOf(() => setWorkspaceGithubRepo(me, "API", "-bad/repo"))).toBe("INVALID_ARGS");
     expect(codeOf(() => setWorkspaceGithubRepo(me, "NOPE", "example/x"))).toBe("NOT_FOUND");
     expect(clearWorkspaceGithubRepo(me, "API").repo).toBeNull();

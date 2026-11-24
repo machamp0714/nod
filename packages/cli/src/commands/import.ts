@@ -36,7 +36,7 @@ function describeImport(r: GithubImportResult): string {
     lines.push(`  #${i.number}  ${i.state}${i.stateReason && i.state === "CLOSED" ? `/${i.stateReason}` : ""}  ${where}  ${i.title}${labels}`);
   }
   if (r.dryRun) {
-    lines.push("（dry-run のため変更していません。取り込むには --dry-run を外してください。実行は人だけ）");
+    lines.push("（dry-run のため変更していません。取り込むには --dry-run を外してください）");
   } else {
     lines.push(`  取り込みました: ${r.imported.length} 件${r.imported.length ? `（${r.imported.map((i) => i.id).join(", ")}）` : ""}`);
     if (r.skipped.length) lines.push(`  スキップ（取り込み済み・上書きしない）: ${r.skipped.map((s) => s.id).join(", ")}`);
@@ -51,9 +51,9 @@ export function registerImportCommands(program: Command): void {
   const imp = program.command("import").description("他のツールの Issue を nod に取り込む");
   imp
     .command("github")
-    .description("GitHub Issues を gh で読み、現在の Workspace に Issue として取り込む（実行は人だけ。--dry-run は対応を表示するだけ）")
+    .description("GitHub Issues を gh で読み、現在の Workspace に Issue として取り込む（--dry-run は対応を表示するだけ）")
     .argument("<owner/repo>", "取り込み元の GitHub リポジトリ（例: machamp0714/nod）")
-    .option("--dry-run", "取り込む内容と状態の対応を表示するだけで変更しない（LLM も使える）")
+    .option("--dry-run", "取り込む内容と状態の対応を表示するだけで変更しない")
     .option("--state <state>", `読む Issue の状態 ${GITHUB_IMPORT_STATES.join("|")}（既定 open）`)
     .option("--label <name>", "このラベルを持つ Issue に絞る（複数指定ですべてを持つもの）", collect)
     .option("--limit <n>", `読む件数の上限（既定 ${GITHUB_IMPORT_LIMIT_DEFAULT}、最大 ${GITHUB_IMPORT_LIMIT_MAX}）。新しい Issue から読む`, parseLimit)

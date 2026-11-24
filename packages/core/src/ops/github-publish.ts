@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLlm, now, type OpCtx } from "../ctx";
+import { now, type OpCtx } from "../ctx";
 import { tx } from "../db";
 import { NodError } from "../errors";
 import { recordEvent } from "../events";
@@ -28,7 +28,7 @@ import { type GhRunner, type GhRunResult, ghRunner } from "./pr-status";
 
 // nod の Issue を GitHub Issue として1回だけ作成する。送るのはタイトルと本文だけで、作成後の同期・更新・close・コメントはしない。
 // 送信権は github_publishes の部分 UNIQUE で取り、外部の呼び出しの間は DB の transaction を持たない。
-// 「必ず1回だけ作る」ことは保証しない（GitHub と SQLite を1つの transaction にできない）。結果が分からないときは再送せず、人の確認で復旧する
+// 「必ず1回だけ作る」ことは保証しない（GitHub と SQLite を1つの transaction にできない）。結果が分からないときは再送せず、GitHub を確認して復旧する
 export const GITHUB_CREATE_TIMEOUT_MS = 30_000;
 export const GITHUB_TITLE_MAX = 256;
 export const GITHUB_BODY_MAX = 65_536;
@@ -289,9 +289,6 @@ function recordLink(ctx: OpCtx, issueRowId: number, attemptId: string, requested
 }
 
 export async function publishGithubIssue(ctx: OpCtx, ref: string, input: GithubPublishInput, deps: GithubPublishDeps = {}): Promise<GithubPublishResult> {
-  if (isLlm(ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub Issue を作成できません（nod issue publish --dry-run での確認はできます）。作成は me に依頼してください");
-  }
   validateText(input);
   const repo = normalizeGithubRepo(input.repo);
   const findings = detectLeaks({ title: input.title, body: input.body }, leakConfigOf(ctx.db, deps));
@@ -384,7 +381,6 @@ export async function publishGithubIssue(ctx: OpCtx, ref: string, input: GithubP
 }
 
 export function clearUnknownGithubPublish(ctx: OpCtx, ref: string): GithubIssueState {
-  if (isLlm(ctx)) throw new NodError("FORBIDDEN_FOR_LLM", "LLM は結果不明の送信を解除できません。GitHub で確かめたうえで、解除は me に依頼してください");
   return tx(ctx.db, () => {
     const row = findIssueRow(ctx.db, ref);
     const id = formatIssueId(row.ws_key, row.number);

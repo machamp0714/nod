@@ -9,7 +9,6 @@ import {
   type GithubIssueState,
   type GithubPublishDeps,
   type GithubPublishPreview,
-  isLlm,
   type LeakFinding,
   linkGithubIssue,
   NodError,
@@ -21,7 +20,7 @@ import type { Command } from "commander";
 import { act, actAsync, type Cli } from "../context";
 import { print } from "../output";
 
-// nod の Issue を GitHub Issue として作成する（人だけ。LLM は --dry-run の下見だけ）。対話の確認は差し替えられるようにする（テストのため）
+// nod の Issue を GitHub Issue として作成する。--yes がなければ端末で送信内容を確認する
 export interface PublishIo {
   interactive(): boolean;
   write(text: string): void;
@@ -56,6 +55,7 @@ export interface PublishOptions {
   bodyFile?: string;
   dryRun?: boolean;
   clearUnknown?: boolean;
+  yes?: boolean;
 }
 
 // 端末の表示を乱す制御文字・向きの制御文字を見える形にする。改行・タブ・CRLF の \r は残す
@@ -105,6 +105,7 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
     if (o.dryRun || o.title !== undefined || o.bodyFile !== undefined) {
       throw new NodError("INVALID_ARGS", "--clear-unknown は --dry-run・--title・--body-file と一緒に使えません");
     }
+    if (!o.yes) throw new NodError("CONFIRM_REQUIRED", "結果不明の送信を解除するには、GitHub に作られていないことを確かめて --yes を付けてください");
     const state = clearUnknownGithubPublish(cli.ctx, id);
     print(cli, state, () => `${state.issueId} の結果不明の送信を解除しました。作成するときは、もう一度 nod issue publish ${state.issueId} で内容を確かめてください`);
     return;
@@ -123,9 +124,6 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
     print(cli, view, () => describePreview(view));
     return;
   }
-  if (isLlm(cli.ctx)) {
-    throw new NodError("FORBIDDEN_FOR_LLM", "LLM は GitHub Issue を作成できません（nod issue publish --dry-run での確認はできます）。作成は me に依頼してください");
-  }
   const blocker = view.blockers[0];
   if (blocker) throw new NodError(blocker.code, blocker.message);
   if (!preview.repo) {
@@ -140,13 +138,15 @@ export async function runPublishCommand(cli: Cli, id: string, o: PublishOptions,
   if (findings.length) {
     throw new NodError("LEAK_DETECTED", ["nod の情報が残っているため送信しません。次の箇所を示した対応で直し、--title・--body-file で渡して実行してください（--dry-run で案を確かめられます）", ...describeFindings(findings)].join("\n"), { findings });
   }
-  if (!io.interactive()) {
-    throw new NodError("NOT_INTERACTIVE", "対話できない環境では送信しません。端末で実行するか、Web の Issue 詳細から作成してください（--dry-run での確認はできます）");
-  }
-  io.write(describeConfirmation({ repo: preview.repo, ghLogin: preview.ghLogin, title, body, changes }));
-  if (!(await io.confirm("この内容で GitHub に Issue を作成しますか？ [y/N] "))) {
-    io.write("送信しませんでした\n");
-    return;
+  if (!o.yes) {
+    if (!io.interactive()) {
+      throw new NodError("NOT_INTERACTIVE", "対話できない環境では --yes を付けてください。端末では送信内容を確認できます（--dry-run での確認もできます）");
+    }
+    io.write(describeConfirmation({ repo: preview.repo, ghLogin: preview.ghLogin, title, body, changes }));
+    if (!(await io.confirm("この内容で GitHub に Issue を作成しますか？ [y/N] "))) {
+      io.write("送信しませんでした\n");
+      return;
+    }
   }
   const r = await publishGithubIssue(cli.ctx, id, { title, body, repo: preview.repo, ghLogin: preview.ghLogin }, deps);
   io.write(`${r.issueId} の GitHub Issue を作成しました: ${r.url}\n${r.message ? `${r.message}\n` : ""}`);
@@ -164,11 +164,12 @@ function describeState(s: GithubIssueState): string {
 export function registerGithubIssueCommands(issue: Command, io: PublishIo = terminalIo): void {
   issue
     .command("publish <id>")
-    .description("nod の Issue を GitHub Issue として1回だけ作成する（実行は人だけ。--dry-run は内容の確認だけで LLM も使える）")
+    .description("nod の Issue を GitHub Issue として1回だけ作成する（--dry-run は内容の確認だけ）")
     .option("--title <text>", "送信用のタイトル（nod のタイトルは変えない）")
     .option("--body-file <path>", "送信用の本文を読むファイル（nod の本文は変えない）")
     .option("--dry-run", "送らずに、宛先・アカウント・送る内容・書き換えた箇所・残った nod の情報を表示する")
     .option("--clear-unknown", "結果不明の送信を解除する（GitHub に作られていないことを確かめてから使う。送信はしない）")
+    .option("--yes", "公開の対話確認を省く。結果不明の解除にも必須")
     .addHelpText(
       "after",
       [
@@ -178,9 +179,9 @@ export function registerGithubIssueCommands(issue: Command, io: PublishIo = term
         "  nod でしか開けないリンク）を決まった規則で整えた案を送る（nod の本文は変えない。指定した文面は書き換えない）。",
         "送る文面を調べ、整えられずに残った nod の情報があれば行番号と必要な対応を示して送らない。",
         "  分かっている形の漏れを止めるもので、すべての個人環境の情報がないことは保証しない。",
-        "確認画面で宛先・gh アカウント・書き換えた箇所（前 → 後）・全文を示し、y で送る（既定は N）。端末でないときは送らない。",
+        "確認画面で宛先・gh アカウント・書き換えた箇所（前 → 後）・全文を示し、y で送る（既定は N）。--yes で確認を省き、非対話でも送る。",
         "結果が分からなかったときは再送しない。GitHub を確かめ、作られていれば nod issue link-github、",
-        "  作られていなければ --clear-unknown で解除してから、もう一度 publish する。",
+        "  作られていなければ --clear-unknown --yes で解除してから、もう一度 publish する。",
       ].join("\n"),
     )
     .action(
@@ -191,7 +192,7 @@ export function registerGithubIssueCommands(issue: Command, io: PublishIo = term
 
   issue
     .command("link-github <id> <url>")
-    .description("既存の GitHub Issue を nod の Issue に紐付ける（実行は人だけ。done・アーカイブ済みにも付けられる）")
+    .description("既存の GitHub Issue を nod の Issue に紐付ける（done・アーカイブ済みにも付けられる）")
     .action(
       actAsync(async (cli, _cmd, id: string, url: string) => {
         const state = await linkGithubIssue(cli.ctx, id, url, ghDeps().gh);
@@ -201,7 +202,7 @@ export function registerGithubIssueCommands(issue: Command, io: PublishIo = term
 
   issue
     .command("unlink-github <id>")
-    .description("GitHub Issue の紐付けを外す（実行は人だけ。外した GitHub Issue は import で取り込み直さない）")
+    .description("GitHub Issue の紐付けを外す（外した GitHub Issue は import で取り込み直さない）")
     .action(
       act((cli, _cmd, id: string) => {
         const state = unlinkGithubIssue(cli.ctx, id);
