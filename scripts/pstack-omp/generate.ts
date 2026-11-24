@@ -1,7 +1,7 @@
-// 取得した上流から、OMP 向けのコピーをデータ置き場の下の pstack-omp/generated に生成する（nod のリポジトリの外）。
+// 取得した上流から、OMP 向けのコピーを固定の生成先（データ置き場の下の pstack-omp/generated。nod のリポジトリの外）に生成する。
 // 入れるのは pstack の全スキルと cursor-team-kit の CURSOR_TEAM_KIT_SKILLS だけ。上流のルートの配置（pstack/、cursor-team-kit/）を保つので、
-// apply がこの生成物を写しの generated へ丸ごと写し、OMP の skills.customDirectories に写しの中の generated/pstack/skills と
-// generated/cursor-team-kit/skills を登録すれば、それぞれの */SKILL.md が読まれる（OMP の設定が指すのは写しの中で、この生成物ではない）。
+// 利用者が OMP の skills.customDirectories に生成先の pstack/skills と cursor-team-kit/skills を一度だけ登録すれば、通常の omp が
+// それぞれの */SKILL.md を生成先から直接読む（登録する値は status が表示する）。
 // スキルの .md の相対リンクの先（スキルの外の文書や画像）も、上流と同じ相対位置に入れ、その先の .md のリンクも同じく辿る。
 // 読み込まない cursor-team-kit のスキルはリンクの先でも入れない（スキルとして読まれてしまうため）。
 // 本文は書き換えない。Cursor の用語（terms.ts）を使うスキルの SKILL.md だけ、最初の H1 の後に案内の1行を入れる。リンクも書き換えない。
@@ -9,12 +9,12 @@
 // 辿れる .md には、スキルの外の文書と、別の生成するスキルのディレクトリの中の SKILL.md 以外の文書（付属の参考の文書など）が入る。
 // 別の生成するスキルの SKILL.md とディレクトリそのものへのリンクでは止まる（そのスキルの入口で、自分の範囲で決まる案内の1行を持つ）。
 // 次のどれかがあれば、何も書かずに止める: 読み替え表に対応行のない用語、用語を使うのに H1 の無い SKILL.md、生成物の中で解決できない相対リンク、
-// 読み替え表が示す写しの中のパス（`<X>/generated/...`）が生成物に無いこと。
+// 読み替え表が示す生成先の中のパス（`<X>/generated/...`）が生成物に無いこと。
 // 書くときは同じ階層の一時ディレクトリに作り終えてから置き換える。失敗したら前回の生成物はそのまま残す
-// （次の apply が写しへ写す元で、status なども読むので、失敗で消すと、やり直すまで apply できず status も生成物を見失う）。
+// （通常の omp が生成先を直接読み、status も読むので、失敗で消すと、やり直すまで pstack のスキルが読まれず status も生成物を見失う）。
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
-import { type Context, PstackOmpError } from "./context";
+import { type Context, type Pin, PstackOmpError } from "./context";
 import { TERMS } from "./terms";
 
 const ROOTS = ["pstack", "cursor-team-kit"] as const;
@@ -26,7 +26,7 @@ const GUIDE_LINE =
   "In OMP, read the `pstack-omp` skill (`skill://pstack-omp`) once per session before you follow this skill. It maps the Cursor names in pstack skills to OMP.";
 // Markdown の相対リンクとして扱う形（上流の道具と同じ）
 const LINK = /\]\(([^)\s]+)\)/g;
-// 読み替え表が示す写しの中のパス（`<X>/<相対パス>`。<X> は写しの根で、写しの generated/ は生成物を丸ごと写したもの）
+// 読み替え表が示す生成先の中のパス（`<X>/<相対パス>`。<X> は生成先の親の <データ置き場>/pstack-omp で、<X>/generated/ が生成先）
 const COPY_PATH = /<X>\/([^`\s）)、。]+)/g;
 
 interface Source {
@@ -41,6 +41,36 @@ export interface Generated {
   guided: Record<Root, string[]>;
   // 用語の key → それを使うスキル（root/名前）。用語の一覧の順
   terms: Map<string, string[]>;
+}
+
+// 固定の生成先（<データ置き場>/pstack-omp/generated）
+export function generatedDir(ctx: Pick<Context, "workDir">): string {
+  return join(ctx.workDir, "generated");
+}
+
+// 生成先の中の、利用者が skills.customDirectories に登録するスキルの置き場（ROOTS の順）
+export function skillDirs(dir: string): string[] {
+  return ROOTS.map((root) => join(dir, root, "skills"));
+}
+
+// 生成物の manifest.json の、元にした固定の記録と生成したスキルの名前（ROOTS の順）
+export interface Manifest {
+  pin: Pin;
+  names: string[];
+}
+
+// 生成先の manifest。無い・読めなければ undefined
+export function readManifest(dir: string): Manifest | undefined {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { pin: Pin; skills: Record<string, string[]> };
+    return { pin: manifest.pin, names: ROOTS.flatMap((root) => manifest.skills[root] ?? []) };
+  } catch {
+    return undefined;
+  }
+}
+
+export function samePin(a: Pin, b: Pin): boolean {
+  return a.repository === b.repository && a.commit === b.commit && a.pstackVersion === b.pstackVersion && a.ompVersion === b.ompVersion;
 }
 
 export function generate(ctx: Context, upstreamDir: string): Generated {
@@ -103,7 +133,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
     ["用語を使うのに SKILL.md に H1 が無く、案内の1行を入れられないスキルがあります", noH1],
     ["生成物の中で解決できない相対リンクがあります", [...dangling]],
     [
-      `読み替え表 ${tablePath} が示す写しの中のパスが生成物にありません（写しの根 <X> の generated/ の下の、生成物に在るパスを書いてください）`,
+      `読み替え表 ${tablePath} が示す生成先の中のパスが生成物にありません（生成先の親 <X> の generated/ の下の、生成物に在るパスを書いてください）`,
       missingCopyPaths(table, files),
     ],
   ] as const;
@@ -112,7 +142,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
     throw new PstackOmpError(["OMP 向けのコピーを生成できません。", ...report].join("\n"));
   }
 
-  const dir = join(ctx.workDir, "generated");
+  const dir = generatedDir(ctx);
   replaceDir(ctx.workDir, dir, files);
   return { dir, skills, guided, terms: new Map(TERMS.filter(({ key }) => terms.has(key)).map(({ key }) => [key, terms.get(key)!])) };
 }
@@ -230,7 +260,7 @@ function inFiles(files: Map<string, Source>, path: string): boolean {
   return files.has(path) || [...files.keys()].some((file) => file.startsWith(`${path}/`));
 }
 
-// 読み替え表が示す写しの中のパスのうち、生成物に無いもの（generated/ の外を指すものを含む）。表に出てくる順
+// 読み替え表が示す生成先の中のパスのうち、生成物に無いもの（generated/ の外を指すものを含む）。表に出てくる順
 function missingCopyPaths(table: string, files: Map<string, Source>): string[] {
   const paths = new Set([...table.matchAll(COPY_PATH)].map(([, rel]) => rel!.replace(/\/$/, "")));
   return [...paths]

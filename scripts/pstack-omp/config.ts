@@ -1,41 +1,28 @@
-// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml、無ければ config.yaml）の読み書き。適用は OMP が global の設定として読むファイルに
-// 3つの読み込みの設定を書き、解除はそれを戻す（harness.ts）。利用者の置き場（skills.customDirectories と extensions）も同じファイルの値で決める。
-// - 読み書きは Bun の YAML。書くときは OMP と同じ形（Bun.YAML.stringify の2字字下げで、マッピングの見出しの行末の空白を除く）にする。
-//   YAML として書き直すとコメントは残らないので、解除は、適用の後に設定ファイルが変わっていなければ適用の前のバイトに戻す。
-// - 設定ファイルがシンボリックリンクなら、OMP と同じくリンクの先に書く。書くときは同じディレクトリの一時ファイルに書いてから rename する。
-// - OMP は config.yml を書くとき、`<config.yml の実体>.lock` に flock(2) の排他ロックを取る（macOS。Linux では別の仕組み）。
-//   macOS では同じロックを取ってから読み、書き終えるまで持つ。実行中の OMP が設定を保存するときに、こちらの変更を上書きしないため。
-import { dlopen, FFIType } from "bun:ffi";
-import { createHash, randomBytes } from "node:crypto";
-import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+// 利用者の OMP の設定（<PI_CODING_AGENT_DIR>/config.yml、無ければ config.yaml）を読む（書かない）。状態の表示（status.ts）が、OMP が global の
+// 設定として読むファイルの3つの読み込みの設定と、通常の omp が読むスキルの置き場（omp-skills.ts）を、このファイルの値で決める。
+// 読むのは Bun の YAML。設定ファイルがシンボリックリンクなら、OMP と同じくリンクの先を読む。
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { PstackOmpError } from "./context";
 
 export interface OmpConfig {
   // 設定ファイル（config.yml か config.yaml）のパス（リンクなら先）
   path: string;
-  // いまのバイト。無ければ undefined
-  bytes: Buffer | undefined;
   // 読んだ値（無い、空なら {}）
   data: Record<string, unknown>;
 }
 
-// config.yml のパス。リンクを解き、置き場がまだ無くても、在る祖先の別名（macOS の /var と /private/var など）を解いた形にする
-// （適用の記録と解除で同じパスになるように）
-export function configPath(agentDir: string): string {
-  return realAncestor(join(agentDir, "config.yml"));
-}
-
 // OMP がいま global の設定として読むファイルのパス。OMP 19.1.0 と同じく config.yml を読み、無いときだけ config.yaml を読む
-// （config.yml が在れば、空でも config.yaml は読まない）。どちらも無ければ config.yml
+// （config.yml が在れば、空でも config.yaml は読まない）。どちらも無ければ config.yml。リンクを解き、置き場がまだ無くても、
+// 在る祖先の別名（macOS の /var と /private/var など）を解いた形にする
 export function globalConfigPath(agentDir: string): string {
-  const yml = configPath(agentDir);
+  const yml = realAncestor(join(agentDir, "config.yml"));
   if (existsSync(yml)) return yml;
   const yaml = yamlConfigPath(agentDir);
   return existsSync(yaml) ? yaml : yml;
 }
 
-// config.yml が無いときに OMP が読む config.yaml のパス（configPath と同じく、在る祖先の別名を解いた形）
+// config.yml が無いときに OMP が読む config.yaml のパス（globalConfigPath と同じく、在る祖先の別名を解いた形）
 export function yamlConfigPath(agentDir: string): string {
   return realAncestor(join(agentDir, "config.yaml"));
 }
@@ -55,27 +42,18 @@ export function realAncestor(path: string): string {
 
 // 読めなければ（YAML として不正、全体がマッピングでない）止める
 export function readConfig(path: string): OmpConfig {
-  const bytes = existsSync(path) ? readFileSync(path) : undefined;
-  return { path, bytes, data: bytes === undefined ? {} : parseConfig(path, bytes) };
-}
-
-// config.yml のバイトの値（空なら {}）。読めなければ（YAML として不正、全体がマッピングでない）止める
-export function parseConfig(path: string, bytes: Buffer): Record<string, unknown> {
+  if (!existsSync(path)) return { path, data: {} };
   let parsed: unknown;
   try {
-    parsed = Bun.YAML.parse(bytes.toString("utf8"));
+    parsed = Bun.YAML.parse(readFileSync(path, "utf8"));
   } catch (e) {
     throw new PstackOmpError(`OMP の設定 ${path} を YAML として読めません: ${(e as Error).message}。直してから、もう一度実行してください`);
   }
-  if (parsed === null || parsed === undefined) return {};
+  if (parsed === null || parsed === undefined) return { path, data: {} };
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new PstackOmpError(`OMP の設定 ${path} の全体がマッピングではありません。直してから、もう一度実行してください`);
   }
-  return parsed as Record<string, unknown>;
-}
-
-export function stringifyConfig(data: Record<string, unknown>): string {
-  return Bun.YAML.stringify(data, null, 2).replace(/: +$/gm, ":");
+  return { path, data: parsed as Record<string, unknown> };
 }
 
 // 設定の値（skills.customDirectories のような . 区切りの id）。途中がマッピングでなければ undefined
@@ -92,115 +70,11 @@ export function isMapping(value: unknown): value is Record<string, unknown> {
 }
 
 // 設定の値のうち文字列の配列のもの。文字列の配列でなければ止める。無ければ undefined
-export function stringList(config: Pick<OmpConfig, "path" | "data">, id: string): string[] | undefined {
+export function stringList(config: OmpConfig, id: string): string[] | undefined {
   const value = valueAt(config.data, id);
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || !value.every((x) => typeof x === "string")) {
     throw new PstackOmpError(`OMP の設定 ${config.path} の ${id} が文字列の配列ではありません。直してから、もう一度実行してください`);
   }
   return value;
-}
-
-export function sha256(bytes: Buffer | string): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-// 書き換えの準備（一時ファイルまで書き、準備の時点の元のバイトと存在と mode を持つ）。commit で置き換え、discard で一時ファイルを消し、
-// revert で commit の後に元へ戻す（元が無ければ消し、在れば同じディレクトリの一時ファイルから rename で元のバイトに戻す）。
-// bytes が undefined なら commit で設定ファイルを消す
-export interface PreparedWrite {
-  path: string;
-  commit(): void;
-  discard(): void;
-  revert(): void;
-}
-
-export function prepareWrite(path: string, bytes: Buffer | string | undefined): PreparedWrite {
-  const original = existsSync(path) ? { bytes: readFileSync(path), mode: statSync(path).mode & 0o777 } : undefined;
-  const revert = (): void => {
-    if (original === undefined) rmSync(path, { force: true });
-    else replaceFile(path, original.bytes, original.mode);
-  };
-  if (bytes === undefined) return { path, commit: () => rmSync(path, { force: true }), discard: () => {}, revert };
-  mkdirSync(dirname(path), { recursive: true });
-  const temp = tempPath(path);
-  writeFileSync(temp, bytes, { mode: original?.mode ?? 0o644 });
-  return { path, commit: () => renameSync(temp, path), discard: () => rmSync(temp, { force: true }), revert };
-}
-
-// 準備した書き換えを順に確定する。途中で失敗したら、確定済みのものを後ろから元に戻して投げ直す（一時ファイルは呼び出し側が discard で消す）。
-// 戻せないものがあれば、設定ファイルは前のままではないので、戻せなかったファイルと理由を知らせて止める
-export function commitAll(writes: PreparedWrite[]): void {
-  let committed = 0;
-  try {
-    for (const write of writes) {
-      write.commit();
-      committed++;
-    }
-  } catch (e) {
-    const unreverted: string[] = [];
-    for (const write of writes.slice(0, committed).reverse()) {
-      try {
-        write.revert();
-      } catch (r) {
-        unreverted.push(`  ${write.path}: ${(r as Error).message}`);
-      }
-    }
-    if (unreverted.length === 0) throw e;
-    throw new PstackOmpError(
-      [
-        `OMP の設定ファイルの書き換えの途中で失敗し（${(e as Error).message}）、書き換えた次の設定ファイルを元に戻せませんでした。中身を確かめて直してください:`,
-        ...unreverted,
-      ].join("\n"),
-    );
-  }
-}
-
-function tempPath(path: string): string {
-  return join(dirname(path), `.${basename(path)}.pstack-omp-${randomBytes(6).toString("hex")}`);
-}
-
-// 同じディレクトリの一時ファイルに書いてから rename で置き換える。失敗したら一時ファイルを消す
-function replaceFile(path: string, bytes: Buffer, mode: number): void {
-  const temp = tempPath(path);
-  try {
-    writeFileSync(temp, bytes, { mode });
-    renameSync(temp, path);
-  } catch (e) {
-    rmSync(temp, { force: true });
-    throw e;
-  }
-}
-
-const LOCK_EX = 2;
-const LOCK_NB = 4;
-// OMP と同じ待ち方（100ms ごとに 50 回）
-const LOCK_RETRIES = 50;
-const LOCK_DELAY_MS = 100;
-
-// 設定ファイルの書き込みのロックを持って fn を実行する（macOS だけ。ほかでは持たずに実行する）。ファイルが無ければ、create（適用がそのファイルを
-// 作るかもしれない）のときだけ持ち、そうでなければ持たずに実行する（作らないファイルのために、利用者の OMP の設定の置き場にロックのファイルを作らない）
-export function withConfigLock<T>(path: string, fn: () => T, create = false): T {
-  if (process.platform !== "darwin" || (!create && !existsSync(path))) return fn();
-  mkdirSync(dirname(path), { recursive: true });
-  const lockPath = `${path}.lock`;
-  let fd: number;
-  try {
-    fd = openSync(lockPath, constants.O_RDONLY | constants.O_CREAT, 0o600);
-  } catch (e) {
-    throw new PstackOmpError(`OMP の設定のロック ${lockPath} を開けません: ${(e as Error).message}`);
-  }
-  try {
-    const flock = dlopen("libc.dylib", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
-    for (let attempt = 1; flock(fd, LOCK_EX | LOCK_NB) !== 0; attempt++) {
-      if (attempt >= LOCK_RETRIES) {
-        throw new PstackOmpError(`OMP の設定のロック ${lockPath} を ${(LOCK_RETRIES * LOCK_DELAY_MS) / 1000} 秒待っても取れません（OMP が設定を書いている）。少し待ってから、もう一度実行してください`);
-      }
-      Bun.sleepSync(LOCK_DELAY_MS);
-    }
-    return fn();
-  } finally {
-    // 閉じるとロックも外れる
-    closeSync(fd);
-  }
 }

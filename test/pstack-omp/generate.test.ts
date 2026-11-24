@@ -409,13 +409,13 @@ describe("読み替え表の対応行", () => {
     expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
   });
 
-  test("表が示す写しの中のパス（<X>/generated/...）が生成物に無い、または生成物の外を指すと、そのパスを報告して失敗する", async () => {
+  test("表が示す生成先の中のパス（<X>/generated/...）が生成物に無い、または生成物の外を指すと、そのパスを報告して失敗する", async () => {
     const sb = sandbox();
     sb.commit("0.15.46", { "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn the reviewer.") });
     sb.pin();
     const paths =
       "\n定義は `<X>/generated/pstack/agents/comment-sicko.md`、版は `<X>/generated/manifest.json`、" +
-      "スキルは `<X>/generated/pstack/skills/poteto-mode` にある（`<X>` は写しの根）。\n";
+      "スキルは `<X>/generated/pstack/skills/poteto-mode` にある（`<X>` は生成先の親）。\n";
     sb.table(table(["comment-sicko"]) + paths + "古い定義は `<X>/upstream/pstack/agents/comment-sicko.md` にある。\n");
 
     const failed = await sb.sync();

@@ -56,14 +56,15 @@ export interface OmpSkills {
   unexamined: { path: string; provider: Provider }[];
 }
 
-// 通常の omp のセッションが cwd（実行したディレクトリ）で読むスキル。config は OMP がいま global の設定として読むファイル。ours（写し）を渡せば、
-// その下の skills.customDirectories・extensions は数えない（写しを除いた利用者の置き場を選ぶとき。省けば、写しの項目も OMP と同じく数える）。
+// 通常の omp のセッションが cwd（実行したディレクトリ）で読むスキル。config は OMP がいま global の設定として読むファイル。ours（生成先と
+// OMP 向けのディレクトリ）を渡せば、その下の skills.customDirectories・extensions は数えない（それらを除いた利用者の置き場を選ぶとき。
+// 空なら、それらの項目も OMP と同じく数える）。
 // env は OMP と同じ環境変数（CLAUDE_CONFIG_DIR）。値の形が正しくない skills.customDirectories・extensions は例外にする（呼び出し側が報告する）
 export function normalOmpSkills(
   agentDir: string,
   home: string,
   config: OmpConfig,
-  ours: string | undefined,
+  ours: string[],
   cwd: string,
   env: Record<string, string | undefined>,
 ): OmpSkills {
@@ -71,7 +72,7 @@ export function normalOmpSkills(
     const value = valueAt(config.data, `skills.${key}`);
     return typeof value === "boolean" ? value : fallback;
   };
-  const mine = (dir: string) => ours === undefined || !within(dir, ours);
+  const mine = (dir: string) => !ours.some((our) => within(dir, our));
   const customDirectories = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter(mine);
   const extensions = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter(mine);
   const result: OmpSkills = {

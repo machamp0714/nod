@@ -1,15 +1,13 @@
-// OMP がエージェント定義とスキルを読む置き場から、名前を集める（名前のぶつかりの検査と状態の表示のため）。
+// OMP がエージェント定義とスキルを読む置き場から、名前を集める（状態の表示の、プロジェクトの置き場の名前のぶつかりと、読み込む全スキルの名前のため）。
 // エージェントの名前は <dir>/*.md の frontmatter の name（無いか空ならファイル名）、スキルの名前は <dir>/*/SKILL.md の frontmatter の name の
 // 前後の空白（改行を含む）を除いたもの（無いか、除いて空ならディレクトリ名。OMP 19.1.0 の scanSkillsFromDir と同じ。エージェントの名前は
 // OMP も除かない）。OMP と同じく非再帰で読む。置き場が無ければ何も無いとみなす。
-// OMP は description の無いスキルや enabled: false のスキルを読まないが、ここではそれを見分けず、在るスキルはすべて名前を集める（適用の
-// 名前のぶつかりの検査を、止める向きに保つため）。通常の omp が実際に読むスキルは omp-skills.ts が OMP と同じ条件で集める（状態の表示）。
+// OMP は description の無いスキルや enabled: false のスキルを読まないが、ここではそれを見分けず、在るスキルはすべて名前を集める。
+// 通常の omp が実際に読むスキルは omp-skills.ts が OMP と同じ条件で集める。
 // 定義のファイルが在るのに読めない（権限が無い、SKILL.md という名前のディレクトリなど）なら、名前を確かめられないので例外にせず、
-// unreadable に入れて呼び出し側に返す（適用は止まり、状態の表示はそのファイルを表示する）。
+// unreadable に入れて呼び出し側に返す（状態の表示はそのファイルを表示する）。
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import type { OmpConfig } from "./config";
-import { stringList } from "./config";
 
 export interface Definition {
   kind: "agent" | "skill";
@@ -24,11 +22,11 @@ export interface Found {
   unreadable: string[];
 }
 
-export function skillsIn(dir: string): Found {
+function skillsIn(dir: string): Found {
   return collect(entries(dir).map((entry) => ({ kind: "skill", path: join(dir, entry, "SKILL.md"), fallback: entry })));
 }
 
-export function agentsIn(dir: string): Found {
+function agentsIn(dir: string): Found {
   return collect(
     entries(dir)
       .filter((entry) => entry.endsWith(".md") && isFile(join(dir, entry)))
@@ -39,29 +37,6 @@ export function agentsIn(dir: string): Found {
 // OMP 向けのディレクトリ（拡張のパッケージ）の skills/ と agents/
 export function packageDefinitions(dir: string): Found {
   return merge([skillsIn(join(dir, "skills")), agentsIn(join(dir, "agents"))]);
-}
-
-export interface UserPlaces extends Found {
-  // 検査した置き場（報告のため）
-  dirs: string[];
-}
-
-// 利用者の置き場: <agentDir>/agents、<agentDir>/skills、~/.agent/skills、~/.agents/skills、config（OMP がいま global の設定として読むファイル。
-// config.yml が無ければ config.yaml）の skills.customDirectories と extensions のパッケージ（skills/ と agents/）。
-// ours の下（適用した写しの生成したスキルの置き場と OMP 向けのディレクトリ）は除く。disabledProviders では外さない
-// （名前のぶつかりの検査を、止める向きに保つため）。
-// スキルは、通常の omp で同じ名前がぶつかったときに裸の名前を取る順（omp-skills.ts の並びのうち、これらの置き場のもの）に並べる:
-// skills.customDirectories の配列の順 > <agentDir>/skills > extensions のパッケージの skills/（extensions の配列の順）> ~/.agent/skills > ~/.agents/skills
-// （~/.agent/skills と ~/.agents/skills は OMP 19.1.0 の agents.ts の AGENT_DIR_CANDIDATES の順）
-export function userPlaces(agentDir: string, home: string, config: OmpConfig, ours: string): UserPlaces {
-  const custom = (stringList(config, "skills.customDirectories") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
-  const native = join(agentDir, "skills");
-  const packages = (stringList(config, "extensions") ?? []).map((dir) => expand(dir, home)).filter((dir) => !within(dir, ours));
-  const agents = [join(home, ".agent", "skills"), join(home, ".agents", "skills")];
-  return {
-    dirs: [join(agentDir, "agents"), ...custom, native, ...packages, ...agents],
-    ...merge([agentsIn(join(agentDir, "agents")), ...custom.map(skillsIn), skillsIn(native), ...packages.map(packageDefinitions), ...agents.map(skillsIn)]),
-  };
 }
 
 // 実行したディレクトリのプロジェクトのエージェント定義: OMP 19.1.0 の task の探索（findAllNearestProjectConfigDirs）と同じく、

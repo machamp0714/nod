@@ -138,6 +138,7 @@ export interface Sandbox {
   upstream: string;
   dataDir: string;
   clone: string;
+  // 固定の生成先（データ置き場の下の pstack-omp/generated）
   generated: string;
   // OMP 向けのディレクトリの中身（NOD_PSTACK_OMP_PACKAGE）。repoTable の sandbox ではリポジトリの omp/content
   packageDir: string;
@@ -148,8 +149,6 @@ export interface Sandbox {
   configPath: string;
   // 作業中のプロジェクト
   project: string;
-  // 適用で作る写し（データ置き場の下の pstack-omp/omp）
-  copy: string;
   // omp の実行ファイル（NOD_PSTACK_OMP_OMP_BIN）
   ompBin: string;
   // 上流に pstack の版 version のコミットを足し、そのコミットを返す。files は defaultFiles に重ねる。executables は実行属性を付けるパス
@@ -198,7 +197,6 @@ export function sandbox({ repoTable = false }: { repoTable?: boolean } = {}): Sa
     agentDir,
     configPath: join(agentDir, "config.yml"),
     project,
-    copy: join(dataDir, "pstack-omp", "omp"),
     ompBin,
     commit(version, files = {}, executables = []) {
       for (const [path, content] of Object.entries({ ...defaultFiles(version), ...files })) {

@@ -1,9 +1,10 @@
 // pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の状態の表示（status）を、プロセスとして起動して外から確かめる。
-// 利用者の OMP の設定の置き場・ホーム・データ置き場は一時ディレクトリ（helpers.ts）。
+// 利用者の OMP の設定の置き場・ホーム・データ置き場は一時ディレクトリ（helpers.ts）。status は読むだけなので、利用者が一度だけ手で入れる
+// 3つの読み込みの設定は、テストが設定ファイルに直接書く（register）。
 import { describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { put, type Sandbox, skillMd, synced } from "./helpers";
+import { put, type Sandbox, sandbox, skillMd, snapshot, synced } from "./helpers";
 
 // 同期した上に、今回置くエージェント定義 poteto-agent を OMP 向けのディレクトリに置く
 async function withAgent(): Promise<Sandbox> {
@@ -12,14 +13,58 @@ async function withAgent(): Promise<Sandbox> {
   return sb;
 }
 
-function work(sb: Sandbox): string {
-  return join(realpathSync(sb.dataDir), "pstack-omp");
+// 読み込む全スキル（synced の生成したスキルと、OMP 向けのディレクトリの読み替え表のスキル）
+const MANUAL = ["poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"];
+
+// 生成先の中の、skills.customDirectories に登録するスキルの置き場
+function skillDirs(sb: Sandbox): string[] {
+  return [join(sb.generated, "pstack", "skills"), join(sb.generated, "cursor-team-kit", "skills")];
 }
 
-// 写しの中の pstack の tdd
-function pstackTdd(sb: Sandbox): string {
-  return `${work(sb)}/omp/generated/pstack/skills/tdd/SKILL.md`;
+// 利用者が README のとおり一度だけ手で入れる3つの読み込みの設定を、設定ファイル（既定は config.yml）の既にある値を残して書く。
+// skills.customDirectories は先頭に入れる。parts で入れるものを選べる
+function register(
+  sb: Sandbox,
+  { file = sb.configPath, parts = { extensions: [sb.packageDir], customDirectories: skillDirs(sb), manualSkills: MANUAL } }: {
+    file?: string;
+    parts?: { extensions?: string[]; customDirectories?: string[]; manualSkills?: string[] };
+  } = {},
+): void {
+  const values = ((existsSync(file) ? Bun.YAML.parse(readFileSync(file, "utf8")) : null) ?? {}) as {
+    extensions?: string[];
+    skills?: { customDirectories?: string[]; manualSkills?: string[] };
+  };
+  const skills = values.skills ?? {};
+  if (parts.extensions) values.extensions = [...(values.extensions ?? []), ...parts.extensions];
+  if (parts.customDirectories) skills.customDirectories = [...parts.customDirectories, ...(skills.customDirectories ?? [])];
+  if (parts.manualSkills) skills.manualSkills = [...(skills.manualSkills ?? []), ...parts.manualSkills];
+  if (parts.customDirectories || parts.manualSkills) values.skills = skills;
+  put(file, Bun.YAML.stringify(values, null, 2));
 }
+
+// 生成先の pstack の tdd
+function pstackTdd(sb: Sandbox): string {
+  return join(sb.generated, "pstack", "skills", "tdd", "SKILL.md");
+}
+
+// 登録していないときに status が出す、一度だけ登録する値（そのまま貼れる YAML）
+function registration(sb: Sandbox, names = MANUAL): string {
+  return [
+    "extensions:",
+    `  - ${sb.packageDir}`,
+    "skills:",
+    "  customDirectories:",
+    `    - ${sb.generated}/pstack/skills`,
+    `    - ${sb.generated}/cursor-team-kit/skills`,
+    "  manualSkills:",
+    ...names.map((name) => `    - ${name}`),
+    "",
+  ].join("\n");
+}
+
+const REGISTERED = "→ 揃っています。通常の omp の新しく始めるセッションが pstack の生成したスキル・読み替え表・poteto-agent を読み込みます";
+const HOW_TO_REGISTER =
+  "一度だけ、次の3つを手で登録してください。既にある値は残し、skills.customDirectories の2つは先頭に置きます（pstack の tdd を優先するため）。status は設定を書き換えません";
 
 // プロジェクトの置き場の名前のぶつかりの節（見出しの次の行から）
 function projectSection(stdout: string, root: string): string[] {
@@ -36,78 +81,240 @@ function realHome(sb: Sandbox): { home: string; env: Record<string, string> } {
 const AGENT_CLASH = "エージェント poteto-agent。プロジェクトの定義が優先されるので、このプロジェクトでは今回の定義が使われません";
 const NO_TDD = "通常の omp のセッション: tdd は読み込まれません（通常の omp が読む置き場に tdd はありません）";
 
-describe("適用の状態とどの tdd が使われるか", () => {
-  test("適用していなければ、そう表示し、利用者の置き場の tdd が使われると表示する", async () => {
+describe("生成物・OMP の版・読み込みの設定", () => {
+  test("登録していなければ、欠けている3つの読み込みの設定と、一度だけ登録する値をそのまま貼れる YAML（正確なパスと名前）で表示し、利用者の置き場の tdd が使われると表示する", async () => {
     const sb = await synced();
     const userTdd = join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
     put(userTdd, skillMd("tdd", "mine"));
+    const config = join(realpathSync(sb.home), ".omp", "agent", "config.yml");
 
     const run = await sb.run("status");
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(`写し ${work(sb)}/omp: ありません`);
-    expect(run.stdout).toContain(`OMP の設定 ${join(realpathSync(sb.home), ".omp", "agent", "config.yml")}: 読み込みの設定はありません`);
-    expect(run.stdout).toContain("→ 適用していません");
+    expect(run.stdout).toContain(`  生成物 ${sb.generated}: 元にした pin は固定の記録と一致しています（${sb.cloneHead()}）\n`);
+    expect(run.stdout).toContain("  OMP の版: 19.1.0（固定の記録 19.1.0）\n");
+    expect(run.stdout).toContain(
+      `  OMP の設定 ${config}: 読み込みの設定が欠けています（extensions に ${sb.packageDir} がありません、` +
+        `skills.customDirectories に ${sb.generated}/pstack/skills がありません、skills.customDirectories に ${sb.generated}/cursor-team-kit/skills がありません、` +
+        "skills.manualSkills に poteto-mode, tdd, control-cli, control-ui, deslop, pstack-omp がありません）\n",
+    );
+    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb)}`);
+    expect(run.stdout).not.toContain(REGISTERED);
     expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${userTdd}）が使われます`);
   });
 
-  test("適用していれば、写しの sha256・3つの読み込みの設定・生成物の pin・OMP の版がそろっていることと、通常の omp で pstack の tdd が使われ、利用者の tdd が名前空間つきになることを表示する", async () => {
+  test("登録していれば、3つの読み込みの設定が揃っていることと、通常の omp で pstack の tdd が使われ、利用者の tdd が名前空間つきになることを表示し、登録する値は出さない", async () => {
     const sb = await synced();
     const userTdd = join(sb.home, ".agents", "skills", "tdd", "SKILL.md");
     put(userTdd, skillMd("tdd", "mine"));
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status");
 
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("組のファイルは記録の sha256 と一致しています");
     expect(run.stdout).toContain(`OMP の設定 ${realpathSync(sb.configPath)}: 3つの読み込みの設定が揃っています`);
     expect(run.stdout).toContain("元にした pin は固定の記録と一致しています");
-    expect(run.stdout).toContain("OMP の版: 19.1.0（固定の記録 19.1.0、適用したときの記録 19.1.0）\n");
-    expect(run.stdout).toContain("→ 適用しています。通常の omp の新しく始めるセッションが、pstack の生成したスキル・読み替え表・poteto-agent を読み込みます");
+    expect(run.stdout).toContain(`  ${REGISTERED}\n`);
+    expect(run.stdout).not.toContain(HOW_TO_REGISTER);
+    expect(run.stdout).not.toContain("extensions:\n");
     expect(run.stdout).toContain(`通常の omp のセッション: pstack の tdd（${pstackTdd(sb)}）が使われます`);
     expect(run.stdout).toContain(`利用者の置き場の tdd（${userTdd}）は、名前空間つきの <名前空間>/tdd の名前になります`);
-    expect(run.stdout).not.toContain("旧管理配置");
   });
 
-  test("config.yml が無く config.yaml に適用していれば、OMP が読むのは config.yaml であることと、適用していることを表示する", async () => {
+  test("~ で書いた登録も、ホームを展開して揃っていると判定する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+    sb.pin();
+    const dataDir = join(sb.home, ".local", "share", "nod");
+    expect((await sb.sync(dataDir)).exitCode).toBe(0);
+    put(
+      sb.configPath,
+      [
+        "extensions:",
+        `  - ${sb.packageDir}`,
+        "skills:",
+        "  customDirectories:",
+        "    - ~/.local/share/nod/pstack-omp/generated/pstack/skills",
+        "    - ~/.local/share/nod/pstack-omp/generated/cursor-team-kit/skills",
+        "  manualSkills:",
+        ...MANUAL.map((name) => `    - ${name}`),
+        "",
+      ].join("\n"),
+    );
+
+    const run = await sb.run("status", { dataDir });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("3つの読み込みの設定が揃っています");
+    expect(run.stdout).toContain(`  ${REGISTERED}\n`);
+    expect(run.stdout).toContain(`通常の omp のセッション: pstack の tdd（${sb.home}/.local/share/nod/pstack-omp/generated/pstack/skills/tdd/SKILL.md）が使われます`);
+  });
+
+  const partial: { name: string; parts(sb: Sandbox): Parameters<typeof register>[1]; shows(sb: Sandbox): string }[] = [
+    {
+      name: "extensions だけ欠けている",
+      parts: (sb) => ({ parts: { customDirectories: skillDirs(sb), manualSkills: MANUAL } }),
+      shows: (sb) => `extensions に ${sb.packageDir} がありません`,
+    },
+    {
+      name: "skills.customDirectories に cursor-team-kit の置き場だけ欠けている",
+      parts: (sb) => ({ parts: { extensions: [sb.packageDir], customDirectories: skillDirs(sb).slice(0, 1), manualSkills: MANUAL } }),
+      shows: (sb) => `skills.customDirectories に ${sb.generated}/cursor-team-kit/skills がありません`,
+    },
+    {
+      name: "skills.manualSkills に tdd だけ欠けている",
+      parts: (sb) => ({ parts: { extensions: [sb.packageDir], customDirectories: skillDirs(sb), manualSkills: MANUAL.filter((name) => name !== "tdd") } }),
+      shows: () => "skills.manualSkills に tdd がありません",
+    },
+  ];
+
+  test.each(partial)("一部だけ登録していれば（$name）、欠けたものだけを欠けていると表示し、登録する値を出す", async ({ parts, shows }) => {
+    const sb = await synced();
+    register(sb, parts(sb));
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`OMP の設定 ${realpathSync(sb.configPath)}: 読み込みの設定が欠けています（${shows(sb)}）\n`);
+    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb)}`);
+    expect(run.stdout).not.toContain(REGISTERED);
+  });
+
+  test("skills.manualSkills の名前は OMP と同じくパターンとしても当て、合えば揃っていると判定する", async () => {
+    const sb = await synced();
+    register(sb, { parts: { extensions: [sb.packageDir], customDirectories: skillDirs(sb), manualSkills: ["*"] } });
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`  ${REGISTERED}\n`);
+  });
+
+  test("固定の記録を変えてスキルが増えたら、sync し直した後に、増えた名前が skills.manualSkills に欠けていると表示する", async () => {
+    const sb = await synced();
+    register(sb);
+    sb.commit("0.15.47", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green."), "pstack/skills/added/SKILL.md": skillMd("added", "New.") });
+    sb.pin();
+    expect((await sb.sync()).exitCode).toBe(0);
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`OMP の設定 ${realpathSync(sb.configPath)}: 読み込みの設定が欠けています（skills.manualSkills に added がありません）\n`);
+    expect(run.stdout).toContain(`  → ${HOW_TO_REGISTER}\n${registration(sb, ["added", "poteto-mode", "tdd", "control-cli", "control-ui", "deslop", "pstack-omp"])}`);
+  });
+
+  test("config.yml が無く config.yaml に登録していれば、OMP が読むのは config.yaml であることと、揃っていることを表示する", async () => {
     const sb = await synced();
     const yaml = join(sb.agentDir, "config.yaml");
     put(yaml, "theme: dark\n");
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb, { file: yaml });
 
     const run = await sb.run("status");
 
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain(`OMP の設定 ${realpathSync(yaml)}: config.yml が無いので、OMP はこのファイルを読みます`);
     expect(run.stdout).toContain(`OMP の設定 ${realpathSync(yaml)}: 3つの読み込みの設定が揃っています`);
-    expect(run.stdout).toContain("→ 適用しています");
+    expect(run.stdout).toContain(`  ${REGISTERED}\n`);
   });
 
-  test("組を別の OMP の設定の置き場に適用していれば、適用しているとも pstack の tdd が使われるとも表示せず、置き場が違うことを表示する", async () => {
-    const sb = await synced();
-    expect((await sb.run("apply")).exitCode).toBe(0);
-    const other = join(sb.root, "other-agent");
-    mkdirSync(other);
+  test("同期していなければ、生成物が無いことと sync を案内し、登録する値の skills.manualSkills の生成したスキルの名前は sync の後に出ることを表示する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin();
 
-    const run = await sb.run("status", { env: { PI_CODING_AGENT_DIR: other } });
+    const run = await sb.run("status");
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    // 組の記録の置き場（まだ無ければ、在る祖先の別名を解いた形）
-    const applied = join(realpathSync(sb.home), ".omp", "agent");
-    const current = realpathSync(other);
-    expect(run.stdout).toContain(`組は別の OMP の設定の置き場 ${applied} に適用したもので、いまの置き場 ${current} と違います`);
-    expect(run.stdout).toContain(`→ この置き場（${current}）には適用していません（写しは別の置き場 ${applied} に適用したものです）`);
-    expect(run.stdout).not.toContain("→ 適用しています");
-    expect(run.stdout).not.toContain("→ 適用が壊れています");
-    expect(run.stdout).toContain(NO_TDD);
+    expect(run.stdout).toContain(`  生成物 ${sb.generated}: ありません（bun scripts/pstack-omp/cli.ts sync で作ります）\n`);
+    expect(run.stdout).toContain(
+      `  → ${HOW_TO_REGISTER}（生成物がまだ無いので、skills.manualSkills の生成したスキルの名前は bun scripts/pstack-omp/cli.ts sync の後に出ます）\n${registration(sb, ["pstack-omp"])}`,
+    );
   });
 
-  test("利用者の置き場にも実行したディレクトリのプロジェクトの置き場にも tdd が無ければ、適用した pstack の tdd が使われ、名前空間つきになるものは表示しない", async () => {
+  test("登録した後に生成物が消えれば、揃っているとは表示せず、sync するまで生成したスキルが読み込まれないことを表示する", async () => {
     const sb = await synced();
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
+    rmSync(sb.generated, { recursive: true });
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`  生成物 ${sb.generated}: ありません（bun scripts/pstack-omp/cli.ts sync で作ります）\n`);
+    expect(run.stdout).toContain(
+      "  → 読み込みの設定は揃っていますが、生成物が無いので、bun scripts/pstack-omp/cli.ts sync するまで pstack の生成したスキルは読み込まれません\n",
+    );
+    expect(run.stdout).not.toContain(REGISTERED);
+  });
+
+  test("生成物の元にした pin が固定の記録と違えば、sync のやり直しを案内する", async () => {
+    const sb = await synced();
+    const old = sb.cloneHead();
+    const next = sb.commit("0.15.47");
+    sb.pin();
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`  生成物 ${sb.generated}: 元にした pin（${old}）が固定の記録（${next}）と違います。bun scripts/pstack-omp/cli.ts sync をやり直してください\n`);
+  });
+
+  test("OMP の版が固定の記録と違えば、そのことと sync が止まることを表示する", async () => {
+    const sb = await synced();
+    sb.omp("19.2.0");
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain("  OMP の版: 19.2.0（固定の記録 19.1.0）。版が違います（sync は止まります）\n");
+  });
+
+  test.each([
+    ["登録していない", () => {}],
+    ["登録している", (sb: Sandbox) => register(sb)],
+  ])("%s状態で表示しても、OMP の設定の置き場とデータ置き場に何も書かない", async (_, setup) => {
+    const sb = await synced();
+    mkdirSync(sb.agentDir, { recursive: true });
+    setup(sb);
+    const before = { agent: snapshot(sb.agentDir), data: snapshot(sb.dataDir) };
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect({ agent: snapshot(sb.agentDir), data: snapshot(sb.dataDir) }).toEqual(before);
+  });
+
+  test("OMP の設定の置き場が無ければ、作らずに表示する", async () => {
+    const sb = await synced();
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(existsSync(sb.agentDir)).toBe(false);
+  });
+
+  test("以前の道具が置いた <データ置き場>/pstack-omp/omp と、そこを指す以前の登録が残っていても、その中は見ずに、生成先と omp/content の登録が欠けていると表示する", async () => {
+    const sb = await synced();
+    const old = join(sb.dataDir, "pstack-omp", "omp");
+    put(join(old, "harness.json"), "{}\n");
+    put(join(old, "generated", "pstack", "skills", "tdd", "SKILL.md"), skillMd("tdd", "old"));
+    register(sb, { parts: { extensions: [join(old, "content")], customDirectories: [join(old, "generated", "pstack", "skills")], manualSkills: MANUAL } });
+
+    const run = await sb.run("status");
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(
+      `読み込みの設定が欠けています（extensions に ${sb.packageDir} がありません、skills.customDirectories に ${sb.generated}/pstack/skills がありません、` +
+        `skills.customDirectories に ${sb.generated}/cursor-team-kit/skills がありません）\n`,
+    );
+    expect(run.stdout).not.toContain("harness.json");
+  });
+
+  test("利用者の置き場にも実行したディレクトリのプロジェクトの置き場にも tdd が無ければ、登録した pstack の tdd が使われ、名前空間つきになるものは表示しない", async () => {
+    const sb = await synced();
+    register(sb);
 
     const run = await sb.run("status");
 
@@ -164,7 +371,7 @@ describe("適用の状態とどの tdd が使われるか", () => {
     },
   ];
 
-  test.each(precedence)("適用していなければ、$name が使われると表示する", async ({ place }) => {
+  test.each(precedence)("登録していなければ、$name が使われると表示する", async ({ place }) => {
     const sb = await synced();
     const used = place(sb);
 
@@ -174,10 +381,10 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${used}）が使われます`);
   });
 
-  test.each(precedence)("適用していれば、通常の omp のセッションでは pstack の tdd が使われ、$name が名前空間つきになると表示する", async ({ place }) => {
+  test.each(precedence)("登録していれば、通常の omp のセッションでは pstack の tdd が使われ、$name が名前空間つきになると表示する", async ({ place }) => {
     const sb = await synced();
     const used = place(sb);
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status");
 
@@ -275,7 +482,7 @@ describe("適用の状態とどの tdd が使われるか", () => {
     return realpathSync(sb.project);
   }
 
-  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、適用していなければ、$name が使われると表示する", async ({ place }) => {
+  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、登録していなければ、$name が使われると表示する", async ({ place }) => {
     const sb = await synced();
     const project = gitProject(sb);
     const { used, where } = place(sb, project);
@@ -286,11 +493,11 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`通常の omp のセッション: ${where}の tdd（${used}）が使われます`);
   });
 
-  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、適用していれば、通常の omp のセッションでは pstack の tdd が使われ、$name が名前空間つきになると表示する", async ({ place }) => {
+  test.each(projectPrecedence)("実行したディレクトリのプロジェクトで、登録していれば、通常の omp のセッションでは pstack の tdd が使われ、$name が名前空間つきになると表示する", async ({ place }) => {
     const sb = await synced();
     const project = gitProject(sb);
     const { used, where } = place(sb, project);
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status", { cwd: project });
 
@@ -299,11 +506,11 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`${where}の tdd（${used}）は、名前空間つきの <名前空間>/tdd の名前になります`);
   });
 
-  test("利用者の置き場に tdd が無く、実行したディレクトリのプロジェクトの置き場にあれば、適用した後はそれが名前空間つきになると表示する", async () => {
+  test("利用者の置き場に tdd が無く、実行したディレクトリのプロジェクトの置き場にあれば、登録した後はそれが名前空間つきになると表示する", async () => {
     const sb = await synced();
     const project = gitProject(sb);
     put(join(project, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status", { cwd: project });
 
@@ -328,13 +535,13 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`通常の omp のセッション: プロジェクトの置き場の tdd（${home}/work/.agents/skills/tdd/SKILL.md）が使われます\n`);
   });
 
-  test("git の作業ツリーの外のホームの外でも、祖先のプロジェクトの .claude/skills の tdd を数え、適用した後はそれが名前空間つきになると表示する", async () => {
+  test("git の作業ツリーの外のホームの外でも、祖先のプロジェクトの .claude/skills の tdd を数え、登録した後はそれが名前空間つきになると表示する", async () => {
     const sb = await synced();
     const dir = join(realpathSync(sb.root), "outside", "a", "b");
     mkdirSync(dir, { recursive: true });
     put(join(sb.root, "outside", ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "ancestor"));
     put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "user"));
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status", { cwd: dir });
 
@@ -453,7 +660,7 @@ describe("適用の状態とどの tdd が使われるか", () => {
     },
   ];
 
-  test.each(providers)("適用していなければ、$name が使われると表示する", async ({ place, env }) => {
+  test.each(providers)("登録していなければ、$name が使われると表示する", async ({ place, env }) => {
     const sb = await synced();
     const used = place(sb);
 
@@ -468,11 +675,11 @@ describe("適用の状態とどの tdd が使われるか", () => {
     ["disabledExtensions に skill:tdd がある", "disabledExtensions:\n  - skill:tdd\n", "OMP の設定の disabledExtensions に skill:tdd があるので、通常の omp は tdd を読み込みません"],
     ["skills.includeSkills に tdd が合わない", "skills:\n  includeSkills:\n    - git-*\n", "OMP の設定の skills.includeSkills に tdd が合わないので、通常の omp の一覧に tdd は残りません"],
     ["skills.ignoredSkills に tdd が合う", "skills:\n  ignoredSkills:\n    - t*\n", "通常の omp が読む置き場に tdd はありません"],
-  ])("OMP の設定の %s なら、適用した pstack の tdd と ~/.agents/skills の tdd があっても、通常の omp では使われないと表示する", async (_, config, reason) => {
+  ])("OMP の設定の %s なら、登録した pstack の tdd と ~/.agents/skills の tdd があっても、通常の omp では使われないと表示する", async (_, config, reason) => {
     const sb = await synced();
     put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
     put(sb.configPath, config);
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
 
     const run = await sb.run("status");
 
@@ -511,95 +718,26 @@ describe("適用の状態とどの tdd が使われるか", () => {
     expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${customTdd}）が使われます\n`);
   });
 
-  // 適用した後の設定ファイルの読み込みの設定の項目を書き換える
-  function editConfig(sb: Sandbox, edit: (values: { extensions: string[]; skills: { customDirectories: string[]; manualSkills: string[] } }) => void): void {
-    const values = Bun.YAML.parse(readFileSync(sb.configPath, "utf8")) as Parameters<typeof edit>[0];
-    edit(values);
-    put(sb.configPath, Bun.YAML.stringify(values, null, 2));
-  }
-
-  const damages: { name: string; damage(sb: Sandbox): void; shows(sb: Sandbox): string }[] = [
-    {
-      name: "写しの読み替え表が記録と違う",
-      damage: (sb) => writeFileSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), "書き換えた\n"),
-      shows: () => "content/skills/pstack-omp/SKILL.md（sha256 が違う）",
-    },
-    {
-      name: "写しの生成したスキル（pstack の tdd）が記録と違う",
-      damage: (sb) => writeFileSync(join(sb.copy, "generated", "pstack", "skills", "tdd", "SKILL.md"), skillMd("tdd", "書き換えた")),
-      shows: () => "generated/pstack/skills/tdd/SKILL.md（sha256 が違う）",
-    },
-    {
-      name: "写しの中の生成したスキルの置き場が無い",
-      damage: (sb) => rmSync(join(sb.copy, "generated", "cursor-team-kit"), { recursive: true }),
-      shows: () => "/omp/generated/cursor-team-kit/skills がありません",
-    },
-    {
-      name: "写しに記録に無いスキルが足された",
-      damage: (sb) => put(join(sb.copy, "generated", "pstack", "skills", "extra", "SKILL.md"), skillMd("extra", "足した")),
-      shows: () => "generated/pstack/skills/extra/SKILL.md（記録に無い）",
-    },
-    {
-      name: "組の記録が無い",
-      damage: (sb) => rmSync(join(sb.copy, "harness.json")),
-      shows: (sb) => `組の記録（${work(sb)}/omp/harness.json）が正しくありません（無いか、読めません）`,
-    },
-    {
-      name: "OMP の設定の extensions から写しの content が外された",
-      damage: (sb) => editConfig(sb, (values) => (values.extensions = [])),
-      shows: (sb) => `extensions に ${work(sb)}/omp/content がありません`,
-    },
-    {
-      name: "OMP の設定の skills.customDirectories から生成したスキルの置き場が外された",
-      damage: (sb) => editConfig(sb, (values) => (values.skills.customDirectories = values.skills.customDirectories.slice(1))),
-      shows: (sb) => `skills.customDirectories に ${work(sb)}/omp/generated/pstack/skills がありません`,
-    },
-    {
-      name: "OMP の設定の skills.manualSkills から名前が外された",
-      damage: (sb) => editConfig(sb, (values) => (values.skills.manualSkills = values.skills.manualSkills.filter((name) => name !== "tdd"))),
-      shows: () => "skills.manualSkills に tdd がありません",
-    },
-  ];
-
-  test.each(damages)("$name: 何が欠けたか・違うかと、適用が壊れていることを表示する", async ({ damage, shows }) => {
+  test("config.yml が読めなくても、例外で終わらずに、読めないことと、確かめられないので登録する値を表示し、OMP の既定の設定で tdd を選ぶ", async () => {
     const sb = await synced();
-    expect((await sb.run("apply")).exitCode).toBe(0);
-    damage(sb);
+    put(sb.configPath, "theme: dark\n");
+    register(sb);
+    const config = realpathSync(sb.configPath);
+    chmodSync(sb.configPath, 0o000);
 
     const run = await sb.run("status");
 
+    expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(shows(sb));
-    expect(run.stdout).toContain("→ 適用が壊れています（欠けているもの・違うものは上の行のとおり）。bun scripts/pstack-omp/cli.ts apply し直すか、remove してください");
-    expect(run.stdout).not.toContain("→ 適用しています");
+    expect(run.stdout).toContain(`OMP の設定 ${config}: 読めません`);
+    expect(run.stdout).toContain(`  → OMP の設定を読めないので、揃っているかを確かめられません。${HOW_TO_REGISTER}\n${registration(sb)}`);
+    expect(run.stdout).not.toContain(REGISTERED);
+    expect(run.stdout).toContain("（OMP の設定を読めないので、OMP の既定の設定で選びました）");
   });
 
-  test("写しのファイル・組の記録・config.yml が読めなくても、例外で終わらずに、読めないことと適用が壊れていることを表示する", async () => {
-    const sb = await synced();
-    put(sb.configPath, "theme: dark\n");
-    expect((await sb.run("apply")).exitCode).toBe(0);
-    const config = realpathSync(sb.configPath);
-    chmodSync(join(sb.copy, "content", "skills", "pstack-omp", "SKILL.md"), 0o000);
-    const file = await sb.run("status");
-    chmodSync(join(sb.copy, "harness.json"), 0o000);
-    chmodSync(sb.configPath, 0o000);
-    const all = await sb.run("status");
-
-    expect(file.stderr).toBe("");
-    expect(file.exitCode).toBe(0);
-    expect(file.stdout).toContain("content/skills/pstack-omp/SKILL.md（読めない）");
-    expect(file.stdout).toContain("→ 適用が壊れています");
-    expect(all.stderr).toBe("");
-    expect(all.exitCode).toBe(0);
-    expect(all.stdout).toContain("が正しくありません（無いか、読めません）");
-    expect(all.stdout).toContain(`OMP の設定 ${config}: 読めません`);
-    expect(all.stdout).toContain("→ 適用が壊れています");
-    expect(all.stdout).toContain("（OMP の設定を読めないので、OMP の既定の設定で選びました）");
-  });
-
-  test("写しの中の生成したスキルの SKILL.md やプロジェクトの置き場の定義のファイルが、在るのに読めなくても、例外で終わらずに、読めないファイル・適用が壊れていること・名前を読めなかった置き場を表示し、ほかの節も最後まで出す", async () => {
+  test("生成先のスキルの SKILL.md やプロジェクトの置き場の定義のファイルが、在るのに読めなくても、例外で終わらずに、名前を読めなかった置き場を表示し、ほかの節も最後まで出す", async () => {
     const sb = await withAgent();
-    expect((await sb.run("apply")).exitCode).toBe(0);
+    register(sb);
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
     put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nproject\n");
@@ -608,15 +746,13 @@ describe("適用の状態とどの tdd が使われるか", () => {
     mkdirSync(join(project, ".claude", "skills", "folder", "SKILL.md"), { recursive: true });
     chmodSync(join(project, ".omp", "agents", "locked.md"), 0o000);
     chmodSync(join(project, ".omp", "skills", "locked", "SKILL.md"), 0o000);
-    chmodSync(join(sb.copy, "generated", "pstack", "skills", "tdd", "SKILL.md"), 0o000);
+    chmodSync(pstackTdd(sb), 0o000);
     const real = realpathSync(project);
 
     const run = await sb.run("status", { cwd: project });
 
     expect(run.stderr).toBe("");
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("generated/pstack/skills/tdd/SKILL.md（読めない）");
-    expect(run.stdout).toContain("→ 適用が壊れています");
     expect(run.stdout).toContain("どの tdd が使われるか:\n");
     expect(run.stdout).not.toContain("利用者の置き場の /");
     const section = run.stdout.slice(run.stdout.indexOf(`プロジェクト（${real}）`));
@@ -628,48 +764,26 @@ describe("適用の状態とどの tdd が使われるか", () => {
     ]);
   });
 
-  test("OMP の設定に旧管理配置の項目（写しの制御の拡張）が残っていれば、そう表示して apply か remove を案内し、適用しているとは表示しない", async () => {
+  const unresolvable: { name: string; env: Record<string, string>; shows: string }[] = [
+    { name: "環境変数 OMP_PROFILE で名前つきの profile を選んだ", env: { OMP_PROFILE: "work" }, shows: "名前つきの profile（work）" },
+    { name: "環境変数 PI_PROFILE で名前つきの profile を選んだ", env: { PI_PROFILE: "work" }, shows: "名前つきの profile（work）" },
+    { name: "環境変数 PI_CONFIG_DIR で OMP の設定の根を変えた", env: { PI_CONFIG_DIR: ".omp-work" }, shows: "PI_CONFIG_DIR" },
+  ];
+
+  test.each(unresolvable)("$name: 同期は行えるが、状態の表示は理由を出して止まり、設定は変わらない", async ({ env, shows }) => {
     const sb = await synced();
-    expect((await sb.run("apply")).exitCode).toBe(0);
-    editConfig(sb, (values) => values.extensions.unshift(`${work(sb)}/omp/control/index.ts`));
+    register(sb);
+    const config = readFileSync(sb.configPath, "utf8");
 
-    const run = await sb.run("status");
+    const resynced = await sb.run("sync", { env });
+    const run = await sb.run("status", { env });
 
-    expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(
-      `旧管理配置が残っています（OMP の設定の extensions の ${work(sb)}/omp/control/index.ts）。bun scripts/pstack-omp/cli.ts apply で切り替えるか、remove で取り除いてください`,
-    );
-    expect(run.stdout).not.toContain("→ 適用しています");
-  });
-
-  test("写しが旧管理配置（専用ランチャーと制御の置き場と旧の組の記録）のままなら、そう表示して apply か remove を案内する", async () => {
-    const sb = await synced();
-    cpSync(sb.packageDir, join(sb.copy, "content"), { recursive: true });
-    cpSync(sb.generated, join(sb.copy, "generated"), { recursive: true });
-    put(join(sb.copy, "bin", "omp"), "#!/bin/sh\nexit 1\n");
-    put(join(sb.copy, "control", "harness.json"), JSON.stringify({ version: 2 }));
-
-    const run = await sb.run("status");
-
-    expect(run.stderr).toBe("");
-    expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain(`写しの ${work(sb)}/omp/bin（専用ランチャーか制御の置き場）`);
-    expect(run.stdout).toContain(`写しの ${work(sb)}/omp/control（専用ランチャーか制御の置き場）`);
-    expect(run.stdout).toContain(`旧管理配置の組の記録 ${work(sb)}/omp/control/harness.json`);
-    expect(run.stdout).toContain("→ 旧管理配置が残っています（上の行のとおり）。bun scripts/pstack-omp/cli.ts apply で切り替えるか、remove で取り除いてください");
-  });
-
-  test("データ置き場の生成物が消えても、写しが揃っていれば適用しているままで、生成物の行で sync を案内する", async () => {
-    const sb = await synced();
-    expect((await sb.run("apply")).exitCode).toBe(0);
-    rmSync(sb.generated, { recursive: true });
-
-    const run = await sb.run("status");
-
-    expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("ありません（bun scripts/pstack-omp/cli.ts sync で作ります）");
-    expect(run.stdout).toContain("→ 適用しています");
-    expect(run.stdout).toContain("/omp/generated/pstack/skills/tdd/SKILL.md）が使われます");
+    expect(resynced.exitCode).toBe(0);
+    expect(run.exitCode).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toContain("OMP の設定の置き場を決められません");
+    expect(run.stderr).toContain(shows);
+    expect(readFileSync(sb.configPath, "utf8")).toBe(config);
   });
 
   test("config.yml が在れば（空でも）、OMP は config.yaml を読まないので、config.yaml の skills.customDirectories の tdd を利用者の置き場の tdd としない", async () => {

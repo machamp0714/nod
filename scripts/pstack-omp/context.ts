@@ -1,14 +1,15 @@
 // pstack を OMP 向けに使う道具の共通の部品: 固定の記録、置き場、OMP の版の確認、git の実行。
 // 置き場と実行ファイルは環境変数で差し替えられる（テストと別の Mac への可搬性のため）。
 //   NOD_PSTACK_OMP_PIN     固定の記録のパス（既定はこのディレクトリの pin.json）
-//   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く
+//   NOD_DATA_DIR           nod のデータ置き場（既定は ~/.local/share/nod）。この下の pstack-omp/ に書く（上流の clone と固定の生成先 generated/）
 //   NOD_PSTACK_OMP_OMP_BIN omp の実行ファイル（既定は PATH の omp）。版の確認だけに使う
 //   NOD_PSTACK_OMP_PACKAGE OMP 向けのディレクトリの中身（既定は nod のリポジトリの omp/content）。読み替え表は <package>/skills/pstack-omp/SKILL.md
-//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml（無ければ config.yaml）
+//   PI_CODING_AGENT_DIR    利用者の OMP の設定の置き場（既定は ~/.omp/agent。OMP と同じ環境変数）。設定は <dir>/config.yml（無ければ config.yaml）。
+//                          status が読むだけで、書かない
 //   PI_CONFIG_DIR・OMP_PROFILE・PI_PROFILE
 //                          OMP が設定の根と profile を選ぶ環境変数。置き場は ompAgentDir で決め、決められなければ（名前つきの profile、
-//                          ~/.omp でない設定の根）、置き場を使う apply・remove・status は止まる
-//   HOME                   利用者のホーム（~/.agent/skills と ~/.agents/skills を名前のぶつかりとして検査する）
+//                          ~/.omp でない設定の根）、置き場を読む status は止まる
+//   HOME                   利用者のホーム（~ の展開と、通常の omp が読む ~/.agent/skills・~/.agents/skills などの利用者の置き場）
 //   PATH                   omp の実行ファイルを探す置き場
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -32,7 +33,7 @@ export interface Context {
   workDir: string;
   // omp の実行ファイル（パスか、PATH から探す名前）
   ompBin: string;
-  // OMP 向けのディレクトリの中身（読み替え表のスキルとエージェント定義を置く）。適用で写しの content/ になる
+  // OMP 向けのディレクトリの中身（読み替え表のスキルとエージェント定義を置く）。利用者が extensions に登録し、通常の omp がここを直接読む
   packageDir: string;
   // 利用者の OMP の設定の置き場（実パス）。決められなければ理由（置き場を使うときは userAgentDir で取る）
   agentDir: { path: string } | string;

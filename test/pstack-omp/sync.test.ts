@@ -1,9 +1,9 @@
-// pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の同期（sync）のうち取得を、プロセスとして起動して外から確かめる。
+// pstack を OMP 向けに使う道具（scripts/pstack-omp/cli.ts）の同期（sync）のうち取得と固定の生成先、サブコマンドを、プロセスとして起動して外から確かめる。
 // 一時の上流・置き場の作り方は helpers.ts を参照。生成は generate.test.ts で確かめる。
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, type Pin, type Sandbox, sandbox } from "./helpers";
+import { git, type Pin, type Sandbox, sandbox, skillMd, snapshot } from "./helpers";
 
 const PIN = join(import.meta.dir, "../../scripts/pstack-omp/pin.json");
 
@@ -295,4 +295,85 @@ describe("取得の途中で失敗すると、止まって報告し、壊れた 
     expect(run.stderr).toContain("commit");
     expect(existsSync(sb.dataDir)).toBe(false);
   });
+});
+
+describe("固定の生成先", () => {
+  test("同期は <データ置き場>/pstack-omp/generated に生成し、OMP の設定の置き場には何も書かず、読み込みの設定は一度だけ登録して status で確かめられることを出す", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin();
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`OMP 向けのコピーを生成しました: ${sb.generated}（`);
+    expect(run.stdout).toContain(
+      "読み込みの設定は README（pstack を OMP で使う）のとおり一度だけ手で登録します。揃っているかは bun scripts/pstack-omp/cli.ts status で確かめられます\n",
+    );
+    expect(existsSync(join(sb.generated, "pstack", "skills", "poteto-mode", "SKILL.md"))).toBe(true);
+    expect(readdirSync(join(sb.dataDir, "pstack-omp")).sort()).toEqual(["generated", "upstream"]);
+    expect(existsSync(sb.agentDir)).toBe(false);
+  });
+
+  test("NOD_PSTACK_OMP_OMP_BIN が無ければ、PATH の omp で版を確かめる", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46");
+    sb.pin();
+
+    const run = await sb.run("sync", { env: { NOD_PSTACK_OMP_OMP_BIN: undefined, PATH: [join(sb.ompBin, ".."), process.env.PATH].join(":") } });
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+  });
+});
+
+// Claude Code と Codex 向けのプラグインの内容（nod のリポジトリの plugins/、.claude-plugin/、.agents/plugins/）のハッシュ
+function pluginHash(): string {
+  const repo = join(import.meta.dir, "..", "..");
+  const hasher = new Bun.CryptoHasher("sha256");
+  for (const dir of ["plugins", ".claude-plugin", ".agents/plugins"]) {
+    for (const [path, entry] of snapshot(join(repo, dir))) hasher.update(`${dir}/${path}\0${entry.executable}\0${entry.content}\0`);
+  }
+  return hasher.digest("hex");
+}
+
+describe("サブコマンド・プラグイン・nod の CLI", () => {
+  test("同期と状態の表示を実行しても、Claude Code と Codex 向けのプラグインの内容が変わらない", async () => {
+    const before = pluginHash();
+    const sb = sandbox({ repoTable: true });
+    sb.commit("0.15.46", {
+      "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green."),
+      "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", "Spawn [the reviewer](../../agents/comment-sicko.md)."),
+      "pstack/agents/comment-sicko.md": "---\nname: comment-sicko\n---\n\nReview comments.\n",
+    });
+    sb.pin();
+
+    const runs = [await sb.sync(), await sb.run("status")];
+
+    expect(runs.map((run) => run.exitCode)).toEqual([0, 0]);
+    expect(pluginHash()).toBe(before);
+  });
+
+  test("nod の CLI（packages/cli）に pstack のコマンドが無い", () => {
+    const cli = join(import.meta.dir, "..", "..", "packages", "cli", "src");
+    const mentions = [...snapshot(cli)].filter(([, entry]) => Buffer.from(entry.content, "base64").toString("utf8").includes("pstack")).map(([path]) => path);
+
+    expect(mentions).toEqual([]);
+  });
+
+  test.each(["apply", "remove", "toString", "constructor", "hasOwnProperty", "__proto__"])(
+    "sync と status のほかのサブコマンド %s は、使い方を出して 2 で終わり、何も作らない",
+    async (name) => {
+      const sb = sandbox();
+
+      const run = await sb.run(name);
+
+      expect(run.exitCode).toBe(2);
+      expect(run.stdout).toBe("");
+      expect(run.stderr).toBe("使い方: bun scripts/pstack-omp/cli.ts <sync|status>\n");
+      expect(existsSync(sb.dataDir)).toBe(false);
+      expect(existsSync(sb.agentDir)).toBe(false);
+    },
+  );
 });
