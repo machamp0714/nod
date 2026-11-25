@@ -408,7 +408,7 @@ export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, c
     const sprint = writableSprint(ctx.db,id);
     checkVersion(sprint.version,input.expectedVersion);
     const instant = assertSprintCanActivate(ctx.db, sprint, clock);
-    ctx.db.query("UPDATE sprints SET phase='active',activated_at=? WHERE id=?").run(instant.toISOString(),id);
+    ctx.db.query("UPDATE sprints SET phase='active',activated_at=?,activated_by=? WHERE id=?").run(instant.toISOString(),ctx.actor,id);
     return touchSprint(ctx.db,id);
   });
 }

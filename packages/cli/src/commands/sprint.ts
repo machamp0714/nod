@@ -118,7 +118,7 @@ export function registerSprintCommands(program: Command): void {
         `ゴール: ${detail.goal ?? "不明"}  DoD: ${detail.definitionOfDone ?? "不明"}  達成結果: ${detail.outcome ?? "不明"}`,
         `版: ${detail.version}  採用中の計画: ${detail.adoptedPlanId ?? "なし"}`,
         `前のSprint: ${linkText(detail.rolloverFrom)}  後継のSprint: ${linkText(detail.rolloverTo)}`,
-        ...(detail.activatedBy === SPRINT_ROLLOVER_ACTOR ? [`自動開始: ${detail.activatedAt}（${SPRINT_ROLLOVER_ACTOR}）`] : []),
+        ...(detail.activatedAt ? [`${detail.activatedBy === SPRINT_ROLLOVER_ACTOR ? "自動開始" : "開始"}: ${detail.activatedAt}（${detail.activatedBy ?? "記録なし"}）`] : []),
         ...(detail.closureRecord?.automation ? [`自動終了: 期間の終了時刻 ${detail.endsAt}  記録時刻 ${detail.closureRecord.recordedAt}`] : []),
         ...detail.plans.map(p=>`計画第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}\n  達成確認: ${p.content.verificationMethod}\n  理由: ${p.changeReason}`),
         `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "所属 Issue の現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,

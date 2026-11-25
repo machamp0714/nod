@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import type { Sprint, SprintPlanResult } from "@nod/core";
 import { expect, test } from "./fixtures";
 import type { NodClient } from "./support/nod";
-import { plannedSprint, sprintApi, todayUtc } from "./support/sprint-planning";
+import { plannedSprint, sprintApi, sprintDetail, todayUtc } from "./support/sprint-planning";
 
 // 期限を過ぎた実行中Sprint。固定時計で期間内に人が合意・開始する。
 async function expiredActive(page: Page, nod: NodClient, key: string, refs: string[]): Promise<Sprint> {
@@ -80,6 +80,9 @@ test("自動引継ぎの結果をSprint詳細の前後のつながり・自動�
   await expect(page).toHaveURL(new RegExp(`/sprints/${successor.id}$`));
   await expect(overview.getByRole("link", { name: `Sprint ${previous.number}「${previous.name}」`, exact: true })).toBeVisible();
   await expect(overview).toContainText("自動開始");
+  await expect(overview.getByText("自動処理（nod-automation）", { exact: true })).toBeVisible();
+  const { activatedAt } = await sprintDetail(page, successor.id);
+  await expect(overview.locator(`time[datetime="${activatedAt}"]`)).toBeVisible();
   const evidence = page.getByRole("region", { name: "Sprint の記録" });
   await expect(evidence).toContainText("合意: なし（自動開始。計画は後から提案・合意できます）");
   await evidence.getByText(`Sprint ${previous.number}「${previous.name}」から引き継いだIssue（1件）`).click();

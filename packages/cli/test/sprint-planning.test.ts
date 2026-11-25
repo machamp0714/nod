@@ -37,7 +37,12 @@ test("CLIでLLMが方向設定・合意・開始・中止でき、合意した�
   const activation = {expectedVersion:reused.sprint.version,requestKey:"開始"};
   const active = (await run(["sprint","activate",sprint.id],activation,"codex")).json;
   expect(active.phase).toBe("active");
-  expect((await runNod(["sprint","show",sprint.id,"--json"],{cwd,db,actor:"codex"})).json.plans[0].contentHash).toBe(proposed.plan.contentHash);
+  const shown = (await runNod(["sprint","show",sprint.id,"--json"],{cwd,db,actor:"me"})).json;
+  expect(shown.activatedBy).toBe("codex");
+  expect(shown.plans[0].contentHash).toBe(proposed.plan.contentHash);
+  const text = (await runNod(["sprint", "show", sprint.id], { cwd, db })).stdout;
+  expect(text).toContain(`開始: ${shown.activatedAt}（codex）`);
+  expect(text).not.toContain("自動開始");
   expect((await run(["sprint","update",sprint.id],{expectedVersion:0,requestKey:"古い更新",name:"変更"})).json.error.code).toBe("STALE_REVISION");
   const cancel = {expectedVersion:active.version,requestKey:"中止",reason:"優先順位変更"};
   expect((await run(["sprint","cancel",sprint.id],cancel,"codex")).json.phase).toBe("canceled");
@@ -58,14 +63,22 @@ for (const matchingHash of [true, false]) test(`CLIの採択と開始はLLM合�
   db.close();
   const opts = { cwd, db: path, actor: "claude-code" };
   const shown = (await runNod(["sprint", "show", period.id, "--json"], opts)).json;
+  expect(shown).toMatchObject({ activatedAt: null, activatedBy: null });
+  expect((await runNod(["sprint", "show", period.id], opts)).stdout).not.toMatch(/^(?:自動)?開始:/m);
   expect(shown.items[0].member).toBe(matchingHash);
   const listed = (await runNod(["issue", "list", "--sprint", period.id, "--json"], opts)).json;
   expect(listed.map((i: { id: string }) => i.id)).toEqual(matchingHash ? [issue.id] : []);
   const input = join(inputDir, "activate.json");
   writeFileSync(input, JSON.stringify({ expectedVersion: ready.sprint.version, requestKey: "開始" }));
-  const activation = await runNod(["sprint", "activate", period.id, "--input", input, "--json"], opts);
-  if (matchingHash) expect(activation).toMatchObject({ exitCode: 0, json: { phase: "active" } });
-  else expect(activation).toMatchObject({ exitCode: 1, json: { error: { code: "NOT_ACCEPTED" } } });
+  const activation = await runNod(["sprint", "activate", period.id, "--input", input, "--json"], matchingHash ? { ...opts, actor: "me" } : opts);
+  if (matchingHash) {
+    expect(activation).toMatchObject({ exitCode: 0, json: { phase: "active" } });
+    const shown = (await runNod(["sprint", "show", period.id, "--json"], opts)).json;
+    expect(shown.activatedBy).toBe("me");
+    const text = (await runNod(["sprint", "show", period.id], opts)).stdout;
+    expect(text).toContain(`開始: ${shown.activatedAt}（me）`);
+    expect(text).not.toContain("自動開始");
+  } else expect(activation).toMatchObject({ exitCode: 1, json: { error: { code: "NOT_ACCEPTED" } } });
 });
 
 test("CLIはstdinのJSON入力を受け取り、不正JSONを日本語の構造化エラーで返す", async () => {

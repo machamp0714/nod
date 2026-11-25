@@ -51,6 +51,22 @@ test("DBを開くコマンドの実行前に期限切れのSprintを引き継ぎ
   expect(successorText).toContain(`引継ぎ（Sprint ${sprint.number}「過去のSprint」（ended）から）`);
 });
 
+test("以前に開始者が記録されなかったSprintは、CLIで開始日時と記録なしを示す", async () => {
+  const cwd = makeRepo(), db = tempDb();
+  const { sprint, ws } = expiredActiveSprint(cwd, db);
+  const d = core.openDb(db);
+  core.setSprintRollover({ db: d, actor: "me" }, ws.key, { enabled: false });
+  d.query("UPDATE sprints SET activated_by=NULL WHERE id=?").run(sprint.id);
+  d.close();
+
+  const opts = { cwd, db, actor: "codex" };
+  const shown = await runNod(["sprint", "show", sprint.id, "--json"], opts);
+  expect(shown.json).toMatchObject({ activatedAt: sprint.activatedAt, activatedBy: null });
+  const text = (await runNod(["sprint", "show", sprint.id], opts)).stdout;
+  expect(text).toContain(`開始: ${sprint.activatedAt}（記録なし）`);
+  expect(text).not.toContain("自動開始");
+});
+
 test("nod scrum rollover はLLMも切り替えられ、nod scrum show に設定と状態が出る", async () => {
   const cwd = makeRepo(), db = tempDb();
   const { sprint } = expiredActiveSprint(cwd, db);

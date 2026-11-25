@@ -29,7 +29,7 @@ export interface Sprint {
   replansSprintId: string | null;
   // 自動引継ぎで結んだ前Sprint。一度結んだら選び直さない。
   rolloverFromSprintId: string | null;
-  // 開始した主体。自動開始は SPRINT_ROLLOVER_ACTOR。人の開始と既存行は null。
+  // 開始した書き手。自動開始は SPRINT_ROLLOVER_ACTOR。未開始・記録のない既存行は null。
   activatedBy: string | null;
 }
 
