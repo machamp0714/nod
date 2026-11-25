@@ -711,8 +711,19 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
   ].join("\n");
   // 止まる文の4要素（対象外であること、始めずに止まること、どのスキルのどの手順で何の理由で止まったかの報告、子なら親への最終の返答）
   const STOP = [/is out of scope for this OMP setup/, /Do not start /, /Stop, and report that the .+ stopped at .+ because /, /If you are a subagent, put that report in your final reply to your parent\./];
+  // 上流の automate-me の step 5（固定のコミットの書き方）。create-skill の執筆指針を authoring-automate-me-prose が書き換え、unslop の推敲と本人のフィードバックは残る
+  const PROSE_STEP = [
+    "### 5. Iterate on prose",
+    "",
+    "Apply the **unslop** skill and `create-skill`'s writing guidelines to every line.",
+    "",
+    "Show the draft to the user and take feedback. Expect multiple iterations. Cut ruthlessly. A mode skill is not a manual.",
+  ].join("\n");
+  // 上流の Authoring a skill のプレイブックの執筆指針（固定のコミットの書き方）。書き換えた step 1 が「the writing rules below」で指す段落で、どの規則も当てない
+  const WRITING_GUIDELINES =
+    "When in doubt, delete. Keep only prose that changes a decision. Tell it to do the thing and skip the reason. Explain only when the rule is confusing without one. Match tone to scope. Point at structural sources (types, READMEs, config) per the **encode-lessons-in-structure** principle skill. Delegate to other skills by path. Don't restate. A workflow you keep hitting but isn't captured → propose a new skill.";
 
-  test("代表的な規則を写した一時の変換で、OMP の task・ask・todo の書き方、model を渡さない文、止まる文、OMP でスキルを作る置き場・名前・frontmatter・書いた後の確認、OMP の置き場になり、リポジトリの拒否リストと参照の検査を通る。babysit の1回だけのモードと Bugbot の仕分けは残る", async () => {
+  test("代表的な規則を写した一時の変換で、OMP の task・ask・todo の書き方、model を渡さない文、止まる文、OMP でスキルを作る置き場・名前・frontmatter・書いた後の確認、執筆の指針、OMP の置き場になり、リポジトリの拒否リストと参照の検査を通る。unslop の推敲と本人のフィードバック、babysit の1回だけのモードと Bugbot の仕分けは残る", async () => {
     const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "rules.yml"), "utf8")) as { rules: Record<string, string>[] };
     // 代表的な literal の規則の id と、その文を置く生成物のパス（規則の files に当たること）
     const picked: [string, string][] = [
@@ -722,6 +733,7 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
       ["ask-automate-me-interview", "pstack/skills/automate-me/SKILL.md"],
       ["record-automate-me-transcripts", "pstack/skills/automate-me/SKILL.md"],
       ["authoring-automate-me-draft", "pstack/skills/automate-me/SKILL.md"],
+      ["authoring-automate-me-prose", "pstack/skills/automate-me/SKILL.md"],
       ["todo-arena-phases", "pstack/skills/arena/SKILL.md"],
       ["model-arena-runners", "pstack/skills/arena/SKILL.md"],
       ["task-swarm-workers", "pstack/skills/swarm/SKILL.md"],
@@ -737,9 +749,15 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
       expect(new RegExp(item!.files!).test(path)).toBe(true);
       return item!;
     });
-    // 生成物のパスごとに、規則の literal を段落にして置く（SKILL.md は frontmatter つき）
+    // 生成物のパスごとに、規則の literal を段落にして置く（SKILL.md は frontmatter つき）。上流の文を写す規則は、literal を含むその文を置く
+    const upstreamText: Record<string, string> = { "authoring-automate-me-prose": PROSE_STEP };
     const bodies = new Map<string, string[]>();
-    picked.forEach(([, path], i) => bodies.set(path, [...(bodies.get(path) ?? []), items[i]!.literal!]));
+    picked.forEach(([id, path], i) => {
+      const text = upstreamText[id] ?? items[i]!.literal!;
+      expect(text).toContain(items[i]!.literal!);
+      bodies.set(path, [...(bodies.get(path) ?? []), text]);
+    });
+    bodies.get("pstack/skills/poteto-mode/playbooks/authoring-a-skill.md")!.push(WRITING_GUIDELINES);
     // babysit と、置換文が名指す setup-pstack（/skill:setup-pstack の先）
     const files: Record<string, string> = {
       "pstack/skills/poteto-mode/playbooks/babysit.md": BABYSIT,
@@ -798,6 +816,20 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
       expect(automateMe).toContain(text);
     }
     expect(automateMe).not.toContain("every turn");
+    // 推敲: unslop と、create-skill に代わる執筆の指針（判断や行動を変える指示だけ、具体的な命令、理由は要る場合だけ、根拠を参照、別のスキルの本文を重ねない）。本人のフィードバックは残る
+    const prose = items[picked.findIndex(([id]) => id === "authoring-automate-me-prose")]!;
+    expect(automateMe).toContain(`Apply the **unslop** skill ${prose.replace!}`);
+    for (const text of [
+      "keep only instructions that change a decision or an action",
+      "a concrete imperative",
+      "give a reason only when the rule is confusing without one",
+      "point at the source",
+      "never repeat another skill's body",
+    ]) {
+      expect(automateMe).toContain(text);
+    }
+    expect(automateMe).toContain("Show the draft to the user and take feedback.");
+    expect(automateMe).not.toContain("create-skill");
     const authoring = out("pstack/skills/poteto-mode/playbooks/authoring-a-skill.md");
     for (const text of [
       "`.omp/skills/<name>/SKILL.md`",
@@ -812,6 +844,10 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
     ]) {
       expect(authoring).toContain(text);
     }
+    // 書き換えた step 1 が指す上流の執筆指針は残る
+    expect(authoring).toContain("by the writing rules below");
+    expect(authoring).toContain(WRITING_GUIDELINES);
+    expect(authoring).not.toContain("create-skill");
     // todo: init と list、子には todo が無い
     const arena = out("pstack/skills/arena/SKILL.md");
     expect(arena).toContain('`todo` tool with `op: "init"`');
