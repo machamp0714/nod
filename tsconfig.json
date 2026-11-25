@@ -9,6 +9,6 @@
     "types": ["bun"],
     "noEmit": true
   },
-  "include": ["packages/*/src", "packages/*/test", "plugins/nod/skills/pm/evals", "plugins/nod/evals", "plugins/nod/skills/code-review/scripts", "scripts/check-test-skips.ts", "test/check-test-skips.test.ts"],
+  "include": ["packages/*/src", "packages/*/test", "plugins/nod/skills/pm/evals", "plugins/nod/evals", "plugins/nod/skills/code-review/scripts", "scripts/check-test-skips.ts", "test/check-test-skips.test.ts", "scripts/pstack-omp", "test/pstack-omp"],
   "exclude": ["packages/web"]
 }

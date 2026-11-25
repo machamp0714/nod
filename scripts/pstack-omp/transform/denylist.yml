@@ -1,0 +1,104 @@
+# 拒否リスト: OMP 向けに変換した後の生成物に残ってはならない Cursor の語。
+# generate.ts が、規則（rules.yml）と全文差し替え（forks.yml）の後の生成物のすべての .md を行ごとに検査し、当たればファイル・行・一致した語を
+# まとめて報告して生成を失敗させる。行ごとの例外は置かない。残す必要のある文は rules.yml の規則で書き換える。
+# 各項目: term（報告に出す名前）、regex（JavaScript の正規表現。行ごとに当てる。空の文字列に一致してはならない）、任意の flags（g は常に付く）、reason。
+# 一覧に無い Cursor 由来の書き方は検出できない。上流の更新のときの確認で見つけたら、規則とこの一覧に足す。
+#
+# 旧方式の用語の一覧（terms.ts の26種類）を見直して作った。OMP でも同じ意味で正しい語だけを外した:
+# - poteto-agent: nod のリポジトリの OMP 向けのディレクトリにある、実在するエージェント定義の名前として残る。
+# - comment-sicko: no-comments の付属文書の名前として残る（同じ名前の OMP のエージェントがあるとは書かない）。
+# - origin pr: Origin の CLI（origin pr view など）で、Cursor 専用の仕組みではない。
+# - Bugbot の名前だけの一致: PR に既にある Bugbot のコメントの仕分けと、使わない範囲の説明に要る。Bugbot の起動・待機・設定の手順は規則で変換して残さない。
+# 旧 todolist の広い検出（todo list）は、旧ツールの名前 todolist への指示に縮めた（一般の名詞の todo list は拒まない）。
+# 旧 Cursor-only features はまとめて検出していたものを機能ごとに分けた（クラウドエージェント、Cursor Automations、組み込みの PR ツール。Bugbot は上のとおり外した）。
+# gemini- のモデルの slug と create-skill を足した。上流の確認で見つけた Cursor の Custom Mode と Cursor の組み込みのスキル（babysit など）を足し、
+# readonly の子の書き方（readonly judge、readonly strips MCP）を `readonly: true` の項目に足した。
+terms:
+  - term: "`Task`"
+    regex: '`Task`|\bTask (?:tool|subagent|call)'
+    reason: Cursor の子を起動するツール。OMP では task ツールで起動する文に書き換える
+  - term: AskQuestion
+    regex: 'AskQuestion'
+    reason: Cursor の利用者に質問するツール。OMP では ask ツールを使う文に書き換える
+  - term: todolist
+    regex: '\btodolist\b'
+    flags: i
+    reason: Cursor の旧ツールの名前。OMP では todo ツールを使う文に書き換える（一般の名詞の todo list は拒まない）
+  - term: generalPurpose
+    regex: 'generalPurpose'
+    reason: Cursor の子の種類。OMP では agent を省いた既定の task エージェントで起動する
+  - term: "`readonly: true`"
+    regex: 'readonly: (?:true|false)|readonly/Ask|\breadonly (?:judge|subagent|strips MCP)'
+    reason: Cursor の子の読み取り専用の指定（readonly な審査役や、readonly が MCP を外すという Cursor の事情を含む）。OMP の子には readonly の項目が無く、親の MCP を使える
+  - term: '`environment: "cloud"`'
+    regex: 'environment: "(?:cloud|local)"'
+    reason: Cursor の子の実行場所の指定。cloud はクラウドエージェントで使わない範囲、local は OMP では省く
+  - term: cloud_base_branch
+    regex: 'cloud_base_branch'
+    reason: クラウドエージェントの起点の枝の指定。使わない範囲なので止まる文に書き換える
+  - term: "`run_in_background: true`"
+    regex: 'run_in_background'
+    reason: Cursor の子の非同期の指定。OMP の task の子は既定でバックグラウンドで動く
+  - term: "`resume`"
+    regex: '`resume`'
+    reason: Cursor の子の再開の指定。OMP では agent://<id> に続きの指示を送る
+  - term: "`file_attachments`"
+    regex: 'file_attachments'
+    reason: Cursor の子への添付の指定。OMP ではファイルのパスを依頼文に書く
+  - term: claude-
+    regex: '\bclaude-[a-z]+-\d'
+    reason: Cursor のモデルの slug。OMP ではモデルはエージェント定義と役割の設定で決まる
+  - term: grok-
+    regex: '\bgrok-\d'
+    reason: Cursor のモデルの slug。OMP ではモデルはエージェント定義と役割の設定で決まる
+  - term: gpt-
+    regex: '\bgpt-\d'
+    reason: Cursor のモデルの slug。OMP ではモデルはエージェント定義と役割の設定で決まる
+  - term: gemini-
+    regex: '\bgemini-\d'
+    reason: Cursor のモデルの slug（旧一覧に無く、足した）。OMP ではモデルはエージェント定義と役割の設定で決まる
+  - term: inherit-parent
+    regex: 'inherit-parent'
+    reason: Cursor のモデルの設定の値。OMP には役割の行が無い
+  - term: pstack-models.mdc
+    regex: 'pstack-models\.mdc'
+    reason: Cursor の規則のファイルに書くモデルの設定。OMP では読まず、書かない
+  - term: .cursor/skills/
+    regex: '\.cursor/skills'
+    reason: Cursor のスキルの置き場。OMP のスキルの置き場に書き換える
+  - term: ~/.cursor/plugins/
+    regex: '\.cursor/plugins|\.cursor-plugin'
+    reason: Cursor のプラグインの置き場。OMP は生成物を skill:// で読む
+  - term: .cursor/rules/
+    regex: '\.cursor/rules|always-applied rule'
+    reason: Cursor の規則の置き場。OMP は .mdc を読まない
+  - term: agent-transcripts
+    regex: 'agent-transcripts|\.cursor/projects'
+    reason: Cursor のセッションの記録の置き場。OMP のセッションの記録の置き場に書き換える
+  - term: /loop
+    regex: '(?<![\w./-])/loop(?![\w/-])'
+    reason: Cursor の組み込みの起床の仕組み（使わない範囲）。パスの一部（foo/loop）や別のコマンド（/loop-on-ci）には当てない
+  - term: subagent_type
+    regex: '\bsubagent_type\b'
+    reason: Cursor の子の種類の指定。OMP では task の項目の agent に書き換える
+  - term: Project worker
+    regex: '\bProject workers?\b'
+    reason: Cursor の Project の worker（使わない範囲）。止まる文か、task で起動する子の文に書き換える
+  - term: cloud agent
+    regex: '\b[Cc]loud[- ][Aa]gents?\b'
+    reason: Cursor のクラウドエージェント（旧 Cursor-only features から分けた。使わない範囲）。止まる文に書き換える
+  - term: Cursor Automations
+    regex: 'Cursor [Aa]utomations?|\bcursor\.(?:sh|com)/automations|\bupdate_state\b|\bSendToUser\b'
+    reason: Cursor Automations の routine・webhook（cursor.sh/automations）・update_state・SendToUser（旧 Cursor-only features から分けた。使わない範囲）。止まる文に書き換える
+  - term: built-in PR tool
+    regex: "\\b(?:built-in|run's) PR tool\\b"
+    reason: Cursor の組み込みの PR ツール（旧 Cursor-only features から分けた）。OMP では手順が示す forge のコマンド（gh pr create など）を使う
+  - term: create-skill
+    regex: '\bcreate-skill\b'
+    reason: Cursor の組み込みのスキル作成（旧一覧に無く、足した）。OMP で SKILL.md を直接作る・更新する手順に書き換える
+  - term: Custom Mode
+    regex: '\bCustom Modes?\b|\bUse as Mode\b'
+    reason: Cursor の Custom Mode（スキルを毎ターン効かせる Cursor の機能）。OMP ではタスクごとに /skill:<name> で読み込む案内に書き換える
+  - term: Cursor's built-in skill
+    regex: "\\bCursor's (?:built-in|own) (?:[a-z-]+ )?skill\\b"
+    reason: Cursor の組み込みのスキル（babysit など）。OMP に同じ組み込みのスキルがあることを前提にせず、OMP の手順に書き換える
