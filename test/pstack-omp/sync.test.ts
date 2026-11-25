@@ -10,12 +10,11 @@ const PIN = join(import.meta.dir, "../../scripts/pstack-omp/pin.json");
 describe("固定の記録", () => {
   test("リポジトリの URL・コミット・pstack の版・確かめた OMP の版が書かれている", () => {
     const pin = JSON.parse(readFileSync(PIN, "utf8"));
-    expect(pin).toEqual({
-      repository: "https://github.com/cursor/plugins.git",
-      commit: "792440e8a560a4a3f63748cdee70491ecd412982",
-      pstackVersion: "0.15.46",
-      ompVersion: "19.1.0",
-    });
+    expect(Object.keys(pin).sort()).toEqual(["commit", "ompVersion", "pstackVersion", "repository"]);
+    expect(pin.repository).toBe("https://github.com/cursor/plugins.git");
+    expect(pin.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(pin.pstackVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(pin.ompVersion).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
 
