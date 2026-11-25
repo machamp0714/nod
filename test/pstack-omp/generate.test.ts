@@ -507,6 +507,24 @@ describe("参照の変換と検査", () => {
     expect(snapshot(sb.generated)).toEqual(before);
   });
 
+  test("bash で実行する付属ファイルが生成物に無いと、$(realpath skill://...) の後のパスまで報告して失敗し、前回の生成物を残す", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/a/SKILL.md": skillMd("a", "Plain."), "pstack/skills/a/scripts/run.sh": "#!/bin/sh\n" }, ["pstack/skills/a/scripts/run.sh"]);
+    sb.pin();
+    expect((await sb.sync()).exitCode).toBe(0);
+    const before = snapshot(sb.generated);
+    rules(sb, [{ id: "ref-helper", reason: "付属スクリプト", literal: "Plain.", replace: 'Run `"$(realpath skill://a)/scripts/gone.sh"`.' }]);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(
+      "解決できない参照があります（1 か所。規則か全文差し替えの本文を直してください）:\n" +
+        "  pstack/skills/a/SKILL.md:8: $(realpath skill://a)/scripts/gone.sh（スキル a の中にありません）\n",
+    );
+    expect(snapshot(sb.generated)).toEqual(before);
+  });
+
   // 静的な参照の先が生成物に無い書き方と、報告の理由。pstack/skills/a/SKILL.md の本文（8 行目から）に書く
   test.each([
     { label: "skill:// の名前が生成するスキルに無い", text: "Read `skill://nope` and follow it.", report: "8: skill://nope（生成するスキルにありません）" },
@@ -524,6 +542,21 @@ describe("参照の変換と検査", () => {
       report: "8: ../b/SKILL.md（スキルのディレクトリ pstack/skills/a の外を指しています。OMP は skill:// の .. を辿りません）",
     },
     { label: "相対リンクの先が生成物に無い", text: "See [notes](references/gone.md#top).", report: "8: references/gone.md#top（生成物にありません）" },
+    {
+      label: "bash で実行する $(realpath skill://...) の後のパスがそのスキルに無い",
+      text: 'Run `"$(realpath skill://b)/scripts/gone.sh" <file>`.',
+      report: "8: $(realpath skill://b)/scripts/gone.sh（スキル b の中にありません）",
+    },
+    {
+      label: "引用符で閉じた $(realpath skill://...) の後のパスがそのスキルに無い（コードブロックの中）",
+      text: '```sh\n"$(realpath skill://b)"/scripts/gone SPEC.tla\n```',
+      report: '9: $(realpath skill://b)"/scripts/gone（スキル b の中にありません）',
+    },
+    {
+      label: "$(realpath skill://...) の名前が生成するスキルに無い",
+      text: 'Run `"$(realpath skill://nope)/scripts/run.sh"`.',
+      report: "8: $(realpath skill://nope)/scripts/run.sh（生成するスキルにありません）",
+    },
   ])("$label と、解決できない参照として報告して失敗する", async ({ text, report }) => {
     const sb = sandbox();
     sb.commit("0.15.46", {
@@ -544,7 +577,8 @@ describe("参照の変換と検査", () => {
     const sb = sandbox();
     const body = [
       "Read `skill://b` and follow it. Read `skill://b/references/notes.md`, `skill://b/references/`, and `skill://deslop`.",
-      'Run `"$(realpath skill://b)/scripts/run.sh"`.',
+      'Run `"$(realpath skill://b)/scripts/run.sh"`, `"$(realpath skill://b)"/scripts/run.sh --all`, and `"$(realpath skill://b)"`.',
+      'Run `"$(realpath skill://b)/scripts/$TOOL"` or `"$(realpath skill://b)/scripts/<tool>.sh"` for the tool you picked.',
       "Type `/skill:b <ask>` or `/skill:deslop`.",
       "See [notes](references/notes.md#top), [the folder](references/), [self](./SKILL.md), and [top](#top).",
       "Write `skill://verify-<app>`, `/skill:verify-<app>`, `/skill:<handle>-mode`, `skill://{name}`, and [a feature](features/<feature>.md) in the project.",
@@ -603,6 +637,7 @@ describe("リポジトリの rules.yml の参照の規則", () => {
       "ref-no-comments-delegate": "pstack/skills/no-comments/SKILL.md",
       "ref-poteto-help-readme": "pstack/skills/poteto-help/SKILL.md",
       "ref-create-verification-point-at-maintain": "pstack/skills/create-verification-skill/SKILL.md",
+      "ref-create-verification-example": "pstack/skills/create-verification-skill/SKILL.md",
       "ref-ketchup-video-follow-ketchup": "pstack/skills/ketchup-video/SKILL.md",
       "ref-typescript-patterns": "pstack/skills/typescript-best-practices/SKILL.md",
     };
@@ -620,7 +655,13 @@ describe("リポジトリの rules.yml の参照の規則", () => {
       [sicko.from]: `${literal("ref-comment-sicko-frontmatter")}# Comment Sicko\n\nReport only.\n`,
       "pstack/skills/no-comments/SKILL.md": skillMd("no-comments", `${literal("ref-no-comments-delegate")}\nAsk /poteto-mode later.`),
       "pstack/skills/poteto-help/SKILL.md": skillMd("poteto-help", `The ${literal("ref-poteto-help-readme")} has the details.`),
-      "pstack/skills/create-verification-skill/SKILL.md": skillMd("create-verification-skill", `${literal("ref-create-verification-point-at-maintain")} for upkeep.`),
+      "pstack/skills/create-verification-skill/SKILL.md": skillMd(
+        "create-verification-skill",
+        `${literal("ref-create-verification-point-at-maintain")} for upkeep.\n${literal("ref-create-verification-example")} a README index and one file per feature.`,
+      ),
+      "pstack/skills/create-verification-skill/references/feature-map-example/README.md": "# Notes\n\n- [Create a note](create-note.md)\n- [Search](search.md)\n",
+      "pstack/skills/create-verification-skill/references/feature-map-example/create-note.md": "# Create a note\n",
+      "pstack/skills/create-verification-skill/references/feature-map-example/search.md": "# Search\n",
       "pstack/skills/maintain-verification-skill/SKILL.md": skillMd("maintain-verification-skill", "Keep the map honest."),
       "pstack/skills/ketchup-video/SKILL.md": skillMd("ketchup-video", `${literal("ref-ketchup-video-follow-ketchup")} show a video.`),
       "pstack/skills/ketchup/SKILL.md": skillMd("ketchup", "Catch up."),
@@ -645,7 +686,14 @@ describe("リポジトリの rules.yml の参照の規則", () => {
     expect(noComments).toContain("`read` on `skill://no-comments/references/comment-sicko.md`");
     expect(noComments).toContain("\nAsk /poteto-mode later.\n");
     expect(readGenerated(sb, "pstack/skills/poteto-help/SKILL.md")).toContain(`The [README](${sb.upstream}/blob/${commit}/pstack/README.md) has the details.`);
-    expect(readGenerated(sb, "pstack/skills/create-verification-skill/SKILL.md")).toContain("Point the user at `/skill:maintain-verification-skill` for upkeep.");
+    const verification = readGenerated(sb, "pstack/skills/create-verification-skill/SKILL.md");
+    expect(verification).toContain("Point the user at `/skill:maintain-verification-skill` for upkeep.");
+    // 例の地図の索引と機能のファイルを、モデルが相対リンクから組み立てずに skill:// の完全な URI で読める
+    for (const file of ["README.md", "create-note.md", "search.md"]) {
+      expect(verification).toContain(`\`skill://create-verification-skill/references/feature-map-example/${file}\``);
+    }
+    expect(verification).toContain("`read`");
+    expect(verification).not.toContain("](references/feature-map-example/)");
     expect(readGenerated(sb, "pstack/skills/ketchup-video/SKILL.md")).toContain("Read `skill://ketchup` with `read` and follow it");
     expect(readGenerated(sb, "pstack/skills/typescript-best-practices/SKILL.md")).toContain("`read` `skill://typescript-best-practices/references/patterns.md`");
     expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);

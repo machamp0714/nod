@@ -417,10 +417,10 @@ rules:
     literal: 'Code examples for each rule in `SKILL.md`.'
     replace: 'Code examples for each rule in `skill://typescript-best-practices`.'
   - id: ref-create-verification-example
-    reason: 同じスキルの付属ファイル（地図の例）をモデルが読む箇所（ディレクトリへのリンク）
+    reason: 同じスキルの付属ファイル（地図の例）をモデルが読む箇所（ディレクトリへのリンク）。索引と機能のファイルを、モデルが相対リンクから組み立てずに読めるよう、それぞれ skill:// の完全な URI で書く（ファイルが上流から消えれば参照の検査で失敗する）
     files: '^pstack/skills/create-verification-skill/SKILL\.md$'
     literal: 'Follow the shape in [`references/feature-map-example/`](references/feature-map-example/), with'
-    replace: 'Follow the shape of the example in `skill://create-verification-skill/references/feature-map-example/README.md` and the feature files it links (read them with `read`), with'
+    replace: 'Follow the shape of the example map (`read` its index `skill://create-verification-skill/references/feature-map-example/README.md` and its feature files `skill://create-verification-skill/references/feature-map-example/create-note.md` and `skill://create-verification-skill/references/feature-map-example/search.md`), with'
 
   # ==== Cursor 固有の作業手順の変換 ====
   # 参照の変換（ref-）の後に当てる（literal は ref- の出力に当たるように書く）。文の単位で OMP の手順に書き換える。接頭辞は、task- が子の起動（task ツール）、

@@ -251,6 +251,7 @@ function expandUpstream(ctx: Context, upstreamDir: string, text: string, found: 
 // 生成物の path の text の静的な参照のうち、先が生成物に無いもの。skillRoots は生成するスキルの名前 → 生成物のディレクトリ、
 // present は生成物のファイルとディレクトリ。利用者のプロジェクトで決まる部分を含む動的な参照（DYNAMIC）は検査しない。
 // - skill://<name>[/<path>] と /skill:<name>: 生成するスキルとその中にあること。OMP は skill:// の .. を辿らないので、パスは正規の形に限る。
+//   bash で付属ファイルを実行する "$(realpath skill://<name>)/<path>"（と "$(realpath skill://<name>)"/<path>）は、<path> もスキルの中にあること。
 //   コードブロックの中も検査する（モデルはコードブロックの中の URI もそのまま使う）。
 // - 相対の Markdown リンク（[text](target) と [label]: target）: 生成物にあり、含むスキルのディレクトリの外（.. で出る）を指さないこと。
 //   フェンスとインラインのコードの中は、リンクとして描かれず利用者のプロジェクトに書く例なので検査しない。
@@ -259,8 +260,19 @@ function checkReferences(path: string, text: string, skillRoots: Map<string, str
   const boundary = /^[^/]+\/skills\/[^/]+(?=\/)/.exec(path)?.[0] ?? posix.dirname(path);
   let fence = false;
   text.split("\n").forEach((line, i) => {
-    for (const match of line.matchAll(/skill:\/\/([^\s`'"()[\]]*)/g)) {
-      const ref = match[1]!.replace(/[.,;:!?]+$/, "");
+    // $(realpath skill://<name>) の後に続くパス（閉じた引用符の後でもよい）までを1つの参照とし、skill:// だけの照合からは外す。
+    // written は報告に出す書かれたままの参照（文末の句読点を除く）
+    const refs = [
+      ...[...line.matchAll(/(\$\(realpath skill:\/\/([^\s`'"()[\]]*)\)"?)(\/[^\s`'"()[\]]*)?/g)].map((match) => {
+        const path = (match[3] ?? "").replace(/[.,;:!?]+$/, "");
+        return { written: `${match[1]}${path}`, ref: `${match[2]}${path}` };
+      }),
+      ...[...line.matchAll(/(?<!\$\(realpath )skill:\/\/([^\s`'"()[\]]*)/g)].map((match) => {
+        const ref = match[1]!.replace(/[.,;:!?]+$/, "");
+        return { written: `skill://${ref}`, ref };
+      }),
+    ];
+    for (const { written, ref } of refs) {
       if (ref === "" || DYNAMIC.test(ref)) continue;
       const [name, ...rest] = ref.split("/");
       const rel = rest.join("/").replace(/\/$/, "");
@@ -269,7 +281,7 @@ function checkReferences(path: string, text: string, skillRoots: Map<string, str
       if (root === undefined) reason = "生成するスキルにありません";
       else if (rel !== "" && !isRelativePath(rel)) reason = "skill:// のパスが正規の形ではありません。OMP は skill:// の .. を辿りません";
       else if (rel !== "" && !present.has(`${root}/${rel}`)) reason = `スキル ${name} の中にありません`;
-      if (reason !== undefined) found.push({ line: i + 1, message: `skill://${ref}（${reason}）` });
+      if (reason !== undefined) found.push({ line: i + 1, message: `${written}（${reason}）` });
     }
     for (const match of line.matchAll(/\/skill:([^\s`'"()[\]]*)/g)) {
       const name = match[1]!.replace(/[.,;:!?]+$/, "");
