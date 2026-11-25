@@ -408,7 +408,7 @@ export function activateSprint(ctx: OpCtx, ref: string, input: SprintMutation, c
     const sprint = writableSprint(ctx.db,id);
     checkVersion(sprint.version,input.expectedVersion);
     const instant = assertSprintCanActivate(ctx.db, sprint, clock);
-    ctx.db.query("UPDATE sprints SET phase='active',activated_at=? WHERE id=?").run(instant.toISOString(),id);
+    ctx.db.query("UPDATE sprints SET phase='active',activated_at=?,activated_by=? WHERE id=?").run(instant.toISOString(),ctx.actor,id);
     return touchSprint(ctx.db,id);
   });
 }
@@ -428,7 +428,7 @@ export function endSprint(ctx: OpCtx, ref: string, input: EndSprintInput, clock:
     if (!Number.isFinite(instant.getTime())) invalidSprint("時計の時刻が不正です");
     if (!sprint.endsAt || instant.getTime() < Date.parse(sprint.endsAt)) throw new NodError("SPRINT_NOT_EXPIRED","期限前に区切る場合は中止してください");
     ctx.db.query("UPDATE sprints SET phase='ended' WHERE id=?").run(id);
-    saveSprintClosure(ctx.db,id,"ended",reason,instant.toISOString());
+    saveSprintClosure(ctx.db,id,"ended",reason,instant.toISOString(),ctx.actor);
     const ended = touchSprint(ctx.db,id);
     // 自動引継ぎが有効なら同じtransactionで後継の処理を行う。失敗は例外のまま返し、終了も確定させない。
     rolloverAfterManualEnd(ctx.db,ended,instant);
@@ -443,7 +443,7 @@ export function cancelSprint(ctx: OpCtx, ref: string, input: CancelSprintInput, 
     checkVersion(sprint.version,input.expectedVersion);
     const recordedAt = (clock.now ?? new Date()).toISOString();
     ctx.db.query("UPDATE sprints SET phase='canceled',canceled_at=?,cancel_reason=? WHERE id=?").run(recordedAt,reason,id);
-    saveSprintClosure(ctx.db,id,"canceled",reason,recordedAt);
+    saveSprintClosure(ctx.db,id,"canceled",reason,recordedAt,ctx.actor);
     return touchSprint(ctx.db,id);
   });
 }

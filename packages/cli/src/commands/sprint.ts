@@ -111,6 +111,7 @@ export function registerSprintCommands(program: Command): void {
     .option("--tz <zone>", "旧履歴の日時を解釈するIANA timezone（未指定なら不明）")
     .action(act((cli,cmd,ref:string) => {
       const detail = getSprint(cli.db,ref);
+      const closure = detail.closureRecord;
       const analytics=sprintAnalytics(cli.db,detail.id,{timezone:(cmd.opts() as {tz?:string}).tz});
       print(cli,{...detail,analytics},()=>[
         line(detail),
@@ -118,8 +119,9 @@ export function registerSprintCommands(program: Command): void {
         `ゴール: ${detail.goal ?? "不明"}  DoD: ${detail.definitionOfDone ?? "不明"}  達成結果: ${detail.outcome ?? "不明"}`,
         `版: ${detail.version}  採用中の計画: ${detail.adoptedPlanId ?? "なし"}`,
         `前のSprint: ${linkText(detail.rolloverFrom)}  後継のSprint: ${linkText(detail.rolloverTo)}`,
-        ...(detail.activatedBy === SPRINT_ROLLOVER_ACTOR ? [`自動開始: ${detail.activatedAt}（${SPRINT_ROLLOVER_ACTOR}）`] : []),
-        ...(detail.closureRecord?.automation ? [`自動終了: 期間の終了時刻 ${detail.endsAt}  記録時刻 ${detail.closureRecord.recordedAt}`] : []),
+        ...(detail.activatedAt ? [`${detail.activatedBy === SPRINT_ROLLOVER_ACTOR ? "自動開始" : "開始"}: ${detail.activatedAt}（${detail.activatedBy ?? "記録なし"}）`] : []),
+        ...(closure?.automation ? [`自動終了: 期間の終了時刻 ${detail.endsAt}  記録時刻 ${closure.recordedAt}`] : []),
+        ...(closure ? [`${closure.kind === "ended" ? "終了" : "中止"}時の記録: ${closure.recordedAt}  記録者: ${closure.recordedBy ?? (closure.automation ? SPRINT_ROLLOVER_ACTOR : "記録なし")}`] : []),
         ...detail.plans.map(p=>`計画第${p.revision}版 ${p.agreedAt ? "合意済み" : "未合意"} ${p.id} ${p.contentHash}\n  達成確認: ${p.content.verificationMethod}\n  理由: ${p.changeReason}`),
         `分析（${analytics.statusBasis === "migration_snapshot" ? "移行取得時点の写し" : "所属 Issue の現在状態"}）: Scope ${analytics.scope}  Started ${analytics.started}  Completed ${analytics.completed}`,
         detail.phase === "imported" ? "移行時の関連（状態は取得時点の写し）:" : "item（所属は移行・採択・追加。旧候補と解除済みは所属外）:",

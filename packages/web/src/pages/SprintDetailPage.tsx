@@ -18,7 +18,7 @@ import { IssueList } from "../components/issue-list/IssueList";
 import { Button, IconButton, PageError, PageLoading, ProgressBar } from "../components/ui";
 import { listIdentity } from "../lib/list-scroll";
 import { SPRINT_PHASE_LABEL, sprintSnapshotRows } from "../lib/sprints";
-import { carriedItems, isAutoStarted, sprintAgreementText, sprintLinkLabel } from "../lib/sprint-rollover";
+import { carriedItems, isAutoStarted, sprintActorLabel, sprintAgreementText, sprintLinkLabel } from "../lib/sprint-rollover";
 import { withoutPageDisplay } from "../lib/page-display";
 import { cleanSprintDetailSearch, replacesIssueListHistory } from "../routes/search";
 import { NotFoundMessage } from "./NotFoundPage";
@@ -58,6 +58,7 @@ export function SprintDetailPage() {
   if (!found) return <NotFoundMessage title="Sprint が見つかりません" />;
   if (!detail.data || !page.ready) return <PageLoading />;
   const sprint = detail.data;
+  const autoStarted = isAutoStarted(sprint);
   const adopted = sprint.plans.find(p => p.id === sprint.adoptedPlanId && p.agreedAt && p.agreedHash === p.contentHash);
   const shownPlan = sprint.activatedAt ? adopted : sprint.plans.at(-1);
   const changeSearch = (patch: import("../routes/search").IssueListSearch) => { const pageDisplay = page.save(patch); void navigate({ search: prev => cleanSprintDetailSearch({ ...prev, ...patch }), state: { pageDisplay }, replace: replacesIssueListHistory(patch) }); };
@@ -95,7 +96,12 @@ export function SprintDetailPage() {
           <span className={s.field}><span className={s.label}>Sprint番号</span>{sprint.number}</span>
           {sprint.rolloverFrom && <span className={s.field}><span className={s.label}>前Sprint</span><Link to="/sprints/$sprintId" params={{ sprintId: sprint.rolloverFrom.id }}>{sprintLinkLabel(sprint.rolloverFrom)}</Link></span>}
           {sprint.rolloverTo && <span className={s.field}><span className={s.label}>後継</span><Link to="/sprints/$sprintId" params={{ sprintId: sprint.rolloverTo.id }}>{sprintLinkLabel(sprint.rolloverTo)}</Link></span>}
-          {isAutoStarted(sprint) && sprint.activatedAt && <span className={s.field}><span className={s.label}>開始</span>自動開始（<time dateTime={sprint.activatedAt}>{new Date(sprint.activatedAt).toLocaleString("ja-JP")}</time>）</span>}
+          {sprint.activatedAt && <>
+            <span className={s.field}><span className={s.label}>開始</span>
+              <span>{autoStarted && "自動開始（"}<time dateTime={sprint.activatedAt}>{new Date(sprint.activatedAt).toLocaleString("ja-JP")}</time>{autoStarted && "）"}</span>
+            </span>
+            <span className={s.field}><span className={s.label}>開始者</span><span>{sprintActorLabel(sprint.activatedBy)}</span></span>
+          </>}
           {imported && <span>旧Cycle ID: {sprint.legacyCycleId ?? "不明"}</span>}
         </section>
         <section className={s.evidence} aria-label="Sprint の記録">

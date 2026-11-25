@@ -4,6 +4,13 @@ import type { Sprint, SprintDetail, SprintItem, SprintLink, SprintRolloverStatus
 // core の SPRINT_ROLLOVER_ACTOR と同じ値。core の定数は DB を扱う module にあり画面から読み込めないため写す（テストで一致を確かめる）
 export const SPRINT_AUTOMATION_ACTOR = "nod-automation";
 
+export function sprintActorLabel(actor: string | null): string {
+  if (actor === null) return "記録なし";
+  if (actor === "me") return "利用者本人（me）";
+  if (actor === SPRINT_AUTOMATION_ACTOR) return `自動処理（${actor}）`;
+  return `エージェント（${actor}）`;
+}
+
 export function sprintLinkLabel(sprint: Pick<SprintLink, "number" | "name">): string {
   return `Sprint ${sprint.number}「${sprint.name}」`;
 }

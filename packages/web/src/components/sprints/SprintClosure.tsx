@@ -1,16 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import type { SprintClosureRecord } from "@nod/core";
+import { sprintActorLabel, SPRINT_AUTOMATION_ACTOR } from "../../lib/sprint-rollover";
 
 // 自動終了（期限到来時の自動引継ぎ）では、期間の終了時刻と実際に処理・記録した時刻が異なるため分けて出す。
 // periodEndsAt は Sprint の期間の終了時刻（sprint.endsAt）
 export function SprintClosure({ record, periodEndsAt }: { record: SprintClosureRecord; periodEndsAt?: string | null }) {
   const label = record.kind === "ended" ? "終了" : "中止";
+  const actor = record.recordedBy ?? (record.automation ? SPRINT_AUTOMATION_ACTOR : null);
   const recordedAt = <time dateTime={record.recordedAt}>{new Date(record.recordedAt).toLocaleString("ja-JP")}</time>;
   return <section aria-label={`${label}時の記録`}>
     {record.automation
       ? <p><strong>{label}時の記録（自動終了）</strong>{periodEndsAt && <> / 期間の終了時刻：<time dateTime={periodEndsAt}>{new Date(periodEndsAt).toLocaleString("ja-JP")}</time></>} / 記録日時（自動処理の実行時刻）：{recordedAt}</p>
       : <p><strong>{label}時の記録</strong> / 記録日時：{recordedAt}</p>}
     <p>{label}理由：{record.reason}</p>
+    <p>記録者：{sprintActorLabel(actor)}</p>
     <p>操作時点の残件です。現在の状態とログは各Issueで確認できます。</p>
     <details open><summary>未完了Issue（{record.issues.length}件）</summary>
       {record.issues.length === 0 && <p>未完了Issueはありません。</p>}

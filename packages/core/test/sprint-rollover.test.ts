@@ -374,7 +374,7 @@ test("期限後に人が手で終了すると、同じtransactionで自動処理
     const ended = core.endSprint(f.me, sprint.id, input, afterEnd);
 
     const previous = core.getSprint(f.db, sprint.id);
-    expect(previous.closureRecord).toEqual({ kind: "ended", recordedAt: afterEnd.now.toISOString(), reason: "期間が終わった", issues: [{ issueId: issues[0]!.id, status: "todo" }], questions: [] });
+    expect(previous.closureRecord).toEqual({ kind: "ended", recordedAt: afterEnd.now.toISOString(), recordedBy: "me", reason: "期間が終わった", issues: [{ issueId: issues[0]!.id, status: "todo" }], questions: [] });
     const successor = core.getSprint(f.db, previous.rolloverTo!.id);
     expect(successor).toMatchObject({ phase: "active", startDate: "2026-11-02", endDate: "2026-11-08", activatedBy: core.SPRINT_ROLLOVER_ACTOR, rolloverFromSprintId: sprint.id,
       items: [{ sourceIssueKey: issues[0]!.id, addedBy: core.SPRINT_ROLLOVER_ACTOR, member: true }] });

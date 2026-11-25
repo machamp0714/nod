@@ -160,7 +160,7 @@ function succeed(db: Database, previous: Sprint, instant: Date, progress: Progre
 // Sprint実行台帳（試行・予約・占有・セッション・通知）は変えない。
 function endAutomatically(db: Database, sprint: Sprint, instant: Date): void {
   db.query("UPDATE sprints SET phase='ended',version=version+1,updated_at=? WHERE id=?").run(now(), sprint.id);
-  saveSprintClosure(db, sprint.id, "ended", `自動処理による終了（期間の終了時刻: ${sprint.endsAt}）`, instant.toISOString(), SPRINT_ROLLOVER_AUTOMATION);
+  saveSprintClosure(db, sprint.id, "ended", `自動処理による終了（期間の終了時刻: ${sprint.endsAt}）`, instant.toISOString(), SPRINT_ROLLOVER_ACTOR, SPRINT_ROLLOVER_AUTOMATION);
 }
 
 // 合意済み計画を要求も作成もせずに開始する。合意済み計画を持つreadyなら計画と採択はそのまま残る。

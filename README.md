@@ -133,6 +133,14 @@ Webの確認画面とAPIの動作は変更していません。
 
 Sprintの合意は合意の存在と対象hashの一致で判定し、実際の合意者を記録します。
 `nod sprint end <sprint> --input <file|->`はreason、expectedVersion、requestKeyを受け取り、期限切れのSprintを終了します。
+
+`nod sprint activate`、`nod sprint end`、`nod sprint cancel`を実行すると、CLIで決まった書き手が開始・終了・中止の記録に残ります。
+Webからの操作は`me`、期限到来による自動終了と後継の自動開始は`nod-automation`として記録します。
+手動で終了して後継が自動開始した場合、終了の記録には手動で終了した書き手が残ります。
+`nod sprint show`とWebのSprint詳細で書き手を確認できます。
+`nod sprint show <sprint> --json`の`activatedBy`に開始者、`closureRecord.recordedBy`に終了・中止の記録者が入ります。
+旧版で書き手が保存されていない記録は「記録なし」と表示します。旧版でも`automation`が残っている終了記録は自動処理として表示します。
+
 `nod sprint record add <sprint> --input <file|->`はkind（outcome、feedback、retrospective）、content、requestKeyを受け取り、成果、感想、振り返りを追記します。
 たとえば感想の入力は`{"kind":"feedback","content":{"helpful":"役立った点","difficulties":"困った点","requests":"要望"},"requestKey":"feedback-1"}`です。
 Webはすべての感想を記録者つきで表示します。

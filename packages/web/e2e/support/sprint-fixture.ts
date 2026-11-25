@@ -32,3 +32,13 @@ export function removeSprintFixture(db: Database, sprintId: string) {
   db.query("DELETE FROM sprint_items WHERE sprint_id=?").run(sprintId);
   db.query("DELETE FROM sprints WHERE id=?").run(sprintId);
 }
+
+// 開始日時だけが記録された旧版のSprintを再現する。
+export function legacyActivationFixture(db: Database, sprintId: string) {
+  db.query("UPDATE sprints SET activated_by=NULL WHERE id=?").run(sprintId);
+}
+
+// 記録者の欄がなかった旧版の終了・中止記録を再現する。
+export function legacyClosureFixture(db: Database, sprintId: string) {
+  db.query("UPDATE sprints SET closure_record=json_remove(closure_record, '$.recordedBy') WHERE id=?").run(sprintId);
+}

@@ -29,7 +29,7 @@ export interface Sprint {
   replansSprintId: string | null;
   // 自動引継ぎで結んだ前Sprint。一度結んだら選び直さない。
   rolloverFromSprintId: string | null;
-  // 開始した主体。自動開始は SPRINT_ROLLOVER_ACTOR。人の開始と既存行は null。
+  // 開始した書き手。自動開始は SPRINT_ROLLOVER_ACTOR。未開始・記録のない既存行は null。
   activatedBy: string | null;
 }
 
@@ -79,10 +79,11 @@ export interface SprintDetail extends Sprint {
 export interface SprintClosureRecord {
   kind: "ended" | "canceled";
   recordedAt: string;
+  recordedBy?: string | null;
   reason: string;
   issues: { issueId: string; status: Issue["status"] }[];
   questions: { questionId: number; issueId: string }[];
-  // 自動処理による終了のときだけ付ける。手動の終了・中止の記録の形は変えない。
+  // 自動処理による終了のときだけ付ける。
   automation?: "sprint-rollover";
 }
 

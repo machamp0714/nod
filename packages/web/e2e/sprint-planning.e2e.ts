@@ -39,6 +39,13 @@ test("方向設定とSprint作成の公開フォームから、公開HTTPで提�
   await page.getByRole("button", { name: "Sprintを開始する", exact: true }).click();
   await expect(page.getByText("Sprintを開始しました。監督・workerの状態は保存された実行記録で確認してください。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "タスク一覧", exact: true }).click();
+  const { activatedAt, activatedBy } = await sprintDetail(page, sprintId);
+  expect(activatedBy).toBe("me");
+  expect(activatedAt).toBeTruthy();
+  const overview = page.getByRole("region", { name: "Sprint の概要" });
+  await expect(overview.getByText("利用者本人（me）", { exact: true })).toBeVisible();
+  await expect(overview.locator(`time[datetime="${activatedAt}"]`)).toBeVisible();
+  await expect(overview).not.toContainText("自動開始");
   await expect(page.locator(`tr[data-issue-row="${issue.id}"]`)).toBeVisible();
   await expect(page.getByRole("region", { name: "Sprint の記録" })).toContainText("判断できない");
   await captureSprint(page, "sprint-home-overview", info);
