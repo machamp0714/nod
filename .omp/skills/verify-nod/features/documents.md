@@ -117,17 +117,18 @@ Preconditions:
   ```
 
   終了コード 0 で `"ok": true`。`005-11-new-from-list.aria.yml` の作成画面に run の `data/documents/` の絶対パスが出る。`005-16-web-list-doc.aria.yml` に `heading "一覧から作った Document" [level=1]`・`heading "背景" [level=3]`・関連 Issue のリンク、`005-36-issue-documents-all.aria.yml` に5つの Document のリンク（Web で作り・添付したものは `添付者: me`）、`005-42-documents-list.aria.yml` に5行がある。
-- **CLI とファイルで確かめる。** 次を実行する。
+- **CLI とファイルの置き場で確かめる。** 次を実行する。作ったファイルの本文は、ファイルを直接読まずに `doc show`（nod がファイルから読んだ本文を `content` に返す）で確かめ、`data/documents/` の下にできたファイルは名前の一覧だけを証拠に写す。
 
   ```sh
   E="$RUN/evidence/documents"
-  $S cli $R --evidence documents -- --json doc list | jq -c --arg run "$RUN/" 'map({title, kind, issues, path: (.path | ltrimstr($run))})'
+  $S cli $R --evidence documents -- --json doc list | jq -c --arg run "$RUN/" 'map({id, title, kind, issues, path: (.path | ltrimstr($run))})'
   $S cli $R --evidence documents -- --json issue show "$ID" | jq -c '[.documents[] | {title, attachedBy}]'
-  (cd "$RUN/data/documents" && find . -type f | sort | while read -r f; do echo "== $f"; cat "$f"; done) | tee "$E/data-documents.txt"
+  for DOC in 1 3 4; do $S cli $R --evidence documents -- --json doc show "$DOC" | jq -c --arg run "$RUN/" '{id, title, path: (.path | ltrimstr($run)), content}'; done
+  (cd "$RUN/data/documents" && find . -type f | sort) | tee "$E/data-documents.txt"
   ```
 
-  `doc list` の5件の `path`（run からの相対）は `data/documents/specs/cli-doc.md`・`data/documents/specs/web-list.md`・`data/documents/specs/web-issue.md`・`repo/docs/cli-attach.md`・`repo/docs/web-attach.md` で、どれも `issues` が `["<ID>"]`（証拠 `006-cli.json`）。`issue show` の `documents` は5件で、CLI の2件が `attachedBy: "verify-nod"`、Web の3件が `"me"`（`007-cli.json`）。`data/documents` の下には `./specs/cli-doc.md`・`./specs/web-issue.md`・`./specs/web-list.md` の3つだけがあり、`./specs/web-list.md` の中身は `# 一覧から作った Document`、空行、`## 背景`、空行、`一覧から書いた本文`（`evidence/documents/data-documents.txt`）。
-- **証明。** `ls "$E"` に CLI（`001`〜`003`、`006`・`007`）、Web（`004`・`005` の記録・`.aria.yml`・`.png`）、`data-documents.txt` がある。`$S cleanup $R` のあとも `$E` は残り、run の `data/` と `repo/` は消える。
+  `doc list` の5件の `path`（run からの相対）は `data/documents/specs/cli-doc.md`（id 1）・`repo/docs/cli-attach.md`（2）・`data/documents/specs/web-list.md`（3）・`data/documents/specs/web-issue.md`（4）・`repo/docs/web-attach.md`（5）で、どれも `issues` が `["<ID>"]`（証拠 `006-cli.json`。並びは新しい順）。`issue show` の `documents` は5件で、CLI の2件が `attachedBy: "verify-nod"`、Web の3件が `"me"`（`007-cli.json`）。`doc show` の `content` は、1 が `# CLI で作った Document\n\nCLI で書いた本文\n`、3 が `# 一覧から作った Document\n\n## 背景\n\n一覧から書いた本文\n`、4 が `# Issue から作った Document\n\nIssue の詳細から書いた本文\n`（`008-cli.json`〜`010-cli.json`。CLI でも Web でも、ファイルの先頭はタイトルの `#` 見出しで、続けて本文）。`data/documents` の下には `./specs/cli-doc.md`・`./specs/web-issue.md`・`./specs/web-list.md` の3つだけがある（`data-documents.txt`）。
+- **証明。** `ls "$E"` に CLI（`001`〜`003`、`006`〜`010`）、Web（`004`・`005` の記録・`.aria.yml`・`.png`）、`data-documents.txt` がある。`$S cleanup $R` のあとも `$E` は残り、run の `data/` と `repo/` は消える。
 
 ## Gotchas
 
