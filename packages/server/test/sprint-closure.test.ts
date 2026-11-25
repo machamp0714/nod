@@ -59,7 +59,7 @@ test("終了時の採択残件と完了済みIssueの未回答質問を保存し
     clock.now = new Date("2026-10-30T15:00:00.000Z");
     expect((await call(app, "POST", `/api/sprints/${sprint.id}/end`, { expectedVersion: current.version, requestKey: "終了記録", reason: "予定期間の終了" })).status).toBe(200);
     const record = (await call(app, "GET", `/api/sprints/${sprint.id}`)).json.closureRecord;
-    expect(record).toEqual({ kind: "ended", reason: "予定期間の終了", recordedAt: "2026-10-30T15:00:00.000Z", issues: [{ issueId: issue.id, status: "needs_clarification" }], questions: [
+    expect(record).toEqual({ kind: "ended", reason: "予定期間の終了", recordedAt: "2026-10-30T15:00:00.000Z", recordedBy: "me", issues: [{ issueId: issue.id, status: "needs_clarification" }], questions: [
       { questionId: openQuestion.id, issueId: issue.id },
       { questionId: finishedQuestion.id, issueId: finished.id },
     ] });
@@ -138,7 +138,7 @@ test("中止時の採択残件と完了済みIssueの未回答質問を保存し
     const stopped = await call(app, "POST", `/api/sprints/${sprint.id}/cancel`, input);
     expect(stopped).toMatchObject({ status: 200, json: { phase: "canceled", cancelReason: "優先順位の変更", canceledAt: "2026-10-30T03:00:00.000Z" } });
     const record = (await call(app, "GET", `/api/sprints/${sprint.id}`)).json.closureRecord;
-    expect(record).toEqual({ kind: "canceled", reason: "優先順位の変更", recordedAt: "2026-10-30T03:00:00.000Z", issues: [{ issueId: issue.id, status: "needs_clarification" }], questions: [
+    expect(record).toEqual({ kind: "canceled", reason: "優先順位の変更", recordedAt: "2026-10-30T03:00:00.000Z", recordedBy: "me", issues: [{ issueId: issue.id, status: "needs_clarification" }], questions: [
       { questionId: openQuestion.id, issueId: issue.id },
       { questionId: finishedQuestion.id, issueId: finished.id },
     ] });

@@ -195,3 +195,7 @@ export async function removeSprint(sprintId: string): Promise<void> {
 export async function legacySprintActivation(sprintId: string): Promise<void> {
   await post("/sprint-fixture", { op: "legacyActivation", sprintId });
 }
+
+export async function legacySprintClosure(sprintId: string): Promise<void> {
+  await post("/sprint-fixture", { op: "legacyClosure", sprintId });
+}

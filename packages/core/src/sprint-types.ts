@@ -79,10 +79,11 @@ export interface SprintDetail extends Sprint {
 export interface SprintClosureRecord {
   kind: "ended" | "canceled";
   recordedAt: string;
+  recordedBy?: string | null;
   reason: string;
   issues: { issueId: string; status: Issue["status"] }[];
   questions: { questionId: number; issueId: string }[];
-  // 自動処理による終了のときだけ付ける。手動の終了・中止の記録の形は変えない。
+  // 自動処理による終了のときだけ付ける。
   automation?: "sprint-rollover";
 }
 

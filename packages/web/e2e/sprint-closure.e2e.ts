@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 import type { SprintPlanResult } from "@nod/core";
+import { legacySprintClosure } from "./support/nod";
 import { plannedSprint, sprintApi, todayUtc } from "./support/sprint-planning";
 
 test("期限超過のSprintを理由付きで終了し、終了時の記録と現在のIssueを確認する", async ({ page, nod }) => {
@@ -19,6 +20,11 @@ test("期限超過のSprintを理由付きで終了し、終了時の記録と�
   await expect(dialog).toBeHidden();
   const record = page.getByRole("region", { name: "終了時の記録", exact: true });
   await expect(record).toContainText("予定期間が終了し、残件を確認したため");
+  await expect(record).toContainText("記録者：利用者本人（me）");
+  const overview = page.getByRole("region", { name: "Sprint の概要" });
+  await overview.getByRole("link", { name: /Sprint 2「/ }).click();
+  await expect(overview).toContainText("自動処理（nod-automation）");
+  await page.goto(`/sprints/${planned.sprint.id}`);
   await expect(record.getByRole("link", { name: `${issue.id}の現在のIssue`, exact: true })).toBeVisible();
   await nod.me.updateIssue(issue.id, { status: "done" });
   await page.reload();
@@ -26,6 +32,36 @@ test("期限超過のSprintを理由付きで終了し、終了時の記録と�
   await record.getByRole("link", { name: `${issue.id}の現在のIssue`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/issues/${issue.id}$`));
 });
+
+test("Webで中止し、旧版の中止記録も記録者付きで表示する", async ({ page, nod }) => {
+  const ws = (await nod.me.initWorkspace({ key: "CAN", name: "中止記録", path: nod.repo("cancel") })).workspace;
+  const { sprint } = await plannedSprint(page, ws.key, []);
+  await page.goto(`/sprints/${sprint.id}`);
+  await page.getByRole("button", { name: "Sprintを中止", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Sprintを中止", exact: true });
+  await dialog.getByRole("textbox", { name: "中止理由" }).fill("優先順位の変更");
+  await dialog.getByRole("button", { name: "中止する", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const record = page.getByRole("region", { name: "中止時の記録", exact: true });
+  await expect(record).toContainText("記録者：利用者本人（me）");
+  await legacySprintClosure(sprint.id);
+  await page.reload();
+  await expect(record).toContainText("記録者：記録なし");
+});
+
+for (const operation of ["終了", "中止"] as const) {
+  test(`WebはLLMが${operation}したSprintの記録者を表示する`, async ({ page, nod }) => {
+    const ws = (await nod.me.initWorkspace({ key: "AGT", name: "エージェントの記録", path: nod.repo("agent-closure") })).workspace;
+    const planned = await plannedSprint(page, ws.key, [], { startDate: todayUtc(-2), endDate: todayUtc(-1) });
+    const ready = await nod.me.acceptSprintPlan(planned.sprint.id, planned.plan.id, { expectedVersion: planned.sprint.version, requestKey: "合意", contentHash: planned.plan.contentHash });
+    const sprint = await nod.me.activateSprint(ready.sprint.id, { expectedVersion: ready.sprint.version, requestKey: "開始" }, { now: new Date(`${todayUtc(-2)}T12:00:00.000Z`) });
+    const input = { expectedVersion: sprint.version, requestKey: operation, reason: "作業を区切るため" };
+    if (operation === "終了") await nod.codex.endSprint(sprint.id, input);
+    else await nod.codex.cancelSprint(sprint.id, input);
+    await page.goto(`/sprints/${sprint.id}`);
+    await expect(page.getByRole("region", { name: `${operation}時の記録`, exact: true })).toContainText("記録者：エージェント（codex）");
+  });
+}
 
 test("成果と評価に利用者本人とLLMが記録した感想を記録者付きで並べる", async ({ page, nod }) => {
   const ws = (await nod.me.initWorkspace({ key: "FDB", name: "感想の記録", path: nod.repo("feedback") })).workspace;

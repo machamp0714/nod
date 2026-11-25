@@ -37,7 +37,7 @@ test("DBを開くコマンドの実行前に期限切れのSprintを引き継ぎ
 
   const previous = (await runNod(["sprint", "show", sprint.id, "--json"], { cwd, db })).json;
   expect(previous).toMatchObject({ phase: "ended", rolloverFrom: null, rolloverTo: { number: sprint.number + 1, phase: "active" },
-    closureRecord: { automation: "sprint-rollover", issues: [{ issueId: open.id }] } });
+    closureRecord: { automation: "sprint-rollover", recordedBy: "nod-automation", issues: [{ issueId: open.id }] } });
   const successor = (await runNod(["sprint", "show", String(sprint.number + 1), "--json"], { cwd, db })).json;
   expect(successor).toMatchObject({ phase: "active", activatedBy: core.SPRINT_ROLLOVER_ACTOR, rolloverFrom: { id: sprint.id },
     items: [{ sourceIssueKey: open.id, member: true, addedBy: core.SPRINT_ROLLOVER_ACTOR, rolloverFromItemId: previous.items[0].id }] });
@@ -45,6 +45,13 @@ test("DBを開くコマンドの実行前に期限切れのSprintを引き継ぎ
   const previousText = (await runNod(["sprint", "show", sprint.id], { cwd, db })).stdout;
   expect(previousText).toContain(`後継のSprint: Sprint ${sprint.number + 1}「Sprint ${sprint.number + 1}」（active）`);
   expect(previousText).toContain(`自動終了: 期間の終了時刻 ${sprint.endsAt}  記録時刻 ${previous.closureRecord.recordedAt}`);
+  expect(previousText).toContain("記録者: nod-automation");
+  const input = join(tempDir(), "end.json");
+  writeFileSync(input, JSON.stringify({ expectedVersion: previous.version, requestKey: "手動終了", reason: "確認" }));
+  const rejected = await runNod(["sprint", "end", sprint.id, "--input", input], { cwd, db, actor: "codex" });
+  expect(rejected.exitCode).not.toBe(0);
+  expect(rejected.stderr).toContain("自動処理で終了し");
+  expect((await runNod(["sprint", "show", sprint.id, "--json"], { cwd, db })).json.closureRecord).toEqual(previous.closureRecord);
   const successorText = (await runNod(["sprint", "show", String(sprint.number + 1)], { cwd, db })).stdout;
   expect(successorText).toContain(`前のSprint: Sprint ${sprint.number}「過去のSprint」（ended）`);
   expect(successorText).toContain(`自動開始: ${successor.activatedAt}（${core.SPRINT_ROLLOVER_ACTOR}）`);
@@ -89,7 +96,7 @@ test("nod scrum rollover はLLMも切り替えられ、nod scrum show に設定�
   expect((await runNod(["scrum", "rollover", "on"], { cwd, db, actor: "codex" })).stdout).toContain("期限到来時の自動引継ぎを有効にしました");
 });
 
-test("LLMは自動引継ぎを無効にした期限切れSprintをCLIで終了できる", async () => {
+test.each(["me", "codex"])("%s はCLIで手動終了したSprintの記録者になる", async (actor) => {
   const cwd = makeRepo(), db = tempDb();
   const { sprint, ws } = expiredActiveSprint(cwd, db);
   const d = core.openDb(db);
@@ -97,8 +104,57 @@ test("LLMは自動引継ぎを無効にした期限切れSprintをCLIで終了�
   d.close();
   const input = join(tempDir(), "end.json");
   writeFileSync(input, JSON.stringify({ expectedVersion: sprint.version, requestKey: "終了", reason: "期限に到達" }));
-  const ended = await runNod(["sprint", "end", sprint.id, "--input", input, "--json"], { cwd, db, actor: "codex" });
+  const ended = await runNod(["sprint", "end", sprint.id, "--input", input, "--json"], { cwd, db, actor });
   expect(ended).toMatchObject({ exitCode: 0, json: { phase: "ended" } });
   const shown = await runNod(["sprint", "show", sprint.id, "--json"], { cwd, db, actor: "codex" });
-  expect(shown.json.closureRecord).toMatchObject({ reason: "期限に到達", kind: "ended" });
+  expect(shown.json.closureRecord).toMatchObject({ reason: "期限に到達", kind: "ended", recordedBy: actor });
+  expect((await runNod(["sprint", "show", sprint.id], { cwd, db })).stdout).toContain(`記録者: ${actor}`);
+});
+
+test.each(["me", "codex"])("%s はCLIで中止したSprintの記録者になる", async (actor) => {
+  const cwd = makeRepo(), db = tempDb();
+  const { sprint, ws } = expiredActiveSprint(cwd, db);
+  const d = core.openDb(db);
+  core.setSprintRollover({ db: d, actor: "me" }, ws.key, { enabled: false });
+  d.close();
+  const input = join(tempDir(), "cancel.json");
+  writeFileSync(input, JSON.stringify({ expectedVersion: sprint.version, requestKey: "中止", reason: "優先順位の変更" }));
+  const canceled = await runNod(["sprint", "cancel", sprint.id, "--input", input, "--json"], { cwd, db, actor });
+  expect(canceled).toMatchObject({ exitCode: 0, json: { phase: "canceled" } });
+  const shown = await runNod(["sprint", "show", sprint.id, "--json"], { cwd, db });
+  expect(shown.json.closureRecord).toMatchObject({ reason: "優先順位の変更", kind: "canceled", recordedBy: actor });
+  expect((await runNod(["sprint", "show", sprint.id], { cwd, db })).stdout).toContain(`記録者: ${actor}`);
+});
+
+test("CLIは手動終了の記録者と後継の自動開始者を別々に表示する", async () => {
+  const cwd = makeRepo(), db = tempDb();
+  const { sprint } = expiredActiveSprint(cwd, db);
+  // CLIの終了コマンドは本体より先に自動処理するため、手動引継ぎは先に用意する。
+  const d = core.openDb(db);
+  core.endSprint({ db: d, actor: "codex" }, sprint.id, {
+    expectedVersion: sprint.version, requestKey: "手動引継ぎ", reason: "期間の終了",
+  });
+  d.close();
+  const opts = { cwd, db, actor: "omp" };
+  const previous = (await runNod(["sprint", "show", sprint.id, "--json"], opts)).json;
+  expect(previous.closureRecord.recordedBy).toBe("codex");
+  expect(previous.closureRecord.automation).toBeUndefined();
+  const successor = (await runNod(["sprint", "show", previous.rolloverTo.id, "--json"], opts)).json;
+  expect(successor).toMatchObject({ phase: "active", activatedBy: "nod-automation" });
+});
+
+test.each([
+  ["手動終了", null, "記録なし"],
+  ["自動終了", "sprint-rollover", "nod-automation"],
+])("CLIは記録者のない旧版の%sを表示する", async (_, automation, actorLabel) => {
+  const cwd = makeRepo(), db = tempDb();
+  const { sprint } = expiredActiveSprint(cwd, db);
+  const d = core.openDb(db);
+  const closure = { kind: "ended", reason: "旧版で終了", recordedAt: sprint.endsAt,
+    issues: [], questions: [], ...(automation ? { automation } : {}) };
+  d.query("UPDATE sprints SET phase='ended', closure_record=? WHERE id=?").run(JSON.stringify(closure), sprint.id);
+  d.close();
+  const opts = { cwd, db, actor: "omp" };
+  expect((await runNod(["sprint", "show", sprint.id, "--json"], opts)).json.closureRecord).toEqual(closure);
+  expect((await runNod(["sprint", "show", sprint.id], opts)).stdout).toContain(`記録者: ${actorLabel}`);
 });
