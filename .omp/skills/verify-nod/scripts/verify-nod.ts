@@ -15,7 +15,7 @@ import { Database } from "bun:sqlite";
 import type { Subprocess } from "bun";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 // 型だけ。実行時は packages/web から解決して読み込む（loadPlaywright）
 import type { Browser, Locator, Page } from "../../../../packages/web/node_modules/@playwright/test";
 import type * as PlaywrightModule from "../../../../packages/web/node_modules/@playwright/test";
@@ -149,9 +149,13 @@ function realish(path: string): string {
   return join(realpathSync(head), ...rest);
 }
 
-function within(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+// child が parent の中（parent 自身を含む）か。どちらも realish で実パスにしてから、パスの要素で判定する
+// （外は、相対パスが ".." そのものか ".." に区切りが続くとき、または絶対パスになるときだけ。"..x" のような名前は中）。
+// macOS の既定のファイルシステムは大文字小文字を区別しないので、まだ無い名前も含めて大文字小文字をそろえて比べる
+function isInside(child: string, parent: string): boolean {
+  const norm = (path: string) => (process.platform === "darwin" ? realish(path).toLowerCase() : realish(path));
+  const rel = relative(norm(parent), norm(child));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 function forbiddenDirs(): string[] {
@@ -164,14 +168,15 @@ function rootDir(): string {
   if (!isAbsolute(raw)) throw new Fail(`VERIFY_NOD_ROOT は絶対パスで指定してください: ${raw}`);
   const root = realish(raw);
   for (const dir of forbiddenDirs()) {
-    if (within(root, realish(dir))) throw new Fail(`置き場の根 ${root} は ${dir} の中にあります。作業ツリーと利用者の nod のデータの外を指定してください`);
+    if (isInside(root, dir)) throw new Fail(`置き場の根 ${root} は ${dir} の中にあります。作業ツリーと利用者の nod のデータの外を指定してください`);
   }
   return root;
 }
 
-// 引数は run の ID（根の下）か、run のディレクトリの絶対パス
+// 引数は run の ID（根の下）か、run のディレクトリの絶対パス。相対パス（"../x/<ID>" など）は run の ID とみなさない
 function resolveRun(ref: string | undefined): Layout {
   if (!ref) throw new Fail("run の ID かディレクトリを指定してください（launch の出力の runId / runDir）");
+  if (!isAbsolute(ref) && !RUN_ID_RE.test(ref)) throw new Fail(`${ref} は run の ID（YYYYMMDD-HHMMSS-<16進5桁>）でも、run のディレクトリの絶対パスでもありません`);
   const runDir = isAbsolute(ref) ? realish(ref) : join(rootDir(), ref);
   if (!RUN_ID_RE.test(basename(runDir))) throw new Fail(`${runDir} は verify-nod の run のディレクトリではありません（名前が run の ID の形でない）`);
   if (!existsSync(runDir)) {
@@ -179,7 +184,7 @@ function resolveRun(ref: string | undefined): Layout {
   }
   if (!existsSync(join(runDir, "evidence"))) throw new Fail(`${runDir} は verify-nod の run のディレクトリではありません（evidence/ が無い）`);
   for (const dir of forbiddenDirs()) {
-    if (within(runDir, realish(dir))) throw new Fail(`${runDir} は ${dir} の中にあります`);
+    if (isInside(runDir, dir)) throw new Fail(`${runDir} は ${dir} の中にあります`);
   }
   return layout(runDir);
 }
@@ -206,14 +211,18 @@ const SYS_ENV = { PATH: SAFE_PATH + ":/usr/sbin:/sbin" };
 // 誰のプロセスとして扱うか
 type Owner =
   | { kind: "server"; state: State; p: Layout } // 状態ファイルに記録したこの run の server（記録した起動の argv で判定）
-  | { kind: "browser"; p: Layout } // browser が起動したブラウザ（--user-data-dir がこの run の tmp/ の下）
+  | { kind: "browser"; p: Layout } // browser が起動したブラウザ（Playwright の headless shell で、--user-data-dir がこの run の tmp/ の下のプロファイル）
   | { kind: "child"; proc: Subprocess }; // launch がいま起動した子（ハンドルを持ち、まだ回収していない間は PID が再利用されない）
 
 // mine: 自分のプロセス。other: 別のプロセス（PID の再利用など。シグナルを送らず、環境変数も読まない）。gone: もう無い
 type Ownership = "mine" | "other" | "gone";
 
-function browserMarker(p: Layout): string {
-  return `--user-data-dir=${p.tmp}/`;
+// browser が起動したブラウザか。実行ファイルが Playwright の headless shell（chrome-headless-shell）で、引数の1つが
+// --user-data-dir=<この run の tmp/>/<Playwright のプロファイル> と完全に一致するときだけ。コマンドラインのどこかにその文字を含むだけのプロセス（シェル、grep など）は別のプロセス
+function isRunBrowser(cmd: string, p: Layout): boolean {
+  const exe = /^\S+/.exec(cmd)?.[0] ?? "";
+  const tmp = p.tmp.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return basename(exe) === "chrome-headless-shell" && new RegExp(`(?:^| )--user-data-dir=${tmp}/playwright_chromiumdev_profile-[A-Za-z0-9]+(?: |$)`).test(cmd);
 }
 
 // その PID が自分のものかの唯一の判定。server は、状態ファイルに記録した起動の argv（どの作業ツリーから launch したかを含む）が
@@ -222,7 +231,7 @@ function ownership(pid: number, owner: Owner): Ownership {
   if (owner.kind === "child") return owner.proc.exitCode === null && owner.proc.signalCode === null ? "mine" : "gone";
   const cmd = commandLine(pid);
   if (cmd === null) return "gone";
-  if (owner.kind === "browser") return cmd.includes(browserMarker(owner.p)) ? "mine" : "other";
+  if (owner.kind === "browser") return isRunBrowser(cmd, owner.p) ? "mine" : "other";
   const { state, p } = owner;
   const argv = state.argv;
   if (!argv) return "other";
@@ -296,14 +305,13 @@ function listeners(port: number): number[] {
   return [...new Set(r.stdout.split("\n").filter(Boolean).map(Number))];
 }
 
-// browser が起動したブラウザのうち残っているものの候補。--user-data-dir がこの run の tmp/ の下にあるプロセスだけを数える
+// browser が起動したブラウザのうち残っているものの候補（isRunBrowser）
 // （止める直前に ownership で確かめ直すので、一覧の後に終わった・入れ替わったプロセスには触れない）
 function browserProcesses(p: Layout): number[] {
   const r = exec([PS, "-ax", "-ww", "-o", "pid=,command="], { env: SYS_ENV });
-  const marker = browserMarker(p);
   return r.stdout.split("\n").flatMap((line) => {
     const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-    return m?.[1] && m[2]?.includes(marker) ? [Number(m[1])] : [];
+    return m?.[1] && m[2] !== undefined && isRunBrowser(m[2], p) ? [Number(m[1])] : [];
   });
 }
 
@@ -597,9 +605,9 @@ function list(): number {
   return 0;
 }
 
-// 証拠の置き場は <run>/evidence/<機能の ID>/。ファイル名の先頭の3桁は、その置き場での呼び出しごとの通し番号
+// 証拠の置き場は <run>/evidence/<機能の ID>/。ファイル名の先頭の数字（3桁以上）は、その置き場での呼び出しごとの通し番号
 const FEATURE_RE = /^[a-z0-9][a-z0-9-]*$/;
-const SEQ_RE = /^\.?(\d{3})-/;
+const SEQ_RE = /^\.?(\d{3,})-/;
 
 interface EvidenceSlot {
   dir: string;
@@ -733,6 +741,20 @@ async function cli(args: string[]): Promise<number> {
 const BROWSER_TIMEOUT_MS = 10_000;
 const VIEWPORT = { width: 1440, height: 960 };
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+// 手順の goto・url の行き先の判定に check-steps が使う仮の origin（run を持たないので。実行のときは run の origin でもう一度判定する）
+const CHECK_ORIGIN = "http://127.0.0.1:1";
+
+// 手順の goto・url の行き先を、origin を基点に URL として解き、origin が同じときだけ返す。
+// "//host"・"/\host"・"/<タブ>/host" のように "/" で始まっても別の origin に解けるものは null
+function sameOriginUrl(path: string, origin: string): URL | null {
+  if (!path.startsWith("/")) return null;
+  try {
+    const url = new URL(path, origin);
+    return url.origin === origin ? url : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---- 手順の定義。検査（checkSteps）と実行（browser の run・locate）は、この定義の項目だけを扱う ----
 
@@ -816,7 +838,7 @@ function checkSpec(spec: unknown, where: string): void {
 
 // 項目の型ごとの検査。where は「手順 <番号>（<種類>）.<項目>」
 const CHECK: Record<FieldType, (v: unknown, where: string) => void> = {
-  path: (v, w) => need(isText(v) && v.startsWith("/") && !v.startsWith("//"), w, `"/" で始まるパスの文字列で書いてください（run の URL からの相対。"//" で始まる別の origin は書けない）`),
+  path: (v, w) => need(isText(v) && sameOriginUrl(v, CHECK_ORIGIN) !== null, w, `"/" で始まるパスの文字列で書いてください（run の URL を基点に解いて同じ origin になるもの。"//"・"/\\" で始まるなど別の origin に解けるものは書けない）`),
   true: (v, w) => need(v === true, w, "true だけを書けます"),
   locator: checkSpec,
   key: (v, w) => need(isText(v), w, `キーの名前を空でない文字列で書いてください（例 "Enter"）`),
@@ -1047,7 +1069,9 @@ async function browser(args: string[]): Promise<number> {
     const perform = async (): Promise<void> => {
       switch (op) {
         case "goto": {
-          const res = await pg.goto(`${origin}${v as string}`);
+          const target = sameOriginUrl(v as string, origin);
+          if (!target) throw new Fail(`行き先 ${JSON.stringify(v)} は run の origin ${origin} の外に解けるので開きません`);
+          const res = await pg.goto(target.href);
           rec.status = res?.status() ?? null;
           return;
         }
@@ -1057,7 +1081,8 @@ async function browser(args: string[]): Promise<number> {
           return;
         }
         case "url": {
-          const want = new URL(v as string, origin);
+          const want = sameOriginUrl(v as string, origin);
+          if (!want) throw new Fail(`URL ${JSON.stringify(v)} は run の origin ${origin} の外に解けるので待ちません`);
           await pg.waitForURL((u) => u.origin === origin && u.pathname === want.pathname && (want.search === "" || u.search === want.search));
           return;
         }

@@ -24,7 +24,7 @@ description: "nod（このリポジトリの Issue 管理。Web が主、CLI が
 
 ### 置き場
 
-置き場の根は環境変数 `VERIFY_NOD_ROOT`（絶対パス）で変えられる。既定は `~/.local/state/verify-nod`。根が作業ツリー、`~/.local/share/nod`、`~/.config/nod`、`~/Applications/nod.app` の中にあると、補助スクリプトは失敗する。
+置き場の根は環境変数 `VERIFY_NOD_ROOT`（絶対パス）で変えられる。既定は `~/.local/state/verify-nod`。根が作業ツリー、`~/.local/share/nod`、`~/.config/nod`、`~/Applications/nod.app` の中にあると、補助スクリプトは失敗する。中かどうかは、シンボリックリンクを解いた実パス（`/tmp` は `/private/tmp`）どうしをパスの要素で比べて決める（大文字小文字の違いは同じとみなす）。`<作業ツリー>/..x` や `~/.local/share/nod/..x` のように `..` で始まる名前の下も中として拒み、`<作業ツリー>/../x` のように実際に外に出るものだけを外とする。
 
 `launch` は根の下に run の ID（`YYYYMMDD-HHMMSS-<16進5桁>`）の名前でディレクトリを作る（既にあれば失敗する）。中身は次のとおり。
 
@@ -174,9 +174,9 @@ EOF
 
 | 操作 | 書き方 | すること |
 | --- | --- | --- |
-| `goto` | `{"goto": "/issues"}` | run の URL からの相対のパスを開く（別の origin は書けない）。記録に HTTP の状態コードが残る |
+| `goto` | `{"goto": "/issues"}` | run の URL からの相対のパスを開く。行き先は run の origin を基点に URL として解き、origin が同じときだけ開く（`//host`・`/\host`・`http://host/`・`javascript:` など別の origin に解けるものは、`check-steps` と実行前の検査で仮の origin `http://127.0.0.1:1` を基点に解いて拒み、実行のときも run の origin でもう一度確かめる）。記録に HTTP の状態コードが残る |
 | `reload` | `{"reload": true}` | 再読み込みする（`true` だけを書ける） |
-| `url` | `{"url": "/issues/V1A2B3-1"}` | URL のパス（`?` があればクエリも）がそれになるまで待つ |
+| `url` | `{"url": "/issues/V1A2B3-1"}` | URL のパス（`?` があればクエリも）がそれになるまで待つ（行き先の書き方と検査は `goto` と同じ） |
 | `click` | `{"click": <ロケータ>}` | クリックする |
 | `fill` | `{"fill": <ロケータ>, "value": "文字"}` | 入力欄を空にして入力する（`value` は文字列。`""` なら空にするだけ） |
 | `press` | `{"press": "Enter", "on": <ロケータ>}` | キーを押す（キーは空でない文字列。`on` を省くとページに送る） |
@@ -198,7 +198,7 @@ EOF
 
 ## Evidence
 
-証拠は run ごとの置き場の `evidence/` の下に置き、`cleanup` で消えない（後始末のあとは run のディレクトリに `evidence/` だけが残る）。機能ごとの証拠は `evidence/<機能の ID>/`（機能の ID は機能の一覧のファイル名。英小文字・数字・ハイフン）に、呼び出しごとの3桁の通し番号 `NNN` を付けて置く。番号は呼び出しの始めに `.NNN-claim` を排他で作って確保し、証拠を書いたら消す（補助スクリプトを強制終了したときは残り、その番号は使われない）。同じ機能の `cli --evidence`・`browser` を並行に呼んでも、呼び出しごとに別の番号になり、上書きされない（並行のときの番号の順は、呼び出した順と一致するとは限らない）。
+証拠は run ごとの置き場の `evidence/` の下に置き、`cleanup` で消えない（後始末のあとは run のディレクトリに `evidence/` だけが残る）。機能ごとの証拠は `evidence/<機能の ID>/`（機能の ID は機能の一覧のファイル名。英小文字・数字・ハイフン）に、呼び出しごとの3桁の通し番号 `NNN` を付けて置く（999 の次は 1000 と4桁になる）。番号は呼び出しの始めに `.NNN-claim` を排他で作って確保し、証拠を書いたら消す（補助スクリプトを強制終了したときは残り、その番号は使われない）。同じ機能の `cli --evidence`・`browser` を並行に呼んでも、呼び出しごとに別の番号になり、上書きされない（並行のときの番号の順は、呼び出した順と一致するとは限らない）。
 
 | パス（`<run>/evidence/` の中） | 書くもの | 中身 |
 | --- | --- | --- |
@@ -227,9 +227,9 @@ EOF
 ./.omp/skills/verify-nod/scripts/verify-nod.ts cleanup <runId または runDir>
 ```
 
-PID を扱う箇所（`cleanup`・`doctor`・`list`・`browser` の前の `doctor`・`launch` の失敗時の停止）は、すべて同じ持ち主の判定と同じ止め方を通る。自分のプロセスは、記録した起動の argv と一致する server、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるブラウザ、`launch` が起動してまだ終わっていない子の3つだけ。シグナルを送る直前に持ち主を確かめ直し、自分のものでないプロセスにはシグナルを送らず、環境変数も読まない。送る前後に終わっていたプロセス（ESRCH）は「止まっている」として扱い、中断しない。
+PID を扱う箇所（`cleanup`・`doctor`・`list`・`browser` の前の `doctor`・`launch` の失敗時の停止）は、すべて同じ持ち主の判定と同じ止め方を通る。自分のプロセスは、記録した起動の argv と一致する server、`browser` のブラウザ（実行ファイルが Playwright の `chrome-headless-shell` で、引数の1つが `--user-data-dir=<この run の tmp/>/playwright_chromiumdev_profile-<英数字>` と完全に一致する。コマンドラインのどこかにその文字を含むだけのシェルなどは別のプロセス）、`launch` が起動してまだ終わっていない子の3つだけ。シグナルを送る直前に持ち主を確かめ直し、自分のものでないプロセスにはシグナルを送らず、環境変数も読まない。送る前後に終わっていたプロセス（ESRCH）は「止まっている」として扱い、中断しない。
 
-1. `browser` のブラウザが残っていれば止める。候補は、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるプロセス（`ps -ax -ww -o pid=,command=`）で、SIGTERM を送り、10秒で止まらなければ SIGKILL。1回目の後に現れた候補も、もう一度だけ探して止める。通常は `browser` が終わるときにブラウザを閉じ、補助スクリプトが強制終了されてもブラウザは一緒に終わるので、ここで止めるものは無い（補助スクリプトを SIGSTOP で止めてブラウザを残した状態で、`cleanup` がそのブラウザだけを止めることを確かめた。一覧を取ったあと止める前に終わるプロセスが続けて現れる状態でも、中断せずに最後まで進むことを確かめた）。
+1. `browser` のブラウザが残っていれば止める。候補は、上の判定で `browser` のブラウザとみなせるプロセス（`ps -ax -ww -o pid=,command=`）で、SIGTERM を送り、10秒で止まらなければ SIGKILL。1回目の後に現れた候補も、もう一度だけ探して止める。通常は `browser` が終わるときにブラウザを閉じ、補助スクリプトが強制終了されてもブラウザは一緒に終わるので、ここで止めるものは無い（補助スクリプトを SIGSTOP で止めてブラウザを残した状態で、`cleanup` がそのブラウザだけを止めることを確かめた。一覧を取ったあと止める前に終わるプロセスが続けて現れる状態でも、中断せずに最後まで進むことを確かめた。コマンドラインの末尾に `--user-data-dir=<この run の tmp/>/` を付けたシェルを動かした状態で、`cleanup` がそのシェルに触れないことを確かめた）。
 2. `state.json` の PID が自分の server（そのコマンドラインが状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致する）なら、SIGTERM を送って止まるのを待つ（10秒で止まらなければ、もう一度確かめて SIGKILL）。別の作業ツリーから launch した run も、記録した argv と一致すれば止める（その run の `launch` が起動した server なので）。PID が動いていなければ止めるものは無い。PID が別のプロセスに再利用されていれば（自分の server はもう動いていない）、そのプロセスには触れずに次へ進む（server を外から止めて、記録した PID を自分で起動した `sleep` の PID に書き換えた run で、`sleep` が動いたまま、データが消え、`cleanup.json` が書かれることを確かめた）。そのプロセスのコマンドラインと環境は出力にも記録にも載せない。
 3. 表で「消す」とした `data/`・`home/`・`tmp/`・`config/`・`repo/`・`bin/`・`web/`・`logs/`・`state.json` を消す。ただし、自分の server かブラウザが SIGKILL の後も動いているときは、動いているプロセスのデータを消さず、記録だけを書いて終了コード 1 で終わる（理由を標準エラーに出す。止まるのを確かめてから、もう一度 `cleanup` する）。
 4. `evidence/cleanup.json` に、成否、PID ごとの扱い（止めた・止まっていた・触れなかった・止まらない）、消したパスを追記する（「Evidence」）。
@@ -245,7 +245,7 @@ VERIFY_NOD_ROOT=/tmp/verify-nod-alt ./.omp/skills/verify-nod/scripts/verify-nod.
 
 ## Helpers
 
-補助スクリプトは `.omp/skills/verify-nod/scripts/verify-nod.ts`（実行可能。shebang は `#!/usr/bin/env -S bun --no-env-file`）。`bun --no-env-file .omp/skills/verify-nod/scripts/verify-nod.ts <サブコマンド>` でも同じ。`<run>` は `launch` の出力の `runId`（根の下を探す）か `runDir`（絶対パス）。
+補助スクリプトは `.omp/skills/verify-nod/scripts/verify-nod.ts`（実行可能。shebang は `#!/usr/bin/env -S bun --no-env-file`）。`bun --no-env-file .omp/skills/verify-nod/scripts/verify-nod.ts <サブコマンド>` でも同じ。`<run>` は `launch` の出力の `runId`（根の下を探す）か `runDir`（絶対パス）。`../x/<runId>` のような相対パスは受け付けない。
 
 | サブコマンド | 使い方 |
 | --- | --- |
