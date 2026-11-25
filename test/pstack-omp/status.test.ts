@@ -759,7 +759,7 @@ describe("生成物・OMP の版・読み込みの設定", () => {
     register(sb);
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
-    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nproject\n");
+    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\nproject\n");
     put(join(project, ".omp", "agents", "locked.md"), "---\nname: locked\n---\n");
     put(join(project, ".omp", "skills", "locked", "SKILL.md"), skillMd("locked", "project"));
     mkdirSync(join(project, ".claude", "skills", "folder", "SKILL.md"), { recursive: true });
@@ -839,12 +839,12 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const sb = await synced({ repoContent: true });
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
-    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nproject\n");
+    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\nproject\n");
     put(join(project, ".omp", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
     put(join(project, ".agents", "skills", "table", "SKILL.md"), skillMd("pstack-omp", "project"));
     put(join(project, ".omp", "skills", "other", "SKILL.md"), skillMd("other", "project"));
     // OMP は実行したディレクトリから最も近い .omp/agents だけを読むので、遠い方（根の親）は報告しない
-    put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\noutside\n");
+    put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\noutside\n");
     mkdirSync(join(project, "src"));
     const real = realpathSync(project);
 
@@ -877,7 +877,7 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
     mkdirSync(join(project, "src"));
-    put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\noutside\n");
+    put(join(sb.root, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\noutside\n");
 
     const run = await sb.run("status", { cwd: join(project, "src") });
 
@@ -889,7 +889,7 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const sb = await withAgent();
     const dir = join(sb.home, "work");
     mkdirSync(dir);
-    put(join(sb.home, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nhome\n");
+    put(join(sb.home, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\nhome\n");
 
     const run = await sb.run("status", { cwd: dir });
 
@@ -901,8 +901,8 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
     const sb = await withAgent();
     const project = join(sb.root, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
-    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nfar\n");
-    put(join(project, "pkg", ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\n---\n\nnear\n");
+    put(join(project, ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\nfar\n");
+    put(join(project, "pkg", ".omp", "agents", "poteto-agent.md"), "---\nname: poteto-agent\ndescription: test\n---\n\nnear\n");
     mkdirSync(join(project, "pkg", "src"));
     const real = realpathSync(project);
 
@@ -910,6 +910,38 @@ describe("プロジェクトの置き場の名前のぶつかり", () => {
 
     expect(run.exitCode).toBe(0);
     expect(projectSection(run.stdout, real)).toEqual([`  ${real}/pkg/.omp/agents/poteto-agent.md: ${AGENT_CLASH}`]);
+  });
+
+  test("frontmatter の前に HTML のコメントがあっても、OMP 19.1.0 と同じくそれを除いた frontmatter の name で、ファイル名の違う定義を同じ名前として報告する", async () => {
+    const sb = await withAgent();
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    put(join(project, ".omp", "agents", "other.md"), "<!-- note -->\n---\nname: poteto-agent\ndescription: test\n---\n\nproject\n");
+    const real = realpathSync(project);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, real)).toEqual([`  ${real}/.omp/agents/other.md: ${AGENT_CLASH}`]);
+  });
+
+  test.each([
+    ["name が無い（ファイル名は poteto-agent.md）", "---\ndescription: test\n---\n\nproject\n"],
+    ["frontmatter が無い（ファイル名は poteto-agent.md）", "project\n"],
+    ["description が無い", "---\nname: poteto-agent\n---\n\nproject\n"],
+    ["description が空", '---\nname: poteto-agent\ndescription: ""\n---\n\nproject\n'],
+    ["name の前後に空白がある（OMP はそのままの形で比べる）", '---\nname: " poteto-agent "\ndescription: test\n---\n\nproject\n'],
+  ])("OMP 19.1.0 が定義として読まない、または別の名前とみなすエージェント定義（%s）は報告しない", async (_, text) => {
+    const sb = await withAgent();
+    const project = join(sb.root, "project");
+    mkdirSync(join(project, ".git"), { recursive: true });
+    put(join(project, ".omp", "agents", "poteto-agent.md"), text);
+    const real = realpathSync(project);
+
+    const run = await sb.run("status", { cwd: project });
+
+    expect(run.exitCode).toBe(0);
+    expect(projectSection(run.stdout, real)).toEqual(["  ありません"]);
   });
 
   const TDD_CLASH = "スキル tdd。生成したスキル（skills.customDirectories）が優先され、このスキルは <名前空間>/tdd の名前になります";

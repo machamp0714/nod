@@ -1,10 +1,13 @@
 // OMP がエージェント定義を読む置き場から、名前を集める（状態の表示の、プロジェクトの置き場の名前のぶつかりのため）。
-// エージェントの名前は <dir>/*.md の frontmatter の name（無いか空ならファイル名。OMP と同じく前後の空白は除かない）。OMP と同じく非再帰で読む。
+// OMP 19.1.0 の loadAgentsFromDir・parseAgent・parseAgentFields と同じく、<dir>/*.md を非再帰で読み、frontmatter（前の HTML のコメントは除く）に
+// 空でない文字列の name と description があり、name の前後の空白を除いて小文字にした形が main・sub でないものだけを定義とする。名前は name を
+// そのままの形（前後の空白も除かない）で使い、ファイル名には頼らない。それ以外のファイルは OMP が読み飛ばすので定義に入れない。
 // 置き場が無ければ何も無いとみなす。プロジェクトのスキルは omp-skills.ts が OMP と同じ条件で集める。
 // 定義のファイルが在るのに読めない（権限が無いなど）なら、名前を確かめられないので例外にせず、
 // unreadable に入れて呼び出し側に返す（状態の表示はそのファイルを表示する）。
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { parseFrontmatter } from "./frontmatter";
 
 export interface Definition {
   kind: "agent" | "skill";
@@ -19,7 +22,7 @@ export interface Found {
   unreadable: string[];
 }
 
-// <dir>/*.md のエージェント定義。在るのに読めなければ unreadable に入れる
+// <dir>/*.md のうち OMP が読むエージェント定義。在るのに読めなければ unreadable に入れる
 function agentsIn(dir: string): Found {
   const found: Found = { definitions: [], unreadable: [] };
   for (const entry of entries(dir).filter((e) => e.endsWith(".md") && isFile(join(dir, e)))) {
@@ -31,7 +34,11 @@ function agentsIn(dir: string): Found {
       found.unreadable.push(path);
       continue;
     }
-    found.definitions.push({ kind: "agent", name: frontmatterName(text) || basename(entry, ".md"), path });
+    const frontmatter = parseFrontmatter(text);
+    const name = typeof frontmatter.name === "string" ? frontmatter.name : "";
+    const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
+    if (name === "" || description === "" || ["main", "sub"].includes(name.trim().toLowerCase())) continue;
+    found.definitions.push({ kind: "agent", name, path });
   }
   return found;
 }
@@ -96,17 +103,4 @@ function isDirectory(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-// frontmatter（先頭の --- から --- まで）の name（文字列のときだけ。そのままの形）。無い・読めない frontmatter なら undefined
-function frontmatterName(text: string): string | undefined {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-  if (match === null) return undefined;
-  try {
-    const data = Bun.YAML.parse(match[1]!);
-    if (typeof data === "object" && data !== null && "name" in data && typeof data.name === "string") return data.name;
-  } catch {
-    // 読めない frontmatter は名前が無いとみなす
-  }
-  return undefined;
 }
