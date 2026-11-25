@@ -115,8 +115,8 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 | --- | --- |
 | `state` | `state.json` があり、PID とポートが記録されている |
 | `port-not-user` | 照合するポートが 4700 でない（4700 なら以降の接続をしない） |
-| `pid-alive` | 状態ファイルの PID が動いている |
-| `pid-command` | その PID のコマンドラインが、状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致する（`ps -ww -o command= -p <PID>`）。一致しないときは、そのコマンドラインを出力に載せない |
+| `pid-alive` | 状態ファイルの PID が動いている（別のプロセスに再利用されていても通る。持ち主は次の `pid-command` で見る） |
+| `pid-command` | その PID のコマンドラインが、状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致する（`ps -ww -o command= -p <PID>`）。この判定は `cleanup`・`list` と同じもの。一致しないときは、そのコマンドラインを出力に載せない |
 | `pid-env` | その PID の環境変数が、許可リストの11項目と完全に一致する（`ps eww -o command= -p <PID>`）。`pid-command` が通らないときは、そのプロセスの環境変数を読まずに失敗にする。一致しないときも、違う変数の名前だけを出し、値は出さない |
 | `port-owner` | そのポートで LISTEN しているプロセスが、状態ファイルの PID だけ（`lsof -nP -iTCP:<port> -sTCP:LISTEN -t`） |
 | `ui-output` | `logs/ui.stdout.log` の `nod ui` の出力が `reused=false`、`dbPath` がこの run の DB、URL がこのポート |
@@ -132,7 +132,7 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 ./.omp/skills/verify-nod/scripts/verify-nod.ts doctor <runId> --port <別の run のポート>
 ```
 
-`doctor` が通らないときは、その run を操作しない。`cleanup` してから `launch` し直す。
+`doctor` が通らないときは、その run を操作しない。`cleanup` してから `launch` し直す。記録した PID の server が落ちていて、その PID が別のプロセスに再利用されている run も、`cleanup` はそのプロセスに触れずに作業用のデータを消せる（「Cleanup」）。
 
 ## Drive
 
@@ -161,7 +161,7 @@ EOF
 
 手順の JSON の配列を標準入力（または `--steps <ファイル>`）で渡す。値をシェルの変数から入れるときは、区切りを引用しない（`<<EOF`）。1回の呼び出しで次を行う。
 
-1. 手順の形をすべて確かめる（操作のキーが1つでない、使えないキーがある、パスが `/` で始まらない、などはブラウザを起動する前に終了コード 1）。
+1. 手順の形をすべて確かめる。手順の種類ごとに、書ける項目、各項目の型（真偽値は `true`・`false` だけ、整数は整数だけ、文字列は文字列だけ）、組み合わせが決まっている（下の表とロケータの説明）。種類のキーが1つでない、書けない項目がある、型が違う、空の値（`""`、`[]`、`{}`）、許されない組み合わせのどれかがあると、`手順 <番号>（<種類>）.<項目>: <理由>` を出して、ブラウザも `doctor` も起動する前に終了コード 1 で終わる。形だけを確かめるときは `check-steps`（「Helpers」）を使う。実行は、検査を通った項目をすべて使い、使わない項目があればその手順を成功にせず失敗にする。
 2. その run の `doctor` を通す。1つでも通らなければ `NG <名前>: <理由>` を出して終了コード 1 で、ブラウザを起動しない。
 3. リポジトリの Playwright（`packages/web/node_modules/@playwright/test`、1.63）で、導入済みの Chromium（ヘッドレス。`chromium_headless_shell-1243`）を起動する。ブラウザの環境変数は `PATH=/usr/bin:/bin`・`HOME=<run>/home`・`TMPDIR=<run>/tmp` だけで、一時的なプロファイルは `<run>/tmp` に作られる。
 4. 新しいコンテキスト（cookie・ストレージなし、viewport 1440×960、`ja-JP`、Service Worker なし）を作り、その run の origin（`http://127.0.0.1:<ポート>`）以外への要求（HTTP と WebSocket）をすべてブラウザ側で止める（`127.0.0.1:4700`・`localhost:4700`・外部も止まる）。止めた URL は記録の `blocked` に残る。
@@ -170,29 +170,29 @@ EOF
 
 ページの状態は呼び出しをまたいで残らない（毎回新しいコンテキストで、最初のページは `about:blank`）。続けて確かめる操作は1回の呼び出しの手順にまとめるか、次の呼び出しを `goto` から書く。待ち時間は、操作・待つ・確かめる手順ごとに既定 10 秒（`--timeout <ミリ秒>` で変える）。
 
-**手順**（1つの手順に操作のキーを1つだけ書き、添えてよいキーだけを足す。どの手順にも説明用の `"note"` を書ける）:
+**手順**（1つの手順に種類のキーを1つだけ書き、その種類に書ける項目だけを足す。どの手順にも説明用の `"note"`（文字列）を書ける。`fill`・`select` の `value` と `drag` の `to` は必ず書く）:
 
 | 操作 | 書き方 | すること |
 | --- | --- | --- |
 | `goto` | `{"goto": "/issues"}` | run の URL からの相対のパスを開く（別の origin は書けない）。記録に HTTP の状態コードが残る |
-| `reload` | `{"reload": true}` | 再読み込みする |
+| `reload` | `{"reload": true}` | 再読み込みする（`true` だけを書ける） |
 | `url` | `{"url": "/issues/V1A2B3-1"}` | URL のパス（`?` があればクエリも）がそれになるまで待つ |
 | `click` | `{"click": <ロケータ>}` | クリックする |
-| `fill` | `{"fill": <ロケータ>, "value": "文字"}` | 入力欄を空にして入力する |
-| `press` | `{"press": "Enter", "on": <ロケータ>}` | キーを押す（`on` を省くとページに送る） |
-| `select` | `{"select": <ロケータ>, "value": "値"}` | `select` の選択肢を選ぶ |
+| `fill` | `{"fill": <ロケータ>, "value": "文字"}` | 入力欄を空にして入力する（`value` は文字列。`""` なら空にするだけ） |
+| `press` | `{"press": "Enter", "on": <ロケータ>}` | キーを押す（キーは空でない文字列。`on` を省くとページに送る） |
+| `select` | `{"select": <ロケータ>, "value": "値"}` | `select` の選択肢を選ぶ（`value` は文字列） |
 | `check`・`uncheck` | `{"check": <ロケータ>}` | チェックボックス・ラジオを入れる・外す |
 | `hover` | `{"hover": <ロケータ>}` | ポインタを重ねる |
 | `drag` | `{"drag": <ロケータ>, "to": <ロケータ>}` | ドラッグして落とす（Board のカードを列へ、など） |
 | `wait` | `{"wait": <ロケータ>, "state": "hidden"}` | 状態（`visible`（既定）・`hidden`・`attached`・`detached`）になるまで待つ |
-| `expect` | `{"expect": <ロケータ>, "text": "…", "attr": {"data-value": "todo"}}` | 確かめる。既定は「1つだけ見えている」。`count`（件数。0 以上の整数）、`hidden: true`（見えない。`true` だけを書ける）、`text`（文字を含む。配列なら要素ごと）、`value`（入力値）、`attr`（属性の値）、`disabled`（`true` で無効・`false` で有効）を組み合わせ、書いたものはすべて検査する（`count` を書くと「見えている」の既定の検査は外れる）。必ず失敗する組み合わせは手順の形の検査で拒む: `count: 0` と `text`・`value`・`attr`・`disabled`、`count` が 2 以上と `hidden`・`value`・`attr`・`disabled`・文字列の `text`（1つの要素を確かめる検査なので複数に当たると失敗する。文字は `text` に要素ごとの配列で書く） |
+| `expect` | `{"expect": <ロケータ>, "text": "…", "attr": {"data-value": "todo"}}` | 確かめる。既定は「1つだけ見えている」。`count`（件数。0 以上の整数）、`hidden: true`（見えない。`true` だけを書ける）、`text`（文字を含む。空でない文字列か、空でない文字列の配列で、配列なら要素ごと）、`value`（入力値。文字列で、`""` は空であること）、`attr`（属性の名前と値（文字列）のオブジェクト。1つ以上）、`disabled`（`true` で無効・`false` で有効。真偽値だけを書ける）を組み合わせ、書いたものはすべて検査する（`count` を書くと「見えている」の既定の検査は外れる）。必ず失敗する組み合わせは手順の形の検査で拒む: `count: 0` と `text`・`value`・`attr`・`disabled`、`count` が 2 以上と `hidden`・`value`・`attr`・`disabled`・文字列の `text`（1つの要素を確かめる検査なので複数に当たると失敗する。文字は `text` に要素ごとの配列で書く）、2つ以上の要素の `text` の配列と、それより小さい `count` か `count` なし |
 | `read` | `{"read": <ロケータ>}` | 当たった要素の文字を記録の `read` に残す（CLI の出力と見比べる） |
 | `snapshot` | `{"snapshot": "list", "of": <ロケータ>}` | ARIA スナップショットを残す（`of` を省くとページ全体） |
-| `screenshot` | `{"screenshot": "list", "fullPage": false}` | スクリーンショットを残す（既定はページ全体。ただし nod の画面は中の領域でスクロールするので、写るのは viewport の高さ（960）まで。下のほうの内容は `snapshot` で残す） |
+| `screenshot` | `{"screenshot": "list", "fullPage": false}` | スクリーンショットを残す（`fullPage` は真偽値で、既定はページ全体。ただし nod の画面は中の領域でスクロールするので、写るのは viewport の高さ（960）まで。下のほうの内容は `snapshot` で残す） |
 | `events` | `{"events": "ready"}` | Web の変更の通知（SSE）の接続の状態が `ready`（または `connecting`）になるまで待つ（Web が出す `<html data-server-events>`）。CLI の書き込みが再読み込みなしで出ることを確かめる前に通す |
-| `cli` | `{"cli": ["--json", "issue", "create", "タイトル"], "actor": "me"}` | ページを開いたまま、`cli` サブコマンドと同じ（run のデータ・許可リストの環境・cwd は run の `repo`）ソースの CLI を実行し、`NNN-II-cli.json` に記録する。`actor` を省くと書き手は `verify-nod`。CLI の終了コードが 0 でなければ手順の失敗。引数に `ui` があると、手順の形の検査で拒む（ブラウザを起動しない） |
+| `cli` | `{"cli": ["--json", "issue", "create", "タイトル"], "actor": "me"}` | ページを開いたまま、`cli` サブコマンドと同じ（run のデータ・許可リストの環境・cwd は run の `repo`）ソースの CLI を実行し、`NNN-II-cli.json` に記録する。引数は文字列の配列（1つ以上）。`actor`（空でない文字列）を省くと書き手は `verify-nod`。CLI の終了コードが 0 でなければ手順の失敗。引数に `ui` があると、手順の形の検査で拒む（ブラウザを起動しない） |
 
-**ロケータ**は `{"role": "button", "name": "New Issue", "exact": true}` の形のオブジェクトで、Playwright の `getByRole` などに当たる。`role`（`name`・`exact`・`level` を添える）を第一に使い、無いときだけ `label`・`placeholder`・`text`・`testId` を使う。`within: <ロケータ>` で親の中に絞り、`hasText` で中の文字で絞り、`nth`（0 から）で何番目かを選ぶ。`name` は既定で部分一致（大文字小文字を区別しない）で、`"exact": true` で完全一致。複数に当たる要素を操作・`expect` すると失敗するので、`within` や `exact` で1つに絞る。role と name は `snapshot` の出力（例: `button "New Issue" [disabled]`）で確かめられ、`packages/web/e2e/*.e2e.ts` のセレクタも参考になる。
+**ロケータ**は `{"role": "button", "name": "New Issue", "exact": true}` の形のオブジェクトで、Playwright の `getByRole` などに当たる。基点の `role`・`label`・`placeholder`・`text`・`testId` のどれか1つだけを書く（2つ書くと拒む）。`role`（`name`・`exact`・`level` を添える）を第一に使い、無いときだけ `label`・`placeholder`・`text`（`exact` を添えられる）・`testId` を使う。どの基点にも `within: <ロケータ>`（親の中に絞る）、`hasText`（中の文字で絞る）、`nth`（0 から。何番目か）を添えられる。`name` は既定で部分一致（大文字小文字を区別しない）で、`"exact": true` で完全一致（role の `exact` は `name` と一緒に書く）。文字列の項目は空でない文字列、`exact` は真偽値、`level` は 1〜6 の整数、`nth` は 0 以上の整数だけを書ける。複数に当たる要素を操作・`expect` すると失敗するので、`within` や `exact` で1つに絞る。role と name は `snapshot` の出力（例: `button "New Issue" [disabled]`）で確かめられ、`packages/web/e2e/*.e2e.ts` のセレクタも参考になる。
 
 よく使うハンドル（2026-11-25 に確かめた）: サイドバーは `{"role": "navigation", "name": "メイン"}`、一覧の絞り込みのタブは `{"role": "tab", "name": "All 1", "within": {"role": "tablist", "name": "絞り込み"}}`、一覧の行は `{"role": "row", "name": "<ID>"}`、詳細の見出しは `{"role": "heading", "level": 1, "name": "<タイトル>"}`、詳細の欄は `{"role": "region", "name": "説明", "exact": true}`（ほかに `計画`・`Documents`・`Activity`・`未決事項`・`プロパティ` など）、プロパティの値は `{"role": "button", "name": "Status", "exact": true, "within": {"role": "region", "name": "プロパティ", "exact": true}}` の `data-value`。Board の列は `{"role": "region", "name": "In Progress", "exact": true}`、カードは `{"role": "article", "hasText": "<ID>"}`。ほかの画面のハンドルは機能のファイルにある。
 
@@ -203,7 +203,7 @@ EOF
 | パス（`<run>/evidence/` の中） | 書くもの | 中身 |
 | --- | --- | --- |
 | `launch.json` | `launch` | 起動時の状態ファイル、`nod ui` の出力、状態確認の結果 |
-| `cleanup.json` | `cleanup` | 後始末ごとに、止めた nod の PID、止めた残りのブラウザの PID、消したパス |
+| `cleanup.json` | `cleanup` | 後始末ごとに、成否（`ok`）、記録した server の PID とその扱い（`server`）、残りのブラウザの PID ごとの扱い（`browsers`）、消したパス（`removed`）。扱いは `SIGTERM で停止`・`SIGKILL で停止`・`停止済み（シグナルを送る前に終わっていた）`・`触れない（この PID は別のプロセス…）`・`止まらない（SIGKILL の後も動いている）` のどれかで、触れなかったプロセスのコマンドラインと環境は記録しない |
 | `<機能の ID>/NNN-cli.json` | `cli --evidence` | run の ID・runDir・URL、書き手（`actor`）、cwd、コマンド（`["nod", ...]`）、終了コード、開始・終了の時刻、標準出力・標準エラー（JSON として読めれば `stdoutJson` にも） |
 | `<機能の ID>/NNN-browser.json` | `browser` | run の ID・runDir・origin、`doctor` の結果、`blockCheck`、手順ごとの結果（手順・成否・かかった時間・その後の URL・HTTP の状態コード・`read` の文字・残したファイル・`cli` の記録・それまでの文書の読み込みの回数 `loads`・失敗の理由）、止めた要求（`blocked`）、コンソールのエラー、ページのエラー |
 | `<機能の ID>/NNN-II-cli.json` | `browser` の `cli` | `NNN-cli.json` と同じ形（`II` は手順の番号） |
@@ -227,10 +227,12 @@ EOF
 ./.omp/skills/verify-nod/scripts/verify-nod.ts cleanup <runId または runDir>
 ```
 
-1. `browser` のブラウザが残っていれば止める。対象は、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるプロセスだけ（`ps -ax -ww -o pid=,command=`）で、SIGTERM を送り、10秒で止まらなければ SIGKILL。通常は `browser` が終わるときにブラウザを閉じ、補助スクリプトが強制終了されてもブラウザは一緒に終わるので、ここで止めるものは無い（補助スクリプトを SIGSTOP で止めてブラウザを残した状態で、`cleanup` がそのブラウザだけを止めることを確かめた）。
-2. `state.json` の PID が動いていれば、そのコマンドラインが状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致することを確かめてから SIGTERM を送り、止まるのを待つ（10秒で止まらなければ、もう一度確かめて SIGKILL）。別の作業ツリーから launch した run も、記録した argv と一致すれば止める（その run の `launch` が起動した server なので）。一致しなければ止めずに終了コード 1 で終わり、データも消さない（別の PID を記録した run で、その PID が止められず、データが残ることを確かめた）。そのプロセスのコマンドラインは出力に載せない。
-3. 表で「消す」とした `data/`・`home/`・`tmp/`・`config/`・`repo/`・`bin/`・`web/`・`logs/`・`state.json` を消す。
-4. `evidence/cleanup.json` に、止めた PID（nod と残りのブラウザ）と消したパスを追記する。
+PID を扱う箇所（`cleanup`・`doctor`・`list`・`browser` の前の `doctor`・`launch` の失敗時の停止）は、すべて同じ持ち主の判定と同じ止め方を通る。自分のプロセスは、記録した起動の argv と一致する server、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるブラウザ、`launch` が起動してまだ終わっていない子の3つだけ。シグナルを送る直前に持ち主を確かめ直し、自分のものでないプロセスにはシグナルを送らず、環境変数も読まない。送る前後に終わっていたプロセス（ESRCH）は「止まっている」として扱い、中断しない。
+
+1. `browser` のブラウザが残っていれば止める。候補は、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるプロセス（`ps -ax -ww -o pid=,command=`）で、SIGTERM を送り、10秒で止まらなければ SIGKILL。1回目の後に現れた候補も、もう一度だけ探して止める。通常は `browser` が終わるときにブラウザを閉じ、補助スクリプトが強制終了されてもブラウザは一緒に終わるので、ここで止めるものは無い（補助スクリプトを SIGSTOP で止めてブラウザを残した状態で、`cleanup` がそのブラウザだけを止めることを確かめた。一覧を取ったあと止める前に終わるプロセスが続けて現れる状態でも、中断せずに最後まで進むことを確かめた）。
+2. `state.json` の PID が自分の server（そのコマンドラインが状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致する）なら、SIGTERM を送って止まるのを待つ（10秒で止まらなければ、もう一度確かめて SIGKILL）。別の作業ツリーから launch した run も、記録した argv と一致すれば止める（その run の `launch` が起動した server なので）。PID が動いていなければ止めるものは無い。PID が別のプロセスに再利用されていれば（自分の server はもう動いていない）、そのプロセスには触れずに次へ進む（server を外から止めて、記録した PID を自分で起動した `sleep` の PID に書き換えた run で、`sleep` が動いたまま、データが消え、`cleanup.json` が書かれることを確かめた）。そのプロセスのコマンドラインと環境は出力にも記録にも載せない。
+3. 表で「消す」とした `data/`・`home/`・`tmp/`・`config/`・`repo/`・`bin/`・`web/`・`logs/`・`state.json` を消す。ただし、自分の server かブラウザが SIGKILL の後も動いているときは、動いているプロセスのデータを消さず、記録だけを書いて終了コード 1 で終わる（理由を標準エラーに出す。止まるのを確かめてから、もう一度 `cleanup` する）。
+4. `evidence/cleanup.json` に、成否、PID ごとの扱い（止めた・止まっていた・触れなかった・止まらない）、消したパスを追記する（「Evidence」）。
 
 **証拠は `<run>/evidence/` に残る**（後始末のあと、run のディレクトリには `evidence/` だけがある）。何度実行してもよい。2回目以降は止めるものも消すものも無く、終了コード 0 で終わる。`VERIFY_NOD_ROOT` を変えて起動した run は、同じ `VERIFY_NOD_ROOT` を付けて runId で指定するか、runDir の絶対パスで指定する。根が launch のときと違うと、`<根>/<runId> がありません` で終了コード 1 になり、何も止めず何も消さない（`doctor`・`cli` も同じ）。シェルで `VERIFY_NOD_ROOT` を export したままにしていないかも確かめる。
 
@@ -251,7 +253,8 @@ VERIFY_NOD_ROOT=/tmp/verify-nod-alt ./.omp/skills/verify-nod/scripts/verify-nod.
 | `doctor <run> [--port <番号>]` | 読み取りだけの状態確認（「Doctor」） |
 | `cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...>` | その run と同じデータ・同じ許可リストの環境で、ソースの CLI を実行する。cwd は `<run>/repo` なので、`-w` を付けなくても run の Workspace を使う。終了コードは CLI のもの。`--evidence` で `evidence/<機能の ID>/NNN-cli.json` に記録する（「Evidence」）。引数に `ui` があれば CLI を起動せずに終了コード 1 |
 | `browser <run> --feature <機能の ID> [--steps <ファイル>\|-] [--timeout <ミリ秒>]` | `doctor` を通してから、手順の JSON（既定は標準入力）を新しいブラウザのコンテキストで実行し、`evidence/<機能の ID>/` に記録・ARIA スナップショット・スクリーンショットを残す（「Drive」）。終了コードは、すべての手順が通れば 0、それ以外は 1 |
-| `cleanup <run>` | 残ったブラウザ、起動した `nod ui` と作業用のデータを消し、`evidence/` を残す（「Cleanup」） |
+| `check-steps [--steps <ファイル>\|-]` | 手順の JSON（既定は標準入力）の形だけを確かめる。run・`doctor`・ブラウザを使わない。通れば `{"ok": true, "steps": <手順の数>}` と終了コード 0、通らなければ `browser` と同じ理由を出して終了コード 1。機能のファイルの手順を書いたり直したりしたときに使う |
+| `cleanup <run>` | 残ったブラウザ、起動した `nod ui` と作業用のデータを消し、`evidence/` を残す。別のプロセスには触れない（「Cleanup」） |
 | `list` | 根にある run の一覧（`runId`・`cleaned`・`pid`・`alive`・`url`） |
 | `help` | 使い方を出す |
 

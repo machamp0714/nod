@@ -7,7 +7,9 @@
 //   nod ui は cli から実行させない（ポートを省くと 4700 に接続・待ち受けし、ブラウザを開くため。検証の nod ui は launch が起動する）
 // - 検証の nod に渡す環境変数は nodEnv() の許可リストだけ。親の process.env を混ぜない。PATH は run の bin/（git だけ）で、open・gh などは見つからない
 // - ブラウザは新しいコンテキストで開き、その run の origin 以外への要求をブラウザ側で止める
-// - プロセスは名前で止めない。状態ファイルに記録した起動の argv と、PID のコマンドラインが一致するときだけ止める（環境変数もそのときだけ読む）
+// - プロセスは名前で止めない。止める・調べるプロセスは ownership() で持ち主を判定し、stopProcesses() だけで止める。
+//   自分のもの（記録した起動の argv と一致する server、この run の tmp/ をプロファイルに持つブラウザ、launch が持つ子）にだけシグナルを送り、
+//   環境変数もそのときだけ読む。別のプロセス（PID の再利用など）には触れない
 // - 後始末は作業用のデータとプロセスだけを消し、evidence/ を残す
 import { Database } from "bun:sqlite";
 import type { Subprocess } from "bun";
@@ -33,6 +35,7 @@ const DEFAULT_ACTOR = "verify-nod";
 const RUN_ID_RE = /^\d{8}-\d{6}-[0-9a-f]{5}$/;
 const READY_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 10_000;
+const KILL_WAIT_MS = 2_000;
 
 interface Layout {
   runDir: string;
@@ -198,13 +201,84 @@ function exec(cmd: string[], opts: { cwd?: string; env: Record<string, string> }
 // ps / lsof は親の環境を使わず、固定の PATH で呼ぶ
 const SYS_ENV = { PATH: SAFE_PATH + ":/usr/sbin:/sbin" };
 
-function isAlive(pid: number): boolean {
+// ---- プロセスの持ち主の判定と止め方。server・ブラウザ・launch の子の PID は、すべてここを通す ----
+
+// 誰のプロセスとして扱うか
+type Owner =
+  | { kind: "server"; state: State; p: Layout } // 状態ファイルに記録したこの run の server（記録した起動の argv で判定）
+  | { kind: "browser"; p: Layout } // browser が起動したブラウザ（--user-data-dir がこの run の tmp/ の下）
+  | { kind: "child"; proc: Subprocess }; // launch がいま起動した子（ハンドルを持ち、まだ回収していない間は PID が再利用されない）
+
+// mine: 自分のプロセス。other: 別のプロセス（PID の再利用など。シグナルを送らず、環境変数も読まない）。gone: もう無い
+type Ownership = "mine" | "other" | "gone";
+
+function browserMarker(p: Layout): string {
+  return `--user-data-dir=${p.tmp}/`;
+}
+
+// その PID が自分のものかの唯一の判定。server は、状態ファイルに記録した起動の argv（どの作業ツリーから launch したかを含む）が
+// その run の web/ を指すソースの CLI の ui で、PID のコマンドラインがその argv と一致するときだけ mine
+function ownership(pid: number, owner: Owner): Ownership {
+  if (owner.kind === "child") return owner.proc.exitCode === null && owner.proc.signalCode === null ? "mine" : "gone";
+  const cmd = commandLine(pid);
+  if (cmd === null) return "gone";
+  if (owner.kind === "browser") return cmd.includes(browserMarker(owner.p)) ? "mine" : "other";
+  const { state, p } = owner;
+  const argv = state.argv;
+  if (!argv) return "other";
+  const webDir = argv[argv.indexOf("--web-dir") + 1];
+  const mine = argv.includes(join(state.worktree, "packages/cli/src/main.ts")) && argv.includes("ui") && webDir === p.web && cmd === argv.join(" ");
+  return mine ? "mine" : "other";
+}
+
+// 送る直前に持ち主を確かめ、自分のものにだけシグナルを送る。送る前後に終わっていれば（ESRCH）gone、送れなければ（EPERM）other
+function signal(pid: number, owner: Owner, sig: "SIGTERM" | "SIGKILL"): Ownership {
+  const o = ownership(pid, owner);
+  if (o !== "mine") return o;
   try {
-    process.kill(pid, 0);
-    return true;
+    process.kill(pid, sig);
+    return "mine";
   } catch (e) {
-    return typeof e === "object" && e !== null && "code" in e && e.code === "EPERM";
+    const code = typeof e === "object" && e !== null && "code" in e ? e.code : null;
+    if (code === "ESRCH") return "gone";
+    if (code === "EPERM") return "other";
+    throw e;
   }
+}
+
+interface Stopped {
+  pid: number;
+  result: string;
+  running: boolean; // 自分のプロセスが SIGKILL の後も動いている
+}
+
+const NOT_RUNNING = "停止済み（シグナルを送る前に終わっていた）";
+const NOT_OWNED = "触れない（この PID は別のプロセス。PID の再利用など。シグナルを送らず、コマンドラインと環境も記録しない）";
+
+// 自分のプロセスだけを止める唯一の止め方。SIGTERM を送って最大10秒待ち、残れば SIGKILL を送って待つ。
+// 送る直前と待つ間は ownership で確かめ、終わったか別のプロセスに替わったら止まったとみなす。ESRCH・EPERM で中断しない
+async function stopProcesses(targets: { pid: number; owner: Owner }[]): Promise<Stopped[]> {
+  const results: Stopped[] = [];
+  let live = targets;
+  let sent: "SIGTERM" | "SIGKILL" | null = null;
+  for (const [sig, wait] of [["SIGTERM", STOP_TIMEOUT_MS], ["SIGKILL", KILL_WAIT_MS]] as const) {
+    live = live.filter((t) => {
+      const o = signal(t.pid, t.owner, sig);
+      if (o === "mine") return true;
+      results.push({ pid: t.pid, result: sent ? `${sent} で停止` : o === "gone" ? NOT_RUNNING : NOT_OWNED, running: false });
+      return false;
+    });
+    sent = sig;
+    const deadline = Date.now() + wait;
+    while (live.some((t) => ownership(t.pid, t.owner) === "mine") && Date.now() < deadline) await Bun.sleep(100);
+    live = live.filter((t) => {
+      if (ownership(t.pid, t.owner) === "mine") return true;
+      results.push({ pid: t.pid, result: `${sig} で停止`, running: false });
+      return false;
+    });
+  }
+  for (const t of live) results.push({ pid: t.pid, result: "止まらない（SIGKILL の後も動いている）", running: true });
+  return results;
 }
 
 function commandLine(pid: number): string | null {
@@ -222,13 +296,15 @@ function listeners(port: number): number[] {
   return [...new Set(r.stdout.split("\n").filter(Boolean).map(Number))];
 }
 
-// その PID がこの run の server か。状態ファイルに記録した起動の argv（どの作業ツリーから launch したかを含む）が、
-// その run の web/ を指すソースの CLI の ui で、PID のコマンドラインがその argv と一致するときだけ true
-function ownsProcess(cmd: string | null, state: State | null, p: Layout): boolean {
-  const argv = state?.argv;
-  if (cmd === null || !state || !argv) return false;
-  const webDir = argv[argv.indexOf("--web-dir") + 1];
-  return argv.includes(join(state.worktree, "packages/cli/src/main.ts")) && argv.includes("ui") && webDir === p.web && cmd === argv.join(" ");
+// browser が起動したブラウザのうち残っているものの候補。--user-data-dir がこの run の tmp/ の下にあるプロセスだけを数える
+// （止める直前に ownership で確かめ直すので、一覧の後に終わった・入れ替わったプロセスには触れない）
+function browserProcesses(p: Layout): number[] {
+  const r = exec([PS, "-ax", "-ww", "-o", "pid=,command="], { env: SYS_ENV });
+  const marker = browserMarker(p);
+  return r.stdout.split("\n").flatMap((line) => {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    return m?.[1] && m[2]?.includes(marker) ? [Number(m[1])] : [];
+  });
 }
 
 // ps eww の出力（コマンドラインに続けて環境変数）と許可リストを比べ、違う変数の名前だけを返す（値は出さない）
@@ -293,13 +369,12 @@ async function doctorChecks(p: Layout, portOverride?: number): Promise<{ port: n
   }
   push("port-not-user", true, `ポート ${port}`);
 
-  const alive = isAlive(state.pid);
-  push("pid-alive", alive, alive ? `PID ${state.pid} は動いている` : `PID ${state.pid} は動いていません`);
-  const cmd = alive ? commandLine(state.pid) : null;
-  const owned = ownsProcess(cmd, state, p);
+  const own = ownership(state.pid, { kind: "server", state, p });
+  const owned = own === "mine";
+  push("pid-alive", own !== "gone", own !== "gone" ? `PID ${state.pid} は動いている` : `PID ${state.pid} は動いていません`);
   // この run の server と確かめられないプロセスは、コマンドラインの中身も環境変数も出さない（別のプロセスの秘密を出力に載せない）
-  push("pid-command", owned, owned ? `PID ${state.pid}: ${cmd}`
-    : cmd === null ? "コマンドラインを読めません"
+  push("pid-command", owned, owned ? `PID ${state.pid}: ${state.argv.join(" ")}`
+    : own === "gone" ? "PID が動いていないので、コマンドラインはありません"
     : `PID ${state.pid} のコマンドラインが、状態ファイルに記録したこの run の起動の argv と一致しません（別のプロセス。中身は出しません）`);
 
   const expected = nodEnv(p);
@@ -444,12 +519,8 @@ async function launch(): Promise<number> {
     console.log(JSON.stringify(summary, null, 2));
     return 0;
   } catch (e) {
-    if (proc && proc.exitCode === null) {
-      proc.kill("SIGTERM");
-      await Promise.race([proc.exited, Bun.sleep(STOP_TIMEOUT_MS)]);
-      if (proc.exitCode === null) proc.kill("SIGKILL");
-    }
-    log(`起動に失敗しました。起動した nod ui は止めました。ログを読んだら cleanup ${p.runDir} で作業用のデータを消してください`);
+    const [stopped] = proc ? await stopProcesses([{ pid: proc.pid, owner: { kind: "child", proc } }]) : [];
+    log(`起動に失敗しました。起動した nod ui: ${stopped ? `PID ${stopped.pid} ${stopped.result}` : "（起動前）"}。ログを読んだら cleanup ${p.runDir} で作業用のデータを消してください`);
     throw e;
   }
 }
@@ -471,59 +542,37 @@ async function doctor(args: string[]): Promise<number> {
   return ok ? 0 : 1;
 }
 
-async function stopOwned(state: State | null, p: Layout): Promise<{ pid: number | null; result: string }> {
-  if (!state?.pid) return { pid: null, result: "起動したプロセスの記録なし" };
-  const pid = state.pid;
-  if (!isAlive(pid)) return { pid, result: "停止済み" };
-  const cmd = commandLine(pid);
-  if (!ownsProcess(cmd, state, p)) {
-    // 別のプロセスのコマンドラインは出さない
-    throw new Fail(`PID ${pid} のコマンドラインが、状態ファイルに記録したこの run の起動の argv と一致しません。別のプロセスなので止めません`);
+async function stopBrowsers(p: Layout): Promise<Stopped[]> {
+  const results: Stopped[] = [];
+  // 1回目の後に現れたもの（止める間に起動したブラウザの子など）も、もう一度だけ探して止める
+  for (let round = 0; round < 2; round++) {
+    const seen = new Set(results.map((r) => r.pid));
+    const pids = browserProcesses(p).filter((pid) => !seen.has(pid));
+    if (pids.length === 0) break;
+    results.push(...(await stopProcesses(pids.map((pid) => ({ pid, owner: { kind: "browser", p } as const })))));
   }
-  process.kill(pid, "SIGTERM");
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
-  while (isAlive(pid) && Date.now() < deadline) await Bun.sleep(100);
-  if (isAlive(pid) && ownsProcess(commandLine(pid), state, p)) {
-    process.kill(pid, "SIGKILL");
-    await Bun.sleep(300);
-  }
-  if (isAlive(pid)) throw new Fail(`PID ${pid} を止められませんでした`);
-  return { pid, result: "SIGTERM で停止" };
+  return results;
 }
 
-// browser が起動したブラウザのうち残っているもの。--user-data-dir がこの run の tmp/ の下にあるプロセスだけを数える
-function browserProcesses(p: Layout): number[] {
-  const r = exec([PS, "-ax", "-ww", "-o", "pid=,command="], { env: SYS_ENV });
-  const marker = `--user-data-dir=${p.tmp}/`;
-  return r.stdout.split("\n").flatMap((line) => {
-    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-    return m?.[1] && m[2]?.includes(marker) ? [Number(m[1])] : [];
-  });
-}
-
-async function stopBrowsers(p: Layout): Promise<number[]> {
-  const pids = browserProcesses(p);
-  for (const pid of pids) process.kill(pid, "SIGTERM");
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
-  while (browserProcesses(p).length > 0 && Date.now() < deadline) await Bun.sleep(100);
-  for (const pid of browserProcesses(p)) process.kill(pid, "SIGKILL");
-  return pids;
-}
-
+// 自分のプロセス（残ったブラウザと、記録した PID が自分の server と判定できたもの）だけを止め、作業用のデータを消す。
+// 記録した PID がもう無いか別のプロセスなら、触れずにデータを消す。自分のプロセスが SIGKILL の後も動いていれば、データを消さずに終了コード 1
 async function cleanup(args: string[]): Promise<number> {
   const p = resolveRun(args[0]);
   const state = readState(p);
   const browsers = await stopBrowsers(p);
-  const stopped = await stopOwned(state, p);
+  const [server = null] = state?.pid ? await stopProcesses([{ pid: state.pid, owner: { kind: "server", state, p } }]) : [];
+  const running = [...browsers, ...(server ? [server] : [])].filter((r) => r.running);
   // evidence/ は消さない
-  const removed = [p.data, p.home, p.tmp, p.config, p.repo, p.bin, p.web, p.logs, p.state].filter((path) => existsSync(path));
+  const removed = running.length > 0 ? [] : [p.data, p.home, p.tmp, p.config, p.repo, p.bin, p.web, p.logs, p.state].filter((path) => existsSync(path));
   for (const path of removed) rmSync(path, { recursive: true, force: true });
+  const ok = running.length === 0;
   const recordPath = join(p.evidence, "cleanup.json");
   const record = existsSync(recordPath) ? (JSON.parse(readFileSync(recordPath, "utf8")) as unknown[]) : [];
-  record.push({ at: new Date().toISOString(), stopped, browsers, removed });
+  record.push({ at: new Date().toISOString(), ok, server: server ?? "起動したプロセスの記録なし", browsers, removed });
   writeJson(recordPath, record);
+  if (!ok) throw new Fail(`自分が起動したプロセス（PID ${running.map((r) => r.pid).join(", ")}）が SIGKILL の後も動いています。動いている間は作業用のデータを消しません（${recordPath} に記録した）`);
   const left = readdirSync(p.runDir);
-  console.log(JSON.stringify({ ok: true, runDir: p.runDir, stopped, browsers, removed, left, evidence: p.evidence }, null, 2));
+  console.log(JSON.stringify({ ok, runDir: p.runDir, server: server ?? "起動したプロセスの記録なし", browsers, removed, left, evidence: p.evidence }, null, 2));
   return 0;
 }
 
@@ -539,7 +588,7 @@ function list(): number {
         cleaned: state === null && !existsSync(p.data),
         pid: state?.pid ?? null,
         // 判定は状態ファイルに記録した起動の argv で行う（list を実行した作業ツリーによらない）
-        alive: state?.pid ? isAlive(state.pid) && ownsProcess(commandLine(state.pid), state, p) : false,
+        alive: state?.pid ? ownership(state.pid, { kind: "server", state, p }) === "mine" : false,
         url: state?.url ?? null,
       };
     })
@@ -685,28 +734,38 @@ const BROWSER_TIMEOUT_MS = 10_000;
 const VIEWPORT = { width: 1440, height: 960 };
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-// 手順の操作（1つの手順にこのキーを1つだけ書く）と、その操作に添えてよいキー
-const OPS = {
-  goto: [],
-  reload: [],
-  url: [],
-  click: [],
-  fill: ["value"],
-  press: ["on"],
-  select: ["value"],
-  check: [],
-  uncheck: [],
-  hover: [],
-  drag: ["to"],
-  wait: ["state"],
-  expect: ["text", "count", "hidden", "attr", "value", "disabled"],
-  read: [],
-  snapshot: ["of"],
-  screenshot: ["fullPage"],
-  events: [],
-  cli: ["actor"],
-} as const satisfies Record<string, readonly string[]>;
-type Op = keyof typeof OPS;
+// ---- 手順の定義。検査（checkSteps）と実行（browser の run・locate）は、この定義の項目だけを扱う ----
+
+// 項目の型。真偽値は真偽値だけ、整数は整数だけ、文字列は文字列だけを受け付ける
+type FieldType = "path" | "true" | "locator" | "key" | "name" | "boolean" | "count" | "text" | "string" | "attr" | "waitState" | "events" | "args" | "actor" | "note";
+
+// 1つの手順に種類のキーを1つだけ書く。main はその値の型、fields は添えてよい項目と型、required は必ず書く項目。どの手順にも説明の note を書ける
+interface StepSchema {
+  readonly main: FieldType;
+  readonly fields: Readonly<Record<string, FieldType>>;
+  readonly required?: readonly string[];
+}
+const STEPS = {
+  goto: { main: "path", fields: {} },
+  reload: { main: "true", fields: {} },
+  url: { main: "path", fields: {} },
+  click: { main: "locator", fields: {} },
+  fill: { main: "locator", fields: { value: "string" }, required: ["value"] },
+  press: { main: "key", fields: { on: "locator" } },
+  select: { main: "locator", fields: { value: "string" }, required: ["value"] },
+  check: { main: "locator", fields: {} },
+  uncheck: { main: "locator", fields: {} },
+  hover: { main: "locator", fields: {} },
+  drag: { main: "locator", fields: { to: "locator" }, required: ["to"] },
+  wait: { main: "locator", fields: { state: "waitState" } },
+  expect: { main: "locator", fields: { count: "count", hidden: "true", text: "text", value: "string", attr: "attr", disabled: "boolean" } },
+  read: { main: "locator", fields: {} },
+  snapshot: { main: "name", fields: { of: "locator" } },
+  screenshot: { main: "name", fields: { fullPage: "boolean" } },
+  events: { main: "events", fields: {} },
+  cli: { main: "args", fields: { actor: "actor" } },
+} as const satisfies Record<string, StepSchema>;
+type Op = keyof typeof STEPS;
 type Step = Record<string, unknown>;
 
 // ロケータ。role（と name）を第一に使う。within で親のロケータの中に絞る
@@ -723,47 +782,88 @@ interface Spec {
   nth?: number;
   within?: Spec;
 }
-const SPEC_KEYS = ["role", "name", "exact", "level", "label", "placeholder", "text", "testId", "hasText", "nth", "within"];
-const LOCATOR_OPS: Op[] = ["click", "fill", "select", "check", "uncheck", "hover", "drag", "wait", "expect", "read"];
+// ロケータの基点（1つだけ書く）と、それぞれに添えてよい項目。hasText・nth・within はどれにも添えられる
+const SPEC_BASES = { role: ["name", "exact", "level"], label: ["exact"], placeholder: ["exact"], text: ["exact"], testId: [] } as const satisfies Record<string, readonly (keyof Spec)[]>;
+const SPEC_COMMON = ["hasText", "nth", "within"] as const satisfies readonly (keyof Spec)[];
+const WAIT_STATES = ["visible", "hidden", "attached", "detached"];
 
-function checkSpec(spec: unknown, where: string): Spec {
-  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) throw new Fail(`${where}: ロケータはオブジェクトで書いてください`);
-  const s = spec as Record<string, unknown>;
-  const unknownKeys = Object.keys(s).filter((k) => !SPEC_KEYS.includes(k));
-  if (unknownKeys.length > 0) throw new Fail(`${where}: ロケータに使えないキー ${unknownKeys.join(", ")}（使えるのは ${SPEC_KEYS.join(", ")}）`);
-  if (!s.role && !s.label && !s.placeholder && !s.text && !s.testId) throw new Fail(`${where}: role・label・placeholder・text・testId のどれかを書いてください`);
-  if (s.within !== undefined) checkSpec(s.within, `${where}.within`);
-  return s as Spec;
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isText = (v: unknown): v is string => typeof v === "string" && v !== "";
+const isInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
+
+function need(ok: boolean, where: string, what: string): void {
+  if (!ok) throw new Fail(`${where}: ${what}`);
 }
 
+function checkSpec(spec: unknown, where: string): void {
+  need(isObject(spec), where, "ロケータはオブジェクトで書いてください");
+  const s = spec as Record<string, unknown>;
+  const bases = Object.keys(s).filter((k): k is keyof typeof SPEC_BASES => Object.hasOwn(SPEC_BASES, k));
+  need(bases.length === 1, where, `ロケータの基点 ${Object.keys(SPEC_BASES).join("・")} のどれか1つだけを書いてください（書いたもの: ${bases.join(", ") || "なし"}）`);
+  const base = bases[0] as keyof typeof SPEC_BASES;
+  const allowed: string[] = [base, ...SPEC_BASES[base], ...SPEC_COMMON];
+  const extra = Object.keys(s).filter((k) => !allowed.includes(k));
+  need(extra.length === 0, where, `ロケータに ${base} と組み合わせられない項目 ${extra.join(", ")}（${base} に使えるのは ${allowed.join(", ")}）`);
+  for (const k of [base, "name", "hasText"]) if (Object.hasOwn(s, k)) need(isText(s[k]), `${where}.${k}`, "空でない文字列で書いてください");
+  if (Object.hasOwn(s, "exact")) {
+    need(typeof s.exact === "boolean", `${where}.exact`, "true か false で書いてください（文字列・数値は書けない）");
+    need(base !== "role" || Object.hasOwn(s, "name"), `${where}.exact`, "role の exact は name の一致のしかたなので、name と一緒に書いてください");
+  }
+  if (Object.hasOwn(s, "level")) need(isInt(s.level) && s.level >= 1 && s.level <= 6, `${where}.level`, "1〜6 の整数で書いてください");
+  if (Object.hasOwn(s, "nth")) need(isInt(s.nth) && s.nth >= 0, `${where}.nth`, "0 以上の整数で書いてください");
+  if (Object.hasOwn(s, "within")) checkSpec(s.within, `${where}.within`);
+}
+
+// 項目の型ごとの検査。where は「手順 <番号>（<種類>）.<項目>」
+const CHECK: Record<FieldType, (v: unknown, where: string) => void> = {
+  path: (v, w) => need(isText(v) && v.startsWith("/") && !v.startsWith("//"), w, `"/" で始まるパスの文字列で書いてください（run の URL からの相対。"//" で始まる別の origin は書けない）`),
+  true: (v, w) => need(v === true, w, "true だけを書けます"),
+  locator: checkSpec,
+  key: (v, w) => need(isText(v), w, `キーの名前を空でない文字列で書いてください（例 "Enter"）`),
+  name: (v, w) => need(typeof v === "string" && NAME_RE.test(v), w, "名前は英小文字・数字・ハイフンの文字列で書いてください"),
+  boolean: (v, w) => need(typeof v === "boolean", w, "true か false で書いてください（文字列・数値・null は書けない）"),
+  count: (v, w) => need(isInt(v) && v >= 0, w, "0 以上の整数で書いてください"),
+  text: (v, w) => need(isText(v) || (Array.isArray(v) && v.length > 0 && v.every(isText)), w, "空でない文字列か、空でない文字列の配列（1つ以上）で書いてください"),
+  string: (v, w) => need(typeof v === "string", w, "文字列で書いてください"),
+  attr: (v, w) => need(isObject(v) && Object.keys(v).length > 0 && Object.entries(v).every(([k, x]) => k !== "" && typeof x === "string"), w, `属性の名前と値（文字列）のオブジェクトで、1つ以上書いてください（例 {"data-value": "todo"}）`),
+  waitState: (v, w) => need(typeof v === "string" && WAIT_STATES.includes(v), w, `${WAIT_STATES.join("・")} のどれかを書いてください`),
+  events: (v, w) => need(v === "ready" || v === "connecting", w, `"ready" か "connecting" を書いてください`),
+  args: (v, w) => {
+    need(Array.isArray(v) && v.length > 0 && v.every((a) => typeof a === "string"), w, `nod の引数を文字列の配列（1つ以上）で書いてください（例 ["--json", "issue", "create", "タイトル"]）`);
+    refuseUi(v as string[], w);
+  },
+  actor: (v, w) => need(isText(v), w, "空でない文字列で書いてください"),
+  note: (v, w) => need(typeof v === "string", w, "文字列で書いてください"),
+};
+
 function opOf(step: unknown, i: number): Op {
-  if (typeof step !== "object" || step === null || Array.isArray(step)) throw new Fail(`手順 ${i}: オブジェクトで書いてください`);
-  const ops = Object.keys(step).filter((k): k is Op => k in OPS);
-  if (ops.length !== 1) throw new Fail(`手順 ${i}: 操作のキーを1つだけ書いてください（${Object.keys(OPS).join(", ")}）: ${JSON.stringify(step)}`);
+  need(isObject(step), `手順 ${i}`, "オブジェクトで書いてください");
+  const ops = Object.keys(step as Step).filter((k): k is Op => Object.hasOwn(STEPS, k));
+  need(ops.length === 1, `手順 ${i}`, `種類のキー（${Object.keys(STEPS).join(", ")}）を1つだけ書いてください（書いたもの: ${ops.join(", ") || "なし"}）`);
   return ops[0] as Op;
 }
 
 // expect の検査項目の組み合わせ。count・hidden・text・value・attr・disabled は書いたものをすべて検査する。
-// 必ず失敗する組み合わせ（0 件の中身、複数に当たる1要素の検査）は、ブラウザを起動する前に拒む
-function checkExpect(s: Step, i: number): void {
-  const where = `手順 ${i}（expect）`;
-  if (s.hidden !== undefined && s.hidden !== true) throw new Fail(`${where}: hidden は true だけを書けます（見えていることは hidden を省いて確かめる）`);
-  if (s.count === undefined) return;
-  if (typeof s.count !== "number" || !Number.isInteger(s.count) || s.count < 0) throw new Fail(`${where}: count は 0 以上の整数で書いてください`);
-  const single = ["value", "attr", "disabled"].filter((k) => s[k] !== undefined);
-  if (s.count === 0) {
-    const others = [...single, ...(s.text !== undefined ? ["text"] : [])];
-    if (others.length > 0) throw new Fail(`${where}: count: 0 と ${others.join(", ")} は組み合わせられません（0 件の要素の中身は確かめられない）`);
+// 必ず失敗する組み合わせ（0 件の中身、複数に当たる1要素の検査、当たる要素の数より長い text の配列）は、ブラウザを起動する前に拒む
+function checkExpect(s: Step, where: string): void {
+  const count = s.count as number | undefined;
+  const texts = Array.isArray(s.text) ? s.text.length : 1;
+  if (texts > 1) {
+    need(count !== undefined && count >= texts, where, `text の配列（${texts} 個）は要素ごとに当てるので、count に ${texts} 以上を書いてください（count を省くと「1つだけ見えている」を確かめるので必ず失敗する）`);
   }
-  if (s.count > 1) {
-    const others = [...single, ...(s.hidden === true ? ["hidden"] : []), ...(typeof s.text === "string" ? ["text（文字列）"] : [])];
-    if (others.length > 0) {
-      throw new Fail(`${where}: count が 2 以上のときは ${others.join(", ")} を組み合わせられません（1つの要素を確かめる検査なので、複数に当たると必ず失敗する）。文字は text に要素ごとの配列で書く`);
-    }
+  if (count === undefined) return;
+  const single = ["value", "attr", "disabled"].filter((k) => Object.hasOwn(s, k));
+  if (count === 0) {
+    const others = [...single, ...(Object.hasOwn(s, "text") ? ["text"] : [])];
+    need(others.length === 0, where, `count: 0 と ${others.join(", ")} は組み合わせられません（0 件の要素の中身は確かめられない）`);
+  }
+  if (count > 1) {
+    const others = [...single, ...(Object.hasOwn(s, "hidden") ? ["hidden"] : []), ...(typeof s.text === "string" ? ["text（文字列）"] : [])];
+    need(others.length === 0, where, `count が 2 以上のときは ${others.join(", ")} を組み合わせられません（1つの要素を確かめる検査なので、複数に当たると必ず失敗する）。文字は text に要素ごとの配列で書く`);
   }
 }
 
-// 実行の前に手順の形をすべて確かめる（途中まで操作してから書き間違いで止まらないように）
+// 実行の前に、手順の形をこの定義ですべて確かめる（ブラウザも doctor も起動しない。途中まで操作してから書き間違いで止まらないように）
 function checkSteps(raw: string): Step[] {
   let steps: unknown;
   try {
@@ -775,25 +875,27 @@ function checkSteps(raw: string): Step[] {
   steps.forEach((step: unknown, i) => {
     const op = opOf(step, i);
     const s = step as Step;
-    const allowed: string[] = [op, "note", ...OPS[op]];
+    const schema: StepSchema = STEPS[op];
+    const where = `手順 ${i}（${op}）`;
+    const allowed = [op, "note", ...Object.keys(schema.fields)];
     const extra = Object.keys(s).filter((k) => !allowed.includes(k));
-    if (extra.length > 0) throw new Fail(`手順 ${i}（${op}）: 使えないキー ${extra.join(", ")}（使えるのは ${allowed.join(", ")}）`);
-    const v = s[op];
-    if (LOCATOR_OPS.includes(op)) checkSpec(v, `手順 ${i}（${op}）`);
-    if ((op === "goto" || op === "url") && (typeof v !== "string" || !v.startsWith("/"))) throw new Fail(`手順 ${i}（${op}）: "/" で始まるパスを書いてください（run の URL からの相対。別の origin は開かない）`);
-    if ((op === "snapshot" || op === "screenshot") && (typeof v !== "string" || !NAME_RE.test(v))) throw new Fail(`手順 ${i}（${op}）: 名前は英小文字・数字・ハイフンで書いてください`);
-    if (op === "press" && typeof v !== "string") throw new Fail(`手順 ${i}（press）: キーの名前を書いてください（例 "Enter"）`);
-    if ((op === "fill" || op === "select") && typeof s.value !== "string") throw new Fail(`手順 ${i}（${op}）: value を文字列で書いてください`);
-    if (op === "drag") checkSpec(s.to, `手順 ${i}（drag）.to`);
-    if (op === "press" && s.on !== undefined) checkSpec(s.on, `手順 ${i}（press）.on`);
-    if (op === "snapshot" && s.of !== undefined) checkSpec(s.of, `手順 ${i}（snapshot）.of`);
-    if (op === "events" && v !== "ready" && v !== "connecting") throw new Fail(`手順 ${i}（events）: "ready" か "connecting" を書いてください`);
-    if (op === "cli" && (!Array.isArray(v) || v.length === 0 || !v.every((a) => typeof a === "string"))) throw new Fail(`手順 ${i}（cli）: nod の引数を文字列の配列で書いてください（例 ["--json", "issue", "create", "タイトル"]）`);
-    if (op === "cli" && s.actor !== undefined && (typeof s.actor !== "string" || s.actor === "")) throw new Fail(`手順 ${i}（cli）: actor は空でない文字列で書いてください`);
-    if (op === "cli") refuseUi(v as string[], `手順 ${i}（cli）`);
-    if (op === "expect") checkExpect(s, i);
+    need(extra.length === 0, where, `使えない項目 ${extra.join(", ")}（${op} に使えるのは ${allowed.join(", ")}）`);
+    for (const k of schema.required ?? []) need(Object.hasOwn(s, k), where, `${k} を書いてください`);
+    CHECK[schema.main](s[op], `${where}.${op}`);
+    for (const [k, type] of Object.entries(schema.fields)) if (Object.hasOwn(s, k)) CHECK[type](s[k], `${where}.${k}`);
+    if (Object.hasOwn(s, "note")) CHECK.note(s.note, `${where}.note`);
+    if (op === "expect") checkExpect(s, where);
   });
   return steps as Step[];
+}
+
+// 手順の形だけを確かめる（run・doctor・ブラウザを使わない）。機能のファイルの手順を書いたときの確認に使う
+async function checkStepsCommand(args: string[]): Promise<number> {
+  const stepsPath = takeOption(args, "--steps");
+  if (args.length !== 0) throw new Fail(`check-steps の引数が正しくありません: ${args.join(" ")}`);
+  const steps = checkSteps(stepsPath === undefined || stepsPath === "-" ? await Bun.stdin.text() : readFileSync(stepsPath, "utf8"));
+  console.log(JSON.stringify({ ok: true, steps: steps.length }));
+  return 0;
 }
 
 type Playwright = typeof PlaywrightModule;
@@ -804,16 +906,34 @@ async function loadPlaywright(): Promise<Playwright> {
   return (await import(Bun.resolveSync("@playwright/test", WEB_PKG))) as Playwright;
 }
 
+// 書いた項目をすべて使ってロケータを作る（使わなかった項目があれば、その手順を失敗にする）
 function locate(scope: Page | Locator, spec: Spec): Locator {
+  const used = new Set<string>(SPEC_COMMON);
+  const use = (...keys: (keyof Spec)[]) => keys.forEach((k) => used.add(k));
   const base = spec.within ? locate(scope, spec.within) : scope;
   let loc: Locator;
-  if (spec.role) loc = base.getByRole(spec.role as Parameters<Page["getByRole"]>[0], { name: spec.name, exact: spec.exact, level: spec.level });
-  else if (spec.label) loc = base.getByLabel(spec.label, { exact: spec.exact });
-  else if (spec.placeholder) loc = base.getByPlaceholder(spec.placeholder, { exact: spec.exact });
-  else if (spec.text) loc = base.getByText(spec.text, { exact: spec.exact });
-  else loc = base.getByTestId(spec.testId as string);
+  if (spec.role !== undefined) {
+    use("role", "name", "exact", "level");
+    loc = base.getByRole(spec.role as Parameters<Page["getByRole"]>[0], { name: spec.name, exact: spec.exact, level: spec.level });
+  } else if (spec.label !== undefined) {
+    use("label", "exact");
+    loc = base.getByLabel(spec.label, { exact: spec.exact });
+  } else if (spec.placeholder !== undefined) {
+    use("placeholder", "exact");
+    loc = base.getByPlaceholder(spec.placeholder, { exact: spec.exact });
+  } else if (spec.text !== undefined) {
+    use("text", "exact");
+    loc = base.getByText(spec.text, { exact: spec.exact });
+  } else if (spec.testId !== undefined) {
+    use("testId");
+    loc = base.getByTestId(spec.testId);
+  } else {
+    throw new Fail("ロケータに基点（role・label・placeholder・text・testId）がありません");
+  }
   if (spec.hasText !== undefined) loc = loc.filter({ hasText: spec.hasText });
   if (spec.nth !== undefined) loc = loc.nth(spec.nth);
+  const unused = Object.keys(spec).filter((k) => !used.has(k));
+  if (unused.length > 0) throw new Fail(`ロケータの項目 ${unused.join(", ")} を使っていません（補助スクリプトの誤り）`);
   return loc;
 }
 
@@ -914,86 +1034,105 @@ async function browser(args: string[]): Promise<number> {
     return file;
   };
 
+  // 手順を実行する。項目は get で読み、書いてあるのに実行で読まなかった項目があれば、成功にせず失敗にする
   const run = async (pg: Page, op: Op, step: Step, rec: StepResult): Promise<void> => {
+    const used = new Set<string>([op, "note"]);
+    const get = <T>(key: string): T | undefined => {
+      used.add(key);
+      return step[key] as T | undefined;
+    };
     const v = step[op];
     const loc = () => locate(pg, v as Spec);
     const { expect } = pw;
-    switch (op) {
-      case "goto": {
-        const res = await pg.goto(`${origin}${v as string}`);
-        rec.status = res?.status() ?? null;
-        return;
+    const perform = async (): Promise<void> => {
+      switch (op) {
+        case "goto": {
+          const res = await pg.goto(`${origin}${v as string}`);
+          rec.status = res?.status() ?? null;
+          return;
+        }
+        case "reload": {
+          const res = await pg.reload();
+          rec.status = res?.status() ?? null;
+          return;
+        }
+        case "url": {
+          const want = new URL(v as string, origin);
+          await pg.waitForURL((u) => u.origin === origin && u.pathname === want.pathname && (want.search === "" || u.search === want.search));
+          return;
+        }
+        case "click":
+          return loc().click();
+        case "fill":
+          return loc().fill(get<string>("value") as string);
+        case "press": {
+          const on = get<Spec>("on");
+          return on ? locate(pg, on).press(v as string) : pg.keyboard.press(v as string);
+        }
+        case "select":
+          await loc().selectOption(get<string>("value") as string);
+          return;
+        case "check":
+          return loc().check();
+        case "uncheck":
+          return loc().uncheck();
+        case "hover":
+          return loc().hover();
+        case "drag":
+          return loc().dragTo(locate(pg, get<Spec>("to") as Spec));
+        case "wait":
+          return loc().waitFor({ state: get<"attached" | "detached" | "visible" | "hidden">("state") ?? "visible" });
+        case "expect": {
+          const l = loc();
+          const o = { timeout };
+          const count = get<number>("count");
+          const hidden = get<true>("hidden");
+          const text = get<string | string[]>("text");
+          const value = get<string>("value");
+          const attr = get<Record<string, string>>("attr");
+          const disabled = get<boolean>("disabled");
+          if (count !== undefined) await expect(l).toHaveCount(count, o);
+          if (hidden === true) await expect(l).toBeHidden(o);
+          else if (count === undefined) await expect(l).toBeVisible(o);
+          if (text !== undefined) await expect(l).toContainText(text, o);
+          if (value !== undefined) await expect(l).toHaveValue(value, o);
+          for (const [k, want] of Object.entries(attr ?? {})) await expect(l).toHaveAttribute(k, want, o);
+          if (disabled === true) await expect(l).toBeDisabled(o);
+          else if (disabled === false) await expect(l).toBeEnabled(o);
+          return;
+        }
+        case "read":
+          await loc().first().waitFor();
+          rec.read = await loc().allInnerTexts();
+          return;
+        case "snapshot":
+          rec.artifact = await save(rec.index, "snapshot", v as string, { of: get<Spec>("of") });
+          return;
+        case "screenshot":
+          rec.artifact = await save(rec.index, "screenshot", v as string, { fullPage: get<boolean>("fullPage") });
+          return;
+        case "events":
+          // Web が出す変更通知（SSE）の接続の状態。<html data-server-events> を待つ
+          await expect(pg.locator("html")).toHaveAttribute("data-server-events", v as string, { timeout });
+          return;
+        case "cli": {
+          // ページを開いたまま、同じ run の CLI で書く。記録は <番号>-<手順>-cli.json
+          const actor = get<string>("actor") ?? DEFAULT_ACTOR;
+          const nodArgs = v as string[];
+          const file = join(dir, `${seq}-${String(rec.index).padStart(2, "0")}-cli.json`);
+          const startedAt = new Date().toISOString();
+          const r = await runCli(p, actor, nodArgs, "ignore");
+          writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
+          record.artifacts.push(file);
+          rec.cli = { file, exitCode: r.exitCode, actor };
+          if (r.exitCode !== 0) throw new Fail(`CLI が終了コード ${r.exitCode} で終わりました: ${r.stderr.trim() || r.stdout.trim()}`);
+          return;
+        }
       }
-      case "reload": {
-        const res = await pg.reload();
-        rec.status = res?.status() ?? null;
-        return;
-      }
-      case "url": {
-        const want = new URL(v as string, origin);
-        await pg.waitForURL((u) => u.origin === origin && u.pathname === want.pathname && (want.search === "" || u.search === want.search));
-        return;
-      }
-      case "click":
-        return loc().click();
-      case "fill":
-        return loc().fill(step.value as string);
-      case "press":
-        return step.on ? locate(pg, step.on as Spec).press(v as string) : pg.keyboard.press(v as string);
-      case "select":
-        await loc().selectOption(step.value as string);
-        return;
-      case "check":
-        return loc().check();
-      case "uncheck":
-        return loc().uncheck();
-      case "hover":
-        return loc().hover();
-      case "drag":
-        return loc().dragTo(locate(pg, step.to as Spec));
-      case "wait":
-        return loc().waitFor({ state: (step.state as "attached" | "detached" | "visible" | "hidden" | undefined) ?? "visible" });
-      case "expect": {
-        const l = loc();
-        const o = { timeout };
-        if (step.count !== undefined) await expect(l).toHaveCount(step.count as number, o);
-        if (step.hidden === true) await expect(l).toBeHidden(o);
-        else if (step.count === undefined) await expect(l).toBeVisible(o);
-        if (step.text !== undefined) await expect(l).toContainText(step.text as string | string[], o);
-        if (step.value !== undefined) await expect(l).toHaveValue(step.value as string, o);
-        for (const [k, want] of Object.entries((step.attr ?? {}) as Record<string, string>)) await expect(l).toHaveAttribute(k, want, o);
-        if (step.disabled === true) await expect(l).toBeDisabled(o);
-        if (step.disabled === false) await expect(l).toBeEnabled(o);
-        return;
-      }
-      case "read":
-        await loc().first().waitFor();
-        rec.read = await loc().allInnerTexts();
-        return;
-      case "snapshot":
-        rec.artifact = await save(rec.index, "snapshot", v as string, { of: step.of as Spec | undefined });
-        return;
-      case "screenshot":
-        rec.artifact = await save(rec.index, "screenshot", v as string, { fullPage: step.fullPage as boolean | undefined });
-        return;
-      case "events":
-        // Web が出す変更通知（SSE）の接続の状態。<html data-server-events> を待つ
-        await expect(pg.locator("html")).toHaveAttribute("data-server-events", v as string, { timeout });
-        return;
-      case "cli": {
-        // ページを開いたまま、同じ run の CLI で書く。記録は <番号>-<手順>-cli.json
-        const actor = (step.actor as string | undefined) ?? DEFAULT_ACTOR;
-        const nodArgs = v as string[];
-        const file = join(dir, `${seq}-${String(rec.index).padStart(2, "0")}-cli.json`);
-        const startedAt = new Date().toISOString();
-        const r = await runCli(p, actor, nodArgs, "ignore");
-        writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
-        record.artifacts.push(file);
-        rec.cli = { file, exitCode: r.exitCode, actor };
-        if (r.exitCode !== 0) throw new Fail(`CLI が終了コード ${r.exitCode} で終わりました: ${r.stderr.trim() || r.stdout.trim()}`);
-        return;
-      }
-    }
+    };
+    await perform();
+    const unused = Object.keys(step).filter((k) => !used.has(k));
+    if (unused.length > 0) throw new Fail(`項目 ${unused.join(", ")} を実行で使っていません（補助スクリプトの誤り）`);
   };
 
   try {
@@ -1079,8 +1218,10 @@ const HELP = `verify-nod.ts <サブコマンド>
                                  検証の nod と同じデータでソースの CLI を実行する（--evidence で evidence/<機能の ID>/ に記録。引数に ui があれば拒む）
   browser <run> --feature <機能の ID> [--steps <JSON のファイル>|-] [--timeout <ミリ秒>]
                                  doctor を通してから、手順（JSON の配列。既定は標準入力）を新しいブラウザのコンテキストで実行し、
-                                 evidence/<機能の ID>/ に記録・ARIA スナップショット・スクリーンショットを残す
-  cleanup <run>                  自分が起動したプロセスと作業用のデータを消す（evidence/ は残す。何度実行してもよい）
+                                 evidence/<機能の ID>/ に記録・ARIA スナップショット・スクリーンショットを残す（手順の形はブラウザ・doctor の前にすべて確かめる）
+  check-steps [--steps <JSON のファイル>|-]
+                                 手順の形だけを確かめる（run・doctor・ブラウザを使わない）
+  cleanup <run>                  自分が起動したプロセスと作業用のデータを消す（evidence/ は残す。別のプロセスには触れない。何度実行してもよい）
   list                           置き場の根にある run の一覧
 <run> は launch の出力の runId（根の下）か runDir（絶対パス）。根は VERIFY_NOD_ROOT（既定 ~/.local/state/verify-nod）`;
 
@@ -1095,6 +1236,8 @@ async function main(argv: string[]): Promise<number> {
       return cli(rest);
     case "browser":
       return browser(rest);
+    case "check-steps":
+      return checkStepsCommand(rest);
     case "cleanup":
       return cleanup(rest);
     case "list":
