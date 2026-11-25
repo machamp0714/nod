@@ -14,7 +14,7 @@ description: "nod（このリポジトリの Issue 管理。Web が主、CLI が
 ## 守ること
 
 - 利用者は普段の作業で nod をポート 4700 で動かしている。4700 に接続しない（GET も含む）、4700 のプロセスを止めない、利用者のデータ（`~/.local/share/nod`、`~/.config/nod`、`~/Applications/nod.app`）を読み書きしない。補助スクリプトは、4700 の指定と、置き場の根を作業ツリーや利用者のデータの中に置くことを拒む。
-- PATH の `nod` を検証に使わない。CLI は `verify-nod.ts cli` から使う。
+- PATH の `nod` を検証に使わない。CLI は `verify-nod.ts cli` から使う。`nod ui` は `cli` からも `browser` の `cli` の手順からも実行できない（ポートを省くと既定の 4700 に接続・待ち受けし、ブラウザを開くため。検証の `nod ui` は `launch` が起動する）。
 - プロセスを名前で止めない（`pkill`・`killall` を使わない）。止めるのは `verify-nod.ts cleanup` だけで、自分が起動した PID だけを止める。
 - 別の run の置き場・ポートを混ぜない。操作の前に、その run の `doctor` を通す（`browser` は自分で `doctor` を通し、通らなければ操作しない）。
 - ブラウザは補助スクリプトの `browser` だけで使い、毎回新しいコンテキストで開く（利用者のブラウザ・プロファイルは使わない）。その run の origin（`http://127.0.0.1:<ポート>`）以外への要求はブラウザ側で止まる（「Drive」）。
@@ -34,9 +34,10 @@ description: "nod（このリポジトリの Issue 管理。Web が主、CLI が
 | `home/`、`tmp/` | 検証の nod の `HOME`・`TMPDIR`。`tmp/` には `browser` のブラウザの一時的なプロファイル（`playwright_chromiumdev_profile-*`）も作られる | 消す |
 | `config/` | `toggl.json`（`NOD_TOGGL_CONFIG` の指す先。作らない＝トークンなし）、`gh-unavailable`（`NOD_GH` の指す先。作らない）、`vite-env/`（空。web のビルドの `NOD_VITE_ENV_DIR`） | 消す |
 | `repo/` | Workspace として登録する空の git リポジトリ | 消す |
+| `bin/` | 検証の nod の `PATH`。`git`（`/usr/bin/git` へのシンボリックリンク）だけを置く | 消す |
 | `web/` | この run でビルドした web（`vite build --outDir`） | 消す |
 | `logs/` | `web-build.log`、`init.log`、`ui.stdout.log`（`nod ui --json` の出力）、`ui.stderr.log` | 消す |
-| `state.json` | 状態ファイル（runId、Workspace、PID、URL、ポート、dbPath、起動した argv） | 消す |
+| `state.json` | 状態ファイル（runId、launch した作業ツリー、Workspace、PID、URL、ポート、dbPath、起動した argv） | 消す |
 | `evidence/` | 証拠。`launch.json`（起動時の状態と状態確認の結果）、`cleanup.json`（後始末の記録）、`<機能の ID>/`（`cli --evidence` と `browser` の記録。「Evidence」） | **残す** |
 
 Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `verify-nod-<runId>`・パス `<run>/repo` で登録する。キーは run の ID の末尾と同じ文字で、状態確認の照合に使う。
@@ -51,7 +52,7 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 
 | 変数 | 値 | 何を止めるか |
 | --- | --- | --- |
-| `PATH` | `/usr/bin:/bin` | server は固定の名前の `gh` を実行する。このマシンの `gh` は `/opt/homebrew/bin` と `/usr/local/bin` にあり、この PATH では見つからない。`git` は `/usr/bin/git` を使える |
+| `PATH` | `<run>/bin`（`git` だけ） | nod が名前で実行するコマンドのうち、`git` だけが見つかる。server は固定の名前の `gh` を実行するが見つからない（このマシンの `gh` は `/opt/homebrew/bin` と `/usr/local/bin`）。`nod ui` がブラウザを開く `open`（`/usr/bin/open`）も見つからない |
 | `HOME`、`TMPDIR` | `<run>/home`、`<run>/tmp` | `~/.config/nod/env` などホームの下の既定の場所を読まない |
 | `NOD_DB`、`NOD_DOCS_DIR`、`NOD_ATTACHMENTS_DIR` | `<run>/data/...` | 利用者の DB・Document・添付 |
 | `NOD_TOGGL_CONFIG` | `<run>/config/toggl.json`（無いファイル） | Toggl（トークンが無いので未設定の扱い） |
@@ -115,8 +116,8 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 | `state` | `state.json` があり、PID とポートが記録されている |
 | `port-not-user` | 照合するポートが 4700 でない（4700 なら以降の接続をしない） |
 | `pid-alive` | 状態ファイルの PID が動いている |
-| `pid-command` | その PID のコマンドラインが、ソースの CLI の `ui` で、この run の `web/` を指している（`ps -ww -o command= -p <PID>`） |
-| `pid-env` | その PID の環境変数が、許可リストの11項目と完全に一致する（`ps eww -o command= -p <PID>`） |
+| `pid-command` | その PID のコマンドラインが、状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致する（`ps -ww -o command= -p <PID>`）。一致しないときは、そのコマンドラインを出力に載せない |
+| `pid-env` | その PID の環境変数が、許可リストの11項目と完全に一致する（`ps eww -o command= -p <PID>`）。`pid-command` が通らないときは、そのプロセスの環境変数を読まずに失敗にする。一致しないときも、違う変数の名前だけを出し、値は出さない |
 | `port-owner` | そのポートで LISTEN しているプロセスが、状態ファイルの PID だけ（`lsof -nP -iTCP:<port> -sTCP:LISTEN -t`） |
 | `ui-output` | `logs/ui.stdout.log` の `nod ui` の出力が `reused=false`、`dbPath` がこの run の DB、URL がこのポート |
 | `db-workspace` | この run の DB を読み取り専用で開き、run の Workspace（キーとパス）が登録されている |
@@ -143,7 +144,7 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 $S cli $R --evidence <機能の ID> -- --json <nod の引数...>
 ```
 
-その run と同じデータ・許可リストの環境で、ソースの CLI を実行する（「Helpers」）。`--evidence` を付けると、標準出力・標準エラーをそのまま出したうえで、`evidence/<機能の ID>/NNN-cli.json` に記録する（「Evidence」）。証明に使う CLI の呼び出しには必ず付ける。`--json` を付けると出力が JSON になり、`jq` で値を取り出せる（例: `ID=$($S cli $R --evidence issue-create -- --json issue create "タイトル" -d "本文" | jq -r .id)`）。
+その run と同じデータ・許可リストの環境で、ソースの CLI を実行する（「Helpers」）。`--evidence` を付けると、標準出力・標準エラーをそのまま出したうえで、`evidence/<機能の ID>/NNN-cli.json` に記録する（「Evidence」）。証明に使う CLI の呼び出しには必ず付ける。`--json` を付けると出力が JSON になり、`jq` で値を取り出せる（例: `ID=$($S cli $R --evidence issue-create -- --json issue create "タイトル" -d "本文" | jq -r .id)`）。nod の引数のどこかに `ui` がそのままあると（`ui`、`--json ui`、`-w <キー> ui`、`help ui`、タイトルが `ui` の `issue create` なども）、CLI を起動せずに理由を出して終了コード 1 で終わる。
 
 ### Web
 
@@ -184,12 +185,12 @@ EOF
 | `hover` | `{"hover": <ロケータ>}` | ポインタを重ねる |
 | `drag` | `{"drag": <ロケータ>, "to": <ロケータ>}` | ドラッグして落とす（Board のカードを列へ、など） |
 | `wait` | `{"wait": <ロケータ>, "state": "hidden"}` | 状態（`visible`（既定）・`hidden`・`attached`・`detached`）になるまで待つ |
-| `expect` | `{"expect": <ロケータ>, "text": "…", "attr": {"data-value": "todo"}}` | 確かめる。既定は「1つだけ見えている」。`count`（件数）、`hidden: true`（見えない）、`text`（文字を含む。配列なら要素ごと）、`value`（入力値）、`attr`（属性の値）、`disabled`（`true` で無効・`false` で有効）を組み合わせる |
+| `expect` | `{"expect": <ロケータ>, "text": "…", "attr": {"data-value": "todo"}}` | 確かめる。既定は「1つだけ見えている」。`count`（件数。0 以上の整数）、`hidden: true`（見えない。`true` だけを書ける）、`text`（文字を含む。配列なら要素ごと）、`value`（入力値）、`attr`（属性の値）、`disabled`（`true` で無効・`false` で有効）を組み合わせ、書いたものはすべて検査する（`count` を書くと「見えている」の既定の検査は外れる）。必ず失敗する組み合わせは手順の形の検査で拒む: `count: 0` と `text`・`value`・`attr`・`disabled`、`count` が 2 以上と `hidden`・`value`・`attr`・`disabled`・文字列の `text`（1つの要素を確かめる検査なので複数に当たると失敗する。文字は `text` に要素ごとの配列で書く） |
 | `read` | `{"read": <ロケータ>}` | 当たった要素の文字を記録の `read` に残す（CLI の出力と見比べる） |
 | `snapshot` | `{"snapshot": "list", "of": <ロケータ>}` | ARIA スナップショットを残す（`of` を省くとページ全体） |
 | `screenshot` | `{"screenshot": "list", "fullPage": false}` | スクリーンショットを残す（既定はページ全体。ただし nod の画面は中の領域でスクロールするので、写るのは viewport の高さ（960）まで。下のほうの内容は `snapshot` で残す） |
 | `events` | `{"events": "ready"}` | Web の変更の通知（SSE）の接続の状態が `ready`（または `connecting`）になるまで待つ（Web が出す `<html data-server-events>`）。CLI の書き込みが再読み込みなしで出ることを確かめる前に通す |
-| `cli` | `{"cli": ["--json", "issue", "create", "タイトル"], "actor": "me"}` | ページを開いたまま、`cli` サブコマンドと同じ（run のデータ・許可リストの環境・cwd は run の `repo`）ソースの CLI を実行し、`NNN-II-cli.json` に記録する。`actor` を省くと書き手は `verify-nod`。CLI の終了コードが 0 でなければ手順の失敗 |
+| `cli` | `{"cli": ["--json", "issue", "create", "タイトル"], "actor": "me"}` | ページを開いたまま、`cli` サブコマンドと同じ（run のデータ・許可リストの環境・cwd は run の `repo`）ソースの CLI を実行し、`NNN-II-cli.json` に記録する。`actor` を省くと書き手は `verify-nod`。CLI の終了コードが 0 でなければ手順の失敗。引数に `ui` があると、手順の形の検査で拒む（ブラウザを起動しない） |
 
 **ロケータ**は `{"role": "button", "name": "New Issue", "exact": true}` の形のオブジェクトで、Playwright の `getByRole` などに当たる。`role`（`name`・`exact`・`level` を添える）を第一に使い、無いときだけ `label`・`placeholder`・`text`・`testId` を使う。`within: <ロケータ>` で親の中に絞り、`hasText` で中の文字で絞り、`nth`（0 から）で何番目かを選ぶ。`name` は既定で部分一致（大文字小文字を区別しない）で、`"exact": true` で完全一致。複数に当たる要素を操作・`expect` すると失敗するので、`within` や `exact` で1つに絞る。role と name は `snapshot` の出力（例: `button "New Issue" [disabled]`）で確かめられ、`packages/web/e2e/*.e2e.ts` のセレクタも参考になる。
 
@@ -197,7 +198,7 @@ EOF
 
 ## Evidence
 
-証拠は run ごとの置き場の `evidence/` の下に置き、`cleanup` で消えない（後始末のあとは run のディレクトリに `evidence/` だけが残る）。機能ごとの証拠は `evidence/<機能の ID>/`（機能の ID は機能の一覧のファイル名。英小文字・数字・ハイフン）に、呼び出しごとの3桁の通し番号 `NNN` を付けて置く。
+証拠は run ごとの置き場の `evidence/` の下に置き、`cleanup` で消えない（後始末のあとは run のディレクトリに `evidence/` だけが残る）。機能ごとの証拠は `evidence/<機能の ID>/`（機能の ID は機能の一覧のファイル名。英小文字・数字・ハイフン）に、呼び出しごとの3桁の通し番号 `NNN` を付けて置く。番号は呼び出しの始めに `.NNN-claim` を排他で作って確保し、証拠を書いたら消す（補助スクリプトを強制終了したときは残り、その番号は使われない）。同じ機能の `cli --evidence`・`browser` を並行に呼んでも、呼び出しごとに別の番号になり、上書きされない（並行のときの番号の順は、呼び出した順と一致するとは限らない）。
 
 | パス（`<run>/evidence/` の中） | 書くもの | 中身 |
 | --- | --- | --- |
@@ -227,8 +228,8 @@ EOF
 ```
 
 1. `browser` のブラウザが残っていれば止める。対象は、コマンドラインの `--user-data-dir` がこの run の `tmp/` の下にあるプロセスだけ（`ps -ax -ww -o pid=,command=`）で、SIGTERM を送り、10秒で止まらなければ SIGKILL。通常は `browser` が終わるときにブラウザを閉じ、補助スクリプトが強制終了されてもブラウザは一緒に終わるので、ここで止めるものは無い（補助スクリプトを SIGSTOP で止めてブラウザを残した状態で、`cleanup` がそのブラウザだけを止めることを確かめた）。
-2. `state.json` の PID が動いていれば、そのコマンドラインがソースの CLI の `ui` でこの run の `web/` を指していることを確かめてから SIGTERM を送り、止まるのを待つ（10秒で止まらなければ、もう一度コマンドラインを確かめて SIGKILL）。コマンドラインがこの run のものでなければ止めずに終了コード 1 で終わり、データも消さない（別の PID を記録した run で、その PID が止められず、データが残ることを確かめた）。
-3. 表で「消す」とした `data/`・`home/`・`tmp/`・`config/`・`repo/`・`web/`・`logs/`・`state.json` を消す。
+2. `state.json` の PID が動いていれば、そのコマンドラインが状態ファイルに記録した起動の argv（launch した作業ツリーのソースの CLI の `ui` で、この run の `web/` を指す）と一致することを確かめてから SIGTERM を送り、止まるのを待つ（10秒で止まらなければ、もう一度確かめて SIGKILL）。別の作業ツリーから launch した run も、記録した argv と一致すれば止める（その run の `launch` が起動した server なので）。一致しなければ止めずに終了コード 1 で終わり、データも消さない（別の PID を記録した run で、その PID が止められず、データが残ることを確かめた）。そのプロセスのコマンドラインは出力に載せない。
+3. 表で「消す」とした `data/`・`home/`・`tmp/`・`config/`・`repo/`・`bin/`・`web/`・`logs/`・`state.json` を消す。
 4. `evidence/cleanup.json` に、止めた PID（nod と残りのブラウザ）と消したパスを追記する。
 
 **証拠は `<run>/evidence/` に残る**（後始末のあと、run のディレクトリには `evidence/` だけがある）。何度実行してもよい。2回目以降は止めるものも消すものも無く、終了コード 0 で終わる。`VERIFY_NOD_ROOT` を変えて起動した run は、同じ `VERIFY_NOD_ROOT` を付けて runId で指定するか、runDir の絶対パスで指定する。根が launch のときと違うと、`<根>/<runId> がありません` で終了コード 1 になり、何も止めず何も消さない（`doctor`・`cli` も同じ）。シェルで `VERIFY_NOD_ROOT` を export したままにしていないかも確かめる。
@@ -238,7 +239,7 @@ VERIFY_NOD_ROOT=/tmp/verify-nod-alt ./.omp/skills/verify-nod/scripts/verify-nod.
 ./.omp/skills/verify-nod/scripts/verify-nod.ts cleanup /tmp/verify-nod-alt/<runId>
 ```
 
-残っている run は `list` で探す（`alive: true` は、記録した PID がその run のコマンドラインで動いていることを表す）。
+残っている run は `list` で探す（`alive: true` は、記録した PID が、状態ファイルに記録したその run の起動の argv で動いていることを表す。`list` を実行した作業ツリーによらず、別の作業ツリーから launch した run も同じに判定する）。
 
 ## Helpers
 
@@ -248,7 +249,7 @@ VERIFY_NOD_ROOT=/tmp/verify-nod-alt ./.omp/skills/verify-nod/scripts/verify-nod.
 | --- | --- |
 | `launch` | 新しい run を作り、web をビルドし、Workspace を登録して `nod ui` を起動する（「Launch」） |
 | `doctor <run> [--port <番号>]` | 読み取りだけの状態確認（「Doctor」） |
-| `cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...>` | その run と同じデータ・同じ許可リストの環境で、ソースの CLI を実行する。cwd は `<run>/repo` なので、`-w` を付けなくても run の Workspace を使う。終了コードは CLI のもの。`--evidence` で `evidence/<機能の ID>/NNN-cli.json` に記録する（「Evidence」） |
+| `cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...>` | その run と同じデータ・同じ許可リストの環境で、ソースの CLI を実行する。cwd は `<run>/repo` なので、`-w` を付けなくても run の Workspace を使う。終了コードは CLI のもの。`--evidence` で `evidence/<機能の ID>/NNN-cli.json` に記録する（「Evidence」）。引数に `ui` があれば CLI を起動せずに終了コード 1 |
 | `browser <run> --feature <機能の ID> [--steps <ファイル>\|-] [--timeout <ミリ秒>]` | `doctor` を通してから、手順の JSON（既定は標準入力）を新しいブラウザのコンテキストで実行し、`evidence/<機能の ID>/` に記録・ARIA スナップショット・スクリーンショットを残す（「Drive」）。終了コードは、すべての手順が通れば 0、それ以外は 1 |
 | `cleanup <run>` | 残ったブラウザ、起動した `nod ui` と作業用のデータを消し、`evidence/` を残す（「Cleanup」） |
 | `list` | 根にある run の一覧（`runId`・`cleaned`・`pid`・`alive`・`url`） |
@@ -276,7 +277,7 @@ printf '%s' '[{"goto": "/issues"}, {"snapshot": "list"}, {"screenshot": "list"}]
 
 ページを開いたまま CLI で書くときは、手順に `cli` を入れる（例は [`features/cli-to-web.md`](features/cli-to-web.md)。`{"events": "ready"}` のあとに `{"cli": [...]}`、続けて `expect` で画面の変化を待つ）。別のシェルから `cli` サブコマンドを実行しても、`browser` の呼び出しは終わっていてページは残っていない。
 
-server の環境を自分の目で見るときは、`ps eww -o command= -p <PID> | tr ' ' '\n' | grep =` で許可リストの11項目だけが出る。その PATH で `gh` が見つからないことは `env -i PATH=/usr/bin:/bin /bin/sh -c 'command -v gh'`（終了コード 1）で確かめられる。
+server の環境を自分の目で見るときは、`ps eww -o command= -p <PID> | tr ' ' '\n' | grep =` で許可リストの11項目だけが出る。その PATH で `git` だけが見つかり、`gh` と `open` が見つからないことは `env -i PATH=<run>/bin /bin/sh -c 'command -v git; command -v gh; command -v open'`（`git` の行だけが出て終了コード 1）で確かめられる。
 
 ## 同時起動（2026-11-25 の実測）
 

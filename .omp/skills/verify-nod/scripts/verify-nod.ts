@@ -3,14 +3,15 @@
 // 状態確認（doctor）、CLI・Web の操作と証拠の保存（cli・browser）、後始末（cleanup）を行う。使い方は SKILL.md と `verify-nod.ts help` を見る。
 //
 // 守ること:
-// - 利用者の nod（ポート 4700、~/.local/share/nod、~/.config/nod、~/Applications/nod.app）に触れない。4700 には接続しない
-// - 検証の nod に渡す環境変数は nodEnv() の許可リストだけ。親の process.env を混ぜない
+// - 利用者の nod（ポート 4700、~/.local/share/nod、~/.config/nod、~/Applications/nod.app）に触れない。4700 には接続しない。
+//   nod ui は cli から実行させない（ポートを省くと 4700 に接続・待ち受けし、ブラウザを開くため。検証の nod ui は launch が起動する）
+// - 検証の nod に渡す環境変数は nodEnv() の許可リストだけ。親の process.env を混ぜない。PATH は run の bin/（git だけ）で、open・gh などは見つからない
 // - ブラウザは新しいコンテキストで開き、その run の origin 以外への要求をブラウザ側で止める
-// - プロセスは名前で止めない。状態ファイルの PID のコマンドラインに自分の置き場のパスがあるときだけ止める
+// - プロセスは名前で止めない。状態ファイルに記録した起動の argv と、PID のコマンドラインが一致するときだけ止める（環境変数もそのときだけ読む）
 // - 後始末は作業用のデータとプロセスだけを消し、evidence/ を残す
 import { Database } from "bun:sqlite";
 import type { Subprocess } from "bun";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 // 型だけ。実行時は packages/web から解決して読み込む（loadPlaywright）
@@ -23,7 +24,7 @@ const CLI_MAIN = join(WORKTREE, "packages/cli/src/main.ts");
 const WEB_PKG = join(WORKTREE, "packages/web");
 const VITE_BIN = join(WEB_PKG, "node_modules/vite/bin/vite.js");
 const BUN = process.execPath;
-// gh（/opt/homebrew/bin、/usr/local/bin）が見つからず、git（/usr/bin/git）は使える最小の PATH
+// web のビルド・git init・ps / lsof・ブラウザに渡す最小の PATH。検証の nod には渡さない（nodEnv の PATH は run の bin/）
 const SAFE_PATH = "/usr/bin:/bin";
 const GIT = "/usr/bin/git";
 const PS = "/bin/ps";
@@ -47,6 +48,7 @@ interface Layout {
   ghUnavailable: string;
   viteEnv: string;
   repo: string;
+  bin: string;
   web: string;
   logs: string;
   uiStdout: string;
@@ -99,6 +101,7 @@ function layout(runDir: string): Layout {
     ghUnavailable: join(config, "gh-unavailable"), // 作らない（実行できない絶対パス）
     viteEnv: join(config, "vite-env"), // 空のまま（Vite に .env を読ませない）
     repo: join(runDir, "repo"),
+    bin: join(runDir, "bin"), // 検証の nod の PATH。git（/usr/bin/git へのシンボリックリンク）だけを置く
     web: join(runDir, "web"),
     logs,
     uiStdout: join(logs, "ui.stdout.log"),
@@ -107,10 +110,11 @@ function layout(runDir: string): Layout {
   };
 }
 
-// 検証の nod（server と CLI）に渡す環境変数の許可リスト。これ以外は渡さない
+// 検証の nod（server と CLI）に渡す環境変数の許可リスト。これ以外は渡さない。
+// PATH は run の bin/ だけ。nod が名前で実行する git は見つかり、gh（PR の状態）と open（nod ui のブラウザ）は見つからない
 function nodEnv(p: Layout, actor = DEFAULT_ACTOR): Record<string, string> {
   return {
-    PATH: SAFE_PATH,
+    PATH: p.bin,
     HOME: p.home,
     TMPDIR: p.tmp,
     NOD_DB: p.db,
@@ -218,8 +222,32 @@ function listeners(port: number): number[] {
   return [...new Set(r.stdout.split("\n").filter(Boolean).map(Number))];
 }
 
-function ownsCommand(cmd: string | null, p: Layout): boolean {
-  return cmd !== null && cmd.includes(CLI_MAIN) && cmd.includes(` ui `) && cmd.includes(p.web);
+// その PID がこの run の server か。状態ファイルに記録した起動の argv（どの作業ツリーから launch したかを含む）が、
+// その run の web/ を指すソースの CLI の ui で、PID のコマンドラインがその argv と一致するときだけ true
+function ownsProcess(cmd: string | null, state: State | null, p: Layout): boolean {
+  const argv = state?.argv;
+  if (cmd === null || !state || !argv) return false;
+  const webDir = argv[argv.indexOf("--web-dir") + 1];
+  return argv.includes(join(state.worktree, "packages/cli/src/main.ts")) && argv.includes("ui") && webDir === p.web && cmd === argv.join(" ");
+}
+
+// ps eww の出力（コマンドラインに続けて環境変数）と許可リストを比べ、違う変数の名前だけを返す（値は出さない）
+function envMismatch(envLine: string, argv: string[], expected: Record<string, string>): string[] {
+  const command = argv.join(" ");
+  if (!envLine.startsWith(command)) return ["（コマンドラインが記録と違う）"];
+  const actual = new Map<string, string>();
+  let last: string | null = null;
+  for (const token of envLine.slice(command.length).trim().split(" ").filter(Boolean)) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(token);
+    if (m?.[1] !== undefined) {
+      last = m[1];
+      actual.set(last, m[2] ?? "");
+    } else if (last !== null) {
+      actual.set(last, `${actual.get(last)} ${token}`); // 値の中の空白
+    }
+  }
+  const names = new Set([...Object.keys(expected), ...actual.keys()]);
+  return [...names].filter((k) => expected[k] !== actual.get(k)).map((k) => (!(k in expected) ? `${k}（余分）` : !actual.has(k) ? `${k}（無い）` : `${k}（値が違う）`));
 }
 
 function readUiOutput(p: Layout): { url: string; reused: boolean; dbPath: string | null; webDir: string } | null {
@@ -268,13 +296,22 @@ async function doctorChecks(p: Layout, portOverride?: number): Promise<{ port: n
   const alive = isAlive(state.pid);
   push("pid-alive", alive, alive ? `PID ${state.pid} は動いている` : `PID ${state.pid} は動いていません`);
   const cmd = alive ? commandLine(state.pid) : null;
-  push("pid-command", ownsCommand(cmd, p), cmd ? `PID ${state.pid}: ${cmd}` : "コマンドラインを読めません");
+  const owned = ownsProcess(cmd, state, p);
+  // この run の server と確かめられないプロセスは、コマンドラインの中身も環境変数も出さない（別のプロセスの秘密を出力に載せない）
+  push("pid-command", owned, owned ? `PID ${state.pid}: ${cmd}`
+    : cmd === null ? "コマンドラインを読めません"
+    : `PID ${state.pid} のコマンドラインが、状態ファイルに記録したこの run の起動の argv と一致しません（別のプロセス。中身は出しません）`);
 
-  const expectedEnv = `${state.argv.join(" ")} ${Object.entries(nodEnv(p)).map(([k, v]) => `${k}=${v}`).join(" ")}`;
-  const envLine = alive ? environmentLine(state.pid) : null;
-  push("pid-env", envLine === expectedEnv, envLine === expectedEnv
-    ? `環境変数は許可リストの ${Object.keys(nodEnv(p)).length} 項目だけ`
-    : `環境変数が許可リストと一致しません。期待: ${expectedEnv} / 実際: ${envLine ?? "（読めない）"}`);
+  const expected = nodEnv(p);
+  if (!owned) {
+    push("pid-env", false, "PID がこの run の server と確かめられないので、環境変数を読みません");
+  } else {
+    const envLine = environmentLine(state.pid);
+    const diff = envLine === null ? ["（読めない）"] : envMismatch(envLine, state.argv, expected);
+    push("pid-env", diff.length === 0, diff.length === 0
+      ? `環境変数は許可リストの ${Object.keys(expected).length} 項目だけ`
+      : `環境変数が許可リストと一致しません: ${diff.join(", ")}`);
+  }
 
   const owners = listeners(port);
   push("port-owner", owners.length === 1 && owners[0] === state.pid,
@@ -336,7 +373,8 @@ async function launch(): Promise<number> {
   const { runId, key } = newRun();
   const p = layout(join(root, runId));
   mkdirSync(p.runDir); // 既にあれば失敗させる（別の run と混ざらない）
-  for (const dir of [p.data, p.docs, p.attachments, p.home, p.tmp, p.config, p.viteEnv, p.repo, p.web, p.logs, p.evidence]) mkdirSync(dir, { recursive: true });
+  for (const dir of [p.data, p.docs, p.attachments, p.home, p.tmp, p.config, p.viteEnv, p.repo, p.bin, p.web, p.logs, p.evidence]) mkdirSync(dir, { recursive: true });
+  symlinkSync(GIT, join(p.bin, "git"));
   const repoPath = realpathSync(p.repo);
   const state: State = {
     runId,
@@ -438,13 +476,14 @@ async function stopOwned(state: State | null, p: Layout): Promise<{ pid: number 
   const pid = state.pid;
   if (!isAlive(pid)) return { pid, result: "停止済み" };
   const cmd = commandLine(pid);
-  if (!ownsCommand(cmd, p)) {
-    throw new Fail(`PID ${pid} のコマンドラインにこの run の置き場がありません。別のプロセスなので止めません: ${cmd ?? "（読めない）"}`);
+  if (!ownsProcess(cmd, state, p)) {
+    // 別のプロセスのコマンドラインは出さない
+    throw new Fail(`PID ${pid} のコマンドラインが、状態ファイルに記録したこの run の起動の argv と一致しません。別のプロセスなので止めません`);
   }
   process.kill(pid, "SIGTERM");
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (isAlive(pid) && Date.now() < deadline) await Bun.sleep(100);
-  if (isAlive(pid) && ownsCommand(commandLine(pid), p)) {
+  if (isAlive(pid) && ownsProcess(commandLine(pid), state, p)) {
     process.kill(pid, "SIGKILL");
     await Bun.sleep(300);
   }
@@ -477,7 +516,7 @@ async function cleanup(args: string[]): Promise<number> {
   const browsers = await stopBrowsers(p);
   const stopped = await stopOwned(state, p);
   // evidence/ は消さない
-  const removed = [p.data, p.home, p.tmp, p.config, p.repo, p.web, p.logs, p.state].filter((path) => existsSync(path));
+  const removed = [p.data, p.home, p.tmp, p.config, p.repo, p.bin, p.web, p.logs, p.state].filter((path) => existsSync(path));
   for (const path of removed) rmSync(path, { recursive: true, force: true });
   const recordPath = join(p.evidence, "cleanup.json");
   const record = existsSync(recordPath) ? (JSON.parse(readFileSync(recordPath, "utf8")) as unknown[]) : [];
@@ -499,7 +538,8 @@ function list(): number {
         runDir: p.runDir,
         cleaned: state === null && !existsSync(p.data),
         pid: state?.pid ?? null,
-        alive: state?.pid ? isAlive(state.pid) && ownsCommand(commandLine(state.pid), p) : false,
+        // 判定は状態ファイルに記録した起動の argv で行う（list を実行した作業ツリーによらない）
+        alive: state?.pid ? isAlive(state.pid) && ownsProcess(commandLine(state.pid), state, p) : false,
         url: state?.url ?? null,
       };
     })
@@ -510,16 +550,41 @@ function list(): number {
 
 // 証拠の置き場は <run>/evidence/<機能の ID>/。ファイル名の先頭の3桁は、その置き場での呼び出しごとの通し番号
 const FEATURE_RE = /^[a-z0-9][a-z0-9-]*$/;
+const SEQ_RE = /^\.?(\d{3})-/;
 
-function featureEvidence(p: Layout, feature: string | undefined): { dir: string; seq: string } {
+interface EvidenceSlot {
+  dir: string;
+  seq: string;
+  release(): void;
+}
+
+// 番号を確保する。.<番号>-claim を排他で作り、ほかにその番号のファイルが無いことを確かめてから使う
+// （同じ機能の cli・browser を並行に呼んでも、呼び出しごとに別の番号になる）。証拠を書いたら release() で .<番号>-claim を消す
+function featureEvidence(p: Layout, feature: string | undefined): EvidenceSlot {
   if (!feature || !FEATURE_RE.test(feature)) throw new Fail(`機能の ID が正しくありません: ${feature ?? "（なし）"}（英小文字・数字・ハイフン。例 issue-create）`);
   const dir = join(p.evidence, feature);
   mkdirSync(dir, { recursive: true });
-  const used = readdirSync(dir).flatMap((n) => {
-    const m = /^(\d{3})-/.exec(n);
-    return m?.[1] ? [Number(m[1])] : [];
+  const used = () => readdirSync(dir).flatMap((n) => {
+    const m = SEQ_RE.exec(n);
+    return m?.[1] ? [{ name: n, seq: Number(m[1]) }] : [];
   });
-  return { dir, seq: String(Math.max(0, ...used) + 1).padStart(3, "0") };
+  for (;;) {
+    const n = Math.max(0, ...used().map((u) => u.seq)) + 1;
+    const seq = String(n).padStart(3, "0");
+    const claim = join(dir, `.${seq}-claim`);
+    try {
+      closeSync(openSync(claim, "wx"));
+    } catch (e) {
+      if (typeof e === "object" && e !== null && "code" in e && e.code === "EEXIST") continue;
+      throw e;
+    }
+    // 確保する前に、別の呼び出しがこの番号の証拠を書き終えて claim を消していたら、次の番号にする
+    if (used().some((u) => u.seq === n && u.name !== `.${seq}-claim`)) {
+      rmSync(claim, { force: true });
+      continue;
+    }
+    return { dir, seq, release: () => rmSync(claim, { force: true }) };
+  }
 }
 
 // args から「名前 値」を取り除いて値を返す
@@ -543,6 +608,16 @@ async function runCli(p: Layout, actor: string, nodArgs: string[], stdin: "inher
   const proc = Bun.spawn([BUN, "--no-env-file", CLI_MAIN, ...nodArgs], { cwd: p.repo, env: nodEnv(p, actor), stdin, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   return { exitCode, stdout, stderr };
+}
+
+// nod ui は検証の入口（cli・browser の cli の手順）から実行しない。ポートを省くと既定の 4700 で待ち受けようとし、
+// 使用中なら 4700 に GET して既存の nod と判定し、その URL をブラウザで開く。commander は「ui」をどの位置（--json・-w <値>・-- の後ろ）でも
+// サブコマンドとして解釈しうるので、引数のどこかに「ui」がそのままあれば CLI を起動せずに拒む（Issue のタイトルなどが「ui」のときも拒む）。
+// ブラウザを開く open は、検証の nod の PATH（run の bin/）に無いので見つからない
+function refuseUi(nodArgs: string[], where: string): void {
+  if (nodArgs.includes("ui")) {
+    throw new Fail(`${where}: nod の引数に ui があるので実行しません（nod ui は既定のポート ${USER_PORT} の利用者の nod に接続・待ち受けし、ブラウザを開く。検証の nod ui は launch が起動したものを使う）`);
+  }
 }
 
 // CLI の呼び出しの記録（cli --evidence の <番号>-cli.json と、browser の cli の手順の <番号>-<手順>-cli.json）
@@ -579,6 +654,7 @@ async function cli(args: string[]): Promise<number> {
   if (sep < 0) throw new Fail("cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...> の形で指定してください");
   const own = args.slice(0, sep);
   const nodArgs = args.slice(sep + 1);
+  refuseUi(nodArgs, "cli");
   const actor = takeOption(own, "--actor") ?? DEFAULT_ACTOR;
   const feature = takeOption(own, "--evidence");
   if (own.length !== 1) throw new Fail(`cli の引数が正しくありません: ${own.join(" ")}`);
@@ -588,15 +664,19 @@ async function cli(args: string[]): Promise<number> {
     const r = Bun.spawnSync([BUN, "--no-env-file", CLI_MAIN, ...nodArgs], { cwd: p.repo, env: nodEnv(p, actor), stdin: "inherit", stdout: "inherit", stderr: "inherit" });
     return r.exitCode ?? 1;
   }
-  const { dir, seq } = featureEvidence(p, feature);
-  const startedAt = new Date().toISOString();
-  const r = await runCli(p, actor, nodArgs, "inherit");
-  process.stdout.write(r.stdout);
-  process.stderr.write(r.stderr);
-  const file = join(dir, `${seq}-cli.json`);
-  writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
-  process.stderr.write(`verify-nod: 証拠 ${file}\n`);
-  return r.exitCode;
+  const slot = featureEvidence(p, feature);
+  try {
+    const startedAt = new Date().toISOString();
+    const r = await runCli(p, actor, nodArgs, "inherit");
+    process.stdout.write(r.stdout);
+    process.stderr.write(r.stderr);
+    const file = join(slot.dir, `${slot.seq}-cli.json`);
+    writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
+    process.stderr.write(`verify-nod: 証拠 ${file}\n`);
+    return r.exitCode;
+  } finally {
+    slot.release();
+  }
 }
 
 // ---- browser: Playwright で Web を操作し、ARIA スナップショットとスクリーンショットを残す ----
@@ -663,6 +743,26 @@ function opOf(step: unknown, i: number): Op {
   return ops[0] as Op;
 }
 
+// expect の検査項目の組み合わせ。count・hidden・text・value・attr・disabled は書いたものをすべて検査する。
+// 必ず失敗する組み合わせ（0 件の中身、複数に当たる1要素の検査）は、ブラウザを起動する前に拒む
+function checkExpect(s: Step, i: number): void {
+  const where = `手順 ${i}（expect）`;
+  if (s.hidden !== undefined && s.hidden !== true) throw new Fail(`${where}: hidden は true だけを書けます（見えていることは hidden を省いて確かめる）`);
+  if (s.count === undefined) return;
+  if (typeof s.count !== "number" || !Number.isInteger(s.count) || s.count < 0) throw new Fail(`${where}: count は 0 以上の整数で書いてください`);
+  const single = ["value", "attr", "disabled"].filter((k) => s[k] !== undefined);
+  if (s.count === 0) {
+    const others = [...single, ...(s.text !== undefined ? ["text"] : [])];
+    if (others.length > 0) throw new Fail(`${where}: count: 0 と ${others.join(", ")} は組み合わせられません（0 件の要素の中身は確かめられない）`);
+  }
+  if (s.count > 1) {
+    const others = [...single, ...(s.hidden === true ? ["hidden"] : []), ...(typeof s.text === "string" ? ["text（文字列）"] : [])];
+    if (others.length > 0) {
+      throw new Fail(`${where}: count が 2 以上のときは ${others.join(", ")} を組み合わせられません（1つの要素を確かめる検査なので、複数に当たると必ず失敗する）。文字は text に要素ごとの配列で書く`);
+    }
+  }
+}
+
 // 実行の前に手順の形をすべて確かめる（途中まで操作してから書き間違いで止まらないように）
 function checkSteps(raw: string): Step[] {
   let steps: unknown;
@@ -690,6 +790,8 @@ function checkSteps(raw: string): Step[] {
     if (op === "events" && v !== "ready" && v !== "connecting") throw new Fail(`手順 ${i}（events）: "ready" か "connecting" を書いてください`);
     if (op === "cli" && (!Array.isArray(v) || v.length === 0 || !v.every((a) => typeof a === "string"))) throw new Fail(`手順 ${i}（cli）: nod の引数を文字列の配列で書いてください（例 ["--json", "issue", "create", "タイトル"]）`);
     if (op === "cli" && s.actor !== undefined && (typeof s.actor !== "string" || s.actor === "")) throw new Fail(`手順 ${i}（cli）: actor は空でない文字列で書いてください`);
+    if (op === "cli") refuseUi(v as string[], `手順 ${i}（cli）`);
+    if (op === "expect") checkExpect(s, i);
   });
   return steps as Step[];
 }
@@ -765,7 +867,9 @@ async function browser(args: string[]): Promise<number> {
   }
   const state = readState(p) as State;
   const origin = `http://127.0.0.1:${state.port}`;
-  const { dir, seq } = featureEvidence(p, feature);
+  const pw = await loadPlaywright();
+  // 番号は記録を書き終えるまで確保する（finally で release）
+  const { dir, seq, release } = featureEvidence(p, feature);
   const logPath = join(dir, `${seq}-browser.json`);
   const record = {
     kind: "browser",
@@ -786,7 +890,6 @@ async function browser(args: string[]): Promise<number> {
     error: null as string | null,
   };
 
-  const pw = await loadPlaywright();
   // Playwright が作る一時的なプロファイル（--user-data-dir）を run の tmp/ に置く。cleanup はこれを目印に残ったブラウザを止める
   process.env.TMPDIR = p.tmp;
   let instance: Browser | null = null;
@@ -854,8 +957,8 @@ async function browser(args: string[]): Promise<number> {
         const l = loc();
         const o = { timeout };
         if (step.count !== undefined) await expect(l).toHaveCount(step.count as number, o);
-        else if (step.hidden === true) await expect(l).toBeHidden(o);
-        else await expect(l).toBeVisible(o);
+        if (step.hidden === true) await expect(l).toBeHidden(o);
+        else if (step.count === undefined) await expect(l).toBeVisible(o);
         if (step.text !== undefined) await expect(l).toContainText(step.text as string | string[], o);
         if (step.value !== undefined) await expect(l).toHaveValue(step.value as string, o);
         for (const [k, want] of Object.entries((step.attr ?? {}) as Record<string, string>)) await expect(l).toHaveAttribute(k, want, o);
@@ -961,6 +1064,7 @@ async function browser(args: string[]): Promise<number> {
   } finally {
     record.finishedAt = new Date().toISOString();
     writeJson(logPath, record);
+    release();
     await instance?.close();
   }
   console.log(JSON.stringify({ ok: record.ok, runId: state.runId, feature, origin, log: logPath, artifacts: record.artifacts, blockCheck: record.blockCheck, blocked: record.blocked, error: record.error }, null, 2));
@@ -972,7 +1076,7 @@ const HELP = `verify-nod.ts <サブコマンド>
   launch                         空の置き場に run を作り、web をビルドし、Workspace を登録して nod ui を起動する
   doctor <run> [--port <番号>]   読み取りだけの状態確認（--port で照合先のポートを変える。4700 は拒む）
   cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...>
-                                 検証の nod と同じデータでソースの CLI を実行する（--evidence で evidence/<機能の ID>/ に記録）
+                                 検証の nod と同じデータでソースの CLI を実行する（--evidence で evidence/<機能の ID>/ に記録。引数に ui があれば拒む）
   browser <run> --feature <機能の ID> [--steps <JSON のファイル>|-] [--timeout <ミリ秒>]
                                  doctor を通してから、手順（JSON の配列。既定は標準入力）を新しいブラウザのコンテキストで実行し、
                                  evidence/<機能の ID>/ に記録・ARIA スナップショット・スクリーンショットを残す

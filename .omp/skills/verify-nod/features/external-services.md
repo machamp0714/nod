@@ -22,7 +22,7 @@ nod のいくつかの機能は外部のサービスを使う。仕様要否判�
 | 機能 | この run で切っているもの | 成功の経路に要るもの（run には無い） |
 | --- | --- | --- |
 | 仕様要否判定 | `TYPESAFE_API_KEY` を空文字で渡す（`~/.config/nod/env` も読まない）。run の Workspace は自動判定が無効で始まる | Typesafe の API キーと、API への接続 |
-| GitHub | server の `PATH` は `/usr/bin:/bin` で `gh` が見つからない。CLI の `NOD_GH` は run の `config/gh-unavailable`（無いファイル） | 実行できる `gh` と、その認証、GitHub への接続 |
+| GitHub | server の `PATH` は run の `bin/`（`git` だけ）で `gh` が見つからない。CLI の `NOD_GH` は run の `config/gh-unavailable`（無いファイル） | 実行できる `gh` と、その認証、GitHub への接続 |
 | Toggl | `NOD_TOGGL_CONFIG` は run の `config/toggl.json`（作らない。トークンなし） | Toggl の API トークンと、API への接続 |
 | Orca | `NOD_ORCA=0` | 動いている Orca と `orca` の CLI |
 | ブラウザから外へ | `browser` は run の origin 以外への要求をすべて止める（記録の `blocked`） | — |
