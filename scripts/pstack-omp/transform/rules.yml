@@ -1,7 +1,8 @@
 # 順序付きの置換規則。generate.ts が、生成の対象の .md（全文差し替えのファイルを除く。include した文書を含む）に、上から順に、
 # 前の規則の出力に対して全箇所を置換する。どの規則も生成の対象全体で1回以上一致しなければ生成は失敗する。
+# files は生成物の相対パスに当てるので、rename で改名したスキルのファイルは改名の後のパスで書く。
 # rules の各項目:
-#   id       一意の名前（報告と manifest.json の一致数に出る）。節ごとに接頭辞を付ける（参照の変換は ref-）
+#   id       一意の名前（報告と manifest.json の一致数に出る）。節ごとに接頭辞を付ける（改名は rename-、参照の変換は ref-）
 #   reason   規則の理由（日本語）
 #   files    任意。生成物の相対パス（pstack/skills/... など）に当てる正規表現。当たるファイルだけに置換する
 #   literal  一致させる文字列（literal か regex のどちらか1つ）
@@ -13,6 +14,12 @@
 #   from     上流の相対パス（ファイル）
 #   to       生成物の相対パス（既存の生成物と重ならないこと）
 #   reason   入れる理由（日本語）
+# rename の各項目: 生成するスキルのディレクトリを、生成物では別の名前のディレクトリにする（規則の前に改名する）。
+#   from     上流の生成するスキルのディレクトリ（pstack/skills/<名前> か cursor-team-kit/skills/<名前>）。上流に無ければ生成は失敗する
+#   to       生成物のディレクトリ（from と同じ <ルート>/skills/<名前>。生成するスキルと重ならないこと）
+#   reason   改名する理由（日本語）
+#   改名したスキルの SKILL.md の frontmatter の name と、ほかのスキルからの参照は、規則（rename-）で改名の後の名前にする
+#   （name が改名の後の名前でなければ生成は失敗する）。全文差し替えは改名したスキルのファイルには宣言できない。
 #
 # 変換の後、生成物のすべての .md の静的な参照（skill://<name>[/<path>]、/skill:<name>、相対の Markdown リンク）は、先が生成物にあり、
 # 相対リンクは含むスキルのディレクトリの外を指さないことを generate.ts が検査する（OMP は skill:// の .. を辿らない）。
@@ -21,7 +28,36 @@ include:
     to: pstack/skills/no-comments/references/comment-sicko.md
     reason: no-comments がコメントの確認を委譲するときの定義。新しいレビュー担当の定義は作らず、既定の task エージェントが読む no-comments の付属文書にする
 
+rename:
+  - from: pstack/skills/tdd
+    to: pstack/skills/pstack-tdd
+    reason: 利用者の判断（2026-11-25）。名前だけの tdd は利用者の置き場のもの（nod:implement が呼ぶ tdd）に譲り、pstack の tdd は pstack-tdd の名前で生成する。名前だけの tdd を生成物に置くと、skills.customDirectories の先頭の生成先が利用者の tdd より優先されるため
+
 rules:
+  # ==== スキルの改名（rename-）====
+  # rename で改名したスキルの frontmatter の name と、pstack の中のそのスキルへの参照を改名の後の名前にする。参照の変換（ref-）より前に当て、
+  # 参照の形（read と skill://、/skill:）は ref- の一般の規則が改名の後の名前で作る。
+  - id: rename-tdd-name
+    reason: 改名した pstack-tdd の frontmatter の name（OMP は name をスキルの名前にする）
+    files: '^pstack/skills/pstack-tdd/SKILL\.md$'
+    literal: "---\nname: tdd\n"
+    replace: "---\nname: pstack-tdd\n"
+  - id: rename-tdd-poteto-help-link
+    reason: poteto-help の表の tdd へのリンク（ref-poteto-help-skill-links と ref-poteto-help-slash が /skill:pstack-tdd と skill://pstack-tdd にする）
+    files: '^pstack/skills/poteto-help/SKILL\.md$'
+    literal: '[`/tdd`](../tdd/SKILL.md)'
+    replace: '[`/pstack-tdd`](../pstack-tdd/SKILL.md)'
+  - id: rename-tdd-recipes
+    reason: poteto-help の recipes.md の、利用者が入力する /tdd（ref-poteto-help-prompts が /skill:pstack-tdd にする）
+    files: '^pstack/skills/poteto-help/references/recipes\.md$'
+    literal: "if there's a cheap test path, /tdd it."
+    replace: "if there's a cheap test path, /pstack-tdd it."
+  - id: rename-tdd-bug-fix
+    reason: bug-fix のプレイブックがモデルに tdd のスキルを読ませる箇所（ref-bold-skill が skill://pstack-tdd を添える）
+    files: '^pstack/skills/poteto-mode/playbooks/bug-fix\.md$'
+    literal: 'See the **tdd** skill'
+    replace: 'See the **pstack-tdd** skill'
+
   # ==== 参照の変換（ref-）====
   # 用途の分かる箇所だけを変換する。モデルが別のスキルを実行する箇所は read で skill://<name> を読んで従う文に、モデルが付属ファイルを読む箇所
   # （同じスキルの中のものを含む）は read で skill://<name>/<path> を読む文に、利用者への入力の案内は /skill:<name> に、上流の参考資料
@@ -130,7 +166,7 @@ rules:
   - id: ref-poteto-help-slash
     reason: poteto-help は利用者の質問に答えるスキルで、コードの中の /<生成するスキルの名前> はどれも利用者が入力するコマンドの案内（/loop・/create-skill・/orchestrate・/plugin などの生成しない名前には当てない）
     files: '^pstack/skills/poteto-help/SKILL\.md$'
-    regex: '(?<=`)/(poteto-mode|poteto-help|setup-pstack|in-your-own-words|sharpen|how|why|teach|recall|ketchup-video|ketchup|blast-radius|architect|arena|swarm|interrogate|tdd|typescript-best-practices|no-comments|unslop|technical-writing|bro|create-verification-skill|maintain-verification-skill|create-formal-verification-skill|maintain-formal-verification-skill|statechart|benchmark-checklist|figure-it-out|show-me-your-work|automate-me|reflect|correct|make-bot-ui|deslop)(?=[` ])'
+    regex: '(?<=`)/(poteto-mode|poteto-help|setup-pstack|in-your-own-words|sharpen|how|why|teach|recall|ketchup-video|ketchup|blast-radius|architect|arena|swarm|interrogate|pstack-tdd|typescript-best-practices|no-comments|unslop|technical-writing|bro|create-verification-skill|maintain-verification-skill|create-formal-verification-skill|maintain-formal-verification-skill|statechart|benchmark-checklist|figure-it-out|show-me-your-work|automate-me|reflect|correct|make-bot-ui|deslop)(?=[` ])'
     replace: '/skill:$1'
   - id: ref-poteto-help-description
     reason: poteto-help の説明の、利用者が入力するコマンドの案内
@@ -140,7 +176,7 @@ rules:
   - id: ref-poteto-help-prompts
     reason: poteto-help の付属文書 recipes.md と prompting.md は利用者が送るプロンプトの例と案内だけの文書で、/<生成するスキルの名前> はどれも利用者の入力（/loop などの生成しない名前には当てない）
     files: '^pstack/skills/poteto-help/references/(?:recipes|prompting)\.md$'
-    regex: '(?<![\w/.:-])/(poteto-mode|in-your-own-words|sharpen|how|why|teach|recall|ketchup|tdd|architect|arena|interrogate|create-formal-verification-skill|maintain-formal-verification-skill|swarm|show-me-your-work|reflect|bro)(?![\w-])'
+    regex: '(?<![\w/.:-])/(poteto-mode|in-your-own-words|sharpen|how|why|teach|recall|ketchup|pstack-tdd|architect|arena|interrogate|create-formal-verification-skill|maintain-formal-verification-skill|swarm|show-me-your-work|reflect|bro)(?![\w-])'
     replace: '/skill:$1'
   - id: ref-poteto-help-verify-app
     reason: 利用者のプロジェクトの verify-<app> のスキルを利用者が入力する例（動的な参照なので生成物に無くてよい）

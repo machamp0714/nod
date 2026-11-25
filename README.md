@@ -68,9 +68,9 @@ bun scripts/pstack-omp/cli.ts status  # 生成物の pin と OMP の版、3つ�
 
 `sync` は、固定の記録の上流を `~/.local/share/nod/pstack-omp/upstream` に取得し、Cursor 固有の手順を OMP 向けの手順に変換したコピーを固定の生成先 `~/.local/share/nod/pstack-omp/generated` に生成します（nod のデータ置き場を `NOD_DATA_DIR` で変えると、その下の `pstack-omp/generated` になります）。生成先には、pstack の全スキルと cursor-team-kit の `control-cli`・`control-ui`・`deslop`（`comment-sicko` の本文を変換した `no-comments` の付属文書を含みます）と `manifest.json` が入り、nod のリポジトリには入りません。OMP の版が固定の記録と違うと止まります。`sync` は OMP の設定を書き換えません。
 
-変換の入力は nod のリポジトリの `scripts/pstack-omp/transform/` にあります。順序付きの置換規則（`rules.yml`）を上から順に、前の規則の出力に当て、規則で表せないファイルは宣言したものだけ、上流の指紋を確かめて全文を差し替えます（`forks.yml` と本文）。変換の後に、Cursor の用語が残っていないかを拒否リスト（`denylist.yml`）で検査し、ほかのスキルやファイルへの静的な参照の先が生成物にあるかも確かめます。どこにも一致しない規則、拒否リストに当たった語、指紋の違う・元の無い全文差し替え、解決できない参照があれば、理由をまとめて出して失敗し、前回の生成物を残します。成功すると生成先を丸ごと入れ替え、規則ごとの一致数と全文差し替えの一覧を表示します。
+変換の入力は nod のリポジトリの `scripts/pstack-omp/transform/` にあります。順序付きの置換規則（`rules.yml`）を上から順に、前の規則の出力に当て、規則で表せないファイルは宣言したものだけ、上流の指紋を確かめて全文を差し替えます（`forks.yml` と本文）。`rules.yml` の `rename` で宣言したスキルのディレクトリは改名の後の名前で生成し、frontmatter の `name` とほかのスキルからの参照は規則で改名の後の名前にします（pstack の `tdd` は `pstack-tdd` として生成し、生成物に名前だけの `tdd` は置きません）。変換の後に、Cursor の用語が残っていないかを拒否リスト（`denylist.yml`）で検査し、ほかのスキルやファイルへの静的な参照の先が生成物にあるかも確かめます。どこにも一致しない規則、上流に無い改名の元（上流が消した・改名したスキル）や改名の後の名前と違う `name`、拒否リストに当たった語、指紋の違う・元の無い全文差し替え、解決できない参照があれば、理由をまとめて出して失敗し、前回の生成物を残します。成功すると生成先を丸ごと入れ替え、改名したスキルと規則ごとの一致数と全文差し替えの一覧を表示します。
 
-初回だけ、OMP が global の設定として読むファイル `~/.omp/agent/config.yml`（無くて `config.yaml` が在ればそれ）に、次の3つを手で登録します。既にある値は残し、`skills.customDirectories` の2つは先頭に置きます（custom directory 同士は先が勝つので、pstack の `tdd` が利用者の置き場の `tdd` より優先されます）。`<nod のリポジトリの絶対パス>` は、この README のあるリポジトリの絶対パスに置き換えます。`skills.manualSkills` の名前は、固定の記録（`scripts/pstack-omp/pin.json`）のコミット `792440e8a560a4a3f63748cdee70491ecd412982` から生成した全スキルです。
+初回だけ、OMP が global の設定として読むファイル `~/.omp/agent/config.yml`（無くて `config.yaml` が在ればそれ）に、次の3つを手で登録します。既にある値は残し、`skills.customDirectories` の2つは先頭に置きます（custom directory 同士は先が勝つので、生成したスキルと同じ名前の利用者のスキルがあっても、生成したスキルが優先されます）。pstack の `tdd` は `pstack-tdd` の名前で生成するので、名前だけの `tdd` は利用者の置き場のもの（`~/.agents/skills/tdd` など。`nod:implement` が呼ぶ `tdd`）が使われ、pstack の `tdd` は `skill://pstack-tdd`・`/skill:pstack-tdd` で呼びます。`<nod のリポジトリの絶対パス>` は、この README のあるリポジトリの絶対パスに置き換えます。`skills.manualSkills` の名前は、固定の記録（`scripts/pstack-omp/pin.json`）のコミット `792440e8a560a4a3f63748cdee70491ecd412982` から生成した全スキルです。`tdd` は入れません（入れると利用者の `tdd` がスキルの一覧から外れます）。
 
 ```yaml
 extensions:
@@ -125,6 +125,7 @@ skills:
     - principle-subtract-before-you-add
     - principle-test-behavior-not-implementation
     - principle-type-system-discipline
+    - pstack-tdd
     - recall
     - reflect
     - setup-pstack
@@ -132,7 +133,6 @@ skills:
     - show-me-your-work
     - statechart
     - swarm
-    - tdd
     - teach
     - technical-writing
     - typescript-best-practices
@@ -143,7 +143,7 @@ skills:
     - deslop
 ```
 
-`omp/content` には `poteto-agent`（pstack が子を起動するときの委譲先の定義）があります。`skills.manualSkills` に入れたスキルはスキルの一覧から外れ、`skill://poteto-mode`・`/skill:poteto-mode` のように名前で呼べば使えます。`status` は、欠けているものと、パスと名前を書き込んだ、そのまま貼れる値を表示します。新しく始める `omp` のセッションから効きます（実行中のセッションには入りません）。以前に読み替え表 `pstack-omp` を登録していた場合は、`skills.manualSkills` から `pstack-omp` の名前を手で外してください（残っても、読み込むものが無いだけです）。
+`omp/content` には `poteto-agent`（pstack が子を起動するときの委譲先の定義）があります。`skills.manualSkills` に入れたスキルはスキルの一覧から外れ、`skill://poteto-mode`・`/skill:poteto-mode` のように名前で呼べば使えます。`status` は、欠けているものと、パスと名前を書き込んだ、そのまま貼れる値を表示します。新しく始める `omp` のセッションから効きます（実行中のセッションには入りません）。以前に読み替え表 `pstack-omp` を登録していた場合は、`skills.manualSkills` から `pstack-omp` の名前を手で外してください（残っても、読み込むものが無いだけです）。以前に `skills.manualSkills` に `tdd` を登録していた場合は、`pstack-tdd` に置き換えてください（`tdd` が残ると利用者の `tdd` がスキルの一覧から外れます。`status` がそのことを表示します）。
 
 登録は一度だけです。以後は `sync` し直せば、同じ生成先が更新されます。固定の記録を変えてスキルの名前が増減したときは、`status` が欠けた名前を表示します（上の一覧も、`status` が表示する名前とコミットに合わせて更新します）。登録を手で外せば、次に始める `omp` のセッションから pstack は読み込まれません（生成先と上流の clone は残ります。要らなければ `~/.local/share/nod/pstack-omp` を手で消してください）。
 
@@ -151,7 +151,7 @@ skills:
 
 pstack 専用の制限（専用ランチャー、制御の拡張、サンドボックス、ツールや bash の deny）は置きません。何を制限するかは別に決めます。通常の OMP・GitHub の既存のルール（`config.yml` の既存の値、ブランチ保護など）は変えません。
 
-`status` は読むだけで、OMP の設定とデータ置き場に何も書きません。生成物の pin が固定の記録と一致するかと OMP の版を表示し、OMP が読む設定ファイルに3つの読み込みの設定が揃っているかを表示します（パスは `~` を展開し、別名を解いて比べます。`skills.manualSkills` は OMP と同じくパターンとしても当てます）。欠けていれば、欠けているものと一度だけ登録する値を表示します。続けて、通常の omp が実行したディレクトリで実際に読むスキルを、OMP 19.1.0 と同じ置き場・読み込みの条件・同じ名前の優先の順で集め、裸の名前 `tdd` を取るものを表示します（生成先の pstack の `tdd` なら、利用者やプロジェクトの `tdd` が `<名前空間>/tdd` の名前になることも添えます）。置き場は `skills.customDirectories` と、provider の `native`（プロジェクトの `.omp/skills`、`<agentDir>/skills`）・`omp-plugins`（`extensions` のパッケージの `skills/`）・`claude`（`~/.claude/skills` は `enabledProviders`・`skills.enableClaudeUser`・`CLAUDE_CONFIG_DIR` で有効にしたときだけ。プロジェクトの `.claude/skills`）・`agents`（プロジェクトの `.agent/skills`・`.agents/skills`、`~/.agent/skills`・`~/.agents/skills`）・`codex`・`opencode`・`github`・`omp-managed` の置き場です。プロジェクトの置き場は、実行したディレクトリから git の作業ツリーの根まで（git の外ならホームの手前まで、ホームの外ならファイルシステムの根まで。`.omp/skills` は一時ディレクトリの手前まで）遡った祖先です。`enabled: false` のスキルと、`description` が無いと読まない置き場の `description` の無いスキルは数えず、`disabledProviders`・`enabledProviders`（path で範囲を決めた項目は、実行したディレクトリで解きます）・`skills.enabled`・`skills.enable*`・`skills.ignoredSkills`・`skills.includeSkills`・`disabledExtensions` の `skill:<名前>` を OMP と同じく当てます。そのうえで、実行したディレクトリのプロジェクトの置き場にある、`poteto-agent` や生成したスキルと同じ名前のもの（エージェント定義は OMP と同じくファイルシステムの根まで遡って最も近い `.omp/agents`。git の根より上やホームの `~/.omp/agents` も含みます）を表示します。設定は OMP が global の設定として読むファイルの値で決め（読めなければ OMP の既定の設定で選んだと添えます）、プロジェクトの設定の層は見ません。入れたプラグイン（`~/.omp/plugins/node_modules`）・プラグインの登録（`installed_plugins.json`）・Agent Plugins の形のパッケージ（根に `plugin.json`）・skillshare の `skills.lock.json` から読むスキルは中を調べず、選んだ `tdd` より先に読まれうるときは、そこに `tdd` があればそちらが使われることを添えます。生成物や設定が無くても・読めなくても、`status` は止まらずにそのことを表示します。名前つきの profile（`OMP_PROFILE`・`PI_PROFILE`）や `~/.omp` でない設定の根（`PI_CONFIG_DIR`）を選んでいると、OMP がどの置き場の設定を読むかを決められないので、`status` は止まります（`sync` は行えます）。
+`status` は読むだけで、OMP の設定とデータ置き場に何も書きません。生成物の pin が固定の記録と一致するかと OMP の版を表示し、OMP が読む設定ファイルに3つの読み込みの設定が揃っているかを表示します（パスは `~` を展開し、別名を解いて比べます。`skills.manualSkills` は OMP と同じくパターンとしても当てます）。欠けていれば、欠けているものと一度だけ登録する値を表示します。続けて、通常の omp が実行したディレクトリで実際に読むスキルを、OMP 19.1.0 と同じ置き場・読み込みの条件・同じ名前の優先の順で集め、裸の名前 `tdd` を取るものと、pstack の `tdd` を呼ぶ名前 `pstack-tdd` を生成先の pstack の `tdd` が取るか（取れば `skill://pstack-tdd`・`/skill:pstack-tdd` で呼べます）を表示します（`skills.manualSkills` が裸の名前 `tdd` に合えば、その `tdd` がスキルの一覧から外れることを、改名していない生成物で生成先の pstack の `tdd` が裸の名前を取れば、利用者やプロジェクトの `tdd` が `<名前空間>/tdd` の名前になることも添えます）。置き場は `skills.customDirectories` と、provider の `native`（プロジェクトの `.omp/skills`、`<agentDir>/skills`）・`omp-plugins`（`extensions` のパッケージの `skills/`）・`claude`（`~/.claude/skills` は `enabledProviders`・`skills.enableClaudeUser`・`CLAUDE_CONFIG_DIR` で有効にしたときだけ。プロジェクトの `.claude/skills`）・`agents`（プロジェクトの `.agent/skills`・`.agents/skills`、`~/.agent/skills`・`~/.agents/skills`）・`codex`・`opencode`・`github`・`omp-managed` の置き場です。プロジェクトの置き場は、実行したディレクトリから git の作業ツリーの根まで（git の外ならホームの手前まで、ホームの外ならファイルシステムの根まで。`.omp/skills` は一時ディレクトリの手前まで）遡った祖先です。`enabled: false` のスキルと、`description` が無いと読まない置き場の `description` の無いスキルは数えず、`disabledProviders`・`enabledProviders`（path で範囲を決めた項目は、実行したディレクトリで解きます）・`skills.enabled`・`skills.enable*`・`skills.ignoredSkills`・`skills.includeSkills`・`disabledExtensions` の `skill:<名前>` を OMP と同じく当てます。そのうえで、実行したディレクトリのプロジェクトの置き場にある、`poteto-agent` や生成したスキルと同じ名前のもの（エージェント定義は OMP と同じくファイルシステムの根まで遡って最も近い `.omp/agents`。git の根より上やホームの `~/.omp/agents` も含みます）を表示します。設定は OMP が global の設定として読むファイルの値で決め（読めなければ OMP の既定の設定で選んだと添えます）、プロジェクトの設定の層は見ません。入れたプラグイン（`~/.omp/plugins/node_modules`）・プラグインの登録（`installed_plugins.json`）・Agent Plugins の形のパッケージ（根に `plugin.json`）・skillshare の `skills.lock.json` から読むスキルは中を調べず、選んだ `tdd` より先に読まれうるときは、そこに `tdd` があればそちらが使われることを添えます。生成物や設定が無くても・読めなくても、`status` は止まらずにそのことを表示します。名前つきの profile（`OMP_PROFILE`・`PI_PROFILE`）や `~/.omp` でない設定の根（`PI_CONFIG_DIR`）を選んでいると、OMP がどの置き場の設定を読むかを決められないので、`status` は止まります（`sync` は行えます）。
 
 利用者の本設定を変えずに試すときは、一時的な置き場を指してください（例: `PI_CODING_AGENT_DIR=/tmp/omp-agent NOD_DATA_DIR=/tmp/nod-data bun scripts/pstack-omp/cli.ts sync` と、同じ環境変数を付けた `status` の後、`status` が表示した値を `/tmp/omp-agent/config.yml` に書き、同じ `PI_CODING_AGENT_DIR` を付けて `omp` を起動します）。
 

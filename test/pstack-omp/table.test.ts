@@ -23,6 +23,9 @@ describe("README の一度だけ登録する値", () => {
     const parsed = Bun.YAML.parse(REGISTRATION!) as { skills: { manualSkills: string[] } };
     const generated = parsed.skills.manualSkills;
     expect(generated).not.toContain("pstack-omp");
+    // pstack の tdd は pstack-tdd の名前で生成するので、登録するのは pstack-tdd（tdd を入れると利用者の tdd がスキルの一覧から外れる）
+    expect(generated).toContain("pstack-tdd");
+    expect(generated).not.toContain("tdd");
     const sb = sandbox({ repoContent: true });
     sb.commit("0.15.46");
     sb.pin();
