@@ -1,5 +1,5 @@
 // 変換の入力（既定は scripts/pstack-omp/transform/。context.ts の NOD_PSTACK_OMP_TRANSFORM で差し替えられる）を読む。
-// - rules.yml: 順序付きの置換規則（rules）と、スキルのディレクトリの外から生成物に入れる文書（include）
+// - rules.yml: 順序付きの置換規則（rules）と、スキルのディレクトリの外から生成物に入れる文書（include）と、スキルのディレクトリの改名（rename）
 // - denylist.yml: 変換の後に残ってはならない語（terms）
 // - forks.yml: 全文差し替えの宣言（forks）と、このディレクトリに置いた本文
 // 各ファイルの項目の意味は、それぞれのファイルの先頭の注記を参照。YAML は Bun の YAML で読む（config.ts と同じ）。
@@ -25,6 +25,9 @@ export interface Include {
   to: string;
 }
 
+// スキルのディレクトリの改名。from は上流の、to は生成物のディレクトリの相対パス
+export type Rename = Include;
+
 export interface Term {
   term: string;
   // g つき
@@ -44,6 +47,8 @@ export interface Transform {
   rules: Rule[] | undefined;
   // 読めた include（不正な項目は除く）
   include: Include[];
+  // 読めた改名（不正な項目は除く）
+  rename: Rename[];
   // 読めた語（不正な項目は除く）。拒否リストを読めなければ undefined
   terms: Term[] | undefined;
   // 宣言した全文差し替え（path が正しいもの）。宣言を読めなければ undefined
@@ -100,12 +105,14 @@ export function readTransform(dir: string): Transform {
   };
 
   // rules.yml
-  const rulesFile = load("rules.yml", ["rules", "include"]);
+  const rulesFile = load("rules.yml", ["rules", "include", "rename"]);
   let rules: Rule[] | undefined;
   const include: Include[] = [];
+  const rename: Rename[] = [];
   if (rulesFile === undefined) {
     limits.push("rules.yml を読めないので、規則を当てず、規則の一致の検査と、規則を当てる .md（全文差し替えを除く）の拒否リストと参照の検査はしていません");
     limits.push("rules.yml を読めないので、include の文書を生成物に入れていません");
+    limits.push("rules.yml を読めないので、スキルのディレクトリを改名していません");
   } else {
     const items = list("rules.yml", rulesFile, "rules");
     const before = problems.length;
@@ -140,6 +147,18 @@ export function readTransform(dir: string): Transform {
       else include.push({ from: f.from!, to: f.to! });
     });
     if (skipped) limits.push("rules.yml の include の正しくない項目の文書は生成物に入れていないので、その文書に規則と拒否リストと参照の検査を当てていません");
+
+    const renameItems = list("rules.yml", rulesFile, "rename", true);
+    let unrenamed = renameItems === undefined;
+    renameItems?.forEach((item, i) => {
+      const where = `rules.yml の rename の ${i + 1} 番目`;
+      const f = fields(where, item, { required: ["from", "to", "reason"], optional: [], mayBeEmpty: [] }, problems);
+      const bad = f === undefined ? [] : (["from", "to"] as const).filter((key) => !isRelativePath(f[key]!));
+      for (const key of bad) problems.push(`${where}: ${key} の ${f![key]} は相対パスの正規の形ではありません`);
+      if (f === undefined || bad.length > 0) unrenamed = true;
+      else rename.push({ from: f.from!, to: f.to! });
+    });
+    if (unrenamed) limits.push("rules.yml の rename の正しくない項目のスキルのディレクトリは改名していないので、上流の名前のまま規則と参照の検査を当てました");
   }
 
   // denylist.yml
@@ -214,7 +233,7 @@ export function readTransform(dir: string): Transform {
     if (unknown) limits.push(`forks.yml の path が正しくない項目: ${unknownForks}`);
   }
 
-  return { rules, include, terms, forks, sha256: sha256s, problems, limits };
+  return { rules, include, rename, terms, forks, sha256: sha256s, problems, limits };
 }
 
 function compile(where: string, key: string, source: string, flags: string, problems: string[]): RegExp | undefined {

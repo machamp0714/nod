@@ -9,13 +9,15 @@
 // - 通常の omp でどの tdd が使われるか（通常の omp が実行したディレクトリで実際に読むスキル（omp-skills.ts の normalOmpSkills: OMP 19.1.0 と
 //   同じ provider の置き場・読み込みの条件・同じ名前の優先の順）から、裸の名前 tdd を取るものを選ぶ。それが生成先の pstack の tdd なら、
 //   生成先と OMP 向けのディレクトリを除いて選んだ利用者・プロジェクトの tdd が名前空間つきになることも出す。
+//   生成物の manifest に pstack の tdd の改名（rules.yml の rename）があれば、pstack の tdd を呼ぶ改名の後の名前と、その名前を通常の omp で
+//   生成先の pstack の tdd が取るかも出す。
 //   設定は OMP が読むファイルの値で決め、そのファイルを読めないか値の形が正しくなければ、OMP の既定の設定で選んだことを添える。
 //   プロジェクトの設定の層は見ない。プラグインの登録などの中を調べない読み込み元が、選んだものより先に tdd を取りうるなら、そのことを添える）。
 // - 実行したディレクトリのプロジェクトの置き場（スキルは通常の omp がプロジェクトの置き場として読むもの（omp-skills.ts。git の外ではホームの
 //   手前までの祖先も読む）、エージェント定義は OMP と同じく実行したディレクトリから遡って最も近い .omp/agents（places.ts の projectAgents））
 //   にある、OMP 向けのディレクトリのエージェント定義（poteto-agent）や生成したスキルと同じ名前のもの。置き場の定義やスキルのファイルが在るのに
 //   読めなければ、名前を確かめられないことをそのファイルごとに出す。
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { globalConfigPath, type OmpConfig, readConfig, stringList, yamlConfigPath } from "./config";
 import { type Context, readOmpVersion, userAgentDir } from "./context";
 import { generatedDir, readManifest, samePin, skillDirs } from "./generate";
@@ -23,6 +25,8 @@ import { bareSkill, findRepoRoot, normalOmpSkills, type OmpSkills } from "./omp-
 import { type Definition, expand, packageAgents, projectAgents, real, within } from "./places";
 
 const SYNC = "bun scripts/pstack-omp/cli.ts sync";
+// 上流の pstack の tdd のディレクトリ（manifest の改名の元）
+const PSTACK_TDD = "pstack/skills/tdd";
 
 // 利用者が一度だけ登録する3つの読み込みの設定の値
 interface Loading {
@@ -63,15 +67,18 @@ export function status(ctx: Context, cwd: string): string[] {
   if (settingsPath === yamlConfigPath(agentDir)) lines.push(`  OMP の設定 ${settingsPath}: config.yml が無いので、OMP はこのファイルを読みます`);
   let settings: OmpConfig | undefined;
   let gaps: string[] | undefined;
+  // skills.manualSkills の、裸の名前 tdd に合うパターン（以前に pstack の tdd のために登録した tdd など）
+  let hidingTdd: string[] = [];
   try {
     settings = readConfig(settingsPath);
     gaps = loadingGaps(settings, loading, ctx.home);
+    hidingTdd = (stringList(settings, "skills.manualSkills") ?? []).filter((pattern) => new Bun.Glob(pattern).match("tdd"));
   } catch (e) {
     settings = undefined;
     lines.push(`  OMP の設定 ${settingsPath}: 読めません（${(e as Error).message}）`);
   }
   const howTo =
-    "一度だけ、次の3つを手で登録してください。既にある値は残し、skills.customDirectories の2つは先頭に置きます（pstack の tdd を優先するため）。status は設定を書き換えません" +
+    "一度だけ、次の3つを手で登録してください。既にある値は残し、skills.customDirectories の2つは先頭に置きます（生成したスキルと同じ名前の利用者のスキルより、生成したスキルを優先するため）。status は設定を書き換えません" +
     (manifest === undefined ? `（生成物がまだ無いので、skills.manualSkills の生成したスキルの名前は ${SYNC} の後に出ます）` : "");
   if (gaps === undefined) {
     lines.push(`  → OMP の設定を読めないので、揃っているかを確かめられません。${howTo}`, ...registration(loading));
@@ -103,21 +110,40 @@ export function status(ctx: Context, cwd: string): string[] {
     assumed = "（OMP の設定を読めないので、OMP の既定の設定で選びました）";
   }
   lines.push("どの tdd が使われるか:");
-  const describe = (skill: { path: string; project: boolean }) => `${skill.project ? "プロジェクトの置き場" : "利用者の置き場"}の tdd（${skill.path}）`;
+  const describe = (skill: { path: string; project: boolean }, name: string) => `${skill.project ? "プロジェクトの置き場" : "利用者の置き場"}の ${name}（${skill.path}）`;
+  // 中を調べない読み込み元が、選んだものより先に name を取りうるなら、そのことを添える
+  const caveat = (picked: { unexamined: string[] }, name: string) =>
+    (picked.unexamined.length === 0 ? "" : `。ただし、OMP は ${picked.unexamined.join("、")} からもスキルを読み、その中は調べていないので、そこに ${name} があればそちらが使われます`) +
+    assumed;
   // 通常の omp で裸の名前 tdd を取るもの
   const bare = bareSkill(normal, "tdd");
-  // 中を調べない読み込み元が、選んだものより先に tdd を取りうるなら、そのことを添える
-  const caveat =
-    (bare.unexamined.length === 0 ? "" : `。ただし、OMP は ${bare.unexamined.join("、")} からもスキルを読み、その中は調べていないので、そこに tdd があればそちらが使われます`) +
-    assumed;
   if (bare.skill !== undefined && within(bare.skill.path, generated)) {
-    lines.push(`  通常の omp のセッション: pstack の tdd（${bare.skill.path}）が使われます（生成先のスキルの置き場が skills.customDirectories にあるため）${caveat}`);
+    lines.push(`  通常の omp のセッション: pstack の tdd（${bare.skill.path}）が使われます（生成先のスキルの置き場が skills.customDirectories にあるため）${caveat(bare, "tdd")}`);
     const shadowed = bareSkill(user, "tdd").skill;
-    if (shadowed !== undefined) lines.push(`    ${describe(shadowed)}は、名前空間つきの <名前空間>/tdd の名前になります`);
+    if (shadowed !== undefined) lines.push(`    ${describe(shadowed, "tdd")}は、名前空間つきの <名前空間>/tdd の名前になります`);
   } else if (bare.skill !== undefined) {
-    lines.push(`  通常の omp のセッション: ${describe(bare.skill)}が使われます${caveat}`);
+    lines.push(`  通常の omp のセッション: ${describe(bare.skill, "tdd")}が使われます${caveat(bare, "tdd")}`);
+    if (hidingTdd.length > 0) {
+      lines.push(
+        `    skills.manualSkills の ${hidingTdd.join(", ")} が tdd に合うので、この tdd はスキルの一覧から外れます（名前で呼べば使えます）。` +
+          "以前に pstack の tdd のために登録した tdd なら、手で外してください",
+      );
+    }
   } else {
-    lines.push(`  通常の omp のセッション: tdd は読み込まれません（${bare.reason ?? "通常の omp が読む置き場に tdd はありません"}）${caveat}`);
+    lines.push(`  通常の omp のセッション: tdd は読み込まれません（${bare.reason ?? "通常の omp が読む置き場に tdd はありません"}）${caveat(bare, "tdd")}`);
+  }
+  // 改名した pstack の tdd を呼ぶ名前と、その名前を通常の omp で取るもの
+  const renamed = manifest?.rename.find(({ from }) => from === PSTACK_TDD);
+  if (renamed !== undefined) {
+    const name = basename(renamed.to);
+    const own = bareSkill(normal, name);
+    if (own.skill !== undefined && within(own.skill.path, generated)) {
+      lines.push(`  pstack の tdd: ${name} の名前で使えます（${own.skill.path}。skill://${name}・/skill:${name} で呼びます）${caveat(own, name)}`);
+    } else if (own.skill !== undefined) {
+      lines.push(`  pstack の tdd: ${name} の名前で生成していますが、通常の omp のセッションでは${describe(own.skill, name)}が使われます${caveat(own, name)}`);
+    } else {
+      lines.push(`  pstack の tdd: ${name} の名前で生成していますが、通常の omp は読み込みません（${own.reason ?? `通常の omp が読む置き場に ${name} はありません`}）${caveat(own, name)}`);
+    }
   }
   // 利用者の置き場の読めないファイル（生成先と OMP 向けのディレクトリの中は除く）。プロジェクトの置き場の読めないファイルは下のプロジェクトの節で出す
   for (const { path } of user.unreadable.filter((u) => !u.project)) lines.push(`  利用者の置き場の ${path} は読めないので、名前（tdd か）を確かめられません`);

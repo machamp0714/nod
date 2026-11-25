@@ -256,10 +256,22 @@ export function put(path: string, text: string): void {
   writeFileSync(path, text);
 }
 
-// 上流に pstack の tdd と poteto-mode、cursor-team-kit の3つを置き、固定の記録どおりに同期した sandbox（repoContent は sandbox と同じ）
+// リポジトリの rules.yml の pstack の tdd の改名（rename の pstack/skills/tdd と、frontmatter の name の規則 rename-tdd-name）だけを、変換の入力の
+// rules.yml に写す（ほかの参照の規則は、ここで置く上流には当たらないので写さない）
+export function tddRename(sb: Sandbox): void {
+  const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "rules.yml"), "utf8")) as { rename: { from: string }[]; rules: { id: string }[] };
+  const rename = repo.rename.filter((item) => item.from === "pstack/skills/tdd");
+  const rules = repo.rules.filter((rule) => rule.id === "rename-tdd-name");
+  if (rename.length !== 1 || rules.length !== 1) throw new Error("リポジトリの rules.yml に pstack の tdd の改名と rename-tdd-name がありません");
+  sb.transform("rules.yml", `${JSON.stringify({ rename, rules })}\n`);
+}
+
+// 上流に pstack の tdd と poteto-mode、cursor-team-kit の3つを置き、リポジトリと同じく pstack の tdd を pstack-tdd に改名して、固定の記録どおりに
+// 同期した sandbox（repoContent は sandbox と同じ）
 export async function synced({ repoContent = false }: { repoContent?: boolean } = {}): Promise<Sandbox> {
   const sb = sandbox({ repoContent });
   sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+  tddRename(sb);
   sb.pin();
   const run = await sb.sync();
   if (run.exitCode !== 0) throw new Error(`同期に失敗（${run.exitCode}）: ${run.stderr}${run.stdout}`);

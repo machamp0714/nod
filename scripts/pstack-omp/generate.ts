@@ -4,25 +4,31 @@
 // pstack/skills と cursor-team-kit/skills を一度だけ登録すれば、通常の omp がそれぞれの */SKILL.md を生成先から直接読む（登録する値は status が表示する）。
 // スキルの外の文書をリンクから辿って取り込むことはしない。
 // 変換（入力は transform.ts が読む）:
+// 0. rules.yml の rename で宣言したスキルのディレクトリを、改名の後の名前のディレクトリに生成する。以後の規則の files・全文差し替え・参照の検査・
+//    manifest は生成物の（改名の後の）パスと名前で見る。上流に改名の元のスキルが無い、先の名前のスキルが既にあれば失敗。
 // 1. forks.yml で宣言したファイルを、上流のファイルの指紋を確かめて、宣言した本文に丸ごと差し替える（本文には規則を当てない）。
 // 2. ほかの .md に rules.yml の規則を上から順に、前の規則の出力に対して全箇所を置換する。どの規則も1回以上一致しなければ失敗。
+//    改名したスキルの SKILL.md の frontmatter の name（OMP がスキルの名前にする）が、規則の後に改名の後の名前でなければ失敗。
 // 3. 生成物のすべての .md（差し替えた本文と include を含む）の上流の印 {{upstream:<上流の相対パス>}} を、固定の記録のリポジトリ（末尾の .git を除く）と
 //    コミットの上流の URL（ファイルは blob、ディレクトリは tree）にする。そのパスが固定のコミットの上流に無ければ、解決できない参照として失敗。
 //    規則に commit を直書きすると固定の記録と食い違うので、上流の URL は印で書く。
 // 4. 同じ .md の静的な参照を検査し、先が無ければ解決できない参照として失敗（checkReferences）。
 // 5. 同じ .md を denylist.yml の語で行ごとに検査し、当たれば失敗。
 // 規則も差し替えも当たらないファイルは、上流と同じバイトと実行属性になる。
-// 失敗の理由（読めない入力、include の誤り、指紋の違う・元の無い差し替え、一致しない規則、拒否リストの当たり、解決できない参照）は全部集め、検査できなかった範囲と
+// 失敗の理由（読めない入力、include の誤り、改名の誤り、指紋の違う・元の無い差し替え、一致しない規則、拒否リストの当たり、解決できない参照）は全部集め、検査できなかった範囲と
 // 一緒に報告して止める。そのときは生成先に何も書かない。成功したら同じ階層の一時ディレクトリに作り終えてから生成先を丸ごと置き換える
 // （通常の omp が生成先を直接読み、status も読むので、失敗で消すと、やり直すまで pstack のスキルが読まれず status も生成物を見失う）。
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
 import { type Context, type Pin, PstackOmpError } from "./context";
-import { INPUT_FILES, isRelativePath, readTransform, sha256 } from "./transform";
+import { parseFrontmatter } from "./frontmatter";
+import { INPUT_FILES, isRelativePath, type Rename, readTransform, sha256 } from "./transform";
 
 const ROOTS = ["pstack", "cursor-team-kit"] as const;
 type Root = (typeof ROOTS)[number];
 const CURSOR_TEAM_KIT_SKILLS = ["control-cli", "control-ui", "deslop"];
+// 生成するスキルのディレクトリの相対パス（<ルート>/skills/<名前>）
+const SKILL_DIR = /^(pstack|cursor-team-kit)\/skills\/([^/]+)$/;
 // 置換文に書く上流の印。中身は上流の相対パス
 const UPSTREAM_MARK = /\{\{upstream:([^}]*)\}\}/g;
 // 利用者のプロジェクトで決まる部分（verify-<app>、{name}、*.md、$NAME など）を含む動的な参照。生成物に無いことを理由に失敗させない
@@ -48,6 +54,8 @@ export interface ForkRecord {
 export interface Generated {
   dir: string;
   skills: Record<Root, string[]>;
+  // 改名したスキルのディレクトリ（rules.yml の順）
+  rename: Rename[];
   // 規則ごとの一致数（rules.yml の順）
   rules: RuleCount[];
   // 全文差し替え（forks.yml の順）
@@ -64,17 +72,18 @@ export function skillDirs(dir: string): string[] {
   return ROOTS.map((root) => join(dir, root, "skills"));
 }
 
-// 生成物の manifest.json の、元にした固定の記録と生成したスキルの名前（ROOTS の順）
+// 生成物の manifest.json の、元にした固定の記録と生成したスキルの名前（ROOTS の順）と、改名したスキルのディレクトリ
 export interface Manifest {
   pin: Pin;
   names: string[];
+  rename: Rename[];
 }
 
 // 生成先の manifest。無い・読めなければ undefined
 export function readManifest(dir: string): Manifest | undefined {
   try {
-    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { pin: Pin; skills: Record<string, string[]> };
-    return { pin: manifest.pin, names: ROOTS.flatMap((root) => manifest.skills[root] ?? []) };
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as { pin: Pin; skills: Record<string, string[]>; rename?: Rename[] };
+    return { pin: manifest.pin, names: ROOTS.flatMap((root) => manifest.skills[root] ?? []), rename: manifest.rename ?? [] };
   } catch {
     return undefined;
   }
@@ -85,14 +94,41 @@ export function samePin(a: Pin, b: Pin): boolean {
 }
 
 export function generate(ctx: Context, upstreamDir: string): Generated {
-  const skills = findSkills(upstreamDir);
+  const upstreamSkills = findSkills(upstreamDir);
   const transform = readTransform(ctx.transformDir);
   const limits = [...transform.limits];
 
-  // 生成するスキルのディレクトリの中のファイル（全文差し替えの対象になれるのはここだけ）
+  // スキルのディレクトリの改名。renamed は上流のディレクトリ → 生成物のディレクトリ
+  const renameProblems: string[] = [];
+  const renamed = new Map<string, string>();
+  for (const { from, to } of transform.rename) {
+    const source = SKILL_DIR.exec(from);
+    const target = SKILL_DIR.exec(to);
+    if (source === null || !upstreamSkills[source[1] as Root].includes(source[2]!)) {
+      renameProblems.push(`${from} → ${to}: 上流に生成するスキルのディレクトリ ${from} がありません。上流の変更を確かめて、改名の宣言と規則を更新してください`);
+    } else if (target === null || target[1] !== source[1]) {
+      renameProblems.push(`${from} → ${to}: 改名の先は ${source[1]}/skills/<名前> の形にしてください`);
+    } else if (renamed.has(from)) {
+      renameProblems.push(`${from} → ${to}: ${from} の改名が重複しています`);
+    } else if (ROOTS.some((root) => upstreamSkills[root].includes(target[2]!)) || [...renamed.values()].includes(to)) {
+      renameProblems.push(`${from} → ${to}: 生成するスキル ${target[2]} が既にあります`);
+    } else {
+      renamed.set(from, to);
+    }
+  }
+  if (renameProblems.length > 0) limits.push("改名できなかったスキルのディレクトリは上流の名前のまま規則と参照の検査を当てたので、その報告には改名の後には無くなるものが含まれることがあります");
+  const skills = Object.fromEntries(
+    ROOTS.map((root) => [root, upstreamSkills[root].map((name) => posix.basename(renamed.get(`${root}/skills/${name}`) ?? name)).sort()]),
+  ) as Record<Root, string[]>;
+
+  // 生成するスキルのディレクトリの中のファイル（全文差し替えの対象になれるのはここだけ）。キーは生成物の相対パス
   const files = new Map<string, Source>();
   for (const root of ROOTS) {
-    for (const skill of skills[root]) for (const path of walk(upstreamDir, `${root}/skills/${skill}`)) files.set(path, read(upstreamDir, path));
+    for (const skill of upstreamSkills[root]) {
+      const from = `${root}/skills/${skill}`;
+      const to = renamed.get(from) ?? from;
+      for (const path of walk(upstreamDir, from)) files.set(`${to}${path.slice(from.length)}`, read(upstreamDir, path));
+    }
   }
   const inSkills = new Set(files.keys());
 
@@ -164,6 +200,15 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   }
   const unmatched = (transform.rules ?? []).filter((_, i) => counts[i]!.matches === 0).map((rule) => `${rule.id}（${rule.reason}）`);
 
+  // 改名したスキルの名前（OMP と同じく frontmatter の name の前後の空白を除いたもの。空ならディレクトリ名）が、改名の後の名前か
+  for (const to of renamed.values()) {
+    const name = parseFrontmatter(files.get(`${to}/SKILL.md`)!.bytes.toString("utf8")).name;
+    const actual = typeof name === "string" && name.trim() !== "" ? name.trim() : posix.basename(to);
+    if (actual !== posix.basename(to)) {
+      renameProblems.push(`${to}/SKILL.md: frontmatter の name が ${actual} です（OMP はこれをスキルの名前にします）。rules.yml の規則で ${posix.basename(to)} に書き換えてください`);
+    }
+  }
+
   // 上流の印と静的な参照。生成するファイルだけ（全文差し替えの元が無い本文は生成しないので、そこは拒否リストだけ）
   const unresolved: string[] = [];
   // 生成物のファイルとディレクトリの相対パス
@@ -198,6 +243,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   const sections: [string, string[]][] = [
     [`変換の入力（${ctx.transformDir}）が正しくありません`, transform.problems],
     ["上流から入れる文書（rules.yml の include）に問題があります", includeProblems],
+    ["スキルのディレクトリの改名（rules.yml の rename）に問題があります", renameProblems],
     ["全文差し替え（forks.yml）に問題があります", forkProblems],
     ["どこにも一致しない規則があります（上流の文が変わっていないか確かめ、規則を直してください）", unmatched],
     [`変換の後に拒否リストの語が残っています（${hits.length} か所。規則で書き換えてください）`, hits],
@@ -214,6 +260,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   const manifest = {
     pin: ctx.pin,
     skills,
+    rename: [...renamed].map(([from, to]) => ({ from, to })),
     transform: Object.fromEntries(INPUT_FILES.map((file) => [file, transform.sha256[file]])),
     rules: counts,
     forks,
@@ -221,7 +268,7 @@ export function generate(ctx: Context, upstreamDir: string): Generated {
   files.set("manifest.json", { bytes: Buffer.from(JSON.stringify(manifest, null, 2) + "\n"), executable: false });
   const dir = generatedDir(ctx);
   replaceDir(ctx.workDir, dir, files);
-  return { dir, skills, rules: counts, forks };
+  return { dir, skills, rename: manifest.rename, rules: counts, forks };
 }
 
 interface Finding {

@@ -9,10 +9,11 @@ function readGenerated(sb: { generated: string }, path: string): string {
   return readFileSync(join(sb.generated, path), "utf8");
 }
 
-// rules.yml の rules を書く（include は includes に YAML の行で渡す）
-function rules(sb: Sandbox, items: Record<string, string>[], includes: string[] = []): void {
+// rules.yml の rules を書く（include と rename は includes・renames に YAML の行で渡す）
+function rules(sb: Sandbox, items: Record<string, string>[], includes: string[] = [], renames: string[] = []): void {
   const lines = ["rules:", ...(items.length === 0 ? ["  []"] : items.flatMap(yamlItem))];
   if (includes.length > 0) lines.push("include:", ...includes);
+  if (renames.length > 0) lines.push("rename:", ...renames);
   sb.transform("rules.yml", `${lines.join("\n")}\n`);
 }
 
@@ -451,6 +452,94 @@ describe("include", () => {
   });
 });
 
+describe("スキルのディレクトリの改名（rename）", () => {
+  const TDD_RENAME = ["  - from: pstack/skills/tdd", "    to: pstack/skills/pstack-tdd", "    reason: 名前だけの tdd は利用者のものに譲る"];
+  const NAME_RULE = { id: "name", reason: "改名した name", files: "^pstack/skills/pstack-tdd/SKILL\\.md$", literal: "---\nname: tdd\n", replace: "---\nname: pstack-tdd\n" };
+
+  test("宣言したスキルのディレクトリを付属のファイルごと改名の後の名前で生成し、規則の files は改名の後のパスに当たり、元の名前のディレクトリは生成しない。manifest と成功の出力に改名が出る", async () => {
+    const sb = sandbox();
+    const script = "#!/bin/sh\necho red\n";
+    sb.commit(
+      "0.15.46",
+      {
+        "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green. Read [the notes](references/notes.md)."),
+        "pstack/skills/tdd/references/notes.md": "# Notes\n",
+        "pstack/skills/tdd/scripts/red.sh": script,
+      },
+      ["pstack/skills/tdd/scripts/red.sh"],
+    );
+    sb.pin();
+    rules(sb, [NAME_RULE], [], TDD_RENAME);
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-mode", "pstack-tdd"]);
+    expect(existsSync(join(sb.generated, "pstack/skills/tdd"))).toBe(false);
+    expect(readGenerated(sb, "pstack/skills/pstack-tdd/SKILL.md")).toBe(skillMd("tdd", "Red, green. Read [the notes](references/notes.md).").replace("name: tdd", "name: pstack-tdd"));
+    expect(readGenerated(sb, "pstack/skills/pstack-tdd/references/notes.md")).toBe("# Notes\n");
+    expect(snapshot(sb.generated).get("pstack/skills/pstack-tdd/scripts/red.sh")).toEqual({ content: Buffer.from(script).toString("base64"), executable: true });
+    const manifest = JSON.parse(readGenerated(sb, "manifest.json"));
+    expect(manifest.skills.pstack).toEqual(["poteto-mode", "pstack-tdd"]);
+    expect(manifest.rename).toEqual([{ from: "pstack/skills/tdd", to: "pstack/skills/pstack-tdd" }]);
+    expect(run.stdout).toContain("スキルの改名:\n  pstack/skills/tdd → pstack/skills/pstack-tdd\n規則ごとの一致数:\n  name: 1 か所\n");
+  });
+
+  test("改名したスキルの SKILL.md の frontmatter の name が規則の後も改名の後の名前でなければ、報告して失敗する", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+    sb.pin();
+    rules(sb, [], [], TDD_RENAME);
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(
+      "スキルのディレクトリの改名（rules.yml の rename）に問題があります:\n" +
+        "  pstack/skills/pstack-tdd/SKILL.md: frontmatter の name が tdd です（OMP はこれをスキルの名前にします）。rules.yml の規則で pstack-tdd に書き換えてください\n",
+    );
+    expect(existsSync(sb.generated)).toBe(false);
+  });
+
+  test("上流に改名の元のスキルが無い（上流が消した・改名した）、改名の先の名前のスキルが既にある、改名の先がスキルのディレクトリの形でなければ、報告して失敗し、前回の生成物を残す", async () => {
+    const sb = sandbox();
+    sb.commit("0.15.46", { "pstack/skills/tdd/SKILL.md": skillMd("tdd", "Red, green.") });
+    sb.pin();
+    rules(sb, [NAME_RULE], [], TDD_RENAME);
+    expect((await sb.sync()).exitCode).toBe(0);
+    const before = snapshot(sb.generated);
+    sb.remove("pstack/skills/tdd/SKILL.md");
+    sb.commit("0.15.47", { "pstack/skills/test-first/SKILL.md": skillMd("test-first", "Red, green.") });
+    sb.pin();
+    rules(
+      sb,
+      [],
+      [],
+      [
+        ...TDD_RENAME,
+        "  - from: pstack/skills/test-first",
+        "    to: pstack/skills/poteto-mode",
+        "    reason: 既にある名前",
+        "  - from: pstack/skills/poteto-mode",
+        "    to: cursor-team-kit/skills/poteto-mode-2",
+        "    reason: 別のルート",
+      ],
+    );
+
+    const run = await sb.sync();
+
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr).toContain(
+      "スキルのディレクトリの改名（rules.yml の rename）に問題があります:\n" +
+        "  pstack/skills/tdd → pstack/skills/pstack-tdd: 上流に生成するスキルのディレクトリ pstack/skills/tdd がありません。上流の変更を確かめて、改名の宣言と規則を更新してください\n" +
+        "  pstack/skills/test-first → pstack/skills/poteto-mode: 生成するスキル poteto-mode が既にあります\n" +
+        "  pstack/skills/poteto-mode → cursor-team-kit/skills/poteto-mode-2: 改名の先は pstack/skills/<名前> の形にしてください\n",
+    );
+    expect(snapshot(sb.generated)).toEqual(before);
+  });
+});
+
 describe("参照の変換と検査", () => {
   test("置換文の {{upstream:<上流のパス>}} は、固定の記録のリポジトリ（末尾の .git と / を除く）とコミットの上流の URL になり、ファイルは blob、ディレクトリは tree になる", async () => {
     const sb = sandbox();
@@ -697,6 +786,53 @@ describe("リポジトリの rules.yml の参照の規則", () => {
     expect(readGenerated(sb, "pstack/skills/ketchup-video/SKILL.md")).toContain("Read `skill://ketchup` with `read` and follow it");
     expect(readGenerated(sb, "pstack/skills/typescript-best-practices/SKILL.md")).toContain("`read` `skill://typescript-best-practices/references/patterns.md`");
     expect(readdirSync(join(sb.generated, "pstack")).sort()).toEqual(["skills"]);
+  });
+});
+
+describe("リポジトリの rules.yml の pstack の tdd の改名", () => {
+  test("宣言と規則を写した一時の変換で、tdd は pstack-tdd のディレクトリと name になり（本文は上流のまま）、pstack の中の3か所の参照は pstack-tdd を指し、生成物とその manifest に裸の名前 tdd は無い", async () => {
+    const repo = Bun.YAML.parse(readFileSync(join(REPO_TRANSFORM, "rules.yml"), "utf8")) as { rules: Record<string, string>[]; rename: Record<string, string>[] };
+    expect(repo.rename).toEqual([expect.objectContaining({ from: "pstack/skills/tdd", to: "pstack/skills/pstack-tdd" })]);
+    // 改名の規則と、改名の後の名前で参照の形を作る一般の規則（リポジトリの順のまま）
+    const ids = ["ref-poteto-help-skill-links", "ref-poteto-help-slash", "ref-poteto-help-prompts", "ref-bold-skill"];
+    const items = repo.rules.filter((rule) => rule.id!.startsWith("rename-") || ids.includes(rule.id!));
+    expect(items.map((rule) => rule.id).filter((id) => id!.startsWith("rename-"))).toEqual(["rename-tdd-name", "rename-tdd-poteto-help-link", "rename-tdd-recipes", "rename-tdd-bug-fix"]);
+    // 固定のコミットの上流の書き方
+    const tdd =
+      '---\nname: tdd\ndescription: "Use only when the user explicitly asks for TDD, a failing test, or a regression test."\ndisable-model-invocation: true\n---\n\n# TDD\n\nRed, green.\n';
+    const sb = sandbox();
+    sb.commit("0.15.46", {
+      "pstack/skills/tdd/SKILL.md": tdd,
+      "pstack/skills/poteto-help/SKILL.md": skillMd("poteto-help", "| Fix a bug test-first when a cheap local test exists | [`/tdd`](../tdd/SKILL.md) |"),
+      "pstack/skills/poteto-help/references/recipes.md":
+        "# Recipes\n\n- Bug with a cheap test: `/poteto-mode repro <bug> first. if there's a cheap test path, /tdd it. then fix and rerun.`\n",
+      "pstack/skills/poteto-mode/playbooks/bug-fix.md":
+        "5. Stage the commits so the failing repro lands before the fix in git history. See the **tdd** skill for the failing-test-first cadence when the bug has a cheap local test path.\n",
+    });
+    sb.pin();
+    sb.transform("rules.yml", JSON.stringify({ rename: repo.rename, rules: items }));
+
+    const run = await sb.sync();
+
+    expect(run.stderr).toBe("");
+    expect(run.exitCode).toBe(0);
+    expect(skillNames(join(sb.generated, "pstack/skills"))).toEqual(["poteto-help", "poteto-mode", "pstack-tdd"]);
+    expect(existsSync(join(sb.generated, "pstack/skills/tdd"))).toBe(false);
+    expect(readGenerated(sb, "pstack/skills/pstack-tdd/SKILL.md")).toBe(tdd.replace("name: tdd\n", "name: pstack-tdd\n"));
+    expect(readGenerated(sb, "pstack/skills/poteto-help/SKILL.md")).toContain(
+      "| Fix a bug test-first when a cheap local test exists | `/skill:pstack-tdd` (`read` `skill://pstack-tdd`) |",
+    );
+    expect(readGenerated(sb, "pstack/skills/poteto-help/references/recipes.md")).toContain(
+      "`/skill:poteto-mode repro <bug> first. if there's a cheap test path, /skill:pstack-tdd it. then fix and rerun.`",
+    );
+    expect(readGenerated(sb, "pstack/skills/poteto-mode/playbooks/bug-fix.md")).toContain(
+      "See the **pstack-tdd** skill (`read` `skill://pstack-tdd` and follow it) for the failing-test-first cadence",
+    );
+    const markdown = [...snapshot(sb.generated)].filter(([path]) => path.endsWith(".md")).map(([, entry]) => Buffer.from(entry.content, "base64").toString("utf8"));
+    expect(markdown.filter((text) => /skill:\/\/tdd\b|\/skill:tdd\b|`\/tdd`|\*\*tdd\*\*|\/tdd it/.test(text))).toEqual([]);
+    const manifest = JSON.parse(readGenerated(sb, "manifest.json"));
+    expect(manifest.skills.pstack).toContain("pstack-tdd");
+    expect(manifest.skills.pstack).not.toContain("tdd");
   });
 });
 
@@ -1053,7 +1189,8 @@ describe("失敗の報告と前回の生成物", () => {
 });
 
 describe("成功したときの生成先と manifest", () => {
-  test("生成先を丸ごと入れ替え、manifest に固定の記録・生成したスキル・変換の入力の指紋・規則ごとの一致数・全文差し替えを書く", async () => {
+  // manifest に改名したスキルのディレクトリ（rename）を足したので、期待値に rename（改名が無ければ空）を加えた
+  test("生成先を丸ごと入れ替え、manifest に固定の記録・生成したスキル・改名・変換の入力の指紋・規則ごとの一致数・全文差し替えを書く", async () => {
     const sb = sandbox();
     sb.commit("0.15.46", { "pstack/skills/old/SKILL.md": skillMd("old", "Old.") });
     sb.pin();
@@ -1077,6 +1214,7 @@ describe("成功したときの生成先と manifest", () => {
         {
           pin: { repository: sb.upstream, commit, pstackVersion: "0.15.47", ompVersion: "19.1.0" },
           skills: { pstack: ["a", "poteto-mode", "setup-pstack"], "cursor-team-kit": ["control-cli", "control-ui", "deslop"] },
+          rename: [],
           transform: { "rules.yml": input("rules.yml"), "denylist.yml": input("denylist.yml"), "forks.yml": input("forks.yml") },
           rules: [{ id: "worker", matches: 1 }],
           forks: [{ path: SETUP, upstreamSha256: sha256(SETUP_UPSTREAM), body: "forks/setup.md", bodySha256: sha256(SETUP_BODY) }],
@@ -1087,7 +1225,7 @@ describe("成功したときの生成先と manifest", () => {
     );
   });
 
-  test("規則も全文差し替えも無ければ、そう表示する", async () => {
+  test("改名も規則も全文差し替えも無ければ、そう表示する", async () => {
     const sb = sandbox();
     sb.commit("0.15.46");
     sb.pin();
@@ -1095,7 +1233,7 @@ describe("成功したときの生成先と manifest", () => {
     const run = await sb.sync();
 
     expect(run.exitCode).toBe(0);
-    expect(run.stdout).toContain("規則ごとの一致数: 規則はありません\n全文差し替え: ありません\n");
+    expect(run.stdout).toContain("スキルの改名: ありません\n規則ごとの一致数: 規則はありません\n全文差し替え: ありません\n");
   });
 });
 

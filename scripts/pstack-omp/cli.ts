@@ -2,9 +2,9 @@
 // 使い方: bun scripts/pstack-omp/cli.ts <サブコマンド>
 //   sync    固定の記録（pin.json）どおりに上流を nod のデータ置き場へ取得し、続けて OMP 向けに変換したコピーを固定の生成先
 //           （<データ置き場>/pstack-omp/generated）に生成する（generate.ts）。OMP の版が固定の記録と違えば止める。
-//           成功したら規則ごとの一致数と全文差し替えの一覧を出す。変換に失敗したら理由をまとめて出し、生成先を変えない
+//           成功したら改名したスキルのディレクトリと規則ごとの一致数と全文差し替えの一覧を出す。変換に失敗したら理由をまとめて出し、生成先を変えない
 //   status  生成物の pin と OMP の版、OMP が読む設定ファイルの3つの読み込みの設定（欠けていれば一度だけ登録する値）、通常の omp でどの tdd が
-//           使われるか、実行したディレクトリのプロジェクトの置き場の名前のぶつかりを表示する（status.ts）。読むだけで何も書かない
+//           使われるかと pstack の tdd を呼ぶ名前、実行したディレクトリのプロジェクトの置き場の名前のぶつかりを表示する（status.ts）。読むだけで何も書かない
 // 読み込みの設定は、利用者が README のとおり一度だけ手で登録し、手で外す。
 // 止まったときは理由を標準エラーに出して 1 で終わる。サブコマンドの誤りは 2。
 // 置き場と実行ファイルを差し替える環境変数は context.ts を参照。
@@ -26,6 +26,8 @@ function sync(): void {
   console.log(
     `OMP 向けのコピーを生成しました: ${generated.dir}（pstack ${generated.skills.pstack.length} 個、cursor-team-kit ${generated.skills["cursor-team-kit"].length} 個）`,
   );
+  if (generated.rename.length === 0) console.log("スキルの改名: ありません");
+  else console.log(["スキルの改名:", ...generated.rename.map(({ from, to }) => `  ${from} → ${to}`)].join("\n"));
   if (generated.rules.length === 0) console.log("規則ごとの一致数: 規則はありません");
   else console.log(["規則ごとの一致数:", ...generated.rules.map(({ id, matches }) => `  ${id}: ${matches} か所`)].join("\n"));
   if (generated.forks.length === 0) console.log("全文差し替え: ありません");
