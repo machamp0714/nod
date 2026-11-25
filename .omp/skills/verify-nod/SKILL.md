@@ -9,7 +9,7 @@ description: "nod（このリポジトリの Issue 管理。Web が主、CLI が
 
 コマンドはすべて、リポジトリ（作業ツリー）のルートを cwd にして実行する。前提は `bun install` 済みであることと、Playwright の Chromium（`~/Library/Caches/ms-playwright` の `chromium_headless_shell-1243`）が導入済みであること。補助スクリプトは `.omp/skills/verify-nod/scripts/verify-nod.ts` の1本で、サブコマンドで使い分ける（「Helpers」）。
 
-流れは「Launch → Doctor → Drive（機能の一覧の手順で CLI と Web を操作する）→ Evidence の確認 → Cleanup」。機能ごとの到達の仕方・操作の仕方・動いたと言える状態は、機能の一覧 [`features/README.md`](features/README.md) とそこから案内する機能のファイルにある。操作の前に索引を読む。
+流れは「Launch → Doctor → Drive（機能の一覧の手順で CLI と Web を操作する）→ Evidence の確認 → Cleanup」。機能ごとの到達の仕方・操作の仕方・動いたと言える状態は、機能の一覧 [`features/README.md`](features/README.md) とそこから案内する機能のファイルにある。操作の前に索引を読む。このスキルで確かめられない範囲（外部サービスの成功の経路、デスクトップアプリ固有の機能）も、索引の「確かめられない範囲」にある。
 
 ## 守ること
 
@@ -18,6 +18,7 @@ description: "nod（このリポジトリの Issue 管理。Web が主、CLI が
 - プロセスを名前で止めない（`pkill`・`killall` を使わない）。止めるのは `verify-nod.ts cleanup` だけで、自分が起動した PID だけを止める。
 - 別の run の置き場・ポートを混ぜない。操作の前に、その run の `doctor` を通す（`browser` は自分で `doctor` を通し、通らなければ操作しない）。
 - ブラウザは補助スクリプトの `browser` だけで使い、毎回新しいコンテキストで開く（利用者のブラウザ・プロファイルは使わない）。その run の origin（`http://127.0.0.1:<ポート>`）以外への要求はブラウザ側で止まる（「Drive」）。
+- デスクトップアプリ（`packages/desktop`）とそのビルド・導入・検査のスクリプトは実行しない。固有の機能の確かめ方は [`features/desktop.md`](features/desktop.md) が既存の受入記録へ案内する。Web での成功をデスクトップでの成功として報告しない。
 
 ## 隔離のしかた
 
@@ -61,7 +62,7 @@ Workspace は run ごとに1つ、キー `V<16進5桁を大文字>`・名前 `ve
 
 親の環境にある `CODEX_HOME`・`CODEX_THREAD_ID`・`ORCA_*`・`NOD_WORKTREE`・`NOD_BRANCH`・`OMPCODE`・`CLAUDECODE`・API キー類は渡らない。web のビルドと `git init` には `PATH`・`HOME`・`TMPDIR`・`NOD_VITE_ENV_DIR`（空のディレクトリ）だけを渡す。
 
-外部サービスに依る機能（仕様要否判定、GitHub の PR 状態、Toggl、Orca）は、この隔離では成功の経路に到達できない。
+外部サービスに依る機能（仕様要否判定、GitHub の PR 状態、Toggl、Orca）は、この隔離では成功の経路に到達できない。未設定・無効のときの表示の確かめ方と、成功の経路に要るものは [`features/external-services.md`](features/external-services.md) にある。
 
 ## Launch
 
@@ -187,10 +188,12 @@ EOF
 | `read` | `{"read": <ロケータ>}` | 当たった要素の文字を記録の `read` に残す（CLI の出力と見比べる） |
 | `snapshot` | `{"snapshot": "list", "of": <ロケータ>}` | ARIA スナップショットを残す（`of` を省くとページ全体） |
 | `screenshot` | `{"screenshot": "list", "fullPage": false}` | スクリーンショットを残す（既定はページ全体。ただし nod の画面は中の領域でスクロールするので、写るのは viewport の高さ（960）まで。下のほうの内容は `snapshot` で残す） |
+| `events` | `{"events": "ready"}` | Web の変更の通知（SSE）の接続の状態が `ready`（または `connecting`）になるまで待つ（Web が出す `<html data-server-events>`）。CLI の書き込みが再読み込みなしで出ることを確かめる前に通す |
+| `cli` | `{"cli": ["--json", "issue", "create", "タイトル"], "actor": "me"}` | ページを開いたまま、`cli` サブコマンドと同じ（run のデータ・許可リストの環境・cwd は run の `repo`）ソースの CLI を実行し、`NNN-II-cli.json` に記録する。`actor` を省くと書き手は `verify-nod`。CLI の終了コードが 0 でなければ手順の失敗 |
 
 **ロケータ**は `{"role": "button", "name": "New Issue", "exact": true}` の形のオブジェクトで、Playwright の `getByRole` などに当たる。`role`（`name`・`exact`・`level` を添える）を第一に使い、無いときだけ `label`・`placeholder`・`text`・`testId` を使う。`within: <ロケータ>` で親の中に絞り、`hasText` で中の文字で絞り、`nth`（0 から）で何番目かを選ぶ。`name` は既定で部分一致（大文字小文字を区別しない）で、`"exact": true` で完全一致。複数に当たる要素を操作・`expect` すると失敗するので、`within` や `exact` で1つに絞る。role と name は `snapshot` の出力（例: `button "New Issue" [disabled]`）で確かめられ、`packages/web/e2e/*.e2e.ts` のセレクタも参考になる。
 
-よく使うハンドル（2026-11-25 に確かめた）: サイドバーは `{"role": "navigation", "name": "メイン"}`、一覧の絞り込みのタブは `{"role": "tab", "name": "All 1", "within": {"role": "tablist", "name": "絞り込み"}}`、一覧の行は `{"role": "row", "name": "<ID>"}`、詳細の見出しは `{"role": "heading", "level": 1, "name": "<タイトル>"}`、詳細の欄は `{"role": "region", "name": "説明", "exact": true}`（ほかに `計画`・`Documents`・`Activity`・`未決事項`・`プロパティ` など）、プロパティの値は `{"role": "button", "name": "Status", "exact": true, "within": {"role": "region", "name": "プロパティ", "exact": true}}` の `data-value`。
+よく使うハンドル（2026-11-25 に確かめた）: サイドバーは `{"role": "navigation", "name": "メイン"}`、一覧の絞り込みのタブは `{"role": "tab", "name": "All 1", "within": {"role": "tablist", "name": "絞り込み"}}`、一覧の行は `{"role": "row", "name": "<ID>"}`、詳細の見出しは `{"role": "heading", "level": 1, "name": "<タイトル>"}`、詳細の欄は `{"role": "region", "name": "説明", "exact": true}`（ほかに `計画`・`Documents`・`Activity`・`未決事項`・`プロパティ` など）、プロパティの値は `{"role": "button", "name": "Status", "exact": true, "within": {"role": "region", "name": "プロパティ", "exact": true}}` の `data-value`。Board の列は `{"role": "region", "name": "In Progress", "exact": true}`、カードは `{"role": "article", "hasText": "<ID>"}`。ほかの画面のハンドルは機能のファイルにある。
 
 ## Evidence
 
@@ -201,7 +204,8 @@ EOF
 | `launch.json` | `launch` | 起動時の状態ファイル、`nod ui` の出力、状態確認の結果 |
 | `cleanup.json` | `cleanup` | 後始末ごとに、止めた nod の PID、止めた残りのブラウザの PID、消したパス |
 | `<機能の ID>/NNN-cli.json` | `cli --evidence` | run の ID・runDir・URL、書き手（`actor`）、cwd、コマンド（`["nod", ...]`）、終了コード、開始・終了の時刻、標準出力・標準エラー（JSON として読めれば `stdoutJson` にも） |
-| `<機能の ID>/NNN-browser.json` | `browser` | run の ID・runDir・origin、`doctor` の結果、`blockCheck`、手順ごとの結果（手順・成否・かかった時間・その後の URL・HTTP の状態コード・`read` の文字・残したファイル・失敗の理由）、止めた要求（`blocked`）、コンソールのエラー、ページのエラー |
+| `<機能の ID>/NNN-browser.json` | `browser` | run の ID・runDir・origin、`doctor` の結果、`blockCheck`、手順ごとの結果（手順・成否・かかった時間・その後の URL・HTTP の状態コード・`read` の文字・残したファイル・`cli` の記録・それまでの文書の読み込みの回数 `loads`・失敗の理由）、止めた要求（`blocked`）、コンソールのエラー、ページのエラー |
+| `<機能の ID>/NNN-II-cli.json` | `browser` の `cli` | `NNN-cli.json` と同じ形（`II` は手順の番号） |
 | `<機能の ID>/NNN-II-<名前>.aria.yml` | `browser` の `snapshot` | 先頭のコメントに run の ID・URL・時刻・機能と手順（`II` は手順の番号）、続けて ARIA スナップショット（YAML） |
 | `<機能の ID>/NNN-II-<名前>.png` | `browser` の `screenshot` | 上の帯に run の ID と runDir・URL・時刻・機能と手順を書いたスクリーンショット。帯は別のコンテキストで描き、操作中のページは変えない |
 | `<機能の ID>/NNN-II-failure.aria.yml`・`.png` | `browser` の失敗 | 失敗した手順のときの画面 |
@@ -270,6 +274,8 @@ printf '%s' '[{"goto": "/issues"}, {"snapshot": "list"}, {"screenshot": "list"}]
 ./.omp/skills/verify-nod/scripts/verify-nod.ts browser <runId> --feature issue-create --steps /tmp/steps.json
 ```
 
+ページを開いたまま CLI で書くときは、手順に `cli` を入れる（例は [`features/cli-to-web.md`](features/cli-to-web.md)。`{"events": "ready"}` のあとに `{"cli": [...]}`、続けて `expect` で画面の変化を待つ）。別のシェルから `cli` サブコマンドを実行しても、`browser` の呼び出しは終わっていてページは残っていない。
+
 server の環境を自分の目で見るときは、`ps eww -o command= -p <PID> | tr ' ' '\n' | grep =` で許可リストの11項目だけが出る。その PATH で `gh` が見つからないことは `env -i PATH=/usr/bin:/bin /bin/sh -c 'command -v gh'`（終了コード 1）で確かめられる。
 
 ## 同時起動（2026-11-25 の実測）
@@ -289,3 +295,12 @@ server の環境を自分の目で見るときは、`ps eww -o command= -p <PID>
 - 4700 の PID は、最初の起動の前も、すべての後始末の後も 96013 で同じだった。
 
 したがって、利用者の nod と同時に動かしてよく、検証の run どうしも同時に動かしてよい。そのときは run ごとに `launch` し、runId（runDir）を取り違えないように、各操作の前に自分の run の `doctor` を通す。
+
+## 保守（スキルとアプリが合わないとき）
+
+定期の点検は行わない。スキルの手順や機能の一覧が実物の nod と合わないと報告されたとき（書いたとおりに操作して失敗する、画面の名前やコマンドが変わった、機能の一覧に無い振る舞いがある、など）に、pstack の `maintain-verification-skill`（`/skill:maintain-verification-skill`）で点検する。点検の対象はこのスキル（`.omp/skills/verify-nod/`）で、手順は maintain の「Pass」に従う。要点は次のとおり。
+
+- 直すのはこのスキルのディレクトリ（`SKILL.md`、`features/`、`scripts/`）の中だけ。アプリのコード（`packages/`）は変えない。説明が実物と違えば機能の一覧を直し、補助スクリプトで操作できなければ補助スクリプトを直し（使い方を本文に書く）、アプリが壊れていれば直さずに利用者に報告する。
+- 機能のファイルごとにソースを読み、すべての機能を実物で（この「Launch」の run で、`doctor` を通してから）少なくとも1回は動かす。直した手順は、直した版で通し直してから載せる。
+
+機能の一覧に無い機能を確かめたいときは、その場では「Drive」の道具と「Evidence」の証明の基準のとおりに利用者の経路で確かめ、報告に「機能の一覧に無い」と書く。一覧に足すのは、maintain の手順（ソースの入口を確かめ、実物で通した手順だけを `features/README.md` の形の機能のファイルにし、索引に足す）で行う。

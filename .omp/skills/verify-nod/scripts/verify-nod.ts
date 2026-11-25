@@ -532,38 +532,28 @@ function takeOption(args: string[], name: string): string | undefined {
   return value;
 }
 
-// 検証の nod と同じデータで、ソースの CLI を実行する。cwd は run の repo（Workspace として登録済み）。
-// --evidence <機能の ID> を付けると、コマンド・標準出力・標準エラー・終了コードを evidence/<機能の ID>/<番号>-cli.json に残す
-function cli(args: string[]): number {
-  const sep = args.indexOf("--");
-  if (sep < 0) throw new Fail("cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...> の形で指定してください");
-  const own = args.slice(0, sep);
-  const nodArgs = args.slice(sep + 1);
-  const actor = takeOption(own, "--actor") ?? DEFAULT_ACTOR;
-  const feature = takeOption(own, "--evidence");
-  if (own.length !== 1) throw new Fail(`cli の引数が正しくありません: ${own.join(" ")}`);
-  const p = resolveRun(own[0]);
-  if (!existsSync(p.db)) throw new Fail(`${p.db} がありません（後始末済み）`);
-  const cmd = [BUN, "--no-env-file", CLI_MAIN, ...nodArgs];
-  if (feature === undefined) {
-    const r = Bun.spawnSync(cmd, { cwd: p.repo, env: nodEnv(p, actor), stdin: "inherit", stdout: "inherit", stderr: "inherit" });
-    return r.exitCode ?? 1;
-  }
-  const { dir, seq } = featureEvidence(p, feature);
-  const startedAt = new Date().toISOString();
-  const r = Bun.spawnSync(cmd, { cwd: p.repo, env: nodEnv(p, actor), stdin: "inherit", stdout: "pipe", stderr: "pipe" });
-  const stdout = r.stdout.toString();
-  const stderr = r.stderr.toString();
-  process.stdout.write(stdout);
-  process.stderr.write(stderr);
+interface CliResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+// ソースの CLI を、その run と同じデータ・許可リストの環境で実行し、標準出力・標準エラーを受け取る。cwd は run の repo（Workspace として登録済み）
+async function runCli(p: Layout, actor: string, nodArgs: string[], stdin: "inherit" | "ignore"): Promise<CliResult> {
+  const proc = Bun.spawn([BUN, "--no-env-file", CLI_MAIN, ...nodArgs], { cwd: p.repo, env: nodEnv(p, actor), stdin, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  return { exitCode, stdout, stderr };
+}
+
+// CLI の呼び出しの記録（cli --evidence の <番号>-cli.json と、browser の cli の手順の <番号>-<手順>-cli.json）
+function writeCliEvidence(p: Layout, file: string, feature: string, actor: string, nodArgs: string[], r: CliResult, startedAt: string): void {
   let stdoutJson: unknown;
   try {
-    stdoutJson = JSON.parse(stdout);
+    stdoutJson = JSON.parse(r.stdout);
   } catch {
     stdoutJson = undefined;
   }
   const state = readState(p);
-  const file = join(dir, `${seq}-cli.json`);
   writeJson(file, {
     kind: "cli",
     feature,
@@ -576,12 +566,37 @@ function cli(args: string[]): number {
     exitCode: r.exitCode,
     startedAt,
     finishedAt: new Date().toISOString(),
-    stdout,
-    stderr,
+    stdout: r.stdout,
+    stderr: r.stderr,
     ...(stdoutJson === undefined ? {} : { stdoutJson }),
   });
+}
+
+// 検証の nod と同じデータで、ソースの CLI を実行する。
+// --evidence <機能の ID> を付けると、コマンド・標準出力・標準エラー・終了コードを evidence/<機能の ID>/<番号>-cli.json に残す
+async function cli(args: string[]): Promise<number> {
+  const sep = args.indexOf("--");
+  if (sep < 0) throw new Fail("cli <run> [--actor <名前>] [--evidence <機能の ID>] -- <nod の引数...> の形で指定してください");
+  const own = args.slice(0, sep);
+  const nodArgs = args.slice(sep + 1);
+  const actor = takeOption(own, "--actor") ?? DEFAULT_ACTOR;
+  const feature = takeOption(own, "--evidence");
+  if (own.length !== 1) throw new Fail(`cli の引数が正しくありません: ${own.join(" ")}`);
+  const p = resolveRun(own[0]);
+  if (!existsSync(p.db)) throw new Fail(`${p.db} がありません（後始末済み）`);
+  if (feature === undefined) {
+    const r = Bun.spawnSync([BUN, "--no-env-file", CLI_MAIN, ...nodArgs], { cwd: p.repo, env: nodEnv(p, actor), stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+    return r.exitCode ?? 1;
+  }
+  const { dir, seq } = featureEvidence(p, feature);
+  const startedAt = new Date().toISOString();
+  const r = await runCli(p, actor, nodArgs, "inherit");
+  process.stdout.write(r.stdout);
+  process.stderr.write(r.stderr);
+  const file = join(dir, `${seq}-cli.json`);
+  writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
   process.stderr.write(`verify-nod: 証拠 ${file}\n`);
-  return r.exitCode ?? 1;
+  return r.exitCode;
 }
 
 // ---- browser: Playwright で Web を操作し、ARIA スナップショットとスクリーンショットを残す ----
@@ -608,6 +623,8 @@ const OPS = {
   read: [],
   snapshot: ["of"],
   screenshot: ["fullPage"],
+  events: [],
+  cli: ["actor"],
 } as const satisfies Record<string, readonly string[]>;
 type Op = keyof typeof OPS;
 type Step = Record<string, unknown>;
@@ -670,6 +687,9 @@ function checkSteps(raw: string): Step[] {
     if (op === "drag") checkSpec(s.to, `手順 ${i}（drag）.to`);
     if (op === "press" && s.on !== undefined) checkSpec(s.on, `手順 ${i}（press）.on`);
     if (op === "snapshot" && s.of !== undefined) checkSpec(s.of, `手順 ${i}（snapshot）.of`);
+    if (op === "events" && v !== "ready" && v !== "connecting") throw new Fail(`手順 ${i}（events）: "ready" か "connecting" を書いてください`);
+    if (op === "cli" && (!Array.isArray(v) || v.length === 0 || !v.every((a) => typeof a === "string"))) throw new Fail(`手順 ${i}（cli）: nod の引数を文字列の配列で書いてください（例 ["--json", "issue", "create", "タイトル"]）`);
+    if (op === "cli" && s.actor !== undefined && (typeof s.actor !== "string" || s.actor === "")) throw new Fail(`手順 ${i}（cli）: actor は空でない文字列で書いてください`);
   });
   return steps as Step[];
 }
@@ -721,6 +741,8 @@ interface StepResult {
   status?: number | null;
   read?: string[];
   artifact?: string;
+  cli?: { file: string; exitCode: number; actor: string };
+  loads?: number;
   error?: string;
 }
 
@@ -851,6 +873,23 @@ async function browser(args: string[]): Promise<number> {
       case "screenshot":
         rec.artifact = await save(rec.index, "screenshot", v as string, { fullPage: step.fullPage as boolean | undefined });
         return;
+      case "events":
+        // Web が出す変更通知（SSE）の接続の状態。<html data-server-events> を待つ
+        await expect(pg.locator("html")).toHaveAttribute("data-server-events", v as string, { timeout });
+        return;
+      case "cli": {
+        // ページを開いたまま、同じ run の CLI で書く。記録は <番号>-<手順>-cli.json
+        const actor = (step.actor as string | undefined) ?? DEFAULT_ACTOR;
+        const nodArgs = v as string[];
+        const file = join(dir, `${seq}-${String(rec.index).padStart(2, "0")}-cli.json`);
+        const startedAt = new Date().toISOString();
+        const r = await runCli(p, actor, nodArgs, "ignore");
+        writeCliEvidence(p, file, feature, actor, nodArgs, r, startedAt);
+        record.artifacts.push(file);
+        rec.cli = { file, exitCode: r.exitCode, actor };
+        if (r.exitCode !== 0) throw new Fail(`CLI が終了コード ${r.exitCode} で終わりました: ${r.stderr.trim() || r.stdout.trim()}`);
+        return;
+      }
     }
   };
 
@@ -877,6 +916,11 @@ async function browser(args: string[]): Promise<number> {
       if (m.type() === "error") record.consoleErrors.push(m.text());
     });
     page.on("pageerror", (e) => record.pageErrors.push(String(e)));
+    // 文書の読み込み（goto・reload）の回数。手順ごとに記録し、再読み込みなしで変わったことを示す
+    let loads = 0;
+    page.on("load", () => {
+      loads += 1;
+    });
     // 止める仕組みが効いていることを、操作の前に自分の nod への別の origin（localhost:<ポート>）で確かめる。
     // 止まらなければ自分の nod に届くだけで、利用者の nod には触れない
     const probe = `http://localhost:${state.port}/api/workspaces`;
@@ -898,6 +942,7 @@ async function browser(args: string[]): Promise<number> {
       } finally {
         rec.ms = Date.now() - t0;
         rec.url = page.url();
+        rec.loads = loads;
       }
     }
     record.ok = true;
