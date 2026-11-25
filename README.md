@@ -52,6 +52,7 @@ Ompでは、**agent**に役割ごとの指示と使用できるツールを定�
 agentからroleを参照する仕組みになっているため、作業手順や指示を保ったまま、割り当てるモデルだけを切り替えることができます。
 たとえば、実装担当のagentは`@task`を参照し、コードレビューを分担する3つのagent（Standards探索、Spec探索、反証）はそれぞれ`@review-standards`、`@review-spec`、`@review-refute`を参照して、それぞれの特性に合ったモデルをあらかじめ割り当てて運用します。
 コードレビューの3つのagentの配置は[コードレビュー担当エージェントの配置](docs/code-review-agents.md)を参照してください。
+仕様と計画を作るagent（`spec-planner`）と照会役のagent（`spec-consultant`）、照会用のrole（`@spec-consult`）の配置は[仕様と計画を作るエージェントの配置](docs/spec-planner-agents.md)を参照してください。
 
 スプリントの振り返りでは、機能の完成度だけでなく、エージェントがどこで判断に迷ったか、手戻りがなぜ起きたかを確認します。
 その分析をもとに、Omp上のagentの指示、nodのスキルや開発手順、roleへのモデル割り当てを見直します。
