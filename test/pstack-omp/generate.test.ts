@@ -676,7 +676,7 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
       ["authoring-automate-me-draft", "pstack/skills/automate-me/SKILL.md"],
       ["todo-arena-phases", "pstack/skills/arena/SKILL.md"],
       ["model-arena-runners", "pstack/skills/arena/SKILL.md"],
-      ["stop-swarm-cloud", "pstack/skills/swarm/SKILL.md"],
+      ["task-swarm-workers", "pstack/skills/swarm/SKILL.md"],
       ["stop-shipping-verifiers", "pstack/skills/poteto-mode/playbooks/shipping.md"],
       ["stop-bug-fix-loop", "pstack/skills/poteto-mode/playbooks/bug-fix.md"],
       ["authoring-playbook-steps", "pstack/skills/poteto-mode/playbooks/authoring-a-skill.md"],
@@ -771,10 +771,15 @@ describe("リポジトリの rules.yml の Cursor 固有の手順の規則", () 
     // 座席はスキルの数のまま、どの座席も OMP の設定のモデルで動くと返答に書く
     expect(arena).toContain("every seat ran on the model OMP's settings gave it");
     // 使わない範囲: 止まる文の4要素。OMP に無いとは断言しない
-    for (const path of ["pstack/skills/swarm/SKILL.md", "pstack/skills/poteto-mode/playbooks/shipping.md", "pstack/skills/poteto-mode/playbooks/bug-fix.md"]) {
+    for (const path of ["pstack/skills/poteto-mode/playbooks/shipping.md", "pstack/skills/poteto-mode/playbooks/bug-fix.md"]) {
       for (const element of STOP) expect(out(path)).toMatch(element);
       expect(out(path)).not.toMatch(/OMP (?:has no|does not have|lacks)/);
     }
+    // swarm の子は止めずに OMP のサブエージェントで起動し、書く子は個別の worktree で動く
+    const swarm = out("pstack/skills/swarm/SKILL.md");
+    expect(swarm).toContain("in one `task` call with N items in `tasks`");
+    expect(swarm).toContain("each in its own worktree when it writes");
+    expect(swarm).not.toMatch(/out of scope|Stop, and report/);
     expect(out("pstack/skills/poteto-help/SKILL.md")).toContain("starting or waiting for Bugbot");
     expect(out("pstack/skills/reflect/SKILL.md")).toContain("`.omp/skills/<skill>/`");
     expect(out("pstack/skills/reflect/SKILL.md")).toContain("`~/.omp/agent/skills/<skill>/`");
