@@ -15,7 +15,7 @@
 // まねず、在れば unexamined に入れて呼び出し側に知らせる（その provider が裸の名前を取りうるときに、調べていないことを表示するため）。
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OmpConfig } from "./config";
 import { isMapping, stringList, valueAt } from "./config";
 import { parseFrontmatter } from "./frontmatter";
@@ -241,13 +241,15 @@ function walkedProjectDirs(dir: string, repoRoot: string | undefined, home: stri
 
 // path で範囲を決められる配列の設定（disabledProviders・enabledProviders）を、実行したディレクトリ（cwd）で解いた値。OMP 19.1.0 の
 // src/config/settings.ts の resolvePathScopedArray と同じく、文字列はそのまま、オブジェクトは path・paths・pathPrefix・pathPrefixes のどれかが
-// cwd そのものかその祖先を指せば、values・items・providers の文字列を足す（前置きの無いオブジェクトは足さない）。配列でなければ何も無い
+// cwd そのものかその祖先を指せば、values・items・providers の文字列を足す（前置きの無いオブジェクトは足さない）。配列でなければ何も無い。
+// 範囲の判定は OMP 19.2.1 の pi-utils の relativePathWithinNormalizedRoot に合わせ、相対パスが .. そのものか .. と区切り文字で始まるか
+// 絶対パスのときだけを範囲外とする（..work のような .. で始まる名前の子は範囲内）
 function pathScoped(config: OmpConfig, id: string, cwd: string, home: string): string[] {
   const value = valueAt(config.data, id);
   if (!Array.isArray(value)) return [];
   const covers = (prefix: string): boolean => {
     const rel = relative(expand(prefix, home), cwd);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+    return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
   };
   return value.flatMap((entry: unknown) => {
     if (typeof entry === "string") return [entry];
