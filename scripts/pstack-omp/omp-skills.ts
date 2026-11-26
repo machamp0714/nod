@@ -4,7 +4,9 @@
 // （builtin.ts・omp-plugins.ts・omp-extension-roots.ts・claude.ts・agents.ts・codex.ts・opencode.ts・github.ts）と helpers.ts の
 // scanSkillsFromDir・getProjectDiscoveryCeilings・isUserConfigRoot・isForeignUserConfigRoot、src/capability/fs.ts の findRepoRoot・readFile、
 // src/config/settings.ts の resolvePathScopedArray、src/extensibility/settings.ts の skills.* の既定値、@oh-my-pi/pi-utils@19.1.0 の
-// parseFrontmatter（原文は Document 1683・1730・1745 に写した）。
+// parseFrontmatter（原文は Document 1683・1730・1745 に写した）。ここがまねる範囲で、固定の記録の OMP の版 19.2.1 が 19.1.0 と違うのは
+// disabledProviders・enabledProviders を path で範囲指定したときの範囲の判定（範囲の中の .. で始まる名前のディレクトリを範囲内とするか）
+// だけで、そこは 19.2.1 に合わせた（pathScoped）。
 //
 // 設定は OMP がいま global の設定として読むファイル（config.yml、無ければ config.yaml）の値だけで決める。プロジェクトの設定
 // （.omp/config.yml・.claude/settings.json など）の層は見ない。
