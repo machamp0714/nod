@@ -70,7 +70,7 @@ advisor: false
 ```
 
 - `model`: ロール `spec-consult` を参照する。具体的なモデル名は書かない。
-- `tools: read, grep, glob`: 根拠を確かめるために読む組み込みのツールだけを持つ。bash・write・edit・task を持たず、nod を操作しない。ただし OMP は MCP のツールをこの指定とは別に足し、定義では外せないので、照会役が持つツールは read・grep・glob だけにはならない（下の「照会役の隔離の限界」）。照会役は指示で、read・grep・glob のほかのツールを使わない。
+- `tools: read, grep, glob`: 定義で持たせる組み込みのツールは、根拠を確かめるために読む read・grep・glob だけにする。bash・write・edit・task を持たず、nod を操作しない。OMP は MCP のツールをこの指定とは別に足し、定義では外せない。足された MCP のツールは、照会役が指示で使わず、使っていないことをセッションの記録で確かめる（下の「照会役の隔離の限界」と「確かめ方」）。
 - `advisor: false`: advisor を付けない。
 - `spawns` は書かない。OMP は `spawns` を書いた定義に `task` ツールを足すためである。
 
@@ -106,13 +106,13 @@ modelRoles:
 
 照会役の読むツールでは、指示で禁じた範囲（決定ログのファイルやセッションの記録）も技術的には読める。task の子は `agent://`・`history://`・`local://` も使える。agent ごとに読めるパスを制限する設定も見つかっていない。この隔離は指示によるもので保証ではないこと（足された MCP のツールを使わないことを含む）を、`spec-planner` は決定ログの冒頭に書く。
 
-照会役が持つツールも、read・grep・glob だけにはならない。OMP は task の子に、親の MCP のツールを定義の `tools` の指定とは別に足す。OMP の文書（task の agent の発見の節。`tools` を指定しても MCP・拡張・独自のツールは足される、という記述）と、`@oh-my-pi/pi-coding-agent` 19.1.0 のソース（定義の frontmatter の読み取りと、task の子を起動するときの MCP の扱い）で、次を確かめた。
+照会役が実際に持つツールには、定義の read・grep・glob のほかに MCP のツールが加わる。OMP は task の子に、親の MCP のツールを定義の `tools` の指定とは別に足す。OMP の文書（task の agent の発見の節。`tools` を指定しても MCP・拡張・独自のツールは足される、という記述）と、`@oh-my-pi/pi-coding-agent` 19.1.0 と 19.2.1 のソース（定義の frontmatter の読み取りと、task の子を起動するときの MCP の扱い）で、次を確かめた。
 
 - agent 定義の frontmatter に、MCP を外す項目は無い。
 - MCP を外す内部の指定（`restrictToolNames`）は OMP の内部の用途だけが立て、task や定義からは指定できない。
 - 外せるのは、利用者単位の `mcp.json` の `disabledServers` か、プロセス全体の `--no-tools` だけである。`disabledServers` はほかのセッションにも効く。
 
-NOD-151 の検証でも、照会役のセッションの記録の使えるツールの一覧に `mcp__` で始まるツールがあった。そのため、照会役が持つツールを read・grep・glob だけにするという要求は、この定義では満たせない。この定義でできるのは、照会役に read・grep・glob のほかのツールを使わないよう指示し（`spec-consultant` の「読んでよい範囲」）、使っていないことをセッションの記録で確かめる（下の「確かめ方」）ことまでである。この残る差は、利用者の判断を待っている（NOD-151 の確認依頼）。
+NOD-151 の検証でも、照会役のセッションの記録の使えるツールの一覧に `mcp__` で始まるツールがあった。そのため要求は、定義で持たせる組み込みのツールを read・grep・glob だけにし、OMP が足す MCP のツールは指示で使わせず、使っていないことをセッションの記録で確かめる、というものにした（利用者の決定、2026-11-26）。指示は `spec-consultant` の「読んでよい範囲」に、確かめ方は下の「確かめ方」にある。
 
 ## 古い spec-writer
 
