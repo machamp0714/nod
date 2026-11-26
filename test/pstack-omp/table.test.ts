@@ -44,10 +44,10 @@ describe("README の一度だけ登録する値", () => {
   });
 });
 
-describe("リポジトリの OMP 向けのディレクトリ（poteto-agent）", () => {
-  test("エージェント定義 poteto-agent だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
+describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・spec-planner・spec-consultant）", () => {
+  test("エージェント定義 poteto-agent・spec-planner・spec-consultant だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
     expect(readdirSync(REPO_CONTENT)).toEqual(["agents"]);
-    expect(readdirSync(join(REPO_CONTENT, "agents"))).toEqual(["poteto-agent.md"]);
+    expect(readdirSync(join(REPO_CONTENT, "agents")).sort()).toEqual(["poteto-agent.md", "spec-consultant.md", "spec-planner.md"]);
     expect(existsSync(join(REPO_CONTENT, "skills"))).toBe(false);
   });
 
