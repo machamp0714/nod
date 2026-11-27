@@ -45,7 +45,7 @@ spawns: [spec-consultant]
 
 ### 実装へは進まない
 
-- 計画を取り込んだら、実装の進み方を示して待つ。自分で実装を始めない。`implementer` などの実装の agent を起動しない。
+- 計画を取り込んだら、実装の進み方を示して待つ。自分で実装を始めない。`issue-implementer` や現行の `implementer` などの実装の agent を起動しない。
 
 ## 1. 入口を決める
 
@@ -515,7 +515,7 @@ Out of Scope に別の Issue へ切り出すものがあれば、承認の依頼
 
 続けて、次の作業を番号付きで示し、おすすめを1つ理由つきで添えて、利用者の選択を待つ。自分から次へ進まない。
 
-1. 作業ブランチ（または worktree）を用意し、既存の agent `implementer` に Issue ID を渡して実装に進む（おすすめ。`implementer` はデフォルトのブランチの上では実装を止めるため、先に作業ブランチが要る。ブランチ名は `nod issue branch-name <id>` で得られ、nod の Issue ID を含まない名前になっている）。
+1. 作業ブランチ（または worktree）を用意し、OMP の agent `issue-implementer` に Issue ID を渡して実装に進む（おすすめ。`issue-implementer` はデフォルトのブランチの上では何もせず止まるため、先に作業ブランチが要る。ブランチ名は `nod issue branch-name <id>` で得られ、nod の Issue ID を含まない名前になっている）。
 2. 計画を見直す。
 
 止まったときや親に聞くときも、それまでに作った Document の ID と、どこで止まったかを返す。
