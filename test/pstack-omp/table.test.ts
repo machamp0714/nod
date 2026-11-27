@@ -44,10 +44,10 @@ describe("README の一度だけ登録する値", () => {
   });
 });
 
-describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・spec-planner・spec-consultant・issue-implementer）", () => {
-  test("エージェント定義 poteto-agent・spec-planner・spec-consultant・issue-implementer だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
+describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・spec-planner・spec-consultant・issue-implementer・task-implementer）", () => {
+  test("エージェント定義 poteto-agent・spec-planner・spec-consultant・issue-implementer・task-implementer だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
     expect(readdirSync(REPO_CONTENT)).toEqual(["agents"]);
-    expect(readdirSync(join(REPO_CONTENT, "agents")).sort()).toEqual(["issue-implementer.md", "poteto-agent.md", "spec-consultant.md", "spec-planner.md"]);
+    expect(readdirSync(join(REPO_CONTENT, "agents")).sort()).toEqual(["issue-implementer.md", "poteto-agent.md", "spec-consultant.md", "spec-planner.md", "task-implementer.md"]);
     expect(existsSync(join(REPO_CONTENT, "skills"))).toBe(false);
   });
 
@@ -65,12 +65,26 @@ describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・sp
     expect(body).toContain("stop and tell your parent");
   });
 
-  test("issue-implementer は役割 task のモデルと thinking-level medium で動き、spawns・autoload-skills・advisor・tools を持たない", () => {
+  test("issue-implementer は役割 task のモデルと thinking-level medium で動き、task-implementer だけを起動でき、autoload-skills・advisor・tools を持たない", () => {
     const text = readFileSync(join(REPO_CONTENT, "agents", "issue-implementer.md"), "utf8");
     const [, head] = /^---\n([\s\S]*?)\n---\n/.exec(text)!;
     const frontmatter = Bun.YAML.parse(head!) as Record<string, unknown>;
 
-    expect(Object.keys(frontmatter).sort()).toEqual(["description", "model", "name", "thinking-level"]);
-    expect(frontmatter).toMatchObject({ name: "issue-implementer", model: "@task", "thinking-level": "medium" });
+    expect(Object.keys(frontmatter).sort()).toEqual(["description", "model", "name", "spawns", "thinking-level"]);
+    expect(frontmatter).toMatchObject({ name: "issue-implementer", model: "@task", "thinking-level": "medium", spawns: ["task-implementer"] });
+  });
+
+  test("task-implementer は役割 implement-task のモデルで動き、名前だけの tdd を自動で読み、task も eval も持たず、spawns・thinking-level・advisor を持たない", () => {
+    const text = readFileSync(join(REPO_CONTENT, "agents", "task-implementer.md"), "utf8");
+    const [, head] = /^---\n([\s\S]*?)\n---\n/.exec(text)!;
+    const frontmatter = Bun.YAML.parse(head!) as Record<string, unknown>;
+    // tools はカンマ区切りの文字列で書く（spec-consultant と同じ形）
+    const tools = String(frontmatter.tools).split(",").map((tool) => tool.trim());
+
+    expect(Object.keys(frontmatter).sort()).toEqual(["autoload-skills", "description", "model", "name", "tools"]);
+    expect(frontmatter).toMatchObject({ name: "task-implementer", model: "@implement-task" });
+    expect([frontmatter["autoload-skills"]].flat()).toContain("tdd");
+    expect(tools).not.toContain("task");
+    expect(tools).not.toContain("eval");
   });
 });
