@@ -44,10 +44,10 @@ describe("README の一度だけ登録する値", () => {
   });
 });
 
-describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・spec-planner・spec-consultant）", () => {
-  test("エージェント定義 poteto-agent・spec-planner・spec-consultant だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
+describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・spec-planner・spec-consultant・issue-implementer）", () => {
+  test("エージェント定義 poteto-agent・spec-planner・spec-consultant・issue-implementer だけがあり、スキル（以前の読み替え表 pstack-omp）は無い", () => {
     expect(readdirSync(REPO_CONTENT)).toEqual(["agents"]);
-    expect(readdirSync(join(REPO_CONTENT, "agents")).sort()).toEqual(["poteto-agent.md", "spec-consultant.md", "spec-planner.md"]);
+    expect(readdirSync(join(REPO_CONTENT, "agents")).sort()).toEqual(["issue-implementer.md", "poteto-agent.md", "spec-consultant.md", "spec-planner.md"]);
     expect(existsSync(join(REPO_CONTENT, "skills"))).toBe(false);
   });
 
@@ -63,5 +63,14 @@ describe("リポジトリの OMP 向けのディレクトリ（poteto-agent・sp
     expect(body).toContain("skill://poteto-mode");
     expect(body).toContain("skill://principle-<name>");
     expect(body).toContain("stop and tell your parent");
+  });
+
+  test("issue-implementer は役割 task のモデルと thinking-level medium で動き、spawns・autoload-skills・advisor・tools を持たない", () => {
+    const text = readFileSync(join(REPO_CONTENT, "agents", "issue-implementer.md"), "utf8");
+    const [, head] = /^---\n([\s\S]*?)\n---\n/.exec(text)!;
+    const frontmatter = Bun.YAML.parse(head!) as Record<string, unknown>;
+
+    expect(Object.keys(frontmatter).sort()).toEqual(["description", "model", "name", "thinking-level"]);
+    expect(frontmatter).toMatchObject({ name: "issue-implementer", model: "@task", "thinking-level": "medium" });
   });
 });
