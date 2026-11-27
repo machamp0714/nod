@@ -4,7 +4,9 @@
 // （builtin.ts・omp-plugins.ts・omp-extension-roots.ts・claude.ts・agents.ts・codex.ts・opencode.ts・github.ts）と helpers.ts の
 // scanSkillsFromDir・getProjectDiscoveryCeilings・isUserConfigRoot・isForeignUserConfigRoot、src/capability/fs.ts の findRepoRoot・readFile、
 // src/config/settings.ts の resolvePathScopedArray、src/extensibility/settings.ts の skills.* の既定値、@oh-my-pi/pi-utils@19.1.0 の
-// parseFrontmatter（原文は Document 1683・1730・1745 に写した）。
+// parseFrontmatter（原文は Document 1683・1730・1745 に写した）。ここがまねる範囲で、固定の記録の OMP の版 19.2.1 が 19.1.0 と違うのは
+// disabledProviders・enabledProviders を path で範囲指定したときの範囲の判定（範囲の中の .. で始まる名前のディレクトリを範囲内とするか）
+// だけで、そこは 19.2.1 に合わせた（pathScoped）。
 //
 // 設定は OMP がいま global の設定として読むファイル（config.yml、無ければ config.yaml）の値だけで決める。プロジェクトの設定
 // （.omp/config.yml・.claude/settings.json など）の層は見ない。
@@ -15,7 +17,7 @@
 // まねず、在れば unexamined に入れて呼び出し側に知らせる（その provider が裸の名前を取りうるときに、調べていないことを表示するため）。
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { OmpConfig } from "./config";
 import { isMapping, stringList, valueAt } from "./config";
 import { parseFrontmatter } from "./frontmatter";
@@ -241,13 +243,15 @@ function walkedProjectDirs(dir: string, repoRoot: string | undefined, home: stri
 
 // path で範囲を決められる配列の設定（disabledProviders・enabledProviders）を、実行したディレクトリ（cwd）で解いた値。OMP 19.1.0 の
 // src/config/settings.ts の resolvePathScopedArray と同じく、文字列はそのまま、オブジェクトは path・paths・pathPrefix・pathPrefixes のどれかが
-// cwd そのものかその祖先を指せば、values・items・providers の文字列を足す（前置きの無いオブジェクトは足さない）。配列でなければ何も無い
+// cwd そのものかその祖先を指せば、values・items・providers の文字列を足す（前置きの無いオブジェクトは足さない）。配列でなければ何も無い。
+// 範囲の判定は OMP 19.2.1 の pi-utils の relativePathWithinNormalizedRoot に合わせ、相対パスが .. そのものか .. と区切り文字で始まるか
+// 絶対パスのときだけを範囲外とする（..work のような .. で始まる名前の子は範囲内）
 function pathScoped(config: OmpConfig, id: string, cwd: string, home: string): string[] {
   const value = valueAt(config.data, id);
   if (!Array.isArray(value)) return [];
   const covers = (prefix: string): boolean => {
     const rel = relative(expand(prefix, home), cwd);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+    return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
   };
   return value.flatMap((entry: unknown) => {
     if (typeof entry === "string") return [entry];

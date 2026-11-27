@@ -580,6 +580,23 @@ describe("生成物・OMP の版・読み込みの設定", () => {
     expect(run.stdout).toContain(`通常の omp のセッション: ${where}の tdd（${used}）が使われます\n${pstackTddUsable(pstackTdd(sb))}`);
   });
 
+  // OMP 19.2.1 は path の範囲の判定で、範囲からの相対パスが .. そのものか .. と区切り文字で始まるときだけを範囲外とする（pi-utils の
+  // relativePathWithinNormalizedRoot）。19.1.1 は .. で始まる名前の子のディレクトリも範囲外とした
+  test("実行したディレクトリが disabledProviders の path の範囲の直下の ..work（.. で始まる名前）なら、範囲の中としてオブジェクトの claude を読まず、プロジェクトの .claude/skills と ~/.agents/skills のうち ~/.agents/skills の tdd が使われると表示する", async () => {
+    const sb = await synced();
+    const scope = realpathSync(sb.project);
+    const work = join(scope, "..work");
+    mkdirSync(join(work, ".git"), { recursive: true });
+    put(join(work, ".claude", "skills", "tdd", "SKILL.md"), skillMd("tdd", "project"));
+    put(join(sb.home, ".agents", "skills", "tdd", "SKILL.md"), skillMd("tdd", "agents"));
+    put(sb.configPath, `disabledProviders:\n  - path: ${scope}\n    providers:\n      - claude\n`);
+
+    const run = await sb.run("status", { cwd: work });
+
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout).toContain(`通常の omp のセッション: 利用者の置き場の tdd（${join(sb.home, ".agents", "skills", "tdd", "SKILL.md")}）が使われます`);
+  });
+
   // 以前は登録した pstack の tdd が使われ、プロジェクトの tdd が名前空間つきになった
   test("利用者の置き場に tdd が無く、実行したディレクトリのプロジェクトの置き場にあれば、登録した後もそれが使われると表示する", async () => {
     const sb = await synced();
