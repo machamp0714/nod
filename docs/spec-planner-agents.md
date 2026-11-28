@@ -52,7 +52,7 @@ extensions:
 5. 承認: 承認された Document ID を承認を求めた Document と比べ、本文の指紋を示した版と比べる。比べるのは計画を作る直前で、親の返事を待ったあとや止まって再開したときも比べ直す。本文が変わっていれば、計画を作らずに違いを示してもう一度承認を求める。
 6. 計画の取り込み: 計画の承認は求めずに、動作の確認の要否を判断し、要るときはテストシナリオを作って添付してから、上流 `to-tickets` の分割ルールで Task と Step の計画を作る（下の「計画づくりでの動作の確認」）。計画には元の仕様の Document ID（承認を受けて作るときは承認の対象の指紋も）と、動作の確認の要否の判断と理由（要るときはシナリオの Document ID も）を書き、`kind=plan` で添付して `nod issue plan` で取り込み、Task と Step の数を照合する。期待結果が仕様から決まらない受け入れ条件があれば、計画を添付も取り込みもせずに止まる。
 7. `ready-for-agent`: 件数を照合したあとに付ける。
-8. `implementer` の案内: 作業ブランチの用意と、`implementer` に Issue ID を渡して実装に進む方法を示して待つ。
+8. `issue-implementer` の案内: 作業ブランチの用意と、`issue-implementer` に Issue ID を渡して実装に進む方法を示して待つ（`issue-implementer` の定義と配置は [Issue を実装するエージェントの配置](issue-implementer-agents.md)）。
 
 計画だけの依頼では 6〜8 だけを行う。どの流れでも、Sub-issue や別の Issue は作らない（仕様の Out of Scope から切り出すと利用者が認めたものを除く）。
 
